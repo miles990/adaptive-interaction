@@ -56,6 +56,14 @@ pub fn router(state: ApiState) -> Router {
             post(routes::recipe_simulate_scenario),
         )
         .route("/v1/capabilities", get(routes::capabilities))
+        .route("/v1/providers", get(routes::providers_list))
+        .route("/v1/providers/{id}", get(routes::provider_get))
+        .route("/v1/providers/{id}/pair", post(routes::provider_pair))
+        .route(
+            "/v1/providers/{id}/transition",
+            post(routes::provider_transition),
+        )
+        .route("/v1/providers/{id}/revoke", post(routes::provider_revoke))
         .route("/v1/receptors", get(routes::receptors_list))
         .route("/v1/receptors", post(routes::receptor_create))
         .route("/v1/receptors/{id}", get(routes::receptor_inspect))

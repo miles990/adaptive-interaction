@@ -438,6 +438,27 @@ impl Actuator for DeclarativeHttpActuator {
         .requires_consent(true); // external device output is consent-gated by default
         if let Some(h) = &self.spec.human {
             b = b.human(h.clone());
+        } else {
+            // Formal declaration synthesized from the spec: the deepest
+            // confirmation this transport can honestly provide. Everything
+            // else stays Unknown (conservative).
+            use interaction_core::{ConfirmationLevel, EffectSemantics, TriState};
+            b = b.human(HumanMeta {
+                effect: Some(EffectSemantics {
+                    confirmation_level: if self.spec.confirmation.as_deref()
+                        == Some("acknowledged")
+                    {
+                        ConfirmationLevel::Acknowledged
+                    } else {
+                        ConfirmationLevel::Requested
+                    },
+                    external_side_effect: TriState::Unknown,
+                    physical_effect: TriState::Unknown,
+                    reversible: TriState::Unknown,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            });
         }
         b.build()
     }

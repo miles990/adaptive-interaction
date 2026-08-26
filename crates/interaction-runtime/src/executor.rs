@@ -663,6 +663,24 @@ impl Runtime {
         Ok((bounded, decisions))
     }
 
+    /// The actuator's formally declared deepest-honest confirmation level.
+    /// Missing declarations resolve to Unknown — conservative, never upgraded.
+    pub(crate) async fn actuator_confirmation(
+        &self,
+        actuator_id: &interaction_core::ActuatorId,
+    ) -> interaction_core::ConfirmationLevel {
+        match self.registry.actuator_any(actuator_id).await {
+            Ok(actuator) => actuator
+                .manifest()
+                .human
+                .as_ref()
+                .and_then(|h| h.effect.as_ref())
+                .map(|e| e.confirmation_level)
+                .unwrap_or_default(),
+            Err(_) => interaction_core::ConfirmationLevel::default(),
+        }
+    }
+
     /// Verification engine: upgrade a receipt according to the strategy.
     pub(crate) async fn verify_receipt(
         &self,
@@ -754,18 +772,44 @@ impl Runtime {
                 }
                 Ok(receipt)
             }
-            // best-effort (default): acknowledged is good enough to complete,
-            // but the verdict honestly records that it was ack-only.
+            // best-effort (default): an ack may complete the action ONLY when
+            // the actuator formally declares that its acknowledgement means
+            // delivery (local surfaces: conversation/web-ui/log declare
+            // Delivered/Completed). Device/external actuators that can only
+            // honestly confirm "acknowledged" STAY acknowledged — completion
+            // requires observation (spec: acknowledged ≠ completed).
             _ => {
                 if receipt.current_status == ActionStatus::Acknowledged {
-                    receipt.verification = Some(VerificationEvidence {
-                        observation_ids: vec![],
-                        verdict: VerificationVerdict::AcknowledgedOnly,
-                        detail: Some("driver acknowledged; no environmental confirmation".into()),
-                        verified_at: now,
-                    });
-                    let _ = receipt.transition(ActionStatus::Completed, now);
-                    self.emit_action_event(EventType::ActionCompleted, &receipt, json!({}));
+                    let confirmation = self.actuator_confirmation(&receipt.actuator_id).await;
+                    let ack_means_delivered = matches!(
+                        confirmation,
+                        interaction_core::ConfirmationLevel::Delivered
+                            | interaction_core::ConfirmationLevel::Completed
+                            | interaction_core::ConfirmationLevel::Verified
+                    );
+                    if ack_means_delivered {
+                        receipt.verification = Some(VerificationEvidence {
+                            observation_ids: vec![],
+                            verdict: VerificationVerdict::AcknowledgedOnly,
+                            detail: Some(
+                                "driver acknowledged; no environmental confirmation".into(),
+                            ),
+                            verified_at: now,
+                        });
+                        let _ = receipt.transition(ActionStatus::Completed, now);
+                        self.emit_action_event(EventType::ActionCompleted, &receipt, json!({}));
+                    } else {
+                        receipt.verification = Some(VerificationEvidence {
+                            observation_ids: vec![],
+                            verdict: VerificationVerdict::AcknowledgedOnly,
+                            detail: Some(
+                                "device acknowledged the request; completion not confirmed — \
+                                 re-verify against observations"
+                                    .into(),
+                            ),
+                            verified_at: now,
+                        });
+                    }
                 } else if receipt.current_status == ActionStatus::Dispatched {
                     let dispatched_at = receipt
                         .timestamps

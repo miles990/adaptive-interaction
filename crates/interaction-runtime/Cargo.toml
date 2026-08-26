@@ -8,6 +8,8 @@ description = "Adaptive interaction runtime: orchestrator, executor, sessions, s
 [dependencies]
 interaction-core = { workspace = true }
 interaction-registry = { workspace = true }
+interaction-adapter-declarative = { path = "../interaction-adapter-declarative" }
+sha2 = "0.10"
 interaction-policy = { workspace = true }
 interaction-recipe = { workspace = true }
 interaction-events = { workspace = true }
@@ -29,6 +31,7 @@ uuid = { workspace = true }
 dirs = { workspace = true }
 
 [dev-dependencies]
+axum = "0.8"
 tempfile = { workspace = true }
 
 [dependencies.interaction-tool-schema]

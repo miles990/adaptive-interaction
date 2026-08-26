@@ -68,6 +68,11 @@ pub enum Command {
     },
     /// Show the common capability catalog (canonical names, icons, aliases).
     Catalog,
+    /// Capability providers (devices/services/agents): list, pair, revoke.
+    Providers {
+        #[command(subcommand)]
+        action: ProvidersAction,
+    },
     /// Pause proactive interactions (a normal control; NOT emergency stop).
     Pause {
         /// Duration like "2h", "45m" (omit = until resumed).
@@ -238,4 +243,27 @@ fn main() {
         .expect("tokio runtime");
     let code = runtime.block_on(commands::run(cli));
     std::process::exit(code);
+}
+
+#[derive(Subcommand)]
+pub enum ProvidersAction {
+    /// List all providers with lifecycle state and capabilities.
+    List,
+    /// Show one provider.
+    Show { id: String },
+    /// Pair with a discovered provider using the code it displays.
+    Pair {
+        id: String,
+        /// Pairing code shown by the device/service.
+        #[arg(long)]
+        code: String,
+    },
+    /// Explicit lifecycle transition (install/disabled/available/…).
+    Transition {
+        id: String,
+        #[arg(long)]
+        state: String,
+    },
+    /// Revoke a provider: capabilities disabled immediately; sticky.
+    Revoke { id: String },
 }

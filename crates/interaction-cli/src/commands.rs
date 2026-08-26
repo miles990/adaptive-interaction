@@ -362,6 +362,33 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             }
         }
         Command::Catalog => client.get("/v1/catalog").await?,
+        Command::Providers { action } => match action {
+            crate::ProvidersAction::List => client.get("/v1/providers").await?,
+            crate::ProvidersAction::Show { id } => {
+                client.get(&format!("/v1/providers/{id}")).await?
+            }
+            crate::ProvidersAction::Pair { id, code } => {
+                client
+                    .post(
+                        &format!("/v1/providers/{id}/pair"),
+                        Some(json!({"pairingCode": code})),
+                    )
+                    .await?
+            }
+            crate::ProvidersAction::Transition { id, state } => {
+                client
+                    .post(
+                        &format!("/v1/providers/{id}/transition"),
+                        Some(json!({"state": state})),
+                    )
+                    .await?
+            }
+            crate::ProvidersAction::Revoke { id } => {
+                client
+                    .post(&format!("/v1/providers/{id}/revoke"), Some(json!({})))
+                    .await?
+            }
+        },
         Command::Pause { duration, reason } => {
             let mut body = json!({});
             if let Some(d) = duration {

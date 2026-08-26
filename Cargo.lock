@@ -1016,8 +1016,10 @@ version = "0.2.0"
 dependencies = [
  "adapters-builtin",
  "async-trait",
+ "axum",
  "chrono",
  "dirs",
+ "interaction-adapter-declarative",
  "interaction-adapter-sdk",
  "interaction-core",
  "interaction-events",
@@ -1031,6 +1033,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",

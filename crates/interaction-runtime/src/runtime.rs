@@ -61,6 +61,7 @@ pub struct RuntimeInner {
     pub config: RwLock<RuntimeConfig>,
     pub policy_config: RwLock<PolicyConfig>,
     pub registry: CapabilityRegistry,
+    pub providers: interaction_registry::providers::ProviderRegistry,
     pub store: Store,
     pub events: EventBus,
     pub outbox: Outbox,
@@ -227,6 +228,7 @@ impl Runtime {
                 config: RwLock::new(config),
                 policy_config: RwLock::new(policy),
                 registry,
+                providers: interaction_registry::providers::ProviderRegistry::new(events.clone()),
                 store,
                 events,
                 outbox,
@@ -246,6 +248,8 @@ impl Runtime {
                 ai_assists: RwLock::new(BTreeMap::new()),
             }),
         };
+
+        runtime.init_providers().await;
 
         if opts.spawn_watchdog {
             runtime.spawn_watchdog();

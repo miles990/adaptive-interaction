@@ -14,7 +14,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::Mutex;
 
-const CURRENT_SCHEMA: i64 = 2;
+const CURRENT_SCHEMA: i64 = 3;
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -145,6 +145,26 @@ impl Store {
             )
             .map_err(map_err)?;
         }
+        if version < 3 {
+            // Capability providers (devices/services/agents/sessions) and
+            // agent-session records. JSON documents keyed by id; identity and
+            // lifecycle live in the domain model, storage only persists.
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS providers (
+                    id         TEXT PRIMARY KEY,
+                    body       TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS agent_sessions (
+                    id         TEXT PRIMARY KEY,
+                    body       TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                "#,
+            )
+            .map_err(map_err)?;
+        }
         conn.pragma_update(None, "user_version", CURRENT_SCHEMA)
             .map_err(map_err)?;
         Ok(())
@@ -221,6 +241,63 @@ impl Store {
     }
 
     // ---- meta ----
+
+    // ---- JSON document tables (providers / agent sessions) ----
+
+    fn doc_upsert(&self, table: &str, id: &str, body: &str) -> DomainResult<()> {
+        let conn = self.conn.lock().expect("store lock");
+        conn.execute(
+            &format!(
+                "INSERT INTO {table}(id, body, updated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(id) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at"
+            ),
+            params![id, body, chrono::Utc::now().to_rfc3339()],
+        )
+        .map_err(map_err)?;
+        Ok(())
+    }
+
+    fn doc_all(&self, table: &str) -> DomainResult<Vec<String>> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn
+            .prepare(&format!("SELECT body FROM {table} ORDER BY id"))
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(map_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(map_err)
+    }
+
+    fn doc_delete(&self, table: &str, id: &str) -> DomainResult<()> {
+        let conn = self.conn.lock().expect("store lock");
+        conn.execute(&format!("DELETE FROM {table} WHERE id = ?1"), params![id])
+            .map_err(map_err)?;
+        Ok(())
+    }
+
+    pub fn save_provider(&self, id: &str, body: &str) -> DomainResult<()> {
+        self.doc_upsert("providers", id, body)
+    }
+
+    pub fn all_providers(&self) -> DomainResult<Vec<String>> {
+        self.doc_all("providers")
+    }
+
+    pub fn delete_provider(&self, id: &str) -> DomainResult<()> {
+        self.doc_delete("providers", id)
+    }
+
+    pub fn save_agent_session(&self, id: &str, body: &str) -> DomainResult<()> {
+        self.doc_upsert("agent_sessions", id, body)
+    }
+
+    pub fn all_agent_sessions(&self) -> DomainResult<Vec<String>> {
+        self.doc_all("agent_sessions")
+    }
+
+    pub fn delete_agent_session(&self, id: &str) -> DomainResult<()> {
+        self.doc_delete("agent_sessions", id)
+    }
 
     pub fn set_meta(&self, key: &str, value: &str) -> DomainResult<()> {
         let conn = self.conn.lock().expect("store lock");

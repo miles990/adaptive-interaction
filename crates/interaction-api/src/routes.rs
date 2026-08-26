@@ -979,3 +979,69 @@ pub async fn recipe_convert(Json(body): Json<ConvertBody>) -> ApiResult<Json<Val
     };
     Ok(Json(json!({"valid": true, "recipe": recipe, "text": out})))
 }
+
+// ---------------------------------------------------------------------------
+// Providers (devices / services / agents)
+// ---------------------------------------------------------------------------
+
+pub async fn providers_list(State(state): State<ApiState>) -> Json<Value> {
+    Json(json!(state.runtime.list_providers().await))
+}
+
+pub async fn provider_get(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let desc = state
+        .runtime
+        .get_provider(&interaction_core::ProviderId::new(&id))
+        .await?;
+    Ok(Json(serde_json::to_value(desc).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairBody {
+    pub pairing_code: String,
+}
+
+pub async fn provider_pair(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(body): Json<PairBody>,
+) -> ApiResult<Json<Value>> {
+    let desc = state
+        .runtime
+        .pair_provider(&interaction_core::ProviderId::new(&id), &body.pairing_code)
+        .await?;
+    Ok(Json(serde_json::to_value(desc).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitionBody {
+    pub state: interaction_core::ProviderState,
+}
+
+pub async fn provider_transition(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(body): Json<TransitionBody>,
+) -> ApiResult<Json<Value>> {
+    let desc = state
+        .runtime
+        .transition_provider(&interaction_core::ProviderId::new(&id), body.state)
+        .await?;
+    Ok(Json(serde_json::to_value(desc).unwrap_or_default()))
+}
+
+pub async fn provider_revoke(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let desc = state
+        .runtime
+        .revoke_provider(&interaction_core::ProviderId::new(&id))
+        .await?;
+    Ok(Json(serde_json::to_value(desc).unwrap_or_default()))
+}
