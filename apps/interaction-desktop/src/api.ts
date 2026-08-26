@@ -146,7 +146,157 @@ export const api = {
   emergencyStop: (reason?: string) =>
     invoke<Record<string, unknown>>("emergency_stop", { reason: reason ?? null }),
   emergencyStopClear: () => invoke("emergency_stop_clear"),
+  // ---- human layer ----
+  catalogGet: () => invoke<Catalog>("catalog_get"),
+  capabilitiesHuman: (locale?: string, includeUnavailable = true) =>
+    invoke<HumanCapabilities>("capabilities_human", { locale: locale ?? null, includeUnavailable }),
+  uiPrefsGet: () => invoke<UiPreferences>("ui_prefs_get"),
+  uiPrefsPatch: (patch: Record<string, unknown>) =>
+    invoke<UiPreferences>("ui_prefs_patch", { patch }),
+  onboardingGet: () => invoke<OnboardingState>("onboarding_get"),
+  onboardingDraft: (draft: Record<string, unknown>) => invoke("onboarding_draft", { draft }),
+  onboardingCommit: (commit: Record<string, unknown>) =>
+    invoke<Record<string, unknown>>("onboarding_commit", { commit }),
+  pauseGet: () => invoke<PauseState>("pause_get"),
+  pauseSet: (durationMinutes?: number, reason?: string) =>
+    invoke<PauseState>("pause_set", {
+      durationMinutes: durationMinutes ?? null,
+      reason: reason ?? null,
+    }),
+  pauseClear: () => invoke<PauseState>("pause_clear"),
+  aiAssistsList: () => invoke<PendingAssist[]>("ai_assists_list"),
+  recipeSummary: (id: string, locale?: string) =>
+    invoke<{ recipeId: string; summary: string }>("recipe_summary", {
+      id,
+      locale: locale ?? null,
+    }),
+  recipeSimulateScenario: (id: string, scenario: Record<string, unknown>) =>
+    invoke<ScenarioReport>("recipe_simulate_scenario", { id, scenario }),
+  recipeConvert: (text: string, to: "yaml" | "json") =>
+    invoke<ConvertResult>("recipe_convert", { text, to }),
+  recipeGet: (id: string) => invoke<Record<string, unknown>>("recipe_get", { id }),
 };
+
+// ---- human layer types ----
+
+export type TriState = boolean | "unknown";
+
+export interface HumanBadge {
+  key: string;
+  label: string;
+  tone: "info" | "ok" | "warn" | "danger" | string;
+}
+
+export interface HumanCard {
+  id: string;
+  kind: "receptor" | "actuator" | "tool-operation";
+  displayName: string;
+  nameSource: string;
+  shortDescription?: string;
+  descriptionSource: string;
+  longDescription?: string;
+  examples?: string[];
+  setupInstructions?: string;
+  icon: string;
+  colorRole: string;
+  category: string;
+  beginnerRecommended: boolean;
+  canonicalId?: string;
+  badges: HumanBadge[];
+  data?: {
+    personalData: TriState;
+    sensitivity: string;
+    source: string;
+    leavesDevice: TriState;
+    retention: string;
+    categories?: string[];
+    factFields?: string[];
+    inferenceFields?: string[];
+  };
+  effect?: {
+    externalSideEffect: TriState;
+    physicalEffect: TriState;
+    interruptiveness: string;
+    reversible: TriState;
+    confirmationLevel: string;
+    affects?: string[];
+  };
+  consent: { required: TriState; reason?: string; suggestedScope?: string };
+  typical?: Record<string, unknown>;
+  riskNote?: string;
+  aiDescription?: string;
+  undescribed: boolean;
+  conservativeNotice?: string;
+  availability: string;
+  requiresConsent: boolean;
+  riskClass?: string;
+  channel?: string;
+  driver?: string;
+  manifestHash: string;
+}
+
+export interface HumanCapabilities {
+  locale: string;
+  catalogVersion: number;
+  capabilityVersion: number;
+  generatedAt: string;
+  constraints: { kind: string; detail: string }[];
+  receptors: HumanCard[];
+  actuators: HumanCard[];
+  toolOperations: HumanCard[];
+}
+
+export interface Catalog {
+  schemaVersion: string;
+  version: number;
+  entries: Record<string, unknown>[];
+}
+
+export interface UiPreferences {
+  mode: "simple" | "advanced";
+  locale: string;
+  customNames: Record<string, string>;
+  schemaVersion: string;
+}
+
+export interface OnboardingState {
+  completed: boolean;
+  completedAt?: string | null;
+  draft?: Record<string, unknown> | null;
+  starterRecipes: { id: string; title: string }[];
+}
+
+export interface PauseState {
+  paused: boolean;
+  until?: string;
+  reason?: string;
+  pausedAt?: string;
+}
+
+export interface PendingAssist {
+  requestId: string;
+  recipeId: string;
+  reason: string;
+  createdAt: string;
+  deadline: string;
+  onUnavailable: string;
+  dataScope: string[];
+}
+
+export interface ScenarioReport {
+  recipeId: string;
+  scenario: Record<string, unknown>;
+  stages: Record<string, unknown>[];
+  wouldExecute: boolean;
+  sideEffects: string;
+}
+
+export interface ConvertResult {
+  valid: boolean;
+  issues?: { field: string; message: string }[];
+  recipe?: Record<string, unknown>;
+  text?: string;
+}
 
 export function onRuntimeEvent(handler: (event: RuntimeEvent) => void): Promise<UnlistenFn> {
   return listen<RuntimeEvent>("runtime-event", (e) => handler(e.payload));
