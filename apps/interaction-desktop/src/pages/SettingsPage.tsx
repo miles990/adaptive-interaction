@@ -39,6 +39,8 @@ export function SettingsPage({ onRerunOnboarding }: { onRerunOnboarding: () => v
         <button onClick={onRerunOnboarding}>重新執行首次設定</button>
       </Section>
 
+      <CompanionSection />
+
       <DesktopLifecycleSection />
 
       <Section title="關於名稱">
@@ -48,6 +50,106 @@ export function SettingsPage({ onRerunOnboarding }: { onRerunOnboarding: () => v
         </p>
       </Section>
     </div>
+  );
+}
+
+/** 桌面角色設定（只在 Tauri 環境顯示）。 */
+function CompanionSection() {
+  const [dprefs, setDprefs] = React.useState<DesktopPrefs | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!isTauri) return;
+    desktop
+      .prefsGet()
+      .then(setDprefs)
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  if (!isTauri) return null;
+  if (!dprefs) {
+    return error ? (
+      <Section title="桌面角色">
+        <p className="state-box state-error">無法載入設定：{error}</p>
+      </Section>
+    ) : null;
+  }
+
+  const patch = async (p: Partial<DesktopPrefs>) => {
+    try {
+      const updated = await desktop.prefsPatch(p);
+      setDprefs(updated);
+      await desktop.companionApplyPrefs();
+      setError(null);
+      setNotice("已套用。");
+      setTimeout(() => setNotice(null), 2500);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <Section title="桌面角色">
+      <Toggle
+        checked={dprefs.companionVisible}
+        onChange={(on) => patch({ companionVisible: on })}
+        label="顯示桌面角色（小樞）"
+      />
+      <div className="row wrap" style={{ marginTop: 8, alignItems: "flex-start" }}>
+        <label className="field-label">
+          外觀
+          <select
+            value={dprefs.companionPack}
+            onChange={(e) => patch({ companionPack: e.target.value })}
+          >
+            <option value="shu-standard">小樞・標準型</option>
+            <option value="shu-lively">小樞・活潑型</option>
+            <option value="shu-minimal">小樞・極簡型</option>
+          </select>
+        </label>
+        <label className="field-label">
+          說話風格（Persona）
+          <select
+            value={dprefs.companionPersona}
+            onChange={(e) => patch({ companionPersona: e.target.value })}
+          >
+            <option value="persona-shu">小樞・預設</option>
+            <option value="persona-navigator">導航員（世界觀範例）</option>
+          </select>
+        </label>
+        <label className="field-label">
+          表現程度
+          <select
+            value={dprefs.companionExpressiveness}
+            onChange={(e) => patch({ companionExpressiveness: e.target.value })}
+          >
+            <option value="quiet">安靜（只顯示安全訊息）</option>
+            <option value="natural">自然</option>
+            <option value="lively">活潑</option>
+          </select>
+        </label>
+      </div>
+      <Toggle
+        checked={dprefs.companionAlwaysOnTop}
+        onChange={(on) => patch({ companionAlwaysOnTop: on })}
+        label="保持在其他視窗上方"
+      />
+      <p className="muted small">
+        世界觀與說話風格只改變表達方式；緊急停止、被阻擋、結果未知等安全訊息
+        永遠使用固定的標準文字，任何角色包都無法覆寫或隱藏。
+      </p>
+      <div className="row wrap">
+        <button
+          onClick={() => patch({ storyProgress: {} })}
+          title="重看初次見面等劇情段落"
+        >
+          清除角色記憶（劇情進度）
+        </button>
+      </div>
+      {notice && <p className="muted small" role="status">{notice}</p>}
+      {error && <p className="cap-card-error" role="alert">{error}</p>}
+    </Section>
   );
 }
 

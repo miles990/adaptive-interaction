@@ -86,6 +86,10 @@ pub struct DesktopPrefs {
     pub companion_position: Option<(f64, f64)>,
     /// Selected character pack id (bundled: shu-standard/lively/minimal).
     pub companion_pack: String,
+    /// Selected persona pack id (bundled: persona-shu/persona-navigator).
+    pub companion_persona: String,
+    /// Story chapters already shown (fire once; clearable by the user).
+    pub story_progress: std::collections::BTreeMap<String, bool>,
     /// Expressiveness: `quiet` | `natural` | `lively`.
     pub companion_expressiveness: String,
     /// Companion stays above other windows.
@@ -104,6 +108,8 @@ impl Default for DesktopPrefs {
             companion_visible: true,
             companion_position: None,
             companion_pack: "shu-standard".into(),
+            companion_persona: "persona-shu".into(),
+            story_progress: std::collections::BTreeMap::new(),
             companion_expressiveness: "natural".into(),
             companion_always_on_top: false,
             schema_version: 1,

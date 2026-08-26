@@ -28,6 +28,11 @@ export interface DesktopPrefs {
   showCompanionOnStart: boolean;
   openControlCenterOnStart: boolean;
   companionVisible: boolean;
+  companionPack: string;
+  companionPersona: string;
+  companionExpressiveness: "quiet" | "natural" | "lively" | string;
+  companionAlwaysOnTop: boolean;
+  storyProgress: Record<string, boolean>;
   schemaVersion: number;
 }
 
@@ -39,6 +44,7 @@ export const desktop = {
   closeDecision: (behavior: string, remember: boolean) =>
     invoke("close_decision", { behavior, remember }),
   fullQuit: () => invoke("full_quit"),
+  companionApplyPrefs: () => invoke("companion_apply_prefs"),
 };
 
 /** Poll the supervisor until it decides embedded vs external; switch the

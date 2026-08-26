@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "story-pack",
+  "id": "story-shu-intro",
+  "name": {
+    "zh-TW": "小樞・初次見面",
+    "en": "Shū · First meeting"
+  },
+  "chapters": [
+    {
+      "id": "meet",
+      "trigger": "first-meeting",
+      "line": "你好，我是小樞。點我一下可以說話或下指令；你隨時可以把我藏起來，我不會介意。",
+      "skippable": true
+    },
+    {
+      "id": "first-verified",
+      "trigger": "first-verified-success",
+      "line": "第一次「確認完成」達成了——綠色勾勾只會在真的驗證過結果時出現。",
+      "skippable": true
+    }
+  ]
+}

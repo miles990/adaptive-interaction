@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "persona-pack",
+  "id": "persona-navigator",
+  "name": {
+    "zh-TW": "導航員（世界觀範例）",
+    "en": "Navigator (world example)"
+  },
+  "author": "Adaptive Interaction Project",
+  "version": "0.3.0",
+  "license": "MIT",
+  "lines": {
+    "succeeded": [
+      "任務節點已完成。",
+      "航線這一段已通過。"
+    ],
+    "succeeded-verified": [
+      "任務節點已完成，回傳資料也核對過了。"
+    ],
+    "paused": [
+      "巡航暫停中，等待你的指示。"
+    ],
+    "pause-ack": [
+      "收到。接下來一小時保持靜默航行。"
+    ],
+    "text-received": [
+      "座標已記錄。"
+    ],
+    "drop-received": [
+      "貨物清單已登記。"
+    ],
+    "delegated": [
+      "已把任務轉交給支援艙。它收到後才算送達。"
+    ],
+    "first-meeting": [
+      "導航員就位。我只在你核准的航道內活動。"
+    ]
+  }
+}

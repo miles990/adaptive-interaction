@@ -17,20 +17,16 @@ import {
   reduce,
 } from "./machine";
 import { PackManifest, SpriteRenderer, validateManifest } from "./renderer";
-
-/** Deterministic default lines (persona packs may restyle NON-safety lines
- *  in a later phase; safety lines are fixed). */
-const LINES: Record<string, string> = {
-  succeeded: "做完了。",
-  "succeeded-verified": "做完了，也確認過結果。",
-  blocked: "這個動作超出目前允許範圍，所以我沒有執行。",
-  unknown: "要求已送出，但目前無法確認是否真的完成。",
-  emergency: "緊急停止中",
-  paused: "主動互動暫停中。",
-  offline: "目前連不上系統。",
-};
-
-const BUBBLE_COOLDOWN_MS = 8000;
+import {
+  behaviorFor,
+  BehaviorTuning,
+  nextChapter,
+  PersonaPack,
+  resolveLine,
+  StoryPack,
+  validatePersonaPack,
+  validateStoryPack,
+} from "./packs";
 
 export default function CompanionApp() {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -43,6 +39,43 @@ export default function CompanionApp() {
   const [ready, setReady] = React.useState(false);
   const [inputOpen, setInputOpen] = React.useState(false);
   const [sensorLabel, setSensorLabel] = React.useState<string | null>(null);
+  const personaRef = React.useRef<PersonaPack | null>(null);
+  const storyRef = React.useRef<StoryPack | null>(null);
+  const behaviorRef = React.useRef<BehaviorTuning>(behaviorFor("natural"));
+  const storyProgress = React.useRef<Record<string, boolean>>({});
+
+  /** Resolve a bubble line: safety keys fixed, others persona-styled. */
+  const line = React.useCallback((key: string): string | null => {
+    return resolveLine(key, personaRef.current);
+  }, []);
+
+  /** Show a story chapter once, then persist the progress. */
+  const playChapter = React.useCallback(
+    (trigger: "first-meeting" | "first-verified-success") => {
+      const ch = nextChapter(storyRef.current, trigger, storyProgress.current);
+      if (!ch) return;
+      storyProgress.current = { ...storyProgress.current, [ch.id]: true };
+      setBubble(ch.line);
+      setTimeout(() => setBubble(null), 9000);
+      void desktop
+        .prefsPatch({ storyProgress: storyProgress.current })
+        .catch(() => {});
+    },
+    []
+  );
+
+  // Settings changes (pack/persona/expressiveness) reload this window.
+  React.useEffect(() => {
+    if (!isTauri) return;
+    let un: (() => void) | null = null;
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      un = await listen("companion-reload", () => window.location.reload());
+    })();
+    return () => {
+      if (un) un();
+    };
+  }, []);
 
   // ---- boot: transport, pack, renderer ----
   React.useEffect(() => {
@@ -50,11 +83,35 @@ export default function CompanionApp() {
     (async () => {
       await bootstrapSupervisor();
       let pack = "shu-standard";
+      let personaId = "persona-shu";
       try {
         const prefs = await desktop.prefsGet();
-        pack = (prefs as unknown as { companionPack?: string }).companionPack ?? pack;
+        pack = prefs.companionPack ?? pack;
+        personaId = prefs.companionPersona ?? personaId;
+        behaviorRef.current = behaviorFor(prefs.companionExpressiveness ?? "natural");
+        storyProgress.current = prefs.storyProgress ?? {};
       } catch {
         /* browser mode */
+      }
+      // Persona + story packs are data-only; invalid packs fall back to the
+      // built-in default lines instead of breaking the companion.
+      try {
+        const persona = (await fetch(`/packs/${personaId}.json`).then((r) => r.json())) as unknown;
+        if (validatePersonaPack(persona).length === 0) {
+          personaRef.current = persona as PersonaPack;
+        } else {
+          console.error("invalid persona pack", validatePersonaPack(persona));
+        }
+      } catch {
+        /* keep defaults */
+      }
+      try {
+        const story = (await fetch(`/packs/story-shu-intro.json`).then((r) => r.json())) as unknown;
+        if (validateStoryPack(story).length === 0) {
+          storyRef.current = story as StoryPack;
+        }
+      } catch {
+        /* no story */
       }
       if (disposed) return;
       setPackName(pack);
@@ -126,6 +183,10 @@ export default function CompanionApp() {
           type: "base",
           base: estop ? "emergency" : paused ? "paused" : quiet ? "quiet" : "idle",
         });
+        if (!firstOnline.current && !estop) {
+          firstOnline.current = true;
+          playChapter("first-meeting");
+        }
       } catch {
         if (!stopped) apply({ type: "base", base: "offline" });
       }
@@ -140,7 +201,7 @@ export default function CompanionApp() {
         rendererRef.current.setAnimation("blink");
         setTimeout(syncPose, 400);
       }
-    }, 4500 + Math.floor(Math.random() * 2500));
+    }, behaviorRef.current.blinkIntervalMs + Math.floor(Math.random() * 2000));
     return () => {
       stopped = true;
       clearInterval(t);
@@ -153,18 +214,34 @@ export default function CompanionApp() {
   function maybeBubble(e: RuntimeEvent) {
     const now = Date.now();
     const base = machineRef.current.base;
-    // Quiet / paused: no ordinary bubbles (spec). Safety states show fixed text.
+    // Safety lines are FIXED (packs cannot restyle them) and always show.
     if (e.eventType === "emergency.stop" && e.payload["cleared"] !== true) {
-      setBubble(LINES.emergency);
+      setBubble(line("emergency"));
       return;
     }
+    // Blocked/unknown are safety-relevant: shown even in quiet expressiveness,
+    // but not while paused/quiet-hours/estop (the state itself explains).
     if (base === "quiet" || base === "paused" || base === "emergency") return;
-    if (now - lastBubbleAt.current < BUBBLE_COOLDOWN_MS) return;
+    const safetyText =
+      e.eventType === "plan.blocked"
+        ? line("blocked")
+        : e.eventType === "action.uncertain"
+          ? line("unknown")
+          : null;
+    if (safetyText) {
+      lastBubbleAt.current = now;
+      setBubble(safetyText);
+      setTimeout(() => setBubble(null), 5000);
+      return;
+    }
+    // Casual lines: persona-styled, expressiveness-gated, cooldown-limited.
+    if (!behaviorRef.current.allowCasualBubbles) return;
+    if (now - lastBubbleAt.current < behaviorRef.current.bubbleCooldownMs) return;
     let text: string | null = null;
-    if (e.eventType === "action.observed") text = LINES["succeeded-verified"];
-    else if (e.eventType === "action.completed") text = LINES.succeeded;
-    else if (e.eventType === "plan.blocked") text = LINES.blocked;
-    else if (e.eventType === "action.uncertain") text = LINES.unknown;
+    if (e.eventType === "action.observed") {
+      text = line("succeeded-verified");
+      playChapter("first-verified-success");
+    } else if (e.eventType === "action.completed") text = line("succeeded");
     if (text) {
       lastBubbleAt.current = now;
       setBubble(text);
@@ -174,6 +251,7 @@ export default function CompanionApp() {
 
   // ---- semantic interaction events (NEVER raw coordinates) ----
   const lastApproachAt = React.useRef(0);
+  const firstOnline = React.useRef(false);
   const pushInteraction = React.useCallback((kind: string, extra?: Record<string, unknown>) => {
     void api
       .pushObservation("desktop.companion.interaction", { kind, ...extra }, 1.0)
@@ -305,7 +383,7 @@ export default function CompanionApp() {
           break;
         case "pause-1h":
           await api.pauseSet(60, "companion quick action");
-          setBubble("好的，接下來一小時我不會主動打擾。");
+          setBubble(line("pause-ack"));
           setTimeout(() => setBubble(null), 3500);
           break;
         case "estop":
@@ -393,7 +471,7 @@ export default function CompanionApp() {
                 mayLeaveDevice: false,
               });
               setDropPreview(null);
-              setBubble("記下這些檔案了。");
+              setBubble(line("drop-received"));
               setTimeout(() => setBubble(null), 3000);
             }}
           >
@@ -421,7 +499,9 @@ export default function CompanionApp() {
           </button>
         </div>
       )}
-      {inputOpen && <CompanionInput onClose={() => setInputOpen(false)} onBubble={setBubble} />}
+      {inputOpen && (
+        <CompanionInput onClose={() => setInputOpen(false)} onBubble={setBubble} line={line} />
+      )}
     </div>
   );
 }
@@ -432,9 +512,11 @@ export default function CompanionApp() {
 function CompanionInput({
   onClose,
   onBubble,
+  line,
 }: {
   onClose: () => void;
   onBubble: (t: string | null) => void;
+  line: (key: string) => string | null;
 }) {
   const [text, setText] = React.useState("");
   const [sessions, setSessions] = React.useState<
@@ -463,7 +545,7 @@ function CompanionInput({
       await api
         .pushObservation("desktop.companion.interaction", { kind: "text-submitted", modality: "text" }, 1.0)
         .catch(() => {});
-      onBubble(target === "local" ? "收到，我記下了。" : "已交給該工作階段（它收到後才算送達）。");
+      onBubble(target === "local" ? line("text-received") : line("delegated"));
       setTimeout(() => onBubble(null), 3500);
     } catch (e) {
       onBubble(`送出失敗：${e}`);

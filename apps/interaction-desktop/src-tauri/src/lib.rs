@@ -1093,6 +1093,29 @@ async fn companion_set_interactive(
     Ok(())
 }
 
+/// Apply companion-related prefs live: visibility, always-on-top, and a
+/// reload so pack/persona/expressiveness changes take effect.
+#[tauri::command]
+async fn companion_apply_prefs(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let (visible, on_top) = {
+        let prefs = state.prefs.lock().expect("prefs mutex");
+        (prefs.companion_visible, prefs.companion_always_on_top)
+    };
+    if visible {
+        ensure_companion_window(&app);
+        if let Some(w) = app.get_webview_window("companion") {
+            let _ = w.set_always_on_top(on_top);
+        }
+        let _ = app.emit("companion-reload", ());
+    } else if let Some(w) = app.get_webview_window("companion") {
+        let _ = w.hide();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn companion_open_control_center(
     app: tauri::AppHandle,
@@ -1441,6 +1464,7 @@ pub fn run() {
             companion_hit_rect,
             companion_set_interactive,
             companion_open_control_center,
+            companion_apply_prefs,
             agent_sessions_list,
             agent_session_send,
             agent_session_close,
