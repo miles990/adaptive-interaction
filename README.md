@@ -60,6 +60,28 @@
 打開「設定 → 顯示進階功能」即可切到**進階模式**：原始 manifest、YAML 配方、
 JSON 政策、時間軸與技術 ID 全部都在，兩種模式共用同一套後端與安全規則。
 
+## 狀態列常駐 ＋ 桌面角色小樞（v0.3）
+
+平常桌面你只需要看到**狀態列 icon** 與可選的**桌面角色小樞**。關閉控制中心視窗
+只是把它藏起來——狀態列、小樞、你允許的自動互動仍然運作；只有選「完全結束」
+才安全停止整套 Runtime。若已有 `interact-ai serve` daemon 在跑，桌面 App 會連上它
+而不搶裝置，完全結束 App 也不會關掉那個外部 daemon。
+
+<p align="center">
+  <img src="docs/assets/v03-companion-shu.png" width="220" alt="桌面上的小樞">
+  &nbsp;&nbsp;
+  <img src="docs/assets/v03-shu-variants.png" width="360" alt="小樞三種外觀">
+</p>
+
+小樞是**呈現層與輸入入口**，不持有任何權限：completed 只點頭、綠色勾勾只在真的
+**驗證過結果**才出現、緊急停止固定安全姿勢。點它可以說話或下指令、拖檔案會先預覽
+再確認；**原始游標座標不持久化、不傳 AI**。說話風格可換世界觀，但**緊急停止、
+被阻擋、結果未知、感測使用中這些安全訊息永遠是固定文字，任何角色包都改不了**。
+
+新增能力：**外部裝置**（宣告式 HTTP/SSE adapter，配對用指紋不用 IP）、
+**AI Agent Session**（有租約/預算/範圍、mailbox 溝通、防循環委派、聲稱完成≠驗證）、
+**麥克風**（預設關、consent-gated、30 秒硬上限、無靜默擷取、只留 level 事實）。
+
 ## 安裝（3 分鐘）
 
 從 [Releases](https://github.com/miles990/adaptive-interaction/releases) 一鍵安裝，
@@ -113,7 +135,8 @@ interact-ai self uninstall --yes     # 移除（--purge 連設定資料一起刪
 | **[安裝與部署](docs/INSTALL.md)** | 白話解釋＋安裝選單＋60 秒體驗＋常見問題 |
 | **[特點與能力](docs/FEATURES.md)** | 核心循環與安全設計圖解（mermaid） |
 | **[人類使用手冊](docs/USER-GUIDE.md)** | 日常操作：session／同意／配方／政策／緊急停止 |
-| **[桌面控制中心指南](docs/DESKTOP-GUIDE.md)** | 圖形介面逐頁說明＋收據狀態圖 |
+| **[桌面控制中心指南](docs/DESKTOP-GUIDE.md)** | 圖形介面逐頁說明＋狀態列／桌面角色／感測＋收據狀態圖 |
+| **[架構總覽](docs/ARCHITECTURE.md)** | crate 責任、生命週期、誠實階梯、provider／agent／sensor 設計 |
 | **[驗收證據](docs/acceptance-evidence.md)** | 真實環境端到端測試紀錄 |
 | **[更新日誌](CHANGELOG.md)** | 版本歷史（語意化版本） |
 

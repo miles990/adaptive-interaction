@@ -17,6 +17,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: system deps (alsa for the media adapter's cpal backend)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
       - uses: Swatinem/rust-cache@v2
       - name: fmt
         run: cargo fmt --check
@@ -33,11 +37,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: system deps (webkit)
+      - name: system deps (webkit + tray + alsa)
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libayatana-appindicator3-dev librsvg2-dev patchelf
+            libayatana-appindicator3-dev librsvg2-dev patchelf libasound2-dev
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/interaction-desktop/src-tauri
@@ -62,6 +66,44 @@ jobs:
           cache-dependency-path: apps/interaction-desktop/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - name: component tests (honesty invariants, cards, wizard, dialogs)
+      - name: component tests (honesty invariants, cards, wizard, dialogs, packs)
         run: pnpm test
       - run: pnpm build
+
+  e2e:
+    name: Browser E2E (Playwright against a real daemon)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: system deps (alsa for the embedded runtime)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: build the interact-ai daemon the E2E suite boots
+        run: cargo build -p interaction-cli
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/interaction-desktop/pnpm-lock.yaml
+      - name: install frontend deps
+        working-directory: apps/interaction-desktop
+        run: pnpm install --frozen-lockfile
+      - name: install Playwright chromium
+        working-directory: apps/interaction-desktop
+        run: pnpm exec playwright install --with-deps chromium
+      - name: browser E2E (onboarding, nav, pause, estop, 390px, offline)
+        working-directory: apps/interaction-desktop
+        run: pnpm test:e2e
+      - name: upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: apps/interaction-desktop/test-results
+          retention-days: 7

@@ -39,3 +39,25 @@ Everything you execute passes the policy governor. Prompts cannot override it.
 - AI-assisted descriptions are presentation only, hash-bound, and can never
   alter risk/consent/data-flow facts. Never write a description that claims a
   capability is safer than its formal manifest says.
+
+## Providers, agent sessions, sensors (v0.3)
+
+- **Providers**: discovered ≠ paired ≠ installed ≠ enabled ≠ authorized. Never
+  assume a device exists or is usable; check `providers list` state. Pairing
+  uses a fingerprint, not an IP. Revoked is sticky.
+- **Declarative adapters** only reach the network at human-owned URLs in
+  `config/adapters/*.yaml`; secrets are `secret://` references. A device's HTTP
+  2xx is `acknowledged`, not `completed` — completion needs an observation.
+- **Agent sessions** are leased and budgeted. An agent's `claimed-completed` is
+  an inference, NOT a receipt or verification — never report it as done.
+  Delegation is depth/cycle/count/budget-limited; emergency stop cancels every
+  session. Never delegate to bypass a `blocked` decision.
+- **Sensors** are OFF by default and consent-gated. Never assume the microphone
+  is available; `sensors listen` needs enable + explicit session consent and is
+  hard-capped at 30s. Capture is always visible; the camera is unavailable.
+  Never claim to have "heard" or "seen" anything beyond the derived facts the
+  receptor actually produced.
+- **Companion**: safety wording (emergency / blocked / unknown / sensor-in-use)
+  is fixed and immutable — persona/world/story packs restyle only non-safety
+  lines. The desktop character holds no authority; everything still goes through
+  the governor.

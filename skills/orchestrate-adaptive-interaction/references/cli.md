@@ -86,3 +86,52 @@ interact-ai outbox                    # rendered conversation/web-ui messages
 interact-ai policy show | policy set '<json-merge-patch>' | policy validate
 interact-ai serve [--host 127.0.0.1] [--port 8787]
 ```
+
+## Providers (external devices / services / AI sessions)
+
+Discovered ≠ paired ≠ installed ≠ enabled ≠ authorized — each is a separate
+step, and the runtime refuses shortcut transitions.
+
+```bash
+interact-ai providers list
+interact-ai providers show <provider-id>
+interact-ai providers pair <provider-id> --code <pairing-code>   # sha256 fingerprint; an IP is never identity
+interact-ai providers transition <provider-id> --state installed|disabled|available
+interact-ai providers revoke <provider-id>                       # capabilities disabled immediately; sticky
+```
+
+Declarative adapters live in `<home>/config/adapters/*.yaml` (File=Truth): a
+validated YAML spec becomes a real HTTP/SSE receptor/actuator behind the SAME
+governor. Secrets are `secret://name` references, never written in the spec.
+
+## Agent sessions (leased, budgeted delegated work)
+
+A session is NOT an identity — it is a lease with data/tool/consent scope and a
+budget. An agent's report is a CLAIM (`claimed-completed`), never a receipt and
+never verification.
+
+```bash
+interact-ai agents sessions                              # list (state, lease, budget)
+interact-ai agents create --agent agent.coder [--ttl 120] [--max-messages 50]
+interact-ai agents send <id> --kind task --body '{"task":"..."}'
+interact-ai agents messages <id> [--direction to-session|from-session]  # fetching to-session marks delivery
+interact-ai agents report <id> --event progress|claimed-completed|failed --payload '{}'
+interact-ai agents renew <id> --extra-minutes 30         # only while open; expired = gone
+interact-ai agents close <id> [--handoff '<bounded json>'] [--reason closed]
+```
+
+Delegation is limited deterministically by policy (max depth / cycle / session
+count / message / cost). Emergency stop cancels every open session; open
+sessions do not survive a runtime restart.
+
+## Sensors (high-sensitivity; default OFF)
+
+```bash
+interact-ai sensors listen --ms 10000    # one bounded window; needs enable + explicit session consent
+interact-ai sensors stop                 # stop all capture immediately
+```
+
+The microphone produces sound-level facts only (no raw audio, no STT, nothing
+stored or transmitted); every window has a hard 30s ceiling. Capture is always
+visible in `status.activeSensors` and `sensor.started/stopped` events — there is
+no silent-capture path. The camera is deliberately unavailable in this build.

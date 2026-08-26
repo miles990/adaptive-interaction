@@ -56,3 +56,34 @@ deadline the recipe's deterministic `onUnavailable` behavior already applied.
 Errors: `{"error": {"code": "...", "message": "..."}}` — codes include
 `policy_blocked`, `approval_required`, `consent_required`, `session_inactive`,
 `emergency_stop` (HTTP 423), `not_found`, `validation_failed`.
+
+## Providers, agent sessions, sensors (v0.3)
+
+```http
+GET    /v1/providers
+GET    /v1/providers/:id
+POST   /v1/providers/:id/pair          {"pairingCode": "..."}
+POST   /v1/providers/:id/transition    {"state": "installed|disabled|available|revoked"}
+POST   /v1/providers/:id/revoke
+
+GET    /v1/agent-sessions
+POST   /v1/agent-sessions              {"agentId","ttlMinutes","dataScope","toolScope","maxMessages","delegation"}
+GET    /v1/agent-sessions/:id
+POST   /v1/agent-sessions/:id/report   {"event","payload"}
+GET    /v1/agent-sessions/:id/messages ?direction=to-session|from-session
+POST   /v1/agent-sessions/:id/messages {"kind","body"}
+POST   /v1/agent-sessions/:id/renew    {"extraMinutes"}
+POST   /v1/agent-sessions/:id/close    {"handoff","reason"}
+
+POST   /v1/sensors/microphone/listen   {"durationMs"}   # needs enable + explicit session consent
+POST   /v1/sensors/stop
+```
+
+Events added: `provider.registered`, `provider.state-changed`,
+`sensor.started`, `sensor.stopped`.
+
+Honesty over HTTP: an agent's `report` becomes an observation whose payload is
+an INFERENCE — never a receipt. A delegated task in the mailbox is `dispatched`
+until the session actually fetches it (`acknowledged`). The HTTP surface is the
+AI-host surface: it can never satisfy a recipe's `requireHumanConfirmation`
+gate (only the desktop IPC can).
