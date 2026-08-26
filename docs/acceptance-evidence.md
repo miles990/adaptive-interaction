@@ -161,3 +161,77 @@ AppleScript quit 均優雅關閉（clean_shutdown=true）。
 **其餘 minor**（併發順序、每日上限計數、estop 失敗無聲、各處錯誤處理、a11y 焦點圈養、
 availability 文案、摘要涵蓋 chance/AI 生成文字…）共 14 項一併修復。
 2 個發現經驗證為誤報（合成事件情境、無法達成的組合）。
+
+---
+
+# v0.3 驗收（狀態列常駐＋桌面角色＋外部裝置＋AI Session＋感測，2026-08-26，Apple Silicon macOS 實機）
+
+## 自動化測試（每組實際數字）
+- `cargo test --workspace`：**201 passed / 0 failed**（含新整合套件 providers_loop 5、
+  agents_loop 9、sensors_loop 6、declarative http_loop 5；桌面 tray/supervisor 單元 4）
+- `cargo clippy --workspace --all-targets -- -D warnings`：**0**
+- `cargo fmt --check`：通過
+- 前端 `pnpm typecheck && pnpm test && pnpm build`：**vitest 40/40**、typecheck、build 全過
+  （新增 packs 6、companion machine +2）
+- 瀏覽器級 **Playwright E2E**（真 daemon＋真 Chromium）：**11/11**
+  （onboarding／權限地圖／暫停／句子編輯器＋零副作用模擬／進階切換／緊急停止觸發＋
+  安全解除／390px 導覽＋鍵盤＋無水平捲動／離線誠實）
+
+## CLI E2E（真 daemon＋真 mock device，斷言不變量非「有跑就好」）：12/12 PASS
+`scripts/v03-cli-e2e.sh`——providers（宣告式裝置為 Installed 非自動 available、revoke 黏性、
+revoked→available 被拒）、agent sessions（Created 狀態、訊息預算硬上限、聲稱完成是 OPEN
+狀態、關閉）、sensors（無同意拒絕聆聽、預設不可用）、estop 傳播（取消 open session＋阻擋
+新建）。
+
+## 桌面實機走查（debug .app、全新／既有 home）
+- 啟動：`Interaction Control Center`＋`小樞` 兩視窗，`/ready` 正常
+- **關閉控制中心 → 首次說明對話框**（含 v0.2→v0.3 行為改變告知）→「保持運作」→
+  主視窗隱藏、`/ready` 仍回應、小樞留存、process 續跑（截圖 `v03-close-dialog.png`）
+- **桌面角色小樞**：透明無邊框視窗實機渲染、idle 姿態（runtime online 才睜眼）、
+  三變體與 sprite sheet（`v03-companion-shu.png`／`v03-shu-variants.png`／`v03-shu-spritesheet.png`）
+- **首次見面劇情**：一次性氣泡觸發、進度落盤 `{meet:true}` 後不再重播
+  （`v03-story-first-meeting.png`）
+- **Persona 世界觀端到端**：設定頁切「導航員」→ 角色視窗重載 → CLI 觸發 success →
+  氣泡顯示世界觀台詞「任務節點已完成。」（取代預設「做完了。」）；安全訊息不受影響
+  （`v03-settings-companion.png`／`v03-persona-navigator.png`）
+- 完全結束（Cmd+Q）→ 優雅關閉、`/ready` 無回應
+- 走查後將機器上被改動的 persona 偏好還原為預設
+
+## 對抗性安全審查（多 agent workflow）：48 raised → 31 confirmed → 27 修復＋4 記錄
+5 維度獨立審查（runtime 生命週期／provider-device／agent session／sensor 隱私／
+前端誠實）→ 每發現獨立對抗驗證。確認 31 項（18 major、13 minor）。
+
+**已修復的 major（節選）**
+- SSRF：redirect 未重驗、IPv4-mapped IPv6（`::ffff:169.254.x`）繞過 metadata 封鎖 →
+  no-redirect policy＋IP 解析封鎖全編碼
+- 裝置回應體被存進 receipt（可回射 secret 憑證）→ 只留 httpStatus
+- 麥克風 start-timeout 孤兒執行緒（無限靜默擷取）→ 逾時即設 stop 旗標釋放裝置
+- 撤回受器同意／結束 session 不停止擷取 → 立即停止；estop TOCTOU → 開窗後重檢＋
+  watchdog 掃描；retention:none 未落實 → 麥克風衍生事實不入 SQLite
+- agent 聲稱被當驗證證據（自 push actionId）→ ingest 改名 claimActionId；
+  委派防循環信封全由呼叫端捏造 → 建立序列化＋max_parallel 依 rootTaskId＋信封遞增
+- max_messages=0 = 無限 → 對政策取 min；狀態列麥克風指示是死碼 → 讀 activeSensors；
+  內嵌 API bind 失敗被吞（顯示健康）→ 設 Degraded＋顯示錯誤
+- 實例鎖 TOCTOU（雙 runtime）→ O_EXCL 原子建立＋只刪自己 PID 的鎖
+- 小樞緊急停止標籤在純輪詢偵測時不重繪 → base 鏡射進 React state；
+  過期氣泡計時器抹掉安全氣泡 → 追蹤並清除；action.failed 與 unknown 混淆 → 獨立處理
+
+**記錄為已知限制（未在本輪修復，附原因與替代檢查）**——見下節。
+
+## 已知限制（v0.3，誠實聲明）
+1. **單一扁平 API token（架構級）**：AI 面與人類面共用權限，AI 技術上可呼叫
+   estop-clear／consent-grant／sensor-listen。已用 skill 安全條款明令禁止並全程審計，
+   桌面 IPC 是唯一能滿足 `requireHumanConfirmation` 的面；但真正的分權需 **scoped
+   token**（下一版）。這是 v0.2 起就記錄的限制，本輪未改。
+2. **裝置身分逐請求強制未實作**：宣告式 HTTP/mock 裝置不出示金鑰，配對指紋已加隨機
+   salt（不再是公開資料的確定性雜湊），但無法在每次請求時擋下同位址的冒充者——需裝置端
+   crypto。已在程式碼與 ARCHITECTURE.md 誠實標註。
+3. **外部 daemon 模式的 Degraded（token 不可讀）不啟動健康輪詢**：邊緣情況，backend()
+   回 None 故一切 fail-closed，重啟即恢復。
+4. **麥克風真擷取未在此機器實測**：會觸發 macOS 權限提示並錄環境音，未經你在場明確
+   同意我不開麥；cpal 路徑已編譯，以確定性 fake source 完整測試（sensors_loop 6/6），
+   需要一次你在場的手動驗證。
+5. **攝影機誠實未實作**：不做假 driver；catalog 標為不可用。
+6. **WS/MQTT/Serial/BLE transport**：宣告式引擎解析但誠實拒絕（僅 HTTP/SSE 實作）。
+7. **第三方 pack zip 安裝流程未做**：內建 packs 與驗證器齊備，但沒有 zip 匯入 UI；
+   pack 驗證器已防 zip-slip 概念（sheet 僅限純檔名）。
