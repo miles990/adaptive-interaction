@@ -194,7 +194,11 @@ pub fn validate_spec(spec: &DeclarativeSpec) -> Result<(), String> {
     Ok(())
 }
 
-/// SSRF guard: http/https only; cloud-metadata range hard-blocked.
+/// SSRF guard: http/https only; cloud-metadata endpoints hard-blocked in every
+/// address encoding (IPv4, IPv4-mapped/compat IPv6, and known metadata hosts).
+/// RFC1918 / loopback IPv4 stay allowed — the platform's job is talking to LAN
+/// devices — but link-local (169.254/fe80) is always blocked because that is
+/// where cloud metadata lives.
 pub fn validate_url(raw: &str) -> Result<(), String> {
     let url = url::Url::parse(raw).map_err(|e| format!("invalid url {raw:?}: {e}"))?;
     match url.scheme() {
@@ -205,14 +209,64 @@ pub fn validate_url(raw: &str) -> Result<(), String> {
             ))
         }
     }
-    if let Some(host) = url.host_str() {
-        if host.starts_with("169.254.") || host == "metadata.google.internal" {
-            return Err(format!("url host {host:?} is blocked (metadata range)"));
-        }
-    } else {
+    let Some(host) = url.host_str() else {
         return Err("url has no host".into());
+    };
+    if is_blocked_host(host) {
+        return Err(format!(
+            "url host {host:?} is blocked (metadata/link-local range)"
+        ));
     }
     Ok(())
+}
+
+/// True for hosts we must never fetch, resolving every IP encoding first.
+pub fn is_blocked_host(host: &str) -> bool {
+    let lower = host.to_ascii_lowercase();
+    if lower == "metadata.google.internal" || lower == "metadata" {
+        return true;
+    }
+    // `host_str()` wraps IPv6 in brackets; strip them before parsing.
+    let bare = lower.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
+        return ip_is_blocked(ip);
+    }
+    // Not an IP literal → block only the obvious metadata hostname above.
+    false
+}
+
+fn ip_is_blocked(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    // Native IPv6 loopback / link-local first — no v6 LAN device is a supported
+    // target and these reach host-local/metadata services. (Checked before the
+    // v4-mapped canonicalization so `::1` is not mis-read as 0.0.0.1.)
+    if let IpAddr::V6(v6) = ip {
+        if v6.is_loopback() {
+            return true;
+        }
+        let seg0 = v6.segments()[0];
+        if (0xfe80..0xfec0).contains(&seg0) {
+            return true;
+        }
+    }
+    // Canonicalize the real IPv4-mapped form (`::ffff:a.b.c.d`) to v4 so
+    // `[::ffff:169.254.169.254]` cannot smuggle a link-local metadata target.
+    let v4 = match ip {
+        IpAddr::V4(v4) => Some(v4),
+        IpAddr::V6(v6) => v6.to_ipv4_mapped(),
+    };
+    if let Some(v4) = v4 {
+        let o = v4.octets();
+        // AWS/GCP/Azure/OpenStack link-local metadata (169.254.0.0/16).
+        if o[0] == 169 && o[1] == 254 {
+            return true;
+        }
+        // Alibaba Cloud metadata.
+        if o == [100, 100, 100, 200] {
+            return true;
+        }
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -497,11 +551,15 @@ impl Actuator for DeclarativeHttpActuator {
             )
             .await
             {
-                Ok((status, response)) if (200..300).contains(&status) => {
+                Ok((status, _response)) if (200..300).contains(&status) => {
+                    // Only the status is recorded — never the device's response
+                    // body. A malicious/echo device could reflect the resolved
+                    // secret:// credential, and receipts are persisted and
+                    // readable via the local API, so the body must not land
+                    // there (the receipt is not the place for device payloads).
                     let receipt = DriverReceipt::start(&action, Utc::now())
                         .dispatched()
-                        .note("httpStatus", json!(status))
-                        .note("response", redact(response));
+                        .note("httpStatus", json!(status));
                     // Honesty: 2xx means the DEVICE ACCEPTED the request. That
                     // is "acknowledged" at most — never completed/verified.
                     let receipt = if self.spec.confirmation.as_deref() == Some("acknowledged") {
@@ -550,16 +608,6 @@ impl Actuator for DeclarativeHttpActuator {
     }
 }
 
-/// Trim device responses before they land in receipts (no secrets, bounded size).
-fn redact(v: Value) -> Value {
-    let text = v.to_string();
-    if text.len() > 2048 {
-        json!({"truncated": true})
-    } else {
-        v
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Engine: spec → instances
 // ---------------------------------------------------------------------------
@@ -576,6 +624,10 @@ pub fn build(
     validate_spec(spec)?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
+        // No redirects: a redirect Location is never re-validated by the SSRF
+        // guard, so following one would let an allowlisted host bounce us to a
+        // metadata/internal target. Fail instead of following.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())?;
     let mut out = BuiltCapabilities {
@@ -607,9 +659,21 @@ mod tests {
 
     #[test]
     fn url_guard_blocks_metadata_and_odd_schemes() {
+        // LAN devices (RFC1918 / loopback IPv4) stay allowed.
         assert!(validate_url("http://192.168.1.50/status").is_ok());
+        assert!(validate_url("http://127.0.0.1:9000/x").is_ok());
         assert!(validate_url("https://example.com/x").is_ok());
+        // Cloud metadata, every encoding.
         assert!(validate_url("http://169.254.169.254/latest/meta-data").is_err());
+        assert!(validate_url("http://metadata.google.internal/x").is_err());
+        assert!(validate_url("http://100.100.100.200/x").is_err()); // Alibaba
+                                                                    // IPv4-mapped IPv6 must NOT smuggle the link-local metadata target.
+        assert!(validate_url("http://[::ffff:169.254.169.254]/latest").is_err());
+        assert!(validate_url("http://[::ffff:a9fe:a9fe]/latest").is_err());
+        // IPv6 loopback / link-local.
+        assert!(validate_url("http://[::1]/x").is_err());
+        assert!(validate_url("http://[fe80::1]/x").is_err());
+        // Wrong schemes.
         assert!(validate_url("file:///etc/passwd").is_err());
         assert!(validate_url("gopher://x").is_err());
     }

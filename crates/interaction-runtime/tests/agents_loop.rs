@@ -338,3 +338,48 @@ async fn open_sessions_do_not_survive_restart() {
     assert_eq!(rec.state, AgentSessionState::Expired);
     assert_eq!(rec.detail.as_deref(), Some("runtime restarted"));
 }
+
+#[tokio::test]
+async fn max_messages_zero_does_not_mean_unlimited() {
+    let (_g, rt) = runtime().await;
+    // A caller-supplied 0 must NOT nullify the mailbox budget — it falls back
+    // to the policy default (200), and any value is capped at the policy max.
+    let mut input = create_input("agent.zero");
+    input.max_messages = Some(0);
+    let s = rt.create_agent_session(input).await.unwrap();
+    assert_eq!(
+        s.budget.max_messages, 200,
+        "0 -> policy default, not unlimited"
+    );
+
+    let mut big = create_input("agent.big");
+    big.max_messages = Some(10_000);
+    let s2 = rt.create_agent_session(big).await.unwrap();
+    assert_eq!(s2.budget.max_messages, 200, "clamped to policy max");
+}
+
+#[tokio::test]
+async fn delegation_tree_is_bounded_by_max_parallel_regardless_of_hop_count() {
+    let (_g, rt) = runtime().await;
+    // Four sessions sharing one rootTaskId, each dishonestly claiming hop 0 —
+    // the tree is still capped at max_parallel (default 4) by rootTaskId.
+    let mk = |i: usize| {
+        let mut input = create_input(&format!("agent.tree{i}"));
+        input.delegation = Some(DelegationEnvelope {
+            root_task_id: "shared-root".into(),
+            parent_task_id: None,
+            delegation_id: format!("d{i}"),
+            origin_agent_id: "agent.root".into(),
+            hop_count: 0, // lie about depth
+            max_hops: 99,
+            visited_sessions: vec![],
+            budget_remaining: 1.0,
+        });
+        input
+    };
+    for i in 0..4 {
+        rt.create_agent_session(mk(i)).await.unwrap();
+    }
+    let err = rt.create_agent_session(mk(4)).await.unwrap_err();
+    assert!(err.to_string().contains("max_parallel"), "got: {err}");
+}

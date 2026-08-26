@@ -104,6 +104,16 @@ impl Runtime {
             .ok_or_else(|| DomainError::NotFound("microphone receptor not present".into()))?;
         mic.begin_listen(duration_ms)
             .map_err(|e| DomainError::PolicyBlocked(e.to_string()))?;
+        // Re-check estop AFTER opening: an emergency stop that engaged during
+        // the await points above (registry/session reads) may have already run
+        // its stop_all_sensors sweep before this window existed. Close it now
+        // so a concurrent estop can never leave the mic capturing.
+        if self.is_estopped() {
+            mic.stop_listen();
+            return Err(DomainError::PolicyBlocked(
+                "emergency stop engaged during start; capture aborted".into(),
+            ));
+        }
         {
             let mut map = self.sensors.lock().expect("sensors lock");
             if let Some(u) = map.get_mut("microphone") {

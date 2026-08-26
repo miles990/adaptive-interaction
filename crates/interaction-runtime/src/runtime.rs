@@ -85,6 +85,8 @@ pub struct RuntimeInner {
     pub(crate) ai_assists: RwLock<BTreeMap<String, crate::human::PendingAssist>>,
     /// Live agent sessions (mailboxes are memory-only; records persist).
     pub(crate) agent_sessions: RwLock<BTreeMap<String, crate::agents::AgentSessionEntry>>,
+    /// Serializes agent-session creation so count/estop checks aren't TOCTOU.
+    pub(crate) agent_create_lock: tokio::sync::Mutex<()>,
     /// Currently-capturing sensors → always-visible indicators.
     pub(crate) sensors: std::sync::Mutex<BTreeMap<String, crate::sensors::SensorUse>>,
     /// Typed handle to the microphone receptor (None when not registered).
@@ -283,6 +285,7 @@ impl Runtime {
                 pause: RwLock::new(pause_state),
                 ai_assists: RwLock::new(BTreeMap::new()),
                 agent_sessions: RwLock::new(BTreeMap::new()),
+                agent_create_lock: tokio::sync::Mutex::new(()),
                 sensors: std::sync::Mutex::new(BTreeMap::new()),
                 mic_receptor: Some(mic_receptor),
             }),
@@ -443,7 +446,12 @@ impl Runtime {
             .await
             .as_ref()
             .map(|s| s.session_id.clone());
-        self.store.insert_observation(&obs)?;
+        // Honor a `retention: none` privacy declaration: derived facts from a
+        // no-retention receptor (e.g. the microphone's sound-level) are shown
+        // and can drive recipes live, but are NEVER persisted to the store.
+        if !declares_no_retention(&receptor.manifest()) {
+            self.store.insert_observation(&obs)?;
+        }
         self.publish_observation_event(&obs);
         Ok(obs)
     }
@@ -461,9 +469,18 @@ impl Runtime {
             .await
             .ok_or_else(|| DomainError::NotFound(format!("push receptor {receptor_id}")))?;
         // Respect enable/disable state.
-        self.registry
+        let instance = self
+            .registry
             .receptor(&ReceptorId::new(receptor_id))
             .await?;
+        // Anti-forgery: a caller-pushed `actionId` FACT can otherwise be picked
+        // up by the verifier as "observed" evidence and self-attest completion
+        // of a delegated action. Rename it to `claimActionId` (symmetric to
+        // report_agent_session) so pushed facts can never act as verification.
+        let mut facts = facts;
+        if let Some(v) = facts.remove("actionId") {
+            facts.insert("claimActionId".to_string(), v);
+        }
         let mut obs = receptor.push(facts, inferences, confidence);
         obs.session_id = self
             .session
@@ -471,7 +488,9 @@ impl Runtime {
             .await
             .as_ref()
             .map(|s| s.session_id.clone());
-        self.store.insert_observation(&obs)?;
+        if !declares_no_retention(&instance.manifest()) {
+            self.store.insert_observation(&obs)?;
+        }
         self.publish_observation_event(&obs);
         // Autonomous loop: observation may trigger recipes.
         self.evaluate_recipes(Some(receptor_id)).await;
@@ -691,6 +710,11 @@ impl Runtime {
         self.estop.store(true, Ordering::SeqCst);
         self.store.set_meta("estop_engaged", "true")?;
 
+        // Sensors first: releasing capture is synchronous and cheap, and must
+        // not wait behind a serial per-actuator emergency_stop loop (a slow
+        // declarative device driver could otherwise delay mic release).
+        let _ = self.stop_all_sensors(actor).await;
+
         let mut stopped_actions = 0;
         if let Ok(open) = self.store.open_receipts() {
             for mut receipt in open {
@@ -714,8 +738,6 @@ impl Runtime {
                 stopped_actuators += 1;
             }
         }
-        // Sensors stop capturing IMMEDIATELY on emergency stop.
-        let _ = self.stop_all_sensors(actor).await;
         // Cancel every open agent session; delegated work never survives an
         // emergency stop and never resumes automatically.
         self.estop_agent_sessions().await;
@@ -883,6 +905,14 @@ impl Runtime {
         );
         self.store
             .audit("consent.revoked", "api", &json!({"scope": scope_str}))?;
+        // Revoking a receptor's consent must stop any capture it is driving
+        // NOW (a sensor keeps capturing until explicitly stopped). The mic is
+        // the only consent-gated capturing receptor today.
+        if let ConsentScope::Receptor(id) = &scope {
+            if id == "microphone.listen" {
+                let _ = self.stop_all_sensors("consent-revoked").await;
+            }
+        }
         // Cancel matching open actions immediately.
         if let Ok(open) = self.store.open_receipts() {
             for receipt in open {
@@ -905,16 +935,21 @@ impl Runtime {
     }
 
     pub async fn stop_session(&self) -> DomainResult<()> {
-        let mut guard = self.session.write().await;
-        if let Some(session) = guard.as_mut() {
-            session.stop(Utc::now());
-            self.store.upsert_session(session)?;
-            self.events.emit(
-                EventType::SessionStopped,
-                json!({"sessionId": session.session_id.as_str()}),
-            );
+        {
+            let mut guard = self.session.write().await;
+            if let Some(session) = guard.as_mut() {
+                session.stop(Utc::now());
+                self.store.upsert_session(session)?;
+                self.events.emit(
+                    EventType::SessionStopped,
+                    json!({"sessionId": session.session_id.as_str()}),
+                );
+            }
+            *guard = None;
         }
-        *guard = None;
+        // Session-scoped consents die with the session, so any sensor those
+        // consents authorized must stop capturing now.
+        let _ = self.stop_all_sensors("session-stopped").await;
         Ok(())
     }
 
@@ -1641,7 +1676,13 @@ impl Runtime {
                 tick += 1;
                 // Sensor listen-window deadlines are hard: sweep every tick.
                 if let Some(mic) = runtime.mic_receptor.as_ref() {
-                    let _ = mic.is_listening(); // enforces the deadline
+                    // Belt-and-braces: if estop is engaged, capture must not
+                    // continue for even one more tick, whatever raced it open.
+                    if runtime.is_estopped() {
+                        mic.stop_listen();
+                    } else {
+                        let _ = mic.is_listening(); // enforces the deadline
+                    }
                 }
                 // TTL sweep: expire non-terminal receipts past their deadline.
                 if let Ok(open) = runtime.store.open_receipts() {
@@ -1775,4 +1816,14 @@ fn seed_default_recipes(config_service: &ConfigService) {
     if let Ok(recipe) = interaction_recipe::parse_and_validate(default_recipe) {
         let _ = config_service.save_recipe(&recipe);
     }
+}
+
+/// True when a receptor formally declares `data.retention: none` — its derived
+/// facts must never be persisted (privacy: e.g. the microphone's sound level).
+fn declares_no_retention(m: &interaction_core::ReceptorManifest) -> bool {
+    m.human
+        .as_ref()
+        .and_then(|h| h.data.as_ref())
+        .map(|d| d.retention == interaction_core::DataRetention::None)
+        .unwrap_or(false)
 }

@@ -291,3 +291,57 @@ async fn provider_records_survive_restart() {
     assert_eq!(restored.state, ProviderState::Paired);
     assert!(restored.identity.fingerprint.is_some());
 }
+
+#[tokio::test]
+async fn operational_provider_does_not_auto_recover_after_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = ProviderId::new("provider.device.armed");
+    {
+        let rt = Runtime::start(RuntimeOptions {
+            home: Some(dir.path().to_path_buf()),
+            acquire_lock: false,
+            in_memory_db: false,
+            spawn_watchdog: false,
+        })
+        .await
+        .unwrap();
+        rt.providers
+            .register(interaction_registry::providers::discovered(
+                ProviderIdentity {
+                    id: id.clone(),
+                    kind: ProviderKind::Device,
+                    display_name: "armed device".into(),
+                    trust_level: TrustLevel::Discovered,
+                    origin: "local-network".into(),
+                    version: "1".into(),
+                    fingerprint: None,
+                    human: None,
+                },
+            ))
+            .await
+            .unwrap();
+        rt.pair_provider(&id, "778899").await.unwrap();
+        rt.transition_provider(&id, ProviderState::Installed)
+            .await
+            .unwrap();
+        rt.transition_provider(&id, ProviderState::Disabled)
+            .await
+            .unwrap();
+        rt.transition_provider(&id, ProviderState::Available)
+            .await
+            .unwrap();
+        rt.shutdown().await;
+    }
+    let rt = Runtime::start(RuntimeOptions {
+        home: Some(dir.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+    let restored = rt.get_provider(&id).await.unwrap();
+    // Crash/restart must NOT bring a device back Available on its own.
+    assert_eq!(restored.state, ProviderState::Disabled);
+    assert!(!restored.state.is_operational());
+}

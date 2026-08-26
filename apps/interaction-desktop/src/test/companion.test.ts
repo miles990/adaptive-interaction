@@ -44,6 +44,15 @@ describe("companion machine honesty", () => {
     expect(pose(s, T0 + 100).animation).toBe("unknown");
   });
 
+  it("definitive failure is distinct from unknown and never plays success", () => {
+    const s = feed({ base: "idle", transient: null }, [
+      mapRuntimeEvent({ eventType: "action.failed", payload: {} })!,
+    ]);
+    const p = pose(s, T0 + 100);
+    expect(p.animation).not.toBe("success");
+    expect(p.animation).not.toBe("unknown"); // its own pose, not "result unknown"
+  });
+
   it("emergency stop freezes ordinary animation and outranks everything", () => {
     let s: MachineState = { base: "idle", transient: null };
     s = reduce(s, mapRuntimeEvent({ eventType: "emergency.stop", payload: {} })!, T0);

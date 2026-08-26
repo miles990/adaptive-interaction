@@ -927,11 +927,18 @@ fn apply_close_behavior(app: &tauri::AppHandle, behavior: &str) {
                 let _ = w.hide();
             }
         }
-        _ => {
-            // keep-running: hide the control center only.
+        "keep-running" => {
+            // hide the control center only.
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.hide();
             }
+        }
+        other => {
+            // An unrecognized value (hand-edited desktop.json, future
+            // regression) must NOT silently keep the runtime alive — that is
+            // the "偷偷持續" the spec forbids. Fall back to asking the human.
+            tracing::warn!(behavior = other, "unknown close behavior; showing dialog");
+            let _ = app.emit("close-requested", ());
         }
     }
 }
@@ -1165,6 +1172,17 @@ pub(crate) async fn refresh_tray(app: &tauri::AppHandle) {
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 sessions = s.get("agentSessions").and_then(Value::as_u64).unwrap_or(0) as usize;
+                // Sensor privacy indicator: reflect real capture in the tray
+                // glyph (the "no silent capture" contract). status.activeSensors
+                // is present in both embedded and external modes.
+                if let Some(list) = s.get("activeSensors").and_then(Value::as_array) {
+                    mic_active = list
+                        .iter()
+                        .any(|x| x.get("kind").and_then(Value::as_str) == Some("microphone"));
+                    camera_active = list
+                        .iter()
+                        .any(|x| x.get("kind").and_then(Value::as_str) == Some("camera"));
+                }
             }
             Err(_) => reachable = false,
         }
@@ -1282,26 +1300,61 @@ async fn start_supervised(handle: tauri::AppHandle) {
                     let _ = event_handle.emit("runtime-event", &event);
                 }
             });
-            // Serve the HTTP API so CLI/agents share this instance.
+            // Serve the HTTP API so CLI/agents share this instance. A bind
+            // failure must NOT be swallowed: if something else already holds
+            // the port, the app must say so (Degraded) instead of reporting a
+            // healthy EmbeddedOwned while its HTTP surface is absent — that is
+            // the state the CLI would misdirect its token to.
             let config = runtime.config.read().await.clone();
-            if let Ok(token) = runtime.config_service.load_or_create_token() {
-                let _ = interaction_api::serve(
-                    runtime.clone(),
-                    &config.api_host,
-                    config.api_port,
-                    token,
-                )
-                .await;
+            let mut api_error: Option<String> = None;
+            match runtime.config_service.load_or_create_token() {
+                Ok(token) => {
+                    if let Err(e) = interaction_api::serve(
+                        runtime.clone(),
+                        &config.api_host,
+                        config.api_port,
+                        token,
+                    )
+                    .await
+                    {
+                        api_error = Some(format!(
+                            "HTTP API could not bind {}:{} ({e}). Another process may own \
+                             the port; CLI/agent access is unavailable.",
+                            config.api_host, config.api_port
+                        ));
+                    }
+                }
+                Err(e) => api_error = Some(format!("API token unavailable: {e}")),
             }
             let state: State<'_, AppState> = handle.state();
+            // If the user asked to fully quit while the runtime was still
+            // starting, RunEvent::Exit already fired with no runtime to stop.
+            // Shut this one down cleanly now instead of leaking it.
+            if state.quitting.load(Ordering::SeqCst) {
+                runtime.shutdown().await;
+                return;
+            }
             *state.runtime.lock().expect("runtime mutex") = Some(runtime);
             {
                 let mut info = state.supervisor.lock().expect("supervisor mutex");
                 info.mode = SupervisorMode::Embedded;
-                info.state = SupervisorState::EmbeddedOwned;
+                info.state = if api_error.is_some() {
+                    SupervisorState::Degraded
+                } else {
+                    SupervisorState::EmbeddedOwned
+                };
                 info.api_base = api_base;
+                info.detail = api_error.clone();
             }
-            let _ = handle.emit("supervisor-state", "embedded-owned");
+            if let Some(err) = api_error {
+                tracing::error!(error = %err, "embedded API serve failed");
+                let _ = handle.emit("supervisor-state", "degraded");
+                let _ = handle.emit("runtime-error", err);
+            } else {
+                let _ = handle.emit("supervisor-state", "embedded-owned");
+            }
+            // The embedded UI itself talks over Tauri IPC, so the control
+            // center is usable even when the HTTP API is degraded.
             let _ = handle.emit("runtime-ready", true);
             refresh_tray(&handle).await;
         }

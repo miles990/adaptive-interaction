@@ -773,3 +773,30 @@ async fn dynamic_mock_device_has_observability_pairing() {
         .iter()
         .any(|r| r.id.as_str() == "dev.device.device-status"));
 }
+
+#[tokio::test]
+async fn pushed_observation_cannot_forge_action_verification() {
+    // A caller who pushes an observation carrying facts.actionId must NOT be
+    // able to self-attest that a real action was "observed"/completed. The
+    // ingest path renames actionId → claimActionId (regression for the
+    // forged-evidence finding).
+    let (_g, rt) = runtime().await;
+    let obs = rt
+        .ingest(
+            "manual.event",
+            facts(&[("actionId", "action-victim"), ("state", "done")]),
+            std::collections::BTreeMap::new(),
+            1.0,
+        )
+        .await
+        .unwrap();
+    assert!(
+        !obs.facts.contains_key("actionId"),
+        "pushed actionId must be scrubbed"
+    );
+    assert_eq!(
+        obs.facts.get("claimActionId"),
+        Some(&json!("action-victim")),
+        "scrubbed value is kept under claimActionId (never used as evidence)"
+    );
+}

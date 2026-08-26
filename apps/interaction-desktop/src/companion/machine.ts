@@ -19,6 +19,7 @@ export type TransientKind =
   | "succeeded" // verified=false → nod only; verified=true → green check
   | "blocked"
   | "unknown"
+  | "failed"
   | "clicked"
   | "dragged";
 
@@ -38,6 +39,7 @@ export const initial: MachineState = { base: "offline", transient: null };
 /** Priority for transient replacement (higher wins; spec §11.3 order). */
 const PRIORITY: Record<TransientKind, number> = {
   blocked: 90, // safety warning
+  failed: 85,
   "requesting-consent": 80,
   succeeded: 60,
   unknown: 60,
@@ -61,6 +63,7 @@ const DURATION: Record<TransientKind, number> = {
   succeeded: 2500,
   blocked: 4500,
   unknown: 5000,
+  failed: 5000,
   clicked: 700,
   dragged: 600,
 };
@@ -136,6 +139,11 @@ export function pose(state: MachineState, nowMs: number): Pose {
         return { animation: "blocked", ambient: false };
       case "unknown":
         return { animation: "unknown", ambient: false };
+      case "failed":
+        // Definitive failure has its own pose intent; the renderer falls back
+        // to "unknown" art if the pack ships no "failed" animation, but the
+        // fixed bubble wording (packs.ts) keeps it distinct from "unknown".
+        return { animation: "blocked", ambient: false };
       case "clicked":
         return { animation: "clicked", ambient: false };
       case "dragged":
@@ -187,7 +195,7 @@ export function mapRuntimeEvent(e: RuntimeEventLike): MachineEvent | null {
     case "action.uncertain":
       return { type: "transient", kind: "unknown" };
     case "action.failed":
-      return { type: "transient", kind: "unknown" };
+      return { type: "transient", kind: "failed" };
     case "ai.assist.requested":
       return { type: "transient", kind: "waiting-for-receipt", durationMs: 15000 };
     case "consent.changed":

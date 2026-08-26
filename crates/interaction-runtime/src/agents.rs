@@ -71,6 +71,10 @@ impl Runtime {
         &self,
         input: CreateAgentSession,
     ) -> DomainResult<AgentSessionRecord> {
+        // Serialize creation so the estop/count checks are not TOCTOU: two
+        // racing creates cannot both pass a near-limit count, and a create
+        // cannot slip in after an emergency stop's session sweep.
+        let _create_guard = self.agent_create_lock.lock().await;
         if self.is_estopped() {
             return Err(DomainError::PolicyBlocked(
                 "emergency stop engaged; no new agent sessions".into(),
@@ -82,6 +86,29 @@ impl Runtime {
         if let Some(envelope) = &input.delegation {
             check_delegation(envelope, &policy.delegation, session_id.as_str(), open)
                 .map_err(DomainError::PolicyBlocked)?;
+            // Deterministic fan-out cap that does NOT depend on caller-honest
+            // hop_count: bound the number of open sessions sharing this
+            // delegation tree's rootTaskId by max_parallel.
+            let same_tree = self
+                .agent_sessions
+                .read()
+                .await
+                .values()
+                .filter(|e| {
+                    e.record.state.is_open()
+                        && e.record
+                            .delegation
+                            .as_ref()
+                            .map(|d| d.root_task_id == envelope.root_task_id)
+                            .unwrap_or(false)
+                })
+                .count() as u32;
+            if same_tree >= policy.delegation.max_parallel {
+                return Err(DomainError::PolicyBlocked(format!(
+                    "delegation tree {} already has {same_tree} open sessions (max_parallel {})",
+                    envelope.root_task_id, policy.delegation.max_parallel
+                )));
+            }
         } else if open >= policy.delegation.max_sessions {
             return Err(DomainError::PolicyBlocked(format!(
                 "too many open agent sessions ({open} ≥ {})",
@@ -115,9 +142,16 @@ impl Runtime {
                 max_duration_ms: (ttl as u64) * 60_000,
                 max_cost: input.max_cost.unwrap_or(0.0),
                 spent_cost: 0.0,
-                max_messages: input
-                    .max_messages
-                    .unwrap_or(policy.delegation.max_messages_per_session),
+                // effective limit = min(requested, policy). A caller-supplied
+                // 0 (or a value above policy) can never widen the ceiling — 0
+                // means "use the policy default", not "unlimited".
+                max_messages: {
+                    let policy_max = policy.delegation.max_messages_per_session;
+                    match input.max_messages {
+                        None | Some(0) => policy_max,
+                        Some(n) => n.min(policy_max),
+                    }
+                },
                 spent_messages: 0,
             },
             delegation: input.delegation,
@@ -403,7 +437,11 @@ impl Runtime {
             }
             inferences.insert("report".to_string(), claim);
         }
-        self.ingest("agent.session", facts, inferences, 1.0).await?;
+        // The FACT (a report arrived) is certain; the agent's CLAIM inside it is
+        // not. Confidence describes the inferences, so a self-report carries a
+        // deliberately moderate 0.5 — never 1.0 — so fusion/uncertainty gates
+        // never treat an unverified claim as unambiguous evidence.
+        self.ingest("agent.session", facts, inferences, 0.5).await?;
         Ok(record)
     }
 
@@ -429,7 +467,12 @@ impl Runtime {
                 _ => AgentSessionState::Closed,
             };
             entry.record.closed_at = Some(now);
-            entry.record.consent_scope.clear(); // consents die with the session
+            // Consents die with the session unless the lease explicitly opts
+            // out (revoke_on_session_end). Default is true, so this honors the
+            // lease flag rather than leaving it a dead knob.
+            if entry.record.lease.revoke_on_session_end {
+                entry.record.consent_scope.clear();
+            }
             entry.record.handoff = handoff;
             entry.record.detail = Some(reason.to_string());
             // Undelivered tasks are dead, honestly.
@@ -595,7 +638,25 @@ impl interaction_core::Actuator for DelegateActuator {
         let mut body = BTreeMap::new();
         body.insert("task".to_string(), json!(task));
         if let Some(env) = extra.get("delegation") {
-            body.insert("delegation".to_string(), env.clone());
+            // Advance the envelope on the way through instead of forwarding it
+            // verbatim: increment the hop count and append the target session
+            // so downstream depth/cycle checks see a real chain, not a static
+            // hop_count:0 the caller can reset every hop.
+            if let Ok(mut envelope) =
+                serde_json::from_value::<interaction_core::DelegationEnvelope>(env.clone())
+            {
+                envelope.hop_count = envelope.hop_count.saturating_add(1);
+                envelope.parent_task_id = Some(envelope.delegation_id.clone());
+                if !envelope.visited_sessions.iter().any(|s| s == &session_id) {
+                    envelope.visited_sessions.push(session_id.clone());
+                }
+                body.insert(
+                    "delegation".to_string(),
+                    serde_json::to_value(envelope).unwrap_or_else(|_| env.clone()),
+                );
+            } else {
+                body.insert("delegation".to_string(), env.clone());
+            }
         }
         match runtime
             .mailbox_send(

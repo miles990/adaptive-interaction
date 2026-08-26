@@ -140,3 +140,83 @@ async fn estop_while_capturing_leaves_no_silent_path() {
     assert!(status["activeSensors"].as_array().unwrap().is_empty());
     assert!(fake.stopped.load(std::sync::atomic::Ordering::SeqCst));
 }
+
+#[tokio::test]
+async fn revoking_receptor_consent_stops_capture_immediately() {
+    let (_g, rt, fake) = runtime().await;
+    rt.registry
+        .set_receptor_enabled(&ReceptorId::new("microphone.listen"), true)
+        .await
+        .unwrap();
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.grant_consent("receptor:microphone.listen", None)
+        .await
+        .unwrap();
+    rt.begin_mic_listen(20_000, "test").await.unwrap();
+    assert_eq!(rt.active_sensors().len(), 1);
+
+    // Revoking the mic's consent must stop capture NOW (regression: previously
+    // ConsentScope::Receptor fell through and the mic kept capturing).
+    rt.revoke_consent("receptor:microphone.listen")
+        .await
+        .unwrap();
+    assert!(fake.stopped.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(rt.active_sensors().is_empty());
+}
+
+#[tokio::test]
+async fn mic_facts_are_not_persisted_retention_none() {
+    let (_g, rt, _fake) = runtime().await;
+    rt.registry
+        .set_receptor_enabled(&ReceptorId::new("microphone.listen"), true)
+        .await
+        .unwrap();
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.grant_consent("receptor:microphone.listen", None)
+        .await
+        .unwrap();
+    rt.begin_mic_listen(5_000, "test").await.unwrap();
+    // observe_fresh returns derived facts live…
+    let obs = rt
+        .observe_fresh(&ReceptorId::new("microphone.listen"))
+        .await
+        .unwrap();
+    assert_eq!(obs.facts["listening"], serde_json::json!(true));
+    // …but nothing is written to the store (retention: none is honored).
+    let stored = rt
+        .observe_stored(&ObservationQuery {
+            receptor_id: Some(ReceptorId::new("microphone.listen")),
+            limit: Some(50),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(
+        stored.is_empty(),
+        "no-retention receptor must not persist observations"
+    );
+}
+
+#[tokio::test]
+async fn estop_during_start_aborts_the_window() {
+    // Engage estop, then attempt to open a window: begin_mic_listen must refuse
+    // (the estop gate plus the post-open re-check both hold).
+    let (_g, rt, fake) = runtime().await;
+    rt.registry
+        .set_receptor_enabled(&ReceptorId::new("microphone.listen"), true)
+        .await
+        .unwrap();
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.grant_consent("receptor:microphone.listen", None)
+        .await
+        .unwrap();
+    rt.emergency_stop("test", None).await.unwrap();
+    assert!(rt.begin_mic_listen(5_000, "test").await.is_err());
+    assert!(!fake.started.load(std::sync::atomic::Ordering::SeqCst));
+}

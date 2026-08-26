@@ -43,6 +43,19 @@ describe("persona packs", () => {
     expect(resolveLine("succeeded", malicious, () => 0)).toBe("任務節點完成。");
   });
 
+  it("verified-success and failure wording are frozen (verification claims immutable)", () => {
+    const p = persona({
+      "succeeded-verified": ["其實根本沒驗證，但我說成功了！"],
+      failed: ["沒有失敗喔～"],
+    });
+    // The validator flags both as safety-critical…
+    const issues = validatePersonaPack(p);
+    expect(issues.some((i) => i.includes("safety-critical"))).toBe(true);
+    // …and resolution ignores the override.
+    expect(resolveLine("succeeded-verified", p)).toBe(FIXED_SAFETY_LINES["succeeded-verified"]);
+    expect(resolveLine("failed", p)).toBe(FIXED_SAFETY_LINES["failed"]);
+  });
+
   it("valid packs restyle non-safety lines; missing keys fall back to defaults", () => {
     const p = persona({ succeeded: ["航線這一段已通過。"] });
     expect(validatePersonaPack(p)).toEqual([]);

@@ -39,6 +39,10 @@ export default function CompanionApp() {
   const [ready, setReady] = React.useState(false);
   const [inputOpen, setInputOpen] = React.useState(false);
   const [sensorLabel, setSensorLabel] = React.useState<string | null>(null);
+  // Mirror the machine base into React state so the pack-immune 緊急停止中 label
+  // re-renders even when estop is detected only by the status poll (no event).
+  const [baseState, setBaseState] = React.useState<string>("offline");
+  const bubbleTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const personaRef = React.useRef<PersonaPack | null>(null);
   const storyRef = React.useRef<StoryPack | null>(null);
   const behaviorRef = React.useRef<BehaviorTuning>(behaviorFor("natural"));
@@ -49,14 +53,26 @@ export default function CompanionApp() {
     return resolveLine(key, personaRef.current);
   }, []);
 
+  /** Show a bubble for `ms` (0 = sticky). Clears any prior timer so an older
+   *  bubble's timeout can never erase a newer safety bubble early. */
+  const showBubble = React.useCallback((text: string | null, ms: number) => {
+    if (bubbleTimer.current) {
+      clearTimeout(bubbleTimer.current);
+      bubbleTimer.current = null;
+    }
+    setBubble(text);
+    if (text && ms > 0) {
+      bubbleTimer.current = setTimeout(() => setBubble(null), ms);
+    }
+  }, []);
+
   /** Show a story chapter once, then persist the progress. */
   const playChapter = React.useCallback(
     (trigger: "first-meeting" | "first-verified-success") => {
       const ch = nextChapter(storyRef.current, trigger, storyProgress.current);
       if (!ch) return;
       storyProgress.current = { ...storyProgress.current, [ch.id]: true };
-      setBubble(ch.line);
-      setTimeout(() => setBubble(null), 9000);
+      showBubble(ch.line, 9000);
       void desktop
         .prefsPatch({ storyProgress: storyProgress.current })
         .catch(() => {});
@@ -143,6 +159,7 @@ export default function CompanionApp() {
   // ---- machine driving ----
   const apply = React.useCallback((ev: Parameters<typeof reduce>[1]) => {
     machineRef.current = reduce(machineRef.current, ev, Date.now());
+    setBaseState(machineRef.current.base);
     syncPose();
   }, []);
 
@@ -216,22 +233,24 @@ export default function CompanionApp() {
     const base = machineRef.current.base;
     // Safety lines are FIXED (packs cannot restyle them) and always show.
     if (e.eventType === "emergency.stop" && e.payload["cleared"] !== true) {
-      setBubble(line("emergency"));
+      showBubble(line("emergency"), 0); // sticky
       return;
     }
-    // Blocked/unknown are safety-relevant: shown even in quiet expressiveness,
-    // but not while paused/quiet-hours/estop (the state itself explains).
+    // Blocked/unknown/failed are safety-relevant fixed wording: shown even in
+    // quiet expressiveness (but not while paused/quiet-hours/estop — the state
+    // itself already explains the silence).
     if (base === "quiet" || base === "paused" || base === "emergency") return;
     const safetyText =
       e.eventType === "plan.blocked"
         ? line("blocked")
         : e.eventType === "action.uncertain"
           ? line("unknown")
-          : null;
+          : e.eventType === "action.failed"
+            ? line("failed")
+            : null;
     if (safetyText) {
       lastBubbleAt.current = now;
-      setBubble(safetyText);
-      setTimeout(() => setBubble(null), 5000);
+      showBubble(safetyText, 5000);
       return;
     }
     // Casual lines: persona-styled, expressiveness-gated, cooldown-limited.
@@ -244,8 +263,7 @@ export default function CompanionApp() {
     } else if (e.eventType === "action.completed") text = line("succeeded");
     if (text) {
       lastBubbleAt.current = now;
-      setBubble(text);
-      setTimeout(() => setBubble(null), 4000);
+      showBubble(text, 4000);
     }
   }
 
@@ -383,16 +401,14 @@ export default function CompanionApp() {
           break;
         case "pause-1h":
           await api.pauseSet(60, "companion quick action");
-          setBubble(line("pause-ack"));
-          setTimeout(() => setBubble(null), 3500);
+          showBubble(line("pause-ack"), 3500);
           break;
         case "estop":
           await api.emergencyStop("companion quick action");
           break;
       }
     } catch (e) {
-      setBubble(`失敗：${e}`);
-      setTimeout(() => setBubble(null), 4000);
+      showBubble(`失敗：${e}`, 4000);
     }
   }
 
@@ -422,7 +438,7 @@ export default function CompanionApp() {
     })();
   }, [ready]);
 
-  const estop = machineRef.current.base === "emergency";
+  const estop = baseState === "emergency";
 
   return (
     <div className="companion-root">
@@ -471,8 +487,7 @@ export default function CompanionApp() {
                 mayLeaveDevice: false,
               });
               setDropPreview(null);
-              setBubble(line("drop-received"));
-              setTimeout(() => setBubble(null), 3000);
+              showBubble(line("drop-received"), 3000);
             }}
           >
             記錄這些項目

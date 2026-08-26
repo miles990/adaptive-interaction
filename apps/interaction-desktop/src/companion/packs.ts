@@ -39,8 +39,13 @@ export const SAFETY_KEYS = [
   "emergency",
   "blocked",
   "unknown",
+  "failed",
   "sensor-microphone",
   "sensor-camera",
+  // The VERIFIED-success line makes a verification claim, so a pack must not be
+  // able to restyle it (or move it onto an unverified state). The plain
+  // `succeeded` (completed) line stays pack-restylable — that is the feature.
+  "succeeded-verified",
 ] as const;
 
 /** Fixed standard wording (never overridable by any pack). */
@@ -48,8 +53,13 @@ export const FIXED_SAFETY_LINES: Record<string, string> = {
   emergency: "緊急停止中",
   blocked: "這個動作超出目前允許範圍，所以我沒有執行。",
   unknown: "要求已送出，但目前無法確認是否真的完成。",
+  // A definitive failure is distinct from "unknown" — never conflate them.
+  failed: "這個動作失敗了。",
   "sensor-microphone": "🎙 正在使用麥克風",
   "sensor-camera": "📷 正在使用攝影機",
+  // Verified success — its wording is fixed so no pack can claim verification
+  // it didn't earn (shown only on action.observed).
+  "succeeded-verified": "做完了，也確認過結果。",
 };
 
 /** Default (小樞) non-safety lines. */

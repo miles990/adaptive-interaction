@@ -148,8 +148,9 @@ pub fn save_prefs(prefs: &DesktopPrefs) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    // Atomic write: temp file + rename.
-    let tmp = path.with_extension("json.tmp");
+    // Atomic write: unique temp file + rename, so two concurrent savers never
+    // clobber each other's half-written temp (each renames its own).
+    let tmp = path.with_extension(format!("json.tmp.{}", std::process::id()));
     let body = serde_json::to_string_pretty(prefs).map_err(|e| e.to_string())?;
     std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;

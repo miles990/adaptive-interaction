@@ -55,9 +55,19 @@ impl Runtime {
         let _ = self.providers.register(builtin).await;
 
         // 2) Persisted provider records (paired devices etc.).
+        //    Crash/restart must NOT auto-recover an operational device: pairing
+        //    survives, but any provider left Available/Busy/Degraded comes back
+        //    Disabled so a physical device never re-arms itself on its own.
         if let Ok(bodies) = self.store.all_providers() {
             for body in bodies {
-                if let Ok(desc) = serde_json::from_str::<ProviderDescriptor>(&body) {
+                if let Ok(mut desc) = serde_json::from_str::<ProviderDescriptor>(&body) {
+                    if desc.state.is_operational() {
+                        desc.state = ProviderState::Disabled;
+                        desc.detail = Some("re-armed on restart requires explicit enable".into());
+                        if let Ok(b) = serde_json::to_string(&desc) {
+                            let _ = self.store.save_provider(desc.identity.id.as_str(), &b);
+                        }
+                    }
                     let _ = self.providers.register(desc).await;
                 }
             }
@@ -157,8 +167,15 @@ impl Runtime {
     }
 
     /// Pairing ceremony (shared-code): the human enters the code the device
-    /// shows. The fingerprint is derived from code + provider id and stored;
-    /// an IP address is never an identity. Transitions → Paired.
+    /// shows. The stored fingerprint mixes a fresh random per-pairing secret so
+    /// it is NOT a pure function of the public provider id + code (which anyone
+    /// could recompute); an IP address is never an identity. Transitions →
+    /// Paired.
+    ///
+    /// Honest scope note: this records that a human completed a pairing with a
+    /// secret. Enforcing device identity on every request (rejecting an
+    /// imposter at the same address) needs device-side crypto that HTTP/mock
+    /// devices in this build do not present — see docs/ARCHITECTURE.md.
     pub async fn pair_provider(
         &self,
         id: &ProviderId,
@@ -169,10 +186,15 @@ impl Runtime {
                 "pairing code must be at least 4 characters".into(),
             ));
         }
+        // Random per-pairing secret: makes the fingerprint unforgeable from the
+        // public (id, code) pair.
+        let salt = uuid::Uuid::new_v4();
         let mut hasher = Sha256::new();
         hasher.update(id.as_str().as_bytes());
         hasher.update(b":");
         hasher.update(pairing_code.trim().as_bytes());
+        hasher.update(b":");
+        hasher.update(salt.as_bytes());
         let fingerprint = hex_lower(&hasher.finalize());
 
         // discovered/unpaired → paired (the registry refuses shortcuts).

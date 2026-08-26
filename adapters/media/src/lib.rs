@@ -132,7 +132,16 @@ pub mod cpal_source {
             match ready_rx.recv_timeout(std::time::Duration::from_secs(3)) {
                 Ok(Ok(())) => Ok(Box::new(ThreadedHandle { level, stop })),
                 Ok(Err(e)) => Err(format!("microphone unavailable: {e}")),
-                Err(_) => Err("microphone start timed out".into()),
+                Err(_) => {
+                    // Timed out waiting for device init. If the thread later
+                    // succeeds, ONLY ThreadedHandle::drop sets `stop` — and we
+                    // never build one here — so set it now, otherwise the
+                    // thread would hold the cpal stream open forever (silent,
+                    // deadline-less capture). This releases it as soon as init
+                    // completes.
+                    stop.store(true, Ordering::SeqCst);
+                    Err("microphone start timed out".into())
+                }
             }
         }
     }
@@ -265,15 +274,19 @@ impl MicListenReceptor {
             started_at: now,
             deadline: now + chrono::Duration::milliseconds(bounded as i64),
         });
-        drop(active);
+        // Notify WHILE holding the active lock so the (state, indicator)
+        // transition is atomic: a concurrent stop_listen cannot interleave its
+        // notify(false) between our set and our notify(true) and leave a
+        // phantom "capturing" indicator after the handle was already dropped.
         self.notify(true);
+        drop(active);
         Ok(())
     }
 
     /// Stop capturing NOW (user action / estop / deadline).
     pub fn stop_listen(&self) {
-        let had = self.active.lock().expect("active lock").take();
-        if had.is_some() {
+        let mut active = self.active.lock().expect("active lock");
+        if active.take().is_some() {
             self.notify(false);
         }
     }
@@ -375,7 +388,14 @@ impl Receptor for MicListenReceptor {
     }
 
     async fn health(&self) -> ComponentHealth {
-        ComponentHealth::healthy().at(Utc::now())
+        // Reflect the real backend so the registry cannot recompute this
+        // receptor as Available on a host with no capture backend (enabling it
+        // would otherwise pass the availability gate and only fail at start).
+        if self.current_source().available() {
+            ComponentHealth::healthy().at(Utc::now())
+        } else {
+            ComponentHealth::offline("no microphone capture backend").at(Utc::now())
+        }
     }
 
     async fn stop(&self) -> Result<(), ReceptorError> {
