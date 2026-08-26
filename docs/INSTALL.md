@@ -45,7 +45,7 @@ bash install.sh        # ← all-in-one 互動選單：勾選要裝的元件
 ```text
 adaptive-interaction all-in-one 安裝 — 選擇元件（預設全選；輸入編號取消）
   [x] 1. interact-ai CLI（必裝：runtime／daemon／所有指令）
-  [x] 2. 跨 AI Skill（自動偵測 Claude/Codex/Gemini/Copilot…，預設全裝）
+  [x] 2. 跨 AI Skill（偵測到的 agent 全裝：Claude/Codex/Gemini/Copilot…）
   [x] 3. 桌面控制中心（下載本平台安裝包）
   [x] 4. Shell completion（zsh）
 ```
@@ -69,7 +69,7 @@ bash install.sh --version v0.1.0               # 固定版本
 interact-ai self version --check   # 有沒有新版？
 interact-ai self update            # 一鍵更新（sha256 驗證＋原子替換）
 interact-ai self update --version v0.1.0
-interact-ai self install-skill     # 跨 AI 裝 skill：自動偵測所有 agent、選單可選、預設全裝
+interact-ai self install-skill     # 跨 AI 裝 skill：偵測到的 agent 預設全裝（選單可取消）
 interact-ai self install-desktop   # 下載本平台桌面版
 interact-ai self uninstall --yes [--purge]   # 移除（--purge 連資料目錄）
 ```

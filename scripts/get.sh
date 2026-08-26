@@ -44,7 +44,7 @@ if [[ "$EXPLICIT" == 0 && -t 0 && -t 1 ]]; then
     echo ""
     echo "adaptive-interaction all-in-one 安裝 — 預設全選，輸入編號可取消"
     echo "  [x] 1. interact-ai CLI（必裝：runtime／daemon／所有指令）"
-    echo "  [$(mark $SEL_SKILL)] 2. 跨 AI Skill（自動偵測 Claude/Codex/Gemini/Copilot…，預設全裝）"
+    echo "  [$(mark $SEL_SKILL)] 2. 跨 AI Skill（偵測到的 agent 全裝：Claude/Codex/Gemini/Copilot…）"
     echo "  [$(mark $SEL_DESKTOP)] 3. 桌面控制中心（下載本平台安裝包）"
     echo "  [$(mark $SEL_COMPLETION)] 4. Shell completion（$(basename "${SHELL:-zsh}")）"
     echo ""
