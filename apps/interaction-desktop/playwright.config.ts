@@ -21,9 +21,11 @@ export default defineConfig({
     // In CI, serve the prebuilt dist (fast, no esbuild optimizeDeps cold
     // start that can exceed the timeout on a shared runner); locally use the
     // dev server and reuse one if already running.
+    // Bind 127.0.0.1 explicitly: on Linux CI `localhost` can resolve to ::1
+    // first, so a server on localhost would never answer the 127.0.0.1 probe.
     command: process.env.CI
-      ? "pnpm exec vite preview --port 5199 --strictPort"
-      : "pnpm exec vite --port 5199 --strictPort",
+      ? "pnpm exec vite preview --host 127.0.0.1 --port 5199 --strictPort"
+      : "pnpm exec vite --host 127.0.0.1 --port 5199 --strictPort",
     url: "http://127.0.0.1:5199",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
