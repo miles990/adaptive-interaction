@@ -203,9 +203,6 @@ scripts/release.sh 0.2.0 && git push && git push --tags
 - [tentacle-monster-roleplay-esp32](https://github.com/ra1nyxin/tentacle-monster-roleplay-esp32) —
   非同步效果佇列、PATTERN 時間軸與情境連動的設計啟發
 
-（僅參考公開概念，未複用任何程式碼；並在此基礎上加入 TTL lease、watchdog
-與 deterministic 安全限界等改進。）
-
 ## 授權
 
 MIT
