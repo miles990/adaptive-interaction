@@ -1,0 +1,33 @@
+# 起始配方：裝置或服務異常時通知。
+id: starter-device-warning
+name: 裝置異常通知
+description: 裝置狀態回報異常時，用桌面通知或對話提醒你；重要警告不因安靜而被完全吞掉，但仍受安全規則限制。
+enabled: true
+trigger:
+  mode: single
+  steps:
+    - receptor: mock.device-status
+      condition:
+        connected: false
+decision:
+  objective: warn-clearly
+  allowNoAction: true
+intent: warning
+message:
+  mode: adaptive
+  intents: [warning]
+  templates:
+    - "裝置連線中斷，請確認狀態。"
+  allowSilence: false
+actuation:
+  mode: fallback
+  candidates: [local-notification, conversation, web-ui]
+  minChannels: 1
+  maxChannels: 1
+verification:
+  strategy: best-effort
+  timeout: 10s
+limits:
+  cooldown: 5m
+  expiresAfter: 60s
+  maxPerHour: 4

@@ -407,3 +407,146 @@ async fn oversized_payload_is_rejected() {
         .unwrap();
     assert_eq!(resp.status(), 413);
 }
+
+// ---------------------------------------------------------------------------
+// Human layer endpoints
+// ---------------------------------------------------------------------------
+
+impl TestServer {
+    async fn put(&self, path: &str, body: Value) -> (u16, Value) {
+        let resp = self
+            .client
+            .put(format!("{}{path}", self.base))
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        let status = resp.status().as_u16();
+        (status, resp.json().await.unwrap_or(Value::Null))
+    }
+}
+
+#[tokio::test]
+async fn human_layer_endpoints_roundtrip() {
+    let server = TestServer::spawn().await;
+
+    // Catalog is served and versioned.
+    let (code, catalog) = server.get("/v1/catalog").await;
+    assert_eq!(code, 200);
+    assert!(catalog["entries"].as_array().unwrap().len() >= 30);
+
+    // Human capability projection (zh-TW default locale).
+    let (code, caps) = server
+        .get("/v1/capabilities/human?includeUnavailable=true")
+        .await;
+    assert_eq!(code, 200);
+    let conv = caps["actuators"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "conversation")
+        .unwrap()
+        .clone();
+    assert_eq!(conv["displayName"], "對話訊息");
+    let hash = conv["manifestHash"].as_str().unwrap().to_string();
+
+    // AI description: wrong hash → 409; right hash → stored.
+    let (code, _) = server
+        .put(
+            "/v1/capabilities/actuator/conversation/ai-description",
+            json!({"locale": "zh-TW", "text": "x", "manifestHash": "0000000000000000"}),
+        )
+        .await;
+    assert_eq!(code, 409);
+    let (code, _) = server
+        .put(
+            "/v1/capabilities/actuator/conversation/ai-description",
+            json!({"locale": "zh-TW", "text": "以對話文字回覆", "manifestHash": hash}),
+        )
+        .await;
+    assert_eq!(code, 200);
+
+    // UI preferences persist through the API.
+    let (code, prefs) = server.get("/v1/ui/preferences").await;
+    assert_eq!(code, 200);
+    assert_eq!(prefs["mode"], "simple");
+    let (code, prefs) = server
+        .patch("/v1/ui/preferences", json!({"mode": "advanced"}))
+        .await;
+    assert_eq!(code, 200);
+    assert_eq!(prefs["mode"], "advanced");
+    let (code, _) = server
+        .patch("/v1/ui/preferences", json!({"mode": "bogus"}))
+        .await;
+    assert_eq!(code, 400);
+
+    // Pause is a separate state from emergency stop.
+    let (code, pause) = server
+        .post(
+            "/v1/pause",
+            json!({"durationMinutes": 60, "reason": "focus"}),
+        )
+        .await;
+    assert_eq!(code, 200);
+    assert_eq!(pause["paused"], json!(true));
+    let (_, ready) = server.get("/ready").await;
+    assert_eq!(
+        ready["emergencyStop"],
+        json!(false),
+        "pause must NOT engage estop"
+    );
+    let (_, status) = server.get("/v1/status").await;
+    assert_eq!(status["proactivePause"]["paused"], json!(true));
+    let (code, pause) = server.post("/v1/pause/clear", json!({})).await;
+    assert_eq!(code, 200);
+    assert_eq!(pause["paused"], json!(false));
+
+    // Onboarding draft + commit.
+    let (code, ob) = server.get("/v1/onboarding").await;
+    assert_eq!(code, 200);
+    assert_eq!(ob["completed"], json!(false));
+    let (code, _) = server.put("/v1/onboarding/draft", json!({"step": 2})).await;
+    assert_eq!(code, 200);
+    let (code, result) = server
+        .post(
+            "/v1/onboarding/commit",
+            json!({"starterRecipes": ["starter-quiet-log"], "policyPatch": {"initiative": "suggest"}}),
+        )
+        .await;
+    assert_eq!(code, 200);
+    assert_eq!(result["completed"], json!(true));
+
+    // Recipe summary + scenario simulation for the starter recipe.
+    let (code, summary) = server
+        .get("/v1/recipes/starter-quiet-log/summary?locale=zh-TW")
+        .await;
+    assert_eq!(code, 200);
+    assert!(summary["summary"].as_str().unwrap().contains("不需要 AI"));
+
+    server
+        .post("/v1/session/start", json!({"label": "t"}))
+        .await;
+    let (code, report) = server
+        .post(
+            "/v1/recipes/starter-quiet-log/simulate-scenario",
+            json!({"event": {"receptor": "task.lifecycle", "facts": {"event": "task.started"}}}),
+        )
+        .await;
+    assert_eq!(code, 200);
+    assert!(report["sideEffects"].as_str().unwrap().contains("模擬"));
+
+    // Recipe YAML↔JSON conversion preserves unknown fields.
+    let (code, converted) = server
+        .post(
+            "/v1/recipes/convert",
+            json!({
+                "to": "yaml",
+                "text": "{\"id\":\"c\",\"name\":\"c\",\"futureField\":{\"x\":1},\"trigger\":{\"mode\":\"single\",\"steps\":[{\"receptor\":\"task.lifecycle\"}]},\"decision\":{\"objective\":\"t\"},\"actuation\":{\"candidates\":[\"conversation\"]}}"
+            }),
+        )
+        .await;
+    assert_eq!(code, 200);
+    assert_eq!(converted["valid"], json!(true));
+    assert!(converted["text"].as_str().unwrap().contains("futureField"));
+}

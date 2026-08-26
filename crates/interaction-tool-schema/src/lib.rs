@@ -43,6 +43,7 @@ fn tool(
         cost: None,
         availability: Availability::Available,
         schema_version: SCHEMA_VERSION.to_string(),
+        human: None,
     }
 }
 

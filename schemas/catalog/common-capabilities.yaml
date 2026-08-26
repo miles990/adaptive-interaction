@@ -1,0 +1,579 @@
+# 常見能力中央目錄（Common Capability Catalog）
+#
+# 收錄「概念」，不收錄品牌或裝置。目錄只負責一致的名稱、說明、分類、
+# icon 與常見用途提示；`typical` 是呈現層提示，永遠不能覆蓋 adapter 的
+# 正式宣告或 Rust policy governor。
+#
+# alias 支援 glob：`*` 對應一個段、`**` 對應任意多段（含零段）。
+schemaVersion: "1.0"
+version: 1
+entries:
+  # ───────────────────────── 感知來源 Receptors ─────────────────────────
+  - canonicalId: common.time.system
+    kind: receptor
+    category: time
+    aliases: [system.time, time.system, clock, "**.clock"]
+    icon: clock
+    colorRole: input
+    beginnerRecommended: true
+    name: { zh-TW: 系統時間, en: System time }
+    shortDescription:
+      zh-TW: 讓系統知道現在的日期與時間，用來判斷安靜時段或排程。
+      en: Tells the system the current date and time, for quiet hours and scheduling.
+    typical: { personalData: false, source: local, leavesDevice: false }
+
+  - canonicalId: common.input.user-text
+    kind: receptor
+    category: input
+    aliases: [session.input, user.input, chat.input, text.input]
+    icon: keyboard
+    colorRole: input
+    beginnerRecommended: true
+    name: { zh-TW: 使用者輸入, en: User input }
+    shortDescription:
+      zh-TW: 你直接輸入的文字與指令。明確輸入永遠優先於任何推測。
+      en: Text and commands you type. Explicit input always outranks inference.
+    typical: { personalData: true, source: local, leavesDevice: false }
+
+  - canonicalId: common.event.manual
+    kind: receptor
+    category: input
+    aliases: [manual.event]
+    icon: hand
+    colorRole: input
+    beginnerRecommended: true
+    name: { zh-TW: 手動事件, en: Manual event }
+    shortDescription:
+      zh-TW: 由你或程式手動送出的一次性訊號，常用於測試與自訂流程。
+      en: One-off signals sent by you or a script; used for tests and custom flows.
+    typical: { personalData: false, source: local, leavesDevice: false }
+
+  - canonicalId: common.task.lifecycle
+    kind: receptor
+    category: task
+    aliases: [task.lifecycle, task.status, "**.task-status"]
+    icon: list-checks
+    colorRole: input
+    beginnerRecommended: true
+    name: { zh-TW: 任務狀態, en: Task status }
+    shortDescription:
+      zh-TW: 讓系統知道工作是否開始、完成或失敗。
+      en: Tells the system when work starts, completes or fails.
+    typical: { personalData: false, source: local, leavesDevice: false }
+
+  - canonicalId: common.agent.activity
+    kind: receptor
+    category: task
+    aliases: [agent.activity]
+    icon: bot
+    colorRole: input
+    beginnerRecommended: true
+    name: { zh-TW: AI 助手活動, en: Agent activity }
+    shortDescription:
+      zh-TW: AI 助手目前正在做什麼（例如編譯、搜尋、等待）。
+      en: What the AI agent is currently doing (building, searching, waiting).
+    typical: { personalData: false, source: local, leavesDevice: false }
+
+  - canonicalId: common.presence.user
+    kind: receptor
+    category: presence
+    aliases: [user.presence, presence, "**.presence"]
+    icon: user-round
+    colorRole: input
+    name: { zh-TW: 使用者在場狀態, en: User presence }
+    shortDescription:
+      zh-TW: 推測你是否在電腦前。這是推測，不是事實，會標示信心程度。
+      en: Estimates whether you are at the computer. An inference, never a fact.
+    typical: { personalData: true, source: local, leavesDevice: false }
+
+  - canonicalId: common.system.status
+    kind: receptor
+    category: system
+    aliases: [system.status, process.status, "**.system-status"]
+    icon: activity
+    colorRole: input
+    name: { zh-TW: 系統狀態, en: System status }
+    shortDescription:
+      zh-TW: 這台電腦的執行狀態，例如程式是否存活、資源是否吃緊。
+      en: "Health of this computer: process liveness, resource pressure."
+    typical: { personalData: false, source: local, leavesDevice: false }
+
+  - canonicalId: common.device.status
+    kind: receptor
+    category: device
+    aliases: [device.status, "**.device-status", mock.device-status]
+    icon: cpu
+    colorRole: input
+    name: { zh-TW: 裝置狀態, en: Device status }
+    shortDescription:
+      zh-TW: 回報外接裝置目前的狀態，用來驗證動作是否真的生效。
+      en: Reports a connected device's state; used to verify effects actually happened.
+    typical: { personalData: false, source: device, leavesDevice: false }
+
+  - canonicalId: common.network.status
+    kind: receptor
+    category: system
+    aliases: [network.status, net.status]
+    icon: wifi
+    colorRole: input
+    name: { zh-TW: 網路狀態, en: Network status }
+    shortDescription:
+      zh-TW: 網路是否連線、品質如何。
+      en: Whether the network is up and how healthy it is.
+    typical: { personalData: false, source: local, leavesDevice: false }
+
+  - canonicalId: common.webhook.inbound
+    kind: receptor
+    category: integration
+    aliases: [webhook.input, http.webhook, "**.webhook-in"]
+    icon: webhook
+    colorRole: input
+    name: { zh-TW: Webhook 接收, en: Incoming webhook }
+    shortDescription:
+      zh-TW: 接收其他程式或服務主動送來的通知（webhook 是服務間的回呼訊息）。
+      en: Receives notifications pushed by other programs or services.
+    typical: { personalData: unknown, source: external-service, leavesDevice: false }
+
+  - canonicalId: common.calendar.read
+    kind: receptor
+    category: integration
+    aliases: [calendar.events, calendar, "**.calendar"]
+    icon: calendar
+    colorRole: input
+    name: { zh-TW: 行事曆, en: Calendar }
+    shortDescription:
+      zh-TW: 讀取你的行事曆活動與空檔。
+      en: Reads your calendar events and availability.
+    typical: { personalData: true, source: external-service, leavesDevice: unknown }
+    riskNote:
+      zh-TW: 行事曆內容屬於個人資料；來源可能是外部服務。
+      en: Calendar contents are personal data; the source may be an external service.
+
+  - canonicalId: common.location
+    kind: receptor
+    category: sensor
+    aliases: [location, gps, "**.location"]
+    icon: map-pin
+    colorRole: input
+    name: { zh-TW: 位置, en: Location }
+    shortDescription:
+      zh-TW: 你的地理位置。屬於高敏感資料，預設關閉。
+      en: Your geographic location. Highly sensitive; off by default.
+    typical: { personalData: true, sensitivity: high, source: device, leavesDevice: unknown }
+    riskNote:
+      zh-TW: 位置是高敏感個人資料，啟用前請確認為什麼需要它。
+      en: Location is highly sensitive personal data; confirm why it is needed before enabling.
+
+  - canonicalId: common.environment.sensor
+    kind: receptor
+    category: sensor
+    aliases: [env.sensor, "environment.**", "**.env-sensor"]
+    icon: thermometer
+    colorRole: input
+    name: { zh-TW: 環境感測, en: Environment sensor }
+    shortDescription:
+      zh-TW: 溫度、濕度、亮度等環境數值。
+      en: Ambient readings such as temperature, humidity, light.
+    typical: { personalData: false, source: device, leavesDevice: false }
+
+  - canonicalId: common.audio.microphone
+    kind: receptor
+    category: sensor
+    aliases: [microphone, mic, audio.input, "**.microphone"]
+    icon: mic
+    colorRole: input
+    name: { zh-TW: 麥克風, en: Microphone }
+    shortDescription:
+      zh-TW: 聆聽環境聲音或語音。屬於高敏感資料，預設關閉、需明確同意。
+      en: Listens to ambient sound or speech. Highly sensitive; off by default, needs explicit consent.
+    typical: { personalData: true, sensitivity: high, source: device, leavesDevice: unknown }
+    riskNote:
+      zh-TW: 麥克風可能收到私人對話。啟用前系統會要求明確同意。
+      en: A microphone can capture private conversations. Explicit consent is required.
+
+  - canonicalId: common.video.camera
+    kind: receptor
+    category: sensor
+    aliases: [camera, "camera.**", video.input, "**.camera"]
+    icon: video
+    colorRole: input
+    name: { zh-TW: 攝影機, en: Camera }
+    shortDescription:
+      zh-TW: 看見畫面中的人與環境。屬於高敏感資料，預設關閉、需明確同意。
+      en: Sees people and surroundings. Highly sensitive; off by default, needs explicit consent.
+    typical: { personalData: true, sensitivity: high, source: device, leavesDevice: unknown }
+    riskNote:
+      zh-TW: 攝影機推測（例如表情、疲累）永遠只是推測，不會被當成事實。
+      en: Camera inferences (expression, fatigue) are always guesses, never facts.
+
+  - canonicalId: common.workspace.events
+    kind: receptor
+    category: workspace
+    aliases: [workspace.events, filesystem.events, file.events]
+    icon: folder-open
+    colorRole: input
+    name: { zh-TW: 工作區事件, en: Workspace events }
+    shortDescription:
+      zh-TW: 專案檔案的變更事件，例如存檔、建立、刪除。
+      en: File change events in your workspace (saves, creates, deletes).
+    typical: { personalData: unknown, source: local, leavesDevice: false }
+
+  - canonicalId: common.history.interaction
+    kind: receptor
+    category: history
+    aliases: [interaction.history]
+    icon: history
+    colorRole: input
+    name: { zh-TW: 互動歷史, en: Interaction history }
+    shortDescription:
+      zh-TW: 最近的互動紀錄，用來避免重複打擾。
+      en: Recent interaction history, used to avoid repeating yourself.
+    typical: { personalData: false, source: local, leavesDevice: false }
+
+  - canonicalId: common.receptor.mock
+    kind: receptor
+    category: testing
+    aliases: [mock.receptor]
+    driverAliases: [builtin.mock-receptor]
+    icon: flask-conical
+    colorRole: input
+    name: { zh-TW: 測試感知來源, en: Mock receptor }
+    shortDescription:
+      zh-TW: 假的感知來源，只用於測試整條流程，不接觸真實資料。
+      en: A fake receptor for testing the full loop; touches no real data.
+    typical: { personalData: false, source: local, leavesDevice: false }
+
+  # ───────────────────────── 回應方式 Actuators ─────────────────────────
+  - canonicalId: common.message.conversation
+    kind: actuator
+    category: message
+    aliases: [conversation, chat.output]
+    icon: message-square
+    colorRole: output
+    beginnerRecommended: true
+    name: { zh-TW: 對話訊息, en: Conversation message }
+    shortDescription:
+      zh-TW: 在對話中顯示一段文字，是最不打擾的回應方式。
+      en: Shows a text message in the conversation; the least intrusive channel.
+    typical: { interruptiveness: low, physicalEffect: false, confirmationLevel: delivered }
+
+  - canonicalId: common.ui.web
+    kind: actuator
+    category: message
+    aliases: [web-ui, webui, ui.panel]
+    icon: panel-top
+    colorRole: output
+    beginnerRecommended: true
+    name: { zh-TW: 網頁提示, en: Web UI hint }
+    shortDescription:
+      zh-TW: 在控制中心或網頁介面顯示提示。
+      en: Shows a hint in the control center or a web page.
+    typical: { interruptiveness: low, physicalEffect: false, confirmationLevel: delivered }
+
+  - canonicalId: common.notification.desktop
+    kind: actuator
+    category: notification
+    aliases:
+      [local-notification, desktop.notification, notification.desktop, os.notification, system.notification]
+    icon: bell
+    colorRole: output
+    beginnerRecommended: true
+    name: { zh-TW: 桌面通知, en: Desktop notification }
+    shortDescription:
+      zh-TW: 在這台電腦上顯示一則通知。
+      en: Displays a notification on this computer.
+    typical: { interruptiveness: medium, physicalEffect: false, confirmationLevel: delivered }
+
+  - canonicalId: common.audio.sound
+    kind: actuator
+    category: audio
+    aliases: [audio, sound, "**.sound"]
+    icon: volume-2
+    colorRole: output
+    name: { zh-TW: 聲音, en: Sound }
+    shortDescription:
+      zh-TW: 播放提示音或音效。安靜時段會自動被消音。
+      en: Plays a sound. Automatically silenced during quiet hours.
+    typical: { interruptiveness: high, physicalEffect: false, confirmationLevel: acknowledged }
+
+  - canonicalId: common.audio.speech
+    kind: actuator
+    category: audio
+    aliases: [tts, speech, voice, "**.speech"]
+    icon: audio-lines
+    colorRole: output
+    name: { zh-TW: 語音, en: Speech }
+    shortDescription:
+      zh-TW: 用語音說出內容。
+      en: Speaks content aloud.
+    typical: { interruptiveness: high, physicalEffect: false, confirmationLevel: acknowledged }
+
+  - canonicalId: common.light
+    kind: actuator
+    category: ambient
+    aliases: [light, lighting, "smart_light.**", "smart-light.**", "**.light"]
+    icon: lightbulb
+    colorRole: output
+    name: { zh-TW: 燈光, en: Lighting }
+    shortDescription:
+      zh-TW: 調整燈光的亮度或顏色，屬於實體效果。
+      en: Adjusts light brightness or color; a physical effect.
+    typical: { interruptiveness: medium, physicalEffect: true, confirmationLevel: acknowledged }
+
+  - canonicalId: common.haptic
+    kind: actuator
+    category: haptic
+    aliases: [haptic, vibration, "**.haptic", "**.vibration"]
+    icon: vibrate
+    colorRole: output
+    name: { zh-TW: 震動, en: Haptics }
+    shortDescription:
+      zh-TW: 實體震動回饋。預設關閉，強度與時間都有硬性上限。
+      en: Physical vibration feedback. Off by default; magnitude and duration are hard-capped.
+    typical: { interruptiveness: high, physicalEffect: true, confirmationLevel: acknowledged }
+    riskNote:
+      zh-TW: 貼身實體回饋需要明確同意，並受安全上限與緊急停止約束。
+      en: Body-adjacent physical feedback needs explicit consent, hard limits and emergency stop.
+
+  - canonicalId: common.pet.desktop
+    kind: actuator
+    category: ambient
+    aliases: [desktop-pet, desktop.pet]
+    icon: cat
+    colorRole: output
+    name: { zh-TW: 桌面角色, en: Desktop pet }
+    shortDescription:
+      zh-TW: 桌面上的小角色做出動作或表情。
+      en: A small desktop character reacts with motion or expression.
+    typical: { interruptiveness: low, physicalEffect: false, confirmationLevel: acknowledged }
+
+  - canonicalId: common.webhook.outbound
+    kind: actuator
+    category: integration
+    aliases: [webhook.output, "**.webhook-out"]
+    icon: cloud-upload
+    colorRole: output
+    name: { zh-TW: Webhook 傳送, en: Outgoing webhook }
+    shortDescription:
+      zh-TW: 把訊息傳送給外部程式或服務。資料會離開這台電腦。
+      en: Sends a message to an external program or service. Data leaves this machine.
+    typical: { interruptiveness: none, physicalEffect: false, confirmationLevel: acknowledged }
+    riskNote:
+      zh-TW: 內容會離開本機；請確認接收端是你信任的服務。
+      en: Content leaves this machine; make sure you trust the receiving service.
+
+  - canonicalId: common.log.local
+    kind: actuator
+    category: record
+    aliases: [local-log, log, "**.log"]
+    icon: file-text
+    colorRole: output
+    beginnerRecommended: true
+    name: { zh-TW: 本機紀錄, en: Local log }
+    shortDescription:
+      zh-TW: 安靜地寫進本機紀錄檔，完全不打擾。
+      en: Quietly writes to a local log; zero interruption.
+    typical: { interruptiveness: none, physicalEffect: false, confirmationLevel: completed }
+
+  - canonicalId: common.device.physical
+    kind: actuator
+    category: device
+    aliases: ["esp32.**", "serial.**", "ble.**", device.control, "**.device-control"]
+    icon: cpu
+    colorRole: output
+    name: { zh-TW: 實體裝置動作, en: Physical device action }
+    shortDescription:
+      zh-TW: 控制連接的實體裝置。預設關閉，需明確同意與安全上限。
+      en: Controls a connected physical device. Off by default; needs consent and hard limits.
+    typical: { interruptiveness: high, physicalEffect: true, confirmationLevel: acknowledged }
+    riskNote:
+      zh-TW: 實體控制屬於高風險能力：需同意、受上限限制、緊急停止隨時可用。
+      en: "Physical control is high-risk: consent required, hard-limited, emergency stop always available."
+
+  - canonicalId: common.message.external
+    kind: actuator
+    category: integration
+    aliases: [messaging, message.send, "**.send-message"]
+    icon: send
+    colorRole: output
+    name: { zh-TW: 對外訊息, en: External message }
+    shortDescription:
+      zh-TW: 傳訊息給其他人或服務。內容會離開本機且難以收回。
+      en: Sends a message to people or services. Leaves this machine and is hard to unsend.
+    typical: { interruptiveness: medium, physicalEffect: false, confirmationLevel: acknowledged }
+    riskNote:
+      zh-TW: 送出的訊息很難收回，預設每次執行前需要確認。
+      en: Sent messages are hard to recall; per-action confirmation by default.
+
+  - canonicalId: common.actuator.mock
+    kind: actuator
+    category: testing
+    aliases: [mock.actuator]
+    driverAliases: [builtin.mock-actuator]
+    icon: flask-conical
+    colorRole: output
+    name: { zh-TW: 測試回應方式, en: Mock actuator }
+    shortDescription:
+      zh-TW: 假的回應方式，只用於測試整條流程，不影響真實環境。
+      en: A fake actuator for testing the full loop; affects nothing real.
+    typical: { interruptiveness: none, physicalEffect: false, confirmationLevel: completed }
+
+  # ──────────────────────── 工具操作 Tool operations ────────────────────────
+  - canonicalId: common.op.read
+    kind: tool-operation
+    category: read
+    aliases: ["**.read", "**.get", "**.list", "**.status", "**.inspect", "**.observe"]
+    icon: eye
+    colorRole: input
+    name: { zh-TW: 讀取, en: Read }
+    shortDescription:
+      zh-TW: 讀取資料，不做任何修改。
+      en: Reads data without changing anything.
+    typical: { physicalEffect: false }
+
+  - canonicalId: common.op.search
+    kind: tool-operation
+    category: read
+    aliases: ["**.search", "**.query", "**.find"]
+    icon: search
+    colorRole: input
+    name: { zh-TW: 搜尋, en: Search }
+    shortDescription:
+      zh-TW: 在資料中尋找符合條件的內容。
+      en: Finds matching content in data.
+    typical: { physicalEffect: false }
+
+  - canonicalId: common.op.create
+    kind: tool-operation
+    category: write
+    aliases: ["**.create", "**.add", "**.plan"]
+    icon: plus
+    colorRole: output
+    name: { zh-TW: 建立, en: Create }
+    shortDescription:
+      zh-TW: 建立新的項目。
+      en: Creates a new item.
+    typical: { physicalEffect: false }
+
+  - canonicalId: common.op.modify
+    kind: tool-operation
+    category: write
+    aliases: ["**.update", "**.set", "**.modify", "**.patch", "**.edit"]
+    icon: pencil
+    colorRole: output
+    name: { zh-TW: 修改, en: Modify }
+    shortDescription:
+      zh-TW: 修改既有的項目。
+      en: Changes an existing item.
+    typical: { physicalEffect: false }
+
+  - canonicalId: common.op.delete
+    kind: tool-operation
+    category: write
+    aliases: ["**.delete", "**.remove"]
+    icon: trash-2
+    colorRole: output
+    name: { zh-TW: 刪除, en: Delete }
+    shortDescription:
+      zh-TW: 刪除項目。通常無法復原，預設需要確認。
+      en: Deletes an item. Usually irreversible; confirmation by default.
+    typical: { physicalEffect: false }
+    riskNote:
+      zh-TW: 刪除通常無法復原，請在確認影響後再執行。
+      en: Deletion is usually irreversible; review the impact first.
+
+  - canonicalId: common.op.send
+    kind: tool-operation
+    category: communicate
+    aliases: ["**.send", "**.publish", "**.post", "**.comment"]
+    icon: send
+    colorRole: output
+    name: { zh-TW: 傳送訊息, en: Send message }
+    shortDescription:
+      zh-TW: 對外送出內容，離開本機後難以收回。
+      en: Sends content outward; hard to recall once it leaves this machine.
+    typical: { physicalEffect: false }
+
+  - canonicalId: common.op.upload
+    kind: tool-operation
+    category: transfer
+    aliases: ["**.upload", "**.push"]
+    icon: cloud-upload
+    colorRole: output
+    name: { zh-TW: 上傳, en: Upload }
+    shortDescription:
+      zh-TW: 把本機資料傳到外部服務。
+      en: Transfers local data to an external service.
+    typical: { physicalEffect: false }
+
+  - canonicalId: common.op.download
+    kind: tool-operation
+    category: transfer
+    aliases: ["**.download", "**.fetch", "**.pull"]
+    icon: cloud-download
+    colorRole: input
+    name: { zh-TW: 下載, en: Download }
+    shortDescription:
+      zh-TW: 從外部服務取得資料到本機。
+      en: Retrieves data from an external service to this machine.
+    typical: { physicalEffect: false }
+
+  - canonicalId: common.op.execute
+    kind: tool-operation
+    category: execute
+    aliases: ["**.execute", "**.run", "**.invoke", "**.call"]
+    icon: play
+    colorRole: output
+    name: { zh-TW: 執行, en: Execute }
+    shortDescription:
+      zh-TW: 執行一段程式或動作，實際影響依內容而定。
+      en: Runs a program or action; the impact depends on what it does.
+    typical: {}
+
+  - canonicalId: common.op.calendar-create
+    kind: tool-operation
+    category: integration
+    aliases: ["**.create-event", "calendar.create", "**.calendar-create"]
+    icon: calendar-plus
+    colorRole: output
+    name: { zh-TW: 建立行事曆活動, en: Create calendar event }
+    shortDescription:
+      zh-TW: 在你的行事曆新增一項活動，可以撤銷。
+      en: Adds an event to your calendar; reversible.
+    typical: { physicalEffect: false }
+
+  - canonicalId: common.op.file
+    kind: tool-operation
+    category: workspace
+    aliases: ["file.**", "**.write-file", "**.read-file"]
+    icon: file
+    colorRole: output
+    name: { zh-TW: 檔案操作, en: File operation }
+    shortDescription:
+      zh-TW: 讀取或修改本機檔案。
+      en: Reads or changes local files.
+    typical: { physicalEffect: false }
+
+  - canonicalId: common.op.device-control
+    kind: tool-operation
+    category: device
+    aliases: ["**.device-control", "device.**"]
+    icon: cpu
+    colorRole: output
+    name: { zh-TW: 裝置控制, en: Device control }
+    shortDescription:
+      zh-TW: 控制外接裝置，屬於實體效果。
+      en: Controls a connected device; a physical effect.
+    typical: { physicalEffect: true }
+
+  - canonicalId: common.op.emergency-stop
+    kind: tool-operation
+    category: safety
+    aliases: [interaction.stop, "**.emergency-stop", "**.stop"]
+    icon: octagon-x
+    colorRole: danger
+    name: { zh-TW: 緊急停止, en: Emergency stop }
+    shortDescription:
+      zh-TW: 立即停止所有輸出與未完成動作，永遠可用、不需審批。
+      en: Immediately stops all output and pending actions; always available, never gated.
+    typical: { physicalEffect: false }

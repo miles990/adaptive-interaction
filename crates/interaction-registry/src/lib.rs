@@ -5,6 +5,9 @@
 //! [`CapabilitySnapshot`]s for planning. Registration is dynamic: adapters can
 //! be added and removed at runtime without touching the orchestrator.
 
+pub mod catalog;
+pub mod human_view;
+
 use interaction_core::{
     Actuator, ActuatorId, ActuatorManifest, Availability, CapabilityConstraint, CapabilitySnapshot,
     ComponentHealth, DiscoveryContext, DomainError, DomainResult, EventType, PolicyConfig,
@@ -401,6 +404,7 @@ mod tests {
                 driver: "test.fake".into(),
                 version: "0.1.0".into(),
                 schema_version: SCHEMA_VERSION.into(),
+                human: None,
             }
         }
         async fn start(&self, _c: SessionContext) -> Result<(), ReceptorError> {

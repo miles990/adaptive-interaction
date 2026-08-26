@@ -1,0 +1,34 @@
+# 起始配方：任務完成時，用最低干擾方式回應。
+id: starter-task-complete
+name: 任務完成提醒（低干擾）
+description: 任務完成時，從對話與網頁提示中挑最不打擾的一種回應；安靜時段自動降級，不合適時保持沉默。
+enabled: true
+trigger:
+  mode: single
+  steps:
+    - receptor: task.lifecycle
+      condition:
+        event: task.completed
+decision:
+  objective: acknowledge-without-interrupting
+  allowNoAction: true
+intent: success
+message:
+  mode: adaptive
+  intents: [success, celebration]
+  templates:
+    - "完成了，所有檢查都已通過。"
+    - "這一段順利收尾。"
+  allowSilence: true
+actuation:
+  mode: adaptive
+  candidates: [conversation, web-ui, local-notification]
+  minChannels: 0
+  maxChannels: 1
+verification:
+  strategy: best-effort
+  timeout: 10s
+limits:
+  cooldown: 10m
+  expiresAfter: 30s
+  maxPerHour: 6

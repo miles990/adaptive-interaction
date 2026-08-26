@@ -574,6 +574,7 @@ mod tests {
             driver: "test".into(),
             version: "0".into(),
             schema_version: SCHEMA_VERSION.into(),
+            human: None,
         }
     }
 

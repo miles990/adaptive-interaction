@@ -409,6 +409,153 @@ async fn emergency_stop_clear(state: State<'_, AppState>) -> Result<Value, Strin
 // Setup
 // ---------------------------------------------------------------------------
 
+
+#[tauri::command]
+async fn catalog_get() -> Result<Value, String> {
+    serde_json::to_value(interaction_registry::catalog::Catalog::builtin()).map_err(err_s)
+}
+
+#[tauri::command]
+async fn capabilities_human(
+    state: State<'_, AppState>,
+    locale: Option<String>,
+    include_unavailable: Option<bool>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    Ok(runtime
+        .human_capabilities(
+            locale.as_deref().unwrap_or(""),
+            include_unavailable.unwrap_or(true),
+        )
+        .await)
+}
+
+#[tauri::command]
+async fn ui_prefs_get(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    serde_json::to_value(runtime.ui_preferences().await).map_err(err_s)
+}
+
+#[tauri::command]
+async fn ui_prefs_patch(state: State<'_, AppState>, patch: Value) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let updated = runtime.update_ui_preferences(patch).await.map_err(err_s)?;
+    serde_json::to_value(updated).map_err(err_s)
+}
+
+#[tauri::command]
+async fn onboarding_get(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    Ok(runtime.onboarding_state().await)
+}
+
+#[tauri::command]
+async fn onboarding_draft(state: State<'_, AppState>, draft: Value) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.save_onboarding_draft(draft).await.map_err(err_s)?;
+    Ok(serde_json::json!({"saved": true}))
+}
+
+#[tauri::command]
+async fn onboarding_commit(state: State<'_, AppState>, commit: Value) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let commit: interaction_runtime::human::OnboardingCommit =
+        serde_json::from_value(commit).map_err(err_s)?;
+    runtime.commit_onboarding(commit).await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn pause_get(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    serde_json::to_value(runtime.pause_status().await).map_err(err_s)
+}
+
+#[tauri::command]
+async fn pause_set(
+    state: State<'_, AppState>,
+    duration_minutes: Option<u64>,
+    reason: Option<String>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let until = duration_minutes
+        .map(|m| chrono::Utc::now() + chrono::Duration::minutes(m.min(7 * 24 * 60) as i64));
+    let st = runtime
+        .pause_proactive(until, reason, "desktop")
+        .await
+        .map_err(err_s)?;
+    serde_json::to_value(st).map_err(err_s)
+}
+
+#[tauri::command]
+async fn pause_clear(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let st = runtime.resume_proactive("desktop").await.map_err(err_s)?;
+    serde_json::to_value(st).map_err(err_s)
+}
+
+#[tauri::command]
+async fn ai_assists_list(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    serde_json::to_value(runtime.pending_ai_assists().await).map_err(err_s)
+}
+
+#[tauri::command]
+async fn recipe_summary(
+    state: State<'_, AppState>,
+    id: String,
+    locale: Option<String>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let locale = locale.unwrap_or_else(|| "zh-TW".into());
+    let summary = runtime.recipe_summary(&id, &locale).await.map_err(err_s)?;
+    Ok(serde_json::json!({"recipeId": id, "summary": summary}))
+}
+
+#[tauri::command]
+async fn recipe_simulate_scenario(
+    state: State<'_, AppState>,
+    id: String,
+    scenario: Value,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let scenario: interaction_runtime::human::SimScenario =
+        serde_json::from_value(scenario).map_err(err_s)?;
+    runtime
+        .simulate_recipe_scenario(&id, scenario)
+        .await
+        .map_err(err_s)
+}
+
+#[tauri::command]
+async fn recipe_convert(text: String, to: String) -> Result<Value, String> {
+    let recipe = match interaction_recipe::parse_and_validate(&text) {
+        Ok(r) => r,
+        Err(interaction_recipe::RecipeParseError::Invalid(issues)) => {
+            return Ok(serde_json::json!({"valid": false, "issues": issues}));
+        }
+        Err(e) => {
+            return Ok(serde_json::json!({
+                "valid": false,
+                "issues": [{"field": "$", "message": e.to_string()}]
+            }));
+        }
+    };
+    let out = match to.as_str() {
+        "yaml" => interaction_recipe::to_yaml(&recipe).map_err(err_s)?,
+        "json" => interaction_recipe::to_json_pretty(&recipe).map_err(err_s)?,
+        other => return Err(format!("to must be yaml|json, got {other:?}")),
+    };
+    Ok(serde_json::json!({"valid": true, "recipe": recipe, "text": out}))
+}
+
+#[tauri::command]
+async fn recipe_get(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let recipe = runtime.get_recipe(&id).await.map_err(err_s)?;
+    serde_json::to_value(recipe).map_err(err_s)
+}
+
+
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState { runtime: Mutex::new(None), startup_error: Mutex::new(None) })
@@ -505,6 +652,21 @@ pub fn run() {
             recipe_run,
             emergency_stop,
             emergency_stop_clear,
+            catalog_get,
+            capabilities_human,
+            ui_prefs_get,
+            ui_prefs_patch,
+            onboarding_get,
+            onboarding_draft,
+            onboarding_commit,
+            pause_get,
+            pause_set,
+            pause_clear,
+            ai_assists_list,
+            recipe_summary,
+            recipe_simulate_scenario,
+            recipe_convert,
+            recipe_get,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

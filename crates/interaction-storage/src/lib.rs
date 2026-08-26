@@ -14,7 +14,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::Mutex;
 
-const CURRENT_SCHEMA: i64 = 1;
+const CURRENT_SCHEMA: i64 = 2;
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -127,9 +127,97 @@ impl Store {
             )
             .map_err(map_err)?;
         }
+        if version < 2 {
+            // AI-assisted capability descriptions, bound to the manifest hash
+            // they were written against; stale hashes are ignored on read.
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS ai_descriptions (
+                    kind          TEXT NOT NULL,
+                    capability_id TEXT NOT NULL,
+                    locale        TEXT NOT NULL,
+                    manifest_hash TEXT NOT NULL,
+                    text          TEXT NOT NULL,
+                    created_at    TEXT NOT NULL,
+                    PRIMARY KEY (kind, capability_id, locale)
+                );
+                "#,
+            )
+            .map_err(map_err)?;
+        }
         conn.pragma_update(None, "user_version", CURRENT_SCHEMA)
             .map_err(map_err)?;
         Ok(())
+    }
+
+    // ---- AI-assisted descriptions ----
+
+    /// Store an AI-assisted description for a capability. `manifest_hash` is
+    /// the hash of the manifest the text was written against.
+    pub fn set_ai_description(
+        &self,
+        kind: &str,
+        capability_id: &str,
+        locale: &str,
+        manifest_hash: &str,
+        text: &str,
+    ) -> DomainResult<()> {
+        let conn = self.conn.lock().expect("store lock");
+        conn.execute(
+            "INSERT INTO ai_descriptions(kind, capability_id, locale, manifest_hash, text, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(kind, capability_id, locale)
+             DO UPDATE SET manifest_hash = ?4, text = ?5, created_at = ?6",
+            params![
+                kind,
+                capability_id,
+                locale,
+                manifest_hash,
+                text,
+                Utc::now().to_rfc3339()
+            ],
+        )
+        .map_err(map_err)?;
+        Ok(())
+    }
+
+    /// Fetch an AI description only when it still matches `current_hash`;
+    /// a stale description (manifest changed since) is treated as absent.
+    pub fn ai_description(
+        &self,
+        kind: &str,
+        capability_id: &str,
+        locale: &str,
+        current_hash: &str,
+    ) -> DomainResult<Option<String>> {
+        let conn = self.conn.lock().expect("store lock");
+        let row: Option<(String, String)> = conn
+            .query_row(
+                "SELECT manifest_hash, text FROM ai_descriptions
+                 WHERE kind = ?1 AND capability_id = ?2 AND locale = ?3",
+                params![kind, capability_id, locale],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(map_err)?;
+        Ok(row.and_then(|(hash, text)| (hash == current_hash).then_some(text)))
+    }
+
+    pub fn delete_ai_description(
+        &self,
+        kind: &str,
+        capability_id: &str,
+        locale: &str,
+    ) -> DomainResult<bool> {
+        let conn = self.conn.lock().expect("store lock");
+        let n = conn
+            .execute(
+                "DELETE FROM ai_descriptions
+                 WHERE kind = ?1 AND capability_id = ?2 AND locale = ?3",
+                params![kind, capability_id, locale],
+            )
+            .map_err(map_err)?;
+        Ok(n > 0)
     }
 
     // ---- meta ----

@@ -3,6 +3,7 @@
 
 pub mod config;
 pub mod executor;
+pub mod human;
 pub mod lock;
 pub mod orchestrator;
 pub mod runtime;

@@ -9,6 +9,7 @@ description = "Local-first HTTP API (axum) + SSE event stream for the interactio
 interaction-core = { workspace = true }
 interaction-runtime = { workspace = true }
 interaction-recipe = { workspace = true }
+interaction-registry = { workspace = true }
 interaction-policy = { workspace = true }
 interaction-tool-schema = { workspace = true }
 axum = { workspace = true }

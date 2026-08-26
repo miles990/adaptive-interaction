@@ -766,3 +766,214 @@ pub async fn openapi(State(state): State<ApiState>) -> Json<Value> {
     let manifests = state.runtime.registry.tool_operations().await;
     Json(interaction_tool_schema::to_openapi(&manifests))
 }
+
+// ---------------------------------------------------------------------------
+// Human layer: catalog, human capabilities, preferences, onboarding, pause,
+// AI descriptions, AI assists, recipe summaries and scenario simulation.
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HumanQuery {
+    #[serde(default)]
+    pub locale: Option<String>,
+    #[serde(default)]
+    pub include_unavailable: bool,
+}
+
+pub async fn catalog(Query(q): Query<HumanQuery>) -> Json<Value> {
+    let catalog = interaction_registry::catalog::Catalog::builtin();
+    let _ = q; // full catalog is localized client-side via LocalizedText maps
+    Json(serde_json::to_value(catalog).unwrap_or_default())
+}
+
+pub async fn capabilities_human(
+    State(state): State<ApiState>,
+    Query(q): Query<HumanQuery>,
+) -> Json<Value> {
+    Json(
+        state
+            .runtime
+            .human_capabilities(q.locale.as_deref().unwrap_or(""), q.include_unavailable)
+            .await,
+    )
+}
+
+pub async fn ui_preferences_get(State(state): State<ApiState>) -> Json<Value> {
+    Json(serde_json::to_value(state.runtime.ui_preferences().await).unwrap_or_default())
+}
+
+pub async fn ui_preferences_patch(
+    State(state): State<ApiState>,
+    Json(patch): Json<Value>,
+) -> ApiResult<Json<Value>> {
+    let updated = state.runtime.update_ui_preferences(patch).await?;
+    Ok(Json(serde_json::to_value(updated).unwrap_or_default()))
+}
+
+pub async fn onboarding_get(State(state): State<ApiState>) -> Json<Value> {
+    Json(state.runtime.onboarding_state().await)
+}
+
+pub async fn onboarding_draft_put(
+    State(state): State<ApiState>,
+    Json(draft): Json<Value>,
+) -> ApiResult<Json<Value>> {
+    state.runtime.save_onboarding_draft(draft).await?;
+    Ok(Json(json!({"saved": true})))
+}
+
+pub async fn onboarding_commit(
+    State(state): State<ApiState>,
+    Json(commit): Json<interaction_runtime::human::OnboardingCommit>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.commit_onboarding(commit).await?))
+}
+
+pub async fn pause_get(State(state): State<ApiState>) -> Json<Value> {
+    Json(serde_json::to_value(state.runtime.pause_status().await).unwrap_or_default())
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PauseBody {
+    #[serde(default)]
+    pub duration_minutes: Option<u64>,
+    #[serde(default)]
+    pub until: Option<interaction_core::Timestamp>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+pub async fn pause_set(
+    State(state): State<ApiState>,
+    Json(body): Json<PauseBody>,
+) -> ApiResult<Json<Value>> {
+    let until = body.until.or_else(|| {
+        body.duration_minutes
+            .map(|m| chrono::Utc::now() + chrono::Duration::minutes(m.min(7 * 24 * 60) as i64))
+    });
+    let st = state
+        .runtime
+        .pause_proactive(until, body.reason, "api")
+        .await?;
+    Ok(Json(serde_json::to_value(st).unwrap_or_default()))
+}
+
+pub async fn pause_clear(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
+    let st = state.runtime.resume_proactive("api").await?;
+    Ok(Json(serde_json::to_value(st).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AiDescriptionBody {
+    pub locale: String,
+    pub text: String,
+    pub manifest_hash: String,
+}
+
+pub async fn ai_description_put(
+    State(state): State<ApiState>,
+    Path((kind, id)): Path<(String, String)>,
+    Json(body): Json<AiDescriptionBody>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        state
+            .runtime
+            .set_capability_ai_description(
+                &kind,
+                &id,
+                &body.locale,
+                &body.text,
+                &body.manifest_hash,
+            )
+            .await?,
+    ))
+}
+
+pub async fn ai_assists_list(State(state): State<ApiState>) -> Json<Value> {
+    Json(json!(state.runtime.pending_ai_assists().await))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistResolveBody {
+    pub decision: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+pub async fn ai_assist_resolve(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(body): Json<AssistResolveBody>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        state
+            .runtime
+            .resolve_ai_assist(&id, &body.decision, body.note)
+            .await?,
+    ))
+}
+
+pub async fn recipe_summary(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Query(q): Query<HumanQuery>,
+) -> ApiResult<Json<Value>> {
+    let locale = q.locale.as_deref().unwrap_or("zh-TW");
+    let summary = state.runtime.recipe_summary(&id, locale).await?;
+    Ok(Json(
+        json!({"recipeId": id, "locale": locale, "summary": summary}),
+    ))
+}
+
+pub async fn recipe_simulate_scenario(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(scenario): Json<interaction_runtime::human::SimScenario>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        state
+            .runtime
+            .simulate_recipe_scenario(&id, scenario)
+            .await?,
+    ))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertBody {
+    pub text: String,
+    /// `yaml` or `json`.
+    pub to: String,
+}
+
+/// Convert a recipe between YAML and JSON through the single domain model,
+/// preserving unknown fields. This is what keeps visual editing lossless.
+pub async fn recipe_convert(Json(body): Json<ConvertBody>) -> ApiResult<Json<Value>> {
+    let recipe = match interaction_recipe::parse_and_validate(&body.text) {
+        Ok(r) => r,
+        Err(interaction_recipe::RecipeParseError::Invalid(issues)) => {
+            return Ok(Json(json!({"valid": false, "issues": issues})));
+        }
+        Err(e) => {
+            return Ok(Json(
+                json!({"valid": false, "issues": [{"field": "$", "message": e.to_string()}]}),
+            ));
+        }
+    };
+    let out = match body.to.as_str() {
+        "yaml" => interaction_recipe::to_yaml(&recipe)
+            .map_err(|e| ApiError::from(DomainError::Internal(e)))?,
+        "json" => interaction_recipe::to_json_pretty(&recipe)
+            .map_err(|e| ApiError::from(DomainError::Internal(e)))?,
+        other => {
+            return Err(ApiError::from(DomainError::Validation(format!(
+                "to must be 'yaml' or 'json', got {other:?}"
+            ))));
+        }
+    };
+    Ok(Json(json!({"valid": true, "recipe": recipe, "text": out})))
+}

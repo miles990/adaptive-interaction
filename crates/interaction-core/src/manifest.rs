@@ -99,6 +99,10 @@ pub struct ReceptorManifest {
     pub driver: String,
     pub version: String,
     pub schema_version: String,
+    /// Optional human-readable layer (presentation + data semantics).
+    /// Never a safety truth source; formal fields above always win.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub human: Option<crate::HumanMeta>,
 }
 
 fn default_health() -> ComponentHealth {
@@ -175,6 +179,10 @@ pub struct ActuatorManifest {
     pub driver: String,
     pub version: String,
     pub schema_version: String,
+    /// Optional human-readable layer (presentation + effect semantics).
+    /// Never a safety truth source; formal fields above always win.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub human: Option<crate::HumanMeta>,
 }
 
 /// Role a tool operation plays in the interaction loop.
@@ -207,6 +215,9 @@ pub struct ToolOperationManifest {
     #[serde(default = "default_availability")]
     pub availability: Availability,
     pub schema_version: String,
+    /// Optional human-readable layer. Never a safety truth source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub human: Option<crate::HumanMeta>,
 }
 
 /// Generic string-keyed metadata bag used in several manifests.

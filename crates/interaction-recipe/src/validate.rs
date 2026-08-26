@@ -186,7 +186,41 @@ pub fn validate(recipe: &Recipe) -> Vec<ValidationIssue> {
             );
         }
     }
+    if let Some(ai) = &recipe.ai {
+        if !(0.0..=1.0).contains(&ai.min_confidence) {
+            push(
+                &mut issues,
+                "ai.minConfidence",
+                "must be within 0..1".into(),
+            );
+        }
+        if ai.max_wait_ms > 60_000 {
+            push(
+                &mut issues,
+                "ai.maxWaitMs",
+                "must be <= 60000 (an assist wait is not a background job)".into(),
+            );
+        }
+        if ai.daily_call_cap == Some(0) {
+            push(
+                &mut issues,
+                "ai.dailyCallCap",
+                "0 disables AI entirely; use mode 'never' instead".into(),
+            );
+        }
+    }
     issues
+}
+
+/// Serialize a recipe back to YAML, preserving unknown fields captured in
+/// the `extra` maps. This is the inverse of [`parse_and_validate`].
+pub fn to_yaml(recipe: &Recipe) -> Result<String, String> {
+    serde_yaml::to_string(recipe).map_err(|e| e.to_string())
+}
+
+/// Serialize a recipe to pretty JSON (same model, same fidelity as YAML).
+pub fn to_json_pretty(recipe: &Recipe) -> Result<String, String> {
+    serde_json::to_string_pretty(recipe).map_err(|e| e.to_string())
 }
 
 /// JSON Schema for recipes, generated from the domain model itself so UIs and
@@ -295,5 +329,88 @@ actuation:
     fn schema_is_generated() {
         let schema = recipe_json_schema();
         assert!(schema.get("properties").is_some());
+    }
+
+    #[test]
+    fn unknown_fields_survive_yaml_roundtrip() {
+        // A future/other tool wrote fields this version doesn't know about,
+        // at the top level and inside sub-specs. They must not be dropped.
+        let input = r#"
+id: rt
+name: Round trip
+futureTopLevelSetting:
+  nested: true
+  list: [1, 2]
+trigger:
+  mode: single
+  vendorTriggerHint: fast-path
+  steps:
+    - receptor: task.lifecycle
+      vendorStepNote: keep-me
+decision:
+  objective: test
+actuation:
+  candidates: [conversation]
+  vendorActuationTweak: 7
+"#;
+        let recipe = parse_and_validate(input).expect("parses with unknown fields");
+        assert_eq!(
+            recipe.extra.get("futureTopLevelSetting").unwrap()["nested"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            recipe.trigger.extra.get("vendorTriggerHint").unwrap(),
+            &serde_json::json!("fast-path")
+        );
+        let yaml = to_yaml(&recipe).unwrap();
+        let back = parse_and_validate(&yaml).expect("roundtrip parses");
+        assert_eq!(recipe, back, "YAML roundtrip must be lossless");
+        assert!(yaml.contains("vendorStepNote"));
+        assert!(yaml.contains("vendorActuationTweak"));
+        // JSON path preserves the same data.
+        let json = to_json_pretty(&recipe).unwrap();
+        let back_json = parse_and_validate(&json).expect("json roundtrip parses");
+        assert_eq!(recipe, back_json);
+    }
+
+    #[test]
+    fn ai_spec_parses_and_validates() {
+        let input = r#"
+id: ai-recipe
+name: With AI gate
+trigger:
+  mode: single
+  steps:
+    - receptor: user.presence
+decision:
+  objective: assist
+actuation:
+  candidates: [conversation]
+ai:
+  mode: when-uncertain
+  minConfidence: 0.7
+  onUnavailable: no-action
+"#;
+        let recipe = parse_and_validate(input).unwrap();
+        let ai = recipe.ai.as_ref().unwrap();
+        assert_eq!(ai.mode, crate::AiAssistMode::WhenUncertain);
+        assert_eq!(ai.on_unavailable, crate::AiUnavailableBehavior::NoAction);
+        assert!(
+            !ai.allow_sensitive_egress,
+            "sensitive egress must default off"
+        );
+
+        let bad = input.replace("minConfidence: 0.7", "minConfidence: 3.0");
+        let err = parse_and_validate(&bad).unwrap_err();
+        let RecipeParseError::Invalid(issues) = err else {
+            panic!("expected validation failure")
+        };
+        assert!(issues.iter().any(|i| i.field == "ai.minConfidence"));
+    }
+
+    #[test]
+    fn recipe_without_ai_field_defaults_to_never() {
+        let recipe = parse_and_validate(GOOD).unwrap();
+        assert!(recipe.ai.is_none(), "legacy recipes stay AI-free");
     }
 }

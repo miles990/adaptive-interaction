@@ -43,6 +43,10 @@ pub struct TriggerStep {
     /// Weight for `weighted` fusion (default 1.0).
     #[serde(default = "default_weight")]
     pub weight: f64,
+    /// Unknown fields preserved verbatim so editors and round-trips never
+    /// silently drop data written by newer versions or other tools.
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 fn default_weight() -> f64 {
@@ -64,6 +68,10 @@ pub struct TriggerSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threshold: Option<f64>,
     pub steps: Vec<TriggerStep>,
+    /// Unknown fields preserved verbatim so editors and round-trips never
+    /// silently drop data written by newer versions or other tools.
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, schemars::JsonSchema)]
@@ -78,6 +86,10 @@ pub struct ContextSpec {
     /// Minimum inference confidence used during fusion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_confidence: Option<f64>,
+    /// Unknown fields preserved verbatim so editors and round-trips never
+    /// silently drop data written by newer versions or other tools.
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -88,6 +100,10 @@ pub struct DecisionSpec {
     /// The recipe accepts "do nothing" as a legitimate outcome.
     #[serde(default = "default_true")]
     pub allow_no_action: bool,
+    /// Unknown fields preserved verbatim so editors and round-trips never
+    /// silently drop data written by newer versions or other tools.
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 fn default_true() -> bool {
@@ -111,6 +127,10 @@ pub struct ActuationSpec {
     /// Max random start jitter, e.g. `"2s"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jitter: Option<String>,
+    /// Unknown fields preserved verbatim so editors and round-trips never
+    /// silently drop data written by newer versions or other tools.
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 fn default_max_channels() -> u32 {
@@ -146,6 +166,10 @@ pub struct VerificationSpec {
     /// Receptors to consult for verification evidence.
     #[serde(default)]
     pub receptors: Vec<String>,
+    /// Unknown fields preserved verbatim so editors and round-trips never
+    /// silently drop data written by newer versions or other tools.
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, schemars::JsonSchema)]
@@ -162,6 +186,10 @@ pub struct LimitsSpec {
     /// Max firings per rolling hour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_per_hour: Option<u32>,
+    /// Unknown fields preserved verbatim so editors and round-trips never
+    /// silently drop data written by newer versions or other tools.
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, schemars::JsonSchema)]
@@ -171,6 +199,10 @@ pub struct ConsentRequirements {
     /// e.g. `["channel:haptic"]`.
     #[serde(default)]
     pub required: Vec<String>,
+    /// Unknown fields preserved verbatim so editors and round-trips never
+    /// silently drop data written by newer versions or other tools.
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -198,9 +230,16 @@ pub struct Recipe {
     pub limits: LimitsSpec,
     #[serde(default)]
     pub consent: ConsentRequirements,
+    /// AI involvement policy for this recipe (default: never involve AI).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai: Option<crate::AiAssistSpec>,
     /// Extra free-form metadata.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub metadata: BTreeMap<String, serde_json::Value>,
+    /// Unknown fields preserved verbatim so editors and round-trips never
+    /// silently drop data written by newer versions or other tools.
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
     #[serde(default = "default_schema_version")]
     pub schema_version: String,
 }

@@ -99,6 +99,15 @@ pub enum RecipeCmd {
     /// Explain whether the recipe would fire now + dry-run its plan.
     Simulate {
         id: String,
+        /// What-if scenario JSON, e.g. '{"quietHours":true,"aiUnavailable":true}'.
+        #[arg(long)]
+        scenario: Option<String>,
+    },
+    /// Deterministic natural-language summary of what the recipe does.
+    Summary {
+        id: String,
+        #[arg(long)]
+        locale: Option<String>,
     },
     /// Run the recipe now (trigger bypassed; policy still applies).
     Run {
@@ -106,6 +115,27 @@ pub enum RecipeCmd {
     },
     Remove {
         id: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PrefsCmd {
+    Show,
+    /// Merge-patch preferences, e.g. '{"mode":"advanced"}'.
+    Set {
+        patch: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AssistCmd {
+    List,
+    /// Answer a pending assist request: decision = proceed | no-action.
+    Resolve {
+        request_id: String,
+        decision: String,
+        #[arg(long)]
+        note: Option<String>,
     },
 }
 
@@ -313,13 +343,76 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
         Command::Health => client.get("/health").await?,
         Command::Capabilities {
             include_unavailable,
+            human,
+            locale,
+        } => {
+            if *human {
+                let locale = locale.clone().unwrap_or_default();
+                client
+                    .get(&format!(
+                        "/v1/capabilities/human?includeUnavailable={include_unavailable}&locale={locale}"
+                    ))
+                    .await?
+            } else {
+                client
+                    .get(&format!(
+                        "/v1/capabilities?includeUnavailable={include_unavailable}"
+                    ))
+                    .await?
+            }
+        }
+        Command::Catalog => client.get("/v1/catalog").await?,
+        Command::Pause { duration, reason } => {
+            let mut body = json!({});
+            if let Some(d) = duration {
+                let ms =
+                    interaction_recipe::parse_duration_ms(d).map_err(|e| anyhow::anyhow!(e))?;
+                body["durationMinutes"] = json!((ms / 60_000).max(1));
+            }
+            if let Some(r) = reason {
+                body["reason"] = json!(r);
+            }
+            client.post("/v1/pause", Some(body)).await?
+        }
+        Command::Resume => client.post("/v1/pause/clear", None).await?,
+        Command::Prefs { command } => match command {
+            PrefsCmd::Show => client.get("/v1/ui/preferences").await?,
+            PrefsCmd::Set { patch } => {
+                let patch: Value = serde_json::from_str(patch)
+                    .map_err(|e| anyhow::anyhow!("invalid JSON patch: {e}"))?;
+                client.patch("/v1/ui/preferences", patch).await?
+            }
+        },
+        Command::Onboarding => client.get("/v1/onboarding").await?,
+        Command::Describe {
+            kind,
+            id,
+            text,
+            locale,
+            manifest_hash,
         } => {
             client
-                .get(&format!(
-                    "/v1/capabilities?includeUnavailable={include_unavailable}"
-                ))
+                .put(
+                    &format!("/v1/capabilities/{kind}/{id}/ai-description"),
+                    json!({"locale": locale, "text": text, "manifestHash": manifest_hash}),
+                )
                 .await?
         }
+        Command::Assists { command } => match command {
+            AssistCmd::List => client.get("/v1/ai-assists").await?,
+            AssistCmd::Resolve {
+                request_id,
+                decision,
+                note,
+            } => {
+                client
+                    .post(
+                        &format!("/v1/ai-assists/{request_id}/resolve"),
+                        Some(json!({"decision": decision, "note": note})),
+                    )
+                    .await?
+            }
+        },
         Command::Receptors { command } => receptors(&client, command).await?,
         Command::Actuators { command } => actuators(&client, command).await?,
         Command::Recipes { command } => recipes(&client, command).await?,
@@ -631,9 +724,27 @@ async fn recipes(client: &Client, cmd: &RecipeCmd) -> Result<(u16, Value)> {
                 .patch(&format!("/v1/recipes/{id}"), json!({"enabled": false}))
                 .await
         }
-        RecipeCmd::Simulate { id } => {
+        RecipeCmd::Simulate { id, scenario } => match scenario {
+            Some(raw) => {
+                let scenario: Value = serde_json::from_str(raw)
+                    .map_err(|e| anyhow::anyhow!("invalid scenario JSON: {e}"))?;
+                client
+                    .post(
+                        &format!("/v1/recipes/{id}/simulate-scenario"),
+                        Some(scenario),
+                    )
+                    .await
+            }
+            None => {
+                client
+                    .post(&format!("/v1/recipes/{id}/simulate"), None)
+                    .await
+            }
+        },
+        RecipeCmd::Summary { id, locale } => {
+            let locale = locale.clone().unwrap_or_else(|| "zh-TW".into());
             client
-                .post(&format!("/v1/recipes/{id}/simulate"), None)
+                .get(&format!("/v1/recipes/{id}/summary?locale={locale}"))
                 .await
         }
         RecipeCmd::Run { id } => client.post(&format!("/v1/recipes/{id}/run"), None).await,

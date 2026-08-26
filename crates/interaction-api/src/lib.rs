@@ -28,6 +28,34 @@ pub const MAX_BODY_BYTES: usize = 256 * 1024;
 pub fn router(state: ApiState) -> Router {
     let authed = Router::new()
         .route("/v1/status", get(routes::status))
+        .route("/v1/catalog", get(routes::catalog))
+        .route("/v1/capabilities/human", get(routes::capabilities_human))
+        .route("/v1/ui/preferences", get(routes::ui_preferences_get))
+        .route("/v1/ui/preferences", patch(routes::ui_preferences_patch))
+        .route("/v1/onboarding", get(routes::onboarding_get))
+        .route(
+            "/v1/onboarding/draft",
+            axum::routing::put(routes::onboarding_draft_put),
+        )
+        .route("/v1/onboarding/commit", post(routes::onboarding_commit))
+        .route("/v1/pause", get(routes::pause_get))
+        .route("/v1/pause", post(routes::pause_set))
+        .route("/v1/pause/clear", post(routes::pause_clear))
+        .route(
+            "/v1/capabilities/{kind}/{id}/ai-description",
+            axum::routing::put(routes::ai_description_put),
+        )
+        .route("/v1/ai-assists", get(routes::ai_assists_list))
+        .route(
+            "/v1/ai-assists/{id}/resolve",
+            post(routes::ai_assist_resolve),
+        )
+        .route("/v1/recipes/convert", post(routes::recipe_convert))
+        .route("/v1/recipes/{id}/summary", get(routes::recipe_summary))
+        .route(
+            "/v1/recipes/{id}/simulate-scenario",
+            post(routes::recipe_simulate_scenario),
+        )
         .route("/v1/capabilities", get(routes::capabilities))
         .route("/v1/receptors", get(routes::receptors_list))
         .route("/v1/receptors", post(routes::receptor_create))

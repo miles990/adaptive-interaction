@@ -988,6 +988,17 @@
                   "status": "healthy"
                 }
               },
+              "human": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HumanMeta"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Optional human-readable layer (presentation + effect semantics).\nNever a safety truth source; formal fields above always win."
+              },
               "id": {
                 "$ref": "#/$defs/ActuatorId"
               },
@@ -1158,6 +1169,62 @@
             ],
             "type": "object"
           },
+          "ConfirmationLevel": {
+            "description": "The strongest delivery level an actuator can actually confirm.\n`queued` NEVER implies `completed`; UIs must not display beyond this level.",
+            "enum": [
+              "requested",
+              "queued",
+              "acknowledged",
+              "delivered",
+              "completed",
+              "verified",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "ConsentExpiry": {
+            "description": "When a granted consent expires.",
+            "oneOf": [
+              {
+                "enum": [
+                  "session",
+                  "duration",
+                  "persistent"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "action",
+                "description": "One action only.",
+                "type": "string"
+              }
+            ]
+          },
+          "ConsentSemantics": {
+            "description": "Consent guidance in human terms. The *requirement* itself stays in the\nformal manifest (`requires_consent`) and the governor.",
+            "properties": {
+              "expires": {
+                "$ref": "#/$defs/ConsentExpiry",
+                "default": "session"
+              },
+              "reason": {
+                "$ref": "#/$defs/LocalizedText",
+                "description": "Why consent is needed, in plain language."
+              },
+              "required": {
+                "$ref": "#/$defs/TriState",
+                "default": "unknown"
+              },
+              "suggestedScope": {
+                "description": "Suggested consent scope string, e.g. `channel:haptic`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "CostDescriptor": {
             "description": "Cost hints used by the orchestrator's utility scoring.",
             "properties": {
@@ -1176,6 +1243,118 @@
             },
             "type": "object"
           },
+          "DataRetention": {
+            "description": "How long observed data is retained.",
+            "enum": [
+              "none",
+              "session",
+              "persistent",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "DataSemantics": {
+            "description": "What a receptor's data means for the person: categories, whether it is\npersonal, whether it leaves this machine.",
+            "properties": {
+              "dataCategories": {
+                "description": "Human-meaningful categories, e.g. `[\"task-status\", \"presence\"]`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "factFields": {
+                "description": "Fact keys that are direct observations.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "inferenceFields": {
+                "description": "Fields that are model inferences (must be shown as guesses).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "leavesDevice": {
+                "$ref": "#/$defs/TriState",
+                "default": "unknown"
+              },
+              "personalData": {
+                "$ref": "#/$defs/TriState",
+                "default": "unknown"
+              },
+              "retention": {
+                "$ref": "#/$defs/DataRetention",
+                "default": "unknown"
+              },
+              "sensitivity": {
+                "$ref": "#/$defs/DataSensitivityLevel",
+                "default": "unknown"
+              },
+              "source": {
+                "$ref": "#/$defs/DataSource",
+                "default": "unknown"
+              }
+            },
+            "type": "object"
+          },
+          "DataSensitivityLevel": {
+            "description": "Sensitivity of the data a receptor produces, in human terms.",
+            "enum": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "DataSource": {
+            "description": "Where observed data originates.",
+            "enum": [
+              "local",
+              "device",
+              "external-service",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "EffectSemantics": {
+            "description": "What an actuator or write-operation affects.",
+            "properties": {
+              "affects": {
+                "description": "Human-meaningful targets, e.g. `[\"screen\", \"external-calendar\"]`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "confirmationLevel": {
+                "$ref": "#/$defs/ConfirmationLevel",
+                "default": "unknown",
+                "description": "The deepest confirmation the driver can honestly provide."
+              },
+              "externalSideEffect": {
+                "$ref": "#/$defs/TriState",
+                "default": "unknown"
+              },
+              "interruptiveness": {
+                "$ref": "#/$defs/Interruptiveness",
+                "default": "unknown"
+              },
+              "physicalEffect": {
+                "$ref": "#/$defs/TriState",
+                "default": "unknown"
+              },
+              "reversible": {
+                "$ref": "#/$defs/TriState",
+                "default": "unknown"
+              }
+            },
+            "type": "object"
+          },
           "HealthStatus": {
             "enum": [
               "healthy",
@@ -1185,6 +1364,95 @@
               "unknown"
             ],
             "type": "string"
+          },
+          "HumanMeta": {
+            "description": "The optional human layer bundle carried by manifests.",
+            "properties": {
+              "consent": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConsentSemantics"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "data": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/DataSemantics"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "effect": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/EffectSemantics"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "presentation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HumanPresentation"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "HumanPresentation": {
+            "description": "Structured human description an adapter attaches to a capability.\nPurely presentational: names, examples, setup help. Never safety facts.",
+            "properties": {
+              "beginnerRecommended": {
+                "default": false,
+                "description": "Suggested for first-time users in onboarding.",
+                "type": "boolean"
+              },
+              "category": {
+                "description": "Presentation category (e.g. `notification`, `time`); may differ from\nthe technical manifest category.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "examples": {
+                "items": {
+                  "$ref": "#/$defs/LocalizedText"
+                },
+                "type": "array"
+              },
+              "iconHint": {
+                "description": "Icon name hint from the shared icon set (e.g. `bell`, `clock`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "longDescription": {
+                "$ref": "#/$defs/LocalizedText"
+              },
+              "name": {
+                "$ref": "#/$defs/LocalizedText"
+              },
+              "setupInstructions": {
+                "$ref": "#/$defs/LocalizedText"
+              },
+              "shortDescription": {
+                "$ref": "#/$defs/LocalizedText"
+              }
+            },
+            "type": "object"
           },
           "InitiativeLevel": {
             "description": "How proactive the runtime may be without an explicit request.",
@@ -1205,6 +1473,24 @@
                 "type": "string"
               }
             ]
+          },
+          "Interruptiveness": {
+            "description": "How disruptive an actuator's output is.",
+            "enum": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "LocalizedText": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Localized text keyed by BCP-47 tag (`zh-TW`, `en`, …).\n\nLookup falls back: exact tag → same primary language → `en` → any entry.",
+            "type": "object"
           },
           "OperationId": {
             "description": "Identifies one operation of a tool, e.g. `interaction.observe`.",
@@ -1368,6 +1654,17 @@
                   "status": "healthy"
                 }
               },
+              "human": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HumanMeta"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Optional human-readable layer (presentation + data semantics).\nNever a safety truth source; formal fields above always win."
+              },
               "id": {
                 "$ref": "#/$defs/ReceptorId"
               },
@@ -1524,6 +1821,17 @@
               "externalSideEffect": {
                 "type": "boolean"
               },
+              "human": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HumanMeta"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Optional human-readable layer. Never a safety truth source."
+              },
               "inputSchema": true,
               "name": {
                 "description": "Fully qualified stable name, e.g. `interaction.observe`.",
@@ -1585,6 +1893,17 @@
               "actuator"
             ],
             "type": "string"
+          },
+          "TriState": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "const": "unknown",
+                "type": "string"
+              }
+            ]
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",

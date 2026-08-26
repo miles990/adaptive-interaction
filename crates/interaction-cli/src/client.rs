@@ -102,6 +102,10 @@ impl Client {
         self.call(reqwest::Method::DELETE, path, None).await
     }
 
+    pub async fn put(&self, path: &str, body: Value) -> Result<(u16, Value)> {
+        self.call(reqwest::Method::PUT, path, Some(body)).await
+    }
+
     /// Raw SSE tail: prints each event line-by-line for `seconds`.
     pub async fn tail_events(&self, seconds: u64, json_mode: bool) -> Result<()> {
         let resp = self

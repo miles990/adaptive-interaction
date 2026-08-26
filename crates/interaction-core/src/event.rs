@@ -58,6 +58,14 @@ pub enum EventType {
     SessionStopped,
     #[serde(rename = "emergency.stop")]
     EmergencyStop,
+    #[serde(rename = "proactive.paused")]
+    ProactivePaused,
+    #[serde(rename = "proactive.resumed")]
+    ProactiveResumed,
+    #[serde(rename = "ai.assist.requested")]
+    AiAssistRequested,
+    #[serde(rename = "ai.assist.resolved")]
+    AiAssistResolved,
 }
 
 impl EventType {
@@ -89,6 +97,10 @@ impl EventType {
             EventType::SessionStarted => "session.started",
             EventType::SessionStopped => "session.stopped",
             EventType::EmergencyStop => "emergency.stop",
+            EventType::ProactivePaused => "proactive.paused",
+            EventType::ProactiveResumed => "proactive.resumed",
+            EventType::AiAssistRequested => "ai.assist.requested",
+            EventType::AiAssistResolved => "ai.assist.resolved",
         }
     }
 }

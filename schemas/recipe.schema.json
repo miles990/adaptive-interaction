@@ -12,6 +12,7 @@
       "type": "string"
     },
     "ActuationSpec": {
+      "additionalProperties": true,
       "properties": {
         "candidates": {
           "description": "Candidate actuator ids, in preference order.",
@@ -55,6 +56,109 @@
       ],
       "type": "object"
     },
+    "AiAssistMode": {
+      "description": "When AI may be involved in this recipe.",
+      "oneOf": [
+        {
+          "const": "never",
+          "description": "Never involve AI; fully deterministic (the default).",
+          "type": "string"
+        },
+        {
+          "const": "when-uncertain",
+          "description": "Only when the deterministic rules cannot decide (ambiguous /\nlow-confidence / contradictory observations).",
+          "type": "string"
+        },
+        {
+          "const": "interpret",
+          "description": "AI may help interpret observations before planning.",
+          "type": "string"
+        },
+        {
+          "const": "choose-channel",
+          "description": "AI may help choose among candidate channels.",
+          "type": "string"
+        },
+        {
+          "const": "generate-text",
+          "description": "AI only generates message text; channel choice stays deterministic.",
+          "type": "string"
+        },
+        {
+          "const": "draft-only",
+          "description": "AI may draft recipe changes, but a human must confirm them.",
+          "type": "string"
+        }
+      ]
+    },
+    "AiAssistSpec": {
+      "properties": {
+        "allowSensitiveEgress": {
+          "default": false,
+          "description": "Whether sensitive observations may leave this machine to reach the AI.\nDefaults to false and is additionally bounded by global policy.",
+          "type": "boolean"
+        },
+        "dailyCallCap": {
+          "description": "Hard cap on assist requests per day for this recipe.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "dataScope": {
+          "default": [],
+          "description": "Fact/data categories that may be shared with the AI. Empty = only\nnon-sensitive event metadata.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "maxWaitMs": {
+          "default": 5000,
+          "description": "How long to wait for an AI host before falling back (ms).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minConfidence": {
+          "default": 0.6,
+          "description": "Below this inference confidence the situation counts as \"uncertain\".",
+          "format": "double",
+          "type": "number"
+        },
+        "mode": {
+          "$ref": "#/$defs/AiAssistMode",
+          "default": "never"
+        },
+        "onUnavailable": {
+          "$ref": "#/$defs/AiUnavailableBehavior",
+          "default": "fallback"
+        },
+        "requireHumanConfirmation": {
+          "default": false,
+          "description": "Whether AI proposals need explicit human confirmation before acting.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "AiUnavailableBehavior": {
+      "description": "Deterministic behavior when AI is needed but unavailable / times out.",
+      "oneOf": [
+        {
+          "const": "fallback",
+          "description": "Proceed with the deterministic plan (conservative candidate order).",
+          "type": "string"
+        },
+        {
+          "const": "no-action",
+          "description": "Do nothing this round.",
+          "type": "string"
+        }
+      ]
+    },
     "ConditionSpec": {
       "anyOf": [
         {
@@ -69,6 +173,7 @@
       ]
     },
     "ConsentRequirements": {
+      "additionalProperties": true,
       "properties": {
         "required": {
           "default": [],
@@ -82,6 +187,7 @@
       "type": "object"
     },
     "ContextSpec": {
+      "additionalProperties": true,
       "properties": {
         "maxAge": {
           "description": "Ignore observations older than this, e.g. `\"5m\"`.",
@@ -110,6 +216,7 @@
       "type": "object"
     },
     "DecisionSpec": {
+      "additionalProperties": true,
       "properties": {
         "allowNoAction": {
           "default": true,
@@ -138,6 +245,7 @@
       "type": "string"
     },
     "LimitsSpec": {
+      "additionalProperties": true,
       "properties": {
         "cooldown": {
           "description": "Minimum interval between firings, e.g. `\"15m\"`.",
@@ -260,6 +368,7 @@
       "type": "string"
     },
     "TriggerSpec": {
+      "additionalProperties": true,
       "properties": {
         "mode": {
           "$ref": "#/$defs/FusionMode",
@@ -302,6 +411,7 @@
       "type": "object"
     },
     "TriggerStep": {
+      "additionalProperties": true,
       "description": "One trigger step: a receptor plus a condition on its observations.",
       "properties": {
         "condition": {
@@ -332,6 +442,7 @@
       "type": "object"
     },
     "VerificationSpec": {
+      "additionalProperties": true,
       "properties": {
         "receptors": {
           "default": [],
@@ -376,9 +487,21 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
   "properties": {
     "actuation": {
       "$ref": "#/$defs/ActuationSpec"
+    },
+    "ai": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AiAssistSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "AI involvement policy for this recipe (default: never involve AI)."
     },
     "consent": {
       "$ref": "#/$defs/ConsentRequirements",

@@ -34,6 +34,7 @@ impl ReceptorManifestBuilder {
                 driver: driver.to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 schema_version: SCHEMA_VERSION.to_string(),
+                human: None,
             },
         }
     }
@@ -98,6 +99,7 @@ impl ActuatorManifestBuilder {
                 driver: driver.to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 schema_version: SCHEMA_VERSION.to_string(),
+                human: None,
             },
         }
     }

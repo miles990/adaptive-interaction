@@ -1,0 +1,26 @@
+# 起始配方：安靜時段只記錄、不打擾。
+id: starter-quiet-log
+name: 安靜時段靜默記錄
+description: 任何任務事件在安靜時段只寫進本機紀錄，不發出任何打擾；其餘交給安全規則把關。
+enabled: true
+trigger:
+  mode: single
+  steps:
+    - receptor: task.lifecycle
+decision:
+  objective: record-without-interrupting
+  allowNoAction: true
+intent: progress
+message:
+  mode: none
+  allowSilence: true
+actuation:
+  mode: single
+  candidates: [local-log]
+  minChannels: 0
+  maxChannels: 1
+verification:
+  strategy: best-effort
+limits:
+  cooldown: 1m
+  expiresAfter: 30s

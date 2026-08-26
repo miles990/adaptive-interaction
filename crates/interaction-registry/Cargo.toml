@@ -9,7 +9,10 @@ description = "Dynamic capability registry: receptors, actuators, tool operation
 interaction-core = { workspace = true }
 interaction-events = { workspace = true }
 tokio = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+schemars = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }

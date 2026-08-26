@@ -17,6 +17,7 @@ tauri = { version = "2", features = [] }
 interaction-core = { path = "../../../crates/interaction-core" }
 interaction-runtime = { path = "../../../crates/interaction-runtime" }
 interaction-recipe = { path = "../../../crates/interaction-recipe" }
+interaction-registry = { path = "../../../crates/interaction-registry" }
 interaction-policy = { path = "../../../crates/interaction-policy" }
 interaction-api = { path = "../../../crates/interaction-api" }
 interaction-tool-schema = { path = "../../../crates/interaction-tool-schema" }

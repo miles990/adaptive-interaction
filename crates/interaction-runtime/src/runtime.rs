@@ -77,6 +77,11 @@ pub struct RuntimeInner {
     lock: std::sync::Mutex<Option<InstanceLock>>,
     /// Config load errors surfaced in status (last-known-good semantics).
     pub config_errors: Vec<String>,
+    /// Proactive-interaction pause: a normal user control, deliberately a
+    /// DIFFERENT state from emergency stop (which is a safety mechanism).
+    pub(crate) pause: RwLock<crate::human::PauseState>,
+    /// Pending AI assist requests awaiting an external AI host (bounded).
+    pub(crate) ai_assists: RwLock<BTreeMap<String, crate::human::PendingAssist>>,
 }
 
 #[derive(Clone)]
@@ -214,6 +219,7 @@ impl Runtime {
             );
         }
 
+        let pause_state = crate::human::PauseState::load(&store);
         let runtime = Runtime {
             inner: Arc::new(RuntimeInner {
                 paths,
@@ -236,6 +242,8 @@ impl Runtime {
                 started_at: Utc::now(),
                 lock: std::sync::Mutex::new(lock),
                 config_errors,
+                pause: RwLock::new(pause_state),
+                ai_assists: RwLock::new(BTreeMap::new()),
             }),
         };
 
@@ -306,6 +314,10 @@ impl Runtime {
             "configErrors": self.config_errors,
             "hasReceipts": receipts > 0,
             "eventSequence": self.events.last_sequence(),
+            "proactivePause": self.pause_status().await,
+            "pendingAiAssists": self.pending_ai_assists().await.len(),
+            "onboardingCompleted": self.onboarding_state().await
+                .get("completed").and_then(Value::as_bool).unwrap_or(false),
         })
     }
 
@@ -957,6 +969,10 @@ impl Runtime {
         Ok(json!({"plan": self.store.plan(&plan.plan_id)?, "receipts": receipts}))
     }
 
+    pub(crate) async fn plan_from_recipe_public(&self, recipe: &Recipe) -> DomainResult<Plan> {
+        self.plan_from_recipe(recipe).await
+    }
+
     async fn plan_from_recipe(&self, recipe: &Recipe) -> DomainResult<Plan> {
         let mut intent = SemanticIntent::new(recipe.intent.clone());
         intent.expires_at = recipe
@@ -1096,6 +1112,11 @@ impl Runtime {
         if self.is_estopped() {
             return;
         }
+        // Proactive pause: an ordinary user control, separate from emergency
+        // stop. Recipe-triggered autonomy stays silent while paused.
+        if self.proactive_paused().await {
+            return;
+        }
         if self.current_session().await.is_none() {
             return;
         }
@@ -1199,17 +1220,29 @@ impl Runtime {
             .filter_map(|s| s.condition.as_ref())
             .flat_map(|c| c.referenced_keys())
             .collect();
+        let mut uncertain_reason: Option<String> = None;
         if let Some(conflicted) = fused
             .contradictions
             .iter()
             .find(|k| condition_keys.contains(k))
         {
-            tracing::info!(
-                recipe = recipe.id.as_str(),
-                fact = conflicted.as_str(),
-                "not firing: receptors contradict each other on a trigger fact"
-            );
-            return Ok(None);
+            let defers_to_ai = recipe
+                .ai
+                .as_ref()
+                .map(|a| a.mode == interaction_recipe::AiAssistMode::WhenUncertain)
+                .unwrap_or(false);
+            if defers_to_ai {
+                uncertain_reason = Some(format!(
+                    "receptors contradict each other on trigger fact {conflicted:?}"
+                ));
+            } else {
+                tracing::info!(
+                    recipe = recipe.id.as_str(),
+                    fact = conflicted.as_str(),
+                    "not firing: receptors contradict each other on a trigger fact"
+                );
+                return Ok(None);
+            }
         }
         // Trigger evaluation over non-stale, NOT-YET-CONSUMED observations:
         // an event that already fired this recipe can never fire it again.
@@ -1262,6 +1295,46 @@ impl Runtime {
             drop(map);
             self.persist_recipe_state(recipe.id.as_str(), &state).await;
         }
+        // ---- AI decision gate: deterministic events never involve AI ----
+        let ai_spec = recipe.ai.clone().unwrap_or_default();
+        let mut ai_gate = serde_json::to_value(interaction_recipe::AiGateOutcome::Disabled {})
+            .unwrap_or_default();
+        if ai_spec.mode == interaction_recipe::AiAssistMode::WhenUncertain {
+            let mut reason = uncertain_reason.clone();
+            if reason.is_none() {
+                let min_conf = decision
+                    .matched_observation_ids
+                    .iter()
+                    .filter_map(|id| {
+                        observations
+                            .iter()
+                            .find(|o| o.observation_id.as_str() == id)
+                    })
+                    .map(|o| o.confidence)
+                    .fold(f64::INFINITY, f64::min);
+                if min_conf.is_finite() && min_conf < ai_spec.min_confidence {
+                    reason = Some(format!(
+                        "matched evidence confidence {min_conf:.2} below threshold {:.2}",
+                        ai_spec.min_confidence
+                    ));
+                }
+            }
+            if let Some(reason) = reason {
+                // Defer: publish an assist request; the timeout task applies
+                // the deterministic onUnavailable behavior.
+                self.open_ai_assist(recipe, reason, &ai_spec).await;
+                return Ok(Some(decision));
+            }
+            ai_gate = serde_json::to_value(interaction_recipe::AiGateOutcome::NotNeeded {
+                reason: "evidence unambiguous; deterministic path".into(),
+            })
+            .unwrap_or_default();
+        } else if recipe.ai.is_some() {
+            ai_gate = serde_json::to_value(interaction_recipe::AiGateOutcome::NotNeeded {
+                reason: format!("ai mode {:?} does not gate firing", ai_spec.mode),
+            })
+            .unwrap_or_default();
+        }
         // Chance gate (surprise factor). The reservation above is deliberately
         // consumed even when chance skips: the opportunity was spent.
         if recipe.actuation.chance < 1.0 {
@@ -1287,6 +1360,7 @@ impl Runtime {
         let mut plan = self.plan_from_recipe(recipe).await?;
         // Attach the fused context (facts after explicit-input override) so
         // the timeline shows what evidence the decision was based on.
+        plan.metadata.insert("aiGate".to_string(), ai_gate);
         plan.metadata
             .insert("contextFacts".to_string(), json!(fused.facts));
         if !fused.missing.is_empty() {
@@ -1557,7 +1631,15 @@ fn parse_scope(scope_str: &str) -> DomainResult<ConsentScope> {
 }
 
 /// JSON merge-patch (RFC 7396 flavor).
-fn merge_json(target: &mut Value, patch: &Value) {
+pub(crate) fn recipe_limits_ok_public(
+    recipe: &Recipe,
+    state: &RecipeState,
+    now: Timestamp,
+) -> bool {
+    Runtime::recipe_limits_ok(recipe, state, now)
+}
+
+pub(crate) fn merge_json(target: &mut Value, patch: &Value) {
     match (target, patch) {
         (Value::Object(t), Value::Object(p)) => {
             for (k, v) in p {

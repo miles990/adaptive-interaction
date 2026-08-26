@@ -59,6 +59,50 @@ pub enum Command {
     Capabilities {
         #[arg(long)]
         include_unavailable: bool,
+        /// Human-readable cards (names, badges, data/impact semantics).
+        #[arg(long)]
+        human: bool,
+        /// Locale for --human output (default: stored preference / zh-TW).
+        #[arg(long)]
+        locale: Option<String>,
+    },
+    /// Show the common capability catalog (canonical names, icons, aliases).
+    Catalog,
+    /// Pause proactive interactions (a normal control; NOT emergency stop).
+    Pause {
+        /// Duration like "2h", "45m" (omit = until resumed).
+        #[arg(long = "for")]
+        duration: Option<String>,
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    /// Resume proactive interactions after a pause.
+    Resume,
+    /// Show or update UI/display preferences (mode, locale, custom names).
+    Prefs {
+        #[command(subcommand)]
+        command: commands::PrefsCmd,
+    },
+    /// Show onboarding state (draft, completion, starter recipes).
+    Onboarding,
+    /// Write an AI-assisted description for a capability (bound to its
+    /// current manifest hash; facts are never changed by descriptions).
+    Describe {
+        /// receptor | actuator | tool
+        kind: String,
+        id: String,
+        #[arg(long)]
+        text: String,
+        #[arg(long, default_value = "zh-TW")]
+        locale: String,
+        /// Manifest hash from `capabilities --human` (stale hash is refused).
+        #[arg(long)]
+        manifest_hash: String,
+    },
+    /// Pending AI assist requests and their resolution.
+    Assists {
+        #[command(subcommand)]
+        command: commands::AssistCmd,
     },
     /// Manage receptors.
     Receptors {
