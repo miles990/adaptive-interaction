@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-26
+
 ### Fixed
 - 緊急停止 clear 後，閂死（latched）的實體裝置 driver 現在會被重新武裝
   （新增 `Actuator::emergency_clear`，預設 no-op；動作仍不自動恢復）——
