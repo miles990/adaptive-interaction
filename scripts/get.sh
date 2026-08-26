@@ -16,9 +16,9 @@ REPO="miles990/adaptive-interaction"
 VERSION=""
 BIN_DIR="${HOME}/.local/bin"
 SEL_CLI=1        # CLI 一律安裝（其他元件都靠它）
-SEL_SKILL=0
-SEL_DESKTOP=0
-SEL_COMPLETION=0
+SEL_SKILL=1      # 預設全選（all-in-one）；用選單或旗標縮小
+SEL_DESKTOP=1
+SEL_COMPLETION=1
 EXPLICIT=0
 
 while [[ $# -gt 0 ]]; do
@@ -26,10 +26,10 @@ while [[ $# -gt 0 ]]; do
     --version) VERSION="$2"; shift 2 ;;
     --bin-dir) BIN_DIR="$2"; shift 2 ;;
     --all) SEL_SKILL=1; SEL_DESKTOP=1; SEL_COMPLETION=1; EXPLICIT=1; shift ;;
-    --with-skill) SEL_SKILL=1; EXPLICIT=1; shift ;;
-    --with-desktop) SEL_DESKTOP=1; EXPLICIT=1; shift ;;
-    --with-completion) SEL_COMPLETION=1; EXPLICIT=1; shift ;;
-    --cli-only) EXPLICIT=1; shift ;;
+    --with-skill) [[ "$EXPLICIT" == 0 ]] && { SEL_DESKTOP=0; SEL_COMPLETION=0; }; SEL_SKILL=1; EXPLICIT=1; shift ;;
+    --with-desktop) [[ "$EXPLICIT" == 0 ]] && { SEL_SKILL=0; SEL_COMPLETION=0; }; SEL_DESKTOP=1; EXPLICIT=1; shift ;;
+    --with-completion) [[ "$EXPLICIT" == 0 ]] && { SEL_SKILL=0; SEL_DESKTOP=0; }; SEL_COMPLETION=1; EXPLICIT=1; shift ;;
+    --cli-only) SEL_SKILL=0; SEL_DESKTOP=0; SEL_COMPLETION=0; EXPLICIT=1; shift ;;
     -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
@@ -39,19 +39,20 @@ done
 mark() { [[ "$1" == 1 ]] && echo "x" || echo " "; }
 
 if [[ "$EXPLICIT" == 0 && -t 0 && -t 1 ]]; then
-  SEL_SKILL=1   # 互動預設：CLI＋skill 勾選、桌面與 completion 待選
+  # 預設全選；輸入編號可取消不要的元件
   while true; do
     echo ""
-    echo "adaptive-interaction all-in-one 安裝 — 選擇元件（輸入編號切換）"
+    echo "adaptive-interaction all-in-one 安裝 — 預設全選，輸入編號可取消"
     echo "  [x] 1. interact-ai CLI（必裝：runtime／daemon／所有指令）"
     echo "  [$(mark $SEL_SKILL)] 2. 跨 AI Skill → ~/.claude/skills/（給 Claude Code 等 agent）"
     echo "  [$(mark $SEL_DESKTOP)] 3. 桌面控制中心（下載本平台安裝包）"
     echo "  [$(mark $SEL_COMPLETION)] 4. Shell completion（$(basename "${SHELL:-zsh}")）"
     echo ""
-    read -r -p "切換 2/3/4，a=全選，Enter=開始安裝 > " choice
+    read -r -p "切換 2/3/4，a=全選，n=只裝 CLI，Enter=開始安裝 > " choice
     case "$choice" in
       "") break ;;
       a|A) SEL_SKILL=1; SEL_DESKTOP=1; SEL_COMPLETION=1 ;;
+      n|N) SEL_SKILL=0; SEL_DESKTOP=0; SEL_COMPLETION=0 ;;
       2) SEL_SKILL=$((1 - SEL_SKILL)) ;;
       3) SEL_DESKTOP=$((1 - SEL_DESKTOP)) ;;
       4) SEL_COMPLETION=$((1 - SEL_COMPLETION)) ;;

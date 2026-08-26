@@ -43,18 +43,18 @@ bash install.sh        # ← all-in-one 互動選單：勾選要裝的元件
 選單長這樣（輸入編號切換、Enter 開始）：
 
 ```text
-adaptive-interaction all-in-one 安裝 — 選擇元件（輸入編號切換）
+adaptive-interaction all-in-one 安裝 — 選擇元件（預設全選；輸入編號取消）
   [x] 1. interact-ai CLI（必裝：runtime／daemon／所有指令）
   [x] 2. 跨 AI Skill → ~/.claude/skills/（給 Claude Code 等 agent）
-  [ ] 3. 桌面控制中心（下載本平台安裝包）
-  [ ] 4. Shell completion（zsh）
+  [x] 3. 桌面控制中心（下載本平台安裝包）
+  [x] 4. Shell completion（zsh）
 ```
 
 非互動（CI／腳本）用旗標：
 
 ```bash
-bash install.sh --all                          # 全裝
-bash install.sh --with-skill --with-completion # 指定元件
+bash install.sh --all                          # 全裝（非互動時本來就預設全裝）
+bash install.sh --with-skill --with-completion # 只裝指定元件（＋CLI）
 bash install.sh --cli-only                     # 只裝 CLI
 bash install.sh --version v0.1.0               # 固定版本
 ```
