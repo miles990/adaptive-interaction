@@ -506,6 +506,17 @@ pub fn run() {
             emergency_stop,
             emergency_stop_clear,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // App-level quit (Cmd+Q, menu, AppleScript) bypasses window close
+            // events — the runtime must still shut down cleanly here.
+            if let tauri::RunEvent::Exit = event {
+                let state: State<'_, AppState> = app_handle.state();
+                let runtime = state.runtime.lock().expect("runtime mutex").clone();
+                if let Some(runtime) = runtime {
+                    tauri::async_runtime::block_on(runtime.shutdown());
+                }
+            }
+        });
 }
