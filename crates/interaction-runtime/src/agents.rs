@@ -231,8 +231,7 @@ impl Runtime {
         if !entry.record.lease.renewable {
             return Err(DomainError::PolicyBlocked("lease is not renewable".into()));
         }
-        entry.record.lease.expires_at +=
-            chrono::Duration::minutes(extra_minutes.min(240) as i64);
+        entry.record.lease.expires_at += chrono::Duration::minutes(extra_minutes.min(240) as i64);
         self.persist_agent_session(&entry.record);
         Ok(entry.record.clone())
     }

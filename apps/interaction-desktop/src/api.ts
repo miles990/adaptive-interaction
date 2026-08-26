@@ -189,7 +189,18 @@ export const api = {
     invoke<Record<string, unknown>>("agent_session_send", { id, kind, body }),
   agentSessionClose: (id: string, reason?: string) =>
     invoke<AgentSessionRecord>("agent_session_close", { id, reason: reason ?? null }),
+  sensorMicListen: (durationMs: number) =>
+    invoke<Record<string, unknown>>("sensor_mic_listen", { durationMs }),
+  sensorsStop: () => invoke("sensors_stop"),
 };
+
+export interface SensorUse {
+  kind: string;
+  startedAt: string;
+  startedBy: string;
+  purpose: string;
+  autoStopAt?: string;
+}
 
 export interface AgentSessionRecord {
   sessionId: string;

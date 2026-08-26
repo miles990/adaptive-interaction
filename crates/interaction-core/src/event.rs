@@ -26,6 +26,10 @@ pub enum EventType {
     ProviderRegistered,
     #[serde(rename = "provider.state-changed")]
     ProviderStateChanged,
+    #[serde(rename = "sensor.started")]
+    SensorStarted,
+    #[serde(rename = "sensor.stopped")]
+    SensorStopped,
     #[serde(rename = "plan.created")]
     PlanCreated,
     #[serde(rename = "plan.blocked")]
@@ -85,6 +89,8 @@ impl EventType {
             EventType::CapabilityChanged => "capability.changed",
             EventType::ProviderRegistered => "provider.registered",
             EventType::ProviderStateChanged => "provider.state-changed",
+            EventType::SensorStarted => "sensor.started",
+            EventType::SensorStopped => "sensor.stopped",
             EventType::PlanCreated => "plan.created",
             EventType::PlanBlocked => "plan.blocked",
             EventType::PlanAuthorized => "plan.authorized",

@@ -5,10 +5,16 @@ edition.workspace = true
 license.workspace = true
 description = "Adaptive interaction runtime: orchestrator, executor, sessions, scheduler, lifecycle"
 
+[features]
+default = ["mic-capture"]
+# Real microphone capture backend (cpal). Off = honest unavailable receptor.
+mic-capture = ["adapters-media/mic-capture"]
+
 [dependencies]
 interaction-core = { workspace = true }
 interaction-registry = { workspace = true }
 interaction-adapter-declarative = { path = "../interaction-adapter-declarative" }
+adapters-media = { path = "../../adapters/media", default-features = false }
 sha2 = "0.10"
 interaction-policy = { workspace = true }
 interaction-recipe = { workspace = true }

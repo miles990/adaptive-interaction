@@ -78,6 +78,11 @@ pub enum Command {
         #[command(subcommand)]
         action: AgentsAction,
     },
+    /// High-sensitivity sensors (microphone): bounded listen windows, stop.
+    Sensors {
+        #[command(subcommand)]
+        action: SensorsAction,
+    },
     /// Pause proactive interactions (a normal control; NOT emergency stop).
     Pause {
         /// Duration like "2h", "45m" (omit = until resumed).
@@ -331,4 +336,16 @@ pub enum AgentsAction {
         #[arg(long, default_value = "closed")]
         reason: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum SensorsAction {
+    /// Begin one bounded microphone listen window (needs enable + consent).
+    Listen {
+        /// Window length in ms (hard-capped at 30000).
+        #[arg(long, default_value_t = 10_000)]
+        ms: u64,
+    },
+    /// Stop all sensors immediately.
+    Stop,
 }

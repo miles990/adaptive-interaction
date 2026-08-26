@@ -769,6 +769,23 @@ async fn recipe_get(state: State<'_, AppState>, id: String) -> Result<Value, Str
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
+async fn sensor_mic_listen(state: State<'_, AppState>, duration_ms: u64) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let out = runtime
+        .begin_mic_listen(duration_ms, "desktop")
+        .await
+        .map_err(err_s)?;
+    Ok(json!(out))
+}
+
+#[tauri::command]
+async fn sensors_stop(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.stop_all_sensors("desktop").await.map_err(err_s)?;
+    Ok(json!({"stopped": true}))
+}
+
+#[tauri::command]
 async fn agent_sessions_list(state: State<'_, AppState>) -> Result<Value, String> {
     let runtime = rt(&state)?;
     serde_json::to_value(runtime.list_agent_sessions().await).map_err(err_s)
@@ -1111,6 +1128,7 @@ pub(crate) async fn refresh_tray(app: &tauri::AppHandle) {
         )
     };
     let (mut estop, mut paused, mut sessions) = (false, false, 0usize);
+    let (mut mic_active, mut camera_active) = (false, false);
     let mut reachable = ready;
     if let Some(b) = backend {
         match b.status().await {
@@ -1130,7 +1148,15 @@ pub(crate) async fn refresh_tray(app: &tauri::AppHandle) {
     } else {
         reachable = false;
     }
-    let view = tray::tray_view(reachable, external, estop, paused, sessions, false, false);
+    let view = tray::tray_view(
+        reachable,
+        external,
+        estop,
+        paused,
+        sessions,
+        mic_active,
+        camera_active,
+    );
     let companion_visible = state.prefs.lock().expect("prefs mutex").companion_visible;
     {
         let guard = state.tray.lock().expect("tray mutex");
@@ -1418,6 +1444,8 @@ pub fn run() {
             agent_sessions_list,
             agent_session_send,
             agent_session_close,
+            sensor_mic_listen,
+            sensors_stop,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

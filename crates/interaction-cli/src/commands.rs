@@ -362,6 +362,17 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             }
         }
         Command::Catalog => client.get("/v1/catalog").await?,
+        Command::Sensors { action } => match action {
+            crate::SensorsAction::Listen { ms } => {
+                client
+                    .post(
+                        "/v1/sensors/microphone/listen",
+                        Some(json!({"durationMs": ms})),
+                    )
+                    .await?
+            }
+            crate::SensorsAction::Stop => client.post("/v1/sensors/stop", Some(json!({}))).await?,
+        },
         Command::Agents { action } => match action {
             crate::AgentsAction::Sessions => client.get("/v1/agent-sessions").await?,
             crate::AgentsAction::Show { id } => {

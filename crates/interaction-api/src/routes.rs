@@ -1190,3 +1190,35 @@ pub async fn agent_session_close(
         .await?;
     Ok(Json(serde_json::to_value(record).unwrap_or_default()))
 }
+
+// ---------------------------------------------------------------------------
+// Sensors (microphone listen windows; always-visible indicators)
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MicListenBody {
+    #[serde(default = "default_listen_ms")]
+    pub duration_ms: u64,
+}
+
+fn default_listen_ms() -> u64 {
+    10_000
+}
+
+pub async fn sensor_mic_listen(
+    State(state): State<ApiState>,
+    body: Option<Json<MicListenBody>>,
+) -> ApiResult<Json<Value>> {
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let out = state
+        .runtime
+        .begin_mic_listen(body.duration_ms, "api")
+        .await?;
+    Ok(Json(json!(out)))
+}
+
+pub async fn sensors_stop(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
+    state.runtime.stop_all_sensors("api").await?;
+    Ok(Json(json!({"stopped": true})))
+}

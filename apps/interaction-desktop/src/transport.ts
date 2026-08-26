@@ -175,6 +175,9 @@ const ROUTES: Record<string, Route> = {
     http("POST", `/v1/agent-sessions/${q(a.id)}/messages`, { kind: a.kind, body: a.body }),
   agent_session_close: (a) =>
     http("POST", `/v1/agent-sessions/${q(a.id)}/close`, { reason: a.reason ?? "closed" }),
+  sensor_mic_listen: (a) =>
+    http("POST", "/v1/sensors/microphone/listen", { durationMs: a.durationMs }),
+  sensors_stop: () => http("POST", "/v1/sensors/stop"),
 };
 
 /** Invoke a backend command through whichever transport is active. */

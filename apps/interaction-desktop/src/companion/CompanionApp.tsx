@@ -42,6 +42,7 @@ export default function CompanionApp() {
   const [packName, setPackName] = React.useState("shu-standard");
   const [ready, setReady] = React.useState(false);
   const [inputOpen, setInputOpen] = React.useState(false);
+  const [sensorLabel, setSensorLabel] = React.useState<string | null>(null);
 
   // ---- boot: transport, pack, renderer ----
   React.useEffect(() => {
@@ -113,6 +114,14 @@ export default function CompanionApp() {
           (s["proactivePause"] as Record<string, unknown> | undefined)?.["paused"]
         );
         const quiet = Boolean(s["quietHours"]);
+        const sensors = (s["activeSensors"] as { kind: string }[] | undefined) ?? [];
+        setSensorLabel(
+          sensors.length > 0
+            ? sensors.some((x) => x.kind === "microphone")
+              ? "🎙 正在使用麥克風"
+              : `使用中：${sensors.map((x) => x.kind).join("、")}`
+            : null
+        );
         apply({
           type: "base",
           base: estop ? "emergency" : paused ? "paused" : quiet ? "quiet" : "idle",
@@ -345,6 +354,11 @@ export default function CompanionApp() {
         </div>
       )}
       {estop && <div className="companion-estop-label">緊急停止中</div>}
+      {!estop && sensorLabel && (
+        <div className="companion-sensor-label" role="status">
+          {sensorLabel}
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         className="companion-canvas"

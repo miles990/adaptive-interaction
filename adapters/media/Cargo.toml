@@ -1,0 +1,22 @@
+[package]
+name = "adapters-media"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "High-sensitivity media receptors (microphone level; camera interface) — default OFF, consent-gated, memory-only"
+
+[features]
+default = ["mic-capture"]
+# Real microphone capture via cpal. Disable for CI/headless builds; the
+# receptor then reports itself honestly unavailable.
+mic-capture = ["dep:cpal"]
+
+[dependencies]
+interaction-core = { path = "../../crates/interaction-core" }
+interaction-adapter-sdk = { path = "../../crates/interaction-adapter-sdk" }
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+cpal = { version = "0.15", optional = true }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "time"] }
+tracing = "0.1"

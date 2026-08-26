@@ -9,6 +9,7 @@ pub mod lock;
 pub mod orchestrator;
 pub mod providers;
 pub mod runtime;
+pub mod sensors;
 pub mod text;
 
 pub use config::*;

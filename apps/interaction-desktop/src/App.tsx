@@ -161,6 +161,7 @@ function Shell({
   const [onboarding, setOnboarding] = React.useState<"unknown" | "open" | "closed">("unknown");
   const [closeDialog, setCloseDialog] = React.useState(false);
   const [trayError, setTrayError] = React.useState<string | null>(null);
+  const [sensors, setSensors] = React.useState<import("./api").SensorUse[]>([]);
   const advanced = prefs.mode === "advanced";
 
   React.useEffect(() => {
@@ -178,6 +179,7 @@ function Shell({
       .status()
       .then((s) => {
         setEstop(Boolean(s["emergencyStop"]));
+        setSensors((s["activeSensors"] as import("./api").SensorUse[] | undefined) ?? []);
         if (onboarding === "unknown") {
           setOnboarding(s["onboardingCompleted"] === true ? "closed" : "open");
         }
@@ -304,6 +306,26 @@ function Shell({
         {estop && (
           <div className="estop-banner" role="alert">
             緊急停止已啟動：所有回應已停止、未完成動作已中止。解除需到「同意與安全」頁走安全流程，不會自動恢復。
+          </div>
+        )}
+        {sensors.length > 0 && (
+          <div className="sensor-banner" role="status">
+            {sensors.map((s) => (
+              <span key={s.kind}>
+                {s.kind === "microphone" ? "🎙 正在使用麥克風" : `使用中：${s.kind}`}
+                （由 {s.startedBy === "desktop" ? "你" : s.startedBy} 啟動・{s.purpose}
+                {s.autoStopAt
+                  ? `・${Math.max(0, Math.round((new Date(s.autoStopAt).getTime() - Date.now()) / 1000))} 秒後自動停止`
+                  : ""}
+                ）
+              </span>
+            ))}
+            <button
+              style={{ marginLeft: 8 }}
+              onClick={() => api.sensorsStop().then(bumpRefresh).catch(() => {})}
+            >
+              立即停止
+            </button>
           </div>
         )}
         {disconnected && (

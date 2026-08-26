@@ -85,6 +85,10 @@ pub struct RuntimeInner {
     pub(crate) ai_assists: RwLock<BTreeMap<String, crate::human::PendingAssist>>,
     /// Live agent sessions (mailboxes are memory-only; records persist).
     pub(crate) agent_sessions: RwLock<BTreeMap<String, crate::agents::AgentSessionEntry>>,
+    /// Currently-capturing sensors → always-visible indicators.
+    pub(crate) sensors: std::sync::Mutex<BTreeMap<String, crate::sensors::SensorUse>>,
+    /// Typed handle to the microphone receptor (None when not registered).
+    pub mic_receptor: Option<Arc<adapters_media::MicListenReceptor>>,
 }
 
 #[derive(Clone)]
@@ -197,6 +201,30 @@ impl Runtime {
                 config.webhook_allowlist.clone(),
             )))
             .await?;
+        // ---- microphone receptor (default OFF, consent-gated; capture only
+        //      via explicit bounded listen windows) ----
+        let sensor_cb_slot: Arc<std::sync::OnceLock<std::sync::Weak<RuntimeInner>>> =
+            Arc::new(std::sync::OnceLock::new());
+        let cb_slot = sensor_cb_slot.clone();
+        let sensor_cb: adapters_media::SensorStateCallback = Arc::new(move |kind, active| {
+            if let Some(weak) = cb_slot.get() {
+                if let Some(inner) = weak.upgrade() {
+                    Runtime::from_inner(inner).sensor_state_changed(kind, active);
+                }
+            }
+        });
+        #[cfg(feature = "mic-capture")]
+        let mic_source: Arc<dyn adapters_media::CaptureSource> =
+            Arc::new(adapters_media::cpal_source::CpalSource);
+        #[cfg(not(feature = "mic-capture"))]
+        let mic_source: Arc<dyn adapters_media::CaptureSource> =
+            Arc::new(adapters_media::UnavailableSource);
+        let mic_receptor = Arc::new(adapters_media::MicListenReceptor::new(
+            mic_source,
+            Some(sensor_cb),
+        ));
+        registry.register_receptor(mic_receptor.clone()).await?;
+
         let mock_actuator = Arc::new(MockActuator::new("mock.actuator", "haptic"));
         registry
             .register_receptor(Arc::new(MockDeviceStatusReceptor::new(
@@ -255,8 +283,11 @@ impl Runtime {
                 pause: RwLock::new(pause_state),
                 ai_assists: RwLock::new(BTreeMap::new()),
                 agent_sessions: RwLock::new(BTreeMap::new()),
+                sensors: std::sync::Mutex::new(BTreeMap::new()),
+                mic_receptor: Some(mic_receptor),
             }),
         };
+        let _ = sensor_cb_slot.set(Arc::downgrade(&runtime.inner));
 
         // Delegation actuator goes through the same registry/governor path.
         let delegate = crate::agents::DelegateActuator::new(Arc::downgrade(&runtime.inner));
@@ -334,6 +365,7 @@ impl Runtime {
             "proactivePause": self.pause_status().await,
             "pendingAiAssists": self.pending_ai_assists().await.len(),
             "agentSessions": self.open_agent_sessions().await,
+            "activeSensors": self.active_sensors(),
             "onboardingCompleted": self.onboarding_state().await
                 .get("completed").and_then(Value::as_bool).unwrap_or(false),
         })
@@ -682,6 +714,8 @@ impl Runtime {
                 stopped_actuators += 1;
             }
         }
+        // Sensors stop capturing IMMEDIATELY on emergency stop.
+        let _ = self.stop_all_sensors(actor).await;
         // Cancel every open agent session; delegated work never survives an
         // emergency stop and never resumes automatically.
         self.estop_agent_sessions().await;
@@ -1605,6 +1639,10 @@ impl Runtime {
                     _ = ticker.tick() => {}
                 }
                 tick += 1;
+                // Sensor listen-window deadlines are hard: sweep every tick.
+                if let Some(mic) = runtime.mic_receptor.as_ref() {
+                    let _ = mic.is_listening(); // enforces the deadline
+                }
                 // TTL sweep: expire non-terminal receipts past their deadline.
                 if let Ok(open) = runtime.store.open_receipts() {
                     let now = Utc::now();
