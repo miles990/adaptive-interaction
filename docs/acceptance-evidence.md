@@ -57,3 +57,37 @@ audit tail: ['emergency.clear', 'emergency.stop']
 - gemini: 6456 chars, warnings=0
 - openapi: 60412 chars, warnings=0
 - json-schema: 57353 chars, warnings=0
+
+---
+
+# 部署驗證（v0.1.3，真 Release 資產、本機 macOS arm64）— 2026-08-26
+
+## 升級鏈
+v0.1.0 → self update（sha256 驗證＋原子替換）→ v0.1.1 → v0.1.2 → v0.1.3；
+`self version --check` 每步正確偵測；跨 AI skill 同步安裝至 5 個 agent home
+（Claude Code／Codex／~/.agents／Gemini／Copilot，偵測到的全裝、選單可選）。
+
+## 能力矩陣：47/47 PASS
+12 個 canonical tools 全部行為正確（含 cancel-已完成 → conflict、estop 期間
+execute → exit 7）；受器啟停/推送/動態新增、動器測試（含真 macOS 通知）、
+magnitude 0.95→0.8 夾制、quiet hours 降級、consent 撤回即擋、5 格式匯出
+0 warnings、SSE 重播、穩定 exit codes。
+
+## 註冊/權限鏈：20/20 PASS
+動態註冊（一般/敏感受器＋mock 裝置）→ 能力快照即時反映（版本遞增＋
+registered/capability.changed 事件）→ 四道閘門逐一攔截驗證
+（預設停用 → enable → policy allowlist → session consent）→ 全開後
+完整狀態機 completed(observed) → 移除（連配對受器一併移除）。
+
+## 桌面控制中心（release dmg）：12/12 PASS
+啟動→內嵌 runtime API 上線→經同一套服務執行閉環→UI 即時同步（總覽/受器/
+動器頁截圖見 docs/assets/desktop-*.png）→緊急停止/解除→視窗關閉與
+AppleScript quit 均優雅關閉（clean_shutdown=true）。
+受器頁：camera.fake 顯示「需同意」＋disabled＋啟用鈕；動器頁：dev.device
+顯示裝置上限（maxMag 0.8/maxDur 10s）、webhook.output 顯示「外部副作用」。
+
+## 實測發現並修復的缺陷（各附回歸測試）
+1. v0.1.2：緊急停止 clear 後閂死裝置無法重新武裝（新增 Actuator::emergency_clear）
+2. v0.1.3：app 層級退出不觸發 runtime 優雅關閉（RunEvent::Exit handler）
+3. v0.1.3：動態註冊 mock 裝置缺配對 status 受器，observed 驗證無法閉環
+4. 發版流程：golden schemas 內嵌版本號、bump 必 drift（release.sh 自動再生）
