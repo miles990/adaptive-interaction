@@ -22,6 +22,10 @@ pub enum EventType {
     ActuatorOffline,
     #[serde(rename = "capability.changed")]
     CapabilityChanged,
+    #[serde(rename = "provider.registered")]
+    ProviderRegistered,
+    #[serde(rename = "provider.state-changed")]
+    ProviderStateChanged,
     #[serde(rename = "plan.created")]
     PlanCreated,
     #[serde(rename = "plan.blocked")]
@@ -79,6 +83,8 @@ impl EventType {
             EventType::ActuatorOnline => "actuator.online",
             EventType::ActuatorOffline => "actuator.offline",
             EventType::CapabilityChanged => "capability.changed",
+            EventType::ProviderRegistered => "provider.registered",
+            EventType::ProviderStateChanged => "provider.state-changed",
             EventType::PlanCreated => "plan.created",
             EventType::PlanBlocked => "plan.blocked",
             EventType::PlanAuthorized => "plan.authorized",

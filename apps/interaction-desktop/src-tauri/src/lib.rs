@@ -9,18 +9,137 @@
 //! read and write commands are separate, emergency stop is its own command,
 //! and every input is re-validated by the runtime's policy governor.
 
-use interaction_core::{ActionId, ActuatorId, DiscoveryContext, ObservationQuery, PlanId, ReceptorId};
+mod supervisor;
+mod tray;
+
+use interaction_core::{
+    ActionId, ActuatorId, DiscoveryContext, ObservationQuery, PlanId, ReceptorId,
+};
 use interaction_policy::ActionSource;
 use interaction_runtime::{Runtime, RuntimeOptions};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use supervisor::{DesktopPrefs, SupervisorInfo, SupervisorMode, SupervisorState};
 use tauri::{Emitter, Manager, State};
 
-/// Runtime handle or the reason it could not start (e.g. daemon holds the lock).
+/// Desktop app state: embedded runtime handle OR external-daemon connection,
+/// plus desktop-local prefs (close behavior, companion) and the tray.
 pub struct AppState {
     runtime: Mutex<Option<Runtime>>,
     startup_error: Mutex<Option<String>>,
+    supervisor: Mutex<SupervisorInfo>,
+    prefs: Mutex<DesktopPrefs>,
+    quitting: AtomicBool,
+    tray: Mutex<Option<tray::TrayHandles>>,
+    /// Character hit-rect (logical px) inside the companion window.
+    companion_hit_rect: Mutex<(f64, f64, f64, f64)>,
+    companion_interactive: AtomicBool,
+}
+
+/// Alias used by the tray module.
+pub type DesktopState = AppState;
+
+/// Backend for tray/native actions: direct runtime calls in embedded mode,
+/// authorized HTTP in external mode. The WebView is never involved.
+#[derive(Clone)]
+pub enum Backend {
+    Embedded(Runtime),
+    External { base: String, token: String },
+}
+
+impl Backend {
+    pub async fn status(&self) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => Ok(rt.status().await),
+            Backend::External { base, token } => {
+                supervisor::daemon_get(base, token, "/v1/status").await
+            }
+        }
+    }
+
+    pub async fn pause_status(&self) -> Result<bool, String> {
+        match self {
+            Backend::Embedded(rt) => Ok(rt.pause_status().await.paused),
+            Backend::External { base, token } => {
+                let v = supervisor::daemon_get(base, token, "/v1/pause").await?;
+                Ok(v.get("paused").and_then(Value::as_bool).unwrap_or(false))
+            }
+        }
+    }
+
+    pub async fn pause(&self, minutes: Option<u64>) -> Result<(), String> {
+        match self {
+            Backend::Embedded(rt) => {
+                let until =
+                    minutes.map(|m| chrono::Utc::now() + chrono::Duration::minutes(m as i64));
+                rt.pause_proactive(until, Some("tray".into()), "tray")
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }
+            Backend::External { base, token } => supervisor::daemon_post(
+                base,
+                token,
+                "/v1/pause",
+                json!({"durationMinutes": minutes, "reason": "tray"}),
+            )
+            .await
+            .map(|_| ()),
+        }
+    }
+
+    pub async fn resume(&self) -> Result<(), String> {
+        match self {
+            Backend::Embedded(rt) => rt
+                .resume_proactive("tray")
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+            Backend::External { base, token } => {
+                supervisor::daemon_post(base, token, "/v1/pause/clear", json!({}))
+                    .await
+                    .map(|_| ())
+            }
+        }
+    }
+
+    pub async fn emergency_stop(&self, actor: &str) -> Result<(), String> {
+        match self {
+            Backend::Embedded(rt) => rt
+                .emergency_stop(actor, Some("tray emergency stop".into()))
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+            Backend::External { base, token } => supervisor::daemon_post(
+                base,
+                token,
+                "/v1/emergency-stop",
+                json!({"reason": "tray emergency stop"}),
+            )
+            .await
+            .map(|_| ()),
+        }
+    }
+}
+
+impl AppState {
+    pub fn backend(&self) -> Option<Backend> {
+        if let Some(rt) = self.runtime.lock().expect("runtime mutex").clone() {
+            return Some(Backend::Embedded(rt));
+        }
+        let info = self.supervisor.lock().expect("supervisor mutex").clone();
+        if info.mode == SupervisorMode::External {
+            if let Some(token) = info.token {
+                return Some(Backend::External {
+                    base: info.api_base,
+                    token,
+                });
+            }
+        }
+        None
+    }
 }
 
 fn rt(state: &State<'_, AppState>) -> Result<Runtime, String> {
@@ -60,7 +179,10 @@ async fn capabilities(
 ) -> Result<Value, String> {
     let runtime = rt(&state)?;
     let snap = runtime
-        .capabilities(&DiscoveryContext { include_unavailable, ..Default::default() })
+        .capabilities(&DiscoveryContext {
+            include_unavailable,
+            ..Default::default()
+        })
         .await;
     serde_json::to_value(snap).map_err(err_s)
 }
@@ -83,8 +205,12 @@ async fn actions_list(state: State<'_, AppState>, limit: u32) -> Result<Value, S
 #[tauri::command]
 async fn action_get(state: State<'_, AppState>, action_id: String) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    serde_json::to_value(runtime.get_action(&ActionId::new(&action_id)).map_err(err_s)?)
-        .map_err(err_s)
+    serde_json::to_value(
+        runtime
+            .get_action(&ActionId::new(&action_id))
+            .map_err(err_s)?,
+    )
+    .map_err(err_s)
 }
 
 #[tauri::command]
@@ -143,7 +269,10 @@ async fn outbox_recent(state: State<'_, AppState>, limit: u32) -> Result<Value, 
 #[tauri::command]
 async fn audit_tail(state: State<'_, AppState>, limit: u32) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    Ok(json!(runtime.store.audit_tail(limit.min(200)).map_err(err_s)?))
+    Ok(json!(runtime
+        .store
+        .audit_tail(limit.min(200))
+        .map_err(err_s)?))
 }
 
 #[tauri::command]
@@ -189,8 +318,13 @@ async fn set_actuator_enabled(
 #[tauri::command]
 async fn test_receptor(state: State<'_, AppState>, id: String) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    serde_json::to_value(runtime.observe_fresh(&ReceptorId::new(&id)).await.map_err(err_s)?)
-        .map_err(err_s)
+    serde_json::to_value(
+        runtime
+            .observe_fresh(&ReceptorId::new(&id))
+            .await
+            .map_err(err_s)?,
+    )
+    .map_err(err_s)
 }
 
 #[tauri::command]
@@ -237,7 +371,10 @@ async fn create_plan(state: State<'_, AppState>, input: Value) -> Result<Value, 
         .ok_or("missing intent")?
         .to_string();
     let mut intent = interaction_core::SemanticIntent::new(intent_name);
-    intent.message = input.get("message").and_then(|v| v.as_str()).map(String::from);
+    intent.message = input
+        .get("message")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     intent.magnitude = input.get("magnitude").and_then(|v| v.as_f64());
     intent.duration_ms = input.get("durationMs").and_then(|v| v.as_u64());
     intent.preferred_channels = input
@@ -256,9 +393,18 @@ async fn create_plan(state: State<'_, AppState>, input: Value) -> Result<Value, 
         .create_plan(
             intent,
             candidates,
-            input.get("minChannels").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            input.get("maxChannels").and_then(|v| v.as_u64()).unwrap_or(3) as u32,
-            input.get("allowNoAction").and_then(|v| v.as_bool()).unwrap_or(true),
+            input
+                .get("minChannels")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32,
+            input
+                .get("maxChannels")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(3) as u32,
+            input
+                .get("allowNoAction")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
             None,
             metadata,
         )
@@ -270,8 +416,13 @@ async fn create_plan(state: State<'_, AppState>, input: Value) -> Result<Value, 
 #[tauri::command]
 async fn simulate_plan(state: State<'_, AppState>, plan_id: String) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    serde_json::to_value(runtime.simulate_plan(&PlanId::new(&plan_id)).await.map_err(err_s)?)
-        .map_err(err_s)
+    serde_json::to_value(
+        runtime
+            .simulate_plan(&PlanId::new(&plan_id))
+            .await
+            .map_err(err_s)?,
+    )
+    .map_err(err_s)
 }
 
 #[tauri::command]
@@ -289,15 +440,25 @@ async fn execute_plan(state: State<'_, AppState>, plan_id: String) -> Result<Val
 #[tauri::command]
 async fn cancel_action(state: State<'_, AppState>, action_id: String) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    serde_json::to_value(runtime.cancel_action(&ActionId::new(&action_id)).await.map_err(err_s)?)
-        .map_err(err_s)
+    serde_json::to_value(
+        runtime
+            .cancel_action(&ActionId::new(&action_id))
+            .await
+            .map_err(err_s)?,
+    )
+    .map_err(err_s)
 }
 
 #[tauri::command]
 async fn verify_action(state: State<'_, AppState>, action_id: String) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    serde_json::to_value(runtime.verify_action(&ActionId::new(&action_id)).await.map_err(err_s)?)
-        .map_err(err_s)
+    serde_json::to_value(
+        runtime
+            .verify_action(&ActionId::new(&action_id))
+            .await
+            .map_err(err_s)?,
+    )
+    .map_err(err_s)
 }
 
 #[tauri::command]
@@ -313,8 +474,13 @@ async fn session_start(
     consents: Vec<String>,
 ) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    serde_json::to_value(runtime.start_session(label, None, consents).await.map_err(err_s)?)
-        .map_err(err_s)
+    serde_json::to_value(
+        runtime
+            .start_session(label, None, consents)
+            .await
+            .map_err(err_s)?,
+    )
+    .map_err(err_s)
 }
 
 #[tauri::command]
@@ -324,8 +490,13 @@ async fn consent_grant(
     expires_minutes: Option<u32>,
 ) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    serde_json::to_value(runtime.grant_consent(&scope, expires_minutes).await.map_err(err_s)?)
-        .map_err(err_s)
+    serde_json::to_value(
+        runtime
+            .grant_consent(&scope, expires_minutes)
+            .await
+            .map_err(err_s)?,
+    )
+    .map_err(err_s)
 }
 
 #[tauri::command]
@@ -365,8 +536,13 @@ async fn recipe_set_enabled(
     enabled: bool,
 ) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    serde_json::to_value(runtime.set_recipe_enabled(&id, enabled).await.map_err(err_s)?)
-        .map_err(err_s)
+    serde_json::to_value(
+        runtime
+            .set_recipe_enabled(&id, enabled)
+            .await
+            .map_err(err_s)?,
+    )
+    .map_err(err_s)
 }
 
 #[tauri::command]
@@ -393,22 +569,30 @@ async fn recipe_run(state: State<'_, AppState>, id: String) -> Result<Value, Str
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-async fn emergency_stop(state: State<'_, AppState>, reason: Option<String>) -> Result<Value, String> {
+async fn emergency_stop(
+    state: State<'_, AppState>,
+    reason: Option<String>,
+) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    runtime.emergency_stop("desktop", reason).await.map_err(err_s)
+    runtime
+        .emergency_stop("desktop", reason)
+        .await
+        .map_err(err_s)
 }
 
 #[tauri::command]
 async fn emergency_stop_clear(state: State<'_, AppState>) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    runtime.clear_emergency_stop("desktop").await.map_err(err_s)?;
+    runtime
+        .clear_emergency_stop("desktop")
+        .await
+        .map_err(err_s)?;
     Ok(json!({"cleared": true}))
 }
 
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
-
 
 #[tauri::command]
 async fn catalog_get() -> Result<Value, String> {
@@ -580,63 +764,549 @@ async fn recipe_get(state: State<'_, AppState>, id: String) -> Result<Value, Str
     serde_json::to_value(recipe).map_err(err_s)
 }
 
+// ---------------------------------------------------------------------------
+// Supervisor / lifecycle commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn supervisor_info(state: State<'_, AppState>) -> Result<Value, String> {
+    let info = state.supervisor.lock().expect("supervisor mutex").clone();
+    serde_json::to_value(info).map_err(err_s)
+}
+
+#[tauri::command]
+async fn desktop_prefs_get(state: State<'_, AppState>) -> Result<Value, String> {
+    let prefs = state.prefs.lock().expect("prefs mutex").clone();
+    serde_json::to_value(prefs).map_err(err_s)
+}
+
+#[tauri::command]
+async fn desktop_prefs_patch(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    patch: Value,
+) -> Result<Value, String> {
+    let updated = {
+        let mut prefs = state.prefs.lock().expect("prefs mutex");
+        let mut v = serde_json::to_value(&*prefs).map_err(err_s)?;
+        if let (Some(obj), Some(p)) = (v.as_object_mut(), patch.as_object()) {
+            for (k, val) in p {
+                obj.insert(k.clone(), val.clone());
+            }
+        }
+        *prefs = serde_json::from_value(v).map_err(err_s)?;
+        prefs.clone()
+    };
+    supervisor::save_prefs(&updated)?;
+    // Keep the OS autostart entry in sync with the pref (default off).
+    #[allow(unused_variables)]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        let autostart = app.autolaunch();
+        let _ = if updated.launch_at_login {
+            autostart.enable()
+        } else {
+            autostart.disable()
+        };
+    }
+    serde_json::to_value(updated).map_err(err_s)
+}
+
+/// The user's decision from the first-close dialog.
+#[tauri::command]
+async fn close_decision(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    behavior: String,
+    remember: bool,
+) -> Result<(), String> {
+    if !matches!(
+        behavior.as_str(),
+        "keep-running" | "hide-companion" | "quit"
+    ) {
+        return Err(format!("unknown close behavior {behavior:?}"));
+    }
+    {
+        let mut prefs = state.prefs.lock().expect("prefs mutex");
+        prefs.close_behavior = Some(behavior.clone());
+        if remember {
+            prefs.ask_on_close = false;
+        }
+        supervisor::save_prefs(&prefs)?;
+    }
+    apply_close_behavior(&app, &behavior);
+    Ok(())
+}
+
+#[tauri::command]
+async fn full_quit(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.quitting.store(true, Ordering::SeqCst);
+    {
+        let mut info = state.supervisor.lock().expect("supervisor mutex");
+        info.state = SupervisorState::Stopping;
+    }
+    // RunEvent::Exit performs the graceful embedded-runtime shutdown
+    // (cancel open receipts, emergency-stop actuators, persist, release lock).
+    // An external daemon is deliberately NOT touched.
+    app.exit(0);
+    Ok(())
+}
+
+fn apply_close_behavior(app: &tauri::AppHandle, behavior: &str) {
+    match behavior {
+        "quit" => {
+            let state: State<'_, AppState> = app.state();
+            state.quitting.store(true, Ordering::SeqCst);
+            app.exit(0);
+        }
+        "hide-companion" => {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.hide();
+            }
+            if let Some(w) = app.get_webview_window("companion") {
+                let _ = w.hide();
+            }
+        }
+        _ => {
+            // keep-running: hide the control center only.
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.hide();
+            }
+        }
+    }
+}
+
+pub(crate) fn show_main_window(app: &tauri::AppHandle, settings: bool) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        if settings {
+            let _ = app.emit("navigate", "settings");
+        }
+    }
+}
+
+pub(crate) fn toggle_companion_window(app: &tauri::AppHandle) {
+    let state: State<'_, AppState> = app.state();
+    let visible = {
+        let mut prefs = state.prefs.lock().expect("prefs mutex");
+        prefs.companion_visible = !prefs.companion_visible;
+        let _ = supervisor::save_prefs(&prefs);
+        prefs.companion_visible
+    };
+    if visible {
+        ensure_companion_window(app);
+    } else if let Some(w) = app.get_webview_window("companion") {
+        let _ = w.hide();
+    }
+    let _ = app.emit("companion-visibility", visible);
+}
+
+/// Create (or show) the desktop companion window: transparent, frameless,
+/// draggable via the character, never steals focus at creation.
+pub(crate) fn ensure_companion_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("companion") {
+        let _ = w.show();
+        return;
+    }
+    let state: State<'_, AppState> = app.state();
+    let (position, on_top) = {
+        let prefs = state.prefs.lock().expect("prefs mutex");
+        (prefs.companion_position, prefs.companion_always_on_top)
+    };
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        app,
+        "companion",
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title("小樞")
+    .inner_size(200.0, 210.0)
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .skip_taskbar(true)
+    .always_on_top(on_top)
+    .focused(false);
+    if let Some((x, y)) = position {
+        builder = builder.position(x, y);
+    }
+    match builder.build() {
+        Ok(_) => {
+            spawn_companion_clickthrough(app.clone());
+        }
+        Err(e) => tracing::error!(error = %e, "companion window create failed"),
+    }
+}
+
+/// Click-through for the transparent padding around the character: a small
+/// Rust poll toggles ignore-cursor-events from the GLOBAL cursor position, so
+/// clicks outside the character's hit-rect pass through to whatever is
+/// underneath. The WebView cannot change policy here — it only reports where
+/// the character is drawn.
+fn spawn_companion_clickthrough(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut ignoring = false;
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(160)).await;
+            let Some(win) = app.get_webview_window("companion") else {
+                return; // window gone; a new one spawns a new loop
+            };
+            if !win.is_visible().unwrap_or(false) {
+                continue;
+            }
+            let state: State<'_, AppState> = app.state();
+            if state.companion_interactive.load(Ordering::SeqCst) {
+                if ignoring {
+                    let _ = win.set_ignore_cursor_events(false);
+                    ignoring = false;
+                }
+                continue;
+            }
+            let (Ok(cursor), Ok(pos), Ok(size)) = (
+                app.cursor_position(),
+                win.outer_position(),
+                win.outer_size(),
+            ) else {
+                continue;
+            };
+            let inside_window = cursor.x >= pos.x as f64
+                && cursor.x < (pos.x + size.width as i32) as f64
+                && cursor.y >= pos.y as f64
+                && cursor.y < (pos.y + size.height as i32) as f64;
+            if !inside_window {
+                // Re-arm interactivity whenever the cursor is away so the next
+                // approach over the character is clickable again.
+                if ignoring {
+                    let _ = win.set_ignore_cursor_events(false);
+                    ignoring = false;
+                }
+                continue;
+            }
+            // Character hit-rect in physical px (reported by the renderer;
+            // defaults cover the sprite's bounding box).
+            let scale = win.scale_factor().unwrap_or(1.0);
+            let rect = *state.companion_hit_rect.lock().expect("hit rect");
+            let rx = pos.x as f64 + rect.0 * scale;
+            let ry = pos.y as f64 + rect.1 * scale;
+            let rw = rect.2 * scale;
+            let rh = rect.3 * scale;
+            let on_character = cursor.x >= rx
+                && cursor.x < rx + rw
+                && cursor.y >= ry
+                && cursor.y < ry + rh;
+            let want_ignore = !on_character;
+            if want_ignore != ignoring {
+                let _ = win.set_ignore_cursor_events(want_ignore);
+                ignoring = want_ignore;
+            }
+        }
+    });
+}
+
+/// The renderer reports where the character actually is (logical px within
+/// the window) so transparent padding stays click-through.
+#[tauri::command]
+async fn companion_hit_rect(
+    state: State<'_, AppState>,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+) -> Result<(), String> {
+    *state.companion_hit_rect.lock().expect("hit rect") = (x, y, w, h);
+    Ok(())
+}
+
+/// Menus/inputs open → the whole window must accept the cursor.
+#[tauri::command]
+async fn companion_set_interactive(
+    state: State<'_, AppState>,
+    interactive: bool,
+) -> Result<(), String> {
+    state
+        .companion_interactive
+        .store(interactive, Ordering::SeqCst);
+    Ok(())
+}
+
+#[tauri::command]
+async fn companion_open_control_center(
+    app: tauri::AppHandle,
+    tab: Option<String>,
+) -> Result<(), String> {
+    show_main_window(&app, false);
+    if let Some(tab) = tab {
+        let _ = app.emit("navigate", tab);
+    }
+    Ok(())
+}
+
+pub(crate) fn full_quit_from_tray(app: &tauri::AppHandle) {
+    let state: State<'_, AppState> = app.state();
+    state.quitting.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
+
+/// Refresh tray texts/glyph from the live backend state.
+pub(crate) async fn refresh_tray(app: &tauri::AppHandle) {
+    let state: State<'_, AppState> = app.state();
+    let backend = state.backend();
+    let (ready, external) = {
+        let info = state.supervisor.lock().expect("supervisor mutex");
+        (
+            matches!(
+                info.state,
+                SupervisorState::Ready
+                    | SupervisorState::EmbeddedOwned
+                    | SupervisorState::ConnectedToExternal
+            ),
+            info.mode == SupervisorMode::External,
+        )
+    };
+    let (mut estop, mut paused, mut sessions) = (false, false, 0usize);
+    let mut reachable = ready;
+    if let Some(b) = backend {
+        match b.status().await {
+            Ok(s) => {
+                estop = s
+                    .get("emergencyStop")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                paused = s
+                    .pointer("/proactivePause/paused")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                sessions = s.get("agentSessions").and_then(Value::as_u64).unwrap_or(0) as usize;
+            }
+            Err(_) => reachable = false,
+        }
+    } else {
+        reachable = false;
+    }
+    let view = tray::tray_view(reachable, external, estop, paused, sessions, false, false);
+    let companion_visible = state.prefs.lock().expect("prefs mutex").companion_visible;
+    {
+        let guard = state.tray.lock().expect("tray mutex");
+        if let Some(handles) = guard.as_ref() {
+            let _ = handles.info_status.set_text(&view.status_text);
+            let _ = handles.info_pause.set_text(&view.pause_text);
+            let _ = handles.info_sessions.set_text(&view.sessions_text);
+            let _ = handles.toggle_pause.set_text(&view.pause_action_text);
+            let _ = handles.toggle_companion.set_text(if companion_visible {
+                "隱藏桌面角色"
+            } else {
+                "顯示桌面角色"
+            });
+            #[cfg(target_os = "macos")]
+            {
+                let _ = handles.tray.set_title(view.title_glyph);
+            }
+        }
+    };
+}
+
+/// Decide embedded vs external and bring the backend up (spec §6).
+async fn start_supervised(handle: tauri::AppHandle) {
+    let api_base = supervisor::configured_api_base();
+
+    // 1) An external daemon already owns the runtime? Connect, don't compete.
+    if supervisor::daemon_ready(&api_base).await {
+        let token = supervisor::read_api_token();
+        {
+            let state: State<'_, AppState> = handle.state();
+            let mut info = state.supervisor.lock().expect("supervisor mutex");
+            info.mode = SupervisorMode::External;
+            info.state = SupervisorState::ConnectedToExternal;
+            info.api_base = api_base.clone();
+            info.token = token.clone();
+            info.detail = Some("connected to external interact-ai daemon".into());
+        }
+        let _ = handle.emit("supervisor-state", "connected-to-external");
+        if token.is_none() {
+            let state: State<'_, AppState> = handle.state();
+            let mut info = state.supervisor.lock().expect("supervisor mutex");
+            info.state = SupervisorState::Degraded;
+            info.detail = Some("daemon is running but its API token is unreadable".into());
+            let _ = handle.emit(
+                "runtime-error",
+                "偵測到外部 Runtime，但無法讀取它的 API token（state/api-token）。",
+            );
+            return;
+        }
+        // Health loop: the app must never look healthy while the daemon is
+        // gone. Demote to Disconnected on failures; recover automatically.
+        let health_handle = handle.clone();
+        let base = api_base.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut healthy = true;
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                let ok = supervisor::daemon_ready(&base).await;
+                if ok != healthy {
+                    healthy = ok;
+                    let state: State<'_, AppState> = health_handle.state();
+                    {
+                        let mut info = state.supervisor.lock().expect("supervisor mutex");
+                        info.state = if ok {
+                            SupervisorState::ConnectedToExternal
+                        } else {
+                            SupervisorState::Disconnected
+                        };
+                    }
+                    let _ = health_handle.emit(
+                        "supervisor-state",
+                        if ok {
+                            "connected-to-external"
+                        } else {
+                            "disconnected"
+                        },
+                    );
+                    refresh_tray(&health_handle).await;
+                }
+            }
+        });
+        return;
+    }
+
+    // 2) No daemon: this app owns an embedded runtime.
+    match Runtime::start(RuntimeOptions {
+        home: None,
+        acquire_lock: true,
+        in_memory_db: false,
+        spawn_watchdog: true,
+    })
+    .await
+    {
+        Ok(runtime) => {
+            // Forward runtime events to the WebView.
+            let mut rx = runtime.events.subscribe();
+            let event_handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                while let Ok(event) = rx.recv().await {
+                    let _ = event_handle.emit("runtime-event", &event);
+                }
+            });
+            // Serve the HTTP API so CLI/agents share this instance.
+            let config = runtime.config.read().await.clone();
+            if let Ok(token) = runtime.config_service.load_or_create_token() {
+                let _ = interaction_api::serve(
+                    runtime.clone(),
+                    &config.api_host,
+                    config.api_port,
+                    token,
+                )
+                .await;
+            }
+            let state: State<'_, AppState> = handle.state();
+            *state.runtime.lock().expect("runtime mutex") = Some(runtime);
+            {
+                let mut info = state.supervisor.lock().expect("supervisor mutex");
+                info.mode = SupervisorMode::Embedded;
+                info.state = SupervisorState::EmbeddedOwned;
+                info.api_base = api_base;
+            }
+            let _ = handle.emit("supervisor-state", "embedded-owned");
+            let _ = handle.emit("runtime-ready", true);
+            refresh_tray(&handle).await;
+        }
+        Err(e) => {
+            let state: State<'_, AppState> = handle.state();
+            *state.startup_error.lock().expect("error mutex") =
+                Some(format!("runtime start failed: {e}"));
+            {
+                let mut info = state.supervisor.lock().expect("supervisor mutex");
+                info.state = SupervisorState::Disconnected;
+                info.detail = Some(e.to_string());
+            }
+            let _ = handle.emit("runtime-error", e.to_string());
+        }
+    }
+}
 
 pub fn run() {
     tauri::Builder::default()
-        .manage(AppState { runtime: Mutex::new(None), startup_error: Mutex::new(None) })
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // A second desktop app focuses the first instead of double-owning.
+            show_main_window(app, false);
+        }))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .manage(AppState {
+            runtime: Mutex::new(None),
+            startup_error: Mutex::new(None),
+            supervisor: Mutex::new(SupervisorInfo::starting()),
+            prefs: Mutex::new(supervisor::load_prefs()),
+            quitting: AtomicBool::new(false),
+            tray: Mutex::new(None),
+            // Default hit-rect ≈ the sprite's body area at scale 1.1.
+            companion_hit_rect: Mutex::new((30.0, 30.0, 120.0, 150.0)),
+            companion_interactive: AtomicBool::new(false),
+        })
         .setup(|app| {
+            // Status-bar presence first: the tray exists even while starting.
+            match tray::build(app.handle()) {
+                Ok(handles) => {
+                    let state: State<'_, AppState> = app.state();
+                    *state.tray.lock().expect("tray mutex") = Some(handles);
+                }
+                Err(e) => tracing::error!(error = %e, "tray init failed"),
+            }
+            // Desktop companion (Phase 2): create per prefs.
+            {
+                let state: State<'_, AppState> = app.state();
+                let (show, visible) = {
+                    let prefs = state.prefs.lock().expect("prefs mutex");
+                    (prefs.show_companion_on_start, prefs.companion_visible)
+                };
+                if show && visible {
+                    ensure_companion_window(app.handle());
+                }
+            }
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                match Runtime::start(RuntimeOptions {
-                    home: None,
-                    acquire_lock: true,
-                    in_memory_db: false,
-                    spawn_watchdog: true,
-                })
-                .await
-                {
-                    Ok(runtime) => {
-                        // Forward runtime events to the WebView.
-                        let mut rx = runtime.events.subscribe();
-                        let event_handle = handle.clone();
-                        tauri::async_runtime::spawn(async move {
-                            while let Ok(event) = rx.recv().await {
-                                let _ = event_handle.emit("runtime-event", &event);
-                            }
-                        });
-                        // Also serve the HTTP API so CLI/agents share this instance.
-                        let config = runtime.config.read().await.clone();
-                        if let Ok(token) = runtime.config_service.load_or_create_token() {
-                            let _ = interaction_api::serve(
-                                runtime.clone(),
-                                &config.api_host,
-                                config.api_port,
-                                token,
-                            )
-                            .await;
-                        }
-                        let state: State<'_, AppState> = handle.state();
-                        *state.runtime.lock().expect("runtime mutex") = Some(runtime);
-                        let _ = handle.emit("runtime-ready", true);
-                    }
-                    Err(e) => {
-                        let state: State<'_, AppState> = handle.state();
-                        *state.startup_error.lock().expect("error mutex") =
-                            Some(format!("runtime start failed: {e}"));
-                        let _ = handle.emit("runtime-error", e.to_string());
-                    }
+                start_supervised(handle).await;
+            });
+            // Periodic tray refresh (poll: robust in both modes).
+            let handle2 = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    refresh_tray(&handle2).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
                 }
             });
             Ok(())
         })
         .on_window_event(|window, event| {
-            // desktop-managed lifecycle: closing the window shuts the runtime
-            // down cleanly (no hidden continuation of physical output).
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
+            // Close-to-hide (spec §5): closing the control center hides it;
+            // the runtime and tray keep running. Only "完全結束" shuts down.
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let state: State<'_, AppState> = window.state();
-                let runtime = state.runtime.lock().expect("runtime mutex").clone();
-                if let Some(runtime) = runtime {
-                    tauri::async_runtime::block_on(runtime.shutdown());
+                if state.quitting.load(Ordering::SeqCst) {
+                    return; // real quit path: let it close
+                }
+                api.prevent_close();
+                let (behavior, ask) = {
+                    let prefs = state.prefs.lock().expect("prefs mutex");
+                    (prefs.close_behavior.clone(), prefs.ask_on_close)
+                };
+                let app = window.app_handle().clone();
+                match behavior {
+                    Some(b) if !ask => apply_close_behavior(&app, &b),
+                    _ => {
+                        // First close (or "keep asking"): the WebView shows the
+                        // explanation dialog; the decision returns via the
+                        // close_decision command.
+                        let _ = app.emit("close-requested", ());
+                    }
                 }
             }
         })
@@ -694,18 +1364,35 @@ pub fn run() {
             recipe_simulate_scenario,
             recipe_convert,
             recipe_get,
+            supervisor_info,
+            desktop_prefs_get,
+            desktop_prefs_patch,
+            close_decision,
+            full_quit,
+            companion_hit_rect,
+            companion_set_interactive,
+            companion_open_control_center,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // App-level quit (Cmd+Q, menu, AppleScript) bypasses window close
-            // events — the runtime must still shut down cleanly here.
-            if let tauri::RunEvent::Exit = event {
-                let state: State<'_, AppState> = app_handle.state();
-                let runtime = state.runtime.lock().expect("runtime mutex").clone();
-                if let Some(runtime) = runtime {
-                    tauri::async_runtime::block_on(runtime.shutdown());
+            match event {
+                // App-level quit (Cmd+Q, tray 完全結束, AppleScript) — the
+                // embedded runtime must shut down cleanly here. An external
+                // daemon is deliberately left running.
+                tauri::RunEvent::Exit => {
+                    let state: State<'_, AppState> = app_handle.state();
+                    let runtime = state.runtime.lock().expect("runtime mutex").clone();
+                    if let Some(runtime) = runtime {
+                        tauri::async_runtime::block_on(runtime.shutdown());
+                    }
                 }
+                // macOS dock icon click while the window is hidden.
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Reopen { .. } => {
+                    show_main_window(app_handle, false);
+                }
+                _ => {}
             }
         });
 }

@@ -1,0 +1,210 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "character-pack",
+  "id": "shu-minimal",
+  "name": {
+    "zh-TW": "小樞・極簡型",
+    "en": "Shū · Minimal"
+  },
+  "description": {
+    "zh-TW": "原創桌面互動角色小樞：介於小型機器生命與貓科夥伴之間的互動中樞。",
+    "en": "Shū, an original desktop companion between a small machine lifeform and a feline partner."
+  },
+  "author": "Adaptive Interaction Project",
+  "version": "0.3.0",
+  "license": "MIT",
+  "generator": "scripts/shu/generate.mjs (parametric SVG rig; no AI raster generation)",
+  "frameSize": [
+    128,
+    128
+  ],
+  "anchor": [
+    64,
+    120
+  ],
+  "sheet": "sheet.png",
+  "columns": 8,
+  "animations": {
+    "idle": {
+      "frames": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "fps": 3,
+      "loop": true
+    },
+    "blink": {
+      "frames": [
+        6,
+        7,
+        8,
+        9
+      ],
+      "fps": 12,
+      "loop": false
+    },
+    "move": {
+      "frames": [
+        10,
+        11,
+        12,
+        13
+      ],
+      "fps": 7,
+      "loop": true
+    },
+    "notice": {
+      "frames": [
+        14,
+        15,
+        16,
+        17
+      ],
+      "fps": 9,
+      "loop": false
+    },
+    "thinking": {
+      "frames": [
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ],
+      "fps": 5,
+      "loop": true
+    },
+    "routing": {
+      "frames": [
+        24,
+        25,
+        26,
+        27,
+        28,
+        29
+      ],
+      "fps": 8,
+      "loop": true
+    },
+    "ask": {
+      "frames": [
+        30,
+        31,
+        32
+      ],
+      "fps": 6,
+      "loop": false
+    },
+    "act": {
+      "frames": [
+        33,
+        34,
+        35,
+        36
+      ],
+      "fps": 8,
+      "loop": true
+    },
+    "waiting": {
+      "frames": [
+        37,
+        38,
+        39,
+        40,
+        41,
+        42
+      ],
+      "fps": 4,
+      "loop": true
+    },
+    "success": {
+      "frames": [
+        43,
+        44,
+        45,
+        46
+      ],
+      "fps": 6,
+      "loop": false
+    },
+    "blocked": {
+      "frames": [
+        47,
+        48,
+        49
+      ],
+      "fps": 6,
+      "loop": false
+    },
+    "unknown": {
+      "frames": [
+        50,
+        51,
+        52,
+        53,
+        54,
+        55
+      ],
+      "fps": 4,
+      "loop": true
+    },
+    "quiet": {
+      "frames": [
+        56,
+        57,
+        58,
+        59
+      ],
+      "fps": 2,
+      "loop": true
+    },
+    "paused": {
+      "frames": [
+        60,
+        61
+      ],
+      "fps": 1,
+      "loop": true
+    },
+    "emergency": {
+      "frames": [
+        62,
+        63
+      ],
+      "fps": 1,
+      "loop": true
+    },
+    "offline": {
+      "frames": [
+        64,
+        65
+      ],
+      "fps": 1,
+      "loop": true
+    },
+    "clicked": {
+      "frames": [
+        66,
+        67,
+        68,
+        69
+      ],
+      "fps": 12,
+      "loop": false
+    },
+    "dragged": {
+      "frames": [
+        70,
+        71
+      ],
+      "fps": 6,
+      "loop": true
+    }
+  },
+  "preview": "preview.png"
+}

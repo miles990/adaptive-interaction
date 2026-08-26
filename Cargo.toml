@@ -12,6 +12,7 @@ members = [
     "crates/interaction-api",
     "crates/interaction-cli",
     "crates/interaction-adapter-sdk",
+    "crates/interaction-adapter-declarative",
     "adapters/builtin",
     "tests/e2e",
 ]

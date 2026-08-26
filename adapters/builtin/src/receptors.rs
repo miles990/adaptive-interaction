@@ -178,6 +178,49 @@ pub fn builtin_push_receptors() -> Vec<Arc<PushReceptor>> {
                 ))
                 .build(),
         ),
+        // Desktop-companion semantic interaction events. ONLY semantic kinds
+        // (clicked/dragged/dropped/action-selected/pointer-approached) plus
+        // optional user text — raw pointer coordinates never reach this
+        // receptor and are never persisted anywhere.
+        PushReceptor::new(
+            ReceptorManifestBuilder::new(
+                "desktop.companion.interaction",
+                "Desktop companion interaction",
+                "builtin.push",
+            )
+            .description("Semantic interactions with the desktop companion (click, drag, drop, quick actions, text). No raw pointer coordinates.")
+            .category("companion")
+            .provides(&["kind", "modality", "text", "attachments"])
+            .mode(ReceptorMode::Event)
+            .sensitivity(Sensitivity::Personal, false)
+            .human(interaction_adapter_sdk::data_semantics(
+                &["companion-input"],
+                interaction_core::TriState::Yes,
+                interaction_core::DataSource::Local,
+            ))
+            .build(),
+        ),
+        // Coarse pointer-activity summary derived from THIS APP's windows
+        // only (activeRecently / idleForMs). Honest limitation: it does not
+        // observe other applications, and no positions are recorded.
+        PushReceptor::new(
+            ReceptorManifestBuilder::new(
+                "desktop.pointer.activity",
+                "Desktop pointer activity (summary)",
+                "builtin.push",
+            )
+            .description("Summary of pointer activity within this app's windows only: activeRecently and idleForMs. No positions, no other apps.")
+            .category("companion")
+            .provides(&["activeRecently", "idleForMs"])
+            .mode(ReceptorMode::Event)
+            .sensitivity(Sensitivity::Internal, false)
+            .human(interaction_adapter_sdk::data_semantics(
+                &["activity-summary"],
+                interaction_core::TriState::No,
+                interaction_core::DataSource::Local,
+            ))
+            .build(),
+        ),
         PushReceptor::new(
             ReceptorManifestBuilder::new("mock.receptor", "Mock receptor", "builtin.mock")
                 .description("Scriptable receptor for tests and simulations")

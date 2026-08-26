@@ -379,3 +379,61 @@ button.ghost { background: none; border-color: transparent; color: var(--muted);
 /* 修正：estop 二段確認按鈕（.estop.danger）必須維持白字紅底，
    否則 button.danger 的紅字會疊在紅底上變成看不見。 */
 button.estop.danger, .estop.danger { color: #fff; background: var(--bad); }
+
+/* ---------- 桌面角色（companion）視窗 ---------- */
+/* 透明視窗：整個文件不能有背景色。 */
+html.companion-window, html.companion-window body, html.companion-window #root {
+  background: transparent !important;
+  margin: 0; padding: 0; overflow: hidden;
+}
+.companion-root {
+  position: relative; width: 100vw; height: 100vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  user-select: none; -webkit-user-select: none;
+}
+.companion-canvas { cursor: grab; touch-action: none; }
+.companion-canvas:active { cursor: grabbing; }
+.companion-bubble {
+  position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
+  max-width: 220px; background: rgba(30, 36, 48, 0.94); color: #eef3f9;
+  border: 1px solid rgba(120, 140, 170, 0.5); border-radius: 10px;
+  padding: 7px 10px; font-size: 12.5px; line-height: 1.45; z-index: 5;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+}
+.companion-bubble.danger { background: #7f1d1d; border-color: #e5484d; }
+.companion-estop-label {
+  position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
+  background: #e5484d; color: #fff; font-size: 11px; font-weight: 700;
+  border-radius: 6px; padding: 2px 8px; z-index: 6;
+}
+.companion-menu {
+  position: absolute; bottom: 8px; right: 0; z-index: 7;
+  display: flex; flex-direction: column; gap: 2px;
+  background: rgba(24, 30, 40, 0.97); border: 1px solid rgba(120,140,170,0.4);
+  border-radius: 10px; padding: 6px; min-width: 150px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+}
+.companion-menu button {
+  background: none; border: none; color: #e6edf5; text-align: left;
+  padding: 7px 10px; border-radius: 6px; font-size: 13px;
+}
+.companion-menu button:hover, .companion-menu button:focus-visible { background: rgba(90,120,255,0.22); }
+.companion-menu button.danger { color: #ff8f8f; }
+.companion-input {
+  position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 4px; z-index: 8;
+  background: rgba(24,30,40,0.97); border: 1px solid rgba(120,140,170,0.4);
+  border-radius: 10px; padding: 6px; width: 240px;
+}
+.companion-route-note {
+  font-size: 10.5px; color: #9db2c8; padding: 0 2px 2px; width: 100%;
+}
+.companion-input { flex-wrap: wrap; }
+.companion-input input {
+  flex: 1; min-width: 0; background: rgba(255,255,255,0.08); color: #eef3f9;
+  border: 1px solid rgba(120,140,170,0.35); border-radius: 6px; padding: 5px 7px; font-size: 12.5px;
+}
+.companion-input button {
+  background: rgba(90,120,255,0.3); color: #e6edf5; border: none;
+  border-radius: 6px; padding: 5px 8px; font-size: 12px;
+}

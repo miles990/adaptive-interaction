@@ -7,6 +7,7 @@
 
 pub mod catalog;
 pub mod human_view;
+pub mod providers;
 
 use interaction_core::{
     Actuator, ActuatorId, ActuatorManifest, Availability, CapabilityConstraint, CapabilitySnapshot,

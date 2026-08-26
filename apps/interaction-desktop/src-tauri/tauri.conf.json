@@ -16,12 +16,14 @@
         "width": 1280,
         "height": 840,
         "minWidth": 360,
-        "minHeight": 480
+        "minHeight": 480,
+        "label": "main"
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
-    }
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:*"
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,

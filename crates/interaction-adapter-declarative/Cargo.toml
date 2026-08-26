@@ -1,0 +1,24 @@
+[package]
+name = "interaction-adapter-declarative"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "Declarative adapter engine: connect HTTP/SSE devices and services from a validated YAML spec, no Rust required"
+
+[dependencies]
+interaction-core = { path = "../interaction-core" }
+interaction-adapter-sdk = { path = "../interaction-adapter-sdk" }
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+schemars = "1"
+tokio = { version = "1", features = ["sync", "time", "macros"] }
+tracing = "0.1"
+url = "2"
+
+[dev-dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "net"] }

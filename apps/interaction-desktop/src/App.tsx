@@ -1,5 +1,14 @@
 import React from "react";
 import { api, onRuntimeError, onRuntimeEvent, onRuntimeReady, RuntimeEvent } from "./api";
+import {
+  bootstrapSupervisor,
+  desktop,
+  onCloseRequested,
+  onNavigate,
+  onSupervisorState,
+  onTrayActionError,
+  SupervisorInfo,
+} from "./desktop";
 import { AppStateProvider, useAppState } from "./appstate";
 import { Icon } from "./icons";
 import { Badge } from "./ui";
@@ -50,35 +59,54 @@ export default function App() {
   const [offlineReason, setOfflineReason] = React.useState<string>("");
   const [events, setEvents] = React.useState<RuntimeEvent[]>([]);
   const [refreshKey, setRefreshKey] = React.useState(0);
+  const [supervisor, setSupervisor] = React.useState<SupervisorInfo | null>(null);
+  const [disconnected, setDisconnected] = React.useState(false);
 
   React.useEffect(() => {
     const unlistens: Promise<() => void>[] = [];
-    unlistens.push(onRuntimeReady(() => setRuntimeState("ready")));
-    unlistens.push(
-      onRuntimeError((message) => {
-        setRuntimeState("offline");
-        setOfflineReason(message);
-      })
-    );
-    unlistens.push(
-      onRuntimeEvent((event) => {
-        setEvents((prev) => [...prev.slice(-299), event]);
-        setRefreshKey((k) => k + 1);
-      })
-    );
-    const probe = setInterval(async () => {
-      try {
-        await api.status();
-        setRuntimeState("ready");
-        clearInterval(probe);
-        const recent = await api.eventsRecent(200);
-        setEvents(recent);
-      } catch {
-        /* keep connecting */
-      }
-    }, 500);
+    let probe: ReturnType<typeof setInterval> | undefined;
+    let cancelled = false;
+
+    // Supervisor decides transport (embedded IPC vs external-daemon HTTP)
+    // BEFORE we start probing the runtime.
+    void bootstrapSupervisor().then((info) => {
+      if (cancelled) return;
+      setSupervisor(info);
+      unlistens.push(onRuntimeReady(() => setRuntimeState("ready")));
+      unlistens.push(
+        onRuntimeError((message) => {
+          setRuntimeState("offline");
+          setOfflineReason(message);
+        })
+      );
+      unlistens.push(
+        onRuntimeEvent((event) => {
+          setEvents((prev) => [...prev.slice(-299), event]);
+          setRefreshKey((k) => k + 1);
+        })
+      );
+      unlistens.push(
+        onSupervisorState((s) => {
+          setDisconnected(s === "disconnected");
+          if (s === "connected-to-external") setRefreshKey((k) => k + 1);
+        })
+      );
+      probe = setInterval(async () => {
+        try {
+          await api.status();
+          setRuntimeState("ready");
+          if (probe) clearInterval(probe);
+          const recent = await api.eventsRecent(200);
+          setEvents(recent);
+        } catch {
+          /* keep connecting */
+        }
+      }, 500);
+    });
+
     return () => {
-      clearInterval(probe);
+      cancelled = true;
+      if (probe) clearInterval(probe);
       unlistens.forEach((u) => u.then((f) => f()).catch(() => {}));
     };
   }, []);
@@ -89,8 +117,9 @@ export default function App() {
         <h1>系統無法啟動</h1>
         <p className="state-box state-error">{offlineReason}</p>
         <p>
-          可能已有另一個 <code>interact-ai serve</code> 正在執行。請先停止它，
-          或直接使用 CLI／HTTP 管理該實例。
+          {supervisor?.mode === "external"
+            ? "偵測到外部 interact-ai daemon，但無法建立授權連線。請檢查該 daemon 的狀態與 token 檔案。"
+            : "Runtime 無法啟動。若剛剛才關閉另一個實例，請稍候幾秒再重新開啟；也可以直接使用 CLI／HTTP 管理既有實例。"}
         </p>
       </div>
     );
@@ -103,6 +132,8 @@ export default function App() {
         events={events}
         refreshKey={refreshKey}
         bumpRefresh={() => setRefreshKey((k) => k + 1)}
+        supervisor={supervisor}
+        disconnected={disconnected}
       />
     </AppStateProvider>
   );
@@ -113,18 +144,33 @@ function Shell({
   events,
   refreshKey,
   bumpRefresh,
+  supervisor,
+  disconnected,
 }: {
   connecting: boolean;
   events: RuntimeEvent[];
   refreshKey: number;
   bumpRefresh: () => void;
+  supervisor: SupervisorInfo | null;
+  disconnected: boolean;
 }) {
   const { prefs, pause } = useAppState();
   const [tab, setTab] = React.useState<Tab>("home");
   const [estop, setEstop] = React.useState(false);
   const [estopError, setEstopError] = React.useState<string | null>(null);
   const [onboarding, setOnboarding] = React.useState<"unknown" | "open" | "closed">("unknown");
+  const [closeDialog, setCloseDialog] = React.useState(false);
+  const [trayError, setTrayError] = React.useState<string | null>(null);
   const advanced = prefs.mode === "advanced";
+
+  React.useEffect(() => {
+    const unlistens = [
+      onCloseRequested(() => setCloseDialog(true)),
+      onNavigate((t) => setTab(t)),
+      onTrayActionError((m) => setTrayError(m)),
+    ];
+    return () => unlistens.forEach((u) => u.then((f) => f()).catch(() => {}));
+  }, []);
 
   React.useEffect(() => {
     if (connecting) return;
@@ -213,12 +259,19 @@ function Shell({
         <div className="sidebar-footer">
           {connecting ? (
             <Badge kind="pending">連線中…</Badge>
+          ) : disconnected ? (
+            <Badge kind="bad">Runtime 連線中斷</Badge>
           ) : estop ? (
             <Badge kind="bad">緊急停止中</Badge>
           ) : pause.paused ? (
             <Badge kind="warn">主動互動已暫停</Badge>
           ) : (
             <Badge kind="ok">運作中</Badge>
+          )}
+          {supervisor?.mode === "external" && (
+            <div className="muted small" title={supervisor.apiBase}>
+              外部 Runtime
+            </div>
           )}
         </div>
       </aside>
@@ -253,6 +306,19 @@ function Shell({
             緊急停止已啟動：所有回應已停止、未完成動作已中止。解除需到「同意與安全」頁走安全流程，不會自動恢復。
           </div>
         )}
+        {disconnected && (
+          <div className="estop-banner" role="alert">
+            與外部 Runtime 的連線中斷 — 顯示的資料可能已過期，指令暫時無法送達。系統會自動重新連線。
+          </div>
+        )}
+        {trayError && (
+          <div className="estop-banner" role="alert">
+            狀態列指令失敗：{trayError}
+            <button style={{ marginLeft: 8 }} onClick={() => setTrayError(null)}>
+              知道了
+            </button>
+          </div>
+        )}
         <div className="content" id="main-content" key={tab}>
           {connecting ? (
             <div className="state-box">正在啟動系統…</div>
@@ -268,6 +334,9 @@ function Shell({
           )}
         </div>
       </main>
+      {closeDialog && (
+        <CloseDialog external={supervisor?.mode === "external"} onClose={() => setCloseDialog(false)} />
+      )}
       <NarrowNav
         tab={tab}
         onNavigate={setTab}
@@ -285,6 +354,53 @@ function Shell({
         }
       />
     </div>
+  );
+}
+
+/** 第一次關閉控制中心的說明對話框（也是 v0.2 → v0.3 行為改變的明確告知）。 */
+function CloseDialog({ external, onClose }: { external: boolean; onClose: () => void }) {
+  const [remember, setRemember] = React.useState(false);
+  return (
+    <Dialog title="關閉控制中心？" onClose={onClose}>
+      <p>
+        Adaptive Interaction 會繼續在<strong>狀態列</strong>運作。
+        桌面角色與你允許的自動互動仍會保持啟用。
+      </p>
+      <p className="muted small">
+        你可以從狀態列重新開啟控制中心，或選擇「完全結束」停止所有功能。
+        {external && "（目前連線到外部 Runtime：完全結束只會關閉這個視窗，不會停止外部 Runtime。）"}
+      </p>
+      <p className="muted small">
+        提醒：舊版（v0.2）關閉視窗會直接停止系統；新版預設改為保持在背景運作。
+      </p>
+      <label className="toggle">
+        <input
+          type="checkbox"
+          checked={remember}
+          onChange={(e) => setRemember(e.target.checked)}
+        />
+        <span>下次不再顯示</span>
+      </label>
+      <div className="row wrap" style={{ marginTop: 12 }}>
+        <button
+          className="primary"
+          onClick={async () => {
+            await desktop.closeDecision("keep-running", remember).catch(() => {});
+            onClose();
+          }}
+        >
+          保持運作
+        </button>
+        <button
+          onClick={async () => {
+            await desktop.closeDecision("quit", remember).catch(() => {});
+            onClose();
+          }}
+        >
+          完全結束
+        </button>
+      </div>
+    </Dialog>
   );
 }
 

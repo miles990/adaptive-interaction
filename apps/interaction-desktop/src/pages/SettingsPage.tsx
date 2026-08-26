@@ -3,6 +3,7 @@
 import React from "react";
 import { useAppState } from "../appstate";
 import { Section, Toggle } from "../ui";
+import { desktop, DesktopPrefs, isTauri } from "../desktop";
 
 export function SettingsPage({ onRerunOnboarding }: { onRerunOnboarding: () => void }) {
   const { prefs, setMode } = useAppState();
@@ -38,6 +39,8 @@ export function SettingsPage({ onRerunOnboarding }: { onRerunOnboarding: () => v
         <button onClick={onRerunOnboarding}>重新執行首次設定</button>
       </Section>
 
+      <DesktopLifecycleSection />
+
       <Section title="關於名稱">
         <p className="muted small">
           你在各能力「詳情」中自訂的名稱只影響顯示，不影響行為或安全規則；
@@ -45,5 +48,94 @@ export function SettingsPage({ onRerunOnboarding }: { onRerunOnboarding: () => v
         </p>
       </Section>
     </div>
+  );
+}
+
+/** 桌面 App 生命週期（只在 Tauri 環境顯示）：關閉行為、登入啟動。 */
+function DesktopLifecycleSection() {
+  const [dprefs, setDprefs] = React.useState<DesktopPrefs | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!isTauri) return;
+    desktop
+      .prefsGet()
+      .then(setDprefs)
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  if (!isTauri) return null;
+  if (error) {
+    return (
+      <Section title="視窗與啟動">
+        <p className="state-box state-error">無法載入桌面設定：{error}</p>
+      </Section>
+    );
+  }
+  if (!dprefs) return null;
+
+  const patch = async (p: Partial<DesktopPrefs>) => {
+    try {
+      setDprefs(await desktop.prefsPatch(p));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <Section title="視窗與啟動">
+      <p className="muted small">
+        關閉控制中心視窗時：
+      </p>
+      <div role="radiogroup" aria-label="關閉視窗行為">
+        {(
+          [
+            ["keep-running", "保持在背景運作（狀態列與桌面角色保留）"],
+            ["hide-companion", "保持背景運作，但隱藏桌面角色"],
+            ["quit", "完全結束（停止所有功能）"],
+          ] as const
+        ).map(([value, label]) => (
+          <label key={value} className="toggle">
+            <input
+              type="radio"
+              name="close-behavior"
+              checked={dprefs.closeBehavior === value}
+              onChange={() => patch({ closeBehavior: value })}
+            />
+            <span>{label}</span>
+          </label>
+        ))}
+      </div>
+      <Toggle
+        checked={dprefs.askOnClose}
+        onChange={(on) => patch({ askOnClose: on })}
+        label="每次關閉時詢問"
+      />
+      <hr />
+      <Toggle
+        checked={dprefs.launchAtLogin}
+        onChange={(on) => patch({ launchAtLogin: on })}
+        label="登入電腦時啟動（預設關閉）"
+      />
+      <Toggle
+        checked={dprefs.showCompanionOnStart}
+        onChange={(on) => patch({ showCompanionOnStart: on })}
+        label="啟動後顯示桌面角色"
+      />
+      <Toggle
+        checked={dprefs.openControlCenterOnStart}
+        onChange={(on) => patch({ openControlCenterOnStart: on })}
+        label="啟動後打開控制中心"
+      />
+      <div className="row wrap" style={{ marginTop: 10 }}>
+        <button
+          className="danger"
+          onClick={() => desktop.fullQuit().catch((e) => setError(String(e)))}
+        >
+          完全結束 Adaptive Interaction
+        </button>
+      </div>
+    </Section>
   );
 }

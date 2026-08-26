@@ -60,6 +60,9 @@ id_type!(
     /// Identifies a plan produced by the orchestrator.
     PlanId, "plan");
 id_type!(
+    /// Identifies a capability provider (device/service/agent/session/…).
+    ProviderId, "provider");
+id_type!(
     /// Identifies a single bounded action / receipt.
     ActionId, "action");
 id_type!(
