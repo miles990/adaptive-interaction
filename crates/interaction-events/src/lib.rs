@@ -48,7 +48,11 @@ impl EventBus {
         }
         // Errors just mean "no live subscribers" — replay buffer still has it.
         let _ = self.inner.sender.send(event.clone());
-        tracing::debug!(event_type = event.event_type.as_str(), seq = event.sequence, "event published");
+        tracing::debug!(
+            event_type = event.event_type.as_str(),
+            seq = event.sequence,
+            "event published"
+        );
         event
     }
 
@@ -60,7 +64,10 @@ impl EventBus {
     /// Events with sequence strictly greater than `after` still held in the buffer.
     pub fn replay_after(&self, after: u64) -> Vec<RuntimeEvent> {
         let ring = self.inner.ring.lock().expect("event ring poisoned");
-        ring.iter().filter(|e| e.sequence > after).cloned().collect()
+        ring.iter()
+            .filter(|e| e.sequence > after)
+            .cloned()
+            .collect()
     }
 
     /// Most recent events (newest last), up to `limit`.

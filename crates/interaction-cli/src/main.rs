@@ -89,26 +89,18 @@ pub enum Command {
     /// Create a plan from a semantic intent.
     Plan(commands::PlanArgs),
     /// Dry-run a plan through the policy governor.
-    Simulate {
-        plan_id: String,
-    },
+    Simulate { plan_id: String },
     /// Execute an authorized plan (accepted != completed; verify afterwards).
-    Execute {
-        plan_id: String,
-    },
+    Execute { plan_id: String },
     /// Re-verify an action against fresh observations.
-    Verify {
-        action_id: String,
-    },
+    Verify { action_id: String },
     /// Inspect actions.
     Actions {
         #[command(subcommand)]
         command: commands::ActionCmd,
     },
     /// Cancel one action.
-    Cancel {
-        action_id: String,
-    },
+    Cancel { action_id: String },
     /// Cancel all open actions (soft stop). For the hard stop see emergency-stop.
     Stop {
         #[arg(long)]
@@ -162,9 +154,7 @@ pub enum Command {
     /// Hints for launching the desktop control center.
     Ui,
     /// Generate shell completions.
-    Completion {
-        shell: clap_complete::Shell,
-    },
+    Completion { shell: clap_complete::Shell },
 }
 
 fn main() {

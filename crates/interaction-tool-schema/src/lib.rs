@@ -16,6 +16,7 @@ fn schema_of<T: schemars::JsonSchema>() -> Value {
     serde_json::to_value(schemars::schema_for!(T)).unwrap_or_else(|_| json!({"type": "object"}))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn tool(
     op: &str,
     description: &str,
@@ -48,9 +49,7 @@ fn tool(
 /// The canonical tool surface exposed to AI hosts.
 pub fn canonical_tools() -> Vec<ToolOperationManifest> {
     use ToolRole::*;
-    let obj = |props: Value, required: Value| {
-        json!({"type": "object", "properties": props, "required": required, "additionalProperties": false})
-    };
+    let obj = |props: Value, required: Value| json!({"type": "object", "properties": props, "required": required, "additionalProperties": false});
     vec![
         tool(
             "status",
@@ -263,7 +262,9 @@ pub fn validate_manifests(manifests: &[ToolOperationManifest]) -> Vec<String> {
     for m in manifests {
         let name = platform_name(&m.name);
         if !seen.insert(name.clone()) {
-            warnings.push(format!("duplicate platform name after normalization: {name}"));
+            warnings.push(format!(
+                "duplicate platform name after normalization: {name}"
+            ));
         }
         if !name
             .chars()
@@ -331,7 +332,10 @@ fn sanitize_for_gemini(schema: &Value) -> Value {
         Value::Object(map) => {
             let mut out = Map::new();
             for (k, v) in map {
-                if matches!(k.as_str(), "$schema" | "$defs" | "$ref" | "additionalProperties" | "default") {
+                if matches!(
+                    k.as_str(),
+                    "$schema" | "$defs" | "$ref" | "additionalProperties" | "default"
+                ) {
                     continue;
                 }
                 out.insert(k.clone(), sanitize_for_gemini(v));
@@ -480,14 +484,23 @@ mod tests {
         let anthropic = to_anthropic(&tools);
         let gemini = to_gemini(&tools);
         let openai_names: Vec<&str> = openai["tools"]
-            .as_array().unwrap().iter()
-            .map(|t| t["function"]["name"].as_str().unwrap()).collect();
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["function"]["name"].as_str().unwrap())
+            .collect();
         let anthropic_names: Vec<&str> = anthropic["tools"]
-            .as_array().unwrap().iter()
-            .map(|t| t["name"].as_str().unwrap()).collect();
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
         let gemini_names: Vec<&str> = gemini["tools"][0]["functionDeclarations"]
-            .as_array().unwrap().iter()
-            .map(|t| t["name"].as_str().unwrap()).collect();
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
         assert_eq!(openai_names, anthropic_names);
         assert_eq!(openai_names, gemini_names);
         assert!(openai_names.contains(&"interaction_execute"));
@@ -496,11 +509,17 @@ mod tests {
     #[test]
     fn risk_metadata_survives_in_companion_policy() {
         let tools = canonical_tools();
-        for format in [ExportFormat::OpenAi, ExportFormat::Anthropic, ExportFormat::Gemini] {
+        for format in [
+            ExportFormat::OpenAi,
+            ExportFormat::Anthropic,
+            ExportFormat::Gemini,
+        ] {
             let out = export(&tools, format);
             let policy = &out["companionPolicy"]["tools"];
             let exec = policy
-                .as_array().unwrap().iter()
+                .as_array()
+                .unwrap()
+                .iter()
                 .find(|t| t["canonicalName"] == "interaction.execute")
                 .expect("execute in companion policy");
             assert_eq!(exec["risk"], "bounded-side-effect");

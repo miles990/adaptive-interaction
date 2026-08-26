@@ -76,7 +76,9 @@ pub async fn receptor_inspect(
         })
         .await
         .unwrap_or_default();
-    Ok(Json(json!({"manifest": manifest, "recentObservations": recent})))
+    Ok(Json(
+        json!({"manifest": manifest, "recentObservations": recent}),
+    ))
 }
 
 pub async fn receptor_patch(
@@ -96,7 +98,11 @@ pub async fn receptor_delete(
     State(state): State<ApiState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    state.runtime.registry.unregister_receptor(&ReceptorId::new(&id)).await?;
+    state
+        .runtime
+        .registry
+        .unregister_receptor(&ReceptorId::new(&id))
+        .await?;
     Ok(Json(json!({"removed": id})))
 }
 
@@ -198,7 +204,10 @@ pub async fn actuator_create(
             body.driver
         ))));
     }
-    state.runtime.add_mock_actuator(&body.id, &body.channel).await?;
+    state
+        .runtime
+        .add_mock_actuator(&body.id, &body.channel)
+        .await?;
     Ok(Json(json!({"created": body.id})))
 }
 
@@ -239,7 +248,11 @@ pub async fn actuator_delete(
     State(state): State<ApiState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    state.runtime.registry.unregister_actuator(&ActuatorId::new(&id)).await?;
+    state
+        .runtime
+        .registry
+        .unregister_actuator(&ActuatorId::new(&id))
+        .await?;
     Ok(Json(json!({"removed": id})))
 }
 
@@ -254,13 +267,23 @@ pub async fn actuator_test(
     intent.duration_ms = Some(500);
     let plan = state
         .runtime
-        .create_plan(intent, vec![id.clone()], 1, 1, false, None, Default::default())
+        .create_plan(
+            intent,
+            vec![id.clone()],
+            1,
+            1,
+            false,
+            None,
+            Default::default(),
+        )
         .await?;
     let receipts = state
         .runtime
         .execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false)
         .await?;
-    Ok(Json(json!({"planId": plan.plan_id.as_str(), "receipts": receipts})))
+    Ok(Json(
+        json!({"planId": plan.plan_id.as_str(), "receipts": receipts}),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -353,7 +376,9 @@ pub async fn actions_list(
     State(state): State<ApiState>,
     Query(q): Query<ActionsQuery>,
 ) -> ApiResult<Json<Value>> {
-    let receipts = state.runtime.list_actions(None, q.limit.unwrap_or(50).min(500))?;
+    let receipts = state
+        .runtime
+        .list_actions(None, q.limit.unwrap_or(50).min(500))?;
     Ok(Json(json!(receipts)))
 }
 
@@ -420,7 +445,10 @@ pub async fn session_consent(
     State(state): State<ApiState>,
     Json(body): Json<ConsentInput>,
 ) -> ApiResult<Json<Value>> {
-    let session = state.runtime.grant_consent(&body.scope, body.expires_minutes).await?;
+    let session = state
+        .runtime
+        .grant_consent(&body.scope, body.expires_minutes)
+        .await?;
     Ok(Json(serde_json::to_value(session).unwrap_or_default()))
 }
 
@@ -486,7 +514,9 @@ pub async fn recipe_validate(Json(body): Json<RecipeBody>) -> ApiResult<Json<Val
         Err(interaction_recipe::RecipeParseError::Invalid(issues)) => {
             Ok(Json(json!({"valid": false, "issues": issues})))
         }
-        Err(e) => Ok(Json(json!({"valid": false, "issues": [{"field": "$", "message": e.to_string()}]}))),
+        Err(e) => Ok(Json(
+            json!({"valid": false, "issues": [{"field": "$", "message": e.to_string()}]}),
+        )),
     }
 }
 
@@ -582,17 +612,15 @@ pub async fn tool_call(
     Ok(Json(result))
 }
 
-async fn dispatch_tool(
-    state: &ApiState,
-    name: &str,
-    input: Value,
-) -> Result<Value, ApiError> {
+async fn dispatch_tool(state: &ApiState, name: &str, input: Value) -> Result<Value, ApiError> {
     let rt = &state.runtime;
     let str_field =
         |input: &Value, key: &str| input.get(key).and_then(|v| v.as_str()).map(String::from);
     let required = |input: &Value, key: &str| {
         str_field(input, key).ok_or_else(|| {
-            ApiError::from(DomainError::Validation(format!("missing required field {key}")))
+            ApiError::from(DomainError::Validation(format!(
+                "missing required field {key}"
+            )))
         })
     };
     match name {
@@ -603,12 +631,18 @@ async fn dispatch_tool(
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             let snap = rt
-                .capabilities(&DiscoveryContext { include_unavailable: include, ..Default::default() })
+                .capabilities(&DiscoveryContext {
+                    include_unavailable: include,
+                    ..Default::default()
+                })
                 .await;
             Ok(serde_json::to_value(snap).unwrap_or_default())
         }
         "interaction.observe" => {
-            let fresh = input.get("fresh").and_then(|v| v.as_bool()).unwrap_or(false);
+            let fresh = input
+                .get("fresh")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             if fresh {
                 let receptor = required(&input, "receptorId")?;
                 let obs = rt.observe_fresh(&ReceptorId::new(&receptor)).await?;
@@ -617,7 +651,10 @@ async fn dispatch_tool(
                 let query = ObservationQuery {
                     receptor_id: str_field(&input, "receptorId").map(ReceptorId::new),
                     max_age_ms: input.get("maxAgeMs").and_then(|v| v.as_u64()),
-                    limit: input.get("limit").and_then(|v| v.as_u64()).map(|v| v as u32),
+                    limit: input
+                        .get("limit")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v as u32),
                     ..Default::default()
                 };
                 Ok(json!(rt.observe_stored(&query).await?))
@@ -636,7 +673,10 @@ async fn dispatch_tool(
         }
         "interaction.execute" => {
             let plan_id = required(&input, "planId")?;
-            let dry = input.get("dryRun").and_then(|v| v.as_bool()).unwrap_or(false);
+            let dry = input
+                .get("dryRun")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             if dry {
                 let report = rt.simulate_plan(&PlanId::new(&plan_id)).await?;
                 Ok(json!({"dryRun": true, "simulation": report}))
@@ -653,13 +693,17 @@ async fn dispatch_tool(
         }
         "interaction.verify" => {
             let id = required(&input, "actionId")?;
-            Ok(serde_json::to_value(rt.verify_action(&ActionId::new(&id)).await?)
-                .unwrap_or_default())
+            Ok(
+                serde_json::to_value(rt.verify_action(&ActionId::new(&id)).await?)
+                    .unwrap_or_default(),
+            )
         }
         "interaction.cancel" => {
             let id = required(&input, "actionId")?;
-            Ok(serde_json::to_value(rt.cancel_action(&ActionId::new(&id)).await?)
-                .unwrap_or_default())
+            Ok(
+                serde_json::to_value(rt.cancel_action(&ActionId::new(&id)).await?)
+                    .unwrap_or_default(),
+            )
         }
         "interaction.stop" => {
             let reason = str_field(&input, "reason");
@@ -670,7 +714,9 @@ async fn dispatch_tool(
             Ok(rt.run_recipe(&id).await?)
         }
         "interaction.policy" => Ok(serde_json::to_value(rt.policy().await).unwrap_or_default()),
-        other => Err(ApiError::from(DomainError::NotFound(format!("tool {other}")))),
+        other => Err(ApiError::from(DomainError::NotFound(format!(
+            "tool {other}"
+        )))),
     }
 }
 
@@ -704,14 +750,20 @@ pub struct LimitQuery {
 }
 
 pub async fn outbox(State(state): State<ApiState>, Query(q): Query<LimitQuery>) -> Json<Value> {
-    Json(json!(state.runtime.outbox.recent(q.limit.unwrap_or(50).min(200) as usize)))
+    Json(json!(state
+        .runtime
+        .outbox
+        .recent(q.limit.unwrap_or(50).min(200) as usize)))
 }
 
 pub async fn audit(
     State(state): State<ApiState>,
     Query(q): Query<LimitQuery>,
 ) -> ApiResult<Json<Value>> {
-    Ok(Json(json!(state.runtime.store.audit_tail(q.limit.unwrap_or(50).min(500))?)))
+    Ok(Json(json!(state
+        .runtime
+        .store
+        .audit_tail(q.limit.unwrap_or(50).min(500))?)))
 }
 
 pub async fn openapi(State(state): State<ApiState>) -> Json<Value> {

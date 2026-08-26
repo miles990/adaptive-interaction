@@ -65,7 +65,9 @@ impl Paths {
             .map(|p| p.to_path_buf())
             .or_else(|| std::env::var_os("INTERACT_AI_HOME").map(PathBuf::from))
             .unwrap_or_else(|| {
-                dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".adaptive-interaction")
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".adaptive-interaction")
             });
         Self { home }
     }
@@ -153,8 +155,7 @@ impl ConfigService {
         }
         let raw = std::fs::read_to_string(&path)
             .map_err(|e| DomainError::Storage(format!("read {path:?}: {e}")))?;
-        serde_yaml::from_str(&raw)
-            .map_err(|e| DomainError::Validation(format!("policy.yaml: {e}")))
+        serde_yaml::from_str(&raw).map_err(|e| DomainError::Validation(format!("policy.yaml: {e}")))
     }
 
     pub fn save_policy(&self, policy: &PolicyConfig) -> DomainResult<()> {
@@ -230,7 +231,11 @@ impl ConfigService {
                 return Ok(token);
             }
         }
-        let token = format!("iat-{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+        let token = format!(
+            "iat-{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        );
         atomic_write(&path, &token)?;
         #[cfg(unix)]
         {
@@ -247,7 +252,9 @@ mod tests {
 
     fn service() -> (tempfile::TempDir, ConfigService) {
         let dir = tempfile::tempdir().unwrap();
-        let paths = Paths { home: dir.path().to_path_buf() };
+        let paths = Paths {
+            home: dir.path().to_path_buf(),
+        };
         (dir, ConfigService::new(paths))
     }
 
@@ -263,14 +270,20 @@ mod tests {
     #[test]
     fn roundtrip_and_atomicity() {
         let (_g, svc) = service();
-        let mut cfg = RuntimeConfig::default();
-        cfg.api_port = 9999;
+        let cfg = RuntimeConfig {
+            api_port: 9999,
+            ..RuntimeConfig::default()
+        };
         svc.save_runtime_config(&cfg).unwrap();
         assert_eq!(svc.load_runtime_config().unwrap().api_port, 9999);
         // No stray tmp files.
         let entries: Vec<_> = std::fs::read_dir(svc.paths.config_dir()).unwrap().collect();
         assert!(entries.iter().all(|e| {
-            !e.as_ref().unwrap().file_name().to_string_lossy().contains(".tmp-")
+            !e.as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains(".tmp-")
         }));
     }
 

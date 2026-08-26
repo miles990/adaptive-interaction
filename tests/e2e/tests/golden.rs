@@ -16,8 +16,9 @@ fn check_golden(name: &str, content: &str) {
         std::fs::write(&path, content).unwrap();
         return;
     }
-    let expected = std::fs::read_to_string(&path)
-        .unwrap_or_else(|_| panic!("missing golden {path:?}; run GOLDEN_UPDATE=1 cargo test -p interaction-e2e"));
+    let expected = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+        panic!("missing golden {path:?}; run GOLDEN_UPDATE=1 cargo test -p interaction-e2e")
+    });
     assert_eq!(
         expected, content,
         "golden {name} drifted; if intentional, regenerate with GOLDEN_UPDATE=1"
@@ -110,10 +111,9 @@ fn scenario_j_cross_platform_consistency() {
 /// an optional feature. Checked against the lockfile.
 #[test]
 fn scenario_k_no_mcp_dependency() {
-    let lock = std::fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.lock"),
-    )
-    .expect("Cargo.lock");
+    let lock =
+        std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.lock"))
+            .expect("Cargo.lock");
     for needle in ["name = \"mcp", "name = \"rmcp", "modelcontextprotocol"] {
         assert!(
             !lock.to_lowercase().contains(needle),

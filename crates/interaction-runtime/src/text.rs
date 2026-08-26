@@ -12,9 +12,18 @@ fn catalog(intent: &str) -> (&'static [&'static str], &'static [&'static str]) {
     match intent {
         "presence" => (&["在。", "我在這裡。"], &["Here.", "Standing by."]),
         "task-start" => (&["開始處理。", "著手進行。"], &["Starting.", "On it."]),
-        "progress" => (&["進行中，一切正常。", "持續推進。"], &["In progress.", "Moving along."]),
-        "discovery" => (&["發現一個值得注意的點。"], &["Found something worth noting."]),
-        "success" => (&["完成了。", "這一段順利收尾。"], &["Done.", "Wrapped up cleanly."]),
+        "progress" => (
+            &["進行中，一切正常。", "持續推進。"],
+            &["In progress.", "Moving along."],
+        ),
+        "discovery" => (
+            &["發現一個值得注意的點。"],
+            &["Found something worth noting."],
+        ),
+        "success" => (
+            &["完成了。", "這一段順利收尾。"],
+            &["Done.", "Wrapped up cleanly."],
+        ),
         "celebration" => (
             &["完成了，所有檢查都已通過。", "順利完成。"],
             &["Done — all checks passed.", "Completed successfully."],
@@ -23,7 +32,10 @@ fn catalog(intent: &str) -> (&'static [&'static str], &'static [&'static str]) {
             &["注意：偵測到需要留意的狀況。"],
             &["Warning: a condition needs your attention."],
         ),
-        "failure" => (&["失敗了，已停止。詳細原因記錄在案。"], &["Failed and stopped; details logged."]),
+        "failure" => (
+            &["失敗了，已停止。詳細原因記錄在案。"],
+            &["Failed and stopped; details logged."],
+        ),
         "recovery" => (&["已恢復，繼續進行。"], &["Recovered; continuing."]),
         "confirmation-required" => (
             &["需要你的確認才能繼續。"],
@@ -35,8 +47,14 @@ fn catalog(intent: &str) -> (&'static [&'static str], &'static [&'static str]) {
             &["Emergency stop executed; all outputs halted."],
         ),
         "calm" => (&["一切平穩。"], &["All steady."]),
-        "tension" => (&["情況緊湊，保持專注。"], &["Things are tense; staying focused."]),
-        "assistance" => (&["需要幫忙的話，我可以接手一部分。"], &["I can take over part of this if useful."]),
+        "tension" => (
+            &["情況緊湊，保持專注。"],
+            &["Things are tense; staying focused."],
+        ),
+        "assistance" => (
+            &["需要幫忙的話，我可以接手一部分。"],
+            &["I can take over part of this if useful."],
+        ),
         "acknowledge" => (&["收到。", "了解。"], &["Acknowledged.", "Got it."]),
         _ => (&[], &[]),
     }
@@ -50,7 +68,10 @@ pub struct TextSelector {
 
 impl Default for TextSelector {
     fn default() -> Self {
-        Self { recent: Mutex::new(VecDeque::new()), capacity: 16 }
+        Self {
+            recent: Mutex::new(VecDeque::new()),
+            capacity: 16,
+        }
     }
 }
 
@@ -83,15 +104,18 @@ impl TextSelector {
                     candidates.push(ai.to_string());
                 }
                 if candidates.is_empty() {
-                    return if strategy.allow_silence { None } else { Some(intent.to_string()) };
+                    return if strategy.allow_silence {
+                        None
+                    } else {
+                        Some(intent.to_string())
+                    };
                 }
                 let chosen = if strategy.mode == MessageMode::Adaptive {
                     self.pick_least_recent(&candidates)
                 } else {
                     // Deterministic pseudo-random pick: hash of recent length +
                     // candidate count (kept simple; runtime jitter handles chance).
-                    let idx = (self.recent.lock().expect("recent lock").len()
-                        + candidates.len())
+                    let idx = (self.recent.lock().expect("recent lock").len() + candidates.len())
                         % candidates.len();
                     candidates[idx].clone()
                 };
@@ -166,7 +190,10 @@ mod tests {
     #[test]
     fn none_mode_is_silent() {
         let s = TextSelector::default();
-        let strategy = MessageStrategy { mode: MessageMode::None, ..Default::default() };
+        let strategy = MessageStrategy {
+            mode: MessageMode::None,
+            ..Default::default()
+        };
         assert_eq!(s.select(&strategy, "success", None), None);
     }
 
@@ -187,7 +214,10 @@ mod tests {
     fn catalog_covers_all_default_intents() {
         for intent in interaction_core::DEFAULT_MESSAGE_INTENTS {
             let (zh, en) = catalog(intent);
-            assert!(!zh.is_empty() && !en.is_empty(), "missing catalog texts for {intent}");
+            assert!(
+                !zh.is_empty() && !en.is_empty(),
+                "missing catalog texts for {intent}"
+            );
         }
     }
 
@@ -199,7 +229,10 @@ mod tests {
             allow_silence: true,
             ..Default::default()
         };
-        assert_eq!(s.select(&strategy, "success", Some("custom")), Some("custom".into()));
+        assert_eq!(
+            s.select(&strategy, "success", Some("custom")),
+            Some("custom".into())
+        );
         assert_eq!(s.select(&strategy, "success", None), None);
     }
 }

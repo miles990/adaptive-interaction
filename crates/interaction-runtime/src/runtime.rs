@@ -7,8 +7,8 @@ use crate::orchestrator::{build_plan, ActuatorUsageHint, PlanRequest};
 use crate::text::TextSelector;
 use adapters_builtin::{
     builtin_push_receptors, ConversationActuator, LocalLogActuator, LocalNotificationActuator,
-    MockActuator, MockDeviceStatusReceptor, Outbox, OutboxMessage, PushReceptor, SystemTimeReceptor,
-    WebUiActuator, WebhookActuator,
+    MockActuator, MockDeviceStatusReceptor, Outbox, OutboxMessage, PushReceptor,
+    SystemTimeReceptor, WebUiActuator, WebhookActuator,
 };
 use chrono::Utc;
 use interaction_core::{
@@ -100,7 +100,9 @@ impl Runtime {
         let config = match config_service.load_runtime_config() {
             Ok(c) => c,
             Err(e) => {
-                config_errors.push(format!("interaction.yaml invalid, using last-known-good defaults: {e}"));
+                config_errors.push(format!(
+                    "interaction.yaml invalid, using last-known-good defaults: {e}"
+                ));
                 RuntimeConfig::default()
             }
         };
@@ -132,7 +134,11 @@ impl Runtime {
             for mut receipt in stale {
                 receipt.push_error(
                     "runtime_restart",
-                    if clean { "runtime restarted with open action" } else { "runtime crashed with open action" },
+                    if clean {
+                        "runtime restarted with open action"
+                    } else {
+                        "runtime crashed with open action"
+                    },
                     Utc::now(),
                 );
                 let _ = receipt.transition(ActionStatus::Uncertain, Utc::now());
@@ -152,19 +158,33 @@ impl Runtime {
             push_receptors.insert(receptor.id().as_str().to_string(), receptor.clone());
             registry.register_receptor(receptor).await?;
         }
-        registry.register_receptor(Arc::new(SystemTimeReceptor)).await?;
+        registry
+            .register_receptor(Arc::new(SystemTimeReceptor))
+            .await?;
 
         // ---- builtin actuators ----
-        registry.register_actuator(Arc::new(ConversationActuator::new(outbox.clone()))).await?;
-        registry.register_actuator(Arc::new(WebUiActuator::new(outbox.clone()))).await?;
-        registry.register_actuator(Arc::new(LocalLogActuator)).await?;
-        registry.register_actuator(Arc::new(LocalNotificationActuator)).await?;
         registry
-            .register_actuator(Arc::new(WebhookActuator::new(config.webhook_allowlist.clone())))
+            .register_actuator(Arc::new(ConversationActuator::new(outbox.clone())))
+            .await?;
+        registry
+            .register_actuator(Arc::new(WebUiActuator::new(outbox.clone())))
+            .await?;
+        registry
+            .register_actuator(Arc::new(LocalLogActuator))
+            .await?;
+        registry
+            .register_actuator(Arc::new(LocalNotificationActuator))
+            .await?;
+        registry
+            .register_actuator(Arc::new(WebhookActuator::new(
+                config.webhook_allowlist.clone(),
+            )))
             .await?;
         let mock_actuator = Arc::new(MockActuator::new("mock.actuator", "haptic"));
         registry
-            .register_receptor(Arc::new(MockDeviceStatusReceptor::new(mock_actuator.device_state())))
+            .register_receptor(Arc::new(MockDeviceStatusReceptor::new(
+                mock_actuator.device_state(),
+            )))
             .await?;
         registry.register_actuator(mock_actuator.clone()).await?;
 
@@ -182,7 +202,10 @@ impl Runtime {
         for recipe in loaded {
             recipes.insert(
                 recipe.id.as_str().to_string(),
-                RecipeEntry { recipe, state: RecipeState::default() },
+                RecipeEntry {
+                    recipe,
+                    state: RecipeState::default(),
+                },
             );
         }
 
@@ -204,9 +227,7 @@ impl Runtime {
                 dynamic_push: RwLock::new(BTreeMap::new()),
                 mock_actuator,
                 recipes: RwLock::new(recipes),
-                recipe_errors: RwLock::new(
-                    recipe_load_errors.into_iter().collect(),
-                ),
+                recipe_errors: RwLock::new(recipe_load_errors.into_iter().collect()),
                 session: RwLock::new(session),
                 shutdown_token: CancellationToken::new(),
                 started_at: Utc::now(),
@@ -229,15 +250,17 @@ impl Runtime {
                 let _ = receipt.transition(ActionStatus::Cancelled, Utc::now());
                 receipt.push_error("shutdown", "runtime shutting down", Utc::now());
                 let _ = self.store.upsert_receipt(&receipt, "");
-                self.emit_action_event(EventType::ActionCancelled, &receipt, json!({"reason": "shutdown"}));
+                self.emit_action_event(
+                    EventType::ActionCancelled,
+                    &receipt,
+                    json!({"reason": "shutdown"}),
+                );
             }
         }
         for actuator in self.registry.all_actuator_instances().await {
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                actuator.emergency_stop(),
-            )
-            .await;
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_secs(2), actuator.emergency_stop())
+                    .await;
         }
         let _ = self.store.set_meta("clean_shutdown", "true");
         let mut lock = self.lock.lock().expect("lock mutex");
@@ -256,7 +279,12 @@ impl Runtime {
         let session = self.session.read().await.clone();
         let recipes = self.recipes.read().await;
         let recipe_errors = self.recipe_errors.read().await;
-        let receipts = self.store.receipts(None, 1).ok().map(|r| r.len()).unwrap_or(0);
+        let receipts = self
+            .store
+            .receipts(None, 1)
+            .ok()
+            .map(|r| r.len())
+            .unwrap_or(0);
         json!({
             "name": "adaptive-interaction",
             "version": env!("CARGO_PKG_VERSION"),
@@ -306,7 +334,9 @@ impl Runtime {
                 detail: "no active session; start one before executing".into(),
             });
         }
-        self.registry.snapshot(ctx, policy, constraints, Utc::now()).await
+        self.registry
+            .snapshot(ctx, policy, constraints, Utc::now())
+            .await
     }
 
     pub async fn policy(&self) -> PolicyConfig {
@@ -316,8 +346,8 @@ impl Runtime {
     /// Merge-patch the policy. `resumeHighRiskAfterRestart` is pinned false.
     pub async fn update_policy(&self, patch: Value) -> DomainResult<PolicyConfig> {
         let current = self.policy().await;
-        let mut merged = serde_json::to_value(&current)
-            .map_err(|e| DomainError::Internal(e.to_string()))?;
+        let mut merged =
+            serde_json::to_value(&current).map_err(|e| DomainError::Internal(e.to_string()))?;
         merge_json(&mut merged, &patch);
         let mut updated: PolicyConfig = serde_json::from_value(merged)
             .map_err(|e| DomainError::Validation(format!("policy patch: {e}")))?;
@@ -325,7 +355,8 @@ impl Runtime {
         self.config_service.save_policy(&updated)?;
         *self.policy_config.write().await = updated.clone();
         self.events.emit(EventType::PolicyChanged, json!({}));
-        self.store.audit("policy.changed", "api", &json!({"patch": redact(&patch)}))?;
+        self.store
+            .audit("policy.changed", "api", &json!({"patch": redact(&patch)}))?;
         Ok(updated)
     }
 
@@ -341,7 +372,12 @@ impl Runtime {
     pub async fn observe_fresh(&self, receptor_id: &ReceptorId) -> DomainResult<Observation> {
         let receptor = self.registry.receptor(receptor_id).await?;
         let mut obs = receptor.read().await?;
-        obs.session_id = self.session.read().await.as_ref().map(|s| s.session_id.clone());
+        obs.session_id = self
+            .session
+            .read()
+            .await
+            .as_ref()
+            .map(|s| s.session_id.clone());
         self.store.insert_observation(&obs)?;
         self.publish_observation_event(&obs);
         Ok(obs)
@@ -360,9 +396,16 @@ impl Runtime {
             .await
             .ok_or_else(|| DomainError::NotFound(format!("push receptor {receptor_id}")))?;
         // Respect enable/disable state.
-        self.registry.receptor(&ReceptorId::new(receptor_id)).await?;
+        self.registry
+            .receptor(&ReceptorId::new(receptor_id))
+            .await?;
         let mut obs = receptor.push(facts, inferences, confidence);
-        obs.session_id = self.session.read().await.as_ref().map(|s| s.session_id.clone());
+        obs.session_id = self
+            .session
+            .read()
+            .await
+            .as_ref()
+            .map(|s| s.session_id.clone());
         self.store.insert_observation(&obs)?;
         self.publish_observation_event(&obs);
         // Autonomous loop: observation may trigger recipes.
@@ -408,7 +451,12 @@ impl Runtime {
         let mut usage = BTreeMap::new();
         for actuator in &snapshot.actuators {
             if let Ok((fired, _)) = self.store.actuator_usage(actuator.id.as_str(), Utc::now()) {
-                usage.insert(actuator.id.as_str().to_string(), ActuatorUsageHint { fired_last_hour: fired });
+                usage.insert(
+                    actuator.id.as_str().to_string(),
+                    ActuatorUsageHint {
+                        fired_last_hour: fired,
+                    },
+                );
             }
         }
         let strategy = message_strategy.unwrap_or_else(|| MessageStrategy {
@@ -433,7 +481,8 @@ impl Runtime {
             &self.texts,
         );
         if !candidates_meta.is_empty() {
-            plan.metadata.insert("candidates".to_string(), json!(candidates_meta));
+            plan.metadata
+                .insert("candidates".to_string(), json!(candidates_meta));
         }
         for (k, v) in metadata {
             plan.metadata.insert(k, v);
@@ -452,7 +501,10 @@ impl Runtime {
                     .and_then(|v| v.as_array())
                     .and_then(|arr| arr.iter().position(|c| c.as_str() == Some(id)))
                     .unwrap_or_else(|| {
-                        candidate_order.iter().position(|c| c == id).unwrap_or(usize::MAX)
+                        candidate_order
+                            .iter()
+                            .position(|c| c == id)
+                            .unwrap_or(usize::MAX)
                     })
             };
             plan.steps.sort_by_key(|s| index_of(s.actuator_id.as_str()));
@@ -492,7 +544,11 @@ impl Runtime {
         self.store.receipt(action_id)
     }
 
-    pub fn list_actions(&self, session: Option<&SessionId>, limit: u32) -> DomainResult<Vec<ActionReceipt>> {
+    pub fn list_actions(
+        &self,
+        session: Option<&SessionId>,
+        limit: u32,
+    ) -> DomainResult<Vec<ActionReceipt>> {
         self.store.receipts(session, limit)
     }
 
@@ -502,7 +558,12 @@ impl Runtime {
             .store
             .plan(&receipt.plan_id)
             .ok()
-            .and_then(|p| p.metadata.get("verification").and_then(|v| v.as_str()).map(String::from))
+            .and_then(|p| {
+                p.metadata
+                    .get("verification")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            })
             .unwrap_or_else(|| "observed".to_string());
         self.verify_receipt(receipt, "", &strategy).await
     }
@@ -523,7 +584,11 @@ impl Runtime {
             .map_err(|e| DomainError::Internal(e.to_string()))?;
         self.store.upsert_receipt(&receipt, "")?;
         self.emit_action_event(EventType::ActionCancelled, &receipt, json!({}));
-        self.store.audit("action.cancelled", "api", &json!({"actionId": action_id.as_str()}))?;
+        self.store.audit(
+            "action.cancelled",
+            "api",
+            &json!({"actionId": action_id.as_str()}),
+        )?;
         Ok(receipt)
     }
 
@@ -551,7 +616,11 @@ impl Runtime {
         if let Ok(open) = self.store.open_receipts() {
             for mut receipt in open {
                 let _ = receipt.transition(ActionStatus::Stopped, Utc::now());
-                receipt.push_error("emergency_stop", reason.as_deref().unwrap_or("emergency stop"), Utc::now());
+                receipt.push_error(
+                    "emergency_stop",
+                    reason.as_deref().unwrap_or("emergency stop"),
+                    Utc::now(),
+                );
                 let _ = self.store.upsert_receipt(&receipt, "");
                 stopped_actions += 1;
             }
@@ -574,7 +643,8 @@ impl Runtime {
                 session.revoke(&scope, Utc::now());
             }
             let _ = self.store.upsert_session(session);
-            self.events.emit(EventType::ConsentChanged, json!({"revokedAll": true}));
+            self.events
+                .emit(EventType::ConsentChanged, json!({"revokedAll": true}));
         }
         self.outbox.push(OutboxMessage {
             channel: "conversation".into(),
@@ -598,7 +668,10 @@ impl Runtime {
     pub async fn clear_emergency_stop(&self, actor: &str) -> DomainResult<()> {
         self.estop.store(false, Ordering::SeqCst);
         self.store.set_meta("estop_engaged", "false")?;
-        self.events.emit(EventType::EmergencyStop, json!({"cleared": true, "actor": actor}));
+        self.events.emit(
+            EventType::EmergencyStop,
+            json!({"cleared": true, "actor": actor}),
+        );
         self.store.audit("emergency.clear", actor, &json!({}))?;
         Ok(())
     }
@@ -669,7 +742,11 @@ impl Runtime {
             EventType::SessionStarted,
             json!({"sessionId": session.session_id.as_str(), "label": session.label}),
         );
-        self.store.audit("session.started", "api", &json!({"sessionId": session.session_id.as_str()}))?;
+        self.store.audit(
+            "session.started",
+            "api",
+            &json!({"sessionId": session.session_id.as_str()}),
+        )?;
         Ok(session)
     }
 
@@ -691,7 +768,8 @@ impl Runtime {
             EventType::ConsentChanged,
             json!({"sessionId": session.session_id.as_str(), "granted": scope_str}),
         );
-        self.store.audit("consent.granted", "api", &json!({"scope": scope_str}))?;
+        self.store
+            .audit("consent.granted", "api", &json!({"scope": scope_str}))?;
         Ok(session.clone())
     }
 
@@ -711,19 +789,19 @@ impl Runtime {
             EventType::ConsentChanged,
             json!({"sessionId": session.session_id.as_str(), "revoked": scope_str}),
         );
-        self.store.audit("consent.revoked", "api", &json!({"scope": scope_str}))?;
+        self.store
+            .audit("consent.revoked", "api", &json!({"scope": scope_str}))?;
         // Cancel matching open actions immediately.
         if let Ok(open) = self.store.open_receipts() {
             for receipt in open {
                 let matches = match &scope {
                     ConsentScope::Actuator(id) => receipt.actuator_id.as_str() == id,
-                    ConsentScope::Channel(channel) => {
-                        self.registry
-                            .actuator_any(&receipt.actuator_id)
-                            .await
-                            .map(|a| a.manifest().channel == *channel)
-                            .unwrap_or(false)
-                    }
+                    ConsentScope::Channel(channel) => self
+                        .registry
+                        .actuator_any(&receipt.actuator_id)
+                        .await
+                        .map(|a| a.manifest().channel == *channel)
+                        .unwrap_or(false),
                     _ => false,
                 };
                 if matches {
@@ -779,8 +857,17 @@ impl Runtime {
             .get(recipe.id.as_str())
             .map(|e| e.state.clone())
             .unwrap_or_default();
-        map.insert(recipe.id.as_str().to_string(), RecipeEntry { recipe: recipe.clone(), state });
-        self.events.emit(EventType::RecipeChanged, json!({"recipeId": recipe.id.as_str()}));
+        map.insert(
+            recipe.id.as_str().to_string(),
+            RecipeEntry {
+                recipe: recipe.clone(),
+                state,
+            },
+        );
+        self.events.emit(
+            EventType::RecipeChanged,
+            json!({"recipeId": recipe.id.as_str()}),
+        );
         Ok(recipe)
     }
 
@@ -791,7 +878,10 @@ impl Runtime {
             .ok_or_else(|| DomainError::NotFound(format!("recipe {id}")))?;
         entry.recipe.enabled = enabled;
         self.config_service.save_recipe(&entry.recipe)?;
-        self.events.emit(EventType::RecipeChanged, json!({"recipeId": id, "enabled": enabled}));
+        self.events.emit(
+            EventType::RecipeChanged,
+            json!({"recipeId": id, "enabled": enabled}),
+        );
         Ok(entry.recipe.clone())
     }
 
@@ -800,7 +890,10 @@ impl Runtime {
         map.remove(id)
             .ok_or_else(|| DomainError::NotFound(format!("recipe {id}")))?;
         let _ = self.config_service.delete_recipe(id);
-        self.events.emit(EventType::RecipeChanged, json!({"recipeId": id, "removed": true}));
+        self.events.emit(
+            EventType::RecipeChanged,
+            json!({"recipeId": id, "removed": true}),
+        );
         Ok(())
     }
 
@@ -873,7 +966,10 @@ impl Runtime {
         .await
     }
 
-    async fn recent_observations_for_recipe(&self, recipe: &Recipe) -> DomainResult<Vec<Observation>> {
+    async fn recent_observations_for_recipe(
+        &self,
+        recipe: &Recipe,
+    ) -> DomainResult<Vec<Observation>> {
         let window_ms = recipe
             .trigger
             .within
@@ -924,10 +1020,16 @@ impl Runtime {
         for recipe in candidates {
             match self.try_fire_recipe(&recipe).await {
                 Ok(Some(decision)) => {
-                    tracing::info!(recipe = recipe.id.as_str(), "recipe fired: {:?}", decision.explanation.last());
+                    tracing::info!(
+                        recipe = recipe.id.as_str(),
+                        "recipe fired: {:?}",
+                        decision.explanation.last()
+                    );
                 }
                 Ok(None) => {}
-                Err(e) => tracing::warn!(recipe = recipe.id.as_str(), error = %e, "recipe evaluation error"),
+                Err(e) => {
+                    tracing::warn!(recipe = recipe.id.as_str(), error = %e, "recipe evaluation error")
+                }
             }
         }
     }
@@ -1017,36 +1119,50 @@ impl Runtime {
         category: &str,
         sensitive: bool,
     ) -> DomainResult<()> {
-        if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_') {
-            return Err(DomainError::Validation(format!("receptor id {id:?} has unsafe characters")));
+        if !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+        {
+            return Err(DomainError::Validation(format!(
+                "receptor id {id:?} has unsafe characters"
+            )));
         }
-        let manifest = interaction_adapter_sdk::ReceptorManifestBuilder::new(id, name, "builtin.push")
-            .description("dynamically added push receptor")
-            .category(category)
-            .mode(interaction_core::ReceptorMode::Event)
-            .sensitivity(
-                if sensitive {
-                    interaction_core::Sensitivity::Personal
-                } else {
-                    interaction_core::Sensitivity::Internal
-                },
-                sensitive,
-            )
-            .build();
+        let manifest =
+            interaction_adapter_sdk::ReceptorManifestBuilder::new(id, name, "builtin.push")
+                .description("dynamically added push receptor")
+                .category(category)
+                .mode(interaction_core::ReceptorMode::Event)
+                .sensitivity(
+                    if sensitive {
+                        interaction_core::Sensitivity::Personal
+                    } else {
+                        interaction_core::Sensitivity::Internal
+                    },
+                    sensitive,
+                )
+                .build();
         let receptor = adapters_builtin::PushReceptor::new(manifest);
         // Register first (checks duplicates), then track the push handle.
         self.registry.register_receptor(receptor.clone()).await?;
         // BTreeMap is behind Arc; use interior mutability via a lock-free trick:
         // push_receptors is only mutated here, guarded by the registry conflict
         // check above. We need a mutable map — switch to RwLock at the type level.
-        self.dynamic_push.write().await.insert(id.to_string(), receptor);
+        self.dynamic_push
+            .write()
+            .await
+            .insert(id.to_string(), receptor);
         Ok(())
     }
 
     /// Register another mock actuator (simulated device) at runtime.
     pub async fn add_mock_actuator(&self, id: &str, channel: &str) -> DomainResult<()> {
-        if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_') {
-            return Err(DomainError::Validation(format!("actuator id {id:?} has unsafe characters")));
+        if !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+        {
+            return Err(DomainError::Validation(format!(
+                "actuator id {id:?} has unsafe characters"
+            )));
         }
         let actuator = Arc::new(MockActuator::new(id, channel));
         self.registry.register_actuator(actuator).await?;
@@ -1104,14 +1220,20 @@ impl Runtime {
         channel: &str,
         receipt: &ActionReceipt,
     ) {
-        let duration = receipt.effective_bounded_parameters.duration_ms.unwrap_or(0);
+        let duration = receipt
+            .effective_bounded_parameters
+            .duration_ms
+            .unwrap_or(0);
         if duration == 0 {
             return;
         }
         let mut guard = self.session.write().await;
         if let Some(session) = guard.as_mut() {
             if &session.session_id == session_id {
-                *session.channel_usage_ms.entry(channel.to_string()).or_insert(0) += duration;
+                *session
+                    .channel_usage_ms
+                    .entry(channel.to_string())
+                    .or_insert(0) += duration;
                 let _ = self.store.upsert_session(session);
             }
         }
@@ -1125,8 +1247,7 @@ impl Runtime {
         let runtime = self.clone();
         tokio::spawn(async move {
             let interval_ms = runtime.config.read().await.watchdog_interval_ms.max(100);
-            let mut ticker =
-                tokio::time::interval(std::time::Duration::from_millis(interval_ms));
+            let mut ticker = tokio::time::interval(std::time::Duration::from_millis(interval_ms));
             let mut tick: u64 = 0;
             loop {
                 tokio::select! {
@@ -1142,7 +1263,11 @@ impl Runtime {
                             let _ = receipt.transition(ActionStatus::Expired, now);
                             receipt.push_error("ttl", "watchdog expired the action", now);
                             let _ = runtime.store.upsert_receipt(&receipt, "");
-                            runtime.emit_action_event(EventType::ActionExpired, &receipt, json!({}));
+                            runtime.emit_action_event(
+                                EventType::ActionExpired,
+                                &receipt,
+                                json!({}),
+                            );
                         }
                     }
                 }
@@ -1154,10 +1279,10 @@ impl Runtime {
                         let _ = runtime.emergency_stop("estop-file", None).await;
                     }
                 }
-                if tick % 10 == 0 {
+                if tick.is_multiple_of(10) {
                     runtime.registry.refresh_health().await;
                 }
-                if tick % 600 == 0 {
+                if tick.is_multiple_of(600) {
                     let hours = runtime.config.read().await.observation_retention_hours;
                     let cutoff = Utc::now() - chrono::Duration::hours(hours as i64);
                     let _ = runtime.store.prune_observations(cutoff);
@@ -1172,14 +1297,18 @@ fn parse_scope(scope_str: &str) -> DomainResult<ConsentScope> {
         .split_once(':')
         .ok_or_else(|| DomainError::Validation(format!("scope {scope_str:?}: expected kind:id")))?;
     if id.trim().is_empty() {
-        return Err(DomainError::Validation(format!("scope {scope_str:?}: empty id")));
+        return Err(DomainError::Validation(format!(
+            "scope {scope_str:?}: empty id"
+        )));
     }
     match kind {
         "channel" => Ok(ConsentScope::Channel(id.to_string())),
         "actuator" => Ok(ConsentScope::Actuator(id.to_string())),
         "receptor" => Ok(ConsentScope::Receptor(id.to_string())),
         "tool" => Ok(ConsentScope::ToolOperation(id.to_string())),
-        other => Err(DomainError::Validation(format!("unknown scope kind {other:?}"))),
+        other => Err(DomainError::Validation(format!(
+            "unknown scope kind {other:?}"
+        ))),
     }
 }
 
@@ -1206,7 +1335,8 @@ fn redact(v: &Value) -> Value {
             let mut out = serde_json::Map::new();
             for (k, val) in map {
                 let lower = k.to_ascii_lowercase();
-                if lower.contains("token") || lower.contains("secret") || lower.contains("password") {
+                if lower.contains("token") || lower.contains("secret") || lower.contains("password")
+                {
                     out.insert(k.clone(), Value::String("[redacted]".into()));
                 } else {
                     out.insert(k.clone(), redact(val));

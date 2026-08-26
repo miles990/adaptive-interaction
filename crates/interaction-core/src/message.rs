@@ -24,7 +24,9 @@ pub const DEFAULT_MESSAGE_INTENTS: &[&str] = &[
     "assistance",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum MessageMode {
     /// Always use the fixed template(s).
@@ -32,17 +34,12 @@ pub enum MessageMode {
     /// Random pick among candidates.
     Random,
     /// Adaptive pick (anti-repetition, tone, persona).
+    #[default]
     Adaptive,
     /// The AI supplies text at plan time.
     AiGenerated,
     /// Deliberately no text.
     None,
-}
-
-impl Default for MessageMode {
-    fn default() -> Self {
-        MessageMode::Adaptive
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, schemars::JsonSchema)]

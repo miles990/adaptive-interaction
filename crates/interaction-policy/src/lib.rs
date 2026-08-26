@@ -61,12 +61,22 @@ pub struct AuthorizationResult {
 
 impl AuthorizationResult {
     fn blocked(rule: &str, reason: String, mut decisions: Vec<PolicyDecision>) -> Self {
-        decisions.push(PolicyDecision::Blocked { rule: rule.to_string(), reason });
-        Self { outcome: AuthorizationOutcome::Blocked, decisions, effective: ActionParameters::default() }
+        decisions.push(PolicyDecision::Blocked {
+            rule: rule.to_string(),
+            reason,
+        });
+        Self {
+            outcome: AuthorizationOutcome::Blocked,
+            decisions,
+            effective: ActionParameters::default(),
+        }
     }
 
     fn approval(rule: &str, reason: String, mut decisions: Vec<PolicyDecision>) -> Self {
-        decisions.push(PolicyDecision::ApprovalRequired { rule: rule.to_string(), reason });
+        decisions.push(PolicyDecision::ApprovalRequired {
+            rule: rule.to_string(),
+            reason,
+        });
         Self {
             outcome: AuthorizationOutcome::ApprovalRequired,
             decisions,
@@ -77,7 +87,8 @@ impl AuthorizationResult {
 
 /// Channels considered intrusive during quiet hours when a window does not
 /// list explicit channels.
-const DEFAULT_QUIET_SILENCED: &[&str] = &["audio", "haptic", "notification", "light", "desktop-pet"];
+const DEFAULT_QUIET_SILENCED: &[&str] =
+    &["audio", "haptic", "notification", "light", "desktop-pet"];
 
 pub struct Governor;
 
@@ -130,9 +141,7 @@ impl Governor {
         }
 
         // 4. Channel allowlist.
-        if !policy.allowed_channels.is_empty()
-            && !list_matches(&policy.allowed_channels, channel)
-        {
+        if !policy.allowed_channels.is_empty() && !list_matches(&policy.allowed_channels, channel) {
             return AuthorizationResult::blocked(
                 "channel.allowlist",
                 format!("channel {channel} is not allowed"),
@@ -166,8 +175,10 @@ impl Governor {
 
         // 6. Consent for consent-gated actuators / channels.
         if actuator.requires_consent {
-            let by_actuator = session
-                .has_consent(&ConsentScope::Actuator(actuator.id.as_str().to_string()), req.now);
+            let by_actuator = session.has_consent(
+                &ConsentScope::Actuator(actuator.id.as_str().to_string()),
+                req.now,
+            );
             let by_channel =
                 session.has_consent(&ConsentScope::Channel(channel.to_string()), req.now);
             if !by_actuator && !by_channel {
@@ -177,14 +188,18 @@ impl Governor {
                     decisions,
                 );
             }
-            decisions.push(PolicyDecision::Allowed { rule: "consent.granted".into() });
+            decisions.push(PolicyDecision::Allowed {
+                rule: "consent.granted".into(),
+            });
         }
 
         // 7. High-risk approval gate. An explicit short-lived actuator consent
         //    granted by a human counts as the approval.
         if actuator.risk_class >= policy.require_approval_at {
-            let approved = session
-                .has_consent(&ConsentScope::Actuator(actuator.id.as_str().to_string()), req.now);
+            let approved = session.has_consent(
+                &ConsentScope::Actuator(actuator.id.as_str().to_string()),
+                req.now,
+            );
             if !approved {
                 return AuthorizationResult::approval(
                     "risk.approval",
@@ -195,7 +210,9 @@ impl Governor {
                     decisions,
                 );
             }
-            decisions.push(PolicyDecision::Allowed { rule: "risk.approved".into() });
+            decisions.push(PolicyDecision::Allowed {
+                rule: "risk.approved".into(),
+            });
         }
 
         // 8. Quiet hours.
@@ -203,7 +220,11 @@ impl Governor {
             let silenced: Vec<&str> = if window.silenced_channels.is_empty() {
                 DEFAULT_QUIET_SILENCED.to_vec()
             } else {
-                window.silenced_channels.iter().map(|s| s.as_str()).collect()
+                window
+                    .silenced_channels
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect()
             };
             if silenced.contains(&channel) {
                 return AuthorizationResult::blocked(
@@ -215,14 +236,19 @@ impl Governor {
                     decisions,
                 );
             }
-            decisions.push(PolicyDecision::Allowed { rule: "quiet-hours.non-silenced".into() });
+            decisions.push(PolicyDecision::Allowed {
+                rule: "quiet-hours.non-silenced".into(),
+            });
         }
 
         // 9. Scheduling pressure.
         if usage.scheduled_actions >= policy.max_scheduled_actions {
             return AuthorizationResult::blocked(
                 "scheduler.capacity",
-                format!("scheduled action limit {} reached", policy.max_scheduled_actions),
+                format!(
+                    "scheduled action limit {} reached",
+                    policy.max_scheduled_actions
+                ),
                 decisions,
             );
         }
@@ -347,9 +373,17 @@ impl Governor {
             let size = effective
                 .extra
                 .as_ref()
-                .map(|v| serde_json::to_vec(v).map(|b| b.len() as u64).unwrap_or(u64::MAX))
+                .map(|v| {
+                    serde_json::to_vec(v)
+                        .map(|b| b.len() as u64)
+                        .unwrap_or(u64::MAX)
+                })
                 .unwrap_or(0)
-                + effective.message.as_ref().map(|m| m.len() as u64).unwrap_or(0);
+                + effective
+                    .message
+                    .as_ref()
+                    .map(|m| m.len() as u64)
+                    .unwrap_or(0);
             if size > max_bytes {
                 return AuthorizationResult::blocked(
                     "payload.size",
@@ -359,8 +393,14 @@ impl Governor {
             }
         }
 
-        decisions.push(PolicyDecision::Allowed { rule: "authorized".into() });
-        AuthorizationResult { outcome: AuthorizationOutcome::Authorized, decisions, effective }
+        decisions.push(PolicyDecision::Allowed {
+            rule: "authorized".into(),
+        });
+        AuthorizationResult {
+            outcome: AuthorizationOutcome::Authorized,
+            decisions,
+            effective,
+        }
     }
 
     /// Bound a pattern: clamp step count, magnitudes, chance and jitter.
@@ -426,10 +466,7 @@ fn list_matches(list: &[String], value: &str) -> bool {
     })
 }
 
-fn merged_channel_limits(
-    policy: &PolicyConfig,
-    channel: &str,
-) -> interaction_core::ChannelLimits {
+fn merged_channel_limits(policy: &PolicyConfig, channel: &str) -> interaction_core::ChannelLimits {
     let wildcard = policy.channel_limits.get("*");
     let specific = policy.channel_limits.get(channel);
     let mut merged = interaction_core::ChannelLimits::default();
@@ -527,7 +564,11 @@ mod tests {
             risk_class: risk,
             latency_ms: None,
             cost: CostDescriptor::default(),
-            limits: ActuatorLimits { max_magnitude: Some(0.8), max_duration_ms: Some(10_000), ..Default::default() },
+            limits: ActuatorLimits {
+                max_magnitude: Some(0.8),
+                max_duration_ms: Some(10_000),
+                ..Default::default()
+            },
             health: ComponentHealth::healthy(),
             availability: Availability::Available,
             driver: "test".into(),
@@ -565,15 +606,24 @@ mod tests {
         let mut policy = policy_with("haptic.mock", "haptic");
         policy.channel_limits.insert(
             "haptic".into(),
-            ChannelLimits { max_magnitude: Some(0.5), ..Default::default() }, // user preference
+            ChannelLimits {
+                max_magnitude: Some(0.5),
+                ..Default::default()
+            }, // user preference
         );
         let session = Session::new(chrono::Utc::now(), None, None);
-        let requested = ActionParameters { magnitude: Some(0.9), ..Default::default() };
+        let requested = ActionParameters {
+            magnitude: Some(0.9),
+            ..Default::default()
+        };
         let req = base_req(&m, &requested);
         let result = Governor::authorize(&policy, &session, &req, &UsageContext::default());
         assert_eq!(result.outcome, AuthorizationOutcome::Authorized);
         assert_eq!(result.effective.magnitude, Some(0.5)); // min(0.9, 0.5, 0.6)
-        assert!(result.decisions.iter().any(|d| matches!(d, PolicyDecision::Clamped { .. })));
+        assert!(result
+            .decisions
+            .iter()
+            .any(|d| matches!(d, PolicyDecision::Clamped { .. })));
     }
 
     #[test]
@@ -606,7 +656,10 @@ mod tests {
         policy.initiative = InitiativeLevel::Active;
         let now = chrono::Utc::now();
         let mut session = Session::new(now, None, None);
-        let requested = ActionParameters { magnitude: Some(0.3), ..Default::default() };
+        let requested = ActionParameters {
+            magnitude: Some(0.3),
+            ..Default::default()
+        };
         let req = base_req(&m, &requested);
         let r = Governor::authorize(&policy, &session, &req, &UsageContext::default());
         assert_eq!(r.outcome, AuthorizationOutcome::ApprovalRequired);
@@ -649,7 +702,11 @@ mod tests {
         let mut policy = policy_with("notify", "notification");
         policy.channel_limits.insert(
             "notification".into(),
-            ChannelLimits { cooldown_ms: Some(60_000), max_per_hour: Some(3), ..Default::default() },
+            ChannelLimits {
+                cooldown_ms: Some(60_000),
+                max_per_hour: Some(3),
+                ..Default::default()
+            },
         );
         let now = chrono::Utc::now();
         let session = Session::new(now, None, None);
@@ -665,7 +722,10 @@ mod tests {
             AuthorizationOutcome::Blocked
         );
 
-        let saturated = UsageContext { actuator_fired_last_hour: 3, ..Default::default() };
+        let saturated = UsageContext {
+            actuator_fired_last_hour: 3,
+            ..Default::default()
+        };
         assert_eq!(
             Governor::authorize(&policy, &session, &req, &saturated).outcome,
             AuthorizationOutcome::Blocked
@@ -688,18 +748,30 @@ mod tests {
         let mut policy = policy_with("haptic.mock", "haptic");
         policy.channel_limits.insert(
             "haptic".into(),
-            ChannelLimits { session_budget_ms: Some(5_000), ..Default::default() },
+            ChannelLimits {
+                session_budget_ms: Some(5_000),
+                ..Default::default()
+            },
         );
         let session = Session::new(chrono::Utc::now(), None, None);
-        let requested = ActionParameters { duration_ms: Some(4_000), ..Default::default() };
+        let requested = ActionParameters {
+            duration_ms: Some(4_000),
+            ..Default::default()
+        };
         let req = base_req(&m, &requested);
 
-        let partly_used = UsageContext { channel_budget_used_ms: 3_000, ..Default::default() };
+        let partly_used = UsageContext {
+            channel_budget_used_ms: 3_000,
+            ..Default::default()
+        };
         let r = Governor::authorize(&policy, &session, &req, &partly_used);
         assert_eq!(r.outcome, AuthorizationOutcome::Authorized);
         assert_eq!(r.effective.duration_ms, Some(2_000)); // clamped to remaining
 
-        let exhausted = UsageContext { channel_budget_used_ms: 5_000, ..Default::default() };
+        let exhausted = UsageContext {
+            channel_budget_used_ms: 5_000,
+            ..Default::default()
+        };
         assert_eq!(
             Governor::authorize(&policy, &session, &req, &exhausted).outcome,
             AuthorizationOutcome::Blocked
@@ -724,11 +796,17 @@ mod tests {
     #[test]
     fn pattern_bounding_clamps_steps_and_magnitude() {
         let m = manifest("haptic.mock", "haptic", RiskClass::BoundedSideEffect);
-        let mut policy = PolicyConfig::default();
-        policy.max_pattern_steps = 4;
+        let policy = PolicyConfig {
+            max_pattern_steps: 4,
+            ..PolicyConfig::default()
+        };
         let pattern = PatternSpec {
             steps: (0..10)
-                .map(|_| PatternStep { magnitude: 1.0, duration_ms: 100, pause_ms: 50 })
+                .map(|_| PatternStep {
+                    magnitude: 1.0,
+                    duration_ms: 100,
+                    pause_ms: 50,
+                })
                 .collect(),
             repeat: 2,
             chance: 1.5,

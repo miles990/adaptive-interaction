@@ -72,13 +72,19 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/tools/{name}", get(routes::tool_get))
         .route("/v1/tools/{name}/call", post(routes::tool_call))
         .route("/v1/emergency-stop", post(routes::emergency_stop))
-        .route("/v1/emergency-stop/clear", post(routes::emergency_stop_clear))
+        .route(
+            "/v1/emergency-stop/clear",
+            post(routes::emergency_stop_clear),
+        )
         .route("/v1/stop-all", post(routes::stop_all))
         .route("/v1/outbox", get(routes::outbox))
         .route("/v1/audit", get(routes::audit))
         .route("/v1/events", get(sse::events))
         .route("/v1/openapi.json", get(routes::openapi))
-        .route_layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     Router::new()
         .route("/health", get(routes::health))
@@ -138,7 +144,10 @@ pub async fn serve(
     port: u16,
     token: String,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>), std::io::Error> {
-    let state = ApiState { runtime: runtime.clone(), token };
+    let state = ApiState {
+        runtime: runtime.clone(),
+        token,
+    };
     let app = router(state);
     let listener = tokio::net::TcpListener::bind((host, port)).await?;
     let addr = listener.local_addr()?;

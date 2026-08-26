@@ -11,11 +11,19 @@ use serde_json::{json, Value};
 #[derive(Subcommand)]
 pub enum ReceptorCmd {
     List,
-    Inspect { id: String },
-    Enable { id: String },
-    Disable { id: String },
+    Inspect {
+        id: String,
+    },
+    Enable {
+        id: String,
+    },
+    Disable {
+        id: String,
+    },
     /// Live-read the receptor through the full runtime path.
-    Test { id: String },
+    Test {
+        id: String,
+    },
     /// Push an observation into a push receptor: --fact key=value ...
     Push {
         id: String,
@@ -34,17 +42,27 @@ pub enum ReceptorCmd {
         #[arg(long)]
         sensitive: bool,
     },
-    Remove { id: String },
+    Remove {
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
 pub enum ActuatorCmd {
     List,
-    Inspect { id: String },
-    Enable { id: String },
-    Disable { id: String },
+    Inspect {
+        id: String,
+    },
+    Enable {
+        id: String,
+    },
+    Disable {
+        id: String,
+    },
     /// Send a small bounded test action through the FULL policy path.
-    Test { id: String },
+    Test {
+        id: String,
+    },
     /// Add a dynamic mock actuator (simulated device).
     Add {
         driver: String,
@@ -53,24 +71,42 @@ pub enum ActuatorCmd {
         #[arg(long, default_value = "haptic")]
         channel: String,
     },
-    Remove { id: String },
+    Remove {
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
 pub enum RecipeCmd {
     List,
-    Show { id: String },
+    Show {
+        id: String,
+    },
     /// Validate a recipe file (path) or an installed recipe (id).
-    Validate { path_or_id: String },
+    Validate {
+        path_or_id: String,
+    },
     /// Install/update a recipe from a YAML/JSON file.
-    Apply { path: String },
-    Enable { id: String },
-    Disable { id: String },
+    Apply {
+        path: String,
+    },
+    Enable {
+        id: String,
+    },
+    Disable {
+        id: String,
+    },
     /// Explain whether the recipe would fire now + dry-run its plan.
-    Simulate { id: String },
+    Simulate {
+        id: String,
+    },
     /// Run the recipe now (trigger bypassed; policy still applies).
-    Run { id: String },
-    Remove { id: String },
+    Run {
+        id: String,
+    },
+    Remove {
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -79,7 +115,9 @@ pub enum ActionCmd {
         #[arg(long, default_value_t = 20)]
         limit: u32,
     },
-    Show { action_id: String },
+    Show {
+        action_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -88,7 +126,9 @@ pub enum PolicyCmd {
     /// Validate the policy file on disk.
     Validate,
     /// Merge-patch the policy with a JSON document.
-    Set { patch: String },
+    Set {
+        patch: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -110,14 +150,18 @@ pub enum SessionCmd {
         expires_minutes: Option<u32>,
     },
     /// Revoke a consent scope (cancels covered in-flight actions).
-    Revoke { scope: String },
+    Revoke {
+        scope: String,
+    },
     Stop,
 }
 
 #[derive(Subcommand)]
 pub enum ToolCmd {
     List,
-    Describe { name: String },
+    Describe {
+        name: String,
+    },
     Call {
         name: String,
         #[arg(long, default_value = "{}")]
@@ -172,9 +216,15 @@ fn parse_kv(s: &str) -> Result<(String, String), String> {
 /// Print a result: JSON mode prints raw JSON; human mode pretty-prints.
 fn emit(cli_json: bool, status: u16, value: &Value) -> i32 {
     if cli_json {
-        println!("{}", serde_json::to_string(value).unwrap_or_else(|_| "{}".into()));
+        println!(
+            "{}",
+            serde_json::to_string(value).unwrap_or_else(|_| "{}".into())
+        );
     } else {
-        println!("{}", serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".into()));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".into())
+        );
     }
     exit_code_for_status(status)
 }
@@ -212,20 +262,31 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
     let (status, value): (u16, Value) = match &cli.command {
         Command::Status => client.get("/v1/status").await?,
         Command::Health => client.get("/health").await?,
-        Command::Capabilities { include_unavailable } => {
+        Command::Capabilities {
+            include_unavailable,
+        } => {
             client
-                .get(&format!("/v1/capabilities?includeUnavailable={include_unavailable}"))
+                .get(&format!(
+                    "/v1/capabilities?includeUnavailable={include_unavailable}"
+                ))
                 .await?
         }
         Command::Receptors { command } => receptors(&client, command).await?,
         Command::Actuators { command } => actuators(&client, command).await?,
         Command::Recipes { command } => recipes(&client, command).await?,
-        Command::Observe { receptor, fresh, limit, max_age_ms } => {
+        Command::Observe {
+            receptor,
+            fresh,
+            limit,
+            max_age_ms,
+        } => {
             if *fresh {
                 let id = receptor
                     .clone()
                     .ok_or_else(|| anyhow::anyhow!("--fresh requires --receptor <id>"))?;
-                client.post(&format!("/v1/receptors/{id}/read"), None).await?
+                client
+                    .post(&format!("/v1/receptors/{id}/read"), None)
+                    .await?
             } else {
                 let mut body = json!({"limit": limit});
                 if let Some(r) = receptor {
@@ -260,19 +321,28 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             client.post("/v1/plans", Some(body)).await?
         }
         Command::Simulate { plan_id } => {
-            client.post(&format!("/v1/plans/{plan_id}/simulate"), None).await?
+            client
+                .post(&format!("/v1/plans/{plan_id}/simulate"), None)
+                .await?
         }
         Command::Execute { plan_id } => {
             if cli.dry_run {
                 client
-                    .post(&format!("/v1/plans/{plan_id}/execute"), Some(json!({"dryRun": true})))
+                    .post(
+                        &format!("/v1/plans/{plan_id}/execute"),
+                        Some(json!({"dryRun": true})),
+                    )
                     .await?
             } else {
-                client.post(&format!("/v1/plans/{plan_id}/execute"), None).await?
+                client
+                    .post(&format!("/v1/plans/{plan_id}/execute"), None)
+                    .await?
             }
         }
         Command::Verify { action_id } => {
-            client.post(&format!("/v1/actions/{action_id}/verify"), None).await?
+            client
+                .post(&format!("/v1/actions/{action_id}/verify"), None)
+                .await?
         }
         Command::Actions { command } => match command {
             ActionCmd::List { limit } => client.get(&format!("/v1/actions?limit={limit}")).await?,
@@ -281,11 +351,15 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             }
         },
         Command::Cancel { action_id } => {
-            client.post(&format!("/v1/actions/{action_id}/cancel"), None).await?
+            client
+                .post(&format!("/v1/actions/{action_id}/cancel"), None)
+                .await?
         }
         Command::Stop { all } => {
             if !all {
-                return Err(anyhow::anyhow!("use `stop --all` (or `cancel <action-id>` for one)"));
+                return Err(anyhow::anyhow!(
+                    "use `stop --all` (or `cancel <action-id>` for one)"
+                ));
             }
             client.post("/v1/stop-all", None).await?
         }
@@ -316,7 +390,11 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             }
         },
         Command::Session { command } => match command {
-            SessionCmd::Start { label, ttl_minutes, consents } => {
+            SessionCmd::Start {
+                label,
+                ttl_minutes,
+                consents,
+            } => {
                 client
                     .post(
                         "/v1/session/start",
@@ -329,7 +407,10 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                     .await?
             }
             SessionCmd::Show => client.get("/v1/session").await?,
-            SessionCmd::Consent { scope, expires_minutes } => {
+            SessionCmd::Consent {
+                scope,
+                expires_minutes,
+            } => {
                 client
                     .post(
                         "/v1/session/consent",
@@ -350,7 +431,9 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             ToolCmd::Call { name, input } => {
                 let input: Value = serde_json::from_str(input)
                     .map_err(|e| anyhow::anyhow!("--input must be JSON: {e}"))?;
-                client.post(&format!("/v1/tools/{name}/call"), Some(input)).await?
+                client
+                    .post(&format!("/v1/tools/{name}/call"), Some(input))
+                    .await?
             }
             ToolCmd::Export { format, out } => {
                 let (status, value) = client.get(&format!("/v1/tools/export/{format}")).await?;
@@ -390,7 +473,11 @@ async fn receptors(client: &Client, cmd: &ReceptorCmd) -> Result<(u16, Value)> {
                 .await
         }
         ReceptorCmd::Test { id } => client.post(&format!("/v1/receptors/{id}/test"), None).await,
-        ReceptorCmd::Push { id, facts, confidence } => {
+        ReceptorCmd::Push {
+            id,
+            facts,
+            confidence,
+        } => {
             let facts: serde_json::Map<String, Value> = facts
                 .iter()
                 .map(|(k, v)| (k.clone(), parse_scalar(v)))
@@ -402,7 +489,12 @@ async fn receptors(client: &Client, cmd: &ReceptorCmd) -> Result<(u16, Value)> {
                 )
                 .await
         }
-        ReceptorCmd::Add { driver, id, category, sensitive } => {
+        ReceptorCmd::Add {
+            driver,
+            id,
+            category,
+            sensitive,
+        } => {
             client
                 .post(
                     "/v1/receptors",
@@ -432,7 +524,11 @@ async fn actuators(client: &Client, cmd: &ActuatorCmd) -> Result<(u16, Value)> {
                 .await
         }
         ActuatorCmd::Test { id } => client.post(&format!("/v1/actuators/{id}/test"), None).await,
-        ActuatorCmd::Add { driver, id, channel } => {
+        ActuatorCmd::Add {
+            driver,
+            id,
+            channel,
+        } => {
             client
                 .post(
                     "/v1/actuators",
@@ -467,7 +563,9 @@ async fn recipes(client: &Client, cmd: &RecipeCmd) -> Result<(u16, Value)> {
         }
         RecipeCmd::Apply { path } => {
             let text = std::fs::read_to_string(path)?;
-            client.post("/v1/recipes", Some(json!({"text": text}))).await
+            client
+                .post("/v1/recipes", Some(json!({"text": text})))
+                .await
         }
         RecipeCmd::Enable { id } => {
             client
@@ -480,7 +578,9 @@ async fn recipes(client: &Client, cmd: &RecipeCmd) -> Result<(u16, Value)> {
                 .await
         }
         RecipeCmd::Simulate { id } => {
-            client.post(&format!("/v1/recipes/{id}/simulate"), None).await
+            client
+                .post(&format!("/v1/recipes/{id}/simulate"), None)
+                .await
         }
         RecipeCmd::Run { id } => client.post(&format!("/v1/recipes/{id}/run"), None).await,
         RecipeCmd::Remove { id } => client.delete(&format!("/v1/recipes/{id}")).await,

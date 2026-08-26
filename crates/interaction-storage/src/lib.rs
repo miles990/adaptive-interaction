@@ -7,8 +7,8 @@
 
 use chrono::{DateTime, Utc};
 use interaction_core::{
-    ActionId, ActionReceipt, ActionStatus, DomainError, DomainResult, Observation,
-    ObservationQuery, Plan, PlanId, Session, SessionId,
+    ActionId, ActionReceipt, DomainError, DomainResult, Observation, ObservationQuery, Plan,
+    PlanId, Session, SessionId,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
@@ -48,9 +48,13 @@ impl Store {
     }
 
     fn init(conn: Connection) -> DomainResult<Self> {
-        conn.pragma_update(None, "journal_mode", "WAL").map_err(map_err)?;
-        conn.pragma_update(None, "foreign_keys", "ON").map_err(map_err)?;
-        let store = Self { conn: Mutex::new(conn) };
+        conn.pragma_update(None, "journal_mode", "WAL")
+            .map_err(map_err)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(map_err)?;
+        let store = Self {
+            conn: Mutex::new(conn),
+        };
         store.migrate()?;
         Ok(store)
     }
@@ -123,7 +127,8 @@ impl Store {
             )
             .map_err(map_err)?;
         }
-        conn.pragma_update(None, "user_version", CURRENT_SCHEMA).map_err(map_err)?;
+        conn.pragma_update(None, "user_version", CURRENT_SCHEMA)
+            .map_err(map_err)?;
         Ok(())
     }
 
@@ -142,9 +147,11 @@ impl Store {
 
     pub fn get_meta(&self, key: &str) -> DomainResult<Option<String>> {
         let conn = self.conn.lock().expect("store lock");
-        conn.query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| r.get(0))
-            .optional()
-            .map_err(map_err)
+        conn.query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| {
+            r.get(0)
+        })
+        .optional()
+        .map_err(map_err)
     }
 
     // ---- receipts ----
@@ -248,7 +255,9 @@ impl Store {
                  ('completed','blocked','failed','uncertain','cancelled','expired','stopped')",
             )
             .map_err(map_err)?;
-        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(map_err)?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(map_err)?;
         let mut out = Vec::new();
         for row in rows {
             out.push(serde_json::from_str(&row.map_err(map_err)?).map_err(map_json)?);
@@ -299,14 +308,20 @@ impl Store {
             )
             .map_err(map_err)?;
         let rows = stmt
-            .query_map(params![session_id.as_str(), channel], |r| r.get::<_, String>(0))
+            .query_map(params![session_id.as_str(), channel], |r| {
+                r.get::<_, String>(0)
+            })
             .map_err(map_err)?;
         let mut total: u64 = 0;
         for row in rows {
             let receipt: ActionReceipt =
                 serde_json::from_str(&row.map_err(map_err)?).map_err(map_json)?;
-            total = total
-                .saturating_add(receipt.effective_bounded_parameters.duration_ms.unwrap_or(0));
+            total = total.saturating_add(
+                receipt
+                    .effective_bounded_parameters
+                    .duration_ms
+                    .unwrap_or(0),
+            );
         }
         Ok(total)
     }
@@ -349,9 +364,11 @@ impl Store {
     pub fn plan(&self, plan_id: &PlanId) -> DomainResult<Plan> {
         let conn = self.conn.lock().expect("store lock");
         let json: String = conn
-            .query_row("SELECT json FROM plans WHERE plan_id = ?1", params![plan_id.as_str()], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT json FROM plans WHERE plan_id = ?1",
+                params![plan_id.as_str()],
+                |r| r.get(0),
+            )
             .optional()
             .map_err(map_err)?
             .ok_or_else(|| DomainError::NotFound(format!("plan {plan_id}")))?;
@@ -408,7 +425,8 @@ impl Store {
             )
             .optional()
             .map_err(map_err)?;
-        json.map(|j| serde_json::from_str(&j).map_err(map_json)).transpose()
+        json.map(|j| serde_json::from_str(&j).map_err(map_json))
+            .transpose()
     }
 
     // ---- observations ----
@@ -477,7 +495,10 @@ impl Store {
     pub fn prune_observations(&self, older_than: DateTime<Utc>) -> DomainResult<u32> {
         let conn = self.conn.lock().expect("store lock");
         let n = conn
-            .execute("DELETE FROM observations WHERE at < ?1", params![ts_to_str(older_than)])
+            .execute(
+                "DELETE FROM observations WHERE at < ?1",
+                params![ts_to_str(older_than)],
+            )
             .map_err(map_err)?;
         Ok(n as u32)
     }
@@ -537,8 +558,14 @@ mod tests {
             actuator_id: ActuatorId::new(actuator),
             intent: "test".into(),
             risk_class: RiskClass::Low,
-            requested: ActionParameters { duration_ms: Some(1000), ..Default::default() },
-            effective: ActionParameters { duration_ms: Some(800), ..Default::default() },
+            requested: ActionParameters {
+                duration_ms: Some(1000),
+                ..Default::default()
+            },
+            effective: ActionParameters {
+                duration_ms: Some(800),
+                ..Default::default()
+            },
             policy_decisions: vec![],
             expires_at: now + chrono::Duration::seconds(30),
             issued_at: now,
@@ -612,14 +639,18 @@ mod tests {
             })
             .unwrap();
         assert_eq!(recent.len(), 1);
-        let pruned = store.prune_observations(now - chrono::Duration::hours(1)).unwrap();
+        let pruned = store
+            .prune_observations(now - chrono::Duration::hours(1))
+            .unwrap();
         assert_eq!(pruned, 1);
     }
 
     #[test]
     fn audit_trail() {
         let store = Store::open_in_memory().unwrap();
-        store.audit("emergency.stop", "cli", &serde_json::json!({"why": "test"})).unwrap();
+        store
+            .audit("emergency.stop", "cli", &serde_json::json!({"why": "test"}))
+            .unwrap();
         let tail = store.audit_tail(10).unwrap();
         assert_eq!(tail.len(), 1);
         assert_eq!(tail[0]["kind"], "emergency.stop");
@@ -634,6 +665,9 @@ mod tests {
             store.set_meta("clean_shutdown", "false").unwrap();
         }
         let store = Store::open(&path).unwrap();
-        assert_eq!(store.get_meta("clean_shutdown").unwrap().as_deref(), Some("false"));
+        assert_eq!(
+            store.get_meta("clean_shutdown").unwrap().as_deref(),
+            Some("false")
+        );
     }
 }

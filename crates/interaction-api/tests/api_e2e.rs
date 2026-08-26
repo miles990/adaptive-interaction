@@ -80,7 +80,9 @@ impl TestServer {
 async fn health_is_public_but_api_requires_token() {
     let server = TestServer::spawn().await;
     // Health without token.
-    let resp = reqwest::get(format!("{}/health", server.base)).await.unwrap();
+    let resp = reqwest::get(format!("{}/health", server.base))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     // Status without token → 401.
     let resp = reqwest::Client::new()
@@ -110,7 +112,11 @@ async fn scenario_i_http_host_full_loop() {
     // 1. Discover capabilities.
     let (status, caps) = server.get("/v1/capabilities").await;
     assert_eq!(status, 200);
-    assert!(caps["actuators"].as_array().unwrap().iter().any(|a| a["id"] == "conversation"));
+    assert!(caps["actuators"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|a| a["id"] == "conversation"));
     assert!(!caps["toolOperations"].as_array().unwrap().is_empty());
 
     // 2. Start a session.
@@ -147,12 +153,16 @@ async fn scenario_i_http_host_full_loop() {
     let plan_id = plan["planId"].as_str().unwrap().to_string();
 
     // 5. Simulate (no side effects).
-    let (status, sim) = server.post(&format!("/v1/plans/{plan_id}/simulate"), json!({})).await;
+    let (status, sim) = server
+        .post(&format!("/v1/plans/{plan_id}/simulate"), json!({}))
+        .await;
     assert_eq!(status, 200);
     assert_eq!(sim["wouldExecute"], true);
 
     // 6. Execute.
-    let (status, receipts) = server.post(&format!("/v1/plans/{plan_id}/execute"), json!({})).await;
+    let (status, receipts) = server
+        .post(&format!("/v1/plans/{plan_id}/execute"), json!({}))
+        .await;
     assert_eq!(status, 200);
     let receipt = &receipts.as_array().unwrap()[0];
     assert_eq!(receipt["currentStatus"], "completed");
@@ -164,7 +174,9 @@ async fn scenario_i_http_host_full_loop() {
     assert_eq!(fetched["currentStatus"], "completed");
     // Timestamps show the honest path: accepted is present and distinct from completed.
     let states: Vec<&str> = fetched["timestamps"]
-        .as_array().unwrap().iter()
+        .as_array()
+        .unwrap()
+        .iter()
         .map(|pair| pair[0].as_str().unwrap())
         .collect();
     assert!(states.contains(&"accepted"));
@@ -190,7 +202,9 @@ async fn tool_calls_work_without_mcp() {
     server.post("/v1/session/start", json!({})).await;
 
     // status / capabilities / observe / plan / execute — all as TOOLS.
-    let (s, _) = server.post("/v1/tools/interaction.status/call", json!({})).await;
+    let (s, _) = server
+        .post("/v1/tools/interaction.status/call", json!({}))
+        .await;
     assert_eq!(s, 200);
     let (s, caps) = server
         .post("/v1/tools/interaction.capabilities/call", json!({}))
@@ -218,13 +232,18 @@ async fn tool_calls_work_without_mcp() {
     let action_id = receipts[0]["actionId"].as_str().unwrap();
 
     let (s, receipt) = server
-        .post("/v1/tools/interaction.action_status/call", json!({"actionId": action_id}))
+        .post(
+            "/v1/tools/interaction.action_status/call",
+            json!({"actionId": action_id}),
+        )
         .await;
     assert_eq!(s, 200);
     assert_eq!(receipt["currentStatus"], "completed");
 
     // Unknown tool → 404.
-    let (s, _) = server.post("/v1/tools/interaction.nope/call", json!({})).await;
+    let (s, _) = server
+        .post("/v1/tools/interaction.nope/call", json!({}))
+        .await;
     assert_eq!(s, 404);
 }
 
@@ -245,7 +264,9 @@ async fn tool_exports_all_formats() {
 async fn emergency_stop_via_api() {
     let server = TestServer::spawn().await;
     server.post("/v1/session/start", json!({})).await;
-    let (status, result) = server.post("/v1/emergency-stop", json!({"reason": "drill"})).await;
+    let (status, result) = server
+        .post("/v1/emergency-stop", json!({"reason": "drill"}))
+        .await;
     assert_eq!(status, 200);
     assert_eq!(result["reason"], "drill");
     assert!(server.runtime.is_estopped());
@@ -255,7 +276,9 @@ async fn emergency_stop_via_api() {
         .post("/v1/plans", json!({"intent": "presence", "candidates": ["conversation"], "minChannels": 1, "maxChannels": 1, "allowNoAction": false}))
         .await;
     if let Some(plan_id) = plan["planId"].as_str() {
-        let (s, _) = server.post(&format!("/v1/plans/{plan_id}/execute"), json!({})).await;
+        let (s, _) = server
+            .post(&format!("/v1/plans/{plan_id}/execute"), json!({}))
+            .await;
         assert_eq!(s, 423);
     }
     let (s, _) = server.post("/v1/emergency-stop/clear", json!({})).await;
@@ -287,21 +310,34 @@ actuation:
   minChannels: 0
   maxChannels: 1
 "#;
-    let (status, created) = server.post("/v1/recipes", json!({"text": recipe_yaml})).await;
+    let (status, created) = server
+        .post("/v1/recipes", json!({"text": recipe_yaml}))
+        .await;
     assert_eq!(status, 200);
     assert_eq!(created["id"], "test-recipe");
 
     let (status, list) = server.get("/v1/recipes").await;
     assert_eq!(status, 200);
-    assert!(list.as_array().unwrap().iter().any(|r| r["recipe"]["id"] == "test-recipe"));
+    assert!(list
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["recipe"]["id"] == "test-recipe"));
 
     // Disable, simulate, remove.
-    let (s, _) = server.patch("/v1/recipes/test-recipe", json!({"enabled": false})).await;
+    let (s, _) = server
+        .patch("/v1/recipes/test-recipe", json!({"enabled": false}))
+        .await;
     assert_eq!(s, 200);
     server.post("/v1/session/start", json!({})).await;
-    let (s, sim) = server.post("/v1/recipes/test-recipe/simulate", json!({})).await;
+    let (s, sim) = server
+        .post("/v1/recipes/test-recipe/simulate", json!({}))
+        .await;
     assert_eq!(s, 200);
-    assert_eq!(sim["trigger"]["fired"], false, "disabled recipe must not fire");
+    assert_eq!(
+        sim["trigger"]["fired"], false,
+        "disabled recipe must not fire"
+    );
     let resp = reqwest::Client::new()
         .delete(format!("{}/v1/recipes/test-recipe", server.base))
         .bearer_auth(&server.token)
@@ -314,9 +350,14 @@ actuation:
 #[tokio::test]
 async fn sse_stream_replays_with_last_event_id() {
     let server = TestServer::spawn().await;
-    server.post("/v1/session/start", json!({"label": "sse"})).await;
     server
-        .post("/v1/receptors/manual.event/push", json!({"facts": {"event": "ping"}}))
+        .post("/v1/session/start", json!({"label": "sse"}))
+        .await;
+    server
+        .post(
+            "/v1/receptors/manual.event/push",
+            json!({"facts": {"event": "ping"}}),
+        )
         .await;
 
     // Connect with Last-Event-ID: 0 → replay should include session.started.
@@ -347,7 +388,10 @@ async fn sse_stream_replays_with_last_event_id() {
         }
     }
     assert!(collected.contains("session.started"), "got: {collected}");
-    assert!(collected.contains("receptor.observation"), "got: {collected}");
+    assert!(
+        collected.contains("receptor.observation"),
+        "got: {collected}"
+    );
 }
 
 #[tokio::test]

@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimal capability set for the control-center window: core events and window basics only. No shell, no fs, no process, no raw device access.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}

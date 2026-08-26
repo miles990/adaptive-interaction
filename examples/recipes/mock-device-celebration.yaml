@@ -1,0 +1,31 @@
+id: mock-device-celebration
+name: 模擬裝置慶祝（觀察驗證）
+description: 展示 G 情境：語意 haptic action → policy 限界 → mock driver → observed → completed。
+enabled: false
+trigger:
+  mode: all
+  within: 5m
+  steps:
+    - receptor: task.lifecycle
+      condition:
+        event: task.completed
+decision:
+  objective: celebrate-physically-within-bounds
+  allowNoAction: true
+intent: celebration
+message:
+  mode: none
+actuation:
+  mode: adaptive
+  candidates: [mock.actuator]
+  minChannels: 0
+  maxChannels: 1
+verification:
+  strategy: observed
+  timeout: 5s
+consent:
+  required: ["channel:haptic"]
+limits:
+  cooldown: 5m
+  expiresAfter: 15s
+  maxExecutionsPerSession: 2

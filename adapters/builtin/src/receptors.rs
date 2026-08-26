@@ -6,11 +6,11 @@
 
 use async_trait::async_trait;
 use chrono::{Datelike, Timelike, Utc};
+use interaction_adapter_sdk::ReceptorManifestBuilder;
 use interaction_core::{
     ComponentHealth, Observation, Receptor, ReceptorError, ReceptorId, ReceptorManifest,
     ReceptorMode, Sensitivity, SessionContext,
 };
-use interaction_adapter_sdk::ReceptorManifestBuilder;
 use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -26,7 +26,10 @@ pub struct PushReceptor {
 
 impl PushReceptor {
     pub fn new(manifest: ReceptorManifest) -> Arc<Self> {
-        Arc::new(Self { manifest, buffer: Arc::new(Mutex::new(VecDeque::new())) })
+        Arc::new(Self {
+            manifest,
+            buffer: Arc::new(Mutex::new(VecDeque::new())),
+        })
     }
 
     /// Feed one observation built from facts/inferences.
@@ -187,12 +190,14 @@ impl Receptor for SystemTimeReceptor {
             18..=22 => "evening",
             _ => "night",
         };
-        Ok(Observation::now(ReceptorId::new("system.time"), "builtin.system-time", now)
-            .with_fact("hour", hour)
-            .with_fact("minute", local.minute())
-            .with_fact("weekday", local.weekday().to_string())
-            .with_fact("dayPhase", phase)
-            .with_fact("iso", local.to_rfc3339()))
+        Ok(
+            Observation::now(ReceptorId::new("system.time"), "builtin.system-time", now)
+                .with_fact("hour", hour)
+                .with_fact("minute", local.minute())
+                .with_fact("weekday", local.weekday().to_string())
+                .with_fact("dayPhase", phase)
+                .with_fact("iso", local.to_rfc3339()),
+        )
     }
 
     async fn health(&self) -> ComponentHealth {

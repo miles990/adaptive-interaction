@@ -11,9 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum ActionStatus {
     /// Plan step exists but has not been authorized.
@@ -144,17 +142,33 @@ impl ActionReceipt {
     }
 
     /// Apply a transition; rejects illegal moves.
-    pub fn transition(&mut self, next: ActionStatus, now: Timestamp) -> Result<(), IllegalTransition> {
+    pub fn transition(
+        &mut self,
+        next: ActionStatus,
+        now: Timestamp,
+    ) -> Result<(), IllegalTransition> {
         if !self.current_status.can_transition_to(next) {
-            return Err(IllegalTransition { from: self.current_status, to: next });
+            return Err(IllegalTransition {
+                from: self.current_status,
+                to: next,
+            });
         }
         self.current_status = next;
         self.timestamps.push((next, now));
         Ok(())
     }
 
-    pub fn push_error(&mut self, code: impl Into<String>, message: impl Into<String>, now: Timestamp) {
-        self.errors.push(ReceiptError { code: code.into(), message: message.into(), at: now });
+    pub fn push_error(
+        &mut self,
+        code: impl Into<String>,
+        message: impl Into<String>,
+        now: Timestamp,
+    ) {
+        self.errors.push(ReceiptError {
+            code: code.into(),
+            message: message.into(),
+            at: now,
+        });
     }
 
     pub fn is_terminal(&self) -> bool {
@@ -176,9 +190,22 @@ mod tests {
     #[test]
     fn happy_path_is_legal() {
         use ActionStatus::*;
-        let path = [Planned, Authorized, Accepted, Dispatched, Acknowledged, Observed, Completed];
+        let path = [
+            Planned,
+            Authorized,
+            Accepted,
+            Dispatched,
+            Acknowledged,
+            Observed,
+            Completed,
+        ];
         for pair in path.windows(2) {
-            assert!(pair[0].can_transition_to(pair[1]), "{:?} -> {:?}", pair[0], pair[1]);
+            assert!(
+                pair[0].can_transition_to(pair[1]),
+                "{:?} -> {:?}",
+                pair[0],
+                pair[1]
+            );
         }
     }
 

@@ -7,22 +7,27 @@ use std::collections::BTreeMap;
 
 /// How proactive the runtime may be without an explicit request.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Default,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
 )]
 #[serde(rename_all = "kebab-case")]
 pub enum InitiativeLevel {
     /// Never initiate; only respond to explicit requests.
     Passive,
     /// May surface low-risk, non-interrupting signals.
+    #[default]
     Suggest,
     /// May initiate bounded interactions on allowed channels.
     Active,
-}
-
-impl Default for InitiativeLevel {
-    fn default() -> Self {
-        InitiativeLevel::Suggest
-    }
 }
 
 /// A daily quiet window in local wall-clock time ("HH:MM" 24h).
@@ -170,7 +175,12 @@ pub enum PolicyDecision {
     #[serde(rename_all = "camelCase")]
     Allowed { rule: String },
     #[serde(rename_all = "camelCase")]
-    Clamped { rule: String, field: String, from: f64, to: f64 },
+    Clamped {
+        rule: String,
+        field: String,
+        from: f64,
+        to: f64,
+    },
     #[serde(rename_all = "camelCase")]
     Silenced { rule: String, detail: String },
     #[serde(rename_all = "camelCase")]
@@ -181,7 +191,10 @@ pub enum PolicyDecision {
 
 impl PolicyDecision {
     pub fn is_blocking(&self) -> bool {
-        matches!(self, PolicyDecision::Blocked { .. } | PolicyDecision::ApprovalRequired { .. })
+        matches!(
+            self,
+            PolicyDecision::Blocked { .. } | PolicyDecision::ApprovalRequired { .. }
+        )
     }
 }
 

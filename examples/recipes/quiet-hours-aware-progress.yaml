@@ -1,0 +1,26 @@
+id: quiet-hours-aware-progress
+name: 安靜時段感知的進度回報
+description: 進度事件到達時輕聲回報；安靜時段自動降級為 UI 或沉默（governor 強制）。
+enabled: false
+trigger:
+  mode: single
+  steps:
+    - receptor: task.lifecycle
+      condition:
+        event: task.progress
+decision:
+  objective: inform-without-interrupting
+  allowNoAction: true
+intent: progress
+message:
+  mode: adaptive
+  intents: [progress]
+  allowSilence: true
+actuation:
+  mode: adaptive
+  candidates: [conversation, web-ui, local-notification]
+  minChannels: 0
+  maxChannels: 1
+limits:
+  cooldown: 10m
+  expiresAfter: 20s

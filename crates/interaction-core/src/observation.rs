@@ -71,7 +71,11 @@ impl Observation {
             confidence: 1.0,
             freshness_ms: 0,
             quality: 1.0,
-            source: ObservationSource { driver: driver.into(), quality: 1.0, detail: None },
+            source: ObservationSource {
+                driver: driver.into(),
+                quality: 1.0,
+                detail: None,
+            },
             session_id: None,
             correlation_id: None,
             schema_version: SCHEMA_VERSION.to_string(),
@@ -131,15 +135,22 @@ mod tests {
         let obs = Observation::now(ReceptorId::new("camera.main"), "test", ts)
             .with_fact("personVisible", true)
             .with_inference("possibleState", "focused", 0.67);
-        assert_eq!(obs.facts.get("personVisible"), Some(&serde_json::json!(true)));
-        assert!(obs.facts.get("possibleState").is_none());
+        assert_eq!(
+            obs.facts.get("personVisible"),
+            Some(&serde_json::json!(true))
+        );
+        assert!(!obs.facts.contains_key("possibleState"));
         assert!((obs.confidence - 0.67).abs() < f64::EPSILON);
     }
 
     #[test]
     fn staleness() {
         let ts = chrono::Utc::now();
-        let obs = Observation::now(ReceptorId::new("x"), "test", ts - chrono::Duration::seconds(10));
+        let obs = Observation::now(
+            ReceptorId::new("x"),
+            "test",
+            ts - chrono::Duration::seconds(10),
+        );
         assert!(obs.is_stale(ts, 5_000));
         assert!(!obs.is_stale(ts, 20_000));
     }

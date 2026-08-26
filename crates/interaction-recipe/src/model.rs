@@ -4,9 +4,12 @@ use interaction_core::{MessageStrategy, RecipeId};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum FusionMode {
+    #[default]
     Single,
     All,
     Any,
@@ -15,27 +18,18 @@ pub enum FusionMode {
     Sequence,
 }
 
-impl Default for FusionMode {
-    fn default() -> Self {
-        FusionMode::Single
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum ActuationMode {
     Single,
     Parallel,
     Sequence,
     Fallback,
+    #[default]
     Adaptive,
     Redundant,
-}
-
-impl Default for ActuationMode {
-    fn default() -> Self {
-        ActuationMode::Adaptive
-    }
 }
 
 /// One trigger step: a receptor plus a condition on its observations.
@@ -127,21 +121,18 @@ fn default_chance() -> f64 {
     1.0
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum VerificationStrategy {
     /// Acknowledgement from the driver is enough to complete.
+    #[default]
     BestEffort,
     /// Require an observation confirming the effect.
     Observed,
     /// Do not verify (receipt stops at acknowledged/uncertain).
     None,
-}
-
-impl Default for VerificationStrategy {
-    fn default() -> Self {
-        VerificationStrategy::BestEffort
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, schemars::JsonSchema)]

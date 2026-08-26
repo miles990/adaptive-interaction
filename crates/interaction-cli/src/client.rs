@@ -72,15 +72,17 @@ impl Client {
         }
         let resp = req.send().await.map_err(|e| {
             if e.is_connect() {
-                anyhow!("daemon offline: cannot reach {} ({e}); start it with `interact-ai serve`", self.base)
+                anyhow!(
+                    "daemon offline: cannot reach {} ({e}); start it with `interact-ai serve`",
+                    self.base
+                )
             } else {
                 anyhow!("request failed: {e}")
             }
         })?;
         let status = resp.status().as_u16();
         let text = resp.text().await.unwrap_or_default();
-        let value: Value = serde_json::from_str(&text)
-            .unwrap_or_else(|_| Value::String(text));
+        let value: Value = serde_json::from_str(&text).unwrap_or(Value::String(text));
         Ok((status, value))
     }
 

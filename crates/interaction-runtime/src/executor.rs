@@ -69,7 +69,9 @@ impl Runtime {
     ) -> DomainResult<UsageContext> {
         let now = Utc::now();
         let (fired, last) = self.store.actuator_usage(manifest.id.as_str(), now)?;
-        let channel_used = self.store.channel_usage_ms(&session.session_id, &manifest.channel)?;
+        let channel_used = self
+            .store
+            .channel_usage_ms(&session.session_id, &manifest.channel)?;
         let scheduled = self.store.scheduled_action_count()?;
         Ok(UsageContext {
             actuator_fired_last_hour: fired,
@@ -80,6 +82,7 @@ impl Runtime {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn authorize_step(
         &self,
         policy: &interaction_core::PolicyConfig,
@@ -103,7 +106,10 @@ impl Runtime {
     }
 
     /// Dry-run the governor over every step. No side effects, no receipts.
-    pub async fn simulate_plan(&self, plan_id: &interaction_core::PlanId) -> DomainResult<SimulationReport> {
+    pub async fn simulate_plan(
+        &self,
+        plan_id: &interaction_core::PlanId,
+    ) -> DomainResult<SimulationReport> {
         let mut plan = self.store.plan(plan_id)?;
         let session = self.require_session().await?;
         let policy = self.policy().await;
@@ -151,7 +157,11 @@ impl Runtime {
             plan.status = PlanStatus::Simulated;
             self.store.upsert_plan(&plan)?;
         }
-        Ok(SimulationReport { plan_id: plan.plan_id.as_str().into(), steps, would_execute })
+        Ok(SimulationReport {
+            plan_id: plan.plan_id.as_str().into(),
+            steps,
+            would_execute,
+        })
     }
 
     /// Execute a plan. Honors the plan's actuation mode; returns all receipts
@@ -281,7 +291,11 @@ impl Runtime {
                     now,
                 );
                 self.persist_receipt(&receipt, &step.channel).await?;
-                self.emit_action_event(EventType::ActionFailed, &receipt, json!({"reason": e.to_string()}));
+                self.emit_action_event(
+                    EventType::ActionFailed,
+                    &receipt,
+                    json!({"reason": e.to_string()}),
+                );
                 return Ok(receipt);
             }
         };
@@ -298,7 +312,11 @@ impl Runtime {
                 now,
             );
             self.persist_receipt(&receipt, &step.channel).await?;
-            self.emit_action_event(EventType::ActionFailed, &receipt, json!({"reason": "offline"}));
+            self.emit_action_event(
+                EventType::ActionFailed,
+                &receipt,
+                json!({"reason": "offline"}),
+            );
             return Ok(receipt);
         }
 
@@ -341,7 +359,10 @@ impl Runtime {
                 let (pattern, pattern_decisions) =
                     self.bound_pattern_value(&policy, &manifest, pattern_value, &auth.effective)?;
                 decisions.extend(pattern_decisions);
-                metadata.insert("pattern".to_string(), serde_json::to_value(&pattern).unwrap_or_default());
+                metadata.insert(
+                    "pattern".to_string(),
+                    serde_json::to_value(&pattern).unwrap_or_default(),
+                );
             } else {
                 decisions.push(PolicyDecision::Silenced {
                     rule: "pattern.unsupported".into(),
@@ -390,14 +411,22 @@ impl Runtime {
                 receipt.push_error("dispatch_timeout", "driver did not answer in time", now2);
                 let _ = receipt.transition(ActionStatus::Uncertain, now2);
                 self.persist_receipt(&receipt, &step.channel).await?;
-                self.emit_action_event(EventType::ActionUncertain, &receipt, json!({"reason": "dispatch timeout"}));
+                self.emit_action_event(
+                    EventType::ActionUncertain,
+                    &receipt,
+                    json!({"reason": "dispatch timeout"}),
+                );
                 return Ok(receipt);
             }
             Ok(Err(driver_err)) => {
-                receipt.push_error("driver_error", &driver_err.to_string(), now2);
+                receipt.push_error("driver_error", driver_err.to_string(), now2);
                 let _ = receipt.transition(ActionStatus::Failed, now2);
                 self.persist_receipt(&receipt, &step.channel).await?;
-                self.emit_action_event(EventType::ActionFailed, &receipt, json!({"reason": driver_err.to_string()}));
+                self.emit_action_event(
+                    EventType::ActionFailed,
+                    &receipt,
+                    json!({"reason": driver_err.to_string()}),
+                );
                 return Ok(receipt);
             }
             Ok(Ok(driver_receipt)) => {
@@ -425,14 +454,17 @@ impl Runtime {
             .and_then(|v| v.as_str())
             .unwrap_or("best-effort")
             .to_string();
-        let receipt = self.verify_receipt(receipt, &step.channel, &strategy).await?;
+        let receipt = self
+            .verify_receipt(receipt, &step.channel, &strategy)
+            .await?;
 
         // Budget bookkeeping on successful output.
         if matches!(
             receipt.current_status,
             ActionStatus::Acknowledged | ActionStatus::Observed | ActionStatus::Completed
         ) {
-            self.track_session_usage(&session.session_id, &step.channel, &receipt).await;
+            self.track_session_usage(&session.session_id, &step.channel, &receipt)
+                .await;
         }
         Ok(receipt)
     }
@@ -508,11 +540,13 @@ impl Runtime {
                         let _ = self.observe_fresh(&manifest.id).await;
                     }
                 }
-                let observations = self.store.query_observations(&interaction_core::ObservationQuery {
-                    since: Some(dispatched_at - chrono::Duration::seconds(1)),
-                    limit: Some(200),
-                    ..Default::default()
-                })?;
+                let observations =
+                    self.store
+                        .query_observations(&interaction_core::ObservationQuery {
+                            since: Some(dispatched_at - chrono::Duration::seconds(1)),
+                            limit: Some(200),
+                            ..Default::default()
+                        })?;
                 let evidence: Vec<_> = observations
                     .iter()
                     .filter(|o| {
@@ -528,13 +562,19 @@ impl Runtime {
                         let _ = receipt.transition(ActionStatus::Observed, now);
                         self.emit_action_event(EventType::ActionObserved, &receipt, json!({}));
                         let _ = receipt.transition(ActionStatus::Completed, Utc::now());
-                    } else if receipt.current_status.can_transition_to(ActionStatus::Uncertain) {
+                    } else if receipt
+                        .current_status
+                        .can_transition_to(ActionStatus::Uncertain)
+                    {
                         // Dispatched-but-not-acked with evidence: mark observed
                         // is illegal from Dispatched; go through the legal path.
                         let _ = receipt.transition(ActionStatus::Uncertain, now);
                     }
                     receipt.verification = Some(VerificationEvidence {
-                        observation_ids: evidence.iter().map(|o| o.observation_id.clone()).collect(),
+                        observation_ids: evidence
+                            .iter()
+                            .map(|o| o.observation_id.clone())
+                            .collect(),
                         verdict: VerificationVerdict::Observed,
                         detail: Some(format!("{} corroborating observation(s)", evidence.len())),
                         verified_at: now,

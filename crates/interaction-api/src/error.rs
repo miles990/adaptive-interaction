@@ -35,11 +35,13 @@ impl From<DomainError> for ApiError {
             DomainError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             DomainError::EmergencyStop => StatusCode::LOCKED,
             DomainError::Receptor(_) | DomainError::Actuator(_) => StatusCode::BAD_GATEWAY,
-            DomainError::Storage(_) | DomainError::Internal(_) => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
+            DomainError::Storage(_) | DomainError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        Self { status, code: err.code(), message: err.to_string() }
+        Self {
+            status,
+            code: err.code(),
+            message: err.to_string(),
+        }
     }
 }
 

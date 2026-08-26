@@ -52,9 +52,9 @@ impl ConditionSpec {
                 }
                 Ok(())
             }
-            ConditionSpec::Expression(expr) => {
-                parse_expression(expr).map(|_| ()).map_err(|e| e.to_string())
-            }
+            ConditionSpec::Expression(expr) => parse_expression(expr)
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
         }
     }
 }
@@ -110,7 +110,9 @@ fn parse_expression(expr: &str) -> Result<(String, Op, String), String> {
             return Ok((key, op, value));
         }
     }
-    Err(format!("expression {expr:?} has no operator (==, !=, >, <, >=, <=)"))
+    Err(format!(
+        "expression {expr:?} has no operator (==, !=, >, <, >=, <=)"
+    ))
 }
 
 fn eval_expression(expr: &str, obs: &Observation, min_confidence: f64) -> bool {
@@ -162,8 +164,7 @@ mod tests {
 
     #[test]
     fn map_condition() {
-        let c: ConditionSpec =
-            serde_yaml::from_str("event: task.completed").unwrap();
+        let c: ConditionSpec = serde_yaml::from_str("event: task.completed").unwrap();
         assert!(c.matches(&obs(), 0.0));
     }
 
@@ -190,7 +191,10 @@ mod tests {
     #[test]
     fn facts_do_not_leak_inferences() {
         let c: ConditionSpec = serde_yaml::from_str("possibleState: focused").unwrap();
-        assert!(!c.matches(&obs(), 0.0), "inference must not match as a fact");
+        assert!(
+            !c.matches(&obs(), 0.0),
+            "inference must not match as a fact"
+        );
     }
 
     #[test]

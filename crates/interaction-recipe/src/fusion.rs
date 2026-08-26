@@ -65,7 +65,10 @@ pub fn fuse(
     // Deterministic order; explicit-input receptors applied last so they win.
     let mut ordered: Vec<&Observation> = latest.values().collect();
     ordered.sort_by_key(|o| {
-        (EXPLICIT_INPUT_RECEPTORS.contains(&o.receptor_id.as_str()), o.timestamp)
+        (
+            EXPLICIT_INPUT_RECEPTORS.contains(&o.receptor_id.as_str()),
+            o.timestamp,
+        )
     });
 
     for obs in &ordered {
@@ -76,8 +79,8 @@ pub fn fuse(
                     let prev = fact_source.get(key).cloned();
                     contradictions.push(key.clone());
                     // Explicit input or higher quality wins.
-                    let should_replace = is_explicit
-                        || prev.map(|(_, q)| obs.quality > q).unwrap_or(true);
+                    let should_replace =
+                        is_explicit || prev.map(|(_, q)| obs.quality > q).unwrap_or(true);
                     if should_replace {
                         facts.insert(key.clone(), value.clone());
                         fact_source
@@ -86,8 +89,7 @@ pub fn fuse(
                 }
                 _ => {
                     facts.insert(key.clone(), value.clone());
-                    fact_source
-                        .insert(key.clone(), (obs.receptor_id.as_str().into(), obs.quality));
+                    fact_source.insert(key.clone(), (obs.receptor_id.as_str().into(), obs.quality));
                 }
             }
         }
@@ -121,7 +123,14 @@ pub fn fuse(
         .cloned()
         .collect();
 
-    FusedContext { latest, facts, inferences, contradictions, missing, dropped_stale }
+    FusedContext {
+        latest,
+        facts,
+        inferences,
+        contradictions,
+        missing,
+        dropped_stale,
+    }
 }
 
 /// Latest observation for a receptor within the fused set.
@@ -135,7 +144,11 @@ mod tests {
     use interaction_core::ReceptorId;
 
     fn obs_at(receptor: &str, secs_ago: i64, now: Timestamp) -> Observation {
-        Observation::now(ReceptorId::new(receptor), "test", now - chrono::Duration::seconds(secs_ago))
+        Observation::now(
+            ReceptorId::new(receptor),
+            "test",
+            now - chrono::Duration::seconds(secs_ago),
+        )
     }
 
     #[test]

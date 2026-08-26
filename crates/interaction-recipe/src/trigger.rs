@@ -15,7 +15,10 @@ pub struct TriggerDecision {
 
 impl TriggerDecision {
     fn no(reason: impl Into<String>) -> Self {
-        Self { fired: false, explanation: vec![reason.into()] }
+        Self {
+            fired: false,
+            explanation: vec![reason.into()],
+        }
     }
 }
 
@@ -84,8 +87,7 @@ pub fn evaluate_trigger(
                 false
             } else {
                 // Timestamps must be non-decreasing in step order.
-                let stamps: Vec<Timestamp> =
-                    matches.iter().map(|m| m.unwrap().timestamp).collect();
+                let stamps: Vec<Timestamp> = matches.iter().map(|m| m.unwrap().timestamp).collect();
                 let ordered = stamps.windows(2).all(|w| w[0] <= w[1]);
                 if !ordered {
                     explanation.push("sequence order violated".into());
@@ -99,7 +101,8 @@ pub fn evaluate_trigger(
                             .num_milliseconds();
                         let ok = span >= 0 && (span as u64) <= w;
                         if !ok {
-                            explanation.push(format!("sequence span {span}ms exceeds window {w}ms"));
+                            explanation
+                                .push(format!("sequence span {span}ms exceeds window {w}ms"));
                         }
                         ok
                     }
@@ -111,9 +114,17 @@ pub fn evaluate_trigger(
     };
 
     explanation.push(if fired {
-        format!("trigger fired (mode {:?}, {matched_count}/{} steps)", trigger.mode, trigger.steps.len())
+        format!(
+            "trigger fired (mode {:?}, {matched_count}/{} steps)",
+            trigger.mode,
+            trigger.steps.len()
+        )
     } else {
-        format!("trigger not fired (mode {:?}, {matched_count}/{} steps)", trigger.mode, trigger.steps.len())
+        format!(
+            "trigger not fired (mode {:?}, {matched_count}/{} steps)",
+            trigger.mode,
+            trigger.steps.len()
+        )
     });
 
     TriggerDecision { fired, explanation }
@@ -173,8 +184,12 @@ actuation:
     }
 
     fn obs(receptor: &str, key: &str, value: &str, secs_ago: i64, now: Timestamp) -> Observation {
-        Observation::now(ReceptorId::new(receptor), "test", now - chrono::Duration::seconds(secs_ago))
-            .with_fact(key, value)
+        Observation::now(
+            ReceptorId::new(receptor),
+            "test",
+            now - chrono::Duration::seconds(secs_ago),
+        )
+        .with_fact(key, value)
     }
 
     #[test]

@@ -47,7 +47,10 @@ pub fn parse_and_validate(input: &str) -> Result<Recipe, RecipeParseError> {
 pub fn validate(recipe: &Recipe) -> Vec<ValidationIssue> {
     let mut issues = Vec::new();
     let push = |issues: &mut Vec<ValidationIssue>, field: &str, message: String| {
-        issues.push(ValidationIssue { field: field.to_string(), message });
+        issues.push(ValidationIssue {
+            field: field.to_string(),
+            message,
+        });
     };
 
     if recipe.id.as_str().trim().is_empty() {
@@ -57,31 +60,58 @@ pub fn validate(recipe: &Recipe) -> Vec<ValidationIssue> {
         push(&mut issues, "name", "must not be empty".into());
     }
     if recipe.trigger.steps.is_empty() {
-        push(&mut issues, "trigger.steps", "at least one step is required".into());
+        push(
+            &mut issues,
+            "trigger.steps",
+            "at least one step is required".into(),
+        );
     }
     if recipe.trigger.mode == FusionMode::Single && recipe.trigger.steps.len() > 1 {
-        push(&mut issues, "trigger.mode", "mode 'single' requires exactly one step".into());
+        push(
+            &mut issues,
+            "trigger.mode",
+            "mode 'single' requires exactly one step".into(),
+        );
     }
     if recipe.trigger.mode == FusionMode::Quorum {
         match recipe.trigger.quorum {
-            None => push(&mut issues, "trigger.quorum", "required for mode 'quorum'".into()),
+            None => push(
+                &mut issues,
+                "trigger.quorum",
+                "required for mode 'quorum'".into(),
+            ),
             Some(q) if q as usize > recipe.trigger.steps.len() => push(
                 &mut issues,
                 "trigger.quorum",
-                format!("quorum {q} exceeds step count {}", recipe.trigger.steps.len()),
+                format!(
+                    "quorum {q} exceeds step count {}",
+                    recipe.trigger.steps.len()
+                ),
             ),
             _ => {}
         }
     }
     if recipe.trigger.mode == FusionMode::Weighted && recipe.trigger.threshold.is_none() {
-        push(&mut issues, "trigger.threshold", "required for mode 'weighted'".into());
+        push(
+            &mut issues,
+            "trigger.threshold",
+            "required for mode 'weighted'".into(),
+        );
     }
     for (i, step) in recipe.trigger.steps.iter().enumerate() {
         if step.receptor.trim().is_empty() {
-            push(&mut issues, &format!("trigger.steps[{i}].receptor"), "must not be empty".into());
+            push(
+                &mut issues,
+                &format!("trigger.steps[{i}].receptor"),
+                "must not be empty".into(),
+            );
         }
         if step.weight < 0.0 {
-            push(&mut issues, &format!("trigger.steps[{i}].weight"), "must be >= 0".into());
+            push(
+                &mut issues,
+                &format!("trigger.steps[{i}].weight"),
+                "must be >= 0".into(),
+            );
         }
         if let Some(cond) = &step.condition {
             if let Err(e) = cond.validate() {
@@ -104,20 +134,36 @@ pub fn validate(recipe: &Recipe) -> Vec<ValidationIssue> {
         }
     }
     if recipe.actuation.candidates.is_empty() {
-        push(&mut issues, "actuation.candidates", "at least one candidate actuator is required".into());
+        push(
+            &mut issues,
+            "actuation.candidates",
+            "at least one candidate actuator is required".into(),
+        );
     }
     if recipe.actuation.min_channels > recipe.actuation.max_channels {
-        push(&mut issues, "actuation.minChannels", "must be <= maxChannels".into());
+        push(
+            &mut issues,
+            "actuation.minChannels",
+            "must be <= maxChannels".into(),
+        );
     }
     if recipe.actuation.max_channels as usize > recipe.actuation.candidates.len().max(1) * 2 {
         // Not fatal; but max_channels beyond candidates is meaningless.
     }
     if !(0.0..=1.0).contains(&recipe.actuation.chance) {
-        push(&mut issues, "actuation.chance", "must be within 0..1".into());
+        push(
+            &mut issues,
+            "actuation.chance",
+            "must be within 0..1".into(),
+        );
     }
     if let Some(mc) = recipe.context.min_confidence {
         if !(0.0..=1.0).contains(&mc) {
-            push(&mut issues, "context.minConfidence", "must be within 0..1".into());
+            push(
+                &mut issues,
+                "context.minConfidence",
+                "must be within 0..1".into(),
+            );
         }
     }
     if !recipe.decision.allow_no_action && recipe.actuation.min_channels == 0 {

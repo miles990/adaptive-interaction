@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Thin launcher: finds the interact-ai binary (PATH, cargo target, or ~/.cargo).
+set -euo pipefail
+if command -v interact-ai >/dev/null 2>&1; then
+  exec interact-ai "$@"
+fi
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for candidate in \
+  "$here/../../../target/release/interact-ai" \
+  "$here/../../../target/debug/interact-ai" \
+  "$HOME/.cargo/bin/interact-ai"; do
+  if [ -x "$candidate" ]; then
+    exec "$candidate" "$@"
+  fi
+done
+echo "interact-ai binary not found. Build it with: cargo build --release -p interaction-cli" >&2
+exit 127

@@ -39,7 +39,10 @@ pub struct PlanRequest<'a> {
 
 /// Channels that can carry a text message.
 fn is_text_channel(channel: &str) -> bool {
-    matches!(channel, "conversation" | "web-ui" | "notification" | "log" | "webhook")
+    matches!(
+        channel,
+        "conversation" | "web-ui" | "notification" | "log" | "webhook"
+    )
 }
 
 fn interruption_cost(channel: &str) -> f64 {
@@ -64,14 +67,17 @@ fn risk_penalty(m: &ActuatorManifest) -> f64 {
 const SCORE_FLOOR: f64 = 0.15;
 
 pub fn build_plan(req: PlanRequest<'_>, texts: &TextSelector) -> Plan {
-    let mut plan = new_plan(req.session_id.clone(), req.intent.clone(), req.now, req.default_ttl_ms);
+    let mut plan = new_plan(
+        req.session_id.clone(),
+        req.intent.clone(),
+        req.now,
+        req.default_ttl_ms,
+    );
 
     // Candidate pool: available actuators, optionally restricted by the caller.
     let mut scored: Vec<(f64, &ActuatorManifest, String)> = Vec::new();
     for manifest in &req.snapshot.actuators {
-        if !req.candidates.is_empty()
-            && !req.candidates.iter().any(|c| c == manifest.id.as_str())
-        {
+        if !req.candidates.is_empty() && !req.candidates.iter().any(|c| c == manifest.id.as_str()) {
             continue;
         }
         if !manifest.availability.is_available() {
@@ -110,7 +116,11 @@ pub fn build_plan(req: PlanRequest<'_>, texts: &TextSelector) -> Plan {
 
     // Minimal effective set: highest-utility actuator per channel, floor-gated,
     // capped by max_channels.
-    let text = texts.select(&req.message_strategy, &req.intent.intent, req.intent.message.as_deref());
+    let text = texts.select(
+        &req.message_strategy,
+        &req.intent.intent,
+        req.intent.message.as_deref(),
+    );
     let mut used_channels: Vec<String> = Vec::new();
     for (score, manifest, rationale) in &scored {
         if plan.steps.len() >= req.max_channels as usize {
@@ -135,7 +145,11 @@ pub fn build_plan(req: PlanRequest<'_>, texts: &TextSelector) -> Plan {
             });
             continue;
         }
-        let message = if is_text_channel(&manifest.channel) { text.clone() } else { None };
+        let message = if is_text_channel(&manifest.channel) {
+            text.clone()
+        } else {
+            None
+        };
         plan.steps.push(PlannedStep {
             actuator_id: manifest.id.clone(),
             channel: manifest.channel.clone(),
@@ -180,8 +194,8 @@ pub fn build_plan(req: PlanRequest<'_>, texts: &TextSelector) -> Plan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use interaction_core::*;
     use interaction_adapter_sdk::ActuatorManifestBuilder;
+    use interaction_core::*;
 
     fn snapshot(actuators: Vec<ActuatorManifest>) -> CapabilitySnapshot {
         CapabilitySnapshot {
@@ -197,7 +211,9 @@ mod tests {
     }
 
     fn manifest(id: &str, channel: &str) -> ActuatorManifest {
-        ActuatorManifestBuilder::new(id, id, channel, "test").risk(RiskClass::Low).build()
+        ActuatorManifestBuilder::new(id, id, channel, "test")
+            .risk(RiskClass::Low)
+            .build()
     }
 
     fn request<'a>(
@@ -236,7 +252,10 @@ mod tests {
         assert!(channels.contains(&"conversation"));
         assert!(channels.contains(&"web-ui"));
         // One conversation actuator was rejected as duplicate channel.
-        assert!(plan.rejected.iter().any(|r| r.reason.contains("already covered")));
+        assert!(plan
+            .rejected
+            .iter()
+            .any(|r| r.reason.contains("already covered")));
         // Text was attached to text channels.
         assert!(plan.steps.iter().all(|s| s.requested.message.is_some()));
     }
@@ -255,9 +274,18 @@ mod tests {
         let snap = snapshot(vec![manifest("web-ui", "web-ui")]);
         let texts = TextSelector::default();
         let mut req = request(&snap, SemanticIntent::new("progress"), 2);
-        req.usage.insert("web-ui".into(), ActuatorUsageHint { fired_last_hour: 10 });
+        req.usage.insert(
+            "web-ui".into(),
+            ActuatorUsageHint {
+                fired_last_hour: 10,
+            },
+        );
         let plan = build_plan(req, &texts);
-        assert_eq!(plan.status, PlanStatus::NoAction, "fatigued channel should be skipped");
+        assert_eq!(
+            plan.status,
+            PlanStatus::NoAction,
+            "fatigued channel should be skipped"
+        );
     }
 
     #[test]
@@ -267,7 +295,10 @@ mod tests {
         let snap = snapshot(vec![m, manifest("conversation", "conversation")]);
         let texts = TextSelector::default();
         let plan = build_plan(request(&snap, SemanticIntent::new("success"), 2), &texts);
-        assert!(plan.rejected.iter().any(|r| r.actuator_id.as_str() == "audio"));
+        assert!(plan
+            .rejected
+            .iter()
+            .any(|r| r.actuator_id.as_str() == "audio"));
         assert_eq!(plan.steps.len(), 1);
     }
 

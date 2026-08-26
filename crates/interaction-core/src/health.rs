@@ -25,15 +25,27 @@ pub struct ComponentHealth {
 
 impl ComponentHealth {
     pub fn healthy() -> Self {
-        Self { status: HealthStatus::Healthy, message: None, checked_at: None }
+        Self {
+            status: HealthStatus::Healthy,
+            message: None,
+            checked_at: None,
+        }
     }
 
     pub fn offline(message: impl Into<String>) -> Self {
-        Self { status: HealthStatus::Offline, message: Some(message.into()), checked_at: None }
+        Self {
+            status: HealthStatus::Offline,
+            message: Some(message.into()),
+            checked_at: None,
+        }
     }
 
     pub fn degraded(message: impl Into<String>) -> Self {
-        Self { status: HealthStatus::Degraded, message: Some(message.into()), checked_at: None }
+        Self {
+            status: HealthStatus::Degraded,
+            message: Some(message.into()),
+            checked_at: None,
+        }
     }
 
     pub fn at(mut self, ts: Timestamp) -> Self {

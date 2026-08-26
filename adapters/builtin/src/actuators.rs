@@ -5,11 +5,11 @@
 use crate::outbox::{Outbox, OutboxMessage};
 use async_trait::async_trait;
 use chrono::Utc;
+use interaction_adapter_sdk::{ActuatorManifestBuilder, DriverReceipt};
 use interaction_core::{
     ActionId, ActionReceipt, Actuator, ActuatorError, ActuatorLimits, ActuatorManifest,
     BoundedAction, ComponentHealth, Observation, ReceptorId, RiskClass,
 };
-use interaction_adapter_sdk::{ActuatorManifestBuilder, DriverReceipt};
 use serde_json::json;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,11 +40,16 @@ impl ConversationActuator {
 #[async_trait]
 impl Actuator for ConversationActuator {
     fn manifest(&self) -> ActuatorManifest {
-        ActuatorManifestBuilder::new("conversation", "Conversation", "conversation", "builtin.conversation")
-            .description("Concise textual responses rendered in the conversation surface")
-            .capabilities(&["text", "silence"])
-            .risk(RiskClass::Low)
-            .build()
+        ActuatorManifestBuilder::new(
+            "conversation",
+            "Conversation",
+            "conversation",
+            "builtin.conversation",
+        )
+        .description("Concise textual responses rendered in the conversation surface")
+        .capabilities(&["text", "silence"])
+        .risk(RiskClass::Low)
+        .build()
     }
 
     async fn execute(&self, action: BoundedAction) -> Result<ActionReceipt, ActuatorError> {
@@ -72,7 +77,9 @@ impl Actuator for ConversationActuator {
     }
 
     async fn cancel(&self, action_id: &ActionId) -> Result<ActionReceipt, ActuatorError> {
-        Err(ActuatorError::NotFound(format!("{action_id}: conversation output cannot be recalled")))
+        Err(ActuatorError::NotFound(format!(
+            "{action_id}: conversation output cannot be recalled"
+        )))
     }
 
     async fn emergency_stop(&self) -> Result<(), ActuatorError> {
@@ -114,7 +121,10 @@ impl Actuator for WebUiActuator {
             action_id: action.action_id.clone(),
             at: Utc::now(),
         });
-        Ok(DriverReceipt::start(&action, Utc::now()).dispatched().acknowledged().finish())
+        Ok(DriverReceipt::start(&action, Utc::now())
+            .dispatched()
+            .acknowledged()
+            .finish())
     }
 
     async fn status(&self) -> ComponentHealth {
@@ -122,7 +132,9 @@ impl Actuator for WebUiActuator {
     }
 
     async fn cancel(&self, action_id: &ActionId) -> Result<ActionReceipt, ActuatorError> {
-        Err(ActuatorError::NotFound(format!("{action_id}: web-ui cards are instantaneous")))
+        Err(ActuatorError::NotFound(format!(
+            "{action_id}: web-ui cards are instantaneous"
+        )))
     }
 
     async fn emergency_stop(&self) -> Result<(), ActuatorError> {
@@ -155,7 +167,10 @@ impl Actuator for LocalLogActuator {
             message = action.effective.message.as_deref().unwrap_or("(silent)"),
             "interaction"
         );
-        Ok(DriverReceipt::start(&action, Utc::now()).dispatched().acknowledged().finish())
+        Ok(DriverReceipt::start(&action, Utc::now())
+            .dispatched()
+            .acknowledged()
+            .finish())
     }
 
     async fn status(&self) -> ComponentHealth {
@@ -163,7 +178,9 @@ impl Actuator for LocalLogActuator {
     }
 
     async fn cancel(&self, action_id: &ActionId) -> Result<ActionReceipt, ActuatorError> {
-        Err(ActuatorError::NotFound(format!("{action_id}: log lines cannot be cancelled")))
+        Err(ActuatorError::NotFound(format!(
+            "{action_id}: log lines cannot be cancelled"
+        )))
     }
 
     async fn emergency_stop(&self) -> Result<(), ActuatorError> {
@@ -238,13 +255,20 @@ impl Actuator for LocalNotificationActuator {
     async fn execute(&self, action: BoundedAction) -> Result<ActionReceipt, ActuatorError> {
         expired_check(&action)?;
         let title = "Adaptive Interaction";
-        let body = action.effective.message.clone().unwrap_or_else(|| action.intent.clone());
+        let body = action
+            .effective
+            .message
+            .clone()
+            .unwrap_or_else(|| action.intent.clone());
         let receipt = DriverReceipt::start(&action, Utc::now()).dispatched();
-        match tokio::time::timeout(std::time::Duration::from_secs(5), Self::send(title, &body)).await
+        match tokio::time::timeout(std::time::Duration::from_secs(5), Self::send(title, &body))
+            .await
         {
             Ok(Ok(())) => Ok(receipt.acknowledged().finish()),
             Ok(Err(e)) => Ok(receipt.failed("notification_failed", &e).finish()),
-            Err(_) => Ok(receipt.failed("notification_timeout", "5s timeout").finish()),
+            Err(_) => Ok(receipt
+                .failed("notification_timeout", "5s timeout")
+                .finish()),
         }
     }
 
@@ -253,7 +277,9 @@ impl Actuator for LocalNotificationActuator {
     }
 
     async fn cancel(&self, action_id: &ActionId) -> Result<ActionReceipt, ActuatorError> {
-        Err(ActuatorError::NotFound(format!("{action_id}: notifications cannot be recalled")))
+        Err(ActuatorError::NotFound(format!(
+            "{action_id}: notifications cannot be recalled"
+        )))
     }
 
     async fn emergency_stop(&self) -> Result<(), ActuatorError> {
@@ -286,14 +312,22 @@ impl WebhookActuator {
 #[async_trait]
 impl Actuator for WebhookActuator {
     fn manifest(&self) -> ActuatorManifest {
-        ActuatorManifestBuilder::new("webhook.output", "Webhook output", "webhook", "builtin.webhook")
-            .description("HTTP POST to a pre-approved URL from the human-owned config")
-            .capabilities(&["json"])
-            .risk(RiskClass::ExternalWrite)
-            .external(true)
-            .requires_consent(true)
-            .limits(ActuatorLimits { max_payload_bytes: Some(64 * 1024), ..Default::default() })
-            .build()
+        ActuatorManifestBuilder::new(
+            "webhook.output",
+            "Webhook output",
+            "webhook",
+            "builtin.webhook",
+        )
+        .description("HTTP POST to a pre-approved URL from the human-owned config")
+        .capabilities(&["json"])
+        .risk(RiskClass::ExternalWrite)
+        .external(true)
+        .requires_consent(true)
+        .limits(ActuatorLimits {
+            max_payload_bytes: Some(64 * 1024),
+            ..Default::default()
+        })
+        .build()
     }
 
     async fn execute(&self, action: BoundedAction) -> Result<ActionReceipt, ActuatorError> {
@@ -308,9 +342,15 @@ impl Actuator for WebhookActuator {
             .to_string();
         // SSRF guard: only explicitly allowlisted URLs, only http(s).
         if !(url.starts_with("http://") || url.starts_with("https://")) {
-            return Err(ActuatorError::Rejected("only http(s) URLs are allowed".into()));
+            return Err(ActuatorError::Rejected(
+                "only http(s) URLs are allowed".into(),
+            ));
         }
-        if !self.allowed_urls.iter().any(|allowed| url.starts_with(allowed)) {
+        if !self
+            .allowed_urls
+            .iter()
+            .any(|allowed| url.starts_with(allowed))
+        {
             return Err(ActuatorError::Rejected(format!(
                 "url not in the configured allowlist ({} entries)",
                 self.allowed_urls.len()
@@ -344,7 +384,9 @@ impl Actuator for WebhookActuator {
     }
 
     async fn cancel(&self, action_id: &ActionId) -> Result<ActionReceipt, ActuatorError> {
-        Err(ActuatorError::NotFound(format!("{action_id}: webhook posts cannot be recalled")))
+        Err(ActuatorError::NotFound(format!(
+            "{action_id}: webhook posts cannot be recalled"
+        )))
     }
 
     async fn emergency_stop(&self) -> Result<(), ActuatorError> {
@@ -450,7 +492,9 @@ impl Actuator for MockActuator {
 
     async fn execute(&self, action: BoundedAction) -> Result<ActionReceipt, ActuatorError> {
         if self.stopped.load(Ordering::SeqCst) {
-            return Err(ActuatorError::Unavailable("device is emergency-stopped".into()));
+            return Err(ActuatorError::Unavailable(
+                "device is emergency-stopped".into(),
+            ));
         }
         expired_check(&action)?;
         let behavior = *self.behavior.lock().expect("behavior lock");
@@ -461,14 +505,20 @@ impl Actuator for MockActuator {
                 .failed("device_error", "simulated failure")
                 .finish()),
             MockBehavior::NoAck => {
-                self.executed.lock().expect("executed lock").push(action.clone());
+                self.executed
+                    .lock()
+                    .expect("executed lock")
+                    .push(action.clone());
                 Ok(DriverReceipt::start(&action, Utc::now())
                     .dispatched()
                     .note("note", json!("dispatched but device stayed silent"))
                     .finish())
             }
             MockBehavior::Normal => {
-                self.executed.lock().expect("executed lock").push(action.clone());
+                self.executed
+                    .lock()
+                    .expect("executed lock")
+                    .push(action.clone());
                 self.record_device_state(&action);
                 Ok(DriverReceipt::start(&action, Utc::now())
                     .dispatched()
@@ -488,7 +538,10 @@ impl Actuator for MockActuator {
     }
 
     async fn cancel(&self, action_id: &ActionId) -> Result<ActionReceipt, ActuatorError> {
-        self.cancelled.lock().expect("cancelled lock").push(action_id.clone());
+        self.cancelled
+            .lock()
+            .expect("cancelled lock")
+            .push(action_id.clone());
         Err(ActuatorError::NotFound(format!(
             "{action_id}: mock device has no long-running action to cancel"
         )))
@@ -502,7 +555,10 @@ impl Actuator for MockActuator {
             Utc::now(),
         )
         .with_fact("state", "stopped");
-        self.device_state.lock().expect("device state lock").push_back(obs);
+        self.device_state
+            .lock()
+            .expect("device state lock")
+            .push_back(obs);
         Ok(())
     }
 }

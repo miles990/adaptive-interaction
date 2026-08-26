@@ -98,9 +98,13 @@ fn scenario_h_skill_plus_cli_agent_loop() {
 
     // 4. Push + query observations.
     let (code, _, _) = daemon.cli(&[
-        "receptors", "push", "task.lifecycle",
-        "--fact", "event=task.completed",
-        "--fact", "title=demo",
+        "receptors",
+        "push",
+        "task.lifecycle",
+        "--fact",
+        "event=task.completed",
+        "--fact",
+        "title=demo",
     ]);
     assert_eq!(code, 0);
     let (code, observations, _) = daemon.cli(&["observe", "--receptor", "task.lifecycle"]);
@@ -110,10 +114,14 @@ fn scenario_h_skill_plus_cli_agent_loop() {
     // 5. Plan.
     let (code, plan, _) = daemon.cli(&[
         "plan",
-        "--intent", "celebration",
-        "--candidate", "conversation",
-        "--min-channels", "1",
-        "--max-channels", "1",
+        "--intent",
+        "celebration",
+        "--candidate",
+        "conversation",
+        "--min-channels",
+        "1",
+        "--max-channels",
+        "1",
         "--deny-no-action",
     ]);
     assert_eq!(code, 0);
@@ -154,13 +162,15 @@ fn tools_export_writes_all_formats() {
     for format in ["openai", "anthropic", "gemini", "openapi", "json-schema"] {
         let out = out_dir.join(format!("{format}.json"));
         let (code, _, stderr) = daemon.cli(&[
-            "tools", "export",
-            "--format", format,
-            "--out", out.to_str().unwrap(),
+            "tools",
+            "export",
+            "--format",
+            format,
+            "--out",
+            out.to_str().unwrap(),
         ]);
         assert_eq!(code, 0, "{format}: {stderr}");
-        let content: Value =
-            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        let content: Value = serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
         assert!(content.is_object(), "{format}");
     }
 }
@@ -218,6 +228,10 @@ fn duplicate_daemon_is_refused_by_instance_lock() {
         .expect("second daemon attempt");
     assert_ne!(output.status.code(), Some(0));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("already holds") || stderr.contains("Conflict") || stderr.contains("conflict"),
-        "stderr: {stderr}");
+    assert!(
+        stderr.contains("already holds")
+            || stderr.contains("Conflict")
+            || stderr.contains("conflict"),
+        "stderr: {stderr}"
+    );
 }

@@ -163,12 +163,16 @@ impl DriverReceipt {
     }
 
     pub fn dispatched(mut self) -> Self {
-        let _ = self.receipt.transition(ActionStatus::Dispatched, Utc::now());
+        let _ = self
+            .receipt
+            .transition(ActionStatus::Dispatched, Utc::now());
         self
     }
 
     pub fn acknowledged(mut self) -> Self {
-        let _ = self.receipt.transition(ActionStatus::Acknowledged, Utc::now());
+        let _ = self
+            .receipt
+            .transition(ActionStatus::Acknowledged, Utc::now());
         self
     }
 
@@ -253,7 +257,10 @@ mod tests {
         let now = Utc::now();
         let mut base = ActionReceipt::for_action(&a, now);
         base.transition(ActionStatus::Accepted, now).unwrap();
-        let driver = DriverReceipt::start(&a, now).dispatched().acknowledged().finish();
+        let driver = DriverReceipt::start(&a, now)
+            .dispatched()
+            .acknowledged()
+            .finish();
         merge_driver_receipt(&mut base, &driver);
         assert_eq!(base.current_status, ActionStatus::Acknowledged);
         // Merge again: no duplicate transitions possible.

@@ -33,8 +33,7 @@ pub async fn events(
     let replayed_until = replay.last().map(|e| e.sequence).unwrap_or(last_seen);
     let receiver = state.runtime.events.subscribe();
 
-    let replay_stream =
-        futures::stream::iter(replay.into_iter().map(|e| Ok(to_sse_event(&e))));
+    let replay_stream = futures::stream::iter(replay.into_iter().map(|e| Ok(to_sse_event(&e))));
     let live_stream = BroadcastStream::new(receiver).filter_map(move |item| async move {
         match item {
             Ok(event) if event.sequence > replayed_until => Some(Ok(to_sse_event(&event))),

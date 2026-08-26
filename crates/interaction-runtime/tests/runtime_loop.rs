@@ -21,18 +21,31 @@ async fn runtime() -> (tempfile::TempDir, Runtime) {
 }
 
 fn facts(pairs: &[(&str, &str)]) -> BTreeMap<String, serde_json::Value> {
-    pairs.iter().map(|(k, v)| (k.to_string(), json!(v))).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), json!(v)))
+        .collect()
 }
 
 #[tokio::test]
 async fn scenario_a_single_receptor_single_actuator() {
     let (_g, rt) = runtime().await;
-    rt.start_session(Some("test".into()), None, vec![]).await.unwrap();
+    rt.start_session(Some("test".into()), None, vec![])
+        .await
+        .unwrap();
 
     let mut intent = SemanticIntent::new("success");
     intent.preferred_channels = vec!["conversation".into()];
     let plan = rt
-        .create_plan(intent, vec!["conversation".into()], 1, 1, false, None, BTreeMap::new())
+        .create_plan(
+            intent,
+            vec!["conversation".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
         .await
         .unwrap();
     assert_eq!(plan.steps.len(), 1);
@@ -59,7 +72,9 @@ async fn scenario_a_single_receptor_single_actuator() {
 #[tokio::test]
 async fn scenario_g_mock_device_full_state_machine() {
     let (_g, rt) = runtime().await;
-    rt.start_session(Some("test".into()), None, vec!["channel:haptic".into()]).await.unwrap();
+    rt.start_session(Some("test".into()), None, vec!["channel:haptic".into()])
+        .await
+        .unwrap();
     // Allow the haptic channel + enable the mock actuator (defaults are safe-off).
     rt.update_policy(json!({"allowedChannels": ["conversation","web-ui","notification","log","visual","haptic"]}))
         .await
@@ -76,7 +91,15 @@ async fn scenario_g_mock_device_full_state_machine() {
     let mut metadata = BTreeMap::new();
     metadata.insert("verification".to_string(), json!("observed"));
     let plan = rt
-        .create_plan(intent, vec!["mock.actuator".into()], 1, 1, false, None, metadata)
+        .create_plan(
+            intent,
+            vec!["mock.actuator".into()],
+            1,
+            1,
+            false,
+            None,
+            metadata,
+        )
         .await
         .unwrap();
     assert_eq!(plan.steps.len(), 1);
@@ -99,7 +122,10 @@ async fn scenario_g_mock_device_full_state_machine() {
             ActionStatus::Completed,
         ]
     );
-    assert_eq!(receipt.verification.as_ref().unwrap().verdict, VerificationVerdict::Observed);
+    assert_eq!(
+        receipt.verification.as_ref().unwrap().verdict,
+        VerificationVerdict::Observed
+    );
     // Magnitude was clamped to the device safe limit.
     assert_eq!(receipt.effective_bounded_parameters.magnitude, Some(0.8));
     assert!(receipt
@@ -111,8 +137,12 @@ async fn scenario_g_mock_device_full_state_machine() {
 #[tokio::test]
 async fn consent_required_blocks_then_grant_allows() {
     let (_g, rt) = runtime().await;
-    rt.start_session(Some("test".into()), None, vec![]).await.unwrap();
-    rt.update_policy(json!({"allowedChannels": ["conversation","haptic"]})).await.unwrap();
+    rt.start_session(Some("test".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.update_policy(json!({"allowedChannels": ["conversation","haptic"]}))
+        .await
+        .unwrap();
     rt.registry
         .set_actuator_enabled(&ActuatorId::new("mock.actuator"), true)
         .await
@@ -121,7 +151,15 @@ async fn consent_required_blocks_then_grant_allows() {
     let mut intent = SemanticIntent::new("presence");
     intent.preferred_channels = vec!["haptic".into()];
     let plan = rt
-        .create_plan(intent.clone(), vec!["mock.actuator".into()], 1, 1, false, None, BTreeMap::new())
+        .create_plan(
+            intent.clone(),
+            vec!["mock.actuator".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
         .await
         .unwrap();
     let receipts = rt
@@ -137,7 +175,15 @@ async fn consent_required_blocks_then_grant_allows() {
     // Grant consent → allowed.
     rt.grant_consent("channel:haptic", None).await.unwrap();
     let plan2 = rt
-        .create_plan(intent, vec!["mock.actuator".into()], 1, 1, false, None, BTreeMap::new())
+        .create_plan(
+            intent,
+            vec!["mock.actuator".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
         .await
         .unwrap();
     let receipts2 = rt
@@ -153,8 +199,12 @@ async fn consent_required_blocks_then_grant_allows() {
 #[tokio::test]
 async fn scenario_d_offline_actuator_falls_back() {
     let (_g, rt) = runtime().await;
-    rt.start_session(Some("test".into()), None, vec!["channel:haptic".into()]).await.unwrap();
-    rt.update_policy(json!({"allowedChannels": ["conversation","haptic"]})).await.unwrap();
+    rt.start_session(Some("test".into()), None, vec!["channel:haptic".into()])
+        .await
+        .unwrap();
+    rt.update_policy(json!({"allowedChannels": ["conversation","haptic"]}))
+        .await
+        .unwrap();
     rt.registry
         .set_actuator_enabled(&ActuatorId::new("mock.actuator"), true)
         .await
@@ -176,7 +226,11 @@ async fn scenario_d_offline_actuator_falls_back() {
         )
         .await
         .unwrap();
-    assert_eq!(plan.steps[0].actuator_id.as_str(), "mock.actuator", "preferred first");
+    assert_eq!(
+        plan.steps[0].actuator_id.as_str(),
+        "mock.actuator",
+        "preferred first"
+    );
 
     // Device goes offline between planning and execution.
     rt.mock_actuator.set_behavior(MockBehavior::Offline);
@@ -197,18 +251,32 @@ async fn scenario_d_offline_actuator_falls_back() {
 #[tokio::test]
 async fn scenario_e_consent_revocation_cancels_and_emergency_stop() {
     let (_g, rt) = runtime().await;
-    rt.start_session(Some("test".into()), None, vec!["channel:haptic".into()]).await.unwrap();
+    rt.start_session(Some("test".into()), None, vec!["channel:haptic".into()])
+        .await
+        .unwrap();
 
     // Emergency stop blocks everything and does not auto-resume.
-    rt.emergency_stop("test", Some("drill".into())).await.unwrap();
+    rt.emergency_stop("test", Some("drill".into()))
+        .await
+        .unwrap();
     assert!(rt.is_estopped());
     let err = rt
-        .create_plan(SemanticIntent::new("presence"), vec![], 0, 1, true, None, BTreeMap::new())
+        .create_plan(
+            SemanticIntent::new("presence"),
+            vec![],
+            0,
+            1,
+            true,
+            None,
+            BTreeMap::new(),
+        )
         .await
         .map(|p| p.plan_id);
     // Plan creation is allowed (read-only-ish) but execution must fail.
     if let Ok(plan_id) = err {
-        let exec = rt.execute_plan(&plan_id, ActionSource::ExplicitRequest, false).await;
+        let exec = rt
+            .execute_plan(&plan_id, ActionSource::ExplicitRequest, false)
+            .await;
         assert!(matches!(exec, Err(DomainError::EmergencyStop)));
     }
     // Consents were revoked by the e-stop.
@@ -223,18 +291,32 @@ async fn scenario_e_consent_revocation_cancels_and_emergency_stop() {
 #[tokio::test]
 async fn recipe_autonomous_loop_fires_on_observations() {
     let (_g, rt) = runtime().await;
-    rt.start_session(Some("test".into()), None, vec![]).await.unwrap();
+    rt.start_session(Some("test".into()), None, vec![])
+        .await
+        .unwrap();
     // Default recipe was seeded from assets.
     let recipes = rt.list_recipes().await;
-    assert!(recipes.iter().any(|(r, _)| r.id.as_str() == "adaptive-task-completion"));
+    assert!(recipes
+        .iter()
+        .any(|(r, _)| r.id.as_str() == "adaptive-task-completion"));
 
     // Feed the trigger sequence: task completed, then user present.
-    rt.ingest("task.lifecycle", facts(&[("event", "task.completed")]), BTreeMap::new(), 1.0)
-        .await
-        .unwrap();
-    rt.ingest("user.presence", facts(&[("state", "present")]), BTreeMap::new(), 1.0)
-        .await
-        .unwrap();
+    rt.ingest(
+        "task.lifecycle",
+        facts(&[("event", "task.completed")]),
+        BTreeMap::new(),
+        1.0,
+    )
+    .await
+    .unwrap();
+    rt.ingest(
+        "user.presence",
+        facts(&[("state", "present")]),
+        BTreeMap::new(),
+        1.0,
+    )
+    .await
+    .unwrap();
 
     // The recipe fired autonomously and produced output on a low-risk channel.
     let outbox = rt.outbox.recent(10);
@@ -244,19 +326,35 @@ async fn recipe_autonomous_loop_fires_on_observations() {
     );
     // Cooldown: firing again immediately is suppressed.
     let before = rt.outbox.recent(100).len();
-    rt.ingest("task.lifecycle", facts(&[("event", "task.completed")]), BTreeMap::new(), 1.0)
-        .await
-        .unwrap();
-    rt.ingest("user.presence", facts(&[("state", "present")]), BTreeMap::new(), 1.0)
-        .await
-        .unwrap();
-    assert_eq!(rt.outbox.recent(100).len(), before, "cooldown must suppress immediate re-fire");
+    rt.ingest(
+        "task.lifecycle",
+        facts(&[("event", "task.completed")]),
+        BTreeMap::new(),
+        1.0,
+    )
+    .await
+    .unwrap();
+    rt.ingest(
+        "user.presence",
+        facts(&[("state", "present")]),
+        BTreeMap::new(),
+        1.0,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        rt.outbox.recent(100).len(),
+        before,
+        "cooldown must suppress immediate re-fire"
+    );
 }
 
 #[tokio::test]
 async fn no_action_is_a_legitimate_outcome() {
     let (_g, rt) = runtime().await;
-    rt.start_session(Some("test".into()), None, vec![]).await.unwrap();
+    rt.start_session(Some("test".into()), None, vec![])
+        .await
+        .unwrap();
     // Restrict candidates to a consent-gated actuator without granting consent,
     // with allowNoAction → the plan chooses no action instead of failing.
     let plan = rt
@@ -292,7 +390,9 @@ async fn crash_recovery_marks_open_actions_uncertain() {
         })
         .await
         .unwrap();
-        rt.start_session(Some("crash".into()), None, vec![]).await.unwrap();
+        rt.start_session(Some("crash".into()), None, vec![])
+            .await
+            .unwrap();
         // Simulate an open action left behind (no clean shutdown).
         let plan = rt
             .create_plan(
@@ -326,10 +426,10 @@ async fn crash_recovery_marks_open_actions_uncertain() {
     .await
     .unwrap();
     let receipts = rt2.list_actions(None, 10).unwrap();
-    assert!(receipts
-        .iter()
-        .all(|r| r.current_status.is_terminal()),
-        "open actions must not survive a restart as runnable");
+    assert!(
+        receipts.iter().all(|r| r.current_status.is_terminal()),
+        "open actions must not survive a restart as runnable"
+    );
     assert!(receipts
         .iter()
         .any(|r| r.current_status == ActionStatus::Uncertain));
@@ -338,7 +438,9 @@ async fn crash_recovery_marks_open_actions_uncertain() {
 #[tokio::test]
 async fn simulate_has_no_side_effects() {
     let (_g, rt) = runtime().await;
-    rt.start_session(Some("test".into()), None, vec![]).await.unwrap();
+    rt.start_session(Some("test".into()), None, vec![])
+        .await
+        .unwrap();
     let plan = rt
         .create_plan(
             SemanticIntent::new("success"),
@@ -353,6 +455,12 @@ async fn simulate_has_no_side_effects() {
         .unwrap();
     let report = rt.simulate_plan(&plan.plan_id).await.unwrap();
     assert!(report.would_execute);
-    assert!(rt.outbox.recent(10).is_empty(), "simulation must not produce output");
-    assert!(rt.list_actions(None, 10).unwrap().is_empty(), "simulation must not create receipts");
+    assert!(
+        rt.outbox.recent(10).is_empty(),
+        "simulation must not produce output"
+    );
+    assert!(
+        rt.list_actions(None, 10).unwrap().is_empty(),
+        "simulation must not create receipts"
+    );
 }

@@ -6,9 +6,9 @@
 //! be added and removed at runtime without touching the orchestrator.
 
 use interaction_core::{
-    Actuator, ActuatorId, ActuatorManifest, Availability, CapabilityConstraint,
-    CapabilitySnapshot, ComponentHealth, DiscoveryContext, DomainError, DomainResult, EventType,
-    PolicyConfig, Receptor, ReceptorId, ReceptorManifest, ToolOperationManifest,
+    Actuator, ActuatorId, ActuatorManifest, Availability, CapabilityConstraint, CapabilitySnapshot,
+    ComponentHealth, DiscoveryContext, DomainError, DomainResult, EventType, PolicyConfig,
+    Receptor, ReceptorId, ReceptorManifest, ToolOperationManifest,
 };
 use interaction_events::EventBus;
 use serde_json::json;
@@ -60,7 +60,9 @@ impl CapabilityRegistry {
         let id = manifest.id.clone();
         let mut map = self.receptors.write().await;
         if map.contains_key(&id) {
-            return Err(DomainError::Conflict(format!("receptor {id} already registered")));
+            return Err(DomainError::Conflict(format!(
+                "receptor {id} already registered"
+            )));
         }
         map.insert(
             id.clone(),
@@ -72,8 +74,10 @@ impl CapabilityRegistry {
             },
         );
         drop(map);
-        self.events
-            .emit(EventType::ReceptorRegistered, json!({ "receptorId": id.as_str() }));
+        self.events.emit(
+            EventType::ReceptorRegistered,
+            json!({ "receptorId": id.as_str() }),
+        );
         self.bump();
         Ok(())
     }
@@ -85,7 +89,10 @@ impl CapabilityRegistry {
             .ok_or_else(|| DomainError::NotFound(format!("receptor {id}")))?;
         drop(map);
         let _ = entry.instance.stop().await;
-        self.events.emit(EventType::ReceptorOffline, json!({ "receptorId": id.as_str() }));
+        self.events.emit(
+            EventType::ReceptorOffline,
+            json!({ "receptorId": id.as_str() }),
+        );
         self.bump();
         Ok(())
     }
@@ -97,8 +104,13 @@ impl CapabilityRegistry {
             .ok_or_else(|| DomainError::NotFound(format!("receptor {id}")))?;
         entry.enabled = enabled;
         drop(map);
-        let event = if enabled { EventType::ReceptorOnline } else { EventType::ReceptorOffline };
-        self.events.emit(event, json!({ "receptorId": id.as_str() }));
+        let event = if enabled {
+            EventType::ReceptorOnline
+        } else {
+            EventType::ReceptorOffline
+        };
+        self.events
+            .emit(event, json!({ "receptorId": id.as_str() }));
         self.bump();
         Ok(())
     }
@@ -109,7 +121,9 @@ impl CapabilityRegistry {
             .get(id)
             .ok_or_else(|| DomainError::NotFound(format!("receptor {id}")))?;
         if !entry.enabled {
-            return Err(DomainError::Unavailable(format!("receptor {id} is disabled")));
+            return Err(DomainError::Unavailable(format!(
+                "receptor {id} is disabled"
+            )));
         }
         Ok(entry.instance.clone())
     }
@@ -141,7 +155,9 @@ impl CapabilityRegistry {
         let id = manifest.id.clone();
         let mut map = self.actuators.write().await;
         if map.contains_key(&id) {
-            return Err(DomainError::Conflict(format!("actuator {id} already registered")));
+            return Err(DomainError::Conflict(format!(
+                "actuator {id} already registered"
+            )));
         }
         // Physical / external-write actuators start disabled by default.
         let default_enabled = !manifest.external_side_effect
@@ -156,8 +172,10 @@ impl CapabilityRegistry {
             },
         );
         drop(map);
-        self.events
-            .emit(EventType::ActuatorRegistered, json!({ "actuatorId": id.as_str() }));
+        self.events.emit(
+            EventType::ActuatorRegistered,
+            json!({ "actuatorId": id.as_str() }),
+        );
         self.bump();
         Ok(())
     }
@@ -169,7 +187,10 @@ impl CapabilityRegistry {
             .ok_or_else(|| DomainError::NotFound(format!("actuator {id}")))?;
         drop(map);
         let _ = entry.instance.emergency_stop().await;
-        self.events.emit(EventType::ActuatorOffline, json!({ "actuatorId": id.as_str() }));
+        self.events.emit(
+            EventType::ActuatorOffline,
+            json!({ "actuatorId": id.as_str() }),
+        );
         self.bump();
         Ok(())
     }
@@ -181,8 +202,13 @@ impl CapabilityRegistry {
             .ok_or_else(|| DomainError::NotFound(format!("actuator {id}")))?;
         entry.enabled = enabled;
         drop(map);
-        let event = if enabled { EventType::ActuatorOnline } else { EventType::ActuatorOffline };
-        self.events.emit(event, json!({ "actuatorId": id.as_str() }));
+        let event = if enabled {
+            EventType::ActuatorOnline
+        } else {
+            EventType::ActuatorOffline
+        };
+        self.events
+            .emit(event, json!({ "actuatorId": id.as_str() }));
         self.bump();
         Ok(())
     }
@@ -193,7 +219,9 @@ impl CapabilityRegistry {
             .get(id)
             .ok_or_else(|| DomainError::NotFound(format!("actuator {id}")))?;
         if !entry.enabled {
-            return Err(DomainError::Unavailable(format!("actuator {id} is disabled")));
+            return Err(DomainError::Unavailable(format!(
+                "actuator {id} is disabled"
+            )));
         }
         Ok(entry.instance.clone())
     }
@@ -225,10 +253,16 @@ impl CapabilityRegistry {
 
     // ---- tools ----
 
-    pub async fn register_tool_operation(&self, manifest: ToolOperationManifest) -> DomainResult<()> {
+    pub async fn register_tool_operation(
+        &self,
+        manifest: ToolOperationManifest,
+    ) -> DomainResult<()> {
         let mut map = self.tools.write().await;
         if map.contains_key(&manifest.name) {
-            return Err(DomainError::Conflict(format!("tool operation {} already registered", manifest.name)));
+            return Err(DomainError::Conflict(format!(
+                "tool operation {} already registered",
+                manifest.name
+            )));
         }
         map.insert(manifest.name.clone(), manifest);
         drop(map);
@@ -253,11 +287,16 @@ impl CapabilityRegistry {
 
     /// Refresh cached health for all components. Called periodically by the runtime.
     pub async fn refresh_health(&self) {
-        let receptor_ids: Vec<ReceptorId> = {
-            self.receptors.read().await.keys().cloned().collect()
-        };
+        let receptor_ids: Vec<ReceptorId> =
+            { self.receptors.read().await.keys().cloned().collect() };
         for id in receptor_ids {
-            let instance = { self.receptors.read().await.get(&id).map(|e| e.instance.clone()) };
+            let instance = {
+                self.receptors
+                    .read()
+                    .await
+                    .get(&id)
+                    .map(|e| e.instance.clone())
+            };
             if let Some(instance) = instance {
                 let health = instance.health().await;
                 let mut map = self.receptors.write().await;
@@ -266,11 +305,16 @@ impl CapabilityRegistry {
                 }
             }
         }
-        let actuator_ids: Vec<ActuatorId> = {
-            self.actuators.read().await.keys().cloned().collect()
-        };
+        let actuator_ids: Vec<ActuatorId> =
+            { self.actuators.read().await.keys().cloned().collect() };
         for id in actuator_ids {
-            let instance = { self.actuators.read().await.get(&id).map(|e| e.instance.clone()) };
+            let instance = {
+                self.actuators
+                    .read()
+                    .await
+                    .get(&id)
+                    .map(|e| e.instance.clone())
+            };
             if let Some(instance) = instance {
                 let health = instance.status().await;
                 let mut map = self.actuators.write().await;
@@ -343,7 +387,11 @@ mod tests {
                 category: "test".into(),
                 provides: vec!["event".into()],
                 mode: ReceptorMode::Poll,
-                sensitivity: if self.sensitive { Sensitivity::Intimate } else { Sensitivity::Public },
+                sensitivity: if self.sensitive {
+                    Sensitivity::Intimate
+                } else {
+                    Sensitivity::Public
+                },
                 requires_consent: self.sensitive,
                 latency_ms: None,
                 refresh_interval_ms: None,
@@ -355,28 +403,58 @@ mod tests {
                 schema_version: SCHEMA_VERSION.into(),
             }
         }
-        async fn start(&self, _c: SessionContext) -> Result<(), ReceptorError> { Ok(()) }
-        async fn read(&self) -> Result<Observation, ReceptorError> {
-            Ok(Observation::now(ReceptorId::new(self.id), "test.fake", chrono::Utc::now()))
+        async fn start(&self, _c: SessionContext) -> Result<(), ReceptorError> {
+            Ok(())
         }
-        async fn health(&self) -> ComponentHealth { ComponentHealth::healthy() }
-        async fn stop(&self) -> Result<(), ReceptorError> { Ok(()) }
+        async fn read(&self) -> Result<Observation, ReceptorError> {
+            Ok(Observation::now(
+                ReceptorId::new(self.id),
+                "test.fake",
+                chrono::Utc::now(),
+            ))
+        }
+        async fn health(&self) -> ComponentHealth {
+            ComponentHealth::healthy()
+        }
+        async fn stop(&self) -> Result<(), ReceptorError> {
+            Ok(())
+        }
     }
 
     #[tokio::test]
     async fn register_discover_disable() {
         let registry = CapabilityRegistry::new(EventBus::default());
-        registry.register_receptor(Arc::new(FakeReceptor { id: "a", sensitive: false })).await.unwrap();
-        registry.register_receptor(Arc::new(FakeReceptor { id: "cam", sensitive: true })).await.unwrap();
+        registry
+            .register_receptor(Arc::new(FakeReceptor {
+                id: "a",
+                sensitive: false,
+            }))
+            .await
+            .unwrap();
+        registry
+            .register_receptor(Arc::new(FakeReceptor {
+                id: "cam",
+                sensitive: true,
+            }))
+            .await
+            .unwrap();
 
         // Duplicate registration is rejected.
         assert!(registry
-            .register_receptor(Arc::new(FakeReceptor { id: "a", sensitive: false }))
+            .register_receptor(Arc::new(FakeReceptor {
+                id: "a",
+                sensitive: false
+            }))
             .await
             .is_err());
 
         let snap = registry
-            .snapshot(&DiscoveryContext::default(), PolicyConfig::default(), vec![], chrono::Utc::now())
+            .snapshot(
+                &DiscoveryContext::default(),
+                PolicyConfig::default(),
+                vec![],
+                chrono::Utc::now(),
+            )
             .await;
         // Sensitive receptor starts disabled, so only "a" is visible by default.
         assert_eq!(snap.receptors.len(), 1);
@@ -384,18 +462,28 @@ mod tests {
 
         let all = registry
             .snapshot(
-                &DiscoveryContext { include_unavailable: true, ..Default::default() },
+                &DiscoveryContext {
+                    include_unavailable: true,
+                    ..Default::default()
+                },
                 PolicyConfig::default(),
                 vec![],
                 chrono::Utc::now(),
             )
             .await;
         assert_eq!(all.receptors.len(), 2);
-        let cam = all.receptors.iter().find(|m| m.id.as_str() == "cam").unwrap();
+        let cam = all
+            .receptors
+            .iter()
+            .find(|m| m.id.as_str() == "cam")
+            .unwrap();
         assert_eq!(cam.availability, Availability::Disabled);
 
         // Disabled receptor cannot be fetched for planning.
-        registry.set_receptor_enabled(&ReceptorId::new("a"), false).await.unwrap();
+        registry
+            .set_receptor_enabled(&ReceptorId::new("a"), false)
+            .await
+            .unwrap();
         assert!(registry.receptor(&ReceptorId::new("a")).await.is_err());
         assert!(registry.receptor_any(&ReceptorId::new("a")).await.is_ok());
 

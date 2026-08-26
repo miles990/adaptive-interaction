@@ -53,8 +53,7 @@ impl Session {
     }
 
     pub fn is_active(&self, now: Timestamp) -> bool {
-        self.state == SessionState::Active
-            && self.expires_at.map(|e| now <= e).unwrap_or(true)
+        self.state == SessionState::Active && self.expires_at.map(|e| now <= e).unwrap_or(true)
     }
 
     pub fn has_consent(&self, scope: &ConsentScope, now: Timestamp) -> bool {
@@ -66,7 +65,12 @@ impl Session {
     pub fn grant(&mut self, scope: ConsentScope, now: Timestamp, expires_at: Option<Timestamp>) {
         // Revoke duplicates first so the latest grant wins.
         self.revoke(&scope, now);
-        self.consents.push(Consent { scope, granted_at: now, expires_at, revoked_at: None });
+        self.consents.push(Consent {
+            scope,
+            granted_at: now,
+            expires_at,
+            revoked_at: None,
+        });
     }
 
     pub fn revoke(&mut self, scope: &ConsentScope, now: Timestamp) -> bool {
@@ -107,7 +111,11 @@ mod tests {
         let now = chrono::Utc::now();
         let mut s = Session::new(now, None, None);
         let scope = ConsentScope::Actuator("mock.actuator".into());
-        s.grant(scope.clone(), now, Some(now + chrono::Duration::seconds(10)));
+        s.grant(
+            scope.clone(),
+            now,
+            Some(now + chrono::Duration::seconds(10)),
+        );
         assert!(s.has_consent(&scope, now));
         assert!(!s.has_consent(&scope, now + chrono::Duration::seconds(11)));
     }
