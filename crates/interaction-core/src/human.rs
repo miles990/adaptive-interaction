@@ -110,17 +110,26 @@ impl LocalizedText {
 
     /// Resolve for a locale with deterministic fallback.
     pub fn get(&self, locale: &str) -> Option<&str> {
+        self.get_strict(locale).or_else(|| self.get_fallback())
+    }
+
+    /// Resolve ONLY when this text actually has the requested language
+    /// (exact tag or same primary language). No `en`/any fallback — used for
+    /// field-level language-tier resolution so that a source that only has
+    /// English can never shadow another source that has the user's language.
+    pub fn get_strict(&self, locale: &str) -> Option<&str> {
         if let Some(t) = self.0.get(locale) {
             return Some(t);
         }
         let primary = locale.split(['-', '_']).next().unwrap_or(locale);
-        if let Some((_, t)) = self
-            .0
+        self.0
             .iter()
             .find(|(k, _)| k.split(['-', '_']).next().unwrap_or(k) == primary)
-        {
-            return Some(t);
-        }
+            .map(|(_, t)| t.as_str())
+    }
+
+    /// The fallback tier: `en`, else any entry (deterministic: BTreeMap order).
+    pub fn get_fallback(&self) -> Option<&str> {
         if let Some(t) = self.0.get("en") {
             return Some(t);
         }

@@ -3,7 +3,7 @@ import { api, onRuntimeError, onRuntimeEvent, onRuntimeReady, RuntimeEvent } fro
 import { AppStateProvider, useAppState } from "./appstate";
 import { Icon } from "./icons";
 import { Badge } from "./ui";
-import { ConfirmButton } from "./components/Dialog";
+import { ConfirmButton, Dialog } from "./components/Dialog";
 import { HomePage } from "./pages/HomePage";
 import { CapabilitiesPage } from "./pages/CapabilitiesPage";
 import { AutomationsPage } from "./pages/AutomationsPage";
@@ -268,7 +268,108 @@ function Shell({
           )}
         </div>
       </main>
+      <NarrowNav
+        tab={tab}
+        onNavigate={setTab}
+        advanced={advanced}
+        statusBadge={
+          connecting ? (
+            <Badge kind="pending">連線中…</Badge>
+          ) : estop ? (
+            <Badge kind="bad">緊急停止中</Badge>
+          ) : pause.paused ? (
+            <Badge kind="warn">主動互動已暫停</Badge>
+          ) : (
+            <Badge kind="ok">運作中</Badge>
+          )
+        }
+      />
     </div>
+  );
+}
+
+/** 窄視窗（<700px）底部導覽：4 個主要功能＋「更多」選單。
+ *  所有頁面都可抵達、鍵盤可操作、永遠有文字標籤（不只靠 Icon）。 */
+const NARROW_PRIMARY: string[] = ["home", "automations", "safety", "activity"];
+
+function NarrowNav({
+  tab,
+  onNavigate,
+  advanced,
+  statusBadge,
+}: {
+  tab: Tab;
+  onNavigate: (tab: Tab) => void;
+  advanced: boolean;
+  statusBadge: React.ReactNode;
+}) {
+  const [moreOpen, setMoreOpen] = React.useState(false);
+  const primary = SIMPLE_NAV.filter((t) => NARROW_PRIMARY.includes(t.id));
+  const secondary = SIMPLE_NAV.filter((t) => !NARROW_PRIMARY.includes(t.id));
+  const moreActive = !NARROW_PRIMARY.includes(tab);
+  return (
+    <>
+      <nav className="bottom-nav" aria-label="主要導覽（窄視窗）">
+        {primary.map((t) => (
+          <button
+            key={t.id}
+            className={tab === t.id ? "bottom-nav-item active" : "bottom-nav-item"}
+            onClick={() => onNavigate(t.id)}
+            aria-current={tab === t.id ? "page" : undefined}
+          >
+            <Icon name={t.icon} size={18} />
+            <span>{t.label}</span>
+          </button>
+        ))}
+        <button
+          className={moreActive ? "bottom-nav-item active" : "bottom-nav-item"}
+          onClick={() => setMoreOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={moreOpen}
+        >
+          <Icon name="menu" size={18} />
+          <span>更多</span>
+        </button>
+      </nav>
+      {moreOpen && (
+        <Dialog title="更多功能" onClose={() => setMoreOpen(false)}>
+          <div className="more-sheet">
+            <div className="more-status">{statusBadge}</div>
+            {secondary.map((t) => (
+              <button
+                key={t.id}
+                className={tab === t.id ? "more-item active" : "more-item"}
+                onClick={() => {
+                  onNavigate(t.id);
+                  setMoreOpen(false);
+                }}
+              >
+                <Icon name={t.icon} size={16} /> <span>{t.label}</span>
+              </button>
+            ))}
+            {advanced && (
+              <>
+                <div className="nav-group-label">
+                  <Icon name="code2" size={13} /> 進階
+                </div>
+                {ADVANCED_NAV.map((t) => (
+                  <button
+                    key={t.id}
+                    className={tab === t.id ? "more-item active" : "more-item"}
+                    onClick={() => {
+                      onNavigate(t.id);
+                      setMoreOpen(false);
+                    }}
+                  >
+                    <span>{t.label}</span>
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+        </Dialog>
+      )}
+    </>
   );
 }
 

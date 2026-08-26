@@ -101,7 +101,11 @@ pub fn builtin_push_receptors() -> Vec<Arc<PushReceptor>> {
                 .provides(&["text", "command", "state"])
                 .mode(ReceptorMode::Event)
                 .sensitivity(Sensitivity::Personal, false)
-                .human(interaction_adapter_sdk::local_data_semantics())
+                .human(interaction_adapter_sdk::data_semantics(
+                    &["user-text", "commands"],
+                    interaction_core::TriState::Yes,
+                    interaction_core::DataSource::Local,
+                ))
                 .build(),
         ),
         PushReceptor::new(
@@ -111,7 +115,11 @@ pub fn builtin_push_receptors() -> Vec<Arc<PushReceptor>> {
                 .provides(&["event", "taskId", "title"])
                 .mode(ReceptorMode::Event)
                 .sensitivity(Sensitivity::Internal, false)
-                .human(interaction_adapter_sdk::local_data_semantics())
+                .human(interaction_adapter_sdk::data_semantics(
+                    &["task-status"],
+                    interaction_core::TriState::No,
+                    interaction_core::DataSource::Local,
+                ))
                 .build(),
         ),
         PushReceptor::new(
@@ -121,7 +129,11 @@ pub fn builtin_push_receptors() -> Vec<Arc<PushReceptor>> {
                 .provides(&["activity", "detail"])
                 .mode(ReceptorMode::Event)
                 .sensitivity(Sensitivity::Internal, false)
-                .human(interaction_adapter_sdk::local_data_semantics())
+                .human(interaction_adapter_sdk::data_semantics(
+                    &["agent-status"],
+                    interaction_core::TriState::No,
+                    interaction_core::DataSource::Local,
+                ))
                 .build(),
         ),
         PushReceptor::new(
@@ -131,7 +143,11 @@ pub fn builtin_push_receptors() -> Vec<Arc<PushReceptor>> {
                 .provides(&["event"])
                 .mode(ReceptorMode::Event)
                 .sensitivity(Sensitivity::Internal, false)
-                .human(interaction_adapter_sdk::local_data_semantics())
+                .human(interaction_adapter_sdk::data_semantics(
+                    &["test-events"],
+                    interaction_core::TriState::No,
+                    interaction_core::DataSource::Local,
+                ))
                 .build(),
         ),
         PushReceptor::new(
@@ -141,7 +157,11 @@ pub fn builtin_push_receptors() -> Vec<Arc<PushReceptor>> {
                 .provides(&["event", "payload"])
                 .mode(ReceptorMode::Event)
                 .sensitivity(Sensitivity::Internal, false)
-                .human(interaction_adapter_sdk::local_data_semantics())
+                .human(interaction_adapter_sdk::data_semantics(
+                    &["external-events"],
+                    interaction_core::TriState::Unknown,
+                    interaction_core::DataSource::ExternalService,
+                ))
                 .build(),
         ),
         PushReceptor::new(
@@ -151,7 +171,11 @@ pub fn builtin_push_receptors() -> Vec<Arc<PushReceptor>> {
                 .provides(&["state"])
                 .mode(ReceptorMode::Event)
                 .sensitivity(Sensitivity::Personal, false)
-                .human(interaction_adapter_sdk::local_data_semantics())
+                .human(interaction_adapter_sdk::data_semantics(
+                    &["presence"],
+                    interaction_core::TriState::Yes,
+                    interaction_core::DataSource::Local,
+                ))
                 .build(),
         ),
         PushReceptor::new(
@@ -161,7 +185,11 @@ pub fn builtin_push_receptors() -> Vec<Arc<PushReceptor>> {
                 .provides(&["*"])
                 .mode(ReceptorMode::Event)
                 .sensitivity(Sensitivity::Public, false)
-                .human(interaction_adapter_sdk::local_data_semantics())
+                .human(interaction_adapter_sdk::data_semantics(
+                    &["test-data"],
+                    interaction_core::TriState::No,
+                    interaction_core::DataSource::Local,
+                ))
                 .build(),
         ),
     ]
@@ -180,7 +208,11 @@ impl Receptor for SystemTimeReceptor {
             .mode(ReceptorMode::Poll)
             .sensitivity(Sensitivity::Public, false)
             .refresh_interval_ms(30_000)
-            .human(interaction_adapter_sdk::local_data_semantics())
+            .human(interaction_adapter_sdk::data_semantics(
+                &["time"],
+                interaction_core::TriState::No,
+                interaction_core::DataSource::Local,
+            ))
             .build()
     }
 
@@ -248,7 +280,11 @@ impl Receptor for MockDeviceStatusReceptor {
             .provides(&["actionId", "magnitude", "state"])
             .mode(ReceptorMode::Event)
             .sensitivity(Sensitivity::Public, false)
-            .human(interaction_adapter_sdk::local_data_semantics())
+            .human(interaction_adapter_sdk::data_semantics(
+                &["device-status"],
+                interaction_core::TriState::No,
+                interaction_core::DataSource::Device,
+            ))
             .build()
     }
 

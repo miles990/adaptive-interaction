@@ -2,8 +2,10 @@
 // application services as the CLI and HTTP API; nothing here can bypass the
 // policy governor.
 
-import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { UnlistenFn } from "@tauri-apps/api/event";
+import { call, onError, onEvent, onReady } from "./transport";
+
+const invoke = call;
 
 export interface ComponentHealth {
   status: "healthy" | "degraded" | "unhealthy" | "offline" | "unknown";
@@ -306,13 +308,13 @@ export interface ConvertResult {
 }
 
 export function onRuntimeEvent(handler: (event: RuntimeEvent) => void): Promise<UnlistenFn> {
-  return listen<RuntimeEvent>("runtime-event", (e) => handler(e.payload));
+  return onEvent<RuntimeEvent>(handler);
 }
 
 export function onRuntimeReady(handler: () => void): Promise<UnlistenFn> {
-  return listen("runtime-ready", () => handler());
+  return onReady(handler);
 }
 
 export function onRuntimeError(handler: (message: string) => void): Promise<UnlistenFn> {
-  return listen<string>("runtime-error", (e) => handler(e.payload));
+  return onError(handler);
 }

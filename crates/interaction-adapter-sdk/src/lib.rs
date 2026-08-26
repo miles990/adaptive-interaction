@@ -244,6 +244,28 @@ pub fn local_data_semantics() -> interaction_core::HumanMeta {
     }
 }
 
+/// Full formal data declaration for a receptor: categories, whether the data
+/// is personal, and where it comes from. Local + never-leaves-device +
+/// persisted unless stated otherwise.
+pub fn data_semantics(
+    categories: &[&str],
+    personal: interaction_core::TriState,
+    source: interaction_core::DataSource,
+) -> interaction_core::HumanMeta {
+    use interaction_core::*;
+    HumanMeta {
+        data: Some(DataSemantics {
+            data_categories: categories.iter().map(|s| s.to_string()).collect(),
+            personal_data: personal,
+            source,
+            leaves_device: TriState::No,
+            retention: DataRetention::Persistent,
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 /// Formal declaration for a local-only actuator: how disruptive it is and the
 /// deepest delivery level the driver can honestly confirm.
 pub fn local_effect_semantics(

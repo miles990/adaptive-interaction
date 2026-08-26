@@ -282,6 +282,30 @@ struct Common<'a> {
     channel: Option<&'a str>,
 }
 
+/// Field-level language-tier resolution (spec §4.1):
+/// adapter current-language → catalog current-language → adapter fallback
+/// language → catalog fallback language. An adapter that only ships English
+/// must never shadow a catalog entry that has the user's language.
+fn tiered<'a>(
+    adapter: Option<&'a interaction_core::LocalizedText>,
+    catalog: Option<&'a interaction_core::LocalizedText>,
+    locale: &str,
+) -> Option<(&'a str, PresentationSource)> {
+    if let Some(t) = adapter.and_then(|t| t.get_strict(locale)) {
+        return Some((t, PresentationSource::Adapter));
+    }
+    if let Some(t) = catalog.and_then(|t| t.get_strict(locale)) {
+        return Some((t, PresentationSource::Catalog));
+    }
+    if let Some(t) = adapter.and_then(|t| t.get_fallback()) {
+        return Some((t, PresentationSource::Adapter));
+    }
+    if let Some(t) = catalog.and_then(|t| t.get_fallback()) {
+        return Some((t, PresentationSource::Catalog));
+    }
+    None
+}
+
 fn resolve_common(c: Common<'_>, catalog: &Catalog, ctx: &ResolveContext<'_>) -> HumanCard {
     let locale = if ctx.locale.is_empty() {
         "zh-TW"
@@ -291,30 +315,41 @@ fn resolve_common(c: Common<'_>, catalog: &Catalog, ctx: &ResolveContext<'_>) ->
     let entry = catalog.lookup(c.kind, &c.id, c.driver);
     let presentation = c.human.and_then(|h| h.presentation.as_ref());
 
-    // Display name.
+    // Display name: user override → language-tiered adapter/catalog →
+    // technical name → tokenized id.
     let (display_name, name_source) =
         if let Some(u) = ctx.user_name.filter(|u| !u.trim().is_empty()) {
             (u.trim().to_string(), PresentationSource::User)
-        } else if let Some(n) = presentation.and_then(|p| p.name.get(locale)) {
-            (n.to_string(), PresentationSource::Adapter)
-        } else if let Some(n) = entry.and_then(|e| e.name.get(locale)) {
-            (n.to_string(), PresentationSource::Catalog)
+        } else if let Some((n, src)) = tiered(
+            presentation.map(|p| &p.name),
+            entry.map(|e| &e.name),
+            locale,
+        ) {
+            (n.to_string(), src)
         } else if !c.tech_name.trim().is_empty() && c.tech_name != c.id {
             (c.tech_name.to_string(), PresentationSource::Adapter)
         } else {
             (fallback_name_from_id(&c.id), PresentationSource::Fallback)
         };
 
-    // Short description.
+    // Short description: language-tiered, with the technical manifest
+    // description slotted into the adapter-fallback tier (it is adapter text
+    // in the adapter's language, usually English).
+    let adapter_short = presentation.map(|p| &p.short_description);
+    let catalog_short = entry.map(|e| &e.short_description);
     let (short_description, description_source) =
-        if let Some(d) = presentation.and_then(|p| p.short_description.get(locale)) {
+        if let Some(d) = adapter_short.and_then(|t| t.get_strict(locale)) {
+            (Some(d.to_string()), PresentationSource::Adapter)
+        } else if let Some(d) = catalog_short.and_then(|t| t.get_strict(locale)) {
+            (Some(d.to_string()), PresentationSource::Catalog)
+        } else if let Some(d) = adapter_short.and_then(|t| t.get_fallback()) {
             (Some(d.to_string()), PresentationSource::Adapter)
         } else if !c.tech_description.trim().is_empty() {
             (
                 Some(c.tech_description.trim().to_string()),
                 PresentationSource::Adapter,
             )
-        } else if let Some(d) = entry.and_then(|e| e.short_description.get(locale)) {
+        } else if let Some(d) = catalog_short.and_then(|t| t.get_fallback()) {
             (Some(d.to_string()), PresentationSource::Catalog)
         } else if let Some(d) = schema_text(c.schema) {
             (Some(d), PresentationSource::Fallback)
@@ -322,9 +357,12 @@ fn resolve_common(c: Common<'_>, catalog: &Catalog, ctx: &ResolveContext<'_>) ->
             (None, PresentationSource::None)
         };
 
-    let long_description = presentation
-        .and_then(|p| p.long_description.get(locale).map(str::to_string))
-        .or_else(|| entry.and_then(|e| e.long_description.get(locale).map(str::to_string)));
+    let long_description = tiered(
+        presentation.map(|p| &p.long_description),
+        entry.map(|e| &e.long_description),
+        locale,
+    )
+    .map(|(d, _)| d.to_string());
 
     let examples = presentation
         .map(|p| {
@@ -373,9 +411,12 @@ fn resolve_common(c: Common<'_>, catalog: &Catalog, ctx: &ResolveContext<'_>) ->
             TriState::from_bool(c.requires_consent),
             declared_consent.map(|d| d.required).unwrap_or_default(),
         ),
-        reason: declared_consent
-            .and_then(|d| d.reason.get(locale).map(str::to_string))
-            .or_else(|| entry.and_then(|e| e.risk_note.get(locale).map(str::to_string))),
+        reason: tiered(
+            declared_consent.map(|d| &d.reason),
+            entry.map(|e| &e.risk_note),
+            locale,
+        )
+        .map(|(r, _)| r.to_string()),
         suggested_scope: declared_consent.and_then(|d| d.suggested_scope.clone()),
     };
 
@@ -944,6 +985,110 @@ mod tests {
         let data = card.data.unwrap();
         assert_eq!(data.personal_data, TriState::Yes);
         assert!(card.badges.iter().any(|b| b.key == "sensitive"));
+    }
+
+    #[test]
+    fn english_only_adapter_does_not_shadow_catalog_chinese() {
+        // system.time is in the catalog with zh-TW + en. The adapter ships an
+        // English-only presentation. In a zh-TW UI the catalog's Chinese must
+        // win; in an en UI the adapter's English must win.
+        let mut m = minimal_receptor("system.time", Sensitivity::Public);
+        m.human = Some(interaction_core::HumanMeta {
+            presentation: Some(HumanPresentation {
+                name: LocalizedText::new().with("en", "Clock (adapter)"),
+                short_description: LocalizedText::new().with("en", "Adapter clock description."),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let zh = resolve_receptor_card(
+            &m,
+            Catalog::builtin(),
+            &ResolveContext {
+                locale: "zh-TW",
+                ..Default::default()
+            },
+        );
+        assert_eq!(zh.display_name, "系統時間");
+        assert_eq!(zh.name_source, PresentationSource::Catalog);
+        assert!(
+            zh.short_description.as_deref().unwrap().contains("時間")
+                || !zh
+                    .short_description
+                    .as_deref()
+                    .unwrap()
+                    .contains("Adapter clock"),
+            "zh UI must not show the adapter's English description when the catalog has Chinese"
+        );
+        assert_eq!(zh.description_source, PresentationSource::Catalog);
+
+        let en = resolve_receptor_card(
+            &m,
+            Catalog::builtin(),
+            &ResolveContext {
+                locale: "en",
+                ..Default::default()
+            },
+        );
+        assert_eq!(en.display_name, "Clock (adapter)");
+        assert_eq!(en.name_source, PresentationSource::Adapter);
+    }
+
+    #[test]
+    fn adapter_chinese_still_beats_catalog_chinese() {
+        let mut m = minimal_receptor("system.time", Sensitivity::Public);
+        m.human = Some(interaction_core::HumanMeta {
+            presentation: Some(HumanPresentation {
+                name: LocalizedText::new().with("zh-TW", "我的時鐘來源"),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let card = resolve_receptor_card(
+            &m,
+            Catalog::builtin(),
+            &ResolveContext {
+                locale: "zh-TW",
+                ..Default::default()
+            },
+        );
+        assert_eq!(card.display_name, "我的時鐘來源");
+        assert_eq!(card.name_source, PresentationSource::Adapter);
+    }
+
+    #[test]
+    fn technical_description_slots_after_catalog_current_language() {
+        // Adapter has only a technical (English) description; catalog has
+        // zh-TW. zh UI → catalog Chinese; a locale with neither → adapter
+        // technical text (adapter-fallback tier).
+        let mut m = minimal_receptor("system.time", Sensitivity::Public);
+        m.description = "Technical adapter description.".into();
+        let zh = resolve_receptor_card(
+            &m,
+            Catalog::builtin(),
+            &ResolveContext {
+                locale: "zh-TW",
+                ..Default::default()
+            },
+        );
+        assert_eq!(zh.description_source, PresentationSource::Catalog);
+        assert_ne!(
+            zh.short_description.as_deref(),
+            Some("Technical adapter description.")
+        );
+        let fr = resolve_receptor_card(
+            &m,
+            Catalog::builtin(),
+            &ResolveContext {
+                locale: "fr",
+                ..Default::default()
+            },
+        );
+        // fr has no catalog text either; adapter technical text fills in.
+        assert_eq!(
+            fr.short_description.as_deref(),
+            Some("Technical adapter description.")
+        );
     }
 
     #[test]

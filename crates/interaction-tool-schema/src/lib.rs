@@ -200,6 +200,60 @@ pub fn canonical_tools() -> Vec<ToolOperationManifest> {
             schema_of::<interaction_core::PolicyConfig>(),
         ),
     ]
+    .into_iter()
+    .map(attach_human_meta)
+    .collect()
+}
+
+/// Formal effect declarations for the canonical tools (spec: builtin tool
+/// operations must carry real human meta). Values stay honest: `execute` and
+/// `recipe_run` keep `Unknown` physical/interruption facts because the real
+/// impact depends on which actuator the governor selects.
+fn attach_human_meta(mut m: ToolOperationManifest) -> ToolOperationManifest {
+    use interaction_core::{
+        ConfirmationLevel, EffectSemantics, HumanMeta, Interruptiveness, TriState,
+    };
+    let local_effect = |confirmation: ConfirmationLevel| EffectSemantics {
+        affects: vec!["runtime-state".into()],
+        external_side_effect: TriState::No,
+        physical_effect: TriState::No,
+        interruptiveness: Interruptiveness::None,
+        reversible: TriState::Yes,
+        confirmation_level: confirmation,
+    };
+    let effect = match m.operation.as_str() {
+        // Pure local reads/plans complete deterministically in the runtime.
+        "status" | "capabilities" | "observe" | "simulate" | "action_status" | "policy"
+        | "plan" | "verify" => Some(local_effect(ConfirmationLevel::Completed)),
+        // Cancellation is local and deterministic but cannot be un-done.
+        "cancel" => Some(EffectSemantics {
+            reversible: TriState::No,
+            ..local_effect(ConfirmationLevel::Completed)
+        }),
+        // Emergency stop is local, deterministic, and deliberately sticky.
+        "stop" => Some(EffectSemantics {
+            reversible: TriState::No,
+            ..local_effect(ConfirmationLevel::Completed)
+        }),
+        // Downstream impact depends on the selected actuators: physical and
+        // interruption facts must stay Unknown, receipts only confirm ack.
+        "execute" | "recipe_run" => Some(EffectSemantics {
+            affects: vec!["selected-actuators".into()],
+            external_side_effect: TriState::Unknown,
+            physical_effect: TriState::Unknown,
+            interruptiveness: Interruptiveness::Unknown,
+            reversible: TriState::Unknown,
+            confirmation_level: ConfirmationLevel::Acknowledged,
+        }),
+        _ => None,
+    };
+    if let Some(effect) = effect {
+        m.human = Some(HumanMeta {
+            effect: Some(effect),
+            ..Default::default()
+        });
+    }
+    m
 }
 
 // ---------------------------------------------------------------------------

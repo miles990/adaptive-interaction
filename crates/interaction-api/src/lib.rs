@@ -7,7 +7,6 @@ mod error;
 mod routes;
 mod sse;
 
-use axum::http::HeaderValue;
 use axum::middleware;
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
@@ -126,13 +125,26 @@ pub fn router(state: ApiState) -> Router {
 }
 
 fn cors_layer() -> tower_http::cors::CorsLayer {
-    // Only local UI origins; the API never binds beyond loopback by default.
+    // Loopback-only UI origins (any port: Tauri, vite dev, browser E2E).
+    // CORS is defense-in-depth here — the bearer token is the actual gate,
+    // and the API never binds beyond loopback by default.
     tower_http::cors::CorsLayer::new()
-        .allow_origin([
-            HeaderValue::from_static("tauri://localhost"),
-            HeaderValue::from_static("http://localhost:1420"),
-            HeaderValue::from_static("http://127.0.0.1:1420"),
-        ])
+        .allow_origin(tower_http::cors::AllowOrigin::predicate(|origin, _| {
+            let Ok(origin) = origin.to_str() else {
+                return false;
+            };
+            if origin == "tauri://localhost" || origin == "https://tauri.localhost" {
+                return true;
+            }
+            let Some(rest) = origin
+                .strip_prefix("http://")
+                .or_else(|| origin.strip_prefix("https://"))
+            else {
+                return false;
+            };
+            let host = rest.split(':').next().unwrap_or(rest);
+            matches!(host, "localhost" | "127.0.0.1" | "[::1]")
+        }))
         .allow_methods(tower_http::cors::Any)
         .allow_headers(tower_http::cors::Any)
 }
