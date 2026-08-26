@@ -18,9 +18,16 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "pnpm exec vite --port 5199 --strictPort",
+    // In CI, serve the prebuilt dist (fast, no esbuild optimizeDeps cold
+    // start that can exceed the timeout on a shared runner); locally use the
+    // dev server and reuse one if already running.
+    command: process.env.CI
+      ? "pnpm exec vite preview --port 5199 --strictPort"
+      : "pnpm exec vite --port 5199 --strictPort",
     url: "http://127.0.0.1:5199",
     reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
+    timeout: 120_000,
+    stdout: "pipe",
+    stderr: "pipe",
   },
 });

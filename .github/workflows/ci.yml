@@ -94,6 +94,9 @@ jobs:
       - name: install frontend deps
         working-directory: apps/interaction-desktop
         run: pnpm install --frozen-lockfile
+      - name: build frontend (served by vite preview in E2E)
+        working-directory: apps/interaction-desktop
+        run: pnpm build
       - name: install Playwright chromium
         working-directory: apps/interaction-desktop
         run: pnpm exec playwright install --with-deps chromium
