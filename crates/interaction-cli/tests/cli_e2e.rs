@@ -12,35 +12,58 @@ struct Daemon {
     port: u16,
 }
 
+/// Sequential port allocation: avoids the classic bind-:0-then-release TOCTOU
+/// race between concurrently spawning test daemons (a just-released ephemeral
+/// port is exactly what the kernel likes to hand out next).
+fn next_port() -> u16 {
+    use std::sync::atomic::{AtomicU16, Ordering};
+    static COUNTER: AtomicU16 = AtomicU16::new(0);
+    let base = 21000 + (std::process::id() % 20000) as u16;
+    base + COUNTER.fetch_add(7, Ordering::SeqCst)
+}
+
 impl Daemon {
     fn spawn() -> Self {
-        let home = tempfile::tempdir().unwrap();
-        let port = free_port();
-        let child = Command::new(env!("CARGO_BIN_EXE_interact-ai"))
-            .args([
-                "--config",
-                home.path().to_str().unwrap(),
-                "serve",
-                "--port",
-                &port.to_string(),
-            ])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn daemon");
-        let daemon = Self { child, home, port };
-        daemon.wait_ready();
-        daemon
-    }
-
-    fn wait_ready(&self) {
-        for _ in 0..100 {
-            if std::net::TcpStream::connect(("127.0.0.1", self.port)).is_ok() {
-                return;
+        let mut last_err = String::new();
+        for _attempt in 0..3 {
+            let home = tempfile::tempdir().unwrap();
+            let port = next_port();
+            let stderr_file = home.path().join("daemon.stderr");
+            let mut child = Command::new(env!("CARGO_BIN_EXE_interact-ai"))
+                .args([
+                    "--config",
+                    home.path().to_str().unwrap(),
+                    "serve",
+                    "--port",
+                    &port.to_string(),
+                ])
+                .stdout(Stdio::null())
+                .stderr(std::fs::File::create(&stderr_file).unwrap())
+                .spawn()
+                .expect("spawn daemon");
+            // Wait for readiness; bail early if the daemon died (port taken…).
+            let mut ready = false;
+            for _ in 0..300 {
+                if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                    ready = true;
+                    break;
+                }
+                if let Ok(Some(status)) = child.try_wait() {
+                    last_err = format!(
+                        "daemon exited early ({status}): {}",
+                        std::fs::read_to_string(&stderr_file).unwrap_or_default()
+                    );
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
             }
-            std::thread::sleep(Duration::from_millis(100));
+            if ready {
+                return Self { child, home, port };
+            }
+            let _ = child.kill();
+            let _ = child.wait();
         }
-        panic!("daemon did not become ready on port {}", self.port);
+        panic!("daemon did not become ready after 3 attempts; last error: {last_err}");
     }
 
     fn cli(&self, args: &[&str]) -> (i32, Value, String) {
@@ -67,14 +90,6 @@ impl Drop for Daemon {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
-}
-
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
 }
 
 #[test]
@@ -215,7 +230,7 @@ fn daemon_offline_exit_code_is_3() {
 #[test]
 fn duplicate_daemon_is_refused_by_instance_lock() {
     let daemon = Daemon::spawn();
-    let port = free_port();
+    let port = next_port();
     let output = Command::new(env!("CARGO_BIN_EXE_interact-ai"))
         .args([
             "--config",
