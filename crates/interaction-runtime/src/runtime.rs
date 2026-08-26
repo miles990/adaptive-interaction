@@ -681,10 +681,18 @@ impl Runtime {
         Ok(payload)
     }
 
-    /// Explicit human re-arm; never automatic.
+    /// Explicit human re-arm; never automatic. Latched drivers (physical
+    /// devices) are unlatched here — but no cancelled action is resumed.
     pub async fn clear_emergency_stop(&self, actor: &str) -> DomainResult<()> {
         self.estop.store(false, Ordering::SeqCst);
         self.store.set_meta("estop_engaged", "false")?;
+        for actuator in self.registry.all_actuator_instances().await {
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                actuator.emergency_clear(),
+            )
+            .await;
+        }
         self.events.emit(
             EventType::EmergencyStop,
             json!({"cleared": true, "actor": actor}),

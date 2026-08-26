@@ -567,4 +567,19 @@ impl Actuator for MockActuator {
             .push_back(obs);
         Ok(())
     }
+
+    async fn emergency_clear(&self) -> Result<(), ActuatorError> {
+        self.stopped.store(false, Ordering::SeqCst);
+        let obs = Observation::now(
+            ReceptorId::new("mock.device-status"),
+            "builtin.mock-device",
+            Utc::now(),
+        )
+        .with_fact("state", "re-armed");
+        self.device_state
+            .lock()
+            .expect("device state lock")
+            .push_back(obs);
+        Ok(())
+    }
 }

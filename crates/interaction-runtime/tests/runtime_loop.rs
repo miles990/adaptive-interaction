@@ -649,3 +649,52 @@ async fn monetary_spend_accumulates_and_blocks() {
     let stored = rt.store.session(&session.session_id).unwrap();
     assert!((stored.monetary_spent - 1.75).abs() < f64::EPSILON);
 }
+
+#[tokio::test]
+async fn emergency_clear_rearms_latched_devices() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("rearm".into()), None, vec!["channel:haptic".into()])
+        .await
+        .unwrap();
+    rt.update_policy(json!({"allowedChannels":["conversation","haptic"]}))
+        .await
+        .unwrap();
+    rt.registry
+        .set_actuator_enabled(&ActuatorId::new("mock.actuator"), true)
+        .await
+        .unwrap();
+
+    rt.emergency_stop("test", None).await.unwrap();
+    assert!(rt.mock_actuator.was_stopped(), "estop latches the device");
+    rt.clear_emergency_stop("test").await.unwrap();
+    // Consents were revoked by the estop; grant again (explicit human action).
+    rt.grant_consent("channel:haptic", None).await.unwrap();
+
+    let mut intent = SemanticIntent::new("presence");
+    intent.preferred_channels = vec!["haptic".into()];
+    let plan = rt
+        .create_plan(
+            intent,
+            vec!["mock.actuator".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
+        .await
+        .unwrap();
+    let receipts = rt
+        .execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false)
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            receipts[0].current_status,
+            ActionStatus::Completed | ActionStatus::Acknowledged
+        ),
+        "after explicit clear the device must work again, got {:?} ({:?})",
+        receipts[0].current_status,
+        receipts[0].errors,
+    );
+}

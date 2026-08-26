@@ -53,4 +53,11 @@ pub trait Actuator: Send + Sync {
     /// Hard stop everything this actuator is doing. Must be fast, must not
     /// depend on queues, and must be safe to call repeatedly.
     async fn emergency_stop(&self) -> Result<(), ActuatorError>;
+
+    /// Re-arm after an EXPLICIT human emergency-stop clear. Drivers that latch
+    /// a stopped state on `emergency_stop` (physical devices should) unlatch
+    /// here. No queued/cancelled action is ever resumed by this call.
+    async fn emergency_clear(&self) -> Result<(), ActuatorError> {
+        Ok(())
+    }
 }
