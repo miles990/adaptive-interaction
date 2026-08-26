@@ -1,0 +1,223 @@
+//! CLI end-to-end (acceptance scenario H): simulates a shell-capable agent
+//! following SKILL.md — capabilities → observe → plan → simulate → execute →
+//! action show → verify — entirely through the `interact-ai` binary.
+
+use serde_json::Value;
+use std::process::{Child, Command, Stdio};
+use std::time::Duration;
+
+struct Daemon {
+    child: Child,
+    home: tempfile::TempDir,
+    port: u16,
+}
+
+impl Daemon {
+    fn spawn() -> Self {
+        let home = tempfile::tempdir().unwrap();
+        let port = free_port();
+        let child = Command::new(env!("CARGO_BIN_EXE_interact-ai"))
+            .args([
+                "--config",
+                home.path().to_str().unwrap(),
+                "serve",
+                "--port",
+                &port.to_string(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn daemon");
+        let daemon = Self { child, home, port };
+        daemon.wait_ready();
+        daemon
+    }
+
+    fn wait_ready(&self) {
+        for _ in 0..100 {
+            if std::net::TcpStream::connect(("127.0.0.1", self.port)).is_ok() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        panic!("daemon did not become ready on port {}", self.port);
+    }
+
+    fn cli(&self, args: &[&str]) -> (i32, Value, String) {
+        let output = Command::new(env!("CARGO_BIN_EXE_interact-ai"))
+            .args([
+                "--json",
+                "--config",
+                self.home.path().to_str().unwrap(),
+                "--api",
+                &format!("http://127.0.0.1:{}", self.port),
+            ])
+            .args(args)
+            .output()
+            .expect("run cli");
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let json = serde_json::from_str(stdout.trim()).unwrap_or(Value::Null);
+        (output.status.code().unwrap_or(-1), json, stderr)
+    }
+}
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+#[test]
+fn scenario_h_skill_plus_cli_agent_loop() {
+    let daemon = Daemon::spawn();
+
+    // 1. Runtime check.
+    let (code, status, _) = daemon.cli(&["status"]);
+    assert_eq!(code, 0);
+    assert_eq!(status["name"], "adaptive-interaction");
+
+    // 2. Discover capabilities (JSON only on stdout — parseable by any agent).
+    let (code, caps, _) = daemon.cli(&["capabilities"]);
+    assert_eq!(code, 0);
+    assert!(caps["actuators"].as_array().unwrap().len() >= 2);
+
+    // 3. Start a session.
+    let (code, session, _) = daemon.cli(&["session", "start", "--label", "agent"]);
+    assert_eq!(code, 0);
+    assert_eq!(session["state"], "active");
+
+    // 4. Push + query observations.
+    let (code, _, _) = daemon.cli(&[
+        "receptors", "push", "task.lifecycle",
+        "--fact", "event=task.completed",
+        "--fact", "title=demo",
+    ]);
+    assert_eq!(code, 0);
+    let (code, observations, _) = daemon.cli(&["observe", "--receptor", "task.lifecycle"]);
+    assert_eq!(code, 0);
+    assert_eq!(observations[0]["facts"]["event"], "task.completed");
+
+    // 5. Plan.
+    let (code, plan, _) = daemon.cli(&[
+        "plan",
+        "--intent", "celebration",
+        "--candidate", "conversation",
+        "--min-channels", "1",
+        "--max-channels", "1",
+        "--deny-no-action",
+    ]);
+    assert_eq!(code, 0);
+    let plan_id = plan["planId"].as_str().unwrap().to_string();
+
+    // 6. Simulate.
+    let (code, sim, _) = daemon.cli(&["simulate", &plan_id]);
+    assert_eq!(code, 0);
+    assert_eq!(sim["wouldExecute"], true);
+
+    // 7. Execute.
+    let (code, receipts, _) = daemon.cli(&["execute", &plan_id]);
+    assert_eq!(code, 0);
+    let action_id = receipts[0]["actionId"].as_str().unwrap().to_string();
+    assert_eq!(receipts[0]["currentStatus"], "completed");
+
+    // 8. Action show.
+    let (code, receipt, _) = daemon.cli(&["actions", "show", &action_id]);
+    assert_eq!(code, 0);
+    assert_eq!(receipt["currentStatus"], "completed");
+
+    // 9. Verify.
+    let (code, verified, _) = daemon.cli(&["verify", &action_id]);
+    assert_eq!(code, 0);
+    assert_eq!(verified["currentStatus"], "completed");
+
+    // 10. The conversation output is retrievable (the agent can relay it).
+    let (code, outbox, _) = daemon.cli(&["outbox"]);
+    assert_eq!(code, 0);
+    assert!(!outbox.as_array().unwrap().is_empty());
+}
+
+#[test]
+fn tools_export_writes_all_formats() {
+    let daemon = Daemon::spawn();
+    let out_dir = daemon.home.path().join("exports");
+    std::fs::create_dir_all(&out_dir).unwrap();
+    for format in ["openai", "anthropic", "gemini", "openapi", "json-schema"] {
+        let out = out_dir.join(format!("{format}.json"));
+        let (code, _, stderr) = daemon.cli(&[
+            "tools", "export",
+            "--format", format,
+            "--out", out.to_str().unwrap(),
+        ]);
+        assert_eq!(code, 0, "{format}: {stderr}");
+        let content: Value =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        assert!(content.is_object(), "{format}");
+    }
+}
+
+#[test]
+fn emergency_stop_from_cli_and_stable_exit_codes() {
+    let daemon = Daemon::spawn();
+    daemon.cli(&["session", "start"]);
+
+    let (code, result, _) = daemon.cli(&["emergency-stop", "--reason", "cli-drill"]);
+    assert_eq!(code, 0);
+    assert_eq!(result["reason"], "cli-drill");
+
+    // Not-found exit code is 5.
+    let (code, _, _) = daemon.cli(&["actions", "show", "nope"]);
+    assert_eq!(code, 5);
+
+    // Clear.
+    let (code, _, _) = daemon.cli(&["emergency-stop", "--clear"]);
+    assert_eq!(code, 0);
+}
+
+#[test]
+fn daemon_offline_exit_code_is_3() {
+    let home = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_interact-ai"))
+        .args([
+            "--json",
+            "--config",
+            home.path().to_str().unwrap(),
+            "--api",
+            "http://127.0.0.1:1", // nothing listens here
+            "status",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    // stdout stays clean in error cases (diagnostics on stderr only).
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn duplicate_daemon_is_refused_by_instance_lock() {
+    let daemon = Daemon::spawn();
+    let port = free_port();
+    let output = Command::new(env!("CARGO_BIN_EXE_interact-ai"))
+        .args([
+            "--config",
+            daemon.home.path().to_str().unwrap(),
+            "serve",
+            "--port",
+            &port.to_string(),
+        ])
+        .output()
+        .expect("second daemon attempt");
+    assert_ne!(output.status.code(), Some(0));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("already holds") || stderr.contains("Conflict") || stderr.contains("conflict"),
+        "stderr: {stderr}");
+}

@@ -1,0 +1,459 @@
+{
+  "$defs": {
+    "ActuationMode": {
+      "enum": [
+        "single",
+        "parallel",
+        "sequence",
+        "fallback",
+        "adaptive",
+        "redundant"
+      ],
+      "type": "string"
+    },
+    "ActuationSpec": {
+      "properties": {
+        "candidates": {
+          "description": "Candidate actuator ids, in preference order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "chance": {
+          "default": 1.0,
+          "description": "Probability 0..1 the actuation fires at all (surprise factor).",
+          "format": "double",
+          "type": "number"
+        },
+        "jitter": {
+          "description": "Max random start jitter, e.g. `\"2s\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxChannels": {
+          "default": 3,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minChannels": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mode": {
+          "$ref": "#/$defs/ActuationMode",
+          "default": "adaptive"
+        }
+      },
+      "required": [
+        "candidates"
+      ],
+      "type": "object"
+    },
+    "ConditionSpec": {
+      "anyOf": [
+        {
+          "description": "`\"event == task.completed\"` style expression.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": true,
+          "description": "`{ event: task.completed, state: present }` — all pairs must match.",
+          "type": "object"
+        }
+      ]
+    },
+    "ConsentRequirements": {
+      "properties": {
+        "required": {
+          "default": [],
+          "description": "Consent scopes that must be active for the recipe to run,\ne.g. `[\"channel:haptic\"]`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ContextSpec": {
+      "properties": {
+        "maxAge": {
+          "description": "Ignore observations older than this, e.g. `\"5m\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "minConfidence": {
+          "description": "Minimum inference confidence used during fusion.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "receptors": {
+          "default": [],
+          "description": "Additional receptors consulted (not required to fire) when planning.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "DecisionSpec": {
+      "properties": {
+        "allowNoAction": {
+          "default": true,
+          "description": "The recipe accepts \"do nothing\" as a legitimate outcome.",
+          "type": "boolean"
+        },
+        "objective": {
+          "description": "Human-readable objective, e.g. `celebrate-without-interrupting`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "objective"
+      ],
+      "type": "object"
+    },
+    "FusionMode": {
+      "enum": [
+        "single",
+        "all",
+        "any",
+        "quorum",
+        "weighted",
+        "sequence"
+      ],
+      "type": "string"
+    },
+    "LimitsSpec": {
+      "properties": {
+        "cooldown": {
+          "description": "Minimum interval between firings, e.g. `\"15m\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expiresAfter": {
+          "description": "The produced plan expires after this, e.g. `\"30s\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxExecutionsPerSession": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maxPerHour": {
+          "description": "Max firings per rolling hour.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "MessageMode": {
+      "oneOf": [
+        {
+          "const": "fixed",
+          "description": "Always use the fixed template(s).",
+          "type": "string"
+        },
+        {
+          "const": "random",
+          "description": "Random pick among candidates.",
+          "type": "string"
+        },
+        {
+          "const": "adaptive",
+          "description": "Adaptive pick (anti-repetition, tone, persona).",
+          "type": "string"
+        },
+        {
+          "const": "ai-generated",
+          "description": "The AI supplies text at plan time.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "Deliberately no text.",
+          "type": "string"
+        }
+      ]
+    },
+    "MessageStrategy": {
+      "properties": {
+        "allowSilence": {
+          "default": false,
+          "description": "Whether silence is an acceptable outcome.",
+          "type": "boolean"
+        },
+        "intents": {
+          "default": [],
+          "description": "Candidate intents (looked up in the catalog).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "language": {
+          "description": "BCP-47 language tag preference, e.g. `zh-Hant`, `en`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mode": {
+          "$ref": "#/$defs/MessageMode",
+          "default": "adaptive"
+        },
+        "repeatCooldownMs": {
+          "description": "Suppress a candidate if it was used within this window (ms).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "templates": {
+          "default": [],
+          "description": "User-supplied templates; `{task}`-style placeholders are allowed.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tone": {
+          "description": "Tone hint, e.g. `neutral`, `warm`, `serious`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RecipeId": {
+      "description": "Identifies a recipe.",
+      "type": "string"
+    },
+    "TriggerSpec": {
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/FusionMode",
+          "default": "single"
+        },
+        "quorum": {
+          "description": "Required matches for `quorum` mode.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/TriggerStep"
+          },
+          "type": "array"
+        },
+        "threshold": {
+          "description": "Threshold for `weighted` mode (sum of matched weights).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "within": {
+          "description": "Time window for `sequence` / `all`, e.g. `\"10m\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "type": "object"
+    },
+    "TriggerStep": {
+      "description": "One trigger step: a receptor plus a condition on its observations.",
+      "properties": {
+        "condition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConditionSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Condition over observation facts (see [`crate::condition`])."
+        },
+        "receptor": {
+          "type": "string"
+        },
+        "weight": {
+          "default": 1.0,
+          "description": "Weight for `weighted` fusion (default 1.0).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "receptor"
+      ],
+      "type": "object"
+    },
+    "VerificationSpec": {
+      "properties": {
+        "receptors": {
+          "default": [],
+          "description": "Receptors to consult for verification evidence.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "strategy": {
+          "$ref": "#/$defs/VerificationStrategy",
+          "default": "best-effort"
+        },
+        "timeout": {
+          "description": "e.g. `\"10s\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "VerificationStrategy": {
+      "oneOf": [
+        {
+          "const": "best-effort",
+          "description": "Acknowledgement from the driver is enough to complete.",
+          "type": "string"
+        },
+        {
+          "const": "observed",
+          "description": "Require an observation confirming the effect.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "Do not verify (receipt stops at acknowledged/uncertain).",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "actuation": {
+      "$ref": "#/$defs/ActuationSpec"
+    },
+    "consent": {
+      "$ref": "#/$defs/ConsentRequirements",
+      "default": {
+        "required": []
+      }
+    },
+    "context": {
+      "$ref": "#/$defs/ContextSpec",
+      "default": {
+        "receptors": []
+      }
+    },
+    "decision": {
+      "$ref": "#/$defs/DecisionSpec"
+    },
+    "description": {
+      "default": "",
+      "type": "string"
+    },
+    "enabled": {
+      "default": true,
+      "type": "boolean"
+    },
+    "id": {
+      "$ref": "#/$defs/RecipeId"
+    },
+    "intent": {
+      "default": "presence",
+      "description": "Semantic intent produced when the recipe fires.",
+      "type": "string"
+    },
+    "limits": {
+      "$ref": "#/$defs/LimitsSpec",
+      "default": {}
+    },
+    "message": {
+      "$ref": "#/$defs/MessageStrategy",
+      "default": {
+        "allowSilence": false,
+        "intents": [],
+        "mode": "adaptive",
+        "templates": []
+      }
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "description": "Extra free-form metadata.",
+      "type": "object"
+    },
+    "name": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "default": "1.0",
+      "type": "string"
+    },
+    "trigger": {
+      "$ref": "#/$defs/TriggerSpec"
+    },
+    "verification": {
+      "$ref": "#/$defs/VerificationSpec",
+      "default": {
+        "receptors": [],
+        "strategy": "best-effort"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "trigger",
+    "decision",
+    "actuation"
+  ],
+  "title": "Recipe",
+  "type": "object"
+}

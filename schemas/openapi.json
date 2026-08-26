@@ -1,0 +1,3721 @@
+{
+  "info": {
+    "description": "Local-first adaptive interaction platform (no MCP).",
+    "title": "Adaptive Interaction Runtime",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/capabilities": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Snapshot"
+          }
+        },
+        "summary": "Capability snapshot"
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Liveness probe"
+      }
+    },
+    "/v1/tools/interaction.action_status/call": {
+      "post": {
+        "operationId": "interaction_action_status",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "actionId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "actionId"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$defs": {
+                    "ActionId": {
+                      "description": "Identifies a single bounded action / receipt.",
+                      "type": "string"
+                    },
+                    "ActionParameters": {
+                      "description": "Normalized action parameters shared by all channels.",
+                      "properties": {
+                        "durationMs": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "extra": {
+                          "description": "Driver-specific extras (validated against the actuator's schema)."
+                        },
+                        "magnitude": {
+                          "format": "double",
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "message": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "ActionStatus": {
+                      "oneOf": [
+                        {
+                          "const": "planned",
+                          "description": "Plan step exists but has not been authorized.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "authorized",
+                          "description": "Policy governor approved and produced a bounded action.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "accepted",
+                          "description": "Runtime accepted the action into its queue. NOT completion.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "dispatched",
+                          "description": "Driver has sent the command toward the target.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "acknowledged",
+                          "description": "Target (device/service) confirmed receipt of the command.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "observed",
+                          "description": "The effect was observed in the environment.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "completed",
+                          "description": "Terminal: goal achieved and verified to the configured standard.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "blocked",
+                          "description": "Terminal: policy refused the action.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "failed",
+                          "description": "Terminal: execution failed.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "uncertain",
+                          "description": "Terminal: outcome could not be determined.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "cancelled",
+                          "description": "Terminal: cancelled by user, AI, policy or shutdown.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "expired",
+                          "description": "Terminal: TTL elapsed before completion.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "stopped",
+                          "description": "Terminal: halted by emergency stop.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "ActuatorId": {
+                      "description": "Identifies an actuator instance, e.g. `conversation`.",
+                      "type": "string"
+                    },
+                    "CorrelationId": {
+                      "description": "Correlates observations, plans, actions and events end-to-end.",
+                      "type": "string"
+                    },
+                    "ObservationId": {
+                      "description": "Identifies a single observation.",
+                      "type": "string"
+                    },
+                    "PlanId": {
+                      "description": "Identifies a plan produced by the orchestrator.",
+                      "type": "string"
+                    },
+                    "PolicyDecision": {
+                      "description": "One decision the governor made while bounding a request. The list of\ndecisions is the audit trail explaining requested -> effective.",
+                      "oneOf": [
+                        {
+                          "properties": {
+                            "outcome": {
+                              "const": "allowed",
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "field": {
+                              "type": "string"
+                            },
+                            "from": {
+                              "format": "double",
+                              "type": "number"
+                            },
+                            "outcome": {
+                              "const": "clamped",
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            },
+                            "to": {
+                              "format": "double",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "field",
+                            "from",
+                            "to"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "detail": {
+                              "type": "string"
+                            },
+                            "outcome": {
+                              "const": "silenced",
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "detail"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "outcome": {
+                              "const": "blocked",
+                              "type": "string"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "reason"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "outcome": {
+                              "const": "approvalRequired",
+                              "type": "string"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "reason"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "ReceiptError": {
+                      "properties": {
+                        "at": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "at"
+                      ],
+                      "type": "object"
+                    },
+                    "SessionId": {
+                      "description": "Identifies an interaction session (the consent boundary).",
+                      "type": "string"
+                    },
+                    "VerificationEvidence": {
+                      "description": "Standard verification outcome attached to receipts.",
+                      "properties": {
+                        "detail": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "observationIds": {
+                          "default": [],
+                          "description": "Observation ids that support the verdict.",
+                          "items": {
+                            "$ref": "#/$defs/ObservationId"
+                          },
+                          "type": "array"
+                        },
+                        "verdict": {
+                          "$ref": "#/$defs/VerificationVerdict"
+                        },
+                        "verifiedAt": {
+                          "format": "date-time",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verdict",
+                        "verifiedAt"
+                      ],
+                      "type": "object"
+                    },
+                    "VerificationVerdict": {
+                      "oneOf": [
+                        {
+                          "const": "observed",
+                          "description": "Effect observed in the environment.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "acknowledged-only",
+                          "description": "Driver acknowledged but no environmental confirmation.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "uncertain",
+                          "description": "Could not determine whether the effect happened.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "refuted",
+                          "description": "Evidence says the effect did NOT happen.",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "description": "Full lifecycle record of one action.",
+                  "properties": {
+                    "actionId": {
+                      "$ref": "#/$defs/ActionId"
+                    },
+                    "actuatorId": {
+                      "$ref": "#/$defs/ActuatorId"
+                    },
+                    "correlationId": {
+                      "$ref": "#/$defs/CorrelationId"
+                    },
+                    "currentStatus": {
+                      "$ref": "#/$defs/ActionStatus"
+                    },
+                    "driverResponse": {
+                      "additionalProperties": true,
+                      "default": {},
+                      "description": "Raw driver response snippets (redacted upstream if sensitive).",
+                      "type": "object"
+                    },
+                    "effectiveBoundedParameters": {
+                      "$ref": "#/$defs/ActionParameters"
+                    },
+                    "errors": {
+                      "default": [],
+                      "items": {
+                        "$ref": "#/$defs/ReceiptError"
+                      },
+                      "type": "array"
+                    },
+                    "expiresAt": {
+                      "description": "TTL deadline inherited from the bounded action; the watchdog expires\nnon-terminal receipts past this instant.",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "intent": {
+                      "type": "string"
+                    },
+                    "planId": {
+                      "$ref": "#/$defs/PlanId"
+                    },
+                    "policyDecisions": {
+                      "default": [],
+                      "items": {
+                        "$ref": "#/$defs/PolicyDecision"
+                      },
+                      "type": "array"
+                    },
+                    "requestedParameters": {
+                      "$ref": "#/$defs/ActionParameters"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "sessionId": {
+                      "$ref": "#/$defs/SessionId"
+                    },
+                    "timestamps": {
+                      "description": "Timestamp of each state entered, in order.",
+                      "items": {
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "prefixItems": [
+                          {
+                            "$ref": "#/$defs/ActionStatus"
+                          },
+                          {
+                            "format": "date-time",
+                            "type": "string"
+                          }
+                        ],
+                        "type": "array"
+                      },
+                      "type": "array"
+                    },
+                    "verification": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/VerificationEvidence"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "actionId",
+                    "planId",
+                    "sessionId",
+                    "actuatorId",
+                    "intent",
+                    "requestedParameters",
+                    "effectiveBoundedParameters",
+                    "currentStatus",
+                    "timestamps",
+                    "correlationId",
+                    "schemaVersion"
+                  ],
+                  "title": "ActionReceipt",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Get the full receipt (state machine history) of one action.",
+        "x-external-side-effect": false,
+        "x-risk": "read-only"
+      }
+    },
+    "/v1/tools/interaction.cancel/call": {
+      "post": {
+        "operationId": "interaction_cancel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "actionId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "actionId"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$defs": {
+                    "ActionId": {
+                      "description": "Identifies a single bounded action / receipt.",
+                      "type": "string"
+                    },
+                    "ActionParameters": {
+                      "description": "Normalized action parameters shared by all channels.",
+                      "properties": {
+                        "durationMs": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "extra": {
+                          "description": "Driver-specific extras (validated against the actuator's schema)."
+                        },
+                        "magnitude": {
+                          "format": "double",
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "message": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "ActionStatus": {
+                      "oneOf": [
+                        {
+                          "const": "planned",
+                          "description": "Plan step exists but has not been authorized.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "authorized",
+                          "description": "Policy governor approved and produced a bounded action.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "accepted",
+                          "description": "Runtime accepted the action into its queue. NOT completion.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "dispatched",
+                          "description": "Driver has sent the command toward the target.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "acknowledged",
+                          "description": "Target (device/service) confirmed receipt of the command.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "observed",
+                          "description": "The effect was observed in the environment.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "completed",
+                          "description": "Terminal: goal achieved and verified to the configured standard.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "blocked",
+                          "description": "Terminal: policy refused the action.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "failed",
+                          "description": "Terminal: execution failed.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "uncertain",
+                          "description": "Terminal: outcome could not be determined.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "cancelled",
+                          "description": "Terminal: cancelled by user, AI, policy or shutdown.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "expired",
+                          "description": "Terminal: TTL elapsed before completion.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "stopped",
+                          "description": "Terminal: halted by emergency stop.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "ActuatorId": {
+                      "description": "Identifies an actuator instance, e.g. `conversation`.",
+                      "type": "string"
+                    },
+                    "CorrelationId": {
+                      "description": "Correlates observations, plans, actions and events end-to-end.",
+                      "type": "string"
+                    },
+                    "ObservationId": {
+                      "description": "Identifies a single observation.",
+                      "type": "string"
+                    },
+                    "PlanId": {
+                      "description": "Identifies a plan produced by the orchestrator.",
+                      "type": "string"
+                    },
+                    "PolicyDecision": {
+                      "description": "One decision the governor made while bounding a request. The list of\ndecisions is the audit trail explaining requested -> effective.",
+                      "oneOf": [
+                        {
+                          "properties": {
+                            "outcome": {
+                              "const": "allowed",
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "field": {
+                              "type": "string"
+                            },
+                            "from": {
+                              "format": "double",
+                              "type": "number"
+                            },
+                            "outcome": {
+                              "const": "clamped",
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            },
+                            "to": {
+                              "format": "double",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "field",
+                            "from",
+                            "to"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "detail": {
+                              "type": "string"
+                            },
+                            "outcome": {
+                              "const": "silenced",
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "detail"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "outcome": {
+                              "const": "blocked",
+                              "type": "string"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "reason"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "outcome": {
+                              "const": "approvalRequired",
+                              "type": "string"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "reason"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "ReceiptError": {
+                      "properties": {
+                        "at": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "at"
+                      ],
+                      "type": "object"
+                    },
+                    "SessionId": {
+                      "description": "Identifies an interaction session (the consent boundary).",
+                      "type": "string"
+                    },
+                    "VerificationEvidence": {
+                      "description": "Standard verification outcome attached to receipts.",
+                      "properties": {
+                        "detail": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "observationIds": {
+                          "default": [],
+                          "description": "Observation ids that support the verdict.",
+                          "items": {
+                            "$ref": "#/$defs/ObservationId"
+                          },
+                          "type": "array"
+                        },
+                        "verdict": {
+                          "$ref": "#/$defs/VerificationVerdict"
+                        },
+                        "verifiedAt": {
+                          "format": "date-time",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verdict",
+                        "verifiedAt"
+                      ],
+                      "type": "object"
+                    },
+                    "VerificationVerdict": {
+                      "oneOf": [
+                        {
+                          "const": "observed",
+                          "description": "Effect observed in the environment.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "acknowledged-only",
+                          "description": "Driver acknowledged but no environmental confirmation.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "uncertain",
+                          "description": "Could not determine whether the effect happened.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "refuted",
+                          "description": "Evidence says the effect did NOT happen.",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "description": "Full lifecycle record of one action.",
+                  "properties": {
+                    "actionId": {
+                      "$ref": "#/$defs/ActionId"
+                    },
+                    "actuatorId": {
+                      "$ref": "#/$defs/ActuatorId"
+                    },
+                    "correlationId": {
+                      "$ref": "#/$defs/CorrelationId"
+                    },
+                    "currentStatus": {
+                      "$ref": "#/$defs/ActionStatus"
+                    },
+                    "driverResponse": {
+                      "additionalProperties": true,
+                      "default": {},
+                      "description": "Raw driver response snippets (redacted upstream if sensitive).",
+                      "type": "object"
+                    },
+                    "effectiveBoundedParameters": {
+                      "$ref": "#/$defs/ActionParameters"
+                    },
+                    "errors": {
+                      "default": [],
+                      "items": {
+                        "$ref": "#/$defs/ReceiptError"
+                      },
+                      "type": "array"
+                    },
+                    "expiresAt": {
+                      "description": "TTL deadline inherited from the bounded action; the watchdog expires\nnon-terminal receipts past this instant.",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "intent": {
+                      "type": "string"
+                    },
+                    "planId": {
+                      "$ref": "#/$defs/PlanId"
+                    },
+                    "policyDecisions": {
+                      "default": [],
+                      "items": {
+                        "$ref": "#/$defs/PolicyDecision"
+                      },
+                      "type": "array"
+                    },
+                    "requestedParameters": {
+                      "$ref": "#/$defs/ActionParameters"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "sessionId": {
+                      "$ref": "#/$defs/SessionId"
+                    },
+                    "timestamps": {
+                      "description": "Timestamp of each state entered, in order.",
+                      "items": {
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "prefixItems": [
+                          {
+                            "$ref": "#/$defs/ActionStatus"
+                          },
+                          {
+                            "format": "date-time",
+                            "type": "string"
+                          }
+                        ],
+                        "type": "array"
+                      },
+                      "type": "array"
+                    },
+                    "verification": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/VerificationEvidence"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "actionId",
+                    "planId",
+                    "sessionId",
+                    "actuatorId",
+                    "intent",
+                    "requestedParameters",
+                    "effectiveBoundedParameters",
+                    "currentStatus",
+                    "timestamps",
+                    "correlationId",
+                    "schemaVersion"
+                  ],
+                  "title": "ActionReceipt",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Cancel a queued or running action.",
+        "x-external-side-effect": false,
+        "x-risk": "low"
+      }
+    },
+    "/v1/tools/interaction.capabilities/call": {
+      "post": {
+        "operationId": "interaction_capabilities",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "includeUnavailable": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$defs": {
+                    "ActuatorId": {
+                      "description": "Identifies an actuator instance, e.g. `conversation`.",
+                      "type": "string"
+                    },
+                    "ActuatorLimits": {
+                      "description": "Deterministic per-actuator limits enforced by the safety governor.",
+                      "properties": {
+                        "maxDurationMs": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "maxMagnitude": {
+                          "description": "Hard ceiling on normalized magnitude 0..1 (device safe limit).",
+                          "format": "double",
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "maxPatternSteps": {
+                          "description": "Max steps in a pattern timeline.",
+                          "format": "uint32",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "maxPayloadBytes": {
+                          "description": "Max payload size in bytes accepted by the driver.",
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "maxPerHour": {
+                          "description": "Max invocations per rolling hour.",
+                          "format": "uint32",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "ActuatorManifest": {
+                      "properties": {
+                        "availability": {
+                          "$ref": "#/$defs/Availability",
+                          "default": "available"
+                        },
+                        "capabilities": {
+                          "default": [],
+                          "description": "Capability tags, e.g. `[\"text\", \"pattern\", \"cancel\"]`.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "channel": {
+                          "description": "Primary interaction channel, see [`channels`].",
+                          "type": "string"
+                        },
+                        "cost": {
+                          "$ref": "#/$defs/CostDescriptor",
+                          "default": {
+                            "monetaryPerInvocation": 0.0,
+                            "resource": 0.0
+                          }
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "driver": {
+                          "type": "string"
+                        },
+                        "externalSideEffect": {
+                          "description": "True when effects leave the local machine.",
+                          "type": "boolean"
+                        },
+                        "health": {
+                          "$ref": "#/$defs/ComponentHealth",
+                          "default": {
+                            "status": "healthy"
+                          }
+                        },
+                        "id": {
+                          "$ref": "#/$defs/ActuatorId"
+                        },
+                        "latencyMs": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "limits": {
+                          "$ref": "#/$defs/ActuatorLimits",
+                          "default": {}
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "parametersSchema": {
+                          "description": "JSON Schema for driver-specific action parameters."
+                        },
+                        "requiresConsent": {
+                          "type": "boolean"
+                        },
+                        "reversible": {
+                          "type": "boolean"
+                        },
+                        "riskClass": {
+                          "$ref": "#/$defs/RiskClass"
+                        },
+                        "schemaVersion": {
+                          "type": "string"
+                        },
+                        "supportsCancel": {
+                          "type": "boolean"
+                        },
+                        "supportsPattern": {
+                          "type": "boolean"
+                        },
+                        "version": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "description",
+                        "channel",
+                        "supportsCancel",
+                        "supportsPattern",
+                        "requiresConsent",
+                        "externalSideEffect",
+                        "reversible",
+                        "riskClass",
+                        "driver",
+                        "version",
+                        "schemaVersion"
+                      ],
+                      "type": "object"
+                    },
+                    "Availability": {
+                      "description": "Whether a capability is currently available for planning.",
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "available",
+                            "disabled",
+                            "offline",
+                            "unknown"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "const": "consent-required",
+                          "description": "Registered but requires consent that has not been granted in the session.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "revoked",
+                          "description": "Permission was revoked at runtime.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "CapabilityConstraint": {
+                      "description": "A human-readable constraint the AI should surface when planning\n(e.g. \"quiet hours active until 08:00\").",
+                      "properties": {
+                        "detail": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    "ChannelLimits": {
+                      "description": "Per-channel deterministic limits.",
+                      "properties": {
+                        "cooldownMs": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "maxDurationMs": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "maxMagnitude": {
+                          "format": "double",
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "maxPerHour": {
+                          "format": "uint32",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "sessionBudgetMs": {
+                          "description": "Cumulative active-duration budget per session, in ms.",
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "ComponentHealth": {
+                      "properties": {
+                        "checkedAt": {
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "message": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "$ref": "#/$defs/HealthStatus"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "CostDescriptor": {
+                      "description": "Cost hints used by the orchestrator's utility scoring.",
+                      "properties": {
+                        "monetaryPerInvocation": {
+                          "default": 0.0,
+                          "description": "Monetary cost per invocation in USD (0 for local channels).",
+                          "format": "double",
+                          "type": "number"
+                        },
+                        "resource": {
+                          "default": 0.0,
+                          "description": "Abstract resource cost 0..1 (CPU, battery, attention budget).",
+                          "format": "double",
+                          "type": "number"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "HealthStatus": {
+                      "enum": [
+                        "healthy",
+                        "degraded",
+                        "unhealthy",
+                        "offline",
+                        "unknown"
+                      ],
+                      "type": "string"
+                    },
+                    "InitiativeLevel": {
+                      "description": "How proactive the runtime may be without an explicit request.",
+                      "oneOf": [
+                        {
+                          "const": "passive",
+                          "description": "Never initiate; only respond to explicit requests.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "suggest",
+                          "description": "May surface low-risk, non-interrupting signals.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "active",
+                          "description": "May initiate bounded interactions on allowed channels.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "OperationId": {
+                      "description": "Identifies one operation of a tool, e.g. `interaction.observe`.",
+                      "type": "string"
+                    },
+                    "PolicyConfig": {
+                      "properties": {
+                        "actuatorAllowlist": {
+                          "default": [],
+                          "description": "Explicit actuator allowlist; empty = builtin low-risk defaults only.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "allowedChannels": {
+                          "default": [],
+                          "description": "Channels the runtime may use at all.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "channelLimits": {
+                          "additionalProperties": {
+                            "$ref": "#/$defs/ChannelLimits"
+                          },
+                          "default": {},
+                          "description": "Per-channel limits keyed by channel name; `*` applies to all.",
+                          "type": "object"
+                        },
+                        "defaultTtlMs": {
+                          "default": 30000,
+                          "description": "Global default TTL for plans/actions, ms.",
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "enabled": {
+                          "default": true,
+                          "description": "Master switch. When false, only read-only operations are allowed.",
+                          "type": "boolean"
+                        },
+                        "initiative": {
+                          "$ref": "#/$defs/InitiativeLevel",
+                          "default": "suggest"
+                        },
+                        "maxPatternSteps": {
+                          "default": 64,
+                          "description": "Hard cap for any pattern's steps.",
+                          "format": "uint32",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "maxScheduledActions": {
+                          "default": 128,
+                          "description": "Hard cap on total scheduled (queued+running) actions.",
+                          "format": "uint32",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "quietHours": {
+                          "default": [],
+                          "items": {
+                            "$ref": "#/$defs/QuietHours"
+                          },
+                          "type": "array"
+                        },
+                        "receptorAllowlist": {
+                          "default": [],
+                          "description": "Explicit receptor allowlist; empty = builtin defaults only.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "requireApprovalAt": {
+                          "$ref": "#/$defs/RiskClass",
+                          "default": "high",
+                          "description": "Actions at or above this risk require explicit human approval."
+                        },
+                        "resumeHighRiskAfterRestart": {
+                          "default": false,
+                          "description": "Whether high-risk physical output may resume automatically after crash.\nThis is deliberately not configurable to `true` via the public API.",
+                          "type": "boolean"
+                        },
+                        "schemaVersion": {
+                          "type": "string"
+                        },
+                        "sessionMonetaryBudget": {
+                          "default": 0.0,
+                          "description": "Monetary budget per session in USD.",
+                          "format": "double",
+                          "type": "number"
+                        },
+                        "toolAllowlist": {
+                          "default": [],
+                          "description": "Tool operations that may be invoked.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "schemaVersion"
+                      ],
+                      "type": "object"
+                    },
+                    "QuietHours": {
+                      "description": "A daily quiet window in local wall-clock time (\"HH:MM\" 24h).",
+                      "properties": {
+                        "end": {
+                          "type": "string"
+                        },
+                        "silencedChannels": {
+                          "default": [],
+                          "description": "Channels silenced during the window; empty = all audible/intrusive ones.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "start": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "start",
+                        "end"
+                      ],
+                      "type": "object"
+                    },
+                    "ReceptorId": {
+                      "description": "Identifies a receptor instance, e.g. `system.time` or `mock.receptor`.",
+                      "type": "string"
+                    },
+                    "ReceptorManifest": {
+                      "properties": {
+                        "availability": {
+                          "$ref": "#/$defs/Availability",
+                          "default": "available"
+                        },
+                        "category": {
+                          "description": "Free-form category, e.g. `session`, `task`, `environment`, `device`.",
+                          "type": "string"
+                        },
+                        "configSchema": {
+                          "description": "JSON Schema describing driver configuration."
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "driver": {
+                          "description": "Driver identifier, e.g. `builtin.system-time`.",
+                          "type": "string"
+                        },
+                        "health": {
+                          "$ref": "#/$defs/ComponentHealth",
+                          "default": {
+                            "status": "healthy"
+                          }
+                        },
+                        "id": {
+                          "$ref": "#/$defs/ReceptorId"
+                        },
+                        "latencyMs": {
+                          "description": "Typical end-to-end latency in milliseconds.",
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "mode": {
+                          "$ref": "#/$defs/ReceptorMode"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "provides": {
+                          "default": [],
+                          "description": "Fact keys this receptor can provide, e.g. `[\"event\", \"state\"]`.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "refreshIntervalMs": {
+                          "description": "Suggested polling interval for `mode = poll`.",
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "requiresConsent": {
+                          "type": "boolean"
+                        },
+                        "schemaVersion": {
+                          "type": "string"
+                        },
+                        "sensitivity": {
+                          "$ref": "#/$defs/Sensitivity"
+                        },
+                        "version": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "description",
+                        "category",
+                        "mode",
+                        "sensitivity",
+                        "requiresConsent",
+                        "driver",
+                        "version",
+                        "schemaVersion"
+                      ],
+                      "type": "object"
+                    },
+                    "ReceptorMode": {
+                      "enum": [
+                        "poll",
+                        "event",
+                        "stream"
+                      ],
+                      "type": "string"
+                    },
+                    "RiskClass": {
+                      "description": "Risk classification of an operation / actuator.\n\nOrdering matters: later variants are riskier. `Ord` is derived so policy can\ncompare against thresholds.",
+                      "oneOf": [
+                        {
+                          "const": "read-only",
+                          "description": "Pure read, no side effect.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "low",
+                          "description": "Local, reversible, low-noise side effect (log line, UI hint).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "bounded-side-effect",
+                          "description": "Side effect bounded by deterministic policy limits (sound, haptic, notification).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "external-write",
+                          "description": "Writes that leave the machine (webhook, message, GitHub comment).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "high",
+                          "description": "Hard-to-reverse or high-impact operations (merge PR, purchase, physical device).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "critical",
+                          "description": "Destructive / safety-critical. Always requires explicit human approval.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "Sensitivity": {
+                      "description": "How sensitive the data produced by a receptor is.",
+                      "oneOf": [
+                        {
+                          "const": "public",
+                          "description": "Non-personal machine state (system time, task lifecycle).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "internal",
+                          "description": "Workspace-level information (file names, task titles).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "personal",
+                          "description": "Personal but not biometric (user text, presence).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "intimate",
+                          "description": "Camera, microphone, location, physiological signals.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "ToolId": {
+                      "description": "Identifies a tool (namespace), e.g. `interaction`.",
+                      "type": "string"
+                    },
+                    "ToolOperationManifest": {
+                      "properties": {
+                        "availability": {
+                          "$ref": "#/$defs/Availability",
+                          "default": "available"
+                        },
+                        "cost": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/CostDescriptor"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "externalSideEffect": {
+                          "type": "boolean"
+                        },
+                        "inputSchema": true,
+                        "name": {
+                          "description": "Fully qualified stable name, e.g. `interaction.observe`.",
+                          "type": "string"
+                        },
+                        "operation": {
+                          "$ref": "#/$defs/OperationId"
+                        },
+                        "outputSchema": true,
+                        "permissions": {
+                          "default": [],
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "requiresApproval": {
+                          "type": "boolean"
+                        },
+                        "reversible": {
+                          "type": "boolean"
+                        },
+                        "risk": {
+                          "$ref": "#/$defs/RiskClass"
+                        },
+                        "roles": {
+                          "items": {
+                            "$ref": "#/$defs/ToolRole"
+                          },
+                          "type": "array"
+                        },
+                        "schemaVersion": {
+                          "type": "string"
+                        },
+                        "tool": {
+                          "$ref": "#/$defs/ToolId"
+                        }
+                      },
+                      "required": [
+                        "tool",
+                        "operation",
+                        "name",
+                        "description",
+                        "roles",
+                        "inputSchema",
+                        "outputSchema",
+                        "risk",
+                        "reversible",
+                        "externalSideEffect",
+                        "requiresApproval",
+                        "schemaVersion"
+                      ],
+                      "type": "object"
+                    },
+                    "ToolRole": {
+                      "description": "Role a tool operation plays in the interaction loop.",
+                      "enum": [
+                        "receptor",
+                        "actuator"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "actuators": {
+                      "items": {
+                        "$ref": "#/$defs/ActuatorManifest"
+                      },
+                      "type": "array"
+                    },
+                    "constraints": {
+                      "default": [],
+                      "items": {
+                        "$ref": "#/$defs/CapabilityConstraint"
+                      },
+                      "type": "array"
+                    },
+                    "generatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "receptors": {
+                      "items": {
+                        "$ref": "#/$defs/ReceptorManifest"
+                      },
+                      "type": "array"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "sessionPolicy": {
+                      "$ref": "#/$defs/PolicyConfig",
+                      "description": "Policy view relevant to planning (limits, initiative, quiet hours)."
+                    },
+                    "toolOperations": {
+                      "items": {
+                        "$ref": "#/$defs/ToolOperationManifest"
+                      },
+                      "type": "array"
+                    },
+                    "version": {
+                      "description": "Monotonic-ish version: changes whenever registry content changes.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "receptors",
+                    "actuators",
+                    "toolOperations",
+                    "sessionPolicy",
+                    "generatedAt",
+                    "version",
+                    "schemaVersion"
+                  ],
+                  "title": "CapabilitySnapshot",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Discover the current receptors, actuators, tool operations, constraints and session policy. Always call before planning; never assume a device exists.",
+        "x-external-side-effect": false,
+        "x-risk": "read-only"
+      }
+    },
+    "/v1/tools/interaction.execute/call": {
+      "post": {
+        "operationId": "interaction_execute",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "dryRun": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "planId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "planId"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$defs": {
+                      "ActionId": {
+                        "description": "Identifies a single bounded action / receipt.",
+                        "type": "string"
+                      },
+                      "ActionParameters": {
+                        "description": "Normalized action parameters shared by all channels.",
+                        "properties": {
+                          "durationMs": {
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "extra": {
+                            "description": "Driver-specific extras (validated against the actuator's schema)."
+                          },
+                          "magnitude": {
+                            "format": "double",
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "message": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "ActionStatus": {
+                        "oneOf": [
+                          {
+                            "const": "planned",
+                            "description": "Plan step exists but has not been authorized.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "authorized",
+                            "description": "Policy governor approved and produced a bounded action.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "accepted",
+                            "description": "Runtime accepted the action into its queue. NOT completion.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "dispatched",
+                            "description": "Driver has sent the command toward the target.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "acknowledged",
+                            "description": "Target (device/service) confirmed receipt of the command.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "observed",
+                            "description": "The effect was observed in the environment.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "completed",
+                            "description": "Terminal: goal achieved and verified to the configured standard.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "blocked",
+                            "description": "Terminal: policy refused the action.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "failed",
+                            "description": "Terminal: execution failed.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "uncertain",
+                            "description": "Terminal: outcome could not be determined.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "cancelled",
+                            "description": "Terminal: cancelled by user, AI, policy or shutdown.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "expired",
+                            "description": "Terminal: TTL elapsed before completion.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "stopped",
+                            "description": "Terminal: halted by emergency stop.",
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "ActuatorId": {
+                        "description": "Identifies an actuator instance, e.g. `conversation`.",
+                        "type": "string"
+                      },
+                      "CorrelationId": {
+                        "description": "Correlates observations, plans, actions and events end-to-end.",
+                        "type": "string"
+                      },
+                      "ObservationId": {
+                        "description": "Identifies a single observation.",
+                        "type": "string"
+                      },
+                      "PlanId": {
+                        "description": "Identifies a plan produced by the orchestrator.",
+                        "type": "string"
+                      },
+                      "PolicyDecision": {
+                        "description": "One decision the governor made while bounding a request. The list of\ndecisions is the audit trail explaining requested -> effective.",
+                        "oneOf": [
+                          {
+                            "properties": {
+                              "outcome": {
+                                "const": "allowed",
+                                "type": "string"
+                              },
+                              "rule": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "outcome",
+                              "rule"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "properties": {
+                              "field": {
+                                "type": "string"
+                              },
+                              "from": {
+                                "format": "double",
+                                "type": "number"
+                              },
+                              "outcome": {
+                                "const": "clamped",
+                                "type": "string"
+                              },
+                              "rule": {
+                                "type": "string"
+                              },
+                              "to": {
+                                "format": "double",
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "outcome",
+                              "rule",
+                              "field",
+                              "from",
+                              "to"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "properties": {
+                              "detail": {
+                                "type": "string"
+                              },
+                              "outcome": {
+                                "const": "silenced",
+                                "type": "string"
+                              },
+                              "rule": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "outcome",
+                              "rule",
+                              "detail"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "properties": {
+                              "outcome": {
+                                "const": "blocked",
+                                "type": "string"
+                              },
+                              "reason": {
+                                "type": "string"
+                              },
+                              "rule": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "outcome",
+                              "rule",
+                              "reason"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "properties": {
+                              "outcome": {
+                                "const": "approvalRequired",
+                                "type": "string"
+                              },
+                              "reason": {
+                                "type": "string"
+                              },
+                              "rule": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "outcome",
+                              "rule",
+                              "reason"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "ReceiptError": {
+                        "properties": {
+                          "at": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message",
+                          "at"
+                        ],
+                        "type": "object"
+                      },
+                      "SessionId": {
+                        "description": "Identifies an interaction session (the consent boundary).",
+                        "type": "string"
+                      },
+                      "VerificationEvidence": {
+                        "description": "Standard verification outcome attached to receipts.",
+                        "properties": {
+                          "detail": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "observationIds": {
+                            "default": [],
+                            "description": "Observation ids that support the verdict.",
+                            "items": {
+                              "$ref": "#/$defs/ObservationId"
+                            },
+                            "type": "array"
+                          },
+                          "verdict": {
+                            "$ref": "#/$defs/VerificationVerdict"
+                          },
+                          "verifiedAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "verdict",
+                          "verifiedAt"
+                        ],
+                        "type": "object"
+                      },
+                      "VerificationVerdict": {
+                        "oneOf": [
+                          {
+                            "const": "observed",
+                            "description": "Effect observed in the environment.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "acknowledged-only",
+                            "description": "Driver acknowledged but no environmental confirmation.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "uncertain",
+                            "description": "Could not determine whether the effect happened.",
+                            "type": "string"
+                          },
+                          {
+                            "const": "refuted",
+                            "description": "Evidence says the effect did NOT happen.",
+                            "type": "string"
+                          }
+                        ]
+                      }
+                    },
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "description": "Full lifecycle record of one action.",
+                    "properties": {
+                      "actionId": {
+                        "$ref": "#/$defs/ActionId"
+                      },
+                      "actuatorId": {
+                        "$ref": "#/$defs/ActuatorId"
+                      },
+                      "correlationId": {
+                        "$ref": "#/$defs/CorrelationId"
+                      },
+                      "currentStatus": {
+                        "$ref": "#/$defs/ActionStatus"
+                      },
+                      "driverResponse": {
+                        "additionalProperties": true,
+                        "default": {},
+                        "description": "Raw driver response snippets (redacted upstream if sensitive).",
+                        "type": "object"
+                      },
+                      "effectiveBoundedParameters": {
+                        "$ref": "#/$defs/ActionParameters"
+                      },
+                      "errors": {
+                        "default": [],
+                        "items": {
+                          "$ref": "#/$defs/ReceiptError"
+                        },
+                        "type": "array"
+                      },
+                      "expiresAt": {
+                        "description": "TTL deadline inherited from the bounded action; the watchdog expires\nnon-terminal receipts past this instant.",
+                        "format": "date-time",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "intent": {
+                        "type": "string"
+                      },
+                      "planId": {
+                        "$ref": "#/$defs/PlanId"
+                      },
+                      "policyDecisions": {
+                        "default": [],
+                        "items": {
+                          "$ref": "#/$defs/PolicyDecision"
+                        },
+                        "type": "array"
+                      },
+                      "requestedParameters": {
+                        "$ref": "#/$defs/ActionParameters"
+                      },
+                      "schemaVersion": {
+                        "type": "string"
+                      },
+                      "sessionId": {
+                        "$ref": "#/$defs/SessionId"
+                      },
+                      "timestamps": {
+                        "description": "Timestamp of each state entered, in order.",
+                        "items": {
+                          "maxItems": 2,
+                          "minItems": 2,
+                          "prefixItems": [
+                            {
+                              "$ref": "#/$defs/ActionStatus"
+                            },
+                            {
+                              "format": "date-time",
+                              "type": "string"
+                            }
+                          ],
+                          "type": "array"
+                        },
+                        "type": "array"
+                      },
+                      "verification": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/VerificationEvidence"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "actionId",
+                      "planId",
+                      "sessionId",
+                      "actuatorId",
+                      "intent",
+                      "requestedParameters",
+                      "effectiveBoundedParameters",
+                      "currentStatus",
+                      "timestamps",
+                      "correlationId",
+                      "schemaVersion"
+                    ],
+                    "title": "ActionReceipt",
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Execute an authorized plan. Returns action receipts. IMPORTANT: an accepted/queued receipt is NOT completion — poll action_status or verify.",
+        "x-external-side-effect": false,
+        "x-risk": "bounded-side-effect"
+      }
+    },
+    "/v1/tools/interaction.observe/call": {
+      "post": {
+        "operationId": "interaction_observe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "fresh": {
+                    "default": false,
+                    "description": "Read live from the receptor instead of the store",
+                    "type": "boolean"
+                  },
+                  "limit": {
+                    "maximum": 500,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "maxAgeMs": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "receptorId": {
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$defs": {
+                      "CorrelationId": {
+                        "description": "Correlates observations, plans, actions and events end-to-end.",
+                        "type": "string"
+                      },
+                      "ObservationId": {
+                        "description": "Identifies a single observation.",
+                        "type": "string"
+                      },
+                      "ObservationSource": {
+                        "properties": {
+                          "detail": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "driver": {
+                            "description": "Driver that produced the observation.",
+                            "type": "string"
+                          },
+                          "quality": {
+                            "default": 1.0,
+                            "description": "Quality of the source 0..1 (sensor calibration, API reliability).",
+                            "format": "double",
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "driver"
+                        ],
+                        "type": "object"
+                      },
+                      "ReceptorId": {
+                        "description": "Identifies a receptor instance, e.g. `system.time` or `mock.receptor`.",
+                        "type": "string"
+                      },
+                      "SessionId": {
+                        "description": "Identifies an interaction session (the consent boundary).",
+                        "type": "string"
+                      }
+                    },
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "confidence": {
+                        "default": 1.0,
+                        "description": "Confidence of the inferences, 0..1. Facts are assumed confidence 1.",
+                        "format": "double",
+                        "type": "number"
+                      },
+                      "correlationId": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/CorrelationId"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "facts": {
+                        "additionalProperties": true,
+                        "default": {},
+                        "description": "Directly observable facts. Keys are receptor-defined.",
+                        "type": "object"
+                      },
+                      "freshnessMs": {
+                        "default": 0,
+                        "description": "Age of the data when received, in milliseconds.",
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "inferences": {
+                        "additionalProperties": true,
+                        "default": {},
+                        "description": "Model/driver inferences. MUST NOT be treated as facts.",
+                        "type": "object"
+                      },
+                      "observationId": {
+                        "$ref": "#/$defs/ObservationId"
+                      },
+                      "quality": {
+                        "default": 1.0,
+                        "description": "Source quality 0..1.",
+                        "format": "double",
+                        "type": "number"
+                      },
+                      "receivedAt": {
+                        "description": "When the runtime received it.",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "receptorId": {
+                        "$ref": "#/$defs/ReceptorId"
+                      },
+                      "schemaVersion": {
+                        "type": "string"
+                      },
+                      "sessionId": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/SessionId"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "source": {
+                        "$ref": "#/$defs/ObservationSource"
+                      },
+                      "timestamp": {
+                        "description": "When the underlying event happened.",
+                        "format": "date-time",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "observationId",
+                      "receptorId",
+                      "timestamp",
+                      "receivedAt",
+                      "source",
+                      "schemaVersion"
+                    ],
+                    "title": "Observation",
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Query recent observations (optionally one receptor, freshness-bounded). Facts and inferences are separate; treat low-confidence inferences as guesses.",
+        "x-external-side-effect": false,
+        "x-risk": "read-only"
+      }
+    },
+    "/v1/tools/interaction.plan/call": {
+      "post": {
+        "operationId": "interaction_plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "allowNoAction": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "candidates": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "durationMs": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "intent": {
+                    "description": "Semantic intent, e.g. celebrate-progress, warning",
+                    "type": "string"
+                  },
+                  "magnitude": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "maxChannels": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "minChannels": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "preferredChannels": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "intent"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$defs": {
+                    "ActionParameters": {
+                      "description": "Normalized action parameters shared by all channels.",
+                      "properties": {
+                        "durationMs": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "extra": {
+                          "description": "Driver-specific extras (validated against the actuator's schema)."
+                        },
+                        "magnitude": {
+                          "format": "double",
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "message": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "ActuatorId": {
+                      "description": "Identifies an actuator instance, e.g. `conversation`.",
+                      "type": "string"
+                    },
+                    "CorrelationId": {
+                      "description": "Correlates observations, plans, actions and events end-to-end.",
+                      "type": "string"
+                    },
+                    "PlanId": {
+                      "description": "Identifies a plan produced by the orchestrator.",
+                      "type": "string"
+                    },
+                    "PlanStatus": {
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "draft",
+                            "simulated",
+                            "authorized",
+                            "blocked",
+                            "executed",
+                            "expired"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "const": "no-action",
+                          "description": "The orchestrator judged that doing nothing is the best action.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "PlannedStep": {
+                      "description": "One candidate step inside a plan: a target actuator plus requested parameters.",
+                      "properties": {
+                        "actuatorId": {
+                          "$ref": "#/$defs/ActuatorId"
+                        },
+                        "channel": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "description": "Human-readable reason this step was selected.",
+                          "type": "string"
+                        },
+                        "requested": {
+                          "$ref": "#/$defs/ActionParameters",
+                          "description": "Requested (pre-bounding) parameters."
+                        },
+                        "score": {
+                          "description": "Utility score assigned by the orchestrator (explainable heuristic).",
+                          "format": "double",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "actuatorId",
+                        "channel",
+                        "requested",
+                        "score",
+                        "rationale"
+                      ],
+                      "type": "object"
+                    },
+                    "PolicyDecision": {
+                      "description": "One decision the governor made while bounding a request. The list of\ndecisions is the audit trail explaining requested -> effective.",
+                      "oneOf": [
+                        {
+                          "properties": {
+                            "outcome": {
+                              "const": "allowed",
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "field": {
+                              "type": "string"
+                            },
+                            "from": {
+                              "format": "double",
+                              "type": "number"
+                            },
+                            "outcome": {
+                              "const": "clamped",
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            },
+                            "to": {
+                              "format": "double",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "field",
+                            "from",
+                            "to"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "detail": {
+                              "type": "string"
+                            },
+                            "outcome": {
+                              "const": "silenced",
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "detail"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "outcome": {
+                              "const": "blocked",
+                              "type": "string"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "reason"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "outcome": {
+                              "const": "approvalRequired",
+                              "type": "string"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "reason"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "RejectedCandidate": {
+                      "properties": {
+                        "actuatorId": {
+                          "$ref": "#/$defs/ActuatorId"
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "actuatorId",
+                        "reason"
+                      ],
+                      "type": "object"
+                    },
+                    "SemanticIntent": {
+                      "description": "A semantic interaction request from an AI (or a recipe).",
+                      "properties": {
+                        "character": {
+                          "description": "Optional persona/character flavor, e.g. `restrained-delight`.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "correlationId": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/CorrelationId"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "durationMs": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "expiresAt": {
+                          "description": "The intent is void after this instant.",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "intent": {
+                          "description": "Semantic intent name, e.g. `celebrate-progress`, `warning`, `presence`.",
+                          "type": "string"
+                        },
+                        "magnitude": {
+                          "description": "Normalized magnitude 0..1. This is a *suggestion*; policy clamps it.",
+                          "format": "double",
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "message": {
+                          "description": "Optional message text suggestion (may be rewritten or silenced).",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "payload": {
+                          "description": "Free-form structured payload for driver-specific hints."
+                        },
+                        "preferredChannels": {
+                          "default": [],
+                          "description": "Preferred channels in priority order, e.g. `[\"visual\", \"audio\"]`.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "intent"
+                      ],
+                      "type": "object"
+                    },
+                    "SessionId": {
+                      "description": "Identifies an interaction session (the consent boundary).",
+                      "type": "string"
+                    }
+                  },
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "description": "A plan: the orchestrator's (or AI's) proposed interaction, before/after\npolicy authorization.",
+                  "properties": {
+                    "correlationId": {
+                      "$ref": "#/$defs/CorrelationId"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "intent": {
+                      "$ref": "#/$defs/SemanticIntent"
+                    },
+                    "metadata": {
+                      "additionalProperties": true,
+                      "default": {},
+                      "description": "Execution semantics (actuation mode, source recipe, verification\nstrategy...) understood by the runtime.",
+                      "type": "object"
+                    },
+                    "planId": {
+                      "$ref": "#/$defs/PlanId"
+                    },
+                    "policyDecisions": {
+                      "default": [],
+                      "items": {
+                        "$ref": "#/$defs/PolicyDecision"
+                      },
+                      "type": "array"
+                    },
+                    "rejected": {
+                      "default": [],
+                      "description": "Candidates that were considered and rejected, with reasons (explainability).",
+                      "items": {
+                        "$ref": "#/$defs/RejectedCandidate"
+                      },
+                      "type": "array"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "sessionId": {
+                      "$ref": "#/$defs/SessionId"
+                    },
+                    "status": {
+                      "$ref": "#/$defs/PlanStatus"
+                    },
+                    "steps": {
+                      "description": "Steps chosen for execution (post candidate filtering).",
+                      "items": {
+                        "$ref": "#/$defs/PlannedStep"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "planId",
+                    "sessionId",
+                    "intent",
+                    "steps",
+                    "status",
+                    "createdAt",
+                    "expiresAt",
+                    "correlationId",
+                    "schemaVersion"
+                  ],
+                  "title": "Plan",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Create an interaction plan from a semantic intent. The deterministic policy governor bounds every parameter later; magnitudes are suggestions only. The plan may legitimately choose no action.",
+        "x-external-side-effect": false,
+        "x-risk": "low"
+      }
+    },
+    "/v1/tools/interaction.policy/call": {
+      "post": {
+        "operationId": "interaction_policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {},
+                "required": [],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$defs": {
+                    "ChannelLimits": {
+                      "description": "Per-channel deterministic limits.",
+                      "properties": {
+                        "cooldownMs": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "maxDurationMs": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "maxMagnitude": {
+                          "format": "double",
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "maxPerHour": {
+                          "format": "uint32",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "sessionBudgetMs": {
+                          "description": "Cumulative active-duration budget per session, in ms.",
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "InitiativeLevel": {
+                      "description": "How proactive the runtime may be without an explicit request.",
+                      "oneOf": [
+                        {
+                          "const": "passive",
+                          "description": "Never initiate; only respond to explicit requests.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "suggest",
+                          "description": "May surface low-risk, non-interrupting signals.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "active",
+                          "description": "May initiate bounded interactions on allowed channels.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "QuietHours": {
+                      "description": "A daily quiet window in local wall-clock time (\"HH:MM\" 24h).",
+                      "properties": {
+                        "end": {
+                          "type": "string"
+                        },
+                        "silencedChannels": {
+                          "default": [],
+                          "description": "Channels silenced during the window; empty = all audible/intrusive ones.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "start": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "start",
+                        "end"
+                      ],
+                      "type": "object"
+                    },
+                    "RiskClass": {
+                      "description": "Risk classification of an operation / actuator.\n\nOrdering matters: later variants are riskier. `Ord` is derived so policy can\ncompare against thresholds.",
+                      "oneOf": [
+                        {
+                          "const": "read-only",
+                          "description": "Pure read, no side effect.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "low",
+                          "description": "Local, reversible, low-noise side effect (log line, UI hint).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "bounded-side-effect",
+                          "description": "Side effect bounded by deterministic policy limits (sound, haptic, notification).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "external-write",
+                          "description": "Writes that leave the machine (webhook, message, GitHub comment).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "high",
+                          "description": "Hard-to-reverse or high-impact operations (merge PR, purchase, physical device).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "critical",
+                          "description": "Destructive / safety-critical. Always requires explicit human approval.",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "actuatorAllowlist": {
+                      "default": [],
+                      "description": "Explicit actuator allowlist; empty = builtin low-risk defaults only.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "allowedChannels": {
+                      "default": [],
+                      "description": "Channels the runtime may use at all.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "channelLimits": {
+                      "additionalProperties": {
+                        "$ref": "#/$defs/ChannelLimits"
+                      },
+                      "default": {},
+                      "description": "Per-channel limits keyed by channel name; `*` applies to all.",
+                      "type": "object"
+                    },
+                    "defaultTtlMs": {
+                      "default": 30000,
+                      "description": "Global default TTL for plans/actions, ms.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "enabled": {
+                      "default": true,
+                      "description": "Master switch. When false, only read-only operations are allowed.",
+                      "type": "boolean"
+                    },
+                    "initiative": {
+                      "$ref": "#/$defs/InitiativeLevel",
+                      "default": "suggest"
+                    },
+                    "maxPatternSteps": {
+                      "default": 64,
+                      "description": "Hard cap for any pattern's steps.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "maxScheduledActions": {
+                      "default": 128,
+                      "description": "Hard cap on total scheduled (queued+running) actions.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietHours": {
+                      "default": [],
+                      "items": {
+                        "$ref": "#/$defs/QuietHours"
+                      },
+                      "type": "array"
+                    },
+                    "receptorAllowlist": {
+                      "default": [],
+                      "description": "Explicit receptor allowlist; empty = builtin defaults only.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "requireApprovalAt": {
+                      "$ref": "#/$defs/RiskClass",
+                      "default": "high",
+                      "description": "Actions at or above this risk require explicit human approval."
+                    },
+                    "resumeHighRiskAfterRestart": {
+                      "default": false,
+                      "description": "Whether high-risk physical output may resume automatically after crash.\nThis is deliberately not configurable to `true` via the public API.",
+                      "type": "boolean"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "sessionMonetaryBudget": {
+                      "default": 0.0,
+                      "description": "Monetary budget per session in USD.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "toolAllowlist": {
+                      "default": [],
+                      "description": "Tool operations that may be invoked.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "schemaVersion"
+                  ],
+                  "title": "PolicyConfig",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Read the effective policy (limits, quiet hours, allowlists, initiative).",
+        "x-external-side-effect": false,
+        "x-risk": "read-only"
+      }
+    },
+    "/v1/tools/interaction.recipe_run/call": {
+      "post": {
+        "operationId": "interaction_recipe_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "recipeId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "recipeId"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Plan + receipts produced by the recipe run",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Manually run one recipe (its trigger conditions are bypassed; policy still applies).",
+        "x-external-side-effect": false,
+        "x-risk": "bounded-side-effect"
+      }
+    },
+    "/v1/tools/interaction.simulate/call": {
+      "post": {
+        "operationId": "interaction_simulate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "planId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "planId"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Simulation result with per-step policy decisions",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Dry-run a plan through the policy governor: returns per-step decisions and effective bounded parameters without any side effect.",
+        "x-external-side-effect": false,
+        "x-risk": "read-only"
+      }
+    },
+    "/v1/tools/interaction.status/call": {
+      "post": {
+        "operationId": "interaction_status",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {},
+                "required": [],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Runtime status document",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Check that the interaction runtime is reachable and get its current state (emergency stop, session, counters).",
+        "x-external-side-effect": false,
+        "x-risk": "read-only"
+      }
+    },
+    "/v1/tools/interaction.stop/call": {
+      "post": {
+        "operationId": "interaction_stop",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Emergency stop acknowledgement",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "EMERGENCY STOP: cancel every open action and halt all actuators immediately. Never requires approval; does not auto-resume.",
+        "x-external-side-effect": false,
+        "x-risk": "low"
+      }
+    },
+    "/v1/tools/interaction.verify/call": {
+      "post": {
+        "operationId": "interaction_verify",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "actionId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "actionId"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$defs": {
+                    "ActionId": {
+                      "description": "Identifies a single bounded action / receipt.",
+                      "type": "string"
+                    },
+                    "ActionParameters": {
+                      "description": "Normalized action parameters shared by all channels.",
+                      "properties": {
+                        "durationMs": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "extra": {
+                          "description": "Driver-specific extras (validated against the actuator's schema)."
+                        },
+                        "magnitude": {
+                          "format": "double",
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "message": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "ActionStatus": {
+                      "oneOf": [
+                        {
+                          "const": "planned",
+                          "description": "Plan step exists but has not been authorized.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "authorized",
+                          "description": "Policy governor approved and produced a bounded action.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "accepted",
+                          "description": "Runtime accepted the action into its queue. NOT completion.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "dispatched",
+                          "description": "Driver has sent the command toward the target.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "acknowledged",
+                          "description": "Target (device/service) confirmed receipt of the command.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "observed",
+                          "description": "The effect was observed in the environment.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "completed",
+                          "description": "Terminal: goal achieved and verified to the configured standard.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "blocked",
+                          "description": "Terminal: policy refused the action.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "failed",
+                          "description": "Terminal: execution failed.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "uncertain",
+                          "description": "Terminal: outcome could not be determined.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "cancelled",
+                          "description": "Terminal: cancelled by user, AI, policy or shutdown.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "expired",
+                          "description": "Terminal: TTL elapsed before completion.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "stopped",
+                          "description": "Terminal: halted by emergency stop.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "ActuatorId": {
+                      "description": "Identifies an actuator instance, e.g. `conversation`.",
+                      "type": "string"
+                    },
+                    "CorrelationId": {
+                      "description": "Correlates observations, plans, actions and events end-to-end.",
+                      "type": "string"
+                    },
+                    "ObservationId": {
+                      "description": "Identifies a single observation.",
+                      "type": "string"
+                    },
+                    "PlanId": {
+                      "description": "Identifies a plan produced by the orchestrator.",
+                      "type": "string"
+                    },
+                    "PolicyDecision": {
+                      "description": "One decision the governor made while bounding a request. The list of\ndecisions is the audit trail explaining requested -> effective.",
+                      "oneOf": [
+                        {
+                          "properties": {
+                            "outcome": {
+                              "const": "allowed",
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "field": {
+                              "type": "string"
+                            },
+                            "from": {
+                              "format": "double",
+                              "type": "number"
+                            },
+                            "outcome": {
+                              "const": "clamped",
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            },
+                            "to": {
+                              "format": "double",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "field",
+                            "from",
+                            "to"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "detail": {
+                              "type": "string"
+                            },
+                            "outcome": {
+                              "const": "silenced",
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "detail"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "outcome": {
+                              "const": "blocked",
+                              "type": "string"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "reason"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "outcome": {
+                              "const": "approvalRequired",
+                              "type": "string"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "outcome",
+                            "rule",
+                            "reason"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "ReceiptError": {
+                      "properties": {
+                        "at": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "at"
+                      ],
+                      "type": "object"
+                    },
+                    "SessionId": {
+                      "description": "Identifies an interaction session (the consent boundary).",
+                      "type": "string"
+                    },
+                    "VerificationEvidence": {
+                      "description": "Standard verification outcome attached to receipts.",
+                      "properties": {
+                        "detail": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "observationIds": {
+                          "default": [],
+                          "description": "Observation ids that support the verdict.",
+                          "items": {
+                            "$ref": "#/$defs/ObservationId"
+                          },
+                          "type": "array"
+                        },
+                        "verdict": {
+                          "$ref": "#/$defs/VerificationVerdict"
+                        },
+                        "verifiedAt": {
+                          "format": "date-time",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verdict",
+                        "verifiedAt"
+                      ],
+                      "type": "object"
+                    },
+                    "VerificationVerdict": {
+                      "oneOf": [
+                        {
+                          "const": "observed",
+                          "description": "Effect observed in the environment.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "acknowledged-only",
+                          "description": "Driver acknowledged but no environmental confirmation.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "uncertain",
+                          "description": "Could not determine whether the effect happened.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "refuted",
+                          "description": "Evidence says the effect did NOT happen.",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "description": "Full lifecycle record of one action.",
+                  "properties": {
+                    "actionId": {
+                      "$ref": "#/$defs/ActionId"
+                    },
+                    "actuatorId": {
+                      "$ref": "#/$defs/ActuatorId"
+                    },
+                    "correlationId": {
+                      "$ref": "#/$defs/CorrelationId"
+                    },
+                    "currentStatus": {
+                      "$ref": "#/$defs/ActionStatus"
+                    },
+                    "driverResponse": {
+                      "additionalProperties": true,
+                      "default": {},
+                      "description": "Raw driver response snippets (redacted upstream if sensitive).",
+                      "type": "object"
+                    },
+                    "effectiveBoundedParameters": {
+                      "$ref": "#/$defs/ActionParameters"
+                    },
+                    "errors": {
+                      "default": [],
+                      "items": {
+                        "$ref": "#/$defs/ReceiptError"
+                      },
+                      "type": "array"
+                    },
+                    "expiresAt": {
+                      "description": "TTL deadline inherited from the bounded action; the watchdog expires\nnon-terminal receipts past this instant.",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "intent": {
+                      "type": "string"
+                    },
+                    "planId": {
+                      "$ref": "#/$defs/PlanId"
+                    },
+                    "policyDecisions": {
+                      "default": [],
+                      "items": {
+                        "$ref": "#/$defs/PolicyDecision"
+                      },
+                      "type": "array"
+                    },
+                    "requestedParameters": {
+                      "$ref": "#/$defs/ActionParameters"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "sessionId": {
+                      "$ref": "#/$defs/SessionId"
+                    },
+                    "timestamps": {
+                      "description": "Timestamp of each state entered, in order.",
+                      "items": {
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "prefixItems": [
+                          {
+                            "$ref": "#/$defs/ActionStatus"
+                          },
+                          {
+                            "format": "date-time",
+                            "type": "string"
+                          }
+                        ],
+                        "type": "array"
+                      },
+                      "type": "array"
+                    },
+                    "verification": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/VerificationEvidence"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "actionId",
+                    "planId",
+                    "sessionId",
+                    "actuatorId",
+                    "intent",
+                    "requestedParameters",
+                    "effectiveBoundedParameters",
+                    "currentStatus",
+                    "timestamps",
+                    "correlationId",
+                    "schemaVersion"
+                  ],
+                  "title": "ActionReceipt",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Re-verify an action against fresh observations and update its receipt (observed / uncertain).",
+        "x-external-side-effect": false,
+        "x-risk": "low"
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8787"
+    }
+  ]
+}

@@ -1,0 +1,373 @@
+{
+  "companionPolicy": {
+    "note": "Metadata not expressible in the host tool format; hosts should enforce approval flags before invoking.",
+    "schemaVersion": "1.0",
+    "tools": [
+      {
+        "canonicalName": "interaction.status",
+        "externalSideEffect": false,
+        "name": "interaction_status",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "read-only",
+        "roles": [
+          "receptor"
+        ]
+      },
+      {
+        "canonicalName": "interaction.capabilities",
+        "externalSideEffect": false,
+        "name": "interaction_capabilities",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "read-only",
+        "roles": [
+          "receptor"
+        ]
+      },
+      {
+        "canonicalName": "interaction.observe",
+        "externalSideEffect": false,
+        "name": "interaction_observe",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "read-only",
+        "roles": [
+          "receptor"
+        ]
+      },
+      {
+        "canonicalName": "interaction.plan",
+        "externalSideEffect": false,
+        "name": "interaction_plan",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "low",
+        "roles": [
+          "actuator"
+        ]
+      },
+      {
+        "canonicalName": "interaction.simulate",
+        "externalSideEffect": false,
+        "name": "interaction_simulate",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "read-only",
+        "roles": [
+          "receptor"
+        ]
+      },
+      {
+        "canonicalName": "interaction.execute",
+        "externalSideEffect": false,
+        "name": "interaction_execute",
+        "requiresApproval": false,
+        "reversible": false,
+        "risk": "bounded-side-effect",
+        "roles": [
+          "actuator"
+        ]
+      },
+      {
+        "canonicalName": "interaction.action_status",
+        "externalSideEffect": false,
+        "name": "interaction_action_status",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "read-only",
+        "roles": [
+          "receptor"
+        ]
+      },
+      {
+        "canonicalName": "interaction.verify",
+        "externalSideEffect": false,
+        "name": "interaction_verify",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "low",
+        "roles": [
+          "receptor",
+          "actuator"
+        ]
+      },
+      {
+        "canonicalName": "interaction.cancel",
+        "externalSideEffect": false,
+        "name": "interaction_cancel",
+        "requiresApproval": false,
+        "reversible": false,
+        "risk": "low",
+        "roles": [
+          "actuator"
+        ]
+      },
+      {
+        "canonicalName": "interaction.stop",
+        "externalSideEffect": false,
+        "name": "interaction_stop",
+        "requiresApproval": false,
+        "reversible": false,
+        "risk": "low",
+        "roles": [
+          "actuator"
+        ]
+      },
+      {
+        "canonicalName": "interaction.recipe_run",
+        "externalSideEffect": false,
+        "name": "interaction_recipe_run",
+        "requiresApproval": false,
+        "reversible": false,
+        "risk": "bounded-side-effect",
+        "roles": [
+          "actuator"
+        ]
+      },
+      {
+        "canonicalName": "interaction.policy",
+        "externalSideEffect": false,
+        "name": "interaction_policy",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "read-only",
+        "roles": [
+          "receptor"
+        ]
+      }
+    ]
+  },
+  "tools": [
+    {
+      "description": "Check that the interaction runtime is reachable and get its current state (emergency stop, session, counters).",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "interaction_status"
+    },
+    {
+      "description": "Discover the current receptors, actuators, tool operations, constraints and session policy. Always call before planning; never assume a device exists.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "includeUnavailable": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "interaction_capabilities"
+    },
+    {
+      "description": "Query recent observations (optionally one receptor, freshness-bounded). Facts and inferences are separate; treat low-confidence inferences as guesses.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "fresh": {
+            "default": false,
+            "description": "Read live from the receptor instead of the store",
+            "type": "boolean"
+          },
+          "limit": {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxAgeMs": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "receptorId": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "interaction_observe"
+    },
+    {
+      "description": "Create an interaction plan from a semantic intent. The deterministic policy governor bounds every parameter later; magnitudes are suggestions only. The plan may legitimately choose no action.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "allowNoAction": {
+            "default": true,
+            "type": "boolean"
+          },
+          "candidates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "durationMs": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "intent": {
+            "description": "Semantic intent, e.g. celebrate-progress, warning",
+            "type": "string"
+          },
+          "magnitude": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "maxChannels": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "minChannels": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "preferredChannels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "intent"
+        ],
+        "type": "object"
+      },
+      "name": "interaction_plan"
+    },
+    {
+      "description": "Dry-run a plan through the policy governor: returns per-step decisions and effective bounded parameters without any side effect.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "planId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "planId"
+        ],
+        "type": "object"
+      },
+      "name": "interaction_simulate"
+    },
+    {
+      "description": "Execute an authorized plan. Returns action receipts. IMPORTANT: an accepted/queued receipt is NOT completion — poll action_status or verify.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "dryRun": {
+            "default": false,
+            "type": "boolean"
+          },
+          "planId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "planId"
+        ],
+        "type": "object"
+      },
+      "name": "interaction_execute"
+    },
+    {
+      "description": "Get the full receipt (state machine history) of one action.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "actionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actionId"
+        ],
+        "type": "object"
+      },
+      "name": "interaction_action_status"
+    },
+    {
+      "description": "Re-verify an action against fresh observations and update its receipt (observed / uncertain).",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "actionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actionId"
+        ],
+        "type": "object"
+      },
+      "name": "interaction_verify"
+    },
+    {
+      "description": "Cancel a queued or running action.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "actionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actionId"
+        ],
+        "type": "object"
+      },
+      "name": "interaction_cancel"
+    },
+    {
+      "description": "EMERGENCY STOP: cancel every open action and halt all actuators immediately. Never requires approval; does not auto-resume.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "interaction_stop"
+    },
+    {
+      "description": "Manually run one recipe (its trigger conditions are bypassed; policy still applies).",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "recipeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "recipeId"
+        ],
+        "type": "object"
+      },
+      "name": "interaction_recipe_run"
+    },
+    {
+      "description": "Read the effective policy (limits, quiet hours, allowlists, initiative).",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "interaction_policy"
+    }
+  ]
+}

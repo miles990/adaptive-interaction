@@ -64,6 +64,7 @@ pub struct RuntimeInner {
     pub texts: TextSelector,
     estop: AtomicBool,
     pub push_receptors: BTreeMap<String, Arc<PushReceptor>>,
+    dynamic_push: RwLock<BTreeMap<String, Arc<PushReceptor>>>,
     pub mock_actuator: Arc<MockActuator>,
     pub recipes: RwLock<BTreeMap<String, RecipeEntry>>,
     pub recipe_errors: RwLock<Vec<(PathBuf, String)>>,
@@ -200,6 +201,7 @@ impl Runtime {
                 texts: TextSelector::default(),
                 estop: AtomicBool::new(estop_engaged),
                 push_receptors,
+                dynamic_push: RwLock::new(BTreeMap::new()),
                 mock_actuator,
                 recipes: RwLock::new(recipes),
                 recipe_errors: RwLock::new(
@@ -354,8 +356,8 @@ impl Runtime {
         confidence: f64,
     ) -> DomainResult<Observation> {
         let receptor = self
-            .push_receptors
-            .get(receptor_id)
+            .push_receptor(receptor_id)
+            .await
             .ok_or_else(|| DomainError::NotFound(format!("push receptor {receptor_id}")))?;
         // Respect enable/disable state.
         self.registry.receptor(&ReceptorId::new(receptor_id)).await?;
@@ -1001,6 +1003,62 @@ impl Runtime {
             .await?;
         self.note_recipe_fired(recipe.id.as_str()).await;
         Ok(Some(decision))
+    }
+
+    // ------------------------------------------------------------------
+    // Dynamic adapters (driver = builtin.push / builtin.mock-actuator)
+    // ------------------------------------------------------------------
+
+    /// Register a new push receptor at runtime (e.g. a custom webhook lane).
+    pub async fn add_push_receptor(
+        &self,
+        id: &str,
+        name: &str,
+        category: &str,
+        sensitive: bool,
+    ) -> DomainResult<()> {
+        if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_') {
+            return Err(DomainError::Validation(format!("receptor id {id:?} has unsafe characters")));
+        }
+        let manifest = interaction_adapter_sdk::ReceptorManifestBuilder::new(id, name, "builtin.push")
+            .description("dynamically added push receptor")
+            .category(category)
+            .mode(interaction_core::ReceptorMode::Event)
+            .sensitivity(
+                if sensitive {
+                    interaction_core::Sensitivity::Personal
+                } else {
+                    interaction_core::Sensitivity::Internal
+                },
+                sensitive,
+            )
+            .build();
+        let receptor = adapters_builtin::PushReceptor::new(manifest);
+        // Register first (checks duplicates), then track the push handle.
+        self.registry.register_receptor(receptor.clone()).await?;
+        // BTreeMap is behind Arc; use interior mutability via a lock-free trick:
+        // push_receptors is only mutated here, guarded by the registry conflict
+        // check above. We need a mutable map — switch to RwLock at the type level.
+        self.dynamic_push.write().await.insert(id.to_string(), receptor);
+        Ok(())
+    }
+
+    /// Register another mock actuator (simulated device) at runtime.
+    pub async fn add_mock_actuator(&self, id: &str, channel: &str) -> DomainResult<()> {
+        if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_') {
+            return Err(DomainError::Validation(format!("actuator id {id:?} has unsafe characters")));
+        }
+        let actuator = Arc::new(MockActuator::new(id, channel));
+        self.registry.register_actuator(actuator).await?;
+        Ok(())
+    }
+
+    /// Find a push receptor (builtin or dynamically added).
+    pub async fn push_receptor(&self, id: &str) -> Option<Arc<PushReceptor>> {
+        if let Some(r) = self.push_receptors.get(id) {
+            return Some(r.clone());
+        }
+        self.dynamic_push.read().await.get(id).cloned()
     }
 
     // ------------------------------------------------------------------

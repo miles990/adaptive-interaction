@@ -3,9 +3,30 @@ name = "interaction-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "interact-ai: CLI for the adaptive interaction runtime (client + daemon)"
 
 [[bin]]
 name = "interact-ai"
 path = "src/main.rs"
 
 [dependencies]
+interaction-core = { workspace = true }
+interaction-runtime = { workspace = true }
+interaction-recipe = { workspace = true }
+interaction-api = { workspace = true }
+interaction-tool-schema = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
