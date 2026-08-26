@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-26
+
 ### Fixed
 - 桌面 app：app 層級退出（Cmd+Q／AppleScript quit）現在也會優雅關閉內嵌
   runtime（RunEvent::Exit handler）；先前只有視窗關閉路徑會清理
