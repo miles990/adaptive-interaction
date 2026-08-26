@@ -409,6 +409,34 @@ ai:
     }
 
     #[test]
+    fn unknown_fields_survive_inside_message_and_ai_blocks() {
+        let input = r#"
+id: rt2
+name: Round trip 2
+trigger:
+  mode: single
+  steps:
+    - receptor: task.lifecycle
+decision:
+  objective: t
+message:
+  mode: adaptive
+  vendorVoice: warm-2
+actuation:
+  candidates: [conversation]
+ai:
+  mode: when-uncertain
+  vendorModelHint: local-small
+"#;
+        let recipe = parse_and_validate(input).unwrap();
+        let yaml = to_yaml(&recipe).unwrap();
+        assert!(yaml.contains("vendorVoice"), "{yaml}");
+        assert!(yaml.contains("vendorModelHint"), "{yaml}");
+        let back = parse_and_validate(&yaml).unwrap();
+        assert_eq!(recipe, back);
+    }
+
+    #[test]
     fn recipe_without_ai_field_defaults_to_never() {
         let recipe = parse_and_validate(GOOD).unwrap();
         assert!(recipe.ai.is_none(), "legacy recipes stay AI-free");

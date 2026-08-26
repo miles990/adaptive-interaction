@@ -180,7 +180,15 @@ function hasAdvancedParts(r: RecipeJson): boolean {
   if (steps.length > 1) return true;
   if (r.trigger?.mode && r.trigger.mode !== "single") return true;
   const cond = steps[0]?.condition;
+  // 條件運算式（字串）或多鍵條件都超出簡易編輯器的表達力 → 視為進階、原樣保留。
+  if (cond != null && typeof cond !== "object") return true;
   if (cond && typeof cond === "object" && Object.keys(cond).length > 1) return true;
+  if (
+    cond &&
+    typeof cond === "object" &&
+    Object.values(cond).some((v) => typeof v === "object" && v !== null)
+  )
+    return true;
   if (Object.keys(r).some((k) => !KNOWN_TOP_KEYS.includes(k))) return true;
   return false;
 }
@@ -581,9 +589,17 @@ function SimulateDialog({ recipeId, onClose }: { recipeId: string; onClose: () =
     try {
       const recipe = (await api.recipeGet(recipeId)) as RecipeJson;
       const receptor = recipe.trigger?.steps?.[0]?.receptor ?? "manual.event";
-      const cond = recipe.trigger?.steps?.[0]?.condition ?? {};
+      const rawCond = recipe.trigger?.steps?.[0]?.condition;
+      // 條件可能是運算式字串或帶運算子的物件；只有純量鍵值可以直接當成
+      // 合成事件的 facts，其餘給空 facts（觸發階段會誠實回報不成立）。
+      const facts: Record<string, unknown> = {};
+      if (rawCond && typeof rawCond === "object") {
+        for (const [k, v] of Object.entries(rawCond)) {
+          if (v === null || ["string", "number", "boolean"].includes(typeof v)) facts[k] = v;
+        }
+      }
       const scenario: Record<string, unknown> = { ...flags };
-      scenario.event = { receptor, facts: cond };
+      scenario.event = { receptor, facts };
       setReport(await api.recipeSimulateScenario(recipeId, scenario));
     } catch (e) {
       setError(String(e));
@@ -725,12 +741,24 @@ function ImpactPreviewDialog({
 
   const cardOf = (id: string): HumanCard | undefined =>
     human?.actuators.find((a) => a.id === id);
-  const external = candidates.some((c) => cardOf(c)?.effect?.externalSideEffect === true);
-  const physical = candidates.some((c) => cardOf(c)?.effect?.physicalEffect === true);
-  const sensitiveIn = receptorIds.some((id) => {
-    const card = human?.receptors.find((r) => r.id === id);
-    return card?.data?.sensitivity === "high";
-  });
+  // 三值判斷：true＝確定會、false＝確定不會、"unknown"＝資訊不足。
+  // 「不會」只有在所有候選都「確定為否」時才能宣稱；未知不得顯示成安全。
+  const tri = (values: (boolean | "unknown" | undefined)[]): boolean | "unknown" => {
+    if (values.some((v) => v === true)) return true;
+    if (values.every((v) => v === false)) return false;
+    return "unknown";
+  };
+  const external = tri(candidates.map((c) => cardOf(c)?.effect?.externalSideEffect));
+  const physical = tri(candidates.map((c) => cardOf(c)?.effect?.physicalEffect));
+  const sensitiveIn = tri(
+    receptorIds.map((id) => {
+      const card = human?.receptors.find((r) => r.id === id);
+      if (!card?.data) return "unknown" as const;
+      if (card.data.sensitivity === "high") return true;
+      if (card.data.sensitivity === "unknown") return "unknown" as const;
+      return false;
+    })
+  );
 
   return (
     <Dialog title="啟用前的影響預覽" onClose={onCancel}>
@@ -755,11 +783,21 @@ function ImpactPreviewDialog({
         </ul>
         <h3>這個自動互動不會：</h3>
         <ul className="impact-no">
-          {!sensitiveIn && <li>✗ 使用攝影機、麥克風或其他高敏感來源</li>}
-          {!physical && <li>✗ 控制實體裝置</li>}
-          {!external && <li>✗ 將資料傳送到外部服務</li>}
+          {sensitiveIn === false && <li>✗ 使用攝影機、麥克風或其他高敏感來源</li>}
+          {physical === false && <li>✗ 控制實體裝置</li>}
+          {external === false && <li>✗ 將資料傳送到外部服務</li>}
           {aiMode === "never" && <li>✗ 呼叫任何 AI</li>}
         </ul>
+        {(sensitiveIn === "unknown" || physical === "unknown" || external === "unknown") && (
+          <>
+            <h3>資訊不足、無法保證：</h3>
+            <ul className="impact-no">
+              {sensitiveIn === "unknown" && <li>？ 是否涉及高敏感來源</li>}
+              {physical === "unknown" && <li>？ 是否有實體效果</li>}
+              {external === "unknown" && <li>？ 是否將資料傳到外部</li>}
+            </ul>
+          </>
+        )}
         <p className="muted small">執行時仍會再次經過安全規則與同意檢查；這裡只是事前預覽。</p>
       </div>
       <div className="row wrap">

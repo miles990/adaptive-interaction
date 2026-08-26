@@ -64,6 +64,12 @@ impl ReceptorManifestBuilder {
         self.manifest.refresh_interval_ms = Some(ms);
         self
     }
+    /// Attach the formal human layer (data semantics / presentation).
+    pub fn human(mut self, human: interaction_core::HumanMeta) -> Self {
+        self.manifest.human = Some(human);
+        self
+    }
+
     pub fn build(self) -> ReceptorManifest {
         self.manifest
     }
@@ -140,6 +146,12 @@ impl ActuatorManifestBuilder {
         self.manifest.cost = cost;
         self
     }
+    /// Attach the formal human layer (effect semantics / presentation).
+    pub fn human(mut self, human: interaction_core::HumanMeta) -> Self {
+        self.manifest.human = Some(human);
+        self
+    }
+
     pub fn build(self) -> ActuatorManifest {
         self.manifest
     }
@@ -215,6 +227,41 @@ pub fn merge_driver_receipt(base: &mut ActionReceipt, driver: &ActionReceipt) {
         base.driver_response.insert(k.clone(), v.clone());
     }
     base.errors.extend(driver.errors.iter().cloned());
+}
+
+/// Formal declaration for a receptor whose data is produced and stays on this
+/// machine (stored in the local state DB until pruned/deleted).
+pub fn local_data_semantics() -> interaction_core::HumanMeta {
+    use interaction_core::*;
+    HumanMeta {
+        data: Some(DataSemantics {
+            source: DataSource::Local,
+            leaves_device: TriState::No,
+            retention: DataRetention::Persistent,
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Formal declaration for a local-only actuator: how disruptive it is and the
+/// deepest delivery level the driver can honestly confirm.
+pub fn local_effect_semantics(
+    interruptiveness: interaction_core::Interruptiveness,
+    confirmation: interaction_core::ConfirmationLevel,
+) -> interaction_core::HumanMeta {
+    use interaction_core::*;
+    HumanMeta {
+        effect: Some(EffectSemantics {
+            external_side_effect: TriState::No,
+            physical_effect: TriState::No,
+            interruptiveness,
+            reversible: TriState::Unknown,
+            confirmation_level: confirmation,
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
 }
 
 #[cfg(test)]

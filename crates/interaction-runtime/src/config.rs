@@ -207,19 +207,52 @@ impl ConfigService {
         let yaml = serde_yaml::to_string(recipe)
             .map_err(|e| DomainError::Internal(format!("serialize recipe: {e}")))?;
         atomic_write(&path, &yaml)?;
+        // Recipes may have been loaded from *.yml / *.json or a file whose
+        // basename differs from the id; leaving those behind would fork a
+        // duplicate that resurrects the old version on restart.
+        for stale in self.recipe_files_with_id(id) {
+            if stale != path {
+                let _ = std::fs::remove_file(&stale);
+            }
+        }
         Ok(path)
     }
 
+    /// Every recipe file in the recipes dir whose PARSED id matches — the id
+    /// lives in the content, not the filename.
+    fn recipe_files_with_id(&self, id: &str) -> Vec<PathBuf> {
+        let mut hits = Vec::new();
+        let Ok(entries) = std::fs::read_dir(self.paths.recipes_dir()) else {
+            return hits;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if !matches!(ext, "yaml" | "yml" | "json") {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                if let Ok(recipe) = interaction_recipe::parse_and_validate(&text) {
+                    if recipe.id.as_str() == id {
+                        hits.push(path);
+                    }
+                }
+            }
+        }
+        hits
+    }
+
+    /// Delete every file backing this recipe id. Idempotent: a recipe that
+    /// only ever lived in memory deletes cleanly.
     pub fn delete_recipe(&self, id: &str) -> DomainResult<()> {
         if id.contains('/') || id.contains('\\') || id.contains("..") {
             return Err(DomainError::Validation("path-unsafe recipe id".into()));
         }
-        let path = self.paths.recipes_dir().join(format!("{id}.yaml"));
-        if !path.exists() {
-            return Err(DomainError::NotFound(format!("recipe file for {id}")));
+        for path in self.recipe_files_with_id(id) {
+            std::fs::remove_file(&path)
+                .map_err(|e| DomainError::Storage(format!("remove {path:?}: {e}")))?;
         }
-        std::fs::remove_file(&path)
-            .map_err(|e| DomainError::Storage(format!("remove {path:?}: {e}")))
+        Ok(())
     }
 
     /// Load or create the local API capability token (0600).

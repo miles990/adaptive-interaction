@@ -70,6 +70,13 @@ pub struct AiAssistSpec {
     /// Defaults to false and is additionally bounded by global policy.
     #[serde(default)]
     pub allow_sensitive_egress: bool,
+    /// Unknown fields preserved verbatim (lossless recipe round-trips).
+    #[serde(
+        default,
+        flatten,
+        skip_serializing_if = "std::collections::BTreeMap::is_empty"
+    )]
+    pub extra: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 impl Default for AiAssistSpec {
@@ -83,6 +90,7 @@ impl Default for AiAssistSpec {
             require_human_confirmation: false,
             daily_call_cap: None,
             allow_sensitive_egress: false,
+            extra: Default::default(),
         }
     }
 }

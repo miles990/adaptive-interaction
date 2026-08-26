@@ -49,6 +49,10 @@ impl Actuator for ConversationActuator {
         .description("Concise textual responses rendered in the conversation surface")
         .capabilities(&["text", "silence"])
         .risk(RiskClass::Low)
+        .human(interaction_adapter_sdk::local_effect_semantics(
+            interaction_core::Interruptiveness::Low,
+            interaction_core::ConfirmationLevel::Delivered,
+        ))
         .build()
     }
 
@@ -109,6 +113,10 @@ impl Actuator for WebUiActuator {
             .description("Non-interrupting cards in the control-center feed")
             .capabilities(&["text", "card"])
             .risk(RiskClass::Low)
+            .human(interaction_adapter_sdk::local_effect_semantics(
+                interaction_core::Interruptiveness::Low,
+                interaction_core::ConfirmationLevel::Delivered,
+            ))
             .build()
     }
 
@@ -155,6 +163,10 @@ impl Actuator for LocalLogActuator {
             .description("Structured log line on the local machine")
             .capabilities(&["text"])
             .risk(RiskClass::Low)
+            .human(interaction_adapter_sdk::local_effect_semantics(
+                interaction_core::Interruptiveness::None,
+                interaction_core::ConfirmationLevel::Completed,
+            ))
             .build()
     }
 
@@ -249,6 +261,10 @@ impl Actuator for LocalNotificationActuator {
         .description("Operating-system notification on the local machine")
         .capabilities(&["text"])
         .risk(RiskClass::BoundedSideEffect)
+        .human(interaction_adapter_sdk::local_effect_semantics(
+            interaction_core::Interruptiveness::Medium,
+            interaction_core::ConfirmationLevel::Delivered,
+        ))
         .build()
     }
 
@@ -325,6 +341,17 @@ impl Actuator for WebhookActuator {
         .requires_consent(true)
         .limits(ActuatorLimits {
             max_payload_bytes: Some(64 * 1024),
+            ..Default::default()
+        })
+        .human(interaction_core::HumanMeta {
+            effect: Some(interaction_core::EffectSemantics {
+                external_side_effect: interaction_core::TriState::Yes,
+                physical_effect: interaction_core::TriState::No,
+                interruptiveness: interaction_core::Interruptiveness::None,
+                reversible: interaction_core::TriState::No,
+                confirmation_level: interaction_core::ConfirmationLevel::Acknowledged,
+                ..Default::default()
+            }),
             ..Default::default()
         })
         .build()

@@ -65,4 +65,11 @@ pub struct MessageStrategy {
     /// Suppress a candidate if it was used within this window (ms).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repeat_cooldown_ms: Option<u64>,
+    /// Unknown fields preserved verbatim (lossless recipe round-trips).
+    #[serde(
+        default,
+        flatten,
+        skip_serializing_if = "std::collections::BTreeMap::is_empty"
+    )]
+    pub extra: std::collections::BTreeMap<String, serde_json::Value>,
 }

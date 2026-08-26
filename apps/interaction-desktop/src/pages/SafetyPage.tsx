@@ -80,11 +80,13 @@ function RecoveryDialog({ onClose, onCleared }: { onClose: () => void; onCleared
   const { human } = useAppState();
   const [error, setError] = React.useState<string | null>(null);
   const [working, setWorking] = React.useState(false);
+  // 對齊後端事實：緊急停止會撤回所有同意，因此「需同意」的能力解除後
+  // 仍不可用，直到重新同意；其餘能力恢復「可用」但仍受安全規則限制。
   const willResume = (human?.actuators ?? []).filter(
-    (a) => a.consent.required !== true && a.effect?.physicalEffect !== true
+    (a) => a.consent.required !== true && a.requiresConsent !== true
   );
   const willNotResume = (human?.actuators ?? []).filter(
-    (a) => a.consent.required === true || a.effect?.physicalEffect === true
+    (a) => a.consent.required === true || a.requiresConsent === true
   );
   return (
     <Dialog title="解除緊急停止" onClose={onClose} danger>
@@ -162,13 +164,15 @@ function ConsentSection({ refreshKey }: { refreshKey: number }) {
       ) : (
         <ul className="consent-list">
           {active.map((c, i) => {
-            const kind = c.scope.kind === "channel" ? "整個通道" : "";
+            const kind = c.scope.kind === "channel" ? "整個通道" : c.scope.kind === "toolOperation" ? "工具操作" : "";
             const card =
               c.scope.kind === "actuator"
                 ? findCard("actuator", c.scope.id)
                 : c.scope.kind === "receptor"
                   ? findCard("receptor", c.scope.id)
-                  : null;
+                  : c.scope.kind === "toolOperation"
+                    ? findCard("tool", c.scope.id)
+                    : null;
             return (
               <li key={i} className="consent-item">
                 <div>
@@ -189,11 +193,15 @@ function ConsentSection({ refreshKey }: { refreshKey: number }) {
                 </div>
                 <button
                   onClick={async () => {
-                    const scope = `${c.scope.kind === "toolOperation" ? "tool" : c.scope.kind}:${c.scope.id}`;
-                    await api.consentRevoke(scope);
-                    setMessage(
-                      "已撤回。新的動作會立即被阻止；進行中的動作已要求取消（無法取消的會標示「結果未知」）。"
-                    );
+                    try {
+                      const scope = `${c.scope.kind === "toolOperation" ? "tool" : c.scope.kind}:${c.scope.id}`;
+                      await api.consentRevoke(scope);
+                      setMessage(
+                        "已撤回。新的動作會立即被阻止；進行中的動作已要求取消（無法取消的會標示「結果未知」）。"
+                      );
+                    } catch (e) {
+                      setMessage(`撤回失敗：${e}。授權狀態未變，請重試。`);
+                    }
                     reload();
                   }}
                 >

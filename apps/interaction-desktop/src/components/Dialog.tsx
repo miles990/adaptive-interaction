@@ -31,8 +31,12 @@ export function Dialog({
       return;
     }
     if (e.key === "Tab" && ref.current) {
-      const focusables = ref.current.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])'
+      const all = ref.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+      );
+      // 收合中的 <details> 內容不可聚焦，不能當成循環端點。
+      const focusables = Array.from(all).filter(
+        (el) => !el.closest("details:not([open]) > :not(summary)")
       );
       if (focusables.length === 0) return;
       const first = focusables[0];
@@ -85,8 +89,11 @@ export function ConfirmButton({
   disabled?: boolean;
 }) {
   const [arming, setArming] = React.useState(false);
+  const confirmRef = React.useRef<HTMLButtonElement>(null);
   React.useEffect(() => {
     if (!arming) return;
+    // 鍵盤使用者的焦點跟著進入確認狀態，不會落到消失的節點上。
+    confirmRef.current?.focus();
     const t = setTimeout(() => setArming(false), 5000);
     return () => clearTimeout(t);
   }, [arming]);
@@ -98,9 +105,11 @@ export function ConfirmButton({
     );
   }
   return (
-    <span className="row">
+    <span className="row" role="status" aria-live="polite">
       <button
+        ref={confirmRef}
         className={className ? `${className} danger` : "danger"}
+        disabled={disabled}
         onClick={() => {
           setArming(false);
           onConfirm();

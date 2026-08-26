@@ -122,17 +122,23 @@ function Shell({
   const { prefs, pause } = useAppState();
   const [tab, setTab] = React.useState<Tab>("home");
   const [estop, setEstop] = React.useState(false);
+  const [estopError, setEstopError] = React.useState<string | null>(null);
   const [onboarding, setOnboarding] = React.useState<"unknown" | "open" | "closed">("unknown");
   const advanced = prefs.mode === "advanced";
 
   React.useEffect(() => {
     if (connecting) return;
-    api.status().then((s) => {
-      setEstop(Boolean(s["emergencyStop"]));
-      if (onboarding === "unknown") {
-        setOnboarding(s["onboardingCompleted"] === true ? "closed" : "open");
-      }
-    });
+    api
+      .status()
+      .then((s) => {
+        setEstop(Boolean(s["emergencyStop"]));
+        if (onboarding === "unknown") {
+          setOnboarding(s["onboardingCompleted"] === true ? "closed" : "open");
+        }
+      })
+      .catch(() => {
+        /* transient backend hiccup: keep last known state; next event retries */
+      });
   }, [connecting, refreshKey]);
 
   async function triggerEstop() {
@@ -140,9 +146,11 @@ function Shell({
       await api.emergencyStop("desktop button");
       const s = await api.status();
       setEstop(Boolean(s["emergencyStop"]));
+      setEstopError(null);
       bumpRefresh();
     } catch (e) {
-      console.error("[control-center]", e);
+      // 緊急停止失敗絕不能無聲：顯著顯示並保留重試按鈕。
+      setEstopError(String(e));
     }
   }
 
@@ -231,6 +239,15 @@ function Shell({
             />
           )}
         </header>
+        {estopError && (
+          <div className="estop-banner" role="alert">
+            ⚠️ 緊急停止指令失敗：{estopError} — 系統可能仍在運作，請立即重試，或直接關閉應用程式
+            （關閉視窗會安全停止整個 Runtime）。
+            <button className="danger" style={{ marginLeft: 8 }} onClick={triggerEstop}>
+              重試緊急停止
+            </button>
+          </div>
+        )}
         {estop && (
           <div className="estop-banner" role="alert">
             緊急停止已啟動：所有回應已停止、未完成動作已中止。解除需到「同意與安全」頁走安全流程，不會自動恢復。

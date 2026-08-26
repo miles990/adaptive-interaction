@@ -909,10 +909,12 @@ pub async fn ai_assist_resolve(
     Path(id): Path<String>,
     Json(body): Json<AssistResolveBody>,
 ) -> ApiResult<Json<Value>> {
+    // The HTTP surface is the AI host's surface: it can never satisfy a
+    // recipe's requireHumanConfirmation gate.
     Ok(Json(
         state
             .runtime
-            .resolve_ai_assist(&id, &body.decision, body.note)
+            .resolve_ai_assist(&id, &body.decision, body.note, false)
             .await?,
     ))
 }

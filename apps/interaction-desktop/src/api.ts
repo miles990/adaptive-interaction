@@ -165,6 +165,13 @@ export const api = {
     }),
   pauseClear: () => invoke<PauseState>("pause_clear"),
   aiAssistsList: () => invoke<PendingAssist[]>("ai_assists_list"),
+  aiAssistResolve: (requestId: string, decision: "proceed" | "no-action", note?: string) =>
+    invoke<Record<string, unknown>>("ai_assist_resolve", {
+      requestId,
+      decision,
+      note: note ?? null,
+    }),
+  planGet: (planId: string) => invoke<Record<string, unknown>>("plan_get", { planId }),
   recipeSummary: (id: string, locale?: string) =>
     invoke<{ recipeId: string; summary: string }>("recipe_summary", {
       id,

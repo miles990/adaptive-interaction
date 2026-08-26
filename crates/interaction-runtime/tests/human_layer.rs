@@ -437,20 +437,25 @@ async fn resolving_assist_proceed_fires_once() {
 
     // Invalid decision refused, request stays pending.
     assert!(rt
-        .resolve_ai_assist(&request_id, "maybe", None)
+        .resolve_ai_assist(&request_id, "maybe", None, false)
         .await
         .is_err());
     assert_eq!(rt.pending_ai_assists().await.len(), 1);
 
     let out = rt
-        .resolve_ai_assist(&request_id, "proceed", Some("user seems present".into()))
+        .resolve_ai_assist(
+            &request_id,
+            "proceed",
+            Some("user seems present".into()),
+            false,
+        )
         .await
         .unwrap();
     assert_eq!(out["outcome"]["result"], json!("fired"));
     assert!(receipts_count(&rt).await > 0);
     // Second resolution of the same request is refused (already claimed).
     assert!(rt
-        .resolve_ai_assist(&request_id, "proceed", None)
+        .resolve_ai_assist(&request_id, "proceed", None, false)
         .await
         .is_err());
 }
@@ -558,4 +563,227 @@ async fn recipe_summary_derives_from_structure() {
     // Display names resolved through the same projection the UI uses.
     assert!(summary.contains("任務狀態"), "{summary}");
     assert!(summary.contains("不需要 AI"), "{summary}");
+}
+
+// ---------------------------------------------------------------------------
+// Review-hardening regressions
+// ---------------------------------------------------------------------------
+
+const AI_RECIPE_FALLBACK: &str = r#"
+id: ai-gated-fb
+name: ai gated fallback
+trigger:
+  mode: single
+  steps:
+    - receptor: user.presence
+      condition:
+        state: present
+decision:
+  objective: assist
+  allowNoAction: false
+intent: presence
+actuation:
+  mode: single
+  candidates: [conversation]
+  minChannels: 1
+  maxChannels: 1
+ai:
+  mode: when-uncertain
+  minConfidence: 0.9
+  maxWaitMs: 150
+  onUnavailable: fallback
+"#;
+
+#[tokio::test]
+async fn assist_fallback_respects_recipe_disabled_during_wait() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.upsert_recipe_text(AI_RECIPE_FALLBACK).await.unwrap();
+
+    let mut inf = BTreeMap::new();
+    inf.insert("possibleState".to_string(), json!("away"));
+    rt.ingest("user.presence", facts(&[("state", "present")]), inf, 0.3)
+        .await
+        .unwrap();
+    assert_eq!(rt.pending_ai_assists().await.len(), 1);
+    // The user disables the recipe while the assist is pending.
+    rt.set_recipe_enabled("ai-gated-fb", false).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+    assert_eq!(
+        receipts_count(&rt).await,
+        0,
+        "a recipe disabled during the assist window must NOT fire on fallback"
+    );
+}
+
+#[tokio::test]
+async fn assist_requires_human_confirmation_gates_api_resolution() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    let recipe = AI_RECIPE_FALLBACK
+        .replace("id: ai-gated-fb", "id: ai-gated-hc")
+        .replace("maxWaitMs: 150", "maxWaitMs: 30000")
+        + "  requireHumanConfirmation: true\n";
+    rt.upsert_recipe_text(&recipe).await.unwrap();
+
+    let mut inf = BTreeMap::new();
+    inf.insert("possibleState".to_string(), json!("away"));
+    rt.ingest("user.presence", facts(&[("state", "present")]), inf, 0.3)
+        .await
+        .unwrap();
+    let pending = rt.pending_ai_assists().await;
+    assert_eq!(pending.len(), 1);
+    let id = pending[0].request_id.clone();
+
+    // AI surface (human_confirmed=false) cannot self-approve.
+    let err = rt.resolve_ai_assist(&id, "proceed", None, false).await;
+    assert!(
+        matches!(err, Err(DomainError::ApprovalRequired(_))),
+        "{err:?}"
+    );
+    assert_eq!(
+        rt.pending_ai_assists().await.len(),
+        1,
+        "request stays pending"
+    );
+    assert_eq!(receipts_count(&rt).await, 0);
+
+    // Human surface (desktop IPC) can.
+    let out = rt
+        .resolve_ai_assist(&id, "proceed", None, true)
+        .await
+        .unwrap();
+    assert_eq!(out["outcome"]["result"], json!("fired"));
+    assert!(receipts_count(&rt).await > 0);
+}
+
+#[tokio::test]
+async fn assist_requiring_human_confirmation_never_autofires_on_timeout() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    let recipe = AI_RECIPE_FALLBACK.replace("id: ai-gated-fb", "id: ai-gated-hc2")
+        + "  requireHumanConfirmation: true\n";
+    rt.upsert_recipe_text(&recipe).await.unwrap();
+
+    let mut inf = BTreeMap::new();
+    inf.insert("possibleState".to_string(), json!("away"));
+    rt.ingest("user.presence", facts(&[("state", "present")]), inf, 0.3)
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert_eq!(
+        receipts_count(&rt).await,
+        0,
+        "onUnavailable=fallback must downgrade to no-action when human confirmation is required"
+    );
+}
+
+#[tokio::test]
+async fn onboarding_commit_refuses_consent_gated_components() {
+    let (_g, rt) = runtime().await;
+    rt.add_push_receptor("camera.fake", "Fake camera", "sensor", true)
+        .await
+        .unwrap();
+    let commit = OnboardingCommit {
+        enable_receptors: vec!["camera.fake".into()],
+        ..Default::default()
+    };
+    let err = rt.commit_onboarding(commit).await;
+    assert!(
+        matches!(err, Err(DomainError::ConsentRequired(_))),
+        "{err:?}"
+    );
+    assert_eq!(rt.onboarding_state().await["completed"], json!(false));
+    // The mock actuator is consent-gated too.
+    let commit = OnboardingCommit {
+        enable_actuators: vec!["mock.actuator".into()],
+        ..Default::default()
+    };
+    assert!(rt.commit_onboarding(commit).await.is_err());
+}
+
+#[tokio::test]
+async fn recipe_files_follow_the_id_not_the_filename() {
+    let dir = tempfile::tempdir().unwrap();
+    let recipes_dir = dir.path().join("config/recipes");
+    std::fs::create_dir_all(&recipes_dir).unwrap();
+    // A recipe backed by a differently-named .yml file.
+    std::fs::write(
+        recipes_dir.join("my-old-name.yml"),
+        FIRE_RECIPE.replace("fire on task completed", "v1"),
+    )
+    .unwrap();
+    let rt = Runtime::start(RuntimeOptions {
+        home: Some(dir.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+    assert!(rt.get_recipe("fire-on-task").await.is_ok());
+    // Editing rewrites {id}.yaml AND removes the stale backing file.
+    rt.upsert_recipe_text(&FIRE_RECIPE.replace("fire on task completed", "v2"))
+        .await
+        .unwrap();
+    assert!(
+        !recipes_dir.join("my-old-name.yml").exists(),
+        "stale file forked"
+    );
+    assert!(recipes_dir.join("fire-on-task.yaml").exists());
+    // Removing deletes every backing file — no resurrection on restart.
+    rt.remove_recipe("fire-on-task").await.unwrap();
+    assert!(!recipes_dir.join("fire-on-task.yaml").exists());
+    rt.shutdown().await;
+    let rt2 = Runtime::start(RuntimeOptions {
+        home: Some(dir.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+    assert!(
+        rt2.get_recipe("fire-on-task").await.is_err(),
+        "recipe resurrected"
+    );
+}
+
+#[tokio::test]
+async fn builtin_manifests_declare_honest_semantics() {
+    let (_g, rt) = runtime().await;
+    let caps = rt.human_capabilities("zh-TW", true).await;
+    let conv = caps["actuators"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "conversation")
+        .unwrap()
+        .clone();
+    // Builtin adapters now formally declare their effect semantics.
+    assert_eq!(conv["effect"]["confirmationLevel"], json!("delivered"));
+    assert_eq!(conv["effect"]["interruptiveness"], json!("low"));
+    let time = caps["receptors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "system.time")
+        .unwrap()
+        .clone();
+    assert_eq!(time["data"]["leavesDevice"], json!(false));
+    // Webhook honestly declares its external side effect.
+    let webhook = caps["actuators"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "webhook.output")
+        .unwrap()
+        .clone();
+    assert_eq!(webhook["effect"]["externalSideEffect"], json!(true));
 }

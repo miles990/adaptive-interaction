@@ -175,7 +175,7 @@ function SystemFeed({ events, advanced }: { events: RuntimeEvent[]; advanced: bo
 function eventLabel(e: RuntimeEvent): string {
   switch (e.eventType) {
     case "emergency.stop":
-      return "緊急停止被觸發";
+      return e.payload["cleared"] === true ? "緊急停止已解除（人工確認）" : "緊急停止被觸發";
     case "proactive.paused":
       return "主動互動已暫停";
     case "proactive.resumed":

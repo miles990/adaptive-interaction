@@ -83,8 +83,20 @@ fn summarize_zh(recipe: &Recipe, resolve: &dyn Fn(&str) -> String) -> String {
         parts.push("這個配方不顯示文字".into());
     }
 
-    // AI involvement.
+    // Chance (surprise factor) — an unconditional claim would be wrong.
+    if recipe.actuation.chance < 1.0 {
+        parts.push(format!(
+            "每次觸發只有 {:.0}% 的機率真的回應",
+            recipe.actuation.chance * 100.0
+        ));
+    }
+
+    // AI involvement. Text generation via message.mode also counts.
+    let ai_text = recipe.message.mode == interaction_core::MessageMode::AiGenerated;
     match recipe.ai.as_ref().map(|a| a.mode) {
+        None | Some(AiAssistMode::Never) if ai_text => {
+            parts.push("回應文字由 AI 即時生成，其餘由本機規則處理".into());
+        }
         None | Some(AiAssistMode::Never) => {
             parts.push("整個過程由本機規則處理，不需要 AI".into());
         }
@@ -160,7 +172,11 @@ fn summarize_en(recipe: &Recipe, resolve: &dyn Fn(&str) -> String) -> String {
     if recipe.decision.allow_no_action {
         parts.push("staying silent is allowed when nothing fits".into());
     }
+    let ai_text = recipe.message.mode == interaction_core::MessageMode::AiGenerated;
     match recipe.ai.as_ref().map(|a| a.mode) {
+        None | Some(AiAssistMode::Never) if ai_text => {
+            parts.push("message text is AI-generated; everything else is local rules".into())
+        }
         None | Some(AiAssistMode::Never) => {
             parts.push("local rules handle everything; no AI involved".into())
         }

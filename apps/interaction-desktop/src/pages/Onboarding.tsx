@@ -43,8 +43,12 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
   const [committing, setCommitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   React.useEffect(() => {
-    api.onboardingGet().then((s) => {
+    api.onboardingGet().catch((e) => {
+      setLoadError(String(e));
+      throw e;
+    }).then((s) => {
       setState(s);
       const d = s.draft as Partial<Draft> | null | undefined;
       if (d && typeof d.step === "number") {
@@ -79,11 +83,11 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
     try {
       const enableR = draft.senses;
       const disableR = human.receptors
-        .filter((r) => !draft.senses.includes(r.id) && r.availability === "available" && !r.requiresConsent)
+        .filter((r) => !draft.senses.includes(r.id) && r.availability !== "disabled" && !r.requiresConsent)
         .map((r) => r.id);
       const enableA = draft.responses;
       const disableA = human.actuators
-        .filter((a) => !draft.responses.includes(a.id) && a.availability === "available" && !a.requiresConsent)
+        .filter((a) => !draft.responses.includes(a.id) && a.availability !== "disabled" && !a.requiresConsent)
         .map((a) => a.id);
       await api.onboardingCommit({
         enableReceptors: enableR,
@@ -109,6 +113,18 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
     }
   }
 
+  if (loadError)
+    return (
+      <div className="onboarding">
+        <div className="onboarding-panel">
+          <div className="state-box state-error">無法載入設定精靈：{loadError}</div>
+          <div className="row" style={{ marginTop: 12 }}>
+            <button onClick={() => window.location.reload()}>重試</button>
+            <button onClick={onSkip}>略過，直接進入主畫面</button>
+          </div>
+        </div>
+      </div>
+    );
   if (!human || !state) return <div className="onboarding"><div className="state-box">載入中…</div></div>;
 
   const step = draft.step;
@@ -158,7 +174,7 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
           <PickStep
             title="AI 可以知道什麼？"
             intro="勾選你願意讓系統感知的資訊。高敏感來源（攝影機、麥克風、位置）預設不啟用，之後需要時再個別同意。"
-            cards={human.receptors.filter((r) => !r.requiresConsent)}
+            cards={human.receptors.filter((r) => !r.requiresConsent && r.consent.required !== true)}
             selected={draft.senses}
             onChange={(senses) => update({ senses })}
           />
@@ -168,7 +184,7 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
           <PickStep
             title="AI 可以怎麼回應？"
             intro="勾選允許的回應方式。每張卡片標示干擾程度與影響範圍；實體與對外能力預設關閉。"
-            cards={human.actuators.filter((a) => !a.requiresConsent)}
+            cards={human.actuators.filter((a) => !a.requiresConsent && a.consent.required !== true)}
             selected={draft.responses}
             onChange={(responses) => update({ responses })}
           />
@@ -314,7 +330,7 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
               </div>
               <div>
                 <dt>資料離開本機</dt>
-                <dd>目前選擇的能力都在本機運作；會對外傳輸的能力啟用前會再提醒</dd>
+                <dd>{dataFlowSummary(human, draft)}</dd>
               </div>
               <div>
                 <dt>主動程度</dt>
@@ -370,11 +386,43 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
   );
 }
 
+/** 由實際選擇計算資料流摘要 — 絕不硬編「都在本機」。 */
+function dataFlowSummary(
+  human: { receptors: HumanCard[]; actuators: HumanCard[] },
+  draft: Draft
+): string {
+  const selected = [
+    ...human.receptors.filter((r) => draft.senses.includes(r.id)),
+    ...human.actuators.filter((a) => draft.responses.includes(a.id)),
+  ];
+  const leaves = selected.filter(
+    (c) => c.data?.leavesDevice === true || c.effect?.externalSideEffect === true
+  );
+  const unknown = selected.filter(
+    (c) =>
+      (c.data && c.data.leavesDevice === "unknown") ||
+      (c.effect && c.effect.externalSideEffect === "unknown") ||
+      (!c.data && !c.effect)
+  );
+  if (leaves.length > 0)
+    return `注意：「${leaves.map((c) => c.displayName).join("、")}」會將資料傳到外部`;
+  if (unknown.length > 0)
+    return `大多為本機能力；「${unknown.map((c) => c.displayName).join("、")}」的資料流向未知，使用前請確認`;
+  return "目前選擇的能力都確定只在本機運作";
+}
+
 function beginnerSafe(card: HumanCard): boolean {
-  if (card.requiresConsent) return false;
-  if (card.data && (card.data.sensitivity === "high" || card.data.leavesDevice === true)) return false;
-  if (card.effect && (card.effect.physicalEffect === true || card.effect.externalSideEffect === true))
-    return false;
+  // 保守原則：只有「確定安全」才能預選；未知一律不預選。
+  if (card.requiresConsent || card.consent.required === true) return false;
+  if (card.data) {
+    if (card.data.sensitivity === "high" || card.data.sensitivity === "unknown") return false;
+    if (card.data.leavesDevice !== false) return false; // true 或 unknown 都不預選
+  }
+  if (card.effect) {
+    if (card.effect.physicalEffect !== false) return false;
+    if (card.effect.externalSideEffect !== false) return false;
+  }
+  if (!card.data && !card.effect) return false; // 完全沒有語意宣告 → 不預選
   return true;
 }
 

@@ -128,3 +128,36 @@ AppleScript quit 均優雅關閉（clean_shutdown=true）。
   尚未宣告 `human.effect` 正式語意（目錄 typical 依規範不得當成事實）。列入下一步。
 - 走查期間使用者同時在操作這台電腦，兩張截圖曾拍到非 app 視窗，已刪除重拍；
   自動化點擊已改為「前景驗證＋AX 元素定位」以避免誤觸其他應用程式。
+
+
+### 對抗性審查（30-agent workflow）
+5 個維度（安全繞過／誠實性／併發／round-trip／前端邏輯）各自獨立審查，每個發現再由
+獨立驗證者對照程式碼對抗確認：**39 個發現、23 個確認**，全部修復並加回歸測試：
+
+**安全（major）**
+- assist 等待期間停用配方／撤回配方級同意後，timeout fallback 與 `proceed` 仍會觸發
+  → `fire_recipe_deterministic` 重新檢查 enabled＋recipe consent＋estop（測試鎖住）。
+- `ai.requireHumanConfirmation` 是死旗標 → 現在強制執行：API（AI 面）resolve `proceed`
+  一律 `approval_required`，只有桌面 IPC（人類面）能確認；timeout fallback 自動降級為
+  no-action（測試鎖住）。
+- onboarding commit 可批次啟用需同意（敏感）元件 → 現在拒絕並導向明確同意流程（測試鎖住）。
+- 無效 decision 會把 assist 重插回 map 造成洩漏與過期可解 → 先驗證後認領＋過期拒絕。
+
+**誠實性（major）**
+- 影響預覽把「未知」顯示成「不會」→ 三值判斷＋「資訊不足、無法保證」區塊。
+- 首頁互動故事從事件流猜 AI 介入（會誤掛到別的配方）→ 改讀該 plan 持久化的
+  `metadata.aiGate` 真實決策資料。
+- 精靈確認頁硬編「都在本機運作」→ 改由實際選擇的卡片語意計算。
+- 精靈預選把「未知風險」當安全 → 只預選「確定安全」；同時讓內建 adapters 正式宣告
+  data/effect 語意（也修掉卡片上的「可以確認：未知」）。
+- estop 解除清單把 physicalEffect unknown 列為「會恢復」→ 對齊後端事實（以同意為準）。
+
+**round-trip（major）**
+- `message:`／`ai:` 區塊內的未知欄位會被丟棄 → serde flatten 保留（測試鎖住）。
+- recipe 以 `.yml`/`.json`/異名檔案為底時，編輯會分叉、刪除會復活 → save/delete
+  改為「依內容 id 掃描」（測試鎖住）；`remove_recipe` 不再吞檔案刪除錯誤。
+- 運算式字串條件會被句子編輯器覆寫 → 視為進階結構原樣保留。
+
+**其餘 minor**（併發順序、每日上限計數、estop 失敗無聲、各處錯誤處理、a11y 焦點圈養、
+availability 文案、摘要涵蓋 chance/AI 生成文字…）共 14 項一併修復。
+2 個發現經驗證為誤報（合成事件情境、無法達成的組合）。

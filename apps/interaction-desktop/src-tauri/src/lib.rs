@@ -499,6 +499,31 @@ async fn ai_assists_list(state: State<'_, AppState>) -> Result<Value, String> {
     serde_json::to_value(runtime.pending_ai_assists().await).map_err(err_s)
 }
 
+/// Desktop IPC = a human clicked; this surface satisfies
+/// `ai.requireHumanConfirmation`.
+#[tauri::command]
+async fn ai_assist_resolve(
+    state: State<'_, AppState>,
+    request_id: String,
+    decision: String,
+    note: Option<String>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime
+        .resolve_ai_assist(&request_id, &decision, note, true)
+        .await
+        .map_err(err_s)
+}
+
+#[tauri::command]
+async fn plan_get(state: State<'_, AppState>, plan_id: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let plan = runtime
+        .get_plan(&interaction_core::PlanId::new(plan_id))
+        .map_err(err_s)?;
+    serde_json::to_value(plan).map_err(err_s)
+}
+
 #[tauri::command]
 async fn recipe_summary(
     state: State<'_, AppState>,
@@ -663,6 +688,8 @@ pub fn run() {
             pause_set,
             pause_clear,
             ai_assists_list,
+            ai_assist_resolve,
+            plan_get,
             recipe_summary,
             recipe_simulate_scenario,
             recipe_convert,

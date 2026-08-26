@@ -92,6 +92,7 @@
       ]
     },
     "AiAssistSpec": {
+      "additionalProperties": true,
       "properties": {
         "allowSensitiveEgress": {
           "default": false,
@@ -311,6 +312,7 @@
       ]
     },
     "MessageStrategy": {
+      "additionalProperties": true,
       "properties": {
         "allowSilence": {
           "default": false,

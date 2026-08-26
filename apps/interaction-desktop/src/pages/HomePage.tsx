@@ -22,6 +22,17 @@ export function HomePage({
   const [actions] = useAsync(() => api.actionsList(5), [refreshKey]);
   const [session] = useAsync(() => api.sessionGet(), [refreshKey]);
   const [pauseDialog, setPauseDialog] = React.useState(false);
+  const [pauseError, setPauseError] = React.useState<string | null>(null);
+  const tryPause = async (minutes?: number) => {
+    try {
+      await doPause(minutes);
+      setPauseError(null);
+      return true;
+    } catch (e) {
+      setPauseError(String(e));
+      return false;
+    }
+  };
 
   const estop = Boolean(status.data?.["emergencyStop"]);
   const recipes = (status.data?.["recipes"] as { loaded?: number } | undefined)?.loaded ?? 0;
@@ -75,15 +86,22 @@ export function HomePage({
           <ProactiveSummary />
           <div className="row wrap" style={{ marginTop: 10 }}>
             {pause.paused ? (
-              <button onClick={() => doResume()}>恢復主動互動</button>
+              <button onClick={() => doResume().catch((e) => setPauseError(String(e)))}>
+                恢復主動互動
+              </button>
             ) : (
               <>
-                <button onClick={() => doPause()}>暫停主動互動</button>
+                <button onClick={() => tryPause()}>暫停主動互動</button>
                 <button onClick={() => setPauseDialog(true)}>暫停一段時間…</button>
               </>
             )}
             <button onClick={() => onNavigate("automations")}>查看自動互動</button>
           </div>
+          {pauseError && (
+            <p className="cap-card-error" role="alert">
+              操作失敗：{pauseError}
+            </p>
+          )}
         </Section>
       </div>
 
@@ -136,8 +154,7 @@ export function HomePage({
               <button
                 key={m}
                 onClick={async () => {
-                  await doPause(m);
-                  setPauseDialog(false);
+                  if (await tryPause(m)) setPauseDialog(false);
                 }}
               >
                 {m >= 60 ? `${m / 60} 小時` : `${m} 分鐘`}
@@ -145,8 +162,7 @@ export function HomePage({
             ))}
             <button
               onClick={async () => {
-                await doPause();
-                setPauseDialog(false);
+                if (await tryPause()) setPauseDialog(false);
               }}
             >
               直到我恢復
@@ -244,11 +260,39 @@ function NameList({ cards, empty }: { cards: HumanCard[]; empty: string }) {
   );
 }
 
-function LastInteraction({ receipt, events }: { receipt: Receipt; events: RuntimeEvent[] }) {
+function LastInteraction({ receipt }: { receipt: Receipt; events: RuntimeEvent[] }) {
   const { findCard } = useAppState();
   const actuator = findCard("actuator", receipt.actuatorId);
   const verified = receipt.verification?.verdict === "observed";
-  const gate = findGate(events, receipt.planId);
+  // 理解階段的描述來自該 plan 的持久化 metadata（真實決策資料），
+  // 不從事件流猜測 —— 猜測會把別的配方的 AI 介入誤掛到這次互動上。
+  const [gate, setGate] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let alive = true;
+    api
+      .planGet(receipt.planId)
+      .then((plan) => {
+        if (!alive) return;
+        const meta = (plan["metadata"] ?? {}) as Record<string, unknown>;
+        const aiGate = meta["aiGate"] as Record<string, unknown> | undefined;
+        if (aiGate) {
+          const outcome = String(aiGate["outcome"] ?? "");
+          if (outcome === "requested") setGate("訊號模糊，曾請 AI 協助判斷");
+          else if (outcome === "deferred-then-deterministic")
+            setGate("曾等待 AI 判斷，最後由本機規則處理");
+          else if (outcome === "notNeeded") setGate("證據明確，由本機規則處理，不需要 AI");
+          else setGate("由本機規則處理，這次不需要 AI");
+        } else if (meta["recipeId"]) {
+          setGate("由本機規則自動觸發，不需要 AI");
+        } else {
+          setGate("回應明確要求");
+        }
+      })
+      .catch(() => alive && setGate(null));
+    return () => {
+      alive = false;
+    };
+  }, [receipt.planId]);
   return (
     <ol className="story-flow" aria-label="最近一次互動的過程">
       <li>
@@ -257,7 +301,7 @@ function LastInteraction({ receipt, events }: { receipt: Receipt; events: Runtim
       </li>
       <li>
         <span className="story-label">理解</span>
-        <span>{gate ?? "由本機規則判斷，這次不需要 AI"}</span>
+        <span>{gate ?? "（讀取決策資料中…）"}</span>
       </li>
       <li>
         <span className="story-label">計畫</span>
@@ -286,13 +330,3 @@ function LastInteraction({ receipt, events }: { receipt: Receipt; events: Runtim
   );
 }
 
-function findGate(events: RuntimeEvent[], planId: string): string | null {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i];
-    if (e.eventType === "ai.assist.resolved" || e.eventType === "ai.assist.requested") {
-      return "訊號模糊，曾請 AI 協助判斷";
-    }
-    if (e.eventType === "plan.created" && e.payload["planId"] === planId) break;
-  }
-  return null;
-}

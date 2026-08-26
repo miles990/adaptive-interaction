@@ -926,7 +926,9 @@ impl Runtime {
         let mut map = self.recipes.write().await;
         map.remove(id)
             .ok_or_else(|| DomainError::NotFound(format!("recipe {id}")))?;
-        let _ = self.config_service.delete_recipe(id);
+        // File deletion failures must surface: a recipe that silently
+        // survives on disk would resurrect on restart.
+        self.config_service.delete_recipe(id)?;
         self.events.emit(
             EventType::RecipeChanged,
             json!({"recipeId": id, "removed": true}),
@@ -1357,6 +1359,15 @@ impl Runtime {
                 _ = self.shutdown_token.cancelled() => return Ok(Some(decision)),
             }
         }
+        // The chance/jitter window may outlive the user's intent: re-check
+        // pause and emergency stop right before actually planning/executing.
+        if self.is_estopped() || self.proactive_paused().await {
+            tracing::info!(
+                recipe = recipe.id.as_str(),
+                "not firing: paused/stopped during jitter window"
+            );
+            return Ok(Some(decision));
+        }
         let mut plan = self.plan_from_recipe(recipe).await?;
         // Attach the fused context (facts after explicit-input override) so
         // the timeline shows what evidence the decision was based on.
@@ -1608,6 +1619,10 @@ impl Runtime {
             }
         });
     }
+}
+
+pub(crate) fn parse_scope_public(scope_str: &str) -> DomainResult<ConsentScope> {
+    parse_scope(scope_str)
 }
 
 fn parse_scope(scope_str: &str) -> DomainResult<ConsentScope> {

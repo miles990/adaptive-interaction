@@ -148,6 +148,10 @@ export function availabilityLabel(a: string): string {
       return "離線";
     case "degraded":
       return "運作異常";
+    case "revoked":
+      return "授權已撤回";
+    case "unknown":
+      return "狀態未知";
     case "consent-required":
       return "需先取得同意";
     default:

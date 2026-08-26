@@ -23,7 +23,9 @@ Everything you execute passes the policy governor. Prompts cannot override it.
   open actions become `uncertain`.
 - Proactive pause is a USER control, distinct from emergency stop: it silences
   recipe-driven autonomy while explicit requests keep working. Respect it;
-  never fire recipes to bypass a pause.
+  never fire recipes to bypass a pause, and NEVER call `interact-ai resume` /
+  `POST /v1/pause/clear` (or `POST /v1/onboarding/commit`) on your own
+  initiative — only when the human explicitly asked you to.
 - AI decision gate: recipes with `ai.mode: when-uncertain` publish
   `ai.assist.requested` when evidence is ambiguous (low confidence or
   contradictory observations). You may answer via
@@ -31,6 +33,9 @@ Everything you execute passes the policy governor. Prompts cannot override it.
   answers, the deterministic `onUnavailable` behavior (fallback / no-action)
   applies — do not retro-resolve or double-fire. Deterministic events never
   generate assist requests; do not inject yourself into unambiguous flows.
+  An assist marked `requireHumanConfirmation` cannot be resolved `proceed`
+  over the API at all (only the human's desktop surface can); expect
+  `approval_required` and surface it to the human instead of retrying.
 - AI-assisted descriptions are presentation only, hash-bound, and can never
   alter risk/consent/data-flow facts. Never write a description that claims a
   capability is safer than its formal manifest says.

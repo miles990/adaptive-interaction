@@ -156,6 +156,8 @@ pub struct PendingAssist {
     /// Data categories the recipe allows sharing; raw values are never
     /// embedded in the event payload.
     pub data_scope: Vec<String>,
+    /// When true, only a human surface (desktop IPC) may resolve `proceed`.
+    pub require_human_confirmation: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -206,12 +208,22 @@ impl Runtime {
         let now = Utc::now();
         let expired = { self.pause.read().await.expired(now) };
         if expired {
-            let mut guard = self.pause.write().await;
-            if guard.expired(now) {
-                *guard = PauseState::default();
+            // Update memory first (short-held guard, no blocking I/O inside),
+            // then persist — the same ordering as pause/resume so a concurrent
+            // writer cannot clobber a newer state in storage.
+            let cleared = {
+                let mut guard = self.pause.write().await;
+                if guard.expired(now) {
+                    *guard = PauseState::default();
+                    true
+                } else {
+                    false
+                }
+            };
+            if cleared {
                 let _ = self
                     .store
-                    .set_meta(PAUSE_META_KEY, &json!(*guard).to_string());
+                    .set_meta(PAUSE_META_KEY, &json!(PauseState::default()).to_string());
                 self.events.emit(
                     EventType::ProactiveResumed,
                     json!({"reason": "pause window elapsed"}),
@@ -245,9 +257,9 @@ impl Runtime {
             reason: reason.clone(),
             paused_at: Some(Utc::now()),
         };
+        *self.pause.write().await = state.clone();
         self.store
             .set_meta(PAUSE_META_KEY, &json!(state).to_string())?;
-        *self.pause.write().await = state.clone();
         self.events.emit(
             EventType::ProactivePaused,
             json!({"until": until, "reason": reason}),
@@ -259,9 +271,9 @@ impl Runtime {
 
     pub async fn resume_proactive(&self, actor: &str) -> DomainResult<PauseState> {
         let state = PauseState::default();
+        *self.pause.write().await = state.clone();
         self.store
             .set_meta(PAUSE_META_KEY, &json!(state).to_string())?;
-        *self.pause.write().await = state.clone();
         self.events
             .emit(EventType::ProactiveResumed, json!({"actor": actor}));
         self.store.audit("proactive.resumed", actor, &json!({}))?;
@@ -378,6 +390,36 @@ impl Runtime {
                 return Err(DomainError::NotFound(format!("actuator {id}")));
             }
         }
+        // Consent-gated (sensitive/physical/external) components can NOT be
+        // switched on through the bulk onboarding path — they require the
+        // explicit per-component enable + consent flow. The wizard never
+        // offers them; this guards the API surface.
+        for id in &commit.enable_receptors {
+            if let Some(m) = snapshot
+                .receptors
+                .iter()
+                .find(|m| m.id.as_str() == id.as_str())
+            {
+                if m.requires_consent {
+                    return Err(DomainError::ConsentRequired(format!(
+                        "receptor {id} is consent-gated; enable it explicitly and grant consent instead"
+                    )));
+                }
+            }
+        }
+        for id in &commit.enable_actuators {
+            if let Some(m) = snapshot
+                .actuators
+                .iter()
+                .find(|m| m.id.as_str() == id.as_str())
+            {
+                if m.requires_consent {
+                    return Err(DomainError::ConsentRequired(format!(
+                        "actuator {id} is consent-gated; enable it explicitly and grant consent instead"
+                    )));
+                }
+            }
+        }
         let starters = starter_recipes();
         for id in &commit.starter_recipes {
             if !starters.iter().any(|(sid, _, _)| sid == id) {
@@ -448,7 +490,7 @@ impl Runtime {
         // A committed onboarding leaves no ambiguous half-done draft behind.
         self.store.set_meta(ONBOARDING_DRAFT_META_KEY, "null")?;
         self.store
-            .audit("onboarding.committed", "user", &json!({"applied": applied}))?;
+            .audit("onboarding.committed", "api", &json!({"applied": applied}))?;
         Ok(json!({"completed": true, "applied": applied}))
     }
 
@@ -635,31 +677,37 @@ impl Runtime {
         spec: &AiAssistSpec,
     ) {
         // Daily cap: deterministic fallback rather than unbounded AI calls.
-        let today = Utc::now().format("%Y-%m-%d").to_string();
-        let cap_key = format!("ai_assist_count:{}:{}", recipe.id.as_str(), today);
-        let count: u32 = self
-            .store
-            .get_meta(&cap_key)
-            .ok()
-            .flatten()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
-        if let Some(cap) = spec.daily_call_cap {
+        // The counter is only tracked when a cap is configured (no unbounded
+        // meta-key growth otherwise) and only charged once a request is
+        // actually opened.
+        let cap_key = spec.daily_call_cap.map(|_| {
+            format!(
+                "ai_assist_count:{}:{}",
+                recipe.id.as_str(),
+                Utc::now().format("%Y-%m-%d")
+            )
+        });
+        if let (Some(cap), Some(key)) = (spec.daily_call_cap, cap_key.as_deref()) {
+            let count: u32 = self
+                .store
+                .get_meta(key)
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
             if count >= cap {
                 tracing::info!(recipe = recipe.id.as_str(), "AI assist daily cap reached");
-                self.apply_ai_unavailable(recipe.id.as_str(), spec, "daily call cap reached")
-                    .await;
+                self.apply_ai_unavailable(
+                    recipe.id.as_str(),
+                    spec.on_unavailable,
+                    spec.require_human_confirmation,
+                    "daily call cap reached",
+                )
+                .await;
                 return;
             }
         }
-        let _ = self.store.set_meta(&cap_key, &(count + 1).to_string());
 
-        let overflow = { self.ai_assists.read().await.len() >= MAX_PENDING_ASSISTS };
-        if overflow {
-            self.apply_ai_unavailable(recipe.id.as_str(), spec, "assist queue full")
-                .await;
-            return;
-        }
         let request_id = format!("assist-{}", uuid::Uuid::new_v4());
         let deadline =
             Utc::now() + chrono::Duration::milliseconds(spec.max_wait_ms.min(60_000) as i64);
@@ -671,11 +719,38 @@ impl Runtime {
             deadline,
             on_unavailable: spec.on_unavailable,
             data_scope: spec.data_scope.clone(),
+            require_human_confirmation: spec.require_human_confirmation,
         };
-        self.ai_assists
-            .write()
-            .await
-            .insert(request_id.clone(), assist.clone());
+        // Bound check and insert under ONE write lock (no TOCTOU).
+        let inserted = {
+            let mut map = self.ai_assists.write().await;
+            if map.len() >= MAX_PENDING_ASSISTS {
+                false
+            } else {
+                map.insert(request_id.clone(), assist);
+                true
+            }
+        };
+        if !inserted {
+            self.apply_ai_unavailable(
+                recipe.id.as_str(),
+                spec.on_unavailable,
+                spec.require_human_confirmation,
+                "assist queue full",
+            )
+            .await;
+            return;
+        }
+        if let (Some(_), Some(key)) = (spec.daily_call_cap, cap_key.as_deref()) {
+            let count: u32 = self
+                .store
+                .get_meta(key)
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+            let _ = self.store.set_meta(key, &(count + 1).to_string());
+        }
         self.events.emit(
             EventType::AiAssistRequested,
             json!({
@@ -685,6 +760,7 @@ impl Runtime {
                 "deadline": deadline,
                 "dataScope": spec.data_scope,
                 "onUnavailable": spec.on_unavailable,
+                "requireHumanConfirmation": spec.require_human_confirmation,
             }),
         );
         let _ = self.store.audit(
@@ -702,8 +778,13 @@ impl Runtime {
                     // Claim: whoever removes the entry acts on it.
                     let claimed = rt.ai_assists.write().await.remove(&request_id);
                     if let Some(assist) = claimed {
-                        rt.apply_ai_unavailable(&assist.recipe_id, &spec, "no AI host responded in time")
-                            .await;
+                        rt.apply_ai_unavailable(
+                            &assist.recipe_id,
+                            assist.on_unavailable,
+                            assist.require_human_confirmation,
+                            "no AI host responded in time",
+                        )
+                        .await;
                     }
                 }
                 _ = rt.shutdown_token.cancelled() => {}
@@ -712,8 +793,21 @@ impl Runtime {
     }
 
     /// Deterministic behavior when AI never answered (or was capped/absent).
-    async fn apply_ai_unavailable(&self, recipe_id: &str, spec: &AiAssistSpec, why: &str) {
-        let outcome = match spec.on_unavailable {
+    async fn apply_ai_unavailable(
+        &self,
+        recipe_id: &str,
+        on_unavailable: AiUnavailableBehavior,
+        require_human_confirmation: bool,
+        why: &str,
+    ) {
+        let outcome = match on_unavailable {
+            AiUnavailableBehavior::Fallback if require_human_confirmation => {
+                // A recipe that demands human confirmation must not auto-fire
+                // just because nobody answered: downgrade to no-action.
+                AiGateOutcome::UnavailableNoAction {
+                    reason: format!("{why}; human confirmation required, none given"),
+                }
+            }
             AiUnavailableBehavior::Fallback => {
                 if self.proactive_paused().await || self.is_estopped() {
                     AiGateOutcome::UnavailableNoAction {
@@ -745,46 +839,69 @@ impl Runtime {
         );
     }
 
-    /// An external AI host answers a pending assist request.
-    /// `decision` is `proceed` (fire the deterministic plan) or `no-action`.
+    /// Answer a pending assist request. `decision` is `proceed` (fire the
+    /// deterministic plan) or `no-action`. `human_confirmed` is true only for
+    /// human surfaces (desktop IPC); the HTTP API always passes false, so a
+    /// recipe with `ai.requireHumanConfirmation: true` cannot be self-approved
+    /// by the AI host that received the assist request.
     pub async fn resolve_ai_assist(
         &self,
         request_id: &str,
         decision: &str,
         note: Option<String>,
+        human_confirmed: bool,
     ) -> DomainResult<Value> {
-        let assist = self
-            .ai_assists
-            .write()
-            .await
-            .remove(request_id)
-            .ok_or_else(|| {
+        // Validate BEFORE claiming so a bad request never un-parks the entry
+        // (re-inserting would race the timeout task's claim-by-removal).
+        if !matches!(decision, "proceed" | "no-action") {
+            return Err(DomainError::Validation(format!(
+                "decision must be 'proceed' or 'no-action', got {decision:?}"
+            )));
+        }
+        {
+            let map = self.ai_assists.read().await;
+            let assist = map.get(request_id).ok_or_else(|| {
                 DomainError::NotFound(format!(
                     "assist request {request_id} (expired or already resolved)"
                 ))
             })?;
+            if assist.deadline <= Utc::now() {
+                return Err(DomainError::Expired(format!(
+                    "assist request {request_id} deadline passed; deterministic fallback applies"
+                )));
+            }
+            if decision == "proceed" && assist.require_human_confirmation && !human_confirmed {
+                return Err(DomainError::ApprovalRequired(format!(
+                    "assist request {request_id} requires explicit human confirmation"
+                )));
+            }
+        }
+        // Claim (whoever removes the entry acts on it).
+        let Some(assist) = self.ai_assists.write().await.remove(request_id) else {
+            return Err(DomainError::NotFound(format!(
+                "assist request {request_id} (expired or already resolved)"
+            )));
+        };
         let outcome = match decision {
             "proceed" => {
                 if self.proactive_paused().await {
                     json!({"decision": "proceed", "result": "skipped", "reason": "proactive interactions are paused"})
                 } else {
-                    self.fire_recipe_deterministic(&assist.recipe_id, "ai-approved")
-                        .await?;
-                    json!({"decision": "proceed", "result": "fired"})
+                    match self
+                        .fire_recipe_deterministic(&assist.recipe_id, "ai-approved")
+                        .await
+                    {
+                        Ok(()) => json!({"decision": "proceed", "result": "fired"}),
+                        Err(e) => {
+                            json!({"decision": "proceed", "result": "failed", "reason": e.to_string()})
+                        }
+                    }
                 }
             }
-            "no-action" => json!({"decision": "no-action", "result": "skipped"}),
-            other => {
-                // Restore the entry so the timeout still guards it.
-                self.ai_assists
-                    .write()
-                    .await
-                    .insert(request_id.to_string(), assist);
-                return Err(DomainError::Validation(format!(
-                    "decision must be 'proceed' or 'no-action', got {other:?}"
-                )));
-            }
+            _ => json!({"decision": "no-action", "result": "skipped"}),
         };
+        // The resolution event fires regardless of the execution result so the
+        // timeline never shows a dangling request.
         self.events.emit(
             EventType::AiAssistResolved,
             json!({
@@ -796,16 +913,38 @@ impl Runtime {
         );
         self.store.audit(
             "ai-assist.resolved",
-            "ai",
+            if human_confirmed { "user" } else { "ai" },
             &json!({"requestId": request_id, "recipeId": assist.recipe_id, "decision": decision}),
         )?;
         Ok(json!({"requestId": request_id, "recipeId": assist.recipe_id, "outcome": outcome}))
     }
 
     /// Fire a recipe's deterministic plan (trigger already satisfied earlier).
-    /// Policy still fully applies.
+    /// The pending-assist window may have outlived the user's intent, so the
+    /// recipe's enabled flag and recipe-level consents are re-checked here;
+    /// policy then fully applies to every step as usual.
     async fn fire_recipe_deterministic(&self, recipe_id: &str, why: &str) -> DomainResult<()> {
+        if self.is_estopped() {
+            return Err(DomainError::PolicyBlocked("emergency stop engaged".into()));
+        }
         let recipe = self.get_recipe(recipe_id).await?;
+        if !recipe.enabled {
+            return Err(DomainError::PolicyBlocked(format!(
+                "recipe {recipe_id} was disabled while the assist was pending"
+            )));
+        }
+        if !recipe.consent.required.is_empty() {
+            let session = self.require_session().await?;
+            let now = Utc::now();
+            for scope_str in &recipe.consent.required {
+                let scope = crate::runtime::parse_scope_public(scope_str)?;
+                if !session.has_consent(&scope, now) {
+                    return Err(DomainError::ConsentRequired(format!(
+                        "recipe consent {scope_str} is not (or no longer) granted"
+                    )));
+                }
+            }
+        }
         let mut plan = self.plan_from_recipe_public(&recipe).await?;
         plan.metadata.insert(
             "aiGate".to_string(),
