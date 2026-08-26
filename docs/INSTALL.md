@@ -36,12 +36,27 @@ pnpm --version    # （可選）
 `install.sh`，或直接：
 
 ```bash
-# 私有 repo 需先 gh auth login；公開後免憑證
-gh release download --repo miles990/adaptive-interaction --pattern install.sh
-bash install.sh                    # CLI → ~/.local/bin
-bash install.sh --with-skill       # ＋跨 AI skill
-bash install.sh --with-desktop     # ＋桌面控制中心
-bash install.sh --version v0.1.0   # 固定版本
+curl -fsSL https://github.com/miles990/adaptive-interaction/releases/latest/download/install.sh -o install.sh
+bash install.sh        # ← all-in-one 互動選單：勾選要裝的元件
+```
+
+選單長這樣（輸入編號切換、Enter 開始）：
+
+```text
+adaptive-interaction all-in-one 安裝 — 選擇元件（輸入編號切換）
+  [x] 1. interact-ai CLI（必裝：runtime／daemon／所有指令）
+  [x] 2. 跨 AI Skill → ~/.claude/skills/（給 Claude Code 等 agent）
+  [ ] 3. 桌面控制中心（下載本平台安裝包）
+  [ ] 4. Shell completion（zsh）
+```
+
+非互動（CI／腳本）用旗標：
+
+```bash
+bash install.sh --all                          # 全裝
+bash install.sh --with-skill --with-completion # 指定元件
+bash install.sh --cli-only                     # 只裝 CLI
+bash install.sh --version v0.1.0               # 固定版本
 ```
 
 每個 Release 附：四平台 CLI 壓縮檔（macOS arm64/x64、Linux x64、Windows x64，

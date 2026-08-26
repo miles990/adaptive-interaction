@@ -6,10 +6,8 @@ https://github.com/miles990/adaptive-interaction/tree/main/docs
 ## 安裝
 
 ```bash
-# 一鍵安裝（私有 repo 需先 gh auth login）
-bash install.sh                    # 最新版 CLI → ~/.local/bin
-bash install.sh --with-skill       # ＋跨 AI skill（給 Claude Code 等 agent 用）
-bash install.sh --with-desktop     # ＋桌面控制中心安裝包
+bash install.sh          # all-in-one 互動選單：CLI／Skill／桌面版／completion 勾選安裝
+bash install.sh --all    # 非互動全裝；亦有 --with-skill/--with-desktop/--with-completion/--cli-only
 
 # 或手動：解開對應平台的壓縮檔，把 interact-ai 放進 PATH
 tar -xzf interact-ai-<版本>-<平台>.tar.gz && mv interact-ai ~/.local/bin/

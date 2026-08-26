@@ -30,9 +30,9 @@ Discover → Observe → Interpret → Plan → Authorize → Act → Verify →
 ## 快速開始
 
 ```bash
-# 安裝（從 Release，免編譯；私有 repo 需 gh auth login）
-gh release download --repo miles990/adaptive-interaction --pattern install.sh
-bash install.sh --with-skill
+# 安裝（從 Release，免編譯）— all-in-one 互動選單
+curl -fsSL https://github.com/miles990/adaptive-interaction/releases/latest/download/install.sh -o install.sh
+bash install.sh          # 選單勾選：CLI／跨 AI Skill／桌面版／completion（--all 全裝）
 
 # 或從原始碼建置並啟動 daemon（HTTP API 綁 127.0.0.1:8787）
 cargo run -p interaction-cli -- serve
