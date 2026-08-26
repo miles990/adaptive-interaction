@@ -91,7 +91,7 @@ interact-ai self uninstall --yes     # 移除（--purge 連設定資料一起刪
 
 | 文件 | 內容 |
 |---|---|
-| **[安裝與部署（ELI5）](docs/INSTALL.md)** | 白話解釋＋安裝選單＋60 秒體驗＋常見問題 |
+| **[安裝與部署](docs/INSTALL.md)** | 白話解釋＋安裝選單＋60 秒體驗＋常見問題 |
 | **[特點與能力](docs/FEATURES.md)** | 核心循環與安全設計圖解（mermaid） |
 | **[人類使用手冊](docs/USER-GUIDE.md)** | 日常操作：session／同意／配方／政策／緊急停止 |
 | **[桌面控制中心指南](docs/DESKTOP-GUIDE.md)** | 圖形介面逐頁說明＋收據狀態圖 |
@@ -117,7 +117,7 @@ interact-ai self uninstall --yes     # 移除（--purge 連設定資料一起刪
 7. **File=Truth＋全程審計**——人類可編輯的 YAML 是設定的唯一真相；每個敏感
    操作（授權、限界、停止）都留下可追查的紀錄。
 
-## 技術架構（專業讀者）
+## 技術架構
 
 主要架構：
 
@@ -194,9 +194,18 @@ cd apps/interaction-desktop && pnpm typecheck && pnpm build
 scripts/release.sh 0.2.0 && git push && git push --tags
 ```
 
+## 特別感謝
+
+本專案的靈感來自兩個先行專案，特此致謝：
+
+- [immersive-vibration-response-skill](https://github.com/ra1nyxin/immersive-vibration-response-skill) —
+  「AI 感知後主動給出實體回饋、作用後立即重新觀察」的閉環概念
+- [tentacle-monster-roleplay-esp32](https://github.com/ra1nyxin/tentacle-monster-roleplay-esp32) —
+  非同步效果佇列、PATTERN 時間軸與情境連動的設計啟發
+
+（僅參考公開概念，未複用任何程式碼；並在此基礎上加入 TTL lease、watchdog
+與 deterministic 安全限界等改進。）
+
 ## 授權
 
-MIT。概念參考 [immersive-vibration-response-skill](https://github.com/ra1nyxin/immersive-vibration-response-skill)
-（MIT；未複用程式碼，僅吸收非同步效果／pattern／cancel 概念，並加上 TTL lease、
-watchdog 與 deterministic policy 改進）。未使用任何
-tentacle-monster-roleplay-esp32 受限授權程式碼。
+MIT
