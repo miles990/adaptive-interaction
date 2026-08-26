@@ -3,7 +3,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import React from "react";
 
 const mockApi = vi.hoisted(() => ({
   uiPrefsGet: vi.fn(async () => ({
@@ -167,7 +166,8 @@ describe("Onboarding", () => {
     await screen.findByText("歡迎使用自適應互動");
     await userEvent.click(screen.getByRole("button", { name: "下一步" }));
     await waitFor(() => expect(mockApi.onboardingDraft).toHaveBeenCalled());
-    const draft = mockApi.onboardingDraft.mock.calls.at(-1)![0] as { step: number };
+    const calls = (mockApi.onboardingDraft as ReturnType<typeof vi.fn>).mock.calls;
+    const draft = calls[calls.length - 1][0] as { step: number };
     expect(draft.step).toBe(1);
   });
 
@@ -181,7 +181,8 @@ describe("Onboarding", () => {
     await screen.findByRole("heading", { name: "確認" });
     await userEvent.click(screen.getByRole("button", { name: "完成設定" }));
     await waitFor(() => expect(mockApi.onboardingCommit).toHaveBeenCalled());
-    const commit = mockApi.onboardingCommit.mock.calls[0][0] as Record<string, unknown>;
+    const commit = (mockApi.onboardingCommit as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as Record<string, unknown>;
     expect(commit["enableReceptors"]).toContain("task.lifecycle");
     // 對外寫入未被啟用。
     expect(commit["enableActuators"]).not.toContain("webhook.output");

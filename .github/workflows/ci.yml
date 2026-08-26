@@ -45,7 +45,7 @@ jobs:
         run: cargo check --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml
 
   frontend:
-    name: Frontend (typecheck + build)
+    name: Frontend (typecheck + component tests + build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -62,4 +62,6 @@ jobs:
           cache-dependency-path: apps/interaction-desktop/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - name: component tests (honesty invariants, cards, wizard, dialogs)
+        run: pnpm test
       - run: pnpm build

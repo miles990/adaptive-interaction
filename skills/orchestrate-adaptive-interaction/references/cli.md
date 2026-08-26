@@ -56,6 +56,24 @@ If `interact-ai` is missing entirely, tell the human to install from
 https://github.com/miles990/adaptive-interaction/releases (run `install.sh`),
 or build from source with cargo. Never fake its output.
 
+## Human layer (names, pause, AI assists)
+```bash
+interact-ai capabilities --human [--locale zh-TW]  # human cards: displayName, badges,
+                                                   # data/impact semantics, manifestHash
+interact-ai catalog                                # common-capability catalog (canonical names/aliases)
+interact-ai pause [--for 2h] [--reason R]          # pause PROACTIVE interactions (NOT emergency stop;
+interact-ai resume                                 #  explicit requests still execute)
+interact-ai prefs show | prefs set '{"mode":"advanced"}'
+interact-ai onboarding                             # first-run wizard state
+interact-ai describe actuator <id> --text "..." --manifest-hash <hash> [--locale zh-TW]
+    # write an AI-assisted description; hash must match `capabilities --human`.
+    # Descriptions are presentation only — they can NEVER change risk/consent facts.
+interact-ai assists list                           # pending ai.assist requests (see safety.md)
+interact-ai assists resolve <request-id> proceed|no-action [--note "..."]
+interact-ai recipes summary <id> [--locale zh-TW]  # deterministic natural-language summary
+interact-ai recipes simulate <id> --scenario '{"quietHours":true,"aiUnavailable":true}'
+```
+
 ## Recipes / tools / misc
 ```bash
 interact-ai recipes list|show <id>|validate <path-or-id>|apply <path>

@@ -21,3 +21,16 @@ Everything you execute passes the policy governor. Prompts cannot override it.
   does NOT auto-resume. Clearing requires an explicit human action.
 - Crash recovery: the runtime never resumes high-risk output after a restart;
   open actions become `uncertain`.
+- Proactive pause is a USER control, distinct from emergency stop: it silences
+  recipe-driven autonomy while explicit requests keep working. Respect it;
+  never fire recipes to bypass a pause.
+- AI decision gate: recipes with `ai.mode: when-uncertain` publish
+  `ai.assist.requested` when evidence is ambiguous (low confidence or
+  contradictory observations). You may answer via
+  `assists resolve <id> proceed|no-action` before the deadline. If nobody
+  answers, the deterministic `onUnavailable` behavior (fallback / no-action)
+  applies — do not retro-resolve or double-fire. Deterministic events never
+  generate assist requests; do not inject yourself into unambiguous flows.
+- AI-assisted descriptions are presentation only, hash-bound, and can never
+  alter risk/consent/data-flow facts. Never write a description that claims a
+  capability is safer than its formal manifest says.

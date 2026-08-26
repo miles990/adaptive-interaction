@@ -97,6 +97,24 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 
 每個候選動器的分數與淘汰理由都寫進計畫；分數不過門檻且允許不介入時，產生 `NoAction` 計畫並記錄原因——**已感知但選擇沉默**是系統的一級輸出。
 
+## 人類理解層（v0.2）
+
+- **一般／進階雙模式**：預設一般模式全人話；進階模式保留全部技術頁面。同一套後端。
+- **四層語意解析**：Adapter 宣告 → 中央能力目錄（44 個常見概念、zh-TW/en、alias glob）
+  → 確定性 fallback（技術 ID 分詞＋schema 說明）→ AI 輔助說明（綁 manifest hash、
+  變更即失效）。缺漏一律保守顯示為「未知」，永不猜成安全。
+- **首次設定精靈**：七步 draft/commit；敏感與對外能力永不預選。
+- **句子式配方編輯器**：不寫 YAML；自然語言摘要由結構確定性生成；
+  YAML↔JSON 無損 round-trip（未知欄位 serde flatten 保留）。
+- **情境模擬**：安靜時段／缺同意／AI 不可用／低信心／過期／已提醒過／緊急停止，
+  重用同一套 pure governor/planner，零副作用。
+- **主動互動暫停**：與緊急停止語意分離；暫停期間明確請求照常執行；持久化。
+- **AI 介入決策閘門**：確定性事件永不呼叫 AI；`ai.mode: when-uncertain` 時證據模糊
+  才發布 `ai.assist.requested`，逾時走確定性 fallback／no-action；外部 AI 可在期限內
+  `assists resolve` 回應。
+- **誠實文案不變量**：queued≠completed、acknowledged≠delivered、
+  delivered≠「你已看見」——由元件測試鎖住。
+
 ## 能力總覽
 
 | 面向 | 內容 |

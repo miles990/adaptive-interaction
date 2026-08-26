@@ -1,6 +1,6 @@
 # 視覺化工具使用說明（Tauri 桌面控制中心）
 
-![控制中心示意](assets/control-center.png)
+![首頁](assets/simple-home.png)
 
 桌面控制中心是**人類的駕駛艙**：設定、測試、監控、授權、喊停。
 它不是 AI 使用 Runtime 的必要條件——沒有它，CLI／API／Skill 一樣全功能。
@@ -19,108 +19,116 @@ pnpm tauri dev      # 開發模式
 若已有 `interact-ai serve` daemon 在跑，app 會顯示 instance lock 訊息而不會搶裝置。
 **關閉視窗＝安全停止 Runtime**（絕不偷偷在背景繼續實體輸出）。
 
-## 版面總覽
+## 兩種模式
 
-```mermaid
-flowchart LR
-    subgraph win["控制中心視窗"]
-        direction LR
-        subgraph side["側欄"]
-            n1["總覽"]
-            n2["受器"]
-            n3["動器"]
-            n4["工具"]
-            n5["配方"]
-            n6["政策／同意"]
-            n7["時間軸"]
-        end
-        subgraph main["主區域"]
-            top["頂欄：目前頁籤　　　　🔴 緊急停止（永遠可見）"]
-            content["頁面內容"]
-        end
-        side --- main
-    end
-```
+- **一般模式（預設）**：全部人話、全部卡片。不需要理解 UUID、YAML、JSON。
+- **進階模式**：設定頁打開「顯示進階功能」後，側欄多出原始技術頁面
+  （總覽（原始）／受器／動器／工具／配方 YAML／政策／時間軸），
+  各頁詳情也會多出技術 ID、manifest hash 與原始資料。
 
-右上角的紅色**緊急停止**按鈕在任何頁面都在：按下→全停＋撤回同意＋不自動恢復；
-按鈕會變成黃色的「解除緊急停止」，需要你再按一次才重新武裝。
+兩種模式共用同一套後端狀態與安全規則；模式偏好存在後端，CLI（`interact-ai prefs`）
+也能讀寫。
 
-## 各頁面
+![進階模式](assets/simple-advanced.png)
 
-### 總覽（Overview）
-- Runtime 版本／啟動時間／緊急停止狀態／設定錯誤
-- **Session 卡片**：目前 session、已授同意清單；沒有 session 時可直接輸入 label 開一個
-- 能力摘要：受器/動器/工具數量＋目前生效的限制（如「安靜時段中」）
-- 最近訊息（outbox）：AI 實際說過的話——刻意沉默也會標示出來
-- 最近動作：intent／動器／狀態徽章／驗證等級
+## 首次設定精靈
 
-### 受器（Receptors）
-每個感官一列：類別、模式（poll/event/stream）、敏感度（需同意的會標示）、在線狀態。
-- **啟用／停用**：敏感受器（攝影機等級）預設停用，開啟是明確動作
-- **測試讀取**：現場讀一筆，右側預覽會把 `facts` 與 `inferences` 分開顯示
+第一次啟動自動開啟（設定頁可隨時重來）。七步：歡迎 → 感知來源 → 回應方式 →
+工具操作 → 互動偏好 → 起始情境 → 確認。
 
-### 動器（Actuators）
-每個輸出通道一列：通道、風險徽章（`外部副作用`／`需同意`會特別標紅）、裝置上限、狀態。
-- **測試**：送一個小的（magnitude 0.2、500ms）測試動作——**完整走安全管家授權路徑**，
-  結果收據連同政策決策一起顯示。被擋就是被擋，UI 不會替你繞過
-- 啟用／停用即時生效
+![首次設定](assets/simple-onboarding.png)
 
-### 工具（Tools）
-12 個 `interaction.*` operation 的清單：角色（受器/動器）、風險、是否需批准。
-- 點一列看 input/output JSON Schema
-- 右上選格式（openai/anthropic/gemini/openapi/json-schema）→ **由同一 Canonical Manifest 匯出**
+- 只預選低風險、本機、不需硬體的能力；**攝影機／麥克風／位置／對外寫入永不預選**。
+- 中途關閉只留草稿；按「完成設定」才一次套用（走與 CLI/API 相同的 governor 驗證路徑）。
+- 確認頁摘要「AI 可以知道／可以做／必須先問／資料是否離開本機／何時呼叫 AI」。
 
-### 配方（Recipes）
-- 左：已安裝配方＋本 session 觸發次數；**模擬**（會不會觸發？為什麼？計畫長怎樣？）、
-  **執行**（跳過觸發、不跳過安全）、啟用/停用/刪除
-- 右：YAML 編輯器＋範本；**驗證**按鈕會標出精確的錯誤欄位路徑
+## 一般模式各頁
 
-### 政策／同意（Policy）
-- 左：目前生效政策全文（Rust 後端強制執行的那一份）
-- 右上：JSON merge-patch 編輯器（例如改 `initiative`、加安靜時段）
-- 右下：Session 同意管理——授予（可輸入任意 scope）與**一鍵撤回**
-  （撤回會立即取消該範圍進行中的動作）
+### 首頁
+系統是否正常、主動互動狀態（含**暫停**控制）、**三區權限地圖**
+（AI 可以知道／AI 可以做／AI 必須先問）、最近一次互動的五步故事
+（感知→理解→計畫→安全→結果）、快速操作。
 
-> UI 裡看不到的按鈕不代表做不到、看得到的按鈕也不代表一定放行——
-> **所有輸入最終都由 Rust 後端重新驗證**。隱藏按鈕從來不是安全機制。
+### 感知來源／回應方式／工具操作
+每個能力一張卡片：人類名稱、一句說明、影響徽章（僅限本機／含個人資料／實體效果／
+需同意…）、誠實的確認層級（「可以確認：通知已送達作業系統／無法確認：你是否已經看見」）、
+測試、啟用/停用、詳情（可自訂顯示名稱——只改名稱，不改行為）。
 
-### 時間軸（Timeline）
-即時事件流（與 SSE 同源）：
-`Observation → Plan → Policy Decision → Bounded Action → 執行 → Receipt → Verification`
-- 依 correlation id 串起同一次互動的完整因果鏈
-- 篩選框可過濾事件類型／correlation／內容
-- 點任一事件看完整 payload（含政策決策與收據狀態）
+![回應方式](assets/simple-responses.png)
 
-## 收據狀態機
+第三方能力若沒有提供說明，會顯示保守提示：
+「提供者尚未提供完整的資料與影響說明。在你確認前，系統不會自動使用這項能力。」
+AI 補充的說明會標示「AI 補充說明」，且永遠改變不了上面的能力事實。
 
-看懂時間軸與收據的關鍵——**排入佇列不等於做完**：
+### 自動互動
+不寫 YAML 的句子式編輯器：「當〔感知來源＋條件〕，需要時〔AI 介入方式〕，
+就用〔回應方式＋模式〕，說什麼〔文字策略〕，限制〔冷卻／頻率／允許不介入〕」。
+每個配方都有一段由結構自動生成的**自然語言摘要**（跟實際設定永不脫節）。
+
+![自動互動](assets/simple-automations.png)
+
+- **模擬**：切換情境（安靜時段／缺少同意／AI 無法使用／低信心／資料過期／
+  最近已提醒過／緊急停止中），逐步顯示觸發→頻率→同意→AI→計畫→安全的判斷，
+  保證零副作用。
+- **啟用前影響預覽**：列出「這個自動互動會…／不會…」。
+- 含進階結構（多重觸發、自訂欄位）的配方會標示「包含進階設定」，
+  未知欄位在編輯與儲存過程中**原樣保留**（YAML↔JSON 無損轉換）。
+
+![模擬](assets/simple-simulate.png)
+
+### 同意與安全
+- **使用授權**：能力選擇器授予／撤回，不需要輸入 `channel:haptic` 這類技術 scope；
+  撤回後明確顯示「新動作已阻止；進行中的已要求取消」。
+- **安全規則**：表單化（AI 主動程度／安靜時段）；JSON merge patch 只在進階頁。
+- **緊急停止**：右上角紅鈕**二段確認**觸發；觸發後右上角變成「前往解除」的指示器，
+  解除必須到本頁走安全流程——顯示停止原因與時間、列出「會恢復／不會自動恢復」
+  的能力清單、再次確認，後端確認後才顯示解除。高風險與需同意能力永不自動恢復。
+
+![緊急停止解除流程](assets/simple-estop-recovery.png)
+
+### 活動紀錄
+人類可讀的活動故事，嚴格區分：已規劃／已授權／已排入（尚未執行）／已送出／
+已收到（效果未確認）／已完成／驗證成功／被阻止／已取消／結果未知。
+「結果未知」會註明**不會自動重試**（避免重複副作用）。原始 receipt 與事件
+放在進階模式的「技術詳細資料」。
+
+### 設定
+一般／進階模式切換、重新執行首次設定、自訂名稱說明。
+
+## 主動互動暫停 vs 緊急停止
+
+| | 暫停主動互動 | 緊急停止 |
+|---|---|---|
+| 定位 | 一般控制（休息一下） | 安全機制 |
+| 自動互動 | 不觸發 | 不觸發 |
+| 你的直接要求 | **照常執行** | 全部阻止 |
+| 進行中動作 | 不受影響 | 立即取消 |
+| 恢復 | 一鍵或到期自動 | 必須走安全解除流程，高風險不自動恢復 |
+
+## 響應式與無障礙
+
+- 視窗縮到 390px 寬仍可完成主要流程（側欄變頂列、卡片單欄）。
+- 完整鍵盤操作：對話框有焦點圈養與 Esc 關閉；緊急停止可用鍵盤觸發，
+  但**單次 Enter 只會進入確認狀態，不會誤觸**。
+- `prefers-reduced-motion` 尊重系統設定；狀態不只用顏色表達（都有文字）。
+
+![390px 窄視窗](assets/simple-narrow.png)
+
+## 收據狀態機（進階）
 
 ```mermaid
 stateDiagram-v2
     [*] --> planned
-    planned --> authorized: Governor 放行
-    planned --> blocked: 被政策擋下
-    authorized --> accepted: 排入佇列（≠完成！）
-    accepted --> dispatched: driver 已送出
-    dispatched --> acknowledged: 目標已確認收到
-    acknowledged --> observed: 環境觀察到效果
+    planned --> authorized: 政策放行
+    authorized --> accepted: 排入佇列
+    accepted --> dispatched: driver 送出
+    dispatched --> acknowledged: 裝置確認
+    acknowledged --> observed: 觀察到效果
     observed --> completed
-    acknowledged --> completed: best-effort 驗證<br/>（verdict 誠實標 acknowledged-only）
-    accepted --> stopped: 🔴 緊急停止
-    dispatched --> uncertain: 逾時沒回音<br/>（老實說不知道）
-    accepted --> expired: TTL 到期（watchdog）
-    accepted --> cancelled: 取消／撤回同意
+    planned --> blocked: 政策阻止
+    accepted --> cancelled
+    dispatched --> failed
+    acknowledged --> uncertain: 無法驗證
 ```
 
-徽章顏色：🟢 completed／healthy　🔵 acknowledged／observed　🟣 進行中　🟡 uncertain　🔴 blocked／failed　⚪ 終止類
-
-## UI 狀態行為
-
-| 情境 | 你會看到 |
-|---|---|
-| Runtime 啟動中 | 「正在啟動 Runtime…」 |
-| instance lock 被 daemon 佔用 | 離線畫面＋原因＋處理建議（不會搶裝置） |
-| 清單為空 | 明確的空狀態說明（不是白畫面） |
-| 呼叫失敗 | 紅框錯誤原文（不彈系統對話框） |
-| 緊急停止中 | 全域紅色橫幅＋按鈕變「解除」 |
-| 視窗縮小 | 雙欄自動折成單欄（min 360px） |
+`accepted`（已排入）永遠不等於 `completed`（已完成）——UI 的每一處文案都遵守這條。

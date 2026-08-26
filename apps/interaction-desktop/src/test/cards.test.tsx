@@ -2,7 +2,6 @@
 
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import React from "react";
 import { CapabilityCard } from "../components/CapabilityCard";
 import { PermissionMap } from "../pages/HomePage";
 import { HumanCard } from "../api";

@@ -91,3 +91,40 @@ AppleScript quit 均優雅關閉（clean_shutdown=true）。
 2. v0.1.3：app 層級退出不觸發 runtime 優雅關閉（RunEvent::Exit handler）
 3. v0.1.3：動態註冊 mock 裝置缺配對 status 受器，observed 驗證無法閉環
 4. 發版流程：golden schemas 內嵌版本號、bump 必 drift（release.sh 自動再生）
+
+---
+
+## 人類理解層驗收（v0.2.0，2026-08-26，Apple Silicon macOS 實機）
+
+### 自動化測試
+| 套件 | 指令 | 結果 |
+|---|---|---|
+| Rust workspace（30 個測試套件） | `cargo test --workspace` | 全綠（含新增：human serde 相容、catalog alias/glob、resolver 優先鏈與保守 unknown、AI 說明 hash 綁定、pause≠estop、pause 重啟持久、AI gate（確定性不呼叫 AI／no-action／fallback／resolve 單次觸發）、onboarding draft/commit、scenario 模擬零副作用、recipe round-trip 未知欄位保留、summarize） |
+| clippy | `cargo clippy --workspace --all-targets -- -D warnings` | 0 warnings |
+| API E2E | `cargo test -p interaction-api`（9 tests，含 human-layer endpoints roundtrip） | 全綠 |
+| 前端元件 | `pnpm test`（vitest，22 tests） | 全綠（誠實性不變量、卡片、權限地圖、對話框二段確認、精靈預選） |
+| 前端 build | `pnpm typecheck && pnpm build` | 通過 |
+| CLI 人類層 E2E | `scratchpad/human-e2e.sh`（真 daemon＋CLI） | **27/27 PASS**（human cards zh/en、catalog、onboarding commit、pause≠estop＋暫停中 recipe 不觸發＋明確請求照常、AI 說明錯 hash 409、scenario 模擬零副作用、summary、prefs、convert 保留未知欄位） |
+
+### 桌面 UI 實機走查（debug .app、全新 home）
+1. 首次啟動 → 精靈自動開啟；敏感來源不在可選清單、對外寫入不預選 ✔（`simple-onboarding.png`）
+2. 精靈 commit → policy＋starter recipes＋completed 一次套用；draft 清空 ✔
+3. 首頁：狀態／主動互動（含暫停控制）／三區權限地圖／最近互動故事 ✔（`simple-home.png`）
+4. 回應方式卡片：誠實確認層級（「無法確認你是否已經看見」）、需同意徽章 ✔（`simple-responses.png`）
+5. 自動互動：自然語言摘要與結構一致；模擬對話框 7 情境、分階段報告、「不會執行」判定、零副作用 ✔（`simple-automations.png`、`simple-simulate.png`）
+6. 緊急停止：二段確認觸發（`/ready` 確認 `emergencyStop:true`）；頂欄變「前往解除」；解除走安全頁流程（原因＋時間＋會/不會恢復清單＋再確認），後端確認後才解除 ✔（`simple-estop-recovery.png`）
+7. 進階模式切換：側欄多出 7 個原始技術頁、偏好持久化 ✔（`simple-advanced.png`）
+8. 390px 窄視窗：側欄轉頂列、單欄卡片、可完成主要流程 ✔（`simple-narrow.png`）
+9. 視窗關閉 → runtime 優雅停止（`clean_shutdown=true`）✔
+
+### 實測發現並修復的缺陷
+- **estop 二段確認按鈕紅字紅底**（`button.danger` 色彩疊在 `.estop` 紅底上，
+  確認文字不可見）→ CSS 修正 `.estop.danger` 白字，重測通過。
+
+### 誠實聲明（未執行／限制）
+- 瀏覽器級 E2E（Playwright 等）未導入：Tauri WebView 走查以 AppleScript AX 實測代替，
+  涵蓋精靈、導覽、模擬、estop 全流程；元件層由 vitest 覆蓋。
+- `interruptiveness`／`confirmationLevel` 對內建動器目前多顯示「未知」：內建 adapter
+  尚未宣告 `human.effect` 正式語意（目錄 typical 依規範不得當成事實）。列入下一步。
+- 走查期間使用者同時在操作這台電腦，兩張截圖曾拍到非 app 視窗，已刪除重拍；
+  自動化點擊已改為「前景驗證＋AX 元素定位」以避免誤觸其他應用程式。

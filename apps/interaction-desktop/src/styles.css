@@ -358,3 +358,7 @@ button.ghost { background: none; border-color: transparent; color: var(--muted);
   .confirm-summary div { flex-direction: column; gap: 2px; }
   .cap-facts dt { min-width: 88px; }
 }
+
+/* 修正：estop 二段確認按鈕（.estop.danger）必須維持白字紅底，
+   否則 button.danger 的紅字會疊在紅底上變成看不見。 */
+button.estop.danger, .estop.danger { color: #fff; background: var(--bad); }
