@@ -60,6 +60,9 @@ EOF
 
 cargo check --workspace -q
 (cd apps/interaction-desktop/src-tauri && cargo check -q)
+# Golden schemas embed the version — regenerate so they can never drift on a bump.
+GOLDEN_UPDATE=1 cargo test -q -p interaction-e2e >/dev/null
+cargo test -q -p interaction-e2e >/dev/null
 
 git add -A
 git commit -m "release: ${TAG}"
