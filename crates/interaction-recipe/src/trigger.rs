@@ -11,6 +11,13 @@ pub struct TriggerDecision {
     pub fired: bool,
     /// Step-by-step explanation of why the trigger did or didn't fire.
     pub explanation: Vec<String>,
+    /// Timestamp of the newest observation that participated in the match.
+    /// Callers use this as a high-water mark: a recipe must not re-fire
+    /// unless NEW matching evidence arrived since its last firing.
+    pub latest_match: Option<Timestamp>,
+    /// Ids of the observations that satisfied the trigger. Callers CONSUME
+    /// these on firing so the same event can never fire the recipe twice.
+    pub matched_observation_ids: Vec<String>,
 }
 
 impl TriggerDecision {
@@ -18,6 +25,8 @@ impl TriggerDecision {
         Self {
             fired: false,
             explanation: vec![reason.into()],
+            latest_match: None,
+            matched_observation_ids: Vec::new(),
         }
     }
 }
@@ -42,6 +51,7 @@ pub fn evaluate_trigger(
     };
 
     let mut explanation = Vec::new();
+    let mut matched_ids: Vec<String> = Vec::new();
 
     // Match each step to its most recent matching observation.
     let matches: Vec<Option<&Observation>> = trigger
@@ -83,32 +93,47 @@ pub fn evaluate_trigger(
             sum >= threshold
         }
         FusionMode::Sequence => {
-            if matched_count != trigger.steps.len() {
-                false
-            } else {
-                // Timestamps must be non-decreasing in step order.
-                let stamps: Vec<Timestamp> = matches.iter().map(|m| m.unwrap().timestamp).collect();
-                let ordered = stamps.windows(2).all(|w| w[0] <= w[1]);
-                if !ordered {
-                    explanation.push("sequence order violated".into());
-                }
-                let within_window = match window_ms {
-                    Some(w) => {
-                        let span = stamps
-                            .last()
-                            .unwrap()
-                            .signed_duration_since(*stamps.first().unwrap())
-                            .num_milliseconds();
-                        let ok = span >= 0 && (span as u64) <= w;
-                        if !ok {
-                            explanation
-                                .push(format!("sequence span {span}ms exceeds window {w}ms"));
+            // Ordered assignment: each step binds to the EARLIEST matching,
+            // not-yet-used observation at or after the previous step's event.
+            // One observation can never satisfy two steps.
+            match assign_sequence(trigger, observations, now, window_ms, min_confidence) {
+                Some(chain) => {
+                    matched_ids = chain
+                        .iter()
+                        .map(|o| o.observation_id.as_str().to_string())
+                        .collect();
+                    let stamps: Vec<Timestamp> = chain.iter().map(|o| o.timestamp).collect();
+                    explanation.push(format!(
+                        "sequence chain: {}",
+                        chain
+                            .iter()
+                            .map(|o| o.observation_id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" -> ")
+                    ));
+                    match window_ms {
+                        Some(w) => {
+                            let span = stamps
+                                .last()
+                                .unwrap()
+                                .signed_duration_since(*stamps.first().unwrap())
+                                .num_milliseconds();
+                            let ok = span >= 0 && (span as u64) <= w;
+                            if !ok {
+                                explanation
+                                    .push(format!("sequence span {span}ms exceeds window {w}ms"));
+                            }
+                            ok
                         }
-                        ok
+                        None => true,
                     }
-                    None => true,
-                };
-                ordered && within_window
+                }
+                None => {
+                    explanation.push(
+                        "no ordered chain of distinct observations satisfies the sequence".into(),
+                    );
+                    false
+                }
             }
         }
     };
@@ -127,7 +152,55 @@ pub fn evaluate_trigger(
         )
     });
 
-    TriggerDecision { fired, explanation }
+    let latest_match = matches.iter().flatten().map(|o| o.timestamp).max();
+    if matched_ids.is_empty() {
+        matched_ids = matches
+            .iter()
+            .flatten()
+            .map(|o| o.observation_id.as_str().to_string())
+            .collect();
+        matched_ids.sort();
+        matched_ids.dedup();
+    }
+    TriggerDecision {
+        fired,
+        explanation,
+        latest_match,
+        matched_observation_ids: matched_ids,
+    }
+}
+
+/// Greedy earliest-first assignment for sequence triggers. Returns the chain
+/// of distinct observations (one per step, timestamps non-decreasing) or None.
+fn assign_sequence<'a>(
+    trigger: &crate::TriggerSpec,
+    observations: &'a [Observation],
+    now: Timestamp,
+    window_ms: Option<u64>,
+    min_confidence: f64,
+) -> Option<Vec<&'a Observation>> {
+    let mut chain: Vec<&Observation> = Vec::new();
+    let mut used: Vec<&str> = Vec::new();
+    let mut min_ts: Option<Timestamp> = None;
+    for step in &trigger.steps {
+        let candidate = observations
+            .iter()
+            .filter(|o| o.receptor_id.as_str() == step.receptor)
+            .filter(|o| window_ms.map(|w| !o.is_stale(now, w)).unwrap_or(true))
+            .filter(|o| !used.contains(&o.observation_id.as_str()))
+            .filter(|o| min_ts.map(|t| o.timestamp >= t).unwrap_or(true))
+            .filter(|o| {
+                step.condition
+                    .as_ref()
+                    .map(|c| c.matches(o, min_confidence))
+                    .unwrap_or(true)
+            })
+            .min_by_key(|o| o.timestamp)?;
+        used.push(candidate.observation_id.as_str());
+        min_ts = Some(candidate.timestamp);
+        chain.push(candidate);
+    }
+    Some(chain)
 }
 
 fn best_match<'a>(
@@ -236,6 +309,50 @@ actuation:
             obs("user.presence", "state", "present", 5, now),
         ];
         assert!(!evaluate_trigger(&recipe, &stale, now).fired);
+    }
+
+    #[test]
+    fn sequence_steps_must_bind_distinct_observations() {
+        // Two sequence steps on the SAME receptor with overlapping conditions:
+        // one observation must not satisfy both.
+        let yaml = r#"
+id: r2
+name: overlap
+trigger:
+  mode: sequence
+  steps:
+    - receptor: task.lifecycle
+    - receptor: task.lifecycle
+decision:
+  objective: test
+actuation:
+  candidates: [conversation]
+"#;
+        let recipe: Recipe = serde_yaml::from_str(yaml).unwrap();
+        let now = chrono::Utc::now();
+        let single = [obs("task.lifecycle", "event", "task.completed", 5, now)];
+        let d = evaluate_trigger(&recipe, &single, now);
+        assert!(!d.fired, "{:?}", d.explanation);
+        // Two distinct observations do fire.
+        let double = [
+            obs("task.lifecycle", "event", "task.completed", 10, now),
+            obs("task.lifecycle", "event", "task.completed", 5, now),
+        ];
+        assert!(evaluate_trigger(&recipe, &double, now).fired);
+    }
+
+    #[test]
+    fn latest_match_is_reported_for_high_water_marking() {
+        let recipe = recipe_yaml("all", "");
+        let now = chrono::Utc::now();
+        let full = [
+            obs("task.lifecycle", "event", "task.completed", 60, now),
+            obs("user.presence", "state", "present", 5, now),
+        ];
+        let d = evaluate_trigger(&recipe, &full, now);
+        assert!(d.fired);
+        let latest = d.latest_match.unwrap();
+        assert!(now.signed_duration_since(latest).num_seconds() <= 6);
     }
 
     #[test]

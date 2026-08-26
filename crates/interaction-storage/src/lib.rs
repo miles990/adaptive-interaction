@@ -156,7 +156,15 @@ impl Store {
 
     // ---- receipts ----
 
-    pub fn upsert_receipt(&self, receipt: &ActionReceipt, channel: &str) -> DomainResult<()> {
+    const TERMINAL_STATUSES: &'static str =
+        "'completed','blocked','failed','uncertain','cancelled','expired','stopped'";
+
+    /// Upsert a receipt. Terminal states are STICKY: once a stored receipt is
+    /// terminal (e.g. `stopped` written by the emergency-stop sweep, `expired`
+    /// written by the watchdog), a concurrent in-flight executor can no longer
+    /// overwrite or resurrect it. Returns `true` when the write was applied,
+    /// `false` when it was refused because the stored receipt is terminal.
+    pub fn upsert_receipt(&self, receipt: &ActionReceipt, channel: &str) -> DomainResult<bool> {
         let json = serde_json::to_string(receipt).map_err(map_json)?;
         let created = receipt
             .timestamps
@@ -173,12 +181,17 @@ impl Store {
             .trim_matches('"')
             .to_string();
         let conn = self.conn.lock().expect("store lock");
-        conn.execute(
+        let sql = format!(
             "INSERT INTO receipts(action_id, plan_id, session_id, actuator_id, channel, intent, status, json, created_at, updated_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
              ON CONFLICT(action_id) DO UPDATE SET
                 status = excluded.status, json = excluded.json, updated_at = excluded.updated_at,
-                channel = CASE WHEN excluded.channel != '' THEN excluded.channel ELSE receipts.channel END",
+                channel = CASE WHEN excluded.channel != '' THEN excluded.channel ELSE receipts.channel END
+             WHERE receipts.status NOT IN ({})",
+            Self::TERMINAL_STATUSES
+        );
+        conn.execute(
+            &sql,
             params![
                 receipt.action_id.as_str(),
                 receipt.plan_id.as_str(),
@@ -193,7 +206,17 @@ impl Store {
             ],
         )
         .map_err(map_err)?;
-        Ok(())
+        // `changes()` is 0 when the conflict-update was suppressed by the
+        // terminal guard — the caller's copy is stale.
+        let applied = conn.changes() > 0;
+        if !applied {
+            tracing::debug!(
+                action_id = receipt.action_id.as_str(),
+                attempted = %status,
+                "receipt write refused: stored receipt already terminal"
+            );
+        }
+        Ok(applied)
     }
 
     pub fn receipt(&self, action_id: &ActionId) -> DomainResult<ActionReceipt> {
@@ -603,6 +626,35 @@ mod tests {
 
         assert_eq!(store.scheduled_action_count().unwrap(), 1);
         assert_eq!(store.open_receipts().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn terminal_receipts_are_sticky() {
+        let store = Store::open_in_memory().unwrap();
+        let session = SessionId::generate();
+        let mut receipt = receipt_for("mock", &session, ActionStatus::Accepted);
+        assert!(store.upsert_receipt(&receipt, "haptic").unwrap());
+
+        // Emergency-stop sweep marks it stopped.
+        let mut stopped = receipt.clone();
+        stopped
+            .transition(ActionStatus::Stopped, Utc::now())
+            .unwrap();
+        assert!(store.upsert_receipt(&stopped, "").unwrap());
+
+        // A racing executor with a stale copy tries to advance it — refused.
+        receipt
+            .transition(ActionStatus::Dispatched, Utc::now())
+            .unwrap();
+        receipt
+            .transition(ActionStatus::Acknowledged, Utc::now())
+            .unwrap();
+        assert!(!store.upsert_receipt(&receipt, "haptic").unwrap());
+        assert_eq!(
+            store.receipt(&receipt.action_id).unwrap().current_status,
+            ActionStatus::Stopped,
+            "terminal state must survive concurrent overwrite attempts"
+        );
     }
 
     #[test]

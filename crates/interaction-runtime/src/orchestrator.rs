@@ -28,6 +28,11 @@ pub struct PlanRequest<'a> {
     pub snapshot: &'a CapabilitySnapshot,
     /// Restrict candidates to these actuator ids (recipe candidates). Empty = all.
     pub candidates: Vec<String>,
+    /// Actuators that currently lack a required consent. In OPEN selection
+    /// (empty `candidates`) these are skipped so they cannot crowd out a
+    /// viable safe channel; when explicitly named they stay in and surface a
+    /// blocked receipt explaining the missing consent.
+    pub consent_missing: Vec<String>,
     pub min_channels: u32,
     pub max_channels: u32,
     pub allow_no_action: bool,
@@ -84,6 +89,21 @@ pub fn build_plan(req: PlanRequest<'_>, texts: &TextSelector) -> Plan {
             plan.rejected.push(RejectedCandidate {
                 actuator_id: manifest.id.clone(),
                 reason: format!("unavailable ({:?})", manifest.availability),
+            });
+            continue;
+        }
+        if req.candidates.is_empty()
+            && req
+                .consent_missing
+                .iter()
+                .any(|c| c == manifest.id.as_str())
+        {
+            plan.rejected.push(RejectedCandidate {
+                actuator_id: manifest.id.clone(),
+                reason: format!(
+                    "requires consent not granted this session; grant channel:{} (or name it explicitly)",
+                    manifest.channel
+                ),
             });
             continue;
         }
@@ -226,6 +246,7 @@ mod tests {
             intent,
             snapshot,
             candidates: vec![],
+            consent_missing: vec![],
             min_channels: 0,
             max_channels,
             allow_no_action: true,

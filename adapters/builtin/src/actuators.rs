@@ -398,6 +398,15 @@ impl Actuator for WebhookActuator {
 // Mock actuator (simulated physical device with observable state)
 // ---------------------------------------------------------------------------
 
+/// Bounded push shared by the mock actuator's bookkeeping vectors.
+fn push_bounded<T>(store: &Arc<Mutex<Vec<T>>>, value: T) {
+    let mut guard = store.lock().expect("mock store lock");
+    if guard.len() >= 256 {
+        guard.remove(0);
+    }
+    guard.push(value);
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MockBehavior {
     /// Dispatch + acknowledge + write observable device state.
@@ -538,10 +547,7 @@ impl Actuator for MockActuator {
     }
 
     async fn cancel(&self, action_id: &ActionId) -> Result<ActionReceipt, ActuatorError> {
-        self.cancelled
-            .lock()
-            .expect("cancelled lock")
-            .push(action_id.clone());
+        push_bounded(&self.cancelled, action_id.clone());
         Err(ActuatorError::NotFound(format!(
             "{action_id}: mock device has no long-running action to cancel"
         )))

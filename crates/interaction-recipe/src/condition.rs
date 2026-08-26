@@ -43,6 +43,16 @@ impl ConditionSpec {
         }
     }
 
+    /// Fact keys this condition reads (used for contradiction gating).
+    pub fn referenced_keys(&self) -> Vec<String> {
+        match self {
+            ConditionSpec::Equals(pairs) => pairs.keys().cloned().collect(),
+            ConditionSpec::Expression(expr) => parse_expression(expr)
+                .map(|(key, _, _)| vec![key])
+                .unwrap_or_default(),
+        }
+    }
+
     /// Validate the syntax; returns an error message on malformed expressions.
     pub fn validate(&self) -> Result<(), String> {
         match self {

@@ -247,15 +247,30 @@ impl Runtime {
                 for step in plan.steps.clone() {
                     let plan_clone = plan.clone();
                     let this = self.clone_handle();
-                    handles.push(tokio::spawn(async move {
-                        this.run_step(&plan_clone, &step, source).await
-                    }));
+                    handles.push((
+                        step.clone(),
+                        tokio::spawn(
+                            async move { this.run_step(&plan_clone, &step, source).await },
+                        ),
+                    ));
                 }
-                for handle in handles {
+                for (step, handle) in handles {
                     match handle.await {
                         Ok(Ok(receipt)) => receipts.push(receipt),
-                        Ok(Err(e)) => tracing::warn!(error = %e, "step execution error"),
-                        Err(e) => tracing::error!(error = %e, "step task panicked"),
+                        // Step errors are never swallowed: they become failed
+                        // receipts so callers see exactly what happened.
+                        Ok(Err(e)) => {
+                            tracing::warn!(error = %e, "step execution error");
+                            receipts
+                                .push(self.record_step_failure(&plan, &step, &e.to_string()).await);
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "step task panicked");
+                            receipts.push(
+                                self.record_step_failure(&plan, &step, "step task panicked")
+                                    .await,
+                            );
+                        }
                     }
                 }
             }
@@ -264,6 +279,88 @@ impl Runtime {
         plan.status = PlanStatus::Executed;
         self.store.upsert_plan(&plan)?;
         Ok(receipts)
+    }
+
+    /// A failed-step receipt for errors that would otherwise be swallowed.
+    async fn record_step_failure(
+        &self,
+        plan: &Plan,
+        step: &PlannedStep,
+        reason: &str,
+    ) -> ActionReceipt {
+        let now = Utc::now();
+        let mut receipt = refused_receipt(plan, step, Vec::new(), now);
+        // Rewrite the terminal state to Failed (refused_receipt yields Blocked).
+        receipt.current_status = ActionStatus::Failed;
+        if let Some(last) = receipt.timestamps.last_mut() {
+            last.0 = ActionStatus::Failed;
+        }
+        receipt.push_error("step_error", reason, now);
+        let _ = self.persist_receipt(&receipt, &step.channel).await;
+        self.emit_action_event(EventType::ActionFailed, &receipt, json!({"reason": reason}));
+        receipt
+    }
+
+    /// Last-instant gate evaluated immediately before driver dispatch. Closes
+    /// the authorize→dispatch race window for emergency stop, consent
+    /// revocation, session death and runtime shutdown.
+    async fn pre_dispatch_gate(
+        &self,
+        manifest: &ActuatorManifest,
+    ) -> Result<(), (ActionStatus, PolicyDecision)> {
+        if self.is_estopped() {
+            return Err((
+                ActionStatus::Stopped,
+                PolicyDecision::Blocked {
+                    rule: "emergency-stop.pre-dispatch".into(),
+                    reason: "emergency stop engaged between authorization and dispatch".into(),
+                },
+            ));
+        }
+        if self.shutdown_token.is_cancelled() {
+            return Err((
+                ActionStatus::Cancelled,
+                PolicyDecision::Blocked {
+                    rule: "shutdown.pre-dispatch".into(),
+                    reason: "runtime is shutting down".into(),
+                },
+            ));
+        }
+        // Re-read the CURRENT session (not the clone authorization used):
+        // consent may have been revoked while this step was in flight.
+        let now = Utc::now();
+        let session = self.current_session().await;
+        let session_ok = session.as_ref().map(|s| s.is_active(now)).unwrap_or(false);
+        if !session_ok {
+            return Err((
+                ActionStatus::Cancelled,
+                PolicyDecision::Blocked {
+                    rule: "session.pre-dispatch".into(),
+                    reason: "session ended between authorization and dispatch".into(),
+                },
+            ));
+        }
+        if manifest.requires_consent {
+            let session = session.expect("checked above");
+            let by_actuator = session.has_consent(
+                &interaction_core::ConsentScope::Actuator(manifest.id.as_str().to_string()),
+                now,
+            );
+            let by_channel = session.has_consent(
+                &interaction_core::ConsentScope::Channel(manifest.channel.clone()),
+                now,
+            );
+            if !by_actuator && !by_channel {
+                return Err((
+                    ActionStatus::Cancelled,
+                    PolicyDecision::Blocked {
+                        rule: "consent.pre-dispatch".into(),
+                        reason: "consent revoked between authorization and dispatch".into(),
+                    },
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Run one planned step end to end.
@@ -399,6 +496,18 @@ impl Runtime {
             json!({"planId": plan.plan_id.as_str(), "actionId": receipt.action_id.as_str()}),
         );
 
+        // Last-instant gate: emergency stop / shutdown / consent revocation may
+        // have happened between authorization and this point. Never dispatch
+        // through that window.
+        if let Err((terminal, decision)) = self.pre_dispatch_gate(&manifest).await {
+            receipt.policy_decisions.push(decision.clone());
+            receipt.push_error("pre_dispatch_gate", format!("{decision:?}"), Utc::now());
+            let _ = receipt.transition(terminal, Utc::now());
+            self.persist_receipt(&receipt, &step.channel).await?;
+            self.emit_action_event(EventType::ActionCancelled, &receipt, json!({"gate": true}));
+            return Ok(receipt);
+        }
+
         // Dispatch with timeout; a timeout means we DON'T KNOW → uncertain.
         let dispatch = tokio::time::timeout(
             std::time::Duration::from_millis(DISPATCH_TIMEOUT_MS),
@@ -431,7 +540,12 @@ impl Runtime {
             }
             Ok(Ok(driver_receipt)) => {
                 interaction_adapter_sdk::merge_driver_receipt(&mut receipt, &driver_receipt);
-                self.persist_receipt(&receipt, &step.channel).await?;
+                let applied = self.persist_receipt(&receipt, &step.channel).await?;
+                if !applied {
+                    // A concurrent e-stop sweep / watchdog already terminalized
+                    // this receipt; the stored copy is the truth.
+                    return self.store.receipt(&receipt.action_id);
+                }
                 match receipt.current_status {
                     ActionStatus::Dispatched => {
                         self.emit_action_event(EventType::ActionDispatched, &receipt, json!({}))
@@ -447,13 +561,49 @@ impl Runtime {
             }
         }
 
-        // Verification.
-        let strategy = plan
-            .metadata
-            .get("verification")
-            .and_then(|v| v.as_str())
-            .unwrap_or("best-effort")
-            .to_string();
+        // If the emergency stop fired while the driver was executing, do not
+        // proceed to verification/completion: the store sweep already marked
+        // this receipt stopped (sticky), so align the local copy honestly.
+        if self.is_estopped() && !receipt.is_terminal() {
+            receipt.push_error(
+                "emergency_stop",
+                "emergency stop engaged during dispatch",
+                Utc::now(),
+            );
+            let _ = receipt.transition(ActionStatus::Stopped, Utc::now());
+            self.persist_receipt(&receipt, &step.channel).await?;
+            return Ok(receipt);
+        }
+
+        // Monetary budget accounting: the invocation cost is charged as soon
+        // as the command actually left the driver (dispatched or beyond) —
+        // the governor reads this back on the next authorization.
+        if manifest.cost.monetary_per_invocation > 0.0
+            && matches!(
+                receipt.current_status,
+                ActionStatus::Dispatched
+                    | ActionStatus::Acknowledged
+                    | ActionStatus::Observed
+                    | ActionStatus::Completed
+            )
+        {
+            self.charge_session_cost(&session.session_id, manifest.cost.monetary_per_invocation)
+                .await;
+        }
+
+        // Verification. Unknown strategy strings fall back to the STRICTEST
+        // mode (observed), never silently to best-effort.
+        let strategy = match plan.metadata.get("verification").and_then(|v| v.as_str()) {
+            None => "best-effort".to_string(),
+            Some(s @ ("best-effort" | "observed" | "none")) => s.to_string(),
+            Some(unknown) => {
+                tracing::warn!(
+                    strategy = unknown,
+                    "unknown verification strategy; falling back to strict 'observed'"
+                );
+                "observed".to_string()
+            }
+        };
         let receipt = self
             .verify_receipt(receipt, &step.channel, &strategy)
             .await?;
@@ -599,7 +749,9 @@ impl Runtime {
                     }
                     // else: leave as-is; caller may re-verify later.
                 }
-                self.persist_receipt(&receipt, channel).await?;
+                if !self.persist_receipt(&receipt, channel).await? {
+                    return self.store.receipt(&receipt.action_id);
+                }
                 Ok(receipt)
             }
             // best-effort (default): acknowledged is good enough to complete,
@@ -636,7 +788,9 @@ impl Runtime {
                         self.emit_action_event(EventType::ActionUncertain, &receipt, json!({}));
                     }
                 }
-                self.persist_receipt(&receipt, channel).await?;
+                if !self.persist_receipt(&receipt, channel).await? {
+                    return self.store.receipt(&receipt.action_id);
+                }
                 Ok(receipt)
             }
         }

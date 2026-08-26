@@ -1,7 +1,7 @@
-# 端到端驗收證據（真 daemon＋真 CLI）— 2026-08-26 11:07
+# 端到端驗收證據（真 daemon＋真 CLI）— 2026-08-26 11:33
 
 ## 情境 A：單受器 → conversation → receipt completed
-planId: plan-6de4b473-b427-4d95-802d-79615cf71f6b
+planId: plan-46710062-2cad-4e5e-850f-55b76fa059b4
 simulate.wouldExecute: True
 execute → status=completed verdict=acknowledged-only
 timestamps: ['authorized', 'accepted', 'dispatched', 'acknowledged', 'completed']
@@ -26,7 +26,7 @@ revoke 後執行: [('blocked', {'outcome': 'blocked', 'reason': 'actuator mock.a
 
 ## 情境 F：工具閉環（讀→規劃→執行→重讀→驗證，全走 tools）
 tools.capabilities: actuators=5
-tool loop: plan=plan-877ccb75-2123-4acf-9edd-708db566809e → execute=completed → verify=completed
+tool loop: plan=plan-2e1634c1-c245-4458-be1d-0a7d44ffcd15 → execute=completed → verify=completed
 re-observe count: 3
 
 ## 情境 D：動器離線 → fallback（誠實記錄首選未執行）
@@ -43,8 +43,8 @@ re-observe count: 3
    6 event: actuator.registered
    3 event: receptor.observation
    3 event: policy.changed
-   2 event: session.started
    2 event: plan.blocked
+   2 event: consent.changed
 
 ## 緊急停止（CLI 觸發，不依賴 UI）
 emergency-stop: (0, 6)

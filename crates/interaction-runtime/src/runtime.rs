@@ -45,6 +45,9 @@ pub struct RecipeState {
     pub last_fired_at: Option<Timestamp>,
     pub executions_this_session: u32,
     pub fired_last_hour: Vec<Timestamp>,
+    /// Observation ids already consumed by a firing; a consumed event can
+    /// never satisfy this recipe's trigger again (bounded FIFO).
+    pub consumed_observations: Vec<String>,
 }
 
 pub struct RecipeEntry {
@@ -197,19 +200,19 @@ impl Runtime {
         if !opts.in_memory_db {
             seed_default_recipes(&config_service);
         }
+        let session = store.latest_active_session()?;
+        let active_session_id = session.as_ref().map(|s| s.session_id.clone());
         let (loaded, recipe_load_errors) = config_service.load_recipes();
         let mut recipes = BTreeMap::new();
         for recipe in loaded {
+            // Cooldowns and budgets survive restarts (loaded from the store).
+            let state =
+                Self::load_recipe_state(&store, recipe.id.as_str(), active_session_id.as_ref());
             recipes.insert(
                 recipe.id.as_str().to_string(),
-                RecipeEntry {
-                    recipe,
-                    state: RecipeState::default(),
-                },
+                RecipeEntry { recipe, state },
             );
         }
-
-        let session = store.latest_active_session()?;
 
         let runtime = Runtime {
             inner: Arc::new(RuntimeInner {
@@ -464,12 +467,26 @@ impl Runtime {
             ..Default::default()
         });
         let candidates_meta = candidates.clone();
+        // Consent-gated actuators without an active grant must not crowd out
+        // viable safe channels during open selection.
+        let now_ts = Utc::now();
+        let consent_missing: Vec<String> = snapshot
+            .actuators
+            .iter()
+            .filter(|m| m.requires_consent)
+            .filter(|m| {
+                !session.has_consent(&ConsentScope::Actuator(m.id.as_str().to_string()), now_ts)
+                    && !session.has_consent(&ConsentScope::Channel(m.channel.clone()), now_ts)
+            })
+            .map(|m| m.id.as_str().to_string())
+            .collect();
         let mut plan = build_plan(
             PlanRequest {
                 session_id: session.session_id.clone(),
                 intent,
                 snapshot: &snapshot,
                 candidates,
+                consent_missing,
                 min_channels,
                 max_channels,
                 allow_no_action,
@@ -994,6 +1011,75 @@ impl Runtime {
                 .state
                 .fired_last_hour
                 .retain(|t| now.signed_duration_since(*t).num_minutes() < 60);
+            let state = entry.state.clone();
+            drop(map);
+            self.persist_recipe_state(id, &state).await;
+        }
+    }
+
+    /// Persist recipe firing state so cooldowns / per-session budgets survive
+    /// a runtime restart.
+    async fn persist_recipe_state(&self, id: &str, state: &RecipeState) {
+        let session_id = self
+            .current_session()
+            .await
+            .map(|s| s.session_id.as_str().to_string());
+        let payload = json!({
+            "lastFiredAt": state.last_fired_at,
+            "executionsThisSession": state.executions_this_session,
+            "firedLastHour": state.fired_last_hour,
+            "consumedObservations": state.consumed_observations,
+            "sessionId": session_id,
+        });
+        let _ = self
+            .store
+            .set_meta(&format!("recipe_state:{id}"), &payload.to_string());
+    }
+
+    /// Load persisted recipe state at startup. `executions_this_session` only
+    /// carries over when the stored session is still the active one.
+    fn load_recipe_state(
+        store: &Store,
+        id: &str,
+        active_session: Option<&SessionId>,
+    ) -> RecipeState {
+        let raw = match store.get_meta(&format!("recipe_state:{id}")) {
+            Ok(Some(raw)) => raw,
+            _ => return RecipeState::default(),
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&raw) else {
+            return RecipeState::default();
+        };
+        let same_session = match (
+            value.get("sessionId").and_then(|v| v.as_str()),
+            active_session,
+        ) {
+            (Some(stored), Some(active)) => stored == active.as_str(),
+            _ => false,
+        };
+        let now = Utc::now();
+        let mut fired_last_hour: Vec<Timestamp> = value
+            .get("firedLastHour")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        fired_last_hour.retain(|t| now.signed_duration_since(*t).num_minutes() < 60);
+        RecipeState {
+            last_fired_at: value
+                .get("lastFiredAt")
+                .and_then(|v| serde_json::from_value(v.clone()).ok()),
+            executions_this_session: if same_session {
+                value
+                    .get("executionsThisSession")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32
+            } else {
+                0
+            },
+            fired_last_hour,
+            consumed_observations: value
+                .get("consumedObservations")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
         }
     }
 
@@ -1034,36 +1120,49 @@ impl Runtime {
         }
     }
 
-    async fn try_fire_recipe(&self, recipe: &Recipe) -> DomainResult<Option<TriggerDecision>> {
-        let now = Utc::now();
-        // Limits: cooldown / per-session / hourly.
+    /// Pure limit check against a state snapshot.
+    fn recipe_limits_ok(recipe: &Recipe, state: &RecipeState, now: Timestamp) -> bool {
+        if let Some(cooldown) = recipe
+            .limits
+            .cooldown
+            .as_deref()
+            .and_then(|d| interaction_recipe::parse_duration_ms(d).ok())
         {
-            let map = self.recipes.read().await;
-            if let Some(entry) = map.get(recipe.id.as_str()) {
-                if let Some(cooldown) = recipe
-                    .limits
-                    .cooldown
-                    .as_deref()
-                    .and_then(|d| interaction_recipe::parse_duration_ms(d).ok())
-                {
-                    if let Some(last) = entry.state.last_fired_at {
-                        if (now.signed_duration_since(last).num_milliseconds() as u64) < cooldown {
-                            return Ok(None);
-                        }
-                    }
-                }
-                if let Some(max) = recipe.limits.max_executions_per_session {
-                    if entry.state.executions_this_session >= max {
-                        return Ok(None);
-                    }
-                }
-                if let Some(max) = recipe.limits.max_per_hour {
-                    if entry.state.fired_last_hour.len() as u32 >= max {
-                        return Ok(None);
-                    }
+            if let Some(last) = state.last_fired_at {
+                if (now.signed_duration_since(last).num_milliseconds().max(0) as u64) < cooldown {
+                    return false;
                 }
             }
         }
+        if let Some(max) = recipe.limits.max_executions_per_session {
+            if state.executions_this_session >= max {
+                return false;
+            }
+        }
+        if let Some(max) = recipe.limits.max_per_hour {
+            if state.fired_last_hour.len() as u32 >= max {
+                return false;
+            }
+        }
+        true
+    }
+
+    async fn try_fire_recipe(&self, recipe: &Recipe) -> DomainResult<Option<TriggerDecision>> {
+        let now = Utc::now();
+        // Fast pre-check (cheap, read lock only); the authoritative check +
+        // reservation happens atomically under the write lock below.
+        let consumed: Vec<String> = {
+            let map = self.recipes.read().await;
+            match map.get(recipe.id.as_str()) {
+                Some(entry) => {
+                    if !Self::recipe_limits_ok(recipe, &entry.state, now) {
+                        return Ok(None);
+                    }
+                    entry.state.consumed_observations.clone()
+                }
+                None => Vec::new(),
+            }
+        };
         // Consent requirements.
         let session = self.require_session().await?;
         for scope_str in &recipe.consent.required {
@@ -1072,13 +1171,91 @@ impl Runtime {
                 return Ok(None);
             }
         }
-        // Trigger evaluation.
+        // Multi-receptor fusion: drop stale data, dedupe per receptor, apply
+        // explicit-input priority, surface contradictions.
         let observations = self.recent_observations_for_recipe(recipe).await?;
-        let decision = evaluate_trigger(recipe, &observations, now);
+        let max_age_ms = recipe
+            .context
+            .max_age
+            .as_deref()
+            .and_then(|d| interaction_recipe::parse_duration_ms(d).ok())
+            .unwrap_or(600_000);
+        let min_confidence = recipe.context.min_confidence.unwrap_or(0.5);
+        let fused = interaction_recipe::fuse(&[], &observations, now, max_age_ms, min_confidence);
+        // Contradiction gate: if receptors disagree on a fact the trigger
+        // conditions read, do not fire autonomously on ambiguous evidence.
+        let condition_keys: Vec<String> = recipe
+            .trigger
+            .steps
+            .iter()
+            .filter_map(|s| s.condition.as_ref())
+            .flat_map(|c| c.referenced_keys())
+            .collect();
+        if let Some(conflicted) = fused
+            .contradictions
+            .iter()
+            .find(|k| condition_keys.contains(k))
+        {
+            tracing::info!(
+                recipe = recipe.id.as_str(),
+                fact = conflicted.as_str(),
+                "not firing: receptors contradict each other on a trigger fact"
+            );
+            return Ok(None);
+        }
+        // Trigger evaluation over non-stale, NOT-YET-CONSUMED observations:
+        // an event that already fired this recipe can never fire it again.
+        let fresh: Vec<Observation> = observations
+            .iter()
+            .filter(|o| !o.is_stale(now, max_age_ms))
+            .filter(|o| !consumed.iter().any(|c| c == o.observation_id.as_str()))
+            .cloned()
+            .collect();
+        let decision = evaluate_trigger(recipe, &fresh, now);
         if !decision.fired {
             return Ok(None);
         }
-        // Chance gate (surprise factor).
+        // Atomic reservation under the write lock: re-check limits AND the
+        // high-water mark, then consume the firing slot. Closes the
+        // check-then-act race between concurrent ingests (the jitter sleep
+        // otherwise widens that window).
+        {
+            let mut map = self.recipes.write().await;
+            let entry = map
+                .get_mut(recipe.id.as_str())
+                .ok_or_else(|| DomainError::NotFound(format!("recipe {}", recipe.id)))?;
+            if !Self::recipe_limits_ok(recipe, &entry.state, now) {
+                return Ok(None);
+            }
+            // High-water mark: only NEW matching evidence may re-fire the
+            // recipe; the same old event must not fire it twice.
+            if let (Some(last), Some(latest)) = (entry.state.last_fired_at, decision.latest_match) {
+                if latest <= last {
+                    return Ok(None);
+                }
+            }
+            entry.state.last_fired_at = Some(now);
+            entry.state.executions_this_session += 1;
+            entry.state.fired_last_hour.push(now);
+            entry
+                .state
+                .fired_last_hour
+                .retain(|t| now.signed_duration_since(*t).num_minutes() < 60);
+            // Consume the matched events (bounded FIFO).
+            for id in &decision.matched_observation_ids {
+                if !entry.state.consumed_observations.contains(id) {
+                    entry.state.consumed_observations.push(id.clone());
+                }
+            }
+            while entry.state.consumed_observations.len() > 128 {
+                entry.state.consumed_observations.remove(0);
+            }
+            let state = entry.state.clone();
+            drop(map);
+            self.persist_recipe_state(recipe.id.as_str(), &state).await;
+        }
+        // Chance gate (surprise factor). The reservation above is deliberately
+        // consumed even when chance skips: the opportunity was spent.
         if recipe.actuation.chance < 1.0 {
             let roll: f64 = rand::thread_rng().gen();
             if roll > recipe.actuation.chance {
@@ -1099,11 +1276,19 @@ impl Runtime {
                 _ = self.shutdown_token.cancelled() => return Ok(Some(decision)),
             }
         }
-        let plan = self.plan_from_recipe(recipe).await?;
+        let mut plan = self.plan_from_recipe(recipe).await?;
+        // Attach the fused context (facts after explicit-input override) so
+        // the timeline shows what evidence the decision was based on.
+        plan.metadata
+            .insert("contextFacts".to_string(), json!(fused.facts));
+        if !fused.missing.is_empty() {
+            plan.metadata
+                .insert("missingReceptors".to_string(), json!(fused.missing));
+        }
+        self.store.upsert_plan(&plan)?;
         let _ = self
             .execute_plan(&plan.plan_id, ActionSource::Autonomous, false)
             .await?;
-        self.note_recipe_fired(recipe.id.as_str()).await;
         Ok(Some(decision))
     }
 
@@ -1181,11 +1366,14 @@ impl Runtime {
     // Shared helpers
     // ------------------------------------------------------------------
 
+    /// Persist a receipt. Returns `false` when the write was refused because
+    /// the stored receipt is already terminal (e.g. e-stop sweep or watchdog
+    /// got there first) — the caller's copy is then stale and must yield.
     pub(crate) async fn persist_receipt(
         &self,
         receipt: &ActionReceipt,
         channel: &str,
-    ) -> DomainResult<()> {
+    ) -> DomainResult<bool> {
         self.store.upsert_receipt(receipt, channel)
     }
 
@@ -1212,6 +1400,26 @@ impl Runtime {
                 .with_session(receipt.session_id.clone())
                 .with_correlation(receipt.correlation_id.clone()),
         );
+    }
+
+    /// Test/diagnostic wrapper for [`Self::charge_session_cost`].
+    pub async fn charge_session_cost_public(&self, session_id: &SessionId, cost: f64) {
+        self.charge_session_cost(session_id, cost).await;
+    }
+
+    /// Accumulate monetary spend so the governor's budget check sees it on the
+    /// next authorization.
+    pub(crate) async fn charge_session_cost(&self, session_id: &SessionId, cost: f64) {
+        if cost <= 0.0 {
+            return;
+        }
+        let mut guard = self.session.write().await;
+        if let Some(session) = guard.as_mut() {
+            if &session.session_id == session_id {
+                session.monetary_spent += cost;
+                let _ = self.store.upsert_session(session);
+            }
+        }
     }
 
     pub(crate) async fn track_session_usage(

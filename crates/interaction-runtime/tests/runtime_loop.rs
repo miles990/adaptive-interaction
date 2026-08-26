@@ -410,11 +410,18 @@ async fn crash_recovery_marks_open_actions_uncertain() {
             .execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false)
             .await
             .unwrap();
-        // Manually regress a receipt to a non-terminal state in the store to
-        // simulate dying mid-flight.
+        // Simulate a genuinely in-flight action left behind by a crash: a
+        // FRESH receipt (new action id) that never reached a terminal state.
+        // (Terminal receipts are sticky and can no longer be regressed.)
         let mut open = receipts[0].clone();
+        open.action_id = ActionId::generate();
         open.current_status = ActionStatus::Dispatched;
-        rt.store.upsert_receipt(&open, "conversation").unwrap();
+        open.timestamps = vec![
+            (ActionStatus::Authorized, chrono::Utc::now()),
+            (ActionStatus::Accepted, chrono::Utc::now()),
+            (ActionStatus::Dispatched, chrono::Utc::now()),
+        ];
+        assert!(rt.store.upsert_receipt(&open, "conversation").unwrap());
         // NOTE: no rt.shutdown() → clean_shutdown stays "false".
     }
     let rt2 = Runtime::start(RuntimeOptions {
@@ -463,4 +470,182 @@ async fn simulate_has_no_side_effects() {
         rt.list_actions(None, 10).unwrap().is_empty(),
         "simulation must not create receipts"
     );
+}
+
+#[tokio::test]
+async fn recipe_events_are_consumed_no_refire_on_unrelated_observation() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("consume".into()), None, vec![])
+        .await
+        .unwrap();
+    // Recipe WITHOUT cooldown: only event consumption prevents re-firing.
+    rt.upsert_recipe_text(
+        r#"
+id: consume-test
+name: consumption
+enabled: true
+trigger:
+  mode: sequence
+  within: 10m
+  steps:
+    - receptor: task.lifecycle
+      condition: { event: task.completed }
+    - receptor: user.presence
+      condition: { state: present }
+decision: { objective: t, allowNoAction: true }
+intent: success
+actuation:
+  candidates: [conversation]
+  minChannels: 0
+  maxChannels: 1
+"#,
+    )
+    .await
+    .unwrap();
+    // Disable the seeded default recipe so counts are isolated.
+    let _ = rt
+        .set_recipe_enabled("adaptive-task-completion", false)
+        .await;
+
+    rt.ingest(
+        "task.lifecycle",
+        facts(&[("event", "task.completed")]),
+        BTreeMap::new(),
+        1.0,
+    )
+    .await
+    .unwrap();
+    rt.ingest(
+        "user.presence",
+        facts(&[("state", "present")]),
+        BTreeMap::new(),
+        1.0,
+    )
+    .await
+    .unwrap();
+    let after_first = rt.outbox.recent(100).len();
+    assert!(after_first >= 1, "recipe should have fired once");
+
+    // A NEW presence event alone must NOT re-fire: the task.completed event
+    // was consumed by the first firing.
+    rt.ingest(
+        "user.presence",
+        facts(&[("state", "present")]),
+        BTreeMap::new(),
+        1.0,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        rt.outbox.recent(100).len(),
+        after_first,
+        "consumed trigger event must not fire the recipe again"
+    );
+
+    // A fresh task.completed event re-arms the chain.
+    rt.ingest(
+        "task.lifecycle",
+        facts(&[("event", "task.completed")]),
+        BTreeMap::new(),
+        1.0,
+    )
+    .await
+    .unwrap();
+    rt.ingest(
+        "user.presence",
+        facts(&[("state", "present")]),
+        BTreeMap::new(),
+        1.0,
+    )
+    .await
+    .unwrap();
+    assert!(
+        rt.outbox.recent(100).len() > after_first,
+        "new evidence should fire the recipe again"
+    );
+}
+
+#[tokio::test]
+async fn recipe_state_survives_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_path_buf();
+    {
+        let rt = Runtime::start(RuntimeOptions {
+            home: Some(home.clone()),
+            acquire_lock: false,
+            in_memory_db: false,
+            spawn_watchdog: false,
+        })
+        .await
+        .unwrap();
+        rt.start_session(Some("persist".into()), None, vec![])
+            .await
+            .unwrap();
+        rt.ingest(
+            "task.lifecycle",
+            facts(&[("event", "task.completed")]),
+            BTreeMap::new(),
+            1.0,
+        )
+        .await
+        .unwrap();
+        rt.ingest(
+            "user.presence",
+            facts(&[("state", "present")]),
+            BTreeMap::new(),
+            1.0,
+        )
+        .await
+        .unwrap();
+        let (_, state) = rt
+            .list_recipes()
+            .await
+            .into_iter()
+            .find(|(r, _)| r.id.as_str() == "adaptive-task-completion")
+            .unwrap();
+        assert!(state.last_fired_at.is_some(), "recipe should have fired");
+        rt.shutdown().await;
+    }
+    // Restart: cooldown state must survive; the same session is still active.
+    let rt2 = Runtime::start(RuntimeOptions {
+        home: Some(home),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+    let (_, state) = rt2
+        .list_recipes()
+        .await
+        .into_iter()
+        .find(|(r, _)| r.id.as_str() == "adaptive-task-completion")
+        .unwrap();
+    assert!(
+        state.last_fired_at.is_some(),
+        "cooldown state must survive a restart"
+    );
+    assert_eq!(
+        state.executions_this_session, 1,
+        "same session keeps its budget"
+    );
+}
+
+#[tokio::test]
+async fn monetary_spend_accumulates_and_blocks() {
+    let (_g, rt) = runtime().await;
+    let session = rt
+        .start_session(Some("money".into()), None, vec![])
+        .await
+        .unwrap();
+    assert_eq!(rt.current_session().await.unwrap().monetary_spent, 0.0);
+    rt.charge_session_cost_public(&session.session_id, 1.25)
+        .await;
+    rt.charge_session_cost_public(&session.session_id, 0.50)
+        .await;
+    let updated = rt.current_session().await.unwrap();
+    assert!((updated.monetary_spent - 1.75).abs() < f64::EPSILON);
+    // Persisted too.
+    let stored = rt.store.session(&session.session_id).unwrap();
+    assert!((stored.monetary_spent - 1.75).abs() < f64::EPSILON);
 }
