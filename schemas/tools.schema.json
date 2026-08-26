@@ -1321,6 +1321,44 @@
             ],
             "type": "string"
           },
+          "DelegationLimits": {
+            "description": "Deterministic delegation limits (policy-owned).",
+            "properties": {
+              "maxDepth": {
+                "default": 3,
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxMessagesPerSession": {
+                "default": 200,
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxParallel": {
+                "default": 4,
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxSessions": {
+                "default": 8,
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "providerAllowlist": {
+                "default": [],
+                "description": "Provider allowlist for delegation targets; empty = none allowed.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
           "EffectSemantics": {
             "description": "What an actuator or write-operation affects.",
             "properties": {
@@ -1528,6 +1566,17 @@
                 "format": "uint64",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "delegation": {
+                "$ref": "#/$defs/DelegationLimits",
+                "default": {
+                  "maxDepth": 3,
+                  "maxMessagesPerSession": 200,
+                  "maxParallel": 4,
+                  "maxSessions": 8,
+                  "providerAllowlist": []
+                },
+                "description": "Deterministic delegation limits for agent sessions."
               },
               "enabled": {
                 "default": true,
@@ -3067,6 +3116,44 @@
             },
             "type": "object"
           },
+          "DelegationLimits": {
+            "description": "Deterministic delegation limits (policy-owned).",
+            "properties": {
+              "maxDepth": {
+                "default": 3,
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxMessagesPerSession": {
+                "default": 200,
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxParallel": {
+                "default": 4,
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxSessions": {
+                "default": 8,
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "providerAllowlist": {
+                "default": [],
+                "description": "Provider allowlist for delegation targets; empty = none allowed.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
           "InitiativeLevel": {
             "description": "How proactive the runtime may be without an explicit request.",
             "oneOf": [
@@ -3179,6 +3266,17 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "delegation": {
+            "$ref": "#/$defs/DelegationLimits",
+            "default": {
+              "maxDepth": 3,
+              "maxMessagesPerSession": 200,
+              "maxParallel": 4,
+              "maxSessions": 8,
+              "providerAllowlist": []
+            },
+            "description": "Deterministic delegation limits for agent sessions."
           },
           "enabled": {
             "default": true,

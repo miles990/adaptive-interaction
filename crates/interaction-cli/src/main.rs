@@ -73,6 +73,11 @@ pub enum Command {
         #[command(subcommand)]
         action: ProvidersAction,
     },
+    /// Agent sessions: leased, budgeted delegated work with a mailbox.
+    Agents {
+        #[command(subcommand)]
+        action: AgentsAction,
+    },
     /// Pause proactive interactions (a normal control; NOT emergency stop).
     Pause {
         /// Duration like "2h", "45m" (omit = until resumed).
@@ -266,4 +271,64 @@ pub enum ProvidersAction {
     },
     /// Revoke a provider: capabilities disabled immediately; sticky.
     Revoke { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum AgentsAction {
+    /// List agent sessions (state, lease, budget).
+    Sessions,
+    /// Show one agent session.
+    Show { id: String },
+    /// Create a leased agent session.
+    Create {
+        /// Agent profile id (e.g. agent.coder).
+        #[arg(long)]
+        agent: String,
+        #[arg(long)]
+        label: Option<String>,
+        /// Lease TTL in minutes (default 120).
+        #[arg(long)]
+        ttl: Option<u32>,
+        /// Max mailbox messages (default from policy).
+        #[arg(long)]
+        max_messages: Option<u32>,
+    },
+    /// Send a message into a session mailbox.
+    Send {
+        id: String,
+        /// message kind (task/question/cancel/…)
+        #[arg(long, default_value = "task")]
+        kind: String,
+        /// JSON body.
+        #[arg(long, default_value = "{}")]
+        body: String,
+    },
+    /// Fetch mailbox messages (to-session marks delivery).
+    Messages {
+        id: String,
+        #[arg(long, default_value = "to-session")]
+        direction: String,
+    },
+    /// Report session state (the agent host calls this).
+    Report {
+        id: String,
+        #[arg(long)]
+        event: String,
+        #[arg(long, default_value = "null")]
+        payload: String,
+    },
+    /// Renew a renewable lease before it expires.
+    Renew {
+        id: String,
+        #[arg(long, default_value_t = 30)]
+        extra_minutes: u32,
+    },
+    /// Close a session (optionally with a bounded handoff JSON).
+    Close {
+        id: String,
+        #[arg(long)]
+        handoff: Option<String>,
+        #[arg(long, default_value = "closed")]
+        reason: String,
+    },
 }

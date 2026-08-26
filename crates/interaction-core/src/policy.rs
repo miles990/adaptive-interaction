@@ -98,6 +98,9 @@ pub struct PolicyConfig {
     /// Monetary budget per session in USD.
     #[serde(default)]
     pub session_monetary_budget: f64,
+    /// Deterministic delegation limits for agent sessions.
+    #[serde(default)]
+    pub delegation: crate::agent::DelegationLimits,
     /// Whether high-risk physical output may resume automatically after crash.
     /// This is deliberately not configurable to `true` via the public API.
     #[serde(default)]
@@ -138,6 +141,9 @@ impl Default for PolicyConfig {
                 "manual.event".into(),
                 "webhook.input".into(),
                 "mock.receptor".into(),
+                "agent.session".into(),
+                "desktop.companion.interaction".into(),
+                "desktop.pointer.activity".into(),
             ],
             actuator_allowlist: vec![
                 "conversation".into(),
@@ -145,6 +151,7 @@ impl Default for PolicyConfig {
                 "local-log".into(),
                 "local-notification".into(),
                 "mock.actuator".into(),
+                "agent.delegate".into(),
             ],
             tool_allowlist: vec!["interaction.*".into()],
             allowed_channels: vec![
@@ -153,6 +160,7 @@ impl Default for PolicyConfig {
                 "notification".into(),
                 "log".into(),
                 "visual".into(),
+                "agent".into(),
             ],
             quiet_hours: Vec::new(),
             channel_limits: BTreeMap::new(),
@@ -161,6 +169,7 @@ impl Default for PolicyConfig {
             max_pattern_steps: default_pattern_steps(),
             max_scheduled_actions: default_max_scheduled(),
             session_monetary_budget: 0.0,
+            delegation: crate::agent::DelegationLimits::default(),
             resume_high_risk_after_restart: false,
             schema_version: crate::SCHEMA_VERSION.to_string(),
         }

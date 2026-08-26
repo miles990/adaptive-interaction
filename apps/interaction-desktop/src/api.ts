@@ -184,7 +184,28 @@ export const api = {
   recipeConvert: (text: string, to: "yaml" | "json") =>
     invoke<ConvertResult>("recipe_convert", { text, to }),
   recipeGet: (id: string) => invoke<Record<string, unknown>>("recipe_get", { id }),
+  agentSessionsList: () => invoke<AgentSessionRecord[]>("agent_sessions_list"),
+  agentSessionSend: (id: string, kind: string, body: Record<string, unknown>) =>
+    invoke<Record<string, unknown>>("agent_session_send", { id, kind, body }),
+  agentSessionClose: (id: string, reason?: string) =>
+    invoke<AgentSessionRecord>("agent_session_close", { id, reason: reason ?? null }),
 };
+
+export interface AgentSessionRecord {
+  sessionId: string;
+  providerId: string;
+  agentId: string;
+  label?: string;
+  state: string;
+  lease: { issuedAt: string; expiresAt: string; renewable: boolean };
+  dataScope: string[];
+  toolScope: string[];
+  consentScope: string[];
+  budget: { maxMessages: number; spentMessages: number; maxCost: number; spentCost: number };
+  createdAt: string;
+  closedAt?: string;
+  detail?: string;
+}
 
 // ---- human layer types ----
 

@@ -63,6 +63,9 @@ id_type!(
     /// Identifies a capability provider (device/service/agent/session/…).
     ProviderId, "provider");
 id_type!(
+    /// Identifies one leased agent session (short-lived delegated work).
+    AgentSessionId, "asession");
+id_type!(
     /// Identifies a single bounded action / receipt.
     ActionId, "action");
 id_type!(

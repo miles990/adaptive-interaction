@@ -15,9 +15,11 @@ use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
+type SetCall = (Value, Option<String>);
+
 #[derive(Clone, Default)]
 struct DeviceState {
-    set_calls: Arc<Mutex<Vec<(Value, Option<String>)>>>,
+    set_calls: Arc<Mutex<Vec<SetCall>>>,
     fail_next: Arc<Mutex<u32>>,
 }
 
@@ -120,7 +122,12 @@ async fn receptor_reads_real_device_facts() {
     let (addr, _state) = spawn_mock_device().await;
     let built = build(&parse_spec(&spec_for(addr)).unwrap(), None).unwrap();
     let receptor = &built.receptors[0];
-    receptor.start(SessionContext { session_id: SessionId::new("sess-1") }).await.unwrap();
+    receptor
+        .start(SessionContext {
+            session_id: SessionId::new("sess-1"),
+        })
+        .await
+        .unwrap();
     let obs = receptor.read().await.unwrap();
     assert_eq!(obs.facts.get("on"), Some(&json!(true)));
     assert_eq!(obs.facts.get("brightness"), Some(&json!(40)));
@@ -177,7 +184,10 @@ capabilities:
     let built = build(&parse_spec(yaml).unwrap(), None).unwrap();
     let receipt = built.actuators[0].execute(bounded_action()).await.unwrap();
     assert_eq!(receipt.current_status, ActionStatus::Failed);
-    assert!(receipt.errors.iter().any(|e| e.code == "device-unreachable"));
+    assert!(receipt
+        .errors
+        .iter()
+        .any(|e| e.code == "device-unreachable"));
 }
 
 #[tokio::test]

@@ -362,6 +362,84 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             }
         }
         Command::Catalog => client.get("/v1/catalog").await?,
+        Command::Agents { action } => match action {
+            crate::AgentsAction::Sessions => client.get("/v1/agent-sessions").await?,
+            crate::AgentsAction::Show { id } => {
+                client.get(&format!("/v1/agent-sessions/{id}")).await?
+            }
+            crate::AgentsAction::Create {
+                agent,
+                label,
+                ttl,
+                max_messages,
+            } => {
+                client
+                    .post(
+                        "/v1/agent-sessions",
+                        Some(json!({
+                            "agentId": agent,
+                            "label": label,
+                            "ttlMinutes": ttl,
+                            "maxMessages": max_messages,
+                        })),
+                    )
+                    .await?
+            }
+            crate::AgentsAction::Send { id, kind, body } => {
+                let body: serde_json::Value = serde_json::from_str(body.as_str())
+                    .map_err(|e| anyhow::anyhow!("--body must be JSON: {e}"))?;
+                client
+                    .post(
+                        &format!("/v1/agent-sessions/{id}/messages"),
+                        Some(json!({"kind": kind, "body": body})),
+                    )
+                    .await?
+            }
+            crate::AgentsAction::Messages { id, direction } => {
+                client
+                    .get(&format!(
+                        "/v1/agent-sessions/{id}/messages?direction={direction}"
+                    ))
+                    .await?
+            }
+            crate::AgentsAction::Report { id, event, payload } => {
+                let payload: serde_json::Value = serde_json::from_str(payload.as_str())
+                    .map_err(|e| anyhow::anyhow!("--payload must be JSON: {e}"))?;
+                client
+                    .post(
+                        &format!("/v1/agent-sessions/{id}/report"),
+                        Some(json!({"event": event, "payload": payload})),
+                    )
+                    .await?
+            }
+            crate::AgentsAction::Renew { id, extra_minutes } => {
+                client
+                    .post(
+                        &format!("/v1/agent-sessions/{id}/renew"),
+                        Some(json!({"extraMinutes": extra_minutes})),
+                    )
+                    .await?
+            }
+            crate::AgentsAction::Close {
+                id,
+                handoff,
+                reason,
+            } => {
+                let handoff: Option<serde_json::Value> = match handoff {
+                    Some(h) => Some(
+                        serde_json::from_str(h.as_str())
+                            .map_err(|e| anyhow::anyhow!("--handoff must be JSON: {e}"))?,
+                    ),
+                    None => None,
+                };
+                client
+                    .post(
+                        &format!("/v1/agent-sessions/{id}/close"),
+                        Some(json!({"handoff": handoff, "reason": reason})),
+                    )
+                    .await?
+            }
+        },
         Command::Providers { action } => match action {
             crate::ProvidersAction::List => client.get("/v1/providers").await?,
             crate::ProvidersAction::Show { id } => {

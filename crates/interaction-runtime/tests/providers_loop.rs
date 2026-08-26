@@ -99,14 +99,23 @@ async fn declarative_device_registers_installed_and_disabled() {
     assert!(desk.actuators.contains(&"desk-light.set".to_string()));
 
     // The actuator is consent-gated → NOT enabled by default.
-    let snap = rt.capabilities(&DiscoveryContext { include_unavailable: true, ..Default::default() }).await;
+    let snap = rt
+        .capabilities(&DiscoveryContext {
+            include_unavailable: true,
+            ..Default::default()
+        })
+        .await;
     let act = snap
         .actuators
         .iter()
         .find(|a| a.id.as_str() == "desk-light.set")
         .expect("actuator listed");
     assert!(act.requires_consent);
-    assert_ne!(act.availability, Availability::Available, "device output must start disabled");
+    assert_ne!(
+        act.availability,
+        Availability::Available,
+        "device output must start disabled"
+    );
 }
 
 #[tokio::test]
@@ -121,9 +130,13 @@ async fn governor_bounds_device_output_and_receipt_stays_acknowledged() {
     rt.update_policy(json!({"actuatorAllowlist": ["desk-light.set"], "allowedChannels": ["conversation", "web-ui", "log", "light"]}))
         .await
         .unwrap();
-    rt.start_session(Some("test".into()), None, vec!["actuator:desk-light.set".into()])
-        .await
-        .unwrap();
+    rt.start_session(
+        Some("test".into()),
+        None,
+        vec!["actuator:desk-light.set".into()],
+    )
+    .await
+    .unwrap();
 
     let mut intent = SemanticIntent::new("calm");
     intent.magnitude = Some(1.0); // ask for maximum
@@ -158,7 +171,10 @@ async fn governor_bounds_device_output_and_receipt_stays_acknowledged() {
     assert_eq!(calls.len(), 1);
     let sent = calls[0]["brightness"].as_f64().unwrap();
     let effective = receipt.effective_bounded_parameters.magnitude.unwrap();
-    assert!((sent - effective).abs() < 1e-9, "device got exactly the bounded value");
+    assert!(
+        (sent - effective).abs() < 1e-9,
+        "device got exactly the bounded value"
+    );
     assert!(sent <= 1.0);
     if let Some(requested) = receipt.requested_parameters.magnitude {
         assert!(effective <= requested);
@@ -195,9 +211,15 @@ async fn pairing_ceremony_and_revocation_disable_capabilities() {
     assert!(paired.identity.fingerprint.as_deref().unwrap().len() == 64);
 
     // install → disabled → available, then revoke.
-    rt.transition_provider(&id, ProviderState::Installed).await.unwrap();
-    rt.transition_provider(&id, ProviderState::Disabled).await.unwrap();
-    rt.transition_provider(&id, ProviderState::Available).await.unwrap();
+    rt.transition_provider(&id, ProviderState::Installed)
+        .await
+        .unwrap();
+    rt.transition_provider(&id, ProviderState::Disabled)
+        .await
+        .unwrap();
+    rt.transition_provider(&id, ProviderState::Available)
+        .await
+        .unwrap();
 
     // Revoking the DECLARATIVE provider disables its live capabilities.
     let desk = ProviderId::new("provider.adapter.desk-light");
@@ -208,7 +230,10 @@ async fn pairing_ceremony_and_revocation_disable_capabilities() {
     let revoked = rt.revoke_provider(&desk).await.unwrap();
     assert_eq!(revoked.state, ProviderState::Revoked);
     let snap = rt
-        .capabilities(&DiscoveryContext { include_unavailable: true, ..Default::default() })
+        .capabilities(&DiscoveryContext {
+            include_unavailable: true,
+            ..Default::default()
+        })
         .await;
     let act = snap
         .actuators

@@ -211,7 +211,14 @@ mod tests {
     fn only_operational_states_execute() {
         use ProviderState::*;
         for s in [
-            Discovered, Unpaired, Paired, Installed, Disabled, Expired, Revoked, Closed,
+            Discovered,
+            Unpaired,
+            Paired,
+            Installed,
+            Disabled,
+            Expired,
+            Revoked,
+            Closed,
             Disconnected,
         ] {
             assert!(!s.is_operational(), "{s:?} must not be operational");
@@ -223,7 +230,8 @@ mod tests {
 
     #[test]
     fn identity_roundtrips_and_defaults_conservatively() {
-        let json = r#"{"id":"provider.device.desk-01","kind":"device","displayName":"書桌互動裝置"}"#;
+        let json =
+            r#"{"id":"provider.device.desk-01","kind":"device","displayName":"書桌互動裝置"}"#;
         let id: ProviderIdentity = serde_json::from_str(json).unwrap();
         assert_eq!(id.kind, ProviderKind::Device);
         assert_eq!(id.trust_level, TrustLevel::Untrusted); // default: untrusted

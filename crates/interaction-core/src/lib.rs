@@ -6,6 +6,7 @@
 //! and adapters.
 
 pub mod action;
+pub mod agent;
 pub mod capability;
 pub mod error;
 pub mod event;
@@ -22,6 +23,7 @@ pub mod session;
 pub mod traits;
 
 pub use action::*;
+pub use agent::*;
 pub use capability::*;
 pub use error::*;
 pub use event::*;

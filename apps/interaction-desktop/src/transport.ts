@@ -170,6 +170,11 @@ const ROUTES: Record<string, Route> = {
     http("POST", `/v1/recipes/${q(a.id)}/simulate-scenario`, a.scenario),
   recipe_convert: (a) => http("POST", "/v1/recipes/convert", { text: a.text, to: a.to }),
   recipe_get: (a) => http("GET", `/v1/recipes/${q(a.id)}`),
+  agent_sessions_list: () => http("GET", "/v1/agent-sessions"),
+  agent_session_send: (a) =>
+    http("POST", `/v1/agent-sessions/${q(a.id)}/messages`, { kind: a.kind, body: a.body }),
+  agent_session_close: (a) =>
+    http("POST", `/v1/agent-sessions/${q(a.id)}/close`, { reason: a.reason ?? "closed" }),
 };
 
 /** Invoke a backend command through whichever transport is active. */

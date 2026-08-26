@@ -199,7 +199,11 @@ pub fn validate_url(raw: &str) -> Result<(), String> {
     let url = url::Url::parse(raw).map_err(|e| format!("invalid url {raw:?}: {e}"))?;
     match url.scheme() {
         "http" | "https" => {}
-        other => return Err(format!("url scheme {other:?} not allowed (http/https only)")),
+        other => {
+            return Err(format!(
+                "url scheme {other:?} not allowed (http/https only)"
+            ))
+        }
     }
     if let Some(host) = url.host_str() {
         if host.starts_with("169.254.") || host == "metadata.google.internal" {
@@ -218,6 +222,7 @@ pub fn validate_url(raw: &str) -> Result<(), String> {
 /// Resolve `secret://name` header values. Sources, in order:
 /// 1. `INTERACT_AI_SECRET_<NAME>` environment variable (uppercased, - → _)
 /// 2. the runtime secret file `<home>/state/secrets.json` (0600, human-owned)
+///
 /// Secrets never appear in specs, logs or receipts.
 pub fn resolve_secret(reference: &str, home: Option<&std::path::Path>) -> Result<String, String> {
     let Some(name) = reference.strip_prefix("secret://") else {
@@ -392,7 +397,7 @@ impl Receptor for DeclarativeHttpReceptor {
         }
         let mut obs = Observation::now(
             ReceptorId::new(self.full_id()),
-            &format!("declarative.{}", self.adapter_id),
+            format!("declarative.{}", self.adapter_id),
             Utc::now(),
         );
         for (fact, pointer) in &self.spec.facts {
@@ -445,8 +450,7 @@ impl Actuator for DeclarativeHttpActuator {
             use interaction_core::{ConfirmationLevel, EffectSemantics, TriState};
             b = b.human(HumanMeta {
                 effect: Some(EffectSemantics {
-                    confirmation_level: if self.spec.confirmation.as_deref()
-                        == Some("acknowledged")
+                    confirmation_level: if self.spec.confirmation.as_deref() == Some("acknowledged")
                     {
                         ConfirmationLevel::Acknowledged
                     } else {

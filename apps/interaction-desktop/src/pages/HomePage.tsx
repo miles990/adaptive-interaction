@@ -120,6 +120,8 @@ export function HomePage({
         </p>
       </Section>
 
+      <AgentSessionsSection refreshKey={refreshKey} advancedHint />
+
       <Section title="最近一次互動">
         <StateView state={actions} empty="還沒有任何互動。">
           {(list) => <LastInteraction receipt={(list as Receipt[])[0]} events={events} />}
@@ -330,3 +332,69 @@ function LastInteraction({ receipt }: { receipt: Receipt; events: RuntimeEvent[]
   );
 }
 
+
+
+/** 目前 AI 工作階段（多 Session 一般模式視圖）：真實 Session、人話狀態、
+ *  權限範圍；「聲稱完成」明確標示為聲稱，非驗證。 */
+function AgentSessionsSection({ refreshKey }: { refreshKey: number; advancedHint?: boolean }) {
+  const [sessions] = useAsync(() => api.agentSessionsList(), [refreshKey]);
+  const open = (sessions.data ?? []).filter((s) => !s.closedAt);
+  if (sessions.loading || open.length === 0) return null;
+
+  const stateLabel = (st: string) =>
+    ({
+      created: "已建立，尚未開始",
+      active: "工作中",
+      "waiting-for-input": "等待你的輸入",
+      "waiting-for-consent": "等待你的同意",
+      "claimed-completed": "聲稱已完成（尚未驗證）",
+      failed: "失敗",
+      "timed-out": "逾時",
+      cancelled: "已取消",
+      expired: "租約已到期",
+      closed: "已結束",
+    })[st] ?? st;
+
+  return (
+    <Section title={`目前有 ${open.length} 個 AI 工作階段`}>
+      {open.map((s) => (
+        <div key={s.sessionId} className="agent-session-row">
+          <div className="agent-session-head">
+            <strong>{s.label ?? s.agentId}</strong>
+            <Badge
+              kind={
+                s.state === "claimed-completed"
+                  ? "warn"
+                  : s.state === "failed"
+                    ? "bad"
+                    : "info"
+              }
+            >
+              {stateLabel(s.state)}
+            </Badge>
+          </div>
+          <div className="muted small">
+            權限：
+            {s.dataScope.length > 0 ? `可讀 ${s.dataScope.join("、")}` : "無資料範圍"}
+            {s.toolScope.length > 0 ? `；工具 ${s.toolScope.join("、")}` : ""}
+            　·　訊息 {s.budget.spentMessages}/{s.budget.maxMessages || "∞"}
+            　·　租約至 {new Date(s.lease.expiresAt).toLocaleTimeString()}
+          </div>
+          <div className="row wrap" style={{ marginTop: 4 }}>
+            <button
+              onClick={() =>
+                api.agentSessionClose(s.sessionId, "cancelled").catch(() => {})
+              }
+            >
+              取消這個工作階段
+            </button>
+          </div>
+        </div>
+      ))}
+      <p className="muted small">
+        AI 工作階段是有期限、有預算的委派工作。它們的回報是「聲稱」，
+        實際結果仍以收據與驗證為準。
+      </p>
+    </Section>
+  );
+}

@@ -221,6 +221,22 @@ pub fn builtin_push_receptors() -> Vec<Arc<PushReceptor>> {
             ))
             .build(),
         ),
+        // Agent-session reports. Facts = "a report arrived"; the agent's own
+        // claims live under inferences and are NEVER verification evidence.
+        PushReceptor::new(
+            ReceptorManifestBuilder::new("agent.session", "Agent session reports", "builtin.push")
+                .description("State reports from delegated agent sessions; agent claims stay inferences")
+                .category("agent")
+                .provides(&["sessionId", "event"])
+                .mode(ReceptorMode::Event)
+                .sensitivity(Sensitivity::Internal, false)
+                .human(interaction_adapter_sdk::data_semantics(
+                    &["agent-status"],
+                    interaction_core::TriState::No,
+                    interaction_core::DataSource::Local,
+                ))
+                .build(),
+        ),
         PushReceptor::new(
             ReceptorManifestBuilder::new("mock.receptor", "Mock receptor", "builtin.mock")
                 .description("Scriptable receptor for tests and simulations")

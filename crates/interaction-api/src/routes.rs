@@ -1045,3 +1045,148 @@ pub async fn provider_revoke(
         .await?;
     Ok(Json(serde_json::to_value(desc).unwrap_or_default()))
 }
+
+// ---------------------------------------------------------------------------
+// Agent sessions (leased, budgeted, mailbox-only communication)
+// ---------------------------------------------------------------------------
+
+pub async fn agent_sessions_list(State(state): State<ApiState>) -> Json<Value> {
+    Json(json!(state.runtime.list_agent_sessions().await))
+}
+
+pub async fn agent_session_create(
+    State(state): State<ApiState>,
+    Json(input): Json<interaction_runtime::agents::CreateAgentSession>,
+) -> ApiResult<Json<Value>> {
+    let record = state.runtime.create_agent_session(input).await?;
+    Ok(Json(serde_json::to_value(record).unwrap_or_default()))
+}
+
+pub async fn agent_session_get(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        serde_json::to_value(state.runtime.get_agent_session(&id).await?).unwrap_or_default(),
+    ))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionReportBody {
+    pub event: String,
+    #[serde(default)]
+    pub payload: Value,
+}
+
+pub async fn agent_session_report(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(body): Json<SessionReportBody>,
+) -> ApiResult<Json<Value>> {
+    let record = state
+        .runtime
+        .report_agent_session(&id, &body.event, body.payload)
+        .await?;
+    Ok(Json(serde_json::to_value(record).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MailboxQuery {
+    #[serde(default)]
+    pub direction: Option<String>,
+}
+
+pub async fn agent_session_messages(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Query(q): Query<MailboxQuery>,
+) -> ApiResult<Json<Value>> {
+    let direction = match q.direction.as_deref() {
+        Some("from-session") => interaction_core::MailboxDirection::FromSession,
+        _ => interaction_core::MailboxDirection::ToSession,
+    };
+    let messages = state.runtime.mailbox_fetch(&id, direction).await?;
+    Ok(Json(json!(messages)))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MailboxSendBody {
+    #[serde(default = "default_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub direction: Option<String>,
+    #[serde(default)]
+    pub body: std::collections::BTreeMap<String, Value>,
+}
+
+fn default_kind() -> String {
+    "message".into()
+}
+
+pub async fn agent_session_send(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(body): Json<MailboxSendBody>,
+) -> ApiResult<Json<Value>> {
+    let direction = match body.direction.as_deref() {
+        Some("from-session") => interaction_core::MailboxDirection::FromSession,
+        _ => interaction_core::MailboxDirection::ToSession,
+    };
+    let message = state
+        .runtime
+        .mailbox_send(&id, direction, &body.kind, body.body, None)
+        .await?;
+    Ok(Json(serde_json::to_value(message).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenewBody {
+    #[serde(default = "default_renew")]
+    pub extra_minutes: u32,
+}
+
+fn default_renew() -> u32 {
+    30
+}
+
+pub async fn agent_session_renew(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(body): Json<RenewBody>,
+) -> ApiResult<Json<Value>> {
+    let record = state
+        .runtime
+        .renew_agent_session(&id, body.extra_minutes)
+        .await?;
+    Ok(Json(serde_json::to_value(record).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CloseBody {
+    #[serde(default)]
+    pub handoff: Option<interaction_core::HandoffSummary>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+pub async fn agent_session_close(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    body: Option<Json<CloseBody>>,
+) -> ApiResult<Json<Value>> {
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let record = state
+        .runtime
+        .close_agent_session(
+            &id,
+            body.handoff,
+            body.reason.as_deref().unwrap_or("closed"),
+        )
+        .await?;
+    Ok(Json(serde_json::to_value(record).unwrap_or_default()))
+}

@@ -175,7 +175,9 @@ mod tests {
         assert!(err.to_string().contains("separate steps"));
 
         // The mandated ceremony works step by step.
-        reg.transition(&id, ProviderState::Paired, None).await.unwrap();
+        reg.transition(&id, ProviderState::Paired, None)
+            .await
+            .unwrap();
         reg.transition(&id, ProviderState::Installed, None)
             .await
             .unwrap();
@@ -201,7 +203,12 @@ mod tests {
     #[tokio::test]
     async fn duplicate_registration_conflicts() {
         let reg = ProviderRegistry::new(EventBus::new(64));
-        reg.register(discovered(identity("provider.x"))).await.unwrap();
-        assert!(reg.register(discovered(identity("provider.x"))).await.is_err());
+        reg.register(discovered(identity("provider.x")))
+            .await
+            .unwrap();
+        assert!(reg
+            .register(discovered(identity("provider.x")))
+            .await
+            .is_err());
     }
 }

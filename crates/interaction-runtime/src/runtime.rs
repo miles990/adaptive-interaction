@@ -83,6 +83,8 @@ pub struct RuntimeInner {
     pub(crate) pause: RwLock<crate::human::PauseState>,
     /// Pending AI assist requests awaiting an external AI host (bounded).
     pub(crate) ai_assists: RwLock<BTreeMap<String, crate::human::PendingAssist>>,
+    /// Live agent sessions (mailboxes are memory-only; records persist).
+    pub(crate) agent_sessions: RwLock<BTreeMap<String, crate::agents::AgentSessionEntry>>,
 }
 
 #[derive(Clone)]
@@ -100,6 +102,12 @@ impl std::ops::Deref for Runtime {
 impl Runtime {
     pub fn clone_handle(&self) -> Runtime {
         self.clone()
+    }
+
+    /// Rebuild a handle from the inner Arc (crate-internal, e.g. actuators
+    /// that hold a Weak reference back to the runtime).
+    pub(crate) fn from_inner(inner: Arc<RuntimeInner>) -> Runtime {
+        Runtime { inner }
     }
 
     pub async fn start(opts: RuntimeOptions) -> DomainResult<Runtime> {
@@ -246,9 +254,14 @@ impl Runtime {
                 config_errors,
                 pause: RwLock::new(pause_state),
                 ai_assists: RwLock::new(BTreeMap::new()),
+                agent_sessions: RwLock::new(BTreeMap::new()),
             }),
         };
 
+        // Delegation actuator goes through the same registry/governor path.
+        let delegate = crate::agents::DelegateActuator::new(Arc::downgrade(&runtime.inner));
+        let _ = runtime.registry.register_actuator(Arc::new(delegate)).await;
+        runtime.restore_agent_sessions().await;
         runtime.init_providers().await;
 
         if opts.spawn_watchdog {
@@ -320,6 +333,7 @@ impl Runtime {
             "eventSequence": self.events.last_sequence(),
             "proactivePause": self.pause_status().await,
             "pendingAiAssists": self.pending_ai_assists().await.len(),
+            "agentSessions": self.open_agent_sessions().await,
             "onboardingCompleted": self.onboarding_state().await
                 .get("completed").and_then(Value::as_bool).unwrap_or(false),
         })
@@ -668,6 +682,9 @@ impl Runtime {
                 stopped_actuators += 1;
             }
         }
+        // Cancel every open agent session; delegated work never survives an
+        // emergency stop and never resumes automatically.
+        self.estop_agent_sessions().await;
         // Revoke all session consents; nothing resumes automatically.
         if let Some(session) = self.session.write().await.as_mut() {
             let scopes: Vec<ConsentScope> =

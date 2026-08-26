@@ -57,6 +57,29 @@ pub fn router(state: ApiState) -> Router {
         )
         .route("/v1/capabilities", get(routes::capabilities))
         .route("/v1/providers", get(routes::providers_list))
+        .route("/v1/agent-sessions", get(routes::agent_sessions_list))
+        .route("/v1/agent-sessions", post(routes::agent_session_create))
+        .route("/v1/agent-sessions/{id}", get(routes::agent_session_get))
+        .route(
+            "/v1/agent-sessions/{id}/report",
+            post(routes::agent_session_report),
+        )
+        .route(
+            "/v1/agent-sessions/{id}/messages",
+            get(routes::agent_session_messages),
+        )
+        .route(
+            "/v1/agent-sessions/{id}/messages",
+            post(routes::agent_session_send),
+        )
+        .route(
+            "/v1/agent-sessions/{id}/renew",
+            post(routes::agent_session_renew),
+        )
+        .route(
+            "/v1/agent-sessions/{id}/close",
+            post(routes::agent_session_close),
+        )
         .route("/v1/providers/{id}", get(routes::provider_get))
         .route("/v1/providers/{id}/pair", post(routes::provider_pair))
         .route(

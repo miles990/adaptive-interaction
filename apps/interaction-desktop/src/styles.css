@@ -380,6 +380,11 @@ button.ghost { background: none; border-color: transparent; color: var(--muted);
    否則 button.danger 的紅字會疊在紅底上變成看不見。 */
 button.estop.danger, .estop.danger { color: #fff; background: var(--bad); }
 
+.agent-session-row {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+}
+.agent-session-head { display: flex; gap: 8px; align-items: center; margin-bottom: 2px; }
+
 /* ---------- 桌面角色（companion）視窗 ---------- */
 /* 透明視窗：整個文件不能有背景色。 */
 html.companion-window, html.companion-window body, html.companion-window #root {

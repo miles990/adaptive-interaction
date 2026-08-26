@@ -1,6 +1,7 @@
 //! The adaptive interaction runtime: one set of application services shared by
 //! CLI, HTTP API and the Tauri desktop shell.
 
+pub mod agents;
 pub mod config;
 pub mod executor;
 pub mod human;

@@ -412,7 +412,9 @@ export default function CompanionApp() {
   );
 }
 
-/** Minimal text input (Phase 3 wires this into InteractionInput routing). */
+/** Text input with deterministic routing preview: default = local
+ *  observation; open agent sessions can be selected as the destination
+ *  (mailbox task). The preview always states where the data goes. */
 function CompanionInput({
   onClose,
   onBubble,
@@ -421,29 +423,65 @@ function CompanionInput({
   onBubble: (t: string | null) => void;
 }) {
   const [text, setText] = React.useState("");
+  const [sessions, setSessions] = React.useState<
+    { sessionId: string; label?: string; agentId: string; dataScope: string[] }[]
+  >([]);
+  const [target, setTarget] = React.useState("local");
   const inputRef = React.useRef<HTMLInputElement>(null);
-  React.useEffect(() => inputRef.current?.focus(), []);
+  React.useEffect(() => {
+    inputRef.current?.focus();
+    api
+      .agentSessionsList()
+      .then((list) => setSessions(list.filter((s) => !s.closedAt)))
+      .catch(() => {});
+  }, []);
 
   async function send() {
     const t = text.trim();
     if (!t) return;
     onClose();
     try {
-      await api.pushObservation("session.input", { text: t, source: "desktop-companion" }, 1.0);
+      if (target === "local") {
+        await api.pushObservation("session.input", { text: t, source: "desktop-companion" }, 1.0);
+      } else {
+        await api.agentSessionSend(target, "task", { task: t, source: "desktop-companion" });
+      }
       await api
         .pushObservation("desktop.companion.interaction", { kind: "text-submitted", modality: "text" }, 1.0)
         .catch(() => {});
-      onBubble("收到，我記下了。");
-      setTimeout(() => onBubble(null), 3000);
+      onBubble(target === "local" ? "收到，我記下了。" : "已交給該工作階段（它收到後才算送達）。");
+      setTimeout(() => onBubble(null), 3500);
     } catch (e) {
       onBubble(`送出失敗：${e}`);
       setTimeout(() => onBubble(null), 4000);
     }
   }
 
+  const selected = sessions.find((s) => s.sessionId === target);
   return (
     <div className="companion-input" role="dialog" aria-label="對小樞說話">
-      <div className="companion-route-note">交給：本機 Runtime（觀察紀錄）・資料不離開本機</div>
+      {sessions.length > 0 && (
+        <select
+          aria-label="交給誰"
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          style={{ width: "100%", fontSize: 11 }}
+        >
+          <option value="local">本機 Runtime（觀察紀錄）</option>
+          {sessions.map((s) => (
+            <option key={s.sessionId} value={s.sessionId}>
+              AI 工作階段：{s.label ?? s.agentId}
+            </option>
+          ))}
+        </select>
+      )}
+      <div className="companion-route-note">
+        {target === "local"
+          ? "交給：本機 Runtime（觀察紀錄）・資料不離開本機"
+          : `交給：${selected?.label ?? selected?.agentId}・可讀範圍：${
+              selected?.dataScope.join("、") || "未設定"
+            }`}
+      </div>
       <input
         ref={inputRef}
         value={text}
