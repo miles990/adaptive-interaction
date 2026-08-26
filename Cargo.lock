@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "adapters-builtin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -851,7 +851,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-adapter-sdk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -863,7 +863,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-api"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "chrono",
@@ -887,7 +887,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -913,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -928,7 +928,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-e2e"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "interaction-recipe",
  "interaction-tool-schema",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-events"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -948,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-policy"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -959,7 +959,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-recipe"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "humantime",
@@ -974,7 +974,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-registry"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -988,7 +988,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "adapters-builtin",
  "async-trait",
@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -1030,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-tool-schema"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "interaction-core",
  "schemars",
