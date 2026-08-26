@@ -1347,7 +1347,9 @@ impl Runtime {
         Ok(())
     }
 
-    /// Register another mock actuator (simulated device) at runtime.
+    /// Register another mock actuator (simulated device) at runtime, together
+    /// with its paired device-status receptor so `observed` verification can
+    /// close the loop for it too.
     pub async fn add_mock_actuator(&self, id: &str, channel: &str) -> DomainResult<()> {
         if !id
             .chars()
@@ -1358,7 +1360,33 @@ impl Runtime {
             )));
         }
         let actuator = Arc::new(MockActuator::new(id, channel));
-        self.registry.register_actuator(actuator).await?;
+        let status = Arc::new(adapters_builtin::MockDeviceStatusReceptor::with_id(
+            actuator.status_receptor_id(),
+            actuator.device_state(),
+        ));
+        self.registry.register_actuator(actuator.clone()).await?;
+        if let Err(e) = self.registry.register_receptor(status).await {
+            // Roll back so the device is never left without observability.
+            let _ = self
+                .registry
+                .unregister_actuator(&interaction_core::ActuatorId::new(id))
+                .await;
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    /// Unregister an actuator; for mock devices also drops the paired
+    /// device-status receptor.
+    pub async fn remove_actuator(&self, id: &str) -> DomainResult<()> {
+        self.registry
+            .unregister_actuator(&interaction_core::ActuatorId::new(id))
+            .await?;
+        let paired = format!("{id}.device-status");
+        let _ = self
+            .registry
+            .unregister_receptor(&ReceptorId::new(&paired))
+            .await;
         Ok(())
     }
 

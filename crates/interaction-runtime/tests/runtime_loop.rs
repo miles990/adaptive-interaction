@@ -698,3 +698,78 @@ async fn emergency_clear_rearms_latched_devices() {
         receipts[0].errors,
     );
 }
+
+#[tokio::test]
+async fn dynamic_mock_device_has_observability_pairing() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("dyn".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.add_mock_actuator("dev.device", "haptic").await.unwrap();
+
+    // Paired status receptor exists.
+    let caps = rt
+        .capabilities(&DiscoveryContext {
+            include_unavailable: true,
+            ..Default::default()
+        })
+        .await;
+    assert!(caps
+        .receptors
+        .iter()
+        .any(|r| r.id.as_str() == "dev.device.device-status"));
+
+    // Open every gate, then observed verification must close the loop.
+    rt.update_policy(json!({
+        "allowedChannels": ["conversation","haptic"],
+        "actuatorAllowlist": ["conversation","dev.device"],
+    }))
+    .await
+    .unwrap();
+    rt.registry
+        .set_actuator_enabled(&ActuatorId::new("dev.device"), true)
+        .await
+        .unwrap();
+    rt.grant_consent("actuator:dev.device", None).await.unwrap();
+
+    let mut intent = SemanticIntent::new("celebrate-progress");
+    intent.magnitude = Some(0.5);
+    intent.preferred_channels = vec!["haptic".into()];
+    let mut metadata = BTreeMap::new();
+    metadata.insert("verification".to_string(), json!("observed"));
+    let plan = rt
+        .create_plan(
+            intent,
+            vec!["dev.device".into()],
+            1,
+            1,
+            false,
+            None,
+            metadata,
+        )
+        .await
+        .unwrap();
+    let receipts = rt
+        .execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false)
+        .await
+        .unwrap();
+    assert_eq!(receipts[0].current_status, ActionStatus::Completed);
+    assert_eq!(
+        receipts[0].verification.as_ref().unwrap().verdict,
+        VerificationVerdict::Observed,
+        "dynamically added device must be observable end to end"
+    );
+
+    // Removal drops the pairing too.
+    rt.remove_actuator("dev.device").await.unwrap();
+    let caps = rt
+        .capabilities(&DiscoveryContext {
+            include_unavailable: true,
+            ..Default::default()
+        })
+        .await;
+    assert!(!caps
+        .receptors
+        .iter()
+        .any(|r| r.id.as_str() == "dev.device.device-status"));
+}

@@ -14,6 +14,9 @@
 ### Fixed
 - 桌面 app：app 層級退出（Cmd+Q／AppleScript quit）現在也會優雅關閉內嵌
   runtime（RunEvent::Exit handler）；先前只有視窗關閉路徑會清理
+- 動態註冊的 mock 裝置現在自動配對 `<id>.device-status` 受器，
+  `observed` 驗證可完整閉環；`actuators remove` 一併移除配對受器
+  （註冊/權限鏈實測發現的缺陷）
 
 ## [0.1.2] - 2026-08-26
 

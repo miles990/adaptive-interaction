@@ -248,11 +248,7 @@ pub async fn actuator_delete(
     State(state): State<ApiState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    state
-        .runtime
-        .registry
-        .unregister_actuator(&ActuatorId::new(&id))
-        .await?;
+    state.runtime.remove_actuator(&id).await?;
     Ok(Json(json!({"removed": id})))
 }
 

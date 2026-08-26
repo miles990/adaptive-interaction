@@ -425,6 +425,7 @@ pub enum MockBehavior {
 pub struct MockActuator {
     channel: String,
     id: String,
+    status_receptor_id: String,
     behavior: Arc<Mutex<MockBehavior>>,
     pub executed: Arc<Mutex<Vec<BoundedAction>>>,
     pub cancelled: Arc<Mutex<Vec<ActionId>>>,
@@ -434,9 +435,15 @@ pub struct MockActuator {
 
 impl MockActuator {
     pub fn new(id: &str, channel: &str) -> Self {
+        let status_receptor_id = if id == "mock.actuator" {
+            "mock.device-status".to_string()
+        } else {
+            format!("{id}.device-status")
+        };
         Self {
             channel: channel.to_string(),
             id: id.to_string(),
+            status_receptor_id,
             behavior: Arc::new(Mutex::new(MockBehavior::Normal)),
             executed: Arc::new(Mutex::new(Vec::new())),
             cancelled: Arc::new(Mutex::new(Vec::new())),
@@ -454,13 +461,18 @@ impl MockActuator {
         self.device_state.clone()
     }
 
+    /// Receptor id this device reports its state under.
+    pub fn status_receptor_id(&self) -> &str {
+        &self.status_receptor_id
+    }
+
     pub fn was_stopped(&self) -> bool {
         self.stopped.load(Ordering::SeqCst)
     }
 
     fn record_device_state(&self, action: &BoundedAction) {
         let obs = Observation::now(
-            ReceptorId::new("mock.device-status"),
+            ReceptorId::new(&self.status_receptor_id),
             "builtin.mock-device",
             Utc::now(),
         )
@@ -556,7 +568,7 @@ impl Actuator for MockActuator {
     async fn emergency_stop(&self) -> Result<(), ActuatorError> {
         self.stopped.store(true, Ordering::SeqCst);
         let obs = Observation::now(
-            ReceptorId::new("mock.device-status"),
+            ReceptorId::new(&self.status_receptor_id),
             "builtin.mock-device",
             Utc::now(),
         )
@@ -571,7 +583,7 @@ impl Actuator for MockActuator {
     async fn emergency_clear(&self) -> Result<(), ActuatorError> {
         self.stopped.store(false, Ordering::SeqCst);
         let obs = Observation::now(
-            ReceptorId::new("mock.device-status"),
+            ReceptorId::new(&self.status_receptor_id),
             "builtin.mock-device",
             Utc::now(),
         )

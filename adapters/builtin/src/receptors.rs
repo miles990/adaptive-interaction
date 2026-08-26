@@ -212,29 +212,35 @@ impl Receptor for SystemTimeReceptor {
 /// Device-status receptor paired with [`crate::MockActuator`]: reports what the
 /// mock device actually executed, closing the act → observe loop.
 pub struct MockDeviceStatusReceptor {
+    id: String,
     pub state: Arc<Mutex<VecDeque<Observation>>>,
 }
 
 impl MockDeviceStatusReceptor {
+    /// Builtin pairing (id `mock.device-status`).
     pub fn new(state: Arc<Mutex<VecDeque<Observation>>>) -> Self {
-        Self { state }
+        Self::with_id("mock.device-status", state)
+    }
+
+    /// Pairing for dynamically registered mock devices.
+    pub fn with_id(id: &str, state: Arc<Mutex<VecDeque<Observation>>>) -> Self {
+        Self {
+            id: id.to_string(),
+            state,
+        }
     }
 }
 
 #[async_trait]
 impl Receptor for MockDeviceStatusReceptor {
     fn manifest(&self) -> ReceptorManifest {
-        ReceptorManifestBuilder::new(
-            "mock.device-status",
-            "Mock device status",
-            "builtin.mock-device",
-        )
-        .description("Observed state of the mock physical device")
-        .category("device")
-        .provides(&["actionId", "magnitude", "state"])
-        .mode(ReceptorMode::Event)
-        .sensitivity(Sensitivity::Public, false)
-        .build()
+        ReceptorManifestBuilder::new(&self.id, "Mock device status", "builtin.mock-device")
+            .description("Observed state of the mock physical device")
+            .category("device")
+            .provides(&["actionId", "magnitude", "state"])
+            .mode(ReceptorMode::Event)
+            .sensitivity(Sensitivity::Public, false)
+            .build()
     }
 
     async fn start(&self, _context: SessionContext) -> Result<(), ReceptorError> {
