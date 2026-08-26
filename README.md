@@ -1,5 +1,7 @@
 # adaptive-interaction
 
+![adaptive-interaction](docs/assets/hero.png)
+
 跨 AI、跨 Agent Host 的「能力感知型自適應互動平台」。任何 AI——只要能執行
 CLI、呼叫 HTTP API、使用 function/tool calling，或由人類透過桌面 UI 代理——
 都能透過同一套 Rust Runtime 探索受器（receptors）、動器（actuators）與工具，
@@ -10,6 +12,17 @@ Discover → Observe → Interpret → Plan → Authorize → Act → Verify →
 ```
 
 「不介入」是合法決策；`accepted`（已排入佇列）永遠不等於 `completed`。
+
+## 📚 文件
+
+| 文件 | 內容 |
+|---|---|
+| **[安裝與部署（ELI5）](docs/INSTALL.md)** | 白話解釋這是什麼＋三步驟安裝＋部署拓撲＋常見問題 |
+| **[特點與能力](docs/FEATURES.md)** | 核心循環、四種跨 AI 接入等級、安全管家決策流程（mermaid 圖解） |
+| **[人類使用手冊](docs/USER-GUIDE.md)** | Session／同意／計畫／配方／政策／緊急停止的日常操作 |
+| **[桌面控制中心指南](docs/DESKTOP-GUIDE.md)** | 視覺化工具各頁面說明＋收據狀態機圖解 |
+| **[驗收證據](docs/acceptance-evidence.md)** | 真 daemon＋真 CLI 的端到端驗收紀錄 |
+| **[AI 用 Skill](skills/orchestrate-adaptive-interaction/SKILL.md)** | 給 AI 讀的操作規範（人類不用讀） |
 
 ## 快速開始
 
