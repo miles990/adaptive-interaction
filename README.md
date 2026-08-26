@@ -2,6 +2,12 @@
 
 [![CI](https://github.com/miles990/adaptive-interaction/actions/workflows/ci.yml/badge.svg)](https://github.com/miles990/adaptive-interaction/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/miles990/adaptive-interaction)](https://github.com/miles990/adaptive-interaction/releases)
+![Status](https://img.shields.io/badge/status-experimental-orange)
+
+> ⚠️ **實驗型專案（Experimental）**：這是一個探索「跨 AI 自適應互動」的實驗性平台，
+> API、CLI、配方格式與安全模型都可能在版本間破壞性變動；請勿在生產環境或
+> 連接真實高風險裝置的場景使用。安全機制（Governor／緊急停止／consent）雖經
+> 對抗式審查與測試，但仍屬研究性質——回饋與 issue 歡迎。
 
 ![adaptive-interaction](docs/assets/hero.png)
 
