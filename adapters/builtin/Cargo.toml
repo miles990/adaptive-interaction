@@ -1,0 +1,20 @@
+[package]
+name = "adapters-builtin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Built-in receptors and actuators (no special hardware required)"
+
+[dependencies]
+interaction-core = { workspace = true }
+interaction-adapter-sdk = { workspace = true }
+serde = { workspace = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

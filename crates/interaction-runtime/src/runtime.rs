@@ -1,0 +1,1190 @@
+//! The runtime facade: one set of application services shared by the CLI
+//! daemon, HTTP API and Tauri shell. Cheap to clone (Arc inner).
+
+use crate::config::{ConfigService, Paths, RuntimeConfig};
+use crate::lock::InstanceLock;
+use crate::orchestrator::{build_plan, ActuatorUsageHint, PlanRequest};
+use crate::text::TextSelector;
+use adapters_builtin::{
+    builtin_push_receptors, ConversationActuator, LocalLogActuator, LocalNotificationActuator,
+    MockActuator, MockDeviceStatusReceptor, Outbox, OutboxMessage, PushReceptor, SystemTimeReceptor,
+    WebUiActuator, WebhookActuator,
+};
+use chrono::Utc;
+use interaction_core::{
+    ActionId, ActionReceipt, ActionStatus, CapabilityConstraint, CapabilitySnapshot, ConsentScope,
+    DiscoveryContext, DomainError, DomainResult, EventType, MessageStrategy, Observation,
+    ObservationQuery, Plan, PlanId, PlanStatus, PolicyConfig, ReceptorId, RuntimeEvent,
+    SemanticIntent, Session, SessionId, Timestamp,
+};
+use interaction_events::EventBus;
+use interaction_policy::ActionSource;
+use interaction_recipe::{evaluate_trigger, Recipe, TriggerDecision};
+use interaction_registry::CapabilityRegistry;
+use interaction_storage::Store;
+use rand::Rng;
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
+
+#[derive(Debug, Clone, Default)]
+pub struct RuntimeOptions {
+    pub home: Option<PathBuf>,
+    /// Acquire the single-instance lock (daemon mode). Tests may skip it.
+    pub acquire_lock: bool,
+    pub in_memory_db: bool,
+    pub spawn_watchdog: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RecipeState {
+    pub last_fired_at: Option<Timestamp>,
+    pub executions_this_session: u32,
+    pub fired_last_hour: Vec<Timestamp>,
+}
+
+pub struct RecipeEntry {
+    pub recipe: Recipe,
+    pub state: RecipeState,
+}
+
+pub struct RuntimeInner {
+    pub paths: Paths,
+    pub config_service: ConfigService,
+    pub config: RwLock<RuntimeConfig>,
+    pub policy_config: RwLock<PolicyConfig>,
+    pub registry: CapabilityRegistry,
+    pub store: Store,
+    pub events: EventBus,
+    pub outbox: Outbox,
+    pub texts: TextSelector,
+    estop: AtomicBool,
+    pub push_receptors: BTreeMap<String, Arc<PushReceptor>>,
+    pub mock_actuator: Arc<MockActuator>,
+    pub recipes: RwLock<BTreeMap<String, RecipeEntry>>,
+    pub recipe_errors: RwLock<Vec<(PathBuf, String)>>,
+    session: RwLock<Option<Session>>,
+    pub shutdown_token: CancellationToken,
+    pub started_at: Timestamp,
+    lock: std::sync::Mutex<Option<InstanceLock>>,
+    /// Config load errors surfaced in status (last-known-good semantics).
+    pub config_errors: Vec<String>,
+}
+
+#[derive(Clone)]
+pub struct Runtime {
+    inner: Arc<RuntimeInner>,
+}
+
+impl std::ops::Deref for Runtime {
+    type Target = RuntimeInner;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl Runtime {
+    pub fn clone_handle(&self) -> Runtime {
+        self.clone()
+    }
+
+    pub async fn start(opts: RuntimeOptions) -> DomainResult<Runtime> {
+        let paths = Paths::resolve(opts.home.as_deref());
+        let config_service = ConfigService::new(paths.clone());
+        let mut config_errors = Vec::new();
+        let config = match config_service.load_runtime_config() {
+            Ok(c) => c,
+            Err(e) => {
+                config_errors.push(format!("interaction.yaml invalid, using last-known-good defaults: {e}"));
+                RuntimeConfig::default()
+            }
+        };
+        let policy = match config_service.load_policy() {
+            Ok(p) => p,
+            Err(e) => {
+                config_errors.push(format!("policy.yaml invalid, using defaults: {e}"));
+                PolicyConfig::default()
+            }
+        };
+
+        let lock = if opts.acquire_lock {
+            Some(InstanceLock::acquire(paths.lock_file())?)
+        } else {
+            None
+        };
+
+        let store = if opts.in_memory_db {
+            Store::open_in_memory()?
+        } else {
+            Store::open(&paths.db_file())?
+        };
+
+        // Crash / restart recovery: anything still open from a previous run is
+        // UNKNOWN — mark uncertain, never re-dispatch, never resume high-risk.
+        let clean = store.get_meta("clean_shutdown")?.as_deref() == Some("true");
+        let stale = store.open_receipts()?;
+        if !stale.is_empty() {
+            for mut receipt in stale {
+                receipt.push_error(
+                    "runtime_restart",
+                    if clean { "runtime restarted with open action" } else { "runtime crashed with open action" },
+                    Utc::now(),
+                );
+                let _ = receipt.transition(ActionStatus::Uncertain, Utc::now());
+                store.upsert_receipt(&receipt, "")?;
+            }
+        }
+        store.set_meta("clean_shutdown", "false")?;
+        let estop_engaged = store.get_meta("estop_engaged")?.as_deref() == Some("true");
+
+        let events = EventBus::default();
+        let registry = CapabilityRegistry::new(events.clone());
+        let outbox = Outbox::new();
+
+        // ---- builtin receptors ----
+        let mut push_receptors = BTreeMap::new();
+        for receptor in builtin_push_receptors() {
+            push_receptors.insert(receptor.id().as_str().to_string(), receptor.clone());
+            registry.register_receptor(receptor).await?;
+        }
+        registry.register_receptor(Arc::new(SystemTimeReceptor)).await?;
+
+        // ---- builtin actuators ----
+        registry.register_actuator(Arc::new(ConversationActuator::new(outbox.clone()))).await?;
+        registry.register_actuator(Arc::new(WebUiActuator::new(outbox.clone()))).await?;
+        registry.register_actuator(Arc::new(LocalLogActuator)).await?;
+        registry.register_actuator(Arc::new(LocalNotificationActuator)).await?;
+        registry
+            .register_actuator(Arc::new(WebhookActuator::new(config.webhook_allowlist.clone())))
+            .await?;
+        let mock_actuator = Arc::new(MockActuator::new("mock.actuator", "haptic"));
+        registry
+            .register_receptor(Arc::new(MockDeviceStatusReceptor::new(mock_actuator.device_state())))
+            .await?;
+        registry.register_actuator(mock_actuator.clone()).await?;
+
+        // ---- canonical tools ----
+        for tool in interaction_tool_schema::canonical_tools() {
+            registry.register_tool_operation(tool).await?;
+        }
+
+        // ---- recipes (File=Truth) ----
+        if !opts.in_memory_db {
+            seed_default_recipes(&config_service);
+        }
+        let (loaded, recipe_load_errors) = config_service.load_recipes();
+        let mut recipes = BTreeMap::new();
+        for recipe in loaded {
+            recipes.insert(
+                recipe.id.as_str().to_string(),
+                RecipeEntry { recipe, state: RecipeState::default() },
+            );
+        }
+
+        let session = store.latest_active_session()?;
+
+        let runtime = Runtime {
+            inner: Arc::new(RuntimeInner {
+                paths,
+                config_service,
+                config: RwLock::new(config),
+                policy_config: RwLock::new(policy),
+                registry,
+                store,
+                events,
+                outbox,
+                texts: TextSelector::default(),
+                estop: AtomicBool::new(estop_engaged),
+                push_receptors,
+                mock_actuator,
+                recipes: RwLock::new(recipes),
+                recipe_errors: RwLock::new(
+                    recipe_load_errors.into_iter().collect(),
+                ),
+                session: RwLock::new(session),
+                shutdown_token: CancellationToken::new(),
+                started_at: Utc::now(),
+                lock: std::sync::Mutex::new(lock),
+                config_errors,
+            }),
+        };
+
+        if opts.spawn_watchdog {
+            runtime.spawn_watchdog();
+        }
+        Ok(runtime)
+    }
+
+    /// Graceful shutdown: cancel open actions, stop drivers, mark clean.
+    pub async fn shutdown(&self) {
+        self.shutdown_token.cancel();
+        if let Ok(open) = self.store.open_receipts() {
+            for mut receipt in open {
+                let _ = receipt.transition(ActionStatus::Cancelled, Utc::now());
+                receipt.push_error("shutdown", "runtime shutting down", Utc::now());
+                let _ = self.store.upsert_receipt(&receipt, "");
+                self.emit_action_event(EventType::ActionCancelled, &receipt, json!({"reason": "shutdown"}));
+            }
+        }
+        for actuator in self.registry.all_actuator_instances().await {
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                actuator.emergency_stop(),
+            )
+            .await;
+        }
+        let _ = self.store.set_meta("clean_shutdown", "true");
+        let mut lock = self.lock.lock().expect("lock mutex");
+        lock.take(); // drop → releases pid file
+    }
+
+    // ------------------------------------------------------------------
+    // Status / capabilities
+    // ------------------------------------------------------------------
+
+    pub fn is_estopped(&self) -> bool {
+        self.estop.load(Ordering::SeqCst)
+    }
+
+    pub async fn status(&self) -> Value {
+        let session = self.session.read().await.clone();
+        let recipes = self.recipes.read().await;
+        let recipe_errors = self.recipe_errors.read().await;
+        let receipts = self.store.receipts(None, 1).ok().map(|r| r.len()).unwrap_or(0);
+        json!({
+            "name": "adaptive-interaction",
+            "version": env!("CARGO_PKG_VERSION"),
+            "schemaVersion": interaction_core::SCHEMA_VERSION,
+            "startedAt": self.started_at,
+            "uptimeSeconds": Utc::now().signed_duration_since(self.started_at).num_seconds(),
+            "emergencyStop": self.is_estopped(),
+            "session": session.map(|s| json!({
+                "sessionId": s.session_id.as_str(),
+                "state": s.state,
+                "startedAt": s.started_at,
+                "consents": s.consents.len(),
+            })),
+            "capabilityVersion": self.registry.version(),
+            "recipes": {"loaded": recipes.len(), "errors": recipe_errors.len()},
+            "configErrors": self.config_errors,
+            "hasReceipts": receipts > 0,
+            "eventSequence": self.events.last_sequence(),
+        })
+    }
+
+    pub async fn capabilities(&self, ctx: &DiscoveryContext) -> CapabilitySnapshot {
+        let policy = self.policy().await;
+        let mut constraints = Vec::new();
+        if self.is_estopped() {
+            constraints.push(CapabilityConstraint {
+                kind: "emergency-stop".into(),
+                detail: "emergency stop engaged; all actuation blocked until cleared".into(),
+            });
+        }
+        let local = chrono::Local::now().time();
+        for window in &policy.quiet_hours {
+            let active = crate::runtime::quiet_window_active(&window.start, &window.end, local);
+            if active {
+                constraints.push(CapabilityConstraint {
+                    kind: "quiet-hours".into(),
+                    detail: format!(
+                        "quiet hours {}-{} active; intrusive channels silenced",
+                        window.start, window.end
+                    ),
+                });
+            }
+        }
+        if self.session.read().await.is_none() {
+            constraints.push(CapabilityConstraint {
+                kind: "session".into(),
+                detail: "no active session; start one before executing".into(),
+            });
+        }
+        self.registry.snapshot(ctx, policy, constraints, Utc::now()).await
+    }
+
+    pub async fn policy(&self) -> PolicyConfig {
+        self.policy_config.read().await.clone()
+    }
+
+    /// Merge-patch the policy. `resumeHighRiskAfterRestart` is pinned false.
+    pub async fn update_policy(&self, patch: Value) -> DomainResult<PolicyConfig> {
+        let current = self.policy().await;
+        let mut merged = serde_json::to_value(&current)
+            .map_err(|e| DomainError::Internal(e.to_string()))?;
+        merge_json(&mut merged, &patch);
+        let mut updated: PolicyConfig = serde_json::from_value(merged)
+            .map_err(|e| DomainError::Validation(format!("policy patch: {e}")))?;
+        updated.resume_high_risk_after_restart = false;
+        self.config_service.save_policy(&updated)?;
+        *self.policy_config.write().await = updated.clone();
+        self.events.emit(EventType::PolicyChanged, json!({}));
+        self.store.audit("policy.changed", "api", &json!({"patch": redact(&patch)}))?;
+        Ok(updated)
+    }
+
+    // ------------------------------------------------------------------
+    // Observations
+    // ------------------------------------------------------------------
+
+    pub async fn observe_stored(&self, query: &ObservationQuery) -> DomainResult<Vec<Observation>> {
+        self.store.query_observations(query)
+    }
+
+    /// Live read from a receptor; the observation is stored and announced.
+    pub async fn observe_fresh(&self, receptor_id: &ReceptorId) -> DomainResult<Observation> {
+        let receptor = self.registry.receptor(receptor_id).await?;
+        let mut obs = receptor.read().await?;
+        obs.session_id = self.session.read().await.as_ref().map(|s| s.session_id.clone());
+        self.store.insert_observation(&obs)?;
+        self.publish_observation_event(&obs);
+        Ok(obs)
+    }
+
+    /// Ingest an external event into a push receptor, then evaluate recipes.
+    pub async fn ingest(
+        &self,
+        receptor_id: &str,
+        facts: BTreeMap<String, Value>,
+        inferences: BTreeMap<String, Value>,
+        confidence: f64,
+    ) -> DomainResult<Observation> {
+        let receptor = self
+            .push_receptors
+            .get(receptor_id)
+            .ok_or_else(|| DomainError::NotFound(format!("push receptor {receptor_id}")))?;
+        // Respect enable/disable state.
+        self.registry.receptor(&ReceptorId::new(receptor_id)).await?;
+        let mut obs = receptor.push(facts, inferences, confidence);
+        obs.session_id = self.session.read().await.as_ref().map(|s| s.session_id.clone());
+        self.store.insert_observation(&obs)?;
+        self.publish_observation_event(&obs);
+        // Autonomous loop: observation may trigger recipes.
+        self.evaluate_recipes(Some(receptor_id)).await;
+        Ok(obs)
+    }
+
+    fn publish_observation_event(&self, obs: &Observation) {
+        let mut event = RuntimeEvent::new(
+            EventType::ReceptorObservation,
+            obs.received_at,
+            json!({
+                "observationId": obs.observation_id.as_str(),
+                "receptorId": obs.receptor_id.as_str(),
+                "facts": obs.facts,
+                "confidence": obs.confidence,
+            }),
+        );
+        if let Some(s) = &obs.session_id {
+            event = event.with_session(s.clone());
+        }
+        self.events.publish(event);
+    }
+
+    // ------------------------------------------------------------------
+    // Planning
+    // ------------------------------------------------------------------
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_plan(
+        &self,
+        intent: SemanticIntent,
+        candidates: Vec<String>,
+        min_channels: u32,
+        max_channels: u32,
+        allow_no_action: bool,
+        message_strategy: Option<MessageStrategy>,
+        metadata: BTreeMap<String, Value>,
+    ) -> DomainResult<Plan> {
+        let session = self.require_session().await?;
+        let snapshot = self.capabilities(&DiscoveryContext::default()).await;
+        let policy = self.policy().await;
+        let mut usage = BTreeMap::new();
+        for actuator in &snapshot.actuators {
+            if let Ok((fired, _)) = self.store.actuator_usage(actuator.id.as_str(), Utc::now()) {
+                usage.insert(actuator.id.as_str().to_string(), ActuatorUsageHint { fired_last_hour: fired });
+            }
+        }
+        let strategy = message_strategy.unwrap_or_else(|| MessageStrategy {
+            allow_silence: allow_no_action,
+            ..Default::default()
+        });
+        let candidates_meta = candidates.clone();
+        let mut plan = build_plan(
+            PlanRequest {
+                session_id: session.session_id.clone(),
+                intent,
+                snapshot: &snapshot,
+                candidates,
+                min_channels,
+                max_channels,
+                allow_no_action,
+                message_strategy: strategy,
+                usage,
+                now: Utc::now(),
+                default_ttl_ms: policy.default_ttl_ms,
+            },
+            &self.texts,
+        );
+        if !candidates_meta.is_empty() {
+            plan.metadata.insert("candidates".to_string(), json!(candidates_meta));
+        }
+        for (k, v) in metadata {
+            plan.metadata.insert(k, v);
+        }
+        // Fallback semantics: step order = caller's preference order, not
+        // utility order (the whole point is "try the preferred one first").
+        if plan.metadata.get("actuationMode").and_then(|v| v.as_str()) == Some("fallback") {
+            let candidate_order = plan
+                .steps
+                .iter()
+                .map(|s| s.actuator_id.as_str().to_string())
+                .collect::<Vec<_>>();
+            let index_of = |id: &str| {
+                plan.metadata
+                    .get("candidates")
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| arr.iter().position(|c| c.as_str() == Some(id)))
+                    .unwrap_or_else(|| {
+                        candidate_order.iter().position(|c| c == id).unwrap_or(usize::MAX)
+                    })
+            };
+            plan.steps.sort_by_key(|s| index_of(s.actuator_id.as_str()));
+        }
+        self.store.upsert_plan(&plan)?;
+        let event_type = if plan.status == PlanStatus::Blocked {
+            EventType::PlanBlocked
+        } else {
+            EventType::PlanCreated
+        };
+        self.events.publish(
+            RuntimeEvent::new(
+                event_type,
+                Utc::now(),
+                json!({
+                    "planId": plan.plan_id.as_str(),
+                    "intent": plan.intent.intent,
+                    "steps": plan.steps.len(),
+                    "status": plan.status,
+                }),
+            )
+            .with_session(session.session_id.clone())
+            .with_correlation(plan.correlation_id.clone()),
+        );
+        Ok(plan)
+    }
+
+    pub fn get_plan(&self, plan_id: &PlanId) -> DomainResult<Plan> {
+        self.store.plan(plan_id)
+    }
+
+    // ------------------------------------------------------------------
+    // Actions
+    // ------------------------------------------------------------------
+
+    pub fn get_action(&self, action_id: &ActionId) -> DomainResult<ActionReceipt> {
+        self.store.receipt(action_id)
+    }
+
+    pub fn list_actions(&self, session: Option<&SessionId>, limit: u32) -> DomainResult<Vec<ActionReceipt>> {
+        self.store.receipts(session, limit)
+    }
+
+    pub async fn verify_action(&self, action_id: &ActionId) -> DomainResult<ActionReceipt> {
+        let receipt = self.store.receipt(action_id)?;
+        let strategy = self
+            .store
+            .plan(&receipt.plan_id)
+            .ok()
+            .and_then(|p| p.metadata.get("verification").and_then(|v| v.as_str()).map(String::from))
+            .unwrap_or_else(|| "observed".to_string());
+        self.verify_receipt(receipt, "", &strategy).await
+    }
+
+    pub async fn cancel_action(&self, action_id: &ActionId) -> DomainResult<ActionReceipt> {
+        let mut receipt = self.store.receipt(action_id)?;
+        if receipt.is_terminal() {
+            return Err(DomainError::Conflict(format!(
+                "action {action_id} already terminal ({:?})",
+                receipt.current_status
+            )));
+        }
+        if let Ok(actuator) = self.registry.actuator_any(&receipt.actuator_id).await {
+            let _ = actuator.cancel(action_id).await;
+        }
+        receipt
+            .transition(ActionStatus::Cancelled, Utc::now())
+            .map_err(|e| DomainError::Internal(e.to_string()))?;
+        self.store.upsert_receipt(&receipt, "")?;
+        self.emit_action_event(EventType::ActionCancelled, &receipt, json!({}));
+        self.store.audit("action.cancelled", "api", &json!({"actionId": action_id.as_str()}))?;
+        Ok(receipt)
+    }
+
+    /// Cancel every non-terminal action (soft stop-all; not the e-stop).
+    pub async fn stop_all(&self) -> DomainResult<u32> {
+        let open = self.store.open_receipts()?;
+        let mut count = 0;
+        for receipt in open {
+            if self.cancel_action(&receipt.action_id).await.is_ok() {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    // ------------------------------------------------------------------
+    // Emergency stop
+    // ------------------------------------------------------------------
+
+    pub async fn emergency_stop(&self, actor: &str, reason: Option<String>) -> DomainResult<Value> {
+        self.estop.store(true, Ordering::SeqCst);
+        self.store.set_meta("estop_engaged", "true")?;
+
+        let mut stopped_actions = 0;
+        if let Ok(open) = self.store.open_receipts() {
+            for mut receipt in open {
+                let _ = receipt.transition(ActionStatus::Stopped, Utc::now());
+                receipt.push_error("emergency_stop", reason.as_deref().unwrap_or("emergency stop"), Utc::now());
+                let _ = self.store.upsert_receipt(&receipt, "");
+                stopped_actions += 1;
+            }
+        }
+        let mut stopped_actuators = 0;
+        for actuator in self.registry.all_actuator_instances().await {
+            if tokio::time::timeout(std::time::Duration::from_secs(2), actuator.emergency_stop())
+                .await
+                .map(|r| r.is_ok())
+                .unwrap_or(false)
+            {
+                stopped_actuators += 1;
+            }
+        }
+        // Revoke all session consents; nothing resumes automatically.
+        if let Some(session) = self.session.write().await.as_mut() {
+            let scopes: Vec<ConsentScope> =
+                session.consents.iter().map(|c| c.scope.clone()).collect();
+            for scope in scopes {
+                session.revoke(&scope, Utc::now());
+            }
+            let _ = self.store.upsert_session(session);
+            self.events.emit(EventType::ConsentChanged, json!({"revokedAll": true}));
+        }
+        self.outbox.push(OutboxMessage {
+            channel: "conversation".into(),
+            intent: "emergency-stop".into(),
+            text: Some("緊急停止已執行，所有輸出已中止。".into()),
+            action_id: ActionId::new("emergency-stop"),
+            at: Utc::now(),
+        });
+        let payload = json!({
+            "actor": actor,
+            "reason": reason,
+            "stoppedActions": stopped_actions,
+            "stoppedActuators": stopped_actuators,
+        });
+        self.events.emit(EventType::EmergencyStop, payload.clone());
+        self.store.audit("emergency.stop", actor, &payload)?;
+        Ok(payload)
+    }
+
+    /// Explicit human re-arm; never automatic.
+    pub async fn clear_emergency_stop(&self, actor: &str) -> DomainResult<()> {
+        self.estop.store(false, Ordering::SeqCst);
+        self.store.set_meta("estop_engaged", "false")?;
+        self.events.emit(EventType::EmergencyStop, json!({"cleared": true, "actor": actor}));
+        self.store.audit("emergency.clear", actor, &json!({}))?;
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------
+    // Sessions & consent
+    // ------------------------------------------------------------------
+
+    pub async fn require_session(&self) -> DomainResult<Session> {
+        let guard = self.session.read().await;
+        match guard.as_ref() {
+            Some(s) if s.is_active(Utc::now()) => Ok(s.clone()),
+            Some(s) => Err(DomainError::SessionInactive(format!(
+                "session {} is {:?}",
+                s.session_id, s.state
+            ))),
+            None => Err(DomainError::SessionInactive(
+                "no active session; start one first (interact-ai session start)".into(),
+            )),
+        }
+    }
+
+    pub async fn current_session(&self) -> Option<Session> {
+        self.session.read().await.clone()
+    }
+
+    pub async fn start_session(
+        &self,
+        label: Option<String>,
+        ttl_minutes: Option<u32>,
+        consents: Vec<String>,
+    ) -> DomainResult<Session> {
+        // Stop any previous session first (single-session model).
+        if let Some(existing) = self.session.write().await.as_mut() {
+            if existing.is_active(Utc::now()) {
+                existing.stop(Utc::now());
+                let _ = self.store.upsert_session(existing);
+                self.events.emit(
+                    EventType::SessionStopped,
+                    json!({"sessionId": existing.session_id.as_str(), "reason": "superseded"}),
+                );
+            }
+        }
+        let ttl = match ttl_minutes {
+            Some(m) => Some(m),
+            None => {
+                let m = self.config.read().await.session_ttl_minutes;
+                if m == 0 {
+                    None
+                } else {
+                    Some(m)
+                }
+            }
+        }
+        .map(|m| m as u64 * 60_000);
+        let mut session = Session::new(Utc::now(), label, ttl);
+        for scope_str in consents {
+            let scope = parse_scope(&scope_str)?;
+            session.grant(scope, Utc::now(), None);
+        }
+        self.store.upsert_session(&session)?;
+        *self.session.write().await = Some(session.clone());
+        // New session, fresh recipe budgets.
+        for entry in self.recipes.write().await.values_mut() {
+            entry.state.executions_this_session = 0;
+        }
+        self.events.emit(
+            EventType::SessionStarted,
+            json!({"sessionId": session.session_id.as_str(), "label": session.label}),
+        );
+        self.store.audit("session.started", "api", &json!({"sessionId": session.session_id.as_str()}))?;
+        Ok(session)
+    }
+
+    pub async fn grant_consent(
+        &self,
+        scope_str: &str,
+        expires_minutes: Option<u32>,
+    ) -> DomainResult<Session> {
+        let scope = parse_scope(scope_str)?;
+        let mut guard = self.session.write().await;
+        let session = guard
+            .as_mut()
+            .filter(|s| s.is_active(Utc::now()))
+            .ok_or_else(|| DomainError::SessionInactive("no active session".into()))?;
+        let expires = expires_minutes.map(|m| Utc::now() + chrono::Duration::minutes(m as i64));
+        session.grant(scope, Utc::now(), expires);
+        self.store.upsert_session(session)?;
+        self.events.emit(
+            EventType::ConsentChanged,
+            json!({"sessionId": session.session_id.as_str(), "granted": scope_str}),
+        );
+        self.store.audit("consent.granted", "api", &json!({"scope": scope_str}))?;
+        Ok(session.clone())
+    }
+
+    /// Revoke consent and cancel any in-flight actions covered by the scope.
+    pub async fn revoke_consent(&self, scope_str: &str) -> DomainResult<Session> {
+        let scope = parse_scope(scope_str)?;
+        let session = {
+            let mut guard = self.session.write().await;
+            let session = guard
+                .as_mut()
+                .ok_or_else(|| DomainError::SessionInactive("no session".into()))?;
+            session.revoke(&scope, Utc::now());
+            self.store.upsert_session(session)?;
+            session.clone()
+        };
+        self.events.emit(
+            EventType::ConsentChanged,
+            json!({"sessionId": session.session_id.as_str(), "revoked": scope_str}),
+        );
+        self.store.audit("consent.revoked", "api", &json!({"scope": scope_str}))?;
+        // Cancel matching open actions immediately.
+        if let Ok(open) = self.store.open_receipts() {
+            for receipt in open {
+                let matches = match &scope {
+                    ConsentScope::Actuator(id) => receipt.actuator_id.as_str() == id,
+                    ConsentScope::Channel(channel) => {
+                        self.registry
+                            .actuator_any(&receipt.actuator_id)
+                            .await
+                            .map(|a| a.manifest().channel == *channel)
+                            .unwrap_or(false)
+                    }
+                    _ => false,
+                };
+                if matches {
+                    let _ = self.cancel_action(&receipt.action_id).await;
+                }
+            }
+        }
+        Ok(session)
+    }
+
+    pub async fn stop_session(&self) -> DomainResult<()> {
+        let mut guard = self.session.write().await;
+        if let Some(session) = guard.as_mut() {
+            session.stop(Utc::now());
+            self.store.upsert_session(session)?;
+            self.events.emit(
+                EventType::SessionStopped,
+                json!({"sessionId": session.session_id.as_str()}),
+            );
+        }
+        *guard = None;
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------
+    // Recipes
+    // ------------------------------------------------------------------
+
+    pub async fn list_recipes(&self) -> Vec<(Recipe, RecipeState)> {
+        self.recipes
+            .read()
+            .await
+            .values()
+            .map(|e| (e.recipe.clone(), e.state.clone()))
+            .collect()
+    }
+
+    pub async fn get_recipe(&self, id: &str) -> DomainResult<Recipe> {
+        self.recipes
+            .read()
+            .await
+            .get(id)
+            .map(|e| e.recipe.clone())
+            .ok_or_else(|| DomainError::NotFound(format!("recipe {id}")))
+    }
+
+    pub async fn upsert_recipe_text(&self, text: &str) -> DomainResult<Recipe> {
+        let recipe = interaction_recipe::parse_and_validate(text)
+            .map_err(|e| DomainError::Validation(e.to_string()))?;
+        self.config_service.save_recipe(&recipe)?;
+        let mut map = self.recipes.write().await;
+        let state = map
+            .get(recipe.id.as_str())
+            .map(|e| e.state.clone())
+            .unwrap_or_default();
+        map.insert(recipe.id.as_str().to_string(), RecipeEntry { recipe: recipe.clone(), state });
+        self.events.emit(EventType::RecipeChanged, json!({"recipeId": recipe.id.as_str()}));
+        Ok(recipe)
+    }
+
+    pub async fn set_recipe_enabled(&self, id: &str, enabled: bool) -> DomainResult<Recipe> {
+        let mut map = self.recipes.write().await;
+        let entry = map
+            .get_mut(id)
+            .ok_or_else(|| DomainError::NotFound(format!("recipe {id}")))?;
+        entry.recipe.enabled = enabled;
+        self.config_service.save_recipe(&entry.recipe)?;
+        self.events.emit(EventType::RecipeChanged, json!({"recipeId": id, "enabled": enabled}));
+        Ok(entry.recipe.clone())
+    }
+
+    pub async fn remove_recipe(&self, id: &str) -> DomainResult<()> {
+        let mut map = self.recipes.write().await;
+        map.remove(id)
+            .ok_or_else(|| DomainError::NotFound(format!("recipe {id}")))?;
+        let _ = self.config_service.delete_recipe(id);
+        self.events.emit(EventType::RecipeChanged, json!({"recipeId": id, "removed": true}));
+        Ok(())
+    }
+
+    /// Explain whether the recipe would fire right now + build (but do not run)
+    /// its plan.
+    pub async fn simulate_recipe(&self, id: &str) -> DomainResult<Value> {
+        let recipe = self.get_recipe(id).await?;
+        let observations = self.recent_observations_for_recipe(&recipe).await?;
+        let decision = evaluate_trigger(&recipe, &observations, Utc::now());
+        let plan = if self.current_session().await.is_some() {
+            Some(self.plan_from_recipe(&recipe).await?)
+        } else {
+            None
+        };
+        let simulation = if let Some(p) = &plan {
+            Some(self.simulate_plan(&p.plan_id).await?)
+        } else {
+            None
+        };
+        Ok(json!({
+            "recipeId": id,
+            "trigger": decision,
+            "plan": plan,
+            "simulation": simulation,
+        }))
+    }
+
+    /// Manual run: trigger bypassed, policy still fully applies.
+    pub async fn run_recipe(&self, id: &str) -> DomainResult<Value> {
+        let recipe = self.get_recipe(id).await?;
+        let plan = self.plan_from_recipe(&recipe).await?;
+        let receipts = self
+            .execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false)
+            .await?;
+        self.note_recipe_fired(id).await;
+        Ok(json!({"plan": self.store.plan(&plan.plan_id)?, "receipts": receipts}))
+    }
+
+    async fn plan_from_recipe(&self, recipe: &Recipe) -> DomainResult<Plan> {
+        let mut intent = SemanticIntent::new(recipe.intent.clone());
+        intent.expires_at = recipe
+            .limits
+            .expires_after
+            .as_deref()
+            .and_then(|d| interaction_recipe::parse_duration_ms(d).ok())
+            .map(|ms| Utc::now() + chrono::Duration::milliseconds(ms as i64));
+        let mut metadata = BTreeMap::new();
+        metadata.insert("recipeId".to_string(), json!(recipe.id.as_str()));
+        metadata.insert(
+            "actuationMode".to_string(),
+            json!(format!("{:?}", recipe.actuation.mode).to_lowercase()),
+        );
+        metadata.insert(
+            "verification".to_string(),
+            json!(match recipe.verification.strategy {
+                interaction_recipe::VerificationStrategy::BestEffort => "best-effort",
+                interaction_recipe::VerificationStrategy::Observed => "observed",
+                interaction_recipe::VerificationStrategy::None => "none",
+            }),
+        );
+        self.create_plan(
+            intent,
+            recipe.actuation.candidates.clone(),
+            recipe.actuation.min_channels,
+            recipe.actuation.max_channels,
+            recipe.decision.allow_no_action,
+            Some(recipe.message.clone()),
+            metadata,
+        )
+        .await
+    }
+
+    async fn recent_observations_for_recipe(&self, recipe: &Recipe) -> DomainResult<Vec<Observation>> {
+        let window_ms = recipe
+            .trigger
+            .within
+            .as_deref()
+            .and_then(|d| interaction_recipe::parse_duration_ms(d).ok())
+            .unwrap_or(600_000);
+        self.store.query_observations(&ObservationQuery {
+            since: Some(Utc::now() - chrono::Duration::milliseconds(window_ms as i64)),
+            limit: Some(200),
+            ..Default::default()
+        })
+    }
+
+    async fn note_recipe_fired(&self, id: &str) {
+        let mut map = self.recipes.write().await;
+        if let Some(entry) = map.get_mut(id) {
+            let now = Utc::now();
+            entry.state.last_fired_at = Some(now);
+            entry.state.executions_this_session += 1;
+            entry.state.fired_last_hour.push(now);
+            entry
+                .state
+                .fired_last_hour
+                .retain(|t| now.signed_duration_since(*t).num_minutes() < 60);
+        }
+    }
+
+    /// Evaluate all enabled recipes after a new observation arrived.
+    pub async fn evaluate_recipes(&self, receptor_hint: Option<&str>) {
+        if self.is_estopped() {
+            return;
+        }
+        if self.current_session().await.is_none() {
+            return;
+        }
+        let candidates: Vec<Recipe> = {
+            let map = self.recipes.read().await;
+            map.values()
+                .filter(|e| e.recipe.enabled)
+                .filter(|e| {
+                    receptor_hint
+                        .map(|r| e.recipe.trigger.steps.iter().any(|s| s.receptor == r))
+                        .unwrap_or(true)
+                })
+                .map(|e| e.recipe.clone())
+                .collect()
+        };
+        for recipe in candidates {
+            match self.try_fire_recipe(&recipe).await {
+                Ok(Some(decision)) => {
+                    tracing::info!(recipe = recipe.id.as_str(), "recipe fired: {:?}", decision.explanation.last());
+                }
+                Ok(None) => {}
+                Err(e) => tracing::warn!(recipe = recipe.id.as_str(), error = %e, "recipe evaluation error"),
+            }
+        }
+    }
+
+    async fn try_fire_recipe(&self, recipe: &Recipe) -> DomainResult<Option<TriggerDecision>> {
+        let now = Utc::now();
+        // Limits: cooldown / per-session / hourly.
+        {
+            let map = self.recipes.read().await;
+            if let Some(entry) = map.get(recipe.id.as_str()) {
+                if let Some(cooldown) = recipe
+                    .limits
+                    .cooldown
+                    .as_deref()
+                    .and_then(|d| interaction_recipe::parse_duration_ms(d).ok())
+                {
+                    if let Some(last) = entry.state.last_fired_at {
+                        if (now.signed_duration_since(last).num_milliseconds() as u64) < cooldown {
+                            return Ok(None);
+                        }
+                    }
+                }
+                if let Some(max) = recipe.limits.max_executions_per_session {
+                    if entry.state.executions_this_session >= max {
+                        return Ok(None);
+                    }
+                }
+                if let Some(max) = recipe.limits.max_per_hour {
+                    if entry.state.fired_last_hour.len() as u32 >= max {
+                        return Ok(None);
+                    }
+                }
+            }
+        }
+        // Consent requirements.
+        let session = self.require_session().await?;
+        for scope_str in &recipe.consent.required {
+            let scope = parse_scope(scope_str)?;
+            if !session.has_consent(&scope, now) {
+                return Ok(None);
+            }
+        }
+        // Trigger evaluation.
+        let observations = self.recent_observations_for_recipe(recipe).await?;
+        let decision = evaluate_trigger(recipe, &observations, now);
+        if !decision.fired {
+            return Ok(None);
+        }
+        // Chance gate (surprise factor).
+        if recipe.actuation.chance < 1.0 {
+            let roll: f64 = rand::thread_rng().gen();
+            if roll > recipe.actuation.chance {
+                tracing::debug!(recipe = recipe.id.as_str(), roll, "skipped by chance");
+                return Ok(Some(decision));
+            }
+        }
+        // Jitter (bounded, cancellable).
+        if let Some(jitter) = recipe
+            .actuation
+            .jitter
+            .as_deref()
+            .and_then(|d| interaction_recipe::parse_duration_ms(d).ok())
+        {
+            let delay = rand::thread_rng().gen_range(0..=jitter.min(5_000));
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_millis(delay)) => {}
+                _ = self.shutdown_token.cancelled() => return Ok(Some(decision)),
+            }
+        }
+        let plan = self.plan_from_recipe(recipe).await?;
+        let _ = self
+            .execute_plan(&plan.plan_id, ActionSource::Autonomous, false)
+            .await?;
+        self.note_recipe_fired(recipe.id.as_str()).await;
+        Ok(Some(decision))
+    }
+
+    // ------------------------------------------------------------------
+    // Shared helpers
+    // ------------------------------------------------------------------
+
+    pub(crate) async fn persist_receipt(
+        &self,
+        receipt: &ActionReceipt,
+        channel: &str,
+    ) -> DomainResult<()> {
+        self.store.upsert_receipt(receipt, channel)
+    }
+
+    pub(crate) fn emit_action_event(
+        &self,
+        event_type: EventType,
+        receipt: &ActionReceipt,
+        extra: Value,
+    ) {
+        let mut payload = json!({
+            "actionId": receipt.action_id.as_str(),
+            "planId": receipt.plan_id.as_str(),
+            "actuatorId": receipt.actuator_id.as_str(),
+            "status": receipt.current_status,
+            "intent": receipt.intent,
+        });
+        if let (Some(obj), Some(extra_obj)) = (payload.as_object_mut(), extra.as_object()) {
+            for (k, v) in extra_obj {
+                obj.insert(k.clone(), v.clone());
+            }
+        }
+        self.events.publish(
+            RuntimeEvent::new(event_type, Utc::now(), payload)
+                .with_session(receipt.session_id.clone())
+                .with_correlation(receipt.correlation_id.clone()),
+        );
+    }
+
+    pub(crate) async fn track_session_usage(
+        &self,
+        session_id: &SessionId,
+        channel: &str,
+        receipt: &ActionReceipt,
+    ) {
+        let duration = receipt.effective_bounded_parameters.duration_ms.unwrap_or(0);
+        if duration == 0 {
+            return;
+        }
+        let mut guard = self.session.write().await;
+        if let Some(session) = guard.as_mut() {
+            if &session.session_id == session_id {
+                *session.channel_usage_ms.entry(channel.to_string()).or_insert(0) += duration;
+                let _ = self.store.upsert_session(session);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Watchdog
+    // ------------------------------------------------------------------
+
+    fn spawn_watchdog(&self) {
+        let runtime = self.clone();
+        tokio::spawn(async move {
+            let interval_ms = runtime.config.read().await.watchdog_interval_ms.max(100);
+            let mut ticker =
+                tokio::time::interval(std::time::Duration::from_millis(interval_ms));
+            let mut tick: u64 = 0;
+            loop {
+                tokio::select! {
+                    _ = runtime.shutdown_token.cancelled() => break,
+                    _ = ticker.tick() => {}
+                }
+                tick += 1;
+                // TTL sweep: expire non-terminal receipts past their deadline.
+                if let Ok(open) = runtime.store.open_receipts() {
+                    let now = Utc::now();
+                    for mut receipt in open {
+                        if receipt.expires_at.map(|e| now > e).unwrap_or(false) {
+                            let _ = receipt.transition(ActionStatus::Expired, now);
+                            receipt.push_error("ttl", "watchdog expired the action", now);
+                            let _ = runtime.store.upsert_receipt(&receipt, "");
+                            runtime.emit_action_event(EventType::ActionExpired, &receipt, json!({}));
+                        }
+                    }
+                }
+                // Emergency-stop marker file (out-of-band trigger).
+                let estop_file = runtime.paths.estop_file();
+                if estop_file.exists() {
+                    let _ = std::fs::remove_file(&estop_file);
+                    if !runtime.is_estopped() {
+                        let _ = runtime.emergency_stop("estop-file", None).await;
+                    }
+                }
+                if tick % 10 == 0 {
+                    runtime.registry.refresh_health().await;
+                }
+                if tick % 600 == 0 {
+                    let hours = runtime.config.read().await.observation_retention_hours;
+                    let cutoff = Utc::now() - chrono::Duration::hours(hours as i64);
+                    let _ = runtime.store.prune_observations(cutoff);
+                }
+            }
+        });
+    }
+}
+
+fn parse_scope(scope_str: &str) -> DomainResult<ConsentScope> {
+    let (kind, id) = scope_str
+        .split_once(':')
+        .ok_or_else(|| DomainError::Validation(format!("scope {scope_str:?}: expected kind:id")))?;
+    if id.trim().is_empty() {
+        return Err(DomainError::Validation(format!("scope {scope_str:?}: empty id")));
+    }
+    match kind {
+        "channel" => Ok(ConsentScope::Channel(id.to_string())),
+        "actuator" => Ok(ConsentScope::Actuator(id.to_string())),
+        "receptor" => Ok(ConsentScope::Receptor(id.to_string())),
+        "tool" => Ok(ConsentScope::ToolOperation(id.to_string())),
+        other => Err(DomainError::Validation(format!("unknown scope kind {other:?}"))),
+    }
+}
+
+/// JSON merge-patch (RFC 7396 flavor).
+fn merge_json(target: &mut Value, patch: &Value) {
+    match (target, patch) {
+        (Value::Object(t), Value::Object(p)) => {
+            for (k, v) in p {
+                if v.is_null() {
+                    t.remove(k);
+                } else {
+                    merge_json(t.entry(k.clone()).or_insert(Value::Null), v);
+                }
+            }
+        }
+        (t, p) => *t = p.clone(),
+    }
+}
+
+fn redact(v: &Value) -> Value {
+    // Shallow redaction of obviously sensitive keys in audit payloads.
+    match v {
+        Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (k, val) in map {
+                let lower = k.to_ascii_lowercase();
+                if lower.contains("token") || lower.contains("secret") || lower.contains("password") {
+                    out.insert(k.clone(), Value::String("[redacted]".into()));
+                } else {
+                    out.insert(k.clone(), redact(val));
+                }
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(redact).collect()),
+        other => other.clone(),
+    }
+}
+
+pub(crate) fn quiet_window_active(start: &str, end: &str, local: chrono::NaiveTime) -> bool {
+    let parse = |s: &str| chrono::NaiveTime::parse_from_str(s, "%H:%M").ok();
+    match (parse(start), parse(end)) {
+        (Some(s), Some(e)) => {
+            if s <= e {
+                local >= s && local < e
+            } else {
+                local >= s || local < e
+            }
+        }
+        _ => false,
+    }
+}
+
+fn seed_default_recipes(config_service: &ConfigService) {
+    let dir = config_service.paths.recipes_dir();
+    let has_any = std::fs::read_dir(&dir)
+        .map(|entries| entries.flatten().next().is_some())
+        .unwrap_or(false);
+    if has_any {
+        return;
+    }
+    let default_recipe = include_str!("../assets/adaptive-task-completion.yaml");
+    if let Ok(recipe) = interaction_recipe::parse_and_validate(default_recipe) {
+        let _ = config_service.save_recipe(&recipe);
+    }
+}

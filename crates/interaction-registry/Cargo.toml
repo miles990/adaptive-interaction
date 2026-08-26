@@ -1,0 +1,18 @@
+[package]
+name = "interaction-registry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Dynamic capability registry: receptors, actuators, tool operations"
+
+[dependencies]
+interaction-core = { workspace = true }
+interaction-events = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+async-trait = { workspace = true }

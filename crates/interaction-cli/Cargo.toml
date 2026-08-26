@@ -1,0 +1,11 @@
+[package]
+name = "interaction-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "interact-ai"
+path = "src/main.rs"
+
+[dependencies]

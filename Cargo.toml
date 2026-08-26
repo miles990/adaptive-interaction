@@ -1,0 +1,68 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/interaction-core",
+    "crates/interaction-registry",
+    "crates/interaction-policy",
+    "crates/interaction-recipe",
+    "crates/interaction-events",
+    "crates/interaction-storage",
+    "crates/interaction-runtime",
+    "crates/interaction-tool-schema",
+    "crates/interaction-api",
+    "crates/interaction-cli",
+    "crates/interaction-adapter-sdk",
+    "adapters/builtin",
+    "tests/e2e",
+]
+# The Tauri shell is a separate leaf crate; excluded from the default build set so
+# `cargo build --workspace` stays fast, but still part of the repo and built by CI/tauri.
+exclude = ["apps/interaction-desktop/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/miles990/adaptive-interaction"
+
+[workspace.dependencies]
+interaction-core = { path = "crates/interaction-core" }
+interaction-registry = { path = "crates/interaction-registry" }
+interaction-policy = { path = "crates/interaction-policy" }
+interaction-recipe = { path = "crates/interaction-recipe" }
+interaction-events = { path = "crates/interaction-events" }
+interaction-storage = { path = "crates/interaction-storage" }
+interaction-runtime = { path = "crates/interaction-runtime" }
+interaction-tool-schema = { path = "crates/interaction-tool-schema" }
+interaction-api = { path = "crates/interaction-api" }
+interaction-adapter-sdk = { path = "crates/interaction-adapter-sdk" }
+adapters-builtin = { path = "adapters/builtin" }
+
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "fs", "io-util", "net", "process"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+async-trait = "0.1"
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+schemars = { version = "1", features = ["chrono04", "uuid1"] }
+thiserror = "2"
+anyhow = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+axum = { version = "0.8", features = ["json", "tokio", "http1"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
+rand = "0.8"
+humantime = "2"
+dirs = "5"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"

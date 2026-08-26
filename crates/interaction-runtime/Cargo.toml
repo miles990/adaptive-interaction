@@ -1,0 +1,35 @@
+[package]
+name = "interaction-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Adaptive interaction runtime: orchestrator, executor, sessions, scheduler, lifecycle"
+
+[dependencies]
+interaction-core = { workspace = true }
+interaction-registry = { workspace = true }
+interaction-policy = { workspace = true }
+interaction-recipe = { workspace = true }
+interaction-events = { workspace = true }
+interaction-storage = { workspace = true }
+interaction-adapter-sdk = { workspace = true }
+adapters-builtin = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+schemars = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+rand = { workspace = true }
+uuid = { workspace = true }
+dirs = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[dependencies.interaction-tool-schema]
+workspace = true

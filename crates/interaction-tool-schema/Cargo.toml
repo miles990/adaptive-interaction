@@ -1,0 +1,13 @@
+[package]
+name = "interaction-tool-schema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Canonical tool manifests and per-platform schema generators (OpenAI/Anthropic/Gemini/OpenAPI/JSON Schema)"
+
+[dependencies]
+interaction-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }

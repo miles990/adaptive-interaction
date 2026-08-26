@@ -1,0 +1,55 @@
+id: adaptive-task-completion
+name: 自適應任務完成互動
+description: 任務完成且使用者在場時，用最小干擾的方式回應；沒有合適通道時允許不介入。
+enabled: true
+
+trigger:
+  mode: sequence
+  within: 10m
+  steps:
+    - receptor: task.lifecycle
+      condition:
+        event: task.completed
+    - receptor: user.presence
+      condition:
+        state: present
+
+context:
+  receptors:
+    - system.time
+  maxAge: 10m
+  minConfidence: 0.5
+
+decision:
+  objective: celebrate-without-interrupting
+  allowNoAction: true
+
+intent: celebration
+
+message:
+  mode: adaptive
+  intents:
+    - celebration
+    - success
+  templates:
+    - "完成了，所有檢查都已通過。"
+    - "這一段順利收尾。"
+  allowSilence: true
+
+actuation:
+  mode: adaptive
+  candidates:
+    - conversation
+    - web-ui
+    - local-notification
+  minChannels: 0
+  maxChannels: 2
+
+verification:
+  strategy: best-effort
+  timeout: 10s
+
+limits:
+  cooldown: 15m
+  expiresAfter: 30s
+  maxExecutionsPerSession: 3
