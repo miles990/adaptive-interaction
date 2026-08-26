@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Interaction Control Center",
+  "productName": "interaction-control-center",
   "version": "0.1.0",
   "identifier": "dev.adaptive.interaction.desktop",
   "build": {
@@ -24,8 +24,16 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": [],
-    "icon": ["icons/icon.png"]
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "shortDescription": "Adaptive interaction control center",
+    "longDescription": "Human control center for the cross-AI adaptive interaction runtime: configure receptors/actuators, edit recipes, manage consent and policy, watch the live timeline, and hit the emergency stop."
   }
 }

@@ -1,0 +1,158 @@
+name: Release
+
+# Tag `vX.Y.Z` → build cross-platform CLI archives + desktop bundles and
+# publish everything (with checksums, the version-matched skill package, the
+# quickstart and the installer script) on the GitHub Release.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create GitHub release (idempotent)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "adaptive-interaction $TAG" \
+              --generate-notes \
+              --verify-tag
+
+  cli:
+    name: CLI (${{ matrix.target }})
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release -p interaction-cli --target ${{ matrix.target }}
+      - name: Package + checksum
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          TARGET="${{ matrix.target }}"
+          mkdir -p dist
+          if [[ "$TARGET" == *windows* ]]; then
+            ASSET="interact-ai-${TAG}-${TARGET}.zip"
+            cp "target/${TARGET}/release/interact-ai.exe" dist/
+            (cd dist && tar -a -cf "../${ASSET}" interact-ai.exe)
+          else
+            ASSET="interact-ai-${TAG}-${TARGET}.tar.gz"
+            cp "target/${TARGET}/release/interact-ai" dist/
+            tar -czf "${ASSET}" -C dist interact-ai
+          fi
+          PY=$(command -v python3 || command -v python)
+          "$PY" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest() + '  ' + sys.argv[1])" "${ASSET}" > "${ASSET}.sha256"
+          echo "ASSET=${ASSET}" >> "$GITHUB_ENV"
+      - name: Upload
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" "${ASSET}" "${ASSET}.sha256" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            bundles: "--bundles app,dmg"
+          - os: ubuntu-latest
+            bundles: "--bundles deb,appimage"
+          - os: windows-latest
+            bundles: "--bundles nsis,msi"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux system deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/interaction-desktop/pnpm-lock.yaml
+      - name: Install frontend deps
+        working-directory: apps/interaction-desktop
+        run: pnpm install --frozen-lockfile
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/interaction-desktop/src-tauri
+      - name: Build + upload bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/interaction-desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "adaptive-interaction ${{ github.ref_name }}"
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.bundles }}
+
+  extras:
+    name: Skill package + docs + installer
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package assets
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # Version-matched skill package
+          (cd skills && zip -qr "../orchestrate-adaptive-interaction-skill-${TAG}.zip" \
+            orchestrate-adaptive-interaction)
+          cp docs/QUICKSTART.md QUICKSTART.md
+          cp scripts/get.sh install.sh
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            "orchestrate-adaptive-interaction-skill-${GITHUB_REF_NAME}.zip" \
+            QUICKSTART.md install.sh CHANGELOG.md \
+            --repo "$GITHUB_REPOSITORY" --clobber

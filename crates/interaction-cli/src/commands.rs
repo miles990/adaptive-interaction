@@ -157,6 +157,41 @@ pub enum SessionCmd {
 }
 
 #[derive(Subcommand)]
+pub enum SelfSub {
+    /// Show version; --check compares with the latest GitHub release.
+    Version {
+        #[arg(long)]
+        check: bool,
+    },
+    /// Update this binary from GitHub Releases (default: latest).
+    Update {
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Remove this binary; --purge also deletes ~/.adaptive-interaction.
+    Uninstall {
+        #[arg(long)]
+        purge: bool,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Install the cross-AI skill (embedded, version-matched) into an agent's skill dir.
+    InstallSkill {
+        /// Target directory (default ~/.claude/skills/orchestrate-adaptive-interaction)
+        #[arg(long)]
+        dest: Option<std::path::PathBuf>,
+    },
+    /// Download the desktop control center bundle for this platform.
+    InstallDesktop {
+        #[arg(long)]
+        version: Option<String>,
+        /// Save directory (default ~/Downloads)
+        #[arg(long)]
+        out_dir: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum ToolCmd {
     List,
     Describe {
@@ -249,6 +284,20 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
     // `serve` hosts the runtime; everything else is a client call.
     if let Command::Serve { host, port } = &cli.command {
         return serve(cli, host.clone(), *port).await;
+    }
+    if let Command::SelfCmd { command } = &cli.command {
+        let code = match command {
+            SelfSub::Version { check } => crate::selfmgmt::cmd_version(*check, cli.json).await?,
+            SelfSub::Update { version } => {
+                crate::selfmgmt::cmd_update(version.clone(), cli.dry_run).await?
+            }
+            SelfSub::Uninstall { purge, yes } => crate::selfmgmt::cmd_uninstall(*purge, *yes)?,
+            SelfSub::InstallSkill { dest } => crate::selfmgmt::cmd_install_skill(dest.clone())?,
+            SelfSub::InstallDesktop { version, out_dir } => {
+                crate::selfmgmt::cmd_install_desktop(version.clone(), out_dir.clone()).await?
+            }
+        };
+        return Ok(code);
     }
     if let Command::Ui = &cli.command {
         eprintln!("The desktop control center lives in apps/interaction-desktop.");
@@ -453,7 +502,12 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
         }
         Command::Outbox { limit } => client.get(&format!("/v1/outbox?limit={limit}")).await?,
         Command::Audit { limit } => client.get(&format!("/v1/audit?limit={limit}")).await?,
-        Command::Serve { .. } | Command::Ui | Command::Completion { .. } => unreachable!(),
+        Command::Serve { .. }
+        | Command::Ui
+        | Command::Completion { .. }
+        | Command::SelfCmd { .. } => {
+            unreachable!()
+        }
     };
     Ok(emit(cli.json, status, &value))
 }

@@ -28,7 +28,38 @@ node --version    # （可選）
 pnpm --version    # （可選）
 ```
 
-## 2. 三步驟安裝
+## 2. 安裝
+
+### 方式 A：從 Release 下載（推薦，免編譯）
+
+到 [Releases](https://github.com/miles990/adaptive-interaction/releases) 下載
+`install.sh`，或直接：
+
+```bash
+# 私有 repo 需先 gh auth login；公開後免憑證
+gh release download --repo miles990/adaptive-interaction --pattern install.sh
+bash install.sh                    # CLI → ~/.local/bin
+bash install.sh --with-skill       # ＋跨 AI skill
+bash install.sh --with-desktop     # ＋桌面控制中心
+bash install.sh --version v0.1.0   # 固定版本
+```
+
+每個 Release 附：四平台 CLI 壓縮檔（macOS arm64/x64、Linux x64、Windows x64，
+各附 `.sha256`）、桌面安裝包（.dmg／.AppImage＋.deb／.msi＋.exe）、
+版本一致的 skill 套件 zip、`QUICKSTART.md` 與本安裝腳本。
+
+之後的更新／移除全部用內建自我管理：
+
+```bash
+interact-ai self version --check   # 有沒有新版？
+interact-ai self update            # 一鍵更新（sha256 驗證＋原子替換）
+interact-ai self update --version v0.1.0
+interact-ai self install-skill     # 裝／更新跨 AI skill（與 CLI 同版本，離線可用）
+interact-ai self install-desktop   # 下載本平台桌面版
+interact-ai self uninstall --yes [--purge]   # 移除（--purge 連資料目錄）
+```
+
+### 方式 B：從原始碼編譯
 
 ```bash
 # ① 取得程式碼

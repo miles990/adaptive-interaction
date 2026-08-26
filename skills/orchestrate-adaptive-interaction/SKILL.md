@@ -29,7 +29,9 @@ bar, do not intervene.
 ## The loop, concretely
 
 1. `interact-ai status --json` — is the runtime up? If not, tell the human to
-   run `interact-ai serve`. Do not pretend.
+   run `interact-ai serve` (not installed? → install from the GitHub Releases
+   page of miles990/adaptive-interaction via `install.sh`, or
+   `interact-ai self update` to upgrade). Do not pretend.
 2. `interact-ai capabilities --json` — fresh snapshot every time; never assume
    a device exists. Note `constraints` (quiet hours, emergency stop).
 3. `interact-ai observe --json [--receptor <id>]` — observations separate

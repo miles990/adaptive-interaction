@@ -7,6 +7,7 @@
 
 mod client;
 mod commands;
+mod selfmgmt;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use std::path::PathBuf;
@@ -153,6 +154,12 @@ pub enum Command {
     },
     /// Hints for launching the desktop control center.
     Ui,
+    /// Manage this installation: update / uninstall / version / install-skill / install-desktop.
+    #[command(name = "self")]
+    SelfCmd {
+        #[command(subcommand)]
+        command: commands::SelfSub,
+    },
     /// Generate shell completions.
     Completion { shell: clap_complete::Shell },
 }

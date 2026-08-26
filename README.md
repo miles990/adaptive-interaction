@@ -1,5 +1,8 @@
 # adaptive-interaction
 
+[![CI](https://github.com/miles990/adaptive-interaction/actions/workflows/ci.yml/badge.svg)](https://github.com/miles990/adaptive-interaction/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/miles990/adaptive-interaction)](https://github.com/miles990/adaptive-interaction/releases)
+
 ![adaptive-interaction](docs/assets/hero.png)
 
 跨 AI、跨 Agent Host 的「能力感知型自適應互動平台」。任何 AI——只要能執行
@@ -27,7 +30,11 @@ Discover → Observe → Interpret → Plan → Authorize → Act → Verify →
 ## 快速開始
 
 ```bash
-# 建置並啟動 daemon（HTTP API 綁 127.0.0.1:8787）
+# 安裝（從 Release，免編譯；私有 repo 需 gh auth login）
+gh release download --repo miles990/adaptive-interaction --pattern install.sh
+bash install.sh --with-skill
+
+# 或從原始碼建置並啟動 daemon（HTTP API 綁 127.0.0.1:8787）
 cargo run -p interaction-cli -- serve
 
 # 另一個終端：完整閉環

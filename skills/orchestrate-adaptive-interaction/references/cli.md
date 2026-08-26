@@ -44,6 +44,18 @@ interact-ai actuators list|inspect|enable|disable|test|remove <id>
 interact-ai actuators add builtin.mock-actuator --id dev.mock --channel haptic
 ```
 
+## Self management (install / update / remove)
+```bash
+interact-ai self version [--check]        # version; --check compares with latest release
+interact-ai self update [--version vX.Y.Z]  # sha256-verified atomic self-update
+interact-ai self install-skill [--dest D] # (re)install this skill, version-matched, offline
+interact-ai self install-desktop          # download the desktop control center bundle
+interact-ai self uninstall --yes [--purge]
+```
+If `interact-ai` is missing entirely, tell the human to install from
+https://github.com/miles990/adaptive-interaction/releases (run `install.sh`),
+or build from source with cargo. Never fake its output.
+
 ## Recipes / tools / misc
 ```bash
 interact-ai recipes list|show <id>|validate <path-or-id>|apply <path>

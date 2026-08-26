@@ -121,3 +121,40 @@ fn scenario_k_no_mcp_dependency() {
         );
     }
 }
+
+/// Version discipline: every version-bearing file agrees with the workspace.
+#[test]
+fn versions_are_in_sync() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let workspace = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+    let version = workspace
+        .lines()
+        .find_map(|l| l.strip_prefix("version = \""))
+        .and_then(|l| l.split('"').next())
+        .expect("workspace version");
+
+    let tauri_toml =
+        std::fs::read_to_string(root.join("apps/interaction-desktop/src-tauri/Cargo.toml"))
+            .unwrap();
+    assert!(
+        tauri_toml.contains(&format!("version = \"{version}\"")),
+        "src-tauri Cargo.toml version != {version}"
+    );
+    let tauri_conf: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("apps/interaction-desktop/src-tauri/tauri.conf.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(tauri_conf["version"], version, "tauri.conf.json version");
+    let pkg: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("apps/interaction-desktop/package.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(pkg["version"], version, "package.json version");
+
+    let changelog = std::fs::read_to_string(root.join("CHANGELOG.md")).unwrap();
+    assert!(
+        changelog.contains(&format!("## [{version}]")),
+        "CHANGELOG.md missing section for {version}"
+    );
+}
