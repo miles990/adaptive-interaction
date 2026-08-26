@@ -56,7 +56,7 @@ bash install.sh
 ```text
 adaptive-interaction all-in-one 安裝 — 預設全選，輸入編號可取消
   [x] 1. interact-ai CLI（必裝：核心指令與 daemon）
-  [x] 2. 跨 AI Skill → ~/.claude/skills/（給 Claude Code 等 agent）
+  [x] 2. 跨 AI Skill（自動偵測 Claude/Codex/Gemini/Copilot…，預設全裝）
   [x] 3. 桌面控制中心（圖形介面）
   [x] 4. Shell completion（指令自動補全）
 ```

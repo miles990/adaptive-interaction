@@ -356,14 +356,35 @@ const SKILL_FILES: &[(&str, &str)] = &[
     ),
 ];
 
-/// Install the cross-AI skill from the files embedded in this binary — the
-/// skill version always matches the CLI version.
-pub fn cmd_install_skill(dest: Option<PathBuf>) -> Result<i32> {
-    let dest = dest.unwrap_or_else(|| {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".claude/skills/orchestrate-adaptive-interaction")
-    });
+pub const SKILL_DIR_NAME: &str = "orchestrate-adaptive-interaction";
+
+/// Agent homes we know how to install skills into. The skill format itself is
+/// the open Agent Skills layout (SKILL.md + references/ + scripts/), so any
+/// host that reads that layout works; these are just the conventional paths.
+const AGENT_HOMES: &[(&str, &str)] = &[
+    ("Claude Code", ".claude"),
+    ("Codex CLI", ".codex"),
+    ("通用 agents 目錄", ".agents"),
+    ("Gemini CLI", ".gemini"),
+    ("GitHub Copilot CLI", ".copilot"),
+];
+
+/// Detect installed agents under `home`: an agent counts as present when its
+/// home directory exists; the `skills/` subdir is created on install.
+pub fn detect_skill_targets(home: &Path) -> Vec<(String, PathBuf)> {
+    AGENT_HOMES
+        .iter()
+        .filter(|(_, dir)| home.join(dir).is_dir())
+        .map(|(name, dir)| {
+            (
+                name.to_string(),
+                home.join(dir).join("skills").join(SKILL_DIR_NAME),
+            )
+        })
+        .collect()
+}
+
+fn write_skill_files(dest: &Path) -> Result<()> {
     for (rel, content) in SKILL_FILES {
         let path = dest.join(rel);
         if let Some(parent) = path.parent() {
@@ -376,8 +397,88 @@ pub fn cmd_install_skill(dest: Option<PathBuf>) -> Result<i32> {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
         }
     }
-    println!("skill 已安裝（v{CURRENT_VERSION}）→ {}", dest.display());
-    println!("其他 agent 目錄可用 --dest 指定，例如 --dest ~/.agents/skills/orchestrate-adaptive-interaction");
+    Ok(())
+}
+
+/// Install the cross-AI skill from the files embedded in this binary — the
+/// skill version always matches the CLI version.
+///
+/// Cross-AI installation: with no `--dest`, every detected agent home
+/// (Claude Code / Codex / ~/.agents / Gemini / Copilot) gets the skill.
+pub fn cmd_install_skill(dest: Option<PathBuf>) -> Result<i32> {
+    if let Some(dest) = dest {
+        write_skill_files(&dest)?;
+        println!("skill 已安裝（v{CURRENT_VERSION}）→ {}", dest.display());
+        return Ok(0);
+    }
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let mut targets = detect_skill_targets(&home);
+    if targets.is_empty() {
+        // No agent detected: fall back to the Claude Code convention.
+        targets.push((
+            "Claude Code（預設）".to_string(),
+            home.join(".claude/skills").join(SKILL_DIR_NAME),
+        ));
+    }
+    // Menu on a TTY: all detected agents pre-selected, numbers toggle.
+    let mut selected = vec![true; targets.len()];
+    {
+        use std::io::IsTerminal;
+        if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+            loop {
+                println!();
+                println!("跨 AI Skill 安裝 — 偵測到的 agent（預設全選，輸入編號取消）：");
+                for (i, ((agent, dest), on)) in targets.iter().zip(&selected).enumerate() {
+                    println!(
+                        "  [{}] {}. {agent} → {}",
+                        if *on { "x" } else { " " },
+                        i + 1,
+                        dest.display()
+                    );
+                }
+                print!("切換編號，a=全選，Enter=開始安裝 > ");
+                use std::io::Write;
+                std::io::stdout().flush().ok();
+                let mut line = String::new();
+                if std::io::stdin().read_line(&mut line).is_err() {
+                    break;
+                }
+                let choice = line.trim();
+                if choice.is_empty() {
+                    break;
+                }
+                if choice.eq_ignore_ascii_case("a") {
+                    selected.iter_mut().for_each(|s| *s = true);
+                } else if let Ok(n) = choice.parse::<usize>() {
+                    if n >= 1 && n <= selected.len() {
+                        selected[n - 1] = !selected[n - 1];
+                    }
+                } else {
+                    println!("？輸入編號、a 或直接 Enter");
+                }
+            }
+        }
+    }
+    let chosen: Vec<&(String, PathBuf)> = targets
+        .iter()
+        .zip(&selected)
+        .filter(|(_, on)| **on)
+        .map(|(t, _)| t)
+        .collect();
+    if chosen.is_empty() {
+        println!("未選擇任何 agent；略過 skill 安裝。");
+        return Ok(0);
+    }
+    println!(
+        "跨 AI 安裝 skill（v{CURRENT_VERSION}）到 {} 個 agent：",
+        chosen.len()
+    );
+    for (agent, dest) in chosen {
+        write_skill_files(dest)?;
+        println!("  ✓ {agent} → {}", dest.display());
+    }
+    println!("其他位置可用 --dest 指定，例如 --dest ~/.config/my-agent/skills/{SKILL_DIR_NAME}");
+    println!("（純 function-calling／HTTP 的 AI 不需要 skill：改用 interact-ai tools export）");
     Ok(0)
 }
 
@@ -451,6 +552,20 @@ mod tests {
     fn this_platform_has_a_triple() {
         // The test suite only runs on supported platforms.
         assert!(target_triple().is_ok());
+    }
+
+    #[test]
+    fn skill_targets_detect_present_agents_only() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join(".claude/skills")).unwrap();
+        std::fs::create_dir_all(home.path().join(".codex")).unwrap(); // skills/ 缺也算偵測到
+                                                                      // .gemini / .agents / .copilot 不存在 → 不列入
+        let targets = detect_skill_targets(home.path());
+        let agents: Vec<&str> = targets.iter().map(|(a, _)| a.as_str()).collect();
+        assert_eq!(agents, vec!["Claude Code", "Codex CLI"]);
+        assert!(targets
+            .iter()
+            .all(|(_, p)| p.ends_with(format!("skills/{SKILL_DIR_NAME}"))));
     }
 
     #[test]

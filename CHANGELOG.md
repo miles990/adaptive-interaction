@@ -9,6 +9,12 @@
 
 ## [Unreleased]
 
+### Changed
+- `self install-skill` 跨 AI 化：自動偵測 Claude Code／Codex CLI／~/.agents／
+  Gemini CLI／GitHub Copilot CLI 的 agent home，TTY 下提供選單（預設全選），
+  非互動直接全裝；`--dest` 仍可指定任意位置
+- 修復 CLI e2e 測試的埠競態（sequential port allocation）
+
 ## [0.1.0] - 2026-08-26
 
 ### Added

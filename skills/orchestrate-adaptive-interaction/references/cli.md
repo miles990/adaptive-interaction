@@ -48,7 +48,7 @@ interact-ai actuators add builtin.mock-actuator --id dev.mock --channel haptic
 ```bash
 interact-ai self version [--check]        # version; --check compares with latest release
 interact-ai self update [--version vX.Y.Z]  # sha256-verified atomic self-update
-interact-ai self install-skill [--dest D] # (re)install this skill, version-matched, offline
+interact-ai self install-skill [--dest D] # cross-AI: detects all agent homes (Claude/Codex/Gemini/Copilot/~/.agents), menu-selectable, installs to all by default
 interact-ai self install-desktop          # download the desktop control center bundle
 interact-ai self uninstall --yes [--purge]
 ```

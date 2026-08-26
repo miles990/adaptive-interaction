@@ -41,14 +41,14 @@ interact-ai emergency-stop                 # 🔴 隨時全停（--clear 解除�
 interact-ai self version --check   # 檢查新版本
 interact-ai self update            # 一鍵更新（含 sha256 驗證）
 interact-ai self update --version v0.1.0   # 裝指定版本
-interact-ai self install-skill     # 安裝與本版一致的跨 AI skill
+interact-ai self install-skill     # 跨 AI 裝 skill（偵測 Claude/Codex/Gemini/Copilot…預設全裝）
 interact-ai self install-desktop   # 下載本平台的桌面版
 interact-ai self uninstall --yes   # 移除（--purge 連資料一起）
 ```
 
 ## 給 AI 接入
 
-- **Skill 型 agent**：`interact-ai self install-skill`（預設裝到 `~/.claude/skills/`）
+- **Skill 型 agent**：`interact-ai self install-skill`（自動偵測所有 agent home、預設全裝；--dest 可指定自訂位置）
 - **Tool calling**：`interact-ai tools export --format openai|anthropic|gemini`
 - **HTTP host**：`GET http://127.0.0.1:8787/v1/openapi.json`（token 在
   `~/.adaptive-interaction/state/api-token`）
