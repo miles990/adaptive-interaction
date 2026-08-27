@@ -540,6 +540,15 @@ export default function CompanionApp() {
           await api.pauseSet(60, "companion quick action");
           showBubble(line("pause-ack"), 3500);
           break;
+        case "quiet-1h":
+          // 主動式對話安靜一小時（≠ 暫停主動行動，也 ≠ emergency stop）。
+          await api.proactiveDialogueQuiet(60);
+          showBubble("好，一小時內我不主動說話。", 3500);
+          break;
+        case "quiet-today":
+          await api.proactiveDialogueQuiet(12 * 60);
+          showBubble("好，今天我會安靜一點。", 3500);
+          break;
         case "estop":
           await api.emergencyStop("companion quick action");
           break;
@@ -642,6 +651,12 @@ export default function CompanionApp() {
           </button>
           <button role="menuitem" onClick={() => quick("pause-1h")}>
             暫停一小時
+          </button>
+          <button role="menuitem" onClick={() => quick("quiet-1h")}>
+            一小時內不要主動說話
+          </button>
+          <button role="menuitem" onClick={() => quick("quiet-today")}>
+            今天安靜一點
           </button>
           <button role="menuitem" onClick={() => quick("open-cc")}>
             開啟控制中心

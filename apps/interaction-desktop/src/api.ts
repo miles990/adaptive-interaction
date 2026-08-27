@@ -139,6 +139,11 @@ export const api = {
   testActuator: (id: string) => invoke<Receipt[]>("test_actuator", { id }),
   pushObservation: (receptorId: string, facts: Record<string, unknown>, confidence = 1.0) =>
     invoke("push_observation", { receptorId, facts, confidence }),
+  proactiveDialogueGet: () => invoke<Record<string, unknown>>("proactive_dialogue_get"),
+  proactiveDialoguePatch: (patch: Record<string, unknown>) =>
+    invoke<Record<string, unknown>>("proactive_dialogue_patch", { patch }),
+  proactiveDialogueQuiet: (minutes: number) =>
+    invoke<Record<string, unknown>>("proactive_dialogue_quiet", { minutes }),
   presentationStatus: () => invoke<Record<string, unknown>>("presentation_status"),
   presentationHello: (visible: boolean, packId?: string) =>
     invoke<Record<string, unknown>>("presentation_hello", { visible, packId: packId ?? null }),

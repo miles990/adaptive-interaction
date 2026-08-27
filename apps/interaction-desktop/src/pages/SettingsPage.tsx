@@ -1,6 +1,7 @@
 // 設定：一般／進階模式切換（後端持久化）、重新執行首次設定精靈。
 
 import React from "react";
+import { api } from "../api";
 import { useAppState } from "../appstate";
 import { Section, Toggle } from "../ui";
 import { desktop, DesktopPrefs, isTauri } from "../desktop";
@@ -39,6 +40,8 @@ export function SettingsPage({ onRerunOnboarding }: { onRerunOnboarding: () => v
         <button onClick={onRerunOnboarding}>重新執行首次設定</button>
       </Section>
 
+      <ProactiveDialogueSection />
+
       <CompanionSection />
 
       <DesktopLifecycleSection />
@@ -50,6 +53,85 @@ export function SettingsPage({ onRerunOnboarding }: { onRerunOnboarding: () => v
         </p>
       </Section>
     </div>
+  );
+}
+
+/** 主動式對話：模式與頻率由 Rust 確定性強制；此處只是設定介面。 */
+function ProactiveDialogueSection() {
+  const [status, setStatus] = React.useState<Record<string, unknown> | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const load = React.useCallback(async () => {
+    try {
+      setStatus(await api.proactiveDialogueGet());
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  const config = (status?.config as Record<string, unknown> | undefined) ?? {};
+  const mode = String(config.mode ?? "natural");
+  const quietUntil = status?.quietUntil ? new Date(String(status.quietUntil)) : null;
+  const quietActive = quietUntil !== null && quietUntil.getTime() > Date.now();
+
+  const setMode = async (m: string) => {
+    try {
+      setStatus(await api.proactiveDialoguePatch({ mode: m }));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <Section title="主動式對話">
+      <p className="muted small">
+        小樞什麼情況下可以主動說話。頻率限制（每小時最多 {String(config.maxPerHour ?? 3)} 則、
+        最短間隔 {String(config.minIntervalMinutes ?? 12)} 分鐘、沒有回覆不追問）由系統強制執行；
+        安全與權限提示不受模式影響，一定會顯示。主動說話不代表可以主動做事——任何行動仍需授權。
+      </p>
+      <label className="field-label">
+        模式
+        <select value={mode} onChange={(e) => void setMode(e.target.value)}>
+          <option value="off">關閉——不主動說話</option>
+          <option value="necessary">必要——只有等待確認、失敗、未知與感測提示</option>
+          <option value="natural">自然（建議）——加上任務進度與低頻建議</option>
+          <option value="lively">活潑——再加問候與輕量陪伴</option>
+          <option value="custom">自訂——個別選擇訊息類型</option>
+        </select>
+      </label>
+      <p className="muted small">
+        本小時已發送 {String(status?.sentThisHour ?? 0)} 則。
+        {quietActive && quietUntil
+          ? ` 安靜中，至 ${quietUntil.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}。`
+          : ""}
+      </p>
+      <div className="row-gap">
+        <button
+          onClick={async () => {
+            setStatus(await api.proactiveDialogueQuiet(60));
+          }}
+        >
+          一小時內不要主動說話
+        </button>
+        <button
+          onClick={async () => {
+            setStatus(await api.proactiveDialogueQuiet(12 * 60));
+          }}
+        >
+          今天安靜一點
+        </button>
+      </div>
+      {error && (
+        <p className="cap-card-error" role="alert">
+          {error}
+        </p>
+      )}
+    </Section>
   );
 }
 

@@ -8,6 +8,7 @@ pub mod human;
 pub mod lock;
 pub mod orchestrator;
 pub mod presentation;
+pub mod proactive;
 pub mod providers;
 pub mod runtime;
 pub mod sensors;

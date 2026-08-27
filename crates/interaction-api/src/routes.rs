@@ -1272,3 +1272,33 @@ pub async fn presentation_ack(
         .await?;
     Ok(Json(out))
 }
+
+// ---------------------------------------------------------------------------
+// 主動式對話政策（確定性頻率限制）。
+// ---------------------------------------------------------------------------
+
+pub async fn proactive_dialogue_get(State(state): State<ApiState>) -> Json<Value> {
+    Json(state.runtime.proactive_dialogue_status().await)
+}
+
+pub async fn proactive_dialogue_patch(
+    State(state): State<ApiState>,
+    Json(patch): Json<Value>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        state.runtime.proactive_dialogue_configure(patch).await?,
+    ))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuietBody {
+    pub minutes: i64,
+}
+
+pub async fn proactive_dialogue_quiet(
+    State(state): State<ApiState>,
+    Json(body): Json<QuietBody>,
+) -> Json<Value> {
+    Json(state.runtime.proactive_dialogue_quiet(body.minutes).await)
+}

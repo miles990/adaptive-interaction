@@ -373,6 +373,22 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             }
             crate::SensorsAction::Stop => client.post("/v1/sensors/stop", Some(json!({}))).await?,
         },
+        Command::Proactive { action } => match action {
+            crate::ProactiveAction::Status => client.get("/v1/proactive-dialogue").await?,
+            crate::ProactiveAction::Mode { mode } => {
+                client
+                    .patch("/v1/proactive-dialogue", json!({"mode": mode}))
+                    .await?
+            }
+            crate::ProactiveAction::Quiet { minutes } => {
+                client
+                    .post(
+                        "/v1/proactive-dialogue/quiet",
+                        Some(json!({"minutes": minutes})),
+                    )
+                    .await?
+            }
+        },
         Command::Presentation { action } => match action {
             crate::PresentationAction::Status => client.get("/v1/presentation").await?,
             crate::PresentationAction::Hello { visible, pack } => {

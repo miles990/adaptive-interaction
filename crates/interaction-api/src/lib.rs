@@ -65,6 +65,14 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/presentation", get(routes::presentation_status))
         .route("/v1/presentation/hello", post(routes::presentation_hello))
         .route("/v1/presentation/ack", post(routes::presentation_ack))
+        .route(
+            "/v1/proactive-dialogue",
+            get(routes::proactive_dialogue_get).patch(routes::proactive_dialogue_patch),
+        )
+        .route(
+            "/v1/proactive-dialogue/quiet",
+            post(routes::proactive_dialogue_quiet),
+        )
         .route("/v1/agent-sessions", get(routes::agent_sessions_list))
         .route("/v1/agent-sessions", post(routes::agent_session_create))
         .route("/v1/agent-sessions/{id}", get(routes::agent_session_get))

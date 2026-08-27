@@ -78,6 +78,11 @@ pub enum Command {
         #[command(subcommand)]
         action: AgentsAction,
     },
+    /// Proactive dialogue policy (deterministic frequency limits).
+    Proactive {
+        #[command(subcommand)]
+        action: ProactiveAction,
+    },
     /// Companion presentation surface: presence heartbeat + command acks.
     Presentation {
         #[command(subcommand)]
@@ -340,6 +345,19 @@ pub enum AgentsAction {
         handoff: Option<String>,
         #[arg(long, default_value = "closed")]
         reason: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ProactiveAction {
+    /// Show proactive-dialogue mode, hourly usage and quiet state.
+    Status,
+    /// Set the mode: off | necessary | natural | lively | custom
+    Mode { mode: String },
+    /// Ask the companion to stay quiet for a while.
+    Quiet {
+        #[arg(long, default_value_t = 60)]
+        minutes: i64,
     },
 }
 

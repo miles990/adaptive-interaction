@@ -816,6 +816,30 @@ async fn presentation_ack(
 }
 
 #[tauri::command]
+async fn proactive_dialogue_get(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    Ok(runtime.proactive_dialogue_status().await)
+}
+
+#[tauri::command]
+async fn proactive_dialogue_patch(
+    state: State<'_, AppState>,
+    patch: Value,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.proactive_dialogue_configure(patch).await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn proactive_dialogue_quiet(
+    state: State<'_, AppState>,
+    minutes: i64,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    Ok(runtime.proactive_dialogue_quiet(minutes).await)
+}
+
+#[tauri::command]
 async fn agent_sessions_list(state: State<'_, AppState>) -> Result<Value, String> {
     let runtime = rt(&state)?;
     serde_json::to_value(runtime.list_agent_sessions().await).map_err(err_s)
@@ -1555,6 +1579,9 @@ pub fn run() {
             presentation_status,
             presentation_hello,
             presentation_ack,
+            proactive_dialogue_get,
+            proactive_dialogue_patch,
+            proactive_dialogue_quiet,
             sensors_stop,
         ])
         .build(tauri::generate_context!())

@@ -130,6 +130,15 @@ check "surface ack completes the receipt" "$ST" "completed"
 SND=$("$BIN" capabilities --json 2>/dev/null | python3 -c "import sys,json;print(next((a['availability'] for a in json.load(sys.stdin)['actuators'] if a['id']=='companion.sound.play'),'MISSING'))")
 if [ "$SND" != "available" ]; then ok "companion.sound.play default disabled ($SND)"; else bad "sound should be consent-gated"; fi
 
+echo "== Proactive dialogue (v0.4) =="
+"$BIN" proactive mode off --json >/dev/null 2>&1
+MODE=$("$BIN" proactive status --json 2>/dev/null | J "d['config']['mode']")
+check "proactive mode persisted" "$MODE" "off"
+"$BIN" proactive quiet --minutes 30 --json >/dev/null 2>&1
+QU=$("$BIN" proactive status --json 2>/dev/null | J "'set' if d.get('quietUntil') else 'missing'")
+check "quiet request recorded" "$QU" "set"
+"$BIN" proactive mode natural --json >/dev/null 2>&1
+
 echo "== Emergency stop propagation =="
 SID2=$("$BIN" agents create --agent agent.b --ttl 30 --json 2>/dev/null | J "d['sessionId']")
 "$BIN" emergency-stop --json >/dev/null 2>&1

@@ -93,6 +93,8 @@ pub struct RuntimeInner {
     pub mic_receptor: Option<Arc<adapters_media::MicListenReceptor>>,
     /// Presentation bridge: companion-window presence + pending command acks.
     pub presentation: Arc<crate::presentation::PresentationBridge>,
+    /// 主動式對話政策狀態（確定性頻率限制；持久化到 meta）。
+    pub(crate) proactive_dialogue: RwLock<crate::proactive::ProactiveDialogueState>,
 }
 
 #[derive(Clone)]
@@ -270,6 +272,12 @@ impl Runtime {
         }
 
         let pause_state = crate::human::PauseState::load(&store);
+        let proactive_state: crate::proactive::ProactiveDialogueState = store
+            .get_meta(crate::proactive::PROACTIVE_META_KEY)
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
         let runtime = Runtime {
             inner: Arc::new(RuntimeInner {
                 paths,
@@ -300,6 +308,7 @@ impl Runtime {
                 sensors: std::sync::Mutex::new(BTreeMap::new()),
                 mic_receptor: Some(mic_receptor),
                 presentation: presentation_bridge,
+                proactive_dialogue: RwLock::new(proactive_state),
             }),
         };
         let _ = sensor_cb_slot.set(Arc::downgrade(&runtime.inner));
@@ -526,6 +535,17 @@ impl Runtime {
             self.store.insert_observation(&obs)?;
         }
         self.publish_observation_event(&obs);
+        // 使用者真實互動 → 主動對話的「未回覆不追問」解除。
+        if matches!(
+            receptor_id,
+            "companion.click"
+                | "companion.text-input"
+                | "companion.quick-action"
+                | "companion.drag-drop"
+                | "session.input"
+        ) {
+            self.proactive_note_reply().await;
+        }
         // Autonomous loop: observation may trigger recipes.
         self.evaluate_recipes(Some(receptor_id)).await;
         Ok(obs)

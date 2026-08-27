@@ -418,6 +418,49 @@ impl Runtime {
         }
 
         let usage = self.usage_for(&session, &manifest).await?;
+        // 主動式對話政策：只約束「自主來源＋對話頻道＋宣告為主動對話」的
+        // 說話動作（metadata 帶 proactiveClass——生成式主動對話一定帶；
+        // 使用者自訂配方可選擇加入）。明確請求與未宣告的既有自動化不受限
+        // （向後相容：配方有自己的預算與冷卻）。
+        if source == ActionSource::Autonomous
+            && crate::proactive::is_dialogue_channel(&step.channel)
+            && plan.metadata.contains_key("proactiveClass")
+        {
+            let class = crate::proactive::class_from_metadata(&plan.metadata);
+            // 去重鍵由觸發方（recipe／gateway）明確宣告；未宣告＝不去重，
+            // 只受頻率限制（intent 名稱不能當事件身分）。
+            let dedup_key = plan
+                .metadata
+                .get("dedupKey")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if let crate::proactive::ProactiveDecision::Suppressed { reason } =
+                self.proactive_dialogue_gate(class, &dedup_key).await
+            {
+                let receipt = refused_receipt(
+                    plan,
+                    step,
+                    vec![PolicyDecision::Silenced {
+                        rule: "proactive-dialogue".into(),
+                        detail: reason,
+                    }],
+                    now,
+                );
+                self.persist_receipt(&receipt, &step.channel).await?;
+                self.events.emit(
+                    EventType::PlanBlocked,
+                    json!({
+                        "planId": plan.plan_id.as_str(),
+                        "actionId": receipt.action_id.as_str(),
+                        "actuatorId": step.actuator_id.as_str(),
+                        "outcome": "silenced-proactive-dialogue",
+                    }),
+                );
+                return Ok(receipt);
+            }
+        }
+
         let auth = self.authorize_step(
             &policy,
             &session,

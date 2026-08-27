@@ -133,6 +133,10 @@ const ROUTES: Record<string, Route> = {
       facts: a.facts,
       confidence: a.confidence,
     }),
+  proactive_dialogue_get: () => http("GET", "/v1/proactive-dialogue"),
+  proactive_dialogue_patch: (a) => http("PATCH", "/v1/proactive-dialogue", a.patch),
+  proactive_dialogue_quiet: (a) =>
+    http("POST", "/v1/proactive-dialogue/quiet", { minutes: a.minutes }),
   presentation_status: () => http("GET", "/v1/presentation"),
   presentation_hello: (a) =>
     http("POST", "/v1/presentation/hello", { visible: a.visible, packId: a.packId }),
