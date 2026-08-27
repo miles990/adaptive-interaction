@@ -14,7 +14,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::Mutex;
 
-const CURRENT_SCHEMA: i64 = 5;
+const CURRENT_SCHEMA: i64 = 6;
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -217,6 +217,19 @@ impl Store {
                 CREATE INDEX IF NOT EXISTS idx_ke_to ON knowledge_edges(to_id);
                 CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts
                     USING fts5(node_id UNINDEXED, title, content);
+                "#,
+            )
+            .map_err(map_err)?;
+        }
+        if version < 6 {
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS knowledge_receipts (
+                    id         TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    body       TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_kr_time ON knowledge_receipts(created_at);
                 "#,
             )
             .map_err(map_err)?;
@@ -1095,6 +1108,33 @@ impl Store {
             .map_err(map_err)?;
         let rows = stmt
             .query_map([pattern], |r| r.get::<_, String>(0))
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+}
+
+impl Store {
+    pub fn save_knowledge_receipt(&self, id: &str, body: &str) -> Result<(), DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        conn.execute(
+            "INSERT OR REPLACE INTO knowledge_receipts (id, created_at, body) VALUES (?1, ?2, ?3)",
+            rusqlite::params![id, ts_to_str(chrono::Utc::now()), body],
+        )
+        .map_err(map_err)?;
+        Ok(())
+    }
+
+    pub fn list_knowledge_receipts(&self, limit: u32) -> Result<Vec<String>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn
+            .prepare("SELECT body FROM knowledge_receipts ORDER BY created_at DESC LIMIT ?1")
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([limit.clamp(1, 500)], |r| r.get::<_, String>(0))
             .map_err(map_err)?;
         let mut out = Vec::new();
         for r in rows {

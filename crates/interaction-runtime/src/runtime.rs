@@ -1757,6 +1757,10 @@ impl Runtime {
                 if tick.is_multiple_of(60) {
                     runtime.sweep_memory().await;
                 }
+                // 知識新鮮度：過 reviewAfter 的 Active → Stale（確定性健檢）。
+                if tick.is_multiple_of(600) {
+                    let _ = runtime.knowledge_freshness_sweep().await;
+                }
                 // TTL sweep: expire non-terminal receipts past their deadline.
                 if let Ok(open) = runtime.store.open_receipts() {
                     let now = Utc::now();

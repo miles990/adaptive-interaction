@@ -470,6 +470,15 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                     .get(&format!("/v1/knowledge/nodes/{id}/graph"))
                     .await?
             }
+            crate::KnowledgeAction::Receipts => client.get("/v1/knowledge/receipts").await?,
+            crate::KnowledgeAction::UpdateCheck { trigger } => {
+                client
+                    .post(
+                        "/v1/knowledge/update-check",
+                        Some(json!({"trigger": trigger})),
+                    )
+                    .await?
+            }
         },
         Command::Assets { action } => match action {
             crate::AssetsAction::Import {

@@ -81,6 +81,9 @@ pub enum EventType {
     /// Companion surface presence changed (connected / visible / stale).
     #[serde(rename = "presentation.state")]
     PresentationState,
+    /// 知識系統變化（素材/候選/複審/發布/過期），payload 帶 knowledgeReceipt。
+    #[serde(rename = "knowledge.updated")]
+    KnowledgeUpdated,
 }
 
 impl EventType {
@@ -122,6 +125,7 @@ impl EventType {
             EventType::AiAssistResolved => "ai.assist.resolved",
             EventType::PresentationCommand => "presentation.command",
             EventType::PresentationState => "presentation.state",
+            EventType::KnowledgeUpdated => "knowledge.updated",
         }
     }
 }

@@ -92,6 +92,11 @@ pub fn router(state: ApiState) -> Router {
             get(routes::knowledge_graph),
         )
         .route("/v1/knowledge/edges", post(routes::knowledge_edge_create))
+        .route("/v1/knowledge/receipts", get(routes::knowledge_receipts))
+        .route(
+            "/v1/knowledge/update-check",
+            post(routes::knowledge_update_check),
+        )
         .route("/v1/memory", get(routes::memory_list))
         .route("/v1/memory", post(routes::memory_create))
         .route("/v1/memory/export", get(routes::memory_export))

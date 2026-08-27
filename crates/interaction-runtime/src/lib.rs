@@ -3,6 +3,7 @@
 
 pub mod agents;
 pub mod config;
+pub mod curator;
 pub mod executor;
 pub mod gateway;
 pub mod human;

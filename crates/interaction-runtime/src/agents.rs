@@ -524,10 +524,12 @@ impl Runtime {
                 .get_mut(id)
                 .ok_or_else(|| DomainError::NotFound(format!("agent session {id}")))?;
             let now = Utc::now();
+            let prior_state = entry.record.state;
             entry.record.state = match reason {
                 "cancelled" => AgentSessionState::Cancelled,
                 _ => AgentSessionState::Closed,
             };
+            entry.record.detail = Some(format!("{reason} (was {prior_state:?})"));
             entry.record.closed_at = Some(now);
             // Consents die with the session unless the lease explicitly opts
             // out (revoke_on_session_end). Default is true, so this honors the
@@ -542,8 +544,9 @@ impl Runtime {
             self.persist_agent_session(&entry.record);
             // Gateway session：關閉即終止子程序樹（絕不留孤兒）。
             self.gateway_spawn_kill(id, "session-closed");
-            entry.record.clone()
+            (entry.record.clone(), prior_state)
         };
+        let (record, prior_state) = record;
         // Handoff 摘要落入記憶層（AgentHandoff，30 天保存；bounded 已驗證）。
         if let Some(h) = &record.handoff {
             let content = serde_json::to_string_pretty(h).unwrap_or_default();
@@ -566,6 +569,8 @@ impl Runtime {
             item.confidence = 0.5; // handoff 內容是 agent 聲稱的摘要
             let _ = self.memory_create_internal(&item);
         }
+        // §14 確定性經驗收集（無 AI；學習訊號才會另建 Reflection Candidate）。
+        self.record_task_experience(&record, prior_state);
         let pid = ProviderId::new(format!("provider.ai-session.{id}"));
         let _ = self
             .providers

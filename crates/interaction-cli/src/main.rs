@@ -451,6 +451,15 @@ pub enum KnowledgeAction {
     Graph {
         id: String,
     },
+    /// Knowledge receipts (machine-readable update trail).
+    Receipts,
+    /// Ask the deterministic curator whether a trigger needs an update / AI.
+    UpdateCheck {
+        /// user-added-asset | source-changed | repo-commit | task-artifact |
+        /// user-correction | conflict-detected | review-overdue |
+        /// low-confidence-answer | periodic-health-check
+        trigger: String,
+    },
 }
 
 #[derive(Subcommand)]

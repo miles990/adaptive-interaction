@@ -170,8 +170,8 @@ check "agent fact demoted to inference" "$AKIND" "inference"
 RC=$("$BIN" memory add --layer user-memory --kind fact --title x --content "Bearer abc123" --json >/dev/null 2>&1; echo $?)
 if [ "$RC" != "0" ]; then ok "secret-like content refused"; else bad "secret content should be refused"; fi
 # Context bundle 誠實揭露（含 excludes）。
-BN=$("$BIN" memory bundle --task "檢查 repo" --agent codex --domain rust --json 2>/dev/null | J "len(d['includes'])")
-check "context bundle includes the know-how" "$BN" "1"
+BN=$("$BIN" memory bundle --task "檢查 repo" --agent codex --domain rust --json 2>/dev/null | J "any(i['title']=='先跑測試' for i in d['includes'])")
+check "context bundle includes the know-how" "$BN" "True"
 "$BIN" memory delete "$MID" --json >/dev/null 2>&1
 GONE=$("$BIN" memory show "$MID" --json >/dev/null 2>&1; echo $?)
 if [ "$GONE" != "0" ]; then ok "memory deletable (no permanent memory)"; else bad "memory should be deletable"; fi
@@ -200,6 +200,14 @@ check "FTS/vector search finds it" "$FOUND" "True"
 K2=$("$BIN" knowledge propose-claim --title "另一主張" --content "x" --evidence "[{\"url\":\"https://example.com\"}]" --activate --json 2>/dev/null | J "d['nodeId']")
 RC=$("$BIN" knowledge link "$KID" "$K2" --relation causes --origin ai-conjecture --json >/dev/null 2>&1; echo $?)
 if [ "$RC" != "0" ]; then ok "analogy/conjecture cannot claim causality"; else bad "causal edge should be refused"; fi
+
+echo "== Curator + receipts (v0.4) =="
+DEC=$("$BIN" knowledge update-check repo-commit --json 2>/dev/null | J "d['needsAi']")
+check "repo-commit needs no AI" "$DEC" "False"
+DEC=$("$BIN" knowledge update-check low-confidence-answer --json 2>/dev/null | J "d['requiresUserAsk']")
+check "external research requires asking" "$DEC" "True"
+NR=$("$BIN" knowledge receipts --json 2>/dev/null | J "d['count'] >= 1")
+check "knowledge receipts recorded" "$NR" "True"
 
 echo "== Emergency stop propagation =="
 SID2=$("$BIN" agents create --agent agent.b --ttl 30 --json 2>/dev/null | J "d['sessionId']")

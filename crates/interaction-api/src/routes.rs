@@ -1762,3 +1762,24 @@ pub async fn knowledge_graph(
 ) -> ApiResult<Json<Value>> {
     Ok(Json(state.runtime.knowledge_graph(&id, 1).await?))
 }
+
+// ---------------------------------------------------------------------------
+// 知識更新決策器＋Receipts（spec §13/§17）。
+// ---------------------------------------------------------------------------
+
+pub async fn knowledge_receipts(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.knowledge_receipts(100).await?))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckBody {
+    pub trigger: interaction_runtime::curator::UpdateTrigger,
+}
+
+pub async fn knowledge_update_check(
+    State(state): State<ApiState>,
+    Json(body): Json<UpdateCheckBody>,
+) -> Json<Value> {
+    Json(state.runtime.knowledge_update_decision(body.trigger))
+}

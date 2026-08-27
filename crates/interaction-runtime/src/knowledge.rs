@@ -321,6 +321,43 @@ impl Runtime {
             }
         }
         self.persist_knowledge_node(&node)?;
+        let is_candidate = node.status == KnowledgeStatus::Candidate;
+        self.emit_knowledge_receipt(crate::curator::KnowledgeReceipt {
+            update_id: format!("kr-{}", uuid::Uuid::new_v4()),
+            triggered_by: match &node.created_by {
+                MemoryActor::Agent(a) => format!("agent:{a}"),
+                MemoryActor::Human => "human".into(),
+                MemoryActor::Runtime => "runtime".into(),
+            },
+            agent_sessions: vec![],
+            sources: node.evidence.iter().filter_map(|e| e.url.clone()).collect(),
+            source_hashes: node
+                .evidence
+                .iter()
+                .filter_map(|e| e.asset_hash.clone())
+                .collect(),
+            changes: crate::curator::ReceiptChanges {
+                added_claims: if is_candidate { 0 } else { 1 },
+                candidates_created: if is_candidate { 1 } else { 0 },
+                ..Default::default()
+            },
+            verification: crate::curator::ReceiptVerification {
+                schema_passed: true,
+                source_hashes_verified: node
+                    .evidence
+                    .iter()
+                    .all(|e| e.asset_hash.is_some() || e.url.is_some())
+                    && !node.evidence.is_empty(),
+                conflict_check: "unknown".into(),
+                human_reviewed: !is_candidate,
+            },
+            published: crate::curator::ReceiptPublished {
+                metadata: true,
+                claims: !is_candidate,
+            },
+            created_at: Utc::now(),
+            schema_version: SCHEMA_VERSION.into(),
+        });
         Ok(node)
     }
 
@@ -396,6 +433,17 @@ impl Runtime {
         });
         match effective_verdict {
             "approve" => {
+                // 升格閘門（spec §14/§18）：經驗類 know-how 候選必須先補
+                // 反例與適用範圍（證據在 propose 已強制）——結構性防止
+                // 單次偶發被普遍化。
+                if node.domains.iter().any(|d| d == "learning-from-feedback")
+                    && (node.counterexamples.is_empty() || node.applicability.is_none())
+                {
+                    return Err(DomainError::Validation(
+                        "經驗候選升格需要 counterexamples 與 applicability（反例與適用範圍必填）"
+                            .into(),
+                    ));
+                }
                 node.status = KnowledgeStatus::Active;
                 // 若此節點取代舊版：舊版 → superseded（版本化封存）。
                 if let Some(old_id) = node.supersedes.clone() {
@@ -413,6 +461,54 @@ impl Runtime {
         }
         node.updated_at = Utc::now();
         self.persist_knowledge_node(&node)?;
+        // 發布 receipt＋（approve 時）確定性衝突檢查。
+        if effective_verdict == "approve" || effective_verdict == "reject" {
+            let approved = effective_verdict == "approve";
+            let conflict = if approved {
+                let out = self.knowledge_conflict_check(node.node_id.as_str()).await?;
+                if out["disputedWith"]
+                    .as_array()
+                    .map(|a| !a.is_empty())
+                    .unwrap_or(false)
+                {
+                    "conflicts-found"
+                } else {
+                    "passed"
+                }
+            } else {
+                "unknown"
+            };
+            // 衝突檢查可能把節點改成 disputed——回讀最新狀態。
+            node = self.knowledge_get(node.node_id.as_str()).await?;
+            self.emit_knowledge_receipt(crate::curator::KnowledgeReceipt {
+                update_id: format!("kr-{}", uuid::Uuid::new_v4()),
+                triggered_by: "human-review".into(),
+                agent_sessions: vec![],
+                sources: vec![],
+                source_hashes: vec![],
+                changes: crate::curator::ReceiptChanges {
+                    added_claims: if approved { 1 } else { 0 },
+                    superseded_claims: if approved && node.supersedes.is_some() {
+                        1
+                    } else {
+                        0
+                    },
+                    ..Default::default()
+                },
+                verification: crate::curator::ReceiptVerification {
+                    schema_passed: true,
+                    source_hashes_verified: false,
+                    conflict_check: conflict.into(),
+                    human_reviewed: true,
+                },
+                published: crate::curator::ReceiptPublished {
+                    metadata: true,
+                    claims: approved && node.status == KnowledgeStatus::Active,
+                },
+                created_at: Utc::now(),
+                schema_version: SCHEMA_VERSION.into(),
+            });
+        }
         Ok(node)
     }
 
