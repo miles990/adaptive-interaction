@@ -4,6 +4,7 @@
 pub mod agents;
 pub mod config;
 pub mod executor;
+pub mod gateway;
 pub mod human;
 pub mod lock;
 pub mod orchestrator;

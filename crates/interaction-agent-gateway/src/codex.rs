@@ -1,0 +1,581 @@
+//! Codex connector（spec §8.1）：正式路徑 `codex app-server`（stdio JSON-RPC）。
+//!
+//! - initialize / initialized 握手 → thread/start（sandbox=read-only 預設）
+//!   → turn/start → 持續通知 → turn/completed。
+//! - `turn/interrupt` 取消目前 turn。
+//! - Approval ServerRequest（exec／patch／權限）→ 正規化為 waiting-for-consent，
+//!   由 runtime 的人類介面裁決；預設拒絕，絕不替人類同意。
+//! - 協定形狀取自 `codex app-server generate-json-schema`（0.149.1 鎖定），
+//!   不手寫猜測。舊版不支援 app-server 時誠實回報（exec fallback 由呼叫端決定）。
+
+use crate::process::{interrupt_tree, kill_tree, spawn_grouped};
+use crate::{
+    AgentConnector, AgentDiscovery, AgentKind, AgentSessionHandle, ApprovalDecision, GatewayError,
+    GatewayEvent, SessionSpec,
+};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, Command};
+use tokio::sync::{mpsc, oneshot};
+
+const DISCOVER_TIMEOUT: Duration = Duration::from_secs(6);
+const RPC_TIMEOUT: Duration = Duration::from_secs(30);
+const EVENT_CHANNEL_CAP: usize = 256;
+
+pub struct CodexConnector {
+    pub binary: String,
+}
+
+impl Default for CodexConnector {
+    fn default() -> Self {
+        Self {
+            binary: "codex".into(),
+        }
+    }
+}
+
+impl CodexConnector {
+    pub fn with_binary(binary: impl Into<String>) -> Self {
+        Self {
+            binary: binary.into(),
+        }
+    }
+}
+
+async fn capture(binary: &str, args: &[&str]) -> Result<(bool, String), String> {
+    let out = tokio::time::timeout(DISCOVER_TIMEOUT, Command::new(binary).args(args).output())
+        .await
+        .map_err(|_| "timeout".to_string())?
+        .map_err(|e| e.to_string())?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    Ok((out.status.success(), text))
+}
+
+#[async_trait::async_trait]
+impl AgentConnector for CodexConnector {
+    fn kind(&self) -> AgentKind {
+        AgentKind::Codex
+    }
+
+    async fn discover(&self) -> AgentDiscovery {
+        let version = match capture(&self.binary, &["--version"]).await {
+            Ok((true, v)) => v.trim().to_string(),
+            Ok((false, e)) | Err(e) => {
+                return AgentDiscovery::missing(AgentKind::Codex, format!("codex 不可用：{e}"))
+            }
+        };
+        let logged_in = match capture(&self.binary, &["login", "status"]).await {
+            Ok((ok, text)) => {
+                let t = text.to_lowercase();
+                if t.contains("logged in") && !t.contains("not logged in") {
+                    Some(true)
+                } else if !ok || t.contains("not logged in") {
+                    Some(false)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        };
+        let app_server = matches!(
+            capture(&self.binary, &["app-server", "--help"]).await,
+            Ok((true, _))
+        );
+        AgentDiscovery {
+            kind: AgentKind::Codex,
+            found: true,
+            binary_path: Some(self.binary.clone()),
+            version: Some(version.clone()),
+            logged_in,
+            protocol_supported: Some(app_server),
+            detail: match (logged_in, app_server) {
+                (Some(true), true) => format!("{version}（已登入，app-server 可用）"),
+                (Some(true), false) => format!("{version}（已登入，無 app-server——exec fallback）"),
+                (Some(false), _) => format!("{version}（未登入——請先在終端執行 codex login）"),
+                (None, _) => format!("{version}（登入狀態未知）"),
+            },
+        }
+    }
+
+    async fn start_session(
+        &self,
+        spec: SessionSpec,
+    ) -> Result<Box<dyn AgentSessionHandle>, GatewayError> {
+        let mut cmd = Command::new(&self.binary);
+        cmd.current_dir(&spec.workdir).arg("app-server");
+        let mut child = spawn_grouped(cmd)?;
+        let stdout = child.stdout.take().ok_or(GatewayError::Closed)?;
+        let stdin = child.stdin.take().ok_or(GatewayError::Closed)?;
+        // stderr：診斷輸出，吞掉避免管線塞住。
+        if let Some(stderr) = child.stderr.take() {
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(_)) = lines.next_line().await {}
+            });
+        }
+
+        let (event_tx, event_rx) = mpsc::channel::<GatewayEvent>(EVENT_CHANNEL_CAP);
+        let (out_tx, mut out_rx) = mpsc::channel::<String>(64);
+        let shared = Arc::new(CodexShared {
+            out_tx: out_tx.clone(),
+            pending: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+            thread_id: Mutex::new(None),
+            current_turn: Mutex::new(None),
+            last_agent_message: Mutex::new(None),
+            approvals: Mutex::new(HashMap::new()),
+        });
+
+        // writer task
+        {
+            let mut stdin = stdin;
+            tokio::spawn(async move {
+                while let Some(line) = out_rx.recv().await {
+                    if stdin.write_all(line.as_bytes()).await.is_err() {
+                        break;
+                    }
+                    if stdin.write_all(b"\n").await.is_err() {
+                        break;
+                    }
+                    let _ = stdin.flush().await;
+                }
+            });
+        }
+
+        // reader task：responses → pending；notifications／requests → 正規化。
+        {
+            let shared = shared.clone();
+            let event_tx = event_tx.clone();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stdout).lines();
+                // 進行中 agent 訊息的彙整緩衝（delta 太吵，完成時一次進度）。
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                        let _ = event_tx
+                            .send(GatewayEvent::Unparsed {
+                                raw: line.chars().take(300).collect(),
+                            })
+                            .await;
+                        continue;
+                    };
+                    let has_id = v.get("id").is_some();
+                    let method = v.get("method").and_then(|m| m.as_str());
+                    match (has_id, method) {
+                        (true, None) => {
+                            // response
+                            if let Some(id) = v.get("id").and_then(|i| i.as_u64()) {
+                                if let Some(txr) =
+                                    shared.pending.lock().expect("pending lock").remove(&id)
+                                {
+                                    let _ = txr.send(v.get("result").cloned().unwrap_or_else(
+                                        || json!({"error": v.get("error").cloned()}),
+                                    ));
+                                }
+                            }
+                        }
+                        (true, Some(m)) => {
+                            // ServerRequest（approval 等）：登記，等待人類裁決。
+                            let rid = v.get("id").cloned().unwrap_or(Value::Null);
+                            let key = rid.to_string();
+                            shared
+                                .approvals
+                                .lock()
+                                .expect("approvals lock")
+                                .insert(key.clone(), (rid, m.to_string()));
+                            let summary = approval_summary(m, v.get("params"));
+                            let _ = event_tx
+                                .send(GatewayEvent::TaskWaitingForConsent {
+                                    request_id: key,
+                                    summary,
+                                })
+                                .await;
+                        }
+                        (false, Some(m)) => {
+                            for ev in normalize_codex_notification(m, v.get("params"), &shared) {
+                                let _ = event_tx.send(ev).await;
+                            }
+                        }
+                        _ => {
+                            let _ = event_tx
+                                .send(GatewayEvent::Unparsed {
+                                    raw: line.chars().take(300).collect(),
+                                })
+                                .await;
+                        }
+                    }
+                }
+                let resumable = shared.thread_id.lock().expect("tid lock").is_some();
+                let _ = event_tx
+                    .send(GatewayEvent::SessionClosed {
+                        resumable,
+                        detail: None,
+                    })
+                    .await;
+            });
+        }
+
+        // 握手＋開 thread。
+        let init = rpc_request(
+            &shared,
+            "initialize",
+            json!({"clientInfo": {"name": "adaptive-interaction", "version": env!("CARGO_PKG_VERSION")}}),
+        )
+        .await?;
+        if init.get("error").map(|e| !e.is_null()).unwrap_or(false) {
+            let _ = kill_tree(&mut child, 500).await;
+            return Err(GatewayError::Protocol(format!("initialize failed: {init}")));
+        }
+        let _ = out_tx
+            .send(json!({"jsonrpc": "2.0", "method": "initialized"}).to_string())
+            .await;
+
+        let mut thread_params = json!({
+            "cwd": spec.workdir.to_string_lossy(),
+            "approvalPolicy": "untrusted",
+            "ephemeral": false,
+        });
+        if spec.read_only {
+            thread_params["sandbox"] = json!("read-only");
+        }
+        let thread = if let Some(resume) = &spec.resume_provider_session {
+            rpc_request(&shared, "thread/resume", json!({"threadId": resume})).await?
+        } else {
+            rpc_request(&shared, "thread/start", thread_params).await?
+        };
+        let thread_id = thread
+            .pointer("/thread/id")
+            .or_else(|| thread.get("threadId"))
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string());
+        let Some(tid) = thread_id else {
+            let _ = kill_tree(&mut child, 500).await;
+            return Err(GatewayError::Protocol(format!(
+                "thread/start gave no thread id: {thread}"
+            )));
+        };
+        *shared.thread_id.lock().expect("tid lock") = Some(tid.clone());
+        let _ = event_tx
+            .send(GatewayEvent::SessionStarted {
+                provider_session_id: tid,
+            })
+            .await;
+
+        let mut handle = CodexHandle {
+            child,
+            shared,
+            events: Some(event_rx),
+        };
+        if let Some(prompt) = &spec.prompt {
+            handle.send_user_message(prompt).await?;
+        }
+        Ok(Box::new(handle))
+    }
+}
+
+struct CodexShared {
+    out_tx: mpsc::Sender<String>,
+    pending: Mutex<HashMap<u64, oneshot::Sender<Value>>>,
+    next_id: AtomicU64,
+    thread_id: Mutex<Option<String>>,
+    current_turn: Mutex<Option<String>>,
+    /// 最後一則 agentMessage 全文（turn/completed 的聲稱摘要來源）。
+    last_agent_message: Mutex<Option<String>>,
+    /// request_id(字串) → (原始 id JSON, method)。
+    approvals: Mutex<HashMap<String, (Value, String)>>,
+}
+
+async fn rpc_request(
+    shared: &Arc<CodexShared>,
+    method: &str,
+    params: Value,
+) -> Result<Value, GatewayError> {
+    let id = shared.next_id.fetch_add(1, Ordering::SeqCst);
+    let (tx, rx) = oneshot::channel();
+    shared.pending.lock().expect("pending lock").insert(id, tx);
+    let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
+    shared
+        .out_tx
+        .send(line)
+        .await
+        .map_err(|_| GatewayError::Closed)?;
+    tokio::time::timeout(RPC_TIMEOUT, rx)
+        .await
+        .map_err(|_| GatewayError::Protocol(format!("{method} timed out")))?
+        .map_err(|_| GatewayError::Closed)
+}
+
+fn approval_summary(method: &str, params: Option<&Value>) -> String {
+    let detail = params
+        .and_then(|p| {
+            p.pointer("/command")
+                .or_else(|| p.pointer("/cmd"))
+                .or_else(|| p.pointer("/path"))
+                .or_else(|| p.pointer("/reason"))
+        })
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+    format!("codex 請求核可：{method} {detail}")
+        .chars()
+        .take(300)
+        .collect()
+}
+
+/// 純函式（除了 turn id 記錄）：codex 通知 → 正規化事件。
+fn normalize_codex_notification(
+    method: &str,
+    params: Option<&Value>,
+    shared: &Arc<CodexShared>,
+) -> Vec<GatewayEvent> {
+    match method {
+        "turn/started" => {
+            if let Some(turn_id) = params
+                .and_then(|p| p.pointer("/turn/id").or_else(|| p.get("turnId")))
+                .and_then(|t| t.as_str())
+            {
+                *shared.current_turn.lock().expect("turn lock") = Some(turn_id.to_string());
+            }
+            vec![GatewayEvent::TaskAccepted]
+        }
+        "item/started" => {
+            let kind = params
+                .and_then(|p| p.pointer("/item/type"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("item");
+            match kind {
+                "commandExecution" | "mcpToolCall" | "fileChange" | "toolCall" => {
+                    vec![GatewayEvent::ToolStarted {
+                        name: kind.to_string(),
+                    }]
+                }
+                _ => vec![],
+            }
+        }
+        "item/completed" => {
+            let item = params.and_then(|p| p.get("item"));
+            let kind = item
+                .and_then(|i| i.get("type"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("");
+            match kind {
+                "agentMessage" => {
+                    let text = item
+                        .and_then(|i| i.get("text"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("");
+                    if !text.is_empty() {
+                        *shared.last_agent_message.lock().expect("lam lock") =
+                            Some(text.chars().take(4000).collect());
+                    }
+                    vec![GatewayEvent::TaskProgress {
+                        text: if text.is_empty() {
+                            None
+                        } else {
+                            Some(text.chars().take(2000).collect())
+                        },
+                    }]
+                }
+                "commandExecution" | "mcpToolCall" | "fileChange" | "toolCall" => {
+                    vec![GatewayEvent::ToolCompleted {
+                        name: kind.to_string(),
+                    }]
+                }
+                _ => vec![],
+            }
+        }
+        "turn/completed" => {
+            *shared.current_turn.lock().expect("turn lock") = None;
+            // 聲稱摘要＝最後一則 agentMessage（turn/completed 本身不帶內容）。
+            let summary = shared.last_agent_message.lock().expect("lam lock").take();
+            vec![GatewayEvent::TaskClaimedCompleted {
+                summary,
+                cost_usd: None,
+                num_turns: None,
+            }]
+        }
+        "turn/failed" | "error" => vec![GatewayEvent::TaskFailed {
+            error: params
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| method.to_string())
+                .chars()
+                .take(500)
+                .collect(),
+        }],
+        "thread/status/changed"
+        | "thread/tokenUsage/updated"
+        | "item/agentMessage/delta"
+        | "item/reasoning/textDelta"
+        | "item/reasoning/summaryTextDelta"
+        | "item/commandExecution/outputDelta"
+        | "thread/started"
+        | "account/rateLimits/updated" => {
+            vec![] // 高頻／重複資訊：進度已由 item/completed 傳遞
+        }
+        _ => vec![],
+    }
+}
+
+pub struct CodexHandle {
+    child: Child,
+    shared: Arc<CodexShared>,
+    events: Option<mpsc::Receiver<GatewayEvent>>,
+}
+
+#[async_trait::async_trait]
+impl AgentSessionHandle for CodexHandle {
+    fn provider_session_id(&self) -> Option<String> {
+        self.shared.thread_id.lock().expect("tid lock").clone()
+    }
+
+    async fn send_user_message(&mut self, text: &str) -> Result<(), GatewayError> {
+        let tid = self
+            .provider_session_id()
+            .ok_or_else(|| GatewayError::Protocol("no thread".into()))?;
+        // turn/start 的 response 在 turn 完成時才回；不能等（會塞住 30s RPC
+        // timeout），fire-and-forget，進度靠通知流。
+        let id = self.shared.next_id.fetch_add(1, Ordering::SeqCst);
+        let line = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "turn/start",
+            "params": {"threadId": tid, "input": [{"type": "text", "text": text}]},
+        })
+        .to_string();
+        self.shared
+            .out_tx
+            .send(line)
+            .await
+            .map_err(|_| GatewayError::Closed)
+    }
+
+    async fn resolve_approval(
+        &mut self,
+        request_id: &str,
+        decision: ApprovalDecision,
+    ) -> Result<(), GatewayError> {
+        let Some((rid, _method)) = self
+            .shared
+            .approvals
+            .lock()
+            .expect("approvals lock")
+            .remove(request_id)
+        else {
+            return Err(GatewayError::Protocol(format!(
+                "unknown approval request {request_id}"
+            )));
+        };
+        let decision_str = match decision {
+            ApprovalDecision::Approve => "accept",
+            ApprovalDecision::Deny => "reject",
+        };
+        let line = json!({
+            "jsonrpc": "2.0",
+            "id": rid,
+            "result": {"decision": decision_str},
+        })
+        .to_string();
+        self.shared
+            .out_tx
+            .send(line)
+            .await
+            .map_err(|_| GatewayError::Closed)
+    }
+
+    async fn interrupt(&mut self) -> Result<(), GatewayError> {
+        let tid = self.provider_session_id();
+        let turn = self.shared.current_turn.lock().expect("turn lock").clone();
+        if let (Some(tid), Some(turn_id)) = (tid, turn) {
+            let id = self.shared.next_id.fetch_add(1, Ordering::SeqCst);
+            let line = json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "turn/interrupt",
+                "params": {"threadId": tid, "turnId": turn_id},
+            })
+            .to_string();
+            let _ = self.shared.out_tx.send(line).await;
+        } else {
+            interrupt_tree(&self.child);
+        }
+        Ok(())
+    }
+
+    async fn kill(&mut self) -> Result<(), GatewayError> {
+        kill_tree(&mut self.child, 1500).await;
+        Ok(())
+    }
+
+    fn take_events(&mut self) -> Option<mpsc::Receiver<GatewayEvent>> {
+        self.events.take()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shared() -> Arc<CodexShared> {
+        let (tx, _rx) = mpsc::channel(4);
+        Arc::new(CodexShared {
+            out_tx: tx,
+            pending: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+            thread_id: Mutex::new(None),
+            current_turn: Mutex::new(None),
+            last_agent_message: Mutex::new(None),
+            approvals: Mutex::new(HashMap::new()),
+        })
+    }
+
+    #[test]
+    fn notifications_normalize_honestly() {
+        let s = shared();
+        // turn/started 記下 turn id 並回 accepted。
+        let ev = normalize_codex_notification(
+            "turn/started",
+            Some(&serde_json::json!({"turn": {"id": "turn-1"}})),
+            &s,
+        );
+        assert_eq!(ev, vec![GatewayEvent::TaskAccepted]);
+        assert_eq!(s.current_turn.lock().unwrap().as_deref(), Some("turn-1"));
+
+        // agentMessage 完成 → 進度（不是 completed！）。
+        let ev = normalize_codex_notification(
+            "item/completed",
+            Some(&serde_json::json!({"item": {"type": "agentMessage", "text": "看完了"}})),
+            &s,
+        );
+        assert_eq!(
+            ev,
+            vec![GatewayEvent::TaskProgress {
+                text: Some("看完了".into())
+            }]
+        );
+
+        // turn/completed → 聲稱完成（claim，非驗證）。
+        let ev = normalize_codex_notification("turn/completed", None, &s);
+        assert!(matches!(ev[0], GatewayEvent::TaskClaimedCompleted { .. }));
+        assert!(s.current_turn.lock().unwrap().is_none());
+
+        // 高頻 delta 靜默。
+        assert!(normalize_codex_notification("item/agentMessage/delta", None, &s).is_empty());
+    }
+
+    #[test]
+    fn approval_summary_is_bounded_and_never_panics() {
+        let long = "x".repeat(10_000);
+        let s = approval_summary(
+            "item/commandExecution/requestApproval",
+            Some(&serde_json::json!({"command": long})),
+        );
+        assert!(s.chars().count() <= 300);
+        let _ = approval_summary("execCommandApproval", None);
+    }
+}

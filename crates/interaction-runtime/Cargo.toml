@@ -22,6 +22,7 @@ interaction-events = { workspace = true }
 interaction-storage = { workspace = true }
 interaction-adapter-sdk = { workspace = true }
 adapters-builtin = { workspace = true }
+interaction-agent-gateway = { path = "../interaction-agent-gateway" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 async-trait = { workspace = true }
@@ -37,6 +38,7 @@ uuid = { workspace = true }
 dirs = { workspace = true }
 
 [dev-dependencies]
+libc = "0.2"
 axum = "0.8"
 tempfile = { workspace = true }
 

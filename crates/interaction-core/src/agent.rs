@@ -193,6 +193,10 @@ pub struct AgentSessionRecord {
     /// Minimal handoff stored at close (bounded); NEVER a full transcript.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handoff: Option<HandoffSummary>,
+    /// Provider 端 session/thread id（codex thread、claude session）。
+    /// 供進階詳情與續開（resume）；不是 runtime 的 session 身分。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_session_id: Option<String>,
 }
 
 /// What survives a session: a bounded, structured summary. No chat logs, no

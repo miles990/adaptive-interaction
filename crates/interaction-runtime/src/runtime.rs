@@ -95,6 +95,8 @@ pub struct RuntimeInner {
     pub presentation: Arc<crate::presentation::PresentationBridge>,
     /// 主動式對話政策狀態（確定性頻率限制；持久化到 meta）。
     pub(crate) proactive_dialogue: RwLock<crate::proactive::ProactiveDialogueState>,
+    /// Agent Gateway：真實 agent 子程序（codex/claude-code）管理。
+    pub(crate) gateway: crate::gateway::GatewayManager,
 }
 
 #[derive(Clone)]
@@ -309,6 +311,7 @@ impl Runtime {
                 mic_receptor: Some(mic_receptor),
                 presentation: presentation_bridge,
                 proactive_dialogue: RwLock::new(proactive_state),
+                gateway: crate::gateway::GatewayManager::new(),
             }),
         };
         let _ = sensor_cb_slot.set(Arc::downgrade(&runtime.inner));
@@ -332,6 +335,9 @@ impl Runtime {
 
         if opts.spawn_watchdog {
             runtime.spawn_watchdog();
+            // 背景發現本機 AI agent（codex/claude-code）；不阻塞啟動。
+            // 測試模式（無 watchdog）不做，避免在單元測試裡生子程序。
+            runtime.spawn_agent_discovery();
         }
         Ok(runtime)
     }
@@ -1741,6 +1747,8 @@ impl Runtime {
                 // Presentation ack deadlines: unconfirmed commands go
                 // Uncertain, never silently "completed".
                 runtime.sweep_presentation().await;
+                // Gateway：逾時 approval 自動拒絕＋殘留子程序清理。
+                runtime.gateway_sweep().await;
                 // TTL sweep: expire non-terminal receipts past their deadline.
                 if let Ok(open) = runtime.store.open_receipts() {
                     let now = Utc::now();

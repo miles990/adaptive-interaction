@@ -290,6 +290,27 @@ pub enum ProvidersAction {
 
 #[derive(Subcommand)]
 pub enum AgentsAction {
+    /// Discovered local AI agents (codex / claude-code): version, login, protocol.
+    Providers {
+        /// Re-run discovery now instead of returning the cached snapshot.
+        #[arg(long)]
+        refresh: bool,
+    },
+    /// Deterministic routing suggestion for a task kind (code/docs/…).
+    Route {
+        #[arg(long)]
+        kind: Option<String>,
+    },
+    /// Resolve a pending approval request from a gateway agent.
+    Approve {
+        id: String,
+        request_id: String,
+        /// Approve instead of the default deny.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Interrupt the session's current turn (keeps the session open).
+    Interrupt { id: String },
     /// List agent sessions (state, lease, budget).
     Sessions,
     /// Show one agent session.
@@ -307,6 +328,12 @@ pub enum AgentsAction {
         /// Max mailbox messages (default from policy).
         #[arg(long)]
         max_messages: Option<u32>,
+        /// Working directory for gateway agents (codex/claude-code).
+        #[arg(long)]
+        workdir: Option<String>,
+        /// Max session cost in USD (0 = policy default).
+        #[arg(long)]
+        max_cost: Option<f64>,
     },
     /// Send a message into a session mailbox.
     Send {

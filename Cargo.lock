@@ -1040,6 +1040,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "interaction-agent-gateway"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "interaction-api"
 version = "0.3.0"
 dependencies = [
@@ -1181,6 +1196,7 @@ dependencies = [
  "dirs",
  "interaction-adapter-declarative",
  "interaction-adapter-sdk",
+ "interaction-agent-gateway",
  "interaction-core",
  "interaction-events",
  "interaction-policy",
@@ -1188,6 +1204,7 @@ dependencies = [
  "interaction-registry",
  "interaction-storage",
  "interaction-tool-schema",
+ "libc",
  "rand 0.8.8",
  "schemars",
  "serde",

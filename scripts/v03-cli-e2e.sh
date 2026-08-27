@@ -15,6 +15,8 @@ bad()  { FAIL=$((FAIL+1)); echo "  FAIL: $1"; }
 check(){ if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (got '$2', want '$3')"; fi; }
 
 export INTERACT_AI_HOME="$HOME_DIR"
+# Gateway 測試用 fake agent（真子程序、假模型；絕不動用真額度）。
+export INTERACT_AI_CLAUDE_BIN="$ROOT/crates/interaction-runtime/tests/fixtures/fake_claude.sh"
 mkdir -p "$HOME_DIR/config/adapters"
 
 # A declarative device spec (points at a local mock we spin up below).
@@ -138,6 +140,25 @@ check "proactive mode persisted" "$MODE" "off"
 QU=$("$BIN" proactive status --json 2>/dev/null | J "'set' if d.get('quietUntil') else 'missing'")
 check "quiet request recorded" "$QU" "set"
 "$BIN" proactive mode natural --json >/dev/null 2>&1
+
+echo "== Agent Gateway (v0.4, fake agent subprocess) =="
+FOUND=$("$BIN" agents providers --refresh --json 2>/dev/null | J "next((str(a['loggedIn']) for a in d['agents'] if a['kind']=='claude-code'),'MISSING')")
+check "fake claude discovered + logged in" "$FOUND" "True"
+GSID=$("$BIN" agents create --agent claude-code --label e2e --ttl 5 --workdir "$HOME_DIR" --json 2>/dev/null | J "d['sessionId']")
+[ -n "$GSID" ] && ok "gateway session created $GSID" || bad "gateway session create"
+"$BIN" agents send "$GSID" --kind task --body '{"task":"do the thing"}' --json >/dev/null 2>&1
+for i in $(seq 1 40); do
+  GST=$("$BIN" agents show "$GSID" --json 2>/dev/null | J "d['state']")
+  [ "$GST" = "claimed-completed" ] && break; sleep 0.25
+done
+check "fake agent reaches claimed-completed (claim, not verified)" "$GST" "claimed-completed"
+PSID=$("$BIN" agents show "$GSID" --json 2>/dev/null | J "d.get('providerSessionId','')")
+check "provider session id recorded" "$PSID" "fake-123"
+RES=$("$BIN" agents messages "$GSID" --direction from-session --json 2>/dev/null | J "next((m['body'].get('summary','') for m in d if m['kind']=='result'),'MISSING')")
+check "result lands in mailbox" "$RES" "完成了（這是聲稱）"
+"$BIN" agents close "$GSID" --json >/dev/null 2>&1
+GST=$("$BIN" agents show "$GSID" --json 2>/dev/null | J "d['state']")
+check "gateway session closed kills subprocess" "$GST" "closed"
 
 echo "== Emergency stop propagation =="
 SID2=$("$BIN" agents create --agent agent.b --ttl 30 --json 2>/dev/null | J "d['sessionId']")

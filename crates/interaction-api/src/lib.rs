@@ -73,6 +73,17 @@ pub fn router(state: ApiState) -> Router {
             "/v1/proactive-dialogue/quiet",
             post(routes::proactive_dialogue_quiet),
         )
+        .route("/v1/agents", get(routes::agents_discoveries))
+        .route("/v1/agents/refresh", post(routes::agents_refresh))
+        .route("/v1/agents/routing", get(routes::agents_routing))
+        .route(
+            "/v1/agent-sessions/{id}/approve",
+            post(routes::agent_session_approve),
+        )
+        .route(
+            "/v1/agent-sessions/{id}/interrupt",
+            post(routes::agent_session_interrupt),
+        )
         .route("/v1/agent-sessions", get(routes::agent_sessions_list))
         .route("/v1/agent-sessions", post(routes::agent_session_create))
         .route("/v1/agent-sessions/{id}", get(routes::agent_session_get))

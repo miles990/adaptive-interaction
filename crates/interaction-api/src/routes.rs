@@ -1302,3 +1302,56 @@ pub async fn proactive_dialogue_quiet(
 ) -> Json<Value> {
     Json(state.runtime.proactive_dialogue_quiet(body.minutes).await)
 }
+
+// ---------------------------------------------------------------------------
+// Agent Gateway：本機 agent 發現／approval／中斷／路由建議。
+// ---------------------------------------------------------------------------
+
+pub async fn agents_discoveries(State(state): State<ApiState>) -> Json<Value> {
+    Json(json!({"agents": state.runtime.agent_discoveries()}))
+}
+
+pub async fn agents_refresh(State(state): State<ApiState>) -> Json<Value> {
+    Json(json!({"agents": state.runtime.refresh_agent_providers().await}))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApproveBody {
+    pub request_id: String,
+    #[serde(default)]
+    pub approve: bool,
+}
+
+pub async fn agent_session_approve(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(body): Json<ApproveBody>,
+) -> ApiResult<Json<Value>> {
+    let out = state
+        .runtime
+        .gateway_resolve_approval(&id, &body.request_id, body.approve)
+        .await?;
+    Ok(Json(out))
+}
+
+pub async fn agent_session_interrupt(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.gateway_interrupt(&id).await?))
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutingQuery {
+    #[serde(default)]
+    kind: Option<String>,
+}
+
+pub async fn agents_routing(
+    State(state): State<ApiState>,
+    axum::extract::Query(q): axum::extract::Query<RoutingQuery>,
+) -> Json<Value> {
+    Json(state.runtime.agent_route_suggestion(q.kind.as_deref()))
+}

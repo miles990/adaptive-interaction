@@ -51,6 +51,9 @@ pub struct CreateAgentSession {
     pub max_messages: Option<u32>,
     #[serde(default)]
     pub delegation: Option<DelegationEnvelope>,
+    /// Gateway agents（codex/claude-code）的工作目錄；預設唯讀模式。
+    #[serde(default)]
+    pub workdir: Option<String>,
 }
 
 impl Runtime {
@@ -159,6 +162,7 @@ impl Runtime {
             closed_at: None,
             detail: None,
             handoff: None,
+            provider_session_id: None,
         };
 
         // A session is also a provider (uniform surface for the UI).
@@ -199,7 +203,41 @@ impl Runtime {
             EventType::SessionStarted,
             json!({"agentSessionId": session_id.as_str(), "agentId": record.agent_id}),
         );
+
+        // Gateway agents（codex/claude-code）：掛真實子程序。失敗＝建立失敗
+        // （誠實），不留下看似可用其實沒有 agent 的 session。
+        if let Some(kind) = crate::gateway::agent_kind_for(&record.agent_id) {
+            match self
+                .gateway_attach(kind, &record, input.workdir.clone())
+                .await
+            {
+                Ok(provider_sid) => {
+                    let mut map = self.agent_sessions.write().await;
+                    if let Some(entry) = map.get_mut(session_id.as_str()) {
+                        entry.record.provider_session_id = provider_sid;
+                        self.persist_agent_session(&entry.record);
+                        return Ok(entry.record.clone());
+                    }
+                }
+                Err(e) => {
+                    let _ = self
+                        .close_agent_session(session_id.as_str(), None, "connector-failed")
+                        .await;
+                    return Err(e);
+                }
+            }
+        }
         Ok(record)
+    }
+
+    /// 委派 receipt 的 ack（gateway 轉送時使用）。
+    pub(crate) async fn acknowledge_delegated_action_public(
+        &self,
+        action_id: &str,
+        message_id: &str,
+    ) -> DomainResult<()> {
+        self.acknowledge_delegated_action(action_id, message_id)
+            .await
     }
 
     /// Lazy lease expiry: expired-but-open sessions flip to Expired and lose
@@ -319,7 +357,31 @@ impl Runtime {
         entry.next_message += 1;
         entry.mailbox.push_back(message.clone());
         self.persist_agent_session(&entry.record);
+        drop(map);
+        // Gateway session：ToSession 任務即時送進真實 agent 子程序
+        // （送達成功才補 delivered 戳記；非 gateway session 維持輪詢流程）。
+        if direction == MailboxDirection::ToSession {
+            let _ = self.gateway_deliver(id, &message).await;
+        }
         Ok(message)
+    }
+
+    /// 讀取信箱但**不**標記送達（UI 檢視／測試用；送達語意只屬於 fetch）。
+    pub async fn mailbox_peek(
+        &self,
+        id: &str,
+        direction: MailboxDirection,
+    ) -> DomainResult<Vec<MailboxMessage>> {
+        let map = self.agent_sessions.read().await;
+        let entry = map
+            .get(id)
+            .ok_or_else(|| DomainError::NotFound(format!("agent session {id}")))?;
+        Ok(entry
+            .mailbox
+            .iter()
+            .filter(|m| m.direction == direction)
+            .cloned()
+            .collect())
     }
 
     /// Fetch messages. When the SESSION fetches its tasks (`to-session`),
@@ -478,6 +540,8 @@ impl Runtime {
             // Undelivered tasks are dead, honestly.
             entry.mailbox.retain(|m| m.delivered_at.is_some());
             self.persist_agent_session(&entry.record);
+            // Gateway session：關閉即終止子程序樹（絕不留孤兒）。
+            self.gateway_spawn_kill(id, "session-closed");
             entry.record.clone()
         };
         let pid = ProviderId::new(format!("provider.ai-session.{id}"));

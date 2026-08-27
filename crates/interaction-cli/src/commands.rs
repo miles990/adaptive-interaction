@@ -417,6 +417,40 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             }
         },
         Command::Agents { action } => match action {
+            crate::AgentsAction::Providers { refresh } => {
+                if *refresh {
+                    client.post("/v1/agents/refresh", Some(json!({}))).await?
+                } else {
+                    client.get("/v1/agents").await?
+                }
+            }
+            crate::AgentsAction::Route { kind } => {
+                let q = kind
+                    .as_deref()
+                    .map(|k| format!("?kind={k}"))
+                    .unwrap_or_default();
+                client.get(&format!("/v1/agents/routing{q}")).await?
+            }
+            crate::AgentsAction::Approve {
+                id,
+                request_id,
+                yes,
+            } => {
+                client
+                    .post(
+                        &format!("/v1/agent-sessions/{id}/approve"),
+                        Some(json!({"requestId": request_id, "approve": yes})),
+                    )
+                    .await?
+            }
+            crate::AgentsAction::Interrupt { id } => {
+                client
+                    .post(
+                        &format!("/v1/agent-sessions/{id}/interrupt"),
+                        Some(json!({})),
+                    )
+                    .await?
+            }
             crate::AgentsAction::Sessions => client.get("/v1/agent-sessions").await?,
             crate::AgentsAction::Show { id } => {
                 client.get(&format!("/v1/agent-sessions/{id}")).await?
@@ -426,6 +460,8 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                 label,
                 ttl,
                 max_messages,
+                workdir,
+                max_cost,
             } => {
                 client
                     .post(
@@ -435,6 +471,8 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                             "label": label,
                             "ttlMinutes": ttl,
                             "maxMessages": max_messages,
+                            "workdir": workdir,
+                            "maxCost": max_cost,
                         })),
                     )
                     .await?
