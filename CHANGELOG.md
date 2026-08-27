@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-28
+
 ### Added — v0.4：Presentation Provider、真實 Agent Connector、記憶與知識系統、控制中心新 IA
 
 - **Presentation Provider**（`provider.companion.shu`）：桌面角色正式成為一級 provider，
