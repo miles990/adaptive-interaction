@@ -100,6 +100,36 @@ if [ "$RC" != "0" ]; then ok "microphone listen refused without consent"; else b
 AVAIL=$("$BIN" capabilities --json 2>/dev/null | python3 -c "import sys,json;print(next((r['availability'] for r in json.load(sys.stdin)['receptors'] if r['id']=='microphone.listen'),'MISSING'))")
 if [ "$AVAIL" != "available" ]; then ok "microphone default not available ($AVAIL)"; else bad "microphone should not be available by default"; fi
 
+echo "== Presentation Provider (v0.4) =="
+TOKEN=$(cat "$HOME_DIR/state/api-token")
+# The companion provider is itemized (7 receptors + 7 actuators).
+NRCP=$("$BIN" providers show provider.companion.shu --json 2>/dev/null | J "len(d['receptors'])")
+check "companion provider has 7 itemized receptors" "$NRCP" "7"
+# Surface offline (no companion window) → honest refusal to ingest clicks.
+RC=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${PORT}/v1/receptors/companion.click/push" -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"facts":{"kind":"clicked"}}')
+if [ "$RC" != "200" ]; then ok "companion click refused while surface offline (HTTP $RC)"; else bad "click should be refused with no companion window"; fi
+# A (simulated) companion window says hello → surface connected + visible.
+"$BIN" presentation hello --visible --pack shu-standard --json >/dev/null 2>&1
+CONN=$("$BIN" presentation status --json 2>/dev/null | J "d['connected']")
+check "hello marks the surface connected" "$CONN" "True"
+# Now the click ingests.
+RC=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${PORT}/v1/receptors/companion.click/push" -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"facts":{"kind":"clicked"}}')
+check "companion click accepted when visible" "$RC" "200"
+# Full honest loop: bubble → dispatched (NOT completed) → ack → completed.
+"$BIN" session start --label e2e --json >/dev/null 2>&1 || true
+PLAN=$(curl -s -X POST "http://127.0.0.1:${PORT}/v1/plans" -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"intent":"companion-test","message":"CLI E2E 氣泡","preferredChannels":["desktop-pet"],"candidates":["companion.bubble.show"],"minChannels":1,"maxChannels":1}')
+PLAN_ID=$(echo "$PLAN" | J "d['planId']")
+EXEC=$(curl -s -X POST "http://127.0.0.1:${PORT}/v1/plans/${PLAN_ID}/execute" -H "Authorization: Bearer $TOKEN")
+AID=$(echo "$EXEC" | J "d[0]['actionId'] if isinstance(d,list) else d['receipts'][0]['actionId']")
+ST=$("$BIN" actions show "$AID" --json 2>/dev/null | J "d['currentStatus']")
+check "bubble receipt is dispatched, not completed" "$ST" "dispatched"
+"$BIN" presentation ack "$AID" --outcome displayed --json >/dev/null 2>&1
+ST=$("$BIN" actions show "$AID" --json 2>/dev/null | J "d['currentStatus']")
+check "surface ack completes the receipt" "$ST" "completed"
+# Consent-gated presentation actuators start disabled.
+SND=$("$BIN" capabilities --json 2>/dev/null | python3 -c "import sys,json;print(next((a['availability'] for a in json.load(sys.stdin)['actuators'] if a['id']=='companion.sound.play'),'MISSING'))")
+if [ "$SND" != "available" ]; then ok "companion.sound.play default disabled ($SND)"; else bad "sound should be consent-gated"; fi
+
 echo "== Emergency stop propagation =="
 SID2=$("$BIN" agents create --agent agent.b --ttl 30 --json 2>/dev/null | J "d['sessionId']")
 "$BIN" emergency-stop --json >/dev/null 2>&1

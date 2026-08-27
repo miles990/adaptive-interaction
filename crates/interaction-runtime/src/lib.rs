@@ -7,6 +7,7 @@ pub mod executor;
 pub mod human;
 pub mod lock;
 pub mod orchestrator;
+pub mod presentation;
 pub mod providers;
 pub mod runtime;
 pub mod sensors;

@@ -136,31 +136,28 @@ describe("behavior tuning", () => {
 // DEFAULT_LINES，persona 語句整包死亡（v0.3 曾因 succeeded-verified 被列為
 // 安全鍵後未同步清理出貨 pack 而發生）。
 describe("shipped packs validate cleanly", () => {
-  it("all shipped persona packs pass validation", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const dir = path.resolve(__dirname, "../../public/packs");
-    const personaFiles = fs
-      .readdirSync(dir)
-      .filter((f) => f.startsWith("persona-") && f.endsWith(".json"));
-    expect(personaFiles.length).toBeGreaterThan(0);
-    for (const f of personaFiles) {
-      const raw = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
-      expect({ file: f, issues: validatePersonaPack(raw) }).toEqual({ file: f, issues: [] });
+  const personaFiles = import.meta.glob("../../public/packs/persona-*.json", {
+    eager: true,
+  }) as Record<string, { default?: unknown }>;
+  const storyFiles = import.meta.glob("../../public/packs/story-*.json", {
+    eager: true,
+  }) as Record<string, { default?: unknown }>;
+
+  it("all shipped persona packs pass validation", () => {
+    const entries = Object.entries(personaFiles);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [file, mod] of entries) {
+      const raw = mod.default ?? mod;
+      expect({ file, issues: validatePersonaPack(raw) }).toEqual({ file, issues: [] });
     }
   });
 
-  it("all shipped story packs pass validation", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const dir = path.resolve(__dirname, "../../public/packs");
-    const storyFiles = fs
-      .readdirSync(dir)
-      .filter((f) => f.startsWith("story-") && f.endsWith(".json"));
-    expect(storyFiles.length).toBeGreaterThan(0);
-    for (const f of storyFiles) {
-      const raw = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
-      expect({ file: f, issues: validateStoryPack(raw) }).toEqual({ file: f, issues: [] });
+  it("all shipped story packs pass validation", () => {
+    const entries = Object.entries(storyFiles);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [file, mod] of entries) {
+      const raw = mod.default ?? mod;
+      expect({ file, issues: validateStoryPack(raw) }).toEqual({ file, issues: [] });
     }
   });
 });

@@ -46,7 +46,7 @@ pub struct PlanRequest<'a> {
 fn is_text_channel(channel: &str) -> bool {
     matches!(
         channel,
-        "conversation" | "web-ui" | "notification" | "log" | "webhook"
+        "conversation" | "web-ui" | "notification" | "log" | "webhook" | "desktop-pet"
     )
 }
 

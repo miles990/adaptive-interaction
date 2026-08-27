@@ -133,6 +133,15 @@ const ROUTES: Record<string, Route> = {
       facts: a.facts,
       confidence: a.confidence,
     }),
+  presentation_status: () => http("GET", "/v1/presentation"),
+  presentation_hello: (a) =>
+    http("POST", "/v1/presentation/hello", { visible: a.visible, packId: a.packId }),
+  presentation_ack: (a) =>
+    http("POST", "/v1/presentation/ack", {
+      actionId: a.actionId,
+      outcome: a.outcome,
+      detail: a.detail,
+    }),
   create_plan: (a) => http("POST", "/v1/plans", a.input),
   simulate_plan: (a) => http("POST", `/v1/plans/${q(a.planId)}/simulate`),
   execute_plan: (a) => http("POST", `/v1/plans/${q(a.planId)}/execute`),

@@ -22,6 +22,9 @@ const PUSH_BUFFER: usize = 128;
 pub struct PushReceptor {
     manifest: ReceptorManifest,
     buffer: Arc<Mutex<VecDeque<Observation>>>,
+    /// Optional live health source (e.g. a presentation surface's presence).
+    /// Without one, a push receptor is always healthy: it merely buffers.
+    health_fn: Option<Arc<dyn Fn() -> ComponentHealth + Send + Sync>>,
 }
 
 impl PushReceptor {
@@ -29,6 +32,20 @@ impl PushReceptor {
         Arc::new(Self {
             manifest,
             buffer: Arc::new(Mutex::new(VecDeque::new())),
+            health_fn: None,
+        })
+    }
+
+    /// A push receptor whose health mirrors an external surface (offline when
+    /// the surface is gone, so the registry never pretends it can observe).
+    pub fn with_health(
+        manifest: ReceptorManifest,
+        health_fn: Arc<dyn Fn() -> ComponentHealth + Send + Sync>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            manifest,
+            buffer: Arc::new(Mutex::new(VecDeque::new())),
+            health_fn: Some(health_fn),
         })
     }
 
@@ -83,7 +100,10 @@ impl Receptor for PushReceptor {
     }
 
     async fn health(&self) -> ComponentHealth {
-        ComponentHealth::healthy().at(Utc::now())
+        match &self.health_fn {
+            Some(f) => f(),
+            None => ComponentHealth::healthy().at(Utc::now()),
+        }
     }
 
     async fn stop(&self) -> Result<(), ReceptorError> {

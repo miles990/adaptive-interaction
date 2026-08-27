@@ -139,6 +139,15 @@ export const api = {
   testActuator: (id: string) => invoke<Receipt[]>("test_actuator", { id }),
   pushObservation: (receptorId: string, facts: Record<string, unknown>, confidence = 1.0) =>
     invoke("push_observation", { receptorId, facts, confidence }),
+  presentationStatus: () => invoke<Record<string, unknown>>("presentation_status"),
+  presentationHello: (visible: boolean, packId?: string) =>
+    invoke<Record<string, unknown>>("presentation_hello", { visible, packId: packId ?? null }),
+  presentationAck: (actionId: string, outcome: string, detail?: string) =>
+    invoke<Record<string, unknown>>("presentation_ack", {
+      actionId,
+      outcome,
+      detail: detail ?? null,
+    }),
   createPlan: (input: Record<string, unknown>) =>
     invoke<Record<string, unknown>>("create_plan", { input }),
   simulatePlan: (planId: string) => invoke<Record<string, unknown>>("simulate_plan", { planId }),

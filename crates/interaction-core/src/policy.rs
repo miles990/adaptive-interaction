@@ -144,6 +144,14 @@ impl Default for PolicyConfig {
                 "agent.session".into(),
                 "desktop.companion.interaction".into(),
                 "desktop.pointer.activity".into(),
+                // Presentation Provider（小樞）逐項語意 receptors。
+                "companion.click".into(),
+                "companion.text-input".into(),
+                "companion.quick-action".into(),
+                "companion.drag-drop".into(),
+                "companion.pointer".into(),
+                "companion.animation-events".into(),
+                "companion.bubble-events".into(),
             ],
             actuator_allowlist: vec![
                 "conversation".into(),
@@ -152,6 +160,16 @@ impl Default for PolicyConfig {
                 "local-notification".into(),
                 "mock.actuator".into(),
                 "agent.delegate".into(),
+                // Presentation Provider actuators。allowlist 只是 governor 的
+                // 第一道門：consent-gated 的（音效/語音/視窗/顯示隱藏）仍由
+                // registry 預設停用＋consent 把關。
+                "companion.state.present".into(),
+                "companion.animation.play".into(),
+                "companion.bubble.show".into(),
+                "companion.sound.play".into(),
+                "companion.speak".into(),
+                "companion.window.adjust".into(),
+                "companion.presence.set".into(),
             ],
             tool_allowlist: vec!["interaction.*".into()],
             allowed_channels: vec![
@@ -161,6 +179,7 @@ impl Default for PolicyConfig {
                 "log".into(),
                 "visual".into(),
                 "agent".into(),
+                "desktop-pet".into(),
             ],
             quiet_hours: Vec::new(),
             channel_limits: BTreeMap::new(),

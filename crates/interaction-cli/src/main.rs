@@ -78,6 +78,11 @@ pub enum Command {
         #[command(subcommand)]
         action: AgentsAction,
     },
+    /// Companion presentation surface: presence heartbeat + command acks.
+    Presentation {
+        #[command(subcommand)]
+        action: PresentationAction,
+    },
     /// High-sensitivity sensors (microphone): bounded listen windows, stop.
     Sensors {
         #[command(subcommand)]
@@ -335,6 +340,28 @@ pub enum AgentsAction {
         handoff: Option<String>,
         #[arg(long, default_value = "closed")]
         reason: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PresentationAction {
+    /// Show companion-surface presence and pending command count.
+    Status,
+    /// Report a companion-surface heartbeat (normally sent by the desktop app).
+    Hello {
+        #[arg(long, default_value_t = true)]
+        visible: bool,
+        #[arg(long)]
+        pack: Option<String>,
+    },
+    /// Acknowledge one presentation command (normally sent by the desktop app).
+    Ack {
+        action_id: String,
+        /// displayed | completed | interrupted | failed | unsupported
+        #[arg(long, default_value = "displayed")]
+        outcome: String,
+        #[arg(long)]
+        detail: Option<String>,
     },
 }
 

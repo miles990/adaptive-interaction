@@ -24,8 +24,8 @@ Rcpt=Receipt/Verification、UT=Unit、IT=Integration、E2E、Ev=Machine Evidence
 
 | Capability | Prov | Ad | RT | Pol | CC | Comp | Tray | API | CLI | Rcpt | UT | IT | E2E | 已知限制 | Ev |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Presentation Provider（角色逐項能力） | missing | missing | missing | missing | missing | missing | missing | missing | missing | missing | missing | missing | missing | — | — |
-| 角色能力預設矩陣＋隱藏即停用 | missing | missing | missing | missing | missing | missing | n/a(隱藏≠estop) | missing | missing | n/a | missing | missing | missing | — | — |
+| Presentation Provider（角色逐項能力） | complete | complete | complete | complete | partial(經既有能力頁；新 IA 見 Phase 7) | complete | complete(estop 清佇列) | complete | complete | complete | complete | complete | partial(CLI E2E 7 檢查；瀏覽器 E2E 見 Phase 7) | 表面 ack=AcknowledgedOnly 證據（無獨立觀察者）；flat token 可偽 ack（沿用已知限制①） | `cargo test -p interaction-runtime --test presentation_loop`(8); `scripts/v03-cli-e2e.sh`(19) |
+| 角色能力預設矩陣＋隱藏即停用 | complete | complete | complete | complete | partial(既有能力頁) | complete | n/a(隱藏≠estop) | complete | complete | n/a | complete | complete | partial | 音效/語音/視窗調整/顯示隱藏 4 項 consent-gated 預設停用；隱藏時 ingest 確定性拒絕 | presentation_loop::hidden_companion_stops…; consent_gated… |
 | 小樞貓系重設計（3 變體） | n/a(美術) | n/a | n/a | n/a | missing(預覽) | missing | n/a | n/a | n/a | n/a | missing | n/a | missing | — | — |
 | Behavior Runtime（三層＋Utility AI） | n/a(本機確定性) | n/a | n/a | missing(勿擾/RM 尊重) | missing(狀態說明) | missing | n/a | n/a | n/a | n/a | missing | missing | missing | — | — |
 | 主動式對話模式＋頻率限制 | n/a | n/a | missing | missing | missing | missing | missing | missing | missing | missing | missing | missing | missing | — | — |

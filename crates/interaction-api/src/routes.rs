@@ -1222,3 +1222,53 @@ pub async fn sensors_stop(State(state): State<ApiState>) -> ApiResult<Json<Value
     state.runtime.stop_all_sensors("api").await?;
     Ok(Json(json!({"stopped": true})))
 }
+
+// ---------------------------------------------------------------------------
+// Presentation（桌面角色表面）：presence 心跳＋命令 ack。
+// ---------------------------------------------------------------------------
+
+pub async fn presentation_status(State(state): State<ApiState>) -> Json<Value> {
+    Json(state.runtime.presentation_status())
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PresentationHelloBody {
+    #[serde(default)]
+    pub visible: bool,
+    #[serde(default)]
+    pub pack_id: Option<String>,
+}
+
+pub async fn presentation_hello(
+    State(state): State<ApiState>,
+    body: Option<Json<PresentationHelloBody>>,
+) -> Json<Value> {
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    Json(
+        state
+            .runtime
+            .presentation_hello(body.visible, body.pack_id)
+            .await,
+    )
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresentationAckBody {
+    pub action_id: String,
+    pub outcome: String,
+    #[serde(default)]
+    pub detail: Option<String>,
+}
+
+pub async fn presentation_ack(
+    State(state): State<ApiState>,
+    Json(body): Json<PresentationAckBody>,
+) -> ApiResult<Json<Value>> {
+    let out = state
+        .runtime
+        .presentation_ack(&body.action_id, &body.outcome, body.detail)
+        .await?;
+    Ok(Json(out))
+}

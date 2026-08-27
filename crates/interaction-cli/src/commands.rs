@@ -373,6 +373,33 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             }
             crate::SensorsAction::Stop => client.post("/v1/sensors/stop", Some(json!({}))).await?,
         },
+        Command::Presentation { action } => match action {
+            crate::PresentationAction::Status => client.get("/v1/presentation").await?,
+            crate::PresentationAction::Hello { visible, pack } => {
+                client
+                    .post(
+                        "/v1/presentation/hello",
+                        Some(json!({"visible": visible, "packId": pack})),
+                    )
+                    .await?
+            }
+            crate::PresentationAction::Ack {
+                action_id,
+                outcome,
+                detail,
+            } => {
+                client
+                    .post(
+                        "/v1/presentation/ack",
+                        Some(json!({
+                            "actionId": action_id,
+                            "outcome": outcome,
+                            "detail": detail,
+                        })),
+                    )
+                    .await?
+            }
+        },
         Command::Agents { action } => match action {
             crate::AgentsAction::Sessions => client.get("/v1/agent-sessions").await?,
             crate::AgentsAction::Show { id } => {

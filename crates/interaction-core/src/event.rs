@@ -74,6 +74,13 @@ pub enum EventType {
     AiAssistRequested,
     #[serde(rename = "ai.assist.resolved")]
     AiAssistResolved,
+    /// A presentation command for the companion surface (bubble, animation,
+    /// state intent…). Payload carries the actionId the surface must ack.
+    #[serde(rename = "presentation.command")]
+    PresentationCommand,
+    /// Companion surface presence changed (connected / visible / stale).
+    #[serde(rename = "presentation.state")]
+    PresentationState,
 }
 
 impl EventType {
@@ -113,6 +120,8 @@ impl EventType {
             EventType::ProactiveResumed => "proactive.resumed",
             EventType::AiAssistRequested => "ai.assist.requested",
             EventType::AiAssistResolved => "ai.assist.resolved",
+            EventType::PresentationCommand => "presentation.command",
+            EventType::PresentationState => "presentation.state",
         }
     }
 }

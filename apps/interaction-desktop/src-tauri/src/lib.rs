@@ -786,6 +786,36 @@ async fn sensors_stop(state: State<'_, AppState>) -> Result<Value, String> {
 }
 
 #[tauri::command]
+async fn presentation_status(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    Ok(runtime.presentation_status())
+}
+
+#[tauri::command]
+async fn presentation_hello(
+    state: State<'_, AppState>,
+    visible: bool,
+    pack_id: Option<String>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    Ok(runtime.presentation_hello(visible, pack_id).await)
+}
+
+#[tauri::command]
+async fn presentation_ack(
+    state: State<'_, AppState>,
+    action_id: String,
+    outcome: String,
+    detail: Option<String>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime
+        .presentation_ack(&action_id, &outcome, detail)
+        .await
+        .map_err(err_s)
+}
+
+#[tauri::command]
 async fn agent_sessions_list(state: State<'_, AppState>) -> Result<Value, String> {
     let runtime = rt(&state)?;
     serde_json::to_value(runtime.list_agent_sessions().await).map_err(err_s)
@@ -1522,6 +1552,9 @@ pub fn run() {
             agent_session_send,
             agent_session_close,
             sensor_mic_listen,
+            presentation_status,
+            presentation_hello,
+            presentation_ack,
             sensors_stop,
         ])
         .build(tauri::generate_context!())

@@ -17,6 +17,7 @@ import {
   reduce,
 } from "./machine";
 import { PackManifest, SpriteRenderer, validateManifest } from "./renderer";
+import { planPresentationCommand } from "./presentationCommands";
 import {
   behaviorFor,
   BehaviorTuning,
@@ -27,6 +28,25 @@ import {
   validatePersonaPack,
   validateStoryPack,
 } from "./packs";
+
+// v0.4: itemized Presentation Provider receptors — each interaction kind
+// routes to its own receptor so consent/enable is per-capability. Unknown
+// kinds fall back to the legacy combined receptor (kept for compat).
+const RECEPTOR_FOR_KIND: Record<string, string> = {
+  "companion-clicked": "companion.click",
+  "companion-dragged": "companion.click",
+  "text-submitted": "companion.text-input",
+  "action-selected": "companion.quick-action",
+  "pointer-approached": "companion.pointer",
+  "companion-dropped": "companion.drag-drop",
+  "drop-entered": "companion.drag-drop",
+  "drop-left": "companion.drag-drop",
+  "drop-cancelled": "companion.drag-drop",
+  "bubble-shown": "companion.bubble-events",
+  "bubble-dismissed": "companion.bubble-events",
+  "animation-completed": "companion.animation-events",
+  "animation-interrupted": "companion.animation-events",
+};
 
 export default function CompanionApp() {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -168,11 +188,72 @@ export default function CompanionApp() {
     rendererRef.current?.setAnimation(p.animation, p.frameSlice);
   }, []);
 
+  const pushInteraction = React.useCallback((kind: string, extra?: Record<string, unknown>) => {
+    const receptor = RECEPTOR_FOR_KIND[kind] ?? "desktop.companion.interaction";
+    void api.pushObservation(receptor, { kind, ...extra }, 1.0).catch(() => {
+      /* receptor disabled, companion hidden, or runtime offline: stays local */
+    });
+  }, []);
+
+  // ---- presentation commands: runtime → this surface → honest ack ----
+  const handlePresentationCommand = React.useCallback(
+    (payload: Record<string, unknown>) => {
+      const command = String(payload["command"] ?? "");
+      const actionId = typeof payload["actionId"] === "string" ? payload["actionId"] : null;
+      if (command === "cancel" || command === "clear-all") {
+        // Cancelled/estopped: drop any non-safety visual (safety poses are
+        // driven by base state, not by presentation commands).
+        showBubble(null, 0);
+        return;
+      }
+      if (!actionId) return;
+      const params = (payload["params"] as Record<string, unknown> | undefined) ?? {};
+      const plan = planPresentationCommand(command, params, isTauri);
+      if (plan.transient !== undefined) {
+        if (plan.transient === null) apply({ type: "clear-transient" });
+        else apply({ type: "transient", kind: plan.transient });
+      }
+      if (plan.bubble) {
+        showBubble(plan.bubble.text, plan.bubble.ms);
+        pushInteraction("bubble-shown", { source: "presentation-command" });
+      }
+      if (plan.presence !== undefined && isTauri) {
+        void desktop.prefsPatch({ companionVisible: plan.presence }).catch(() => {});
+      }
+      void api.presentationAck(actionId, plan.outcome, plan.detail).catch(() => {
+        /* runtime gone: the watchdog will honestly mark it uncertain */
+      });
+    },
+    [apply, showBubble, pushInteraction]
+  );
+
+  // ---- presence heartbeat: the runtime's honest availability source ----
+  React.useEffect(() => {
+    if (!ready) return;
+    let stopped = false;
+    const beat = () => {
+      if (stopped) return;
+      void api.presentationHello(!document.hidden, packName).catch(() => {});
+    };
+    beat();
+    const t = setInterval(beat, 10_000);
+    document.addEventListener("visibilitychange", beat);
+    return () => {
+      stopped = true;
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", beat);
+    };
+  }, [ready, packName]);
+
   // Runtime events → transients; status poll → base state.
   React.useEffect(() => {
     if (!ready) return;
     let stopped = false;
     const un = onRuntimeEvent((e: RuntimeEvent) => {
+      if (e.eventType === "presentation.command") {
+        handlePresentationCommand(e.payload);
+        return;
+      }
       const mapped = mapRuntimeEvent(e);
       if (mapped) {
         apply(mapped);
@@ -226,7 +307,7 @@ export default function CompanionApp() {
       clearInterval(blink);
       un.then((f) => f()).catch(() => {});
     };
-  }, [ready, apply, syncPose]);
+  }, [ready, apply, syncPose, handlePresentationCommand]);
 
   function maybeBubble(e: RuntimeEvent) {
     const now = Date.now();
@@ -270,13 +351,6 @@ export default function CompanionApp() {
   // ---- semantic interaction events (NEVER raw coordinates) ----
   const lastApproachAt = React.useRef(0);
   const firstOnline = React.useRef(false);
-  const pushInteraction = React.useCallback((kind: string, extra?: Record<string, unknown>) => {
-    void api
-      .pushObservation("desktop.companion.interaction", { kind, ...extra }, 1.0)
-      .catch(() => {
-        /* receptor disabled or runtime offline: interaction stays local */
-      });
-  }, []);
 
   function onPointerEnterCanvas() {
     const now = Date.now();
@@ -558,7 +632,7 @@ function CompanionInput({
         await api.agentSessionSend(target, "task", { task: t, source: "desktop-companion" });
       }
       await api
-        .pushObservation("desktop.companion.interaction", { kind: "text-submitted", modality: "text" }, 1.0)
+        .pushObservation("companion.text-input", { kind: "text-submitted", modality: "text" }, 1.0)
         .catch(() => {});
       onBubble(target === "local" ? line("text-received") : line("delegated"));
       setTimeout(() => onBubble(null), 3500);

@@ -33,6 +33,7 @@ impl Runtime {
                 .await
                 .into_iter()
                 .map(|m| m.id.as_str().to_string())
+                .filter(|id| !id.starts_with("companion."))
                 .collect(),
             actuators: self
                 .registry
@@ -40,6 +41,7 @@ impl Runtime {
                 .await
                 .into_iter()
                 .map(|m| m.id.as_str().to_string())
+                .filter(|id| !id.starts_with("companion."))
                 .collect(),
             tool_operations: self
                 .registry
@@ -53,6 +55,44 @@ impl Runtime {
             detail: None,
         };
         let _ = self.providers.register(builtin).await;
+
+        // 1.5) Presentation Provider：桌面角色（小樞）是一級 provider，能力
+        //      逐項宣告。信任層級 Builtin（本應用自帶的表面），但可用性誠實
+        //      跟隨視窗 presence（receptor/actuator 健康由 bridge 決定）。
+        let companion = ProviderDescriptor {
+            identity: ProviderIdentity {
+                id: ProviderId::new("provider.companion.shu"),
+                kind: ProviderKind::Companion,
+                display_name: "桌面角色小樞（Presentation）".into(),
+                trust_level: TrustLevel::Builtin,
+                origin: "builtin.presentation".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                fingerprint: None,
+                human: None,
+            },
+            state: ProviderState::Available,
+            receptors: self
+                .registry
+                .receptor_manifests()
+                .await
+                .into_iter()
+                .map(|m| m.id.as_str().to_string())
+                .filter(|id| id.starts_with("companion."))
+                .collect(),
+            actuators: self
+                .registry
+                .actuator_manifests()
+                .await
+                .into_iter()
+                .map(|m| m.id.as_str().to_string())
+                .filter(|id| id.starts_with("companion."))
+                .collect(),
+            tool_operations: vec![],
+            paired_at: None,
+            last_seen: Some(chrono::Utc::now()),
+            detail: Some("能力逐項授權；隱藏角色只停用視窗內能力，不影響 Runtime".into()),
+        };
+        let _ = self.providers.register(companion).await;
 
         // 2) Persisted provider records (paired devices etc.).
         //    Crash/restart must NOT auto-recover an operational device: pairing

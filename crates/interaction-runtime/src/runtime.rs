@@ -91,6 +91,8 @@ pub struct RuntimeInner {
     pub(crate) sensors: std::sync::Mutex<BTreeMap<String, crate::sensors::SensorUse>>,
     /// Typed handle to the microphone receptor (None when not registered).
     pub mic_receptor: Option<Arc<adapters_media::MicListenReceptor>>,
+    /// Presentation bridge: companion-window presence + pending command acks.
+    pub presentation: Arc<crate::presentation::PresentationBridge>,
 }
 
 #[derive(Clone)]
@@ -184,6 +186,15 @@ impl Runtime {
         registry
             .register_receptor(Arc::new(SystemTimeReceptor))
             .await?;
+
+        // ---- presentation (companion surface) receptors ----
+        // Itemized semantic receptors whose health mirrors the companion
+        // window's presence: hidden or disconnected ⇒ offline, honestly.
+        let presentation_bridge = crate::presentation::PresentationBridge::new();
+        for receptor in crate::presentation::presentation_receptors(&presentation_bridge) {
+            push_receptors.insert(receptor.id().as_str().to_string(), receptor.clone());
+            registry.register_receptor(receptor).await?;
+        }
 
         // ---- builtin actuators ----
         registry
@@ -288,6 +299,7 @@ impl Runtime {
                 agent_create_lock: tokio::sync::Mutex::new(()),
                 sensors: std::sync::Mutex::new(BTreeMap::new()),
                 mic_receptor: Some(mic_receptor),
+                presentation: presentation_bridge,
             }),
         };
         let _ = sensor_cb_slot.set(Arc::downgrade(&runtime.inner));
@@ -295,6 +307,17 @@ impl Runtime {
         // Delegation actuator goes through the same registry/governor path.
         let delegate = crate::agents::DelegateActuator::new(Arc::downgrade(&runtime.inner));
         let _ = runtime.registry.register_actuator(Arc::new(delegate)).await;
+
+        // Presentation actuators (itemized; consent-gated ones start disabled
+        // by the registry's default rules).
+        for kind in crate::presentation::PresentationKind::ALL {
+            let actuator = crate::presentation::PresentationActuator::new(
+                kind,
+                runtime.presentation.clone(),
+                Arc::downgrade(&runtime.inner),
+            );
+            let _ = runtime.registry.register_actuator(Arc::new(actuator)).await;
+        }
         runtime.restore_agent_sessions().await;
         runtime.init_providers().await;
 
@@ -369,6 +392,7 @@ impl Runtime {
             "pendingAiAssists": self.pending_ai_assists().await.len(),
             "agentSessions": self.open_agent_sessions().await,
             "activeSensors": self.active_sensors(),
+            "presentation": self.presentation_status(),
             "onboardingCompleted": self.onboarding_state().await
                 .get("completed").and_then(Value::as_bool).unwrap_or(false),
         })
@@ -473,6 +497,16 @@ impl Runtime {
             .registry
             .receptor(&ReceptorId::new(receptor_id))
             .await?;
+        // Companion-surface receptors stop when the companion is hidden or
+        // disconnected (spec: hiding the companion stops its in-window
+        // senses — deterministically, not just by frontend courtesy).
+        if crate::presentation::is_companion_surface_receptor(receptor_id)
+            && !self.presentation.accepts_input(Utc::now())
+        {
+            return Err(DomainError::Unavailable(
+                "companion window hidden or not connected; its receptors are stopped".into(),
+            ));
+        }
         // Anti-forgery: a caller-pushed `actionId` FACT can otherwise be picked
         // up by the verifier as "observed" evidence and self-attest completion
         // of a delegated action. Rename it to `claimActionId` (symmetric to
@@ -1684,6 +1718,9 @@ impl Runtime {
                         let _ = mic.is_listening(); // enforces the deadline
                     }
                 }
+                // Presentation ack deadlines: unconfirmed commands go
+                // Uncertain, never silently "completed".
+                runtime.sweep_presentation().await;
                 // TTL sweep: expire non-terminal receipts past their deadline.
                 if let Ok(open) = runtime.store.open_receipts() {
                     let now = Utc::now();
