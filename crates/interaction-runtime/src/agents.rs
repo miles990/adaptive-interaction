@@ -544,6 +544,28 @@ impl Runtime {
             self.gateway_spawn_kill(id, "session-closed");
             entry.record.clone()
         };
+        // Handoff 摘要落入記憶層（AgentHandoff，30 天保存；bounded 已驗證）。
+        if let Some(h) = &record.handoff {
+            let content = serde_json::to_string_pretty(h).unwrap_or_default();
+            let item = interaction_core::new_memory_item(
+                interaction_core::MemoryLayer::AgentHandoff,
+                interaction_core::MemoryKind::Inference,
+                format!(
+                    "Handoff：{}",
+                    record
+                        .label
+                        .clone()
+                        .unwrap_or_else(|| record.agent_id.clone())
+                ),
+                content,
+                interaction_core::MemoryActor::Runtime,
+                Utc::now(),
+            );
+            let mut item = item;
+            item.provenance = vec![format!("agent-session:{}", record.session_id.as_str())];
+            item.confidence = 0.5; // handoff 內容是 agent 聲稱的摘要
+            let _ = self.memory_create_internal(&item);
+        }
         let pid = ProviderId::new(format!("provider.ai-session.{id}"));
         let _ = self
             .providers

@@ -78,6 +78,11 @@ pub enum Command {
         #[command(subcommand)]
         action: AgentsAction,
     },
+    /// 小樞的分層記憶（保存期限、可見性、Context Bundle）。
+    Memory {
+        #[command(subcommand)]
+        action: MemoryAction,
+    },
     /// Proactive dialogue policy (deterministic frequency limits).
     Proactive {
         #[command(subcommand)]
@@ -372,6 +377,56 @@ pub enum AgentsAction {
         handoff: Option<String>,
         #[arg(long, default_value = "closed")]
         reason: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemoryAction {
+    /// List memories (optionally one layer), with derived status.
+    List {
+        #[arg(long)]
+        layer: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
+    Show {
+        id: String,
+    },
+    /// Add a memory (human actor). --as-agent demotes per the actor rules.
+    Add {
+        #[arg(long)]
+        layer: String,
+        #[arg(long, default_value = "fact")]
+        kind: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        content: String,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        #[arg(long)]
+        as_agent: Option<String>,
+    },
+    /// Merge-patch fields (title/content/tags/retention/…): JSON document.
+    Set {
+        id: String,
+        patch: String,
+    },
+    Delete {
+        id: String,
+    },
+    /// Export every memory as JSON (data sovereignty).
+    Export,
+    /// Clear session-context memories.
+    ClearSession,
+    /// Build the deterministic context bundle an agent would receive.
+    Bundle {
+        #[arg(long)]
+        task: String,
+        #[arg(long)]
+        agent: String,
+        #[arg(long = "domain")]
+        domains: Vec<String>,
     },
 }
 

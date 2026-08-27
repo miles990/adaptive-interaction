@@ -160,6 +160,22 @@ check "result lands in mailbox" "$RES" "完成了（這是聲稱）"
 GST=$("$BIN" agents show "$GSID" --json 2>/dev/null | J "d['state']")
 check "gateway session closed kills subprocess" "$GST" "closed"
 
+echo "== Memory layer (v0.4) =="
+MID=$("$BIN" memory add --layer domain-know-how --kind know-how --title "先跑測試" --content "改完先跑測試再宣稱完成" --tag rust --json 2>/dev/null | J "d['memoryId']")
+[ -n "$MID" ] && ok "memory created $MID" || bad "memory create"
+# agent 身分寫入 → 降權為 inference。
+AKIND=$("$BIN" memory add --layer domain-knowledge --kind fact --title "agent 宣稱" --content "某事為真" --as-agent codex --json 2>/dev/null | J "d['kind']")
+check "agent fact demoted to inference" "$AKIND" "inference"
+# secret 樣態拒收。
+RC=$("$BIN" memory add --layer user-memory --kind fact --title x --content "Bearer abc123" --json >/dev/null 2>&1; echo $?)
+if [ "$RC" != "0" ]; then ok "secret-like content refused"; else bad "secret content should be refused"; fi
+# Context bundle 誠實揭露（含 excludes）。
+BN=$("$BIN" memory bundle --task "檢查 repo" --agent codex --domain rust --json 2>/dev/null | J "len(d['includes'])")
+check "context bundle includes the know-how" "$BN" "1"
+"$BIN" memory delete "$MID" --json >/dev/null 2>&1
+GONE=$("$BIN" memory show "$MID" --json >/dev/null 2>&1; echo $?)
+if [ "$GONE" != "0" ]; then ok "memory deletable (no permanent memory)"; else bad "memory should be deletable"; fi
+
 echo "== Emergency stop propagation =="
 SID2=$("$BIN" agents create --agent agent.b --ttl 30 --json 2>/dev/null | J "d['sessionId']")
 "$BIN" emergency-stop --json >/dev/null 2>&1

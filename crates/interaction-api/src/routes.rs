@@ -1355,3 +1355,99 @@ pub async fn agents_routing(
 ) -> Json<Value> {
     Json(state.runtime.agent_route_suggestion(q.kind.as_deref()))
 }
+
+// ---------------------------------------------------------------------------
+// 記憶層（spec §10/§15/§16）。
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryListQuery {
+    #[serde(default)]
+    layer: Option<String>,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
+pub async fn memory_list(
+    State(state): State<ApiState>,
+    axum::extract::Query(q): axum::extract::Query<MemoryListQuery>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        state
+            .runtime
+            .memory_list(q.layer.as_deref(), q.limit.unwrap_or(200))
+            .await?,
+    ))
+}
+
+pub async fn memory_create(
+    State(state): State<ApiState>,
+    Json(input): Json<Value>,
+) -> ApiResult<Json<Value>> {
+    // actor 由呼叫端宣告「以 agent 身分」只會降權（fact→inference、長期使用者
+    // 記憶→candidate），永遠不會升權——flat token 下的安全方向。
+    let actor = match input.get("asAgent").and_then(|v| v.as_str()) {
+        Some(agent) => interaction_core::MemoryActor::Agent(agent.to_string()),
+        None => interaction_core::MemoryActor::Human,
+    };
+    let item = interaction_runtime::memory::memory_from_input(input, actor)
+        .map_err(interaction_core::DomainError::Validation)?;
+    let created = state.runtime.memory_create(item).await?;
+    Ok(Json(serde_json::to_value(created).unwrap_or_default()))
+}
+
+pub async fn memory_get(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let item = state.runtime.memory_get(&id).await?;
+    Ok(Json(serde_json::to_value(item).unwrap_or_default()))
+}
+
+pub async fn memory_patch(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(patch): Json<Value>,
+) -> ApiResult<Json<Value>> {
+    let item = state.runtime.memory_update(&id, patch).await?;
+    Ok(Json(serde_json::to_value(item).unwrap_or_default()))
+}
+
+pub async fn memory_delete(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let deleted = state.runtime.memory_delete(&id).await?;
+    Ok(Json(json!({"deleted": deleted})))
+}
+
+pub async fn memory_export(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.memory_export().await?))
+}
+
+pub async fn memory_clear_session(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
+    let n = state.runtime.memory_clear_session_context().await?;
+    Ok(Json(json!({"cleared": n})))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BundleBody {
+    pub task: String,
+    #[serde(default)]
+    pub domains: Vec<String>,
+    pub agent_id: String,
+}
+
+pub async fn memory_context_bundle(
+    State(state): State<ApiState>,
+    Json(body): Json<BundleBody>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        state
+            .runtime
+            .memory_context_bundle(&body.task, &body.domains, &body.agent_id)
+            .await?,
+    ))
+}

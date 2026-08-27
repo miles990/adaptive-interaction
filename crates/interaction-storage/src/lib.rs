@@ -14,7 +14,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::Mutex;
 
-const CURRENT_SCHEMA: i64 = 3;
+const CURRENT_SCHEMA: i64 = 4;
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -161,6 +161,26 @@ impl Store {
                     body       TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                "#,
+            )
+            .map_err(map_err)?;
+        }
+        if version < 4 {
+            // v0.4 記憶層：typed 查詢欄位＋JSON 本體。到期清除與層級查詢
+            // 走欄位索引，不掃 JSON。
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS memory_items (
+                    id           TEXT PRIMARY KEY,
+                    layer        TEXT NOT NULL,
+                    kind         TEXT NOT NULL,
+                    expires_at   TEXT,
+                    review_after TEXT,
+                    updated_at   TEXT NOT NULL,
+                    body         TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_memory_layer ON memory_items(layer, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_memory_expiry ON memory_items(expires_at);
                 "#,
             )
             .map_err(map_err)?;
@@ -729,6 +749,101 @@ impl Store {
             }));
         }
         Ok(out)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v4：記憶層。
+// ---------------------------------------------------------------------------
+
+impl Store {
+    pub fn save_memory(
+        &self,
+        id: &str,
+        layer: &str,
+        kind: &str,
+        expires_at: Option<&str>,
+        review_after: Option<&str>,
+        body: &str,
+    ) -> Result<(), DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        conn.execute(
+            "INSERT INTO memory_items (id, layer, kind, expires_at, review_after, updated_at, body)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(id) DO UPDATE SET layer=?2, kind=?3, expires_at=?4, review_after=?5, updated_at=?6, body=?7",
+            rusqlite::params![id, layer, kind, expires_at, review_after, ts_to_str(chrono::Utc::now()), body],
+        )
+        .map_err(map_err)?;
+        Ok(())
+    }
+
+    pub fn get_memory(&self, id: &str) -> Result<Option<String>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn
+            .prepare("SELECT body FROM memory_items WHERE id = ?1")
+            .map_err(map_err)?;
+        let mut rows = stmt.query([id]).map_err(map_err)?;
+        match rows.next().map_err(map_err)? {
+            Some(row) => Ok(Some(row.get(0).map_err(map_err)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn delete_memory(&self, id: &str) -> Result<bool, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let n = conn
+            .execute("DELETE FROM memory_items WHERE id = ?1", [id])
+            .map_err(map_err)?;
+        Ok(n > 0)
+    }
+
+    /// 列出（layer 過濾可選；updated_at 新→舊；bounded）。
+    pub fn list_memory(&self, layer: Option<&str>, limit: u32) -> Result<Vec<String>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let limit = limit.clamp(1, 1000);
+        let mut out = Vec::new();
+        match layer {
+            Some(l) => {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT body FROM memory_items WHERE layer = ?1 ORDER BY updated_at DESC LIMIT ?2",
+                    )
+                    .map_err(map_err)?;
+                let rows = stmt
+                    .query_map(rusqlite::params![l, limit], |r| r.get::<_, String>(0))
+                    .map_err(map_err)?;
+                for r in rows {
+                    out.push(r.map_err(map_err)?);
+                }
+            }
+            None => {
+                let mut stmt = conn
+                    .prepare("SELECT body FROM memory_items ORDER BY updated_at DESC LIMIT ?1")
+                    .map_err(map_err)?;
+                let rows = stmt
+                    .query_map([limit], |r| r.get::<_, String>(0))
+                    .map_err(map_err)?;
+                for r in rows {
+                    out.push(r.map_err(map_err)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// 刪除已過期記憶（expiresAt 到期＝停止使用並刪除）。回傳刪除數。
+    pub fn prune_expired_memory(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u32, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let n = conn
+            .execute(
+                "DELETE FROM memory_items WHERE expires_at IS NOT NULL AND expires_at <= ?1",
+                [ts_to_str(now)],
+            )
+            .map_err(map_err)?;
+        Ok(n as u32)
     }
 }
 

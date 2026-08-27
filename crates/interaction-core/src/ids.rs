@@ -86,3 +86,8 @@ id_type!(
 id_type!(
     /// Identifies one operation of a tool, e.g. `interaction.observe`.
     OperationId, "op");
+
+id_type!(
+    /// Memory item id.
+    MemoryId, "mem"
+);

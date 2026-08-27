@@ -373,6 +373,64 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             }
             crate::SensorsAction::Stop => client.post("/v1/sensors/stop", Some(json!({}))).await?,
         },
+        Command::Memory { action } => match action {
+            crate::MemoryAction::List { layer, limit } => {
+                let mut q = format!("?limit={limit}");
+                if let Some(l) = layer {
+                    q.push_str(&format!("&layer={l}"));
+                }
+                client.get(&format!("/v1/memory{q}")).await?
+            }
+            crate::MemoryAction::Show { id } => client.get(&format!("/v1/memory/{id}")).await?,
+            crate::MemoryAction::Add {
+                layer,
+                kind,
+                title,
+                content,
+                tags,
+                as_agent,
+            } => {
+                client
+                    .post(
+                        "/v1/memory",
+                        Some(json!({
+                            "layer": layer,
+                            "kind": kind,
+                            "title": title,
+                            "content": content,
+                            "tags": tags,
+                            "asAgent": as_agent,
+                        })),
+                    )
+                    .await?
+            }
+            crate::MemoryAction::Set { id, patch } => {
+                let patch: Value = serde_json::from_str(patch)
+                    .map_err(|e| anyhow::anyhow!("invalid JSON patch: {e}"))?;
+                client.patch(&format!("/v1/memory/{id}"), patch).await?
+            }
+            crate::MemoryAction::Delete { id } => {
+                client.delete(&format!("/v1/memory/{id}")).await?
+            }
+            crate::MemoryAction::Export => client.get("/v1/memory/export").await?,
+            crate::MemoryAction::ClearSession => {
+                client
+                    .post("/v1/memory/clear-session-context", Some(json!({})))
+                    .await?
+            }
+            crate::MemoryAction::Bundle {
+                task,
+                agent,
+                domains,
+            } => {
+                client
+                    .post(
+                        "/v1/memory/context-bundle",
+                        Some(json!({"task": task, "agentId": agent, "domains": domains})),
+                    )
+                    .await?
+            }
+        },
         Command::Proactive { action } => match action {
             crate::ProactiveAction::Status => client.get("/v1/proactive-dialogue").await?,
             crate::ProactiveAction::Mode { mode } => {

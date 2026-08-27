@@ -1749,6 +1749,10 @@ impl Runtime {
                 runtime.sweep_presentation().await;
                 // Gateway：逾時 approval 自動拒絕＋殘留子程序清理。
                 runtime.gateway_sweep().await;
+                // 記憶到期清除（expiresAt 到＝停止使用並刪除）。
+                if tick.is_multiple_of(60) {
+                    runtime.sweep_memory().await;
+                }
                 // TTL sweep: expire non-terminal receipts past their deadline.
                 if let Ok(open) = runtime.store.open_receipts() {
                     let now = Utc::now();

@@ -73,6 +73,20 @@ pub fn router(state: ApiState) -> Router {
             "/v1/proactive-dialogue/quiet",
             post(routes::proactive_dialogue_quiet),
         )
+        .route("/v1/memory", get(routes::memory_list))
+        .route("/v1/memory", post(routes::memory_create))
+        .route("/v1/memory/export", get(routes::memory_export))
+        .route(
+            "/v1/memory/clear-session-context",
+            post(routes::memory_clear_session),
+        )
+        .route(
+            "/v1/memory/context-bundle",
+            post(routes::memory_context_bundle),
+        )
+        .route("/v1/memory/{id}", get(routes::memory_get))
+        .route("/v1/memory/{id}", patch(routes::memory_patch))
+        .route("/v1/memory/{id}", delete(routes::memory_delete))
         .route("/v1/agents", get(routes::agents_discoveries))
         .route("/v1/agents/refresh", post(routes::agents_refresh))
         .route("/v1/agents/routing", get(routes::agents_routing))

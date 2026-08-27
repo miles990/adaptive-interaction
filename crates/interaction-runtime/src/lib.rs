@@ -7,6 +7,7 @@ pub mod executor;
 pub mod gateway;
 pub mod human;
 pub mod lock;
+pub mod memory;
 pub mod orchestrator;
 pub mod presentation;
 pub mod proactive;
