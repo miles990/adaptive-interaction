@@ -235,3 +235,74 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
 6. **WS/MQTT/Serial/BLE transport**：宣告式引擎解析但誠實拒絕（僅 HTTP/SSE 實作）。
 7. **第三方 pack zip 安裝流程未做**：內建 packs 與驗證器齊備，但沒有 zip 匯入 UI；
    pack 驗證器已防 zip-slip 概念（sheet 僅限純檔名）。
+
+---
+
+# v0.4 驗收證據 — 2026-08-27
+
+全部證據可重跑；命令列於各節。基準：main@18037e5（v0.3.0）。
+
+## 回歸（v0.3 不變量全數保留）
+- `cargo test --workspace` → **257/257 passed, 0 failed**（v0.3 基線 201 → +56）
+- `cargo clippy --workspace --all-targets -- -D warnings` → 0 errors
+- `cd apps/interaction-desktop && pnpm typecheck && pnpm test` → typecheck 0 錯誤、vitest **61/61**（v0.3 基線 40 → +21）
+- `pnpm test:e2e` → Playwright **19/19**（v0.3 基線 11 → +8；真 daemon＋真 Chromium）
+- `./scripts/v03-cli-e2e.sh` → CLI E2E **42/42**（v0.3 基線 12 → +30；真 daemon＋mock device＋fake agent 子程序）
+
+## Presentation Provider（真實迴路）
+- 整合測試 `cargo test -p interaction-runtime --test presentation_loop`（8）：
+  逐項 provider（7+7）、bubble dispatched→ack→completed（AcknowledgedOnly 證據）、
+  無 ack→Uncertain、隱藏拒 ingest／actuator 誠實失敗、estop 清佇列拒遲到 ack、
+  behaviorIntent 白名單全迴路、斷線 receptor Offline。
+- CLI E2E：`presentation hello/status/ack` 七項檢查（含 HTTP 503 誠實拒絕）。
+
+## 真實 Agent Connector（本機已登入 agent；無模型 API、無假接線）
+- 協定鎖定：`codex app-server generate-json-schema`（codex-cli 0.149.1；
+  ClientRequest 95 方法／ServerNotification 75）；Claude stream-json 事件實錄樣本。
+- **真實連線驗收（2026-08-27，隔離 home，真 daemon）**：
+  - `interact-ai agents providers --json` → claude-code 2.1.247（loggedIn:true）＋
+    codex 0.149.1（loggedIn:true，app-server 可用）
+  - Claude Code session `asession-37236be7…`：任務「Reply with exactly OK」→
+    state=claimed-completed、providerSessionId=f200e65c-92f7-4cd1-965b-150fa8693216、
+    spentCost=$0.42094 入預算、mailbox result={"summary":"OK","costUsd":0.42094}
+  - Codex session `asession-0fcb0a8d…`：app-server 握手→thread/start（read-only）→
+    turn/start → state=claimed-completed、providerSessionId=01a04194-074f-7e92…
+  - claims 落為 observation inferences（confidence 0.5）——實測輸出見上方 CLI 段
+- 子程序樹終止：`gateway_loop` 測試以 pid 檔證明 estop 後 fixture 程序組死亡。
+- fake agent（`tests/fixtures/fake_claude.sh`）：CLI E2E 六項確定性檢查（絕不動用真額度）。
+
+## 記憶／知識／決策器
+- `memory_loop`（5）：actor 降權、secret 拒收、三態期限、到期清除、
+  確定性 bundle（stale/敏感/denylist/candidate 排除並揭露）、handoff 落地。
+- `knowledge_loop`（6）：CAS write-once、claim 要證據、agent 只能 Candidate、
+  agent approve 降留言、人類 approve→active、類比≠因果、supersede 版本化、
+  FTS＋lexical-vector 候選、刪素材→disputed＋級聯。
+- `curator_loop`（4）＋curator 單元（3）：決策表（repo-commit 不用 AI、外部研究必先問）、
+  freshness→stale、衝突雙方→disputed、經驗升格閘門（無反例＋適用範圍不可 approve）、
+  receipt 誠實欄位。
+
+## 控制中心新 IA＋畫面證據
+- Playwright：8 一級頁可達、AI 頁 Consent Sheet、記憶知識頁、全域搜尋（⌘K）導頁、
+  390px 底部導覽＋鍵盤＋無水平捲動、離線誠實畫面。
+- 畫面證據 `docs/assets/v04-evidence/`（**24 張，全部來自真 App＋真 daemon**）：
+  9 頁 × 桌面＋390px、全域搜尋、緊急停止（桌面＋390px）、離線；
+  實機（Tauri dev、隔離 home）：`live-companion-shu-v2.png`
+  （v2 貓系小樞於真實桌面、story first-meeting 真實觸發）、
+  `live-control-center.png`（初次設定精靈＝初次使用狀態）。
+- 空白／初次使用狀態：以全新 home 的真實空狀態擷取（不硬編假資料）。
+
+## 已知限制（v0.4 誠實記錄；另見 capability-completion-matrix.md）
+1. 單一扁平 API token 沿用（presentation ack／human review 面與 AI 面同 token；
+   需 scoped token 才能完全分離——v0.3 已知限制①延續）。
+2. Codex exec fallback 未實作：app-server 不可用的舊版 codex 誠實拒絕建立 session。
+3. 向量檢索為誠實標示的 lexical-fallback（詞彙雜湊袋餘弦），非語意 embedding；
+   介面可替換。
+4. 影音素材的衍生解析（縮圖/OCR/轉錄）未實作；資料模型與片段引用語法已就緒。
+5. OS 層硬體列舉（HID/BLE/MIDI/mDNS/攝影機）誠實未實作，UI 明列具體原因。
+6. Claude -p 模式無互動核可管道（plan 模式寫入直接拒）；寫入型工作流程為下一階段。
+7. 程序化眼球／耳朵疊加層未實作（錨點已輸出到 manifest；反應鏈烘焙於動畫時間軸）。
+8. 生成式主動對話的實際內容生成（§6.1 呼叫 agent 產生候選訊息）機制已就緒
+   （閘門＋預算＋metadata），觸發端排程器為下一階段。
+9. 知識系統的三個 UI 末端未接線：update-check 觸發僅 API/CLI（決策結果仍經
+   候選/收據頁呈現）、「使用者糾正小樞」專屬入口未做（糾正仍可經候選複審）、
+   角色端知識六句固定文案（§17）未接到氣泡（收據語意在控制中心完整呈現）。

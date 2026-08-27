@@ -87,3 +87,24 @@ an INFERENCE — never a receipt. A delegated task in the mailbox is `dispatched
 until the session actually fetches it (`acknowledged`). The HTTP surface is the
 AI-host surface: it can never satisfy a recipe's `requireHumanConfirmation`
 gate (only the desktop IPC can).
+
+## v0.4 endpoints
+
+- `GET/POST /v1/presentation{,/hello,/ack}` — companion surface presence + honest render acks.
+- `GET/PATCH /v1/proactive-dialogue`, `POST /v1/proactive-dialogue/quiet` — deterministic
+  proactive-speech limits (hourly cap / min interval / no-follow-up; safety class only dedups).
+- `GET /v1/agents`, `POST /v1/agents/refresh`, `GET /v1/agents/routing?kind=` — local agent
+  discovery (codex/claude-code) + deterministic routing advice.
+- `POST /v1/agent-sessions` now spawns REAL subprocess sessions for agentId codex/claude-code
+  (read-only/plan; `workdir`, `maxCost` supported). `POST /v1/agent-sessions/{id}/approve`
+  (human approval resolution; unanswered approvals auto-deny), `/interrupt`.
+- `GET/POST /v1/memory`, `/v1/memory/{id}`, `/v1/memory/export`, `/v1/memory/clear-session-context`,
+  `POST /v1/memory/context-bundle` — layered memory with retention tri-state; deterministic bundles.
+- `GET /v1/assets`, `POST /v1/assets/import`, `GET /v1/assets/{hash}{,/impact,/content}`,
+  `DELETE /v1/assets/{hash}` — content-addressed, write-once sources with delete-impact preview.
+- `GET /v1/knowledge/search|nodes|nodes/{id}|nodes/{id}/graph`, `POST /v1/knowledge/nodes|edges`,
+  `POST /v1/knowledge/nodes/{id}/review`, `GET /v1/knowledge/receipts`,
+  `POST /v1/knowledge/update-check` — candidate-only AI writes; human-only activation;
+  machine-readable knowledge receipts.
+- Tool surface adds `interaction.knowledge_*` (search/get/get_source/expand_graph/
+  propose_entity/propose_claim/propose_relation/propose_supersede/submit_review).

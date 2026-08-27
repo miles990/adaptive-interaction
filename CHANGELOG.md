@@ -9,6 +9,88 @@
 
 ## [Unreleased]
 
+### Added — v0.4：Presentation Provider、真實 Agent Connector、記憶與知識系統、控制中心新 IA
+
+- **Presentation Provider**（`provider.companion.shu`）：桌面角色正式成為一級 provider，
+  能力**逐項**宣告——7 個語意 receptor（點擊／文字輸入／快捷／拖放／游標語意／動畫事件／
+  氣泡事件）＋7 個 actuator（狀態呈現／播放動畫／氣泡／音效／語音／視窗調整／顯示隱藏）。
+  誠實迴路：`presentation.command` SSE → 視窗渲染 → ack → receipt
+  （Dispatched→Acknowledged→Completed，證據誠實標 AcknowledgedOnly；10 秒無 ack →
+  Uncertain）。音效／語音／視窗調整／顯示隱藏 consent-gated 預設停用；隱藏角色時視窗內
+  receptor 確定性拒絕 ingest（隱藏≠緊急停止）。behaviorIntent／動畫白名單 runtime 驗證，
+  成功／阻擋／緊急等真相狀態 AI 不可點播。
+- **小樞 v2 貓系重設計**：3 頭身 Q 版貓系數位小精靈原創 rig——眼尾上揚狡黠眼＋逐眼眉毛
+  眼皮（「發現了」「真的假的」「讓我看看」）、貓耳=注意力顯示器（earPerk）、尾巴重量與捲曲、
+  23 個動畫（察覺反應鏈：耳先動→眼亮→頭後轉；失敗專屬美術＝愣住→認真檢查＋✕；
+  伸展／晃腳／抱尾巴／趴下慵懶反差）。三變體共用骨架：靈巧（預設）／慵懶／活潑。
+  成功綠勾契約不變（幀 0-1 點頭、幀 2-3 才有勾）。v1 packs 保留相容。
+- **Behavior Runtime**：純本機確定性三層生命系統（不用生成式 AI 逐幀控制）——
+  BehaviorState 平滑量（activation／attention／taskLoad／readiness／familiarity）、
+  Utility AI 優先階梯（緊急>感測安全>等待確認>直接互動>任務>建議>世界觀>待機）、
+  hazard 抽樣微動作排程（幾何分布間隔、反重複、放鬆度門檻、Reduced Motion 只留眨眼、
+  seeded RNG 可重現）。
+- **主動式對話政策**：off／necessary／natural（預設）／lively／custom 五模式，Rust 確定性
+  強制——每小時上限 3、最短間隔 12 分、30 秒合併、未回覆不追問、勿擾延後、安全類只去重
+  永不被壓制；狀態跨重啟持續。氣泡快捷「一小時不要說話」「今天安靜一點」。
+- **Agent Gateway（無模型 API）**：直接連本機已登入的 **Codex**（`codex app-server`
+  stdio JSON-RPC，協定 schema 由 `generate-json-schema` 鎖定；sandbox=read-only、
+  approval 預設拒絕、逾時自動 deny）與 **Claude Code**（`claude -p` stream-json、
+  `--permission-mode plan`、絕不用 skip-permissions）。claims 走 v0.3 誠實路徑
+  （inference 0.5、claimActionId 防偽）；成本入 SessionBudget 硬上限；estop／close／
+  lease 到期終止整棵子程序樹；子程序不跨重啟存活；不讀取任何 credential。
+  確定性路由建議（程式→Codex、文件→Claude Code、模糊→列兩者）。
+- **記憶分層（10 層）＋保存期限三態**：expiresAt（到期停用並刪）／reviewAfter（stale 需
+  重新確認）／until-deleted（不存在不可刪的永久記憶）。agent 寫入降權（fact→inference、
+  長期使用者記憶→candidate＋30 天複查）；secret 樣態拒收；到期 watchdog 清除；
+  **確定性 Context Bundle**（stale／敏感／denylist／candidate 排除並揭露）。
+- **多模態素材庫（CAS）＋知識圖譜**：SHA-256 內容定址 write-once 素材（AI 不可覆寫／
+  刪除來源；刪除有影響預覽，失去來源的 Active 知識標 disputed 不靜默消失）；
+  Entity／Claim／Source 節點＋12 種關係型別＋認識論來源標記（research-supported／
+  analogy／ai-conjecture／user-confirmed…）；claim 必附證據（素材 hash＋片段語法）；
+  類比／推測不可標因果；candidate→active→stale→disputed→superseded→archived 狀態機，
+  只有 active 參與回答；FTS5（bm25）＋可替換向量介面（v1 誠實標示 lexical-fallback）。
+  9 個 `interaction.knowledge_*` canonical tools：AI 讀受限、寫一律 Candidate、
+  agent 裁決降留言，activate 只屬人類。
+- **知識更新決策器＋經驗轉知識＋Knowledge Receipt**：「要不要更新」與「要不要 AI」分開
+  確定性判斷；外部研究必先問；發布三級政策（auto metadata／candidate-only AI 內容／
+  必須人類確認）；freshness sweep 標 stale、衝突雙方標 disputed；任務結束確定性收集
+  TaskMemory，學習訊號才建 Reflection Candidate，升格必須補反例＋適用範圍；
+  每次知識變化寫機器可讀 receipt（誠實 conflictCheck 三態＋humanReviewed）＋
+  `knowledge.updated` 事件。
+- **控制中心新 IA**：8 一級頁（首頁／小樞／AI 與工作階段／能力與裝置／記憶與知識／
+  活動與確認／隱私與安全／設定）＋自動互動保留＋進階 Provider Registry／Knowledge Graph。
+  小樞頁 13 個真實素材狀態預覽（未驗證 vs 已驗證對照可見）；AI 頁真實發現／session 卡片
+  （claimed-completed 標「回報完成——尚未驗證」）／approval 裁決／Consent Sheet 授權預覽；
+  能力頁掃描誠實文案＋未支援能力附具體原因；記憶知識頁含候選複審、素材影響預覽、
+  收據、Bundle「本次提供了哪些」；活動頁統一「待我決定」收件匣；首頁「現在」摘要條；
+  Global Search＋Command Palette（⌘K，指令只列可執行）。畫面證據 22 張由 E2E 從
+  真 App＋真 daemon 自動擷取（docs/assets/v04-evidence/）。
+- API：`/v1/presentation*`、`/v1/proactive-dialogue*`、`/v1/agents*`、
+  `/v1/agent-sessions/{id}/{approve,interrupt}`、`/v1/memory*`、`/v1/assets*`、
+  `/v1/knowledge*`。CLI：`presentation`／`proactive`／`memory`／`assets`／`knowledge`
+  ＋`agents providers|route|approve|interrupt`＋`agents create --workdir --max-cost`。
+  Storage schema v4→v6。
+
+### Fixed
+
+- 出貨 persona pack（persona-shu／persona-navigator）因含 `succeeded-verified` 安全鍵
+  被驗證器整包拒絕、persona 語句靜默失效（v0.3 對抗審查修正引入的回歸）。
+  新增「出貨 pack 必須通過驗證」測試防再發。
+- 佇列訊息文字可達 desktop-pet 頻道（is_text_channel 涵蓋）。
+
+### 已知限制（v0.4，誠實記錄；詳見 docs/acceptance-evidence.md 與 capability-completion-matrix.md）
+
+1. 單一扁平 API token 沿用（v0.3 已知限制①延續；presentation ack 同 token 可偽）。
+2. Codex exec fallback 未實作（app-server 不可用時誠實拒絕）。
+3. 向量檢索為誠實標示的 lexical-fallback，非語意 embedding（介面可替換）。
+4. 影音素材衍生解析（縮圖/OCR/轉錄）未實作；資料模型與片段語法已就緒。
+5. OS 層硬體列舉（HID/BLE/MIDI/mDNS/攝影機）誠實未實作，UI 附具體原因。
+6. Claude `-p` 模式無互動核可管道；寫入型工作流程為下一階段。
+7. 程序化眼球／耳朵疊加層未實作（錨點已輸出；反應鏈烘焙於動畫時間軸）。
+8. 生成式主動對話的觸發端排程器為下一階段（閘門＋預算＋metadata 已就緒）。
+9. 知識 UI 三末端未接線：update-check 觸發僅 API/CLI、「使用者糾正」專屬入口、
+   角色端知識六句固定文案（§17）未接到氣泡（語意在控制中心完整呈現）。
+
 ## [0.3.0] - 2026-08-26
 
 ### Added — 狀態列常駐、桌面角色、外部裝置、AI Session、感測層

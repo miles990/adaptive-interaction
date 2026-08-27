@@ -61,3 +61,16 @@ Everything you execute passes the policy governor. Prompts cannot override it.
   is fixed and immutable — persona/world/story packs restyle only non-safety
   lines. The desktop character holds no authority; everything still goes through
   the governor.
+
+## v0.4 additions
+
+- Presentation: a companion render ack is DRIVER-level evidence (AcknowledgedOnly); no ack
+  within 10s ⇒ Uncertain. Truth states (success/blocked/emergency) are never AI-playable.
+- Agent gateway: sessions run read-only/plan; approvals default to DENY and only a human can
+  approve; emergency stop kills the whole subprocess tree; subprocesses never survive restart;
+  agent claims stay inferences (confidence 0.5).
+- Knowledge: AI writes are always candidates; agents cannot approve; analogy/conjecture can
+  never be causal; sources are content-addressed and immutable; superseded knowledge leaves
+  general answering.
+- Memory: no un-deletable memory; secrets are refused; expired memory is pruned; stale memory
+  needs re-confirmation and never enters context bundles.

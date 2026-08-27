@@ -135,3 +135,45 @@ The microphone produces sound-level facts only (no raw audio, no STT, nothing
 stored or transmitted); every window has a hard 30s ceiling. Capture is always
 visible in `status.activeSensors` and `sensor.started/stopped` events — there is
 no silent-capture path. The camera is deliberately unavailable in this build.
+
+## v0.4: Local agent gateway (codex / claude-code)
+
+```bash
+interact-ai agents providers --json          # discovery: version/login/protocol (honest tri-state)
+interact-ai agents providers --refresh --json
+interact-ai agents route --kind code --json  # deterministic routing suggestion (advice only)
+# Real subprocess sessions (read-only/plan mode; no credentials touched):
+interact-ai agents create --agent claude-code --workdir /path --ttl 30 --max-cost 0.5 --json
+interact-ai agents send <sid> --kind task --body '{"task":"..."}'   # forwarded into the agent process
+interact-ai agents show <sid> --json         # claimed-completed is a CLAIM, never verified
+interact-ai agents messages <sid> --direction from-session --json   # results / approval-requests
+interact-ai agents approve <sid> <requestId> --yes   # human resolves agent approvals (default deny)
+interact-ai agents interrupt <sid>           # cancel the current turn
+interact-ai agents close <sid>               # kills the whole process tree
+```
+
+## v0.4: Presentation surface / proactive dialogue
+
+```bash
+interact-ai presentation status --json       # companion window presence (honest offline/hidden)
+interact-ai proactive status|mode <m>|quiet --minutes 60   # deterministic frequency limits
+```
+
+## v0.4: Memory / assets / knowledge
+
+```bash
+interact-ai memory list --layer domain-know-how --json     # fact≠inference≠candidate labeled
+interact-ai memory add --layer user-memory --kind preference --title t --content c
+interact-ai memory bundle --task "..." --agent codex --domain rust --json  # what an agent would get
+interact-ai memory export | delete <id> | clear-session    # no un-deletable memory exists
+interact-ai assets import --path f | --text "..."          # content-addressed, write-once
+interact-ai assets impact <hash> && interact-ai assets delete <hash>   # impact preview first
+interact-ai knowledge search "q" --json                    # FTS+lexical candidates (not truth)
+interact-ai knowledge propose-claim --title t --content c --evidence '[{"url":"..."}]'
+interact-ai knowledge review <id> approve                  # ONLY humans activate; agents comment
+interact-ai knowledge receipts | update-check <trigger>    # honest machine-readable trail
+```
+
+Hard rules for AIs: your writes are ALWAYS candidates; you cannot approve
+your own proposals; analogies/conjecture can never claim causality; asset
+sources are immutable; claimed-completed ≠ verified.

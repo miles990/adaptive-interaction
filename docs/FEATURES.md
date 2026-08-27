@@ -126,3 +126,15 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 | 儲存 | File=Truth（YAML 設定人類可改）＋SQLite（收據/審計/會話）＋atomic write＋last-known-good |
 | 稽核 | 每個敏感操作寫 audit；緊急停止全程留痕；敏感欄位遮罩 |
 | 測試 | 105 個測試；含安全測試（未授權、撤回、超載、path traversal、雙 daemon、crash 恢復）；25-agent 對抗式審查後修復 14 項確認缺陷 |
+
+## v0.4
+
+- 小樞＝Presentation Provider（逐項能力、誠實 receipt、隱藏≠停機）
+- 小樞 v2 貓系角色（3 頭身、反應鏈、失敗專屬美術、三變體）＋本機確定性 Behavior Runtime
+- 主動式對話五模式＋確定性頻率限制（安全提示永不被壓制）
+- 本機 Agent 直連：Codex app-server／Claude Code stream-json（唯讀優先、真子程序、
+  claims≠verified、estop 殺程序樹、成本入預算）
+- 記憶 10 層＋保存期限三態＋Context Bundle（「本次提供了哪些」）
+- CAS 素材庫＋知識圖譜＋FTS5＋candidate-only AI 寫入＋人類專屬 activate
+- 知識更新決策器＋經驗轉知識（升格需反例＋適用範圍）＋Knowledge Receipt
+- 控制中心新 IA（8 一級頁）＋全域搜尋/指令＋統一待辦收件匣＋24 張真實畫面證據

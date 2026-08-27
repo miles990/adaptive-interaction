@@ -117,3 +117,27 @@ no-estop ＋ receptor enabled ＋ 該 receptor 的明確 session consent。liste
 `status.activeSensors`、`sensor.started/stopped` 事件、狀態列 glyph、控制中心橫幅
 與小樞標籤。原始音訊只在記憶體、只導出 level 事實，不存不傳。攝影機**誠實未實作**
 （不做假 driver）。
+
+## v0.4 增量架構
+
+```
+┌─ 控制中心（新 IA：首頁/小樞/AI/能力/記憶知識/自動/活動/安全/設定 ＋ ⌘K）
+│    └─ GlobalSearch・Activity Inbox・Consent Sheet・狀態預覽（真素材）
+├─ 桌面角色 小樞 v2（貓系 rig：scripts/shu；Behavior Runtime：companion/behavior.ts）
+│    └─ presentation.command SSE → 渲染 → /v1/presentation/ack（誠實 receipt）
+├─ interaction-runtime 新模組
+│    ├─ presentation.rs   Presentation Provider（7 receptors＋7 actuators、bridge、TTL sweep）
+│    ├─ proactive.rs      主動對話政策（五模式、確定性頻率、跨重啟）
+│    ├─ gateway.rs        Agent Gateway 接線（attach/pump/deliver/approval/kill-tree）
+│    ├─ memory.rs         記憶分層＋保存期限＋確定性 Context Bundle
+│    ├─ knowledge.rs      CAS 素材＋知識圖譜＋FTS5＋lexical-vector 候選
+│    └─ curator.rs        更新決策器＋經驗轉知識＋Knowledge Receipt
+├─ crates/interaction-agent-gateway（新 crate）
+│    ├─ claude.rs  claude -p stream-json（plan 模式；panic-proof 解析器）
+│    ├─ codex.rs   codex app-server JSON-RPC（schema 鎖定；approval→人類）
+│    └─ process.rs process-group spawn＋SIGTERM→SIGKILL 樹終止
+└─ storage v4→v6：memory_items／assets／knowledge_nodes+edges+FTS5／knowledge_receipts
+```
+
+信任面不變：唯一 governor、claims 永為 inference、estop 全鏈（含子程序樹與
+presentation 佇列）、重啟不自動恢復任何可行動狀態。
