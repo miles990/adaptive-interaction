@@ -70,6 +70,8 @@ function MemorySection({ refreshKey }: { refreshKey: number }) {
     [refreshKey, layer]
   );
   const [notice, setNotice] = React.useState<string | null>(null);
+  // 匯出結果必須真的呈現在畫面上（不是只丟 devtools console）才可宣稱「已在下方顯示」。
+  const [exported, setExported] = React.useState<Record<string, unknown> | null>(null);
 
   return (
     <div>
@@ -92,9 +94,14 @@ function MemorySection({ refreshKey }: { refreshKey: number }) {
           </label>
           <button
             onClick={async () => {
-              const out = await api.memoryExport();
-              setNotice(`已匯出 ${String((out as Record<string, unknown>).count)} 條（JSON 已在下方顯示，可自行複製保存）。`);
-              console.info("memory export", out);
+              try {
+                const out = (await api.memoryExport()) as Record<string, unknown>;
+                setExported(out);
+                setNotice(`已匯出 ${String(out.count)} 條（JSON 已在下方顯示，可自行複製保存）。`);
+              } catch (e) {
+                setExported(null);
+                setNotice(`匯出失敗：${e}`);
+              }
             }}
           >
             匯出全部
@@ -113,6 +120,15 @@ function MemorySection({ refreshKey }: { refreshKey: number }) {
           <p className="muted small" role="status">
             {notice}
           </p>
+        )}
+        {exported && (
+          <div className="state-box">
+            <div className="row space-between">
+              <strong>匯出結果</strong>
+              <button onClick={() => setExported(null)}>關閉</button>
+            </div>
+            <pre className="json-view small">{JSON.stringify(exported, null, 2)}</pre>
+          </div>
         )}
         <StateView state={data} empty="這個分層目前沒有記憶。">
           {(d) => (

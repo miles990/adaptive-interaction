@@ -8,7 +8,7 @@
 //! - 協定形狀取自 `codex app-server generate-json-schema`（0.149.1 鎖定），
 //!   不手寫猜測。舊版不支援 app-server 時誠實回報（exec fallback 由呼叫端決定）。
 
-use crate::process::{interrupt_tree, kill_tree, spawn_grouped};
+use crate::process::{interrupt_tree, kill_tree, spawn_grouped, ProcessGroup};
 use crate::{
     AgentConnector, AgentDiscovery, AgentKind, AgentSessionHandle, ApprovalDecision, GatewayError,
     GatewayEvent, SessionSpec,
@@ -112,6 +112,8 @@ impl AgentConnector for CodexConnector {
         let mut cmd = Command::new(&self.binary);
         cmd.current_dir(&spec.workdir).arg("app-server");
         let mut child = spawn_grouped(cmd)?;
+        // pgid 必須在 spawn 後立即捕捉：kill 路徑不能依賴 child 屆時是否已被收割。
+        let group = ProcessGroup::of(&child);
         let stdout = child.stdout.take().ok_or(GatewayError::Closed)?;
         let stdin = child.stdin.take().ok_or(GatewayError::Closed)?;
         // stderr：診斷輸出，吞掉避免管線塞住。
@@ -230,7 +232,7 @@ impl AgentConnector for CodexConnector {
         )
         .await?;
         if init.get("error").map(|e| !e.is_null()).unwrap_or(false) {
-            let _ = kill_tree(&mut child, 500).await;
+            kill_tree(&mut child, &group, 500).await;
             return Err(GatewayError::Protocol(format!("initialize failed: {init}")));
         }
         let _ = out_tx
@@ -256,7 +258,7 @@ impl AgentConnector for CodexConnector {
             .and_then(|t| t.as_str())
             .map(|s| s.to_string());
         let Some(tid) = thread_id else {
-            let _ = kill_tree(&mut child, 500).await;
+            kill_tree(&mut child, &group, 500).await;
             return Err(GatewayError::Protocol(format!(
                 "thread/start gave no thread id: {thread}"
             )));
@@ -270,6 +272,7 @@ impl AgentConnector for CodexConnector {
 
         let mut handle = CodexHandle {
             child,
+            group,
             shared,
             events: Some(event_rx),
         };
@@ -408,8 +411,21 @@ fn normalize_codex_notification(
                 .take(500)
                 .collect(),
         }],
+        "thread/tokenUsage/updated" => {
+            // 形狀鎖定 0.149.1 schema（ThreadTokenUsageUpdatedNotification）：
+            // params.tokenUsage.{total,last}.totalTokens。codex 只回報 token
+            // 數、沒有 USD 成本；讀不到的欄位誠實回 None，不猜、不換算。
+            let usage = params.and_then(|p| p.get("tokenUsage"));
+            vec![GatewayEvent::TokenUsage {
+                total_tokens: usage
+                    .and_then(|u| u.pointer("/total/totalTokens"))
+                    .and_then(|t| t.as_u64()),
+                last_turn_tokens: usage
+                    .and_then(|u| u.pointer("/last/totalTokens"))
+                    .and_then(|t| t.as_u64()),
+            }]
+        }
         "thread/status/changed"
-        | "thread/tokenUsage/updated"
         | "item/agentMessage/delta"
         | "item/reasoning/textDelta"
         | "item/reasoning/summaryTextDelta"
@@ -424,6 +440,7 @@ fn normalize_codex_notification(
 
 pub struct CodexHandle {
     child: Child,
+    group: ProcessGroup,
     shared: Arc<CodexShared>,
     events: Option<mpsc::Receiver<GatewayEvent>>,
 }
@@ -508,8 +525,12 @@ impl AgentSessionHandle for CodexHandle {
     }
 
     async fn kill(&mut self) -> Result<(), GatewayError> {
-        kill_tree(&mut self.child, 1500).await;
+        kill_tree(&mut self.child, &self.group, 1500).await;
         Ok(())
+    }
+
+    fn process_group(&self) -> ProcessGroup {
+        self.group
     }
 
     fn take_events(&mut self) -> Option<mpsc::Receiver<GatewayEvent>> {
@@ -566,6 +587,42 @@ mod tests {
 
         // 高頻 delta 靜默。
         assert!(normalize_codex_notification("item/agentMessage/delta", None, &s).is_empty());
+    }
+
+    /// regression（token 用量通知曾被整個丟棄，codex 用量完全不可見）。
+    #[test]
+    fn token_usage_notifications_normalize_without_pretending_usd() {
+        let s = shared();
+        let ev = normalize_codex_notification(
+            "thread/tokenUsage/updated",
+            Some(&serde_json::json!({
+                "threadId": "t-1",
+                "turnId": "u-1",
+                "tokenUsage": {
+                    "total": {"totalTokens": 1234, "inputTokens": 1000, "outputTokens": 200,
+                              "cachedInputTokens": 30, "reasoningOutputTokens": 4},
+                    "last": {"totalTokens": 56, "inputTokens": 40, "outputTokens": 15,
+                             "cachedInputTokens": 0, "reasoningOutputTokens": 1},
+                },
+            })),
+            &s,
+        );
+        assert_eq!(
+            ev,
+            vec![GatewayEvent::TokenUsage {
+                total_tokens: Some(1234),
+                last_turn_tokens: Some(56),
+            }]
+        );
+        // 形狀對不上 → 誠實 None，不猜測數字。
+        let ev = normalize_codex_notification("thread/tokenUsage/updated", None, &s);
+        assert_eq!(
+            ev,
+            vec![GatewayEvent::TokenUsage {
+                total_tokens: None,
+                last_turn_tokens: None,
+            }]
+        );
     }
 
     #[test]

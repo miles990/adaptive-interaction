@@ -65,6 +65,42 @@ const ADVANCED_NAV: { id: Tab; label: string }[] = [
 
 type RuntimeState = "connecting" | "ready" | "offline";
 
+// v0.3 相容 tab id（tray 深連結／舊書籤／首頁捷徑）在 v0.4 導覽中沒有
+// 自己的項目，歸屬「能力與裝置」——標題與導覽高亮都對應到該項，
+// 內容仍走 PageBody 的聚焦相容路由。
+const LEGACY_CAP_TABS = ["senses", "responses", "toolops"];
+
+/** 導覽高亮／標題所對應的 nav id（相容 tab 折疊到 capabilities）。 */
+export function navAnchorFor(tab: string): string {
+  return LEGACY_CAP_TABS.includes(tab) ? "capabilities" : tab;
+}
+
+/** topbar 標題：相容 tab 也必須有標題，不得渲染空字串。 */
+export function titleFor(tab: string): string {
+  const anchor = navAnchorFor(tab);
+  return (
+    SIMPLE_NAV.find((t) => t.id === anchor)?.label ??
+    ADVANCED_NAV.find((t) => t.id === anchor)?.label ??
+    ""
+  );
+}
+
+/** 感測倒數：介面上顯示的「N 秒後自動停止」必須真的走。
+ *  interval 只在此元件掛載期間存在（感測結束、banner 消失即清除），有界。 */
+export function SensorCountdown({ autoStopAt }: { autoStopAt: string }) {
+  const remaining = React.useCallback(
+    () => Math.max(0, Math.round((new Date(autoStopAt).getTime() - Date.now()) / 1000)),
+    [autoStopAt]
+  );
+  const [secs, setSecs] = React.useState(remaining);
+  React.useEffect(() => {
+    setSecs(remaining());
+    const t = setInterval(() => setSecs(remaining()), 1000);
+    return () => clearInterval(t);
+  }, [remaining]);
+  return <>{`・${secs} 秒後自動停止`}</>;
+}
+
 export default function App() {
   const [runtimeState, setRuntimeState] = React.useState<RuntimeState>("connecting");
   const [offlineReason, setOfflineReason] = React.useState<string>("");
@@ -174,7 +210,18 @@ function Shell({
   const [trayError, setTrayError] = React.useState<string | null>(null);
   const [sensors, setSensors] = React.useState<import("./api").SensorUse[]>([]);
   const [searchOpen, setSearchOpen] = React.useState(false);
+  // 全域搜尋指令的結果回報：失敗以警示列顯示（不得靜默），成功短暫提示。
+  const [commandNotice, setCommandNotice] = React.useState<{
+    message: string;
+    ok: boolean;
+  } | null>(null);
   const advanced = prefs.mode === "advanced";
+
+  React.useEffect(() => {
+    if (!commandNotice?.ok) return;
+    const t = setTimeout(() => setCommandNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [commandNotice]);
 
   // 全域搜尋／指令面板：⌘K（macOS）／Ctrl+K。
   React.useEffect(() => {
@@ -238,10 +285,8 @@ function Shell({
     );
   }
 
-  const title =
-    SIMPLE_NAV.find((t) => t.id === tab)?.label ??
-    ADVANCED_NAV.find((t) => t.id === tab)?.label ??
-    "";
+  const navTab = navAnchorFor(tab);
+  const title = titleFor(tab);
 
   return (
     <div className="app">
@@ -257,9 +302,9 @@ function Shell({
           {SIMPLE_NAV.map((t) => (
             <button
               key={t.id}
-              className={tab === t.id ? "nav-item active" : "nav-item"}
+              className={navTab === t.id ? "nav-item active" : "nav-item"}
               onClick={() => setTab(t.id)}
-              aria-current={tab === t.id ? "page" : undefined}
+              aria-current={navTab === t.id ? "page" : undefined}
             >
               <Icon name={t.icon} size={16} /> <span>{t.label}</span>
             </button>
@@ -272,9 +317,9 @@ function Shell({
               {ADVANCED_NAV.map((t) => (
                 <button
                   key={t.id}
-                  className={tab === t.id ? "nav-item active" : "nav-item"}
+                  className={navTab === t.id ? "nav-item active" : "nav-item"}
                   onClick={() => setTab(t.id)}
-                  aria-current={tab === t.id ? "page" : undefined}
+                  aria-current={navTab === t.id ? "page" : undefined}
                 >
                   <span>{t.label}</span>
                 </button>
@@ -346,9 +391,7 @@ function Shell({
               <span key={s.kind}>
                 {s.kind === "microphone" ? "🎙 正在使用麥克風" : `使用中：${s.kind}`}
                 （由 {s.startedBy === "desktop" ? "你" : s.startedBy} 啟動・{s.purpose}
-                {s.autoStopAt
-                  ? `・${Math.max(0, Math.round((new Date(s.autoStopAt).getTime() - Date.now()) / 1000))} 秒後自動停止`
-                  : ""}
+                {s.autoStopAt ? <SensorCountdown autoStopAt={s.autoStopAt} /> : ""}
                 ）
               </span>
             ))}
@@ -373,6 +416,19 @@ function Shell({
             </button>
           </div>
         )}
+        {commandNotice &&
+          (commandNotice.ok ? (
+            <div className="sensor-banner" role="status">
+              {commandNotice.message}
+            </div>
+          ) : (
+            <div className="estop-banner" role="alert">
+              {commandNotice.message} — 系統狀態可能未改變，請重試或到對應頁面確認。
+              <button style={{ marginLeft: 8 }} onClick={() => setCommandNotice(null)}>
+                知道了
+              </button>
+            </div>
+          ))}
         <div className="content" id="main-content" key={tab}>
           {connecting ? (
             <div className="state-box">正在啟動系統…</div>
@@ -396,12 +452,14 @@ function Shell({
           setSearchOpen(false);
         }}
         estopped={estop}
+        onEstop={triggerEstop}
+        onCommandFeedback={(message, ok) => setCommandNotice({ message, ok })}
       />
       {closeDialog && (
         <CloseDialog external={supervisor?.mode === "external"} onClose={() => setCloseDialog(false)} />
       )}
       <NarrowNav
-        tab={tab}
+        tab={navTab}
         onNavigate={setTab}
         advanced={advanced}
         statusBadge={

@@ -6,7 +6,7 @@
 //! - 登入狀態用 `claude auth status`（JSON）；不接觸 credential。
 //! - 事件解析為純函式（parse_claude_line），可離線以錄好的樣本測試。
 
-use crate::process::{interrupt_tree, kill_tree, spawn_grouped};
+use crate::process::{interrupt_tree, kill_tree, spawn_grouped, ProcessGroup};
 use crate::{
     AgentConnector, AgentDiscovery, AgentKind, AgentSessionHandle, ApprovalDecision, GatewayError,
     GatewayEvent, SessionSpec,
@@ -121,6 +121,8 @@ impl AgentConnector for ClaudeConnector {
             cmd.args(["--max-turns", &turns.to_string()]);
         }
         let mut child = spawn_grouped(cmd)?;
+        // pgid 必須在 spawn 後立即捕捉：kill 路徑不能依賴 child 屆時是否已被收割。
+        let group = ProcessGroup::of(&child);
         let stdout = child.stdout.take().ok_or(GatewayError::Closed)?;
         let stderr = child.stderr.take().ok_or(GatewayError::Closed)?;
         let stdin = child.stdin.take().ok_or(GatewayError::Closed)?;
@@ -216,6 +218,7 @@ impl AgentConnector for ClaudeConnector {
 
         let mut handle = ClaudeHandle {
             child,
+            group,
             stdin: Some(stdin),
             events: Some(rx),
             session_id,
@@ -229,6 +232,7 @@ impl AgentConnector for ClaudeConnector {
 
 pub struct ClaudeHandle {
     child: Child,
+    group: ProcessGroup,
     stdin: Option<ChildStdin>,
     events: Option<mpsc::Receiver<GatewayEvent>>,
     session_id: std::sync::Arc<std::sync::Mutex<Option<String>>>,
@@ -272,8 +276,12 @@ impl AgentSessionHandle for ClaudeHandle {
 
     async fn kill(&mut self) -> Result<(), GatewayError> {
         self.stdin.take(); // 關 stdin（-p 模式的正常收尾訊號）
-        kill_tree(&mut self.child, 1500).await;
+        kill_tree(&mut self.child, &self.group, 1500).await;
         Ok(())
+    }
+
+    fn process_group(&self) -> ProcessGroup {
+        self.group
     }
 
     fn take_events(&mut self) -> Option<mpsc::Receiver<GatewayEvent>> {

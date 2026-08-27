@@ -143,10 +143,13 @@ const MAX_TRACKED: usize = 64;
 
 impl ProactiveDialogueState {
     /// 確定性決策：class 是否允許現在發話。允許時**登記**本次發話。
+    /// `dnd_active`＝policy 勿擾時段目前生效（由呼叫端以本地時間判定）；
+    /// 安全類不受勿擾延後，一般類在 `dnd_defer` 開啟時延後。
     pub fn gate(
         &mut self,
         class: ProactiveClass,
         dedup_key: &str,
+        dnd_active: bool,
         now: Timestamp,
     ) -> ProactiveDecision {
         self.prune(now);
@@ -177,6 +180,13 @@ impl ProactiveDialogueState {
                     reason: "使用者要求暫時安靜".into(),
                 };
             }
+        }
+        // 勿擾時段（policy.quietHours）：延後非必要訊息。不登記發送與去重
+        // ——屬延後語意，窗結束後同一 dedupKey 仍可提醒，而非丟棄。
+        if dnd_active && self.config.dnd_defer {
+            return ProactiveDecision::Suppressed {
+                reason: "勿擾時段，非必要訊息延後".into(),
+            };
         }
         // 未回覆不追問。
         if self.config.no_follow_up && !self.last_answered && !self.recent_sends.is_empty() {
@@ -325,9 +335,13 @@ impl Runtime {
         let parsed: ProactiveDialogueConfig = serde_json::from_value(cfg).map_err(|e| {
             interaction_core::DomainError::Validation(format!("invalid config: {e}"))
         })?;
-        guard.config = parsed;
+        let prior = std::mem::replace(&mut guard.config, parsed);
+        if let Err(e) = self.persist_proactive(&guard) {
+            // 存檔失敗不得謊稱已儲存（誠實階梯）：還原記憶體設定並回報錯誤。
+            guard.config = prior;
+            return Err(e);
+        }
         let snapshot = guard.status(chrono::Utc::now());
-        self.persist_proactive(&guard);
         self.events.publish(interaction_core::RuntimeEvent::new(
             interaction_core::EventType::PolicyChanged,
             chrono::Utc::now(),
@@ -340,20 +354,38 @@ impl Runtime {
     pub async fn proactive_dialogue_quiet(&self, minutes: i64) -> serde_json::Value {
         let mut guard = self.proactive_dialogue.write().await;
         guard.quiet_for(chrono::Utc::now(), minutes.clamp(1, 24 * 60));
-        let snapshot = guard.status(chrono::Utc::now());
-        self.persist_proactive(&guard);
+        let mut snapshot = guard.status(chrono::Utc::now());
+        if let Err(e) = self.persist_proactive(&guard) {
+            // 回傳型別固定為 snapshot（HTTP／Tauri 直接轉發），以欄位誠實
+            // 回報存檔失敗：安靜請求本次生效，但重啟後不保證延續。
+            if let Some(obj) = snapshot.as_object_mut() {
+                obj.insert("persistError".into(), json!(e.to_string()));
+            }
+        }
         snapshot
     }
 
     /// 確定性閘門＋持久化（供 executor 與未來的 agent 主動對話使用）。
+    /// 勿擾時段在此以 policy.quietHours（本地時間）判定後傳入 gate：
+    /// governor 的 quiet-hours 只壓制侵擾頻道（conversation 不在清單內），
+    /// 對話類的勿擾延後必須由本閘門確定性強制。
     pub async fn proactive_dialogue_gate(
         &self,
         class: ProactiveClass,
         dedup_key: &str,
     ) -> ProactiveDecision {
+        let dnd_active = {
+            let policy = self.policy().await;
+            let local = chrono::Local::now().time();
+            policy
+                .quiet_hours
+                .iter()
+                .any(|w| crate::runtime::quiet_window_active(&w.start, &w.end, local))
+        };
         let mut guard = self.proactive_dialogue.write().await;
-        let decision = guard.gate(class, dedup_key, chrono::Utc::now());
-        self.persist_proactive(&guard);
+        let decision = guard.gate(class, dedup_key, dnd_active, chrono::Utc::now());
+        // persist 失敗已於 persist_proactive 記 log；決策以記憶體狀態為準。
+        let _ = self.persist_proactive(&guard);
         decision
     }
 
@@ -361,13 +393,31 @@ impl Runtime {
     pub(crate) async fn proactive_note_reply(&self) {
         let mut guard = self.proactive_dialogue.write().await;
         guard.note_user_reply();
-        self.persist_proactive(&guard);
+        // persist 失敗已於 persist_proactive 記 log；決策以記憶體狀態為準。
+        let _ = self.persist_proactive(&guard);
     }
 
-    fn persist_proactive(&self, state: &ProactiveDialogueState) {
-        if let Ok(body) = serde_json::to_string(state) {
-            let _ = self.store.set_meta(PROACTIVE_META_KEY, &body);
+    /// 持久化不得靜默失敗（誠實階梯）：失敗一律記 log 並回傳錯誤，讓
+    /// 使用者面向的路徑（configure／quiet）誠實回報；若失敗後即重啟，
+    /// 頻率計數會歸零，log 是唯一痕跡。
+    fn persist_proactive(
+        &self,
+        state: &ProactiveDialogueState,
+    ) -> interaction_core::DomainResult<()> {
+        let result = serde_json::to_string(state)
+            .map_err(|e| {
+                interaction_core::DomainError::Internal(format!(
+                    "serialize proactive-dialogue state: {e}"
+                ))
+            })
+            .and_then(|body| self.store.set_meta(PROACTIVE_META_KEY, &body));
+        if let Err(e) = &result {
+            tracing::warn!(
+                error = %e,
+                "failed to persist proactive-dialogue state; rate limits may reset on restart"
+            );
         }
+        result
     }
 }
 
@@ -388,15 +438,15 @@ mod tests {
         let mut s = state(ProactiveMode::Off);
         let now = Utc::now();
         assert_eq!(
-            s.gate(ProactiveClass::Safety, "e1", now),
+            s.gate(ProactiveClass::Safety, "e1", false, now),
             ProactiveDecision::Allowed
         );
         assert!(matches!(
-            s.gate(ProactiveClass::Suggestion, "e2", now),
+            s.gate(ProactiveClass::Suggestion, "e2", false, now),
             ProactiveDecision::Suppressed { .. }
         ));
         assert!(matches!(
-            s.gate(ProactiveClass::Greeting, "e3", now),
+            s.gate(ProactiveClass::Greeting, "e3", false, now),
             ProactiveDecision::Suppressed { .. }
         ));
     }
@@ -406,12 +456,12 @@ mod tests {
         let now = Utc::now();
         let mut natural = state(ProactiveMode::Natural);
         assert!(matches!(
-            natural.gate(ProactiveClass::Greeting, "g", now),
+            natural.gate(ProactiveClass::Greeting, "g", false, now),
             ProactiveDecision::Suppressed { .. }
         ));
         let mut lively = state(ProactiveMode::Lively);
         assert_eq!(
-            lively.gate(ProactiveClass::Greeting, "g", now),
+            lively.gate(ProactiveClass::Greeting, "g", false, now),
             ProactiveDecision::Allowed
         );
     }
@@ -425,7 +475,7 @@ mod tests {
             s.last_answered = true;
             let t = base + chrono::Duration::minutes(13 * i);
             assert_eq!(
-                s.gate(ProactiveClass::Suggestion, &format!("k{i}"), t),
+                s.gate(ProactiveClass::Suggestion, &format!("k{i}"), false, t),
                 ProactiveDecision::Allowed
             );
         }
@@ -433,14 +483,14 @@ mod tests {
         s.last_answered = true;
         let t4 = base + chrono::Duration::minutes(40);
         assert!(matches!(
-            s.gate(ProactiveClass::Suggestion, "k4", t4),
+            s.gate(ProactiveClass::Suggestion, "k4", false, t4),
             ProactiveDecision::Suppressed { .. }
         ));
         // 最短間隔：距上一則 5 分鐘 → 壓下（即使小時額度已回復也一樣邏輯）。
         let mut s2 = state(ProactiveMode::Lively);
         s2.last_answered = true;
         assert_eq!(
-            s2.gate(ProactiveClass::Suggestion, "a", base),
+            s2.gate(ProactiveClass::Suggestion, "a", false, base),
             ProactiveDecision::Allowed
         );
         s2.last_answered = true;
@@ -448,6 +498,7 @@ mod tests {
             s2.gate(
                 ProactiveClass::Suggestion,
                 "b",
+                false,
                 base + chrono::Duration::minutes(5)
             ),
             ProactiveDecision::Suppressed { .. }
@@ -459,7 +510,7 @@ mod tests {
         let mut s = state(ProactiveMode::Lively);
         let base = Utc::now();
         assert_eq!(
-            s.gate(ProactiveClass::Completion, "c1", base),
+            s.gate(ProactiveClass::Completion, "c1", false, base),
             ProactiveDecision::Allowed
         );
         // 20 秒內相近事件 → 合併。
@@ -467,6 +518,7 @@ mod tests {
             s.gate(
                 ProactiveClass::Completion,
                 "c2",
+                false,
                 base + chrono::Duration::seconds(20)
             ),
             ProactiveDecision::Suppressed { .. }
@@ -477,6 +529,7 @@ mod tests {
             s.gate(
                 ProactiveClass::Suggestion,
                 "c3",
+                false,
                 base + chrono::Duration::minutes(20)
             ),
             ProactiveDecision::Suppressed { .. }
@@ -487,6 +540,7 @@ mod tests {
             s.gate(
                 ProactiveClass::Suggestion,
                 "c4",
+                false,
                 base + chrono::Duration::minutes(21)
             ),
             ProactiveDecision::Allowed
@@ -500,7 +554,7 @@ mod tests {
         // 連續多個不同安全事件全部放行（頻率不適用）。
         for i in 0..10 {
             assert_eq!(
-                s.gate(ProactiveClass::Safety, &format!("s{i}"), base),
+                s.gate(ProactiveClass::Safety, &format!("s{i}"), false, base),
                 ProactiveDecision::Allowed
             );
         }
@@ -509,6 +563,7 @@ mod tests {
             s.gate(
                 ProactiveClass::Safety,
                 "s1",
+                false,
                 base + chrono::Duration::seconds(30)
             ),
             ProactiveDecision::Suppressed { .. }
@@ -518,6 +573,7 @@ mod tests {
             s.gate(
                 ProactiveClass::Safety,
                 "s1",
+                false,
                 base + chrono::Duration::minutes(11)
             ),
             ProactiveDecision::Allowed
@@ -533,6 +589,7 @@ mod tests {
             s.gate(
                 ProactiveClass::Greeting,
                 "g",
+                false,
                 now + chrono::Duration::minutes(5)
             ),
             ProactiveDecision::Suppressed { .. }
@@ -542,6 +599,7 @@ mod tests {
             s.gate(
                 ProactiveClass::Safety,
                 "sfe",
+                false,
                 now + chrono::Duration::minutes(5)
             ),
             ProactiveDecision::Allowed
@@ -552,8 +610,43 @@ mod tests {
             s.gate(
                 ProactiveClass::Greeting,
                 "g2",
+                false,
                 now + chrono::Duration::minutes(65)
             ),
+            ProactiveDecision::Allowed
+        );
+    }
+
+    #[test]
+    fn dnd_defers_non_essential_but_never_safety() {
+        let mut s = state(ProactiveMode::Lively);
+        let now = Utc::now();
+        // 勿擾生效＋dndDefer 預設開啟 → 一般訊息延後。
+        assert_eq!(
+            s.gate(ProactiveClass::Suggestion, "d1", true, now),
+            ProactiveDecision::Suppressed {
+                reason: "勿擾時段，非必要訊息延後".into()
+            }
+        );
+        // 延後語意：勿擾壓下不登記去重與頻率，窗結束後同一事件仍可提醒。
+        assert_eq!(
+            s.gate(ProactiveClass::Suggestion, "d1", false, now),
+            ProactiveDecision::Allowed
+        );
+        // 安全類不受勿擾延後（只去重，永不被頻率或勿擾壓制）。
+        assert_eq!(
+            s.gate(ProactiveClass::Safety, "d2", true, now),
+            ProactiveDecision::Allowed
+        );
+    }
+
+    #[test]
+    fn dnd_defer_disabled_delivers_during_quiet_window() {
+        let mut s = state(ProactiveMode::Lively);
+        s.config.dnd_defer = false;
+        let now = Utc::now();
+        assert_eq!(
+            s.gate(ProactiveClass::Greeting, "g", true, now),
             ProactiveDecision::Allowed
         );
     }

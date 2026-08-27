@@ -11,6 +11,7 @@
 
 use crate::runtime::Runtime;
 use chrono::Utc;
+use interaction_agent_gateway::process::ProcessGroup;
 use interaction_agent_gateway::{
     AgentConnector, AgentDiscovery, AgentKind, AgentSessionHandle, ApprovalDecision, GatewayEvent,
 };
@@ -25,6 +26,11 @@ use std::sync::{Arc, Mutex};
 
 /// approval 無人裁決的自動拒絕時限。
 pub const APPROVAL_TTL_SECS: i64 = 300;
+
+/// 對 agent 子程序 stdin 送訊的逾時上限：agent 卡死不讀 stdin 時，OS pipe
+/// 緩衝填滿後 write 會永遠等待——不設限就會佔住 handle 鎖，讓排在後面的
+/// 呼叫（estop 的禮貌 cancel、interrupt、approval）跟著卡死。
+const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub fn agent_kind_for(agent_id: &str) -> Option<AgentKind> {
     match agent_id {
@@ -54,6 +60,9 @@ struct PendingApproval {
 struct ManagedSession {
     handle: Arc<tokio::sync::Mutex<Box<dyn AgentSessionHandle>>>,
     approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
+    /// spawn 當下捕捉的 process group（鎖外存放）：kill 路徑絕不能排在
+    /// 佔住 handle 鎖的 stdin 寫入後面。
+    group: ProcessGroup,
 }
 
 #[derive(Default)]
@@ -167,6 +176,16 @@ impl Runtime {
         record: &AgentSessionRecord,
         workdir: Option<String>,
     ) -> DomainResult<Option<String>> {
+        // Codex app-server 只回報 token 用量、不回報 USD 成本：maxCost 在
+        // 這裡無法確定性強制。誠實拒絕建立，而不是收下一個永遠不會執行的
+        // 上限（誠實階梯：不得假裝有預算防護）。token 用量另以 progress
+        // 事件揭露；硬上限請改用 maxMessages／ttlMinutes。
+        if kind == AgentKind::Codex && record.budget.max_cost > 0.0 {
+            return Err(DomainError::Validation(
+                "codex 不回報 USD 成本，maxCost 無法強制執行；請改用 maxMessages 或 ttlMinutes 限制"
+                    .into(),
+            ));
+        }
         let connector: Box<dyn AgentConnector> = connectors()
             .into_iter()
             .find(|c| c.kind() == kind)
@@ -197,11 +216,13 @@ impl Runtime {
             .take_events()
             .ok_or_else(|| DomainError::Internal("events already taken".into()))?;
         let provider_session_id = handle.provider_session_id();
+        let group = handle.process_group();
         let approvals: Arc<Mutex<HashMap<String, PendingApproval>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let managed = ManagedSession {
             handle: Arc::new(tokio::sync::Mutex::new(handle)),
             approvals: approvals.clone(),
+            group,
         };
         self.gateway
             .sessions
@@ -300,6 +321,23 @@ impl Runtime {
                                 &session_id,
                                 "progress",
                                 json!({"artifact": path}),
+                            )
+                            .await;
+                    }
+                    GatewayEvent::TokenUsage {
+                        total_tokens,
+                        last_turn_tokens,
+                    } => {
+                        // codex 只回報 token 數、沒有 USD：照原樣揭露為 progress，
+                        // 不換算成本（maxCost 對 codex 在 gateway_attach 已誠實拒絕）。
+                        let _ = rt
+                            .report_agent_session(
+                                &session_id,
+                                "progress",
+                                json!({"tokenUsage": {
+                                    "totalTokens": total_tokens,
+                                    "lastTurnTokens": last_turn_tokens,
+                                }}),
                             )
                             .await;
                     }
@@ -432,12 +470,18 @@ impl Runtime {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| serde_json::to_string(&message.body).unwrap_or_default());
+        // send 有界：stdin 對面卡死（pipe 滿且 agent 不讀）時不得永久佔住
+        // handle 鎖——逾時放棄（未寫完的半截訊息視同失敗，誠實回報）。
         let ok = {
             let mut handle = managed.handle.lock().await;
-            handle.send_user_message(&text).await.is_ok()
+            match tokio::time::timeout(SEND_TIMEOUT, handle.send_user_message(&text)).await {
+                Ok(res) => res.is_ok(),
+                Err(_) => false,
+            }
         };
         if ok {
             // 轉送即送達：補 delivered 戳記＋委派 receipt ack。
+            // 首次戳記為準（與 mailbox_fetch 一致）：重送不得改寫既有時間戳。
             let acked = {
                 let mut map = self.agent_sessions.write().await;
                 map.get_mut(session_id).and_then(|entry| {
@@ -446,7 +490,9 @@ impl Runtime {
                         .iter_mut()
                         .find(|m| m.message_id == message.message_id)
                         .map(|m| {
-                            m.delivered_at = Some(Utc::now());
+                            if m.delivered_at.is_none() {
+                                m.delivered_at = Some(Utc::now());
+                            }
                             m.action_id.clone()
                         })
                 })
@@ -491,7 +537,13 @@ impl Runtime {
             )));
         }
         {
-            let mut handle = managed.handle.lock().await;
+            let mut handle = tokio::time::timeout(SEND_TIMEOUT, managed.handle.lock())
+                .await
+                .map_err(|_| {
+                    DomainError::Unavailable(
+                        "agent 子程序無回應（stdin 阻塞）；請關閉 session".into(),
+                    )
+                })?;
             handle
                 .resolve_approval(
                     request_id,
@@ -519,13 +571,18 @@ impl Runtime {
         Ok(json!({"resolved": request_id, "approved": approve}))
     }
 
-    /// 中斷目前 turn（不關 session）。
+    /// 中斷目前 turn（不關 session）。鎖取得有界：send 卡死時誠實回
+    /// Unavailable（此時只有 close/estop 的鎖外 kill 能救），不掛住呼叫端。
     pub async fn gateway_interrupt(&self, session_id: &str) -> DomainResult<Value> {
         let managed = self
             .gateway
             .managed(session_id)
             .ok_or_else(|| DomainError::NotFound(format!("gateway session {session_id}")))?;
-        let mut handle = managed.handle.lock().await;
+        let mut handle = tokio::time::timeout(SEND_TIMEOUT, managed.handle.lock())
+            .await
+            .map_err(|_| {
+                DomainError::Unavailable("agent 子程序無回應（stdin 阻塞）；請關閉 session".into())
+            })?;
         handle
             .interrupt()
             .await
@@ -540,8 +597,14 @@ impl Runtime {
         };
         let sid = session_id.to_string();
         tokio::spawn(async move {
-            let mut handle = managed.handle.lock().await;
-            let _ = handle.kill().await;
+            // 鎖外先整組終止：卡在 stdin 寫入的 handle 鎖不得阻擋 estop/close
+            // 的終止保證（spec：estop 必須能殺掉卡死的 agent）。
+            managed.group.terminate(2_000).await;
+            // 之後才有界地嘗試拿鎖收割 Child；拿不到就交給 kill_on_drop 收尾。
+            if let Ok(mut handle) = tokio::time::timeout(SEND_TIMEOUT, managed.handle.lock()).await
+            {
+                let _ = handle.kill().await;
+            }
             tracing::info!(target: "interaction.gateway", session = %sid, reason, "agent subprocess killed");
         });
     }

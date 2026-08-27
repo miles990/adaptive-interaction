@@ -193,10 +193,50 @@ pub fn validate_node(node: &KnowledgeNode) -> Result<(), String> {
         return Err("confidence 必須在 0..1".into());
     }
     // Claim 必須有證據指引（可稽核；沒有證據的主張不能進圖譜）。
-    if node.node_type == NodeType::Claim && node.evidence.is_empty() {
-        return Err("claim 必須附至少一個 evidence（素材 hash／URL＋片段）".into());
+    // 每筆 evidence 都要有可驗證的指向——空的 SourceRef 或只有 note 的
+    // 條目不構成 provenance，否則證據門檻可被 `evidence: [{}]` 繞過。
+    if node.node_type == NodeType::Claim {
+        let has_ref = |s: &Option<String>| s.as_deref().is_some_and(|v| !v.trim().is_empty());
+        let ok = !node.evidence.is_empty()
+            && node
+                .evidence
+                .iter()
+                .all(|e| has_ref(&e.asset_hash) || has_ref(&e.url));
+        if !ok {
+            return Err(
+                "claim 的每筆 evidence 必須含 assetHash 或 url（素材 hash／URL＋片段；note 不足以作為證據）"
+                    .into(),
+            );
+        }
     }
     Ok(())
+}
+
+/// 複審狀態機閘門（spec §15）：superseded／archived 是版本化終態——
+/// 不得經 review 復活（否則同一主張會出現兩個 Active 版本）。
+/// approve 允許自 candidate/stale/disputed 升格，對 active 是冪等的
+/// 再確認；active 知識要退場走 supersede，不走 reject。
+/// comment 任何狀態皆可（留言不改狀態）。
+pub fn validate_review_transition(current: KnowledgeStatus, verdict: &str) -> Result<(), String> {
+    if verdict != "approve" && verdict != "reject" {
+        return Ok(());
+    }
+    match current {
+        KnowledgeStatus::Candidate | KnowledgeStatus::Stale | KnowledgeStatus::Disputed => Ok(()),
+        KnowledgeStatus::Active => {
+            if verdict == "approve" {
+                Ok(()) // 再確認（冪等）。
+            } else {
+                Err(
+                    "active 知識不可直接 reject——請提出取代版本（supersede）或經衝突流程標記爭議"
+                        .into(),
+                )
+            }
+        }
+        KnowledgeStatus::Superseded | KnowledgeStatus::Archived => Err(format!(
+            "節點狀態為 {current:?}（版本化封存），不得經 review 復活；請提出取代版本（supersede）"
+        )),
+    }
 }
 
 /// 邊驗證：類比／啟發／AI 推測不可宣稱因果（spec：語意相似≠因果）。
@@ -273,6 +313,74 @@ mod tests {
         let mut e = node(NodeType::Entity, MemoryActor::Human);
         e.evidence.clear();
         assert!(validate_node(&e).is_ok());
+    }
+
+    #[test]
+    fn empty_or_note_only_source_refs_never_satisfy_the_evidence_gate() {
+        // 空 SourceRef（全欄位 None）不算證據。
+        let mut n = node(NodeType::Claim, MemoryActor::Human);
+        n.evidence = vec![SourceRef::default()];
+        assert!(validate_node(&n).is_err(), "evidence: [{{}}] 必須被拒");
+        // 只有 note 不算證據。
+        n.evidence = vec![SourceRef {
+            note: Some("trust me".into()),
+            ..Default::default()
+        }];
+        assert!(validate_node(&n).is_err(), "note-only 必須被拒");
+        // 空白字串視同缺席。
+        n.evidence = vec![SourceRef {
+            url: Some("   ".into()),
+            ..Default::default()
+        }];
+        assert!(validate_node(&n).is_err(), "空白 url 必須被拒");
+        // 混入一筆空條目也不行（all 條目都要有指向）。
+        n.evidence = vec![
+            SourceRef {
+                url: Some("https://example.com".into()),
+                ..Default::default()
+            },
+            SourceRef::default(),
+        ];
+        assert!(validate_node(&n).is_err(), "夾帶空條目必須被拒");
+        // assetHash 或 url 任一即可。
+        n.evidence = vec![SourceRef {
+            asset_hash: Some("a".repeat(64)),
+            ..Default::default()
+        }];
+        assert!(validate_node(&n).is_ok());
+        // Entity 不受此門檻影響。
+        let mut e = node(NodeType::Entity, MemoryActor::Human);
+        e.evidence = vec![SourceRef::default()];
+        assert!(validate_node(&e).is_ok());
+    }
+
+    #[test]
+    fn review_transitions_respect_the_state_machine() {
+        use KnowledgeStatus as S;
+        // 未定案狀態可 approve/reject。
+        for s in [S::Candidate, S::Stale, S::Disputed] {
+            assert!(validate_review_transition(s, "approve").is_ok(), "{s:?}");
+            assert!(validate_review_transition(s, "reject").is_ok(), "{s:?}");
+        }
+        // 版本化終態不得復活。
+        for s in [S::Superseded, S::Archived] {
+            assert!(validate_review_transition(s, "approve").is_err(), "{s:?}");
+            assert!(validate_review_transition(s, "reject").is_err(), "{s:?}");
+        }
+        // active：approve 是冪等再確認；reject 必須走 supersede。
+        assert!(validate_review_transition(S::Active, "approve").is_ok());
+        assert!(validate_review_transition(S::Active, "reject").is_err());
+        // comment 任何狀態皆可。
+        for s in [
+            S::Candidate,
+            S::Active,
+            S::Stale,
+            S::Disputed,
+            S::Superseded,
+            S::Archived,
+        ] {
+            assert!(validate_review_transition(s, "comment").is_ok(), "{s:?}");
+        }
     }
 
     #[test]

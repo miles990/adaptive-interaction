@@ -880,6 +880,31 @@ impl Store {
         Ok(out)
     }
 
+    /// 依 delete_with_parent（隨父素材刪除）找出**所有**衍生記憶 id。
+    /// 全表 json_extract 掃描——刪素材是罕見的人類動作，級聯完整性
+    /// 優先於速度；不設 recency 窗或上限（recency 窗會讓舊衍生物
+    /// 靜默逃過級聯）。
+    pub fn list_memory_ids_by_delete_parent(
+        &self,
+        parent_hash: &str,
+    ) -> Result<Vec<String>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM memory_items
+                 WHERE json_extract(body, '$.retention.deleteWithParent') = ?1",
+            )
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([parent_hash], |r| r.get::<_, String>(0))
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+
     /// 刪除已過期記憶（expiresAt 到期＝停止使用並刪除）。回傳刪除數。
     pub fn prune_expired_memory(
         &self,
@@ -1036,6 +1061,57 @@ impl Store {
         Ok(out)
     }
 
+    /// keyset 分頁列出知識節點（id 升冪；回傳 (id, body)）。
+    /// 供全量掃描（freshness sweep／向量索引重建）逐頁掃完——
+    /// list_knowledge_nodes 的單次上限會把超過 1000 節點的圖譜靜默截斷。
+    /// keyset 以不變的 id 為游標，掃描中改 status/updated_at 不影響進度。
+    pub fn list_knowledge_nodes_page(
+        &self,
+        status: Option<&str>,
+        after_id: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<(String, String)>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let limit = limit.clamp(1, 1000);
+        let after = after_id.unwrap_or("");
+        let mut out = Vec::new();
+        match status {
+            Some(st) => {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT id, body FROM knowledge_nodes
+                         WHERE status = ?1 AND id > ?2 ORDER BY id LIMIT ?3",
+                    )
+                    .map_err(map_err)?;
+                let rows = stmt
+                    .query_map(rusqlite::params![st, after, limit], |r| {
+                        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                    })
+                    .map_err(map_err)?;
+                for r in rows {
+                    out.push(r.map_err(map_err)?);
+                }
+            }
+            None => {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT id, body FROM knowledge_nodes
+                         WHERE id > ?1 ORDER BY id LIMIT ?2",
+                    )
+                    .map_err(map_err)?;
+                let rows = stmt
+                    .query_map(rusqlite::params![after, limit], |r| {
+                        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                    })
+                    .map_err(map_err)?;
+                for r in rows {
+                    out.push(r.map_err(map_err)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// FTS5 全文搜尋 → (node_id, bm25 分數，越小越好)。
     pub fn search_knowledge(
         &self,
@@ -1099,15 +1175,51 @@ impl Store {
         Ok(out)
     }
 
-    /// 引用某素材的知識節點 id（刪除影響預覽）。
-    pub fn nodes_referencing_asset(&self, hash: &str) -> Result<Vec<String>, DomainError> {
+    /// keyset 分頁列出某節點的相鄰邊（id 升冪；回傳 (id, body)）。
+    /// 供衝突檢查逐頁掃完——edges_touching 的單次上限會漏看超出的邊。
+    pub fn edges_touching_page(
+        &self,
+        node_id: &str,
+        after_id: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<(String, String)>, DomainError> {
         let conn = self.conn.lock().expect("store lock");
-        let pattern = format!("%{hash}%");
+        let after = after_id.unwrap_or("");
         let mut stmt = conn
-            .prepare("SELECT id FROM knowledge_nodes WHERE body LIKE ?1 LIMIT 200")
+            .prepare(
+                "SELECT id, body FROM knowledge_edges
+                 WHERE (from_id = ?1 OR to_id = ?1) AND id > ?2 ORDER BY id LIMIT ?3",
+            )
             .map_err(map_err)?;
         let rows = stmt
-            .query_map([pattern], |r| r.get::<_, String>(0))
+            .query_map(
+                rusqlite::params![node_id, after, limit.clamp(1, 500)],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            )
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+
+    /// 引用某素材的知識節點 id（刪除影響預覽＋dispute 級聯）。
+    /// 精確比對 evidence[].assetHash——不做 `LIKE %hash%` 子字串比對
+    /// （內文順帶提到 hash 不算引用；萬用字元不可膨脹結果），且不設
+    /// 上限：刪除級聯必須涵蓋**每一個**引用節點，截斷會讓 Active 知識
+    /// 靜默保留懸空證據。
+    pub fn nodes_referencing_asset(&self, hash: &str) -> Result<Vec<String>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM knowledge_nodes WHERE EXISTS (
+                     SELECT 1 FROM json_each(knowledge_nodes.body, '$.evidence') je
+                     WHERE json_extract(je.value, '$.assetHash') = ?1)",
+            )
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([hash], |r| r.get::<_, String>(0))
             .map_err(map_err)?;
         let mut out = Vec::new();
         for r in rows {
@@ -1298,5 +1410,104 @@ mod tests {
             store.get_meta("clean_shutdown").unwrap().as_deref(),
             Some("false")
         );
+    }
+
+    #[test]
+    fn asset_reference_matching_is_exact_and_unbounded() {
+        let store = Store::open_in_memory().unwrap();
+        let hash = "ab".repeat(32);
+        // 205 個以 evidence.assetHash 真正引用素材的節點（超過舊 200 上限）。
+        for i in 0..205 {
+            let body = serde_json::json!({"evidence": [{"assetHash": hash}]}).to_string();
+            store
+                .save_knowledge_node(
+                    &format!("kn-ref-{i:04}"),
+                    "claim",
+                    "active",
+                    "t",
+                    "c",
+                    &body,
+                )
+                .unwrap();
+        }
+        // 內文順帶提到 hash 但 evidence 沒引用 → 不算引用。
+        let prose =
+            serde_json::json!({"evidence": [], "content": format!("提到 {hash} 而已")}).to_string();
+        store
+            .save_knowledge_node("kn-prose", "claim", "active", "t", "c", &prose)
+            .unwrap();
+        let refs = store.nodes_referencing_asset(&hash).unwrap();
+        assert_eq!(refs.len(), 205, "每一個引用節點都要被找到，不得截斷");
+        assert!(!refs.iter().any(|id| id == "kn-prose"), "子字串不算引用");
+        // 萬用字元不可膨脹結果（精確比對）。
+        assert!(store.nodes_referencing_asset("%").unwrap().is_empty());
+    }
+
+    #[test]
+    fn delete_parent_lookup_scans_all_rows() {
+        let store = Store::open_in_memory().unwrap();
+        let hash = "cd".repeat(32);
+        // 依附素材的衍生記憶先寫入（最舊——recency 窗會漏掉的位置）。
+        let dep = serde_json::json!({"retention": {"deleteWithParent": hash}}).to_string();
+        store
+            .save_memory(
+                "mem-dependent",
+                "domain-knowledge",
+                "inference",
+                None,
+                None,
+                &dep,
+            )
+            .unwrap();
+        // 1010 筆較新的無關記憶（超過舊 1000 recency 窗）。
+        for i in 0..1010 {
+            store
+                .save_memory(
+                    &format!("mem-filler-{i:04}"),
+                    "session-context",
+                    "fact",
+                    None,
+                    None,
+                    r#"{"retention": {}}"#,
+                )
+                .unwrap();
+        }
+        let ids = store.list_memory_ids_by_delete_parent(&hash).unwrap();
+        assert_eq!(ids, vec!["mem-dependent".to_string()]);
+    }
+
+    #[test]
+    fn knowledge_node_pages_cover_all_rows() {
+        let store = Store::open_in_memory().unwrap();
+        for i in 0..1010 {
+            store
+                .save_knowledge_node(
+                    &format!("kn-{i:04}"),
+                    "claim",
+                    if i % 2 == 0 { "active" } else { "candidate" },
+                    "t",
+                    "c",
+                    "{}",
+                )
+                .unwrap();
+        }
+        // 全量分頁：總數不受單頁上限截斷、id 不重複。
+        let mut seen = std::collections::BTreeSet::new();
+        let mut after: Option<String> = None;
+        loop {
+            let page = store
+                .list_knowledge_nodes_page(Some("active"), after.as_deref(), 400)
+                .unwrap();
+            let Some((last, _)) = page.last() else { break };
+            after = Some(last.clone());
+            let full = page.len() == 400;
+            for (id, _) in page {
+                assert!(seen.insert(id), "分頁不得重複");
+            }
+            if !full {
+                break;
+            }
+        }
+        assert_eq!(seen.len(), 505, "所有 active 節點都要被掃到");
     }
 }

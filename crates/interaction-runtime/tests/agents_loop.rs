@@ -340,6 +340,44 @@ async fn open_sessions_do_not_survive_restart() {
 }
 
 #[tokio::test]
+async fn close_is_terminal_and_keeps_prior_state_detail() {
+    let (_g, rt) = runtime().await;
+    let s = rt
+        .create_agent_session(create_input("agent.once"))
+        .await
+        .unwrap();
+    let sid = s.session_id.as_str().to_string();
+    let handoff = HandoffSummary {
+        task: "收尾".into(),
+        confirmed_facts: vec!["完成 1 項".into()],
+        ..Default::default()
+    };
+    let closed = rt
+        .close_agent_session(&sid, Some(handoff), "closed")
+        .await
+        .unwrap();
+    assert_eq!(closed.state, AgentSessionState::Closed);
+    // detail 保留 prior-state 註記（不再被第二個 dead write 覆蓋掉）。
+    assert_eq!(closed.detail.as_deref(), Some("closed (was Created)"));
+
+    // terminal 狀態不可翻轉：換個 reason 再關一次必須被拒絕，
+    // 狀態、detail、handoff 都不得變動。
+    let err = rt
+        .close_agent_session(&sid, None, "cancelled")
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::Conflict(_)), "{err:?}");
+    let after = rt.get_agent_session(&sid).await.unwrap();
+    assert_eq!(after.state, AgentSessionState::Closed);
+    assert_eq!(after.detail.as_deref(), Some("closed (was Created)"));
+    assert_eq!(
+        after.handoff.as_ref().map(|h| h.confirmed_facts.len()),
+        Some(1),
+        "re-close 不得抹掉 handoff"
+    );
+}
+
+#[tokio::test]
 async fn max_messages_zero_does_not_mean_unlimited() {
     let (_g, rt) = runtime().await;
     // A caller-supplied 0 must NOT nullify the mailbox budget — it falls back

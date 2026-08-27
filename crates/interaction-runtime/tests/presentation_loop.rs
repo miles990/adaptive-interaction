@@ -213,15 +213,110 @@ async fn hidden_companion_stops_surface_receptors_and_actuators() {
         .await
         .expect("runtime keeps running while companion hidden");
 
-    // 視覺 actuator 誠實失敗（不假裝顯示了氣泡）。
-    let receipts = plan_and_execute(&rt, "companion.bubble.show", json!({}), Some("看不到")).await;
-    assert_eq!(receipts[0].current_status, ActionStatus::Failed);
+    // 隱藏中的視覺 actuator 在規劃期就被誠實排除（Offline），不再產生
+    // 一個必然失敗的 dispatch。
+    let mut intent = SemanticIntent::new("companion-test");
+    intent.preferred_channels = vec!["desktop-pet".into()];
+    intent.message = Some("看不到".into());
+    let plan = rt
+        .create_plan(
+            intent,
+            vec!["companion.bubble.show".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(plan.status, PlanStatus::Blocked);
+    let err = rt
+        .execute_plan(
+            &plan.plan_id,
+            interaction_policy::ActionSource::ExplicitRequest,
+            false,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::PolicyBlocked(_)));
 
     // 顯示後恢復。
     rt.presentation_hello(true, None).await;
     rt.ingest("companion.click", facts, BTreeMap::new(), 1.0)
         .await
         .expect("visible companion accepts clicks");
+    let receipts =
+        plan_and_execute(&rt, "companion.bubble.show", json!({}), Some("現在看得到")).await;
+    assert_eq!(receipts[0].current_status, ActionStatus::Dispatched);
+
+    // 規劃時可見、執行前被隱藏 → 執行期健康閘誠實拒絕（不假裝顯示了氣泡）。
+    let mut late_intent = SemanticIntent::new("companion-test");
+    late_intent.preferred_channels = vec!["desktop-pet".into()];
+    late_intent.message = Some("執行前被隱藏".into());
+    let late_plan = rt
+        .create_plan(
+            late_intent,
+            vec!["companion.bubble.show".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
+        .await
+        .unwrap();
+    rt.presentation_hello(false, None).await;
+    let late = rt
+        .execute_plan(
+            &late_plan.plan_id,
+            interaction_policy::ActionSource::ExplicitRequest,
+            false,
+        )
+        .await
+        .unwrap();
+    assert_eq!(late[0].current_status, ActionStatus::Blocked);
+}
+
+#[tokio::test]
+async fn legacy_interaction_receptor_gated_by_companion_presence() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    let mut facts = BTreeMap::new();
+    facts.insert("kind".to_string(), json!("clicked"));
+
+    // 從未連線：legacy fallback receptor 也不接受偽造的視窗內互動。
+    let err = rt
+        .ingest(
+            "desktop.companion.interaction",
+            facts.clone(),
+            BTreeMap::new(),
+            1.0,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::Unavailable(_)));
+
+    // 已連線但隱藏：同一個閘門（隱藏角色停止感知，不能繞道 legacy id）。
+    rt.presentation_hello(false, None).await;
+    let err = rt
+        .ingest(
+            "desktop.companion.interaction",
+            facts.clone(),
+            BTreeMap::new(),
+            1.0,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::Unavailable(_)));
+
+    // 可見時恢復接受。
+    rt.presentation_hello(true, None).await;
+    rt.ingest("desktop.companion.interaction", facts, BTreeMap::new(), 1.0)
+        .await
+        .expect("visible companion accepts legacy interaction pushes");
 }
 
 #[tokio::test]
@@ -279,6 +374,101 @@ async fn behavior_intent_whitelist_enforced_through_full_loop() {
     assert_eq!(
         rt.store.receipt(&ok[0].action_id).unwrap().current_status,
         ActionStatus::Completed
+    );
+}
+
+#[tokio::test]
+async fn ack_in_accepted_window_walks_chain_to_completed() {
+    let (_g, rt) = runtime().await;
+    visible_session(&rt).await;
+    let receipts =
+        plan_and_execute(&rt, "companion.bubble.show", json!({}), Some("競態氣泡")).await;
+    let action_id = receipts[0].action_id.clone();
+    let dispatched = rt.store.receipt(&action_id).unwrap();
+    assert_eq!(dispatched.current_status, ActionStatus::Dispatched);
+
+    // 重現競態的可觀測狀態：presentation.command 已發、pending 已登記，
+    // 但 executor 的 Dispatched persist 尚未落地（store 仍是 Accepted）。
+    let mut accepted = dispatched.clone();
+    accepted.current_status = ActionStatus::Accepted;
+    accepted
+        .timestamps
+        .retain(|(s, _)| !matches!(s, ActionStatus::Dispatched));
+    assert!(rt.store.upsert_receipt(&accepted, "desktop-pet").unwrap());
+
+    // ack 必須合法走完 Accepted→Dispatched→Acknowledged→Completed，
+    // 不得無聲 no-op（否則 pending 已被消費、receipt 掛到 TTL Expired）。
+    let out = rt
+        .presentation_ack(action_id.as_str(), "displayed", None)
+        .await
+        .unwrap();
+    assert_eq!(out.get("status").unwrap().as_str().unwrap(), "completed");
+    let stored = rt.store.receipt(&action_id).unwrap();
+    assert_eq!(stored.current_status, ActionStatus::Completed);
+    assert_eq!(
+        stored.verification.expect("evidence attached").verdict,
+        VerificationVerdict::AcknowledgedOnly
+    );
+    // 完整事件階梯有發出（dispatched→acknowledged→completed）。
+    let events = rt.events.recent(100);
+    for ev in [EventType::ActionAcknowledged, EventType::ActionCompleted] {
+        assert!(
+            events.iter().any(|e| e.event_type == ev
+                && e.payload.get("actionId").and_then(|v| v.as_str()) == Some(action_id.as_str())),
+            "missing {ev:?} for {action_id}"
+        );
+    }
+
+    // executor 遲到的 Dispatched persist 被 sticky-terminal 守衛拒絕，
+    // 不能把已完成的 receipt 倒轉回 Dispatched（receipt 不孤兒化）。
+    assert!(!rt.store.upsert_receipt(&dispatched, "desktop-pet").unwrap());
+    assert_eq!(
+        rt.store.receipt(&action_id).unwrap().current_status,
+        ActionStatus::Completed
+    );
+}
+
+#[tokio::test]
+async fn ack_after_terminal_sweep_emits_no_lifecycle_events() {
+    let (_g, rt) = runtime().await;
+    visible_session(&rt).await;
+    let receipts =
+        plan_and_execute(&rt, "companion.bubble.show", json!({}), Some("停止競態")).await;
+    let action_id = receipts[0].action_id.clone();
+
+    // 重現 estop 掃描先把 receipt 寫成終態、presentation actuator 還沒
+    // 清掉 pending 的窗口（estop 先寫 open receipts、之後才輪到 actuator
+    // 的 emergency_stop 清佇列）。函式中段的交錯無法黑箱重現；本測試
+    // 釘住 guarded persist-then-emit 的可觀測契約：persist 被拒 → 不發
+    // 任何 lifecycle 事件、以 store 終態誠實回報。
+    let mut stopped = rt.store.receipt(&action_id).unwrap();
+    stopped
+        .transition(ActionStatus::Stopped, chrono::Utc::now())
+        .unwrap();
+    assert!(rt.store.upsert_receipt(&stopped, "desktop-pet").unwrap());
+
+    let out = rt
+        .presentation_ack(action_id.as_str(), "displayed", None)
+        .await
+        .unwrap();
+    assert_eq!(out.get("status").unwrap().as_str().unwrap(), "stopped");
+    assert_eq!(
+        rt.store.receipt(&action_id).unwrap().current_status,
+        ActionStatus::Stopped
+    );
+    // /v1/events 訂閱者絕不能看到這個動作的 acknowledged/completed。
+    let events = rt.events.recent(200);
+    assert!(
+        events.iter().all(|e| {
+            let same_action =
+                e.payload.get("actionId").and_then(|v| v.as_str()) == Some(action_id.as_str());
+            !(same_action
+                && matches!(
+                    e.event_type,
+                    EventType::ActionAcknowledged | EventType::ActionCompleted
+                ))
+        }),
+        "spurious lifecycle event emitted for a terminalized receipt"
     );
 }
 

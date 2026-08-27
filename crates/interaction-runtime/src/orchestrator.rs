@@ -79,6 +79,15 @@ pub fn build_plan(req: PlanRequest<'_>, texts: &TextSelector) -> Plan {
         req.default_ttl_ms,
     );
 
+    // The message is selected once per plan; it doubles as the input to the
+    // open-selection requirement gate below (an actuator that hard-requires a
+    // message must not be picked when the strategy yields silence).
+    let text = texts.select(
+        &req.message_strategy,
+        &req.intent.intent,
+        req.intent.message.as_deref(),
+    );
+
     // Candidate pool: available actuators, optionally restricted by the caller.
     let mut scored: Vec<(f64, &ActuatorManifest, String)> = Vec::new();
     for manifest in &req.snapshot.actuators {
@@ -106,6 +115,39 @@ pub fn build_plan(req: PlanRequest<'_>, texts: &TextSelector) -> Plan {
                 ),
             });
             continue;
+        }
+        // OPEN selection must not pick an actuator whose driver will
+        // deterministically reject the dispatch for a parameter the planner
+        // cannot synthesize (e.g. companion.animation.play without an
+        // `animation` name). Explicitly named candidates skip this gate and
+        // keep the honest execute-time rejection.
+        if req.candidates.is_empty() {
+            let missing: Vec<&str> =
+                crate::presentation::open_selection_requirements(manifest.id.as_str())
+                    .iter()
+                    .copied()
+                    .filter(|key| {
+                        if *key == "message" {
+                            text.is_none()
+                        } else {
+                            req.intent
+                                .payload
+                                .as_ref()
+                                .and_then(|p| p.get(*key))
+                                .is_none()
+                        }
+                    })
+                    .collect();
+            if !missing.is_empty() {
+                plan.rejected.push(RejectedCandidate {
+                    actuator_id: manifest.id.clone(),
+                    reason: format!(
+                        "missing required parameter {} (open selection cannot synthesize it)",
+                        missing.join(", ")
+                    ),
+                });
+                continue;
+            }
         }
 
         let preferred = &req.intent.preferred_channels;
@@ -136,11 +178,6 @@ pub fn build_plan(req: PlanRequest<'_>, texts: &TextSelector) -> Plan {
 
     // Minimal effective set: highest-utility actuator per channel, floor-gated,
     // capped by max_channels.
-    let text = texts.select(
-        &req.message_strategy,
-        &req.intent.intent,
-        req.intent.message.as_deref(),
-    );
     let mut used_channels: Vec<String> = Vec::new();
     for (score, manifest, rationale) in &scored {
         if plan.steps.len() >= req.max_channels as usize {

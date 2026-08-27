@@ -181,7 +181,9 @@ function SessionCard({
               onClick={async () => {
                 try {
                   await api.agentSessionClose(record.sessionId, "closed");
-                  onNotice("工作階段已關閉（子程序已終止）。");
+                  // 誠實階梯：關閉是 receipt-backed 事實；子程序終止在後端是
+                  // 非同步背景工作，此刻只能宣稱「已要求」，不得宣稱「已終止」。
+                  onNotice("工作階段已關閉（已要求終止子程序）。");
                 } catch (e) {
                   onNotice(`關閉失敗：${e}`);
                 }

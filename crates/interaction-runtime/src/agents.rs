@@ -206,18 +206,31 @@ impl Runtime {
 
         // Gateway agents（codex/claude-code）：掛真實子程序。失敗＝建立失敗
         // （誠實），不留下看似可用其實沒有 agent 的 session。
-        if let Some(kind) = crate::gateway::agent_kind_for(&record.agent_id) {
+        let record = if let Some(kind) = crate::gateway::agent_kind_for(&record.agent_id) {
             match self
                 .gateway_attach(kind, &record, input.workdir.clone())
                 .await
             {
                 Ok(provider_sid) => {
-                    let mut map = self.agent_sessions.write().await;
-                    if let Some(entry) = map.get_mut(session_id.as_str()) {
-                        entry.record.provider_session_id = provider_sid;
-                        self.persist_agent_session(&entry.record);
-                        return Ok(entry.record.clone());
-                    }
+                    let updated = {
+                        let mut map = self.agent_sessions.write().await;
+                        match map.get_mut(session_id.as_str()) {
+                            Some(entry) => {
+                                // 事件泵可能已用 init 事件回填 provider session
+                                // id——attach 的回傳值（claude 是 None）不得
+                                // 把它蓋掉。
+                                entry.record.provider_session_id =
+                                    provider_sid.or(entry.record.provider_session_id.take());
+                                self.persist_agent_session(&entry.record);
+                                entry.record.clone()
+                            }
+                            None => record,
+                        }
+                    };
+                    // 子程序的 pgid 立刻落地（meta）：daemon 崩潰或非正常結束
+                    // 時，下次啟動的 restore 才找得回這棵孤兒程序樹。
+                    self.record_gateway_pgid(session_id.as_str()).await;
+                    updated
                 }
                 Err(e) => {
                     let _ = self
@@ -226,6 +239,21 @@ impl Runtime {
                     return Err(e);
                 }
             }
+        } else {
+            record
+        };
+        // estop 旗標的寫入不經 agent_create_lock，可能在本次建立途中亮起；
+        // estop 的 session 快照會等本 create 釋放鎖後補收這個 session，但
+        // 呼叫端不該拿到一個註定被清掉的 session——回傳前再檢查一次，
+        // 命中就回滾：殺子程序、關 session、誠實拒絕。
+        if self.is_estopped() {
+            self.gateway_spawn_kill(session_id.as_str(), "estop-during-create");
+            let _ = self
+                .close_agent_session(session_id.as_str(), None, "cancelled")
+                .await;
+            return Err(DomainError::PolicyBlocked(
+                "emergency stop engaged; no new agent sessions".into(),
+            ));
         }
         Ok(record)
     }
@@ -399,11 +427,21 @@ impl Runtime {
                 .get_mut(id)
                 .ok_or_else(|| DomainError::NotFound(format!("agent session {id}")))?;
             self.expire_if_needed(entry).await;
+            // Gateway session（codex/claude-code）的送達語意只屬於
+            // gateway_deliver——子程序真的收到訊息才算 delivered。這裡的
+            // fetch 對 gateway session 是純觀看（GET messages 任何持 token
+            // 的觀察者都能呼叫，子程序從不輪詢這個端點）：蓋 delivered／
+            // 推進 receipt 會把「有人看過信箱」偽裝成「agent 已收到任務」，
+            // 違反誠實階梯（dispatched≠acknowledged）。
+            let observer_only = crate::gateway::agent_kind_for(&entry.record.agent_id).is_some();
             let now = Utc::now();
             let mut out = Vec::new();
             for m in entry.mailbox.iter_mut() {
                 if m.direction == direction {
-                    if direction == MailboxDirection::ToSession && m.delivered_at.is_none() {
+                    if direction == MailboxDirection::ToSession
+                        && !observer_only
+                        && m.delivered_at.is_none()
+                    {
                         m.delivered_at = Some(now);
                         if let Some(aid) = &m.action_id {
                             acked.push((aid.clone(), m.message_id.clone()));
@@ -523,6 +561,21 @@ impl Runtime {
             let entry = map
                 .get_mut(id)
                 .ok_or_else(|| DomainError::NotFound(format!("agent session {id}")))?;
+            // 先做惰性過期再擋重複關閉：租約已過期的 session 誠實地以
+            // Expired 收場（expire_if_needed 已持久化＋發事件），不得被改寫
+            // 成 Closed/Cancelled。session 生命週期的終局以 closed_at 為準
+            // ——只有 close／expiry／restore 會設它；report 造成的 Failed/
+            // TimedOut/Cancelled 是「任務結局」，仍需要 close 來收尾（清
+            // consent、關 provider、記經驗）。已有 closed_at 的 session 不得
+            // 再關：terminal 狀態不可翻轉，handoff 與經驗記錄不得被第二次
+            // 關閉抹掉或重複產生。
+            self.expire_if_needed(entry).await;
+            if entry.record.closed_at.is_some() {
+                return Err(DomainError::Conflict(format!(
+                    "agent session {id} is {:?}; already closed",
+                    entry.record.state
+                )));
+            }
             let now = Utc::now();
             let prior_state = entry.record.state;
             entry.record.state = match reason {
@@ -538,7 +591,6 @@ impl Runtime {
                 entry.record.consent_scope.clear();
             }
             entry.record.handoff = handoff;
-            entry.record.detail = Some(reason.to_string());
             // Undelivered tasks are dead, honestly.
             entry.mailbox.retain(|m| m.delivered_at.is_some());
             self.persist_agent_session(&entry.record);
@@ -547,6 +599,10 @@ impl Runtime {
             (entry.record.clone(), prior_state)
         };
         let (record, prior_state) = record;
+        // kill 已排入（SIGTERM→寬限→SIGKILL）；忘掉 pgid 記錄，重啟時不再
+        // 對這個（屆時可能已被重用的）pid 送訊號。殘餘風險：daemon 在 kill
+        // 寬限期內崩潰，這棵子程序樹可能存活且不再被 restore 找回。
+        self.forget_gateway_pgid(id);
         // Handoff 摘要落入記憶層（AgentHandoff，30 天保存；bounded 已驗證）。
         if let Some(h) = &record.handoff {
             let content = serde_json::to_string_pretty(h).unwrap_or_default();
@@ -592,6 +648,11 @@ impl Runtime {
     /// cancel message; nothing resumes automatically.
     pub(crate) async fn estop_agent_sessions(&self) {
         let ids: Vec<String> = {
+            // 與 create_agent_session 互斥（agent_create_lock）：進行中的
+            // 建立完成後才快照，該 session 必然入列；之後的建立則看到
+            // estop 旗標（在本函式之前已寫入）而被拒絕——estop 與 create
+            // 之間不再有 TOCTOU 縫隙。鎖只罩快照，不罩後面的信箱／關閉 I/O。
+            let _create_guard = self.agent_create_lock.lock().await;
             let map = self.agent_sessions.read().await;
             map.values()
                 .filter(|e| e.record.state.is_open())
@@ -625,6 +686,9 @@ impl Runtime {
 
     /// Restore persisted session records (closed history + expire leftovers).
     pub(crate) async fn restore_agent_sessions(&self) {
+        // 上一輪 daemon 可能沒走完 shutdown（崩潰／SIGKILL／斷電）：標
+        // Expired 之前，先依已落地的 pgid 記錄終結還活著的孤兒子程序樹。
+        let reaped = self.reap_recorded_gateway_pgids("restore").await;
         let Ok(bodies) = self.store.all_agent_sessions() else {
             return;
         };
@@ -636,7 +700,12 @@ impl Runtime {
                 if record.state.is_open() {
                     record.state = AgentSessionState::Expired;
                     record.closed_at = Some(Utc::now());
-                    record.detail = Some("runtime restarted".into());
+                    record.detail = Some(match reaped.get(record.session_id.as_str()) {
+                        Some(pgid) => format!(
+                            "runtime restarted; orphan subprocess group reaped (pgid {pgid})"
+                        ),
+                        None => "runtime restarted".into(),
+                    });
                     if let Ok(body) = serde_json::to_string(&record) {
                         let _ = self
                             .store
@@ -654,6 +723,205 @@ impl Runtime {
             }
         }
     }
+
+    // ------------------------------------------------------------------
+    // Gateway 孤兒子程序記錄（meta:gateway_pgids）。spawn_grouped 讓每個
+    // gateway 子程序自成 process group（pgid == 直接子程序 pid），但 handle
+    // 不跨 daemon 重啟存活——pgid 記錄是 shutdown／崩潰重啟後唯一找得回
+    // 整棵孤兒程序樹的線索（「子程序絕不跨 runtime 重啟存活」）。
+    // ------------------------------------------------------------------
+
+    fn load_gateway_pgids(&self) -> BTreeMap<String, GatewayPgidRecord> {
+        self.store
+            .get_meta(GATEWAY_PGID_META_KEY)
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    fn save_gateway_pgids(&self, map: &BTreeMap<String, GatewayPgidRecord>) {
+        if let Ok(body) = serde_json::to_string(map) {
+            let _ = self.store.set_meta(GATEWAY_PGID_META_KEY, &body);
+        }
+    }
+
+    /// attach 成功後立刻記下子程序的 pgid（best-effort）。handle 不暴露
+    /// pid，這裡以 OS 快照鎖定「本 daemon 的直接子程序、自為 group leader
+    /// （spawn_grouped 的簽名）、且未被記錄過」的行程；create 已被
+    /// agent_create_lock 序列化，同一時刻至多一個新 gateway 子程序。候選
+    /// 不唯一（前一個 session 的殘影還沒死透）或已消失（極早退出）就誠實
+    /// 放棄記錄——該 session 若遇上 daemon 崩潰將無法被 restore 找回，
+    /// 屬已知殘餘風險。
+    pub(crate) async fn record_gateway_pgid(&self, session_id: &str) {
+        #[cfg(unix)]
+        {
+            let mut known = self.load_gateway_pgids();
+            let recorded: std::collections::BTreeSet<u32> =
+                known.values().map(|r| r.pgid).collect();
+            let me = std::process::id();
+            let candidates: Vec<ProcRow> = snapshot_processes()
+                .await
+                .into_iter()
+                .filter(|p| p.ppid == me && p.pid == p.pgid && !recorded.contains(&p.pgid))
+                .collect();
+            match candidates.as_slice() {
+                [only] => {
+                    known.insert(
+                        session_id.to_string(),
+                        GatewayPgidRecord {
+                            pgid: only.pgid,
+                            cmd: only.cmd.clone(),
+                        },
+                    );
+                    self.save_gateway_pgids(&known);
+                }
+                other => {
+                    tracing::warn!(
+                        target: "interaction.gateway",
+                        session = %session_id,
+                        candidates = other.len(),
+                        "無法確定 gateway 子程序 pgid；daemon 崩潰時這個 session 的孤兒清理會漏掉它"
+                    );
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = session_id;
+    }
+
+    /// 移除一個 session 的 pgid 記錄（正常關閉路徑；kill 已由 handle 負責）。
+    pub(crate) fn forget_gateway_pgid(&self, session_id: &str) {
+        let mut known = self.load_gateway_pgids();
+        if known.remove(session_id).is_some() {
+            self.save_gateway_pgids(&known);
+        }
+    }
+
+    /// 終結所有已記錄的 gateway 子程序群組（shutdown 與 restore 共用）。
+    /// SIGTERM → 有界輪詢（≤1s）→ 無條件補 SIGKILL 給整組：group leader
+    /// 先退出時，忽略 SIGTERM 的孫程序仍會被終結。PID 重用防護：只有
+    /// 「還活著、仍自為 group leader、command line 與記錄完全相同」的行程
+    /// 才送訊號，其餘放過並丟棄記錄——寧可留下孤兒（誠實記為已知限制），
+    /// 不可誤殺無關行程；同 pid 同 command 的極端重用仍可能誤殺（殘餘風險）。
+    pub(crate) async fn reap_recorded_gateway_pgids(
+        &self,
+        reason: &'static str,
+    ) -> BTreeMap<String, u32> {
+        let known = self.load_gateway_pgids();
+        let mut reaped: BTreeMap<String, u32> = BTreeMap::new();
+        if known.is_empty() {
+            return reaped;
+        }
+        #[cfg(unix)]
+        {
+            let procs = snapshot_processes().await;
+            for (sid, rec) in &known {
+                let verified = procs
+                    .iter()
+                    .any(|p| p.pid == rec.pgid && p.pgid == rec.pgid && p.cmd == rec.cmd);
+                if !verified {
+                    continue;
+                }
+                signal_process_group(rec.pgid, "TERM").await;
+                for _ in 0..10 {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    let leader_alive = snapshot_processes()
+                        .await
+                        .iter()
+                        .any(|p| p.pid == rec.pgid && p.pgid == rec.pgid);
+                    if !leader_alive {
+                        break;
+                    }
+                }
+                signal_process_group(rec.pgid, "KILL").await;
+                tracing::info!(
+                    target: "interaction.gateway",
+                    session = %sid,
+                    pgid = rec.pgid,
+                    reason,
+                    "orphan agent subprocess group reaped"
+                );
+                reaped.insert(sid.clone(), rec.pgid);
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = reason;
+            // 非 unix 平台沒有 process-group 訊號語意；誠實不假裝清理過。
+            tracing::warn!(
+                target: "interaction.gateway",
+                "gateway 孤兒子程序清理在此平台不支援"
+            );
+        }
+        self.save_gateway_pgids(&BTreeMap::new());
+        reaped
+    }
+}
+
+pub(crate) const GATEWAY_PGID_META_KEY: &str = "gateway_pgids";
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct GatewayPgidRecord {
+    pgid: u32,
+    /// 記錄當下的完整 command line（ps 快照）：重啟後的 kill 驗證依賴
+    /// 「command 完全相同」這一條，作為 best-effort 的 PID 重用防護。
+    cmd: String,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone)]
+struct ProcRow {
+    pid: u32,
+    pgid: u32,
+    ppid: u32,
+    cmd: String,
+}
+
+/// OS 行程快照（pid/pgid/ppid/command；zombie 除外——殺不得也不該當
+/// attribution 候選）。best-effort：`ps` 失敗或輸出解析不了就回空，
+/// 寧可少記／少殺，不可猜。
+#[cfg(unix)]
+async fn snapshot_processes() -> Vec<ProcRow> {
+    let out = match tokio::process::Command::new("ps")
+        .args(["-ax", "-ww", "-o", "pid=,pgid=,ppid=,stat=,command="])
+        .output()
+        .await
+    {
+        Ok(o) if o.status.success() => o.stdout,
+        _ => return Vec::new(),
+    };
+    String::from_utf8_lossy(&out)
+        .lines()
+        .filter_map(|line| {
+            let mut it = line.split_whitespace();
+            let pid: u32 = it.next()?.parse().ok()?;
+            let pgid: u32 = it.next()?.parse().ok()?;
+            let ppid: u32 = it.next()?.parse().ok()?;
+            let stat = it.next()?;
+            if stat.starts_with('Z') {
+                return None;
+            }
+            let cmd = it.collect::<Vec<_>>().join(" ");
+            Some(ProcRow {
+                pid,
+                pgid,
+                ppid,
+                cmd,
+            })
+        })
+        .collect()
+}
+
+/// 對整個 process group（負 pid）送訊號。runtime crate 不直接依賴 libc，
+/// 走 POSIX sh 內建 kill；pgid 由 u32 格式化，無注入面。
+#[cfg(unix)]
+async fn signal_process_group(pgid: u32, signal: &str) {
+    let _ = tokio::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(format!("kill -s {signal} -- -{pgid}"))
+        .output()
+        .await;
 }
 
 // ---------------------------------------------------------------------------

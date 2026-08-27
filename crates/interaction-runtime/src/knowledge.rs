@@ -21,6 +21,18 @@ use std::path::PathBuf;
 pub const MAX_ASSET_BYTES: u64 = 64 * 1024 * 1024; // 64MB 本機素材上限
 const MAX_INLINE_CONTENT: usize = 1024 * 1024;
 
+/// 素材 hash 必須是 SHA-256 小寫 hex（64 位）。在 runtime 邊界擋掉
+/// 萬用字元／畸形輸入——查詢層不得被 `%`／`_` 之類字串影響。
+fn validate_asset_hash(hash: &str) -> DomainResult<()> {
+    if hash.len() == 64 && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        Ok(())
+    } else {
+        Err(DomainError::Validation(
+            "asset hash 必須是 64 位小寫 hex（SHA-256）".into(),
+        ))
+    }
+}
+
 /// 可替換向量索引介面（spec §11：Embedding 只負責找候選）。
 pub trait VectorIndex: Send + Sync {
     fn upsert(&self, id: &str, text: &str);
@@ -184,9 +196,11 @@ impl Runtime {
             &body,
         )?;
         if inserted {
+            // 誠實階梯：flat token 無法辨識呼叫者是人或 AI host——audit
+            // 不得斷言 "human"。真實 actor 需 API 層帶入（已知限制）。
             self.store.audit(
                 "asset.imported",
-                "human",
+                "unattributed-api-caller",
                 &json!({"hash": hash, "source": source}),
             )?;
         }
@@ -201,6 +215,7 @@ impl Runtime {
     }
 
     pub async fn asset_get(&self, hash: &str) -> DomainResult<AssetRecord> {
+        validate_asset_hash(hash)?;
         let body = self
             .store
             .get_asset(hash)?
@@ -218,15 +233,12 @@ impl Runtime {
     }
 
     /// 刪除影響預覽：哪些知識節點引用它、哪些記憶隨父刪除。
+    /// 兩個查詢都是全量精確比對——預覽必須跟實際級聯一致，
+    /// recency 窗或列數上限會讓預覽低報、級聯漏刪。
     pub async fn asset_delete_impact(&self, hash: &str) -> DomainResult<Value> {
+        validate_asset_hash(hash)?;
         let nodes = self.store.nodes_referencing_asset(hash)?;
-        let memories = self.store.list_memory(None, 1000)?;
-        let dependent_memories: Vec<String> = memories
-            .iter()
-            .filter_map(|b| serde_json::from_str::<interaction_core::MemoryItem>(b).ok())
-            .filter(|m| m.retention.delete_with_parent.as_deref() == Some(hash))
-            .map(|m| m.memory_id.as_str().to_string())
-            .collect();
+        let dependent_memories = self.store.list_memory_ids_by_delete_parent(hash)?;
         Ok(json!({
             "hash": hash,
             "referencingKnowledgeNodes": nodes,
@@ -235,8 +247,9 @@ impl Runtime {
         }))
     }
 
-    /// 刪除素材（人類動作）：級聯刪 delete_with_parent 記憶；
-    /// 引用它的 Active 知識標 disputed（不靜默消失）。
+    /// 刪除素材（設計上屬人類動作；flat token 尚無法強制辨識呼叫者，
+    /// 見已知限制）：級聯刪 delete_with_parent 記憶；引用它的 Active
+    /// 知識標 disputed（不靜默消失）。
     pub async fn asset_delete(&self, hash: &str) -> DomainResult<Value> {
         let impact = self.asset_delete_impact(hash).await?;
         let deleted = self.store.delete_asset(hash)?;
@@ -253,28 +266,36 @@ impl Runtime {
                 }
             }
         }
-        // 失去來源的知識 → disputed。
+        // 失去來源的知識：Active → disputed；Candidate/Stale 不改狀態，
+        // 但留下可見註記讓複審者看見證據已懸空（approve 時另有硬性
+        // 重驗擋下，見 knowledge_review）。
         if let Some(ids) = impact["referencingKnowledgeNodes"].as_array() {
             for id in ids {
                 if let Some(id) = id.as_str() {
                     if let Ok(mut node) = self.knowledge_get(id).await {
-                        if node.status == KnowledgeStatus::Active {
-                            node.status = KnowledgeStatus::Disputed;
-                            node.reviews.push(KnowledgeReview {
-                                reviewer: MemoryActor::Runtime,
-                                verdict: "comment".into(),
-                                note: format!("來源素材 {hash} 已刪除，知識失去支持"),
-                                at: Utc::now(),
-                            });
-                            let _ = self.persist_knowledge_node(&node);
+                        match node.status {
+                            KnowledgeStatus::Active => {
+                                node.status = KnowledgeStatus::Disputed;
+                            }
+                            KnowledgeStatus::Candidate | KnowledgeStatus::Stale => {}
+                            _ => continue,
                         }
+                        node.reviews.push(KnowledgeReview {
+                            reviewer: MemoryActor::Runtime,
+                            verdict: "comment".into(),
+                            note: format!("來源素材 {hash} 已刪除，知識失去支持"),
+                            at: Utc::now(),
+                        });
+                        node.updated_at = Utc::now();
+                        let _ = self.persist_knowledge_node(&node);
                     }
                 }
             }
         }
+        // 誠實階梯：呼叫者身分無法驗證，audit 不得斷言 "human"。
         self.store.audit(
             "asset.deleted",
-            "human",
+            "unattributed-api-caller",
             &json!({"hash": hash, "impact": impact}),
         )?;
         Ok(json!({"deleted": true, "impact": impact}))
@@ -425,6 +446,11 @@ impl Runtime {
             }
             v => v,
         };
+        // 狀態機閘門（spec §15）：approve/reject 只對未定案節點有效；
+        // superseded/archived 是版本化終態，不得經 review 復活。
+        // agent 的裁決已降為 comment，不受此限。
+        interaction_core::validate_review_transition(node.status, effective_verdict)
+            .map_err(DomainError::Validation)?;
         node.reviews.push(KnowledgeReview {
             reviewer: actor,
             verdict: effective_verdict.to_string(),
@@ -443,6 +469,17 @@ impl Runtime {
                         "經驗候選升格需要 counterexamples 與 applicability（反例與適用範圍必填）"
                             .into(),
                     ));
+                }
+                // 升格前重新驗證證據來源仍存在：candidate 期間素材可能
+                // 已被刪除——引用懸空 hash 的節點不得成為 Active。
+                for e in &node.evidence {
+                    if let Some(h) = &e.asset_hash {
+                        if self.store.get_asset(h)?.is_none() {
+                            return Err(DomainError::Validation(format!(
+                                "evidence 指向已刪除的素材 {h}，不可升格；請先更新證據或提出取代版本"
+                            )));
+                        }
+                    }
                 }
                 node.status = KnowledgeStatus::Active;
                 // 若此節點取代舊版：舊版 → superseded（版本化封存）。
@@ -604,16 +641,34 @@ impl Runtime {
         Ok(())
     }
 
-    /// 啟動時重建向量索引（記憶體內）。
+    /// 啟動時重建向量索引（記憶體內）。keyset 分頁掃完全部節點——
+    /// 單頁上限不得靜默截斷（超過 1000 節點的圖譜也要完整進候選索引）。
     pub(crate) fn rebuild_vector_index(&self) {
-        if let Ok(bodies) = self.store.list_knowledge_nodes(None, 1000) {
-            for body in bodies {
+        const PAGE: u32 = 500;
+        let mut after: Option<String> = None;
+        loop {
+            let Ok(page) = self
+                .store
+                .list_knowledge_nodes_page(None, after.as_deref(), PAGE)
+            else {
+                // 啟動路徑不硬失敗；索引本就標示為候選層，缺頁只影響召回。
+                break;
+            };
+            let Some((last_id, _)) = page.last() else {
+                break;
+            };
+            after = Some(last_id.clone());
+            let full_page = page.len() as u32 == PAGE;
+            for (_, body) in page {
                 if let Ok(node) = serde_json::from_str::<KnowledgeNode>(&body) {
                     self.vector_index.upsert(
                         node.node_id.as_str(),
                         &format!("{} {}", node.title, node.content),
                     );
                 }
+            }
+            if !full_page {
+                break;
             }
         }
     }

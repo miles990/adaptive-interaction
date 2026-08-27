@@ -11,8 +11,10 @@
 //! ```
 //!
 //! 可用性誠實：沒有存活的角色視窗時 actuator 為 Offline 並拒絕執行；角色被
-//! 隱藏時，視窗內 receptor 拒絕 ingest（隱藏角色**不是** Emergency Stop——
-//! Runtime、tray 與 agent session 全部保留）。
+//! 隱藏時，視窗內命令 actuator 同樣回報 Offline（Degraded 會被規劃器視為
+//! 可用，導致挑選必然拒絕 dispatch 的目標），視窗內 receptor 拒絕 ingest
+//! （隱藏角色**不是** Emergency Stop——Runtime、tray 與 agent session 全部
+//! 保留；隱藏狀態仍透過 presentation status／`presentation.state` 事件呈現）。
 
 use crate::runtime::{Runtime, RuntimeInner};
 use adapters_builtin::PushReceptor;
@@ -227,15 +229,19 @@ impl PresentationBridge {
         ids
     }
 
-    /// actuator 表面健康：離線／隱藏都誠實反映，不假裝可用。
-    pub fn surface_health(&self, now: Timestamp) -> ComponentHealth {
+    /// actuator 表面健康：與 execute 的可用性閘門完全一致——presence-set
+    /// 只需連線，其餘命令需要視窗可見。隱藏回報 Offline 而非 Degraded：
+    /// Degraded 在 availability 映射裡算可用，規劃器會挑到必然拒絕
+    /// dispatch 的 actuator；隱藏／離線的區別仍由 message 誠實呈現。
+    pub fn actuator_health(&self, kind: PresentationKind, now: Timestamp) -> ComponentHealth {
         let s = self.state.lock().expect("presentation state lock");
         if !Self::fresh(s.last_seen, now) {
-            ComponentHealth::offline("companion window not connected").at(now)
-        } else if !s.visible {
-            ComponentHealth::degraded("companion hidden").at(now)
-        } else {
-            ComponentHealth::healthy().at(now)
+            return ComponentHealth::offline("companion window not connected").at(now);
+        }
+        match kind {
+            PresentationKind::PresenceSet => ComponentHealth::healthy().at(now),
+            _ if s.visible => ComponentHealth::healthy().at(now),
+            _ => ComponentHealth::offline("companion hidden").at(now),
         }
     }
 
@@ -517,7 +523,7 @@ impl Actuator for PresentationActuator {
     }
 
     async fn status(&self) -> ComponentHealth {
-        self.bridge.surface_health(Utc::now())
+        self.bridge.actuator_health(self.kind, Utc::now())
     }
 
     async fn cancel(&self, action_id: &ActionId) -> Result<ActionReceipt, ActuatorError> {
@@ -633,6 +639,9 @@ pub fn presentation_receptors(bridge: &Arc<PresentationBridge>) -> Vec<Arc<PushR
 }
 
 /// 所有 companion 視窗內 receptor 的 id（ingest 隱藏閘門用）。
+/// legacy 的 `desktop.companion.interaction` 承載同一批視窗內語意輸入
+/// （前端未映射 kind 的 fallback 目標），必須走同一個隱藏／斷線閘門，
+/// 否則隱藏角色仍可經它被餵入互動觀測。
 pub fn is_companion_surface_receptor(id: &str) -> bool {
     matches!(
         id,
@@ -643,7 +652,22 @@ pub fn is_companion_surface_receptor(id: &str) -> bool {
             | "companion.pointer"
             | "companion.animation-events"
             | "companion.bubble-events"
+            | "desktop.companion.interaction"
     )
+}
+
+/// OPEN 選擇（未指名 candidates）時，規劃器無法憑空合成、缺了必然被
+/// execute 拒絕的參數。`"message"` 代表需要文字訊息（由文字選擇器供給），
+/// 其餘鍵必須出現在 intent payload。指名 candidates 的計畫不經此閘，
+/// 保留執行期的誠實拒絕（receipt 會說明缺了什麼）。
+pub fn open_selection_requirements(actuator_id: &str) -> &'static [&'static str] {
+    match actuator_id {
+        "companion.animation.play" => &["animation"],
+        "companion.state.present" => &["behaviorIntent"],
+        "companion.bubble.show" | "companion.speak" => &["message"],
+        "companion.presence.set" => &["visible"],
+        _ => &[],
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -656,6 +680,9 @@ impl Runtime {
         let now = Utc::now();
         let (conn_changed, vis_changed) = self.presentation.hello(visible, pack_id, now);
         if conn_changed || vis_changed {
+            // presence 變化立即反映到 registry 的健康快取：不等 watchdog 的
+            // 週期 refresh，規劃器才不會在隱藏／剛連線的窗口內拿到過期健康。
+            self.registry.refresh_health().await;
             let snap = self.presentation.snapshot(now);
             self.events.publish(RuntimeEvent::new(
                 EventType::PresentationState,
@@ -691,11 +718,27 @@ impl Runtime {
             ));
         }
         let now = Utc::now();
+        // 事件延後到 persist 成功之後才發（同 sweep_presentation_at 與
+        // executor 的 guarded 模式）：estop／watchdog 可能在本函式讀取與
+        // 寫回之間先把 receipt 寫成終態，先發事件會對 /v1/events 訂閱者
+        // 謊稱 acknowledged/completed。快照在轉移當下取，保留各事件
+        // payload 的階段性 status。
+        let mut deferred_events: Vec<(EventType, ActionReceipt)> = Vec::new();
         match outcome {
             "displayed" | "completed" => {
+                // 與 executor 的 Dispatched persist 競態：execute 先發
+                // presentation.command SSE、executor 稍後才 persist
+                // Dispatched。視窗若在 Accepted 窗口內就 ack，這裡先合法
+                // 走完 Accepted→Dispatched，鏈條不斷、receipt 不孤兒化；
+                // ack 寫入終態後，executor 遲到的 Dispatched persist 會被
+                // sticky-terminal 守衛拒絕並改讀 store。
+                if receipt.current_status == ActionStatus::Accepted {
+                    let _ = receipt.transition(ActionStatus::Dispatched, now);
+                    deferred_events.push((EventType::ActionDispatched, receipt.clone()));
+                }
                 if receipt.current_status == ActionStatus::Dispatched {
                     let _ = receipt.transition(ActionStatus::Acknowledged, now);
-                    self.emit_action_event(EventType::ActionAcknowledged, &receipt, json!({}));
+                    deferred_events.push((EventType::ActionAcknowledged, receipt.clone()));
                 }
                 if receipt.current_status == ActionStatus::Acknowledged {
                     receipt.verification = Some(VerificationEvidence {
@@ -708,7 +751,7 @@ impl Runtime {
                         verified_at: now,
                     });
                     let _ = receipt.transition(ActionStatus::Completed, now);
-                    self.emit_action_event(EventType::ActionCompleted, &receipt, json!({}));
+                    deferred_events.push((EventType::ActionCompleted, receipt.clone()));
                 }
             }
             "interrupted" => {
@@ -718,7 +761,7 @@ impl Runtime {
                         json!(detail.clone().unwrap_or_default()),
                     );
                     let _ = receipt.transition(ActionStatus::Cancelled, now);
-                    self.emit_action_event(EventType::ActionCancelled, &receipt, json!({}));
+                    deferred_events.push((EventType::ActionCancelled, receipt.clone()));
                 }
             }
             "failed" | "unsupported" => {
@@ -728,7 +771,7 @@ impl Runtime {
                         json!(detail.clone().unwrap_or_else(|| outcome.to_string())),
                     );
                     let _ = receipt.transition(ActionStatus::Failed, now);
-                    self.emit_action_event(EventType::ActionFailed, &receipt, json!({}));
+                    deferred_events.push((EventType::ActionFailed, receipt.clone()));
                 }
             }
             other => {
@@ -737,8 +780,13 @@ impl Runtime {
                 )));
             }
         }
-        if !self.persist_receipt(&receipt, "desktop-pet").await? {
-            // estop 或 watchdog 已先寫入終態——以 store 為準，誠實回報。
+        if self.persist_receipt(&receipt, "desktop-pet").await? {
+            for (event_type, snapshot) in &deferred_events {
+                self.emit_action_event(*event_type, snapshot, json!({}));
+            }
+        } else {
+            // estop 或 watchdog 已先寫入終態——以 store 為準，誠實回報，
+            // 且一個事件都不發（不謊稱完成）。
             receipt = self.store.receipt(&aid)?;
         }
         Ok(json!({
@@ -793,13 +841,76 @@ mod tests {
         bridge.hello(false, None, now);
         assert!(bridge.connected(now));
         assert!(!bridge.accepts_input(now));
+        // 隱藏：presence-set 仍可用（把角色叫回來是合法的），其餘命令
+        // 誠實回報 Offline——Degraded 會被規劃器當成可用。
+        assert_eq!(
+            bridge
+                .actuator_health(PresentationKind::PresenceSet, now)
+                .status,
+            interaction_core::HealthStatus::Healthy
+        );
+        let hidden = bridge.actuator_health(PresentationKind::BubbleShow, now);
+        assert_eq!(hidden.status, interaction_core::HealthStatus::Offline);
+        assert_eq!(hidden.message.as_deref(), Some("companion hidden"));
         // 心跳過期：一切離線。
         let later = now + chrono::Duration::seconds(PRESENCE_STALE_SECS + 1);
         assert!(!bridge.connected(later));
         assert_eq!(
-            bridge.surface_health(later).status,
+            bridge
+                .actuator_health(PresentationKind::BubbleShow, later)
+                .status,
             interaction_core::HealthStatus::Offline
         );
+        assert_eq!(
+            bridge
+                .actuator_health(PresentationKind::PresenceSet, later)
+                .status,
+            interaction_core::HealthStatus::Offline
+        );
+    }
+
+    #[test]
+    fn open_selection_requirements_match_validators() {
+        use interaction_core::{ActionParameters, BoundedAction};
+        // 帶指定 payload（不帶 message）的動作——用來驗證 helper 宣告的
+        // 必要參數確實是 validate_params 的硬性要求，兩者不脫鉤。
+        let mk = |actuator: &str, extra: Option<Value>| BoundedAction {
+            action_id: ActionId::generate(),
+            plan_id: interaction_core::PlanId::generate(),
+            session_id: interaction_core::SessionId::generate(),
+            actuator_id: interaction_core::ActuatorId::new(actuator),
+            intent: "test".into(),
+            risk_class: RiskClass::Low,
+            requested: ActionParameters::default(),
+            effective: ActionParameters {
+                extra,
+                ..Default::default()
+            },
+            policy_decisions: vec![],
+            expires_at: Utc::now() + chrono::Duration::seconds(30),
+            issued_at: Utc::now(),
+            correlation_id: interaction_core::CorrelationId::generate(),
+            metadata: BTreeMap::new(),
+            schema_version: interaction_core::SCHEMA_VERSION.into(),
+        };
+        for (kind, id) in [
+            (PresentationKind::AnimationPlay, "companion.animation.play"),
+            (PresentationKind::StatePresent, "companion.state.present"),
+            (PresentationKind::BubbleShow, "companion.bubble.show"),
+            (PresentationKind::Speak, "companion.speak"),
+            (PresentationKind::PresenceSet, "companion.presence.set"),
+        ] {
+            let reqs = open_selection_requirements(id);
+            assert!(!reqs.is_empty(), "{id} must declare requirements");
+            // 缺了宣告的必要參數（payload 空、message 空）必被拒絕。
+            assert!(
+                validate_params(kind, &mk(id, None)).is_err(),
+                "{id} without required params must be rejected at execute"
+            );
+        }
+        // 未列出的 actuator 不受此閘限制。
+        assert!(open_selection_requirements("companion.sound.play").is_empty());
+        assert!(open_selection_requirements("conversation").is_empty());
     }
 
     #[test]

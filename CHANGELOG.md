@@ -77,6 +77,15 @@
   被驗證器整包拒絕、persona 語句靜默失效（v0.3 對抗審查修正引入的回歸）。
   新增「出貨 pack 必須通過驗證」測試防再發。
 - 佇列訊息文字可達 desktop-pet 頻道（is_text_channel 涵蓋）。
+- **對抗審查（8 維度 67 agent、59 findings → 38 確認／21 駁回）確認缺陷 38/38 全修**，
+  每項附 regression test（Rust 257→294、vitest 61→81）。要點：presentation_ack 改
+  persist-成功才發事件（estop 競態不再對事件流謊稱完成）；kill 路徑鎖外化＋pgid
+  持久化＋重啟 reap 孤兒＋stdin 有界逾時（卡死 agent 不再擋 estop/close）；GET
+  messages 不再對 gateway session 偽造送達；estop/create TOCTOU 與重複 close 修復；
+  記憶 far-future horizon 降權漏洞、secret 掃描涵蓋 tags/provenance、過期即拒；
+  知識空證據門檻、approve 復活終態、candidate 邊誤降 active、懸空 hash 拒升格、
+  LIKE 子字串誤匹配、1000 上限靜默截斷全修；主動對話勿擾真確定性生效；前端
+  estop 二段確認＋IME 防誤觸、匯出/拖放/計數/倒數文案誠實化。
 
 ### 已知限制（v0.4，誠實記錄；詳見 docs/acceptance-evidence.md 與 capability-completion-matrix.md）
 
@@ -90,6 +99,8 @@
 8. 生成式主動對話的觸發端排程器為下一階段（閘門＋預算＋metadata 已就緒）。
 9. 知識 UI 三末端未接線：update-check 觸發僅 API/CLI、「使用者糾正」專屬入口、
    角色端知識六句固定文案（§17）未接到氣泡（語意在控制中心完整呈現）。
+10. agent 子程序孤兒回收 best-effort：pgid OS 快照歸因、重啟 reap 驗證存活＋
+    leader＋command；極端 pid 重用可能誤殺、歸因不唯一時誠實放棄（warn）。
 
 ## [0.3.0] - 2026-08-26
 

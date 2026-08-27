@@ -114,6 +114,112 @@ async fn active_contradiction_disputes_both_sides() {
 }
 
 #[tokio::test]
+async fn candidate_edges_never_demote_active_knowledge() {
+    let (_g, rt) = runtime().await;
+    // 人類建立的 Active 知識。
+    let a = rt
+        .knowledge_propose_node(claim("A 為真"), MemoryActor::Human)
+        .await
+        .unwrap();
+    assert_eq!(a.status, KnowledgeStatus::Active);
+    // agent 提案的候選節點＋未審核的 contradicts 邊（agent 一律 Candidate）。
+    let b = rt
+        .knowledge_propose_node(claim("A 為假"), MemoryActor::Agent("codex".into()))
+        .await
+        .unwrap();
+    assert_eq!(b.status, KnowledgeStatus::Candidate);
+    let edge = KnowledgeEdge {
+        edge_id: KnowledgeEdgeId::generate(),
+        from: b.node_id.clone(),
+        to: a.node_id.clone(),
+        relation: RelationType::Contradicts,
+        origin: EdgeOrigin::AiConjecture,
+        status: KnowledgeStatus::Active, // 服務層會依 actor 降為 Candidate
+        confidence: 0.9,
+        created_by: MemoryActor::Agent("codex".into()),
+        rationale: None,
+        created_at: Utc::now(),
+        schema_version: SCHEMA_VERSION.into(),
+    };
+    let edge = rt
+        .knowledge_propose_edge(edge, MemoryActor::Agent("codex".into()))
+        .await
+        .unwrap();
+    assert_eq!(edge.status, KnowledgeStatus::Candidate);
+    // 人類核可 B（approve 觸發衝突檢查）：未審核的 AI 推測邊
+    // 不得把任何一方拉成 Disputed。
+    rt.knowledge_review(b.node_id.as_str(), "approve", None, MemoryActor::Human)
+        .await
+        .unwrap();
+    assert_eq!(
+        rt.knowledge_get(a.node_id.as_str()).await.unwrap().status,
+        KnowledgeStatus::Active,
+        "人類核可的知識不因 AI 推測邊失去 usable"
+    );
+    assert_eq!(
+        rt.knowledge_get(b.node_id.as_str()).await.unwrap().status,
+        KnowledgeStatus::Active
+    );
+    // 衝突檢查誠實回報候選衝突供人裁決——但不改狀態。
+    let out = rt
+        .knowledge_conflict_check(a.node_id.as_str())
+        .await
+        .unwrap();
+    assert!(out["disputedWith"].as_array().unwrap().is_empty());
+    assert_eq!(
+        out["candidateConflicts"].as_array().unwrap().len(),
+        1,
+        "candidate 邊要列給人看：{out}"
+    );
+    assert_eq!(
+        rt.knowledge_get(a.node_id.as_str()).await.unwrap().status,
+        KnowledgeStatus::Active
+    );
+}
+
+#[tokio::test]
+async fn freshness_sweep_scans_beyond_a_single_page() {
+    let (_g, rt) = runtime().await;
+    // 過期節點「最舊」寫入——舊實作只取最近 1000 筆會漏掉它。
+    let mut overdue = claim("超出窗口的過期知識");
+    overdue.review_after = Some(Utc::now() - chrono::Duration::days(1));
+    rt.store
+        .save_knowledge_node(
+            overdue.node_id.as_str(),
+            "claim",
+            "active",
+            &overdue.title,
+            &overdue.content,
+            &serde_json::to_string(&overdue).unwrap(),
+        )
+        .unwrap();
+    // 確保 updated_at 嚴格早於後續 filler（毫秒精度）。
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    for i in 0..1010 {
+        let n = claim(&format!("新鮮知識 {i}"));
+        rt.store
+            .save_knowledge_node(
+                n.node_id.as_str(),
+                "claim",
+                "active",
+                &n.title,
+                &n.content,
+                &serde_json::to_string(&n).unwrap(),
+            )
+            .unwrap();
+    }
+    let marked = rt.knowledge_freshness_sweep().await;
+    assert_eq!(marked, 1, "掃描必須涵蓋全部 Active 節點，不得截斷");
+    assert_eq!(
+        rt.knowledge_get(overdue.node_id.as_str())
+            .await
+            .unwrap()
+            .status,
+        KnowledgeStatus::Stale
+    );
+}
+
+#[tokio::test]
 async fn experience_candidates_cannot_promote_without_counterexamples() {
     let (_g, rt) = runtime().await;
     // 任務失敗 → 確定性經驗收集＋Reflection Candidate。

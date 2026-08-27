@@ -48,6 +48,10 @@ Rcpt=Receipt/Verification、UT=Unit、IT=Integration、E2E、Ev=Machine Evidence
 | Activity Inbox（統一待辦） | n/a | n/a | complete(彙整 assists＋waiting sessions＋知識候選) | n/a | complete(活動頁頂部＋首頁摘要卡) | n/a | n/a | complete(既有 API 彙整) | n/a | n/a | complete | n/a | complete(PW 待我決定) | 篩選器（依 agent/裝置/domain）為基本版 | PW activity 測試; desktop-activity.png |
 | Consent Sheet／Receipt Viewer／Source Viewer | n/a | n/a | n/a | n/a | complete(建立 session 授權預覽；知識收據檢視；素材影響預覽) | n/a | n/a | n/a | n/a | n/a | complete | n/a | complete(PW consent sheet 斷言) | Source Viewer 的片段預覽（畫圖區域/時間軸播放）為 JSON 級 | PW AI 頁測試; MemoryKnowledgePage |
 
+對抗審查結果（2026-08-27）：8 維度 67 agent、59 findings → 38 確認／21 駁回；
+**38/38 修復**（Rust 測試 257→294、vitest 61→81，全綠），殘餘風險記
+acceptance-evidence 已知限制⑩（pgid reap best-effort）。
+
 n/a 理由備註：
 - 「n/a(本機確定性)」：Behavior Runtime 是純本機演算法，無外部 provider/adapter 層。
 - 「n/a(美術)」：角色美術是資料資產，不經 policy/API 層；其載入驗證在 UT/E2E 欄。

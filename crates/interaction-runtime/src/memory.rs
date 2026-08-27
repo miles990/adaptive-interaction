@@ -3,7 +3,8 @@
 //! - actor 規則在寫入前套用（agent 的 fact 降 inference、長期使用者記憶
 //!   降 candidate）——呼叫端聲稱的身分由 API 層決定，不信 payload。
 //! - Context Bundle 是**確定性**選擇：不用生成式 AI 決定給誰看什麼。
-//! - 到期清除掛在 watchdog；stale 不入 bundle、只列 needsReview。
+//! - 到期清除掛在 watchdog，但讀取端不等 sweep：expired 在 get／update
+//!   一律 NotFound，export 附衍生 status；stale 不入 bundle、只列 needsReview。
 
 use crate::runtime::Runtime;
 use chrono::Utc;
@@ -67,7 +68,11 @@ impl Runtime {
         }
         let mut updated: MemoryItem =
             serde_json::from_value(v).map_err(|e| DomainError::Validation(e.to_string()))?;
-        updated.updated_at = Utc::now();
+        let patched_at = Utc::now();
+        updated.updated_at = patched_at;
+        // flat token 無法辨識呼叫者：agent 建立的項目在 PATCH 時重套 actor
+        // 規則（只降不升），kind／retention 補丁不得成為解除候選降權的側門。
+        apply_actor_rules(&mut updated, patched_at);
         validate_memory_item(&updated).map_err(DomainError::Validation)?;
         item = updated;
         self.persist_memory(&item)?;
@@ -79,7 +84,15 @@ impl Runtime {
             .store
             .get_memory(id)?
             .ok_or_else(|| DomainError::NotFound(format!("memory {id}")))?;
-        serde_json::from_str(&body).map_err(|e| DomainError::Internal(e.to_string()))
+        let item: MemoryItem =
+            serde_json::from_str(&body).map_err(|e| DomainError::Internal(e.to_string()))?;
+        // expiresAt 到期＝停止使用：sweep 只是延遲的實體刪除，讀取端行為
+        // 必須與刪除後一致（NotFound）——否則過期資料在 sweep 前仍被當有效
+        // 供應，PATCH 也能讓它復活。過期後唯一合法操作是刪除（不走此路徑）。
+        if item.status(Utc::now()) == MemoryStatus::Expired {
+            return Err(DomainError::NotFound(format!("memory {id} (expired)")));
+        }
+        Ok(item)
     }
 
     pub async fn memory_delete(&self, id: &str) -> DomainResult<bool> {
@@ -110,28 +123,64 @@ impl Runtime {
     }
 
     /// 清除 session 暫存（session 結束／使用者「清除短期記憶」）。
+    /// storage 單次列表上限 1000：迴圈清到空為止，不得靜默留殘量——
+    /// 使用者主動的隱私清除必須完整，清不完就誠實回報。
     pub async fn memory_clear_session_context(&self) -> DomainResult<u32> {
-        let bodies = self.store.list_memory(Some("session-context"), 1000)?;
-        let mut n = 0;
-        for body in bodies {
-            if let Ok(item) = serde_json::from_str::<MemoryItem>(&body) {
-                if self.store.delete_memory(item.memory_id.as_str())? {
-                    n += 1;
+        // 輪數上限只防病態情況（損壞列刪不掉、並行狂寫）；正常一輪至少
+        // 刪掉一整頁，遠不會觸頂。
+        const MAX_ROUNDS: u32 = 1000;
+        let mut n: u32 = 0;
+        for _ in 0..MAX_ROUNDS {
+            let bodies = self.store.list_memory(Some("session-context"), 1000)?;
+            if bodies.is_empty() {
+                return Ok(n);
+            }
+            let mut deleted_this_round: u32 = 0;
+            for body in bodies {
+                if let Ok(item) = serde_json::from_str::<MemoryItem>(&body) {
+                    if self.store.delete_memory(item.memory_id.as_str())? {
+                        n += 1;
+                        deleted_this_round += 1;
+                    }
                 }
             }
+            // 一輪一筆都刪不掉（如 body 解析失敗取不到 id）：迴圈不可能
+            // 收斂，停下來走誠實回報。
+            if deleted_this_round == 0 {
+                break;
+            }
         }
-        Ok(n)
+        let remaining = self.store.list_memory(Some("session-context"), 1000)?.len();
+        if remaining == 0 {
+            Ok(n)
+        } else {
+            Err(DomainError::Internal(format!(
+                "session-context 清除未完成：已刪 {n} 筆，仍殘留至少 {remaining} 筆無法清除"
+            )))
+        }
     }
 
-    /// 匯出全部記憶（使用者資料主權）。
+    /// 匯出全部記憶（使用者資料主權）。過期項仍可匯出（資料仍屬使用者），
+    /// 但每筆附衍生 status——過期／stale 不得無標記地冒充有效資料。
     pub async fn memory_export(&self) -> DomainResult<Value> {
+        let now = Utc::now();
         let bodies = self.store.list_memory(None, 1000)?;
-        let items: Vec<Value> = bodies
-            .iter()
-            .filter_map(|b| serde_json::from_str(b).ok())
-            .collect();
+        let mut items: Vec<Value> = Vec::new();
+        for body in bodies {
+            let Ok(mut v) = serde_json::from_str::<Value>(&body) else {
+                continue;
+            };
+            // schema 不符的舊資料照樣匯出（主權），但狀態未知標 uncertain。
+            let status = serde_json::from_str::<MemoryItem>(&body)
+                .map(|item| json!(item.status(now)))
+                .unwrap_or_else(|_| json!("uncertain"));
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert("status".into(), status);
+            }
+            items.push(v);
+        }
         Ok(json!({
-            "exportedAt": Utc::now(),
+            "exportedAt": now,
             "count": items.len(),
             "items": items,
         }))

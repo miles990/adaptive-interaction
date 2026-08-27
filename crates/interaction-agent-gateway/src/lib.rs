@@ -108,6 +108,14 @@ pub enum GatewayEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         num_turns: Option<u64>,
     },
+    /// Token 用量更新（codex 只回報 token 數、沒有 USD 成本——照原樣保留，
+    /// 不換算、不假裝是金額；讀不到的欄位誠實留 None）。
+    TokenUsage {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        total_tokens: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        last_turn_tokens: Option<u64>,
+    },
     TaskFailed {
         error: String,
     },
@@ -186,6 +194,9 @@ pub trait AgentSessionHandle: Send {
     async fn interrupt(&mut self) -> Result<(), GatewayError>;
     /// 終止整個子程序樹（estop／close／lease 到期）。
     async fn kill(&mut self) -> Result<(), GatewayError>;
+    /// spawn 當下捕捉的 process group：緊急終止路徑必須能在不取得
+    /// handle 鎖（可能被卡死的 stdin 寫入佔住）的情況下整組送訊。
+    fn process_group(&self) -> process::ProcessGroup;
     /// 事件接收端（每個 handle 只能取一次）。
     fn take_events(&mut self) -> Option<tokio::sync::mpsc::Receiver<GatewayEvent>>;
 }

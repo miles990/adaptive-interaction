@@ -48,6 +48,32 @@ fn pid_alive(pid: i32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 }
 }
 
+fn claude_input(
+    label: &str,
+    max_cost: Option<f64>,
+) -> interaction_runtime::agents::CreateAgentSession {
+    interaction_runtime::agents::CreateAgentSession {
+        provider_id: None,
+        agent_id: "claude-code".into(),
+        label: Some(label.into()),
+        ttl_minutes: Some(10),
+        data_scope: vec![],
+        tool_scope: vec![],
+        consent_scope: vec![],
+        max_cost,
+        max_messages: Some(10),
+        delegation: None,
+        workdir: None,
+    }
+}
+
+fn read_pid(path: &std::path::Path) -> i32 {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
+}
+
 #[tokio::test]
 async fn gateway_full_loop_with_fake_agent() {
     std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
@@ -210,6 +236,229 @@ async fn gateway_full_loop_with_fake_agent() {
 
     std::env::remove_var("FAKE_MODE");
     std::env::remove_var("FAKE_PID_FILE");
+
+    // ---- 4) GET/fetch 對 gateway session 是純觀看：不得替子程序蓋
+    //         delivered／推進 receipt（觀看≠送達） ----
+    {
+        let pid_file4 = tempfile::NamedTempFile::new().unwrap();
+        std::env::set_var("FAKE_PID_FILE", pid_file4.path());
+        let (_g4, rt4) = runtime().await;
+        let record = rt4
+            .create_agent_session(claude_input("觀看不等於送達", Some(0.005)))
+            .await
+            .unwrap();
+        let sid4 = record.session_id.as_str().to_string();
+        let mut pid4 = 0;
+        wait_for(
+            async || {
+                pid4 = read_pid(pid_file4.path());
+                pid4 > 0
+            },
+            "fixture pid (observer fetch)",
+        )
+        .await;
+        // 第一個任務：真實轉送成功 → delivered 由 gateway_deliver 蓋。
+        let msg1 = rt4
+            .mailbox_send(
+                &sid4,
+                MailboxDirection::ToSession,
+                "task",
+                BTreeMap::from([("task".to_string(), json!("第一個任務"))]),
+                None,
+            )
+            .await
+            .unwrap();
+        wait_for(
+            async || {
+                rt4.get_agent_session(&sid4)
+                    .await
+                    .map(|r| r.state == AgentSessionState::ClaimedCompleted)
+                    .unwrap_or(false)
+            },
+            "cost booked via claimed-completed",
+        )
+        .await;
+        // 第二個任務：成本預算已爆（0.01 ≥ 0.005），gateway 誠實拒絕轉送
+        // → 訊息留在信箱、沒有 delivered 戳記。
+        let msg2 = rt4
+            .mailbox_send(
+                &sid4,
+                MailboxDirection::ToSession,
+                "task",
+                BTreeMap::from([("task".to_string(), json!("第二個任務"))]),
+                None,
+            )
+            .await
+            .unwrap();
+        // 觀察者讀信箱（GET messages 的底層路徑）：不得蓋章。
+        let seen = rt4
+            .mailbox_fetch(&sid4, MailboxDirection::ToSession)
+            .await
+            .unwrap();
+        let m1 = seen
+            .iter()
+            .find(|m| m.message_id == msg1.message_id)
+            .unwrap();
+        assert!(m1.delivered_at.is_some(), "真實轉送過的任務保有 delivered");
+        let m2 = seen
+            .iter()
+            .find(|m| m.message_id == msg2.message_id)
+            .unwrap();
+        assert!(
+            m2.delivered_at.is_none(),
+            "觀看不等於送達：fetch 不得替 gateway session 蓋 delivered"
+        );
+        // 持久狀態再驗一次（peek 不改變任何東西）。
+        let peeked = rt4
+            .mailbox_peek(&sid4, MailboxDirection::ToSession)
+            .await
+            .unwrap();
+        assert!(peeked
+            .iter()
+            .find(|m| m.message_id == msg2.message_id)
+            .unwrap()
+            .delivered_at
+            .is_none());
+        // 收尾：Failed 是任務結局不是 session 終局，close 負責收尾並殺掉
+        // 子程序樹（測試沒開 watchdog，事件泵又持有 runtime clone，單靠
+        // drop 不會清理；殘影會干擾後續 section 的 pgid attribution）。
+        rt4.close_agent_session(&sid4, None, "closed")
+            .await
+            .unwrap();
+        wait_for(async || !pid_alive(pid4), "observer-fetch fixture killed").await;
+        std::env::remove_var("FAKE_PID_FILE");
+    }
+
+    // ---- 5) estop×create 確定性屏障：緊急停止絕不留下 open session
+    //         或存活的子程序（TOCTOU regression） ----
+    {
+        let pid_file5 = tempfile::NamedTempFile::new().unwrap();
+        std::env::set_var("FAKE_MODE", "hang");
+        std::env::set_var("FAKE_PID_FILE", pid_file5.path());
+        let (_g5, rt5) = runtime().await;
+        let creator = {
+            let rt = rt5.clone();
+            tokio::spawn(async move {
+                rt.create_agent_session(claude_input("estop 競態", None))
+                    .await
+            })
+        };
+        // 讓 create 進行到 attach 途中（discover＋spawn 需要數十 ms）。
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        rt5.emergency_stop("test", None).await.unwrap();
+        let created = creator.await.unwrap();
+        // 不論交錯順序：create 要嘛被拒絕，要嘛其 session 已被 estop 收掉。
+        if let Ok(rec) = created {
+            let now = rt5
+                .get_agent_session(rec.session_id.as_str())
+                .await
+                .unwrap();
+            assert!(!now.state.is_open(), "estop 後不得留下 open session");
+        }
+        assert_eq!(rt5.open_agent_sessions().await, 0);
+        // 子程序若已 spawn（pid 檔已寫）必須死透——順帶避免殘影干擾
+        // 後續 section 的 pgid attribution。
+        let pid5 = read_pid(pid_file5.path());
+        if pid5 > 0 {
+            wait_for(
+                async || !pid_alive(pid5),
+                "estop-race subprocess tree killed",
+            )
+            .await;
+        }
+        std::env::remove_var("FAKE_MODE");
+        std::env::remove_var("FAKE_PID_FILE");
+    }
+
+    // ---- 6a) 正常 shutdown：inline 依 pgid 記錄整樹終結，不留孤兒 ----
+    {
+        let pid_file6 = tempfile::NamedTempFile::new().unwrap();
+        std::env::set_var("FAKE_MODE", "hang");
+        std::env::set_var("FAKE_PID_FILE", pid_file6.path());
+        let (_g6, rt6) = runtime().await;
+        rt6.create_agent_session(claude_input("關機孤兒", None))
+            .await
+            .unwrap();
+        let mut pid6 = 0;
+        wait_for(
+            async || {
+                pid6 = read_pid(pid_file6.path());
+                pid6 > 0
+            },
+            "fixture pid (shutdown)",
+        )
+        .await;
+        assert!(pid_alive(pid6), "fixture alive before shutdown");
+        rt6.shutdown().await;
+        wait_for(async || !pid_alive(pid6), "shutdown kills subprocess tree").await;
+        std::env::remove_var("FAKE_MODE");
+        std::env::remove_var("FAKE_PID_FILE");
+    }
+
+    // ---- 6b) 崩潰（不走 shutdown）：重啟時 restore 依 pgid 記錄 reap
+    //          孤兒子程序樹，record 標 Expired 並註明 reaped ----
+    {
+        let home = tempfile::tempdir().unwrap();
+        let pid_file7 = tempfile::NamedTempFile::new().unwrap();
+        std::env::set_var("FAKE_MODE", "hang");
+        std::env::set_var("FAKE_PID_FILE", pid_file7.path());
+        let rt7 = Runtime::start(RuntimeOptions {
+            home: Some(home.path().to_path_buf()),
+            acquire_lock: false,
+            in_memory_db: false,
+            spawn_watchdog: false,
+        })
+        .await
+        .unwrap();
+        let sid7 = rt7
+            .create_agent_session(claude_input("崩潰孤兒", None))
+            .await
+            .unwrap()
+            .session_id
+            .as_str()
+            .to_string();
+        let mut pid7 = 0;
+        wait_for(
+            async || {
+                pid7 = read_pid(pid_file7.path());
+                pid7 > 0
+            },
+            "fixture pid (crash)",
+        )
+        .await;
+        assert!(pid_alive(pid7), "fixture alive before simulated crash");
+        // 模擬崩潰：不 shutdown、不 drop（drop 會觸發 kill_on_drop，
+        // 真正的崩潰不會有這種好事）。
+        std::mem::forget(rt7);
+        let rt8 = Runtime::start(RuntimeOptions {
+            home: Some(home.path().to_path_buf()),
+            acquire_lock: false,
+            in_memory_db: false,
+            spawn_watchdog: false,
+        })
+        .await
+        .unwrap();
+        wait_for(async || !pid_alive(pid7), "restart reaps orphan subprocess").await;
+        let rec = rt8.get_agent_session(&sid7).await.unwrap();
+        // 注意：這裡用 mem::forget 模擬崩潰，被遺忘的 runtime 事件泵其實
+        // 還活著，可能在 restore 讀 record 前搶先把它標成 Failed（真實
+        // 崩潰不會有這回事）。不變量是：session 非 open、孤兒已被 reap。
+        assert!(
+            !rec.state.is_open(),
+            "restored session must not be open: {:?}",
+            rec.state
+        );
+        if rec.state == AgentSessionState::Expired {
+            assert!(
+                rec.detail.as_deref().unwrap_or("").contains("reaped"),
+                "detail 應註明孤兒已被 reap：{:?}",
+                rec.detail
+            );
+        }
+        std::env::remove_var("FAKE_MODE");
+        std::env::remove_var("FAKE_PID_FILE");
+    }
+
     std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
     std::env::remove_var("INTERACT_AI_CODEX_BIN");
 }

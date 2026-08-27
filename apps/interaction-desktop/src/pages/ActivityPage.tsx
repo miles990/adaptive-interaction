@@ -200,8 +200,13 @@ function eventLabel(e: RuntimeEvent): string {
   }
 }
 
-/** 統一收件匣（spec §16-1.G）：所有等待你決定的事項一個總入口。 */
-function InboxSection({
+/** 知識候選查詢上限：後端回傳的 count 是本頁筆數，達上限時真實總數未知，
+ *  顯示「50+」而不是假裝精確。 */
+const CANDIDATE_QUERY_LIMIT = 50;
+
+/** 統一收件匣（spec §16-1.G）：所有等待你決定的事項一個總入口。
+ *  誠實計數：查詢失敗＝未知（不得顯示綠色 0）；達查詢上限顯示「N+」。 */
+export function InboxSection({
   refreshKey,
   onNavigate,
 }: {
@@ -210,7 +215,10 @@ function InboxSection({
 }) {
   const [assists] = useAsync(() => api.aiAssistsList(), [refreshKey]);
   const [sessions] = useAsync(() => api.agentSessionsList(), [refreshKey]);
-  const [candidates] = useAsync(() => api.knowledgeList("candidate", 50), [refreshKey]);
+  const [candidates] = useAsync(
+    () => api.knowledgeList("candidate", CANDIDATE_QUERY_LIMIT),
+    [refreshKey]
+  );
 
   const waitingSessions = (sessions.data ?? []).filter((s) =>
     ["waiting-for-consent", "waiting-for-input", "claimed-completed"].includes(s.state)
@@ -218,12 +226,27 @@ function InboxSection({
   const pendingAssists = assists.data ?? [];
   const candidateCount =
     ((candidates.data as Record<string, unknown> | undefined)?.count as number | undefined) ?? 0;
+  const candidateCapped = candidateCount >= CANDIDATE_QUERY_LIMIT;
+  const degraded = Boolean(assists.error || sessions.error || candidates.error);
   const total = waitingSessions.length + pendingAssists.length + candidateCount;
+  const totalLabel = degraded
+    ? total > 0
+      ? `${total}+，部分查詢失敗`
+      : "無法確認"
+    : candidateCapped
+      ? `${total}+`
+      : String(total);
 
   return (
-    <Section title={`待我決定（${total}）`}>
+    <Section title={`待我決定（${totalLabel}）`}>
+      {degraded && (
+        <div className="state-box state-error" role="alert">
+          部分狀態查詢失敗，以下清單可能不完整：
+          {[sessions.error, assists.error, candidates.error].filter(Boolean).join("；")}
+        </div>
+      )}
       {total === 0 ? (
-        <div className="state-box">目前沒有等待你決定的事項。</div>
+        degraded ? null : <div className="state-box">目前沒有等待你決定的事項。</div>
       ) : (
         <ul className="plain-list">
           {pendingAssists.map((a) => (
@@ -251,7 +274,8 @@ function InboxSection({
           ))}
           {candidateCount > 0 && (
             <li>
-              <Badge kind="pending">知識候選</Badge> {candidateCount} 項等待複審
+              <Badge kind="pending">知識候選</Badge>{" "}
+              {candidateCapped ? `${CANDIDATE_QUERY_LIMIT}+` : candidateCount} 項等待複審
               <button style={{ marginLeft: 8 }} onClick={() => onNavigate("memory")}>
                 前往複審
               </button>

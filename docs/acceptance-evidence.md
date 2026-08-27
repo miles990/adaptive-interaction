@@ -242,12 +242,39 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
 
 全部證據可重跑；命令列於各節。基準：main@18037e5（v0.3.0）。
 
-## 回歸（v0.3 不變量全數保留）
-- `cargo test --workspace` → **257/257 passed, 0 failed**（v0.3 基線 201 → +56）
-- `cargo clippy --workspace --all-targets -- -D warnings` → 0 errors
-- `cd apps/interaction-desktop && pnpm typecheck && pnpm test` → typecheck 0 錯誤、vitest **61/61**（v0.3 基線 40 → +21）
+## 回歸（v0.3 不變量全數保留；對抗審查修復後最終數字）
+- `cargo test --workspace` → **294/294 passed, 0 failed**（v0.3 基線 201 → +93；審查修復前 257）
+- `cargo fmt --check`＋`cargo clippy --workspace --all-targets -- -D warnings` → 0 errors
+- `cd apps/interaction-desktop && pnpm typecheck && pnpm test` → typecheck 0 錯誤、vitest **81/81**（v0.3 基線 40 → +41；審查修復前 61）
 - `pnpm test:e2e` → Playwright **19/19**（v0.3 基線 11 → +8；真 daemon＋真 Chromium）
-- `./scripts/v03-cli-e2e.sh` → CLI E2E **42/42**（v0.3 基線 12 → +30；真 daemon＋mock device＋fake agent 子程序）
+- `./scripts/v03-cli-e2e.sh` → CLI E2E **42/42、exit 0**（v0.3 基線 12 → +30；真 daemon＋mock device＋fake agent 子程序）
+
+## 對抗審查（v0.4；`.claude/workflows/adversarial-review-v04.js`，find→independent verify）
+- 8 個維度（presentation-honesty／gateway-safety／memory-privacy／knowledge-integrity／
+  proactive-limits／state-machine-v04／frontend-honesty／regression-v03）共 67 個 agent。
+- **59 個 findings → 逐項獨立對抗驗證 → 38 確認／21 駁回**。
+- **38/38 確認缺陷全數修復**，每項附 regression test（Rust +37、vitest +20）。代表性修復：
+  - presentation_ack 先發事件後持久化（estop/expiry 競態下對 /v1/events 謊稱完成）→
+    persist-成功才發事件（`presentation_loop` 新 regression）。
+  - kill_tree 領頭寬限內退出就跳過 SIGKILL 升級／孤兒程序跨重啟存活／stdin 寫入佔住
+    handle 鎖使 estop 無法終止卡死 agent → 鎖外 ProcessGroup terminate＋pgid 持久化
+    （meta）＋啟動 reap＋send/interrupt/approval 有界逾時（`process.rs` 3 測試＋
+    `gateway_loop` 崩潰模擬）。
+  - GET messages 對 gateway session 蓋 delivered/acknowledged 戳記（觀看≠送達）→
+    送達語意只屬 gateway_deliver 真實轉發。
+  - estop/create TOCTOU → create 鎖序列化＋建立後複查回滾；close 無 terminal guard →
+    Conflict 拒重複關閉。
+  - 記憶：far-future reviewAfter 逃過 candidate 降權（改看 horizon）、secret 掃描漏
+    tags/provenance、過期記憶 sweep 前仍被供應／可復活（讀取端即拒）、清除 1000 上限
+    靜默截斷（清到空或誠實回報殘量）。
+  - 知識：空 SourceRef 過證據門檻、approve 復活 superseded/archived、未審核 candidate
+    邊可把 active 拉成 disputed、approve 不重驗證據（懸空 hash 拒升格）、`LIKE %hash%`
+    改精確 json_extract、freshness/級聯 1000 上限改 keyset 掃全量。
+  - 主動對話：dnd_defer 死碼 → 接上 policy quietHours 確定性生效；persist 失敗不再靜默。
+  - 前端誠實：全域搜尋 estop 改二段確認＋IME（isComposing/229）防誤觸、指令失敗回報、
+    匯出真的顯示在畫面、拖放/關閉/收件匣計數/倒數計時文案全部對齊真實狀態。
+- 21 項駁回皆有具體反證（例：AiPage「已送達」實為 gateway 即時轉發、Codex
+  provider_session_id 於 start_session 已就緒），詳見 workflow journal。
 
 ## Presentation Provider（真實迴路）
 - 整合測試 `cargo test -p interaction-runtime --test presentation_loop`（8）：
@@ -306,3 +333,8 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
 9. 知識系統的三個 UI 末端未接線：update-check 觸發僅 API/CLI（決策結果仍經
    候選/收據頁呈現）、「使用者糾正小樞」專屬入口未做（糾正仍可經候選複審）、
    角色端知識六句固定文案（§17）未接到氣泡（收據語意在控制中心完整呈現）。
+10. agent 子程序孤兒回收為 best-effort：pgid 以 OS 快照歸因（候選不唯一時誠實
+    放棄記錄並 warn，該 session 遇崩潰會漏 reap）；重啟 reap 驗證「存活＋group
+    leader＋command line 相同」，pid 重用且 command 完全相同的極端情況可能誤殺；
+    daemon 在 close 的 kill 寬限期內崩潰時已 forget 的 pgid 不再被找回。
+    程式註解逐一標明（agents.rs／runtime.rs）。

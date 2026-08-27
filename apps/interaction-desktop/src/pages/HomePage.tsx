@@ -84,7 +84,7 @@ export function HomePage({
         </Section>
 
         <Section title="主動互動">
-          <ProactiveSummary />
+          <ProactiveSummary refreshKey={refreshKey} />
           <div className="row wrap" style={{ marginTop: 10 }}>
             {pause.paused ? (
               <button onClick={() => doResume().catch((e) => setPauseError(String(e)))}>
@@ -177,8 +177,10 @@ export function HomePage({
   );
 }
 
-function ProactiveSummary() {
-  const [recipes] = useAsync(() => api.recipesList(), []);
+export function ProactiveSummary({ refreshKey }: { refreshKey: number }) {
+  // 與本頁其他查詢一致吃 refreshKey：CLI／HTTP／tray 改配方時
+  // 「啟用 N 個」與「都不使用 AI」的誠實宣稱才會跟著更新。
+  const [recipes] = useAsync(() => api.recipesList(), [refreshKey]);
   const enabled = (recipes.data ?? []).filter((r) => Boolean(r.recipe["enabled"]));
   const anyAi = enabled.some((r) => {
     const ai = r.recipe["ai"] as { mode?: string } | undefined;
@@ -400,8 +402,12 @@ function AgentSessionsSection({ refreshKey }: { refreshKey: number; advancedHint
   );
 }
 
-/** 「現在」摘要條（spec §16-1.B）：感測／待決定／進行中工作／小樞／知識更新。 */
-function NowStrip({
+/** 知識候選查詢上限（與 ActivityPage 收件匣一致）：達上限時總數未知，顯示「N+」。 */
+const CANDIDATE_QUERY_LIMIT = 50;
+
+/** 「現在」摘要條（spec §16-1.B）：感測／待決定／進行中工作／小樞／知識更新。
+ *  誠實計數：查詢失敗＝未知（不得顯示綠色 0 項）；達查詢上限顯示「N+」。 */
+export function NowStrip({
   refreshKey,
   status,
   onNavigate,
@@ -412,7 +418,10 @@ function NowStrip({
 }) {
   const [sessions] = useAsync(() => api.agentSessionsList(), [refreshKey]);
   const [assists] = useAsync(() => api.aiAssistsList(), [refreshKey]);
-  const [candidates] = useAsync(() => api.knowledgeList("candidate", 50), [refreshKey]);
+  const [candidates] = useAsync(
+    () => api.knowledgeList("candidate", CANDIDATE_QUERY_LIMIT),
+    [refreshKey]
+  );
   const [receiptsData] = useAsync(() => api.knowledgeReceipts(), [refreshKey]);
 
   const sensors = (status?.["activeSensors"] as { kind: string }[] | undefined) ?? [];
@@ -427,6 +436,8 @@ function NowStrip({
   );
   const candidateCount =
     ((candidates.data as Record<string, unknown> | undefined)?.count as number | undefined) ?? 0;
+  const candidateCapped = candidateCount >= CANDIDATE_QUERY_LIMIT;
+  const pendingDegraded = Boolean(sessions.error || assists.error || candidates.error);
   const pendingTotal = waiting.length + (assists.data?.length ?? 0) + candidateCount;
   const latestReceipt = (
     (receiptsData.data as Record<string, unknown> | undefined)?.receipts as
@@ -446,7 +457,15 @@ function NowStrip({
       </button>
       <button className="now-card" onClick={() => onNavigate("activity")}>
         <span className="now-title">待我決定</span>
-        {pendingTotal > 0 ? <Badge kind="warn">{pendingTotal} 項</Badge> : <Badge kind="ok">0 項</Badge>}
+        {pendingDegraded ? (
+          <Badge kind="warn">
+            {pendingTotal > 0 ? `${pendingTotal}+ 項（查詢失敗）` : "無法確認（查詢失敗）"}
+          </Badge>
+        ) : pendingTotal > 0 ? (
+          <Badge kind="warn">{candidateCapped ? `${pendingTotal}+` : pendingTotal} 項</Badge>
+        ) : (
+          <Badge kind="ok">0 項</Badge>
+        )}
       </button>
       <button className="now-card" onClick={() => onNavigate("ai")}>
         <span className="now-title">進行中的工作</span>

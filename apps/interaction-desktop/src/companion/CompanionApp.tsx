@@ -209,11 +209,14 @@ export default function CompanionApp() {
     rendererRef.current?.setAnimation(p.animation, p.frameSlice);
   }, []);
 
+  // 低風險遙測（點擊／滑鼠靠近等）才可 fire-and-forget：失敗即丟棄，
+  // 不重試也不誤報成功。凡是會回覆使用者「已記錄」的流程（如拖放）
+  // 必須改走 recordDroppedItems 等待實際結果。
   const pushInteraction = React.useCallback((kind: string, extra?: Record<string, unknown>) => {
     behaviorState.current = noteUserInteraction(behaviorState.current, Date.now());
     const receptor = RECEPTOR_FOR_KIND[kind] ?? "desktop.companion.interaction";
     void api.pushObservation(receptor, { kind, ...extra }, 1.0).catch(() => {
-      /* receptor disabled, companion hidden, or runtime offline: stays local */
+      /* receptor disabled, companion hidden, or runtime offline: dropped */
     });
   }, []);
 
@@ -627,13 +630,12 @@ export default function CompanionApp() {
           </div>
           <button
             onClick={() => {
-              pushInteraction("companion-dropped", {
-                modality: "file-drop",
-                attachments: dropPreview,
-                mayLeaveDevice: false,
-              });
+              // 確認式流程：等待 push 實際結果，成功才說「記下了」，
+              // 失敗誠實回報（誠實階梯：送出≠已記錄）。
+              behaviorState.current = noteUserInteraction(behaviorState.current, Date.now());
+              const items = dropPreview;
               setDropPreview(null);
-              showBubble(line("drop-received"), 3000);
+              void recordDroppedItems(items, api.pushObservation, showBubble, line);
             }}
           >
             記錄這些項目
@@ -760,4 +762,36 @@ function CompanionInput({
       <button onClick={onClose}>取消</button>
     </div>
   );
+}
+
+/** 拖放確認後把項目記錄成觀察。與遙測不同，這裡對使用者承諾「已記錄」，
+ *  所以必須等待 push 的實際結果：resolve 才顯示成功語，reject 顯示失敗
+ *  （receptor 停用、隱藏中、runtime 離線時項目並沒有被記錄，不得謊稱）。 */
+export async function recordDroppedItems(
+  paths: string[],
+  push: (
+    receptorId: string,
+    facts: Record<string, unknown>,
+    confidence?: number
+  ) => Promise<unknown>,
+  showBubble: (text: string | null, ms: number) => void,
+  line: (key: string) => string | null
+): Promise<boolean> {
+  try {
+    await push(
+      RECEPTOR_FOR_KIND["companion-dropped"],
+      {
+        kind: "companion-dropped",
+        modality: "file-drop",
+        attachments: paths,
+        mayLeaveDevice: false,
+      },
+      1.0
+    );
+    showBubble(line("drop-received"), 3000);
+    return true;
+  } catch (e) {
+    showBubble(`記錄失敗：${e}（這些項目沒有被記錄）`, 4000);
+    return false;
+  }
 }

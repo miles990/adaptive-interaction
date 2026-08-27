@@ -71,20 +71,32 @@ export function AppStateProvider({
     }
   }, []);
 
+  // 上次真正重投影的時刻：trailing debounce 的餓死保險（見下）。
+  const lastProjection = React.useRef(0);
+
   React.useEffect(() => {
     if (!ready) return;
     api.uiPrefsGet().then(setPrefs).catch(() => {});
+    lastProjection.current = Date.now();
     refreshPause();
     refreshHuman();
   }, [ready]);
 
   // Capability/consent/policy events bump refreshKey upstream; re-project.
+  // 純 trailing debounce 在持續事件流（例如受器連續觀測）下會不斷重置而
+  // 永不觸發，導致撤回的同意一直顯示為「AI 可以做」。超過 1 秒未投影
+  // 就立即執行，保證權限顯示最多落後約 1 秒。
   React.useEffect(() => {
     if (!ready) return;
-    const t = setTimeout(() => {
-      refreshHuman();
-      refreshPause();
-    }, 250);
+    const overdue = Date.now() - lastProjection.current >= 1000;
+    const t = setTimeout(
+      () => {
+        lastProjection.current = Date.now();
+        refreshHuman();
+        refreshPause();
+      },
+      overdue ? 0 : 250
+    );
     return () => clearTimeout(t);
   }, [refreshKey, ready]);
 

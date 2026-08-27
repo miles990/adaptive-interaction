@@ -288,11 +288,27 @@ impl Runtime {
     // -------------------------------------------------------------------
 
     /// 過了 reviewAfter 的 Active 知識 → Stale（確定性、無 AI）。
+    /// keyset 分頁掃完全部 Active 節點——單頁上限不得靜默截斷，否則
+    /// 超出窗口的過期知識會一直以 Active 參與回答。id 為游標，掃描中
+    /// 標 Stale 不影響後續頁。
     pub async fn knowledge_freshness_sweep(&self) -> u32 {
+        const PAGE: u32 = 500;
         let now = Utc::now();
         let mut marked = 0u32;
-        if let Ok(bodies) = self.store.list_knowledge_nodes(Some("active"), 1000) {
-            for body in bodies {
+        let mut after: Option<String> = None;
+        loop {
+            let Ok(page) =
+                self.store
+                    .list_knowledge_nodes_page(Some("active"), after.as_deref(), PAGE)
+            else {
+                break;
+            };
+            let Some((last_id, _)) = page.last() else {
+                break;
+            };
+            after = Some(last_id.clone());
+            let full_page = page.len() as u32 == PAGE;
+            for (_, body) in page {
                 if let Ok(mut node) = serde_json::from_str::<interaction_core::KnowledgeNode>(&body)
                 {
                     if node.review_after.map(|t| now >= t).unwrap_or(false) {
@@ -303,6 +319,9 @@ impl Runtime {
                         }
                     }
                 }
+            }
+            if !full_page {
+                break;
             }
         }
         if marked > 0 {
@@ -333,41 +352,70 @@ impl Runtime {
         marked
     }
 
-    /// 確定性衝突檢查：兩個 Active 節點之間有 active Contradicts 邊 →
-    /// 雙方標 Disputed（不猜對錯——裁決屬於人類／後續 AI 候選提案）。
+    /// 確定性衝突檢查：兩個 Active 節點之間有 **active**（已審核）的
+    /// Contradicts 邊 → 雙方標 Disputed（不猜對錯——裁決屬於人類／
+    /// 後續 AI 候選提案）。未審核的 Candidate 邊只回報在
+    /// candidateConflicts 供人複審，不改任何節點狀態——AI 推測不得把
+    /// 人類核可的知識拉下 usable。邊以 keyset 分頁掃完，單頁上限不得
+    /// 漏看 contradicts 邊而誤報 passed。
     pub async fn knowledge_conflict_check(&self, node_id: &str) -> DomainResult<Value> {
+        const PAGE: u32 = 200;
         let node = self.knowledge_get(node_id).await?;
         let mut disputed = Vec::new();
+        let mut candidate_conflicts = Vec::new();
         if node.status == KnowledgeStatus::Active {
-            let edges = self.store.edges_touching(node_id, 200)?;
-            for body in edges {
-                let Ok(edge) = serde_json::from_str::<interaction_core::KnowledgeEdge>(&body)
-                else {
-                    continue;
+            let mut after: Option<String> = None;
+            loop {
+                let page = self
+                    .store
+                    .edges_touching_page(node_id, after.as_deref(), PAGE)?;
+                let Some((last_id, _)) = page.last() else {
+                    break;
                 };
-                if !matches!(
-                    edge.relation,
-                    interaction_core::RelationType::Contradicts
-                        | interaction_core::RelationType::ConflictsWith
-                ) {
-                    continue;
-                }
-                let other_id = if edge.from.as_str() == node_id {
-                    edge.to.clone()
-                } else {
-                    edge.from.clone()
-                };
-                if let Ok(mut other) = self.knowledge_get(other_id.as_str()).await {
-                    if other.status == KnowledgeStatus::Active {
-                        other.status = KnowledgeStatus::Disputed;
-                        other.updated_at = Utc::now();
-                        let _ = self.persist_knowledge_node(&other);
-                        let mut me = self.knowledge_get(node_id).await?;
-                        me.status = KnowledgeStatus::Disputed;
-                        me.updated_at = Utc::now();
-                        let _ = self.persist_knowledge_node(&me);
-                        disputed.push(other_id.as_str().to_string());
+                after = Some(last_id.clone());
+                let full_page = page.len() as u32 == PAGE;
+                for (_, body) in page {
+                    let Ok(edge) = serde_json::from_str::<interaction_core::KnowledgeEdge>(&body)
+                    else {
+                        continue;
+                    };
+                    if !matches!(
+                        edge.relation,
+                        interaction_core::RelationType::Contradicts
+                            | interaction_core::RelationType::ConflictsWith
+                    ) {
+                        continue;
                     }
+                    let other_id = if edge.from.as_str() == node_id {
+                        edge.to.clone()
+                    } else {
+                        edge.from.clone()
+                    };
+                    if !edge.status.usable() {
+                        // 未經審核的邊（agent 提案一律 Candidate）不驅動
+                        // dispute——只列出，讓人類裁決是否成立。
+                        candidate_conflicts.push(json!({
+                            "edgeId": edge.edge_id.as_str(),
+                            "otherNodeId": other_id.as_str(),
+                            "edgeStatus": edge.status,
+                        }));
+                        continue;
+                    }
+                    if let Ok(mut other) = self.knowledge_get(other_id.as_str()).await {
+                        if other.status == KnowledgeStatus::Active {
+                            other.status = KnowledgeStatus::Disputed;
+                            other.updated_at = Utc::now();
+                            let _ = self.persist_knowledge_node(&other);
+                            let mut me = self.knowledge_get(node_id).await?;
+                            me.status = KnowledgeStatus::Disputed;
+                            me.updated_at = Utc::now();
+                            let _ = self.persist_knowledge_node(&me);
+                            disputed.push(other_id.as_str().to_string());
+                        }
+                    }
+                }
+                if !full_page {
+                    break;
                 }
             }
         }
@@ -393,7 +441,11 @@ impl Runtime {
                 schema_version: SCHEMA_VERSION.into(),
             });
         }
-        Ok(json!({"nodeId": node_id, "disputedWith": disputed}))
+        Ok(json!({
+            "nodeId": node_id,
+            "disputedWith": disputed,
+            "candidateConflicts": candidate_conflicts,
+        }))
     }
 
     // -------------------------------------------------------------------

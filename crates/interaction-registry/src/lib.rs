@@ -157,6 +157,12 @@ impl CapabilityRegistry {
     pub async fn register_actuator(&self, actuator: Arc<dyn Actuator>) -> DomainResult<()> {
         let manifest = actuator.manifest();
         let id = manifest.id.clone();
+        // Seed the health cache from the live instance, not the manifest's
+        // static default (healthy): until the first periodic refresh (~10s)
+        // a stale "healthy" would let the planner select actuators that are
+        // actually offline at startup (e.g. a companion window that never
+        // connected on a headless daemon).
+        let initial_health = actuator.status().await;
         let mut map = self.actuators.write().await;
         if map.contains_key(&id) {
             return Err(DomainError::Conflict(format!(
@@ -172,7 +178,7 @@ impl CapabilityRegistry {
             ActuatorEntry {
                 instance: actuator,
                 enabled: default_enabled,
-                last_health: manifest.health.clone(),
+                last_health: initial_health,
             },
         );
         drop(map);

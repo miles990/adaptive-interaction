@@ -366,6 +366,10 @@ impl Runtime {
                 tokio::time::timeout(std::time::Duration::from_secs(2), actuator.emergency_stop())
                     .await;
         }
+        // Gateway agent 子程序：關機時依已記錄的 pgid 整樹終結（「子程序
+        // 絕不跨 runtime 重啟存活」）。必須 inline await——serve 返回後緊接
+        // process::exit，spawn 出去的 kill task 沒有機會跑完。
+        let _ = self.reap_recorded_gateway_pgids("shutdown").await;
         let _ = self.store.set_meta("clean_shutdown", "true");
         let mut lock = self.lock.lock().expect("lock mutex");
         lock.take(); // drop → releases pid file

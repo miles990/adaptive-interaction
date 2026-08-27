@@ -201,6 +201,19 @@ fn looks_like_secret(text: &str) -> bool {
     .any(|p| lower.contains(p))
 }
 
+/// 來源 URL 的 userinfo 夾帶密碼（https://user:pass@host）：與 secret 樣態
+/// 同級拒收——provenance 常是 URL，這是憑證入庫的典型側門。
+fn url_carries_credentials(text: &str) -> bool {
+    let Some((_, rest)) = text.split_once("://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    match authority.rsplit_once('@') {
+        Some((userinfo, _host)) => userinfo.contains(':'),
+        None => false,
+    }
+}
+
 pub fn validate_memory_item(item: &MemoryItem) -> Result<(), String> {
     if item.title.trim().is_empty() || item.title.chars().count() > MAX_MEMORY_TITLE_CHARS {
         return Err(format!("title 必須為 1..{MAX_MEMORY_TITLE_CHARS} 字"));
@@ -214,31 +227,62 @@ pub fn validate_memory_item(item: &MemoryItem) -> Result<(), String> {
     if !(0.0..=1.0).contains(&item.confidence) {
         return Err("confidence 必須在 0..1".into());
     }
-    if looks_like_secret(&item.content) || looks_like_secret(&item.title) {
+    // secret 掃描涵蓋所有自由文字欄位：tags 與 provenance 一樣能夾帶憑證，
+    // 只掃 content／title 會留下未掃的側門。
+    let secret_present = looks_like_secret(&item.content)
+        || looks_like_secret(&item.title)
+        || item.tags.iter().any(|t| looks_like_secret(t))
+        || item
+            .provenance
+            .iter()
+            .any(|p| looks_like_secret(p) || url_carries_credentials(p));
+    if secret_present {
         return Err("記憶不得包含 secret/token/credential 樣態內容".into());
     }
     Ok(())
 }
 
-/// 建立規則（呼叫端在寫入前執行）：
-/// - agent 建立的使用者長期記憶（until-deleted）不允許——降為 30 天複查
-///   的 Candidate，等使用者確認（spec §13.4）。
+/// 建立／更新規則（呼叫端在寫入前執行；PATCH 也要重套，否則補丁成為
+/// 解除降權的側門）：
+/// - agent 建立的使用者長期記憶不允許——「長期」看 horizon 不看欄位有無：
+///   最早檢查點晚於 30 天上限即視同長期（給 100 年的 reviewAfter 繞不過），
+///   降為 30 天複查的 Candidate，等使用者確認（spec §13.4）。
 /// - agent 建立的 fact 一律降為 inference／candidate（agent 聲稱≠事實）。
+/// - agent 供給的 reviewAfter／expiresAt 不得晚於層級預設 horizon（spec §15
+///   預設表；有預設值的維度取 min、沒給值視同要求超長一樣壓回預設）。
+///   until-deleted 層（world／skill）依規格表無自動期限，不另設。
 pub fn apply_actor_rules(item: &mut MemoryItem, now: Timestamp) {
     if matches!(item.created_by, MemoryActor::Agent(_)) {
         if item.kind == MemoryKind::Fact {
             item.kind = MemoryKind::Inference;
         }
-        let wants_long_term =
-            item.retention.expires_at.is_none() && item.retention.review_after.is_none();
+        let review_cap = now + chrono::Duration::days(30);
+        let earliest_checkpoint = [item.retention.expires_at, item.retention.review_after]
+            .into_iter()
+            .flatten()
+            .min();
+        let wants_long_term = match earliest_checkpoint {
+            Some(t) => t > review_cap,
+            None => true,
+        };
         if item.layer == MemoryLayer::UserMemory && wants_long_term {
             item.kind = MemoryKind::Candidate;
-            item.retention.review_after = Some(now + chrono::Duration::days(30));
+            item.retention.review_after = Some(review_cap);
         }
         // 人格核心：agent 絕不能直接改——一律候選＋複查。
         if item.layer == MemoryLayer::PersonaCore {
             item.kind = MemoryKind::Candidate;
-            item.retention.review_after = Some(now + chrono::Duration::days(30));
+            item.retention.review_after = Some(review_cap);
+        }
+        // 層級預設是 agent 保存 horizon 的天花板：agent 不能替自己的寫入
+        // 爭取比預設更長的複查／到期週期。
+        let defaults = default_retention(item.layer, now);
+        if let Some(cap) = defaults.review_after {
+            item.retention.review_after =
+                Some(item.retention.review_after.map_or(cap, |t| t.min(cap)));
+        }
+        if let Some(cap) = defaults.expires_at {
+            item.retention.expires_at = Some(item.retention.expires_at.map_or(cap, |t| t.min(cap)));
         }
     }
 }
@@ -368,6 +412,142 @@ mod tests {
         );
         apply_actor_rules(&mut item, now);
         assert_eq!(item.kind, MemoryKind::Candidate);
+    }
+
+    #[test]
+    fn far_future_horizon_counts_as_long_term() {
+        let now = Utc::now();
+        // 遠期 reviewAfter：形式上「有檢查點」，實質是長期——仍要降候選。
+        let mut item = new_memory_item(
+            MemoryLayer::UserMemory,
+            MemoryKind::Preference,
+            "百年偏好",
+            "x",
+            MemoryActor::Agent("codex".into()),
+            now,
+        );
+        item.retention = RetentionPolicy {
+            review_after: Some(now + chrono::Duration::days(36500)),
+            ..Default::default()
+        };
+        apply_actor_rules(&mut item, now);
+        assert_eq!(item.kind, MemoryKind::Candidate);
+        assert!(item.retention.review_after.unwrap() <= now + chrono::Duration::days(30));
+        // 遠期 expiresAt 同樣視為長期。
+        let mut item = new_memory_item(
+            MemoryLayer::UserMemory,
+            MemoryKind::Preference,
+            "百年偏好",
+            "x",
+            MemoryActor::Agent("codex".into()),
+            now,
+        );
+        item.retention = RetentionPolicy {
+            expires_at: Some(now + chrono::Duration::days(36500)),
+            ..Default::default()
+        };
+        apply_actor_rules(&mut item, now);
+        assert_eq!(item.kind, MemoryKind::Candidate);
+        assert!(item.retention.review_after.unwrap() <= now + chrono::Duration::days(30));
+        // 30 天內的檢查點不算長期（既有行為不變）。
+        let mut item = new_memory_item(
+            MemoryLayer::UserMemory,
+            MemoryKind::Preference,
+            "短期偏好",
+            "x",
+            MemoryActor::Agent("codex".into()),
+            now,
+        );
+        item.retention = RetentionPolicy {
+            review_after: Some(now + chrono::Duration::days(10)),
+            ..Default::default()
+        };
+        apply_actor_rules(&mut item, now);
+        assert_eq!(item.kind, MemoryKind::Preference);
+    }
+
+    #[test]
+    fn agent_horizons_clamped_to_layer_defaults() {
+        let now = Utc::now();
+        // domain-knowledge：agent 給 100 年 → 壓回預設 180 天。
+        let mut item = new_memory_item(
+            MemoryLayer::DomainKnowledge,
+            MemoryKind::Inference,
+            "知識",
+            "x",
+            MemoryActor::Agent("codex".into()),
+            now,
+        );
+        item.retention = RetentionPolicy {
+            review_after: Some(now + chrono::Duration::days(36500)),
+            ..Default::default()
+        };
+        apply_actor_rules(&mut item, now);
+        assert_eq!(
+            item.retention.review_after,
+            Some(now + chrono::Duration::days(180))
+        );
+        // session-context：明確給 {}（until-deleted）也壓回 24h 到期。
+        let mut item = new_memory_item(
+            MemoryLayer::SessionContext,
+            MemoryKind::Fact,
+            "暫存",
+            "x",
+            MemoryActor::Agent("codex".into()),
+            now,
+        );
+        item.retention = RetentionPolicy::default();
+        apply_actor_rules(&mut item, now);
+        assert_eq!(
+            item.retention.expires_at,
+            Some(now + chrono::Duration::hours(24))
+        );
+        // 人類寫入不受 horizon 限制。
+        let mut item = new_memory_item(
+            MemoryLayer::DomainKnowledge,
+            MemoryKind::Fact,
+            "人寫",
+            "x",
+            MemoryActor::Human,
+            now,
+        );
+        item.retention = RetentionPolicy {
+            review_after: Some(now + chrono::Duration::days(36500)),
+            ..Default::default()
+        };
+        apply_actor_rules(&mut item, now);
+        assert_eq!(
+            item.retention.review_after,
+            Some(now + chrono::Duration::days(36500))
+        );
+    }
+
+    #[test]
+    fn secrets_in_tags_and_provenance_rejected() {
+        let now = Utc::now();
+        let mut item = new_memory_item(
+            MemoryLayer::UserMemory,
+            MemoryKind::Fact,
+            "標籤",
+            "普通內容",
+            MemoryActor::Human,
+            now,
+        );
+        item.tags = vec!["api_key".into()];
+        assert!(validate_memory_item(&item).is_err(), "tag 夾帶憑證樣態");
+        item.tags = vec!["rust".into()];
+        item.provenance = vec!["Bearer abc123".into()];
+        assert!(
+            validate_memory_item(&item).is_err(),
+            "provenance 夾帶憑證樣態"
+        );
+        item.provenance = vec!["https://user:token@example.com/repo".into()];
+        assert!(
+            validate_memory_item(&item).is_err(),
+            "provenance URL userinfo 帶密碼"
+        );
+        item.provenance = vec!["https://example.com/doc".into()];
+        assert!(validate_memory_item(&item).is_ok(), "乾淨來源不受影響");
     }
 
     #[test]
