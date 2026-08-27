@@ -1,10 +1,10 @@
 {
   "schemaVersion": "1.1",
   "kind": "character-pack",
-  "id": "shu-lively",
+  "id": "shu-lazy",
   "name": {
-    "zh-TW": "小樞・活潑型",
-    "en": "Shū · Lively"
+    "zh-TW": "小樞・慵懶型",
+    "en": "Shū · Lazy"
   },
   "description": {
     "zh-TW": "原創桌面角色小樞 v2：帶貓科特徵的數位小精靈——聰明、俏皮、機靈，無事時偶爾慵懶；遇到工作與危險立刻專注可靠。",

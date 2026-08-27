@@ -107,7 +107,7 @@ impl Default for DesktopPrefs {
             open_control_center_on_start: false,
             companion_visible: true,
             companion_position: None,
-            companion_pack: "shu-standard".into(),
+            companion_pack: "shu-agile".into(),
             companion_persona: "persona-shu".into(),
             story_progress: std::collections::BTreeMap::new(),
             companion_expressiveness: "natural".into(),

@@ -103,9 +103,11 @@ function CompanionSection() {
             value={dprefs.companionPack}
             onChange={(e) => patch({ companionPack: e.target.value })}
           >
-            <option value="shu-standard">小樞・標準型</option>
-            <option value="shu-lively">小樞・活潑型</option>
-            <option value="shu-minimal">小樞・極簡型</option>
+            <option value="shu-agile">小樞・靈巧型（貓系 v2，預設）</option>
+            <option value="shu-lazy">小樞・慵懶型（貓系 v2）</option>
+            <option value="shu-lively">小樞・活潑型（貓系 v2）</option>
+            <option value="shu-standard">小樞・標準型（v1 經典）</option>
+            <option value="shu-minimal">小樞・極簡型（v1 經典）</option>
           </select>
         </label>
         <label className="field-label">

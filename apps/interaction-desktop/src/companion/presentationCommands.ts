@@ -16,36 +16,38 @@ export interface CommandPlan {
   detail?: string;
   /** Machine transient to inject (null = clear the current transient). */
   transient?: TransientKind | null;
+  /** For `performing`: the whitelisted animation to play. */
+  animation?: string;
   /** Bubble to show (already runtime-validated ≤200 chars). */
   bubble?: { text: string; ms: number } | null;
   /** presence-set target (needs the desktop bridge to apply). */
   presence?: boolean;
 }
 
-/** behaviorIntent → machine transient (v1: reuse existing visual states). */
-const INTENT_TO_TRANSIENT: Record<string, TransientKind | null> = {
+/** behaviorIntent → machine transient（v2 packs 有專屬美術；v1 靠 fallback）. */
+const INTENT_TO_TRANSIENT: Record<string, { kind: TransientKind; animation?: string } | null> = {
   rest: null,
-  notice: "listening",
-  curious: "listening",
-  listen: "listening",
-  think: "thinking",
-  work: "acting",
-  "wait-attention": "waiting-for-receipt",
-  "look-at-confirmation": "requesting-consent",
-  "acknowledge-briefly": "clicked",
+  notice: { kind: "performing", animation: "notice" },
+  curious: { kind: "performing", animation: "curious" },
+  listen: { kind: "listening" },
+  think: { kind: "thinking" },
+  work: { kind: "acting" },
+  "wait-attention": { kind: "waiting-for-receipt" },
+  "look-at-confirmation": { kind: "requesting-consent" },
+  "acknowledge-briefly": { kind: "clicked" },
 };
 
-/** Directly-playable animations → machine transient (undefined = no art yet). */
-const ANIMATION_TO_TRANSIENT: Record<string, TransientKind | null | undefined> = {
-  idle: null,
+/** 可直接點播的動畫 → pack 內美術名（undefined = 本視窗不支援）。 */
+const PLAYABLE_ART: Record<string, string | null | undefined> = {
+  idle: null, // 回到待機（清除 transient）
   quiet: null,
-  notice: "listening",
-  curious: "listening",
+  notice: "notice",
+  curious: "curious",
   listening: "listening",
   thinking: "thinking",
-  working: "acting",
-  waiting: "waiting-for-receipt",
-  stretch: undefined,
+  working: "act",
+  waiting: "waiting",
+  stretch: "stretch",
 };
 
 const BUBBLE_MS = 8000;
@@ -67,20 +69,23 @@ export function planPresentationCommand(
         // Runtime already whitelists; an unknown here means version skew.
         return { outcome: "unsupported", detail: `behaviorIntent ${intent} not known to this window` };
       }
+      const mapped = INTENT_TO_TRANSIENT[intent];
       const text = typeof params.message === "string" && params.message ? params.message : null;
       return {
         outcome: "displayed",
-        transient: INTENT_TO_TRANSIENT[intent],
+        transient: mapped === null ? null : mapped.kind,
+        animation: mapped?.animation,
         bubble: text ? { text, ms: BUBBLE_MS } : null,
       };
     }
     case "animation-play": {
       const name = typeof params.animation === "string" ? params.animation : "";
-      const transient = ANIMATION_TO_TRANSIENT[name];
-      if (transient === undefined) {
-        return { outcome: "unsupported", detail: `animation ${name} has no art in this pack yet` };
+      const art = PLAYABLE_ART[name];
+      if (art === undefined) {
+        return { outcome: "unsupported", detail: `animation ${name} has no art in this window` };
       }
-      return { outcome: "displayed", transient };
+      if (art === null) return { outcome: "displayed", transient: null };
+      return { outcome: "displayed", transient: "performing", animation: art };
     }
     case "presence-set": {
       if (!hasDesktopBridge) {

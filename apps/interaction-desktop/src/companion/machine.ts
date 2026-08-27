@@ -21,12 +21,19 @@ export type TransientKind =
   | "unknown"
   | "failed"
   | "clicked"
-  | "dragged";
+  | "dragged"
+  // A directly-requested, whitelisted performance animation (presentation
+  // command / behavior runtime ambient). Never carries success/safety art.
+  | "performing";
 
 export interface Transient {
   kind: TransientKind;
   untilMs: number;
   verified?: boolean;
+  /** For `performing`: which whitelisted animation to play. */
+  animation?: string;
+  /** For `performing`: optional honest sub-range of that animation. */
+  frameSlice?: [number, number];
 }
 
 export interface MachineState {
@@ -49,6 +56,7 @@ const PRIORITY: Record<TransientKind, number> = {
   acting: 40,
   routing: 35,
   thinking: 30,
+  performing: 25,
   listening: 20,
 };
 
@@ -66,11 +74,19 @@ const DURATION: Record<TransientKind, number> = {
   failed: 5000,
   clicked: 700,
   dragged: 600,
+  performing: 3000,
 };
 
 export type MachineEvent =
   | { type: "base"; base: BaseState }
-  | { type: "transient"; kind: TransientKind; verified?: boolean; durationMs?: number }
+  | {
+      type: "transient";
+      kind: TransientKind;
+      verified?: boolean;
+      durationMs?: number;
+      animation?: string;
+      frameSlice?: [number, number];
+    }
   | { type: "clear-transient" };
 
 export function reduce(state: MachineState, event: MachineEvent, nowMs: number): MachineState {
@@ -95,6 +111,8 @@ export function reduce(state: MachineState, event: MachineEvent, nowMs: number):
         transient: {
           kind: event.kind,
           verified: event.verified,
+          animation: event.animation,
+          frameSlice: event.frameSlice,
           untilMs: nowMs + (event.durationMs ?? DURATION[event.kind]),
         },
       };
@@ -119,7 +137,8 @@ export function pose(state: MachineState, nowMs: number): Pose {
   if (t) {
     switch (t.kind) {
       case "listening":
-        return { animation: "notice", ambient: false };
+        // v2 packs 有專屬 listening 美術；v1 packs 由 renderer fallback 到 notice。
+        return { animation: "listening", ambient: false };
       case "thinking":
         return { animation: "thinking", ambient: false };
       case "routing":
@@ -140,14 +159,15 @@ export function pose(state: MachineState, nowMs: number): Pose {
       case "unknown":
         return { animation: "unknown", ambient: false };
       case "failed":
-        // Definitive failure has its own pose intent; the renderer falls back
-        // to "unknown" art if the pack ships no "failed" animation, but the
-        // fixed bubble wording (packs.ts) keeps it distinct from "unknown".
-        return { animation: "blocked", ambient: false };
+        // v2 packs 有失敗專屬美術（愣住→認真檢查＋✕）；v1 packs 由 renderer
+        // fallback 到 blocked。固定安全語句讓兩者永遠可分辨。
+        return { animation: "failed", ambient: false };
       case "clicked":
         return { animation: "clicked", ambient: false };
       case "dragged":
         return { animation: "dragged", ambient: false };
+      case "performing":
+        return { animation: t.animation ?? "idle", frameSlice: t.frameSlice, ambient: false };
     }
   }
   if (state.base === "quiet") return { animation: "quiet", ambient: false };

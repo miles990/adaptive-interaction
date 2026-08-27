@@ -51,12 +51,18 @@ describe("planPresentationCommand", () => {
   });
 
   it("animation without art is unsupported; known animations display", () => {
-    expect(planPresentationCommand("animation-play", { animation: "stretch" }, true).outcome).toBe(
-      "unsupported"
-    );
+    expect(
+      planPresentationCommand("animation-play", { animation: "moonwalk" }, true).outcome
+    ).toBe("unsupported");
+    const stretch = planPresentationCommand("animation-play", { animation: "stretch" }, true);
+    expect(stretch.outcome).toBe("displayed");
+    expect(stretch.transient).toBe("performing");
+    expect(stretch.animation).toBe("stretch");
     expect(planPresentationCommand("animation-play", { animation: "thinking" }, true).outcome).toBe(
       "displayed"
     );
+    // idle/quiet 是「回到待機」：清除 transient，不是播放特定美術。
+    expect(planPresentationCommand("animation-play", { animation: "idle" }, true).transient).toBeNull();
   });
 
   it("presence-set needs the desktop bridge", () => {

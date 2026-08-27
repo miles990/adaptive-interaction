@@ -19,6 +19,16 @@ import {
 import { PackManifest, SpriteRenderer, validateManifest } from "./renderer";
 import { planPresentationCommand } from "./presentationCommands";
 import {
+  BehaviorState as CompanionBehaviorState,
+  initialBehavior,
+  noteEvent,
+  noteInterruption,
+  noteUserInteraction,
+  scheduleMicroAction,
+  seededRng,
+  stepBehavior,
+} from "./behavior";
+import {
   behaviorFor,
   BehaviorTuning,
   nextChapter,
@@ -55,7 +65,7 @@ export default function CompanionApp() {
   const lastBubbleAt = React.useRef(0);
   const [bubble, setBubble] = React.useState<string | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [packName, setPackName] = React.useState("shu-standard");
+  const [packName, setPackName] = React.useState("shu-agile");
   const [ready, setReady] = React.useState(false);
   const [inputOpen, setInputOpen] = React.useState(false);
   const [sensorLabel, setSensorLabel] = React.useState<string | null>(null);
@@ -118,7 +128,7 @@ export default function CompanionApp() {
     let disposed = false;
     (async () => {
       await bootstrapSupervisor();
-      let pack = "shu-standard";
+      let pack = "shu-agile";
       let personaId = "persona-shu";
       try {
         const prefs = await desktop.prefsGet();
@@ -177,8 +187,19 @@ export default function CompanionApp() {
   }, []);
 
   // ---- machine driving ----
+  // Behavior Runtime（生命底層）狀態：平滑量、微動作反重複、seeded RNG。
+  const behaviorState = React.useRef<CompanionBehaviorState>(initialBehavior(Date.now()));
+  const recentMicro = React.useRef<string[]>([]);
+  const microRng = React.useRef(seededRng(Date.now() >>> 0));
+
   const apply = React.useCallback((ev: Parameters<typeof reduce>[1]) => {
+    const before = machineRef.current.transient;
     machineRef.current = reduce(machineRef.current, ev, Date.now());
+    // 微動作被真實事件搶佔 → 記一次打斷（收斂之後的主動表現）。
+    const after = machineRef.current.transient;
+    if (before?.kind === "performing" && after && after.kind !== "performing") {
+      behaviorState.current = noteInterruption(behaviorState.current);
+    }
     setBaseState(machineRef.current.base);
     syncPose();
   }, []);
@@ -189,6 +210,7 @@ export default function CompanionApp() {
   }, []);
 
   const pushInteraction = React.useCallback((kind: string, extra?: Record<string, unknown>) => {
+    behaviorState.current = noteUserInteraction(behaviorState.current, Date.now());
     const receptor = RECEPTOR_FOR_KIND[kind] ?? "desktop.companion.interaction";
     void api.pushObservation(receptor, { kind, ...extra }, 1.0).catch(() => {
       /* receptor disabled, companion hidden, or runtime offline: stays local */
@@ -211,7 +233,7 @@ export default function CompanionApp() {
       const plan = planPresentationCommand(command, params, isTauri);
       if (plan.transient !== undefined) {
         if (plan.transient === null) apply({ type: "clear-transient" });
-        else apply({ type: "transient", kind: plan.transient });
+        else apply({ type: "transient", kind: plan.transient, animation: plan.animation });
       }
       if (plan.bubble) {
         showBubble(plan.bubble.text, plan.bubble.ms);
@@ -256,6 +278,9 @@ export default function CompanionApp() {
       }
       const mapped = mapRuntimeEvent(e);
       if (mapped) {
+        // 注意力：事件推高喚起度（平滑，不會 0→1）。
+        const importance = e.eventType === "emergency.stop" ? 1 : e.eventType.startsWith("action.") ? 0.5 : 0.3;
+        behaviorState.current = noteEvent(behaviorState.current, e.eventType, importance);
         apply(mapped);
         maybeBubble(e);
       }
@@ -292,19 +317,57 @@ export default function CompanionApp() {
     void poll();
     const t = setInterval(poll, 5000);
     // Pose re-evaluation for transient expiry + ambient blink.
-    const pump = setInterval(syncPose, 500);
-    const blink = setInterval(() => {
-      const p = pose(machineRef.current, Date.now());
-      if (p.ambient && rendererRef.current) {
-        rendererRef.current.setAnimation("blink");
-        setTimeout(syncPose, 400);
+    // Behavior Runtime tick（500ms）：平滑步進 → 姿勢刷新 → 微動作排程。
+    // 觸發間隔由 hazard 抽樣決定（幾何分布）——絕不是固定週期同一動畫。
+    const pump = setInterval(() => {
+      const now = Date.now();
+      const m = machineRef.current;
+      const t = m.transient && m.transient.untilMs > now ? m.transient : null;
+      const busy =
+        t != null && ["acting", "waiting-for-receipt", "routing", "thinking"].includes(t.kind);
+      const waitingForHuman = t?.kind === "requesting-consent";
+      behaviorState.current = stepBehavior(behaviorState.current, {
+        busy,
+        waitingForHuman,
+        msSinceInteraction: now - behaviorState.current.lastInteractionAt,
+      });
+      syncPose();
+      const p = pose(m, now);
+      if (!p.ambient) return;
+      const expr = behaviorRef.current.allowCasualBubbles
+        ? behaviorRef.current.bubbleCooldownMs < 60_000
+          ? 1.5
+          : 1
+        : 0.5;
+      const micro = scheduleMicroAction(
+        behaviorState.current,
+        {
+          ambient: true,
+          reducedMotion:
+            typeof window.matchMedia === "function" &&
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+          quiet: m.base === "quiet",
+          expressiveness: expr,
+          msSinceInteraction: now - behaviorState.current.lastInteractionAt,
+          recent: recentMicro.current,
+        },
+        microRng.current
+      );
+      if (micro) {
+        recentMicro.current = [...recentMicro.current.slice(-3), micro.id];
+        apply({
+          type: "transient",
+          kind: "performing",
+          animation: micro.animation,
+          frameSlice: micro.frameSlice,
+          durationMs: micro.durationMs,
+        });
       }
-    }, behaviorRef.current.blinkIntervalMs + Math.floor(Math.random() * 2000));
+    }, 500);
     return () => {
       stopped = true;
       clearInterval(t);
       clearInterval(pump);
-      clearInterval(blink);
       un.then((f) => f()).catch(() => {});
     };
   }, [ready, apply, syncPose, handlePresentationCommand]);

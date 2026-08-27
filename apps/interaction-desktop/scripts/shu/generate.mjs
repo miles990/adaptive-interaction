@@ -9,7 +9,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { svgFrame } from "./design.mjs";
+import { anchorsFor, svgFrame } from "./design.mjs";
 import { ANIMATIONS } from "./animations.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -18,10 +18,12 @@ const outRoot = join(here, "../../public/packs");
 const FRAME = 128;
 const COLUMNS = 8;
 
+// v2 貓系精靈三變體（共用骨架與能力；表現不同、權限相同）。
+// 舊 v1 packs（shu-standard/lively/minimal）保留在 public/packs 供相容選用。
 const VARIANT_META = {
-  standard: { zh: "小樞・標準型", en: "Shū · Standard" },
+  agile: { zh: "小樞・靈巧型", en: "Shū · Agile" },
+  lazy: { zh: "小樞・慵懶型", en: "Shū · Lazy" },
   lively: { zh: "小樞・活潑型", en: "Shū · Lively" },
-  minimal: { zh: "小樞・極簡型", en: "Shū · Minimal" },
 };
 
 async function generateVariant(variant) {
@@ -76,16 +78,16 @@ async function generateVariant(variant) {
 
   const meta = VARIANT_META[variant];
   const manifest = {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     kind: "character-pack",
     id: `shu-${variant}`,
     name: { "zh-TW": meta.zh, en: meta.en },
     description: {
-      "zh-TW": "原創桌面互動角色小樞：介於小型機器生命與貓科夥伴之間的互動中樞。",
-      en: "Shū, an original desktop companion between a small machine lifeform and a feline partner.",
+      "zh-TW": "原創桌面角色小樞 v2：帶貓科特徵的數位小精靈——聰明、俏皮、機靈，無事時偶爾慵懶；遇到工作與危險立刻專注可靠。",
+      en: "Shū v2, an original cat-like digital sprite: clever, playful and quick — occasionally lazy at rest, instantly focused when it matters.",
     },
     author: "Adaptive Interaction Project",
-    version: "0.3.0",
+    version: "0.4.0",
     license: "MIT",
     generator: "scripts/shu/generate.mjs (parametric SVG rig; no AI raster generation)",
     frameSize: [FRAME, FRAME],
@@ -93,6 +95,11 @@ async function generateVariant(variant) {
     sheet: "sheet.png",
     columns: COLUMNS,
     animations: animIndex,
+    // idle 每幀的眼／耳錨點：Behavior Runtime 的程序化微動作（視線、耳偏）
+    // 疊加層使用；座標以 128×128 幀為基準。
+    anchors: {
+      idle: ANIMATIONS.idle.frames.map((p) => anchorsFor(p)),
+    },
     preview: "preview.png",
   };
   writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));

@@ -25,7 +25,17 @@ const FALLBACKS: Record<string, string[]> = {
   offline: ["paused", "idle"],
   blocked: ["paused", "idle"],
   unknown: ["paused", "idle"],
+  // Failed has dedicated art in v2 packs; v1 packs fall back to blocked
+  // (never to success) — the fixed wording keeps the states distinct.
+  failed: ["blocked", "paused", "idle"],
   success: ["idle"],
+  // v2 ambient/performance animations degrade gracefully on v1 packs.
+  listening: ["notice", "idle"],
+  curious: ["notice", "idle"],
+  stretch: ["idle"],
+  lie: ["quiet", "idle"],
+  legswing: ["idle"],
+  tailhug: ["quiet", "idle"],
   default: ["idle"],
 };
 
