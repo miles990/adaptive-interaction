@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-28
+
 ### Fixed
 
 - Keep macOS hardware-profiler helpers out of non-macOS production builds while retaining
