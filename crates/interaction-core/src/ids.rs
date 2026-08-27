@@ -91,3 +91,12 @@ id_type!(
     /// Memory item id.
     MemoryId, "mem"
 );
+
+id_type!(
+    /// Knowledge graph node id.
+    KnowledgeNodeId, "kn"
+);
+id_type!(
+    /// Knowledge graph edge id.
+    KnowledgeEdgeId, "ke"
+);

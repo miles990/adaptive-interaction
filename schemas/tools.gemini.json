@@ -135,6 +135,105 @@
         "roles": [
           "receptor"
         ]
+      },
+      {
+        "canonicalName": "interaction.knowledge_search",
+        "externalSideEffect": false,
+        "name": "interaction_knowledge_search",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "read-only",
+        "roles": [
+          "receptor"
+        ]
+      },
+      {
+        "canonicalName": "interaction.knowledge_get",
+        "externalSideEffect": false,
+        "name": "interaction_knowledge_get",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "read-only",
+        "roles": [
+          "receptor"
+        ]
+      },
+      {
+        "canonicalName": "interaction.knowledge_get_source",
+        "externalSideEffect": false,
+        "name": "interaction_knowledge_get_source",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "read-only",
+        "roles": [
+          "receptor"
+        ]
+      },
+      {
+        "canonicalName": "interaction.knowledge_expand_graph",
+        "externalSideEffect": false,
+        "name": "interaction_knowledge_expand_graph",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "read-only",
+        "roles": [
+          "receptor"
+        ]
+      },
+      {
+        "canonicalName": "interaction.knowledge_propose_entity",
+        "externalSideEffect": false,
+        "name": "interaction_knowledge_propose_entity",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "low",
+        "roles": [
+          "actuator"
+        ]
+      },
+      {
+        "canonicalName": "interaction.knowledge_propose_claim",
+        "externalSideEffect": false,
+        "name": "interaction_knowledge_propose_claim",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "low",
+        "roles": [
+          "actuator"
+        ]
+      },
+      {
+        "canonicalName": "interaction.knowledge_propose_relation",
+        "externalSideEffect": false,
+        "name": "interaction_knowledge_propose_relation",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "low",
+        "roles": [
+          "actuator"
+        ]
+      },
+      {
+        "canonicalName": "interaction.knowledge_propose_supersede",
+        "externalSideEffect": false,
+        "name": "interaction_knowledge_propose_supersede",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "low",
+        "roles": [
+          "actuator"
+        ]
+      },
+      {
+        "canonicalName": "interaction.knowledge_submit_review",
+        "externalSideEffect": false,
+        "name": "interaction_knowledge_submit_review",
+        "requiresApproval": false,
+        "reversible": true,
+        "risk": "low",
+        "roles": [
+          "actuator"
+        ]
       }
     ]
   },
@@ -352,6 +451,221 @@
           "parameters": {
             "properties": {},
             "required": [],
+            "type": "object"
+          }
+        },
+        {
+          "description": "Search the knowledge graph (FTS + lexical-vector CANDIDATE retrieval; results are candidates, not truth). Read-only.",
+          "name": "interaction_knowledge_search",
+          "parameters": {
+            "properties": {
+              "k": {
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "query": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "description": "Read one knowledge node (status shows candidate/active/stale/disputed/superseded honestly).",
+          "name": "interaction_knowledge_get",
+          "parameters": {
+            "properties": {
+              "nodeId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "nodeId"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "description": "Read a source asset's metadata and (for text) a capped content preview. Raw assets are immutable.",
+          "name": "interaction_knowledge_get_source",
+          "parameters": {
+            "properties": {
+              "hash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "hash"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "description": "Expand one node's neighborhood (edges + neighbor summaries).",
+          "name": "interaction_knowledge_expand_graph",
+          "parameters": {
+            "properties": {
+              "root": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "root"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "description": "Propose an ENTITY node. AI proposals always land as CANDIDATE — a human review activates them.",
+          "name": "interaction_knowledge_propose_entity",
+          "parameters": {
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "domains": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "description": "Propose a CLAIM with evidence (asset hash/URL + segment REQUIRED). Always a CANDIDATE; never activates itself.",
+          "name": "interaction_knowledge_propose_claim",
+          "parameters": {
+            "properties": {
+              "confidence": {
+                "type": "number"
+              },
+              "content": {
+                "type": "string"
+              },
+              "counterexamples": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "domains": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "evidence": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "content",
+              "evidence"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "description": "Propose a typed relation. Analogy/conjecture origins can NEVER claim causality; AI proposals are candidates.",
+          "name": "interaction_knowledge_propose_relation",
+          "parameters": {
+            "properties": {
+              "confidence": {
+                "type": "number"
+              },
+              "from": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              },
+              "rationale": {
+                "type": "string"
+              },
+              "relation": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "relation",
+              "origin"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "description": "Propose a new version that would supersede an existing node. The old node is only superseded when a HUMAN approves.",
+          "name": "interaction_knowledge_propose_supersede",
+          "parameters": {
+            "properties": {
+              "confidence": {
+                "type": "number"
+              },
+              "content": {
+                "type": "string"
+              },
+              "evidence": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "supersedes": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "supersedes",
+              "title",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "description": "Add a review COMMENT to a candidate. An AI can comment but can never approve/reject — that stays human.",
+          "name": "interaction_knowledge_submit_review",
+          "parameters": {
+            "properties": {
+              "nodeId": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "nodeId",
+              "note"
+            ],
             "type": "object"
           }
         }

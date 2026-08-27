@@ -710,6 +710,117 @@ async fn dispatch_tool(state: &ApiState, name: &str, input: Value) -> Result<Val
             Ok(rt.run_recipe(&id).await?)
         }
         "interaction.policy" => Ok(serde_json::to_value(rt.policy().await).unwrap_or_default()),
+        // ---- 知識工具（spec §12）：tool 呼叫端一律視為 AI（agent actor）——
+        // 寫入強制 Candidate、審核裁決降為留言。這是降權方向，flat token 下安全。
+        "interaction.knowledge_search" => {
+            let query = required(&input, "query")?;
+            let k = input.get("k").and_then(|v| v.as_u64()).unwrap_or(10) as u32;
+            Ok(rt.knowledge_search(&query, k).await?)
+        }
+        "interaction.knowledge_get" => {
+            let id = required(&input, "nodeId")?;
+            Ok(serde_json::to_value(rt.knowledge_get(&id).await?).unwrap_or_default())
+        }
+        "interaction.knowledge_get_source" => {
+            let hash = required(&input, "hash")?;
+            let record = rt.asset_get(&hash).await?;
+            let preview = if matches!(
+                record.media_type,
+                interaction_core::MediaType::Text | interaction_core::MediaType::Code
+            ) {
+                rt.asset_content(&hash, 64 * 1024)
+                    .await
+                    .ok()
+                    .map(|b| String::from_utf8_lossy(&b).to_string())
+            } else {
+                None
+            };
+            Ok(json!({
+                "asset": record,
+                "textPreview": preview,
+                "note": "原始素材 write-once；二進位內容請走 /v1/assets/{hash}/content",
+            }))
+        }
+        "interaction.knowledge_expand_graph" => {
+            let root = required(&input, "root")?;
+            Ok(rt.knowledge_graph(&root, 1).await?)
+        }
+        "interaction.knowledge_propose_entity" => {
+            let mut node = interaction_runtime::knowledge::node_from_input(
+                &json!({"nodeType": "entity", "title": input.get("title"), "content": input.get("content"), "domains": input.get("domains")}),
+            )
+            .map_err(DomainError::Validation)?;
+            node.confidence = input
+                .get("confidence")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.5);
+            let created = rt
+                .knowledge_propose_node(
+                    node,
+                    interaction_core::MemoryActor::Agent("ai-host".into()),
+                )
+                .await?;
+            Ok(serde_json::to_value(created).unwrap_or_default())
+        }
+        "interaction.knowledge_propose_claim" => {
+            let mut merged = input.clone();
+            if let Some(obj) = merged.as_object_mut() {
+                obj.insert("nodeType".into(), json!("claim"));
+            }
+            let node = interaction_runtime::knowledge::node_from_input(&merged)
+                .map_err(DomainError::Validation)?;
+            let created = rt
+                .knowledge_propose_node(
+                    node,
+                    interaction_core::MemoryActor::Agent("ai-host".into()),
+                )
+                .await?;
+            Ok(serde_json::to_value(created).unwrap_or_default())
+        }
+        "interaction.knowledge_propose_relation" => {
+            let edge = interaction_runtime::knowledge::edge_from_input(&input)
+                .map_err(DomainError::Validation)?;
+            let created = rt
+                .knowledge_propose_edge(
+                    edge,
+                    interaction_core::MemoryActor::Agent("ai-host".into()),
+                )
+                .await?;
+            Ok(serde_json::to_value(created).unwrap_or_default())
+        }
+        "interaction.knowledge_propose_supersede" => {
+            let mut merged = input.clone();
+            if let Some(obj) = merged.as_object_mut() {
+                obj.insert("nodeType".into(), json!("claim"));
+            }
+            let node = interaction_runtime::knowledge::node_from_input(&merged)
+                .map_err(DomainError::Validation)?;
+            if node.supersedes.is_none() {
+                return Err(ApiError::from(DomainError::Validation(
+                    "supersedes 為必填".into(),
+                )));
+            }
+            let created = rt
+                .knowledge_propose_node(
+                    node,
+                    interaction_core::MemoryActor::Agent("ai-host".into()),
+                )
+                .await?;
+            Ok(serde_json::to_value(created).unwrap_or_default())
+        }
+        "interaction.knowledge_submit_review" => {
+            let id = required(&input, "nodeId")?;
+            let note = required(&input, "note")?;
+            let node = rt
+                .knowledge_review(
+                    &id,
+                    "comment",
+                    Some(note),
+                    interaction_core::MemoryActor::Agent("ai-host".into()),
+                )
+                .await?;
+            Ok(serde_json::to_value(node).unwrap_or_default())
+        }
         other => Err(ApiError::from(DomainError::NotFound(format!(
             "tool {other}"
         )))),
@@ -1450,4 +1561,204 @@ pub async fn memory_context_bundle(
             .memory_context_bundle(&body.task, &body.domains, &body.agent_id)
             .await?,
     ))
+}
+
+// ---------------------------------------------------------------------------
+// 知識系統（人類介面）：素材 CAS＋圖譜＋複審。
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetImportBody {
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub content: Option<String>,
+    #[serde(default)]
+    pub media_type: Option<interaction_core::MediaType>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+pub async fn asset_import(
+    State(state): State<ApiState>,
+    Json(body): Json<AssetImportBody>,
+) -> ApiResult<Json<Value>> {
+    let record = state
+        .runtime
+        .asset_import(
+            body.path.as_deref(),
+            body.content.as_deref(),
+            body.media_type,
+            body.source.as_deref().unwrap_or("user-import"),
+            body.description,
+        )
+        .await?;
+    Ok(Json(serde_json::to_value(record).unwrap_or_default()))
+}
+
+pub async fn assets_list(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.asset_list(200).await?))
+}
+
+pub async fn asset_get(
+    State(state): State<ApiState>,
+    Path(hash): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        serde_json::to_value(state.runtime.asset_get(&hash).await?).unwrap_or_default(),
+    ))
+}
+
+pub async fn asset_impact(
+    State(state): State<ApiState>,
+    Path(hash): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.asset_delete_impact(&hash).await?))
+}
+
+pub async fn asset_delete(
+    State(state): State<ApiState>,
+    Path(hash): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.asset_delete(&hash).await?))
+}
+
+pub async fn asset_content(
+    State(state): State<ApiState>,
+    Path(hash): Path<String>,
+) -> ApiResult<impl axum::response::IntoResponse> {
+    let bytes = state.runtime.asset_content(&hash, 8 * 1024 * 1024).await?;
+    Ok(([("content-type", "application/octet-stream")], bytes))
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeListQuery {
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
+pub async fn knowledge_nodes_list(
+    State(state): State<ApiState>,
+    axum::extract::Query(q): axum::extract::Query<KnowledgeListQuery>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        state
+            .runtime
+            .knowledge_list(q.status.as_deref(), q.limit.unwrap_or(100))
+            .await?,
+    ))
+}
+
+pub async fn knowledge_node_create(
+    State(state): State<ApiState>,
+    Json(input): Json<Value>,
+) -> ApiResult<Json<Value>> {
+    // 人類介面：asAgent 只會降權（→Candidate）。
+    let actor = match input.get("asAgent").and_then(|v| v.as_str()) {
+        Some(a) => interaction_core::MemoryActor::Agent(a.to_string()),
+        None => interaction_core::MemoryActor::Human,
+    };
+    let mut node = interaction_runtime::knowledge::node_from_input(&input)
+        .map_err(interaction_core::DomainError::Validation)?;
+    // 人類可直接建立 active（例如已確認的設計原則）。
+    if matches!(actor, interaction_core::MemoryActor::Human)
+        && input
+            .get("activate")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    {
+        node.status = interaction_core::KnowledgeStatus::Active;
+    }
+    let created = state.runtime.knowledge_propose_node(node, actor).await?;
+    Ok(Json(serde_json::to_value(created).unwrap_or_default()))
+}
+
+pub async fn knowledge_node_get(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        serde_json::to_value(state.runtime.knowledge_get(&id).await?).unwrap_or_default(),
+    ))
+}
+
+pub async fn knowledge_edge_create(
+    State(state): State<ApiState>,
+    Json(input): Json<Value>,
+) -> ApiResult<Json<Value>> {
+    let actor = match input.get("asAgent").and_then(|v| v.as_str()) {
+        Some(a) => interaction_core::MemoryActor::Agent(a.to_string()),
+        None => interaction_core::MemoryActor::Human,
+    };
+    let mut edge = interaction_runtime::knowledge::edge_from_input(&input)
+        .map_err(interaction_core::DomainError::Validation)?;
+    if matches!(actor, interaction_core::MemoryActor::Human)
+        && input
+            .get("activate")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    {
+        edge.status = interaction_core::KnowledgeStatus::Active;
+    }
+    let created = state.runtime.knowledge_propose_edge(edge, actor).await?;
+    Ok(Json(serde_json::to_value(created).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewBody {
+    pub verdict: String,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub as_agent: Option<String>,
+}
+
+pub async fn knowledge_node_review(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(body): Json<ReviewBody>,
+) -> ApiResult<Json<Value>> {
+    let actor = match body.as_agent {
+        Some(a) => interaction_core::MemoryActor::Agent(a),
+        None => interaction_core::MemoryActor::Human,
+    };
+    let node = state
+        .runtime
+        .knowledge_review(&id, &body.verdict, body.note, actor)
+        .await?;
+    Ok(Json(serde_json::to_value(node).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchQuery {
+    pub q: String,
+    #[serde(default)]
+    pub k: Option<u32>,
+}
+
+pub async fn knowledge_search(
+    State(state): State<ApiState>,
+    axum::extract::Query(q): axum::extract::Query<SearchQuery>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        state
+            .runtime
+            .knowledge_search(&q.q, q.k.unwrap_or(10))
+            .await?,
+    ))
+}
+
+pub async fn knowledge_graph(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.knowledge_graph(&id, 1).await?))
 }

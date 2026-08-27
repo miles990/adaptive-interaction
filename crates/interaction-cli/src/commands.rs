@@ -272,6 +272,17 @@ pub struct PlanArgs {
     pub verification: Option<String>,
 }
 
+fn urlencode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
 fn parse_kv(s: &str) -> Result<(String, String), String> {
     s.split_once('=')
         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -372,6 +383,115 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                     .await?
             }
             crate::SensorsAction::Stop => client.post("/v1/sensors/stop", Some(json!({}))).await?,
+        },
+        Command::Knowledge { action } => match action {
+            crate::KnowledgeAction::Search { query, k } => {
+                client
+                    .get(&format!(
+                        "/v1/knowledge/search?q={}&k={k}",
+                        urlencode(query)
+                    ))
+                    .await?
+            }
+            crate::KnowledgeAction::List { status } => {
+                let q = status
+                    .as_deref()
+                    .map(|s| format!("?status={s}"))
+                    .unwrap_or_default();
+                client.get(&format!("/v1/knowledge/nodes{q}")).await?
+            }
+            crate::KnowledgeAction::Show { id } => {
+                client.get(&format!("/v1/knowledge/nodes/{id}")).await?
+            }
+            crate::KnowledgeAction::ProposeClaim {
+                title,
+                content,
+                evidence,
+                confidence,
+                domains,
+                as_agent,
+                activate,
+            } => {
+                let evidence: Value = serde_json::from_str(evidence)
+                    .map_err(|e| anyhow::anyhow!("invalid evidence JSON: {e}"))?;
+                client
+                    .post(
+                        "/v1/knowledge/nodes",
+                        Some(json!({
+                            "nodeType": "claim",
+                            "title": title,
+                            "content": content,
+                            "evidence": evidence,
+                            "confidence": confidence,
+                            "domains": domains,
+                            "asAgent": as_agent,
+                            "activate": activate,
+                        })),
+                    )
+                    .await?
+            }
+            crate::KnowledgeAction::Link {
+                from,
+                to,
+                relation,
+                origin,
+                rationale,
+                as_agent,
+            } => {
+                client
+                    .post(
+                        "/v1/knowledge/edges",
+                        Some(json!({
+                            "from": from,
+                            "to": to,
+                            "relation": relation,
+                            "origin": origin,
+                            "rationale": rationale,
+                            "asAgent": as_agent,
+                        })),
+                    )
+                    .await?
+            }
+            crate::KnowledgeAction::Review {
+                id,
+                verdict,
+                note,
+                as_agent,
+            } => {
+                client
+                    .post(
+                        &format!("/v1/knowledge/nodes/{id}/review"),
+                        Some(json!({"verdict": verdict, "note": note, "asAgent": as_agent})),
+                    )
+                    .await?
+            }
+            crate::KnowledgeAction::Graph { id } => {
+                client
+                    .get(&format!("/v1/knowledge/nodes/{id}/graph"))
+                    .await?
+            }
+        },
+        Command::Assets { action } => match action {
+            crate::AssetsAction::Import {
+                path,
+                text,
+                description,
+            } => {
+                client
+                    .post(
+                        "/v1/assets/import",
+                        Some(json!({"path": path, "content": text, "description": description})),
+                    )
+                    .await?
+            }
+            crate::AssetsAction::List => client.get("/v1/assets").await?,
+            crate::AssetsAction::Show { hash } => client.get(&format!("/v1/assets/{hash}")).await?,
+            crate::AssetsAction::Impact { hash } => {
+                client.get(&format!("/v1/assets/{hash}/impact")).await?
+            }
+            crate::AssetsAction::Delete { hash } => {
+                client.delete(&format!("/v1/assets/{hash}")).await?
+            }
         },
         Command::Memory { action } => match action {
             crate::MemoryAction::List { layer, limit } => {

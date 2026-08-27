@@ -14,7 +14,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::Mutex;
 
-const CURRENT_SCHEMA: i64 = 4;
+const CURRENT_SCHEMA: i64 = 5;
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -181,6 +181,42 @@ impl Store {
                 );
                 CREATE INDEX IF NOT EXISTS idx_memory_layer ON memory_items(layer, updated_at);
                 CREATE INDEX IF NOT EXISTS idx_memory_expiry ON memory_items(expires_at);
+                "#,
+            )
+            .map_err(map_err)?;
+        }
+        if version < 5 {
+            // v0.4 知識系統：內容定址素材中繼資料＋版本化知識圖譜＋FTS5 全文。
+            // blob 本體在檔案系統（CAS）；這裡只有中繼資料與圖。
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS assets (
+                    hash       TEXT PRIMARY KEY,
+                    media_type TEXT NOT NULL,
+                    size       INTEGER NOT NULL,
+                    added_at   TEXT NOT NULL,
+                    body       TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS knowledge_nodes (
+                    id         TEXT PRIMARY KEY,
+                    node_type  TEXT NOT NULL,
+                    status     TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    body       TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_kn_status ON knowledge_nodes(status, updated_at);
+                CREATE TABLE IF NOT EXISTS knowledge_edges (
+                    id       TEXT PRIMARY KEY,
+                    from_id  TEXT NOT NULL,
+                    to_id    TEXT NOT NULL,
+                    relation TEXT NOT NULL,
+                    status   TEXT NOT NULL,
+                    body     TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ke_from ON knowledge_edges(from_id);
+                CREATE INDEX IF NOT EXISTS idx_ke_to ON knowledge_edges(to_id);
+                CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts
+                    USING fts5(node_id UNINDEXED, title, content);
                 "#,
             )
             .map_err(map_err)?;
@@ -844,6 +880,227 @@ impl Store {
             )
             .map_err(map_err)?;
         Ok(n as u32)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v5：知識系統（素材中繼資料、圖譜、FTS5）。
+// ---------------------------------------------------------------------------
+
+impl Store {
+    /// 素材中繼資料 write-once：同 hash 再寫直接拒絕（AI 不可覆寫來源）。
+    pub fn insert_asset(
+        &self,
+        hash: &str,
+        media_type: &str,
+        size: u64,
+        body: &str,
+    ) -> Result<bool, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let n = conn
+            .execute(
+                "INSERT OR IGNORE INTO assets (hash, media_type, size, added_at, body)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![
+                    hash,
+                    media_type,
+                    size as i64,
+                    ts_to_str(chrono::Utc::now()),
+                    body
+                ],
+            )
+            .map_err(map_err)?;
+        Ok(n > 0)
+    }
+
+    pub fn get_asset(&self, hash: &str) -> Result<Option<String>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn
+            .prepare("SELECT body FROM assets WHERE hash = ?1")
+            .map_err(map_err)?;
+        let mut rows = stmt.query([hash]).map_err(map_err)?;
+        match rows.next().map_err(map_err)? {
+            Some(row) => Ok(Some(row.get(0).map_err(map_err)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn list_assets(&self, limit: u32) -> Result<Vec<String>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn
+            .prepare("SELECT body FROM assets ORDER BY added_at DESC LIMIT ?1")
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([limit.clamp(1, 1000)], |r| r.get::<_, String>(0))
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+
+    pub fn delete_asset(&self, hash: &str) -> Result<bool, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let n = conn
+            .execute("DELETE FROM assets WHERE hash = ?1", [hash])
+            .map_err(map_err)?;
+        Ok(n > 0)
+    }
+
+    pub fn save_knowledge_node(
+        &self,
+        id: &str,
+        node_type: &str,
+        status: &str,
+        title: &str,
+        content: &str,
+        body: &str,
+    ) -> Result<(), DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        conn.execute(
+            "INSERT INTO knowledge_nodes (id, node_type, status, updated_at, body)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET node_type=?2, status=?3, updated_at=?4, body=?5",
+            rusqlite::params![id, node_type, status, ts_to_str(chrono::Utc::now()), body],
+        )
+        .map_err(map_err)?;
+        // FTS 同步：先刪舊列再插新列。
+        conn.execute("DELETE FROM knowledge_fts WHERE node_id = ?1", [id])
+            .map_err(map_err)?;
+        conn.execute(
+            "INSERT INTO knowledge_fts (node_id, title, content) VALUES (?1, ?2, ?3)",
+            rusqlite::params![id, title, content],
+        )
+        .map_err(map_err)?;
+        Ok(())
+    }
+
+    pub fn get_knowledge_node(&self, id: &str) -> Result<Option<String>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn
+            .prepare("SELECT body FROM knowledge_nodes WHERE id = ?1")
+            .map_err(map_err)?;
+        let mut rows = stmt.query([id]).map_err(map_err)?;
+        match rows.next().map_err(map_err)? {
+            Some(row) => Ok(Some(row.get(0).map_err(map_err)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn list_knowledge_nodes(
+        &self,
+        status: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<String>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let limit = limit.clamp(1, 1000);
+        let mut out = Vec::new();
+        match status {
+            Some(st) => {
+                let mut stmt = conn
+                    .prepare("SELECT body FROM knowledge_nodes WHERE status = ?1 ORDER BY updated_at DESC LIMIT ?2")
+                    .map_err(map_err)?;
+                let rows = stmt
+                    .query_map(rusqlite::params![st, limit], |r| r.get::<_, String>(0))
+                    .map_err(map_err)?;
+                for r in rows {
+                    out.push(r.map_err(map_err)?);
+                }
+            }
+            None => {
+                let mut stmt = conn
+                    .prepare("SELECT body FROM knowledge_nodes ORDER BY updated_at DESC LIMIT ?1")
+                    .map_err(map_err)?;
+                let rows = stmt
+                    .query_map([limit], |r| r.get::<_, String>(0))
+                    .map_err(map_err)?;
+                for r in rows {
+                    out.push(r.map_err(map_err)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// FTS5 全文搜尋 → (node_id, bm25 分數，越小越好)。
+    pub fn search_knowledge(
+        &self,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<(String, f64)>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn
+            .prepare(
+                "SELECT node_id, bm25(knowledge_fts) FROM knowledge_fts
+                 WHERE knowledge_fts MATCH ?1 ORDER BY bm25(knowledge_fts) LIMIT ?2",
+            )
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map(rusqlite::params![query, limit.clamp(1, 100)], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+            })
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+
+    pub fn save_knowledge_edge(
+        &self,
+        id: &str,
+        from_id: &str,
+        to_id: &str,
+        relation: &str,
+        status: &str,
+        body: &str,
+    ) -> Result<(), DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        conn.execute(
+            "INSERT INTO knowledge_edges (id, from_id, to_id, relation, status, body)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET relation=?4, status=?5, body=?6",
+            rusqlite::params![id, from_id, to_id, relation, status, body],
+        )
+        .map_err(map_err)?;
+        Ok(())
+    }
+
+    /// 某節點的相鄰邊（兩個方向）。
+    pub fn edges_touching(&self, node_id: &str, limit: u32) -> Result<Vec<String>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn
+            .prepare("SELECT body FROM knowledge_edges WHERE from_id = ?1 OR to_id = ?1 LIMIT ?2")
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map(rusqlite::params![node_id, limit.clamp(1, 500)], |r| {
+                r.get::<_, String>(0)
+            })
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+
+    /// 引用某素材的知識節點 id（刪除影響預覽）。
+    pub fn nodes_referencing_asset(&self, hash: &str) -> Result<Vec<String>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let pattern = format!("%{hash}%");
+        let mut stmt = conn
+            .prepare("SELECT id FROM knowledge_nodes WHERE body LIKE ?1 LIMIT 200")
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([pattern], |r| r.get::<_, String>(0))
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(map_err)?);
+        }
+        Ok(out)
     }
 }
 

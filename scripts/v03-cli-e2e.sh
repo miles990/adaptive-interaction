@@ -176,6 +176,31 @@ check "context bundle includes the know-how" "$BN" "1"
 GONE=$("$BIN" memory show "$MID" --json >/dev/null 2>&1; echo $?)
 if [ "$GONE" != "0" ]; then ok "memory deletable (no permanent memory)"; else bad "memory should be deletable"; fi
 
+echo "== Knowledge system (v0.4) =="
+AH=$("$BIN" assets import --text "會議紀錄：決定採用方案B" --json 2>/dev/null | J "d['hash']")
+[ -n "$AH" ] && ok "asset imported (CAS) $AH" || bad "asset import"
+AH2=$("$BIN" assets import --text "會議紀錄：決定採用方案B" --json 2>/dev/null | J "d['hash']")
+check "same content = same hash (write-once)" "$AH2" "$AH"
+# agent 提案 → candidate。
+KID=$("$BIN" knowledge propose-claim --title "方案B已定案" --content "依會議紀錄" --evidence "[{\"assetHash\":\"$AH\"}]" --as-agent claude-code --json 2>/dev/null | J "d['nodeId']")
+KST=$("$BIN" knowledge show "$KID" --json 2>/dev/null | J "d['status']")
+check "agent proposal is candidate" "$KST" "candidate"
+# agent approve → 降留言。
+"$BIN" knowledge review "$KID" approve --as-agent codex --json >/dev/null 2>&1
+KST=$("$BIN" knowledge show "$KID" --json 2>/dev/null | J "d['status']")
+check "agent cannot self-approve" "$KST" "candidate"
+# 人類 approve → active。
+"$BIN" knowledge review "$KID" approve --json >/dev/null 2>&1
+KST=$("$BIN" knowledge show "$KID" --json 2>/dev/null | J "d['status']")
+check "human approval activates" "$KST" "active"
+# 檢索找得到＋誠實 retrieval note。
+FOUND=$("$BIN" knowledge search "方案B" --json 2>/dev/null | J "any(r['nodeId']=='$KID' for r in d['results'])")
+check "FTS/vector search finds it" "$FOUND" "True"
+# 類比不可標因果。
+K2=$("$BIN" knowledge propose-claim --title "另一主張" --content "x" --evidence "[{\"url\":\"https://example.com\"}]" --activate --json 2>/dev/null | J "d['nodeId']")
+RC=$("$BIN" knowledge link "$KID" "$K2" --relation causes --origin ai-conjecture --json >/dev/null 2>&1; echo $?)
+if [ "$RC" != "0" ]; then ok "analogy/conjecture cannot claim causality"; else bad "causal edge should be refused"; fi
+
 echo "== Emergency stop propagation =="
 SID2=$("$BIN" agents create --agent agent.b --ttl 30 --json 2>/dev/null | J "d['sessionId']")
 "$BIN" emergency-stop --json >/dev/null 2>&1

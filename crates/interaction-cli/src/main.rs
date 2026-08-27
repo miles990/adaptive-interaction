@@ -78,6 +78,16 @@ pub enum Command {
         #[command(subcommand)]
         action: AgentsAction,
     },
+    /// 知識圖譜（素材、主張、關係、候選複審）。
+    Knowledge {
+        #[command(subcommand)]
+        action: KnowledgeAction,
+    },
+    /// 內容定址原始素材庫（write-once）。
+    Assets {
+        #[command(subcommand)]
+        action: AssetsAction,
+    },
     /// 小樞的分層記憶（保存期限、可見性、Context Bundle）。
     Memory {
         #[command(subcommand)]
@@ -377,6 +387,94 @@ pub enum AgentsAction {
         handoff: Option<String>,
         #[arg(long, default_value = "closed")]
         reason: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum KnowledgeAction {
+    /// Search the graph (FTS + lexical-vector candidates).
+    Search {
+        query: String,
+        #[arg(long, default_value_t = 10)]
+        k: u32,
+    },
+    /// List nodes (optionally by status: candidate/active/…).
+    List {
+        #[arg(long)]
+        status: Option<String>,
+    },
+    Show {
+        id: String,
+    },
+    /// Propose a claim (human by default; --as-agent forces candidate).
+    ProposeClaim {
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        content: String,
+        /// Evidence JSON array, e.g. '[{"url":"https://…","segment":"page=3"}]'
+        #[arg(long, default_value = "[]")]
+        evidence: String,
+        #[arg(long)]
+        confidence: Option<f64>,
+        #[arg(long = "domain")]
+        domains: Vec<String>,
+        #[arg(long)]
+        as_agent: Option<String>,
+        /// Human only: publish directly as active.
+        #[arg(long)]
+        activate: bool,
+    },
+    /// Propose a typed relation between two nodes.
+    Link {
+        from: String,
+        to: String,
+        #[arg(long)]
+        relation: String,
+        #[arg(long, default_value = "ai-conjecture")]
+        origin: String,
+        #[arg(long)]
+        rationale: Option<String>,
+        #[arg(long)]
+        as_agent: Option<String>,
+    },
+    /// Review a candidate: approve / reject / comment (agent verdicts demote to comments).
+    Review {
+        id: String,
+        verdict: String,
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long)]
+        as_agent: Option<String>,
+    },
+    /// Expand a node's neighborhood.
+    Graph {
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AssetsAction {
+    /// Import a local file (or inline --text) into the content-addressed store.
+    Import {
+        #[arg(long)]
+        path: Option<String>,
+        #[arg(long)]
+        text: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+    },
+    List,
+    Show {
+        hash: String,
+    },
+    /// Preview what deleting this asset would affect.
+    Impact {
+        hash: String,
+    },
+    /// Delete (cascades deleteWithParent derivatives; active knowledge → disputed).
+    Delete {
+        hash: String,
     },
 }
 

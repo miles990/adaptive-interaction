@@ -73,6 +73,25 @@ pub fn router(state: ApiState) -> Router {
             "/v1/proactive-dialogue/quiet",
             post(routes::proactive_dialogue_quiet),
         )
+        .route("/v1/assets", get(routes::assets_list))
+        .route("/v1/assets/import", post(routes::asset_import))
+        .route("/v1/assets/{hash}", get(routes::asset_get))
+        .route("/v1/assets/{hash}", delete(routes::asset_delete))
+        .route("/v1/assets/{hash}/impact", get(routes::asset_impact))
+        .route("/v1/assets/{hash}/content", get(routes::asset_content))
+        .route("/v1/knowledge/search", get(routes::knowledge_search))
+        .route("/v1/knowledge/nodes", get(routes::knowledge_nodes_list))
+        .route("/v1/knowledge/nodes", post(routes::knowledge_node_create))
+        .route("/v1/knowledge/nodes/{id}", get(routes::knowledge_node_get))
+        .route(
+            "/v1/knowledge/nodes/{id}/review",
+            post(routes::knowledge_node_review),
+        )
+        .route(
+            "/v1/knowledge/nodes/{id}/graph",
+            get(routes::knowledge_graph),
+        )
+        .route("/v1/knowledge/edges", post(routes::knowledge_edge_create))
         .route("/v1/memory", get(routes::memory_list))
         .route("/v1/memory", post(routes::memory_create))
         .route("/v1/memory/export", get(routes::memory_export))

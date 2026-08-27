@@ -97,6 +97,8 @@ pub struct RuntimeInner {
     pub(crate) proactive_dialogue: RwLock<crate::proactive::ProactiveDialogueState>,
     /// Agent Gateway：真實 agent 子程序（codex/claude-code）管理。
     pub(crate) gateway: crate::gateway::GatewayManager,
+    /// 知識檢索的向量候選介面（v1：lexical fallback，誠實標示）。
+    pub(crate) vector_index: Box<dyn crate::knowledge::VectorIndex>,
 }
 
 #[derive(Clone)]
@@ -312,6 +314,7 @@ impl Runtime {
                 presentation: presentation_bridge,
                 proactive_dialogue: RwLock::new(proactive_state),
                 gateway: crate::gateway::GatewayManager::new(),
+                vector_index: Box::new(crate::knowledge::LexicalIndex::default()),
             }),
         };
         let _ = sensor_cb_slot.set(Arc::downgrade(&runtime.inner));
@@ -332,6 +335,7 @@ impl Runtime {
         }
         runtime.restore_agent_sessions().await;
         runtime.init_providers().await;
+        runtime.rebuild_vector_index();
 
         if opts.spawn_watchdog {
             runtime.spawn_watchdog();

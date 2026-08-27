@@ -2562,6 +2562,1814 @@
         "x-risk": "bounded-side-effect"
       }
     },
+    "/v1/tools/interaction.knowledge_expand_graph/call": {
+      "post": {
+        "operationId": "interaction_knowledge_expand_graph",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "root": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "root"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Expand one node's neighborhood (edges + neighbor summaries).",
+        "x-external-side-effect": false,
+        "x-risk": "read-only"
+      }
+    },
+    "/v1/tools/interaction.knowledge_get/call": {
+      "post": {
+        "operationId": "interaction_knowledge_get",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "nodeId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "nodeId"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$defs": {
+                    "KnowledgeNodeId": {
+                      "description": "Knowledge graph node id.",
+                      "type": "string"
+                    },
+                    "KnowledgeReview": {
+                      "properties": {
+                        "at": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "reviewer": {
+                          "$ref": "#/$defs/MemoryActor"
+                        },
+                        "verdict": {
+                          "description": "comment｜approve｜reject（approve 只有人類有效——服務層強制）。",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "reviewer",
+                        "verdict",
+                        "note",
+                        "at"
+                      ],
+                      "type": "object"
+                    },
+                    "KnowledgeStatus": {
+                      "description": "知識節點狀態機（spec §15）。",
+                      "enum": [
+                        "candidate",
+                        "active",
+                        "stale",
+                        "disputed",
+                        "superseded",
+                        "archived"
+                      ],
+                      "type": "string"
+                    },
+                    "MemoryActor": {
+                      "description": "誰建立的（權限規則依此判斷，不信任自稱）。",
+                      "oneOf": [
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "human",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "const": "agent",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "id"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "runtime",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "NodeType": {
+                      "enum": [
+                        "entity",
+                        "claim",
+                        "source"
+                      ],
+                      "type": "string"
+                    },
+                    "SourceRef": {
+                      "description": "指回原始素材的精確引用（時間段／區域／行號）。",
+                      "properties": {
+                        "assetHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "segment": {
+                          "description": "片段語法：`t=12.5-30.2`（秒）｜`region=x,y,w,h`｜`lines=10-42`｜`page=3`。",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "url": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "applicability": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "confidence": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "counterexamples": {
+                      "default": [],
+                      "description": "反例與適用範圍（升格 know-how 必填的誠實欄位）。",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "createdBy": {
+                      "$ref": "#/$defs/MemoryActor"
+                    },
+                    "domains": {
+                      "default": [],
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "evidence": {
+                      "default": [],
+                      "description": "證據：指回素材／URL 的精確引用。Claim 必須至少一個。",
+                      "items": {
+                        "$ref": "#/$defs/SourceRef"
+                      },
+                      "type": "array"
+                    },
+                    "nodeId": {
+                      "$ref": "#/$defs/KnowledgeNodeId"
+                    },
+                    "nodeType": {
+                      "$ref": "#/$defs/NodeType"
+                    },
+                    "reviewAfter": {
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reviews": {
+                      "default": [],
+                      "description": "複審紀錄（agent 可 submit-review 留言；只有人類 approve 才 activate）。",
+                      "items": {
+                        "$ref": "#/$defs/KnowledgeReview"
+                      },
+                      "type": "array"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "$ref": "#/$defs/KnowledgeStatus"
+                    },
+                    "supersedes": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/KnowledgeNodeId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "version": {
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "nodeId",
+                    "nodeType",
+                    "title",
+                    "content",
+                    "status",
+                    "confidence",
+                    "createdBy",
+                    "version",
+                    "createdAt",
+                    "updatedAt",
+                    "schemaVersion"
+                  ],
+                  "title": "KnowledgeNode",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Read one knowledge node (status shows candidate/active/stale/disputed/superseded honestly).",
+        "x-external-side-effect": false,
+        "x-risk": "read-only"
+      }
+    },
+    "/v1/tools/interaction.knowledge_get_source/call": {
+      "post": {
+        "operationId": "interaction_knowledge_get_source",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "hash": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "hash"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Read a source asset's metadata and (for text) a capped content preview. Raw assets are immutable.",
+        "x-external-side-effect": false,
+        "x-risk": "read-only"
+      }
+    },
+    "/v1/tools/interaction.knowledge_propose_claim/call": {
+      "post": {
+        "operationId": "interaction_knowledge_propose_claim",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "confidence": {
+                    "type": "number"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "counterexamples": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "domains": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "evidence": {
+                    "items": {
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "content",
+                  "evidence"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$defs": {
+                    "KnowledgeNodeId": {
+                      "description": "Knowledge graph node id.",
+                      "type": "string"
+                    },
+                    "KnowledgeReview": {
+                      "properties": {
+                        "at": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "reviewer": {
+                          "$ref": "#/$defs/MemoryActor"
+                        },
+                        "verdict": {
+                          "description": "comment｜approve｜reject（approve 只有人類有效——服務層強制）。",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "reviewer",
+                        "verdict",
+                        "note",
+                        "at"
+                      ],
+                      "type": "object"
+                    },
+                    "KnowledgeStatus": {
+                      "description": "知識節點狀態機（spec §15）。",
+                      "enum": [
+                        "candidate",
+                        "active",
+                        "stale",
+                        "disputed",
+                        "superseded",
+                        "archived"
+                      ],
+                      "type": "string"
+                    },
+                    "MemoryActor": {
+                      "description": "誰建立的（權限規則依此判斷，不信任自稱）。",
+                      "oneOf": [
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "human",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "const": "agent",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "id"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "runtime",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "NodeType": {
+                      "enum": [
+                        "entity",
+                        "claim",
+                        "source"
+                      ],
+                      "type": "string"
+                    },
+                    "SourceRef": {
+                      "description": "指回原始素材的精確引用（時間段／區域／行號）。",
+                      "properties": {
+                        "assetHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "segment": {
+                          "description": "片段語法：`t=12.5-30.2`（秒）｜`region=x,y,w,h`｜`lines=10-42`｜`page=3`。",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "url": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "applicability": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "confidence": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "counterexamples": {
+                      "default": [],
+                      "description": "反例與適用範圍（升格 know-how 必填的誠實欄位）。",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "createdBy": {
+                      "$ref": "#/$defs/MemoryActor"
+                    },
+                    "domains": {
+                      "default": [],
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "evidence": {
+                      "default": [],
+                      "description": "證據：指回素材／URL 的精確引用。Claim 必須至少一個。",
+                      "items": {
+                        "$ref": "#/$defs/SourceRef"
+                      },
+                      "type": "array"
+                    },
+                    "nodeId": {
+                      "$ref": "#/$defs/KnowledgeNodeId"
+                    },
+                    "nodeType": {
+                      "$ref": "#/$defs/NodeType"
+                    },
+                    "reviewAfter": {
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reviews": {
+                      "default": [],
+                      "description": "複審紀錄（agent 可 submit-review 留言；只有人類 approve 才 activate）。",
+                      "items": {
+                        "$ref": "#/$defs/KnowledgeReview"
+                      },
+                      "type": "array"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "$ref": "#/$defs/KnowledgeStatus"
+                    },
+                    "supersedes": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/KnowledgeNodeId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "version": {
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "nodeId",
+                    "nodeType",
+                    "title",
+                    "content",
+                    "status",
+                    "confidence",
+                    "createdBy",
+                    "version",
+                    "createdAt",
+                    "updatedAt",
+                    "schemaVersion"
+                  ],
+                  "title": "KnowledgeNode",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Propose a CLAIM with evidence (asset hash/URL + segment REQUIRED). Always a CANDIDATE; never activates itself.",
+        "x-external-side-effect": false,
+        "x-risk": "low"
+      }
+    },
+    "/v1/tools/interaction.knowledge_propose_entity/call": {
+      "post": {
+        "operationId": "interaction_knowledge_propose_entity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  },
+                  "domains": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "content"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$defs": {
+                    "KnowledgeNodeId": {
+                      "description": "Knowledge graph node id.",
+                      "type": "string"
+                    },
+                    "KnowledgeReview": {
+                      "properties": {
+                        "at": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "reviewer": {
+                          "$ref": "#/$defs/MemoryActor"
+                        },
+                        "verdict": {
+                          "description": "comment｜approve｜reject（approve 只有人類有效——服務層強制）。",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "reviewer",
+                        "verdict",
+                        "note",
+                        "at"
+                      ],
+                      "type": "object"
+                    },
+                    "KnowledgeStatus": {
+                      "description": "知識節點狀態機（spec §15）。",
+                      "enum": [
+                        "candidate",
+                        "active",
+                        "stale",
+                        "disputed",
+                        "superseded",
+                        "archived"
+                      ],
+                      "type": "string"
+                    },
+                    "MemoryActor": {
+                      "description": "誰建立的（權限規則依此判斷，不信任自稱）。",
+                      "oneOf": [
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "human",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "const": "agent",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "id"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "runtime",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "NodeType": {
+                      "enum": [
+                        "entity",
+                        "claim",
+                        "source"
+                      ],
+                      "type": "string"
+                    },
+                    "SourceRef": {
+                      "description": "指回原始素材的精確引用（時間段／區域／行號）。",
+                      "properties": {
+                        "assetHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "segment": {
+                          "description": "片段語法：`t=12.5-30.2`（秒）｜`region=x,y,w,h`｜`lines=10-42`｜`page=3`。",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "url": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "applicability": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "confidence": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "counterexamples": {
+                      "default": [],
+                      "description": "反例與適用範圍（升格 know-how 必填的誠實欄位）。",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "createdBy": {
+                      "$ref": "#/$defs/MemoryActor"
+                    },
+                    "domains": {
+                      "default": [],
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "evidence": {
+                      "default": [],
+                      "description": "證據：指回素材／URL 的精確引用。Claim 必須至少一個。",
+                      "items": {
+                        "$ref": "#/$defs/SourceRef"
+                      },
+                      "type": "array"
+                    },
+                    "nodeId": {
+                      "$ref": "#/$defs/KnowledgeNodeId"
+                    },
+                    "nodeType": {
+                      "$ref": "#/$defs/NodeType"
+                    },
+                    "reviewAfter": {
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reviews": {
+                      "default": [],
+                      "description": "複審紀錄（agent 可 submit-review 留言；只有人類 approve 才 activate）。",
+                      "items": {
+                        "$ref": "#/$defs/KnowledgeReview"
+                      },
+                      "type": "array"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "$ref": "#/$defs/KnowledgeStatus"
+                    },
+                    "supersedes": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/KnowledgeNodeId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "version": {
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "nodeId",
+                    "nodeType",
+                    "title",
+                    "content",
+                    "status",
+                    "confidence",
+                    "createdBy",
+                    "version",
+                    "createdAt",
+                    "updatedAt",
+                    "schemaVersion"
+                  ],
+                  "title": "KnowledgeNode",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Propose an ENTITY node. AI proposals always land as CANDIDATE — a human review activates them.",
+        "x-external-side-effect": false,
+        "x-risk": "low"
+      }
+    },
+    "/v1/tools/interaction.knowledge_propose_relation/call": {
+      "post": {
+        "operationId": "interaction_knowledge_propose_relation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "confidence": {
+                    "type": "number"
+                  },
+                  "from": {
+                    "type": "string"
+                  },
+                  "origin": {
+                    "type": "string"
+                  },
+                  "rationale": {
+                    "type": "string"
+                  },
+                  "relation": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to",
+                  "relation",
+                  "origin"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$defs": {
+                    "EdgeOrigin": {
+                      "description": "連結性質（跨領域連結必須標記；spec §11）。",
+                      "oneOf": [
+                        {
+                          "const": "research-supported",
+                          "description": "研究支持。",
+                          "type": "string"
+                        },
+                        {
+                          "const": "engineering-analogy",
+                          "description": "工程類比。",
+                          "type": "string"
+                        },
+                        {
+                          "const": "creative-inspiration",
+                          "description": "創作啟發。",
+                          "type": "string"
+                        },
+                        {
+                          "const": "ai-conjecture",
+                          "description": "AI 推測。",
+                          "type": "string"
+                        },
+                        {
+                          "const": "user-confirmed",
+                          "description": "使用者確認的設計原則。",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "KnowledgeEdgeId": {
+                      "description": "Knowledge graph edge id.",
+                      "type": "string"
+                    },
+                    "KnowledgeNodeId": {
+                      "description": "Knowledge graph node id.",
+                      "type": "string"
+                    },
+                    "KnowledgeStatus": {
+                      "description": "知識節點狀態機（spec §15）。",
+                      "enum": [
+                        "candidate",
+                        "active",
+                        "stale",
+                        "disputed",
+                        "superseded",
+                        "archived"
+                      ],
+                      "type": "string"
+                    },
+                    "MemoryActor": {
+                      "description": "誰建立的（權限規則依此判斷，不信任自稱）。",
+                      "oneOf": [
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "human",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "const": "agent",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "id"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "runtime",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "RelationType": {
+                      "description": "關係類型（spec §11 清單）。",
+                      "enum": [
+                        "supports",
+                        "contradicts",
+                        "causes",
+                        "influences",
+                        "applies-to",
+                        "implemented-by",
+                        "similar-to",
+                        "analogy",
+                        "design-transfer",
+                        "derived-from",
+                        "supersedes",
+                        "conflicts-with"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "confidence": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "createdBy": {
+                      "$ref": "#/$defs/MemoryActor"
+                    },
+                    "edgeId": {
+                      "$ref": "#/$defs/KnowledgeEdgeId"
+                    },
+                    "from": {
+                      "$ref": "#/$defs/KnowledgeNodeId"
+                    },
+                    "origin": {
+                      "$ref": "#/$defs/EdgeOrigin"
+                    },
+                    "rationale": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "relation": {
+                      "$ref": "#/$defs/RelationType"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "$ref": "#/$defs/KnowledgeStatus"
+                    },
+                    "to": {
+                      "$ref": "#/$defs/KnowledgeNodeId"
+                    }
+                  },
+                  "required": [
+                    "edgeId",
+                    "from",
+                    "to",
+                    "relation",
+                    "origin",
+                    "status",
+                    "confidence",
+                    "createdBy",
+                    "createdAt",
+                    "schemaVersion"
+                  ],
+                  "title": "KnowledgeEdge",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Propose a typed relation. Analogy/conjecture origins can NEVER claim causality; AI proposals are candidates.",
+        "x-external-side-effect": false,
+        "x-risk": "low"
+      }
+    },
+    "/v1/tools/interaction.knowledge_propose_supersede/call": {
+      "post": {
+        "operationId": "interaction_knowledge_propose_supersede",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "confidence": {
+                    "type": "number"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "items": {
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "supersedes": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "supersedes",
+                  "title",
+                  "content"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$defs": {
+                    "KnowledgeNodeId": {
+                      "description": "Knowledge graph node id.",
+                      "type": "string"
+                    },
+                    "KnowledgeReview": {
+                      "properties": {
+                        "at": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "reviewer": {
+                          "$ref": "#/$defs/MemoryActor"
+                        },
+                        "verdict": {
+                          "description": "comment｜approve｜reject（approve 只有人類有效——服務層強制）。",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "reviewer",
+                        "verdict",
+                        "note",
+                        "at"
+                      ],
+                      "type": "object"
+                    },
+                    "KnowledgeStatus": {
+                      "description": "知識節點狀態機（spec §15）。",
+                      "enum": [
+                        "candidate",
+                        "active",
+                        "stale",
+                        "disputed",
+                        "superseded",
+                        "archived"
+                      ],
+                      "type": "string"
+                    },
+                    "MemoryActor": {
+                      "description": "誰建立的（權限規則依此判斷，不信任自稱）。",
+                      "oneOf": [
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "human",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "const": "agent",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "id"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "runtime",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "NodeType": {
+                      "enum": [
+                        "entity",
+                        "claim",
+                        "source"
+                      ],
+                      "type": "string"
+                    },
+                    "SourceRef": {
+                      "description": "指回原始素材的精確引用（時間段／區域／行號）。",
+                      "properties": {
+                        "assetHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "segment": {
+                          "description": "片段語法：`t=12.5-30.2`（秒）｜`region=x,y,w,h`｜`lines=10-42`｜`page=3`。",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "url": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "applicability": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "confidence": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "counterexamples": {
+                      "default": [],
+                      "description": "反例與適用範圍（升格 know-how 必填的誠實欄位）。",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "createdBy": {
+                      "$ref": "#/$defs/MemoryActor"
+                    },
+                    "domains": {
+                      "default": [],
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "evidence": {
+                      "default": [],
+                      "description": "證據：指回素材／URL 的精確引用。Claim 必須至少一個。",
+                      "items": {
+                        "$ref": "#/$defs/SourceRef"
+                      },
+                      "type": "array"
+                    },
+                    "nodeId": {
+                      "$ref": "#/$defs/KnowledgeNodeId"
+                    },
+                    "nodeType": {
+                      "$ref": "#/$defs/NodeType"
+                    },
+                    "reviewAfter": {
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reviews": {
+                      "default": [],
+                      "description": "複審紀錄（agent 可 submit-review 留言；只有人類 approve 才 activate）。",
+                      "items": {
+                        "$ref": "#/$defs/KnowledgeReview"
+                      },
+                      "type": "array"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "$ref": "#/$defs/KnowledgeStatus"
+                    },
+                    "supersedes": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/KnowledgeNodeId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "version": {
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "nodeId",
+                    "nodeType",
+                    "title",
+                    "content",
+                    "status",
+                    "confidence",
+                    "createdBy",
+                    "version",
+                    "createdAt",
+                    "updatedAt",
+                    "schemaVersion"
+                  ],
+                  "title": "KnowledgeNode",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Propose a new version that would supersede an existing node. The old node is only superseded when a HUMAN approves.",
+        "x-external-side-effect": false,
+        "x-risk": "low"
+      }
+    },
+    "/v1/tools/interaction.knowledge_search/call": {
+      "post": {
+        "operationId": "interaction_knowledge_search",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "k": {
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "query": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "candidate matches with retrieval scores and usable flags",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Search the knowledge graph (FTS + lexical-vector CANDIDATE retrieval; results are candidates, not truth). Read-only.",
+        "x-external-side-effect": false,
+        "x-risk": "read-only"
+      }
+    },
+    "/v1/tools/interaction.knowledge_submit_review/call": {
+      "post": {
+        "operationId": "interaction_knowledge_submit_review",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "nodeId": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "nodeId",
+                  "note"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$defs": {
+                    "KnowledgeNodeId": {
+                      "description": "Knowledge graph node id.",
+                      "type": "string"
+                    },
+                    "KnowledgeReview": {
+                      "properties": {
+                        "at": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "reviewer": {
+                          "$ref": "#/$defs/MemoryActor"
+                        },
+                        "verdict": {
+                          "description": "comment｜approve｜reject（approve 只有人類有效——服務層強制）。",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "reviewer",
+                        "verdict",
+                        "note",
+                        "at"
+                      ],
+                      "type": "object"
+                    },
+                    "KnowledgeStatus": {
+                      "description": "知識節點狀態機（spec §15）。",
+                      "enum": [
+                        "candidate",
+                        "active",
+                        "stale",
+                        "disputed",
+                        "superseded",
+                        "archived"
+                      ],
+                      "type": "string"
+                    },
+                    "MemoryActor": {
+                      "description": "誰建立的（權限規則依此判斷，不信任自稱）。",
+                      "oneOf": [
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "human",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "const": "agent",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "id"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "runtime",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "NodeType": {
+                      "enum": [
+                        "entity",
+                        "claim",
+                        "source"
+                      ],
+                      "type": "string"
+                    },
+                    "SourceRef": {
+                      "description": "指回原始素材的精確引用（時間段／區域／行號）。",
+                      "properties": {
+                        "assetHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "segment": {
+                          "description": "片段語法：`t=12.5-30.2`（秒）｜`region=x,y,w,h`｜`lines=10-42`｜`page=3`。",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "url": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "applicability": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "confidence": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "counterexamples": {
+                      "default": [],
+                      "description": "反例與適用範圍（升格 know-how 必填的誠實欄位）。",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "createdBy": {
+                      "$ref": "#/$defs/MemoryActor"
+                    },
+                    "domains": {
+                      "default": [],
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "evidence": {
+                      "default": [],
+                      "description": "證據：指回素材／URL 的精確引用。Claim 必須至少一個。",
+                      "items": {
+                        "$ref": "#/$defs/SourceRef"
+                      },
+                      "type": "array"
+                    },
+                    "nodeId": {
+                      "$ref": "#/$defs/KnowledgeNodeId"
+                    },
+                    "nodeType": {
+                      "$ref": "#/$defs/NodeType"
+                    },
+                    "reviewAfter": {
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reviews": {
+                      "default": [],
+                      "description": "複審紀錄（agent 可 submit-review 留言；只有人類 approve 才 activate）。",
+                      "items": {
+                        "$ref": "#/$defs/KnowledgeReview"
+                      },
+                      "type": "array"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "$ref": "#/$defs/KnowledgeStatus"
+                    },
+                    "supersedes": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/KnowledgeNodeId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "version": {
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "nodeId",
+                    "nodeType",
+                    "title",
+                    "content",
+                    "status",
+                    "confidence",
+                    "createdBy",
+                    "version",
+                    "createdAt",
+                    "updatedAt",
+                    "schemaVersion"
+                  ],
+                  "title": "KnowledgeNode",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "4XX": {
+            "description": "Validation / policy error"
+          }
+        },
+        "summary": "Add a review COMMENT to a candidate. An AI can comment but can never approve/reject — that stays human.",
+        "x-external-side-effect": false,
+        "x-risk": "low"
+      }
+    },
     "/v1/tools/interaction.observe/call": {
       "post": {
         "operationId": "interaction_observe",

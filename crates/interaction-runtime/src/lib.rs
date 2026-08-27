@@ -6,6 +6,7 @@ pub mod config;
 pub mod executor;
 pub mod gateway;
 pub mod human;
+pub mod knowledge;
 pub mod lock;
 pub mod memory;
 pub mod orchestrator;
