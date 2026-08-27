@@ -49,13 +49,75 @@ test("暫停主動互動：暫停與恢復都反映後端真實狀態", async ({
   await expect(page.getByRole("button", { name: "暫停主動互動" })).toBeVisible();
 });
 
-test("感知來源：卡片誠實顯示資料流向；未知不得顯示為安全", async ({ page }) => {
+test("能力與裝置：感知卡片誠實顯示資料流向；provider 分頁含掃描誠實文案", async ({ page }) => {
   await open(page);
-  await page.getByRole("navigation", { name: "主要導覽" }).getByText("感知來源").click();
-  // Builtin local receptors carry the local-only badge.
+  await page.getByRole("navigation", { name: "主要導覽" }).getByText("能力與裝置").click();
+  // 預設分頁＝感知來源：builtin local receptors carry the local-only badge.
   await expect(page.getByText("僅限本機").first()).toBeVisible();
-  // The system-time card resolves via the catalog (Chinese name, not raw id).
   await expect(page.getByText("系統時間")).toBeVisible();
+  // 裝置與提供者：掃描文案誠實（已偵測≠全部）。
+  await page.getByRole("tab", { name: "裝置與提供者" }).click();
+  await expect(page.getByText("不代表找到了所有硬體")).toBeVisible();
+  await expect(page.getByText("桌面角色小樞（Presentation）")).toBeVisible();
+  // 未支援能力有具體原因，不是灰色按鈕。
+  await expect(page.getByText("此平台尚未支援的能力")).toBeVisible();
+  await expect(page.getByText("攝影機").first()).toBeVisible();
+});
+
+test("新 IA：8 個一級頁全部可達", async ({ page }) => {
+  await open(page);
+  const nav = page.getByRole("navigation", { name: "主要導覽" });
+  await expect(nav).toBeVisible({ timeout: 15_000 });
+  const pages: [string, RegExp | string][] = [
+    ["小樞", "狀態預覽（取自實際角色素材）"],
+    ["AI 與工作階段", "本機 AI Agent"],
+    ["記憶與知識", "小樞記住了什麼"],
+    ["活動與確認", /待我決定/],
+    ["隱私與安全", /緊急停止|同意/],
+    ["設定", "顯示模式"],
+    ["首頁", "權限地圖 — AI 現在可以做什麼？"],
+  ];
+  for (const [label, marker] of pages) {
+    await nav.getByText(label, { exact: true }).click();
+    await expect(page.getByText(marker).first()).toBeVisible({ timeout: 10_000 });
+  }
+});
+
+test("AI 與工作階段：真實 agent 發現誠實顯示；建立面板有授權預覽", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "主要導覽" }).getByText("AI 與工作階段").click();
+  // 發現結果卡片（真 daemon 的真實偵測——CI 上可能未安裝，狀態誠實即可）。
+  await expect(page.getByText(/Codex|Claude Code/).first()).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: "建立工作階段…" }).click();
+  const sheet = page.getByRole("dialog", { name: "建立 AI 工作階段" });
+  await expect(sheet).toBeVisible();
+  // Consent Sheet 語意：資料範圍／模式／外部傳送／取消方式。
+  await expect(sheet.getByText("授權預覽")).toBeVisible();
+  await expect(sheet.getByText(/唯讀／計畫/)).toBeVisible();
+  await expect(sheet.getByText(/外部傳送/)).toBeVisible();
+  await sheet.getByRole("button", { name: "取消" }).click();
+});
+
+test("記憶與知識：分層誠實標示；候選複審入口存在", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "主要導覽" }).getByText("記憶與知識").click();
+  await expect(page.getByText("沒有你不能刪除的記憶")).toBeVisible();
+  await page.getByRole("tab", { name: "知識與候選" }).click();
+  await expect(page.getByText(/AI（含各 agent）只能提出/)).toBeVisible();
+  await page.getByRole("tab", { name: "提供給 AI 的內容" }).click();
+  await expect(page.getByText(/實際會提供哪些/)).toBeVisible();
+});
+
+test("全域搜尋：Ctrl+K 開啟、能導頁、指令列出", async ({ page }) => {
+  await open(page);
+  await expect(page.getByRole("navigation", { name: "主要導覽" })).toBeVisible({ timeout: 15_000 });
+  await page.keyboard.press("ControlOrMeta+k");
+  const overlay = page.getByRole("dialog", { name: "全域搜尋" });
+  await expect(overlay).toBeVisible();
+  await expect(overlay.getByText("緊急停止").first()).toBeVisible();
+  await overlay.getByPlaceholder(/搜尋設定/).fill("記憶與知識");
+  await overlay.getByRole("option", { name: /記憶與知識/ }).first().click();
+  await expect(page.getByText("小樞記住了什麼")).toBeVisible({ timeout: 10_000 });
 });
 
 test("自動互動：句子式建立 → 摘要 → 模擬（零副作用）", async ({ page }) => {

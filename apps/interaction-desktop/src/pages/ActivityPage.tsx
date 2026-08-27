@@ -11,15 +11,18 @@ export function ActivityPage({
   refreshKey,
   events,
   advanced,
+  onNavigate,
 }: {
   refreshKey: number;
   events: RuntimeEvent[];
   advanced: boolean;
+  onNavigate?: (tab: string) => void;
 }) {
   const [actions] = useAsync(() => api.actionsList(30), [refreshKey]);
 
   return (
     <div>
+      <InboxSection refreshKey={refreshKey} onNavigate={onNavigate ?? (() => {})} />
       <p className="page-intro">
         每一次互動的完整歷程：系統感知到什麼、如何決定、安全規則說了什麼、實際結果到哪一層。
       </p>
@@ -195,4 +198,67 @@ function eventLabel(e: RuntimeEvent): string {
     default:
       return e.eventType;
   }
+}
+
+/** 統一收件匣（spec §16-1.G）：所有等待你決定的事項一個總入口。 */
+function InboxSection({
+  refreshKey,
+  onNavigate,
+}: {
+  refreshKey: number;
+  onNavigate: (tab: string) => void;
+}) {
+  const [assists] = useAsync(() => api.aiAssistsList(), [refreshKey]);
+  const [sessions] = useAsync(() => api.agentSessionsList(), [refreshKey]);
+  const [candidates] = useAsync(() => api.knowledgeList("candidate", 50), [refreshKey]);
+
+  const waitingSessions = (sessions.data ?? []).filter((s) =>
+    ["waiting-for-consent", "waiting-for-input", "claimed-completed"].includes(s.state)
+  );
+  const pendingAssists = assists.data ?? [];
+  const candidateCount =
+    ((candidates.data as Record<string, unknown> | undefined)?.count as number | undefined) ?? 0;
+  const total = waitingSessions.length + pendingAssists.length + candidateCount;
+
+  return (
+    <Section title={`待我決定（${total}）`}>
+      {total === 0 ? (
+        <div className="state-box">目前沒有等待你決定的事項。</div>
+      ) : (
+        <ul className="plain-list">
+          {pendingAssists.map((a) => (
+            <li key={a.requestId}>
+              <Badge kind="warn">AI 求助</Badge> {a.reason}
+              <button style={{ marginLeft: 8 }} onClick={() => onNavigate("automations")}>
+                前往處理
+              </button>
+            </li>
+          ))}
+          {waitingSessions.map((s) => (
+            <li key={s.sessionId}>
+              <Badge kind={s.state === "claimed-completed" ? "pending" : "warn"}>
+                {s.state === "waiting-for-consent"
+                  ? "Agent 等待核可"
+                  : s.state === "waiting-for-input"
+                    ? "Agent 等待輸入"
+                    : "回報完成待你查看"}
+              </Badge>{" "}
+              {s.label ?? s.agentId}
+              <button style={{ marginLeft: 8 }} onClick={() => onNavigate("ai")}>
+                前往處理
+              </button>
+            </li>
+          ))}
+          {candidateCount > 0 && (
+            <li>
+              <Badge kind="pending">知識候選</Badge> {candidateCount} 項等待複審
+              <button style={{ marginLeft: 8 }} onClick={() => onNavigate("memory")}>
+                前往複審
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+    </Section>
+  );
 }

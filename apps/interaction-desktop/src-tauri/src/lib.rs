@@ -839,12 +839,238 @@ async fn proactive_dialogue_quiet(
     Ok(runtime.proactive_dialogue_quiet(minutes).await)
 }
 
+
+// ---- v0.4: agents / memory / knowledge / assets（embedded 模式指令） ----
+
+
+#[tauri::command]
+async fn providers_list(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    serde_json::to_value(runtime.providers.list().await).map_err(err_s)
+}
+#[tauri::command]
+async fn agents_discoveries(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    Ok(json!({"agents": runtime.agent_discoveries()}))
+}
+
+#[tauri::command]
+async fn agents_refresh(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    Ok(json!({"agents": runtime.refresh_agent_providers().await}))
+}
+
+#[tauri::command]
+async fn agents_routing(state: State<'_, AppState>, kind: Option<String>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    Ok(runtime.agent_route_suggestion(kind.as_deref()))
+}
+
+#[tauri::command]
+async fn agent_session_approve(
+    state: State<'_, AppState>,
+    id: String,
+    request_id: String,
+    approve: bool,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime
+        .gateway_resolve_approval(&id, &request_id, approve)
+        .await
+        .map_err(err_s)
+}
+
+#[tauri::command]
+async fn agent_session_interrupt(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.gateway_interrupt(&id).await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn memory_list(
+    state: State<'_, AppState>,
+    layer: Option<String>,
+    limit: Option<u32>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime
+        .memory_list(layer.as_deref(), limit.unwrap_or(200))
+        .await
+        .map_err(err_s)
+}
+
+#[tauri::command]
+async fn memory_create(state: State<'_, AppState>, input: Value) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let actor = match input.get("asAgent").and_then(|v| v.as_str()) {
+        Some(a) => interaction_core::MemoryActor::Agent(a.to_string()),
+        None => interaction_core::MemoryActor::Human,
+    };
+    let item =
+        interaction_runtime::memory::memory_from_input(input, actor).map_err(|e| e.to_string())?;
+    let created = runtime.memory_create(item).await.map_err(err_s)?;
+    serde_json::to_value(created).map_err(err_s)
+}
+
+#[tauri::command]
+async fn memory_patch(state: State<'_, AppState>, id: String, patch: Value) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let item = runtime.memory_update(&id, patch).await.map_err(err_s)?;
+    serde_json::to_value(item).map_err(err_s)
+}
+
+#[tauri::command]
+async fn memory_delete(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let deleted = runtime.memory_delete(&id).await.map_err(err_s)?;
+    Ok(json!({"deleted": deleted}))
+}
+
+#[tauri::command]
+async fn memory_export(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.memory_export().await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn memory_clear_session(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let n = runtime.memory_clear_session_context().await.map_err(err_s)?;
+    Ok(json!({"cleared": n}))
+}
+
+#[tauri::command]
+async fn memory_bundle(
+    state: State<'_, AppState>,
+    task: String,
+    agent_id: String,
+    domains: Vec<String>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime
+        .memory_context_bundle(&task, &domains, &agent_id)
+        .await
+        .map_err(err_s)
+}
+
+#[tauri::command]
+async fn knowledge_list(
+    state: State<'_, AppState>,
+    status: Option<String>,
+    limit: Option<u32>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime
+        .knowledge_list(status.as_deref(), limit.unwrap_or(100))
+        .await
+        .map_err(err_s)
+}
+
+#[tauri::command]
+async fn knowledge_search(state: State<'_, AppState>, q: String, k: Option<u32>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.knowledge_search(&q, k.unwrap_or(10)).await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn knowledge_get(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let node = runtime.knowledge_get(&id).await.map_err(err_s)?;
+    serde_json::to_value(node).map_err(err_s)
+}
+
+#[tauri::command]
+async fn knowledge_review(
+    state: State<'_, AppState>,
+    id: String,
+    verdict: String,
+    note: Option<String>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    // 桌面視窗＝人類介面（requireHumanConfirmation 的同一信任面）。
+    let node = runtime
+        .knowledge_review(&id, &verdict, note, interaction_core::MemoryActor::Human)
+        .await
+        .map_err(err_s)?;
+    serde_json::to_value(node).map_err(err_s)
+}
+
+#[tauri::command]
+async fn knowledge_graph(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.knowledge_graph(&id, 1).await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn knowledge_receipts(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.knowledge_receipts(100).await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn assets_list(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.asset_list(200).await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn asset_import(
+    state: State<'_, AppState>,
+    path: Option<String>,
+    content: Option<String>,
+    description: Option<String>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let record = runtime
+        .asset_import(path.as_deref(), content.as_deref(), None, "user-import", description)
+        .await
+        .map_err(err_s)?;
+    serde_json::to_value(record).map_err(err_s)
+}
+
+#[tauri::command]
+async fn asset_impact(state: State<'_, AppState>, hash: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.asset_delete_impact(&hash).await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn asset_delete(state: State<'_, AppState>, hash: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.asset_delete(&hash).await.map_err(err_s)
+}
+
 #[tauri::command]
 async fn agent_sessions_list(state: State<'_, AppState>) -> Result<Value, String> {
     let runtime = rt(&state)?;
     serde_json::to_value(runtime.list_agent_sessions().await).map_err(err_s)
 }
 
+
+#[tauri::command]
+async fn agent_session_create(state: State<'_, AppState>, input: Value) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let input: interaction_runtime::agents::CreateAgentSession =
+        serde_json::from_value(input).map_err(err_s)?;
+    let record = runtime.create_agent_session(input).await.map_err(err_s)?;
+    serde_json::to_value(record).map_err(err_s)
+}
+
+#[tauri::command]
+async fn agent_session_messages(
+    state: State<'_, AppState>,
+    id: String,
+    direction: String,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let dir = match direction.as_str() {
+        "to-session" => interaction_core::MailboxDirection::ToSession,
+        _ => interaction_core::MailboxDirection::FromSession,
+    };
+    // 控制中心檢視不改變送達語意：peek，不 fetch。
+    let msgs = runtime.mailbox_peek(&id, dir).await.map_err(err_s)?;
+    serde_json::to_value(msgs).map_err(err_s)
+}
 #[tauri::command]
 async fn agent_session_send(
     state: State<'_, AppState>,
@@ -1582,6 +1808,31 @@ pub fn run() {
             proactive_dialogue_get,
             proactive_dialogue_patch,
             proactive_dialogue_quiet,
+            providers_list,
+            agent_session_create,
+            agent_session_messages,
+            agents_discoveries,
+            agents_refresh,
+            agents_routing,
+            agent_session_approve,
+            agent_session_interrupt,
+            memory_list,
+            memory_create,
+            memory_patch,
+            memory_delete,
+            memory_export,
+            memory_clear_session,
+            memory_bundle,
+            knowledge_list,
+            knowledge_search,
+            knowledge_get,
+            knowledge_review,
+            knowledge_graph,
+            knowledge_receipts,
+            assets_list,
+            asset_import,
+            asset_impact,
+            asset_delete,
             sensors_stop,
         ])
         .build(tauri::generate_context!())

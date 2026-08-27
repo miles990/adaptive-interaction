@@ -40,6 +40,7 @@ export function HomePage({
 
   return (
     <div className="home">
+      <NowStrip refreshKey={refreshKey} status={status.data} onNavigate={onNavigate} />
       <div className="grid-two">
         <Section title="系統狀態">
           {status.loading ? (
@@ -396,5 +397,92 @@ function AgentSessionsSection({ refreshKey }: { refreshKey: number; advancedHint
         實際結果仍以收據與驗證為準。
       </p>
     </Section>
+  );
+}
+
+/** 「現在」摘要條（spec §16-1.B）：感測／待決定／進行中工作／小樞／知識更新。 */
+function NowStrip({
+  refreshKey,
+  status,
+  onNavigate,
+}: {
+  refreshKey: number;
+  status?: Record<string, unknown>;
+  onNavigate: (tab: string) => void;
+}) {
+  const [sessions] = useAsync(() => api.agentSessionsList(), [refreshKey]);
+  const [assists] = useAsync(() => api.aiAssistsList(), [refreshKey]);
+  const [candidates] = useAsync(() => api.knowledgeList("candidate", 50), [refreshKey]);
+  const [receiptsData] = useAsync(() => api.knowledgeReceipts(), [refreshKey]);
+
+  const sensors = (status?.["activeSensors"] as { kind: string }[] | undefined) ?? [];
+  const presentation = status?.["presentation"] as Record<string, unknown> | undefined;
+  const open = (sessions.data ?? []).filter((s) =>
+    ["created", "active", "waiting-for-input", "waiting-for-consent", "claimed-completed"].includes(
+      s.state
+    )
+  );
+  const waiting = open.filter((s) =>
+    ["waiting-for-consent", "waiting-for-input", "claimed-completed"].includes(s.state)
+  );
+  const candidateCount =
+    ((candidates.data as Record<string, unknown> | undefined)?.count as number | undefined) ?? 0;
+  const pendingTotal = waiting.length + (assists.data?.length ?? 0) + candidateCount;
+  const latestReceipt = (
+    (receiptsData.data as Record<string, unknown> | undefined)?.receipts as
+      | Record<string, unknown>[]
+      | undefined
+  )?.[0];
+
+  return (
+    <div className="now-strip">
+      <button className="now-card" onClick={() => onNavigate("safety")}>
+        <span className="now-title">感測</span>
+        {sensors.length > 0 ? (
+          <Badge kind="warn">{sensors.map((s) => s.kind).join("、")} 使用中</Badge>
+        ) : (
+          <Badge kind="ok">沒有在聽、也沒有在看</Badge>
+        )}
+      </button>
+      <button className="now-card" onClick={() => onNavigate("activity")}>
+        <span className="now-title">待我決定</span>
+        {pendingTotal > 0 ? <Badge kind="warn">{pendingTotal} 項</Badge> : <Badge kind="ok">0 項</Badge>}
+      </button>
+      <button className="now-card" onClick={() => onNavigate("ai")}>
+        <span className="now-title">進行中的工作</span>
+        {open.length > 0 ? (
+          <Badge kind="pending">{open.length} 個工作階段</Badge>
+        ) : (
+          <Badge kind="ok">沒有進行中</Badge>
+        )}
+      </button>
+      <button className="now-card" onClick={() => onNavigate("companion")}>
+        <span className="now-title">小樞</span>
+        {presentation?.connected === true ? (
+          presentation?.visible === true ? (
+            <Badge kind="ok">在桌面上</Badge>
+          ) : (
+            <Badge kind="warn">隱藏中</Badge>
+          )
+        ) : (
+          <Badge kind="pending">視窗未連線</Badge>
+        )}
+      </button>
+      <button className="now-card" onClick={() => onNavigate("memory")}>
+        <span className="now-title">記憶與知識</span>
+        {latestReceipt ? (
+          <span className="muted small">
+            最近：{String(latestReceipt.triggeredBy)}（
+            {(latestReceipt.verification as Record<string, unknown> | undefined)?.humanReviewed ===
+            true
+              ? "已複審"
+              : "未複審"}
+            ）
+          </span>
+        ) : (
+          <span className="muted small">尚無更新</span>
+        )}
+      </button>
+    </div>
   );
 }

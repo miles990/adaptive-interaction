@@ -28,17 +28,26 @@ import { ToolsPage } from "./pages/Tools";
 import { RecipesPage } from "./pages/Recipes";
 import { PolicyPage } from "./pages/Policy";
 import { TimelinePage } from "./pages/Timeline";
+import { CompanionPage } from "./pages/CompanionPage";
+import { AiPage } from "./pages/AiPage";
+import { CapabilitiesHub } from "./pages/CapabilitiesHub";
+import { MemoryKnowledgePage } from "./pages/MemoryKnowledgePage";
+import { ProvidersAdvancedPage } from "./pages/ProvidersAdvanced";
+import { KnowledgeAdvancedPage } from "./pages/KnowledgeAdvanced";
+import { GlobalSearch } from "./components/GlobalSearch";
 
 type Tab = string;
 
+// v0.4 資訊架構（spec §16-1.A）：8 個一級頁＋自動互動（保留 v0.3 能力）。
 const SIMPLE_NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "home", label: "首頁", icon: "house" },
-  { id: "senses", label: "感知來源", icon: "scan-eye" },
-  { id: "responses", label: "回應方式", icon: "send" },
-  { id: "toolops", label: "工具操作", icon: "wrench" },
+  { id: "companion", label: "小樞", icon: "cat" },
+  { id: "ai", label: "AI 與工作階段", icon: "bot" },
+  { id: "capabilities", label: "能力與裝置", icon: "plug" },
+  { id: "memory", label: "記憶與知識", icon: "book-open" },
   { id: "automations", label: "自動互動", icon: "workflow" },
-  { id: "safety", label: "同意與安全", icon: "shield-check" },
-  { id: "activity", label: "活動紀錄", icon: "history" },
+  { id: "activity", label: "活動與確認", icon: "history" },
+  { id: "safety", label: "隱私與安全", icon: "shield-check" },
   { id: "settings", label: "設定", icon: "settings" },
 ];
 
@@ -50,6 +59,8 @@ const ADVANCED_NAV: { id: Tab; label: string }[] = [
   { id: "adv-recipes", label: "配方 YAML" },
   { id: "adv-policy", label: "政策／同意" },
   { id: "adv-timeline", label: "時間軸" },
+  { id: "adv-providers", label: "Provider Registry" },
+  { id: "adv-knowledge", label: "Knowledge Graph" },
 ];
 
 type RuntimeState = "connecting" | "ready" | "offline";
@@ -162,7 +173,20 @@ function Shell({
   const [closeDialog, setCloseDialog] = React.useState(false);
   const [trayError, setTrayError] = React.useState<string | null>(null);
   const [sensors, setSensors] = React.useState<import("./api").SensorUse[]>([]);
+  const [searchOpen, setSearchOpen] = React.useState(false);
   const advanced = prefs.mode === "advanced";
+
+  // 全域搜尋／指令面板：⌘K（macOS）／Ctrl+K。
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   React.useEffect(() => {
     const unlistens = [
@@ -280,6 +304,14 @@ function Shell({
       <main className="main">
         <header className="topbar">
           <div className="topbar-title">{title}</div>
+          <button
+            className="search-trigger"
+            onClick={() => setSearchOpen(true)}
+            aria-label="全域搜尋與指令（Cmd+K）"
+            title="搜尋與指令（⌘K）"
+          >
+            <Icon name="search" size={15} /> 搜尋
+          </button>
           {/* 觸發是一鍵；「解除」刻意不在這裡 — 要走安全頁的恢復流程。 */}
           {estop ? (
             <button className="estop-indicator" onClick={() => setTab("safety")}>
@@ -356,6 +388,15 @@ function Shell({
           )}
         </div>
       </main>
+      <GlobalSearch
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onNavigate={(t) => {
+          setTab(t);
+          setSearchOpen(false);
+        }}
+        estopped={estop}
+      />
       {closeDialog && (
         <CloseDialog external={supervisor?.mode === "external"} onClose={() => setCloseDialog(false)} />
       )}
@@ -428,7 +469,7 @@ function CloseDialog({ external, onClose }: { external: boolean; onClose: () => 
 
 /** 窄視窗（<700px）底部導覽：4 個主要功能＋「更多」選單。
  *  所有頁面都可抵達、鍵盤可操作、永遠有文字標籤（不只靠 Icon）。 */
-const NARROW_PRIMARY: string[] = ["home", "automations", "safety", "activity"];
+const NARROW_PRIMARY: string[] = ["home", "ai", "activity", "safety"];
 
 function NarrowNav({
   tab,
@@ -529,6 +570,15 @@ function PageBody({
   switch (tab) {
     case "home":
       return <HomePage refreshKey={refreshKey} events={events} onNavigate={onNavigate} />;
+    case "companion":
+      return <CompanionPage refreshKey={refreshKey} />;
+    case "ai":
+      return <AiPage refreshKey={refreshKey} onNavigate={onNavigate} />;
+    case "capabilities":
+      return <CapabilitiesHub refreshKey={refreshKey} advanced={advanced} />;
+    case "memory":
+      return <MemoryKnowledgePage refreshKey={refreshKey} />;
+    // v0.3 相容路徑（tray 深連結／舊書籤）：導向新家。
     case "senses":
       return <CapabilitiesPage kind="receptor" advanced={advanced} />;
     case "responses":
@@ -540,7 +590,7 @@ function PageBody({
     case "safety":
       return <SafetyPage refreshKey={refreshKey} />;
     case "activity":
-      return <ActivityPage refreshKey={refreshKey} events={events} advanced={advanced} />;
+      return <ActivityPage refreshKey={refreshKey} events={events} advanced={advanced} onNavigate={onNavigate} />;
     case "settings":
       return <SettingsPage onRerunOnboarding={onRerunOnboarding} />;
     case "adv-overview":
@@ -557,6 +607,10 @@ function PageBody({
       return <PolicyPage refreshKey={refreshKey} />;
     case "adv-timeline":
       return <TimelinePage events={events} />;
+    case "adv-providers":
+      return <ProvidersAdvancedPage refreshKey={refreshKey} />;
+    case "adv-knowledge":
+      return <KnowledgeAdvancedPage refreshKey={refreshKey} />;
     default:
       return null;
   }

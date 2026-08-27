@@ -139,6 +139,40 @@ export const api = {
   testActuator: (id: string) => invoke<Receipt[]>("test_actuator", { id }),
   pushObservation: (receptorId: string, facts: Record<string, unknown>, confidence = 1.0) =>
     invoke("push_observation", { receptorId, facts, confidence }),
+  providersList: () => invoke<Record<string, unknown>[]>("providers_list"),
+  agentsDiscoveries: () => invoke<Record<string, unknown>>("agents_discoveries"),
+  agentsRefresh: () => invoke<Record<string, unknown>>("agents_refresh"),
+  agentsRouting: (kind?: string) =>
+    invoke<Record<string, unknown>>("agents_routing", { kind: kind ?? null }),
+  agentSessionApprove: (id: string, requestId: string, approve: boolean) =>
+    invoke<Record<string, unknown>>("agent_session_approve", { id, requestId, approve }),
+  agentSessionInterrupt: (id: string) =>
+    invoke<Record<string, unknown>>("agent_session_interrupt", { id }),
+  memoryList: (layer?: string, limit = 200) =>
+    invoke<Record<string, unknown>>("memory_list", { layer: layer ?? null, limit }),
+  memoryCreate: (input: Record<string, unknown>) =>
+    invoke<Record<string, unknown>>("memory_create", { input }),
+  memoryPatch: (id: string, patch: Record<string, unknown>) =>
+    invoke<Record<string, unknown>>("memory_patch", { id, patch }),
+  memoryDelete: (id: string) => invoke<Record<string, unknown>>("memory_delete", { id }),
+  memoryExport: () => invoke<Record<string, unknown>>("memory_export"),
+  memoryClearSession: () => invoke<Record<string, unknown>>("memory_clear_session"),
+  memoryBundle: (task: string, agentId: string, domains: string[]) =>
+    invoke<Record<string, unknown>>("memory_bundle", { task, agentId, domains }),
+  knowledgeList: (status?: string, limit = 100) =>
+    invoke<Record<string, unknown>>("knowledge_list", { status: status ?? null, limit }),
+  knowledgeSearch: (q: string, k = 10) =>
+    invoke<Record<string, unknown>>("knowledge_search", { q, k }),
+  knowledgeGet: (id: string) => invoke<Record<string, unknown>>("knowledge_get", { id }),
+  knowledgeReview: (id: string, verdict: string, note?: string) =>
+    invoke<Record<string, unknown>>("knowledge_review", { id, verdict, note: note ?? null }),
+  knowledgeGraph: (id: string) => invoke<Record<string, unknown>>("knowledge_graph", { id }),
+  knowledgeReceipts: () => invoke<Record<string, unknown>>("knowledge_receipts"),
+  assetsList: () => invoke<Record<string, unknown>>("assets_list"),
+  assetImport: (input: { path?: string; content?: string; description?: string }) =>
+    invoke<Record<string, unknown>>("asset_import", input),
+  assetImpact: (hash: string) => invoke<Record<string, unknown>>("asset_impact", { hash }),
+  assetDelete: (hash: string) => invoke<Record<string, unknown>>("asset_delete", { hash }),
   proactiveDialogueGet: () => invoke<Record<string, unknown>>("proactive_dialogue_get"),
   proactiveDialoguePatch: (patch: Record<string, unknown>) =>
     invoke<Record<string, unknown>>("proactive_dialogue_patch", { patch }),
@@ -199,6 +233,10 @@ export const api = {
     invoke<ConvertResult>("recipe_convert", { text, to }),
   recipeGet: (id: string) => invoke<Record<string, unknown>>("recipe_get", { id }),
   agentSessionsList: () => invoke<AgentSessionRecord[]>("agent_sessions_list"),
+  agentSessionCreate: (input: Record<string, unknown>) =>
+    invoke<AgentSessionRecord>("agent_session_create", { input }),
+  agentSessionMessages: (id: string, direction: string) =>
+    invoke<Record<string, unknown>[]>("agent_session_messages", { id, direction }),
   agentSessionSend: (id: string, kind: string, body: Record<string, unknown>) =>
     invoke<Record<string, unknown>>("agent_session_send", { id, kind, body }),
   agentSessionClose: (id: string, reason?: string) =>
@@ -227,6 +265,7 @@ export interface AgentSessionRecord {
   toolScope: string[];
   consentScope: string[];
   budget: { maxMessages: number; spentMessages: number; maxCost: number; spentCost: number };
+  providerSessionId?: string;
   createdAt: string;
   closedAt?: string;
   detail?: string;

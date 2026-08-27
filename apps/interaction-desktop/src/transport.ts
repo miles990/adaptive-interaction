@@ -133,6 +133,52 @@ const ROUTES: Record<string, Route> = {
       facts: a.facts,
       confidence: a.confidence,
     }),
+  providers_list: () => http("GET", "/v1/providers"),
+  agents_discoveries: () => http("GET", "/v1/agents"),
+  agents_refresh: () => http("POST", "/v1/agents/refresh"),
+  agents_routing: (a) => http("GET", `/v1/agents/routing${a.kind ? `?kind=${q(a.kind)}` : ""}`),
+  agent_session_create: (a) => http("POST", "/v1/agent-sessions", a.input),
+  agent_session_messages: (a) =>
+    http("GET", `/v1/agent-sessions/${q(a.id)}/messages?direction=${q(a.direction)}`),
+  agent_session_approve: (a) =>
+    http("POST", `/v1/agent-sessions/${q(a.id)}/approve`, {
+      requestId: a.requestId,
+      approve: a.approve,
+    }),
+  agent_session_interrupt: (a) => http("POST", `/v1/agent-sessions/${q(a.id)}/interrupt`),
+  memory_list: (a) =>
+    http("GET", `/v1/memory?limit=${q(a.limit ?? 200)}${a.layer ? `&layer=${q(a.layer)}` : ""}`),
+  memory_create: (a) => http("POST", "/v1/memory", a.input),
+  memory_patch: (a) => http("PATCH", `/v1/memory/${q(a.id)}`, a.patch),
+  memory_delete: (a) => http("DELETE", `/v1/memory/${q(a.id)}`),
+  memory_export: () => http("GET", "/v1/memory/export"),
+  memory_clear_session: () => http("POST", "/v1/memory/clear-session-context"),
+  memory_bundle: (a) =>
+    http("POST", "/v1/memory/context-bundle", {
+      task: a.task,
+      domains: a.domains,
+      agentId: a.agentId,
+    }),
+  knowledge_list: (a) =>
+    http(
+      "GET",
+      `/v1/knowledge/nodes?limit=${q(a.limit ?? 100)}${a.status ? `&status=${q(a.status)}` : ""}`
+    ),
+  knowledge_search: (a) => http("GET", `/v1/knowledge/search?q=${q(a.q)}&k=${q(a.k ?? 10)}`),
+  knowledge_get: (a) => http("GET", `/v1/knowledge/nodes/${q(a.id)}`),
+  knowledge_review: (a) =>
+    http("POST", `/v1/knowledge/nodes/${q(a.id)}/review`, { verdict: a.verdict, note: a.note }),
+  knowledge_graph: (a) => http("GET", `/v1/knowledge/nodes/${q(a.id)}/graph`),
+  knowledge_receipts: () => http("GET", "/v1/knowledge/receipts"),
+  assets_list: () => http("GET", "/v1/assets"),
+  asset_import: (a) =>
+    http("POST", "/v1/assets/import", {
+      path: a.path,
+      content: a.content,
+      description: a.description,
+    }),
+  asset_impact: (a) => http("GET", `/v1/assets/${q(a.hash)}/impact`),
+  asset_delete: (a) => http("DELETE", `/v1/assets/${q(a.hash)}`),
   proactive_dialogue_get: () => http("GET", "/v1/proactive-dialogue"),
   proactive_dialogue_patch: (a) => http("PATCH", "/v1/proactive-dialogue", a.patch),
   proactive_dialogue_quiet: (a) =>
