@@ -226,7 +226,7 @@ impl Runtime {
                 })
                 && filter.since.is_none_or(|since| item.occurred_at >= since)
         });
-        items.sort_by(|left, right| right.occurred_at.cmp(&left.occurred_at));
+        items.sort_by_key(|item| std::cmp::Reverse(item.occurred_at));
         let total = items.len();
         items.truncate(filter.limit.unwrap_or(100).clamp(1, 500) as usize);
         let pending = items.iter().filter(|item| item.needs_decision).count();

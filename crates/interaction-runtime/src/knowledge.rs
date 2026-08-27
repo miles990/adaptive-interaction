@@ -1453,14 +1453,10 @@ impl Runtime {
     pub(crate) fn rebuild_vector_index(&self) {
         const PAGE: u32 = 500;
         let mut after: Option<String> = None;
-        loop {
-            let Ok(page) = self
-                .store
-                .list_knowledge_nodes_page(None, after.as_deref(), PAGE)
-            else {
-                // 啟動路徑不硬失敗；索引本就標示為候選層，缺頁只影響召回。
-                break;
-            };
+        while let Ok(page) = self
+            .store
+            .list_knowledge_nodes_page(None, after.as_deref(), PAGE)
+        {
             let Some((last_id, _)) = page.last() else {
                 break;
             };
@@ -1606,9 +1602,10 @@ fn wav_features(bytes: &[u8]) -> Result<(Value, f64), String> {
     if pcm_format != Some(1) || bits != 16 || channels == 0 || rate == 0 {
         return Err("內建音訊特徵解析器只支援 16-bit PCM WAV".into());
     }
-    let samples = data
-        .chunks_exact(2)
-        .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]) as f64 / i16::MAX as f64)
+    let (sample_bytes, _) = data.as_chunks::<2>();
+    let samples = sample_bytes
+        .iter()
+        .map(|chunk| i16::from_le_bytes(*chunk) as f64 / i16::MAX as f64)
         .collect::<Vec<_>>();
     let frames = samples.len() as f64 / channels as f64;
     let duration = frames / rate as f64;

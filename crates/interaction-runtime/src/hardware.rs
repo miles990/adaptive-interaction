@@ -338,6 +338,7 @@ impl HardwareDiscoveryAdapter for ApprovedLocalDeclarationDiscovery {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn stable_fingerprint(kind: &str, parts: &[&str]) -> Option<String> {
     namespaced_fingerprint("macos", kind, parts)
 }
@@ -357,6 +358,7 @@ fn namespaced_fingerprint(namespace: &str, kind: &str, parts: &[&str]) -> Option
     Some(format!("{namespace}:{kind}:{}", &digest[..24]))
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn value_text<'a>(value: &'a serde_json::Value, keys: &[&str]) -> &'a str {
     keys.iter()
         .find_map(|key| value.get(*key))
@@ -367,6 +369,7 @@ fn value_text<'a>(value: &'a serde_json::Value, keys: &[&str]) -> &'a str {
         .unwrap_or("")
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn value_nonzero(value: &serde_json::Value, key: &str) -> bool {
     value.get(key).is_some_and(|v| match v {
         serde_json::Value::Number(n) => n.as_i64().unwrap_or_default() > 0,
@@ -375,6 +378,7 @@ fn value_nonzero(value: &serde_json::Value, key: &str) -> bool {
     })
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn nested_items<'a>(value: &'a serde_json::Value, key: &str) -> Vec<&'a serde_json::Value> {
     let mut out = Vec::new();
     let Some(items) = value.get(key).and_then(|v| v.as_array()) else {
@@ -386,6 +390,7 @@ fn nested_items<'a>(value: &'a serde_json::Value, key: &str) -> Vec<&'a serde_js
     out
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn collect_profiler_items<'a>(value: &'a serde_json::Value, out: &mut Vec<&'a serde_json::Value>) {
     out.push(value);
     for child_key in ["_items", "spdisplays_ndrvs"] {
@@ -400,6 +405,7 @@ fn collect_profiler_items<'a>(value: &'a serde_json::Value, out: &mut Vec<&'a se
 /// Convert the documented `system_profiler -json` shape into the platform-
 /// neutral discovery contract. Kept deterministic so captured OS fixtures can
 /// exercise the real adapter boundary without touching a sensor in tests.
+#[cfg(any(target_os = "macos", test))]
 fn parse_macos_profiler(root: &serde_json::Value) -> Vec<DiscoveredHardware> {
     let mut rows = Vec::new();
 

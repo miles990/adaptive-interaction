@@ -9,6 +9,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep macOS hardware-profiler helpers out of non-macOS production builds while retaining
+  cross-platform fixture tests, and adopt Rust 1.98-compatible Clippy forms for activity
+  ordering, knowledge pagination, and WAV sample parsing.
+
 ## [0.4.0] - 2026-08-28
 
 ### Added — v0.4：Presentation Provider、真實 Agent Connector、記憶與知識系統、控制中心新 IA

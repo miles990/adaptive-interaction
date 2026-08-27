@@ -423,13 +423,10 @@ impl Runtime {
         let now = Utc::now();
         let mut marked = 0u32;
         let mut after: Option<String> = None;
-        loop {
-            let Ok(page) =
-                self.store
-                    .list_knowledge_nodes_page(Some("active"), after.as_deref(), PAGE)
-            else {
-                break;
-            };
+        while let Ok(page) =
+            self.store
+                .list_knowledge_nodes_page(Some("active"), after.as_deref(), PAGE)
+        {
             let Some((last_id, _)) = page.last() else {
                 break;
             };
