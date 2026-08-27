@@ -17,7 +17,17 @@ impl ApiError {
         Self {
             status: StatusCode::UNAUTHORIZED,
             code: "unauthorized",
-            message: "missing or invalid bearer token (see state/api-token)".into(),
+            message:
+                "missing or invalid bearer token (see state/api-token or state/api-agent-token)"
+                    .into(),
+        }
+    }
+
+    pub fn forbidden_scope() -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "token_scope_forbidden",
+            message: "agent token cannot perform this human/control-center operation".into(),
         }
     }
 }

@@ -31,7 +31,7 @@ Rust Adaptive Interaction Runtime
 | `interaction-runtime` | Tokio runtime：orchestrator、executor、watchdog、human 層、**providers**、**agents**、**sensors** |
 | `interaction-storage` | SQLite：receipts / plans / sessions / audit / ai_descriptions / **providers** / **agent_sessions**（schema v3） |
 | `interaction-events` | EventBus（broadcast）＋ bounded replay |
-| `interaction-api` | Axum HTTP API＋SSE（Last-Event-ID）；loopback-only、Bearer token |
+| `interaction-api` | Axum HTTP API＋SSE（Last-Event-ID）；loopback-only、human/restricted-agent Bearer tokens |
 | `interaction-cli` | `interact-ai`：40＋子指令，`--json` 潔淨輸出 |
 | `interaction-tool-schema` | Canonical Tool Manifest → OpenAI/Anthropic/Gemini/OpenAPI/JSON-Schema（golden tests） |
 | `interaction-adapter-sdk` | Receptor/Actuator manifest builder、DriverReceipt 協定、human meta helper |
@@ -99,6 +99,11 @@ discovered → unpaired → paired → installed → disabled → available
 配對／安裝／啟用／同意是**分開的步驟**，registry 拒絕捷徑轉換；revoked 是黏性狀態
 （無法回到 available）。配對用 sha256 指紋（**IP 不是身分**）。
 
+硬體發現另由 `HardwareDiscoveryAdapter::scan_metadata` 處理；掃描只讀名稱、
+類型、穩定身分來源、權限需求與可用狀態，**不開啟感測**。目前有
+17 類覆蓋結果、Linux `/dev/*/by-id` 與 macOS serial metadata；無法穩定識別的
+裝置留 `stableId:null`，不可直接配對。
+
 ## Agent Session
 
 ```
@@ -108,6 +113,11 @@ AI Provider → Agent Profile → Agent Session（有租約、有預算、有範
 Session 透過 runtime mailbox 溝通（不互讀對話）；委派攜帶防循環信封
 （depth／cycle／budget／session-count，policy 強制）；estop 取消所有 open session
 並阻擋新建；open session 不跨重啟存活（誠實標記 expired）。
+
+HTTP 信任面有兩個 0600 token：`state/api-token` 屬人類控制面，
+`state/api-agent-token` 只能讀狀態、呼叫 canonical tools 與往安全方向停止。
+agent token 無法開／授權 session、發布知識、修改 policy 或 clear estop；
+Codex／Claude 子程序啟動時也會移除所有 Runtime token 環境變數。
 
 ## 感測隱私
 
@@ -129,15 +139,18 @@ no-estop ＋ receptor enabled ＋ 該 receptor 的明確 session consent。liste
 │    ├─ presentation.rs   Presentation Provider（7 receptors＋7 actuators、bridge、TTL sweep）
 │    ├─ proactive.rs      主動對話政策（五模式、確定性頻率、跨重啟）
 │    ├─ gateway.rs        Agent Gateway 接線（attach/pump/deliver/approval/kill-tree）
+│    ├─ hardware.rs       metadata-only 跨平台發現（17 類覆蓋報告）
 │    ├─ memory.rs         記憶分層＋保存期限＋確定性 Context Bundle
 │    ├─ knowledge.rs      CAS 素材＋知識圖譜＋FTS5＋lexical-vector 候選
 │    └─ curator.rs        更新決策器＋經驗轉知識＋Knowledge Receipt
 ├─ crates/interaction-agent-gateway（新 crate）
 │    ├─ claude.rs  claude -p stream-json（plan 模式；panic-proof 解析器）
 │    ├─ codex.rs   codex app-server JSON-RPC（schema 鎖定；approval→人類）
+│    ├─ codex_exec.rs  codex exec --json／resume 相容 fallback
 │    └─ process.rs process-group spawn＋SIGTERM→SIGKILL 樹終止
 └─ storage v4→v6：memory_items／assets／knowledge_nodes+edges+FTS5／knowledge_receipts
 ```
 
-信任面不變：唯一 governor、claims 永為 inference、estop 全鏈（含子程序樹與
+信任面不變：唯一 governor、claims 永為 inference、human/agent token 分權、
+estop 全鏈（含子程序樹與
 presentation 佇列）、重啟不自動恢復任何可行動狀態。

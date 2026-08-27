@@ -20,9 +20,10 @@ test("首次設定精靈：完整走過 7 步並套用", async ({ page }) => {
   const wizard = page.getByRole("dialog", { name: "首次設定" });
   await expect(wizard).toBeVisible({ timeout: 15_000 });
   await expect(wizard.getByRole("heading", { name: "歡迎使用自適應互動" })).toBeVisible();
-  for (let i = 0; i < 6; i++) {
-    await wizard.getByRole("button", { name: "下一步" }).click();
-  }
+  await wizard.getByRole("button", { name: "下一步" }).click();
+  await wizard.getByRole("button", { name: "掃描目前可用裝置" }).click();
+  await expect(wizard.getByRole("status")).toContainText("感測器啟動：否");
+  for (let i = 0; i < 5; i++) await wizard.getByRole("button", { name: "下一步" }).click();
   await wizard.getByRole("button", { name: "完成設定" }).click();
   // Wizard closes into the home page.
   await expect(page.getByRole("navigation", { name: "主要導覽" })).toBeVisible({
@@ -59,9 +60,11 @@ test("能力與裝置：感知卡片誠實顯示資料流向；provider 分頁�
   await page.getByRole("tab", { name: "裝置與提供者" }).click();
   await expect(page.getByText("不代表找到了所有硬體")).toBeVisible();
   await expect(page.getByText("桌面角色小樞（Presentation）")).toBeVisible();
-  // 未支援能力有具體原因，不是灰色按鈕。
-  await expect(page.getByText("此平台尚未支援的能力")).toBeVisible();
-  await expect(page.getByText("攝影機").first()).toBeVisible();
+  await page.getByRole("button", { name: "重新掃描" }).click();
+  await expect(page.getByText(/感測器啟動：否/)).toBeVisible();
+  // 每一類都由真實掃描報告標示可見／需權限／未知／不支援，並附具體原因。
+  await expect(page.getByText("攝影機與影像來源").first()).toBeVisible();
+  await expect(page.getByText(/不以路徑或假資料冒充裝置/).first()).toBeVisible();
 });
 
 test("新 IA：8 個一級頁全部可達", async ({ page }) => {
@@ -72,7 +75,7 @@ test("新 IA：8 個一級頁全部可達", async ({ page }) => {
     ["小樞", "狀態預覽（取自實際角色素材）"],
     ["AI 與工作階段", "本機 AI Agent"],
     ["記憶與知識", "小樞記住了什麼"],
-    ["活動與確認", /待我決定/],
+    ["活動與確認", /統一收件匣/],
     ["隱私與安全", /緊急停止|同意/],
     ["設定", "顯示模式"],
     ["首頁", "權限地圖 — AI 現在可以做什麼？"],
@@ -81,6 +84,19 @@ test("新 IA：8 個一級頁全部可達", async ({ page }) => {
     await nav.getByText(label, { exact: true }).click();
     await expect(page.getByText(marker).first()).toBeVisible({ timeout: 10_000 });
   }
+});
+
+test("小樞：Character Pack 來源與 Behavior State 都誠實呈現", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "主要導覽" }).getByText("小樞", { exact: true }).click();
+  await expect(page.getByText("Character Pack 詳情")).toBeVisible();
+  await expect(page.getByText(/App 同源內建資產/)).toBeVisible();
+  await expect(page.getByText(/manifest、sprite sheet、frame/)).toBeVisible();
+  await expect(page.getByText(/內建安全 fallback 不可單獨解除安裝/)).toBeVisible();
+  await expect(page.getByText("現在的 Behavior State")).toBeVisible();
+  // Browser E2E has no native companion window. The UI must say so instead of
+  // manufacturing idle percentages as though they were live telemetry.
+  await expect(page.getByText(/尚未收到角色視窗的即時狀態/)).toBeVisible();
 });
 
 test("AI 與工作階段：真實 agent 發現誠實顯示；建立面板有授權預覽", async ({ page }) => {

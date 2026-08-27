@@ -28,6 +28,9 @@ export interface DesktopPrefs {
   showCompanionOnStart: boolean;
   openControlCenterOnStart: boolean;
   companionVisible: boolean;
+  companionPosition?: [number, number] | null;
+  companionSize: [number, number];
+  companionOpacity: number;
   companionPack: string;
   companionPersona: string;
   companionExpressiveness: "quiet" | "natural" | "lively" | string;
@@ -45,6 +48,9 @@ export const desktop = {
     invoke("close_decision", { behavior, remember }),
   fullQuit: () => invoke("full_quit"),
   companionApplyPrefs: () => invoke("companion_apply_prefs"),
+  companionWindowAdjust: (actionId: string) =>
+    invoke("companion_window_adjust", { actionId }),
+  companionResetPosition: () => invoke("companion_reset_position"),
 };
 
 /** Poll the supervisor until it decides embedded vs external; switch the

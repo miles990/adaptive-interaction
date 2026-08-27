@@ -34,6 +34,19 @@ export interface StoryPack {
   chapters: StoryChapter[];
 }
 
+/** §17 知識收據六句固定文案的 key（角色端知識進度語句）。
+ *  每一句都是對知識狀態（發布／複審／驗證）的誠實宣稱，因此與安全語句
+ *  走同一不可覆寫機制——pack 不得把「候選」說成「已發布」、把「未驗證」
+ *  說成「已驗證」。 */
+export const KNOWLEDGE_RECEIPT_KEYS = [
+  "knowledge-new-material",
+  "knowledge-candidate-created",
+  "knowledge-review-completed",
+  "knowledge-published",
+  "knowledge-stale",
+  "knowledge-agent-unverified",
+] as const;
+
 /** Keys whose wording is safety-critical and therefore immutable. */
 export const SAFETY_KEYS = [
   "emergency",
@@ -46,6 +59,8 @@ export const SAFETY_KEYS = [
   // able to restyle it (or move it onto an unverified state). The plain
   // `succeeded` (completed) line stays pack-restylable — that is the feature.
   "succeeded-verified",
+  // §17 知識六句：同樣是狀態宣稱，不可被 persona/world/story 覆寫。
+  ...KNOWLEDGE_RECEIPT_KEYS,
 ] as const;
 
 /** Fixed standard wording (never overridable by any pack). */
@@ -60,6 +75,14 @@ export const FIXED_SAFETY_LINES: Record<string, string> = {
   // Verified success — its wording is fixed so no pack can claim verification
   // it didn't earn (shown only on action.observed).
   "succeeded-verified": "做完了，也確認過結果。",
+  // §17 知識收據六句（spec 指定的固定文案；選句邏輯見
+  // companion/knowledgeReceipts.ts——依 receipt payload 確定性選句）。
+  "knowledge-new-material": "我找到了新素材。",
+  "knowledge-candidate-created": "我建立了知識候選。",
+  "knowledge-review-completed": "候選已完成複審。",
+  "knowledge-published": "知識已正式發布。",
+  "knowledge-stale": "這項知識已過期，需要確認。",
+  "knowledge-agent-unverified": "Agent 回報完成，但尚未驗證。",
 };
 
 /** Default (小樞) non-safety lines. */

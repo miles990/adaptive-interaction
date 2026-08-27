@@ -43,6 +43,56 @@ pub struct AssetRecord {
     pub schema_version: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum AssetDerivativeKind {
+    Thumbnail,
+    OcrText,
+    Transcript,
+    AudioFeatures,
+    VideoMetadata,
+    Keyframe,
+    Subtitle,
+    PdfText,
+    CodeIndex,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum AssetDerivativeStatus {
+    Complete,
+    Unavailable,
+    Failed,
+}
+
+/// A derived artifact never overwrites its parent. Complete rows point to a
+/// second content-addressed asset and every row carries an exact parent
+/// segment plus processor identity/version.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetDerivative {
+    pub derivative_id: String,
+    pub parent_hash: String,
+    pub kind: AssetDerivativeKind,
+    pub status: AssetDerivativeStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_hash: Option<String>,
+    pub source: SourceRef,
+    pub processor: String,
+    pub processor_version: String,
+    pub detail: String,
+    pub created_at: Timestamp,
+    pub schema_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetDerivationReport {
+    pub asset_hash: String,
+    pub derivatives: Vec<AssetDerivative>,
+    pub completed_at: Timestamp,
+}
+
 /// 指回原始素材的精確引用（時間段／區域／行號）。
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", default)]

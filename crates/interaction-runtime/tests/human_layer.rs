@@ -166,16 +166,38 @@ async fn ui_preferences_persist_and_validate() {
     assert_eq!(prefs.locale, "zh-TW");
 
     let updated = rt
-        .update_ui_preferences(
-            json!({"mode": "advanced", "customNames": {"receptor:system.time": "我的時鐘"}}),
-        )
+        .update_ui_preferences(json!({
+            "mode": "advanced",
+            "appearance": "light",
+            "scalePercent": 120,
+            "reduceMotion": true,
+                "disabledAgents": ["claude-code"],
+                "agentRoutes": {"programming": "claude-code"},
+            "customNames": {"receptor:system.time": "我的時鐘"}
+        }))
         .await
         .unwrap();
     assert_eq!(updated.mode, "advanced");
+    assert_eq!(updated.appearance, "light");
+    assert_eq!(updated.scale_percent, 120);
+    assert!(updated.reduce_motion);
+    assert_eq!(updated.disabled_agents, ["claude-code"]);
+    assert_eq!(updated.agent_routes["programming"], "claude-code");
+    let route = rt.agent_route_suggestion(Some("code")).await;
+    assert_eq!(route["role"], "programming");
+    assert_eq!(route["suggestion"], "claude-code");
 
     // Invalid mode refused.
     let err = rt.update_ui_preferences(json!({"mode": "wizard"})).await;
     assert!(err.is_err());
+    assert!(rt
+        .update_ui_preferences(json!({"scalePercent": 500}))
+        .await
+        .is_err());
+    assert!(rt
+        .update_ui_preferences(json!({"disabledAgents": ["not-a-provider"]}))
+        .await
+        .is_err());
 
     // Custom name feeds the human projection as a user override.
     let caps = rt.human_capabilities("zh-TW", true).await;

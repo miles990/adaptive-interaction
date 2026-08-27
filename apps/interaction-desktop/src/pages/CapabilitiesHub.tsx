@@ -2,7 +2,7 @@
 // 掃描文案誠實：只宣稱「已偵測到目前可用」，不宣稱找到所有硬體。
 
 import React from "react";
-import { api } from "../api";
+import { api, HardwareScanReport } from "../api";
 import { Badge, Section, StateView, useAsync } from "../ui";
 import { CapabilitiesPage } from "./CapabilitiesPage";
 
@@ -61,14 +61,34 @@ const PROVIDER_STATE_LABEL: Record<string, { text: string; kind: "ok" | "warn" |
   closed: { text: "已關閉", kind: "bad" },
 };
 
-/** 平台尚未支援的能力：誠實列具體原因，不用灰色按鈕冒充。 */
-const UNSUPPORTED: { name: string; reason: string }[] = [
-  { name: "攝影機", reason: "尚未實作影像擷取層（刻意誠實未支援；不偽裝存在）" },
-  { name: "HID（鍵盤／滑鼠／手寫板／遊戲控制器）", reason: "作業系統層列舉 adapter 尚未實作" },
-  { name: "MIDI", reason: "MIDI adapter 尚未實作" },
-  { name: "USB Serial／Bluetooth LE", reason: "序列／BLE 傳輸層尚未實作（宣告式 adapter 只支援 HTTP/SSE）" },
-  { name: "mDNS 自動探索", reason: "網路探索尚未實作；外部裝置以宣告式 YAML 手動加入" },
-];
+const HARDWARE_CLASS_LABEL: Record<string, string> = {
+  camera: "攝影機與影像來源",
+  microphone: "麥克風",
+  "audio-input": "音訊輸入",
+  "audio-output": "音訊輸出／喇叭",
+  keyboard: "鍵盤",
+  mouse: "滑鼠",
+  touchpad: "觸控板",
+  tablet: "手寫板",
+  "game-controller": "遊戲控制器",
+  midi: "MIDI",
+  "usb-serial": "USB Serial",
+  "bluetooth-le": "Bluetooth LE",
+  display: "螢幕呈現",
+  "system-notification": "系統通知",
+  "os-sensor": "作業系統感測器",
+  "mdns-device": "mDNS 本機網路裝置",
+  "esp32-declaration": "ESP32 宣告式裝置",
+};
+
+const HARDWARE_AVAILABILITY: Record<string, { text: string; kind: "ok" | "warn" | "bad" | "pending" }> = {
+  available: { text: "目前可見", kind: "ok" },
+  "permission-required": { text: "需要權限", kind: "pending" },
+  busy: { text: "被占用", kind: "warn" },
+  unavailable: { text: "目前不可用", kind: "bad" },
+  unsupported: { text: "此平台尚未支援", kind: "warn" },
+  unknown: { text: "結果未知", kind: "pending" },
+};
 
 function ProvidersSection({ refreshKey }: { refreshKey: number }) {
   const [providers] = useAsync(
@@ -77,12 +97,18 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
   );
   const [scanning, setScanning] = React.useState(false);
   const [scanNote, setScanNote] = React.useState<string | null>(null);
+  const [hardware, setHardware] = React.useState<HardwareScanReport | null>(null);
 
   async function scan() {
     setScanning(true);
     try {
-      await api.agentsRefresh();
-      setScanNote("已重新偵測目前可用的裝置與本機 AI agent。偵測不到不代表不存在：驅動、權限、沙盒、未配對或裝置被占用都可能讓設備看不見。");
+      const [report] = await Promise.all([api.hardwareScan(), api.agentsRefresh()]);
+      setHardware(report);
+      setScanNote(
+        `已偵測到目前可用裝置與能力，共 ${report.devices.length} 筆結果；感測器啟動：${
+          report.sensorActivationAttempted ? "曾嘗試（異常）" : "否"
+        }。偵測不到不代表不存在：驅動、權限、沙盒、未配對或裝置被占用都可能讓設備看不見。`
+      );
     } catch (e) {
       setScanNote(`掃描失敗：${e}`);
     } finally {
@@ -101,6 +127,48 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
           {scanning ? "掃描中…" : "重新掃描"}
         </button>
         {scanNote && <p className="muted small">{scanNote}</p>}
+        {hardware && (
+          <div className="provider-list" style={{ marginTop: 12 }} aria-live="polite">
+            {hardware.devices.map((device, index) => {
+              const availability = HARDWARE_AVAILABILITY[device.availability] ?? {
+                text: "結果未知",
+                kind: "pending" as const,
+              };
+              return (
+                <div className="provider-card" key={`${device.class}-${device.stableId ?? index}`}>
+                  <div className="row space-between">
+                    <strong>{HARDWARE_CLASS_LABEL[device.class] ?? device.displayName}</strong>
+                    <Badge kind={availability.kind}>{availability.text}</Badge>
+                  </div>
+                  <div>{device.displayName}</div>
+                  <div className="muted small">{device.detail}</div>
+                  <div className="muted small">識別依據：{device.identityBasis}</div>
+                  {device.stableId ? (
+                    <div className="muted small">穩定識別：{device.stableId}</div>
+                  ) : (
+                    <div className="muted small">沒有可安全保存的穩定識別，不會直接配對或安裝。</div>
+                  )}
+                  {device.permissionRequirements.map((requirement) => (
+                    <div className="muted small" key={requirement}>使用前：{requirement}</div>
+                  ))}
+                  {device.capabilities.length > 0 && (
+                    <ul className="plain-list small">
+                      {device.capabilities.map((capability) => (
+                        <li key={capability.id}>
+                          <strong>{capability.id}</strong> — {capability.scope}
+                          {capability.requiresConsent ? "（必須先取得使用授權）" : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+            {hardware.limitations.map((limitation) => (
+              <div className="state-box state-warning" key={limitation}>{limitation}</div>
+            ))}
+          </div>
+        )}
       </Section>
       <Section title="提供者（Provider）">
         <StateView state={providers} empty="尚未發現任何提供者。">
@@ -136,16 +204,13 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
           )}
         </StateView>
       </Section>
-      <Section title="此平台尚未支援的能力">
-        <p className="muted small">以下能力目前誠實地「不存在」，並附具體原因（不是灰色按鈕）：</p>
-        <ul className="plain-list">
-          {UNSUPPORTED.map((u) => (
-            <li key={u.name}>
-              <strong>{u.name}</strong> — <span className="muted">{u.reason}</span>
-            </li>
-          ))}
-        </ul>
-      </Section>
+      {!hardware && (
+        <Section title="尚未掃描">
+          <p className="muted small">
+            按下「重新掃描」後，這裡會逐類顯示目前可見、需要權限、未知、不可用或此平台尚未支援；不以灰色按鈕或假裝置代替結果。
+          </p>
+        </Section>
+      )}
     </div>
   );
 }

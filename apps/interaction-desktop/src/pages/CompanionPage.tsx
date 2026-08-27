@@ -46,11 +46,14 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
   }, []);
   React.useEffect(() => {
     void load();
+    const timer = window.setInterval(() => void load(), 5000);
+    return () => window.clearInterval(timer);
   }, [load, refreshKey]);
 
   const patch = async (p: Partial<DesktopPrefs>) => {
     try {
       setPrefs(await desktop.prefsPatch(p));
+      await desktop.companionApplyPrefs();
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -99,6 +102,34 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
             />
             <span>顯示桌面角色</span>
           </label>
+          <div className="settings-grid">
+            <label className="field-label">
+              大小
+              <select
+                value={String(prefs.companionSize?.[0] ?? 200)}
+                onChange={(event) => {
+                  const width = Number(event.target.value);
+                  void patch({ companionSize: [width, Math.round(width * 1.05)] });
+                }}
+              >
+                <option value="160">小</option>
+                <option value="200">標準</option>
+                <option value="260">大</option>
+                <option value="320">特大</option>
+              </select>
+            </label>
+            <label className="field-label">
+              透明度 {Math.round((prefs.companionOpacity ?? 1) * 100)}%
+              <input
+                type="range"
+                min={20}
+                max={100}
+                step={5}
+                value={Math.round((prefs.companionOpacity ?? 1) * 100)}
+                onChange={(event) => void patch({ companionOpacity: Number(event.target.value) / 100 })}
+              />
+            </label>
+          </div>
           <label className="field-label">
             外觀（共用同一骨架與能力；表現不同、權限相同）
             <select
@@ -131,6 +162,18 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
             />
             <span>保持在其他視窗上方</span>
           </label>
+          <button
+            onClick={async () => {
+              try {
+                await desktop.companionResetPosition();
+                setPrefs(await desktop.prefsGet());
+              } catch (reason) {
+                setError(String(reason));
+              }
+            }}
+          >
+            重設角色位置
+          </button>
         </Section>
       )}
       {!isTauri && (
@@ -138,6 +181,10 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
           <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
         </Section>
       )}
+
+      <BehaviorStateCard status={presence} />
+
+      <CharacterPackDetails pack={pack} />
 
       <Section title="狀態預覽（取自實際角色素材）">
         <p className="muted small">
@@ -160,6 +207,100 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
         </ul>
       </Section>
     </div>
+  );
+}
+
+function BehaviorStateCard({ status }: { status: Record<string, unknown> | null }) {
+  const state = (status?.behaviorState as Record<string, unknown> | null | undefined) ?? null;
+  const percent = (key: string) =>
+    Math.round(Math.max(0, Math.min(1, Number(state?.[key] ?? 0))) * 100);
+  return (
+    <Section title="現在的 Behavior State">
+      {!state ? (
+        <div className="state-box">
+          尚未收到角色視窗的即時狀態。角色隱藏、離線或剛啟動時，系統不會用預設值冒充現況。
+        </div>
+      ) : (
+        <>
+          <p className="muted small" role="status">
+            {String(status?.behaviorExplanation ?? state.explanation ?? "目前狀態原因未知。")}
+          </p>
+          <div className="settings-grid" aria-label="角色行為狀態數值">
+            {([
+              ["activation", "喚起度"],
+              ["attention", "注意力"],
+              ["taskLoad", "任務負載"],
+              ["interactionReadiness", "互動準備度"],
+              ["familiarity", "熟悉度（只影響呈現）"],
+            ] as const).map(([key, label]) => (
+              <div className="field-label" key={key}>
+                <span>{label}：{percent(key)}%</span>
+                <progress value={percent(key)} max={100} aria-label={label} />
+              </div>
+            ))}
+          </div>
+          <p className="muted small">
+            基態：{String(state.base)}；目前行為：{String(state.transient ?? "自然待機")}；
+            語意焦點：{String(state.currentFocus ?? "無")}；最近中斷：
+            {Number(state.recentInterruptions ?? 0).toFixed(1)}。焦點只保存事件名稱，不保存原始游標軌跡。
+          </p>
+        </>
+      )}
+    </Section>
+  );
+}
+
+function CharacterPackDetails({ pack }: { pack: string }) {
+  const [manifest, setManifest] = React.useState<PackManifest | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let disposed = false;
+    void fetch(`/packs/${pack}/manifest.json`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<PackManifest>;
+      })
+      .then((value) => {
+        const issues = validateManifest(value);
+        if (issues.length > 0) throw new Error(issues.join("; "));
+        if (!disposed) {
+          setManifest(value);
+          setError(null);
+        }
+      })
+      .catch((reason) => {
+        if (!disposed) setError(String(reason));
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [pack]);
+
+  return (
+    <Section title="Character Pack 詳情">
+      {error ? (
+        <div className="state-box state-error">角色包驗證失敗：{error}</div>
+      ) : !manifest ? (
+        <div className="state-box">正在驗證角色包 manifest 與素材相容性…</div>
+      ) : (
+        <dl className="definition-list small">
+          <dt>名稱／ID</dt>
+          <dd>{manifest.name["zh-TW"] ?? manifest.id}（{manifest.id}）</dd>
+          <dt>版本／Schema</dt>
+          <dd>{manifest.version ?? "未標示"}／{manifest.schemaVersion}</dd>
+          <dt>作者／授權</dt>
+          <dd>{manifest.author ?? "未標示"}／{manifest.license ?? "未標示"}</dd>
+          <dt>來源</dt>
+          <dd>App 同源內建資產 `/packs/{manifest.id}`；產生器：{manifest.generator ?? "未標示"}</dd>
+          <dt>簽章</dt>
+          <dd>跟隨 Adaptive Interaction App bundle 的程式碼簽章；不接受遠端程式碼或任意動畫指令。</dd>
+          <dt>相容性</dt>
+          <dd>manifest、sprite sheet、frame 與動畫索引已由載入器驗證。</dd>
+          <dt>更新／解除安裝</dt>
+          <dd>隨 App 更新；內建安全 fallback 不可單獨解除安裝（not-applicable：避免失去安全狀態素材）。</dd>
+        </dl>
+      )}
+    </Section>
   );
 }
 

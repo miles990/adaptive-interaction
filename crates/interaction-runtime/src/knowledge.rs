@@ -3,20 +3,26 @@
 //!
 //! - 素材 blob：`<home>/state/assets/<hash[0..2]>/<hash>`，write-once。
 //! - AI（agent actor）只能 propose（一律 Candidate）；activate 只屬於人類。
-//! - 檢索：FTS5（bm25）＋可替換向量介面（v1 為誠實標示的詞彙備援索引，
-//!   不是語意 embedding）；兩者都只產生**候選**，不是事實判斷。
+//! - 檢索：FTS5（bm25）＋可替換向量介面（v1 為本機、非生成式的
+//!   subword/concept feature embedding）；兩者都只產生**候選**，不是事實判斷。
 //! - 刪素材前有影響預覽；引用它的 Active 知識不靜默級聯——標 disputed。
 
 use crate::runtime::Runtime;
+use base64::Engine;
 use chrono::Utc;
 use interaction_core::{
-    apply_knowledge_actor_rules, validate_edge, validate_node, AssetRecord, DomainError,
+    apply_knowledge_actor_rules, validate_edge, validate_node, AssetDerivationReport,
+    AssetDerivative, AssetDerivativeKind, AssetDerivativeStatus, AssetRecord, DomainError,
     DomainResult, KnowledgeEdge, KnowledgeEdgeId, KnowledgeNode, KnowledgeNodeId, KnowledgeReview,
     KnowledgeStatus, MediaType, MemoryActor, NodeType, RelationType, SourceRef, SCHEMA_VERSION,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::io::Cursor;
 use std::path::PathBuf;
+use std::process::Stdio;
+use std::time::Duration;
+use tokio::io::AsyncReadExt;
 
 pub const MAX_ASSET_BYTES: u64 = 64 * 1024 * 1024; // 64MB 本機素材上限
 const MAX_INLINE_CONTENT: usize = 1024 * 1024;
@@ -43,35 +49,98 @@ pub trait VectorIndex: Send + Sync {
     fn nature(&self) -> &'static str;
 }
 
-/// v1 備援：詞彙雜湊袋餘弦（**不是**語意 embedding；誠實標示）。
+/// v1 本機 embedding：詞彙＋字元 subword＋小型跨語言領域概念特徵。
+/// 它是確定性、離線、可替換的 sparse feature embedding；不宣稱是神經
+/// 模型，也不把相似度升格成關係或因果。
 #[derive(Default)]
-pub struct LexicalIndex {
+pub struct LocalSubwordEmbeddingIndex {
     vectors:
         std::sync::Mutex<std::collections::HashMap<String, std::collections::HashMap<u32, f32>>>,
 }
 
-fn lex_vector(text: &str) -> std::collections::HashMap<u32, f32> {
+fn add_feature(v: &mut std::collections::HashMap<u32, f32>, feature: &str, weight: f32) {
+    let mut h = Sha256::new();
+    h.update(feature.as_bytes());
+    let d = h.finalize();
+    let bucket = u32::from_le_bytes([d[0], d[1], d[2], d[3]]) % 8192;
+    *v.entry(bucket).or_insert(0.0) += weight;
+}
+
+fn embedding_vector(text: &str) -> std::collections::HashMap<u32, f32> {
     let mut v: std::collections::HashMap<u32, f32> = std::collections::HashMap::new();
-    for token in text
-        .to_lowercase()
+    let lower = text.to_lowercase();
+    for token in lower
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
     {
-        let mut h = Sha256::new();
-        h.update(token.as_bytes());
-        let d = h.finalize();
-        let bucket = u32::from_le_bytes([d[0], d[1], d[2], d[3]]) % 4096;
-        *v.entry(bucket).or_insert(0.0) += 1.0;
+        add_feature(&mut v, &format!("token:{token}"), 1.0);
     }
-    // 中文等無空白語言：以雙字元 n-gram 補充。
-    let chars: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
-    for w in chars.windows(2) {
-        let tok: String = w.iter().collect();
-        let mut h = Sha256::new();
-        h.update(tok.as_bytes());
-        let d = h.finalize();
-        let bucket = u32::from_le_bytes([d[0], d[1], d[2], d[3]]) % 4096;
-        *v.entry(bucket).or_insert(0.0) += 0.5;
+    // 中文等無空白語言與拼字變形：2/3 字元 subword。
+    let chars: Vec<char> = lower.chars().filter(|c| !c.is_whitespace()).collect();
+    for width in [2usize, 3] {
+        for window in chars.windows(width) {
+            add_feature(
+                &mut v,
+                &format!("subword:{}", window.iter().collect::<String>()),
+                if width == 2 { 0.45 } else { 0.3 },
+            );
+        }
+    }
+    // 內建 Domain Pack 的跨語言概念 anchors。這是明示、版本化的
+    // vocabulary transfer，不是研究支持的因果關係。
+    const CONCEPTS: &[(&str, &[&str])] = &[
+        (
+            "consent",
+            &[
+                "consent",
+                "permission",
+                "approval",
+                "authorization",
+                "授權",
+                "同意",
+                "權限",
+            ],
+        ),
+        (
+            "verification",
+            &[
+                "verify",
+                "verification",
+                "validation",
+                "test",
+                "驗證",
+                "確認",
+                "測試",
+            ],
+        ),
+        (
+            "privacy",
+            &[
+                "privacy",
+                "personal data",
+                "sensitive",
+                "隱私",
+                "個資",
+                "敏感",
+            ],
+        ),
+        (
+            "delegation",
+            &["delegate", "delegation", "handoff", "委派", "轉交"],
+        ),
+        (
+            "knowledge",
+            &["knowledge", "know-how", "memory", "知識", "方法", "記憶"],
+        ),
+        (
+            "failure",
+            &["failure", "failed", "error", "錯誤", "失敗", "異常"],
+        ),
+    ];
+    for (concept, aliases) in CONCEPTS {
+        if aliases.iter().any(|alias| lower.contains(alias)) {
+            add_feature(&mut v, &format!("concept:{concept}"), 3.0);
+        }
     }
     v
 }
@@ -90,18 +159,18 @@ fn cosine(a: &std::collections::HashMap<u32, f32>, b: &std::collections::HashMap
     }
 }
 
-impl VectorIndex for LexicalIndex {
+impl VectorIndex for LocalSubwordEmbeddingIndex {
     fn upsert(&self, id: &str, text: &str) {
         self.vectors
             .lock()
             .expect("lex lock")
-            .insert(id.to_string(), lex_vector(text));
+            .insert(id.to_string(), embedding_vector(text));
     }
     fn remove(&self, id: &str) {
         self.vectors.lock().expect("lex lock").remove(id);
     }
     fn query(&self, text: &str, k: usize) -> Vec<(String, f64)> {
-        let q = lex_vector(text);
+        let q = embedding_vector(text);
         let map = self.vectors.lock().expect("lex lock");
         let mut scored: Vec<(String, f64)> = map
             .iter()
@@ -113,7 +182,7 @@ impl VectorIndex for LexicalIndex {
         scored
     }
     fn nature(&self) -> &'static str {
-        "lexical-fallback（詞彙雜湊袋餘弦；非語意 embedding）"
+        "local-subword-embedding-v1（離線 sparse feature embedding；非神經模型）"
     }
 }
 
@@ -196,8 +265,8 @@ impl Runtime {
             &body,
         )?;
         if inserted {
-            // 誠實階梯：flat token 無法辨識呼叫者是人或 AI host——audit
-            // 不得斷言 "human"。真實 actor 需 API 層帶入（已知限制）。
+            // 誠實階梯：store 層也可由非 HTTP 內部呼叫者使用，audit
+            // 因此不斷言 "human"。HTTP 邊界另以 human/agent token 分權。
             self.store.audit(
                 "asset.imported",
                 "unattributed-api-caller",
@@ -237,18 +306,58 @@ impl Runtime {
     /// recency 窗或列數上限會讓預覽低報、級聯漏刪。
     pub async fn asset_delete_impact(&self, hash: &str) -> DomainResult<Value> {
         validate_asset_hash(hash)?;
-        let nodes = self.store.nodes_referencing_asset(hash)?;
-        let dependent_memories = self.store.list_memory_ids_by_delete_parent(hash)?;
+        let derivatives = self
+            .store
+            .list_asset_derivatives(hash)?
+            .into_iter()
+            .filter_map(|body| serde_json::from_str::<AssetDerivative>(&body).ok())
+            .collect::<Vec<_>>();
+        let mut derived_assets_removed = Vec::new();
+        let mut derived_assets_retained_shared = Vec::new();
+        for output_hash in derivatives
+            .iter()
+            .filter_map(|derivative| derivative.output_hash.as_deref())
+        {
+            if self
+                .store
+                .count_asset_derivative_output_references(output_hash)?
+                <= 1
+            {
+                derived_assets_removed.push(output_hash.to_string());
+            } else {
+                derived_assets_retained_shared.push(output_hash.to_string());
+            }
+        }
+        derived_assets_removed.sort();
+        derived_assets_removed.dedup();
+        derived_assets_retained_shared.sort();
+        derived_assets_retained_shared.dedup();
+
+        let mut affected_hashes = vec![hash.to_string()];
+        affected_hashes.extend(derived_assets_removed.iter().cloned());
+        let mut nodes = Vec::new();
+        let mut dependent_memories = Vec::new();
+        for affected in &affected_hashes {
+            nodes.extend(self.store.nodes_referencing_asset(affected)?);
+            dependent_memories.extend(self.store.list_memory_ids_by_delete_parent(affected)?);
+        }
+        nodes.sort();
+        nodes.dedup();
+        dependent_memories.sort();
+        dependent_memories.dedup();
         Ok(json!({
             "hash": hash,
             "referencingKnowledgeNodes": nodes,
             "memoriesDeletedWithParent": dependent_memories,
+            "derivativesRemoved": derivatives.len(),
+            "derivedAssetsRemoved": derived_assets_removed,
+            "derivedAssetsRetainedShared": derived_assets_retained_shared,
             "note": "引用中的 Active 知識不會被靜默刪除——會標記 disputed（失去來源），需人工處理。",
         }))
     }
 
-    /// 刪除素材（設計上屬人類動作；flat token 尚無法強制辨識呼叫者，
-    /// 見已知限制）：級聯刪 delete_with_parent 記憶；引用它的 Active
+    /// 刪除素材（設計上屬人類動作；HTTP 邊界拒絕 agent token，
+    /// 內部呼叫者仍須只在人類控制面使用）：級聯刪 delete_with_parent 記憶；引用它的 Active
     /// 知識標 disputed（不靜默消失）。
     pub async fn asset_delete(&self, hash: &str) -> DomainResult<Value> {
         let impact = self.asset_delete_impact(hash).await?;
@@ -258,6 +367,16 @@ impl Runtime {
         }
         let blob = self.asset_blob_path(hash);
         let _ = std::fs::remove_file(blob);
+        // 衍生列跟隨父素材刪除；只有沒有被其他父素材引用的衍生 blob
+        // 才刪除。共享 CAS 輸出必須保留，避免靜默破壞另一份 provenance。
+        self.store.delete_asset_derivatives(hash)?;
+        if let Some(output_hashes) = impact["derivedAssetsRemoved"].as_array() {
+            for output_hash in output_hashes.iter().filter_map(Value::as_str) {
+                let _ = self.store.delete_asset(output_hash)?;
+                let _ = std::fs::remove_file(self.asset_blob_path(output_hash));
+                self.vector_index.remove(output_hash);
+            }
+        }
         // 級聯：隨父刪除的衍生記憶。
         if let Some(ids) = impact["memoriesDeletedWithParent"].as_array() {
             for id in ids {
@@ -315,6 +434,516 @@ impl Runtime {
         Ok(bytes)
     }
 
+    /// Bounded preview payload for the trusted Control Center. Returning a
+    /// data payload keeps the bearer token out of media URLs and browser logs.
+    pub async fn asset_preview(&self, hash: &str) -> DomainResult<Value> {
+        const MAX_PREVIEW_BYTES: usize = 8 * 1024 * 1024;
+        let record = self.asset_get(hash).await?;
+        let bytes = self.asset_content(hash, MAX_PREVIEW_BYTES).await?;
+        let extension = record
+            .original_name
+            .as_deref()
+            .and_then(|name| name.rsplit('.').next())
+            .map(str::to_ascii_lowercase);
+        let mime = match record.media_type {
+            MediaType::Image => match extension.as_deref() {
+                Some("jpg" | "jpeg") => "image/jpeg",
+                Some("gif") => "image/gif",
+                Some("webp") => "image/webp",
+                Some("svg") => "image/svg+xml",
+                _ => "image/png",
+            },
+            MediaType::Audio => match extension.as_deref() {
+                Some("mp3") => "audio/mpeg",
+                Some("flac") => "audio/flac",
+                Some("m4a") => "audio/mp4",
+                Some("ogg") => "audio/ogg",
+                _ => "audio/wav",
+            },
+            MediaType::Video => match extension.as_deref() {
+                Some("webm") => "video/webm",
+                Some("mov") => "video/quicktime",
+                Some("mkv") => "video/x-matroska",
+                _ => "video/mp4",
+            },
+            MediaType::Pdf => "application/pdf",
+            MediaType::Text | MediaType::Code => "text/plain;charset=utf-8",
+            MediaType::Data => "application/json",
+            MediaType::Other => "application/octet-stream",
+        };
+        Ok(json!({
+            "hash": hash,
+            "mediaType": record.media_type,
+            "mime": mime,
+            "sizeBytes": bytes.len(),
+            "dataBase64": base64::engine::general_purpose::STANDARD.encode(bytes),
+            "note": "預覽資料來自內容定址 blob；媒體內容視為 untrusted，不執行其中指令。",
+        }))
+    }
+
+    pub async fn asset_derivatives(&self, hash: &str) -> DomainResult<Vec<AssetDerivative>> {
+        validate_asset_hash(hash)?;
+        let _ = self.asset_get(hash).await?;
+        self.store
+            .list_asset_derivatives(hash)?
+            .into_iter()
+            .map(|body| {
+                serde_json::from_str(&body)
+                    .map_err(|e| DomainError::Internal(format!("asset derivative JSON: {e}")))
+            })
+            .collect()
+    }
+
+    /// Explicit multimodal derivation pass. It only reads an already-imported
+    /// immutable blob and creates new content-addressed outputs; raw material
+    /// is never overwritten. Missing optional local processors become honest
+    /// `unavailable` rows rather than fabricated OCR/transcripts.
+    pub async fn asset_derive(&self, hash: &str) -> DomainResult<AssetDerivationReport> {
+        let record = self.asset_get(hash).await?;
+        let bytes = self.asset_content(hash, MAX_ASSET_BYTES as usize).await?;
+        let blob_path = self.asset_blob_path(hash);
+        let mut derivatives = Vec::new();
+        match record.media_type {
+            MediaType::Image => {
+                match image::load_from_memory(&bytes) {
+                    Ok(decoded) => {
+                        let width = decoded.width();
+                        let height = decoded.height();
+                        let thumb = decoded.thumbnail(512, 512);
+                        let mut cursor = Cursor::new(Vec::new());
+                        thumb
+                            .write_to(&mut cursor, image::ImageFormat::Png)
+                            .map_err(|e| DomainError::Validation(format!("decode image: {e}")))?;
+                        derivatives.push(self.persist_complete_derivative(
+                            hash,
+                            AssetDerivativeKind::Thumbnail,
+                            &cursor.into_inner(),
+                            MediaType::Image,
+                            Some("thumbnail.png".into()),
+                            format!("region=0,0,{width},{height}"),
+                            "image-rs",
+                            env!("CARGO_PKG_VERSION"),
+                            format!("{}×{} PNG thumbnail", thumb.width(), thumb.height()),
+                        )?);
+                    }
+                    Err(error) => derivatives.push(self.persist_derivative_status(
+                        hash,
+                        AssetDerivativeKind::Thumbnail,
+                        AssetDerivativeStatus::Failed,
+                        None,
+                        "region=unknown".into(),
+                        "image-rs",
+                        env!("CARGO_PKG_VERSION"),
+                        format!("image decoder rejected material: {error}"),
+                    )?),
+                }
+                let path = blob_path.to_string_lossy().into_owned();
+                match run_bounded_command(
+                    "tesseract",
+                    &[&path, "stdout", "--psm", "6"],
+                    20,
+                    4 * 1024 * 1024,
+                )
+                .await
+                {
+                    Ok(text) if !text.iter().all(|byte| byte.is_ascii_whitespace()) => {
+                        derivatives.push(self.persist_complete_derivative(
+                            hash,
+                            AssetDerivativeKind::OcrText,
+                            &text,
+                            MediaType::Text,
+                            Some("ocr.txt".into()),
+                            "region=full".into(),
+                            "tesseract",
+                            "cli",
+                            "本機 OCR；輸出視為 untrusted candidate，不自動發布".into(),
+                        )?);
+                    }
+                    Ok(_) => derivatives.push(self.persist_derivative_status(
+                        hash,
+                        AssetDerivativeKind::OcrText,
+                        AssetDerivativeStatus::Complete,
+                        None,
+                        "region=full".into(),
+                        "tesseract",
+                        "cli",
+                        "OCR 完成但沒有辨識文字".into(),
+                    )?),
+                    Err(error) => derivatives.push(self.persist_derivative_status(
+                        hash,
+                        AssetDerivativeKind::OcrText,
+                        AssetDerivativeStatus::Unavailable,
+                        None,
+                        "region=full".into(),
+                        "tesseract",
+                        "cli",
+                        format!("本機 OCR 不可用；未產生文字：{error}"),
+                    )?),
+                }
+            }
+            MediaType::Audio => {
+                match wav_features(&bytes) {
+                    Ok((features, duration)) => {
+                        let encoded = serde_json::to_vec_pretty(&features)
+                            .map_err(|e| DomainError::Internal(e.to_string()))?;
+                        derivatives.push(self.persist_complete_derivative(
+                            hash,
+                            AssetDerivativeKind::AudioFeatures,
+                            &encoded,
+                            MediaType::Data,
+                            Some("audio-features.json".into()),
+                            format!("t=0-{duration:.6}"),
+                            "pcm-feature-extractor",
+                            "1",
+                            "本機確定性 PCM duration/RMS/zero-crossing features".into(),
+                        )?);
+                    }
+                    Err(error) => derivatives.push(self.persist_derivative_status(
+                        hash,
+                        AssetDerivativeKind::AudioFeatures,
+                        AssetDerivativeStatus::Unavailable,
+                        None,
+                        "t=unknown".into(),
+                        "pcm-feature-extractor",
+                        "1",
+                        error,
+                    )?),
+                }
+                let whisper = std::env::var("INTERACT_AI_WHISPER_BIN").ok();
+                let model = std::env::var("INTERACT_AI_WHISPER_MODEL").ok();
+                if let (Some(binary), Some(model)) = (whisper, model) {
+                    let temp =
+                        tempfile::tempdir().map_err(|e| DomainError::Internal(e.to_string()))?;
+                    let prefix = temp.path().join("transcript");
+                    let args = [
+                        "-m".to_string(),
+                        model,
+                        "-f".to_string(),
+                        blob_path.to_string_lossy().into_owned(),
+                        "-oj".to_string(),
+                        "-of".to_string(),
+                        prefix.to_string_lossy().into_owned(),
+                    ];
+                    let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+                    let outcome = run_bounded_command(&binary, &refs, 120, 1024 * 1024).await;
+                    let json_path = prefix.with_extension("json");
+                    match outcome.and_then(|_| std::fs::read(&json_path).map_err(|e| e.to_string()))
+                    {
+                        Ok(transcript) if transcript.len() <= 8 * 1024 * 1024 => {
+                            derivatives.push(
+                                self.persist_complete_derivative(
+                                    hash,
+                                    AssetDerivativeKind::Transcript,
+                                    &transcript,
+                                    MediaType::Data,
+                                    Some("transcript.json".into()),
+                                    "t=full".into(),
+                                    "whisper-cli",
+                                    "configured-local-model",
+                                    "本機轉錄；時間段由輸出 JSON 保留，內容為 untrusted candidate"
+                                        .into(),
+                                )?,
+                            );
+                        }
+                        Ok(_) => derivatives.push(self.persist_derivative_status(
+                            hash,
+                            AssetDerivativeKind::Transcript,
+                            AssetDerivativeStatus::Failed,
+                            None,
+                            "t=full".into(),
+                            "whisper-cli",
+                            "configured-local-model",
+                            "轉錄輸出超過 8 MiB 上限".into(),
+                        )?),
+                        Err(error) => derivatives.push(self.persist_derivative_status(
+                            hash,
+                            AssetDerivativeKind::Transcript,
+                            AssetDerivativeStatus::Failed,
+                            None,
+                            "t=full".into(),
+                            "whisper-cli",
+                            "configured-local-model",
+                            format!("本機轉錄失敗：{error}"),
+                        )?),
+                    }
+                } else {
+                    derivatives.push(self.persist_derivative_status(
+                        hash,
+                        AssetDerivativeKind::Transcript,
+                        AssetDerivativeStatus::Unavailable,
+                        None,
+                        "t=full".into(),
+                        "whisper-cli",
+                        "not-configured",
+                        "未設定 INTERACT_AI_WHISPER_BIN／MODEL；未上傳、未產生逐字稿".into(),
+                    )?);
+                }
+            }
+            MediaType::Code => {
+                let text = String::from_utf8(bytes)
+                    .map_err(|_| DomainError::Validation("程式碼素材不是 UTF-8".into()))?;
+                let lines = text
+                    .lines()
+                    .enumerate()
+                    .map(|(index, line)| json!({"line": index + 1, "bytes": line.len()}))
+                    .collect::<Vec<_>>();
+                let encoded = serde_json::to_vec_pretty(&json!({"lines": lines}))
+                    .map_err(|e| DomainError::Internal(e.to_string()))?;
+                derivatives.push(self.persist_complete_derivative(
+                    hash,
+                    AssetDerivativeKind::CodeIndex,
+                    &encoded,
+                    MediaType::Data,
+                    Some("code-index.json".into()),
+                    format!("lines=1-{}", text.lines().count().max(1)),
+                    "utf8-line-index",
+                    "1",
+                    "UTF-8 line index".into(),
+                )?);
+            }
+            MediaType::Video => {
+                let path = blob_path.to_string_lossy().into_owned();
+                match run_bounded_command(
+                    "ffprobe",
+                    &[
+                        "-v",
+                        "error",
+                        "-show_format",
+                        "-show_streams",
+                        "-of",
+                        "json",
+                        &path,
+                    ],
+                    20,
+                    4 * 1024 * 1024,
+                )
+                .await
+                {
+                    Ok(metadata) => derivatives.push(self.persist_complete_derivative(
+                        hash,
+                        AssetDerivativeKind::VideoMetadata,
+                        &metadata,
+                        MediaType::Data,
+                        Some("video-metadata.json".into()),
+                        "t=full".into(),
+                        "ffprobe",
+                        "cli",
+                        "container/stream metadata only".into(),
+                    )?),
+                    Err(error) => derivatives.push(self.persist_derivative_status(
+                        hash,
+                        AssetDerivativeKind::VideoMetadata,
+                        AssetDerivativeStatus::Unavailable,
+                        None,
+                        "t=full".into(),
+                        "ffprobe",
+                        "cli",
+                        error,
+                    )?),
+                }
+                let temp = tempfile::tempdir().map_err(|e| DomainError::Internal(e.to_string()))?;
+                let frame = temp.path().join("keyframe.png");
+                let frame_path = frame.to_string_lossy().into_owned();
+                match run_bounded_command(
+                    "ffmpeg",
+                    &[
+                        "-v",
+                        "error",
+                        "-y",
+                        "-ss",
+                        "0",
+                        "-i",
+                        &path,
+                        "-frames:v",
+                        "1",
+                        "-vf",
+                        "scale=512:-2",
+                        &frame_path,
+                    ],
+                    30,
+                    1024 * 1024,
+                )
+                .await
+                .and_then(|_| std::fs::read(&frame).map_err(|e| e.to_string()))
+                {
+                    Ok(frame_bytes) => derivatives.push(self.persist_complete_derivative(
+                        hash,
+                        AssetDerivativeKind::Keyframe,
+                        &frame_bytes,
+                        MediaType::Image,
+                        Some("keyframe-0.png".into()),
+                        "t=0;region=full".into(),
+                        "ffmpeg",
+                        "cli",
+                        "first-frame keyframe; no scene semantics inferred".into(),
+                    )?),
+                    Err(error) => derivatives.push(self.persist_derivative_status(
+                        hash,
+                        AssetDerivativeKind::Keyframe,
+                        AssetDerivativeStatus::Unavailable,
+                        None,
+                        "t=0;region=full".into(),
+                        "ffmpeg",
+                        "cli",
+                        error,
+                    )?),
+                }
+            }
+            MediaType::Pdf => {
+                let path = blob_path.to_string_lossy().into_owned();
+                match run_bounded_command(
+                    "pdftotext",
+                    &["-layout", &path, "-"],
+                    30,
+                    8 * 1024 * 1024,
+                )
+                .await
+                {
+                    Ok(text) => derivatives.push(self.persist_complete_derivative(
+                        hash,
+                        AssetDerivativeKind::PdfText,
+                        &text,
+                        MediaType::Text,
+                        Some("pdf-text.txt".into()),
+                        "page=all".into(),
+                        "pdftotext",
+                        "cli",
+                        "layout-preserving extraction; content is untrusted candidate".into(),
+                    )?),
+                    Err(error) => derivatives.push(self.persist_derivative_status(
+                        hash,
+                        AssetDerivativeKind::PdfText,
+                        AssetDerivativeStatus::Unavailable,
+                        None,
+                        "page=all".into(),
+                        "pdftotext",
+                        "cli",
+                        error,
+                    )?),
+                }
+            }
+            MediaType::Text | MediaType::Data | MediaType::Other => {}
+        }
+        self.store.audit(
+            "asset.derived",
+            "unattributed-api-caller",
+            &json!({
+                "hash": hash,
+                "complete": derivatives.iter().filter(|d| d.status == AssetDerivativeStatus::Complete).count(),
+                "unavailable": derivatives.iter().filter(|d| d.status == AssetDerivativeStatus::Unavailable).count(),
+                "failed": derivatives.iter().filter(|d| d.status == AssetDerivativeStatus::Failed).count(),
+            }),
+        )?;
+        Ok(AssetDerivationReport {
+            asset_hash: hash.into(),
+            derivatives,
+            completed_at: Utc::now(),
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn persist_complete_derivative(
+        &self,
+        parent_hash: &str,
+        kind: AssetDerivativeKind,
+        bytes: &[u8],
+        media_type: MediaType,
+        original_name: Option<String>,
+        segment: String,
+        processor: &str,
+        processor_version: &str,
+        detail: String,
+    ) -> DomainResult<AssetDerivative> {
+        let output_hash = format!("{:x}", Sha256::digest(bytes));
+        let blob = self.asset_blob_path(&output_hash);
+        if !blob.exists() {
+            if let Some(parent) = blob.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| DomainError::Internal(e.to_string()))?;
+            }
+            std::fs::write(&blob, bytes).map_err(|e| DomainError::Internal(e.to_string()))?;
+        }
+        let output = AssetRecord {
+            hash: output_hash.clone(),
+            media_type,
+            size_bytes: bytes.len() as u64,
+            original_name,
+            source: format!("derived-from:{parent_hash}#{segment}"),
+            added_at: Utc::now(),
+            description: Some(format!("{kind:?} derivative; untrusted until reviewed")),
+            schema_version: SCHEMA_VERSION.into(),
+        };
+        self.store.insert_asset(
+            &output_hash,
+            &serde_json::to_value(media_type)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_default(),
+            output.size_bytes,
+            &serde_json::to_string(&output).map_err(|e| DomainError::Internal(e.to_string()))?,
+        )?;
+        self.persist_derivative_status(
+            parent_hash,
+            kind,
+            AssetDerivativeStatus::Complete,
+            Some(output_hash),
+            segment,
+            processor,
+            processor_version,
+            detail,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn persist_derivative_status(
+        &self,
+        parent_hash: &str,
+        kind: AssetDerivativeKind,
+        status: AssetDerivativeStatus,
+        output_hash: Option<String>,
+        segment: String,
+        processor: &str,
+        processor_version: &str,
+        detail: String,
+    ) -> DomainResult<AssetDerivative> {
+        let kind_text = serde_json::to_value(kind)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "unknown".into());
+        let status_text = serde_json::to_value(status)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "failed".into());
+        let id_seed =
+            format!("{parent_hash}\0{kind_text}\0{processor}\0{processor_version}\0{segment}");
+        let derivative = AssetDerivative {
+            derivative_id: format!("derivative-{:x}", Sha256::digest(id_seed.as_bytes())),
+            parent_hash: parent_hash.into(),
+            kind,
+            status,
+            output_hash,
+            source: SourceRef {
+                asset_hash: Some(parent_hash.into()),
+                segment: Some(segment),
+                ..Default::default()
+            },
+            processor: processor.into(),
+            processor_version: processor_version.into(),
+            detail,
+            created_at: Utc::now(),
+            schema_version: SCHEMA_VERSION.into(),
+        };
+        self.store.save_asset_derivative(
+            &derivative.derivative_id,
+            parent_hash,
+            &kind_text,
+            &status_text,
+            &serde_json::to_string(&derivative)
+                .map_err(|e| DomainError::Internal(e.to_string()))?,
+        )?;
+        Ok(derivative)
+    }
+
     // -------------------------------------------------------------------
     // 知識圖譜。
     // -------------------------------------------------------------------
@@ -322,8 +951,28 @@ impl Runtime {
     /// 建立節點（actor 由 API 層決定；agent 一律 Candidate）。
     pub async fn knowledge_propose_node(
         &self,
+        node: KnowledgeNode,
+        actor: MemoryActor,
+    ) -> DomainResult<KnowledgeNode> {
+        self.knowledge_propose_node_with_session(node, actor, None)
+            .await
+    }
+
+    pub async fn knowledge_propose_node_for_session(
+        &self,
+        node: KnowledgeNode,
+        actor: MemoryActor,
+        agent_session_id: String,
+    ) -> DomainResult<KnowledgeNode> {
+        self.knowledge_propose_node_with_session(node, actor, Some(agent_session_id))
+            .await
+    }
+
+    async fn knowledge_propose_node_with_session(
+        &self,
         mut node: KnowledgeNode,
         actor: MemoryActor,
+        agent_session_id: Option<String>,
     ) -> DomainResult<KnowledgeNode> {
         node.created_by = actor.clone();
         apply_knowledge_actor_rules(&mut node.status, &actor);
@@ -350,7 +999,7 @@ impl Runtime {
                 MemoryActor::Human => "human".into(),
                 MemoryActor::Runtime => "runtime".into(),
             },
-            agent_sessions: vec![],
+            agent_sessions: agent_session_id.into_iter().collect(),
             sources: node.evidence.iter().filter_map(|e| e.url.clone()).collect(),
             source_hashes: node
                 .evidence
@@ -385,8 +1034,28 @@ impl Runtime {
     /// 建立邊（同 actor 規則＋因果驗證）。
     pub async fn knowledge_propose_edge(
         &self,
+        edge: KnowledgeEdge,
+        actor: MemoryActor,
+    ) -> DomainResult<KnowledgeEdge> {
+        self.knowledge_propose_edge_with_session(edge, actor, None)
+            .await
+    }
+
+    pub async fn knowledge_propose_edge_for_session(
+        &self,
+        edge: KnowledgeEdge,
+        actor: MemoryActor,
+        agent_session_id: String,
+    ) -> DomainResult<KnowledgeEdge> {
+        self.knowledge_propose_edge_with_session(edge, actor, Some(agent_session_id))
+            .await
+    }
+
+    async fn knowledge_propose_edge_with_session(
+        &self,
         mut edge: KnowledgeEdge,
         actor: MemoryActor,
+        agent_session_id: Option<String>,
     ) -> DomainResult<KnowledgeEdge> {
         edge.created_by = actor.clone();
         apply_knowledge_actor_rules(&mut edge.status, &actor);
@@ -408,6 +1077,34 @@ impl Runtime {
             &status_str(edge.status),
             &serde_json::to_string(&edge).map_err(|e| DomainError::Internal(e.to_string()))?,
         )?;
+        self.emit_knowledge_receipt(crate::curator::KnowledgeReceipt {
+            update_id: format!("kr-{}", uuid::Uuid::new_v4()),
+            triggered_by: match &edge.created_by {
+                MemoryActor::Agent(agent) => format!("agent:{agent}"),
+                MemoryActor::Human => "human".into(),
+                MemoryActor::Runtime => "runtime".into(),
+            },
+            agent_sessions: agent_session_id.into_iter().collect(),
+            sources: vec![],
+            source_hashes: vec![],
+            changes: crate::curator::ReceiptChanges {
+                updated_relations: 1,
+                candidates_created: u32::from(edge.status == KnowledgeStatus::Candidate),
+                ..Default::default()
+            },
+            verification: crate::curator::ReceiptVerification {
+                schema_passed: true,
+                source_hashes_verified: false,
+                conflict_check: "unknown".into(),
+                human_reviewed: !matches!(edge.created_by, MemoryActor::Agent(_)),
+            },
+            published: crate::curator::ReceiptPublished {
+                metadata: true,
+                claims: false,
+            },
+            created_at: Utc::now(),
+            schema_version: SCHEMA_VERSION.into(),
+        });
         Ok(edge)
     }
 
@@ -549,9 +1246,28 @@ impl Runtime {
         Ok(node)
     }
 
-    /// 檢索：FTS（bm25）＋向量候選（誠實標示 lexical-fallback）。
+    /// 檢索：FTS（bm25）＋本機 subword/concept embedding 候選。
     /// 兩者都只是候選——不是事實判斷。
     pub async fn knowledge_search(&self, query: &str, k: u32) -> DomainResult<Value> {
+        self.knowledge_search_in_domains(query, k, None).await
+    }
+
+    pub async fn knowledge_search_scoped(
+        &self,
+        query: &str,
+        k: u32,
+        domains: &std::collections::BTreeSet<String>,
+    ) -> DomainResult<Value> {
+        self.knowledge_search_in_domains(query, k, Some(domains))
+            .await
+    }
+
+    async fn knowledge_search_in_domains(
+        &self,
+        query: &str,
+        k: u32,
+        domains: Option<&std::collections::BTreeSet<String>>,
+    ) -> DomainResult<Value> {
         let fts = self
             .store
             .search_knowledge(&fts_sanitize(query), k)
@@ -572,12 +1288,20 @@ impl Runtime {
                 continue;
             }
             if let Ok(node) = self.knowledge_get(&id).await {
+                if domains.is_some_and(|allowed| {
+                    !allowed.contains("*")
+                        && (node.domains.is_empty()
+                            || !node.domains.iter().any(|domain| allowed.contains(domain)))
+                }) {
+                    continue;
+                }
                 results.push(json!({
                     "nodeId": id,
                     "title": node.title,
                     "status": node.status,
                     "nodeType": node.node_type,
                     "confidence": node.confidence,
+                    "domains": node.domains,
                     "usable": node.status.usable(),
                     "retrieval": score,
                 }));
@@ -588,6 +1312,27 @@ impl Runtime {
             "results": results,
             "retrievalNote": format!("FTS=bm25；vector={}；檢索只產生候選，不代表可信", self.vector_index.nature()),
         }))
+    }
+
+    pub async fn asset_accessible_in_domains(
+        &self,
+        hash: &str,
+        domains: &std::collections::BTreeSet<String>,
+    ) -> DomainResult<bool> {
+        validate_asset_hash(hash)?;
+        if domains.contains("*") {
+            return Ok(true);
+        }
+        for body in self.store.nodes_referencing_asset(hash)? {
+            if let Ok(node) = serde_json::from_str::<KnowledgeNode>(&body) {
+                if !node.domains.is_empty()
+                    && node.domains.iter().any(|domain| domains.contains(domain))
+                {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     }
 
     /// 圖譜展開（進階詳情）：節點＋相鄰邊。
@@ -619,6 +1364,68 @@ impl Runtime {
             "edges": edges,
             "neighbors": neighbors,
         }))
+    }
+
+    pub async fn knowledge_graph_scoped(
+        &self,
+        root: &str,
+        domains: &std::collections::BTreeSet<String>,
+    ) -> DomainResult<Value> {
+        let root_node = self.knowledge_get(root).await?;
+        if !domains.contains("*")
+            && (root_node.domains.is_empty()
+                || !root_node
+                    .domains
+                    .iter()
+                    .any(|domain| domains.contains(domain)))
+        {
+            return Err(DomainError::PolicyBlocked(
+                "knowledge node 不在此 Agent Session 的 Domain scope".into(),
+            ));
+        }
+        let graph = self.knowledge_graph(root, 1).await?;
+        let mut allowed_ids = std::collections::BTreeSet::from([root.to_string()]);
+        if let Some(neighbors) = graph["neighbors"].as_array() {
+            for neighbor in neighbors {
+                let Some(id) = neighbor["nodeId"].as_str() else {
+                    continue;
+                };
+                if let Ok(node) = self.knowledge_get(id).await {
+                    if domains.contains("*")
+                        || (!node.domains.is_empty()
+                            && node.domains.iter().any(|domain| domains.contains(domain)))
+                    {
+                        allowed_ids.insert(id.to_string());
+                    }
+                }
+            }
+        }
+        let neighbors = graph["neighbors"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|neighbor| {
+                neighbor["nodeId"]
+                    .as_str()
+                    .is_some_and(|id| allowed_ids.contains(id))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let edges = graph["edges"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|edge| {
+                edge["from"]
+                    .as_str()
+                    .zip(edge["to"].as_str())
+                    .is_some_and(|(from, to)| {
+                        allowed_ids.contains(from) && allowed_ids.contains(to)
+                    })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        Ok(json!({"root": graph["root"], "edges": edges, "neighbors": neighbors}))
     }
 
     pub(crate) fn persist_knowledge_node(&self, node: &KnowledgeNode) -> DomainResult<()> {
@@ -684,6 +1491,150 @@ fn status_str(status: KnowledgeStatus) -> String {
 /// FTS5 查詢字串消毒：以雙引號包裹避免語法錯誤（畸形查詢不 panic）。
 fn fts_sanitize(query: &str) -> String {
     format!("\"{}\"", query.replace('"', " "))
+}
+
+/// Execute an optional local media processor without a shell. Both streams,
+/// wall-clock time, and in-memory output are bounded. `kill_on_drop` means a
+/// timeout cannot leave a child behind.
+async fn run_bounded_command(
+    binary: &str,
+    args: &[&str],
+    timeout_seconds: u64,
+    max_stdout_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    let mut child = tokio::process::Command::new(binary)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| format!("{binary} 無法啟動：{error}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| format!("{binary} stdout unavailable"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("{binary} stderr unavailable"))?;
+
+    let operation = async {
+        let stdout_task = async {
+            let mut bytes = Vec::new();
+            stdout
+                .take(max_stdout_bytes.saturating_add(1) as u64)
+                .read_to_end(&mut bytes)
+                .await
+                .map_err(|error| format!("{binary} stdout：{error}"))?;
+            Ok::<Vec<u8>, String>(bytes)
+        };
+        let stderr_task = async {
+            let mut bytes = Vec::new();
+            stderr
+                .take(16 * 1024)
+                .read_to_end(&mut bytes)
+                .await
+                .map_err(|error| format!("{binary} stderr：{error}"))?;
+            Ok::<Vec<u8>, String>(bytes)
+        };
+        let (stdout_result, stderr_result, status_result) =
+            tokio::join!(stdout_task, stderr_task, child.wait());
+        let stdout = stdout_result?;
+        let stderr = stderr_result?;
+        let status = status_result.map_err(|error| format!("{binary} wait：{error}"))?;
+        if stdout.len() > max_stdout_bytes {
+            return Err(format!(
+                "{binary} stdout 超過 {max_stdout_bytes} bytes 上限"
+            ));
+        }
+        if !status.success() {
+            let detail = String::from_utf8_lossy(&stderr);
+            return Err(format!(
+                "{binary} 結束碼 {}：{}",
+                status
+                    .code()
+                    .map_or_else(|| "signal".into(), |code| code.to_string()),
+                detail.trim()
+            ));
+        }
+        Ok(stdout)
+    };
+
+    tokio::time::timeout(Duration::from_secs(timeout_seconds), operation)
+        .await
+        .map_err(|_| format!("{binary} 超過 {timeout_seconds} 秒，已終止"))?
+}
+
+fn wav_features(bytes: &[u8]) -> Result<(Value, f64), String> {
+    if bytes.len() < 44 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return Err("目前內建音訊特徵解析器只支援 PCM WAV；其他格式需本機 ffprobe adapter".into());
+    }
+    let mut offset = 12usize;
+    let mut channels = None;
+    let mut sample_rate = None;
+    let mut bits = None;
+    let mut pcm_format = None;
+    let mut data: Option<&[u8]> = None;
+    while offset + 8 <= bytes.len() {
+        let kind = &bytes[offset..offset + 4];
+        let size =
+            u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap_or([0; 4])) as usize;
+        let start = offset + 8;
+        let end = start.saturating_add(size).min(bytes.len());
+        if kind == b"fmt " && end >= start + 16 {
+            pcm_format = Some(u16::from_le_bytes([bytes[start], bytes[start + 1]]));
+            channels = Some(u16::from_le_bytes([bytes[start + 2], bytes[start + 3]]));
+            sample_rate = Some(u32::from_le_bytes([
+                bytes[start + 4],
+                bytes[start + 5],
+                bytes[start + 6],
+                bytes[start + 7],
+            ]));
+            bits = Some(u16::from_le_bytes([bytes[start + 14], bytes[start + 15]]));
+        } else if kind == b"data" {
+            data = Some(&bytes[start..end]);
+        }
+        offset = end + (size % 2);
+    }
+    let (channels, rate, bits, data) = (
+        channels.ok_or("WAV missing channel metadata")?,
+        sample_rate.ok_or("WAV missing sample rate")?,
+        bits.ok_or("WAV missing bit depth")?,
+        data.ok_or("WAV missing data chunk")?,
+    );
+    if pcm_format != Some(1) || bits != 16 || channels == 0 || rate == 0 {
+        return Err("內建音訊特徵解析器只支援 16-bit PCM WAV".into());
+    }
+    let samples = data
+        .chunks_exact(2)
+        .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]) as f64 / i16::MAX as f64)
+        .collect::<Vec<_>>();
+    let frames = samples.len() as f64 / channels as f64;
+    let duration = frames / rate as f64;
+    let rms = if samples.is_empty() {
+        0.0
+    } else {
+        (samples.iter().map(|sample| sample * sample).sum::<f64>() / samples.len() as f64).sqrt()
+    };
+    let zero_crossings = samples
+        .windows(2)
+        .filter(|pair| (pair[0] < 0.0 && pair[1] >= 0.0) || (pair[0] >= 0.0 && pair[1] < 0.0))
+        .count();
+    Ok((
+        json!({
+            "format": "pcm-wav",
+            "channels": channels,
+            "sampleRateHz": rate,
+            "bitsPerSample": bits,
+            "durationSeconds": duration,
+            "rms": rms,
+            "zeroCrossings": zero_crossings,
+            "tempoBpm": Value::Null,
+            "tempoNote": "短片段或無可靠 beat 時不推測 BPM",
+        }),
+        duration,
+    ))
 }
 
 fn guess_media_type(name: Option<&str>) -> MediaType {

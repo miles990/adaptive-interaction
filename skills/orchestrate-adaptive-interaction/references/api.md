@@ -2,8 +2,19 @@
 
 Base: `http://127.0.0.1:8787` (loopback only by default).
 Auth: `Authorization: Bearer <token>` — token lives in
-`<home>/state/api-token` (0600). `/health` & `/ready` are public.
+`<home>/state/api-agent-token` (0600) for AI hosts. The separate
+`state/api-token` is reserved for the human/control-center plane: never read,
+request, log, or forward it. `/health` & `/ready` are public.
 Full machine-readable spec: `GET /v1/openapi.json`.
+
+The restricted token can discover allowed runtime state, use canonical tools, plan/simulate/
+execute through policy, and stop/cancel/revoke. It receives HTTP 403
+`token_scope_forbidden` for human-only operations including consent grants,
+Emergency Stop clear, policy/UI/provider mutation, Agent Session creation or
+renewal, Presentation acknowledgement, memory mutation/export, source deletion,
+and knowledge approval. Direct memory, asset, knowledge, audit, outbox, and
+Agent Session reads are also human-only; use the canonical tool surface where
+available. Do not retry a refused operation through a direct URL.
 
 ## Core loop
 ```
@@ -17,16 +28,17 @@ POST /v1/plans/{id}/simulate
 POST /v1/plans/{id}/execute        (body {"dryRun": true} = simulate)
 GET  /v1/actions ; GET /v1/actions/{id}
 POST /v1/actions/{id}/verify ; POST /v1/actions/{id}/cancel
-POST /v1/emergency-stop ; POST /v1/emergency-stop/clear
+POST /v1/emergency-stop              # agent token allowed (safety direction)
+POST /v1/emergency-stop/clear        # HUMAN TOKEN ONLY
 GET  /v1/events                    (SSE; resume with Last-Event-ID header)
 ```
 
 ## Sessions, policy, recipes, tools
 ```
-POST /v1/session/start   {"label": "...", "consents": ["channel:haptic"]}
+POST /v1/session/start   {"label": "...", "consents": ["channel:haptic"]} # HUMAN ONLY
 GET  /v1/session ; POST /v1/session/consent {"scope": "..."} ;
 POST /v1/session/revoke {"scope": "..."} ; POST /v1/session/stop
-GET/PATCH /v1/policy               (PATCH = JSON merge patch)
+GET/PATCH /v1/policy               (PATCH = HUMAN ONLY JSON merge patch)
 GET/POST /v1/recipes ; GET/PATCH/DELETE /v1/recipes/{id}
 POST /v1/recipes/validate {"text": "<yaml>"} ; /v1/recipes/{id}/simulate ; /run
 GET  /v1/tools ; GET /v1/tools/{name} ; POST /v1/tools/{name}/call
@@ -58,6 +70,9 @@ Errors: `{"error": {"code": "...", "message": "..."}}` — codes include
 `emergency_stop` (HTTP 423), `not_found`, `validation_failed`.
 
 ## Providers, agent sessions, sensors (v0.3)
+
+The Agent Session management routes below are human/control-plane routes except
+for `/interrupt`; the restricted token cannot enumerate or create sessions.
 
 ```http
 GET    /v1/providers
@@ -95,8 +110,11 @@ gate (only the desktop IPC can).
   proactive-speech limits (hourly cap / min interval / no-follow-up; safety class only dedups).
 - `GET /v1/agents`, `POST /v1/agents/refresh`, `GET /v1/agents/routing?kind=` — local agent
   discovery (codex/claude-code) + deterministic routing advice.
+- `POST /v1/hardware/scan` — metadata-only 17-class coverage report. It never opens camera,
+  microphone, HID, BLE, or mDNS and returns `sensorActivationAttempted:false`.
 - `POST /v1/agent-sessions` now spawns REAL subprocess sessions for agentId codex/claude-code
-  (read-only/plan; `workdir`, `maxCost` supported). `POST /v1/agent-sessions/{id}/approve`
+  (read-only by default; explicit human consent may set `allowWrite` for the bounded `workdir`;
+  `maxCost` supported). `POST /v1/agent-sessions/{id}/approve`
   (human approval resolution; unanswered approvals auto-deny), `/interrupt`.
 - `GET/POST /v1/memory`, `/v1/memory/{id}`, `/v1/memory/export`, `/v1/memory/clear-session-context`,
   `POST /v1/memory/context-bundle` — layered memory with retention tri-state; deterministic bundles.
@@ -106,5 +124,7 @@ gate (only the desktop IPC can).
   `POST /v1/knowledge/nodes/{id}/review`, `GET /v1/knowledge/receipts`,
   `POST /v1/knowledge/update-check` — candidate-only AI writes; human-only activation;
   machine-readable knowledge receipts.
+- `POST /v1/knowledge/user-corrections` — human-only; creates a 30-day-review UserMemory plus
+  a Knowledge Candidate, never an immediately active universal rule.
 - Tool surface adds `interaction.knowledge_*` (search/get/get_source/expand_graph/
   propose_entity/propose_claim/propose_relation/propose_supersede/submit_review).

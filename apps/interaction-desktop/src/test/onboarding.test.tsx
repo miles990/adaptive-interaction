@@ -111,6 +111,25 @@ const mockApi = vi.hoisted(() => ({
   })),
   onboardingDraft: vi.fn(async () => ({})),
   onboardingCommit: vi.fn(async () => ({ completed: true })),
+  hardwareScan: vi.fn(async () => ({
+    platform: "test",
+    startedAt: "2026-08-27T00:00:00Z",
+    completedAt: "2026-08-27T00:00:01Z",
+    sensorActivationAttempted: false,
+    devices: [
+      {
+        class: "camera",
+        displayName: "Camera",
+        identityBasis: "test metadata",
+        availability: "permission-required",
+        permissionRequirements: ["camera"],
+        capabilities: [],
+        sourceAdapter: "test",
+        detail: "not opened",
+      },
+    ],
+    limitations: [],
+  })),
 }));
 
 vi.mock("../api", async (importOriginal) => {
@@ -169,6 +188,16 @@ describe("Onboarding", () => {
     const calls = (mockApi.onboardingDraft as ReturnType<typeof vi.fn>).mock.calls;
     const draft = calls[calls.length - 1][0] as { step: number };
     expect(draft.step).toBe(1);
+  });
+
+  it("scans hardware metadata without claiming sensor activation", async () => {
+    renderWizard();
+    await screen.findByText("歡迎使用自適應互動");
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await userEvent.click(screen.getByRole("button", { name: "掃描目前可用裝置" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("共 1 筆");
+    expect(screen.getByRole("status")).toHaveTextContent("感測器啟動：否");
+    expect(mockApi.hardwareScan).toHaveBeenCalledTimes(1);
   });
 
   it("commit sends enable lists and policy through the backend", async () => {

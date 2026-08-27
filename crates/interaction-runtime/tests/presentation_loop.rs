@@ -378,6 +378,63 @@ async fn behavior_intent_whitelist_enforced_through_full_loop() {
 }
 
 #[tokio::test]
+async fn sensitive_presentation_effects_are_consent_gated_and_keep_authoritative_params() {
+    let (_g, rt) = runtime().await;
+    visible_session(&rt).await;
+    for id in [
+        "companion.sound.play",
+        "companion.speak",
+        "companion.window.adjust",
+    ] {
+        rt.registry
+            .set_actuator_enabled(&ActuatorId::new(id), true)
+            .await
+            .unwrap();
+        rt.grant_consent(&format!("actuator:{id}"), None)
+            .await
+            .unwrap();
+    }
+
+    for (id, payload, message, key, expected) in [
+        (
+            "companion.sound.play",
+            json!({"sound": "soft-pop"}),
+            None,
+            "sound",
+            json!("soft-pop"),
+        ),
+        (
+            "companion.speak",
+            json!({}),
+            Some("需要確認。"),
+            "text",
+            json!("需要確認。"),
+        ),
+        (
+            "companion.window.adjust",
+            json!({"x": 20, "width": 240, "opacity": 0.8}),
+            None,
+            "opacity",
+            json!(0.8),
+        ),
+    ] {
+        let receipts = plan_and_execute(&rt, id, payload, message).await;
+        assert_eq!(receipts[0].current_status, ActionStatus::Dispatched);
+        let pending = rt
+            .presentation_pending_command(receipts[0].action_id.as_str())
+            .unwrap();
+        assert_eq!(pending["params"][key], expected);
+        rt.presentation_ack(receipts[0].action_id.as_str(), "completed", None)
+            .await
+            .unwrap();
+    }
+
+    assert!(rt
+        .presentation_pending_command("caller-invented-action")
+        .is_err());
+}
+
+#[tokio::test]
 async fn ack_in_accepted_window_walks_chain_to_completed() {
     let (_g, rt) = runtime().await;
     visible_session(&rt).await;

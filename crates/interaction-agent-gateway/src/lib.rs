@@ -9,6 +9,7 @@
 
 pub mod claude;
 pub mod codex;
+pub mod codex_exec;
 pub mod process;
 
 use serde::{Deserialize, Serialize};
@@ -48,7 +49,8 @@ pub struct AgentDiscovery {
     pub version: Option<String>,
     /// true / false / unknown（誠實三態：查不到就說不知道）。
     pub logged_in: Option<bool>,
-    /// app-server（codex）或 stream-json（claude）是否可用。
+    /// 有任一可用的協定路徑：codex 是 app-server 或 exec fallback、
+    /// claude 是 stream-json。實際走哪條路徑在 detail 誠實揭露。
     pub protocol_supported: Option<bool>,
     pub detail: String,
 }
@@ -132,17 +134,32 @@ pub enum GatewayEvent {
     },
 }
 
-/// 建立 session 的規格（第一版：唯讀／Plan 預設，不可由 AI 自行放寬）。
+/// 建立 session 的規格（唯讀／Plan 預設，不可由 AI 自行放寬）。
 #[derive(Debug, Clone)]
 pub struct SessionSpec {
     pub workdir: PathBuf,
     pub prompt: Option<String>,
     /// 唯讀模式（預設 true；放寬需要人類在 runtime 端明確同意）。
     pub read_only: bool,
+    /// 寫入型限權 session（spec §8.2）：只能由建立 payload 明確帶入，
+    /// session 建立後不可升級。true 時 claude 用 --permission-mode
+    /// acceptEdits、codex 用 sandbox=workspace-write；approval 仍走人類
+    /// 裁決，且絕不使用 --dangerously-skip-permissions／danger-full-access。
+    pub write_enabled: bool,
     pub model: Option<String>,
     /// 續開既有 provider session（claude --resume / codex thread/resume）。
     pub resume_provider_session: Option<String>,
     pub max_turns: Option<u32>,
+    /// Disable every provider tool (used by intent-only proactive wording).
+    /// The model receives only the bounded prompt/context bundle.
+    pub disable_tools: bool,
+    /// Provider-enforced monetary ceiling when the provider exposes one.
+    pub max_cost_usd: Option<f64>,
+    /// Memory-only capability for this exact Runtime Agent Session. It is
+    /// injected into the child environment, never command-line arguments.
+    pub session_capability_token: Option<String>,
+    /// Loopback API address paired with the session token.
+    pub runtime_api_base: Option<String>,
 }
 
 impl SessionSpec {
@@ -151,9 +168,23 @@ impl SessionSpec {
             workdir,
             prompt: None,
             read_only: true,
+            write_enabled: false,
             model: None,
             resume_provider_session: None,
             max_turns: None,
+            disable_tools: false,
+            max_cost_usd: None,
+            session_capability_token: None,
+            runtime_api_base: None,
+        }
+    }
+
+    /// 寫入型限權 session：唯一放寬入口（由 runtime 依人類建立 payload 呼叫）。
+    pub fn write_enabled_in(workdir: PathBuf) -> Self {
+        Self {
+            read_only: false,
+            write_enabled: true,
+            ..Self::read_only_in(workdir)
         }
     }
 }
@@ -166,6 +197,10 @@ pub enum GatewayError {
     Io(#[from] std::io::Error),
     #[error("protocol: {0}")]
     Protocol(String),
+    /// 上一輪工作還在進行中（codex exec fallback：一則訊息＝一次子程序，
+    /// 不排 queue——呼叫端誠實回報「未送達」，不得視為 agent 失敗）。
+    #[error("agent busy: {0}")]
+    Busy(String),
     #[error("session closed")]
     Closed,
 }

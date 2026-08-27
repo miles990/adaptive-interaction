@@ -15,6 +15,21 @@ use serde_json::json;
 const DISPATCH_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_VERIFY_TIMEOUT_MS: u64 = 5_000;
 
+struct PlanExecutionClaim {
+    runtime: Runtime,
+    plan_id: String,
+}
+
+impl Drop for PlanExecutionClaim {
+    fn drop(&mut self) {
+        self.runtime
+            .executing_plans
+            .lock()
+            .expect("executing plans lock")
+            .remove(&self.plan_id);
+    }
+}
+
 /// Simulation output: per-step decisions, no side effects.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,11 +88,19 @@ impl Runtime {
             .store
             .channel_usage_ms(&session.session_id, &manifest.channel)?;
         let scheduled = self.store.scheduled_action_count()?;
+        let reserved_cost = self
+            .monetary_reservations
+            .lock()
+            .await
+            .values()
+            .filter(|(session_id, _)| session_id == &session.session_id)
+            .map(|(_, cost)| *cost)
+            .sum::<f64>();
         Ok(UsageContext {
             actuator_fired_last_hour: fired,
             actuator_last_fired_at: last,
             channel_budget_used_ms: channel_used,
-            monetary_spent: session.monetary_spent,
+            monetary_spent: session.monetary_spent + reserved_cost,
             scheduled_actions: scheduled,
         })
     }
@@ -180,6 +203,19 @@ impl Runtime {
                 report.would_execute
             )));
         }
+        let claim_id = plan_id.as_str().to_string();
+        {
+            let mut executing = self.executing_plans.lock().expect("executing plans lock");
+            if !executing.insert(claim_id.clone()) {
+                return Err(DomainError::Conflict(format!(
+                    "plan {plan_id} is already executing"
+                )));
+            }
+        }
+        let _execution_claim = PlanExecutionClaim {
+            runtime: self.clone_handle(),
+            plan_id: claim_id,
+        };
         let mut plan = self.store.plan(plan_id)?;
         let now = Utc::now();
         if self.is_estopped() {
@@ -371,7 +407,6 @@ impl Runtime {
         source: ActionSource,
     ) -> DomainResult<ActionReceipt> {
         let now = Utc::now();
-        let session = self.require_session().await?;
         let policy = self.policy().await;
 
         // Resolve the actuator; unavailable → blocked receipt with the reason.
@@ -417,6 +452,13 @@ impl Runtime {
             return Ok(receipt);
         }
 
+        // Usage snapshot, Governor decision, reservation and Accepted receipt
+        // are one critical section. Concurrent actions therefore cannot all
+        // spend the same remaining quota.
+        let authorization_guard = self.authorization_lock.lock().await;
+        // Refresh the session inside the authorization transaction: another
+        // action may have committed cost after this step first loaded it.
+        let session = self.require_session().await?;
         let usage = self.usage_for(&session, &manifest).await?;
         // 主動式對話政策：只約束「自主來源＋對話頻道＋宣告為主動對話」的
         // 說話動作（metadata 帶 proactiveClass——生成式主動對話一定帶；
@@ -527,22 +569,37 @@ impl Runtime {
             schema_version: interaction_core::SCHEMA_VERSION.to_string(),
         };
 
+        if manifest.cost.monetary_per_invocation > 0.0 {
+            self.monetary_reservations.lock().await.insert(
+                action.action_id.as_str().to_string(),
+                (
+                    session.session_id.clone(),
+                    manifest.cost.monetary_per_invocation,
+                ),
+            );
+        }
+
         // Authorized → Accepted (queued). Accepted is NOT completion.
         let mut receipt = ActionReceipt::for_action(&action, now);
         receipt
             .transition(ActionStatus::Accepted, Utc::now())
             .map_err(|e| DomainError::Internal(e.to_string()))?;
-        self.persist_receipt(&receipt, &step.channel).await?;
+        if let Err(error) = self.persist_receipt(&receipt, &step.channel).await {
+            self.release_invocation_cost(&receipt.action_id).await;
+            return Err(error);
+        }
         self.emit_action_event(EventType::ActionAccepted, &receipt, json!({}));
         self.events.emit(
             EventType::PlanAuthorized,
             json!({"planId": plan.plan_id.as_str(), "actionId": receipt.action_id.as_str()}),
         );
+        drop(authorization_guard);
 
         // Last-instant gate: emergency stop / shutdown / consent revocation may
         // have happened between authorization and this point. Never dispatch
         // through that window.
         if let Err((terminal, decision)) = self.pre_dispatch_gate(&manifest).await {
+            self.release_invocation_cost(&receipt.action_id).await;
             receipt.policy_decisions.push(decision.clone());
             receipt.push_error("pre_dispatch_gate", format!("{decision:?}"), Utc::now());
             let _ = receipt.transition(terminal, Utc::now());
@@ -560,6 +617,9 @@ impl Runtime {
         let now2 = Utc::now();
         match dispatch {
             Err(_) => {
+                // The driver may have created an external effect or bill
+                // before timing out, so reserve conservatively becomes spent.
+                self.commit_invocation_cost(&receipt.action_id).await;
                 receipt.push_error("dispatch_timeout", "driver did not answer in time", now2);
                 let _ = receipt.transition(ActionStatus::Uncertain, now2);
                 self.persist_receipt(&receipt, &step.channel).await?;
@@ -571,6 +631,7 @@ impl Runtime {
                 return Ok(receipt);
             }
             Ok(Err(driver_err)) => {
+                self.release_invocation_cost(&receipt.action_id).await;
                 receipt.push_error("driver_error", driver_err.to_string(), now2);
                 let _ = receipt.transition(ActionStatus::Failed, now2);
                 self.persist_receipt(&receipt, &step.channel).await?;
@@ -582,12 +643,25 @@ impl Runtime {
                 return Ok(receipt);
             }
             Ok(Ok(driver_receipt)) => {
+                let driver_dispatched = driver_receipt
+                    .timestamps
+                    .iter()
+                    .any(|(status, _)| *status == ActionStatus::Dispatched);
                 interaction_adapter_sdk::merge_driver_receipt(&mut receipt, &driver_receipt);
                 let applied = self.persist_receipt(&receipt, &step.channel).await?;
+                if driver_dispatched {
+                    self.commit_invocation_cost(&receipt.action_id).await;
+                } else {
+                    self.release_invocation_cost(&receipt.action_id).await;
+                }
                 if !applied {
                     // A concurrent e-stop sweep / watchdog already terminalized
-                    // this receipt; the stored copy is the truth.
-                    return self.store.receipt(&receipt.action_id);
+                    // this receipt. Preserve late driver evidence, but never
+                    // resurrect or rewrite the terminal status.
+                    return self.store.merge_terminal_receipt_evidence(
+                        &receipt,
+                        "driver completed after terminalization",
+                    );
                 }
                 match receipt.current_status {
                     ActionStatus::Dispatched => {
@@ -616,22 +690,6 @@ impl Runtime {
             let _ = receipt.transition(ActionStatus::Stopped, Utc::now());
             self.persist_receipt(&receipt, &step.channel).await?;
             return Ok(receipt);
-        }
-
-        // Monetary budget accounting: the invocation cost is charged as soon
-        // as the command actually left the driver (dispatched or beyond) —
-        // the governor reads this back on the next authorization.
-        if manifest.cost.monetary_per_invocation > 0.0
-            && matches!(
-                receipt.current_status,
-                ActionStatus::Dispatched
-                    | ActionStatus::Acknowledged
-                    | ActionStatus::Observed
-                    | ActionStatus::Completed
-            )
-        {
-            self.charge_session_cost(&session.session_id, manifest.cost.monetary_per_invocation)
-                .await;
         }
 
         // Verification. Unknown strategy strings fall back to the STRICTEST
@@ -811,7 +869,10 @@ impl Runtime {
                     // else: leave as-is; caller may re-verify later.
                 }
                 if !self.persist_receipt(&receipt, channel).await? {
-                    return self.store.receipt(&receipt.action_id);
+                    return self.store.merge_terminal_receipt_evidence(
+                        &receipt,
+                        "observed verification completed after terminalization",
+                    );
                 }
                 Ok(receipt)
             }
@@ -876,7 +937,10 @@ impl Runtime {
                     }
                 }
                 if !self.persist_receipt(&receipt, channel).await? {
-                    return self.store.receipt(&receipt.action_id);
+                    return self.store.merge_terminal_receipt_evidence(
+                        &receipt,
+                        "best-effort verification completed after terminalization",
+                    );
                 }
                 Ok(receipt)
             }

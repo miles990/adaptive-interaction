@@ -6,6 +6,7 @@ import React from "react";
 import { AgentSessionRecord, api } from "../api";
 import { Badge, Section, StateView, useAsync } from "../ui";
 import { Dialog } from "../components/Dialog";
+import { useAppState } from "../appstate";
 
 const STATE_LABEL: Record<string, { text: string; kind: "ok" | "warn" | "bad" | "pending" }> = {
   created: { text: "已建立", kind: "pending" },
@@ -27,6 +28,7 @@ export function AiPage({
   refreshKey: number;
   onNavigate: (tab: string) => void;
 }) {
+  const { prefs, setPreferences } = useAppState();
   const [agents, retryAgents] = useAsync(
     () => api.agentsDiscoveries() as Promise<Record<string, unknown>>,
     [refreshKey]
@@ -40,18 +42,23 @@ export function AiPage({
       <Section title="本機 AI Agent">
         <p className="muted small">
           直接使用你電腦上已安裝、已登入的 Codex 與 Claude Code。系統不讀取、不保存它們的登入憑證；
-          登入由各 agent 自己管理。第一版所有工作階段皆為<strong>唯讀／計畫</strong>模式。
+          登入由各 agent 自己管理。工作階段預設為<strong>唯讀／計畫</strong>；只有你在建立預覽中
+          明確同意時，才會建立限於單一工作目錄的寫入工作階段。
         </p>
         <StateView state={agents} empty="尚未偵測。">
           {(data) => (
             <div className="provider-list">
               {((data.agents as Record<string, unknown>[] | undefined) ?? []).map((a) => {
-                const usable = a.found === true && a.loggedIn === true;
+                const agentId = a.kind === "codex" ? "codex" : "claude-code";
+                const disabled = (prefs.disabledAgents ?? []).includes(agentId);
+                const usable = !disabled && a.found === true && a.loggedIn === true;
                 return (
                   <div className="provider-card" key={String(a.kind)}>
                     <div className="row space-between">
                       <strong>{a.kind === "codex" ? "Codex" : "Claude Code"}</strong>
-                      {usable ? (
+                      {disabled ? (
+                        <Badge kind="pending">已停用</Badge>
+                      ) : usable ? (
                         <Badge kind="ok">可用</Badge>
                       ) : a.found === true ? (
                         <Badge kind="warn">
@@ -62,6 +69,40 @@ export function AiPage({
                       )}
                     </div>
                     <div className="muted small">{String(a.detail ?? "")}</div>
+                    <div className="row wrap" style={{ marginTop: 8 }}>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await api.agentsRefresh();
+                            retryAgents();
+                            setNotice(
+                              a.found === true && a.loggedIn === true
+                                ? `${agentId === "codex" ? "Codex" : "Claude Code"} 連線前置檢查通過（已安裝且已登入；未建立付費 Session）。`
+                                : "連線前置檢查未通過；請查看版本與登入狀態。"
+                            );
+                          } catch (reason) {
+                            setNotice(`連線測試失敗：${reason}`);
+                          }
+                        }}
+                      >
+                        測試連線
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const current = new Set(prefs.disabledAgents ?? []);
+                          if (disabled) current.delete(agentId);
+                          else current.add(agentId);
+                          await setPreferences({ disabledAgents: [...current] });
+                          setNotice(
+                            disabled
+                              ? `${agentId === "codex" ? "Codex" : "Claude Code"} 已啟用。`
+                              : `${agentId === "codex" ? "Codex" : "Claude Code"} 已停用；Runtime 將拒絕新 Session。`
+                          );
+                        }}
+                      >
+                        {disabled ? "啟用" : "停用"}
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -85,6 +126,41 @@ export function AiPage({
           建議路由：程式實作／測試／Patch → Codex；長文件／概念歸納／規劃 → Claude Code；
           模糊任務會顯示兩個選項讓你選。Agent 不可用時不會自動改送另一個。
         </p>
+      </Section>
+
+      <Section title="小樞主要 AI">
+        <p className="muted small">
+          各用途只設定建議路由；建立 Session 前仍會顯示資料、工具、費用與時間預覽。指定的 Agent 不可用或已停用時不會自動改送另一家。
+        </p>
+        <div className="settings-grid">
+          {(
+            [
+              ["conversation", "一般對話"],
+              ["programming", "程式工作"],
+              ["knowledge", "知識整理"],
+              ["review", "結果複審"],
+            ] as const
+          ).map(([role, label]) => (
+            <label className="field-label" key={role}>
+              {label}
+              <select
+                value={prefs.agentRoutes?.[role] ?? (role === "programming" ? "codex" : "claude-code")}
+                onChange={(event) =>
+                  void setPreferences({
+                    agentRoutes: {
+                      ...(prefs.agentRoutes ?? {}),
+                      [role]: event.target.value as "codex" | "claude-code" | "none",
+                    },
+                  })
+                }
+              >
+                <option value="codex">Codex</option>
+                <option value="claude-code">Claude Code</option>
+                <option value="none">不交給 Agent</option>
+              </select>
+            </label>
+          ))}
+        </div>
       </Section>
 
       <Section title="工作階段">
@@ -140,6 +216,7 @@ function SessionCard({
       </div>
       <div className="muted small">
         {record.agentId}
+        {record.allowWrite ? "・限工作目錄寫入" : "・唯讀／計畫"}
         {record.providerSessionId ? `・provider session ${record.providerSessionId.slice(0, 8)}…` : ""}
         ・訊息 {record.budget.spentMessages}/{record.budget.maxMessages}
         {record.budget.maxCost > 0
@@ -147,6 +224,7 @@ function SessionCard({
           : record.budget.spentCost > 0
             ? `・費用 $${record.budget.spentCost.toFixed(3)}`
             : ""}
+        ・Lease 至 {new Date(record.lease.expiresAt).toLocaleString("zh-TW")}
       </div>
       {record.state === "claimed-completed" && (
         <p className="muted small">
@@ -164,6 +242,22 @@ function SessionCard({
         </button>
         {open && (
           <>
+            {record.lease.renewable && (
+              <button
+                onClick={async () => {
+                  try {
+                    const renewed = await api.agentSessionRenew(record.sessionId, 30);
+                    onNotice(
+                      `已續租至 ${new Date(renewed.lease.expiresAt).toLocaleString("zh-TW")}。`
+                    );
+                  } catch (e) {
+                    onNotice(`續租失敗：${e}。Lease 未變更。`);
+                  }
+                }}
+              >
+                續租 30 分鐘
+              </button>
+            )}
             <button
               onClick={async () => {
                 try {
@@ -174,7 +268,7 @@ function SessionCard({
                 }
               }}
             >
-              中斷目前工作
+              暫停／中斷目前工作
             </button>
             <button
               className="danger"
@@ -291,11 +385,17 @@ function ApprovalControls({
 
 /** 建立工作階段（Consent Sheet 語意：誰／做什麼／資料／成本／時間／如何取消）。 */
 function CreateSessionSheet({ onClose }: { onClose: () => void }) {
-  const [agent, setAgent] = React.useState("claude-code");
+  const { prefs } = useAppState();
+  const disabledAgents = prefs.disabledAgents ?? [];
+  const [agent, setAgent] = React.useState(
+    disabledAgents.includes("claude-code") ? "codex" : "claude-code"
+  );
   const [label, setLabel] = React.useState("");
   const [workdir, setWorkdir] = React.useState("");
   const [ttl, setTtl] = React.useState(30);
   const [maxCost, setMaxCost] = React.useState(0.5);
+  const [allowWrite, setAllowWrite] = React.useState(false);
+  const [writeConfirmed, setWriteConfirmed] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [routing, setRouting] = React.useState<Record<string, unknown> | null>(null);
@@ -310,8 +410,12 @@ function CreateSessionSheet({ onClose }: { onClose: () => void }) {
         <label className="field-label">
           誰來做（Agent）
           <select value={agent} onChange={(e) => setAgent(e.target.value)}>
-            <option value="claude-code">Claude Code（文件／歸納／規劃）</option>
-            <option value="codex">Codex（程式／測試／Patch）</option>
+            <option value="claude-code" disabled={disabledAgents.includes("claude-code")}>
+              Claude Code（文件／歸納／規劃）
+            </option>
+            <option value="codex" disabled={disabledAgents.includes("codex")}>
+              Codex（程式／測試／Patch）
+            </option>
           </select>
         </label>
         <label className="field-label">
@@ -319,9 +423,35 @@ function CreateSessionSheet({ onClose }: { onClose: () => void }) {
           <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="例：看一下這個 repo 的測試" />
         </label>
         <label className="field-label">
-          可讀取的資料夾（工作目錄；唯讀）
+          工作目錄{allowWrite ? "（可寫範圍）" : "（唯讀範圍）"}
           <input value={workdir} onChange={(e) => setWorkdir(e.target.value)} placeholder="/path/to/project（留空＝系統資料夾）" />
         </label>
+        <label className="row" style={{ alignItems: "flex-start" }}>
+          <input
+            type="checkbox"
+            checked={allowWrite}
+            onChange={(e) => {
+              setAllowWrite(e.target.checked);
+              if (!e.target.checked) setWriteConfirmed(false);
+            }}
+          />
+          <span>
+            允許 Agent 修改這個工作目錄內的檔案
+            <span className="muted small" style={{ display: "block" }}>
+              不授予系統其他位置或網路；工作階段結束、逾時或緊急停止時立即失效。
+            </span>
+          </span>
+        </label>
+        {allowWrite && (
+          <label className="row" style={{ alignItems: "flex-start" }}>
+            <input
+              type="checkbox"
+              checked={writeConfirmed}
+              onChange={(e) => setWriteConfirmed(e.target.checked)}
+            />
+            <span>我已確認上方工作目錄，並同意這個工作階段可在其中修改檔案。</span>
+          </label>
+        )}
         <div className="row wrap">
           <label className="field-label">
             時間上限（分鐘）
@@ -347,8 +477,13 @@ function CreateSessionSheet({ onClose }: { onClose: () => void }) {
         <div className="state-box">
           <strong>授權預覽</strong>
           <ul className="plain-list muted small">
-            <li>資料範圍：只讀取上面指定的資料夾；不會傳送你的記憶（除非你之後明確提供 Context Bundle）。</li>
-            <li>模式：唯讀／計畫——這個 agent 不能寫入檔案、不能執行未經你核可的指令。</li>
+            <li>
+              資料範圍：{allowWrite ? "讀取與修改" : "只讀取"}上面指定的資料夾；不會傳送你的記憶
+              （除非你之後明確提供 Context Bundle）。
+            </li>
+            <li>
+              模式：{allowWrite ? "工作目錄限權寫入；不含額外目錄或網路權限" : "唯讀／計畫；不能寫入檔案"}。
+            </li>
             <li>外部傳送：任務內容會送到該 agent 的模型服務（依你在該 agent 的登入方案計費）。</li>
             <li>取消方式：隨時「中斷」或「關閉」；緊急停止會立即終止子程序。時間到自動失效。</li>
           </ul>
@@ -356,6 +491,11 @@ function CreateSessionSheet({ onClose }: { onClose: () => void }) {
             <p className="muted small">路由提示：{String((routing as Record<string, unknown>).reason ?? "")}</p>
           )}
         </div>
+        {disabledAgents.includes(agent) && (
+          <p className="cap-card-error" role="alert">
+            這個 Agent 已由使用者停用；請先在 Agent 連接卡片中啟用。
+          </p>
+        )}
         {error && (
           <p className="cap-card-error" role="alert">
             {error}
@@ -364,7 +504,11 @@ function CreateSessionSheet({ onClose }: { onClose: () => void }) {
         <div className="row wrap">
           <button
             className="primary"
-            disabled={creating}
+            disabled={
+              creating ||
+              disabledAgents.includes(agent) ||
+              (allowWrite && (!workdir.trim() || !writeConfirmed))
+            }
             onClick={async () => {
               setCreating(true);
               try {
@@ -372,8 +516,12 @@ function CreateSessionSheet({ onClose }: { onClose: () => void }) {
                   agentId: agent,
                   label: label || null,
                   ttlMinutes: ttl,
-                  maxCost: maxCost > 0 ? maxCost : null,
+                  maxCost: agent === "codex" ? null : maxCost > 0 ? maxCost : null,
                   workdir: workdir || null,
+                  allowWrite,
+                  dataScope: workdir ? [`workspace:${workdir}`] : [],
+                  toolScope: allowWrite ? ["workspace.write"] : [],
+                  consentScope: allowWrite ? ["agent-session:workspace-write"] : [],
                 });
                 onClose();
               } catch (e) {

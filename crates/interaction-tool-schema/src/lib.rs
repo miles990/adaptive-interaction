@@ -309,9 +309,12 @@ pub fn canonical_tools() -> Vec<ToolOperationManifest> {
                     "title": {"type": "string"},
                     "content": {"type": "string"},
                     "evidence": {"type": "array", "items": {"type": "object"}},
+                    "domains": {"type": "array", "items": {"type": "string"}},
+                    "counterexamples": {"type": "array", "items": {"type": "string"}},
+                    "applicability": {"type": "string"},
                     "confidence": {"type": "number"}
                 }),
-                json!(["supersedes", "title", "content"]),
+                json!(["supersedes", "title", "content", "evidence", "domains"]),
             ),
             schema_of::<interaction_core::KnowledgeNode>(),
         ),
@@ -659,6 +662,22 @@ mod tests {
     fn no_validation_warnings_on_canonical_set() {
         let warnings = validate_manifests(&canonical_tools());
         assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn supersede_schema_requires_provenance_and_domain_scope() {
+        let tool = canonical_tools()
+            .into_iter()
+            .find(|tool| tool.name == "interaction.knowledge_propose_supersede")
+            .unwrap();
+        let required = tool
+            .input_schema
+            .get("required")
+            .and_then(|value| value.as_array())
+            .unwrap();
+        for field in ["supersedes", "evidence", "domains"] {
+            assert!(required.iter().any(|value| value == field));
+        }
     }
 
     #[test]

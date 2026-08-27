@@ -78,9 +78,11 @@ pub fn fuse(
                 Some(existing) if existing != value => {
                     let prev = fact_source.get(key).cloned();
                     contradictions.push(key.clone());
-                    // Explicit input or higher quality wins.
+                    // Explicit input, or the latest observation at equal or
+                    // higher quality, wins. `ordered` is chronological, so a
+                    // strict `>` here would incorrectly retain older truth.
                     let should_replace =
-                        is_explicit || prev.map(|(_, q)| obs.quality > q).unwrap_or(true);
+                        is_explicit || prev.map(|(_, q)| obs.quality >= q).unwrap_or(true);
                     if should_replace {
                         facts.insert(key.clone(), value.clone());
                         fact_source
@@ -191,5 +193,17 @@ mod tests {
         let new = obs_at("a", 1, now).with_fact("v", 2);
         let ctx = fuse(&[], &[old, new], now, 60_000, 0.0);
         assert_eq!(ctx.facts.get("v"), Some(&serde_json::json!(2)));
+    }
+
+    #[test]
+    fn newer_equal_quality_fact_wins_across_receptors() {
+        let now = chrono::Utc::now();
+        let mut old = obs_at("sensor.old", 30, now).with_fact("state", "old");
+        old.quality = 0.8;
+        let mut new = obs_at("sensor.new", 1, now).with_fact("state", "new");
+        new.quality = 0.8;
+        let ctx = fuse(&[], &[old, new], now, 60_000, 0.0);
+        assert_eq!(ctx.facts.get("state"), Some(&serde_json::json!("new")));
+        assert!(ctx.contradictions.contains(&"state".to_string()));
     }
 }

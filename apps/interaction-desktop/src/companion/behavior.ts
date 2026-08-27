@@ -100,6 +100,44 @@ export function noteInterruption(s: BehaviorState): BehaviorState {
   return { ...s, recentInterruptions: Math.min(5, s.recentInterruptions + 1) };
 }
 
+/** 生命底層的程序化疊加量。只表達局部視線／耳注意力，不含游標座標。 */
+export interface LayeredMicroMotion {
+  gazeX: number;
+  gazeY: number;
+  earBias: number;
+  intensity: number;
+}
+
+/**
+ * 非生成式、連續且有界的視線／耳朵微動。相位只取本機時間與 Behavior
+ * State；不讀取、不保存完整系統游標軌跡。Reduced Motion 與安全凍結狀態
+ * 回到零位。多個非整數週期疊加，避免固定 N 秒重播同一姿態。
+ */
+export function layeredMicroMotion(
+  s: BehaviorState,
+  nowMs: number,
+  reducedMotion: boolean,
+  frozen: boolean
+): LayeredMicroMotion {
+  if (reducedMotion || frozen) {
+    return { gazeX: 0, gazeY: 0, earBias: 0, intensity: 0 };
+  }
+  const idleFreedom = clamp01(1 - s.taskLoad) * clamp01(1 - s.recentInterruptions * 0.12);
+  const focus = clamp01(s.attention);
+  // 專注時幅度縮小但不完全僵住；閒置時才有較寬的掃視。
+  const gazeAmplitude = (0.18 + (1 - focus) * 0.62) * idleFreedom;
+  const gazeX = Math.sin(nowMs / 1730) * 0.72 + Math.sin(nowMs / 4190) * 0.28;
+  const gazeY = Math.sin(nowMs / 2710 + 0.9) * 0.65 + Math.sin(nowMs / 6130) * 0.2;
+  // 耳朵比視線慢，形成重量與延遲；只呈現注意力，不指向精準座標。
+  const earBias = Math.sin(nowMs / 3370 + 0.45) * (0.25 + s.activation * 0.55) * idleFreedom;
+  return {
+    gazeX: Math.max(-1, Math.min(1, gazeX * gazeAmplitude)),
+    gazeY: Math.max(-1, Math.min(1, gazeY * gazeAmplitude)),
+    earBias: Math.max(-1, Math.min(1, earBias)),
+    intensity: clamp01(0.25 + s.activation * 0.45 + s.interactionReadiness * 0.2),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 事件優先階梯（spec §5.4）：分數高者先。Emergency 不經此路（機器基態處理）。
 // ---------------------------------------------------------------------------

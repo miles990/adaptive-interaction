@@ -11,7 +11,8 @@
 //! state/
 //! ├── interaction.db       # sqlite
 //! ├── runtime.lock         # instance lock
-//! └── api-token            # local capability token (0600)
+//! ├── api-token            # human/control-center capability token (0600)
+//! └── api-agent-token      # restricted AI/tool capability token (0600)
 //! ```
 //!
 //! Writes are atomic (tmp + rename). Invalid files never crash the runtime:
@@ -95,6 +96,9 @@ impl Paths {
     }
     pub fn token_file(&self) -> PathBuf {
         self.state_dir().join("api-token")
+    }
+    pub fn agent_token_file(&self) -> PathBuf {
+        self.state_dir().join("api-agent-token")
     }
     pub fn estop_file(&self) -> PathBuf {
         self.state_dir().join("emergency-stop.requested")
@@ -257,23 +261,32 @@ impl ConfigService {
 
     /// Load or create the local API capability token (0600).
     pub fn load_or_create_token(&self) -> DomainResult<String> {
-        let path = self.paths.token_file();
-        if let Ok(existing) = std::fs::read_to_string(&path) {
+        self.load_or_create_capability_token(&self.paths.token_file(), "iat-human-")
+    }
+
+    /// Restricted token for AI hosts and cross-agent skills. API middleware
+    /// rejects human-only control operations even when this token is valid.
+    pub fn load_or_create_agent_token(&self) -> DomainResult<String> {
+        self.load_or_create_capability_token(&self.paths.agent_token_file(), "iat-agent-")
+    }
+
+    fn load_or_create_capability_token(&self, path: &Path, prefix: &str) -> DomainResult<String> {
+        if let Ok(existing) = std::fs::read_to_string(path) {
             let token = existing.trim().to_string();
             if !token.is_empty() {
                 return Ok(token);
             }
         }
         let token = format!(
-            "iat-{}{}",
+            "{prefix}{}{}",
             uuid::Uuid::new_v4().simple(),
             uuid::Uuid::new_v4().simple()
         );
-        atomic_write(&path, &token)?;
+        atomic_write(path, &token)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
         }
         Ok(token)
     }
@@ -360,7 +373,13 @@ actuation: { candidates: [conversation] }
         let t1 = svc.load_or_create_token().unwrap();
         let t2 = svc.load_or_create_token().unwrap();
         assert_eq!(t1, t2);
-        assert!(t1.starts_with("iat-"));
+        assert!(t1.starts_with("iat-human-"));
         assert!(t1.len() > 40);
+
+        let a1 = svc.load_or_create_agent_token().unwrap();
+        let a2 = svc.load_or_create_agent_token().unwrap();
+        assert_eq!(a1, a2);
+        assert_ne!(a1, t1);
+        assert!(a1.starts_with("iat-agent-"));
     }
 }

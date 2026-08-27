@@ -8,6 +8,8 @@
 pub mod action;
 pub mod agent;
 pub mod capability;
+pub mod discovery;
+pub mod domain_pack;
 pub mod error;
 pub mod event;
 pub mod health;
@@ -27,6 +29,8 @@ pub mod traits;
 pub use action::*;
 pub use agent::*;
 pub use capability::*;
+pub use discovery::*;
+pub use domain_pack::*;
 pub use error::*;
 pub use event::*;
 pub use health::*;

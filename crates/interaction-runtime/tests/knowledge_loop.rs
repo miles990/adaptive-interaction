@@ -186,7 +186,7 @@ async fn search_finds_via_fts_and_vector_candidates() {
     assert!(results["retrievalNote"]
         .as_str()
         .unwrap()
-        .contains("lexical-fallback"));
+        .contains("local-subword-embedding-v1"));
     // usable 誠實反映 candidate 狀態。
     let hit = hits
         .iter()
@@ -343,7 +343,7 @@ async fn asset_audit_never_asserts_unverified_human_agency() {
         .await
         .unwrap();
     rt.asset_delete(&asset.hash).await.unwrap();
-    // flat token 無法辨識呼叫者是人或 AI host——audit 不得斷言 "human"。
+    // store 層也可由非 HTTP 內部呼叫者使用——audit 不得斷言 "human"。
     let tail = rt.store.audit_tail(20).unwrap();
     for kind in ["asset.imported", "asset.deleted"] {
         let entry = tail.iter().find(|e| e["kind"] == kind).expect(kind);
@@ -590,4 +590,155 @@ async fn asset_delete_cascade_and_dispute_are_not_truncated_by_caps() {
     // 萬用字元不可膨脹影響預覽（hash 格式在邊界就擋掉）。
     let err = rt.asset_delete_impact("%").await.unwrap_err();
     assert!(matches!(err, DomainError::Validation(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn local_subword_embedding_retrieves_cross_language_domain_concepts_as_candidates() {
+    let (_g, rt) = runtime().await;
+    let mut node = claim("使用授權必須由人類確認", url_evidence());
+    node.content = "權限不可由 AI 自行擴張".into();
+    node.domains = vec!["privacy-consent".into()];
+    let node = rt
+        .knowledge_propose_node(node, MemoryActor::Human)
+        .await
+        .unwrap();
+
+    let result = rt
+        .knowledge_search("permission approval", 10)
+        .await
+        .unwrap();
+    assert!(result["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|candidate| candidate["nodeId"] == node.node_id.as_str()));
+    assert!(result["retrievalNote"]
+        .as_str()
+        .unwrap()
+        .contains("local-subword-embedding-v1"));
+    assert!(result["retrievalNote"]
+        .as_str()
+        .unwrap()
+        .contains("只產生候選"));
+}
+
+#[tokio::test]
+async fn image_and_audio_derivatives_are_content_addressed_and_precisely_linked_to_sources() {
+    let (home, rt) = runtime().await;
+    // Two-pixel PPM: a real decodable raster without an opaque test fixture.
+    let image_path = home.path().join("sample.ppm");
+    std::fs::write(&image_path, b"P6\n2 1\n255\n\xff\x00\x00\x00\xff\x00").unwrap();
+    let image = rt
+        .asset_import(
+            Some(image_path.to_str().unwrap()),
+            None,
+            Some(MediaType::Image),
+            "user-import",
+            None,
+        )
+        .await
+        .unwrap();
+    let report = rt.asset_derive(&image.hash).await.unwrap();
+    let thumbnail = report
+        .derivatives
+        .iter()
+        .find(|item| item.kind == AssetDerivativeKind::Thumbnail)
+        .expect("real thumbnail derivative");
+    assert_eq!(thumbnail.status, AssetDerivativeStatus::Complete);
+    assert_eq!(thumbnail.source.segment.as_deref(), Some("region=0,0,2,1"));
+    let output_hash = thumbnail.output_hash.as_deref().unwrap();
+    assert_ne!(output_hash, image.hash);
+    assert!(!rt
+        .asset_content(output_hash, 1024 * 1024)
+        .await
+        .unwrap()
+        .is_empty());
+
+    // Minimal mono PCM WAV with two samples. Feature extraction is local and
+    // deterministic; it never records/transmits microphone input.
+    let wav_path = home.path().join("sample.wav");
+    let mut wav = Vec::new();
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&40u32.to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&8_000u32.to_le_bytes());
+    wav.extend_from_slice(&16_000u32.to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&4u32.to_le_bytes());
+    wav.extend_from_slice(&0i16.to_le_bytes());
+    wav.extend_from_slice(&1000i16.to_le_bytes());
+    std::fs::write(&wav_path, wav).unwrap();
+    let audio = rt
+        .asset_import(
+            Some(wav_path.to_str().unwrap()),
+            None,
+            Some(MediaType::Audio),
+            "user-import",
+            None,
+        )
+        .await
+        .unwrap();
+    let report = rt.asset_derive(&audio.hash).await.unwrap();
+    let features = report
+        .derivatives
+        .iter()
+        .find(|item| item.kind == AssetDerivativeKind::AudioFeatures)
+        .expect("audio features derivative");
+    assert_eq!(features.status, AssetDerivativeStatus::Complete);
+    assert!(features
+        .source
+        .segment
+        .as_deref()
+        .unwrap()
+        .starts_with("t=0-"));
+    assert!(report
+        .derivatives
+        .iter()
+        .any(|item| item.kind == AssetDerivativeKind::Transcript));
+
+    let listed = rt.asset_derivatives(&audio.hash).await.unwrap();
+    assert_eq!(listed.len(), report.derivatives.len());
+}
+
+#[tokio::test]
+async fn deleting_source_previews_and_removes_derived_assets_without_silent_orphans() {
+    let (home, rt) = runtime().await;
+    let image_path = home.path().join("cascade.ppm");
+    std::fs::write(&image_path, b"P6\n1 1\n255\n\xff\x00\x00").unwrap();
+    let image = rt
+        .asset_import(
+            Some(image_path.to_str().unwrap()),
+            None,
+            Some(MediaType::Image),
+            "user-import",
+            None,
+        )
+        .await
+        .unwrap();
+    let report = rt.asset_derive(&image.hash).await.unwrap();
+    let output_hash = report
+        .derivatives
+        .iter()
+        .find_map(|item| item.output_hash.clone())
+        .expect("thumbnail output");
+
+    let impact = rt.asset_delete_impact(&image.hash).await.unwrap();
+    assert!(impact["derivedAssetsRemoved"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|hash| hash == &output_hash));
+    assert!(impact["derivativesRemoved"].as_u64().unwrap() >= 1);
+
+    rt.asset_delete(&image.hash).await.unwrap();
+    assert!(matches!(
+        rt.asset_get(&output_hash).await.unwrap_err(),
+        DomainError::NotFound(_)
+    ));
+    assert!(rt.asset_derivatives(&image.hash).await.is_err());
 }

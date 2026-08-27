@@ -21,6 +21,7 @@ import { planPresentationCommand } from "./presentationCommands";
 import {
   BehaviorState as CompanionBehaviorState,
   initialBehavior,
+  layeredMicroMotion,
   noteEvent,
   noteInterruption,
   noteUserInteraction,
@@ -38,6 +39,7 @@ import {
   validatePersonaPack,
   validateStoryPack,
 } from "./packs";
+import { createReceiptDedup, knowledgeReceiptLine } from "./knowledgeReceipts";
 
 // v0.4: itemized Presentation Provider receptors — each interaction kind
 // routes to its own receptor so consent/enable is per-capability. Unknown
@@ -58,6 +60,73 @@ const RECEPTOR_FOR_KIND: Record<string, string> = {
   "animation-interrupted": "companion.animation-events",
 };
 
+/** Play one of three registered, generated-in-memory cues. No file path, URL,
+ * arbitrary oscillator program or AI-provided code crosses this boundary. */
+async function playRegisteredSound(sound: "chime" | "soft-pop" | "tick"): Promise<void> {
+  const AudioContextCtor = window.AudioContext;
+  if (!AudioContextCtor) throw new Error("this system has no Web Audio output");
+  const context = new AudioContextCtor();
+  const sequence =
+    sound === "chime"
+      ? [[660, 0], [880, 0.11]]
+      : sound === "soft-pop"
+        ? [[440, 0]]
+        : [[960, 0]];
+  const duration = sound === "tick" ? 0.045 : sound === "soft-pop" ? 0.1 : 0.24;
+  try {
+    // WebKit can create the context in `suspended` state until a consented
+    // presentation command reaches the visible surface. Resume explicitly;
+    // if the platform still blocks output this rejects and the Runtime gets an
+    // honest `failed` ACK instead of a false `completed` receipt.
+    if (context.state === "suspended") await context.resume();
+    for (const [frequency, delay] of sequence) {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.frequency.value = frequency;
+      oscillator.type = "sine";
+      const start = context.currentTime + delay;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.08, start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start(start);
+      oscillator.stop(start + duration);
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.ceil((duration + 0.12) * 1000)));
+  } finally {
+    await context.close();
+  }
+}
+
+/** Speak bounded plain text through the OS/browser speech service. A 9-second
+ * cap stays inside the Runtime presentation ACK lease; overlong/blocked speech
+ * is cancelled and reported as failed, never acknowledged as completed. */
+async function speakText(text: string): Promise<void> {
+  if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+    throw new Error("this system has no speech synthesis service");
+  }
+  await new Promise<void>((resolve, reject) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "zh-TW";
+    utterance.rate = 1;
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (error) reject(error);
+      else resolve();
+    };
+    utterance.onend = () => finish();
+    utterance.onerror = (event) => finish(new Error(`speech synthesis failed: ${event.error}`));
+    const timeout = window.setTimeout(() => {
+      window.speechSynthesis.cancel();
+      finish(new Error("speech synthesis exceeded the 9 second presentation lease"));
+    }, 9000);
+    window.speechSynthesis.speak(utterance);
+  });
+}
+
 export default function CompanionApp() {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const rendererRef = React.useRef<SpriteRenderer | null>(null);
@@ -77,6 +146,8 @@ export default function CompanionApp() {
   const storyRef = React.useRef<StoryPack | null>(null);
   const behaviorRef = React.useRef<BehaviorTuning>(behaviorFor("natural"));
   const storyProgress = React.useRef<Record<string, boolean>>({});
+  // §17：同一 knowledge receipt 只說一次（SSE 重連會重放舊事件）。
+  const receiptFirstTime = React.useRef(createReceiptDedup());
 
   /** Resolve a bubble line: safety keys fixed, others persona-styled. */
   const line = React.useCallback((key: string): string | null => {
@@ -113,13 +184,18 @@ export default function CompanionApp() {
   // Settings changes (pack/persona/expressiveness) reload this window.
   React.useEffect(() => {
     if (!isTauri) return;
-    let un: (() => void) | null = null;
+    let unReload: (() => void) | null = null;
+    let unOpacity: (() => void) | null = null;
     void (async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      un = await listen("companion-reload", () => window.location.reload());
+      unReload = await listen("companion-reload", () => window.location.reload());
+      unOpacity = await listen<number>("companion-opacity", (event) => {
+        document.documentElement.style.opacity = String(event.payload);
+      });
     })();
     return () => {
-      if (un) un();
+      if (unReload) unReload();
+      if (unOpacity) unOpacity();
     };
   }, []);
 
@@ -130,12 +206,15 @@ export default function CompanionApp() {
       await bootstrapSupervisor();
       let pack = "shu-agile";
       let personaId = "persona-shu";
+      let renderScale = 1.1;
       try {
         const prefs = await desktop.prefsGet();
         pack = prefs.companionPack ?? pack;
         personaId = prefs.companionPersona ?? personaId;
         behaviorRef.current = behaviorFor(prefs.companionExpressiveness ?? "natural");
         storyProgress.current = prefs.storyProgress ?? {};
+        document.documentElement.style.opacity = String(prefs.companionOpacity ?? 1);
+        renderScale = 1.1 * ((prefs.companionSize?.[0] ?? 200) / 200);
       } catch {
         /* browser mode */
       }
@@ -174,7 +253,7 @@ export default function CompanionApp() {
         canvasRef.current,
         manifest,
         `/packs/${pack}/sheet.png`,
-        1.1
+        renderScale
       );
       renderer.setReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
       rendererRef.current = renderer;
@@ -222,7 +301,7 @@ export default function CompanionApp() {
 
   // ---- presentation commands: runtime → this surface → honest ack ----
   const handlePresentationCommand = React.useCallback(
-    (payload: Record<string, unknown>) => {
+    async (payload: Record<string, unknown>) => {
       const command = String(payload["command"] ?? "");
       const actionId = typeof payload["actionId"] === "string" ? payload["actionId"] : null;
       if (command === "cancel" || command === "clear-all") {
@@ -243,9 +322,28 @@ export default function CompanionApp() {
         pushInteraction("bubble-shown", { source: "presentation-command" });
       }
       if (plan.presence !== undefined && isTauri) {
-        void desktop.prefsPatch({ companionVisible: plan.presence }).catch(() => {});
+        try {
+          await desktop.prefsPatch({ companionVisible: plan.presence });
+        } catch (error) {
+          plan.outcome = "failed";
+          plan.detail = String(error);
+        }
       }
-      void api.presentationAck(actionId, plan.outcome, plan.detail).catch(() => {
+      try {
+        if (plan.sound) await playRegisteredSound(plan.sound);
+        if (plan.speech) await speakText(plan.speech);
+        if (plan.window) {
+          if (!isTauri) throw new Error("window adjustment needs the desktop shell");
+          const applied = (await desktop.companionWindowAdjust(actionId)) as Record<string, unknown>;
+          if (typeof applied.opacity === "number") {
+            document.documentElement.style.opacity = String(applied.opacity);
+          }
+        }
+      } catch (error) {
+        plan.outcome = "failed";
+        plan.detail = String(error);
+      }
+      await api.presentationAck(actionId, plan.outcome, plan.detail).catch(() => {
         /* runtime gone: the watchdog will honestly mark it uncertain */
       });
     },
@@ -258,7 +356,21 @@ export default function CompanionApp() {
     let stopped = false;
     const beat = () => {
       if (stopped) return;
-      void api.presentationHello(!document.hidden, packName).catch(() => {});
+      const state = behaviorState.current;
+      void api
+        .presentationHello(!document.hidden, packName, {
+          activation: state.activation,
+          attention: state.attention,
+          taskLoad: state.taskLoad,
+          interactionReadiness: state.interactionReadiness,
+          familiarity: state.familiarity,
+          recentInterruptions: state.recentInterruptions,
+          currentFocus: state.currentFocus,
+          lastInteractionAt: Math.round(state.lastInteractionAt),
+          base: machineRef.current.base,
+          transient: machineRef.current.transient?.kind ?? null,
+        })
+        .catch(() => {});
     };
     beat();
     const t = setInterval(beat, 10_000);
@@ -276,7 +388,11 @@ export default function CompanionApp() {
     let stopped = false;
     const un = onRuntimeEvent((e: RuntimeEvent) => {
       if (e.eventType === "presentation.command") {
-        handlePresentationCommand(e.payload);
+        void handlePresentationCommand(e.payload);
+        return;
+      }
+      if (e.eventType === "knowledge.updated") {
+        maybeKnowledgeBubble(e);
         return;
       }
       const mapped = mapRuntimeEvent(e);
@@ -334,6 +450,17 @@ export default function CompanionApp() {
         waitingForHuman,
         msSinceInteraction: now - behaviorState.current.lastInteractionAt,
       });
+      const reducedMotion =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      rendererRef.current?.setMicroMotion(
+        layeredMicroMotion(
+          behaviorState.current,
+          now,
+          reducedMotion,
+          ["emergency", "offline", "paused"].includes(m.base)
+        )
+      );
       syncPose();
       const p = pose(m, now);
       if (!p.ambient) return;
@@ -346,9 +473,7 @@ export default function CompanionApp() {
         behaviorState.current,
         {
           ambient: true,
-          reducedMotion:
-            typeof window.matchMedia === "function" &&
-            window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+          reducedMotion,
           quiet: m.base === "quiet",
           expressiveness: expr,
           msSinceInteraction: now - behaviorState.current.lastInteractionAt,
@@ -374,6 +499,23 @@ export default function CompanionApp() {
       un.then((f) => f()).catch(() => {});
     };
   }, [ready, apply, syncPose, handlePresentationCommand]);
+
+  /** §17 知識收據六句固定文案：依 payload 確定性選句（selector 見
+   *  knowledgeReceipts.ts）、同一 receipt 只說一次。知識進度不是安全警示，
+   *  所以尊重既有頻率與 quiet 設定——被安靜／冷卻吃掉的 receipt 也標記為
+   *  已處理，不在之後回放（控制中心的收據頁永遠完整呈現）。 */
+  function maybeKnowledgeBubble(e: RuntimeEvent) {
+    const text = knowledgeReceiptLine(e.payload);
+    if (!text) return; // 六句沒有誠實對應者：沉默，不硬湊
+    if (!receiptFirstTime.current(String(e.payload["updateId"] ?? ""))) return;
+    const base = machineRef.current.base;
+    if (base === "quiet" || base === "paused" || base === "emergency") return;
+    if (!behaviorRef.current.allowCasualBubbles) return;
+    const now = Date.now();
+    if (now - lastBubbleAt.current < behaviorRef.current.bubbleCooldownMs) return;
+    lastBubbleAt.current = now;
+    showBubble(text, 5000);
+  }
 
   function maybeBubble(e: RuntimeEvent) {
     const now = Date.now();

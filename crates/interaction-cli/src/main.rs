@@ -32,6 +32,10 @@ pub struct Cli {
     /// API token (default: read from state/api-token).
     #[arg(long, global = true, env = "INTERACT_AI_TOKEN", hide_env_values = true)]
     pub token: Option<String>,
+    /// Use the restricted AI/tool capability token instead of the human
+    /// control token. Human-only mutations will be refused by the API.
+    #[arg(long, global = true)]
+    pub agent_scope: bool,
     /// Suppress non-essential stderr output.
     #[arg(long, short, global = true)]
     pub quiet: bool,
@@ -213,6 +217,24 @@ pub enum Command {
         #[command(subcommand)]
         command: commands::ToolCmd,
     },
+    /// Unified Activity Inbox: Consent/Agent/Knowledge/Result/Safety items.
+    Inbox {
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        agent: Option<String>,
+        #[arg(long)]
+        device: Option<String>,
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        domain: Option<String>,
+        /// RFC 3339 lower time bound.
+        #[arg(long)]
+        since: Option<String>,
+        #[arg(long, default_value_t = 100)]
+        limit: u32,
+    },
     /// Tail the live event stream (SSE).
     Events {
         /// Keep following (default prints buffered recent events and follows).
@@ -282,6 +304,9 @@ fn main() {
 
 #[derive(Subcommand)]
 pub enum ProvidersAction {
+    /// Scan metadata for currently visible interaction hardware. Never opens
+    /// camera, microphone, HID capture, BLE, mDNS, or a device connection.
+    Scan,
     /// List all providers with lifecycle state and capabilities.
     List,
     /// Show one provider.
@@ -346,6 +371,10 @@ pub enum AgentsAction {
         /// Working directory for gateway agents (codex/claude-code).
         #[arg(long)]
         workdir: Option<String>,
+        /// Allow file edits inside the explicit workdir. This is a human consent
+        /// action; it never enables unrestricted filesystem or network access.
+        #[arg(long)]
+        allow_write: bool,
         /// Max session cost in USD (0 = policy default).
         #[arg(long)]
         max_cost: Option<f64>,
@@ -392,6 +421,16 @@ pub enum AgentsAction {
 
 #[derive(Subcommand)]
 pub enum KnowledgeAction {
+    /// List the ten built-in, versioned Domain Packs and installation state.
+    DomainPacks,
+    /// Install (or restore) one built-in Domain Pack.
+    InstallPack {
+        id: String,
+    },
+    /// Uninstall a Domain Pack; it stays absent across restart.
+    UninstallPack {
+        id: String,
+    },
     /// Search the graph (FTS + lexical-vector candidates).
     Search {
         query: String,
@@ -460,6 +499,17 @@ pub enum KnowledgeAction {
         /// low-confidence-answer | periodic-health-check
         trigger: String,
     },
+    /// Record a human correction as User Memory and a reviewable Knowledge Candidate.
+    Correct {
+        /// What the system previously assumed (optional).
+        #[arg(long)]
+        original: Option<String>,
+        /// The user's correction.
+        correction: String,
+        /// Where this correction applies; never generalized beyond this scope automatically.
+        #[arg(long)]
+        scope: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -475,6 +525,14 @@ pub enum AssetsAction {
     },
     List,
     Show {
+        hash: String,
+    },
+    /// Run bounded local processors and persist provenance-linked derivatives.
+    Derive {
+        hash: String,
+    },
+    /// List persisted derivative status and exact source regions/time spans.
+    Derivatives {
         hash: String,
     },
     /// Preview what deleting this asset would affect.
@@ -543,6 +601,26 @@ pub enum ProactiveAction {
     Status,
     /// Set the mode: off | necessary | natural | lively | custom
     Mode { mode: String },
+    /// Configure deterministic limits and the explicit local generative Agent.
+    Set {
+        #[arg(long)]
+        max_per_hour: Option<u32>,
+        #[arg(long)]
+        min_interval_minutes: Option<u32>,
+        #[arg(long)]
+        merge_window_seconds: Option<u32>,
+        #[arg(long)]
+        no_follow_up: Option<bool>,
+        #[arg(long)]
+        dnd_defer: Option<bool>,
+        #[arg(long)]
+        daily_sessions: Option<u32>,
+        #[arg(long)]
+        daily_cost_usd: Option<f64>,
+        /// codex | claude-code | none
+        #[arg(long)]
+        generative_agent: Option<String>,
+    },
     /// Ask the companion to stay quiet for a while.
     Quiet {
         #[arg(long, default_value_t = 60)]

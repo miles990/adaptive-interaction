@@ -26,7 +26,12 @@ pub fn exit_code_for_status(status: u16) -> i32 {
 pub const EXIT_CONNECTION: i32 = 3;
 
 impl Client {
-    pub fn new(home: Option<&Path>, api: Option<String>, token: Option<String>) -> Result<Self> {
+    pub fn new(
+        home: Option<&Path>,
+        api: Option<String>,
+        token: Option<String>,
+        agent_scope: bool,
+    ) -> Result<Self> {
         let paths = Paths::resolve(home);
         let config_service = ConfigService::new(paths.clone());
         let base = match api {
@@ -38,6 +43,15 @@ impl Client {
         };
         let token = match token {
             Some(t) => t,
+            None if agent_scope => std::env::var("INTERACT_AI_SESSION_TOKEN")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| {
+                    std::fs::read_to_string(paths.agent_token_file())
+                        .ok()
+                        .map(|value| value.trim().to_string())
+                })
+                .unwrap_or_default(),
             None => std::fs::read_to_string(paths.token_file())
                 .map(|s| s.trim().to_string())
                 .unwrap_or_default(),

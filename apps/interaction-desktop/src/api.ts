@@ -93,6 +93,33 @@ export interface Session {
   label?: string;
 }
 
+export interface HardwareScanReport {
+  platform: string;
+  startedAt: string;
+  completedAt: string;
+  sensorActivationAttempted: boolean;
+  devices: {
+    class: string;
+    displayName: string;
+    stableId?: string;
+    identityBasis: string;
+    availability: string;
+    permissionRequirements: string[];
+    capabilities: {
+      id: string;
+      kind: string;
+      scope: string;
+      read: boolean;
+      write: boolean;
+      requiresConsent: boolean;
+      leavesDevice: boolean;
+    }[];
+    sourceAdapter: string;
+    detail: string;
+  }[];
+  limitations: string[];
+}
+
 export const api = {
   status: () => invoke<Record<string, unknown>>("status"),
   capabilities: (includeUnavailable = true) =>
@@ -140,6 +167,9 @@ export const api = {
   pushObservation: (receptorId: string, facts: Record<string, unknown>, confidence = 1.0) =>
     invoke("push_observation", { receptorId, facts, confidence }),
   providersList: () => invoke<Record<string, unknown>[]>("providers_list"),
+  hardwareScan: () => invoke<HardwareScanReport>("hardware_scan"),
+  activityInbox: (filter: Record<string, unknown> = {}) =>
+    invoke<Record<string, unknown>>("activity_inbox", { filter }),
   agentsDiscoveries: () => invoke<Record<string, unknown>>("agents_discoveries"),
   agentsRefresh: () => invoke<Record<string, unknown>>("agents_refresh"),
   agentsRouting: (kind?: string) =>
@@ -161,6 +191,11 @@ export const api = {
     invoke<Record<string, unknown>>("memory_bundle", { task, agentId, domains }),
   knowledgeList: (status?: string, limit = 100) =>
     invoke<Record<string, unknown>>("knowledge_list", { status: status ?? null, limit }),
+  domainPacks: () => invoke<Record<string, unknown>>("domain_packs"),
+  domainPackInstall: (id: string) =>
+    invoke<Record<string, unknown>>("domain_pack_install", { id }),
+  domainPackUninstall: (id: string) =>
+    invoke<Record<string, unknown>>("domain_pack_uninstall", { id }),
   knowledgeSearch: (q: string, k = 10) =>
     invoke<Record<string, unknown>>("knowledge_search", { q, k }),
   knowledgeGet: (id: string) => invoke<Record<string, unknown>>("knowledge_get", { id }),
@@ -168,9 +203,21 @@ export const api = {
     invoke<Record<string, unknown>>("knowledge_review", { id, verdict, note: note ?? null }),
   knowledgeGraph: (id: string) => invoke<Record<string, unknown>>("knowledge_graph", { id }),
   knowledgeReceipts: () => invoke<Record<string, unknown>>("knowledge_receipts"),
+  // 更新決策器（spec §13）：純檢查、零副作用——回傳的是決策，不是更新結果。
+  knowledgeUpdateCheck: (trigger: string) =>
+    invoke<UpdateDecision>("knowledge_update_check", { trigger }),
+  knowledgeUserCorrection: (input: {
+    originalAssumption?: string;
+    correction: string;
+    scope?: string;
+  }) => invoke<Record<string, unknown>>("knowledge_user_correction", { input }),
   assetsList: () => invoke<Record<string, unknown>>("assets_list"),
   assetImport: (input: { path?: string; content?: string; description?: string }) =>
     invoke<Record<string, unknown>>("asset_import", input),
+  assetDerivatives: (hash: string) =>
+    invoke<Record<string, unknown>>("asset_derivatives", { hash }),
+  assetDerive: (hash: string) => invoke<Record<string, unknown>>("asset_derive", { hash }),
+  assetPreview: (hash: string) => invoke<Record<string, unknown>>("asset_preview", { hash }),
   assetImpact: (hash: string) => invoke<Record<string, unknown>>("asset_impact", { hash }),
   assetDelete: (hash: string) => invoke<Record<string, unknown>>("asset_delete", { hash }),
   proactiveDialogueGet: () => invoke<Record<string, unknown>>("proactive_dialogue_get"),
@@ -179,8 +226,16 @@ export const api = {
   proactiveDialogueQuiet: (minutes: number) =>
     invoke<Record<string, unknown>>("proactive_dialogue_quiet", { minutes }),
   presentationStatus: () => invoke<Record<string, unknown>>("presentation_status"),
-  presentationHello: (visible: boolean, packId?: string) =>
-    invoke<Record<string, unknown>>("presentation_hello", { visible, packId: packId ?? null }),
+  presentationHello: (
+    visible: boolean,
+    packId?: string,
+    behaviorState?: Record<string, unknown>
+  ) =>
+    invoke<Record<string, unknown>>("presentation_hello", {
+      visible,
+      packId: packId ?? null,
+      behaviorState: behaviorState ?? null,
+    }),
   presentationAck: (actionId: string, outcome: string, detail?: string) =>
     invoke<Record<string, unknown>>("presentation_ack", {
       actionId,
@@ -239,12 +294,25 @@ export const api = {
     invoke<Record<string, unknown>[]>("agent_session_messages", { id, direction }),
   agentSessionSend: (id: string, kind: string, body: Record<string, unknown>) =>
     invoke<Record<string, unknown>>("agent_session_send", { id, kind, body }),
+  agentSessionRenew: (id: string, extraMinutes = 30) =>
+    invoke<AgentSessionRecord>("agent_session_renew", { id, extraMinutes }),
   agentSessionClose: (id: string, reason?: string) =>
     invoke<AgentSessionRecord>("agent_session_close", { id, reason: reason ?? null }),
   sensorMicListen: (durationMs: number) =>
     invoke<Record<string, unknown>>("sensor_mic_listen", { durationMs }),
   sensorsStop: () => invoke("sensors_stop"),
 };
+
+/** 知識更新決策（spec §13 決策表輸出；camelCase 由後端 serde 保證）。 */
+export interface UpdateDecision {
+  trigger: string;
+  needsUpdate: boolean;
+  needsAi: boolean;
+  requiresUserAsk: boolean;
+  deterministicSteps: string[];
+  aiSteps: string[];
+  reason: string;
+}
 
 export interface SensorUse {
   kind: string;
@@ -265,6 +333,9 @@ export interface AgentSessionRecord {
   toolScope: string[];
   consentScope: string[];
   budget: { maxMessages: number; spentMessages: number; maxCost: number; spentCost: number };
+  /** 允許修改工作區檔案。後端欄位由 gateway cluster 提供；缺席（舊後端）
+   *  一律視為唯讀——徽章依此欄位呈現，絕不依建立時的請求值宣稱可寫。 */
+  allowWrite?: boolean;
   providerSessionId?: string;
   createdAt: string;
   closedAt?: string;
@@ -349,6 +420,11 @@ export interface Catalog {
 export interface UiPreferences {
   mode: "simple" | "advanced";
   locale: string;
+  appearance?: "system" | "dark" | "light";
+  scalePercent?: number;
+  reduceMotion?: boolean;
+  disabledAgents?: string[];
+  agentRoutes?: Record<string, "codex" | "claude-code" | "none">;
   customNames: Record<string, string>;
   schemaVersion: string;
 }

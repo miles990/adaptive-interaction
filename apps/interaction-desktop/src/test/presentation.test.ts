@@ -42,12 +42,19 @@ describe("planPresentationCommand", () => {
     }
   });
 
-  it("unsupported capabilities are acked as unsupported, never displayed", () => {
-    for (const cmd of ["sound-play", "speak", "window-adjust"]) {
-      const plan = planPresentationCommand(cmd, {}, true);
-      expect(plan.outcome).toBe("unsupported");
-      expect(plan.detail).toBeTruthy();
-    }
+  it("plans bounded sound, speech and companion-window effects", () => {
+    expect(planPresentationCommand("sound-play", { sound: "soft-pop" }, true)).toMatchObject({
+      outcome: "completed",
+      sound: "soft-pop",
+    });
+    expect(planPresentationCommand("speak", { text: "需要確認。" }, true)).toMatchObject({
+      outcome: "completed",
+      speech: "需要確認。",
+    });
+    expect(
+      planPresentationCommand("window-adjust", { x: 20, width: 240, opacity: 0.8 }, true)
+    ).toMatchObject({ outcome: "completed", window: { x: 20, width: 240, opacity: 0.8 } });
+    expect(planPresentationCommand("window-adjust", { x: 20 }, false).outcome).toBe("unsupported");
   });
 
   it("animation without art is unsupported; known animations display", () => {

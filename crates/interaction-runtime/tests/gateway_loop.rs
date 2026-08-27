@@ -64,6 +64,7 @@ fn claude_input(
         max_messages: Some(10),
         delegation: None,
         workdir: None,
+        allow_write: false,
     }
 }
 
@@ -77,6 +78,19 @@ fn read_pid(path: &std::path::Path) -> i32 {
 #[tokio::test]
 async fn gateway_full_loop_with_fake_agent() {
     std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+
+    // ---- 0) 使用者停用的 connector 是 Runtime 規則，不是 UI 假開關。 ----
+    {
+        let (_g, rt) = runtime().await;
+        rt.update_ui_preferences(serde_json::json!({"disabledAgents": ["claude-code"]}))
+            .await
+            .unwrap();
+        let err = rt
+            .create_agent_session(claude_input("已停用", None))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+    }
 
     // ---- 1) 不可用 agent → 建立誠實失敗，不留半掛 session ----
     {
@@ -95,6 +109,7 @@ async fn gateway_full_loop_with_fake_agent() {
                 max_messages: None,
                 delegation: None,
                 workdir: None,
+                allow_write: false,
             })
             .await
             .unwrap_err();
@@ -102,7 +117,35 @@ async fn gateway_full_loop_with_fake_agent() {
         assert_eq!(rt.open_agent_sessions().await, 0, "沒有殘留 session");
     }
 
+    // ---- 1b) 寫入 session 必須是 gateway agent＋明確工作目錄＋雙重 scope；
+    //          建立後 access mode 寫進 record，不能只存在 UI request。 ----
+    {
+        let (home, rt) = runtime().await;
+        let mut missing = claude_input("缺少授權", None);
+        missing.allow_write = true;
+        missing.workdir = Some(home.path().to_string_lossy().into_owned());
+        let err = rt.create_agent_session(missing).await.unwrap_err();
+        assert!(matches!(err, DomainError::ConsentRequired(_)), "{err:?}");
+
+        let mut writable = claude_input("限權寫入", None);
+        writable.allow_write = true;
+        writable.workdir = Some(home.path().to_string_lossy().into_owned());
+        writable.tool_scope = vec!["workspace.write".into()];
+        writable.consent_scope = vec!["agent-session:workspace-write".into()];
+        let record = rt.create_agent_session(writable).await.unwrap();
+        assert!(record.allow_write);
+        assert_eq!(record.tool_scope, ["workspace.write"]);
+        assert_eq!(record.consent_scope, ["agent-session:workspace-write"]);
+        rt.close_agent_session(record.session_id.as_str(), None, "closed")
+            .await
+            .unwrap();
+    }
+
     // ---- 2) 完整閉環：建立 → 任務 → 聲稱完成 → 成本 → 結果信箱 ----
+    let input_file = tempfile::NamedTempFile::new().unwrap();
+    let env_status_file = tempfile::NamedTempFile::new().unwrap();
+    std::env::set_var("FAKE_INPUT_FILE", input_file.path());
+    std::env::set_var("FAKE_ENV_STATUS_FILE", env_status_file.path());
     let (_g, rt) = runtime().await;
     let record = rt
         .create_agent_session(interaction_runtime::agents::CreateAgentSession {
@@ -117,10 +160,25 @@ async fn gateway_full_loop_with_fake_agent() {
             max_messages: Some(10),
             delegation: None,
             workdir: None,
+            allow_write: false,
         })
         .await
         .expect("fake agent attaches");
+    assert_eq!(
+        record.provider_id.as_str(),
+        "provider.ai-agent.claude-code",
+        "gateway sessions must inherit the concrete connector provider when the caller omits providerId"
+    );
     let sid = record.session_id.as_str().to_string();
+    wait_for(
+        async || {
+            std::fs::read_to_string(env_status_file.path())
+                .map(|body| body.trim() == "scoped-session-capability-present")
+                .unwrap_or(false)
+        },
+        "scoped session capability in provider environment",
+    )
+    .await;
 
     // provider session id 由 init 事件回填。
     wait_for(
@@ -147,6 +205,15 @@ async fn gateway_full_loop_with_fake_agent() {
         )
         .await
         .unwrap();
+    wait_for(
+        async || {
+            std::fs::read_to_string(input_file.path())
+                .map(|body| body.contains("contextBundle") && body.contains("agentId"))
+                .unwrap_or(false)
+        },
+        "actual context bundle delivered to provider stdin",
+    )
+    .await;
     wait_for(
         async || {
             rt.get_agent_session(&sid)
@@ -192,6 +259,8 @@ async fn gateway_full_loop_with_fake_agent() {
     rt.close_agent_session(&sid, None, "closed").await.unwrap();
     let closed = rt.get_agent_session(&sid).await.unwrap();
     assert_eq!(closed.state, AgentSessionState::Closed);
+    std::env::remove_var("FAKE_INPUT_FILE");
+    std::env::remove_var("FAKE_ENV_STATUS_FILE");
 
     // ---- 3) estop 終止子程序樹（hang 模式＋pid 檔驗證） ----
     let pid_file = tempfile::NamedTempFile::new().unwrap();
@@ -210,6 +279,7 @@ async fn gateway_full_loop_with_fake_agent() {
             max_messages: None,
             delegation: None,
             workdir: None,
+            allow_write: false,
         })
         .await
         .unwrap();

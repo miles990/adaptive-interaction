@@ -82,6 +82,27 @@ JSON 政策、時間軸與技術 ID 全部都在，兩種模式共用同一套�
 **AI Agent Session**（有租約/預算/範圍、mailbox 溝通、防循環委派、聲稱完成≠驗證）、
 **麥克風**（預設關、consent-gated、30 秒硬上限、無靜默擷取、只留 level 事實）。
 
+## main 開發中的 v0.4 能力
+
+`main` 目前還是 0.3.0 版本號，v0.4 未發布，但已接上下列開發中能力：
+
+- 小樞成為 7 receptors＋7 actuators 的 Presentation Provider，並有本機
+  Behavior Runtime／Attention／Utility AI、程序化視線耳朵及三種貓系變體。
+- 直接使用本機已登入 Codex（app-server；exec/resume fallback）與 Claude Code
+  （stream-json）；預設只讀，限權寫入需明確 workdir＋二次確認。
+- 人類控制 token 與 restricted agent token 分離；AI 不能授權、改 policy、
+  發布知識或解除緊急停止。
+- 10 層記憶、CAS 素材、Knowledge Graph／FTS5／Candidate-only tools、
+  更新決策／使用者糾正／Knowledge Receipt。
+- metadata-only 硬體掃描：17 類覆蓋結果，掃描不開啟攝影機、麥克風、
+  BLE 或 mDNS；看不到時會顯示具體原因，不用假裝置。
+- 控制中心 8 一級頁／Global Search／Activity Inbox／390px 導覽。
+
+本輪嚴格 Capability Matrix 為 **25/25 complete、0 partial、0 missing**。逐層
+Provider→Runtime→Policy→UI→Receipt→API/CLI→Test 的證據與 N/A 理由見
+[`docs/capability-completion-matrix.md`](docs/capability-completion-matrix.md)，完整可重跑命令與
+畫面索引見 [`docs/v04-final-machine-evidence.md`](docs/v04-final-machine-evidence.md)。
+
 ## 安裝（3 分鐘）
 
 從 [Releases](https://github.com/miles990/adaptive-interaction/releases) 一鍵安裝，
@@ -138,6 +159,7 @@ interact-ai self uninstall --yes     # 移除（--purge 連設定資料一起刪
 | **[桌面控制中心指南](docs/DESKTOP-GUIDE.md)** | 圖形介面逐頁說明＋狀態列／桌面角色／感測＋收據狀態圖 |
 | **[架構總覽](docs/ARCHITECTURE.md)** | crate 責任、生命週期、誠實階梯、provider／agent／sensor 設計 |
 | **[驗收證據](docs/acceptance-evidence.md)** | 真實環境端到端測試紀錄 |
+| **[v0.4 機器證據](docs/v04-final-machine-evidence.md)** | 本輪測試數字、connector、SHA-256 與未完成項 |
 | **[更新日誌](CHANGELOG.md)** | 版本歷史（語意化版本） |
 
 ## 核心設計理念

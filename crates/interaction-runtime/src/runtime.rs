@@ -24,7 +24,7 @@ use interaction_registry::CapabilityRegistry;
 use interaction_storage::Store;
 use rand::Rng;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -85,8 +85,18 @@ pub struct RuntimeInner {
     pub(crate) ai_assists: RwLock<BTreeMap<String, crate::human::PendingAssist>>,
     /// Live agent sessions (mailboxes are memory-only; records persist).
     pub(crate) agent_sessions: RwLock<BTreeMap<String, crate::agents::AgentSessionEntry>>,
+    /// Memory-only, hashed bearer capabilities issued to a single live Agent
+    /// Session. They are never serialized and die on close/expiry/restart.
+    pub(crate) agent_session_capabilities:
+        RwLock<BTreeMap<String, crate::agents::AgentSessionCapability>>,
     /// Serializes agent-session creation so count/estop checks aren't TOCTOU.
     pub(crate) agent_create_lock: tokio::sync::Mutex<()>,
+    /// Serializes Governor usage snapshot → authorization → Accepted receipt.
+    pub(crate) authorization_lock: tokio::sync::Mutex<()>,
+    /// Costs authorized but not yet committed to the persisted session.
+    pub(crate) monetary_reservations: tokio::sync::Mutex<BTreeMap<String, (SessionId, f64)>>,
+    /// Same-process single-flight claims for plan execution.
+    pub(crate) executing_plans: std::sync::Mutex<BTreeSet<String>>,
     /// Currently-capturing sensors → always-visible indicators.
     pub(crate) sensors: std::sync::Mutex<BTreeMap<String, crate::sensors::SensorUse>>,
     /// Typed handle to the microphone receptor (None when not registered).
@@ -95,9 +105,14 @@ pub struct RuntimeInner {
     pub presentation: Arc<crate::presentation::PresentationBridge>,
     /// 主動式對話政策狀態（確定性頻率限制；持久化到 meta）。
     pub(crate) proactive_dialogue: RwLock<crate::proactive::ProactiveDialogueState>,
+    /// Generated proactive candidates waiting for a real local Agent result.
+    /// Memory-only and lease-bounded: restart expires the associated Agent
+    /// Session and never replays an unverified candidate.
+    pub(crate) proactive_agent_tasks:
+        RwLock<BTreeMap<String, crate::proactive::PendingProactiveTask>>,
     /// Agent Gateway：真實 agent 子程序（codex/claude-code）管理。
     pub(crate) gateway: crate::gateway::GatewayManager,
-    /// 知識檢索的向量候選介面（v1：lexical fallback，誠實標示）。
+    /// 知識檢索的可替換向量候選介面。
     pub(crate) vector_index: Box<dyn crate::knowledge::VectorIndex>,
 }
 
@@ -308,13 +323,18 @@ impl Runtime {
                 pause: RwLock::new(pause_state),
                 ai_assists: RwLock::new(BTreeMap::new()),
                 agent_sessions: RwLock::new(BTreeMap::new()),
+                agent_session_capabilities: RwLock::new(BTreeMap::new()),
                 agent_create_lock: tokio::sync::Mutex::new(()),
+                authorization_lock: tokio::sync::Mutex::new(()),
+                monetary_reservations: tokio::sync::Mutex::new(BTreeMap::new()),
+                executing_plans: std::sync::Mutex::new(BTreeSet::new()),
                 sensors: std::sync::Mutex::new(BTreeMap::new()),
                 mic_receptor: Some(mic_receptor),
                 presentation: presentation_bridge,
                 proactive_dialogue: RwLock::new(proactive_state),
+                proactive_agent_tasks: RwLock::new(BTreeMap::new()),
                 gateway: crate::gateway::GatewayManager::new(),
-                vector_index: Box::new(crate::knowledge::LexicalIndex::default()),
+                vector_index: Box::new(crate::knowledge::LocalSubwordEmbeddingIndex::default()),
             }),
         };
         let _ = sensor_cb_slot.set(Arc::downgrade(&runtime.inner));
@@ -1118,15 +1138,75 @@ impl Runtime {
         }))
     }
 
-    /// Manual run: trigger bypassed, policy still fully applies.
+    /// Manual run: the trigger condition is bypassed, but enabled state,
+    /// recipe limits, consent and the shared Policy Governor still apply.
     pub async fn run_recipe(&self, id: &str) -> DomainResult<Value> {
-        let recipe = self.get_recipe(id).await?;
-        let plan = self.plan_from_recipe(&recipe).await?;
-        let receipts = self
-            .execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false)
-            .await?;
-        self.note_recipe_fired(id).await;
-        Ok(json!({"plan": self.store.plan(&plan.plan_id)?, "receipts": receipts}))
+        self.run_recipe_inner(id, ActionSource::ExplicitRequest, false)
+            .await
+    }
+
+    /// Agent/tool entry: identical recipe safety plus the user's proactive
+    /// pause. An Agent cannot use a direct tool call as a hidden force-run.
+    pub async fn run_recipe_for_agent(&self, id: &str) -> DomainResult<Value> {
+        self.run_recipe_inner(id, ActionSource::Autonomous, true)
+            .await
+    }
+
+    async fn run_recipe_inner(
+        &self,
+        id: &str,
+        source: ActionSource,
+        respect_proactive_pause: bool,
+    ) -> DomainResult<Value> {
+        if respect_proactive_pause && self.proactive_paused().await {
+            return Err(DomainError::PolicyBlocked(
+                "proactive interactions are paused".into(),
+            ));
+        }
+        let session = self.require_session().await?;
+        let now = Utc::now();
+        let (recipe, state) = {
+            let mut recipes = self.recipes.write().await;
+            let entry = recipes
+                .get_mut(id)
+                .ok_or_else(|| DomainError::NotFound(format!("recipe {id}")))?;
+            if !entry.recipe.enabled {
+                return Err(DomainError::PolicyBlocked(format!(
+                    "recipe {id} is disabled"
+                )));
+            }
+            for required in &entry.recipe.consent.required {
+                let scope = parse_scope(required)?;
+                if !session.has_consent(&scope, now) {
+                    return Err(DomainError::ConsentRequired(required.clone()));
+                }
+            }
+            if !Self::recipe_limits_ok(&entry.recipe, &entry.state, now) {
+                return Err(DomainError::PolicyBlocked(format!(
+                    "recipe {id} cooldown or execution limit reached"
+                )));
+            }
+            entry.state.last_fired_at = Some(now);
+            entry.state.executions_this_session += 1;
+            entry.state.fired_last_hour.push(now);
+            entry.state.fired_last_hour.retain(|at| {
+                let age = now.signed_duration_since(*at).num_milliseconds();
+                (0..3_600_000).contains(&age)
+            });
+            (entry.recipe.clone(), entry.state.clone())
+        };
+        self.persist_recipe_state(id, &state).await;
+
+        let result = async {
+            let plan = self.plan_from_recipe(&recipe).await?;
+            let receipts = self.execute_plan(&plan.plan_id, source, false).await?;
+            Ok(json!({"plan": self.store.plan(&plan.plan_id)?, "receipts": receipts}))
+        }
+        .await;
+        if result.is_err() {
+            self.rollback_recipe_reservation(id, now).await;
+        }
+        result
     }
 
     pub(crate) async fn plan_from_recipe_public(&self, recipe: &Recipe) -> DomainResult<Plan> {
@@ -1140,7 +1220,9 @@ impl Runtime {
             .expires_after
             .as_deref()
             .and_then(|d| interaction_recipe::parse_duration_ms(d).ok())
-            .map(|ms| Utc::now() + chrono::Duration::milliseconds(ms as i64));
+            .and_then(|ms| {
+                Utc::now().checked_add_signed(chrono::Duration::milliseconds(ms as i64))
+            });
         let mut metadata = BTreeMap::new();
         metadata.insert("recipeId".to_string(), json!(recipe.id.as_str()));
         metadata.insert(
@@ -1177,28 +1259,33 @@ impl Runtime {
             .as_deref()
             .and_then(|d| interaction_recipe::parse_duration_ms(d).ok())
             .unwrap_or(600_000);
+        let now = Utc::now();
+        let since = now
+            .checked_sub_signed(chrono::Duration::milliseconds(window_ms as i64))
+            .unwrap_or(now);
         self.store.query_observations(&ObservationQuery {
-            since: Some(Utc::now() - chrono::Duration::milliseconds(window_ms as i64)),
+            since: Some(since),
             limit: Some(200),
             ..Default::default()
         })
     }
 
-    async fn note_recipe_fired(&self, id: &str) {
-        let mut map = self.recipes.write().await;
-        if let Some(entry) = map.get_mut(id) {
-            let now = Utc::now();
-            entry.state.last_fired_at = Some(now);
-            entry.state.executions_this_session += 1;
-            entry.state.fired_last_hour.push(now);
-            entry
-                .state
-                .fired_last_hour
-                .retain(|t| now.signed_duration_since(*t).num_minutes() < 60);
-            let state = entry.state.clone();
-            drop(map);
-            self.persist_recipe_state(id, &state).await;
-        }
+    async fn rollback_recipe_reservation(&self, id: &str, reserved_at: Timestamp) {
+        let state = {
+            let mut recipes = self.recipes.write().await;
+            let Some(entry) = recipes.get_mut(id) else {
+                return;
+            };
+            let before = entry.state.fired_last_hour.len();
+            entry.state.fired_last_hour.retain(|at| *at != reserved_at);
+            if entry.state.fired_last_hour.len() != before {
+                entry.state.executions_this_session =
+                    entry.state.executions_this_session.saturating_sub(1);
+                entry.state.last_fired_at = entry.state.fired_last_hour.iter().max().copied();
+            }
+            entry.state.clone()
+        };
+        self.persist_recipe_state(id, &state).await;
     }
 
     /// Persist recipe firing state so cooldowns / per-session budgets survive
@@ -1246,7 +1333,10 @@ impl Runtime {
             .get("firedLastHour")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
-        fired_last_hour.retain(|t| now.signed_duration_since(*t).num_minutes() < 60);
+        fired_last_hour.retain(|at| {
+            let age = now.signed_duration_since(*at).num_milliseconds();
+            (0..3_600_000).contains(&age)
+        });
         RecipeState {
             last_fired_at: value
                 .get("lastFiredAt")
@@ -1329,7 +1419,15 @@ impl Runtime {
             }
         }
         if let Some(max) = recipe.limits.max_per_hour {
-            if state.fired_last_hour.len() as u32 >= max {
+            let recent = state
+                .fired_last_hour
+                .iter()
+                .filter(|at| {
+                    let age = now.signed_duration_since(**at).num_milliseconds();
+                    (0..3_600_000).contains(&age)
+                })
+                .count() as u32;
+            if recent >= max {
                 return false;
             }
         }
@@ -1438,10 +1536,10 @@ impl Runtime {
             entry.state.last_fired_at = Some(now);
             entry.state.executions_this_session += 1;
             entry.state.fired_last_hour.push(now);
-            entry
-                .state
-                .fired_last_hour
-                .retain(|t| now.signed_duration_since(*t).num_minutes() < 60);
+            entry.state.fired_last_hour.retain(|at| {
+                let age = now.signed_duration_since(*at).num_milliseconds();
+                (0..3_600_000).contains(&age)
+            });
             // Consume the matched events (bounded FIFO).
             for id in &decision.matched_observation_ids {
                 if !entry.state.consumed_observations.contains(id) {
@@ -1524,6 +1622,39 @@ impl Runtime {
                 recipe = recipe.id.as_str(),
                 "not firing: paused/stopped during jitter window"
             );
+            return Ok(Some(decision));
+        }
+        // `ai-generated` is a real asynchronous Agent workflow, never a
+        // placeholder message. Reserve the deterministic policy/budget,
+        // create a read-only leased local-Agent Session, validate its
+        // structured candidate, then render through the ordinary governor.
+        // Observation ingestion returns immediately; the pending Session and
+        // final action remain visible through the shared Runtime truth.
+        if recipe.message.mode == interaction_core::MessageMode::AiGenerated {
+            let class_text = recipe
+                .message
+                .extra
+                .get("proactiveClass")
+                .and_then(Value::as_str)
+                .unwrap_or("suggestion");
+            let class = crate::proactive::class_from_metadata(&BTreeMap::from([(
+                "proactiveClass".into(),
+                json!(class_text),
+            )]));
+            let dedup_key = format!(
+                "recipe:{}:{}",
+                recipe.id.as_str(),
+                decision.matched_observation_ids.join(",")
+            );
+            if let Err(error) =
+                Box::pin(self.start_proactive_agent_task(recipe.clone(), class, dedup_key)).await
+            {
+                let _ = self.store.audit(
+                    "proactive.generation-not-started",
+                    "runtime",
+                    &json!({"reason": error.to_string()}),
+                );
+            }
             return Ok(Some(decision));
         }
         let mut plan = self.plan_from_recipe(recipe).await?;
@@ -1698,6 +1829,25 @@ impl Runtime {
                 session.monetary_spent += cost;
                 let _ = self.store.upsert_session(session);
             }
+        }
+    }
+
+    pub(crate) async fn release_invocation_cost(&self, action_id: &ActionId) {
+        self.monetary_reservations
+            .lock()
+            .await
+            .remove(action_id.as_str());
+    }
+
+    pub(crate) async fn commit_invocation_cost(&self, action_id: &ActionId) {
+        let _authorization_guard = self.authorization_lock.lock().await;
+        let reservation = self
+            .monetary_reservations
+            .lock()
+            .await
+            .remove(action_id.as_str());
+        if let Some((session_id, cost)) = reservation {
+            self.charge_session_cost(&session_id, cost).await;
         }
     }
 
@@ -1907,4 +2057,36 @@ fn declares_no_retention(m: &interaction_core::ReceptorManifest) -> bool {
         .and_then(|h| h.data.as_ref())
         .map(|d| d.retention == interaction_core::DataRetention::None)
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod recipe_limit_tests {
+    use super::*;
+
+    #[test]
+    fn hourly_recipe_limit_is_a_rolling_window() {
+        let recipe = interaction_recipe::parse_and_validate(
+            r#"
+id: rolling-limit
+name: rolling limit
+trigger: { mode: any, steps: [{ receptor: manual.event }] }
+decision: { objective: test, allowNoAction: true }
+actuation: { candidates: [conversation], minChannels: 0, maxChannels: 1 }
+limits: { maxPerHour: 1 }
+"#,
+        )
+        .unwrap();
+        let now = Utc::now();
+        let stale = RecipeState {
+            fired_last_hour: vec![now - chrono::Duration::hours(2)],
+            ..Default::default()
+        };
+        assert!(Runtime::recipe_limits_ok(&recipe, &stale, now));
+
+        let recent = RecipeState {
+            fired_last_hour: vec![now - chrono::Duration::minutes(30)],
+            ..Default::default()
+        };
+        assert!(!Runtime::recipe_limits_ok(&recipe, &recent, now));
+    }
 }

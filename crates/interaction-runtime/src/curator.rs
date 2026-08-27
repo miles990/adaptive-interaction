@@ -8,8 +8,8 @@
 use crate::runtime::Runtime;
 use chrono::Utc;
 use interaction_core::{
-    AgentSessionRecord, AgentSessionState, DomainResult, EventType, KnowledgeStatus, MemoryActor,
-    RuntimeEvent, SCHEMA_VERSION,
+    validate_memory_item, validate_node, AgentSessionRecord, AgentSessionState, DomainError,
+    DomainResult, EventType, KnowledgeStatus, MemoryActor, RuntimeEvent, SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -53,6 +53,16 @@ pub struct UpdateDecision {
     pub deterministic_steps: Vec<&'static str>,
     pub ai_steps: Vec<&'static str>,
     pub reason: &'static str,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserCorrectionInput {
+    #[serde(default)]
+    pub original_assumption: Option<String>,
+    pub correction: String,
+    #[serde(default)]
+    pub scope: Option<String>,
 }
 
 /// 確定性決策表（spec §13.1–13.3）。
@@ -257,6 +267,123 @@ pub struct ReceiptPublished {
 }
 
 impl Runtime {
+    /// 使用者糾正入口：先保存為可刪除、30 天後複查的 User Memory；同時只
+    /// 建立 Candidate Knowledge，絕不把單次糾正自動普遍化或發布。
+    pub async fn record_user_correction(&self, input: UserCorrectionInput) -> DomainResult<Value> {
+        let correction = input.correction.trim();
+        if correction.is_empty() || correction.chars().count() > 2_000 {
+            return Err(DomainError::Validation(
+                "correction 必須為 1..2000 字".into(),
+            ));
+        }
+        if input
+            .original_assumption
+            .as_deref()
+            .is_some_and(|s| s.chars().count() > 2_000)
+            || input
+                .scope
+                .as_deref()
+                .is_some_and(|s| s.chars().count() > 500)
+        {
+            return Err(DomainError::Validation(
+                "originalAssumption 最多 2000 字，scope 最多 500 字".into(),
+            ));
+        }
+
+        let now = Utc::now();
+        let content = json!({
+            "originalAssumption": input.original_assumption,
+            "correction": correction,
+            "scope": input.scope,
+            "epistemicStatus": "user-correction; not-universal-knowledge",
+        })
+        .to_string();
+        let title_tail: String = correction.chars().take(60).collect();
+        let mut memory = interaction_core::new_memory_item(
+            interaction_core::MemoryLayer::UserMemory,
+            interaction_core::MemoryKind::Preference,
+            format!("使用者糾正：{title_tail}"),
+            content.clone(),
+            MemoryActor::Human,
+            now,
+        );
+        memory.provenance = vec!["control-center:user-correction".into()];
+        validate_memory_item(&memory).map_err(DomainError::Validation)?;
+
+        let node = interaction_core::KnowledgeNode {
+            node_id: interaction_core::KnowledgeNodeId::generate(),
+            node_type: interaction_core::NodeType::Claim,
+            title: format!("待複審的使用者糾正：{title_tail}"),
+            content: json!({
+                "correction": correction,
+                "originalAssumption": input.original_assumption,
+                "scope": input.scope,
+                "promotionRequirements": ["evidence", "counterexamples", "applicability", "human-review"],
+                "warning": "單次糾正不可直接升格為普遍規則",
+            })
+            .to_string(),
+            status: KnowledgeStatus::Candidate,
+            confidence: 0.7,
+            created_by: MemoryActor::Human,
+            evidence: vec![interaction_core::SourceRef {
+                url: Some(format!(
+                    "adaptive-interaction://memory/{}",
+                    memory.memory_id.as_str()
+                )),
+                segment: Some("user-correction".into()),
+                note: Some("使用者在控制中心明確提交的糾正；只支持此範圍，不代表普遍規則".into()),
+                ..Default::default()
+            }],
+            domains: vec!["learning-from-feedback".into()],
+            counterexamples: vec![],
+            applicability: input.scope.clone(),
+            version: 1,
+            supersedes: None,
+            review_after: Some(now + chrono::Duration::days(60)),
+            reviews: vec![],
+            created_at: now,
+            updated_at: now,
+            schema_version: SCHEMA_VERSION.into(),
+        };
+        validate_node(&node).map_err(DomainError::Validation)?;
+
+        let memory = self.memory_create(memory).await?;
+        self.persist_knowledge_node(&node)?;
+        let receipt = KnowledgeReceipt {
+            update_id: format!("kr-{}", uuid::Uuid::new_v4()),
+            triggered_by: "user-correction".into(),
+            agent_sessions: vec![],
+            sources: vec![format!(
+                "adaptive-interaction://memory/{}",
+                memory.memory_id.as_str()
+            )],
+            source_hashes: vec![],
+            changes: ReceiptChanges {
+                candidates_created: 1,
+                ..Default::default()
+            },
+            verification: ReceiptVerification {
+                schema_passed: true,
+                source_hashes_verified: false,
+                conflict_check: "unknown".into(),
+                human_reviewed: false,
+            },
+            published: ReceiptPublished {
+                metadata: true,
+                claims: false,
+            },
+            created_at: now,
+            schema_version: SCHEMA_VERSION.into(),
+        };
+        self.emit_knowledge_receipt(receipt.clone());
+        Ok(json!({
+            "memory": memory,
+            "candidate": node,
+            "decision": classify_update(UpdateTrigger::UserCorrection),
+            "knowledgeReceipt": receipt,
+        }))
+    }
+
     /// 寫入 receipt＋發 knowledge.updated 事件。
     pub(crate) fn emit_knowledge_receipt(&self, receipt: KnowledgeReceipt) {
         if let Ok(body) = serde_json::to_string(&receipt) {

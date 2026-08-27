@@ -206,6 +206,87 @@ async fn message_budget_is_a_hard_ceiling() {
 }
 
 #[tokio::test]
+async fn every_task_receives_and_persists_the_exact_session_scoped_context_bundle() {
+    let (home, rt) = runtime().await;
+    let now = chrono::Utc::now();
+    let mut rust = new_memory_item(
+        MemoryLayer::DomainKnowledge,
+        MemoryKind::Fact,
+        "Rust 驗證規則",
+        "先執行 cargo test",
+        MemoryActor::Human,
+        now,
+    );
+    rust.tags = vec!["rust".into()];
+    rt.memory_create(rust).await.unwrap();
+    let mut private = new_memory_item(
+        MemoryLayer::DomainKnowledge,
+        MemoryKind::Fact,
+        "財務資料",
+        "不可提供給此工作階段",
+        MemoryActor::Human,
+        now,
+    );
+    private.tags = vec!["finance".into()];
+    rt.memory_create(private).await.unwrap();
+
+    let mut input = create_input("agent.bundle");
+    input.data_scope = vec!["domain:rust".into()];
+    let session = rt.create_agent_session(input).await.unwrap();
+    let sid = session.session_id.as_str().to_string();
+    let sent = rt
+        .mailbox_send(
+            &sid,
+            MailboxDirection::ToSession,
+            "task",
+            BTreeMap::from([("task".into(), json!("修正 Rust 測試"))]),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let bundle = sent
+        .body
+        .get("contextBundle")
+        .expect("actual bundle attached");
+    assert_eq!(bundle["agentId"], "agent.bundle");
+    assert_eq!(bundle["domains"], json!(["rust"]));
+    let titles: Vec<&str> = bundle["includes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["title"].as_str())
+        .collect();
+    assert!(titles.contains(&"Rust 驗證規則"));
+    assert!(!titles.contains(&"財務資料"));
+
+    let record = rt.get_agent_session(&sid).await.unwrap();
+    let evidence = record
+        .context_bundles
+        .last()
+        .expect("bundle evidence persisted");
+    assert_eq!(evidence.message_id, sent.message_id);
+    assert_eq!(evidence.bundle, *bundle);
+    assert_eq!(evidence.content_hash.len(), 64);
+
+    rt.shutdown().await;
+    let restored = Runtime::start(RuntimeOptions {
+        home: Some(home.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+    let record = restored.get_agent_session(&sid).await.unwrap();
+    assert_eq!(
+        record.context_bundles.len(),
+        1,
+        "actual bundle survives restart as evidence"
+    );
+}
+
+#[tokio::test]
 async fn lease_expiry_kills_capabilities_and_refuses_renewal() {
     let (_g, rt) = runtime().await;
     let s = rt

@@ -5,14 +5,15 @@
 // 相容 tab 標題與導覽高亮。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { api, AgentSessionRecord } from "../api";
 import { AppStateProvider } from "../appstate";
 import { GlobalSearch } from "../components/GlobalSearch";
-import { MemoryKnowledgePage } from "../pages/MemoryKnowledgePage";
+import { MemoryKnowledgePage, parseSourceSegment } from "../pages/MemoryKnowledgePage";
 import { recordDroppedItems } from "../companion/CompanionApp";
 import { AiPage } from "../pages/AiPage";
+import { SettingsPage } from "../pages/SettingsPage";
 import { InboxSection } from "../pages/ActivityPage";
 import { NowStrip, ProactiveSummary } from "../pages/HomePage";
 import { navAnchorFor, SensorCountdown, titleFor } from "../App";
@@ -77,9 +78,10 @@ describe("GlobalSearch 緊急停止二段確認（不可單鍵誤觸）", () => 
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith("safety"));
   });
 
-  it("IME 組字的 Enter（isComposing）不執行、也不進入確認態", () => {
+  it("IME 組字的 Enter（isComposing）不執行、也不進入確認態", async () => {
     stubPaletteData();
     const { onEstop, onClose } = renderPalette();
+    await act(async () => {});
     const input = screen.getByPlaceholderText(/搜尋設定/);
     fireEvent.keyDown(input, { key: "Enter", isComposing: true });
     expect(onEstop).not.toHaveBeenCalled();
@@ -87,9 +89,10 @@ describe("GlobalSearch 緊急停止二段確認（不可單鍵誤觸）", () => 
     expect(screen.queryByText("立即停止一切？")).not.toBeInTheDocument();
   });
 
-  it("keyCode 229（WebKit IME commit）同樣被忽略", () => {
+  it("keyCode 229（WebKit IME commit）同樣被忽略", async () => {
     stubPaletteData();
     const { onEstop } = renderPalette();
+    await act(async () => {});
     const input = screen.getByPlaceholderText(/搜尋設定/);
     fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
     expect(onEstop).not.toHaveBeenCalled();
@@ -149,6 +152,58 @@ describe("MemoryKnowledgePage 匯出", () => {
     expect(await screen.findByText(/匯出失敗/)).toBeInTheDocument();
     expect(screen.queryByText("匯出結果")).not.toBeInTheDocument();
   });
+
+  it("從匯出 JSON 還原時逐筆經 human-only Runtime API 驗證", async () => {
+    vi.spyOn(api, "memoryList").mockResolvedValue({ items: [] });
+    const create = vi.spyOn(api, "memoryCreate").mockResolvedValue({});
+    render(<MemoryKnowledgePage refreshKey={0} />);
+    const file = new File(
+      [JSON.stringify({ count: 1, items: [{ layer: "user-memory", kind: "preference", title: "偏好", content: "簡短回答", retention: {} }] })],
+      "memory-backup.json",
+      { type: "application/json" }
+    );
+    await userEvent.upload(screen.getByLabelText("選擇記憶備份 JSON"), file);
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "偏好", content: "簡短回答" })
+    );
+    expect(await screen.findByText(/已還原 1 條/)).toBeInTheDocument();
+  });
+});
+
+describe("Source Viewer 真實媒體預覽", () => {
+  it("從 Runtime preview payload 顯示圖片，不使用硬編碼假資料", async () => {
+    vi.spyOn(api, "memoryList").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "assetsList").mockResolvedValue({
+      assets: [
+        {
+          hash: "a".repeat(64),
+          mediaType: "image",
+          sizeBytes: 68,
+          source: "user-import",
+          originalName: "pixel.png",
+        },
+      ],
+      count: 1,
+    });
+    vi.spyOn(api, "assetPreview").mockResolvedValue({
+      hash: "a".repeat(64),
+      mediaType: "image",
+      mime: "image/png",
+      sizeBytes: 68,
+      dataBase64: "iVBORw0KGgo=",
+      note: "runtime payload",
+    });
+    render(<MemoryKnowledgePage refreshKey={0} />);
+    await userEvent.click(screen.getByRole("tab", { name: "原始素材" }));
+    await userEvent.click(await screen.findByRole("button", { name: "開啟來源" }));
+    const viewer = await screen.findByTestId("source-media-viewer");
+    expect(within(viewer).getByRole("img")).toHaveAttribute(
+      "src",
+      "data:image/png;base64,iVBORw0KGgo="
+    );
+    expect(viewer).toHaveTextContent("runtime payload");
+  });
 });
 
 describe("小樞拖放記錄（等待實際結果）", () => {
@@ -196,33 +251,115 @@ describe("AiPage 關閉工作階段文案", () => {
     vi.spyOn(api, "agentsDiscoveries").mockResolvedValue({ agents: [] });
     vi.spyOn(api, "agentSessionsList").mockResolvedValue([record]);
     vi.spyOn(api, "agentSessionClose").mockResolvedValue(record);
-    render(<AiPage refreshKey={0} onNavigate={() => {}} />);
+    render(
+      <AppStateProvider ready={false} refreshKey={0}>
+        <AiPage refreshKey={0} onNavigate={() => {}} />
+      </AppStateProvider>
+    );
     await userEvent.click(await screen.findByRole("button", { name: "關閉" }));
     expect(
       await screen.findByText("工作階段已關閉（已要求終止子程序）。")
     ).toBeInTheDocument();
     expect(screen.queryByText(/子程序已終止/)).not.toBeInTheDocument();
   });
+
+  it("可從工作階段卡片明確續租，且只在後端成功後宣稱完成", async () => {
+    vi.spyOn(api, "agentsDiscoveries").mockResolvedValue({ agents: [] });
+    vi.spyOn(api, "agentSessionsList").mockResolvedValue([record]);
+    const renewed = {
+      ...record,
+      lease: { ...record.lease, expiresAt: "2026-01-01T01:30:00Z" },
+    };
+    const renew = vi.spyOn(api, "agentSessionRenew").mockResolvedValue(renewed);
+    render(
+      <AppStateProvider ready={false} refreshKey={0}>
+        <AiPage refreshKey={0} onNavigate={() => {}} />
+      </AppStateProvider>
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "續租 30 分鐘" }));
+    expect(renew).toHaveBeenCalledWith("s-1", 30);
+    expect(await screen.findByText(/已續租至/)).toBeInTheDocument();
+  });
+});
+
+describe("SettingsPage 資料管理與版本", () => {
+  it("顯示 Runtime 真實版本並提供匯出／還原入口", async () => {
+    vi.spyOn(api, "status").mockResolvedValue({ version: "0.4.0", schemaVersion: "0.4" });
+    const navigate = vi.fn();
+    render(
+      <AppStateProvider ready={false} refreshKey={0}>
+        <SettingsPage onRerunOnboarding={() => {}} onNavigate={navigate} />
+      </AppStateProvider>
+    );
+    expect(await screen.findByText(/Runtime 0\.4\.0/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "開啟匯出、還原與刪除" }));
+    expect(navigate).toHaveBeenCalledWith("memory");
+  });
+});
+
+describe("AiPage 限權寫入工作階段", () => {
+  it("必須有明確目錄與第二次確認，並傳送精確 scope", async () => {
+    vi.spyOn(api, "agentsDiscoveries").mockResolvedValue({ agents: [] });
+    vi.spyOn(api, "agentSessionsList").mockResolvedValue([]);
+    vi.spyOn(api, "agentsRouting").mockResolvedValue({ reason: "test" });
+    const create = vi
+      .spyOn(api, "agentSessionCreate")
+      .mockResolvedValue({} as AgentSessionRecord);
+    render(
+      <AppStateProvider ready={false} refreshKey={0}>
+        <AiPage refreshKey={0} onNavigate={() => {}} />
+      </AppStateProvider>
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "建立工作階段…" }));
+    const dialog = within(screen.getByRole("dialog", { name: "建立 AI 工作階段" }));
+    const submit = dialog.getByRole("button", { name: "同意並建立" });
+    await userEvent.click(dialog.getByRole("checkbox", { name: /允許 Agent 修改/ }));
+    expect(submit).toBeDisabled();
+    await userEvent.type(dialog.getByPlaceholderText(/path\/to\/project/), "/tmp/repo");
+    expect(submit).toBeDisabled();
+    await userEvent.click(dialog.getByRole("checkbox", { name: /我已確認上方工作目錄/ }));
+    expect(submit).toBeEnabled();
+    await userEvent.click(submit);
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workdir: "/tmp/repo",
+          allowWrite: true,
+          dataScope: ["workspace:/tmp/repo"],
+          toolScope: ["workspace.write"],
+          consentScope: ["agent-session:workspace-write"],
+        })
+      )
+    );
+  });
 });
 
 describe("待我決定計數誠實（收件匣與 NowStrip）", () => {
-  it("收件匣：查詢失敗顯示「無法確認」，不顯示綠色的沒有事項", async () => {
-    vi.spyOn(api, "aiAssistsList").mockRejectedValue(new Error("assists down"));
-    vi.spyOn(api, "agentSessionsList").mockResolvedValue([]);
-    vi.spyOn(api, "knowledgeList").mockResolvedValue({ nodes: [], count: 0 });
+  it("收件匣：Runtime 統一查詢失敗時誠實顯示錯誤", async () => {
+    vi.spyOn(api, "activityInbox").mockRejectedValue(new Error("inbox down"));
     render(<InboxSection refreshKey={0} onNavigate={() => {}} />);
-    expect(await screen.findByText("待我決定（無法確認）")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("部分狀態查詢失敗");
-    expect(screen.queryByText("目前沒有等待你決定的事項。")).not.toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("收件匣無法載入");
+    expect(screen.queryByText("目前沒有符合篩選條件的活動。")).not.toBeInTheDocument();
   });
 
-  it("收件匣：知識候選達查詢上限顯示 50+，不假裝精確", async () => {
-    vi.spyOn(api, "aiAssistsList").mockResolvedValue([]);
-    vi.spyOn(api, "agentSessionsList").mockResolvedValue([]);
-    vi.spyOn(api, "knowledgeList").mockResolvedValue({ nodes: [], count: 50 });
+  it("收件匣：複合 Agent/裝置/Domain 篩選送到同一 application service", async () => {
+    const inbox = vi.spyOn(api, "activityInbox").mockResolvedValue({
+      items: [],
+      count: 0,
+      totalBeforeLimit: 0,
+      pendingCount: 0,
+    });
     render(<InboxSection refreshKey={0} onNavigate={() => {}} />);
-    expect(await screen.findByText("待我決定（50+）")).toBeInTheDocument();
-    expect(screen.getByText("50+ 項等待複審")).toBeInTheDocument();
+    await screen.findByText("統一收件匣（待決定 0／共 0）");
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Agent"), "codex");
+    await user.type(screen.getByLabelText("裝置"), "camera");
+    await user.type(screen.getByLabelText("Domain"), "rust");
+    await waitFor(() =>
+      expect(inbox).toHaveBeenLastCalledWith(
+        expect.objectContaining({ agent: "codex", device: "camera", domain: "rust", limit: 200 })
+      )
+    );
   });
 
   it("NowStrip：查詢失敗顯示無法確認，不顯示綠色 0 項", async () => {
@@ -329,5 +466,16 @@ describe("v0.3 相容 tab 的標題與導覽歸屬", () => {
     expect(navAnchorFor("home")).toBe("home");
     expect(titleFor("home")).toBe("首頁");
     expect(titleFor("adv-recipes")).toBe("配方 YAML");
+  });
+});
+
+describe("Source Viewer 精確區域與時碼", () => {
+  it("解析圖像 region 與音視訊 time range，未知片段不猜測", () => {
+    expect(parseSourceSegment("region=10,20,30,40")).toEqual({
+      region: { x: 10, y: 20, width: 30, height: 40 },
+    });
+    expect(parseSourceSegment("t=12.5-30.2")).toEqual({ startSeconds: 12.5, endSeconds: 30.2 });
+    expect(parseSourceSegment("region=full")).toEqual({});
+    expect(parseSourceSegment("t=unknown")).toEqual({});
   });
 });

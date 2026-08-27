@@ -210,12 +210,27 @@ function Shell({
   const [trayError, setTrayError] = React.useState<string | null>(null);
   const [sensors, setSensors] = React.useState<import("./api").SensorUse[]>([]);
   const [searchOpen, setSearchOpen] = React.useState(false);
+  const [notificationOpen, setNotificationOpen] = React.useState(false);
+  const [inbox, setInbox] = React.useState<Record<string, unknown> | null>(null);
   // 全域搜尋指令的結果回報：失敗以警示列顯示（不得靜默），成功短暫提示。
   const [commandNotice, setCommandNotice] = React.useState<{
     message: string;
     ok: boolean;
   } | null>(null);
   const advanced = prefs.mode === "advanced";
+
+  React.useEffect(() => {
+    if (prefs.appearance === "light" || prefs.appearance === "dark") {
+      document.documentElement.dataset.theme = prefs.appearance;
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+    document.documentElement.classList.toggle("reduce-motion", prefs.reduceMotion === true);
+    document.body.style.zoom = String((prefs.scalePercent ?? 100) / 100);
+    return () => {
+      document.body.style.zoom = "";
+    };
+  }, [prefs.appearance, prefs.reduceMotion, prefs.scalePercent]);
 
   React.useEffect(() => {
     if (!commandNotice?.ok) return;
@@ -258,6 +273,10 @@ function Shell({
       .catch(() => {
         /* transient backend hiccup: keep last known state; next event retries */
       });
+    api
+      .activityInbox({ limit: 20 })
+      .then(setInbox)
+      .catch(() => setInbox(null));
   }, [connecting, refreshKey]);
 
   async function triggerEstop() {
@@ -357,6 +376,14 @@ function Shell({
           >
             <Icon name="search" size={15} /> 搜尋
           </button>
+          <button
+            className="notification-trigger"
+            onClick={() => setNotificationOpen((open) => !open)}
+            aria-label={`通知中心，${String(inbox?.pendingCount ?? "未知")} 項待決定`}
+            aria-expanded={notificationOpen}
+          >
+            通知 {inbox ? String(inbox.pendingCount ?? 0) : "?"}
+          </button>
           {/* 觸發是一鍵；「解除」刻意不在這裡 — 要走安全頁的恢復流程。 */}
           {estop ? (
             <button className="estop-indicator" onClick={() => setTab("safety")}>
@@ -371,6 +398,40 @@ function Shell({
             />
           )}
         </header>
+        {notificationOpen && (
+          <div className="notification-panel" role="dialog" aria-label="通知中心">
+            <div className="row space-between">
+              <strong>通知中心</strong>
+              <button onClick={() => setNotificationOpen(false)}>關閉</button>
+            </div>
+            {!inbox ? (
+              <div className="state-box state-error">目前無法確認通知狀態。</div>
+            ) : ((inbox.items as Record<string, unknown>[] | undefined) ?? []).filter(
+                (item) => item.needsDecision === true
+              ).length === 0 ? (
+              <div className="state-box">目前沒有待決定事項。</div>
+            ) : (
+              <ul className="plain-list">
+                {((inbox.items as Record<string, unknown>[] | undefined) ?? [])
+                  .filter((item) => item.needsDecision === true)
+                  .slice(0, 10)
+                  .map((item) => (
+                    <li key={`${String(item.kind)}-${String(item.itemId)}`}>
+                      <Badge kind="warn">{String(item.status)}</Badge> {String(item.title)}
+                    </li>
+                  ))}
+              </ul>
+            )}
+            <button
+              onClick={() => {
+                setTab("activity");
+                setNotificationOpen(false);
+              }}
+            >
+              開啟活動與確認
+            </button>
+          </div>
+        )}
         {estopError && (
           <div className="estop-banner" role="alert">
             ⚠️ 緊急停止指令失敗：{estopError} — 系統可能仍在運作，請立即重試，或直接關閉應用程式
@@ -650,7 +711,7 @@ function PageBody({
     case "activity":
       return <ActivityPage refreshKey={refreshKey} events={events} advanced={advanced} onNavigate={onNavigate} />;
     case "settings":
-      return <SettingsPage onRerunOnboarding={onRerunOnboarding} />;
+      return <SettingsPage onRerunOnboarding={onRerunOnboarding} onNavigate={onNavigate} />;
     case "adv-overview":
       return <OverviewPage refreshKey={refreshKey} />;
     case "adv-receptors":

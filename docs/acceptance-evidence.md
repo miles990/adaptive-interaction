@@ -238,16 +238,21 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
 
 ---
 
-# v0.4 驗收證據 — 2026-08-27
+# v0.4 驗收證據 — 2026-08-28
 
 全部證據可重跑；命令列於各節。基準：main@18037e5（v0.3.0）。
+本輪 closing 的二進位／畫面 SHA-256、真實 connector 與測試數字見
+[`v04-final-machine-evidence.md`](v04-final-machine-evidence.md)。
 
-## 回歸（v0.3 不變量全數保留；對抗審查修復後最終數字）
-- `cargo test --workspace` → **294/294 passed, 0 failed**（v0.3 基線 201 → +93；審查修復前 257）
+## 回歸（v0.3 不變量全數保留；本輪 2026-08-28 實測）
+- `cargo test --workspace` → **336 passed, 0 failed, 0 ignored**（v0.3 基線 201 → +135）
 - `cargo fmt --check`＋`cargo clippy --workspace --all-targets -- -D warnings` → 0 errors
-- `cd apps/interaction-desktop && pnpm typecheck && pnpm test` → typecheck 0 錯誤、vitest **81/81**（v0.3 基線 40 → +41；審查修復前 61）
-- `pnpm test:e2e` → Playwright **19/19**（v0.3 基線 11 → +8；真 daemon＋真 Chromium）
-- `./scripts/v03-cli-e2e.sh` → CLI E2E **42/42、exit 0**（v0.3 基線 12 → +30；真 daemon＋mock device＋fake agent 子程序）
+- `cargo test --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml` → **4 passed**
+- `cd apps/interaction-desktop && pnpm typecheck && pnpm test && pnpm build` →
+  typecheck/build 成功、vitest **94/94**（v0.3 基線 40 → +54）
+- `pnpm test:e2e` → Playwright **23/23**（v0.3 基線 11 → +12；真 daemon＋真 Chromium）
+- `./scripts/v03-cli-e2e.sh` → CLI E2E **51/51、exit 0**（v0.3 基線 12 → +39；
+  真 daemon＋限權 agent token＋mock device＋真 agent fixture 子程序）
 
 ## 對抗審查（v0.4；`.claude/workflows/adversarial-review-v04.js`，find→independent verify）
 - 8 個維度（presentation-honesty／gateway-safety／memory-privacy／knowledge-integrity／
@@ -276,6 +281,19 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
 - 21 項駁回皆有具體反證（例：AiPage「已送達」實為 gateway 即時轉發、Codex
   provider_session_id 於 start_session 已就緒），詳見 workflow journal。
 
+## 指定 closing 對抗審查（`.claude/workflows/adversarial-review-adaptive-interaction.js`）
+
+- Workflow `wf_856f48f8-3e9`／session `911ad58c-d833-4e34-942d-390126c27d95` 完成，
+  **41 agents、0 workflow errors、617 秒、36 findings → 12 confirmed／24 rejected**。
+- 先前提到的「存活約 85 分鐘」只是舊嘗試的 OS elapsed time，不是完成證據；本次以
+  workflow final output 與 journal 為準。
+- 12/12 確認缺陷均修復並加回歸：Governor 用量／費用 reservation 原子性、同 plan
+  single-flight、recipe direct-run policy bypass、late driver evidence、超大 duration、
+  mock 界限、supersede schema、restricted SSE、nested transport error、rolling hourly
+  window、equal-quality fusion、driver status-chain spoof。
+- Final output：`/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/911ad58c-d833-4e34-942d-390126c27d95/tasks/w0k3dcase.output`；
+  journal：`~/.claude/projects/-Users-user-Workspace-claude-lab-adaptive-interaction/911ad58c-d833-4e34-942d-390126c27d95/subagents/workflows/wf_856f48f8-3e9/journal.jsonl`。
+
 ## Presentation Provider（真實迴路）
 - 整合測試 `cargo test -p interaction-runtime --test presentation_loop`（8）：
   逐項 provider（7+7）、bubble dispatched→ack→completed（AcknowledgedOnly 證據）、
@@ -284,7 +302,7 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
 - CLI E2E：`presentation hello/status/ack` 七項檢查（含 HTTP 503 誠實拒絕）。
 
 ## 真實 Agent Connector（本機已登入 agent；無模型 API、無假接線）
-- 協定鎖定：`codex app-server generate-json-schema`（codex-cli 0.149.1；
+- 協定鎖定：`codex app-server generate-json-schema`（最初鎖定於 codex-cli 0.149.1；
   ClientRequest 95 方法／ServerNotification 75）；Claude stream-json 事件實錄樣本。
 - **真實連線驗收（2026-08-27，隔離 home，真 daemon）**：
   - `interact-ai agents providers --json` → claude-code 2.1.247（loggedIn:true）＋
@@ -295,6 +313,16 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
   - Codex session `asession-0fcb0a8d…`：app-server 握手→thread/start（read-only）→
     turn/start → state=claimed-completed、providerSessionId=01a04194-074f-7e92…
   - claims 落為 observation inferences（confidence 0.5）——實測輸出見上方 CLI 段
+- **本輪重驗（2026-08-27）**：Codex 0.150.1 與 Claude Code 2.1.247 都由
+  全新隔離 runtime home 建立只讀 Session。Codex app-server 產生的 request
+  `item/commandExecution/requestApproval \"/bin/zsh -lc 'cat README.md'\"` 先停在
+  `waiting-for-consent`，人類面只核可 request `0` 後才讀取；結果為
+  `claimed-completed`，Mailbox 文字另以 `rg` 對 README 標題獨立比對。Claude
+  stream-json 同樣回報 `claimed-completed`。兩者均有 Provider Session ID，
+  均沒有被作為 `verified`。
+- Codex 不支援 app-server 時的 `exec --json`／`exec resume` fallback 已實作；
+  本機新版實際走 app-server，fallback 以真子程序 fixture 驗證 safe args、
+  resume、malformed event 與 cancel。
 - 子程序樹終止：`gateway_loop` 測試以 pid 檔證明 estop 後 fixture 程序組死亡。
 - fake agent（`tests/fixtures/fake_claude.sh`）：CLI E2E 六項確定性檢查（絕不動用真額度）。
 
@@ -304,21 +332,24 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
 - `knowledge_loop`（6）：CAS write-once、claim 要證據、agent 只能 Candidate、
   agent approve 降留言、人類 approve→active、類比≠因果、supersede 版本化、
   FTS＋lexical-vector 候選、刪素材→disputed＋級聯。
-- `curator_loop`（4）＋curator 單元（3）：決策表（repo-commit 不用 AI、外部研究必先問）、
+- `curator_loop`（7）＋curator 單元：決策表（repo-commit 不用 AI、外部研究必先問）、
   freshness→stale、衝突雙方→disputed、經驗升格閘門（無反例＋適用範圍不可 approve）、
-  receipt 誠實欄位。
+  使用者糾正只建 UserMemory＋Knowledge Candidate、receipt 誠實欄位。
 
 ## 控制中心新 IA＋畫面證據
 - Playwright：8 一級頁可達、AI 頁 Consent Sheet、記憶知識頁、全域搜尋（⌘K）導頁、
   390px 底部導覽＋鍵盤＋無水平捲動、離線誠實畫面。
-- 畫面證據 `docs/assets/v04-evidence/`（**24 張，全部來自真 App＋真 daemon**）：
-  9 頁 × 桌面＋390px、全域搜尋、緊急停止（桌面＋390px）、離線；
+- 畫面證據 `docs/assets/v04-evidence/`（**100 張，全部來自真 App＋真 daemon**）：
+  9 頁 × desktop/390px × normal/empty、loading、error/unknown、waiting、emergency；
+  offline 為 app-level shared state，另有 desktop/390px；再含 hardware scan、Global Search；
   實機（Tauri dev、隔離 home）：`live-companion-shu-v2.png`
   （v2 貓系小樞於真實桌面、story first-meeting 真實觸發）、
   `live-control-center.png`（初次設定精靈＝初次使用狀態）。
-- 空白／初次使用狀態：以全新 home 的真實空狀態擷取（不硬編假資料）。
+- 空白／初次使用狀態：每個案例使用全新隔離 home 的真實空資料；loading 是延遲真請求，
+  error/unknown 是中斷一個真 transport request，waiting 建立真 Knowledge Candidate，
+  emergency 觸發真 estop；不注入成功假資料。
 
-## 已知限制（v0.4 誠實記錄；另見 capability-completion-matrix.md）
+## 已知限制（v0.4 初版歷史快照；已由下節取代）
 1. 單一扁平 API token 沿用（presentation ack／human review 面與 AI 面同 token；
    需 scoped token 才能完全分離——v0.3 已知限制①延續）。
 2. Codex exec fallback 未實作：app-server 不可用的舊版 codex 誠實拒絕建立 session。
@@ -338,3 +369,27 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
     leader＋command line 相同」，pid 重用且 command 完全相同的極端情況可能誤殺；
     daemon 在 close 的 kill 寬限期內崩潰時已 forget 的 pgid 不再被找回。
     程式註解逐一標明（agents.rs／runtime.rs）。
+
+## 已知限制（v0.4 最終 closing audit）
+
+1. Human、restricted Agent、Session/Domain capability token 已分層；同一 OS 帳號的
+   程序檔案可見性仍取決於 Codex／Claude Code 自身 sandbox。0600 token file 不被誤稱為
+   完整 OS 程序隔離。
+2. 本機向量是可重現的 sparse subword embedding，不宣稱為 neural embedding；介面保留
+   可替換索引。
+3. thumbnail 與 WAV features 有 production implementation；OCR、whisper、ffmpeg
+   derivative 依賴使用者本機已安裝工具，缺少時產生 `unavailable`，不以假輸出冒充。
+4. hardware discovery 只承諾「目前可見」；driver、權限、sandbox、未配對或裝置占用仍可
+   使設備不可見。Windows 尚未在真機驗收，會回傳具體 unsupported reason。
+5. Codex exec fallback 因本機 Codex 支援 app-server，無法強迫真 CLI 走舊版路徑；以真
+   子程序 fixture 驗證 JSON stream、resume、malformed event、cancel 與 process tree。
+6. Agent claim 一律停在 `claimed-completed`，本輪兩個真連線沒有被標為 verified；這是
+   誠實階梯，不是未接線。
+7. Offline 是整個 App 的 shared state；Runtime 離線時一級頁資料不可達，因此只提供一組
+   desktop/390px offline 證據，不複製九張內容相同的假頁面。
+8. 記憶 JSON 還原是逐筆、重新驗證、配置新 ID 的邏輯還原，不覆寫 SQLite；已成功項在後續
+   項失敗時保留並誠實回報，不宣稱跨筆 transaction。
+9. Unix orphan process 回收用持久化 pgid、leader 與 command identity；若不能唯一歸因就
+   fail-safe 放棄並寫 warning，避免誤殺外部 daemon。
+10. 本輪未 push、release、deploy、開 PR 或建立 commit；依 repo 規則需使用者明確授權，
+    不影響本機工程與驗收結果。

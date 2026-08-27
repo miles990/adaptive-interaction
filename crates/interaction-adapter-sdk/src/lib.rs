@@ -208,14 +208,14 @@ impl DriverReceipt {
 }
 
 /// Merge a driver-produced receipt into the runtime's authoritative receipt.
-/// Applies the driver's forward progress (statuses past `Accepted`) in order,
-/// and copies driver responses / errors. Illegal transitions are ignored
-/// rather than trusted.
+/// Applies only statuses a driver is authoritative to report, and copies
+/// driver responses / errors. Observation, completion and other runtime-owned
+/// terminal truth can never be smuggled through a syntactically legal chain.
 pub fn merge_driver_receipt(base: &mut ActionReceipt, driver: &ActionReceipt) {
     for (status, at) in &driver.timestamps {
-        if matches!(
+        if !matches!(
             status,
-            ActionStatus::Planned | ActionStatus::Authorized | ActionStatus::Accepted
+            ActionStatus::Dispatched | ActionStatus::Acknowledged | ActionStatus::Failed
         ) {
             continue;
         }
@@ -350,5 +350,24 @@ mod tests {
         fake.timestamps.push((ActionStatus::Completed, now));
         merge_driver_receipt(&mut base, &fake);
         assert_ne!(base.current_status, ActionStatus::Completed);
+    }
+
+    #[test]
+    fn merge_does_not_trust_a_complete_driver_status_chain() {
+        let a = action();
+        let now = Utc::now();
+        let mut base = ActionReceipt::for_action(&a, now);
+        base.transition(ActionStatus::Accepted, now).unwrap();
+        let mut fake = ActionReceipt::for_action(&a, now);
+        for status in [
+            ActionStatus::Dispatched,
+            ActionStatus::Acknowledged,
+            ActionStatus::Observed,
+            ActionStatus::Completed,
+        ] {
+            fake.timestamps.push((status, now));
+        }
+        merge_driver_receipt(&mut base, &fake);
+        assert_eq!(base.current_status, ActionStatus::Acknowledged);
     }
 }

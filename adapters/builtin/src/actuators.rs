@@ -506,11 +506,15 @@ impl MockActuator {
         .with_fact("actionId", action.action_id.as_str())
         .with_fact("magnitude", action.effective.magnitude.unwrap_or(0.0))
         .with_fact("state", "executed");
+        self.push_device_state(obs);
+    }
+
+    fn push_device_state(&self, observation: Observation) {
         let mut q = self.device_state.lock().expect("device state lock");
         if q.len() >= 64 {
             q.pop_front();
         }
-        q.push_back(obs);
+        q.push_back(observation);
     }
 }
 
@@ -553,20 +557,14 @@ impl Actuator for MockActuator {
                 .failed("device_error", "simulated failure")
                 .finish()),
             MockBehavior::NoAck => {
-                self.executed
-                    .lock()
-                    .expect("executed lock")
-                    .push(action.clone());
+                push_bounded(&self.executed, action.clone());
                 Ok(DriverReceipt::start(&action, Utc::now())
                     .dispatched()
                     .note("note", json!("dispatched but device stayed silent"))
                     .finish())
             }
             MockBehavior::Normal => {
-                self.executed
-                    .lock()
-                    .expect("executed lock")
-                    .push(action.clone());
+                push_bounded(&self.executed, action.clone());
                 self.record_device_state(&action);
                 Ok(DriverReceipt::start(&action, Utc::now())
                     .dispatched()
@@ -600,10 +598,7 @@ impl Actuator for MockActuator {
             Utc::now(),
         )
         .with_fact("state", "stopped");
-        self.device_state
-            .lock()
-            .expect("device state lock")
-            .push_back(obs);
+        self.push_device_state(obs);
         Ok(())
     }
 
@@ -615,10 +610,35 @@ impl Actuator for MockActuator {
             Utc::now(),
         )
         .with_fact("state", "re-armed");
-        self.device_state
-            .lock()
-            .expect("device state lock")
-            .push_back(obs);
+        self.push_device_state(obs);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod mock_bounds_tests {
+    use super::*;
+
+    #[test]
+    fn mock_bookkeeping_and_device_events_are_bounded() {
+        let values = Arc::new(Mutex::new(Vec::new()));
+        for value in 0..1_000 {
+            push_bounded(&values, value);
+        }
+        let retained = values.lock().unwrap();
+        assert_eq!(retained.len(), 256);
+        assert_eq!(retained[0], 744);
+        drop(retained);
+
+        let actuator = MockActuator::new("bounded.mock", "haptic");
+        for index in 0..1_000 {
+            actuator.push_device_state(
+                Observation::now(ReceptorId::new("bounded.status"), "test", Utc::now())
+                    .with_fact("index", index),
+            );
+        }
+        let states = actuator.device_state.lock().unwrap();
+        assert_eq!(states.len(), 64);
+        assert_eq!(states.front().unwrap().facts["index"], 936);
     }
 }

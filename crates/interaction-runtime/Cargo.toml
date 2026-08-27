@@ -16,6 +16,7 @@ interaction-registry = { workspace = true }
 interaction-adapter-declarative = { path = "../interaction-adapter-declarative" }
 adapters-media = { path = "../../adapters/media", default-features = false }
 sha2 = "0.10"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "pnm"] }
 interaction-policy = { workspace = true }
 interaction-recipe = { workspace = true }
 interaction-events = { workspace = true }
@@ -36,6 +37,8 @@ thiserror = { workspace = true }
 rand = { workspace = true }
 uuid = { workspace = true }
 dirs = { workspace = true }
+tempfile = { workspace = true }
+base64 = { workspace = true }
 
 [dev-dependencies]
 libc = "0.2"

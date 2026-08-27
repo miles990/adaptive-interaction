@@ -4,7 +4,7 @@
 # invariants (not just "ran ok"). Prints PASS/FAIL per check.
 set -uo pipefail
 
-ROOT="/Users/user/Workspace/claude-lab/adaptive-interaction"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$ROOT/target/debug/interact-ai"
 HOME_DIR="$(mktemp -d /tmp/v03-e2e.XXXXXX)"
 PORT=18811
@@ -15,6 +15,9 @@ bad()  { FAIL=$((FAIL+1)); echo "  FAIL: $1"; }
 check(){ if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (got '$2', want '$3')"; fi; }
 
 export INTERACT_AI_HOME="$HOME_DIR"
+# Always exercise the current source tree. A stale target/debug binary can
+# otherwise make this acceptance script report yesterday's Runtime truth.
+cargo build --manifest-path "$ROOT/Cargo.toml" -p interaction-cli >/dev/null || exit 1
 # Gateway 測試用 fake agent（真子程序、假模型；絕不動用真額度）。
 export INTERACT_AI_CLAUDE_BIN="$ROOT/crates/interaction-runtime/tests/fixtures/fake_claude.sh"
 mkdir -p "$HOME_DIR/config/adapters"
@@ -58,7 +61,23 @@ echo "apiHost: 127.0.0.1" > "$HOME_DIR/config/interaction.yaml"
 echo "apiPort: ${PORT}"  >> "$HOME_DIR/config/interaction.yaml"
 "$BIN" serve >/dev/null 2>&1 &
 DAEMON_PID=$!
+cleanup() {
+  kill "$DAEMON_PID" "$DEV_PID" 2>/dev/null || true
+  wait "$DAEMON_PID" "$DEV_PID" 2>/dev/null || true
+  if [[ "$HOME_DIR" == /tmp/v03-e2e.* && -d "$HOME_DIR" ]]; then
+    rm -rf -- "$HOME_DIR"
+  fi
+}
+trap cleanup EXIT INT TERM
 for i in $(seq 1 40); do "$BIN" status --json >/dev/null 2>&1 && break; sleep 0.25; done
+
+echo "== Scoped API token boundary =="
+RC=$("$BIN" --agent-scope status --json >/dev/null 2>&1; echo $?)
+check "restricted agent token can read status" "$RC" "0"
+RC=$("$BIN" --agent-scope session start --label forbidden --json >/dev/null 2>&1; echo $?)
+if [ "$RC" != "0" ]; then ok "restricted agent token cannot create/grant a human session"; else bad "agent token must not create session"; fi
+RC=$("$BIN" --agent-scope policy set '{"requireApprovalAt":"critical"}' --json >/dev/null 2>&1; echo $?)
+if [ "$RC" != "0" ]; then ok "restricted agent token cannot weaken policy"; else bad "agent token must not mutate policy"; fi
 
 echo "== Providers =="
 # The declarative device registered as a provider in Installed state.
@@ -99,8 +118,8 @@ echo "== Sensors (default off, consent-gated) =="
 RC=$("$BIN" sensors listen --ms 2000 --json >/dev/null 2>&1; echo $?)
 if [ "$RC" != "0" ]; then ok "microphone listen refused without consent"; else bad "listen should be refused"; fi
 # Mic receptor is registered but consent-gated (not available by default).
-AVAIL=$("$BIN" capabilities --json 2>/dev/null | python3 -c "import sys,json;print(next((r['availability'] for r in json.load(sys.stdin)['receptors'] if r['id']=='microphone.listen'),'MISSING'))")
-if [ "$AVAIL" != "available" ]; then ok "microphone default not available ($AVAIL)"; else bad "microphone should not be available by default"; fi
+AVAIL=$("$BIN" capabilities --include-unavailable --json 2>/dev/null | python3 -c "import sys,json;print(next((r['availability'] for r in json.load(sys.stdin)['receptors'] if r['id']=='microphone.listen'),'MISSING'))")
+if [ "$AVAIL" = "disabled" ]; then ok "microphone default disabled ($AVAIL)"; else bad "microphone must be present and disabled (got $AVAIL)"; fi
 
 echo "== Presentation Provider (v0.4) =="
 TOKEN=$(cat "$HOME_DIR/state/api-token")
@@ -129,8 +148,8 @@ check "bubble receipt is dispatched, not completed" "$ST" "dispatched"
 ST=$("$BIN" actions show "$AID" --json 2>/dev/null | J "d['currentStatus']")
 check "surface ack completes the receipt" "$ST" "completed"
 # Consent-gated presentation actuators start disabled.
-SND=$("$BIN" capabilities --json 2>/dev/null | python3 -c "import sys,json;print(next((a['availability'] for a in json.load(sys.stdin)['actuators'] if a['id']=='companion.sound.play'),'MISSING'))")
-if [ "$SND" != "available" ]; then ok "companion.sound.play default disabled ($SND)"; else bad "sound should be consent-gated"; fi
+SND=$("$BIN" capabilities --include-unavailable --json 2>/dev/null | python3 -c "import sys,json;print(next((a['availability'] for a in json.load(sys.stdin)['actuators'] if a['id']=='companion.sound.play'),'MISSING'))")
+if [ "$SND" = "disabled" ]; then ok "companion.sound.play default disabled ($SND)"; else bad "sound must be present and disabled (got $SND)"; fi
 
 echo "== Proactive dialogue (v0.4) =="
 "$BIN" proactive mode off --json >/dev/null 2>&1
@@ -140,6 +159,9 @@ check "proactive mode persisted" "$MODE" "off"
 QU=$("$BIN" proactive status --json 2>/dev/null | J "'set' if d.get('quietUntil') else 'missing'")
 check "quiet request recorded" "$QU" "set"
 "$BIN" proactive mode natural --json >/dev/null 2>&1
+"$BIN" proactive set --max-per-hour 4 --min-interval-minutes 11 --merge-window-seconds 25 --daily-sessions 2 --daily-cost-usd 0.5 --generative-agent claude-code --json >/dev/null 2>&1
+PAGENT=$("$BIN" proactive status --json 2>/dev/null | J "d['config']['generativeAgent']")
+check "proactive generative agent is explicit" "$PAGENT" "claude-code"
 
 echo "== Agent Gateway (v0.4, fake agent subprocess) =="
 FOUND=$("$BIN" agents providers --refresh --json 2>/dev/null | J "next((str(a['loggedIn']) for a in d['agents'] if a['kind']=='claude-code'),'MISSING')")
@@ -156,6 +178,8 @@ PSID=$("$BIN" agents show "$GSID" --json 2>/dev/null | J "d.get('providerSession
 check "provider session id recorded" "$PSID" "fake-123"
 RES=$("$BIN" agents messages "$GSID" --direction from-session --json 2>/dev/null | J "next((m['body'].get('summary','') for m in d if m['kind']=='result'),'MISSING')")
 check "result lands in mailbox" "$RES" "完成了（這是聲稱）"
+CBN=$("$BIN" agents show "$GSID" --json 2>/dev/null | J "len(d.get('contextBundles',[]))")
+check "exact context bundle receipt persisted on real task" "$CBN" "1"
 "$BIN" agents close "$GSID" --json >/dev/null 2>&1
 GST=$("$BIN" agents show "$GSID" --json 2>/dev/null | J "d['state']")
 check "gateway session closed kills subprocess" "$GST" "closed"
@@ -177,6 +201,14 @@ GONE=$("$BIN" memory show "$MID" --json >/dev/null 2>&1; echo $?)
 if [ "$GONE" != "0" ]; then ok "memory deletable (no permanent memory)"; else bad "memory should be deletable"; fi
 
 echo "== Knowledge system (v0.4) =="
+DP=$("$BIN" knowledge domain-packs --json 2>/dev/null | J "d['count']")
+check "ten built-in Domain Packs are listed" "$DP" "10"
+"$BIN" knowledge uninstall-pack task-planning --json >/dev/null 2>&1
+DPI=$("$BIN" knowledge domain-packs --json 2>/dev/null | J "next(e['installed'] for e in d['packs'] if e['pack']['id']=='task-planning')")
+check "Domain Pack uninstall persists in Runtime Truth" "$DPI" "False"
+"$BIN" knowledge install-pack task-planning --json >/dev/null 2>&1
+DPI=$("$BIN" knowledge domain-packs --json 2>/dev/null | J "next(e['installed'] for e in d['packs'] if e['pack']['id']=='task-planning')")
+check "Domain Pack can be restored" "$DPI" "True"
 AH=$("$BIN" assets import --text "會議紀錄：決定採用方案B" --json 2>/dev/null | J "d['hash']")
 [ -n "$AH" ] && ok "asset imported (CAS) $AH" || bad "asset import"
 AH2=$("$BIN" assets import --text "會議紀錄：決定採用方案B" --json 2>/dev/null | J "d['hash']")
@@ -185,6 +217,8 @@ check "same content = same hash (write-once)" "$AH2" "$AH"
 KID=$("$BIN" knowledge propose-claim --title "方案B已定案" --content "依會議紀錄" --evidence "[{\"assetHash\":\"$AH\"}]" --as-agent claude-code --json 2>/dev/null | J "d['nodeId']")
 KST=$("$BIN" knowledge show "$KID" --json 2>/dev/null | J "d['status']")
 check "agent proposal is candidate" "$KST" "candidate"
+INBOX=$("$BIN" inbox --status candidate --agent claude-code --json 2>/dev/null | J "d['pendingCount'] >= 1")
+check "unified CLI inbox filters candidate by agent" "$INBOX" "True"
 # agent approve → 降留言。
 "$BIN" knowledge review "$KID" approve --as-agent codex --json >/dev/null 2>&1
 KST=$("$BIN" knowledge show "$KID" --json 2>/dev/null | J "d['status']")
@@ -219,6 +253,4 @@ if [ "$RC" != "0" ]; then ok "estop blocks new agent sessions"; else bad "new se
 
 echo
 echo "RESULT: $PASS passed, $FAIL failed"
-kill $DAEMON_PID $DEV_PID 2>/dev/null
-rm -rf "$HOME_DIR"
 [ "$FAIL" -eq 0 ]

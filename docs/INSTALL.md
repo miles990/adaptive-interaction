@@ -92,7 +92,8 @@ cargo build --release -p interaction-cli
 
 ```text
 interact-ai daemon listening on http://127.0.0.1:8787
-token file: ~/.adaptive-interaction/state/api-token
+human token file: ~/.adaptive-interaction/state/api-token
+restricted agent token file: ~/.adaptive-interaction/state/api-agent-token
 ```
 
 > 💡 想把 `interact-ai` 裝進 PATH：`cargo install --path crates/interaction-cli`
@@ -129,9 +130,9 @@ flowchart LR
         cfg[("~/.adaptive-interaction<br/>config/ = 人類可編輯 YAML<br/>state/ = SQLite + token")]
         daemon --- cfg
     end
-    cli["CLI<br/>interact-ai …"] -->|"HTTP + Bearer token"| daemon
+    cli["Human CLI<br/>interact-ai …"] -->|"HTTP + human Bearer token"| daemon
     desktop["桌面控制中心<br/>（Tauri 2）"] -->|"同一套服務"| daemon
-    ai["任何 AI／Agent<br/>（Skill / Tool Calling / HTTP）"] -->|"HTTP + Bearer token"| daemon
+    ai["任何 AI／Agent<br/>（Skill / Tool Calling / HTTP）"] -->|"HTTP + restricted agent Bearer token"| daemon
 ```
 
 三種啟動模式：
@@ -158,7 +159,8 @@ pnpm tauri dev          # 開發模式啟動視窗
 
 ```bash
 # ① Skill＋Shell 型 AI（Claude Code、Codex CLI…）：
-#    把 skills/orchestrate-adaptive-interaction/ 裝進它的 skill 目錄即可
+#    把 skills/orchestrate-adaptive-interaction/ 裝進它的 skill 目錄；
+#    Skill 會用 interact-ai --agent-scope，不會讀 human token。
 
 # ② Function/Tool Calling 型 AI：匯出工具定義給宿主程式
 interact-ai tools export --format openai    --out tools-openai.json
@@ -166,9 +168,13 @@ interact-ai tools export --format anthropic --out tools-anthropic.json
 interact-ai tools export --format gemini    --out tools-gemini.json
 
 # ③ 自建 HTTP Host：完整規格
-curl -H "Authorization: Bearer $(cat ~/.adaptive-interaction/state/api-token)" \
+curl -H "Authorization: Bearer $(cat ~/.adaptive-interaction/state/api-agent-token)" \
      http://127.0.0.1:8787/v1/openapi.json
 ```
+
+`state/api-token` 只給人類控制面／桌面 App；不要放進 AI prompt、Agent env 或
+Context Bundle。restricted token 可以讀狀態、呼叫 canonical tools 與觸發安全停止，
+但不能授權、改 policy、發布知識或 clear estop。
 
 ## 7. 常見問題
 
@@ -176,7 +182,8 @@ curl -H "Authorization: Bearer $(cat ~/.adaptive-interaction/state/api-token)" \
 |---|---|
 | `daemon offline: cannot reach…`（exit 3） | daemon 沒開：先 `interact-ai serve` |
 | `another runtime (pid …) already holds…` | 已有一個 Runtime 在跑；先停掉它，或直接用 CLI 連現有的 |
-| 401 unauthorized | token 不對：CLI 會自動讀 `state/api-token`，跨機器連線要用 `--token` |
+| 401 unauthorized | token 不對：人類 CLI 讀 `state/api-token`；AI 應用 `--agent-scope` 或 `state/api-agent-token` |
+| 403 token_scope_forbidden | restricted agent token 正在存取 human-only 操作；不要重試或改讀 human token，回到人類控制中心處理 |
 | 執行回 423 / exit 7 | 緊急停止啟動中：`interact-ai emergency-stop --clear` 手動解除 |
 | 實體/模擬裝置不動 | 預設關閉是「特性」：先 `interact-ai actuators enable mock.actuator`＋`session consent channel:haptic` |
 

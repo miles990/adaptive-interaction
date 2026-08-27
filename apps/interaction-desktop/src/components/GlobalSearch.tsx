@@ -10,7 +10,15 @@ import { useAppState } from "../appstate";
 import { Icon } from "../icons";
 
 interface SearchItem {
-  kind: "page" | "command" | "capability" | "provider" | "session" | "memory" | "knowledge";
+  kind:
+    | "page"
+    | "command"
+    | "capability"
+    | "provider"
+    | "session"
+    | "memory"
+    | "knowledge"
+    | "receipt";
   label: string;
   detail?: string;
   action: () => void | Promise<void>;
@@ -78,8 +86,18 @@ export function GlobalSearch({
     let alive = true;
     void (async () => {
       const items: SearchItem[] = [];
-      try {
-        const sessions = await api.agentSessionsList();
+      const [sessionsResult, providersResult, memoryResult, knowledgeResult, packsResult, actionsResult, receiptsResult] =
+        await Promise.allSettled([
+          api.agentSessionsList(),
+          api.providersList(),
+          api.memoryList(undefined, 100),
+          api.knowledgeList(undefined, 100),
+          api.domainPacks(),
+          api.actionsList(100),
+          api.knowledgeReceipts(),
+        ]);
+      if (sessionsResult.status === "fulfilled") {
+        const sessions = sessionsResult.value;
         for (const s of sessions.slice(0, 30)) {
           items.push({
             kind: "session",
@@ -88,9 +106,20 @@ export function GlobalSearch({
             action: () => onNavigate("ai"),
           });
         }
-      } catch { /* offline */ }
-      try {
-        const mem = (await api.memoryList(undefined, 100)) as Record<string, unknown>;
+      }
+      if (providersResult.status === "fulfilled") {
+        for (const provider of providersResult.value.slice(0, 50)) {
+          const identity = (provider.identity as Record<string, unknown> | undefined) ?? {};
+          items.push({
+            kind: "provider",
+            label: `裝置／Provider：${String(identity.displayName ?? identity.id)}`,
+            detail: String(provider.state ?? identity.kind ?? ""),
+            action: () => onNavigate("capabilities"),
+          });
+        }
+      }
+      if (memoryResult.status === "fulfilled") {
+        const mem = memoryResult.value as Record<string, unknown>;
         for (const m of ((mem.items as Record<string, unknown>[]) ?? []).slice(0, 50)) {
           items.push({
             kind: "memory",
@@ -99,9 +128,9 @@ export function GlobalSearch({
             action: () => onNavigate("memory"),
           });
         }
-      } catch { /* offline */ }
-      try {
-        const kn = (await api.knowledgeList(undefined, 100)) as Record<string, unknown>;
+      }
+      if (knowledgeResult.status === "fulfilled") {
+        const kn = knowledgeResult.value as Record<string, unknown>;
         for (const n of ((kn.nodes as Record<string, unknown>[]) ?? []).slice(0, 50)) {
           items.push({
             kind: "knowledge",
@@ -110,7 +139,39 @@ export function GlobalSearch({
             action: () => onNavigate("memory"),
           });
         }
-      } catch { /* offline */ }
+      }
+      if (packsResult.status === "fulfilled") {
+        for (const entry of ((packsResult.value.packs as Record<string, unknown>[]) ?? []).slice(0, 20)) {
+          const pack = (entry.pack as Record<string, unknown> | undefined) ?? {};
+          items.push({
+            kind: "knowledge",
+            label: `Domain Pack：${String(pack.displayName)}`,
+            detail: `${String(pack.id)}・${entry.installed === true ? "已安裝" : "未安裝"}`,
+            action: () => onNavigate("memory"),
+          });
+        }
+      }
+      if (actionsResult.status === "fulfilled") {
+        for (const receipt of actionsResult.value.slice(0, 50)) {
+          items.push({
+            kind: "receipt",
+            label: `結果收據：${receipt.intent}`,
+            detail: receipt.currentStatus,
+            action: () => onNavigate("activity"),
+          });
+        }
+      }
+      if (receiptsResult.status === "fulfilled") {
+        const receipts = receiptsResult.value;
+        for (const receipt of ((receipts.receipts as Record<string, unknown>[]) ?? []).slice(0, 50)) {
+          items.push({
+            kind: "receipt",
+            label: `知識收據：${String(receipt.triggeredBy)}`,
+            detail: String(receipt.updateId),
+            action: () => onNavigate("memory"),
+          });
+        }
+      }
       if (alive) setDynamic(items);
     })();
     return () => {
@@ -169,7 +230,7 @@ export function GlobalSearch({
         kind: "command",
         label: "重新偵測裝置與 AI agent",
         doneMessage: "已完成重新偵測。",
-        action: () => api.agentsRefresh().then(() => {}),
+        action: () => Promise.all([api.agentsRefresh(), api.hardwareScan()]).then(() => {}),
       },
     ];
     const pages: SearchItem[] = PAGES.map((p) => ({
@@ -292,5 +353,7 @@ function kindLabel(kind: SearchItem["kind"]): string {
       return "記憶";
     case "knowledge":
       return "知識";
+    case "receipt":
+      return "收據";
   }
 }

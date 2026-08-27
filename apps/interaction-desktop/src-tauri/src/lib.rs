@@ -122,6 +122,22 @@ impl Backend {
             .map(|_| ()),
         }
     }
+
+    pub async fn presentation_pending_command(&self, action_id: &str) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => rt
+                .presentation_pending_command(action_id)
+                .map_err(|error| error.to_string()),
+            Backend::External { base, token } => {
+                supervisor::daemon_get(
+                    base,
+                    token,
+                    &format!("/v1/presentation/commands/{action_id}"),
+                )
+                .await
+            }
+        }
+    }
 }
 
 impl AppState {
@@ -796,9 +812,12 @@ async fn presentation_hello(
     state: State<'_, AppState>,
     visible: bool,
     pack_id: Option<String>,
+    behavior_state: Option<Value>,
 ) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    Ok(runtime.presentation_hello(visible, pack_id).await)
+    Ok(runtime
+        .presentation_hello_with_behavior(visible, pack_id, behavior_state)
+        .await)
 }
 
 #[tauri::command]
@@ -827,7 +846,10 @@ async fn proactive_dialogue_patch(
     patch: Value,
 ) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    runtime.proactive_dialogue_configure(patch).await.map_err(err_s)
+    runtime
+        .proactive_dialogue_configure(patch)
+        .await
+        .map_err(err_s)
 }
 
 #[tauri::command]
@@ -839,9 +861,7 @@ async fn proactive_dialogue_quiet(
     Ok(runtime.proactive_dialogue_quiet(minutes).await)
 }
 
-
 // ---- v0.4: agents / memory / knowledge / assets（embedded 模式指令） ----
-
 
 #[tauri::command]
 async fn providers_list(state: State<'_, AppState>) -> Result<Value, String> {
@@ -863,7 +883,7 @@ async fn agents_refresh(state: State<'_, AppState>) -> Result<Value, String> {
 #[tauri::command]
 async fn agents_routing(state: State<'_, AppState>, kind: Option<String>) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    Ok(runtime.agent_route_suggestion(kind.as_deref()))
+    Ok(runtime.agent_route_suggestion(kind.as_deref()).await)
 }
 
 #[tauri::command]
@@ -913,7 +933,11 @@ async fn memory_create(state: State<'_, AppState>, input: Value) -> Result<Value
 }
 
 #[tauri::command]
-async fn memory_patch(state: State<'_, AppState>, id: String, patch: Value) -> Result<Value, String> {
+async fn memory_patch(
+    state: State<'_, AppState>,
+    id: String,
+    patch: Value,
+) -> Result<Value, String> {
     let runtime = rt(&state)?;
     let item = runtime.memory_update(&id, patch).await.map_err(err_s)?;
     serde_json::to_value(item).map_err(err_s)
@@ -935,7 +959,10 @@ async fn memory_export(state: State<'_, AppState>) -> Result<Value, String> {
 #[tauri::command]
 async fn memory_clear_session(state: State<'_, AppState>) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    let n = runtime.memory_clear_session_context().await.map_err(err_s)?;
+    let n = runtime
+        .memory_clear_session_context()
+        .await
+        .map_err(err_s)?;
     Ok(json!({"cleared": n}))
 }
 
@@ -967,9 +994,34 @@ async fn knowledge_list(
 }
 
 #[tauri::command]
-async fn knowledge_search(state: State<'_, AppState>, q: String, k: Option<u32>) -> Result<Value, String> {
+async fn domain_packs(state: State<'_, AppState>) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    runtime.knowledge_search(&q, k.unwrap_or(10)).await.map_err(err_s)
+    runtime.domain_packs_list().map_err(err_s)
+}
+
+#[tauri::command]
+async fn domain_pack_install(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.domain_pack_install(&id).map_err(err_s)
+}
+
+#[tauri::command]
+async fn domain_pack_uninstall(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.domain_pack_uninstall(&id).map_err(err_s)
+}
+
+#[tauri::command]
+async fn knowledge_search(
+    state: State<'_, AppState>,
+    q: String,
+    k: Option<u32>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime
+        .knowledge_search(&q, k.unwrap_or(10))
+        .await
+        .map_err(err_s)
 }
 
 #[tauri::command]
@@ -1008,6 +1060,45 @@ async fn knowledge_receipts(state: State<'_, AppState>) -> Result<Value, String>
 }
 
 #[tauri::command]
+async fn knowledge_update_check(
+    state: State<'_, AppState>,
+    trigger: Value,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    // 更新決策器是純函式（advisory）：只回報「要不要更新／要不要 AI／
+    // 是否必須先問使用者」，不執行任何更新——與 HTTP 的
+    // /v1/knowledge/update-check 同一 application service。
+    let trigger: interaction_runtime::curator::UpdateTrigger =
+        serde_json::from_value(trigger).map_err(err_s)?;
+    Ok(runtime.knowledge_update_decision(trigger))
+}
+
+#[tauri::command]
+async fn knowledge_user_correction(
+    state: State<'_, AppState>,
+    input: Value,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let input: interaction_runtime::curator::UserCorrectionInput =
+        serde_json::from_value(input).map_err(err_s)?;
+    runtime.record_user_correction(input).await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn hardware_scan(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    serde_json::to_value(runtime.scan_hardware_capabilities().await).map_err(err_s)
+}
+
+#[tauri::command]
+async fn activity_inbox(state: State<'_, AppState>, filter: Value) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let filter: interaction_runtime::activity::ActivityInboxFilter =
+        serde_json::from_value(filter).map_err(err_s)?;
+    runtime.activity_inbox(filter).await.map_err(err_s)
+}
+
+#[tauri::command]
 async fn assets_list(state: State<'_, AppState>) -> Result<Value, String> {
     let runtime = rt(&state)?;
     runtime.asset_list(200).await.map_err(err_s)
@@ -1022,7 +1113,13 @@ async fn asset_import(
 ) -> Result<Value, String> {
     let runtime = rt(&state)?;
     let record = runtime
-        .asset_import(path.as_deref(), content.as_deref(), None, "user-import", description)
+        .asset_import(
+            path.as_deref(),
+            content.as_deref(),
+            None,
+            "user-import",
+            description,
+        )
         .await
         .map_err(err_s)?;
     serde_json::to_value(record).map_err(err_s)
@@ -1032,6 +1129,25 @@ async fn asset_import(
 async fn asset_impact(state: State<'_, AppState>, hash: String) -> Result<Value, String> {
     let runtime = rt(&state)?;
     runtime.asset_delete_impact(&hash).await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn asset_derivatives(state: State<'_, AppState>, hash: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let derivatives = runtime.asset_derivatives(&hash).await.map_err(err_s)?;
+    Ok(serde_json::json!({"derivatives": derivatives}))
+}
+
+#[tauri::command]
+async fn asset_preview(state: State<'_, AppState>, hash: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.asset_preview(&hash).await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn asset_derive(state: State<'_, AppState>, hash: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    serde_json::to_value(runtime.asset_derive(&hash).await.map_err(err_s)?).map_err(err_s)
 }
 
 #[tauri::command]
@@ -1045,7 +1161,6 @@ async fn agent_sessions_list(state: State<'_, AppState>) -> Result<Value, String
     let runtime = rt(&state)?;
     serde_json::to_value(runtime.list_agent_sessions().await).map_err(err_s)
 }
-
 
 #[tauri::command]
 async fn agent_session_create(state: State<'_, AppState>, input: Value) -> Result<Value, String> {
@@ -1134,7 +1249,27 @@ async fn desktop_prefs_patch(
                 obj.insert(k.clone(), val.clone());
             }
         }
-        *prefs = serde_json::from_value(v).map_err(err_s)?;
+        let candidate: DesktopPrefs = serde_json::from_value(v).map_err(err_s)?;
+        if !matches!(
+            candidate.close_behavior.as_deref(),
+            None | Some("keep-running") | Some("hide-companion") | Some("quit")
+        ) {
+            return Err("invalid closeBehavior".into());
+        }
+        if !(64.0..=1024.0).contains(&candidate.companion_size.0)
+            || !(64.0..=1024.0).contains(&candidate.companion_size.1)
+        {
+            return Err("companionSize must stay within 64..1024 logical pixels".into());
+        }
+        if !(0.2..=1.0).contains(&candidate.companion_opacity) {
+            return Err("companionOpacity must stay within 0.2..1.0".into());
+        }
+        if candidate.companion_position.is_some_and(|(x, y)| {
+            !(-20_000.0..=20_000.0).contains(&x) || !(-20_000.0..=20_000.0).contains(&y)
+        }) {
+            return Err("companionPosition is outside the supported desktop bounds".into());
+        }
+        *prefs = candidate;
         prefs.clone()
     };
     supervisor::save_prefs(&updated)?;
@@ -1258,9 +1393,13 @@ pub(crate) fn ensure_companion_window(app: &tauri::AppHandle) {
         return;
     }
     let state: State<'_, AppState> = app.state();
-    let (position, on_top) = {
+    let (position, size, on_top) = {
         let prefs = state.prefs.lock().expect("prefs mutex");
-        (prefs.companion_position, prefs.companion_always_on_top)
+        (
+            prefs.companion_position,
+            prefs.companion_size,
+            prefs.companion_always_on_top,
+        )
     };
     let mut builder = tauri::WebviewWindowBuilder::new(
         app,
@@ -1268,7 +1407,7 @@ pub(crate) fn ensure_companion_window(app: &tauri::AppHandle) {
         tauri::WebviewUrl::App("index.html".into()),
     )
     .title("小樞")
-    .inner_size(200.0, 210.0)
+    .inner_size(size.0, size.1)
     .resizable(false)
     .maximizable(false)
     .minimizable(false)
@@ -1341,10 +1480,8 @@ fn spawn_companion_clickthrough(app: tauri::AppHandle) {
             let ry = pos.y as f64 + rect.1 * scale;
             let rw = rect.2 * scale;
             let rh = rect.3 * scale;
-            let on_character = cursor.x >= rx
-                && cursor.x < rx + rw
-                && cursor.y >= ry
-                && cursor.y < ry + rh;
+            let on_character =
+                cursor.x >= rx && cursor.x < rx + rw && cursor.y >= ry && cursor.y < ry + rh;
             let want_ignore = !on_character;
             if want_ignore != ignoring {
                 let _ = win.set_ignore_cursor_events(want_ignore);
@@ -1387,20 +1524,129 @@ async fn companion_apply_prefs(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let (visible, on_top) = {
+    let (visible, position, size, opacity, on_top) = {
         let prefs = state.prefs.lock().expect("prefs mutex");
-        (prefs.companion_visible, prefs.companion_always_on_top)
+        (
+            prefs.companion_visible,
+            prefs.companion_position,
+            prefs.companion_size,
+            prefs.companion_opacity,
+            prefs.companion_always_on_top,
+        )
     };
     if visible {
         ensure_companion_window(&app);
         if let Some(w) = app.get_webview_window("companion") {
             let _ = w.set_always_on_top(on_top);
+            let _ = w.set_size(tauri::LogicalSize::new(size.0, size.1));
+            if let Some((x, y)) = position {
+                let _ = w.set_position(tauri::LogicalPosition::new(x, y));
+            }
         }
+        let _ = app.emit("companion-opacity", opacity);
         let _ = app.emit("companion-reload", ());
     } else if let Some(w) = app.get_webview_window("companion") {
         let _ = w.hide();
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn companion_reset_position(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    {
+        let mut prefs = state.prefs.lock().expect("prefs mutex");
+        prefs.companion_position = None;
+        supervisor::save_prefs(&prefs)?;
+    }
+    if let Some(window) = app.get_webview_window("companion") {
+        window.close().map_err(err_s)?;
+    }
+    ensure_companion_window(&app);
+    Ok(())
+}
+
+/// Apply only a governor-authorized `companion.window.adjust` command. The
+/// WebView supplies an action id, never the native parameters: those are read
+/// back from the Runtime's pending-command registry to prevent authority
+/// widening at the JS/native boundary.
+#[tauri::command]
+async fn companion_window_adjust(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    action_id: String,
+) -> Result<Value, String> {
+    let backend = state
+        .backend()
+        .ok_or_else(|| "runtime is not available".to_string())?;
+    let pending = backend.presentation_pending_command(&action_id).await?;
+    if pending.get("command").and_then(Value::as_str) != Some("window-adjust") {
+        return Err("action is not an authorized companion window adjustment".into());
+    }
+    let params = pending
+        .get("params")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "authorized window adjustment has no parameters".to_string())?;
+
+    let (position, size, opacity, on_top) = {
+        let mut prefs = state.prefs.lock().expect("prefs mutex");
+        let current_position = prefs.companion_position.unwrap_or((0.0, 0.0));
+        let position = (
+            params
+                .get("x")
+                .and_then(Value::as_f64)
+                .unwrap_or(current_position.0),
+            params
+                .get("y")
+                .and_then(Value::as_f64)
+                .unwrap_or(current_position.1),
+        );
+        let size = (
+            params
+                .get("width")
+                .and_then(Value::as_f64)
+                .unwrap_or(prefs.companion_size.0),
+            params
+                .get("height")
+                .and_then(Value::as_f64)
+                .unwrap_or(prefs.companion_size.1),
+        );
+        let opacity = params
+            .get("opacity")
+            .and_then(Value::as_f64)
+            .unwrap_or(prefs.companion_opacity);
+        let on_top = params
+            .get("alwaysOnTop")
+            .and_then(Value::as_bool)
+            .unwrap_or(prefs.companion_always_on_top);
+        prefs.companion_position = Some(position);
+        prefs.companion_size = size;
+        prefs.companion_opacity = opacity;
+        prefs.companion_always_on_top = on_top;
+        supervisor::save_prefs(&prefs)?;
+        (position, size, opacity, on_top)
+    };
+
+    let window = app
+        .get_webview_window("companion")
+        .ok_or_else(|| "companion window is not present".to_string())?;
+    window
+        .set_position(tauri::LogicalPosition::new(position.0, position.1))
+        .map_err(err_s)?;
+    window
+        .set_size(tauri::LogicalSize::new(size.0, size.1))
+        .map_err(err_s)?;
+    window.set_always_on_top(on_top).map_err(err_s)?;
+    app.emit("companion-opacity", opacity).map_err(err_s)?;
+    Ok(json!({
+        "actionId": action_id,
+        "position": position,
+        "size": size,
+        "opacity": opacity,
+        "alwaysOnTop": on_top,
+    }))
 }
 
 #[tauri::command]
@@ -1798,6 +2044,8 @@ pub fn run() {
             companion_set_interactive,
             companion_open_control_center,
             companion_apply_prefs,
+            companion_window_adjust,
+            companion_reset_position,
             agent_sessions_list,
             agent_session_send,
             agent_session_close,
@@ -1824,13 +2072,23 @@ pub fn run() {
             memory_clear_session,
             memory_bundle,
             knowledge_list,
+            domain_packs,
+            domain_pack_install,
+            domain_pack_uninstall,
             knowledge_search,
             knowledge_get,
             knowledge_review,
             knowledge_graph,
             knowledge_receipts,
+            knowledge_update_check,
+            knowledge_user_correction,
+            hardware_scan,
+            activity_inbox,
             assets_list,
             asset_import,
+            asset_derivatives,
+            asset_preview,
+            asset_derive,
             asset_impact,
             asset_delete,
             sensors_stop,

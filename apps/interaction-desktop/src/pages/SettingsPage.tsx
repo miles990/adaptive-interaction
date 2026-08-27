@@ -3,12 +3,19 @@
 import React from "react";
 import { api } from "../api";
 import { useAppState } from "../appstate";
-import { Section, Toggle } from "../ui";
+import { Section, Toggle, useAsync } from "../ui";
 import { desktop, DesktopPrefs, isTauri } from "../desktop";
 
-export function SettingsPage({ onRerunOnboarding }: { onRerunOnboarding: () => void }) {
-  const { prefs, setMode } = useAppState();
+export function SettingsPage({
+  onRerunOnboarding,
+  onNavigate,
+}: {
+  onRerunOnboarding: () => void;
+  onNavigate: (tab: string) => void;
+}) {
+  const { prefs, setMode, setPreferences } = useAppState();
   const [error, setError] = React.useState<string | null>(null);
+  const [runtime] = useAsync(() => api.status(), []);
 
   return (
     <div>
@@ -32,6 +39,52 @@ export function SettingsPage({ onRerunOnboarding }: { onRerunOnboarding: () => v
         {error && <p className="cap-card-error" role="alert">{error}</p>}
       </Section>
 
+      <Section title="語言、外觀與可及性">
+        <div className="settings-grid">
+          <label className="field-label">
+            介面語言
+            <select
+              value={prefs.locale}
+              onChange={(event) => void setPreferences({ locale: event.target.value })}
+            >
+              <option value="zh-TW">繁體中文</option>
+            </select>
+          </label>
+          <label className="field-label">
+            外觀
+            <select
+              value={prefs.appearance ?? "system"}
+              onChange={(event) =>
+                void setPreferences({ appearance: event.target.value as "system" | "dark" | "light" })
+              }
+            >
+              <option value="system">跟隨系統</option>
+              <option value="dark">深色</option>
+              <option value="light">淺色</option>
+            </select>
+          </label>
+          <label className="field-label">
+            介面縮放 {prefs.scalePercent ?? 100}%
+            <input
+              type="range"
+              min={80}
+              max={150}
+              step={10}
+              value={prefs.scalePercent ?? 100}
+              onChange={(event) => void setPreferences({ scalePercent: Number(event.target.value) })}
+            />
+          </label>
+        </div>
+        <Toggle
+          checked={prefs.reduceMotion === true}
+          onChange={(on) => setPreferences({ reduceMotion: on })}
+          label="減少非必要動畫（會與作業系統 Reduced Motion 一併生效）"
+        />
+        <p className="muted small">
+          安全狀態、文字標籤與鍵盤焦點不會因減少動畫而消失。音效、語音、通知與勿擾使用「能力與裝置」及「隱私與安全」中的同一 Runtime 設定。
+        </p>
+      </Section>
+
       <Section title="首次設定">
         <p className="muted small">
           重新執行首次設定精靈，重新選擇感知來源、回應方式與互動偏好。已有的設定不會被清除，
@@ -46,6 +99,31 @@ export function SettingsPage({ onRerunOnboarding }: { onRerunOnboarding: () => v
 
       <DesktopLifecycleSection />
 
+      <Section title="資料備份、還原與重設">
+        <p className="muted small">
+          記憶頁提供可讀 JSON 備份、逐筆驗證還原、期限修改、匯出與刪除；原始素材及其衍生物會在刪除前顯示影響預覽。重新執行首次設定不會清除既有資料。
+        </p>
+        <div className="row wrap">
+          <button onClick={() => onNavigate("memory")}>開啟匯出、還原與刪除</button>
+          <button onClick={onRerunOnboarding}>重設互動設定精靈</button>
+        </div>
+      </Section>
+
+      <Section title="更新與版本">
+        {runtime.loading ? (
+          <p className="muted small">正在讀取 Runtime 版本…</p>
+        ) : runtime.error ? (
+          <p className="state-box state-error">目前無法確認版本：{runtime.error}</p>
+        ) : (
+          <p className="muted small">
+            Runtime {String(runtime.data?.version ?? "未知")}・Schema {String(runtime.data?.schemaVersion ?? "未知")}
+          </p>
+        )}
+        <p className="muted small">
+          更新不會自動安裝或替換執行檔；正式發布仍由簽章 Release 流程處理，避免背景更新繞過驗證。
+        </p>
+      </Section>
+
       <Section title="關於名稱">
         <p className="muted small">
           你在各能力「詳情」中自訂的名稱只影響顯示，不影響行為或安全規則；
@@ -59,6 +137,7 @@ export function SettingsPage({ onRerunOnboarding }: { onRerunOnboarding: () => v
 /** 主動式對話：模式與頻率由 Rust 確定性強制；此處只是設定介面。 */
 function ProactiveDialogueSection() {
   const [status, setStatus] = React.useState<Record<string, unknown> | null>(null);
+  const [agents, setAgents] = React.useState<Record<string, unknown>[]>([]);
   const [error, setError] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
@@ -71,16 +150,29 @@ function ProactiveDialogueSection() {
   }, []);
   React.useEffect(() => {
     void load();
+    void api
+      .agentsDiscoveries()
+      .then((result) => setAgents((result.agents as Record<string, unknown>[] | undefined) ?? []))
+      .catch(() => setAgents([]));
   }, [load]);
 
   const config = (status?.config as Record<string, unknown> | undefined) ?? {};
   const mode = String(config.mode ?? "natural");
+  const custom = (config.custom as Record<string, unknown> | undefined) ?? {};
   const quietUntil = status?.quietUntil ? new Date(String(status.quietUntil)) : null;
   const quietActive = quietUntil !== null && quietUntil.getTime() > Date.now();
 
   const setMode = async (m: string) => {
     try {
       setStatus(await api.proactiveDialoguePatch({ mode: m }));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const patch = async (value: Record<string, unknown>) => {
+    try {
+      setStatus(await api.proactiveDialoguePatch(value));
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -104,6 +196,127 @@ function ProactiveDialogueSection() {
           <option value="custom">自訂——個別選擇訊息類型</option>
         </select>
       </label>
+      {mode === "custom" && (
+        <fieldset>
+          <legend>自訂觸發類型</legend>
+          {(
+            [
+              ["taskProgress", "任務進度"],
+              ["completion", "任務完成"],
+              ["suggestion", "情境建議"],
+              ["greeting", "問候"],
+              ["companionship", "輕量陪伴"],
+              ["worldEvent", "世界觀小事件"],
+            ] as const
+          ).map(([key, label]) => (
+            <label className="row" key={key}>
+              <input
+                type="checkbox"
+                checked={custom[key] === true}
+                onChange={(event) => void patch({ custom: { ...custom, [key]: event.target.checked } })}
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+      )}
+      <div className="settings-grid">
+        <label className="field-label">
+          每小時最多則數
+          <input
+            type="number"
+            min={1}
+            max={12}
+            value={Number(config.maxPerHour ?? 3)}
+            onChange={(event) => void patch({ maxPerHour: Number(event.target.value) })}
+          />
+        </label>
+        <label className="field-label">
+          最短間隔（分鐘）
+          <input
+            type="number"
+            min={1}
+            max={60}
+            value={Number(config.minIntervalMinutes ?? 12)}
+            onChange={(event) => void patch({ minIntervalMinutes: Number(event.target.value) })}
+          />
+        </label>
+        <label className="field-label">
+          事件合併窗（秒）
+          <input
+            type="number"
+            min={5}
+            max={300}
+            value={Number(config.mergeWindowSeconds ?? 30)}
+            onChange={(event) => void patch({ mergeWindowSeconds: Number(event.target.value) })}
+          />
+        </label>
+      </div>
+      <label className="row">
+        <input
+          type="checkbox"
+          checked={config.noFollowUp !== false}
+          onChange={(event) => void patch({ noFollowUp: event.target.checked })}
+        />
+        沒有回覆時不追問
+      </label>
+      <label className="row">
+        <input
+          type="checkbox"
+          checked={config.dndDefer !== false}
+          onChange={(event) => void patch({ dndDefer: event.target.checked })}
+        />
+        勿擾時段延後非必要訊息
+      </label>
+      <hr />
+      <h4>生成式主動訊息（本機 Agent）</h4>
+      <p className="muted small">
+        未選擇 Agent 時只保留本機微反應與固定安全提示。選擇不會授予讀檔、工具、網路或行動權；每次使用獨立唯讀 Session。
+      </p>
+      <label className="field-label">
+        指定 Agent（不自動改送）
+        <select
+          value={String(config.generativeAgent ?? "")}
+          onChange={(event) => void patch({ generativeAgent: event.target.value || null })}
+        >
+          <option value="">不使用生成式主動訊息</option>
+          <option value="codex">Codex</option>
+          <option value="claude-code">Claude Code</option>
+        </select>
+      </label>
+      <div className="muted small">
+        {agents.map((agent) => (
+          <span key={String(agent.kind)} style={{ marginRight: 12 }}>
+            {String(agent.kind)}：{agent.found === true && agent.loggedIn === true ? "可用" : String(agent.detail ?? "不可用")}
+          </span>
+        ))}
+      </div>
+      <div className="settings-grid">
+        <label className="field-label">
+          每日 Session 上限
+          <input
+            type="number"
+            min={0}
+            max={50}
+            value={Number(config.dailyGenerativeSessions ?? 8)}
+            onChange={(event) => void patch({ dailyGenerativeSessions: Number(event.target.value) })}
+          />
+        </label>
+        <label className="field-label">
+          每日費用上限（USD）
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step="0.1"
+            value={Number(config.dailyGenerativeCostUsd ?? 1)}
+            onChange={(event) => void patch({ dailyGenerativeCostUsd: Number(event.target.value) })}
+          />
+        </label>
+      </div>
+      <p className="muted small">
+        今日已建立 {String((status?.generativeToday as Record<string, unknown> | undefined)?.sessions ?? 0)} 個生成式 Session，費用回報 USD {String((status?.generativeToday as Record<string, unknown> | undefined)?.costUsd ?? 0)}。
+      </p>
       <p className="muted small">
         本小時已發送 {String(status?.sentThisHour ?? 0)} 則。
         {quietActive && quietUntil

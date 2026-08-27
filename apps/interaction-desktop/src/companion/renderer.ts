@@ -9,12 +9,34 @@ export interface PackManifest {
   kind: string;
   id: string;
   name: Record<string, string>;
+  description?: Record<string, string>;
+  author?: string;
+  version?: string;
+  license?: string;
+  generator?: string;
   frameSize: [number, number];
   anchor: [number, number];
   sheet: string;
   columns: number;
   animations: Record<string, { frames: number[]; fps: number; loop: boolean }>;
+  /** Optional per-frame landmarks used only for bounded procedural overlays. */
+  anchors?: {
+    idle?: Array<{
+      eyeL: [number, number];
+      eyeR: [number, number];
+      pupilR: number;
+      earL: [number, number];
+      earR: [number, number];
+    }>;
+  };
   preview?: string;
+}
+
+export interface MicroMotionOverlay {
+  gazeX: number;
+  gazeY: number;
+  earBias: number;
+  intensity: number;
 }
 
 /** Safe fallback order when an animation is missing from a pack. */
@@ -42,6 +64,7 @@ const FALLBACKS: Record<string, string[]> = {
 export interface RendererBackend {
   setAnimation(name: string, frameSlice?: [number, number]): void;
   setReducedMotion(on: boolean): void;
+  setMicroMotion(motion: MicroMotionOverlay): void;
   destroy(): void;
 }
 
@@ -56,6 +79,7 @@ export class SpriteRenderer implements RendererBackend {
   private raf = 0;
   private reducedMotion = false;
   private scale: number;
+  private micro: MicroMotionOverlay = { gazeX: 0, gazeY: 0, earBias: 0, intensity: 0 };
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -102,6 +126,16 @@ export class SpriteRenderer implements RendererBackend {
 
   setReducedMotion(on: boolean) {
     this.reducedMotion = on;
+  }
+
+  setMicroMotion(motion: MicroMotionOverlay) {
+    const clamp = (v: number) => Math.max(-1, Math.min(1, Number.isFinite(v) ? v : 0));
+    this.micro = {
+      gazeX: clamp(motion.gazeX),
+      gazeY: clamp(motion.gazeY),
+      earBias: clamp(motion.earBias),
+      intensity: Math.max(0, Math.min(1, Number.isFinite(motion.intensity) ? motion.intensity : 0)),
+    };
   }
 
   destroy() {
@@ -160,6 +194,44 @@ export class SpriteRenderer implements RendererBackend {
       w * dpr,
       h * dpr
     );
+    this.drawMicroMotion(globalFrame, dpr);
+  }
+
+  /**
+   * 程序化疊加只在有正式 landmarks 的 idle 幀啟用。它不改真實狀態圖示、
+   * 不接收任意程式碼，也不追蹤游標；舊 pack 沒 anchors 就安全 no-op。
+   */
+  private drawMicroMotion(globalFrame: number, dpr: number) {
+    if (this.reducedMotion || this.micro.intensity <= 0) return;
+    const idleIndex = this.manifest.animations.idle?.frames.indexOf(globalFrame) ?? -1;
+    const anchor = idleIndex >= 0 ? this.manifest.anchors?.idle?.[idleIndex] : undefined;
+    if (!anchor) return;
+    const unit = this.scale * dpr;
+    const gx = this.micro.gazeX * 1.7;
+    const gy = this.micro.gazeY * 1.15;
+    this.ctx.save();
+    this.ctx.globalAlpha = 0.22 + this.micro.intensity * 0.28;
+    this.ctx.fillStyle = "#d7fbff";
+    for (const [x, y] of [anchor.eyeL, anchor.eyeR]) {
+      this.ctx.beginPath();
+      this.ctx.arc((x + gx) * unit, (y + gy) * unit, 1.15 * unit, 0, Math.PI * 2);
+      this.ctx.fill();
+    }
+    // 耳尖的注意力線：左右相反偏轉，幅度小且延遲於視線。
+    this.ctx.strokeStyle = "#8ce7f2";
+    this.ctx.lineWidth = Math.max(1, 0.75 * unit);
+    for (const [anchorPoint, side] of [
+      [anchor.earL, -1],
+      [anchor.earR, 1],
+    ] as const) {
+      const [x, y] = anchorPoint;
+      const bend = this.micro.earBias * side * 1.6;
+      this.ctx.beginPath();
+      this.ctx.moveTo(x * unit, (y - 1) * unit);
+      this.ctx.lineTo((x + bend) * unit, (y - 4.2) * unit);
+      this.ctx.stroke();
+    }
+    this.ctx.restore();
   }
 }
 
@@ -184,6 +256,29 @@ export function validateManifest(m: unknown): string[] {
     if (!(a.fps > 0 && a.fps <= 30)) issues.push(`animation ${name}: fps out of range`);
     if ((a.frames ?? []).some((f) => !Number.isInteger(f) || f < 0 || f > 4096))
       issues.push(`animation ${name}: frame index out of range`);
+  }
+  const idleAnchors = man.anchors?.idle;
+  if (idleAnchors !== undefined) {
+    const idleFrames = man.animations?.idle?.frames.length ?? 0;
+    if (!Array.isArray(idleAnchors) || idleAnchors.length !== idleFrames) {
+      issues.push("anchors.idle must match idle frame count");
+    } else {
+      for (const [i, a] of idleAnchors.entries()) {
+        const points = [a.eyeL, a.eyeR, a.earL, a.earR];
+        if (
+          points.some(
+            (p) =>
+              !Array.isArray(p) ||
+              p.length !== 2 ||
+              p.some((n) => typeof n !== "number" || !Number.isFinite(n))
+          ) ||
+          typeof a.pupilR !== "number" ||
+          !Number.isFinite(a.pupilR)
+        ) {
+          issues.push(`anchors.idle[${i}] invalid`);
+        }
+      }
+    }
   }
   return issues;
 }

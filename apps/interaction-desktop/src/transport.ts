@@ -73,10 +73,16 @@ async function http(method: string, path: string, body?: unknown): Promise<unkno
     json = text;
   }
   if (!res.ok) {
+    const record = json && typeof json === "object" ? (json as Record<string, unknown>) : null;
+    const nested =
+      record?.error && typeof record.error === "object"
+        ? (record.error as Record<string, unknown>)
+        : null;
     const detail =
-      json && typeof json === "object" && "message" in (json as Record<string, unknown>)
-        ? String((json as Record<string, unknown>).message)
-        : text || res.statusText;
+      (nested && typeof nested.message === "string" && nested.message) ||
+      (record && typeof record.message === "string" && record.message) ||
+      text ||
+      res.statusText;
     throw new Error(`${res.status}: ${detail}`);
   }
   return json;
@@ -134,6 +140,15 @@ const ROUTES: Record<string, Route> = {
       confidence: a.confidence,
     }),
   providers_list: () => http("GET", "/v1/providers"),
+  hardware_scan: () => http("POST", "/v1/hardware/scan"),
+  activity_inbox: (a) => {
+    const filter = (a.filter ?? {}) as Record<string, unknown>;
+    const params = new URLSearchParams();
+    Object.entries(filter).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && String(value).trim()) params.set(key, String(value));
+    });
+    return http("GET", `/v1/activity/inbox${params.size ? `?${params}` : ""}`);
+  },
   agents_discoveries: () => http("GET", "/v1/agents"),
   agents_refresh: () => http("POST", "/v1/agents/refresh"),
   agents_routing: (a) => http("GET", `/v1/agents/routing${a.kind ? `?kind=${q(a.kind)}` : ""}`),
@@ -164,12 +179,19 @@ const ROUTES: Record<string, Route> = {
       "GET",
       `/v1/knowledge/nodes?limit=${q(a.limit ?? 100)}${a.status ? `&status=${q(a.status)}` : ""}`
     ),
+  domain_packs: () => http("GET", "/v1/knowledge/domain-packs"),
+  domain_pack_install: (a) => http("POST", `/v1/knowledge/domain-packs/${q(a.id)}/install`),
+  domain_pack_uninstall: (a) => http("DELETE", `/v1/knowledge/domain-packs/${q(a.id)}`),
   knowledge_search: (a) => http("GET", `/v1/knowledge/search?q=${q(a.q)}&k=${q(a.k ?? 10)}`),
   knowledge_get: (a) => http("GET", `/v1/knowledge/nodes/${q(a.id)}`),
   knowledge_review: (a) =>
     http("POST", `/v1/knowledge/nodes/${q(a.id)}/review`, { verdict: a.verdict, note: a.note }),
   knowledge_graph: (a) => http("GET", `/v1/knowledge/nodes/${q(a.id)}/graph`),
   knowledge_receipts: () => http("GET", "/v1/knowledge/receipts"),
+  knowledge_update_check: (a) =>
+    http("POST", "/v1/knowledge/update-check", { trigger: a.trigger }),
+  knowledge_user_correction: (a) =>
+    http("POST", "/v1/knowledge/user-corrections", a.input),
   assets_list: () => http("GET", "/v1/assets"),
   asset_import: (a) =>
     http("POST", "/v1/assets/import", {
@@ -177,6 +199,9 @@ const ROUTES: Record<string, Route> = {
       content: a.content,
       description: a.description,
     }),
+  asset_derivatives: (a) => http("GET", `/v1/assets/${q(a.hash)}/derivatives`),
+  asset_derive: (a) => http("POST", `/v1/assets/${q(a.hash)}/derive`),
+  asset_preview: (a) => http("GET", `/v1/assets/${q(a.hash)}/preview`),
   asset_impact: (a) => http("GET", `/v1/assets/${q(a.hash)}/impact`),
   asset_delete: (a) => http("DELETE", `/v1/assets/${q(a.hash)}`),
   proactive_dialogue_get: () => http("GET", "/v1/proactive-dialogue"),
@@ -185,7 +210,11 @@ const ROUTES: Record<string, Route> = {
     http("POST", "/v1/proactive-dialogue/quiet", { minutes: a.minutes }),
   presentation_status: () => http("GET", "/v1/presentation"),
   presentation_hello: (a) =>
-    http("POST", "/v1/presentation/hello", { visible: a.visible, packId: a.packId }),
+    http("POST", "/v1/presentation/hello", {
+      visible: a.visible,
+      packId: a.packId,
+      behaviorState: a.behaviorState,
+    }),
   presentation_ack: (a) =>
     http("POST", "/v1/presentation/ack", {
       actionId: a.actionId,

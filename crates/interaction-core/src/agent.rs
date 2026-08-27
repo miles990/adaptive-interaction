@@ -182,6 +182,10 @@ pub struct AgentSessionRecord {
     /// Consent scopes granted TO this session (die with it).
     #[serde(default)]
     pub consent_scope: Vec<String>,
+    /// Whether this leased session may modify files inside its single workspace.
+    /// Defaults false for backward compatibility; it cannot be upgraded after creation.
+    #[serde(default)]
+    pub allow_write: bool,
     pub budget: SessionBudget,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegation: Option<DelegationEnvelope>,
@@ -197,6 +201,22 @@ pub struct AgentSessionRecord {
     /// 供進階詳情與續開（resume）；不是 runtime 的 session 身分。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_session_id: Option<String>,
+    /// Exact deterministic Context Bundles actually attached to dispatched
+    /// task messages. This is bounded evidence, not a transcript; it lets the
+    /// human verify what memory/knowledge crossed the session boundary.
+    #[serde(default)]
+    pub context_bundles: Vec<AgentContextBundleReceipt>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentContextBundleReceipt {
+    pub bundle_id: String,
+    pub message_id: String,
+    pub generated_at: Timestamp,
+    /// SHA-256 of the canonical serialized `bundle` below.
+    pub content_hash: String,
+    pub bundle: serde_json::Value,
 }
 
 /// What survives a session: a bounded, structured summary. No chat logs, no

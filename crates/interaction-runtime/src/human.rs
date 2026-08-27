@@ -38,7 +38,7 @@ const MAX_PENDING_ASSISTS: usize = 32;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct PauseState {
     pub paused: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -69,11 +69,23 @@ impl PauseState {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct UiPreferences {
     /// `simple` (default) or `advanced`.
     pub mode: String,
     pub locale: String,
+    /// `system` / `dark` / `light`; presentation only.
+    pub appearance: String,
+    /// Control Center zoom, bounded to preserve reachability at 390px.
+    pub scale_percent: u16,
+    /// Explicitly reduce non-essential motion in addition to the OS setting.
+    pub reduce_motion: bool,
+    /// User-disabled local connectors. Runtime session creation enforces this.
+    #[serde(default)]
+    pub disabled_agents: Vec<String>,
+    /// User-selected primary agent per semantic role. This affects routing
+    /// suggestions only; it never falls back to another provider implicitly.
+    pub agent_routes: BTreeMap<String, String>,
     /// Presentation-only custom names, keyed `receptor:<id>` / `actuator:<id>`
     /// / `tool:<name>` / `recipe:<id>`. Never changes safety facts.
     #[serde(default)]
@@ -83,9 +95,20 @@ pub struct UiPreferences {
 
 impl Default for UiPreferences {
     fn default() -> Self {
+        let agent_routes = BTreeMap::from([
+            ("conversation".into(), "claude-code".into()),
+            ("programming".into(), "codex".into()),
+            ("knowledge".into(), "claude-code".into()),
+            ("review".into(), "claude-code".into()),
+        ]);
         Self {
             mode: "simple".into(),
             locale: "zh-TW".into(),
+            appearance: "system".into(),
+            scale_percent: 100,
+            reduce_motion: false,
+            disabled_agents: Vec::new(),
+            agent_routes,
             custom_names: BTreeMap::new(),
             schema_version: interaction_core::SCHEMA_VERSION.into(),
         }
@@ -305,6 +328,39 @@ impl Runtime {
                 "mode must be 'simple' or 'advanced', got {:?}",
                 updated.mode
             )));
+        }
+        if !matches!(updated.appearance.as_str(), "system" | "dark" | "light") {
+            return Err(DomainError::Validation(format!(
+                "appearance must be system, dark, or light; got {:?}",
+                updated.appearance
+            )));
+        }
+        if !(80..=150).contains(&updated.scale_percent) {
+            return Err(DomainError::Validation(
+                "scalePercent must be within 80..150".into(),
+            ));
+        }
+        if updated.disabled_agents.len() > 2
+            || updated
+                .disabled_agents
+                .iter()
+                .any(|id| !matches!(id.as_str(), "codex" | "claude-code"))
+        {
+            return Err(DomainError::Validation(
+                "disabledAgents may contain only codex and claude-code".into(),
+            ));
+        }
+        const ROUTE_KEYS: &[&str] = &["conversation", "programming", "knowledge", "review"];
+        if updated.agent_routes.len() > ROUTE_KEYS.len()
+            || updated.agent_routes.iter().any(|(role, agent)| {
+                !ROUTE_KEYS.contains(&role.as_str())
+                    || !matches!(agent.as_str(), "codex" | "claude-code" | "none")
+            })
+        {
+            return Err(DomainError::Validation(
+                "agentRoutes supports conversation/programming/knowledge/review with codex, claude-code, or none"
+                    .into(),
+            ));
         }
         if updated.custom_names.len() > 256 {
             return Err(DomainError::Validation(

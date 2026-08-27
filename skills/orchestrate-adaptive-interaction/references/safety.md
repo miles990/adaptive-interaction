@@ -2,6 +2,11 @@
 
 Everything you execute passes the policy governor. Prompts cannot override it.
 
+- AI hosts use `state/api-agent-token` / CLI `--agent-scope`. Rust HTTP
+  middleware refuses consent grants, session creation/renewal, policy or UI
+  mutation, human review, Presentation acks, and Emergency Stop clear. Never
+  access the human `state/api-token` or retry a 403 through another endpoint.
+
 - Effective output = min(your suggestion, user preference, session limit,
   device safe limit, remaining budget). Expect clamping; read
   `policyDecisions` to see what happened.

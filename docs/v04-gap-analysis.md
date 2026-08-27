@@ -4,6 +4,30 @@
 回歸基線（2026-08-27 實測）：Rust workspace **201/201**、vitest **42/42**（+2 出貨
 pack 驗證）、Playwright 瀏覽器 E2E **11/11**、CLI E2E **12/12**。
 
+> 本文前半是 Phase 0 當時快照，不回寫歷史。Closing audit 見下方。
+
+## Closing audit（2026-08-28）
+
+Phase 0 的歷史快照保留在下方。最終實作與獨立對抗審查收斂後，嚴格 Capability
+Matrix 為 **25/25 complete、0 partial、0 missing**。本輪關閉：
+
+- Presentation Provider／角色預設能力／小樞 v2／Behavior Runtime 與程序化視線耳朵疊加。
+- 五種主動對話政策、`behaviorIntent` 白名單、Codex app-server＋exec fallback、
+  Claude stream-json／resume／限權寫入、Gateway／Cancel／Approval／Process tree。
+- Human／Agent token 分權，agent 子程序不繼承 Runtime token。
+- 10 層記憶、CAS、Knowledge Graph／FTS5／Candidate workflow、更新決策、
+  使用者糾正入口、Knowledge Receipt 與 Companion 固定文案。
+- 17 類 metadata-only 硬體 discovery 模型，以及 macOS `system_profiler`、Linux stable
+  by-id 的真實列舉；Runtime／API／CLI／Onboarding／控制中心閉環。
+- 控制中心八個要求頁＋Automation 相容頁、Global Search／Command Palette、複合
+  Activity filters、Consent／Receipt／圖像區域與音視訊時間段 Source Viewer。
+- 生成式主動觸發器建立真實限權 Agent Session；Context Bundle 自動附上並保存；
+  本機 sparse subword embedding；thumbnail／WAV features 與可選 OCR/whisper/ffmpeg；
+  Session/Domain token；100 張 desktop／390px 狀態矩陣。
+
+逐欄 N/A 理由與保留限制見 `docs/capability-completion-matrix.md`；完整測試與畫面
+證據見 `docs/v04-final-machine-evidence.md`。
+
 ## Phase 0 已修
 
 - **出貨 persona pack 整包失效**（v0.3 回歸）：對抗審查後把 `succeeded-verified`

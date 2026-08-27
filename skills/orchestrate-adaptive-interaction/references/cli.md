@@ -1,7 +1,12 @@
 # CLI reference (`interact-ai`)
 
 Global flags: `--json` (machine output, stdout only), `--config <home>`,
-`--api <url>`, `--token <t>`, `--dry-run`, `--quiet`, `--verbose`, `--no-color`.
+`--api <url>`, `--token <t>`, `--agent-scope`, `--dry-run`, `--quiet`,
+`--verbose`, `--no-color`.
+
+When you are an AI, always add global `--agent-scope`. It reads the restricted
+`state/api-agent-token`; never read or request the human `state/api-token`.
+Human-only commands then fail closed with exit 4 / `token_scope_forbidden`.
 
 Exit codes: 0 ok · 1 error · 3 daemon offline · 4 policy/auth refused ·
 5 not found · 6 conflict/session · 7 emergency-stop locked.
@@ -25,7 +30,10 @@ interact-ai stop --all           # cancel all open actions (soft)
 interact-ai emergency-stop [--reason R]   # hard stop; --clear re-arms
 ```
 
-## Sessions & consent
+## Sessions & consent（human-only 參考）
+
+以 `--agent-scope` 執行下列建立／授權／續租指令會固定失敗。AI 只能建議人類在
+控制中心或 human CLI 執行，不可改讀 human token。
 ```bash
 interact-ai session start [--label L] [--ttl-minutes N] [--consent channel:haptic]
 interact-ai session show
@@ -94,6 +102,7 @@ step, and the runtime refuses shortcut transitions.
 
 ```bash
 interact-ai providers list
+interact-ai providers scan                                      # metadata only; never starts sensors
 interact-ai providers show <provider-id>
 interact-ai providers pair <provider-id> --code <pairing-code>   # sha256 fingerprint; an IP is never identity
 interact-ai providers transition <provider-id> --state installed|disabled|available
@@ -144,6 +153,7 @@ interact-ai agents providers --refresh --json
 interact-ai agents route --kind code --json  # deterministic routing suggestion (advice only)
 # Real subprocess sessions (read-only/plan mode; no credentials touched):
 interact-ai agents create --agent claude-code --workdir /path --ttl 30 --max-cost 0.5 --json
+# Human-only creation can add --allow-write after the UI/CLI shows the explicit workdir preview.
 interact-ai agents send <sid> --kind task --body '{"task":"..."}'   # forwarded into the agent process
 interact-ai agents show <sid> --json         # claimed-completed is a CLAIM, never verified
 interact-ai agents messages <sid> --direction from-session --json   # results / approval-requests
@@ -160,6 +170,10 @@ interact-ai proactive status|mode <m>|quiet --minutes 60   # deterministic frequ
 ```
 
 ## v0.4: Memory / assets / knowledge
+
+下列直接管理指令是 human/control-plane 參考；`--agent-scope` 會拒絕記憶、素材、
+審核與發布端點。AI 讀取／提案應只使用 `interaction.knowledge_*` canonical
+tools，寫入一律只會成為 Candidate。
 
 ```bash
 interact-ai memory list --layer domain-know-how --json     # fact≠inference≠candidate labeled

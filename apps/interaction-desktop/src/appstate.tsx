@@ -9,6 +9,7 @@ import { api, HumanCapabilities, PauseState, UiPreferences } from "./api";
 export interface AppStateValue {
   prefs: UiPreferences;
   setMode: (mode: "simple" | "advanced") => Promise<void>;
+  setPreferences: (patch: Partial<UiPreferences>) => Promise<void>;
   setCustomName: (key: string, name: string | null) => Promise<void>;
   pause: PauseState;
   refreshPause: () => Promise<void>;
@@ -28,6 +29,16 @@ export interface CardLookup {
 const DEFAULT_PREFS: UiPreferences = {
   mode: "simple",
   locale: "zh-TW",
+  appearance: "system",
+  scalePercent: 100,
+  reduceMotion: false,
+  disabledAgents: [],
+  agentRoutes: {
+    conversation: "claude-code",
+    programming: "codex",
+    knowledge: "claude-code",
+    review: "claude-code",
+  },
   customNames: {},
   schemaVersion: "1.0",
 };
@@ -104,6 +115,10 @@ export function AppStateProvider({
     prefs,
     setMode: async (mode) => {
       const updated = await api.uiPrefsPatch({ mode });
+      setPrefs(updated);
+    },
+    setPreferences: async (patch) => {
+      const updated = await api.uiPrefsPatch(patch as Record<string, unknown>);
       setPrefs(updated);
     },
     setCustomName: async (key, name) => {

@@ -70,8 +70,9 @@ impl Runtime {
             serde_json::from_value(v).map_err(|e| DomainError::Validation(e.to_string()))?;
         let patched_at = Utc::now();
         updated.updated_at = patched_at;
-        // flat token 無法辨識呼叫者：agent 建立的項目在 PATCH 時重套 actor
-        // 規則（只降不升），kind／retention 補丁不得成為解除候選降權的側門。
+        // API 已將 human/agent token 分權；此處仍重套 actor 規則作為
+        // 非 HTTP 呼叫者的 defense-in-depth。kind／retention 補丁只降不升，
+        // 不得成為解除候選降權的側門。
         apply_actor_rules(&mut updated, patched_at);
         validate_memory_item(&updated).map_err(DomainError::Validation)?;
         item = updated;
@@ -202,6 +203,18 @@ impl Runtime {
         let mut excluded_sensitive = 0u32;
         let mut bytes = 0usize;
 
+        // Built-in Domain Packs are installed local reference data. They are
+        // included only when the Session explicitly names the exact domain;
+        // an empty scope remains fail-closed and means none.
+        for entry in self.domain_pack_context_entries(domains)? {
+            let size = serde_json::to_vec(&entry).map_or(BUNDLE_MAX_BYTES + 1, |value| value.len());
+            if included.len() >= BUNDLE_MAX_ITEMS || bytes + size > BUNDLE_MAX_BYTES {
+                break;
+            }
+            bytes += size;
+            included.push(entry);
+        }
+
         let mut items: Vec<MemoryItem> = bodies
             .iter()
             .filter_map(|b| serde_json::from_str(b).ok())
@@ -244,12 +257,15 @@ impl Runtime {
             if item.kind == MemoryKind::Candidate {
                 continue;
             }
-            // Domain 過濾：知識類必須命中請求的 domain tags（空=全部）。
+            // Domain 過濾：知識類必須命中 Session 明確授權的 domain。
+            // 空集合不是「全部」；它代表 Session 沒有 Domain Knowledge
+            // grant，因此 fail closed，避免新 Session 靜默取得整個知識庫。
             let domain_layer = matches!(
                 item.layer,
                 MemoryLayer::DomainKnowledge | MemoryLayer::DomainKnowHow | MemoryLayer::Skill
             );
-            if domain_layer && !domains.is_empty() && !item.tags.iter().any(|t| domains.contains(t))
+            if domain_layer
+                && (domains.is_empty() || !item.tags.iter().any(|t| domains.contains(t)))
             {
                 continue;
             }
@@ -270,6 +286,7 @@ impl Runtime {
         Ok(json!({
             "task": task,
             "agentId": agent_id,
+            "domains": domains,
             "generatedAt": now,
             "includes": included,
             "excluded": {

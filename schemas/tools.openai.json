@@ -703,11 +703,26 @@
         "parameters": {
           "additionalProperties": false,
           "properties": {
+            "applicability": {
+              "type": "string"
+            },
             "confidence": {
               "type": "number"
             },
             "content": {
               "type": "string"
+            },
+            "counterexamples": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "domains": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "evidence": {
               "items": {
@@ -725,7 +740,9 @@
           "required": [
             "supersedes",
             "title",
-            "content"
+            "content",
+            "evidence",
+            "domains"
           ],
           "type": "object"
         }

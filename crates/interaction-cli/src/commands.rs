@@ -348,7 +348,12 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
         return Ok(0);
     }
 
-    let client = Client::new(cli.config.as_deref(), cli.api.clone(), cli.token.clone())?;
+    let client = Client::new(
+        cli.config.as_deref(),
+        cli.api.clone(),
+        cli.token.clone(),
+        cli.agent_scope,
+    )?;
     let (status, value): (u16, Value) = match &cli.command {
         Command::Status => client.get("/v1/status").await?,
         Command::Health => client.get("/health").await?,
@@ -385,6 +390,22 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             crate::SensorsAction::Stop => client.post("/v1/sensors/stop", Some(json!({}))).await?,
         },
         Command::Knowledge { action } => match action {
+            crate::KnowledgeAction::DomainPacks => {
+                client.get("/v1/knowledge/domain-packs").await?
+            }
+            crate::KnowledgeAction::InstallPack { id } => {
+                client
+                    .post(
+                        &format!("/v1/knowledge/domain-packs/{id}/install"),
+                        Some(json!({})),
+                    )
+                    .await?
+            }
+            crate::KnowledgeAction::UninstallPack { id } => {
+                client
+                    .delete(&format!("/v1/knowledge/domain-packs/{id}"))
+                    .await?
+            }
             crate::KnowledgeAction::Search { query, k } => {
                 client
                     .get(&format!(
@@ -479,6 +500,22 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                     )
                     .await?
             }
+            crate::KnowledgeAction::Correct {
+                original,
+                correction,
+                scope,
+            } => {
+                client
+                    .post(
+                        "/v1/knowledge/user-corrections",
+                        Some(json!({
+                            "originalAssumption": original,
+                            "correction": correction,
+                            "scope": scope,
+                        })),
+                    )
+                    .await?
+            }
         },
         Command::Assets { action } => match action {
             crate::AssetsAction::Import {
@@ -495,6 +532,12 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             }
             crate::AssetsAction::List => client.get("/v1/assets").await?,
             crate::AssetsAction::Show { hash } => client.get(&format!("/v1/assets/{hash}")).await?,
+            crate::AssetsAction::Derive { hash } => {
+                client.post(&format!("/v1/assets/{hash}/derive"), None).await?
+            }
+            crate::AssetsAction::Derivatives { hash } => {
+                client.get(&format!("/v1/assets/{hash}/derivatives")).await?
+            }
             crate::AssetsAction::Impact { hash } => {
                 client.get(&format!("/v1/assets/{hash}/impact")).await?
             }
@@ -565,6 +608,40 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             crate::ProactiveAction::Mode { mode } => {
                 client
                     .patch("/v1/proactive-dialogue", json!({"mode": mode}))
+                    .await?
+            }
+            crate::ProactiveAction::Set {
+                max_per_hour,
+                min_interval_minutes,
+                merge_window_seconds,
+                no_follow_up,
+                dnd_defer,
+                daily_sessions,
+                daily_cost_usd,
+                generative_agent,
+            } => {
+                let mut patch = serde_json::Map::new();
+                for (key, value) in [
+                    ("maxPerHour", max_per_hour.map(Value::from)),
+                    ("minIntervalMinutes", min_interval_minutes.map(Value::from)),
+                    ("mergeWindowSeconds", merge_window_seconds.map(Value::from)),
+                    ("noFollowUp", no_follow_up.map(Value::from)),
+                    ("dndDefer", dnd_defer.map(Value::from)),
+                    ("dailyGenerativeSessions", daily_sessions.map(Value::from)),
+                    ("dailyGenerativeCostUsd", daily_cost_usd.map(Value::from)),
+                ] {
+                    if let Some(value) = value {
+                        patch.insert(key.into(), value);
+                    }
+                }
+                if let Some(agent) = generative_agent {
+                    patch.insert(
+                        "generativeAgent".into(),
+                        if agent == "none" { Value::Null } else { json!(agent) },
+                    );
+                }
+                client
+                    .patch("/v1/proactive-dialogue", Value::Object(patch))
                     .await?
             }
             crate::ProactiveAction::Quiet { minutes } => {
@@ -648,6 +725,7 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                 ttl,
                 max_messages,
                 workdir,
+                allow_write,
                 max_cost,
             } => {
                 client
@@ -659,6 +737,9 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                             "ttlMinutes": ttl,
                             "maxMessages": max_messages,
                             "workdir": workdir,
+                            "allowWrite": allow_write,
+                            "toolScope": if *allow_write { json!(["workspace.write"]) } else { json!([]) },
+                            "consentScope": if *allow_write { json!(["agent-session:workspace-write"]) } else { json!([]) },
                             "maxCost": max_cost,
                         })),
                     )
@@ -720,6 +801,9 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             }
         },
         Command::Providers { action } => match action {
+            crate::ProvidersAction::Scan => {
+                client.post("/v1/hardware/scan", Some(json!({}))).await?
+            }
             crate::ProvidersAction::List => client.get("/v1/providers").await?,
             crate::ProvidersAction::Show { id } => {
                 client.get(&format!("/v1/providers/{id}")).await?
@@ -973,6 +1057,32 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                 (status, value)
             }
         },
+        Command::Inbox {
+            status,
+            agent,
+            device,
+            task,
+            domain,
+            since,
+            limit,
+        } => {
+            let mut parts = vec![format!("limit={}", limit.clamp(&1, &500))];
+            for (key, value) in [
+                ("status", status),
+                ("agent", agent),
+                ("device", device),
+                ("task", task),
+                ("domain", domain),
+                ("since", since),
+            ] {
+                if let Some(value) = value.as_deref() {
+                    parts.push(format!("{key}={}", urlencode(value)));
+                }
+            }
+            client
+                .get(&format!("/v1/activity/inbox?{}", parts.join("&")))
+                .await?
+        }
         Command::Events { seconds } => {
             client.tail_events(*seconds, cli.json).await?;
             return Ok(0);
@@ -1178,7 +1288,11 @@ async fn serve(cli: &Cli, host: Option<String>, port: Option<u16>) -> Result<i32
         .await
         .map_err(|e| anyhow::anyhow!("bind {bind_host}:{bind_port}: {e}"))?;
     eprintln!("interact-ai daemon listening on http://{addr}");
-    eprintln!("token file: {}", runtime.paths.token_file().display());
+    eprintln!("human token file: {}", runtime.paths.token_file().display());
+    eprintln!(
+        "restricted agent token file: {}",
+        runtime.paths.agent_token_file().display()
+    );
     eprintln!("press Ctrl-C to stop");
 
     tokio::signal::ctrl_c().await.ok();

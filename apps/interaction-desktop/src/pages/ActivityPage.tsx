@@ -200,12 +200,8 @@ function eventLabel(e: RuntimeEvent): string {
   }
 }
 
-/** 知識候選查詢上限：後端回傳的 count 是本頁筆數，達上限時真實總數未知，
- *  顯示「50+」而不是假裝精確。 */
-const CANDIDATE_QUERY_LIMIT = 50;
-
-/** 統一收件匣（spec §16-1.G）：所有等待你決定的事項一個總入口。
- *  誠實計數：查詢失敗＝未知（不得顯示綠色 0）；達查詢上限顯示「N+」。 */
+/** 統一 Inbox／Timeline（spec §16-1.G）：由 Runtime application service
+ *  正規化 Agent、Knowledge、Receipt 與 Safety；UI 不自行拼湊另一份真相。 */
 export function InboxSection({
   refreshKey,
   onNavigate,
@@ -213,75 +209,80 @@ export function InboxSection({
   refreshKey: number;
   onNavigate: (tab: string) => void;
 }) {
-  const [assists] = useAsync(() => api.aiAssistsList(), [refreshKey]);
-  const [sessions] = useAsync(() => api.agentSessionsList(), [refreshKey]);
-  const [candidates] = useAsync(
-    () => api.knowledgeList("candidate", CANDIDATE_QUERY_LIMIT),
-    [refreshKey]
+  const [filters, setFilters] = React.useState({
+    status: "",
+    agent: "",
+    device: "",
+    task: "",
+    domain: "",
+    since: "",
+  });
+  const wireFilter = {
+    ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value.trim())),
+    ...(filters.since ? { since: new Date(filters.since).toISOString() } : {}),
+    limit: 200,
+  };
+  const [inbox] = useAsync(
+    () => api.activityInbox(wireFilter),
+    [refreshKey, JSON.stringify(wireFilter)]
   );
-
-  const waitingSessions = (sessions.data ?? []).filter((s) =>
-    ["waiting-for-consent", "waiting-for-input", "claimed-completed"].includes(s.state)
-  );
-  const pendingAssists = assists.data ?? [];
-  const candidateCount =
-    ((candidates.data as Record<string, unknown> | undefined)?.count as number | undefined) ?? 0;
-  const candidateCapped = candidateCount >= CANDIDATE_QUERY_LIMIT;
-  const degraded = Boolean(assists.error || sessions.error || candidates.error);
-  const total = waitingSessions.length + pendingAssists.length + candidateCount;
-  const totalLabel = degraded
-    ? total > 0
-      ? `${total}+，部分查詢失敗`
-      : "無法確認"
-    : candidateCapped
-      ? `${total}+`
-      : String(total);
+  const items = ((inbox.data?.items as Record<string, unknown>[] | undefined) ?? []);
+  const pending = Number(inbox.data?.pendingCount ?? 0);
+  const total = Number(inbox.data?.totalBeforeLimit ?? items.length);
 
   return (
-    <Section title={`待我決定（${totalLabel}）`}>
-      {degraded && (
-        <div className="state-box state-error" role="alert">
-          部分狀態查詢失敗，以下清單可能不完整：
-          {[sessions.error, assists.error, candidates.error].filter(Boolean).join("；")}
+    <Section title={`統一收件匣（待決定 ${pending}／共 ${total}）`}>
+      <details className="inbox-filters" open>
+        <summary>依時間、狀態、Agent、裝置、任務、知識 Domain 篩選</summary>
+        <div className="inbox-filter-grid">
+          {(["status", "agent", "device", "task", "domain"] as const).map((key) => (
+            <label key={key}>
+              {{ status: "狀態", agent: "Agent", device: "裝置", task: "任務", domain: "Domain" }[key]}
+              <input
+                value={filters[key]}
+                onChange={(event) => setFilters((current) => ({ ...current, [key]: event.target.value }))}
+              />
+            </label>
+          ))}
+          <label>
+            起始時間
+            <input
+              type="datetime-local"
+              value={filters.since}
+              onChange={(event) => setFilters((current) => ({ ...current, since: event.target.value }))}
+            />
+          </label>
+          <button onClick={() => setFilters({ status: "", agent: "", device: "", task: "", domain: "", since: "" })}>
+            清除篩選
+          </button>
         </div>
-      )}
-      {total === 0 ? (
-        degraded ? null : <div className="state-box">目前沒有等待你決定的事項。</div>
+      </details>
+      {inbox.loading ? (
+        <div className="state-box">載入中…</div>
+      ) : inbox.error ? (
+        <div className="state-box state-error" role="alert">收件匣無法載入：{inbox.error}</div>
+      ) : items.length === 0 ? (
+        <div className="state-box">目前沒有符合篩選條件的活動。</div>
       ) : (
-        <ul className="plain-list">
-          {pendingAssists.map((a) => (
-            <li key={a.requestId}>
-              <Badge kind="warn">AI 求助</Badge> {a.reason}
-              <button style={{ marginLeft: 8 }} onClick={() => onNavigate("automations")}>
-                前往處理
-              </button>
-            </li>
+        <div className="provider-list" data-testid="activity-inbox-results">
+          {items.map((item) => (
+            <div className="provider-card" key={`${String(item.kind)}-${String(item.itemId)}`}>
+              <div className="row space-between">
+                <strong>{String(item.title)}</strong>
+                <Badge kind={item.needsDecision === true ? "warn" : statusBadgeKind(String(item.status))}>
+                  {String(item.status)}
+                </Badge>
+              </div>
+              <div className="muted small">
+                {new Date(String(item.occurredAt)).toLocaleString("zh-TW")}・{String(item.kind)}
+                {item.agentId ? `・Agent ${String(item.agentId)}` : ""}
+                {item.deviceId ? `・裝置 ${String(item.deviceId)}` : ""}
+                {Array.isArray(item.domains) && item.domains.length ? `・${item.domains.join(", ")}` : ""}
+              </div>
+              <button onClick={() => onNavigate(String(item.route))}>開啟對應頁面</button>
+            </div>
           ))}
-          {waitingSessions.map((s) => (
-            <li key={s.sessionId}>
-              <Badge kind={s.state === "claimed-completed" ? "pending" : "warn"}>
-                {s.state === "waiting-for-consent"
-                  ? "Agent 等待核可"
-                  : s.state === "waiting-for-input"
-                    ? "Agent 等待輸入"
-                    : "回報完成待你查看"}
-              </Badge>{" "}
-              {s.label ?? s.agentId}
-              <button style={{ marginLeft: 8 }} onClick={() => onNavigate("ai")}>
-                前往處理
-              </button>
-            </li>
-          ))}
-          {candidateCount > 0 && (
-            <li>
-              <Badge kind="pending">知識候選</Badge>{" "}
-              {candidateCapped ? `${CANDIDATE_QUERY_LIMIT}+` : candidateCount} 項等待複審
-              <button style={{ marginLeft: 8 }} onClick={() => onNavigate("memory")}>
-                前往複審
-              </button>
-            </li>
-          )}
-        </ul>
+        </div>
       )}
     </Section>
   );

@@ -84,6 +84,10 @@ pub struct DesktopPrefs {
     pub companion_visible: bool,
     /// Remembered companion window position (logical px), per display setups.
     pub companion_position: Option<(f64, f64)>,
+    /// Companion surface size in logical pixels (bounded by the native bridge).
+    pub companion_size: (f64, f64),
+    /// Surface opacity, 0.2..=1.0. Applied inside the transparent WebView.
+    pub companion_opacity: f64,
     /// Selected character pack id (bundled: shu-standard/lively/minimal).
     pub companion_pack: String,
     /// Selected persona pack id (bundled: persona-shu/persona-navigator).
@@ -107,6 +111,8 @@ impl Default for DesktopPrefs {
             open_control_center_on_start: false,
             companion_visible: true,
             companion_position: None,
+            companion_size: (200.0, 210.0),
+            companion_opacity: 1.0,
             companion_pack: "shu-agile".into(),
             companion_persona: "persona-shu".into(),
             story_progress: std::collections::BTreeMap::new(),

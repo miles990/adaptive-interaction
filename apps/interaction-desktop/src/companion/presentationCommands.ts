@@ -22,6 +22,19 @@ export interface CommandPlan {
   bubble?: { text: string; ms: number } | null;
   /** presence-set target (needs the desktop bridge to apply). */
   presence?: boolean;
+  /** Fixed, runtime-whitelisted sound id. */
+  sound?: "chime" | "soft-pop" | "tick";
+  /** Runtime-cleaned speech text (never arbitrary script/SSML). */
+  speech?: string;
+  /** Companion-window-only adjustment, already bounded by the Rust Runtime. */
+  window?: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    opacity?: number;
+    alwaysOnTop?: boolean;
+  };
 }
 
 /** behaviorIntent → machine transient（v2 packs 有專屬美術；v1 靠 fallback）. */
@@ -93,12 +106,30 @@ export function planPresentationCommand(
       }
       return { outcome: "completed", presence: Boolean(params.visible) };
     }
-    case "sound-play":
-      return { outcome: "unsupported", detail: "sound playback not implemented in this window yet" };
-    case "speak":
-      return { outcome: "unsupported", detail: "speech synthesis not implemented in this window yet" };
-    case "window-adjust":
-      return { outcome: "unsupported", detail: "window adjust not implemented in this window yet" };
+    case "sound-play": {
+      const sound = params.sound;
+      if (sound !== "chime" && sound !== "soft-pop" && sound !== "tick") {
+        return { outcome: "unsupported", detail: `sound ${String(sound)} is not registered` };
+      }
+      return { outcome: "completed", sound };
+    }
+    case "speak": {
+      const text = typeof params.text === "string" ? params.text : "";
+      if (!text) return { outcome: "failed", detail: "empty speech text" };
+      return { outcome: "completed", speech: text };
+    }
+    case "window-adjust": {
+      if (!hasDesktopBridge) {
+        return { outcome: "unsupported", detail: "window adjustment needs the desktop shell" };
+      }
+      const window: NonNullable<CommandPlan["window"]> = {};
+      for (const key of ["x", "y", "width", "height", "opacity"] as const) {
+        if (typeof params[key] === "number" && Number.isFinite(params[key])) window[key] = params[key];
+      }
+      if (typeof params.alwaysOnTop === "boolean") window.alwaysOnTop = params.alwaysOnTop;
+      if (Object.keys(window).length === 0) return { outcome: "failed", detail: "empty window adjustment" };
+      return { outcome: "completed", window };
+    }
     default:
       return { outcome: "unsupported", detail: `unknown command ${command}` };
   }

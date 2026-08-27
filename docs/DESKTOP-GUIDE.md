@@ -5,6 +5,11 @@
 桌面控制中心是**人類的駕駛艙**：設定、測試、監控、授權、喊停。
 它不是 AI 使用 Runtime 的必要條件——沒有它，CLI／API／Skill 一樣全功能。
 
+> 開發中 v0.4 的當前一級導覽是：**首頁／現在、小樞、AI 與工作階段、
+> 能力與裝置、記憶與知識、活動與確認、隱私與安全、設定**；另保留自動互動。
+> 下方的 v0.2/v0.3 圖片與頁名是升級歷史，具體 closing 畫面見
+> [`assets/v04-evidence/`](assets/v04-evidence/)。
+
 ## 啟動
 
 ```bash
@@ -84,6 +89,22 @@ pnpm tauri dev      # 開發模式
 - 只預選低風險、本機、不需硬體的能力；**攝影機／麥克風／位置／對外寫入永不預選**。
 - 中途關閉只留草稿；按「完成設定」才一次套用（走與 CLI/API 相同的 governor 驗證路徑）。
 - 確認頁摘要「AI 可以知道／可以做／必須先問／資料是否離開本機／何時呼叫 AI」。
+- 「掃描目前可用的互動能力」只讀 metadata；畫面會顯示
+  `sensorActivationAttempted:false`。這不代表找到所有硬體，驅動、權限、沙箱、
+  裝置佔用與平台限制都可能使裝置不可見。
+
+## v0.4 的 AI 與能力管理
+
+- **AI 與工作階段**：顯示 Codex／Claude Code 的發現、版本、登入、協定支援；
+  建立前顯示 workdir、資料、tool、時間、費用與取消方法。預設唯讀；勾選
+  限權寫入後還要第二次確認，而且只對明確 workdir 有效。
+- **能力與裝置**：掃描實際 Runtime 的 metadata 發現結果；每個不支援項都顯示原因。
+  `discovered → selected → paired/verified → installed → consented → tested → enabled`
+  不會因「看到路徑」就自動跳步。
+- **記憶與知識**：可執行更新決策、送出使用者糾正、複審 Candidate、查看
+  Knowledge Receipt 與刪除影響。使用者糾正不會直接變成 Active 普遍知識。
+- **活動與確認**：Consent、Agent 等待、Knowledge Review、Claimed/Unknown/Failed 與
+  Receipt 共用同一 Inbox 資料源。
 
 ## 一般模式各頁
 

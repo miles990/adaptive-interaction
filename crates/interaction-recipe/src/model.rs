@@ -253,8 +253,33 @@ fn default_schema_version() -> String {
 }
 
 /// Parse a human duration like `10m`, `30s`, `500ms` into milliseconds.
+/// Recipes are persisted and later converted to `chrono::Duration`; reject
+/// absurd legacy/new values at the schema boundary instead of saturating and
+/// allowing a later arithmetic panic. One year is deliberately far above any
+/// supported interaction lease while remaining straightforward to audit.
+pub const MAX_RECIPE_DURATION_MS: u64 = 365 * 24 * 60 * 60 * 1_000;
+
 pub fn parse_duration_ms(s: &str) -> Result<u64, String> {
-    humantime::parse_duration(s)
-        .map(|d| d.as_millis().min(u64::MAX as u128) as u64)
-        .map_err(|e| format!("invalid duration {s:?}: {e}"))
+    let duration =
+        humantime::parse_duration(s).map_err(|e| format!("invalid duration {s:?}: {e}"))?;
+    let millis = u64::try_from(duration.as_millis())
+        .map_err(|_| format!("duration {s:?} exceeds the supported range"))?;
+    if millis > MAX_RECIPE_DURATION_MS {
+        return Err(format!(
+            "duration {s:?} exceeds the maximum of {}ms",
+            MAX_RECIPE_DURATION_MS
+        ));
+    }
+    Ok(millis)
+}
+
+#[cfg(test)]
+mod duration_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_duration_that_could_overflow_runtime_time_arithmetic() {
+        assert!(parse_duration_ms("999999999d").is_err());
+        assert_eq!(parse_duration_ms("365d").unwrap(), MAX_RECIPE_DURATION_MS);
+    }
 }

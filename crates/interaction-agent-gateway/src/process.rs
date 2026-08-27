@@ -1,9 +1,39 @@
 //! 子程序管理：process-group 生成＋整樹終止（SIGTERM → 寬限 → SIGKILL）。
 //! spec §8.2：正確處理 SIGINT/SIGTERM、取消、子程序樹。
 
+use crate::SessionSpec;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::process::{Child, Command};
+
+/// Strip all inherited Runtime authority before spawning. The gateway may
+/// subsequently inject one short-lived, session/domain/tool-scoped capability
+/// from `SessionSpec`; broad human or Runtime-level tokens never cross into the
+/// delegated process. Agent-native login environment remains untouched.
+pub fn remove_runtime_auth_env(cmd: &mut Command) {
+    for key in [
+        "INTERACT_AI_TOKEN",
+        "INTERACT_AI_AGENT_TOKEN",
+        "INTERACT_AI_HUMAN_TOKEN",
+        "INTERACT_AI_SESSION_TOKEN",
+        "INTERACT_AI_API_URL",
+    ] {
+        cmd.env_remove(key);
+    }
+}
+
+/// Inject only the least-privilege session credential selected by Runtime.
+/// It is an environment value (not argv), and expires with the session lease.
+pub fn apply_session_capability_env(cmd: &mut Command, spec: &SessionSpec) {
+    if let Some(token) = &spec.session_capability_token {
+        cmd.env("INTERACT_AI_SESSION_TOKEN", token);
+    }
+    if let Some(base) = &spec.runtime_api_base {
+        cmd.env("INTERACT_AI_API_URL", base);
+    }
+}
 
 /// 以自己的 process group 生成（unix），之後可整樹送訊號。
 pub fn spawn_grouped(mut cmd: Command) -> std::io::Result<Child> {
@@ -19,39 +49,70 @@ pub fn spawn_grouped(mut cmd: Command) -> std::io::Result<Child> {
 }
 
 /// spawn 當下捕捉的 process group id。kill 路徑不得依賴 Child 的存活狀態
-/// （child 被收割後 `id()` 是 None）也不得依賴任何鎖，所以 pgid 必須在
-/// spawn 後立即捕捉、以 Copy 值存放在鎖外。
-#[derive(Debug, Clone, Copy)]
+/// （child 被收割後 `id()` 是 None）也不得依賴任何 async 鎖。Arc+atomic 讓
+/// `codex exec` fallback 每輪重生子程序時，runtime 鎖外持有的 clone 也能立刻
+/// 看見目前 pgid；0 表示沒有進行中的子程序。
+#[derive(Debug, Clone)]
 pub struct ProcessGroup {
-    pgid: Option<i32>,
+    pgid: Arc<AtomicI32>,
 }
 
 impl ProcessGroup {
+    /// 沒有子程序時的空 group（codex exec fallback 在第一則訊息前還沒
+    /// spawn 任何子程序）：所有訊號操作都是 no-op。
+    pub fn empty() -> Self {
+        Self {
+            pgid: Arc::new(AtomicI32::new(0)),
+        }
+    }
+
     /// 必須在 spawn 成功後立刻呼叫（此時 `child.id()` 一定還在）。
     pub fn of(child: &Child) -> Self {
         #[cfg(unix)]
         {
             // process_group(0) ⇒ pgid == 領頭子程序 pid。
             Self {
-                pgid: child.id().map(|p| p as i32),
+                pgid: Arc::new(AtomicI32::new(child.id().map(|p| p as i32).unwrap_or(0))),
             }
         }
         #[cfg(not(unix))]
         {
             let _ = child;
-            Self { pgid: None }
+            Self::empty()
+        }
+    }
+
+    /// 更新為最新一輪子程序的 group。clone 共用同一 atomic，因此 estop／close
+    /// 不必取得 handle 鎖也能終止剛 spawn 的 fallback turn。
+    pub fn set_from_child(&self, child: &Child) {
+        #[cfg(unix)]
+        self.pgid
+            .store(child.id().map(|p| p as i32).unwrap_or(0), Ordering::SeqCst);
+        #[cfg(not(unix))]
+        let _ = child;
+    }
+
+    /// 只在這個 pgid 仍是目前值時清空，避免舊 reader 收尾蓋掉下一輪。
+    pub fn clear_if(&self, expected: Option<i32>) {
+        if let Some(expected) = expected {
+            let _ = self
+                .pgid
+                .compare_exchange(expected, 0, Ordering::SeqCst, Ordering::SeqCst);
         }
     }
 
     pub fn pgid(&self) -> Option<i32> {
-        self.pgid
+        match self.pgid.load(Ordering::SeqCst) {
+            0 => None,
+            pgid => Some(pgid),
+        }
     }
 
     /// 整組是否還有成員（含未收割的 zombie——kill(-pgid, 0) 對 zombie 也成立，
     /// 所以呼叫端的等待迴圈必須有界）。
     #[cfg(unix)]
     fn alive(&self) -> bool {
-        match self.pgid {
+        match self.pgid() {
             Some(pgid) => unsafe { libc::kill(-pgid, 0) == 0 },
             None => false,
         }
@@ -59,12 +120,20 @@ impl ProcessGroup {
 
     #[cfg(unix)]
     fn signal(&self, sig: libc::c_int) {
-        if let Some(pgid) = self.pgid {
+        if let Some(pgid) = self.pgid() {
             // 負 pid = 整個 process group。
             unsafe {
                 libc::kill(-pgid, sig);
             }
         }
+    }
+
+    /// 中斷整組（SIGINT；agent 自行決定是否優雅收尾）。不持 Child 也可用
+    /// ——codex exec fallback 的 Child 由 reader task 持有，interrupt 只能
+    /// 靠 spawn 當下捕捉的 pgid。
+    pub fn interrupt(&self) {
+        #[cfg(unix)]
+        self.signal(libc::SIGINT);
     }
 
     /// 鎖外整組終止：SIGTERM → 最多 `grace_ms` → SIGKILL，之後有界探測。
@@ -74,7 +143,7 @@ impl ProcessGroup {
     pub async fn terminate(&self, grace_ms: u64) {
         #[cfg(unix)]
         {
-            if self.pgid.is_none() {
+            if self.pgid().is_none() {
                 return;
             }
             self.signal(libc::SIGTERM);
@@ -155,6 +224,23 @@ pub async fn kill_tree(child: &mut Child, group: &ProcessGroup, grace_ms: u64) {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn delegated_process_never_inherits_runtime_capability_tokens() {
+        std::env::set_var("INTERACT_AI_TOKEN", "human-secret");
+        std::env::set_var("INTERACT_AI_AGENT_TOKEN", "agent-secret");
+        let mut cmd = Command::new("sh");
+        remove_runtime_auth_env(&mut cmd);
+        let output = cmd
+            .arg("-c")
+            .arg("test -z \"$INTERACT_AI_TOKEN\" && test -z \"$INTERACT_AI_AGENT_TOKEN\"")
+            .output()
+            .await
+            .unwrap();
+        std::env::remove_var("INTERACT_AI_TOKEN");
+        std::env::remove_var("INTERACT_AI_AGENT_TOKEN");
+        assert!(output.status.success());
+    }
 
     fn pid_alive(pid: i32) -> bool {
         unsafe { libc::kill(pid, 0) == 0 }

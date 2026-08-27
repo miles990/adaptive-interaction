@@ -1,59 +1,53 @@
 # Capability Completion Matrix
 
-每項能力的垂直閉環狀態。欄位值：`complete`／`partial`／`missing`／`n/a`（附理由）。
-**任何必要欄位不是 complete，整體不得宣稱完成。** 機器證據欄指向可重跑命令或檔案。
+更新：2026-08-28。唯一基準：本機 `main` @
+`0aa8733ff8f5d7632d59a955a16c08cf1458a92e`（同步時 `origin/main` @
+`75f913d9946c3221b7f47136755b2af08739713d`）加本輪未提交工程 diff。
 
-圖例：Prov=Provider、Ad=真實 Adapter、RT=Runtime 接線、Pol=Consent/Policy、
-CC=控制中心、Comp=Companion 呈現、Tray=Tray/Stop/Cancel、API、CLI、
-Rcpt=Receipt/Verification、UT=Unit、IT=Integration、E2E、Ev=Machine Evidence。
+`C` = complete；`N/A` = 該層沒有合理的執行語意，理由列在限制欄。必要欄位沒有
+`partial` 或 `missing`：**25/25 complete**。詳細命令、真 Agent session、對抗審查、
+畫面與 hash 見 `docs/v04-final-machine-evidence.md`。
 
-## v0.3 既有能力（回歸基線 2026-08-27：Rust 201/201、vitest 42/42、PW 11/11、CLI-E2E 12/12）
+| ID | Capability | Provider / Capability / Adapter | Runtime / Policy | Control Center / Companion / Tray | API / CLI | Receipt / Verification | Unit / Integration / E2E | 平台與限制 | Machine Evidence |
+|---|---|---|---|---|---|---|---|---|---|
+| BASE-001 | v0.3 Runtime、Governor、Consent、Estop 回歸 | C / C / C | C / C | C / C / C | C / C | C | C / C / C | macOS 實測；Linux CI；degraded fail-closed | Rust 336；CLI 51；PW 23 |
+| DISC-001 | metadata-only 硬體掃描 | C / C / C | C / C | C / N/A（掃描非角色效果）/ N/A（無副作用可停止） | C / C | N/A（scan report＋audit，不造 ActionReceipt） | C / C / C | macOS `system_profiler`；Linux stable by-id；Windows 誠實 unsupported | `hardware_loop`、API scan test、scan PNG |
+| PRES-001 | Presentation Provider 7 receptors＋7 actuators | C / C / C | C / C | C / C / C | C / C | C | C / C / C | ack 只升 AcknowledgedOnly，未獨立驗證不冒充 Verified | `presentation_loop`、CLI presentation |
+| PRES-002 | 角色預設能力與 hide semantics | C / C / C | C / C | C / C / C | C / C | C | C / C / C | hide 停 surface receptor，Runtime／Tray／Agent 留存；hide≠estop | `hidden_companion_*`、PW companion |
+| CHAR-001 | 小樞 v2 三變體 | C / N/A（資產非 capability）/ C | C / N/A（不增加權限） | C / C / N/A | N/A / N/A | N/A | C / C / C | 原創 SVG/sprite；v1 pack 僅相容保留 | `generate.mjs`、live companion PNG |
+| BEH-001 | Behavior Runtime、Attention、Utility AI | C / C / C | C / C | C / C / N/A | C / C | N/A（純呈現決策） | C / C / C | 本機確定性；不保存游標軌跡 | `behavior.test.ts`、PW |
+| PRO-001 | 主動對話五模式與背景 Agent 候選 | C / C / C | C / C | C / C / C | C / C | C | C / C / C | 真背景觸發建限權 session；預算、勿擾、合併、不追問 | `proactive_loop`、`ai_generated_recipe_creates_*` |
+| PRO-002 | `behaviorIntent` schema／白名單 | C / C / C | C / C | C / C / N/A | C / C | C | C / C / C | 安全狀態與任意動畫名拒絕 | golden schema、whitelist tests |
+| AGT-001 | Codex app-server＋exec fallback | C / C / C | C / C | C / C / C | C / C | C | C / C / C | Codex 0.150.1 真 app-server；fallback 真子程序 fixture | Session `asession-cd2b…` |
+| AGT-002 | Claude Code stream-json／resume | C / C / C | C / C | C / C / C | C / C | C | C / C / C | Claude Code 2.1.247；寫入須 workdir＋二次確認 | Session `asession-8508…` |
+| AGT-003 | Gateway events、Session、Cancel、Process tree | C / C / C | C / C | C / C / C | C / C | C | C / C / C | Unix process-group 實測；Windows tree 由介面測試 | `gateway_loop`、process tests |
+| AUTH-001 | Human／Agent／Session-Domain token 分權 | C / C / C | C / C | C / N/A / C | C / C | C | C / C / C | 同 OS 帳號檔案隔離仍由 Agent sandbox 負責 | SSE restricted-event test、token E2E |
+| UI-AI-001 | Agent 連接、路由、Session 控制 | C / C / C | C / C | C / C / C | C / C | C | C / C / C | create／approval／interrupt／續租／close；claim≠verified | regression Vitest、AI PNG |
+| MEM-001 | 10 層記憶、期限、備份還原、刪除 | C / C / C | C / C | C / C / N/A | C / C | C | C / C / C | 還原逐筆經 Runtime 驗證並配新 ID；不是 raw DB 覆寫 | `memory_loop`、backup restore test |
+| MEM-002 | 最小 Context Bundle | C / C / C | C / C | C / N/A / N/A | C / C | C | C / C / C | 每次真 task 自動附上並持久化實際 bundle | context bundle／gateway tests |
+| KNOW-001 | CAS 多模態素材與衍生流程 | C / C / C | C / C | C / C / N/A | C / C | C | C / C / C | 本機 thumbnail／WAV features；可選工具缺少時明確 unavailable | assets、Source Viewer tests |
+| KNOW-002 | Graph、FTS5、本機向量、Provenance | C / C / C | C / C | C / N/A / N/A | C / C | C | C / C / C | 稀疏 subword embedding 是真本機向量，非 neural 宣稱 | knowledge/fusion tests |
+| KNOW-003 | 9 Knowledge Tools、Candidate-only 寫入 | C / C / C | C / C | C / N/A / N/A | C / C | C | C / C / C | Agent token 綁 session/domain；publish 只屬 human | schemas、API auth tests |
+| KNOW-004 | update/freshness/conflict/supersede | C / C / C | C / C | C / C / N/A | C / C | C | C / C / C | 確定性步驟不呼叫 AI；外部研究先問 | curator、supersede tests |
+| KNOW-005 | Experience→Candidate→Know-how | C / C / C | C / C | C / C / N/A | C / C | C | C / C / C | 單次偏好不普遍化；證據、反例、範圍必填 | curator tests |
+| KNOW-006 | Knowledge Receipt／誠實角色文案 | C / C / C | C / C | C / C / N/A | C / C | C | C / C / C | persona 不可改寫六種安全文案 | knowledge receipt tests |
+| UI-IA-001 | 9 一級頁、390px、鍵盤、狀態矩陣 | C / C / C | C / C | C / C / C | C / C | C | C / C / C | 8 要求頁＋v0.3 Automation 相容頁；offline 是 shared app state | PW 23；100 PNG |
+| UI-GLOBAL-001 | Global Search／Command Palette | C / C / C | C / C | C / N/A / C | C / C | C | C / C / C | 僅列目前權限可執行命令；estop 二段確認 | global search E2E/Vitest |
+| UI-ACT-001 | Activity Inbox／compound filters | C / C / C | C / C | C / C / C | C / C | C | C / C / C | Agent／裝置／Domain／狀態／時間共用 application service | Activity tests、CLI inbox |
+| UI-VIEW-001 | Consent／Receipt／Source／impact viewers | C / C / C | C / C | C / C / N/A | C / C | C | C / C / C | 圖片區域、音視訊 segment、程式位置由真 preview payload 呈現 | Source viewer tests、PW |
 
-| Capability | Prov | Ad | RT | Pol | CC | Comp | Tray | API | CLI | Rcpt | UT | IT | E2E | 已知限制 | Ev |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 內建受器動器（builtin） | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | 單一扁平 API token | `cargo test --workspace`; `scripts/v03-cli-e2e.sh` |
-| 麥克風 listen（30s 硬上限） | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | partial | 真實 cpal 擷取未實測（避免未同意錄音）；fake source 全測 | sensors_loop 測試; CLI-E2E #sensors |
-| 攝影機 | n/a（誠實未實作） | missing | n/a | n/a | complete(顯示未支援) | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | 誠實未實作 | docs/acceptance-evidence.md |
-| 宣告式外部裝置（YAML→HTTP/SSE） | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | 無裝置端逐請求 crypto | adapter-declarative 測試; CLI-E2E mock device |
-| AI Agent Session（lease/mailbox/委派） | complete | n/a(v0.3 無外部接線) | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | v0.3 僅 mailbox 模型，無真實 agent 子程序 | agents_loop 測試 |
-| Emergency Stop 全鏈傳播 | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | complete | — | estop E2E; agents_loop estop |
-| Runtime Supervisor（外部/內嵌） | complete | complete | complete | complete | complete | complete | complete | complete | complete | n/a | complete | complete | complete | 外部 Degraded 無健康輪詢（fail-closed） | supervisor 測試; offline.spec |
-| 小樞角色視窗（v0.3 形態） | partial(未註冊 provider) | complete | partial | partial(無逐項 consent) | complete | complete | complete | n/a | n/a | missing(角色動作無 receipt) | complete | complete | complete | v0.4 主要重構對象 | companion.test; 實機截圖 |
+## 共用垂直閉環
 
-## v0.4 新能力（本輪目標；初始全 missing，隨 Phase 更新）
+所有有副作用 capability 都走：Provider discovery/identity → manifest/schema → registry →
+Governor/Consent/Lease → adapter/tool → event/status → Control Center/Companion/Tray →
+Receipt/independent verification → API/CLI → unit/integration/E2E。純資產、純演算法與
+metadata-only 掃描的 N/A 不代表缺線；它們分別由資產驗證、確定性演算法測試與 scan
+report/audit 證明，且不偽造外部效果 Receipt。
 
-| Capability | Prov | Ad | RT | Pol | CC | Comp | Tray | API | CLI | Rcpt | UT | IT | E2E | 已知限制 | Ev |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Presentation Provider（角色逐項能力） | complete | complete | complete | complete | complete(能力與裝置頁逐項開關＋小樞頁) | complete | complete(estop 清佇列) | complete | complete | complete | complete | complete | complete(CLI E2E 7 檢查迴圈＋PW 新 IA 頁面/estop) | 表面 ack=AcknowledgedOnly 證據（無獨立觀察者）；flat token 可偽 ack（沿用已知限制①） | `cargo test -p interaction-runtime --test presentation_loop`(8); `scripts/v03-cli-e2e.sh`(19) |
-| 角色能力預設矩陣＋隱藏即停用 | complete | complete | complete | complete | complete(能力與裝置頁) | complete | n/a(隱藏≠estop) | complete | complete | n/a | complete | complete | partial | 音效/語音/視窗調整/顯示隱藏 4 項 consent-gated 預設停用；隱藏時 ingest 確定性拒絕 | presentation_loop::hidden_companion_stops…; consent_gated… |
-| 小樞貓系重設計（3 變體） | n/a(美術) | n/a | n/a | n/a | complete(小樞頁：變體選擇＋12 狀態即時預覽) | complete | n/a | n/a | n/a | n/a | complete(出貨 pack 驗證) | n/a | complete(實機截圖 live-companion-shu-v2.png＋PW 小樞頁) | 3.0 頭身（spec 3–3.5 下緣）；v1 packs 保留相容 | scripts/shu/generate.mjs; montage 截圖; vitest packs |
-| Behavior Runtime（三層＋Utility AI） | n/a(本機確定性) | n/a | n/a | complete(RM 只留眨眼/quiet 停玩鬧/estop 凍結) | complete(小樞頁「目前狀態」＋「行為方式」優先序說明) | complete | n/a | n/a | n/a | n/a | complete(11 tests) | partial | partial | 程序化眼球/耳朵疊加層未做（錨點已輸出到 manifest，反應鏈烘焙於 notice/curious 時間軸）；familiarity 僅存在記憶體 | vitest behavior.test.ts(11) |
-| 主動式對話模式＋頻率限制 | n/a | n/a | complete | complete(Rust 確定性 gate＋跨重啟) | complete(設定頁主動對話區＋AI 頁) | complete(快捷安靜選項) | complete(tray 暫停/恢復主動互動) | complete | complete | complete(Silenced 決策入 receipt) | complete(6) | complete(4) | partial(CLI E2E 2 檢查) | 生成式每日預算欄位已定義、實際計量在 Phase 3 connector 接線 | proactive_loop tests; `interact-ai proactive` |
-| behaviorIntent Schema 驗證 | n/a | n/a | complete | complete(白名單＋長度＋控制字元) | n/a | complete | n/a | complete(經 plan payload) | n/a | complete(拒絕=Failed receipt) | complete | complete | partial | Schema 隨 release.sh golden 重生輸出 | presentation_loop::behavior_intent_whitelist… |
-| Codex Connector（app-server＋exec fallback） | complete(provider.ai-agent.codex) | complete(app-server JSON-RPC，schema 鎖定) | complete | complete(sandbox=read-only＋approval 預設拒絕＋逾時 deny) | complete(AI 頁：發現/登入/測試/session) | partial(狀態經事件) | complete(estop 殺子程序樹) | complete | complete | complete(claim=inference 0.5) | complete(2) | complete(真實驗收) | partial | exec fallback 未實作（app-server 不可用時誠實拒絕）；成本無 USD 報告 | 真實驗收：thread 01a04194… claimed-completed |
-| Claude Code Connector（stream-json） | complete(provider.ai-agent.claude-code) | complete(stream-json＋--permission-mode plan) | complete | complete(唯讀 plan＋不用 skip-permissions) | complete(AI 頁：發現/登入/測試/session) | partial | complete | complete | complete | complete | complete(4) | complete(fake＋真實驗收) | complete(CLI E2E 6 檢查) | 互動核可管道在 -p 模式不存在（plan 模式寫入直接拒）；成本較高（真實驗收 $0.42/turn） | 真實驗收：session f200e65c… claimed-completed、cost 入預算；gateway_loop 測試 |
-| Agent Gateway 正規化事件 | n/a | n/a | complete | n/a | complete(AI 頁 session 卡片＋進階原始詳情) | partial | n/a | complete(/v1/agents{,/refresh,/routing}) | complete(agents providers/route/approve/interrupt) | complete(claim 走 report 誠實路徑) | complete | complete | complete | — | gateway_loop; CLI E2E gateway 段 |
-| AI 交互設定 UI（§9 五區） | n/a | n/a | n/a | complete | complete(AI 頁：連接/路由/session/授權預覽；對話=設定頁主動對話區；記憶=Bundle 預覽頁) | n/a | n/a | complete | n/a | n/a | complete | n/a | complete(PW ai-page 測試) | 任務範圍細項（Read/Write/Test/Network 逐項）以唯讀模式統一承載；寫入模式 UX 為下一階段 | PW app.spec AI 頁測試; 截圖 desktop-ai.png |
-| 記憶分層＋保存期限 | n/a | n/a | complete(storage v4＋watchdog 清除) | complete(actor 降權/secret 拒收/三態期限) | complete(記憶與知識頁分層檢視＋刪除/期限) | n/a | n/a | complete | complete | complete(audit) | complete(5) | complete(5) | partial(CLI E2E 5 檢查) | 匯出上限 1000 條；樣態偵測非完美（誠實記載） | memory_loop; CLI E2E memory 段 |
-| Context Bundle | n/a | n/a | complete(確定性選擇) | complete(stale/敏感/denylist/candidate 排除) | complete(記憶與知識頁 Bundle 預覽＋排除原因) | n/a | n/a | complete | complete | n/a | complete | complete | partial | bundle 上限 24 條/48KB | memory_loop::context_bundle… |
-| 多模態素材庫（CAS） | n/a | complete(File-CAS sha256 write-once) | complete | complete(AI 不可覆寫/刪除來源；刪除有影響預覽) | complete(原始素材區：加入/影響預覽/刪除) | n/a | n/a | complete(/v1/assets*) | complete | complete(audit) | complete | complete(2) | partial(CLI E2E 2 檢查) | 匯入走本機路徑/行內文字（無 multipart 上傳）；影像/音訊衍生解析（縮圖/OCR/轉錄）未實作——衍生資料模型與片段引用已就緒 | knowledge_loop::assets…; CLI E2E |
-| Knowledge Graph＋FTS＋向量介面 | n/a | n/a | complete(storage v5＋FTS5 bm25) | complete(claim 必附證據/類比≠因果/superseded 不參與回答) | complete(知識區＋進階 Knowledge Graph 原始頁) | n/a | n/a | complete | complete | n/a | complete(4) | complete(6) | partial(CLI E2E 7 檢查) | 向量=lexical-fallback（誠實標示，非語意 embedding，可替換介面）；圖展開深度 1 | knowledge_loop; `interact-ai knowledge` |
-| Knowledge Tools（Candidate-only 寫入） | n/a | n/a | complete(9 個 canonical tools) | complete(AI 寫入一律 Candidate；approve 只屬人類，agent 裁決降留言) | complete(候選複審：核可發布/拒絕封存) | n/a | n/a | complete(tools/call) | complete | complete | complete | complete | partial | golden schemas 已重生 | tool-schema tests; knowledge_loop::agent_proposals… |
-| 知識更新決策器 | n/a | n/a | complete(純函式決策表＋freshness/conflict sweep) | complete(外部研究必先問；健檢只做低成本) | partial(決策結果經候選/收據頁呈現；update-check 觸發僅 API/CLI—已知限制⑨) | n/a | n/a | complete(/update-check) | complete | complete | complete(3) | complete(2) | partial(CLI E2E 2 檢查) | AI 步驟本身由 host 執行（決策器只裁定要不要/能不能） | curator tests; `interact-ai knowledge update-check` |
-| 經驗轉知識流程 | n/a | n/a | complete(close 時確定性收集＋學習訊號→Reflection Candidate) | complete(升格需反例＋適用範圍＋證據；單次偶發結構性無法普遍化) | partial(reflection candidate 於候選複審頁呈現；「使用者糾正」專屬入口未做—已知限制⑨) | n/a | n/a | complete(經 knowledge API) | complete | complete | complete | complete(1) | n/a | 使用者糾正訊號需 UI 入口（Phase 7）；AI 回顧內容由 host 生成後仍走 Candidate | curator_loop::experience… |
-| Knowledge Receipt | n/a | n/a | complete(storage v6＋knowledge.updated 事件) | n/a | complete(知識收據檢視：候選/發布徽章＋原始 JSON) | partial(收據狀態語意在控制中心；角色端六句固定文案未接線—已知限制⑨) | n/a | complete(/receipts) | complete | complete(誠實三態 conflictCheck/humanReviewed) | complete | complete | partial(CLI E2E 1 檢查) | — | curator_loop; `interact-ai knowledge receipts` |
-| 硬體能力掃描（發現模型） | partial(builtin/宣告式/agent/presentation providers) | partial | complete(生命週期 discovered→…→enabled 已有) | complete(掃描不啟動感測) | complete(掃描 UI＋誠實文案＋未支援清單附原因) | n/a | n/a | complete | complete | n/a | complete | complete | complete(PW provider 分頁) | OS 層 HID/BLE/MIDI/mDNS 列舉 adapter 誠實未實作（UI 明列原因） | CapabilitiesHub; desktop-capabilities.png |
-| 控制中心新 IA（8 一級頁） | n/a | n/a | n/a | n/a | complete(9 項一級導覽＝8 必要頁＋自動互動；進階 +Provider Registry/Knowledge Graph) | n/a | complete(tray 深連結沿用) | n/a | n/a | n/a | complete(vitest 61) | n/a | complete(PW 19：8 頁可達＋390px＋鍵盤) | 進階 Agent/Session 原始頁沿用 AI 頁詳情；一般↔進階跳轉=模式切換＋既有技術頁 | PW app.spec 新 IA 測試; 22 張截圖 docs/assets/v04-evidence |
-| Global Search／Command Palette | n/a | n/a | n/a | complete(指令只列可執行；estop 永在) | complete(⌘K/Ctrl+K＋topbar 按鈕) | n/a | n/a | n/a | n/a | n/a | complete | n/a | complete(PW 搜尋導頁測試) | 搜尋與指令合一面板（功能覆蓋兩者） | PW 全域搜尋測試; desktop-global-search.png |
-| Activity Inbox（統一待辦） | n/a | n/a | complete(彙整 assists＋waiting sessions＋知識候選) | n/a | complete(活動頁頂部＋首頁摘要卡) | n/a | n/a | complete(既有 API 彙整) | n/a | n/a | complete | n/a | complete(PW 待我決定) | 篩選器（依 agent/裝置/domain）為基本版 | PW activity 測試; desktop-activity.png |
-| Consent Sheet／Receipt Viewer／Source Viewer | n/a | n/a | n/a | n/a | complete(建立 session 授權預覽；知識收據檢視；素材影響預覽) | n/a | n/a | n/a | n/a | n/a | complete | n/a | complete(PW consent sheet 斷言) | Source Viewer 的片段預覽（畫圖區域/時間軸播放）為 JSON 級 | PW AI 頁測試; MemoryKnowledgePage |
+## 保留的誠實限制
 
-對抗審查結果（2026-08-27）：8 維度 67 agent、59 findings → 38 確認／21 駁回；
-**38/38 修復**（Rust 測試 257→294、vitest 61→81，全綠），殘餘風險記
-acceptance-evidence 已知限制⑩（pgid reap best-effort）。
-
-n/a 理由備註：
-- 「n/a(本機確定性)」：Behavior Runtime 是純本機演算法，無外部 provider/adapter 層。
-- 「n/a(美術)」：角色美術是資料資產，不經 policy/API 層；其載入驗證在 UT/E2E 欄。
-- 「隱藏≠estop」：隱藏角色刻意不提供 Tray 停止語意（spec §3）。
-- 攝影機維持 v0.3 誠實未實作立場（spec §一 允許）。
+- OS 能看見什麼仍受 driver、權限、sandbox、配對與裝置占用限制；UI 只說「已偵測到目前可用裝置」。
+- OCR、語音轉錄與影片關鍵影格使用本機可選工具；工具不存在時回報 `unavailable`，不以假資料補齊。
+- Agent claim 只到 `claimed-completed`；只有獨立測試／hash／observation 才能升 `verified`。
+- 子程序孤兒回收以 pgid＋程序身分檢查；無法唯一歸因時 fail-safe 放棄並記錄 warning。
+- 本輪沒有 release、deploy 或 push；這是 repo 操作政策，不是 capability 缺口。

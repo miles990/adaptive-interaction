@@ -14,7 +14,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::Mutex;
 
-const CURRENT_SCHEMA: i64 = 6;
+const CURRENT_SCHEMA: i64 = 7;
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -230,6 +230,23 @@ impl Store {
                     body       TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_kr_time ON knowledge_receipts(created_at);
+                "#,
+            )
+            .map_err(map_err)?;
+        }
+        if version < 7 {
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS asset_derivatives (
+                    id          TEXT PRIMARY KEY,
+                    parent_hash TEXT NOT NULL,
+                    kind        TEXT NOT NULL,
+                    status      TEXT NOT NULL,
+                    created_at  TEXT NOT NULL,
+                    body        TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_asset_derivatives_parent
+                    ON asset_derivatives(parent_hash, created_at);
                 "#,
             )
             .map_err(map_err)?;
@@ -465,6 +482,56 @@ impl Store {
             .map_err(map_err)?
             .ok_or_else(|| DomainError::NotFound(format!("action {action_id}")))?;
         serde_json::from_str(&json).map_err(map_json)
+    }
+
+    /// Preserve late driver/verifier evidence without ever changing the
+    /// already-terminal status. This is used when a watchdog or emergency
+    /// stop wins the race against an in-flight driver.
+    pub fn merge_terminal_receipt_evidence(
+        &self,
+        attempted: &ActionReceipt,
+        reason: &str,
+    ) -> DomainResult<ActionReceipt> {
+        let conn = self.conn.lock().expect("store lock");
+        let json: String = conn
+            .query_row(
+                "SELECT json FROM receipts WHERE action_id = ?1",
+                params![attempted.action_id.as_str()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(map_err)?
+            .ok_or_else(|| DomainError::NotFound(format!("action {}", attempted.action_id)))?;
+        let mut stored: ActionReceipt = serde_json::from_str(&json).map_err(map_json)?;
+        if !stored.is_terminal() {
+            return Err(DomainError::Conflict(format!(
+                "action {} is not terminal",
+                attempted.action_id
+            )));
+        }
+        for (key, value) in &attempted.driver_response {
+            stored.driver_response.insert(key.clone(), value.clone());
+        }
+        for error in &attempted.errors {
+            if !stored.errors.contains(error) {
+                stored.errors.push(error.clone());
+            }
+        }
+        if stored.verification.is_none() {
+            stored.verification.clone_from(&attempted.verification);
+        }
+        stored.push_error(
+            "late_evidence",
+            format!("terminal status preserved while merging late evidence: {reason}"),
+            Utc::now(),
+        );
+        let merged = serde_json::to_string(&stored).map_err(map_json)?;
+        conn.execute(
+            "UPDATE receipts SET json = ?2, updated_at = ?3 WHERE action_id = ?1",
+            params![attempted.action_id.as_str(), merged, ts_to_str(Utc::now())],
+        )
+        .map_err(map_err)?;
+        Ok(stored)
     }
 
     pub fn receipts(
@@ -986,6 +1053,77 @@ impl Store {
         Ok(n > 0)
     }
 
+    pub fn save_asset_derivative(
+        &self,
+        id: &str,
+        parent_hash: &str,
+        kind: &str,
+        status: &str,
+        body: &str,
+    ) -> Result<(), DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        conn.execute(
+            "INSERT OR REPLACE INTO asset_derivatives
+             (id, parent_hash, kind, status, created_at, body)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                id,
+                parent_hash,
+                kind,
+                status,
+                ts_to_str(chrono::Utc::now()),
+                body
+            ],
+        )
+        .map_err(map_err)?;
+        Ok(())
+    }
+
+    pub fn list_asset_derivatives(&self, parent_hash: &str) -> Result<Vec<String>, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn
+            .prepare(
+                "SELECT body FROM asset_derivatives
+                 WHERE parent_hash = ?1 ORDER BY created_at, id",
+            )
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([parent_hash], |row| row.get::<_, String>(0))
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+
+    pub fn delete_asset_derivatives(&self, parent_hash: &str) -> Result<u32, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let count = conn
+            .execute(
+                "DELETE FROM asset_derivatives WHERE parent_hash = ?1",
+                [parent_hash],
+            )
+            .map_err(map_err)?;
+        Ok(count as u32)
+    }
+
+    pub fn count_asset_derivative_output_references(
+        &self,
+        output_hash: &str,
+    ) -> Result<u32, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM asset_derivatives
+                 WHERE json_extract(body, '$.outputHash') = ?1",
+                [output_hash],
+                |row| row.get(0),
+            )
+            .map_err(map_err)?;
+        Ok(count.max(0) as u32)
+    }
+
     pub fn save_knowledge_node(
         &self,
         id: &str,
@@ -1344,6 +1482,35 @@ mod tests {
             ActionStatus::Stopped,
             "terminal state must survive concurrent overwrite attempts"
         );
+    }
+
+    #[test]
+    fn late_driver_evidence_is_kept_without_resurrecting_terminal_status() {
+        let store = Store::open_in_memory().unwrap();
+        let session = SessionId::generate();
+        let receipt = receipt_for("mock", &session, ActionStatus::Accepted);
+        store.upsert_receipt(&receipt, "haptic").unwrap();
+
+        let mut stopped = receipt.clone();
+        stopped
+            .transition(ActionStatus::Stopped, Utc::now())
+            .unwrap();
+        store.upsert_receipt(&stopped, "").unwrap();
+
+        let mut late = receipt;
+        late.driver_response
+            .insert("commandId".into(), serde_json::json!("driver-123"));
+        late.push_error("driver_note", "command left driver", Utc::now());
+        let merged = store
+            .merge_terminal_receipt_evidence(&late, "watchdog won")
+            .unwrap();
+
+        assert_eq!(merged.current_status, ActionStatus::Stopped);
+        assert_eq!(merged.driver_response["commandId"], "driver-123");
+        assert!(merged
+            .errors
+            .iter()
+            .any(|error| error.code == "late_evidence"));
     }
 
     #[test]

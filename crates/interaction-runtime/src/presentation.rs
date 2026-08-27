@@ -118,6 +118,9 @@ impl PresentationKind {
 #[derive(Debug, Clone)]
 pub struct PendingCommand {
     pub command: &'static str,
+    /// Runtime-validated parameters. Native surfaces retrieve this authoritative
+    /// copy by action id instead of trusting values supplied by WebView JS.
+    pub params: Value,
     pub enqueued_at: Timestamp,
     pub expires_at: Timestamp,
 }
@@ -127,6 +130,10 @@ struct BridgeState {
     last_seen: Option<Timestamp>,
     visible: bool,
     pack_id: Option<String>,
+    /// Sanitized, low-risk semantic state reported by the local companion
+    /// window. It contains no pointer coordinates, raw input or free-form
+    /// reasoning; the human explanation is derived here, not trusted from JS.
+    behavior_state: Option<Value>,
 }
 
 /// 角色視窗與 runtime 之間的橋：presence 心跳＋待 ack 命令登記。
@@ -143,6 +150,16 @@ impl PresentationBridge {
 
     /// 視窗心跳。回傳 (connected 是否改變, visible 是否改變)。
     pub fn hello(&self, visible: bool, pack_id: Option<String>, now: Timestamp) -> (bool, bool) {
+        self.hello_with_behavior(visible, pack_id, None, now)
+    }
+
+    pub fn hello_with_behavior(
+        &self,
+        visible: bool,
+        pack_id: Option<String>,
+        behavior_state: Option<Value>,
+        now: Timestamp,
+    ) -> (bool, bool) {
         let mut s = self.state.lock().expect("presentation state lock");
         let was_connected = Self::fresh(s.last_seen, now);
         let was_visible = was_connected && s.visible;
@@ -150,6 +167,11 @@ impl PresentationBridge {
         s.visible = visible;
         if pack_id.is_some() {
             s.pack_id = pack_id;
+        }
+        if let Some(raw) = behavior_state {
+            if let Some(clean) = sanitize_behavior_telemetry(raw) {
+                s.behavior_state = Some(clean);
+            }
         }
         (!was_connected, was_visible != visible)
     }
@@ -172,12 +194,19 @@ impl PresentationBridge {
     pub fn snapshot(&self, now: Timestamp) -> Value {
         let s = self.state.lock().expect("presentation state lock");
         let connected = Self::fresh(s.last_seen, now);
+        let behavior = connected.then(|| s.behavior_state.clone()).flatten();
+        let explanation = behavior
+            .as_ref()
+            .and_then(|value| value.get("explanation"))
+            .cloned();
         json!({
             "connected": connected,
             "visible": connected && s.visible,
             "packId": s.pack_id,
             "lastSeenSecondsAgo": s.last_seen.map(|t| now.signed_duration_since(t).num_seconds()),
             "pendingCommands": self.pending.lock().expect("pending lock").len(),
+            "behaviorState": behavior,
+            "behaviorExplanation": explanation,
         })
     }
 
@@ -185,6 +214,7 @@ impl PresentationBridge {
         &self,
         action_id: &ActionId,
         kind: PresentationKind,
+        params: Value,
         now: Timestamp,
     ) -> Result<Timestamp, ActuatorError> {
         let mut p = self.pending.lock().expect("pending lock");
@@ -198,6 +228,7 @@ impl PresentationBridge {
             action_id.as_str().to_string(),
             PendingCommand {
                 command: kind.command(),
+                params,
                 enqueued_at: now,
                 expires_at,
             },
@@ -207,6 +238,15 @@ impl PresentationBridge {
 
     pub fn take_pending(&self, action_id: &str) -> Option<PendingCommand> {
         self.pending.lock().expect("pending lock").remove(action_id)
+    }
+
+    pub fn pending(&self, action_id: &str, now: Timestamp) -> Option<PendingCommand> {
+        self.pending
+            .lock()
+            .expect("pending lock")
+            .get(action_id)
+            .filter(|pending| pending.expires_at > now)
+            .cloned()
     }
 
     pub fn sweep_expired(&self, now: Timestamp) -> Vec<String> {
@@ -254,6 +294,99 @@ impl PresentationBridge {
             ComponentHealth::offline("companion window hidden or not connected").at(now)
         }
     }
+}
+
+/// Accept only the fixed semantic Behavior Runtime fields. Values outside the
+/// documented ranges make the whole telemetry sample invalid, avoiding a UI
+/// that presents malformed WebView data as Runtime truth.
+fn sanitize_behavior_telemetry(raw: Value) -> Option<Value> {
+    let input = raw.as_object()?;
+    let number = |key: &str, max: f64| -> Option<f64> {
+        let value = input.get(key)?.as_f64()?;
+        value
+            .is_finite()
+            .then_some(value)
+            .filter(|v| (0.0..=max).contains(v))
+    };
+    let activation = number("activation", 1.0)?;
+    let attention = number("attention", 1.0)?;
+    let task_load = number("taskLoad", 1.0)?;
+    let readiness = number("interactionReadiness", 1.0)?;
+    let familiarity = number("familiarity", 1.0)?;
+    let interruptions = number("recentInterruptions", 5.0)?;
+    let base = input.get("base")?.as_str()?;
+    if !["idle", "quiet", "paused", "emergency", "offline"].contains(&base) {
+        return None;
+    }
+    let transient = match input.get("transient") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value))
+            if [
+                "clicked",
+                "listening",
+                "thinking",
+                "routing",
+                "requesting-consent",
+                "acting",
+                "waiting-for-receipt",
+                "succeeded",
+                "succeeded-verified",
+                "uncertain",
+                "failed",
+                "blocked",
+                "performing",
+            ]
+            .contains(&value.as_str()) =>
+        {
+            Some(value.clone())
+        }
+        _ => return None,
+    };
+    let focus = match input.get("currentFocus") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value))
+            if value.chars().count() <= 128 && !value.chars().any(|ch| ch.is_control()) =>
+        {
+            Some(value.clone())
+        }
+        _ => return None,
+    };
+    let last_interaction_at = input.get("lastInteractionAt")?.as_i64()?;
+
+    let explanation = match base {
+        "emergency" => "緊急停止優先，所有俏皮與主動動作都已中斷。".to_string(),
+        "offline" => "Runtime 離線，角色維持固定安全姿態。".to_string(),
+        "paused" => "主動互動已暫停，只保留必要的安全狀態。".to_string(),
+        "quiet" => "目前在勿擾時段，已降低非必要表現。".to_string(),
+        _ => match transient.as_deref() {
+            Some("requesting-consent") => "正在等待你的授權，所以保持專注並停止玩鬧。".to_string(),
+            Some("acting" | "thinking" | "routing") => {
+                "目前有工作進行中，所以注意力集中在任務上。".to_string()
+            }
+            Some("waiting-for-receipt") => "動作已送出，正在等待可核對的結果。".to_string(),
+            Some("uncertain") => "目前無法確認結果，因此維持未知姿態。".to_string(),
+            Some("failed" | "blocked") => "工作失敗或被安全規則阻擋，正在保持警覺。".to_string(),
+            Some("succeeded-verified") => "結果已通過驗證，正在短暫確認完成。".to_string(),
+            Some("succeeded") => "Agent 回報完成，但仍未當成已驗證成功。".to_string(),
+            Some(_) => "正在回應最近的角色視窗互動。".to_string(),
+            None if focus.is_some() => "正在留意最近的語意事件；沒有保存游標軌跡。".to_string(),
+            None => "目前沒有任務或風險，維持低干擾的自然待機。".to_string(),
+        },
+    };
+
+    Some(json!({
+        "activation": activation,
+        "attention": attention,
+        "taskLoad": task_load,
+        "interactionReadiness": readiness,
+        "familiarity": familiarity,
+        "recentInterruptions": interruptions,
+        "currentFocus": focus,
+        "lastInteractionAt": last_interaction_at,
+        "base": base,
+        "transient": transient,
+        "explanation": explanation,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -502,7 +635,9 @@ impl Actuator for PresentationActuator {
             ));
         }
         let params = validate_params(self.kind, &action)?;
-        let expires_at = self.bridge.enqueue(&action.action_id, self.kind, now)?;
+        let expires_at = self
+            .bridge
+            .enqueue(&action.action_id, self.kind, params.clone(), now)?;
         rt.events.publish(
             RuntimeEvent::new(
                 EventType::PresentationCommand,
@@ -677,8 +812,20 @@ pub fn open_selection_requirements(actuator_id: &str) -> &'static [&'static str]
 impl Runtime {
     /// 角色視窗心跳（開機、每 10 秒、可見性變化時呼叫）。
     pub async fn presentation_hello(&self, visible: bool, pack_id: Option<String>) -> Value {
+        self.presentation_hello_with_behavior(visible, pack_id, None)
+            .await
+    }
+
+    pub async fn presentation_hello_with_behavior(
+        &self,
+        visible: bool,
+        pack_id: Option<String>,
+        behavior_state: Option<Value>,
+    ) -> Value {
         let now = Utc::now();
-        let (conn_changed, vis_changed) = self.presentation.hello(visible, pack_id, now);
+        let (conn_changed, vis_changed) =
+            self.presentation
+                .hello_with_behavior(visible, pack_id, behavior_state, now);
         if conn_changed || vis_changed {
             // presence 變化立即反映到 registry 的健康快取：不等 watchdog 的
             // 週期 refresh，規劃器才不會在隱藏／剛連線的窗口內拿到過期健康。
@@ -695,6 +842,28 @@ impl Runtime {
 
     pub fn presentation_status(&self) -> Value {
         self.presentation.snapshot(Utc::now())
+    }
+
+    /// Return a pending command's authoritative, governor-validated parameters.
+    /// This is used by the native desktop bridge so WebView JS cannot widen a
+    /// companion-window operation by changing event payloads.
+    pub fn presentation_pending_command(
+        &self,
+        action_id: &str,
+    ) -> interaction_core::DomainResult<Value> {
+        use interaction_core::DomainError;
+        let pending = self
+            .presentation
+            .pending(action_id, Utc::now())
+            .ok_or_else(|| {
+                DomainError::NotFound(format!("no live pending presentation command {action_id}"))
+            })?;
+        Ok(json!({
+            "actionId": action_id,
+            "command": pending.command,
+            "params": pending.params,
+            "expiresAt": pending.expires_at,
+        }))
     }
 
     /// 角色視窗回報一個 presentation 命令的實際結果。
@@ -870,6 +1039,47 @@ mod tests {
     }
 
     #[test]
+    fn behavior_telemetry_is_bounded_and_explained_by_runtime() {
+        let bridge = PresentationBridge::new();
+        let now = Utc::now();
+        bridge.hello_with_behavior(
+            true,
+            Some("shu-agile".into()),
+            Some(json!({
+                "activation": 0.4,
+                "attention": 0.7,
+                "taskLoad": 0.6,
+                "interactionReadiness": 0.3,
+                "familiarity": 0.2,
+                "recentInterruptions": 1.0,
+                "currentFocus": "task.progress",
+                "lastInteractionAt": 1_700_000_000_000_i64,
+                "base": "idle",
+                "transient": "acting",
+                "explanation": "untrusted WebView claim",
+            })),
+            now,
+        );
+        let snapshot = bridge.snapshot(now);
+        assert_eq!(snapshot["behaviorState"]["attention"], 0.7);
+        assert_eq!(
+            snapshot["behaviorExplanation"],
+            "目前有工作進行中，所以注意力集中在任務上。"
+        );
+        assert_ne!(snapshot["behaviorExplanation"], "untrusted WebView claim");
+
+        // A malformed sample is discarded wholesale; stale good data is not
+        // overwritten by arbitrary or out-of-range values.
+        bridge.hello_with_behavior(
+            true,
+            None,
+            Some(json!({"activation": 99, "base": "celebrating"})),
+            now,
+        );
+        assert_eq!(bridge.snapshot(now)["behaviorState"]["attention"], 0.7);
+    }
+
+    #[test]
     fn open_selection_requirements_match_validators() {
         use interaction_core::{ActionParameters, BoundedAction};
         // 帶指定 payload（不帶 message）的動作——用來驗證 helper 宣告的
@@ -920,12 +1130,18 @@ mod tests {
         let a = ActionId::new("action-a");
         let b = ActionId::new("action-b");
         bridge
-            .enqueue(&a, PresentationKind::BubbleShow, now)
+            .enqueue(
+                &a,
+                PresentationKind::BubbleShow,
+                json!({"message": "a"}),
+                now,
+            )
             .unwrap();
         bridge
             .enqueue(
                 &b,
                 PresentationKind::BubbleShow,
+                json!({"message": "b"}),
                 now + chrono::Duration::seconds(8),
             )
             .unwrap();

@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   initialBehavior,
+  layeredMicroMotion,
   MICRO_ACTIONS,
   noteEvent,
   noteInterruption,
@@ -50,6 +51,34 @@ describe("behavior state smoothing", () => {
       s = stepBehavior(s, { busy: true, waitingForHuman: false, msSinceInteraction: 0 });
     }
     expect(s.taskLoad).toBeGreaterThan(0.9);
+  });
+});
+
+describe("layered procedural micro motion", () => {
+  it("is deterministic, bounded, and freezes for reduced motion or safety", () => {
+    const s = { ...calmState(), activation: 0.6, attention: 0.4 };
+    const a = layeredMicroMotion(s, 12_345, false, false);
+    expect(a).toEqual(layeredMicroMotion(s, 12_345, false, false));
+    expect(Math.abs(a.gazeX)).toBeLessThanOrEqual(1);
+    expect(Math.abs(a.gazeY)).toBeLessThanOrEqual(1);
+    expect(Math.abs(a.earBias)).toBeLessThanOrEqual(1);
+    expect(a.intensity).toBeGreaterThan(0);
+    expect(layeredMicroMotion(s, 12_345, true, false)).toEqual({
+      gazeX: 0,
+      gazeY: 0,
+      earBias: 0,
+      intensity: 0,
+    });
+    expect(layeredMicroMotion(s, 12_345, false, true).intensity).toBe(0);
+  });
+
+  it("changes continuously without using pointer coordinates", () => {
+    const s = calmState();
+    const values = [0, 250, 500, 750, 1000].map((t) => layeredMicroMotion(s, t, false, false));
+    expect(new Set(values.map((v) => v.gazeX.toFixed(4))).size).toBeGreaterThan(3);
+    for (let i = 1; i < values.length; i++) {
+      expect(Math.abs(values[i].gazeX - values[i - 1].gazeX)).toBeLessThan(0.3);
+    }
   });
 });
 

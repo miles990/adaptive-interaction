@@ -2,11 +2,18 @@
 //! `claude -p --input-format stream-json --output-format stream-json --verbose`。
 //!
 //! - 預設 `--permission-mode plan`（唯讀優先；放寬需 runtime 端人類同意）。
-//! - 不使用 `--dangerously-skip-permissions`。
+//! - 寫入型限權 session（write_enabled，由人類建立 payload 明確帶入）用
+//!   `--permission-mode acceptEdits`：只放行檔案編輯，其餘工具照常受限。
+//! - 任何模式都不使用 `--dangerously-skip-permissions`（有 regression test）。
+//! - `--safe-mode`＋空的 strict MCP config 隔離使用者 hooks／plugins／MCP；
+//!   本產品的 Agent Session 不繼承任意外部工具或啟動成本。
 //! - 登入狀態用 `claude auth status`（JSON）；不接觸 credential。
 //! - 事件解析為純函式（parse_claude_line），可離線以錄好的樣本測試。
 
-use crate::process::{interrupt_tree, kill_tree, spawn_grouped, ProcessGroup};
+use crate::process::{
+    apply_session_capability_env, interrupt_tree, kill_tree, remove_runtime_auth_env,
+    spawn_grouped, ProcessGroup,
+};
 use crate::{
     AgentConnector, AgentDiscovery, AgentKind, AgentSessionHandle, ApprovalDecision, GatewayError,
     GatewayEvent, SessionSpec,
@@ -41,7 +48,9 @@ impl ClaudeConnector {
 }
 
 async fn run_capture(binary: &str, args: &[&str]) -> Result<String, String> {
-    let out = tokio::time::timeout(DISCOVER_TIMEOUT, Command::new(binary).args(args).output())
+    let mut cmd = Command::new(binary);
+    remove_runtime_auth_env(&mut cmd);
+    let out = tokio::time::timeout(DISCOVER_TIMEOUT, cmd.args(args).output())
         .await
         .map_err(|_| "timeout".to_string())?
         .map_err(|e| e.to_string())?;
@@ -56,6 +65,55 @@ async fn run_capture(binary: &str, args: &[&str]) -> Result<String, String> {
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
+/// session 啟動參數（純函式，可離線測試）。安全不變量：
+/// - 任何模式都不得出現 `--dangerously-skip-permissions`。
+/// - 唯讀（預設）＝ `--permission-mode plan`；寫入型限權 session
+///   （write_enabled，人類建立 payload 明確帶入）＝ `--permission-mode
+///   acceptEdits`——只放行檔案編輯，其餘工具照常受限。
+pub fn claude_session_args(spec: &SessionSpec) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "-p".into(),
+        "--input-format".into(),
+        "stream-json".into(),
+        "--output-format".into(),
+        "stream-json".into(),
+        "--verbose".into(),
+        "--safe-mode".into(),
+        "--strict-mcp-config".into(),
+        "--mcp-config".into(),
+        r#"{"mcpServers":{}}"#.into(),
+    ];
+    if spec.write_enabled {
+        args.extend(["--permission-mode".into(), "acceptEdits".into()]);
+        // 明列內建工具，避免使用者設定中的 MCP／plugin tools 擴大 session。
+        // 寫入型仍不包含 Bash／WebFetch／WebSearch；需要指令時由其他受治理
+        // tool/session 處理，不能把「可改檔」偷換成「任意執行／網路」。
+        args.extend(["--tools".into(), "Read,Glob,Grep,Edit,Write".into()]);
+    } else if spec.disable_tools {
+        args.extend(["--permission-mode".into(), "plan".into()]);
+        // Claude documents an empty --tools value as disabling every tool.
+        args.extend(["--tools".into(), "".into()]);
+    } else {
+        // Plan 模式＝唯讀優先：Claude 可讀可規劃，寫入工具需要核可，
+        // 而 -p 非互動模式下沒有核可管道 ⇒ 實質唯讀。
+        args.extend(["--permission-mode".into(), "plan".into()]);
+        args.extend(["--tools".into(), "Read,Glob,Grep".into()]);
+    }
+    if let Some(model) = &spec.model {
+        args.extend(["--model".into(), model.clone()]);
+    }
+    if let Some(resume) = &spec.resume_provider_session {
+        args.extend(["--resume".into(), resume.clone()]);
+    }
+    if let Some(turns) = spec.max_turns {
+        args.extend(["--max-turns".into(), turns.to_string()]);
+    }
+    if let Some(cost) = spec.max_cost_usd.filter(|cost| *cost > 0.0) {
+        args.extend(["--max-budget-usd".into(), cost.to_string()]);
+    }
+    args
 }
 
 #[async_trait::async_trait]
@@ -101,25 +159,10 @@ impl AgentConnector for ClaudeConnector {
         spec: SessionSpec,
     ) -> Result<Box<dyn AgentSessionHandle>, GatewayError> {
         let mut cmd = Command::new(&self.binary);
+        remove_runtime_auth_env(&mut cmd);
+        apply_session_capability_env(&mut cmd, &spec);
         cmd.current_dir(&spec.workdir)
-            .arg("-p")
-            .args(["--input-format", "stream-json"])
-            .args(["--output-format", "stream-json"])
-            .arg("--verbose");
-        if spec.read_only {
-            // Plan 模式＝唯讀優先：Claude 可讀可規劃，寫入工具需要核可，
-            // 而 -p 非互動模式下沒有核可管道 ⇒ 實質唯讀。
-            cmd.args(["--permission-mode", "plan"]);
-        }
-        if let Some(model) = &spec.model {
-            cmd.args(["--model", model]);
-        }
-        if let Some(resume) = &spec.resume_provider_session {
-            cmd.args(["--resume", resume]);
-        }
-        if let Some(turns) = spec.max_turns {
-            cmd.args(["--max-turns", &turns.to_string()]);
-        }
+            .args(claude_session_args(&spec));
         let mut child = spawn_grouped(cmd)?;
         // pgid 必須在 spawn 後立即捕捉：kill 路徑不能依賴 child 屆時是否已被收割。
         let group = ProcessGroup::of(&child);
@@ -281,7 +324,7 @@ impl AgentSessionHandle for ClaudeHandle {
     }
 
     fn process_group(&self) -> ProcessGroup {
-        self.group
+        self.group.clone()
     }
 
     fn take_events(&mut self) -> Option<mpsc::Receiver<GatewayEvent>> {
@@ -391,6 +434,37 @@ pub fn parse_claude_line(line: &str) -> Vec<GatewayEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_args_keep_read_and_write_scopes_bounded() {
+        let ro = SessionSpec::read_only_in(std::path::PathBuf::from("/tmp/repo"));
+        let ro_args = claude_session_args(&ro);
+        assert!(ro_args
+            .windows(2)
+            .any(|w| w == ["--permission-mode", "plan"]));
+        assert!(ro_args
+            .windows(2)
+            .any(|w| w == ["--tools", "Read,Glob,Grep"]));
+        assert!(ro_args.iter().any(|arg| arg == "--safe-mode"));
+        assert!(ro_args.iter().any(|arg| arg == "--strict-mcp-config"));
+        assert!(ro_args
+            .windows(2)
+            .any(|w| w == ["--mcp-config", r#"{"mcpServers":{}}"#]));
+
+        let wr = SessionSpec::write_enabled_in(std::path::PathBuf::from("/tmp/repo"));
+        let wr_args = claude_session_args(&wr);
+        assert!(wr_args
+            .windows(2)
+            .any(|w| w == ["--permission-mode", "acceptEdits"]));
+        assert!(wr_args
+            .windows(2)
+            .any(|w| w == ["--tools", "Read,Glob,Grep,Edit,Write"]));
+        let all = wr_args.join(" ");
+        assert!(!all.contains("dangerously"));
+        assert!(!all.contains("Bash"));
+        assert!(!all.contains("WebFetch"));
+        assert!(!all.contains("WebSearch"));
+    }
 
     #[test]
     fn parses_the_recorded_live_sample_shape() {

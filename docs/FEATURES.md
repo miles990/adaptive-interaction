@@ -120,21 +120,24 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 | 面向 | 內容 |
 |---|---|
 | Runtime | Rust + Tokio；watchdog TTL 掃描；crash 恢復（未完成動作→`uncertain`，高風險不自動恢復）；instance lock 單實例 |
-| HTTP API | 40+ 端點、Bearer token（constant-time 比對）、SSE + Last-Event-ID 重播、payload 上限、OpenAPI |
+| HTTP API | 40+ 端點、human/restricted-agent Bearer tokens（constant-time 比對）、SSE + Last-Event-ID 重播、payload 上限、OpenAPI |
 | CLI | 40+ 子指令、`--json` 潔淨輸出、穩定 exit codes（3=離線、4=被拒、7=緊急停止中）、shell completion |
 | 桌面 | Tauri 2 + React：總覽／受器／動器／工具／配方／政策／時間軸＋常駐緊急停止鈕 |
 | 儲存 | File=Truth（YAML 設定人類可改）＋SQLite（收據/審計/會話）＋atomic write＋last-known-good |
 | 稽核 | 每個敏感操作寫 audit；緊急停止全程留痕；敏感欄位遮罩 |
-| 測試 | 105 個測試；含安全測試（未授權、撤回、超載、path traversal、雙 daemon、crash 恢復）；25-agent 對抗式審查後修復 14 項確認缺陷 |
+| 測試 | 本輪 Rust 336、Vitest 94、Playwright 23、Tauri 4、CLI E2E 51；含未授權、撤回、超載、path traversal、雙 daemon、crash 恢復與 scoped-token 邊界 |
 
 ## v0.4
 
 - 小樞＝Presentation Provider（逐項能力、誠實 receipt、隱藏≠停機）
 - 小樞 v2 貓系角色（3 頭身、反應鏈、失敗專屬美術、三變體）＋本機確定性 Behavior Runtime
 - 主動式對話五模式＋確定性頻率限制（安全提示永不被壓制）
-- 本機 Agent 直連：Codex app-server／Claude Code stream-json（唯讀優先、真子程序、
+- 本機 Agent 直連：Codex app-server（舊版 exec/resume fallback）／Claude Code
+  stream-json（唯讀優先、限權寫入需明確 workdir＋二次確認、真子程序、
   claims≠verified、estop 殺程序樹、成本入預算）
+- human／agent API token 分權；agent 不能授權、改安全上限、發布知識或解除 estop
+- metadata-only 硬體掃描：17 類跨平台覆蓋結果，掃描不開感測，無法列舉時附原因
 - 記憶 10 層＋保存期限三態＋Context Bundle（「本次提供了哪些」）
 - CAS 素材庫＋知識圖譜＋FTS5＋candidate-only AI 寫入＋人類專屬 activate
 - 知識更新決策器＋經驗轉知識（升格需反例＋適用範圍）＋Knowledge Receipt
-- 控制中心新 IA（8 一級頁）＋全域搜尋/指令＋統一待辦收件匣＋24 張真實畫面證據
+- 控制中心新 IA（8 要求頁＋Automation 相容頁）＋全域搜尋/指令＋統一待辦收件匣＋100 張真實畫面證據

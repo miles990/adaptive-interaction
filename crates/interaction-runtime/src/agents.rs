@@ -13,16 +13,62 @@
 use crate::runtime::Runtime;
 use chrono::Utc;
 use interaction_core::{
-    check_delegation, validate_handoff, AgentSessionId, AgentSessionRecord, AgentSessionState,
-    CapabilityLease, DelegationEnvelope, DomainError, DomainResult, EventType, HandoffSummary,
-    MailboxDirection, MailboxMessage, ProviderDescriptor, ProviderId, ProviderIdentity,
-    ProviderKind, ProviderState, SessionBudget, TrustLevel,
+    check_delegation, validate_handoff, AgentContextBundleReceipt, AgentSessionId,
+    AgentSessionRecord, AgentSessionState, CapabilityLease, DelegationEnvelope, DomainError,
+    DomainResult, EventType, HandoffSummary, MailboxDirection, MailboxMessage, ProviderDescriptor,
+    ProviderId, ProviderIdentity, ProviderKind, ProviderState, SessionBudget, TrustLevel,
 };
+use rand::RngCore;
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, VecDeque};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 const MAILBOX_CAP: usize = 200;
 const MAX_BODY_BYTES: usize = 16 * 1024;
+const CONTEXT_BUNDLE_RECEIPT_CAP: usize = 32;
+
+/// Authorization carried by one memory-only Agent Session token. The token
+/// itself is never stored; the map key is its SHA-256 digest.
+#[derive(Debug, Clone)]
+pub struct AgentSessionCapability {
+    pub session_id: String,
+    pub agent_id: String,
+    pub tool_scope: BTreeSet<String>,
+    pub domains: BTreeSet<String>,
+    pub expires_at: chrono::DateTime<Utc>,
+}
+
+impl AgentSessionCapability {
+    pub fn allows_tool(&self, canonical_name: &str) -> bool {
+        let operation = canonical_name
+            .strip_prefix("interaction.knowledge_")
+            .map(|suffix| format!("knowledge.{}", suffix.replace('_', "-")))
+            .unwrap_or_else(|| canonical_name.to_string());
+        let is_read = matches!(
+            canonical_name,
+            "interaction.knowledge_search"
+                | "interaction.knowledge_get"
+                | "interaction.knowledge_get_source"
+                | "interaction.knowledge_expand_graph"
+        );
+        let is_propose = canonical_name.starts_with("interaction.knowledge_propose_")
+            || canonical_name == "interaction.knowledge_submit_review";
+        self.tool_scope.contains(canonical_name)
+            || self.tool_scope.contains(&operation)
+            || self.tool_scope.contains("knowledge.*")
+            || (is_read && self.tool_scope.contains("knowledge.read"))
+            || (is_propose && self.tool_scope.contains("knowledge.propose"))
+    }
+
+    pub fn allows_domain(&self, domains: &[String]) -> bool {
+        self.domains.contains("*")
+            || (!domains.is_empty() && domains.iter().any(|domain| self.domains.contains(domain)))
+    }
+}
+
+fn capability_digest(token: &str) -> String {
+    format!("{:x}", Sha256::digest(token.as_bytes()))
+}
 
 pub struct AgentSessionEntry {
     pub record: AgentSessionRecord,
@@ -45,6 +91,10 @@ pub struct CreateAgentSession {
     pub tool_scope: Vec<String>,
     #[serde(default)]
     pub consent_scope: Vec<String>,
+    /// Human-requested, lease-bounded workspace write access. It is accepted only
+    /// for a gateway agent with an explicit workdir plus matching tool/consent scopes.
+    #[serde(default)]
+    pub allow_write: bool,
     #[serde(default)]
     pub max_cost: Option<f64>,
     #[serde(default)]
@@ -57,6 +107,81 @@ pub struct CreateAgentSession {
 }
 
 impl Runtime {
+    /// Mint/rotate a short-lived capability for one already-authorized Agent
+    /// Session. Only trusted host integration code receives the plaintext;
+    /// persistence, receipts, logs, and UI never do.
+    pub async fn issue_agent_session_capability(&self, id: &str) -> DomainResult<String> {
+        let record = self.get_agent_session(id).await?;
+        if !record.state.is_open() || record.lease.is_expired(Utc::now()) {
+            return Err(DomainError::Expired(format!("agent session {id}")));
+        }
+        let mut random = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut random);
+        let token = format!(
+            "iat-session-{}",
+            random
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+        let capability = AgentSessionCapability {
+            session_id: id.to_string(),
+            agent_id: record.agent_id,
+            tool_scope: record.tool_scope.into_iter().collect(),
+            domains: record
+                .data_scope
+                .into_iter()
+                .filter_map(|scope| scope.strip_prefix("domain:").map(String::from))
+                .collect(),
+            expires_at: record.lease.expires_at,
+        };
+        let mut capabilities = self.agent_session_capabilities.write().await;
+        capabilities
+            .retain(|_, existing| existing.session_id != id && existing.expires_at > Utc::now());
+        capabilities.insert(capability_digest(&token), capability);
+        self.store.audit(
+            "agent-session.capability-issued",
+            "runtime",
+            &json!({"agentSessionId": id, "expiresAt": record.lease.expires_at}),
+        )?;
+        Ok(token)
+    }
+
+    /// Validate without revealing whether a token ever existed. Also checks
+    /// the current live session, so close/expiry revocation is immediate.
+    pub async fn agent_session_capability(&self, token: &str) -> Option<AgentSessionCapability> {
+        let digest = capability_digest(token);
+        let capability = self
+            .agent_session_capabilities
+            .read()
+            .await
+            .get(&digest)
+            .cloned()?;
+        if capability.expires_at <= Utc::now() {
+            self.agent_session_capabilities
+                .write()
+                .await
+                .remove(&digest);
+            return None;
+        }
+        let record = self.get_agent_session(&capability.session_id).await.ok()?;
+        if !record.state.is_open() || record.lease.is_expired(Utc::now()) {
+            self.agent_session_capabilities
+                .write()
+                .await
+                .remove(&digest);
+            return None;
+        }
+        Some(capability)
+    }
+
+    async fn revoke_agent_session_capabilities(&self, id: &str) {
+        self.agent_session_capabilities
+            .write()
+            .await
+            .retain(|_, capability| capability.session_id != id);
+    }
+
     /// Number of open (leased, unexpired) agent sessions.
     pub async fn open_agent_sessions(&self) -> u32 {
         let now = Utc::now();
@@ -82,6 +207,45 @@ impl Runtime {
             return Err(DomainError::PolicyBlocked(
                 "emergency stop engaged; no new agent sessions".into(),
             ));
+        }
+        if self
+            .ui_preferences()
+            .await
+            .disabled_agents
+            .iter()
+            .any(|agent| agent == &input.agent_id)
+        {
+            return Err(DomainError::PolicyBlocked(format!(
+                "agent connector {} is disabled by the user",
+                input.agent_id
+            )));
+        }
+        if input.allow_write {
+            if crate::gateway::agent_kind_for(&input.agent_id).is_none() {
+                return Err(DomainError::Validation(
+                    "write-enabled session 只支援 Codex／Claude Code gateway agent".into(),
+                ));
+            }
+            let workdir = input.workdir.as_deref().unwrap_or_default();
+            if workdir.trim().is_empty() {
+                return Err(DomainError::Validation(
+                    "write-enabled session 必須明確指定 workdir".into(),
+                ));
+            }
+            if !input.tool_scope.iter().any(|s| s == "workspace.write") {
+                return Err(DomainError::ConsentRequired(
+                    "write-enabled session 缺少 toolScope workspace.write".into(),
+                ));
+            }
+            if !input
+                .consent_scope
+                .iter()
+                .any(|s| s == "agent-session:workspace-write")
+            {
+                return Err(DomainError::ConsentRequired(
+                    "write-enabled session 缺少 agent-session:workspace-write 使用授權".into(),
+                ));
+            }
         }
         let session_id = AgentSessionId::generate();
         let policy = self.policy().await;
@@ -121,11 +285,11 @@ impl Runtime {
 
         let now = Utc::now();
         let ttl = input.ttl_minutes.unwrap_or(120).clamp(1, 24 * 60);
-        let provider_id = ProviderId::new(
-            input
-                .provider_id
-                .unwrap_or_else(|| "provider.ai.unspecified".into()),
-        );
+        let provider_id = ProviderId::new(input.provider_id.unwrap_or_else(|| {
+            crate::gateway::agent_kind_for(&input.agent_id)
+                .map(|kind| kind.provider_id().to_string())
+                .unwrap_or_else(|| "provider.ai.unspecified".into())
+        }));
         let record = AgentSessionRecord {
             session_id: session_id.clone(),
             provider_id: provider_id.clone(),
@@ -141,6 +305,7 @@ impl Runtime {
             data_scope: input.data_scope,
             tool_scope: input.tool_scope,
             consent_scope: input.consent_scope,
+            allow_write: input.allow_write,
             budget: SessionBudget {
                 max_duration_ms: (ttl as u64) * 60_000,
                 max_cost: input.max_cost.unwrap_or(0.0),
@@ -163,6 +328,7 @@ impl Runtime {
             detail: None,
             handoff: None,
             provider_session_id: None,
+            context_bundles: vec![],
         };
 
         // A session is also a provider (uniform surface for the UI).
@@ -207,8 +373,16 @@ impl Runtime {
         // Gateway agents（codex/claude-code）：掛真實子程序。失敗＝建立失敗
         // （誠實），不留下看似可用其實沒有 agent 的 session。
         let record = if let Some(kind) = crate::gateway::agent_kind_for(&record.agent_id) {
+            let session_capability_token = self
+                .issue_agent_session_capability(session_id.as_str())
+                .await?;
             match self
-                .gateway_attach(kind, &record, input.workdir.clone())
+                .gateway_attach(
+                    kind,
+                    &record,
+                    input.workdir.clone(),
+                    session_capability_token,
+                )
                 .await
             {
                 Ok(provider_sid) => {
@@ -289,6 +463,8 @@ impl Runtime {
                 EventType::SessionStopped,
                 json!({"agentSessionId": entry.record.session_id.as_str(), "reason": "expired"}),
             );
+            self.revoke_agent_session_capabilities(entry.record.session_id.as_str())
+                .await;
         }
     }
 
@@ -343,9 +519,39 @@ impl Runtime {
         id: &str,
         direction: MailboxDirection,
         kind: &str,
-        body: BTreeMap<String, Value>,
+        mut body: BTreeMap<String, Value>,
         action_id: Option<String>,
     ) -> DomainResult<MailboxMessage> {
+        // A task's actual Context Bundle is computed at dispatch time from the
+        // immutable session lease. Caller-supplied `contextBundle` is replaced,
+        // so an agent cannot forge the "what was provided" evidence.
+        let context_bundle = if direction == MailboxDirection::ToSession && kind == "task" {
+            let (agent_id, domains) = {
+                let map = self.agent_sessions.read().await;
+                let entry = map
+                    .get(id)
+                    .ok_or_else(|| DomainError::NotFound(format!("agent session {id}")))?;
+                let domains = entry
+                    .record
+                    .data_scope
+                    .iter()
+                    .filter_map(|scope| scope.strip_prefix("domain:").map(String::from))
+                    .collect::<Vec<_>>();
+                (entry.record.agent_id.clone(), domains)
+            };
+            let task = body
+                .get("task")
+                .or_else(|| body.get("text"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let bundle = self
+                .memory_context_bundle(task, &domains, &agent_id)
+                .await?;
+            body.insert("contextBundle".into(), bundle.clone());
+            Some(bundle)
+        } else {
+            None
+        };
         if serde_json::to_vec(&body).map(|v| v.len()).unwrap_or(0) > MAX_BODY_BYTES {
             return Err(DomainError::Validation(format!(
                 "mailbox body too large (max {MAX_BODY_BYTES} bytes)"
@@ -384,6 +590,21 @@ impl Runtime {
         };
         entry.next_message += 1;
         entry.mailbox.push_back(message.clone());
+        if let Some(bundle) = context_bundle {
+            let canonical = serde_json::to_vec(&bundle)
+                .map_err(|e| DomainError::Internal(format!("serialize context bundle: {e}")))?;
+            let evidence = AgentContextBundleReceipt {
+                bundle_id: format!("bundle-{}", uuid::Uuid::new_v4()),
+                message_id: message.message_id.clone(),
+                generated_at: Utc::now(),
+                content_hash: format!("{:x}", Sha256::digest(&canonical)),
+                bundle,
+            };
+            if entry.record.context_bundles.len() >= CONTEXT_BUNDLE_RECEIPT_CAP {
+                entry.record.context_bundles.remove(0);
+            }
+            entry.record.context_bundles.push(evidence);
+        }
         self.persist_agent_session(&entry.record);
         drop(map);
         // Gateway session：ToSession 任務即時送進真實 agent 子程序
@@ -599,6 +820,7 @@ impl Runtime {
             (entry.record.clone(), prior_state)
         };
         let (record, prior_state) = record;
+        self.revoke_agent_session_capabilities(id).await;
         // kill 已排入（SIGTERM→寬限→SIGKILL）；忘掉 pgid 記錄，重啟時不再
         // 對這個（屆時可能已被重用的）pid 送訊號。殘餘風險：daemon 在 kill
         // 寬限期內崩潰，這棵子程序樹可能存活且不再被 restore 找回。

@@ -20,6 +20,19 @@ pub use error::ApiError;
 pub struct ApiState {
     pub runtime: Runtime,
     pub token: String,
+    pub agent_token: String,
+}
+
+#[derive(Clone)]
+pub enum AuthPrincipal {
+    Human,
+    LegacyAgent,
+    AgentSession(interaction_runtime::agents::AgentSessionCapability),
+}
+
+#[derive(Clone)]
+pub struct AuthContext {
+    pub principal: AuthPrincipal,
 }
 
 pub const MAX_BODY_BYTES: usize = 256 * 1024;
@@ -45,6 +58,7 @@ pub fn router(state: ApiState) -> Router {
             axum::routing::put(routes::ai_description_put),
         )
         .route("/v1/ai-assists", get(routes::ai_assists_list))
+        .route("/v1/activity/inbox", get(routes::activity_inbox))
         .route(
             "/v1/ai-assists/{id}/resolve",
             post(routes::ai_assist_resolve),
@@ -57,12 +71,17 @@ pub fn router(state: ApiState) -> Router {
         )
         .route("/v1/capabilities", get(routes::capabilities))
         .route("/v1/providers", get(routes::providers_list))
+        .route("/v1/hardware/scan", post(routes::hardware_scan))
         .route(
             "/v1/sensors/microphone/listen",
             post(routes::sensor_mic_listen),
         )
         .route("/v1/sensors/stop", post(routes::sensors_stop))
         .route("/v1/presentation", get(routes::presentation_status))
+        .route(
+            "/v1/presentation/commands/{action_id}",
+            get(routes::presentation_pending_command),
+        )
         .route("/v1/presentation/hello", post(routes::presentation_hello))
         .route("/v1/presentation/ack", post(routes::presentation_ack))
         .route(
@@ -79,7 +98,25 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/assets/{hash}", delete(routes::asset_delete))
         .route("/v1/assets/{hash}/impact", get(routes::asset_impact))
         .route("/v1/assets/{hash}/content", get(routes::asset_content))
+        .route("/v1/assets/{hash}/preview", get(routes::asset_preview))
+        .route(
+            "/v1/assets/{hash}/derivatives",
+            get(routes::asset_derivatives),
+        )
+        .route("/v1/assets/{hash}/derive", post(routes::asset_derive))
         .route("/v1/knowledge/search", get(routes::knowledge_search))
+        .route(
+            "/v1/knowledge/domain-packs",
+            get(routes::knowledge_domain_packs),
+        )
+        .route(
+            "/v1/knowledge/domain-packs/{id}/install",
+            post(routes::knowledge_domain_pack_install),
+        )
+        .route(
+            "/v1/knowledge/domain-packs/{id}",
+            delete(routes::knowledge_domain_pack_uninstall),
+        )
         .route("/v1/knowledge/nodes", get(routes::knowledge_nodes_list))
         .route("/v1/knowledge/nodes", post(routes::knowledge_node_create))
         .route("/v1/knowledge/nodes/{id}", get(routes::knowledge_node_get))
@@ -96,6 +133,10 @@ pub fn router(state: ApiState) -> Router {
         .route(
             "/v1/knowledge/update-check",
             post(routes::knowledge_update_check),
+        )
+        .route(
+            "/v1/knowledge/user-corrections",
+            post(routes::knowledge_user_correction),
         )
         .route("/v1/memory", get(routes::memory_list))
         .route("/v1/memory", post(routes::memory_create))
@@ -247,20 +288,110 @@ fn cors_layer() -> tower_http::cors::CorsLayer {
 
 async fn auth_middleware(
     axum::extract::State(state): axum::extract::State<ApiState>,
-    request: axum::extract::Request,
+    mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    let authorized = request
+    let candidate = request
         .headers()
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(|candidate| constant_time_eq(candidate.as_bytes(), state.token.as_bytes()))
+        .and_then(|v| v.strip_prefix("Bearer "));
+    let human = candidate
+        .map(|v| constant_time_eq(v.as_bytes(), state.token.as_bytes()))
         .unwrap_or(false);
-    if !authorized {
+    let agent = candidate
+        .map(|v| constant_time_eq(v.as_bytes(), state.agent_token.as_bytes()))
+        .unwrap_or(false);
+    let session = if !human && !agent {
+        match candidate {
+            Some(value) => state.runtime.agent_session_capability(value).await,
+            None => None,
+        }
+    } else {
+        None
+    };
+    if !human && !agent && session.is_none() {
         return ApiError::unauthorized().into_response();
     }
+    if agent && !agent_request_allowed(request.method(), request.uri().path()) {
+        return ApiError::forbidden_scope().into_response();
+    }
+    if let Some(capability) = &session {
+        if !session_request_allowed(request.method(), request.uri().path(), capability) {
+            return ApiError::forbidden_scope().into_response();
+        }
+    }
+    request.extensions_mut().insert(AuthContext {
+        principal: if human {
+            AuthPrincipal::Human
+        } else if agent {
+            AuthPrincipal::LegacyAgent
+        } else {
+            AuthPrincipal::AgentSession(session.expect("session checked"))
+        },
+    });
     next.run(request).await
+}
+
+fn session_request_allowed(
+    method: &axum::http::Method,
+    path: &str,
+    capability: &interaction_runtime::agents::AgentSessionCapability,
+) -> bool {
+    use axum::http::Method;
+    if method == Method::GET && (path == "/v1/tools" || path.starts_with("/v1/tools/")) {
+        return true;
+    }
+    if method == Method::POST && path.starts_with("/v1/tools/") && path.ends_with("/call") {
+        return true;
+    }
+    if method == Method::POST && matches!(path, "/v1/emergency-stop" | "/v1/stop-all") {
+        return true;
+    }
+    method == Method::POST
+        && path
+            .strip_prefix("/v1/agent-sessions/")
+            .and_then(|value| value.strip_suffix("/interrupt"))
+            .is_some_and(|id| id == capability.session_id)
+}
+
+/// Restricted AI/tool-plane boundary. Human-only route families stay denied
+/// until explicitly reviewed. Safety-decreasing operations (stop, revoke,
+/// cancel) and canonical tool calls remain available.
+fn agent_request_allowed(method: &axum::http::Method, path: &str) -> bool {
+    use axum::http::Method;
+    if method == Method::GET {
+        return !path.starts_with("/v1/memory")
+            && !path.starts_with("/v1/assets")
+            && !path.starts_with("/v1/knowledge")
+            && !path.starts_with("/v1/agent-sessions")
+            && !path.starts_with("/v1/activity")
+            && path != "/v1/audit"
+            && path != "/v1/outbox"
+            && !path.starts_with("/v1/ui/preferences")
+            && !path.starts_with("/v1/onboarding");
+    }
+    if matches!(
+        path,
+        "/v1/emergency-stop" | "/v1/stop-all" | "/v1/session/revoke" | "/v1/session/stop"
+    ) {
+        return true;
+    }
+    if path.starts_with("/v1/actions/") && path.ends_with("/cancel") {
+        return true;
+    }
+    if path.starts_with("/v1/agent-sessions/") && path.ends_with("/interrupt") {
+        return true;
+    }
+    if path.starts_with("/v1/tools/") && path.ends_with("/call") {
+        return true;
+    }
+    path == "/v1/observations/query"
+        || path == "/v1/plans"
+        || (path.starts_with("/v1/plans/")
+            && (path.ends_with("/simulate") || path.ends_with("/execute")))
+        || path == "/v1/hardware/scan"
+        || path == "/v1/knowledge/update-check"
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -280,9 +411,14 @@ pub async fn serve(
     port: u16,
     token: String,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>), std::io::Error> {
+    let agent_token = runtime
+        .config_service
+        .load_or_create_agent_token()
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
     let state = ApiState {
         runtime: runtime.clone(),
         token,
+        agent_token,
     };
     let app = router(state);
     let listener = tokio::net::TcpListener::bind((host, port)).await?;

@@ -137,7 +137,7 @@ async fn far_future_horizon_cannot_escape_candidate_demotion() {
         created.retention.review_after.unwrap() <= Utc::now() + chrono::Duration::days(31),
         "reviewAfter 壓回 30 天上限"
     );
-    // 更新面：PATCH kind／retention 不得解除降權（同一把 flat token 的側門）。
+    // 更新面：PATCH kind／retention 不得解除降權（內部呼叫也有防縱側門）。
     let patched = rt
         .memory_update(
             created.memory_id.as_str(),
@@ -378,6 +378,7 @@ async fn handoff_lands_in_memory_with_30d_retention() {
             max_messages: None,
             delegation: None,
             workdir: None,
+            allow_write: false,
         })
         .await
         .unwrap();
@@ -403,4 +404,73 @@ async fn handoff_lands_in_memory_with_30d_retention() {
         .as_str()
         .unwrap()
         .starts_with("agent-session:"));
+}
+
+#[tokio::test]
+async fn builtin_domain_packs_are_complete_scoped_removable_and_persisted() {
+    let (home, rt) = runtime().await;
+    let listed = rt.domain_packs_list().unwrap();
+    assert_eq!(listed["count"], 10);
+    for entry in listed["packs"].as_array().unwrap() {
+        assert_eq!(entry["installed"], true);
+        let pack: DomainPack = serde_json::from_value(entry["pack"].clone()).unwrap();
+        pack.validate().unwrap();
+    }
+
+    let empty = rt
+        .memory_context_bundle("inspect", &[], "codex")
+        .await
+        .unwrap();
+    assert!(empty["includes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|item| item.get("domainPackId").is_none()));
+    let scoped = rt
+        .memory_context_bundle("inspect", &["human-ai-interaction".into()], "codex")
+        .await
+        .unwrap();
+    let included = scoped["includes"].as_array().unwrap();
+    assert_eq!(
+        included
+            .iter()
+            .filter(|item| item["domainPackId"] == "human-ai-interaction")
+            .count(),
+        1,
+        "only an explicitly authorized installed pack enters the bundle"
+    );
+
+    rt.domain_pack_uninstall("human-ai-interaction").unwrap();
+    rt.shutdown().await;
+    let restarted = Runtime::start(RuntimeOptions {
+        home: Some(home.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+    let listed = restarted.domain_packs_list().unwrap();
+    let removed = listed["packs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["pack"]["id"] == "human-ai-interaction")
+        .unwrap();
+    assert_eq!(
+        removed["installed"], false,
+        "restart must not reinstall a user-removed pack"
+    );
+    let scoped = restarted
+        .memory_context_bundle("inspect", &["human-ai-interaction".into()], "claude-code")
+        .await
+        .unwrap();
+    assert!(scoped["includes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|item| item.get("domainPackId").is_none()));
+    restarted
+        .domain_pack_install("human-ai-interaction")
+        .unwrap();
 }

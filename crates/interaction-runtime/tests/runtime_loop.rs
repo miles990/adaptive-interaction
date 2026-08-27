@@ -1,11 +1,52 @@
 //! Runtime integration tests: the full closed loop without HTTP.
 
 use adapters_builtin::MockBehavior;
+use async_trait::async_trait;
+use interaction_adapter_sdk::{ActuatorManifestBuilder, DriverReceipt};
 use interaction_core::*;
 use interaction_policy::ActionSource;
 use interaction_runtime::{Runtime, RuntimeOptions};
 use serde_json::json;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+struct PaidActuator {
+    executions: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl Actuator for PaidActuator {
+    fn manifest(&self) -> ActuatorManifest {
+        ActuatorManifestBuilder::new("paid.test", "Paid test", "paid", "test")
+            .risk(RiskClass::Low)
+            .cost(CostDescriptor {
+                monetary_per_invocation: 1.0,
+                resource: 0.0,
+            })
+            .build()
+    }
+
+    async fn execute(&self, action: BoundedAction) -> Result<ActionReceipt, ActuatorError> {
+        self.executions.fetch_add(1, Ordering::SeqCst);
+        Ok(DriverReceipt::start(&action, chrono::Utc::now())
+            .dispatched()
+            .acknowledged()
+            .finish())
+    }
+
+    async fn status(&self) -> ComponentHealth {
+        ComponentHealth::healthy()
+    }
+
+    async fn cancel(&self, action_id: &ActionId) -> Result<ActionReceipt, ActuatorError> {
+        Err(ActuatorError::NotFound(action_id.to_string()))
+    }
+
+    async fn emergency_stop(&self) -> Result<(), ActuatorError> {
+        Ok(())
+    }
+}
 
 async fn runtime() -> (tempfile::TempDir, Runtime) {
     let dir = tempfile::tempdir().unwrap();
@@ -470,6 +511,168 @@ async fn simulate_has_no_side_effects() {
         rt.list_actions(None, 10).unwrap().is_empty(),
         "simulation must not create receipts"
     );
+}
+
+#[tokio::test]
+async fn disabled_recipe_cannot_be_run_directly() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("disabled-recipe".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.upsert_recipe_text(
+        r#"
+id: disabled-direct-run
+name: disabled direct run
+enabled: false
+trigger:
+  mode: any
+  steps:
+    - receptor: manual.event
+decision: { objective: test, allowNoAction: true }
+intent: success
+actuation:
+  candidates: [conversation]
+  minChannels: 0
+  maxChannels: 1
+"#,
+    )
+    .await
+    .unwrap();
+
+    let error = rt.run_recipe("disabled-direct-run").await.unwrap_err();
+    assert!(matches!(error, DomainError::PolicyBlocked(_)));
+    assert!(rt.outbox.recent(10).is_empty());
+}
+
+#[tokio::test]
+async fn concurrent_execute_of_one_plan_dispatches_only_once() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("one-plan".into()), None, vec![])
+        .await
+        .unwrap();
+    let plan = rt
+        .create_plan(
+            SemanticIntent::new("success"),
+            vec!["conversation".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
+        .await
+        .unwrap();
+
+    let (left, right) = tokio::join!(
+        rt.execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false),
+        rt.execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false),
+    );
+    assert_eq!(usize::from(left.is_ok()) + usize::from(right.is_ok()), 1);
+    assert_eq!(rt.outbox.recent(10).len(), 1);
+}
+
+#[tokio::test]
+async fn concurrent_authorizations_respect_hourly_limit() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("serialized-governor".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.update_policy(json!({
+        "channelLimits": {
+            "conversation": {"enabled": true, "maxPerHour": 1}
+        }
+    }))
+    .await
+    .unwrap();
+
+    let mut plans = Vec::new();
+    for _ in 0..4 {
+        plans.push(
+            rt.create_plan(
+                SemanticIntent::new("success"),
+                vec!["conversation".into()],
+                1,
+                1,
+                false,
+                None,
+                BTreeMap::new(),
+            )
+            .await
+            .unwrap(),
+        );
+    }
+    let (a, b, c, d) = tokio::join!(
+        rt.execute_plan(&plans[0].plan_id, ActionSource::ExplicitRequest, false),
+        rt.execute_plan(&plans[1].plan_id, ActionSource::ExplicitRequest, false),
+        rt.execute_plan(&plans[2].plan_id, ActionSource::ExplicitRequest, false),
+        rt.execute_plan(&plans[3].plan_id, ActionSource::ExplicitRequest, false),
+    );
+    let results = [a, b, c, d];
+    let dispatched = results
+        .into_iter()
+        .flat_map(Result::unwrap)
+        .filter(|receipt| receipt.current_status != ActionStatus::Blocked)
+        .count();
+    assert_eq!(dispatched, 1);
+    assert_eq!(rt.outbox.recent(10).len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_authorizations_reserve_monetary_budget() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("monetary-reservation".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.update_policy(json!({
+        "allowedChannels": ["conversation", "paid"],
+        "actuatorAllowlist": [
+            "conversation", "web-ui", "local-log", "local-notification", "paid.test"
+        ],
+        "sessionMonetaryBudget": 1.0,
+        "channelLimits": {"paid": {"enabled": true}}
+    }))
+    .await
+    .unwrap();
+    let executions = Arc::new(AtomicUsize::new(0));
+    rt.registry
+        .register_actuator(Arc::new(PaidActuator {
+            executions: executions.clone(),
+        }))
+        .await
+        .unwrap();
+
+    let mut handles = Vec::new();
+    for _ in 0..32 {
+        let plan = rt
+            .create_plan(
+                SemanticIntent::new("paid-test"),
+                vec!["paid.test".into()],
+                1,
+                1,
+                false,
+                None,
+                BTreeMap::new(),
+            )
+            .await
+            .unwrap();
+        let cloned = rt.clone_handle();
+        handles.push(tokio::spawn(async move {
+            cloned
+                .execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false)
+                .await
+        }));
+    }
+    for handle in handles {
+        handle.await.unwrap().unwrap();
+    }
+    assert_eq!(
+        executions.load(Ordering::SeqCst),
+        1,
+        "receipts: {:?}; policy: {:?}",
+        rt.list_actions(None, 100).unwrap(),
+        rt.policy().await
+    );
+    assert_eq!(rt.current_session().await.unwrap().monetary_spent, 1.0);
 }
 
 #[tokio::test]

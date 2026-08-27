@@ -239,6 +239,7 @@ async fn experience_candidates_cannot_promote_without_counterexamples() {
             max_messages: None,
             delegation: None,
             workdir: None,
+            allow_write: false,
         })
         .await
         .unwrap();
@@ -334,4 +335,34 @@ async fn update_decisions_are_deterministic_and_receipts_flow() {
     assert_eq!(r["changes"]["candidatesCreated"], 1);
     assert_eq!(r["verification"]["humanReviewed"], false);
     assert_eq!(r["published"]["claims"], false);
+}
+
+#[tokio::test]
+async fn user_correction_is_deletable_memory_and_unpublished_candidate() {
+    let (_g, rt) = runtime().await;
+    let out = rt
+        .record_user_correction(interaction_runtime::curator::UserCorrectionInput {
+            original_assumption: Some("所有專案都使用同一套規則".into()),
+            correction: "只在 adaptive-interaction 專案套用這項規則".into(),
+            scope: Some("adaptive-interaction repository".into()),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(out["memory"]["layer"], "user-memory");
+    assert_eq!(out["memory"]["kind"], "preference");
+    assert!(out["memory"]["retention"]["reviewAfter"].is_string());
+    assert_eq!(out["candidate"]["status"], "candidate");
+    assert_eq!(out["candidate"]["createdBy"]["kind"], "human");
+    assert_eq!(out["decision"]["needsAi"], true);
+    assert_eq!(
+        out["knowledgeReceipt"]["verification"]["humanReviewed"],
+        false
+    );
+    assert_eq!(out["knowledgeReceipt"]["published"]["claims"], false);
+
+    let memories = rt.memory_list(Some("user-memory"), 10).await.unwrap();
+    assert_eq!(memories["count"], 1);
+    let candidates = rt.knowledge_list(Some("candidate"), 10).await.unwrap();
+    assert_eq!(candidates["count"], 1);
 }

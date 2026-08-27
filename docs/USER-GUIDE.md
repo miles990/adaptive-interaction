@@ -5,8 +5,9 @@
 
 ## 先看這裡：不想讀技術細節的話
 
-打開桌面控制中心就夠了：首次啟動有**設定精靈**，之後照著「首頁 → 感知來源 →
-回應方式 → 自動互動 → 同意與安全」的順序逛一圈，每一頁都是人話。
+打開桌面控制中心就夠了：首次啟動有**設定精靈**，之後照著「首頁／現在 →
+小樞 → AI 與工作階段 → 能力與裝置 → 記憶與知識 → 活動與確認 →
+隱私與安全 → 設定」的順序逛一圈，每一頁都是人話。
 完整的圖文說明在《[視覺化工具使用說明](DESKTOP-GUIDE.md)》。
 
 幾個對應關係（括號內是技術名稱，CLI/API 會用到）：
@@ -50,6 +51,9 @@ sequenceDiagram
 ## 1. Session 與同意——你的授權邊界
 
 一切互動都發生在 session 裡。session 結束或過期，AI 就什麼都做不了。
+人類 CLI 預設讀 `state/api-token`；讓 AI/Skill 呼叫 CLI 時應加
+`--agent-scope`，改讀 `state/api-agent-token`。限權 token 無法開／授權 session、
+改 policy、發布知識或解除緊急停止；不要把 human token 傳進 Agent 子程序。
 
 ```bash
 interact-ai session start --label work            # 開始（預設 4 小時過期）
@@ -77,6 +81,15 @@ interact-ai receptors enable mock.receptor        # 開 / 關
 
 讀觀察時注意兩個欄位：**`facts`**（直接觀察到的）與 **`inferences`＋`confidence`**（模型猜的）。
 系統永遠不會把「可能疲累」當成「確實疲累」——你也不該。
+
+要掃描目前可見的互動硬體 metadata（不會打開攝影機或麥克風）：
+
+```bash
+interact-ai providers scan
+```
+
+結果只表示「這次掃描看得到」，不代表找到所有硬體；沒有穩定身分的
+路徑不能直接當成已配對裝置。
 
 ## 3. 出手：計畫 → 模擬 → 執行 → 驗證
 

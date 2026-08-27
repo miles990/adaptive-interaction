@@ -6,6 +6,7 @@ use interaction_policy::ActionSource;
 use interaction_runtime::{Runtime, RuntimeOptions};
 use serde_json::json;
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 async fn runtime() -> (tempfile::TempDir, Runtime) {
     let dir = tempfile::tempdir().unwrap();
@@ -334,4 +335,140 @@ async fn rate_state_survives_restart() {
         status.get("quietUntil").and_then(|v| v.as_str()).is_some(),
         "安靜請求跨重啟保留"
     );
+}
+
+#[tokio::test]
+async fn ai_generated_recipe_creates_a_bounded_agent_session_and_only_renders_validated_candidate()
+{
+    std::env::set_var(
+        "INTERACT_AI_CLAUDE_BIN",
+        format!(
+            "{}/tests/fixtures/fake_claude.sh",
+            env!("CARGO_MANIFEST_DIR")
+        ),
+    );
+    std::env::set_var("FAKE_MODE", "proactive");
+    let (_home, rt) = runtime().await;
+    rt.proactive_dialogue_configure(json!({
+        "mode": "natural",
+        "generativeAgent": "claude-code",
+        "dailyGenerativeSessions": 2,
+        "dailyGenerativeCostUsd": 0.5,
+        "minIntervalMinutes": 0,
+        "mergeWindowSeconds": 0,
+        "noFollowUp": false
+    }))
+    .await
+    .unwrap();
+    rt.add_push_receptor("event.proactive", "主動候選事件", "task", false)
+        .await
+        .unwrap();
+    rt.upsert_recipe_text(
+        r#"
+id: proactive-agent-e2e
+name: 主動 Agent 候選
+enabled: true
+trigger:
+  mode: single
+  steps:
+    - receptor: event.proactive
+      condition: { ready: true }
+decision: { objective: offer-low-risk-suggestion, allowNoAction: true }
+intent: proactive-generated
+message: { mode: ai-generated, allowSilence: true }
+actuation:
+  mode: single
+  candidates: [conversation]
+  minChannels: 1
+  maxChannels: 1
+verification: { strategy: best-effort, timeout: 10s }
+limits: { cooldown: 1s, expiresAfter: 60s, maxPerHour: 2 }
+"#,
+    )
+    .await
+    .unwrap();
+
+    rt.ingest(
+        "event.proactive",
+        BTreeMap::from([("ready".into(), json!(true))]),
+        BTreeMap::new(),
+        1.0,
+    )
+    .await
+    .unwrap();
+
+    let expected = "有一項低風險建議，想看時再點我。";
+    for _ in 0..120 {
+        if rt
+            .outbox
+            .recent(20)
+            .iter()
+            .any(|message| message.text.as_deref() == Some(expected))
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        rt.outbox
+            .recent(20)
+            .iter()
+            .any(|message| message.text.as_deref() == Some(expected)),
+        "only the schema-validated agent candidate is rendered"
+    );
+    let sessions = rt.list_agent_sessions().await;
+    let generated = sessions
+        .iter()
+        .find(|session| session.label.as_deref() == Some("主動式對話候選"))
+        .expect("real limited agent session created");
+    assert!(!generated.allow_write);
+    assert_eq!(generated.tool_scope, ["conversation.generate"]);
+    assert_eq!(generated.context_bundles.len(), 1);
+    assert_eq!(generated.context_bundles[0].bundle["includes"], json!([]));
+    let status = rt.proactive_dialogue_status().await;
+    assert_eq!(status["generativeToday"]["sessions"], 1);
+    assert_eq!(status["generativeToday"]["costUsd"], 0.01);
+
+    std::env::remove_var("FAKE_MODE");
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+#[tokio::test]
+async fn proactive_configuration_has_hard_limits_explicit_agent_and_deep_custom_merge() {
+    let (_home, rt) = runtime().await;
+
+    let configured = rt
+        .proactive_dialogue_configure(json!({
+            "mode": "custom",
+            "custom": {"greeting": true},
+            "generativeAgent": "claude-code",
+            "dailyGenerativeSessions": 4,
+            "dailyGenerativeCostUsd": 2.5
+        }))
+        .await
+        .unwrap();
+    assert_eq!(configured["config"]["custom"]["greeting"], true);
+    assert_eq!(
+        configured["config"]["custom"]["completion"], true,
+        "a partial nested patch must preserve the other custom trigger switches"
+    );
+    assert_eq!(configured["config"]["generativeAgent"], "claude-code");
+
+    for invalid in [
+        json!({"maxPerHour": 13}),
+        json!({"minIntervalMinutes": 61}),
+        json!({"mergeWindowSeconds": 301}),
+        json!({"dailyGenerativeSessions": 51}),
+        json!({"dailyGenerativeCostUsd": 101.0}),
+        json!({"generativeAgent": "auto-fallback"}),
+        json!({"unknownPolicyKnob": true}),
+    ] {
+        assert!(
+            matches!(
+                rt.proactive_dialogue_configure(invalid).await,
+                Err(DomainError::Validation(_))
+            ),
+            "invalid or unknown policy fields must fail closed"
+        );
+    }
 }

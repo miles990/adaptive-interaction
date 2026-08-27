@@ -2,7 +2,7 @@
 // The tests exercise the actual runtime + policy governor over HTTP — no mocks.
 
 import { spawn, execSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -27,9 +27,10 @@ export default async function globalSetup() {
   // ESM context: derive the repo root from cwd (playwright runs in the app dir).
   const repoRoot = resolve(process.cwd(), "../..");
   const bin = join(repoRoot, "target/debug/interact-ai");
-  if (!existsSync(bin)) {
-    execSync("cargo build -p interaction-cli", { cwd: repoRoot, stdio: "inherit" });
-  }
+  // Acceptance must exercise the current worktree, never a stale binary left
+  // by an earlier run. Cargo's incremental build keeps this inexpensive when
+  // nothing changed.
+  execSync("cargo build -p interaction-cli", { cwd: repoRoot, stdio: "inherit" });
 
   const home = mkdtempSync(join(tmpdir(), "interaction-e2e-"));
   mkdirSync(join(home, "config"), { recursive: true });

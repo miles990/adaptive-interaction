@@ -3,8 +3,8 @@
 
 use crate::dto::*;
 use crate::error::{ApiError, ApiResult};
-use crate::ApiState;
-use axum::extract::{Path, Query, State};
+use crate::{ApiState, AuthContext, AuthPrincipal};
+use axum::extract::{Extension, Path, Query, State};
 use axum::Json;
 use interaction_core::{
     ActionId, ActuatorId, DiscoveryContext, DomainError, ObservationQuery, PlanId, ReceptorId,
@@ -27,6 +27,19 @@ pub async fn ready(State(state): State<ApiState>) -> Json<Value> {
 
 pub async fn status(State(state): State<ApiState>) -> Json<Value> {
     Json(state.runtime.status().await)
+}
+
+pub async fn activity_inbox(
+    State(state): State<ApiState>,
+    Query(filter): Query<interaction_runtime::activity::ActivityInboxFilter>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.activity_inbox(filter).await?))
+}
+
+/// Metadata-only capability scan. This does not open any sensor or device
+/// stream; unsupported categories remain explicit in the returned report.
+pub async fn hardware_scan(State(state): State<ApiState>) -> Json<Value> {
+    Json(serde_json::to_value(state.runtime.scan_hardware_capabilities().await).unwrap_or_default())
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -598,17 +611,31 @@ pub async fn tools_export(
 
 pub async fn tool_call(
     State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
     Path(name): Path<String>,
     body: Option<Json<Value>>,
 ) -> ApiResult<Json<Value>> {
     let input = body.map(|Json(v)| v).unwrap_or_else(|| json!({}));
     // The manifest must exist (tool discovery = source of truth).
     let manifest = resolve_tool(&state, &name).await?;
-    let result = dispatch_tool(&state, &manifest.name, input).await?;
+    let is_knowledge = manifest.name.starts_with("interaction.knowledge_");
+    match &auth.principal {
+        AuthPrincipal::LegacyAgent if is_knowledge => return Err(ApiError::forbidden_scope()),
+        AuthPrincipal::AgentSession(capability) if !capability.allows_tool(&manifest.name) => {
+            return Err(ApiError::forbidden_scope());
+        }
+        _ => {}
+    }
+    let result = dispatch_tool(&state, &auth, &manifest.name, input).await?;
     Ok(Json(result))
 }
 
-async fn dispatch_tool(state: &ApiState, name: &str, input: Value) -> Result<Value, ApiError> {
+async fn dispatch_tool(
+    state: &ApiState,
+    auth: &AuthContext,
+    name: &str,
+    input: Value,
+) -> Result<Value, ApiError> {
     let rt = &state.runtime;
     let str_field =
         |input: &Value, key: &str| input.get(key).and_then(|v| v.as_str()).map(String::from);
@@ -707,22 +734,45 @@ async fn dispatch_tool(state: &ApiState, name: &str, input: Value) -> Result<Val
         }
         "interaction.recipe_run" => {
             let id = required(&input, "recipeId")?;
-            Ok(rt.run_recipe(&id).await?)
+            match &auth.principal {
+                AuthPrincipal::Human => Ok(rt.run_recipe(&id).await?),
+                AuthPrincipal::LegacyAgent | AuthPrincipal::AgentSession(_) => {
+                    Ok(rt.run_recipe_for_agent(&id).await?)
+                }
+            }
         }
         "interaction.policy" => Ok(serde_json::to_value(rt.policy().await).unwrap_or_default()),
         // ---- 知識工具（spec §12）：tool 呼叫端一律視為 AI（agent actor）——
-        // 寫入強制 Candidate、審核裁決降為留言。這是降權方向，flat token 下安全。
+        // 寫入強制 Candidate、審核裁決降為留言。agent token 只能走
+        // 這條受限工具路徑，不能改用 human-only 發布端點。
         "interaction.knowledge_search" => {
             let query = required(&input, "query")?;
             let k = input.get("k").and_then(|v| v.as_u64()).unwrap_or(10) as u32;
-            Ok(rt.knowledge_search(&query, k).await?)
+            match &auth.principal {
+                AuthPrincipal::AgentSession(capability) => Ok(rt
+                    .knowledge_search_scoped(&query, k, &capability.domains)
+                    .await?),
+                _ => Ok(rt.knowledge_search(&query, k).await?),
+            }
         }
         "interaction.knowledge_get" => {
             let id = required(&input, "nodeId")?;
-            Ok(serde_json::to_value(rt.knowledge_get(&id).await?).unwrap_or_default())
+            let node = rt.knowledge_get(&id).await?;
+            enforce_node_domain(auth, &node)?;
+            Ok(serde_json::to_value(node).unwrap_or_default())
         }
         "interaction.knowledge_get_source" => {
             let hash = required(&input, "hash")?;
+            if let AuthPrincipal::AgentSession(capability) = &auth.principal {
+                if !rt
+                    .asset_accessible_in_domains(&hash, &capability.domains)
+                    .await?
+                {
+                    return Err(ApiError::from(DomainError::PolicyBlocked(
+                        "source 不在此 Agent Session 的 Domain scope".into(),
+                    )));
+                }
+            }
             let record = rt.asset_get(&hash).await?;
             let preview = if matches!(
                 record.media_type,
@@ -743,7 +793,12 @@ async fn dispatch_tool(state: &ApiState, name: &str, input: Value) -> Result<Val
         }
         "interaction.knowledge_expand_graph" => {
             let root = required(&input, "root")?;
-            Ok(rt.knowledge_graph(&root, 1).await?)
+            match &auth.principal {
+                AuthPrincipal::AgentSession(capability) => Ok(rt
+                    .knowledge_graph_scoped(&root, &capability.domains)
+                    .await?),
+                _ => Ok(rt.knowledge_graph(&root, 1).await?),
+            }
         }
         "interaction.knowledge_propose_entity" => {
             let mut node = interaction_runtime::knowledge::node_from_input(
@@ -754,12 +809,21 @@ async fn dispatch_tool(state: &ApiState, name: &str, input: Value) -> Result<Val
                 .get("confidence")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.5);
-            let created = rt
-                .knowledge_propose_node(
-                    node,
-                    interaction_core::MemoryActor::Agent("ai-host".into()),
-                )
-                .await?;
+            enforce_proposal_domains(auth, &node.domains)?;
+            let created = match &auth.principal {
+                AuthPrincipal::AgentSession(capability) => {
+                    rt.knowledge_propose_node_for_session(
+                        node,
+                        knowledge_actor(auth),
+                        capability.session_id.clone(),
+                    )
+                    .await?
+                }
+                _ => {
+                    rt.knowledge_propose_node(node, knowledge_actor(auth))
+                        .await?
+                }
+            };
             Ok(serde_json::to_value(created).unwrap_or_default())
         }
         "interaction.knowledge_propose_claim" => {
@@ -769,55 +833,88 @@ async fn dispatch_tool(state: &ApiState, name: &str, input: Value) -> Result<Val
             }
             let node = interaction_runtime::knowledge::node_from_input(&merged)
                 .map_err(DomainError::Validation)?;
-            let created = rt
-                .knowledge_propose_node(
-                    node,
-                    interaction_core::MemoryActor::Agent("ai-host".into()),
-                )
-                .await?;
+            enforce_proposal_domains(auth, &node.domains)?;
+            let created = match &auth.principal {
+                AuthPrincipal::AgentSession(capability) => {
+                    rt.knowledge_propose_node_for_session(
+                        node,
+                        knowledge_actor(auth),
+                        capability.session_id.clone(),
+                    )
+                    .await?
+                }
+                _ => {
+                    rt.knowledge_propose_node(node, knowledge_actor(auth))
+                        .await?
+                }
+            };
             Ok(serde_json::to_value(created).unwrap_or_default())
         }
         "interaction.knowledge_propose_relation" => {
             let edge = interaction_runtime::knowledge::edge_from_input(&input)
                 .map_err(DomainError::Validation)?;
-            let created = rt
-                .knowledge_propose_edge(
-                    edge,
-                    interaction_core::MemoryActor::Agent("ai-host".into()),
-                )
-                .await?;
+            if matches!(&auth.principal, AuthPrincipal::AgentSession(_)) {
+                let from = rt.knowledge_get(edge.from.as_str()).await?;
+                let to = rt.knowledge_get(edge.to.as_str()).await?;
+                enforce_node_domain(auth, &from)?;
+                enforce_node_domain(auth, &to)?;
+            }
+            let created = match &auth.principal {
+                AuthPrincipal::AgentSession(capability) => {
+                    rt.knowledge_propose_edge_for_session(
+                        edge,
+                        knowledge_actor(auth),
+                        capability.session_id.clone(),
+                    )
+                    .await?
+                }
+                _ => {
+                    rt.knowledge_propose_edge(edge, knowledge_actor(auth))
+                        .await?
+                }
+            };
             Ok(serde_json::to_value(created).unwrap_or_default())
         }
         "interaction.knowledge_propose_supersede" => {
+            let supersedes = required(&input, "supersedes")?;
+            let prior = rt.knowledge_get(&supersedes).await?;
+            enforce_node_domain(auth, &prior)?;
             let mut merged = input.clone();
             if let Some(obj) = merged.as_object_mut() {
-                obj.insert("nodeType".into(), json!("claim"));
+                obj.insert(
+                    "nodeType".into(),
+                    serde_json::to_value(prior.node_type).unwrap_or(json!("claim")),
+                );
+                if !obj.contains_key("domains") {
+                    obj.insert("domains".into(), json!(prior.domains));
+                }
             }
             let node = interaction_runtime::knowledge::node_from_input(&merged)
                 .map_err(DomainError::Validation)?;
-            if node.supersedes.is_none() {
-                return Err(ApiError::from(DomainError::Validation(
-                    "supersedes 為必填".into(),
-                )));
-            }
-            let created = rt
-                .knowledge_propose_node(
-                    node,
-                    interaction_core::MemoryActor::Agent("ai-host".into()),
-                )
-                .await?;
+            enforce_proposal_domains(auth, &node.domains)?;
+            let created = match &auth.principal {
+                AuthPrincipal::AgentSession(capability) => {
+                    rt.knowledge_propose_node_for_session(
+                        node,
+                        knowledge_actor(auth),
+                        capability.session_id.clone(),
+                    )
+                    .await?
+                }
+                _ => {
+                    rt.knowledge_propose_node(node, knowledge_actor(auth))
+                        .await?
+                }
+            };
             Ok(serde_json::to_value(created).unwrap_or_default())
         }
         "interaction.knowledge_submit_review" => {
             let id = required(&input, "nodeId")?;
             let note = required(&input, "note")?;
+            let target = rt.knowledge_get(&id).await?;
+            enforce_node_domain(auth, &target)?;
             let node = rt
-                .knowledge_review(
-                    &id,
-                    "comment",
-                    Some(note),
-                    interaction_core::MemoryActor::Agent("ai-host".into()),
-                )
+                .knowledge_review(&id, "comment", Some(note), knowledge_actor(auth))
                 .await?;
             Ok(serde_json::to_value(node).unwrap_or_default())
         }
@@ -825,6 +922,46 @@ async fn dispatch_tool(state: &ApiState, name: &str, input: Value) -> Result<Val
             "tool {other}"
         )))),
     }
+}
+
+fn knowledge_actor(auth: &AuthContext) -> interaction_core::MemoryActor {
+    match &auth.principal {
+        AuthPrincipal::AgentSession(capability) => interaction_core::MemoryActor::Agent(format!(
+            "{}@{}",
+            capability.agent_id, capability.session_id
+        )),
+        _ => interaction_core::MemoryActor::Agent("ai-host".into()),
+    }
+}
+
+fn enforce_node_domain(
+    auth: &AuthContext,
+    node: &interaction_core::KnowledgeNode,
+) -> Result<(), ApiError> {
+    if let AuthPrincipal::AgentSession(capability) = &auth.principal {
+        if !capability.allows_domain(&node.domains) {
+            return Err(ApiError::from(DomainError::PolicyBlocked(
+                "knowledge node 不在此 Agent Session 的 Domain scope".into(),
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn enforce_proposal_domains(auth: &AuthContext, domains: &[String]) -> Result<(), ApiError> {
+    if let AuthPrincipal::AgentSession(capability) = &auth.principal {
+        let allowed = capability.domains.contains("*")
+            || (!domains.is_empty()
+                && domains
+                    .iter()
+                    .all(|domain| capability.domains.contains(domain)));
+        if !allowed {
+            return Err(ApiError::from(DomainError::PolicyBlocked(
+                "knowledge proposal 的每個 Domain 都必須在 Agent Session scope 內".into(),
+            )));
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1342,6 +1479,15 @@ pub async fn presentation_status(State(state): State<ApiState>) -> Json<Value> {
     Json(state.runtime.presentation_status())
 }
 
+pub async fn presentation_pending_command(
+    State(state): State<ApiState>,
+    Path(action_id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        state.runtime.presentation_pending_command(&action_id)?,
+    ))
+}
+
 #[derive(serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PresentationHelloBody {
@@ -1349,6 +1495,8 @@ pub struct PresentationHelloBody {
     pub visible: bool,
     #[serde(default)]
     pub pack_id: Option<String>,
+    #[serde(default)]
+    pub behavior_state: Option<Value>,
 }
 
 pub async fn presentation_hello(
@@ -1359,7 +1507,7 @@ pub async fn presentation_hello(
     Json(
         state
             .runtime
-            .presentation_hello(body.visible, body.pack_id)
+            .presentation_hello_with_behavior(body.visible, body.pack_id, body.behavior_state)
             .await,
     )
 }
@@ -1464,7 +1612,12 @@ pub async fn agents_routing(
     State(state): State<ApiState>,
     axum::extract::Query(q): axum::extract::Query<RoutingQuery>,
 ) -> Json<Value> {
-    Json(state.runtime.agent_route_suggestion(q.kind.as_deref()))
+    Json(
+        state
+            .runtime
+            .agent_route_suggestion(q.kind.as_deref())
+            .await,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1496,8 +1649,8 @@ pub async fn memory_create(
     State(state): State<ApiState>,
     Json(input): Json<Value>,
 ) -> ApiResult<Json<Value>> {
-    // actor 由呼叫端宣告「以 agent 身分」只會降權（fact→inference、長期使用者
-    // 記憶→candidate），永遠不會升權——flat token 下的安全方向。
+    // 此 human-only 端點也允許人類明確以 agent 身分匯入；宣告 agent
+    // 只會降權（fact→inference、長期使用者記憶→candidate），永遠不會升權。
     let actor = match input.get("asAgent").and_then(|v| v.as_str()) {
         Some(agent) => interaction_core::MemoryActor::Agent(agent.to_string()),
         None => interaction_core::MemoryActor::Human,
@@ -1634,6 +1787,31 @@ pub async fn asset_content(
     Ok(([("content-type", "application/octet-stream")], bytes))
 }
 
+pub async fn asset_preview(
+    State(state): State<ApiState>,
+    Path(hash): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.asset_preview(&hash).await?))
+}
+
+pub async fn asset_derivatives(
+    State(state): State<ApiState>,
+    Path(hash): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(json!({
+        "derivatives": state.runtime.asset_derivatives(&hash).await?
+    })))
+}
+
+pub async fn asset_derive(
+    State(state): State<ApiState>,
+    Path(hash): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        serde_json::to_value(state.runtime.asset_derive(&hash).await?).unwrap_or_default(),
+    ))
+}
+
 #[derive(serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct KnowledgeListQuery {
@@ -1641,6 +1819,24 @@ pub struct KnowledgeListQuery {
     status: Option<String>,
     #[serde(default)]
     limit: Option<u32>,
+}
+
+pub async fn knowledge_domain_packs(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.domain_packs_list()?))
+}
+
+pub async fn knowledge_domain_pack_install(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.domain_pack_install(&id)?))
+}
+
+pub async fn knowledge_domain_pack_uninstall(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.domain_pack_uninstall(&id)?))
 }
 
 pub async fn knowledge_nodes_list(
@@ -1782,4 +1978,11 @@ pub async fn knowledge_update_check(
     Json(body): Json<UpdateCheckBody>,
 ) -> Json<Value> {
     Json(state.runtime.knowledge_update_decision(body.trigger))
+}
+
+pub async fn knowledge_user_correction(
+    State(state): State<ApiState>,
+    Json(input): Json<interaction_runtime::curator::UserCorrectionInput>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.record_user_correction(input).await?))
 }

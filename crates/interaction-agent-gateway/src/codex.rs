@@ -6,9 +6,12 @@
 //! - Approval ServerRequest（exec／patch／權限）→ 正規化為 waiting-for-consent，
 //!   由 runtime 的人類介面裁決；預設拒絕，絕不替人類同意。
 //! - 協定形狀取自 `codex app-server generate-json-schema`（0.149.1 鎖定），
-//!   不手寫猜測。舊版不支援 app-server 時誠實回報（exec fallback 由呼叫端決定）。
+//!   不手寫猜測。舊版不支援 app-server 時自動走受限 exec fallback。
 
-use crate::process::{interrupt_tree, kill_tree, spawn_grouped, ProcessGroup};
+use crate::process::{
+    apply_session_capability_env, interrupt_tree, kill_tree, remove_runtime_auth_env,
+    spawn_grouped, ProcessGroup,
+};
 use crate::{
     AgentConnector, AgentDiscovery, AgentKind, AgentSessionHandle, ApprovalDecision, GatewayError,
     GatewayEvent, SessionSpec,
@@ -47,7 +50,9 @@ impl CodexConnector {
 }
 
 async fn capture(binary: &str, args: &[&str]) -> Result<(bool, String), String> {
-    let out = tokio::time::timeout(DISCOVER_TIMEOUT, Command::new(binary).args(args).output())
+    let mut cmd = Command::new(binary);
+    remove_runtime_auth_env(&mut cmd);
+    let out = tokio::time::timeout(DISCOVER_TIMEOUT, cmd.args(args).output())
         .await
         .map_err(|_| "timeout".to_string())?
         .map_err(|e| e.to_string())?;
@@ -89,18 +94,29 @@ impl AgentConnector for CodexConnector {
             capture(&self.binary, &["app-server", "--help"]).await,
             Ok((true, _))
         );
+        let exec_fallback = matches!(
+            capture(&self.binary, &["exec", "--help"]).await,
+            Ok((true, _))
+        );
         AgentDiscovery {
             kind: AgentKind::Codex,
             found: true,
             binary_path: Some(self.binary.clone()),
             version: Some(version.clone()),
             logged_in,
-            protocol_supported: Some(app_server),
-            detail: match (logged_in, app_server) {
-                (Some(true), true) => format!("{version}（已登入，app-server 可用）"),
-                (Some(true), false) => format!("{version}（已登入，無 app-server——exec fallback）"),
-                (Some(false), _) => format!("{version}（未登入——請先在終端執行 codex login）"),
-                (None, _) => format!("{version}（登入狀態未知）"),
+            protocol_supported: Some(app_server || exec_fallback),
+            detail: match (logged_in, app_server, exec_fallback) {
+                (Some(true), true, _) => format!("{version}（已登入，app-server 可用）"),
+                (Some(true), false, true) => {
+                    format!("{version}（已登入，使用受限 exec fallback）")
+                }
+                (Some(true), false, false) => {
+                    format!("{version}（已登入，但 app-server／exec 均不支援）")
+                }
+                (Some(false), _, _) => {
+                    format!("{version}（未登入——請先在終端執行 codex login）")
+                }
+                (None, _, _) => format!("{version}（登入狀態未知）"),
             },
         }
     }
@@ -109,7 +125,25 @@ impl AgentConnector for CodexConnector {
         &self,
         spec: SessionSpec,
     ) -> Result<Box<dyn AgentSessionHandle>, GatewayError> {
+        let app_server = matches!(
+            capture(&self.binary, &["app-server", "--help"]).await,
+            Ok((true, _))
+        );
+        if !app_server {
+            let exec_supported = matches!(
+                capture(&self.binary, &["exec", "--help"]).await,
+                Ok((true, _))
+            );
+            if exec_supported {
+                return crate::codex_exec::start(self.binary.clone(), spec).await;
+            }
+            return Err(GatewayError::Unavailable(
+                "codex 不支援 app-server 或 exec --json".into(),
+            ));
+        }
         let mut cmd = Command::new(&self.binary);
+        remove_runtime_auth_env(&mut cmd);
+        apply_session_capability_env(&mut cmd, &spec);
         cmd.current_dir(&spec.workdir).arg("app-server");
         let mut child = spawn_grouped(cmd)?;
         // pgid 必須在 spawn 後立即捕捉：kill 路徑不能依賴 child 屆時是否已被收割。
@@ -244,9 +278,11 @@ impl AgentConnector for CodexConnector {
             "approvalPolicy": "untrusted",
             "ephemeral": false,
         });
-        if spec.read_only {
-            thread_params["sandbox"] = json!("read-only");
-        }
+        thread_params["sandbox"] = json!(if spec.write_enabled {
+            "workspace-write"
+        } else {
+            "read-only"
+        });
         let thread = if let Some(resume) = &spec.resume_provider_session {
             rpc_request(&shared, "thread/resume", json!({"threadId": resume})).await?
         } else {
@@ -530,7 +566,7 @@ impl AgentSessionHandle for CodexHandle {
     }
 
     fn process_group(&self) -> ProcessGroup {
-        self.group
+        self.group.clone()
     }
 
     fn take_events(&mut self) -> Option<mpsc::Receiver<GatewayEvent>> {
@@ -634,5 +670,90 @@ mod tests {
         );
         assert!(s.chars().count() <= 300);
         let _ = approval_summary("execCommandApproval", None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn connector_uses_exec_fallback_and_resumes_the_same_thread() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("fake-codex.sh");
+        let argv_log = dir.path().join("argv.log");
+        std::fs::write(
+            &script,
+            format!(
+                r#"#!/bin/sh
+printf '%s\n' "$*" >> '{}'
+if [ "$1" = "--version" ]; then echo 'codex-cli 0.1'; exit 0; fi
+if [ "$1" = "login" ]; then echo 'Logged in'; exit 0; fi
+if [ "$1" = "app-server" ]; then exit 1; fi
+if [ "$1" = "exec" ] && [ "$2" = "--help" ]; then exit 0; fi
+echo '{{"type":"thread.started","thread_id":"fallback-thread"}}'
+echo '{{"type":"turn.started"}}'
+echo '{{"type":"item.completed","item":{{"type":"agent_message","text":"fallback-ok"}}}}'
+echo '{{"type":"turn.completed","usage":{{"input_tokens":2,"output_tokens":1}}}}'
+"#,
+                argv_log.display()
+            ),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&script, permissions).unwrap();
+
+        let connector = CodexConnector::with_binary(script.to_string_lossy());
+        let discovery = connector.discover().await;
+        assert!(discovery.usable(), "{discovery:?}");
+        assert!(discovery.detail.contains("exec fallback"));
+
+        let mut handle = connector
+            .start_session(SessionSpec::read_only_in(dir.path().to_path_buf()))
+            .await
+            .unwrap();
+        let mut events = handle.take_events().unwrap();
+        handle.send_user_message("first").await.unwrap();
+        let mut saw_claim = false;
+        for _ in 0..10 {
+            let event = tokio::time::timeout(Duration::from_secs(2), events.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if matches!(event, GatewayEvent::TaskClaimedCompleted { .. }) {
+                saw_claim = true;
+                break;
+            }
+        }
+        assert!(saw_claim);
+        assert_eq!(
+            handle.provider_session_id().as_deref(),
+            Some("fallback-thread")
+        );
+
+        // reader 在 claim 後還要 wait/reap；有界等待 busy 清除，再送第二輪。
+        for _ in 0..40 {
+            match handle.send_user_message("second").await {
+                Ok(()) => break,
+                Err(GatewayError::Busy(_)) => tokio::time::sleep(Duration::from_millis(25)).await,
+                Err(e) => panic!("second turn failed: {e}"),
+            }
+        }
+        let mut second_claim = false;
+        for _ in 0..10 {
+            let event = tokio::time::timeout(Duration::from_secs(2), events.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if matches!(event, GatewayEvent::TaskClaimedCompleted { .. }) {
+                second_claim = true;
+                break;
+            }
+        }
+        assert!(second_claim);
+        let log = std::fs::read_to_string(argv_log).unwrap();
+        assert!(log.contains("exec --json"), "{log}");
+        assert!(log.contains("exec resume"), "{log}");
+        assert!(log.contains("fallback-thread second"), "{log}");
+        assert!(!log.contains("danger"), "{log}");
+        handle.kill().await.unwrap();
     }
 }

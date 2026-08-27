@@ -3,7 +3,7 @@
 // 不會留下半套用狀態。
 
 import React from "react";
-import { api, HumanCard, OnboardingState } from "../api";
+import { api, HardwareScanReport, HumanCard, OnboardingState } from "../api";
 import { useAppState } from "../appstate";
 import { Icon } from "../icons";
 import { Badge } from "../ui";
@@ -42,6 +42,9 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
   const [draft, setDraft] = React.useState<Draft>(EMPTY_DRAFT);
   const [committing, setCommitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [hardwareScan, setHardwareScan] = React.useState<HardwareScanReport | null>(null);
+  const [hardwareScanning, setHardwareScanning] = React.useState(false);
+  const [hardwareScanError, setHardwareScanError] = React.useState<string | null>(null);
 
   const [loadError, setLoadError] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -171,13 +174,49 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
         )}
 
         {step === 1 && (
-          <PickStep
-            title="AI 可以知道什麼？"
-            intro="勾選你願意讓系統感知的資訊。高敏感來源（攝影機、麥克風、位置）預設不啟用，之後需要時再個別同意。"
-            cards={human.receptors.filter((r) => !r.requiresConsent && r.consent.required !== true)}
-            selected={draft.senses}
-            onChange={(senses) => update({ senses })}
-          />
+          <section>
+            <h1>AI 可以知道什麼？</h1>
+            <p className="muted">
+              勾選你願意讓系統感知的資訊。高敏感來源（攝影機、麥克風、位置）預設不啟用，之後需要時再個別同意。
+            </p>
+            <div className="notice-box">
+              <strong>掃描目前可用的互動能力</strong>
+              <p className="muted small">
+                掃描只讀取名稱、類型、穩定識別、權限需求與可用狀態，不會開啟攝影機、麥克風或開始原始感測；結果不代表找到所有硬體。
+              </p>
+              <button
+                disabled={hardwareScanning}
+                onClick={async () => {
+                  setHardwareScanning(true);
+                  setHardwareScanError(null);
+                  try {
+                    setHardwareScan(await api.hardwareScan());
+                  } catch (e) {
+                    setHardwareScanError(`掃描失敗：${String(e)}`);
+                  } finally {
+                    setHardwareScanning(false);
+                  }
+                }}
+              >
+                {hardwareScanning ? "掃描中…" : "掃描目前可用裝置"}
+              </button>
+              {hardwareScan && (
+                <p className="muted small" role="status">
+                  已偵測到目前可用裝置與能力，共 {hardwareScan.devices.length} 筆；
+                  感測器啟動：{hardwareScan.sensorActivationAttempted ? "曾嘗試（異常）" : "否"}。
+                  可在完成設定後到「能力與裝置」查看逐項結果、配對與授權狀態。
+                </p>
+              )}
+              {hardwareScanError && <p className="cap-card-error" role="alert">{hardwareScanError}</p>}
+            </div>
+            <PickCards
+              cards={human.receptors.filter(
+                (r) => !r.requiresConsent && r.consent.required !== true
+              )}
+              selected={draft.senses}
+              onChange={(senses) => update({ senses })}
+            />
+          </section>
         )}
 
         {step === 2 && (
@@ -443,37 +482,51 @@ function PickStep({
     <section>
       <h1>{title}</h1>
       <p className="muted">{intro}</p>
-      <div className="pick-grid">
-        {cards.map((c) => {
-          const on = selected.includes(c.id);
-          return (
-            <label key={c.id} className={on ? "pick-card on" : "pick-card"}>
-              <input
-                type="checkbox"
-                checked={on}
-                onChange={(e) =>
-                  onChange(e.target.checked ? [...selected, c.id] : selected.filter((x) => x !== c.id))
-                }
-              />
-              <div className="pick-card-body">
-                <div className="row">
-                  <Icon name={c.icon} size={18} />
-                  <strong>{c.displayName}</strong>
-                  {c.beginnerRecommended && <Badge kind="info">推薦</Badge>}
-                </div>
-                <p className="muted small">{c.shortDescription ?? c.conservativeNotice}</p>
-                <div>
-                  {c.badges.slice(0, 3).map((b) => (
-                    <Badge key={b.key} kind={b.tone === "danger" ? "bad" : b.tone === "warn" ? "warn" : b.tone === "ok" ? "ok" : "info"}>
-                      {b.label}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </label>
-          );
-        })}
-      </div>
+      <PickCards cards={cards} selected={selected} onChange={onChange} />
     </section>
+  );
+}
+
+function PickCards({
+  cards,
+  selected,
+  onChange,
+}: {
+  cards: HumanCard[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  return (
+    <div className="pick-grid">
+      {cards.map((c) => {
+        const on = selected.includes(c.id);
+        return (
+          <label key={c.id} className={on ? "pick-card on" : "pick-card"}>
+            <input
+              type="checkbox"
+              checked={on}
+              onChange={(e) =>
+                onChange(e.target.checked ? [...selected, c.id] : selected.filter((x) => x !== c.id))
+              }
+            />
+            <div className="pick-card-body">
+              <div className="row">
+                <Icon name={c.icon} size={18} />
+                <strong>{c.displayName}</strong>
+                {c.beginnerRecommended && <Badge kind="info">推薦</Badge>}
+              </div>
+              <p className="muted small">{c.shortDescription ?? c.conservativeNotice}</p>
+              <div>
+                {c.badges.slice(0, 3).map((b) => (
+                  <Badge key={b.key} kind={b.tone === "danger" ? "bad" : b.tone === "warn" ? "warn" : b.tone === "ok" ? "ok" : "info"}>
+                    {b.label}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </label>
+        );
+      })}
+    </div>
   );
 }
