@@ -13,9 +13,28 @@
 //! - SSRF guard: only http/https, and the cloud-metadata range 169.254.0.0/16
 //!   is hard-blocked. Specs are human-owned config: the URL itself is the
 //!   human's explicit allowlist entry.
-//! - Transports beyond http/sse (websocket, mqtt, serial, ble) parse but are
-//!   HONESTLY refused at build time with a clear "not supported in this
-//!   build" error — nothing pretends to work.
+//! - v0.5 real-hardware transports: `serial`（USB CDC，行分隔 JSON）、
+//!   `mqtt`（QoS1 topic pair）、`ble`（GATT command/state characteristics，
+//!   僅 macOS/Windows）。三者共用 `protocol.rs` 的誠實核心：hello 身分驗證
+//!   （埠/IP/topic 不是身分）、配對碼握手、cmd nonce＋裝置端 dedupe、
+//!   ack 逾時＝結果未知且絕不自動重送、斷線退避重連＋重新握手。
+//! - Transports still beyond this build (websocket, webhook 及 Linux 上的
+//!   ble) parse but are HONESTLY refused at build time with a clear error —
+//!   nothing pretends to work.
+
+pub mod protocol;
+
+#[cfg(all(
+    feature = "transport-ble",
+    any(target_os = "macos", target_os = "windows")
+))]
+pub mod ble;
+#[cfg(any(feature = "transport-serial", feature = "transport-mqtt"))]
+mod link_caps;
+#[cfg(feature = "transport-mqtt")]
+pub mod mqtt;
+#[cfg(feature = "transport-serial")]
+pub mod serial;
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -63,7 +82,21 @@ pub struct CapabilitySpec {
     #[serde(default)]
     pub category: Option<String>,
     pub transport: Transport,
-    pub request: RequestSpec,
+    /// http/sse：請求描述（link 傳輸不用）。
+    #[serde(default)]
+    pub request: Option<RequestSpec>,
+    /// serial/mqtt/ble actuator：裝置命令（name＋params 模板）。
+    #[serde(default)]
+    pub command: Option<CommandSpec>,
+    /// serial 傳輸設定（同一 adapter 內的所有 serial capability 必須一致）。
+    #[serde(default)]
+    pub serial: Option<SerialSpec>,
+    /// mqtt 傳輸設定。
+    #[serde(default)]
+    pub mqtt: Option<MqttSpec>,
+    /// ble 傳輸設定。
+    #[serde(default)]
+    pub ble: Option<BleSpec>,
     /// Receptor: poll interval.
     #[serde(default)]
     pub poll_interval_ms: Option<u64>,
@@ -127,6 +160,72 @@ fn default_method() -> String {
     "GET".into()
 }
 
+/// link 傳輸的裝置命令：`{"type":"cmd","name":…,"params":…}` 的 name 與
+/// params 模板（模板僅能引用 policy-bounded effective 值，與 http body 同）。
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandSpec {
+    pub name: String,
+    #[serde(default)]
+    pub params: Option<Value>,
+}
+
+/// USB Serial 傳輸設定。
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialSpec {
+    /// 例：/dev/cu.usbmodem14101（macOS）、/dev/ttyUSB0（Linux）。
+    pub port: String,
+    #[serde(default = "default_baud")]
+    pub baud: u32,
+    /// 裝置身分：hello.deviceId 必須等於此值（埠路徑不是身分）。
+    pub expected_device_id: String,
+    /// 配對碼（建議 secret://）：連線後先 pair，失敗即拒。
+    #[serde(default)]
+    pub pairing_code: Option<String>,
+}
+
+fn default_baud() -> u32 {
+    115_200
+}
+
+/// MQTT 傳輸設定。
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MqttSpec {
+    pub broker_host: String,
+    #[serde(default = "default_mqtt_port")]
+    pub broker_port: u16,
+    /// 裝置 topic 前綴：host 發佈 `<prefix>/to-device`、訂閱 `<prefix>/from-device`。
+    pub topic_prefix: String,
+    pub expected_device_id: String,
+    #[serde(default)]
+    pub pairing_code: Option<String>,
+    /// broker 認證（值可用 secret://）。
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+}
+
+fn default_mqtt_port() -> u16 {
+    1883
+}
+
+/// BLE 傳輸設定（GATT）。
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BleSpec {
+    /// 廣播名稱（掃描用；不是身分——身分仍靠 hello.deviceId＋配對碼）。
+    pub device_name: String,
+    pub service_uuid: String,
+    pub command_char_uuid: String,
+    pub state_char_uuid: String,
+    pub expected_device_id: String,
+    #[serde(default)]
+    pub pairing_code: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RetrySpec {
@@ -162,36 +261,139 @@ pub fn validate_spec(spec: &DeclarativeSpec) -> Result<(), String> {
         return Err("spec has too many capabilities (max 64)".into());
     }
     for cap in &spec.capabilities {
-        validate_url(&cap.request.url)?;
-        if let Some(stop) = &cap.stop_request {
-            validate_url(&stop.url)?;
-        }
-        for value in cap.request.headers.values() {
-            if value.len() > 4096 {
-                return Err(format!("{}: header value too long", cap.id));
-            }
-        }
-        if cap.kind == CapabilityKindSpec::Receptor
-            && cap.transport == Transport::Http
-            && cap.facts.is_empty()
-        {
-            return Err(format!(
-                "{}: http receptor needs a `facts` json-pointer mapping",
-                cap.id
-            ));
-        }
         match cap.transport {
-            Transport::Http | Transport::Sse => {}
+            Transport::Http | Transport::Sse => {
+                let Some(request) = &cap.request else {
+                    return Err(format!("{}: http/sse capability needs `request`", cap.id));
+                };
+                validate_url(&request.url)?;
+                if let Some(stop) = &cap.stop_request {
+                    validate_url(&stop.url)?;
+                }
+                for value in request.headers.values() {
+                    if value.len() > 4096 {
+                        return Err(format!("{}: header value too long", cap.id));
+                    }
+                }
+                if cap.kind == CapabilityKindSpec::Receptor
+                    && cap.transport == Transport::Http
+                    && cap.facts.is_empty()
+                {
+                    return Err(format!(
+                        "{}: http receptor needs a `facts` json-pointer mapping",
+                        cap.id
+                    ));
+                }
+            }
+            Transport::Serial => {
+                validate_link_cap(cap, cap.serial.is_some(), "serial")?;
+                if !cfg!(feature = "transport-serial") {
+                    return Err(honest_refusal(cap, "serial"));
+                }
+            }
+            Transport::Mqtt => {
+                validate_link_cap(cap, cap.mqtt.is_some(), "mqtt")?;
+                if !cfg!(feature = "transport-mqtt") {
+                    return Err(honest_refusal(cap, "mqtt"));
+                }
+            }
+            Transport::Ble => {
+                validate_link_cap(cap, cap.ble.is_some(), "ble")?;
+                if !cfg!(all(
+                    feature = "transport-ble",
+                    any(target_os = "macos", target_os = "windows")
+                )) {
+                    return Err(format!(
+                        "{}: transport Ble is declared but NOT supported in this build on this \
+                         platform (BLE needs macOS/Windows with the transport-ble feature). \
+                         The capability was not created.",
+                        cap.id
+                    ));
+                }
+                if let Some(ble) = &cap.ble {
+                    for (label, raw) in [
+                        ("serviceUuid", &ble.service_uuid),
+                        ("commandCharUuid", &ble.command_char_uuid),
+                        ("stateCharUuid", &ble.state_char_uuid),
+                    ] {
+                        if raw.parse::<u128>().is_err() && parse_uuid(raw).is_none() {
+                            return Err(format!("{}: {label} {raw:?} is not a valid UUID", cap.id));
+                        }
+                    }
+                }
+            }
             other => {
                 return Err(format!(
                     "{}: transport {other:?} is declared but NOT supported in this build \
-                     (supported: http, sse). The capability was not created.",
+                     (supported: http, sse, serial, mqtt, ble). The capability was not created.",
                     cap.id
                 ));
             }
         }
     }
     Ok(())
+}
+
+/// link 傳輸共通驗證：需要傳輸設定；actuator 需要 command；expectedDeviceId
+/// 不可為空（身分不可省略）。
+fn validate_link_cap(
+    cap: &CapabilitySpec,
+    has_transport_cfg: bool,
+    label: &str,
+) -> Result<(), String> {
+    if !has_transport_cfg {
+        return Err(format!(
+            "{}: {label} capability needs a `{label}` config block",
+            cap.id
+        ));
+    }
+    if cap.kind == CapabilityKindSpec::Actuator && cap.command.is_none() {
+        return Err(format!(
+            "{}: {label} actuator needs a `command` (name + params template)",
+            cap.id
+        ));
+    }
+    if cap.kind == CapabilityKindSpec::Receptor && cap.facts.is_empty() {
+        return Err(format!(
+            "{}: {label} receptor needs a `facts` json-pointer mapping (e.g. /facts/lux)",
+            cap.id
+        ));
+    }
+    let expected = match (&cap.serial, &cap.mqtt, &cap.ble) {
+        (Some(s), _, _) => &s.expected_device_id,
+        (_, Some(m), _) => &m.expected_device_id,
+        (_, _, Some(b)) => &b.expected_device_id,
+        _ => return Ok(()),
+    };
+    if expected.trim().is_empty() {
+        return Err(format!(
+            "{}: expectedDeviceId must not be empty — a port/IP/topic is never an identity",
+            cap.id
+        ));
+    }
+    Ok(())
+}
+
+fn honest_refusal(cap: &CapabilitySpec, label: &str) -> String {
+    format!(
+        "{}: transport {label} is declared but NOT supported in this build \
+         (the transport-{label} feature is disabled). The capability was not created.",
+        cap.id
+    )
+}
+
+/// 簡易 UUID 檢查（8-4-4-4-12 hex）。
+fn parse_uuid(raw: &str) -> Option<[u8; 16]> {
+    let clean: String = raw.chars().filter(|c| *c != '-').collect();
+    if clean.len() != 32 || !clean.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut out = [0u8; 16];
+    for (i, chunk) in clean.as_bytes().chunks(2).enumerate() {
+        let hex = std::str::from_utf8(chunk).ok()?;
+        out[i] = u8::from_str_radix(hex, 16).ok()?;
+    }
+    Some(out)
 }
 
 /// SSRF guard: http/https only; cloud-metadata endpoints hard-blocked in every
@@ -360,6 +562,7 @@ pub fn substitute(template: &Value, action: &BoundedAction) -> Value {
 
 pub struct DeclarativeHttpReceptor {
     spec: CapabilitySpec,
+    request: RequestSpec,
     adapter_id: String,
     client: reqwest::Client,
     home: Option<std::path::PathBuf>,
@@ -371,7 +574,7 @@ impl DeclarativeHttpReceptor {
     }
 }
 
-fn qualified_id(adapter: &str, id: &str) -> String {
+pub(crate) fn qualified_id(adapter: &str, id: &str) -> String {
     if id.contains('.') {
         id.to_string()
     } else {
@@ -436,7 +639,7 @@ impl Receptor for DeclarativeHttpReceptor {
     async fn read(&self) -> Result<Observation, ReceptorError> {
         let (status, value) = send_request(
             &self.client,
-            &self.spec.request,
+            &self.request,
             None,
             self.spec.timeout_ms.unwrap_or(5_000),
             None,
@@ -477,6 +680,7 @@ impl Receptor for DeclarativeHttpReceptor {
 
 pub struct DeclarativeHttpActuator {
     spec: CapabilitySpec,
+    request: RequestSpec,
     adapter_id: String,
     client: reqwest::Client,
     home: Option<std::path::PathBuf>,
@@ -526,7 +730,6 @@ impl Actuator for DeclarativeHttpActuator {
             return Err(ActuatorError::Rejected("action expired".into()));
         }
         let body = self
-            .spec
             .request
             .body
             .as_ref()
@@ -543,7 +746,7 @@ impl Actuator for DeclarativeHttpActuator {
             }
             match send_request(
                 &self.client,
-                &self.spec.request,
+                &self.request,
                 body.clone(),
                 timeout,
                 Some(action.action_id.as_str()),
@@ -634,23 +837,234 @@ pub fn build(
         receptors: vec![],
         actuators: vec![],
     };
+    // 每種 link 傳輸共享一條連線（同一 adapter 內設定必須一致——不一致代表
+    // spec 想同時對到兩個裝置，應拆成兩個 adapter）。
+    #[cfg(feature = "transport-serial")]
+    let mut serial_link: Option<(
+        SerialSpec,
+        Arc<protocol::DeviceLink<Arc<serial::SerialRawLink>>>,
+    )> = None;
+    #[cfg(feature = "transport-mqtt")]
+    let mut mqtt_link: Option<(MqttSpec, Arc<protocol::DeviceLink<Arc<mqtt::MqttRawLink>>>)> = None;
+    #[cfg(all(
+        feature = "transport-ble",
+        any(target_os = "macos", target_os = "windows")
+    ))]
+    let mut ble_link: Option<(BleSpec, Arc<protocol::DeviceLink<Arc<ble::BleRawLink>>>)> = None;
+
     for cap in &spec.capabilities {
-        match cap.kind {
-            CapabilityKindSpec::Receptor => out.receptors.push(Arc::new(DeclarativeHttpReceptor {
-                spec: cap.clone(),
-                adapter_id: spec.id.clone(),
-                client: client.clone(),
-                home: home.clone(),
-            })),
-            CapabilityKindSpec::Actuator => out.actuators.push(Arc::new(DeclarativeHttpActuator {
-                spec: cap.clone(),
-                adapter_id: spec.id.clone(),
-                client: client.clone(),
-                home: home.clone(),
-            })),
+        match cap.transport {
+            Transport::Http | Transport::Sse => {
+                let request = cap
+                    .request
+                    .clone()
+                    .ok_or_else(|| format!("{}: missing request", cap.id))?;
+                match cap.kind {
+                    CapabilityKindSpec::Receptor => {
+                        out.receptors.push(Arc::new(DeclarativeHttpReceptor {
+                            spec: cap.clone(),
+                            request,
+                            adapter_id: spec.id.clone(),
+                            client: client.clone(),
+                            home: home.clone(),
+                        }))
+                    }
+                    CapabilityKindSpec::Actuator => {
+                        out.actuators.push(Arc::new(DeclarativeHttpActuator {
+                            spec: cap.clone(),
+                            request,
+                            adapter_id: spec.id.clone(),
+                            client: client.clone(),
+                            home: home.clone(),
+                        }))
+                    }
+                }
+            }
+            #[cfg(feature = "transport-serial")]
+            Transport::Serial => {
+                let cfg = cap
+                    .serial
+                    .clone()
+                    .ok_or_else(|| format!("{}: missing serial", cap.id))?;
+                let link = match &serial_link {
+                    Some((existing, link)) => {
+                        if existing.port != cfg.port
+                            || existing.baud != cfg.baud
+                            || existing.expected_device_id != cfg.expected_device_id
+                        {
+                            return Err(format!(
+                                "{}: all serial capabilities in one adapter must share the same \
+                                 serial config (one adapter = one device)",
+                                cap.id
+                            ));
+                        }
+                        link.clone()
+                    }
+                    None => {
+                        let pairing = cfg
+                            .pairing_code
+                            .as_deref()
+                            .map(|code| resolve_secret(code, home.as_deref()))
+                            .transpose()?;
+                        let raw = serial::SerialRawLink::spawn(cfg.port.clone(), cfg.baud);
+                        let link = Arc::new(protocol::DeviceLink::new(
+                            raw,
+                            cfg.expected_device_id.clone(),
+                            pairing,
+                        ));
+                        serial_link = Some((cfg.clone(), link.clone()));
+                        link
+                    }
+                };
+                push_link_cap(&mut out, cap, spec, link, "serial")?;
+            }
+            #[cfg(feature = "transport-mqtt")]
+            Transport::Mqtt => {
+                let cfg = cap
+                    .mqtt
+                    .clone()
+                    .ok_or_else(|| format!("{}: missing mqtt", cap.id))?;
+                let link = match &mqtt_link {
+                    Some((existing, link)) => {
+                        if existing.broker_host != cfg.broker_host
+                            || existing.broker_port != cfg.broker_port
+                            || existing.topic_prefix != cfg.topic_prefix
+                            || existing.expected_device_id != cfg.expected_device_id
+                        {
+                            return Err(format!(
+                                "{}: all mqtt capabilities in one adapter must share the same \
+                                 mqtt config (one adapter = one device)",
+                                cap.id
+                            ));
+                        }
+                        link.clone()
+                    }
+                    None => {
+                        let pairing = cfg
+                            .pairing_code
+                            .as_deref()
+                            .map(|code| resolve_secret(code, home.as_deref()))
+                            .transpose()?;
+                        let credentials = match (&cfg.username, &cfg.password) {
+                            (Some(user), Some(pass)) => Some((
+                                resolve_secret(user, home.as_deref())?,
+                                resolve_secret(pass, home.as_deref())?,
+                            )),
+                            _ => None,
+                        };
+                        let raw = mqtt::MqttRawLink::spawn(
+                            cfg.broker_host.clone(),
+                            cfg.broker_port,
+                            cfg.topic_prefix.clone(),
+                            &spec.id,
+                            credentials,
+                        );
+                        let link = Arc::new(protocol::DeviceLink::new(
+                            raw,
+                            cfg.expected_device_id.clone(),
+                            pairing,
+                        ));
+                        mqtt_link = Some((cfg.clone(), link.clone()));
+                        link
+                    }
+                };
+                push_link_cap(&mut out, cap, spec, link, "mqtt")?;
+            }
+            #[cfg(all(
+                feature = "transport-ble",
+                any(target_os = "macos", target_os = "windows")
+            ))]
+            Transport::Ble => {
+                let cfg = cap
+                    .ble
+                    .clone()
+                    .ok_or_else(|| format!("{}: missing ble", cap.id))?;
+                let link = match &ble_link {
+                    Some((existing, link)) => {
+                        if existing.device_name != cfg.device_name
+                            || existing.expected_device_id != cfg.expected_device_id
+                        {
+                            return Err(format!(
+                                "{}: all ble capabilities in one adapter must share the same \
+                                 ble config (one adapter = one device)",
+                                cap.id
+                            ));
+                        }
+                        link.clone()
+                    }
+                    None => {
+                        let parse = |raw: &str, label: &str| {
+                            raw.parse::<uuid::Uuid>()
+                                .map_err(|e| format!("{}: {label}: {e}", cap.id))
+                        };
+                        let pairing = cfg
+                            .pairing_code
+                            .as_deref()
+                            .map(|code| resolve_secret(code, home.as_deref()))
+                            .transpose()?;
+                        let raw = ble::BleRawLink::new(
+                            cfg.device_name.clone(),
+                            parse(&cfg.service_uuid, "serviceUuid")?,
+                            parse(&cfg.command_char_uuid, "commandCharUuid")?,
+                            parse(&cfg.state_char_uuid, "stateCharUuid")?,
+                        );
+                        let link = Arc::new(protocol::DeviceLink::new(
+                            raw,
+                            cfg.expected_device_id.clone(),
+                            pairing,
+                        ));
+                        ble_link = Some((cfg.clone(), link.clone()));
+                        link
+                    }
+                };
+                push_link_cap(&mut out, cap, spec, link, "ble")?;
+            }
+            // validate_spec 已誠實拒絕的組合：不可能到這裡。
+            #[allow(unreachable_patterns)]
+            other => {
+                return Err(format!(
+                    "{}: transport {other:?} not supported in this build",
+                    cap.id
+                ))
+            }
         }
     }
     Ok(out)
+}
+
+/// 把一個 link capability 塞進輸出（receptor / actuator 共用）。
+#[cfg(any(feature = "transport-serial", feature = "transport-mqtt"))]
+fn push_link_cap<L: protocol::RawLink + 'static>(
+    out: &mut BuiltCapabilities,
+    cap: &CapabilitySpec,
+    spec: &DeclarativeSpec,
+    link: Arc<protocol::DeviceLink<L>>,
+    label: &'static str,
+) -> Result<(), String> {
+    match cap.kind {
+        CapabilityKindSpec::Receptor => {
+            out.receptors.push(Arc::new(link_caps::LinkReceptor {
+                spec: cap.clone(),
+                adapter_id: spec.id.clone(),
+                link,
+                transport_label: label,
+            }));
+        }
+        CapabilityKindSpec::Actuator => {
+            let command = cap
+                .command
+                .clone()
+                .ok_or_else(|| format!("{}: missing command", cap.id))?;
+            out.actuators.push(Arc::new(link_caps::LinkActuator::new(
+                cap.clone(),
+                command,
+                spec.id.clone(),
+                link,
+                label,
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -686,11 +1100,127 @@ id: desk
 capabilities:
   - kind: actuator
     id: buzz
-    transport: mqtt
+    transport: websocket
     request: { url: "http://192.168.1.9/x" }
 "#;
         let err = parse_spec(yaml).unwrap_err();
         assert!(err.contains("NOT supported in this build"));
+    }
+
+    #[test]
+    fn link_transports_validate_identity_command_and_facts() {
+        // serial actuator 少 command → 拒。
+        let missing_command = r#"
+schemaVersion: "1.0"
+id: esp32-desk
+capabilities:
+  - kind: actuator
+    id: led
+    transport: serial
+    serial: { port: "/dev/cu.usbmodem1", expectedDeviceId: "esp32-desk01" }
+"#;
+        let err = parse_spec(missing_command).unwrap_err();
+        assert!(err.contains("needs a `command`"), "{err}");
+
+        // 空 expectedDeviceId → 拒（埠不是身分）。
+        let empty_identity = r#"
+schemaVersion: "1.0"
+id: esp32-desk
+capabilities:
+  - kind: actuator
+    id: led
+    transport: serial
+    command: { name: "led.set" }
+    serial: { port: "/dev/cu.usbmodem1", expectedDeviceId: "  " }
+"#;
+        let err = parse_spec(empty_identity).unwrap_err();
+        assert!(err.contains("never an identity"), "{err}");
+
+        // receptor 少 facts → 拒。
+        let missing_facts = r#"
+schemaVersion: "1.0"
+id: esp32-desk
+capabilities:
+  - kind: receptor
+    id: env
+    transport: mqtt
+    mqtt: { brokerHost: "127.0.0.1", topicPrefix: "companion/desk", expectedDeviceId: "esp32-desk01" }
+"#;
+        let err = parse_spec(missing_facts).unwrap_err();
+        assert!(err.contains("facts"), "{err}");
+
+        // 完整 serial＋mqtt spec → 建立成功（有 transport-serial/mqtt features）。
+        let ok = r#"
+schemaVersion: "1.0"
+id: esp32-desk
+capabilities:
+  - kind: actuator
+    id: led
+    channel: light
+    transport: serial
+    command:
+      name: "led.set"
+      params: { r: "{{magnitude}}", g: 0, b: 64 }
+    serial: { port: "/dev/cu.usbmodem1", baud: 115200, expectedDeviceId: "esp32-desk01" }
+  - kind: receptor
+    id: env
+    transport: serial
+    facts:
+      lux: "/facts/lux"
+      distanceMm: "/facts/distanceMm"
+    serial: { port: "/dev/cu.usbmodem1", baud: 115200, expectedDeviceId: "esp32-desk01" }
+"#;
+        let spec = parse_spec(ok).unwrap();
+        let built = build(&spec, None).unwrap();
+        assert_eq!(built.receptors.len(), 1);
+        assert_eq!(built.actuators.len(), 1);
+        let m = built.actuators[0].manifest();
+        assert!(m.requires_consent, "device output must be consent-gated");
+
+        // ble：壞 UUID → 拒。
+        let bad_uuid = r#"
+schemaVersion: "1.0"
+id: esp32-desk
+capabilities:
+  - kind: actuator
+    id: led
+    transport: ble
+    command: { name: "led.set" }
+    ble:
+      deviceName: "esp32-companion"
+      serviceUuid: "not-a-uuid"
+      commandCharUuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+      stateCharUuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+      expectedDeviceId: "esp32-desk01"
+"#;
+        let err = parse_spec(bad_uuid).unwrap_err();
+        assert!(
+            err.contains("UUID") || err.contains("not supported"),
+            "{err}"
+        );
+
+        // 同一 adapter 兩個不同 serial port → 拒（一個 adapter＝一台裝置）。
+        let two_devices = r#"
+schemaVersion: "1.0"
+id: esp32-desk
+capabilities:
+  - kind: actuator
+    id: led
+    transport: serial
+    command: { name: "led.set" }
+    serial: { port: "/dev/cu.usbmodemA", expectedDeviceId: "esp32-a" }
+  - kind: actuator
+    id: buzz
+    transport: serial
+    command: { name: "buzzer.beep" }
+    serial: { port: "/dev/cu.usbmodemB", expectedDeviceId: "esp32-b" }
+"#;
+        let spec = parse_spec(two_devices).unwrap();
+        let err = match build(&spec, None) {
+            Err(e) => e,
+            Ok(_) => panic!("two devices in one adapter must be refused"),
+        };
+        assert!(err.contains("same"), "{err}");
     }
 
     #[test]

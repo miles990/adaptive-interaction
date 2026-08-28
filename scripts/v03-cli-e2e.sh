@@ -57,13 +57,56 @@ PY
 DEV_PID=$!
 sleep 1
 
+# --- v0.5：ESP32 serial【模擬器】（pty；與參考韌體同一線協定）---
+# 明確標示：模擬器驗收，非真機。配對碼走 secret://（環境變數），不落 YAML。
+export INTERACT_AI_SECRET_SIM_PAIR="9927"
+SIM_PTY_FILE="$HOME_DIR/sim-pty-path"
+python3 "$(dirname "$0")/esp32-serial-sim.py" \
+  --device-id esp32-sim01 --pairing-code 9927 \
+  --pty-path-file "$SIM_PTY_FILE" --log "$HOME_DIR/sim.log" 2>/dev/null &
+SIM_PID=$!
+for i in $(seq 1 20); do [ -s "$SIM_PTY_FILE" ] && break; sleep 0.2; done
+SIM_PTY=$(cat "$SIM_PTY_FILE" 2>/dev/null || echo "/dev/null")
+cat > "$HOME_DIR/config/adapters/esp32-desk.yaml" <<YAML
+schemaVersion: "1.0"
+id: esp32-desk
+displayName: ESP32 書桌裝置（模擬器）
+capabilities:
+  - kind: actuator
+    id: vibe
+    channel: haptic
+    transport: serial
+    timeoutMs: 4000
+    command:
+      name: "vibe.pulse"
+      params: { strength: "{{magnitude}}", durationMs: "{{durationMs}}" }
+    serial:
+      port: "${SIM_PTY}"
+      baud: 115200
+      expectedDeviceId: "esp32-sim01"
+      pairingCode: "secret://sim-pair"
+  - kind: receptor
+    id: env
+    transport: serial
+    timeoutMs: 4000
+    facts:
+      lux: "/facts/lux"
+      distanceMm: "/facts/distanceMm"
+      tempC: "/facts/tempC"
+    serial:
+      port: "${SIM_PTY}"
+      baud: 115200
+      expectedDeviceId: "esp32-sim01"
+      pairingCode: "secret://sim-pair"
+YAML
+
 echo "apiHost: 127.0.0.1" > "$HOME_DIR/config/interaction.yaml"
 echo "apiPort: ${PORT}"  >> "$HOME_DIR/config/interaction.yaml"
 "$BIN" serve >/dev/null 2>&1 &
 DAEMON_PID=$!
 cleanup() {
-  kill "$DAEMON_PID" "$DEV_PID" 2>/dev/null || true
-  wait "$DAEMON_PID" "$DEV_PID" 2>/dev/null || true
+  kill "$DAEMON_PID" "$DEV_PID" "$SIM_PID" 2>/dev/null || true
+  wait "$DAEMON_PID" "$DEV_PID" "$SIM_PID" 2>/dev/null || true
   if [[ "$HOME_DIR" == /tmp/v03-e2e.* && -d "$HOME_DIR" ]]; then
     rm -rf -- "$HOME_DIR"
   fi
@@ -251,6 +294,36 @@ check "external research requires asking" "$DEC" "True"
 NR=$("$BIN" knowledge receipts --json 2>/dev/null | J "d['count'] >= 1")
 check "knowledge receipts recorded" "$NR" "True"
 
+echo "== Serial hardware closed loop (SIMULATOR) =="
+# 誠實標示：pty 模擬器（與參考韌體同協定），非真機。
+STATE=$("$BIN" providers list --json 2>/dev/null | python3 -c "import sys,json;print(next((p['state'] for p in json.load(sys.stdin) if p['identity']['id']=='provider.adapter.esp32-desk'),'MISSING'))")
+check "serial adapter provider registered (installed)" "$STATE" "installed"
+"$BIN" providers transition provider.adapter.esp32-desk --state available --json >/dev/null 2>&1
+# 實體動器的明確授權是三段式（全部人類動作）：enable → 加進 policy
+# allowlist → session consent。缺一即 blocked——這正是安全設計。
+curl -s -X PATCH "http://127.0.0.1:${PORT}/v1/actuators/esp32-desk.vibe" -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"enabled":true}' >/dev/null
+POLICY_PATCH=$("$BIN" policy show --json 2>/dev/null | python3 -c "
+import sys,json
+p=json.load(sys.stdin)
+al=p.get('actuatorAllowlist',[]); ch=p.get('allowedChannels',[])
+if 'esp32-desk.vibe' not in al: al.append('esp32-desk.vibe')
+if 'haptic' not in ch: ch.append('haptic')
+print(json.dumps({'actuatorAllowlist':al,'allowedChannels':ch}))")
+"$BIN" policy set "$POLICY_PATCH" --json >/dev/null 2>&1
+"$BIN" session consent actuator:esp32-desk.vibe --json >/dev/null 2>&1
+# 受器：真的向模擬裝置要一次 state（配對碼握手 + read）。
+LUX=$("$BIN" observe --receptor esp32-desk.env --fresh --json 2>/dev/null | J "d.get('facts',{}).get('lux','MISSING')")
+check "serial receptor reads live facts through pairing handshake" "$LUX" "133"
+# 動器：magnitude 1.0 → 模擬韌體硬限制 clamp 0.8，收據誠實記 deviceApplied。
+PLAN=$(curl -s -X POST "http://127.0.0.1:${PORT}/v1/plans" -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"intent":"vibe-test","magnitude":1.0,"durationMs":800,"preferredChannels":["haptic"],"candidates":["esp32-desk.vibe"],"minChannels":1,"maxChannels":1}')
+PLAN_ID=$(echo "$PLAN" | J "d['planId']")
+EXEC=$(curl -s -X POST "http://127.0.0.1:${PORT}/v1/plans/${PLAN_ID}/execute" -H "Authorization: Bearer $TOKEN")
+AID=$(echo "$EXEC" | J "d[0]['actionId'] if isinstance(d,list) else d['receipts'][0]['actionId']")
+ST=$("$BIN" actions show "$AID" --json 2>/dev/null | J "d['currentStatus']")
+check "serial cmd acked by device (acknowledged, not completed)" "$ST" "acknowledged"
+APPLIED=$("$BIN" actions show "$AID" --json 2>/dev/null | J "d['driverResponse']['deviceApplied']['strength']")
+check "firmware hard-limit clamp is honestly recorded (1.0 -> 0.8)" "$APPLIED" "0.8"
+
 echo "== Emergency stop propagation =="
 SID2=$("$BIN" agents create --agent agent.b --ttl 30 --json 2>/dev/null | J "d['sessionId']")
 "$BIN" emergency-stop --json >/dev/null 2>&1
@@ -258,6 +331,13 @@ ST=$("$BIN" agents show "$SID2" --json 2>/dev/null | J "d['state']")
 check "estop cancels open agent session" "$ST" "cancelled"
 RC=$("$BIN" agents create --agent agent.c --json >/dev/null 2>&1; echo $?)
 if [ "$RC" != "0" ]; then ok "estop blocks new agent sessions"; else bad "new session should be blocked under estop"; fi
+# estop 也要打到硬體：serial 模擬器要收到 stop-all。
+sleep 1
+if grep -qE '"type": ?"stop-all"|"stopAll"' "$HOME_DIR/sim.log" 2>/dev/null; then
+  ok "estop propagated stop-all to the serial device (simulator)"
+else
+  bad "serial device did not receive stop-all on estop"
+fi
 
 echo
 echo "RESULT: $PASS passed, $FAIL failed"

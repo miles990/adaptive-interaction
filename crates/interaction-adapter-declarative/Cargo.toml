@@ -5,20 +5,38 @@ edition = "2021"
 license = "MIT"
 description = "Declarative adapter engine: connect HTTP/SSE devices and services from a validated YAML spec, no Rust required"
 
+[features]
+# v0.5 真實硬體傳輸。serial/mqtt 預設開啟（純 Rust、免系統函式庫）；
+# BLE 依賴平台藍牙堆疊，僅在 macOS/Windows 目標編譯（見 lib.rs cfg）。
+default = ["transport-serial", "transport-mqtt", "transport-ble"]
+transport-serial = ["dep:serialport"]
+transport-mqtt = ["dep:rumqttc"]
+transport-ble = []
+
 [dependencies]
 interaction-core = { path = "../interaction-core" }
 interaction-adapter-sdk = { path = "../interaction-adapter-sdk" }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 schemars = "1"
-tokio = { version = "1", features = ["sync", "time", "macros"] }
+serialport = { version = "4", default-features = false, optional = true }
+rumqttc = { version = "0.24", optional = true }
+tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
 tracing = "0.1"
 url = "2"
 
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+btleplug = { version = "0.11" }
+futures = "0.3"
+uuid = { version = "1", features = ["v4"] }
+
 [dev-dependencies]
 axum = "0.8"
-tokio = { version = "1", features = ["rt-multi-thread", "net"] }
+rumqttd = { version = "0.19", default-features = false }
+toml = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "process", "io-util"] }

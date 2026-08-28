@@ -45,6 +45,44 @@
 - 設計稿與驗收畫面：`docs/assets/v05-evidence/shu-maid-rig-sheet.png`
   （代表性姿勢×明暗底×3 配色＋36 表情 hold 網格）。
 
+### Added — Phase 5：真實硬體（Serial／MQTT／BLE adapters＋ESP32 參考裝置）
+
+- **裝置線協定 v1**（`interaction-adapter-declarative/src/protocol.rs`，
+  三傳輸共用）：hello 身分驗證（**埠/IP/topic 永遠不是身分**——
+  hello.deviceId 必須等於 spec.expectedDeviceId，不符即拒）、配對碼握手
+  （pair/pair-ok/pair-fail，建議 secret://）、cmd 帶 action id＋nonce、
+  裝置端 16 筆 id ring dedupe（重複 ack dup:true 不重放效果）、cancel、
+  read/state、stop-all。**ack 逾時＝結果未知且絕不自動重送**（實體效果
+  不得重複觸發）；斷線退避重連（1s→15s cap）後強制重新握手。
+- **Serial 傳輸**（feature transport-serial；serialport crate，macOS pty
+  模擬器 ENOTTY 時誠實退回純檔案 I/O）＋**MQTT 傳輸**（transport-mqtt；
+  rumqttc，QoS1 `<prefix>/to-device|from-device`）＋**BLE 傳輸**
+  （transport-ble；btleplug GATT command/state characteristics，僅
+  macOS/Windows 編譯——Linux 誠實拒絕）。收據誠實：send 失敗=failed、
+  裝置 ack=acknowledged（附 deviceApplied 揭露韌體 clamp）、ack 逾時=
+  dispatched+ackTimeout→runtime watchdog 標 uncertain；estop 對每台
+  裝置直送 stop-all。
+- **YAML spec 擴充**（schema 追加欄位）：`request` 改為選填（http/sse
+  專用）；link 傳輸用 `command:{name,params}`＋`serial:/mqtt:/ble:` 設定
+  塊；同一 adapter 的 link capability 必須指向同一台裝置。
+- **ESP32 官方參考裝置**（`firmware/esp32-companion/`）：Arduino 韌體
+  （USB Serial＋Wi-Fi/MQTT；BLE 可選 NimBLE）、RGB LED/按鈕/HC-SR04/
+  光敏/DHT22/震動馬達/伺服/蜂鳴器；**韌體硬限制**（vibe duty≤0.8、
+  ≤3000ms、脈衝間隔≥500ms；buzzer 200–4000Hz、≤2000ms、duty≤50%；
+  servo 10–170°、300ms 節流）主機不可解除，clamp 後以 ack.applied 誠實
+  回報；BOM／接線圖／Flash／測試步驟／YAML 範例齊備（zh-TW README）。
+- **模擬器與真機分離標示**：`scripts/esp32-serial-sim.py`（pty，與韌體
+  同協定、模擬硬限制與 dedupe）；CLI E2E 新增「Serial hardware closed
+  loop (SIMULATOR)」段——provider 註冊→三段式人類授權（enable→policy
+  allowlist→consent）→受器經配對握手讀 facts→cmd ack acknowledged→
+  deviceApplied 揭露 1.0→0.8 clamp→estop stop-all 送達裝置（59 checks）。
+  MQTT 閉環以內嵌 rumqttd broker＋模擬裝置測試（含身分不符拒絕）。
+  **真實 ESP32 硬體驗收未執行**（本環境無實體裝置）——韌體僅經程式碼
+  審閱＋協定模擬器對測，誠實列為已知限制。
+- 裝置 UI（連接與權限→裝置與提供者）：provider 卡片顯示人話狀態說明
+  （只發現≠已配對≠已啟用）＋「小樞可以知道／小樞可以做」裝置導向能力
+  清單。
+
 ### Added — Phase 4：AI 角色閉環（taxonomy、人工驗證、對話層）
 
 - **Agent Session taxonomy 事件**（`agent.session.state`）：runtime 對

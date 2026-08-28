@@ -272,10 +272,29 @@ impl HardwareDiscoveryAdapter for ApprovedLocalDeclarationDiscovery {
                 .map_err(|error| format!("讀取 {} 失敗：{error}", path.display()))?;
             let spec = interaction_adapter_declarative::parse_spec(&text)
                 .map_err(|error| format!("{}：{error}", path.display()))?;
+            // v0.5：link 傳輸（serial/mqtt/ble）沒有 request.url——指紋來源改用
+            // 「有什麼就用什麼」：http url、serial 埠、mqtt broker/topic、ble 名稱。
             let fingerprint_source = spec
                 .capabilities
                 .iter()
-                .map(|capability| capability.request.url.as_str())
+                .filter_map(|capability| {
+                    if let Some(request) = &capability.request {
+                        return Some(request.url.clone());
+                    }
+                    if let Some(serial) = &capability.serial {
+                        return Some(format!("serial:{}", serial.port));
+                    }
+                    if let Some(mqtt) = &capability.mqtt {
+                        return Some(format!(
+                            "mqtt:{}:{}/{}",
+                            mqtt.broker_host, mqtt.broker_port, mqtt.topic_prefix
+                        ));
+                    }
+                    capability
+                        .ble
+                        .as_ref()
+                        .map(|ble| format!("ble:{}", ble.device_name))
+                })
                 .collect::<Vec<_>>();
             let joined = fingerprint_source.join("\0");
             let label = spec.display_name.clone().unwrap_or_else(|| spec.id.clone());

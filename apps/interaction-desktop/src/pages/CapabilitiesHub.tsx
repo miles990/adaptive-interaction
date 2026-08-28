@@ -3,6 +3,7 @@
 
 import React from "react";
 import { api, HardwareScanReport } from "../api";
+import { useAppState } from "../appstate";
 import { Badge, Section, StateView, useAsync } from "../ui";
 import { CapabilitiesPage } from "./CapabilitiesPage";
 
@@ -90,7 +91,17 @@ const HARDWARE_AVAILABILITY: Record<string, { text: string; kind: "ok" | "warn" 
   unknown: { text: "結果未知", kind: "pending" },
 };
 
+/** 提供者狀態的人話說明（只發現≠已配對≠已啟用；掃描到 metadata 不算連線）。 */
+const PROVIDER_STATE_HINT: Record<string, string> = {
+  discovered: "只是掃描時看見，還沒配對——小樞還不能用它做任何事。",
+  unpaired: "尚未配對——需要先完成配對與驗證。",
+  paired: "已配對但未安裝——能力還沒進到系統。",
+  installed: "已安裝但未啟用——啟用後小樞才能真的感知或操作。",
+  available: "已啟用——以下能力此刻真的可用。",
+};
+
 function ProvidersSection({ refreshKey }: { refreshKey: number }) {
+  const { findCard } = useAppState();
   const [providers] = useAsync(
     () => api.providersList() as Promise<Record<string, unknown>[]>,
     [refreshKey]
@@ -192,6 +203,31 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
                       {String(identity?.kind ?? "")}・信任：{String(identity?.trustLevel ?? "")}
                       {p.detail ? `・${String(p.detail)}` : ""}
                     </div>
+                    {PROVIDER_STATE_HINT[state] && (
+                      <div className="muted small">{PROVIDER_STATE_HINT[state]}</div>
+                    )}
+                    {/* 裝置導向（spec §9.3）：以「小樞可以知道／可以做」呈現，
+                        不先丟 receptor/actuator 技術詞。 */}
+                    {((p.receptors as string[] | undefined) ?? []).length > 0 && (
+                      <div className="small">
+                        小樞可以知道：
+                        {((p.receptors as string[]) ?? [])
+                          .slice(0, 6)
+                          .map((rid) => findCard("receptor", rid).name)
+                          .join("、")}
+                        {((p.receptors as string[]) ?? []).length > 6 ? "…" : ""}
+                      </div>
+                    )}
+                    {((p.actuators as string[] | undefined) ?? []).length > 0 && (
+                      <div className="small">
+                        小樞可以做：
+                        {((p.actuators as string[]) ?? [])
+                          .slice(0, 6)
+                          .map((aid) => findCard("actuator", aid).name)
+                          .join("、")}
+                        {((p.actuators as string[]) ?? []).length > 6 ? "…" : ""}
+                      </div>
+                    )}
                     <div className="muted small">
                       能力：受器 {(p.receptors as unknown[] | undefined)?.length ?? 0}・動器{" "}
                       {(p.actuators as unknown[] | undefined)?.length ?? 0}・工具{" "}

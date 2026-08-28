@@ -1,0 +1,43 @@
+// ---------------------------------------------------------------------------
+// esp32-companion 設定範本
+//
+// 使用方式：
+//   cp config.h.example config.h
+// 然後把下面的值改成你自己的環境。config.h 已列入 .gitignore，
+// 不會被 commit（不要把 Wi-Fi 密碼與配對碼推上 git）。
+// ---------------------------------------------------------------------------
+#pragma once
+
+// --- Wi-Fi ---------------------------------------------------------------
+// 留空字串 "" 代表不連 Wi-Fi（純 USB Serial 模式，MQTT 也會停用）。
+#define WIFI_SSID "your-wifi-ssid"
+#define WIFI_PASS "your-wifi-password"
+
+// --- MQTT ----------------------------------------------------------------
+// 本韌體「沒有」TLS，只能用在信任的區域網路 broker（例如本機 mosquitto）。
+#define MQTT_HOST "192.168.1.10"
+#define MQTT_PORT 1883
+
+// 主題規則（與 runtime 端宣告式 adapter 對齊）：
+//   下行（host → device）：<MQTT_TOPIC_PREFIX>/to-device
+//   上行（device → host）：<MQTT_TOPIC_PREFIX>/from-device
+// prefix 請包含裝置專屬字串（例如帶上 device id），多台裝置才不會互撞。
+// 注意：topic 不是身分——runtime 仍會驗 hello.deviceId＋配對碼。
+#define MQTT_TOPIC_PREFIX "interact-ai/companion/esp32-companion-01"
+
+// --- 裝置身分 -------------------------------------------------------------
+// runtime 端 YAML 的 expectedDeviceId 必須與此一致。
+#define DEVICE_ID "esp32-companion-01"
+
+// --- 配對碼 ---------------------------------------------------------------
+// 主機第一次連上時必須先送 {"type":"pair","code":"..."} 通過配對，
+// 否則 cmd / read / cancel 一律回 {"type":"err","reason":"not-paired"}。
+// 設成空字串 "" 代表停用配對（僅建議在完全隔離的測試環境使用）。
+#define PAIRING_CODE "1234-5678"
+
+// --- 可選覆寫 -------------------------------------------------------------
+// 自動推播 state 的週期（毫秒），預設 5000。
+// #define STATE_PERIOD_MS 5000
+
+// 啟用 BLE（需要另外安裝 NimBLE-Arduino 函式庫，見 README）。
+// #define ENABLE_BLE 1
