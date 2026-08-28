@@ -866,7 +866,18 @@ async fn proactive_dialogue_quiet(
 #[tauri::command]
 async fn providers_list(state: State<'_, AppState>) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    serde_json::to_value(runtime.providers.list().await).map_err(err_s)
+    // list_providers()（不是 registry.list()）才會附上「已測試」證據。
+    serde_json::to_value(runtime.list_providers().await).map_err(err_s)
+}
+
+/// 「測試裝置」：唯讀測一次（不觸發動器）。桌面是人類介面，指令只在此暴露。
+#[tauri::command]
+async fn provider_test(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime
+        .test_provider(&interaction_core::ProviderId::new(&id))
+        .await
+        .map_err(err_s)
 }
 #[tauri::command]
 async fn agents_discoveries(state: State<'_, AppState>) -> Result<Value, String> {
@@ -1223,6 +1234,39 @@ async fn agent_session_close(
     serde_json::to_value(record).map_err(err_s)
 }
 
+// v0.5 Phase 6：iPhone Mobile Provider（human-only 桌面指令）。
+#[tauri::command]
+async fn mobile_status(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.mobile_status().await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn mobile_pairing_begin(state: State<'_, AppState>) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.mobile_pairing_begin().await.map_err(err_s)
+}
+
+#[tauri::command]
+async fn mobile_revoke(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime.mobile_revoke(&id).await.map_err(err_s)
+}
+
+/// BLE 閘道：請已連線 iPhone 代掃描周邊。手機沒回＝結果未知（誠實 Err），
+/// 不假裝掃到 0 台。
+#[tauri::command]
+async fn mobile_ble_scan(
+    state: State<'_, AppState>,
+    duration_ms: Option<u64>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    runtime
+        .mobile_ble_scan(duration_ms.unwrap_or(4_000))
+        .await
+        .map_err(err_s)
+}
+
 /// 人工驗證 claimed-completed（桌面＝human 身分；claim ≠ verified）。
 #[tauri::command]
 async fn agent_session_verify(
@@ -1311,6 +1355,17 @@ async fn desktop_prefs_patch(
                 return Err("familiar palette must be a bundled palette".into());
             }
         }
+        // 本機安靜期：epoch ms，必須有限且不得往未來無限延伸（上限一年）。
+        if !candidate.companion_proactive_quiet_until.is_finite()
+            || candidate.companion_proactive_quiet_until < 0.0
+            || candidate.companion_proactive_quiet_until > MAX_QUIET_UNTIL_MS
+        {
+            return Err("companionProactiveQuietUntil must be a bounded epoch millisecond".into());
+        }
+        // 角色互動記憶：有界（≤8 玩具/反應、≤20 事件），不做任何推論。
+        let mut candidate = candidate;
+        candidate.companion_interaction_memory =
+            candidate.companion_interaction_memory.bounded();
         *prefs = candidate;
         prefs.clone()
     };
@@ -1424,6 +1479,23 @@ pub(crate) fn toggle_companion_window(app: &tauri::AppHandle) {
     } else if let Some(w) = app.get_webview_window("companion") {
         let _ = w.hide();
     }
+    // 角色被隱藏時 Presentation receptors 必須停止（spec §6.1）：直接告訴
+    // Runtime 這個表面不在了，不等 WebView 自己的心跳（隱藏後不保證會送）。
+    // Runtime/Tray/Agent 狀態不受影響。
+    let runtime = state.runtime.lock().expect("runtime mutex").clone();
+    if let Some(runtime) = runtime {
+        let pack = state
+            .prefs
+            .lock()
+            .expect("prefs mutex")
+            .companion_pack
+            .clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = runtime
+                .presentation_hello_with_behavior(visible, Some(pack), None)
+                .await;
+        });
+    }
     let _ = app.emit("companion-visibility", visible);
 }
 
@@ -1477,6 +1549,17 @@ pub(crate) fn ensure_companion_window(app: &tauri::AppHandle) {
     }
 }
 
+/// Poll interval for the click-through decision (ms).
+///
+/// The renderer now reports the hit-rect at most every ~60ms while the
+/// character walks or a toy rolls (see `hitRectReportPolicy`), so the box this
+/// loop reads is at most that stale; polling at 80ms keeps the total lag under
+/// ~140ms instead of the ~660ms the old 160ms poll + 500ms report could reach.
+pub(crate) const CLICKTHROUGH_POLL_MS: u64 = 80;
+
+/// Upper bound for the local "stay quiet" pref (epoch ms, ~year 2100).
+pub(crate) const MAX_QUIET_UNTIL_MS: f64 = 4_102_444_800_000.0;
+
 /// Click-through for the transparent padding around the character: a small
 /// Rust poll toggles ignore-cursor-events from the GLOBAL cursor position, so
 /// clicks outside the character's hit-rect pass through to whatever is
@@ -1486,7 +1569,7 @@ fn spawn_companion_clickthrough(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut ignoring = false;
         loop {
-            tokio::time::sleep(std::time::Duration::from_millis(160)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(CLICKTHROUGH_POLL_MS)).await;
             let Some(win) = app.get_webview_window("companion") else {
                 return; // window gone; a new one spawns a new loop
             };
@@ -1540,17 +1623,66 @@ fn spawn_companion_clickthrough(app: tauri::AppHandle) {
     });
 }
 
+/// Clamp a renderer-reported hit-rect into the window (logical px).
+///
+/// A bad rect is a real click-through hazard: a NaN or negative box would
+/// make the whole transparent window swallow the cursor (or none of it).
+/// Rejects non-finite / non-positive sizes; otherwise clamps the box so it
+/// always stays inside `0..win_w` × `0..win_h`.
+pub(crate) fn clamp_hit_rect(
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    win_w: f64,
+    win_h: f64,
+) -> Result<(f64, f64, f64, f64), String> {
+    if ![x, y, w, h, win_w, win_h].iter().all(|v| v.is_finite()) {
+        return Err("hit rect must be finite numbers".into());
+    }
+    if w <= 0.0 || h <= 0.0 {
+        return Err("hit rect width/height must be positive".into());
+    }
+    if win_w <= 0.0 || win_h <= 0.0 {
+        return Err("window size must be positive".into());
+    }
+    let cx = x.clamp(0.0, win_w);
+    let cy = y.clamp(0.0, win_h);
+    let cw = w.min(win_w - cx).max(0.0);
+    let ch = h.min(win_h - cy).max(0.0);
+    if cw <= 0.0 || ch <= 0.0 {
+        return Err("hit rect falls outside the companion window".into());
+    }
+    Ok((cx, cy, cw, ch))
+}
+
 /// The renderer reports where the character actually is (logical px within
 /// the window) so transparent padding stays click-through.
 #[tauri::command]
 async fn companion_hit_rect(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     x: f64,
     y: f64,
     w: f64,
     h: f64,
 ) -> Result<(), String> {
-    *state.companion_hit_rect.lock().expect("hit rect") = (x, y, w, h);
+    // Window size in logical px (fall back to the pref-derived stage size when
+    // the window is not up yet — never trust the caller's numbers blindly).
+    let (win_w, win_h) = app
+        .get_webview_window("companion")
+        .and_then(|win| {
+            let scale = win.scale_factor().unwrap_or(1.0);
+            win.inner_size()
+                .ok()
+                .map(|s| (s.width as f64 / scale, s.height as f64 / scale))
+        })
+        .unwrap_or_else(|| {
+            let size = state.prefs.lock().expect("prefs mutex").companion_size;
+            companion_window_size(size)
+        });
+    let rect = clamp_hit_rect(x, y, w, h, win_w, win_h)?;
+    *state.companion_hit_rect.lock().expect("hit rect") = rect;
     Ok(())
 }
 
@@ -2100,6 +2232,10 @@ pub fn run() {
             agent_session_send,
             agent_session_close,
             agent_session_verify,
+            mobile_status,
+            mobile_pairing_begin,
+            mobile_revoke,
+            mobile_ble_scan,
             sensor_mic_listen,
             presentation_status,
             presentation_hello,
@@ -2108,6 +2244,7 @@ pub fn run() {
             proactive_dialogue_patch,
             proactive_dialogue_quiet,
             providers_list,
+            provider_test,
             agent_session_create,
             agent_session_messages,
             agents_discoveries,
@@ -2166,4 +2303,49 @@ pub fn run() {
                 _ => {}
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression (Phase 7 review #1): the click-through poll must not lag so
+    /// far behind the renderer that a walking character's box is stale. The
+    /// WebView reports at most every ~60ms; the poll has to keep up.
+    #[test]
+    fn clickthrough_poll_keeps_up_with_hit_rect_reports() {
+        // `HIT_RECT_MAX_QUIET_MS` in src/companion/rig/stage.ts — the renderer
+        // refreshes the box at least this often while the character walks.
+        let renderer_max_quiet_ms: u64 = 60;
+        let poll = CLICKTHROUGH_POLL_MS;
+        assert!(
+            poll <= renderer_max_quiet_ms + 40,
+            "poll {poll}ms lags too far behind the renderer's {renderer_max_quiet_ms}ms reports"
+        );
+        assert!(poll >= 40, "polling faster than 40ms wastes CPU for no gain");
+    }
+
+    #[test]
+    fn hit_rect_clamps_into_the_window() {
+        // 超出視窗：夾回視窗內，寬高跟著縮。
+        let r = clamp_hit_rect(-40.0, -10.0, 600.0, 900.0, 520.0, 284.0).expect("clamped");
+        assert_eq!(r, (0.0, 0.0, 520.0, 284.0));
+        // 一般情況原樣通過。
+        let r = clamp_hit_rect(30.0, 20.0, 52.0, 124.0, 520.0, 284.0).expect("ok");
+        assert_eq!(r, (30.0, 20.0, 52.0, 124.0));
+        // 右下角溢出：只縮寬高，不移動起點。
+        let r = clamp_hit_rect(500.0, 270.0, 200.0, 200.0, 520.0, 284.0).expect("ok");
+        assert_eq!(r, (500.0, 270.0, 20.0, 14.0));
+    }
+
+    #[test]
+    fn hit_rect_rejects_nan_and_non_positive_sizes() {
+        assert!(clamp_hit_rect(f64::NAN, 0.0, 10.0, 10.0, 520.0, 284.0).is_err());
+        assert!(clamp_hit_rect(0.0, f64::INFINITY, 10.0, 10.0, 520.0, 284.0).is_err());
+        assert!(clamp_hit_rect(0.0, 0.0, -10.0, 10.0, 520.0, 284.0).is_err());
+        assert!(clamp_hit_rect(0.0, 0.0, 10.0, 0.0, 520.0, 284.0).is_err());
+        assert!(clamp_hit_rect(0.0, 0.0, 10.0, 10.0, 0.0, 284.0).is_err());
+        // 完全落在視窗外：拒絕，而不是回一個空框讓整個視窗吃掉游標。
+        assert!(clamp_hit_rect(600.0, 10.0, 40.0, 40.0, 520.0, 284.0).is_err());
+    }
 }

@@ -6,6 +6,7 @@ import { api, HumanCard, Receipt } from "../api";
 import { availabilityLabel, confirmationLabel, triLabel, useAppState } from "../appstate";
 import { Icon } from "../icons";
 import { Badge, JsonView } from "../ui";
+import { riskTierOfCard } from "../riskTier";
 import { Dialog } from "./Dialog";
 
 const MAX_CARD_BADGES = 4;
@@ -24,6 +25,7 @@ export function CapabilityCard({
   const [testResult, setTestResult] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const enabled = card.availability !== "disabled";
+  const risk = riskTierOfCard(card);
   const kindLabel =
     card.kind === "receptor" ? "感知來源" : card.kind === "actuator" ? "回應方式" : "工具操作";
 
@@ -85,12 +87,15 @@ export function CapabilityCard({
       )}
 
       <div className="cap-card-badges">
+        <Badge kind={riskBadgeKind(risk.tier)}>{risk.label}</Badge>
         {card.badges.slice(0, MAX_CARD_BADGES).map((b) => (
           <Badge key={b.key} kind={toneToBadge(b.tone)}>
             {b.label}
           </Badge>
         ))}
       </div>
+      <p className="muted small cap-card-risk">{risk.policy}</p>
+      {risk.hardLimits && <p className="muted small cap-card-risk">{risk.hardLimits}</p>}
 
       {card.kind === "receptor" && card.data && (
         <dl className="cap-facts">
@@ -177,12 +182,19 @@ function CapabilityDetail({
         </p>
       )}
       <div className="cap-card-badges">
+        <Badge kind={riskBadgeKind(riskTierOfCard(card).tier)}>{riskTierOfCard(card).label}</Badge>
         {card.badges.map((b) => (
           <Badge key={b.key} kind={toneToBadge(b.tone)}>
             {b.label}
           </Badge>
         ))}
       </div>
+      <p className="muted small">{riskTierOfCard(card).policy}</p>
+      {riskTierOfCard(card).hardLimits && (
+        <p className="risk-note">
+          <Icon name="triangle-alert" size={14} /> {riskTierOfCard(card).hardLimits}
+        </p>
+      )}
 
       {card.data && (
         <dl className="cap-facts">
@@ -324,6 +336,14 @@ function availabilityBadge(a: string): string {
     default:
       return "muted";
   }
+}
+
+/** 分級徽章色：L0/L1 中性、L2 資訊、L3 警示、L4 危險。 */
+function riskBadgeKind(tier: number): string {
+  if (tier >= 4) return "bad";
+  if (tier === 3) return "warn";
+  if (tier === 2) return "info";
+  return "muted";
 }
 
 function toneToBadge(tone: string): string {

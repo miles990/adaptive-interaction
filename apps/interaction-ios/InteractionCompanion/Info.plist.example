@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Info.plist.example — InteractionCompanion
+
+  用法:在 Xcode 專案的 target Info 設定中補上以下 key
+  (或把本檔內容併入自動產生的 Info.plist)。
+
+  注意:
+  - 預設不啟用任何 Background Modes(背景執行受 iOS 限制,見 README「已知限制」)。
+  - 每一條用途描述都誠實對應實際行為;App 不會在未經同意時啟用任何感測。
+-->
+<plist version="1.0">
+<dict>
+	<!-- 麥克風:僅在使用者於「感測」頁開啟「麥克風音量」後使用;
+	     只計算音量(0.0–1.0),絕不錄音、絕不傳輸原始音訊。 -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>用於音量感測:僅將環境音量(0.0–1.0)回報給已配對的電腦,絕不錄音或傳送原始音訊。</string>
+
+	<!-- 相機:僅用於掃描桌面端顯示的配對 QR Code。 -->
+	<key>NSCameraUsageDescription</key>
+	<string>僅用於掃描桌面端的配對 QR Code,不拍照、不錄影。</string>
+
+	<!-- 位置:v1 協議僅回報權限與開關狀態,App 不會送出任何座標。 -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>僅用於回報位置權限狀態給已配對的電腦;目前版本不會傳送任何座標。</string>
+
+	<!-- 藍牙:BLE 閘道(使用者明確開啟後,代已配對的電腦掃描/連線 BLE 裝置)。 -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>BLE 閘道:在你明確開啟後,代已配對的電腦掃描與連線藍牙裝置。預設關閉。</string>
+
+	<!-- 區域網路:與同一網段的桌面端 daemon 建立 wss 連線。 -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>與同一區域網路內已配對的電腦(interact-ai daemon)建立加密連線。</string>
+	<!-- Bonjour 服務型別:RFC 6763 §7.2 規定 service name label(去掉前置 `_`)
+	     最長 15 bytes。舊名 `interact-ai-mobile` 為 18 bytes,mDNS 會拒絕註冊;
+	     daemon 端(crates/interaction-runtime/src/mobile.rs)現用 `_interact-ai._tcp`。 -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_interact-ai._tcp</string>
+	</array>
+
+	<!-- 背景模式:刻意留空(預設無任何背景能力)。 -->
+	<!-- <key>UIBackgroundModes</key> <array/> -->
+</dict>
+</plist>

@@ -8,6 +8,7 @@ import {
   grabToyAt,
   releaseToy,
   rollCall,
+  rollCallKey,
   spawnToy,
   stepWorld,
   StepInputs,
@@ -257,5 +258,78 @@ describe("角色設定匯出／匯入", () => {
     });
     expect(ok.companionScene).toBe("night");
     expect("totallyUnknown" in ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v0.5 第 6 種玩具：可拖曳的小物件（trinket）。
+// 角色只好奇地靠近看/嗅，不追、不叼，偶爾用尾巴推一下。
+// ---------------------------------------------------------------------------
+
+describe("玩具：小物件（trinket）", () => {
+  const seat = (over?: Partial<StepInputs>) => baseInputs({ dtMs: 16, ...over });
+
+  it("有重力與碰撞：放著會落到地面並停下", () => {
+    let w = spawnToy(createWorld(320, 170), "trinket", 1_000_000);
+    expect(w.toys[0].kind).toBe("trinket");
+    const started = w.toys[0].y;
+    const r = run(w, seat(), 120, () => 0.99);
+    w = r.world;
+    expect(w.toys[0].y).toBeGreaterThan(started);
+    expect(w.toys[0].y).toBeCloseTo(w.ground - 6, 1);
+    // 比毛球重：落地後幾乎不彈。
+    expect(Math.abs(w.toys[0].vy)).toBeLessThan(30);
+  });
+
+  it("角色不追也不叼小物件（永遠不會進 chase/pounce/carry）", () => {
+    let w = spawnToy(createWorld(320, 170), "trinket", 1_000_000);
+    const modes = new Set<string>();
+    const base = seat();
+    for (let i = 0; i < 400; i++) {
+      const r = stepWorld(w, { ...base, nowMs: base.nowMs + i * 16 }, () => 0);
+      w = r.world;
+      modes.add(w.char.mode);
+    }
+    expect(modes.has("chase")).toBe(false);
+    expect(modes.has("pounce")).toBe(false);
+    expect(w.char.carryToy).toBeNull();
+    // 但她確實會好奇地靠近。
+    expect(modes.has("sniff")).toBe(true);
+  });
+
+  it("靠近後用尾巴推一下（不帶走），並回到自由狀態", () => {
+    let w = spawnToy(createWorld(320, 170), "trinket", 1_000_000);
+    const base = seat();
+    const events: ReturnType<typeof stepWorld>["events"] = [];
+    for (let i = 0; i < 400; i++) {
+      const r = stepWorld(w, { ...base, nowMs: base.nowMs + i * 16 }, () => 0);
+      w = r.world;
+      events.push(...r.events);
+    }
+    expect(events.some((e) => e.type === "toy-pushed")).toBe(true);
+    expect(events.some((e) => e.type === "expression" && e.id === "curious")).toBe(true);
+    expect(events.some((e) => e.type === "toy-grabbed")).toBe(false);
+    expect(w.toys[0].grabbed).toBeNull();
+  });
+
+  it("Roll Call 的列表 key 帶序號：同名的成員不會撞在一起", () => {
+    let w = createWorld(320, 170);
+    w = {
+      ...w,
+      familiars: [
+        { id: "a", name: "小灰", palette: "maid-classic", x: 20, vx: 0, facing: 1, state: "idle", stateUntil: 0, greetWith: null },
+        { id: "b", name: "小灰", palette: "maid-dusk", x: 60, vx: 0, facing: 1, state: "idle", stateUntil: 0, greetWith: null },
+      ],
+    };
+    const rows = rollCall(w, "小灰", null);
+    expect(rows).toHaveLength(3);
+    const keys = rows.map((r, i) => rollCallKey(i, r.name));
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it("Roll Call 用人話描述「在研究一個小東西」", () => {
+    const w = spawnToy(createWorld(320, 170), "trinket", 1_000_000);
+    const sniffing = { ...w, char: { ...w.char, mode: "sniff" as const } };
+    expect(rollCall(sniffing, "小樞", null)[0].activity).toBe("在研究一個小東西");
   });
 });

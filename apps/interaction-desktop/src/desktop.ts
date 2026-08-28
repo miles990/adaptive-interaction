@@ -4,6 +4,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { configureHttp, isTauri } from "./transport";
+import type { InteractionMemory } from "./companion/interactionMemory";
 
 export interface SupervisorInfo {
   mode: "embedded" | "external" | "undecided";
@@ -44,6 +45,19 @@ export interface DesktopPrefs {
   companionApproach: boolean;
   companionDeskMove: boolean;
   companionFamiliars: { id: string; name: string; palette: string }[];
+  /** 勿擾：安靜基態（不主動靠近、不主動說話）。預設 false。 */
+  companionDoNotDisturb: boolean;
+  /** 說話氣泡（關掉後只剩固定的安全文字）。預設 true。 */
+  companionBubbles: boolean;
+  /** 角色音效。**預設 false**（不主動出聲）。 */
+  companionSound: boolean;
+  /** 允許拖曳角色視窗。預設 true。 */
+  companionDragEnabled: boolean;
+  /** 使用者要求的本機安靜期到期時間（epoch ms；0＝沒有）。
+   *  只擋主動行為（隨口氣泡、hover 短句、ambient 表演）——安全文字照常。 */
+  companionProactiveQuietUntil: number;
+  /** 角色互動記憶（有界；純呈現，不會升級成正式知識）。 */
+  companionInteractionMemory?: InteractionMemory;
   schemaVersion: number;
 }
 

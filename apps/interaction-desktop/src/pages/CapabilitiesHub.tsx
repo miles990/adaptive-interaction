@@ -2,7 +2,7 @@
 // 掃描文案誠實：只宣稱「已偵測到目前可用」，不宣稱找到所有硬體。
 
 import React from "react";
-import { api, HardwareScanReport } from "../api";
+import { api, HardwareScanReport, ProviderTested } from "../api";
 import { useAppState } from "../appstate";
 import { Badge, Section, StateView, useAsync } from "../ui";
 import { CapabilitiesPage } from "./CapabilitiesPage";
@@ -91,21 +91,216 @@ const HARDWARE_AVAILABILITY: Record<string, { text: string; kind: "ok" | "warn" 
   unknown: { text: "結果未知", kind: "pending" },
 };
 
-/** 提供者狀態的人話說明（只發現≠已配對≠已啟用；掃描到 metadata 不算連線）。 */
-const PROVIDER_STATE_HINT: Record<string, string> = {
-  discovered: "只是掃描時看見，還沒配對——小樞還不能用它做任何事。",
-  unpaired: "尚未配對——需要先完成配對與驗證。",
-  paired: "已配對但未安裝——能力還沒進到系統。",
-  installed: "已安裝但未啟用——啟用後小樞才能真的感知或操作。",
-  available: "已啟用——以下能力此刻真的可用。",
+/** 已停用／不可用狀態的人話說明。 */
+const PROVIDER_STOPPED_HINT: Record<string, string> = {
+  disabled: "已停用——連線已關閉，小樞不會用它做任何事。",
+  disconnected: "連不上裝置：拔線、被占用、位址不對或裝置沒開。",
+  expired: "授權或租約已過期——需要重新配對／啟用。",
+  revoked: "已撤銷——能力立即停用，且不會自己回來。",
+  closed: "已關閉。",
 };
 
+/** 證據來源的人話。 */
+const TESTED_HOW_LABEL: Record<string, string> = {
+  handshake: "裝置連線握手（hello 身分＋pair-ok）",
+  capability: "能力實際運作（讀到資料或裝置回 ack）",
+  human: "人為測試",
+};
+
+export type ProviderStage =
+  | "discovered"
+  | "unpaired"
+  | "paired"
+  | "installed"
+  | "connected"
+  | "tested"
+  | "enabled"
+  | "stopped";
+
+export interface ProviderProgress {
+  stage: ProviderStage;
+  label: string;
+  kind: "ok" | "warn" | "bad" | "pending";
+  hint: string;
+}
+
+/**
+ * `detail` 可能是純文字註記，也可能是帶「已測試」證據的 JSON 物件。
+ * 兩種都要看得懂，且看不懂時一律當純文字（不臆造證據）。
+ */
+export function parseProviderDetail(detail: unknown): { note?: string; tested?: ProviderTested } {
+  if (typeof detail !== "string" || !detail.trim()) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(detail);
+  } catch {
+    return { note: detail };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { note: detail };
+  const obj = parsed as Record<string, unknown>;
+  const note = typeof obj.note === "string" ? obj.note : undefined;
+  const raw = obj.tested;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { note: note ?? detail };
+  const t = raw as Record<string, unknown>;
+  if (typeof t.ok !== "boolean") return { note: note ?? detail };
+  return {
+    note,
+    tested: {
+      at: String(t.at ?? ""),
+      how: String(t.how ?? ""),
+      ok: t.ok,
+      note: typeof t.note === "string" ? t.note : undefined,
+    },
+  };
+}
+
+/**
+ * 四階誠實階梯（spec §9.3）：只發現 → 已配對 → 已測試 → 已啟用。
+ * 掃描到 metadata 不等於連線完成；狀態變成 available 也不等於測過。
+ * 純函式，方便回歸測試。
+ */
+export function providerProgress(input: {
+  state: string;
+  tested?: ProviderTested;
+  enabledCapabilities: number;
+}): ProviderProgress {
+  const { state, tested } = input;
+  const enabled = input.enabledCapabilities > 0;
+  const failedReason = tested?.note ?? "原因未知";
+  switch (state) {
+    case "discovered":
+      return {
+        stage: "discovered",
+        label: "只發現",
+        kind: "pending",
+        hint: "只是掃描時看見（名稱、型號這類 metadata），還沒配對，也還沒連上——小樞還不能用它做任何事。",
+      };
+    case "unpaired":
+      return {
+        stage: "unpaired",
+        label: "只發現（未配對）",
+        kind: "pending",
+        hint: "尚未配對——需要先完成配對與身分驗證，之後才談得上連線與測試。",
+      };
+    case "paired":
+      return {
+        stage: "paired",
+        label: "已配對",
+        kind: "pending",
+        hint: "已完成配對，但能力還沒安裝進系統，也還沒測試過。",
+      };
+    case "installed":
+      return {
+        stage: "installed",
+        label: "已安裝設定，尚未連線",
+        kind: "pending",
+        hint: "設定檔已存在，但還沒連上裝置，也還沒測試過——設定檔存在不等於連線完成。",
+      };
+    case "available":
+    case "busy":
+    case "degraded": {
+      if (enabled && tested?.ok === true) {
+        return {
+          stage: "enabled",
+          label: "已啟用",
+          kind: "ok",
+          hint: `已測試通過，而且有 ${input.enabledCapabilities} 項能力真的開著——小樞此刻真的能用它。`,
+        };
+      }
+      if (enabled && tested?.ok === false) {
+        return {
+          stage: "enabled",
+          label: "已啟用（上次測試沒過）",
+          kind: "warn",
+          hint: `有 ${input.enabledCapabilities} 項能力開著，但最近一次測試沒過：${failedReason}`,
+        };
+      }
+      if (enabled) {
+        return {
+          stage: "enabled",
+          label: "已啟用（尚未測試）",
+          kind: "warn",
+          hint: `有 ${input.enabledCapabilities} 項能力開著，但從來沒測試過——沒測過就無法確定它真的讀得到或做得到。`,
+        };
+      }
+      if (tested?.ok === true) {
+        return {
+          stage: "tested",
+          label: "已測試",
+          kind: "ok",
+          hint: "測試通過（真的讀到資料），但能力還沒啟用——啟用後小樞才會真的用它。",
+        };
+      }
+      if (tested?.ok === false) {
+        return {
+          stage: "connected",
+          label: "已連線，測試沒過",
+          kind: "warn",
+          hint: `最近一次測試沒過：${failedReason}`,
+        };
+      }
+      return {
+        stage: "connected",
+        label: "已連線，尚未測試",
+        kind: "pending",
+        hint: "連線設定已就緒，但還沒測試過——按「測試裝置」做一次唯讀測試，確認真的讀得到。",
+      };
+    }
+    default: {
+      const base = PROVIDER_STATE_LABEL[state] ?? { text: state, kind: "pending" as const };
+      return {
+        stage: "stopped",
+        label: base.text,
+        kind: base.kind,
+        hint: PROVIDER_STOPPED_HINT[state] ?? "目前不能用。",
+      };
+    }
+  }
+}
+
+/** 「最近測試」那一行人話（沒測過就說沒測過，不留白）。 */
+export function testedSummary(tested?: ProviderTested): string {
+  if (!tested) return "還沒測試過——測過才算數，掃描到或設定好都不算。";
+  const at = tested.at ? new Date(tested.at).toLocaleString("zh-TW") : "時間未知";
+  const how = TESTED_HOW_LABEL[tested.how] ?? tested.how;
+  const verdict = tested.ok ? "成功" : "失敗";
+  return `最近測試：${at}・${verdict}（${how}）${tested.note ? `——${tested.note}` : ""}`;
+}
+
 function ProvidersSection({ refreshKey }: { refreshKey: number }) {
-  const { findCard } = useAppState();
-  const [providers] = useAsync(
+  const { findCard, human } = useAppState();
+  const [providers, reloadProviders] = useAsync(
     () => api.providersList() as Promise<Record<string, unknown>[]>,
     [refreshKey]
   );
+  const [testing, setTesting] = React.useState<string | null>(null);
+  const [testResult, setTestResult] = React.useState<Record<string, string>>({});
+  /** 這個能力此刻真的開著嗎（以能力清單的可用性為準，不用 provider 狀態猜）。 */
+  const capabilityAvailable = React.useCallback(
+    (kind: "receptor" | "actuator", id: string) => {
+      const list = kind === "receptor" ? human?.receptors : human?.actuators;
+      return list?.find((c) => c.id === id)?.availability === "available";
+    },
+    [human]
+  );
+
+  async function testProvider(id: string) {
+    setTesting(id);
+    try {
+      const report = await api.providerTest(id);
+      setTestResult((prev) => ({
+        ...prev,
+        [id]: report.ok
+          ? `測試成功：讀到了 ${report.receptorId ?? "受器"} 的資料。`
+          : `測試沒過：${report.reason ?? "原因未知"}`,
+      }));
+      reloadProviders();
+    } catch (e) {
+      setTestResult((prev) => ({ ...prev, [id]: `測試失敗：${e}` }));
+    } finally {
+      setTesting(null);
+    }
+  }
   const [scanning, setScanning] = React.useState(false);
   const [scanNote, setScanNote] = React.useState<string | null>(null);
   const [hardware, setHardware] = React.useState<HardwareScanReport | null>(null);
@@ -181,6 +376,7 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
           </div>
         )}
       </Section>
+      <MobileSection refreshKey={refreshKey} />
       <Section title="提供者（Provider）">
         <StateView state={providers} empty="尚未發現任何提供者。">
           {(list) => (
@@ -188,50 +384,70 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
               {list.map((p) => {
                 const identity = p.identity as Record<string, unknown>;
                 const state = String(p.state ?? "");
-                const label = PROVIDER_STATE_LABEL[state] ?? {
+                const id = String(identity?.id ?? "");
+                const receptorIds = (p.receptors as string[] | undefined) ?? [];
+                const actuatorIds = (p.actuators as string[] | undefined) ?? [];
+                const { note, tested } = parseProviderDetail(p.detail);
+                const enabledCapabilities =
+                  receptorIds.filter((rid) => capabilityAvailable("receptor", rid)).length +
+                  actuatorIds.filter((aid) => capabilityAvailable("actuator", aid)).length;
+                const progress = providerProgress({ state, tested, enabledCapabilities });
+                const stateLabel = PROVIDER_STATE_LABEL[state] ?? {
                   text: state,
                   kind: "pending" as const,
                 };
-                const id = String(identity?.id ?? "");
                 return (
                   <div className="provider-card" key={id}>
                     <div className="row space-between">
                       <strong>{String(identity?.displayName ?? id)}</strong>
-                      <Badge kind={label.kind}>{label.text}</Badge>
+                      <Badge kind={progress.kind}>{progress.label}</Badge>
                     </div>
                     <div className="muted small">
                       {String(identity?.kind ?? "")}・信任：{String(identity?.trustLevel ?? "")}
-                      {p.detail ? `・${String(p.detail)}` : ""}
+                      ・生命週期狀態：{stateLabel.text}
+                      {note ? `・${note}` : ""}
                     </div>
-                    {PROVIDER_STATE_HINT[state] && (
-                      <div className="muted small">{PROVIDER_STATE_HINT[state]}</div>
+                    <div className="muted small">{progress.hint}</div>
+                    <div className="muted small">{testedSummary(tested)}</div>
+                    <div className="row wrap">
+                      <button onClick={() => testProvider(id)} disabled={testing === id}>
+                        {testing === id ? "測試中…" : "測試裝置"}
+                      </button>
+                      <span className="muted small">
+                        只讀一次目前開著的受器，不會觸發任何動作，也不會替你打開被停用的感測器。
+                      </span>
+                    </div>
+                    {testResult[id] && (
+                      <div className="muted small" role="status">
+                        {testResult[id]}
+                      </div>
                     )}
                     {/* 裝置導向（spec §9.3）：以「小樞可以知道／可以做」呈現，
                         不先丟 receptor/actuator 技術詞。 */}
-                    {((p.receptors as string[] | undefined) ?? []).length > 0 && (
+                    {receptorIds.length > 0 && (
                       <div className="small">
                         小樞可以知道：
-                        {((p.receptors as string[]) ?? [])
+                        {receptorIds
                           .slice(0, 6)
                           .map((rid) => findCard("receptor", rid).name)
                           .join("、")}
-                        {((p.receptors as string[]) ?? []).length > 6 ? "…" : ""}
+                        {receptorIds.length > 6 ? "…" : ""}
                       </div>
                     )}
-                    {((p.actuators as string[] | undefined) ?? []).length > 0 && (
+                    {actuatorIds.length > 0 && (
                       <div className="small">
                         小樞可以做：
-                        {((p.actuators as string[]) ?? [])
+                        {actuatorIds
                           .slice(0, 6)
                           .map((aid) => findCard("actuator", aid).name)
                           .join("、")}
-                        {((p.actuators as string[]) ?? []).length > 6 ? "…" : ""}
+                        {actuatorIds.length > 6 ? "…" : ""}
                       </div>
                     )}
                     <div className="muted small">
-                      能力：受器 {(p.receptors as unknown[] | undefined)?.length ?? 0}・動器{" "}
-                      {(p.actuators as unknown[] | undefined)?.length ?? 0}・工具{" "}
-                      {(p.toolOperations as unknown[] | undefined)?.length ?? 0}
+                      能力：受器 {receptorIds.length}・動器 {actuatorIds.length}・工具{" "}
+                      {(p.toolOperations as unknown[] | undefined)?.length ?? 0}・此刻真的開著{" "}
+                      {enabledCapabilities} 項
                     </div>
                   </div>
                 );
@@ -248,5 +464,160 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
         </Section>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// iPhone Mobile Provider（v0.5 Phase 6）：配對、狀態、撤銷。
+// 誠實：配對碼 5 分鐘一段；斷線＝能力不可用；感測狀態由手機自報。
+// ---------------------------------------------------------------------------
+
+/** 手機自報的 iOS 系統權限（桌面 Consent 不能取代，誠實照抄手機的回報）。 */
+const MOBILE_PERMISSION_LABEL: Record<string, string> = {
+  microphone: "麥克風",
+  location: "位置",
+  bluetooth: "藍牙",
+};
+const MOBILE_PERMISSION_STATE: Record<string, string> = {
+  granted: "已授權",
+  denied: "已拒絕",
+  notDetermined: "未詢問",
+};
+/** 手機自報的感測開關（開＝手機端真的在感測）。 */
+const MOBILE_SENSOR_LABEL: Record<string, string> = {
+  motion: "動作",
+  battery: "電量",
+  micLevel: "麥克風音量",
+  location: "位置",
+  bleGateway: "BLE 閘道",
+};
+
+export function MobileSection({ refreshKey }: { refreshKey: number }) {
+  const [status] = useAsync(() => api.mobileStatus(), [refreshKey]);
+  const [pairing, setPairing] = React.useState<Record<string, unknown> | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const devices = ((status.data?.devices as Record<string, unknown>[] | undefined) ?? []);
+  const bonjour = (status.data?.bonjour as Record<string, unknown> | undefined) ?? null;
+
+  return (
+    <Section title="iPhone">
+      <p className="muted small">
+        iPhone 需安裝 Interaction Companion App（apps/interaction-ios）。配對走
+        TLS＋憑證指紋釘選＋一次性配對碼；每台 iPhone 有獨立金鑰，可隨時撤銷。
+        桌面授權不能取代 iOS 系統權限；感測是否啟用以手機端顯示為準。
+      </p>
+      {status.error && <div className="state-box state-error">無法讀取狀態：{status.error}</div>}
+      {bonjour && (
+        <div className="muted small">
+          {bonjour.advertised === true ? (
+            <>
+              區網廣播（Bonjour）：已註冊 {String(bonjour.service ?? "")}
+              {bonjour.instance ? `／${String(bonjour.instance)}` : ""}——iPhone 可自動發現。
+            </>
+          ) : (
+            <>
+              區網廣播（Bonjour）：未註冊
+              {bonjour.error ? `（${String(bonjour.error)}）` : ""}——iPhone 無法自動發現，
+              請用 QR 或手動輸入 host:port 配對。
+            </>
+          )}
+        </div>
+      )}
+      {devices.length === 0 ? (
+        <p className="muted small">還沒有配對的 iPhone。</p>
+      ) : (
+        <div className="provider-list">
+          {devices.map((d) => (
+            <div className="provider-card" key={String(d.deviceId)}>
+              <div className="row space-between">
+                <strong>{String(d.name)}</strong>
+                {d.connected === true ? (
+                  <Badge kind="ok">已連線</Badge>
+                ) : (
+                  <Badge kind="bad">未連線（能力不可用）</Badge>
+                )}
+              </div>
+              <div className="muted small">
+                {String(d.model || "")}・配對於 {new Date(String(d.pairedAt)).toLocaleString("zh-TW")}
+              </div>
+              {d.connected === true && d.sensors ? (
+                <div className="muted small">
+                  手機自報感測：
+                  {Object.entries((d.sensors as Record<string, unknown>) ?? {})
+                    .map(
+                      ([k, v]) =>
+                        `${MOBILE_SENSOR_LABEL[k] ?? k}：${v === true ? "開" : "關"}`,
+                    )
+                    .join("、")}
+                </div>
+              ) : null}
+              {d.connected === true && d.permissions ? (
+                <div className="muted small">
+                  iOS 系統權限（手機自報，桌面授權不能取代）：
+                  {Object.entries((d.permissions as Record<string, unknown>) ?? {})
+                    .map(
+                      ([k, v]) =>
+                        `${MOBILE_PERMISSION_LABEL[k] ?? k}：${
+                          MOBILE_PERMISSION_STATE[String(v)] ?? String(v)
+                        }`,
+                    )
+                    .join("、")}
+                </div>
+              ) : null}
+              {d.connected === true && !d.permissions ? (
+                <div className="muted small">iOS 系統權限：手機尚未回報（未知）。</div>
+              ) : null}
+              <button
+                className="danger"
+                onClick={async () => {
+                  try {
+                    await api.mobileRevoke(String(d.deviceId));
+                    setError(null);
+                  } catch (e) {
+                    setError(String(e));
+                  }
+                }}
+              >
+                撤銷配對（立即斷線）
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="row wrap" style={{ marginTop: 8 }}>
+        <button
+          onClick={async () => {
+            try {
+              setPairing(await api.mobilePairingBegin());
+              setError(null);
+            } catch (e) {
+              setError(String(e));
+            }
+          }}
+        >
+          開始配對（5 分鐘內有效）
+        </button>
+      </div>
+      {pairing && (
+        <div className="notice-box" role="status">
+          <p>
+            在 iPhone App 掃描 QR 或輸入配對碼：<strong>{String(pairing.code)}</strong>
+            （伺服器埠 {String(pairing.port)}，憑證指紋 {String(pairing.fingerprint).slice(0, 16)}…）
+          </p>
+          {typeof pairing.qrSvg === "string" && pairing.qrSvg.length > 0 && (
+            <div
+              aria-label="配對 QR Code"
+              // 後端 qrcode crate 產生的 SVG（本機生成，非外部內容）。
+              dangerouslySetInnerHTML={{ __html: pairing.qrSvg }}
+            />
+          )}
+          <p className="muted small">
+            有效至 {new Date(String(pairing.expiresAt)).toLocaleTimeString("zh-TW")}；配對碼只能用一次。
+          </p>
+        </div>
+      )}
+      {error && <p className="cap-card-error" role="alert">{error}</p>}
+    </Section>
   );
 }

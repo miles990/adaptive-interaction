@@ -30,7 +30,7 @@ test("390px：底部導覽可抵達所有頁面，緊急停止保持可見", asy
   }
   await sheet.getByText("記憶與知識").click();
   await expect(sheet).not.toBeVisible();
-  await expect(page.getByText("小樞記住了什麼")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("關於我的記憶").first()).toBeVisible({ timeout: 10_000 });
 });
 
 test("390px：鍵盤可操作底部導覽與更多選單", async ({ page }) => {

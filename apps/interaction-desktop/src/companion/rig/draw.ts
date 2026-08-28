@@ -17,7 +17,7 @@ type Ctx = CanvasRenderingContext2D;
 
 const TAU = Math.PI * 2;
 
-interface Layout {
+export interface Layout {
   /** 頭中心。 */
   hx: number;
   hy: number;
@@ -35,23 +35,23 @@ interface Layout {
   lie: boolean;
 }
 
-function layoutFor(p: RigParams, pal: RigPalette): Layout {
-  const lie = p.pose === "lie";
-  if (lie) {
-    return {
-      hx: 52,
-      hy: 92,
-      hrx: 21 ,
-      hry: 19,
-      waistY: 104,
-      hemY: 118,
-      groundY: 124,
-      shoulderY: 100,
-      lie: true,
-    };
-  }
-  const sit = p.pose === "sit";
-  const crouch = p.pose === "crouch";
+function lieLayout(): Layout {
+  return {
+    hx: 52,
+    hy: 92,
+    hrx: 21,
+    hry: 19,
+    waistY: 104,
+    hemY: 118,
+    groundY: 124,
+    shoulderY: 100,
+    lie: true,
+  };
+}
+
+function uprightLayout(pose: RigParams["pose"], pal: RigPalette): Layout {
+  const sit = pose === "sit";
+  const crouch = pose === "crouch";
   // stand：頭中心 46；sit 整體下移 10；crouch 下移 6。
   const drop = sit ? 10 : crouch ? 6 : 0;
   return {
@@ -65,6 +65,39 @@ function layoutFor(p: RigParams, pal: RigPalette): Layout {
     shoulderY: 66 + drop,
     lie: false,
   };
+}
+
+/** 兩個 layout 的線性混合（`lie` 旗標跟著目標姿勢，不混合）。 */
+function mixLayout(from: Layout, to: Layout, k: number): Layout {
+  const m = (a: number, b: number) => a + (b - a) * k;
+  return {
+    hx: m(from.hx, to.hx),
+    hy: m(from.hy, to.hy),
+    hrx: m(from.hrx, to.hrx),
+    hry: m(from.hry, to.hry),
+    waistY: m(from.waistY, to.waistY),
+    hemY: m(from.hemY, to.hemY),
+    groundY: m(from.groundY, to.groundY),
+    shoulderY: m(from.shoulderY, to.shoulderY),
+    lie: to.lie,
+  };
+}
+
+/**
+ * 姿勢 → 版面。`poseBlend < 1` 時（lie ↔ stand/sit 切換的過場中）頭中心與
+ * 身體高度在兩個姿勢之間線性插值，避免字串通道中點硬切造成的單幀瞬移。
+ * 匯出供測試量測「連續兩幀頭部位移」。
+ */
+export function layoutFor(p: RigParams, pal: RigPalette): Layout {
+  const blend = clamp01(p.poseBlend);
+  if (p.pose === "lie") {
+    const lie = lieLayout();
+    if (blend >= 0.999) return lie;
+    return mixLayout(uprightLayout("stand", pal), lie, blend);
+  }
+  const up = uprightLayout(p.pose, pal);
+  if (blend >= 0.999) return up;
+  return mixLayout(lieLayout(), up, blend);
 }
 
 /** 圓角路徑工具。 */

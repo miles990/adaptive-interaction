@@ -11,8 +11,7 @@
 //! - 事件解析為純函式（parse_claude_line），可離線以錄好的樣本測試。
 
 use crate::process::{
-    apply_session_capability_env, interrupt_tree, kill_tree, remove_runtime_auth_env,
-    spawn_grouped, ProcessGroup,
+    apply_session_capability_env, remove_runtime_auth_env, spawn_grouped, ProcessGroup,
 };
 use crate::{
     AgentConnector, AgentDiscovery, AgentKind, AgentSessionHandle, ApprovalDecision, GatewayError,
@@ -21,7 +20,7 @@ use crate::{
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::{ChildStdin, Command};
 use tokio::sync::mpsc;
 
 const DISCOVER_TIMEOUT: Duration = Duration::from_secs(6);
@@ -192,12 +191,15 @@ impl AgentConnector for ClaudeConnector {
             });
         }
 
-        // stdout：逐行解析為正規化事件。
+        // stdout：逐行解析為正規化事件。Child 交給這個 task 持有並收割，
+        // 好讓收場時能讀到真正的 exit status（kill 路徑走 process group，
+        // 不需要 Child——見 ClaudeHandle::kill）。
         {
             let tx = tx.clone();
             let session_id = session_id.clone();
             let tail = stderr_tail.clone();
             tokio::spawn(async move {
+                let mut child = child;
                 let mut lines = BufReader::new(stdout).lines();
                 let mut saw_result = false;
                 loop {
@@ -227,8 +229,12 @@ impl AgentConnector for ClaudeConnector {
                         Err(_) => break,
                     }
                 }
-                // 程序輸出結束：誠實回報 session 收場。
-                let detail = {
+                // 程序輸出結束：等它真的退出，才知道收場是什麼。
+                let status = child.wait().await.ok();
+                // 被訊號終止時 code() 是 None——那多半是我們自己的 kill，
+                // 不是 agent 的錯誤，不得記成失敗。
+                let exit_code = status.and_then(|s| s.code());
+                let stderr_tail: Option<String> = {
                     let t = tail.lock().expect("stderr tail lock");
                     if t.trim().is_empty() {
                         None
@@ -245,12 +251,29 @@ impl AgentConnector for ClaudeConnector {
                         )
                     }
                 };
+                let exit_note = match (status, exit_code) {
+                    (_, Some(code)) => format!("exit {code}"),
+                    (Some(_), None) => "terminated by signal".to_string(),
+                    (None, None) => "exit status unknown".to_string(),
+                };
+                let detail = Some(match &stderr_tail {
+                    Some(t) => format!("{exit_note}; stderr: {t}"),
+                    None => exit_note.clone(),
+                });
+                // 只有**觀察得到的錯誤**（非零 exit code）才是 failed。
+                // exit 0 卻沒有結果，或被訊號終止 ⇒ 結果未知，交給
+                // SessionClosed，由 runtime 誠實記為 unknown。
                 if !saw_result {
-                    let _ = tx
-                        .send(GatewayEvent::TaskFailed {
-                            error: "agent 程序在回報結果前結束".into(),
-                        })
-                        .await;
+                    if let Some(code) = exit_code.filter(|code| *code != 0) {
+                        let error: String = match &stderr_tail {
+                            Some(t) => format!("agent 程序以 exit {code} 結束而未回報結果：{t}"),
+                            None => format!("agent 程序以 exit {code} 結束而未回報結果"),
+                        }
+                        .chars()
+                        .take(700)
+                        .collect();
+                        let _ = tx.send(GatewayEvent::TaskFailed { error }).await;
+                    }
                 }
                 let resumable = session_id.lock().expect("sid lock").is_some();
                 let _ = tx
@@ -260,7 +283,6 @@ impl AgentConnector for ClaudeConnector {
         }
 
         let mut handle = ClaudeHandle {
-            child,
             group,
             stdin: Some(stdin),
             events: Some(rx),
@@ -274,7 +296,8 @@ impl AgentConnector for ClaudeConnector {
 }
 
 pub struct ClaudeHandle {
-    child: Child,
+    /// spawn 當下捕捉的 process group。Child 由 stdout task 持有／收割，
+    /// 所以中斷與終止都只靠 pgid 訊號——鎖外、不依賴 Child 的存活狀態。
     group: ProcessGroup,
     stdin: Option<ChildStdin>,
     events: Option<mpsc::Receiver<GatewayEvent>>,
@@ -313,13 +336,15 @@ impl AgentSessionHandle for ClaudeHandle {
     }
 
     async fn interrupt(&mut self) -> Result<(), GatewayError> {
-        interrupt_tree(&self.child);
+        self.group.interrupt();
         Ok(())
     }
 
     async fn kill(&mut self) -> Result<(), GatewayError> {
         self.stdin.take(); // 關 stdin（-p 模式的正常收尾訊號）
-        kill_tree(&mut self.child, &self.group, 1500).await;
+                           // 整組 SIGTERM → 寬限 → SIGKILL。領頭由 stdout task 的 child.wait()
+                           // 收割（它同時把真實 exit status 寫進 SessionClosed detail）。
+        self.group.terminate(1500).await;
         Ok(())
     }
 
@@ -358,12 +383,12 @@ pub fn parse_claude_line(line: &str) -> Vec<GatewayEvent> {
                     raw: "system/init without session_id".into(),
                 }]
             } else {
-                vec![
-                    GatewayEvent::SessionStarted {
-                        provider_session_id: sid,
-                    },
-                    GatewayEvent::TaskAccepted,
-                ]
+                // system/init 只代表「子程序起來了」——此時還沒有任何任務
+                // 送進去，更沒有人在工作。誠實階梯：進度（working）必須等
+                // 第一個 assistant／tool 事件，不能由啟動訊息偽造。
+                vec![GatewayEvent::SessionStarted {
+                    provider_session_id: sid,
+                }]
             }
         }
         ("assistant", _) => {
@@ -472,12 +497,11 @@ mod tests {
         let init = r#"{"type":"system","subtype":"init","session_id":"26af1963","model":"claude-haiku-4-5"}"#;
         let events = parse_claude_line(init);
         assert_eq!(
-            events[0],
-            GatewayEvent::SessionStarted {
+            events,
+            vec![GatewayEvent::SessionStarted {
                 provider_session_id: "26af1963".into()
-            }
+            }]
         );
-        assert_eq!(events[1], GatewayEvent::TaskAccepted);
 
         let asst = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"OK"}]}}"#;
         assert_eq!(
@@ -531,6 +555,60 @@ mod tests {
             claim[0],
             GatewayEvent::TaskClaimedCompleted { .. }
         ));
+    }
+
+    /// regression（誠實階梯）：`system/init` 只是「子程序起來了」，曾被
+    /// 直接翻成 TaskAccepted，讓角色在任務送進去之前就演「工作中」。
+    /// 進度只能來自真正的 assistant／tool 事件。
+    #[test]
+    fn init_never_reports_work_before_the_first_assistant_or_tool_event() {
+        let init = r#"{"type":"system","subtype":"init","session_id":"s1"}"#;
+        let events = parse_claude_line(init);
+        assert!(
+            !events.iter().any(|e| matches!(
+                e,
+                GatewayEvent::TaskAccepted | GatewayEvent::TaskProgress { .. }
+            )),
+            "init must not imply work: {events:?}"
+        );
+        // 第一個 assistant 事件才是「在做事」。
+        assert_eq!(
+            parse_claude_line(
+                r#"{"type":"assistant","message":{"content":[{"type":"text","text":"開始看"}]}}"#
+            ),
+            vec![GatewayEvent::TaskProgress {
+                text: Some("開始看".into())
+            }]
+        );
+        assert_eq!(
+            parse_claude_line(
+                r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep"}]}}"#
+            ),
+            vec![GatewayEvent::ToolStarted {
+                name: "Grep".into()
+            }]
+        );
+    }
+
+    /// Approval 對稱性：`claude -p` 沒有互動核可管道，所以正規化層**絕不**
+    /// 為 claude session 產生 waiting-for-consent（那會讓 UI 出現一個永遠
+    /// 無法裁決的假請求），而 resolve_approval 一律誠實拒絕。
+    #[test]
+    fn claude_never_fabricates_an_approval_request() {
+        for line in [
+            r#"{"type":"system","subtype":"init","session_id":"s1"}"#,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write"}]}}"#,
+            r#"{"type":"system","subtype":"permission_request","tool":"Write"}"#,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"denied"}]}}"#,
+            r#"{"type":"result","subtype":"error_permission","is_error":true,"result":"needs approval"}"#,
+        ] {
+            assert!(
+                !parse_claude_line(line)
+                    .iter()
+                    .any(|e| matches!(e, GatewayEvent::TaskWaitingForConsent { .. })),
+                "claude must never produce waiting-for-consent: {line}"
+            );
+        }
     }
 
     #[test]

@@ -10,3 +10,4 @@ apps/interaction-desktop/src-tauri/target
 apps/interaction-desktop/src-tauri/gen
 .claude/settings.local.json
 .claude/logs/
+__pycache__/

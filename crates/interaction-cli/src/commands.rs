@@ -727,6 +727,7 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                 workdir,
                 allow_write,
                 max_cost,
+                resume,
             } => {
                 client
                     .post(
@@ -741,6 +742,58 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                             "toolScope": if *allow_write { json!(["workspace.write"]) } else { json!([]) },
                             "consentScope": if *allow_write { json!(["agent-session:workspace-write"]) } else { json!([]) },
                             "maxCost": max_cost,
+                            "resumeProviderSessionId": resume,
+                        })),
+                    )
+                    .await?
+            }
+            crate::AgentsAction::Resume {
+                id,
+                label,
+                ttl,
+                workdir,
+            } => {
+                let (previous_status, previous) =
+                    client.get(&format!("/v1/agent-sessions/{id}")).await?;
+                if !(200..300).contains(&previous_status) {
+                    // 讀不到就照實回傳原始錯誤（404 等），不猜、不代填。
+                    return Ok(emit(cli.json, previous_status, &previous));
+                }
+                let provider_session_id = previous
+                    .get("providerSessionId")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "agent session {id} 沒有 providerSessionId，無法續開（只有真的接上 \
+                             codex／claude-code 子程序的 session 才有 provider 端 thread）"
+                        )
+                    })?
+                    .to_string();
+                let agent = previous
+                    .get("agentId")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("agent session {id} 沒有 agentId"))?
+                    .to_string();
+                // 續開＝新的租約與新的權限審核。舊 session 的 allowWrite／
+                // toolScope／consentScope 一律不繼承：權限旗標重新上鎖，
+                // 要寫入就得再走一次 `agents create --allow-write`。
+                client
+                    .post(
+                        "/v1/agent-sessions",
+                        Some(json!({
+                            "agentId": agent,
+                            "label": label.clone().or_else(|| {
+                                previous
+                                    .get("label")
+                                    .and_then(|v| v.as_str())
+                                    .map(|l| format!("{l}（續開）"))
+                            }),
+                            "ttlMinutes": ttl,
+                            "workdir": workdir,
+                            "allowWrite": false,
+                            "toolScope": json!([]),
+                            "consentScope": json!([]),
+                            "resumeProviderSessionId": provider_session_id,
                         })),
                     )
                     .await?
@@ -808,6 +861,25 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                     .await?
             }
         },
+        Command::Mobile { action } => match action {
+            crate::MobileAction::Status => client.get("/v1/mobile/status").await?,
+            crate::MobileAction::Pair => {
+                client.post("/v1/mobile/pairing-session", Some(json!({}))).await?
+            }
+            crate::MobileAction::Revoke { device_id } => {
+                client
+                    .delete(&format!("/v1/mobile/devices/{device_id}"))
+                    .await?
+            }
+            crate::MobileAction::BleScan { duration_ms } => {
+                client
+                    .post(
+                        "/v1/mobile/ble/scan",
+                        Some(json!({ "durationMs": duration_ms })),
+                    )
+                    .await?
+            }
+        },
         Command::Providers { action } => match action {
             crate::ProvidersAction::Scan => {
                 client.post("/v1/hardware/scan", Some(json!({}))).await?
@@ -830,6 +902,11 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                         &format!("/v1/providers/{id}/transition"),
                         Some(json!({"state": state})),
                     )
+                    .await?
+            }
+            crate::ProvidersAction::Test { id } => {
+                client
+                    .post(&format!("/v1/providers/{id}/test"), Some(json!({})))
                     .await?
             }
             crate::ProvidersAction::Revoke { id } => {

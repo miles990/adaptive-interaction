@@ -6,9 +6,9 @@ import React from "react";
 import { api } from "../api";
 import { Badge, Section, StateView, useAsync } from "../ui";
 
-type MkTab = "memory" | "candidates" | "assets" | "receipts" | "bundle";
+type MkTab = "memory" | "knowledge" | "assets" | "receipts" | "bundle";
 
-const LAYER_LABEL: Record<string, string> = {
+export const LAYER_LABEL: Record<string, string> = {
   "persona-core": "角色核心",
   "character-memory": "角色經歷",
   "user-memory": "關於我的記憶",
@@ -26,44 +26,70 @@ const KIND_LABEL: Record<string, { text: string; kind: "ok" | "warn" | "pending"
   inference: { text: "推論", kind: "warn" },
   preference: { text: "偏好", kind: "ok" },
   "know-how": { text: "Know-how", kind: "ok" },
-  candidate: { text: "候選（待確認）", kind: "pending" },
+  candidate: { text: "等待確認", kind: "pending" },
 };
 
-export function MemoryKnowledgePage({ refreshKey }: { refreshKey: number }) {
+/** 一般模式只有三區（spec §11）：關於我的記憶／小樞學會的知識／素材與來源。
+ *  知識收據、Context Bundle 預覽與候選複審工具屬於技術細節，只在進階模式出現。 */
+const SIMPLE_TABS: [MkTab, string][] = [
+  ["memory", "關於我的記憶"],
+  ["knowledge", "小樞學會的知識"],
+  ["assets", "素材與來源"],
+];
+
+const ADVANCED_TABS: [MkTab, string][] = [
+  ...SIMPLE_TABS,
+  ["receipts", "知識收據"],
+  ["bundle", "Context Bundle 預覽"],
+];
+
+export function MemoryKnowledgePage({
+  refreshKey,
+  advanced = false,
+  onNavigate,
+}: {
+  refreshKey: number;
+  advanced?: boolean;
+  onNavigate?: (tab: string) => void;
+}) {
   const [tab, setTab] = React.useState<MkTab>("memory");
+  const tabs = advanced ? ADVANCED_TABS : SIMPLE_TABS;
+  const active = tabs.some(([id]) => id === tab) ? tab : "memory";
   return (
     <div>
       <div className="hub-tabs" role="tablist" aria-label="記憶與知識分類">
-        {(
-          [
-            ["memory", "記憶"],
-            ["candidates", "知識與候選"],
-            ["assets", "原始素材"],
-            ["receipts", "知識收據"],
-            ["bundle", "提供給 AI 的內容"],
-          ] as [MkTab, string][]
-        ).map(([id, label]) => (
+        {tabs.map(([id, label]) => (
           <button
             key={id}
             role="tab"
-            aria-selected={tab === id}
-            className={tab === id ? "hub-tab active" : "hub-tab"}
+            aria-selected={active === id}
+            className={active === id ? "hub-tab active" : "hub-tab"}
             onClick={() => setTab(id)}
           >
             {label}
           </button>
         ))}
       </div>
-      {tab === "memory" && <MemorySection refreshKey={refreshKey} />}
-      {tab === "candidates" && <KnowledgeSection refreshKey={refreshKey} />}
-      {tab === "assets" && <AssetsSection refreshKey={refreshKey} />}
-      {tab === "receipts" && <ReceiptsSection refreshKey={refreshKey} />}
-      {tab === "bundle" && <BundleSection />}
+      {active === "memory" && (
+        <MemorySection refreshKey={refreshKey} advanced={advanced} onNavigate={onNavigate} />
+      )}
+      {active === "knowledge" && <KnowledgeSection refreshKey={refreshKey} advanced={advanced} />}
+      {active === "assets" && <AssetsSection refreshKey={refreshKey} />}
+      {active === "receipts" && <ReceiptsSection refreshKey={refreshKey} />}
+      {active === "bundle" && <BundleSection advanced />}
     </div>
   );
 }
 
-function MemorySection({ refreshKey }: { refreshKey: number }) {
+function MemorySection({
+  refreshKey,
+  advanced,
+  onNavigate,
+}: {
+  refreshKey: number;
+  advanced: boolean;
+  onNavigate?: (tab: string) => void;
+}) {
   const [layer, setLayer] = React.useState<string>("");
   const [data, retry] = useAsync(
     () => api.memoryList(layer || undefined, 200),
@@ -116,10 +142,20 @@ function MemorySection({ refreshKey }: { refreshKey: number }) {
 
   return (
     <div>
-      <Section title="小樞記住了什麼">
+      <Section title="關於我的記憶">
         <p className="muted small">
           每一條都標明：是事實還是推論、誰建立、保存多久。沒有你不能刪除的記憶——
           「永久」只代表「直到你刪除」。
+        </p>
+        <p className="muted small">
+          小樞跟你玩耍、互動累積的角色記憶（喜歡的玩具、相處距離）在「小樞」頁，
+          不會混進這裡，也不會因為一次行為就推論你的個性。
+          {onNavigate && (
+            <>
+              {" "}
+              <button onClick={() => onNavigate("companion")}>前往小樞</button>
+            </>
+          )}
         </p>
         <div className="row wrap">
           <label className="field-label">
@@ -191,6 +227,7 @@ function MemorySection({ refreshKey }: { refreshKey: number }) {
           )}
         </StateView>
       </Section>
+      {!advanced && <BundleSection advanced={false} />}
     </div>
   );
 }
@@ -202,6 +239,7 @@ function MemoryCard({
   item: Record<string, unknown>;
   onChanged: () => void;
 }) {
+  const [error, setError] = React.useState<string | null>(null);
   const kind = KIND_LABEL[String(item.kind)] ?? { text: String(item.kind), kind: "pending" as const };
   const status = String(item.status ?? "active");
   const retention = item.retention as Record<string, unknown> | undefined;
@@ -236,25 +274,44 @@ function MemoryCard({
         <summary className="muted small">內容</summary>
         <pre className="json-view small">{String(item.content)}</pre>
       </details>
+      {status === "expired" && (
+        <div className="muted small">
+          已過保存期限，內容已停止使用；只能刪除（無法重新確認）。
+        </div>
+      )}
+      {error && <div className="state-box state-error">{error}</div>}
       <div className="row wrap">
         <button
           className="danger"
           onClick={async () => {
-            await api.memoryDelete(String(item.memoryId));
-            onChanged();
+            try {
+              await api.memoryDelete(String(item.memoryId));
+              setError(null);
+              onChanged();
+            } catch (e) {
+              setError(`刪除失敗：${String(e)}。這筆記憶沒有變更。`);
+            }
           }}
         >
           刪除
         </button>
-        {status !== "active" ? (
+        {/* 到期（expired）的記憶後端一律當作不存在：PATCH 會回 NotFound。
+            介面不能留一顆按下去只會靜默失敗的「重新確認」按鈕——那等於
+            謊稱還能救回來。只有「已過複查期」（stale）才真的可以延期。 */}
+        {status === "stale" ? (
           <button
             onClick={async () => {
               // 重新確認：把複查期往後推 90 天（明確的人類動作）。
               const next = new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
-              await api.memoryPatch(String(item.memoryId), {
-                retention: { ...(retention ?? {}), reviewAfter: next },
-              });
-              onChanged();
+              try {
+                await api.memoryPatch(String(item.memoryId), {
+                  retention: { ...(retention ?? {}), reviewAfter: next },
+                });
+                setError(null);
+                onChanged();
+              } catch (e) {
+                setError(`重新確認失敗：${String(e)}。保存期限沒有變更。`);
+              }
             }}
           >
             重新確認（再保留 90 天）
@@ -265,16 +322,26 @@ function MemoryCard({
   );
 }
 
-const K_STATUS_LABEL: Record<string, { text: string; kind: "ok" | "warn" | "bad" | "pending" }> = {
-  candidate: { text: "候選（待複審）", kind: "pending" },
-  active: { text: "已發布", kind: "ok" },
-  stale: { text: "已過期需確認", kind: "warn" },
-  disputed: { text: "有衝突", kind: "warn" },
+/** spec §11 指定的人類文案。技術狀態字串只在進階模式的原始資料裡出現。 */
+export const K_STATUS_LABEL: Record<string, { text: string; kind: "ok" | "warn" | "bad" | "pending" }> = {
+  candidate: { text: "等待確認", kind: "pending" },
+  active: { text: "已採用", kind: "ok" },
+  stale: { text: "可能過期", kind: "warn" },
+  disputed: { text: "有不同說法", kind: "warn" },
   superseded: { text: "已被新版取代", kind: "pending" },
   archived: { text: "已封存", kind: "pending" },
 };
 
-function KnowledgeSection({ refreshKey }: { refreshKey: number }) {
+const K_STATUS_ORDER = [
+  "candidate",
+  "active",
+  "stale",
+  "disputed",
+  "superseded",
+  "archived",
+] as const;
+
+function KnowledgeSection({ refreshKey, advanced }: { refreshKey: number; advanced: boolean }) {
   const [status, setStatus] = React.useState("candidate");
   const [data, retry] = useAsync(
     () => api.knowledgeList(status || undefined, 100),
@@ -282,27 +349,29 @@ function KnowledgeSection({ refreshKey }: { refreshKey: number }) {
   );
   const [notice, setNotice] = React.useState<string | null>(null);
   return (
-    <Section title="知識與候選">
-      <KnowledgeUpdatePanel
-        onCreated={() => {
-          setStatus("candidate");
-          retry();
-        }}
-      />
+    <Section title="小樞學會的知識">
+      {advanced && (
+        <KnowledgeUpdatePanel
+          onCreated={() => {
+            setStatus("candidate");
+            retry();
+          }}
+        />
+      )}
       <p className="muted small">
-        AI（含各 agent）只能提出<strong>候選</strong>；正式發布永遠需要你複審。
-        主張必須附證據；類比與 AI 推測不能標成因果。
+        {advanced
+          ? "AI（含各 agent）只能提出候選；正式發布永遠需要你複審。主張必須附證據；類比與 AI 推測不能標成因果。"
+          : "AI 只能提出說法，要你確認過才會被採用。每一條都要有來源；推測不會被寫成事實。"}
       </p>
-      <DomainPacksPanel refreshKey={refreshKey} />
+      {advanced && <DomainPacksPanel refreshKey={refreshKey} />}
       <label className="field-label">
         狀態
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="candidate">候選（待複審）</option>
-          <option value="active">已發布</option>
-          <option value="stale">已過期</option>
-          <option value="disputed">有衝突</option>
-          <option value="superseded">已被取代</option>
-          <option value="archived">已封存</option>
+          {K_STATUS_ORDER.map((id) => (
+            <option key={id} value={id}>
+              {K_STATUS_LABEL[id].text}
+            </option>
+          ))}
           <option value="">全部</option>
         </select>
       </label>
@@ -311,6 +380,7 @@ function KnowledgeSection({ refreshKey }: { refreshKey: number }) {
           {notice}
         </p>
       )}
+      <CorrectionPanel advanced={advanced} onCreated={retry} />
       <StateView state={data} empty="這個狀態目前沒有知識項目。">
         {(d) => (
           <div className="provider-list">
@@ -326,16 +396,34 @@ function KnowledgeSection({ refreshKey }: { refreshKey: number }) {
                     <Badge kind={st.kind}>{st.text}</Badge>
                   </div>
                   <div className="muted small">
-                    {String(n.nodeType)}・信心 {Number(n.confidence ?? 0).toFixed(2)}・證據{" "}
-                    {((n.evidence as unknown[] | undefined) ?? []).length} 項
+                    {advanced ? `${String(n.nodeType)}・信心 ${Number(n.confidence ?? 0).toFixed(2)}・` : ""}
+                    來源 {((n.evidence as unknown[] | undefined) ?? []).length} 筆
                   </div>
                   <details>
-                    <summary className="muted small">內容與證據</summary>
-                    <pre className="json-view small">{JSON.stringify(
-                      { content: n.content, evidence: n.evidence, counterexamples: n.counterexamples, applicability: n.applicability },
-                      null,
-                      2
-                    )}</pre>
+                    <summary className="muted small">內容與來源</summary>
+                    {advanced ? (
+                      <pre className="json-view small">{JSON.stringify(
+                        { content: n.content, evidence: n.evidence, counterexamples: n.counterexamples, applicability: n.applicability },
+                        null,
+                        2
+                      )}</pre>
+                    ) : (
+                      <>
+                        <p className="small">{String(n.content ?? "（沒有內容）")}</p>
+                        <ul className="plain-list small">
+                          {((n.evidence as Record<string, unknown>[] | undefined) ?? []).map(
+                            (ev, index) => (
+                              <li key={index} className="muted">
+                                {String(ev.url ?? ev.assetHash ?? ev.note ?? "未註明來源")}
+                              </li>
+                            )
+                          )}
+                          {((n.evidence as unknown[] | undefined) ?? []).length === 0 && (
+                            <li className="muted">（沒有附上任何來源）</li>
+                          )}
+                        </ul>
+                      </>
+                    )}
                   </details>
                   {String(n.status) === "candidate" && (
                     <div className="row wrap">
@@ -344,14 +432,14 @@ function KnowledgeSection({ refreshKey }: { refreshKey: number }) {
                         onClick={async () => {
                           try {
                             await api.knowledgeReview(String(n.nodeId), "approve");
-                            setNotice("已發布。");
+                            setNotice("已採用。");
                             retry();
                           } catch (e) {
-                            setNotice(`無法發布：${e}`);
+                            setNotice(`無法採用：${e}`);
                           }
                         }}
                       >
-                        核可發布
+                        採用
                       </button>
                       <button
                         onClick={async () => {
@@ -360,7 +448,7 @@ function KnowledgeSection({ refreshKey }: { refreshKey: number }) {
                           retry();
                         }}
                       >
-                        拒絕
+                        不採用
                       </button>
                     </div>
                   )}
@@ -458,11 +546,7 @@ const UPDATE_TRIGGER_LABEL: Record<string, string> = {
 function KnowledgeUpdatePanel({ onCreated }: { onCreated: () => void }) {
   const [trigger, setTrigger] = React.useState("user-added-asset");
   const [decision, setDecision] = React.useState<Record<string, unknown> | null>(null);
-  const [original, setOriginal] = React.useState("");
-  const [correction, setCorrection] = React.useState("");
-  const [scope, setScope] = React.useState("");
-  const [notice, setNotice] = React.useState<string | null>(null);
-  const [saving, setSaving] = React.useState(false);
+  void onCreated;
   return (
     <div className="state-box">
       <strong>知識何時更新、何時需要 AI</strong>
@@ -503,56 +587,79 @@ function KnowledgeUpdatePanel({ onCreated }: { onCreated: () => void }) {
           </details>
         </div>
       )}
-      <details>
-        <summary>糾正小樞的記憶或說法</summary>
-        <p className="muted small">
-          糾正先保存為可刪除的「關於我的記憶」，並建立待複審候選；不會直接變成普遍知識，也不會自動呼叫 Agent。
-        </p>
-        <label className="field-label">
-          原本哪裡不對（選填）
-          <textarea value={original} onChange={(e) => setOriginal(e.target.value)} maxLength={2000} />
-        </label>
-        <label className="field-label">
-          正確內容
-          <textarea value={correction} onChange={(e) => setCorrection(e.target.value)} maxLength={2000} />
-        </label>
-        <label className="field-label">
-          適用範圍（選填）
-          <input value={scope} onChange={(e) => setScope(e.target.value)} maxLength={500} />
-        </label>
-        <button
-          className="primary"
-          disabled={saving || !correction.trim()}
-          onClick={async () => {
-            setSaving(true);
-            setNotice(null);
-            try {
-              await api.knowledgeUserCorrection({
-                originalAssumption: original.trim() || undefined,
-                correction: correction.trim(),
-                scope: scope.trim() || undefined,
-              });
-              setOriginal("");
-              setCorrection("");
-              setScope("");
-              setNotice("已保存使用者糾正並建立知識候選；尚未發布，等待複審。");
-              onCreated();
-            } catch (e) {
-              setNotice(`保存失敗：${e}`);
-            } finally {
-              setSaving(false);
-            }
-          }}
-        >
-          {saving ? "保存中…" : "保存糾正並建立候選"}
-        </button>
-        {notice && (
-          <p className="muted small" role="status">
-            {notice}
-          </p>
-        )}
-      </details>
     </div>
+  );
+}
+
+/** 糾正小樞的說法。一般模式與進階模式都要有 —— 但一般模式不用治理術語。 */
+function CorrectionPanel({
+  advanced,
+  onCreated,
+}: {
+  advanced: boolean;
+  onCreated: () => void;
+}) {
+  const [original, setOriginal] = React.useState("");
+  const [correction, setCorrection] = React.useState("");
+  const [scope, setScope] = React.useState("");
+  const [notice, setNotice] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
+  return (
+    <details className="state-box">
+      <summary>糾正小樞的記憶或說法</summary>
+      <p className="muted small">
+        {advanced
+          ? "糾正先保存為可刪除的「關於我的記憶」，並建立待複審候選；不會直接變成普遍知識，也不會自動呼叫 Agent。"
+          : "你的糾正會先存成可以隨時刪除的「關於我的記憶」，並排進等待你確認的清單；不會馬上變成小樞的通用說法，也不會自動叫 AI 去查。"}
+      </p>
+      <label className="field-label">
+        原本哪裡不對（選填）
+        <textarea value={original} onChange={(e) => setOriginal(e.target.value)} maxLength={2000} />
+      </label>
+      <label className="field-label">
+        正確內容
+        <textarea value={correction} onChange={(e) => setCorrection(e.target.value)} maxLength={2000} />
+      </label>
+      <label className="field-label">
+        適用範圍（選填）
+        <input value={scope} onChange={(e) => setScope(e.target.value)} maxLength={500} />
+      </label>
+      <button
+        className="primary"
+        disabled={saving || !correction.trim()}
+        onClick={async () => {
+          setSaving(true);
+          setNotice(null);
+          try {
+            await api.knowledgeUserCorrection({
+              originalAssumption: original.trim() || undefined,
+              correction: correction.trim(),
+              scope: scope.trim() || undefined,
+            });
+            setOriginal("");
+            setCorrection("");
+            setScope("");
+            setNotice(
+              advanced
+                ? "已保存使用者糾正並建立知識候選；尚未發布，等待複審。"
+                : "已保存你的糾正；還沒有被採用，等你確認。"
+            );
+            onCreated();
+          } catch (e) {
+            setNotice(`保存失敗：${e}`);
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {saving ? "保存中…" : "保存糾正"}
+      </button>
+      {notice && (
+        <p className="muted small" role="status">
+          {notice}
+        </p>
+      )}
+    </details>
   );
 }
 
@@ -667,7 +774,7 @@ function AssetsSection({ refreshKey }: { refreshKey: number }) {
             <button onClick={() => setDerivatives(null)}>關閉</button>
           </div>
           <p className="muted small">
-            Complete 只代表本機處理器完成；OCR、轉錄與推論內容仍是未受信任候選，不會自動發布為知識。
+            Complete 只代表本機處理器完成；OCR、轉錄與推論內容都還沒有被確認，不會自動變成小樞的知識。
           </p>
           <div className="provider-list">
             {((derivatives.derivatives as Record<string, unknown>[] | undefined) ?? []).map((item) => {
@@ -896,15 +1003,16 @@ function ReceiptsSection({ refreshKey }: { refreshKey: number }) {
   );
 }
 
-function BundleSection() {
+function BundleSection({ advanced }: { advanced: boolean }) {
   const [task, setTask] = React.useState("");
   const [agent, setAgent] = React.useState("claude-code");
   const [bundle, setBundle] = React.useState<Record<string, unknown> | null>(null);
   return (
-    <Section title="提供給 AI 的內容（Context Bundle 預覽）">
+    <Section title={advanced ? "提供給 AI 的內容（Context Bundle 預覽）" : "本次會提供給 AI 的內容"}>
       <p className="muted small">
-        送任務給 agent 前可先看：這次<strong>實際會提供哪些</strong>記憶與知識、哪些被排除
-        （過期需複查、敏感、對該 agent 不可見、未複審候選）。不傳完整對話或整個知識庫。
+        {advanced
+          ? "送任務給 agent 前可先看：這次實際會提供哪些記憶與知識、哪些被排除（過期需複查、敏感、對該 agent 不可見、未複審候選）。不傳完整對話或整個知識庫。"
+          : "把任務交給 AI 之前，可以先看這次實際會提供哪些記憶，哪些被擋下來。小樞不會把整個記憶或對話都交出去。"}
       </p>
       <div className="row wrap">
         <input value={task} placeholder="任務描述…" onChange={(e) => setTask(e.target.value)} />
@@ -926,9 +1034,46 @@ function BundleSection() {
           <strong>
             會提供 {((bundle.includes as unknown[] | undefined) ?? []).length} 條
           </strong>
-          <pre className="json-view small">{JSON.stringify(bundle, null, 2)}</pre>
+          {advanced ? (
+            <pre className="json-view small">{JSON.stringify(bundle, null, 2)}</pre>
+          ) : (
+            <BundleHumanSummary bundle={bundle} />
+          )}
         </div>
       )}
     </Section>
+  );
+}
+
+/** 一般模式的內容摘要：條目標題與被擋下來的原因，不倒原始 JSON。 */
+function BundleHumanSummary({ bundle }: { bundle: Record<string, unknown> }) {
+  const includes = (bundle.includes as Record<string, unknown>[] | undefined) ?? [];
+  const excluded = (bundle.excluded as Record<string, number> | undefined) ?? {};
+  const reasons: [string, string][] = [
+    ["needsReview", "需要你重新確認"],
+    ["sensitive", "標為敏感"],
+    ["notVisibleToAgent", "這個 AI 看不到"],
+  ];
+  return (
+    <div>
+      <ul className="plain-list small">
+        {includes.map((item) => (
+          <li key={String(item.memoryId)}>
+            {String(item.title)}
+            <span className="muted">
+              　{LAYER_LABEL[String(item.layer)] ?? String(item.layer)}
+            </span>
+          </li>
+        ))}
+        {includes.length === 0 && <li className="muted">這次不會提供任何記憶。</li>}
+      </ul>
+      <p className="muted small">
+        擋下來的：
+        {reasons
+          .filter(([key]) => Number(excluded[key] ?? 0) > 0)
+          .map(([key, label]) => `${label} ${Number(excluded[key])} 條`)
+          .join("、") || "沒有"}
+      </p>
+    </div>
   );
 }

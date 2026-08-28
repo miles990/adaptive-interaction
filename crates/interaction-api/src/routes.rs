@@ -1283,6 +1283,20 @@ pub async fn provider_transition(
     Ok(Json(serde_json::to_value(desc).unwrap_or_default()))
 }
 
+/// 「測試裝置」（spec §9.3）：人類專用（agent／session token 在 lib.rs 的
+/// scope 守門一律 403）。只對該 provider 的第一個可讀受器做一次讀取——
+/// 不觸發任何動器、不產生外部副作用；成功記 tested、失敗記 ok:false＋原因。
+pub async fn provider_test(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let report = state
+        .runtime
+        .test_provider(&interaction_core::ProviderId::new(&id))
+        .await?;
+    Ok(Json(report))
+}
+
 pub async fn provider_revoke(
     State(state): State<ApiState>,
     Path(id): Path<String>,
@@ -1365,8 +1379,12 @@ pub struct MailboxQuery {
     pub direction: Option<String>,
 }
 
+/// 讀信箱。**誰在讀**決定這是不是「送達」：human token 的 GET 是純觀看
+/// （唯讀，不蓋 deliveredAt、不把委派 receipt 推到 acknowledged），只有
+/// agent 身分的讀取才帶送達語意。人看一眼信箱不等於 agent 收到了任務。
 pub async fn agent_session_messages(
     State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
     Path(id): Path<String>,
     Query(q): Query<MailboxQuery>,
 ) -> ApiResult<Json<Value>> {
@@ -1374,7 +1392,13 @@ pub async fn agent_session_messages(
         Some("from-session") => interaction_core::MailboxDirection::FromSession,
         _ => interaction_core::MailboxDirection::ToSession,
     };
-    let messages = state.runtime.mailbox_fetch(&id, direction).await?;
+    let reader = match auth.principal {
+        AuthPrincipal::Human => interaction_runtime::agents::MailboxReader::Human,
+        AuthPrincipal::LegacyAgent | AuthPrincipal::AgentSession(_) => {
+            interaction_runtime::agents::MailboxReader::Agent
+        }
+    };
+    let messages = state.runtime.mailbox_read(&id, direction, reader).await?;
     Ok(Json(json!(messages)))
 }
 
@@ -2004,4 +2028,38 @@ pub async fn knowledge_user_correction(
     Json(input): Json<interaction_runtime::curator::UserCorrectionInput>,
 ) -> ApiResult<Json<Value>> {
     Ok(Json(state.runtime.record_user_correction(input).await?))
+}
+
+// ---------------------------------------------------------------------------
+// iPhone Mobile Provider（v0.5 Phase 6；human-only routes）
+// ---------------------------------------------------------------------------
+
+pub async fn mobile_status(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.mobile_status().await?))
+}
+
+pub async fn mobile_pairing_begin(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.mobile_pairing_begin().await?))
+}
+
+pub async fn mobile_revoke(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.mobile_revoke(&id).await?))
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BleScanBody {
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+}
+
+pub async fn mobile_ble_scan(
+    State(state): State<ApiState>,
+    body: Option<Json<BleScanBody>>,
+) -> ApiResult<Json<Value>> {
+    let duration = body.and_then(|Json(b)| b.duration_ms).unwrap_or(4_000);
+    Ok(Json(state.runtime.mobile_ble_scan(duration).await?))
 }

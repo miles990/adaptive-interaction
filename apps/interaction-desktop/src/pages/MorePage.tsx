@@ -46,7 +46,13 @@ export function MorePage({
           </button>
         ))}
       </div>
-      {tab === "memory" && <MemoryKnowledgePage refreshKey={refreshKey} />}
+      {tab === "memory" && (
+        <MemoryKnowledgePage
+          refreshKey={refreshKey}
+          advanced={advanced}
+          onNavigate={onNavigate}
+        />
+      )}
       {tab === "activity" && (
         <ActivityPage
           refreshKey={refreshKey}

@@ -11,15 +11,23 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(here, "..", "..");
 const require_ = createRequire(path.join(appRoot, "package.json"));
 
-// esbuild 是 vite 的傳遞依賴；由 pnpm store 解析。
-const esbuildPkg = path.join(
-  appRoot,
-  "node_modules/.pnpm/esbuild@0.21.5/node_modules/esbuild"
-);
-const esbuild = require_(esbuildPkg);
+// esbuild 是 vite 的傳遞依賴：先照正常解析找，找不到才退回 pnpm store 的
+// 硬編路徑（版本一升級硬編就會壞，只當備援）。
+const esbuild = loadEsbuild();
 const { chromium } = require_("@playwright/test");
 
-const out = process.argv[2] ?? path.join(appRoot, "rig-preview.png");
+function loadEsbuild() {
+  try {
+    return require_(require_.resolve("esbuild"));
+  } catch {
+    return require_(
+      path.join(appRoot, "node_modules/.pnpm/esbuild@0.21.5/node_modules/esbuild")
+    );
+  }
+}
+
+// 預設輸出到暫存目錄，不在 repo 根目錄留檔。
+const out = process.argv[2] ?? path.join(tmpdir(), "rig-preview.png");
 const work = mkdtempSync(path.join(tmpdir(), "rig-preview-"));
 
 const bundle = await esbuild.build({

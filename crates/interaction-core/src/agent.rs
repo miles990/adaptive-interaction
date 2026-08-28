@@ -18,6 +18,15 @@ pub enum AgentSessionState {
     #[default]
     Created,
     Active,
+    /// The agent is blocked on a human answer.
+    ///
+    /// HONEST GAP (v0.5): **no connector currently produces this state.**
+    /// Claude Code `-p --output-format stream-json` has no "waiting for input"
+    /// message (a finished turn is a `result`, i.e. a claim), and the pinned
+    /// Codex app-server 0.149.1 schema has no equivalent notification either —
+    /// its only blocking signal is an approval ServerRequest, which maps to
+    /// `WaitingForConsent`. The state stays in the model because the runtime
+    /// API/CLI can report it, but nothing infers it from provider traffic.
     WaitingForInput,
     WaitingForConsent,
     /// The agent SAYS it finished. Not verified, not a receipt.
@@ -27,6 +36,12 @@ pub enum AgentSessionState {
     Cancelled,
     Expired,
     Closed,
+    /// The work ended without any claim AND without an observed error: the
+    /// outcome is genuinely **unknown**. It is not success and it is not a
+    /// failure — claiming either would be a lie. A subprocess that exits
+    /// without reporting a result lands here (only an observable error, e.g. a
+    /// non-zero exit code, is honest enough to be `Failed`).
+    Unknown,
 }
 
 impl AgentSessionState {
@@ -410,5 +425,26 @@ mod tests {
         assert!(AgentSessionState::ClaimedCompleted.is_open());
         assert!(!AgentSessionState::Closed.is_open());
         assert!(!AgentSessionState::Expired.is_open());
+    }
+
+    /// regression（誠實階梯）：程序結束而沒有結果聲稱曾被記成 `failed`。
+    /// 未知就是未知——terminal、非 open、序列化為 kebab-case `unknown`，
+    /// 而且**不等於**任何一種成功或失敗狀態。
+    #[test]
+    fn unknown_is_a_terminal_state_of_its_own_and_never_a_failure() {
+        assert!(!AgentSessionState::Unknown.is_open());
+        assert_ne!(AgentSessionState::Unknown, AgentSessionState::Failed);
+        assert_ne!(
+            AgentSessionState::Unknown,
+            AgentSessionState::ClaimedCompleted
+        );
+        assert_eq!(
+            serde_json::to_value(AgentSessionState::Unknown).unwrap(),
+            serde_json::json!("unknown")
+        );
+        assert_eq!(
+            serde_json::from_value::<AgentSessionState>(serde_json::json!("unknown")).unwrap(),
+            AgentSessionState::Unknown
+        );
     }
 }

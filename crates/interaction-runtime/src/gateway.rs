@@ -52,7 +52,9 @@ fn connectors() -> Vec<Box<dyn AgentConnector>> {
 }
 
 struct PendingApproval {
-    #[allow(dead_code)] // 進階詳情面板將顯示；先保留在資料模型
+    /// 人類看得懂的「agent 想做什麼」。這份文字就是 report／mailbox／
+    /// 裁決紀錄共用的來源，不另存副本（副本會漂移，人類就會對著過期的
+    /// 描述做決定）。
     summary: String,
     deadline: Timestamp,
 }
@@ -65,11 +67,23 @@ struct ManagedSession {
     group: ProcessGroup,
 }
 
-#[derive(Default)]
 pub struct GatewayManager {
     sessions: Mutex<HashMap<String, ManagedSession>>,
     /// 最近一次發現結果（背景更新；UI 讀這份）。
     discoveries: Mutex<Vec<AgentDiscovery>>,
+    /// 有效的 approval 自動拒絕時限。上限固定為 APPROVAL_TTL_SECS，
+    /// 只能被調短（見 Runtime::set_approval_ttl_secs）。
+    approval_ttl_secs: std::sync::atomic::AtomicI64,
+}
+
+impl Default for GatewayManager {
+    fn default() -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+            discoveries: Mutex::new(Vec::new()),
+            approval_ttl_secs: std::sync::atomic::AtomicI64::new(APPROVAL_TTL_SECS),
+        }
+    }
 }
 
 impl GatewayManager {
@@ -110,6 +124,11 @@ impl GatewayManager {
 
     pub fn discoveries(&self) -> Vec<AgentDiscovery> {
         self.discoveries.lock().expect("discoveries lock").clone()
+    }
+
+    fn approval_ttl_secs(&self) -> i64 {
+        self.approval_ttl_secs
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -286,23 +305,26 @@ impl Runtime {
                         request_id,
                         summary,
                     } => {
-                        approvals.lock().expect("approvals lock").insert(
-                            request_id.clone(),
-                            PendingApproval {
-                                summary: summary.clone(),
-                                deadline: Utc::now() + chrono::Duration::seconds(APPROVAL_TTL_SECS),
-                            },
-                        );
+                        let pending = PendingApproval {
+                            summary,
+                            deadline: Utc::now()
+                                + chrono::Duration::seconds(rt.gateway.approval_ttl_secs()),
+                        };
+                        // report、mailbox、逾時自動拒絕全部讀同一份登記中的
+                        // summary：人類看到的描述與實際被裁決的請求一致。
+                        let report = json!({"requestId": request_id, "summary": pending.summary,
+                                   "autoDenyAt": pending.deadline});
+                        let body = BTreeMap::from([
+                            ("requestId".to_string(), json!(request_id)),
+                            ("summary".to_string(), json!(pending.summary)),
+                        ]);
+                        approvals
+                            .lock()
+                            .expect("approvals lock")
+                            .insert(request_id.clone(), pending);
                         let _ = rt
-                            .report_agent_session(
-                                &session_id,
-                                "waiting-for-consent",
-                                json!({"requestId": request_id, "summary": summary}),
-                            )
+                            .report_agent_session(&session_id, "waiting-for-consent", report)
                             .await;
-                        let mut body = BTreeMap::new();
-                        body.insert("requestId".to_string(), json!(request_id));
-                        body.insert("summary".to_string(), json!(summary));
                         let _ = rt
                             .mailbox_send(
                                 &session_id,
@@ -438,15 +460,18 @@ impl Runtime {
                             .await;
                     }
                     GatewayEvent::SessionClosed { resumable, detail } => {
-                        // 程序結束：若沒有任何結果聲稱且 session 還開著，
-                        // 誠實回報 failed（絕不猜測成功）。
+                        // 程序結束而沒有任何結果聲稱 ⇒ 結果**未知**。
+                        // 誠實階梯：沒觀察到成功不能說成功，沒觀察到錯誤也
+                        // 不能說失敗。connector 觀察得到的明確錯誤（非零
+                        // exit、協定錯誤）會在此之前先送 TaskFailed，那條
+                        // 路徑才會落到 failed；其餘一律 unknown。
                         if !claimed_or_failed {
                             let _ = rt
                                 .report_agent_session(
                                     &session_id,
-                                    "failed",
+                                    "unknown",
                                     json!({
-                                        "error": "agent 程序已結束而未回報結果",
+                                        "reason": "agent 程序已結束而未回報結果；結果未知，未經人工確認前不得視為成功或失敗",
                                         "resumable": resumable,
                                         "detail": detail,
                                     }),
@@ -592,22 +617,43 @@ impl Runtime {
         request_id: &str,
         approve: bool,
     ) -> DomainResult<Value> {
+        self.resolve_approval_as(session_id, request_id, approve, "human")
+            .await
+    }
+
+    /// 裁決一個 approval 請求。`by` = `human`（介面／CLI）或 `watchdog`
+    /// （逾時自動拒絕）。
+    ///
+    /// 裁決結果**一律**回寫 mailbox（`approval-resolved`）：介面讀得到的
+    /// 只有 mailbox，少了這筆紀錄，「已被看門狗自動拒絕」跟「還在等你決定」
+    /// 在畫面上完全一樣，核可／拒絕按鈕會永遠掛著，按下去只會拿到 NotFound。
+    pub(crate) async fn resolve_approval_as(
+        &self,
+        session_id: &str,
+        request_id: &str,
+        approve: bool,
+        by: &str,
+    ) -> DomainResult<Value> {
         let managed = self
             .gateway
             .managed(session_id)
             .ok_or_else(|| DomainError::NotFound(format!("gateway session {session_id}")))?;
-        let known = managed
+        // 取出登記中的請求：裁決紀錄要帶著「當時人類（或逾時規則）究竟在
+        // 對什麼說 yes/no」，否則稽核只剩一個 request id。
+        let Some(pending) = managed
             .approvals
             .lock()
             .expect("approvals lock")
             .remove(request_id)
-            .is_some();
-        if !known {
+        else {
             return Err(DomainError::NotFound(format!(
                 "approval request {request_id}"
             )));
-        }
-        {
+        };
+        let summary = pending.summary;
+        // 「決定了」與「決定送到 agent 了」是兩件事：兩者都要留下紀錄，
+        // 所以送達失敗不提前 return——先把裁決寫進 mailbox 再誠實回錯。
+        let delivered: DomainResult<()> = async {
             let mut handle = tokio::time::timeout(SEND_TIMEOUT, managed.handle.lock())
                 .await
                 .map_err(|_| {
@@ -625,21 +671,77 @@ impl Runtime {
                     },
                 )
                 .await
-                .map_err(|e| DomainError::Unavailable(e.to_string()))?;
+                .map_err(|e| DomainError::Unavailable(e.to_string()))
         }
+        .await;
+        let resolved_body = BTreeMap::from([
+            ("requestId".to_string(), json!(request_id)),
+            ("summary".to_string(), json!(summary)),
+            ("approved".to_string(), json!(approve)),
+            (
+                "decision".to_string(),
+                json!(if approve { "approved" } else { "denied" }),
+            ),
+            ("by".to_string(), json!(by)),
+            ("deliveredToAgent".to_string(), json!(delivered.is_ok())),
+        ]);
+        let _ = self
+            .mailbox_send(
+                session_id,
+                MailboxDirection::FromSession,
+                "approval-resolved",
+                resolved_body,
+                None,
+            )
+            .await;
+        let delivered_ok = delivered.is_ok();
+        delivered?;
         let _ = self
             .report_agent_session(
                 session_id,
                 "task-started",
-                json!({"approvalResolved": request_id, "approved": approve}),
+                json!({
+                    "approvalResolved": request_id,
+                    "approved": approve,
+                    "by": by,
+                    "summary": summary,
+                }),
             )
             .await;
         self.store.audit(
             "agent.approval",
-            "human",
-            &json!({"sessionId": session_id, "requestId": request_id, "approved": approve}),
+            by,
+            &json!({
+                "sessionId": session_id,
+                "requestId": request_id,
+                "approved": approve,
+                "by": by,
+                "summary": summary,
+            }),
         )?;
-        Ok(json!({"resolved": request_id, "approved": approve}))
+        Ok(json!({
+            "resolved": request_id,
+            "approved": approve,
+            "by": by,
+            "deliveredToAgent": delivered_ok,
+            "summary": summary,
+        }))
+    }
+
+    /// 縮短 approval 的自動拒絕時限（秒）。上限固定為 `APPROVAL_TTL_SECS`
+    /// ——這個旋鈕**只能調短**：把逾時拉長會讓危險請求在 UI 上久掛，
+    /// 等於偷偷放寬安全預設。回傳實際生效的值。
+    pub fn set_approval_ttl_secs(&self, secs: i64) -> i64 {
+        let effective = secs.clamp(0, APPROVAL_TTL_SECS);
+        self.gateway
+            .approval_ttl_secs
+            .store(effective, std::sync::atomic::Ordering::SeqCst);
+        effective
+    }
+
+    /// 目前生效的 approval 自動拒絕時限（秒）。
+    pub fn approval_ttl_secs(&self) -> i64 {
+        self.gateway.approval_ttl_secs()
     }
 
     /// 中斷目前 turn（不關 session）。鎖取得有界：send 卡死時誠實回
@@ -681,7 +783,9 @@ impl Runtime {
     }
 
     /// watchdog：逾時 approval 自動拒絕；已關閉 record 的殘留子程序清理。
-    pub(crate) async fn gateway_sweep(&self) {
+    /// 公開（而不只是 watchdog 內部呼叫）好讓「逾時＝拒絕，絕不代為同意」
+    /// 這條不變量能被直接、確定性地驗證，不必等 wall-clock。
+    pub async fn gateway_sweep(&self) {
         let now = Utc::now();
         // 逾時 approval → 自動 deny（絕不自動同意）。
         let mut to_deny: Vec<(String, String)> = Vec::new();
@@ -697,12 +801,30 @@ impl Runtime {
             }
         }
         for (sid, rid) in to_deny {
-            let _ = self.gateway_resolve_approval(&sid, &rid, false).await;
+            let resolved = self
+                .resolve_approval_as(&sid, &rid, false, "watchdog")
+                .await;
+            // 「決定拒絕」與「拒絕真的送到 agent」是兩件事：送不到就照實
+            // 說送不到（delivered:false），不得讓紀錄看起來像已經生效。
+            let (summary, delivered, error) = match &resolved {
+                Ok(value) => (
+                    value.get("summary").cloned().unwrap_or(Value::Null),
+                    true,
+                    Value::Null,
+                ),
+                Err(e) => (Value::Null, false, json!(e.to_string())),
+            };
             let _ = self
                 .report_agent_session(
                     &sid,
                     "progress",
-                    json!({"approvalAutoDenied": rid, "reason": "逾時無人裁決，預設拒絕"}),
+                    json!({
+                        "approvalAutoDenied": rid,
+                        "summary": summary,
+                        "delivered": delivered,
+                        "error": error,
+                        "reason": "逾時無人裁決，預設拒絕",
+                    }),
                 )
                 .await;
         }

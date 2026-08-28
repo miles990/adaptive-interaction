@@ -27,6 +27,16 @@ async fn visible_session(rt: &Runtime) {
         .unwrap();
 }
 
+/// 已發出的 `clear-all` presentation 命令則數。
+fn clear_all_commands(rt: &Runtime) -> usize {
+    rt.events
+        .recent(200)
+        .into_iter()
+        .filter(|e| e.event_type == EventType::PresentationCommand)
+        .filter(|e| e.payload.get("command").and_then(|v| v.as_str()) == Some("clear-all"))
+        .count()
+}
+
 async fn plan_and_execute(
     rt: &Runtime,
     actuator: &str,
@@ -345,6 +355,55 @@ async fn estop_clears_pending_and_blocks_late_ack() {
     );
 }
 
+/// estop **一律**要對角色視窗送出 clear-all：待送佇列是空的不代表畫面是
+/// 乾淨的——已經送出去並被 ack 的泡泡／動作還掛在視窗上活著。只有在
+/// `cleared` 非空時才通知，那些 transient 就會撐過緊急停止。
+#[tokio::test]
+async fn estop_always_orders_a_clear_all_even_with_nothing_pending() {
+    let (_g, rt) = runtime().await;
+    visible_session(&rt).await;
+    // 送出一則泡泡並讓視窗 ack：待送佇列因此清空，但畫面上那則還在演。
+    let receipts =
+        plan_and_execute(&rt, "companion.bubble.show", json!({}), Some("已經顯示了")).await;
+    rt.presentation_ack(receipts[0].action_id.as_str(), "displayed", None)
+        .await
+        .unwrap();
+    assert_eq!(
+        rt.presentation_status()
+            .get("pendingCommands")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        0,
+        "precondition: nothing is queued any more"
+    );
+    assert_eq!(clear_all_commands(&rt), 0);
+
+    rt.emergency_stop("test", None).await.unwrap();
+
+    let clears = clear_all_commands(&rt);
+    assert!(
+        clears >= 1,
+        "estop must order the companion window to clear whatever is on screen"
+    );
+    let last = rt
+        .events
+        .recent(200)
+        .into_iter()
+        .filter(|e| e.event_type == EventType::PresentationCommand)
+        .rfind(|e| e.payload.get("command").and_then(|v| v.as_str()) == Some("clear-all"))
+        .unwrap();
+    assert_eq!(
+        last.payload.get("reason").and_then(|v| v.as_str()),
+        Some("emergency-stop")
+    );
+    assert_eq!(
+        last.payload.get("clearedPending").and_then(|v| v.as_u64()),
+        Some(0),
+        "the record must stay honest: nothing was queued, the order is for the screen"
+    );
+}
+
 #[tokio::test]
 async fn behavior_intent_whitelist_enforced_through_full_loop() {
     let (_g, rt) = runtime().await;
@@ -541,4 +600,87 @@ async fn disconnected_surface_reports_offline_health() {
         .await
         .unwrap();
     assert_eq!(receptor.health().await.status, HealthStatus::Offline);
+}
+
+/// 純呈現（L0）動作的「結果未知」是角色演出沒被確認，不是需要人類裁決的
+/// 外部副作用。它必須仍留在歷史裡，但不得灌爆右上角的「待我決定」。
+/// 同樣是 uncertain，實體通道（haptic）則一定要人看見。
+#[tokio::test]
+async fn desktop_pet_uncertain_is_not_a_pending_decision_but_haptic_is() {
+    let (_g, rt) = runtime().await;
+    visible_session(&rt).await;
+    // iPhone 動器也要在場：`iphone.character` 同樣走 desktop-pet 通道，
+    // 但它是送到另一台實體裝置的外部副作用，不能被角色演出的豁免蓋掉。
+    rt.mobile_ensure_started().await.unwrap();
+
+    // 真的走完 presentation 閉環：命令送出、沒人 ack、watchdog 掃成 Uncertain。
+    let receipts =
+        plan_and_execute(&rt, "companion.bubble.show", json!({}), Some("沒人回應")).await;
+    let pet_action = receipts[0].action_id.clone();
+    let later = chrono::Utc::now()
+        + chrono::Duration::milliseconds(interaction_runtime::presentation::ACK_TTL_MS + 500);
+    rt.sweep_presentation_at(later).await;
+    assert_eq!(
+        rt.store.receipt(&pet_action).unwrap().current_status,
+        ActionStatus::Uncertain
+    );
+
+    // 對照組：同樣 Uncertain，但落在 haptic 通道的 mock 裝置動器上。
+    let haptic = ActionReceipt {
+        action_id: ActionId::new("act-haptic-uncertain"),
+        plan_id: PlanId::new("plan-haptic"),
+        session_id: SessionId::new("sess-haptic"),
+        actuator_id: ActuatorId::new("mock.actuator"),
+        intent: "震動提醒".into(),
+        requested_parameters: ActionParameters::default(),
+        effective_bounded_parameters: ActionParameters::default(),
+        policy_decisions: vec![],
+        current_status: ActionStatus::Uncertain,
+        timestamps: vec![(ActionStatus::Uncertain, chrono::Utc::now())],
+        errors: vec![],
+        driver_response: BTreeMap::new(),
+        verification: None,
+        expires_at: None,
+        correlation_id: CorrelationId::new("corr-haptic"),
+        schema_version: SCHEMA_VERSION.to_string(),
+    };
+    assert!(rt.store.upsert_receipt(&haptic, "haptic").unwrap());
+
+    // 對照組二：同樣 Uncertain、同樣 desktop-pet 通道，但落在 iPhone 上。
+    let phone = ActionReceipt {
+        action_id: ActionId::new("act-iphone-character-uncertain"),
+        actuator_id: ActuatorId::new("iphone.character"),
+        intent: "手機角色狀態".into(),
+        correlation_id: CorrelationId::new("corr-iphone"),
+        ..haptic.clone()
+    };
+    assert!(rt.store.upsert_receipt(&phone, "iphone").unwrap());
+
+    let inbox = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter::default())
+        .await
+        .unwrap();
+    let items = inbox["items"].as_array().unwrap();
+    let needs = |action_id: &str| -> bool {
+        items
+            .iter()
+            .find(|item| item["itemId"].as_str() == Some(action_id))
+            .unwrap_or_else(|| panic!("{action_id} missing from the inbox history"))
+            ["needsDecision"]
+            .as_bool()
+            .unwrap()
+    };
+    assert!(
+        !needs(pet_action.as_str()),
+        "desktop-pet uncertain must not become a pending human decision"
+    );
+    assert!(
+        needs("act-haptic-uncertain"),
+        "haptic uncertain must stay a pending human decision"
+    );
+    assert!(
+        needs("act-iphone-character-uncertain"),
+        "iphone.character uncertain must stay a pending human decision"
+    );
+    assert_eq!(inbox["pendingCount"].as_u64(), Some(2));
 }

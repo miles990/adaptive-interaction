@@ -11,11 +11,48 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+/// `INTERACT_AI_*_BIN` / `FAKE_*` 是**程序級** env：同一個測試 binary 裡的
+/// 執行緒共用它們，兩個測試同時改就會互相汙染（一個測試的 hang 模式會讓
+/// 另一個測試的 fixture 掛住）。所有會碰 env 的 gateway 測試都先取這把鎖，
+/// 彼此序列化。
+static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn fixture_path() -> String {
     format!(
         "{}/tests/fixtures/fake_claude.sh",
         env!("CARGO_MANIFEST_DIR")
     )
+}
+
+fn codex_fixture_path() -> String {
+    format!(
+        "{}/tests/fixtures/fake_codex.sh",
+        env!("CARGO_MANIFEST_DIR")
+    )
+}
+
+/// 情境選擇放在 workdir 裡的 `fake-mode` 檔（fixture 優先讀它）：這樣一個
+/// 測試驅動的永遠是**自己那個**子程序，不受其他測試的 env 影響。
+fn scenario_workdir(mode: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("fake-mode"), mode).unwrap();
+    dir
+}
+
+/// 一個 session 依序發出的 `agent.session.state` taxonomy（小樞演出的來源）。
+fn session_states(rt: &Runtime, session_id: &str) -> Vec<String> {
+    rt.events
+        .recent(2000)
+        .into_iter()
+        .filter(|e| e.event_type == EventType::AgentSessionState)
+        .filter(|e| e.payload.get("agentSessionId").and_then(|v| v.as_str()) == Some(session_id))
+        .filter_map(|e| {
+            e.payload
+                .get("state")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .collect()
 }
 
 async fn runtime() -> (tempfile::TempDir, Runtime) {
@@ -69,6 +106,27 @@ fn claude_input(
     }
 }
 
+fn codex_input(
+    label: &str,
+    workdir: &std::path::Path,
+) -> interaction_runtime::agents::CreateAgentSession {
+    interaction_runtime::agents::CreateAgentSession {
+        provider_id: None,
+        agent_id: "codex".into(),
+        label: Some(label.into()),
+        ttl_minutes: Some(10),
+        data_scope: vec![],
+        tool_scope: vec![],
+        consent_scope: vec![],
+        max_cost: None,
+        max_messages: Some(10),
+        delegation: None,
+        workdir: Some(workdir.to_string_lossy().into_owned()),
+        resume_provider_session_id: None,
+        allow_write: false,
+    }
+}
+
 fn read_pid(path: &std::path::Path) -> i32 {
     std::fs::read_to_string(path)
         .ok()
@@ -78,6 +136,7 @@ fn read_pid(path: &std::path::Path) -> i32 {
 
 #[tokio::test]
 async fn gateway_full_loop_with_fake_agent() {
+    let _env = ENV_LOCK.lock().await;
     std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
 
     // ---- 0) 使用者停用的 connector 是 Runtime 規則，不是 UI 假開關。 ----
@@ -534,5 +593,596 @@ async fn gateway_full_loop_with_fake_agent() {
     }
 
     std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+    std::env::remove_var("INTERACT_AI_CODEX_BIN");
+}
+
+/// regression（誠實階梯）：子程序結束而沒有回報任何結果，曾被記成
+/// `failed`。沒觀察到成功不能說成功，沒觀察到錯誤也不能說失敗——
+/// 那是 **unknown**。只有 connector 真的看得到的錯誤（非零 exit）才是失敗。
+#[tokio::test]
+async fn process_that_ends_without_a_claim_is_unknown_and_only_a_real_error_is_failed() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+
+    // (a) exit 0，一個結果都沒回報 ⇒ unknown。
+    let quiet = scenario_workdir("silent");
+    let mut input = claude_input("安靜退出", None);
+    input.workdir = Some(quiet.path().to_string_lossy().into_owned());
+    let sid = rt
+        .create_agent_session(input)
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::Unknown)
+                .unwrap_or(false)
+        },
+        "unknown state after a silent exit",
+    )
+    .await;
+    let record = rt.get_agent_session(&sid).await.unwrap();
+    assert!(!record.state.is_open(), "unknown is terminal");
+    let states = session_states(&rt, &sid);
+    assert!(
+        states.iter().any(|s| s == "unknown"),
+        "taxonomy must say unknown: {states:?}"
+    );
+    assert!(
+        !states.iter().any(|s| s == "failed"),
+        "a silent exit is not evidence of failure: {states:?}"
+    );
+    assert!(
+        !states.iter().any(|s| s == "claimed-completed"),
+        "and certainly not evidence of success: {states:?}"
+    );
+
+    // (b) 非零 exit＋stderr：這是**觀察得到**的錯誤 ⇒ failed，且 detail
+    //     保留 exit code 與 stderr，讓人類看得到憑據。
+    let boom = scenario_workdir("crash");
+    let mut input = claude_input("崩潰退出", None);
+    input.workdir = Some(boom.path().to_string_lossy().into_owned());
+    let sid2 = rt
+        .create_agent_session(input)
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid2)
+                .await
+                .map(|r| r.state == AgentSessionState::Failed)
+                .unwrap_or(false)
+        },
+        "failed state after a non-zero exit",
+    )
+    .await;
+    let states2 = session_states(&rt, &sid2);
+    assert!(
+        states2.iter().any(|s| s == "failed"),
+        "observable error must be failed: {states2:?}"
+    );
+    assert!(
+        !states2.iter().any(|s| s == "unknown"),
+        "a proven error must not be downgraded to unknown: {states2:?}"
+    );
+}
+
+/// regression（誠實階梯）：`system/init` 曾直接被翻成 TaskAccepted，
+/// 讓「working」跑在「fetched」前面——角色在任務還沒送進去時就演工作中。
+/// 正確順序：created → fetched（真的寫進 stdin）→ working（agent 真的動了）。
+#[tokio::test]
+async fn working_never_precedes_the_task_actually_reaching_the_agent() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let slow = scenario_workdir("slow");
+    let mut input = claude_input("慢慢做", None);
+    input.workdir = Some(slow.path().to_string_lossy().into_owned());
+    let sid = rt
+        .create_agent_session(input)
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+
+    // 子程序起來後（init 已送出），在送任務之前不得出現任何工作狀態。
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .ok()
+                .and_then(|r| r.provider_session_id)
+                .is_some()
+        },
+        "provider session id from init",
+    )
+    .await;
+    let before = session_states(&rt, &sid);
+    assert_eq!(
+        before,
+        vec!["created".to_string()],
+        "init alone must not imply fetched/working: {before:?}"
+    );
+
+    rt.mailbox_send(
+        &sid,
+        MailboxDirection::ToSession,
+        "task",
+        BTreeMap::from([("task".to_string(), json!("看一下 repo"))]),
+        None,
+    )
+    .await
+    .unwrap();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::ClaimedCompleted)
+                .unwrap_or(false)
+        },
+        "claimed-completed",
+    )
+    .await;
+
+    let states = session_states(&rt, &sid);
+    let index = |name: &str| {
+        states
+            .iter()
+            .position(|s| s == name)
+            .unwrap_or_else(|| panic!("missing {name} in {states:?}"))
+    };
+    assert!(
+        index("created") < index("fetched"),
+        "created → fetched: {states:?}"
+    );
+    assert!(
+        index("fetched") < index("working"),
+        "fetched → working: {states:?}"
+    );
+    assert!(
+        index("working") < index("claimed-completed"),
+        "working → claimed-completed: {states:?}"
+    );
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+}
+
+/// regression（誠實階梯）：訊息「排進佇列」不是送達。子程序不再讀 stdin 時
+/// 寫入會失敗——此時絕不可蓋 delivered 戳記，也絕不可發 `fetched`。
+#[tokio::test]
+async fn a_write_that_fails_is_never_reported_as_delivered_or_fetched() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let deaf = scenario_workdir("deaf");
+    let mut input = claude_input("不讀 stdin", None);
+    input.workdir = Some(deaf.path().to_string_lossy().into_owned());
+    let sid = rt
+        .create_agent_session(input)
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+    // 等子程序真的關掉 stdin（否則寫入還會被 pipe buffer 吃下去）。
+    let closed_marker = deaf.path().join("fake-stdin-closed");
+    wait_for(async || closed_marker.exists(), "fixture closed its stdin").await;
+
+    let message = rt
+        .mailbox_send(
+            &sid,
+            MailboxDirection::ToSession,
+            "task",
+            BTreeMap::from([("task".to_string(), json!("這一則永遠送不進去"))]),
+            None,
+        )
+        .await
+        .unwrap();
+    let queued = rt
+        .mailbox_peek(&sid, MailboxDirection::ToSession)
+        .await
+        .unwrap();
+    let queued = queued
+        .iter()
+        .find(|m| m.message_id == message.message_id)
+        .expect("message stays in the mailbox");
+    assert!(
+        queued.delivered_at.is_none(),
+        "a failed write must not stamp delivered"
+    );
+    let states = session_states(&rt, &sid);
+    assert!(
+        !states.iter().any(|s| s == "fetched"),
+        "no fetched without a real delivery: {states:?}"
+    );
+    assert!(
+        states.iter().any(|s| s == "failed"),
+        "the undeliverable task is reported honestly: {states:?}"
+    );
+
+    let pid = read_pid(&deaf.path().join("fake-pid"));
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    if pid > 0 {
+        wait_for(async || !pid_alive(pid), "deaf fixture killed").await;
+    }
+}
+
+/// 續開既有 provider thread：thread id 要真的傳給 connector，而權限旗標
+/// **重新上鎖**——舊 session 的寫入權不會跟著 thread id 一起被繼承。
+#[tokio::test]
+async fn resume_passes_the_provider_thread_and_relocks_permission_flags() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = scenario_workdir("default");
+    let mut input = claude_input("續開", None);
+    input.workdir = Some(dir.path().to_string_lossy().into_owned());
+    input.resume_provider_session_id = Some("fake-thread-9".into());
+    let record = rt.create_agent_session(input).await.unwrap();
+    let sid = record.session_id.as_str().to_string();
+
+    let argv_file = dir.path().join("fake-argv");
+    wait_for(async || argv_file.exists(), "fixture argv log").await;
+    let argv = std::fs::read_to_string(&argv_file).unwrap();
+    assert!(
+        argv.contains("--resume fake-thread-9"),
+        "resume must reach the connector: {argv}"
+    );
+    // 沒有要求寫入 ⇒ 續開仍是唯讀 Plan 模式，不繼承任何放寬。
+    assert!(
+        argv.contains("--permission-mode plan"),
+        "resume must re-lock to plan: {argv}"
+    );
+    assert!(!argv.contains("acceptEdits"), "{argv}");
+    assert!(!argv.contains("dangerously"), "{argv}");
+    assert!(!record.allow_write, "resume never inherits write access");
+    assert!(record.consent_scope.is_empty());
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+}
+
+/// 裁決要回寫 mailbox。介面讀得到的只有 mailbox：沒有 `approval-resolved`
+/// 這筆，「已被看門狗自動拒絕」跟「還在等你決定」在畫面上完全一樣，核可
+/// 按鈕會一直掛著，按下去只會拿到 NotFound。
+#[tokio::test]
+async fn a_watchdog_auto_deny_is_written_back_to_the_mailbox() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CODEX_BIN", codex_fixture_path());
+    let (_g, rt) = runtime().await;
+    rt.set_approval_ttl_secs(0);
+    let dir = tempfile::tempdir().unwrap();
+    let sid = rt
+        .create_agent_session(codex_input("看門狗回寫", dir.path()))
+        .await
+        .expect("fake codex app-server attaches")
+        .session_id
+        .as_str()
+        .to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::WaitingForConsent)
+                .unwrap_or(false)
+        },
+        "waiting-for-consent",
+    )
+    .await;
+
+    rt.gateway_sweep().await;
+
+    let inbox = rt
+        .mailbox_peek(&sid, MailboxDirection::FromSession)
+        .await
+        .unwrap();
+    let resolved = inbox
+        .iter()
+        .find(|m| m.kind == "approval-resolved")
+        .expect("the auto-deny reaches the mailbox the UI actually reads");
+    assert_eq!(resolved.body["requestId"], json!("9001"));
+    assert_eq!(resolved.body["decision"], json!("denied"));
+    assert_eq!(
+        resolved.body["by"],
+        json!("watchdog"),
+        "a timeout is NOT a human decision and must not read as one"
+    );
+    assert_eq!(resolved.body["approved"], json!(false));
+    assert_eq!(resolved.body["deliveredToAgent"], json!(true));
+    assert!(resolved.body["summary"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("rm -rf"));
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    std::env::remove_var("INTERACT_AI_CODEX_BIN");
+}
+
+/// 人類裁決同樣回寫，而且標明是「人」決定的（by=human）——UI 靠這個欄位
+/// 分辨「你已核可」與「看門狗替你拒絕了」。
+#[tokio::test]
+async fn a_human_decision_is_written_back_to_the_mailbox_as_human() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CODEX_BIN", codex_fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = tempfile::tempdir().unwrap();
+    let sid = rt
+        .create_agent_session(codex_input("人類裁決", dir.path()))
+        .await
+        .expect("fake codex app-server attaches")
+        .session_id
+        .as_str()
+        .to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::WaitingForConsent)
+                .unwrap_or(false)
+        },
+        "waiting-for-consent",
+    )
+    .await;
+
+    let out = rt
+        .gateway_resolve_approval(&sid, "9001", true)
+        .await
+        .unwrap();
+    assert_eq!(out["by"], json!("human"));
+    assert_eq!(out["deliveredToAgent"], json!(true));
+
+    let inbox = rt
+        .mailbox_peek(&sid, MailboxDirection::FromSession)
+        .await
+        .unwrap();
+    let resolved = inbox
+        .iter()
+        .find(|m| m.kind == "approval-resolved")
+        .expect("the human decision reaches the mailbox");
+    assert_eq!(resolved.body["by"], json!("human"));
+    assert_eq!(resolved.body["decision"], json!("approved"));
+    assert_eq!(resolved.body["deliveredToAgent"], json!(true));
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    std::env::remove_var("INTERACT_AI_CODEX_BIN");
+}
+
+/// Codex 續開（`thread/resume`）必須**重新上鎖**：cwd／approvalPolicy／
+/// sandbox 跟 `thread/start` 一樣重送一次。只送 `threadId` 等於讓 provider
+/// 端沿用舊 thread 的權限——舊 session 若曾是 workspace-write，寫入權就跟著
+/// thread id 復活了。這裡直接讀 fixture 記下的 resume 參數。
+#[tokio::test]
+async fn codex_resume_resends_cwd_and_sandbox_instead_of_inheriting_them() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CODEX_BIN", codex_fixture_path());
+    let (_g, rt) = runtime().await;
+
+    // (1) 唯讀續開：resume 參數必須帶著 read-only 的重新上鎖。
+    let dir = tempfile::tempdir().unwrap();
+    let mut input = codex_input("續開唯讀", dir.path());
+    input.resume_provider_session_id = Some("fake-thread-9".into());
+    let record = rt.create_agent_session(input).await.unwrap();
+    let sid = record.session_id.as_str().to_string();
+
+    let resume_file = dir.path().join("fake-thread-resume");
+    wait_for(async || resume_file.exists(), "thread/resume params log").await;
+    let raw = std::fs::read_to_string(&resume_file).unwrap();
+    let sent: serde_json::Value = serde_json::from_str(raw.trim()).expect("resume line is JSON");
+    assert_eq!(sent["method"], json!("thread/resume"));
+    let params = &sent["params"];
+    assert_eq!(params["threadId"], json!("fake-thread-9"));
+    assert_eq!(
+        params["sandbox"],
+        json!("read-only"),
+        "resume must re-lock the sandbox: {params}"
+    );
+    assert_eq!(params["approvalPolicy"], json!("untrusted"), "{params}");
+    assert_eq!(
+        params["cwd"].as_str().unwrap_or_default(),
+        dir.path().to_string_lossy(),
+        "resume must re-scope the working directory: {params}"
+    );
+    assert!(
+        !raw.contains("workspace-write") && !raw.contains("danger-full-access"),
+        "a read-only resume must never send a writable sandbox: {raw}"
+    );
+    // 沒有走 thread/start（否則就不是續開了），而且 provider thread 有換上。
+    assert!(!dir.path().join("fake-thread-start").exists());
+    assert!(!record.allow_write, "resume never inherits write access");
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+
+    // (2) 這次 SessionSpec 明確要寫入 ⇒ resume 送 workspace-write。
+    // 也就是說 sandbox 完全由**本次**授權決定，與舊 thread 無關。
+    let dir2 = tempfile::tempdir().unwrap();
+    let mut write_input = codex_input("續開可寫", dir2.path());
+    write_input.resume_provider_session_id = Some("fake-thread-9".into());
+    write_input.allow_write = true;
+    write_input.tool_scope = vec!["workspace.write".into()];
+    write_input.consent_scope = vec!["agent-session:workspace-write".into()];
+    let record2 = rt.create_agent_session(write_input).await.unwrap();
+    let sid2 = record2.session_id.as_str().to_string();
+    let resume_file2 = dir2.path().join("fake-thread-resume");
+    wait_for(async || resume_file2.exists(), "write resume params log").await;
+    let sent2: serde_json::Value =
+        serde_json::from_str(std::fs::read_to_string(&resume_file2).unwrap().trim()).unwrap();
+    assert_eq!(sent2["params"]["sandbox"], json!("workspace-write"));
+    rt.close_agent_session(&sid2, None, "closed").await.unwrap();
+
+    std::env::remove_var("INTERACT_AI_CODEX_BIN");
+}
+
+/// Approval 對稱性：`claude -p` 沒有互動核可管道，所以 runtime 絕不會為
+/// claude session 掛出一個沒有人能裁決的 waiting-consent；對它裁決一律
+/// 誠實回 NotFound（而不是假裝送出了一個核可）。
+#[tokio::test]
+async fn claude_sessions_never_show_a_consent_prompt_nobody_can_answer() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = scenario_workdir("default");
+    let mut input = claude_input("無核可管道", None);
+    input.workdir = Some(dir.path().to_string_lossy().into_owned());
+    let sid = rt
+        .create_agent_session(input)
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+
+    let err = rt
+        .gateway_resolve_approval(&sid, "made-up-request", true)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::NotFound(_)), "{err:?}");
+    assert!(
+        !session_states(&rt, &sid)
+            .iter()
+            .any(|s| s == "waiting-consent"),
+        "claude sessions must never fabricate a consent prompt"
+    );
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+}
+
+/// 無人裁決的 approval 必須**逾時自動拒絕**（絕不替人類同意），而且拒絕
+/// 要真的送到 agent 子程序，不是只寫在 log 裡。
+#[tokio::test]
+async fn an_unanswered_approval_is_denied_by_the_watchdog_and_the_deny_reaches_the_agent() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CODEX_BIN", codex_fixture_path());
+    let (_g, rt) = runtime().await;
+    // TTL 只能被調短（上限仍是 APPROVAL_TTL_SECS）。
+    assert_eq!(rt.set_approval_ttl_secs(0), 0);
+    assert_eq!(
+        rt.set_approval_ttl_secs(99_999),
+        interaction_runtime::gateway::APPROVAL_TTL_SECS,
+        "TTL is a ceiling: it can be shortened, never extended"
+    );
+    rt.set_approval_ttl_secs(0);
+
+    let dir = tempfile::tempdir().unwrap();
+    let record = rt
+        .create_agent_session(interaction_runtime::agents::CreateAgentSession {
+            provider_id: None,
+            agent_id: "codex".into(),
+            label: Some("等待核可".into()),
+            ttl_minutes: Some(10),
+            data_scope: vec![],
+            tool_scope: vec![],
+            consent_scope: vec![],
+            max_cost: None,
+            max_messages: Some(10),
+            delegation: None,
+            workdir: Some(dir.path().to_string_lossy().into_owned()),
+            resume_provider_session_id: None,
+            allow_write: false,
+        })
+        .await
+        .expect("fake codex app-server attaches");
+    let sid = record.session_id.as_str().to_string();
+
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::WaitingForConsent)
+                .unwrap_or(false)
+        },
+        "waiting-for-consent",
+    )
+    .await;
+    // 請求描述有進信箱（人類要知道自己在裁決什麼）。
+    let inbox = rt
+        .mailbox_peek(&sid, MailboxDirection::FromSession)
+        .await
+        .unwrap();
+    let request = inbox
+        .iter()
+        .find(|m| m.kind == "approval-request")
+        .expect("approval request reaches the mailbox");
+    assert!(request
+        .body
+        .get("summary")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .contains("rm -rf"));
+
+    // watchdog 掃描：逾時 → 自動拒絕。
+    rt.gateway_sweep().await;
+    let decision_file = dir.path().join("fake-approval-decision");
+    wait_for(
+        async || {
+            std::fs::read_to_string(&decision_file)
+                .map(|body| body.contains("reject"))
+                .unwrap_or(false)
+        },
+        "deny actually delivered to the agent subprocess",
+    )
+    .await;
+    let decision = std::fs::read_to_string(&decision_file).unwrap();
+    assert!(
+        !decision.contains("accept"),
+        "the runtime must never approve on a human's behalf: {decision}"
+    );
+    // 再次裁決同一個請求 → 已經不存在（不得重複核可）。
+    assert!(rt
+        .gateway_resolve_approval(&sid, "9001", true)
+        .await
+        .is_err());
+
+    // 人類（或逾時規則）到底拒絕了「什麼」必須留在紀錄裡：只留一個
+    // request id 的稽核等於沒有稽核。
+    let observations = rt
+        .observe_stored(&ObservationQuery {
+            receptor_id: Some(ReceptorId::new("agent.session")),
+            limit: Some(100),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let denied = observations
+        .iter()
+        .find(|o| {
+            o.inferences
+                .get("report")
+                .and_then(|r| r.get("approvalAutoDenied"))
+                .is_some()
+        })
+        .expect("the auto-deny is recorded as an observation");
+    assert!(
+        denied.inferences["report"]["summary"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("rm -rf"),
+        "the record must say WHAT was auto-denied: {:?}",
+        denied.inferences["report"]
+    );
+    assert_eq!(
+        denied.inferences["report"]["delivered"],
+        json!(true),
+        "deciding to deny and the deny arriving are two different facts"
+    );
+
+    // 送達證明：writer 真的寫進 stdin＋flush 之後才會有 fetched。
+    rt.mailbox_send(
+        &sid,
+        MailboxDirection::ToSession,
+        "task",
+        BTreeMap::from([("task".to_string(), json!("繼續"))]),
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(
+        session_states(&rt, &sid).iter().any(|s| s == "fetched"),
+        "an acknowledged stdin write is what earns 'fetched': {:?}",
+        session_states(&rt, &sid)
+    );
+
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
     std::env::remove_var("INTERACT_AI_CODEX_BIN");
 }

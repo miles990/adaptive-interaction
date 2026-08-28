@@ -6,8 +6,18 @@
 
 import React from "react";
 import { api } from "../api";
-import { useAppState } from "../appstate";
+import { actionStatusLabel, useAppState } from "../appstate";
 import { Icon } from "../icons";
+import { K_STATUS_LABEL, LAYER_LABEL } from "../pages/MemoryKnowledgePage";
+import { SESSION_STATE_LABEL } from "../pages/AiPage";
+
+/** 一般模式看得懂的 id：只留尾 6 碼。進階模式才給完整 UUID。
+ *  （搜尋比對用的是 label＋detail，所以縮短後仍搜得到後綴。） */
+export function shortId(id: string, advanced: boolean): string {
+  const trimmed = id.trim();
+  if (advanced || trimmed.length <= 8) return trimmed;
+  return `…${trimmed.slice(-6)}`;
+}
 
 interface SearchItem {
   kind:
@@ -61,7 +71,8 @@ export function GlobalSearch({
   /** 指令結果回報（ok=false 時 Shell 以警示列顯示）。 */
   onCommandFeedback: (message: string, ok: boolean) => void;
 }) {
-  const { human } = useAppState();
+  const { human, prefs } = useAppState();
+  const advanced = prefs.mode === "advanced";
   const [query, setQuery] = React.useState("");
   const [dynamic, setDynamic] = React.useState<SearchItem[]>([]);
   const [active, setActive] = React.useState(0);
@@ -106,7 +117,7 @@ export function GlobalSearch({
           items.push({
             kind: "session",
             label: `工作階段：${s.label ?? s.agentId}`,
-            detail: s.state,
+            detail: SESSION_STATE_LABEL[s.state]?.text ?? s.state,
             action: () => onNavigate("ai"),
           });
         }
@@ -128,7 +139,7 @@ export function GlobalSearch({
           items.push({
             kind: "memory",
             label: `記憶：${String(m.title)}`,
-            detail: String(m.layer),
+            detail: LAYER_LABEL[String(m.layer)] ?? String(m.layer),
             action: () => onNavigate("memory"),
           });
         }
@@ -139,7 +150,7 @@ export function GlobalSearch({
           items.push({
             kind: "knowledge",
             label: `知識：${String(n.title)}`,
-            detail: String(n.status),
+            detail: K_STATUS_LABEL[String(n.status)]?.text ?? String(n.status),
             action: () => onNavigate("memory"),
           });
         }
@@ -160,7 +171,7 @@ export function GlobalSearch({
           items.push({
             kind: "receipt",
             label: `結果收據：${receipt.intent}`,
-            detail: receipt.currentStatus,
+            detail: actionStatusLabel(receipt.currentStatus),
             action: () => onNavigate("activity"),
           });
         }
@@ -171,7 +182,7 @@ export function GlobalSearch({
           items.push({
             kind: "receipt",
             label: `知識收據：${String(receipt.triggeredBy)}`,
-            detail: String(receipt.updateId),
+            detail: shortId(String(receipt.updateId), advanced),
             action: () => onNavigate("memory"),
           });
         }
@@ -181,7 +192,7 @@ export function GlobalSearch({
     return () => {
       alive = false;
     };
-  }, [open, onNavigate]);
+  }, [open, onNavigate, advanced]);
 
   const items = React.useMemo<SearchItem[]>(() => {
     // 緊急停止：第一下只進入確認態（面板保持開啟），第二下才執行。

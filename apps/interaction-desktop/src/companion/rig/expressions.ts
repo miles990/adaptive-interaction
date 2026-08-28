@@ -86,6 +86,13 @@ add(
       kf(0.5, { bodyBob: -1.6, tailSway: 0.3, corePulse: 0.5 }),
       kf(1, { bodyBob: 0, tailSway: -0.3, corePulse: 1 })
     ),
+    // 離開待機：吐一口氣、尾巴歸位（下一個動作從中性姿勢起手）。
+    exit: phase(
+      160,
+      kf(0, {}),
+      kf(0.5, { bodyBob: -0.6, tailSway: 0.1 }),
+      kf(1, { bodyBob: 0, tailSway: 0, corePulse: 0 })
+    ),
   })
 );
 
@@ -449,6 +456,13 @@ add(
     ),
     hold: { headTilt: 4, mouth: "cat", earPerk: 0.9, tailAngle: 45, blush: 0.3 },
     loop: TAIL_SWAY,
+    // 離開：歪頭回正時輕微過衝（follow-through），腮紅退掉。
+    exit: phase(
+      220,
+      kf(0, {}),
+      kf(0.55, { headTilt: -2, blush: 0.15, earPerk: 0.75 }),
+      kf(1, { headTilt: 0, blush: 0, mouth: "soft" })
+    ),
   })
 );
 
@@ -480,6 +494,14 @@ add(
       kf(0.5, { tailSway: 0.7 }),
       kf(1, { tailSway: -0.7 })
     ),
+    // 離開：嘟嘴鬆開＋最後甩一下尾巴（抗議收工，不是原諒）。
+    exit: phase(
+      260,
+      kf(0, {}),
+      kf(0.4, { tailSway: -0.9, browL: -0.35, browR: -0.35, sweat: 0.15 }),
+      kf(0.75, { tailSway: 0.4, mouth: "flat", blush: 0.25 }),
+      kf(1, { tailSway: 0, browL: 0, browR: 0, mouth: "soft", blush: 0, sweat: 0, earLTilt: 0, earRTilt: 0 })
+    ),
   })
 );
 
@@ -509,6 +531,13 @@ add(
       kf(0, { legPhase: 0.6 }),
       kf(0.5, { legPhase: -0.6 }),
       kf(1, { legPhase: 0.6 })
+    ),
+    // 離開懸空：停止踢腿、拉長的身體回彈、頭髮與頭飾晚一步歸位。
+    exit: phase(
+      240,
+      kf(0, {}),
+      kf(0.45, { legPhase: -0.2, squash: 0.06, hairSway: 0.4, headpieceTilt: 3 }),
+      kf(1, { legPhase: 0, squash: 0, hairSway: 0, headpieceTilt: 0, mouth: "soft", pupilY: 0 })
     ),
   })
 );
@@ -901,6 +930,13 @@ add(
       kf(0, { overlayPhase: 0, corePulse: 0 }),
       kf(1, { overlayPhase: 1, corePulse: 1 })
     ),
+    // 離開等待：「…」收掉、頭飾光回到連線基準、歪頭回正。
+    exit: phase(
+      200,
+      kf(0, {}),
+      kf(0.5, { overlayPhase: 1, headpieceGlow: 0.6, headTilt: 2 }),
+      kf(1, { overlay: "none", headpieceGlow: 0.35, headTilt: 0, eyeLid: 0, corePulse: 0 })
+    ),
   })
 );
 
@@ -926,6 +962,10 @@ add(
 
 add(
   E("ask", "需要確認", {
+    // 真相狀態：「需要你確認」代表 runtime 真的在等 consent／輸入
+    // （waiting-consent / waiting-input）。AI 不得經 presentation 點播它來
+    // 假裝需要授權——想表達疑惑請用非真相的 `question`。
+    truthState: true,
     enter: phase(
       600,
       kf(0, {}),
@@ -1011,6 +1051,13 @@ add(
       kf(0.5, { particlePhase: 0.5, tailSway: 0.5 }),
       kf(1, { particlePhase: 1, tailSway: -0.5 })
     ),
+    // 離開：綠勾與慶祝粒子收掉、尾巴放下（回到中性，不留下慶祝殘影）。
+    exit: phase(
+      260,
+      kf(0, {}),
+      kf(0.45, { tailAngle: 50, particlePhase: 1 }),
+      kf(1, { overlay: "none", particles: "none", tailAngle: 30, fang: 0, blush: 0.1, mouth: "soft" })
+    ),
   })
 );
 
@@ -1074,6 +1121,13 @@ add(
       coreGlow: 0.45,
       armPose: "pocket",
     },
+    // 離開：叉號收掉、把頭抬回來、耳朵重新立起（準備提出下一步）。
+    exit: phase(
+      240,
+      kf(0, {}),
+      kf(0.5, { headNod: 0.1, earPerk: 0.7, overlay: "cross" }),
+      kf(1, { headNod: 0, eyeLid: 0, overlay: "none", earPerk: 0.6, tailAngle: 24 })
+    ),
   })
 );
 
@@ -1141,6 +1195,144 @@ add(
       armPose: "front",
     },
     loop: phase(4600, kf(0, { bodyBob: 0 }), kf(0.5, { bodyBob: -1 }), kf(1, { bodyBob: 0 })),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// v0.5 補充表情（不屬於 OFFICIAL_36，但由真實事件/落地判定驅動）。
+// 全部非 truthState：沒有綠勾、沒有慶祝粒子，也不冒充「完成」。
+// ---------------------------------------------------------------------------
+
+add(
+  E("land-light", "輕巧落地", {
+    // 低速、低落差的放下：小幅吸收後直接站好（沒有踉蹌、不裝沒事）。
+    enter: phase(
+      420,
+      kf(0, { squash: -0.12, bodyBob: -3 }),
+      kf(0.25, { pose: "crouch", squash: 0.18, bodyBob: 0 }),
+      kf(0.6, { pose: "stand", squash: -0.05, mouth: "cat" }),
+      kf(1, { squash: 0, bodyBob: 0, mouth: "cat", earPerk: 0.8 })
+    ),
+    hold: { mouth: "cat", earPerk: 0.8, tailAngle: 40 },
+    loop: TAIL_SWAY,
+    exit: phase(
+      160,
+      kf(0, {}),
+      kf(0.5, { tailSway: 0.25, earPerk: 0.62 }),
+      kf(1, { tailSway: 0, mouth: "soft", earPerk: 0.55 })
+    ),
+  })
+);
+
+add(
+  E("device-hello", "裝置上線", {
+    // 右耳（行動側）亮起＋看過去。不代表裝置「可用」，只代表剛連上。
+    enter: phase(
+      600,
+      kf(0, {}),
+      kf(0.3, { earPerk: 1, earRTilt: 8, earR: 0.9 }), // 先耳
+      kf(0.6, { pupilX: 2, pupilScale: 1.15 }), // 再眼
+      kf(1, { headTurn: 0.35, earR: 0.85, pupilX: 1.4 }) // 最後頭
+    ),
+    hold: { earR: 0.85, earPerk: 0.95, headTurn: 0.35, pupilX: 1.4, mouth: "cat", tailAngle: 48 },
+    loop: phase(
+      2200,
+      kf(0, { earR: 0.7, tailSway: -0.35 }),
+      kf(0.5, { earR: 1, tailSway: 0.35 }),
+      kf(1, { earR: 0.7, tailSway: -0.35 })
+    ),
+    exit: phase(
+      200,
+      kf(0, {}),
+      kf(0.5, { earR: 0.5, headTurn: 0.15 }),
+      kf(1, { earR: 0, headTurn: 0, pupilX: 0, mouth: "soft", earPerk: 0.55 })
+    ),
+  })
+);
+
+add(
+  E("device-lost", "裝置離線", {
+    // 耳朵下垂：連線沒了就是沒了，不演成「還在」。
+    enter: phase(
+      520,
+      kf(0, {}),
+      kf(0.35, { earPerk: 0.15, earLTilt: -14, earRTilt: 14, earR: 0 }),
+      kf(1, { earPerk: 0.12, mouth: "flat", headNod: 0.25, tailAngle: 10 })
+    ),
+    hold: {
+      earPerk: 0.12,
+      earLTilt: -14,
+      earRTilt: 14,
+      earR: 0,
+      mouth: "flat",
+      headNod: 0.25,
+      tailAngle: 10,
+      skirtGlow: 0.4,
+      skirtTone: "amber",
+    },
+    loop: phase(3000, kf(0, { tailSway: -0.15 }), kf(0.5, { tailSway: 0.1 }), kf(1, { tailSway: -0.15 })),
+    exit: phase(
+      200,
+      kf(0, {}),
+      kf(0.5, { earPerk: 0.35, headNod: 0.1 }),
+      kf(1, { earPerk: 0.5, headNod: 0, earLTilt: 0, earRTilt: 0, skirtGlow: 0, mouth: "soft" })
+    ),
+  })
+);
+
+add(
+  E("operate-tool", "操作工具", {
+    // 尾尖紫光＝正在動別的東西（不是「已完成」）。
+    enter: phase(
+      500,
+      kf(0, {}),
+      kf(0.4, { armPose: "reach", armPhase: 0.7, tailTip: 0.5, earR: 0.6 }),
+      kf(1, { armPose: "reach", armPhase: 0.6, tailTip: 0.9 })
+    ),
+    hold: {
+      armPose: "reach",
+      armPhase: 0.6,
+      tailTip: 0.9,
+      tailAngle: 38,
+      earR: 0.7,
+      earPerk: 0.8,
+      eyeLid: 0.15,
+      mouth: "flat",
+      coreGlow: 0.7,
+    },
+    loop: phase(
+      1400,
+      kf(0, { tailTip: 0.55, corePulse: 0 }),
+      kf(0.5, { tailTip: 1, corePulse: 0.6 }),
+      kf(1, { tailTip: 0.55, corePulse: 1 })
+    ),
+    exit: phase(
+      200,
+      kf(0, {}),
+      kf(0.5, { tailTip: 0.4, armPhase: 0.3 }),
+      kf(1, { tailTip: 0, armPose: "front", armPhase: 0, earR: 0 })
+    ),
+  })
+);
+
+add(
+  E("ack-nod", "收到（短點頭）", {
+    // acknowledged ≠ completed：只點一下頭表示收到，沒有勾、沒有粒子。
+    enter: phase(
+      420,
+      kf(0, {}),
+      kf(0.35, { headNod: 0.45, earPerk: 0.85 }),
+      kf(0.7, { headNod: -0.08 }), // overshoot
+      kf(1, { headNod: 0.05, mouth: "soft" })
+    ),
+    hold: { headNod: 0.05, earPerk: 0.7, mouth: "soft", tailAngle: 34 },
+    loop: TAIL_SWAY,
+    exit: phase(
+      160,
+      kf(0, {}),
+      kf(0.5, { headNod: -0.04 }),
+      kf(1, { headNod: 0, earPerk: 0.5 })
+    ),
   })
 );
 

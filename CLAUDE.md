@@ -3,7 +3,9 @@
 跨 AI「能力感知型自適應互動平台」：Rust runtime＋`interact-ai` CLI＋HTTP API
 （127.0.0.1:8787，Bearer token）＋SSE＋Canonical Tool Manifest（OpenAI／Anthropic／
 Gemini／OpenAPI／JSON-Schema 產生器）＋跨 AI Skill（`skills/orchestrate-adaptive-interaction`）
-＋Tauri 2 控制中心（狀態列常駐＋桌面角色「小樞」）。目前版本 v0.3.0。
+＋Tauri 2 控制中心（狀態列常駐＋桌面角色「小樞」）＋v0.5 的真硬體 adapter
+（Serial／MQTT／BLE＋ESP32 參考韌體）與 iPhone Mobile Provider。已發布版本 v0.4.1；
+`main` 上為 v0.5 開發中（未發布）。
 架構細節見 `docs/ARCHITECTURE.md`，功能總覽見 `docs/FEATURES.md`。
 
 ## 不可違反的不變量
@@ -28,9 +30,14 @@ Gemini／OpenAPI／JSON-Schema 產生器）＋跨 AI Skill（`skills/orchestrate
 - `crates/interaction-core` 領域模型（observation／action／provider／agent／human meta）
 - `crates/interaction-{runtime,registry,policy,recipe,events,storage}` 執行核心
 - `crates/interaction-{api,cli,tool-schema,adapter-sdk}` 對外介面
-- `crates/interaction-adapter-declarative` YAML→HTTP/SSE 宣告式裝置 adapter（SSRF 防護、secret://）
+- `crates/interaction-adapter-declarative` YAML→HTTP/SSE／Serial／MQTT／BLE 宣告式裝置 adapter
+  （SSRF 防護、secret://、`protocol.rs` 裝置線協定 v1：hello 身分＋配對＋cmd/ack＋dedupe）
+- `crates/interaction-runtime/src/mobile.rs` iPhone Mobile Provider（TLS wss、配對、每機 token）
 - `adapters/{builtin,media}` 內建受器動器＋麥克風感測（feature-gated cpal）
-- `apps/interaction-desktop` Tauri 2 控制中心＋小樞（`scripts/shu/` 產 sprite sheet）
+- `apps/interaction-desktop` Tauri 2 控制中心＋小樞（`src/companion/rig/` 執行期分層 rig；
+  `scripts/shu/` 有 v2 sprite 產生器、`preview-rig.mjs` 設計稿、`perf-rig.mjs` 效能量測）
+- `apps/interaction-ios` SwiftUI iPhone companion app（模擬器驗收；真機未驗）
+- `firmware/esp32-companion` ESP32 參考韌體＋BOM／接線／`compile.sh`（arduino-cli 編譯檢查）
 - `schemas/` golden schemas（由 release.sh 重生）；`skills/` 跨 AI Skill
 
 ## 常用命令
@@ -43,6 +50,9 @@ pnpm test:e2e                              # Playwright（自起真 daemon＋Chr
 ./scripts/v03-cli-e2e.sh                   # CLI 驗收（真 daemon＋mock device）
 interact-ai serve                          # daemon；token 在 ~/.adaptive-interaction/state/api-token
 ./scripts/release.sh vX.Y.Z                # 發布：重生 golden schemas、打 tag、觸發 Release CI
+./firmware/esp32-companion/compile.sh [--ble] # ESP32 韌體 arduino-cli 編譯檢查（非真機驗收）
+cd apps/interaction-desktop && pnpm perf   # 角色效能量測（headless Chromium；文件引用的數字必須由它產生）
+# iOS：export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer 再 xcrun swiftc -typecheck（見 apps/interaction-ios/README.md）
 ```
 
 ## 工作規則
@@ -53,3 +63,7 @@ interact-ai serve                          # daemon；token 在 ~/.adaptive-inte
   （find→independent verify），確認的缺陷修掉或誠實記為已知限制。
 - 已知限制記錄在 `CHANGELOG.md` 與 `docs/acceptance-evidence.md`，修掉時同步更新。
 - Skill 更新後用 `interact-ai self install-skill` 重裝到各 agent home。
+- 本機 `target/` 約 30 GB，磁碟接近滿時 build 會以 ENOSPC 中斷；可安全刪除 `target/debug/incremental`
+  （純快取），不要動 `deps/`。Apple Silicon 無 Rosetta：arduino-cli 內建 ctags 跑不起來，`compile.sh` 會自動改用
+  `firmware/esp32-companion/tools/ctags-shim`（需 `brew install universal-ctags`）。
+- 模擬器／fixture／程序內 client 的結果一律標示「模擬器」；ESP32 與 iPhone 真機驗收目前為零，不得寫成已驗收。

@@ -23,6 +23,8 @@ interface Draft {
   maxPerHour: number;
   starters: string[];
   askHighRisk: boolean;
+  /** 使用者是否打開「進一步自訂」。沒打開就不寫安靜時段／頻率／核准門檻。 */
+  customize: boolean;
   companionVisible: boolean;
   expressiveness: string;
   dialogueMode: string;
@@ -36,10 +38,12 @@ const EMPTY_DRAFT: Draft = {
   initiative: "suggest",
   quietStart: "22:00",
   quietEnd: "08:00",
-  quietEnabled: true,
+  // 精靈不再靜默設定安靜時段：文案說「第一次需要時再問」，行為就必須一致。
+  quietEnabled: false,
   maxPerHour: 6,
   starters: ["starter-task-complete"],
   askHighRisk: true,
+  customize: false,
   companionVisible: true,
   expressiveness: "natural",
   dialogueMode: "necessary",
@@ -101,21 +105,34 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
       const disableA = human.actuators
         .filter((a) => !draft.responses.includes(a.id) && a.availability !== "disabled" && !a.requiresConsent)
         .map((a) => a.id);
+      // 只寫使用者真的做過的決定。沒打開「進一步自訂」＝不碰主動程度、
+      // 安靜時段、通道頻率與核准門檻（後端既有預設維持不變）。
+      // initiative 尤其重要：精靈根本沒有調整它的欄位，無條件送出草稿預設值
+      // 等於用一個使用者沒看過的值覆蓋 runtime 既有設定。
+      const policyPatch: Record<string, unknown> = {};
+      if (draft.customize) {
+        if (draft.initiative !== EMPTY_DRAFT.initiative) {
+          policyPatch.initiative = draft.initiative;
+        }
+        if (draft.quietEnabled) {
+          policyPatch.quietHours = [
+            { start: draft.quietStart, end: draft.quietEnd, silencedChannels: [] },
+          ];
+        }
+        policyPatch.channelLimits = { "*": { maxPerHour: draft.maxPerHour } };
+        policyPatch.requireApprovalAt = draft.askHighRisk ? "high" : "critical";
+      }
+      const routes = agentRoutesFor(draft.agentChoice);
       await api.onboardingCommit({
         enableReceptors: enableR,
         disableReceptors: disableR,
         enableActuators: enableA,
         disableActuators: disableA,
         starterRecipes: draft.starters,
-        policyPatch: {
-          initiative: draft.initiative,
-          quietHours: draft.quietEnabled
-            ? [{ start: draft.quietStart, end: draft.quietEnd, silencedChannels: [] }]
-            : [],
-          channelLimits: { "*": { maxPerHour: draft.maxPerHour } },
-          requireApprovalAt: draft.askHighRisk ? "high" : "critical",
-        },
-        preferences: { locale: "zh-TW" },
+        policyPatch,
+        // 步驟二的選擇寫進既有的 agent 路由偏好（只是路由建議：不授權
+        // 任何工作目錄、不建立 Session、不會自動改送另一家）。
+        preferences: { locale: "zh-TW", ...(routes ? { agentRoutes: routes } : {}) },
       });
     } catch (e) {
       setError(String(e));
@@ -210,9 +227,11 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
                 </label>
               ))}
             </fieldset>
-            <p className="muted small">
-              音效預設關閉；外觀、大小、透明度與更多表現設定都在「小樞」頁。
-            </p>
+            <ul className="plain-list muted small">
+              <li>玩耍與游標互動：預設開啟（本機即時反應，不呼叫 AI）。</li>
+              <li>音效預設關閉，之後可在「小樞」頁開啟。</li>
+              <li>外觀、大小、透明度與更多表現設定也都在「小樞」頁。</li>
+            </ul>
           </section>
         )}
 
@@ -233,16 +252,9 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
                 <li>能力存在不等於 AI 自動獲得權限——每一項都由你決定，隨時可撤回。</li>
               </ul>
             </div>
-            <label className="radio-row">
-              <input
-                type="checkbox"
-                checked={draft.askHighRisk}
-                onChange={(e) => update({ askHighRisk: e.target.checked })}
-              />
-              高風險操作每次都先詢問我（建議保持開啟）
-            </label>
             <p className="muted small">
-              無論如何，「危險／不可回復」級的操作永遠需要明確確認 — 這條底線無法被關閉。
+              高風險操作預設每次都先詢問你；「危險／不可回復」級的操作永遠需要明確確認 —
+              這條底線無法被關閉。
             </p>
             <fieldset>
               <legend>小樞主動說話</legend>
@@ -283,6 +295,70 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
                 <dd>{dataFlowSummary(human, draft)}</dd>
               </div>
             </dl>
+            <details className="tech-details">
+              <summary>進一步自訂（選填）</summary>
+              <p className="muted small">
+                不打開這一段，精靈就<strong>不會</strong>動安靜時段、通知頻率與核准門檻。
+              </p>
+              <label className="radio-row">
+                <input
+                  type="checkbox"
+                  checked={draft.customize}
+                  onChange={(e) => update({ customize: e.target.checked })}
+                />
+                我要在這裡直接設定（否則第一次需要時再問我）
+              </label>
+              {draft.customize && (
+                <>
+                  <label className="radio-row">
+                    <input
+                      type="checkbox"
+                      checked={draft.quietEnabled}
+                      onChange={(e) => update({ quietEnabled: e.target.checked })}
+                    />
+                    設定安靜時段
+                  </label>
+                  {draft.quietEnabled && (
+                    <div className="row wrap">
+                      <label className="field-label">
+                        從
+                        <input
+                          type="time"
+                          value={draft.quietStart}
+                          onChange={(e) => update({ quietStart: e.target.value })}
+                        />
+                      </label>
+                      <label className="field-label">
+                        到
+                        <input
+                          type="time"
+                          value={draft.quietEnd}
+                          onChange={(e) => update({ quietEnd: e.target.value })}
+                        />
+                      </label>
+                    </div>
+                  )}
+                  <label className="field-label">
+                    每小時最多主動打擾次數
+                    <input
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={draft.maxPerHour}
+                      onChange={(e) => update({ maxPerHour: Number(e.target.value) })}
+                    />
+                  </label>
+                  <label className="radio-row">
+                    <input
+                      type="checkbox"
+                      checked={draft.askHighRisk}
+                      onChange={(e) => update({ askHighRisk: e.target.checked })}
+                    />
+                    高風險操作每次都先詢問我（建議保持開啟）
+                  </label>
+                </>
+              )}
+            </details>
             <p className="muted small">
               以上是自動挑選的低風險本機能力。想逐項自訂？完成後到「連接與權限」
               隨時調整；安靜時段、硬體掃描與 iPhone 配對會在第一次需要時再問你。
@@ -366,7 +442,7 @@ function AgentStep({
         </ul>
       )}
       <fieldset>
-        <legend>你的選擇（之後隨時可改）</legend>
+        <legend>你的選擇（之後可到「工作」頁調整）</legend>
         {[
           ["codex", "用 Codex 幫忙"],
           ["claude", "用 Claude Code 幫忙"],
@@ -384,8 +460,38 @@ function AgentStep({
           </label>
         ))}
       </fieldset>
+      <p className="muted small">
+        這個選擇只會寫進「工作」頁的 AI 路由偏好（哪類任務優先交給誰）。
+        指定的 Agent 不可用時不會自動改送另一家。
+      </p>
     </section>
   );
+}
+
+/** 步驟二選擇 → 既有 agent 路由偏好。「稍後再說」不動任何設定。 */
+export function agentRoutesFor(choice: string): Record<string, string> | null {
+  const all = (agent: string) => ({
+    conversation: agent,
+    programming: agent,
+    knowledge: agent,
+    review: agent,
+  });
+  switch (choice) {
+    case "codex":
+      return all("codex");
+    case "claude":
+      return all("claude-code");
+    case "both":
+      // 不限制到單一家：各用途沿用建議路由（程式 → Codex，其餘 → Claude Code）。
+      return {
+        conversation: "claude-code",
+        programming: "codex",
+        knowledge: "claude-code",
+        review: "claude-code",
+      };
+    default:
+      return null;
+  }
 }
 
 /** 正式角色預覽：由桌面角色使用的同一套參數化 rig 即時繪製，不是設計稿。 */

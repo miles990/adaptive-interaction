@@ -30,7 +30,7 @@ pub mod protocol;
 ))]
 pub mod ble;
 #[cfg(any(feature = "transport-serial", feature = "transport-mqtt"))]
-mod link_caps;
+pub mod link_caps;
 #[cfg(feature = "transport-mqtt")]
 pub mod mqtt;
 #[cfg(feature = "transport-serial")]
@@ -566,6 +566,78 @@ pub struct DeclarativeHttpReceptor {
     adapter_id: String,
     client: reqwest::Client,
     home: Option<std::path::PathBuf>,
+    endpoint: EndpointHealth,
+}
+
+/// HTTP/SSE 端點的誠實健康度。這種傳輸沒有常駐連線，唯一知道裝置在不在
+/// 的方法就是「最近一次請求的結果」——所以：
+/// - 還沒通訊過＝**未驗證**（degraded），不是 healthy（硬編 healthy 等於
+///   對使用者宣稱一台從未回應過的裝置是好的）；
+/// - 最近一次成功＝healthy；
+/// - 最近一次失敗＝見 `receptor_health` / `actuator_health`。
+#[derive(Default)]
+pub struct EndpointHealth {
+    /// 0＝尚未通訊；1＝最近一次成功；2＝最近一次失敗。
+    state: std::sync::atomic::AtomicU8,
+    detail: std::sync::Mutex<String>,
+}
+
+// 0＝尚未通訊（AtomicU8 的預設值，也是「未驗證」的語意）。
+const ENDPOINT_OK: u8 = 1;
+const ENDPOINT_FAILED: u8 = 2;
+
+impl EndpointHealth {
+    fn record_ok(&self) {
+        self.state
+            .store(ENDPOINT_OK, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn record_failure(&self, detail: impl Into<String>) {
+        let text = detail.into();
+        match self.detail.lock() {
+            Ok(mut guard) => *guard = text,
+            Err(poisoned) => *poisoned.into_inner() = text,
+        }
+        self.state
+            .store(ENDPOINT_FAILED, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn failure_detail(&self) -> String {
+        match self.detail.lock() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
+    /// Receptor 版：失敗＝offline。讀取本身不受健康度把關，所以下一次
+    /// 觀察就能自行恢復。
+    fn receptor_health(&self) -> ComponentHealth {
+        match self.state.load(std::sync::atomic::Ordering::SeqCst) {
+            ENDPOINT_OK => ComponentHealth::healthy(),
+            ENDPOINT_FAILED => {
+                ComponentHealth::offline(format!("最近一次讀取失敗：{}", self.failure_detail()))
+            }
+            _ => ComponentHealth::degraded(
+                "尚未與裝置通訊過（HTTP 沒有常駐連線；健康度以最近一次請求為準）".to_string(),
+            ),
+        }
+    }
+
+    /// Actuator 版：失敗＝degraded 而不是 offline。executor 會用 status()
+    /// 擋下派工，一旦標成 offline 就再也沒有請求能證明它恢復了（只有派工
+    /// 會發請求）——那不是誠實，是自鎖。失敗原因照實寫進訊息。
+    fn actuator_health(&self) -> ComponentHealth {
+        match self.state.load(std::sync::atomic::Ordering::SeqCst) {
+            ENDPOINT_OK => ComponentHealth::healthy(),
+            ENDPOINT_FAILED => ComponentHealth::degraded(format!(
+                "最近一次請求失敗：{}（HTTP 沒有常駐連線，要到下一次派工才知道是否恢復）",
+                self.failure_detail()
+            )),
+            _ => ComponentHealth::degraded(
+                "尚未與裝置通訊過（HTTP 沒有常駐連線；健康度以最近一次請求為準）".to_string(),
+            ),
+        }
+    }
 }
 
 impl DeclarativeHttpReceptor {
@@ -646,12 +718,18 @@ impl Receptor for DeclarativeHttpReceptor {
             self.home.as_deref(),
         )
         .await
-        .map_err(ReceptorError::Unavailable)?;
+        .map_err(|e| {
+            self.endpoint.record_failure(&e);
+            ReceptorError::Unavailable(e)
+        })?;
         if !(200..300).contains(&status) {
+            self.endpoint
+                .record_failure(format!("device returned HTTP {status}"));
             return Err(ReceptorError::Unavailable(format!(
                 "device returned HTTP {status}"
             )));
         }
+        self.endpoint.record_ok();
         let mut obs = Observation::now(
             ReceptorId::new(self.full_id()),
             format!("declarative.{}", self.adapter_id),
@@ -666,7 +744,7 @@ impl Receptor for DeclarativeHttpReceptor {
     }
 
     async fn health(&self) -> ComponentHealth {
-        ComponentHealth::healthy().at(Utc::now())
+        self.endpoint.receptor_health().at(Utc::now())
     }
 
     async fn stop(&self) -> Result<(), ReceptorError> {
@@ -684,6 +762,7 @@ pub struct DeclarativeHttpActuator {
     adapter_id: String,
     client: reqwest::Client,
     home: Option<std::path::PathBuf>,
+    endpoint: EndpointHealth,
 }
 
 #[async_trait]
@@ -755,6 +834,7 @@ impl Actuator for DeclarativeHttpActuator {
             .await
             {
                 Ok((status, _response)) if (200..300).contains(&status) => {
+                    self.endpoint.record_ok();
                     // Only the status is recorded — never the device's response
                     // body. A malicious/echo device could reflect the resolved
                     // secret:// credential, and receipts are persisted and
@@ -780,13 +860,15 @@ impl Actuator for DeclarativeHttpActuator {
                 }
             }
         }
+        // 每一次嘗試都失敗：健康度必須反映它（不得繼續宣稱 healthy）。
+        self.endpoint.record_failure(&last_err);
         Ok(DriverReceipt::start(&action, Utc::now())
             .failed("device-unreachable", &last_err)
             .finish())
     }
 
     async fn status(&self) -> ComponentHealth {
-        ComponentHealth::healthy().at(Utc::now())
+        self.endpoint.actuator_health().at(Utc::now())
     }
 
     async fn cancel(&self, action_id: &ActionId) -> Result<ActionReceipt, ActuatorError> {
@@ -818,6 +900,63 @@ impl Actuator for DeclarativeHttpActuator {
 pub struct BuiltCapabilities {
     pub receptors: Vec<Arc<dyn Receptor>>,
     pub actuators: Vec<Arc<dyn Actuator>>,
+    /// 這個 spec 實際開出來的裝置連線（每種 link 傳輸一條）。
+    /// provider 被 disable／revoke 時，主機用它真的把連線關掉——
+    /// 停用的 provider 不得繼續佔著序列埠／broker 連線做無盡重連。
+    pub links: Vec<Arc<dyn protocol::LinkShutdown>>,
+}
+
+/// provider id → 該 provider 的實體連線（弱參照：能力被丟棄後自動失效，
+/// 這張表不會把連線續命）。
+///
+/// 為什麼放在 adapter 引擎而不是 Runtime：連線的所有權本來就在這裡，
+/// Runtime 只需要一個「關掉這個 provider 的連線」的入口。
+type LinkTable = BTreeMap<String, Vec<std::sync::Weak<dyn protocol::LinkShutdown>>>;
+
+static PROVIDER_LINKS: std::sync::OnceLock<std::sync::Mutex<LinkTable>> =
+    std::sync::OnceLock::new();
+
+fn lock_links() -> std::sync::MutexGuard<'static, LinkTable> {
+    let table = PROVIDER_LINKS.get_or_init(|| std::sync::Mutex::new(BTreeMap::new()));
+    match table.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// 記住「這個 provider 的連線是這幾條」。同一 provider 重新註冊會覆蓋。
+pub fn register_provider_links(provider_id: &str, links: &[Arc<dyn protocol::LinkShutdown>]) {
+    let mut table = lock_links();
+    // 順手清掉已經沒人持有的條目（有界維護，不積垃圾）。
+    table.retain(|_, v| {
+        v.retain(|w| w.strong_count() > 0);
+        !v.is_empty()
+    });
+    if links.is_empty() {
+        table.remove(provider_id);
+        return;
+    }
+    table.insert(
+        provider_id.to_string(),
+        links.iter().map(Arc::downgrade).collect(),
+    );
+}
+
+/// 關掉某個 provider 的所有裝置連線（disable／revoke 用）。
+/// 回傳實際關掉的連線描述（診斷用；不含 secret）。
+pub fn shutdown_provider_links(provider_id: &str) -> Vec<String> {
+    let weaks = {
+        let mut table = lock_links();
+        table.remove(provider_id).unwrap_or_default()
+    };
+    let mut closed = Vec::new();
+    for weak in weaks {
+        if let Some(link) = weak.upgrade() {
+            link.shutdown();
+            closed.push(link.describe());
+        }
+    }
+    closed
 }
 
 pub fn build(
@@ -836,6 +975,7 @@ pub fn build(
     let mut out = BuiltCapabilities {
         receptors: vec![],
         actuators: vec![],
+        links: vec![],
     };
     // 每種 link 傳輸共享一條連線（同一 adapter 內設定必須一致——不一致代表
     // spec 想同時對到兩個裝置，應拆成兩個 adapter）。
@@ -867,6 +1007,7 @@ pub fn build(
                             adapter_id: spec.id.clone(),
                             client: client.clone(),
                             home: home.clone(),
+                            endpoint: EndpointHealth::default(),
                         }))
                     }
                     CapabilityKindSpec::Actuator => {
@@ -876,6 +1017,7 @@ pub fn build(
                             adapter_id: spec.id.clone(),
                             client: client.clone(),
                             home: home.clone(),
+                            endpoint: EndpointHealth::default(),
                         }))
                     }
                 }
@@ -913,6 +1055,8 @@ pub fn build(
                             pairing,
                         ));
                         serial_link = Some((cfg.clone(), link.clone()));
+                        out.links
+                            .push(link.clone() as Arc<dyn protocol::LinkShutdown>);
                         link
                     }
                 };
@@ -965,6 +1109,8 @@ pub fn build(
                             pairing,
                         ));
                         mqtt_link = Some((cfg.clone(), link.clone()));
+                        out.links
+                            .push(link.clone() as Arc<dyn protocol::LinkShutdown>);
                         link
                     }
                 };
@@ -1014,6 +1160,8 @@ pub fn build(
                             pairing,
                         ));
                         ble_link = Some((cfg.clone(), link.clone()));
+                        out.links
+                            .push(link.clone() as Arc<dyn protocol::LinkShutdown>);
                         link
                     }
                 };

@@ -1,0 +1,67 @@
+#!/bin/bash
+# ctags shim for Apple Silicon Macs WITHOUT Rosetta.
+#
+# arduino-cli bundles an x86_64-only `ctags` (5.8-arduino11) that fails with
+# "bad CPU type in executable" on arm64 hosts that have no Rosetta. This shim
+# runs Universal Ctags (`brew install universal-ctags`) and rewrites its output
+# into the exact tag format arduino-cli's sketch prototype generator expects:
+#   * `typeref:typename:T`  ->  `returntype:T`
+#   * `line:`/file re-mapped through the `# N "file"` line markers of the
+#     gcc -E output arduino-cli feeds to ctags (Universal Ctags ignores GCC
+#     markers, so prototypes ended up before the type declarations).
+# Only used by ../../compile.sh; never needed on Linux/Windows or when Rosetta
+# is installed.
+set -euo pipefail
+UCTAGS="${UCTAGS:-$(command -v ctags || true)}"
+for cand in /opt/homebrew/bin/ctags /usr/local/bin/ctags; do
+  if [ -x "$cand" ] && "$cand" --version 2>/dev/null | grep -q "Universal Ctags"; then UCTAGS="$cand"; break; fi
+done
+if [ -z "$UCTAGS" ] || ! "$UCTAGS" --version 2>/dev/null | grep -q "Universal Ctags"; then
+  echo "ctags-shim: Universal Ctags not found (brew install universal-ctags)" >&2
+  exit 1
+fi
+args=()
+for a in "$@"; do [ "$a" = "--line-directives" ] || args+=("$a"); done
+src="${@: -1}"
+tags="$(mktemp "${TMPDIR:-/tmp}/ctags-shim.XXXXXX")"
+trap 'rm -f "$tags"' EXIT
+"$UCTAGS" "${args[@]}" > "$tags"
+python3 - "$src" "$tags" <<'PY'
+import sys, re
+src, tags = sys.argv[1], sys.argv[2]
+lines = open(src, encoding="utf-8", errors="replace").read().split("\n")
+# (merged-file line of the directive, target line, target file)
+directives = []
+for i, l in enumerate(lines, 1):
+    # Both `#line N "file"` and GCC's `# N "file" flags` markers.
+    m = re.match(r'\s*#(?:line)?\s+(\d+)(?:\s+"([^"]*)")?', l)
+    if m:
+        directives.append((i, int(m.group(1)), m.group(2)))
+def remap(n):
+    best = None
+    for d, x, f in directives:
+        if d < n:
+            best = (d, x, f)
+        else:
+            break
+    if best is None:
+        return n, None
+    d, x, f = best
+    return x + (n - d - 1), f
+for raw in open(tags, encoding="utf-8", errors="replace"):
+    raw = raw.rstrip("\n")
+    if raw.startswith("!_"):
+        print(raw)
+        continue
+    raw = re.sub(r'typeref:typename:([^\t]*)', r'returntype:\1', raw)
+    cols = raw.split("\t")
+    m = re.search(r'line:(\d+)', raw)
+    if m and len(cols) >= 2:
+        new_line, new_file = remap(int(m.group(1)))
+        raw = raw.replace("line:%s" % m.group(1), "line:%d" % new_line, 1)
+        if new_file:
+            cols = raw.split("\t")
+            cols[1] = new_file
+            raw = "\t".join(cols)
+    print(raw)
+PY

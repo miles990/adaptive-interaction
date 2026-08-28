@@ -7,6 +7,8 @@
 //   - EmergencyStopped freezes ordinary animation and outranks everything.
 //   - Blocked shows the policy shield; the standard safety text stays in UIs.
 
+import { EventClass, scoreEvent } from "./behavior";
+
 export type BaseState = "idle" | "quiet" | "paused" | "emergency" | "offline";
 
 export type TransientKind =
@@ -60,6 +62,25 @@ const PRIORITY: Record<TransientKind, number> = {
   listening: 20,
 };
 
+/** Which utility class each transient belongs to (spec §5.4 ladder).
+ *  Only consulted when two transients have the SAME priority — the ladder
+ *  above still decides everything else. */
+const CLASS_OF: Record<TransientKind, EventClass> = {
+  blocked: "sensor-safety",
+  failed: "sensor-safety",
+  "requesting-consent": "waiting-confirmation",
+  succeeded: "task-state",
+  unknown: "task-state",
+  clicked: "direct-interaction",
+  dragged: "direct-interaction",
+  "waiting-for-receipt": "task-state",
+  acting: "task-state",
+  routing: "task-state",
+  thinking: "task-state",
+  performing: "ambient",
+  listening: "world-event",
+};
+
 /** Default display durations (ms). */
 const DURATION: Record<TransientKind, number> = {
   listening: 1500,
@@ -89,10 +110,77 @@ export type MachineEvent =
     }
   | { type: "clear-transient" };
 
+/**
+ * Equal-priority competition (spec §6.1 「多事件注意力競爭」).
+ *
+ * `keep`    — the running display outranks the new event.
+ * `refresh` — the SAME event reported again: extend the display, but do not
+ *             restart the performance (utility scoring's repeat penalty).
+ * `replace` — a genuinely new event wins the stage.
+ */
+export function transientCompetition(
+  active: Transient | null,
+  next: { kind: TransientKind; verified?: boolean; animation?: string }
+): "keep" | "refresh" | "replace" {
+  if (!active) return "replace";
+  const pa = PRIORITY[active.kind];
+  const pe = PRIORITY[next.kind];
+  if (pa > pe) return "keep";
+  if (pa < pe) return "replace";
+  const repeat =
+    active.kind === next.kind &&
+    active.verified === next.verified &&
+    active.animation === next.animation;
+  if (repeat) return "refresh";
+  const base = {
+    recentSameClass: 0,
+    alreadyResponded: false,
+    interruptible: true,
+    doNotDisturb: false,
+    relevance: 1,
+    novelty: 0,
+  };
+  const activeScore = scoreEvent(CLASS_OF[active.kind], base);
+  const nextScore = scoreEvent(CLASS_OF[next.kind], { ...base, novelty: 1 });
+  return nextScore > activeScore ? "replace" : "keep";
+}
+
+/** 緊急停止時仍可以留在台上的 transient（安全訊息本身）。 */
+const SAFETY_TRANSIENTS = new Set<TransientKind>(["blocked", "failed", "unknown"]);
+
+/**
+ * 這次 transient 更替算不算「被搶佔」？
+ *
+ * 只有還在播（`untilMs > nowMs`）的表演被別的東西換掉才算。已經自然到期的
+ * 表演被下一個事件覆蓋是正常收場——把它記成 interruption 會讓角色誤以為
+ * 一直被打斷，主動表現越收越小，也會排一個假的「恢復計畫」。
+ */
+export function wasPreempted(
+  before: Transient | null,
+  after: Transient | null,
+  nowMs: number
+): boolean {
+  if (!before || before.kind !== "performing") return false;
+  if (before.untilMs <= nowMs) return false; // 自然到期，不是被搶
+  return after !== null && after.kind !== "performing";
+}
+
+/** 拖曳期間的「持續」transient：TTL 只是安全網，放下前每 500ms 續期。 */
+export const DRAG_HOLD_MS = 1500;
+export const DRAG_RENEW_MS = 500;
+
 export function reduce(state: MachineState, event: MachineEvent, nowMs: number): MachineState {
   switch (event.type) {
-    case "base":
+    case "base": {
+      if (event.base === "emergency" && state.base !== "emergency") {
+        // 緊急停止：進行中的表演/互動/工作狀態一律下台，不得撐過 estop
+        // （安全訊息本身留著）。停住的系統不繼續演任何東西。
+        const t = state.transient;
+        const keep = t && t.untilMs > nowMs && SAFETY_TRANSIENTS.has(t.kind) ? t : null;
+        return { base: "emergency", transient: keep };
+      }
       return { ...state, base: event.base };
+    }
     case "clear-transient":
       return { ...state, transient: null };
     case "transient": {
@@ -103,8 +191,14 @@ export function reduce(state: MachineState, event: MachineEvent, nowMs: number):
       }
       const current = state.transient;
       const active = current && current.untilMs > nowMs ? current : null;
-      if (active && PRIORITY[active.kind] > PRIORITY[event.kind]) {
-        return state; // higher-priority display keeps the stage
+      const duration = event.durationMs ?? DURATION[event.kind];
+      const outcome = transientCompetition(active, event);
+      if (outcome === "keep") {
+        return state; // higher-priority (or equally-scored) display keeps the stage
+      }
+      if (outcome === "refresh" && active) {
+        // Same thing reported again: keep the running performance, extend it.
+        return { ...state, transient: { ...active, untilMs: nowMs + duration } };
       }
       return {
         ...state,
@@ -113,7 +207,7 @@ export function reduce(state: MachineState, event: MachineEvent, nowMs: number):
           verified: event.verified,
           animation: event.animation,
           frameSlice: event.frameSlice,
-          untilMs: nowMs + (event.durationMs ?? DURATION[event.kind]),
+          untilMs: nowMs + duration,
         },
       };
     }
@@ -182,10 +276,51 @@ export function pose(state: MachineState, nowMs: number): Pose {
 export interface RuntimeEventLike {
   eventType: string;
   payload: Record<string, unknown>;
+  /** RuntimeEvent.timestamp（事件實際發生的時間），用來擋掉重播。 */
+  timestamp?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Replay guard
+// ---------------------------------------------------------------------------
+//
+// SSE 有一個有界的 replay buffer。訂閱時若帶著舊的（或 0 的）Last-Event-ID，
+// daemon 會把上一輪的事件重放進來——對角色而言那是一串「剛剛發生」的
+// verified 綠勾、失敗與緊急停止，實際上都是好幾天前的事。時間戳早於這個
+// App 啟動的事件一律不驅動演出。
+//
+// 安全狀態不靠這條路：emergency／paused 由 `/v1/status` 輪詢決定，所以丟掉
+// 重播的 `emergency.stop` 不會讓畫面漏掉真正的停止狀態。
+
+/** App 啟動時間 = 這個模組被載入的時間。 */
+let appStartedAtMs = Date.now();
+
+/** 測試用：重設「App 啟動時間」基準。 */
+export function setAppStartedAt(ms: number): void {
+  appStartedAtMs = ms;
+}
+
+/** 這則事件是不是「早於本次啟動」的重播？沒有時間戳就不猜（回 false）。 */
+export function isReplayedBeforeStart(
+  e: RuntimeEventLike,
+  startedAtMs: number = appStartedAtMs
+): boolean {
+  if (typeof e.timestamp !== "string" || !e.timestamp) return false;
+  const at = Date.parse(e.timestamp);
+  return Number.isFinite(at) && at < startedAtMs;
+}
+
+/** 這個動作是不是「非 desktop-pet」的動器？（presentation 動器 id 以
+ *  `companion.` 開頭；沒有 actuatorId 時保守地當成一般動作。） */
+function isDeviceAction(e: RuntimeEventLike): boolean {
+  const actuator = e.payload["actuatorId"];
+  return typeof actuator === "string" && actuator !== "" && !actuator.startsWith("companion.");
 }
 
 /** Map one runtime event to a machine event (or null = no visual change). */
 export function mapRuntimeEvent(e: RuntimeEventLike): MachineEvent | null {
+  // 重播的舊事件不演：它們描述的是上一輪已經結束的結果。
+  if (isReplayedBeforeStart(e)) return null;
   switch (e.eventType) {
     case "emergency.stop":
       return e.payload["cleared"] === true
@@ -202,10 +337,18 @@ export function mapRuntimeEvent(e: RuntimeEventLike): MachineEvent | null {
     case "plan.blocked":
       return { type: "transient", kind: "blocked" };
     case "action.accepted":
-    case "action.dispatched":
       return { type: "transient", kind: "acting" };
+    case "action.dispatched":
+      // 非 desktop-pet 的動作（硬體、外部工具）：尾尖紫光在動別的東西。
+      // 低優先 transient——安全狀態隨時搶佔。
+      return isDeviceAction(e)
+        ? { type: "transient", kind: "performing", animation: "operate-tool", durationMs: 4000 }
+        : { type: "transient", kind: "acting" };
     case "action.acknowledged":
-      return { type: "transient", kind: "waiting-for-receipt" };
+      // acknowledged ≠ completed：裝置說「收到」就只點個頭，不演成功。
+      return isDeviceAction(e)
+        ? { type: "transient", kind: "performing", animation: "ack-nod", durationMs: 900 }
+        : { type: "transient", kind: "waiting-for-receipt" };
     case "action.completed":
       // Completed ≠ verified: nod only (frameSlice), never the green check.
       return { type: "transient", kind: "succeeded", verified: false };
@@ -250,6 +393,18 @@ export function mapRuntimeEvent(e: RuntimeEventLike): MachineEvent | null {
         default:
           return null;
       }
+    }
+    case "provider.state-changed": {
+      // 硬體/提供者上下線（spec §9）：右耳（行動側）亮起＝剛連上；
+      // 耳朵下垂＝連線沒了。兩者都只是「發生了」，不代表可用或成功。
+      const state = String(e.payload["state"] ?? "").toLowerCase();
+      if (state === "available" || state === "paired") {
+        return { type: "transient", kind: "performing", animation: "device-hello", durationMs: 1800 };
+      }
+      if (state === "disconnected" || state === "revoked") {
+        return { type: "transient", kind: "performing", animation: "device-lost", durationMs: 2200 };
+      }
+      return null;
     }
     case "consent.changed":
       return null;

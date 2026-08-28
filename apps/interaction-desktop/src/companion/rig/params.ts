@@ -46,6 +46,15 @@ export type RigParticles = "none" | "dust" | "sparkle" | "zzz" | "heart";
 
 export interface RigParams {
   pose: RigPose;
+  /**
+   * 0..1 目前 pose 的權重（1＝完全就位）。
+   *
+   * 姿勢是字串通道，插值時會在中點硬切；lie↔stand/sit 的頭部與身體高度
+   * 差很大（~46px），硬切會單幀瞬移。lerpParams 在 lie 相關的切換期間把
+   * 這個通道從 0.5 附近連續帶過，draw.ts 的 layout 依它在「另一個姿勢」
+   * 與「目前姿勢」之間線性插值頭中心與身體高度。
+   */
+  poseBlend: number;
   /** px 垂直起伏（負=上）。呼吸/跳躍前壓。 */
   bodyBob: number;
   /** deg 全身傾斜。 */
@@ -143,6 +152,7 @@ export interface RigParams {
 
 export const DEFAULT_PARAMS: RigParams = {
   pose: "stand",
+  poseBlend: 1,
   bodyBob: 0,
   bodyLean: 0,
   squash: 0,
@@ -191,6 +201,7 @@ export const DEFAULT_PARAMS: RigParams = {
 
 /** 每個數值參數的硬界線（clamp 專用；字串參數走白名單）。 */
 const NUM_BOUNDS: Record<string, [number, number]> = {
+  poseBlend: [0, 1],
   bodyBob: [-14, 10],
   bodyLean: [-18, 18],
   squash: [-0.5, 0.5],
@@ -260,17 +271,22 @@ const OVERLAYS: RigOverlay[] = [
 const SKIRT_TONES: RigSkirtTone[] = ["none", "amber", "violet", "red"];
 const PARTICLES: RigParticles[] = ["none", "dust", "sparkle", "zzz", "heart"];
 
-/** 任意輸入 → 有界合法參數。未知字串值回退預設；數值 NaN 回退預設。 */
+/**
+ * 任意輸入 → 有界合法參數。未知字串值回退預設；非數值/NaN 回退預設。
+ *
+ * 數值通道**只接受 `typeof === "number"` 且有限**的值：`Number()` 強制轉型
+ * 會把 `null`/`""`/`[]` 變 0、`true` 變 1、`"3"` 變 3——那是把壞資料悄悄
+ * 當成合法參數，不是誠實的回退。
+ */
 export function clampParams(p: Partial<RigParams>): RigParams {
   const out: RigParams = { ...DEFAULT_PARAMS };
   for (const [key, value] of Object.entries(p)) {
     if (!(key in DEFAULT_PARAMS)) continue;
     const k = key as keyof RigParams;
     if (typeof DEFAULT_PARAMS[k] === "number") {
-      const n = Number(value);
-      if (!Number.isFinite(n)) continue;
+      if (typeof value !== "number" || !Number.isFinite(value)) continue;
       const [lo, hi] = NUM_BOUNDS[k] ?? [-1e6, 1e6];
-      (out as unknown as Record<string, unknown>)[k] = Math.max(lo, Math.min(hi, n));
+      (out as unknown as Record<string, unknown>)[k] = Math.max(lo, Math.min(hi, value));
     } else {
       const allowed: readonly string[] =
         k === "pose"
@@ -294,9 +310,19 @@ export function clampParams(p: Partial<RigParams>): RigParams {
   return out;
 }
 
-/** 參數插值：數值 lerp、字串在 t>=0.5 切換。輸出必然合法。 */
+/** 允許的外推範圍：ease 的回彈（easeOutBackLite 過衝 ~5%）要真的畫得出來。 */
+export const LERP_T_MIN = -0.2;
+export const LERP_T_MAX = 1.2;
+
+/**
+ * 參數插值：數值 lerp、字串在 t>=0.5 切換。輸出必然合法（clampParams 收尾）。
+ *
+ * `t` 允許落在 [-0.2, 1.2]：時間軸用 easeOutBackLite 做回彈，若在這裡把 t
+ * 夾回 [0,1]，過衝就被吃掉、過場完全沒有回彈。外推後仍由 clampParams 保證
+ * 每個通道在硬界線內。
+ */
 export function lerpParams(a: RigParams, b: RigParams, t: number): RigParams {
-  const tt = Math.max(0, Math.min(1, t));
+  const tt = Math.max(LERP_T_MIN, Math.min(LERP_T_MAX, Number.isFinite(t) ? t : 0));
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(DEFAULT_PARAMS) as (keyof RigParams)[]) {
     const av = a[key];
@@ -307,7 +333,37 @@ export function lerpParams(a: RigParams, b: RigParams, t: number): RigParams {
       out[key] = tt >= 0.5 ? bv : av;
     }
   }
+  // 姿勢硬切的補償：lie ↔ stand/sit 的 layout 差 ~46px，中點硬切會讓頭部
+  // 單幀瞬移。這裡把「目前姿勢的權重」連續帶過切換點（t=0→1、t=0.5 兩側
+  // 都是 0.5），draw.ts 的 layout 依它插值頭中心與身體高度。
+  if (a.pose !== b.pose && (a.pose === "lie" || b.pose === "lie")) {
+    const k = Math.max(0, Math.min(1, tt));
+    out.poseBlend = k < 0.5 ? 1 - k : k;
+  }
   return clampParams(out as Partial<RigParams>);
+}
+
+/**
+ * 姿勢過場：把 `pose` 的切換點與 `poseBlend` 綁在**同一個進度**上。
+ *
+ * 只處理有 `lie` 參與的切換（stand↔sit 只差 10px，硬切看不出來）。呼叫端
+ * 給的 `k` 必須是線性進度：跟著回彈 ease 走的話，第一幀就會前進三成多，
+ * 頭部照樣跳 ~16px。
+ */
+export function blendPose(
+  from: RigParams,
+  to: RigParams,
+  params: RigParams,
+  k: number
+): RigParams {
+  if (from.pose === to.pose) return params;
+  if (from.pose !== "lie" && to.pose !== "lie") return params;
+  const kk = Math.max(0, Math.min(1, Number.isFinite(k) ? k : 1));
+  return clampParams({
+    ...params,
+    pose: kk >= 0.5 ? to.pose : from.pose,
+    poseBlend: kk < 0.5 ? 1 - kk : kk,
+  });
 }
 
 // ---------------------------------------------------------------------------

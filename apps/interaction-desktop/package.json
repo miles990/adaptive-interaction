@@ -11,7 +11,8 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "perf": "node scripts/shu/perf-rig.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

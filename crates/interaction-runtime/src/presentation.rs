@@ -707,14 +707,19 @@ impl Actuator for PresentationActuator {
     async fn emergency_stop(&self) -> Result<(), ActuatorError> {
         // 冪等：任何一個 presentation actuator 被掃到都會清空共用佇列。
         let cleared = self.bridge.clear_pending();
-        if !cleared.is_empty() {
-            if let Some(rt) = self.runtime.upgrade() {
-                rt.events.publish(RuntimeEvent::new(
-                    EventType::PresentationCommand,
-                    Utc::now(),
-                    json!({ "command": "clear-all", "reason": "emergency-stop" }),
-                ));
-            }
+        // clear-all **無條件**送出：待送佇列是空的，不代表角色視窗是空的——
+        // 已經送出去的泡泡／動作正掛在畫面上活著。只在 `cleared` 非空時通知，
+        // 等於讓那些 transient 撐過緊急停止，畫面繼續演一個已經被停掉的系統。
+        if let Some(rt) = self.runtime.upgrade() {
+            rt.events.publish(RuntimeEvent::new(
+                EventType::PresentationCommand,
+                Utc::now(),
+                json!({
+                    "command": "clear-all",
+                    "reason": "emergency-stop",
+                    "clearedPending": cleared.len(),
+                }),
+            ));
         }
         Ok(())
     }

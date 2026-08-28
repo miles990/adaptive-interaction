@@ -20,6 +20,20 @@ use interaction_core::{
 };
 use rand::RngCore;
 use serde_json::{json, Value};
+
+/// 誰在讀 agent session 的信箱。
+///
+/// 誠實階梯（dispatched ≠ acknowledged）在這裡有牙齒：只有 `Agent` 這一側
+/// 的讀取算「送達」（蓋 deliveredAt、把委派 receipt 推到 acknowledged）。
+/// 人類用 human token 的 GET、桌面 UI 的檢視一律是 `Human`——純觀看，
+/// 不改任何狀態，也不發 `fetched` 事件。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MailboxReader {
+    /// Agent 本人（agent／session token，或 agent host 程序）。
+    Agent,
+    /// 人類觀察者：唯讀。
+    Human,
+}
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -472,9 +486,32 @@ impl Runtime {
                 EventType::SessionStopped,
                 json!({"agentSessionId": entry.record.session_id.as_str(), "reason": "expired"}),
             );
+            // 角色 taxonomy：租約到期是「時間到了，工作沒收尾」——必須跟
+            // session.stopped 一起發出，否則小樞會停在最後一個假象狀態
+            // （例如永遠的「工作中」），感測／狀態就靜默了。
+            self.emit_agent_session_state(
+                entry.record.session_id.as_str(),
+                &entry.record.agent_id,
+                "timed-out",
+            );
             self.revoke_agent_session_capabilities(entry.record.session_id.as_str())
                 .await;
         }
+    }
+
+    /// 立刻讓租約到期（人類／營運端的縮短動作）。只會縮短、永不延長，
+    /// 走的是與惰性到期完全相同的路徑，所以 timed-out taxonomy 事件、
+    /// provider 收攤與 capability 撤銷都與真實到期一模一樣。
+    pub async fn expire_agent_session_lease(&self, id: &str) -> DomainResult<AgentSessionRecord> {
+        let mut map = self.agent_sessions.write().await;
+        let entry = map
+            .get_mut(id)
+            .ok_or_else(|| DomainError::NotFound(format!("agent session {id}")))?;
+        if entry.record.state.is_open() {
+            entry.record.lease.expires_at = Utc::now();
+        }
+        self.expire_if_needed(entry).await;
+        Ok(entry.record.clone())
     }
 
     pub async fn list_agent_sessions(&self) -> Vec<AgentSessionRecord> {
@@ -624,6 +661,21 @@ impl Runtime {
         Ok(message)
     }
 
+    /// 誰在讀這個信箱。送達（delivered）語意**只屬於 agent**：
+    /// 人類「看過信箱」不是「agent 收到任務」，把 GET 當成送達會讓
+    /// dispatched 直接跳成 acknowledged，等於用觀看偽造送達證據。
+    pub async fn mailbox_read(
+        &self,
+        id: &str,
+        direction: MailboxDirection,
+        reader: MailboxReader,
+    ) -> DomainResult<Vec<MailboxMessage>> {
+        match reader {
+            MailboxReader::Human => self.mailbox_peek(id, direction).await,
+            MailboxReader::Agent => self.mailbox_fetch(id, direction).await,
+        }
+    }
+
     /// 讀取信箱但**不**標記送達（UI 檢視／測試用；送達語意只屬於 fetch）。
     pub async fn mailbox_peek(
         &self,
@@ -713,10 +765,11 @@ impl Runtime {
     /// carries the payload under `inferences`, and any linked action id is
     /// stored as `claimActionId` (NOT `actionId`) so verification can never
     /// mistake an agent claim for observed evidence.
-    /// v0.5 角色 taxonomy 事件：queued/fetched/working/waiting-input/
-    /// waiting-consent/claimed-completed/verified/failed/timed-out/
+    /// v0.5 角色 taxonomy 事件：created/fetched/working/waiting-input/
+    /// waiting-consent/claimed-completed/verified/failed/unknown/timed-out/
     /// cancelled/closed。小樞依這些「真實事件」演出；`verified` 只會由
-    /// verify_agent_session（human-only）發出。
+    /// verify_agent_session（human-only）發出，`unknown` 表示結果未知
+    /// （既不演成功也不演失敗）。
     pub(crate) fn emit_agent_session_state(&self, id: &str, agent_id: &str, state: &str) {
         self.events.emit(
             EventType::AgentSessionState,
@@ -768,6 +821,22 @@ impl Runtime {
             &json!({"agentSessionId": id}),
         )?;
         self.emit_agent_session_state(id, &record.agent_id, "verified");
+        // 手機的綠勾只能從這裡出發：human verify（不經 plan／policy／AI 路徑，
+        // `map_wire_params` 對 `verified-success` 一律拒絕）。背景直送，
+        // 沒有手機連線就誠實留在 debug log，不影響驗證本身。
+        {
+            let runtime = self.clone();
+            let session_id = id.to_string();
+            tokio::spawn(async move {
+                if let Err(e) = runtime.mobile_present_verified(&session_id).await {
+                    tracing::debug!(
+                        error = %e,
+                        agent_session = %session_id,
+                        "verified state was not shown on a paired iPhone"
+                    );
+                }
+            });
+        }
         Ok(record)
     }
 
@@ -783,6 +852,9 @@ impl Runtime {
             "waiting-for-consent" => AgentSessionState::WaitingForConsent,
             "claimed-completed" => AgentSessionState::ClaimedCompleted,
             "failed" => AgentSessionState::Failed,
+            // 結果未知：工作結束了，但既沒有聲稱也沒有可觀察的錯誤。
+            // 不是成功、不是失敗——誠實階梯不容許在這裡二選一。
+            "unknown" => AgentSessionState::Unknown,
             "timed-out" => AgentSessionState::TimedOut,
             "cancelled" => AgentSessionState::Cancelled,
             other => {
@@ -835,7 +907,7 @@ impl Runtime {
             "task-started" | "progress" => "working",
             "waiting-for-input" => "waiting-input",
             "waiting-for-consent" => "waiting-consent",
-            other => other, // claimed-completed / failed / timed-out / cancelled
+            other => other, // claimed-completed / failed / unknown / timed-out / cancelled
         };
         self.emit_agent_session_state(id, &record.agent_id, taxonomy);
         Ok(record)
@@ -1017,6 +1089,14 @@ impl Runtime {
                             .store
                             .save_agent_session(record.session_id.as_str(), &body);
                     }
+                    // 角色 taxonomy：上一輪 daemon 沒走完，這些工作最後
+                    // 到底成了沒有——沒有人知道。誠實發 unknown，不讓
+                    // 重啟後的 UI 停在重啟前的假象（例如「工作中」）。
+                    self.emit_agent_session_state(
+                        record.session_id.as_str(),
+                        &record.agent_id,
+                        "unknown",
+                    );
                 }
                 map.insert(
                     record.session_id.as_str().to_string(),

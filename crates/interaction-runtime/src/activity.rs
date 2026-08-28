@@ -128,6 +128,25 @@ impl Runtime {
             }
         }
 
+        // L0 純呈現（桌面角色視窗，driver `builtin.presentation`）的動作是
+        // 角色演出，不是需要人類裁決的外部副作用：結果未知仍留在歷史裡
+        // （誠實），但不佔「待我決定」。
+        //
+        // 只認 driver，不認通道：`iphone.character` 也走 `desktop-pet` 通道，
+        // 但它是「送到另一台實體裝置」的外部副作用——結果未知一定要人看見。
+        // 「被安全規則阻止」不論通道都仍要人看見。
+        let presentation_actuators: std::collections::HashSet<String> = self
+            .registry
+            .actuator_manifests()
+            .await
+            .into_iter()
+            .filter(|manifest| {
+                manifest.driver == "builtin.presentation"
+                    || manifest.id.as_str().starts_with("companion.")
+            })
+            .map(|manifest| manifest.id.as_str().to_string())
+            .collect();
+
         for receipt in self.list_actions(None, 200)? {
             let status = serde_json::to_value(receipt.current_status)
                 .ok()
@@ -138,6 +157,11 @@ impl Runtime {
                 .last()
                 .map(|(_, at)| *at)
                 .unwrap_or_else(Utc::now);
+            let needs_decision = match status.as_str() {
+                "uncertain" => !presentation_actuators.contains(receipt.actuator_id.as_str()),
+                "blocked" => true,
+                _ => false,
+            };
             items.push(ActivityInboxItem {
                 item_id: receipt.action_id.as_str().to_string(),
                 kind: "action-result".into(),
@@ -145,7 +169,7 @@ impl Runtime {
                 title: receipt.intent.clone(),
                 occurred_at,
                 route: "activity".into(),
-                needs_decision: matches!(status.as_str(), "uncertain" | "blocked"),
+                needs_decision,
                 agent_id: None,
                 device_id: Some(receipt.actuator_id.as_str().to_string()),
                 task_id: Some(receipt.plan_id.as_str().to_string()),
@@ -228,8 +252,10 @@ impl Runtime {
         });
         items.sort_by_key(|item| std::cmp::Reverse(item.occurred_at));
         let total = items.len();
-        items.truncate(filter.limit.unwrap_or(100).clamp(1, 500) as usize);
+        // 待決定數量必須在分頁截斷「之前」算完：徽章代表全部待辦，
+        // 不是本頁剛好裝得下的那幾筆（截斷後計算會漏報）。
         let pending = items.iter().filter(|item| item.needs_decision).count();
+        items.truncate(filter.limit.unwrap_or(100).clamp(1, 500) as usize);
         Ok(json!({
             "items": items,
             "count": items.len(),

@@ -112,7 +112,73 @@ pub struct DesktopPrefs {
     pub companion_desk_move: bool,
     /// 小型使魔（最多 3 隻；純呈現，無任何權限）。
     pub companion_familiars: Vec<FamiliarPref>,
+    /// 勿擾：角色進入安靜基態（不主動靠近、不主動說話）。預設關閉。
+    pub companion_do_not_disturb: bool,
+    /// 說話氣泡開關（關掉後只剩固定的安全文字）。預設開啟。
+    pub companion_bubbles: bool,
+    /// 角色音效開關。**預設關閉**（不主動出聲）。
+    pub companion_sound: bool,
+    /// 允許用滑鼠拖曳角色視窗。預設開啟。
+    pub companion_drag_enabled: bool,
+    /// 使用者要求的本機安靜期到期時間（epoch ms；0＝沒有）。
+    /// 只擋角色的主動行為（隨口氣泡／hover 短句／ambient 表演）；
+    /// 安全文字（緊急停止、被擋下、未知、失敗）永遠不受它影響。
+    pub companion_proactive_quiet_until: f64,
+    /// 角色互動記憶（最喜歡的玩具、近期玩耍、常關掉的反應、熟悉度）。
+    /// 純呈現資料，有界（≤8 玩具、≤20 事件），不會升級成正式知識。
+    pub companion_interaction_memory: CompanionInteractionMemory,
     pub schema_version: u32,
+}
+
+/// 角色互動記憶（spec §11 第一類）。欄位與前端 interactionMemory.ts 對應；
+/// 上限在兩邊都強制，避免偏好檔無限成長。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CompanionInteractionMemory {
+    pub toys: Vec<MemoryCount>,
+    pub disabled_reactions: Vec<MemoryCount>,
+    pub events: Vec<MemoryEvent>,
+    pub days_seen: u32,
+    pub last_day: i64,
+    pub last_seen_at: f64,
+}
+
+/// 最多記幾種玩具/反應。
+pub const MEMORY_MAX_COUNTS: usize = 8;
+/// 最多記幾筆近期事件。
+pub const MEMORY_MAX_EVENTS: usize = 20;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MemoryCount {
+    pub kind: String,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MemoryEvent {
+    pub at: f64,
+    pub kind: String,
+    pub detail: String,
+}
+
+impl CompanionInteractionMemory {
+    /// 有界化：超過上限就截斷（最近的事件、最常玩的玩具優先留下）。
+    pub fn bounded(mut self) -> Self {
+        self.toys.sort_by(|a, b| b.count.cmp(&a.count));
+        self.toys.truncate(MEMORY_MAX_COUNTS);
+        self.disabled_reactions.sort_by(|a, b| b.count.cmp(&a.count));
+        self.disabled_reactions.truncate(MEMORY_MAX_COUNTS);
+        if self.events.len() > MEMORY_MAX_EVENTS {
+            let drop = self.events.len() - MEMORY_MAX_EVENTS;
+            self.events.drain(0..drop);
+        }
+        for e in &mut self.events {
+            e.detail.truncate(48);
+        }
+        self
+    }
 }
 
 /// 使魔設定（純呈現資料）。
@@ -148,6 +214,13 @@ impl Default for DesktopPrefs {
             companion_approach: true,
             companion_desk_move: true,
             companion_familiars: Vec::new(),
+            companion_do_not_disturb: false,
+            companion_bubbles: true,
+            // 預設不出聲：音效要使用者自己打開。
+            companion_sound: false,
+            companion_drag_enabled: true,
+            companion_proactive_quiet_until: 0.0,
+            companion_interaction_memory: CompanionInteractionMemory::default(),
             schema_version: 1,
         }
     }
@@ -310,6 +383,42 @@ mod tests {
         assert!(p.ask_on_close);
         assert!(p.close_behavior.is_none());
         assert!(!p.open_control_center_on_start);
+        // v0.5：音效預設關閉；勿擾預設關閉；氣泡與拖曳預設開啟。
+        assert!(!p.companion_sound);
+        assert!(!p.companion_do_not_disturb);
+        assert!(p.companion_bubbles);
+        assert!(p.companion_drag_enabled);
+    }
+
+    #[test]
+    fn interaction_memory_is_bounded() {
+        let mem = CompanionInteractionMemory {
+            toys: (0..20)
+                .map(|i| MemoryCount { kind: format!("toy{i}"), count: i })
+                .collect(),
+            disabled_reactions: (0..12)
+                .map(|i| MemoryCount { kind: format!("r{i}"), count: i })
+                .collect(),
+            events: (0..50)
+                .map(|i| MemoryEvent {
+                    at: i as f64,
+                    kind: "play".into(),
+                    detail: "x".repeat(80),
+                })
+                .collect(),
+            days_seen: 3,
+            last_day: 20_000,
+            last_seen_at: 1.0,
+        }
+        .bounded();
+        assert_eq!(mem.toys.len(), MEMORY_MAX_COUNTS);
+        assert_eq!(mem.disabled_reactions.len(), MEMORY_MAX_COUNTS);
+        assert_eq!(mem.events.len(), MEMORY_MAX_EVENTS);
+        // 留下的是最近的事件（最舊的被丟掉）。
+        assert_eq!(mem.events[0].at, 30.0);
+        assert!(mem.events[0].detail.len() <= 48);
+        // 玩最多次的玩具排在最前面。
+        assert_eq!(mem.toys[0].count, 19);
     }
 
     #[test]

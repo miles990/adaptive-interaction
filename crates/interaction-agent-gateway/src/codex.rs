@@ -28,6 +28,17 @@ use tokio::sync::{mpsc, oneshot};
 const DISCOVER_TIMEOUT: Duration = Duration::from_secs(6);
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 const EVENT_CHANNEL_CAP: usize = 256;
+/// 等 writer task 真的把一行寫進 stdin＋flush 的上限。子程序卡死不讀
+/// stdin 時 pipe 會填滿，write 永遠不返回——有界等待，逾時誠實回失敗。
+const WRITE_ACK_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// 一行待送出的 JSON-RPC。`ack` 在**寫入 stdin 並 flush 之後**回報結果：
+/// 「排進有界佇列」不是送達，呼叫端（送達戳記／fetched 事件）必須等真正
+/// 寫進去才可以聲稱送達。
+struct OutLine {
+    line: String,
+    ack: Option<oneshot::Sender<bool>>,
+}
 
 pub struct CodexConnector {
     pub binary: String,
@@ -159,7 +170,7 @@ impl AgentConnector for CodexConnector {
         }
 
         let (event_tx, event_rx) = mpsc::channel::<GatewayEvent>(EVENT_CHANNEL_CAP);
-        let (out_tx, mut out_rx) = mpsc::channel::<String>(64);
+        let (out_tx, mut out_rx) = mpsc::channel::<OutLine>(64);
         let shared = Arc::new(CodexShared {
             out_tx: out_tx.clone(),
             pending: Mutex::new(HashMap::new()),
@@ -170,18 +181,26 @@ impl AgentConnector for CodexConnector {
             approvals: Mutex::new(HashMap::new()),
         });
 
-        // writer task
+        // writer task：寫入＋flush 之後才回報 ack（送達證明）。寫入失敗
+        // 就結束，佇列裡等 ack 的呼叫端會因 sender 被丟棄而立刻收到失敗，
+        // 不會有人無限等待。
         {
             let mut stdin = stdin;
             tokio::spawn(async move {
-                while let Some(line) = out_rx.recv().await {
-                    if stdin.write_all(line.as_bytes()).await.is_err() {
+                while let Some(OutLine { line, ack }) = out_rx.recv().await {
+                    let wrote = async {
+                        stdin.write_all(line.as_bytes()).await?;
+                        stdin.write_all(b"\n").await?;
+                        stdin.flush().await
+                    }
+                    .await
+                    .is_ok();
+                    if let Some(ack) = ack {
+                        let _ = ack.send(wrote);
+                    }
+                    if !wrote {
                         break;
                     }
-                    if stdin.write_all(b"\n").await.is_err() {
-                        break;
-                    }
-                    let _ = stdin.flush().await;
                 }
             });
         }
@@ -270,23 +289,46 @@ impl AgentConnector for CodexConnector {
             return Err(GatewayError::Protocol(format!("initialize failed: {init}")));
         }
         let _ = out_tx
-            .send(json!({"jsonrpc": "2.0", "method": "initialized"}).to_string())
+            .send(OutLine {
+                line: json!({"jsonrpc": "2.0", "method": "initialized"}).to_string(),
+                ack: None,
+            })
             .await;
 
-        let mut thread_params = json!({
-            "cwd": spec.workdir.to_string_lossy(),
-            "approvalPolicy": "untrusted",
-            "ephemeral": false,
-        });
-        thread_params["sandbox"] = json!(if spec.write_enabled {
+        // 續開**不是**繼承：舊 thread 當初開在哪個 cwd、拿到什麼 sandbox，
+        // 與這次的 SessionSpec 無關。`thread/resume` 的參數 schema
+        // （`app-server generate-json-schema` → ThreadResumeParams：threadId
+        // 必填，cwd／approvalPolicy／sandbox 皆為可選）跟 `thread/start`
+        // 一樣收得下這三個旗標，所以兩條路徑都重送同一份限制——resume 少送
+        // 一個 sandbox，就等於讓舊 session 的寫入權跟著 thread id 復活。
+        let sandbox = if spec.write_enabled {
             "workspace-write"
         } else {
             "read-only"
-        });
-        let thread = if let Some(resume) = &spec.resume_provider_session {
-            rpc_request(&shared, "thread/resume", json!({"threadId": resume})).await?
+        };
+        let cwd = spec.workdir.to_string_lossy().into_owned();
+        let (method, thread) = if let Some(resume) = &spec.resume_provider_session {
+            let params = json!({
+                "threadId": resume,
+                "cwd": cwd,
+                "approvalPolicy": "untrusted",
+                "sandbox": sandbox,
+            });
+            (
+                "thread/resume",
+                rpc_request(&shared, "thread/resume", params).await?,
+            )
         } else {
-            rpc_request(&shared, "thread/start", thread_params).await?
+            let params = json!({
+                "cwd": cwd,
+                "approvalPolicy": "untrusted",
+                "ephemeral": false,
+                "sandbox": sandbox,
+            });
+            (
+                "thread/start",
+                rpc_request(&shared, "thread/start", params).await?,
+            )
         };
         let thread_id = thread
             .pointer("/thread/id")
@@ -295,8 +337,10 @@ impl AgentConnector for CodexConnector {
             .map(|s| s.to_string());
         let Some(tid) = thread_id else {
             kill_tree(&mut child, &group, 500).await;
+            // resume 帶著重新上鎖的旗標被拒絕時，寧可整條連線誠實失敗，
+            // 也不退回只送 threadId 的舊行為（那會是沒有 sandbox 的續開）。
             return Err(GatewayError::Protocol(format!(
-                "thread/start gave no thread id: {thread}"
+                "{method} gave no thread id: {thread}"
             )));
         };
         *shared.thread_id.lock().expect("tid lock") = Some(tid.clone());
@@ -320,7 +364,7 @@ impl AgentConnector for CodexConnector {
 }
 
 struct CodexShared {
-    out_tx: mpsc::Sender<String>,
+    out_tx: mpsc::Sender<OutLine>,
     pending: Mutex<HashMap<u64, oneshot::Sender<Value>>>,
     next_id: AtomicU64,
     thread_id: Mutex<Option<String>>,
@@ -329,6 +373,29 @@ struct CodexShared {
     last_agent_message: Mutex<Option<String>>,
     /// request_id(字串) → (原始 id JSON, method)。
     approvals: Mutex<HashMap<String, (Value, String)>>,
+}
+
+/// 送出一行並等到它**真的寫進子程序 stdin＋flush**。排進佇列不算送達：
+/// 任何以「已送達」為前提的誠實回報（delivered 戳記、fetched 事件、人類
+/// approval 裁決）都必須走這條路徑。
+async fn send_line_acked(shared: &Arc<CodexShared>, line: String) -> Result<(), GatewayError> {
+    let (ack_tx, ack_rx) = oneshot::channel();
+    shared
+        .out_tx
+        .send(OutLine {
+            line,
+            ack: Some(ack_tx),
+        })
+        .await
+        .map_err(|_| GatewayError::Closed)?;
+    match tokio::time::timeout(WRITE_ACK_TIMEOUT, ack_rx).await {
+        Ok(Ok(true)) => Ok(()),
+        // writer 回報寫入失敗，或 writer 已結束（sender 被丟棄）。
+        Ok(Ok(false)) | Ok(Err(_)) => Err(GatewayError::Closed),
+        Err(_) => Err(GatewayError::Protocol(
+            "agent 子程序未讀取 stdin（寫入逾時）".into(),
+        )),
+    }
 }
 
 async fn rpc_request(
@@ -340,11 +407,11 @@ async fn rpc_request(
     let (tx, rx) = oneshot::channel();
     shared.pending.lock().expect("pending lock").insert(id, tx);
     let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
-    shared
-        .out_tx
-        .send(line)
-        .await
-        .map_err(|_| GatewayError::Closed)?;
+    // 寫不進去就別等 30 秒的 RPC timeout：立刻誠實失敗，並收回登記。
+    if let Err(e) = send_line_acked(shared, line).await {
+        shared.pending.lock().expect("pending lock").remove(&id);
+        return Err(e);
+    }
     tokio::time::timeout(RPC_TIMEOUT, rx)
         .await
         .map_err(|_| GatewayError::Protocol(format!("{method} timed out")))?
@@ -491,8 +558,10 @@ impl AgentSessionHandle for CodexHandle {
         let tid = self
             .provider_session_id()
             .ok_or_else(|| GatewayError::Protocol("no thread".into()))?;
-        // turn/start 的 response 在 turn 完成時才回；不能等（會塞住 30s RPC
-        // timeout），fire-and-forget，進度靠通知流。
+        // turn/start 的 response 在 turn 完成時才回；不能等它（會塞住 30s
+        // RPC timeout），進度靠通知流。但「送出」必須是真的送出：等 writer
+        // 寫進 stdin＋flush 才回 Ok——排進佇列不是送達，呼叫端會據此蓋
+        // delivered 戳記並發 fetched 事件。
         let id = self.shared.next_id.fetch_add(1, Ordering::SeqCst);
         let line = json!({
             "jsonrpc": "2.0",
@@ -501,11 +570,7 @@ impl AgentSessionHandle for CodexHandle {
             "params": {"threadId": tid, "input": [{"type": "text", "text": text}]},
         })
         .to_string();
-        self.shared
-            .out_tx
-            .send(line)
-            .await
-            .map_err(|_| GatewayError::Closed)
+        send_line_acked(&self.shared, line).await
     }
 
     async fn resolve_approval(
@@ -534,11 +599,8 @@ impl AgentSessionHandle for CodexHandle {
             "result": {"decision": decision_str},
         })
         .to_string();
-        self.shared
-            .out_tx
-            .send(line)
-            .await
-            .map_err(|_| GatewayError::Closed)
+        // 人類裁決必須真的送到 agent 才算數（尤其是 deny）。
+        send_line_acked(&self.shared, line).await
     }
 
     async fn interrupt(&mut self) -> Result<(), GatewayError> {
@@ -553,7 +615,10 @@ impl AgentSessionHandle for CodexHandle {
                 "params": {"threadId": tid, "turnId": turn_id},
             })
             .to_string();
-            let _ = self.shared.out_tx.send(line).await;
+            // 協定中斷寫不進去（子程序卡死）就退回訊號中斷，不假裝成功。
+            if send_line_acked(&self.shared, line).await.is_err() {
+                interrupt_tree(&self.child);
+            }
         } else {
             interrupt_tree(&self.child);
         }

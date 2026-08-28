@@ -131,7 +131,7 @@ export function HomePage({
           )}
           <button onClick={() => onNavigate("automations")}>建立自動互動</button>
           <button onClick={() => onNavigate("connect")}>連接與權限</button>
-          <button onClick={() => onNavigate("responses")}>測試回應方式</button>
+          <button onClick={() => onNavigate("connect")}>測試回應方式</button>
         </div>
       </Section>
 
@@ -323,6 +323,26 @@ function LastInteraction({ receipt }: { receipt: Receipt; events: RuntimeEvent[]
 
 
 
+/** 資料範圍的人話：一般模式不該看到 `workspace:/path` 這種原始 scope 字串。 */
+export function dataScopeLabel(scope: string): string {
+  if (scope.startsWith("workspace:")) return `資料夾 ${scope.slice("workspace:".length)}`;
+  if (scope.startsWith("domain:")) return `知識領域「${scope.slice("domain:".length)}」`;
+  if (scope.startsWith("memory:")) return `記憶「${scope.slice("memory:".length)}」`;
+  if (scope.startsWith("device:")) return `裝置 ${scope.slice("device:".length)}`;
+  return scope;
+}
+
+const TOOL_SCOPE_LABEL: Record<string, string> = {
+  "workspace.write": "可以修改這個資料夾裡的檔案",
+  "workspace.read": "只能讀取這個資料夾",
+  "network.fetch": "可以連外部網路",
+};
+
+/** 工具範圍的人話；未知的 scope 不美化、原樣顯示（不假裝理解）。 */
+export function toolScopeLabel(scope: string): string {
+  return TOOL_SCOPE_LABEL[scope] ?? scope;
+}
+
 /** 目前 AI 工作階段（多 Session 一般模式視圖）：真實 Session、人話狀態、
  *  權限範圍；「聲稱完成」明確標示為聲稱，非驗證。 */
 function AgentSessionsSection({ refreshKey }: { refreshKey: number; advancedHint?: boolean }) {
@@ -364,10 +384,12 @@ function AgentSessionsSection({ refreshKey }: { refreshKey: number; advancedHint
           </div>
           <div className="muted small">
             權限：
-            {s.dataScope.length > 0 ? `可讀 ${s.dataScope.join("、")}` : "無資料範圍"}
-            {s.toolScope.length > 0 ? `；工具 ${s.toolScope.join("、")}` : ""}
-            　·　訊息 {s.budget.spentMessages}/{s.budget.maxMessages || "∞"}
-            　·　租約至 {new Date(s.lease.expiresAt).toLocaleTimeString()}
+            {s.dataScope.length > 0
+              ? `可讀取${s.dataScope.map(dataScopeLabel).join("、")}`
+              : "沒有任何資料範圍"}
+            {s.toolScope.length > 0 ? `；${s.toolScope.map(toolScopeLabel).join("、")}` : ""}
+            　·　訊息 {s.budget.spentMessages}/{s.budget.maxMessages || "不限"}
+            　·　有效至 {new Date(s.lease.expiresAt).toLocaleTimeString()}
           </div>
           <div className="row wrap" style={{ marginTop: 4 }}>
             <button
@@ -388,9 +410,6 @@ function AgentSessionsSection({ refreshKey }: { refreshKey: number; advancedHint
   );
 }
 
-/** 知識候選查詢上限（與 ActivityPage 收件匣一致）：達上限時總數未知，顯示「N+」。 */
-const CANDIDATE_QUERY_LIMIT = 50;
-
 /** 「現在」摘要條（spec §16-1.B）：感測／待決定／進行中工作／小樞／知識更新。
  *  誠實計數：查詢失敗＝未知（不得顯示綠色 0 項）；達查詢上限顯示「N+」。 */
 export function NowStrip({
@@ -403,11 +422,9 @@ export function NowStrip({
   onNavigate: (tab: string) => void;
 }) {
   const [sessions] = useAsync(() => api.agentSessionsList(), [refreshKey]);
-  const [assists] = useAsync(() => api.aiAssistsList(), [refreshKey]);
-  const [candidates] = useAsync(
-    () => api.knowledgeList("candidate", CANDIDATE_QUERY_LIMIT),
-    [refreshKey]
-  );
+  // 「待我決定」與右上角 Inbox 徽章共用同一個 Runtime application service，
+  // 不再在前端拼第二份真相（也不會因為分頁而少算）。
+  const [inbox] = useAsync(() => api.activityInbox({ limit: 1 }), [refreshKey]);
   const [receiptsData] = useAsync(() => api.knowledgeReceipts(), [refreshKey]);
 
   const sensors = (status?.["activeSensors"] as { kind: string }[] | undefined) ?? [];
@@ -417,14 +434,10 @@ export function NowStrip({
       s.state
     )
   );
-  const waiting = open.filter((s) =>
-    ["waiting-for-consent", "waiting-for-input", "claimed-completed"].includes(s.state)
+  const pendingDegraded = Boolean(inbox.error);
+  const pendingTotal = Number(
+    (inbox.data as Record<string, unknown> | undefined)?.pendingCount ?? 0
   );
-  const candidateCount =
-    ((candidates.data as Record<string, unknown> | undefined)?.count as number | undefined) ?? 0;
-  const candidateCapped = candidateCount >= CANDIDATE_QUERY_LIMIT;
-  const pendingDegraded = Boolean(sessions.error || assists.error || candidates.error);
-  const pendingTotal = waiting.length + (assists.data?.length ?? 0) + candidateCount;
   const latestReceipt = (
     (receiptsData.data as Record<string, unknown> | undefined)?.receipts as
       | Record<string, unknown>[]
@@ -444,11 +457,9 @@ export function NowStrip({
       <button className="now-card" onClick={() => onNavigate("activity")}>
         <span className="now-title">待我決定</span>
         {pendingDegraded ? (
-          <Badge kind="warn">
-            {pendingTotal > 0 ? `${pendingTotal}+ 項（查詢失敗）` : "無法確認（查詢失敗）"}
-          </Badge>
+          <Badge kind="warn">無法確認（查詢失敗）</Badge>
         ) : pendingTotal > 0 ? (
-          <Badge kind="warn">{candidateCapped ? `${pendingTotal}+` : pendingTotal} 項</Badge>
+          <Badge kind="warn">{pendingTotal} 項</Badge>
         ) : (
           <Badge kind="ok">0 項</Badge>
         )}

@@ -81,7 +81,8 @@ export function SettingsPage({
           label="減少非必要動畫（會與作業系統 Reduced Motion 一併生效）"
         />
         <p className="muted small">
-          安全狀態、文字標籤與鍵盤焦點不會因減少動畫而消失。音效、語音、通知與勿擾使用「能力與裝置」及「隱私與安全」中的同一 Runtime 設定。
+          安全狀態、文字標籤與鍵盤焦點不會因減少動畫而消失。音效、語音、主動說話與安靜時段在「小樞」頁；
+          通知與各項能力開關在「連接與權限」頁 —— 都是同一份 Runtime 設定，這裡不放第二份。
         </p>
       </Section>
 
@@ -105,7 +106,7 @@ export function SettingsPage({
 
       <Section title="資料備份、還原與重設">
         <p className="muted small">
-          記憶頁提供可讀 JSON 備份、逐筆驗證還原、期限修改、匯出與刪除；原始素材及其衍生物會在刪除前顯示影響預覽。重新執行首次設定不會清除既有資料。
+          「更多 → 記憶與知識」提供可讀 JSON 備份、逐筆驗證還原、期限修改、匯出與刪除；原始素材及其衍生物會在刪除前顯示影響預覽。重新執行首次設定不會清除既有資料。
         </p>
         <div className="row wrap">
           <button onClick={() => onNavigate("memory")}>開啟匯出、還原與刪除</button>

@@ -19,7 +19,7 @@ const PAGES: { id: string; label: string; marker: string | RegExp }[] = [
   { id: "companion", label: "小樞", marker: /36 表情預覽/ },
   { id: "work", label: "工作", marker: "本機 AI Agent" },
   { id: "connect", label: "連接與權限", marker: "系統時間" },
-  { id: "more", label: "更多", marker: "小樞記住了什麼" },
+  { id: "more", label: "更多", marker: "關於我的記憶" },
 ];
 
 async function openApp(page: Page) {
@@ -169,9 +169,15 @@ test("擷取：每個一級頁的真實待確認狀態", async ({ page }) => {
   await page.getByRole("button", { name: /通知中心/ }).click();
   await expect(page.getByRole("dialog", { name: "通知中心" })).toBeVisible();
   await page.screenshot({ path: path.join(OUT, "desktop-inbox.png") });
-  await page.keyboard.press("Escape").catch(() => {});
-  await page.getByRole("dialog", { name: "通知中心" }).getByRole("button", { name: "關閉" }).click()
-    .catch(() => {});
+  // 通知中心必須真的能用鍵盤關掉（以前這裡是 .catch 遷就實作缺陷）。
+  await expect(page.getByRole("dialog", { name: "通知中心" })).toHaveAttribute(
+    "aria-modal",
+    "true"
+  );
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "通知中心" })).toBeHidden();
+  // 焦點回到觸發按鈕，鍵盤使用者不會被丟回頁首。
+  await expect(page.getByRole("button", { name: /通知中心/ })).toBeFocused();
   await capturePageMatrix(page, "waiting");
 });
 

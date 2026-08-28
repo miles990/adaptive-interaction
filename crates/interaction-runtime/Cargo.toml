@@ -39,8 +39,22 @@ uuid = { workspace = true }
 dirs = { workspace = true }
 tempfile = { workspace = true }
 base64 = { workspace = true }
+# v0.5 Phase 6: iPhone Mobile Provider（TLS WebSocket＋Bonjour＋配對）。
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio-rustls = "0.26"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "2"
+rcgen = "0.13"
+mdns-sd = "0.11"
+hmac = "0.12"
+futures-util = "0.3"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 [dev-dependencies]
+futures-util = "0.3"
+hmac = "0.12"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio-tungstenite = { version = "0.24" }
 libc = "0.2"
 axum = "0.8"
 tempfile = { workspace = true }

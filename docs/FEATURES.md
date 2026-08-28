@@ -126,7 +126,7 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 | 桌面 | Tauri 2 + React：總覽／受器／動器／工具／配方／政策／時間軸＋常駐緊急停止鈕 |
 | 儲存 | File=Truth（YAML 設定人類可改）＋SQLite（收據/審計/會話）＋atomic write＋last-known-good |
 | 稽核 | 每個敏感操作寫 audit；緊急停止全程留痕；敏感欄位遮罩 |
-| 測試 | 本輪 Rust 336、Vitest 94、Playwright 23、Tauri 4、CLI E2E 51；含未授權、撤回、超載、path traversal、雙 daemon、crash 恢復與 scoped-token 邊界 |
+| 測試 | v0.4.1 基線 Rust 336、Vitest 94、Playwright 23、Tauri 4、CLI E2E 51（v0.5 最新數字見 `docs/v05-recovery-matrix.md` 與 CHANGELOG [Unreleased]）；含未授權、撤回、超載、path traversal、雙 daemon、crash 恢復與 scoped-token 邊界 |
 
 ## v0.4
 
@@ -145,17 +145,28 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
   （現在／小樞／工作／連接與權限／更多）**，Activity 改為右上 Inbox，
   舊 tab id（tray 深連結、Inbox route）全部相容折疊＋全域搜尋/指令＋統一待辦收件匣＋真實畫面證據
 
-## v0.5（開發中：角色・硬體・AI 三核心重定位）
+## v0.5（開發中：角色・硬體・AI 三核心重定位；未發布）
 
 - 產品定義：讓桌面角色能感知玩家與裝置、以具有生命感的方式呈現狀態、
   並透過 AI Agent 完成真實工作的互動 Runtime。
-- **小樞 v3 女僕正式版**：Q 版貓娘女僕（約 2.5–2.6 頭身），執行期參數化
-  分層 rig（非 sprite sheet）＋組合通道（~40 有界參數）＋36 正式表情
-  （每個都有進入/保持/小循環時間軸）＋3 調色盤變體；服裝參與功能呈現
-  （左耳感知/右耳行動/核心=Runtime/頭飾=連線/裙光=輔助狀態/尾尖=工具）。
-- **Interaction Director**：統一行為導演（注意力、utility 評分、變體選擇、
-  冷卻/防重複、被搶佔後恢復、quiet/Reduced Motion 降級）；真相狀態只能由
-  runtime 事件驅動——聲稱完成只點頭、綠勾只在驗證後（測試釘死）。
-- 控制中心 5 入口＋3 步首次設定精靈＋右上 Inbox（Phase 1）。
-- v1/v2 sprite packs 保留為相容層；`RendererBackend` 雙後端
-  （RigRenderer／SpriteRenderer）。
+- **小樞 v3 女僕正式版**：Q 版貓娘女僕（約 2.5–2.6 頭身），執行期參數化分層 rig（非 sprite sheet）
+  ＋組合通道（~40 有界參數＋`poseBlend`）＋36 正式表情（**真四段式**：進入／保持／小循環／離開；
+  缺段派生並標示）＋3 調色盤；服裝參與功能呈現（左耳感知／右耳行動／核心=Runtime／頭飾=連線／裙光=輔助狀態／尾尖=工具）。
+- **Interaction Director**：注意力、utility 競爭、變體與冷卻、被搶佔後恢復、quiet／勿擾／Reduced Motion 降級、
+  個性模型（安靜／自然／活潑＋persona → 速度、距離、冷卻、變體、耳→視線→轉頭）；真相狀態只由 runtime 事件驅動——
+  聲稱完成只點頭、綠勾只在人類驗證後（測試釘死）。
+- **遊玩場**：6 種玩具（毛球／紙團／紙飛機／光點／逗貓棒／可拖曳小物件）＋輕量 2D 物理、追逐／撲抓／帶回／拒還、
+  最多 3 隻使魔互相注意／打招呼／追逐，主角會回看；場景；Roll Call；拖曳四種落地；hover 短氣泡；
+  氣泡／音效（預設關）／拖曳／游標／靠近／散步／勿擾各自開關；角色互動記憶（有界、不推論人格）。
+- **AI 角色閉環**：agent session taxonomy（created/fetched/working/waiting-consent/claimed/verified/failed/timed-out/
+  cancelled/closed/**unknown**）→ 角色演出；人類專屬 verify；resume（API／UI／CLI，codex 重新上鎖）；approval 裁決回寫信箱；
+  Conversation Provider 介面＋本機模板降級。
+- **真硬體**：裝置線協定 v1（hello 身分／proto／pairing 核對、配對碼、cmd＋id＋nonce、dedupe、cancel、state、stop-all、
+  ack 逾時＝未知不重送、not-paired 重握手不重送）；Serial／MQTT／BLE 傳輸（健康度反映真實連線；停用即關閉）；
+  ESP32 官方參考韌體（8 周邊、韌體硬限制、arduino-cli 已編譯，**未真板驗收**）；模擬器與真機分開標示；
+  provider 六階人話（只發現／已配對／已安裝未連線／已連線未測試／**已測試**／已啟用）＋「測試裝置」。
+- **iPhone Mobile Provider**：TLS wss＋指紋釘選＋配對碼 HMAC＋每機 token；4 受器／6 動器；撤銷即斷線；heartbeat；
+  estop 同時停手機感測；感測不靜默；綠勾只走人類驗證；SwiftUI companion app（**模擬器**驗收、真機未驗）；BLE gateway 只有 scan。
+- **控制中心**：5 入口＋3 步精靈＋右上 Inbox（鍵盤可用）＋單一主人守門測試＋L0–L4 風險分級標籤＋§11 記憶與知識三區人話。
+- 測試：Rust 425、vitest 319、Playwright 24、Tauri 8、CLI E2E 63、iOS XCTest 19（模擬器）；詳見
+  `docs/acceptance-evidence.md` v0.5 章節與 `docs/v05-recovery-matrix.md`。

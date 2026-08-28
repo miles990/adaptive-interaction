@@ -220,3 +220,47 @@ async fn estop_during_start_aborts_the_window() {
     assert!(rt.begin_mic_listen(5_000, "test").await.is_err());
     assert!(!fake.started.load(std::sync::atomic::Ordering::SeqCst));
 }
+
+/// v0.5 Phase 7 對抗審查第三輪（清單 2 的本機端回歸）：
+/// `status.activeSensors` 走的是 `active_sensors_all()`——它必須把本機擷取
+/// 完整帶出來，而在沒有配對手機時不得憑空長出遠端感測項目。
+#[tokio::test]
+async fn status_active_sensors_covers_local_capture_and_invents_nothing_remote() {
+    let (_g, rt, _fake) = runtime().await;
+    rt.registry
+        .set_receptor_enabled(&ReceptorId::new("microphone.listen"), true)
+        .await
+        .unwrap();
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.grant_consent("receptor:microphone.listen", None)
+        .await
+        .unwrap();
+
+    // 沒有任何感測時：兩條路徑都是空的（沒有幻覺出來的手機麥克風）。
+    assert!(rt.active_sensors().is_empty());
+    assert!(rt.active_sensors_all().await.is_empty());
+    let status = rt.status().await;
+    assert_eq!(
+        status["activeSensors"].as_array().map(Vec::len),
+        Some(0),
+        "{status}"
+    );
+
+    // 本機麥克風開著時，status 一定看得見（感測不靜默）。
+    rt.begin_mic_listen(2_000, "test").await.unwrap();
+    let all = rt.active_sensors_all().await;
+    assert_eq!(all.len(), 1, "{all:?}");
+    assert_eq!(all[0].kind, "microphone");
+    let status = rt.status().await;
+    assert_eq!(status["activeSensors"][0]["kind"], "microphone", "{status}");
+
+    // estop → 立刻停止並從 status 消失。
+    rt.emergency_stop("test", None).await.unwrap();
+    assert!(rt.active_sensors_all().await.is_empty());
+    assert_eq!(
+        rt.status().await["activeSensors"].as_array().map(Vec::len),
+        Some(0)
+    );
+}

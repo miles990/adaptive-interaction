@@ -668,7 +668,15 @@ impl Runtime {
                         self.emit_action_event(EventType::ActionDispatched, &receipt, json!({}))
                     }
                     ActionStatus::Acknowledged => {
-                        self.emit_action_event(EventType::ActionAcknowledged, &receipt, json!({}))
+                        self.emit_action_event(EventType::ActionAcknowledged, &receipt, json!({}));
+                        // 裝置真的回了 ack ⇒ 這個 provider 通得過「已測試」。
+                        // acknowledged≠completed 的誠實階梯不變：這裡只記錄
+                        // 「連得上、命令送得出去」，不宣稱效果已達成。
+                        self.note_capability_tested(
+                            crate::providers::TestedCapability::Actuator,
+                            step.actuator_id.as_str(),
+                        )
+                        .await;
                     }
                     ActionStatus::Failed => {
                         self.emit_action_event(EventType::ActionFailed, &receipt, json!({}))

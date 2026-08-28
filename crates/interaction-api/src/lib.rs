@@ -190,12 +190,20 @@ pub fn router(state: ApiState) -> Router {
             "/v1/agent-sessions/{id}/verify",
             post(routes::agent_session_verify),
         )
+        .route("/v1/mobile/status", get(routes::mobile_status))
+        .route(
+            "/v1/mobile/pairing-session",
+            post(routes::mobile_pairing_begin),
+        )
+        .route("/v1/mobile/devices/{id}", delete(routes::mobile_revoke))
+        .route("/v1/mobile/ble/scan", post(routes::mobile_ble_scan))
         .route("/v1/providers/{id}", get(routes::provider_get))
         .route("/v1/providers/{id}/pair", post(routes::provider_pair))
         .route(
             "/v1/providers/{id}/transition",
             post(routes::provider_transition),
         )
+        .route("/v1/providers/{id}/test", post(routes::provider_test))
         .route("/v1/providers/{id}/revoke", post(routes::provider_revoke))
         .route("/v1/receptors", get(routes::receptors_list))
         .route("/v1/receptors", post(routes::receptor_create))
@@ -373,7 +381,9 @@ fn agent_request_allowed(method: &axum::http::Method, path: &str) -> bool {
             && path != "/v1/audit"
             && path != "/v1/outbox"
             && !path.starts_with("/v1/ui/preferences")
-            && !path.starts_with("/v1/onboarding");
+            && !path.starts_with("/v1/onboarding")
+            // 配對指紋/裝置清單屬人類層：agent token 不可讀。
+            && !path.starts_with("/v1/mobile");
     }
     if matches!(
         path,

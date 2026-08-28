@@ -9,6 +9,70 @@
 
 ## [Unreleased] — v0.5 產品重定位（角色・硬體・AI 三核心）
 
+### Phase 7：整合、對抗審查、修復、全套回歸（2026-08-28）
+
+> 這一段記錄的是「把 Phase 1–6 宣稱的東西變成真的」：新 Session 先不信任前一輪的進度敘述，
+> 用 10 位審計 agent 逐條對照規格重建恢復矩陣（`docs/v05-recovery-matrix.md`），再跑
+> `.claude/workflows/adversarial-review-v05.js`（11 維度 find → 獨立懷疑者 verify），
+> 136 項審查 → 73 confirmed／59 fixed-meanwhile／4 refuted，只修 confirmed，每項附 regression test。
+> 測試數字：Rust workspace **349 → 426**、vitest **138 → 319**、CLI E2E **59 → 63**、Playwright 24、Tauri 4 → 8、
+> iOS XCTest 19（模擬器）。模擬器復測：撤銷 ≤0.035 s 斷線、estop 0.5 s 內停手機感測、Bonjour 真的廣播。
+
+#### Fixed — 誠實階梯與安全底線
+- Agent 程序結束而無結果 → 新 taxonomy 狀態 **`unknown`**（不再謊報 failed）；lease 到期／重啟發 timed-out／unknown；
+  Claude `system/init` 不再等於 working（第一個 assistant/tool 事件才算）；codex／claude 的 `fetched` 只在 stdin 真的
+  write+flush 後才發；approval 裁決（人類或 300s 看門狗）回寫信箱 `approval-resolved`，AiPage 顯示「已由看門狗自動拒絕」；
+  人類 GET 信箱是「觀看」不是「送達」（不再冒充 delivered）；`PendingApproval.summary` 真的顯示；CLI `agents create --resume`／
+  `agents resume`；codex `thread/resume` 真的重新上鎖 cwd／approvalPolicy／sandbox（以 codex-cli 0.150.1 產生的 schema 核對）。
+- SSE：初次連線不再重播整個 ring buffer（改從 `status.eventSequence` 起）；daemon 重啟（`startedAt` 改變）重置 cursor；
+  角色 machine 忽略早於 App 啟動的重播事件（safety 狀態仍以 `/v1/status` 為準）。
+- iPhone：**撤銷即斷線**（CancellationToken；之前只移除表項）；ack/err/ble.* 需 authed 且綁定裝置；heartbeat 15s／idle 45s；
+  斷線強制停用高風險 receptor 且重連不恢復；facts 依 manifest 過濾、mic-level 不持久化；**estop 同時停 iPhone 感測**
+  （`stop-all{sensors:true}`，iOS 端同步）；啟用中的手機麥克風出現在 `status.activeSensors`（tray／首頁／角色視窗）；
+  `iphone.mic-level` 需 session consent，撤銷即丟棄；**綠勾（verified-success）只走人類驗證路徑**，plan/agent 帶入一律拒絕；
+  extra 參數不能放寬 policy 的 L3 硬限制；estop 500ms 內只送一則 stop-all、無連線誠實 Err；撤銷持久化失敗誠實回 Err；
+  Bonjour 服務型別改 `_interact-ai._tcp`（舊名超過 15 bytes 註冊失敗）並在 status 回報 `bonjour`；`started` 只在 bind
+  成功後設；devices 為空不開埠；`mobile ble-scan` CLI／Tauri／UI 可達；MobileSection 顯示手機 permissions 與 Bonjour 狀態；
+  **測試模式不把 Bonjour 記錄廣播到實體區網**（模擬不得有外部副作用）。
+- 硬體 link：health()/status() 依真實連線（斷線 offline、未握手 degraded，不再硬編 healthy）；serial ENOTTY 判斷收窄
+  （實測 pty 錯誤字串）；MQTT dedupe／重連／QoS1 真斷言；provider 停用／撤銷關閉連線（serial/mqtt/ble `shutdown`）；
+  `hello.caps` 能力識別（未宣告 → 不上線、failed）；hello `proto`／`pairing` 核對；state 核對 deviceId；cmd 帶 deadline、
+  重連清佇列並以 `link-reset` 結束等待；無 id 的 err 以拒絕原因結束（不演逾時）；裝置 not-paired → 該次 failed、下一次前重握手
+  （絕不自動重送實體命令）；BLE 途中失敗＝uncertain 不重試；stop-all 無 ack 誠實回 Err；握手逾時不再標 dispatched。
+- L0 純呈現（`builtin.presentation`）的 uncertain 不進「待我決定」；外部裝置（含 iphone.character）仍進；Inbox pendingCount
+  在截斷前計算；風險分級 L0–L4 標籤（`riskTier.ts`）；精靈預設不靜默寫入安靜時段／initiative，步驟二選擇真的寫入 agent 路由。
+
+#### Fixed — 角色
+- 四段式：timeline 真的播 **exit**（≤260ms；安全狀態立即搶佔不播）、缺段以派生段補齊並標 `derived`、8 個高頻表情手寫 exit；
+  組合通道：工作／等待只覆蓋核心／頭飾／裙光／耳朵、身體保留遊玩姿勢；`personality.ts` 個性模型接進 director／playfield／timeline；
+  `director.react()`／`noteFinished()`／`scoreEvent` 接進 App，quiet 分支可達，「一小時內不要主動說話」也管角色端；
+  machine 旗標即時同步舞台（estop 不再多追 ≤480ms 球）；hit-rect 逐幀節流回報、Rust 點擊穿透輪詢 80ms；拖曳期間持續 hold；
+  放下依速度／高度／落點四種落地；第 6 種玩具 trinket；多角色互看／回愛心／被追者逃跑；hover 短氣泡；硬體／提供者事件演出；
+  氣泡／音效（預設關）／拖曳／勿擾開關；estop 停語音並清 transient；睡眠類 ambient 剛互動後不秒回；Reduced Motion 真靜態
+  且執行中可切換；30fps 降級遲滯；`ask` 為真相狀態（AI 只能點播 `question`）；clampParams 嚴格型別；lerpParams 允許回彈；
+  `poseBlend` 通道消除 lie↔stand 頭部瞬移；角色互動記憶（有界、不推論人格、不進知識庫）；Rust hit-rect clamp；隱藏視窗通知 runtime。
+
+#### Fixed — 控制中心、記憶 UI、文件
+- 通知中心鍵盤／焦點陷阱；淺色主題 `--panel`／`--input-bg`；一般模式術語外洩（Lease／provider session／raw JSON／UUID）改人話；
+  §11 記憶與知識一般模式只有三區、規格人類文案、技術 tab 進階才顯示；到期記憶只能刪除（不再有必失敗的按鈕）；
+  GlobalSearch 人話；AiPage 訊息 5 秒輪詢＋approval 倒數；WorkPage 顯示精靈選擇；守門測試（5 入口／單一主人／舊 tab 對照）。
+- Provider「已測試」：`detail.tested` 證據（handshake／capability／human）、`POST /v1/providers/{id}/test`（human-only、唯讀）、
+  CLI `providers test`、UI 六階人話＋「測試裝置」。
+- 效能量測可重現（`pnpm perf`）：drawRig／全舞台／輸入延遲（真狀態改變）／heap／bounded／3 天數值；作廢無來源的舊數字。
+- ESP32 韌體：arduino-cli 實際編譯兩組態（`compile.sh`＋Apple Silicon ctags shim）；浮點參數規則明確（兩端一致）；
+  MQTT 非阻塞退避、效果進行中不連線；BLE 有界佇列由 loop 統一處理；nonce 環；模擬器鏡射 8 周邊與所有 err 形狀。
+- iOS：對 iOS 26.5 SDK typecheck 0 error 0 warning；swiftc 直接編模擬器 .app＋DEBUG 啟動參數；與真 daemon 完成配對／動器／撤銷
+  閉環；XCTest 在模擬器 19/19；`stop-all{sensors}` 停感測並顯示原因。
+- 文件：README／CLAUDE.md／DESKTOP-GUIDE／FEATURES／acceptance-evidence／gap matrix 的過期與不實敘述全部改正
+  （版本號、舊 IA、127.0.0.1 例外、「無 Xcode」、「撤銷立即斷線」、「36 表情皆三段」、HMAC 配對、看向游標、效能數字、59 checks）。
+
+#### 已知限制（v0.5，完整清單見 `docs/acceptance-evidence.md` v0.5 章節）
+ESP32 與 iPhone 皆無真機驗收；BLE 無真機；硬體 Observed/Verified 死路（acknowledged 為誠實上限）；provider 停用後連線關閉不可逆；
+MQTT 內部佇列 deadline 伸不進；`waiting-input` 無 connector 來源；跨視窗桌面漫遊／邊緣探頭／其他視窗事件反應／Fullscreen／
+OS 勿擾偵測未做；桌面 BLE gateway 只有 scan；Camera／Location／Live Activity／SFX／區網裝置事件未做；WebSocket／HID／
+Home Assistant adapter 未做；配對期可被區網 peer 燒掉（已 audit）；效能數字為 headless Chromium 非 WKWebView。
+
+
 ### Added — Phase 2：正式小樞（Q 版貓娘女僕）與動畫核心
 
 - **小樞 v3「女僕正式版」**：執行期參數化分層 rig（`companion/rig/`），
@@ -24,8 +88,9 @@
 - **組合式角色通道**：~40 個有界參數（body/head/gaze/eyes/brows/mouth/
   ears/hair/headpiece/core/arms/tail/legs/skirt-light/overlay/particles），
   `clampParams`/`lerpParams` 保證任何輸入都畫得出合法畫面。
-- **36 個正式表情**（spec §7.5 全清單）：每個都有進入/保持/小循環
-  時間軸（測試釘死「不得只是靜態圖片」），加基態/相容別名共 49 個表情；
+- **36 個正式表情**（spec §7.5 全清單）：Phase 2 交付時只有 hold＋部分
+  enter/loop（13/36 兩段齊全、0/36 四段齊全，「離開」段是死資料——Phase 7 對抗
+  審查確認並修正為真四段式，見下方 Phase 7）；加基態/相容別名共 55 個表情；
   Game feel：anticipation、squash&stretch、hit-stop、粒子（灰塵/星光/
   愛心/zzz）、headpiece 歪掉扶正等 secondary motion。
 - **RigRenderer**：表情 crossfade（~180ms 輕微回彈）、自動眨眼
@@ -38,12 +103,53 @@
   ambient 變體池（hazard 抽樣、每表情冷卻、防重複 3、放鬆度門檻）、
   被真實事件搶佔後可恢復（20 秒 TTL）、quiet 只剩眨眼、Reduced Motion
   只允許眨眼類、utility 評分沿用 EventClass 階梯；取代舊
-  scheduleMicroAction 路徑。
+  scheduleMicroAction 路徑。（Phase 2 交付時 `react()`/`noteFinished()`/
+  `scoreEvent()` 尚未接進 App、quietHours 鍵在 runtime status 缺失——
+  Phase 7 修正，見下方。）
 - 控制中心小樞頁：36 表情即時預覽（與桌面同一套 rig 程式）；
   首次設定精靈的角色預覽同源。預設 pack 改為 `shu-maid`；
   v1/v2 sprite packs 保留為相容層（fallback 鏈不變）。
 - 設計稿與驗收畫面：`docs/assets/v05-evidence/shu-maid-rig-sheet.png`
   （代表性姿勢×明暗底×3 配色＋36 表情 hold 網格）。
+
+### Added — Phase 6：iPhone Mobile Provider
+
+- **桌面端 Mobile 伺服器**（`interaction-runtime/src/mobile.rs`）：
+  TLS WebSocket（自簽憑證、SHA-256 指紋由 QR 載荷釘選）＋Bonjour 廣播
+  （服務型別 `_interact-ai._tcp`——Phase 6 交付時的 `_interact-ai-mobile`
+  超過 RFC 6763 15-byte 上限、註冊靜默失敗，Phase 7 修正；TXT 帶指紋）＋
+  配對儀式（一次性 6 位配對碼 5 分鐘、HMAC-SHA256 challenge-response、
+  錯一次即作廢防暴力）＋每台 iPhone 獨立 device token（只存 SHA-256）。
+  撤銷立即斷線與「已配對過才開網路埠」在 Phase 6 交付時**不成立**
+  （撤銷只移除表項、連線仍活著；devices.json 存在即開埠），Phase 7 修正並以
+  測試釘死。伺服器綁 0.0.0.0（區網），這是 iPhone 配對的刻意設計。
+- **iPhone 能力接進既有管線**：4 個受器（motion 語意事件/battery/touch/
+  mic-level——mic 需 consent）＋6 個動器（haptic/notify/tts/torch/flash/
+  character，全部 consent-gated、健康度跟連線走）；act→ack 收據
+  acknowledged＋deviceApplied；ack 逾時＝結果未知不重送；estop →
+  stop-all 廣播到所有手機；斷線 → provider Disconnected、能力
+  unavailable。「高風險感測不自動恢復」在 Phase 6 只由手機端強制，桌面端
+  於 Phase 7 補上（斷線即停用 iphone.mic-level）。觀察 receptor 白名單
+  ——Phase 6 只驗 receptor id，Phase 7 起依 manifest 欄位過濾 facts。
+- **BLE Gateway 通道**：桌面端只實作 `ble.scan`（`POST /v1/mobile/ble/scan`、
+  CLI `mobile ble-scan`）；iOS App 端有 connect/gatt(read/write/subscribe)
+  實作但桌面端**沒有對應送端**——列為已知限制。
+- **UI／CLI**：連接與權限→裝置與能力新增 iPhone 區（配對 QR SVG＋配對碼、
+  裝置清單含連線狀態與手機自報感測、撤銷）；CLI `interact-ai mobile
+  status|pair|revoke`；`/v1/mobile/*` human-only（agent token 連 GET 都拒）。
+- **iOS Companion App 原始碼**（`apps/interaction-ios/`，SwiftUI）：
+  配對（QR/手動＋憑證指紋釘選）、語意 motion 分類器（lifted/shaken/
+  placed/rotated，3 秒視窗記憶體內、不存軌跡）、感測預設全關＋權限誠實
+  顯示＋斷線自動停用高風險感測、haptic（含 purr/heartbeat）/通知/TTS/
+  手電筒/螢幕閃示/角色狀態（綠勾只在 verified-success）、CoreBluetooth
+  gateway。Phase 6 交付時只做了 `swiftc -parse`（當時誤以為本機無 Xcode）；
+  Phase 7 以 Xcode 26.6／iOS 26.5 SDK 完整 typecheck、編成模擬器 .app 並與真
+  daemon 完成配對閉環（見 Phase 7）。**真機未驗收；不宣稱 iPhone 可操作任意
+  USB 配件。**
+- 測試（【模擬 iPhone】程序內 client，明確標示非真機）：Phase 6 交付 3 個
+  測試（TLS 指紋釘選配對閉環、錯誤配對碼拒絕＋配對期作廢、token 重連／撤銷後
+  auth-fail）；「觀察 ingest＋白名單」「斷線→Disconnected」當時只有送出沒有
+  斷言——Phase 7 補齊為 16 個測試（含 mutation 驗證）。
 
 ### Added — Phase 5：真實硬體（Serial／MQTT／BLE adapters＋ESP32 參考裝置）
 
@@ -75,13 +181,15 @@
   同協定、模擬硬限制與 dedupe）；CLI E2E 新增「Serial hardware closed
   loop (SIMULATOR)」段——provider 註冊→三段式人類授權（enable→policy
   allowlist→consent）→受器經配對握手讀 facts→cmd ack acknowledged→
-  deviceApplied 揭露 1.0→0.8 clamp→estop stop-all 送達裝置（59 checks）。
+  deviceApplied 揭露 1.0→0.8 clamp→estop stop-all 送達裝置（Serial 段 4 個
+  check；整支腳本當時共 59 checks，Phase 7 增為 63）。
   MQTT 閉環以內嵌 rumqttd broker＋模擬裝置測試（含身分不符拒絕）。
-  **真實 ESP32 硬體驗收未執行**（本環境無實體裝置）——韌體僅經程式碼
-  審閱＋協定模擬器對測，誠實列為已知限制。
+  **真實 ESP32 硬體驗收未執行**（本環境無實體裝置）——Phase 5 交付時韌體僅經
+  程式碼審閱＋協定模擬器對測；Phase 7 已用 arduino-cli 對 esp32:esp32 3.3.11
+  實際編譯兩種組態（`firmware/esp32-companion/compile.sh`），仍未在真板驗收。
 - 裝置 UI（連接與權限→裝置與提供者）：provider 卡片顯示人話狀態說明
-  （只發現≠已配對≠已啟用）＋「小樞可以知道／小樞可以做」裝置導向能力
-  清單。
+  （只發現≠已配對≠已啟用；「已測試」於 Phase 7 補上）＋「小樞可以知道／
+  小樞可以做」裝置導向能力清單。
 
 ### Added — Phase 4：AI 角色閉環（taxonomy、人工驗證、對話層）
 

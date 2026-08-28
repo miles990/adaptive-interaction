@@ -17,6 +17,12 @@ import {
   exportCompanionSettings,
   parseCompanionSettingsImport,
 } from "../companion/settingsTransfer";
+import {
+  memorySummary,
+  noteReactionDisabled,
+  sanitizeMemory,
+} from "../companion/interactionMemory";
+import { rollCallKey } from "../companion/playfield";
 
 /** 預覽狀態清單（spec §C）：名稱＋對應動畫＋誠實幀選擇。 */
 const PREVIEW_STATES: { label: string; animation: string; frame?: number; note?: string }[] = [
@@ -903,6 +909,24 @@ function PlaySection({
   React.useEffect(() => setNameDraft(prefs.companionName ?? "小樞"), [prefs.companionName]);
 
   const familiars = prefs.companionFamiliars ?? [];
+  const memory = sanitizeMemory(prefs.companionInteractionMemory);
+  const remembers = memorySummary(memory);
+
+  /** 關掉某個反應時，順便記進角色互動記憶（純呈現，不推論人格）。 */
+  const patchReaction = async (
+    reaction: string,
+    p: Partial<DesktopPrefs>,
+    enabled: boolean
+  ) => {
+    if (enabled) {
+      await patch(p);
+      return;
+    }
+    await patch({
+      ...p,
+      companionInteractionMemory: noteReactionDisabled(memory, reaction, Date.now()),
+    });
+  };
 
   const doExport = () => {
     const data = JSON.stringify(exportCompanionSettings(prefs), null, 2);
@@ -975,6 +999,26 @@ function PlaySection({
         onChange={(on) => void patch({ companionDeskMove: on })}
         label="在遊玩場內自主散步"
       />
+      <Toggle
+        checked={prefs.companionBubbles !== false}
+        onChange={(on) => void patchReaction("bubbles", { companionBubbles: on }, on)}
+        label="說話氣泡（關掉後只剩固定的安全訊息）"
+      />
+      <Toggle
+        checked={prefs.companionSound === true}
+        onChange={(on) => void patchReaction("sound", { companionSound: on }, on)}
+        label="角色音效（預設關閉）"
+      />
+      <Toggle
+        checked={prefs.companionDragEnabled !== false}
+        onChange={(on) => void patchReaction("drag", { companionDragEnabled: on }, on)}
+        label="可以用滑鼠把她拖到別的位置"
+      />
+      <Toggle
+        checked={prefs.companionDoNotDisturb === true}
+        onChange={(on) => void patch({ companionDoNotDisturb: on })}
+        label="勿擾（安靜陪伴：不主動靠近、不主動說話）"
+      />
       <p className="muted small">
         玩具與游標互動只發生在角色的透明小視窗內；游標座標不會送到 Runtime 或
         AI、也不會被保存。Reduced Motion 開啟時自動停止玩耍與移動。
@@ -1031,6 +1075,19 @@ function PlaySection({
           新增使魔
         </button>
       )}
+      <h4>小樞記得</h4>
+      {remembers.length === 0 ? (
+        <p className="muted small">
+          還沒有互動記憶。（只會記玩過的玩具、你常關掉的反應與相處天數；
+          不會變成正式知識，也不會離開本機。）
+        </p>
+      ) : (
+        <ul className="plain-list muted small">
+          {remembers.map((linetext, i) => (
+            <li key={`${i}-${linetext}`}>小樞記得：{linetext}</li>
+          ))}
+        </ul>
+      )}
       <div className="row wrap" style={{ marginTop: 10 }}>
         <button onClick={doExport}>匯出角色設定</button>
         <label className="button-like">
@@ -1065,8 +1122,8 @@ function RollCallSection({ presence }: { presence: Record<string, unknown> | nul
         </div>
       ) : (
         <ul className="plain-list">
-          {roll.map((r) => (
-            <li key={r.name}>
+          {roll.map((r, i) => (
+            <li key={rollCallKey(i, r.name)}>
               <strong>{r.name}</strong>：{r.activity}
             </li>
           ))}

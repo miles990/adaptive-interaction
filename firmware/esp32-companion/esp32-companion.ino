@@ -20,6 +20,13 @@
 //   buzzer : 200..4000 Hz、durationMs ≤ 2000、PWM duty ≤ 50%
 //   servo  : 角度 10..170、每 300ms 最多一次移動
 //   led    : 各通道 0..255
+//
+// 數值參數規則（三端一致：本韌體／scripts/esp32-serial-sim.py／README 協定表）：
+//   * 所有數值參數一律以浮點讀取後四捨五入＋clamp——主機的
+//     `{{magnitude}}` 是 JSON number（float），用整數解析會落回預設值。
+//   * led.set 的 r/g/b：JSON 整數 0–255 = 絕對值；JSON 浮點 0.0–1.0 = 比例
+//     （0.8 → 204）；JSON 浮點 > 1.0 當絕對值；缺漏/null = 0。
+//   * 非數值（字串／bool／物件／陣列）→ err bad-params（不靜默當 0）。
 // ===========================================================================
 
 #include <WiFi.h>
@@ -95,14 +102,31 @@ static const uint32_t BUTTON_DEBOUNCE_MS   = 30;
 static const uint32_t HSR04_TIMEOUT_US     = 30000;  // ~5m；逾時回 -1
 
 // BLE UUID（固定常數；一個 write characteristic、一個 notify characteristic）
+#if ENABLE_BLE
 static const char* BLE_SERVICE_UUID     = "7f2a0001-c701-4c9e-8f7e-2b3d5a1e9c01";
 static const char* BLE_WRITE_CHAR_UUID  = "7f2a0002-c701-4c9e-8f7e-2b3d5a1e9c01";
 static const char* BLE_NOTIFY_CHAR_UUID = "7f2a0003-c701-4c9e-8f7e-2b3d5a1e9c01";
+#endif
 
 // ---------------------------------------------------------------------------
-// 連線通道（每個通道各自維護配對狀態）
+// 以下型別／常數必須定義在這裡（檔案上半部）：Arduino 前處理器會把自動產生
+// 的函式原型插在「第一個全域變數之前」，簽章裡用到的東西必須先出現，
+// 否則會編出 'X was not declared in this scope'（原型行，不是定義行）。
 // ---------------------------------------------------------------------------
+
+// 連線通道（每個通道各自維護配對狀態）
 enum Link : uint8_t { LINK_SERIAL = 0, LINK_MQTT = 1, LINK_BLE = 2, LINK_COUNT = 3 };
+
+// 去重/重放環形緩衝的大小（cmd id 與 nonce 各一組）
+static const size_t CMD_RING_SIZE = 16;
+static const size_t CMD_ID_MAX    = 48;
+
+// 數值參數解析狀態
+enum ParamStatus : uint8_t {
+  PARAM_MISSING = 0,   // 欄位缺漏或 null → 呼叫端用預設值
+  PARAM_OK      = 1,
+  PARAM_BAD     = 2,   // 非數值（字串／bool／物件／陣列）→ err bad-params
+};
 
 static bool g_linkPaired[LINK_COUNT] = { false, false, false };
 
@@ -126,7 +150,15 @@ Servo        g_servo;
 // topic 不是身分——runtime 仍會驗 hello.deviceId＋配對碼。
 static char g_mqttTopicIn[160];   // <prefix>/to-device
 static char g_mqttTopicOut[160];  // <prefix>/from-device
+
+// MQTT 重連節奏（非阻塞退避；細節見 maintainMqtt 的註解）
+static const uint32_t MQTT_RETRY_BASE_MS      = 10000;  // 首次失敗後最短重試間隔
+static const uint32_t MQTT_RETRY_MAX_MS       = 60000;  // 指數退避上限
+static const uint32_t MQTT_CONNECT_TIMEOUT_MS = 500;    // TCP connect 上限（預設 3000）
+static const uint16_t MQTT_SOCKET_TIMEOUT_S   = 1;      // 等 CONNACK/封包上限（預設 15s）
 static uint32_t g_lastMqttAttemptMs = 0;
+static uint32_t g_mqttRetryDelayMs  = MQTT_RETRY_BASE_MS;
+static bool     g_mqttFailedBefore  = false;   // 上一次嘗試就失敗了嗎
 
 // Serial 逐行讀取緩衝
 static char   g_serialBuf[640];
@@ -166,15 +198,30 @@ static uint32_t g_dhtLastReadMs = 0;
 // state 週期推播
 static uint32_t g_lastStatePushMs = 0;
 
-// 重複指令去重：最近 16 個 cmd id 的環形緩衝
-static const size_t CMD_RING_SIZE = 16;
-static const size_t CMD_ID_MAX    = 48;
+// 重放/重複防護：cmd id 與 nonce 各一組 16 筆環形緩衝，**並行**比對。
+// nonce 由主機每次隨機產生（protocol.rs 的 new_nonce()，64-bit）；同一個
+// nonce 再次出現＝重放（或主機有 bug），一律回 dup:true 不套用效果。
+// （CMD_RING_SIZE／CMD_ID_MAX 定義在檔案上半部，原因見該處註解。）
 static char   g_seenIds[CMD_RING_SIZE][CMD_ID_MAX];
 static size_t g_seenNext = 0;
+static char   g_seenNonces[CMD_RING_SIZE][CMD_ID_MAX];
+static size_t g_nonceNext = 0;
 
 #if ENABLE_BLE
 static NimBLECharacteristic* g_bleNotifyChar = nullptr;
 static volatile bool g_bleConnected = false;
+
+// BLE write 回呼跑在 NimBLE host task（core 0），loop() 跑在 core 1。
+// 兩邊直接共用全域狀態會race（例如 vibe 剛被 loop() 停掉、回呼卻已宣稱
+// applied）。因此回呼「只」把整行訊息塞進這個有界佇列，實際處理與所有
+// 回覆（ack/err/state）都由 loop() 在同一條路徑上做——與 Serial/MQTT 完全
+// 一樣。佇列滿＝丟棄並由 loop() 回 err busy（誠實：沒收下就不假裝收下）。
+static const size_t BLE_QUEUE_SLOTS = 8;
+static const size_t BLE_MSG_MAX     = 512;   // 單筆 write 上限（host 端 480）
+struct BleMsg { char line[BLE_MSG_MAX]; };
+static QueueHandle_t g_bleQueue = nullptr;
+static volatile bool g_bleDropBusy    = false;  // 佇列滿：loop() 回 err busy
+static volatile bool g_bleDropTooLong = false;  // 單筆過長：loop() 回 err bad-json
 #endif
 
 // ---------------------------------------------------------------------------
@@ -218,20 +265,80 @@ static float clampFloat(float v, float lo, float hi) {
   return v;
 }
 
-// cmd id 去重環形緩衝
-static bool cmdIdSeen(const char* id) {
+// 去重環形緩衝（cmd id 與 nonce 共用同一組函式）
+static bool ringContains(const char ring[CMD_RING_SIZE][CMD_ID_MAX], const char* v) {
+  if (v == nullptr || v[0] == '\0') return false;
   for (size_t i = 0; i < CMD_RING_SIZE; i++) {
-    if (g_seenIds[i][0] != '\0' && strncmp(g_seenIds[i], id, CMD_ID_MAX - 1) == 0) {
+    if (ring[i][0] != '\0' && strncmp(ring[i], v, CMD_ID_MAX - 1) == 0) {
       return true;
     }
   }
   return false;
 }
 
-static void cmdIdRemember(const char* id) {
-  strncpy(g_seenIds[g_seenNext], id, CMD_ID_MAX - 1);
-  g_seenIds[g_seenNext][CMD_ID_MAX - 1] = '\0';
-  g_seenNext = (g_seenNext + 1) % CMD_RING_SIZE;
+static void ringRemember(char ring[CMD_RING_SIZE][CMD_ID_MAX], size_t* next, const char* v) {
+  if (v == nullptr || v[0] == '\0') return;
+  strncpy(ring[*next], v, CMD_ID_MAX - 1);
+  ring[*next][CMD_ID_MAX - 1] = '\0';
+  *next = (*next + 1) % CMD_RING_SIZE;
+}
+
+// ---------------------------------------------------------------------------
+// 數值參數解析（規則見檔頭；scripts/esp32-serial-sim.py 鏡射同一套規則）
+//
+// 為什麼不用 ArduinoJson 的 `params["r"] | 0L`：主機把 `{{magnitude}}` 以
+// JSON number（float，例如 0.8）上線，而 `| 0L` 對 float 型別的值會落回
+// 預設值 0——README 的 led.set 範例在真板上會「永遠不亮」。這裡一律以
+// float 讀取，另外保留「這個 JSON 數字是不是整數字面值」的資訊
+// （ArduinoJson 7：is<long>() 對 255 為 true、對 1.0 為 false）。
+// 一律用 as<float>()：ArduinoJson 對短字面值本來就存 float，模擬器端
+// 也鏡射同一個精度，兩端結果才會逐位一致。
+// ---------------------------------------------------------------------------
+static ParamStatus readNumber(JsonObjectConst params, const char* key,
+                              float* value, bool* integerLiteral) {
+  JsonVariantConst v = params[key];
+  if (v.isNull()) return PARAM_MISSING;   // 缺漏與明寫 null 同義
+  if (!v.is<float>()) return PARAM_BAD;   // is<float>()：整數與浮點皆 true
+  *value = v.as<float>();
+  if (integerLiteral != nullptr) *integerLiteral = v.is<long>();
+  return PARAM_OK;
+}
+
+// 四捨五入（正負皆用「加 0.5 後截斷」，與模擬器的 int(x + 0.5) 一致）
+static long roundToLong(float v) { return (long)(v + 0.5f); }
+
+// 整數型參數：主機送 1500 或 1500.0 都接受；非數值 → err bad-params。
+static bool readIntParam(Link link, const char* id, JsonObjectConst params,
+                         const char* key, long fallback, long lo, long hi, long* out) {
+  float raw = 0.0f;
+  ParamStatus st = readNumber(params, key, &raw, nullptr);
+  if (st == PARAM_BAD) { sendErr(link, id, "bad-params"); return false; }
+  *out = clampLong((st == PARAM_MISSING) ? fallback : roundToLong(raw), lo, hi);
+  return true;
+}
+
+// 浮點型參數（例如 vibe.pulse 的 strength 0..1）。
+static bool readFloatParam(Link link, const char* id, JsonObjectConst params,
+                           const char* key, float fallback, float lo, float hi, float* out) {
+  float raw = 0.0f;
+  ParamStatus st = readNumber(params, key, &raw, nullptr);
+  if (st == PARAM_BAD) { sendErr(link, id, "bad-params"); return false; }
+  *out = clampFloat((st == PARAM_MISSING) ? fallback : raw, lo, hi);
+  return true;
+}
+
+// led.set 的 r/g/b：整數 0–255 = 絕對值；浮點 0.0–1.0 = 比例（0.8 → 204）；
+// 浮點 > 1.0 當絕對值四捨五入；缺漏/null = 0；非數值 → err bad-params。
+static bool readLedChannel(Link link, const char* id, JsonObjectConst params,
+                           const char* key, long* out) {
+  float raw = 0.0f;
+  bool isInt = false;
+  ParamStatus st = readNumber(params, key, &raw, &isInt);
+  if (st == PARAM_BAD) { sendErr(link, id, "bad-params"); return false; }
+  if (st == PARAM_MISSING) { *out = 0; return true; }
+  float scaled = (!isInt && raw >= 0.0f && raw <= 1.0f) ? (raw * 255.0f) : raw;
+  *out = clampLong(roundToLong(scaled), 0, 255);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +426,14 @@ static void releaseServo() {
     g_servo.detach();
     g_servoAttached = false;
   }
+}
+
+// 計時效果到期（millis 溢位安全的減法比較）。loop() 在任何可能阻塞的呼叫
+// 「之前」呼叫一次、之後再呼叫一次——vibe/buzzer 的 durationMs 硬上限不能
+// 因為網路重連而被撐破。
+static void expireTimedEffects(uint32_t now) {
+  if (g_vibeActive && (int32_t)(now - g_vibeEndMs) >= 0) stopVibe(now);
+  if (g_buzzActive && (int32_t)(now - g_buzzEndMs) >= 0) stopBuzzer();
 }
 
 static void stopAllEffects() {
@@ -430,9 +545,11 @@ static void pushStateToPairedLinks() {
 // ---------------------------------------------------------------------------
 
 static bool cmdLedSet(Link link, const char* id, JsonObjectConst params) {
-  long r = clampLong(params["r"] | 0L, 0, 255);
-  long g = clampLong(params["g"] | 0L, 0, 255);
-  long b = clampLong(params["b"] | 0L, 0, 255);
+  // 三個通道全部先解析成功才套用（部分失敗不留下半套效果）。
+  long r = 0, g = 0, b = 0;
+  if (!readLedChannel(link, id, params, "r", &r)) return false;
+  if (!readLedChannel(link, id, params, "g", &g)) return false;
+  if (!readLedChannel(link, id, params, "b", &b)) return false;
   applyLed((uint8_t)r, (uint8_t)g, (uint8_t)b);
   JsonDocument doc;
   doc["type"] = "ack";
@@ -444,8 +561,11 @@ static bool cmdLedSet(Link link, const char* id, JsonObjectConst params) {
 }
 
 static bool cmdBuzzerBeep(Link link, const char* id, JsonObjectConst params, uint32_t now) {
-  long freq = clampLong(params["freqHz"] | 1000L, (long)BUZZ_MIN_FREQ_HZ, (long)BUZZ_MAX_FREQ_HZ);
-  long dur  = clampLong(params["durationMs"] | 200L, 1, (long)BUZZ_MAX_DURATION_MS);
+  long freq = 0, dur = 0;
+  if (!readIntParam(link, id, params, "freqHz", 1000L,
+                    (long)BUZZ_MIN_FREQ_HZ, (long)BUZZ_MAX_FREQ_HZ, &freq)) return false;
+  if (!readIntParam(link, id, params, "durationMs", 200L,
+                    1, (long)BUZZ_MAX_DURATION_MS, &dur)) return false;
   // 換頻率前先停掉進行中的 beep（新指令覆蓋舊指令）
   stopBuzzer();
   uint16_t duty = BUZZ_DUTY_10BIT;
@@ -474,8 +594,12 @@ static bool cmdVibePulse(Link link, const char* id, JsonObjectConst params, uint
     sendErr(link, id, "rate-limited");
     return false;
   }
-  float strength = clampFloat(params["strength"] | 0.0f, 0.0f, VIBE_MAX_STRENGTH);
-  long dur = clampLong(params["durationMs"] | 200L, 1, (long)VIBE_MAX_DURATION_MS);
+  float strength = 0.0f;
+  long dur = 0;
+  if (!readFloatParam(link, id, params, "strength", 0.0f, 0.0f, VIBE_MAX_STRENGTH,
+                      &strength)) return false;
+  if (!readIntParam(link, id, params, "durationMs", 200L,
+                    1, (long)VIBE_MAX_DURATION_MS, &dur)) return false;
   uint8_t duty = (uint8_t)(strength * 255.0f + 0.5f);   // ≤ 204 (0.8*255)
   ledcWrite(PIN_VIBE, duty);
   g_vibeActive = true;
@@ -498,7 +622,9 @@ static bool cmdServoMove(Link link, const char* id, JsonObjectConst params, uint
     sendErr(link, id, "rate-limited");
     return false;
   }
-  long angle = clampLong(params["angle"] | 90L, SERVO_MIN_ANGLE, SERVO_MAX_ANGLE);
+  long angle = 0;
+  if (!readIntParam(link, id, params, "angle", 90L,
+                    SERVO_MIN_ANGLE, SERVO_MAX_ANGLE, &angle)) return false;
   if (!g_servoAttached) {
     g_servo.setPeriodHertz(50);
     g_servo.attach(PIN_SERVO, 500, 2400);   // SG90 典型脈寬
@@ -624,8 +750,11 @@ static void handleMessage(const char* line, Link link) {
       sendErr(link, nullptr, "bad-params");
       return;
     }
-    // 重放/重複：同 id 直接回 dup ack，「不」重新套用效果。
-    if (cmdIdSeen(id)) {
+    // 重放/重複：同 id 或同 nonce 都直接回 dup ack，「不」重新套用效果。
+    // 兩個環並行：主機每次送新的隨機 nonce，所以「nonce 重複」只會是重放
+    // （或主機 bug）；判成 dup 是 fail-safe 方向——寧可不動，不重複實體效果。
+    const char* nonce = doc["nonce"] | "";
+    if (ringContains(g_seenIds, id) || ringContains(g_seenNonces, nonce)) {
       JsonDocument out;
       out["type"] = "ack";
       out["id"] = id;
@@ -633,7 +762,6 @@ static void handleMessage(const char* line, Link link) {
       sendDoc(link, out);
       return;
     }
-    // nonce 欄位目前僅收下不驗（重放防護以 id 環形緩衝為準，README 有註明）。
     const char* name = doc["name"] | "";
     JsonObjectConst params = doc["params"].as<JsonObjectConst>();
 
@@ -647,7 +775,10 @@ static void handleMessage(const char* line, Link link) {
       return;
     }
     // 只有真的套用成功才記進去重環（rate-limited 的重試之後應該要能成功）。
-    if (applied) cmdIdRemember(id);
+    if (applied) {
+      ringRemember(g_seenIds, &g_seenNext, id);
+      ringRemember(g_seenNonces, &g_nonceNext, nonce);   // 空 nonce 不記
+    }
     return;
   }
 
@@ -695,7 +826,15 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
 static bool wifiConfigured() { return WIFI_SSID[0] != '\0'; }
 
-// 非阻塞重連：每 3 秒最多嘗試一次（connect 本身可能短暫阻塞，見 README）。
+// 重連策略（broker 不通時「不」可以每輪 loop 都去撞一次）：
+//   1) 已連線：只跑非阻塞的 g_mqtt.loop()。
+//   2) 未連線：最多每 g_mqttRetryDelayMs 試一次；失敗就指數退避
+//      （10s → 20s → 40s → 60s 上限），連上後歸零。
+//   3) vibe/buzzer 進行中一律「不」嘗試連線——connect() 是本韌體唯一
+//      可能阻塞數百毫秒的呼叫（TCP connect ≤500ms＋等 CONNACK ≤1s），
+//      絕不能撐破 durationMs 硬上限。最多延後 3s（vibe 上限）再連。
+//   4) 整段完全不影響 Serial：pollSerial() 在 loop() 中排在本函式之前，
+//      且不論 Wi-Fi/MQTT 狀態如何都會執行。
 static void maintainMqtt(uint32_t now) {
   if (!wifiConfigured() || WiFi.status() != WL_CONNECTED) return;
   if (g_mqtt.connected()) {
@@ -704,11 +843,22 @@ static void maintainMqtt(uint32_t now) {
   }
   // 斷線＝這條通道的配對失效（下一個連上的人不能繼承配對）。
   g_linkPaired[LINK_MQTT] = false;
-  if (g_lastMqttAttemptMs != 0 && (now - g_lastMqttAttemptMs) < 3000) return;
-  g_lastMqttAttemptMs = now;
+  if (g_vibeActive || g_buzzActive) return;             // 見 (3)
+  if (g_lastMqttAttemptMs != 0 && (now - g_lastMqttAttemptMs) < g_mqttRetryDelayMs) return;
+  g_lastMqttAttemptMs = (now == 0) ? 1 : now;           // 0 是「還沒試過」的哨兵
   if (g_mqtt.connect(DEVICE_ID)) {
+    g_mqttRetryDelayMs = MQTT_RETRY_BASE_MS;
+    g_mqttFailedBefore = false;
     g_mqtt.subscribe(g_mqttTopicIn);
     sendHello(LINK_MQTT);
+  } else {
+    // 第一次失敗後等 MQTT_RETRY_BASE_MS，之後每次失敗把間隔加倍到上限：
+    // 10s → 20s → 40s → 60s → 60s …（連上後歸零）
+    if (g_mqttFailedBefore) {
+      uint32_t next = g_mqttRetryDelayMs * 2;
+      g_mqttRetryDelayMs = (next > MQTT_RETRY_MAX_MS) ? MQTT_RETRY_MAX_MS : next;
+    }
+    g_mqttFailedBefore = true;
   }
 }
 
@@ -724,7 +874,9 @@ class CompanionServerCallbacks : public NimBLEServerCallbacks {
   void onDisconnect(NimBLEServer* server, NimBLEConnInfo& connInfo, int reason) override {
     (void)server; (void)connInfo; (void)reason;
     g_bleConnected = false;
-    g_linkPaired[LINK_BLE] = false;   // 斷線＝配對失效
+    // 這兩個是 BLE task 唯一會寫的共享狀態，且方向都是「收緊」
+    // （斷線＝配對失效、不再送資料）；效果與回覆一律由 loop() 處理。
+    g_linkPaired[LINK_BLE] = false;
     NimBLEDevice::startAdvertising();
   }
 };
@@ -732,13 +884,40 @@ class CompanionServerCallbacks : public NimBLEServerCallbacks {
 class CompanionWriteCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* chr, NimBLEConnInfo& connInfo) override {
     (void)connInfo;
+    // 這裡是 NimBLE host task（core 0）。**不**在這裡處理訊息、也不在這裡
+    // 送任何回覆——否則會與 loop()（core 1）競用 g_vibe*／g_buzz*／notify
+    // characteristic（曾經的後果：vibe 被 loop() 停掉，回呼卻已回 ack
+    // 宣稱 applied）。只做「複製進有界佇列」這一件事。
     // 假設一次 write 就是一個完整 JSON（≤ 協商後 MTU；README 有註明限制）。
+    static BleMsg staged;   // NimBLE 回呼是單執行緒，暫存區可安全重用
     std::string v = chr->getValue();
-    handleMessage(v.c_str(), LINK_BLE);
+    if (v.size() >= BLE_MSG_MAX) { g_bleDropTooLong = true; return; }
+    memcpy(staged.line, v.data(), v.size());
+    staged.line[v.size()] = '\0';
+    if (g_bleQueue == nullptr || xQueueSend(g_bleQueue, &staged, 0) != pdTRUE) {
+      g_bleDropBusy = true;   // 有界佇列滿：誠實回 err busy，不假裝收下
+    }
   }
 };
 
+// loop() 端：把佇列裡的訊息用與 Serial/MQTT 完全相同的路徑處理，
+// 所有 ack/err/state 都在這條 task 上送出。
+static void drainBleQueue() {
+  if (g_bleQueue == nullptr) return;
+  static BleMsg msg;
+  if (g_bleDropTooLong) { g_bleDropTooLong = false; sendErr(LINK_BLE, nullptr, "bad-json"); }
+  if (g_bleDropBusy)    { g_bleDropBusy = false;    sendErr(LINK_BLE, nullptr, "busy"); }
+  // 每輪最多取 BLE_QUEUE_SLOTS 筆（有界，不會被灌爆成無限迴圈）。
+  for (size_t i = 0; i < BLE_QUEUE_SLOTS; i++) {
+    if (xQueueReceive(g_bleQueue, &msg, 0) != pdTRUE) return;
+    // 對端已離線：丟棄（配對已於 onDisconnect 失效，也不該再送效果）。
+    if (!g_bleConnected) continue;
+    handleMessage(msg.line, LINK_BLE);
+  }
+}
+
 static void setupBle() {
+  g_bleQueue = xQueueCreate(BLE_QUEUE_SLOTS, sizeof(BleMsg));
   NimBLEDevice::init(DEVICE_ID);
   NimBLEServer* server = NimBLEDevice::createServer();
   server->setCallbacks(new CompanionServerCallbacks());
@@ -748,7 +927,9 @@ static void setupBle() {
   writeChar->setCallbacks(new CompanionWriteCallbacks());
   g_bleNotifyChar = svc->createCharacteristic(
       BLE_NOTIFY_CHAR_UUID, NIMBLE_PROPERTY::NOTIFY);
-  svc->start();
+  // NimBLE-Arduino 2.x：service 隨 server->start() 一起啟動；
+  // 舊版 svc->start() 已 deprecated（無效果），故不再呼叫。
+  server->start();
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(BLE_SERVICE_UUID);
   adv->start();
@@ -788,6 +969,7 @@ void setup() {
 
   g_dht.begin();
   memset(g_seenIds, 0, sizeof(g_seenIds));
+  memset(g_seenNonces, 0, sizeof(g_seenNonces));
 
   // Wi-Fi（非阻塞：begin 之後由 loop 的 maintainMqtt 檢查狀態）
   if (wifiConfigured()) {
@@ -800,6 +982,11 @@ void setup() {
     g_mqtt.setServer(MQTT_HOST, MQTT_PORT);
     g_mqtt.setCallback(mqttCallback);
     g_mqtt.setBufferSize(1024);   // state 訊息可能超過預設 256 bytes
+    // 把兩個「可能阻塞很久」的預設值改短：TCP connect 預設 3000ms、
+    // PubSubClient 等 CONNACK/封包預設 15s。broker 不通時這兩者就是
+    // loop() 的阻塞長度，必須壓到硬限制容忍得起的量級。
+    g_wifiClient.setConnectionTimeout(MQTT_CONNECT_TIMEOUT_MS);
+    g_mqtt.setSocketTimeout(MQTT_SOCKET_TIMEOUT_S);
   }
 
 #if ENABLE_BLE
@@ -813,26 +1000,30 @@ void setup() {
 void loop() {
   uint32_t now = millis();
 
-  // 1) 輸入
+  // 1) 計時效果到期最優先——排在任何「可能阻塞」的呼叫之前，
+  //    vibe/buzzer 的 durationMs 硬上限才不會被網路重連撐破。
+  expireTimedEffects(now);
+
+  // 2) 輸入。Serial 永遠排在網路之前：Wi-Fi/MQTT 不通完全不影響 Serial。
   pollSerial();
+#if ENABLE_BLE
+  drainBleQueue();   // BLE 訊息也在這條 task 上處理與回覆
+#endif
   maintainMqtt(now);
 
-  // 2) 計時效果到期（millis 溢位安全的減法比較）
-  if (g_vibeActive && (int32_t)(now - g_vibeEndMs) >= 0) {
-    stopVibe(now);
-  }
-  if (g_buzzActive && (int32_t)(now - g_buzzEndMs) >= 0) {
-    stopBuzzer();
-  }
+  // 3) 阻塞點之後再檢一次到期（maintainMqtt 的 connect 最多 ~1.5s，
+  //    且只在沒有效果進行中時才會發生——這裡是保險）。
+  now = millis();
+  expireTimedEffects(now);
 
-  // 3) 感測
+  // 4) 感測
   refreshDhtIfDue(now);
   if (pollButtonEdge(now)) {
     pushStateToPairedLinks();   // 按鈕邊緣（去彈跳後）→ 立即推播
     g_lastStatePushMs = now;
   }
 
-  // 4) 週期推播
+  // 5) 週期推播
   if ((now - g_lastStatePushMs) >= STATE_PERIOD_MS) {
     g_lastStatePushMs = now;
     pushStateToPairedLinks();

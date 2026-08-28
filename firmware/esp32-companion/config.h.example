@@ -15,6 +15,9 @@
 
 // --- MQTT ----------------------------------------------------------------
 // 本韌體「沒有」TLS，只能用在信任的區域網路 broker（例如本機 mosquitto）。
+// 建議直接填 **IP**：填主機名稱時 connect() 會多一段 DNS 解析的阻塞。
+// broker 不通時韌體以非阻塞退避重連（10s → 20s → 40s → 60s 上限），
+// 且 vibe/buzzer 進行中不嘗試連線——Serial 通道完全不受影響。
 #define MQTT_HOST "192.168.1.10"
 #define MQTT_PORT 1883
 
@@ -40,4 +43,6 @@
 // #define STATE_PERIOD_MS 5000
 
 // 啟用 BLE（需要另外安裝 NimBLE-Arduino 函式庫，見 README）。
+// 開啟後 BLE 入站訊息會進一個 8 筆的有界佇列，由 loop() 統一處理與回覆；
+// 佇列滿會回 err busy（訊息丟棄），單筆上限 512 bytes。
 // #define ENABLE_BLE 1

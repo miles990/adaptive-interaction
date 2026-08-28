@@ -80,7 +80,7 @@
 
 ## 5. iPhone Mobile Provider
 
-全部未開始:無 iOS App、無 Bonjour/QR 配對、無 TLS WebSocket provider 通道、無 motion 語意事件、無 BLE gateway。**缺**(Phase 6)。
+（Phase 0 快照）全部未開始:無 iOS App、無 Bonjour/QR 配對、無 TLS WebSocket provider 通道、無 motion 語意事件、無 BLE gateway。**缺**(Phase 6)。→ Phase 6 後的狀態見 §9。
 
 ## 6. 記憶與知識 UI 分層
 
@@ -95,3 +95,62 @@
 ## 8. 既有已知限制(沿承 v0.4,未修改)
 
 CHANGELOG v0.4.0 的 10 項 closing-audit 已知限制全部仍然成立,本文件不重複列出;修掉時同步更新該處與 docs/acceptance-evidence.md。
+
+---
+
+## 9. 收尾狀態（Phase 7 對抗審查＋修復後，2026-08-28；§1–§6 各表的異動）
+
+> 上方 §0–§8 是 Phase 0 的誠實基線快照，不回寫。以下記錄本輪實際變化；每一句「已有」都對應程式碼＋測試，
+> 「部分」與「未做」明列缺口。逐條矩陣（463 列）在 `docs/v05-recovery-matrix.md`，測試命令與數字在
+> `docs/acceptance-evidence.md` 的 v0.5 章節。
+
+**核心一（角色）**：渲染→**已有**（執行期參數化分層 rig＋組合通道；`poseBlend` 通道讓 lie↔stand 頭部連續過渡）；
+動畫數→**已有**（36 正式表情，每個都有**四段**——進入／保持／小循環／離開；Phase 2 交付時「離開」段是死資料、
+0/36 四段齊全，Phase 7 讓 timeline 真的播 exit、未手寫的段落以有意義的派生段補齊並標 `derived`，測試逐幀釘死）；
+Interaction Director→**已有**（`react()`/`noteFinished()`/`scoreEvent` 已接進 App；等優先事件用 utility 競爭；
+quiet 分支可達；「一小時內不要主動說話」同時管住角色端氣泡與 ambient）；組合式通道→**已有**（工作／等待類真相狀態只覆蓋
+核心／頭飾／裙光／耳朵通道，身體保留遊玩姿勢；安全與結果狀態整體搶佔）；個性→**已有**（`personality.ts`：安靜／自然／活潑
+＋persona 派生速度、靠近距離、冷卻、變體權重、假裝沒看到、耳→視線→轉頭分段）；自主移動→**部分**（遊玩場內散步／追逐／翻面；
+**跨螢幕桌面漫遊、坐視窗邊緣、從螢幕邊緣探頭、躲到視窗後未做**——需 OS 視窗層 API）；游標互動→**已有**（視窗內光點／逗貓棒；
+指標進入 hit-rect 時真的看向游標；hover 短氣泡有冷卻；座標不出視窗）；玩具與物理→**已有**（**6 種**玩具含可拖曳小物件 trinket＋
+輕量 2D 物理＋追逐／撲抓／帶回／拒還）；多角色→**部分**（同舞台最多 3 使魔，互相注意／打招呼／追逐，主角會回看與回愛心、
+被追者會逃；多視窗多主角色未做）；命名／場景／匯入匯出→**已有**；Roll Call→**已有**；放下四種落地→**已有**（依速度／高度／落點；
+速度為拖曳位移÷時間的下界估算）；氣泡／音效／拖曳／勿擾各自開關→**已有**（音效預設關）；硬體／提供者事件演出→**已有**
+（device-hello／device-lost／operate-tool／ack-nod）；**對其他視窗開關／移動／下載完成／測試失敗的語意反應未做**（無感知來源）；
+**Fullscreen 與 OS 勿擾偵測未做**（需新平台依賴；只交付使用者層級勿擾開關）；Reduced Motion→**已有**（執行中可切換、真靜態）；
+30fps 降級→**已有**（遲滯政策）。
+
+**核心二（硬體）**：Serial→**已有**（模擬器閉環驗收；ENOTTY 判斷收窄；佇列帶 deadline、重連即清）；MQTT→**已有**
+（內嵌 broker 閉環；dedupe／重連／QoS1 有真斷言）；BLE→**部分**（adapter 完成含 disconnect／task 回收，僅 macOS/Windows 編譯；
+**無真機驗證**）；配對儀式→**已有**（hello 身分＋proto＋pairing 宣告核對＋**明文**配對碼——不是 HMAC；HMAC 只在 iPhone 配對）；
+連線監督→**已有**（退避重連＋重新握手；裝置端 not-paired 會觸發重握手，該次命令誠實 failed 不重送）；健康度→**已有**
+（斷線 offline／未握手 degraded，不再硬編 healthy）；hello.caps 能力識別→**已有**；provider 停用／撤銷關閉連線→**已有**
+（不可逆，重啟用需重載 spec）；ESP32 參考裝置→**部分**（韌體＋BOM＋接線＋Flash 文件；**已用 arduino-cli 實際編譯兩種組態**；
+浮點參數規則、MQTT 非阻塞退避、BLE 有界佇列、nonce 環已修；**未經真板驗收**）；裝置導向 UI→**已有**（只發現／已配對／
+已安裝設定尚未連線／已連線尚未測試／**已測試**／已啟用 六階人話＋「測試裝置」）；Observed／Verified→**設計限制**
+（state facts 無 actionId，硬體動作停在 acknowledged＋deviceApplied；顯式 observed 驗證會轉 uncertain）。
+
+**核心三（AI）**：Agent 事件→角色→**已有**（taxonomy 全映射；新增 unknown）；Session verified→**已有**（human-only 驗證路由＋
+CLI＋UI，綠勾只認 verified；iPhone 綠勾也只走人類驗證路徑）；Resume→**已有**（API／UI／CLI `agents create --resume`／
+`agents resume`；codex `thread/resume` 真的重新上鎖 cwd／approvalPolicy／sandbox，schema 已核）；Conversation Provider→**已有**
+（介面＋本機模板降級）；誠實階梯→**已有**（程序結束無結果＝unknown 非 failed；lease 到期／重啟發 timed-out／unknown；working 不早於
+fetched；fetched 只在寫入 stdin 後；approval 裁決回寫信箱、看門狗自動拒絕可見；人類讀信箱不冒充送達；SSE 初連不重播、daemon
+重啟重置 cursor）；**waiting-input 無任何 connector 能產生**（Claude stream-json／Codex app-server 都沒有對應事件，保留 API 路徑）。
+
+**IA**：5 入口→**已有**；3 步精靈→**已有**（步驟二選擇真的寫入 agent 路由；預設不靜默寫安靜時段／initiative；音效文案有程式支撐）；
+右上 Inbox→**已有**（pendingCount 在截斷前計算；鍵盤／焦點陷阱）；設定單一主人→**已有**（靜態守門測試）；風險分級→**已有**
+（`riskTier.ts` L0–L4 標籤＋人話＋L3 硬限制摘要；L0 純呈現不進待決定）；§11 記憶 UI→**已有**（一般模式只有「關於我的記憶／
+小樞學會的知識／素材與來源」三區、規格人類文案；技術 tab 進階才顯示；角色互動記憶在小樞頁、有界、不推論人格、不進知識庫）；
+淺色主題可讀→**已有**。
+
+**iPhone**：桌面伺服器／配對／token／斷線語意→**已有**（**模擬器**驗收；撤銷即斷線、Bonjour 服務名 `_interact-ai._tcp`、
+heartbeat／idle 逾時、ack 綁定裝置與 authed、facts 依 manifest 過濾、參數映射與 App 驗證一致、estop 去重且無 ack 誠實）；
+安全底線→**已有**（estop 同時停 iPhone 感測；啟用中的手機麥克風出現在 activeSensors／tray／UI；mic-level 需 session consent；
+extra 不能放寬 L3 硬限制；撤銷持久化失敗誠實）；iOS App→**部分**（SwiftUI 原始碼對 iOS 26.5 SDK typecheck 0 error 0 warning；
+以 swiftc 編成模擬器 .app 並與真 daemon 完成配對／動器／撤銷閉環，XCTest 在模擬器 19/19；**無真機驗收**；App 端 Bonjour 瀏覽未做，
+靠 QR／手動）；BLE gateway→**部分**（桌面只有 scan；App 端 connect/gatt 已寫但桌面無送端）；**Camera／Location／Live Activity／
+Audio SFX／區網裝置事件未做**。
+
+**效能實測**（可重現：`pnpm perf`＝`apps/interaction-desktop/scripts/shu/perf-rig.mjs`；headless Chromium，Apple M2 Pro，
+含 raster flush）：見 `docs/acceptance-evidence.md` v0.5 章節的最新一次輸出。Phase 6 文件裡的「drawRig 0.452 ms/幀（2.2x）」
+沒有產生程式，已作廢。

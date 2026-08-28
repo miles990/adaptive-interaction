@@ -140,6 +140,7 @@ const ROUTES: Record<string, Route> = {
       confidence: a.confidence,
     }),
   providers_list: () => http("GET", "/v1/providers"),
+  provider_test: (a) => http("POST", `/v1/providers/${q(a.id)}/test`),
   hardware_scan: () => http("POST", "/v1/hardware/scan"),
   activity_inbox: (a) => {
     const filter = (a.filter ?? {}) as Record<string, unknown>;
@@ -265,6 +266,11 @@ const ROUTES: Record<string, Route> = {
     http("POST", `/v1/agent-sessions/${q(a.id)}/close`, { reason: a.reason ?? "closed" }),
   agent_session_verify: (a) =>
     http("POST", `/v1/agent-sessions/${q(a.id)}/verify`, { note: a.note ?? null }),
+  mobile_status: () => http("GET", "/v1/mobile/status"),
+  mobile_pairing_begin: () => http("POST", "/v1/mobile/pairing-session", {}),
+  mobile_revoke: (a) => http("DELETE", `/v1/mobile/devices/${q(a.id)}`),
+  mobile_ble_scan: (a) =>
+    http("POST", "/v1/mobile/ble/scan", { durationMs: a.durationMs ?? 4000 }),
   sensor_mic_listen: (a) =>
     http("POST", "/v1/sensors/microphone/listen", { durationMs: a.durationMs }),
   sensors_stop: () => http("POST", "/v1/sensors/stop"),
@@ -306,9 +312,53 @@ const stream: StreamState = {
 
 const EVENT_BUFFER_MAX = 500;
 
+/** Where this window is in the daemon's event sequence, and WHICH daemon that
+ *  sequence belongs to. Sequence numbers restart at 1 in a fresh process, so a
+ *  cursor without an instance identity is meaningless across a restart. */
+export interface StreamCursor {
+  /** Daemon instance identity (`/v1/status.startedAt`); null = never synced. */
+  instance: string | null;
+  lastId: string;
+}
+
+export const INITIAL_STREAM_CURSOR: StreamCursor = { instance: null, lastId: "0" };
+
+/**
+ * Decide the `Last-Event-ID` for a (re)connection from the daemon's status.
+ *
+ * - First connect: start at the daemon's CURRENT sequence, i.e. new events
+ *   only. Replaying the whole ring buffer would push a previous run's
+ *   `action.observed` / `emergency.stop` into a freshly started UI, so the
+ *   companion re-performs results that finished long ago.
+ * - Reconnect to the same instance: resume from `lastId` (no gap).
+ * - Different instance (daemon restarted): the old `lastId` would swallow the
+ *   new daemon's first events as if already seen — or, worse, its low
+ *   sequence numbers replay as "new". Reset, and drop cross-instance buffer.
+ * - Unreadable status: keep the cursor untouched and let the caller retry
+ *   rather than guessing.
+ */
+export function nextStreamCursor(
+  prev: StreamCursor,
+  status: unknown
+): { cursor: StreamCursor; reset: boolean } {
+  const record = status && typeof status === "object" ? (status as Record<string, unknown>) : null;
+  const startedAt = record?.["startedAt"];
+  const sequence = Number(record?.["eventSequence"]);
+  if (typeof startedAt !== "string" || !startedAt || !Number.isFinite(sequence)) {
+    return { cursor: prev, reset: false };
+  }
+  if (prev.instance === startedAt) {
+    return { cursor: { instance: startedAt, lastId: prev.lastId }, reset: false };
+  }
+  return {
+    cursor: { instance: startedAt, lastId: String(Math.max(0, Math.trunc(sequence))) },
+    reset: prev.instance !== null,
+  };
+}
+
 async function runStream() {
   const { base, token } = cfg();
-  let lastId = "0";
+  let cursor: StreamCursor = { ...INITIAL_STREAM_CURSOR };
   let everOpened = false;
   let failures = 0;
   // Reconnect loop with modest backoff; caller UIs surface offline state.
@@ -316,10 +366,25 @@ async function runStream() {
     const abort = new AbortController();
     stream.abort = abort;
     try {
+      // Identify the daemon instance and its current sequence BEFORE
+      // subscribing. Without this the first connection asks for
+      // `Last-Event-ID: 0` (the entire replay buffer) and a reconnect after a
+      // restart keeps a cursor that belongs to a different process.
+      const statusRes = await fetch(`${base}/v1/status`, {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        signal: abort.signal,
+      });
+      if (!statusRes.ok) throw new Error(`events stream status ${statusRes.status}`);
+      const advanced = nextStreamCursor(cursor, await statusRes.json());
+      // A restart invalidates the buffered events too: they came from a
+      // process that no longer exists.
+      if (advanced.reset) stream.buffer.length = 0;
+      cursor = advanced.cursor;
+
       const res = await fetch(`${base}/v1/events`, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          "Last-Event-ID": lastId,
+          "Last-Event-ID": cursor.lastId,
           Accept: "text/event-stream",
         },
         signal: abort.signal,
@@ -343,7 +408,7 @@ async function runStream() {
           let data = "";
           for (const line of chunk.split("\n")) {
             if (line.startsWith("data:")) data += line.slice(5).trim();
-            else if (line.startsWith("id:")) lastId = line.slice(3).trim();
+            else if (line.startsWith("id:")) cursor.lastId = line.slice(3).trim();
           }
           if (!data || data === "keep-alive") continue;
           try {

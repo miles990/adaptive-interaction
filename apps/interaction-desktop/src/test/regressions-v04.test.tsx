@@ -195,7 +195,7 @@ describe("Source Viewer 真實媒體預覽", () => {
       note: "runtime payload",
     });
     render(<MemoryKnowledgePage refreshKey={0} />);
-    await userEvent.click(screen.getByRole("tab", { name: "原始素材" }));
+    await userEvent.click(screen.getByRole("tab", { name: "素材與來源" }));
     await userEvent.click(await screen.findByRole("button", { name: "開啟來源" }));
     const viewer = await screen.findByTestId("source-media-viewer");
     expect(within(viewer).getByRole("img")).toHaveAttribute(
@@ -363,22 +363,26 @@ describe("待我決定計數誠實（收件匣與 NowStrip）", () => {
   });
 
   it("NowStrip：查詢失敗顯示無法確認，不顯示綠色 0 項", async () => {
-    vi.spyOn(api, "agentSessionsList").mockRejectedValue(new Error("sessions down"));
-    vi.spyOn(api, "aiAssistsList").mockResolvedValue([]);
-    vi.spyOn(api, "knowledgeList").mockResolvedValue({ nodes: [], count: 0 });
+    vi.spyOn(api, "agentSessionsList").mockResolvedValue([]);
+    vi.spyOn(api, "activityInbox").mockRejectedValue(new Error("inbox down"));
     vi.spyOn(api, "knowledgeReceipts").mockResolvedValue({ receipts: [] });
     render(<NowStrip refreshKey={0} status={{}} onNavigate={() => {}} />);
     expect(await screen.findByText("無法確認（查詢失敗）")).toBeInTheDocument();
     expect(screen.queryByText("0 項")).not.toBeInTheDocument();
   });
 
-  it("NowStrip：候選達上限顯示 N+ 項", async () => {
+  it("NowStrip：待我決定直接顯示後端 pendingCount（與右上角 Inbox 同一個數字）", async () => {
     vi.spyOn(api, "agentSessionsList").mockResolvedValue([]);
-    vi.spyOn(api, "aiAssistsList").mockResolvedValue([]);
-    vi.spyOn(api, "knowledgeList").mockResolvedValue({ nodes: [], count: 50 });
+    const inbox = vi.spyOn(api, "activityInbox").mockResolvedValue({
+      items: [],
+      count: 1,
+      totalBeforeLimit: 42,
+      pendingCount: 7,
+    });
     vi.spyOn(api, "knowledgeReceipts").mockResolvedValue({ receipts: [] });
     render(<NowStrip refreshKey={0} status={{}} onNavigate={() => {}} />);
-    expect(await screen.findByText("50+ 項")).toBeInTheDocument();
+    expect(await screen.findByText("7 項")).toBeInTheDocument();
+    expect(inbox).toHaveBeenCalled();
   });
 });
 

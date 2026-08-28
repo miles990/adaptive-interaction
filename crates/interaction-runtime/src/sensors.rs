@@ -34,6 +34,15 @@ impl Runtime {
             .collect()
     }
 
+    /// 目前所有「正在感測」的來源＝本機擷取＋已連線手機自報的高風險感測。
+    /// `status.activeSensors` 用這一個（tray／首頁／角色視窗都吃它）——
+    /// 手機的麥克風也是感測，不得只在手機上亮著、桌面卻一片安靜。
+    pub async fn active_sensors_all(&self) -> Vec<SensorUse> {
+        let mut all = self.active_sensors();
+        all.extend(self.mobile_active_sensors().await);
+        all
+    }
+
     pub(crate) fn sensor_state_changed(&self, kind: &str, active: bool) {
         {
             let mut map = self.sensors.lock().expect("sensors lock");

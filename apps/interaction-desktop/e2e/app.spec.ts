@@ -86,7 +86,7 @@ test("新 IA：5 個一級入口全部可達", async ({ page }) => {
     ["小樞", /36 表情預覽/],
     ["工作", "本機 AI Agent"],
     ["連接與權限", "系統時間"],
-    ["更多", "小樞記住了什麼"],
+    ["更多", "關於我的記憶"],
     ["現在", "快速操作"],
   ];
   for (const [label, marker] of pages) {
@@ -132,14 +132,19 @@ test("工作：真實 agent 發現誠實顯示；建立面板有授權預覽", a
   await sheet.getByRole("button", { name: "取消" }).click();
 });
 
-test("更多：記憶與知識分層誠實標示；候選複審入口存在", async ({ page }) => {
+test("更多：記憶與知識一般模式只有三區；技術細節不外洩", async ({ page }) => {
   await open(page);
   await page.getByRole("navigation", { name: "主要導覽" }).getByText("更多", { exact: true }).click();
   await expect(page.getByText("沒有你不能刪除的記憶")).toBeVisible();
-  await page.getByRole("tab", { name: "知識與候選" }).click();
-  await expect(page.getByText(/AI（含各 agent）只能提出/)).toBeVisible();
-  await page.getByRole("tab", { name: "提供給 AI 的內容" }).click();
-  await expect(page.getByText(/實際會提供哪些/)).toBeVisible();
+  // spec §11：一般模式只顯示「關於我的記憶／小樞學會的知識／素材與來源」。
+  const group = page.getByRole("tablist", { name: "記憶與知識分類" });
+  await expect(group.getByRole("tab")).toHaveCount(3);
+  await group.getByRole("tab", { name: "小樞學會的知識" }).click();
+  await expect(page.getByText(/要你確認過才會被採用/)).toBeVisible();
+  // 知識收據／Context Bundle 預覽／候選複審屬技術細節，只在進階模式出現。
+  await expect(page.getByRole("tab", { name: "提供給 AI 的內容" })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "知識收據" })).toHaveCount(0);
+  await expect(page.getByText("Context Bundle")).toHaveCount(0);
 });
 
 test("全域搜尋：Ctrl+K 開啟、能導頁、指令列出", async ({ page }) => {
@@ -151,7 +156,7 @@ test("全域搜尋：Ctrl+K 開啟、能導頁、指令列出", async ({ page })
   await expect(overlay.getByText("緊急停止").first()).toBeVisible();
   await overlay.getByPlaceholder(/搜尋設定/).fill("記憶與知識");
   await overlay.getByRole("option", { name: /記憶與知識/ }).first().click();
-  await expect(page.getByText("小樞記住了什麼")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("關於我的記憶").first()).toBeVisible({ timeout: 10_000 });
 });
 
 test("工作 → 自動互動：句子式建立 → 摘要 → 模擬（零副作用）", async ({ page }) => {

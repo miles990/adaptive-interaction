@@ -11,6 +11,11 @@
   --warn: #d9a339;
   --bad: #e5534b;
   --pending: #7a8bd4;
+  /* 浮層（搜尋面板、通知中心、底部導覽）與輸入框的底色／文字色：
+     兩個主題都必須定義，缺一個就會在淺色主題下變成看不見的黑底黑字。 */
+  --panel: #1c2331;
+  --input-bg: #10141a;
+  --input-text: #dbe4ee;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
 }
 
@@ -27,6 +32,9 @@
   --warn: #9a6800;
   --bad: #bd2d2a;
   --pending: #5266a8;
+  --panel: #ffffff;
+  --input-bg: #ffffff;
+  --input-text: #18212c;
 }
 
 @media (prefers-color-scheme: light) {
@@ -43,6 +51,9 @@
     --warn: #9a6800;
     --bad: #bd2d2a;
     --pending: #5266a8;
+    --panel: #ffffff;
+    --input-bg: #ffffff;
+    --input-text: #18212c;
   }
 }
 
@@ -138,7 +149,7 @@ table.kv td { padding: 4px 8px; font-size: 13px; }
 table.kv td:first-child { color: var(--muted); width: 100px; }
 
 .json-view {
-  background: #10141a; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px;
   padding: 10px; font-size: 12px; overflow: auto; max-height: 420px;
   white-space: pre-wrap; word-break: break-word;
 }
@@ -167,7 +178,7 @@ button:disabled { opacity: .5; cursor: default; }
 }
 
 input, select, textarea {
-  background: #10141a; color: var(--text); border: 1px solid var(--border);
+  background: var(--input-bg); color: var(--input-text); border: 1px solid var(--border);
   border-radius: 6px; padding: 6px 10px; font-size: 13px;
 }
 
@@ -413,7 +424,7 @@ button.ghost { background: none; border-color: transparent; color: var(--muted);
   .sidebar { display: none; }
   .bottom-nav {
     display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
-    background: var(--panel, var(--bg)); border-top: 1px solid var(--border);
+    background: var(--panel); border-top: 1px solid var(--border);
     padding: 2px 4px calc(2px + env(safe-area-inset-bottom, 0px));
   }
   .main { padding-bottom: 64px; }
@@ -527,7 +538,7 @@ html.companion-window, html.companion-window body, html.companion-window #root {
 .now-title { font-size: 12px; opacity: 0.75; }
 .search-trigger { margin-left: auto; margin-right: 10px; display: inline-flex; align-items: center; gap: 5px; }
 .search-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 90; display: flex; justify-content: center; padding-top: 10vh; }
-.search-panel { width: min(560px, 92vw); max-height: 70vh; background: var(--panel, #1c2331); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+.search-panel { width: min(560px, 92vw); max-height: 70vh; background: var(--panel); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
 .search-input-row { display: flex; align-items: center; gap: 8px; }
 .search-input-row input { flex: 1; }
 .search-results { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
@@ -555,7 +566,7 @@ html.companion-window, html.companion-window body, html.companion-window #root {
 .definition-list dd { margin: 0; overflow-wrap: anywhere; }
 .field-label progress { display: block; width: 100%; margin-top: .35rem; }
 .notification-trigger { margin-right: 8px; white-space: nowrap; }
-.notification-panel { position: fixed; z-index: 85; top: 58px; right: 18px; width: min(380px, calc(100vw - 24px)); max-height: 70vh; overflow: auto; padding: 12px; border: 1px solid var(--border, #33415c55); border-radius: 12px; background: var(--panel, #1c2331); box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+.notification-panel { position: fixed; z-index: 85; top: 58px; right: 18px; width: min(380px, calc(100vw - 24px)); max-height: 70vh; overflow: auto; padding: 12px; border: 1px solid var(--border, #33415c55); border-radius: 12px; background: var(--panel); box-shadow: 0 12px 40px rgba(0,0,0,.35); }
 @media (max-width: 700px) {
   .now-strip { grid-template-columns: repeat(2, 1fr); }
   .search-overlay { padding-top: 4vh; }

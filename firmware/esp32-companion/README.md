@@ -117,6 +117,29 @@ adaptive-interaction 平台的官方參考硬體裝置。一片 ESP32-WROOM-32 D
    {"type":"hello","deviceId":"esp32-companion-01","fw":"1.0.0","proto":1,"caps":["led.set","buzzer.beep","vibe.pulse","servo.move","sensors.read"],"pairing":true}
    ```
 
+### 不用 IDE 的編譯檢查（arduino-cli，可重現）
+
+```bash
+brew install arduino-cli                       # 或官方安裝方式
+./firmware/esp32-companion/compile.sh --setup  # 第一次：裝 esp32 core 3.x ＋ 上表全部函式庫
+./firmware/esp32-companion/compile.sh          # Serial＋Wi-Fi/MQTT 組態（ENABLE_BLE=0）
+./firmware/esp32-companion/compile.sh --ble    # 加 NimBLE 組態（ENABLE_BLE=1）
+```
+
+- 腳本把 `.ino`＋`config.h.example` 複製到暫存資料夾編譯（**不會**碰你的 `config.h`），
+  `--warnings all`，產物（`.bin`／`.merged.bin`）留在暫存路徑，不進 repo。
+- 2026-08-28 實測（arduino-cli 1.5.1、esp32:esp32 3.3.11、ArduinoJson 7.4.3、
+  PubSubClient 2.8、DHT 1.4.7、ESP32Servo 3.2.1、NimBLE-Arduino 2.5.1，
+  FQBN `esp32:esp32:esp32`）：兩種組態皆 **0 error、本韌體 0 warning**
+  （僅 ESP32Servo 函式庫自身 4 個 unused-variable 警告）；
+  程式大小 938 615 bytes（71%）／1 188 743 bytes（90%），
+  全域變數 49 908 bytes（15%）／61 040 bytes（18%）。
+- **這只證明「能編譯」**，不是硬體驗收——燒進真板、跑下方「測試步驟」表格才算。
+- Apple Silicon 且**沒裝 Rosetta** 的 Mac：arduino-cli 內建的 `ctags` 是 x86_64 專用，
+  會報 `bad CPU type in executable`；腳本會自動改用 `tools/ctags-shim/`
+  （需要 `brew install universal-ctags`），把 Universal Ctags 的輸出轉成
+  arduino-cli 產生函式原型時要的格式。有 Rosetta 或非 macOS 不需要。
+
 ---
 
 ## 協定訊息一覽
@@ -136,10 +159,29 @@ adaptive-interaction 平台的官方參考硬體裝置。一片 ESP32-WROOM-32 D
 | 裝置→ | `{"type":"state","deviceId":..,"facts":{"button":bool,"distanceMm":int\|-1,"lux":int,"tempC":float\|null,"vibeActive":bool,"servoAngle":int,"led":{"r":..,"g":..,"b":..}}}` | 也會在按鈕邊緣與每 `STATE_PERIOD_MS`（預設 5000ms）自動推播 |
 | →裝置 | `{"type":"stop-all"}` | 緊急停止；**不需配對**（fail-safe 方向） |
 | 裝置→ | `{"type":"ack","stopAll":true}` | |
-| 裝置→ | `{"type":"err","id":..,"reason":".."}` | `not-paired` / `bad-json` / `unknown-type` / `unknown-cmd` / `bad-params` / `rate-limited` / `not-found` |
+| 裝置→ | `{"type":"err","id":..,"reason":".."}` | `not-paired` / `bad-json` / `unknown-type` / `unknown-cmd` / `bad-params` / `rate-limited` / `not-found` / `busy`（僅 BLE：入站佇列滿） |
 
 指令參數：`led.set {r,g,b}`、`buzzer.beep {freqHz,durationMs}`、
 `vibe.pulse {strength 0..1, durationMs}`、`servo.move {angle 0..180}`。
+
+### 數值參數的型別規則（韌體與模擬器逐位一致）
+
+runtime 的模板佔位符 `{{magnitude}}` 是以 **JSON number（浮點）** 上線的
+（serde_json 把 f64 `1.0` 寫成 `1.0`，不是 `1`），因此協定對數值參數的規定是：
+
+| 送出的 JSON 值 | 解讀 | 例 |
+|---|---|---|
+| 整數（`255`） | 絕對值 | `led.set {"r":255}` → `applied.r = 255` |
+| 浮點 0.0–1.0（`0.8`） | **比例**（×255 四捨五入） | `led.set {"r":0.8}` → `applied.r = 204` |
+| 浮點 > 1.0（`200.6`） | 絕對值，四捨五入 | → `201` |
+| 缺漏 / `null` | 該參數的預設值（`led.set` 是 0） | `{"r":0.8}` → `g=0,b=0` |
+| 非數值（字串／bool／陣列／物件） | `err bad-params`（**不**靜默當 0） | `{"r":"255"}` → err |
+
+- 其餘整數參數（`freqHz` / `durationMs` / `angle`）同樣接受浮點（`1500.0`
+  等同 `1500`），一律四捨五入後再套硬限制 clamp；`strength` 是 0..1 浮點。
+- 超出範圍一律 clamp（不是 err），`ack.applied` 回報 clamp 後的實際值。
+- 韌體以 `float`（單精度）運算，`scripts/esp32-serial-sim.py` 鏡射同一精度，
+  所以像 `{"r":0.3}` 兩端都得到 `77`。
 
 MQTT 主題（與 runtime adapter 對齊）：下行 `<prefix>/to-device`、上行
 `<prefix>/from-device`。topic 不是身分——runtime 仍會驗 `hello.deviceId` 與配對碼，
@@ -165,7 +207,7 @@ BLE UUID（`ENABLE_BLE 1` 時）：
 | `vibe.pulse` | strength duty 上限 **0.8**；durationMs ≤ **3000**；兩次脈衝最小間隔 **500ms**（違反 → `err rate-limited`，脈衝進行中亦拒收） |
 | `buzzer.beep` | freqHz clamp **200..4000**；durationMs ≤ **2000**；PWM duty 硬上限 **50%**（預設約 31%） |
 | `servo.move` | angle clamp **10..170**；每 **300ms** 最多一次（違反 → `err rate-limited`） |
-| `led.set` | r/g/b 各自 clamp **0..255** |
+| `led.set` | r/g/b 各自 clamp **0..255**（整數＝絕對值、0.0–1.0 浮點＝比例，見上方型別規則） |
 
 ---
 
@@ -192,6 +234,10 @@ Serial Monitor 設 115200、行尾 Newline，逐行貼上並核對回覆：
 | 13 | `{"type":"stop-all"}` | `{"type":"ack","stopAll":true}`，LED 熄、伺服鬆脫 |
 | 14 | 按實體按鈕 | 立即多推一則 `state`（`button:true`），放開再一則 |
 | 15 | 等待 | 每 5 秒自動推播一則 `state` |
+| 16 | `{"type":"cmd","id":"t6","name":"led.set","params":{"r":0.8,"g":0,"b":0}}` | `applied":{"r":204,...}`，LED 亮約八成紅 ← **浮點＝比例**（runtime 的 `{{magnitude}}` 走這條） |
+| 17 | `{"type":"cmd","id":"t7","name":"led.set","params":{"r":"255"}}` | `{"type":"err","id":"t7","reason":"bad-params"}` ← 字串不當 0 |
+| 18 | `{"type":"cmd","id":"t8","nonce":"abc","name":"led.set","params":{"r":10}}`，再送 `id":"t9"` 但 `nonce":"abc"` | 第二則回 `{"type":"ack","id":"t9","dup":true}`，LED **不變** ← nonce 重放被擋 |
+| 19 | 拔掉 Wi-Fi／關掉 broker，再送 `{"type":"cmd",...,"vibe.pulse","params":{"strength":0.5,"durationMs":1000}}` | 震動精準 1 秒停止、Serial 回應不延遲 ← 重連退避不撐破硬上限 |
 
 ### 2. 配對流程
 
@@ -261,6 +307,9 @@ capabilities:
     confirmation: acknowledged
     command:
       name: led.set
+      # {{magnitude}} 會以 policy 裁剪後的 0.0–1.0 **浮點**上線，韌體把
+      # 0.0–1.0 的浮點當「比例」（0.8 → r=204）。要固定亮度就寫整數，
+      # 例如 r: 255（整數＝絕對值 0–255）。詳見上方〈數值參數的型別規則〉。
       params: { r: "{{magnitude}}", g: 0, b: 0 }
   - kind: actuator
     id: vibe
@@ -320,6 +369,9 @@ capabilities:
     confirmation: acknowledged
     command:
       name: led.set
+      # {{magnitude}} 會以 policy 裁剪後的 0.0–1.0 **浮點**上線，韌體把
+      # 0.0–1.0 的浮點當「比例」（0.8 → r=204）。要固定亮度就寫整數，
+      # 例如 r: 255（整數＝絕對值 0–255）。詳見上方〈數值參數的型別規則〉。
       params: { r: "{{magnitude}}", g: 0, b: 0 }
 ```
 
@@ -340,6 +392,9 @@ capabilities:
     confirmation: acknowledged
     command:
       name: led.set
+      # {{magnitude}} 會以 policy 裁剪後的 0.0–1.0 **浮點**上線，韌體把
+      # 0.0–1.0 的浮點當「比例」（0.8 → r=204）。要固定亮度就寫整數，
+      # 例如 r: 255（整數＝絕對值 0–255）。詳見上方〈數值參數的型別規則〉。
       params: { r: "{{magnitude}}", g: 0, b: 0 }
 ```
 
@@ -347,18 +402,36 @@ capabilities:
 bounded 值**代入（不是 AI 的原始請求值）；韌體再套一層硬限制——兩層都只會
 更保守，不會更寬。
 
+型別上：`{{magnitude}}` 上線時是 **JSON 浮點 0.0–1.0**（`magnitude=1.0` 送出的
+位元組是 `1.0`），`{{durationMs}}` 是 **JSON 整數**。所以
+`r: "{{magnitude}}"` 在韌體端走「比例」路徑（`0.8` → `applied.r = 204`），
+`strength: "{{magnitude}}"` 直接就是 0..1 的 strength。若某個參數要的是
+絕對值（例如固定亮度或角度），YAML 就直接寫整數。
+
 ---
 
 ## 已知限制（誠實列出）
 
-1. **本韌體尚未在真實 ESP32 硬體上編譯與驗證**——僅經程式碼審閱，並與
-   runtime 端 adapter 實作（`crates/interaction-adapter-declarative/src/protocol.rs`
-   的 `DeviceMsg`/`HostMsg`）逐欄核對訊息型別、欄位名、MQTT 主題與錯誤碼。
-   語法以 Arduino ESP32 core 3.x＋ArduinoJson 7.x 撰寫，首次燒錄前請預期
-   可能需要小幅修正。
+1. **本韌體尚未在真實 ESP32 硬體上燒錄與驗證**（本開發環境沒有實體板子）。
+   已完成的是：(a) 以 arduino-cli 對 esp32:esp32 3.3.11 **實際編譯兩種組態**
+   （見上方「不用 IDE 的編譯檢查」，0 error）；(b) 與 runtime 端 adapter 實作
+   （`crates/interaction-adapter-declarative/src/protocol.rs` 的 `DeviceMsg`/`HostMsg`）
+   逐欄核對訊息型別、欄位名、MQTT 主題與錯誤碼；(c) 以 `scripts/esp32-serial-sim.py`
+   模擬器跑 CLI E2E 閉環。**能編譯≠真機閉環**——接線、時序、感測器讀值、
+   PWM 硬限制在真板上的實際行為仍未驗收。
+   另外，數值參數規則、MQTT 重連退避、BLE 佇列這三段邏輯曾以「把 `.ino` 裡
+   的函式逐字抽出、在桌面配真的 ArduinoJson 7.4.3 與假的 WiFi/PubSubClient/
+   FreeRTOS queue 編譯執行」的方式驗過（並與模擬器逐案比對數值）——那是
+   開發當下的一次性檢查，**沒有**進 repo，不是可重跑的回歸測試。
 2. **BLE 預設關閉**（`ENABLE_BLE 0`），需自行在 `config.h` 開啟並安裝
-   NimBLE-Arduino。BLE 假設一次 write 含完整 JSON（runtime 端單筆上限
-   480 bytes），未實作分段重組；訊息較長時請改用 Serial／MQTT。
+   NimBLE-Arduino。BLE 假設一次 write 含完整 JSON（**單筆上限 512 bytes**，
+   runtime 端上限 480 bytes），未實作分段重組；訊息較長時請改用 Serial／MQTT。
+   BLE write 回呼跑在 NimBLE host task（core 0），因此它**只**把訊息複製進一個
+   **8 筆的有界佇列**，實際解析、套用效果與所有回覆（ack/err/state）都由
+   `loop()`（core 1）在與 Serial／MQTT 相同的路徑上做——不會出現「效果已被
+   loop() 停掉、回呼卻已回 ack 宣稱 applied」的競態。佇列滿 → `err busy`
+   （**訊息被丟棄，沒有被排隊也沒有被執行**）；單筆超過 512 bytes →
+   `err bad-json`；對端斷線時佇列內殘留訊息一律丟棄不套用。
    runtime 端 BLE transport 僅支援 macOS／Windows。
 3. **DHT22 偶發讀取失敗（NaN）**：`tempC` 誠實回 `null`，不以舊值冒充新讀值。
    未接 DHT22 時 `tempC` 恆為 `null`；未接 HC-SR04 時 `distanceMm` 恆為 `-1`。
@@ -367,12 +440,30 @@ bounded 值**代入（不是 AI 的原始請求值）；韌體再套一層硬限
 5. **`lux` 是未校準的 ADC 相對值（0..4095）**，不是真實 lux 單位；欄位名沿用
    協定，語意是「相對亮度」。
 6. **配對狀態**：Serial 通道無法偵測 USB 拔插，配對維持到裝置重開機；
-   MQTT／BLE 斷線即重置。`nonce` 欄位目前僅接收不驗證，重放防護依賴
-   16 筆 cmd id 環形去重。
+   MQTT／BLE 斷線即重置。**重放防護**：韌體對 `id` 與 `nonce` 各維護一組
+   16 筆環形緩衝並行比對，命中任一（同 id 或同 nonce 在最近 16 筆內重複出現）
+   即回 `{"type":"ack","id":..,"dup":true}` 且**不套用效果**；只有真的套用成功
+   的指令才會記入環（rate-limited 之後的重試仍能成功）。
+   限制：**環只有 16 筆**，超過 16 筆之後的舊 id／nonce 會被擠掉，
+   再送同一則就會被當成新指令重新套用；`nonce` 本身沒有簽章或時間戳，
+   擋得住重送、擋不住能任意偽造訊息的中間人（MQTT 無 TLS，見第 4 點）。
 7. **`servoAngle` 是最後指令角度**：`stop-all` 會 detach 伺服（不再出力），
    之後實際角度可能被外力改變，但回報值不變。
-8. **短暫阻塞點**：HC-SR04 的 `pulseIn` 最長阻塞 30ms（協定允許的微秒級量測）；
-   MQTT broker 斷線重連時 `connect()` 可能阻塞數秒，期間 Serial 回應會延遲。
+8. **短暫阻塞點**（`loop()` 每輪的最壞情況；效果到期檢查排在所有阻塞點之前）：
+   - HC-SR04 的 `pulseIn` 最長 **30ms**（協定允許的微秒級量測，每次組 `state` 一次）。
+   - MQTT 重連：**最多每 10 秒嘗試一次**，連續失敗則退避 10s → 20s → 40s →
+     60s（上限），連上後歸零。單次嘗試的阻塞上限 ≈ **1.5s**
+     （TCP connect `setConnectionTimeout(500ms)` ＋ 等 CONNACK
+     `setSocketTimeout(1s)`）——不再是舊版的「每 3 秒背靠背各阻塞 3 秒」。
+   - **vibe／buzzer 進行中一律不嘗試 MQTT 連線**，所以 `durationMs` 硬上限
+     不會被重連撐破；重連最多延後 3 秒（vibe 的 durationMs 上限）。
+   - 已連上時 `g_mqtt.loop()` 在封包傳到一半時最多阻塞 **1s**
+     （PubSubClient socket timeout 的最小粒度）。
+   - `MQTT_HOST` 若填**主機名稱**而非 IP，`connect()` 會多一段 DNS 解析的阻塞
+     （lwIP 的 DNS 逾時，可達數秒）——建議直接填 IP。
+   - Serial 完全不受上述影響：`pollSerial()` 在 `loop()` 中排在網路之前，
+     且不論 Wi-Fi／MQTT 狀態如何都會執行；host 端 2.5 秒的握手逾時
+     即使撞上一次重連嘗試（≈1.5s）仍有餘裕。
 9. **單行訊息上限 639 bytes**，超過整行丟棄並回 `err bad-json`。
 10. **`stop-all` 不需配對**：刻意的 fail-safe 設計——它只會關閉效果，
     寧可讓未配對的主機能緊急停下裝置。

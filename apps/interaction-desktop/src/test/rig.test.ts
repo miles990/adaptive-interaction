@@ -16,6 +16,12 @@ import {
   RIG_FALLBACKS,
 } from "../companion/rig/expressions";
 import { evalPhase, resolveRigAnimation, validateRigManifest } from "../companion/rig/renderer";
+import {
+  EXIT_MAX_MS,
+  ExpressionTimeline,
+  resolveSegments,
+} from "../companion/rig/timeline";
+import { playfieldActive, stageExpressionPlan, statusOverlay } from "../companion/rig/stage";
 import { AMBIENT_VARIANTS, InteractionDirector, REACTION_EXPRESSIONS } from "../companion/director";
 import { initialBehavior } from "../companion/behavior";
 import { pose } from "../companion/machine";
@@ -284,5 +290,232 @@ describe("Interaction Director", () => {
     expect(d.react("celebrate-success", 0)).toBeNull();
     const a = d.react("curious", 0);
     expect(a?.expression).toBe("curious");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v0.5 修復回歸：四段式「離開」段真的會播（曾經是死資料）。
+// ---------------------------------------------------------------------------
+
+describe("四段式：enter/hold/loop/exit（spec §6.1/§7）", () => {
+  it("OFFICIAL_36 每個表情 resolveSegments 四段皆存在且 durationMs>0", () => {
+    for (const id of OFFICIAL_36) {
+      const expr = EXPRESSIONS[id];
+      const seg = resolveSegments(expr);
+      for (const key of ["enter", "loop", "exit"] as const) {
+        expect(seg[key], `${id}.${key} 缺段`).toBeTruthy();
+        expect(seg[key].durationMs, `${id}.${key} durationMs`).toBeGreaterThan(0);
+        expect(seg[key].frames.length, `${id}.${key} frames`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("至少 8 個高頻表情有手寫（非派生）exit", () => {
+    const handWritten = [
+      "idle",
+      "poked",
+      "poked-rapid",
+      "lifted",
+      "wobbly-landing",
+      "success-verified",
+      "failed",
+      "wait-codex",
+    ];
+    for (const id of handWritten) {
+      const seg = resolveSegments(EXPRESSIONS[id]);
+      expect(seg.derived.exit, `${id} 應有專屬 exit`).toBe(false);
+    }
+    expect(handWritten.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("派生段落標記 derived，且 ambient/狀態表情用不同的預設 loop", () => {
+    const ambient = resolveSegments(EXPRESSIONS["await-player"]); // ambientOverlay
+    expect(ambient.derived.exit).toBe(true);
+    const notFound = resolveSegments(EXPRESSIONS["not-found"]);
+    expect(notFound.derived.enter).toBe(true);
+    // 派生 exit 是 settle 回 DEFAULT 的 follow-through（過衝後回中性）。
+    const last = notFound.exit.frames[notFound.exit.frames.length - 1];
+    expect(last.p.headNod).toBe(DEFAULT_PARAMS.headNod);
+    expect(last.p.earPerk).toBe(DEFAULT_PARAMS.earPerk);
+  });
+
+  it("切換表情時真的輸出 exit 段參數（假時鐘逐幀）", () => {
+    const tl = new ExpressionTimeline(() => 0.5, 0);
+    tl.setAnimation("poked", 0);
+    tl.paramsAt(0);
+    tl.paramsAt(2_000); // 進入 hold/loop
+    tl.setAnimation("idle", 2_000);
+    const seg = resolveSegments(EXPRESSIONS["poked"]);
+    const dur = Math.min(EXIT_MAX_MS, seg.exit.durationMs);
+    expect(tl.isExiting(2_000 + 10)).toBe(true);
+    const base = clampParams({ ...DEFAULT_PARAMS, ...EXPRESSIONS["poked"].hold });
+    const expected = evalPhase(base, seg.exit, 0.5);
+    const got = tl.paramsAt(2_000 + dur / 2);
+    expect(got.headTilt).toBeCloseTo(expected.headTilt, 5);
+    expect(got.blush).toBeCloseTo(expected.blush, 5);
+    // exit 播完才換到新表情。
+    tl.paramsAt(2_000 + dur + 1);
+    expect(tl.isExiting(2_000 + dur + 1)).toBe(false);
+    expect(tl.currentExpression()).toBe("idle");
+  });
+
+  it("exit 最長 260ms（再長的離開段也不拖延下一個狀態）", () => {
+    const seg = resolveSegments(EXPRESSIONS["wobbly-landing"]);
+    expect(seg.exit.durationMs).toBeGreaterThan(EXIT_MAX_MS);
+    const tl = new ExpressionTimeline(() => 0.5, 0);
+    tl.setAnimation("wobbly-landing", 0);
+    tl.paramsAt(1_500);
+    tl.setAnimation("idle", 1_500);
+    expect(tl.isExiting(1_500 + EXIT_MAX_MS - 5)).toBe(true);
+    tl.paramsAt(1_500 + EXIT_MAX_MS + 1);
+    expect(tl.isExiting(1_500 + EXIT_MAX_MS + 1)).toBe(false);
+  });
+
+  it("truth-state（emergency/blocked/failed/unknown/offline）立即搶佔，不播 exit", () => {
+    for (const id of ["emergency", "blocked", "failed", "unknown", "offline"]) {
+      const tl = new ExpressionTimeline(() => 0.5, 0);
+      tl.setAnimation("poked", 0);
+      tl.paramsAt(1_000);
+      tl.setAnimation(id, 1_000);
+      expect(tl.isExiting(1_000), `${id} 不得等離開動畫`).toBe(false);
+      expect(tl.currentExpression()).toBe(id);
+    }
+  });
+
+  it("Reduced Motion 跳過 exit（直接呈現新表情的 hold）", () => {
+    const tl = new ExpressionTimeline(() => 0.5, 0);
+    tl.setReducedMotion(true);
+    tl.setAnimation("poked", 0);
+    tl.paramsAt(1_000);
+    tl.setAnimation("idle", 1_000);
+    expect(tl.isExiting(1_000)).toBe(false);
+    const p = tl.paramsAt(1_010);
+    expect(p).toEqual(clampParams({ ...DEFAULT_PARAMS, ...EXPRESSIONS["idle"].hold }));
+  });
+
+  it("emergency 凍結：時間過去參數完全不變", () => {
+    const tl = new ExpressionTimeline(() => 0.5, 0);
+    tl.setAnimation("emergency", 0);
+    const a = tl.paramsAt(1_000);
+    const b = tl.paramsAt(9_000);
+    expect(b).toEqual(a);
+    expect(a.dim).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 組合式通道（spec §6.2）：狀態不再一律整體覆蓋遊玩姿勢。
+// ---------------------------------------------------------------------------
+
+describe("組合式角色通道", () => {
+  it("mode=stroll ＋ working → 核心亮起，但姿勢仍是遊玩姿勢", () => {
+    const plan = stageExpressionPlan("act", "stroll"); // act 是 working 的別名
+    expect(plan.expression).toBe("play-chase");
+    expect(plan.useMachineSlice).toBe(false);
+    expect(plan.statusChannels).toBeTruthy();
+    expect(plan.statusChannels!.coreGlow).toBe(EXPRESSIONS["working"].hold.coreGlow);
+    expect(plan.statusChannels!.earR).toBe(EXPRESSIONS["working"].hold.earR);
+
+    const tl = new ExpressionTimeline(() => 0.5, 0);
+    tl.setAnimation(plan.expression, 0);
+    let params = tl.paramsAt(1_000);
+    params = clampParams({ ...params, ...plan.statusChannels });
+    expect(params.coreGlow).toBe(1); // 核心＝Agent 工作中
+    expect(params.armPose).toBe("down"); // 遊玩姿勢保留（working 是 pocket）
+  });
+
+  it("等待/工作類狀態只覆蓋狀態通道；安全與結果狀態整體搶佔", () => {
+    for (const anim of ["routing", "waiting", "wait-codex", "wait-claude", "ask", "listening"]) {
+      expect(statusOverlay(anim), anim).toBe("overlay");
+    }
+    for (const anim of [
+      "emergency",
+      "blocked",
+      "failed",
+      "unknown",
+      "offline",
+      "paused",
+      "success",
+      "clicked",
+    ]) {
+      expect(statusOverlay(anim), anim).toBe("takeover");
+    }
+    expect(statusOverlay("idle")).toBe("none");
+  });
+
+  it("工作/等待狀態不會讓遊玩場停住；安全與結果狀態會", () => {
+    // 只借通道的狀態：遊玩場繼續運轉（她可以一邊玩一邊顯示工作中）。
+    for (const anim of ["act", "waiting", "wait-codex", "routing"]) {
+      expect(playfieldActive(anim, false, false), anim).toBe(true);
+    }
+    // 安全與結果狀態：遊玩停止（除非本來就是 ambient/遊玩表演）。
+    for (const anim of ["emergency", "blocked", "failed", "unknown", "offline", "success"]) {
+      expect(playfieldActive(anim, false, false), anim).toBe(false);
+    }
+    expect(playfieldActive("idle", true, false)).toBe(true);
+    expect(playfieldActive("hold-ball", false, true)).toBe(true);
+  });
+
+  it("emergency 期間完整覆蓋遊玩：不套遊玩表情、不疊通道", () => {
+    const plan = stageExpressionPlan("emergency", "chase");
+    expect(plan).toEqual({
+      expression: "emergency",
+      useMachineSlice: true,
+      statusChannels: null,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v0.5 修復回歸：Director 真的被接上（react / noteFinished / 白名單 / 冷卻）。
+// ---------------------------------------------------------------------------
+
+describe("Interaction Director 接線", () => {
+  const ctx = (over?: Partial<Parameters<InteractionDirector["tick"]>[0]>) => ({
+    nowMs: 1_000_000,
+    ambient: true,
+    quiet: false,
+    reducedMotion: false,
+    expressiveness: 1,
+    msSinceInteraction: 600_000,
+    behavior: { ...initialBehavior(0), activation: 0.05, taskLoad: 0 },
+    ...over,
+  });
+
+  it("react()：truth-state 一律回 null（AI/L1 意圖不能點播真相狀態）", () => {
+    const d = new InteractionDirector();
+    for (const truth of [
+      "success-verified",
+      "success-claimed",
+      "blocked",
+      "failed",
+      "unknown",
+      "emergency",
+      "offline",
+      "paused",
+    ]) {
+      expect(d.react(truth, 0), truth).toBeNull();
+    }
+  });
+
+  it("react()：冷卻內不重播同一個反應", () => {
+    const d = new InteractionDirector();
+    expect(d.react("poked-rapid", 0)?.expression).toBe("poked-rapid");
+    expect(d.react("poked-rapid", 3_000)).toBeNull(); // 8s 冷卻內
+    expect(d.react("poked-rapid", 30_000)?.expression).toBe("poked-rapid");
+  });
+
+  it("noteFinished()：自然播完後不再排恢復", () => {
+    const d = new InteractionDirector();
+    let action = null;
+    let startedAt = 0;
+    for (let i = 0; i < 10 && (!action || action.durationMs < 4_000); i++) {
+      startedAt = 1_000_000 + i * 1_000;
+      action = d.tick(ctx({ nowMs: startedAt }), () => 0);
+    }
+    expect(action).toBeTruthy();
+    d.noteFinished(); // 表演自然結束
+    d.notePreempted(startedAt + 1_000); // 已經沒有進行中的動作
+    expect(d.tick(ctx({ nowMs: startedAt + 2_000 }), () => 0.99)).toBeNull();
   });
 });

@@ -103,6 +103,8 @@ pub struct RuntimeInner {
     pub mic_receptor: Option<Arc<adapters_media::MicListenReceptor>>,
     /// Presentation bridge: companion-window presence + pending command acks.
     pub presentation: Arc<crate::presentation::PresentationBridge>,
+    /// iPhone Mobile Provider（v0.5 Phase 6）。
+    pub mobile: Arc<crate::mobile::MobileBridge>,
     /// 主動式對話政策狀態（確定性頻率限制；持久化到 meta）。
     pub(crate) proactive_dialogue: RwLock<crate::proactive::ProactiveDialogueState>,
     /// Generated proactive candidates waiting for a real local Agent result.
@@ -112,6 +114,15 @@ pub struct RuntimeInner {
         RwLock<BTreeMap<String, crate::proactive::PendingProactiveTask>>,
     /// Agent Gateway：真實 agent 子程序（codex/claude-code）管理。
     pub(crate) gateway: crate::gateway::GatewayManager,
+    /// 「已測試」證據（spec §9.3）：掃描到 metadata／設定檔存在，都不等於
+    /// 連線完成，更不等於測過。這裡只記錄**實際觀察到**的成功／失敗，
+    /// 由 providers.rs 統一寫入並在讀取時併進 descriptor.detail。
+    pub(crate) provider_tested:
+        std::sync::Mutex<BTreeMap<String, crate::providers::ProviderTested>>,
+    /// 哪些 provider 有實體裝置連線（serial/mqtt/ble）。這些連線的一次成功
+    /// 讀取／命令必然通過 hello 身分＋pair-ok 握手，所以證據等級是
+    /// handshake；HTTP 宣告式或內建能力只能記到 capability。
+    pub(crate) device_link_providers: std::sync::Mutex<BTreeSet<String>>,
     /// 知識檢索的可替換向量候選介面。
     pub(crate) vector_index: Box<dyn crate::knowledge::VectorIndex>,
 }
@@ -312,6 +323,7 @@ impl Runtime {
                 estop: AtomicBool::new(estop_engaged),
                 push_receptors,
                 dynamic_push: RwLock::new(BTreeMap::new()),
+                mobile: crate::mobile::MobileBridge::new(),
                 mock_actuator,
                 recipes: RwLock::new(recipes),
                 recipe_errors: RwLock::new(recipe_load_errors.into_iter().collect()),
@@ -334,6 +346,8 @@ impl Runtime {
                 proactive_dialogue: RwLock::new(proactive_state),
                 proactive_agent_tasks: RwLock::new(BTreeMap::new()),
                 gateway: crate::gateway::GatewayManager::new(),
+                provider_tested: std::sync::Mutex::new(BTreeMap::new()),
+                device_link_providers: std::sync::Mutex::new(BTreeSet::new()),
                 vector_index: Box::new(crate::knowledge::LocalSubwordEmbeddingIndex::default()),
             }),
         };
@@ -357,12 +371,15 @@ impl Runtime {
         runtime.init_providers().await;
         runtime.rebuild_vector_index();
 
+        // 測試模式（無 watchdog）＝模擬：iPhone 伺服器不得把 Bonjour 記錄廣播到實體區網。
+        runtime.mobile.set_advertise_mdns(opts.spawn_watchdog);
         if opts.spawn_watchdog {
             runtime.spawn_watchdog();
             // 背景發現本機 AI agent（codex/claude-code）；不阻塞啟動。
             // 測試模式（無 watchdog）不做，避免在單元測試裡生子程序。
             runtime.spawn_agent_discovery();
         }
+        runtime.mobile_autostart_if_paired();
         Ok(runtime)
     }
 
@@ -407,6 +424,16 @@ impl Runtime {
         let session = self.session.read().await.clone();
         let recipes = self.recipes.read().await;
         let recipe_errors = self.recipe_errors.read().await;
+        // 安靜時段（policy.quietHours 依本機時間判定）：角色視窗與 Director 靠
+        // 這個鍵進入 quiet 基態；沒有它，quiet 路徑在生產環境永遠不可達。
+        let quiet_hours = {
+            let policy = self.policy().await;
+            let local = chrono::Local::now().time();
+            policy
+                .quiet_hours
+                .iter()
+                .any(|w| quiet_window_active(&w.start, &w.end, local))
+        };
         let receipts = self
             .store
             .receipts(None, 1)
@@ -434,8 +461,9 @@ impl Runtime {
             "proactivePause": self.pause_status().await,
             "pendingAiAssists": self.pending_ai_assists().await.len(),
             "agentSessions": self.open_agent_sessions().await,
-            "activeSensors": self.active_sensors(),
+            "activeSensors": self.active_sensors_all().await,
             "presentation": self.presentation_status(),
+            "quietHours": quiet_hours,
             "onboardingCompleted": self.onboarding_state().await
                 .get("completed").and_then(Value::as_bool).unwrap_or(false),
         })
@@ -520,6 +548,12 @@ impl Runtime {
             self.store.insert_observation(&obs)?;
         }
         self.publish_observation_event(&obs);
+        // 「已測試」證據（spec §9.3）：真的讀到資料才算，只有 metadata 不算。
+        self.note_capability_tested(
+            crate::providers::TestedCapability::Receptor,
+            receptor_id.as_str(),
+        )
+        .await;
         Ok(obs)
     }
 
@@ -802,6 +836,11 @@ impl Runtime {
         // not wait behind a serial per-actuator emergency_stop loop (a slow
         // declarative device driver could otherwise delay mic release).
         let _ = self.stop_all_sensors(actor).await;
+        // Remote sensors too: a paired iPhone's microphone is a sensor of this
+        // system. The desktop forces the high-risk receptor off and tells every
+        // phone to stop sensing (`stop-all { sensors: true }`) — an emergency
+        // stop that only silenced local capture was not an emergency stop.
+        self.mobile_estop_stop_sensors(actor).await;
 
         let mut stopped_actions = 0;
         if let Ok(open) = self.store.open_receipts() {
@@ -1762,6 +1801,14 @@ impl Runtime {
             .unregister_receptor(&ReceptorId::new(&paired))
             .await;
         Ok(())
+    }
+
+    /// 動態 push receptor 掛載（registry 註冊由呼叫端先完成）。
+    pub(crate) async fn register_dynamic_push(&self, id: &str, receptor: Arc<PushReceptor>) {
+        self.dynamic_push
+            .write()
+            .await
+            .insert(id.to_string(), receptor);
     }
 
     /// Find a push receptor (builtin or dynamically added).

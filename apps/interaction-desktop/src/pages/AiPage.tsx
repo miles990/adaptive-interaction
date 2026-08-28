@@ -21,11 +21,93 @@ const STATE_LABEL: Record<string, { text: string; kind: "ok" | "warn" | "bad" | 
   closed: { text: "已關閉", kind: "pending" },
 };
 
+/** 工作階段狀態的人話對照（Global Search 等外部介面沿用同一份，
+ *  免得一般模式又冒出 `claimed-completed` 這種原始字串）。 */
+export const SESSION_STATE_LABEL = STATE_LABEL;
+
+/** 訊息輪詢間隔：展開時才跑，收合／卸載即停（有界，不會長駐）。 */
+export const MESSAGE_POLL_MS = 5000;
+/** 後端 gateway 的 approval TTL（gateway.rs APPROVAL_TTL_SECS）。 */
+export const APPROVAL_TTL_SECONDS = 300;
+
+const MESSAGE_KIND_LABEL: Record<string, string> = {
+  task: "你送出的任務",
+  "approval-request": "等待你核可",
+  "approval-resolved": "核可結果",
+  progress: "進度更新",
+  result: "結果回報",
+  error: "錯誤",
+  note: "備註",
+  text: "訊息",
+  question: "Agent 的提問",
+};
+
+/** 一則已裁決的核可請求（後端 `approval-resolved` 訊息）。 */
+export interface ApprovalResolution {
+  decision: string;
+  by: string;
+  deliveredToAgent: boolean;
+}
+
+/** 把信箱裡的 `approval-resolved` 收成 requestId → 裁決結果。
+ *  沒有這張表，已經失效的請求會繼續顯示可按的核可／拒絕按鈕。 */
+export function approvalResolutions(
+  messages: Record<string, unknown>[]
+): Map<string, ApprovalResolution> {
+  const out = new Map<string, ApprovalResolution>();
+  for (const m of messages) {
+    if (m.kind !== "approval-resolved") continue;
+    const body = (m.body as Record<string, unknown> | undefined) ?? {};
+    const requestId = String(body.requestId ?? "");
+    if (!requestId) continue;
+    out.set(requestId, {
+      decision: String(body.decision ?? (body.approved === true ? "approved" : "denied")),
+      by: String(body.by ?? ""),
+      deliveredToAgent: body.deliveredToAgent !== false,
+    });
+  }
+  return out;
+}
+
+/** 已裁決請求的人話說明。誰決定的要說清楚：逾時自動拒絕不是「你拒絕了」。 */
+export function approvalResolutionText(r: ApprovalResolution): string {
+  const base =
+    r.by === "watchdog"
+      ? `已由看門狗自動拒絕（${APPROVAL_TTL_SECONDS} 秒無人回應）`
+      : r.by === "human"
+        ? r.decision === "approved"
+          ? "你已核可"
+          : "你已拒絕"
+        : r.decision === "approved"
+          ? "已核可"
+          : "已拒絕";
+  // 裁決成立 ≠ 裁決送到 agent：送不到就照實說，不假裝已經生效。
+  return r.deliveredToAgent ? base : `${base}（沒能送到 agent，實際結果未知）`;
+}
+
+/** 從結構化 body 取一句人話摘要；沒有文字就誠實說沒有。 */
+export function messageSummary(body: unknown): string {
+  if (!body || typeof body !== "object") return "（沒有文字內容）";
+  const record = body as Record<string, unknown>;
+  for (const key of ["summary", "message", "text", "task", "detail", "reason", "result"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  const tool = record["tool"] as Record<string, unknown> | undefined;
+  if (tool && typeof tool["name"] === "string") {
+    return `使用工具 ${String(tool["name"])}${tool["phase"] ? `（${String(tool["phase"])}）` : ""}`;
+  }
+  if (typeof record["artifact"] === "string") return `產生檔案 ${String(record["artifact"])}`;
+  return "（沒有文字內容）";
+}
+
 export function AiPage({
   refreshKey,
+  advanced = false,
   onNavigate,
 }: {
   refreshKey: number;
+  advanced?: boolean;
   onNavigate: (tab: string) => void;
 }) {
   const { prefs, setPreferences } = useAppState();
@@ -168,7 +250,13 @@ export function AiPage({
           {(list) => (
             <div className="provider-list">
               {list.map((s) => (
-                <SessionCard key={s.sessionId} record={s} onNotice={setNotice} onNavigate={onNavigate} />
+                <SessionCard
+                  key={s.sessionId}
+                  record={s}
+                  advanced={advanced}
+                  onNotice={setNotice}
+                  onNavigate={onNavigate}
+                />
               ))}
             </div>
           )}
@@ -187,26 +275,44 @@ export function AiPage({
 
 function SessionCard({
   record,
+  advanced,
   onNotice,
   onNavigate,
 }: {
   record: AgentSessionRecord;
+  advanced: boolean;
   onNotice: (m: string) => void;
   onNavigate: (tab: string) => void;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const [messages, setMessages] = React.useState<Record<string, unknown>[]>([]);
   const [task, setTask] = React.useState("");
+  const resolutions = React.useMemo(() => approvalResolutions(messages), [messages]);
   const label = STATE_LABEL[record.state] ?? { text: record.state, kind: "pending" as const };
   const open = !["closed", "cancelled", "expired"].includes(record.state);
 
-  async function refreshMessages() {
-    try {
-      setMessages(await api.agentSessionMessages(record.sessionId, "from-session"));
-    } catch {
-      /* session gone */
-    }
-  }
+  // 展開時持續輪詢：Agent 是非同步在跑的，只抓一次會讓等待核可、
+  // 進度與結果永遠停在打開的那一瞬間。收合或離開頁面立即停止。
+  React.useEffect(() => {
+    if (!expanded) return;
+    let alive = true;
+    const load = () => {
+      api
+        .agentSessionMessages(record.sessionId, "from-session")
+        .then((list) => {
+          if (alive) setMessages(list);
+        })
+        .catch(() => {
+          /* session gone or transient failure: keep last known list */
+        });
+    };
+    load();
+    const timer = setInterval(load, MESSAGE_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [expanded, record.sessionId]);
 
   return (
     <div className="provider-card">
@@ -215,16 +321,20 @@ function SessionCard({
         <Badge kind={label.kind}>{label.text}</Badge>
       </div>
       <div className="muted small">
-        {record.agentId}
+        {agentDisplayName(record.agentId)}
         {record.allowWrite ? "・限工作目錄寫入" : "・唯讀／計畫"}
-        {record.providerSessionId ? `・provider session ${record.providerSessionId.slice(0, 8)}…` : ""}
+        {record.providerSessionId
+          ? advanced
+            ? `・provider session ${record.providerSessionId.slice(0, 8)}…`
+            : "・沿用既有對話脈絡"
+          : ""}
         ・訊息 {record.budget.spentMessages}/{record.budget.maxMessages}
         {record.budget.maxCost > 0
           ? `・費用 $${record.budget.spentCost.toFixed(3)}/$${record.budget.maxCost.toFixed(2)}`
           : record.budget.spentCost > 0
             ? `・費用 $${record.budget.spentCost.toFixed(3)}`
             : ""}
-        ・Lease 至 {new Date(record.lease.expiresAt).toLocaleString("zh-TW")}
+        ・有效至 {new Date(record.lease.expiresAt).toLocaleString("zh-TW")}
       </div>
       {record.state === "claimed-completed" && !record.humanVerified && (
         <p className="muted small">
@@ -254,12 +364,7 @@ function SessionCard({
             標記為已驗證（我確認過結果）
           </button>
         )}
-        <button
-          onClick={() => {
-            setExpanded((v) => !v);
-            if (!expanded) void refreshMessages();
-          }}
-        >
+        <button onClick={() => setExpanded((v) => !v)}>
           {expanded ? "收合" : "查看結果／訊息"}
         </button>
         {open && (
@@ -273,7 +378,7 @@ function SessionCard({
                       `已續租至 ${new Date(renewed.lease.expiresAt).toLocaleString("zh-TW")}。`
                     );
                   } catch (e) {
-                    onNotice(`續租失敗：${e}。Lease 未變更。`);
+                    onNotice(`續租失敗：${e}。有效期間未變更。`);
                   }
                 }}
               >
@@ -366,17 +471,35 @@ function SessionCard({
             <ul className="plain-list">
               {messages.map((m) => (
                 <li key={String(m.messageId)}>
-                  <strong>{String(m.kind)}</strong>
-                  {m.kind === "approval-request" && (
-                    <ApprovalControls
-                      sessionId={record.sessionId}
-                      body={m.body as Record<string, unknown>}
-                      onNotice={onNotice}
-                    />
-                  )}
-                  <pre className="json-view small">
-                    {JSON.stringify(m.body, null, 2)}
-                  </pre>
+                  <strong>
+                    {MESSAGE_KIND_LABEL[String(m.kind)] ?? (advanced ? String(m.kind) : "訊息")}
+                  </strong>
+                  {m.kind === "approval-request" &&
+                    (() => {
+                      const requestId = String(
+                        (m.body as Record<string, unknown> | undefined)?.requestId ?? ""
+                      );
+                      const decided = resolutions.get(requestId);
+                      // 已裁決（人類或看門狗）的請求後端已經不認：按鈕留著
+                      // 只會讓人按到 NotFound，畫面必須說出實際結果。
+                      return decided ? (
+                        <span className="muted small">　{approvalResolutionText(decided)}</span>
+                      ) : (
+                        <>
+                          <ApprovalControls
+                            sessionId={record.sessionId}
+                            body={m.body as Record<string, unknown>}
+                            onNotice={onNotice}
+                          />
+                          <ApprovalCountdown createdAt={String(m.createdAt ?? "")} />
+                        </>
+                      );
+                    })()}
+                  <div className="muted small">{messageSummary(m.body)}</div>
+                  <details className="tech-details">
+                    <summary className="muted small">技術詳情</summary>
+                    <pre className="json-view small">{JSON.stringify(m.body, null, 2)}</pre>
+                  </details>
                 </li>
               ))}
             </ul>
@@ -385,6 +508,37 @@ function SessionCard({
       )}
     </div>
   );
+}
+
+/** 核可請求的剩餘時間：後端 TTL 到期後即失效，介面不得假裝還能按。 */
+export function ApprovalCountdown({ createdAt }: { createdAt: string }) {
+  const deadline = React.useMemo(() => {
+    const started = new Date(createdAt).getTime();
+    return Number.isFinite(started) ? started + APPROVAL_TTL_SECONDS * 1000 : NaN;
+  }, [createdAt]);
+  const remaining = React.useCallback(
+    () => Math.max(0, Math.round((deadline - Date.now()) / 1000)),
+    [deadline]
+  );
+  const [secs, setSecs] = React.useState(remaining);
+  React.useEffect(() => {
+    if (!Number.isFinite(deadline)) return;
+    setSecs(remaining());
+    const timer = setInterval(() => setSecs(remaining()), 1000);
+    return () => clearInterval(timer);
+  }, [deadline, remaining]);
+  if (!Number.isFinite(deadline)) {
+    return <span className="muted small">　（無法確認剩餘時間）</span>;
+  }
+  return (
+    <span className="muted small">
+      　{secs > 0 ? `還有 ${secs} 秒可以決定` : "已超過決定時間，這個請求已失效"}
+    </span>
+  );
+}
+
+function agentDisplayName(agentId: string): string {
+  return agentId === "codex" ? "Codex" : agentId === "claude-code" ? "Claude Code" : agentId;
 }
 
 function ApprovalControls({

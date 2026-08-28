@@ -86,6 +86,16 @@ pub enum GatewayEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         text: Option<String>,
     },
+    /// Agent 阻塞在「等人類回話」。
+    ///
+    /// 誠實揭露（v0.5 實測）：**目前沒有任何 connector 產生這個事件**。
+    /// Claude Code `-p --output-format stream-json` 的訊息型別只有
+    /// system/assistant/user/result（＋rate_limit 心跳），沒有「等待輸入」
+    /// 語意——一個 turn 結束就是 `result`（＝聲稱），不是等待；鎖定的
+    /// Codex app-server 0.149.1 schema 也沒有對應通知，它唯一的阻塞訊號是
+    /// approval ServerRequest，那對應 `TaskWaitingForConsent`。
+    /// 保留這個 variant 是因為 runtime API／CLI 的 `waiting-for-input`
+    /// 回報路徑會用到它；正規化層不會憑空推論出這個狀態。
     TaskWaitingForInput,
     TaskWaitingForConsent {
         request_id: String,

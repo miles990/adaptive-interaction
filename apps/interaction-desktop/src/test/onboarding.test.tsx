@@ -207,12 +207,93 @@ describe("Onboarding (3 步)", () => {
     // 對外寫入未被啟用。
     expect(commit["enableActuators"]).not.toContain("webhook.output");
     const policy = commit["policyPatch"] as Record<string, unknown>;
-    expect(policy["initiative"]).toBe("suggest");
-    expect(policy["requireApprovalAt"]).toBe("high");
+    // 精靈沒有「主動程度」欄位：使用者沒做過的決定就不能寫進 policy。
+    expect(policy).not.toHaveProperty("initiative");
     // 主動對話預設「必要」。
     await waitFor(() =>
       expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledWith({ mode: "necessary" })
     );
+  });
+
+  it("步驟一：音效與玩耍是唯讀說明，不是第二份開關", async () => {
+    renderWizard();
+    await screen.findByRole("heading", { name: "認識小樞" });
+    expect(screen.getByText(/音效預設關閉，之後可在「小樞」頁開啟/)).toBeInTheDocument();
+    expect(screen.getByText(/玩耍與游標互動：預設開啟/)).toBeInTheDocument();
+    // 小樞頁才是這些設定的主人：精靈不放對應的核取方塊。
+    expect(screen.queryByRole("checkbox", { name: /音效/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /玩耍/ })).not.toBeInTheDocument();
+  });
+
+  it("預設 commit 不寫安靜時段、通道頻率與核准門檻（文案說「之後再問」就不能偷偷寫）", async () => {
+    renderWizard();
+    await screen.findByRole("heading", { name: "認識小樞" });
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await userEvent.click(await screen.findByRole("button", { name: "完成設定" }));
+    await waitFor(() => expect(mockApi.onboardingCommit).toHaveBeenCalled());
+    const commit = (mockApi.onboardingCommit as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as Record<string, unknown>;
+    const policy = commit["policyPatch"] as Record<string, unknown>;
+    expect(policy).not.toHaveProperty("quietHours");
+    expect(policy).not.toHaveProperty("channelLimits");
+    expect(policy).not.toHaveProperty("requireApprovalAt");
+    // 主動程度同理：UI 上沒有這個選項，就不得靜默覆蓋 runtime 預設。
+    expect(policy).not.toHaveProperty("initiative");
+    expect(policy).toEqual({});
+  });
+
+  it("打開「進一步自訂」勾安靜時段後，commit 才會寫 quietHours", async () => {
+    renderWizard();
+    await screen.findByRole("heading", { name: "認識小樞" });
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await screen.findByRole("heading", { name: "安全預設" });
+    await userEvent.click(screen.getByRole("checkbox", { name: /我要在這裡直接設定/ }));
+    await userEvent.click(await screen.findByRole("checkbox", { name: "設定安靜時段" }));
+    await userEvent.click(screen.getByRole("button", { name: "完成設定" }));
+    await waitFor(() => expect(mockApi.onboardingCommit).toHaveBeenCalled());
+    const commit = (mockApi.onboardingCommit as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as Record<string, unknown>;
+    const policy = commit["policyPatch"] as Record<string, unknown>;
+    expect(policy["quietHours"]).toEqual([
+      { start: "22:00", end: "08:00", silencedChannels: [] },
+    ]);
+    expect(policy["requireApprovalAt"]).toBe("high");
+  });
+
+  it("步驟二選 Codex → commit 寫入對應的 agent 路由偏好", async () => {
+    renderWizard();
+    await screen.findByRole("heading", { name: "認識小樞" });
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await screen.findByRole("heading", { name: "要讓小樞幫忙工作嗎？" });
+    await userEvent.click(screen.getByRole("radio", { name: "用 Codex 幫忙" }));
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await userEvent.click(await screen.findByRole("button", { name: "完成設定" }));
+    await waitFor(() => expect(mockApi.onboardingCommit).toHaveBeenCalled());
+    const commit = (mockApi.onboardingCommit as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as Record<string, unknown>;
+    expect(commit["preferences"]).toEqual({
+      locale: "zh-TW",
+      agentRoutes: {
+        conversation: "codex",
+        programming: "codex",
+        knowledge: "codex",
+        review: "codex",
+      },
+    });
+  });
+
+  it("步驟二選「稍後再說」→ commit 完全不動路由偏好", async () => {
+    renderWizard();
+    await screen.findByRole("heading", { name: "認識小樞" });
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await userEvent.click(await screen.findByRole("button", { name: "完成設定" }));
+    await waitFor(() => expect(mockApi.onboardingCommit).toHaveBeenCalled());
+    const commit = (mockApi.onboardingCommit as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as Record<string, unknown>;
+    expect(commit["preferences"]).toEqual({ locale: "zh-TW" });
   });
 
   it("commit 失敗誠實顯示錯誤，不宣稱完成", async () => {

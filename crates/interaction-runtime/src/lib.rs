@@ -13,6 +13,7 @@ pub mod human;
 pub mod knowledge;
 pub mod lock;
 pub mod memory;
+pub mod mobile;
 pub mod orchestrator;
 pub mod presentation;
 pub mod proactive;

@@ -85,6 +85,34 @@ capabilities:
       baud: 115200
       expectedDeviceId: "esp32-sim01"
       pairingCode: "secret://sim-pair"
+  # 韌體硬限制展示用：params 是 spec 作者寫死的常數（不是 AI 可調的值），
+  # 故意超界 → 裝置端 clamp 後以 ack.applied 誠實回報實際值。
+  - kind: actuator
+    id: servo
+    channel: motion
+    transport: serial
+    timeoutMs: 4000
+    command:
+      name: "servo.move"
+      params: { angle: 999 }
+    serial:
+      port: "${SIM_PTY}"
+      baud: 115200
+      expectedDeviceId: "esp32-sim01"
+      pairingCode: "secret://sim-pair"
+  - kind: actuator
+    id: buzz
+    channel: sound
+    transport: serial
+    timeoutMs: 4000
+    command:
+      name: "buzzer.beep"
+      params: { freqHz: 99999, durationMs: 9999 }
+    serial:
+      port: "${SIM_PTY}"
+      baud: 115200
+      expectedDeviceId: "esp32-sim01"
+      pairingCode: "secret://sim-pair"
   - kind: receptor
     id: env
     transport: serial
@@ -93,6 +121,7 @@ capabilities:
       lux: "/facts/lux"
       distanceMm: "/facts/distanceMm"
       tempC: "/facts/tempC"
+      servoAngle: "/facts/servoAngle"
     serial:
       port: "${SIM_PTY}"
       baud: 115200
@@ -301,16 +330,22 @@ check "serial adapter provider registered (installed)" "$STATE" "installed"
 "$BIN" providers transition provider.adapter.esp32-desk --state available --json >/dev/null 2>&1
 # 實體動器的明確授權是三段式（全部人類動作）：enable → 加進 policy
 # allowlist → session consent。缺一即 blocked——這正是安全設計。
-curl -s -X PATCH "http://127.0.0.1:${PORT}/v1/actuators/esp32-desk.vibe" -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"enabled":true}' >/dev/null
+for CAP in vibe servo buzz; do
+  curl -s -X PATCH "http://127.0.0.1:${PORT}/v1/actuators/esp32-desk.${CAP}" -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"enabled":true}' >/dev/null
+done
 POLICY_PATCH=$("$BIN" policy show --json 2>/dev/null | python3 -c "
 import sys,json
 p=json.load(sys.stdin)
 al=p.get('actuatorAllowlist',[]); ch=p.get('allowedChannels',[])
-if 'esp32-desk.vibe' not in al: al.append('esp32-desk.vibe')
-if 'haptic' not in ch: ch.append('haptic')
+for a in ('esp32-desk.vibe','esp32-desk.servo','esp32-desk.buzz'):
+    if a not in al: al.append(a)
+for c in ('haptic','motion','sound'):
+    if c not in ch: ch.append(c)
 print(json.dumps({'actuatorAllowlist':al,'allowedChannels':ch}))")
 "$BIN" policy set "$POLICY_PATCH" --json >/dev/null 2>&1
-"$BIN" session consent actuator:esp32-desk.vibe --json >/dev/null 2>&1
+for CAP in vibe servo buzz; do
+  "$BIN" session consent "actuator:esp32-desk.${CAP}" --json >/dev/null 2>&1
+done
 # 受器：真的向模擬裝置要一次 state（配對碼握手 + read）。
 LUX=$("$BIN" observe --receptor esp32-desk.env --fresh --json 2>/dev/null | J "d.get('facts',{}).get('lux','MISSING')")
 check "serial receptor reads live facts through pairing handshake" "$LUX" "133"
@@ -323,6 +358,47 @@ ST=$("$BIN" actions show "$AID" --json 2>/dev/null | J "d['currentStatus']")
 check "serial cmd acked by device (acknowledged, not completed)" "$ST" "acknowledged"
 APPLIED=$("$BIN" actions show "$AID" --json 2>/dev/null | J "d['driverResponse']['deviceApplied']['strength']")
 check "firmware hard-limit clamp is honestly recorded (1.0 -> 0.8)" "$APPLIED" "0.8"
+
+# --- 韌體硬限制與節流（模擬器鏡射 esp32-companion.ino 的常數）------------
+# servo：角度硬限制 10..170（spec 寫死 999）＋每 300ms 只能動一次。
+# 兩個 plan 先建好，再用同一個 curl（--next）連續送出兩次 execute——
+# 兩次請求間隔遠小於 300ms 節流窗，所以第二次必定被裝置拒絕。
+mkplan() {
+  curl -s -X POST "http://127.0.0.1:${PORT}/v1/plans" -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+    -d "{\"intent\":\"$1\",\"magnitude\":0.5,\"durationMs\":500,\"preferredChannels\":[\"$2\"],\"candidates\":[\"$3\"],\"minChannels\":1,\"maxChannels\":1}" | J "d['planId']"
+}
+PLAN_S1=$(mkplan servo-clamp motion esp32-desk.servo)
+PLAN_S2=$(mkplan servo-throttle motion esp32-desk.servo)
+SERVO_OUT=$(curl -s -X POST "http://127.0.0.1:${PORT}/v1/plans/${PLAN_S1}/execute" -H "Authorization: Bearer $TOKEN" \
+  --next -s -X POST "http://127.0.0.1:${PORT}/v1/plans/${PLAN_S2}/execute" -H "Authorization: Bearer $TOKEN")
+read -r SERVO_A1 SERVO_A2 <<EOF
+$(printf '%s' "$SERVO_OUT" | python3 -c "
+import sys, json
+raw = sys.stdin.read(); dec = json.JSONDecoder(); ids = []; i = 0
+while i < len(raw):
+    while i < len(raw) and raw[i] in ' \t\r\n': i += 1
+    if i >= len(raw): break
+    obj, i = dec.raw_decode(raw, i)
+    receipts = obj if isinstance(obj, list) else obj.get('receipts', [])
+    ids.append(receipts[0]['actionId'] if receipts else 'MISSING')
+print(' '.join(ids[:2]) if len(ids) >= 2 else 'MISSING MISSING')")
+EOF
+SERVO_ANGLE=$("$BIN" actions show "$SERVO_A1" --json 2>/dev/null | J "d['driverResponse']['deviceApplied']['angle']")
+check "servo angle clamped by the device (999 -> 170)" "$SERVO_ANGLE" "170"
+THROTTLED=$("$BIN" actions show "$SERVO_A2" --json 2>/dev/null | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+print(d['currentStatus']=='failed' and 'rate-limited' in json.dumps(d))" 2>/dev/null)
+check "device rate-limit is an honest failed receipt (no fake success)" "$THROTTLED" "True"
+# buzzer：freqHz 200..4000、durationMs ≤ 2000（spec 寫死 99999 / 9999）。
+PLAN_B=$(mkplan buzz-clamp sound esp32-desk.buzz)
+BUZZ_EXEC=$(curl -s -X POST "http://127.0.0.1:${PORT}/v1/plans/${PLAN_B}/execute" -H "Authorization: Bearer $TOKEN")
+BUZZ_AID=$(echo "$BUZZ_EXEC" | J "d[0]['actionId'] if isinstance(d,list) else d['receipts'][0]['actionId']")
+BUZZ_APPLIED=$("$BIN" actions show "$BUZZ_AID" --json 2>/dev/null | J "'%s/%s' % (d['driverResponse']['deviceApplied']['freqHz'], d['driverResponse']['deviceApplied']['durationMs'])")
+check "buzzer clamped by the device (99999Hz/9999ms -> 4000/2000)" "$BUZZ_APPLIED" "4000/2000"
+# 受器：servo 的實際角度也出現在觀察面（動作 ack ≠ 觀察，兩者分開驗）。
+OBS_ANGLE=$("$BIN" observe --receptor esp32-desk.env --fresh --json 2>/dev/null | J "d.get('facts',{}).get('servoAngle','MISSING')")
+check "device state reflects the clamped servo angle" "$OBS_ANGLE" "170"
 
 echo "== Emergency stop propagation =="
 SID2=$("$BIN" agents create --agent agent.b --ttl 30 --json 2>/dev/null | J "d['sessionId']")

@@ -12,7 +12,7 @@ import {
 import { AppStateProvider, useAppState } from "./appstate";
 import { Icon } from "./icons";
 import { Badge } from "./ui";
-import { ConfirmButton, Dialog } from "./components/Dialog";
+import { ConfirmButton, Dialog, useFocusTrap } from "./components/Dialog";
 import { HomePage } from "./pages/HomePage";
 import { CapabilitiesPage } from "./pages/CapabilitiesPage";
 import { Onboarding } from "./pages/Onboarding";
@@ -37,7 +37,7 @@ type Tab = string;
 // v0.5 資訊架構：5 個一級入口（現在／小樞／工作／連接與權限／更多）。
 // 舊 tab id 全部保留可用（tray 深連結、Inbox route、書籤），由
 // navAnchorFor 折疊到新家；內容走 PageBody 的相容路由。
-const SIMPLE_NAV: { id: Tab; label: string; icon: string }[] = [
+export const SIMPLE_NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "home", label: "現在", icon: "house" },
   { id: "companion", label: "小樞", icon: "cat" },
   { id: "work", label: "工作", icon: "bot" },
@@ -61,7 +61,7 @@ type RuntimeState = "connecting" | "ready" | "offline";
 
 // 相容 tab id → 新一級入口的折疊表。key 是舊 id（tray 深連結、
 // Runtime Inbox route、舊書籤、GlobalSearch），value 是導覽高亮／標題的新家。
-const LEGACY_ANCHORS: Record<string, string> = {
+export const LEGACY_ANCHORS: Record<string, string> = {
   ai: "work",
   automations: "work",
   capabilities: "connect",
@@ -73,6 +73,25 @@ const LEGACY_ANCHORS: Record<string, string> = {
   activity: "more",
   settings: "more",
 };
+
+/** 收件匣狀態的人話對照。未知狀態原樣顯示 —— 不假裝看得懂。 */
+const INBOX_STATUS_LABEL: Record<string, string> = {
+  "waiting-for-input": "等待你的輸入",
+  "waiting-for-consent": "等待你的同意",
+  "claimed-completed": "聲稱已完成（尚未驗證）",
+  candidate: "等待你確認",
+  uncertain: "結果未知",
+  blocked: "被安全規則阻止",
+  failed: "失敗",
+  "timed-out": "逾時",
+  expired: "已到期",
+  cancelled: "已取消",
+  emergency: "緊急停止",
+};
+
+export function inboxStatusLabel(status: string): string {
+  return INBOX_STATUS_LABEL[status] ?? status;
+}
 
 /** 導覽高亮／標題所對應的 nav id（相容 tab 折疊到新 5 入口）。 */
 export function navAnchorFor(tab: string): string {
@@ -403,51 +422,14 @@ function Shell({
           )}
         </header>
         {notificationOpen && (
-          <div className="notification-panel" role="dialog" aria-label="通知中心">
-            <div className="row space-between">
-              <strong>待你決定</strong>
-              <button onClick={() => setNotificationOpen(false)}>關閉</button>
-            </div>
-            {!inbox ? (
-              <div className="state-box state-error">目前無法確認通知狀態。</div>
-            ) : ((inbox.items as Record<string, unknown>[] | undefined) ?? []).filter(
-                (item) => item.needsDecision === true
-              ).length === 0 ? (
-              <div className="state-box">目前沒有待決定事項。</div>
-            ) : (
-              <ul className="plain-list">
-                {((inbox.items as Record<string, unknown>[] | undefined) ?? [])
-                  .filter((item) => item.needsDecision === true)
-                  .slice(0, 10)
-                  .map((item) => (
-                    <li
-                      key={`${String(item.kind)}-${String(item.itemId)}`}
-                      className="row space-between"
-                    >
-                      <span>
-                        <Badge kind="warn">{String(item.status)}</Badge> {String(item.title)}
-                      </span>
-                      <button
-                        onClick={() => {
-                          setTab(String(item.route));
-                          setNotificationOpen(false);
-                        }}
-                      >
-                        前往
-                      </button>
-                    </li>
-                  ))}
-              </ul>
-            )}
-            <button
-              onClick={() => {
-                setTab("activity");
-                setNotificationOpen(false);
-              }}
-            >
-              查看完整活動歷史
-            </button>
-          </div>
+          <NotificationPanel
+            inbox={inbox}
+            onClose={() => setNotificationOpen(false)}
+            onNavigate={(t) => {
+              setTab(t);
+              setNotificationOpen(false);
+            }}
+          />
         )}
         {estopError && (
           <div className="estop-banner" role="alert">
@@ -552,6 +534,57 @@ function Shell({
           )
         }
       />
+    </div>
+  );
+}
+
+/** 右上角通知中心：與 Dialog 共用同一個焦點陷阱（Escape 關閉並還原焦點、
+ *  Tab 在面板內循環），不是只能用滑鼠點的浮層。 */
+export function NotificationPanel({
+  inbox,
+  onClose,
+  onNavigate,
+}: {
+  inbox: Record<string, unknown> | null;
+  onClose: () => void;
+  onNavigate: (tab: string) => void;
+}) {
+  const { ref, onKeyDown } = useFocusTrap(onClose);
+  const pending = ((inbox?.items as Record<string, unknown>[] | undefined) ?? []).filter(
+    (item) => item.needsDecision === true
+  );
+  return (
+    <div
+      className="notification-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label="通知中心"
+      tabIndex={-1}
+      ref={ref}
+      onKeyDown={onKeyDown}
+    >
+      <div className="row space-between">
+        <strong>待你決定</strong>
+        <button onClick={onClose}>關閉</button>
+      </div>
+      {!inbox ? (
+        <div className="state-box state-error">目前無法確認通知狀態。</div>
+      ) : pending.length === 0 ? (
+        <div className="state-box">目前沒有待決定事項。</div>
+      ) : (
+        <ul className="plain-list">
+          {pending.slice(0, 10).map((item) => (
+            <li key={`${String(item.kind)}-${String(item.itemId)}`} className="row space-between">
+              <span>
+                <Badge kind="warn">{inboxStatusLabel(String(item.status))}</Badge>{" "}
+                {String(item.title)}
+              </span>
+              <button onClick={() => onNavigate(String(item.route))}>前往</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button onClick={() => onNavigate("activity")}>查看完整活動歷史</button>
     </div>
   );
 }

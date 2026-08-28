@@ -10,17 +10,20 @@ import { api, RuntimeEvent } from "../api";
 import { bootstrapSupervisor, desktop, isTauri } from "../desktop";
 import { onRuntimeEvent } from "../api";
 import {
+  DRAG_HOLD_MS,
+  DRAG_RENEW_MS,
   initial,
   MachineState,
   mapRuntimeEvent,
   pose,
   reduce,
+  wasPreempted,
 } from "./machine";
 import { PackManifest, RendererBackend, SpriteRenderer, validateManifest } from "./renderer";
 import { validateRigManifest } from "./rig/renderer";
-import { PLAYFIELD_EXPRESSIONS, StageRenderer } from "./rig/stage";
+import { machineStageFlags, StageRenderer } from "./rig/stage";
 import { ToyKind } from "./playfield";
-import { InteractionDirector } from "./director";
+import { directorTickGate, InteractionDirector } from "./director";
 import { activeConversationProvider, ConversationContext } from "./conversation";
 import { planPresentationCommand } from "./presentationCommands";
 import {
@@ -44,6 +47,31 @@ import {
   validateStoryPack,
 } from "./packs";
 import { createReceiptDedup, knowledgeReceiptLine } from "./knowledgeReceipts";
+import {
+  DEFAULT_TUNING,
+  personalityFor,
+  PersonalityProfile,
+  PersonalityTuning,
+  tuningFor,
+} from "./personality";
+import {
+  approachAllowed,
+  bubbleAllowed,
+  bubbleOutcome,
+  hoverBubblePolicy,
+  proactiveQuietActive,
+  proactiveQuietUntil,
+  quietBase,
+  soundOutcome,
+} from "./attention";
+import { pickLanding } from "./gameFeel";
+import {
+  emptyMemory,
+  InteractionMemory,
+  notePlay,
+  noteSession,
+  sanitizeMemory,
+} from "./interactionMemory";
 
 // v0.4: itemized Presentation Provider receptors — each interaction kind
 // routes to its own receptor so consent/enable is per-capability. Unknown
@@ -102,6 +130,21 @@ async function playRegisteredSound(sound: "chime" | "soft-pop" | "tick"): Promis
   }
 }
 
+/**
+ * Stop any speech that is currently being spoken.
+ *
+ * 緊急停止／取消必須真的讓她閉嘴：清氣泡不會停掉已經送進語音服務的句子，
+ * 那句話會在「緊急停止中」的畫面上繼續講完。沒有語音服務時是 no-op。
+ */
+export function stopSpeech(): void {
+  try {
+    const synth = (window as unknown as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
+    synth?.cancel();
+  } catch {
+    /* 平台不允許：沒有正在播的語音可停 */
+  }
+}
+
 /** Speak bounded plain text through the OS/browser speech service. A 9-second
  * cap stays inside the Runtime presentation ACK lease; overlong/blocked speech
  * is cancelled and reported as failed, never acknowledged as completed. */
@@ -131,6 +174,31 @@ async function speakText(text: string): Promise<void> {
   });
 }
 
+/**
+ * 落點是否貼近螢幕邊緣（決定「滑倒裝沒事」而不是站穩）。
+ * 只讀視窗與螢幕幾何，不讀游標、不保存任何位置。
+ */
+async function nearScreenEdge(
+  win: { outerSize: () => Promise<{ width: number; height: number }> },
+  pos: { x: number; y: number }
+): Promise<boolean> {
+  try {
+    const { currentMonitor } = await import("@tauri-apps/api/window");
+    const monitor = await currentMonitor();
+    if (!monitor) return false;
+    const size = await win.outerSize();
+    const margin = 48;
+    const left = pos.x - monitor.position.x;
+    const top = pos.y - monitor.position.y;
+    const right = monitor.size.width - (left + size.width);
+    const bottom = monitor.size.height - (top + size.height);
+    return left < margin || top < margin || right < margin || bottom < margin;
+  } catch {
+    // 取不到螢幕資訊就當作不在邊緣（不猜、不假裝知道）。
+    return false;
+  }
+}
+
 export default function CompanionApp() {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const rendererRef = React.useRef<RendererBackend | null>(null);
@@ -138,6 +206,22 @@ export default function CompanionApp() {
   const stageRef = React.useRef<StageRenderer | null>(null);
   const approachEnabledRef = React.useRef(true);
   const charNameRef = React.useRef("小樞");
+  // v0.5 呈現偏好（勿擾/氣泡/音效/拖曳）＋個性 tuning＋互動記憶。
+  const dndRef = React.useRef(false);
+  const bubblesEnabledRef = React.useRef(true);
+  const soundEnabledRef = React.useRef(false);
+  const dragEnabledRef = React.useRef(true);
+  const personalityRef = React.useRef<PersonalityProfile>(personalityFor("natural"));
+  const tuningRef = React.useRef<PersonalityTuning>(DEFAULT_TUNING);
+  const memoryRef = React.useRef<InteractionMemory>(emptyMemory());
+  const quietHoursRef = React.useRef(false);
+  /** 使用者要求的本機安靜期到期時間（epoch ms；0＝沒有）。
+   *  存進 DesktopPrefs：角色視窗會因設定變更而重載，只放記憶體會失效。 */
+  const quietUntilRef = React.useRef(0);
+  // hover 短氣泡：只記「從什麼時候開始停在角色上」，不保存游標軌跡。
+  const hoverSinceRef = React.useRef(0);
+  /** reduced-motion 媒體查詢監聽器的解除函式。 */
+  const motionCleanup = React.useRef<(() => void) | null>(null);
   const machineRef = React.useRef<MachineState>(initial);
   const lastBubbleAt = React.useRef(0);
   const [bubble, setBubble] = React.useState<string | null>(null);
@@ -163,8 +247,19 @@ export default function CompanionApp() {
   }, []);
 
   /** Show a bubble for `ms` (0 = sticky). Clears any prior timer so an older
-   *  bubble's timeout can never erase a newer safety bubble early. */
-  const showBubble = React.useCallback((text: string | null, ms: number) => {
+   *  bubble's timeout can never erase a newer safety bubble early.
+   *  氣泡開關關掉後只剩 `safety` 文字（緊急停止/被擋下/未知）。 */
+  const showBubble = React.useCallback(
+    (text: string | null, ms: number, opts?: { safety?: boolean }) => {
+      if (text !== null && !bubbleAllowed({ enabled: bubblesEnabledRef.current, safety: opts?.safety === true })) {
+        return;
+      }
+      showBubbleRaw(text, ms);
+    },
+    []
+  );
+
+  const showBubbleRaw = React.useCallback((text: string | null, ms: number) => {
     if (bubbleTimer.current) {
       clearTimeout(bubbleTimer.current);
       bubbleTimer.current = null;
@@ -223,6 +318,19 @@ export default function CompanionApp() {
         storyProgress.current = prefs.storyProgress ?? {};
         document.documentElement.style.opacity = String(prefs.companionOpacity ?? 1);
         renderScale = 1.1 * ((prefs.companionSize?.[0] ?? 200) / 200);
+        // 個性：表現度＋persona → profile → tuning（純函式，只影響呈現）。
+        personalityRef.current = personalityFor(prefs.companionExpressiveness ?? "natural", personaId);
+        tuningRef.current = tuningFor(personalityRef.current);
+        directorRef.current.setTuning(tuningRef.current);
+        dndRef.current = prefs.companionDoNotDisturb === true;
+        quietUntilRef.current = prefs.companionProactiveQuietUntil ?? 0;
+        bubblesEnabledRef.current = prefs.companionBubbles !== false;
+        soundEnabledRef.current = prefs.companionSound === true;
+        dragEnabledRef.current = prefs.companionDragEnabled !== false;
+        // 角色互動記憶：同一天只算一次（熟悉度隨天數緩升，不因單一事件跳動）。
+        const mem = noteSession(sanitizeMemory(prefs.companionInteractionMemory), Date.now());
+        memoryRef.current = mem;
+        void desktop.prefsPatch({ companionInteractionMemory: mem }).catch(() => {});
       } catch {
         /* browser mode */
       }
@@ -260,7 +368,8 @@ export default function CompanionApp() {
           console.error("invalid character rig pack", issues);
           return;
         }
-        const stage = new StageRenderer(canvasRef.current, String(manifest.palette), renderScale);
+        const canvasEl = canvasRef.current;
+        const stage = new StageRenderer(canvasEl, String(manifest.palette), renderScale);
         try {
           const prefs = await desktop.prefsGet();
           stage.setToggles({
@@ -276,9 +385,25 @@ export default function CompanionApp() {
         } catch {
           /* browser mode：預設全部開啟 */
         }
+        stage.setTuning(tuningRef.current);
         stage.onExpressionEvent((id, durationMs) => {
           apply({ type: "transient", kind: "performing", animation: id, durationMs });
         });
+        // 互動框：由 stage 每幀依節流政策回報（角色會走動、玩具會滾，
+        // 只靠 500ms pump 的話 Rust 會用過期的框判定點擊穿透）。
+        if (isTauri) {
+          void import("@tauri-apps/api/core").then(({ invoke }) => {
+            stage.onHitRect((b) => {
+              const rect = canvasEl.getBoundingClientRect();
+              void invoke("companion_hit_rect", {
+                x: rect.left + b.x,
+                y: rect.top + b.y,
+                w: b.w,
+                h: b.h,
+              }).catch(() => {});
+            });
+          });
+        }
         stageRef.current = stage;
         renderer = stage;
       } else {
@@ -295,12 +420,20 @@ export default function CompanionApp() {
           renderScale
         );
       }
-      renderer.setReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+      renderer.setReducedMotion(motionQuery.matches);
+      // 執行中改系統設定也要立刻生效（不必重開視窗）。
+      const onMotionChange = (e: MediaQueryListEvent) =>
+        rendererRef.current?.setReducedMotion(e.matches);
+      motionQuery.addEventListener?.("change", onMotionChange);
+      motionCleanup.current = () => motionQuery.removeEventListener?.("change", onMotionChange);
       rendererRef.current = renderer;
       setReady(true);
     })();
     return () => {
       disposed = true;
+      motionCleanup.current?.();
+      motionCleanup.current = null;
       rendererRef.current?.destroy();
     };
   }, []);
@@ -310,24 +443,66 @@ export default function CompanionApp() {
   // 行為導演：注意力/冷卻/防重複/中斷恢復）、seeded RNG。
   const behaviorState = React.useRef<CompanionBehaviorState>(initialBehavior(Date.now()));
   const directorRef = React.useRef(new InteractionDirector());
+  /** 上一個 tick 是否正在表演（用來判斷「自然播完」）。 */
+  const performingRef = React.useRef(false);
   const microRng = React.useRef(seededRng(Date.now() >>> 0));
 
   const apply = React.useCallback((ev: Parameters<typeof reduce>[1]) => {
+    const now = Date.now();
     const before = machineRef.current.transient;
-    machineRef.current = reduce(machineRef.current, ev, Date.now());
+    const beforeBase = machineRef.current.base;
+    machineRef.current = reduce(machineRef.current, ev, now);
     // 表演被真實事件搶佔 → 記打斷（收斂主動表現）＋讓 Director 之後恢復。
+    // 已經自然播完的表演不算被搶（wasPreempted 把兩者分開）。
     const after = machineRef.current.transient;
-    if (before?.kind === "performing" && after && after.kind !== "performing") {
+    if (wasPreempted(before, after, now)) {
       behaviorState.current = noteInterruption(behaviorState.current);
-      directorRef.current.notePreempted(Date.now());
+      directorRef.current.notePreempted(now);
+    }
+    // 緊急停止：進行中的語音也要停（machine 那邊已清掉非安全 transient）。
+    if (machineRef.current.base === "emergency" && beforeBase !== "emergency") {
+      stopSpeech();
     }
     setBaseState(machineRef.current.base);
     syncPose();
   }, []);
 
   const syncPose = React.useCallback(() => {
-    const p = pose(machineRef.current, Date.now());
+    const now = Date.now();
+    const m = machineRef.current;
+    const p = pose(m, now);
     rendererRef.current?.setAnimation(p.animation, p.frameSlice);
+    // 舞台旗標必須跟 machine 同步生效。只在 500ms pump 更新的話，緊急停止後
+    // 角色還會追球最多半秒，而 doze/lie-flat 這類姿勢也會被步行覆蓋。
+    const t = m.transient && m.transient.untilMs > now ? m.transient : null;
+    stageRef.current?.setMachineFlags(machineStageFlags(m.base, t, p.animation, p.ambient));
+  }, []);
+
+  // ---- 拖曳期間的「持續」transient（放下才結束） ----
+  const dragHoldRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+  /** 抱起來：dragged 用續期表示「還在手上」，不是 1.5 秒後自己過期。 */
+  const beginDragHold = React.useCallback(() => {
+    apply({ type: "transient", kind: "dragged", durationMs: DRAG_HOLD_MS });
+    if (dragHoldRef.current) clearInterval(dragHoldRef.current);
+    dragHoldRef.current = setInterval(() => {
+      apply({ type: "transient", kind: "dragged", durationMs: DRAG_HOLD_MS });
+    }, DRAG_RENEW_MS);
+  }, [apply]);
+
+  /** 放下：停止續期並讓出舞台（安全狀態若已搶佔就不動它）。 */
+  const endDragHold = React.useCallback(() => {
+    if (dragHoldRef.current) {
+      clearInterval(dragHoldRef.current);
+      dragHoldRef.current = null;
+    }
+    if (machineRef.current.transient?.kind === "dragged") {
+      apply({ type: "clear-transient" });
+    }
+  }, [apply]);
+
+  React.useEffect(() => () => {
+    if (dragHoldRef.current) clearInterval(dragHoldRef.current);
   }, []);
 
   // 低風險遙測（點擊／滑鼠靠近等）才可 fire-and-forget：失敗即丟棄，
@@ -348,8 +523,13 @@ export default function CompanionApp() {
       const actionId = typeof payload["actionId"] === "string" ? payload["actionId"] : null;
       if (command === "cancel" || command === "clear-all") {
         // Cancelled/estopped: drop any non-safety visual (safety poses are
-        // driven by base state, not by presentation commands).
-        showBubble(null, 0);
+        // driven by base state, not by presentation commands) — including a
+        // still-running `performing` transient, which used to survive here.
+        // 進行中的語音也要停：清氣泡不會讓已經在講的句子閉嘴。
+        const cancelPlan = planPresentationCommand(command, {}, isTauri);
+        stopSpeech();
+        showBubbleRaw(null, 0);
+        if (cancelPlan.transient === null) apply({ type: "clear-transient" });
         return;
       }
       if (!actionId) return;
@@ -360,8 +540,15 @@ export default function CompanionApp() {
         else apply({ type: "transient", kind: plan.transient, animation: plan.animation });
       }
       if (plan.bubble) {
-        showBubble(plan.bubble.text, plan.bubble.ms);
-        pushInteraction("bubble-shown", { source: "presentation-command" });
+        // 使用者關掉氣泡時不顯示，而且誠實回報沒顯示（不假裝 displayed）。
+        const decision = bubbleOutcome(bubblesEnabledRef.current);
+        if (decision.show) {
+          showBubbleRaw(plan.bubble.text, plan.bubble.ms);
+          pushInteraction("bubble-shown", { source: "presentation-command" });
+        } else {
+          plan.outcome = decision.outcome ?? "failed";
+          plan.detail = decision.detail;
+        }
       }
       if (plan.presence !== undefined && isTauri) {
         try {
@@ -372,7 +559,16 @@ export default function CompanionApp() {
         }
       }
       try {
-        if (plan.sound) await playRegisteredSound(plan.sound);
+        if (plan.sound) {
+          // 音效預設關閉：關著就不播，而且誠實回 failed（不假裝播過）。
+          const decision = soundOutcome(soundEnabledRef.current);
+          if (decision.play) {
+            await playRegisteredSound(plan.sound);
+          } else {
+            plan.outcome = decision.outcome ?? "failed";
+            plan.detail = decision.detail;
+          }
+        }
         if (plan.speech) await speakText(plan.speech);
         if (plan.window) {
           if (!isTauri) throw new Error("window adjustment needs the desktop shell");
@@ -486,7 +682,12 @@ export default function CompanionApp() {
         const paused = Boolean(
           (s["proactivePause"] as Record<string, unknown> | undefined)?.["paused"]
         );
-        const quiet = Boolean(s["quietHours"]);
+        quietHoursRef.current = Boolean(s["quietHours"]);
+        // quiet 基態 = runtime quiet hours 或使用者的勿擾開關。
+        const quiet = quietBase({
+          quietHours: quietHoursRef.current,
+          doNotDisturb: dndRef.current,
+        });
         const sensors = (s["activeSensors"] as { kind: string }[] | undefined) ?? [];
         setSensorLabel(
           sensors.length > 0
@@ -516,6 +717,13 @@ export default function CompanionApp() {
       const now = Date.now();
       const m = machineRef.current;
       const t = m.transient && m.transient.untilMs > now ? m.transient : null;
+      // 表演自然播完（不是被搶佔）→ 告訴 Director 舞台空了。
+      if (performingRef.current && t?.kind !== "performing") {
+        performingRef.current = false;
+        directorRef.current.noteFinished();
+      } else if (t?.kind === "performing") {
+        performingRef.current = true;
+      }
       const busy =
         t != null && ["acting", "waiting-for-receipt", "routing", "thinking"].includes(t.kind);
       const waitingForHuman = t?.kind === "requesting-consent";
@@ -535,34 +743,42 @@ export default function CompanionApp() {
           ["emergency", "offline", "paused"].includes(m.base)
         )
       );
+      // syncPose 同時把 machine 旗標推給 stage（真相狀態即時凍結遊玩）。
       syncPose();
       const p = pose(m, now);
-      // 遊玩場：把 machine 真實狀態餵給 stage（真相狀態凍結一切遊玩）、
-      // 動態更新 hit-rect（角色會走動、玩具會滾）。
       const stage = stageRef.current;
-      if (stage) {
-        const playPerforming =
-          t?.kind === "performing" && PLAYFIELD_EXPRESSIONS.has(t.animation ?? "");
-        stage.setMachineFlags({
-          ambient: p.ambient,
-          frozen: ["emergency", "offline", "paused"].includes(m.base),
-          quiet: m.base === "quiet",
-          playPerforming,
+      // 心跳：rAF 被系統節流／視窗隱藏時，至少每 500ms 還有一次互動框回報。
+      stage?.reportHitRect(true);
+      // 使用者要求的本機安靜期（「一小時內不要主動說話」）。
+      const localQuiet = proactiveQuietActive(quietUntilRef.current, now);
+      // quiet 基態的 pose.ambient 是 false——用它當唯一閘門會讓 Director 的
+      // quiet 分支（偶爾眨眼）永遠到不了。閘門改由 directorTickGate 決定。
+      const gate = directorTickGate({
+        poseAmbient: p.ambient,
+        base: m.base,
+        hasActiveTransient: t !== null,
+        localQuiet,
+      });
+      if (!gate.tick) return;
+      // Hover 短氣泡（§5.1-3）：停在角色身上超過 700ms、冷卻過了才說一句。
+      // 本機模板選句，不呼叫 AI、不保存游標位置。
+      if (hoverSinceRef.current > 0) {
+        const decision = hoverBubblePolicy({
+          hoverMs: now - hoverSinceRef.current,
+          nowMs: now,
+          lastBubbleAt: lastBubbleAt.current,
+          bubblesEnabled: bubblesEnabledRef.current,
+          approachEnabled: approachEnabledRef.current,
+          quiet: m.base === "quiet" || quietHoursRef.current || dndRef.current || localQuiet,
+          personality: personalityRef.current,
+          rand: microRng.current(),
         });
-        if (isTauri && canvasRef.current) {
-          const b = stage.interactiveBounds();
-          const rect = canvasRef.current.getBoundingClientRect();
-          void import("@tauri-apps/api/core").then(({ invoke }) =>
-            invoke("companion_hit_rect", {
-              x: rect.left + b.x,
-              y: rect.top + b.y,
-              w: b.w,
-              h: b.h,
-            }).catch(() => {})
-          );
+        if (decision.show && decision.text) {
+          lastBubbleAt.current = now;
+          hoverSinceRef.current = now; // 同一次停留不再重複說
+          showBubble(decision.text, 3200);
         }
       }
-      if (!p.ambient) return;
       // 遊玩中（追逐/叼回）不再疊 Director 的 ambient 動作。
       if (stage?.worldBusy()) return;
       const expr = behaviorRef.current.allowCasualBubbles
@@ -576,7 +792,7 @@ export default function CompanionApp() {
         {
           nowMs: now,
           ambient: true,
-          quiet: m.base === "quiet",
+          quiet: gate.quiet,
           reducedMotion,
           expressiveness: expr,
           msSinceInteraction: now - behaviorState.current.lastInteractionAt,
@@ -585,12 +801,19 @@ export default function CompanionApp() {
         microRng.current
       );
       if (action) {
-        apply({
-          type: "transient",
-          kind: "performing",
-          animation: action.expression,
-          durationMs: action.durationMs,
-        });
+        // 安靜時只允許眨眼，而且要「就地眨」：套成一般表演的話，她會從安靜
+        // 陪伴的坐姿彈回中性站姿。rig 收得下這個提示就不換表情。
+        const rig = rendererRef.current as { blinkNow?: () => boolean } | null;
+        const blinkedInPlace =
+          gate.quiet && action.expression === "blink" && rig?.blinkNow?.() === true;
+        if (!blinkedInPlace) {
+          apply({
+            type: "transient",
+            kind: "performing",
+            animation: action.expression,
+            durationMs: action.durationMs,
+          });
+        }
       }
     }, 500);
     return () => {
@@ -613,6 +836,8 @@ export default function CompanionApp() {
     if (base === "quiet" || base === "paused" || base === "emergency") return;
     if (!behaviorRef.current.allowCasualBubbles) return;
     const now = Date.now();
+    // 使用者要求「不要主動說話」：知識收據不是安全警示，安靜期內不說。
+    if (proactiveQuietActive(quietUntilRef.current, now)) return;
     if (now - lastBubbleAt.current < behaviorRef.current.bubbleCooldownMs) return;
     lastBubbleAt.current = now;
     showBubble(text, 5000);
@@ -623,7 +848,7 @@ export default function CompanionApp() {
     const base = machineRef.current.base;
     // Safety lines are FIXED (packs cannot restyle them) and always show.
     if (e.eventType === "emergency.stop" && e.payload["cleared"] !== true) {
-      showBubble(line("emergency"), 0); // sticky
+      showBubble(line("emergency"), 0, { safety: true }); // sticky
       return;
     }
     // Blocked/unknown/failed are safety-relevant fixed wording: shown even in
@@ -640,10 +865,12 @@ export default function CompanionApp() {
             : null;
     if (safetyText) {
       lastBubbleAt.current = now;
-      showBubble(safetyText, 5000);
+      showBubble(safetyText, 5000, { safety: true });
       return;
     }
     // Casual lines: persona-styled, expressiveness-gated, cooldown-limited.
+    // 使用者要求的安靜期只擋這些隨口話——上面的安全文字不受影響。
+    if (proactiveQuietActive(quietUntilRef.current, now)) return;
     if (!behaviorRef.current.allowCasualBubbles) return;
     if (now - lastBubbleAt.current < behaviorRef.current.bubbleCooldownMs) return;
     let text: string | null = null;
@@ -673,8 +900,18 @@ export default function CompanionApp() {
     if (stage) {
       const p = stagePoint(e);
       stage.pointerMove(p.x, p.y);
+      hoverSinceRef.current = stage.hitTestChar(p.x, p.y) ? Date.now() : 0;
     }
-    if (!approachEnabledRef.current) return;
+    // 勿擾/安靜時段：不主動靠近、不主動看過來。
+    if (
+      !approachAllowed({
+        approachEnabled: approachEnabledRef.current,
+        quietHours: quietHoursRef.current,
+        doNotDisturb: dndRef.current,
+      })
+    ) {
+      return;
+    }
     const now = Date.now();
     if (now - lastApproachAt.current > 30_000) {
       lastApproachAt.current = now;
@@ -687,6 +924,7 @@ export default function CompanionApp() {
   function onPointerLeaveCanvas() {
     stageRef.current?.pointerLeave();
     toyDragRef.current = false;
+    hoverSinceRef.current = 0;
   }
 
   // ---- coarse activity summary (this app's windows only) ----
@@ -763,29 +1001,61 @@ export default function CompanionApp() {
     if (stage) {
       const p = stagePoint(e);
       stage.pointerMove(p.x, p.y);
+      // hover 計時：離開角色身上就重新計（座標只留在本視窗）。
+      if (stage.hitTestChar(p.x, p.y)) {
+        if (hoverSinceRef.current === 0) hoverSinceRef.current = Date.now();
+      } else {
+        hoverSinceRef.current = 0;
+      }
     }
     if (toyDragRef.current) return;
+    if (!dragEnabledRef.current) return; // 使用者關掉了「可拖曳角色」
     const d = dragState.current;
     if (!d || d.dragging) return;
     if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) > 5) {
       d.dragging = true;
-      // 被抱起：懸空反應（rig 有專屬 lifted 演出）。
-      apply({ type: "transient", kind: "dragged", durationMs: 1500 });
+      // 被抱起：懸空反應（rig 有專屬 lifted 演出）。整段拖曳期間都是
+      // 「被抱著」——用續期的持續 transient，不是 1.5 秒後自己過期，
+      // 否則她會在半空中回 idle、遊玩場也重新啟動。
+      beginDragHold();
       pushInteraction("companion-dragged");
       if (isTauri) {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const win = getCurrentWindow();
+        const startedAt = Date.now();
+        const from = await win.outerPosition().catch(() => null);
         await win.startDragging().catch(() => {});
         // startDragging blocks until drop: persist the new position + 落地演出。
-        apply({ type: "transient", kind: "performing", animation: "wobbly-landing", durationMs: 1600 });
+        endDragHold();
         try {
           const pos = await win.outerPosition();
+          // 速度估算：原生拖曳期間沒有指標事件，只能用整段位移÷耗時算
+          // 平均速度（下界估算，不是瞬時速度）。高度＝實際下降量。
+          const elapsed = Math.max(1, Date.now() - startedAt);
+          const dx = from ? pos.x - from.x : 0;
+          const dy = from ? pos.y - from.y : 0;
+          const speedPxPerSec = (Math.hypot(dx, dy) / elapsed) * 1000;
+          const landing = pickLanding({
+            speedPxPerSec,
+            heightPx: Math.max(0, dy),
+            nearEdge: await nearScreenEdge(win, pos),
+          });
+          if (landing.durationMs > 0) {
+            apply({
+              type: "transient",
+              kind: "performing",
+              animation: landing.expression,
+              durationMs: landing.durationMs,
+            });
+          }
           await desktop.prefsPatch({
             companionPosition: [pos.x, pos.y],
           } as never);
         } catch {
           /* best effort */
         }
+      } else {
+        endDragHold(); // 瀏覽器模式沒有原生拖曳：立刻結束
       }
       dragState.current = null;
     }
@@ -800,20 +1070,36 @@ export default function CompanionApp() {
     }
     const d = dragState.current;
     dragState.current = null;
+    if (d?.dragging) endDragHold();
     if (d && !d.dragging) {
       const now = Date.now();
       clickTimes.current = [...clickTimes.current.filter((t) => now - t < 1_400), now];
       pushInteraction("companion-clicked");
       if (clickTimes.current.length >= 3) {
-        // 被連戳：嘟嘴抗議（不再狂開關選單）。
-        apply({ type: "clear-transient" });
-        apply({ type: "transient", kind: "performing", animation: "poked-rapid", durationMs: 2200 });
+        // 被連戳：統一走 Director（真相狀態白名單＋冷卻＋個性）。
+        const reaction = directorRef.current.react("poked-rapid", now, 2200, microRng.current);
+        if (reaction) {
+          apply({ type: "clear-transient" });
+          apply({
+            type: "transient",
+            kind: "performing",
+            animation: reaction.expression,
+            durationMs: reaction.durationMs,
+          });
+        }
         return;
       }
       apply({ type: "transient", kind: "clicked" });
       setMenuOpen((v) => !v);
       setInputOpen(false);
     }
+  }
+
+  /** 本機安靜期（分鐘）：Director quiet ＋ hover/隨口氣泡停用，安全文字不受影響。 */
+  function setLocalQuiet(minutes: number) {
+    const until = proactiveQuietUntil(minutes, Date.now());
+    quietUntilRef.current = until;
+    void desktop.prefsPatch({ companionProactiveQuietUntil: until }).catch(() => {});
   }
 
   async function quick(action: string) {
@@ -842,11 +1128,15 @@ export default function CompanionApp() {
           break;
         case "quiet-1h":
           // 主動式對話安靜一小時（≠ 暫停主動行動，也 ≠ emergency stop）。
+          // 同時關掉角色自己的隨口氣泡與 ambient 表演——只叫 runtime 閉嘴
+          // 的話，她照樣會自己冒話。安全文字不受影響。
           await api.proactiveDialogueQuiet(60);
+          setLocalQuiet(60);
           showBubble("好，一小時內我不主動說話。", 3500);
           break;
         case "quiet-today":
           await api.proactiveDialogueQuiet(12 * 60);
+          setLocalQuiet(12 * 60);
           showBubble("好，今天我會安靜一點。", 3500);
           break;
         case "estop":
@@ -892,8 +1182,15 @@ export default function CompanionApp() {
     setMenuOpen(false);
     const stage = stageRef.current;
     if (!stage) return;
-    if (kind === "clear") stage.clearAllToys();
-    else stage.spawnToy(kind);
+    if (kind === "clear") {
+      stage.clearAllToys();
+      return;
+    }
+    stage.spawnToy(kind);
+    // 角色互動記憶：記「玩過什麼」，不推論人格（熟悉度只看天數）。
+    const mem = notePlay(memoryRef.current, kind, Date.now());
+    memoryRef.current = mem;
+    void desktop.prefsPatch({ companionInteractionMemory: mem }).catch(() => {});
   }
 
   const estop = baseState === "emergency";
@@ -962,6 +1259,7 @@ export default function CompanionApp() {
               <button role="menuitem" title="紙飛機" onClick={() => quickToy("plane")}>✈️</button>
               <button role="menuitem" title="光點" onClick={() => quickToy("light")}>✨</button>
               <button role="menuitem" title="逗貓棒" onClick={() => quickToy("wand")}>🪶</button>
+              <button role="menuitem" title="小物件（她只會好奇地看看）" onClick={() => quickToy("trinket")}>🧸</button>
               <button role="menuitem" title="收走玩具" onClick={() => quickToy("clear")}>🧹</button>
             </div>
           )}
@@ -998,9 +1296,19 @@ export default function CompanionApp() {
             msSinceInteraction: Date.now() - behaviorState.current.lastInteractionAt,
             expressiveness: behaviorRef.current.allowCasualBubbles ? "natural" : "quiet",
           })}
-          onIntent={(intent) =>
-            apply({ type: "transient", kind: "performing", animation: intent, durationMs: 2500 })
-          }
+          onIntent={(intent) => {
+            // L1 語意意圖也要經過 Director：truthState 永遠不可點播，
+            // 冷卻中就不重播（playable() 白名單在 Director 內）。
+            const action = directorRef.current.react(intent, Date.now(), 2500, microRng.current);
+            if (action) {
+              apply({
+                type: "transient",
+                kind: "performing",
+                animation: action.expression,
+                durationMs: action.durationMs,
+              });
+            }
+          }}
         />
       )}
     </div>

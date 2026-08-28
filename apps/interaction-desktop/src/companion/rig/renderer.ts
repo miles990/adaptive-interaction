@@ -49,7 +49,7 @@ export class RigRenderer implements RendererBackend {
   }
 
   setMicroMotion(motion: MicroMotionOverlay): void {
-    this.timeline.setMicroMotion(motion);
+    this.timeline.setMicroMotion(motion, this.now());
   }
 
   destroy(): void {

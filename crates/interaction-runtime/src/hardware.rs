@@ -851,7 +851,7 @@ fn unavailable_row(class: Class) -> DiscoveredHardware {
         Class::Esp32Declaration => (
             Availability::Unavailable,
             vec!["需由使用者匯入 declarative adapter YAML 並完成配對".into()],
-            "可透過宣告式 HTTP/SSE adapter 加入；不由掃描臆測能力",
+            "可透過宣告式 serial/mqtt/ble adapter 加入（見 firmware/esp32-companion/README）；不由掃描臆測能力",
         ),
         _ => (
             Availability::Unsupported,

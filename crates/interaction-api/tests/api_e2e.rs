@@ -1013,3 +1013,300 @@ async fn human_layer_endpoints_roundtrip() {
     assert_eq!(converted["valid"], json!(true));
     assert!(converted["text"].as_str().unwrap().contains("futureField"));
 }
+
+/// iPhone 配對面是「人類層」：配對指紋、裝置清單、撤銷與 BLE 閘道都不在
+/// AI/工具平面。agent token 與 agent-session token 一律 403（fail closed）。
+#[tokio::test]
+async fn mobile_routes_are_human_only_for_agent_and_session_tokens() {
+    let server = TestServer::spawn().await;
+    let record = server
+        .runtime
+        .create_agent_session(interaction_runtime::agents::CreateAgentSession {
+            provider_id: Some("provider.ai-agent.mobile-test".into()),
+            agent_id: "mobile-test".into(),
+            label: Some("mobile scope probe".into()),
+            ttl_minutes: Some(5),
+            data_scope: vec![],
+            tool_scope: vec!["status".into()],
+            consent_scope: vec![],
+            allow_write: false,
+            max_cost: None,
+            max_messages: Some(5),
+            delegation: None,
+            workdir: None,
+            resume_provider_session_id: None,
+        })
+        .await
+        .unwrap();
+    let session_token = server
+        .runtime
+        .issue_agent_session_capability(record.session_id.as_str())
+        .await
+        .unwrap();
+
+    let routes = [
+        (reqwest::Method::GET, "/v1/mobile/status", Value::Null),
+        (
+            reqwest::Method::POST,
+            "/v1/mobile/pairing-session",
+            json!({}),
+        ),
+        (reqwest::Method::DELETE, "/v1/mobile/devices/x", Value::Null),
+        (
+            reqwest::Method::POST,
+            "/v1/mobile/ble/scan",
+            json!({"durationMs": 1000}),
+        ),
+    ];
+    for (label, token) in [
+        ("agent token", server.agent_token.clone()),
+        ("agent-session token", session_token.clone()),
+    ] {
+        for (method, path, body) in &routes {
+            let response = server
+                .client
+                .request(method.clone(), format!("{}{path}", server.base))
+                .bearer_auth(&token)
+                .json(body)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                403,
+                "{label} must not reach {method} {path}"
+            );
+            let error: Value = response.json().await.unwrap();
+            assert_eq!(error["error"]["code"], "token_scope_forbidden");
+        }
+    }
+
+    // 人類 token 仍可讀狀態（權限縮減，不是整條路線壞掉）。
+    let (code, status) = server.get("/v1/mobile/status").await;
+    assert_eq!(code, 200);
+    assert_eq!(status["started"], json!(false));
+}
+
+/// 「claim ≠ verified」必須由 Runtime 確定性強制，而不是靠 UI 藏按鈕：
+/// 只有人類 token 能驗證 claim，且 AI 不得用自我回報的 `report` 路徑
+/// 把自己升級成 verified。
+#[tokio::test]
+async fn only_a_human_token_can_verify_a_claim_and_no_agent_can_self_upgrade() {
+    let server = TestServer::spawn().await;
+    let record = server
+        .runtime
+        .create_agent_session(interaction_runtime::agents::CreateAgentSession {
+            provider_id: Some("provider.ai-agent.external-test".into()),
+            agent_id: "external-test".into(),
+            label: Some("verify scope".into()),
+            ttl_minutes: Some(5),
+            data_scope: vec![],
+            tool_scope: vec![],
+            consent_scope: vec![],
+            allow_write: false,
+            max_cost: None,
+            max_messages: Some(5),
+            delegation: None,
+            workdir: None,
+            resume_provider_session_id: None,
+        })
+        .await
+        .unwrap();
+    let id = record.session_id.as_str().to_string();
+    let session_token = server
+        .runtime
+        .issue_agent_session_capability(&id)
+        .await
+        .unwrap();
+
+    // 先有 claim（人類路徑），才有東西可以驗證。
+    let (status, _) = server
+        .post(
+            &format!("/v1/agent-sessions/{id}/report"),
+            json!({"event": "claimed-completed", "payload": {"summary": "我覺得做完了"}}),
+        )
+        .await;
+    assert_eq!(status, 200);
+
+    // agent token 與 session token 都不得碰 verify。
+    for (label, token) in [
+        ("agent token", server.agent_token.clone()),
+        ("agent-session token", session_token.clone()),
+    ] {
+        let response = server
+            .client
+            .post(format!("{}/v1/agent-sessions/{id}/verify", server.base))
+            .bearer_auth(&token)
+            .json(&json!({"note": "我自己驗自己"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            403,
+            "{label} must never verify an agent claim"
+        );
+        let error: Value = response.json().await.unwrap();
+        assert_eq!(error["error"]["code"], "token_scope_forbidden");
+    }
+    // 沒有任何自我驗證留下痕跡。
+    let (_, before) = server.get(&format!("/v1/agent-sessions/{id}")).await;
+    assert_eq!(before["humanVerified"], Value::Null);
+    assert_eq!(before["state"], "claimed-completed");
+
+    // `verified` 不是可以自我回報的事件：report 路徑必須拒絕它。
+    let (status, error) = server
+        .post(
+            &format!("/v1/agent-sessions/{id}/report"),
+            json!({"event": "verified", "payload": {}}),
+        )
+        .await;
+    assert_eq!(status, 400, "self-reported 'verified' must be refused");
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("verified"),
+        "{error}"
+    );
+    let (_, still) = server.get(&format!("/v1/agent-sessions/{id}")).await;
+    assert_eq!(still["humanVerified"], Value::Null);
+    assert_eq!(still["state"], "claimed-completed");
+
+    // 人類 token 才是唯一的升級路徑。
+    let (status, verified) = server
+        .post(
+            &format!("/v1/agent-sessions/{id}/verify"),
+            json!({"note": "我親自看過輸出"}),
+        )
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(verified["humanVerified"]["note"], "我親自看過輸出");
+    // 驗證是人類的註記，不是 agent 的新聲稱：狀態仍停在 claimed-completed。
+    assert_eq!(verified["state"], "claimed-completed");
+}
+
+/// 誠實階梯的 `unknown`：程序結束卻沒有結果時，API 回報的是「未知」，
+/// 而不是失敗或成功，而且未知的 session 不可被驗證成完成。
+#[tokio::test]
+async fn an_unknown_outcome_is_reportable_and_can_never_be_verified() {
+    let server = TestServer::spawn().await;
+    let record = server
+        .runtime
+        .create_agent_session(interaction_runtime::agents::CreateAgentSession {
+            provider_id: Some("provider.ai-agent.external-test".into()),
+            agent_id: "external-test".into(),
+            label: Some("unknown outcome".into()),
+            ttl_minutes: Some(5),
+            data_scope: vec![],
+            tool_scope: vec![],
+            consent_scope: vec![],
+            allow_write: false,
+            max_cost: None,
+            max_messages: Some(5),
+            delegation: None,
+            workdir: None,
+            resume_provider_session_id: None,
+        })
+        .await
+        .unwrap();
+    let id = record.session_id.as_str().to_string();
+
+    let (status, body) = server
+        .post(
+            &format!("/v1/agent-sessions/{id}/report"),
+            json!({"event": "unknown", "payload": {"reason": "程序已結束而未回報結果"}}),
+        )
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(body["state"], "unknown");
+
+    // 未知不是 claim：不得被升級成 verified。
+    let (status, error) = server
+        .post(&format!("/v1/agent-sessions/{id}/verify"), json!({}))
+        .await;
+    assert_eq!(status, 409);
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("claimed-completed"),
+        "{error}"
+    );
+
+    // 未知是 terminal：不再接受任何回報（也不會被偷偷翻成成功）。
+    let (status, _) = server
+        .post(
+            &format!("/v1/agent-sessions/{id}/report"),
+            json!({"event": "claimed-completed", "payload": {}}),
+        )
+        .await;
+    assert_eq!(status, 409, "a terminal unknown cannot be re-opened");
+}
+
+/// spec §9.3：「測試裝置」是人類動作。agent／session token 一律 403，且
+/// 沒測過的 provider 不得在 API 回應裡冒充「已測試」。
+#[tokio::test]
+async fn provider_test_is_human_only_and_never_fakes_evidence() {
+    let server = TestServer::spawn().await;
+
+    // 沒測過就是沒有證據：detail 裡不得出現 tested。
+    let (status, providers) = server.get("/v1/providers").await;
+    assert_eq!(status, 200);
+    let builtin = providers
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["identity"]["id"] == "provider.local.builtin")
+        .expect("builtin provider listed")
+        .clone();
+    assert!(
+        !builtin["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("tested"),
+        "untested provider must not claim evidence: {builtin}"
+    );
+
+    // agent token 不得測試裝置（人類控制面）。
+    let denied = server
+        .client
+        .post(format!(
+            "{}/v1/providers/provider.local.builtin/test",
+            server.base
+        ))
+        .bearer_auth(&server.agent_token)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403);
+    let error: Value = denied.json().await.unwrap();
+    assert_eq!(error["error"]["code"], "token_scope_forbidden");
+
+    // 人類 token：唯讀測一次，結果誠實寫進證據。
+    let (status, report) = server
+        .post("/v1/providers/provider.local.builtin/test", json!({}))
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(report["tested"]["how"], "human");
+    assert_eq!(report["tested"]["ok"], report["ok"]);
+    let (_, providers) = server.get("/v1/providers").await;
+    let builtin = providers
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["identity"]["id"] == "provider.local.builtin")
+        .unwrap()
+        .clone();
+    let detail: Value =
+        serde_json::from_str(builtin["detail"].as_str().expect("detail json")).unwrap();
+    assert_eq!(detail["tested"]["how"], "human");
+    assert_eq!(detail["tested"]["ok"], report["ok"]);
+
+    // 不存在的 provider：404，不是假裝測過。
+    let (status, _) = server
+        .post("/v1/providers/provider.nope/test", json!({}))
+        .await;
+    assert_eq!(status, 404);
+}

@@ -10,6 +10,7 @@
 
 import { BehaviorState, EventClass, EventScoreContext, scoreEvent } from "./behavior";
 import { resolveExpression } from "./rig/expressions";
+import { DEFAULT_TUNING, PersonalityTuning } from "./personality";
 
 export interface DirectorContext {
   nowMs: number;
@@ -70,6 +71,35 @@ export const REACTION_EXPRESSIONS: Record<string, string> = {
   "poked-rapid": "poked-rapid",
 };
 
+/** 可以「假裝沒看到」的低優先意圖（安全/確認類永遠不會被忽略）。 */
+const SOFT_INTENTS = new Set(["notice", "curious", "peek", "lean-in", "player-back"]);
+
+/** 睡眠類長 ambient：被互動打斷後不該原樣睡回去。 */
+export const SLEEPY_AMBIENT = new Set(["doze", "lie-flat", "sleep"]);
+/** 剛被互動多久之內不恢復睡眠類 ambient（改回 idle 系）。 */
+export const SLEEP_RESUME_BLOCK_MS = 20_000;
+
+/**
+ * 這一 tick 該不該讓 Director 出手，以及是不是「安靜模式」。
+ *
+ * quiet 基態的 pose 是 `{ animation: "quiet", ambient: false }`——呼叫端如果
+ * 用 `if (!pose.ambient) return` 當閘門，Director 的 quiet 分支（偶爾眨眼）
+ * 永遠到不了。安靜不等於完全靜止：仍然 tick，只是只允許眨眼類。
+ */
+export function directorTickGate(input: {
+  poseAmbient: boolean;
+  base: string;
+  hasActiveTransient: boolean;
+  /** 使用者要求的本機安靜期（「一小時內不要主動說話」）。 */
+  localQuiet?: boolean;
+}): { tick: boolean; quiet: boolean } {
+  if (input.hasActiveTransient) return { tick: false, quiet: false };
+  const quiet = input.base === "quiet" || input.localQuiet === true;
+  if (input.poseAmbient) return { tick: true, quiet };
+  if (input.base === "quiet") return { tick: true, quiet: true };
+  return { tick: false, quiet: false };
+}
+
 interface InterruptedAction {
   action: DirectorAction;
   remainingMs: number;
@@ -84,6 +114,16 @@ export class InteractionDirector {
   private recent: string[] = [];
   private interrupted: InterruptedAction | null = null;
   private currentAction: { action: DirectorAction; startedAt: number } | null = null;
+  private tuning: PersonalityTuning;
+
+  constructor(tuning: PersonalityTuning = DEFAULT_TUNING) {
+    this.tuning = tuning;
+  }
+
+  /** 個性 tuning（冷卻倍率、變體權重、假裝沒看到的機率）。 */
+  setTuning(tuning: PersonalityTuning): void {
+    this.tuning = tuning;
+  }
 
   /** 真相狀態防線：Director 永不排程 truthState 表情。 */
   private playable(expression: string): boolean {
@@ -118,10 +158,26 @@ export class InteractionDirector {
     this.currentAction = null;
   }
 
-  /** 使用者要求的即時反應（點擊等由 machine 直接處理；這裡處理語意反應）。 */
-  react(intent: string, nowMs: number, durationMs = 2_500): DirectorAction | null {
-    const expression = REACTION_EXPRESSIONS[intent];
+  /**
+   * 使用者/L1 意圖的即時反應。真相狀態永遠不可點播（playable 白名單），
+   * 冷卻中回 null（不重播）。給了 rng 時，俏皮的個性偶爾會「假裝沒看到」
+   * ——那也是一個誠實的反應，不是靜默失敗。
+   */
+  react(
+    intent: string,
+    nowMs: number,
+    durationMs = 2_500,
+    rng?: () => number
+  ): DirectorAction | null {
+    let expression = REACTION_EXPRESSIONS[intent];
     if (!expression || !this.playable(expression)) return null;
+    if ((this.cooldownUntil.get(expression) ?? 0) > nowMs) return null;
+    if (rng && SOFT_INTENTS.has(intent) && rng() < this.tuning.pretendNotSeeChance) {
+      const pretend = "pretend-not-hear";
+      if (this.playable(pretend) && (this.cooldownUntil.get(pretend) ?? 0) <= nowMs) {
+        expression = pretend;
+      }
+    }
     const action: DirectorAction = { expression, durationMs, source: "reaction" };
     this.currentAction = { action, startedAt: nowMs };
     this.interrupted = null; // 新反應取消舊的恢復計畫
@@ -137,6 +193,13 @@ export class InteractionDirector {
     // 先處理恢復：被打斷的長動作在情境允許時繼續。
     if (this.interrupted) {
       if (ctx.nowMs > this.interrupted.expiresAt) {
+        this.interrupted = null;
+      } else if (
+        SLEEPY_AMBIENT.has(this.interrupted.action.expression) &&
+        ctx.msSinceInteraction < SLEEP_RESUME_BLOCK_MS
+      ) {
+        // 剛被戳醒就躺回去睡，看起來像沒注意到人。放棄這個恢復計畫，
+        // 回 idle 系（放鬆度還很低，池子裡也只剩眨眼類）。
         this.interrupted = null;
       } else if (!ctx.quiet && !ctx.reducedMotion) {
         const resume = this.interrupted;
@@ -174,11 +237,14 @@ export class InteractionDirector {
       return true;
     });
     if (pool.length === 0) return null;
-    const total = pool.reduce((sum, v) => sum + v.weight, 0);
+    // 個性權重：慵懶更常趴著/打哈欠、好奇更常張望…（權重，不是硬規則）。
+    const weightOf = (v: AmbientVariant) =>
+      Math.max(0.01, v.weight * (this.tuning.variantWeights[v.expression] ?? 1));
+    const total = pool.reduce((sum, v) => sum + weightOf(v), 0);
     let pick = rng() * total;
     let chosen = pool[pool.length - 1];
     for (const v of pool) {
-      pick -= v.weight;
+      pick -= weightOf(v);
       if (pick <= 0) {
         chosen = v;
         break;
@@ -195,7 +261,7 @@ export class InteractionDirector {
   }
 
   private markUsed(expression: string, nowMs: number, cooldownMs: number) {
-    this.cooldownUntil.set(expression, nowMs + cooldownMs);
+    this.cooldownUntil.set(expression, nowMs + cooldownMs * this.tuning.cooldownScale);
     this.recent = [...this.recent.slice(-4), expression];
   }
 }

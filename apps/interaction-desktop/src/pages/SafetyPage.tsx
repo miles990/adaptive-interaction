@@ -5,7 +5,8 @@ import React from "react";
 import { api, HumanCard, Session } from "../api";
 import { useAppState } from "../appstate";
 import { Icon } from "../icons";
-import { Section, useAsync } from "../ui";
+import { riskTierOfCard } from "../riskTier";
+import { Badge, Section, useAsync } from "../ui";
 import { ConfirmButton, Dialog } from "../components/Dialog";
 
 export function SafetyPage({
@@ -184,6 +185,15 @@ function ConsentSection({ refreshKey }: { refreshKey: number }) {
                   : c.scope.kind === "toolOperation"
                     ? findCard("tool", c.scope.id)
                     : null;
+            const source =
+              c.scope.kind === "actuator"
+                ? human?.actuators.find((a) => a.id === c.scope.id)
+                : c.scope.kind === "receptor"
+                  ? human?.receptors.find((r) => r.id === c.scope.id)
+                  : c.scope.kind === "toolOperation"
+                    ? human?.toolOperations.find((t) => t.id === c.scope.id)
+                    : undefined;
+            const risk = source ? riskTierOfCard(source) : null;
             return (
               <li key={i} className="consent-item">
                 <div>
@@ -201,6 +211,25 @@ function ConsentSection({ refreshKey }: { refreshKey: number }) {
                       ? `有效至 ${new Date(c.expiresAt).toLocaleString()}`
                       : "整個工作階段有效"}
                   </span>
+                  {risk && (
+                    <div className="muted small">
+                      <Badge
+                        kind={
+                          risk.tier >= 4
+                            ? "bad"
+                            : risk.tier === 3
+                              ? "warn"
+                              : risk.tier === 2
+                                ? "info"
+                                : "muted"
+                        }
+                      >
+                        {risk.label}
+                      </Badge>{" "}
+                      {risk.policy}
+                      {risk.hardLimits ? `　${risk.hardLimits}` : ""}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={async () => {
@@ -276,6 +305,20 @@ function GrantDialog({
             <Icon name={selected.icon} size={18} /> <strong>{selected.displayName}</strong>
           </p>
           <p className="muted small">{selected.consent.reason ?? selected.shortDescription}</p>
+          {(() => {
+            const risk = riskTierOfCard(selected);
+            return (
+              <p className="muted small">
+                <Badge
+                  kind={risk.tier >= 4 ? "bad" : risk.tier === 3 ? "warn" : risk.tier === 2 ? "info" : "muted"}
+                >
+                  {risk.label}
+                </Badge>{" "}
+                {risk.policy}
+                {risk.hardLimits ? `　${risk.hardLimits}` : ""}
+              </p>
+            );
+          })()}
           {selected.riskNote && (
             <p className="risk-note">
               <Icon name="triangle-alert" size={14} /> {selected.riskNote}

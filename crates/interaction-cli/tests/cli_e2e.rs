@@ -250,3 +250,69 @@ fn duplicate_daemon_is_refused_by_instance_lock() {
         "stderr: {stderr}"
     );
 }
+
+/// 續開（resume）走 CLI 的兩個入口：`agents create --resume <provider id>`
+/// 與 `agents resume <session id>`。續開不是「把舊權限接回來」——它是一份
+/// 新租約：權限旗標重新上鎖，而且沒有 provider 端 thread 時要誠實拒絕，
+/// 不得憑空編一個 id 出來。
+#[test]
+fn agents_resume_requires_a_real_provider_thread_and_never_inherits_write_access() {
+    let daemon = Daemon::spawn();
+
+    // 一個沒有接上任何子程序的 session：它沒有 provider 端 thread。
+    let (code, created, stderr) = daemon.cli(&[
+        "agents",
+        "create",
+        "--agent",
+        "agent.cli-resume",
+        "--label",
+        "原本的工作",
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    let id = created["sessionId"].as_str().unwrap().to_string();
+    assert_eq!(created["providerSessionId"], Value::Null);
+
+    // 沒有 providerSessionId 就誠實拒絕續開（stdout 保持乾淨）。
+    let output = Command::new(env!("CARGO_BIN_EXE_interact-ai"))
+        .args([
+            "--json",
+            "--config",
+            daemon.home.path().to_str().unwrap(),
+            "--api",
+            &format!("http://127.0.0.1:{}", daemon.port),
+            "agents",
+            "resume",
+            &id,
+        ])
+        .output()
+        .expect("run cli");
+    assert_ne!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty(), "stdout stays clean on error");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("providerSessionId"),
+        "the refusal must say why: {stderr}"
+    );
+
+    // 不存在的 session 照實回傳 not-found 的退出碼（5），不代填。
+    let (code, _, _) = daemon.cli(&["agents", "resume", "nope"]);
+    assert_eq!(code, 5);
+
+    // create --resume 把 provider thread id 帶進建立請求；新 session 仍是
+    // 唯讀（權限旗標重新上鎖，不繼承任何東西）。
+    let (code, resumed, stderr) = daemon.cli(&[
+        "agents",
+        "create",
+        "--agent",
+        "agent.cli-resume",
+        "--label",
+        "續開的工作",
+        "--resume",
+        "provider-thread-abc",
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(resumed["allowWrite"], false);
+    assert_eq!(resumed["consentScope"], serde_json::json!([]));
+    assert_eq!(resumed["toolScope"], serde_json::json!([]));
+    assert_ne!(resumed["sessionId"], created["sessionId"]);
+}

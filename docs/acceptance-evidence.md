@@ -232,7 +232,9 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
    同意我不開麥；cpal 路徑已編譯，以確定性 fake source 完整測試（sensors_loop 6/6），
    需要一次你在場的手動驗證。
 5. **攝影機誠實未實作**：不做假 driver；catalog 標為不可用。
-6. **WS/MQTT/Serial/BLE transport**：宣告式引擎解析但誠實拒絕（僅 HTTP/SSE 實作）。
+6. **WS/MQTT/Serial/BLE transport**：v0.3 時宣告式引擎只解析不實作（僅 HTTP/SSE）；
+   **v0.5 起 Serial／MQTT／BLE 已實作**（見下方 v0.5 章節），WebSocket／HID／Home Assistant
+   仍未實作。
 7. **第三方 pack zip 安裝流程未做**：內建 packs 與驗證器齊備，但沒有 zip 匯入 UI；
    pack 驗證器已防 zip-slip 概念（sheet 僅限純檔名）。
 
@@ -393,3 +395,104 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
    fail-safe 放棄並寫 warning，避免誤殺外部 daemon。
 10. 本輪未 push、release、deploy、開 PR 或建立 commit；依 repo 規則需使用者明確授權，
     不影響本機工程與驗收結果。
+
+---
+
+## v0.5（Phase 7 收尾；2026-08-28，macOS 26.2／Apple M2 Pro／rustc 1.94.0／node 24.5.0／pnpm 10.27.0）
+
+> 本節是 v0.5 的驗收證據總表。所有數字都是本 Session 在同一台機器實跑；模擬器／fixture／程序內 client 一律標示，
+> 沒有任何真機（ESP32／iPhone）證據。逐條恢復矩陣見 `docs/v05-recovery-matrix.md`，收尾狀態見
+> `docs/v05-capability-gap-matrix.md` §9。
+
+### 自動化回歸（Phase 7 修復後，最後一次全套）
+
+| 套件 | 命令 | 結果 |
+|---|---|---|
+| Rust fmt | `cargo fmt --check` | 通過（exit 0） |
+| Rust clippy | `cargo clippy --workspace --all-targets -- -D warnings` | 通過，0 warning |
+| Rust workspace tests | `cargo test --workspace` | **426 passed / 0 failed / 0 ignored**（Phase 0 基線 336；本輪 Phase 1–6 起點 349；Phase 7 +77；mobile_loop 25、protocol_honesty 21、agents_loop 16、api_e2e 20…） |
+| Tauri | `cargo test --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml`＋同路徑 clippy | **8 passed / 0 failed**；clippy 0 warning |
+| 前端 typecheck | `pnpm typecheck` | 通過 |
+| 前端 unit | `pnpm test`（vitest） | **319 passed / 0 failed**（21 檔；基線 94／11 檔） |
+| 前端 build | `pnpm build` | 成功（index 491 kB／gzip 163 kB） |
+| CLI／API E2E | `./scripts/v03-cli-e2e.sh`（真 daemon＋mock HTTP 裝置＋**Serial 模擬器**＋fake agent 子程序） | **63 passed / 0 failed**（基線 51；Serial(SIMULATOR) 段 8 check、estop 段 3） |
+| Playwright | `pnpm test:e2e`（真 daemon＋Chromium，桌面 1200px 與 390px） | **24 passed / 0 failed**（含通知中心鍵盤真斷言、§11 一般模式三區契約） |
+| Golden schema | `cargo test -p interaction-e2e --test golden` | 5 passed，golden **未漂移**（未重生） |
+| iOS typecheck | `xcrun swiftc -typecheck -sdk iphonesimulator26.5 -target arm64-apple-ios17.0-simulator`（12 檔） | **0 error / 0 warning** |
+| iOS XCTest | swiftc 編 `.xctest` bundle → `xctest` agent 於 iPhone 17 模擬器 | **19 passed / 0 failed**（MotionClassifier 8＋Protocol 11）——**模擬器** |
+| ESP32 韌體 | `./firmware/esp32-companion/compile.sh [--ble]`（arduino-cli 1.5.1、esp32:esp32 3.3.11） | 兩組態 **0 error、本韌體 0 warning**（ESP32Servo 函式庫 4 個 unused warning）；938 KB／1188 KB——**只證明可編譯，未燒錄真板** |
+| 模擬器協定對測 | pty 對測 `scripts/esp32-serial-sim.py`＋從 `.ino` 逐字抽出的參數／loop 邏輯在桌面編譯執行 | 44/44、30/30（一次性檢查腳本在 scratch，非回歸套件） |
+
+### 角色效能量測（可重現：`cd apps/interaction-desktop && pnpm perf`；headless Chromium 151、DPR 2、含 raster flush）
+
+| 指標 | 結果 |
+|---|---|
+| drawRig 單角色一幀（160×200，36 表情輪流） | median **0.100 ms**／p95 0.130／max 2.67（n=72，每樣本 10 幀） |
+| 全舞台一幀（角色＋2 使魔＋3 玩具＋物理＋時間軸，416×216） | median **0.240 ms**／p95 0.540／max 0.62（n=120） |
+| rAF 間隔（headless 節奏，非使用者螢幕） | median 8.3 ms／p95 9.1／max 16.4 |
+| 輸入→下一幀：抓玩具（pointerDown→toy.grabbed） | median **8.3 ms**／p95 8.8（20/20 幀確認狀態改變）——規格目標 16–100 ms |
+| 輸入→下一幀：看向游標（pointerMove 進 hit-rect→gaze/耳朵參數改變） | median **8.7 ms**／p95 9.8（20/20） |
+| JS heap（600 幀前／後／GC 後） | 9.5 MB → 9.5 MB → 9.5 MB（Chromium 未 crossOriginIsolated 時量化到 10 MB 級距，只能看數量級） |
+| bounded：玩具上限 | 23 次 spawn → 場內 4 個（cap） |
+| 長時間數值行為 | 時間軸模擬 3 天、20 萬取樣：全部有限且在 clamp 範圍 |
+
+誠實：這是 Blink（Chromium）數字，不是 Tauri WKWebView；同機同碼相對基準。Phase 6 文件裡的「drawRig 0.452 ms（2.2x）」
+沒有任何產生程式，已作廢。
+
+### 對抗審查（`.claude/workflows/adversarial-review-v05.js`；find → 獨立懷疑者 verify）
+
+- 恢復矩陣：10 位審計 agent 逐條對照規格（463 列）＋完整性審查員裁決 12 組矛盾（`docs/v05-recovery-matrix.md`）。
+- 對抗審查：11 個維度 finder＋33 個 seed 主張 → **136 項審查、73 confirmed、59 fixed-meanwhile（驗證時已被並行修復）、
+  4 refuted、0 unverified**；blocker/high 由兩位不同視角懷疑者皆確認才算數。第一輪 151 個驗證因模型速率上限失敗，
+  改以 sonnet 重跑驗證、opus 修復（主迴圈 fable-5）。
+- 修復分 3 輪 8 組（mobile／硬體／角色／IA＋記憶 UI／Agent taxonomy／角色第二輪＋效能量測／Agent+SSE+IA 第二輪／
+  provider 已測試／安全底線＋link 層／韌體），**每項修復皆附 regression test**（Rust +76、vitest +181、iOS XCTest 形狀更新）；
+  4 個 refuted 為驗證時已修好的重複主張。
+- 確認但**未修**（列為已知限制，見下）：跨視窗桌面漫遊／邊緣探頭、其他視窗事件語意反應、Fullscreen／OS 勿擾偵測、
+  硬體 Observed/Verified 死路、BLE 真機、iPhone 真機、App 端 Bonjour 瀏覽、桌面端 BLE gateway 只有 scan、
+  配對期可被區網 peer 燒掉（已加 audit 與 UI 欄位）、MQTT rumqttc 內部佇列 deadline 伸不進、waiting-input 無來源。
+
+### iPhone Mobile Provider（**iOS 模擬器**，iPhone 17／iOS 26.2 runtime；非真機）
+
+- 配對閉環：`POST /v1/mobile/pairing-session` → App `--pairing-payload` → wss＋TLS 指紋固定＋HMAC → `GET /v1/mobile/status`
+  `connected:true`；Keychain 重連 auth→auth-ok；`iphone.character` 動器收據 `acknowledged`＋`deviceApplied`；
+  BLE scan 誠實回 `err ble-gateway-disabled`；motion 顯示「不可用」。截圖 `docs/assets/v05-evidence/ios-sim-01..07.png`。
+- 第一次模擬器實測暴露兩個桌面端缺陷（撤銷不斷線、Bonjour 服務名 18 bytes 註冊失敗），Phase 7 修正；**第二輪模擬器復測**
+  （新編 .app、真 daemon 18831）：`DELETE /v1/mobile/devices/{id}` 後 wss 連線於 **≤0.035 s** 消失（上一輪 +42 s 仍在）、App 立即顯示
+  「配對已被撤銷或過期」（`ios-sim-08-revoke-immediate.png`）；`interact-ai emergency-stop` 後 `status.activeSensors` 於 0.064 s 清空、
+  手機自報 micLevel/bleGateway 於 0.5 s 內轉 false、App 顯示「因桌面緊急停止而停用」（`ios-sim-09-mic-active.png`、
+  `ios-sim-10-estop-sensors-off.png`）、audit `mobile.estop-stop-sensors`／`mobile.high-risk-receptor-disabled`；
+  `status.bonjour = {advertised:true, service:"_interact-ai._tcp", instance:"interact-ai-18790"}` 且 `dns-sd -B` 真的看得到；
+  XCTest 在模擬器 19/19。附帶發現：測試模式的 Runtime 曾把 Bonjour 記錄廣播到實體區網（`cargo test` 期間數十筆）——已改為
+  測試模式不廣播（`status.bonjour.error = "disabled (test mode…)"`，回歸測試 `test_mode_never_advertises_bonjour_on_the_lan`）。
+- **未驗證（真機專屬）**：haptic、torch、CoreMotion 語意事件、真實 BLE 掃描／GATT、通知顯示、TTS、QR 相機、
+  真機型號、背景／前景 wss 行為、非 loopback 區網 TLS 釘選。
+
+### 已知限制（v0.5，誠實聲明；修掉時同步更新 CHANGELOG）
+
+1. **ESP32 真板未驗收**：韌體只經 arduino-cli 編譯、桌面等價執行與 pty 模擬器對測；接線、PWM、感測時序未在真板驗證。
+2. **iPhone 真機未驗收**：只有模擬器；感測／haptic／BLE／推播在模擬器上不可用。App 端無 Bonjour 瀏覽（靠 QR／手動）。
+3. **BLE adapter 無真機**：scan/connect/subscribe 只有 TaskSlot 回收與狀態機測試；Linux 誠實拒絕。
+4. **硬體 Observed/Verified 死路**：LinkReceptor 的 state facts 沒有 actionId，硬體動作停在 acknowledged（附 deviceApplied）；
+   顯式 `POST /v1/actions/{id}/verify`（observed 策略）會在 5 秒找不到 actionId 觀察時把收據轉 uncertain。
+5. **provider 停用／撤銷後連線關閉不可逆**：重新啟用需重載 adapter spec（重啟 daemon 或重新匯入）。
+6. **MQTT**：rumqttc 內部佇列的 deadline 伸不進；廣播前檢查與 publish 之間斷線的訊息仍可能在重連後送出。
+   韌體 `g_mqtt.loop()` 已連線時最壞仍可能阻塞 1 s（PubSubClient socket timeout 粒度為秒）。
+7. **waiting-input** taxonomy 狀態沒有任何 connector 能產生（Claude stream-json／Codex app-server 0.150 皆無對應事件）；
+   API/CLI 回報路徑保留。
+8. **角色空間**：跨螢幕桌面漫遊、坐視窗邊緣、從螢幕邊緣探頭、躲到其他視窗後未做（角色限於自身遊玩場視窗）；
+   對其他視窗開關／移動、下載完成、測試失敗無感知來源。
+9. **Fullscreen／OS 勿擾偵測未做**（Tauri 現有 API 只看得到自己視窗；不加新平台依賴）；只有使用者層級勿擾開關。
+10. **姿勢過渡**：`poseBlend` 只插值頭部中心與身體高度（lie↔stand/sit/crouch）；身體形狀仍在中點切換（stand↔sit 約 10 px）。
+11. **拖曳落地的速度**是整段拖曳位移÷時間的下界估算（原生視窗拖曳期間沒有指標事件）。
+12. **配對期 DoS**：任何區網 peer 可用錯誤 pair-response 燒掉人類的 5 分鐘配對期（刻意的一次錯就作廢設計）；
+    已加 audit `mobile.pair-burned-by-peer` 與 status `pairingBurnedAt`，UI 尚未顯示提示。
+12a. **estop 也會關掉 iPhone 的低風險感測（電池）**：比不變量要求更嚴；解除 estop 後需在手機重新開啟；`emergency-stop --clear`
+    後手機端保持關閉的路徑未在模擬器實測。
+13. **桌面端 BLE gateway 只有 scan**；iOS 端 connect/gatt(read/write/subscribe) 已寫但桌面沒有送端；訂閱串流語意與 one-shot 不相容。
+14. **Camera／Location／Live Activity／Audio SFX／區網裝置事件** receptor/actuator 未實作。
+15. **WebSocket／HID／Home Assistant adapter**（規格 §9.1 第 4–6 項）未實作。
+16. **效能數字**是 headless Chromium 的 CPU 數字，非 Tauri WKWebView 實機；heap 因 Chromium 量化只能看數量級。
+17. **磁碟**：本機 `target/` 約 30 GB，Phase 7 期間兩度寫滿導致 build 中斷（刪除 `target/debug/incremental` 恢復）。
+18. 本輪未 push、release、deploy、開 PR 或建立 commit（依 repo 規則需使用者明確授權）；HEAD 仍為 `a898996`，
+    Phase 6＋Phase 7 全部為工作樹未提交變更。

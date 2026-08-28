@@ -1,4 +1,8 @@
-# Capability Completion Matrix
+# Capability Completion Matrix（v0.4 歷史文件）
+
+> **已被 v0.5 取代**：本矩陣衡量的是 v0.4 治理平台的完成度（25/25），不代表角色遊戲性、
+> 真實硬體與 iPhone 的完成度。v0.5 的誠實基線與收尾請看 `docs/v05-capability-gap-matrix.md`
+> 與 `docs/v05-recovery-matrix.md`。
 
 更新：2026-08-28。唯一基準：本機 `main` @
 `0aa8733ff8f5d7632d59a955a16c08cf1458a92e`（同步時 `origin/main` @

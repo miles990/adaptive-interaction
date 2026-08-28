@@ -46,7 +46,9 @@ const INTENT_TO_TRANSIENT: Record<string, { kind: TransientKind; animation?: str
   think: { kind: "thinking" },
   work: { kind: "acting" },
   "wait-attention": { kind: "waiting-for-receipt" },
-  "look-at-confirmation": { kind: "requesting-consent" },
+  // 「看向確認」只是姿態，不是「runtime 正在等你授權」。requesting-consent
+  // 會演出真相狀態 `ask`，AI 不得點播——這裡映射到非真相的 `question`。
+  "look-at-confirmation": { kind: "performing", animation: "question" },
   "acknowledge-briefly": { kind: "clicked" },
 };
 
@@ -71,6 +73,11 @@ export function planPresentationCommand(
   hasDesktopBridge: boolean
 ): CommandPlan {
   switch (command) {
+    // Runtime 取消/清場：把氣泡與「表演中」的 transient 一起清掉。
+    // （安全姿勢由 base state 驅動，不受這裡影響。）
+    case "cancel":
+    case "clear-all":
+      return { outcome: "completed", transient: null, bubble: null };
     case "bubble-show": {
       const text = typeof params.message === "string" ? params.message : "";
       if (!text) return { outcome: "failed", detail: "empty message" };

@@ -8,7 +8,11 @@
 // - frozen（緊急/離線/暫停）：一切凍結；reduced motion：無自主移動與
 //   物理彈跳（玩具仍可拖放，直接落地）。
 
-export type ToyKind = "yarn" | "paper" | "plane" | "light" | "wand";
+export type ToyKind = "yarn" | "paper" | "plane" | "light" | "wand" | "trinket";
+
+/** 第 6 種玩具「小物件」：可拖曳、有重力與碰撞，但角色不追不叼——
+ *  她只會好奇地靠近嗅一嗅，偶爾用尾巴把它推一下。 */
+export const TRINKET: ToyKind = "trinket";
 
 export interface Toy {
   id: number;
@@ -29,7 +33,16 @@ export interface Toy {
   restMs: number;
 }
 
-export type CharPlayMode = "free" | "stroll" | "chase" | "pounce" | "carry" | "return" | "refuse";
+export type CharPlayMode =
+  | "free"
+  | "stroll"
+  | "chase"
+  | "pounce"
+  | "carry"
+  | "return"
+  | "refuse"
+  /** 靠近小物件、好奇地看/嗅（不追、不叼）。 */
+  | "sniff";
 
 export interface CharPlay {
   x: number;
@@ -41,6 +54,12 @@ export interface CharPlay {
   carryToy: number | null;
   /** 撲抓落點（pounce 開始時鎖定）。 */
   pounceX: number;
+  /** 正在回看的使魔 id（有使魔向她打招呼時；null＝沒有）。 */
+  attendTo: string | null;
+  /** 回看到什麼時候（ms）。 */
+  attendUntil: number;
+  /** 回一顆愛心到什麼時候（ms；0＝不回）。 */
+  greetBackUntil: number;
 }
 
 export type FamiliarState = "idle" | "walk" | "sleep" | "greet" | "chase";
@@ -83,14 +102,29 @@ export interface StepInputs {
   deskMoveEnabled: boolean;
   /** canvas 內指標（光點/逗貓棒目標；null=不在場內）。 */
   pointer: { x: number; y: number; active: boolean } | null;
+  // ---- 個性 tuning（personality.ts；省略＝中性 1.0）----
+  /** 散步速度倍率。 */
+  speedScale?: number;
+  /** 追逐速度倍率。 */
+  chaseSpeedScale?: number;
+  /** 靠近目標時停下的距離（邏輯 px）。 */
+  approachDistance?: number;
+  /** 慵懶：決定要動之後慢半拍才起身（ms）。 */
+  riseDelayMs?: number;
 }
 
 export type WorldEvent =
   | { type: "expression"; id: string; durationMs: number }
+  /** 有使魔向主角打招呼（主角回看／偶爾回一顆愛心）。 */
+  | { type: "greeted-by"; id: string }
+  /** 被追的使魔的反應（逃跑或回頭）。 */
+  | { type: "familiar-fled"; id: string; by: string }
+  | { type: "familiar-looked-back"; id: string; by: string }
   | { type: "toy-expired"; id: number }
   | { type: "toy-grabbed"; id: number }
   | { type: "toy-returned"; id: number }
-  | { type: "toy-refused"; id: number };
+  | { type: "toy-refused"; id: number }
+  | { type: "toy-pushed"; id: number };
 
 const GRAVITY = 560; // px/s²
 const BOUNCE = 0.52;
@@ -101,6 +135,11 @@ const CHAR_SPEED = 46; // px/s 散步
 const CHASE_SPEED = 120; // px/s 追逐
 const TOY_TTL_MS = 150_000;
 const MAX_TOYS = 4;
+/** 小物件比毛球重：彈得少、停得快。 */
+const TRINKET_BOUNCE = 0.18;
+/** 尾巴推一下的力道（px/s）。 */
+const TAIL_PUSH_VX = 78;
+const TAIL_PUSH_VY = -48;
 
 export function createWorld(w: number, h: number): World {
   return {
@@ -116,6 +155,9 @@ export function createWorld(w: number, h: number): World {
       targetToy: null,
       carryToy: null,
       pounceX: 0,
+      attendTo: null,
+      attendUntil: 0,
+      greetBackUntil: 0,
     },
     toys: [],
     familiars: [],
@@ -262,8 +304,9 @@ export function stepWorld(
       toys.push(toy);
       continue;
     }
-    // 一般物理。紙飛機滑翔：重力弱、水平阻力低。
+    // 一般物理。紙飛機滑翔：重力弱、水平阻力低；小物件較重、幾乎不彈。
     const g = toy.kind === "plane" ? GRAVITY * 0.25 : GRAVITY;
+    const bounce = toy.kind === "trinket" ? TRINKET_BOUNCE : BOUNCE;
     toy.vy += g * dt;
     toy.x += toy.vx * dt;
     toy.y += toy.vy * dt;
@@ -271,17 +314,17 @@ export function stepWorld(
     // 牆反彈。
     if (toy.x < 6) {
       toy.x = 6;
-      toy.vx = Math.abs(toy.vx) * BOUNCE;
+      toy.vx = Math.abs(toy.vx) * bounce;
     } else if (toy.x > w.w - 6) {
       toy.x = w.w - 6;
-      toy.vx = -Math.abs(toy.vx) * BOUNCE;
+      toy.vx = -Math.abs(toy.vx) * bounce;
     }
     // 地面。
     const floor = w.ground - 6;
     if (toy.y >= floor) {
       toy.y = floor;
       if (Math.abs(toy.vy) > 30 && toy.kind !== "plane") {
-        toy.vy = -Math.abs(toy.vy) * BOUNCE;
+        toy.vy = -Math.abs(toy.vy) * bounce;
       } else {
         toy.vy = 0;
       }
@@ -298,7 +341,7 @@ export function stepWorld(
   w = stepChar(w, inputs, rng, events, dt, now);
 
   // ---- 使魔 ----
-  w = stepFamiliars(w, inputs, rng, dt, now);
+  w = stepFamiliars(w, inputs, rng, dt, now, events);
 
   return { world: w, events };
 }
@@ -312,8 +355,18 @@ function stepChar(
   now: number
 ): World {
   const c = { ...w.char };
+  // 有使魔向她打招呼且她沒在忙：回看那一側（純呈現，不影響遊玩決策）。
+  if (c.attendTo !== null && c.mode === "free" && now <= c.attendUntil) {
+    const f = w.familiars.find((x) => x.id === c.attendTo);
+    if (f) c.facing = f.x >= c.x ? 1 : -1;
+  }
   const canPlay =
     inputs.ambient && inputs.playEnabled && !inputs.quiet && !inputs.reducedMotion;
+  // 個性 tuning（省略＝中性）。
+  const speed = CHAR_SPEED * (inputs.speedScale ?? 1);
+  const chaseSpeed = CHASE_SPEED * (inputs.chaseSpeedScale ?? 1);
+  const approach = inputs.approachDistance ?? 20;
+  const riseDelay = Math.max(0, inputs.riseDelayMs ?? 0);
 
   if (!canPlay) {
     // 不玩：叼著的玩具放下、回 free、站住。
@@ -330,11 +383,16 @@ function stepChar(
   const chaseable = w.toys.filter(
     (t) =>
       !t.grabbed &&
+      // 小物件不追不叼：只會被好奇地靠近（sniff）。
+      t.kind !== "trinket" &&
       t.cooldownUntil <= now &&
       t.interest > 0.25 &&
       (t.kind !== "light" && t.kind !== "wand"
         ? true
         : inputs.pointer !== null && inputs.cursorPlayEnabled)
+  );
+  const sniffable = w.toys.filter(
+    (t) => t.kind === "trinket" && !t.grabbed && t.cooldownUntil <= now && t.interest > 0.2
   );
 
   switch (c.mode) {
@@ -344,6 +402,17 @@ function stepChar(
       if (best && rng() < Math.min(0.5, 1.5 * dt)) {
         c.mode = "chase";
         c.targetToy = best.id;
+        // 慵懶：決定要動之後慢半拍才真的起身。
+        c.modeUntil = now + riseDelay;
+        break;
+      }
+      // 小物件：不追不叼，只是好奇地靠近看看。
+      const curiousToy = sniffable.sort((a, b) => b.interest - a.interest)[0];
+      if (curiousToy && rng() < Math.min(0.3, 0.6 * dt)) {
+        c.mode = "sniff";
+        c.targetToy = curiousToy.id;
+        c.modeUntil = now + riseDelay + 4_500;
+        events.push({ type: "expression", id: "curious", durationMs: 1_600 });
         break;
       }
       // 偶爾散步（桌面移動開啟時；平均約 20 秒一次）。
@@ -361,9 +430,45 @@ function stepChar(
         c.mode = "free";
         c.vx = 0;
       } else {
-        c.vx = Math.sign(dx) * CHAR_SPEED;
+        c.vx = Math.sign(dx) * speed;
         c.facing = dx >= 0 ? 1 : -1;
         c.x += c.vx * dt;
+      }
+      break;
+    }
+    case "sniff": {
+      // 靠近小物件、看一看／嗅一嗅，偶爾用尾巴推一下——絕不叼走。
+      const toy = w.toys.find((t) => t.id === c.targetToy);
+      if (!toy || toy.kind !== "trinket" || toy.grabbed === "player" || now > c.modeUntil) {
+        c.mode = "free";
+        c.targetToy = null;
+        c.vx = 0;
+        break;
+      }
+      const dx = toy.x - c.x;
+      c.facing = dx >= 0 ? 1 : -1;
+      if (now < c.modeUntil - 4_500) {
+        // 起身延遲（慵懶）：還沒真的動。
+        c.vx = 0;
+        break;
+      }
+      if (Math.abs(dx) > approach) {
+        c.vx = Math.sign(dx) * speed;
+        c.x += c.vx * dt;
+        break;
+      }
+      c.vx = 0;
+      // 到了：偶爾用尾巴把它推開一點（hazard 抽樣，不是固定週期）。
+      if (rng() < Math.min(0.4, 1.2 * dt)) {
+        w = updateToy(w, toy.id, {
+          vx: c.facing * TAIL_PUSH_VX,
+          vy: TAIL_PUSH_VY,
+          interest: Math.max(0, toy.interest - 0.25),
+          cooldownUntil: now + 5_000,
+        });
+        events.push({ type: "toy-pushed", id: toy.id });
+        c.mode = "free";
+        c.targetToy = null;
       }
       break;
     }
@@ -374,19 +479,24 @@ function stepChar(
         c.targetToy = null;
         break;
       }
+      if (now < c.modeUntil) {
+        // 起身延遲（慵懶）：決定追了，但還沒動。
+        c.vx = 0;
+        break;
+      }
       const dx = toy.x - c.x;
       c.facing = dx >= 0 ? 1 : -1;
       // 地面玩具要夠近才撲；游標玩具（光點/逗貓棒）可躍撲（不受高度限制）。
       const pounceable =
         toy.kind === "light" || toy.kind === "wand" ? true : toy.y > w.ground - 40;
-      if (Math.abs(dx) < 20 && pounceable) {
+      if (Math.abs(dx) < approach && pounceable) {
         // 夠近：預備撲抓。
         c.mode = "pounce";
         c.modeUntil = now + 450; // anticipation + 撲
         c.pounceX = toy.x;
         c.vx = 0;
       } else {
-        c.vx = Math.sign(dx) * CHASE_SPEED;
+        c.vx = Math.sign(dx) * chaseSpeed;
         c.x += c.vx * dt;
       }
       break;
@@ -445,7 +555,7 @@ function stepChar(
         c.mode = "free";
         c.vx = 0;
       } else {
-        c.vx = Math.sign(dx) * CHAR_SPEED * 1.3;
+        c.vx = Math.sign(dx) * speed * 1.3;
         c.x += c.vx * dt;
       }
       break;
@@ -466,7 +576,7 @@ function stepChar(
         c.vx = 0;
       } else {
         const away = c.x < w.w / 2 ? 1 : -1;
-        c.vx = away * CHAR_SPEED * 0.6;
+        c.vx = away * speed * 0.6;
         c.facing = away as 1 | -1;
         c.x += c.vx * dt;
       }
@@ -477,8 +587,36 @@ function stepChar(
   return { ...w, char: c };
 }
 
-function stepFamiliars(w: World, inputs: StepInputs, rng: () => number, dt: number, now: number): World {
-  if (inputs.reducedMotion || w.familiars.length === 0) return w;
+/** 清單中離 `x` 最近的一隻（空清單回 null）。 */
+export function nearestFamiliar<T extends { x: number }>(list: T[], x: number): T | null {
+  let best: T | null = null;
+  let bestD = Number.POSITIVE_INFINITY;
+  for (const f of list) {
+    const d = Math.abs(f.x - x);
+    if (d < bestD) {
+      bestD = d;
+      best = f;
+    }
+  }
+  return best;
+}
+
+function stepFamiliars(
+  w: World,
+  inputs: StepInputs,
+  rng: () => number,
+  dt: number,
+  now: number,
+  events: WorldEvent[]
+): World {
+  let char = w.char;
+  // 回看到期就收回（凍結/reduced 時也要能收，所以放在 early return 之前）。
+  if (char.attendTo !== null && now > char.attendUntil) {
+    char = { ...char, attendTo: null };
+  }
+  if (inputs.reducedMotion || w.familiars.length === 0) {
+    return char === w.char ? w : { ...w, char };
+  }
   const list = w.familiars.map((f) => ({ ...f }));
   for (const f of list) {
     if (now < f.stateUntil) {
@@ -500,44 +638,89 @@ function stepFamiliars(w: World, inputs: StepInputs, rng: () => number, dt: numb
       f.facing = dir as 1 | -1;
       f.stateUntil = now + 2_000 + rng() * 3_000;
     } else if (roll < 0.72) {
-      // 互相注意/打招呼：找最近的另一隻或主角。
-      const others = list.filter((o) => o.id !== f.id);
+      // 互相注意/打招呼：找**最近**的另一隻（不是清單第一隻）或主角。
+      const nearest = nearestFamiliar(
+        list.filter((o) => o.id !== f.id),
+        f.x
+      );
       const target =
-        others.length > 0 && rng() < 0.6
-          ? { x: others[0].x, id: others[0].id }
-          : { x: w.char.x, id: "char" };
+        nearest && rng() < 0.6 ? { x: nearest.x, id: nearest.id } : { x: w.char.x, id: "char" };
       f.state = "greet";
       f.greetWith = target.id;
       f.facing = target.x >= f.x ? 1 : -1;
       f.stateUntil = now + 2_500;
       f.vx = 0;
-      // 對方也回看。
-      const other = list.find((o) => o.id === f.greetWith);
-      if (other && other.state !== "sleep") {
-        other.state = "greet";
-        other.greetWith = f.id;
-        other.facing = f.x >= other.x ? 1 : -1;
-        other.stateUntil = now + 2_500;
+      if (target.id === "char") {
+        // 主角也回看（視線/耳朵朝向她），偶爾回一顆愛心。
+        char = {
+          ...char,
+          attendTo: f.id,
+          attendUntil: now + 2_500,
+          greetBackUntil: rng() < 0.35 ? now + 1_800 : char.greetBackUntil,
+        };
+        events.push({ type: "greeted-by", id: f.id });
+      } else {
+        // 對方也回看。
+        const other = list.find((o) => o.id === f.greetWith);
+        if (other && other.state !== "sleep") {
+          other.state = "greet";
+          other.greetWith = f.id;
+          other.facing = f.x >= other.x ? 1 : -1;
+          other.stateUntil = now + 2_500;
+        }
       }
     } else if (roll < 0.8 && list.length > 1) {
-      // 追逐另一隻。
-      const other = list.find((o) => o.id !== f.id)!;
+      // 追逐**最近**的另一隻。
+      const other = nearestFamiliar(
+        list.filter((o) => o.id !== f.id),
+        f.x
+      )!;
       f.state = "chase";
       const dir = other.x >= f.x ? 1 : -1;
       f.vx = dir * 55;
       f.facing = dir as 1 | -1;
       f.stateUntil = now + 1_800 + rng() * 1_500;
+      // 被追的一方有反應：多半跑掉，偶爾停下來回頭看。
+      if (other.state !== "sleep") {
+        if (rng() < 0.7) {
+          const away = (other.x >= f.x ? 1 : -1) as 1 | -1;
+          other.state = "walk";
+          other.vx = away * 62;
+          other.facing = away;
+          other.stateUntil = now + 1_500;
+          events.push({ type: "familiar-fled", id: other.id, by: f.id });
+        } else {
+          other.state = "idle";
+          other.vx = 0;
+          other.facing = (f.x >= other.x ? 1 : -1) as 1 | -1;
+          other.stateUntil = now + 900;
+          events.push({ type: "familiar-looked-back", id: other.id, by: f.id });
+        }
+      }
     } else {
       f.state = "idle";
       f.stateUntil = now + 2_000 + rng() * 4_000;
       f.vx = 0;
     }
   }
-  return { ...w, familiars: list };
+  return { ...w, char, familiars: list };
+}
+
+/**
+ * Roll Call 列表的 React key：名字可以重複（兩隻同名使魔、使魔跟主角同名），
+ * 所以 key 必須帶序號，否則 React 會把兩列當成同一列。
+ */
+export function rollCallKey(index: number, name: string): string {
+  return `${index}-${name}`;
 }
 
 /** Roll Call：現在大家在做什麼（人類語言，不用技術術語）。 */
-export function rollCall(world: World, charName: string, machineLabel: string | null): { name: string; activity: string }[] {
+export function rollCall(
+  world: World,
+  charName: string,
+  machineLabel: string | null,
+  nowMs = 0
+): { name: string; activity: string }[] {
   const charActivity =
     machineLabel ??
     (() => {
@@ -553,8 +736,12 @@ export function rollCall(world: World, charName: string, machineLabel: string | 
           return "抱著玩具不想還";
         case "stroll":
           return "在散步";
+        case "sniff":
+          return "在研究一個小東西";
         default:
-          return "在休息";
+          return world.char.attendTo !== null && nowMs <= world.char.attendUntil
+            ? "在跟使魔打招呼"
+            : "在休息";
       }
     })();
   const out = [{ name: charName, activity: charActivity }];

@@ -3,6 +3,54 @@
 
 import React from "react";
 
+/**
+ * 焦點陷阱＋Escape 關閉＋焦點還原。Dialog 與其他覆蓋層（通知中心）
+ * 共用同一份實作，避免第二份行為不一致的鍵盤處理。
+ */
+export function useFocusTrap(onClose: () => void) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const previouslyFocused = React.useRef<HTMLElement | null>(null);
+
+  React.useEffect(() => {
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
+    // Focus the container so Escape works immediately.
+    ref.current?.focus();
+    return () => previouslyFocused.current?.focus();
+  }, []);
+
+  const onKeyDown = React.useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+      if (e.key === "Tab" && ref.current) {
+        const all = ref.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+        );
+        // 收合中的 <details> 內容不可聚焦，不能當成循環端點。
+        const focusables = Array.from(all).filter(
+          (el) => !el.closest("details:not([open]) > :not(summary)")
+        );
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    },
+    [onClose]
+  );
+
+  return { ref, onKeyDown };
+}
+
 export function Dialog({
   title,
   onClose,
@@ -14,42 +62,7 @@ export function Dialog({
   children: React.ReactNode;
   danger?: boolean;
 }) {
-  const ref = React.useRef<HTMLDivElement>(null);
-  const previouslyFocused = React.useRef<HTMLElement | null>(null);
-
-  React.useEffect(() => {
-    previouslyFocused.current = document.activeElement as HTMLElement | null;
-    // Focus the dialog container so Escape works immediately.
-    ref.current?.focus();
-    return () => previouslyFocused.current?.focus();
-  }, []);
-
-  function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      onClose();
-      return;
-    }
-    if (e.key === "Tab" && ref.current) {
-      const all = ref.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
-      );
-      // 收合中的 <details> 內容不可聚焦，不能當成循環端點。
-      const focusables = Array.from(all).filter(
-        (el) => !el.closest("details:not([open]) > :not(summary)")
-      );
-      if (focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-  }
+  const { ref, onKeyDown } = useFocusTrap(onClose);
 
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

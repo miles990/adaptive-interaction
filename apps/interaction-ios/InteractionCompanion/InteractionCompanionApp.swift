@@ -1,0 +1,147 @@
+//
+//  InteractionCompanionApp.swift
+//  InteractionCompanion
+//
+//  App 進入點與元件接線。
+//  scenePhase → SensorCenter.setForeground(電池觀察含 foreground 欄位;
+//  screen.flash 僅前景可用)。
+//
+
+import SwiftUI
+
+/// 全部服務的組裝與接線。閉包一律弱捕捉,避免
+/// connection ↔ sensors / ble 之間的引用循環。
+@MainActor
+final class AppModel: ObservableObject {
+    let connection: ConnectionManager
+    let sensors: SensorCenter
+    let actuators: ActuatorCenter
+    let characterState: CharacterState
+    let ble: BleGateway
+
+    init() {
+        let store = PairingStore()
+        characterState = CharacterState()
+        actuators = ActuatorCenter(characterState: characterState)
+        sensors = SensorCenter()
+        ble = BleGateway()
+        connection = ConnectionManager(store: store)
+
+        // status 內容:感測旗標 + 權限(BLE gateway 旗標由 BleGateway 提供)
+        sensors.bleGatewayEnabledProvider = { [weak ble] in
+            ble?.enabled ?? false
+        }
+        connection.statusProvider = { [weak sensors] in
+            guard let sensors else {
+                return (SensorFlags(), PermissionStates())
+            }
+            return (sensors.snapshotFlags(), sensors.snapshotPermissions())
+        }
+
+        // 感測 → 連線
+        sensors.onObservation = { [weak connection] message in
+            connection?.send(message)
+        }
+        sensors.onStatusChanged = { [weak connection] in
+            connection?.sendStatusNow()
+        }
+        ble.sendMessage = { [weak connection] message in
+            connection?.send(message)
+        }
+        ble.onStatusChanged = { [weak connection] in
+            connection?.sendStatusNow()
+        }
+
+        // 連線 → 動器 / BLE
+        connection.actHandler = { [weak actuators] id, name, params in
+            guard let actuators else {
+                return .err(id: id, reason: "unavailable")
+            }
+            return await actuators.handleAct(id: id, name: name, params: params)
+        }
+        connection.stopAllHandler = { [weak actuators] sensors in
+            await actuators?.stopAll(sensors: sensors)
+        }
+        // 桌面緊急停止(stop-all { sensors: true })→ 動器與感測一起停;
+        // 重連後不自動恢復,使用者必須重新開啟。
+        actuators.stopSensorsOnEmergency = { [weak sensors, weak ble] reason in
+            sensors?.stopAllSensors(reason: reason)
+            ble?.disable(reason: reason)
+        }
+        connection.bleHandler = { [weak ble] message in
+            ble?.handleServerMessage(message)
+        }
+
+        // 動器的前景判斷
+        actuators.isForeground = { [weak sensors] in
+            sensors?.isForeground ?? false
+        }
+
+        // 不變量:斷線 → 自動停用高風險感測(mic / location / BLE gateway),
+        // 重連後不自動恢復,使用者必須重新開啟。
+        connection.onDisconnected = { [weak sensors, weak ble] in
+            sensors?.disableHighRiskSensors(reason: "連線中斷,已自動停用麥克風與位置")
+            ble?.disable(reason: "連線中斷")
+        }
+    }
+}
+
+#if DEBUG
+/// DEBUG 限定的啟動選項(模擬器 / CI 自動化驗收;release 不編入)。
+/// 每個選項都只是「替使用者做一個他本來就能在 UI 上做的動作」,
+/// 不繞過任何配對、權限或政策檢查。
+enum DebugLaunchOptions {
+    /// `--pairing-payload <json>` 或 `INTERACT_PAIRING_PAYLOAD`:
+    /// 等同貼上配對 JSON 並按「開始配對」。
+    static var pairingPayload: String? {
+        value(argument: "--pairing-payload", environment: "INTERACT_PAIRING_PAYLOAD")
+    }
+
+    /// `--initial-tab pairing|sensors|character` 或 `INTERACT_INITIAL_TAB`:
+    /// 啟動時直接切到該分頁(方便截圖)。
+    static var initialTab: String? {
+        value(argument: "--initial-tab", environment: "INTERACT_INITIAL_TAB")
+    }
+
+    /// `--auto-connect` 或 `INTERACT_AUTO_CONNECT=1`:
+    /// 已配對時等同按「連線」(走 Keychain token 的 auth → auth-ok 路徑)。
+    static var autoConnect: Bool {
+        CommandLine.arguments.contains("--auto-connect")
+            || ProcessInfo.processInfo.environment["INTERACT_AUTO_CONNECT"] == "1"
+    }
+
+    private static func value(argument: String, environment: String) -> String? {
+        let arguments = CommandLine.arguments
+        if let index = arguments.firstIndex(of: argument),
+           arguments.indices.contains(index + 1) {
+            let text = arguments[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
+        }
+        if let text = ProcessInfo.processInfo.environment[environment]?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+            return text
+        }
+        return nil
+    }
+}
+#endif
+
+@main
+struct InteractionCompanionApp: App {
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var model = AppModel()
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environmentObject(model.connection)
+                .environmentObject(model.sensors)
+                .environmentObject(model.actuators)
+                .environmentObject(model.characterState)
+                .environmentObject(model.ble)
+                .onChange(of: scenePhase) { _, newPhase in
+                    model.sensors.setForeground(newPhase == .active)
+                }
+        }
+    }
+}

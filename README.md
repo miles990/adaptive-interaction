@@ -25,8 +25,9 @@
 有了小總部，AI 就能做到：**看到你剛完成任務、而且人在電腦前 → 挑最不打擾的
 方式輕聲說「完成了」→ 確認訊息真的送到 → 如果你最近被打擾太多，這次選擇安靜。**
 
-一切都在你自己的電腦上運作（只綁 `127.0.0.1`，即本機回環位址，不對外開放），
-不需要雲端帳號。任何 AI 都能接上——Claude、GPT、Gemini 或自製程式。
+一切都在你自己的電腦上運作（HTTP API 只綁 `127.0.0.1`，即本機回環位址，不對外開放；
+唯一的例外是 v0.5 的 iPhone 配對伺服器——**只有你曾經配對過 iPhone 之後**才會在區網開
+一個 TLS 埠，且憑證指紋釘選、每台手機獨立金鑰、可隨時撤銷），不需要雲端帳號。任何 AI 都能接上——Claude、GPT、Gemini 或自製程式。
 刻意**不使用 MCP**（Model Context Protocol，一種 AI 工具接入協定）：
 以 CLI、HTTP API 與標準 JSON Schema 工具定義取代，任何宿主都能直接接。
 
@@ -43,9 +44,9 @@
 
 ## 給一般人的介面：一般模式
 
-桌面控制中心預設是**一般模式**：首次啟動有設定精靈，之後看到的是
-「感知來源／回應方式／工具操作／自動互動／同意與安全／活動紀錄」——
-全部人話、全部卡片，不需要理解 UUID、YAML 或 JSON。
+桌面控制中心預設是**一般模式**：首次啟動有三步設定精靈（認識小樞／要讓小樞幫忙工作嗎／
+安全預設），之後只有 **5 個一級入口：現在／小樞／工作／連接與權限／更多**，待決定事項在
+右上角 Inbox——全部人話、全部卡片，不需要理解 UUID、YAML 或 JSON。
 
 - 每個能力都有一張卡片：它是什麼、資料從哪來、會不會離開這台電腦、
   能確認到哪一層（「通知已送達作業系統」≠「你已經看見」）。
@@ -82,9 +83,9 @@ JSON 政策、時間軸與技術 ID 全部都在，兩種模式共用同一套�
 **AI Agent Session**（有租約/預算/範圍、mailbox 溝通、防循環委派、聲稱完成≠驗證）、
 **麥克風**（預設關、consent-gated、30 秒硬上限、無靜默擷取、只留 level 事實）。
 
-## main 開發中的 v0.4 能力
+## v0.4.1 已發布能力（2026-08-28）
 
-`main` 目前還是 0.3.0 版本號，v0.4 未發布，但已接上下列開發中能力：
+版本號 0.4.1（`Cargo.toml`／`package.json`／`tauri.conf.json` 同步）。v0.4 接上的能力：
 
 - 小樞成為 7 receptors＋7 actuators 的 Presentation Provider，並有本機
   Behavior Runtime／Attention／Utility AI、程序化視線耳朵及三種貓系變體。
@@ -96,12 +97,26 @@ JSON 政策、時間軸與技術 ID 全部都在，兩種模式共用同一套�
   更新決策／使用者糾正／Knowledge Receipt。
 - metadata-only 硬體掃描：17 類覆蓋結果，掃描不開啟攝影機、麥克風、
   BLE 或 mDNS；看不到時會顯示具體原因，不用假裝置。
-- 控制中心 8 一級頁／Global Search／Activity Inbox／390px 導覽。
+- 控制中心 Global Search／Activity Inbox／390px 導覽（v0.4 為 8 一級頁；v0.5 已縮為 5 入口）。
 
-本輪嚴格 Capability Matrix 為 **25/25 complete、0 partial、0 missing**。逐層
-Provider→Runtime→Policy→UI→Receipt→API/CLI→Test 的證據與 N/A 理由見
-[`docs/capability-completion-matrix.md`](docs/capability-completion-matrix.md)，完整可重跑命令與
-畫面索引見 [`docs/v04-final-machine-evidence.md`](docs/v04-final-machine-evidence.md)。
+v0.4 的 Capability Matrix（**25/25 complete**）衡量的是治理平台的完成度，見
+[`docs/capability-completion-matrix.md`](docs/capability-completion-matrix.md) 與
+[`docs/v04-final-machine-evidence.md`](docs/v04-final-machine-evidence.md)。
+
+## main 開發中的 v0.5（角色・硬體・AI 三核心重定位，未發布）
+
+v0.5 **不沿用** 25/25 的完成度敘述；它的誠實基線與收尾狀態在
+[`docs/v05-capability-gap-matrix.md`](docs/v05-capability-gap-matrix.md)，Phase 7 的逐條
+恢復矩陣在 [`docs/v05-recovery-matrix.md`](docs/v05-recovery-matrix.md)。重點：
+
+- **小樞 v3 女僕正式版**：執行期參數化分層 rig（非 sprite sheet）、36 正式表情、
+  Interaction Director、遊玩場（玩具＋輕量 2D 物理、使魔、場景、Roll Call）。
+- **真硬體**：Serial／MQTT／BLE 線協定 adapter＋ESP32 官方參考韌體（已用 arduino-cli
+  實際編譯；**尚未在真板驗收**）；模擬器閉環與真機分開標示。
+- **AI 角色閉環**：Agent session taxonomy 事件→角色演出；claimed ≠ verified，
+  綠勾只在人類驗證後。
+- **iPhone Mobile Provider**：TLS wss＋配對碼＋每機金鑰；SwiftUI companion app
+  已在 **iOS 模擬器**完成配對閉環（真機未驗）。
 
 ## 安裝（3 分鐘）
 
@@ -159,7 +174,9 @@ interact-ai self uninstall --yes     # 移除（--purge 連設定資料一起刪
 | **[桌面控制中心指南](docs/DESKTOP-GUIDE.md)** | 圖形介面逐頁說明＋狀態列／桌面角色／感測＋收據狀態圖 |
 | **[架構總覽](docs/ARCHITECTURE.md)** | crate 責任、生命週期、誠實階梯、provider／agent／sensor 設計 |
 | **[驗收證據](docs/acceptance-evidence.md)** | 真實環境端到端測試紀錄 |
-| **[v0.4 機器證據](docs/v04-final-machine-evidence.md)** | 本輪測試數字、connector、SHA-256 與未完成項 |
+| **[v0.4 機器證據](docs/v04-final-machine-evidence.md)** | v0.4 測試數字、connector、SHA-256 與未完成項 |
+| **[v0.5 Gap Matrix](docs/v05-capability-gap-matrix.md)** | v0.5 誠實基線（§0–§8）與 Phase 7 收尾狀態（§9） |
+| **[v0.5 恢復矩陣](docs/v05-recovery-matrix.md)** | 新 Session 逐規格條目核對：程式存在／已接線／測試／真環境／缺口（463 列） |
 | **[更新日誌](CHANGELOG.md)** | 版本歷史（語意化版本） |
 
 ## 核心設計理念

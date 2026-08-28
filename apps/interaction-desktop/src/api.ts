@@ -167,6 +167,8 @@ export const api = {
   pushObservation: (receptorId: string, facts: Record<string, unknown>, confidence = 1.0) =>
     invoke("push_observation", { receptorId, facts, confidence }),
   providersList: () => invoke<Record<string, unknown>[]>("providers_list"),
+  /** 「測試裝置」：唯讀測一次（只讀第一個可讀受器，不觸發任何動器）。 */
+  providerTest: (id: string) => invoke<ProviderTestReport>("provider_test", { id }),
   hardwareScan: () => invoke<HardwareScanReport>("hardware_scan"),
   activityInbox: (filter: Record<string, unknown> = {}) =>
     invoke<Record<string, unknown>>("activity_inbox", { filter }),
@@ -300,6 +302,11 @@ export const api = {
     invoke<AgentSessionRecord>("agent_session_close", { id, reason: reason ?? null }),
   agentSessionVerify: (id: string, note?: string) =>
     invoke<AgentSessionRecord>("agent_session_verify", { id, note: note ?? null }),
+  mobileStatus: () => invoke<Record<string, unknown>>("mobile_status"),
+  mobilePairingBegin: () => invoke<Record<string, unknown>>("mobile_pairing_begin"),
+  mobileRevoke: (id: string) => invoke<Record<string, unknown>>("mobile_revoke", { id }),
+  mobileBleScan: (durationMs = 4000) =>
+    invoke<Record<string, unknown>>("mobile_ble_scan", { durationMs }),
   sensorMicListen: (durationMs: number) =>
     invoke<Record<string, unknown>>("sensor_mic_listen", { durationMs }),
   sensorsStop: () => invoke("sensors_stop"),
@@ -402,6 +409,24 @@ export interface HumanCard {
   channel?: string;
   driver?: string;
   manifestHash: string;
+}
+
+/** 「已測試」證據（spec §9.3）：掃描到 metadata／設定檔存在都不算測過。 */
+export interface ProviderTested {
+  at: string;
+  /** handshake＝裝置連線握手成功；capability＝受器讀到／動器回 ack；human＝使用者按了測試。 */
+  how: string;
+  ok: boolean;
+  note?: string;
+}
+
+export interface ProviderTestReport {
+  providerId: string;
+  ok: boolean;
+  receptorId: string | null;
+  reason?: string;
+  observation?: Record<string, unknown>;
+  tested?: ProviderTested;
 }
 
 export interface HumanCapabilities {

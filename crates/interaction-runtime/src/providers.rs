@@ -5,10 +5,77 @@
 use crate::runtime::Runtime;
 use interaction_core::{
     ActuatorId, DomainError, DomainResult, ProviderDescriptor, ProviderId, ProviderIdentity,
-    ProviderKind, ProviderState, ReceptorId, TrustLevel,
+    ProviderKind, ProviderState, ReceptorId, ReceptorMode, Timestamp, TrustLevel,
 };
 use interaction_registry::providers::discovered;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+
+/// 「已測試」證據（spec §9.3）。掃描到 metadata、設定檔存在、甚至狀態變成
+/// Available，都**不等於**測過：這筆記錄只在 runtime 真的觀察到一次成功／
+/// 失敗時才寫入，並誠實保留是誰、用什麼方式測的。
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderTested {
+    pub at: Timestamp,
+    /// `handshake`＝宣告式裝置連線（serial/mqtt/ble）成功，代表 hello 身分
+    /// 驗證＋pair-ok 已完成；`capability`＝該 provider 的受器讀成功／動器回
+    /// ack；`human`＝使用者按下「測試裝置」。
+    pub how: String,
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// 記錄來源：哪一種能力提供了這次證據。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestedCapability {
+    Receptor,
+    Actuator,
+}
+
+/// 自動記錄的節流窗：同樣的結果一分鐘內只寫一次，避免每次讀取都打 DB。
+/// 人為測試不節流（使用者按了就要看到最新結果）。
+const TESTED_AUTO_THROTTLE_SECS: i64 = 60;
+
+/// `detail` 既是人話註記、也是「已測試」證據的載體：有證據時寫成
+/// `{"note": …, "tested": {…}}`，沒有時維持原本的純文字（向後相容）。
+pub fn split_provider_detail(detail: Option<&str>) -> (Option<String>, Option<ProviderTested>) {
+    let Some(text) = detail else {
+        return (None, None);
+    };
+    let Ok(Value::Object(map)) = serde_json::from_str::<Value>(text) else {
+        return (Some(text.to_string()), None);
+    };
+    let Some(tested) = map
+        .get("tested")
+        .and_then(|v| serde_json::from_value::<ProviderTested>(v.clone()).ok())
+    else {
+        return (Some(text.to_string()), None);
+    };
+    let note = map
+        .get("note")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    (note, Some(tested))
+}
+
+fn merge_provider_detail(note: Option<&str>, tested: Option<&ProviderTested>) -> Option<String> {
+    match tested {
+        None => note.map(|s| s.to_string()),
+        Some(record) => {
+            let mut obj = serde_json::Map::new();
+            if let Some(note) = note {
+                obj.insert("note".into(), Value::String(note.to_string()));
+            }
+            obj.insert(
+                "tested".into(),
+                serde_json::to_value(record).unwrap_or(Value::Null),
+            );
+            Some(Value::Object(obj).to_string())
+        }
+    }
+}
 
 impl Runtime {
     /// Called once at startup: builtin provider + persisted providers +
@@ -101,14 +168,26 @@ impl Runtime {
         if let Ok(bodies) = self.store.all_providers() {
             for body in bodies {
                 if let Ok(mut desc) = serde_json::from_str::<ProviderDescriptor>(&body) {
-                    if desc.state.is_operational() {
-                        desc.state = ProviderState::Disabled;
-                        desc.detail = Some("re-armed on restart requires explicit enable".into());
-                        if let Ok(b) = serde_json::to_string(&desc) {
-                            let _ = self.store.save_provider(desc.identity.id.as_str(), &b);
+                    // 「已測試」證據跨重啟保留（它記的是過去確實發生過的事），
+                    // 但它只是歷史，不會讓裝置自己回到可用狀態。registry 裡
+                    // 只留人話註記，證據放回 runtime 的表。
+                    let (note, tested) = split_provider_detail(desc.detail.as_deref());
+                    desc.detail = note;
+                    if let Some(tested) = tested {
+                        if let Ok(mut map) = self.provider_tested.lock() {
+                            map.insert(desc.identity.id.as_str().to_string(), tested);
                         }
                     }
+                    let downgraded = desc.state.is_operational();
+                    if downgraded {
+                        desc.state = ProviderState::Disabled;
+                        desc.detail = Some("re-armed on restart requires explicit enable".into());
+                    }
+                    let id = desc.identity.id.clone();
                     let _ = self.providers.register(desc).await;
+                    if downgraded {
+                        self.persist_provider(&id).await;
+                    }
                 }
             }
         }
@@ -156,17 +235,6 @@ impl Runtime {
     ) -> DomainResult<()> {
         let built = interaction_adapter_declarative::build(spec, Some(self.paths.home.clone()))
             .map_err(DomainError::Validation)?;
-        let mut receptor_ids = Vec::new();
-        let mut actuator_ids = Vec::new();
-        for receptor in built.receptors {
-            receptor_ids.push(receptor.manifest().id.as_str().to_string());
-            self.registry.register_receptor(receptor).await?;
-        }
-        for actuator in built.actuators {
-            actuator_ids.push(actuator.manifest().id.as_str().to_string());
-            self.registry.register_actuator(actuator).await?;
-        }
-
         let identity = spec.provider.clone().unwrap_or(ProviderIdentity {
             id: ProviderId::new(format!("provider.adapter.{}", spec.id)),
             kind: ProviderKind::Device,
@@ -178,6 +246,33 @@ impl Runtime {
             human: None,
         });
         let provider_id = identity.id.clone();
+        // 記住這個 provider 開出來的實體連線（serial/mqtt/ble），
+        // disable／revoke 時才關得掉——停用的 provider 不得繼續佔著埠或
+        // broker 連線做無盡重連。
+        interaction_adapter_declarative::register_provider_links(
+            provider_id.as_str(),
+            &built.links,
+        );
+        // 有實體連線（serial/mqtt/ble）的 provider：之後任何一次成功的讀取或
+        // 命令都必然通過 hello 身分＋pair-ok 握手，證據等級記為 handshake。
+        if let Ok(mut links) = self.device_link_providers.lock() {
+            if built.links.is_empty() {
+                links.remove(provider_id.as_str());
+            } else {
+                links.insert(provider_id.as_str().to_string());
+            }
+        }
+
+        let mut receptor_ids = Vec::new();
+        let mut actuator_ids = Vec::new();
+        for receptor in built.receptors {
+            receptor_ids.push(receptor.manifest().id.as_str().to_string());
+            self.registry.register_receptor(receptor).await?;
+        }
+        for actuator in built.actuators {
+            actuator_ids.push(actuator.manifest().id.as_str().to_string());
+            self.registry.register_actuator(actuator).await?;
+        }
 
         // A persisted record (e.g. already paired) wins over a fresh one.
         if let Ok(existing) = self.providers.get(&provider_id).await {
@@ -198,12 +293,210 @@ impl Runtime {
         Ok(())
     }
 
+    /// 對外的 provider 清單：一律附上「已測試」證據（沒測過就是沒有，不
+    /// 用狀態假裝）。
     pub async fn list_providers(&self) -> Vec<ProviderDescriptor> {
-        self.providers.list().await
+        self.providers
+            .list()
+            .await
+            .into_iter()
+            .map(|desc| self.with_tested(desc))
+            .collect()
     }
 
     pub async fn get_provider(&self, id: &ProviderId) -> DomainResult<ProviderDescriptor> {
-        self.providers.get(id).await
+        Ok(self.with_tested(self.providers.get(id).await?))
+    }
+
+    /// registry 裡的 detail 永遠是人話註記；對外輸出時才把證據併進去。
+    fn with_tested(&self, mut desc: ProviderDescriptor) -> ProviderDescriptor {
+        let tested = self.provider_tested_record(desc.identity.id.as_str());
+        desc.detail = merge_provider_detail(desc.detail.as_deref(), tested.as_ref());
+        desc
+    }
+
+    pub fn provider_tested_record(&self, provider_id: &str) -> Option<ProviderTested> {
+        self.provider_tested.lock().ok()?.get(provider_id).cloned()
+    }
+
+    // ------------------------------------------------------------------
+    // 「已測試」證據（spec §9.3）：只發現 ≠ 已配對 ≠ 已測試 ≠ 已啟用
+    // ------------------------------------------------------------------
+
+    /// 記一次證據。`how != "human"` 時同結果一分鐘內只寫一次（節流），
+    /// 人為測試永遠即時覆蓋。回傳實際生效的紀錄。
+    pub(crate) async fn record_provider_tested(
+        &self,
+        id: &ProviderId,
+        how: &str,
+        ok: bool,
+        note: impl Into<String>,
+    ) -> ProviderTested {
+        let record = ProviderTested {
+            at: chrono::Utc::now(),
+            how: how.to_string(),
+            ok,
+            note: Some(note.into()),
+        };
+        {
+            let Ok(mut map) = self.provider_tested.lock() else {
+                return record;
+            };
+            if how != "human" {
+                if let Some(previous) = map.get(id.as_str()) {
+                    let same = previous.ok == ok && previous.how == record.how;
+                    let fresh = (record.at - previous.at).num_seconds() < TESTED_AUTO_THROTTLE_SECS;
+                    if same && fresh {
+                        return previous.clone();
+                    }
+                }
+            }
+            map.insert(id.as_str().to_string(), record.clone());
+        }
+        self.persist_provider(id).await;
+        record
+    }
+
+    /// 某個能力剛剛真的成功了 → 把證據記到它的 provider 上。
+    /// 讀不到 provider（例如能力不屬於任何 provider）就什麼都不做。
+    pub(crate) async fn note_capability_tested(&self, kind: TestedCapability, capability_id: &str) {
+        let Some(descriptor) = self.provider_of_capability(kind, capability_id).await else {
+            return;
+        };
+        let id = descriptor.identity.id;
+        let linked = self
+            .device_link_providers
+            .lock()
+            .map(|links| links.contains(id.as_str()))
+            .unwrap_or(false);
+        let what = match kind {
+            TestedCapability::Receptor => format!("受器 {capability_id} 讀取成功"),
+            TestedCapability::Actuator => format!("動器 {capability_id} 回報 acknowledged"),
+        };
+        let (how, note) = if linked {
+            (
+                "handshake",
+                format!("裝置連線握手完成（hello 身分＋pair-ok）：{what}"),
+            )
+        } else {
+            ("capability", what)
+        };
+        self.record_provider_tested(&id, how, true, note).await;
+    }
+
+    async fn provider_of_capability(
+        &self,
+        kind: TestedCapability,
+        capability_id: &str,
+    ) -> Option<ProviderDescriptor> {
+        self.providers.list().await.into_iter().find(|p| {
+            let list = match kind {
+                TestedCapability::Receptor => &p.receptors,
+                TestedCapability::Actuator => &p.actuators,
+            };
+            list.iter().any(|id| id == capability_id)
+        })
+    }
+
+    /// 人類按下「測試裝置」：對這個 provider 的第一個**現在真的開著、且能
+    /// 主動讀取**的受器做一次讀取。只讀不動——不會觸發任何動器，也不會替
+    /// 使用者打開任何被停用的感測器（停用的受器直接誠實回報讀不到）。
+    pub async fn test_provider(&self, id: &ProviderId) -> DomainResult<Value> {
+        let descriptor = self.providers.get(id).await?;
+        let (chosen, blocked) = self.pick_testable_receptor(&descriptor).await;
+        let Some(receptor_id) = chosen else {
+            let reason = match (descriptor.receptors.is_empty(), blocked) {
+                (true, _) => "這個提供者沒有可讀的受器，無法在不觸發動器的情況下測試".to_string(),
+                (false, Some(why)) => format!("這個提供者的受器現在都讀不到：{why}"),
+                (false, None) => "這個提供者的受器現在都讀不到".to_string(),
+            };
+            let tested = self
+                .record_provider_tested(id, "human", false, reason.clone())
+                .await;
+            self.audit_provider_test(id, None, false, &reason);
+            return Ok(json!({
+                "providerId": id.as_str(),
+                "ok": false,
+                "receptorId": Value::Null,
+                "reason": reason,
+                "tested": tested,
+            }));
+        };
+        match self.observe_fresh(&receptor_id).await {
+            Ok(observation) => {
+                let note = format!("人為測試：讀取受器 {receptor_id} 成功");
+                let tested = self.record_provider_tested(id, "human", true, note).await;
+                self.audit_provider_test(id, Some(receptor_id.as_str()), true, "read ok");
+                Ok(json!({
+                    "providerId": id.as_str(),
+                    "ok": true,
+                    "receptorId": receptor_id.as_str(),
+                    "observation": observation,
+                    "tested": tested,
+                }))
+            }
+            Err(e) => {
+                let reason = e.to_string();
+                let tested = self
+                    .record_provider_tested(
+                        id,
+                        "human",
+                        false,
+                        format!("人為測試：讀取受器 {receptor_id} 失敗：{reason}"),
+                    )
+                    .await;
+                self.audit_provider_test(id, Some(receptor_id.as_str()), false, &reason);
+                Ok(json!({
+                    "providerId": id.as_str(),
+                    "ok": false,
+                    "receptorId": receptor_id.as_str(),
+                    "reason": reason,
+                    "tested": tested,
+                }))
+            }
+        }
+    }
+
+    /// 挑一個可以主動讀的受器：優先 Poll/Stream（event 受器沒有新事件時本來
+    /// 就讀不到，拿它當測試結果會誤導）。回傳 (選中的受器, 第一個擋住的原因)。
+    async fn pick_testable_receptor(
+        &self,
+        descriptor: &ProviderDescriptor,
+    ) -> (Option<ReceptorId>, Option<String>) {
+        let mut fallback: Option<ReceptorId> = None;
+        let mut blocked: Option<String> = None;
+        for raw in &descriptor.receptors {
+            let receptor_id = ReceptorId::new(raw);
+            match self.registry.receptor(&receptor_id).await {
+                Ok(instance) => {
+                    if instance.manifest().mode != ReceptorMode::Event {
+                        return (Some(receptor_id), blocked);
+                    }
+                    if fallback.is_none() {
+                        fallback = Some(receptor_id);
+                    }
+                }
+                Err(e) => {
+                    if blocked.is_none() {
+                        blocked = Some(e.to_string());
+                    }
+                }
+            }
+        }
+        (fallback, blocked)
+    }
+
+    fn audit_provider_test(&self, id: &ProviderId, receptor: Option<&str>, ok: bool, note: &str) {
+        let _ = self.store.audit(
+            "provider.tested",
+            "user",
+            &json!({
+                "providerId": id.as_str(),
+                "receptorId": receptor,
+                "ok": ok,
+                "note": note,
+            }),
+        );
     }
 
     /// Pairing ceremony (shared-code): the human enters the code the device
@@ -263,14 +556,37 @@ impl Runtime {
     }
 
     /// Explicit lifecycle transition (install/enable/disable…), persisted.
+    ///
+    /// 停用類的狀態（disabled/closed/expired）必須真的把裝置連線關掉：
+    /// 「停用」不能只是不派工，還在背景重連的連線＝使用者以為關了但沒關。
     pub async fn transition_provider(
         &self,
         id: &ProviderId,
         state: ProviderState,
     ) -> DomainResult<ProviderDescriptor> {
         let desc = self.providers.transition(id, state, None).await?;
+        if matches!(
+            state,
+            ProviderState::Disabled | ProviderState::Closed | ProviderState::Expired
+        ) {
+            self.close_declarative_links(id, "disabled");
+        }
         self.persist_provider(id).await;
         Ok(desc)
+    }
+
+    /// 關閉某 provider 的宣告式 adapter 連線（若有）。回傳關掉的連線描述。
+    fn close_declarative_links(&self, id: &ProviderId, reason: &str) -> Vec<String> {
+        let closed = interaction_adapter_declarative::shutdown_provider_links(id.as_str());
+        if !closed.is_empty() {
+            tracing::info!(
+                provider = %id.as_str(),
+                reason,
+                links = ?closed,
+                "closed declarative device links"
+            );
+        }
+        closed
     }
 
     /// Revoke: capabilities disabled immediately, state sticks at Revoked.
@@ -291,11 +607,13 @@ impl Runtime {
                 .set_actuator_enabled(&ActuatorId::new(aid), false)
                 .await;
         }
+        // 撤銷＝連線也要斷（不只是停止派工）。
+        let closed_links = self.close_declarative_links(id, "revoked");
         self.persist_provider(id).await;
         self.store.audit(
             "provider.revoked",
             "user",
-            &serde_json::json!({"providerId": id.as_str()}),
+            &serde_json::json!({"providerId": id.as_str(), "closedLinks": closed_links}),
         )?;
         Ok(desc)
     }
@@ -305,6 +623,7 @@ impl Runtime {
             if desc.identity.trust_level == TrustLevel::Builtin {
                 return; // builtin is reconstructed each start
             }
+            let desc = self.with_tested(desc);
             if let Ok(body) = serde_json::to_string(&desc) {
                 let _ = self.store.save_provider(id.as_str(), &body);
             }

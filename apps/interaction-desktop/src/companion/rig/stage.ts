@@ -8,9 +8,11 @@
 
 import { RendererBackend, MicroMotionOverlay } from "../renderer";
 import { drawRig } from "./draw";
-import { clampParams, mixColor, RIG_PALETTES, RigPalette } from "./params";
-import { ExpressionTimeline } from "./timeline";
+import { clampParams, mixColor, RIG_PALETTES, RigPalette, RigParams } from "./params";
+import { AttentionStagger, ExpressionTimeline, resolveRigAnimation } from "./timeline";
+import { EXPRESSION_ALIASES } from "./expressions";
 import {
+  CharPlayMode,
   clearToys,
   createWorld,
   dragToy,
@@ -24,9 +26,234 @@ import {
   ToyKind,
   World,
 } from "../playfield";
+import {
+  FrameBudgetState,
+  frameBudgetPolicy,
+  initialFrameBudget,
+  shouldDrawFrame,
+} from "../gameFeel";
+import { DEFAULT_TUNING, PersonalityTuning } from "../personality";
 
 /** playfield 會請求的表演表情（機器 performing 中仍算遊玩狀態）。 */
-export const PLAYFIELD_EXPRESSIONS = new Set(["hold-ball", "keep-ball", "pounce-miss"]);
+export const PLAYFIELD_EXPRESSIONS = new Set([
+  "hold-ball",
+  "keep-ball",
+  "pounce-miss",
+  "curious",
+]);
+
+// ---------------------------------------------------------------------------
+// 組合式通道（spec §6.2）：狀態不一定要整體覆蓋遊玩姿勢。
+// ---------------------------------------------------------------------------
+
+/**
+ * 工作/等待類的「非安全真相狀態」：只借用核心、頭飾、裙擺光與耳朵通道，
+ * 身體姿勢仍然是遊玩中的姿勢（趴著＋核心顯示 Agent 工作中）。
+ */
+const OVERLAY_STATUS = new Set([
+  "queued",
+  "routing",
+  "working",
+  "thinking",
+  "wait-codex",
+  "wait-claude",
+  "waiting",
+  "ask",
+  "listening",
+]);
+
+/** 只被狀態借用的通道（其餘通道留給遊玩姿勢）。 */
+export const STATUS_CHANNELS = [
+  "coreGlow",
+  "corePulse",
+  "headpieceGlow",
+  "skirtGlow",
+  "skirtTone",
+  "earL",
+  "earR",
+] as const;
+
+/**
+ * 機器動畫要怎麼跟遊玩姿勢共存：
+ *   none     ＝ 沒有狀態（idle），遊玩姿勢自己說了算
+ *   overlay  ＝ 只覆蓋狀態通道，保留遊玩姿勢
+ *   takeover ＝ 整體搶佔（安全與結果狀態：緊急、擋下、失敗、未知、離線、
+ *              暫停、成功、需要確認，以及所有直接互動/表演）
+ */
+export function statusOverlay(machineAnim: string): "none" | "overlay" | "takeover" {
+  if (machineAnim === "idle") return "none";
+  const id = EXPRESSION_ALIASES[machineAnim] ?? machineAnim;
+  return OVERLAY_STATUS.has(id) ? "overlay" : "takeover";
+}
+
+/** 遊玩模式 → 遊玩表情（沒有專屬表情就回 null）。 */
+export function playExpressionFor(mode: CharPlayMode): string | null {
+  switch (mode) {
+    case "chase":
+    case "stroll":
+      return "play-chase";
+    case "pounce":
+      return "sneak-closer";
+    case "return":
+    case "refuse":
+    case "carry":
+      return "play-carry";
+    case "sniff":
+      return "curious";
+    default:
+      return null;
+  }
+}
+
+/** 狀態表情裡屬於「狀態通道」的參數（沒有就回 null）。 */
+export function statusChannelParams(machineAnim: string): Partial<RigParams> | null {
+  const { expr } = resolveRigAnimation(machineAnim);
+  const out: Partial<RigParams> = {};
+  let found = false;
+  for (const key of STATUS_CHANNELS) {
+    const value = expr.hold[key];
+    if (value !== undefined) {
+      (out as Record<string, unknown>)[key] = value;
+      found = true;
+    }
+  }
+  return found ? out : null;
+}
+
+/**
+ * 遊玩場要不要繼續運轉。
+ *
+ * 只借通道的工作/等待狀態（routing/working/waiting/…）不該讓整個遊玩場停住
+ * ——她可以一邊玩、一邊用胸前核心顯示 Agent 在工作。安全與結果狀態
+ * （emergency/blocked/failed/unknown/offline/paused/success/…）仍然整體搶佔，
+ * 遊玩立刻停止。
+ */
+export function playfieldActive(
+  machineAnim: string,
+  poseAmbient: boolean,
+  playPerforming: boolean
+): boolean {
+  return poseAmbient || playPerforming || statusOverlay(machineAnim) === "overlay";
+}
+
+// ---------------------------------------------------------------------------
+// hit-rect 回報節流（點擊穿透的新鮮度）
+// ---------------------------------------------------------------------------
+
+export interface HitRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** 兩次回報之間的最小間隔（不得每幀 invoke）。 */
+export const HIT_RECT_MIN_INTERVAL_MS = 50;
+/** 沒有位移時的最長沉默：超過就補一次（Rust 端的框永遠不會太舊）。 */
+export const HIT_RECT_MAX_QUIET_MS = 60;
+/** 位移多少才值得立刻回報（px）。 */
+export const HIT_RECT_MOVE_EPS = 4;
+
+/**
+ * 這一幀該不該把 hit-rect 回報給 Rust？
+ *
+ * 角色會走動、玩具會滾，互動框每幀都在變；只在 500ms pump 回報的話，Rust
+ * 的點擊穿透輪詢會拿著最多半秒前的框判定——追逐／拖曳玩具時指標事件就掉了。
+ * 這裡是有界節流：至少隔 50ms、位移 >4px 立刻報，否則 60ms 補一次。
+ *
+ * @param dtMs 距離上次回報的時間（首次回報傳 Infinity 或給 prev=null）。
+ */
+export function hitRectReportPolicy(
+  prev: HitRect | null,
+  next: HitRect,
+  dtMs: number
+): boolean {
+  if (!prev) return true;
+  if (!Number.isFinite(dtMs)) return true;
+  if (dtMs < HIT_RECT_MIN_INTERVAL_MS) return false;
+  const moved =
+    Math.abs(next.x - prev.x) > HIT_RECT_MOVE_EPS ||
+    Math.abs(next.y - prev.y) > HIT_RECT_MOVE_EPS ||
+    Math.abs(next.w - prev.w) > HIT_RECT_MOVE_EPS ||
+    Math.abs(next.h - prev.h) > HIT_RECT_MOVE_EPS;
+  return moved || dtMs >= HIT_RECT_MAX_QUIET_MS;
+}
+
+// ---------------------------------------------------------------------------
+// Reduced Motion：所有 sway/浮動取常數
+// ---------------------------------------------------------------------------
+
+/**
+ * 週期性擺動。Reduced Motion 時回 0（不是「幅度小一點」——是真的不動）。
+ * 逗貓棒羽毛、使魔尾巴、打招呼愛心、小物件轉動都走這裡。
+ */
+export function swayAt(nowMs: number, periodMs: number, amp: number, reduced: boolean): number {
+  if (reduced) return 0;
+  const t = Number.isFinite(nowMs) ? nowMs : 0;
+  const p = periodMs > 0 ? periodMs : 1;
+  return Math.sin(t / p) * amp;
+}
+
+/**
+ * 注視偏移 → 參數（回看使魔／看向游標）。`dir` 為 -1..1 的**角色本地**方向
+ * （已考慮翻面），正=角色的右手邊。只動視線/耳朵/微幅轉頭，不改姿勢，
+ * 也永遠不套在真相狀態上（呼叫端把關）。
+ */
+export function gazeBiasParams(p: RigParams, dir: number, strength = 1): RigParams {
+  const d = Math.max(-1, Math.min(1, Number.isFinite(dir) ? dir : 0)) *
+    Math.max(0, Math.min(1, Number.isFinite(strength) ? strength : 0));
+  if (d === 0) return p;
+  return clampParams({
+    ...p,
+    headTurn: p.headTurn + d * 0.3,
+    pupilX: p.pupilX + d * 2.2,
+    earPerk: Math.max(p.earPerk, 0.72),
+    earLTilt: p.earLTilt - d * 5,
+    earRTilt: p.earRTilt + d * 5,
+  });
+}
+
+/** 游標在角色附近時的注視方向（-1..1；不在場內或太遠回 0）。 */
+export function pointerGazeDir(
+  pointer: { x: number; y: number } | null,
+  charX: number,
+  rangePx = 110
+): number {
+  if (!pointer || !Number.isFinite(pointer.x) || rangePx <= 0) return 0;
+  const dx = pointer.x - charX;
+  if (Math.abs(dx) > rangePx) return Math.sign(dx);
+  return Math.max(-1, Math.min(1, dx / rangePx));
+}
+
+export interface StagePlan {
+  /** 要播的表情/動畫名。 */
+  expression: string;
+  /** 是否沿用 machine 的 frameSlice（遊玩姿勢時不沿用）。 */
+  useMachineSlice: boolean;
+  /** 疊在遊玩姿勢上的狀態通道（null＝不疊）。 */
+  statusChannels: Partial<RigParams> | null;
+}
+
+/**
+ * 遊玩姿勢 × 機器狀態的合成計畫（純函式，可單測）：
+ *   - 安全/結果狀態一律整體搶佔（永遠不會被遊玩蓋掉）。
+ *   - 工作/等待狀態只點亮核心/頭飾/裙擺/耳朵，身體照樣在玩。
+ */
+export function stageExpressionPlan(machineAnim: string, mode: CharPlayMode): StagePlan {
+  const overlay = statusOverlay(machineAnim);
+  const play = playExpressionFor(mode);
+  if (overlay === "takeover" || !play) {
+    return { expression: machineAnim, useMachineSlice: true, statusChannels: null };
+  }
+  if (overlay === "none") {
+    return { expression: play, useMachineSlice: false, statusChannels: null };
+  }
+  return {
+    expression: play,
+    useMachineSlice: false,
+    statusChannels: statusChannelParams(machineAnim),
+  };
+}
 
 export type StageScene = "none" | "nest" | "desk" | "sill" | "night";
 export const STAGE_SCENES: StageScene[] = ["none", "nest", "desk", "sill", "night"];
@@ -37,11 +264,34 @@ export interface StageToggles {
   deskMove: boolean;
 }
 
-interface MachineFlags {
+export interface MachineFlags {
   ambient: boolean;
   frozen: boolean;
   quiet: boolean;
   playPerforming: boolean;
+}
+
+/**
+ * machine 真相狀態 → 舞台旗標（純函式）。
+ *
+ * 呼叫端必須在 machine 一變就套用（syncPose），不能等下一次 500ms pump：
+ * 緊急停止後遊玩場多轉半秒＝角色在「已停止」的畫面上還在追球。
+ */
+export function machineStageFlags(
+  base: string,
+  transient: { kind: string; animation?: string } | null,
+  poseAnimation: string,
+  poseAmbient: boolean
+): MachineFlags {
+  const playPerforming =
+    transient?.kind === "performing" && PLAYFIELD_EXPRESSIONS.has(transient.animation ?? "");
+  return {
+    // 工作/等待狀態只借通道：遊玩場繼續運轉（安全與結果狀態才整體停）。
+    ambient: playfieldActive(poseAnimation, poseAmbient, playPerforming),
+    frozen: ["emergency", "offline", "paused"].includes(base),
+    quiet: base === "quiet",
+    playPerforming,
+  };
 }
 
 export class StageRenderer implements RendererBackend {
@@ -66,6 +316,15 @@ export class StageRenderer implements RendererBackend {
   private lastDrag: { x: number; y: number; at: number; vx: number; vy: number } | null = null;
   private lastStep = 0;
   private exprCb: ((id: string, durationMs: number) => void) | null = null;
+  private tuning: PersonalityTuning = DEFAULT_TUNING;
+  private budget: FrameBudgetState = initialFrameBudget();
+  private frameParity = 0;
+  private lastLoopAt = 0;
+  private hitRectCb: ((rect: HitRect) => void) | null = null;
+  private lastReportedRect: HitRect | null = null;
+  private lastReportAt = 0;
+  /** 上一幀實際套用的 rig 參數（診斷／效能量測用）。 */
+  private lastFrame: RigParams | null = null;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -97,8 +356,14 @@ export class StageRenderer implements RendererBackend {
     this.timeline.setReducedMotion(on);
   }
 
+  /** 安靜時的「就地眨眼」：不換表情、不搶走安靜姿勢。 */
+  blinkNow(): boolean {
+    return this.timeline.blinkNow(this.now());
+  }
+
   setMicroMotion(motion: MicroMotionOverlay): void {
-    this.timeline.setMicroMotion(motion);
+    // 帶上此刻的時間戳：注意力分段（耳→視線→頭）要知道「什麼時候改變的」。
+    this.timeline.setMicroMotion(motion, this.now());
   }
 
   destroy(): void {
@@ -113,6 +378,17 @@ export class StageRenderer implements RendererBackend {
 
   setToggles(t: Partial<StageToggles>): void {
     this.toggles = { ...this.toggles, ...t };
+  }
+
+  /** 個性 tuning：速度/距離/注意力分段（只影響呈現）。 */
+  setTuning(tuning: PersonalityTuning): void {
+    this.tuning = tuning;
+    this.timeline.setAttentionStagger(tuning.attentionStagger as AttentionStagger);
+  }
+
+  /** 目前的幀預算狀態（30fps 降級診斷用）。 */
+  frameBudget(): FrameBudgetState {
+    return this.budget;
   }
 
   setScene(scene: string): void {
@@ -146,6 +422,42 @@ export class StageRenderer implements RendererBackend {
     this.exprCb = cb;
   }
 
+  /** 互動框回報：每幀依 hitRectReportPolicy 節流呼叫（不是每幀 invoke）。 */
+  onHitRect(cb: (rect: HitRect) => void): void {
+    this.hitRectCb = cb;
+    this.lastReportedRect = null; // 換 callback：先報一次目前的框
+  }
+
+  /**
+   * 依節流政策回報互動框。`force=true` 供 500ms 心跳使用（rAF 停擺時
+   * ——視窗被隱藏、系統節流——仍要有一次回報）。
+   */
+  reportHitRect(force = false): void {
+    if (!this.hitRectCb) return;
+    const next = this.interactiveBounds();
+    const now = this.now();
+    const dt = this.lastReportedRect === null ? Number.POSITIVE_INFINITY : now - this.lastReportAt;
+    if (!force && !hitRectReportPolicy(this.lastReportedRect, next, dt)) return;
+    this.lastReportedRect = next;
+    this.lastReportAt = now;
+    this.hitRectCb(next);
+  }
+
+  /** 診斷用：上一幀實際套用的 rig 參數（無座標、無使用者資料）。 */
+  lastFrameParams(): RigParams | null {
+    return this.lastFrame;
+  }
+
+  /** 診斷用：目前被玩家抓著的玩具數。 */
+  playerGrabbedToys(): number {
+    return this.world.toys.filter((t) => t.grabbed === "player").length;
+  }
+
+  /** 診斷用：玩具在舞台上的位置（CSS px）。只活在本視窗，不外送。 */
+  toyPoints(): { id: number; x: number; y: number }[] {
+    return this.world.toys.map((t) => ({ id: t.id, x: t.x * this.scale, y: t.y * this.scale }));
+  }
+
   spawnToy(kind: ToyKind): void {
     this.world = spawnToy(this.world, kind, this.now());
   }
@@ -163,7 +475,7 @@ export class StageRenderer implements RendererBackend {
   }
 
   rollCallNow(machineLabel: string | null): { name: string; activity: string }[] {
-    return rollCall(this.world, this.charName, machineLabel);
+    return rollCall(this.world, this.charName, machineLabel, this.now());
   }
 
   /** 角色目前的 hit-rect（CSS px，供 companion_hit_rect）。 */
@@ -210,6 +522,12 @@ export class StageRenderer implements RendererBackend {
     const r = this.charHitRect();
     if (cssX >= r.x && cssX <= r.x + r.w && cssY >= r.y && cssY <= r.y + r.h) return "char";
     return "none";
+  }
+
+  /** 指標是否落在角色身上（hover 短氣泡用；座標只留在本視窗）。 */
+  hitTestChar(cssX: number, cssY: number): boolean {
+    const r = this.charHitRect();
+    return cssX >= r.x && cssX <= r.x + r.w && cssY >= r.y && cssY <= r.y + r.h;
   }
 
   pointerMove(cssX: number, cssY: number): void {
@@ -260,7 +578,15 @@ export class StageRenderer implements RendererBackend {
   private loop = () => {
     if (this.destroyed) return;
     this.raf = requestAnimationFrame(this.loop);
-    this.renderFrame();
+    const now = this.now();
+    // 幀預算（§14）：最近 60 幀平均 >12ms 就每兩幀畫一次，<8ms 才回 60fps。
+    if (this.lastLoopAt > 0) {
+      this.budget = frameBudgetPolicy(this.budget, now - this.lastLoopAt);
+    }
+    this.lastLoopAt = now;
+    this.frameParity = (this.frameParity + 1) % 2;
+    if (!shouldDrawFrame(this.budget, this.frameParity)) return;
+    this.renderFrame(now);
   };
 
   renderFrame(now = this.now()): void {
@@ -302,6 +628,10 @@ export class StageRenderer implements RendererBackend {
         cursorPlayEnabled: this.toggles.cursorPlay,
         deskMoveEnabled: this.toggles.deskMove,
         pointer: this.pointer,
+        speedScale: this.tuning.speedScale,
+        chaseSpeedScale: this.tuning.chaseSpeedScale,
+        approachDistance: this.tuning.approachDistance,
+        riseDelayMs: this.tuning.riseDelayMs,
       },
       this.rng
     );
@@ -310,27 +640,27 @@ export class StageRenderer implements RendererBackend {
       if (e.type === "expression" && this.exprCb) this.exprCb(e.id, e.durationMs);
     }
 
-    // 表情選擇：machine 非 idle 一律優先；idle 時允許遊玩覆蓋。
-    const mode = this.world.char.mode;
-    let effective = this.machineAnim;
-    let slice = this.machineSlice;
-    if (this.machineAnim === "idle") {
-      if (mode === "chase") effective = "play-chase";
-      else if (mode === "pounce") effective = "sneak-closer";
-      else if (mode === "return" || mode === "refuse") effective = "play-carry";
-      else if (mode === "stroll") effective = "play-chase";
-      if (effective !== this.machineAnim) slice = undefined;
-    }
-    this.timeline.setAnimation(effective, now, slice);
+    // 表情選擇（組合式通道，spec §6.2）：安全與結果狀態整體搶佔；
+    // 工作/等待狀態只點亮核心/頭飾/裙擺/耳朵，身體維持遊玩姿勢。
+    const plan = stageExpressionPlan(this.machineAnim, this.world.char.mode);
+    this.timeline.setAnimation(plan.expression, now, plan.useMachineSlice ? this.machineSlice : undefined);
     let params = this.timeline.paramsAt(now);
+    if (plan.statusChannels) params = clampParams({ ...params, ...plan.statusChannels });
 
     // 移動 secondary motion：步態、髮尾、頭飾微彈。
+    //
+    // 只有「遊玩姿勢真的在台上」時才覆蓋姿勢：機器狀態整體搶佔
+    // （plan.useMachineSlice＝安全/結果狀態或沒有遊玩表情）時不得把 pose
+    // 改成 stand——那會讓 doze/lie-flat 被步行姿勢蓋掉，也會讓緊急停止後
+    // 殘留的速度繼續演走路。凍結狀態一律不動。
     const speed = Math.abs(this.world.char.vx);
-    if (speed > 1 && !reduced) {
+    const walking = !plan.useMachineSlice && !this.flags.frozen && speed > 1 && !reduced;
+    if (walking) {
       const cyc = now / (speed > 80 ? 90 : 140);
       params = clampParams({
         ...params,
         pose: "stand",
+        poseBlend: 1,
         legPhase: Math.sin(cyc),
         bodyBob: params.bodyBob - Math.abs(Math.sin(cyc)) * 1.8,
         hairSway: Math.sin(cyc * 0.9) * 0.6,
@@ -338,7 +668,28 @@ export class StageRenderer implements RendererBackend {
       });
     }
 
+    // 注視：有使魔向她打招呼就回看，否則游標靠近時看過來。
+    // 只在「沒有整體搶佔」（idle 或只借通道的工作狀態）時疊，
+    // 真相狀態與凍結狀態永遠不疊；Reduced Motion 不做這層。
+    if (!reduced && !this.flags.frozen && statusOverlay(this.machineAnim) !== "takeover") {
+      const char = this.world.char;
+      const greeter =
+        char.attendTo !== null && now <= char.attendUntil
+          ? this.world.familiars.find((f) => f.id === char.attendTo)
+          : undefined;
+      let dirWorld = 0;
+      if (greeter) {
+        dirWorld = Math.max(-1, Math.min(1, (greeter.x - char.x) / 60));
+      } else if (this.toggles.cursorPlay) {
+        dirWorld = pointerGazeDir(this.pointer, char.x);
+      }
+      if (dirWorld !== 0) {
+        params = gazeBiasParams(params, dirWorld * char.facing, greeter ? 1 : 0.8);
+      }
+    }
+
     // ---- 繪製 ----
+    this.lastFrame = params;
     const ctx = this.ctx;
     const pal = RIG_PALETTES[this.paletteName];
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -360,10 +711,38 @@ export class StageRenderer implements RendererBackend {
     drawRig(ctx, params, pal);
     ctx.restore();
 
+    // 回一顆愛心（有使魔跟她打招呼時；純裝飾，非狀態符號）。
+    if (this.world.char.greetBackUntil > now) {
+      this.drawGreetHeart(ctx, this.world.char.x, this.world.ground - 132, pal, now, reduced);
+    }
+
     // 逗貓棒畫在最上（有「線」從上方垂到玩具）。
     for (const t of this.world.toys) if (t.kind === "wand") this.drawToy(ctx, t, pal, now);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // 互動框回報（節流；角色走動/玩具滾動時 Rust 的點擊穿透才不會用舊框）。
+    this.reportHitRect();
+  }
+
+  /** 打招呼愛心（角色與使魔共用；Reduced Motion 時不浮動）。 */
+  private drawGreetHeart(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    pal: RigPalette,
+    now: number,
+    reduced: boolean
+  ) {
+    ctx.save();
+    ctx.fillStyle = pal.pinkLilac;
+    const hy = y - swayAt(now, 300, 1.5, reduced);
+    ctx.beginPath();
+    ctx.moveTo(x, hy + 2.4);
+    ctx.bezierCurveTo(x - 4.2, hy - 1, x - 1.8, hy - 3.4, x, hy - 1);
+    ctx.bezierCurveTo(x + 1.8, hy - 3.4, x + 4.2, hy - 1, x, hy + 2.4);
+    ctx.fill();
+    ctx.restore();
   }
 
   // ---- 場景（低調的桌面情境，透明模式仍以透明為主） ----
@@ -435,6 +814,7 @@ export class StageRenderer implements RendererBackend {
 
   // ---- 玩具 ----
   private drawToy(ctx: CanvasRenderingContext2D, t: Toy, pal: RigPalette, now: number) {
+    const reduced = this.timeline.isReducedMotion();
     ctx.save();
     switch (t.kind) {
       case "yarn": {
@@ -498,6 +878,27 @@ export class StageRenderer implements RendererBackend {
         }
         break;
       }
+      case "trinket": {
+        // 小物件：一顆有稜角的小方塊＋掛環（看得出可以拖、不像食物）。
+        const spin = swayAt(now + t.id * 900, 900, 0.12, reduced);
+        ctx.translate(t.x, t.y);
+        ctx.rotate(spin);
+        ctx.fillStyle = mixColor(pal.toolViolet, "#ffffff", 0.25);
+        ctx.strokeStyle = mixColor(pal.toolViolet, "#000000", 0.4);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.rect(-6, -5, 12, 10);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-6, -1);
+        ctx.lineTo(6, -1);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, -7.5, 2.4, Math.PI, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
       case "wand": {
         // 線從舞台上方垂到羽毛玩具。
         ctx.strokeStyle = "rgba(150,150,160,0.7)";
@@ -507,7 +908,7 @@ export class StageRenderer implements RendererBackend {
         ctx.quadraticCurveTo(t.x + 4, t.y * 0.5, t.x, t.y - 6);
         ctx.stroke();
         // 羽毛。
-        const sway = Math.sin(now / 260) * 0.35;
+        const sway = swayAt(now, 260, 0.35, reduced);
         ctx.translate(t.x, t.y);
         ctx.rotate(sway);
         ctx.fillStyle = pal.warmOrange;
@@ -529,7 +930,11 @@ export class StageRenderer implements RendererBackend {
   private drawFamiliar(ctx: CanvasRenderingContext2D, f: Familiar, now: number) {
     const pal = RIG_PALETTES[f.palette] ?? RIG_PALETTES["maid-classic"];
     const g = this.world.ground;
-    const bob = f.state === "walk" || f.state === "chase" ? Math.abs(Math.sin(now / 120)) * 2 : 0;
+    const reduced = this.timeline.isReducedMotion();
+    const bob =
+      !reduced && (f.state === "walk" || f.state === "chase")
+        ? Math.abs(Math.sin(now / 120)) * 2
+        : 0;
     const y = g - 10 - bob;
     ctx.save();
     ctx.translate(f.x, y);
@@ -556,7 +961,7 @@ export class StageRenderer implements RendererBackend {
     ctx.lineCap = "round";
     ctx.beginPath();
     ctx.moveTo(-8, 2);
-    ctx.quadraticCurveTo(-14, -2 + Math.sin(now / 400) * 2, -13, -8);
+    ctx.quadraticCurveTo(-14, -2 + swayAt(now, 400, 2, reduced), -13, -8);
     ctx.stroke();
     // 臉。
     if (f.state === "sleep") {
@@ -588,7 +993,7 @@ export class StageRenderer implements RendererBackend {
     // 打招呼：愛心。
     if (f.state === "greet") {
       ctx.fillStyle = pal.pinkLilac;
-      const hy = -16 - Math.sin(now / 300) * 1.5;
+      const hy = -16 - swayAt(now, 300, 1.5, reduced);
       ctx.beginPath();
       ctx.moveTo(0, hy + 2.4);
       ctx.bezierCurveTo(-4.2, hy - 1, -1.8, hy - 3.4, 0, hy - 1);

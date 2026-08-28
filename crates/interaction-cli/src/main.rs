@@ -207,6 +207,11 @@ pub enum Command {
         #[command(subcommand)]
         command: commands::PolicyCmd,
     },
+    /// iPhone Mobile Provider: pairing, status, revocation.
+    Mobile {
+        #[command(subcommand)]
+        action: MobileAction,
+    },
     /// Manage the interaction session and consents.
     Session {
         #[command(subcommand)]
@@ -324,6 +329,10 @@ pub enum ProvidersAction {
         #[arg(long)]
         state: String,
     },
+    /// Test a provider once, read-only: reads its first readable receptor and
+    /// records the result as evidence. Never triggers an actuator and never
+    /// enables a disabled sensor.
+    Test { id: String },
     /// Revoke a provider: capabilities disabled immediately; sticky.
     Revoke { id: String },
 }
@@ -378,6 +387,27 @@ pub enum AgentsAction {
         /// Max session cost in USD (0 = policy default).
         #[arg(long)]
         max_cost: Option<f64>,
+        /// Continue an existing PROVIDER session/thread (claude --resume /
+        /// codex thread resume). Resuming never widens scope: the new session
+        /// gets a fresh lease and the connector re-locks sandbox/permission
+        /// flags.
+        #[arg(long, value_name = "PROVIDER_SESSION_ID")]
+        resume: Option<String>,
+    },
+    /// Continue a previous agent session's provider thread in a NEW leased
+    /// session. Permission flags are re-locked (never inherited): pass the
+    /// write flags again if you still want them.
+    Resume {
+        /// A previous agent session id (its providerSessionId is reused).
+        id: String,
+        #[arg(long)]
+        label: Option<String>,
+        /// Lease TTL in minutes (default 120).
+        #[arg(long)]
+        ttl: Option<u32>,
+        /// Working directory for gateway agents (codex/claude-code).
+        #[arg(long)]
+        workdir: Option<String>,
     },
     /// Send a message into a session mailbox.
     Send {
@@ -389,7 +419,7 @@ pub enum AgentsAction {
         #[arg(long, default_value = "{}")]
         body: String,
     },
-    /// Fetch mailbox messages (to-session marks delivery).
+    /// Fetch mailbox messages (read-only for a human token; only an agent identity marks delivery).
     Messages {
         id: String,
         #[arg(long, default_value = "to-session")]
@@ -423,6 +453,22 @@ pub enum AgentsAction {
         /// Optional note recording what you checked.
         #[arg(long)]
         note: Option<String>,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum MobileAction {
+    /// Server status + paired devices (connected state, honest sensor status).
+    Status,
+    /// Begin a 5-minute pairing session (prints the code + QR payload).
+    Pair,
+    /// Revoke one paired iPhone (disconnects immediately).
+    Revoke { device_id: String },
+    /// Ask the connected iPhone to scan for BLE peripherals (gateway must be
+    /// switched on in the App). No answer in time = outcome unknown, not empty.
+    BleScan {
+        #[arg(long, default_value_t = 4_000)]
+        duration_ms: u64,
     },
 }
 

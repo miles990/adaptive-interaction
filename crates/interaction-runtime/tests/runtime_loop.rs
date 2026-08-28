@@ -1003,3 +1003,105 @@ async fn pushed_observation_cannot_forge_action_verification() {
         "scrubbed value is kept under claimActionId (never used as evidence)"
     );
 }
+
+/// v0.5 Phase 7 回歸：`status().quietHours` 必須反映 policy.quietHours 是否
+/// 正在生效——角色視窗（CompanionApp）與 Interaction Director 只認這個鍵。
+/// 之前 status() 從未輸出該鍵，quiet 基態在生產環境永遠不可達。
+#[tokio::test]
+async fn status_reports_active_quiet_hours() {
+    let (_g, rt) = runtime().await;
+    let before = rt.status().await;
+    assert_eq!(
+        before["quietHours"],
+        json!(false),
+        "no quiet window configured"
+    );
+
+    // 全天窗口（00:00–23:59）：無論測試何時跑都在窗內。
+    rt.update_policy(json!({"quietHours": [{"start": "00:00", "end": "23:59"}]}))
+        .await
+        .unwrap();
+    let during = rt.status().await;
+    assert_eq!(during["quietHours"], json!(true));
+
+    // 清掉窗口 → 回 false（不能黏住）。
+    rt.update_policy(json!({"quietHours": []})).await.unwrap();
+    let after = rt.status().await;
+    assert_eq!(after["quietHours"], json!(false));
+}
+
+fn stub_receipt(
+    action_id: &str,
+    actuator: &str,
+    status: ActionStatus,
+    at: chrono::DateTime<chrono::Utc>,
+) -> ActionReceipt {
+    ActionReceipt {
+        action_id: ActionId::new(action_id),
+        plan_id: PlanId::new(format!("plan-{action_id}")),
+        session_id: SessionId::new("sess-inbox"),
+        actuator_id: ActuatorId::new(actuator),
+        intent: format!("intent-{action_id}"),
+        requested_parameters: ActionParameters::default(),
+        effective_bounded_parameters: ActionParameters::default(),
+        policy_decisions: vec![],
+        current_status: status,
+        timestamps: vec![(status, at)],
+        errors: vec![],
+        driver_response: BTreeMap::new(),
+        verification: None,
+        expires_at: None,
+        correlation_id: CorrelationId::new(format!("corr-{action_id}")),
+        schema_version: SCHEMA_VERSION.to_string(),
+    }
+}
+
+/// 右上角 Inbox 的「待我決定」是全部待辦的數量，不是本頁剛好裝得下的數量。
+/// 舊實作在 truncate 之後才數，較舊的待決定項目會被靜靜漏掉。
+#[tokio::test]
+async fn inbox_pending_count_is_computed_before_page_truncation() {
+    let (_g, rt) = runtime().await;
+    let base = chrono::Utc::now();
+
+    // 3 筆較舊、需要人類決定的動作（結果未知，實體通道）。
+    for i in 0..3 {
+        let receipt = stub_receipt(
+            &format!("old-pending-{i}"),
+            "mock.actuator",
+            ActionStatus::Uncertain,
+            base - chrono::Duration::hours(2) + chrono::Duration::seconds(i),
+        );
+        assert!(rt.store.upsert_receipt(&receipt, "haptic").unwrap());
+    }
+    // 25 筆較新、不需要決定的動作，足以把上面 3 筆擠出第一頁。
+    for i in 0..25 {
+        let receipt = stub_receipt(
+            &format!("recent-done-{i}"),
+            "conversation",
+            ActionStatus::Completed,
+            base + chrono::Duration::seconds(i),
+        );
+        assert!(rt.store.upsert_receipt(&receipt, "conversation").unwrap());
+    }
+
+    let inbox = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter {
+            limit: Some(20),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(inbox["count"].as_u64(), Some(20), "page size honours limit");
+    assert_eq!(inbox["totalBeforeLimit"].as_u64(), Some(28));
+    assert_eq!(
+        inbox["pendingCount"].as_u64(),
+        Some(3),
+        "pending count must cover every waiting item, not just this page"
+    );
+    // 這一頁確實一筆待決定都看不到 —— 正是舊實作漏報 0 的情境。
+    let items = inbox["items"].as_array().unwrap();
+    assert!(items
+        .iter()
+        .all(|item| item["needsDecision"].as_bool() == Some(false)));
+}

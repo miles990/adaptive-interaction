@@ -3,7 +3,8 @@
 
 import React from "react";
 import { useAppState } from "../appstate";
-import { Section } from "../ui";
+import { RISK_TIERS } from "../riskTier";
+import { Badge, Section } from "../ui";
 import { CapabilitiesHub } from "./CapabilitiesHub";
 import { SafetyPage } from "./SafetyPage";
 import { PermissionMap } from "./HomePage";
@@ -59,6 +60,25 @@ export function ConnectPage({
             <p className="muted small">
               這張地圖來自目前的啟用狀態、安全規則與同意設定，是全 App 唯一的完整權限總覽。
             </p>
+          </Section>
+          <Section title="風險分級 — 什麼時候會問你">
+            <p className="muted small">
+              每一項能力都有固定的分級；分級決定「預設開不開」與「多常問你」。
+              分級只是說明，實際強制永遠由 Runtime 的安全規則執行。
+            </p>
+            <ul className="plain-list risk-tier-list">
+              {RISK_TIERS.map((t) => (
+                <li key={t.label}>
+                  <Badge
+                    kind={t.tier >= 4 ? "bad" : t.tier === 3 ? "warn" : t.tier === 2 ? "info" : "muted"}
+                  >
+                    {t.label}
+                  </Badge>{" "}
+                  <span className="muted small">{t.policy}</span>
+                  {t.hardLimits && <div className="muted small">{t.hardLimits}</div>}
+                </li>
+              ))}
+            </ul>
           </Section>
           <SafetyPage refreshKey={refreshKey} onNavigate={onNavigate} />
         </div>

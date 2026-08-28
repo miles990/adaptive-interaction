@@ -8,8 +8,12 @@
 //! - read：向裝置請求 state，逾時＝Unavailable（不用舊值冒充新觀察）。
 //! - cancel：真的送 cancel 到裝置；只有裝置 ack 才回收據。
 //! - estop：stop-all 直送裝置。
+//! - health／status：**不得硬編 healthy**。健康度＝傳輸狀態＋握手狀態
+//!   （＋actuator 的能力宣告）。裝置拔線／broker 斷線／被 disable 關閉
+//!   一律 offline；連上但還沒握手是 degraded（首次讀取／命令時才握手，
+//!   若在此回 offline，availability gate 會反過來讓握手永遠不會發生）。
 
-use crate::protocol::{DeviceLink, DeviceMsg, LinkError, RawLink};
+use crate::protocol::{DeviceLink, DeviceMsg, LinkError, LinkReadiness, RawLink};
 use crate::{qualified_id, substitute, CapabilitySpec, CommandSpec, RetrySpec};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -81,11 +85,30 @@ impl<L: RawLink + 'static> Receptor for LinkReceptor<L> {
     }
 
     async fn health(&self) -> ComponentHealth {
-        ComponentHealth::healthy().at(Utc::now())
+        link_health(&self.link, self.transport_label).at(Utc::now())
     }
 
     async fn stop(&self) -> Result<(), ReceptorError> {
         Ok(())
+    }
+}
+
+/// 傳輸＋握手狀態 → 誠實健康度（receptor/actuator 共用）。
+fn link_health<L: RawLink>(link: &DeviceLink<L>, transport: &str) -> ComponentHealth {
+    match link.readiness() {
+        LinkReadiness::Ready => ComponentHealth::healthy(),
+        LinkReadiness::NotHandshaken => ComponentHealth::degraded(format!(
+            "{transport} 已連線，但尚未完成 hello/pair 握手（首次讀取／命令時進行）"
+        )),
+        LinkReadiness::Connecting => {
+            ComponentHealth::degraded(format!("{transport} 連線中（尚未連上裝置）"))
+        }
+        LinkReadiness::Disconnected => ComponentHealth::offline(format!(
+            "裝置未連線／未握手（{transport} 連不上：拔線、被占用或位址不對）"
+        )),
+        LinkReadiness::Closed => ComponentHealth::offline(format!(
+            "{transport} 連線已由主機關閉（provider 被 disable／revoke）"
+        )),
     }
 }
 
@@ -239,7 +262,37 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
                         .failed("device-identity-or-pairing", &detail)
                         .finish());
                 }
+                Err(LinkError::NotAdvertised(detail)) => {
+                    // 裝置沒宣告這個能力：cmd 從未送出，沒有實體效果，
+                    // 也不重試（重試不會讓裝置長出新能力）。
+                    return Ok(DriverReceipt::start(&action, Utc::now())
+                        .note("transport", json!(self.transport_label))
+                        .failed("capability-not-advertised", &detail)
+                        .finish());
+                }
+                Err(LinkError::Uncertain(detail)) => {
+                    // 送出「途中」失敗（例如 BLE write 已寫出但沒有回應）：
+                    // 是否送達未知 → 不重試（重試會重複實體效果）、
+                    // 也不冒充失敗。runtime watchdog 會標成 uncertain。
+                    return Ok(DriverReceipt::start(&action, Utc::now())
+                        .dispatched()
+                        .note("transport", json!(self.transport_label))
+                        .note("sendOutcomeUnknown", json!(true))
+                        .note("detail", json!(detail))
+                        .finish());
+                }
+                Err(LinkError::Reset(detail)) => {
+                    // 等待中連線重置：命令可能已到裝置，結果未知；
+                    // 佇列裡的舊命令已被清掉，絕不重送。
+                    return Ok(DriverReceipt::start(&action, Utc::now())
+                        .dispatched()
+                        .note("transport", json!(self.transport_label))
+                        .note("outcomeUnknown", json!(true))
+                        .failed("link-reset", &detail)
+                        .finish());
+                }
                 Err(LinkError::Unavailable(detail)) => {
+                    // 「確定未送出」（連線未開、佇列滿、握手沒完成）才可重試。
                     last_err = detail;
                 }
             }
@@ -250,7 +303,13 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
     }
 
     async fn status(&self) -> ComponentHealth {
-        ComponentHealth::healthy().at(Utc::now())
+        // 裝置在 hello.caps 明確沒宣告這個能力＝這台裝置做不到，
+        // 不論連線多健康都不是可用的動器。
+        if self.link.advertises(&self.command.name) == Some(false) {
+            return ComponentHealth::offline(format!("裝置未宣告此能力：{}", self.command.name))
+                .at(Utc::now());
+        }
+        link_health(&self.link, self.transport_label).at(Utc::now())
     }
 
     async fn cancel(&self, action_id: &ActionId) -> Result<ActionReceipt, ActuatorError> {
@@ -290,10 +349,17 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
         }
     }
 
+    /// estop：送 stop-all 並等裝置 ack。裝置沒 ack ＝「已送出／未確認」——
+    /// 誠實回 Err，runtime 的 stoppedActuators 不得把它算成已停止。
     async fn emergency_stop(&self) -> Result<(), ActuatorError> {
         self.link
-            .stop_all(Duration::from_millis(1_500))
+            .stop_all(Duration::from_millis(1_000))
             .await
-            .map_err(|e| ActuatorError::Unavailable(format!("stop-all not deliverable: {e}")))
+            .map_err(|e| match e {
+                LinkError::Timeout(detail) | LinkError::Reset(detail) => {
+                    ActuatorError::Unavailable(format!("{detail} ({})", self.transport_label))
+                }
+                other => ActuatorError::Unavailable(format!("stop-all not deliverable: {other}")),
+            })
     }
 }

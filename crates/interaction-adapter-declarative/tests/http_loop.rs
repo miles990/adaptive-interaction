@@ -200,3 +200,60 @@ async fn expired_action_is_rejected_before_any_network_io() {
     assert!(err.to_string().contains("expired"));
     assert!(state.set_calls.lock().unwrap().is_empty());
 }
+
+/// HTTP/SSE 沒有常駐連線，健康度只能誠實反映「最近一次請求」：
+/// 從未通訊過不得宣稱 healthy；請求失敗後也不得繼續宣稱 healthy。
+#[tokio::test]
+async fn http_health_is_not_hard_coded_healthy() {
+    use interaction_core::HealthStatus;
+
+    let (addr, _state) = spawn_mock_device().await;
+    let built = build(&parse_spec(&spec_for(addr)).unwrap(), None).unwrap();
+    let receptor = &built.receptors[0];
+    let actuator = &built.actuators[0];
+
+    // 還沒跟裝置說過話：未驗證，不是 healthy。
+    assert_eq!(receptor.health().await.status, HealthStatus::Degraded);
+    assert_eq!(actuator.status().await.status, HealthStatus::Degraded);
+
+    // 成功通訊後才是 healthy。
+    receptor.read().await.unwrap();
+    assert_eq!(receptor.health().await.status, HealthStatus::Healthy);
+    actuator.execute(bounded_action()).await.unwrap();
+    assert_eq!(actuator.status().await.status, HealthStatus::Healthy);
+
+    // 連不上的裝置：receptor 誠實 offline（下一次讀取可自行恢復）。
+    let ghost = r#"
+schemaVersion: "1.0"
+id: ghost
+capabilities:
+  - kind: receptor
+    id: status
+    transport: http
+    timeoutMs: 300
+    request: { method: GET, url: "http://127.0.0.1:1/status" }
+    facts: { on: "/power" }
+  - kind: actuator
+    id: set
+    transport: http
+    timeoutMs: 300
+    retry: { attempts: 1, backoffMs: 0 }
+    request: { method: POST, url: "http://127.0.0.1:1/set", body: {} }
+"#;
+    let dead = build(&parse_spec(ghost).unwrap(), None).unwrap();
+    assert!(dead.receptors[0].read().await.is_err());
+    let health = dead.receptors[0].health().await;
+    assert_eq!(health.status, HealthStatus::Offline, "{health:?}");
+
+    // actuator 端：失敗後不得再宣稱 healthy（訊息要說出失敗原因）。
+    // 這裡刻意不用 offline——status() 會擋下派工，而只有派工才可能證明
+    // 它恢復了；標成 offline 等於自鎖，那不是誠實。
+    let receipt = dead.actuators[0].execute(bounded_action()).await.unwrap();
+    assert_eq!(receipt.current_status, ActionStatus::Failed);
+    let status = dead.actuators[0].status().await;
+    assert_ne!(status.status, HealthStatus::Healthy, "{status:?}");
+    assert!(status
+        .message
+        .unwrap_or_default()
+        .contains("最近一次請求失敗"));
+}
