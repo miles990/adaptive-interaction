@@ -98,7 +98,30 @@ pub struct DesktopPrefs {
     pub companion_expressiveness: String,
     /// Companion stays above other windows.
     pub companion_always_on_top: bool,
+    /// 角色名字（顯示用；不影響任何權限）。
+    pub companion_name: String,
+    /// 遊玩場景：`none` | `nest` | `desk` | `sill` | `night`。
+    pub companion_scene: String,
+    /// 玩耍（玩具/追逐）開關。
+    pub companion_play: bool,
+    /// 游標互動（光點/逗貓棒跟隨）開關。
+    pub companion_cursor_play: bool,
+    /// 主動靠近／看向游標開關。
+    pub companion_approach: bool,
+    /// 桌面（遊玩場內）自主移動開關。
+    pub companion_desk_move: bool,
+    /// 小型使魔（最多 3 隻；純呈現，無任何權限）。
+    pub companion_familiars: Vec<FamiliarPref>,
     pub schema_version: u32,
+}
+
+/// 使魔設定（純呈現資料）。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FamiliarPref {
+    pub id: String,
+    pub name: String,
+    pub palette: String,
 }
 
 impl Default for DesktopPrefs {
@@ -118,6 +141,13 @@ impl Default for DesktopPrefs {
             story_progress: std::collections::BTreeMap::new(),
             companion_expressiveness: "natural".into(),
             companion_always_on_top: false,
+            companion_name: "小樞".into(),
+            companion_scene: "none".into(),
+            companion_play: true,
+            companion_cursor_play: true,
+            companion_approach: true,
+            companion_desk_move: true,
+            companion_familiars: Vec::new(),
             schema_version: 1,
         }
     }

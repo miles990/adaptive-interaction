@@ -5,6 +5,7 @@ import { drawRig } from "./draw";
 import { clampParams, DEFAULT_PARAMS, RIG_PALETTES, RigParams } from "./params";
 import { EXPRESSIONS, OFFICIAL_36 } from "./expressions";
 import { drawExpressionPreview } from "./renderer";
+import { StageRenderer } from "./stage";
 
 const CASES: { label: string; params: Partial<RigParams>; palette?: string }[] = [
   { label: "站立待機", params: {} },
@@ -250,4 +251,60 @@ for (const id of OFFICIAL_36) {
   exprSection.appendChild(wrap);
 }
 root.appendChild(exprSection);
+
+// 遊玩場快照：玩具＋使魔＋場景＋角色走動（模擬 6 秒後的畫面）。
+const stageSection = document.createElement("div");
+stageSection.style.cssText = "background:#20242c;padding:10px;";
+const stageTitle = document.createElement("h3");
+stageTitle.textContent = "PLAYFIELD STAGE (simulated 6s)";
+stageTitle.style.cssText = "font:14px sans-serif;margin:4px;color:#dfe6f2;";
+stageSection.appendChild(stageTitle);
+for (const scene of ["desk", "night"] as const) {
+  const canvas = document.createElement("canvas");
+  canvas.style.width = "520px";
+  canvas.style.height = "283px";
+  canvas.style.display = "block";
+  canvas.style.margin = "6px";
+  canvas.style.background = scene === "night" ? "#141821" : "#f4f2ee";
+  stageSection.appendChild(canvas);
+  let simNow = 0;
+  const stage = new StageRenderer(canvas, "maid-classic", 1.1, {
+    now: () => simNow,
+    rng: (() => {
+      let t = 42 >>> 0;
+      return () => {
+        t += 0x6d2b79f5;
+        let r = Math.imul(t ^ (t >>> 15), 1 | t);
+        r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+        return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+      };
+    })(),
+    autoStart: false,
+  });
+  stage.setScene(scene);
+  stage.setCharName("小樞");
+  stage.setFamiliars([
+    { id: "a", name: "小雪", palette: "maid-sakura" },
+    { id: "b", name: "小炭", palette: "maid-dusk" },
+  ]);
+  stage.setMachineFlags({ ambient: true, frozen: false, quiet: false, playPerforming: false });
+  stage.setAnimation("idle");
+  stage.spawnToy("yarn");
+  stage.spawnToy("plane");
+  stage.spawnToy("wand");
+  // 模擬 6 秒（16ms 步進）。
+  for (let i = 0; i < 375; i++) {
+    simNow += 16;
+    stage.renderFrame(simNow);
+  }
+  const cap = document.createElement("div");
+  cap.textContent = `scene=${scene}・rollCall: ${stage
+    .rollCallNow(null)
+    .map((r) => `${r.name}${r.activity}`)
+    .join("、")}`;
+  cap.style.cssText = "font:11px sans-serif;color:#cfd6e4;margin:0 6px 8px;";
+  stageSection.appendChild(cap);
+  stage.destroy();
+}
+root.appendChild(stageSection);
 document.title = "rig-preview-ready";

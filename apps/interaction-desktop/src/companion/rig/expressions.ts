@@ -744,6 +744,39 @@ add(
   })
 );
 
+add(
+  E("play-chase", "追玩具", {
+    hold: {
+      bodyLean: 6,
+      headNod: 0.2,
+      pupilScale: 1.25,
+      earPerk: 1,
+      mouth: "cat",
+      tailAngle: 42,
+      armPose: "down",
+    },
+    loop: phase(
+      900,
+      kf(0, { tailSway: -0.6 }),
+      kf(0.5, { tailSway: 0.6 }),
+      kf(1, { tailSway: -0.6 })
+    ),
+  })
+);
+
+add(
+  E("play-carry", "叼著玩具", {
+    hold: {
+      mouth: "cat",
+      blush: 0.3,
+      earPerk: 0.85,
+      armPose: "hug",
+      tailAngle: 52,
+    },
+    loop: TAIL_SWAY,
+  })
+);
+
 // ---------------------------------------------------------------------------
 // AI 與工作（§7.4）
 // ---------------------------------------------------------------------------

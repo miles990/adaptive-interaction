@@ -36,6 +36,14 @@ export interface DesktopPrefs {
   companionExpressiveness: "quiet" | "natural" | "lively" | string;
   companionAlwaysOnTop: boolean;
   storyProgress: Record<string, boolean>;
+  /** v0.5 遊玩偏好（純呈現，無任何權限語意）。 */
+  companionName: string;
+  companionScene: "none" | "nest" | "desk" | "sill" | "night" | string;
+  companionPlay: boolean;
+  companionCursorPlay: boolean;
+  companionApproach: boolean;
+  companionDeskMove: boolean;
+  companionFamiliars: { id: string; name: string; palette: string }[];
   schemaVersion: number;
 }
 

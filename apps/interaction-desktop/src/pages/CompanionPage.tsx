@@ -13,6 +13,10 @@ import {
   validateRigManifest,
 } from "../companion/rig/renderer";
 import { EXPRESSIONS, OFFICIAL_36 } from "../companion/rig/expressions";
+import {
+  exportCompanionSettings,
+  parseCompanionSettingsImport,
+} from "../companion/settingsTransfer";
 
 /** 預覽狀態清單（spec §C）：名稱＋對應動畫＋誠實幀選擇。 */
 const PREVIEW_STATES: { label: string; animation: string; frame?: number; note?: string }[] = [
@@ -209,6 +213,10 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
           <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
         </Section>
       )}
+
+      {isTauri && prefs && <PlaySection prefs={prefs} patch={patch} setError={setError} />}
+
+      <RollCallSection presence={presence} />
 
       <ProactiveDialogueSection />
 
@@ -873,5 +881,197 @@ function RigPreviewCell({ exprId, palette }: { exprId: string; palette: string }
       <div className="small">{label}</div>
       {note && <div className="muted small">{note}</div>}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 玩耍與互動（v0.5 Phase 3）：名字、場景、玩具/游標/靠近/移動開關、
+// 使魔、匯出/匯入。全部是呈現偏好——不含任何權限語意。
+// ---------------------------------------------------------------------------
+
+function PlaySection({
+  prefs,
+  patch,
+  setError,
+}: {
+  prefs: DesktopPrefs;
+  patch: (p: Partial<DesktopPrefs>) => Promise<void>;
+  setError: (e: string | null) => void;
+}) {
+  const [nameDraft, setNameDraft] = React.useState(prefs.companionName ?? "小樞");
+  const [notice, setNotice] = React.useState<string | null>(null);
+  React.useEffect(() => setNameDraft(prefs.companionName ?? "小樞"), [prefs.companionName]);
+
+  const familiars = prefs.companionFamiliars ?? [];
+
+  const doExport = () => {
+    const data = JSON.stringify(exportCompanionSettings(prefs), null, 2);
+    const a = document.createElement("a");
+    a.href = `data:application/json;charset=utf-8,${encodeURIComponent(data)}`;
+    a.download = "companion-settings.json";
+    a.click();
+    setNotice("已匯出角色設定（不含權限、位置與歷史）。");
+  };
+
+  const doImport = async (file: File) => {
+    try {
+      const parsed = parseCompanionSettingsImport(JSON.parse(await file.text()));
+      await patch(parsed);
+      setNotice("已匯入角色設定並套用。");
+      setError(null);
+    } catch (e) {
+      setError(`匯入失敗：${String(e)}（設定未變更）`);
+    }
+  };
+
+  return (
+    <Section title="玩耍與互動">
+      <div className="settings-grid">
+        <label className="field-label">
+          名字（只影響顯示與 Roll Call）
+          <input
+            value={nameDraft}
+            maxLength={24}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={() => {
+              if (nameDraft !== (prefs.companionName ?? "小樞")) {
+                void patch({ companionName: nameDraft || "小樞" });
+              }
+            }}
+            aria-label="角色名字"
+          />
+        </label>
+        <label className="field-label">
+          場景（透明桌面模式下只加一點小道具）
+          <select
+            value={String(prefs.companionScene ?? "none")}
+            onChange={(e) => void patch({ companionScene: e.target.value })}
+          >
+            <option value="none">透明桌面（預設）</option>
+            <option value="nest">桌面巢穴</option>
+            <option value="desk">工作桌</option>
+            <option value="sill">窗台</option>
+            <option value="night">夜間</option>
+          </select>
+        </label>
+      </div>
+      <Toggle
+        checked={prefs.companionPlay !== false}
+        onChange={(on) => void patch({ companionPlay: on })}
+        label="玩耍（玩具、追逐、撲抓）"
+      />
+      <Toggle
+        checked={prefs.companionCursorPlay !== false}
+        onChange={(on) => void patch({ companionCursorPlay: on })}
+        label="游標互動（光點、逗貓棒跟著游標）"
+      />
+      <Toggle
+        checked={prefs.companionApproach !== false}
+        onChange={(on) => void patch({ companionApproach: on })}
+        label="游標靠近時看過來"
+      />
+      <Toggle
+        checked={prefs.companionDeskMove !== false}
+        onChange={(on) => void patch({ companionDeskMove: on })}
+        label="在遊玩場內自主散步"
+      />
+      <p className="muted small">
+        玩具與游標互動只發生在角色的透明小視窗內；游標座標不會送到 Runtime 或
+        AI、也不會被保存。Reduced Motion 開啟時自動停止玩耍與移動。
+      </p>
+      <h4>使魔（最多 3 隻，純陪伴、沒有任何權限）</h4>
+      {familiars.length === 0 && <p className="muted small">還沒有使魔。</p>}
+      {familiars.map((f, i) => (
+        <div className="row wrap" key={f.id} style={{ marginBottom: 4 }}>
+          <input
+            value={f.name}
+            maxLength={24}
+            aria-label={`使魔 ${i + 1} 名字`}
+            onChange={(e) => {
+              const next = familiars.map((x, j) => (j === i ? { ...x, name: e.target.value } : x));
+              void patch({ companionFamiliars: next });
+            }}
+          />
+          <select
+            value={f.palette}
+            aria-label={`使魔 ${i + 1} 配色`}
+            onChange={(e) => {
+              const next = familiars.map((x, j) =>
+                j === i ? { ...x, palette: e.target.value } : x
+              );
+              void patch({ companionFamiliars: next });
+            }}
+          >
+            <option value="maid-classic">經典</option>
+            <option value="maid-dusk">暮色</option>
+            <option value="maid-sakura">櫻花</option>
+          </select>
+          <button
+            onClick={() => void patch({ companionFamiliars: familiars.filter((_, j) => j !== i) })}
+          >
+            移除
+          </button>
+        </div>
+      ))}
+      {familiars.length < 3 && (
+        <button
+          onClick={() =>
+            void patch({
+              companionFamiliars: [
+                ...familiars,
+                {
+                  id: `fam-${Date.now() % 100000}`,
+                  name: `使魔${familiars.length + 1}`,
+                  palette: "maid-classic",
+                },
+              ],
+            })
+          }
+        >
+          新增使魔
+        </button>
+      )}
+      <div className="row wrap" style={{ marginTop: 10 }}>
+        <button onClick={doExport}>匯出角色設定</button>
+        <label className="button-like">
+          匯入角色設定
+          <input
+            type="file"
+            accept="application/json"
+            className="visually-hidden"
+            aria-label="選擇角色設定 JSON"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void doImport(file);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+      {notice && <p className="muted small" role="status">{notice}</p>}
+    </Section>
+  );
+}
+
+/** Roll Call：現在大家在做什麼（來自角色視窗的真實回報；離線就誠實說）。 */
+function RollCallSection({ presence }: { presence: Record<string, unknown> | null }) {
+  const state = (presence?.behaviorState as Record<string, unknown> | null | undefined) ?? null;
+  const roll = (state?.rollCall as { name: string; activity: string }[] | undefined) ?? null;
+  return (
+    <Section title="現在大家在做什麼">
+      {!roll ? (
+        <div className="state-box">
+          尚未收到角色視窗的回報（角色隱藏、離線或剛啟動時不會用預設值冒充）。
+        </div>
+      ) : (
+        <ul className="plain-list">
+          {roll.map((r) => (
+            <li key={r.name}>
+              <strong>{r.name}</strong>：{r.activity}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
   );
 }

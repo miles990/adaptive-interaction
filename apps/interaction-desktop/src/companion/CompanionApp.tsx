@@ -17,7 +17,9 @@ import {
   reduce,
 } from "./machine";
 import { PackManifest, RendererBackend, SpriteRenderer, validateManifest } from "./renderer";
-import { RigRenderer, validateRigManifest } from "./rig/renderer";
+import { validateRigManifest } from "./rig/renderer";
+import { PLAYFIELD_EXPRESSIONS, StageRenderer } from "./rig/stage";
+import { ToyKind } from "./playfield";
 import { InteractionDirector } from "./director";
 import { planPresentationCommand } from "./presentationCommands";
 import {
@@ -131,6 +133,10 @@ async function speakText(text: string): Promise<void> {
 export default function CompanionApp() {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const rendererRef = React.useRef<RendererBackend | null>(null);
+  /** 遊玩場（只有 rig packs 有；sprite 相容層無遊玩）。 */
+  const stageRef = React.useRef<StageRenderer | null>(null);
+  const approachEnabledRef = React.useRef(true);
+  const charNameRef = React.useRef("小樞");
   const machineRef = React.useRef<MachineState>(initial);
   const lastBubbleAt = React.useRef(0);
   const [bubble, setBubble] = React.useState<string | null>(null);
@@ -247,13 +253,33 @@ export default function CompanionApp() {
       if (disposed || !canvasRef.current) return;
       let renderer: RendererBackend;
       if (manifest.kind === "character-rig") {
-        // v3 執行期參數化 rig（女僕正式版）。
+        // v3 執行期參數化 rig（女僕正式版）＋遊玩場。
         const issues = validateRigManifest(manifest);
         if (issues.length > 0) {
           console.error("invalid character rig pack", issues);
           return;
         }
-        renderer = new RigRenderer(canvasRef.current, String(manifest.palette), renderScale);
+        const stage = new StageRenderer(canvasRef.current, String(manifest.palette), renderScale);
+        try {
+          const prefs = await desktop.prefsGet();
+          stage.setToggles({
+            play: prefs.companionPlay !== false,
+            cursorPlay: prefs.companionCursorPlay !== false,
+            deskMove: prefs.companionDeskMove !== false,
+          });
+          stage.setScene(prefs.companionScene ?? "none");
+          stage.setCharName(prefs.companionName || "小樞");
+          charNameRef.current = prefs.companionName || "小樞";
+          stage.setFamiliars(prefs.companionFamiliars ?? []);
+          approachEnabledRef.current = prefs.companionApproach !== false;
+        } catch {
+          /* browser mode：預設全部開啟 */
+        }
+        stage.onExpressionEvent((id, durationMs) => {
+          apply({ type: "transient", kind: "performing", animation: id, durationMs });
+        });
+        stageRef.current = stage;
+        renderer = stage;
       } else {
         // v1/v2 sprite-sheet pack 相容層。
         const issues = validateManifest(manifest);
@@ -372,6 +398,37 @@ export default function CompanionApp() {
     const beat = () => {
       if (stopped) return;
       const state = behaviorState.current;
+      // Roll Call（人話）：機器狀態優先；ambient 時由遊玩場描述。
+      const m = machineRef.current;
+      const t = m.transient && m.transient.untilMs > Date.now() ? m.transient : null;
+      const machineLabel =
+        m.base === "emergency"
+          ? "緊急停止中"
+          : m.base === "offline"
+            ? "離線"
+            : m.base === "paused"
+              ? "暫停中"
+              : m.base === "quiet"
+                ? "在安靜陪伴"
+                : t == null || t.kind === "performing"
+                  ? null
+                  : {
+                      listening: "在留意動靜",
+                      thinking: "在思考",
+                      routing: "在找資料",
+                      "requesting-consent": "在等你確認",
+                      acting: "在工作",
+                      "waiting-for-receipt": "在等結果",
+                      succeeded: "剛完成一件事",
+                      blocked: "被安全規則擋下",
+                      unknown: "結果還不確定",
+                      failed: "剛遇到失敗",
+                      clicked: "在跟你互動",
+                      dragged: "被抱起來了",
+                    }[t.kind] ?? null;
+      const rollCall = stageRef.current
+        ? stageRef.current.rollCallNow(machineLabel)
+        : [{ name: charNameRef.current, activity: machineLabel ?? "在休息" }];
       void api
         .presentationHello(!document.hidden, packName, {
           activation: state.activation,
@@ -384,6 +441,7 @@ export default function CompanionApp() {
           lastInteractionAt: Math.round(state.lastInteractionAt),
           base: machineRef.current.base,
           transient: machineRef.current.transient?.kind ?? null,
+          rollCall: rollCall.slice(0, 4),
         })
         .catch(() => {});
     };
@@ -478,7 +536,34 @@ export default function CompanionApp() {
       );
       syncPose();
       const p = pose(m, now);
+      // 遊玩場：把 machine 真實狀態餵給 stage（真相狀態凍結一切遊玩）、
+      // 動態更新 hit-rect（角色會走動、玩具會滾）。
+      const stage = stageRef.current;
+      if (stage) {
+        const playPerforming =
+          t?.kind === "performing" && PLAYFIELD_EXPRESSIONS.has(t.animation ?? "");
+        stage.setMachineFlags({
+          ambient: p.ambient,
+          frozen: ["emergency", "offline", "paused"].includes(m.base),
+          quiet: m.base === "quiet",
+          playPerforming,
+        });
+        if (isTauri && canvasRef.current) {
+          const b = stage.interactiveBounds();
+          const rect = canvasRef.current.getBoundingClientRect();
+          void import("@tauri-apps/api/core").then(({ invoke }) =>
+            invoke("companion_hit_rect", {
+              x: rect.left + b.x,
+              y: rect.top + b.y,
+              w: b.w,
+              h: b.h,
+            }).catch(() => {})
+          );
+        }
+      }
       if (!p.ambient) return;
+      // 遊玩中（追逐/叼回）不再疊 Director 的 ambient 動作。
+      if (stage?.worldBusy()) return;
       const expr = behaviorRef.current.allowCasualBubbles
         ? behaviorRef.current.bubbleCooldownMs < 60_000
           ? 1.5
@@ -571,11 +656,24 @@ export default function CompanionApp() {
     }
   }
 
-  // ---- semantic interaction events (NEVER raw coordinates) ----
+  // ---- semantic interaction events (NEVER raw coordinates to the runtime) ----
+  // 遊玩場內的指標座標只活在本視窗 canvas，供光點/逗貓棒/玩具拖曳；
+  // 不推送 runtime、不持久化。
   const lastApproachAt = React.useRef(0);
   const firstOnline = React.useRef(false);
 
-  function onPointerEnterCanvas() {
+  function stagePoint(e: React.PointerEvent): { x: number; y: number } {
+    const rect = (canvasRef.current ?? (e.target as HTMLElement)).getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  function onPointerEnterCanvas(e: React.PointerEvent) {
+    const stage = stageRef.current;
+    if (stage) {
+      const p = stagePoint(e);
+      stage.pointerMove(p.x, p.y);
+    }
+    if (!approachEnabledRef.current) return;
     const now = Date.now();
     if (now - lastApproachAt.current > 30_000) {
       lastApproachAt.current = now;
@@ -583,6 +681,11 @@ export default function CompanionApp() {
       // 游標靠近時看過來（不追蹤、不記錄座標）。
       apply({ type: "transient", kind: "listening", durationMs: 1200 });
     }
+  }
+
+  function onPointerLeaveCanvas() {
+    stageRef.current?.pointerLeave();
+    toyDragRef.current = false;
   }
 
   // ---- coarse activity summary (this app's windows only) ----
@@ -633,25 +736,47 @@ export default function CompanionApp() {
     };
   }, [ready]);
 
-  // ---- pointer: click vs drag ----
+  // ---- pointer: toy drag / click vs window drag ----
   const dragState = React.useRef<{ x: number; y: number; dragging: boolean } | null>(null);
+  const toyDragRef = React.useRef(false);
+  const clickTimes = React.useRef<number[]>([]);
 
   async function onPointerDown(e: React.PointerEvent) {
+    const stage = stageRef.current;
+    if (stage) {
+      const p = stagePoint(e);
+      const hit = stage.pointerDown(p.x, p.y);
+      if (hit === "toy") {
+        // 玩具拖曳：不做視窗拖曳、不開選單。
+        toyDragRef.current = true;
+        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+        return;
+      }
+      if (hit === "none") return; // 擴大互動框內的空白：不反應
+    }
     dragState.current = { x: e.clientX, y: e.clientY, dragging: false };
   }
 
   async function onPointerMove(e: React.PointerEvent) {
+    const stage = stageRef.current;
+    if (stage) {
+      const p = stagePoint(e);
+      stage.pointerMove(p.x, p.y);
+    }
+    if (toyDragRef.current) return;
     const d = dragState.current;
     if (!d || d.dragging) return;
     if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) > 5) {
       d.dragging = true;
-      apply({ type: "transient", kind: "dragged" });
+      // 被抱起：懸空反應（rig 有專屬 lifted 演出）。
+      apply({ type: "transient", kind: "dragged", durationMs: 1500 });
       pushInteraction("companion-dragged");
       if (isTauri) {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const win = getCurrentWindow();
         await win.startDragging().catch(() => {});
-        // startDragging blocks until drop: persist the new position.
+        // startDragging blocks until drop: persist the new position + 落地演出。
+        apply({ type: "transient", kind: "performing", animation: "wobbly-landing", durationMs: 1600 });
         try {
           const pos = await win.outerPosition();
           await desktop.prefsPatch({
@@ -666,11 +791,25 @@ export default function CompanionApp() {
   }
 
   function onPointerUp() {
+    const stage = stageRef.current;
+    if (toyDragRef.current) {
+      stage?.pointerUp();
+      toyDragRef.current = false;
+      return;
+    }
     const d = dragState.current;
     dragState.current = null;
     if (d && !d.dragging) {
-      apply({ type: "transient", kind: "clicked" });
+      const now = Date.now();
+      clickTimes.current = [...clickTimes.current.filter((t) => now - t < 1_400), now];
       pushInteraction("companion-clicked");
+      if (clickTimes.current.length >= 3) {
+        // 被連戳：嘟嘴抗議（不再狂開關選單）。
+        apply({ type: "clear-transient" });
+        apply({ type: "transient", kind: "performing", animation: "poked-rapid", durationMs: 2200 });
+        return;
+      }
+      apply({ type: "transient", kind: "clicked" });
       setMenuOpen((v) => !v);
       setInputOpen(false);
     }
@@ -732,6 +871,9 @@ export default function CompanionApp() {
 
   React.useEffect(() => {
     if (!isTauri || !ready || !canvasRef.current) return;
+    // 遊玩場 pack 的 hit-rect 由 pump 動態更新（角色會走動）；
+    // sprite 相容層維持整個 canvas。
+    if (stageRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     void (async () => {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -743,6 +885,15 @@ export default function CompanionApp() {
       }).catch(() => {});
     })();
   }, [ready]);
+
+  /** 玩具快捷：由玩家丟玩具進遊玩場（純本機，不經 runtime）。 */
+  function quickToy(kind: ToyKind | "clear") {
+    setMenuOpen(false);
+    const stage = stageRef.current;
+    if (!stage) return;
+    if (kind === "clear") stage.clearAllToys();
+    else stage.spawnToy(kind);
+  }
 
   const estop = baseState === "emergency";
 
@@ -761,13 +912,14 @@ export default function CompanionApp() {
       )}
       <canvas
         ref={canvasRef}
-        className="companion-canvas"
-        aria-label={`桌面角色小樞（${packName}）`}
+        className={packName.startsWith("shu-maid") ? "companion-stage" : "companion-canvas"}
+        aria-label={`桌面角色（${packName}）`}
         role="img"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerEnter={onPointerEnterCanvas}
+        onPointerLeave={onPointerLeaveCanvas}
       />
       {dropPreview && (
         <div className="companion-menu" role="dialog" aria-label="拖放預覽">
@@ -802,6 +954,16 @@ export default function CompanionApp() {
       )}
       {menuOpen && (
         <div className="companion-menu" role="menu" aria-label="快捷操作">
+          {stageRef.current && (
+            <div className="companion-toy-row" role="group" aria-label="玩具">
+              <button role="menuitem" title="丟毛球" onClick={() => quickToy("yarn")}>🧶</button>
+              <button role="menuitem" title="丟紙團" onClick={() => quickToy("paper")}>🗞️</button>
+              <button role="menuitem" title="紙飛機" onClick={() => quickToy("plane")}>✈️</button>
+              <button role="menuitem" title="光點" onClick={() => quickToy("light")}>✨</button>
+              <button role="menuitem" title="逗貓棒" onClick={() => quickToy("wand")}>🪶</button>
+              <button role="menuitem" title="收走玩具" onClick={() => quickToy("clear")}>🧹</button>
+            </div>
+          )}
           <button role="menuitem" onClick={() => quick("talk")}>
             對小樞說話…
           </button>

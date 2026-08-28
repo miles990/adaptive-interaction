@@ -353,6 +353,31 @@ fn sanitize_behavior_telemetry(raw: Value) -> Option<Value> {
     };
     let last_interaction_at = input.get("lastInteractionAt")?.as_i64()?;
 
+    // v0.5 Roll Call：「現在大家在做什麼」——有界的人話清單（角色＋使魔，
+    // 最多 4 筆；名稱/活動皆長度受限且不含控制字元）。缺漏＝不顯示，
+    // 不合法＝整個 hello 拒絕（與其他欄位同一誠實標準）。
+    let roll_call = match input.get("rollCall") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(items)) if items.len() <= 4 => {
+            let mut clean = Vec::with_capacity(items.len());
+            for item in items {
+                let obj = item.as_object()?;
+                let name = obj.get("name")?.as_str()?;
+                let activity = obj.get("activity")?.as_str()?;
+                if name.chars().count() > 24
+                    || activity.chars().count() > 32
+                    || name.chars().any(char::is_control)
+                    || activity.chars().any(char::is_control)
+                {
+                    return None;
+                }
+                clean.push(json!({ "name": name, "activity": activity }));
+            }
+            Some(Value::Array(clean))
+        }
+        _ => return None,
+    };
+
     let explanation = match base {
         "emergency" => "緊急停止優先，所有俏皮與主動動作都已中斷。".to_string(),
         "offline" => "Runtime 離線，角色維持固定安全姿態。".to_string(),
@@ -386,6 +411,7 @@ fn sanitize_behavior_telemetry(raw: Value) -> Option<Value> {
         "base": base,
         "transient": transient,
         "explanation": explanation,
+        "rollCall": roll_call,
     }))
 }
 

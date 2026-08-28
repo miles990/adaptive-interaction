@@ -462,6 +462,9 @@ html.companion-window, html.companion-window body, html.companion-window #root {
 }
 .companion-canvas { cursor: grab; touch-action: none; }
 .companion-canvas:active { cursor: grabbing; }
+/* v0.5 遊玩場：canvas 佔滿整個透明視窗（點擊穿透由 Rust hit-rect 控制）。 */
+.companion-stage { width: 100vw; height: 100vh; display: block; cursor: default; }
+.companion-stage:active { cursor: grabbing; }
 .companion-bubble {
   position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
   max-width: 220px; background: rgba(30, 36, 48, 0.94); color: #eef3f9;
@@ -562,3 +565,5 @@ html.companion-window, html.companion-window body, html.companion-window #root {
   .definition-list { grid-template-columns: 1fr; gap: .25rem; }
   .definition-list dd { margin-bottom: .6rem; }
 }
+.companion-toy-row { display: flex; gap: 2px; padding: 2px 4px; border-bottom: 1px solid rgba(120,140,170,0.25); }
+.companion-toy-row button { flex: 1; font-size: 14px; padding: 4px 2px; }

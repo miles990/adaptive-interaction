@@ -106,6 +106,9 @@ test("小樞：Pack 詳情、Behavior State 與主動對話設定（單一主人
   await expect(page.getByText("只點頭，沒有綠勾")).toBeVisible();
   await expect(page.getByText("綠勾只在驗證後")).toBeVisible();
   await expect(page.getByText("現在的 Behavior State")).toBeVisible();
+  // Roll Call（現在大家在做什麼）：瀏覽器模式沒有角色視窗，必須誠實說明。
+  await expect(page.getByText("現在大家在做什麼")).toBeVisible();
+  await expect(page.getByText(/尚未收到角色視窗的回報/)).toBeVisible();
   // Browser E2E has no native companion window. The UI must say so instead of
   // manufacturing idle percentages as though they were live telemetry.
   await expect(page.getByText(/尚未收到角色視窗的即時狀態/)).toBeVisible();

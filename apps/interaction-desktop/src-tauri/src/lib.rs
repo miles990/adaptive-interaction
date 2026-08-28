@@ -1269,6 +1269,33 @@ async fn desktop_prefs_patch(
         }) {
             return Err("companionPosition is outside the supported desktop bounds".into());
         }
+        // v0.5 遊玩偏好：名字/場景/使魔皆為純呈現資料，仍要有界。
+        if candidate.companion_name.chars().count() > 24 {
+            return Err("companionName must stay within 24 characters".into());
+        }
+        if !matches!(
+            candidate.companion_scene.as_str(),
+            "none" | "nest" | "desk" | "sill" | "night"
+        ) {
+            return Err("companionScene must be one of none/nest/desk/sill/night".into());
+        }
+        if candidate.companion_familiars.len() > 3 {
+            return Err("at most 3 familiars are supported".into());
+        }
+        for f in &candidate.companion_familiars {
+            if f.id.is_empty()
+                || f.id.len() > 32
+                || !f.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            {
+                return Err("familiar id must be 1..32 ascii alphanumeric/dash".into());
+            }
+            if f.name.chars().count() > 24 {
+                return Err("familiar name must stay within 24 characters".into());
+            }
+            if !matches!(f.palette.as_str(), "maid-classic" | "maid-dusk" | "maid-sakura") {
+                return Err("familiar palette must be a bundled palette".into());
+            }
+        }
         *prefs = candidate;
         prefs.clone()
     };
@@ -1385,6 +1412,13 @@ pub(crate) fn toggle_companion_window(app: &tauri::AppHandle) {
     let _ = app.emit("companion-visibility", visible);
 }
 
+/// 遊玩場視窗尺寸：companion_size 是「角色」大小；視窗加寬給玩具、
+/// 散步與使魔（v0.5 遊玩場），加高給氣泡。上限仍受 companion_size
+/// 64..1024 的驗證間接約束。
+pub(crate) fn companion_window_size(char_size: (f64, f64)) -> (f64, f64) {
+    (char_size.0 * 2.6, char_size.1 * 1.35)
+}
+
 /// Create (or show) the desktop companion window: transparent, frameless,
 /// draggable via the character, never steals focus at creation.
 pub(crate) fn ensure_companion_window(app: &tauri::AppHandle) {
@@ -1407,7 +1441,7 @@ pub(crate) fn ensure_companion_window(app: &tauri::AppHandle) {
         tauri::WebviewUrl::App("index.html".into()),
     )
     .title("小樞")
-    .inner_size(size.0, size.1)
+    .inner_size(companion_window_size(size).0, companion_window_size(size).1)
     .resizable(false)
     .maximizable(false)
     .minimizable(false)
@@ -1538,7 +1572,8 @@ async fn companion_apply_prefs(
         ensure_companion_window(&app);
         if let Some(w) = app.get_webview_window("companion") {
             let _ = w.set_always_on_top(on_top);
-            let _ = w.set_size(tauri::LogicalSize::new(size.0, size.1));
+            let win = companion_window_size(size);
+            let _ = w.set_size(tauri::LogicalSize::new(win.0, win.1));
             if let Some((x, y)) = position {
                 let _ = w.set_position(tauri::LogicalPosition::new(x, y));
             }
