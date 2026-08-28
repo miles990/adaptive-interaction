@@ -5,7 +5,7 @@
 import React from "react";
 import { api } from "../api";
 import { desktop, DesktopPrefs, isTauri } from "../desktop";
-import { Badge, Section } from "../ui";
+import { Badge, Section, Toggle, useAsync } from "../ui";
 import { PackManifest, validateManifest } from "../companion/renderer";
 
 /** 預覽狀態清單（spec §C）：名稱＋對應動畫＋誠實幀選擇。 */
@@ -154,6 +154,20 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
               <option value="lively">活潑</option>
             </select>
           </label>
+          <label className="field-label">
+            說話風格（Persona）
+            <select
+              value={prefs.companionPersona}
+              onChange={(e) => void patch({ companionPersona: e.target.value })}
+            >
+              <option value="persona-shu">小樞・預設</option>
+              <option value="persona-navigator">導航員（世界觀範例）</option>
+            </select>
+          </label>
+          <p className="muted small">
+            世界觀與說話風格只改變表達方式；緊急停止、被阻擋、結果未知等安全訊息
+            永遠使用固定的標準文字，任何角色包都無法覆寫或隱藏。
+          </p>
           <label className="toggle">
             <input
               type="checkbox"
@@ -162,18 +176,23 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
             />
             <span>保持在其他視窗上方</span>
           </label>
-          <button
-            onClick={async () => {
-              try {
-                await desktop.companionResetPosition();
-                setPrefs(await desktop.prefsGet());
-              } catch (reason) {
-                setError(String(reason));
-              }
-            }}
-          >
-            重設角色位置
-          </button>
+          <div className="row wrap">
+            <button
+              onClick={async () => {
+                try {
+                  await desktop.companionResetPosition();
+                  setPrefs(await desktop.prefsGet());
+                } catch (reason) {
+                  setError(String(reason));
+                }
+              }}
+            >
+              重設角色位置
+            </button>
+            <button onClick={() => void patch({ storyProgress: {} })} title="重看初次見面等劇情段落">
+              清除角色記憶（劇情進度）
+            </button>
+          </div>
         </Section>
       )}
       {!isTauri && (
@@ -181,6 +200,10 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
           <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
         </Section>
       )}
+
+      <ProactiveDialogueSection />
+
+      <InitiativeQuietSection refreshKey={refreshKey} />
 
       <BehaviorStateCard status={presence} />
 
@@ -380,6 +403,358 @@ function StatePreviewCell({
       <div className="small">{spec.label}</div>
       {!anim && <div className="muted small">此角色包沒有這個動畫（將以安全姿態代替）</div>}
       {spec.note && <div className="muted small">{spec.note}</div>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 主動式對話（v0.5 起唯一主人＝小樞頁；模式與頻率由 Rust 確定性強制）。
+// ---------------------------------------------------------------------------
+
+function ProactiveDialogueSection() {
+  const [status, setStatus] = React.useState<Record<string, unknown> | null>(null);
+  const [agents, setAgents] = React.useState<Record<string, unknown>[]>([]);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const load = React.useCallback(async () => {
+    try {
+      setStatus(await api.proactiveDialogueGet());
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+  React.useEffect(() => {
+    void load();
+    void api
+      .agentsDiscoveries()
+      .then((result) => setAgents((result.agents as Record<string, unknown>[] | undefined) ?? []))
+      .catch(() => setAgents([]));
+  }, [load]);
+
+  const config = (status?.config as Record<string, unknown> | undefined) ?? {};
+  const mode = String(config.mode ?? "natural");
+  const custom = (config.custom as Record<string, unknown> | undefined) ?? {};
+  const quietUntil = status?.quietUntil ? new Date(String(status.quietUntil)) : null;
+  const quietActive = quietUntil !== null && quietUntil.getTime() > Date.now();
+
+  const setMode = async (m: string) => {
+    try {
+      setStatus(await api.proactiveDialoguePatch({ mode: m }));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const patch = async (value: Record<string, unknown>) => {
+    try {
+      setStatus(await api.proactiveDialoguePatch(value));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <Section title="主動式對話">
+      <p className="muted small">
+        小樞什麼情況下可以主動說話。頻率限制（每小時最多 {String(config.maxPerHour ?? 3)} 則、
+        最短間隔 {String(config.minIntervalMinutes ?? 12)} 分鐘、沒有回覆不追問）由系統強制執行；
+        安全與權限提示不受模式影響，一定會顯示。主動說話不代表可以主動做事——任何行動仍需授權。
+      </p>
+      <label className="field-label">
+        模式
+        <select value={mode} onChange={(e) => void setMode(e.target.value)}>
+          <option value="off">關閉——不主動說話</option>
+          <option value="necessary">必要——只有等待確認、失敗、未知與感測提示</option>
+          <option value="natural">自然（建議）——加上任務進度與低頻建議</option>
+          <option value="lively">活潑——再加問候與輕量陪伴</option>
+          <option value="custom">自訂——個別選擇訊息類型</option>
+        </select>
+      </label>
+      {mode === "custom" && (
+        <fieldset>
+          <legend>自訂觸發類型</legend>
+          {(
+            [
+              ["taskProgress", "任務進度"],
+              ["completion", "任務完成"],
+              ["suggestion", "情境建議"],
+              ["greeting", "問候"],
+              ["companionship", "輕量陪伴"],
+              ["worldEvent", "世界觀小事件"],
+            ] as const
+          ).map(([key, label]) => (
+            <label className="row" key={key}>
+              <input
+                type="checkbox"
+                checked={custom[key] === true}
+                onChange={(event) => void patch({ custom: { ...custom, [key]: event.target.checked } })}
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+      )}
+      <div className="settings-grid">
+        <label className="field-label">
+          每小時最多則數
+          <input
+            type="number"
+            min={1}
+            max={12}
+            value={Number(config.maxPerHour ?? 3)}
+            onChange={(event) => void patch({ maxPerHour: Number(event.target.value) })}
+          />
+        </label>
+        <label className="field-label">
+          最短間隔（分鐘）
+          <input
+            type="number"
+            min={1}
+            max={60}
+            value={Number(config.minIntervalMinutes ?? 12)}
+            onChange={(event) => void patch({ minIntervalMinutes: Number(event.target.value) })}
+          />
+        </label>
+        <label className="field-label">
+          事件合併窗（秒）
+          <input
+            type="number"
+            min={5}
+            max={300}
+            value={Number(config.mergeWindowSeconds ?? 30)}
+            onChange={(event) => void patch({ mergeWindowSeconds: Number(event.target.value) })}
+          />
+        </label>
+      </div>
+      <label className="row">
+        <input
+          type="checkbox"
+          checked={config.noFollowUp !== false}
+          onChange={(event) => void patch({ noFollowUp: event.target.checked })}
+        />
+        沒有回覆時不追問
+      </label>
+      <label className="row">
+        <input
+          type="checkbox"
+          checked={config.dndDefer !== false}
+          onChange={(event) => void patch({ dndDefer: event.target.checked })}
+        />
+        勿擾時段延後非必要訊息
+      </label>
+      <hr />
+      <h4>生成式主動訊息（本機 Agent）</h4>
+      <p className="muted small">
+        未選擇 Agent 時只保留本機微反應與固定安全提示。選擇不會授予讀檔、工具、網路或行動權；每次使用獨立唯讀 Session。
+      </p>
+      <label className="field-label">
+        指定 Agent（不自動改送）
+        <select
+          value={String(config.generativeAgent ?? "")}
+          onChange={(event) => void patch({ generativeAgent: event.target.value || null })}
+        >
+          <option value="">不使用生成式主動訊息</option>
+          <option value="codex">Codex</option>
+          <option value="claude-code">Claude Code</option>
+        </select>
+      </label>
+      <div className="muted small">
+        {agents.map((agent) => (
+          <span key={String(agent.kind)} style={{ marginRight: 12 }}>
+            {String(agent.kind)}：{agent.found === true && agent.loggedIn === true ? "可用" : String(agent.detail ?? "不可用")}
+          </span>
+        ))}
+      </div>
+      <div className="settings-grid">
+        <label className="field-label">
+          每日 Session 上限
+          <input
+            type="number"
+            min={0}
+            max={50}
+            value={Number(config.dailyGenerativeSessions ?? 8)}
+            onChange={(event) => void patch({ dailyGenerativeSessions: Number(event.target.value) })}
+          />
+        </label>
+        <label className="field-label">
+          每日費用上限（USD）
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step="0.1"
+            value={Number(config.dailyGenerativeCostUsd ?? 1)}
+            onChange={(event) => void patch({ dailyGenerativeCostUsd: Number(event.target.value) })}
+          />
+        </label>
+      </div>
+      <p className="muted small">
+        今日已建立 {String((status?.generativeToday as Record<string, unknown> | undefined)?.sessions ?? 0)} 個生成式 Session，費用回報 USD {String((status?.generativeToday as Record<string, unknown> | undefined)?.costUsd ?? 0)}。
+      </p>
+      <p className="muted small">
+        本小時已發送 {String(status?.sentThisHour ?? 0)} 則。
+        {quietActive && quietUntil
+          ? ` 安靜中，至 ${quietUntil.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}。`
+          : ""}
+      </p>
+      <div className="row-gap">
+        <button
+          onClick={async () => {
+            setStatus(await api.proactiveDialogueQuiet(60));
+          }}
+        >
+          一小時內不要主動說話
+        </button>
+        <button
+          onClick={async () => {
+            setStatus(await api.proactiveDialogueQuiet(12 * 60));
+          }}
+        >
+          今天安靜一點
+        </button>
+      </div>
+      {error && (
+        <p className="cap-card-error" role="alert">
+          {error}
+        </p>
+      )}
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 主動程度與安靜時段（v0.5 起唯一主人＝小樞頁；由本機安全層強制執行）。
+// ---------------------------------------------------------------------------
+
+function InitiativeQuietSection({ refreshKey }: { refreshKey: number }) {
+  const [policy, reload] = useAsync(() => api.policyGet(), [refreshKey]);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [saved, setSaved] = React.useState(false);
+
+  async function patch(p: Record<string, unknown>) {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await api.policyPatch(p);
+      setSaved(true);
+      reload();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (policy.loading)
+    return (
+      <Section title="主動程度與安靜時段">
+        <div className="state-box">載入中…</div>
+      </Section>
+    );
+  if (policy.error)
+    return (
+      <Section title="主動程度與安靜時段">
+        <div className="state-box state-error">{policy.error}</div>
+      </Section>
+    );
+  const p = policy.data!;
+  const quiet = (p["quietHours"] as { start: string; end: string }[] | undefined)?.[0];
+  const initiative = String(p["initiative"] ?? "suggest");
+
+  return (
+    <Section title="主動程度與安靜時段">
+      <p className="muted small">
+        這些規則由本機的安全層強制執行；AI 的任何建議都只能在這個範圍內生效，你的設定只會收緊、不會放寬硬性上限。
+      </p>
+      <div className="policy-form">
+        <fieldset>
+          <legend>AI 主動程度</legend>
+          {[
+            ["passive", "只在我要求時"],
+            ["suggest", "重要時提醒（預設）"],
+            ["active", "可以主動協助"],
+          ].map(([v, label]) => (
+            <label key={v} className="radio-row">
+              <input
+                type="radio"
+                name="initiative"
+                checked={initiative === v}
+                onChange={() => patch({ initiative: v })}
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+
+        <fieldset>
+          <legend>安靜時段</legend>
+          <QuietHoursEditor
+            value={quiet}
+            onChange={(q) => patch({ quietHours: q ? [q] : [] })}
+          />
+        </fieldset>
+      </div>
+      {saving && <p className="muted small">儲存中…</p>}
+      {saved && !saving && <p className="muted small" role="status">已儲存，立即生效。</p>}
+      {error && <p className="cap-card-error" role="alert">{error}</p>}
+    </Section>
+  );
+}
+
+function QuietHoursEditor({
+  value,
+  onChange,
+}: {
+  value?: { start: string; end: string };
+  onChange: (q: { start: string; end: string; silencedChannels: string[] } | null) => void;
+}) {
+  const [enabled, setEnabled] = React.useState(Boolean(value));
+  const [start, setStart] = React.useState(value?.start ?? "22:00");
+  const [end, setEnd] = React.useState(value?.end ?? "08:00");
+  React.useEffect(() => {
+    setEnabled(Boolean(value));
+    if (value) {
+      setStart(value.start);
+      setEnd(value.end);
+    }
+  }, [value?.start, value?.end]);
+  return (
+    <div className="row wrap">
+      <Toggle
+        checked={enabled}
+        onChange={(on) => {
+          setEnabled(on);
+          onChange(on ? { start, end, silencedChannels: [] } : null);
+        }}
+        label={enabled ? "已啟用" : "未啟用"}
+      />
+      {enabled && (
+        <>
+          <label>
+            從
+            <input
+              type="time"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              onBlur={() => onChange({ start, end, silencedChannels: [] })}
+            />
+          </label>
+          <label>
+            到
+            <input
+              type="time"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              onBlur={() => onChange({ start, end, silencedChannels: [] })}
+            />
+          </label>
+          <span className="muted small">期間聲音、震動、通知等干擾通道會被消音</span>
+        </>
+      )}
     </div>
   );
 }

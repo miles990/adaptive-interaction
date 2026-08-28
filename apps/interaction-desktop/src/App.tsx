@@ -15,10 +15,6 @@ import { Badge } from "./ui";
 import { ConfirmButton, Dialog } from "./components/Dialog";
 import { HomePage } from "./pages/HomePage";
 import { CapabilitiesPage } from "./pages/CapabilitiesPage";
-import { AutomationsPage } from "./pages/AutomationsPage";
-import { SafetyPage } from "./pages/SafetyPage";
-import { ActivityPage } from "./pages/ActivityPage";
-import { SettingsPage } from "./pages/SettingsPage";
 import { Onboarding } from "./pages/Onboarding";
 // 進階模式保留原有技術頁面（零能力退化）。
 import { OverviewPage } from "./pages/Overview";
@@ -29,26 +25,24 @@ import { RecipesPage } from "./pages/Recipes";
 import { PolicyPage } from "./pages/Policy";
 import { TimelinePage } from "./pages/Timeline";
 import { CompanionPage } from "./pages/CompanionPage";
-import { AiPage } from "./pages/AiPage";
-import { CapabilitiesHub } from "./pages/CapabilitiesHub";
-import { MemoryKnowledgePage } from "./pages/MemoryKnowledgePage";
+import { WorkPage } from "./pages/WorkPage";
+import { ConnectPage } from "./pages/ConnectPage";
+import { MorePage } from "./pages/MorePage";
 import { ProvidersAdvancedPage } from "./pages/ProvidersAdvanced";
 import { KnowledgeAdvancedPage } from "./pages/KnowledgeAdvanced";
 import { GlobalSearch } from "./components/GlobalSearch";
 
 type Tab = string;
 
-// v0.4 資訊架構（spec §16-1.A）：8 個一級頁＋自動互動（保留 v0.3 能力）。
+// v0.5 資訊架構：5 個一級入口（現在／小樞／工作／連接與權限／更多）。
+// 舊 tab id 全部保留可用（tray 深連結、Inbox route、書籤），由
+// navAnchorFor 折疊到新家；內容走 PageBody 的相容路由。
 const SIMPLE_NAV: { id: Tab; label: string; icon: string }[] = [
-  { id: "home", label: "首頁", icon: "house" },
+  { id: "home", label: "現在", icon: "house" },
   { id: "companion", label: "小樞", icon: "cat" },
-  { id: "ai", label: "AI 與工作階段", icon: "bot" },
-  { id: "capabilities", label: "能力與裝置", icon: "plug" },
-  { id: "memory", label: "記憶與知識", icon: "book-open" },
-  { id: "automations", label: "自動互動", icon: "workflow" },
-  { id: "activity", label: "活動與確認", icon: "history" },
-  { id: "safety", label: "隱私與安全", icon: "shield-check" },
-  { id: "settings", label: "設定", icon: "settings" },
+  { id: "work", label: "工作", icon: "bot" },
+  { id: "connect", label: "連接與權限", icon: "plug" },
+  { id: "more", label: "更多", icon: "menu" },
 ];
 
 const ADVANCED_NAV: { id: Tab; label: string }[] = [
@@ -65,14 +59,24 @@ const ADVANCED_NAV: { id: Tab; label: string }[] = [
 
 type RuntimeState = "connecting" | "ready" | "offline";
 
-// v0.3 相容 tab id（tray 深連結／舊書籤／首頁捷徑）在 v0.4 導覽中沒有
-// 自己的項目，歸屬「能力與裝置」——標題與導覽高亮都對應到該項，
-// 內容仍走 PageBody 的聚焦相容路由。
-const LEGACY_CAP_TABS = ["senses", "responses", "toolops"];
+// 相容 tab id → 新一級入口的折疊表。key 是舊 id（tray 深連結、
+// Runtime Inbox route、舊書籤、GlobalSearch），value 是導覽高亮／標題的新家。
+const LEGACY_ANCHORS: Record<string, string> = {
+  ai: "work",
+  automations: "work",
+  capabilities: "connect",
+  senses: "connect",
+  responses: "connect",
+  toolops: "connect",
+  safety: "connect",
+  memory: "more",
+  activity: "more",
+  settings: "more",
+};
 
-/** 導覽高亮／標題所對應的 nav id（相容 tab 折疊到 capabilities）。 */
+/** 導覽高亮／標題所對應的 nav id（相容 tab 折疊到新 5 入口）。 */
 export function navAnchorFor(tab: string): string {
-  return LEGACY_CAP_TABS.includes(tab) ? "capabilities" : tab;
+  return LEGACY_ANCHORS[tab] ?? tab;
 }
 
 /** topbar 標題：相容 tab 也必須有標題，不得渲染空字串。 */
@@ -401,7 +405,7 @@ function Shell({
         {notificationOpen && (
           <div className="notification-panel" role="dialog" aria-label="通知中心">
             <div className="row space-between">
-              <strong>通知中心</strong>
+              <strong>待你決定</strong>
               <button onClick={() => setNotificationOpen(false)}>關閉</button>
             </div>
             {!inbox ? (
@@ -416,8 +420,21 @@ function Shell({
                   .filter((item) => item.needsDecision === true)
                   .slice(0, 10)
                   .map((item) => (
-                    <li key={`${String(item.kind)}-${String(item.itemId)}`}>
-                      <Badge kind="warn">{String(item.status)}</Badge> {String(item.title)}
+                    <li
+                      key={`${String(item.kind)}-${String(item.itemId)}`}
+                      className="row space-between"
+                    >
+                      <span>
+                        <Badge kind="warn">{String(item.status)}</Badge> {String(item.title)}
+                      </span>
+                      <button
+                        onClick={() => {
+                          setTab(String(item.route));
+                          setNotificationOpen(false);
+                        }}
+                      >
+                        前往
+                      </button>
                     </li>
                   ))}
               </ul>
@@ -428,7 +445,7 @@ function Shell({
                 setNotificationOpen(false);
               }}
             >
-              開啟活動與確認
+              查看完整活動歷史
             </button>
           </div>
         )}
@@ -443,7 +460,7 @@ function Shell({
         )}
         {estop && (
           <div className="estop-banner" role="alert">
-            緊急停止已啟動：所有回應已停止、未完成動作已中止。解除需到「同意與安全」頁走安全流程，不會自動恢復。
+            緊急停止已啟動：所有回應已停止、未完成動作已中止。解除需到「連接與權限 → 同意與安全」走安全流程，不會自動恢復。
           </div>
         )}
         {sensors.length > 0 && (
@@ -586,9 +603,16 @@ function CloseDialog({ external, onClose }: { external: boolean; onClose: () => 
   );
 }
 
-/** 窄視窗（<700px）底部導覽：4 個主要功能＋「更多」選單。
+/** 窄視窗（<700px）底部導覽：4 個主要入口＋「更多」選單。
  *  所有頁面都可抵達、鍵盤可操作、永遠有文字標籤（不只靠 Icon）。 */
-const NARROW_PRIMARY: string[] = ["home", "ai", "activity", "safety"];
+const NARROW_PRIMARY: string[] = ["home", "companion", "work", "connect"];
+
+/** 窄視窗「更多」選單的細項（寬視窗時這些是 MorePage 的分頁）。 */
+const NARROW_MORE_ITEMS: { id: Tab; label: string; icon: string }[] = [
+  { id: "memory", label: "記憶與知識", icon: "book-open" },
+  { id: "activity", label: "活動歷史", icon: "history" },
+  { id: "settings", label: "設定", icon: "settings" },
+];
 
 function NarrowNav({
   tab,
@@ -603,7 +627,7 @@ function NarrowNav({
 }) {
   const [moreOpen, setMoreOpen] = React.useState(false);
   const primary = SIMPLE_NAV.filter((t) => NARROW_PRIMARY.includes(t.id));
-  const secondary = SIMPLE_NAV.filter((t) => !NARROW_PRIMARY.includes(t.id));
+  const secondary = NARROW_MORE_ITEMS;
   const moreActive = !NARROW_PRIMARY.includes(tab);
   return (
     <>
@@ -691,27 +715,88 @@ function PageBody({
       return <HomePage refreshKey={refreshKey} events={events} onNavigate={onNavigate} />;
     case "companion":
       return <CompanionPage refreshKey={refreshKey} />;
+    // 工作：AI 工作階段＋自動互動（舊 id 進到對應分頁）。
+    case "work":
     case "ai":
-      return <AiPage refreshKey={refreshKey} onNavigate={onNavigate} />;
+      return (
+        <WorkPage
+          refreshKey={refreshKey}
+          advanced={advanced}
+          onNavigate={onNavigate}
+          initial="sessions"
+        />
+      );
+    case "automations":
+      return (
+        <WorkPage
+          refreshKey={refreshKey}
+          advanced={advanced}
+          onNavigate={onNavigate}
+          initial="automations"
+        />
+      );
+    // 連接與權限：裝置與能力＋同意與安全（舊 id 進到對應分頁）。
+    case "connect":
     case "capabilities":
-      return <CapabilitiesHub refreshKey={refreshKey} advanced={advanced} />;
-    case "memory":
-      return <MemoryKnowledgePage refreshKey={refreshKey} />;
-    // v0.3 相容路徑（tray 深連結／舊書籤）：導向新家。
+      return (
+        <ConnectPage
+          refreshKey={refreshKey}
+          advanced={advanced}
+          onNavigate={onNavigate}
+          initial="devices"
+        />
+      );
+    case "safety":
+      return (
+        <ConnectPage
+          refreshKey={refreshKey}
+          advanced={advanced}
+          onNavigate={onNavigate}
+          initial="safety"
+        />
+      );
+    // v0.3 相容路徑（tray 深連結／舊書籤）：聚焦單類能力清單。
     case "senses":
       return <CapabilitiesPage kind="receptor" advanced={advanced} />;
     case "responses":
       return <CapabilitiesPage kind="actuator" advanced={advanced} />;
     case "toolops":
       return <CapabilitiesPage kind="tool-operation" advanced={advanced} />;
-    case "automations":
-      return <AutomationsPage refreshKey={refreshKey} advanced={advanced} />;
-    case "safety":
-      return <SafetyPage refreshKey={refreshKey} />;
+    // 更多：記憶與知識／活動歷史／設定（舊 id 進到對應分頁）。
+    case "more":
+    case "memory":
+      return (
+        <MorePage
+          refreshKey={refreshKey}
+          events={events}
+          advanced={advanced}
+          onNavigate={onNavigate}
+          onRerunOnboarding={onRerunOnboarding}
+          initial="memory"
+        />
+      );
     case "activity":
-      return <ActivityPage refreshKey={refreshKey} events={events} advanced={advanced} onNavigate={onNavigate} />;
+      return (
+        <MorePage
+          refreshKey={refreshKey}
+          events={events}
+          advanced={advanced}
+          onNavigate={onNavigate}
+          onRerunOnboarding={onRerunOnboarding}
+          initial="activity"
+        />
+      );
     case "settings":
-      return <SettingsPage onRerunOnboarding={onRerunOnboarding} onNavigate={onNavigate} />;
+      return (
+        <MorePage
+          refreshKey={refreshKey}
+          events={events}
+          advanced={advanced}
+          onNavigate={onNavigate}
+          onRerunOnboarding={onRerunOnboarding}
+          initial="settings"
+        />
+      );
     case "adv-overview":
       return <OverviewPage refreshKey={refreshKey} />;
     case "adv-receptors":

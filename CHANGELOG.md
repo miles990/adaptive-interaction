@@ -7,7 +7,27 @@
 `apps/interaction-desktop/src-tauri/tauri.conf.json`、`apps/interaction-desktop/package.json`
 四處版本必須相同——用 `scripts/release.sh <version>` 一次搞定。
 
-## [Unreleased]
+## [Unreleased] — v0.5 產品重定位（角色・硬體・AI 三核心）
+
+### Changed — Phase 1：控制中心簡化
+
+- **一級導覽 9 → 5**：現在／小樞／工作／連接與權限／更多。
+  工作＝AI 工作階段＋自動互動；連接與權限＝裝置與能力＋同意與安全；
+  更多＝記憶與知識＋活動歷史＋設定。舊 tab id（tray 深連結、Runtime Inbox
+  route：`ai`/`automations`/`capabilities`/`safety`/`memory`/`activity`/`settings`/
+  `senses`/`responses`/`toolops`）全部相容折疊到新入口，不破壞既有深連結。
+- **Activity 改為右上 Inbox**：待決定事項在右上角「通知中心」逐項可前往；
+  完整活動歷史移到「更多 → 活動歷史」，不再佔一級入口。
+- **首頁瘦身（現在）**：移除完整權限地圖（唯一的家改為「連接與權限 → 同意與安全」）；
+  保留系統狀態、感測／待決定／進行中工作摘要、最近互動故事與快速操作。
+- **每項設定只有一個主人**：小樞外觀／Persona／劇情進度／主動式對話／
+  AI 主動程度／安靜時段全部集中「小樞」頁；設定頁與同意與安全頁只留摘要與
+  「前往小樞」，不再有第二份相同開關。
+- **首次設定精靈 7 步 → 3 步**（認識小樞／AI 幫手／安全預設）：低風險本機能力
+  自動保守挑選（未知不預選不變）；AI 幫手只做 discovery／登入檢查，不授權工作區；
+  主動對話預設「必要時」；硬體掃描移出精靈；仍走同一 onboardingCommit 原子契約。
+- 進階模式技術頁面全部保留（零能力退化）；緊急停止入口不變
+  （頂欄／tray／全域搜尋／CLI，解除仍走同意與安全的安全流程）。
 
 ## [0.4.1] - 2026-08-28
 

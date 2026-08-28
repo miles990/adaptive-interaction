@@ -454,17 +454,28 @@ describe("ProactiveSummary 吃 refreshKey", () => {
   });
 });
 
-describe("v0.3 相容 tab 的標題與導覽歸屬", () => {
-  it("senses/responses/toolops 歸屬能力與裝置，標題不為空", () => {
-    for (const legacy of ["senses", "responses", "toolops"]) {
-      expect(navAnchorFor(legacy)).toBe("capabilities");
-      expect(titleFor(legacy)).toBe("能力與裝置");
+describe("相容 tab 的標題與導覽歸屬（v0.5 五入口）", () => {
+  it("舊能力 tab 與 safety 歸屬連接與權限，標題不為空", () => {
+    for (const legacy of ["senses", "responses", "toolops", "capabilities", "safety"]) {
+      expect(navAnchorFor(legacy)).toBe("connect");
+      expect(titleFor(legacy)).toBe("連接與權限");
+    }
+  });
+
+  it("ai/automations 歸屬工作；memory/activity/settings 歸屬更多", () => {
+    for (const legacy of ["ai", "automations"]) {
+      expect(navAnchorFor(legacy)).toBe("work");
+      expect(titleFor(legacy)).toBe("工作");
+    }
+    for (const legacy of ["memory", "activity", "settings"]) {
+      expect(navAnchorFor(legacy)).toBe("more");
+      expect(titleFor(legacy)).toBe("更多");
     }
   });
 
   it("一般與進階 tab 不受影響", () => {
     expect(navAnchorFor("home")).toBe("home");
-    expect(titleFor("home")).toBe("首頁");
+    expect(titleFor("home")).toBe("現在");
     expect(titleFor("adv-recipes")).toBe("配方 YAML");
   });
 });

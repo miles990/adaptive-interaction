@@ -1,5 +1,6 @@
-// 首頁：系統是否正常、主動互動狀態、三區權限地圖、最近一次互動的故事、
-// 快速操作。全部來自後端真實狀態；沒有 receipt 佐證絕不顯示「已完成」。
+// 「現在」頁（v0.5 IA）：系統是否正常、感測／待決定／進行中工作摘要、
+// 最近一次互動的故事、快速操作。全部來自後端真實狀態；沒有 receipt
+// 佐證絕不顯示「已完成」。完整權限地圖住在「連接與權限」，此頁不重複。
 
 import React from "react";
 import { api, HumanCard, Receipt, RuntimeEvent } from "../api";
@@ -17,7 +18,7 @@ export function HomePage({
   events: RuntimeEvent[];
   onNavigate: (tab: string) => void;
 }) {
-  const { human, pause, doPause, doResume } = useAppState();
+  const { pause, doPause, doResume } = useAppState();
   const [status] = useAsync(() => api.status(), [refreshKey]);
   const [actions] = useAsync(() => api.actionsList(5), [refreshKey]);
   const [session] = useAsync(() => api.sessionGet(), [refreshKey]);
@@ -106,21 +107,6 @@ export function HomePage({
         </Section>
       </div>
 
-      <Section title="權限地圖 — AI 現在可以做什麼？">
-        {human ? (
-          <PermissionMap
-            receptors={human.receptors}
-            actuators={human.actuators}
-            tools={human.toolOperations}
-          />
-        ) : (
-          <div className="state-box">載入中…</div>
-        )}
-        <p className="muted small">
-          這張地圖來自目前的啟用狀態、安全規則與同意設定。到「同意與安全」頁可以調整。
-        </p>
-      </Section>
-
       <AgentSessionsSection refreshKey={refreshKey} advancedHint />
 
       <Section title="最近一次互動">
@@ -144,7 +130,7 @@ export function HomePage({
             <button onClick={() => api.sessionStop()}>結束工作階段</button>
           )}
           <button onClick={() => onNavigate("automations")}>建立自動互動</button>
-          <button onClick={() => onNavigate("safety")}>管理權限</button>
+          <button onClick={() => onNavigate("connect")}>連接與權限</button>
           <button onClick={() => onNavigate("responses")}>測試回應方式</button>
         </div>
       </Section>

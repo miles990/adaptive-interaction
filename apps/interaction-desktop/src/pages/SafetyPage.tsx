@@ -5,15 +5,26 @@ import React from "react";
 import { api, HumanCard, Session } from "../api";
 import { useAppState } from "../appstate";
 import { Icon } from "../icons";
-import { Section, Toggle, useAsync } from "../ui";
+import { Section, useAsync } from "../ui";
 import { ConfirmButton, Dialog } from "../components/Dialog";
 
-export function SafetyPage({ refreshKey }: { refreshKey: number }) {
+export function SafetyPage({
+  refreshKey,
+  onNavigate,
+}: {
+  refreshKey: number;
+  onNavigate?: (tab: string) => void;
+}) {
   return (
     <div>
       <EmergencySection refreshKey={refreshKey} />
       <ConsentSection refreshKey={refreshKey} />
-      <PolicySection refreshKey={refreshKey} />
+      <Section title="主動程度與安靜時段">
+        <p className="muted small">
+          AI 主動程度與安靜時段屬於小樞的表現設定，由「小樞」頁統一管理（單一主人，不放第二份開關）。
+        </p>
+        {onNavigate && <button onClick={() => onNavigate("companion")}>前往小樞</button>}
+      </Section>
     </div>
   );
 }
@@ -301,135 +312,5 @@ function GrantDialog({
         </div>
       )}
     </Dialog>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 安全規則（Policy）— 表單版
-// ---------------------------------------------------------------------------
-
-function PolicySection({ refreshKey }: { refreshKey: number }) {
-  const [policy, reload] = useAsync(() => api.policyGet(), [refreshKey]);
-  const [saving, setSaving] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [saved, setSaved] = React.useState(false);
-
-  async function patch(p: Record<string, unknown>) {
-    setSaving(true);
-    setError(null);
-    setSaved(false);
-    try {
-      await api.policyPatch(p);
-      setSaved(true);
-      reload();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (policy.loading) return <Section title="安全規則"><div className="state-box">載入中…</div></Section>;
-  if (policy.error)
-    return (
-      <Section title="安全規則">
-        <div className="state-box state-error">{policy.error}</div>
-      </Section>
-    );
-  const p = policy.data!;
-  const quiet = (p["quietHours"] as { start: string; end: string }[] | undefined)?.[0];
-  const initiative = String(p["initiative"] ?? "suggest");
-
-  return (
-    <Section title="安全規則">
-      <p className="muted small">
-        這些規則由本機的安全層強制執行；AI 的任何建議都只能在這個範圍內生效，你的設定只會收緊、不會放寬硬性上限。
-      </p>
-      <div className="policy-form">
-        <fieldset>
-          <legend>AI 主動程度</legend>
-          {[
-            ["passive", "只在我要求時"],
-            ["suggest", "重要時提醒（預設）"],
-            ["active", "可以主動協助"],
-          ].map(([v, label]) => (
-            <label key={v} className="radio-row">
-              <input
-                type="radio"
-                name="initiative"
-                checked={initiative === v}
-                onChange={() => patch({ initiative: v })}
-              />
-              {label}
-            </label>
-          ))}
-        </fieldset>
-
-        <fieldset>
-          <legend>安靜時段</legend>
-          <QuietHoursEditor
-            value={quiet}
-            onChange={(q) => patch({ quietHours: q ? [q] : [] })}
-          />
-        </fieldset>
-      </div>
-      {saving && <p className="muted small">儲存中…</p>}
-      {saved && !saving && <p className="muted small" role="status">已儲存，立即生效。</p>}
-      {error && <p className="cap-card-error" role="alert">{error}</p>}
-    </Section>
-  );
-}
-
-function QuietHoursEditor({
-  value,
-  onChange,
-}: {
-  value?: { start: string; end: string };
-  onChange: (q: { start: string; end: string; silencedChannels: string[] } | null) => void;
-}) {
-  const [enabled, setEnabled] = React.useState(Boolean(value));
-  const [start, setStart] = React.useState(value?.start ?? "22:00");
-  const [end, setEnd] = React.useState(value?.end ?? "08:00");
-  React.useEffect(() => {
-    setEnabled(Boolean(value));
-    if (value) {
-      setStart(value.start);
-      setEnd(value.end);
-    }
-  }, [value?.start, value?.end]);
-  return (
-    <div className="row wrap">
-      <Toggle
-        checked={enabled}
-        onChange={(on) => {
-          setEnabled(on);
-          onChange(on ? { start, end, silencedChannels: [] } : null);
-        }}
-        label={enabled ? "已啟用" : "未啟用"}
-      />
-      {enabled && (
-        <>
-          <label>
-            從
-            <input
-              type="time"
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
-              onBlur={() => onChange({ start, end, silencedChannels: [] })}
-            />
-          </label>
-          <label>
-            到
-            <input
-              type="time"
-              value={end}
-              onChange={(e) => setEnd(e.target.value)}
-              onBlur={() => onChange({ start, end, silencedChannels: [] })}
-            />
-          </label>
-          <span className="muted small">期間聲音、震動、通知等干擾通道會被消音</span>
-        </>
-      )}
-    </div>
   );
 }

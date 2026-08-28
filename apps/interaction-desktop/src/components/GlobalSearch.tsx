@@ -28,15 +28,19 @@ interface SearchItem {
   doneMessage?: string;
 }
 
+// v0.5 IA：5 個一級入口＋常用細項（細項導到對應 hub 分頁的相容 id）。
 const PAGES: { id: string; label: string }[] = [
-  { id: "home", label: "首頁" },
+  { id: "home", label: "現在" },
   { id: "companion", label: "小樞" },
-  { id: "ai", label: "AI 與工作階段" },
-  { id: "capabilities", label: "能力與裝置" },
-  { id: "memory", label: "記憶與知識" },
+  { id: "work", label: "工作" },
+  { id: "connect", label: "連接與權限" },
+  { id: "more", label: "更多" },
+  { id: "ai", label: "AI 工作階段" },
   { id: "automations", label: "自動互動" },
-  { id: "activity", label: "活動與確認" },
-  { id: "safety", label: "隱私與安全" },
+  { id: "capabilities", label: "裝置與能力" },
+  { id: "safety", label: "同意與安全" },
+  { id: "memory", label: "記憶與知識" },
+  { id: "activity", label: "活動歷史" },
   { id: "settings", label: "設定" },
 ];
 

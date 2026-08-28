@@ -1,4 +1,5 @@
-// 首次設定精靈：歡迎頁保證文字、預選只含低風險本機能力、草稿保存。
+// 首次設定精靈（v0.5，3 步）：預設保守、AI 幫手只做誠實 discovery、
+// 草稿保存、commit 仍走同一 onboardingCommit 原子契約。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -111,24 +112,12 @@ const mockApi = vi.hoisted(() => ({
   })),
   onboardingDraft: vi.fn(async () => ({})),
   onboardingCommit: vi.fn(async () => ({ completed: true })),
-  hardwareScan: vi.fn(async () => ({
-    platform: "test",
-    startedAt: "2026-08-27T00:00:00Z",
-    completedAt: "2026-08-27T00:00:01Z",
-    sensorActivationAttempted: false,
-    devices: [
-      {
-        class: "camera",
-        displayName: "Camera",
-        identityBasis: "test metadata",
-        availability: "permission-required",
-        permissionRequirements: ["camera"],
-        capabilities: [],
-        sourceAdapter: "test",
-        detail: "not opened",
-      },
+  proactiveDialoguePatch: vi.fn(async () => ({})),
+  agentsDiscoveries: vi.fn(async () => ({
+    agents: [
+      { kind: "codex", found: true, loggedIn: true },
+      { kind: "claude-code", found: false, detail: "未偵測到" },
     ],
-    limitations: [],
   })),
 }));
 
@@ -152,37 +141,35 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("Onboarding", () => {
-  it("welcome step states the core guarantees", async () => {
+describe("Onboarding (3 步)", () => {
+  it("步驟一：認識小樞 — 顯示預設開啟、表現程度預設自然", async () => {
     renderWizard();
-    await screen.findByText("歡迎使用自適應互動");
-    expect(screen.getByText(/能力存在不等於 AI 自動獲得權限/)).toBeInTheDocument();
-    expect(screen.getByText(/緊急停止/)).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "認識小樞" });
+    expect(screen.getByRole("checkbox", { name: /在桌面上顯示小樞/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /自然（建議）/ })).toBeChecked();
+    // 3 步導覽列。
+    const nav = screen.getByRole("navigation", { name: "設定進度" });
+    expect(nav.textContent).toContain("認識小樞");
+    expect(nav.textContent).toContain("AI 幫手");
+    expect(nav.textContent).toContain("安全預設");
   });
 
-  it("pre-selects only low-risk local capabilities; camera and external writes stay off", async () => {
+  it("步驟二：AI 幫手 — 只做誠實 discovery，預設稍後再說", async () => {
     renderWizard();
-    await screen.findByText("歡迎使用自適應互動");
+    await screen.findByRole("heading", { name: "認識小樞" });
     await userEvent.click(screen.getByRole("button", { name: "下一步" }));
-
-    // 感知來源步驟：任務狀態被預選；攝影機（需同意）根本不在清單。
-    await screen.findByText("AI 可以知道什麼？");
-    const task = screen.getByRole("checkbox", { name: /任務狀態/ });
-    expect(task).toBeChecked();
-    expect(screen.queryByText("攝影機")).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
-    await screen.findByText("AI 可以怎麼回應？");
-    const conv = screen.getByRole("checkbox", { name: /對話訊息/ });
-    expect(conv).toBeChecked();
-    // 對外寫入能力出現在清單，但不預選。
-    const webhook = screen.getByRole("checkbox", { name: /Webhook 傳送/ });
-    expect(webhook).not.toBeChecked();
+    await screen.findByRole("heading", { name: "要讓小樞幫忙工作嗎？" });
+    await waitFor(() => expect(mockApi.agentsDiscoveries).toHaveBeenCalled());
+    expect(await screen.findByText(/codex：已安裝、已登入/)).toBeInTheDocument();
+    expect(screen.getByText(/claude-code：未偵測到/)).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "稍後再說" })).toBeChecked();
+    // 這一步不得授權任何工作區寫入。
+    expect(screen.getByText(/實際建立工作/)).toBeInTheDocument();
   });
 
-  it("saves a draft as steps advance", async () => {
+  it("草稿隨步驟前進保存", async () => {
     renderWizard();
-    await screen.findByText("歡迎使用自適應互動");
+    await screen.findByRole("heading", { name: "認識小樞" });
     await userEvent.click(screen.getByRole("button", { name: "下一步" }));
     await waitFor(() => expect(mockApi.onboardingDraft).toHaveBeenCalled());
     const calls = (mockApi.onboardingDraft as ReturnType<typeof vi.fn>).mock.calls;
@@ -190,31 +177,52 @@ describe("Onboarding", () => {
     expect(draft.step).toBe(1);
   });
 
-  it("scans hardware metadata without claiming sensor activation", async () => {
+  it("步驟三：安全預設 — 保證文字齊全、攝影機不在自動啟用清單", async () => {
     renderWizard();
-    await screen.findByText("歡迎使用自適應互動");
+    await screen.findByRole("heading", { name: "認識小樞" });
     await userEvent.click(screen.getByRole("button", { name: "下一步" }));
-    await userEvent.click(screen.getByRole("button", { name: "掃描目前可用裝置" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("共 1 筆");
-    expect(screen.getByRole("status")).toHaveTextContent("感測器啟動：否");
-    expect(mockApi.hardwareScan).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await screen.findByRole("heading", { name: "安全預設" });
+    expect(screen.getByText(/麥克風、攝影機、定位/)).toBeInTheDocument();
+    expect(screen.getByText(/緊急停止/)).toBeInTheDocument();
+    expect(screen.getByText(/能力存在不等於 AI 自動獲得權限/)).toBeInTheDocument();
+    // 自動挑選摘要：低風險本機能力入選；攝影機（需同意）不在其中。
+    expect(screen.getByText("任務狀態")).toBeInTheDocument();
+    expect(screen.queryByText("攝影機")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Webhook 傳送/)).not.toBeInTheDocument();
   });
 
-  it("commit sends enable lists and policy through the backend", async () => {
+  it("commit 送出 enable 清單、保守 policy 與主動對話模式", async () => {
     renderWizard();
-    await screen.findByText("歡迎使用自適應互動");
-    // 一路到最後一步。
-    for (let i = 0; i < 6; i++) {
-      await userEvent.click(screen.getByRole("button", { name: "下一步" }));
-    }
-    await screen.findByRole("heading", { name: "確認" });
+    await screen.findByRole("heading", { name: "認識小樞" });
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await screen.findByRole("heading", { name: "安全預設" });
     await userEvent.click(screen.getByRole("button", { name: "完成設定" }));
     await waitFor(() => expect(mockApi.onboardingCommit).toHaveBeenCalled());
     const commit = (mockApi.onboardingCommit as ReturnType<typeof vi.fn>).mock
       .calls[0][0] as Record<string, unknown>;
     expect(commit["enableReceptors"]).toContain("task.lifecycle");
+    expect(commit["enableReceptors"]).not.toContain("camera.main");
     // 對外寫入未被啟用。
     expect(commit["enableActuators"]).not.toContain("webhook.output");
-    expect((commit["policyPatch"] as Record<string, unknown>)["initiative"]).toBe("suggest");
+    const policy = commit["policyPatch"] as Record<string, unknown>;
+    expect(policy["initiative"]).toBe("suggest");
+    expect(policy["requireApprovalAt"]).toBe("high");
+    // 主動對話預設「必要」。
+    await waitFor(() =>
+      expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledWith({ mode: "necessary" })
+    );
+  });
+
+  it("commit 失敗誠實顯示錯誤，不宣稱完成", async () => {
+    mockApi.onboardingCommit.mockRejectedValueOnce(new Error("commit boom"));
+    renderWizard();
+    await screen.findByRole("heading", { name: "認識小樞" });
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await userEvent.click(await screen.findByRole("button", { name: "完成設定" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("套用失敗");
+    expect(mockApi.proactiveDialoguePatch).not.toHaveBeenCalled();
   });
 });

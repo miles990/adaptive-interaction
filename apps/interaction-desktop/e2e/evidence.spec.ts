@@ -1,4 +1,4 @@
-// 畫面證據（spec §16-1.M）：來自實際 App＋真實 Runtime 資料的截圖。
+// 畫面證據：來自實際 App＋真實 Runtime 資料的截圖（v0.5 五入口 IA）。
 // 每個一級頁：桌面＋390px；另擷取 estop 與 offline 狀態。
 // 新安裝的空狀態即「空白／初次使用」證據（誠實：不硬編假資料）。
 
@@ -6,7 +6,7 @@ import { test, expect, Page } from "@playwright/test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-const OUT = path.resolve(process.cwd(), "../../docs/assets/v04-evidence");
+const OUT = path.resolve(process.cwd(), "../../docs/assets/v05-evidence");
 
 function appUrl(): string {
   return `/?api=${encodeURIComponent(process.env.E2E_API!)}&token=${encodeURIComponent(
@@ -15,15 +15,11 @@ function appUrl(): string {
 }
 
 const PAGES: { id: string; label: string; marker: string | RegExp }[] = [
-  { id: "home", label: "首頁", marker: "權限地圖 — AI 現在可以做什麼？" },
+  { id: "home", label: "現在", marker: "快速操作" },
   { id: "companion", label: "小樞", marker: "狀態預覽（取自實際角色素材）" },
-  { id: "ai", label: "AI 與工作階段", marker: "本機 AI Agent" },
-  { id: "capabilities", label: "能力與裝置", marker: "系統時間" },
-  { id: "memory", label: "記憶與知識", marker: "小樞記住了什麼" },
-  { id: "automations", label: "自動互動", marker: /自動互動|建立自動互動/ },
-  { id: "activity", label: "活動與確認", marker: /統一收件匣/ },
-  { id: "safety", label: "隱私與安全", marker: /緊急停止|同意/ },
-  { id: "settings", label: "設定", marker: "顯示模式" },
+  { id: "work", label: "工作", marker: "本機 AI Agent" },
+  { id: "connect", label: "連接與權限", marker: "系統時間" },
+  { id: "more", label: "更多", marker: "小樞記住了什麼" },
 ];
 
 async function openApp(page: Page) {
@@ -35,7 +31,7 @@ async function openApp(page: Page) {
     desktopNav.waitFor({ state: "visible", timeout: 15_000 }),
   ]);
   if (await wizard.isVisible().catch(() => false)) {
-    for (let step = 0; step < 6; step += 1) {
+    for (let step = 0; step < 2; step += 1) {
       await wizard.getByRole("button", { name: "下一步" }).click();
     }
     await wizard.getByRole("button", { name: "完成設定" }).click();
@@ -51,15 +47,15 @@ async function navigateTo(page: Page, target: (typeof PAGES)[number], narrow: bo
       .click();
   } else {
     const bottomNav = page.getByRole("navigation", { name: "主要導覽（窄視窗）" });
-    const direct = bottomNav.getByText(target.label, { exact: true });
-    if ((await direct.count()) > 0) {
-      await direct.click();
-    } else {
+    if (target.id === "more") {
+      // 窄視窗沒有獨立的「更多」頁——以更多選單抵達其中一個分頁。
       await bottomNav.getByRole("button", { name: "更多" }).click();
       await page
         .getByRole("dialog", { name: "更多功能" })
-        .getByText(target.label, { exact: true })
+        .getByText("記憶與知識", { exact: true })
         .click();
+    } else {
+      await bottomNav.getByText(target.label, { exact: true }).click();
     }
   }
   await expect(page.locator(".topbar-title")).toHaveText(target.label, { timeout: 10_000 });
@@ -93,7 +89,7 @@ test("擷取：每個一級頁（桌面 1200px）", async ({ page }) => {
     await expect(page.getByText(p.marker).first()).toBeVisible({ timeout: 10_000 });
     await page.waitForTimeout(400);
     await page.screenshot({ path: path.join(OUT, `desktop-${p.id}.png`), fullPage: false });
-    if (p.id === "capabilities") {
+    if (p.id === "connect") {
       await page.getByRole("tab", { name: "裝置與提供者" }).click();
       await page.getByRole("button", { name: "重新掃描" }).click();
       await expect(page.getByText(/感測器啟動：否/)).toBeVisible();
@@ -109,13 +105,13 @@ test("擷取：每個一級頁（390px 窄視窗）", async ({ page }) => {
     timeout: 15_000,
   });
   for (const p of PAGES) {
-    // 主要四項直接點；其餘走「更多」。
+    // 主要四項直接點；「更多」走更多選單。
     await navigateTo(page, p, true);
     // 窄視窗以頁標題確認導覽成功（內容細節由桌面測試把關）。
     await expect(page.locator(".topbar-title")).toHaveText(p.label, { timeout: 10_000 });
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(OUT, `narrow-${p.id}.png`) });
-    if (p.id === "capabilities") {
+    if (p.id === "connect") {
       await page.getByRole("tab", { name: "裝置與提供者" }).click();
       await page.getByRole("button", { name: "重新掃描" }).click();
       await expect(page.getByText(/感測器啟動：否/)).toBeVisible();
@@ -169,6 +165,13 @@ test("擷取：每個一級頁的真實待確認狀態", async ({ page }) => {
   await expect(page.getByRole("button", { name: /通知中心，[1-9][0-9]* 項待決定/ })).toBeVisible({
     timeout: 15_000,
   });
+  // 右上 Inbox：待決定入口的實際畫面。
+  await page.getByRole("button", { name: /通知中心/ }).click();
+  await expect(page.getByRole("dialog", { name: "通知中心" })).toBeVisible();
+  await page.screenshot({ path: path.join(OUT, "desktop-inbox.png") });
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.getByRole("dialog", { name: "通知中心" }).getByRole("button", { name: "關閉" }).click()
+    .catch(() => {});
   await capturePageMatrix(page, "waiting");
 });
 

@@ -1,12 +1,16 @@
-// 首次設定精靈：7 步、draft/commit。所有選擇最後一次性套用到後端
-// （enable/disable、policy patch、starter recipes、偏好），中途關閉只留草稿，
-// 不會留下半套用狀態。
+// 首次設定精靈（v0.5）：3 步（認識小樞／AI 幫手／安全預設）、draft/commit。
+// 所有選擇最後一次性套用到後端（enable/disable、policy patch、starter recipes、
+// 偏好），中途關閉只留草稿，不會留下半套用狀態。
+// 保守原則不變：只有「確定安全」的本機低風險能力會自動啟用；攝影機、麥克風、
+// 位置、對外寫入與實體效果一律預設關閉，之後首次需要時逐項詢問。
+// 硬體掃描、iPhone 配對等移出精靈——第一次真正需要時再問。
 
 import React from "react";
-import { api, HardwareScanReport, HumanCard, OnboardingState } from "../api";
+import { api, HumanCard, OnboardingState } from "../api";
 import { useAppState } from "../appstate";
 import { Icon } from "../icons";
-import { Badge } from "../ui";
+import { desktop, isTauri } from "../desktop";
+import { PackManifest, validateManifest } from "../companion/renderer";
 
 interface Draft {
   step: number;
@@ -19,6 +23,10 @@ interface Draft {
   maxPerHour: number;
   starters: string[];
   askHighRisk: boolean;
+  companionVisible: boolean;
+  expressiveness: string;
+  dialogueMode: string;
+  agentChoice: string;
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -32,9 +40,13 @@ const EMPTY_DRAFT: Draft = {
   maxPerHour: 6,
   starters: ["starter-task-complete"],
   askHighRisk: true,
+  companionVisible: true,
+  expressiveness: "natural",
+  dialogueMode: "necessary",
+  agentChoice: "later",
 };
 
-const STEPS = ["歡迎", "感知來源", "回應方式", "工具操作", "互動偏好", "起始情境", "確認"];
+const STEPS = ["認識小樞", "AI 幫手", "安全預設"];
 
 export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () => void }) {
   const { human, findCard } = useAppState();
@@ -42,9 +54,6 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
   const [draft, setDraft] = React.useState<Draft>(EMPTY_DRAFT);
   const [committing, setCommitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [hardwareScan, setHardwareScan] = React.useState<HardwareScanReport | null>(null);
-  const [hardwareScanning, setHardwareScanning] = React.useState(false);
-  const [hardwareScanError, setHardwareScanError] = React.useState<string | null>(null);
 
   const [loadError, setLoadError] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -55,9 +64,9 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
       setState(s);
       const d = s.draft as Partial<Draft> | null | undefined;
       if (d && typeof d.step === "number") {
-        setDraft({ ...EMPTY_DRAFT, ...d });
+        setDraft({ ...EMPTY_DRAFT, ...d, step: Math.min(d.step, STEPS.length - 1) });
       } else if (human) {
-        // 預選：只挑低風險、本機、推薦新手的能力。
+        // 預選：只挑低風險、本機、推薦新手的能力（保守原則，未知不預選）。
         setDraft((prev) => ({
           ...prev,
           senses: human.receptors
@@ -108,12 +117,36 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
         },
         preferences: { locale: "zh-TW" },
       });
-      onDone();
     } catch (e) {
       setError(String(e));
-    } finally {
       setCommitting(false);
+      return;
     }
+    // 主動對話模式（預設「必要」）：基本設定已套用；此步失敗要誠實回報，
+    // 不宣稱全部完成。
+    try {
+      await api.proactiveDialoguePatch({ mode: draft.dialogueMode });
+    } catch (e) {
+      setError(`基本設定已套用，但主動對話模式設定失敗：${String(e)}。可稍後在「小樞」頁調整。`);
+      setCommitting(false);
+      return;
+    }
+    // 桌面角色顯示與表現（只在桌面版存在；瀏覽器檢視誠實跳過）。
+    if (isTauri) {
+      try {
+        await desktop.prefsPatch({
+          companionVisible: draft.companionVisible,
+          companionExpressiveness: draft.expressiveness,
+        });
+        await desktop.companionApplyPrefs();
+      } catch (e) {
+        setError(`基本設定已套用，但桌面角色設定失敗：${String(e)}。可稍後在「小樞」頁調整。`);
+        setCommitting(false);
+        return;
+      }
+    }
+    setCommitting(false);
+    onDone();
   }
 
   if (loadError)
@@ -145,97 +178,61 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
 
         {step === 0 && (
           <section>
-            <h1>歡迎使用自適應互動</h1>
-            <p>這個系統讓 AI 能在安全範圍內感知狀態並主動回應。四個核心概念：</p>
-            <ul className="concept-list">
-              <li>
-                <Icon name="scan-eye" size={18} /> <strong>感知來源</strong> — AI 可以知道什麼
-              </li>
-              <li>
-                <Icon name="send" size={18} /> <strong>回應方式</strong> — AI 可以怎麼回應
-              </li>
-              <li>
-                <Icon name="wrench" size={18} /> <strong>工具操作</strong> — AI 可以讀取或改變什麼
-              </li>
-              <li>
-                <Icon name="shield-check" size={18} /> <strong>安全規則</strong> — 什麼時候要停下或先問
-              </li>
-            </ul>
-            <div className="notice-box">
-              <p>幾個重要的保證：</p>
-              <ul>
-                <li>能力存在不等於 AI 自動獲得權限 — 每一項都由你決定。</li>
-                <li>所有選擇都可以隨時停用或撤回。</li>
-                <li>AI 不會因為安裝了程式就持續監聽你的資料。</li>
-                <li>右上角的緊急停止隨時可以立即阻止所有互動。</li>
-              </ul>
-            </div>
+            <h1>認識小樞</h1>
+            <p className="muted">
+              小樞是住在你桌面上的貓系數位精靈。她會眨眼、伸展、打瞌睡——這些本機微動作
+              即時發生、不呼叫 AI；連接 AI 或裝置之後，她會誠實呈現真實狀態。
+            </p>
+            <PackPeek />
+            <label className="radio-row">
+              <input
+                type="checkbox"
+                checked={draft.companionVisible}
+                onChange={(e) => update({ companionVisible: e.target.checked })}
+              />
+              在桌面上顯示小樞（可隨時隱藏）
+            </label>
+            <fieldset>
+              <legend>表現程度</legend>
+              {[
+                ["quiet", "安靜——只顯示安全訊息"],
+                ["natural", "自然（建議）"],
+                ["lively", "活潑"],
+              ].map(([v, label]) => (
+                <label key={v} className="radio-row">
+                  <input
+                    type="radio"
+                    name="ob-expressiveness"
+                    checked={draft.expressiveness === v}
+                    onChange={() => update({ expressiveness: v })}
+                  />
+                  {label}
+                </label>
+              ))}
+            </fieldset>
+            <p className="muted small">
+              音效預設關閉；外觀、大小、透明度與更多表現設定都在「小樞」頁。
+            </p>
           </section>
         )}
 
         {step === 1 && (
-          <section>
-            <h1>AI 可以知道什麼？</h1>
-            <p className="muted">
-              勾選你願意讓系統感知的資訊。高敏感來源（攝影機、麥克風、位置）預設不啟用，之後需要時再個別同意。
-            </p>
-            <div className="notice-box">
-              <strong>掃描目前可用的互動能力</strong>
-              <p className="muted small">
-                掃描只讀取名稱、類型、穩定識別、權限需求與可用狀態，不會開啟攝影機、麥克風或開始原始感測；結果不代表找到所有硬體。
-              </p>
-              <button
-                disabled={hardwareScanning}
-                onClick={async () => {
-                  setHardwareScanning(true);
-                  setHardwareScanError(null);
-                  try {
-                    setHardwareScan(await api.hardwareScan());
-                  } catch (e) {
-                    setHardwareScanError(`掃描失敗：${String(e)}`);
-                  } finally {
-                    setHardwareScanning(false);
-                  }
-                }}
-              >
-                {hardwareScanning ? "掃描中…" : "掃描目前可用裝置"}
-              </button>
-              {hardwareScan && (
-                <p className="muted small" role="status">
-                  已偵測到目前可用裝置與能力，共 {hardwareScan.devices.length} 筆；
-                  感測器啟動：{hardwareScan.sensorActivationAttempted ? "曾嘗試（異常）" : "否"}。
-                  可在完成設定後到「能力與裝置」查看逐項結果、配對與授權狀態。
-                </p>
-              )}
-              {hardwareScanError && <p className="cap-card-error" role="alert">{hardwareScanError}</p>}
-            </div>
-            <PickCards
-              cards={human.receptors.filter(
-                (r) => !r.requiresConsent && r.consent.required !== true
-              )}
-              selected={draft.senses}
-              onChange={(senses) => update({ senses })}
-            />
-          </section>
+          <AgentStep choice={draft.agentChoice} onChoice={(agentChoice) => update({ agentChoice })} />
         )}
 
         {step === 2 && (
-          <PickStep
-            title="AI 可以怎麼回應？"
-            intro="勾選允許的回應方式。每張卡片標示干擾程度與影響範圍；實體與對外能力預設關閉。"
-            cards={human.actuators.filter((a) => !a.requiresConsent && a.consent.required !== true)}
-            selected={draft.responses}
-            onChange={(responses) => update({ responses })}
-          />
-        )}
-
-        {step === 3 && (
           <section>
-            <h1>工具操作的界線</h1>
-            <p className="muted">
-              工具操作是 AI 可以讀取、建立或修改的軟體能力。讀取類操作風險低；
-              對外寫入、刪除、金錢或訊息傳送屬於高風險。
-            </p>
+            <h1>安全預設</h1>
+            <div className="notice-box">
+              <p>這些保證不需要你做任何事，預設就成立：</p>
+              <ul>
+                <li>麥克風、攝影機、定位<strong>預設關閉</strong>；使用中一定有持續可見的指示與立即停止。</li>
+                <li>外部裝置與實體動作（燈光、震動）第一次使用時會先詢問。</li>
+                <li>AI Agent 要寫入哪個資料夾，每個都需要你明確確認。</li>
+                <li>右上角的<strong>緊急停止</strong>隨時可以立即停止一切——不經過佇列、不依賴 AI。</li>
+                <li>能力存在不等於 AI 自動獲得權限——每一項都由你決定，隨時可撤回。</li>
+              </ul>
+            </div>
             <label className="radio-row">
               <input
                 type="checkbox"
@@ -247,102 +244,23 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
             <p className="muted small">
               無論如何，「危險／不可回復」級的操作永遠需要明確確認 — 這條底線無法被關閉。
             </p>
-          </section>
-        )}
-
-        {step === 4 && (
-          <section>
-            <h1>互動偏好</h1>
             <fieldset>
-              <legend>AI 主動程度</legend>
+              <legend>小樞主動說話</legend>
               {[
-                ["passive", "只在我要求時"],
-                ["suggest", "重要時提醒（建議）"],
-                ["active", "可以主動協助"],
+                ["necessary", "必要時（建議）——只有等待確認、失敗、未知與感測提示"],
+                ["natural", "自然——加上任務進度與低頻建議"],
               ].map(([v, label]) => (
                 <label key={v} className="radio-row">
                   <input
                     type="radio"
-                    name="ob-initiative"
-                    checked={draft.initiative === v}
-                    onChange={() => update({ initiative: v })}
+                    name="ob-dialogue"
+                    checked={draft.dialogueMode === v}
+                    onChange={() => update({ dialogueMode: v })}
                   />
                   {label}
                 </label>
               ))}
             </fieldset>
-            <fieldset>
-              <legend>安靜時段</legend>
-              <label className="radio-row">
-                <input
-                  type="checkbox"
-                  checked={draft.quietEnabled}
-                  onChange={(e) => update({ quietEnabled: e.target.checked })}
-                />
-                啟用安靜時段
-              </label>
-              {draft.quietEnabled && (
-                <div className="row">
-                  <input
-                    type="time"
-                    value={draft.quietStart}
-                    aria-label="安靜開始"
-                    onChange={(e) => update({ quietStart: e.target.value })}
-                  />
-                  <span>到</span>
-                  <input
-                    type="time"
-                    value={draft.quietEnd}
-                    aria-label="安靜結束"
-                    onChange={(e) => update({ quietEnd: e.target.value })}
-                  />
-                </div>
-              )}
-            </fieldset>
-            <fieldset>
-              <legend>頻率上限</legend>
-              <label className="row">
-                每小時最多
-                <input
-                  type="number"
-                  min={1}
-                  max={60}
-                  value={draft.maxPerHour}
-                  aria-label="每小時最大互動次數"
-                  onChange={(e) => update({ maxPerHour: Number(e.target.value) || 6 })}
-                />
-                次主動互動
-              </label>
-            </fieldset>
-          </section>
-        )}
-
-        {step === 5 && (
-          <section>
-            <h1>起始情境</h1>
-            <p className="muted">挑選要安裝的自動互動範本（之後都能修改或刪除）：</p>
-            {state.starterRecipes.map((s) => (
-              <label key={s.id} className="starter-row">
-                <input
-                  type="checkbox"
-                  checked={draft.starters.includes(s.id)}
-                  onChange={(e) =>
-                    update({
-                      starters: e.target.checked
-                        ? [...draft.starters, s.id]
-                        : draft.starters.filter((x) => x !== s.id),
-                    })
-                  }
-                />
-                {s.title}
-              </label>
-            ))}
-          </section>
-        )}
-
-        {step === 6 && (
-          <section>
-            <h1>確認</h1>
             <dl className="confirm-summary">
               <div>
                 <dt>AI 可以知道</dt>
@@ -361,44 +279,14 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
                 </dd>
               </div>
               <div>
-                <dt>必須先問</dt>
-                <dd>
-                  高敏感感知（攝影機、麥克風）、實體控制、對外寫入
-                  {draft.askHighRisk ? "，以及所有高風險操作" : ""}
-                </dd>
-              </div>
-              <div>
                 <dt>資料離開本機</dt>
                 <dd>{dataFlowSummary(human, draft)}</dd>
               </div>
-              <div>
-                <dt>主動程度</dt>
-                <dd>
-                  {draft.initiative === "passive"
-                    ? "只在要求時"
-                    : draft.initiative === "active"
-                      ? "可以主動協助"
-                      : "重要時提醒"}
-                  {draft.quietEnabled ? `；${draft.quietStart}–${draft.quietEnd} 保持安靜` : ""}
-                  ；每小時最多 {draft.maxPerHour} 次
-                </dd>
-              </div>
-              <div>
-                <dt>自動互動</dt>
-                <dd>
-                  {draft.starters.length === 0
-                    ? "（不安裝範本）"
-                    : state.starterRecipes
-                        .filter((s) => draft.starters.includes(s.id))
-                        .map((s) => s.title)
-                        .join("、")}
-                </dd>
-              </div>
-              <div>
-                <dt>什麼時候呼叫 AI</dt>
-                <dd>預設範本完全不用 AI；只有你在配方裡明確開啟時才會請 AI 協助</dd>
-              </div>
             </dl>
+            <p className="muted small">
+              以上是自動挑選的低風險本機能力。想逐項自訂？完成後到「連接與權限」
+              隨時調整；安靜時段、硬體掃描與 iPhone 配對會在第一次需要時再問你。
+            </p>
             {error && <p className="cap-card-error" role="alert">套用失敗：{error}</p>}
           </section>
         )}
@@ -421,6 +309,133 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
           </div>
         </footer>
       </div>
+    </div>
+  );
+}
+
+/** AI 幫手步驟：只做 Discovery／登入狀態檢查，不授權任何工作區寫入。 */
+function AgentStep({
+  choice,
+  onChoice,
+}: {
+  choice: string;
+  onChoice: (choice: string) => void;
+}) {
+  const [agents, setAgents] = React.useState<Record<string, unknown>[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let alive = true;
+    api
+      .agentsDiscoveries()
+      .then((result) => {
+        if (alive) setAgents((result.agents as Record<string, unknown>[] | undefined) ?? []);
+      })
+      .catch((e) => {
+        if (alive) setError(String(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return (
+    <section>
+      <h1>要讓小樞幫忙工作嗎？</h1>
+      <p className="muted">
+        小樞可以把任務交給本機的 AI Agent（Codex／Claude Code）。這一步只檢查
+        安裝與登入狀態，<strong>不會</strong>授權讀寫任何資料夾——實際建立工作
+        階段時才逐項授權，且隨時可取消。
+      </p>
+      {error ? (
+        <div className="state-box state-error">無法檢查 Agent 狀態：{error}</div>
+      ) : agents === null ? (
+        <div className="state-box">正在檢查本機 AI Agent…</div>
+      ) : (
+        <ul className="plain-list">
+          {agents.length === 0 && <li className="muted">目前沒有偵測到本機 AI Agent。</li>}
+          {agents.map((agent) => (
+            <li key={String(agent.kind)}>
+              <Icon name="bot" size={14} /> {String(agent.kind)}：
+              {agent.found === true && agent.loggedIn === true
+                ? "已安裝、已登入"
+                : agent.found === true
+                  ? "已安裝，尚未登入"
+                  : String(agent.detail ?? "未偵測到")}
+            </li>
+          ))}
+        </ul>
+      )}
+      <fieldset>
+        <legend>你的選擇（之後隨時可改）</legend>
+        {[
+          ["codex", "用 Codex 幫忙"],
+          ["claude", "用 Claude Code 幫忙"],
+          ["both", "兩者都用（依任務挑選）"],
+          ["later", "稍後再說"],
+        ].map(([v, label]) => (
+          <label key={v} className="radio-row">
+            <input
+              type="radio"
+              name="ob-agent"
+              checked={choice === v}
+              onChange={() => onChoice(v)}
+            />
+            {label}
+          </label>
+        ))}
+      </fieldset>
+    </section>
+  );
+}
+
+/** 從真實角色包 sheet 取 idle 幀當預覽 — 不畫設計稿、不用假圖。 */
+function PackPeek() {
+  const ref = React.useRef<HTMLCanvasElement>(null);
+  const [failed, setFailed] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let disposed = false;
+    (async () => {
+      try {
+        const res = await fetch("/packs/shu-agile/manifest.json");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const manifest = (await res.json()) as PackManifest;
+        const issues = validateManifest(manifest);
+        if (issues.length > 0) throw new Error(issues.join("; "));
+        const img = new Image();
+        img.src = `/packs/shu-agile/${manifest.sheet}`;
+        await img.decode();
+        if (disposed) return;
+        const canvas = ref.current;
+        const ctx = canvas?.getContext("2d");
+        const anim = manifest.animations["idle"];
+        if (!canvas || !ctx || !anim) throw new Error("idle animation missing");
+        const frameIdx = anim.frames[0];
+        const [fw, fh] = manifest.frameSize;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(
+          img,
+          (frameIdx % manifest.columns) * fw,
+          Math.floor(frameIdx / manifest.columns) * fh,
+          fw,
+          fh,
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+      } catch (e) {
+        if (!disposed) setFailed(String(e));
+      }
+    })();
+    return () => {
+      disposed = true;
+    };
+  }, []);
+  if (failed)
+    return <p className="muted small">（角色預覽載入失敗：{failed}）</p>;
+  return (
+    <div className="row" style={{ justifyContent: "center" }}>
+      <canvas ref={ref} width={128} height={128} aria-label="小樞預覽（取自實際角色素材）" />
     </div>
   );
 }
@@ -463,70 +478,4 @@ function beginnerSafe(card: HumanCard): boolean {
   }
   if (!card.data && !card.effect) return false; // 完全沒有語意宣告 → 不預選
   return true;
-}
-
-function PickStep({
-  title,
-  intro,
-  cards,
-  selected,
-  onChange,
-}: {
-  title: string;
-  intro: string;
-  cards: HumanCard[];
-  selected: string[];
-  onChange: (ids: string[]) => void;
-}) {
-  return (
-    <section>
-      <h1>{title}</h1>
-      <p className="muted">{intro}</p>
-      <PickCards cards={cards} selected={selected} onChange={onChange} />
-    </section>
-  );
-}
-
-function PickCards({
-  cards,
-  selected,
-  onChange,
-}: {
-  cards: HumanCard[];
-  selected: string[];
-  onChange: (ids: string[]) => void;
-}) {
-  return (
-    <div className="pick-grid">
-      {cards.map((c) => {
-        const on = selected.includes(c.id);
-        return (
-          <label key={c.id} className={on ? "pick-card on" : "pick-card"}>
-            <input
-              type="checkbox"
-              checked={on}
-              onChange={(e) =>
-                onChange(e.target.checked ? [...selected, c.id] : selected.filter((x) => x !== c.id))
-              }
-            />
-            <div className="pick-card-body">
-              <div className="row">
-                <Icon name={c.icon} size={18} />
-                <strong>{c.displayName}</strong>
-                {c.beginnerRecommended && <Badge kind="info">推薦</Badge>}
-              </div>
-              <p className="muted small">{c.shortDescription ?? c.conservativeNotice}</p>
-              <div>
-                {c.badges.slice(0, 3).map((b) => (
-                  <Badge key={b.key} kind={b.tone === "danger" ? "bad" : b.tone === "warn" ? "warn" : b.tone === "ok" ? "ok" : "info"}>
-                    {b.label}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          </label>
-        );
-      })}
-    </div>
-  );
 }
