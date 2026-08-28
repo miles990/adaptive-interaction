@@ -16,7 +16,9 @@ import {
   pose,
   reduce,
 } from "./machine";
-import { PackManifest, SpriteRenderer, validateManifest } from "./renderer";
+import { PackManifest, RendererBackend, SpriteRenderer, validateManifest } from "./renderer";
+import { RigRenderer, validateRigManifest } from "./rig/renderer";
+import { InteractionDirector } from "./director";
 import { planPresentationCommand } from "./presentationCommands";
 import {
   BehaviorState as CompanionBehaviorState,
@@ -25,7 +27,6 @@ import {
   noteEvent,
   noteInterruption,
   noteUserInteraction,
-  scheduleMicroAction,
   seededRng,
   stepBehavior,
 } from "./behavior";
@@ -129,12 +130,12 @@ async function speakText(text: string): Promise<void> {
 
 export default function CompanionApp() {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
-  const rendererRef = React.useRef<SpriteRenderer | null>(null);
+  const rendererRef = React.useRef<RendererBackend | null>(null);
   const machineRef = React.useRef<MachineState>(initial);
   const lastBubbleAt = React.useRef(0);
   const [bubble, setBubble] = React.useState<string | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [packName, setPackName] = React.useState("shu-agile");
+  const [packName, setPackName] = React.useState("shu-maid");
   const [ready, setReady] = React.useState(false);
   const [inputOpen, setInputOpen] = React.useState(false);
   const [sensorLabel, setSensorLabel] = React.useState<string | null>(null);
@@ -204,7 +205,7 @@ export default function CompanionApp() {
     let disposed = false;
     (async () => {
       await bootstrapSupervisor();
-      let pack = "shu-agile";
+      let pack = "shu-maid";
       let personaId = "persona-shu";
       let renderScale = 1.1;
       try {
@@ -242,19 +243,31 @@ export default function CompanionApp() {
       setPackName(pack);
       const manifest = (await fetch(`/packs/${pack}/manifest.json`).then((r) =>
         r.json()
-      )) as PackManifest;
-      const issues = validateManifest(manifest);
-      if (issues.length > 0) {
-        console.error("invalid character pack", issues);
-        return;
-      }
+      )) as PackManifest & { kind?: string; palette?: string };
       if (disposed || !canvasRef.current) return;
-      const renderer = new SpriteRenderer(
-        canvasRef.current,
-        manifest,
-        `/packs/${pack}/sheet.png`,
-        renderScale
-      );
+      let renderer: RendererBackend;
+      if (manifest.kind === "character-rig") {
+        // v3 執行期參數化 rig（女僕正式版）。
+        const issues = validateRigManifest(manifest);
+        if (issues.length > 0) {
+          console.error("invalid character rig pack", issues);
+          return;
+        }
+        renderer = new RigRenderer(canvasRef.current, String(manifest.palette), renderScale);
+      } else {
+        // v1/v2 sprite-sheet pack 相容層。
+        const issues = validateManifest(manifest);
+        if (issues.length > 0) {
+          console.error("invalid character pack", issues);
+          return;
+        }
+        renderer = new SpriteRenderer(
+          canvasRef.current,
+          manifest,
+          `/packs/${pack}/sheet.png`,
+          renderScale
+        );
+      }
       renderer.setReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
       rendererRef.current = renderer;
       setReady(true);
@@ -266,18 +279,20 @@ export default function CompanionApp() {
   }, []);
 
   // ---- machine driving ----
-  // Behavior Runtime（生命底層）狀態：平滑量、微動作反重複、seeded RNG。
+  // Behavior Runtime（生命底層）狀態：平滑量＋Interaction Director（統一
+  // 行為導演：注意力/冷卻/防重複/中斷恢復）、seeded RNG。
   const behaviorState = React.useRef<CompanionBehaviorState>(initialBehavior(Date.now()));
-  const recentMicro = React.useRef<string[]>([]);
+  const directorRef = React.useRef(new InteractionDirector());
   const microRng = React.useRef(seededRng(Date.now() >>> 0));
 
   const apply = React.useCallback((ev: Parameters<typeof reduce>[1]) => {
     const before = machineRef.current.transient;
     machineRef.current = reduce(machineRef.current, ev, Date.now());
-    // 微動作被真實事件搶佔 → 記一次打斷（收斂之後的主動表現）。
+    // 表演被真實事件搶佔 → 記打斷（收斂主動表現）＋讓 Director 之後恢復。
     const after = machineRef.current.transient;
     if (before?.kind === "performing" && after && after.kind !== "performing") {
       behaviorState.current = noteInterruption(behaviorState.current);
+      directorRef.current.notePreempted(Date.now());
     }
     setBaseState(machineRef.current.base);
     syncPose();
@@ -469,26 +484,26 @@ export default function CompanionApp() {
           ? 1.5
           : 1
         : 0.5;
-      const micro = scheduleMicroAction(
-        behaviorState.current,
+      // Interaction Director：ambient 變體選擇（hazard 抽樣、冷卻、防重複、
+      // 中斷後恢復）。真相狀態不經此路（Director 排程端過濾）。
+      const action = directorRef.current.tick(
         {
+          nowMs: now,
           ambient: true,
-          reducedMotion,
           quiet: m.base === "quiet",
+          reducedMotion,
           expressiveness: expr,
           msSinceInteraction: now - behaviorState.current.lastInteractionAt,
-          recent: recentMicro.current,
+          behavior: behaviorState.current,
         },
         microRng.current
       );
-      if (micro) {
-        recentMicro.current = [...recentMicro.current.slice(-3), micro.id];
+      if (action) {
         apply({
           type: "transient",
           kind: "performing",
-          animation: micro.animation,
-          frameSlice: micro.frameSlice,
-          durationMs: micro.durationMs,
+          animation: action.expression,
+          durationMs: action.durationMs,
         });
       }
     }, 500);

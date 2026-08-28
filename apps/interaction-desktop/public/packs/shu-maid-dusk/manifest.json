@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "2.0",
+  "kind": "character-rig",
+  "id": "shu-maid-dusk",
+  "name": { "zh-TW": "小樞・女僕暮色" },
+  "description": { "zh-TW": "執行期參數化分層 rig：組合通道（身體/頭/視線/眼/耳/尾/髮/裙）、36 表情、四段式動畫。" },
+  "palette": "maid-dusk",
+  "version": "3.0.0",
+  "author": "adaptive-interaction",
+  "license": "internal（私人非商用參考基準，不含任何第三方素材）",
+  "generator": "runtime-parametric-rig"
+}

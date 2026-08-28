@@ -16,7 +16,7 @@ function appUrl(): string {
 
 const PAGES: { id: string; label: string; marker: string | RegExp }[] = [
   { id: "home", label: "現在", marker: "快速操作" },
-  { id: "companion", label: "小樞", marker: "狀態預覽（取自實際角色素材）" },
+  { id: "companion", label: "小樞", marker: /36 表情預覽/ },
   { id: "work", label: "工作", marker: "本機 AI Agent" },
   { id: "connect", label: "連接與權限", marker: "系統時間" },
   { id: "more", label: "更多", marker: "小樞記住了什麼" },

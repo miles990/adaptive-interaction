@@ -83,7 +83,7 @@ test("新 IA：5 個一級入口全部可達", async ({ page }) => {
   const nav = page.getByRole("navigation", { name: "主要導覽" });
   await expect(nav).toBeVisible({ timeout: 15_000 });
   const pages: [string, RegExp | string][] = [
-    ["小樞", "狀態預覽（取自實際角色素材）"],
+    ["小樞", /36 表情預覽/],
     ["工作", "本機 AI Agent"],
     ["連接與權限", "系統時間"],
     ["更多", "小樞記住了什麼"],
@@ -99,9 +99,12 @@ test("小樞：Pack 詳情、Behavior State 與主動對話設定（單一主人
   await open(page);
   await page.getByRole("navigation", { name: "主要導覽" }).getByText("小樞", { exact: true }).click();
   await expect(page.getByText("Character Pack 詳情")).toBeVisible();
-  await expect(page.getByText(/App 同源內建資產/)).toBeVisible();
-  await expect(page.getByText(/manifest、sprite sheet、frame/)).toBeVisible();
-  await expect(page.getByText(/內建安全 fallback 不可單獨解除安裝/)).toBeVisible();
+  // v0.5 正式版是執行期參數化 rig：來源、形式與誠實對照都要可見。
+  await expect(page.getByText(/App 內建程式碼（無外部素材、無遠端程式）/)).toBeVisible();
+  await expect(page.getByText(/執行期參數化分層 rig/).first()).toBeVisible();
+  await expect(page.getByText(/36 表情預覽/)).toBeVisible();
+  await expect(page.getByText("只點頭，沒有綠勾")).toBeVisible();
+  await expect(page.getByText("綠勾只在驗證後")).toBeVisible();
   await expect(page.getByText("現在的 Behavior State")).toBeVisible();
   // Browser E2E has no native companion window. The UI must say so instead of
   // manufacturing idle percentages as though they were live telemetry.

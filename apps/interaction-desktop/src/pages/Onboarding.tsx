@@ -10,7 +10,7 @@ import { api, HumanCard, OnboardingState } from "../api";
 import { useAppState } from "../appstate";
 import { Icon } from "../icons";
 import { desktop, isTauri } from "../desktop";
-import { PackManifest, validateManifest } from "../companion/renderer";
+import { drawExpressionPreview } from "../companion/rig/renderer";
 
 interface Draft {
   step: number;
@@ -388,54 +388,25 @@ function AgentStep({
   );
 }
 
-/** 從真實角色包 sheet 取 idle 幀當預覽 — 不畫設計稿、不用假圖。 */
+/** 正式角色預覽：由桌面角色使用的同一套參數化 rig 即時繪製，不是設計稿。 */
 function PackPeek() {
   const ref = React.useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = React.useState<string | null>(null);
   React.useEffect(() => {
-    let disposed = false;
-    (async () => {
-      try {
-        const res = await fetch("/packs/shu-agile/manifest.json");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const manifest = (await res.json()) as PackManifest;
-        const issues = validateManifest(manifest);
-        if (issues.length > 0) throw new Error(issues.join("; "));
-        const img = new Image();
-        img.src = `/packs/shu-agile/${manifest.sheet}`;
-        await img.decode();
-        if (disposed) return;
-        const canvas = ref.current;
-        const ctx = canvas?.getContext("2d");
-        const anim = manifest.animations["idle"];
-        if (!canvas || !ctx || !anim) throw new Error("idle animation missing");
-        const frameIdx = anim.frames[0];
-        const [fw, fh] = manifest.frameSize;
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(
-          img,
-          (frameIdx % manifest.columns) * fw,
-          Math.floor(frameIdx / manifest.columns) * fh,
-          fw,
-          fh,
-          0,
-          0,
-          canvas.width,
-          canvas.height
-        );
-      } catch (e) {
-        if (!disposed) setFailed(String(e));
-      }
-    })();
-    return () => {
-      disposed = true;
-    };
+    try {
+      const canvas = ref.current;
+      const ctx = canvas?.getContext("2d");
+      if (!canvas || !ctx) throw new Error("no canvas context");
+      drawExpressionPreview(ctx, "idle", "maid-classic", 128);
+    } catch (e) {
+      setFailed(String(e));
+    }
   }, []);
   if (failed)
     return <p className="muted small">（角色預覽載入失敗：{failed}）</p>;
   return (
     <div className="row" style={{ justifyContent: "center" }}>
-      <canvas ref={ref} width={128} height={128} aria-label="小樞預覽（取自實際角色素材）" />
+      <canvas ref={ref} width={128} height={128} aria-label="小樞預覽（與桌面角色同一套即時繪製）" />
     </div>
   );
 }

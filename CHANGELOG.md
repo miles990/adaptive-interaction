@@ -9,6 +9,42 @@
 
 ## [Unreleased] — v0.5 產品重定位（角色・硬體・AI 三核心）
 
+### Added — Phase 2：正式小樞（Q 版貓娘女僕）與動畫核心
+
+- **小樞 v3「女僕正式版」**：執行期參數化分層 rig（`companion/rig/`），
+  非 sprite sheet——每幀由 `drawRig(params, palette)` 純函式即時繪製。
+  約 2.5–2.6 頭身 Q 版：柔黑深灰紫短髮＋不對稱髮束＋呆毛、紫灰大眼、
+  小虎牙；奶白×深灰紫女僕工作服（泡泡袖、工具圍裙＋口袋、蓬裙＋
+  燈籠褲、圓頭軟靴、分體頭飾讓位貓耳）。3 個調色盤變體
+  （classic／dusk／sakura），pack kind=`character-rig` schema 2.0。
+- **服裝參與功能呈現**：左耳冷藍=感知、右耳暖橙=行動、胸前蝴蝶結
+  結晶核心=Runtime/AI 工作（呼吸發光）、頭飾光=Agent 連線、
+  裙擺細光=waiting（琥珀）/unknown（紫）/blocked（紅）、尾尖紫光=工具、
+  policy 小盾保留。
+- **組合式角色通道**：~40 個有界參數（body/head/gaze/eyes/brows/mouth/
+  ears/hair/headpiece/core/arms/tail/legs/skirt-light/overlay/particles），
+  `clampParams`/`lerpParams` 保證任何輸入都畫得出合法畫面。
+- **36 個正式表情**（spec §7.5 全清單）：每個都有進入/保持/小循環
+  時間軸（測試釘死「不得只是靜態圖片」），加基態/相容別名共 49 個表情；
+  Game feel：anticipation、squash&stretch、hit-stop、粒子（灰塵/星光/
+  愛心/zzz）、headpiece 歪掉扶正等 secondary motion。
+- **RigRenderer**：表情 crossfade（~180ms 輕微回彈）、自動眨眼
+  （幾何分布間隔）、gaze/ear 微動作疊加（僅 ambient 表情）、Reduced
+  Motion 靜態姿勢仍保留狀態辨識；誠實映射：machine 的 success＋
+  frameSlice（未驗證）→「聲稱完成」只點頭，無 slice（已驗證）→
+  「驗證成功」才有綠勾與慶祝。truth-state 表情（成功/失敗/阻擋/未知/
+  緊急/離線）不可被 AI 或 ambient 點播，fallback 鏈永不落到成功。
+- **Interaction Director**（`companion/director.ts`）：統一行為導演——
+  ambient 變體池（hazard 抽樣、每表情冷卻、防重複 3、放鬆度門檻）、
+  被真實事件搶佔後可恢復（20 秒 TTL）、quiet 只剩眨眼、Reduced Motion
+  只允許眨眼類、utility 評分沿用 EventClass 階梯；取代舊
+  scheduleMicroAction 路徑。
+- 控制中心小樞頁：36 表情即時預覽（與桌面同一套 rig 程式）；
+  首次設定精靈的角色預覽同源。預設 pack 改為 `shu-maid`；
+  v1/v2 sprite packs 保留為相容層（fallback 鏈不變）。
+- 設計稿與驗收畫面：`docs/assets/v05-evidence/shu-maid-rig-sheet.png`
+  （代表性姿勢×明暗底×3 配色＋36 表情 hold 網格）。
+
 ### Changed — Phase 1：控制中心簡化
 
 - **一級導覽 9 → 5**：現在／小樞／工作／連接與權限／更多。

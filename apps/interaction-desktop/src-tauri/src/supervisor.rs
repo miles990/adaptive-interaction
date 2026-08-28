@@ -113,7 +113,7 @@ impl Default for DesktopPrefs {
             companion_position: None,
             companion_size: (200.0, 210.0),
             companion_opacity: 1.0,
-            companion_pack: "shu-agile".into(),
+            companion_pack: "shu-maid".into(),
             companion_persona: "persona-shu".into(),
             story_progress: std::collections::BTreeMap::new(),
             companion_expressiveness: "natural".into(),

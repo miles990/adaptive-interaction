@@ -7,6 +7,12 @@ import { api } from "../api";
 import { desktop, DesktopPrefs, isTauri } from "../desktop";
 import { Badge, Section, Toggle, useAsync } from "../ui";
 import { PackManifest, validateManifest } from "../companion/renderer";
+import {
+  drawExpressionPreview,
+  RigManifest,
+  validateRigManifest,
+} from "../companion/rig/renderer";
+import { EXPRESSIONS, OFFICIAL_36 } from "../companion/rig/expressions";
 
 /** 預覽狀態清單（spec §C）：名稱＋對應動畫＋誠實幀選擇。 */
 const PREVIEW_STATES: { label: string; animation: string; frame?: number; note?: string }[] = [
@@ -62,7 +68,7 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
 
   const connected = presence?.connected === true;
   const visible = presence?.visible === true;
-  const pack = String(prefs?.companionPack ?? presence?.packId ?? "shu-agile");
+  const pack = String(prefs?.companionPack ?? presence?.packId ?? "shu-maid");
 
   return (
     <div>
@@ -136,9 +142,12 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
               value={prefs.companionPack}
               onChange={(e) => void patch({ companionPack: e.target.value })}
             >
-              <option value="shu-agile">小樞・靈巧型（預設）</option>
-              <option value="shu-lazy">小樞・慵懶型</option>
-              <option value="shu-lively">小樞・活潑型</option>
+              <option value="shu-maid">小樞・女僕正式版（預設）</option>
+              <option value="shu-maid-dusk">小樞・女僕暮色</option>
+              <option value="shu-maid-sakura">小樞・女僕櫻花</option>
+              <option value="shu-agile">小樞・靈巧型（v2 貓系經典）</option>
+              <option value="shu-lazy">小樞・慵懶型（v2 貓系經典）</option>
+              <option value="shu-lively">小樞・活潑型（v2 貓系經典）</option>
               <option value="shu-standard">小樞・標準型（v1 經典）</option>
               <option value="shu-minimal">小樞・極簡型（v1 經典）</option>
             </select>
@@ -207,15 +216,7 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
 
       <BehaviorStateCard status={presence} />
 
-      <CharacterPackDetails pack={pack} />
-
-      <Section title="狀態預覽（取自實際角色素材）">
-        <p className="muted small">
-          每張預覽都直接取自目前角色包的 sprite sheet——與桌面上實際顯示完全一致。
-          誠實對照：「完成（未驗證）」只點頭；綠勾只出現在「已驗證」。
-        </p>
-        <StatePreviewGrid pack={pack} />
-      </Section>
+      <PackDetailsAndPreview pack={pack} />
 
       <Section title="行為方式（Behavior Runtime）">
         <p className="muted small">
@@ -755,6 +756,122 @@ function QuietHoursEditor({
           <span className="muted small">期間聲音、震動、通知等干擾通道會被消音</span>
         </>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pack 詳情＋預覽（依 manifest 種類分流：character-rig / character-pack）。
+// ---------------------------------------------------------------------------
+
+function PackDetailsAndPreview({ pack }: { pack: string }) {
+  const [kind, setKind] = React.useState<"loading" | "rig" | "sprite" | "error">("loading");
+  const [rig, setRig] = React.useState<RigManifest | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let disposed = false;
+    setKind("loading");
+    void fetch(`/packs/${pack}/manifest.json`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<Record<string, unknown>>;
+      })
+      .then((manifest) => {
+        if (disposed) return;
+        if (manifest.kind === "character-rig") {
+          const issues = validateRigManifest(manifest);
+          if (issues.length > 0) throw new Error(issues.join("; "));
+          setRig(manifest as unknown as RigManifest);
+          setKind("rig");
+        } else {
+          setKind("sprite");
+        }
+      })
+      .catch((reason) => {
+        if (!disposed) {
+          setError(String(reason));
+          setKind("error");
+        }
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [pack]);
+
+  if (kind === "loading") return <Section title="Character Pack 詳情"><div className="state-box">正在驗證角色包…</div></Section>;
+  if (kind === "error")
+    return (
+      <Section title="Character Pack 詳情">
+        <div className="state-box state-error">角色包驗證失敗：{error}</div>
+      </Section>
+    );
+  if (kind === "sprite")
+    return (
+      <>
+        <CharacterPackDetails pack={pack} />
+        <Section title="狀態預覽（取自實際角色素材）">
+          <p className="muted small">
+            每張預覽都直接取自目前角色包的 sprite sheet——與桌面上實際顯示完全一致。
+            誠實對照：「完成（未驗證）」只點頭；綠勾只出現在「已驗證」。
+          </p>
+          <StatePreviewGrid pack={pack} />
+        </Section>
+      </>
+    );
+  return (
+    <>
+      <Section title="Character Pack 詳情">
+        <dl className="definition-list small">
+          <dt>名稱／ID</dt>
+          <dd>{rig!.name["zh-TW"] ?? rig!.id}（{rig!.id}）</dd>
+          <dt>版本／Schema</dt>
+          <dd>{rig!.version ?? "未標示"}／{rig!.schemaVersion}（character-rig）</dd>
+          <dt>形式</dt>
+          <dd>執行期參數化分層 rig：組合通道（身體/頭/視線/眼/耳/尾/髮/裙/粒子）由本機程式即時繪製，非靜態圖片。</dd>
+          <dt>來源</dt>
+          <dd>App 內建程式碼（無外部素材、無遠端程式）；調色盤 {rig!.palette}。</dd>
+          <dt>作者／授權</dt>
+          <dd>{rig!.author ?? "未標示"}／{rig!.license ?? "未標示"}</dd>
+          <dt>簽章</dt>
+          <dd>跟隨 Adaptive Interaction App bundle 的程式碼簽章；不接受遠端程式碼或任意動畫指令。</dd>
+        </dl>
+      </Section>
+      <Section title="36 表情預覽（即時由參數化 rig 繪製）">
+        <p className="muted small">
+          每一格由與桌面角色相同的 rig 程式即時繪出（保持段姿勢）；每個表情都有
+          進入／保持／小循環時間軸，不是靜態圖片。誠實對照：「聲稱完成」只點頭、
+          沒有綠勾；綠勾與慶祝只出現在「驗證成功」。
+        </p>
+        <div className="preview-grid">
+          {OFFICIAL_36.map((id) => (
+            <RigPreviewCell key={id} exprId={id} palette={rig!.palette} />
+          ))}
+        </div>
+      </Section>
+    </>
+  );
+}
+
+function RigPreviewCell({ exprId, palette }: { exprId: string; palette: string }) {
+  const ref = React.useRef<HTMLCanvasElement>(null);
+  React.useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    drawExpressionPreview(ctx, exprId, palette, 96);
+  }, [exprId, palette]);
+  const label = EXPRESSIONS[exprId]?.label ?? exprId;
+  const note =
+    exprId === "success-claimed"
+      ? "只點頭，沒有綠勾"
+      : exprId === "success-verified"
+        ? "綠勾只在驗證後"
+        : null;
+  return (
+    <div className="preview-cell">
+      <canvas ref={ref} width={96} height={96} aria-label={label} />
+      <div className="small">{label}</div>
+      {note && <div className="muted small">{note}</div>}
     </div>
   );
 }
