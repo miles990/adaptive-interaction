@@ -104,6 +104,11 @@ pub struct CreateAgentSession {
     /// Gateway agents（codex/claude-code）的工作目錄；預設唯讀模式。
     #[serde(default)]
     pub workdir: Option<String>,
+    /// 續開既有 provider session（claude --resume / codex thread resume）。
+    /// 只對 gateway agents 有意義；resume 不會放寬任何 scope——新 session
+    /// 仍走完整的 lease/consent/sandbox 檢查。
+    #[serde(default)]
+    pub resume_provider_session_id: Option<String>,
 }
 
 impl Runtime {
@@ -328,6 +333,7 @@ impl Runtime {
             detail: None,
             handoff: None,
             provider_session_id: None,
+            human_verified: None,
             context_bundles: vec![],
         };
 
@@ -369,6 +375,8 @@ impl Runtime {
             EventType::SessionStarted,
             json!({"agentSessionId": session_id.as_str(), "agentId": record.agent_id}),
         );
+        // v0.5 角色 taxonomy：queued（session 已建立、任務尚未被取走）。
+        self.emit_agent_session_state(session_id.as_str(), &record.agent_id, "created");
 
         // Gateway agents（codex/claude-code）：掛真實子程序。失敗＝建立失敗
         // （誠實），不留下看似可用其實沒有 agent 的 session。
@@ -382,6 +390,7 @@ impl Runtime {
                     &record,
                     input.workdir.clone(),
                     session_capability_token,
+                    input.resume_provider_session_id.clone(),
                 )
                 .await
             {
@@ -704,6 +713,64 @@ impl Runtime {
     /// carries the payload under `inferences`, and any linked action id is
     /// stored as `claimActionId` (NOT `actionId`) so verification can never
     /// mistake an agent claim for observed evidence.
+    /// v0.5 角色 taxonomy 事件：queued/fetched/working/waiting-input/
+    /// waiting-consent/claimed-completed/verified/failed/timed-out/
+    /// cancelled/closed。小樞依這些「真實事件」演出；`verified` 只會由
+    /// verify_agent_session（human-only）發出。
+    pub(crate) fn emit_agent_session_state(&self, id: &str, agent_id: &str, state: &str) {
+        self.events.emit(
+            EventType::AgentSessionState,
+            json!({"agentSessionId": id, "agentId": agent_id, "state": state}),
+        );
+    }
+
+    /// 人工驗證 agent 的 claimed-completed（human token 專屬路由）。
+    /// claim ≠ verified：只有這裡能把 session 升級為 verified，
+    /// 角色也只在收到 `verified` 事件後才播放綠勾演出。
+    pub async fn verify_agent_session(
+        &self,
+        id: &str,
+        note: Option<String>,
+    ) -> DomainResult<AgentSessionRecord> {
+        if let Some(n) = &note {
+            if n.chars().count() > 500 {
+                return Err(DomainError::Validation(
+                    "verification note is too long".into(),
+                ));
+            }
+        }
+        let record = {
+            let mut map = self.agent_sessions.write().await;
+            let entry = map
+                .get_mut(id)
+                .ok_or_else(|| DomainError::NotFound(format!("agent session {id}")))?;
+            if entry.record.state != AgentSessionState::ClaimedCompleted {
+                return Err(DomainError::Conflict(format!(
+                    "agent session {id} is {:?}; only a claimed-completed session can be verified",
+                    entry.record.state
+                )));
+            }
+            if entry.record.human_verified.is_some() {
+                return Err(DomainError::Conflict(format!(
+                    "agent session {id} is already verified"
+                )));
+            }
+            entry.record.human_verified = Some(interaction_core::HumanVerification {
+                at: Utc::now(),
+                note,
+            });
+            self.persist_agent_session(&entry.record);
+            entry.record.clone()
+        };
+        self.store.audit(
+            "agent-session.verified",
+            "user",
+            &json!({"agentSessionId": id}),
+        )?;
+        self.emit_agent_session_state(id, &record.agent_id, "verified");
+        Ok(record)
+    }
+
     pub async fn report_agent_session(
         &self,
         id: &str,
@@ -763,6 +830,14 @@ impl Runtime {
         // deliberately moderate 0.5 — never 1.0 — so fusion/uncertainty gates
         // never treat an unverified claim as unambiguous evidence.
         self.ingest("agent.session", facts, inferences, 0.5).await?;
+        // 角色 taxonomy 事件（agent 的自我回報照實轉譯；claim 不升級）。
+        let taxonomy = match event {
+            "task-started" | "progress" => "working",
+            "waiting-for-input" => "waiting-input",
+            "waiting-for-consent" => "waiting-consent",
+            other => other, // claimed-completed / failed / timed-out / cancelled
+        };
+        self.emit_agent_session_state(id, &record.agent_id, taxonomy);
         Ok(record)
     }
 
@@ -862,6 +937,15 @@ impl Runtime {
         self.events.emit(
             EventType::SessionStopped,
             json!({"agentSessionId": id, "reason": reason}),
+        );
+        self.emit_agent_session_state(
+            id,
+            &record.agent_id,
+            if record.state == AgentSessionState::Cancelled {
+                "cancelled"
+            } else {
+                "closed"
+            },
         );
         Ok(record)
     }

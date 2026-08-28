@@ -417,6 +417,13 @@ pub enum AgentsAction {
         #[arg(long, default_value = "closed")]
         reason: String,
     },
+    /// Human-verify a claimed-completed session (claim ≠ verified until you do).
+    Verify {
+        id: String,
+        /// Optional note recording what you checked.
+        #[arg(long)]
+        note: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

@@ -226,12 +226,34 @@ function SessionCard({
             : ""}
         ・Lease 至 {new Date(record.lease.expiresAt).toLocaleString("zh-TW")}
       </div>
-      {record.state === "claimed-completed" && (
+      {record.state === "claimed-completed" && !record.humanVerified && (
         <p className="muted small">
-          Agent 說做完了——這是<strong>它的說法</strong>，尚未經過驗證。請查看結果後自行確認。
+          Agent 說做完了——這是<strong>它的說法</strong>，尚未經過驗證。
+          請實際查看結果；確認無誤後按「標記為已驗證」，小樞才會播放正式成功演出。
+        </p>
+      )}
+      {record.humanVerified && (
+        <p className="muted small" role="status">
+          <Badge kind="ok">已人工驗證</Badge>{" "}
+          {new Date(record.humanVerified.at).toLocaleString("zh-TW")}
+          {record.humanVerified.note ? `・${record.humanVerified.note}` : ""}
         </p>
       )}
       <div className="row wrap">
+        {record.state === "claimed-completed" && !record.humanVerified && (
+          <button
+            onClick={async () => {
+              try {
+                await api.agentSessionVerify(record.sessionId);
+                onNotice("已標記為已驗證（由你人工確認）。");
+              } catch (e) {
+                onNotice(`驗證失敗：${e}。狀態未變更。`);
+              }
+            }}
+          >
+            標記為已驗證（我確認過結果）
+          </button>
+        )}
         <button
           onClick={() => {
             setExpanded((v) => !v);
@@ -286,6 +308,30 @@ function SessionCard({
               關閉
             </button>
           </>
+        )}
+        {!open && record.providerSessionId && (
+          <button
+            onClick={async () => {
+              try {
+                const workdir = record.dataScope
+                  .find((s) => s.startsWith("workspace:"))
+                  ?.slice("workspace:".length);
+                await api.agentSessionCreate({
+                  agentId: record.agentId,
+                  label: `接續：${record.label ?? record.agentId}`,
+                  workdir,
+                  resumeProviderSessionId: record.providerSessionId,
+                });
+                // 誠實：接續＝新的唯讀 session 沿用 provider 對話脈絡；
+                // 寫入權限不繼承，需要時另建限權寫入 session。
+                onNotice("已建立接續工作階段（唯讀；沿用 provider 對話脈絡）。");
+              } catch (e) {
+                onNotice(`接續失敗：${e}`);
+              }
+            }}
+          >
+            接續上次（唯讀）
+          </button>
         )}
         <button onClick={() => onNavigate("activity")}>查看紀錄</button>
       </div>

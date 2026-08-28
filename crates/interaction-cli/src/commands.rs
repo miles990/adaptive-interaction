@@ -799,6 +799,14 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                     )
                     .await?
             }
+            crate::AgentsAction::Verify { id, note } => {
+                client
+                    .post(
+                        &format!("/v1/agent-sessions/{id}/verify"),
+                        Some(json!({"note": note})),
+                    )
+                    .await?
+            }
         },
         Command::Providers { action } => match action {
             crate::ProvidersAction::Scan => {

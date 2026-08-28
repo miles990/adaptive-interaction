@@ -502,3 +502,58 @@ async fn delegation_tree_is_bounded_by_max_parallel_regardless_of_hop_count() {
     let err = rt.create_agent_session(mk(4)).await.unwrap_err();
     assert!(err.to_string().contains("max_parallel"), "got: {err}");
 }
+
+/// v0.5：人工驗證是 claim → verified 的唯一路徑，且不可重複、不可跳步。
+#[tokio::test]
+async fn human_verify_is_the_only_path_from_claim_to_verified() {
+    let (_tmp, rt) = runtime().await;
+    let record = rt
+        .create_agent_session(create_input("agent.coder"))
+        .await
+        .unwrap();
+    let id = record.session_id.as_str().to_string();
+    assert!(record.human_verified.is_none());
+
+    // Active session 不能驗證（沒有 claim 就沒有可驗證的東西）。
+    rt.report_agent_session(&id, "task-started", json!({}))
+        .await
+        .unwrap();
+    let err = rt.verify_agent_session(&id, None).await.unwrap_err();
+    assert!(format!("{err}").contains("claimed-completed"), "{err}");
+
+    // claimed-completed 後可驗證一次。
+    rt.report_agent_session(&id, "claimed-completed", json!({"summary": "done"}))
+        .await
+        .unwrap();
+    let verified = rt
+        .verify_agent_session(&id, Some("我看過輸出檔了".into()))
+        .await
+        .unwrap();
+    assert!(verified.human_verified.is_some());
+    assert_eq!(
+        verified.human_verified.as_ref().unwrap().note.as_deref(),
+        Some("我看過輸出檔了")
+    );
+    // 狀態仍是 claimed-completed（verified 是人類註記，不是 agent 的新聲稱）。
+    assert_eq!(
+        verified.state,
+        interaction_core::AgentSessionState::ClaimedCompleted
+    );
+
+    // 不可重複驗證。
+    let err = rt.verify_agent_session(&id, None).await.unwrap_err();
+    assert!(format!("{err}").contains("already verified"), "{err}");
+
+    // 過長備註誠實拒絕。
+    let long = "x".repeat(501);
+    let record2 = rt
+        .create_agent_session(create_input("agent.reviewer"))
+        .await
+        .unwrap();
+    let id2 = record2.session_id.as_str().to_string();
+    rt.report_agent_session(&id2, "claimed-completed", json!({}))
+        .await
+        .unwrap();
+    let err = rt.verify_agent_session(&id2, Some(long)).await.unwrap_err();
+    assert!(format!("{err}").contains("too long"), "{err}");
+}

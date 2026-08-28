@@ -45,6 +45,33 @@
 - 設計稿與驗收畫面：`docs/assets/v05-evidence/shu-maid-rig-sheet.png`
   （代表性姿勢×明暗底×3 配色＋36 表情 hold 網格）。
 
+### Added — Phase 4：AI 角色閉環（taxonomy、人工驗證、對話層）
+
+- **Agent Session taxonomy 事件**（`agent.session.state`）：runtime 對
+  created（queued）/fetched（任務真的送進子程序）/working/waiting-input/
+  waiting-consent/claimed-completed/verified/failed/timed-out/cancelled/
+  closed 發出標準化事件；小樞逐一映射成演出——等 Codex/等 Claude 專屬
+  等待動畫、fetched=翻找、working=努力工作、waiting=請求確認、
+  claimed 只點頭、cancelled 誠實清場。
+- **人工驗證（claim → verified 唯一路徑）**：
+  `POST /v1/agent-sessions/{id}/verify`（human token 專屬；agent/session
+  token 一律 403）、CLI `interact-ai agents verify <id> --note`、
+  AiPage「標記為已驗證（我確認過結果）」按鈕。記錄
+  `humanVerified{at,note}`（audit 留痕）；只有 verified 事件會讓小樞播
+  綠勾與慶祝。不可重複驗證、active session 不可驗證、備註 ≤500 字。
+- **Resume 通路打通**：`CreateAgentSession.resumeProviderSessionId` →
+  gateway SessionSpec（claude --resume / codex thread resume；sandbox 與
+  權限旗標由 connector 重新上鎖，不繼承不放寬）；AiPage 已關閉 session
+  提供「接續上次（唯讀）」。
+- **Conversation Provider 介面（L1）**＋本機降級：
+  `companion/conversation.ts` 可插拔介面；預設 LocalTemplateProvider
+  純確定性規則——決定是否回話、選語氣與 behaviorIntent、判斷是否建議
+  建立 Codex/Claude 任務；問句誠實承認「本機沒有答案」，絕不為普通
+  反應啟動昂貴工作 Agent。
+- 誠實不變量回歸釘死：runtime 測試（verify 唯一路徑/不可重複/長度界線）、
+  前端測試（claimed→success-claimed 無綠勾、verified→success-verified）、
+  CLI E2E（+3 verify 檢查）。
+
 ### Added — Phase 3：遊戲互動（VS Code Pets 基準＋超越）
 
 - **遊玩場（StageRenderer）**：小樞的透明視窗加寬為小舞台

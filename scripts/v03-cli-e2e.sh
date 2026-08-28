@@ -108,6 +108,14 @@ if [ "$RC" != "0" ]; then ok "message budget is a hard ceiling"; else bad "4th m
 "$BIN" agents report "$SID" --event claimed-completed --payload '{"summary":"done"}' --json >/dev/null 2>&1
 ST=$("$BIN" agents show "$SID" --json 2>/dev/null | J "d['state']")
 check "claimed-completed is an OPEN state" "$ST" "claimed-completed"
+# v0.5: claim → verified 只能由人工驗證（human token）完成，且只能一次。
+HV=$("$BIN" agents show "$SID" --json 2>/dev/null | J "d.get('humanVerified') is None")
+check "claim starts unverified" "$HV" "True"
+"$BIN" agents verify "$SID" --note "e2e checked output" --json >/dev/null 2>&1
+HV=$("$BIN" agents show "$SID" --json 2>/dev/null | J "d['humanVerified']['note']")
+check "human verify records the note" "$HV" "e2e checked output"
+RC=$("$BIN" agents verify "$SID" --json >/dev/null 2>&1; echo $?)
+if [ "$RC" != "0" ]; then ok "double verify refused"; else bad "double verify should be refused"; fi
 # Close with a bounded handoff; consents die.
 "$BIN" agents close "$SID" --reason closed --json >/dev/null 2>&1
 ST=$("$BIN" agents show "$SID" --json 2>/dev/null | J "d['state']")

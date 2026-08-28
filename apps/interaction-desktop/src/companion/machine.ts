@@ -218,6 +218,39 @@ export function mapRuntimeEvent(e: RuntimeEventLike): MachineEvent | null {
       return { type: "transient", kind: "failed" };
     case "ai.assist.requested":
       return { type: "transient", kind: "waiting-for-receipt", durationMs: 15000 };
+    // v0.5：Agent Session taxonomy → 角色演出。全部由 runtime 真實事件驅動；
+    // claimed-completed 只點頭（verified:false），綠勾只認 `verified`
+    // （人工驗證，human-only 路由）。
+    case "agent.session.state": {
+      const state = String(e.payload["state"] ?? "");
+      const agent = String(e.payload["agentId"] ?? "");
+      const waitExpr =
+        agent === "codex" ? "wait-codex" : agent === "claude-code" ? "wait-claude" : "waiting";
+      switch (state) {
+        case "created": // queued：等待任務被取走
+          return { type: "transient", kind: "performing", animation: waitExpr, durationMs: 6000 };
+        case "fetched": // 任務真的送進 agent 子程序
+          return { type: "transient", kind: "routing", durationMs: 3000 };
+        case "working":
+          return { type: "transient", kind: "acting", durationMs: 8000 };
+        case "waiting-input":
+        case "waiting-consent":
+          return { type: "transient", kind: "requesting-consent" };
+        case "claimed-completed":
+          return { type: "transient", kind: "succeeded", verified: false };
+        case "verified":
+          return { type: "transient", kind: "succeeded", verified: true };
+        case "failed":
+        case "timed-out":
+          return { type: "transient", kind: "failed" };
+        case "cancelled":
+        case "closed":
+          // 取消/收尾：誠實回到待機，不演成功也不演失敗。
+          return { type: "clear-transient" };
+        default:
+          return null;
+      }
+    }
     case "consent.changed":
       return null;
     default:

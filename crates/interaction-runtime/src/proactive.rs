@@ -659,6 +659,7 @@ impl Runtime {
                 max_messages: Some(4),
                 delegation: None,
                 workdir: Some(workdir.to_string_lossy().into_owned()),
+                resume_provider_session_id: None,
             })
             .await?;
         let session_id = record.session_id.as_str().to_string();

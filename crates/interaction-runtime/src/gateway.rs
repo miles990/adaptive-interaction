@@ -176,6 +176,7 @@ impl Runtime {
         record: &AgentSessionRecord,
         workdir: Option<String>,
         session_capability_token: String,
+        resume_provider_session: Option<String>,
     ) -> DomainResult<Option<String>> {
         // Codex app-server 只回報 token 用量、不回報 USD 成本：maxCost 在
         // 這裡無法確定性強制。誠實拒絕建立，而不是收下一個永遠不會執行的
@@ -214,6 +215,9 @@ impl Runtime {
             interaction_agent_gateway::SessionSpec::read_only_in(workdir)
         };
         spec.disable_tools = record.tool_scope == ["conversation.generate"];
+        // 續開：沿用 provider 端 thread/session；sandbox 與權限旗標由
+        // connector 在 resume 時重新上鎖（不繼承、不放寬）。
+        spec.resume_provider_session = resume_provider_session;
         spec.max_cost_usd = (kind == AgentKind::ClaudeCode && record.budget.max_cost > 0.0)
             .then_some(record.budget.max_cost);
         spec.session_capability_token = Some(session_capability_token);
@@ -542,6 +546,13 @@ impl Runtime {
         if ok {
             // 轉送即送達：補 delivered 戳記＋委派 receipt ack。
             // 首次戳記為準（與 mailbox_fetch 一致）：重送不得改寫既有時間戳。
+            // 角色 taxonomy：fetched——任務真的送進 agent 子程序了。
+            {
+                let map = self.agent_sessions.read().await;
+                if let Some(entry) = map.get(session_id) {
+                    self.emit_agent_session_state(session_id, &entry.record.agent_id, "fetched");
+                }
+            }
             let acked = {
                 let mut map = self.agent_sessions.write().await;
                 map.get_mut(session_id).and_then(|entry| {

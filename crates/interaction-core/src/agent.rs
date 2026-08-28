@@ -201,11 +201,24 @@ pub struct AgentSessionRecord {
     /// 供進階詳情與續開（resume）；不是 runtime 的 session 身分。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_session_id: Option<String>,
+    /// 人工驗證（human-only）：claim 經人類確認後才存在。沒有這個欄位，
+    /// claimed-completed 永遠不是 verified——角色的綠色勾勾只認它。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub human_verified: Option<HumanVerification>,
     /// Exact deterministic Context Bundles actually attached to dispatched
     /// task messages. This is bounded evidence, not a transcript; it lets the
     /// human verify what memory/knowledge crossed the session boundary.
     #[serde(default)]
     pub context_bundles: Vec<AgentContextBundleReceipt>,
+}
+
+/// 人類對 agent claim 的獨立確認（記錄時間與可選備註）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct HumanVerification {
+    pub at: Timestamp,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]

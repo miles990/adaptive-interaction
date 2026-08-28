@@ -1341,6 +1341,25 @@ pub async fn agent_session_report(
 
 #[derive(serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionVerifyBody {
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// 人工驗證 claimed-completed（human token 專屬：agent/session token 對本
+/// 路由一律 403——見 lib.rs 的 scope 守門）。
+pub async fn agent_session_verify(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    body: Option<Json<SessionVerifyBody>>,
+) -> ApiResult<Json<Value>> {
+    let note = body.and_then(|Json(b)| b.note);
+    let record = state.runtime.verify_agent_session(&id, note).await?;
+    Ok(Json(serde_json::to_value(record).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct MailboxQuery {
     #[serde(default)]
     pub direction: Option<String>,

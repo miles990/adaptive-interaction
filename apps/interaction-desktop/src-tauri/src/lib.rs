@@ -1223,6 +1223,21 @@ async fn agent_session_close(
     serde_json::to_value(record).map_err(err_s)
 }
 
+/// 人工驗證 claimed-completed（桌面＝human 身分；claim ≠ verified）。
+#[tauri::command]
+async fn agent_session_verify(
+    state: State<'_, AppState>,
+    id: String,
+    note: Option<String>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let record = runtime
+        .verify_agent_session(&id, note)
+        .await
+        .map_err(err_s)?;
+    serde_json::to_value(record).map_err(err_s)
+}
+
 #[tauri::command]
 async fn supervisor_info(state: State<'_, AppState>) -> Result<Value, String> {
     let info = state.supervisor.lock().expect("supervisor mutex").clone();
@@ -2084,6 +2099,7 @@ pub fn run() {
             agent_sessions_list,
             agent_session_send,
             agent_session_close,
+            agent_session_verify,
             sensor_mic_listen,
             presentation_status,
             presentation_hello,

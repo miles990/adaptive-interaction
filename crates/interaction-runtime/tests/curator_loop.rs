@@ -239,6 +239,7 @@ async fn experience_candidates_cannot_promote_without_counterexamples() {
             max_messages: None,
             delegation: None,
             workdir: None,
+            resume_provider_session_id: None,
             allow_write: false,
         })
         .await

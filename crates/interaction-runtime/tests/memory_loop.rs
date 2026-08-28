@@ -378,6 +378,7 @@ async fn handoff_lands_in_memory_with_30d_retention() {
             max_messages: None,
             delegation: None,
             workdir: None,
+            resume_provider_session_id: None,
             allow_write: false,
         })
         .await

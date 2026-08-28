@@ -186,6 +186,10 @@ pub fn router(state: ApiState) -> Router {
             "/v1/agent-sessions/{id}/close",
             post(routes::agent_session_close),
         )
+        .route(
+            "/v1/agent-sessions/{id}/verify",
+            post(routes::agent_session_verify),
+        )
         .route("/v1/providers/{id}", get(routes::provider_get))
         .route("/v1/providers/{id}/pair", post(routes::provider_pair))
         .route(

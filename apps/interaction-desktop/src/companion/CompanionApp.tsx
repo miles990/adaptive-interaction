@@ -21,6 +21,7 @@ import { validateRigManifest } from "./rig/renderer";
 import { PLAYFIELD_EXPRESSIONS, StageRenderer } from "./rig/stage";
 import { ToyKind } from "./playfield";
 import { InteractionDirector } from "./director";
+import { activeConversationProvider, ConversationContext } from "./conversation";
 import { planPresentationCommand } from "./presentationCommands";
 import {
   BehaviorState as CompanionBehaviorState,
@@ -988,7 +989,19 @@ export default function CompanionApp() {
         </div>
       )}
       {inputOpen && (
-        <CompanionInput onClose={() => setInputOpen(false)} onBubble={setBubble} line={line} />
+        <CompanionInput
+          onClose={() => setInputOpen(false)}
+          onBubble={setBubble}
+          line={line}
+          conversationCtx={() => ({
+            openAgentSessions: 0, // CompanionInput 以實際 sessions 數覆蓋
+            msSinceInteraction: Date.now() - behaviorState.current.lastInteractionAt,
+            expressiveness: behaviorRef.current.allowCasualBubbles ? "natural" : "quiet",
+          })}
+          onIntent={(intent) =>
+            apply({ type: "transient", kind: "performing", animation: intent, durationMs: 2500 })
+          }
+        />
       )}
     </div>
   );
@@ -1001,10 +1014,15 @@ function CompanionInput({
   onClose,
   onBubble,
   line,
+  conversationCtx,
+  onIntent,
 }: {
   onClose: () => void;
   onBubble: (t: string | null) => void;
   line: (key: string) => string | null;
+  /** L1 Conversation Provider 的情境（無 Provider 時本機模板降級）。 */
+  conversationCtx?: () => ConversationContext;
+  onIntent?: (intent: string) => void;
 }) {
   const [text, setText] = React.useState("");
   const [sessions, setSessions] = React.useState<
@@ -1033,7 +1051,23 @@ function CompanionInput({
       await api
         .pushObservation("companion.text-input", { kind: "text-submitted", modality: "text" }, 1.0)
         .catch(() => {});
-      onBubble(target === "local" ? line("text-received") : line("delegated"));
+      if (target === "local") {
+        // L1 Conversation Provider：決定是否回話、語氣與 behaviorIntent。
+        // 觀察已真實記錄（上面 push 成功）；模板回覆不冒充理解。
+        const ctx = conversationCtx?.() ?? {
+          openAgentSessions: sessions.length,
+          msSinceInteraction: 0,
+          expressiveness: "natural",
+        };
+        const result = activeConversationProvider().considerReply(t, {
+          ...ctx,
+          openAgentSessions: sessions.length,
+        });
+        onBubble(result.reply ?? line("text-received"));
+        if (result.behaviorIntent && onIntent) onIntent(result.behaviorIntent);
+      } else {
+        onBubble(line("delegated"));
+      }
       setTimeout(() => onBubble(null), 3500);
     } catch (e) {
       onBubble(`送出失敗：${e}`);

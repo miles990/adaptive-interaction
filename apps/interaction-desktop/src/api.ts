@@ -298,6 +298,8 @@ export const api = {
     invoke<AgentSessionRecord>("agent_session_renew", { id, extraMinutes }),
   agentSessionClose: (id: string, reason?: string) =>
     invoke<AgentSessionRecord>("agent_session_close", { id, reason: reason ?? null }),
+  agentSessionVerify: (id: string, note?: string) =>
+    invoke<AgentSessionRecord>("agent_session_verify", { id, note: note ?? null }),
   sensorMicListen: (durationMs: number) =>
     invoke<Record<string, unknown>>("sensor_mic_listen", { durationMs }),
   sensorsStop: () => invoke("sensors_stop"),
@@ -337,6 +339,8 @@ export interface AgentSessionRecord {
    *  一律視為唯讀——徽章依此欄位呈現，絕不依建立時的請求值宣稱可寫。 */
   allowWrite?: boolean;
   providerSessionId?: string;
+  /** 人工驗證（human-only）：存在＝人類確認過 claim；缺席＝仍只是聲稱。 */
+  humanVerified?: { at: string; note?: string };
   createdAt: string;
   closedAt?: string;
   detail?: string;

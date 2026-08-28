@@ -64,6 +64,7 @@ fn claude_input(
         max_messages: Some(10),
         delegation: None,
         workdir: None,
+        resume_provider_session_id: None,
         allow_write: false,
     }
 }
@@ -109,6 +110,7 @@ async fn gateway_full_loop_with_fake_agent() {
                 max_messages: None,
                 delegation: None,
                 workdir: None,
+                resume_provider_session_id: None,
                 allow_write: false,
             })
             .await
@@ -160,6 +162,7 @@ async fn gateway_full_loop_with_fake_agent() {
             max_messages: Some(10),
             delegation: None,
             workdir: None,
+            resume_provider_session_id: None,
             allow_write: false,
         })
         .await
@@ -279,6 +282,7 @@ async fn gateway_full_loop_with_fake_agent() {
             max_messages: None,
             delegation: None,
             workdir: None,
+            resume_provider_session_id: None,
             allow_write: false,
         })
         .await

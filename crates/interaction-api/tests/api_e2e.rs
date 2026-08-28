@@ -292,6 +292,7 @@ async fn knowledge_tools_require_a_live_session_token_and_enforce_tool_and_domai
             max_messages: Some(5),
             delegation: None,
             workdir: None,
+            resume_provider_session_id: None,
         })
         .await
         .unwrap();
@@ -465,6 +466,7 @@ async fn unified_activity_inbox_applies_compound_runtime_filters() {
             max_messages: Some(5),
             delegation: None,
             workdir: None,
+            resume_provider_session_id: None,
         })
         .await
         .unwrap();

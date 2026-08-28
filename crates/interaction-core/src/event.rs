@@ -84,6 +84,12 @@ pub enum EventType {
     /// 知識系統變化（素材/候選/複審/發布/過期），payload 帶 knowledgeReceipt。
     #[serde(rename = "knowledge.updated")]
     KnowledgeUpdated,
+    /// Agent Session 狀態變化（v0.5 角色演出 taxonomy）：payload 帶
+    /// `{agentSessionId, agentId, state}`，state ∈ created/fetched/working/
+    /// waiting-input/waiting-consent/claimed-completed/verified/failed/
+    /// timed-out/cancelled/closed。`verified` 只能由人工驗證產生。
+    #[serde(rename = "agent.session.state")]
+    AgentSessionState,
 }
 
 impl EventType {
@@ -126,6 +132,7 @@ impl EventType {
             EventType::PresentationCommand => "presentation.command",
             EventType::PresentationState => "presentation.state",
             EventType::KnowledgeUpdated => "knowledge.updated",
+            EventType::AgentSessionState => "agent.session.state",
         }
     }
 }
