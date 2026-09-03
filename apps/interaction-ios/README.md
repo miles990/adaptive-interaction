@@ -33,15 +33,35 @@
 > - ✅ **裝置 SDK 建置通過(未簽章)**:`-sdk iphoneos -arch arm64 -configuration Release
 >   CODE_SIGNING_ALLOWED=NO` → `** BUILD SUCCEEDED **`;12 個 `.swift` 對
 >   `arm64-apple-ios17.0` + iphoneos26.5 SDK 的 `swiftc -typecheck` 也是 0 error / 0 warning。
-> - ✅ **XCTest 21/21 通過**(MotionClassifier 8 + Protocol 13)——用 xcodebuild 產出的
->   app-hosted `.xctest`,注入 iPhone 17 **模擬器**(iOS 26.2)執行。**仍是模擬器**。
+> - ✅ **XCTest 25/25 通過**(MotionClassifier 8 + Protocol 17,其中 4 個是驗證 stop-all 緊急狀態
+>   誠實性的 async 測試——之前的 21/21 只算到 13 個 Protocol 測試,`repo` 內其實一直有 17 個,見
+>   下方「2026-09-03」章節)——用 xcodebuild 產出的 app-hosted `.xctest`,注入 iPhone 17
+>   **模擬器**(iOS 26.2)以 `simctl` 執行(見上方「跑 XCTest」指令)。**這是模擬器測試,與下面的
+>   真機驗收是兩件事**。
 > - ⚠️ **`xcodebuild -destination` 在本機無法解析任何 iOS destination**:Xcode 26.6 回報
 >   「iOS 26.5 is not installed」(平台元件未下載,只有 iOS 26.2 模擬器 runtime),
 >   連純 SwiftPM 專案也一樣,**不是本 xcodeproj 的問題**。要用 `-scheme … -destination …`
 >   (含 `xcodebuild test`)的人請先在 Xcode → Settings → Components 下載 iOS 平台。
-> - ❌ **真機安裝與真機驗收仍為零**:本機沒有任何 codesigning identity、Xcode 未登入
->   Apple ID、iPhone 的 Developer Mode 是 `disabled`。`scripts/device-build.sh --check-only`
->   會誠實停在 Developer Mode 這一關並印出人要做的步驟(見下方「真機」章節)。
+>   `scripts/device-build.sh` 偵測到這個情況時會自動改走 `-sdk iphoneos -arch arm64` 建置後再用
+>   `devicectl` 安裝(不需要下載 8 GB 模擬器 runtime),見下方「真機」章節。
+>
+> **2026-09-03 更新(真機部分驗收)**
+> - ✅ **iPhone 11(`iPhone12,1`,iOS 26.3.1)已完成真機安裝與部分驗收**:Developer Mode 開啟、
+>   Xcode 登入 Apple ID(Personal Team)完成後,以 `device-build.sh`(平台元件未裝時自動走
+>   `-sdk iphoneos` 建置 fallback)裝上手機並啟動,對真 daemon(區網 TLS,非 loopback)跑過
+>   `device-acceptance.sh --grant-consent` 的大多數列——配對、haptic/notify/tts/torch/flash、
+>   角色六態、AI 偽造 emergency/verified-success 被 runtime 擋下、停止所有感測、緊急停止投影＋
+>   停感測、解除不自動恢復、撤銷、觀察 battery/touch/mic-level、BLE scan。**尚未涵蓋**：
+>   observe-motion(需人搖手機)、BLE connect/GATT(無測試用 peripheral)、系統終止 App 後的冷啟動
+>   恢復。完整逐列證據見
+>   [`docs/releases/v0.5.0-iphone-device-evidence.md`](../../docs/releases/v0.5.0-iphone-device-evidence.md)。
+>   **不得**把 iPhone 寫成「真機驗收仍為零」；也不得把上述尚未涵蓋的列寫成「已驗收」。
+> - ✅ **`device-acceptance.sh` 的三道 `--grant-consent` 閘門**都已在真機上實際觸發並代為打開：
+>   (1) 啟用 iPhone 動器／受器(原本 disabled,plan 會回 `no-action`);(2) 合併 policy allowlist
+>   缺少的 `iphone.*` 動器／通道(否則會被記成 `blocked(actuator.allowlist)`);(3) 建立 active
+>   session 並授予同意(否則每一列 plan 都被 daemon 以 `session_inactive` 拒絕)。**三關都是
+>   Governor 正確運作,不是手機或腳本的缺陷**——`--grant-consent` 讓腳本代你做「你本來就會自己做」
+>   的授權動作,不會偷偷幫你同意任何原本沒問過的事。
 
 ## 目錄結構
 
@@ -55,7 +75,8 @@ apps/interaction-ios/
 │   └── device-acceptance.sh           真機:對真 daemon 跑驗收矩陣(只印 daemon 原文)
 ├── InteractionCompanionTests/
 │   ├── MotionClassifierTests.swift    純分類器行為測試(XCTest:8 個 test 方法)
-│   └── ProtocolTests.swift            Wire protocol 編解碼測試(XCTest:13 個 test 方法)
+│   └── ProtocolTests.swift            Wire protocol 編解碼測試(XCTest:17 個 test 方法,含 4 個
+│                                       stop-all 緊急狀態誠實性 async 測試)
 └── InteractionCompanion/
     ├── InteractionCompanionApp.swift  App 進入點 + 元件接線(scenePhase → 前景觀察)
     ├── Info.plist.example             隱私描述的來源範本(內容已複製到上面的 Info.plist)
@@ -138,7 +159,8 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 > ```
 >
 > 產出的 `InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest` 可用
-> `simctl` 注入模擬器執行(見下方「本機驗證了什麼」),2026-09-03 實測 **21/21 通過**。
+> `simctl` 注入模擬器執行(見下方「本機驗證了什麼」),2026-09-03 實測 **25/25 通過**
+>（MotionClassifier 8＋ProtocolTests 17）。
 
 ### DEBUG 限定啟動參數(自動化驗收,僅供模擬器/CI;release 不編入)
 
@@ -257,15 +279,18 @@ apps/interaction-ios/scripts/device-acceptance.sh --rows estop,estop-clear,revok
 
 ### 目前的實際狀態(2026-09-03)
 
-`device-build.sh --check-only` 在本機停在第 3 關:
+本節先前記錄的狀態是 `device-build.sh --check-only` 在 Developer Mode 尚未開啟時停在第 3 關:
 
 ```
 === 2/5 Developer Mode ===
 [閘門未通過] iPhone 的 Developer Mode 目前是「disabled」,devicectl 無法安裝或啟動 App。
 ```
 
-也就是說 **真機安裝從未發生過、真機驗收數字為零**。
-在 H1~H2 完成之前,任何文件都不得把 iOS 功能寫成「已驗收」。
+H1~H2(Apple ID 登入、Developer Mode 開啟)已於 2026-09-03 完成,`device-build.sh` 五道閘門全過,
+真機安裝與部分驗收也已完成(見上方「2026-09-03 更新(真機部分驗收)」與下方「真機驗收（2026-09-03）」)。
+**仍未涵蓋**的列(observe-motion、BLE connect/GATT、系統終止 App 後的冷啟動恢復)不得寫成「已驗收」;
+其餘列可以寫成「已在真機驗收」,完整逐列證據見
+[`docs/releases/v0.5.0-iphone-device-evidence.md`](../../docs/releases/v0.5.0-iphone-device-evidence.md)。
 
 ## 停止全部感測的兩種原因(wire protocol 微調)
 
@@ -286,10 +311,11 @@ apps/interaction-ios/scripts/device-acceptance.sh --rows estop,estop-clear,revok
   也不要把真正的緊急停止淡化成一般停止(`StopAllReason(wire:)`,Protocol.swift)。
 - stop-all 的回覆現在**回音 sensors 旗標**:`{"type":"ack","stopAll":true,"sensors":true|false}`,
   桌面端不必猜手機到底停了動器還是連感測一起停。
-- **已知落差**:桌面端(`crates/interaction-runtime/src/mobile.rs`)目前送的
-  `stop-all` **還沒有** `reason` 欄位,所以使用者按「停止所有感測」時,手機仍會顯示
-  「因桌面緊急停止而停用」。App 端已經準備好,等桌面在使用者路徑補上
-  `"reason":"user"` 即可生效——這是刻意的向後相容設計,不是 bug 被藏起來。
+- **已於第二輪修復**:桌面端(`crates/interaction-runtime/src/mobile.rs`)現在會依觸發路徑送出
+  `"reason":"user"`(使用者主動點「停止所有感測」)或 `"reason":"emergency"`(桌面緊急停止)——
+  `STOP_REASON_USER`／`STOP_REASON_EMERGENCY`＋`stop_all_wire_reason()`,回歸測試
+  `mobile_loop.rs::stop_all_wire_reason_only_calls_the_estop_path_emergency`。**仍為真的殘留**:
+  桌面端尚未消費 App 端 ack 回聲的 `sensors` 欄位。
 
 ## 配對流程
 
@@ -375,11 +401,13 @@ status 訊息(`sensors` 五旗標 + `microphone/location/bluetooth` 權限)於
    count 序列化為整數、`ble.result` 未知 name 為 `null`、規格中每一種
    server→app 訊息的解碼、配對 payload 驗證(拒 v≠1/壞指紋)、
    HMAC-SHA256(key=配對碼, msg=nonce) 與 `openssl dgst -sha256 -hmac` 參考值一致。
-   > 這兩個檔案就是**可重跑的回歸測試**(8 + 13 = 21 個 test 方法)。
+   > 這兩個檔案在 2026-08-28 當下是**可重跑的回歸測試**(8 + 13 = 21 個 test 方法)。
    > 早期版本的 README 曾寫「33 項 / 11 項」,那是開發當下一次性檢查的斷言數,
-   > 對應不到 repo 裡的任何測試,已更正為實際的 test 方法數。
+   > 對應不到 repo 裡的任何測試,已更正為實際的 test 方法數。**`ProtocolTests.swift` 之後又
+   > 新增 4 個 stop-all 緊急狀態誠實性測試(見下方「2026-09-03」與「XCTest 25/25」),目前是
+   > 8 + 17 = 25 個 test 方法。**
 
-### 2026-09-03:xcodeproj 與 XCTest 21/21(仍是模擬器)
+### 2026-09-03:xcodeproj 與 XCTest(當時實測 21/21,之後補測到 25/25;仍是模擬器)
 
 同一台機器(Xcode 26.6 / iOS 26.5 SDK / iPhone 17 模擬器 iOS 26.2):
 
@@ -397,12 +425,22 @@ status 訊息(`sensors` 五旗標 + `microphone/location/bluetooth` 權限)於
    `InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest`;
    把 `_Testing_*.framework` 補進 `Frameworks/` 後 `simctl install` 並以
    `libXCTestBundleInject.dylib` 注入啟動(`-XCTest All`):
-   **Executed 21 tests, with 0 failures**(MotionClassifier 8 + Protocol 13)。
+   當時(`ProtocolTests.swift` 只有 13 個 test 方法時)**Executed 21 tests, with 0 failures**
+   (MotionClassifier 8 + Protocol 13)。
 6. 反向驗證(把修好的行為改回舊寫法):`ack` 不回音 `sensors`、`stop-all` 忽略
    `reason` 時,同一組測試 **21 tests / 5 failures**——確認新測試真的抓得到迴歸。
+7. **2026-09-03 補測(`docs-claims-070`)**:`ProtocolTests.swift` 在同一天內又新增 4 個 stop-all
+   緊急狀態誠實性 async 測試(`testEmergencyStopAllSetsTheCharacterStateEvenIfCharacterPresentIsLost`／
+   `testUserStopAllDoesNotFakeAnEmergencyCharacterState`／
+   `testActuatorOnlyStopAllTouchesNeitherSensorsNorCharacterState`／
+   `testOnlyTheRuntimeClearsTheEmergencyCharacterState`),但先前的執行紀錄一直停在 21/21,沒有人
+   重跑過完整的 25 個。用同一套 `simctl` 注入流程重新執行:**Executed 25 tests, with 0 failures**
+   (MotionClassifier 8 + Protocol 17)。這是目前 XCTest 的權威數字。
 
 > ⚠️ 這一輪**全部在模擬器**,而且 `xcodebuild test -destination …` 在本機無法執行
-> (Xcode 未安裝 iOS 26.5 平台元件,見上方 Xcode 專案章節的警告框)。真機仍為零驗收。
+> (Xcode 未安裝 iOS 26.5 平台元件,見上方 Xcode 專案章節的警告框)。**模擬器 XCTest 與真機驗收
+> 是兩件事**——真機部分驗收見下方「真機」章節與
+> [`docs/releases/v0.5.0-iphone-device-evidence.md`](../../docs/releases/v0.5.0-iphone-device-evidence.md)。
 
 ### 第二輪模擬器復測(2026-08-28 晚)
 
@@ -432,27 +470,32 @@ mobile wss `18790`),`.app` 依修改後的 Swift 原始碼重編、`Info.plist` 
 
 ## 誠實已知限制
 
-- **真機安裝從未發生過,真機驗收數字為零**。本機缺三樣人才能補的東西:
-  Xcode 沒登入 Apple ID(`IDEProvisioningTeams` 不存在)、`security find-identity
-  -v -p codesigning` 是 **0 valid identities**、iPhone 的
-  `developerModeStatus` 是 `disabled`。`scripts/device-build.sh --check-only`
-  會停在 Developer Mode 那一關並以 exit 1 結束——這就是目前的真實狀態。
-- **`scripts/device-acceptance.sh` 從未對真手機跑過**:只驗證過 `--dry-run`
-  (不送出任何請求)、`--list-rows`、以及連不到 daemon 時的誠實拒絕(exit 1)。
-  裡面每一列的斷言都寫成「印出 daemon 原文」而非判定,就是為了不讓沒跑過的
-  腳本產生假的通過結論。
+- **真機安裝與部分驗收已於 2026-09-03 完成**(見頂部「2026-09-03 更新」與下方「真機」章節)。
+  Xcode 登入 Apple ID(Personal Team)、iPhone Developer Mode 開啟後,`scripts/device-build.sh`
+  五道閘門全過,對 iPhone 11(`iPhone12,1`,iOS 26.3.1)裝上並啟動 App。**仍未涵蓋**的列:
+  observe-motion(需人搖手機)、BLE connect/GATT(無測試用 peripheral)、系統終止 App 後的冷啟動
+  恢復——這些列不得寫成「已驗收」;其餘列已在真機驗收,完整逐列證據見
+  [`docs/releases/v0.5.0-iphone-device-evidence.md`](../../docs/releases/v0.5.0-iphone-device-evidence.md)。
+- **`scripts/device-acceptance.sh --grant-consent` 已對真手機跑過**(2026-09-03):三道前置關卡
+  (沒有 active session、iPhone 動器預設 disabled、policy allowlist 未含 `iphone.*`／通道)在加上
+  `--grant-consent` 後依序打開,不再只是 `--dry-run`／`--list-rows` 層級的驗證。裡面每一列的斷言
+  仍然寫成「印出 daemon 原文」而非判定,不讓腳本產生假的通過結論。
 - **`xcodebuild -destination` 在本機不可用**:Xcode 26.6 沒安裝 iOS 26.5 平台元件,
   任何 iOS destination(含模擬器)都列不出來,連空的 SwiftPM package 也一樣。
-  因此 CI/本機目前用 `-target … -sdk iphonesimulator` 驗證專案、用 `simctl` 注入跑
-  XCTest。等平台元件裝好之後,README 上方那兩條 `-scheme … -destination …` 指令才會通。
-- **`stop-all` 的 `reason` 目前只有 App 端支援**:桌面 runtime 送的還是
-  `{"type":"stop-all","sensors":…}`(無 `reason`),所以使用者按「停止所有感測」時
-  手機仍顯示「因桌面緊急停止而停用」。這是刻意的向後相容降級(未知原因一律當
-  emergency),等桌面在使用者路徑補上 `"reason":"user"` 就會自動正確。
-- **僅模擬器驗收、未經真機驗收**(見頂部誠實聲明)。模擬器上實測到的事實:
+  因此 CI/本機用 `-target … -sdk iphonesimulator`(模擬器)或 `-target … -sdk iphoneos`
+  (真機,`device-build.sh` 偵測到這個情況會自動切換,見上方「真機」章節)驗證專案,模擬器測試用
+  `simctl` 注入跑 XCTest。等平台元件裝好之後,README 上方那兩條 `-scheme … -destination …`
+  指令才會通。
+- **`stop-all` 的 `reason` 已於第二輪修復支援雙端**:桌面 runtime(`crates/interaction-runtime/src/
+  mobile.rs`)現在依觸發路徑送出 `"reason":"user"`(使用者主動停止)或 `"reason":"emergency"`
+  (桌面緊急停止),App 端據此顯示對應文案。**仍為真的殘留**:桌面端尚未消費 App 端 ack 回聲的
+  `sensors` 欄位。
+- **模擬器與真機各自的驗證範圍**(見頂部誠實聲明)。模擬器上實測到的事實:
   `utsname.machine` 回 `arm64`(非 `iPhone17,x`);CoreMotion 顯示「不可用:此裝置
   不支援 deviceMotion」;藍牙權限顯示「已授權」但 BLE 閘道預設關閉,桌面端
   `POST /v1/mobile/ble/scan` 得到誠實的 `{"type":"err","reason":"ble-gateway-disabled"}`。
+  真機上 CoreMotion 可用、BLE scan 真的能掃到周邊(見下方「真機」章節),但 observe-motion 與 BLE
+  connect/GATT 尚未在真機驗證。
 - **桌面端撤銷不斷線:桌面端已修復(本輪)**。原症狀:`mobile_revoke` 只移除
   conn 表項與 provider,連線本身仍 ESTABLISHED(模擬器實測撤銷後 +42s App 仍顯示
   「已連線」)。現在 daemon 會對該連線送 `{"type":"auth-fail","reason":"revoked"}`
@@ -481,7 +524,15 @@ mobile wss `18790`),`.app` 依修改後的 Swift 原始碼重編、`Info.plist` 
   (依 `SensorCenter` 程式碼應為不恢復,但本輪沒有實測解除路徑)。
 - **背景執行受 iOS 限制**:未申請任何 Background Mode。App 進入背景後
   WebSocket 會被系統暫停/收回,感測與動器停止;回前景後走重連流程。
-  依平台不變量,**斷線後麥克風/位置/BLE 閘道不自動恢復**,需使用者重新開啟。
+  依平台不變量,**斷線後麥克風/位置/BLE 閘道不自動恢復**,需使用者重新開啟。**真機實測確認**
+  (2026-09-03):App 切到背景後 daemon 於數秒內偵測斷線並強制停用高風險受器,這是 iOS 平台行為,
+  不是本專案的缺陷,但**不得宣稱 App 能在背景永久保持連線**。
+- **桌面 IP 變更需要重新配對**(真機實測發現,2026-09-03):App 沒有 Bonjour 探索,host 位址釘在
+  配對當下——桌面 Wi-Fi 位址變更後(例如多接一張網卡),App 會用 Keychain 內的舊位址反覆重連,
+  daemon 端完全收不到連線嘗試,`--auto-connect` 冷啟動也連不上;必須用新位址重新配對(新配對後
+  數秒內連上,App 端會覆寫 Keychain)。
+- **系統終止 App 後需要手動重新連線**(真機實測發現,2026-09-03):冷啟動的 App 不會自動重連,
+  需要使用者點「連線」分頁的按鈕,或以 `--auto-connect` 啟動參數啟動(見上方 DEBUG 啟動參數表)。
 - **External Accessory / USB 不支援**(不在 v1 範圍)。
 - QR 掃描使用 VisionKit `DataScannerViewController`,需 A12 以上晶片;
   不支援或相機被拒時 UI 誠實顯示並提供手動貼上備援。
