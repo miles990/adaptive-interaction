@@ -804,6 +804,9 @@ pub struct MobileBridge {
     conn_permits: Arc<tokio::sync::Semaphore>,
     /// 因為超過連線上限而被拒絕的次數（status 誠實顯示）。
     refused_connections: AtomicU64,
+    /// 認證失敗（未知裝置／錯 token／已撤銷）的次數。撤銷之後手機還在重連、
+    /// 或區網上有人猜 deviceId／token，都必須看得見（audit 有逐筆，這裡是計數）。
+    failed_auths: AtomicU64,
     /// 測試用故障注入：讓 accept 迴圈走幾次錯誤分支（預設 0＝永不注入）。
     inject_accept_errors: AtomicU64,
     /// 目前桌面角色的顯示名（Character Protocol hello 更新；notify 標題用）。
@@ -856,6 +859,7 @@ impl MobileBridge {
             auth_timeout_ms: AtomicU64::new(MOBILE_AUTH_TIMEOUT_DEFAULT_MS),
             conn_permits: Arc::new(tokio::sync::Semaphore::new(MOBILE_MAX_CONNS)),
             refused_connections: AtomicU64::new(0),
+            failed_auths: AtomicU64::new(0),
             inject_accept_errors: AtomicU64::new(0),
             character_title: std::sync::Mutex::new(None),
         })
@@ -933,6 +937,15 @@ impl MobileBridge {
 
     fn note_refused_connection(&self) {
         self.refused_connections.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// 認證失敗次數（`status.heartbeat.failedAuths`）。
+    pub fn failed_auths(&self) -> u64 {
+        self.failed_auths.load(Ordering::SeqCst)
+    }
+
+    fn note_failed_auth(&self) {
+        self.failed_auths.fetch_add(1, Ordering::SeqCst);
     }
 
     /// 測試用故障注入：接下來 `times` 次 accept 直接走錯誤分支。
@@ -2109,6 +2122,8 @@ impl Runtime {
                 "authTimeoutMs": self.mobile.auth_timeout_ms.load(Ordering::SeqCst),
                 "maxConnections": MOBILE_MAX_CONNS,
                 "refusedConnections": self.mobile.refused_connections(),
+                // 撤銷之後還在敲門的手機／區網上猜 token 的 peer：看得見才查得到。
+                "failedAuths": self.mobile.failed_auths(),
                 "maxMessageBytes": MOBILE_WS_MAX_MESSAGE_BYTES,
                 "maxInboundPerSec": MOBILE_MAX_INBOUND_PER_SEC,
             },
@@ -2150,10 +2165,38 @@ impl Runtime {
             }
         }
         // 立即斷線：取消 token → handler 立刻送 auth-fail 並關閉 socket。
+        // 表項在這裡就移除，所以 handler 的收尾會判定「不是我的連線」而跳過
+        // 三件收斂工作——撤銷路徑必須自己做完，否則：等停止確認的人要空等到
+        // 逾時、在途 act 要等滿 ACT_TIMEOUT、麥克風正在串流也不發 sensor.stopped。
+        let mic_enabled = self.mobile_mic_receptor_enabled().await;
         let conn = self.mobile.conns.write().await.remove(device_id);
         let was_connected = conn.is_some();
         if let Some(conn) = conn {
+            // 斷線前這台手機的串流是否「看得見」（活在 status.activeSensors 裡）：
+            // 看得見的才需要補一則 sensor.stopped，事件面與 status 保持一致。
+            let was_streaming =
+                conn.mic_since.is_some() && (mic_enabled || conn.stop_sensors.was_requested());
+            conn.stop_sensors.mark_disconnected();
             conn.close.cancel();
+            let ended = self.mobile.fail_pending_for_device(device_id);
+            if ended > 0 {
+                tracing::info!(
+                    device_id,
+                    ended,
+                    "iPhone revoked — in-flight acts end with an unknown outcome"
+                );
+            }
+            if was_streaming {
+                self.events.emit(
+                    EventType::SensorStopped,
+                    json!({
+                        "sensor": "iphone.mic-level",
+                        "deviceId": device_id,
+                        "source": "iphone",
+                        "reason": "revoked",
+                    }),
+                );
+            }
         }
         let pid = ProviderId::new(format!("provider.mobile.{device_id}"));
         if let Err(e) = self
@@ -2166,6 +2209,10 @@ impl Runtime {
             self.character_project_provider(&pid, ProviderState::Revoked);
         }
         self.mobile_disable_high_risk_receptors(device_id, "revoked")
+            .await;
+        // 全域受器被關掉之後，另一台仍在串流的手機不得從 activeSensors 無聲
+        // 消失：請它也停止感測，並照實顯示「停止中／結果未知」直到它確認。
+        self.mobile_stop_other_streaming_phones(device_id, "revoked")
             .await;
         self.store.audit(
             "mobile.device-revoked",
@@ -2275,6 +2322,83 @@ impl Runtime {
         self.mobile.fail_inflight_stopped();
         self.mobile_stop_sensors(actor, "mobile.estop-stop-sensors", "emergency-stop")
             .await
+    }
+
+    /// 緊急停止**期間**才連上／重連的「這一台」手機：緊急停止在它連上之前就
+    /// 發生了，所以那一輪的 `stop-all` 它沒收到。角色標籤只是說明，真正要做的
+    /// 是請它停止感測——否則它會在緊急停止全程繼續擷取音訊。
+    /// 誠實階梯照舊：只有手機確認才算 stopped，逾時是 unknown（可能仍在錄）。
+    pub(crate) async fn mobile_estop_stop_sensors_device(
+        &self,
+        device_id: &str,
+        reason: &str,
+    ) -> Option<MobileStopOutcome> {
+        // 高風險受器維持 disabled：重連不得讓它自動恢復。
+        self.mobile_disable_high_risk_receptors(device_id, reason)
+            .await;
+        let outcome = self
+            .mobile
+            .stop_sensors_for(Some(device_id), STOP_SENSORS_WAIT, STOP_REASON_EMERGENCY)
+            .await
+            .into_iter()
+            .next();
+        self.store
+            .audit(
+                "mobile.estop-stop-sensors",
+                "runtime",
+                &json!({
+                    "sensors": true,
+                    "reason": reason,
+                    "deviceId": device_id,
+                    "waitedMsBudget": STOP_SENSORS_WAIT.as_millis() as u64,
+                    "devices": outcome.clone().map(|o| vec![o]).unwrap_or_default(),
+                }),
+            )
+            .ok();
+        outcome
+    }
+
+    /// 高風險受器是**全域**開關：為了「這一台」斷線／撤銷而把它關掉之後，桌面
+    /// 就不再收任何手機的音量資料了——另一台仍在串流的手機不能因此從
+    /// `activeSensors` 無聲消失（消失＝宣稱它停了），也不該繼續錄一份沒有人
+    /// 在收的音。對每一台仍在串流、且還沒有待確認停止請求的其他手機送出停止
+    /// 請求：它會留在 `activeSensors` 標「停止中／結果未知」直到手機確認為止。
+    async fn mobile_stop_other_streaming_phones(&self, excluding: &str, reason: &str) {
+        let others: Vec<String> = self
+            .mobile
+            .mic_streaming_devices()
+            .await
+            .into_iter()
+            // 已經有待確認的停止請求就不重送（重送會把已確認的等待重新打開）。
+            .filter(|(id, _, stop_pending)| id != excluding && stop_pending.is_none())
+            .map(|(id, _, _)| id)
+            .collect();
+        if others.is_empty() {
+            return;
+        }
+        // 每台各自有界等待、彼此並行：一台沒回應不得拖住另一台。
+        // wire reason 是「使用者發起」——這不是緊急停止，手機不得顯示成緊急停止。
+        let devices: Vec<MobileStopOutcome> =
+            futures_util::future::join_all(others.iter().map(|id| {
+                self.mobile
+                    .stop_sensors_for(Some(id), STOP_SENSORS_WAIT, STOP_REASON_USER)
+            }))
+            .await
+            .into_iter()
+            .flatten()
+            .collect();
+        self.store
+            .audit(
+                "mobile.sensors-stop-shared-receptor-off",
+                "runtime",
+                &json!({
+                    "reason": reason,
+                    "triggeredBy": excluding,
+                    "waitedMsBudget": STOP_SENSORS_WAIT.as_millis() as u64,
+                    "devices": devices,
+                }),
+            )
+            .ok();
     }
 
     /// 感測不靜默：手機端正在串流的高風險感測也要出現在 `status.activeSensors`
@@ -3022,6 +3146,24 @@ impl Runtime {
                             .unwrap_or(false)
                     };
                     if !ok {
+                        // 認證失敗要留痕：撤銷之後手機持續重連、或區網上有人拿
+                        // 猜來的 deviceId／token 試，都必須在 audit 與 status 上
+                        // 看得見（token 本身永遠不記）。
+                        self.mobile.note_failed_auth();
+                        let known = self.mobile.devices.read().await.contains_key(&device_id);
+                        self.store
+                            .audit(
+                                "mobile.auth-failed",
+                                "runtime",
+                                &json!({
+                                    "peer": peer.to_string(),
+                                    "deviceId": device_id,
+                                    // 沒有這台裝置＝可能是已撤銷的手機還在重連，
+                                    // 也可能是區網上有人在猜 id。
+                                    "knownDevice": known,
+                                }),
+                            )
+                            .ok();
                         send(&out_tx, json!({"type":"auth-fail","reason":"unknown device or bad token (possibly revoked)"})).await;
                         break;
                     }
@@ -3040,12 +3182,19 @@ impl Runtime {
                     .await;
                     authed = Some(device_id.clone());
                     send(&out_tx, json!({"type":"auth-ok"})).await;
-                    // 緊急停止中連上／重連的手機必須「立刻」看到緊急狀態——
-                    // 不能等下一次 estop 才投影，否則它會停在上一個假象上。
+                    // 緊急停止中連上／重連的手機：先「真的要求它停止感測」
+                    // （stop-all { sensors: true }），再投影緊急狀態。只換一個
+                    // 角色文字標籤不會關掉手機的麥克風／位置／BLE 閘道——
+                    // 緊急停止必須連感測一起停，新連線也不例外。
                     // 另開 task：ack 由這條迴圈接收，不能在這裡等自己。
                     if self.is_estopped() {
                         let rt = self.clone();
                         tokio::spawn(async move {
+                            rt.mobile_estop_stop_sensors_device(
+                                &device_id,
+                                "reconnect-during-estop",
+                            )
+                            .await;
                             rt.mobile_project_estop_device(&device_id, "reconnect-during-estop")
                                 .await;
                         });
@@ -3075,7 +3224,17 @@ impl Runtime {
                         self.mobile_audit_missing_consent(receptor).await;
                         continue;
                     }
-                    match filter_mobile_facts(receptor, &v["facts"]) {
+                    // iOS 把語意事件自己的時間戳放在訊息**頂層**的 `at`
+                    // （Protocol.swift），不在 `facts` 裡。manifest 宣告
+                    // `provides: ["event","at"]` 就必須真的收得到它，否則對外
+                    // 宣稱了一個永遠不會出現的欄位。白名單照舊管用：`at` 只有在
+                    // 該 receptor 的 provides 裡才留得下來；facts 自己帶的 `at`
+                    // 優先（不覆寫手機明確放進 facts 的值）。
+                    let mut incoming = v["facts"].clone();
+                    if let (Some(facts), Some(at)) = (incoming.as_object_mut(), v.get("at")) {
+                        facts.entry("at").or_insert_with(|| at.clone());
+                    }
+                    match filter_mobile_facts(receptor, &incoming) {
                         None => self
                             .mobile
                             .note_dropped(receptor, "receptor not in whitelist"),
@@ -3218,11 +3377,15 @@ impl Runtime {
                 Some("superseded") => {} // 同一台手機的新連線仍在：不是斷線
                 Some(reason) => {
                     self.mobile_disable_high_risk_receptors(&device_id, reason)
-                        .await
+                        .await;
+                    self.mobile_stop_other_streaming_phones(&device_id, reason)
+                        .await;
                 }
                 None if was_active => {
                     self.mobile_disable_high_risk_receptors(&device_id, "disconnected")
-                        .await
+                        .await;
+                    self.mobile_stop_other_streaming_phones(&device_id, "disconnected")
+                        .await;
                 }
                 None => {}
             }
@@ -3242,6 +3405,13 @@ impl Runtime {
         duration_ms: u64,
         device_id: Option<&str>,
     ) -> DomainResult<Value> {
+        // BLE 掃描是一次對外的無線探測（比送一則 Ping 風險更高）：緊急停止
+        // 生效時什麼都不送到手機，與 `mobile_test`／`mobile_present_verified` 同。
+        if self.is_estopped() {
+            return Err(DomainError::PolicyBlocked(
+                "emergency stop engaged; nothing is sent to the iPhone".into(),
+            ));
+        }
         let duration_ms = duration_ms.clamp(500, 8_000);
         let id = format!("ble-scan-{}", token_hex(4));
         let msg = json!({"type":"ble.scan","id":id,"durationMs":duration_ms});

@@ -692,3 +692,98 @@ async fn a_spec_without_plaintext_credentials_gets_no_warnings() {
         desk.detail
     );
 }
+
+// ---------------------------------------------------------------------------
+// 對抗審查修復回歸（safety-invariants-074）：停用／撤銷必須跨重啟
+// ---------------------------------------------------------------------------
+
+/// 在同一個 home 上重開一個 runtime（模擬 daemon 重啟）。
+async fn restart_runtime(home: &std::path::Path) -> Runtime {
+    Runtime::start(RuntimeOptions {
+        home: Some(home.to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap()
+}
+
+/// 撤銷一台宣告式裝置之後重啟 daemon：spec 會被重新載入，但受器不得回到
+/// 啟用、也不得能再讀到它（重啟不是重新授權，更不是撤銷的後門）。
+#[tokio::test]
+async fn a_revoked_declarative_device_stays_off_across_a_restart() {
+    let (home, rt, _device) = runtime_with_device_spec().await;
+    let desk = ProviderId::new("provider.adapter.desk-light");
+    let status = ReceptorId::new("desk-light.status");
+
+    // 撤銷前：讀得到（這正是撤銷要收回的東西）。
+    rt.registry
+        .set_receptor_enabled(&status, true)
+        .await
+        .unwrap();
+    assert!(rt.observe_fresh(&status).await.is_ok(), "撤銷前應該讀得到");
+    rt.revoke_provider(&desk).await.unwrap();
+    assert!(
+        rt.registry.receptor(&status).await.is_err(),
+        "撤銷當下就必須停用"
+    );
+    rt.shutdown().await;
+
+    let rt = restart_runtime(home.path()).await;
+    assert_eq!(
+        rt.get_provider(&desk).await.unwrap().state,
+        ProviderState::Revoked,
+        "撤銷是黏著的"
+    );
+    assert!(
+        rt.registry.receptor(&status).await.is_err(),
+        "撤銷後重啟不得讓裝置受器回到啟用"
+    );
+    assert!(
+        rt.observe_fresh(&status).await.is_err(),
+        "撤銷後重啟不得能再讀這台裝置"
+    );
+    assert!(
+        rt.store
+            .audit_tail(100)
+            .unwrap()
+            .into_iter()
+            .any(|a| a["kind"] == json!("provider.kept-off-at-start")),
+        "重啟時維持關閉要留痕"
+    );
+}
+
+/// 人類按下的「停用」同樣要跨重啟；重新啟用之後，下一次啟動才恢復
+/// （恢復的條件是人類的啟用，不是重開 daemon）。
+#[tokio::test]
+async fn a_disabled_declarative_device_stays_off_until_a_human_enables_it_again() {
+    let (home, rt, _device) = runtime_with_device_spec().await;
+    let desk = ProviderId::new("provider.adapter.desk-light");
+    let status = ReceptorId::new("desk-light.status");
+    rt.registry
+        .set_receptor_enabled(&status, true)
+        .await
+        .unwrap();
+    rt.transition_provider(&desk, ProviderState::Disabled)
+        .await
+        .unwrap();
+    rt.shutdown().await;
+
+    let rt = restart_runtime(home.path()).await;
+    assert!(
+        rt.registry.receptor(&status).await.is_err(),
+        "停用後重啟不得自動恢復"
+    );
+
+    // 人類重新啟用 → 下一次啟動才回來（證明修復沒有把裝置永久鎖死）。
+    rt.transition_provider(&desk, ProviderState::Available)
+        .await
+        .unwrap();
+    rt.shutdown().await;
+    let rt = restart_runtime(home.path()).await;
+    assert!(
+        rt.registry.receptor(&status).await.is_ok(),
+        "人類重新啟用之後，重啟應該恢復這台裝置"
+    );
+}

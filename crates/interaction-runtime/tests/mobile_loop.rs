@@ -2438,8 +2438,32 @@ async fn clearing_the_emergency_stop_tells_the_phone_it_is_over() {
     phone.abort();
 }
 
-/// 緊急停止期間才連上（或重連）的手機，一連上就要看到緊急狀態——
-/// 不能停在上一次 plan 留下的畫面上等下一次 estop。
+/// 有界收集接下來的訊息（收滿 `want` 則或逾時就回目前收到的，不 panic）。
+/// 給「必須同時收到兩則、順序不重要」的斷言用。
+async fn collect_json_within(ws: &mut Ws, budget: Duration, want: usize) -> Vec<Value> {
+    let deadline = tokio::time::Instant::now() + budget;
+    let mut out = Vec::new();
+    while out.len() < want {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(left, ws.next()).await {
+            Ok(Some(Ok(Message::Text(text)))) => {
+                if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                    out.push(v);
+                }
+            }
+            Ok(Some(Ok(_))) => continue,
+            _ => break,
+        }
+    }
+    out
+}
+
+/// 緊急停止期間才連上（或重連）的手機：一連上就要**被要求停止感測**
+/// （stop-all { sensors:true, reason:emergency }），而且要看到緊急狀態——
+/// 只換一個角色文字標籤不會關掉手機的麥克風／位置／BLE 閘道。
 #[tokio::test(flavor = "multi_thread")]
 async fn phone_connecting_during_estop_receives_emergency() {
     let (_tmp, rt) = runtime().await;
@@ -2465,11 +2489,46 @@ async fn phone_connecting_during_estop_receives_emergency() {
     )
     .await;
     assert_eq!(recv_json(&mut ws).await["type"], "auth-ok");
-    let act = recv_json_within(&mut ws, Duration::from_secs(4)).await;
-    assert_eq!(act["type"], "act", "{act}");
+    // 兩件事都要發生（順序不重要）：真的停止感測的要求，以及角色狀態投影。
+    let msgs = collect_json_within(&mut ws, Duration::from_secs(8), 2).await;
+    let stop_all = msgs
+        .iter()
+        .find(|m| m["type"] == "stop-all")
+        .unwrap_or_else(|| panic!("緊急停止中連上的手機必須被要求停止感測（stop-all）：{msgs:?}"));
+    assert_eq!(
+        stop_all["sensors"],
+        json!(true),
+        "estop 中重連的手機必須連感測一起停：{stop_all}"
+    );
+    assert_eq!(
+        stop_all["reason"],
+        json!("emergency"),
+        "手機要顯示「因桌面緊急停止而停用」：{stop_all}"
+    );
+    let act = msgs
+        .iter()
+        .find(|m| m["type"] == "act")
+        .unwrap_or_else(|| panic!("緊急狀態也要投影到手機：{msgs:?}"));
     assert_eq!(act["name"], "character.present", "{act}");
     assert_eq!(act["params"]["state"], "emergency", "{act}");
     assert_eq!(act["params"]["source"], "runtime-estop", "{act}");
+    // 逐台結果要進 audit（送出去 ≠ 手機停了：沒回覆就是 unknown）。
+    let audit = last_audit(&rt, "mobile.estop-stop-sensors")
+        .unwrap_or_else(|| panic!("重連時的停止感測要留 audit"));
+    assert_eq!(audit["detail"]["deviceId"], json!(device_id), "{audit}");
+    assert_eq!(
+        audit["detail"]["devices"][0]["outcome"],
+        json!("unknown"),
+        "手機沒確認就必須是 unknown（不得謊稱停了）：{audit}"
+    );
+    // 高風險受器維持 disabled：重連不得讓它自動恢復。
+    assert!(
+        rt.registry
+            .receptor(&interaction_core::ReceptorId::new("iphone.mic-level"))
+            .await
+            .is_err(),
+        "estop 中重連之後 iphone.mic-level 仍須是 disabled"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -3247,4 +3306,257 @@ async fn stop_uncertain_is_a_pending_decision_in_the_inbox() {
         "徽章要數到它：{inbox}"
     );
     silent.abort();
+}
+
+// ---------------------------------------------------------------------------
+// 對抗審查修復回歸（mobile-server 061–066）
+// ---------------------------------------------------------------------------
+
+/// BLE 掃描是一次對外的無線探測：緊急停止生效時必須誠實拒絕，而且**什麼都不
+/// 送到手機**（同檔風險更低的「測試這台手機」早就有這道閘）。
+#[tokio::test(flavor = "multi_thread")]
+async fn ble_scan_is_refused_while_the_emergency_stop_is_engaged() {
+    let (_tmp, rt) = runtime().await;
+    let (_device_id, _token, mut ws) = pair(&rt).await;
+
+    rt.emergency_stop("test", None).await.unwrap();
+    let err = rt
+        .mobile_ble_scan(800, None)
+        .await
+        .expect_err("緊急停止中不得掃描");
+    let why = err.to_string();
+    assert!(
+        why.contains("emergency stop"),
+        "拒絕理由要說是緊急停止：{why}"
+    );
+
+    // estop 自己會送 stop-all／character.present；不得有任何 ble.scan。
+    let msgs = collect_json_within(&mut ws, Duration::from_millis(800), 8).await;
+    assert!(
+        !msgs.iter().any(|m| m["type"] == "ble.scan"),
+        "緊急停止期間不得把 BLE 掃描送到手機：{msgs:?}"
+    );
+}
+
+/// 兩台手機同時串流時，A 斷線會把**全域**的 `iphone.mic-level` 受器關掉——
+/// 仍在串流的 B 不得因此從 `activeSensors` 無聲消失（消失＝宣稱它停了，
+/// 但它的麥克風其實還在錄）。B 必須收到停止請求，並照實顯示「停止中／
+/// 結果未知」直到它確認。
+#[tokio::test(flavor = "multi_thread")]
+async fn one_phone_disconnecting_never_silently_hides_another_streaming_phone() {
+    let (_tmp, rt) = runtime().await;
+    let (id_a, _token_a, mut ws_a) = pair(&rt).await;
+    let (id_b, _token_b, mut ws_b) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+
+    send_phone_status(&mut ws_a, true).await;
+    send_phone_status(&mut ws_b, true).await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let sensors = rt.status().await["activeSensors"].clone();
+        let n = sensors.as_array().map(Vec::len).unwrap_or(0);
+        if n >= 2 || std::time::Instant::now() > deadline {
+            assert_eq!(n, 2, "兩台都在串流時都要看得見：{sensors}");
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // A 斷線（B 的麥克風還在錄）。全域受器被關掉之後，B 必須在 activeSensors
+    // 上收斂成「停止中／結果未知」——而不是無聲消失。
+    drop(ws_a);
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let entry = loop {
+        let sensors = rt.status().await["activeSensors"].clone();
+        let list = sensors.as_array().cloned().unwrap_or_default();
+        assert!(
+            !list
+                .iter()
+                .any(|s| s["startedBy"] == json!(format!("iphone:{id_a}")))
+                || std::time::Instant::now() < deadline,
+            "A 應該要從 activeSensors 消失：{sensors}"
+        );
+        let b = list
+            .iter()
+            .find(|s| s["startedBy"] == json!(format!("iphone:{id_b}")))
+            .cloned();
+        match b {
+            Some(entry) if entry["state"] != json!("active") => break entry,
+            _ if std::time::Instant::now() > deadline => break Value::Null,
+            _ => tokio::time::sleep(Duration::from_millis(50)).await,
+        }
+    };
+    let state = entry["state"].as_str().unwrap_or_default().to_string();
+    let listed = rt.status().await["activeSensors"].clone();
+    assert!(
+        state == "stopping" || state == "stop-unknown",
+        "A 斷線不得讓仍在串流的 B 從 activeSensors 無聲消失：\
+         B 必須誠實標成停止中／結果未知（現在的清單：{listed}）"
+    );
+
+    // B 真的收到停止請求（不是只在畫面上改字）。
+    let msgs = collect_json_within(&mut ws_b, Duration::from_secs(3), 4).await;
+    let stop_all = msgs
+        .iter()
+        .find(|m| m["type"] == "stop-all")
+        .unwrap_or_else(|| panic!("共用受器被關掉時 B 也要收到停止請求：{msgs:?}"));
+    assert_eq!(stop_all["sensors"], json!(true), "{stop_all}");
+    assert_eq!(
+        stop_all["reason"],
+        json!("user"),
+        "這不是緊急停止：手機不得顯示成緊急停止：{stop_all}"
+    );
+    let audit = last_audit(&rt, "mobile.sensors-stop-shared-receptor-off")
+        .unwrap_or_else(|| panic!("要留 audit 說明為什麼 B 也被要求停止"));
+    assert_eq!(audit["detail"]["triggeredBy"], json!(id_a), "{audit}");
+}
+
+/// 撤銷一台「正在串流、而且有在途動作」的手機：撤銷路徑自己就要把收尾做完——
+/// 補一則 `sensor.stopped`、在途 act 立刻收場（不必等滿 4 秒逾時）。
+#[tokio::test(flavor = "multi_thread")]
+async fn revoking_a_streaming_phone_ends_its_sensing_and_inflight_acts_at_once() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+    send_phone_status(&mut ws, true).await;
+    wait_for_iphone_mic_sensor(&rt, true).await;
+
+    // 手機收得到 act 但永遠不回覆（在途）。
+    let silent = tokio::spawn(async move {
+        while let Ok(Some(Ok(_))) = tokio::time::timeout(Duration::from_secs(8), ws.next()).await {}
+    });
+    let actuator = enabled_actuator(&rt, "iphone.haptic").await;
+    let rt_act = rt.clone();
+    let acting = tokio::spawn(async move {
+        actuator
+            .execute(test_action("iphone.haptic"))
+            .await
+            .expect("receipt")
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        if rt_act.mobile_status().await.unwrap()["pendingActs"] == json!(1) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "act 應該已經在途了");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let started = std::time::Instant::now();
+    rt.mobile_revoke(&device_id).await.unwrap();
+    let receipt = tokio::time::timeout(Duration::from_secs(2), acting)
+        .await
+        .expect("撤銷之後在途 act 必須立刻收場，不能等滿 4 秒逾時")
+        .expect("join");
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "撤銷不得讓呼叫端空等到 ACT_TIMEOUT：{:?}",
+        started.elapsed()
+    );
+    assert_ne!(
+        receipt.current_status,
+        interaction_core::ActionStatus::Acknowledged,
+        "手機沒回覆就不得記成 acknowledged：{receipt:?}"
+    );
+    assert_eq!(
+        rt.mobile_status().await.unwrap()["pendingActs"],
+        json!(0),
+        "撤銷後不得留下在途 act"
+    );
+
+    let stopped = iphone_sensor_events(&rt, interaction_core::EventType::SensorStopped);
+    assert!(
+        stopped
+            .iter()
+            .any(|p| p["deviceId"] == json!(device_id) && p["reason"] == json!("revoked")),
+        "撤銷一台正在串流的手機必須補一則 sensor.stopped：{stopped:?}"
+    );
+    silent.abort();
+}
+
+/// iOS 把語意事件自己的時間戳放在訊息**頂層**的 `at`（Protocol.swift），
+/// 不在 `facts` 裡。manifest 宣告 `provides: ["event","at"]` 就必須真的收得到，
+/// 否則對外宣稱了一個永遠不會出現的欄位。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_top_level_at_on_a_motion_observation_reaches_the_facts() {
+    let (_tmp, rt) = runtime().await;
+    let (_device_id, _token, mut ws) = pair(&rt).await;
+    // 與 iOS ProtocolTests.swift 釘住的 wire 形狀一致。
+    send_json(
+        &mut ws,
+        json!({
+            "type": "observation",
+            "receptor": "iphone.motion",
+            "facts": {"event": "lifted"},
+            "at": "2026-08-28T10:00:00.000Z",
+        }),
+    )
+    .await;
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let facts = loop {
+        let found = rt
+            .events
+            .recent(200)
+            .into_iter()
+            .filter(|e| e.event_type == interaction_core::EventType::ReceptorObservation)
+            .find(|e| e.payload["receptorId"] == json!("iphone.motion"))
+            .map(|e| e.payload["facts"].clone());
+        if let Some(facts) = found {
+            break facts;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "motion 觀察應該要進事件流"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(facts["event"], json!("lifted"), "{facts}");
+    assert_eq!(
+        facts["at"],
+        json!("2026-08-28T10:00:00.000Z"),
+        "manifest 宣告收得到 `at`，就不能把手機送來的時間戳丟掉：{facts}"
+    );
+}
+
+/// 認證失敗（未知裝置／錯 token／撤銷後仍在重連）必須留 audit ＋計數：
+/// 撤銷有沒有生效、區網上有沒有人在猜 deviceId／token，使用者要看得見。
+/// token 本身永遠不進 audit。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_auth_is_audited_and_counted() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, _ws) = pair(&rt).await;
+    let status = rt.mobile_status().await.unwrap();
+    let port = status["port"].as_u64().unwrap() as u16;
+    let fp = status["fingerprint"].as_str().unwrap().to_string();
+
+    let mut ws = connect(port, &fp).await;
+    send_json(
+        &mut ws,
+        json!({"type":"auth","deviceId":device_id,"token":"not-the-real-token"}),
+    )
+    .await;
+    assert_eq!(recv_json(&mut ws).await["type"], "auth-fail");
+
+    let audit = last_audit(&rt, "mobile.auth-failed")
+        .unwrap_or_else(|| panic!("認證失敗必須留 audit（撤銷後的重連才看得見）"));
+    assert_eq!(audit["detail"]["deviceId"], json!(device_id), "{audit}");
+    assert_eq!(audit["detail"]["knownDevice"], json!(true), "{audit}");
+    assert!(
+        audit["detail"]["peer"].as_str().unwrap_or_default().len() > 3,
+        "要記下是誰在敲門：{audit}"
+    );
+    assert!(
+        !serde_json::to_string(&audit)
+            .unwrap_or_default()
+            .contains("not-the-real-token"),
+        "audit 不得記下對方送來的 token：{audit}"
+    );
+    assert_eq!(
+        rt.mobile_status().await.unwrap()["heartbeat"]["failedAuths"],
+        json!(1),
+        "status 要數得出來"
+    );
 }

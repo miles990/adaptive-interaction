@@ -38,6 +38,18 @@ pub enum TestedCapability {
 /// 人為測試不節流（使用者按了就要看到最新結果）。
 const TESTED_AUTO_THROTTLE_SECS: i64 = 60;
 
+/// 「人類把這個 provider 關掉了」的落地鍵前綴（`provider-off:<providerId>`）。
+///
+/// 為什麼不直接看 provider 記錄的狀態：重啟時**系統自己**會把 operational 的
+/// provider 降成 Disabled（`re-armed on restart requires explicit enable`），
+/// 那是系統的降級，不是人類的決定；只看狀態會把兩者混為一談，讓每次重啟都變成
+/// 永久停用。這個鍵只在人類真的按下停用／撤銷時寫入，重新啟用時清掉。
+const PROVIDER_OFF_META_PREFIX: &str = "provider-off:";
+
+fn provider_off_key(id: &ProviderId) -> String {
+    format!("{PROVIDER_OFF_META_PREFIX}{}", id.as_str())
+}
+
 /// 「已測試」證據的人話註記。UI（一般模式）會把它原樣顯示，所以這裡不用
 /// 受器／動器／hello／pair-ok 這類技術詞：感知來源＝receptor、回應方式＝actuator；
 /// 有實體連線（serial/mqtt/ble）的裝置多加一句「裝置報上身分並完成配對」。
@@ -313,8 +325,6 @@ impl Runtime {
         &self,
         spec: &interaction_adapter_declarative::DeclarativeSpec,
     ) -> DomainResult<()> {
-        let built = interaction_adapter_declarative::build(spec, Some(self.paths.home.clone()))
-            .map_err(DomainError::Validation)?;
         let identity = spec.provider.clone().unwrap_or(ProviderIdentity {
             id: ProviderId::new(format!("provider.adapter.{}", spec.id)),
             kind: ProviderKind::Device,
@@ -326,6 +336,12 @@ impl Runtime {
             human: None,
         });
         let provider_id = identity.id.clone();
+        // 人類按下的「停用／撤銷」必須跨重啟：spec 每次啟動都會重新載入，
+        // 但被停用／撤銷的裝置不得因此把實體連線重新開回來、也不得讓受器
+        // 回到啟用（重啟不是重新授權）。決定記在 store，重啟後仍在。
+        let kept_off = self.provider_off_reason(&provider_id);
+        let built = interaction_adapter_declarative::build(spec, Some(self.paths.home.clone()))
+            .map_err(DomainError::Validation)?;
         // 記住這個 provider 開出來的實體連線（serial/mqtt/ble），
         // disable／revoke 時才關得掉——停用的 provider 不得繼續佔著埠或
         // broker 連線做無盡重連。
@@ -333,6 +349,17 @@ impl Runtime {
             provider_id.as_str(),
             &built.links,
         );
+        if let Some(reason) = &kept_off {
+            // build() 會 spawn serial/mqtt/ble 連線：在註冊能力之前就立刻關掉，
+            // 停用中的裝置不得在背景重連（重啟不得把人類關掉的東西打開）。
+            let closed = self.close_declarative_links(&provider_id, reason);
+            tracing::info!(
+                provider = %provider_id.as_str(),
+                reason,
+                links = ?closed,
+                "declarative device stays off across restart (a human disabled/revoked it)"
+            );
+        }
         // 有實體連線（serial/mqtt/ble）的 provider：之後任何一次成功的讀取或
         // 命令都必然通過 hello 身分＋pair-ok 握手，證據等級記為 handshake。
         if let Ok(mut links) = self.device_link_providers.lock() {
@@ -352,6 +379,35 @@ impl Runtime {
         for actuator in built.actuators {
             actuator_ids.push(actuator.manifest().id.as_str().to_string());
             self.registry.register_actuator(actuator).await?;
+        }
+        if let Some(reason) = &kept_off {
+            // 能力重新註冊時 registry 會用 manifest 的預設值決定啟用與否
+            // （不需 consent 的受器預設啟用）——被停用／撤銷的裝置必須立刻
+            // 回到 disabled，否則「重啟」就成了繞過人類決定的後門。
+            for rid in &receptor_ids {
+                let _ = self
+                    .registry
+                    .set_receptor_enabled(&ReceptorId::new(rid), false)
+                    .await;
+            }
+            for aid in &actuator_ids {
+                let _ = self
+                    .registry
+                    .set_actuator_enabled(&ActuatorId::new(aid), false)
+                    .await;
+            }
+            self.store
+                .audit(
+                    "provider.kept-off-at-start",
+                    "runtime",
+                    &json!({
+                        "providerId": provider_id.as_str(),
+                        "reason": reason,
+                        "receptors": receptor_ids,
+                        "actuators": actuator_ids,
+                    }),
+                )
+                .ok();
         }
 
         // A persisted record (e.g. already paired) wins over a fresh one.
@@ -731,10 +787,57 @@ impl Runtime {
         ) {
             self.close_declarative_links(id, "disabled");
         }
+        // 停用類的決定是人類做的，必須跨重啟：否則重開 daemon 就會把 serial 埠／
+        // broker 連線重新開回來、受器也回到啟用（＝停用只在這次執行有效）。
+        // 重新啟用（或其他狀態）就把記號清掉，裝置下一次啟動才回得來。
+        if matches!(
+            state,
+            ProviderState::Disabled
+                | ProviderState::Closed
+                | ProviderState::Expired
+                | ProviderState::Revoked
+        ) {
+            self.mark_provider_off(id, &format!("{state:?}").to_lowercase());
+        } else {
+            self.clear_provider_off(id);
+        }
         self.persist_provider(id).await;
         // Character Protocol §11：available → greet、disconnected → notice。
         self.character_project_provider(id, state);
         Ok(desc)
+    }
+
+    /// 記下「人類把這個 provider 關掉了」（跨重啟有效）。落地失敗只記警告：
+    /// 這一次的停用仍然生效（連線已關），但要誠實留下痕跡說重啟後可能復活。
+    fn mark_provider_off(&self, id: &ProviderId, reason: &str) {
+        if let Err(e) = self.store.set_meta(&provider_off_key(id), reason) {
+            tracing::warn!(
+                provider = %id.as_str(),
+                error = %e,
+                "could not persist the disable decision — it may not survive a restart"
+            );
+            self.store
+                .audit(
+                    "provider.off-not-persisted",
+                    "runtime",
+                    &json!({"providerId": id.as_str(), "reason": reason, "error": e.to_string()}),
+                )
+                .ok();
+        }
+    }
+
+    /// 人類重新啟用 → 清掉「關掉了」的記號（空字串＝沒有記號）。
+    fn clear_provider_off(&self, id: &ProviderId) {
+        let _ = self.store.set_meta(&provider_off_key(id), "");
+    }
+
+    /// 這個 provider 是否被人類停用／撤銷過（重啟後仍要遵守）。
+    fn provider_off_reason(&self, id: &ProviderId) -> Option<String> {
+        self.store
+            .get_meta(&provider_off_key(id))
+            .ok()
+            .flatten()
+            .filter(|reason| !reason.is_empty())
     }
 
     /// 關閉某 provider 的宣告式 adapter 連線（若有）。回傳關掉的連線描述。
@@ -769,8 +872,10 @@ impl Runtime {
                 .set_actuator_enabled(&ActuatorId::new(aid), false)
                 .await;
         }
-        // 撤銷＝連線也要斷（不只是停止派工）。
+        // 撤銷＝連線也要斷（不只是停止派工），而且必須跨重啟：重啟後 spec 重新
+        // 載入時不得把連線開回來、也不得讓受器回到啟用。
         let closed_links = self.close_declarative_links(id, "revoked");
+        self.mark_provider_off(id, "revoked");
         self.persist_provider(id).await;
         self.character_project_provider(id, ProviderState::Revoked);
         self.store.audit(
