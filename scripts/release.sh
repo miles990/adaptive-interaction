@@ -46,16 +46,28 @@ print(f"versions -> {version}")
 EOF
 
 # CHANGELOG: move Unreleased into the new version section.
+# 兩種合法狀態：(a) 已有 `## [<version>]` 段（整合者事先寫好，本腳本不動）；
+# (b) 有 `## [Unreleased]` 標題可被轉成新版本段。兩者都沒有＝CHANGELOG 沒準備好，
+# 必須失敗而不是印「成功」卻什麼都沒插入（v0.5.0 發布時 Unreleased 標題缺席，
+# 這一步曾靜默跳過）。
 python3 - "$VERSION" <<'EOF'
 import datetime, sys
 version = sys.argv[1]
 today = datetime.date.today().isoformat()
 p = "CHANGELOG.md"
 s = open(p).read()
-if f"## [{version}]" not in s:
+if f"## [{version}]" in s:
+    print(f"CHANGELOG: section {version} already present; left untouched")
+elif "## [Unreleased]" in s:
     s = s.replace("## [Unreleased]", f"## [Unreleased]\n\n## [{version}] - {today}", 1)
     open(p, "w").write(s)
+    assert f"## [{version}] - {today}" in open(p).read(), "CHANGELOG section insertion failed"
     print(f"CHANGELOG: added section {version}")
+else:
+    sys.exit(
+        f"CHANGELOG.md has neither '## [{version}]' nor '## [Unreleased]'; "
+        "add the release section (or an Unreleased heading) before cutting the tag"
+    )
 EOF
 
 cargo check --workspace -q

@@ -37,7 +37,7 @@ jobs:
         run: cargo build --workspace
 
   desktop-backend:
-    name: Tauri backend (check)
+    name: Tauri backend (clippy + test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,8 +56,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/interaction-desktop/src-tauri
-      - name: check
-        run: cargo check --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml
+      - name: clippy
+        run: cargo clippy --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: test (host_safety / character_store / tray / click-through / supervisor units)
+        run: cargo test --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml
 
   frontend:
     name: Frontend (typecheck + component tests + build)
