@@ -1,9 +1,9 @@
 // 使用者任務：打開「現在」就看懂三件事——角色現在怎麼樣、正在做什麼、有什麼要我決定。
 //
-// 每一種後端狀態（沒有工作／處理中／等你同意／Agent 說已完成／已人工驗證／
-// 結果不確定／已停止／緊急停止中）都用真 daemon 造出來，再對照畫面上的那三張卡，
+// 每一種後端狀態（沒有工作／處理中／等你允許／對方說已完成／已人工驗證／
+// 結果不確定／已取消／緊急停止中）都用真 daemon 造出來，再對照畫面上的那三張卡，
 // 桌面與 390px 都看一次。誠實重點：首頁永遠不會把「Agent 的說法」升級成綠勾，
-// 終局狀態（結果不確定／已停止）不算「進行中」。
+// 終局狀態（結果不確定／已取消）不算「進行中」。
 
 import { test, expect, Page } from "@playwright/test";
 import {
@@ -91,7 +91,7 @@ test("現在：沒有工作時，三個回答誠實說「沒有進行中」", as
   await assertThreeAnswers(page, request);
 });
 
-test("現在：處理中／等你同意／Agent 說已完成各自用人話出現，驗證過也不會在首頁變綠勾", async ({
+test("現在：處理中／等你允許／對方說已完成各自用人話出現，驗證過也不會在首頁變綠勾", async ({
   page,
   request,
 }) => {
@@ -126,8 +126,8 @@ test("現在：處理中／等你同意／Agent 說已完成各自用人話出�
   await expect(work.getByText("3 個工作階段")).toBeVisible({ timeout: 20_000 });
   for (const [label, badge] of [
     [working, "處理中"],
-    [consent, "等你同意"],
-    [claimed, "Agent 說已完成，等待檢查"],
+    [consent, "等你允許"],
+    [claimed, "對方說已完成"],
   ] as const) {
     const row = work.locator("li", { hasText: label });
     await expect(row).toBeVisible();
@@ -135,7 +135,7 @@ test("現在：處理中／等你同意／Agent 說已完成各自用人話出�
   }
   await assertThreeAnswers(page, request);
 
-  // 人工驗證之後：後端多了 humanVerified，首頁仍然只說「Agent 說已完成」——
+  // 人工驗證之後：後端多了 humanVerified，首頁仍然只說「對方說已完成」——
   // 綠勾是工作頁那張卡的事，首頁不搶著宣稱。
   const verified = (await api(request, "POST", `/v1/agent-sessions/${idClaimed}/verify`, {
     note: "首頁狀態驗收：人工確認",
@@ -146,7 +146,7 @@ test("現在：處理中／等你同意／Agent 說已完成各自用人話出�
   await expect(work.getByText("3 個工作階段")).toBeVisible({ timeout: 20_000 });
   await expect(work.getByText("✓")).toHaveCount(0);
   await expect(work.locator("li", { hasText: claimed }).locator(".badge")).toHaveText(
-    "Agent 說已完成，等待檢查"
+    "對方說已完成"
   );
 
   await page.setViewportSize(NARROW);
@@ -154,7 +154,7 @@ test("現在：處理中／等你同意／Agent 說已完成各自用人話出�
   await expect(work.locator("li", { hasText: working }).locator(".badge")).toHaveText("處理中");
 });
 
-test("現在：結果不確定與已停止都是終局——不算進行中，也不會被講成完成", async ({
+test("現在：結果不確定與已取消都是終局——不算進行中，也不會被講成完成", async ({
   page,
   request,
 }) => {

@@ -9,7 +9,7 @@ import type { AdapterLifecycleState } from "./character/protocol";
 // 會讓 typecheck 失敗，不會靜默退化成把原始字串印到畫面上。
 //
 // 誠實階梯：
-// - claimed ≠ verified：Agent 說做完了只是「它的說法」，等待你檢查。
+// - claimed ≠ verified：對方說做完了只是「它的說法」，等待你檢查。
 // - unknown 既不是成功也不是失敗，只能說「結果不確定」。
 // - 介面不認得的原始值一律投影成「結果不確定」並標 `known: false`；
 //   一般模式絕不把原始字串當主要標籤，進階模式才在次要的 muted 行顯示原始值。
@@ -66,9 +66,9 @@ export interface Projection {
   label: string;
   kind: ProjectionKind;
   badge: BadgeKind;
-  /** 需要人類裁決（等你補充／等你同意／等待檢查）。 */
+  /** 需要人類裁決（等你回答／等你允許／對方說已完成）。 */
   needsDecision: boolean;
-  /** 誠實註記，例如「Agent 的說法，尚未檢查」；沒有就省略。 */
+  /** 誠實註記，例如「對方的說法，尚未檢查」；沒有就省略。 */
   honesty?: string;
 }
 
@@ -79,7 +79,14 @@ export interface ProjectedStatus extends Projection {
 }
 
 const PREPARING: Projection = {
-  label: "準備中",
+  label: "正在準備",
+  kind: "preparing",
+  badge: "pending",
+  needsDecision: false,
+};
+/** 任務真的被取走了（gateway 送進子程序／輪詢型 agent fetch）——但還沒有結果。 */
+const FETCHED: Projection = {
+  label: "已交給工作助手",
   kind: "preparing",
   badge: "pending",
   needsDecision: false,
@@ -91,19 +98,20 @@ const WORKING: Projection = {
   needsDecision: false,
 };
 const NEEDS_INPUT: Projection = {
-  label: "等你補充",
+  label: "等你回答",
   kind: "needs-input",
   badge: "warn",
   needsDecision: true,
 };
 const NEEDS_CONSENT: Projection = {
-  label: "等你同意",
+  label: "等你允許",
   kind: "needs-consent",
   badge: "warn",
   needsDecision: true,
 };
-const STOPPED: Projection = {
-  label: "已停止",
+/** 取消與關閉在一般模式是同一件事：這個工作不再進行了。 */
+const CANCELLED: Projection = {
+  label: "已取消",
   kind: "stopped",
   badge: "muted",
   needsDecision: false,
@@ -113,7 +121,7 @@ const STOPPED: Projection = {
 export const WORK_STATE_PROJECTION = {
   created: PREPARING,
   queued: PREPARING,
-  fetched: PREPARING,
+  fetched: FETCHED,
   active: WORKING,
   working: WORKING,
   "waiting-for-input": NEEDS_INPUT,
@@ -126,28 +134,29 @@ export const WORK_STATE_PROJECTION = {
     badge: "bad",
     needsDecision: false,
   },
+  // 誠實階梯：claimed 只是對方的說法，沒有綠勾、沒有慶祝，而且要你裁決。
   "claimed-completed": {
-    label: "Agent 說已完成，等待檢查",
+    label: "對方說已完成",
     kind: "claimed",
     badge: "warn",
     needsDecision: true,
-    honesty: "Agent 的說法，尚未檢查",
+    honesty: "對方的說法，尚未檢查",
   },
   verified: {
-    label: "已確認完成",
+    label: "已由你確認",
     kind: "verified",
     badge: "ok",
     needsDecision: false,
     honesty: "由你親自確認",
   },
   failed: {
-    label: "執行失敗",
+    label: "失敗",
     kind: "failed",
     badge: "bad",
     needsDecision: false,
   },
   "timed-out": {
-    label: "執行逾時",
+    label: "逾時失敗",
     kind: "timed-out",
     badge: "bad",
     needsDecision: false,
@@ -165,8 +174,8 @@ export const WORK_STATE_PROJECTION = {
     needsDecision: false,
     honesty: "既不是成功也不是失敗",
   },
-  cancelled: STOPPED,
-  closed: STOPPED,
+  cancelled: CANCELLED,
+  closed: CANCELLED,
 } satisfies Record<WorkState, Projection>;
 
 /** 全部工作狀態（由對照表導出，保證與型別一致）。 */

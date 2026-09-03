@@ -1,5 +1,5 @@
 // 工作（spec §16-1.D／§9）：本機 Agent 連接、分工偏好、工作卡片（誠實狀態階梯：
-// Agent 說已完成 ≠ 已確認完成）、核可裁決、再交代、暫停／中斷、關閉。
+// 對方說已完成 ≠ 已由你確認）、核可裁決、再交代、暫停／中斷、關閉。
 //
 // 兩種版面：
 // - "task-first"（一般模式，由 WorkPage 搭配 TaskComposer 使用）：工作清單在前，
@@ -31,6 +31,7 @@ import {
   DEFAULT_MAX_COST_USD,
   DEFAULT_TTL_MINUTES,
 } from "./work/TaskComposer";
+import { classifyDelivery, deliveryNoticeText, type DeliveryStatus } from "../work/delivery";
 
 /** 工作階段狀態的人話對照：由共用狀態投影（statusProjection.ts）導出的
  *  相容檢視（text／kind），供外部介面沿用，免得一般模式又冒出
@@ -127,18 +128,6 @@ export function buildResumeInput(record: AgentSessionRecord): Record<string, unk
   };
 }
 
-/**
- * 送出的訊息是否**真的**送到 Agent 了。
- *
- * 誠實階梯（dispatched ≠ acknowledged）：後端只有在訊息真的寫進 Agent
- * 子程序時才蓋 `deliveredAt`。輪詢型 Agent（尚未來取）、子程序已經不再
- * 接收的情況都會回一則沒有戳記的訊息——那是「已排進信箱」，不是「已送達」。
- */
-export function deliveredToAgent(message: unknown): boolean {
-  const at = (message as { deliveredAt?: unknown } | null | undefined)?.deliveredAt;
-  return typeof at === "string" && at.length > 0;
-}
-
 /** 接續時實際沿用了什麼——說出來，不讓人以為只是「同一段對話」。 */
 export function resumeLimitsText(record: AgentSessionRecord): string {
   const limits = resumeLimits(record);
@@ -172,7 +161,7 @@ type ClaimScopedRecord = AgentSessionRecord & {
 /**
  * 這一輪的 claim 是否已由人親自確認（綠勾的唯一來源）。
  * 誠實階梯：human_verified 是 session 層級旗標，但 session 可多輪——
- * - 只有 state 仍是 claimed-completed 時才可能是「已確認完成」；Active／等待中的
+ * - 只有 state 仍是 claimed-completed 時才可能是「已由你確認」；Active／等待中的
  *   第二輪不得沿用上一輪的綠勾；
  * - 後端若回報 claim id（`humanVerifiedClaimId`／`humanVerified.claimId` 對 `claimId`），
  *   兩者必須相同；
@@ -489,7 +478,7 @@ function SessionCard({
   // 一般模式永遠是人話；介面不認得的狀態投影成「結果不確定」，
   // 原始狀態碼只在進階模式的次要行出現。
   // 人工驗證是後端的獨立欄位（state 仍是 claimed-completed）：只有它對應目前這一輪
-  // claim 時才投影成「已確認完成」；沒有它，Agent 的說法永遠只是說法。
+  // claim 時才投影成「已由你確認」；沒有它，對方的說法永遠只是說法。
   const verified = verifiedForCurrentClaim(record);
   const status = verified ? projectWorkState("verified") : projectWorkState(record.state);
   const claimed = record.state === "claimed-completed" && !verified;
@@ -695,20 +684,19 @@ function SessionCard({
               <button
                 disabled={!task.trim()}
                 onClick={async () => {
+                  // 誠實階梯：送出的結果一律走與工作頁同一份六態投影
+                  // （work/delivery）——只有後端蓋了送達戳記才算「已送達」，
+                  // 沒送到的三種原因（忙／不可用／失敗）也各說各的，不混為一談。
+                  const who = { agentName: agentDisplayName(record.agentId) };
+                  let status: DeliveryStatus;
                   try {
                     const sent = await api.agentSessionSend(record.sessionId, "task", { task });
-                    setTask("");
-                    // 誠實階梯：只有後端蓋了送達戳記才算「已送達」。沒有戳記
-                    // ＝訊息還在信箱裡（輪詢型 Agent 尚未取走，或子程序已經
-                    // 不再接收），不得一律宣稱送達。
-                    onNotice(
-                      deliveredToAgent(sent)
-                        ? "已送出（已送達 Agent，尚未完成）。"
-                        : "已放進信箱，尚未送達 Agent（Agent 取走後才會開始）。"
-                    );
+                    status = classifyDelivery({ ...who, sent });
                   } catch (e) {
-                    onNotice(`送出失敗：${e}`);
+                    status = classifyDelivery({ ...who, error: e });
                   }
+                  if (status.accepted) setTask("");
+                  onNotice(deliveryNoticeText(status, { advanced }));
                 }}
               >
                 送出

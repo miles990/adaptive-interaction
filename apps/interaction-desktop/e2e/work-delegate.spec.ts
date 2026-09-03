@@ -155,7 +155,7 @@ test("工作：在 composer 交代一件唯讀工作 → 真的建立成唯讀 s
   await expect(card.getByText("處理中", { exact: true })).toBeVisible();
 });
 
-test("工作：暫停／中斷會真的停下來（後端 cancelled → 回到工作頁看到「已停止」，首頁不再算它進行中）", async ({
+test("工作：暫停／中斷會真的停下來（後端 cancelled → 回到工作頁看到「已取消」，首頁不再算它進行中）", async ({
   page,
   request,
 }) => {
@@ -181,9 +181,9 @@ test("工作：暫停／中斷會真的停下來（後端 cancelled → 回到�
   // 後端事實：真的取消了（不是只顯示了一句話）。
   await waitSessionState(request, sessionId, ["cancelled"], 30_000);
 
-  // 使用者回到工作頁：卡片說「已停止」，而且不再提供中斷／續租。
+  // 使用者回到工作頁：卡片說「已取消」，而且不再提供中斷／續租。
   await reopenWork(page);
-  await expect(card.getByText("已停止", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(card.getByText("已取消", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(card.getByRole("button", { name: "暫停／中斷目前工作" })).toHaveCount(0);
 
   // 首頁「進行中的工作」不再把它算進去（is_open 的定義只有一份）。
@@ -197,7 +197,7 @@ test("工作：暫停／中斷會真的停下來（後端 cancelled → 回到�
 // 的同時，`agent.session.state` 事件也必須發得出去。舊版把 receptor ingest 排在事件
 // 前面並用 `?` 提早返回，觀察管線一失敗事件就整個靜默（SSE 從中斷前的序號重放只停在
 // working），畫面因此停在「處理中」直到重新載入。這一支盯的就是「不重新載入」。
-test("工作：中斷之後畫面自己更新（不重新載入也要從「處理中」變成「已停止」）", async ({
+test("工作：中斷之後畫面自己更新（不重新載入也要從「處理中」變成「已取消」）", async ({
   page,
   request,
 }) => {
@@ -219,7 +219,7 @@ test("工作：中斷之後畫面自己更新（不重新載入也要從「處�
   await card.getByRole("button", { name: "暫停／中斷目前工作" }).click();
   await waitSessionState(request, sessionId, ["cancelled"], 30_000);
   // 不重新載入：使用者盯著畫面，狀態必須自己更新。
-  await expect(card.getByText("已停止", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(card.getByText("已取消", { exact: true })).toBeVisible({ timeout: 15_000 });
 });
 
 test("工作：關閉一個工作階段只敢說「已要求終止子程序」", async ({ page, request }) => {
@@ -248,7 +248,7 @@ test("工作：關閉一個工作階段只敢說「已要求終止子程序」",
   expect(["closed", "cancelled"]).toContain(after.state);
 });
 
-test("工作：Agent 說完成 ≠ 已確認完成——綠勾只有按下「標記為已驗證」才會出現", async ({
+test("工作：對方說完成 ≠ 已由你確認——綠勾只有按下「標記為已驗證」才會出現", async ({
   page,
   request,
 }) => {
@@ -267,7 +267,7 @@ test("工作：Agent 說完成 ≠ 已確認完成——綠勾只有按下「標
 
   await reopenWork(page);
   const card = page.locator(".provider-card", { hasText: label });
-  await expect(card.getByText("Agent 說已完成，等待檢查")).toBeVisible({ timeout: 20_000 });
+  await expect(card.getByText("對方說已完成", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(card.getByText(/它的說法/)).toBeVisible();
   await expect(card.getByText(/✓/)).toHaveCount(0);
 
@@ -284,14 +284,14 @@ test("工作：Agent 說完成 ≠ 已確認完成——綠勾只有按下「標
   expect(verified.humanVerified).toBeTruthy();
 
   await reopenWork(page);
-  await expect(card.getByText(/✓ 已確認完成/)).toBeVisible({ timeout: 20_000 });
+  await expect(card.getByText(/✓ 已由你確認/)).toBeVisible({ timeout: 20_000 });
   await expect(card.getByText(/由你親自確認/)).toBeVisible();
   await expect(card.getByRole("button", { name: "標記為已驗證（我確認過結果）" })).toHaveCount(0);
 
   // 390px 也看得到同一組事實。
   await page.setViewportSize(NARROW);
   await card.scrollIntoViewIfNeeded();
-  await expect(card.getByText(/✓ 已確認完成/)).toBeVisible();
+  await expect(card.getByText(/✓ 已由你確認/)).toBeVisible();
 });
 
 test("工作：agent 沒說結果就結束＝結果不確定（不是成功也不是失敗，也沒有驗證鈕）", async ({
@@ -323,7 +323,7 @@ test("工作：agent 沒說結果就結束＝結果不確定（不是成功也�
   await expect(card.getByText("結果不確定", { exact: true })).toBeVisible();
 });
 
-test("工作：等你同意時按「拒絕」——畫面說「你已拒絕」，而且裁決真的送到 agent", async ({
+test("工作：等你允許時按「拒絕」——畫面說「你已拒絕」，而且裁決真的送到 agent", async ({
   page,
   request,
 }) => {
@@ -339,7 +339,7 @@ test("工作：等你同意時按「拒絕」——畫面說「你已拒絕」�
 
   await reopenWork(page);
   const card = page.locator(".provider-card", { hasText: label });
-  await expect(card.getByText("等你同意", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(card.getByText("等你允許", { exact: true })).toBeVisible({ timeout: 20_000 });
   await card.getByRole("button", { name: "查看結果／訊息" }).click();
   await expect(card.getByText("等待你核可")).toBeVisible({ timeout: 20_000 });
   await card.getByRole("button", { name: "拒絕", exact: true }).click();

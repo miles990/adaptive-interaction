@@ -310,7 +310,7 @@ describe("Global Search 一般模式說人話", () => {
     await userEvent.type(input, "報告工作階段");
     await screen.findByText("工作階段：報告工作階段");
     // 文案以共用狀態投影（statusProjection.ts）的 spec 表格為準：claimed ≠ verified。
-    expect(container.textContent).toContain("Agent 說已完成，等待檢查");
+    expect(container.textContent).toContain("對方說已完成");
     expect(container.textContent).not.toContain("claimed-completed");
   });
 

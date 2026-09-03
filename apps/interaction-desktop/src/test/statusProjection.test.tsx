@@ -36,24 +36,24 @@ afterEach(() => {
 
 /** spec 表格：原始值 → 一般模式標籤（一字不改）。 */
 const SPEC_TABLE: Record<WorkState, string> = {
-  created: "準備中",
-  queued: "準備中",
-  fetched: "準備中",
+  created: "正在準備",
+  queued: "正在準備",
+  fetched: "已交給工作助手",
   active: "處理中",
   working: "處理中",
-  "waiting-for-input": "等你補充",
-  "waiting-input": "等你補充",
-  "waiting-for-consent": "等你同意",
-  "waiting-consent": "等你同意",
+  "waiting-for-input": "等你回答",
+  "waiting-input": "等你回答",
+  "waiting-for-consent": "等你允許",
+  "waiting-consent": "等你允許",
   blocked: "無法繼續",
-  "claimed-completed": "Agent 說已完成，等待檢查",
-  verified: "已確認完成",
-  failed: "執行失敗",
-  "timed-out": "執行逾時",
+  "claimed-completed": "對方說已完成",
+  verified: "已由你確認",
+  failed: "失敗",
+  "timed-out": "逾時失敗",
   expired: "已到期",
   unknown: "結果不確定",
-  cancelled: "已停止",
-  closed: "已停止",
+  cancelled: "已取消",
+  closed: "已取消",
 };
 
 const SESSION: AgentSessionRecord = {
@@ -111,7 +111,7 @@ describe("projectWorkState：窮舉對照表", () => {
 
   it("claimed-completed 帶誠實註記，verified 只有綠色；沒有任何路徑把 claimed 翻成 verified", () => {
     const claimed = projectWorkState("claimed-completed");
-    expect(claimed.honesty).toBe("Agent 的說法，尚未檢查");
+    expect(claimed.honesty).toBe("對方的說法，尚未檢查");
     expect(claimed.kind).toBe("claimed");
     expect(claimed.badge).not.toBe("ok");
     expect(projectWorkState("verified").badge).toBe("ok");
@@ -152,7 +152,7 @@ describe("projectWorkState：窮舉對照表", () => {
 
 describe("projectInboxStatus／inboxKindLabel", () => {
   it("工作狀態沿用同一份投影；收件匣專屬狀態有自己的人話", () => {
-    expect(projectInboxStatus("waiting-for-consent").label).toBe("等你同意");
+    expect(projectInboxStatus("waiting-for-consent").label).toBe("等你允許");
     expect(projectInboxStatus("claimed-completed").needsDecision).toBe(true);
     expect(projectInboxStatus("candidate")).toMatchObject({
       label: "等待確認",
@@ -215,8 +215,8 @@ describe("projectInboxStatus／inboxKindLabel", () => {
 
 describe("App.inboxStatusLabel 與 AiPage.SESSION_STATE_LABEL 由投影導出", () => {
   it("inboxStatusLabel 走投影：未知值不回原始字串", () => {
-    expect(inboxStatusLabel("waiting-for-consent")).toBe("等你同意");
-    expect(inboxStatusLabel("claimed-completed")).toBe("Agent 說已完成，等待檢查");
+    expect(inboxStatusLabel("waiting-for-consent")).toBe("等你允許");
+    expect(inboxStatusLabel("claimed-completed")).toBe("對方說已完成");
     expect(inboxStatusLabel("candidate")).toBe("等待確認");
     expect(inboxStatusLabel("some-new-state")).toBe("結果不確定");
   });
@@ -240,10 +240,10 @@ describe("AiPage 工作階段卡片用投影", () => {
     );
   }
 
-  it("state=fetched（角色 taxonomy 事件別名）顯示「準備中」，不是原始字串", async () => {
+  it("state=fetched（角色 taxonomy 事件別名）顯示「已交給工作助手」，不是原始字串", async () => {
     const { container } = renderAiPage("fetched");
     await screen.findByText("整理測試報告");
-    expect(screen.getByText("準備中")).toBeInTheDocument();
+    expect(screen.getByText("已交給工作助手")).toBeInTheDocument();
     expect(container.textContent).not.toContain("fetched");
   });
 
@@ -263,7 +263,7 @@ describe("AiPage 工作階段卡片用投影", () => {
   it("claimed-completed 顯示 spec 文案並保留人工驗證按鈕", async () => {
     renderAiPage("claimed-completed");
     await screen.findByText("整理測試報告");
-    expect(screen.getByText("Agent 說已完成，等待檢查")).toBeInTheDocument();
+    expect(screen.getByText("對方說已完成")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "標記為已驗證（我確認過結果）" })
     ).toBeInTheDocument();
@@ -271,7 +271,7 @@ describe("AiPage 工作階段卡片用投影", () => {
 });
 
 describe("NotificationPanel 徽章用投影", () => {
-  it("waiting-for-consent → 等你同意；未知狀態 → 結果不確定，不印原始 enum", () => {
+  it("waiting-for-consent → 等你允許；未知狀態 → 結果不確定，不印原始 enum", () => {
     const inbox = {
       items: [
         {
@@ -295,7 +295,7 @@ describe("NotificationPanel 徽章用投影", () => {
     const { container } = render(
       <NotificationPanel inbox={inbox} onClose={() => {}} onNavigate={() => {}} />
     );
-    expect(screen.getByText("等你同意")).toBeInTheDocument();
+    expect(screen.getByText("等你允許")).toBeInTheDocument();
     expect(screen.getByText("結果不確定")).toBeInTheDocument();
     expect(container.textContent).not.toContain("waiting-for-consent");
     expect(container.textContent).not.toContain("brand-new-state");
@@ -346,7 +346,7 @@ describe("ActivityPage 收件匣用投影", () => {
     await screen.findByText("等你核可的工作");
     const list = screen.getByTestId("activity-inbox-results");
     const text = list.textContent ?? "";
-    expect(text).toContain("等你同意");
+    expect(text).toContain("等你允許");
     expect(text).toContain("AI 工作階段");
     expect(text).toContain("結果不確定");
     expect(text).toContain("互動結果");
@@ -370,7 +370,7 @@ describe("ActivityPage 收件匣用投影", () => {
     render(<InboxSection refreshKey={0} advanced onNavigate={() => {}} />);
     await screen.findByText("等你核可的工作");
     const text = screen.getByTestId("activity-inbox-results").textContent ?? "";
-    expect(text).toContain("等你同意");
+    expect(text).toContain("等你允許");
     expect(text).toContain("waiting-for-consent");
     expect(text).toContain("agent-session");
   });

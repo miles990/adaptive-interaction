@@ -522,10 +522,10 @@ describe("AiPage：綠勾只給目前這一輪的 claim", () => {
     ).toBe(false);
   });
 
-  it("第二輪進行中（state=active）帶著舊的 humanVerified：不顯示「✓ 已確認完成」", async () => {
+  it("第二輪進行中（state=active）帶著舊的 humanVerified：不顯示「✓ 已由你確認」", async () => {
     renderAiPage({ state: "active", humanVerified: VERIFIED });
     await screen.findByText("整理測試報告");
-    expect(screen.queryByText("✓ 已確認完成")).not.toBeInTheDocument();
+    expect(screen.queryByText("✓ 已由你確認")).not.toBeInTheDocument();
     expect(screen.getByText("處理中")).toBeInTheDocument();
     expect(screen.queryByText(/由你親自確認/)).not.toBeInTheDocument();
     expect(screen.getByText(/先前一輪的結果你在/)).toBeInTheDocument();
@@ -539,15 +539,15 @@ describe("AiPage：綠勾只給目前這一輪的 claim", () => {
       humanVerifiedClaimId: "claim-1",
     });
     await screen.findByText("整理測試報告");
-    expect(screen.queryByText("✓ 已確認完成")).not.toBeInTheDocument();
-    expect(screen.getByText("Agent 說已完成，等待檢查")).toBeInTheDocument();
+    expect(screen.queryByText("✓ 已由你確認")).not.toBeInTheDocument();
+    expect(screen.getByText("對方說已完成")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "標記為已驗證（我確認過結果）" })).toBeInTheDocument();
   });
 
   it("目前這一輪的 claim 已由人確認：綠勾＋「由你親自確認」（舊後端沒有 claim id 也成立）", async () => {
     renderAiPage({ state: "claimed-completed", humanVerified: VERIFIED });
     await screen.findByText("整理測試報告");
-    expect(screen.getByText("✓ 已確認完成")).toBeInTheDocument();
+    expect(screen.getByText("✓ 已由你確認")).toBeInTheDocument();
     expect(screen.getByText(/由你親自確認/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "標記為已驗證（我確認過結果）" })).not.toBeInTheDocument();
   });

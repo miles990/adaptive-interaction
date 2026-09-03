@@ -11,7 +11,9 @@
 // 建立走 AiPage 同一條 api.agentSessionCreate 路徑：payload 由這裡的
 // buildSessionCreateInput 產生，AiPage 的完整建立面板（進階／獨立）也用同一個函式，
 // 權限語意（預設只讀取、寫入要第二次確認、scope 精確對應）只有一份，不在前端另寫政策。
-// 誠實階梯：送出只宣稱「已送達」，不宣稱完成；做完後仍要人工檢查才有綠勾。
+// 誠實階梯：送出後說的話一律由 work/delivery 的六態投影決定（已送達／尚未送達／
+// 排隊中／Agent 不可用／傳送失敗／結果不確定）——後端沒蓋送達戳記就不得說已送達，
+// 而且沒有任何一態宣稱完成；做完後仍要人工檢查才有綠勾。
 
 import React from "react";
 import { AgentSessionRecord, api } from "../../api";
@@ -20,6 +22,7 @@ import { useCharacterName } from "../../characterName";
 import type { BadgeKind } from "../../statusProjection";
 import { isTauri } from "../../transport";
 import { Badge, Section, useAsync } from "../../ui";
+import { classifyDelivery, type DeliveryStatus } from "../../work/delivery";
 
 // ---------------------------------------------------------------------------
 // 既有建立流程的預設值與純函式（AiPage 建立面板與 task-first 共用）
@@ -385,8 +388,8 @@ export function TaskComposer({
   const [ttl, setTtl] = React.useState(DEFAULT_TTL_MINUTES);
   const [maxCost, setMaxCost] = React.useState(DEFAULT_MAX_COST_USD);
   const [starting, setStarting] = React.useState(false);
-  const [notice, setNotice] = React.useState<string | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+  // 上一次交代的結果（六態投影）：畫面只說得出它，沒有別的來源。
+  const [delivery, setDelivery] = React.useState<DeliveryStatus | null>(null);
   const [pickerError, setPickerError] = React.useState<string | null>(null);
   // 改了資料夾就要重新確認：確認的對象是「那一個路徑」，不是「一次同意」。
   React.useEffect(() => {
@@ -457,12 +460,13 @@ export function TaskComposer({
   const start = async () => {
     if (!canStart || agentId === "none") return;
     setStarting(true);
-    setError(null);
-    setNotice(null);
+    setDelivery(null);
     const label = taskLabelFrom(task);
     const content = task.trim();
+    const who = { agentName: agentDisplayName(agentId), taskLabel: label };
+    let record: AgentSessionRecord;
     try {
-      const record = await api.agentSessionCreate(
+      record = await api.agentSessionCreate(
         buildSessionCreateInput({
           agent: agentId,
           label,
@@ -472,28 +476,29 @@ export function TaskComposer({
           allowWrite,
         })
       );
-      let delivered = true;
-      try {
-        await api.agentSessionSend(record.sessionId, "task", { task: content });
-      } catch (reason) {
-        delivered = false;
-        // 工作已存在但內容沒送到：不清空文字，讓使用者能從下方卡片再送一次。
-        setError(`工作已建立，但內容沒能送出：${reason}。可以在下方的工作卡片再送一次。`);
-      }
-      if (delivered) {
-        setNotice(
-          `已交給 ${agentDisplayName(agentId)}：「${label}」。已送達、尚未完成；做完後會請你檢查結果。`
-        );
-        setTask("");
-        setAllowWrite(false);
-        setWriteConfirmed(false);
-      }
-      onCreated?.(record);
     } catch (reason) {
-      setError(`沒能開始：${reason}`);
-    } finally {
+      // 工作根本沒建立：照實說，不清空文字。
+      setDelivery(classifyDelivery({ ...who, stage: "create", error: reason }));
       setStarting(false);
+      return;
     }
+    let status: DeliveryStatus;
+    try {
+      const sent = await api.agentSessionSend(record.sessionId, "task", { task: content });
+      status = classifyDelivery({ ...who, sent });
+    } catch (reason) {
+      // 工作已存在但內容沒送到：不清空文字，讓使用者能從下方卡片再送一次。
+      status = classifyDelivery({ ...who, error: reason });
+    }
+    setDelivery(status);
+    // 後端收下了內容才清空輸入；沒收下就把字留著，讓人不必重打。
+    if (status.accepted) {
+      setTask("");
+      setAllowWrite(false);
+      setWriteConfirmed(false);
+    }
+    setStarting(false);
+    onCreated?.(record);
   };
 
   return (
@@ -680,10 +685,14 @@ export function TaskComposer({
             {blockReason}
           </p>
         )}
-        {error && (
-          <p className="cap-card-error" role="alert">
-            {error}
-          </p>
+        {delivery?.problem && (
+          <>
+            <p className="cap-card-error" role="alert">
+              <Badge kind={delivery.badge}>{delivery.label}</Badge> {delivery.message}
+            </p>
+            <p className="muted small">{delivery.honesty}</p>
+            {advanced && delivery.detail && <p className="muted small">{delivery.detail}</p>}
+          </>
         )}
         <div className="row wrap">
           <button className="primary" disabled={!canStart} onClick={() => void start()}>
@@ -693,8 +702,7 @@ export function TaskComposer({
             <button
               onClick={() => {
                 setTask("");
-                setNotice(null);
-                setError(null);
+                setDelivery(null);
               }}
             >
               清空
@@ -702,10 +710,13 @@ export function TaskComposer({
           )}
           {advanced && <span className="muted small">進階：工作卡片會顯示狀態碼與原始上限。</span>}
         </div>
-        {notice && (
-          <p className="muted small" role="status">
-            {notice}
-          </p>
+        {delivery && !delivery.problem && (
+          <>
+            <p className="small" role="status">
+              <Badge kind={delivery.badge}>{delivery.label}</Badge> {delivery.message}
+            </p>
+            <p className="muted small">{delivery.honesty}</p>
+          </>
         )}
       </div>
     </Section>

@@ -205,7 +205,7 @@ describe("「現在」第一屏只回答三件事", () => {
     const decisions = screen.getByTestId("now-decisions");
     expect(await within(decisions).findByText("1 項")).toBeInTheDocument();
     expect(within(decisions).getByText("等你核可寫入")).toBeInTheDocument();
-    expect(within(decisions).getByText("等你同意")).toBeInTheDocument();
+    expect(within(decisions).getByText("等你允許")).toBeInTheDocument();
     expect(decisions.textContent).not.toContain("waiting-for-consent");
   });
 

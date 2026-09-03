@@ -557,7 +557,7 @@ describe("連接與權限：第一層五區（裝置優先）", () => {
     const confirm = await screen.findByTestId("connect-area-confirm");
     expect(within(confirm).getByRole("heading", { name: "目前需要確認的權限" })).toBeInTheDocument();
     await within(confirm).findByText("整理報告需要你同意");
-    expect(within(confirm).getByText("等你同意")).toBeInTheDocument();
+    expect(within(confirm).getByText("等你允許")).toBeInTheDocument();
     expect(within(confirm).queryByText("waiting-for-consent")).not.toBeInTheDocument();
     expect(within(confirm).queryByText("已送出通知")).not.toBeInTheDocument();
     await waitFor(() => expect(within(confirm).getByText(/目前有 1 項額外授權：桌燈/)).toBeInTheDocument());

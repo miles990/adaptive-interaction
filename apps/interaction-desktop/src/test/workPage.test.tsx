@@ -232,7 +232,9 @@ describe("交代一件工作（task-first 第一屏）", () => {
     const create = vi
       .spyOn(api, "agentSessionCreate")
       .mockResolvedValue(session({ sessionId: "s-new", label: "看一下這個 repo 的測試" }));
-    const send = vi.spyOn(api, "agentSessionSend").mockResolvedValue({});
+    const send = vi
+      .spyOn(api, "agentSessionSend")
+      .mockResolvedValue({ messageId: "m-1", deliveredAt: "2026-01-01T00:00:01Z" });
     renderWork();
     const textarea = screen.getByLabelText("想讓小樞幫你做什麼？");
     await userEvent.type(textarea, "看一下這個 repo 的測試有沒有壞掉");
@@ -260,9 +262,9 @@ describe("交代一件工作（task-first 第一屏）", () => {
         task: "看一下這個 repo 的測試有沒有壞掉",
       })
     );
-    const notice = await screen.findByText(/已交給 Codex/);
+    const notice = await screen.findByText(/已送到 Codex 手上/);
     expect(notice.textContent).toContain("尚未完成");
-    expect(notice.textContent).not.toMatch(/已完成/);
+    expect(notice.textContent).not.toMatch(/^.*已完成。/);
     expect(textarea).toHaveValue("");
   });
 
@@ -345,24 +347,91 @@ describe("交代一件工作（task-first 第一屏）", () => {
     expect(agentAvailability({ found: true }, false)).toMatchObject({ label: "登入狀態未知", blocking: false });
   });
 
-  it("開始失敗與送出失敗都照實說，不清空使用者打的字", async () => {
+  it("開始失敗照實說，不清空使用者打的字", async () => {
     stubApis();
-    vi.spyOn(api, "agentSessionCreate").mockResolvedValue(session({ sessionId: "s-x" }));
-    vi.spyOn(api, "agentSessionSend").mockRejectedValue(new Error("mailbox closed"));
+    vi.spyOn(api, "agentSessionCreate").mockRejectedValue(
+      new Error("503: unavailable: agent 子程序已結束")
+    );
     renderWork();
     const textarea = screen.getByLabelText("想讓小樞幫你做什麼？");
     await userEvent.type(textarea, "整理報告");
     await within(screen.getByRole("group", { name: "開始前預覽" })).findByText("可用");
     await userEvent.click(screen.getByRole("button", { name: "開始" }));
-    expect(await screen.findByText(/工作已建立，但內容沒能送出/)).toBeInTheDocument();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("沒有開始");
+    expect(alert.textContent).not.toContain("已送達");
+    expect(alert.textContent).not.toContain("子程序");
     expect(textarea).toHaveValue("整理報告");
+  });
+
+  // known limitation #24：送出的結果一律照後端證據投影，不再固定印「已送達」。
+  it("送出結果依後端證據分四種：已送達／尚未送達／Agent 不可用／傳送失敗", async () => {
+    const cases = [
+      {
+        name: "尚未送達（沒有送達戳記）",
+        send: () => vi.spyOn(api, "agentSessionSend").mockResolvedValue({ messageId: "m-1" }),
+        expect: /已放進 Claude Code 的信箱/,
+        forbid: "已送達",
+        badge: "尚未送達（已放進信箱）",
+        keepsText: false,
+      },
+      {
+        name: "Agent 不可用",
+        send: () =>
+          vi
+            .spyOn(api, "agentSessionSend")
+            .mockRejectedValue(new Error("503: unavailable: agent 子程序已結束")),
+        expect: /Claude Code 現在不能接工作/,
+        forbid: "已送達",
+        badge: "Agent 不可用",
+        keepsText: true,
+      },
+      {
+        name: "傳送失敗",
+        send: () =>
+          vi
+            .spyOn(api, "agentSessionSend")
+            .mockRejectedValue(new Error("404: not found: agent session s-x")),
+        expect: /沒能送出去/,
+        forbid: "已送達",
+        badge: "傳送失敗",
+        keepsText: true,
+      },
+      {
+        name: "結果不確定",
+        send: () =>
+          vi.spyOn(api, "agentSessionSend").mockRejectedValue(new TypeError("Failed to fetch")),
+        expect: /不確定「整理報告」有沒有送到/,
+        forbid: "已送達",
+        badge: "結果不確定",
+        keepsText: true,
+      },
+    ];
+    for (const c of cases) {
+      stubApis();
+      vi.spyOn(api, "agentSessionCreate").mockResolvedValue(session({ sessionId: "s-x" }));
+      c.send();
+      const view = renderWork();
+      const textarea = screen.getByLabelText("想讓小樞幫你做什麼？");
+      await userEvent.type(textarea, "整理報告");
+      await within(screen.getByRole("group", { name: "開始前預覽" })).findByText("可用");
+      await userEvent.click(screen.getByRole("button", { name: "開始" }));
+      const notice = await screen.findByText(c.expect);
+      expect(notice.textContent, c.name).not.toContain(c.forbid);
+      // 六態標籤看得見，而且不是綠色成功樣式。
+      const badge = within(notice).getByText(c.badge);
+      expect(badge.className, c.name).not.toContain("badge-ok");
+      expect(textarea, c.name).toHaveValue(c.keepsText ? "整理報告" : "");
+      view.unmount();
+      vi.restoreAllMocks();
+    }
   });
 });
 
 // ---------------------------------------------------------------------------
 
 describe("進行中與最近的工作（誠實狀態階梯）", () => {
-  it("claimed→驗證按鈕＋說明；verified→綠勾＋已確認完成；unknown／未知→結果不確定", async () => {
+  it("claimed→驗證按鈕＋說明；verified→綠勾＋已由你確認；unknown／未知→結果不確定", async () => {
     stubApis([
       session({ sessionId: "s-a", label: "A 工作", state: "claimed-completed" }),
       session({
@@ -377,19 +446,19 @@ describe("進行中與最近的工作（誠實狀態階梯）", () => {
     const verify = vi.spyOn(api, "agentSessionVerify").mockResolvedValue(session());
     const { container } = renderWork();
     const cardA = (await screen.findByText("A 工作")).closest<HTMLElement>(".provider-card")!;
-    expect(within(cardA).getByText("Agent 說已完成，等待檢查")).toBeInTheDocument();
+    expect(within(cardA).getByText("對方說已完成")).toBeInTheDocument();
     expect(within(cardA).getByText(/尚未經過檢查/)).toBeInTheDocument();
     expect(within(cardA).getByText(/小樞才會顯示綠色勾勾/)).toBeInTheDocument();
     expect(within(cardA).queryByText(/✓/)).not.toBeInTheDocument();
 
     const cardB = screen.getByText("B 工作").closest<HTMLElement>(".provider-card")!;
-    expect(within(cardB).getByText("✓ 已確認完成")).toBeInTheDocument();
+    expect(within(cardB).getByText("✓ 已由你確認")).toBeInTheDocument();
     expect(within(cardB).getByText(/由你親自確認/)).toBeInTheDocument();
     expect(within(cardB).getByText(/看過了/)).toBeInTheDocument();
     expect(
       within(cardB).queryByRole("button", { name: "標記為已驗證（我確認過結果）" })
     ).not.toBeInTheDocument();
-    expect(within(cardB).queryByText("Agent 說已完成，等待檢查")).not.toBeInTheDocument();
+    expect(within(cardB).queryByText("對方說已完成")).not.toBeInTheDocument();
 
     const cardC = screen.getByText("C 工作").closest<HTMLElement>(".provider-card")!;
     expect(within(cardC).getByText("結果不確定")).toBeInTheDocument();
@@ -475,7 +544,11 @@ describe("一般模式不外洩治理術語", () => {
   });
 
   it("WorkPage／TaskComposer 原始碼的字串與 JSX 文字不含治理術語（source scan）", () => {
-    const files = ["src/pages/WorkPage.tsx", "src/pages/work/TaskComposer.tsx"];
+    const files = [
+      "src/pages/WorkPage.tsx",
+      "src/pages/work/TaskComposer.tsx",
+      "src/work/delivery.ts",
+    ];
     const banned = /Agent Session|Provider Registry|Receptor|Actuator|Lease|UUID|Receipt|app-server|YAML|JSON|工作階段|建立 Session|Patch/;
     for (const file of files) {
       const source = fs

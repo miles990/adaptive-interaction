@@ -4,7 +4,7 @@
 // - 全部是「瀏覽器版控制中心」（vite dev server＋headless Chromium）對 global-setup 起的
 //   真 daemon 擷取。沒有 Tauri 角色視窗、沒有可信 overlay、沒有 ESP32／iPhone 真機。
 // - 角色頁的「角色視窗未連線」是真話：瀏覽器 e2e 沒有角色視窗。
-// - 「工作」的四種狀態（處理中／等你同意／Agent 說已完成／已確認完成）來自真 Runtime＋
+// - 「工作」的四種狀態（處理中／等你允許／對方說已完成／已由你確認）來自真 Runtime＋
 //   fixture agent 子程序（global-setup 預設把 Codex／Claude Code 指向
 //   crates/interaction-runtime/tests/fixtures/fake_*.sh；E2E_REAL_AGENTS=1 時該測試 skip）。
 //   狀態機、mailbox、lease、人工 verify 全是真的；只有 agent 本體是模擬器。
@@ -289,7 +289,7 @@ test("擷取：工作 composer 填寫後的開始前預覽（桌面＋390px）",
   await expect(task).toHaveValue("");
 });
 
-test("擷取：工作四種誠實狀態（fixture agent：處理中／等你同意／Agent 說已完成／已確認完成）", async ({
+test("擷取：工作四種誠實狀態（fixture agent：處理中／等你允許／對方說已完成／已由你確認）", async ({
   page,
   request,
 }) => {
@@ -327,14 +327,14 @@ test("擷取：工作四種誠實狀態（fixture agent：處理中／等你同�
   // A 處理中：fake_codex `turns` 模式回 turn/started＋一則 agent 訊息後就不再說話。
   const labelA = "證據A：處理中（fixture Codex）";
   const idA = await create("codex", labelA, workdir("a-working", "turns"));
-  // B 等你同意：fake_codex 預設在 thread/start 後丟一個 approval ServerRequest（沒人裁決）。
-  const labelB = "證據B：等你同意（fixture Codex）";
+  // B 等你允許：fake_codex 預設在 thread/start 後丟一個 approval ServerRequest（沒人裁決）。
+  const labelB = "證據B：等你允許（fixture Codex）";
   const idB = await create("codex", labelB, workdir("b-consent"));
-  // C Agent 說已完成：fake_claude 預設模式一輪就回 result（只是聲稱）。
-  const labelC = "證據C：Agent 說已完成（fixture Claude）";
+  // C 對方說已完成：fake_claude 預設模式一輪就回 result（只是聲稱）。
+  const labelC = "證據C：對方說已完成（fixture Claude）";
   const idC = await create("claude-code", labelC, workdir("c-claimed"));
-  // D 已確認完成：同 C，再由人類 token POST /verify。
-  const labelD = "證據D：已確認完成（fixture Claude＋人工驗證）";
+  // D 已由你確認：同 C，再由人類 token POST /verify。
+  const labelD = "證據D：已由你確認（fixture Claude＋人工驗證）";
   const idD = await create("claude-code", labelD, workdir("d-verified"));
 
   await waitSessionState(request, idA, ["active"]);
@@ -359,8 +359,8 @@ test("擷取：工作四種誠實狀態（fixture agent：處理中／等你同�
   await scrollTop(card(labelA));
   await shot(page, "desktop-work-working");
 
-  // B：等你同意；展開後是「等待你核可」＋核可／拒絕＋倒數（後端 TTL 到期即失效）。
-  await expect(card(labelB).getByText("等你同意", { exact: true })).toBeVisible();
+  // B：等你允許；展開後是「等待你核可」＋核可／拒絕＋倒數（後端 TTL 到期即失效）。
+  await expect(card(labelB).getByText("等你允許", { exact: true })).toBeVisible();
   await card(labelB).getByRole("button", { name: "查看結果／訊息" }).click();
   await expect(card(labelB).getByText("等待你核可")).toBeVisible({ timeout: 15_000 });
   await expect(card(labelB).getByRole("button", { name: "核可", exact: true })).toBeVisible();
@@ -368,8 +368,8 @@ test("擷取：工作四種誠實狀態（fixture agent：處理中／等你同�
   await scrollTop(card(labelB));
   await shot(page, "desktop-work-consent");
 
-  // C：Agent 說已完成，等待檢查——它的說法；沒有綠勾；有「標記為已驗證」按鈕。
-  await expect(card(labelC).getByText("Agent 說已完成，等待檢查")).toBeVisible();
+  // C：對方說已完成——它的說法；沒有綠勾；有「標記為已驗證」按鈕。
+  await expect(card(labelC).getByText("對方說已完成", { exact: true })).toBeVisible();
   await expect(card(labelC).getByText(/它的說法/)).toBeVisible();
   await expect(card(labelC).getByText(/✓/)).toHaveCount(0);
   await expect(
@@ -378,8 +378,8 @@ test("擷取：工作四種誠實狀態（fixture agent：處理中／等你同�
   await scrollTop(card(labelC));
   await shot(page, "desktop-work-claimed");
 
-  // D：已確認完成（綠勾唯一來源＝人工 verify）；不再顯示「標記為已驗證」。
-  await expect(card(labelD).getByText(/✓ 已確認完成/)).toBeVisible();
+  // D：已由你確認（綠勾唯一來源＝人工 verify）；不再顯示「標記為已驗證」。
+  await expect(card(labelD).getByText(/✓ 已由你確認/)).toBeVisible();
   await expect(card(labelD).getByText(/由你親自確認/)).toBeVisible();
   await expect(
     card(labelD).getByRole("button", { name: "標記為已驗證（我確認過結果）" })
@@ -387,11 +387,11 @@ test("擷取：工作四種誠實狀態（fixture agent：處理中／等你同�
   await scrollTop(card(labelD));
   await shot(page, "desktop-work-verified");
 
-  // 390px：等待確認（claimed）／等你同意／處理中／已確認完成。
+  // 390px：等待確認（claimed）／等你允許／處理中／已由你確認。
   await page.setViewportSize(NARROW);
   await expect(page.getByRole("navigation", { name: "主要導覽（窄視窗）" })).toBeVisible();
   await scrollTop(card(labelC));
-  await expect(card(labelC).getByText("Agent 說已完成，等待檢查")).toBeVisible();
+  await expect(card(labelC).getByText("對方說已完成", { exact: true })).toBeVisible();
   await shot(page, "narrow-work-claimed");
   await scrollTop(card(labelB));
   await shot(page, "narrow-work-consent");

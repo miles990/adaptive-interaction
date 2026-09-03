@@ -169,7 +169,7 @@ describe("通知中心（鍵盤可用，不是只能點的浮層）", () => {
   it("狀態顯示人話，不是原始 enum 字串", () => {
     render(<NotificationPanel inbox={inbox} onClose={() => {}} onNavigate={() => {}} />);
     // 文案以共用狀態投影（statusProjection.ts）的 spec 表格為準。
-    expect(screen.getByText("等你同意")).toBeInTheDocument();
+    expect(screen.getByText("等你允許")).toBeInTheDocument();
     expect(screen.queryByText("waiting-for-consent")).not.toBeInTheDocument();
     // 介面不認得的狀態：不猜、也不把原始字串當標籤——投影成「結果不確定」。
     expect(inboxStatusLabel("some-new-state")).toBe("結果不確定");

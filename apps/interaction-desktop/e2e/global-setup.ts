@@ -52,7 +52,7 @@ export default async function globalSetup() {
 
   // Agent 幫手：預設把 Codex／Claude Code 指向 Rust 測試用的 fake fixture 子程序
   // （crates/interaction-runtime/tests/fixtures），讓 evidence.spec 能建立真實的
-  // agent session 並走完誠實階梯（處理中／等你同意／Agent 說已完成／人工驗證）。
+  // agent session 並走完誠實階梯（處理中／等你允許／對方說已完成／人工驗證）。
   // 這是 fixture（模擬 agent），不是真的 Codex／Claude Code；截圖與文件一律標示。
   // E2E_REAL_AGENTS=1 改用 PATH 上的真 CLI（session 證據那一支測試會被 skip）。
   const fixtures = join(repoRoot, "crates/interaction-runtime/tests/fixtures");

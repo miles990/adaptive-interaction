@@ -2,21 +2,17 @@
 // - agent-honesty-022：「接續上次（唯讀）」不得放寬範圍——資料夾、修改權限、
 //   時間上限與費用上限都要沿用上次的實際值，不得省略後落到後端預設
 //   （120 分鐘、沒有金額上限），也不得因為漏帶資料夾而讓後端自己決定。
-// - agent-honesty-025：「已送達 Agent」不是固定文案——後端沒蓋送達戳記時
-//   只能說「已放進信箱，尚未送達」。
+// - agent-honesty-025／known limitation #24：「已送達」不是固定文案——送出的
+//   結果一律走共用的 work/delivery 六態投影，後端沒蓋送達戳記時只能說
+//   「尚未送達（已放進信箱）」，送不到就說 Agent 不可用／傳送失敗／結果不確定。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AgentSessionRecord, api } from "../api";
 import { AppStateProvider } from "../appstate";
-import {
-  AiPage,
-  buildResumeInput,
-  deliveredToAgent,
-  resumeLimits,
-  resumeLimitsText,
-} from "../pages/AiPage";
+import { AiPage, buildResumeInput, resumeLimits, resumeLimitsText } from "../pages/AiPage";
+import { deliveredToAgent } from "../work/delivery";
 import { resetCharacterNameForTests } from "../characterName";
 
 afterEach(() => {
@@ -142,7 +138,7 @@ describe("agent-honesty-022：接續上次（唯讀）不得放寬範圍", () =>
   });
 });
 
-describe("agent-honesty-025：沒有送達戳記就不得說「已送達 Agent」", () => {
+describe("agent-honesty-025／#24：再交代也走同一份六態送達投影", () => {
   it("deliveredToAgent：只認真實的 deliveredAt 戳記", () => {
     expect(deliveredToAgent({ messageId: "m-1", deliveredAt: "2026-01-01T00:00:01Z" })).toBe(true);
     expect(deliveredToAgent({ messageId: "m-1" })).toBe(false);
@@ -150,27 +146,55 @@ describe("agent-honesty-025：沒有送達戳記就不得說「已送達 Agent�
     expect(deliveredToAgent(undefined)).toBe(false);
   });
 
-  it("回傳沒有戳記的訊息 → 說「已放進信箱，尚未送達」", async () => {
-    vi.spyOn(api, "agentSessionSend").mockResolvedValue({ messageId: "m-1" });
+  async function sendAgain() {
     renderAiPage({ ...FINISHED, state: "active" });
     await screen.findByText("整理測試報告");
     await userEvent.click(screen.getByRole("button", { name: "查看結果／訊息" }));
     await userEvent.type(screen.getByPlaceholderText("再交代一句給這個 Agent…"), "再看一次");
     await userEvent.click(screen.getByRole("button", { name: "送出" }));
-    const notice = await screen.findByText(/已放進信箱，尚未送達/);
-    expect(notice.textContent).not.toContain("已送達 Agent，尚未完成");
+  }
+
+  it("回傳沒有戳記的訊息 → 說「已放進…信箱」，不得說已送達", async () => {
+    vi.spyOn(api, "agentSessionSend").mockResolvedValue({ messageId: "m-1" });
+    await sendAgain();
+    const notice = await screen.findByText(/已放進 Claude Code 的信箱/);
+    expect(notice.textContent).not.toContain("已送達");
   });
 
-  it("回傳帶戳記的訊息 → 才說「已送達 Agent，尚未完成」", async () => {
+  it("回傳帶戳記的訊息 → 才說已送到它手上、尚未完成", async () => {
     vi.spyOn(api, "agentSessionSend").mockResolvedValue({
       messageId: "m-1",
       deliveredAt: "2026-01-01T00:00:01Z",
     });
-    renderAiPage({ ...FINISHED, state: "active" });
-    await screen.findByText("整理測試報告");
-    await userEvent.click(screen.getByRole("button", { name: "查看結果／訊息" }));
-    await userEvent.type(screen.getByPlaceholderText("再交代一句給這個 Agent…"), "再看一次");
-    await userEvent.click(screen.getByRole("button", { name: "送出" }));
-    await screen.findByText(/已送達 Agent，尚未完成/);
+    await sendAgain();
+    const notice = await screen.findByText(/已送到 Claude Code 手上/);
+    expect(notice.textContent).toContain("尚未完成");
+  });
+
+  it("上一輪還在跑（409）→ 排隊中，不說失敗也不說送達", async () => {
+    vi.spyOn(api, "agentSessionSend").mockRejectedValue(
+      new Error("409: conflict: 上一輪還在跑，這則訊息未送達；稍後再送或先中斷：busy")
+    );
+    await sendAgain();
+    const notice = await screen.findByText(/上一輪還在跑/);
+    expect(notice.textContent).not.toContain("已送達");
+    expect(notice.textContent).not.toContain("送出失敗");
+  });
+
+  it("子程序不在（503）→ Agent 不可用；一般模式不外洩後端術語", async () => {
+    vi.spyOn(api, "agentSessionSend").mockRejectedValue(
+      new Error("503: unavailable: agent 子程序已結束，這則訊息未送達；請續開（resume）")
+    );
+    await sendAgain();
+    const notice = await screen.findByText(/Claude Code 現在不能接工作/);
+    expect(notice.textContent).not.toContain("子程序");
+    expect(notice.textContent).not.toContain("已送達");
+  });
+
+  it("連不上 → 結果不確定，不謊稱送到也不謊稱失敗", async () => {
+    vi.spyOn(api, "agentSessionSend").mockRejectedValue(new TypeError("Failed to fetch"));
+    await sendAgain();
+    const notice = await screen.findByText(/不確定/);
+    expect(notice.textContent).not.toContain("已送達");
   });
 });
