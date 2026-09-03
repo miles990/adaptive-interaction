@@ -199,6 +199,28 @@ const DROPPABLE_INPUT_KINDS: readonly InputEventKind[] = [
   "character.toy-thrown",
 ];
 
+/**
+ * §6 event kind → 協商後必須具備的能力 id（對抗審查 character-protocol-040）。
+ *
+ * 連接頁的「可以接收：…」直接由 `manifest.inputCapabilities` 產生，所以宣告就是契約：
+ * 沒協商到對應能力的輸入種類一律丟棄並記 audit，不得變成 `companion.*` 觀察或 file-drop
+ * grant。`dismissed`／`visibility-changed` 是 host 表面的生命週期通知（關閉視窗、隱藏），
+ * 不是角色宣稱要接收的互動，因此不設閘。
+ */
+const INPUT_KIND_CAPABILITY: Partial<Record<InputEventKind, string>> = {
+  "character.clicked": "input.click",
+  "character.double-clicked": "input.click",
+  "character.action-requested": "input.click",
+  "character.hover-entered": "input.hover",
+  "character.hover-left": "input.hover",
+  "character.drag-started": "input.drag",
+  "character.dragged": "input.drag",
+  "character.dropped": "input.drop",
+  "character.text-submitted": "input.text",
+  "character.file-dropped": "input.fileDrop",
+  "character.toy-thrown": "gameplay.toys",
+};
+
 /** file-drop grant 表上限（有界；超過先撤最舊）。 */
 export const MAX_LIVE_GRANTS = 256;
 
@@ -434,11 +456,43 @@ export class CharacterGateway {
     return negotiated;
   }
 
-  /** 重新協商（例如 reduced motion 改變）；世代不變。 */
+  /**
+   * 重新協商（例如 reduced motion 改變）；世代不變。
+   *
+   * README §7：pending 一律 `uncertain`，其中還在演的安全 intent 比照斷線補 `system.text`
+   * ——adapter（或一次 Reduced Motion 切換）不能靠重送 negotiate 讓安全訊息無聲消失，
+   * 也不能讓舊 pending 在新協商下以舊 resolution 回 `completed`。
+   */
   renegotiate(instanceId: string, requires?: CharacterIntent[]): Negotiated {
     const inst = this.instances.get(instanceId);
     if (!this.live(inst)) throw new Error("instance not live");
+    this.settlePendingForRenegotiate(inst, "re-negotiated");
     return this.handshake(inst, requires);
+  }
+
+  /** 重新協商前把所有 pending 以 `uncertain` 結清；安全 intent 補 `system.text`。 */
+  private settlePendingForRenegotiate(inst: Instance, detail: string) {
+    if (inst.pending.size === 0) return;
+    const settled = inst.pending.size;
+    let safety = 0;
+    for (const p of [...inst.pending.values()]) {
+      this.emit(inst, p.envelope.messageId, {
+        status: "uncertain",
+        resolution: p.effective,
+        detail: detail.slice(0, LIMITS.stringMaxChars),
+      });
+      this.forget(inst, p, "uncertain");
+      if (p.safety) {
+        safety += 1;
+        this.systemText(inst, p.envelope, "not-presented");
+      }
+    }
+    inst.pending.clear();
+    inst.channelOwners.clear();
+    this.audit("renegotiate-pending-uncertain", {
+      instanceId: inst.instanceId,
+      detail: `${settled} pending → uncertain (${safety} safety → system.text)`,
+    });
   }
 
   /** crash／斷線後重新接上（同一或新的 adapter 物件）；每次重連重新 hello。 */
@@ -697,6 +751,10 @@ export class CharacterGateway {
       const accepted = this.emit(inst, messageId, { status: "accepted", resolution: pending.effective });
       this.emit(inst, messageId, { status: "cancelled", resolution: pending.effective, reason: "queue-full" });
       this.remember(inst, messageId, "cancelled", pending.effective);
+      this.audit("pending-queue-full", { instanceId: inst.instanceId, messageId, detail: envelope.intent });
+      // 佇列被同層／更高 floor 的安全 intent 塞滿時，新的安全訊息不能就這樣消失
+      // （既沒演、也沒文字）：比照 Rust 權威端交給 system.text。
+      if (safety) this.systemText(inst, envelope, "not-presented");
       return accepted;
     }
 
@@ -1252,6 +1310,17 @@ export class CharacterGateway {
     }
     if (INPUT_SILENT_ROLES.includes(inst.role)) {
       this.audit("role-filtered-event", { instanceId, detail: raw.kind });
+      return false;
+    }
+    // 宣告即契約（§6）：協商後沒有對應輸入能力的種類一律丟棄——連接頁對使用者說
+    // 「可以接收：…」就必須是真的，不能私下收下並鑄出 file-drop grant。與 role 過濾同層，
+    // 在扣速率預算之前。
+    const requiredCapability = INPUT_KIND_CAPABILITY[raw.kind];
+    if (requiredCapability !== undefined && !inst.negotiated?.capabilities[requiredCapability]?.supported) {
+      this.audit("input-capability-not-declared", {
+        instanceId,
+        detail: `${raw.kind} needs ${requiredCapability}`,
+      });
       return false;
     }
     const now = this.now();

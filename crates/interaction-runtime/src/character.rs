@@ -26,8 +26,9 @@ use interaction_character::{
     default_system_text, intent_variant_aliases, parse_wire, validate_manifest, AdapterKind,
     CharacterInputEvent, CharacterIntent, CharacterManifest, CharacterRole, CommandReceipt,
     DisconnectReason, DurationHint, Entrypoint, Gateway, GatewayConfig, GatewayOutput,
-    InputDecision, InputEventKind, InstanceId, IntentEnvelope, InterruptPolicy, Negotiate,
-    PresentationHints, ReceiptStatus, TruthState, ValidationLimits, WireMessage, PROTOCOL_VERSION,
+    InputDecision, InputDropReason, InputEventKind, InstanceId, IntentEnvelope, InterruptPolicy,
+    Negotiate, PresentationHints, ReceiptStatus, TruthState, ValidationLimits, WireMessage,
+    PROTOCOL_VERSION,
 };
 use interaction_core::{
     ActionReceipt, BoundedAction, CorrelationId, DomainError, DomainResult, EventType, Observation,
@@ -37,8 +38,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -48,6 +50,10 @@ pub const DESKTOP_INSTANCE_ID: &str = "desktop-companion";
 pub const COMPANION_PROVIDER_ID: &str = "provider.companion.desktop";
 /// 每個外部連線的 outbound 佇列上限（README §8）。
 pub const OUTBOUND_CAP: usize = 32;
+/// 佇列滿時，同一條連線上最多允許幾則安全訊息「等空位」（有界；超過即判定對端沒在讀）。
+pub const OUTBOUND_DEFERRED_CAP: usize = 8;
+/// 一則等空位的安全訊息最多等多久（逾時＝這條連線沒在讀，關掉讓 pending 誠實結清）。
+pub const OUTBOUND_DEFERRED_TTL_MS: u64 = 5_000;
 /// 外部 adapter heartbeat 間隔。
 pub const HEARTBEAT_INTERVAL_MS: u64 = 15_000;
 /// 外部 adapter 無訊息視為斷線的時限。
@@ -120,6 +126,8 @@ struct Connection {
     tx: mpsc::Sender<WireMessage>,
     close: CancellationToken,
     conn_id: u64,
+    /// 佇列滿時正在「等空位」的安全訊息數（有界；見 [`OUTBOUND_DEFERRED_CAP`]）。
+    deferred: Arc<AtomicUsize>,
 }
 
 /// AI presentation 命令（`companion.state.present`／`animation.play`）在 gateway 裡的對應。
@@ -725,10 +733,21 @@ impl CharacterHub {
     }
 
     /// 送到外部連線的有界 outbound：滿了先丟非安全 intent／heartbeat／error，
-    /// 安全 intent 與握手／cancel／goodbye 永不丟（改為非同步等待空位，連線關閉即結束）。
+    /// 安全 intent 與握手／cancel／goodbye 不靜默丟棄——但等待空位這件事本身也必須有界
+    /// （對抗審查 character-protocol-039）：同一條連線最多 [`OUTBOUND_DEFERRED_CAP`] 則安全
+    /// 訊息在等，每則最多等 [`OUTBOUND_DEFERRED_TTL_MS`]。超過配額或等到逾時＝對端沒在讀，
+    /// 取消 close token（API 層據此關 socket）讓 gateway 把 pending 誠實記成 `uncertain`
+    /// 並補 `system.text`，而不是無上限、無逾時地堆積 detached task。
     fn send_external(&self, instance_id: &str, message: WireMessage) {
-        let connections = lock(&self.connections);
-        let Some(conn) = connections.get(instance_id) else {
+        // 先取出這條連線的把手就放掉鎖：底下可能取消 close token／spawn 送信任務，
+        // 不應該在持有 `connections` 鎖的情況下做。
+        let handles = {
+            let connections = lock(&self.connections);
+            connections
+                .get(instance_id)
+                .map(|conn| (conn.tx.clone(), conn.close.clone(), conn.deferred.clone()))
+        };
+        let Some((tx, close, deferred)) = handles else {
             tracing::debug!(
                 instance = instance_id,
                 kind = message.kind(),
@@ -736,7 +755,7 @@ impl CharacterHub {
             );
             return;
         };
-        match conn.tx.try_send(message) {
+        match tx.try_send(message) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(message)) => {
                 let droppable = match &message {
@@ -752,17 +771,46 @@ impl CharacterHub {
                     );
                     return;
                 }
+                let kind = message.kind();
                 match tokio::runtime::Handle::try_current() {
                     Ok(handle) => {
-                        let tx = conn.tx.clone();
+                        // 有界配額：滿了就不再排隊，直接判定這條連線沒在讀。
+                        if deferred.fetch_add(1, Ordering::SeqCst) >= OUTBOUND_DEFERRED_CAP {
+                            deferred.fetch_sub(1, Ordering::SeqCst);
+                            tracing::warn!(
+                                instance = instance_id,
+                                kind,
+                                "character outbound stalled beyond the deferred cap; closing the connection so pending settle as uncertain"
+                            );
+                            close.cancel();
+                            return;
+                        }
+                        let instance = instance_id.to_string();
                         handle.spawn(async move {
-                            let _ = tx.send(message).await;
+                            let sent = tokio::time::timeout(
+                                Duration::from_millis(OUTBOUND_DEFERRED_TTL_MS),
+                                tx.send(message),
+                            )
+                            .await;
+                            deferred.fetch_sub(1, Ordering::SeqCst);
+                            if !matches!(sent, Ok(Ok(()))) {
+                                tracing::warn!(
+                                    instance = %instance,
+                                    kind,
+                                    "character safety message could not be queued in time; closing the connection"
+                                );
+                                close.cancel();
+                            }
                         });
                     }
-                    Err(_) => tracing::warn!(
-                        instance = instance_id,
-                        "character outbound full and no async runtime; safety message not delivered"
-                    ),
+                    Err(_) => {
+                        tracing::warn!(
+                            instance = instance_id,
+                            kind,
+                            "character outbound full and no async runtime; closing the connection instead of losing the message silently"
+                        );
+                        close.cancel();
+                    }
                 }
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
@@ -1016,10 +1064,12 @@ impl Runtime {
                 );
                 return Ok(json!({ "decision": "dropped", "reason": "rate-limited" }));
             }
+            let kind = event.kind;
             let decision = gw.on_event(&iid, event, now);
             let drained = gw.drain_input(&iid);
-            (decision, drained)
+            ((kind, decision), drained)
         };
+        let (kind, decision) = decision;
         let mut final_decision = match &decision {
             InputDecision::Queued => "queued",
             InputDecision::Merged => "merged",
@@ -1032,6 +1082,29 @@ impl Runtime {
                 .and_then(|v| v.get("reason").and_then(|r| r.as_str()).map(String::from)),
             _ => None,
         };
+        // 宣告即契約：Gateway 在進佇列前就擋下沒宣告的輸入能力（character-protocol-040）。
+        // 對呼叫端的回答與 Runtime 自己的閘一致——「收到了，但不會變成觀察」（audit-only），
+        // 外部 adapter 一律維持既有的「外部輸入不變成觀察」理由。
+        if let InputDecision::Dropped(InputDropReason::CapabilityNotDeclared { requires }) =
+            &decision
+        {
+            let _ = self.store.audit(
+                "character.input-capability-not-declared",
+                "runtime",
+                &json!({
+                    "instanceId": instance_id,
+                    "kind": kind,
+                    "requires": requires,
+                    "reason": "manifest does not declare this input capability",
+                }),
+            );
+            final_decision = "audit-only";
+            reason = Some(if meta.origin == InstanceOrigin::External {
+                "external-adapter-input-not-observed".to_string()
+            } else {
+                "input-capability-not-declared".to_string()
+            });
+        }
         for normalized in drained {
             match self
                 .character_input_to_observation(instance_id, meta.origin, normalized)
@@ -1045,6 +1118,11 @@ impl Runtime {
                 Ok(InputOutcome::NotObserved(_)) => {
                     final_decision = "audit-only";
                     reason = Some("external-adapter-input-not-observed".to_string());
+                }
+                // 沒宣告的輸入能力：誠實回報「收到了，但角色沒宣告要接收，不變成觀察」。
+                Ok(InputOutcome::NotDeclared(_)) => {
+                    final_decision = "audit-only";
+                    reason = Some("input-capability-not-declared".to_string());
                 }
                 Err(err) => {
                     // 桌面角色隱藏／斷線時視窗內受器是關的：誠實回 dropped。
@@ -1318,6 +1396,7 @@ impl Runtime {
                 tx,
                 close: close.clone(),
                 conn_id,
+                deferred: Arc::new(AtomicUsize::new(0)),
             },
         );
         self.character_apply(outputs).await;
@@ -2229,6 +2308,33 @@ impl Runtime {
             );
             return Ok(InputOutcome::NotObserved(receptor));
         }
+        // 宣告即契約：manifest 沒宣告的輸入能力不得變成觀察（連接頁的「可以接收：…」
+        // 就是由 manifest.inputCapabilities 產生的，不能說一套做一套）。
+        if let Some(required) = interaction_character::required_input_capability(kind) {
+            let declared = self
+                .character
+                .instance_meta(instance_id)
+                .is_some_and(|meta| {
+                    meta.manifest
+                        .input_capabilities
+                        .get(required)
+                        .is_some_and(|decl| decl.supported)
+                });
+            if !declared {
+                let _ = self.store.audit(
+                    "character.input-capability-not-declared",
+                    "runtime",
+                    &json!({
+                        "instanceId": instance_id,
+                        "kind": kind,
+                        "receptor": receptor,
+                        "requires": required,
+                        "reason": "manifest does not declare this input capability",
+                    }),
+                );
+                return Ok(InputOutcome::NotDeclared(receptor));
+            }
+        }
         // 桌面角色的視窗內受器受隱藏／斷線閘門管制。
         self.ingest_with_gate(receptor, facts, BTreeMap::new(), 1.0, true)
             .await?;
@@ -2244,6 +2350,8 @@ pub enum InputOutcome {
     AuditOnly,
     /// 外部 adapter 的互動事件：只留稽核，不寫進桌面表面受器（不得偽造人類互動）。
     NotObserved(&'static str),
+    /// manifest 沒宣告對應輸入能力：只留稽核，不變成觀察（連接頁的「可以接收：…」就是契約）。
+    NotDeclared(&'static str),
 }
 
 #[cfg(test)]

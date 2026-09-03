@@ -12,7 +12,8 @@ use crate::capability::{
     capability_channels, negotiate, IntentResolution, NegotiationError, Resolution,
 };
 use crate::input::{
-    CharacterInputEvent, InputDecision, InputDropReason, InputLimits, InputNormalizer,
+    required_input_capability, CharacterInputEvent, InputDecision, InputDropReason, InputLimits,
+    InputNormalizer,
 };
 use crate::intent::{
     normalize_envelope, CharacterIntent, IntentEnvelope, InterruptPolicy, ResumePolicy, TruthState,
@@ -1238,6 +1239,22 @@ impl Gateway {
         match parse_protocol_version(&event.protocol_version) {
             Some((major, _)) if major == PROTOCOL_MAJOR => {}
             _ => return InputDecision::Dropped(InputDropReason::ProtocolVersion),
+        }
+        // 宣告即契約：沒宣告的輸入能力在進佇列（與 50 則/s 預算）之前就丟掉，
+        // 不讓未宣告的事件佔用預算、也不讓 Runtime 再多做一次判斷才擋。
+        if let Some(required) = required_input_capability(event.kind) {
+            let declared = inst
+                .negotiated
+                .as_ref()
+                .map(|n| &n.input_capabilities)
+                .unwrap_or(&inst.manifest.input_capabilities)
+                .get(required)
+                .is_some_and(|decl| decl.supported);
+            if !declared {
+                return InputDecision::Dropped(InputDropReason::CapabilityNotDeclared {
+                    requires: required.to_string(),
+                });
+            }
         }
         inst.input.push(event, now.timestamp_millis())
     }

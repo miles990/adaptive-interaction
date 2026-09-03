@@ -1989,3 +1989,64 @@ fn adapter_reported_unsupported_resolution_is_adopted_not_discarded() {
     );
     assert_eq!(receipts(&out)[0].resolution, Some(Resolution::Reduced));
 }
+
+/// 宣告即契約（對抗審查 character-protocol-040）：manifest 沒宣告的輸入能力，
+/// 事件在進佇列（與每秒預算）之前就被丟掉，Runtime 不必再多擋一次。
+#[test]
+fn undeclared_input_capabilities_are_dropped_before_the_input_queue() {
+    // text_manifest 只宣告 input.click／input.text。
+    let m = text_manifest();
+    let mut gw = Gateway::default();
+    let companion = connect(&mut gw, &m, CharacterRole::PrimaryCompanion);
+    let event =
+        |kind: InputEventKind, payload: Vec<(&str, serde_json::Value)>| CharacterInputEvent {
+            protocol_version: "1.0".into(),
+            event_id: "e".into(),
+            character_instance_id: companion.0.clone(),
+            generation: 1,
+            timestamp: t(1),
+            kind,
+            payload: payload
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+            privacy_class: PrivacyClass::Internal,
+        };
+    assert_eq!(
+        gw.on_event(
+            &companion,
+            event(InputEventKind::HoverEntered, vec![]),
+            t(1)
+        ),
+        InputDecision::Dropped(InputDropReason::CapabilityNotDeclared {
+            requires: "input.hover".into()
+        })
+    );
+    assert_eq!(
+        gw.on_event(&companion, event(InputEventKind::DragStarted, vec![]), t(1)),
+        InputDecision::Dropped(InputDropReason::CapabilityNotDeclared {
+            requires: "input.drag".into()
+        })
+    );
+    assert!(
+        gw.drain_input(&companion).is_empty(),
+        "未宣告的輸入不得進佇列"
+    );
+    // 有宣告的照常進佇列；只留稽核的種類（visibility-changed）不設閘。
+    assert_eq!(
+        gw.on_event(&companion, event(InputEventKind::Clicked, vec![]), t(1)),
+        InputDecision::Queued
+    );
+    assert_eq!(
+        gw.on_event(
+            &companion,
+            event(
+                InputEventKind::VisibilityChanged,
+                vec![("visible", serde_json::json!(false))]
+            ),
+            t(1)
+        ),
+        InputDecision::Queued
+    );
+    assert_eq!(gw.drain_input(&companion).len(), 2);
+}

@@ -24,6 +24,14 @@ use std::time::Duration;
 const WS_MAX_FRAME_BYTES: usize = Limits::MAX_MESSAGE_BYTES * 2;
 /// 關閉前把佇列裡剩下的 error／goodbye 送完（有界等待）。
 const FLUSH_WAIT_MS: u64 = 50;
+/// 單次 WebSocket 寫入的逾時（對抗審查 character-protocol-039）。
+///
+/// `tokio::select!` 選中 outbound 分支之後，分支主體裡的 `.await` 不再回到 select——
+/// 對端若停止讀取（TCP 反壓），沒有逾時的 `sink.send()` 會把整個迴圈卡死：
+/// `session.close.cancelled()`（撤銷／被取代／關機）與 idle deadline 都不再被輪詢，
+/// runtime 端的 sweep 就算 `close.cancel()` 也叫不醒它。逾時＝這條連線沒在讀，
+/// 當成 transport 關閉跳出迴圈，讓 pending 誠實落成 `uncertain`＋安全 intent 補 `system.text`。
+const WRITE_TIMEOUT_MS: u64 = 5_000;
 
 #[derive(serde::Deserialize, Default)]
 pub struct WsQuery {
@@ -58,13 +66,27 @@ pub async fn character_ws(
         .on_upgrade(move |socket| character_ws_loop(runtime, session, socket))
 }
 
-async fn send_wire(
-    sink: &mut futures::stream::SplitSink<WebSocket, Message>,
-    message: &WireMessage,
-) -> Result<(), ()> {
+async fn send_wire<S>(sink: &mut S, message: &WireMessage) -> Result<(), ()>
+where
+    S: futures::Sink<Message> + Unpin,
+{
     let bytes = encode_wire(message).map_err(|_| ())?;
     let text = String::from_utf8(bytes).map_err(|_| ())?;
-    sink.send(Message::Text(text.into())).await.map_err(|_| ())
+    match tokio::time::timeout(
+        Duration::from_millis(WRITE_TIMEOUT_MS),
+        sink.send(Message::Text(text.into())),
+    )
+    .await
+    {
+        Ok(result) => result.map_err(|_| ()),
+        Err(_) => {
+            tracing::warn!(
+                kind = message.kind(),
+                "character ws write timed out; treating the peer as gone"
+            );
+            Err(())
+        }
+    }
 }
 
 async fn character_ws_loop(runtime: Runtime, mut session: WsSession, socket: WebSocket) {
@@ -146,4 +168,66 @@ async fn character_ws_loop(runtime: Runtime, mut session: WsSession, socket: Web
         .character_ws_closed(&session.instance_id, session.conn_id, reason)
         .await;
     let _ = sink.close().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::Sink;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    /// 對端停止讀取（TCP 反壓）後的 sink：永遠 Pending，寫入不會完成。
+    struct StalledSink;
+
+    impl Sink<Message> for StalledSink {
+        type Error = axum::Error;
+
+        fn poll_ready(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Pending
+        }
+
+        fn start_send(self: Pin<&mut Self>, _item: Message) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Pending
+        }
+
+        fn poll_close(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Pending
+        }
+    }
+
+    /// character-protocol-039：對端不讀時，寫入必須逾時放棄——否則 `tokio::select!` 的
+    /// outbound 分支會一直卡在 `.await`，`session.close.cancelled()` 與 idle deadline
+    /// 永遠不再被輪詢，撤銷／被取代／關機都關不掉這條連線。
+    #[tokio::test]
+    async fn a_peer_that_stops_reading_cannot_wedge_the_ws_loop_forever() {
+        let mut sink = StalledSink;
+        let outcome = tokio::time::timeout(
+            Duration::from_millis(WRITE_TIMEOUT_MS + 2_000),
+            send_wire(
+                &mut sink,
+                &WireMessage::Heartbeat {
+                    generation: Some(1),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(outcome, Ok(Err(()))),
+            "WebSocket 寫入必須有逾時，逾時即視為 transport 關閉（讓 close token 叫得醒迴圈）"
+        );
+    }
 }

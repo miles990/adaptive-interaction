@@ -160,6 +160,33 @@ pub enum InputDropReason {
     InvalidPayload {
         field: String,
     },
+    /// 角色（manifest／協商結果）沒宣告這個 event kind 對應的輸入能力：宣告即契約，
+    /// 沒宣告的輸入不進佇列、不算預算、不得變成 `companion.*` 觀察。
+    CapabilityNotDeclared {
+        requires: String,
+    },
+}
+
+/// §6 event kind → 角色必須在 `manifest.inputCapabilities`（協商後為 `negotiated.inputCapabilities`）
+/// 宣告的能力 id。連接頁對使用者說的「可以接收：…」直接由 manifest 產生，所以宣告就是契約：
+/// 沒宣告的種類不得進入輸入佇列，也不得變成 `companion.*` 觀察或 file-drop grant
+/// （對抗審查 character-protocol-040）。`hover-left`／`toy-thrown`／`dismissed`／
+/// `visibility-changed` 本來就只留稽核、不產生觀察，因此不設閘。
+pub fn required_input_capability(kind: InputEventKind) -> Option<&'static str> {
+    match kind {
+        InputEventKind::Clicked
+        | InputEventKind::DoubleClicked
+        | InputEventKind::ActionRequested => Some("input.click"),
+        InputEventKind::HoverEntered => Some("input.hover"),
+        InputEventKind::DragStarted | InputEventKind::Dragged => Some("input.drag"),
+        InputEventKind::Dropped => Some("input.drop"),
+        InputEventKind::TextSubmitted => Some("input.text"),
+        InputEventKind::FileDropped => Some("input.fileDrop"),
+        InputEventKind::HoverLeft
+        | InputEventKind::ToyThrown
+        | InputEventKind::Dismissed
+        | InputEventKind::VisibilityChanged => None,
+    }
 }
 
 /// 正規化決定。

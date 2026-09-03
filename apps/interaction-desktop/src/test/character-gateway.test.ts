@@ -919,3 +919,106 @@ describe("AI 請求的 wait／ask 會被換成非安全 intent（與 Rust ai_saf
     expect(seen).toEqual(["think:50:wait", "notice:10:ask"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 對抗審查 character-protocol-037／038／040：TS 鏡射與 Rust 權威端的誠實階梯對齊。
+// ---------------------------------------------------------------------------
+
+describe("重新協商的誠實結清（README §7、character-protocol-037）", () => {
+  it("renegotiate：pending 一律 uncertain，還在演的安全 intent 比照斷線補 system.text", async () => {
+    const h = harness();
+    const a = new FakeAdapter();
+    await h.gw.registerInstance(a, "primary-companion", { instanceId: "a" });
+    const em = env("a", "emergency", { truthState: "emergency" });
+    h.gw.dispatch(em);
+    const work = env("a", "work", { interruptPolicy: "queue" });
+    h.gw.dispatch(work);
+    expect(h.gw.getInstance("a")?.pendingCount).toBe(2);
+    expect(h.systemTexts).toHaveLength(0);
+
+    h.reducedMotion.on = true;
+    h.gw.renegotiate("a");
+
+    expect(h.gw.getInstance("a")?.pendingCount).toBe(0);
+    expect(statuses(h.receipts, em.messageId)).toContain("uncertain");
+    expect(statuses(h.receipts, work.messageId)).toContain("uncertain");
+    // 安全 intent 沒演完 → 一定要有 system.text；非安全的不補。
+    expect(h.systemTexts.map((m) => m.messageId)).toEqual([em.messageId]);
+    expect(h.systemTexts[0].intent).toBe("emergency");
+    expect(h.systemTexts[0].truthState).toBe("emergency");
+    expect(h.audits.some((x) => x.kind === "renegotiate-pending-uncertain")).toBe(true);
+    // 世代不變（TS 端的既有約定），但舊 pending 不得留在新協商下以舊 resolution 回 completed。
+    expect(h.gw.getInstance("a")?.generation).toBe(1);
+    a.emit(em.messageId, { status: "completed", resolution: "exact" });
+    expect(statuses(h.receipts, em.messageId).filter((s) => s === "completed")).toHaveLength(0);
+  });
+});
+
+describe("pending 佇列滿時安全訊息不得消失（character-protocol-038）", () => {
+  it("佇列被安全 intent 塞滿：新的安全 intent 仍補 system.text，不被 cancelled{queue-full} 吞掉", async () => {
+    const h = harness();
+    const a = new FakeAdapter();
+    await h.gw.registerInstance(a, "primary-companion", { instanceId: "a" });
+    for (let i = 0; i < LIMITS.maxPending; i += 1) {
+      h.gw.dispatch(env("a", "emergency", { truthState: "emergency", interruptPolicy: "queue" }));
+    }
+    expect(h.gw.getInstance("a")?.pendingCount).toBe(LIMITS.maxPending);
+    const before = h.systemTexts.length;
+
+    const blocked = env("a", "blocked", { truthState: "blocked", interruptPolicy: "queue" });
+    h.gw.dispatch(blocked);
+
+    expect(statuses(h.receipts, blocked.messageId)).toEqual(["accepted", "cancelled"]);
+    expect(h.receipts.find((r) => r.messageId === blocked.messageId && r.status === "cancelled")?.reason).toBe("queue-full");
+    expect(h.gw.getInstance("a")?.pendingCount).toBe(LIMITS.maxPending);
+    expect(h.systemTexts).toHaveLength(before + 1);
+    const fallback = h.systemTexts[h.systemTexts.length - 1];
+    expect(fallback.messageId).toBe(blocked.messageId);
+    expect(fallback.intent).toBe("blocked");
+    expect(fallback.reason).toBe("not-presented");
+    // 非安全 intent 撞滿佇列時維持原本的誠實拒絕（不無故製造 system.text）。
+    const notice = env("a", "notice", { interruptPolicy: "queue" });
+    h.gw.dispatch(notice);
+    expect(statuses(h.receipts, notice.messageId)).toEqual(["accepted", "cancelled"]);
+    expect(h.systemTexts).toHaveLength(before + 1);
+  });
+});
+
+describe("輸入能力宣告即契約（character-protocol-040）", () => {
+  it("宣告「不接收任何輸入」的角色：所有輸入事件被丟棄並記 audit，不鑄出 file-drop grant", async () => {
+    const h = harness();
+    const a = new FakeAdapter({ inputCapabilities: {} });
+    await h.gw.registerInstance(a, "primary-companion", { instanceId: "a" });
+    a.fire({ kind: "character.text-submitted", payload: { text: "hi" } });
+    a.fire({ kind: "character.file-dropped", payload: { files: [{ name: "a.png", mediaType: "image/png", bytes: 10 }] } });
+    a.fire({ kind: "character.action-requested", payload: { action: "pause-proactive" } });
+    a.fire({ kind: "character.clicked", payload: { x: 1, y: 2 } });
+    a.fire({ kind: "character.dragged", payload: { x: 1, y: 2 } });
+    expect(h.inputs).toHaveLength(0);
+    expect(h.gw.listGrants()).toHaveLength(0);
+    expect(h.audits.filter((x) => x.kind === "input-capability-not-declared")).toHaveLength(5);
+  });
+
+  it("只宣告 input.text：文字進得來，點擊／hover 被擋", async () => {
+    const h = harness();
+    const a = new FakeAdapter({ inputCapabilities: { "input.text": { supported: true } } });
+    await h.gw.registerInstance(a, "primary-companion", { instanceId: "a" });
+    a.fire({ kind: "character.text-submitted", payload: { text: "hi" } });
+    a.fire({ kind: "character.clicked", payload: {} });
+    a.fire({ kind: "character.hover-entered", payload: {} });
+    expect(h.inputs.map((e) => e.kind)).toEqual(["character.text-submitted"]);
+    expect(h.audits.filter((x) => x.kind === "input-capability-not-declared").map((x) => x.detail)).toEqual([
+      "character.clicked needs input.click",
+      "character.hover-entered needs input.hover",
+    ]);
+  });
+
+  it("dismissed／visibility-changed 是 host 表面的生命週期事件，不需要宣告輸入能力", async () => {
+    const h = harness();
+    const a = new FakeAdapter({ inputCapabilities: {} });
+    await h.gw.registerInstance(a, "primary-companion", { instanceId: "a" });
+    a.fire({ kind: "character.dismissed" });
+    a.fire({ kind: "character.visibility-changed", payload: { visible: true } });
+    expect(h.inputs.map((e) => e.kind)).toEqual(["character.dismissed", "character.visibility-changed"]);
+  });
+});

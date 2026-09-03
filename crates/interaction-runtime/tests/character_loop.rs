@@ -14,7 +14,8 @@ use interaction_character::{
 };
 use interaction_core::*;
 use interaction_runtime::character::{
-    adapter_instance_id, CharacterHelloInput, WsStep, DESKTOP_INSTANCE_ID,
+    adapter_instance_id, CharacterHelloInput, WsStep, DESKTOP_INSTANCE_ID, OUTBOUND_CAP,
+    OUTBOUND_DEFERRED_CAP,
 };
 use interaction_runtime::{Runtime, RuntimeOptions};
 use serde_json::{json, Value};
@@ -2185,4 +2186,141 @@ async fn external_adapter_cannot_forge_human_interaction_observations() {
     .await
     .unwrap();
     assert_eq!(observations(&rt, "companion.quick-action").await.len(), 1);
+}
+
+/// character-protocol-040：連接頁對使用者說的「可以接收：…」直接由 `manifest.inputCapabilities`
+/// 產生，所以宣告就是契約——沒宣告的輸入種類不得偷偷變成 `companion.*` 觀察或 file-drop grant。
+#[tokio::test]
+async fn undeclared_input_capabilities_never_become_companion_observations() {
+    let (_g, rt) = runtime().await;
+    let mut manifest = desktop_manifest();
+    // 只宣告「接收文字」，其餘一律不接收。
+    manifest
+        .input_capabilities
+        .retain(|id, _| id == "input.text");
+    rt.character_hello(CharacterHelloInput {
+        instance_id: None,
+        role: None,
+        negotiate: Negotiate::from_manifest(&manifest, 1),
+        manifest,
+        visible: true,
+        pack_id: None,
+        behavior_state: None,
+        reduced_motion: false,
+    })
+    .await
+    .expect("hello accepted");
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+
+    // 宣告了的：文字照常變成觀察。
+    let out = rt
+        .character_event(
+            DESKTOP_INSTANCE_ID,
+            input_event(InputEventKind::TextSubmitted, 1, json!({"text": "早安"})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(out["decision"], "queued", "{out}");
+    assert_eq!(observations(&rt, "companion.text-input").await.len(), 1);
+
+    // 沒宣告的：誠實回報沒有變成觀察，而不是靜默照收。
+    for (kind, payload) in [
+        (InputEventKind::Clicked, json!({"x": 1, "y": 2})),
+        (InputEventKind::ActionRequested, json!({"action": "run"})),
+        (
+            InputEventKind::FileDropped,
+            json!({"name": "a.png", "mediaType": "image/png", "bytes": 10,
+                   "readableScope": "file", "grantId": "g-1",
+                   "expiresAt": (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339()}),
+        ),
+        (InputEventKind::DragStarted, json!({"x": 1, "y": 2})),
+    ] {
+        let out = rt
+            .character_event(DESKTOP_INSTANCE_ID, input_event(kind, 1, payload))
+            .await
+            .unwrap();
+        assert_eq!(
+            out["decision"], "audit-only",
+            "{kind:?} 沒被宣告，不得變成觀察：{out}"
+        );
+        assert_eq!(out["reason"], "input-capability-not-declared", "{out}");
+    }
+    for receptor in [
+        "companion.click",
+        "companion.quick-action",
+        "companion.drag-drop",
+    ] {
+        assert_eq!(
+            observations(&rt, receptor).await.len(),
+            0,
+            "{receptor} 不得由未宣告的輸入能力產生觀察"
+        );
+    }
+    assert!(rt
+        .store
+        .audit_tail(200)
+        .unwrap_or_default()
+        .iter()
+        .any(|row| row["kind"] == "character.input-capability-not-declared"));
+}
+
+/// character-protocol-039：外部連線的 outbound 佇列（32）滿了以後，安全訊息不得以「沒有上限、
+/// 沒有逾時」的 detached task 無限排隊。超過有界的延遲配額就判定對端沒在讀，取消 close token
+/// ——API 層據此關 socket，pending 才會誠實落成 `uncertain`＋安全 intent 補 `system.text`。
+#[tokio::test]
+async fn a_stalled_external_adapter_cannot_park_unbounded_safety_messages() {
+    let (_g, rt) = runtime().await;
+    let added = rt
+        .character_adapter_add("fixture", fixture_manifest())
+        .await
+        .unwrap();
+    let adapter_id = added["adapterId"].as_str().unwrap().to_string();
+    let instance_id = adapter_instance_id(&adapter_id);
+    let session = rt.character_ws_attach(&adapter_id).await.unwrap();
+    rt.character_ws_message(
+        &instance_id,
+        session.conn_id,
+        &encode_wire(&WireMessage::Negotiate(Negotiate::from_manifest(
+            &fixture_manifest(),
+            1,
+        )))
+        .unwrap(),
+    )
+    .await;
+    assert!(!session.close.is_cancelled());
+
+    // 從這裡開始完全不讀 session.rx：佇列很快就滿，之後每一則 blocked 都是安全訊息。
+    let bursts = OUTBOUND_CAP + OUTBOUND_DEFERRED_CAP + 8;
+    for i in 0..bursts {
+        rt.character_project_plan_blocked(&format!("plan-{i}"), Some("policy"));
+    }
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        session.close.is_cancelled(),
+        "outbound 佇列被塞爆時必須關掉這條連線，而不是無界堆積 detached task"
+    );
+
+    // API 層收到 close token 後關 socket → pending 一律 uncertain、安全 intent 補 system.text。
+    rt.character_ws_closed(
+        &instance_id,
+        session.conn_id,
+        DisconnectReason::TransportClosed,
+    )
+    .await;
+    let receipts = events_of(&rt, EventType::CharacterReceipt);
+    assert!(
+        receipts
+            .iter()
+            .any(|e| e.payload["receipt"]["status"] == "uncertain"),
+        "斷線後 pending 必須誠實記成 uncertain"
+    );
+    let texts = events_of(&rt, EventType::CharacterSystemText);
+    assert!(
+        !texts.is_empty(),
+        "還在演的安全 intent 必須補 system.text，不得無聲消失"
+    );
 }
