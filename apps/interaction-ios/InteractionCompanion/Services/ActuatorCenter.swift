@@ -71,11 +71,11 @@ final class ActuatorCenter: NSObject, ObservableObject {
     let characterState: CharacterState
     /// 前景判斷(接 SensorCenter.isForeground)
     var isForeground: (() -> Bool)?
-    /// stop-all 帶 sensors:true(桌面緊急停止)時要停用的感測。
+    /// stop-all 帶 sensors:true 時要停用的感測(帶入 UI 要顯示的停用說明)。
     /// 由 AppModel 接線到 SensorCenter.stopAllSensors(reason:) 與
-    /// BleGateway.disable(reason:)——緊急停止不能只停動器,
+    /// BleGateway.disable(reason:)——停止全部感測不能只停動器,
     /// 手機的麥克風也是這個系統的感測器。重連後不自動恢復。
-    var stopSensorsOnEmergency: ((String) -> Void)?
+    var stopSensorsOnStopAll: ((String) -> Void)?
 
     private var hapticEngine: CHHapticEngine?
     private var hapticEngineStarted = false
@@ -442,11 +442,13 @@ final class ActuatorCenter: NSObject, ObservableObject {
 
     // MARK: stop-all
 
-    /// 立即停止 haptics / tts / torch / flash。`sensors == true`(桌面
-    /// 緊急停止)時連感測一起停:麥克風 / 位置 / BLE 閘道。
+    /// 立即停止 haptics / tts / torch / flash。`sensors == true` 時連感測
+    /// 一起停:麥克風 / 位置 / BLE 閘道(以及電池、動作)。
+    /// `reason` **不改變停的範圍**,只決定 UI 顯示哪一句停用說明;
+    /// 未知/缺席的原因由 `StopAllReason` 保守地當成 `.emergency`。
     /// 呼叫端(ConnectionManager)於本方法完成後回覆
-    /// {"type":"ack","stopAll":true}。
-    func stopAll(sensors: Bool = false) async {
+    /// {"type":"ack","stopAll":true,"sensors":<回音>}。
+    func stopAll(sensors: Bool = false, reason: StopAllReason = .emergency) async {
         hapticPlaybackTask?.cancel()
         hapticPlaybackTask = nil
         if let engine = hapticEngine, hapticEngineStarted {
@@ -463,9 +465,28 @@ final class ActuatorCenter: NSObject, ObservableObject {
         flash = nil
         logAction("stop-all:haptics/tts/torch/flash 已全部停止")
         if sensors {
-            // 誠實:UI 會顯示「因桌面緊急停止而停用」,且不自動恢復。
-            stopSensorsOnEmergency?("因桌面緊急停止而停用(麥克風/位置/BLE 閘道)")
-            logAction("stop-all(sensors):已停用麥克風/位置/BLE 閘道")
+            // 誠實:兩種原因停的東西一樣,但 UI 要說出到底是哪一種,
+            // 不能把使用者按的「停止所有感測」講成緊急停止(反之亦然)。
+            // 兩者都不自動恢復。
+            let note = reason == .user
+                ? "由桌面停止全部感測(麥克風/位置/BLE 閘道)"
+                : "因桌面緊急停止而停用(麥克風/位置/BLE 閘道)"
+            stopSensorsOnStopAll?(note)
+            logAction("stop-all(sensors):\(note)")
+            // Belt-and-braces:緊急停止時桌面會另外送一則 character.present
+            // emergency,但那一則可能送不到(runtime 會誠實記成 outcome=unknown)。
+            // stop-all{sensors:true,reason:emergency} 本身就是緊急停止的事實,
+            // 所以這裡直接把角色狀態設成 emergency。
+            //
+            // 只在 emergency 這一邊做:使用者按的「停止所有感測」不是緊急停止,
+            // 把它顯示成緊急停止同樣是說謊。
+            //
+            // 解除**只**由 runtime 決定:桌面解除緊急停止時會送
+            // character.present idle,這裡不自行恢復(手機不能自己說緊急停止結束了)。
+            if reason == .emergency && characterState.state != .emergency {
+                characterState.state = .emergency
+                logAction("character 狀態 → emergency(由 stop-all 推得,等桌面送 idle 才解除)")
+            }
         }
     }
 

@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Info.plist.example — InteractionCompanion
+  Info.plist — InteractionCompanion(真檔案,由 InteractionCompanion.xcodeproj 的
+  INFOPLIST_FILE 指向;內容取自 InteractionCompanion/Info.plist.example)。
 
-  用法:本檔是**範本**。真正被 InteractionCompanion.xcodeproj 使用的是
-  apps/interaction-ios/Info.plist(INFOPLIST_FILE 指向它,刻意放在同步資料夾之外,
-  免得被當成資源複製進 app bundle)。改權限描述時請兩邊一起改。
-  本檔已在 pbxproj 的 membershipExceptions 中排除,不會進 bundle。
+  刻意放在 InteractionCompanion/ 同步資料夾「之外」:同步資料夾內的檔案會被
+  當成 target 成員,plist 會被複製進 app bundle 成為多餘資源。
 
-  注意:
-  - 預設不啟用任何 Background Modes(背景執行受 iOS 限制,見 README「已知限制」)。
-  - 每一條用途描述都誠實對應實際行為;App 不會在未經同意時啟用任何感測。
+  其餘 key(CFBundleIdentifier / CFBundleVersion / UILaunchScreen /
+  MinimumOSVersion …)由 GENERATE_INFOPLIST_FILE=YES 產生後合併進來,
+  這裡只列「必須手寫」的隱私用途描述與 Bonjour 服務型別。
+
+  注意:預設不啟用任何 Background Modes(背景執行受 iOS 限制,見 README「已知限制」)。
 -->
 <plist version="1.0">
 <dict>
@@ -27,7 +28,7 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>僅用於回報位置權限狀態給已配對的電腦;目前版本不會傳送任何座標。</string>
 
-	<!-- 藍牙:BLE 閘道(使用者明確開啟後,代已配對的電腦掃描/連線 BLE 裝置)。 -->
+	<!-- 藍牙:BLE 閘道(使用者明確開啟後,代已配對的電腦掃描/連線藍牙裝置)。 -->
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>BLE 閘道:在你明確開啟後,代已配對的電腦掃描與連線藍牙裝置。預設關閉。</string>
 

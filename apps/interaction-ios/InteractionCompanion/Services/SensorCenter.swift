@@ -382,8 +382,9 @@ final class SensorCenter: NSObject, ObservableObject {
     }
 
     /// 全部關閉(含低風險),並誠實記下原因給 UI 顯示。
-    /// 桌面緊急停止(`stop-all { sensors: true }`)走這條:
-    /// 重連後「不」自動恢復,使用者必須重新手動開啟。
+    /// 桌面 `stop-all { sensors: true }` 走這條——不論是使用者按「停止所有感測」
+    /// 還是緊急停止,停的範圍完全一樣,`reason` 只是 UI 要說的那句話。
+    /// 兩種情況重連後都「不」自動恢復,使用者必須重新手動開啟。
     func stopAllSensors(reason: String) {
         setMotionEnabled(false)
         setBatteryEnabled(false)

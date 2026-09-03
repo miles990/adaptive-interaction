@@ -10,7 +10,8 @@
 >   以 `swiftc` 直接編成 `.app`(無 xcodeproj)、裝進模擬器啟動,並與**真實
 >   `interact-ai` daemon** 完成 wss+TLS 指紋固定+HMAC 配對、Keychain 重連(`auth → auth-ok`)、
 >   `character.present` 動器閉環(收據 `acknowledged` + `deviceApplied`)、撤銷後重連
->   `auth-fail` 顯示;XCTest 兩個測試檔在模擬器內執行 **19/19 通過**。
+>   `auth-fail` 顯示;XCTest 兩個測試檔在模擬器內執行 **19/19 通過**
+>   (當時的測試方法數;之後補了 stop-all 的測試,現為 21,見下方 2026-09-03 更新)。
 >   **第二輪(2026-08-28 晚)復測**:撤銷**即時斷線**(socket 於 DELETE 後
 >   ≤0.035s 消失、App 立刻顯示「配對已被撤銷或過期」)、桌面 `emergency-stop`
 >   **停掉 iPhone 感測**(`activeSensors` 立刻清空、手機 0.499s 內回報
@@ -20,21 +21,46 @@
 > - ✅ 全部 12 個 `.swift` 通過 iOS 模擬器目標的完整 `swiftc -typecheck`(0 錯誤、0 警告)
 > - ❌ **未經真機驗收**:haptic / torch / CoreMotion / 真實 BLE / 通知顯示 / QR 相機掃描
 >   在模擬器上不可用或未觸發,行為仍未驗證。
-> - ❌ 未經 `xcodebuild`(沒有 xcodeproj);Xcode 專案仍需依下方步驟自行建立。
+>
+> **2026-09-03 更新(xcodeproj 與真機路徑)**
+> - ✅ 本目錄現在有**手寫的 `InteractionCompanion.xcodeproj`**(objectVersion 77、
+>   同步資料夾 group、app + 單元測試兩個 target、共用 scheme),`xcodebuild -list`
+>   看得到 scheme `InteractionCompanion`。
+> - ✅ **模擬器 SDK 建置通過**:`xcodebuild -target InteractionCompanion -sdk iphonesimulator
+>   -arch arm64 CODE_SIGNING_ALLOWED=NO build` → `** BUILD SUCCEEDED **`,
+>   產出的 `Info.plist` 六個隱私 key 齊全、`CFBundleIdentifier=dev.interact-ai.companion`、
+>   `UIDeviceFamily=[1]`、`MinimumOSVersion=17.0`。
+> - ✅ **裝置 SDK 建置通過(未簽章)**:`-sdk iphoneos -arch arm64 -configuration Release
+>   CODE_SIGNING_ALLOWED=NO` → `** BUILD SUCCEEDED **`;12 個 `.swift` 對
+>   `arm64-apple-ios17.0` + iphoneos26.5 SDK 的 `swiftc -typecheck` 也是 0 error / 0 warning。
+> - ✅ **XCTest 21/21 通過**(MotionClassifier 8 + Protocol 13)——用 xcodebuild 產出的
+>   app-hosted `.xctest`,注入 iPhone 17 **模擬器**(iOS 26.2)執行。**仍是模擬器**。
+> - ⚠️ **`xcodebuild -destination` 在本機無法解析任何 iOS destination**:Xcode 26.6 回報
+>   「iOS 26.5 is not installed」(平台元件未下載,只有 iOS 26.2 模擬器 runtime),
+>   連純 SwiftPM 專案也一樣,**不是本 xcodeproj 的問題**。要用 `-scheme … -destination …`
+>   (含 `xcodebuild test`)的人請先在 Xcode → Settings → Components 下載 iOS 平台。
+> - ❌ **真機安裝與真機驗收仍為零**:本機沒有任何 codesigning identity、Xcode 未登入
+>   Apple ID、iPhone 的 Developer Mode 是 `disabled`。`scripts/device-build.sh --check-only`
+>   會誠實停在 Developer Mode 這一關並印出人要做的步驟(見下方「真機」章節)。
 
 ## 目錄結構
 
 ```
 apps/interaction-ios/
 ├── README.md                          本文件
+├── Info.plist                         真正編進 app 的隱私用途描述(刻意放在同步資料夾外)
+├── InteractionCompanion.xcodeproj/    手寫專案(objectVersion 77 + 共用 scheme)
+├── scripts/
+│   ├── device-build.sh                真機:前置閘門 → xcodebuild → devicectl 安裝/啟動
+│   └── device-acceptance.sh           真機:對真 daemon 跑驗收矩陣(只印 daemon 原文)
 ├── InteractionCompanionTests/
-│   ├── MotionClassifierTests.swift    純分類器行為測試(XCTest;等價案例已於本機驗證)
-│   └── ProtocolTests.swift            Wire protocol 編解碼測試(XCTest;等價案例已於本機驗證)
+│   ├── MotionClassifierTests.swift    純分類器行為測試(XCTest:8 個 test 方法)
+│   └── ProtocolTests.swift            Wire protocol 編解碼測試(XCTest:13 個 test 方法)
 └── InteractionCompanion/
     ├── InteractionCompanionApp.swift  App 進入點 + 元件接線(scenePhase → 前景觀察)
-    ├── Info.plist.example             需要加入 target 的權限描述(見下)
+    ├── Info.plist.example             隱私描述的來源範本(內容已複製到上面的 Info.plist)
     ├── Models/
-    │   └── Protocol.swift             Wire protocol v1 訊息模型(Codable,經 33 項測試)
+    │   └── Protocol.swift             Wire protocol v1 訊息模型(Codable)
     ├── Services/
     │   ├── ConnectionManager.swift    WebSocket + TLS 指紋固定 + 配對/認證 + 重連 backoff
     │   ├── PairingStore.swift         Keychain(deviceId/token/host/port/指紋;不存配對碼)
@@ -49,30 +75,70 @@ apps/interaction-ios/
         └── CharacterView.swift        簡化角色(貓耳剪影)+ 觸控事件
 ```
 
-## Xcode 專案建立步驟
+## Xcode 專案(已在 repo 內,不用再手動建立)
 
-1. Xcode → **File → New → Project → iOS → App**
-   - Product Name:`InteractionCompanion`,Interface:**SwiftUI**,Language:**Swift**
-   - Minimum Deployment:**iOS 17.0**(使用了 `AVAudioApplication`、`onChange` 雙參數等 iOS 17 API)
-2. 刪除範本產生的 `ContentView.swift` 與 `<App>App.swift`,把本目錄
-   `InteractionCompanion/` 下的 `.swift` 檔(含 `Models/`、`Services/`、`Views/`
-   子目錄)拖入專案(勾選 *Copy items if needed* 與 target membership)。
-3. Target → **Info**:依 `Info.plist.example` 加入以下 key(缺少任一個,對應功能
-   在第一次要求權限時會直接 crash):
-   - `NSMicrophoneUsageDescription`(麥克風音量感測)
-   - `NSCameraUsageDescription`(配對 QR 掃描)
-   - `NSLocationWhenInUseUsageDescription`(位置權限回報)
-   - `NSBluetoothAlwaysUsageDescription`(BLE 閘道)
-   - `NSLocalNetworkUsageDescription` + `NSBonjourServices` = `_interact-ai._tcp`
-     (RFC 6763 §7.2:service name label 最長 15 bytes;舊名 `interact-ai-mobile`
-     為 18 bytes 會被 mDNS 拒絕,daemon 端已改用 `_interact-ai._tcp`)
-4. **Capabilities:預設不加任何 Background Modes**(刻意——背景長駐不在 v1 範圍)。
-5. Signing 選你的 Team,Build & Run。
-6. 新增 **Unit Testing Bundle** target(`InteractionCompanionTests`),
-   把 `InteractionCompanionTests/` 下兩個測試檔加入——皆為純邏輯,不需 mock。
-   這兩個 XCTest 檔已在 **iOS 模擬器內實際執行 19/19 通過**(以 swiftc 直接編成
-   `.xctest` bundle、`xctest` agent 執行;見下方「本機驗證了什麼」),Xcode 專案
-   建好後直接 ⌘U 即可。
+`InteractionCompanion.xcodeproj` 是**手寫**的(objectVersion 77),沒有用
+xcodegen / tuist,也不需要任何產生步驟:
+
+- `PBXFileSystemSynchronizedRootGroup` 直接同步 `InteractionCompanion/` 與
+  `InteractionCompanionTests/` 兩個資料夾——**新增 `.swift` 檔不用改 pbxproj**。
+  唯一的例外清單是 `Info.plist.example`(排除於 target 之外,免得被當成資源複製進 bundle)。
+- Target `InteractionCompanion`:app,bundle id `dev.interact-ai.companion`,
+  iOS 17.0(用了 `AVAudioApplication`、雙參數 `onChange` 等 iOS 17 API),
+  `TARGETED_DEVICE_FAMILY=1`(只有 iPhone),Debug / Release 兩個 configuration,
+  `CODE_SIGN_STYLE=Automatic`、`DEVELOPMENT_TEAM` **刻意留空**(由指令列覆寫,
+  repo 裡不寫死任何人的 Team ID)。Debug 有 `SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG`
+  ——下方的 DEBUG 啟動參數只有 Debug 版本編得進去。
+- Target `InteractionCompanionTests`:單元測試 bundle,`TEST_HOST` 指向 app,
+  依賴 app target;`ENABLE_TESTABILITY=YES` 讓 `@testable import` 成立。
+- `Info.plist`(在 `apps/interaction-ios/Info.plist`,**同步資料夾之外**)提供六個
+  隱私 key,其餘(`CFBundleIdentifier` / `UILaunchScreen` / `MinimumOSVersion` …)
+  由 `GENERATE_INFOPLIST_FILE=YES` 產生後合併:
+  - `NSMicrophoneUsageDescription`(麥克風音量感測)
+  - `NSCameraUsageDescription`(配對 QR 掃描)
+  - `NSLocationWhenInUseUsageDescription`(位置權限回報)
+  - `NSBluetoothAlwaysUsageDescription`(BLE 閘道)
+  - `NSLocalNetworkUsageDescription` + `NSBonjourServices` = `_interact-ai._tcp`
+    (RFC 6763 §7.2:service name label 最長 15 bytes;舊名 `interact-ai-mobile`
+    為 18 bytes 會被 mDNS 拒絕,daemon 端已改用 `_interact-ai._tcp`)
+- **Capabilities:預設不加任何 Background Modes**(刻意——背景長駐不在 v1 範圍),
+  也沒有 `.entitlements`:自動簽章會注入 `application-identifier` /
+  `keychain-access-groups`,`PairingStore` 用預設 keychain group 就夠。
+- 共用 scheme 在 `xcshareddata/xcschemes/InteractionCompanion.xcscheme`,
+  所以 `xcodebuild -scheme InteractionCompanion` 在 CI 上也看得到。
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+cd <repo root>
+xcodebuild -list -project apps/interaction-ios/InteractionCompanion.xcodeproj
+
+# 模擬器建置(不需要任何 Apple 帳號)
+xcodebuild -project apps/interaction-ios/InteractionCompanion.xcodeproj \
+  -scheme InteractionCompanion -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO build
+
+# 跑 XCTest(iPhone 17 模擬器)
+xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
+  -scheme InteractionCompanion -destination 'platform=iOS Simulator,name=iPhone 17' \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+> ⚠️ **本機的已知環境限制**:上面兩條帶 `-destination` 的指令在這台機器上會失敗,
+> 錯誤是 `iOS 26.5 is not installed. Please download and install the platform from
+> Xcode > Settings > Components`——Xcode 26.6 的 iOS 平台元件沒下載(只有 iOS 26.2
+> 模擬器 runtime),`xcodebuild` 因此列不出任何 iOS destination。**這與本 pbxproj 無關**
+> (拿一個空的 SwiftPM iOS package 測也一樣)。在下載平台元件之前,可用不經 destination
+> 解析的等價指令驗證專案(2026-09-03 實測皆 `** BUILD SUCCEEDED **`):
+>
+> ```bash
+> xcodebuild -project apps/interaction-ios/InteractionCompanion.xcodeproj \
+>   -target InteractionCompanionTests -configuration Debug \
+>   -sdk iphonesimulator -arch arm64 CODE_SIGNING_ALLOWED=NO \
+>   CONFIGURATION_BUILD_DIR=/tmp/ios-out OBJROOT=/tmp/ios-obj SYMROOT=/tmp/ios-sym build
+> ```
+>
+> 產出的 `InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest` 可用
+> `simctl` 注入模擬器執行(見下方「本機驗證了什麼」),2026-09-03 實測 **21/21 通過**。
 
 ### DEBUG 限定啟動參數(自動化驗收,僅供模擬器/CI;release 不編入)
 
@@ -103,7 +169,11 @@ xcrun simctl launch booted dev.interact-ai.companion --auto-connect --initial-ta
 Keychain;失敗則保留原配對)。Xcode 使用者可在 Scheme → Run → Arguments 加
 同名參數。用 `swiftc` 直接編譯時需明確加 `-D DEBUG` 才會編入這些入口。
 
-### 不用 Xcode 專案、直接以 `swiftc` 編成模擬器 .app(2026-08-28 實測可行)
+### 不用 Xcode 專案、直接以 `swiftc` 編成模擬器 .app(2026-08-28 實測可行,**僅限模擬器**)
+
+> 這條路只對**模擬器**成立。真機不吃 `-sectcreate` 的 entitlements 與 ad-hoc 簽章,
+> 一定要走佈建描述檔 + Apple Development 憑證,也就是下面的「真機」章節。
+
 
 `xcrun swiftc -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" -target arm64-apple-ios17.0-simulator -parse-as-library -D DEBUG -module-name InteractionCompanion -emit-executable …`
 即可產出可裝進模擬器的執行檔;兩個實測踩到的坑:
@@ -116,6 +186,110 @@ Keychain;失敗則保留原配對)。Xcode 使用者可在 Scheme → Run → Ar
   (`xcrun derq query -f xml -i ent.plist -o ent.der`)以
   `-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __entitlements -Xlinker ent.plist`
   與 `… __ents_der … ent.der` 烘進執行檔,再 ad-hoc `codesign --sign -`。
+
+## 真機(iPhone 實機安裝與驗收)
+
+真機路徑只有兩支腳本,但**有四件事只有人做得到**,腳本會在做不到時
+誠實停下來、印出你要做什麼,而不是硬跑一段最後噴簽章錯誤。
+
+### 人要做的(一次性,依序)
+
+| # | 你要做的事 | 為什麼腳本做不到 |
+|---|---|---|
+| H1 | Xcode → Settings → Accounts → 「+」→ Apple ID → 登入(免費 Apple ID 即可,會產生 **Personal Team**)。若被要求,到 developer.apple.com 接受最新開發者條款。 | 憑證與描述檔只能由 Apple 帳號簽發;免費 Team 沒有 App Store Connect API,無法用金鑰自動化。 |
+| H2 | iPhone → 設定 → 隱私權與安全性 → **開發者模式** → 開啟 → **重新啟動** → 解鎖後點「開啟」並輸入密碼。 | 這是裝置端的安全開關,只能在手機上按;沒開的話 `devicectl` 任何安裝/啟動都會回 `CoreDeviceError 10005`。 |
+| H3 | 第一次 `xcodebuild -allowProvisioningUpdates` 時,對跳出的**鑰匙圈視窗按「總是允許」**(必須在有登入的桌面工作階段執行,不能用 ssh)。 | 私鑰存取需要使用者授權。 |
+| H4 | App 裝上去之後,iPhone → 設定 → 一般 → **VPN 與裝置管理** → 開發者 App → **信任**你的 Apple ID。 | 未信任的開發者憑證,系統直接擋下啟動。 |
+| H5 | 第一次連線時按**「允許」本地網路**;之後用到麥克風 / 藍牙 / 通知 / 相機 / 定位時各按一次允許。手機與 Mac 要在**同一個 Wi-Fi**。 | iOS 權限對話框只能人按;AI 不得代替使用者同意。 |
+| H6 | 驗收時親手**搖 / 拿起 / 旋轉手機**(`iphone.motion`)、**點角色**(`iphone.touch`),並用眼睛/手確認觸覺、手電筒、閃示、朗讀真的發生;截圖存 `docs/assets/v05-evidence/ios-device-*.png`。 | ack 只代表 App 回了訊息,**不代表效果真的發生**——這是誠實階梯的底線。 |
+
+### 自動化的部分
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+
+# 1) 只檢查前置條件(不編譯),看還缺什麼
+apps/interaction-ios/scripts/device-build.sh --check-only
+
+# 2) 編譯 + 簽章 + 安裝 + 啟動(可順便帶配對 JSON,等同在 App 裡貼上並按「開始配對」)
+apps/interaction-ios/scripts/device-build.sh \
+  --pairing-payload "$(curl -s -X POST http://127.0.0.1:8787/v1/mobile/pairing-session \
+      -H "Authorization: Bearer $(cat ~/.adaptive-interaction/state/api-token)" \
+      -H 'content-type: application/json' -d '{}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["payload"])')"
+
+# 3) 對真 daemon 跑驗收矩陣(預設不含破壞性列)
+apps/interaction-ios/scripts/device-acceptance.sh --dry-run       # 先看要送什麼,不產生副作用
+apps/interaction-ios/scripts/device-acceptance.sh
+apps/interaction-ios/scripts/device-acceptance.sh --rows estop,estop-clear,revoke --confirm-destructive
+```
+
+`device-build.sh` 的閘門(任何一關不過就非 0 結束,**不會**先跑 xcodebuild):
+
+1. `DEVELOPER_DIR` 指向完整 Xcode(不是 Command Line Tools)
+2. `devicectl` 看得到**唯一一台** iOS 裝置(可用 `--device` / `IOS_DEVICE_ID` 指定)
+3. 該裝置 `developerModeStatus == enabled`
+4. 有 Team ID(`IOS_DEVELOPMENT_TEAM`,或 Xcode 的 `IDEProvisioningTeams` 第一筆)
+
+通過之後才 `xcodebuild -destination id=<裝置> -allowProvisioningUpdates
+-allowProvisioningDeviceRegistration DEVELOPMENT_TEAM=… build`,再
+`xcrun devicectl device install app` 與 `device process launch`。
+**UDID / Team ID / 配對碼一律不寫進 repo**:所有 `--json-output` 落在 `mktemp` 產生的
+暫存目錄(結束即刪),印出配對 JSON 時 `code` 會被遮成 `******`。
+
+`device-acceptance.sh` 涵蓋的列(`--list-rows` 可印出):
+`pair`、`status`、`haptic`、`notify`、`tts`、`torch`(開+關)、`flash`、
+`character`(idle/working/waiting/failed/unknown/emergency)、
+`character-verified-rejected`(刻意送 `verified-success`,**期望被 runtime 擋下**)、
+`observe-motion|battery|touch|mic`、`ble-scan`、`sensors-stop`、
+`estop`、`estop-clear`、`revoke`。每一列印
+`Requested / Effective / Dispatched / Acknowledged / deviceApplied / outcome`,
+全部標示「真機 iPhone」。**腳本不做通過/不通過判定、不補假資料**:
+沒回應就是 `未知(uncertain)`;缺同意時只印出「你自己要跑哪一行」,
+不會偷偷幫你 `session consent`(除非你加 `--grant-consent` 明示授權)。
+
+### 免費 Personal Team 的限制(會咬人的地方)
+
+- **佈建描述檔 7 天到期**:過期後 App 直接拒絕啟動,每次驗收前都要重跑
+  `device-build.sh` 重新簽章。腳本會在編完後印出描述檔到期時間。
+- 每 7 天最多 **10 個 App ID**、同時最多 **3 台裝置**;超過會出現
+  「No profiles for dev.interact-ai.companion」。
+- 沒有推播權限(本 App 只用本地通知,不受影響)。
+
+### 目前的實際狀態(2026-09-03)
+
+`device-build.sh --check-only` 在本機停在第 3 關:
+
+```
+=== 2/5 Developer Mode ===
+[閘門未通過] iPhone 的 Developer Mode 目前是「disabled」,devicectl 無法安裝或啟動 App。
+```
+
+也就是說 **真機安裝從未發生過、真機驗收數字為零**。
+在 H1~H2 完成之前,任何文件都不得把 iOS 功能寫成「已驗收」。
+
+## 停止全部感測的兩種原因(wire protocol 微調)
+
+`stop-all` 可以帶 `"reason"`:
+
+```jsonc
+{"type":"stop-all","sensors":true,"reason":"user"}       // 使用者按了「停止所有感測」
+{"type":"stop-all","sensors":true,"reason":"emergency"}  // 桌面緊急停止
+{"type":"stop-all","sensors":true}                       // 舊桌面端:當成 emergency
+```
+
+- **`reason` 不改變停的範圍**——兩種原因停掉的東西完全一樣(動器,加上
+  `sensors:true` 時的麥克風 / 位置 / BLE 閘道 / 電池 / 動作),兩種都**不自動恢復**。
+  它只決定 App 在「感測」頁顯示哪一句:
+  `user` → 「由桌面停止全部感測(麥克風/位置/BLE 閘道)」;
+  `emergency` → 「因桌面緊急停止而停用(麥克風/位置/BLE 閘道)」。
+- **缺席或無法辨識的值一律當成 `emergency`**:寧可把一般停止說得比較嚴重,
+  也不要把真正的緊急停止淡化成一般停止(`StopAllReason(wire:)`,Protocol.swift)。
+- stop-all 的回覆現在**回音 sensors 旗標**:`{"type":"ack","stopAll":true,"sensors":true|false}`,
+  桌面端不必猜手機到底停了動器還是連感測一起停。
+- **已知落差**:桌面端(`crates/interaction-runtime/src/mobile.rs`)目前送的
+  `stop-all` **還沒有** `reason` 欄位,所以使用者按「停止所有感測」時,手機仍會顯示
+  「因桌面緊急停止而停用」。App 端已經準備好,等桌面在使用者路徑補上
+  `"reason":"user"` 即可生效——這是刻意的向後相容設計,不是 bug 被藏起來。
 
 ## 配對流程
 
@@ -161,7 +335,7 @@ status 訊息(`sensors` 五旗標 + `microphone/location/bluetooth` 權限)於
 | `screen.flash` | 無 | 僅前景,否則 `err "background"`;durationMs ≤ 1500 |
 | `torch.set` | 無 | 無手電筒硬體 → `err "no-torch"`;開啟需 durationMs ≤ 5000,到時自動關 |
 | `character.present` | 無 | 狀態 `idle/working/waiting/verified-success/failed/unknown/emergency`;**綠色勾號只在 verified-success**;emergency 固定顯示「緊急停止中」 |
-| `stop-all` | 無 | 立即停止 haptics/tts/torch/flash → `{"type":"ack","stopAll":true}` |
+| `stop-all` | 無 | 立即停止 haptics/tts/torch/flash;`sensors:true` 時連感測一起停 → `{"type":"ack","stopAll":true,"sensors":<回音>}`;`reason` 只影響 UI 顯示的停用說明(見「停止全部感測的兩種原因」) |
 
 ## BLE 閘道
 
@@ -190,14 +364,45 @@ status 訊息(`sensors` 五旗標 + `microphone/location/bluetooth` 權限)於
    Keychain 重連(auth→auth-ok);`character.present` 動器閉環收據 `acknowledged`
    + `deviceApplied`;撤銷後重連收到 `auth-fail` 並顯示「配對已被撤銷或過期」。
    模擬器實測也暴露了桌面端「撤銷不斷線」與 Bonjour 服務名過長兩個缺陷(已於桌面端修正)。
-3. `MotionClassifier` 純核心(抽出 CoreMotion 包裝後在 macOS 編譯執行):
-   11 項行為測試全過——lifted/shaken/placed/rotated 觸發、shaken 期間不誤報
+3. `MotionClassifierTests`(repo 內,`InteractionCompanionTests/MotionClassifierTests.swift`,
+   **8 個 `func test…`**)全過——lifted/shaken/placed/rotated 觸發、shaken 期間不誤報
    lifted、純靜止零事件、yaw 跨 ±π wrap、debounce ≥ 1.5s、滑動視窗 ≤ 3s。
-4. Wire protocol:33 項編解碼測試全過——status 五旗標/三權限鍵名精確、
-   motion 帶 `at` 而 battery 不帶、`{"type":"ack","stopAll":true}` 形狀、
+4. `ProtocolTests`(repo 內,`InteractionCompanionTests/ProtocolTests.swift`,
+   **13 個 `func test…`**,其中多個 test 方法各含數十個斷言)全過——
+   status 五旗標/三權限鍵名精確、motion 帶 `at` 而 battery 不帶、
+   `{"type":"ack","stopAll":true,"sensors":…}` 形狀與 sensors 回音、
+   `stop-all` 的 `reason` 缺席/未知值一律降級為 `emergency`、
    count 序列化為整數、`ble.result` 未知 name 為 `null`、規格中每一種
    server→app 訊息的解碼、配對 payload 驗證(拒 v≠1/壞指紋)、
    HMAC-SHA256(key=配對碼, msg=nonce) 與 `openssl dgst -sha256 -hmac` 參考值一致。
+   > 這兩個檔案就是**可重跑的回歸測試**(8 + 13 = 21 個 test 方法)。
+   > 早期版本的 README 曾寫「33 項 / 11 項」,那是開發當下一次性檢查的斷言數,
+   > 對應不到 repo 裡的任何測試,已更正為實際的 test 方法數。
+
+### 2026-09-03:xcodeproj 與 XCTest 21/21(仍是模擬器)
+
+同一台機器(Xcode 26.6 / iOS 26.5 SDK / iPhone 17 模擬器 iOS 26.2):
+
+1. `xcodebuild -list -project apps/interaction-ios/InteractionCompanion.xcodeproj`
+   列出 target `InteractionCompanion`、`InteractionCompanionTests` 與 scheme
+   `InteractionCompanion`。
+2. `-target InteractionCompanion -sdk iphonesimulator -arch arm64 CODE_SIGNING_ALLOWED=NO build`
+   → `** BUILD SUCCEEDED **`;產出的 `Info.plist` 六個隱私 key 齊全,
+   `Info.plist.example` **沒有**被複製進 bundle(pbxproj 的 membershipExceptions 生效)。
+3. `-target InteractionCompanion -sdk iphoneos -arch arm64 -configuration Release
+   CODE_SIGNING_ALLOWED=NO build` → `** BUILD SUCCEEDED **`(裝置 SDK 編得過,只差簽章)。
+4. 12 個 App `.swift` 對 `arm64-apple-ios17.0` + iphoneos26.5 SDK 的
+   `swiftc -typecheck -D DEBUG`:**0 error、0 warning**。
+5. `-target InteractionCompanionTests … build` 產出 app-hosted
+   `InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest`;
+   把 `_Testing_*.framework` 補進 `Frameworks/` 後 `simctl install` 並以
+   `libXCTestBundleInject.dylib` 注入啟動(`-XCTest All`):
+   **Executed 21 tests, with 0 failures**(MotionClassifier 8 + Protocol 13)。
+6. 反向驗證(把修好的行為改回舊寫法):`ack` 不回音 `sensors`、`stop-all` 忽略
+   `reason` 時,同一組測試 **21 tests / 5 failures**——確認新測試真的抓得到迴歸。
+
+> ⚠️ 這一輪**全部在模擬器**,而且 `xcodebuild test -destination …` 在本機無法執行
+> (Xcode 未安裝 iOS 26.5 平台元件,見上方 Xcode 專案章節的警告框)。真機仍為零驗收。
 
 ### 第二輪模擬器復測(2026-08-28 晚)
 
@@ -227,6 +432,23 @@ mobile wss `18790`),`.app` 依修改後的 Swift 原始碼重編、`Info.plist` 
 
 ## 誠實已知限制
 
+- **真機安裝從未發生過,真機驗收數字為零**。本機缺三樣人才能補的東西:
+  Xcode 沒登入 Apple ID(`IDEProvisioningTeams` 不存在)、`security find-identity
+  -v -p codesigning` 是 **0 valid identities**、iPhone 的
+  `developerModeStatus` 是 `disabled`。`scripts/device-build.sh --check-only`
+  會停在 Developer Mode 那一關並以 exit 1 結束——這就是目前的真實狀態。
+- **`scripts/device-acceptance.sh` 從未對真手機跑過**:只驗證過 `--dry-run`
+  (不送出任何請求)、`--list-rows`、以及連不到 daemon 時的誠實拒絕(exit 1)。
+  裡面每一列的斷言都寫成「印出 daemon 原文」而非判定,就是為了不讓沒跑過的
+  腳本產生假的通過結論。
+- **`xcodebuild -destination` 在本機不可用**:Xcode 26.6 沒安裝 iOS 26.5 平台元件,
+  任何 iOS destination(含模擬器)都列不出來,連空的 SwiftPM package 也一樣。
+  因此 CI/本機目前用 `-target … -sdk iphonesimulator` 驗證專案、用 `simctl` 注入跑
+  XCTest。等平台元件裝好之後,README 上方那兩條 `-scheme … -destination …` 指令才會通。
+- **`stop-all` 的 `reason` 目前只有 App 端支援**:桌面 runtime 送的還是
+  `{"type":"stop-all","sensors":…}`(無 `reason`),所以使用者按「停止所有感測」時
+  手機仍顯示「因桌面緊急停止而停用」。這是刻意的向後相容降級(未知原因一律當
+  emergency),等桌面在使用者路徑補上 `"reason":"user"` 就會自動正確。
 - **僅模擬器驗收、未經真機驗收**(見頂部誠實聲明)。模擬器上實測到的事實:
   `utsname.machine` 回 `arm64`(非 `iPhone17,x`);CoreMotion 顯示「不可用:此裝置
   不支援 deviceMotion」;藍牙權限顯示「已授權」但 BLE 閘道預設關閉,桌面端

@@ -266,8 +266,10 @@ enum ClientMessage {
     case observation(receptor: String, facts: [String: JSONValue], at: String?)
     /// {"type":"ack","id":"...","applied":{...}}
     case ack(id: String, applied: [String: JSONValue])
-    /// {"type":"ack","stopAll":true} — 回應 stop-all
-    case ackStopAll
+    /// {"type":"ack","stopAll":true,"sensors":bool} — 回應 stop-all。
+    /// `sensors` 回音請求裡的旗標:桌面端才能誠實區分
+    /// 「只停動器」與「連感測一起停」,不必猜。
+    case ackStopAll(sensors: Bool)
     /// {"type":"err","id":"...","reason":"..."}
     case err(id: String, reason: String)
     /// {"type":"ble.result","id":"...","devices":[...]}
@@ -326,10 +328,11 @@ enum ClientMessage {
                 "id": .string(id),
                 "applied": .object(applied),
             ]
-        case .ackStopAll:
+        case .ackStopAll(let sensors):
             return [
                 "type": .string("ack"),
                 "stopAll": .bool(true),
+                "sensors": .bool(sensors),
             ]
         case .err(let id, let reason):
             return [
@@ -383,6 +386,28 @@ enum ClientMessage {
 
 // MARK: - Server → App 訊息
 
+/// `stop-all` 的原因。**只影響 UI 誠實顯示的停用說明,不影響停的範圍**——
+/// 兩種原因停的東西完全一樣(動器,加上 `sensors:true` 時的感測),
+/// 差別只在使用者看到「由桌面停止全部感測」還是「因桌面緊急停止而停用」。
+///
+/// 誠實預設:欄位缺席(舊桌面端)或值無法辨識時一律當成 `.emergency`——
+/// 寧可把使用者的動作說成緊急停止(較嚴格、較顯眼),
+/// 也不要把真正的緊急停止淡化成一般停止。
+enum StopAllReason: String, Equatable {
+    /// 使用者在桌面按了「停止所有感測」。
+    case user
+    /// 桌面緊急停止(emergency stop)。
+    case emergency
+
+    /// 由 wire 字串建構;`nil` 或未知值 → `.emergency`。
+    init(wire: String?) {
+        switch wire {
+        case StopAllReason.user.rawValue: self = .user
+        default: self = .emergency
+        }
+    }
+}
+
 enum ServerMessage: Equatable {
     case pairChallenge(nonce: String)
     case paired(deviceId: String, deviceToken: String)
@@ -391,10 +416,12 @@ enum ServerMessage: Equatable {
     case authFail(reason: String)
     /// {"type":"act","id":"...","name":"...","params":{...}}
     case act(id: String, name: String, params: [String: JSONValue])
-    /// {"type":"stop-all","sensors":bool} — `sensors:true`(桌面緊急停止)時
-    /// 連感測一起停(麥克風 / 位置 / BLE 閘道),不只是停動器。
-    /// 舊桌面端不帶這個欄位 → 預設 false(只停動器),不擅自關掉使用者的感測。
-    case stopAll(sensors: Bool)
+    /// {"type":"stop-all","sensors":bool,"reason":"user"|"emergency"} —
+    /// `sensors:true` 時連感測一起停(麥克風 / 位置 / BLE 閘道),不只是停動器。
+    /// 舊桌面端不帶 `sensors` → 預設 false(只停動器),不擅自關掉使用者的感測。
+    /// `reason` 只影響 UI 誠實顯示的停用說明,不影響停的範圍;
+    /// 缺席或無法辨識時一律當成 `.emergency`(向後相容,且取較嚴格的那一邊)。
+    case stopAll(sensors: Bool, reason: StopAllReason)
     /// {"type":"ble.scan","id":"...","serviceUuid":"<uuid|null>","durationMs":≤8000}
     case bleScan(id: String, serviceUuid: String?, durationMs: Int)
     /// {"type":"ble.connect","id","peripheralId"}
@@ -420,7 +447,7 @@ enum ServerMessage: Equatable {
             let serviceUuid: String?
             let durationMs: Int?
         }
-        struct StopAllBody: Decodable { let sensors: Bool? }
+        struct StopAllBody: Decodable { let sensors: Bool?; let reason: String? }
         struct BleConnectBody: Decodable { let id: String; let peripheralId: String }
         struct BleGattBody: Decodable {
             let id: String
@@ -462,7 +489,8 @@ enum ServerMessage: Equatable {
                 return .act(id: body.id, name: body.name, params: body.params ?? [:])
             case "stop-all":
                 let body = try? decoder.decode(StopAllBody.self, from: data)
-                return .stopAll(sensors: body?.sensors ?? false)
+                return .stopAll(sensors: body?.sensors ?? false,
+                                reason: StopAllReason(wire: body?.reason))
             case "ble.scan":
                 let body = try decoder.decode(BleScanBody.self, from: data)
                 return .bleScan(id: body.id, serviceUuid: body.serviceUuid,

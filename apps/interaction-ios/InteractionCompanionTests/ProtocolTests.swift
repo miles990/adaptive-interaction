@@ -78,13 +78,115 @@ final class ProtocolTests: XCTestCase {
         XCTAssertTrue(facts["level"] is NSNull)
     }
 
-    func testAckStopAllShape() throws {
-        let text = try ClientMessage.ackStopAll.encodeToJSONString()
-        let object = try jsonObject(text)
-        XCTAssertEqual(object["type"] as? String, "ack")
-        XCTAssertEqual(object["stopAll"] as? Bool, true)
-        XCTAssertNil(object["id"])
-        XCTAssertEqual(object.count, 2)
+    func testAckStopAllEchoesSensorsFlag() throws {
+        let withSensors = try jsonObject(
+            try ClientMessage.ackStopAll(sensors: true).encodeToJSONString())
+        XCTAssertEqual(withSensors["type"] as? String, "ack")
+        XCTAssertEqual(withSensors["stopAll"] as? Bool, true)
+        XCTAssertEqual(withSensors["sensors"] as? Bool, true)
+        XCTAssertNil(withSensors["id"])
+        XCTAssertEqual(withSensors.count, 3)
+
+        // 只停動器時 sensors 必須是 false,不能省略也不能謊報 true。
+        let actuatorsOnly = try jsonObject(
+            try ClientMessage.ackStopAll(sensors: false).encodeToJSONString())
+        XCTAssertEqual(actuatorsOnly["stopAll"] as? Bool, true)
+        XCTAssertEqual(actuatorsOnly["sensors"] as? Bool, false)
+        XCTAssertEqual(actuatorsOnly.count, 3)
+    }
+
+    /// `reason` 缺席(舊桌面端)或無法辨識時,一律當成 emergency——
+    /// 寧可把一般停止說成緊急停止,也不要把緊急停止淡化成一般停止。
+    func testStopAllReasonDefaultsToEmergency() throws {
+        XCTAssertEqual(try ServerMessage.decode(#"{"type":"stop-all","sensors":true}"#),
+                       .stopAll(sensors: true, reason: .emergency))
+        XCTAssertEqual(
+            try ServerMessage.decode(#"{"type":"stop-all","sensors":true,"reason":"emergency"}"#),
+            .stopAll(sensors: true, reason: .emergency))
+        // 未知值不得被當成 user。
+        XCTAssertEqual(
+            try ServerMessage.decode(#"{"type":"stop-all","sensors":true,"reason":"whatever"}"#),
+            .stopAll(sensors: true, reason: .emergency))
+        XCTAssertEqual(StopAllReason(wire: nil), .emergency)
+        XCTAssertEqual(StopAllReason(wire: "USER"), .emergency)
+    }
+
+    /// 使用者在桌面按「停止所有感測」→ reason=user,App 才能顯示
+    /// 「由桌面停止全部感測」而不是「因桌面緊急停止而停用」。
+    func testStopAllUserReasonIsDecoded() throws {
+        XCTAssertEqual(
+            try ServerMessage.decode(#"{"type":"stop-all","sensors":true,"reason":"user"}"#),
+            .stopAll(sensors: true, reason: .user))
+        XCTAssertEqual(StopAllReason(wire: "user"), .user)
+    }
+
+    /// Belt-and-braces:桌面緊急停止時另外送的 `character.present emergency`
+    /// 可能送不到(runtime 誠實記成 outcome=unknown)。
+    /// `stop-all{sensors:true,reason:emergency}` 本身就是緊急停止的事實,
+    /// 所以 App 收到它就要把角色狀態切成 emergency。
+    @MainActor
+    func testEmergencyStopAllSetsTheCharacterStateEvenIfCharacterPresentIsLost() async {
+        let state = CharacterState()
+        let center = ActuatorCenter(characterState: state)
+        var note: String?
+        center.stopSensorsOnStopAll = { note = $0 }
+
+        await center.stopAll(sensors: true, reason: .emergency)
+
+        XCTAssertEqual(state.state, .emergency)
+        XCTAssertEqual(note, "因桌面緊急停止而停用(麥克風/位置/BLE 閘道)")
+    }
+
+    /// 使用者按的「停止所有感測」不是緊急停止:角色狀態不得被改成 emergency
+    /// (把一般停止顯示成緊急停止同樣是說謊)。
+    @MainActor
+    func testUserStopAllDoesNotFakeAnEmergencyCharacterState() async {
+        let state = CharacterState()
+        state.state = .working
+        let center = ActuatorCenter(characterState: state)
+        var note: String?
+        center.stopSensorsOnStopAll = { note = $0 }
+
+        await center.stopAll(sensors: true, reason: .user)
+
+        XCTAssertEqual(state.state, .working)
+        XCTAssertEqual(note, "由桌面停止全部感測(麥克風/位置/BLE 閘道)")
+    }
+
+    /// 只停動器(sensors:false)時什麼感測都沒停,角色狀態也不該動。
+    @MainActor
+    func testActuatorOnlyStopAllTouchesNeitherSensorsNorCharacterState() async {
+        let state = CharacterState()
+        state.state = .idle
+        let center = ActuatorCenter(characterState: state)
+        var called = false
+        center.stopSensorsOnStopAll = { _ in called = true }
+
+        await center.stopAll(sensors: false, reason: .emergency)
+
+        XCTAssertFalse(called, "sensors:false 不得擅自關掉使用者的感測")
+        XCTAssertEqual(state.state, .idle)
+    }
+
+    /// 解除只由 runtime 決定:桌面送 `character.present idle` 之後才回到 idle,
+    /// App 自己不會恢復(手機不能自稱緊急停止結束了)。
+    @MainActor
+    func testOnlyTheRuntimeClearsTheEmergencyCharacterState() async {
+        let state = CharacterState()
+        let center = ActuatorCenter(characterState: state)
+        await center.stopAll(sensors: true, reason: .emergency)
+        XCTAssertEqual(state.state, .emergency)
+
+        // 再收一次 stop-all 不會自行恢復。
+        await center.stopAll(sensors: true, reason: .emergency)
+        XCTAssertEqual(state.state, .emergency)
+
+        let reply = await center.handleAct(
+            id: "p1", name: "character.present", params: ["state": .string("idle")])
+        guard case .ack = reply else {
+            return XCTFail("character.present idle 應該被接受")
+        }
+        XCTAssertEqual(state.state, .idle)
     }
 
     func testAppliedIntegersSerializeWithoutDecimalPoint() throws {
@@ -115,12 +217,14 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(try ServerMessage.decode(#"{"type":"auth-ok"}"#), .authOk)
         XCTAssertEqual(try ServerMessage.decode(#"{"type":"auth-fail","reason":"revoked"}"#),
                        .authFail(reason: "revoked"))
-        // 舊桌面端不帶 sensors → 只停動器(不擅自關掉使用者的感測)。
-        XCTAssertEqual(try ServerMessage.decode(#"{"type":"stop-all"}"#), .stopAll(sensors: false))
-        // 緊急停止:連感測一起停。
+        // 舊桌面端不帶 sensors → 只停動器(不擅自關掉使用者的感測);
+        // 也不帶 reason → 保守地當成 emergency。
+        XCTAssertEqual(try ServerMessage.decode(#"{"type":"stop-all"}"#),
+                       .stopAll(sensors: false, reason: .emergency))
+        // 連感測一起停。
         XCTAssertEqual(
             try ServerMessage.decode(#"{"type":"stop-all","sensors":true}"#),
-            .stopAll(sensors: true))
+            .stopAll(sensors: true, reason: .emergency))
         XCTAssertEqual(try ServerMessage.decode(#"{"type":"ble.scan","id":"s1","serviceUuid":null,"durationMs":5000}"#),
                        .bleScan(id: "s1", serviceUuid: nil, durationMs: 5000))
         XCTAssertEqual(try ServerMessage.decode(#"{"type":"future-thing","x":1}"#),

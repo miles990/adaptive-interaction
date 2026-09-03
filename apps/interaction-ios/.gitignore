@@ -1,0 +1,7 @@
+# Xcode 產生的個人狀態與建置產物,不進 repo
+# (共用 scheme 刻意保留:xcshareddata/xcschemes/ 必須進版控,
+#  否則 `xcodebuild -scheme` 在別台機器上看不到。)
+**/xcuserdata/
+DerivedData/
+build/
+*.xcworkspace/xcuserdata/

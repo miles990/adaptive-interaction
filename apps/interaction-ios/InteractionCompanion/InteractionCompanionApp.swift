@@ -59,14 +59,16 @@ final class AppModel: ObservableObject {
             }
             return await actuators.handleAct(id: id, name: name, params: params)
         }
-        connection.stopAllHandler = { [weak actuators] sensors in
-            await actuators?.stopAll(sensors: sensors)
+        connection.stopAllHandler = { [weak actuators] sensors, reason in
+            await actuators?.stopAll(sensors: sensors, reason: reason)
         }
-        // 桌面緊急停止(stop-all { sensors: true })→ 動器與感測一起停;
+        // 桌面 stop-all { sensors: true } → 動器與感測一起停;
         // 重連後不自動恢復,使用者必須重新開啟。
-        actuators.stopSensorsOnEmergency = { [weak sensors, weak ble] reason in
-            sensors?.stopAllSensors(reason: reason)
-            ble?.disable(reason: reason)
+        // note 已由 ActuatorCenter 依 reason(使用者停止全部感測 / 緊急停止)決定,
+        // 這裡只負責把同一句誠實說明帶到感測與 BLE 閘道兩邊的 UI。
+        actuators.stopSensorsOnStopAll = { [weak sensors, weak ble] note in
+            sensors?.stopAllSensors(reason: note)
+            ble?.disable(reason: note)
         }
         connection.bleHandler = { [weak ble] message in
             ble?.handleServerMessage(message)

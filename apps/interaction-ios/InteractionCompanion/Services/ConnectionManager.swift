@@ -120,9 +120,11 @@ final class ConnectionManager: NSObject, ObservableObject {
     var statusProvider: (() -> (SensorFlags, PermissionStates))?
     /// act 處理者:回傳 ack 或 err
     var actHandler: ((_ id: String, _ name: String, _ params: [String: JSONValue]) async -> ClientMessage)?
-    /// stop-all 處理者(完成後由本類別送出 {"type":"ack","stopAll":true})。
-    /// `sensors == true`(桌面緊急停止)時必須連感測一起停,不只是停動器。
-    var stopAllHandler: ((_ sensors: Bool) async -> Void)?
+    /// stop-all 處理者(完成後由本類別送出
+    /// {"type":"ack","stopAll":true,"sensors":<回音>})。
+    /// `sensors == true` 時必須連感測一起停,不只是停動器;
+    /// `reason` 只決定 UI 顯示哪一句停用說明,不改變停的範圍。
+    var stopAllHandler: ((_ sensors: Bool, _ reason: StopAllReason) async -> Void)?
     /// ble.scan / ble.connect / ble.gatt 轉交 BleGateway
     var bleHandler: ((ServerMessage) -> Void)?
     /// 斷線通知:接線方必須在此停用 mic / location / BLE gateway(不自動恢復)
@@ -380,16 +382,17 @@ final class ConnectionManager: NSObject, ObservableObject {
         case .act(let id, let name, let params):
             dispatchAct(id: id, name: name, params: params)
 
-        case .stopAll(let sensors):
+        case .stopAll(let sensors, let reason):
             let handler = stopAllHandler
             // 整個 Task 綁在 MainActor:handler 完成後直接在主執行緒回覆,
             // 不需再 MainActor.run 內捕捉 weak var self(Swift 6 會視為錯誤)。
             Task { @MainActor [weak self] in
-                await handler?(sensors)
-                self?.send(.ackStopAll)
-                self?.logLine(sensors
-                    ? "stop-all(含感測)已執行並回覆:動器與感測全部停止"
-                    : "stop-all 已執行並回覆")
+                await handler?(sensors, reason)
+                // ack 回音 sensors:桌面端不必猜手機到底停了什麼。
+                self?.send(.ackStopAll(sensors: sensors))
+                let scope = sensors ? "動器與感測全部停止" : "只停動器"
+                let cause = reason == .user ? "使用者停止全部感測" : "緊急停止"
+                self?.logLine("stop-all(\(cause))已執行並回覆:\(scope)")
             }
 
         case .bleScan(let id, _, _), .bleConnect(let id, _), .bleGatt(let id, _, _, _, _, _):
