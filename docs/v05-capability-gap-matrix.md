@@ -484,7 +484,7 @@ fixture（無真實周邊／broker）。
 
 - `desktop-backend` CI job 從 `cargo check` 升為 `cargo clippy -D warnings`＋`cargo test`（`e70ef28`）——
   src-tauri 的單元測試（host safety overlay、character store、tray、click-through）與 clippy 此前從未在
-  CI 上被強制。**本分支尚未 push，CI 從未對它跑過。**
+  CI 上被強制。第一次 CI 就抓到一個本機 macOS 看不到的問題（ubuntu 上 macOS-only tray 欄位 dead_code），以 `8899e7c` 修好後 run 33807755834 全綠。
 - `scripts/release.sh`：CHANGELOG 既沒有 `## [<version>]` 也沒有 `## [Unreleased]` 時直接失敗，不再靜默
   跳過（v0.5.0 就是被這個靜默跳過影響）。
 - `RawLink::shutdown` 的 trait 文件改為對齊新的可中斷 fallback（`977731c`）。

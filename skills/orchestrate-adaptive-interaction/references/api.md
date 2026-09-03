@@ -188,7 +188,7 @@ gate (only the desktop IPC can).
   never connected — these were already present before Phase 9, this note only corrects prior
   documentation drift.
 
-## v0.5.1 additions (patch release; in development)
+## v0.5.1 additions (patch release; released 2026-09-04)
 
 - `POST /v1/session/consent` accepts an optional `maxUses` (number or null). `maxUses: 1` is a REAL
   one-shot grant: the first authorized dispatch spends it inside the authorization critical section,

@@ -11,7 +11,7 @@
 
 ## [0.5.1] - 2026-09-04
 
-### v0.5.1 — 產品完成度、一般模式易用性、誠實狀態與剩餘技術債（修補版本，開發中）
+### v0.5.1 — 產品完成度、一般模式易用性、誠實狀態與剩餘技術債（修補版本，2026-09-04 發布）
 
 > 以 v0.5.0（`8b713c7`）為基線的修補版本：修掉 v0.5.0 已知限制清單裡五個刻意保留的 partial finding
 > （`ia-settings-012`／`safety-invariants-078`／`companion-gameplay-032`／`protocol-conformance-030`／
@@ -1230,7 +1230,8 @@ Home Assistant adapter 未做；配對期可被區網 peer 燒掉（已 audit）
 - 文件：ELI5 安裝、特點能力、人類使用手冊、桌面指南（mermaid＋插圖）
 - 25-agent 對抗式審查，14 項確認缺陷全數修復；105 測試
 
-[Unreleased]: https://github.com/miles990/adaptive-interaction/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/miles990/adaptive-interaction/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/miles990/adaptive-interaction/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/miles990/adaptive-interaction/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/miles990/adaptive-interaction/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/miles990/adaptive-interaction/compare/v0.3.0...v0.4.0

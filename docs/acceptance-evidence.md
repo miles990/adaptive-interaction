@@ -708,7 +708,7 @@ Phase 7／8）已知限制清單見上方對應章節，第二輪已修復項目
 > 基準是 v0.5.0（tag `v0.5.0` ＝ `8b713c7`），在同一台機器重跑一次當對照。完整矩陣見
 > `docs/releases/v0.5.1-test-matrix.md`；已知限制見 `docs/releases/v0.5.1-known-limitations.md`；
 > 20 道發布關卡見 `docs/releases/v0.5.1-release-readiness.md`。
-> **本輪未 push、未開 PR、未 release、未 deploy、未打 tag。**
+> **已發布**：PR #2 → CI run 33807755834 全綠 → ff-merge → main CI run 33808297245 → `release.sh 0.5.1` → tag `v0.5.1` → Release run 33808841552（18 個資產，4 個 checksum 比對相符）。
 > 對抗審查 `0c845e0-20260903T185130Z`：55 confirmed → 已修 52／部分修 3（見下方〈對抗審查〉）。
 
 ## 基線（v0.5.0 tag 於同一台機器重跑）
