@@ -77,7 +77,9 @@ export function useAsync<T>(fn: () => Promise<T>, deps: React.DependencyList): [
     setState((s) => ({ ...s, loading: true }));
     fn()
       .then((data) => alive && setState({ loading: false, data }))
-      .catch((e) => alive && setState({ loading: false, error: String(e) }));
+      // 失敗時保留上一次的資料：StateView 會顯示「更新失敗（顯示的是上一次的資料）」
+      // 而不是把整個清單換成錯誤框，使用者展開中的內容不會憑空消失。
+      .catch((e) => alive && setState((s) => ({ loading: false, error: String(e), data: s.data })));
     return () => {
       alive = false;
     };
@@ -95,14 +97,33 @@ export function StateView<T>({
   empty?: string;
   children: (data: NonNullable<T>) => React.ReactNode;
 }) {
-  if (state.loading) return <div className="state-box">載入中…</div>;
-  if (state.error)
+  // 背景重新整理（已有資料、loading 再次為 true）時**不得**把內容換成「載入中…」：
+  // 那會讓底下的元件整個卸載重掛，使用者展開的面板（例如工作卡的訊息、核可
+  // 按鈕的裁決結果）會在每一次 SSE 事件觸發的刷新時收合／消失。只有第一次
+  // 載入（還沒有任何資料）才顯示載入中；之後保留舊資料並以 aria-busy 標示更新中。
+  const data = state.data;
+  const hasData = data !== undefined && data !== null;
+  if (state.loading && !hasData) return <div className="state-box">載入中…</div>;
+  if (state.error && !hasData)
     return (
       <div className="state-box state-error">
         錯誤：{state.error}
       </div>
     );
-  const data = state.data;
+  if (state.error && hasData) {
+    return (
+      <div aria-busy={state.loading || undefined}>
+        <div className="state-box state-error" role="alert">
+          更新失敗：{state.error}（顯示的是上一次的資料）
+        </div>
+        {Array.isArray(data) && data.length === 0 ? (
+          <div className="state-box">{empty ?? "目前沒有資料。"}</div>
+        ) : (
+          children(data as NonNullable<T>)
+        )}
+      </div>
+    );
+  }
   if (
     data === undefined ||
     data === null ||
