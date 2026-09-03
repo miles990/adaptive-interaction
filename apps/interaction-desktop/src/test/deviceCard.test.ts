@@ -144,6 +144,22 @@ describe("phoneCardModel：三份真實狀態合成一張卡", () => {
     expect(phonePermissionAlerts(model)).toEqual(["在 Alex 的 iPhone 上尚未允許：麥克風（已拒絕）"]);
   });
 
+  it("進階模式用的原始診斷欄位：連線狀態與感測旗標照抄，不經過人話翻譯", () => {
+    const model = phoneCardModel(
+      { ...DEVICE, connected: true, sensors: { motion: true, battery: false } },
+      human(),
+      []
+    );
+    expect(model.connectedRaw).toBe(true);
+    expect(model.sensorFlagsRaw).toEqual({ motion: true, battery: false });
+  });
+
+  it("手機沒回報感測旗標時，原始值是 null（不是空物件，不假裝知道）", () => {
+    const model = phoneCardModel(DEVICE, human(), []);
+    expect(model.sensorFlagsRaw).toBeNull();
+    expect(model.connectedRaw).toBe(true);
+  });
+
   it("沒有名字的手機不留空白；未連線照實回報", () => {
     const model = phoneCardModel({ deviceId: "d9", connected: false }, human(), []);
     expect(model.name).toBe("iPhone");

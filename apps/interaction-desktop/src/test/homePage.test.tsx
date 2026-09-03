@@ -209,6 +209,37 @@ describe("「現在」第一屏只回答三件事", () => {
     expect(decisions.textContent).not.toContain("waiting-for-consent");
   });
 
+  it("待我決定：精確且為 0 時明確說「目前沒有需要處理的事」，不是只留一個空白的 0 項", async () => {
+    stubHome({ status: status(), sessions: [] });
+    vi.spyOn(api, "activityInbox").mockResolvedValue({
+      pendingCount: 0,
+      count: 0,
+      totalBeforeLimit: 0,
+      items: [],
+    });
+    renderHome();
+    await screen.findByText("小樞在桌面上，一切正常。");
+    const decisions = screen.getByTestId("now-decisions");
+    expect(await within(decisions).findByText("0 項")).toBeInTheDocument();
+    expect(within(decisions).getByText("目前沒有需要處理的事。")).toBeInTheDocument();
+  });
+
+  it("待我決定：後端說 pendingCount 只是下限時，維持「至少 N 項」，不得說沒事", async () => {
+    stubHome({ status: status(), sessions: [] });
+    vi.spyOn(api, "activityInbox").mockResolvedValue({
+      pendingCount: 0,
+      count: 0,
+      totalBeforeLimit: 0,
+      items: [],
+      pendingCountExact: false,
+    });
+    renderHome();
+    await screen.findByText("小樞在桌面上，一切正常。");
+    const decisions = screen.getByTestId("now-decisions");
+    expect(await within(decisions).findByText("至少 0 項")).toBeInTheDocument();
+    expect(within(decisions).queryByText("目前沒有需要處理的事。")).not.toBeInTheDocument();
+  });
+
   it("五個快速操作都在第一屏（含停止所有感測與二段確認的緊急停止）", async () => {
     stubHome();
     const { container } = renderHome();

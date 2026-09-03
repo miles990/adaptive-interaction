@@ -435,6 +435,7 @@ function ConnectOverview({
                 advanced={advanced}
                 onChanged={reloadMobile}
                 onManagePermissions={onSafety}
+                onRepair={() => onShowAll("providers")}
               />
             ))}
           </div>

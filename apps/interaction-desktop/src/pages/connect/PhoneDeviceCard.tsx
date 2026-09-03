@@ -102,6 +102,11 @@ export interface PhoneCardModel {
   activeSensing: string[];
   /** null＝手機尚未回報 iOS 系統權限（未知，不當成已授權）。 */
   permissions: PhonePermissionView[] | null;
+  /** 連線狀態原始值——只給進階模式「連接診斷」看；一般模式一律用已翻譯的 Badge。 */
+  connectedRaw: unknown;
+  /** 手機自報感測旗標原始值——只給進階模式「連接診斷」看；一般模式看 activeSensing 的人話。
+   *  null＝手機還沒回報過（不是「都關著」）。 */
+  sensorFlagsRaw: Record<string, unknown> | null;
 }
 
 function text(value: unknown): string | null {
@@ -193,6 +198,8 @@ export function phoneCardModel(
     performs: (human?.actuators ?? []).filter(isPhoneCard).map(capabilityView),
     activeSensing,
     permissions,
+    connectedRaw: device.connected,
+    sensorFlagsRaw: sensors,
   };
 }
 
@@ -243,6 +250,7 @@ export function PhoneDeviceCard({
   advanced = false,
   onChanged,
   onManagePermissions,
+  onRepair,
 }: {
   model: PhoneCardModel;
   advanced?: boolean;
@@ -250,6 +258,9 @@ export function PhoneDeviceCard({
   onChanged?: () => void;
   /** 「管理權限」：帶去同意與安全。沒給就不顯示這顆按鈕。 */
   onManagePermissions?: () => void;
+  /** 「重新配對」：卡片不自己實作配對流程，交給呼叫端導到既有的 iPhone 配對區
+   *（ConnectPage 的 CapabilitiesHub「providers」分類）。沒給就不顯示這顆按鈕。 */
+  onRepair?: () => void;
 }) {
   const [message, setMessage] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -313,12 +324,28 @@ export function PhoneDeviceCard({
         </div>
       )}
       {advanced && (
-        <div className="muted small">
-          原始：{model.deviceId}・{model.pairedAt ?? "—"}
+        <div
+          className="muted small phone-diagnostics"
+          data-testid={`phone-diagnostics-${model.deviceId}`}
+        >
+          <div className="phone-diagnostics-title">連接診斷</div>
+          <div>
+            原始：{model.deviceId}・{model.pairedAt ?? "—"}
+          </div>
+          <div>連線狀態原始值：{String(model.connectedRaw)}</div>
+          <div>
+            手機自報感測旗標原始值：
+            {model.sensorFlagsRaw
+              ? Object.entries(model.sensorFlagsRaw)
+                  .map(([key, value]) => `${key}=${String(value)}`)
+                  .join("、")
+              : "（手機尚未回報）"}
+          </div>
         </div>
       )}
       <div className="row wrap">
         {onManagePermissions && <button onClick={onManagePermissions}>管理權限</button>}
+        {onRepair && <button onClick={onRepair}>重新配對</button>}
         <button
           disabled={!model.connected || busy !== null}
           onClick={() =>
@@ -359,7 +386,14 @@ export function PhoneDeviceCard({
           }}
         />
       </div>
-      {offlineReason && <div className="muted small">{offlineReason}</div>}
+      {offlineReason && (
+        <>
+          <div className="muted small">{offlineReason}</div>
+          {/* 真機限制：iPhone 是用桌面目前的網路位址配對的，桌面換了 IP／Wi-Fi
+              就連不上，必須重新配對才會恢復——未連線時這句提醒最有用。 */}
+          <div className="muted small">若桌面的網路位址變了，需要重新配對。</div>
+        </>
+      )}
       {message && (
         <p className="notice-box small" role="status">
           {message}

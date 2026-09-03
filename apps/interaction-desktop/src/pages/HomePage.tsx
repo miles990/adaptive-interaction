@@ -553,6 +553,14 @@ export function NowStrip({
             {PENDING_INCOMPLETE_NOTE}。
           </p>
         )}
+        {/* 精確地知道「真的是 0」時才敢說沒事；下限（!pendingExact）一律用上面的
+            「至少 N 項」，絕不能被誤讀成沒有待辦——單獨一個綠色「0 項」徽章看起來
+            像空白卡片，補一句完整的話才不會讓人以為系統忘了畫東西。 */}
+        {!pendingDegraded && pendingExact && pendingTotal === 0 && (
+          <p className="muted small" role="status">
+            目前沒有需要處理的事。
+          </p>
+        )}
         {pendingItems.length > 0 && (
           <ul className="plain-list now-list">
             {pendingItems.map((item) => (
