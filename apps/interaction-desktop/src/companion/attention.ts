@@ -98,14 +98,14 @@ export const HOVER_BUBBLE_MIN_MS = 700;
 /** 兩次 hover 氣泡之間的最小間隔。 */
 export const HOVER_BUBBLE_COOLDOWN_MS = 45_000;
 
-/** 本機模板短句（不呼叫 AI、不含使用者資料、不持久化游標）。 */
+/** 本機模板短句（不呼叫 AI、不含使用者資料、不持久化游標）。每個性 ≥ 3 句（spec §5.2 變體）。 */
 export const HOVER_LINES: Record<PersonalityTrait, string[]> = {
-  curious: ["在看什麼？", "有新東西嗎？"],
-  playful: ["要玩嗎？", "戳我也可以。"],
-  lazy: ["……嗯？", "我在，只是不太想動。"],
-  proud: ["我一直都在，不用確認。", "哼，看夠了嗎？"],
-  witty: ["來得正好。", "需要幫忙就說。"],
-  smart: ["需要我看一下什麼嗎？", "在旁邊待命。"],
+  curious: ["在看什麼？", "有新東西嗎？", "你那邊有什麼好玩的？", "欸，剛剛那是什麼？"],
+  playful: ["要玩嗎？", "戳我也可以。", "丟個毛球來嘛。", "抓不到我～"],
+  lazy: ["……嗯？", "我在，只是不太想動。", "再五分鐘。", "有事再叫我。"],
+  proud: ["我一直都在，不用確認。", "哼，看夠了嗎？", "看什麼，我當然沒偷懶。", "有問題儘管問，我都會。"],
+  witty: ["來得正好。", "需要幫忙就說。", "盯著我不會讓工作變快喔。", "又見面了。"],
+  smart: ["需要我看一下什麼嗎？", "在旁邊待命。", "目前沒有新狀況。", "要我查什麼嗎？"],
 };
 
 export interface HoverBubbleInput {
@@ -123,6 +123,8 @@ export interface HoverBubbleInput {
   personality: PersonalityProfile;
   /** 0..1 決定選哪一句（seeded RNG 注入）。 */
   rand: number;
+  /** 上一句 hover 短句（防重複：有別句可選就不連說同一句）。 */
+  lastText?: string | null;
 }
 
 export interface HoverBubbleDecision {
@@ -139,7 +141,8 @@ export function hoverBubblePolicy(input: HoverBubbleInput): HoverBubbleDecision 
   if (input.nowMs - input.lastBubbleAt < HOVER_BUBBLE_COOLDOWN_MS) {
     return { show: false, reason: "cooldown" };
   }
-  const lines = HOVER_LINES[dominantTrait(input.personality)];
+  const all = HOVER_LINES[dominantTrait(input.personality)];
+  const lines = all.length > 1 && input.lastText ? all.filter((l) => l !== input.lastText) : all;
   const rand = Number.isFinite(input.rand) ? Math.max(0, Math.min(0.999999, input.rand)) : 0;
   return { show: true, text: lines[Math.floor(rand * lines.length)] };
 }

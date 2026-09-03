@@ -216,8 +216,15 @@ pub struct AgentSessionRecord {
     /// 供進階詳情與續開（resume）；不是 runtime 的 session 身分。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_session_id: Option<String>,
+    /// 最新一次 claimed-completed 的識別（每一個新的聲稱都拿到新的 id）。
+    /// 人工驗證只綁定這一個 claim：session 可多輪，第二輪的聲稱不得繼承
+    /// 第一輪的綠勾。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_id: Option<String>,
     /// 人工驗證（human-only）：claim 經人類確認後才存在。沒有這個欄位，
     /// claimed-completed 永遠不是 verified——角色的綠色勾勾只認它。
+    /// 任何更新的 agent 自我回報（新一輪工作、新的聲稱、失敗／未知）或
+    /// 新任務送達都會清掉它：存在 ⇒ 驗證的就是 `claim_id` 這一個 claim。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub human_verified: Option<HumanVerification>,
     /// Exact deterministic Context Bundles actually attached to dispatched
@@ -234,6 +241,10 @@ pub struct HumanVerification {
     pub at: Timestamp,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// 被驗證的那個 claim（＝驗證當下 record 的 `claim_id`）。介面只在它
+    /// 等於 record 目前的 `claim_id` 時顯示綠勾。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]

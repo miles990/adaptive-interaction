@@ -168,5 +168,14 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 - **iPhone Mobile Provider**：TLS wss＋指紋釘選＋配對碼 HMAC＋每機 token；4 受器／6 動器；撤銷即斷線；heartbeat；
   estop 同時停手機感測；感測不靜默；綠勾只走人類驗證；SwiftUI companion app（**模擬器**驗收、真機未驗）；BLE gateway 只有 scan。
 - **控制中心**：5 入口＋3 步精靈＋右上 Inbox（鍵盤可用）＋單一主人守門測試＋L0–L4 風險分級標籤＋§11 記憶與知識三區人話。
-- 測試：Rust 425、vitest 319、Playwright 24、Tauri 8、CLI E2E 63、iOS XCTest 19（模擬器）；詳見
+- **Character Presentation Protocol 1.0**（`docs/character-protocol/`）：可版本化 manifest（characterId 穩定身分、adapterKind、
+  assets、capabilities／inputCapabilities、channels、intents、variants、pronouns、preferencesSchema、securityRequirements、
+  resourceLimits、fallbacks、compatibility）＋能力協商（exact／substituted／reduced／unsupported／failed）＋20 個語意 intent
+  ＋15 個 truthState（只由 Runtime 決定）＋priority 下限（emergency 100…AI 上限 50）＋13 種受限 input event（節流、量化、
+  不存原始軌跡、file-drop 只 metadata＋短效 grant）＋10 種回執狀態（accepted≠started≠completed；acknowledged→uncertain）
+  ＋世代／去重／過期／有界佇列；transports：in-process（TS）、Runtime↔桌面視窗（SSE／IPC＋HTTP）、外部 WebSocket
+  （adapter token 分權）、stdio 規格；reference adapters：小樞 rig、sprite（舊 pack 相容層）、文字、外部 Node fixture。
+  可信 host overlay（Tauri）保證 estop／感測指示不依賴任何 renderer；角色匯入只收純資料（Rust 驗證＋magic bytes）。
+- **一般模式狀態投影**：所有工作／收件匣狀態走同一份 exhaustive 人話表；未知原始值顯示「結果不確定」而非原始字串。
+- 測試：以 `docs/acceptance-evidence.md` v0.5 最新章節（Phase 8）的實跑數字為準；詳見
   `docs/acceptance-evidence.md` v0.5 章節與 `docs/v05-recovery-matrix.md`。

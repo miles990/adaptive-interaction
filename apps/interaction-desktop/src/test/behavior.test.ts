@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import {
   initialBehavior,
   layeredMicroMotion,
-  MICRO_ACTIONS,
   noteEvent,
   noteInterruption,
   scheduleMicroAction,
@@ -15,6 +14,8 @@ import {
   seededRng,
   stepBehavior,
 } from "../companion/behavior";
+// CPP：微動作清單屬於角色（shu adapter tables）；排程器本身 engine-neutral。
+import { SHU_MICRO_ACTIONS } from "../character/adapters/shuTables";
 
 const baseCtx = {
   ambient: true,
@@ -120,10 +121,10 @@ describe("micro-action scheduler", () => {
   it("never acts outside ambient or under task load", () => {
     const rng = seededRng(1);
     const s = calmState();
-    expect(scheduleMicroAction(s, { ...baseCtx, ambient: false }, rng)).toBeNull();
+    expect(scheduleMicroAction(s, { ...baseCtx, ambient: false }, rng, SHU_MICRO_ACTIONS)).toBeNull();
     const busy = { ...s, taskLoad: 0.8 };
     for (let i = 0; i < 200; i++) {
-      expect(scheduleMicroAction(busy, baseCtx, rng)).toBeNull();
+      expect(scheduleMicroAction(busy, baseCtx, rng, SHU_MICRO_ACTIONS)).toBeNull();
     }
   });
 
@@ -131,7 +132,7 @@ describe("micro-action scheduler", () => {
     const rng = seededRng(2);
     const s = calmState();
     for (let i = 0; i < 500; i++) {
-      const a = scheduleMicroAction(s, { ...baseCtx, reducedMotion: true }, rng);
+      const a = scheduleMicroAction(s, { ...baseCtx, reducedMotion: true }, rng, SHU_MICRO_ACTIONS);
       if (a) expect(a.reducedMotionOk).toBe(true);
     }
   });
@@ -143,7 +144,7 @@ describe("micro-action scheduler", () => {
     let last = 0;
     const played: string[] = [];
     for (let i = 0; i < 3000; i++) {
-      const a = scheduleMicroAction(s, { ...baseCtx, recent: played.slice(-3) }, rng);
+      const a = scheduleMicroAction(s, { ...baseCtx, recent: played.slice(-3) }, rng, SHU_MICRO_ACTIONS);
       if (a) {
         expect(played.slice(-2)).not.toContain(a.id);
         played.push(a.id);
@@ -160,7 +161,7 @@ describe("micro-action scheduler", () => {
     const rng = seededRng(4);
     const s = calmState();
     for (let i = 0; i < 1000; i++) {
-      const a = scheduleMicroAction(s, { ...baseCtx, msSinceInteraction: 5_000 }, rng);
+      const a = scheduleMicroAction(s, { ...baseCtx, msSinceInteraction: 5_000 }, rng, SHU_MICRO_ACTIONS);
       if (a) expect(["lie-down", "tail-hug"]).not.toContain(a.id);
     }
   });
@@ -174,8 +175,8 @@ describe("micro-action scheduler", () => {
     let dampedCount = 0;
     const calm = calmState();
     for (let i = 0; i < 2000; i++) {
-      if (scheduleMicroAction(calm, baseCtx, rng1)) calmCount++;
-      if (scheduleMicroAction(s, baseCtx, rng2)) dampedCount++;
+      if (scheduleMicroAction(calm, baseCtx, rng1, SHU_MICRO_ACTIONS)) calmCount++;
+      if (scheduleMicroAction(s, baseCtx, rng2, SHU_MICRO_ACTIONS)) dampedCount++;
     }
     expect(dampedCount).toBeLessThan(calmCount);
   });
@@ -187,7 +188,7 @@ describe("micro-action scheduler", () => {
       const out: string[] = [];
       const recent: string[] = [];
       for (let i = 0; i < 500; i++) {
-        const a = scheduleMicroAction(s, { ...baseCtx, recent: recent.slice(-3) }, rng);
+        const a = scheduleMicroAction(s, { ...baseCtx, recent: recent.slice(-3) }, rng, SHU_MICRO_ACTIONS);
         if (a) {
           out.push(a.id);
           recent.push(a.id);
@@ -199,7 +200,7 @@ describe("micro-action scheduler", () => {
   });
 
   it("every micro action uses only non-truth art", () => {
-    for (const a of MICRO_ACTIONS) {
+    for (const a of SHU_MICRO_ACTIONS) {
       expect(["success", "blocked", "unknown", "failed", "emergency", "offline"]).not.toContain(
         a.animation
       );

@@ -1,6 +1,8 @@
 // Browser-level E2E against a REAL runtime daemon (isolated home).
 // Sequential: onboarding first, emergency stop last (it revokes consents).
-// v0.5 IA：5 個一級入口（現在／小樞／工作／連接與權限／更多）。
+// v0.5 IA：5 個一級入口（現在／角色／工作／連接與權限／更多）。
+// 導覽第二項是目前角色的名字：瀏覽器 e2e 沒有桌面角色視窗，名字來自 bundled 索引的
+// default（shu-maid → 小樞）；角色載入失敗時會是中立的「角色」。
 
 import { test, expect, Page } from "@playwright/test";
 
@@ -29,20 +31,48 @@ test("首次設定精靈：3 步完成並套用", async ({ page }) => {
   await expect(wizard.getByRole("heading", { name: "安全預設" })).toBeVisible();
   await expect(wizard.getByText(/麥克風、攝影機、定位/)).toBeVisible();
   await wizard.getByRole("button", { name: "完成設定" }).click();
+  // 精靈套用後接「首次成功體驗」：可略過的一屏（不是第四個必要步驟）。
+  // 安全文字固定、看過的旗標由 Runtime 保存（GET /v1/ui/preferences firstSuccessSeen）。
+  const firstSuccess = page.getByRole("dialog", { name: "首次成功體驗" });
+  await expect(firstSuccess).toBeVisible({ timeout: 15_000 });
+  await expect(
+    firstSuccess.getByRole("heading", { name: /準備好了。要不要先試一次？/ })
+  ).toBeVisible();
+  await expect(firstSuccess.getByText(/安全訊息永遠是固定文字/)).toBeVisible();
+  for (const option of ["提醒我休息", "交代一件小工作", "先在桌面陪我", "更換角色"]) {
+    await expect(firstSuccess.getByText(option, { exact: true })).toBeVisible();
+  }
+  await firstSuccess.getByRole("button", { name: "完成", exact: true }).click();
   // Wizard closes into the home page.
   await expect(page.getByRole("navigation", { name: "主要導覽" })).toBeVisible({
     timeout: 15_000,
   });
+  // 看過的旗標真的落在 host（不是只在這個視窗記住）。
+  const prefs = await page.request.get(`${process.env.E2E_API!}/v1/ui/preferences`, {
+    headers: { Authorization: `Bearer ${process.env.E2E_TOKEN!}` },
+  });
+  expect(((await prefs.json()) as { firstSuccessSeen?: boolean }).firstSuccessSeen).toBe(true);
 });
 
-test("現在：系統狀態與摘要條，不重複完整權限地圖", async ({ page }) => {
+test("現在：第一屏只回答三件事＋快速操作；系統狀態收在詳細狀態", async ({ page }) => {
   await open(page);
   await expect(page.getByRole("navigation", { name: "主要導覽" })).toBeVisible({
     timeout: 15_000,
   });
-  await expect(page.getByText("系統狀態", { exact: true })).toBeVisible();
+  // 角色現在怎麼樣：瀏覽器 e2e 沒有角色視窗 → 可信的固定文字（不是角色文案）。
+  await expect(page.getByTestId("now-character")).toBeVisible();
+  await expect(page.getByText("角色離線，改用文字。")).toBeVisible();
   await expect(page.getByText("待我決定", { exact: true })).toBeVisible();
   await expect(page.getByText("進行中的工作", { exact: true })).toBeVisible();
+  // 快速操作三件：交代一件事／暫停主動互動／加入裝置。
+  await expect(page.getByRole("button", { name: "交代一件事" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "暫停主動互動" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "加入裝置" })).toBeVisible();
+  // 數量與系統狀態不在第一屏；展開「詳細狀態」才出現。
+  await expect(page.getByText("系統狀態", { exact: true })).toHaveCount(0);
+  await page.getByText("詳細狀態", { exact: true }).click();
+  await expect(page.getByText("系統狀態", { exact: true })).toBeVisible();
+  await expect(page.getByText(/已載入 \d+ 個自動互動/)).toBeVisible();
   // 首頁瘦身：完整權限地圖已移到「連接與權限」。
   await expect(page.getByText("權限地圖 — AI 現在可以做什麼？")).toHaveCount(0);
 });
@@ -64,7 +94,9 @@ test("連接與權限：裝置與能力誠實掃描；同意與安全含權限�
   // 裝置與提供者：掃描文案誠實（已偵測≠全部）。
   await page.getByRole("tab", { name: "裝置與提供者" }).click();
   await expect(page.getByText("不代表找到了所有硬體")).toBeVisible();
-  await expect(page.getByText("桌面角色小樞（Presentation）")).toBeVisible();
+  // provider 顯示名跟 Character Protocol 協商到的角色走：瀏覽器 e2e 沒有桌面
+  // 角色視窗時是「桌面角色（尚未連線）」，hello 過就是「桌面角色：<名字>（Presentation）」。
+  await expect(page.getByText(/^桌面角色(：[^（]+（Presentation）|（尚未連線）)$/)).toBeVisible();
   await page.getByRole("button", { name: "重新掃描" }).click();
   await expect(page.getByText(/感測器啟動：否/)).toBeVisible();
   await expect(page.getByText("攝影機與影像來源").first()).toBeVisible();
@@ -95,41 +127,65 @@ test("新 IA：5 個一級入口全部可達", async ({ page }) => {
   }
 });
 
-test("小樞：Pack 詳情、Behavior State 與主動對話設定（單一主人）", async ({ page }) => {
+test("小樞：一般模式角色頁（目前角色／外觀／陪伴／更換）與誠實對照（單一主人）", async ({ page }) => {
   await open(page);
   await page.getByRole("navigation", { name: "主要導覽" }).getByText("小樞", { exact: true }).click();
-  await expect(page.getByText("Character Pack 詳情")).toBeVisible();
-  // v0.5 正式版是執行期參數化 rig：來源、形式與誠實對照都要可見。
-  await expect(page.getByText(/App 內建程式碼（無外部素材、無遠端程式）/)).toBeVisible();
-  await expect(page.getByText(/執行期參數化分層 rig/).first()).toBeVisible();
+  // 一般模式的五個區塊（技術資料只在進階模式）。
+  for (const heading of ["目前角色", "外觀與名字", "平常如何陪伴", "安靜與勿擾", "更換或加入角色"]) {
+    await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+  }
+  // 目前角色：能力摘要來自 manifest／registry 的轉述；瀏覽器 e2e 沒有角色視窗，必須誠實說未連線。
+  await expect(page.getByRole("list", { name: "角色能力摘要" })).toBeVisible();
+  await expect(page.getByText("角色視窗未連線")).toBeVisible();
   await expect(page.getByText(/36 表情預覽/)).toBeVisible();
   await expect(page.getByText("只點頭，沒有綠勾")).toBeVisible();
   await expect(page.getByText("綠勾只在驗證後")).toBeVisible();
-  await expect(page.getByText("現在的 Behavior State")).toBeVisible();
-  // Roll Call（現在大家在做什麼）：瀏覽器模式沒有角色視窗，必須誠實說明。
-  await expect(page.getByText("現在大家在做什麼")).toBeVisible();
-  await expect(page.getByText(/尚未收到角色視窗的回報/)).toBeVisible();
-  // Browser E2E has no native companion window. The UI must say so instead of
-  // manufacturing idle percentages as though they were live telemetry.
-  await expect(page.getByText(/尚未收到角色視窗的即時狀態/)).toBeVisible();
+  // 玩耍設定與 Roll Call（現在大家在做什麼）只在桌面版（prefs 走 Tauri）；瀏覽器檢視必須誠實說明，
+  // 不得用預設值冒充角色視窗的回報。
+  await expect(page.getByText(/桌面角色設定需要桌面版控制中心/).first()).toBeVisible();
+  await expect(page.getByText("現在大家在做什麼")).toHaveCount(0);
   // v0.5 單一主人：主動對話與主動程度／安靜時段住在小樞頁。
   await expect(page.getByText("主動式對話")).toBeVisible();
   await expect(page.getByText("主動程度與安靜時段")).toBeVisible();
+  // 技術細節（Pack 詳情／Behavior State／rig 分層）不在一般模式外洩。
+  await expect(page.getByText("Character Pack 詳情")).toHaveCount(0);
+  await expect(page.getByText("現在的 Behavior State")).toHaveCount(0);
+  await expect(page.getByText("技術資料", { exact: true })).toHaveCount(0);
 });
 
-test("工作：真實 agent 發現誠實顯示；建立面板有授權預覽", async ({ page }) => {
+test("工作：task-first 交代一件工作；開始前預覽有授權語意；agent 發現誠實顯示", async ({ page }) => {
   await open(page);
   await page.getByRole("navigation", { name: "主要導覽" }).getByText("工作", { exact: true }).click();
-  // 發現結果卡片（真 daemon 的真實偵測——CI 上可能未安裝，狀態誠實即可）。
+  // 一般模式沒有「建立工作階段」對話框：直接是 composer；空白時不能開始。
+  await expect(page.getByLabel(/幫你做什麼/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "建立工作階段…" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "開始", exact: true })).toBeDisabled();
+  // 開始前預覽＝Consent Sheet 語意：Agent／讀取範圍／是否寫入／工具／上限／如何取消。
+  const preview = page.getByRole("group", { name: "開始前預覽" });
+  await expect(preview).toBeVisible();
+  for (const term of ["使用哪個 Agent", "讀取範圍", "是否寫入", "工具", "時間、訊息與費用上限", "如何取消"]) {
+    await expect(preview.getByText(term, { exact: true })).toBeVisible();
+  }
+  await expect(preview.getByText(/只讀取|不修改/).first()).toBeVisible();
+  await expect(preview.getByText(/緊急停止會立刻終止/)).toBeVisible();
+  // 發現結果卡片收在「工作設定」（真 daemon 的偵測；本機跑時可能是 fixture agent，
+  // 狀態誠實即可——CI 上未安裝就顯示未安裝）。
+  await page.getByText("工作設定：本機 AI Agent 與分工").click();
   await expect(page.getByText(/Codex|Claude Code/).first()).toBeVisible({ timeout: 15_000 });
-  await page.getByRole("button", { name: "建立工作階段…" }).click();
-  const sheet = page.getByRole("dialog", { name: "建立 AI 工作階段" });
-  await expect(sheet).toBeVisible();
-  // Consent Sheet 語意：資料範圍／模式／外部傳送／取消方式。
-  await expect(sheet.getByText("授權預覽")).toBeVisible();
-  await expect(sheet.getByText(/唯讀／計畫/)).toBeVisible();
-  await expect(sheet.getByText(/外部傳送/)).toBeVisible();
-  await sheet.getByRole("button", { name: "取消" }).click();
+  await expect(page.getByText(/系統不讀取、不保存它們的登入憑證/)).toBeVisible();
+});
+
+test("更多：五個入口；角色與整合管理指路到角色頁與連接與權限", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "主要導覽" }).getByText("更多", { exact: true }).click();
+  const tabs = page.getByRole("tablist", { name: "更多分類" });
+  for (const label of ["記憶與知識", "活動歷史", "設定", "角色與整合管理", "進階功能"]) {
+    await expect(tabs.getByRole("tab", { name: label })).toBeVisible();
+  }
+  await tabs.getByRole("tab", { name: "角色與整合管理" }).click();
+  await expect(page.getByText(/目前角色：/)).toBeVisible();
+  await page.getByRole("button", { name: /管理裝置與整合/ }).click();
+  await expect(page.locator(".topbar-title")).toHaveText("連接與權限");
 });
 
 test("更多：記憶與知識一般模式只有三區；技術細節不外洩", async ({ page }) => {
@@ -188,10 +244,11 @@ test("右上 Inbox：待決定入口與完整歷史", async ({ page }) => {
   await expect(page.getByText(/統一收件匣/)).toBeVisible({ timeout: 10_000 });
 });
 
-test("進階模式：更多 → 設定切換後顯示技術頁面", async ({ page }) => {
+test("進階模式：更多 → 進階功能切換後顯示技術頁面", async ({ page }) => {
   await open(page);
   await page.getByRole("navigation", { name: "主要導覽" }).getByText("更多", { exact: true }).click();
-  await page.getByRole("tab", { name: "設定" }).click();
+  // v0.5：顯示模式切換唯一的家是「進階功能」分頁（設定頁只指路）。
+  await page.getByRole("tab", { name: "進階功能" }).click();
   // The toggle is a controlled input persisted through the backend, so state
   // flips only after the round-trip; assert on the advanced nav instead.
   const toggle = page.getByRole("checkbox", { name: "顯示進階功能" });
@@ -232,4 +289,23 @@ test("緊急停止：二段確認觸發 → 誠實顯示 → 安全解除流程"
   await expect(page.getByRole("button", { name: "緊急停止", exact: true })).toBeVisible({
     timeout: 10_000,
   });
+});
+
+// 放在緊急停止之後（serial 群組裡一個失敗會讓其後全部 skip；這一項目前在 vite dev
+// server 下會失敗——見測試內註解——不該連帶讓其餘回歸被跳過。它只導頁、不改後端狀態。）
+test("現在：交代一件事會把描述帶到工作頁", async ({ page }) => {
+  // 已知缺陷（產品端，非測試端）：src/pages/work/TaskComposer.tsx:279 在 useState 初始化器
+  // 裡讀取並移除 sessionStorage 的 work.prefill；React StrictMode（開發模式）會把初始化器
+  // 呼叫兩次並採用第二次結果，所以本機 `pnpm test:e2e`（vite dev）下描述會被消費掉卻沒落在
+  // composer；CI（vite preview＝production build）與 Tauri build 不受影響。這裡不放寬斷言。
+  await open(page);
+  await expect(page.getByRole("button", { name: "交代一件事" })).toBeVisible({ timeout: 15_000 });
+  await page.getByLabel(/幫你做什麼/).fill("整理下載資料夾");
+  await page.getByRole("button", { name: "交代一件事" }).click();
+  await expect(page.locator(".topbar-title")).toHaveText("工作");
+  // task-first 工作頁掛載時讀取並清除 work.prefill：描述必須真的落在 composer 裡，
+  // 且鍵已被消費（不會下次再莫名預填）。
+  await expect(page.getByLabel(/幫你做什麼/)).toHaveValue("整理下載資料夾");
+  const prefill = await page.evaluate(() => sessionStorage.getItem("work.prefill"));
+  expect(prefill).toBeNull();
 });

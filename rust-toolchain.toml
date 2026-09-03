@@ -1,0 +1,9 @@
+# 可重現的 Rust 工具鏈：CI 與使用 rustup 的開發機用同一版 rustc／clippy／rustfmt，
+# 避免「CI 的新版 clippy 多了 lint，本機通過 CI 卻紅」（例如 result_unit_err）。
+# CI（.github/workflows/*.yml）從這個檔讀 channel，不另外硬編版本。
+# 沒有 rustup 的環境（例如 Homebrew rust）會忽略本檔；請確認 `rustc --version` 與此相同。
+# 升級流程：改這裡的 channel → 本機跑 fmt/clippy/test → 同一個 commit 修掉新 lint。
+[toolchain]
+channel = "1.94.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

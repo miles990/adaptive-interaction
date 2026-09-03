@@ -13,6 +13,8 @@ import {
 } from "../companion/personality";
 import { InteractionDirector } from "../companion/director";
 import { initialBehavior } from "../companion/behavior";
+// CPP：變體權重表與 Director 表屬於角色（shu adapter tables）。
+import { SHU_DIRECTOR_TABLES, SHU_VARIANT_WEIGHTS } from "../character/adapters/shuTables";
 import { createWorld, spawnToy, StepInputs, stepWorld, World } from "../companion/playfield";
 import { ExpressionTimeline } from "../companion/rig/timeline";
 
@@ -65,21 +67,26 @@ describe("個性派生（PersonalityProfile / tuning）", () => {
   });
 
   it("慵懶：速度低於預設，且趴著/打哈欠的權重更高", () => {
-    const lazy = tuningFor({
-      smart: 0.5,
-      witty: 0.3,
-      playful: 0.2,
-      lazy: 1,
-      proud: 0.3,
-      curious: 0.3,
-    });
-    const neutral = tuningForPreferences("natural");
+    const lazy = tuningFor(
+      {
+        smart: 0.5,
+        witty: 0.3,
+        playful: 0.2,
+        lazy: 1,
+        proud: 0.3,
+        curious: 0.3,
+      },
+      SHU_VARIANT_WEIGHTS
+    );
+    const neutral = tuningForPreferences("natural", undefined, SHU_VARIANT_WEIGHTS);
     expect(lazy.speedScale).toBeLessThan(neutral.speedScale);
     expect(lazy.chaseSpeedScale).toBeLessThan(neutral.chaseSpeedScale);
     expect(lazy.variantWeights["lie-flat"]).toBeGreaterThan(neutral.variantWeights["lie-flat"]);
     expect(lazy.variantWeights["yawn"]).toBeGreaterThan(neutral.variantWeights["yawn"]);
     // 慢半拍起身。
     expect(lazy.riseDelayMs).toBeGreaterThan(neutral.riseDelayMs);
+    // 沒有角色權重表（engine-neutral）：variantWeights 為空，Director 一律視為 1。
+    expect(tuningForPreferences("natural").variantWeights).toEqual({});
   });
 
   it("聰明：注意力順序永遠是耳→視線→頭，越聰明越緊湊", () => {
@@ -149,9 +156,10 @@ describe("個性接線：Director", () => {
       proud: 0.3,
       curious: 0.3,
     });
-    const lazy = new InteractionDirector(lazyTuning);
+    const lazy = new InteractionDirector(lazyTuning, SHU_DIRECTOR_TABLES);
     const brisk = new InteractionDirector(
-      tuningFor({ smart: 0.5, witty: 0.5, playful: 1, lazy: 0, proud: 0.3, curious: 0.5 })
+      tuningFor({ smart: 0.5, witty: 0.5, playful: 1, lazy: 0, proud: 0.3, curious: 0.5 }),
+      SHU_DIRECTOR_TABLES
     );
     // blink 冷卻 2s：俏皮 0.65 倍 → 1.5s 後可重播；慵懶 1.6 倍 → 還在冷卻。
     lazy.react("curious", 0);
@@ -162,7 +170,8 @@ describe("個性接線：Director", () => {
 
   it("俏皮：給了 rng 時偶爾假裝沒看到（仍是白名單內的表情）", () => {
     const playful = new InteractionDirector(
-      tuningFor({ smart: 0.5, witty: 0.5, playful: 1, lazy: 0.4, proud: 0.3, curious: 0.5 })
+      tuningFor({ smart: 0.5, witty: 0.5, playful: 1, lazy: 0.4, proud: 0.3, curious: 0.5 }),
+      SHU_DIRECTOR_TABLES
     );
     // rng 永遠命中 → 假裝沒聽見；不給 rng 則維持原意圖（確定性）。
     expect(playful.react("notice", 0, 2_500, () => 0)?.expression).toBe("pretend-not-hear");
@@ -172,14 +181,17 @@ describe("個性接線：Director", () => {
   });
 
   it("變體權重：慵懶的角色更常挑到趴平/打哈欠等休息動作", () => {
-    const lazyTuning = tuningFor({
-      smart: 0.5,
-      witty: 0.3,
-      playful: 0,
-      lazy: 1,
-      proud: 0.3,
-      curious: 0.2,
-    });
+    const lazyTuning = tuningFor(
+      {
+        smart: 0.5,
+        witty: 0.3,
+        playful: 0,
+        lazy: 1,
+        proud: 0.3,
+        curious: 0.2,
+      },
+      SHU_VARIANT_WEIGHTS
+    );
     // 掃過整個權重輪盤，統計「休息類」變體占多少比例（每次都用全新
     // Director，避免冷卻/防重複干擾這個純權重量測）。
     const restShare = (tuning?: ReturnType<typeof tuningFor>) => {
@@ -187,7 +199,7 @@ describe("個性接線：Director", () => {
       const N = 200;
       let hits = 0;
       for (let i = 0; i < N; i++) {
-        const d = tuning ? new InteractionDirector(tuning) : new InteractionDirector();
+        const d = new InteractionDirector(tuning ?? tuningForPreferences("natural", undefined, SHU_VARIANT_WEIGHTS), SHU_DIRECTOR_TABLES);
         let call = 0;
         // 第一次 rng＝hazard（必觸發），第二次＝輪盤位置。
         const rng = () => (call++ === 0 ? 0.001 : (i + 0.5) / N);

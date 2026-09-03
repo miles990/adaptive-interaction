@@ -8,6 +8,10 @@
 //
 // 全部確定性、無 I/O、無 AI：同樣的輸入永遠得到同樣的 tuning。
 // 個性只影響「怎麼演」，永遠不影響權限、安全上限或誠實階梯。
+//
+// 本模組不認識任何角色的表情 id：ambient 變體權重由角色 adapter 的 tables
+// （例如 character/adapters/shuTables.ts 的 SHU_VARIANT_WEIGHTS）以
+// VariantWeightTable 注入；沒注入時 variantWeights 為空（Director 視為權重 1）。
 
 export type PersonalityTrait =
   | "smart"
@@ -42,6 +46,26 @@ export interface PersonalityTuning {
 const clamp01 = (v: number) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
 const clampN = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
+/** 一條變體權重規則：weight = 1 + Σ trait × gain（gain 可為負）。 */
+export interface VariantWeightRule {
+  trait: PersonalityTrait;
+  gain: number;
+}
+
+/** 表情 id → 權重規則（角色 adapter 提供；engine-neutral 的本模組只做乘加）。 */
+export type VariantWeightTable = Readonly<Record<string, readonly VariantWeightRule[]>>;
+
+/** 依個性算出每個變體的權重倍率（未列出的變體＝1）。 */
+export function variantWeightsFor(p: PersonalityProfile, table: VariantWeightTable): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [expression, rules] of Object.entries(table)) {
+    let w = 1;
+    for (const r of rules) w += clamp01(p[r.trait]) * (Number.isFinite(r.gain) ? r.gain : 0);
+    out[expression] = Math.max(0.01, w);
+  }
+  return out;
+}
+
 /** 表現度基準（quiet 收斂、lively 外放）。 */
 const BY_EXPRESSIVENESS: Record<string, PersonalityProfile> = {
   quiet: { smart: 0.6, witty: 0.35, playful: 0.25, lazy: 0.6, proud: 0.4, curious: 0.45 },
@@ -69,9 +93,9 @@ export function personalityFor(
   return out;
 }
 
-/** 個性 → 行為 tuning（純函式）。 */
-export function tuningFor(p: PersonalityProfile): PersonalityTuning {
-  const { smart, witty, playful, lazy, proud, curious } = p;
+/** 個性 → 行為 tuning（純函式）。變體權重表由角色 adapter 注入。 */
+export function tuningFor(p: PersonalityProfile, variantWeightTable: VariantWeightTable = {}): PersonalityTuning {
+  const { smart, playful, lazy, curious, witty } = p;
   return {
     // 慵懶明顯拖慢、俏皮稍微加快。
     speedScale: clampN(1 + playful * 0.25 - lazy * 0.45, 0.5, 1.4),
@@ -79,17 +103,7 @@ export function tuningFor(p: PersonalityProfile): PersonalityTuning {
     // 好奇會靠得更近，慵懶懶得走完最後一段。
     approachDistance: clampN(24 - curious * 10 + lazy * 8, 8, 40),
     cooldownScale: clampN(1 + lazy * 0.6 - playful * 0.35, 0.5, 2),
-    variantWeights: {
-      "lie-flat": 1 + lazy * 2,
-      doze: 1 + lazy * 1.5,
-      yawn: 1 + lazy * 1.6,
-      "spaced-out": 1 + lazy * 0.8,
-      stretch: 1 + lazy * 0.4,
-      "look-around": 1 + curious * 1.2,
-      groom: 1 + proud * 0.8,
-      legswing: 1 + playful * 0.9,
-      tailhug: 1 + playful * 0.5,
-    },
+    variantWeights: variantWeightsFor(p, variantWeightTable),
     // 俏皮才會假裝沒看到；慵懶偶爾也懶得理。
     pretendNotSeeChance: clamp01(playful * 0.25 + lazy * 0.1),
     // 聰明＝反應鏈更緊湊，但順序永遠是耳→眼→頭。
@@ -105,9 +119,10 @@ export function tuningFor(p: PersonalityProfile): PersonalityTuning {
 /** 便利組合：偏好 → tuning。 */
 export function tuningForPreferences(
   expressiveness: string | null | undefined,
-  personaId?: string | null
+  personaId?: string | null,
+  variantWeightTable: VariantWeightTable = {}
 ): PersonalityTuning {
-  return tuningFor(personalityFor(expressiveness, personaId));
+  return tuningFor(personalityFor(expressiveness, personaId), variantWeightTable);
 }
 
 export const DEFAULT_PERSONALITY = personalityFor("natural");

@@ -19,6 +19,17 @@ if [ "$1" = "exec" ]; then exit 1; fi
 if [ "$1" != "app-server" ]; then exit 1; fi
 
 # cwd == the session workdir, so these stay scoped to one test.
+# Optional scenario file (workdir-scoped, like fake_claude.sh):
+#   deaf-after-approval — after raising the approval request, close stdin and
+#   stay alive: every decision write must fail, and the runtime must keep the
+#   request pending instead of pretending the deny went through.
+#   turns — no approval request; a real turn lifecycle instead: `turn/start`
+#   answers with `turn/started`, and `turn/interrupt` ends the turn the way the
+#   real app-server does — a `turn/completed` whose `turn.status` is
+#   `interrupted` (there is no `turn/failed` method in the protocol).
+MODE=""
+if [ -f ./fake-mode ]; then MODE=$(cat ./fake-mode); fi
+echo $$ > ./fake-pid
 DECISION_FILE=./fake-approval-decision
 # The raw `thread/start` / `thread/resume` params, so a test can assert the
 # permission flags were re-sent on resume instead of being inherited.
@@ -34,12 +45,31 @@ while IFS= read -r line; do
     *'"method":"thread/start"'*)
       printf '%s\n' "$line" > "$START_FILE"
       printf '{"jsonrpc":"2.0","id":%s,"result":{"thread":{"id":"fake-thread-1"}}}\n' "$id"
+      if [ "$MODE" = "turns" ]; then continue; fi
       # An approval request nobody is going to answer.
       printf '{"jsonrpc":"2.0","id":9001,"method":"item/commandExecution/requestApproval","params":{"command":"rm -rf /tmp/definitely-not"}}\n'
+      if [ "$MODE" = "deaf-after-approval" ]; then
+        exec 0<&-
+        echo closed > ./fake-stdin-closed
+        sleep 3600
+      fi
       ;;
     *'"method":"thread/resume"'*)
       printf '%s\n' "$line" > "$RESUME_FILE"
       printf '{"jsonrpc":"2.0","id":%s,"result":{"thread":{"id":"fake-thread-resumed"}}}\n' "$id"
+      ;;
+    *'"method":"turn/start"'*)
+      if [ "$MODE" = "turns" ]; then
+        printf '{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"fake-thread-1","turn":{"id":"turn-1","items":[],"status":"inProgress"}}}\n'
+        printf '{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"fake-thread-1","turnId":"turn-1","item":{"type":"agentMessage","id":"m1","text":"working on it"}}}\n'
+      fi
+      ;;
+    *'"method":"turn/interrupt"'*)
+      printf '%s\n' "$line" > ./fake-turn-interrupt
+      if [ "$MODE" = "turns" ]; then
+        printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id"
+        printf '{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"fake-thread-1","turn":{"id":"turn-1","items":[],"status":"interrupted"}}}\n'
+      fi
       ;;
     *'"decision"'*)
       printf '%s\n' "$line" > "$DECISION_FILE"

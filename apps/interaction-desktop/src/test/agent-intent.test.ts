@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import { mapRuntimeEvent, pose, reduce, initial } from "../companion/machine";
 import { resolveRigAnimation } from "../companion/rig/renderer";
 import { LocalTemplateProvider } from "../companion/conversation";
+// CPP：等哪個 agent 的表情屬於角色表（shu adapter）；machine 預設只給 canonical 的 waiting。
+import { SHU_EVENT_ART } from "../character/adapters/shuTables";
 
 const ev = (state: string, agentId = "codex") => ({
   eventType: "agent.session.state",
@@ -13,12 +15,14 @@ const ev = (state: string, agentId = "codex") => ({
 
 describe("agent.session.state → 角色演出", () => {
   it("created → 等待表演（依 agent 選 wait-codex/wait-claude）", () => {
-    const codex = mapRuntimeEvent(ev("created", "codex"));
+    const codex = mapRuntimeEvent(ev("created", "codex"), SHU_EVENT_ART);
     expect(codex).toMatchObject({ kind: "performing", animation: "wait-codex" });
-    const claude = mapRuntimeEvent(ev("created", "claude-code"));
+    const claude = mapRuntimeEvent(ev("created", "claude-code"), SHU_EVENT_ART);
     expect(claude).toMatchObject({ kind: "performing", animation: "wait-claude" });
-    const other = mapRuntimeEvent(ev("created", "agent.coder"));
+    const other = mapRuntimeEvent(ev("created", "agent.coder"), SHU_EVENT_ART);
     expect(other).toMatchObject({ kind: "performing", animation: "waiting" });
+    // 沒有角色表：engine-neutral 的 machine 只認 canonical 的 waiting。
+    expect(mapRuntimeEvent(ev("created", "codex"))).toMatchObject({ kind: "performing", animation: "waiting" });
   });
 
   it("fetched → routing；working → acting；waiting-* → 需要確認", () => {
@@ -48,6 +52,20 @@ describe("agent.session.state → 角色演出", () => {
     expect(mapRuntimeEvent(ev("cancelled"))).toEqual({ type: "clear-transient" });
     expect(mapRuntimeEvent(ev("closed"))).toEqual({ type: "clear-transient" });
     expect(mapRuntimeEvent(ev("someday-new-state"))).toBeNull();
+  });
+
+  it("unknown／expired → 演 unknown：結果沒人知道時不能停在上一個狀態（例如永遠的「工作中」）", () => {
+    expect(mapRuntimeEvent(ev("unknown"))).toMatchObject({ type: "transient", kind: "unknown" });
+    expect(mapRuntimeEvent(ev("expired"))).toMatchObject({ type: "transient", kind: "unknown" });
+    // 端到端（舊路徑 reduce/pose）：working（acting，8 秒）之後收到 unknown，
+    // 姿勢要立刻變 unknown，而不是繼續演 act 到 transient 自然到期。
+    let m = reduce({ ...initial, base: "idle" }, mapRuntimeEvent(ev("working"))!, 0);
+    expect(pose(m, 100).animation).toBe("act");
+    m = reduce(m, mapRuntimeEvent(ev("unknown"))!, 100);
+    const p = pose(m, 110);
+    expect(p.animation).toBe("unknown");
+    expect(p.animation).not.toBe("success");
+    expect(pose(m, 2_000).animation).toBe("unknown"); // 不會過早回到 act／idle
   });
 });
 

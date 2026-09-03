@@ -10,7 +10,8 @@
 
 use crate::protocol::{parse_device_msg, DeviceMsg, LinkError, LinkState, RawLink, TaskSlot};
 use btleplug::api::{
-    Central, CentralEvent, Characteristic, Manager as _, Peripheral as _, ScanFilter, WriteType,
+    Central, CentralEvent, Characteristic, Manager as _, Peripheral as _, PeripheralProperties,
+    ScanFilter, WriteType,
 };
 use btleplug::platform::{Adapter, Manager, Peripheral};
 use futures::StreamExt;
@@ -22,6 +23,37 @@ use tokio::sync::{broadcast, Mutex};
 const BROADCAST_CAP: usize = 64;
 const SCAN_TIMEOUT: Duration = Duration::from_secs(6);
 const MAX_WRITE_BYTES: usize = 480;
+
+/// 掃描時要不要連這台？**service UUID 為主、名稱為輔**——名稱不是身分。
+///
+/// 為什麼不能只比名稱：參考韌體把 128-bit service UUID 放在主廣播封包
+/// （flags 3B＋UUID 18B 已佔掉 31B 的大半），名稱只放得進 scan response；
+/// 而 NimBLE-Arduino 2.x 預設不廣播名稱，CoreBluetooth 對還沒連過的裝置
+/// 也不填 name。掃描到我們的 service 卻因為 `local_name == None` 而「掃不到」
+/// 是假陰性——身分本來就由連上後的 hello.deviceId＋配對碼決定。
+///
+/// 規則：
+/// - 廣播含我們的 service UUID：名稱缺席也連；名稱存在但**不同**才不連
+///   （同一個 service 的另一台裝置——要靠名稱分辨）。
+/// - 廣播不含 service UUID（平台沒回報 services、或舊韌體）：只有名稱完全
+///   相符才連（之後 discover_services 找不到 characteristic 會誠實 Refused）。
+/// - `device_name` 為空＝不做名稱過濾（只看 service UUID）。
+pub(crate) fn peripheral_matches(
+    props: &PeripheralProperties,
+    service_uuid: &uuid::Uuid,
+    device_name: &str,
+) -> bool {
+    let advertises_service = props.services.iter().any(|s| s == service_uuid);
+    let name_filter = (!device_name.is_empty()).then_some(device_name);
+    match (advertises_service, name_filter, props.local_name.as_deref()) {
+        // service 命中：名稱只在「有廣播且不同」時排除。
+        (true, Some(wanted), Some(seen)) => seen == wanted,
+        (true, _, _) => true,
+        // service 沒命中：只有名稱完全相符才當候選。
+        (false, Some(wanted), Some(seen)) => seen == wanted,
+        (false, _, _) => false,
+    }
+}
 
 // link_state 的原子編碼（與 serial/mqtt 對齊）。BLE 是「用到才連」，
 // 所以初始狀態是 Connecting（尚未連線，但會在首次使用時連）。
@@ -103,7 +135,8 @@ impl BleRawLink {
             })
             .await
             .map_err(|e| LinkError::Unavailable(format!("ble scan: {e}")))?;
-        // 有界掃描：找名字相符的裝置。
+        // 有界掃描：service UUID 命中即連（名稱只當可選過濾；身分交給
+        // 連上後的 hello.deviceId＋配對碼——見 peripheral_matches）。
         let deadline = tokio::time::Instant::now() + SCAN_TIMEOUT;
         let mut events = adapter
             .events()
@@ -114,22 +147,20 @@ impl BleRawLink {
             if remaining.is_zero() {
                 let _ = adapter.stop_scan().await;
                 return Err(LinkError::Unavailable(format!(
-                    "ble device {:?} not found within {}s scan",
+                    "ble device {:?} (service {}) not found within {}s scan",
                     self.device_name,
+                    self.service_uuid,
                     SCAN_TIMEOUT.as_secs()
                 )));
             }
             match tokio::time::timeout(remaining, events.next()).await {
                 Ok(Some(CentralEvent::DeviceDiscovered(id) | CentralEvent::DeviceUpdated(id))) => {
                     if let Ok(p) = adapter.peripheral(&id).await {
-                        let name = p
-                            .properties()
-                            .await
-                            .ok()
-                            .flatten()
-                            .and_then(|props| props.local_name);
-                        if name.as_deref() == Some(self.device_name.as_str()) {
-                            break p;
+                        let props = p.properties().await.ok().flatten();
+                        if let Some(props) = props {
+                            if peripheral_matches(&props, &self.service_uuid, &self.device_name) {
+                                break p;
+                            }
                         }
                     }
                 }
@@ -318,5 +349,101 @@ impl RawLink for BleRawLink {
 
     fn describe(&self) -> String {
         format!("ble {:?} service {}", self.device_name, self.service_uuid)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn svc() -> uuid::Uuid {
+        "7f2a0001-c701-4c9e-8f7e-2b3d5a1e9c01".parse().unwrap()
+    }
+
+    fn props(services: &[uuid::Uuid], name: Option<&str>) -> PeripheralProperties {
+        PeripheralProperties {
+            local_name: name.map(String::from),
+            services: services.to_vec(),
+            ..Default::default()
+        }
+    }
+
+    /// 真板的廣播：主封包只有 flags＋128-bit service UUID，名稱不在
+    /// （NimBLE 2.x 預設不廣播名稱；scan response 可能還沒到；CoreBluetooth
+    /// 對未連過的裝置不填 name）。舊版只比名稱 → 永遠「掃不到」。
+    #[test]
+    fn a_service_match_without_a_local_name_is_a_candidate() {
+        assert!(peripheral_matches(
+            &props(&[svc()], None),
+            &svc(),
+            "esp32-companion-01"
+        ));
+    }
+
+    #[test]
+    fn a_service_match_with_the_same_name_is_a_candidate() {
+        assert!(peripheral_matches(
+            &props(&[svc()], Some("esp32-companion-01")),
+            &svc(),
+            "esp32-companion-01"
+        ));
+    }
+
+    /// 同一個 service 的另一台裝置（名稱不同）：不連——名稱是這時唯一能
+    /// 分辨兩台同款裝置的資訊。
+    #[test]
+    fn a_service_match_with_a_different_name_is_not_a_candidate() {
+        assert!(!peripheral_matches(
+            &props(&[svc()], Some("esp32-companion-02")),
+            &svc(),
+            "esp32-companion-01"
+        ));
+    }
+
+    /// 平台沒回報 services（或舊韌體）時，名稱完全相符仍是候選；
+    /// 名稱不符或缺席就不是。
+    #[test]
+    fn without_the_service_only_an_exact_name_matches() {
+        assert!(peripheral_matches(
+            &props(&[], Some("esp32-companion-01")),
+            &svc(),
+            "esp32-companion-01"
+        ));
+        assert!(!peripheral_matches(
+            &props(&[], Some("other")),
+            &svc(),
+            "esp32-companion-01"
+        ));
+        assert!(!peripheral_matches(
+            &props(&[], None),
+            &svc(),
+            "esp32-companion-01"
+        ));
+    }
+
+    /// 空的 deviceName＝不做名稱過濾：只看 service UUID。
+    #[test]
+    fn an_empty_device_name_disables_the_name_filter() {
+        assert!(peripheral_matches(
+            &props(&[svc()], Some("whatever")),
+            &svc(),
+            ""
+        ));
+        assert!(!peripheral_matches(
+            &props(&[], Some("whatever")),
+            &svc(),
+            ""
+        ));
+    }
+
+    /// 別的 service、沒有名稱：絕不連（掃描過濾器只是建議，事件仍可能來）。
+    #[test]
+    fn a_foreign_service_without_a_name_is_ignored() {
+        let other: uuid::Uuid = "0000180f-0000-1000-8000-00805f9b34fb".parse().unwrap();
+        assert!(!peripheral_matches(
+            &props(&[other], None),
+            &svc(),
+            "esp32-companion-01"
+        ));
     }
 }

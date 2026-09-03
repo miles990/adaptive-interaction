@@ -14,7 +14,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::Mutex;
 
-const CURRENT_SCHEMA: i64 = 7;
+const CURRENT_SCHEMA: i64 = 8;
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -251,6 +251,20 @@ impl Store {
             )
             .map_err(map_err)?;
         }
+        if version < 8 {
+            // v8：Character Presentation Protocol 外部 adapter 登記
+            // （token 只存 sha256；撤銷旗標隨 body 一起持久化，重啟後仍生效）。
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS character_adapters (
+                    id         TEXT PRIMARY KEY,
+                    body       TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                "#,
+            )
+            .map_err(map_err)?;
+        }
         conn.pragma_update(None, "user_version", CURRENT_SCHEMA)
             .map_err(map_err)?;
         Ok(())
@@ -371,6 +385,20 @@ impl Store {
 
     pub fn delete_provider(&self, id: &str) -> DomainResult<()> {
         self.doc_delete("providers", id)
+    }
+
+    // ---- Character Presentation Protocol：外部 adapter 登記（v8）----
+
+    pub fn save_character_adapter(&self, id: &str, body: &str) -> DomainResult<()> {
+        self.doc_upsert("character_adapters", id, body)
+    }
+
+    pub fn all_character_adapters(&self) -> DomainResult<Vec<String>> {
+        self.doc_all("character_adapters")
+    }
+
+    pub fn delete_character_adapter(&self, id: &str) -> DomainResult<()> {
+        self.doc_delete("character_adapters", id)
     }
 
     pub fn save_agent_session(&self, id: &str, body: &str) -> DomainResult<()> {

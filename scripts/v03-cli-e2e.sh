@@ -61,9 +61,14 @@ sleep 1
 # 明確標示：模擬器驗收，非真機。配對碼走 secret://（環境變數），不落 YAML。
 export INTERACT_AI_SECRET_SIM_PAIR="9927"
 SIM_PTY_FILE="$HOME_DIR/sim-pty-path"
+# 感測面控制通道（韌體上是真實感測器）：--facts-file 覆寫 button/distanceMm/
+# lux/tempC，SIGUSR1 翻轉按鈕——閉環的「獨立觀察」半邊靠它在模擬器上驗。
+SIM_FACTS="$HOME_DIR/sim-facts.json"
+echo '{}' > "$SIM_FACTS"
 python3 "$(dirname "$0")/esp32-serial-sim.py" \
   --device-id esp32-sim01 --pairing-code 9927 \
-  --pty-path-file "$SIM_PTY_FILE" --log "$HOME_DIR/sim.log" 2>/dev/null &
+  --pty-path-file "$SIM_PTY_FILE" --log "$HOME_DIR/sim.log" \
+  --facts-file "$SIM_FACTS" 2>/dev/null &
 SIM_PID=$!
 for i in $(seq 1 20); do [ -s "$SIM_PTY_FILE" ] && break; sleep 0.2; done
 SIM_PTY=$(cat "$SIM_PTY_FILE" 2>/dev/null || echo "/dev/null")
@@ -121,6 +126,7 @@ capabilities:
       lux: "/facts/lux"
       distanceMm: "/facts/distanceMm"
       tempC: "/facts/tempC"
+      button: "/facts/button"
       servoAngle: "/facts/servoAngle"
     serial:
       port: "${SIM_PTY}"
@@ -204,8 +210,10 @@ if [ "$AVAIL" = "disabled" ]; then ok "microphone default disabled ($AVAIL)"; el
 echo "== Presentation Provider (v0.4) =="
 TOKEN=$(cat "$HOME_DIR/state/api-token")
 # The companion provider is itemized (7 receptors + 7 actuators).
-NRCP=$("$BIN" providers show provider.companion.shu --json 2>/dev/null | J "len(d['receptors'])")
+NRCP=$("$BIN" providers show provider.companion.desktop --json 2>/dev/null | J "len(d['receptors'])")
 check "companion provider has 7 itemized receptors" "$NRCP" "7"
+PNAME=$("$BIN" providers show provider.companion.desktop --json 2>/dev/null | J "d['identity']['displayName']")
+check "companion provider name is honest before any character hello" "$PNAME" "桌面角色（尚未連線）"
 # Surface offline (no companion window) → honest refusal to ingest clicks.
 RC=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${PORT}/v1/receptors/companion.click/push" -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"facts":{"kind":"clicked"}}')
 if [ "$RC" != "200" ]; then ok "companion click refused while surface offline (HTTP $RC)"; else bad "click should be refused with no companion window"; fi
@@ -399,6 +407,114 @@ check "buzzer clamped by the device (99999Hz/9999ms -> 4000/2000)" "$BUZZ_APPLIE
 # 受器：servo 的實際角度也出現在觀察面（動作 ack ≠ 觀察，兩者分開驗）。
 OBS_ANGLE=$("$BIN" observe --receptor esp32-desk.env --fresh --json 2>/dev/null | J "d.get('facts',{}).get('servoAngle','MISSING')")
 check "device state reflects the clamped servo angle" "$OBS_ANGLE" "170"
+
+# --- 感測面（模擬器控制通道；韌體上是真實感測器，真機驗收仍為零）-----------
+# 距離改變 → observe 反映新值（感測值不是常數；ack ≠ 觀察）。
+echo '{"distanceMm": 150}' > "$SIM_FACTS"
+sleep 0.5
+DIST=$("$BIN" observe --receptor esp32-desk.env --fresh --json 2>/dev/null | J "d.get('facts',{}).get('distanceMm','MISSING')")
+check "sensor change on the device is reflected by observe (842 -> 150)" "$DIST" "150"
+# 感測器缺席：韌體對讀不到的 HC-SR04／DHT22 回 -1／null——必須原樣穿透到
+# Observation facts（tempC 不被當成數字、也不被吞掉）。
+echo '{"distanceMm": -1, "tempC": null}' > "$SIM_FACTS"
+sleep 0.5
+ABSENT=$("$BIN" observe --receptor esp32-desk.env --fresh --json 2>/dev/null | J "'tempC' in d.get('facts',{}) and d['facts']['tempC'] is None and d['facts'].get('distanceMm')==-1")
+check "absent sensors pass through as tempC=null / distanceMm=-1 (not a number, not dropped)" "$ABSENT" "True"
+# 按鈕邊緣 → 裝置「主動」推播 state（線上沒有 read 就送出），observe 隨後反映 button=true。
+# host 端目前只在 read 時消費 state（沒有推播快取），所以「未請求的推播」在
+# 線層（sim.log）驗：SIGUSR1 之後、host 送 read 之前，已出現 button:true 的 state。
+LOG_MARK=$(wc -l < "$HOME_DIR/sim.log" | tr -d ' ')
+kill -USR1 "$SIM_PID"
+sleep 0.5
+PUSHED=$(python3 - "$HOME_DIR/sim.log" "$LOG_MARK" <<'PY'
+import sys, json
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()[int(sys.argv[2]):]
+result = "no-state"
+for line in lines:
+    if line.startswith(">>") and '"read"' in line:
+        result = "read-before-push"; break
+    if line.startswith("<< "):
+        try: msg = json.loads(line[3:])
+        except Exception: continue
+        if msg.get("type") == "state":
+            result = "pushed" if msg.get("facts", {}).get("button") is True else "state-without-button"
+            break
+print(result)
+PY
+)
+check "button edge pushes state unsolicited (no read on the wire)" "$PUSHED" "pushed"
+BTN=$("$BIN" observe --receptor esp32-desk.env --fresh --json 2>/dev/null | J "d.get('facts',{}).get('button','MISSING')")
+check "observe reflects the toggled button" "$BTN" "True"
+
+echo "== Character Protocol =="
+# 外部 adapter 的 WebSocket transport：以 examples/character-adapters/text-adapter.mjs
+# 當「模擬 adapter（fixture）」——程序內／本機 node 程式，不是真外部裝置。
+# token 只印一次、只存 sha256；撤銷即斷線。
+CP_VER=$("$BIN" character status --json 2>/dev/null | J "d['version']")
+check "character protocol version reported" "$CP_VER" "1.0"
+NODE_MAJOR=$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || echo 0)
+if [ "${NODE_MAJOR:-0}" -lt 22 ]; then
+  echo "  SKIP: Character Protocol WS fixture needs node >= 22 (global WebSocket); found node major '${NODE_MAJOR}'"
+else
+  ADD=$("$BIN" character adapters add --name "文字 adapter（fixture）" --manifest "$ROOT/examples/character-adapters/text-adapter.manifest.json" --json 2>/dev/null)
+  ADAPTER_ID=$(echo "$ADD" | J "d.get('adapterId','')")
+  ADAPTER_TOKEN=$(echo "$ADD" | J "d.get('token','')")
+  if [ -n "$ADAPTER_ID" ] && [ "${#ADAPTER_TOKEN}" = "64" ]; then ok "adapter registered; token issued once (64 hex)"; else bad "adapter registration ($ADD)"; fi
+  LISTED=$("$BIN" character adapters list --json 2>/dev/null | J "'token' not in json.dumps(d) and d['adapters'][0]['revoked']==False")
+  check "adapter list never contains the token" "$LISTED" "True"
+  # 模擬 adapter（fixture）：收到第一個 intent、回 completed 後自行結束。
+  INTERACT_AI_API="http://127.0.0.1:${PORT}" INTERACT_AI_CHARACTER_TOKEN="$ADAPTER_TOKEN" \
+    CHARACTER_FIXTURE_ONCE=1 CHARACTER_FIXTURE_QUIET=1 \
+    node "$ROOT/examples/character-adapters/text-adapter.mjs" > "$HOME_DIR/fixture.log" 2>&1 &
+  FIX_PID=$!
+  CONN=False
+  for i in $(seq 1 40); do
+    CONN=$("$BIN" character instances --json 2>/dev/null | J "any(i.get('connected') and i.get('negotiated') and i.get('origin')=='external' for i in d['instances'])" 2>/dev/null || echo False)
+    [ "$CONN" = "True" ] && break; sleep 0.25
+  done
+  check "模擬 adapter（fixture）negotiated over /v1/character/ws" "$CONN" "True"
+  # human token 不能上 adapter 的 WebSocket（401；只收 adapter token）。
+  WS_RC=$(curl -s -o /dev/null -w "%{http_code}" -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" "http://127.0.0.1:${PORT}/v1/character/ws?token=${TOKEN}")
+  check "human token refused on /v1/character/ws" "$WS_RC" "401"
+  # adapter token 打人類路由 → 403。
+  AD_RC=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/v1/status" -H "Authorization: Bearer $ADAPTER_TOKEN")
+  check "adapter token cannot read /v1/status" "$AD_RC" "403"
+  AD_RC=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${PORT}/v1/emergency-stop" -H "Authorization: Bearer $ADAPTER_TOKEN")
+  check "adapter token cannot trigger emergency stop" "$AD_RC" "403"
+  # 人類手動 intent（非安全）→ fixture 印一行文字並回 accepted→started→completed。
+  INTENT=$("$BIN" character intent notice --message "CLI E2E" --json 2>/dev/null)
+  MID=$(echo "$INTENT" | J "d['messageId']")
+  TGT=$(echo "$INTENT" | J "len(d['targets'])")
+  check "manual notice intent reached the fixture instance" "$TGT" "1"
+  RC=$("$BIN" character intent emergency --json >/dev/null 2>&1; echo $?)
+  if [ "$RC" != "0" ]; then ok "manual safety intent refused (runtime-only)"; else bad "emergency must not be manually playable"; fi
+  DONE=False
+  for i in $(seq 1 20); do
+    DONE=$("$BIN" events --seconds 1 --json 2>/dev/null | python3 -c "
+import sys,json
+mid='$MID'; hit=False
+for line in sys.stdin:
+    line=line.strip()
+    if not line: continue
+    try: e=json.loads(line)
+    except Exception: continue
+    if e.get('eventType')=='character.receipt' and e.get('payload',{}).get('receipt',{}).get('messageId')==mid and e['payload']['receipt'].get('status')=='completed': hit=True
+print(hit)")
+    [ "$DONE" = "True" ] && break; sleep 0.25
+  done
+  check "character.receipt completed from the fixture (text printed, not verified)" "$DONE" "True"
+  if grep -q "\[intent\] notice" "$HOME_DIR/fixture.log" 2>/dev/null; then ok "fixture printed the intent line"; else bad "fixture log lacks the intent line"; fi
+  # 撤銷 → token 失效、instance 移除、adapters 標 revoked。
+  "$BIN" character adapters revoke "$ADAPTER_ID" --json >/dev/null 2>&1
+  REV=$("$BIN" character adapters list --json 2>/dev/null | J "d['adapters'][0]['revoked'] and not d['adapters'][0]['connected']")
+  check "revoke marks the adapter revoked and disconnected" "$REV" "True"
+  GONE=$("$BIN" character instances --json 2>/dev/null | J "all(i.get('origin')!='external' for i in d['instances'])")
+  check "revoked adapter instance no longer listed" "$GONE" "True"
+  AD_RC=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${PORT}/v1/character/receipts" -H "Authorization: Bearer $ADAPTER_TOKEN" -H 'content-type: application/json' -d '{"instanceId":"x","receipt":{}}')
+  check "revoked adapter token is unauthorized" "$AD_RC" "401"
+  kill "$FIX_PID" 2>/dev/null || true
+  wait "$FIX_PID" 2>/dev/null || true
+fi
 
 echo "== Emergency stop propagation =="
 SID2=$("$BIN" agents create --agent agent.b --ttl 30 --json 2>/dev/null | J "d['sessionId']")

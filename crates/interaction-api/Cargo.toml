@@ -12,6 +12,8 @@ interaction-recipe = { workspace = true }
 interaction-registry = { workspace = true }
 interaction-policy = { workspace = true }
 interaction-tool-schema = { workspace = true }
+# Character Presentation Protocol 型別（hello／receipt／event／manifest DTO）。
+interaction-character = { path = "../interaction-character" }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
@@ -27,3 +29,5 @@ tracing = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 reqwest = { workspace = true }
+# WebSocket fixture client for the /v1/character/ws acceptance tests.
+tokio-tungstenite = "0.24"

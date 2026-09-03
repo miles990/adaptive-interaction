@@ -327,6 +327,15 @@ async fn context_bundle_is_deterministic_and_honest() {
     );
     cand.tags = vec!["rust".into()];
     rt.memory_create(cand).await.unwrap();
+    // 7) 知識類但 domain 未授權（python）→ 不入，並計入排除原因。
+    let mut other = item(
+        MemoryLayer::DomainKnowledge,
+        MemoryKind::Fact,
+        "別的領域",
+        MemoryActor::Human,
+    );
+    other.tags = vec!["python".into()];
+    rt.memory_create(other).await.unwrap();
 
     let bundle = rt
         .memory_context_bundle("修 bug", &["rust".to_string()], "codex")
@@ -343,6 +352,23 @@ async fn context_bundle_is_deterministic_and_honest() {
     assert!(!titles.contains(&"私人偏好"));
     assert!(!titles.contains(&"不給 codex"), "denylist 生效");
     assert!(!titles.contains(&"未複審"), "candidate 不入 bundle");
+    assert!(!titles.contains(&"別的領域"), "未授權 domain 不入 bundle");
+    // regression（memory-ui）：excluded 曾只回報 needsReview／notVisibleToAgent／
+    // sensitive，候選與 domain 過濾的排除靜默消失——進階文案承諾列出
+    // 「未複審候選」，後端必須真的回報（只給計數，不把 id 交給 agent）。
+    assert!(
+        bundle["excluded"]["unreviewedCandidates"].as_u64().unwrap() >= 1,
+        "{}",
+        bundle["excluded"]
+    );
+    assert!(
+        bundle["excluded"]["outsideGrantedDomains"]
+            .as_u64()
+            .unwrap()
+            >= 1,
+        "{}",
+        bundle["excluded"]
+    );
     assert!(bundle["excluded"]["needsReview"]
         .as_array()
         .unwrap()

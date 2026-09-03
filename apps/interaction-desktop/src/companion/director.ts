@@ -5,11 +5,15 @@
 //
 // 本模組純確定性（seeded RNG 注入），不呼叫 AI。它擁有「生活層」的
 // 選擇權：ambient 變體、冷卻、防重複、中斷後恢復；真相狀態（成功/失敗/
-// 阻擋/未知/緊急）永遠由 machine.ts 的 runtime 事件驅動，Director 不可
-// 也不會排程 truthState 表情（schedule 端過濾＋測試釘死）。
+// 阻擋/未知/緊急）永遠由 machine.ts 的 runtime 事件／CPP intent 驅動，
+// Director 不可也不會排程 truthState 表情（schedule 端過濾＋測試釘死）。
+//
+// Engine-neutral（CPP）：Director 不認識任何角色的表情 id。哪些表情可播
+// （isPlayable）、ambient 變體池、反應表、睡眠類集合、眨眼表情，全部由角色
+// adapter 的 DirectorTables 注入（例如 character/adapters/shuTables.ts）；
+// 沒注入時（文字角色）Director 永遠不出手。
 
 import { BehaviorState, EventClass, EventScoreContext, scoreEvent } from "./behavior";
-import { resolveExpression } from "./rig/expressions";
 import { DEFAULT_TUNING, PersonalityTuning } from "./personality";
 
 export interface DirectorContext {
@@ -32,7 +36,7 @@ export interface DirectorAction {
   source: "ambient" | "reaction" | "resume";
 }
 
-/** ambient 變體池：全部非 truthState。 */
+/** ambient 變體池：全部非 truthState（由角色 tables 的 isPlayable 把關）。 */
 export interface AmbientVariant {
   expression: string;
   durationMs: number;
@@ -43,39 +47,38 @@ export interface AmbientVariant {
   cooldownMs: number;
 }
 
-export const AMBIENT_VARIANTS: AmbientVariant[] = [
-  { expression: "blink", durationMs: 400, weight: 10, minRelax: 0, reducedMotionOk: true, cooldownMs: 2_000 },
-  { expression: "look-around", durationMs: 1_900, weight: 5, minRelax: 0.15, reducedMotionOk: false, cooldownMs: 18_000 },
-  { expression: "groom", durationMs: 1_700, weight: 4, minRelax: 0.3, reducedMotionOk: false, cooldownMs: 40_000 },
-  { expression: "stretch", durationMs: 1_500, weight: 3, minRelax: 0.45, reducedMotionOk: false, cooldownMs: 50_000 },
-  { expression: "yawn", durationMs: 1_700, weight: 2, minRelax: 0.55, reducedMotionOk: false, cooldownMs: 70_000 },
-  { expression: "legswing", durationMs: 6_000, weight: 3, minRelax: 0.4, reducedMotionOk: false, cooldownMs: 80_000 },
-  { expression: "spaced-out", durationMs: 5_000, weight: 2, minRelax: 0.5, reducedMotionOk: false, cooldownMs: 60_000 },
-  { expression: "tailhug", durationMs: 7_000, weight: 2, minRelax: 0.7, reducedMotionOk: false, cooldownMs: 110_000 },
-  { expression: "lie-flat", durationMs: 9_000, weight: 2, minRelax: 0.85, reducedMotionOk: false, cooldownMs: 150_000 },
-  { expression: "doze", durationMs: 10_000, weight: 1.5, minRelax: 0.92, reducedMotionOk: false, cooldownMs: 200_000 },
-];
+/** 角色 adapter 注入給 Director 的表（純資料＋一個白名單函式）。 */
+export interface DirectorTables {
+  /** 真相狀態防線：只有回 true 的表情才可能被排程。 */
+  isPlayable: (expression: string) => boolean;
+  ambient: readonly AmbientVariant[];
+  /**
+   * 反應意圖 → 表情（玩家/事件反應層；仍非 truthState）。
+   * 一個意圖可以有多個變體（spec §5.2：高頻反應 3～6 個變體＋防重複＋冷卻）：
+   * Director 依冷卻與「上一次用的」挑一個不同的。
+   */
+  reactions: Readonly<Record<string, string | readonly string[]>>;
+  /** 可以「假裝沒看到」的低優先意圖（安全/確認類永遠不會被忽略）。 */
+  softIntents: readonly string[];
+  /** 「假裝沒聽見」的表情（null＝這個角色沒有這種反應）。 */
+  pretendNotHear: string | null;
+  /** 睡眠類長 ambient：被互動打斷後不該原樣睡回去。 */
+  sleepy: ReadonlySet<string>;
+  /** 安靜時唯一允許的「就地眨眼」（null＝安靜時完全不動）。 */
+  blink: { expression: string; durationMs: number } | null;
+}
 
-/** 反應意圖 → 表情（玩家/事件反應層；仍非 truthState）。 */
-export const REACTION_EXPRESSIONS: Record<string, string> = {
-  notice: "notice",
-  curious: "curious",
-  peek: "peek",
-  "lean-in": "lean-in",
-  "player-back": "player-back",
-  "await-player": "await-player",
-  praised: "praised",
-  "caught-slacking": "caught-slacking",
-  question: "question",
-  "block-cursor": "block-cursor",
-  "poked-rapid": "poked-rapid",
+/** 沒有角色 tables 時的預設：什麼都不可播、什麼都不排。 */
+export const EMPTY_DIRECTOR_TABLES: DirectorTables = {
+  isPlayable: () => false,
+  ambient: [],
+  reactions: {},
+  softIntents: [],
+  pretendNotHear: null,
+  sleepy: new Set<string>(),
+  blink: null,
 };
 
-/** 可以「假裝沒看到」的低優先意圖（安全/確認類永遠不會被忽略）。 */
-const SOFT_INTENTS = new Set(["notice", "curious", "peek", "lean-in", "player-back"]);
-
-/** 睡眠類長 ambient：被互動打斷後不該原樣睡回去。 */
-export const SLEEPY_AMBIENT = new Set(["doze", "lie-flat", "sleep"]);
 /** 剛被互動多久之內不恢復睡眠類 ambient（改回 idle 系）。 */
 export const SLEEP_RESUME_BLOCK_MS = 20_000;
 
@@ -107,6 +110,26 @@ interface InterruptedAction {
   expiresAt: number;
 }
 
+/** react() 回 null 的原因：不是靜默失敗，呼叫端可據此退回別的反應（例如一般點擊）。 */
+export type ReactReason =
+  | "ok"
+  | "pretend-not-hear"
+  | "no-mapping"
+  | "not-playable"
+  | "cooldown";
+
+export interface ReactDecision {
+  action: DirectorAction | null;
+  reason: ReactReason;
+  intent: string;
+  atMs: number;
+}
+
+/** 反應的預設冷卻（同一表情 8 秒內不重播）。 */
+export const REACTION_COOLDOWN_MS = 8_000;
+/** 最近幾筆決定留著給診斷／Roll Call（有界）。 */
+const DECISION_LOG_LIMIT = 16;
+
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 export class InteractionDirector {
@@ -115,9 +138,14 @@ export class InteractionDirector {
   private interrupted: InterruptedAction | null = null;
   private currentAction: { action: DirectorAction; startedAt: number } | null = null;
   private tuning: PersonalityTuning;
+  private tables: DirectorTables;
+  /** 每個意圖上一次用的變體（防重複）。 */
+  private lastVariant = new Map<string, string>();
+  private decisions: ReactDecision[] = [];
 
-  constructor(tuning: PersonalityTuning = DEFAULT_TUNING) {
+  constructor(tuning: PersonalityTuning = DEFAULT_TUNING, tables: DirectorTables = EMPTY_DIRECTOR_TABLES) {
     this.tuning = tuning;
+    this.tables = tables;
   }
 
   /** 個性 tuning（冷卻倍率、變體權重、假裝沒看到的機率）。 */
@@ -125,10 +153,33 @@ export class InteractionDirector {
     this.tuning = tuning;
   }
 
-  /** 真相狀態防線：Director 永不排程 truthState 表情。 */
+  /** 換角色時換表（冷卻與恢復計畫一併清掉——那是上一個角色的）。 */
+  setTables(tables: DirectorTables): void {
+    this.tables = tables;
+    this.cooldownUntil.clear();
+    this.recent = [];
+    this.interrupted = null;
+    this.currentAction = null;
+    this.lastVariant.clear();
+  }
+
+  /** 最近一次 react() 的決定（含回 null 的原因）；沒有就是 null。 */
+  lastDecision(): ReactDecision | null {
+    return this.decisions.length > 0 ? this.decisions[this.decisions.length - 1] : null;
+  }
+
+  /** 最近的 react() 決定（有界，最新在最後）。 */
+  recentDecisions(): readonly ReactDecision[] {
+    return this.decisions;
+  }
+
+  /** 真相狀態防線：Director 永不排程 truthState 表情（白名單由角色 tables 提供）。 */
   private playable(expression: string): boolean {
-    const expr = resolveExpression(expression);
-    return expr !== null && expr.truthState !== true;
+    try {
+      return this.tables.isPlayable(expression) === true;
+    } catch {
+      return false;
+    }
   }
 
   /** 事件效用評分（供上層決定是否值得反應；安全類不受壓制）。 */
@@ -162,27 +213,64 @@ export class InteractionDirector {
    * 使用者/L1 意圖的即時反應。真相狀態永遠不可點播（playable 白名單），
    * 冷卻中回 null（不重播）。給了 rng 時，俏皮的個性偶爾會「假裝沒看到」
    * ——那也是一個誠實的反應，不是靜默失敗。
+   *
+   * 回 null 時原因記在 lastDecision()（no-mapping／not-playable／cooldown），
+   * 呼叫端據此退回別的反應，而不是什麼都不做。
    */
   react(
     intent: string,
     nowMs: number,
     durationMs = 2_500,
-    rng?: () => number
+    rng?: () => number,
+    opts: { cooldownMs?: number } = {}
   ): DirectorAction | null {
-    let expression = REACTION_EXPRESSIONS[intent];
-    if (!expression || !this.playable(expression)) return null;
-    if ((this.cooldownUntil.get(expression) ?? 0) > nowMs) return null;
-    if (rng && SOFT_INTENTS.has(intent) && rng() < this.tuning.pretendNotSeeChance) {
-      const pretend = "pretend-not-hear";
+    return this.reactDetailed(intent, nowMs, durationMs, rng, opts).action;
+  }
+
+  /** react() 的完整決定：action 與原因。 */
+  reactDetailed(
+    intent: string,
+    nowMs: number,
+    durationMs = 2_500,
+    rng?: () => number,
+    opts: { cooldownMs?: number } = {}
+  ): ReactDecision {
+    const decide = (action: DirectorAction | null, reason: ReactReason): ReactDecision => {
+      const d: ReactDecision = { action, reason, intent, atMs: nowMs };
+      this.decisions = [...this.decisions.slice(-(DECISION_LOG_LIMIT - 1)), d];
+      return d;
+    };
+    const mapped = this.tables.reactions[intent];
+    const variants = (Array.isArray(mapped) ? mapped : mapped ? [mapped] : []) as readonly string[];
+    if (variants.length === 0) return decide(null, "no-mapping");
+    const playable = variants.filter((v) => this.playable(v));
+    if (playable.length === 0) return decide(null, "not-playable");
+    const ready = playable.filter((v) => (this.cooldownUntil.get(v) ?? 0) <= nowMs);
+    if (ready.length === 0) return decide(null, "cooldown");
+    // 防重複：有別的變體可選時，不連續用同一個。
+    const last = this.lastVariant.get(intent);
+    const pool = ready.length > 1 && last ? ready.filter((v) => v !== last) : ready;
+    const pick = rng ? Math.min(pool.length - 1, Math.floor(Math.max(0, Math.min(0.999999, rng())) * pool.length)) : 0;
+    let expression = pool[pick];
+    let reason: ReactReason = "ok";
+    const pretend = this.tables.pretendNotHear;
+    if (
+      rng &&
+      pretend &&
+      this.tables.softIntents.includes(intent) &&
+      rng() < this.tuning.pretendNotSeeChance
+    ) {
       if (this.playable(pretend) && (this.cooldownUntil.get(pretend) ?? 0) <= nowMs) {
         expression = pretend;
+        reason = "pretend-not-hear";
       }
     }
     const action: DirectorAction = { expression, durationMs, source: "reaction" };
     this.currentAction = { action, startedAt: nowMs };
     this.interrupted = null; // 新反應取消舊的恢復計畫
-    this.markUsed(expression, nowMs, 8_000);
-    return action;
+    this.lastVariant.set(intent, expression);
+    this.markUsed(expression, nowMs, opts.cooldownMs ?? REACTION_COOLDOWN_MS);
+    return decide(action, reason);
   }
 
   /** 每 tick 呼叫（~500ms）。回傳要演的動作或 null。 */
@@ -195,7 +283,7 @@ export class InteractionDirector {
       if (ctx.nowMs > this.interrupted.expiresAt) {
         this.interrupted = null;
       } else if (
-        SLEEPY_AMBIENT.has(this.interrupted.action.expression) &&
+        this.tables.sleepy.has(this.interrupted.action.expression) &&
         ctx.msSinceInteraction < SLEEP_RESUME_BLOCK_MS
       ) {
         // 剛被戳醒就躺回去睡，看起來像沒注意到人。放棄這個恢復計畫，
@@ -211,9 +299,10 @@ export class InteractionDirector {
     }
 
     if (ctx.quiet && !ctx.reducedMotion) {
-      // 安靜時段：只剩偶爾眨眼。
-      if (rng() < 0.03) {
-        return { expression: "blink", durationMs: 400, source: "ambient" };
+      // 安靜時段：只剩偶爾眨眼（角色有眨眼表情才會）。
+      const blink = this.tables.blink;
+      if (blink && this.playable(blink.expression) && rng() < 0.03) {
+        return { expression: blink.expression, durationMs: blink.durationMs, source: "ambient" };
       }
       return null;
     }
@@ -228,7 +317,7 @@ export class InteractionDirector {
       (1 - Math.min(0.6, ctx.behavior.recentInterruptions * 0.15));
     if (rng() > hazard) return null;
 
-    const pool = AMBIENT_VARIANTS.filter((v) => {
+    const pool = this.tables.ambient.filter((v) => {
       if (!this.playable(v.expression)) return false;
       if (ctx.reducedMotion && !v.reducedMotionOk) return false;
       if (relax < v.minRelax) return false;

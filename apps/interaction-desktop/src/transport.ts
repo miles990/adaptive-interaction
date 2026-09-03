@@ -222,6 +222,25 @@ const ROUTES: Record<string, Route> = {
       outcome: a.outcome,
       detail: a.detail,
     }),
+  // Character Presentation Protocol（human token；桌面視窗是可信 host）。
+  character_hello: (a) =>
+    http("POST", "/v1/character/hello", {
+      instanceId: a.instanceId,
+      role: a.role,
+      manifest: a.manifest,
+      negotiate: a.negotiate,
+      visible: a.visible,
+      packId: a.packId,
+      behaviorState: a.behaviorState,
+    }),
+  character_receipt: (a) =>
+    http("POST", "/v1/character/receipts", { instanceId: a.instanceId, receipt: a.receipt }),
+  character_event: (a) =>
+    http("POST", "/v1/character/events", { instanceId: a.instanceId, event: a.event }),
+  character_instances: () => http("GET", "/v1/character/instances"),
+  character_manifest: () => http("GET", "/v1/character/manifest"),
+  character_adapters: () => http("GET", "/v1/character/adapters"),
+  character_adapter_revoke: (a) => http("DELETE", `/v1/character/adapters/${q(a.adapterId)}`),
   create_plan: (a) => http("POST", "/v1/plans", a.input),
   simulate_plan: (a) => http("POST", `/v1/plans/${q(a.planId)}/simulate`),
   execute_plan: (a) => http("POST", `/v1/plans/${q(a.planId)}/execute`),

@@ -17,6 +17,10 @@ use tokio::sync::broadcast;
 const BROADCAST_CAP: usize = 64;
 const BACKOFF_START_MS: u64 = 1_000;
 const BACKOFF_MAX_MS: u64 = 15_000;
+/// 參考韌體 mqttCallback 的單則上限：`length >= 640` 即回一則**沒有 id** 的
+/// `err bad-json`（與 serial 的 639 bytes 相同）。超過的訊息在 host 端就
+/// 拒絕——確定沒發佈，不製造「裝置回了無 id 錯誤」的未知。
+pub const MAX_MESSAGE_BYTES: usize = 639;
 
 // link_state 的原子編碼（與 serial 對齊）。
 const STATE_CONNECTING: u8 = 0;
@@ -164,6 +168,15 @@ impl RawLink for MqttRawLink {
                 self.describe
             )));
         }
+        // 超過韌體單則上限：確定不送（Refused）。detail 以 "message too large"
+        // 開頭——link_caps 靠這個慣例把收據原因記成 message-too-large。
+        if line.len() > MAX_MESSAGE_BYTES {
+            return Err(LinkError::Refused(format!(
+                "message too large ({} bytes > {MAX_MESSAGE_BYTES}, the firmware's per-message \
+                 limit); nothing was published",
+                line.len()
+            )));
+        }
         // broker 沒連上時不得把命令塞進 client 的內部佇列：那些訊息會在
         // 重連後（hello/pair 握手前）才送達裝置，變成遲到的實體效果。
         if !self.connected.load(Ordering::SeqCst) {
@@ -228,5 +241,36 @@ impl Drop for MqttRawLink {
             self.stop.notify_one();
             let _ = self.client.try_disconnect();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 韌體 mqttCallback 對 ≥640 bytes 的訊息回無 id 的 bad-json。host 端要在
+    /// 發佈**之前**就拒絕（Refused），而且長度檢查排在「broker 有沒有連上」
+    /// 之前——這是訊息本身的性質，不該被連線狀態遮住。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_oversize_message_is_refused_before_publish() {
+        // 連不上的 broker：這裡只驗長度守門，不需要真的 broker。
+        let link = MqttRawLink::spawn("127.0.0.1".into(), 1, "t/limit".into(), "limit", None);
+        let exact = "x".repeat(MAX_MESSAGE_BYTES);
+        let over = "x".repeat(MAX_MESSAGE_BYTES + 1);
+        match RawLink::send(&*link, over).await {
+            Err(LinkError::Refused(detail)) => {
+                assert!(detail.starts_with("message too large"), "{detail}");
+                assert!(detail.contains("640 bytes"), "{detail}");
+            }
+            other => panic!("640 bytes must be Refused before publish, got {other:?}"),
+        }
+        // 剛好 639 bytes 通過長度守門；沒連上 broker 才是它失敗的原因。
+        match RawLink::send(&*link, exact).await {
+            Err(LinkError::Unavailable(detail)) => {
+                assert!(detail.contains("not connected"), "{detail}")
+            }
+            other => panic!("639 bytes must pass the size gate, got {other:?}"),
+        }
+        link.shutdown();
     }
 }

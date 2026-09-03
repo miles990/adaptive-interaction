@@ -500,13 +500,49 @@ fn normalize_codex_notification(
             *shared.current_turn.lock().expect("turn lock") = None;
             // 聲稱摘要＝最後一則 agentMessage（turn/completed 本身不帶內容）。
             let summary = shared.last_agent_message.lock().expect("lam lock").take();
-            vec![GatewayEvent::TaskClaimedCompleted {
-                summary,
-                cost_usd: None,
-                num_turns: None,
-            }]
+            // 協定（app-server generate-json-schema）：turn 的每一種結局
+            // ——完成、被 turn/interrupt 中斷、失敗——都只透過 turn/completed
+            // 通知，用 `turn.status`（completed／interrupted／failed／
+            // inProgress）區分；ServerNotification 裡沒有 turn/failed。
+            // 誠實階梯：中斷是 cancelled、失敗是 failed，只有 status=
+            // completed 才是（agent 的）聲稱；讀不到 status 就是結果未知。
+            let status = params
+                .and_then(|p| p.pointer("/turn/status"))
+                .and_then(Value::as_str);
+            match status {
+                Some("completed") => vec![GatewayEvent::TaskClaimedCompleted {
+                    summary,
+                    cost_usd: None,
+                    num_turns: None,
+                }],
+                Some("interrupted") => vec![GatewayEvent::TaskCancelled],
+                Some("failed") => {
+                    let error = params
+                        .and_then(|p| p.pointer("/turn/error/message"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .or_else(|| {
+                            params
+                                .and_then(|p| p.pointer("/turn/error"))
+                                .filter(|e| !e.is_null())
+                                .map(Value::to_string)
+                        })
+                        .unwrap_or_else(|| "codex turn failed（未附錯誤訊息）".into());
+                    vec![GatewayEvent::TaskFailed {
+                        error: error.chars().take(500).collect(),
+                    }]
+                }
+                other => vec![GatewayEvent::TaskOutcomeUnknown {
+                    detail: Some(match other {
+                        Some(s) => format!("turn/completed 帶了無法解讀的 turn.status={s:?}"),
+                        None => "turn/completed 沒有帶 turn.status（協定要求必填）".into(),
+                    }),
+                }],
+            }
         }
-        "turn/failed" | "error" => vec![GatewayEvent::TaskFailed {
+        // `error` 是 app-server 的通用錯誤通知；協定裡沒有 turn/failed
+        // （turn 失敗走 turn/completed + status=failed，見上）。
+        "error" => vec![GatewayEvent::TaskFailed {
             error: params
                 .map(|p| p.to_string())
                 .unwrap_or_else(|| method.to_string())
@@ -578,12 +614,15 @@ impl AgentSessionHandle for CodexHandle {
         request_id: &str,
         decision: ApprovalDecision,
     ) -> Result<(), GatewayError> {
+        // 先讀、不先刪：裁決寫進 stdin 失敗時請求必須還在，人類（或看門狗）
+        // 才能重試；一送就刪會讓失敗的裁決永遠變成「unknown approval request」。
         let Some((rid, _method)) = self
             .shared
             .approvals
             .lock()
             .expect("approvals lock")
-            .remove(request_id)
+            .get(request_id)
+            .cloned()
         else {
             return Err(GatewayError::Protocol(format!(
                 "unknown approval request {request_id}"
@@ -600,7 +639,13 @@ impl AgentSessionHandle for CodexHandle {
         })
         .to_string();
         // 人類裁決必須真的送到 agent 才算數（尤其是 deny）。
-        send_line_acked(&self.shared, line).await
+        send_line_acked(&self.shared, line).await?;
+        self.shared
+            .approvals
+            .lock()
+            .expect("approvals lock")
+            .remove(request_id);
+        Ok(())
     }
 
     async fn interrupt(&mut self) -> Result<(), GatewayError> {
@@ -681,13 +726,122 @@ mod tests {
             }]
         );
 
-        // turn/completed → 聲稱完成（claim，非驗證）。
-        let ev = normalize_codex_notification("turn/completed", None, &s);
+        // turn/completed（status=completed）→ 聲稱完成（claim，非驗證）。
+        let ev = normalize_codex_notification(
+            "turn/completed",
+            Some(&serde_json::json!({
+                "threadId": "t",
+                "turn": {"id": "turn-1", "items": [], "status": "completed"}
+            })),
+            &s,
+        );
         assert!(matches!(ev[0], GatewayEvent::TaskClaimedCompleted { .. }));
         assert!(s.current_turn.lock().unwrap().is_none());
 
         // 高頻 delta 靜默。
         assert!(normalize_codex_notification("item/agentMessage/delta", None, &s).is_empty());
+    }
+
+    /// regression（agent-honesty）：turn/completed 曾無條件翻成 claimed-
+    /// completed。協定裡 turn 的每種結局都只走 turn/completed，用
+    /// turn.status 區分：interrupted（使用者按了中斷）必須是 cancelled、
+    /// failed 必須是 failed（帶 turn.error.message），缺 status 是結果未知
+    /// ——三者都絕不可變成「Agent 說做完了」。
+    #[test]
+    fn turn_completed_reads_turn_status_instead_of_assuming_a_claim() {
+        let s = shared();
+        let interrupted = normalize_codex_notification(
+            "turn/completed",
+            Some(&serde_json::json!({
+                "threadId": "t",
+                "turn": {"id": "turn-1", "items": [], "status": "interrupted"}
+            })),
+            &s,
+        );
+        assert_eq!(interrupted, vec![GatewayEvent::TaskCancelled]);
+
+        let failed = normalize_codex_notification(
+            "turn/completed",
+            Some(&serde_json::json!({
+                "threadId": "t",
+                "turn": {
+                    "id": "turn-2",
+                    "items": [],
+                    "status": "failed",
+                    "error": {"message": "boom: sandbox denied"}
+                }
+            })),
+            &s,
+        );
+        match &failed[..] {
+            [GatewayEvent::TaskFailed { error }] => assert!(error.contains("boom"), "{error}"),
+            other => panic!("status=failed must be TaskFailed, got {other:?}"),
+        }
+
+        // 缺 status（協定要求必填）→ 結果未知，不是聲稱。
+        let missing = normalize_codex_notification(
+            "turn/completed",
+            Some(&serde_json::json!({"threadId": "t", "turn": {"id": "turn-3", "items": []}})),
+            &s,
+        );
+        assert!(
+            matches!(missing[..], [GatewayEvent::TaskOutcomeUnknown { .. }]),
+            "missing turn.status must be unknown, got {missing:?}"
+        );
+        let none = normalize_codex_notification("turn/completed", None, &s);
+        assert!(
+            matches!(none[..], [GatewayEvent::TaskOutcomeUnknown { .. }]),
+            "turn/completed without params must be unknown, got {none:?}"
+        );
+        // inProgress 對「turn 結束」而言自相矛盾 → 同樣未知。
+        let odd = normalize_codex_notification(
+            "turn/completed",
+            Some(&serde_json::json!({
+                "threadId": "t",
+                "turn": {"id": "turn-4", "items": [], "status": "inProgress"}
+            })),
+            &s,
+        );
+        assert!(matches!(odd[..], [GatewayEvent::TaskOutcomeUnknown { .. }]));
+
+        for events in [&interrupted, &failed, &missing, &none, &odd] {
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(e, GatewayEvent::TaskClaimedCompleted { .. })),
+                "never a claim: {events:?}"
+            );
+        }
+    }
+
+    /// regression：resolve_approval 曾「先刪登記再送」——寫入 stdin 失敗後
+    /// 請求就從連接器消失，人類重試只會得到 unknown approval request。
+    #[tokio::test]
+    async fn a_failed_approval_write_keeps_the_request_so_it_can_be_retried() {
+        let s = shared();
+        s.approvals.lock().unwrap().insert(
+            "9001".into(),
+            (
+                serde_json::json!(9001),
+                "item/commandExecution/requestApproval".into(),
+            ),
+        );
+        // out_tx 的接收端在 shared() 裡已被丟棄 ⇒ 每次寫入都會 Closed。
+        let mut handle = CodexHandle {
+            child: Command::new("true").spawn().unwrap(),
+            group: ProcessGroup::empty(),
+            shared: s.clone(),
+            events: None,
+        };
+        let err = handle
+            .resolve_approval("9001", ApprovalDecision::Deny)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, GatewayError::Closed), "{err:?}");
+        assert!(
+            s.approvals.lock().unwrap().contains_key("9001"),
+            "an undelivered decision must leave the request registered"
+        );
     }
 
     /// regression（token 用量通知曾被整個丟棄，codex 用量完全不可見）。

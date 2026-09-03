@@ -183,7 +183,9 @@ describe("使魔與 Roll Call", () => {
       ],
     };
     // rng 落在 greet 區間（0.6..0.72）。
-    const { world: after } = run(w, baseInputs({ playEnabled: false }), 2, () => 0.65);
+    // run-2 companion-gameplay-002：這裡原本用 playEnabled:false 避開 stepChar 的散步抽樣——
+    // 等於釘住「關掉玩耍使魔照樣打招呼」。使魔跟主角遵守同一套閘門；改用 deskMoveEnabled:false。
+    const { world: after } = run(w, baseInputs({ deskMoveEnabled: false }), 2, () => 0.65);
     expect(after.familiars.some((f) => f.state === "greet")).toBe(true);
     const roll = rollCall(after, "小樞", null);
     expect(roll[0].name).toBe("小樞");

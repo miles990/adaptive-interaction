@@ -90,6 +90,21 @@ pub enum EventType {
     /// timed-out/cancelled/closed。`verified` 只能由人工驗證產生。
     #[serde(rename = "agent.session.state")]
     AgentSessionState,
+    /// Character Presentation Protocol：Runtime 投影出的 Character Intent
+    /// （payload `{envelope, targets}`；`truthState` 只由 Runtime 決定）。
+    #[serde(rename = "character.intent")]
+    CharacterIntent,
+    /// Character command 回執（payload `{instanceId, receipt}`）；只是呈現層
+    /// 的回執，永不改動任何工作 verification。
+    #[serde(rename = "character.receipt")]
+    CharacterReceipt,
+    /// Character instance 登記／連線／世代變化（payload = instances[] 的一筆）。
+    #[serde(rename = "character.instance")]
+    CharacterInstance,
+    /// 零呈現能力時的安全退路文字（payload `{instanceId?, messageId,
+    /// correlationId?, intent, truthState, message}`），由可信 host 呈現。
+    #[serde(rename = "character.system-text")]
+    CharacterSystemText,
 }
 
 impl EventType {
@@ -133,6 +148,10 @@ impl EventType {
             EventType::PresentationState => "presentation.state",
             EventType::KnowledgeUpdated => "knowledge.updated",
             EventType::AgentSessionState => "agent.session.state",
+            EventType::CharacterIntent => "character.intent",
+            EventType::CharacterReceipt => "character.receipt",
+            EventType::CharacterInstance => "character.instance",
+            EventType::CharacterSystemText => "character.system-text",
         }
     }
 }

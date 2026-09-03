@@ -842,3 +842,207 @@ async fn restart_reports_unknown_for_work_that_was_still_open() {
         "a fresh runtime must not replay pre-crash appearances: {states:?}"
     );
 }
+
+/// regression（agent-honesty）：close 曾把 Failed／Unknown／TimedOut 改寫成
+/// Closed，失敗／未知這個誠實結局從主要狀態消失、只剩 detail 一行。關閉只
+/// 收尾（closed_at、consent、provider）；任務結局留在主要狀態。
+#[tokio::test]
+async fn close_keeps_a_terminal_outcome_instead_of_rewriting_it_to_closed() {
+    let (_g, rt) = runtime().await;
+    for (event, expected, reason) in [
+        ("unknown", AgentSessionState::Unknown, "closed"),
+        ("failed", AgentSessionState::Failed, "cancelled"),
+        ("timed-out", AgentSessionState::TimedOut, "closed"),
+        ("cancelled", AgentSessionState::Cancelled, "closed"),
+    ] {
+        let sid = rt
+            .create_agent_session(create_input("agent.outcome"))
+            .await
+            .unwrap()
+            .session_id
+            .as_str()
+            .to_string();
+        rt.report_agent_session(&sid, "task-started", json!({}))
+            .await
+            .unwrap();
+        rt.report_agent_session(&sid, event, json!({"reason": "test"}))
+            .await
+            .unwrap();
+        let closed = rt.close_agent_session(&sid, None, reason).await.unwrap();
+        assert_eq!(closed.state, expected, "{event}: close keeps the outcome");
+        assert_eq!(
+            closed.detail.as_deref(),
+            Some(format!("{reason} (was {expected:?})").as_str())
+        );
+        assert!(closed.closed_at.is_some(), "{event}: close still closes");
+        assert!(!closed.state.is_open());
+        // 收件匣把結局當主要狀態呈現，不是「已關閉」。
+        let inbox = rt
+            .activity_inbox(interaction_runtime::activity::ActivityInboxFilter {
+                agent: Some("agent.outcome".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let item = inbox["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["itemId"] == json!(sid))
+            .expect("closed sessions stay in the activity history");
+        assert_eq!(
+            item["status"],
+            serde_json::to_value(expected).unwrap(),
+            "{event}: inbox status is the outcome"
+        );
+        assert_eq!(item["needsDecision"], json!(false));
+        // terminal 不可翻轉：再關一次仍是 Conflict。
+        let err = rt
+            .close_agent_session(&sid, None, "closed")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::Conflict(_)), "{event}: {err:?}");
+        assert_eq!(rt.get_agent_session(&sid).await.unwrap().state, expected);
+    }
+    // 沒有任務結局的 session 照舊：關閉＝Closed、取消＝Cancelled。
+    let sid = rt
+        .create_agent_session(create_input("agent.plain"))
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+    let closed = rt
+        .close_agent_session(&sid, None, "cancelled")
+        .await
+        .unwrap();
+    assert_eq!(closed.state, AgentSessionState::Cancelled);
+    assert_eq!(closed.detail.as_deref(), Some("cancelled (was Created)"));
+}
+
+/// regression（agent-honesty）：human_verified 曾是 session 層級旗標且從不
+/// 清除——驗證一次後，之後每一輪的 claim 都顯示成「已確認完成」，而第二個
+/// claim 想驗證只會得到 409 already verified。驗證必須綁定具體的 claim：
+/// 新任務送達、新一輪工作、新的聲稱都讓舊驗證失效；新 claim 可以再驗證。
+#[tokio::test]
+async fn human_verification_binds_to_one_claim_and_a_new_round_needs_a_new_one() {
+    let (_g, rt) = runtime().await;
+    let sid = rt
+        .create_agent_session(create_input("agent.multi"))
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+    assert!(rt.get_agent_session(&sid).await.unwrap().claim_id.is_none());
+
+    // 第一輪：working → claim → 人工驗證。
+    rt.report_agent_session(&sid, "task-started", json!({}))
+        .await
+        .unwrap();
+    let claimed = rt
+        .report_agent_session(&sid, "claimed-completed", json!({"summary": "第一輪"}))
+        .await
+        .unwrap();
+    let first_claim = claimed.claim_id.clone().expect("every claim gets an id");
+    let verified = rt
+        .verify_agent_session(&sid, Some("第一輪看過了".into()))
+        .await
+        .unwrap();
+    let verification = verified.human_verified.as_ref().unwrap();
+    assert_eq!(
+        verification.claim_id.as_deref(),
+        Some(first_claim.as_str()),
+        "the verification names the claim it confirmed"
+    );
+    assert_eq!(verified.claim_id.as_deref(), Some(first_claim.as_str()));
+    // 序列化名稱是前端契約：record.claimId 與 humanVerified.claimId。
+    let wire = serde_json::to_value(&verified).unwrap();
+    assert_eq!(wire["claimId"], json!(first_claim));
+    assert_eq!(wire["humanVerified"]["claimId"], json!(first_claim));
+
+    // 第二輪任務送達（agent 真的取走）⇒ 舊驗證失效；claim id 不變（還沒有新聲稱）。
+    rt.mailbox_send(
+        &sid,
+        MailboxDirection::ToSession,
+        "task",
+        BTreeMap::from([("task".to_string(), json!("再交代一句"))]),
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(
+        rt.get_agent_session(&sid)
+            .await
+            .unwrap()
+            .human_verified
+            .is_some(),
+        "queued is not delivered: nothing changed yet"
+    );
+    rt.mailbox_read(
+        &sid,
+        MailboxDirection::ToSession,
+        interaction_runtime::agents::MailboxReader::Agent,
+    )
+    .await
+    .unwrap();
+    let after_fetch = rt.get_agent_session(&sid).await.unwrap();
+    assert!(
+        after_fetch.human_verified.is_none(),
+        "a delivered new task invalidates the previous verification"
+    );
+    assert_eq!(after_fetch.claim_id.as_deref(), Some(first_claim.as_str()));
+
+    // 新一輪工作中：不是 verified、也不是 claimed。
+    let active = rt
+        .report_agent_session(&sid, "task-started", json!({}))
+        .await
+        .unwrap();
+    assert_eq!(active.state, AgentSessionState::Active);
+    assert!(active.human_verified.is_none());
+    let err = rt.verify_agent_session(&sid, None).await.unwrap_err();
+    assert!(format!("{err}").contains("claimed-completed"), "{err}");
+
+    // 第二個聲稱：新的 claim id，且可以（必須）重新驗證——不是 already verified。
+    let second = rt
+        .report_agent_session(&sid, "claimed-completed", json!({"summary": "第二輪"}))
+        .await
+        .unwrap();
+    let second_claim = second.claim_id.clone().unwrap();
+    assert_ne!(second_claim, first_claim, "a new claim is a new claim");
+    assert!(second.human_verified.is_none());
+    let verified2 = rt
+        .verify_agent_session(&sid, Some("第二輪也看過了".into()))
+        .await
+        .unwrap();
+    assert_eq!(
+        verified2
+            .human_verified
+            .as_ref()
+            .and_then(|v| v.claim_id.as_deref()),
+        Some(second_claim.as_str())
+    );
+    // 每一個 claim 都只能驗證一次。
+    let err = rt.verify_agent_session(&sid, None).await.unwrap_err();
+    assert!(format!("{err}").contains("already verified"), "{err}");
+
+    // 任何更新的 agent 自我回報（連 progress 也算）都讓驗證失效。
+    let progressed = rt
+        .report_agent_session(&sid, "progress", json!({"text": "還在改"}))
+        .await
+        .unwrap();
+    assert!(progressed.human_verified.is_none());
+    assert_eq!(
+        progressed.claim_id.as_deref(),
+        Some(second_claim.as_str()),
+        "progress is not a new claim"
+    );
+    // taxonomy：verified 只在人工驗證當下出現，之後的工作狀態是 working。
+    let states = session_states(&rt, &sid);
+    assert_eq!(
+        states.iter().filter(|s| *s == "verified").count(),
+        2,
+        "{states:?}"
+    );
+    assert_eq!(states.last().map(String::as_str), Some("working"));
+}

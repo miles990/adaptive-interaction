@@ -22,10 +22,16 @@ use interaction_core::{
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// approval 無人裁決的自動拒絕時限。
 pub const APPROVAL_TTL_SECS: i64 = 300;
+
+/// 看門狗的自動拒絕**送不到 agent** 時（stdin 阻塞／關閉）的重試退避起點：
+/// 請求保留在登記中（人類仍可裁決），看門狗每隔一段時間再試一次，
+/// 間隔逐次加倍到 `APPROVAL_TTL_SECS` 為止。
+const AUTO_DENY_RETRY_BASE_SECS: i64 = 30;
 
 /// 對 agent 子程序 stdin 送訊的逾時上限：agent 卡死不讀 stdin 時，OS pipe
 /// 緩衝填滿後 write 會永遠等待——不設限就會佔住 handle 鎖，讓排在後面的
@@ -57,6 +63,10 @@ struct PendingApproval {
     /// 描述做決定）。
     summary: String,
     deadline: Timestamp,
+    /// 裁決送不到 agent 的次數（看門狗退避用；人類裁決失敗也算）。
+    delivery_failures: u32,
+    /// 有一個裁決正在送達途中：同一請求不得被人類與看門狗同時裁決兩次。
+    in_flight: bool,
 }
 
 struct ManagedSession {
@@ -65,6 +75,10 @@ struct ManagedSession {
     /// spawn 當下捕捉的 process group（鎖外存放）：kill 路徑絕不能排在
     /// 佔住 handle 鎖的 stdin 寫入後面。
     group: ProcessGroup,
+    /// 「最近一輪已有結局（聲稱／失敗／取消／未知）」。session 可多輪：
+    /// 每次任務真的送進子程序（gateway_deliver）或 agent 開始新一輪工作
+    /// 就清掉；子程序結束時若仍未清（工作進行中就死了）⇒ 結果未知。
+    turn_settled: Arc<AtomicBool>,
 }
 
 pub struct GatewayManager {
@@ -96,6 +110,7 @@ impl GatewayManager {
         map.get(session_id).map(|m| ManagedSessionRef {
             handle: m.handle.clone(),
             approvals: m.approvals.clone(),
+            turn_settled: m.turn_settled.clone(),
         })
     }
 
@@ -135,6 +150,7 @@ impl GatewayManager {
 struct ManagedSessionRef {
     handle: Arc<tokio::sync::Mutex<Box<dyn AgentSessionHandle>>>,
     approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
+    turn_settled: Arc<AtomicBool>,
 }
 
 impl Runtime {
@@ -254,17 +270,24 @@ impl Runtime {
         let group = handle.process_group();
         let approvals: Arc<Mutex<HashMap<String, PendingApproval>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let turn_settled = Arc::new(AtomicBool::new(false));
         let managed = ManagedSession {
             handle: Arc::new(tokio::sync::Mutex::new(handle)),
             approvals: approvals.clone(),
             group,
+            turn_settled: turn_settled.clone(),
         };
         self.gateway
             .sessions
             .lock()
             .expect("gateway sessions lock")
             .insert(record.session_id.as_str().to_string(), managed);
-        self.spawn_gateway_pump(record.session_id.as_str().to_string(), events, approvals);
+        self.spawn_gateway_pump(
+            record.session_id.as_str().to_string(),
+            events,
+            approvals,
+            turn_settled,
+        );
         Ok(provider_session_id)
     }
 
@@ -274,10 +297,14 @@ impl Runtime {
         session_id: String,
         mut events: tokio::sync::mpsc::Receiver<GatewayEvent>,
         approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
+        turn_settled: Arc<AtomicBool>,
     ) {
         let rt = self.clone();
         tokio::spawn(async move {
-            let mut claimed_or_failed = false;
+            // 「本輪有結局了」是每一輪各自的事實：agent 一有新的工作訊號
+            // （accepted／progress／tool／waiting）就清掉，結局事件才設。
+            // 第一輪的聲稱不能替第二輪擔保——否則第二輪子程序死掉會靜默。
+            let working = |settled: &AtomicBool| settled.store(false, Ordering::SeqCst);
             while let Some(ev) = events.recv().await {
                 match ev {
                     GatewayEvent::SessionStarted {
@@ -287,16 +314,19 @@ impl Runtime {
                             .await;
                     }
                     GatewayEvent::TaskAccepted => {
+                        working(&turn_settled);
                         let _ = rt
                             .report_agent_session(&session_id, "task-started", json!({}))
                             .await;
                     }
                     GatewayEvent::TaskProgress { text } => {
+                        working(&turn_settled);
                         let _ = rt
                             .report_agent_session(&session_id, "progress", json!({"text": text}))
                             .await;
                     }
                     GatewayEvent::TaskWaitingForInput => {
+                        working(&turn_settled);
                         let _ = rt
                             .report_agent_session(&session_id, "waiting-for-input", json!({}))
                             .await;
@@ -305,10 +335,13 @@ impl Runtime {
                         request_id,
                         summary,
                     } => {
+                        working(&turn_settled);
                         let pending = PendingApproval {
                             summary,
                             deadline: Utc::now()
                                 + chrono::Duration::seconds(rt.gateway.approval_ttl_secs()),
+                            delivery_failures: 0,
+                            in_flight: false,
                         };
                         // report、mailbox、逾時自動拒絕全部讀同一份登記中的
                         // summary：人類看到的描述與實際被裁決的請求一致。
@@ -336,6 +369,7 @@ impl Runtime {
                             .await;
                     }
                     GatewayEvent::ToolStarted { name } => {
+                        working(&turn_settled);
                         let _ = rt
                             .report_agent_session(
                                 &session_id,
@@ -345,6 +379,7 @@ impl Runtime {
                             .await;
                     }
                     GatewayEvent::ToolCompleted { name } => {
+                        working(&turn_settled);
                         let _ = rt
                             .report_agent_session(
                                 &session_id,
@@ -354,6 +389,7 @@ impl Runtime {
                             .await;
                     }
                     GatewayEvent::ArtifactProduced { path } => {
+                        working(&turn_settled);
                         let _ = rt
                             .report_agent_session(
                                 &session_id,
@@ -366,25 +402,33 @@ impl Runtime {
                         total_tokens,
                         last_turn_tokens,
                     } => {
-                        // codex 只回報 token 數、沒有 USD：照原樣揭露為 progress，
+                        // codex 只回報 token 數、沒有 USD：照原樣揭露，
                         // 不換算成本（maxCost 對 codex 在 gateway_attach 已誠實拒絕）。
-                        let _ = rt
-                            .report_agent_session(
-                                &session_id,
-                                "progress",
-                                json!({"tokenUsage": {
-                                    "totalTokens": total_tokens,
-                                    "lastTurnTokens": last_turn_tokens,
-                                }}),
-                            )
-                            .await;
+                        let usage = json!({"tokenUsage": {
+                            "totalTokens": total_tokens,
+                            "lastTurnTokens": last_turn_tokens,
+                        }});
+                        if turn_settled.load(Ordering::SeqCst) {
+                            // 本輪已有結局（例如 turn/completed 之後才到的用量
+                            // 統計）：只記觀察，不把「聲稱完成」翻回「工作中」。
+                            let mut facts = BTreeMap::new();
+                            facts.insert("sessionId".to_string(), json!(session_id));
+                            facts.insert("event".to_string(), json!("token-usage"));
+                            let mut inferences = BTreeMap::new();
+                            inferences.insert("report".to_string(), usage);
+                            let _ = rt.ingest("agent.session", facts, inferences, 0.5).await;
+                        } else {
+                            let _ = rt
+                                .report_agent_session(&session_id, "progress", usage)
+                                .await;
+                        }
                     }
                     GatewayEvent::TaskClaimedCompleted {
                         summary,
                         cost_usd,
                         num_turns,
                     } => {
-                        claimed_or_failed = true;
+                        turn_settled.store(true, Ordering::SeqCst);
                         if let Some(cost) = cost_usd {
                             rt.add_agent_session_cost(&session_id, cost).await;
                         }
@@ -448,24 +492,43 @@ impl Runtime {
                         }
                     }
                     GatewayEvent::TaskFailed { error } => {
-                        claimed_or_failed = true;
+                        turn_settled.store(true, Ordering::SeqCst);
                         let _ = rt
                             .report_agent_session(&session_id, "failed", json!({"error": error}))
                             .await;
                     }
                     GatewayEvent::TaskCancelled => {
-                        claimed_or_failed = true;
+                        turn_settled.store(true, Ordering::SeqCst);
                         let _ = rt
                             .report_agent_session(&session_id, "cancelled", json!({}))
                             .await;
                     }
+                    GatewayEvent::TaskOutcomeUnknown { detail } => {
+                        // 這一輪結束了，但 connector 讀不出是怎麼結束的
+                        // （例如 turn/completed 沒帶 turn.status）：不是聲稱、
+                        // 不是失敗——誠實記為 unknown。
+                        turn_settled.store(true, Ordering::SeqCst);
+                        let _ = rt
+                            .report_agent_session(
+                                &session_id,
+                                "unknown",
+                                json!({
+                                    "reason": "agent 回報這一輪結束了，但沒有說明結局；結果未知，未經人工確認前不得視為成功或失敗",
+                                    "detail": detail,
+                                }),
+                            )
+                            .await;
+                    }
                     GatewayEvent::SessionClosed { resumable, detail } => {
-                        // 程序結束而沒有任何結果聲稱 ⇒ 結果**未知**。
+                        // 程序結束而**本輪**沒有任何結局 ⇒ 結果未知。
                         // 誠實階梯：沒觀察到成功不能說成功，沒觀察到錯誤也
                         // 不能說失敗。connector 觀察得到的明確錯誤（非零
                         // exit、協定錯誤）會在此之前先送 TaskFailed，那條
-                        // 路徑才會落到 failed；其餘一律 unknown。
-                        if !claimed_or_failed {
+                        // 路徑才會落到 failed；其餘一律 unknown。多輪 session
+                        // 第二輪進行中子程序死掉也走這裡（第一輪的聲稱不算數）。
+                        // record 已非 open（人類關閉／estop）時 report 會被拒絕
+                        // ——那是正確的：關閉是人類的決定，不是未知。
+                        if !turn_settled.load(Ordering::SeqCst) {
                             let _ = rt
                                 .report_agent_session(
                                     &session_id,
@@ -509,12 +572,39 @@ impl Runtime {
     }
 
     /// mailbox ToSession 訊息送達真實 agent 子程序（送達＝delivered）。
-    /// 回傳 true 表示已轉送；非 gateway session 回傳 false（v0.3 輪詢流程）。
-    pub(crate) async fn gateway_deliver(&self, session_id: &str, message: &MailboxMessage) -> bool {
+    ///
+    /// 回傳值就是誠實階梯的三種事實：
+    /// - `Ok(true)`：真的寫進子程序 stdin（delivered 戳記＋fetched 事件）。
+    /// - `Ok(false)`：不是這條路徑負責送的——非 gateway session（v0.3 輪詢
+    ///   流程），或子程序 stdin 已關閉、session 已依觀察記為 failed。
+    /// - `Err`：**沒送到**，而且這不是 agent 的錯——上一輪還在跑（Busy）、
+    ///   stdin 阻塞逾時、成本預算用盡、子程序已不在。session 狀態**不變**
+    ///   （agent 可能正在正常工作），訊息留在信箱、沒有 delivered 戳記，
+    ///   呼叫端拿到明確錯誤自行決定稍後再送。「訊息未送達」≠「任務失敗」。
+    pub(crate) async fn gateway_deliver(
+        &self,
+        session_id: &str,
+        message: &MailboxMessage,
+    ) -> DomainResult<bool> {
         let Some(managed) = self.gateway.managed(session_id) else {
-            return false;
+            // gateway agent 但子程序已不在（事件泵已收攤）：record 若還 open
+            // （例如上一輪聲稱完成後子程序自行結束），這則訊息永遠不會有人
+            // 送——照實回錯，不得靜默留在信箱裝「等待送達」。
+            let is_gateway_agent = {
+                let map = self.agent_sessions.read().await;
+                map.get(session_id)
+                    .map(|e| agent_kind_for(&e.record.agent_id).is_some())
+                    .unwrap_or(false)
+            };
+            if is_gateway_agent {
+                return Err(DomainError::Unavailable(
+                    "agent 子程序已結束，這則訊息未送達；請續開（resume）或建立新的 session".into(),
+                ));
+            }
+            return Ok(false);
         };
-        // 預算：超出成本上限就不再開新 turn（誠實拒絕）。
+        // 預算：超出成本上限就不再開新 turn（誠實拒絕）。這不是 agent 失敗
+        // ——上一輪的聲稱仍然成立，只是不再替它開新的一輪。
         let over_budget = {
             let map = self.agent_sessions.read().await;
             map.get(session_id)
@@ -525,14 +615,9 @@ impl Runtime {
                 .unwrap_or(false)
         };
         if over_budget {
-            let _ = self
-                .report_agent_session(
-                    session_id,
-                    "failed",
-                    json!({"error": "session 成本預算已用盡，不再開新 turn"}),
-                )
-                .await;
-            return false;
+            return Err(DomainError::PolicyBlocked(
+                "session 成本預算已用盡，不再開新 turn；這則訊息未送達".into(),
+            ));
         }
         let task = message
             .body
@@ -560,54 +645,83 @@ impl Runtime {
             task
         };
         // send 有界：stdin 對面卡死（pipe 滿且 agent 不讀）時不得永久佔住
-        // handle 鎖——逾時放棄（未寫完的半截訊息視同失敗，誠實回報）。
-        let ok = {
+        // handle 鎖——逾時放棄（未寫完的半截訊息視同未送達，誠實回錯）。
+        let outcome = {
             let mut handle = managed.handle.lock().await;
-            match tokio::time::timeout(SEND_TIMEOUT, handle.send_user_message(&text)).await {
-                Ok(res) => res.is_ok(),
-                Err(_) => false,
-            }
+            tokio::time::timeout(SEND_TIMEOUT, handle.send_user_message(&text)).await
         };
-        if ok {
-            // 轉送即送達：補 delivered 戳記＋委派 receipt ack。
-            // 首次戳記為準（與 mailbox_fetch 一致）：重送不得改寫既有時間戳。
-            // 角色 taxonomy：fetched——任務真的送進 agent 子程序了。
-            {
-                let map = self.agent_sessions.read().await;
-                if let Some(entry) = map.get(session_id) {
-                    self.emit_agent_session_state(session_id, &entry.record.agent_id, "fetched");
-                }
+        match outcome {
+            Ok(Ok(())) => {}
+            // 連接器合約（GatewayError::Busy）：上一輪還在跑、不排 queue——
+            // 呼叫端誠實回報「未送達」，不得視為 agent 失敗。agent 正在正常
+            // 工作，狀態不動；也不能記 failed（那是 terminal，看門狗會接著
+            // 殺掉還在跑的子程序）。
+            Ok(Err(interaction_agent_gateway::GatewayError::Busy(why))) => {
+                return Err(DomainError::Conflict(format!(
+                    "上一輪還在跑，這則訊息未送達；稍後再送或先中斷：{why}"
+                )));
             }
-            let acked = {
-                let mut map = self.agent_sessions.write().await;
-                map.get_mut(session_id).and_then(|entry| {
-                    entry
-                        .mailbox
-                        .iter_mut()
-                        .find(|m| m.message_id == message.message_id)
-                        .map(|m| {
-                            if m.delivered_at.is_none() {
-                                m.delivered_at = Some(Utc::now());
-                            }
-                            m.action_id.clone()
-                        })
-                })
-            };
-            if let Some(Some(action_id)) = acked {
+            // stdin 已關閉／寫入失敗：這是**觀察得到**的通道錯誤（子程序
+            // 已結束或不再讀取），session 誠實記為 failed；訊息留在信箱、
+            // 沒有 delivered 戳記。
+            Ok(Err(interaction_agent_gateway::GatewayError::Closed)) => {
                 let _ = self
-                    .acknowledge_delegated_action_public(&action_id, &message.message_id)
+                    .report_agent_session(
+                        session_id,
+                        "failed",
+                        json!({"error": "無法把訊息送進 agent 子程序（stdin 已關閉，程序可能已結束）；這則訊息未送達"}),
+                    )
                     .await;
+                return Ok(false);
             }
-        } else {
+            // 協定／IO／寫入逾時：沒送到，但沒有證據說 agent 失敗。
+            Ok(Err(e)) => {
+                return Err(DomainError::Unavailable(format!(
+                    "這則訊息未送達 agent 子程序：{e}"
+                )));
+            }
+            Err(_) => {
+                return Err(DomainError::Unavailable(
+                    "agent 子程序無回應（stdin 阻塞），這則訊息未送達；請中斷或關閉 session".into(),
+                ));
+            }
+        }
+        // 轉送即送達：補 delivered 戳記＋委派 receipt ack。
+        // 首次戳記為準（與 mailbox_fetch 一致）：重送不得改寫既有時間戳。
+        // 角色 taxonomy：fetched——任務真的送進 agent 子程序了。
+        // 新的一輪開始：上一輪的結局不再替這一輪擔保（子程序在這一輪
+        // 死掉必須報 unknown），舊的人工驗證也只屬於上一個 claim。
+        managed.turn_settled.store(false, Ordering::SeqCst);
+        {
+            let map = self.agent_sessions.read().await;
+            if let Some(entry) = map.get(session_id) {
+                self.emit_agent_session_state(session_id, &entry.record.agent_id, "fetched");
+            }
+        }
+        let acked = {
+            let mut map = self.agent_sessions.write().await;
+            map.get_mut(session_id).and_then(|entry| {
+                if entry.record.human_verified.take().is_some() {
+                    self.persist_agent_session(&entry.record);
+                }
+                entry
+                    .mailbox
+                    .iter_mut()
+                    .find(|m| m.message_id == message.message_id)
+                    .map(|m| {
+                        if m.delivered_at.is_none() {
+                            m.delivered_at = Some(Utc::now());
+                        }
+                        m.action_id.clone()
+                    })
+            })
+        };
+        if let Some(Some(action_id)) = acked {
             let _ = self
-                .report_agent_session(
-                    session_id,
-                    "failed",
-                    json!({"error": "無法把訊息送進 agent 子程序（可能已結束）"}),
-                )
+                .acknowledge_delegated_action_public(&action_id, &message.message_id)
                 .await;
         }
-        ok
+        Ok(true)
     }
 
     /// 人類裁決 agent 的 approval 請求。
@@ -638,19 +752,26 @@ impl Runtime {
             .gateway
             .managed(session_id)
             .ok_or_else(|| DomainError::NotFound(format!("gateway session {session_id}")))?;
-        // 取出登記中的請求：裁決紀錄要帶著「當時人類（或逾時規則）究竟在
+        // 讀取登記中的請求：裁決紀錄要帶著「當時人類（或逾時規則）究竟在
         // 對什麼說 yes/no」，否則稽核只剩一個 request id。
-        let Some(pending) = managed
-            .approvals
-            .lock()
-            .expect("approvals lock")
-            .remove(request_id)
-        else {
-            return Err(DomainError::NotFound(format!(
-                "approval request {request_id}"
-            )));
+        // 先讀、不先刪：裁決**送到 agent** 之後才從登記移除。送達失敗時
+        // 請求必須還在——人類才能重試、看門狗才能再試；一裁決就刪會讓
+        // 「送不到」變成「再也無法裁決（NotFound）」，agent 卻還卡在等核可。
+        let summary = {
+            let mut approvals = managed.approvals.lock().expect("approvals lock");
+            let Some(pending) = approvals.get_mut(request_id) else {
+                return Err(DomainError::NotFound(format!(
+                    "approval request {request_id}"
+                )));
+            };
+            if pending.in_flight {
+                return Err(DomainError::Conflict(format!(
+                    "approval request {request_id} 的裁決正在送達中"
+                )));
+            }
+            pending.in_flight = true;
+            pending.summary.clone()
         };
-        let summary = pending.summary;
         // 「決定了」與「決定送到 agent 了」是兩件事：兩者都要留下紀錄，
         // 所以送達失敗不提前 return——先把裁決寫進 mailbox 再誠實回錯。
         let delivered: DomainResult<()> = async {
@@ -674,6 +795,29 @@ impl Runtime {
                 .map_err(|e| DomainError::Unavailable(e.to_string()))
         }
         .await;
+        // 送到了才從登記移除；沒送到就留著（仍待裁決）並記一次失敗——
+        // 看門狗依失敗次數退避重試，不會每個 tick 都重送一次。
+        let still_pending = {
+            let mut approvals = managed.approvals.lock().expect("approvals lock");
+            match (&delivered, approvals.get_mut(request_id)) {
+                (Ok(()), _) => {
+                    approvals.remove(request_id);
+                    false
+                }
+                (Err(_), Some(pending)) => {
+                    pending.in_flight = false;
+                    pending.delivery_failures = pending.delivery_failures.saturating_add(1);
+                    if by == "watchdog" {
+                        let backoff = (AUTO_DENY_RETRY_BASE_SECS
+                            << pending.delivery_failures.min(4))
+                        .min(APPROVAL_TTL_SECS);
+                        pending.deadline = Utc::now() + chrono::Duration::seconds(backoff);
+                    }
+                    true
+                }
+                (Err(_), None) => false,
+            }
+        };
         let resolved_body = BTreeMap::from([
             ("requestId".to_string(), json!(request_id)),
             ("summary".to_string(), json!(summary)),
@@ -684,6 +828,8 @@ impl Runtime {
             ),
             ("by".to_string(), json!(by)),
             ("deliveredToAgent".to_string(), json!(delivered.is_ok())),
+            // 沒送到 ⇒ 請求仍在等裁決（人類可以再按一次）。
+            ("stillPending".to_string(), json!(still_pending)),
         ]);
         let _ = self
             .mailbox_send(
@@ -788,45 +934,73 @@ impl Runtime {
     pub async fn gateway_sweep(&self) {
         let now = Utc::now();
         // 逾時 approval → 自動 deny（絕不自動同意）。
-        let mut to_deny: Vec<(String, String)> = Vec::new();
+        let mut to_deny: Vec<(String, String, u32)> = Vec::new();
         {
             let sessions = self.gateway.sessions.lock().expect("gateway sessions lock");
             for (sid, m) in sessions.iter() {
                 let approvals = m.approvals.lock().expect("approvals lock");
                 for (rid, p) in approvals.iter() {
-                    if p.deadline <= now {
-                        to_deny.push((sid.clone(), rid.clone()));
+                    if p.deadline <= now && !p.in_flight {
+                        to_deny.push((sid.clone(), rid.clone(), p.delivery_failures));
                     }
                 }
             }
         }
-        for (sid, rid) in to_deny {
+        for (sid, rid, prior_failures) in to_deny {
             let resolved = self
                 .resolve_approval_as(&sid, &rid, false, "watchdog")
                 .await;
             // 「決定拒絕」與「拒絕真的送到 agent」是兩件事：送不到就照實
             // 說送不到（delivered:false），不得讓紀錄看起來像已經生效。
-            let (summary, delivered, error) = match &resolved {
-                Ok(value) => (
-                    value.get("summary").cloned().unwrap_or(Value::Null),
-                    true,
-                    Value::Null,
-                ),
-                Err(e) => (Value::Null, false, json!(e.to_string())),
-            };
-            let _ = self
-                .report_agent_session(
-                    &sid,
-                    "progress",
-                    json!({
-                        "approvalAutoDenied": rid,
-                        "summary": summary,
-                        "delivered": delivered,
-                        "error": error,
-                        "reason": "逾時無人裁決，預設拒絕",
-                    }),
-                )
-                .await;
+            match resolved {
+                Ok(value) => {
+                    // 拒絕已送進 agent：它會拿著被拒的結果繼續這一輪。
+                    let _ = self
+                        .report_agent_session(
+                            &sid,
+                            "progress",
+                            json!({
+                                "approvalAutoDenied": rid,
+                                "summary": value.get("summary").cloned().unwrap_or(Value::Null),
+                                "delivered": true,
+                                "error": Value::Null,
+                                "reason": "逾時無人裁決，預設拒絕",
+                            }),
+                        )
+                        .await;
+                }
+                Err(e) => {
+                    // 拒絕**沒送到**：agent 仍卡在等核可，不能報 progress
+                    // 把卡片翻成「工作中」。狀態留在 waiting-consent、請求
+                    // 留在登記中（人類仍可裁決），delivered:false 照實記錄。
+                    // 只在第一次失敗時留紀錄；之後的退避重試只記 log，
+                    // 不用同一句話灌滿信箱與觀察。
+                    if prior_failures == 0 {
+                        let _ = self
+                            .report_agent_session(
+                                &sid,
+                                "waiting-for-consent",
+                                json!({
+                                    "requestId": rid,
+                                    "approvalAutoDenied": rid,
+                                    "delivered": false,
+                                    "error": e.to_string(),
+                                    "reason": "逾時無人裁決，預設拒絕——但拒絕沒能送進 agent；請求仍在等你裁決，也可以關閉這個 session",
+                                }),
+                            )
+                            .await;
+                    } else {
+                        tracing::warn!(
+                            target: "interaction.gateway",
+                            session = %sid,
+                            request = %rid,
+                            failures = prior_failures + 1,
+                            error = %e,
+                            "watchdog auto-deny still undeliverable; request kept pending"
+                        );
+                    }
+                }
+            }
         }
         // record 已非 open（close／expire／estop 走過）但子程序還掛著 → 殺。
         let managed_ids = self.gateway.managed_ids();
@@ -853,6 +1027,13 @@ impl Runtime {
     /// 最近一次 agent 發現快照（背景更新）。
     pub fn agent_discoveries(&self) -> Vec<AgentDiscovery> {
         self.gateway.discoveries()
+    }
+
+    /// 這個 session 目前是否還掛著一個 gateway 子程序（事件泵未收攤）。
+    /// 純觀察：子程序結束後 record 可能仍 open（例如聲稱完成後自行退出），
+    /// 但已沒有人能替它送訊息——診斷與測試靠這個分辨兩者。
+    pub fn gateway_session_attached(&self, session_id: &str) -> bool {
+        self.gateway.is_managed(session_id)
     }
 
     /// 確定性路由建議（spec §8.4）：建議，不強制；模糊任務列出兩者讓人選。

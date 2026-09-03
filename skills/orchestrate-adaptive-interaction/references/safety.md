@@ -79,3 +79,9 @@ Everything you execute passes the policy governor. Prompts cannot override it.
   general answering.
 - Memory: no un-deletable memory; secrets are refused; expired memory is pruned; stale memory
   needs re-confirmation and never enters context bundles.
+
+## v0.5 additions: Character Presentation Protocol
+- The presentation layer has NO authority: adapters (built-in 小樞 rig, sprite packs, text, external WebSocket programs) receive semantic intents with a Runtime-decided `truthState` and can only send bounded receipts/input events. They cannot grant consent, clear emergency stop, change policy, or produce `verified`; a green check is drawn only when `truthState == "verified"` (human verification path).
+- Honest degradation: `exact` / `substituted` / `reduced` / `unsupported` / `failed`; safety intents (emergency, offline, blocked, failed, request-consent, unknown, verified-success, claim-completed, wait, ask, cancelled) always resolve at least to `system.text`; adapter crash or disconnect marks pending presentations `uncertain`, never `completed`.
+- AI-requested presentation is capped at priority 50 and non-safety intents (wait/ask requests are substituted with think/notice); emergency (100) preempts everything, including non-interruptible play.
+- Emergency stop and sensor-in-use indicators are guaranteed by the trusted host (tray + overlay window), independent of any character renderer.

@@ -30,6 +30,24 @@ impl ApiError {
             message: "agent token cannot perform this human/control-center operation".into(),
         }
     }
+
+    /// Character adapter token：只能 POST 回執／事件與開 `/v1/character/ws`。
+    pub fn forbidden_adapter_scope() -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "token_scope_forbidden",
+            message: "character adapter token can only post /v1/character/receipts and /v1/character/events or open /v1/character/ws".into(),
+        }
+    }
+
+    /// `/v1/character/ws` 拒絕 human／agent token（只收 adapter token）。
+    pub fn adapter_token_required() -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            code: "unauthorized",
+            message: "/v1/character/ws accepts only a character adapter token (POST /v1/character/adapters); human and agent tokens are refused".into(),
+        }
+    }
 }
 
 impl From<DomainError> for ApiError {

@@ -71,7 +71,7 @@ const TIERS: Record<RiskTierLevel, RiskTier> = {
   0: {
     tier: 0,
     label: "L0 純角色呈現",
-    policy: "小樞的表情、動作與氣泡：預設開啟，不會每次問你，也不會留下打擾你的待辦。",
+    policy: "角色的表情、動作與氣泡：預設開啟，不會每次問你，也不會留下打擾你的待辦。",
   },
   1: {
     tier: 1,

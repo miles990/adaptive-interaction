@@ -196,10 +196,16 @@ export function clearToys(world: World): World {
   };
 }
 
-/** 玩家抓住/拖曳/丟出玩具。 */
+/** 跟著游標走的玩具（光點／逗貓棒）：不可被抓、也不算進互動框——它們永遠在游標底下。 */
+export function isCursorToy(kind: ToyKind): boolean {
+  return kind === "light" || kind === "wand";
+}
+
+/** 玩家抓住/拖曳/丟出玩具。光點／逗貓棒本來就跟著游標，抓它只會把它「抓停」——不可抓。 */
 export function grabToyAt(world: World, x: number, y: number): { world: World; toyId: number | null } {
   for (const t of world.toys) {
     if (t.grabbed) continue;
+    if (isCursorToy(t.kind)) continue;
     const r = t.kind === "wand" ? 16 : 12;
     if (Math.abs(t.x - x) <= r && Math.abs(t.y - y) <= r + 4) {
       return {
@@ -355,13 +361,14 @@ function stepChar(
   now: number
 ): World {
   const c = { ...w.char };
+  const canPlay =
+    inputs.ambient && inputs.playEnabled && !inputs.quiet && !inputs.reducedMotion;
   // 有使魔向她打招呼且她沒在忙：回看那一側（純呈現，不影響遊玩決策）。
-  if (c.attendTo !== null && c.mode === "free" && now <= c.attendUntil) {
+  // 只在真的可以玩的時候：被擋下／失敗／未知／勿擾時不轉身回看（§14 不把真相狀態演成賣萌）。
+  if (canPlay && c.attendTo !== null && c.mode === "free" && now <= c.attendUntil) {
     const f = w.familiars.find((x) => x.id === c.attendTo);
     if (f) c.facing = f.x >= c.x ? 1 : -1;
   }
-  const canPlay =
-    inputs.ambient && inputs.playEnabled && !inputs.quiet && !inputs.reducedMotion;
   // 個性 tuning（省略＝中性）。
   const speed = CHAR_SPEED * (inputs.speedScale ?? 1);
   const chaseSpeed = CHASE_SPEED * (inputs.chaseSpeedScale ?? 1);
@@ -614,6 +621,25 @@ function stepFamiliars(
   if (char.attendTo !== null && now > char.attendUntil) {
     char = { ...char, attendTo: null };
   }
+  // 使魔跟主角遵守同一套閘門：不 ambient（真相狀態在台上）、勿擾／安靜時段、
+  // 關掉「玩耍」——都不散步、不追逐、不打招呼、不冒愛心。正在動的收回原地待著；
+  // 主角的回看與回愛心也一起收掉（被擋下／失敗／未知的畫面上不能有粉紅愛心）。
+  const active = inputs.ambient && inputs.playEnabled && !inputs.quiet;
+  if (!active) {
+    if (char.attendTo !== null || char.greetBackUntil !== 0) {
+      char = { ...char, attendTo: null, greetBackUntil: 0 };
+    }
+    const settled = w.familiars.map((f) =>
+      f.state === "sleep" || f.state === "idle"
+        ? f.greetWith === null
+          ? f
+          : { ...f, greetWith: null }
+        : { ...f, state: "idle" as FamiliarState, vx: 0, greetWith: null, stateUntil: now }
+    );
+    const changed = settled.some((f, i) => f !== w.familiars[i]);
+    if (!changed && char === w.char) return w;
+    return { ...w, char, familiars: changed ? settled : w.familiars };
+  }
   if (inputs.reducedMotion || w.familiars.length === 0) {
     return char === w.char ? w : { ...w, char };
   }
@@ -719,7 +745,8 @@ export function rollCall(
   world: World,
   charName: string,
   machineLabel: string | null,
-  nowMs = 0
+  nowMs = 0,
+  opts: { frozen?: boolean } = {}
 ): { name: string; activity: string }[] {
   const charActivity =
     machineLabel ??
@@ -746,8 +773,13 @@ export function rollCall(
     })();
   const out = [{ name: charName, activity: charActivity }];
   for (const f of world.familiars) {
-    const label =
-      f.state === "sleep"
+    // 凍結（緊急停止／離線／暫停）：世界沒有在步進，使魔的 state 是凍結前的殘影——
+    // 不能拿它報「在散步」。誠實說：跟著停下來了。
+    const label = opts.frozen
+      ? f.state === "sleep"
+        ? "在睡覺"
+        : "停下來了"
+      : f.state === "sleep"
         ? "在睡覺"
         : f.state === "walk"
           ? "在散步"

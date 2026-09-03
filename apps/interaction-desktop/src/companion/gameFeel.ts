@@ -22,42 +22,56 @@ export interface LandingInput {
   nearEdge: boolean;
 }
 
-export interface LandingPlan {
-  landing: LandingKind;
-  /** 要播的表情 id（全部非 truthState）。 */
+/** 某種落地要演的美術（角色 adapter 提供；本模組不認識任何表情 id）。 */
+export interface LandingArt {
+  /** 表情 id（必須非 truthState——由角色 tables 保證）。 */
   expression: string;
   durationMs: number;
 }
 
+/** 落地種類 → 美術；沒有對應者＝站穩、不加演出。 */
+export type LandingTable = Readonly<Partial<Record<Exclude<LandingKind, "steady">, LandingArt>>>;
+
+export interface LandingPlan {
+  landing: LandingKind;
+  /** 要播的表情 id；null＝這個角色對這種落地沒有演出（呼叫端不送 transient）。 */
+  expression: string | null;
+  durationMs: number;
+}
+
 /**
- * 依速度、高度與位置選落地方式：
- *   - 快或落差大 → 踉蹌（wobbly-landing）
- *   - 貼邊又有點速度 → 滑倒裝沒事（slip-play-cool）
- *   - 慢又低 → 輕巧落地（land-light）
+ * 依速度、高度與位置選落地方式（純判定；美術由 `art` 注入）：
+ *   - 快或落差大 → 踉蹌（wobbly）
+ *   - 貼邊又有點速度 → 滑倒裝沒事（slip）
+ *   - 慢又低 → 輕巧落地（light）
  *   - 其餘 → 站穩（不加演出）
  */
-export function pickLanding(input: LandingInput): LandingPlan {
+export function pickLanding(input: LandingInput, art: LandingTable = {}): LandingPlan {
   const speed = Number.isFinite(input.speedPxPerSec) ? Math.max(0, input.speedPxPerSec) : 0;
   const height = Number.isFinite(input.heightPx) ? Math.max(0, input.heightPx) : 0;
-  if (speed > 900 || height > 260) {
-    return { landing: "wobbly", expression: "wobbly-landing", durationMs: 1600 };
-  }
-  if (input.nearEdge && speed > 350) {
-    return { landing: "slip", expression: "slip-play-cool", durationMs: 1800 };
-  }
-  if (speed < 120 && height < 60) {
-    return { landing: "light", expression: "land-light", durationMs: 900 };
-  }
-  return { landing: "steady", expression: "idle", durationMs: 0 };
+  const plan = (landing: Exclude<LandingKind, "steady">): LandingPlan => {
+    const a = art[landing];
+    return a
+      ? { landing, expression: a.expression, durationMs: Math.max(0, a.durationMs) }
+      : { landing, expression: null, durationMs: 0 };
+  };
+  if (speed > 900 || height > 260) return plan("wobbly");
+  if (input.nearEdge && speed > 350) return plan("slip");
+  if (speed < 120 && height < 60) return plan("light");
+  return { landing: "steady", expression: null, durationMs: 0 };
 }
 
 // ---------------------------------------------------------------------------
 // 幀預算（§14：60fps 目標，低效能裝置允許 30fps 降級）
+//
+// 輸入是「一幀真正花掉的繪製成本」（renderFrame 前後 performance.now() 的差），
+// **不是** rAF 回呼之間的間隔：60Hz 螢幕的 rAF 間隔恆為 16.67ms，拿它當幀時間會
+// 讓任何一台正常機器在一秒後永久降到 30fps 且永遠回不來（對抗審查 perf-claims-017）。
 // ---------------------------------------------------------------------------
 
-/** 平均幀時間超過這個值就降到 30fps。 */
+/** 平均繪製成本超過這個值就降到 30fps。 */
 export const FRAME_DEGRADE_MS = 12;
-/** 平均幀時間低於這個值才回到 60fps（遲滯，避免抖動）。 */
+/** 平均繪製成本低於這個值才回到 60fps（遲滯，避免抖動）。 */
 export const FRAME_RECOVER_MS = 8;
 /** 評估窗大小（最近 N 幀）。 */
 export const FRAME_WINDOW = 60;
@@ -65,9 +79,9 @@ export const FRAME_WINDOW = 60;
 export interface FrameBudgetState {
   /** 目前窗內已累積的幀數。 */
   count: number;
-  /** 目前窗內的幀時間總和（ms）。 */
+  /** 目前窗內的繪製成本總和（ms）。 */
   sumMs: number;
-  /** 上一個完整窗的平均幀時間（ms；還沒有窗時為 0）。 */
+  /** 上一個完整窗的平均繪製成本（ms；還沒有窗時為 0）。 */
   avgMs: number;
   /** true＝每兩幀才畫一次（30fps 降級）。 */
   skipEveryOther: boolean;
@@ -78,8 +92,8 @@ export function initialFrameBudget(): FrameBudgetState {
 }
 
 /**
- * 每幀呼叫一次。滿一個窗（60 幀）才決策，且有遲滯：
- * >12ms 平均 → 降級；降級後要 <8ms 才回到 60fps。
+ * 每畫一幀呼叫一次，`frameMs` 是那一幀的繪製成本（不是 rAF 間隔）。
+ * 滿一個窗（60 幀）才決策，且有遲滯：>12ms 平均 → 降級；降級後要 <8ms 才回到 60fps。
  */
 export function frameBudgetPolicy(state: FrameBudgetState, frameMs: number): FrameBudgetState {
   const ms = Number.isFinite(frameMs) ? Math.max(0, Math.min(1_000, frameMs)) : 0;
@@ -98,4 +112,73 @@ export function frameBudgetPolicy(state: FrameBudgetState, frameMs: number): Fra
 /** 這一幀該不該畫（降級時每兩幀畫一次）。 */
 export function shouldDrawFrame(state: FrameBudgetState, frameParity: number): boolean {
   return !state.skipEveryOther || frameParity % 2 === 0;
+}
+
+// ---------------------------------------------------------------------------
+// 點擊反應（§5.2 高頻反應：變體＋冷卻，走 Director）
+// ---------------------------------------------------------------------------
+
+export interface ClickReactionPlan {
+  /** rapid＝連戳反應；single＝Director 挑的單擊變體；fallback＝沒有角色表／全在冷卻：canonical clicked。 */
+  kind: "rapid" | "single" | "fallback";
+  /** 要套的 machine transient：連戳是 performing（先清場），單擊是 clicked（優先 55，帶變體動畫）。 */
+  transientKind: "performing" | "clicked";
+  animation?: string;
+  durationMs?: number;
+  /** Director 為什麼沒給反應（fallback 時）。 */
+  reason?: string;
+  /** 這次點擊是否切換快捷選單（連戳反應不開選單）。 */
+  toggleMenu: boolean;
+}
+
+/** Director 的最小介面（避免 gameFeel 依賴整個 Director 類別）。 */
+export interface ReactionSource {
+  reactDetailed(
+    intent: string,
+    nowMs: number,
+    durationMs?: number,
+    rng?: () => number,
+    opts?: { cooldownMs?: number }
+  ): { action: { expression: string; durationMs: number } | null; reason: string };
+}
+
+/**
+ * 單擊／連戳都經 Director：
+ *   - 1.4 秒內第 3 次以上 → `poked-rapid`；冷卻中或沒有角色表 → **退回一般單擊**
+ *     （不是什麼都不做：連戳冷卻期的點擊仍要有反應、仍要開選單）。
+ *   - 單擊 → `poked` 的變體池（≥3，防重複，短冷卻）；全在冷卻／文字角色 → canonical
+ *     `clicked`（renderer alias → poked），保留直接互動的優先階梯（clicked 55）。
+ */
+export function planClickReaction(input: {
+  rapid: boolean;
+  nowMs: number;
+  director: ReactionSource;
+  rng: () => number;
+  singleCooldownMs?: number;
+}): ClickReactionPlan {
+  if (input.rapid) {
+    const d = input.director.reactDetailed("poked-rapid", input.nowMs, 2_200, input.rng);
+    if (d.action) {
+      return {
+        kind: "rapid",
+        transientKind: "performing",
+        animation: d.action.expression,
+        durationMs: d.action.durationMs,
+        toggleMenu: false,
+      };
+    }
+  }
+  const d = input.director.reactDetailed("poked", input.nowMs, 700, input.rng, {
+    cooldownMs: input.singleCooldownMs ?? 1_200,
+  });
+  if (d.action) {
+    return {
+      kind: "single",
+      transientKind: "clicked",
+      animation: d.action.expression,
+      durationMs: d.action.durationMs,
+      toggleMenu: true,
+    };
+  }
+  return { kind: "fallback", transientKind: "clicked", reason: d.reason, toggleMenu: true };
 }

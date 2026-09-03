@@ -58,7 +58,9 @@ import {
   proactiveQuietActive,
   proactiveQuietUntil,
 } from "../companion/attention";
-import { personalityFor } from "../companion/personality";
+import { DEFAULT_TUNING, personalityFor } from "../companion/personality";
+// CPP：Director 表屬於角色（shu adapter tables）。
+import { SHU_DIRECTOR_TABLES } from "../character/adapters/shuTables";
 import { planPresentationCommand } from "../companion/presentationCommands";
 import {
   createWorld,
@@ -485,7 +487,7 @@ describe("#5 安靜時 Director 仍然 tick（只剩眨眼）", () => {
   });
 
   it("quiet 的 tick 只產出眨眼類，不會冒出伸懶腰/趴平", () => {
-    const d = new InteractionDirector();
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
     const seen = new Set<string>();
     for (let i = 0; i < 400; i++) {
       const a = d.tick(
@@ -670,7 +672,7 @@ describe("#9 剛被戳醒不會馬上躺回去睡", () => {
   });
 
   function directorPlayingDoze() {
-    const d = new InteractionDirector();
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
     // rng：hazard 觸發 → 權重抽樣落在最後一個（doze）。
     const a = d.tick(sleepyCtx(), scriptedRng([0.01, 0.999], 0.999));
     expect(a?.expression).toBe("doze");
@@ -740,6 +742,8 @@ describe("#10 Reduced Motion：不是「動小一點」，是不動", () => {
   });
 
   it("關掉 Reduced Motion 後同樣兩幀就會不同（證明上面不是因為沒在畫）", () => {
+    // run-2 companion-gameplay-003：這裡原本以 emergency（凍結）當「兩幀會不同」的基準，
+    // 等於把「凍結時使魔仍抖動、羽毛仍擺」釘成預期。凍結必須完全靜止；改用 idle 當基準。
     const rec = recordingCanvas();
     let t = 1_000;
     const stage = new StageRenderer(rec.canvas, "maid-classic", 1, {
@@ -747,8 +751,8 @@ describe("#10 Reduced Motion：不是「動小一點」，是不動", () => {
       rng: () => 0.5,
       now: () => t,
     });
-    stage.setAnimation("emergency");
-    stage.setMachineFlags(machineStageFlags("emergency", null, "emergency", false));
+    stage.setAnimation("idle");
+    stage.setMachineFlags(machineStageFlags("idle", null, "idle", true));
     stage.setFamiliars([{ id: "f1", name: "小白", palette: "maid-classic" }]);
     stage.spawnToy("wand");
     stage.renderFrame(t);

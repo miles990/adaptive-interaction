@@ -233,7 +233,8 @@ fn haptic_magnitude_rank(magnitude: f64) -> u8 {
 ///
 /// - haptic.pulse：`style`（magnitude <0.34 light、<0.67 medium、否則 heavy）、
 ///   `count` 預設 1（1–5 clamp）。
-/// - notify.show：`title` 預設「小樞」、`body` = extra.body 或 message（缺 → Err）。
+/// - notify.show：`title` 預設目前桌面角色的顯示名（未連線→「角色」）、
+///   `body` = extra.body 或 message（缺 → Err）。
 /// - tts.speak：`text` = extra.text 或 message（缺 → Err；不替使用者編句子）。
 /// - torch.set：`on` = extra.on ∧ magnitude>0、`durationMs` ≤5000（預設 1000）。
 /// - screen.flash：`color` 預設 `#FFB347`、`durationMs` 1..=1500（預設 400）。
@@ -242,6 +243,16 @@ fn haptic_magnitude_rank(magnitude: f64) -> u8 {
 pub fn map_wire_params(
     actuator_id: &str,
     e: &ActionParameters,
+) -> Result<(&'static str, Value), String> {
+    map_wire_params_titled(actuator_id, e, None)
+}
+
+/// 同 [`map_wire_params`]，但 `notify.show` 的預設標題可帶入目前角色名
+/// （Character Protocol 協商到的 displayName；沒有就用中立的「角色」）。
+pub fn map_wire_params_titled(
+    actuator_id: &str,
+    e: &ActionParameters,
+    character_title: Option<&str>,
 ) -> Result<(&'static str, Value), String> {
     let mut p: Map<String, Value> = e
         .extra
@@ -299,7 +310,8 @@ pub fn map_wire_params(
             "haptic.pulse"
         }
         "iphone.notify" => {
-            p.entry("title").or_insert(json!("小樞"));
+            p.entry("title")
+                .or_insert(json!(character_title.unwrap_or("角色")));
             if !p.contains_key("body") {
                 let Some(msg) = message else {
                     return Err("notify.show needs a message (or extra.body)".into());
@@ -433,9 +445,27 @@ pub struct MobileBridge {
     consent_audited: Mutex<std::collections::BTreeSet<String>>,
     ping_interval_ms: AtomicU64,
     idle_timeout_ms: AtomicU64,
+    /// 目前桌面角色的顯示名（Character Protocol hello 更新；notify 標題用）。
+    character_title: std::sync::Mutex<Option<String>>,
 }
 
 impl MobileBridge {
+    /// Character Protocol：角色協商完成後更新 notify 預設標題。
+    pub fn set_character_title(&self, title: String) {
+        let mut guard = self
+            .character_title
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *guard = Some(title);
+    }
+
+    pub fn character_title(&self) -> Option<String> {
+        self.character_title
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             advertise_mdns: AtomicBool::new(true),
@@ -461,6 +491,7 @@ impl MobileBridge {
             consent_audited: Mutex::new(std::collections::BTreeSet::new()),
             ping_interval_ms: AtomicU64::new(PING_INTERVAL_DEFAULT_MS),
             idle_timeout_ms: AtomicU64::new(IDLE_TIMEOUT_DEFAULT_MS),
+            character_title: std::sync::Mutex::new(None),
         })
     }
 
@@ -702,8 +733,10 @@ impl Actuator for MobileActuator {
             return Err(ActuatorError::Rejected("action expired".into()));
         }
         // 參數：policy-bounded effective 值 → App 驗證的 wire 形狀（手機端仍有硬限制）。
+        let title = self.bridge.character_title();
         let (wire_name, params) =
-            map_wire_params(self.id, &action.effective).map_err(ActuatorError::Rejected)?;
+            map_wire_params_titled(self.id, &action.effective, title.as_deref())
+                .map_err(ActuatorError::Rejected)?;
         match self
             .bridge
             .act(wire_name, params, action.action_id.as_str())
@@ -1185,6 +1218,8 @@ impl Runtime {
             .await
         {
             tracing::debug!(error = %e, device_id, "mobile provider revoke transition skipped");
+        } else {
+            self.character_project_provider(&pid, ProviderState::Revoked);
         }
         self.mobile_disable_high_risk_receptors(device_id, "revoked")
             .await;
@@ -1366,6 +1401,8 @@ impl Runtime {
             .providers
             .transition(&pid, ProviderState::Available, Some("connected".into()))
             .await;
+        // Character Protocol §11：iPhone 連上 → greet（device-online）。
+        self.character_project_provider(&pid, ProviderState::Available);
     }
 
     /// 登記已認證連線；同一台手機的舊連線（多半半開）被新連線取代時踢掉，
@@ -1734,6 +1771,9 @@ impl Runtime {
                     .await
                 {
                     tracing::debug!(error = %e, device_id, "mobile provider disconnect transition skipped");
+                } else {
+                    // Character Protocol §11：iPhone 斷線 → notice（device-offline）。
+                    self.character_project_provider(&pid, ProviderState::Disconnected);
                 }
             }
             match closed_by_server {

@@ -943,6 +943,17 @@ async fn human_layer_endpoints_roundtrip() {
         .patch("/v1/ui/preferences", json!({"mode": "bogus"}))
         .await;
     assert_eq!(code, 400);
+    // FirstSuccess 的「看過」旗標：PATCH 合併、GET 回傳；預設 false。
+    let (_, prefs) = server.get("/v1/ui/preferences").await;
+    assert_eq!(prefs["firstSuccessSeen"], false);
+    let (code, prefs) = server
+        .patch("/v1/ui/preferences", json!({"firstSuccessSeen": true}))
+        .await;
+    assert_eq!(code, 200);
+    assert_eq!(prefs["firstSuccessSeen"], true);
+    assert_eq!(prefs["mode"], "advanced", "merge keeps the other fields");
+    let (_, prefs) = server.get("/v1/ui/preferences").await;
+    assert_eq!(prefs["firstSuccessSeen"], true);
 
     // Pause is a separate state from emergency stop.
     let (code, pause) = server
@@ -1309,4 +1320,533 @@ async fn provider_test_is_human_only_and_never_fakes_evidence() {
         .post("/v1/providers/provider.nope/test", json!({}))
         .await;
     assert_eq!(status, 404);
+}
+
+// ---------------------------------------------------------------------------
+// Character Presentation Protocol：外部 adapter WebSocket fixture（模擬 adapter，
+// 程序內 tokio-tungstenite client；不是真外部程式）＋ adapter token 分權。
+// ---------------------------------------------------------------------------
+
+type WsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+const FIXTURE_MANIFEST: &str =
+    include_str!("../../../examples/character-adapters/text-adapter.manifest.json");
+
+async fn ws_connect(
+    base: &str,
+    token: &str,
+) -> Result<WsStream, tokio_tungstenite::tungstenite::Error> {
+    let url = format!(
+        "{}/v1/character/ws?token={token}",
+        base.replacen("http", "ws", 1)
+    );
+    tokio_tungstenite::connect_async(url)
+        .await
+        .map(|(ws, _)| ws)
+}
+
+fn ws_http_status(err: tokio_tungstenite::tungstenite::Error) -> u16 {
+    match err {
+        tokio_tungstenite::tungstenite::Error::Http(response) => response.status().as_u16(),
+        other => panic!("expected an HTTP refusal, got {other}"),
+    }
+}
+
+/// 下一則 JSON 訊息（跳過 ping/pong；5 s 內沒有就 panic）。
+async fn ws_next(ws: &mut WsStream) -> Value {
+    use futures::StreamExt;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let item = tokio::time::timeout_at(deadline, ws.next())
+            .await
+            .expect("websocket message within 5s")
+            .expect("stream open")
+            .expect("frame ok");
+        match item {
+            tokio_tungstenite::tungstenite::Message::Text(text) => {
+                return serde_json::from_str(&text).expect("wire json");
+            }
+            tokio_tungstenite::tungstenite::Message::Close(_) => panic!("socket closed early"),
+            _ => continue,
+        }
+    }
+}
+
+/// 等到某種 type 的訊息（heartbeat 等其他訊息略過）。
+async fn ws_wait_for(ws: &mut WsStream, kind: &str) -> Value {
+    for _ in 0..20 {
+        let msg = ws_next(ws).await;
+        if msg["type"] == kind {
+            return msg;
+        }
+    }
+    panic!("no {kind} message arrived");
+}
+
+async fn ws_send(ws: &mut WsStream, message: Value) {
+    use futures::SinkExt;
+    ws.send(tokio_tungstenite::tungstenite::Message::Text(
+        message.to_string(),
+    ))
+    .await
+    .expect("send");
+}
+
+fn fixture_negotiate(generation: u64) -> Value {
+    let manifest: Value = serde_json::from_str(FIXTURE_MANIFEST).unwrap();
+    json!({
+        "type": "negotiate",
+        "protocolVersion": "1.0",
+        "characterId": manifest["characterId"],
+        "manifestVersion": manifest["version"],
+        "capabilities": manifest["capabilities"],
+        "inputCapabilities": manifest["inputCapabilities"],
+        "channels": manifest["channels"],
+        "intents": manifest["intents"],
+        "variants": [],
+        "generation": generation,
+    })
+}
+
+#[tokio::test]
+async fn character_ws_fixture_negotiates_receives_intents_and_answers_receipts() {
+    let server = TestServer::spawn().await;
+    let manifest: Value = serde_json::from_str(FIXTURE_MANIFEST).unwrap();
+    let (status, added) = server
+        .post(
+            "/v1/character/adapters",
+            json!({"displayName": "文字 adapter（fixture）", "manifest": manifest}),
+        )
+        .await;
+    assert_eq!(status, 200, "{added}");
+    let adapter_id = added["adapterId"].as_str().unwrap().to_string();
+    let token = added["token"].as_str().unwrap().to_string();
+    assert_eq!(token.len(), 64);
+    let instance_id = format!("adapter:{adapter_id}");
+
+    // human／agent／未知 token 一律拒絕上 WebSocket（401）。
+    assert_eq!(
+        ws_http_status(ws_connect(&server.base, &server.token).await.unwrap_err()),
+        401
+    );
+    assert_eq!(
+        ws_http_status(
+            ws_connect(&server.base, &server.agent_token)
+                .await
+                .unwrap_err()
+        ),
+        401
+    );
+    assert_eq!(
+        ws_http_status(ws_connect(&server.base, "not-a-token").await.unwrap_err()),
+        401
+    );
+    assert_eq!(
+        ws_http_status(ws_connect(&server.base, "").await.unwrap_err()),
+        401
+    );
+
+    // adapter token 打人類路由：全部 403（status／estop／agent sessions／角色清單）。
+    let adapter = |method: reqwest::Method, path: &str, body: Value| {
+        server
+            .client
+            .request(method, format!("{}{path}", server.base))
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+    };
+    for (method, path) in [
+        (reqwest::Method::GET, "/v1/status"),
+        (reqwest::Method::POST, "/v1/emergency-stop"),
+        (reqwest::Method::POST, "/v1/emergency-stop/clear"),
+        (reqwest::Method::POST, "/v1/agent-sessions"),
+        (reqwest::Method::GET, "/v1/agent-sessions"),
+        (reqwest::Method::POST, "/v1/agent-sessions/x/verify"),
+        (reqwest::Method::POST, "/v1/agent-sessions/x/interrupt"),
+        (reqwest::Method::GET, "/v1/character/instances"),
+        (reqwest::Method::POST, "/v1/character/hello"),
+        (reqwest::Method::POST, "/v1/character/adapters"),
+        (reqwest::Method::POST, "/v1/character/intent"),
+        (reqwest::Method::POST, "/v1/plans"),
+        (reqwest::Method::PATCH, "/v1/policy"),
+        (reqwest::Method::POST, "/v1/session/consent"),
+        (reqwest::Method::GET, "/v1/events"),
+    ] {
+        let response = adapter(method.clone(), path, json!({})).await.unwrap();
+        assert_eq!(
+            response.status(),
+            403,
+            "adapter token must not reach {method} {path}"
+        );
+        let error: Value = response.json().await.unwrap();
+        assert_eq!(error["error"]["code"], "token_scope_forbidden");
+    }
+    // 別人的 instance 也不行（403）；自己的 instance 可以（回執未知 messageId → accepted:false）。
+    let response = adapter(
+        reqwest::Method::POST,
+        "/v1/character/receipts",
+        json!({"instanceId": "desktop-companion", "receipt": {
+            "messageId": "m", "characterInstanceId": "desktop-companion", "generation": 1,
+            "status": "accepted", "at": chrono::Utc::now()}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), 403);
+
+    // 連線：第一則一定是 hello。
+    let mut ws = ws_connect(&server.base, &token).await.expect("adapter ws");
+    let hello = ws_next(&mut ws).await;
+    assert_eq!(hello["type"], "hello");
+    assert_eq!(hello["protocolVersion"], "1.0");
+    assert_eq!(hello["characterInstanceId"], instance_id);
+    assert_eq!(hello["limits"]["maxMessageBytes"], 65536);
+    assert_eq!(hello["limits"]["maxMessagesPerSecond"], 50);
+
+    // negotiate → negotiated。
+    ws_send(&mut ws, fixture_negotiate(1)).await;
+    let negotiated = ws_wait_for(&mut ws, "negotiated").await;
+    assert_eq!(negotiated["characterInstanceId"], instance_id);
+    assert_eq!(negotiated["generation"], 1);
+    assert_eq!(
+        negotiated["resolutions"]["emergency"]["resolution"],
+        "exact"
+    );
+    assert_eq!(
+        negotiated["resolutions"]["play"]["resolution"],
+        "substituted"
+    );
+    let (status, instances) = server.get("/v1/character/instances").await;
+    assert_eq!(status, 200);
+    let entry = instances["instances"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["instanceId"] == instance_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(entry["connected"], true);
+    assert_eq!(entry["negotiated"], true);
+    assert_eq!(entry["origin"], "external");
+    assert_eq!(entry["executable"], true);
+    assert_eq!(entry["tested"], false);
+    // 連接頁「可以接收／作者／版本」由這條路由直接提供（README §9）。
+    assert!(entry["version"].is_string());
+    assert!(
+        entry.get("author").is_some(),
+        "author key present (null when absent)"
+    );
+    assert!(entry["inputCapabilities"].is_array());
+    let (_, status_doc) = server.get("/v1/status").await;
+    assert_eq!(status_doc["characterProtocol"]["version"], "1.0");
+    assert_eq!(status_doc["characterProtocol"]["instances"], 1);
+    assert!(status_doc["characterProtocol"]["activeCharacter"].is_null());
+
+    // 自己 instance 的回執經 HTTP（adapter token）也收：未知 messageId → accepted:false。
+    let response = adapter(
+        reqwest::Method::POST,
+        "/v1/character/receipts",
+        json!({"instanceId": instance_id, "receipt": {
+            "messageId": "nope", "characterInstanceId": instance_id, "generation": 1,
+            "status": "accepted", "at": chrono::Utc::now()}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["accepted"], false);
+
+    // human estop → intent emergency 經 WebSocket 送到 adapter。
+    let (status, _) = server
+        .post("/v1/emergency-stop", json!({"reason": "drill"}))
+        .await;
+    assert_eq!(status, 200);
+    let intent = ws_wait_for(&mut ws, "intent").await;
+    let envelope = &intent["envelope"];
+    assert_eq!(envelope["intent"], "emergency");
+    assert_eq!(envelope["truthState"], "emergency");
+    assert_eq!(envelope["priority"], 100);
+    assert_eq!(envelope["characterInstanceId"], instance_id);
+    let message_id = envelope["messageId"].as_str().unwrap().to_string();
+
+    // 回執 accepted → started → completed（只代表文字印出）。
+    for status in ["accepted", "started", "completed"] {
+        ws_send(
+            &mut ws,
+            json!({"type": "receipt", "receipt": {
+                "messageId": message_id, "characterInstanceId": instance_id, "generation": 1,
+                "status": status, "resolution": "exact", "at": chrono::Utc::now()}}),
+        )
+        .await;
+    }
+    let mut seen_completed = false;
+    for _ in 0..40 {
+        seen_completed = server.runtime.events.recent(300).iter().any(|e| {
+            e.event_type == interaction_core::EventType::CharacterReceipt
+                && e.payload["receipt"]["messageId"] == message_id.as_str()
+                && e.payload["receipt"]["status"] == "completed"
+        });
+        if seen_completed {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(
+        seen_completed,
+        "character.receipt completed event published"
+    );
+    let (_, instances) = server.get("/v1/character/instances").await;
+    let entry = instances["instances"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["instanceId"] == instance_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(entry["tested"], true);
+    // 一個呈現回執永遠改不了任何工作 verification：估算 estop 期間沒有 verified 的 action。
+    assert!(server
+        .runtime
+        .list_actions(None, 50)
+        .unwrap()
+        .iter()
+        .all(|r| r
+            .verification
+            .as_ref()
+            .map(|v| v.verdict != interaction_core::VerificationVerdict::Observed)
+            .unwrap_or(true)));
+
+    // 超過 64 KB → error{too-large}，連線不斷。
+    let big = format!(
+        "{{\"type\":\"heartbeat\",\"pad\":\"{}\"}}",
+        "x".repeat(70_000)
+    );
+    ws_send(&mut ws, Value::String(String::new())).await; // 空字串是無效 wire → error{malformed}
+    let malformed = ws_wait_for(&mut ws, "error").await;
+    assert_eq!(malformed["code"], "malformed");
+    {
+        use futures::SinkExt;
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(big))
+            .await
+            .unwrap();
+    }
+    let too_large = ws_wait_for(&mut ws, "error").await;
+    assert_eq!(too_large["code"], "too-large");
+    assert!(!too_large["message"].as_str().unwrap().contains("xxxx"));
+
+    // rate limit：一秒內 > 50 則 → error{rate-limited}（多出的被丟棄）。
+    for _ in 0..70 {
+        ws_send(&mut ws, json!({"type": "heartbeat"})).await;
+    }
+    let mut rate_limited = false;
+    for _ in 0..80 {
+        let msg = ws_next(&mut ws).await;
+        if msg["type"] == "error" && msg["code"] == "rate-limited" {
+            rate_limited = true;
+            break;
+        }
+    }
+    assert!(rate_limited, "gateway must answer error{{rate-limited}}");
+
+    // 撤銷 → goodbye 後 socket 關閉；adapters 清單 revoked、instances 不再列出。
+    let (status, revoked) = server
+        .delete(&format!("/v1/character/adapters/{adapter_id}"))
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(revoked["revoked"], true);
+    assert_eq!(revoked["disconnected"], true);
+    let mut saw_goodbye = false;
+    {
+        use futures::StreamExt;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match tokio::time::timeout_at(deadline, ws.next()).await {
+                Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))) => {
+                    let v: Value = serde_json::from_str(&text).unwrap_or_default();
+                    if v["type"] == "goodbye" {
+                        saw_goodbye = true;
+                    }
+                }
+                Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))))
+                | Ok(None)
+                | Ok(Some(Err(_)))
+                | Err(_) => break,
+                Ok(Some(Ok(_))) => {}
+            }
+        }
+    }
+    assert!(
+        saw_goodbye,
+        "revoked adapter is told goodbye before the close"
+    );
+    let (_, adapters) = server.get("/v1/character/adapters").await;
+    assert_eq!(adapters["adapters"][0]["revoked"], true);
+    assert_eq!(adapters["adapters"][0]["connected"], false);
+    assert!(adapters["adapters"][0].get("token").is_none());
+    // 撤銷後仍能顯示 manifest 事實（作者／版本／可接收／可執行／需要網路）。
+    assert!(adapters["adapters"][0]["version"].is_string());
+    assert!(adapters["adapters"][0]["inputCapabilities"].is_array());
+    assert!(adapters["adapters"][0]["executable"].is_boolean());
+    assert!(adapters["adapters"][0]["network"].is_boolean());
+    assert!(adapters["adapters"][0]["characterDisplayName"].is_object());
+    let (_, instances) = server.get("/v1/character/instances").await;
+    assert!(instances["instances"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|e| e["instanceId"] != instance_id));
+    assert_eq!(
+        ws_http_status(ws_connect(&server.base, &token).await.unwrap_err()),
+        401,
+        "revoked token can no longer connect"
+    );
+    // agent token 看不到角色層。
+    let response = server
+        .client
+        .get(format!("{}/v1/character/adapters", server.base))
+        .bearer_auth(&server.agent_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+}
+
+#[tokio::test]
+async fn character_hello_route_negotiates_and_manual_intent_refuses_safety() {
+    let server = TestServer::spawn().await;
+    let (status, _) = server.get("/v1/character/manifest").await;
+    assert_eq!(status, 404, "no desktop character before hello");
+    let manifest = json!({
+        "schemaVersion": "1.0",
+        "characterId": "plain-text",
+        "displayName": { "zh-TW": "純文字角色", "en": "Plain text" },
+        "version": "1.0.0",
+        "adapterKind": "in-process",
+        "entrypoint": { "kind": "builtin", "id": "text" },
+        "assets": [],
+        "capabilities": {
+            "visual.presence": { "supported": true },
+            "visual.textBubble": { "supported": true }
+        },
+        "inputCapabilities": { "input.click": { "supported": true }, "input.text": { "supported": true } },
+        "channels": ["bubble"],
+        "states": ["idle", "line"],
+        "intents": ["idle", "notice", "acknowledge", "think", "work", "wait", "ask", "request-consent",
+                    "blocked", "unknown", "claim-completed", "verified-success", "failed", "cancelled",
+                    "offline", "emergency", "greet", "play", "rest", "sleep"],
+        "variants": [],
+        "locales": ["zh-TW", "en"],
+        "compatibility": { "protocol": "1.x" }
+    });
+    let negotiate = json!({
+        "protocolVersion": "1.0",
+        "characterId": "plain-text",
+        "manifestVersion": "1.0.0",
+        "capabilities": manifest["capabilities"],
+        "inputCapabilities": manifest["inputCapabilities"],
+        "channels": manifest["channels"],
+        "intents": manifest["intents"],
+        "variants": [],
+        "generation": 1,
+    });
+    let (status, out) = server
+        .post(
+            "/v1/character/hello",
+            json!({"manifest": manifest, "negotiate": negotiate, "visible": true}),
+        )
+        .await;
+    assert_eq!(status, 200, "{out}");
+    assert_eq!(out["instanceId"], "desktop-companion");
+    assert_eq!(out["generation"], 1);
+    assert_eq!(
+        out["negotiated"]["resolutions"]["notice"]["via"],
+        "visual.textBubble"
+    );
+    let (status, got) = server.get("/v1/character/manifest").await;
+    assert_eq!(status, 200);
+    assert_eq!(got["characterId"], "plain-text");
+    let (_, status_doc) = server.get("/v1/status").await;
+    assert_eq!(
+        status_doc["characterProtocol"]["activeCharacter"]["displayName"]["zh-TW"],
+        "純文字角色"
+    );
+    let (_, providers) = server.get("/v1/providers").await;
+    let companion = providers
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["identity"]["id"] == "provider.companion.desktop")
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        companion["identity"]["displayName"],
+        "桌面角色：純文字角色（Presentation）"
+    );
+
+    // 手動 intent：非安全可以（targets = 桌面 instance），安全一律 403。
+    let (status, out) = server
+        .post(
+            "/v1/character/intent",
+            json!({"intent": "notice", "message": "測試"}),
+        )
+        .await;
+    assert_eq!(status, 200, "{out}");
+    assert_eq!(out["targets"], json!(["desktop-companion"]));
+    assert_eq!(out["truthState"], "none");
+    let (status, out) = server
+        .post("/v1/character/intent", json!({"intent": "emergency"}))
+        .await;
+    assert_eq!(status, 403, "{out}");
+    let (status, _) = server
+        .post(
+            "/v1/character/intent",
+            json!({"intent": "verified-success"}),
+        )
+        .await;
+    assert_eq!(status, 403);
+    // 回執（human token）推進：accepted → started → completed 對應 character.intent 的 messageId。
+    let message_id = server
+        .runtime
+        .events
+        .recent(100)
+        .iter()
+        .rev()
+        .find(|e| e.event_type == interaction_core::EventType::CharacterIntent)
+        .map(|e| {
+            e.payload["envelope"]["messageId"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .unwrap();
+    let (status, out) = server
+        .post(
+            "/v1/character/receipts",
+            json!({"instanceId": "desktop-companion", "receipt": {
+                "messageId": message_id, "characterInstanceId": "desktop-companion",
+                "generation": 1, "status": "accepted", "at": chrono::Utc::now()}}),
+        )
+        .await;
+    assert_eq!(status, 200, "{out}");
+    assert_eq!(out["accepted"], true);
+    assert_eq!(out["status"], "accepted");
+    // 事件（human token）→ receptor observation。
+    let (status, out) = server
+        .post(
+            "/v1/character/events",
+            json!({"instanceId": "desktop-companion", "event": {
+                "protocolVersion": "1.0", "eventId": "evt-1", "characterInstanceId": "desktop-companion",
+                "generation": 1, "timestamp": chrono::Utc::now(), "kind": "character.clicked",
+                "payload": {"x": 3, "y": 4}, "privacyClass": "internal"}}),
+        )
+        .await;
+    assert_eq!(status, 200, "{out}");
+    assert_eq!(out["decision"], "queued");
+    let (_, obs) = server
+        .post(
+            "/v1/observations/query",
+            json!({"receptorId": "companion.click", "limit": 5}),
+        )
+        .await;
+    assert_eq!(obs[0]["facts"]["kind"], "companion-clicked");
 }

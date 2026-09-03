@@ -66,6 +66,12 @@ export interface RendererBackend {
   setReducedMotion(on: boolean): void;
   setMicroMotion(motion: MicroMotionOverlay): void;
   destroy(): void;
+  /**
+   * CPP §7 hide／suspend：停掉 rAF（不畫、不排程），狀態原地保留；resume 接續。
+   * 可選——不是每個後端都有自己的迴圈（注入的假 renderer 可以省略）。
+   */
+  pause?(): void;
+  resume?(): void;
 }
 
 export class SpriteRenderer implements RendererBackend {
@@ -78,6 +84,12 @@ export class SpriteRenderer implements RendererBackend {
   private lastFrameAt = 0;
   private raf = 0;
   private reducedMotion = false;
+  /** Reduced Motion 的靜態幀是否已畫過（畫面沒變就不重畫；換動畫／切片時重設）。 */
+  private staticDrawn = false;
+  /** destroy() 之後永遠不再排 rAF——包括圖片 onload 晚於 destroy 的情況。 */
+  private destroyed = false;
+  /** 暫停中（視窗隱藏／adapter suspend）：不排 rAF、不畫；resume 後接續。 */
+  private paused = false;
   private scale: number;
   private micro: MicroMotionOverlay = { gazeX: 0, gazeY: 0, earBias: 0, intensity: 0 };
 
@@ -94,8 +106,11 @@ export class SpriteRenderer implements RendererBackend {
     this.ctx = ctx;
     const img = new Image();
     img.onload = () => {
+      // 圖片載入可能晚於 destroy()（effect cleanup／StrictMode 雙跑／fallbackToText）：
+      // 那時不能再啟動迴圈，否則這個 rAF 迴圈沒有任何人能取消。
+      if (this.destroyed) return;
       this.sheet = img;
-      this.loop(performance.now());
+      if (!this.paused) this.loop(performance.now());
     };
     img.src = sheetUrl;
   }
@@ -117,6 +132,7 @@ export class SpriteRenderer implements RendererBackend {
     this.slice = frameSlice ?? null;
     this.frameIndex = 0;
     this.lastFrameAt = 0;
+    this.staticDrawn = false;
   }
 
   private eqSlice(s?: [number, number]) {
@@ -125,7 +141,29 @@ export class SpriteRenderer implements RendererBackend {
   }
 
   setReducedMotion(on: boolean) {
+    if (on !== this.reducedMotion) this.staticDrawn = false;
     this.reducedMotion = on;
+  }
+
+  /** CPP §7 hide／suspend：取消 rAF，不再畫；動畫狀態原地保留。 */
+  pause() {
+    if (this.paused) return;
+    this.paused = true;
+    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.raf);
+    this.raf = 0;
+  }
+
+  /** 恢復迴圈（圖片還沒載好就等 onload 自己啟動）。destroy 後不可恢復。 */
+  resume() {
+    if (!this.paused || this.destroyed) return;
+    this.paused = false;
+    // 重新顯示時重畫一次靜態幀（Reduced Motion 的 dirty 旗標）。
+    this.staticDrawn = false;
+    if (this.sheet) this.loop(performance.now());
+  }
+
+  isPaused() {
+    return this.paused;
   }
 
   setMicroMotion(motion: MicroMotionOverlay) {
@@ -139,10 +177,13 @@ export class SpriteRenderer implements RendererBackend {
   }
 
   destroy() {
-    cancelAnimationFrame(this.raf);
+    this.destroyed = true;
+    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.raf);
+    this.raf = 0;
   }
 
   private loop = (now: number) => {
+    if (this.destroyed || this.paused) return;
     this.raf = requestAnimationFrame(this.loop);
     const anim = this.manifest.animations[this.animation];
     if (!anim || !this.sheet) return;
@@ -152,10 +193,16 @@ export class SpriteRenderer implements RendererBackend {
     if (localFrames.length === 0) return;
 
     if (this.reducedMotion) {
-      // Static representation: hold the first frame of the state.
-      this.draw(localFrames[0]);
+      // Static representation: hold the first frame of the state — drawn once,
+      // not on every rAF (the picture does not change; Reduced Motion must
+      // reduce work, not redraw a transparent window at full refresh rate).
+      if (!this.staticDrawn) {
+        this.draw(localFrames[0]);
+        this.staticDrawn = true;
+      }
       return;
     }
+    this.staticDrawn = false;
     const interval = 1000 / anim.fps;
     if (now - this.lastFrameAt >= interval) {
       this.lastFrameAt = now;

@@ -809,3 +809,40 @@ async fn builtin_manifests_declare_honest_semantics() {
         .clone();
     assert_eq!(webhook["effect"]["externalSideEffect"], json!(true));
 }
+
+/// 首次成功體驗（FirstSuccess）的「看過」旗標必須真的保存：PATCH 合併、GET 回傳，
+/// 不改動其他偏好；預設 false。前端偵測到沒回傳就會退回 localStorage，所以這裡
+/// 直接釘住 host 有保存。
+#[tokio::test]
+async fn first_success_seen_persists_through_ui_preferences() {
+    let (_g, rt) = runtime().await;
+    assert!(
+        !rt.ui_preferences().await.first_success_seen,
+        "never seen by default"
+    );
+    let updated = rt
+        .update_ui_preferences(json!({"firstSuccessSeen": true}))
+        .await
+        .unwrap();
+    assert!(updated.first_success_seen);
+    // GET 回傳同一個值，其他偏好不受影響。
+    let again = rt.ui_preferences().await;
+    assert!(again.first_success_seen);
+    assert_eq!(again.mode, "simple");
+    // 之後只改別的欄位：旗標保留（merge，不是整份覆蓋）。
+    let after = rt
+        .update_ui_preferences(json!({"mode": "advanced"}))
+        .await
+        .unwrap();
+    assert!(after.first_success_seen);
+    assert_eq!(after.mode, "advanced");
+    // camelCase 序列化名稱是前端契約的一部分。
+    let raw = serde_json::to_value(&after).unwrap();
+    assert_eq!(raw["firstSuccessSeen"], json!(true));
+    // 型別錯誤要被拒絕，不能悄悄變成 true。
+    assert!(rt
+        .update_ui_preferences(json!({"firstSuccessSeen": "yes"}))
+        .await
+        .is_err());
+    assert!(rt.ui_preferences().await.first_success_seen);
+}

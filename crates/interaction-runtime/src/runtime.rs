@@ -105,6 +105,9 @@ pub struct RuntimeInner {
     pub presentation: Arc<crate::presentation::PresentationBridge>,
     /// iPhone Mobile Provider（v0.5 Phase 6）。
     pub mobile: Arc<crate::mobile::MobileBridge>,
+    /// Character Presentation Protocol：gateway 宿主（instance 登記、truth
+    /// projection、adapter token、外部 WebSocket 連線）。
+    pub character: Arc<crate::character::CharacterHub>,
     /// 主動式對話政策狀態（確定性頻率限制；持久化到 meta）。
     pub(crate) proactive_dialogue: RwLock<crate::proactive::ProactiveDialogueState>,
     /// Generated proactive candidates waiting for a real local Agent result.
@@ -324,6 +327,7 @@ impl Runtime {
                 push_receptors,
                 dynamic_push: RwLock::new(BTreeMap::new()),
                 mobile: crate::mobile::MobileBridge::new(),
+                character: crate::character::CharacterHub::new(),
                 mock_actuator,
                 recipes: RwLock::new(recipes),
                 recipe_errors: RwLock::new(recipe_load_errors.into_iter().collect()),
@@ -369,6 +373,8 @@ impl Runtime {
         }
         runtime.restore_agent_sessions().await;
         runtime.init_providers().await;
+        // 外部 character adapter 登記（token sha256＋撤銷旗標）跨重啟保留。
+        runtime.character_load_adapters();
         runtime.rebuild_vector_index();
 
         // 測試模式（無 watchdog）＝模擬：iPhone 伺服器不得把 Bonjour 記錄廣播到實體區網。
@@ -386,6 +392,7 @@ impl Runtime {
     /// Graceful shutdown: cancel open actions, stop drivers, mark clean.
     pub async fn shutdown(&self) {
         self.shutdown_token.cancel();
+        self.character_shutdown();
         if let Ok(open) = self.store.open_receipts() {
             for mut receipt in open {
                 let _ = receipt.transition(ActionStatus::Cancelled, Utc::now());
@@ -463,6 +470,7 @@ impl Runtime {
             "agentSessions": self.open_agent_sessions().await,
             "activeSensors": self.active_sensors_all().await,
             "presentation": self.presentation_status(),
+            "characterProtocol": self.character_status(),
             "quietHours": quiet_hours,
             "onboardingCompleted": self.onboarding_state().await
                 .get("completed").and_then(Value::as_bool).unwrap_or(false),
@@ -565,6 +573,20 @@ impl Runtime {
         inferences: BTreeMap<String, Value>,
         confidence: f64,
     ) -> DomainResult<Observation> {
+        self.ingest_with_gate(receptor_id, facts, inferences, confidence, true)
+            .await
+    }
+
+    /// `enforce_surface_gate=false` 只給外部 character adapter 的正規化輸入用：
+    /// 它們沒有桌面視窗表面，隱藏／斷線閘門不適用（policy／consent 仍然適用）。
+    pub(crate) async fn ingest_with_gate(
+        &self,
+        receptor_id: &str,
+        facts: BTreeMap<String, Value>,
+        inferences: BTreeMap<String, Value>,
+        confidence: f64,
+        enforce_surface_gate: bool,
+    ) -> DomainResult<Observation> {
         let receptor = self
             .push_receptor(receptor_id)
             .await
@@ -577,7 +599,8 @@ impl Runtime {
         // Companion-surface receptors stop when the companion is hidden or
         // disconnected (spec: hiding the companion stops its in-window
         // senses — deterministically, not just by frontend courtesy).
-        if crate::presentation::is_companion_surface_receptor(receptor_id)
+        if enforce_surface_gate
+            && crate::presentation::is_companion_surface_receptor(receptor_id)
             && !self.presentation.accepts_input(Utc::now())
         {
             return Err(DomainError::Unavailable(
@@ -634,6 +657,8 @@ impl Runtime {
             event = event.with_session(s.clone());
         }
         self.events.publish(event);
+        // Character Protocol §11：receptor.observation → notice(listening)。
+        self.character_project_observation(obs);
     }
 
     // ------------------------------------------------------------------
@@ -749,6 +774,10 @@ impl Runtime {
             .with_session(session.session_id.clone())
             .with_correlation(plan.correlation_id.clone()),
         );
+        if plan.status == PlanStatus::Blocked {
+            // Character Protocol §11：plan.blocked → blocked（correlationId = planId）。
+            self.character_project_plan_blocked(plan.plan_id.as_str(), None);
+        }
         Ok(plan)
     }
 
@@ -893,6 +922,9 @@ impl Runtime {
             "stoppedActuators": stopped_actuators,
         });
         self.events.emit(EventType::EmergencyStop, payload.clone());
+        // Character Protocol §11：emergency.stop → emergency（floor 100，可搶占任何演出；
+        // 沒有任何角色 instance 時走 system.text，不得遺失）。
+        self.character_project_emergency(true);
         self.store.audit("emergency.stop", actor, &payload)?;
         Ok(payload)
     }
@@ -913,6 +945,7 @@ impl Runtime {
             EventType::EmergencyStop,
             json!({"cleared": true, "actor": actor}),
         );
+        self.character_project_emergency(false);
         self.store.audit("emergency.clear", actor, &json!({}))?;
         Ok(())
     }
@@ -1857,6 +1890,9 @@ impl Runtime {
                 .with_session(receipt.session_id.clone())
                 .with_correlation(receipt.correlation_id.clone()),
         );
+        // Character Protocol §11：action.* → work／acknowledge／claim-completed／
+        // verified-success／unknown／failed（角色自己的呈現 actuator 不投影）。
+        self.character_project_action(event_type, receipt);
     }
 
     /// Test/diagnostic wrapper for [`Self::charge_session_cost`].
@@ -1952,6 +1988,9 @@ impl Runtime {
                 // Presentation ack deadlines: unconfirmed commands go
                 // Uncertain, never silently "completed".
                 runtime.sweep_presentation().await;
+                // Character gateway：heartbeat 逾時／過期／acknowledged→uncertain／
+                // 桌面 presence 過期 → transport-closed。
+                runtime.character_sweep().await;
                 // Gateway：逾時 approval 自動拒絕＋殘留子程序清理。
                 runtime.gateway_sweep().await;
                 // 記憶到期清除（expiresAt 到＝停止使用並刪除）。

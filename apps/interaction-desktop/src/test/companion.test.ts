@@ -14,6 +14,8 @@ import { transientCompetition } from "../companion/machine";
 import { validateManifest } from "../companion/renderer";
 import { EXPRESSIONS } from "../companion/rig/expressions";
 import { planPresentationCommand } from "../companion/presentationCommands";
+// CPP：事件→美術的角色專屬對照移進 shu adapter 的 tables；machine 本身 engine-neutral。
+import { SHU_EVENT_ART } from "../character/adapters/shuTables";
 
 const T0 = 1_000_000;
 
@@ -155,7 +157,7 @@ describe("硬體／提供者事件 → 角色演出", () => {
 
   it("上線／配對 → device-hello（右耳亮＋看向）", () => {
     for (const state of ["available", "paired"]) {
-      expect(mapRuntimeEvent(provider(state))).toMatchObject({
+      expect(mapRuntimeEvent(provider(state), SHU_EVENT_ART)).toMatchObject({
         type: "transient",
         kind: "performing",
         animation: "device-hello",
@@ -165,13 +167,21 @@ describe("硬體／提供者事件 → 角色演出", () => {
 
   it("斷線／撤銷 → device-lost（耳朵下垂），其他狀態不亂演", () => {
     for (const state of ["disconnected", "revoked"]) {
-      expect(mapRuntimeEvent(provider(state))).toMatchObject({
+      expect(mapRuntimeEvent(provider(state), SHU_EVENT_ART)).toMatchObject({
         kind: "performing",
         animation: "device-lost",
       });
     }
-    expect(mapRuntimeEvent(provider("degraded"))).toBeNull();
-    expect(mapRuntimeEvent(provider(""))).toBeNull();
+    expect(mapRuntimeEvent(provider("degraded"), SHU_EVENT_ART)).toBeNull();
+    expect(mapRuntimeEvent(provider(""), SHU_EVENT_ART)).toBeNull();
+  });
+
+  it("沒有角色表時（engine-neutral 預設）只用 canonical 動畫名，不含任何 rig 表情 id", () => {
+    expect(mapRuntimeEvent(provider("available"))).toMatchObject({ kind: "performing", animation: "notice" });
+    expect(mapRuntimeEvent(provider("disconnected"))).toMatchObject({ kind: "performing", animation: "notice" });
+    const device = (eventType: string) => ({ eventType, payload: { actuatorId: "device.esp32.led" } });
+    expect(mapRuntimeEvent(device("action.dispatched"))).toMatchObject({ animation: "act" });
+    expect(mapRuntimeEvent(device("action.acknowledged"))).toMatchObject({ animation: "clicked" });
   });
 
   it("非 desktop-pet 的 action.dispatched → operate-tool；acknowledged → 短點頭", () => {
@@ -179,11 +189,11 @@ describe("硬體／提供者事件 → 角色演出", () => {
       eventType,
       payload: { actuatorId: "device.esp32.led", actionId: "a-1" },
     });
-    expect(mapRuntimeEvent(device("action.dispatched"))).toMatchObject({
+    expect(mapRuntimeEvent(device("action.dispatched"), SHU_EVENT_ART)).toMatchObject({
       kind: "performing",
       animation: "operate-tool",
     });
-    expect(mapRuntimeEvent(device("action.acknowledged"))).toMatchObject({
+    expect(mapRuntimeEvent(device("action.acknowledged"), SHU_EVENT_ART)).toMatchObject({
       kind: "performing",
       animation: "ack-nod",
     });
@@ -215,7 +225,7 @@ describe("硬體／提供者事件 → 角色演出", () => {
     s = reduce(s, mapRuntimeEvent({
       eventType: "action.dispatched",
       payload: { actuatorId: "device.esp32.led" },
-    })!, T0);
+    }, SHU_EVENT_ART)!, T0);
     expect(pose(s, T0 + 10).animation).toBe("operate-tool");
     s = reduce(s, mapRuntimeEvent({ eventType: "plan.blocked", payload: {} })!, T0 + 20);
     expect(pose(s, T0 + 30).animation).toBe("blocked");

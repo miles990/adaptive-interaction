@@ -90,6 +90,11 @@ pub struct UiPreferences {
     /// / `tool:<name>` / `recipe:<id>`. Never changes safety facts.
     #[serde(default)]
     pub custom_names: BTreeMap<String, String>,
+    /// 首次成功體驗（FirstSuccess）已看過。純 UI 旗標：不影響任何權限、
+    /// 同意或安全事實；host 沒保存時前端會誠實退回 localStorage，所以這裡
+    /// 必須真的存下並在 GET 回傳。
+    #[serde(default)]
+    pub first_success_seen: bool,
     pub schema_version: String,
 }
 
@@ -110,6 +115,7 @@ impl Default for UiPreferences {
             disabled_agents: Vec::new(),
             agent_routes,
             custom_names: BTreeMap::new(),
+            first_success_seen: false,
             schema_version: interaction_core::SCHEMA_VERSION.into(),
         }
     }
@@ -251,6 +257,7 @@ impl Runtime {
                     EventType::ProactiveResumed,
                     json!({"reason": "pause window elapsed"}),
                 );
+                self.character_project_proactive(false);
             }
         }
         self.pause.read().await.clone()
@@ -287,6 +294,8 @@ impl Runtime {
             EventType::ProactivePaused,
             json!({"until": until, "reason": reason}),
         );
+        // Character Protocol §11：proactive.paused → rest。
+        self.character_project_proactive(true);
         self.store
             .audit("proactive.paused", actor, &json!({"until": until}))?;
         Ok(state)
@@ -299,6 +308,7 @@ impl Runtime {
             .set_meta(PAUSE_META_KEY, &json!(state).to_string())?;
         self.events
             .emit(EventType::ProactiveResumed, json!({"actor": actor}));
+        self.character_project_proactive(false);
         self.store.audit("proactive.resumed", actor, &json!({}))?;
         Ok(state)
     }

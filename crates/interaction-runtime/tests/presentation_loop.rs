@@ -74,7 +74,7 @@ async fn provider_is_itemized_not_a_blob() {
     let providers = rt.providers.list().await;
     let companion = providers
         .iter()
-        .find(|p| p.identity.id.as_str() == "provider.companion.shu")
+        .find(|p| p.identity.id.as_str() == "provider.companion.desktop")
         .expect("companion provider registered");
     assert_eq!(companion.identity.kind, ProviderKind::Companion);
     assert_eq!(companion.receptors.len(), 7, "7 itemized receptors");

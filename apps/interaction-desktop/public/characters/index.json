@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "1.0",
+  "default": "shu-maid",
+  "characters": [
+    {
+      "characterId": "shu-maid",
+      "manifestPath": "/characters/shu-maid/manifest.json",
+      "origin": "builtin",
+      "persona": "persona-shu",
+      "story": "story-shu-intro"
+    },
+    {
+      "characterId": "shu-maid-dusk",
+      "manifestPath": "/characters/shu-maid-dusk/manifest.json",
+      "origin": "builtin",
+      "persona": "persona-shu",
+      "story": "story-shu-intro"
+    },
+    {
+      "characterId": "shu-maid-sakura",
+      "manifestPath": "/characters/shu-maid-sakura/manifest.json",
+      "origin": "builtin",
+      "persona": "persona-shu",
+      "story": "story-shu-intro"
+    },
+    {
+      "characterId": "shu-standard",
+      "manifestPath": "/characters/shu-standard/manifest.json",
+      "assetBase": "/packs/shu-standard",
+      "origin": "builtin",
+      "persona": "persona-shu",
+      "story": "story-shu-intro"
+    },
+    {
+      "characterId": "shu-minimal",
+      "manifestPath": "/characters/shu-minimal/manifest.json",
+      "assetBase": "/packs/shu-minimal",
+      "origin": "builtin",
+      "persona": "persona-shu",
+      "story": "story-shu-intro"
+    },
+    {
+      "characterId": "shu-lively",
+      "manifestPath": "/characters/shu-lively/manifest.json",
+      "assetBase": "/packs/shu-lively",
+      "origin": "builtin",
+      "persona": "persona-shu",
+      "story": "story-shu-intro"
+    },
+    {
+      "characterId": "shu-agile",
+      "manifestPath": "/characters/shu-agile/manifest.json",
+      "assetBase": "/packs/shu-agile",
+      "origin": "builtin",
+      "persona": "persona-shu",
+      "story": "story-shu-intro"
+    },
+    {
+      "characterId": "shu-lazy",
+      "manifestPath": "/characters/shu-lazy/manifest.json",
+      "assetBase": "/packs/shu-lazy",
+      "origin": "builtin",
+      "persona": "persona-shu",
+      "story": "story-shu-intro"
+    },
+    {
+      "characterId": "plain-text",
+      "manifestPath": "/characters/plain-text/manifest.json",
+      "origin": "builtin"
+    }
+  ]
+}

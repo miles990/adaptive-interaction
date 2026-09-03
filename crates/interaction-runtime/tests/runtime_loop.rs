@@ -1105,3 +1105,175 @@ async fn inbox_pending_count_is_computed_before_page_truncation() {
         .iter()
         .all(|item| item["needsDecision"].as_bool() == Some(false)));
 }
+
+/// regression（ia-settings）：通知中心只拿 `limit:20` 的最近一頁再自己過濾
+/// needsDecision，最近 20 筆都不是待決定時就會宣稱「目前沒有待決定事項」，
+/// 而徽章同時顯示 pendingCount>0。後端提供 `needsDecision` 篩選：介面可以
+/// 直接拿到**全部**待決定項；pendingCount 仍在分頁截斷前算完。
+#[tokio::test]
+async fn inbox_needs_decision_filter_returns_pending_items_beyond_the_first_page() {
+    let (_g, rt) = runtime().await;
+    let base = chrono::Utc::now();
+    for i in 0..3 {
+        let receipt = stub_receipt(
+            &format!("old-pending-{i}"),
+            "mock.actuator",
+            ActionStatus::Uncertain,
+            base - chrono::Duration::hours(2) + chrono::Duration::seconds(i),
+        );
+        assert!(rt.store.upsert_receipt(&receipt, "haptic").unwrap());
+    }
+    for i in 0..25 {
+        let receipt = stub_receipt(
+            &format!("recent-done-{i}"),
+            "conversation",
+            ActionStatus::Completed,
+            base + chrono::Duration::seconds(i),
+        );
+        assert!(rt.store.upsert_receipt(&receipt, "conversation").unwrap());
+    }
+
+    // 前端送的是 camelCase `needsDecision`（deny_unknown_fields：名稱是契約）。
+    let filter: interaction_runtime::activity::ActivityInboxFilter =
+        serde_json::from_value(json!({"needsDecision": true, "limit": 2})).unwrap();
+    assert_eq!(filter.needs_decision, Some(true));
+    let pending_page = rt.activity_inbox(filter).await.unwrap();
+    assert_eq!(
+        pending_page["count"].as_u64(),
+        Some(2),
+        "limit still applies"
+    );
+    assert_eq!(pending_page["totalBeforeLimit"].as_u64(), Some(3));
+    assert_eq!(
+        pending_page["pendingCount"].as_u64(),
+        Some(3),
+        "the badge count is computed before truncation"
+    );
+    assert!(pending_page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|item| item["needsDecision"] == json!(true)));
+    assert_eq!(pending_page["filters"]["needsDecision"], json!(true));
+
+    // 夠大的 limit：三筆全部列出，一筆都不會被最近的 25 筆擠掉。
+    let all_pending = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter {
+            needs_decision: Some(true),
+            limit: Some(20),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(all_pending["count"].as_u64(), Some(3));
+    let ids: Vec<&str> = all_pending["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["itemId"].as_str())
+        .collect();
+    for i in 0..3 {
+        assert!(
+            ids.contains(&format!("old-pending-{i}").as_str()),
+            "{ids:?}"
+        );
+    }
+
+    // `false`：只要不需決定的；缺席：全部（既有行為不變）。
+    let done = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter {
+            needs_decision: Some(false),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(done["totalBeforeLimit"].as_u64(), Some(25));
+    assert!(done["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|item| item["needsDecision"] == json!(false)));
+    let everything = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(everything["totalBeforeLimit"].as_u64(), Some(28));
+    assert_eq!(everything["pendingCount"].as_u64(), Some(3));
+}
+
+/// regression（ia-settings）：收件匣安全事件的標題曾是原始 event_type
+/// （`emergency.stop`／`sensor.started`），而「解除緊急停止」也走
+/// EmergencyStop 事件（payload.cleared=true），被投影成 status "emergency"
+/// ——使用者剛解除就看到一筆新的「緊急停止」。解除必須是
+/// `emergency-cleared`，標題一律人話。
+#[tokio::test]
+async fn inbox_safety_events_distinguish_emergency_clear_and_use_human_titles() {
+    let (_g, rt) = runtime().await;
+    rt.emergency_stop("test", Some("drill".into()))
+        .await
+        .unwrap();
+    rt.clear_emergency_stop("test").await.unwrap();
+    rt.events.emit(
+        EventType::SensorStarted,
+        json!({"sensor": "microphone", "reason": "test"}),
+    );
+    rt.events
+        .emit(EventType::SensorStopped, json!({"sensor": "microphone"}));
+
+    let inbox = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter::default())
+        .await
+        .unwrap();
+    let safety: Vec<&serde_json::Value> = inbox["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["kind"] == json!("safety-event"))
+        .collect();
+    assert!(safety.len() >= 4, "{safety:?}");
+    // 標題永遠不是原始 event_type。
+    for item in &safety {
+        let title = item["title"].as_str().unwrap();
+        assert!(
+            !["emergency.stop", "sensor.started", "sensor.stopped"].contains(&title),
+            "raw event_type leaked as title: {item}"
+        );
+        assert_eq!(item["needsDecision"], json!(false));
+    }
+    let cleared = safety
+        .iter()
+        .find(|item| item["detail"]["payload"]["cleared"] == json!(true))
+        .expect("the clear event is in the inbox");
+    assert_eq!(cleared["status"], json!("emergency-cleared"));
+    assert_eq!(cleared["title"], json!("緊急停止已解除"));
+    let engaged = safety
+        .iter()
+        .find(|item| {
+            item["detail"]["eventType"] == json!("emergency.stop")
+                && item["detail"]["payload"]["cleared"] != json!(true)
+        })
+        .expect("the engage event is in the inbox");
+    assert_eq!(engaged["status"], json!("emergency"));
+    assert_eq!(engaged["title"], json!("緊急停止已啟動"));
+    let started = safety
+        .iter()
+        .find(|item| item["status"] == json!("sensor.started"))
+        .expect("sensor start is a safety event");
+    assert_eq!(started["title"], json!("感測開始：麥克風"));
+    assert_eq!(started["deviceId"], json!("microphone"));
+    let stopped = safety
+        .iter()
+        .find(|item| item["status"] == json!("sensor.stopped"))
+        .unwrap();
+    assert_eq!(stopped["title"], json!("感測停止：麥克風"));
+    // status 篩選：`emergency` 仍同時命中啟動與解除（contains），
+    // `emergency-cleared` 只命中解除。
+    let only_cleared = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter {
+            status: Some("emergency-cleared".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(only_cleared["count"].as_u64(), Some(1));
+}

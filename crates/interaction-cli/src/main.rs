@@ -212,6 +212,12 @@ pub enum Command {
         #[command(subcommand)]
         action: MobileAction,
     },
+    /// Character Presentation Protocol: instances, manifest, external adapter
+    /// tokens and a human manual intent test (non-safety intents only).
+    Character {
+        #[command(subcommand)]
+        action: CharacterAction,
+    },
     /// Manage the interaction session and consents.
     Session {
         #[command(subcommand)]
@@ -679,6 +685,50 @@ pub enum ProactiveAction {
         #[arg(long, default_value_t = 60)]
         minutes: i64,
     },
+}
+
+#[derive(Subcommand)]
+pub enum CharacterAction {
+    /// Protocol version, instance count and the active desktop character.
+    Status,
+    /// Every character instance (desktop + external adapters) with its honest
+    /// connected / negotiated / generation / tested state.
+    Instances,
+    /// The manifest of the desktop character negotiated via /v1/character/hello.
+    Manifest,
+    /// External adapter tokens (sha256-stored; revoke disconnects immediately).
+    Adapters {
+        #[command(subcommand)]
+        action: CharacterAdapterAction,
+    },
+    /// Human manual test: present ONE non-safety intent with truthState none.
+    /// Safety intents (emergency/blocked/failed/verified-success/...) are refused:
+    /// they can only be produced by runtime truth projection.
+    Intent {
+        /// idle | notice | acknowledge | think | work | greet | play | rest | sleep
+        intent: String,
+        /// Optional presentation hint (<= 200 chars).
+        #[arg(long)]
+        message: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CharacterAdapterAction {
+    /// List registered external adapters (never prints tokens).
+    List,
+    /// Register an external adapter; prints adapterId and the token ONCE.
+    Add {
+        /// Human-readable name (<= 48 chars).
+        #[arg(long)]
+        name: String,
+        /// Path to the adapter's CharacterManifest JSON (external-process /
+        /// remote-device / web).
+        #[arg(long)]
+        manifest: String,
+    },
+    /// Revoke an adapter: token invalid immediately, connection closed.
+    Revoke { id: String },
 }
 
 #[derive(Subcommand)]

@@ -1,13 +1,29 @@
-// 「現在」頁（v0.5 IA）：系統是否正常、感測／待決定／進行中工作摘要、
-// 最近一次互動的故事、快速操作。全部來自後端真實狀態；沒有 receipt
-// 佐證絕不顯示「已完成」。完整權限地圖住在「連接與權限」，此頁不重複。
+// 「現在」頁（v0.5 一般模式）：第一屏只回答三件事——角色現在怎麼樣、正在做什麼、
+// 有什麼需要處理——外加三個快速操作（交代一件事／暫停或恢復主動互動／加入裝置）。
+// 系統狀態、工作階段／自動互動／裝置數量、最近一次互動、記憶更新全部收進
+// 「詳細狀態」折疊區。全部來自後端真實狀態；沒有驗證佐證絕不顯示「已確認完成」；
+// 狀態標籤一律走 statusProjection；安全文字（緊急停止中／感測使用中）固定。
 
 import React from "react";
 import { api, HumanCard, Receipt, RuntimeEvent } from "../api";
 import { actionStatusLabel, useAppState } from "../appstate";
+import { characterNameFallback, useCharacterName } from "../characterName";
+import { displayNameOf } from "../character/manifest";
 import { Icon } from "../icons";
 import { Badge, Section, StateView, useAsync } from "../ui";
+import {
+  agentDisplayLabel,
+  isOpenWorkState,
+  projectInboxStatus,
+  projectWorkState,
+} from "../statusProjection";
 import { Dialog } from "../components/Dialog";
+
+/** 「交代一件事」把描述先放進 sessionStorage，工作頁掛載時讀取並預填。純文字。 */
+export const WORK_PREFILL_KEY = "work.prefill";
+
+/** 角色離線時第一屏的可信文字（固定文案，不由角色包決定）。 */
+export const CHARACTER_OFFLINE_LINE = "角色離線，改用文字。";
 
 export function HomePage({
   refreshKey,
@@ -18,12 +34,13 @@ export function HomePage({
   events: RuntimeEvent[];
   onNavigate: (tab: string) => void;
 }) {
-  const { pause, doPause, doResume } = useAppState();
+  const { pause, doPause, doResume, prefs } = useAppState();
+  const character = useCharacterName({ locale: prefs.locale });
   const [status] = useAsync(() => api.status(), [refreshKey]);
-  const [actions] = useAsync(() => api.actionsList(5), [refreshKey]);
-  const [session] = useAsync(() => api.sessionGet(), [refreshKey]);
   const [pauseDialog, setPauseDialog] = React.useState(false);
   const [pauseError, setPauseError] = React.useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const [task, setTask] = React.useState("");
   const tryPause = async (minutes?: number) => {
     try {
       await doPause(minutes);
@@ -35,105 +52,80 @@ export function HomePage({
     }
   };
 
-  const estop = Boolean(status.data?.["emergencyStop"]);
-  const recipes = (status.data?.["recipes"] as { loaded?: number } | undefined)?.loaded ?? 0;
-  const pendingAi = Number(status.data?.["pendingAiAssists"] ?? 0);
+  const delegate = (event: React.FormEvent) => {
+    event.preventDefault();
+    const text = task.trim();
+    try {
+      if (text) sessionStorage.setItem(WORK_PREFILL_KEY, text);
+      else sessionStorage.removeItem(WORK_PREFILL_KEY);
+    } catch {
+      /* 私密模式等情況：沒有預填也能到工作頁 */
+    }
+    onNavigate("work");
+  };
 
   return (
     <div className="home">
-      <NowStrip refreshKey={refreshKey} status={status.data} onNavigate={onNavigate} />
-      <div className="grid-two">
-        <Section title="系統狀態">
-          {status.loading ? (
-            <div className="state-box">載入中…</div>
-          ) : status.error ? (
-            <div className="state-box state-error">
-              無法連到系統：{status.error}。請稍後再試，或重新啟動應用程式。
-            </div>
-          ) : (
-            <div className="home-status">
-              {estop ? (
-                <p className="home-status-line bad">
-                  <Icon name="octagon-x" size={18} /> 緊急停止中 — 所有回應已停止。
-                  到「同意與安全」頁可以檢視原因並安全解除。
-                </p>
-              ) : pause.paused ? (
-                <p className="home-status-line warn">
-                  <Icon name="pause" size={18} /> 主動互動已暫停
-                  {pause.until ? `（至 ${new Date(pause.until).toLocaleTimeString()}）` : ""}。
-                  系統仍會回應你的直接要求。
-                </p>
-              ) : (
-                <p className="home-status-line ok">
-                  <Icon name="circle-check" size={18} /> 系統運作正常。
-                </p>
-              )}
-              <p className="muted small">
-                {session.data
-                  ? "工作階段進行中 — 自動互動可以運作。"
-                  : "目前沒有工作階段 — 自動互動不會執行，直到你開始一個。"}
-                {`　已載入 ${recipes} 個自動互動。`}
-              </p>
-              {pendingAi > 0 && (
-                <p className="home-status-line info">
-                  <Icon name="bot" size={16} /> 有 {pendingAi} 個情境正在等 AI 協助判斷
-                  （逾時會自動用本機規則處理）。
-                </p>
-              )}
-            </div>
-          )}
-        </Section>
-
-        <Section title="主動互動">
-          <ProactiveSummary refreshKey={refreshKey} />
-          <div className="row wrap" style={{ marginTop: 10 }}>
-            {pause.paused ? (
-              <button onClick={() => doResume().catch((e) => setPauseError(String(e)))}>
-                恢復主動互動
-              </button>
-            ) : (
-              <>
-                <button onClick={() => tryPause()}>暫停主動互動</button>
-                <button onClick={() => setPauseDialog(true)}>暫停一段時間…</button>
-              </>
-            )}
-            <button onClick={() => onNavigate("automations")}>查看自動互動</button>
-          </div>
-          {pauseError && (
-            <p className="cap-card-error" role="alert">
-              操作失敗：{pauseError}
-            </p>
-          )}
-        </Section>
-      </div>
-
-      <AgentSessionsSection refreshKey={refreshKey} advancedHint />
-
-      <Section title="最近一次互動">
-        <StateView state={actions} empty="還沒有任何互動。">
-          {(list) => <LastInteraction receipt={(list as Receipt[])[0]} events={events} />}
-        </StateView>
-      </Section>
+      <NowStrip
+        refreshKey={refreshKey}
+        status={status.data}
+        statusError={status.error}
+        paused={pause.paused}
+        onNavigate={onNavigate}
+      />
 
       <Section title="快速操作">
+        <form className="home-delegate" onSubmit={delegate}>
+          <label className="field-label">
+            想讓{character.name}幫你做什麼？
+            <input
+              value={task}
+              onChange={(e) => setTask(e.target.value)}
+              placeholder="例如：整理這個資料夾裡的測試報告"
+              maxLength={500}
+            />
+          </label>
+          <button type="submit" className="primary">
+            交代一件事
+          </button>
+        </form>
         <div className="row wrap">
-          {!session.data ? (
-            <button
-              onClick={async () => {
-                await api.sessionStart("desktop", []);
-                onNavigate("home");
-              }}
-            >
-              開始工作階段
+          {pause.paused ? (
+            <button onClick={() => doResume().catch((e) => setPauseError(String(e)))}>
+              恢復主動互動
             </button>
           ) : (
-            <button onClick={() => api.sessionStop()}>結束工作階段</button>
+            <>
+              <button onClick={() => tryPause()}>暫停主動互動</button>
+              <button onClick={() => setPauseDialog(true)}>暫停一段時間…</button>
+            </>
           )}
-          <button onClick={() => onNavigate("automations")}>建立自動互動</button>
-          <button onClick={() => onNavigate("connect")}>連接與權限</button>
-          <button onClick={() => onNavigate("connect")}>測試回應方式</button>
+          <button onClick={() => onNavigate("connect")}>加入裝置</button>
         </div>
+        {pauseError && (
+          <p className="cap-card-error" role="alert">
+            操作失敗：{pauseError}
+          </p>
+        )}
       </Section>
+
+      <details
+        className="home-details"
+        open={detailsOpen}
+        onToggle={(e) => setDetailsOpen((e.currentTarget as HTMLDetailsElement).open)}
+      >
+        <summary>詳細狀態</summary>
+        {detailsOpen && (
+          <HomeDetails
+            refreshKey={refreshKey}
+            status={status}
+            events={events}
+            paused={pause.paused}
+            pauseUntil={pause.until}
+            onNavigate={onNavigate}
+          />
+        )}
+      </details>
 
       {pauseDialog && (
         <Dialog title="暫停主動互動" onClose={() => setPauseDialog(false)}>
@@ -159,6 +151,308 @@ export function HomePage({
           </div>
         </Dialog>
       )}
+    </div>
+  );
+}
+
+/** 詳細狀態（折疊區，展開才掛載、才查詢）：系統狀態、工作階段、自動互動、數量、
+ *  AI 工作階段、最近一次互動、記憶與知識。 */
+function HomeDetails({
+  refreshKey,
+  status,
+  events,
+  paused,
+  pauseUntil,
+  onNavigate,
+}: {
+  refreshKey: number;
+  status: { loading: boolean; error?: string; data?: Record<string, unknown> };
+  events: RuntimeEvent[];
+  paused: boolean;
+  pauseUntil?: string;
+  onNavigate: (tab: string) => void;
+}) {
+  const [actions] = useAsync(() => api.actionsList(5), [refreshKey]);
+  const [session] = useAsync(() => api.sessionGet(), [refreshKey]);
+  const [providers] = useAsync(() => api.providersList(), [refreshKey]);
+  const [receiptsData] = useAsync(() => api.knowledgeReceipts(), [refreshKey]);
+  const estop = Boolean(status.data?.["emergencyStop"]);
+  const recipes = (status.data?.["recipes"] as { loaded?: number } | undefined)?.loaded ?? 0;
+  const pendingAi = Number(status.data?.["pendingAiAssists"] ?? 0);
+  const cp = status.data?.["characterProtocol"] as Record<string, unknown> | undefined;
+  const instances = Number(cp?.["instances"] ?? 0);
+  const sensors = (status.data?.["activeSensors"] as { kind: string }[] | undefined) ?? [];
+  const latestReceipt = (
+    (receiptsData.data as Record<string, unknown> | undefined)?.receipts as
+      | Record<string, unknown>[]
+      | undefined
+  )?.[0];
+
+  return (
+    <div className="home-details-body">
+      <div className="grid-two">
+        <Section title="系統狀態">
+          {status.loading ? (
+            <div className="state-box">載入中…</div>
+          ) : status.error ? (
+            <div className="state-box state-error">
+              無法連到系統：{status.error}。請稍後再試，或重新啟動應用程式。
+            </div>
+          ) : (
+            <div className="home-status">
+              {estop ? (
+                <p className="home-status-line bad">
+                  <Icon name="octagon-x" size={18} /> 緊急停止中 — 所有回應已停止。
+                  到「連接與權限 → 同意與安全」可以檢視原因並安全解除。
+                </p>
+              ) : paused ? (
+                <p className="home-status-line warn">
+                  <Icon name="pause" size={18} /> 主動互動已暫停
+                  {pauseUntil ? `（至 ${new Date(pauseUntil).toLocaleTimeString()}）` : ""}。
+                  系統仍會回應你的直接要求。
+                </p>
+              ) : (
+                <p className="home-status-line ok">
+                  <Icon name="circle-check" size={18} /> 系統運作正常。
+                </p>
+              )}
+              <p className="muted small">
+                {session.data
+                  ? "工作階段進行中 — 自動互動可以運作。"
+                  : "目前沒有工作階段 — 自動互動不會執行，直到你開始一個。"}
+              </p>
+              {sensors.length > 0 && (
+                <p className="home-status-line warn">
+                  <Icon name="mic" size={16} /> 感測使用中：
+                  {sensors.map((s) => sensorLabel(s.kind)).join("、")}
+                </p>
+              )}
+              {pendingAi > 0 && (
+                <p className="home-status-line info">
+                  <Icon name="bot" size={16} /> 有 {pendingAi} 個情境正在等 AI 協助判斷
+                  （逾時會自動用本機規則處理）。
+                </p>
+              )}
+              <div className="row wrap" style={{ marginTop: 8 }}>
+                {session.loading ? null : !session.data ? (
+                  <button
+                    onClick={async () => {
+                      await api.sessionStart("desktop", []);
+                      onNavigate("home");
+                    }}
+                  >
+                    開始工作階段
+                  </button>
+                ) : (
+                  <button onClick={() => api.sessionStop()}>結束工作階段</button>
+                )}
+              </div>
+            </div>
+          )}
+        </Section>
+
+        <Section title="數量">
+          <ul className="plain-list home-counts">
+            <li>已載入 {recipes} 個自動互動</li>
+            <li>
+              角色視窗：
+              {cp ? `${instances} 個連線中` : "無法確認（系統未回報）"}
+            </li>
+            <li>
+              裝置與整合來源：
+              {providers.loading
+                ? "讀取中…"
+                : providers.error
+                  ? "無法確認（查詢失敗）"
+                  : `${(providers.data ?? []).length} 個`}
+            </li>
+          </ul>
+        </Section>
+      </div>
+
+      <Section title="主動互動">
+        <ProactiveSummary refreshKey={refreshKey} />
+        <div className="row wrap" style={{ marginTop: 10 }}>
+          <button onClick={() => onNavigate("automations")}>查看自動互動</button>
+          <button onClick={() => onNavigate("automations")}>建立自動互動</button>
+        </div>
+      </Section>
+
+      <AgentSessionsSection refreshKey={refreshKey} />
+
+      <Section title="最近一次互動">
+        <StateView state={actions} empty="還沒有任何互動。">
+          {(list) => <LastInteraction receipt={(list as Receipt[])[0]} events={events} />}
+        </StateView>
+      </Section>
+
+      <Section title="記憶與知識">
+        {latestReceipt ? (
+          <p className="muted small">
+            最近更新：{String(latestReceipt.triggeredBy)}（
+            {(latestReceipt.verification as Record<string, unknown> | undefined)?.humanReviewed ===
+            true
+              ? "已複審"
+              : "未複審"}
+            ）
+          </p>
+        ) : (
+          <p className="muted small">尚無更新。</p>
+        )}
+        <button onClick={() => onNavigate("memory")}>前往記憶與知識</button>
+      </Section>
+    </div>
+  );
+}
+
+/** 感測器種類的人話（未知種類原樣，不猜）。 */
+export function sensorLabel(kind: string): string {
+  const k = kind.toLowerCase();
+  if (k === "microphone" || k.includes("mic")) return "麥克風";
+  if (k.includes("camera")) return "攝影機";
+  if (k.includes("location") || k.includes("gps")) return "定位";
+  return kind;
+}
+
+export interface CharacterSentenceInput {
+  name: string;
+  estop: boolean;
+  paused: boolean;
+  connected: boolean;
+  visible: boolean;
+  sensors: string[];
+}
+
+/**
+ * 「角色現在怎麼樣」一句話。安全文字固定：緊急停止中／感測使用中；角色離線時用
+ * 可信的固定文案（CHARACTER_OFFLINE_LINE），不由角色包決定。
+ */
+export function characterSentence(input: CharacterSentenceInput): string {
+  const name = input.name || characterNameFallback;
+  const sensing =
+    input.sensors.length > 0 ? `感測使用中（${input.sensors.map(sensorLabel).join("、")}）。` : "";
+  if (input.estop) return `緊急停止中：${name}已停止所有回應。`;
+  if (!input.connected) return `${CHARACTER_OFFLINE_LINE}${sensing}`;
+  if (!input.visible) return `${name}已連線，但目前隱藏中。${sensing}`;
+  if (sensing) return `${name}在桌面上，${sensing}`;
+  if (input.paused) return `${name}在桌面上，主動互動已暫停。`;
+  return `${name}在桌面上，一切正常。`;
+}
+
+/** 「現在」第一屏的三個回答：角色現在怎麼樣／正在做什麼／有什麼需要處理。
+ *  誠實計數：查詢失敗＝未知（不得顯示綠色 0 項）；狀態標籤走 statusProjection。 */
+export function NowStrip({
+  refreshKey,
+  status,
+  statusError,
+  paused = false,
+  onNavigate,
+}: {
+  refreshKey: number;
+  status?: Record<string, unknown>;
+  statusError?: string;
+  paused?: boolean;
+  onNavigate: (tab: string) => void;
+}) {
+  const character = useCharacterName();
+  const [sessions] = useAsync(() => api.agentSessionsList(), [refreshKey]);
+  // 「待我決定」與右上角 Inbox 徽章共用同一個 Runtime application service，
+  // 不再在前端拼第二份真相（也不會因為分頁而少算）。
+  const [inbox] = useAsync(() => api.activityInbox({ limit: 5 }), [refreshKey]);
+
+  const sensors = ((status?.["activeSensors"] as { kind: string }[] | undefined) ?? []).map(
+    (s) => s.kind
+  );
+  const presentation = status?.["presentation"] as Record<string, unknown> | undefined;
+  const cp = status?.["characterProtocol"] as Record<string, unknown> | undefined;
+  const active = cp?.["activeCharacter"] as
+    | { characterId?: unknown; displayName?: unknown }
+    | null
+    | undefined;
+  const activeName =
+    active && typeof active.displayName === "object" && active.displayName
+      ? displayNameOf({ displayName: active.displayName as Record<string, string> }, "zh-TW")
+      : null;
+  const activeId = active && typeof active.characterId === "string" ? active.characterId : null;
+  const estop = Boolean(status?.["emergencyStop"]);
+  // 「進行中」的判定與 Rust `AgentSessionState::is_open` 同義，交給共用投影
+  // （含 fetched／working 這類角色 taxonomy 別名；介面不認得的狀態不算在跑）。
+  const open = (sessions.data ?? []).filter((s) => isOpenWorkState(s.state));
+  const pendingDegraded = Boolean(inbox.error);
+  const inboxData = inbox.data as Record<string, unknown> | undefined;
+  const pendingTotal = Number(inboxData?.pendingCount ?? 0);
+  const pendingItems = ((inboxData?.items as Record<string, unknown>[] | undefined) ?? [])
+    .filter((item) => item.needsDecision === true)
+    .slice(0, 3);
+
+  const sentence = statusError
+    ? "無法確認角色狀態（系統查詢失敗）。"
+    : characterSentence({
+        name: character.name,
+        estop,
+        paused,
+        connected: presentation?.connected === true,
+        visible: presentation?.visible === true,
+        sensors,
+      });
+
+  return (
+    <div className="now-strip now-answers">
+      <div className="now-card now-answer" data-testid="now-character">
+        <span className="now-title">{character.name}</span>
+        <p className="now-sentence">{sentence}</p>
+        {activeId && character.characterId && activeId !== character.characterId && activeName && (
+          <p className="muted small">目前連線的是另一個角色：{activeName}。</p>
+        )}
+        <button onClick={() => onNavigate("companion")}>前往{character.name}</button>
+      </div>
+      <div className="now-card now-answer" data-testid="now-work">
+        <span className="now-title">進行中的工作</span>
+        {sessions.error ? (
+          <Badge kind="warn">無法確認進行中的工作</Badge>
+        ) : open.length > 0 ? (
+          <Badge kind="pending">{open.length} 個工作階段</Badge>
+        ) : (
+          <Badge kind="ok">沒有進行中</Badge>
+        )}
+        {open.length > 0 && (
+          <ul className="plain-list now-list">
+            {open.slice(0, 3).map((s) => {
+              const st = projectWorkState(s.state);
+              return (
+                <li key={s.sessionId}>
+                  <span>{s.label ?? agentDisplayLabel(s.agentId)}</span>
+                  <Badge kind={st.badge}>{st.label}</Badge>
+                </li>
+              );
+            })}
+            {open.length > 3 && <li className="muted small">…還有 {open.length - 3} 件</li>}
+          </ul>
+        )}
+        <button onClick={() => onNavigate("work")}>查看工作</button>
+      </div>
+      <div className="now-card now-answer" data-testid="now-decisions">
+        <span className="now-title">待我決定</span>
+        {pendingDegraded ? (
+          <Badge kind="warn">無法確認（查詢失敗）</Badge>
+        ) : pendingTotal > 0 ? (
+          <Badge kind="warn">{pendingTotal} 項</Badge>
+        ) : (
+          <Badge kind="ok">0 項</Badge>
+        )}
+        {pendingItems.length > 0 && (
+          <ul className="plain-list now-list">
+            {pendingItems.map((item) => (
+              <li key={`${String(item.kind)}-${String(item.itemId)}`}>
+                <Badge kind="warn">{projectInboxStatus(String(item.status)).label}</Badge>
+                <span>{String(item.title)}</span>
+                <button onClick={() => onNavigate(String(item.route))}>前往</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <button onClick={() => onNavigate("activity")}>查看全部</button>
+      </div>
     </div>
   );
 }
@@ -321,8 +615,6 @@ function LastInteraction({ receipt }: { receipt: Receipt; events: RuntimeEvent[]
   );
 }
 
-
-
 /** 資料範圍的人話：一般模式不該看到 `workspace:/path` 這種原始 scope 字串。 */
 export function dataScopeLabel(scope: string): string {
   if (scope.startsWith("workspace:")) return `資料夾 ${scope.slice("workspace:".length)}`;
@@ -343,162 +635,50 @@ export function toolScopeLabel(scope: string): string {
   return TOOL_SCOPE_LABEL[scope] ?? scope;
 }
 
-/** 目前 AI 工作階段（多 Session 一般模式視圖）：真實 Session、人話狀態、
- *  權限範圍；「聲稱完成」明確標示為聲稱，非驗證。 */
-function AgentSessionsSection({ refreshKey }: { refreshKey: number; advancedHint?: boolean }) {
+/** 目前 AI 工作階段（一般模式視圖）：真實工作、人話狀態、權限範圍；
+ *  「聲稱完成」明確標示為聲稱，非驗證。 */
+function AgentSessionsSection({ refreshKey }: { refreshKey: number }) {
   const [sessions] = useAsync(() => api.agentSessionsList(), [refreshKey]);
   const open = (sessions.data ?? []).filter((s) => !s.closedAt);
   if (sessions.loading || open.length === 0) return null;
 
-  const stateLabel = (st: string) =>
-    ({
-      created: "已建立，尚未開始",
-      active: "工作中",
-      "waiting-for-input": "等待你的輸入",
-      "waiting-for-consent": "等待你的同意",
-      "claimed-completed": "聲稱已完成（尚未驗證）",
-      failed: "失敗",
-      "timed-out": "逾時",
-      cancelled: "已取消",
-      expired: "租約已到期",
-      closed: "已結束",
-    })[st] ?? st;
-
   return (
     <Section title={`目前有 ${open.length} 個 AI 工作階段`}>
-      {open.map((s) => (
-        <div key={s.sessionId} className="agent-session-row">
-          <div className="agent-session-head">
-            <strong>{s.label ?? s.agentId}</strong>
-            <Badge
-              kind={
-                s.state === "claimed-completed"
-                  ? "warn"
-                  : s.state === "failed"
-                    ? "bad"
-                    : "info"
-              }
-            >
-              {stateLabel(s.state)}
-            </Badge>
+      {open.map((s) => {
+        // 狀態文案與徽章走共用投影（statusProjection.ts）；未知狀態是
+        // 「結果不確定」，不是原始字串。
+        const status = projectWorkState(s.state);
+        return (
+          <div key={s.sessionId} className="agent-session-row">
+            <div className="agent-session-head">
+              <strong>{s.label ?? agentDisplayLabel(s.agentId)}</strong>
+              <Badge kind={status.badge}>{status.label}</Badge>
+            </div>
+            <div className="muted small">
+              權限：
+              {s.dataScope.length > 0
+                ? `可讀取${s.dataScope.map(dataScopeLabel).join("、")}`
+                : "沒有任何資料範圍"}
+              {s.toolScope.length > 0 ? `；${s.toolScope.map(toolScopeLabel).join("、")}` : ""}
+              　·　訊息 {s.budget.spentMessages}/{s.budget.maxMessages || "不限"}
+              　·　可用到 {new Date(s.lease.expiresAt).toLocaleTimeString()}
+            </div>
+            <div className="row wrap" style={{ marginTop: 4 }}>
+              <button
+                onClick={() =>
+                  api.agentSessionClose(s.sessionId, "cancelled").catch(() => {})
+                }
+              >
+                取消這個工作階段
+              </button>
+            </div>
           </div>
-          <div className="muted small">
-            權限：
-            {s.dataScope.length > 0
-              ? `可讀取${s.dataScope.map(dataScopeLabel).join("、")}`
-              : "沒有任何資料範圍"}
-            {s.toolScope.length > 0 ? `；${s.toolScope.map(toolScopeLabel).join("、")}` : ""}
-            　·　訊息 {s.budget.spentMessages}/{s.budget.maxMessages || "不限"}
-            　·　有效至 {new Date(s.lease.expiresAt).toLocaleTimeString()}
-          </div>
-          <div className="row wrap" style={{ marginTop: 4 }}>
-            <button
-              onClick={() =>
-                api.agentSessionClose(s.sessionId, "cancelled").catch(() => {})
-              }
-            >
-              取消這個工作階段
-            </button>
-          </div>
-        </div>
-      ))}
+        );
+      })}
       <p className="muted small">
         AI 工作階段是有期限、有預算的委派工作。它們的回報是「聲稱」，
-        實際結果仍以收據與驗證為準。
+        實際結果要等你檢查確認之後才算數。
       </p>
     </Section>
-  );
-}
-
-/** 「現在」摘要條（spec §16-1.B）：感測／待決定／進行中工作／小樞／知識更新。
- *  誠實計數：查詢失敗＝未知（不得顯示綠色 0 項）；達查詢上限顯示「N+」。 */
-export function NowStrip({
-  refreshKey,
-  status,
-  onNavigate,
-}: {
-  refreshKey: number;
-  status?: Record<string, unknown>;
-  onNavigate: (tab: string) => void;
-}) {
-  const [sessions] = useAsync(() => api.agentSessionsList(), [refreshKey]);
-  // 「待我決定」與右上角 Inbox 徽章共用同一個 Runtime application service，
-  // 不再在前端拼第二份真相（也不會因為分頁而少算）。
-  const [inbox] = useAsync(() => api.activityInbox({ limit: 1 }), [refreshKey]);
-  const [receiptsData] = useAsync(() => api.knowledgeReceipts(), [refreshKey]);
-
-  const sensors = (status?.["activeSensors"] as { kind: string }[] | undefined) ?? [];
-  const presentation = status?.["presentation"] as Record<string, unknown> | undefined;
-  const open = (sessions.data ?? []).filter((s) =>
-    ["created", "active", "waiting-for-input", "waiting-for-consent", "claimed-completed"].includes(
-      s.state
-    )
-  );
-  const pendingDegraded = Boolean(inbox.error);
-  const pendingTotal = Number(
-    (inbox.data as Record<string, unknown> | undefined)?.pendingCount ?? 0
-  );
-  const latestReceipt = (
-    (receiptsData.data as Record<string, unknown> | undefined)?.receipts as
-      | Record<string, unknown>[]
-      | undefined
-  )?.[0];
-
-  return (
-    <div className="now-strip">
-      <button className="now-card" onClick={() => onNavigate("safety")}>
-        <span className="now-title">感測</span>
-        {sensors.length > 0 ? (
-          <Badge kind="warn">{sensors.map((s) => s.kind).join("、")} 使用中</Badge>
-        ) : (
-          <Badge kind="ok">沒有在聽、也沒有在看</Badge>
-        )}
-      </button>
-      <button className="now-card" onClick={() => onNavigate("activity")}>
-        <span className="now-title">待我決定</span>
-        {pendingDegraded ? (
-          <Badge kind="warn">無法確認（查詢失敗）</Badge>
-        ) : pendingTotal > 0 ? (
-          <Badge kind="warn">{pendingTotal} 項</Badge>
-        ) : (
-          <Badge kind="ok">0 項</Badge>
-        )}
-      </button>
-      <button className="now-card" onClick={() => onNavigate("ai")}>
-        <span className="now-title">進行中的工作</span>
-        {open.length > 0 ? (
-          <Badge kind="pending">{open.length} 個工作階段</Badge>
-        ) : (
-          <Badge kind="ok">沒有進行中</Badge>
-        )}
-      </button>
-      <button className="now-card" onClick={() => onNavigate("companion")}>
-        <span className="now-title">小樞</span>
-        {presentation?.connected === true ? (
-          presentation?.visible === true ? (
-            <Badge kind="ok">在桌面上</Badge>
-          ) : (
-            <Badge kind="warn">隱藏中</Badge>
-          )
-        ) : (
-          <Badge kind="pending">視窗未連線</Badge>
-        )}
-      </button>
-      <button className="now-card" onClick={() => onNavigate("memory")}>
-        <span className="now-title">記憶與知識</span>
-        {latestReceipt ? (
-          <span className="muted small">
-            最近：{String(latestReceipt.triggeredBy)}（
-            {(latestReceipt.verification as Record<string, unknown> | undefined)?.humanReviewed ===
-            true
-              ? "已複審"
-              : "未複審"}
-            ）
-          </span>
-        ) : (
-          <span className="muted small">尚無更新</span>
-        )}
-      </button>
-    </div>
   );
 }

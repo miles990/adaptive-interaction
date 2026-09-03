@@ -296,23 +296,28 @@ describe("Global Search 一般模式說人話", () => {
 
     await userEvent.clear(input);
     await userEvent.type(input, "送出桌面通知");
-    await screen.findByText("結果收據：送出桌面通知");
+    // v0.5 一般模式：「收據」是治理術語，只在進階模式出現；一般模式叫「互動結果」。
+    await screen.findByText("互動結果：送出桌面通知");
     expect(container.textContent).toContain("已完成");
     expect(container.textContent).not.toContain("completed");
+    expect(container.textContent).not.toContain("收據");
 
     await userEvent.clear(input);
     await userEvent.type(input, "報告工作階段");
     await screen.findByText("工作階段：報告工作階段");
-    expect(container.textContent).toContain("回報完成（尚未驗證）");
+    // 文案以共用狀態投影（statusProjection.ts）的 spec 表格為準：claimed ≠ verified。
+    expect(container.textContent).toContain("Agent 說已完成，等待檢查");
     expect(container.textContent).not.toContain("claimed-completed");
   });
 
   it("一般模式的 UUID 只留後 6 碼；進階模式才是完整識別碼", async () => {
     stubSearchApis();
     const container = await openAndSearch("手動複審");
-    await screen.findByText("知識收據：手動複審");
+    // v0.5 一般模式：「知識收據」→「知識更新」（進階模式仍叫收據）。
+    await screen.findByText("知識更新：手動複審");
     expect(container.textContent).not.toContain(UPDATE_ID);
     expect(container.textContent).toContain("…7890ab");
+    expect(container.textContent).not.toContain("收據");
     // 進階模式保留完整識別碼（零能力退化）。
     expect(shortId(UPDATE_ID, true)).toBe(UPDATE_ID);
     expect(shortId(UPDATE_ID, false)).toBe("…7890ab");

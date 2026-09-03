@@ -6,6 +6,7 @@ import { api, Receipt, RuntimeEvent } from "../api";
 import { actionStatusLabel, useAppState } from "../appstate";
 import { Icon } from "../icons";
 import { Badge, JsonView, Section, statusBadgeKind, useAsync } from "../ui";
+import { agentDisplayLabel, inboxKindLabel, projectInboxStatus } from "../statusProjection";
 
 export function ActivityPage({
   refreshKey,
@@ -22,7 +23,11 @@ export function ActivityPage({
 
   return (
     <div>
-      <InboxSection refreshKey={refreshKey} onNavigate={onNavigate ?? (() => {})} />
+      <InboxSection
+        refreshKey={refreshKey}
+        advanced={advanced}
+        onNavigate={onNavigate ?? (() => {})}
+      />
       <p className="page-intro">
         每一次互動的完整歷程：系統感知到什麼、如何決定、安全規則說了什麼、實際結果到哪一層。
       </p>
@@ -204,9 +209,12 @@ function eventLabel(e: RuntimeEvent): string {
  *  正規化 Agent、Knowledge、Receipt 與 Safety；UI 不自行拼湊另一份真相。 */
 export function InboxSection({
   refreshKey,
+  advanced = false,
   onNavigate,
 }: {
   refreshKey: number;
+  /** 進階模式才在次要行顯示原始狀態碼／種類；一般模式只有人話。 */
+  advanced?: boolean;
   onNavigate: (tab: string) => void;
 }) {
   const [filters, setFilters] = React.useState({
@@ -233,11 +241,11 @@ export function InboxSection({
   return (
     <Section title={`統一收件匣（待決定 ${pending}／共 ${total}）`}>
       <details className="inbox-filters" open>
-        <summary>依時間、狀態、Agent、裝置、任務、知識 Domain 篩選</summary>
+        <summary>依時間、狀態、Agent、裝置、任務、知識領域篩選</summary>
         <div className="inbox-filter-grid">
           {(["status", "agent", "device", "task", "domain"] as const).map((key) => (
             <label key={key}>
-              {{ status: "狀態", agent: "Agent", device: "裝置", task: "任務", domain: "Domain" }[key]}
+              {{ status: "狀態", agent: "Agent", device: "裝置", task: "任務", domain: "知識領域" }[key]}
               <input
                 value={filters[key]}
                 onChange={(event) => setFilters((current) => ({ ...current, [key]: event.target.value }))}
@@ -265,23 +273,37 @@ export function InboxSection({
         <div className="state-box">目前沒有符合篩選條件的活動。</div>
       ) : (
         <div className="provider-list" data-testid="activity-inbox-results">
-          {items.map((item) => (
-            <div className="provider-card" key={`${String(item.kind)}-${String(item.itemId)}`}>
-              <div className="row space-between">
-                <strong>{String(item.title)}</strong>
-                <Badge kind={item.needsDecision === true ? "warn" : statusBadgeKind(String(item.status))}>
-                  {String(item.status)}
-                </Badge>
+          {items.map((item) => {
+            // 狀態與種類走共用投影（statusProjection.ts）：一般模式不印
+            // `agent-session`／`waiting-for-consent` 這種原始字串；後端說要
+            // 人裁決就一律 warn，不靠前端另外猜。
+            const rawStatus = String(item.status);
+            const rawKind = String(item.kind);
+            const status = projectInboxStatus(rawStatus);
+            return (
+              <div className="provider-card" key={`${rawKind}-${String(item.itemId)}`}>
+                <div className="row space-between">
+                  <strong>{String(item.title)}</strong>
+                  <Badge kind={item.needsDecision === true ? "warn" : status.badge}>
+                    {status.label}
+                  </Badge>
+                </div>
+                <div className="muted small">
+                  {new Date(String(item.occurredAt)).toLocaleString("zh-TW")}・{inboxKindLabel(rawKind)}
+                  {item.agentId ? `・${agentDisplayLabel(String(item.agentId))}` : ""}
+                  {item.deviceId ? `・裝置 ${String(item.deviceId)}` : ""}
+                  {Array.isArray(item.domains) && item.domains.length ? `・${item.domains.join(", ")}` : ""}
+                  {status.honesty ? `・${status.honesty}` : ""}
+                </div>
+                {advanced && (
+                  <div className="muted small">
+                    原始狀態：{rawStatus}・{rawKind}
+                  </div>
+                )}
+                <button onClick={() => onNavigate(String(item.route))}>開啟對應頁面</button>
               </div>
-              <div className="muted small">
-                {new Date(String(item.occurredAt)).toLocaleString("zh-TW")}・{String(item.kind)}
-                {item.agentId ? `・Agent ${String(item.agentId)}` : ""}
-                {item.deviceId ? `・裝置 ${String(item.deviceId)}` : ""}
-                {Array.isArray(item.domains) && item.domains.length ? `・${item.domains.join(", ")}` : ""}
-              </div>
-              <button onClick={() => onNavigate(String(item.route))}>開啟對應頁面</button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Section>

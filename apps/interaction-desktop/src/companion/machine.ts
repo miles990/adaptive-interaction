@@ -32,7 +32,9 @@ export interface Transient {
   kind: TransientKind;
   untilMs: number;
   verified?: boolean;
-  /** For `performing`: which whitelisted animation to play. */
+  /** For `performing`: which whitelisted animation to play.
+   *  For `clicked`／`dragged`: the reaction variant the Director picked（省略＝canonical 名，
+   *  由 renderer 的 alias 解析成 poked／lifted）。 */
   animation?: string;
   /** For `performing`: optional honest sub-range of that animation. */
   frameSlice?: [number, number];
@@ -108,7 +110,13 @@ export type MachineEvent =
       animation?: string;
       frameSlice?: [number, number];
     }
-  | { type: "clear-transient" };
+  /**
+   * 清掉 transient。預設**不動**安全訊息（blocked／failed／unknown）：presentation
+   * `cancel`（AI 用同一把 token 就能對自己的 companion.speak 送）不得把被擋下／失敗／
+   * 未知提早抹掉。只有 estop 的 `clear-all` 帶 `force:true`——即使如此基態 emergency
+   * 也不在這裡解除（基態由 runtime 狀態擁有）。
+   */
+  | { type: "clear-transient"; force?: boolean };
 
 /**
  * Equal-priority competition (spec §6.1 「多事件注意力競爭」).
@@ -165,9 +173,95 @@ export function wasPreempted(
   return after !== null && after.kind !== "performing";
 }
 
+/**
+ * 還在播的表演被**另一個表演**換掉（同優先 performing 25 vs 25，不同動畫）。
+ *
+ * 這不是 wasPreempted（那是被真實事件搶）——但 Director 排的 ambient 已經下台了：
+ * 不通知的話 Director.currentAction 仍指著它，之後任何真實搶佔都會拿早已下台的
+ * 動作的 startedAt 算剩餘時間、排一個假的恢復計畫（對抗審查 director-pipeline-025）。
+ */
+export function wasReplacedByPerforming(
+  before: Transient | null,
+  after: Transient | null,
+  nowMs: number
+): boolean {
+  if (!before || before.kind !== "performing") return false;
+  if (before.untilMs <= nowMs) return false;
+  if (!after || after.kind !== "performing") return false;
+  return after.animation !== before.animation || after.frameSlice !== before.frameSlice;
+}
+
 /** 拖曳期間的「持續」transient：TTL 只是安全網，放下前每 500ms 續期。 */
 export const DRAG_HOLD_MS = 1500;
 export const DRAG_RENEW_MS = 500;
+
+/**
+ * 混音器入口（CPP in-process adapter 與 host 共用）：adapter 把 intent 轉成
+ * machine event 餵進來，host 決定狀態放在哪裡（CompanionApp 的 machineRef，
+ * 或 adapter 自帶的 LocalMixer）。回傳套用後的狀態。
+ */
+export interface MixerPort {
+  apply(event: MachineEvent): MachineState;
+  state(): MachineState;
+}
+
+/**
+ * canonical 動畫名 → machine event。這是 pose() 詞彙的反向映射（engine-neutral）：
+ * 真相名稱進對應的 transient kind／基態，其餘名稱當成 performing 表演。
+ * `success` 帶 frameSlice ＝ claimed（只點頭）、不帶 ＝ verified；呼叫端
+ * （adapter）已依 truthState 決定是否給 slice，這裡不做升級。
+ */
+export function machineEventForAnimation(
+  name: string,
+  frameSlice?: [number, number],
+  durationMs?: number
+): MachineEvent {
+  const t = (kind: TransientKind, extra: Partial<Extract<MachineEvent, { type: "transient" }>> = {}): MachineEvent => ({
+    type: "transient",
+    kind,
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...extra,
+  });
+  switch (name) {
+    case "emergency":
+      return { type: "base", base: "emergency" };
+    case "offline":
+      return { type: "base", base: "offline" };
+    case "idle":
+    case "paused":
+      // 回到基態；paused／quiet 基態由 runtime 狀態輪詢擁有，不在這裡改。
+      // 這條路只有 Runtime 派送的 intent／host 對「正在盯的那則命令」的 cancel 會走到
+      // （Gateway 依 priority 擋掉 AI 的低優先 idle），所以可以連安全訊息一起收——
+      // AI 可達的 presentation `cancel` 不走這裡（CompanionApp 那邊不帶 force）。
+      return { type: "clear-transient", force: true };
+    case "listening":
+      return t("listening");
+    case "thinking":
+      return t("thinking");
+    case "routing":
+      return t("routing");
+    case "ask":
+      return t("requesting-consent");
+    case "act":
+      return t("acting");
+    case "waiting":
+      return t("waiting-for-receipt");
+    case "success":
+      return t("succeeded", { verified: !frameSlice });
+    case "blocked":
+      return t("blocked");
+    case "unknown":
+      return t("unknown");
+    case "failed":
+      return t("failed");
+    case "clicked":
+      return t("clicked");
+    case "dragged":
+      return t("dragged");
+    default:
+      return t("performing", { animation: name, ...(frameSlice ? { frameSlice } : {}) });
+  }
+}
 
 export function reduce(state: MachineState, event: MachineEvent, nowMs: number): MachineState {
   switch (event.type) {
@@ -181,8 +275,12 @@ export function reduce(state: MachineState, event: MachineEvent, nowMs: number):
       }
       return { ...state, base: event.base };
     }
-    case "clear-transient":
+    case "clear-transient": {
+      const t = state.transient;
+      // 安全訊息（被擋下／失敗／未知）只能被 force（estop clear-all）清掉；一般 cancel 不動它。
+      if (!event.force && t && t.untilMs > nowMs && SAFETY_TRANSIENTS.has(t.kind)) return state;
       return { ...state, transient: null };
+    }
     case "transient": {
       // Emergency/offline suppress every ordinary transient (no dead poses
       // over a stopped system — the safe pose stays fixed).
@@ -257,9 +355,10 @@ export function pose(state: MachineState, nowMs: number): Pose {
         // fallback 到 blocked。固定安全語句讓兩者永遠可分辨。
         return { animation: "failed", ambient: false };
       case "clicked":
-        return { animation: "clicked", ambient: false };
+        // Director 挑的變體（poked／poked-flinch／…）；沒有就是 canonical 名（alias → poked）。
+        return { animation: t.animation ?? "clicked", ambient: false };
       case "dragged":
-        return { animation: "dragged", ambient: false };
+        return { animation: t.animation ?? "dragged", ambient: false };
       case "performing":
         return { animation: t.animation ?? "idle", frameSlice: t.frameSlice, ambient: false };
     }
@@ -317,8 +416,38 @@ function isDeviceAction(e: RuntimeEventLike): boolean {
   return typeof actuator === "string" && actuator !== "" && !actuator.startsWith("companion.");
 }
 
+/**
+ * 舊路徑（daemon 沒有 characterProtocol、沒有 `character.intent` 事件時）
+ * 事件 → 美術名的可注入表。預設值只用 pose() 的 canonical 詞彙（任何 renderer
+ * 都能解析）；角色專屬表情（例如 shu-rig 的 device-hello／operate-tool）由
+ * 該角色的 adapter tables 注入，machine 本身不認識任何角色部位或表情 id。
+ */
+export interface LegacyEventArt {
+  /** provider 上線／配對。 */
+  deviceOnline: string;
+  /** provider 斷線／撤銷。 */
+  deviceOffline: string;
+  /** 非 desktop-pet 動器的 action.dispatched（硬體／外部工具）。 */
+  operateExternal: string;
+  /** action.acknowledged 的短點頭（acknowledged ≠ completed）。 */
+  ackBrief: string;
+  /** agent.session.state created：等待哪個 agent 取走任務。 */
+  waitForAgent: (agentId: string) => string;
+}
+
+export const NEUTRAL_EVENT_ART: LegacyEventArt = {
+  deviceOnline: "notice",
+  deviceOffline: "notice",
+  operateExternal: "act",
+  ackBrief: "clicked",
+  waitForAgent: () => "waiting",
+};
+
 /** Map one runtime event to a machine event (or null = no visual change). */
-export function mapRuntimeEvent(e: RuntimeEventLike): MachineEvent | null {
+export function mapRuntimeEvent(
+  e: RuntimeEventLike,
+  art: LegacyEventArt = NEUTRAL_EVENT_ART
+): MachineEvent | null {
   // 重播的舊事件不演：它們描述的是上一輪已經結束的結果。
   if (isReplayedBeforeStart(e)) return null;
   switch (e.eventType) {
@@ -339,15 +468,15 @@ export function mapRuntimeEvent(e: RuntimeEventLike): MachineEvent | null {
     case "action.accepted":
       return { type: "transient", kind: "acting" };
     case "action.dispatched":
-      // 非 desktop-pet 的動作（硬體、外部工具）：尾尖紫光在動別的東西。
+      // 非 desktop-pet 的動作（硬體、外部工具）：角色「在操作別的東西」。
       // 低優先 transient——安全狀態隨時搶佔。
       return isDeviceAction(e)
-        ? { type: "transient", kind: "performing", animation: "operate-tool", durationMs: 4000 }
+        ? { type: "transient", kind: "performing", animation: art.operateExternal, durationMs: 4000 }
         : { type: "transient", kind: "acting" };
     case "action.acknowledged":
-      // acknowledged ≠ completed：裝置說「收到」就只點個頭，不演成功。
+      // acknowledged ≠ completed：裝置說「收到」就只短暫回應，不演成功。
       return isDeviceAction(e)
-        ? { type: "transient", kind: "performing", animation: "ack-nod", durationMs: 900 }
+        ? { type: "transient", kind: "performing", animation: art.ackBrief, durationMs: 900 }
         : { type: "transient", kind: "waiting-for-receipt" };
     case "action.completed":
       // Completed ≠ verified: nod only (frameSlice), never the green check.
@@ -367,8 +496,7 @@ export function mapRuntimeEvent(e: RuntimeEventLike): MachineEvent | null {
     case "agent.session.state": {
       const state = String(e.payload["state"] ?? "");
       const agent = String(e.payload["agentId"] ?? "");
-      const waitExpr =
-        agent === "codex" ? "wait-codex" : agent === "claude-code" ? "wait-claude" : "waiting";
+      const waitExpr = art.waitForAgent(agent);
       switch (state) {
         case "created": // queued：等待任務被取走
           return { type: "transient", kind: "performing", animation: waitExpr, durationMs: 6000 };
@@ -386,6 +514,13 @@ export function mapRuntimeEvent(e: RuntimeEventLike): MachineEvent | null {
         case "failed":
         case "timed-out":
           return { type: "transient", kind: "failed" };
+        case "unknown":
+        // 租約到期／daemon 重啟：工作沒收尾、結果沒人知道（runtime 目前對租約
+        // 到期發 timed-out，但 AgentSessionState 有 Expired，防禦性地一併映射）。
+        case "expired":
+          // 結果未知：既不是成功也不是失敗——誠實階梯要求演 unknown，
+          // 不能停在上一個狀態（例如永遠的「工作中」）。
+          return { type: "transient", kind: "unknown" };
         case "cancelled":
         case "closed":
           // 取消/收尾：誠實回到待機，不演成功也不演失敗。
@@ -395,14 +530,14 @@ export function mapRuntimeEvent(e: RuntimeEventLike): MachineEvent | null {
       }
     }
     case "provider.state-changed": {
-      // 硬體/提供者上下線（spec §9）：右耳（行動側）亮起＝剛連上；
-      // 耳朵下垂＝連線沒了。兩者都只是「發生了」，不代表可用或成功。
+      // 硬體/提供者上下線（spec §9）：「剛連上」與「連線沒了」各有一段短演出，
+      // 兩者都只是「發生了」，不代表可用或成功。美術由角色 tables 注入。
       const state = String(e.payload["state"] ?? "").toLowerCase();
       if (state === "available" || state === "paired") {
-        return { type: "transient", kind: "performing", animation: "device-hello", durationMs: 1800 };
+        return { type: "transient", kind: "performing", animation: art.deviceOnline, durationMs: 1800 };
       }
       if (state === "disconnected" || state === "revoked") {
-        return { type: "transient", kind: "performing", animation: "device-lost", durationMs: 2200 };
+        return { type: "transient", kind: "performing", animation: art.deviceOffline, durationMs: 2200 };
       }
       return null;
     }

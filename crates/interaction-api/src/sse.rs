@@ -26,6 +26,8 @@ fn event_allowed(auth: &AuthContext, event: &RuntimeEvent) -> bool {
     // The legacy Agent token has no knowledge/memory/presentation/sensor
     // authority. SSE must obey the same boundary as REST instead of becoming
     // a side channel for payloads rejected by those route families.
+    // Character Protocol 事件（intent／receipt／instance／system-text）只給
+    // 可信 host（human）；外部 adapter 走自己的 WebSocket，不開 SSE。
     !matches!(
         event.event_type,
         interaction_core::EventType::KnowledgeUpdated
@@ -37,6 +39,10 @@ fn event_allowed(auth: &AuthContext, event: &RuntimeEvent) -> bool {
             | interaction_core::EventType::PresentationState
             | interaction_core::EventType::AiAssistRequested
             | interaction_core::EventType::AiAssistResolved
+            | interaction_core::EventType::CharacterIntent
+            | interaction_core::EventType::CharacterReceipt
+            | interaction_core::EventType::CharacterInstance
+            | interaction_core::EventType::CharacterSystemText
     )
 }
 
@@ -107,5 +113,37 @@ mod tests {
         }
         let action = RuntimeEvent::new(EventType::ActionFailed, Utc::now(), json!({}));
         assert!(event_allowed(&auth, &action));
+    }
+
+    #[test]
+    fn character_events_are_human_only_on_sse() {
+        let human = AuthContext {
+            principal: AuthPrincipal::Human,
+        };
+        let adapter = AuthContext {
+            principal: AuthPrincipal::CharacterAdapter {
+                adapter_id: "adp-1".into(),
+            },
+        };
+        let agent = AuthContext {
+            principal: AuthPrincipal::LegacyAgent,
+        };
+        for event_type in [
+            EventType::CharacterIntent,
+            EventType::CharacterReceipt,
+            EventType::CharacterInstance,
+            EventType::CharacterSystemText,
+        ] {
+            let event = RuntimeEvent::new(event_type, Utc::now(), json!({}));
+            assert!(event_allowed(&human, &event));
+            assert!(
+                !event_allowed(&agent, &event),
+                "{event_type:?} hidden from agent"
+            );
+            assert!(
+                !event_allowed(&adapter, &event),
+                "{event_type:?} hidden from adapter"
+            );
+        }
     }
 }

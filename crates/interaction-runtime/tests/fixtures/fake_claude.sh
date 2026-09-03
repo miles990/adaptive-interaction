@@ -62,11 +62,36 @@ case "$MODE" in
     ;;
 esac
 
+TURN=0
 while IFS= read -r _line; do
   if [ -n "$INPUT_FILE" ]; then printf '%s\n' "$_line" >> "$INPUT_FILE"; fi
+  TURN=$((TURN + 1))
   case "$MODE" in
     hang)
       sleep 3600
+      ;;
+    # Multi-turn honesty: the FIRST turn claims completion like a healthy
+    # agent; the SECOND turn dies. `claim-then-crash` dies with an observable
+    # error (stderr + exit 3), `claim-then-silent` exits 0 having claimed
+    # nothing — the first turn's result must not vouch for the second.
+    claim-then-crash|claim-then-silent)
+      if [ "$TURN" -eq 1 ]; then
+        echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"working on it"}]}}'
+        echo '{"type":"result","subtype":"success","is_error":false,"result":"第一輪完成了（這是聲稱）","total_cost_usd":0.01,"num_turns":1}'
+      else
+        echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"second round"}]}}'
+        if [ "$MODE" = "claim-then-crash" ]; then
+          echo 'fake-claude: model backend exploded on round two' >&2
+          exit 3
+        fi
+        exit 0
+      fi
+      ;;
+    # Claims completion on the first turn, then the process ends on its own
+    # (exit 0): the claim stands, but nothing can ever be delivered again.
+    claim-then-exit)
+      echo '{"type":"result","subtype":"success","is_error":false,"result":"做完就走了（這是聲稱）","total_cost_usd":0.01,"num_turns":1}'
+      exit 0
       ;;
     proactive)
       echo '{"type":"result","subtype":"success","is_error":false,"result":"{\"intent\":\"request_attention\",\"message\":\"有一項低風險建議，想看時再點我。\",\"tone\":\"attentive\",\"behaviorIntent\":\"notice\",\"priority\":\"normal\",\"expiresInSeconds\":60}","total_cost_usd":0.01,"num_turns":1}'

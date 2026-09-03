@@ -36,6 +36,8 @@
 // 主機第一次連上時必須先送 {"type":"pair","code":"..."} 通過配對，
 // 否則 cmd / read / cancel 一律回 {"type":"err","reason":"not-paired"}。
 // 設成空字串 "" 代表停用配對（僅建議在完全隔離的測試環境使用）。
+// 暴力猜測防護：每條通道連續 5 次錯碼 → 鎖定 30 秒（期間 pair 一律回
+// pair-fail reason:pair-locked，不比對碼）；重開機後歸零。
 #define PAIRING_CODE "1234-5678"
 
 // --- 可選覆寫 -------------------------------------------------------------
@@ -44,5 +46,5 @@
 
 // 啟用 BLE（需要另外安裝 NimBLE-Arduino 函式庫，見 README）。
 // 開啟後 BLE 入站訊息會進一個 8 筆的有界佇列，由 loop() 統一處理與回覆；
-// 佇列滿會回 err busy（訊息丟棄），單筆上限 512 bytes。
+// 佇列滿會回 err busy（訊息丟棄），單筆上限 511 bytes（≥ 512 整筆拒絕）。
 // #define ENABLE_BLE 1

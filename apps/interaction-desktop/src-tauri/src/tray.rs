@@ -5,6 +5,7 @@
 //! State is never conveyed by color alone: the menu carries text for every
 //! state, and on macOS the icon gets a text glyph title as a secondary cue.
 
+use crate::host_safety::HostSafetyView;
 use crate::DesktopState;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -136,44 +137,48 @@ pub struct TrayView {
     pub title_glyph: Option<&'static str>,
 }
 
-pub fn tray_view(
-    supervisor_ready: bool,
-    external: bool,
-    estop: bool,
-    paused: bool,
-    ai_sessions: usize,
-    mic_active: bool,
-    camera_active: bool,
-) -> TrayView {
-    let status_text = if !supervisor_ready {
+/// 從 host 安全視圖（tray 與 overlay 共用同一份推導）組出 tray 文字。
+///
+/// 感測文字**一律**放進 `status_text`：macOS 另有 title glyph，但 Windows／Linux
+/// 沒有，而「感測不靜默」要求 tray 在每個平台都要有文字（不靠 glyph、不靠顏色）。
+pub fn tray_view(view: &HostSafetyView, external: bool, ai_sessions: usize) -> TrayView {
+    let mut status_text = if view.starting {
+        "系統狀態：啟動中…".to_string()
+    } else if !view.reachable {
         "系統狀態：離線（無法連線 Runtime）".to_string()
-    } else if estop {
+    } else if view.estop {
         "系統狀態：緊急停止中".to_string()
     } else if external {
         "系統狀態：已連線外部 Runtime".to_string()
     } else {
         "系統狀態：正常（內嵌 Runtime）".to_string()
     };
-    let pause_text = if paused {
+    if let Some(sensor) = view.sensor_text() {
+        status_text.push('｜');
+        status_text.push_str(&sensor);
+    }
+    let pause_text = if view.paused {
         "主動互動：已暫停".to_string()
     } else {
         "主動互動：進行中".to_string()
     };
     let sessions_text = format!("AI 工作階段：{ai_sessions}");
-    let pause_action_text = if paused {
+    let pause_action_text = if view.paused {
         "恢復主動互動".to_string()
     } else {
         "暫停主動互動".to_string()
     };
-    let title_glyph = if !supervisor_ready {
+    let title_glyph = if view.starting {
+        None
+    } else if !view.reachable {
         Some("⚠")
-    } else if estop {
+    } else if view.estop {
         Some("⛔")
-    } else if mic_active {
+    } else if view.mic_active {
         Some("🎙")
-    } else if camera_active {
+    } else if view.camera_active {
         Some("📷")
-    } else if paused {
+    } else if view.paused {
         Some("⏸")
     } else {
         None
@@ -190,30 +195,104 @@ pub fn tray_view(
 #[cfg(test)]
 mod tests {
     use super::tray_view;
+    use crate::host_safety::HostSafetyView;
+    use serde_json::json;
+
+    /// 依舊測試的參數順序組出視圖：(supervisor_ready, estop, paused, mic, camera)。
+    fn view(ready: bool, estop: bool, paused: bool, mic: bool, camera: bool) -> HostSafetyView {
+        let mut sensors = Vec::new();
+        if mic {
+            sensors.push(json!({"kind": "microphone", "startedBy": "user", "purpose": "t"}));
+        }
+        if camera {
+            sensors.push(json!({"kind": "camera", "startedBy": "user", "purpose": "t"}));
+        }
+        let status = json!({
+            "emergencyStop": estop,
+            "proactivePause": {"paused": paused},
+            "activeSensors": sensors,
+        });
+        HostSafetyView::derive(
+            ready,
+            false,
+            if ready { Some(&status) } else { None },
+            chrono::Utc::now(),
+        )
+    }
 
     #[test]
     fn tray_states_always_carry_text_not_only_color() {
-        let offline = tray_view(false, false, false, false, 0, false, false);
+        let offline = tray_view(&view(false, false, false, false, false), false, 0);
         assert!(offline.status_text.contains("離線"));
         assert_eq!(offline.title_glyph, Some("⚠"));
 
-        let estop = tray_view(true, false, true, false, 0, false, false);
+        let estop = tray_view(&view(true, true, false, false, false), false, 0);
         assert!(estop.status_text.contains("緊急停止"));
         assert_eq!(estop.title_glyph, Some("⛔"));
 
-        let paused = tray_view(true, false, false, true, 2, false, false);
+        let paused = tray_view(&view(true, false, true, false, false), false, 2);
         assert!(paused.pause_text.contains("已暫停"));
         assert!(paused.sessions_text.contains('2'));
         assert_eq!(paused.pause_action_text, "恢復主動互動");
         assert_eq!(paused.title_glyph, Some("⏸"));
 
         // Estop outranks pause and sensor glyphs.
-        let both = tray_view(true, false, true, true, 0, true, true);
+        let both = tray_view(&view(true, true, true, true, true), false, 0);
         assert_eq!(both.title_glyph, Some("⛔"));
 
         // Sensor use is visible even while otherwise normal.
-        let mic = tray_view(true, true, false, false, 0, true, false);
+        let mic = tray_view(&view(true, false, false, true, false), true, 0);
         assert_eq!(mic.title_glyph, Some("🎙"));
         assert!(mic.status_text.contains("外部"));
+    }
+
+    /// 非 macOS 沒有 title glyph：感測必須以文字進 status_text（每個平台都一樣）。
+    #[test]
+    fn sensor_use_is_text_in_status_on_every_platform() {
+        let mic = tray_view(&view(true, false, false, true, false), false, 0);
+        assert!(
+            mic.status_text.contains("麥克風使用中"),
+            "{}",
+            mic.status_text
+        );
+
+        let camera = tray_view(&view(true, false, false, false, true), false, 0);
+        assert!(
+            camera.status_text.contains("攝影機使用中"),
+            "{}",
+            camera.status_text
+        );
+        assert_eq!(camera.title_glyph, Some("📷"));
+
+        let both = tray_view(&view(true, true, false, true, true), false, 0);
+        assert!(both.status_text.contains("緊急停止"));
+        assert!(
+            both.status_text.contains("麥克風＋攝影機使用中"),
+            "{}",
+            both.status_text
+        );
+
+        // 手機麥克風（kind ≠ "microphone"）同樣要有文字。
+        let status =
+            json!({"activeSensors": [{"kind": "iphone.mic-level", "startedBy": "iphone:x"}]});
+        let phone = HostSafetyView::derive(true, false, Some(&status), chrono::Utc::now());
+        let tv = tray_view(&phone, false, 0);
+        assert!(
+            tv.status_text.contains("麥克風使用中"),
+            "{}",
+            tv.status_text
+        );
+        assert_eq!(tv.title_glyph, Some("🎙"));
+
+        let quiet = tray_view(&view(true, false, false, false, false), false, 0);
+        assert!(!quiet.status_text.contains("使用中"));
+    }
+
+    #[test]
+    fn starting_grace_is_not_reported_as_offline() {
+        let starting = HostSafetyView::derive(false, true, None, chrono::Utc::now());
+        let tv = tray_view(&starting, false, 0);
+        assert!(tv.status_text.contains("啟動中"), "{}", tv.status_text);
+        assert_eq!(tv.title_glyph, None);
     }
 }

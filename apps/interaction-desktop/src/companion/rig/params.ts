@@ -113,6 +113,15 @@ export interface RigParams {
   corePulse: number;
 
   armPose: RigArmPose;
+  /**
+   * 手臂姿勢過場的「另一個姿勢」與目前姿勢的權重（0..1；1＝完全就位）。
+   *
+   * armPose 是字串通道，插值時在中點硬切；各姿勢的手位差 30–45px，硬切就是單幀瞬移。
+   * lerpParams／blendArm 在切換期間把 armBlend 從 0.5 附近連續帶過，draw.ts 依它在
+   * `armFrom` 與 `armPose` 兩套手臂幾何之間線性混合（對抗審查 rig-renderer-016）。
+   */
+  armFrom: RigArmPose;
+  armBlend: number;
   /** 0..1 手臂動作進行度（reach 伸多遠、raise 舉多高）。 */
   armPhase: number;
   /** -1..1 慣用側（reach/block 用哪隻手；負=左）。 */
@@ -181,6 +190,8 @@ export const DEFAULT_PARAMS: RigParams = {
   coreGlow: 0.35,
   corePulse: 0,
   armPose: "front",
+  armFrom: "front",
+  armBlend: 1,
   armPhase: 0,
   armSide: 1,
   tailAngle: 24,
@@ -228,6 +239,7 @@ const NUM_BOUNDS: Record<string, [number, number]> = {
   headpieceGlow: [0, 1],
   coreGlow: [0, 1],
   corePulse: [0, 1],
+  armBlend: [0, 1],
   armPhase: [0, 1],
   armSide: [-1, 1],
   tailAngle: [-10, 70],
@@ -293,7 +305,7 @@ export function clampParams(p: Partial<RigParams>): RigParams {
           ? POSES
           : k === "mouth"
             ? MOUTHS
-            : k === "armPose"
+            : k === "armPose" || k === "armFrom"
               ? ARM_POSES
               : k === "overlay"
                 ? OVERLAYS
@@ -340,7 +352,28 @@ export function lerpParams(a: RigParams, b: RigParams, t: number): RigParams {
     const k = Math.max(0, Math.min(1, tt));
     out.poseBlend = k < 0.5 ? 1 - k : k;
   }
+  // 手臂姿勢硬切的補償：目前姿勢＋「另一個姿勢」＋連續權重，draw.ts 混合兩套幾何。
+  if (a.armPose !== b.armPose) {
+    const k = Math.max(0, Math.min(1, tt));
+    out.armFrom = k < 0.5 ? b.armPose : a.armPose;
+    out.armBlend = k < 0.5 ? 1 - k : k;
+  }
   return clampParams(out as Partial<RigParams>);
+}
+
+/**
+ * 手臂姿勢過場（與 blendPose 同理）：把 `armPose` 的切換點與 `armBlend` 綁在同一個
+ * **線性**進度上。crossfade 的回彈 ease 第一幀就前進三成多，手位會跳 ~16px。
+ */
+export function blendArm(from: RigParams, to: RigParams, params: RigParams, k: number): RigParams {
+  if (from.armPose === to.armPose) return params;
+  const kk = Math.max(0, Math.min(1, Number.isFinite(k) ? k : 1));
+  return clampParams({
+    ...params,
+    armPose: kk >= 0.5 ? to.armPose : from.armPose,
+    armFrom: kk >= 0.5 ? from.armPose : to.armPose,
+    armBlend: kk < 0.5 ? 1 - kk : kk,
+  });
 }
 
 /**

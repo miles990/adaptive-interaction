@@ -13,7 +13,8 @@ const testedOk = {
   at: "2026-08-28T02:00:00Z",
   how: "handshake",
   ok: true,
-  note: "裝置連線握手完成（hello 身分＋pair-ok）：受器 desk-light.status 讀取成功",
+  // 與 crates/interaction-runtime/src/providers.rs `tested_note` 的實際文案一致（UI 原樣顯示）。
+  note: "裝置報上身分並完成配對：感知來源 「書桌燈狀態」（desk-light.status） 讀取成功",
 };
 
 describe("provider 四階誠實階梯", () => {

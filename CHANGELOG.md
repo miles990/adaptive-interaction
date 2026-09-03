@@ -9,6 +9,134 @@
 
 ## [Unreleased] — v0.5 產品重定位（角色・硬體・AI 三核心）
 
+### Phase 8：Character Presentation Protocol、小樞改為 Reference Adapter、一般模式產品化（2026-09-02）
+
+> 目標：Runtime 角色無關、呈現技術無關、AI Provider 無關、硬體無關。小樞不再是寫死的唯一角色，而是第一個完整的
+> Reference Adapter；Runtime 只送語意化 Character Intent，呈現層沒有權限主權。唯一契約：`docs/character-protocol/README.md`。
+> 測試數字見 `docs/acceptance-evidence.md` v0.5 Phase 8 章節（每個數字都是本機實跑；模擬器／fixture 一律標示）。
+
+#### Added — Canonical Character Presentation Protocol 1.0
+- **`crates/interaction-character`（新 crate，純函式、無 I/O）**：`CharacterManifest`（schemaVersion／characterId／displayName／
+  adapterKind／entrypoint／assets／capabilities／inputCapabilities／channels／states／intents／variants／locales／pronouns／
+  preferencesSchema／securityRequirements／resourceLimits／fallbacks／compatibility）＋ §2.1 驗證（大小、路徑穿越、magic bytes、
+  builtin 白名單、preferencesSchema 白名單子集、安全錯誤訊息）＋舊 Character Pack v1／v1.1／rig 2.0 → manifest migration；
+  26 個 canonical capability id＋namespaced custom；20 個 intent、15 個 truthState、priority floor（emergency 100 … AI 上限 50）；
+  `IntentEnvelope`（messageId／correlationId／interruptPolicy／resumePolicy／durationHint／presentationHints／privacyClass／expiresAt）；
+  13 種 input event＋正規化器（hover ≤4/s、drag ≤10/s＋8 px 量化、佇列 64、file-drop 只 metadata＋≤10 分鐘 grant、
+  absolute 座標／原始路徑一律丟棄、observer／notification-only 不轉發）；10 種回執狀態與合法轉換（accepted≠started≠completed；
+  acknowledged 永遠不會變 completed）；14 個 adapter 生命週期狀態；wire messages（hello／negotiate／negotiated／intent／cancel／
+  heartbeat／error／goodbye／receipt／event／lifecycle）＋64 KB／50 msg/s／pending 64／outbound 32 上限；純狀態機 `Gateway`
+  （能力協商 exact／substituted／reduced／unsupported／failed、去重環 256、過期不播、安全 intent 永不丟、搶占規則、
+  generation／stale 拒絕、crash→uncertain、多 instance 安全去重、`system.text` 最後退路）。JSON Schema golden
+  `schemas/character-protocol.schema.json`（由 Rust 產生）。
+- **TypeScript 鏡射** `apps/interaction-desktop/src/character/`：protocol／manifest（驗證＋migration）／negotiate／adapter 介面／
+  in-process `CharacterGateway`／registry（`public/characters/index.json`＋9 份內建 manifest）／`lines.ts`；reference adapters
+  `text`（最小文字角色，也是可信 fallback）、`sprite`（舊 v1／v2 pack 相容層）、`shu`（小樞 rig）。
+- **Runtime 接線** `crates/interaction-runtime/src/character.rs`：`CharacterHub`；真相投影（agent.session.state／action.*／
+  plan.blocked／emergency／proactive／provider／receptor.observation／AI `state-present`→intent，AI 的 wait-attention／
+  look-at-confirmation 自動換成 think／notice）；`character.intent`／`character.receipt`／`character.instance`／
+  `character.system-text` 事件（agent token 看不到）；回執誠實結算 presentation receipt（completed→Completed AcknowledgedOnly、
+  unsupported／failed→Failed、cancelled→Cancelled、expired／uncertain→Uncertain，永不 verified）；沒有任何 instance 時安全
+  intent 走 `system.text`（不遺失）。
+- **HTTP／WebSocket／CLI**：`POST /v1/character/{hello,receipts,events,adapters,intent}`、`GET /v1/character/{instances,manifest,
+  adapters}`、`DELETE /v1/character/adapters/{id}`、`GET /v1/character/ws?token=`（只收 adapter token；human／agent token 401）；
+  adapter token（sha256 儲存、撤銷即 goodbye＋斷線）只能打自己 instance 的 receipts／events 與 WS，打任何人類路由 403；
+  `interact-ai character status|instances|manifest|adapters list|add|revoke|intent`（安全 intent 一律拒絕）；storage v8
+  `character_adapters`；`status.characterProtocol`。外部 reference adapter：`examples/character-adapters/text-adapter.mjs`
+  （Node ≥ 22、零依賴；CLI E2E 以「模擬 adapter（fixture）」閉環驗收）。
+- **小樞 → Reference Adapter**：`ShuCharacterAdapter`＋`shuTables.ts`（intent→表情表、ambient／反應／落地／睡眠／個性權重
+  全部搬進 adapter；`claim-completed`＝success-claimed，`verified-success` 只在 truthState verified 才是 success-verified）；
+  `InteractionDirector` 引擎中立（表與 `isPlayable` 注入，不再 import rig）；`CompanionApp` 以 `CharacterGateway` 為中心
+  （角色由 index＋prefs 選取、載入失敗／崩潰回退文字角色＋固定文案於可信 DOM 元素、`character.intent` 餵入、回執／輸入走
+  `/v1/character/*`、舊 daemon 走 legacy 路徑）；`StageRenderer.pause/resume/setPalette`（隱藏真的停 rAF／物理）；
+  小樞 36 表情與遊玩功能全部重跑通過。
+- **可信 host 層（Tauri）**：`overlay` 視窗（透明、穿透、最上層）只在 estop／感測使用中／Runtime 離線時出現，內容只來自
+  Rust `emit_to("overlay","host-safety")`（`host_safety.rs`；tray 共用同一份 view；非 macOS tray 文字也顯示感測）；
+  main／companion 視窗 capability 移除 emit（renderer 無法偽造 host-safety）；`character_import/list_imported/asset/remove`
+  （Rust 驗證＋magic bytes＋大小＋路徑再檢查，存 `<home>/state/characters/<id>/`，只允許 in-process 白名單 builtin）；
+  `character_hello/receipt/event/instances/manifest/adapters/adapter_revoke` IPC（內嵌／外部 daemon 兩模式）。
+- **一般模式狀態投影** `src/statusProjection.ts`：exhaustive（`satisfies Record<WorkState, …>`）的人話對照
+  （準備中／處理中／等你補充／等你同意／無法繼續／Agent 說已完成，等待檢查／已確認完成／執行失敗／執行逾時／已到期／
+  結果不確定／已停止）；未知原始值一律顯示「結果不確定」而非原始字串；AiPage／HomePage／Inbox／ActivityPage／GlobalSearch 共用。
+- **工程修復**：`protocol.rs::wait_for` 改回傳 `WaitError{TimedOut{lagged},Closed,Lagged}`＋`LagPolicy`（握手 closed 誠實映成
+  `LinkError::Reset`）；`rust-toolchain.toml`（1.94.0，CI 從此檔讀 channel）；三個對抗審查 workflow 不再硬編路徑
+  （preflight 解析 git root、規格存 `docs/specs/`、v05 版輸出 `docs/reviews/adversarial/<runId>.{json,md}`、
+  `.claude/workflows/README.md` 說明 runtime）；相容路由 `work↔automations`、`connect↔safety`、`memory↔activity↔settings`
+  在已掛載元件上真的切換（`useEffect` 同步 `initial`＋`compat-routes.test.tsx`）。
+
+#### Added — 一般模式產品化（五入口）
+- **導覽跟著角色**：`src/characterName.ts`（`useCharacterName()`：prefs 名字 > manifest displayName > 「角色」；代詞來自 manifest，
+  缺省中立）；第二個入口顯示目前角色名（預設小樞），更換角色或載入失敗後不再寫死。
+- **現在**：第一屏只回答三件事——角色現在怎麼樣（含固定安全文字與「角色離線，改用文字」可信 fallback）、正在做什麼
+  （人話狀態投影）、有什麼需要處理（收件匣）；快速操作「交代一件事／暫停或恢復主動互動／加入裝置」；Session／
+  recipe／provider 數量收進「詳細狀態」。
+- **角色**：目前角色（來源 內建／匯入／外部、能力摘要、即時狀態）→ 外觀與名字（variants 由 manifest）→ 平常如何陪伴
+  （小樞保留安靜／自然／活潑 preset；其他角色由 `preferencesSchema` 產生 bounded 表單）→ 安靜與勿擾 → 更換或加入角色
+  （內建＋匯入清單、匯入 manifest JSON、第三方／外部／可執行／需網路標示、停用回退文字角色、移除）；36 表情預覽只對
+  `shu-rig` 顯示；rig 參數／channel／manifest JSON／engine id 只在進階「技術資料」。
+- **工作**：任務優先——「想讓{角色}幫你做什麼？」＋加入檔案或選擇資料夾＋開始；建立前預覽使用哪個 Agent／讀取範圍／
+  是否寫入／工具／時間、訊息與費用上限／如何取消；Agent 管理收進「工作設定」；claimed 只顯示「Agent 說已完成，等待檢查」
+  ＋人工驗證按鈕，verified 才有綠勾。
+- **連接與權限**：第一層四區——可以看見／可以回應／使用的裝置／需要你確認；角色 adapter 出現在裝置與整合來源
+  （內建或第三方、本機或外部、是否有可執行程式、是否需要網路、可以接收哪些資料、是否已測試、撤銷）；
+  完整 receptor／actuator／provider 收進「全部能力與裝置」。
+- **更多**：記憶與知識／活動歷史／設定／角色與整合管理／進階功能（進階模式切換唯一主人）；匯出／還原／清除／原始 context
+  預覽收進第二層。
+- **首次成功體驗**：三步精靈之後可略過的「角色準備好了。要不要先試一次？」（提醒我休息＝本機提醒不啟動 Agent；
+  交代一件小工作＝走 claim→人工驗證→verified；先在桌面陪我；更換角色；稍後再說）；角色不可用時用可信文字；390px 可完成。
+- **一般模式術語清理**：Runtime／daemon／token／CLI／Provider／受器／動器／Lease／Receipt／JSON／YAML 只在進階模式或折疊的
+  技術資料；Codex／Claude Code／USB Serial／Bluetooth LE 等產品名附用途說明。
+
+#### Changed
+- Presentation Provider id `provider.companion.shu` → **`provider.companion.desktop`**；顯示名跟著目前角色
+  （「桌面角色：小樞（Presentation）」／未連線「桌面角色（尚未連線）」）。
+- `PLAYABLE_ANIMATIONS` 常數移除：AI 可點播動畫＝協商到的 `visual.expression.variants` ∪ 非安全 canonical intent − 真相狀態
+  deny-list；未 hello 前只有 9 個 canonical。iPhone `notify.show` 預設標題改用目前角色名（fallback「角色」）。
+- Runtime 端節流：receptor.observation→notice 每 receptor 2 s 一次；drag 觀察 1/s；hover→pointer 30 s 一次。
+- 硬體「已測試」證據文案改人話：「裝置報上身分並完成配對：感知來源 「<名稱>」（<id>） 讀取成功」（不再出現 受器／hello／pair-ok）。
+- `DesktopPrefs.companionPreferences`（每角色 ≤32 鍵、布林／數字／字串 ≤200 字、≤16 角色）與 `UiPreferences.firstSuccessSeen` 新欄位；
+  `GET /v1/character/instances`／`adapters` 多回報 `author`／`version`／`inputCapabilities`（adapters 另有 `characterDisplayName`／
+  `adapterKind`／`executable`／`network`）；`character_list_imported` 帶完整 manifest。
+- `companion-reload`：只改可即時套用的偏好時就地 `reconfigure`，不再整個視窗重載（換角色／persona／尺寸仍重載）。
+
+#### Fixed — 對抗審查（run 1／2；報告在 `docs/reviews/adversarial/`）
+- **AI 誠實階梯**：codex app-server `turn/completed` 讀 `turn.status`（interrupted→cancelled、failed→failed、缺 status→unknown，不再一律當 claim）；
+  多輪 session 每輪重置 claim／result 旗標，第二輪子程序死掉會誠實報 unknown／failed；訊息未送達（上一輪還在跑／預算／stdin 逾時）
+  回 409／403／503 且**不**把 session 記成 failed（只有 stdin 真的關閉才 failed）；人類驗證綁定具體 claim（`claimId`／
+  `humanVerified.claimId`），新一輪任務或新 claim 會清除綠勾；看門狗自動拒絕送不到 agent 時保留 pending、回報 `deliveredToAgent:false`
+  而不是假裝 progress；`close` 不再把 failed／unknown／timed-out 改寫成 closed。
+- **收件匣誠實**：`ActivityInboxFilter.needsDecision` 篩選；通知中心與「需要你確認」在 `pendingCount` 大於本頁待決定數時顯示
+  「還有 N 項待決定不在這一頁」而不是「沒有待決定事項」；安全事件標題改人話、解除緊急停止投影成「緊急停止已解除」。
+- **記憶與知識頁**：Context Bundle 的 `needsReview` 是陣列，一般模式改正計數（原本算成 NaN 而永遠顯示「沒有」）；bundle 另回報
+  未複審候選與領域外排除；角色互動記憶可「忘記這些」；頁面改用目前角色名；素材區依一般／進階分層；文案只宣稱真的記錄的項目。
+- **工作頁**：「精靈選擇」改為「目前分工」（不冒充精靈選擇）；進行中判斷與 Rust `is_open` 一致（failed／unknown／timed-out 不再顯示續租／中斷）。
+- **角色視窗**：幀預算改量真實繪製成本（原本量 rAF 間隔，60 Hz 螢幕一秒後永久降到 30 fps）；SpriteRenderer 有 pause／destroyed 旗標、
+  Reduced Motion 只畫一次靜態幀；舊路徑 `agent.session.state` 的 unknown／expired 映射到「結果未知」；`presence-set` 真的顯示／隱藏視窗
+  （新 Tauri 命令 `companion_set_visible`），隱藏兩條路徑都通知 runtime presence；file-drop 事件 Rust 正規化器同時接受 `files:[…]`，
+  Runtime 觀察回報全部檔案。
+- **裝置線協定**：韌體 BLE 廣播加 scan response 名稱；模擬器加控制通道（`--facts-file`／按鈕翻轉／`--sensors-absent`）並在 CLI E2E
+  驗證未請求的 state 推播與 null 感測；estop stop-all 等待拉到 2 s；host 端 serial／MQTT 送出前檢查 639 bytes 上限（超過誠實
+  Refused，不製造未知）；`buzzActive` 三端一致；配對失敗 5 次鎖定 30 s（hello `pairingLocked`）；README nonce 敘述修正。
+- **效能宣稱**：8.3 ms 明確標為 WebView 內段，端到端未量；`pnpm perf` 加 `--enable-precise-memory-info` 與 stage loop 統計；CHANGELOG hit-rect 敘述修正。
+
+#### 已知限制（Phase 8；完整清單與證據見 `docs/acceptance-evidence.md`）
+- **真機／真視窗證據為零**：Tauri 角色視窗、可信 overlay 視窗、匯入角色資料夾、外部 adapter 都只有單元／模擬器／fixture 證據；
+  Playwright 只覆蓋瀏覽器版控制中心；ESP32／iPhone 真機仍未驗收。
+- stdio JSON Lines transport 只有規格，沒有 host spawn 也沒有 fixture（外部 fixture 走 WebSocket）；`entrypoint.process` 只是紀錄。
+- 匯入只接受 in-process 白名單 builtin（`shu-rig`／`sprite`／`text`）與純資料資產；沒有簽章機制（UI 一律標示「簽章：無」）；
+  Live2D／Spine／Rive／3D／影片等引擎沒有內建 adapter——它們要以外部 WebSocket adapter 或未來的 in-process adapter 接上。
+- 外部 adapter 一律以 `familiar` 角色加入，還沒有 UI 可指定 role；多角色安全去重只按 role class。
+- `hello` body 上限 256 KB，最大 manifest 加 negotiate 副本可能超過（極端情況，未處理）。
+- 工作頁「選擇資料夾…」在桌面版沒有內建資料夾選擇器（無 dialog plugin），以路徑文字欄代替。
+- iPhone `character.present` 仍是獨立的 7 態 actuator，未改走 CPP（「前往 iPhone」呈現表面未做）。
+- 效能數字仍為 headless Chromium（`pnpm perf`），非 WKWebView。
+- 對抗審查未修（誠實記錄）：多角色「玩耍」只有使魔↔使魔與使魔→主角 greet（使魔不追球、主角不主動找使魔）；頭飾光沒有真實連線
+  狀態輸入（只由表情 hold 寫入）、奔跑不歪頭飾、袖口面板與口袋取物未實作；36 正式表情四段全手寫只有 4/36（enter 20／loop 29／exit 11
+  手寫，其餘派生並標示）；Attention／Utility scoring 在生產路徑只在同優先平手時以常數情境呼叫（實際為死碼）；Gateway session 訊息未送達
+  （上一輪還在跑／預算／stdin 逾時）時訊息仍留在信箱且 `deliveredAt` 為 null、佔一則預算，UI 尚未提供「重送」；輸入延遲只量 WebView 內段
+  （8.3 ms），端到端（OS 指標→點擊穿透→toy.grabbed）未量，不得宣稱達到 16–100 ms；所有 agent-honesty 修復皆以 fake 子程序驗證，真 codex／
+  claude 二進位未跑。
+
 ### Phase 7：整合、對抗審查、修復、全套回歸（2026-08-28）
 
 > 這一段記錄的是「把 Phase 1–6 宣稱的東西變成真的」：新 Session 先不信任前一輪的進度敘述，
@@ -222,7 +350,7 @@ Home Assistant adapter 未做；配對期可被區網 peer 燒掉（已 audit）
 
 - **遊玩場（StageRenderer）**：小樞的透明視窗加寬為小舞台
   （視窗＝角色寬×2.6、高×1.35），角色可在場內散步、翻面、追逐；
-  hit-rect 隨角色與玩具動態更新（Rust 每 500ms 收到新互動框），
+  hit-rect 隨角色與玩具動態更新（≤60 ms 節流回報給 Rust；視窗隱藏／rAF 被節流時以 500 ms 心跳後備），
   空白區維持點擊穿透。
 - **第一批玩具＋輕量 2D 物理**（`companion/playfield.ts`，純函式可測）：
   毛球/紙團/紙飛機（滑翔）/光點/逗貓棒；資料模型含位置/速度/重力/

@@ -4,6 +4,7 @@
 
 import React from "react";
 import { api } from "../api";
+import { useCharacterName } from "../characterName";
 import { Badge, Section, StateView, useAsync } from "../ui";
 
 type MkTab = "memory" | "knowledge" | "assets" | "receipts" | "bundle";
@@ -29,19 +30,22 @@ const KIND_LABEL: Record<string, { text: string; kind: "ok" | "warn" | "pending"
   candidate: { text: "等待確認", kind: "pending" },
 };
 
-/** 一般模式只有三區（spec §11）：關於我的記憶／小樞學會的知識／素材與來源。
- *  知識收據、Context Bundle 預覽與候選複審工具屬於技術細節，只在進階模式出現。 */
-const SIMPLE_TABS: [MkTab, string][] = [
-  ["memory", "關於我的記憶"],
-  ["knowledge", "小樞學會的知識"],
-  ["assets", "素材與來源"],
-];
+/** 一般模式只有三區（spec §11）：關於我的記憶／{角色}學會的知識／素材與來源。
+ *  知識收據、原始 Context Bundle JSON 與候選複審工具屬於技術細節，只在進階模式出現；
+ *  一般模式的「關於我的記憶」底下保留人話版的「本次會提供給 AI 的內容」預覽
+ *  （固定不帶工作階段授權的領域知識，文案會明說）。
+ *  角色名稱一律 useCharacterName()，不寫死。 */
+function simpleTabs(name: string): [MkTab, string][] {
+  return [
+    ["memory", "關於我的記憶"],
+    ["knowledge", `${name}學會的知識`],
+    ["assets", "素材與來源"],
+  ];
+}
 
-const ADVANCED_TABS: [MkTab, string][] = [
-  ...SIMPLE_TABS,
-  ["receipts", "知識收據"],
-  ["bundle", "Context Bundle 預覽"],
-];
+function advancedTabs(name: string): [MkTab, string][] {
+  return [...simpleTabs(name), ["receipts", "知識收據"], ["bundle", "Context Bundle 預覽"]];
+}
 
 export function MemoryKnowledgePage({
   refreshKey,
@@ -53,7 +57,8 @@ export function MemoryKnowledgePage({
   onNavigate?: (tab: string) => void;
 }) {
   const [tab, setTab] = React.useState<MkTab>("memory");
-  const tabs = advanced ? ADVANCED_TABS : SIMPLE_TABS;
+  const { name } = useCharacterName({ refreshKey });
+  const tabs = React.useMemo(() => (advanced ? advancedTabs(name) : simpleTabs(name)), [advanced, name]);
   const active = tabs.some(([id]) => id === tab) ? tab : "memory";
   return (
     <div>
@@ -74,7 +79,7 @@ export function MemoryKnowledgePage({
         <MemorySection refreshKey={refreshKey} advanced={advanced} onNavigate={onNavigate} />
       )}
       {active === "knowledge" && <KnowledgeSection refreshKey={refreshKey} advanced={advanced} />}
-      {active === "assets" && <AssetsSection refreshKey={refreshKey} />}
+      {active === "assets" && <AssetsSection refreshKey={refreshKey} advanced={advanced} />}
       {active === "receipts" && <ReceiptsSection refreshKey={refreshKey} />}
       {active === "bundle" && <BundleSection advanced />}
     </div>
@@ -90,6 +95,7 @@ function MemorySection({
   advanced: boolean;
   onNavigate?: (tab: string) => void;
 }) {
+  const { name } = useCharacterName();
   const [layer, setLayer] = React.useState<string>("");
   const [data, retry] = useAsync(
     () => api.memoryList(layer || undefined, 200),
@@ -148,12 +154,14 @@ function MemorySection({
           「永久」只代表「直到你刪除」。
         </p>
         <p className="muted small">
-          小樞跟你玩耍、互動累積的角色記憶（喜歡的玩具、相處距離）在「小樞」頁，
-          不會混進這裡，也不會因為一次行為就推論你的個性。
+          {/* 只說互動記憶真的記的三類（interactionMemory.ts：玩過的玩具、常關掉的反應、相處天數）；
+              「偏好距離」規格有、實作沒有，不得宣稱。 */}
+          {name}跟你玩耍、互動累積的角色記憶（玩過的玩具、你常關掉的反應、相處天數）在「{name}」頁，
+          不會混進這裡，也不會因為一次行為就推論你的個性；在那一頁可以隨時讓{name}忘記。
           {onNavigate && (
             <>
               {" "}
-              <button onClick={() => onNavigate("companion")}>前往小樞</button>
+              <button onClick={() => onNavigate("companion")}>前往{name}</button>
             </>
           )}
         </p>
@@ -342,6 +350,7 @@ const K_STATUS_ORDER = [
 ] as const;
 
 function KnowledgeSection({ refreshKey, advanced }: { refreshKey: number; advanced: boolean }) {
+  const { name } = useCharacterName();
   const [status, setStatus] = React.useState("candidate");
   const [data, retry] = useAsync(
     () => api.knowledgeList(status || undefined, 100),
@@ -349,7 +358,7 @@ function KnowledgeSection({ refreshKey, advanced }: { refreshKey: number; advanc
   );
   const [notice, setNotice] = React.useState<string | null>(null);
   return (
-    <Section title="小樞學會的知識">
+    <Section title={`${name}學會的知識`}>
       {advanced && (
         <KnowledgeUpdatePanel
           onCreated={() => {
@@ -531,19 +540,23 @@ function DomainPacksPanel({ refreshKey }: { refreshKey: number }) {
   );
 }
 
-const UPDATE_TRIGGER_LABEL: Record<string, string> = {
-  "user-added-asset": "加入了新素材",
-  "source-changed": "已核准來源有變更",
-  "repo-commit": "Repository 出現新 Commit",
-  "task-artifact": "任務產生新 Artifact",
-  "user-correction": "我糾正了小樞",
-  "conflict-detected": "發現知識衝突",
-  "review-overdue": "知識超過複查期限",
-  "low-confidence-answer": "回答資料不足或信心低",
-  "periodic-health-check": "定期低成本健檢",
-};
+function updateTriggerLabels(name: string): Record<string, string> {
+  return {
+    "user-added-asset": "加入了新素材",
+    "source-changed": "已核准來源有變更",
+    "repo-commit": "Repository 出現新 Commit",
+    "task-artifact": "任務產生新 Artifact",
+    "user-correction": `我糾正了${name}`,
+    "conflict-detected": "發現知識衝突",
+    "review-overdue": "知識超過複查期限",
+    "low-confidence-answer": "回答資料不足或信心低",
+    "periodic-health-check": "定期低成本健檢",
+  };
+}
 
 function KnowledgeUpdatePanel({ onCreated }: { onCreated: () => void }) {
+  const { name } = useCharacterName();
+  const UPDATE_TRIGGER_LABEL = updateTriggerLabels(name);
   const [trigger, setTrigger] = React.useState("user-added-asset");
   const [decision, setDecision] = React.useState<Record<string, unknown> | null>(null);
   void onCreated;
@@ -591,7 +604,7 @@ function KnowledgeUpdatePanel({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-/** 糾正小樞的說法。一般模式與進階模式都要有 —— 但一般模式不用治理術語。 */
+/** 糾正角色的說法。一般模式與進階模式都要有 —— 但一般模式不用治理術語。 */
 function CorrectionPanel({
   advanced,
   onCreated,
@@ -599,6 +612,7 @@ function CorrectionPanel({
   advanced: boolean;
   onCreated: () => void;
 }) {
+  const { name } = useCharacterName();
   const [original, setOriginal] = React.useState("");
   const [correction, setCorrection] = React.useState("");
   const [scope, setScope] = React.useState("");
@@ -606,11 +620,11 @@ function CorrectionPanel({
   const [saving, setSaving] = React.useState(false);
   return (
     <details className="state-box">
-      <summary>糾正小樞的記憶或說法</summary>
+      <summary>糾正{name}的記憶或說法</summary>
       <p className="muted small">
         {advanced
           ? "糾正先保存為可刪除的「關於我的記憶」，並建立待複審候選；不會直接變成普遍知識，也不會自動呼叫 Agent。"
-          : "你的糾正會先存成可以隨時刪除的「關於我的記憶」，並排進等待你確認的清單；不會馬上變成小樞的通用說法，也不會自動叫 AI 去查。"}
+          : `你的糾正會先存成可以隨時刪除的「關於我的記憶」，並排進等待你確認的清單；不會馬上變成${name}的通用說法，也不會自動叫 AI 去查。`}
       </p>
       <label className="field-label">
         原本哪裡不對（選填）
@@ -663,7 +677,54 @@ function CorrectionPanel({
   );
 }
 
-function AssetsSection({ refreshKey }: { refreshKey: number }) {
+/** 衍生資料的人話（AssetDerivativeKind／AssetDerivativeStatus，kebab-case）。
+ *  一般模式只用這些；原始字串只在進階模式出現。 */
+export const DERIVATIVE_KIND_LABEL: Record<string, string> = {
+  thumbnail: "縮圖",
+  "ocr-text": "圖片文字辨識",
+  transcript: "語音轉文字",
+  "audio-features": "聲音特徵",
+  "video-metadata": "影片資訊",
+  keyframe: "關鍵畫面",
+  subtitle: "字幕",
+  "pdf-text": "PDF 文字",
+  "code-index": "程式碼索引",
+};
+
+export const DERIVATIVE_STATUS_LABEL: Record<string, { text: string; kind: "ok" | "warn" | "bad" | "pending" }> = {
+  complete: { text: "已完成本機解析", kind: "ok" },
+  unavailable: { text: "這台電腦沒有對應的解析工具", kind: "warn" },
+  failed: { text: "解析失敗", kind: "bad" },
+};
+
+/** 素材來源描述（AssetRecord.source：user-import／url:…／task-artifact:…）的人話。 */
+export function assetSourceLabel(source: unknown): string {
+  const raw = String(source ?? "");
+  if (raw === "user-import") return "你加入的";
+  if (raw.startsWith("url:")) return "從網址取得";
+  if (raw.startsWith("task-artifact")) return "工作產生的";
+  return "其他來源";
+}
+
+/** 刪除影響（knowledge.rs `asset_impact`）的人話摘要：只講數量與後果，不倒 id。 */
+export function assetImpactSummary(impact: Record<string, unknown>): string {
+  const nodes = Array.isArray(impact.referencingKnowledgeNodes) ? impact.referencingKnowledgeNodes.length : 0;
+  const memories = Array.isArray(impact.memoriesDeletedWithParent) ? impact.memoriesDeletedWithParent.length : 0;
+  const derivatives = Number(impact.derivativesRemoved ?? 0) || 0;
+  const shared = Array.isArray(impact.derivedAssetsRetainedShared) ? impact.derivedAssetsRetainedShared.length : 0;
+  const parts = [
+    nodes > 0
+      ? `會影響 ${nodes} 條已採用的知識（不會被靜默刪掉，會標成「有不同說法」等你處理）`
+      : "沒有知識引用這筆素材",
+    derivatives > 0 ? `會一併移除 ${derivatives} 筆衍生資料` : "沒有衍生資料要移除",
+  ];
+  if (shared > 0) parts.push(`${shared} 筆衍生內容還被其它素材共用，會保留`);
+  if (memories > 0) parts.push(`${memories} 條依附這筆素材的記憶會一起刪除`);
+  return `${parts.join("；")}。`;
+}
+
+function AssetsSection({ refreshKey, advanced }: { refreshKey: number; advanced: boolean }) {
+  const { name } = useCharacterName();
   const [data, retry] = useAsync(() => api.assetsList(), [refreshKey]);
   const [impact, setImpact] = React.useState<Record<string, unknown> | null>(null);
   const [derivatives, setDerivatives] = React.useState<Record<string, unknown> | null>(null);
@@ -674,10 +735,11 @@ function AssetsSection({ refreshKey }: { refreshKey: number }) {
   } | null>(null);
   const [text, setText] = React.useState("");
   return (
-    <Section title="原始素材（內容定址、不可覆寫）">
+    <Section title={advanced ? "原始素材（內容定址、不可覆寫）" : "素材與來源"}>
       <p className="muted small">
-        素材以內容雜湊保存：同樣的內容永遠是同一筆，AI 不能覆寫或刪除來源。
-        刪除前會顯示影響（哪些知識與衍生資料會受影響）。
+        {advanced
+          ? "素材以內容雜湊保存：同樣的內容永遠是同一筆，AI 不能覆寫或刪除來源。刪除前會顯示影響（哪些知識與衍生資料會受影響）。"
+          : "你加入的原始素材會原樣保存：AI 不能改寫或刪除來源，只有你可以。刪除前會先告訴你哪些知識會受影響。"}
       </p>
       <div className="row wrap">
         <input
@@ -706,7 +768,9 @@ function AssetsSection({ refreshKey }: { refreshKey: number }) {
                   <Badge kind="ok">{String(a.mediaType)}</Badge>
                 </div>
                 <div className="muted small">
-                  {Number(a.sizeBytes ?? 0)} bytes・{String(a.source)}・hash {String(a.hash).slice(0, 16)}…
+                  {advanced
+                    ? `${Number(a.sizeBytes ?? 0)} bytes・${String(a.source)}・hash ${String(a.hash).slice(0, 16)}…`
+                    : `${Number(a.sizeBytes ?? 0)} bytes・${assetSourceLabel(a.source)}`}
                 </div>
                 <div className="row wrap">
                   <button
@@ -762,9 +826,10 @@ function AssetsSection({ refreshKey }: { refreshKey: number }) {
         )}
       </StateView>
       {impact && (
-        <div className="state-box">
+        <div className="state-box" data-testid="asset-impact-preview">
           <strong>刪除影響</strong>
-          <pre className="json-view small">{JSON.stringify(impact, null, 2)}</pre>
+          <p className="small">{assetImpactSummary(impact)}</p>
+          {advanced && <pre className="json-view small">{JSON.stringify(impact, null, 2)}</pre>}
         </div>
       )}
       {derivatives && (
@@ -774,27 +839,36 @@ function AssetsSection({ refreshKey }: { refreshKey: number }) {
             <button onClick={() => setDerivatives(null)}>關閉</button>
           </div>
           <p className="muted small">
-            Complete 只代表本機處理器完成；OCR、轉錄與推論內容都還沒有被確認，不會自動變成小樞的知識。
+            {advanced
+              ? `Complete 只代表本機處理器完成；OCR、轉錄與推論內容都還沒有被確認，不會自動變成${name}的知識。`
+              : `「已完成本機解析」只代表這台電腦處理完了；辨識出的文字與轉錄內容都還沒有被確認，不會自動變成${name}的知識。`}
           </p>
           <div className="provider-list">
             {((derivatives.derivatives as Record<string, unknown>[] | undefined) ?? []).map((item) => {
               const source = (item.source as Record<string, unknown> | undefined) ?? {};
+              const statusLabel = DERIVATIVE_STATUS_LABEL[String(item.status)] ?? {
+                text: "狀態不確定",
+                kind: "warn" as const,
+              };
               return (
                 <div className="provider-card" key={String(item.derivativeId)}>
                   <div className="row space-between">
-                    <strong>{String(item.kind)}</strong>
-                    <Badge kind={item.status === "complete" ? "ok" : "pending"}>
-                      {String(item.status)}
-                    </Badge>
+                    <strong>{DERIVATIVE_KIND_LABEL[String(item.kind)] ?? (advanced ? String(item.kind) : "衍生資料")}</strong>
+                    <Badge kind={statusLabel.kind}>{statusLabel.text}</Badge>
                   </div>
-                  <div className="muted small">
-                    {String(item.processor)} {String(item.processorVersion)}・
-                    {String(source.segment ?? "無區域／時碼")}
-                  </div>
-                  <div className="muted small">{String(item.detail)}</div>
+                  {advanced && (
+                    <div className="muted small">
+                      狀態碼 {String(item.status)}・{String(item.processor)} {String(item.processorVersion)}・
+                      {String(source.segment ?? "無區域／時碼")}
+                    </div>
+                  )}
+                  {!advanced && source.segment ? (
+                    <div className="muted small">引用位置 {String(source.segment)}</div>
+                  ) : null}
+                  {advanced && <div className="muted small">{String(item.detail)}</div>}
                   {item.outputHash ? (
                     <>
-                      <code className="small">output {String(item.outputHash)}</code>
+                      {advanced && <code className="small">output {String(item.outputHash)}</code>}
                       <button
                         onClick={async () => {
                           setSourcePreview({
@@ -1003,7 +1077,12 @@ function ReceiptsSection({ refreshKey }: { refreshKey: number }) {
   );
 }
 
+/** 預覽固定不帶工作階段授權的 domain（真實工作會依 session 的 `domain:` 範圍多給），
+ *  所以文案必須明說「不含工作階段授權的領域知識」，不得把預覽當成 AI 實際拿到的內容。 */
+export const BUNDLE_PREVIEW_DOMAINS_NOTE = "這裡的預覽不含工作階段授權的領域知識";
+
 function BundleSection({ advanced }: { advanced: boolean }) {
+  const { name } = useCharacterName();
   const [task, setTask] = React.useState("");
   const [agent, setAgent] = React.useState("claude-code");
   const [bundle, setBundle] = React.useState<Record<string, unknown> | null>(null);
@@ -1011,8 +1090,8 @@ function BundleSection({ advanced }: { advanced: boolean }) {
     <Section title={advanced ? "提供給 AI 的內容（Context Bundle 預覽）" : "本次會提供給 AI 的內容"}>
       <p className="muted small">
         {advanced
-          ? "送任務給 agent 前可先看：這次實際會提供哪些記憶與知識、哪些被排除（過期需複查、敏感、對該 agent 不可見、未複審候選）。不傳完整對話或整個知識庫。"
-          : "把任務交給 AI 之前，可以先看這次實際會提供哪些記憶，哪些被擋下來。小樞不會把整個記憶或對話都交出去。"}
+          ? `送任務給 agent 前可先看：這次實際會提供哪些記憶與知識、哪些被排除（過期需複查、敏感、對該 agent 不可見；後端有回報時也含未複審候選與未授權 domain）。${BUNDLE_PREVIEW_DOMAINS_NOTE}（預覽以 domains=[] 呼叫；真實工作階段會依授權範圍多提供）。不傳完整對話或整個知識庫。`
+          : `把任務交給 AI 之前，可以先看這次實際會提供哪些記憶，哪些被擋下來（含被擋的數量）。${BUNDLE_PREVIEW_DOMAINS_NOTE}——真正交代工作時，會依你授權的範圍多提供那一部分。${name}不會把整個記憶或對話都交出去。`}
       </p>
       <div className="row wrap">
         <input value={task} placeholder="任務描述…" onChange={(e) => setTask(e.target.value)} />
@@ -1045,14 +1124,26 @@ function BundleSection({ advanced }: { advanced: boolean }) {
   );
 }
 
-/** 一般模式的內容摘要：條目標題與被擋下來的原因，不倒原始 JSON。 */
-function BundleHumanSummary({ bundle }: { bundle: Record<string, unknown> }) {
+/** `excluded` 的值：`needsReview` 是 memory id 陣列（memory.rs），其餘是計數；
+ *  一律換算成「幾條」，陣列不得當數字算（Number([...]) 是 NaN → 永遠顯示「沒有」）。 */
+export function excludedCount(value: unknown): number {
+  if (Array.isArray(value)) return value.length;
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/** 一般模式的內容摘要：條目標題與被擋下來的原因（含數量），不倒原始 JSON。 */
+export function BundleHumanSummary({ bundle }: { bundle: Record<string, unknown> }) {
   const includes = (bundle.includes as Record<string, unknown>[] | undefined) ?? [];
-  const excluded = (bundle.excluded as Record<string, number> | undefined) ?? {};
+  const excluded = (bundle.excluded as Record<string, unknown> | undefined) ?? {};
+  // 後端目前回報前三種；後兩種是 v0.5 補的候選／domain 排除計數（沒回報就不顯示）。
   const reasons: [string, string][] = [
     ["needsReview", "需要你重新確認"],
     ["sensitive", "標為敏感"],
     ["notVisibleToAgent", "這個 AI 看不到"],
+    ["unreviewedCandidates", "還沒經你確認的說法"],
+    ["outsideGrantedDomains", "不在這次授權的領域"],
+    ["domainNotGranted", "不在這次授權的領域"],
   ];
   return (
     <div>
@@ -1070,8 +1161,8 @@ function BundleHumanSummary({ bundle }: { bundle: Record<string, unknown> }) {
       <p className="muted small">
         擋下來的：
         {reasons
-          .filter(([key]) => Number(excluded[key] ?? 0) > 0)
-          .map(([key, label]) => `${label} ${Number(excluded[key])} 條`)
+          .filter(([key]) => excludedCount(excluded[key]) > 0)
+          .map(([key, label]) => `${label} ${excludedCount(excluded[key])} 條`)
           .join("、") || "沒有"}
       </p>
     </div>

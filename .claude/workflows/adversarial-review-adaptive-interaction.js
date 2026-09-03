@@ -7,7 +7,20 @@ export const meta = {
   ],
 }
 
-const ROOT = '/Users/user/Workspace/claude-lab/adaptive-interaction'
+// 可攜性：不硬編絕對路徑。Repo 由 git root 解析（preflight agent 跑 git rev-parse --show-toplevel）；
+// 解析失敗即 fail-fast。本 workflow 絕不 commit／push／release／deploy。所需 runtime 見 .claude/workflows/README.md。
+const PREFLIGHT_SCHEMA = {
+  type: 'object',
+  properties: { ok: { type: 'boolean' }, root: { type: 'string' }, head: { type: 'string' }, reason: { type: 'string' } },
+  required: ['ok'],
+}
+const pre = await agent(
+  'Preflight only, modify nothing. Run in the current working directory: ROOT="$(git rev-parse --show-toplevel)" && echo "$ROOT" && cd "$ROOT" && git rev-parse HEAD. Return ok=true with root (absolute path) and head; if git root cannot be resolved return ok=false with reason.',
+  { label: 'preflight', schema: PREFLIGHT_SCHEMA, effort: 'low' }
+)
+if (!pre || pre.ok !== true || !pre.root) throw new Error(`preflight failed: ${pre?.reason || 'no result'} (must run inside the git checkout)`)
+const ROOT = pre.root
+log(`repo ${ROOT} @ ${String(pre.head || '').slice(0, 12)}`)
 const FINDINGS_SCHEMA = {
   type: 'object',
   required: ['findings'],

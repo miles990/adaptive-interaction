@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay",
+  "description": "Trusted host safety overlay: a click-through, always-on-top window whose content comes only from the Rust `host-safety` event. It can listen to events and nothing else.",
+  "windows": [
+    "overlay"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

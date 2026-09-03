@@ -347,6 +347,7 @@ impl Runtime {
             detail: None,
             handoff: None,
             provider_session_id: None,
+            claim_id: None,
             human_verified: None,
             context_bundles: vec![],
         };
@@ -655,8 +656,11 @@ impl Runtime {
         drop(map);
         // Gateway session：ToSession 任務即時送進真實 agent 子程序
         // （送達成功才補 delivered 戳記；非 gateway session 維持輪詢流程）。
+        // 沒送到（上一輪還在跑、stdin 阻塞、預算用盡、子程序已不在）就把
+        // 錯誤交給呼叫端：訊息留在信箱、沒有 delivered 戳記，session 狀態
+        // 不因「沒送到」而改寫——「未送達」不是「任務失敗」。
         if direction == MailboxDirection::ToSession {
-            let _ = self.gateway_deliver(id, &message).await;
+            self.gateway_deliver(id, &message).await?;
         }
         Ok(message)
     }
@@ -718,6 +722,7 @@ impl Runtime {
             let observer_only = crate::gateway::agent_kind_for(&entry.record.agent_id).is_some();
             let now = Utc::now();
             let mut out = Vec::new();
+            let mut newly_delivered = false;
             for m in entry.mailbox.iter_mut() {
                 if m.direction == direction {
                     if direction == MailboxDirection::ToSession
@@ -725,12 +730,18 @@ impl Runtime {
                         && m.delivered_at.is_none()
                     {
                         m.delivered_at = Some(now);
+                        newly_delivered = true;
                         if let Some(aid) = &m.action_id {
                             acked.push((aid.clone(), m.message_id.clone()));
                         }
                     }
                     out.push(m.clone());
                 }
+            }
+            // 新任務送達 ⇒ 舊的人工驗證只屬於上一個 claim，不再顯示為
+            // 「目前這個」已確認。
+            if newly_delivered && entry.record.human_verified.take().is_some() {
+                self.persist_agent_session(&entry.record);
             }
             out
         };
@@ -775,6 +786,9 @@ impl Runtime {
             EventType::AgentSessionState,
             json!({"agentSessionId": id, "agentId": agent_id, "state": state}),
         );
+        // Character Protocol §11：同一批真實事件投影成 Character Intent
+        // （correlationId = agentSessionId；verified 只會從這條人工驗證路徑來）。
+        self.character_project_session(id, state);
     }
 
     /// 人工驗證 agent 的 claimed-completed（human token 專屬路由）。
@@ -808,9 +822,12 @@ impl Runtime {
                     "agent session {id} is already verified"
                 )));
             }
+            // 驗證綁定「當下這個 claim」：新任務送達／新一輪工作／新的聲稱
+            // 都會清掉它，所以第二輪的聲稱永遠得重新驗證。
             entry.record.human_verified = Some(interaction_core::HumanVerification {
                 at: Utc::now(),
                 note,
+                claim_id: entry.record.claim_id.clone(),
             });
             self.persist_agent_session(&entry.record);
             entry.record.clone()
@@ -876,6 +893,13 @@ impl Runtime {
                 )));
             }
             entry.record.state = next_state;
+            // 每一個新的聲稱都是新的 claim（拿新 id）；而**任何**更新的
+            // agent 自我回報——新一輪工作、新的聲稱、失敗／未知——都讓
+            // 舊的人工驗證失效：人類確認的是上一個 claim，不是這一個。
+            if next_state == AgentSessionState::ClaimedCompleted {
+                entry.record.claim_id = Some(format!("claim-{}", uuid::Uuid::new_v4()));
+            }
+            entry.record.human_verified = None;
             self.persist_agent_session(&entry.record);
             entry.record.clone()
         };
@@ -946,8 +970,19 @@ impl Runtime {
             }
             let now = Utc::now();
             let prior_state = entry.record.state;
-            entry.record.state = match reason {
-                "cancelled" => AgentSessionState::Cancelled,
+            // 任務結局（Failed／Unknown／TimedOut／Cancelled）是誠實階梯上的
+            // 事實，關閉不得把它改寫成「已關閉」——否則失敗／未知這個結局
+            // 從主要狀態消失，只剩 detail 裡一行 `(was Failed)`。close 只負責
+            // 收尾（closed_at、consent、provider、經驗記錄）。
+            entry.record.state = match (reason, prior_state) {
+                (
+                    _,
+                    AgentSessionState::Failed
+                    | AgentSessionState::Unknown
+                    | AgentSessionState::TimedOut
+                    | AgentSessionState::Cancelled,
+                ) => prior_state,
+                ("cancelled", _) => AgentSessionState::Cancelled,
                 _ => AgentSessionState::Closed,
             };
             entry.record.detail = Some(format!("{reason} (was {prior_state:?})"));

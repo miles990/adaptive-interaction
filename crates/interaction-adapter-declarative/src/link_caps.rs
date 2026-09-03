@@ -31,6 +31,25 @@ use tokio::sync::Mutex;
 
 const RECENT_ACTIONS_CAP: usize = 32;
 const APPLIED_NOTE_MAX_BYTES: usize = 2048;
+/// estop 的 stop-all ack 等待窗。runtime 對每個 actuator 的 emergency_stop
+/// 以 2 秒為上限（runtime.rs），這裡取同一個值——不能更短：參考韌體在
+/// broker 不通時 `maintainMqtt()` 的 `connect()` 會同步阻塞最多 ≈1.5s
+/// （TCP connect 500ms＋等 CONNACK 1s），期間 Serial／BLE 上的 stop-all 要等
+/// 阻塞結束才被處理；舊版只等 1s，真板上 estop 會被誤記為 UNCONFIRMED
+/// （假陰性，發生在最不該有雜訊的路徑）。
+const STOP_ALL_ACK_WINDOW: Duration = Duration::from_millis(2_000);
+
+/// `LinkError::Refused` 的收據原因。身分／配對被拒是一類，訊息超過裝置
+/// 單則上限（serial／MQTT 639 bytes、BLE 480 bytes）是另一類——兩者都
+/// 「確定沒送出」，但混成同一個原因會誤導使用者去查配對碼。傳輸層對後者
+/// 一律以 "message too large" 標示（serial.rs／mqtt.rs／ble.rs 同一慣例）。
+fn refusal_reason(detail: &str) -> &'static str {
+    if detail.contains("message too large") {
+        "message-too-large"
+    } else {
+        "device-identity-or-pairing"
+    }
+}
 
 pub struct LinkReceptor<L: RawLink> {
     pub spec: CapabilitySpec,
@@ -258,8 +277,11 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
                         .finish());
                 }
                 Err(LinkError::Refused(detail)) => {
+                    // 確定沒送出（身分／配對被拒，或訊息超過裝置單則上限）：
+                    // 不標 dispatched、不重試。
                     return Ok(DriverReceipt::start(&action, Utc::now())
-                        .failed("device-identity-or-pairing", &detail)
+                        .note("transport", json!(self.transport_label))
+                        .failed(refusal_reason(&detail), &detail)
                         .finish());
                 }
                 Err(LinkError::NotAdvertised(detail)) => {
@@ -349,11 +371,12 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
         }
     }
 
-    /// estop：送 stop-all 並等裝置 ack。裝置沒 ack ＝「已送出／未確認」——
-    /// 誠實回 Err，runtime 的 stoppedActuators 不得把它算成已停止。
+    /// estop：送 stop-all 並等裝置 ack（窗口見 STOP_ALL_ACK_WINDOW）。裝置沒 ack
+    /// ＝「已送出／未確認」——誠實回 Err，runtime 的 stoppedActuators 不得把它
+    /// 算成已停止。
     async fn emergency_stop(&self) -> Result<(), ActuatorError> {
         self.link
-            .stop_all(Duration::from_millis(1_000))
+            .stop_all(STOP_ALL_ACK_WINDOW)
             .await
             .map_err(|e| match e {
                 LinkError::Timeout(detail) | LinkError::Reset(detail) => {
@@ -361,5 +384,41 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
                 }
                 other => ActuatorError::Unavailable(format!("stop-all not deliverable: {other}")),
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 訊息超過裝置單則上限與身分／配對被拒都是 Refused，但收據原因必須分開
+    /// （前者不該讓人去查配對碼）。三種傳輸的超長 detail 都以 "message too
+    /// large" 標示。
+    #[test]
+    fn refusal_reasons_distinguish_oversize_from_identity() {
+        assert_eq!(
+            refusal_reason("message too large (700 bytes > 639); nothing was written"),
+            "message-too-large"
+        );
+        assert_eq!(
+            refusal_reason("ble message too large (500 bytes > 480)"),
+            "message-too-large"
+        );
+        assert_eq!(
+            refusal_reason("pairing code rejected by device"),
+            "device-identity-or-pairing"
+        );
+        assert_eq!(
+            refusal_reason("device identity mismatch: expected \"a\", got \"b\""),
+            "device-identity-or-pairing"
+        );
+    }
+
+    /// estop 的 ack 窗口 = runtime 每個 actuator 的 estop 上限（2s），
+    /// 且必須蓋過韌體 MQTT 重連時的最壞阻塞（≈1.5s）。
+    #[test]
+    fn stop_all_window_covers_the_firmware_reconnect_block() {
+        assert!(STOP_ALL_ACK_WINDOW >= Duration::from_millis(2_000));
+        assert!(STOP_ALL_ACK_WINDOW > Duration::from_millis(1_500));
     }
 }

@@ -14,8 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+        id: rust-toolchain
+        shell: bash
+        run: echo "channel=$(grep -E '^channel' rust-toolchain.toml | sed -E 's/.*"([^"]+)".*/\1/')" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
           components: rustfmt, clippy
       - name: system deps (alsa for the media adapter's cpal backend)
         run: |
@@ -36,7 +41,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+        id: rust-toolchain
+        shell: bash
+        run: echo "channel=$(grep -E '^channel' rust-toolchain.toml | sed -E 's/.*"([^"]+)".*/\1/')" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
       - name: system deps (webkit + tray + alsa)
         run: |
           sudo apt-get update
@@ -75,7 +86,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+        id: rust-toolchain
+        shell: bash
+        run: echo "channel=$(grep -E '^channel' rust-toolchain.toml | sed -E 's/.*"([^"]+)".*/\1/')" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
       - name: system deps (alsa for the embedded runtime)
         run: |
           sudo apt-get update

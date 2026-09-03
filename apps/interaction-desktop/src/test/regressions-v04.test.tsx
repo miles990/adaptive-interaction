@@ -354,7 +354,7 @@ describe("待我決定計數誠實（收件匣與 NowStrip）", () => {
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Agent"), "codex");
     await user.type(screen.getByLabelText("裝置"), "camera");
-    await user.type(screen.getByLabelText("Domain"), "rust");
+    await user.type(screen.getByLabelText("知識領域"), "rust");
     await waitFor(() =>
       expect(inbox).toHaveBeenLastCalledWith(
         expect.objectContaining({ agent: "codex", device: "camera", domain: "rust", limit: 200 })

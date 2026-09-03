@@ -7,6 +7,7 @@ import { availabilityLabel, confirmationLabel, triLabel, useAppState } from "../
 import { Icon } from "../icons";
 import { Badge, JsonView } from "../ui";
 import { riskTierOfCard } from "../riskTier";
+import { projectInboxStatus } from "../statusProjection";
 import { Dialog } from "./Dialog";
 
 const MAX_CARD_BADGES = 4;
@@ -316,10 +317,10 @@ function honestStatus(status: string): string {
       return "已收到（效果未確認）";
     case "blocked":
       return "被安全規則阻止";
-    case "uncertain":
-      return "結果未知";
     default:
-      return status;
+      // uncertain 與介面不認得的狀態都走共用投影（→「結果不確定」，固定安全文字），
+      // 不把原始字串當標籤。
+      return projectInboxStatus(status).label;
   }
 }
 

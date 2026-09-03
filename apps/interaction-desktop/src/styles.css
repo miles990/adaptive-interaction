@@ -476,6 +476,27 @@ html.companion-window, html.companion-window body, html.companion-window #root {
 /* v0.5 遊玩場：canvas 佔滿整個透明視窗（點擊穿透由 Rust hit-rect 控制）。 */
 .companion-stage { width: 100vw; height: 100vh; display: block; cursor: default; }
 .companion-stage:active { cursor: grabbing; }
+/* CPP 文字角色（text entrypoint／載入失敗 fallback）：一行文字，不是 canvas。 */
+.companion-text { display: none; }
+.companion-text-host {
+  min-width: 140px; max-width: 260px; margin-bottom: 8px; padding: 8px 12px;
+  background: rgba(30, 36, 48, 0.94); color: #eef3f9;
+  border: 1px solid rgba(120, 140, 170, 0.5); border-radius: 12px;
+  font-size: 12.5px; line-height: 1.45; text-align: center; cursor: pointer;
+  user-select: none; -webkit-user-select: none;
+}
+.companion-text-host[hidden] { display: none; }
+.companion-text-host [data-cpp-line]:empty::before { content: "…"; opacity: 0.5; }
+.companion-text-host [data-marker="verified"] { color: #8fe0a8; }
+/* 可信 host 元素：system.text／角色載入失敗文案（任何 adapter 都畫不到這裡）。 */
+.companion-system-text {
+  position: absolute; top: 2px; right: 4px; max-width: 220px; z-index: 6;
+  background: rgba(24, 30, 40, 0.97); color: #eef3f9;
+  border: 1px solid rgba(255, 196, 96, 0.7); border-left-width: 4px; border-radius: 8px;
+  padding: 6px 9px; font-size: 12px; line-height: 1.4;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+}
+.companion-system-text[data-marker="verified"] { border-color: #5fc98a; color: #d9ffe6; }
 .companion-bubble {
   position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
   max-width: 220px; background: rgba(30, 36, 48, 0.94); color: #eef3f9;
@@ -578,3 +599,121 @@ html.companion-window, html.companion-window body, html.companion-window #root {
 }
 .companion-toy-row { display: flex; gap: 2px; padding: 2px 4px; border-bottom: 1px solid rgba(120,140,170,0.25); }
 .companion-toy-row button { flex: 1; font-size: 14px; padding: 4px 2px; }
+
+/* ---- [G] 「現在」頁（HomePage）三問答＋快速操作＋詳細狀態；「更多」的角色與整合管理。
+   選擇器全部限定在 .home／.now-answers／.more-manage，390px 單欄可達。 ---- */
+.now-answers { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.now-answers .now-answer { cursor: default; align-items: stretch; }
+.now-answers .now-answer > button { align-self: flex-start; }
+.now-answers .now-sentence { margin: 0; font-size: 14px; line-height: 1.5; }
+.now-answers .now-list { margin: 0; gap: 4px; font-size: 13px; }
+.now-answers .now-list li { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.home .home-delegate { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 10px; }
+.home .home-delegate .field-label { flex: 1 1 220px; min-width: 0; }
+.home .home-delegate input { width: 100%; min-width: 0; box-sizing: border-box; }
+.home .home-details { margin-top: 6px; }
+.home .home-details > summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+.home .home-details-body { padding-top: 6px; }
+.home .home-counts { font-size: 13.5px; }
+.more-manage .section button .icon { vertical-align: -2px; }
+@media (max-width: 700px) {
+  .now-answers { grid-template-columns: 1fr; }
+  .home .home-delegate { flex-direction: column; align-items: stretch; }
+  .home .home-delegate button { width: 100%; }
+}
+
+/* ---- Phase 3 J：連接與權限 第一層四區（ConnectPage／pages/connect/CharacterAdaptersSection）
+   選擇器一律以 .connect- 開頭，避免與其他頁面衝突；390px 規則在本區塊末尾。 ---- */
+.connect-areas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.connect-area {
+  min-width: 0; border: 1px solid var(--border, #33415c33); border-radius: 10px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.connect-area h2 { margin: 0; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.connect-area p { margin: 0; }
+.connect-area-subhead { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.connect-area-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.connect-area-list li { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.connect-area-list li > span { min-width: 0; overflow-wrap: anywhere; }
+.connect-area-list li > .badge, .connect-area-list li > button { margin-left: auto; }
+.connect-area-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 4px; }
+.connect-all { margin-top: 4px; }
+.connect-all > summary { cursor: pointer; font-weight: 650; font-size: 15px; padding: 6px 0; }
+.connect-adapters { display: flex; flex-direction: column; gap: 6px; }
+.connect-adapters .provider-list { margin-top: 0; }
+.connect-adapter-row strong { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.connect-adapter-flags { display: flex; flex-wrap: wrap; gap: 4px; }
+@media (max-width: 700px) {
+  .connect-areas { grid-template-columns: 1fr; }
+  .connect-area-list li > .badge, .connect-area-list li > button { margin-left: 0; }
+}
+
+/* ===================== 工作頁 task-first（WorkPage／work/TaskComposer；owner: task I）=====================
+   選擇器一律以 .work-* 開頭，頁面專屬，不影響其他頁。 */
+.work-composer { display: flex; flex-direction: column; gap: 8px; }
+.work-question { font-size: 15px; font-weight: 600; color: var(--text); }
+.work-composer textarea { width: 100%; min-height: 96px; resize: vertical; font-family: inherit; line-height: 1.5; }
+.work-folder-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.work-folder-row input { flex: 1; min-width: 160px; }
+.work-preview { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: rgba(79,156,249,.05); }
+.work-preview-list { display: grid; grid-template-columns: minmax(8rem, .3fr) minmax(0, 1fr); gap: .45rem .9rem; margin: 8px 0 0; font-size: 13px; }
+.work-preview-list dt { color: var(--muted); }
+.work-preview-list dd { margin: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 4px; }
+.work-consent { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--text); }
+.work-consent input { margin-top: 3px; }
+.work-settings { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; background: var(--bg-card); }
+.work-settings > summary { cursor: pointer; font-size: 14px; color: var(--muted); }
+.work-settings[open] > summary { margin-bottom: 8px; }
+.work-settings h3 { margin: 12px 0 6px; }
+@media (max-width: 700px) {
+  .work-preview-list { grid-template-columns: 1fr; gap: .15rem; }
+  .work-preview-list dd { margin-bottom: .55rem; }
+  .work-folder-row input, .work-folder-row select { min-width: 0; width: 100%; }
+  .work-folder-row button { width: 100%; }
+}
+
+/* ===================== 角色頁（CompanionPage）＋首次成功體驗（FirstSuccess）：H 區塊開始 =====================
+   選擇器全部以 .character-* / .first-success* 為前綴，避免與其他頁面衝突。 */
+.character-page .character-current-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.character-page .character-current-name { margin: 0; font-size: 18px; color: var(--text); }
+.character-page .character-summary li { display: list-item; list-style: disc; margin-left: 18px; padding: 2px 0; }
+.character-page .character-preview { margin-top: 12px; }
+.character-page .character-preview h3 { color: var(--text); font-size: 13.5px; }
+.character-chip-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.character-chip { font-size: 12px; border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; }
+.character-text-samples li { flex-wrap: wrap; }
+.character-text-samples [data-marker="verified"] { color: var(--ok); }
+.character-pref-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.character-pref-field { min-width: 0; }
+.character-pref-field input[type="range"], .character-pref-field input[type="text"], .character-pref-field select { max-width: 100%; }
+.character-basic-toggles, .character-play { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.character-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.character-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.character-card.active { border-color: var(--accent); }
+.character-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.character-flags { display: flex; flex-wrap: wrap; gap: 2px; }
+.character-import { display: flex; flex-direction: column; gap: 10px; }
+.character-import-preview { border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.character-import-assets { display: flex; flex-direction: column; gap: 6px; }
+.character-tech summary { font-weight: 600; }
+.first-success-options { display: grid; gap: 10px; margin: 8px 0 16px; }
+.first-success-option {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left;
+  padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-card);
+  width: 100%; min-width: 0; white-space: normal;
+}
+.first-success-option strong { font-size: 15px; }
+.first-success-option:hover:not(:disabled) { border-color: var(--accent); }
+.first-success-result { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px;
+  border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; }
+@media (max-width: 700px) {
+  .character-page .character-current-name { font-size: 16px; }
+  .character-cards { grid-template-columns: 1fr; }
+  .character-pref-form { grid-template-columns: 1fr; }
+  .character-page .settings-grid { grid-template-columns: 1fr; }
+  .character-page .field-label select { min-width: 0; width: 100%; }
+  .character-page .preview-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+  .first-success .onboarding-panel { padding: 16px 12px 12px; }
+  .first-success .onboarding-footer { flex-wrap: wrap; }
+}
+/* ===================== H 區塊結束 ===================== */

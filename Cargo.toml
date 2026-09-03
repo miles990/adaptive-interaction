@@ -14,6 +14,7 @@ members = [
     "crates/interaction-adapter-sdk",
     "crates/interaction-agent-gateway",
     "crates/interaction-adapter-declarative",
+    "crates/interaction-character",
     "adapters/builtin",
     "adapters/media",
     "tests/e2e",
@@ -57,7 +58,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
-axum = { version = "0.8", features = ["json", "tokio", "http1"] }
+axum = { version = "0.8", features = ["json", "tokio", "http1", "ws"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }

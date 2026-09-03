@@ -4,6 +4,15 @@
 
 import { UnlistenFn } from "@tauri-apps/api/event";
 import { call, onError, onEvent, onReady } from "./transport";
+import type {
+  CharacterInputEvent,
+  CharacterManifest,
+  CharacterRole,
+  CommandReceipt,
+  LocalizedText,
+  Negotiate,
+  Negotiated,
+} from "./character/protocol";
 
 const invoke = call;
 
@@ -170,7 +179,7 @@ export const api = {
   /** 「測試裝置」：唯讀測一次（只讀第一個可讀受器，不觸發任何動器）。 */
   providerTest: (id: string) => invoke<ProviderTestReport>("provider_test", { id }),
   hardwareScan: () => invoke<HardwareScanReport>("hardware_scan"),
-  activityInbox: (filter: Record<string, unknown> = {}) =>
+  activityInbox: (filter: ActivityInboxFilter = {}) =>
     invoke<Record<string, unknown>>("activity_inbox", { filter }),
   agentsDiscoveries: () => invoke<Record<string, unknown>>("agents_discoveries"),
   agentsRefresh: () => invoke<Record<string, unknown>>("agents_refresh"),
@@ -244,6 +253,31 @@ export const api = {
       outcome,
       detail: detail ?? null,
     }),
+  // ---- Character Presentation Protocol（docs/character-protocol/README.md §8.1） ----
+  /** 桌面視窗（可信 host）向 Runtime 註冊／重新協商角色實例。同一 instanceId 再 hello ＝ 重協商（generation+1）。 */
+  characterHello: (input: CharacterHelloInput) =>
+    invoke<CharacterHelloResult>("character_hello", {
+      instanceId: input.instanceId ?? "desktop-companion",
+      role: input.role ?? "primary-companion",
+      manifest: input.manifest,
+      negotiate: input.negotiate,
+      visible: input.visible,
+      packId: input.packId ?? null,
+      behaviorState: input.behaviorState ?? null,
+    }),
+  /** 角色演出回執（accepted≠started≠completed；completed 永遠只是「演完了」）。 */
+  characterReceipt: (instanceId: string, receipt: CommandReceipt) =>
+    invoke<CharacterReceiptResult>("character_receipt", { instanceId, receipt }),
+  /** 正規化後的角色輸入事件（Runtime 轉成 receptor observation，仍經 policy／consent）。 */
+  characterEvent: (instanceId: string, event: CharacterInputEvent) =>
+    invoke<CharacterEventResult>("character_event", { instanceId, event }),
+  characterInstances: () => invoke<{ instances: CharacterInstanceView[] }>("character_instances"),
+  characterManifest: () => invoke<CharacterManifest>("character_manifest"),
+  /** 已登記的外部角色 adapter 清單（永遠不含 token 或其 hash）。 */
+  characterAdapters: () => invoke<{ adapters: CharacterAdapterView[] }>("character_adapters"),
+  /** 撤銷外部角色 adapter：token 立即失效並斷線，且不會自己回來。 */
+  characterAdapterRevoke: (adapterId: string) =>
+    invoke<CharacterAdapterRevokeResult>("character_adapter_revoke", { adapterId }),
   createPlan: (input: Record<string, unknown>) =>
     invoke<Record<string, unknown>>("create_plan", { input }),
   simulatePlan: (planId: string) => invoke<Record<string, unknown>>("simulate_plan", { planId }),
@@ -312,6 +346,85 @@ export const api = {
   sensorsStop: () => invoke("sensors_stop"),
 };
 
+// ---- Character Presentation Protocol types（與 crates/interaction-character 的 wire 一致） ----
+
+export interface CharacterHelloInput {
+  /** 預設 "desktop-companion"。 */
+  instanceId?: string;
+  /** 預設 "primary-companion"。 */
+  role?: CharacterRole;
+  manifest: CharacterManifest;
+  negotiate: Negotiate;
+  visible: boolean;
+  /** 相容：presence 的 packId（= characterId）。 */
+  packId?: string;
+  behaviorState?: Record<string, unknown>;
+}
+
+export interface CharacterHelloResult {
+  instanceId: string;
+  /** Runtime 端的世代；之後轉送的回執要帶這個值。 */
+  generation: number;
+  negotiated: Negotiated;
+}
+
+export interface CharacterReceiptResult {
+  accepted: boolean;
+  status?: string;
+}
+
+export interface CharacterEventResult {
+  decision: "queued" | "merged" | "throttled" | "dropped" | string;
+  reason?: string;
+}
+
+export interface CharacterInstanceView {
+  instanceId: string;
+  characterId: string;
+  displayName: LocalizedText;
+  role: CharacterRole | string;
+  generation: number;
+  lifecycle: string;
+  connected: boolean;
+  negotiated: boolean;
+  pending: number;
+  adapterKind: string;
+  origin: "builtin" | "imported" | "external" | string;
+  executable: boolean;
+  network: boolean;
+  tested: boolean;
+  /** 外部 adapter 實例才有；內建／匯入角色為 null。 */
+  adapterId?: string | null;
+  /** manifest 作者／版本／支援的 input capability id（Phase 8 F1 起由 Runtime 回報）。 */
+  author?: string | null;
+  version?: string;
+  inputCapabilities?: string[];
+}
+
+/** `GET /v1/character/adapters` 的一筆（永遠不含 token）。 */
+export interface CharacterAdapterView {
+  adapterId: string;
+  displayName: string;
+  characterId: string;
+  createdAt: string;
+  revoked: boolean;
+  connected: boolean;
+  /** 登記時的 manifest 摘要（Phase 8 F1 起由 Runtime 回報；舊 daemon 可能沒有）。 */
+  characterDisplayName?: LocalizedText;
+  author?: string | null;
+  version?: string;
+  inputCapabilities?: string[];
+  adapterKind?: string;
+  executable?: boolean;
+  network?: boolean;
+}
+
+export interface CharacterAdapterRevokeResult {
+  adapterId: string;
+  revoked: boolean;
+  disconnected: boolean;
+}
+
 /** 知識更新決策（spec §13 決策表輸出；camelCase 由後端 serde 保證）。 */
 export interface UpdateDecision {
   trigger: string;
@@ -331,6 +444,25 @@ export interface SensorUse {
   autoStopAt?: string;
 }
 
+/** 統一收件匣查詢（activity.rs `ActivityInboxFilter`）。後端是 deny_unknown_fields：
+ *  只能送它認得的鍵。`needsDecision` 是 v0.5 新增的「只要待你決定的項目」篩選——
+ *  舊 daemon 會整筆拒絕，呼叫端（ConnectPage `loadDecisionInbox`）必須退回不帶它的查詢，
+ *  再用 `pendingCount` 對照本頁，不得把「這一頁沒有」說成「沒有待決定」。 */
+export interface ActivityInboxFilter {
+  status?: string;
+  agent?: string;
+  device?: string;
+  task?: string;
+  domain?: string;
+  since?: string;
+  limit?: number;
+  needsDecision?: boolean;
+}
+
+/** safety-event 項目的 status（activity.rs）：緊急停止的「解除」與「啟動」是兩個不同的 status；
+ *  title 已是人話（原始 event_type 在 `detail.eventType`）。 */
+export type SafetyEventStatus = "emergency" | "emergency-cleared" | "sensor.started" | "sensor.stopped";
+
 export interface AgentSessionRecord {
   sessionId: string;
   providerId: string;
@@ -346,8 +478,13 @@ export interface AgentSessionRecord {
    *  一律視為唯讀——徽章依此欄位呈現，絕不依建立時的請求值宣稱可寫。 */
   allowWrite?: boolean;
   providerSessionId?: string;
-  /** 人工驗證（human-only）：存在＝人類確認過 claim；缺席＝仍只是聲稱。 */
-  humanVerified?: { at: string; note?: string };
+  /** 最新一次 claimed-completed 的識別；每個新的聲稱都拿到新 id。 */
+  claimId?: string;
+  /** 人工驗證（human-only）：存在＝人類確認過**目前這個** claim；缺席＝仍只是聲稱。
+   *  後端在新任務送達、新一輪工作或新的聲稱到來時會清掉它；`claimId` 指向被驗證的
+   *  那個 claim，介面只在 `humanVerified.claimId === record.claimId`（或兩者皆缺席的
+   *  舊資料）時顯示綠勾。 */
+  humanVerified?: { at: string; note?: string; claimId?: string };
   createdAt: string;
   closedAt?: string;
   detail?: string;
@@ -455,6 +592,8 @@ export interface UiPreferences {
   disabledAgents?: string[];
   agentRoutes?: Record<string, "codex" | "claude-code" | "none">;
   customNames: Record<string, string>;
+  /** 首次成功體驗已看過（host 保存；純 UI 旗標，不影響任何權限）。 */
+  firstSuccessSeen?: boolean;
   schemaVersion: string;
 }
 

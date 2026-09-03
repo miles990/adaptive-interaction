@@ -423,21 +423,28 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
 | ESP32 韌體 | `./firmware/esp32-companion/compile.sh [--ble]`（arduino-cli 1.5.1、esp32:esp32 3.3.11） | 兩組態 **0 error、本韌體 0 warning**（ESP32Servo 函式庫 4 個 unused warning）；938 KB／1188 KB——**只證明可編譯，未燒錄真板** |
 | 模擬器協定對測 | pty 對測 `scripts/esp32-serial-sim.py`＋從 `.ino` 逐字抽出的參數／loop 邏輯在桌面編譯執行 | 44/44、30/30（一次性檢查腳本在 scratch，非回歸套件） |
 
-### 角色效能量測（可重現：`cd apps/interaction-desktop && pnpm perf`；headless Chromium 151、DPR 2、含 raster flush）
+### 角色效能量測（可重現：`cd apps/interaction-desktop && pnpm perf`；headless Chromium 151、DPR 2、含 raster flush；2026-09-02 14:34Z 重跑（Phase 8 修復後），啟動旗標 `--js-flags=--expose-gc --enable-precise-memory-info`）
+
+> **量測範圍**：下表全部是 **WebView 內段**（合成 pointer 呼叫→下一幀），不含 Rust 點擊穿透閘與 OS 派送；
+> **端到端（OS pointer 事件→WebView 收到→toy.grabbed）沒有量測**，因此不得把下面的 8.3 ms 讀成「達到規格 §14 的 16–100 ms」。
 
 | 指標 | 結果 |
 |---|---|
-| drawRig 單角色一幀（160×200，36 表情輪流） | median **0.100 ms**／p95 0.130／max 2.67（n=72，每樣本 10 幀） |
-| 全舞台一幀（角色＋2 使魔＋3 玩具＋物理＋時間軸，416×216） | median **0.240 ms**／p95 0.540／max 0.62（n=120） |
-| rAF 間隔（headless 節奏，非使用者螢幕） | median 8.3 ms／p95 9.1／max 16.4 |
-| 輸入→下一幀：抓玩具（pointerDown→toy.grabbed） | median **8.3 ms**／p95 8.8（20/20 幀確認狀態改變）——規格目標 16–100 ms |
-| 輸入→下一幀：看向游標（pointerMove 進 hit-rect→gaze/耳朵參數改變） | median **8.7 ms**／p95 9.8（20/20） |
-| JS heap（600 幀前／後／GC 後） | 9.5 MB → 9.5 MB → 9.5 MB（Chromium 未 crossOriginIsolated 時量化到 10 MB 級距，只能看數量級） |
+| drawRig 單角色一幀（160×200，36 表情輪流） | median **0.100 ms**／p95 0.140／max 2.02（n=72，每樣本 10 幀） |
+| 全舞台一幀（角色＋2 使魔＋3 玩具＋物理＋時間軸，416×216） | median **0.240 ms**／p95 0.280／max 0.40（n=120） |
+| rAF 間隔（headless 節奏，非使用者螢幕） | median 8.3 ms／p95 9.1／max 9.3（n=600） |
+| 舞台自身 rAF 主迴圈（loop()＋幀預算） | ticks=362 drawn=362 skipEveryOther=false，視窗平均成本 0.188 ms（rAF gap median 8.3／p95 9.3／max 10.4，n=360） |
+| **WebView 內段** 輸入→下一幀：抓玩具（合成 `stage.pointerDown`→toy.grabbed） | median **8.3 ms**／p95 9.3（20/20 幀確認狀態改變）——只是規格 §14「16–100 ms」路徑的 WebView 段，**不是端到端** |
+| **WebView 內段** 輸入→下一幀：看向游標（合成 `stage.pointerMove` 進 hit-rect→gaze/耳朵參數改變） | median **8.3 ms**／p95 9.2（20/20）——同上，WebView 段 |
+| Rust 點擊穿透閘（**未量測**；讀碼上限） | 游標移動：≤80 ms 輪詢（`CLICKTHROUGH_POLL_MS`）；角色／玩具移動：≤60 ms hit-rect 節流回報（`HIT_RECT_MAX_QUIET_MS`）＋**回報落地即重算**（Phase 8 修：`companion_hit_rect` 直接重評，不再等下一次輪詢；舊上限 60＋80≈140 ms）。主機端上限約 max(80, 60) ms＋IPC／OS 派送；沒有任何從 OS pointer 事件起算的量測或 e2e 測試，**不得宣稱端到端達標** |
+| JS heap（600 幀前／後／GC 後；精確位元組） | 2.56 MB → 3.60 MB → 2.20 MB（raw 2 689 310／3 777 918／2 312 049 bytes；`--enable-precise-memory-info`，rig 自檢 quantized=no） |
+| JS heap 浸泡（60.0 s 真 rAF、7205 幀、29 次抓放玩具、6 次 spawn、每 5 s 取樣） | GC 後 **1.86 MB → 2.08 MB（Δ +231 KB，+12.2%）**；GC 前峰值 3.38 MB；取樣 3.13/2.51/3.19/3.07/2.24/2.36/2.97/2.82/3.19/3.38/2.37/2.53 MB（分配→GC 鋸齒）。三次 60 s 重跑 GC 後終值差 <1 KB（2 182 281／2 182 641／2 182 125 bytes），像是固定保留而非隨時間累積，但 60 s 分不出快取暖身與洩漏——**未判定無洩漏**，分鐘級以上浸泡待做 |
 | bounded：玩具上限 | 23 次 spawn → 場內 4 個（cap） |
 | 長時間數值行為 | 時間軸模擬 3 天、20 萬取樣：全部有限且在 clamp 範圍 |
 
 誠實：這是 Blink（Chromium）數字，不是 Tauri WKWebView；同機同碼相對基準。Phase 6 文件裡的「drawRig 0.452 ms（2.2x）」
-沒有任何產生程式，已作廢。
+沒有任何產生程式，已作廢。Phase 7 版本表格引用的「9.5 MB → 9.5 MB → 9.5 MB」是 Chromium 量化桶值（10 000 000 bytes／1 048 576），
+不是量測值，已由精確位元組取代；rig 現在若讀到量化值會以非零結束，數字不得引用。
 
 ### 對抗審查（`.claude/workflows/adversarial-review-v05.js`；find → 獨立懷疑者 verify）
 
@@ -492,7 +499,83 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
 13. **桌面端 BLE gateway 只有 scan**；iOS 端 connect/gatt(read/write/subscribe) 已寫但桌面沒有送端；訂閱串流語意與 one-shot 不相容。
 14. **Camera／Location／Live Activity／Audio SFX／區網裝置事件** receptor/actuator 未實作。
 15. **WebSocket／HID／Home Assistant adapter**（規格 §9.1 第 4–6 項）未實作。
-16. **效能數字**是 headless Chromium 的 CPU 數字，非 Tauri WKWebView 實機；heap 因 Chromium 量化只能看數量級。
+16. **效能數字**是 headless Chromium 的 CPU 數字，非 Tauri WKWebView 實機；輸入延遲只量 WebView 內段（Rust 點擊穿透閘＋OS 派送
+    未量，**端到端未量**）；heap 已是精確位元組（`--enable-precise-memory-info`）但只有 60 s 浸泡，GC 後 +231 KB 未判定是快取暖身還是洩漏。
 17. **磁碟**：本機 `target/` 約 30 GB，Phase 7 期間兩度寫滿導致 build 中斷（刪除 `target/debug/incremental` 恢復）。
 18. 本輪未 push、release、deploy、開 PR 或建立 commit（依 repo 規則需使用者明確授權）；HEAD 仍為 `a898996`，
     Phase 6＋Phase 7 全部為工作樹未提交變更。
+
+---
+
+## v0.5 Phase 8（Character Presentation Protocol＋小樞 Reference Adapter＋一般模式產品化；2026-09-02，macOS 26.2／Apple M2 Pro／rustc 1.94.0 (4a4ef493e 2026-03-02) (Homebrew)／node v24.5.0／pnpm 10.27.0）
+
+> 每個數字都是本機實跑；模擬器／fixture／瀏覽器版控制中心一律標示。**沒有任何 Tauri 角色視窗、可信 overlay 視窗、匯入資料夾、
+> ESP32 或 iPhone 真機的證據**——這些只有單元／模擬器／fixture 證據。本節不 commit、不 push、不 release。
+
+### 對抗審查（Phase 8；`.claude/workflows/adversarial-review-v05.js`，報告落盤於 `docs/reviews/adversarial/`）
+
+| run | 範圍 | reviewed | confirmed | fixed-meanwhile | refuted | unverified（verifier 失敗） |
+|---|---|---:|---:|---:|---:|---:|
+| 1 `2e02284-20260902T080415Z` | 13 維度 find→verify | 110 | 32 | 0 | 3 | 75（模型額度上限） |
+| 2 `2e02284-20260902T140445Z` | run 1 的 75 項 unverified 以 seeds 重驗 | 75 | 25 | 1 | 2 | 47（額度用盡） |
+| 3 `2e02284-20260902T142608Z` | run 2 的 47 項再重驗 | 47 | 44 | 1 | 2 | 0 |
+
+run 3 的 44 項 confirmed **尚未修復**（本次交付先如實記錄：清單在 run 3 報告，嚴重度分布見下；後續回合處理）。run 1 的 32 項 confirmed 全部修復（5 組：Rust 誠實階梯、頁面、角色視窗、線協定／韌體、效能與 host），每項附回歸測試並做過
+「暫時把 bug 放回去 → 測試變紅」的檢查；run 2 的 25 項 confirmed 由角色視窗／rig 修復回合處理，未能修的以已知限制記錄
+（見 CHANGELOG「已知限制（Phase 8）」）。
+
+### 回歸實測（Phase 8 收尾）
+
+| 套件 | 命令 | 結果 | 環境／限制 |
+|---|---|---|---|
+| Rust fmt | `cargo fmt --all --check` | 通過（exit 0） | rustc 1.94.0（`rust-toolchain.toml` 釘 1.94.0；本機 Homebrew rust 無 rustup） |
+| Rust clippy | `cargo clippy --workspace --all-targets -- -D warnings` | 通過，0 warnings | 含新 crate `interaction-character`＋axum `ws` |
+| Rust tests | `cargo test --workspace` | **595 passed / 0 failed / 0 ignored**（42 個 test target；含 interaction-character 101、character_loop 13、api_e2e 22（含 WS fixture）、golden 6、對抗審查回歸 11） | 真 runtime、fake agent 子程序（`fake_claude.sh`／`fake_codex.sh`／`fake_codex_exec.sh`）、in-process WS client（fixture） |
+| Tauri backend | `cargo test --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml` | **43 passed / 0 failed**（clippy `-D warnings` 乾淨） | 單元（host_safety／character_store／window adjust／prefs／companion_set_visible） |
+| 前端 typecheck | `pnpm typecheck` | 通過 | — |
+| 前端 unit | `pnpm test`（vitest） | **759 passed / 0 failed / 0 skipped（39 檔）** | jsdom＋stub canvas（模擬器） |
+| 前端 build | `pnpm build` | 成功（vite 1.5 s） | — |
+| CLI E2E | `./scripts/v03-cli-e2e.sh` | **82 passed / 0 failed**（含「Character Protocol」段 14 項：adapter token 分權、WS 握手、手動安全 intent 拒絕、receipt、撤銷；ESP32 模擬器段新增按鈕翻轉推播／感測 null／訊息上限） | 真 daemon 18811＋mock HTTP 裝置＋serial 模擬器（含控制通道）＋**模擬 adapter（fixture，Node 24 走 WebSocket）** |
+| Playwright | `pnpm test:e2e` | **35 passed / 0 failed**（app 15、evidence 15、narrow 4、offline 1；57.8 s） | 真 daemon 18790（fake agent 子程序 fixture）＋Chromium；瀏覽器版控制中心，**非 Tauri 角色視窗** |
+| 效能 | `pnpm perf` | 見下方「角色效能量測」表（drawRig／全舞台／stage loop／輸入延遲／heap soak／bounded／3 天數值） | headless Chromium，非 WKWebView |
+
+
+### 證據跑（Playwright＋perf；瀏覽器版控制中心，非 Tauri 角色視窗）
+
+`pnpm test:e2e`：global-setup 建真 daemon（18790）並以 `fake_claude.sh`／`fake_codex.sh` 作為 agent 子程序 fixture；
+evidence spec 在 1200×800（`desktop-*`）與 390×844（`narrow-*`）各擷取一次，全部落在 `docs/assets/v05-evidence/`（本輪重產 56 張、新增 30 張）。
+**每一張都是 Playwright Chromium 對瀏覽器版控制中心的截圖**——沒有 Tauri 角色視窗、沒有 overlay 視窗、沒有真硬體、沒有真機。
+
+| 截圖（desktop-／narrow-） | 內容 | 真實 vs fixture |
+|---|---|---|
+| `home`、`narrow-home` | 現在：三個回答＋快速操作 | 真 daemon 狀態；沒有角色視窗 → 誠實顯示「角色離線，改用文字」 |
+| `companion`、`companion-appearance`、`companion-companionship`、`companion-capabilities`、`companion-library` | 角色頁五區、能力摘要、內建角色清單（預設小樞） | manifest／registry 真實轉述；玩耍設定為桌面版專屬（瀏覽器誠實說明） |
+| `companion-import` | 匯入角色對話框 | UI；瀏覽器版無 Tauri 匯入命令 |
+| `companion-fallback`、`narrow-companion-fallback` | 角色載入失敗 → 中立「角色」＋改用文字 | 真實中斷 `/characters/index.json` 請求 |
+| `work`、`work-preview` | 工作空狀態（task-first composer）、開始前預覽六項 | UI |
+| `work-working`、`work-consent`、`work-claimed`、`work-verified` | 處理中／等你同意／Agent 說已完成／已確認完成 | **fixture agent**（fake_claude／fake_codex 子程序，真 daemon）；verified 由人類 token `POST /verify` |
+| `connect`、`connect-adapters`、`connect-adapters-hub` | 連接與權限四區＋角色 adapter 詳細資料 | 外部 adapter 是 `examples/character-adapters/text-adapter.mjs`（**模擬 adapter，fixture，真 WebSocket 連線**） |
+| `waiting-*`、`inbox`、`narrow-inbox` | 各頁真實待確認狀態＋通知中心 | fixture agent 產生的 waiting-consent |
+| `loading-*`、`error-unknown-*` | 載入中／傳輸錯誤 | Playwright route 延遲／中斷 |
+| `theme-light-home`、`theme-dark-home` | 淺色／深色主題 | Runtime UI 偏好 |
+| `first-success`、`narrow-first-success`、`narrow-first-success-browser-honest` | 首次成功體驗（精靈 → FirstSuccess） | 瀏覽器版「先在桌面陪我」誠實說明需桌面版 |
+| `offline`、`narrow-offline` | Runtime 離線 | 真實離線畫面 |
+| `emergency-*` | 緊急停止（放最後，真觸發→擷取→安全流程解除） | 真 daemon estop |
+| `global-search`、`hardware-scan`、`more`、`narrow-more` | ⌘K、硬體掃描（metadata only）、更多 | 真 daemon |
+
+### 角色效能量測（`pnpm perf`；headless Chromium，Apple M2 Pro；非 WKWebView）
+
+| 量測（`pnpm perf` 原始輸出行） |
+|---|
+| `drawRig      : median 0.110 ms / p95 0.150 ms / max 1.670 ms (n=72)` |
+| `stage frame  : median 0.260 ms / p95 0.560 ms / max 0.600 ms (n=120)` |
+| `rAF gap      : median 8.300 ms / p95 9.100 ms / max 9.400 ms (n=600)` |
+| `stage loop   : ticks=362 drawn=362 skipEveryOther=false lastWindowAvgCost=0.247 ms (rAF gap median 8.300 ms / p95 9.200 ms / max 9.400 ms (n=360))` |
+| `toy grab lat : median 8.200 ms / p95 8.500 ms / max 8.500 ms (n=20) (confirmed 20/20; WebView-only segment, host click-through gate not included)` |
+| `gaze latency : median 8.300 ms / p95 9.100 ms / max 9.100 ms (n=20) (confirmed 20/20; WebView-only segment)` |
+| `heap (600 f) : 3.01 MB → 3.51 MB → 2.26 MB after gc (gc available; source usedJSHeapSize, --enable-precise-memory-info, quantized=no)` |
+| `heap soak    : 60.0 s / 7199 frames / 29 toy grabs; after-gc 1.92 MB → 2.14 MB (Δ +225 KB, 11.4%); peak before gc 3.61 MB; samples every 5 s: 3.57, 2.80, 3.61, 2.52, 2.51, 3.11, 3.19, 3.48, 3.33, 3.59, 3.39, 3.55 MB; quantized=no; evidence-grade=yes (≥60 s)` |
+| `bounded toys : cap=4 of 23 spawns` |
+| `3-day run    : finite=true withinClamp=true` |
+
+數字由 `apps/interaction-desktop/scripts/shu/perf-rig.mjs` 產生（`--expose-gc --enable-precise-memory-info`）；「輸入→下一幀」只量 WebView 內段，端到端未量（見已知限制）。

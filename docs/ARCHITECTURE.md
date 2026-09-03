@@ -1,4 +1,4 @@
-# 架構總覽（v0.3）
+# 架構總覽（v0.5 開發中；v0.3 基線＋v0.4／v0.5 增量）
 
 跨 AI 自適應互動平台的核心是一個 **Rust runtime**。CLI、HTTP API 與 Tauri 桌面
 控制中心都是它的 client，共用同一套 application service 與同一個 deterministic
@@ -36,9 +36,10 @@ Rust Adaptive Interaction Runtime
 | `interaction-tool-schema` | Canonical Tool Manifest → OpenAI/Anthropic/Gemini/OpenAPI/JSON-Schema（golden tests） |
 | `interaction-adapter-sdk` | Receptor/Actuator manifest builder、DriverReceipt 協定、human meta helper |
 | `interaction-adapter-declarative` | **宣告式 adapter**：YAML spec → 真 HTTP/SSE receptor/actuator（policy-bounded、secret://、SSRF 防護） |
+| `interaction-character` | **Character Presentation Protocol 1.0**（純函式）：manifest 驗證／migration、能力協商、intent／truthState／priority floor、input 正規化、回執狀態機、wire messages、`Gateway`；JSON Schema 來源 |
 | `adapters-builtin` | 內建 receptor/actuator（conversation/web-ui/log/notification/webhook/mock/companion/agent…） |
 | `adapters-media` | **高敏感媒體 receptor**：麥克風 listen（feature-gated cpal；預設關；記憶體內只留 level 事實） |
-| `interaction-desktop` | Tauri 2：狀態列 runtime、RuntimeSupervisor、桌面角色小樞、控制中心 |
+| `interaction-desktop` | Tauri 2：狀態列 runtime、RuntimeSupervisor、可信 host overlay、角色視窗（TS `CharacterGateway`＋小樞／sprite／text adapters）、角色匯入、控制中心 |
 
 核心 crate 不依賴 Tauri／Axum／cpal／特定硬體；設備專屬 adapter 各自獨立。
 
@@ -154,3 +155,29 @@ no-estop ＋ receptor enabled ＋ 該 receptor 的明確 session consent。liste
 信任面不變：唯一 governor、claims 永為 inference、human/agent token 分權、
 estop 全鏈（含子程序樹與
 presentation 佇列）、重啟不自動恢復任何可行動狀態。
+
+
+## v0.5 Character Presentation Protocol（角色無關的呈現層）
+
+唯一契約：`docs/character-protocol/README.md`；權威實作與 JSON Schema：`crates/interaction-character`
+（`schemas/character-protocol.schema.json` golden）；TS 鏡射：`apps/interaction-desktop/src/character/`。
+
+```
+Runtime 真相（agent.session.state／action.*／plan.blocked／emergency／proactive／provider／observation／AI state-present）
+   │  crates/interaction-runtime/src/character.rs：投影成 IntentEnvelope（intent＋truthState＋priority floor＋correlationId）
+   ▼
+CharacterHub（Rust Gateway）── character.intent（SSE／Tauri IPC）──▶ 桌面視窗 CharacterGateway（TS）──▶ shu-rig／sprite／text adapter
+   │                          ── WebSocket /v1/character/ws（adapter token）──▶ 外部程式（examples/character-adapters）
+   │  ◀── receipts（accepted→started→completed｜cancelled｜failed｜uncertain）、input events（正規化、節流、只 metadata）
+   ▼
+receipt 誠實結算（AI presentation command：completed→Completed AcknowledgedOnly；永不 verified）、audit、character.receipt 事件
+```
+
+- **呈現層無權限主權**：adapter 只收授權後的 intent、只送受限 event；truthState／verified 只由 Runtime 決定；
+  adapter token 打不到任何人類路由。
+- **誠實降級**：exact／substituted／reduced／unsupported／failed；安全 intent 沒有任何能力時落到 `system.text`
+  （事件＋可信 host overlay），不會遺失。
+- **可信 host 層**：estop／感測使用中／Runtime 離線由 Tauri `overlay` 視窗＋tray 顯示，內容只來自 Rust
+  （renderer 視窗沒有 emit 權限）。
+- **小樞＝Reference Adapter**：`src/character/adapters/shu.ts`＋`shuTables.ts` 是唯一知道耳朵／尾巴／36 表情的地方；
+  Runtime 只有語意投影表。文字角色（`plain-text`）與舊 sprite pack 走同一條路。

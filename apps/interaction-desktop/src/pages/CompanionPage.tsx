@@ -1,56 +1,128 @@
-// 小樞頁（spec §16-1.C）：顯示／外觀／表現、真實狀態預覽（取自實際 sprite
-// sheet，不是設計稿）、Behavior 說明、presence 誠實狀態。
-// 安全語句固定不可覆寫；成功綠勾只在 verified 幀。
+// 角色頁（v0.5 一般模式五分區，依序）：目前角色／外觀與名字／平常如何陪伴／安靜與勿擾／
+// 更換或加入角色。技術資料（manifest 原文、schema 版本、引擎、adapter、通道、Behavior State
+// 數值）只在進階模式的收合區塊。
+//
+// 角色名稱一律 useCharacterName()；預覽依 manifest.entrypoint 分流（不用 pack id 字串）。
+// 安全語句固定不可覆寫；成功綠勾只在 verified。主動對話／主動程度／安靜時段的編輯器
+// 只住在這一頁（單一主人；見 regressions-v05 守門測試）。
 
 import React from "react";
-import { api } from "../api";
+import { api, type CharacterInstanceView } from "../api";
+import { useAppState } from "../appstate";
+import { refreshCharacterName, useCharacterName } from "../characterName";
 import { desktop, DesktopPrefs, isTauri } from "../desktop";
 import { Badge, Section, Toggle, useAsync } from "../ui";
-import { PackManifest, validateManifest } from "../companion/renderer";
-import {
-  drawExpressionPreview,
-  RigManifest,
-  validateRigManifest,
-} from "../companion/rig/renderer";
-import { EXPRESSIONS, OFFICIAL_36 } from "../companion/rig/expressions";
-import {
-  exportCompanionSettings,
-  parseCompanionSettingsImport,
-} from "../companion/settingsTransfer";
-import {
-  memorySummary,
-  noteReactionDisabled,
-  sanitizeMemory,
-} from "../companion/interactionMemory";
+import { PRIMARY_INSTANCE_ID } from "../companion/gatewayWiring";
+import { emptyMemory, memorySummary, noteReactionDisabled, sanitizeMemory } from "../companion/interactionMemory";
 import { rollCallKey } from "../companion/playfield";
+import { CharacterLibrarySection } from "./character/CharacterLibrary";
+import { CharacterPreview } from "./character/CharacterPreview";
+import { PreferencesForm } from "./character/PreferencesForm";
+import { TechnicalDetails } from "./character/TechnicalDetails";
+import {
+  isShuRig,
+  originLabel,
+  sanitizeErrorText,
+  siblingForVariant,
+  TEXT_FALLBACK_CHARACTER_ID,
+  useCharacterCatalog,
+  variantName,
+  type CharacterCard,
+} from "./character/catalog";
+import {
+  effectivePreferences,
+  persistCharacterPreferences,
+  VARIANT_PREFERENCE_KEY,
+  type PreferenceSource,
+  type PreferenceValue,
+} from "./character/preferences";
 
-/** 預覽狀態清單（spec §C）：名稱＋對應動畫＋誠實幀選擇。 */
-const PREVIEW_STATES: { label: string; animation: string; frame?: number; note?: string }[] = [
-  { label: "待機 Idle", animation: "idle" },
-  { label: "察覺 Notice", animation: "notice", frame: 2 },
-  { label: "好奇 Curious", animation: "curious", frame: 2 },
-  { label: "聆聽 Listening", animation: "listening" },
-  { label: "思考 Thinking", animation: "thinking", frame: 2 },
-  { label: "工作 Working", animation: "act", frame: 1 },
-  { label: "等待 Waiting", animation: "waiting", frame: 1 },
-  { label: "完成（未驗證）", animation: "success", frame: 0, note: "只點頭，沒有綠勾" },
-  { label: "完成（已驗證）", animation: "success", frame: 2, note: "綠勾只在驗證後" },
-  { label: "結果未知 Unknown", animation: "unknown", frame: 1 },
-  { label: "失敗 Failed", animation: "failed", frame: 1 },
-  { label: "被阻擋 Blocked", animation: "blocked", frame: 1 },
-  { label: "緊急停止 Emergency", animation: "emergency", frame: 0 },
-];
+// ---------------------------------------------------------------------------
+// 角色即時狀態（可信 host 文案；崩潰／失聯一律「改用文字」）
+// ---------------------------------------------------------------------------
 
-export function CompanionPage({ refreshKey }: { refreshKey: number }) {
+export const CHARACTER_UNAVAILABLE_TEXT = "角色目前無法顯示，改用文字";
+
+export interface CharacterLiveState {
+  label: string;
+  kind: "ok" | "warn" | "bad" | "muted" | "pending";
+  detail: string;
+}
+
+const CRASHED_LIFECYCLES = new Set(["crashed", "reconnecting", "disposed"]);
+const HIDDEN_LIFECYCLES = new Set(["hidden", "suspended"]);
+const READY_LIFECYCLES = new Set(["ready", "shown", "resumed", "reconfiguring"]);
+
+/** Runtime 實例（優先）＋ presence 推導；沒有任何回報就誠實說未連線。 */
+export function characterLiveState(
+  instance: Pick<CharacterInstanceView, "lifecycle" | "connected"> | null,
+  presence: Record<string, unknown> | null
+): CharacterLiveState {
+  if (instance) {
+    if (!instance.connected || CRASHED_LIFECYCLES.has(instance.lifecycle)) {
+      return {
+        label: CHARACTER_UNAVAILABLE_TEXT,
+        kind: "warn",
+        detail: "角色的呈現程式已停止或失去連線；安全訊息會改以固定文字顯示，系統與進行中的工作不受影響。",
+      };
+    }
+    if (HIDDEN_LIFECYCLES.has(instance.lifecycle) || presence?.visible === false) {
+      return { label: "已隱藏", kind: "muted", detail: "角色視窗已連線但目前隱藏；打開「顯示桌面角色」就會出現。" };
+    }
+    if (READY_LIFECYCLES.has(instance.lifecycle)) {
+      return { label: "角色視窗運作中", kind: "ok", detail: "角色視窗已連線並正在呈現。" };
+    }
+    return { label: "準備中", kind: "pending", detail: "角色視窗正在載入或協商中。" };
+  }
+  if (presence?.connected === true) {
+    return presence.visible === true
+      ? { label: "角色視窗運作中", kind: "ok", detail: "角色視窗已連線並正在呈現。" }
+      : { label: "已隱藏", kind: "muted", detail: "角色視窗已連線但目前隱藏；打開「顯示桌面角色」就會出現。" };
+  }
+  return {
+    label: "角色視窗未連線",
+    kind: "bad",
+    detail: "桌面角色視窗沒有連上（瀏覽器檢視沒有角色視窗）。安全訊息仍會以固定文字顯示在控制中心。",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 頁面
+// ---------------------------------------------------------------------------
+
+export function CompanionPage({
+  refreshKey,
+  advanced: advancedProp,
+}: {
+  refreshKey: number;
+  /** 未提供時讀 AppState（prefs.mode）。 */
+  advanced?: boolean;
+  onNavigate?: (tab: string) => void;
+}) {
+  const { prefs: uiPrefs } = useAppState();
+  const advanced = advancedProp ?? uiPrefs.mode === "advanced";
+  const { name, pronoun } = useCharacterName({ refreshKey });
   const [prefs, setPrefs] = React.useState<DesktopPrefs | null>(null);
   const [presence, setPresence] = React.useState<Record<string, unknown> | null>(null);
+  const [instance, setInstance] = React.useState<CharacterInstanceView | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [prefSource, setPrefSource] = React.useState<PreferenceSource | null>(null);
+  const catalog = useCharacterCatalog(refreshKey);
 
   const load = React.useCallback(async () => {
     try {
       setPresence(await api.presentationStatus());
     } catch (e) {
-      setError(String(e));
+      setError(sanitizeErrorText(e));
+    }
+    try {
+      const r = await api.characterInstances();
+      const list = Array.isArray(r?.instances) ? r.instances : [];
+      setInstance(list.find((i) => i.instanceId === PRIMARY_INSTANCE_ID) ?? null);
+    } catch {
+      setInstance(null);
     }
     if (isTauri) {
       try {
@@ -66,367 +138,629 @@ export function CompanionPage({ refreshKey }: { refreshKey: number }) {
     return () => window.clearInterval(timer);
   }, [load, refreshKey]);
 
-  const patch = async (p: Partial<DesktopPrefs>) => {
+  const patch = React.useCallback(async (p: Partial<DesktopPrefs>) => {
+    setBusy(true);
     try {
       setPrefs(await desktop.prefsPatch(p));
       await desktop.companionApplyPrefs();
       setError(null);
+      if (p.companionPack !== undefined || p.companionName !== undefined) {
+        void refreshCharacterName({ force: true });
+      }
     } catch (e) {
-      setError(String(e));
+      setError(sanitizeErrorText(e));
+    } finally {
+      setBusy(false);
     }
-  };
+  }, []);
 
-  const connected = presence?.connected === true;
-  const visible = presence?.visible === true;
-  const pack = String(prefs?.companionPack ?? presence?.packId ?? "shu-maid");
+  const activeId =
+    prefs?.companionPack ??
+    (typeof presence?.packId === "string" && presence.packId.length > 0 ? presence.packId : null) ??
+    catalog.defaultId ??
+    "shu-maid";
+  const active = catalog.cards.find((c) => c.characterId === activeId) ?? null;
+  const shu = isShuRig(active);
+  const schema = active?.manifest?.preferencesSchema;
+  const variants = active?.manifest?.variants ?? [];
+  const variantIds = React.useMemo(() => variants.map((v) => v.id), [variants]);
+  const effective = React.useMemo(
+    () => effectivePreferences(schema, activeId, prefs, { variantIds }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [schema, activeId, prefs, variantIds, prefSource]
+  );
+
+  const selectCharacter = React.useCallback(
+    async (characterId: string) => {
+      const target = catalog.cards.find((c) => c.characterId === characterId);
+      await patch({ companionPack: characterId });
+      setNotice(
+        target
+          ? `已改用「${target.name}」。桌面角色視窗會重新載入；無法顯示時會改用文字。`
+          : `已改用「${characterId}」。`
+      );
+    },
+    [catalog.cards, patch]
+  );
+
+  const disableCharacter = React.useCallback(async () => {
+    await patch({ companionPack: TEXT_FALLBACK_CHARACTER_ID });
+    setNotice("已停用目前角色，改用純文字角色；安全訊息照常以固定文字顯示。");
+  }, [patch]);
+
+  const removeCharacter = React.useCallback(
+    async (characterId: string) => {
+      setBusy(true);
+      try {
+        await desktop.characterRemove(characterId);
+        setError(null);
+        setNotice("已移除角色。");
+      } catch (e) {
+        setError(`移除失敗：${sanitizeErrorText(e)}`);
+        setBusy(false);
+        return;
+      }
+      setBusy(false);
+      if (characterId === activeId) {
+        await selectCharacter(catalog.defaultId ?? TEXT_FALLBACK_CHARACTER_ID);
+      }
+      catalog.reload();
+    },
+    [activeId, catalog, selectCharacter]
+  );
+
+  const changePreference = React.useCallback(
+    async (key: string, value: PreferenceValue) => {
+      if (!prefs) {
+        setError("角色偏好需要桌面版控制中心（此為瀏覽器檢視）。");
+        return;
+      }
+      const values = { ...effective.values, [key]: value };
+      try {
+        const r = await persistCharacterPreferences(activeId, values, prefs);
+        setPrefs(r.prefs);
+        setPrefSource(r.persisted);
+        setError(null);
+      } catch (e) {
+        setError(sanitizeErrorText(e));
+      }
+    },
+    [activeId, effective.values, prefs]
+  );
+
+  const chooseVariant = React.useCallback(
+    async (variantId: string) => {
+      if (!active) return;
+      const sibling = siblingForVariant(catalog.cards, active, variantId);
+      if (sibling) {
+        if (sibling !== active.characterId) await selectCharacter(sibling);
+        return;
+      }
+      await changePreference(VARIANT_PREFERENCE_KEY, variantId);
+    },
+    [active, catalog.cards, changePreference, selectCharacter]
+  );
+
+  const live = characterLiveState(instance, presence);
+  const explanation = String(
+    presence?.behaviorExplanation ??
+      (presence?.behaviorState as Record<string, unknown> | null | undefined)?.explanation ??
+      ""
+  );
+  // Runtime 回報「已測試」只在實例就是這個角色時才採信（視窗可能還跑著上一個角色）。
+  const summaryLines = React.useMemo(() => {
+    if (!active) return [];
+    if (instance?.tested === true && instance.characterId === active.characterId && !active.tested) {
+      return active.summary.map((line) =>
+        line.startsWith("已測試：") ? "已測試：是（角色視窗完成過一次完整演出並回報）" : line
+      );
+    }
+    return active.summary;
+  }, [active, instance?.tested, instance?.characterId]);
+
+  const currentVariant =
+    typeof effective.values[VARIANT_PREFERENCE_KEY] === "string"
+      ? String(effective.values[VARIANT_PREFERENCE_KEY])
+      : (variants[0]?.id ?? "");
 
   return (
-    <div>
-      <Section title="目前狀態">
-        <div className="row wrap">
-          {connected ? (
-            visible ? (
-              <Badge kind="ok">角色視窗運作中</Badge>
-            ) : (
-              <Badge kind="warn">已連線但隱藏中</Badge>
-            )
-          ) : (
-            <Badge kind="bad">角色視窗未連線</Badge>
+    <div className="character-page">
+      {/* 1. 目前角色 */}
+      <Section title="目前角色">
+        <div className="character-current">
+          <div className="character-current-head">
+            <h3 className="character-current-name">{name}</h3>
+            {active && <Badge kind={active.origin === "builtin" ? "info" : "warn"}>{originLabel(active.origin)}</Badge>}
+            {active?.flags.external && <Badge kind="warn">外部</Badge>}
+            {active?.flags.executable && <Badge kind="bad">有可執行程式</Badge>}
+            {active?.flags.network && <Badge kind="warn">需要網路</Badge>}
+            <Badge kind={live.kind}>{live.label}</Badge>
+          </div>
+          <p className="muted small">{live.detail}</p>
+          {explanation.length > 0 && (
+            <p className="small" role="status">
+              現在：{explanation}
+            </p>
           )}
-          <span className="muted small">
-            待確認呈現命令：{String(presence?.pendingCommands ?? 0)}
-          </span>
-        </div>
-        <p className="muted small">
-          隱藏角色只會停止角色視窗內的感知與呈現；Runtime、狀態列與 AI 工作階段都會繼續。
-          隱藏不等於緊急停止。
-        </p>
-        {error && (
-          <p className="cap-card-error" role="alert">
-            {error}
+          {active ? (
+            <ul className="plain-list small character-summary" aria-label="角色能力摘要">
+              {summaryLines.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : catalog.loaded ? (
+            <div className="state-box">找不到目前設定的角色資料；桌面角色視窗會改用文字顯示。</div>
+          ) : (
+            <div className="state-box">正在讀取角色資料…</div>
+          )}
+          {prefs && (
+            <Toggle
+              checked={prefs.companionVisible}
+              onChange={(on) => void patch({ companionVisible: on })}
+              label="顯示桌面角色"
+            />
+          )}
+          <p className="muted small">
+            隱藏角色只會停止角色視窗內的感知與呈現；系統、狀態列與進行中的工作都會繼續。隱藏不等於緊急停止。
           </p>
+          {error && (
+            <p className="cap-card-error" role="alert">
+              {error}
+            </p>
+          )}
+          {notice && (
+            <p className="muted small" role="status">
+              {notice}
+            </p>
+          )}
+        </div>
+      </Section>
+
+      {/* 2. 外觀與名字 */}
+      <Section title="外觀與名字">
+        {!prefs ? (
+          <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
+        ) : (
+          <AppearanceControls
+            prefs={prefs}
+            active={active}
+            busy={busy}
+            patch={patch}
+            setError={setError}
+            variants={variants}
+            currentVariant={currentVariant}
+            onVariant={chooseVariant}
+          />
+        )}
+        <CharacterPreview card={active} />
+      </Section>
+
+      {/* 3. 平常如何陪伴 */}
+      <Section title="平常如何陪伴">
+        {!prefs ? (
+          <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
+        ) : (
+          <>
+            <div className="settings-grid">
+              <label className="field-label">
+                表現程度（只影響表演與說話頻率，不影響任何權限）
+                <select
+                  value={prefs.companionExpressiveness}
+                  onChange={(e) => void patch({ companionExpressiveness: e.target.value })}
+                >
+                  <option value="quiet">安靜</option>
+                  <option value="natural">自然</option>
+                  <option value="lively">活潑</option>
+                </select>
+              </label>
+              {shu && (
+                <label className="field-label">
+                  說話風格
+                  <select
+                    value={prefs.companionPersona}
+                    onChange={(e) => void patch({ companionPersona: e.target.value })}
+                  >
+                    <option value="persona-shu">{name}・預設</option>
+                    <option value="persona-navigator">導航員（世界觀範例）</option>
+                  </select>
+                </label>
+              )}
+            </div>
+            {schema && (
+              <>
+                <h3>{name}的偏好</h3>
+                <PreferencesForm schema={schema} values={effective.values} disabled={busy} onChange={(k, v) => void changePreference(k, v)} />
+                {(prefSource === "local" || effective.source === "local") && (
+                  <p className="muted small" role="status">
+                    這個版本的桌面程式尚未保存角色偏好；目前只在這個視窗記住，重新啟動後會回到預設。
+                  </p>
+                )}
+              </>
+            )}
+            {shu ? (
+              <ShuPlayControls prefs={prefs} patch={patch} name={name} pronoun={pronoun} presence={presence} />
+            ) : (
+              <BasicCompanionToggles prefs={prefs} patch={patch} pronoun={pronoun} />
+            )}
+            <p className="muted small">
+              說話風格與表現程度只改變表達方式；緊急停止、被阻擋、結果不確定等安全訊息永遠使用固定文字，
+              任何角色都無法覆寫或隱藏。
+            </p>
+          </>
         )}
       </Section>
 
-      {isTauri && prefs && (
-        <Section title="顯示與外觀">
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={prefs.companionVisible}
-              onChange={(e) => void patch({ companionVisible: e.target.checked })}
+      {/* 4. 安靜與勿擾 */}
+      <Section title="安靜與勿擾">
+        <p className="muted small">
+          這一區決定{name}什麼時候保持安靜。安全訊息（緊急停止中、被阻擋、結果不確定、感測使用中）
+          不受任何安靜設定影響，一定會顯示。
+        </p>
+        {prefs ? (
+          <>
+            <Toggle
+              checked={prefs.companionDoNotDisturb === true}
+              onChange={(on) => void patch({ companionDoNotDisturb: on })}
+              label="勿擾（安靜陪伴：不主動靠近、不主動說話）"
             />
-            <span>顯示桌面角色</span>
-          </label>
-          <div className="settings-grid">
-            <label className="field-label">
-              大小
-              <select
-                value={String(prefs.companionSize?.[0] ?? 200)}
-                onChange={(event) => {
-                  const width = Number(event.target.value);
-                  void patch({ companionSize: [width, Math.round(width * 1.05)] });
-                }}
-              >
-                <option value="160">小</option>
-                <option value="200">標準</option>
-                <option value="260">大</option>
-                <option value="320">特大</option>
-              </select>
-            </label>
-            <label className="field-label">
-              透明度 {Math.round((prefs.companionOpacity ?? 1) * 100)}%
-              <input
-                type="range"
-                min={20}
-                max={100}
-                step={5}
-                value={Math.round((prefs.companionOpacity ?? 1) * 100)}
-                onChange={(event) => void patch({ companionOpacity: Number(event.target.value) / 100 })}
-              />
-            </label>
-          </div>
-          <label className="field-label">
-            外觀（共用同一骨架與能力；表現不同、權限相同）
-            <select
-              value={prefs.companionPack}
-              onChange={(e) => void patch({ companionPack: e.target.value })}
-            >
-              <option value="shu-maid">小樞・女僕正式版（預設）</option>
-              <option value="shu-maid-dusk">小樞・女僕暮色</option>
-              <option value="shu-maid-sakura">小樞・女僕櫻花</option>
-              <option value="shu-agile">小樞・靈巧型（v2 貓系經典）</option>
-              <option value="shu-lazy">小樞・慵懶型（v2 貓系經典）</option>
-              <option value="shu-lively">小樞・活潑型（v2 貓系經典）</option>
-              <option value="shu-standard">小樞・標準型（v1 經典）</option>
-              <option value="shu-minimal">小樞・極簡型（v1 經典）</option>
-            </select>
-          </label>
-          <label className="field-label">
-            表現程度（只影響表演頻率，不影響任何權限）
-            <select
-              value={prefs.companionExpressiveness}
-              onChange={(e) => void patch({ companionExpressiveness: e.target.value })}
-            >
-              <option value="quiet">安靜</option>
-              <option value="natural">自然</option>
-              <option value="lively">活潑</option>
-            </select>
-          </label>
-          <label className="field-label">
-            說話風格（Persona）
-            <select
-              value={prefs.companionPersona}
-              onChange={(e) => void patch({ companionPersona: e.target.value })}
-            >
-              <option value="persona-shu">小樞・預設</option>
-              <option value="persona-navigator">導航員（世界觀範例）</option>
-            </select>
-          </label>
-          <p className="muted small">
-            世界觀與說話風格只改變表達方式；緊急停止、被阻擋、結果未知等安全訊息
-            永遠使用固定的標準文字，任何角色包都無法覆寫或隱藏。
-          </p>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={prefs.companionAlwaysOnTop}
-              onChange={(e) => void patch({ companionAlwaysOnTop: e.target.checked })}
-            />
-            <span>保持在其他視窗上方</span>
-          </label>
-          <div className="row wrap">
-            <button
-              onClick={async () => {
-                try {
-                  await desktop.companionResetPosition();
-                  setPrefs(await desktop.prefsGet());
-                } catch (reason) {
-                  setError(String(reason));
-                }
-              }}
-            >
-              重設角色位置
-            </button>
-            <button onClick={() => void patch({ storyProgress: {} })} title="重看初次見面等劇情段落">
-              清除角色記憶（劇情進度）
-            </button>
-          </div>
-        </Section>
-      )}
-      {!isTauri && (
-        <Section title="顯示與外觀">
-          <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
-        </Section>
-      )}
-
-      {isTauri && prefs && <PlaySection prefs={prefs} patch={patch} setError={setError} />}
-
-      <RollCallSection presence={presence} />
-
-      <ProactiveDialogueSection />
-
+            {Number(prefs.companionProactiveQuietUntil ?? 0) > Date.now() && (
+              <p className="muted small" role="status">
+                本機安靜期至{" "}
+                {new Date(Number(prefs.companionProactiveQuietUntil)).toLocaleTimeString("zh-TW", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+                。
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="state-box">勿擾開關需要桌面版控制中心；下方的主動對話與安靜時段在瀏覽器也能設定。</div>
+        )}
+      </Section>
+      <ProactiveDialogueSection name={name} />
       <InitiativeQuietSection refreshKey={refreshKey} />
 
-      <BehaviorStateCard status={presence} />
+      {/* 5. 更換或加入角色 */}
+      <CharacterLibrarySection
+        catalog={catalog}
+        activeId={activeId}
+        prefs={prefs}
+        busy={busy}
+        onSelect={selectCharacter}
+        onDisable={disableCharacter}
+        onRemove={removeCharacter}
+        onPatch={patch}
+        setError={setError}
+      />
 
-      <PackDetailsAndPreview pack={pack} />
-
-      <Section title="行為方式（Behavior Runtime）">
-        <p className="muted small">
-          小樞的生命感由本機確定性系統驅動，不用生成式 AI 逐幀控制：
-        </p>
-        <ul className="plain-list muted small">
-          <li>生命底層：呼吸、眨眼、耳動、伸展、晃腳等微動作——間隔隨機（非固定週期）、避免重複、被真實事件立即打斷。</li>
-          <li>行為層：注意力優先序固定為 緊急 &gt; 感測與安全 &gt; 等待確認 &gt; 你的直接互動 &gt; 任務狀態 &gt; 建議 &gt; 世界觀 &gt; 待機。</li>
-          <li>語意層：AI 只能提出白名單內的高層 behaviorIntent；成功／阻擋／緊急等「真相狀態」只能由 Runtime 事件驅動，AI 不能點播。</li>
-          <li>慵懶動作（趴下、抱尾巴）只在長時間無任務、無風險時出現；有事立刻專注。</li>
-          <li>Reduced Motion 開啟時只保留眨眼；勿擾／安靜時停止玩鬧。</li>
-        </ul>
-      </Section>
+      {advanced && <TechnicalDetails card={active} instance={instance} presence={presence} />}
     </div>
   );
 }
 
-function BehaviorStateCard({ status }: { status: Record<string, unknown> | null }) {
-  const state = (status?.behaviorState as Record<string, unknown> | null | undefined) ?? null;
-  const percent = (key: string) =>
-    Math.round(Math.max(0, Math.min(1, Number(state?.[key] ?? 0))) * 100);
+// ---------------------------------------------------------------------------
+// 外觀與名字
+// ---------------------------------------------------------------------------
+
+function AppearanceControls({
+  prefs,
+  active,
+  busy,
+  patch,
+  setError,
+  variants,
+  currentVariant,
+  onVariant,
+}: {
+  prefs: DesktopPrefs;
+  active: CharacterCard | null;
+  busy: boolean;
+  patch: (p: Partial<DesktopPrefs>) => Promise<void>;
+  setError: (e: string | null) => void;
+  variants: { id: string; displayName?: Record<string, string> }[];
+  currentVariant: string;
+  onVariant: (variantId: string) => Promise<void>;
+}) {
+  const [nameDraft, setNameDraft] = React.useState(prefs.companionName ?? "");
+  React.useEffect(() => setNameDraft(prefs.companionName ?? ""), [prefs.companionName]);
+  const placeholder = active?.name ?? "角色";
   return (
-    <Section title="現在的 Behavior State">
-      {!state ? (
-        <div className="state-box">
-          尚未收到角色視窗的即時狀態。角色隱藏、離線或剛啟動時，系統不會用預設值冒充現況。
+    <>
+      <div className="settings-grid">
+        <label className="field-label">
+          名字（只影響顯示與稱呼；留空就用角色原名）
+          <input
+            value={nameDraft}
+            maxLength={24}
+            placeholder={placeholder}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={() => {
+              const next = nameDraft.trim().slice(0, 24);
+              if (next !== (prefs.companionName ?? "")) void patch({ companionName: next });
+            }}
+            aria-label="角色名字"
+          />
+        </label>
+        {variants.length > 0 && (
+          <label className="field-label">
+            外觀
+            <select
+              value={currentVariant}
+              aria-label="外觀"
+              disabled={busy}
+              onChange={(e) => void onVariant(e.target.value)}
+            >
+              {variants.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {variantName(v)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="field-label">
+          大小
+          <select
+            value={String(prefs.companionSize?.[0] ?? 200)}
+            onChange={(event) => {
+              const width = Number(event.target.value);
+              void patch({ companionSize: [width, Math.round(width * 1.05)] });
+            }}
+          >
+            <option value="160">小</option>
+            <option value="200">標準</option>
+            <option value="260">大</option>
+            <option value="320">特大</option>
+          </select>
+        </label>
+        <label className="field-label">
+          透明度 {Math.round((prefs.companionOpacity ?? 1) * 100)}%
+          <input
+            type="range"
+            min={20}
+            max={100}
+            step={5}
+            value={Math.round((prefs.companionOpacity ?? 1) * 100)}
+            onChange={(event) => void patch({ companionOpacity: Number(event.target.value) / 100 })}
+          />
+        </label>
+      </div>
+      <Toggle
+        checked={prefs.companionAlwaysOnTop}
+        onChange={(on) => void patch({ companionAlwaysOnTop: on })}
+        label="保持在其他視窗上方"
+      />
+      <div className="row wrap">
+        <button
+          onClick={async () => {
+            try {
+              await desktop.companionResetPosition();
+              await patch({});
+            } catch (reason) {
+              setError(sanitizeErrorText(reason));
+            }
+          }}
+        >
+          重設角色位置
+        </button>
+        <button onClick={() => void patch({ storyProgress: {} })} title="重看初次見面等劇情段落">
+          重看角色劇情
+        </button>
+      </div>
+      <p className="muted small">
+        外觀只改變表現方式，不改變任何權限；安全訊息永遠是固定文字。
+      </p>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 平常如何陪伴：小樞（builtin shu-rig）的玩耍設定；其他角色只有 host 層的基本開關
+// ---------------------------------------------------------------------------
+
+function BasicCompanionToggles({
+  prefs,
+  patch,
+  pronoun,
+}: {
+  prefs: DesktopPrefs;
+  patch: (p: Partial<DesktopPrefs>) => Promise<void>;
+  pronoun: string;
+}) {
+  const memory = sanitizeMemory(prefs.companionInteractionMemory);
+  const patchReaction = async (reaction: string, p: Partial<DesktopPrefs>, enabled: boolean) => {
+    if (enabled) {
+      await patch(p);
+      return;
+    }
+    await patch({ ...p, companionInteractionMemory: noteReactionDisabled(memory, reaction, Date.now()) });
+  };
+  return (
+    <div className="character-basic-toggles">
+      <Toggle
+        checked={prefs.companionBubbles !== false}
+        onChange={(on) => void patchReaction("bubbles", { companionBubbles: on }, on)}
+        label="說話氣泡（關掉後只剩固定的安全訊息）"
+      />
+      <Toggle
+        checked={prefs.companionSound === true}
+        onChange={(on) => void patchReaction("sound", { companionSound: on }, on)}
+        label="角色音效（預設關閉）"
+      />
+      <Toggle
+        checked={prefs.companionDragEnabled !== false}
+        onChange={(on) => void patchReaction("drag", { companionDragEnabled: on }, on)}
+        label={`可以用滑鼠把${pronoun}拖到別的位置`}
+      />
+    </div>
+  );
+}
+
+function ShuPlayControls({
+  prefs,
+  patch,
+  name,
+  pronoun,
+  presence,
+}: {
+  prefs: DesktopPrefs;
+  patch: (p: Partial<DesktopPrefs>) => Promise<void>;
+  name: string;
+  pronoun: string;
+  presence: Record<string, unknown> | null;
+}) {
+  const familiars = prefs.companionFamiliars ?? [];
+  const memory = sanitizeMemory(prefs.companionInteractionMemory);
+  const remembers = memorySummary(memory);
+
+  /** 關掉某個反應時，順便記進角色互動記憶（純呈現，不推論人格）。 */
+  const patchReaction = async (reaction: string, p: Partial<DesktopPrefs>, enabled: boolean) => {
+    if (enabled) {
+      await patch(p);
+      return;
+    }
+    await patch({ ...p, companionInteractionMemory: noteReactionDisabled(memory, reaction, Date.now()) });
+  };
+
+  return (
+    <div className="character-play">
+      <div className="settings-grid">
+        <label className="field-label">
+          場景（透明桌面模式下只加一點小道具）
+          <select value={String(prefs.companionScene ?? "none")} onChange={(e) => void patch({ companionScene: e.target.value })}>
+            <option value="none">透明桌面（預設）</option>
+            <option value="nest">桌面巢穴</option>
+            <option value="desk">工作桌</option>
+            <option value="sill">窗台</option>
+            <option value="night">夜間</option>
+          </select>
+        </label>
+      </div>
+      <Toggle checked={prefs.companionPlay !== false} onChange={(on) => void patch({ companionPlay: on })} label="玩耍（玩具、追逐、撲抓）" />
+      <Toggle
+        checked={prefs.companionCursorPlay !== false}
+        onChange={(on) => void patch({ companionCursorPlay: on })}
+        label="游標互動（光點、逗貓棒跟著游標）"
+      />
+      <Toggle checked={prefs.companionApproach !== false} onChange={(on) => void patch({ companionApproach: on })} label="游標靠近時看過來" />
+      <Toggle checked={prefs.companionDeskMove !== false} onChange={(on) => void patch({ companionDeskMove: on })} label="在遊玩場內自主散步" />
+      <Toggle
+        checked={prefs.companionBubbles !== false}
+        onChange={(on) => void patchReaction("bubbles", { companionBubbles: on }, on)}
+        label="說話氣泡（關掉後只剩固定的安全訊息）"
+      />
+      <Toggle
+        checked={prefs.companionSound === true}
+        onChange={(on) => void patchReaction("sound", { companionSound: on }, on)}
+        label="角色音效（預設關閉）"
+      />
+      <Toggle
+        checked={prefs.companionDragEnabled !== false}
+        onChange={(on) => void patchReaction("drag", { companionDragEnabled: on }, on)}
+        label={`可以用滑鼠把${pronoun}拖到別的位置`}
+      />
+      <p className="muted small">
+        玩具與游標互動只發生在角色的透明小視窗內；游標座標不會送到系統或 AI、也不會被保存。
+        減少動態效果開啟時自動停止玩耍與移動。
+      </p>
+      <h4>使魔（最多 3 隻，純陪伴、沒有任何權限）</h4>
+      {familiars.length === 0 && <p className="muted small">還沒有使魔。</p>}
+      {familiars.map((f, i) => (
+        <div className="row wrap" key={f.id} style={{ marginBottom: 4 }}>
+          <input
+            value={f.name}
+            maxLength={24}
+            aria-label={`使魔 ${i + 1} 名字`}
+            onChange={(e) => {
+              const next = familiars.map((x, j) => (j === i ? { ...x, name: e.target.value } : x));
+              void patch({ companionFamiliars: next });
+            }}
+          />
+          <select
+            value={f.palette}
+            aria-label={`使魔 ${i + 1} 配色`}
+            onChange={(e) => {
+              const next = familiars.map((x, j) => (j === i ? { ...x, palette: e.target.value } : x));
+              void patch({ companionFamiliars: next });
+            }}
+          >
+            <option value="maid-classic">經典</option>
+            <option value="maid-dusk">暮色</option>
+            <option value="maid-sakura">櫻花</option>
+          </select>
+          <button onClick={() => void patch({ companionFamiliars: familiars.filter((_, j) => j !== i) })}>移除</button>
         </div>
+      ))}
+      {familiars.length < 3 && (
+        <button
+          onClick={() =>
+            void patch({
+              companionFamiliars: [
+                ...familiars,
+                { id: `fam-${Date.now() % 100000}`, name: `使魔${familiars.length + 1}`, palette: "maid-classic" },
+              ],
+            })
+          }
+        >
+          新增使魔
+        </button>
+      )}
+      <h4>{name}記得</h4>
+      {remembers.length === 0 ? (
+        <p className="muted small">
+          還沒有互動記憶。（只會記玩過的玩具、你常關掉的反應與相處天數；不會變成正式知識，也不會離開本機。）
+        </p>
       ) : (
         <>
-          <p className="muted small" role="status">
-            {String(status?.behaviorExplanation ?? state.explanation ?? "目前狀態原因未知。")}
-          </p>
-          <div className="settings-grid" aria-label="角色行為狀態數值">
-            {([
-              ["activation", "喚起度"],
-              ["attention", "注意力"],
-              ["taskLoad", "任務負載"],
-              ["interactionReadiness", "互動準備度"],
-              ["familiarity", "熟悉度（只影響呈現）"],
-            ] as const).map(([key, label]) => (
-              <div className="field-label" key={key}>
-                <span>{label}：{percent(key)}%</span>
-                <progress value={percent(key)} max={100} aria-label={label} />
-              </div>
+          <ul className="plain-list muted small">
+            {remembers.map((linetext, i) => (
+              <li key={`${i}-${linetext}`}>
+                {name}記得：{linetext}
+              </li>
             ))}
-          </div>
+          </ul>
+          {/* 沒有你不能刪除的記憶：互動記憶也一樣，一鍵清空並寫回偏好（不是只清畫面）。 */}
           <p className="muted small">
-            基態：{String(state.base)}；目前行為：{String(state.transient ?? "自然待機")}；
-            語意焦點：{String(state.currentFocus ?? "無")}；最近中斷：
-            {Number(state.recentInterruptions ?? 0).toFixed(1)}。焦點只保存事件名稱，不保存原始游標軌跡。
+            <button onClick={() => void patch({ companionInteractionMemory: emptyMemory() })}>
+              忘記這些
+            </button>{" "}
+            會清掉玩過的玩具、常關掉的反應與相處天數；{name}會從頭開始記。
           </p>
         </>
       )}
-    </Section>
+      <RollCall presence={presence} />
+    </div>
   );
 }
 
-function CharacterPackDetails({ pack }: { pack: string }) {
-  const [manifest, setManifest] = React.useState<PackManifest | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  React.useEffect(() => {
-    let disposed = false;
-    void fetch(`/packs/${pack}/manifest.json`)
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json() as Promise<PackManifest>;
-      })
-      .then((value) => {
-        const issues = validateManifest(value);
-        if (issues.length > 0) throw new Error(issues.join("; "));
-        if (!disposed) {
-          setManifest(value);
-          setError(null);
-        }
-      })
-      .catch((reason) => {
-        if (!disposed) setError(String(reason));
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [pack]);
-
+/** Roll Call：現在大家在做什麼（來自角色視窗的真實回報；離線就誠實說）。 */
+function RollCall({ presence }: { presence: Record<string, unknown> | null }) {
+  const state = (presence?.behaviorState as Record<string, unknown> | null | undefined) ?? null;
+  const roll = (state?.rollCall as { name: string; activity: string }[] | undefined) ?? null;
   return (
-    <Section title="Character Pack 詳情">
-      {error ? (
-        <div className="state-box state-error">角色包驗證失敗：{error}</div>
-      ) : !manifest ? (
-        <div className="state-box">正在驗證角色包 manifest 與素材相容性…</div>
+    <>
+      <h4>現在大家在做什麼</h4>
+      {!roll ? (
+        <div className="state-box">尚未收到角色視窗的回報（角色隱藏、離線或剛啟動時不會用預設值冒充）。</div>
       ) : (
-        <dl className="definition-list small">
-          <dt>名稱／ID</dt>
-          <dd>{manifest.name["zh-TW"] ?? manifest.id}（{manifest.id}）</dd>
-          <dt>版本／Schema</dt>
-          <dd>{manifest.version ?? "未標示"}／{manifest.schemaVersion}</dd>
-          <dt>作者／授權</dt>
-          <dd>{manifest.author ?? "未標示"}／{manifest.license ?? "未標示"}</dd>
-          <dt>來源</dt>
-          <dd>App 同源內建資產 `/packs/{manifest.id}`；產生器：{manifest.generator ?? "未標示"}</dd>
-          <dt>簽章</dt>
-          <dd>跟隨 Adaptive Interaction App bundle 的程式碼簽章；不接受遠端程式碼或任意動畫指令。</dd>
-          <dt>相容性</dt>
-          <dd>manifest、sprite sheet、frame 與動畫索引已由載入器驗證。</dd>
-          <dt>更新／解除安裝</dt>
-          <dd>隨 App 更新；內建安全 fallback 不可單獨解除安裝（not-applicable：避免失去安全狀態素材）。</dd>
-        </dl>
+        <ul className="plain-list">
+          {roll.map((r, i) => (
+            <li key={rollCallKey(i, r.name)}>
+              <strong>{r.name}</strong>：{r.activity}
+            </li>
+          ))}
+        </ul>
       )}
-    </Section>
-  );
-}
-
-/** 從真實 pack sheet 取幀渲染預覽格。 */
-function StatePreviewGrid({ pack }: { pack: string }) {
-  const [manifest, setManifest] = React.useState<PackManifest | null>(null);
-  const [sheet, setSheet] = React.useState<HTMLImageElement | null>(null);
-  const [loadError, setLoadError] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    let disposed = false;
-    setManifest(null);
-    setSheet(null);
-    (async () => {
-      try {
-        const res = await fetch(`/packs/${pack}/manifest.json`);
-        const m = (await res.json()) as PackManifest;
-        const issues = validateManifest(m);
-        if (issues.length > 0) throw new Error(issues.join("; "));
-        const img = new Image();
-        img.src = `/packs/${pack}/${m.sheet}`;
-        await img.decode();
-        if (!disposed) {
-          setManifest(m);
-          setSheet(img);
-          setLoadError(null);
-        }
-      } catch (e) {
-        if (!disposed) setLoadError(String(e));
-      }
-    })();
-    return () => {
-      disposed = true;
-    };
-  }, [pack]);
-
-  if (loadError) return <div className="state-box state-error">角色包載入失敗：{loadError}</div>;
-  if (!manifest || !sheet) return <div className="state-box">載入角色素材…</div>;
-
-  return (
-    <div className="preview-grid">
-      {PREVIEW_STATES.map((s) => (
-        <StatePreviewCell key={s.label} manifest={manifest} sheet={sheet} spec={s} />
-      ))}
-    </div>
-  );
-}
-
-function StatePreviewCell({
-  manifest,
-  sheet,
-  spec,
-}: {
-  manifest: PackManifest;
-  sheet: HTMLImageElement;
-  spec: { label: string; animation: string; frame?: number; note?: string };
-}) {
-  const ref = React.useRef<HTMLCanvasElement>(null);
-  const anim = manifest.animations[spec.animation];
-  React.useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!anim) return;
-    const frameIdx = anim.frames[Math.min(spec.frame ?? 0, anim.frames.length - 1)];
-    const [fw, fh] = manifest.frameSize;
-    const col = frameIdx % manifest.columns;
-    const row = Math.floor(frameIdx / manifest.columns);
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(sheet, col * fw, row * fh, fw, fh, 0, 0, canvas.width, canvas.height);
-  }, [manifest, sheet, spec, anim]);
-  return (
-    <div className="preview-cell">
-      <canvas ref={ref} width={96} height={96} aria-label={spec.label} />
-      <div className="small">{spec.label}</div>
-      {!anim && <div className="muted small">此角色包沒有這個動畫（將以安全姿態代替）</div>}
-      {spec.note && <div className="muted small">{spec.note}</div>}
-    </div>
+    </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// 主動式對話（v0.5 起唯一主人＝小樞頁；模式與頻率由 Rust 確定性強制）。
+// 主動式對話（v0.5 起唯一主人＝角色頁；模式與頻率由 Rust 確定性強制）。
 // ---------------------------------------------------------------------------
 
-function ProactiveDialogueSection() {
+function ProactiveDialogueSection({ name }: { name: string }) {
   const [status, setStatus] = React.useState<Record<string, unknown> | null>(null);
   const [agents, setAgents] = React.useState<Record<string, unknown>[]>([]);
   const [error, setError] = React.useState<string | null>(null);
@@ -436,7 +770,7 @@ function ProactiveDialogueSection() {
       setStatus(await api.proactiveDialogueGet());
       setError(null);
     } catch (e) {
-      setError(String(e));
+      setError(sanitizeErrorText(e));
     }
   }, []);
   React.useEffect(() => {
@@ -458,7 +792,7 @@ function ProactiveDialogueSection() {
       setStatus(await api.proactiveDialoguePatch({ mode: m }));
       setError(null);
     } catch (e) {
-      setError(String(e));
+      setError(sanitizeErrorText(e));
     }
   };
   const patch = async (value: Record<string, unknown>) => {
@@ -466,22 +800,24 @@ function ProactiveDialogueSection() {
       setStatus(await api.proactiveDialoguePatch(value));
       setError(null);
     } catch (e) {
-      setError(String(e));
+      setError(sanitizeErrorText(e));
     }
   };
+  const agentLabel = (kind: string) => (kind === "codex" ? "Codex" : kind === "claude-code" ? "Claude Code" : kind);
+  const generativeToday = (status?.generativeToday as Record<string, unknown> | undefined) ?? {};
 
   return (
     <Section title="主動式對話">
       <p className="muted small">
-        小樞什麼情況下可以主動說話。頻率限制（每小時最多 {String(config.maxPerHour ?? 3)} 則、
-        最短間隔 {String(config.minIntervalMinutes ?? 12)} 分鐘、沒有回覆不追問）由系統強制執行；
+        {name}什麼情況下可以主動說話。頻率限制（每小時最多 {String(config.maxPerHour ?? 3)} 則、 最短間隔{" "}
+        {String(config.minIntervalMinutes ?? 12)} 分鐘、沒有回覆不追問）由系統強制執行；
         安全與權限提示不受模式影響，一定會顯示。主動說話不代表可以主動做事——任何行動仍需授權。
       </p>
       <label className="field-label">
         模式
         <select value={mode} onChange={(e) => void setMode(e.target.value)}>
           <option value="off">關閉——不主動說話</option>
-          <option value="necessary">必要——只有等待確認、失敗、未知與感測提示</option>
+          <option value="necessary">必要——只有等待確認、失敗、結果不確定與感測提示</option>
           <option value="natural">自然（建議）——加上任務進度與低頻建議</option>
           <option value="lively">活潑——再加問候與輕量陪伴</option>
           <option value="custom">自訂——個別選擇訊息類型</option>
@@ -560,31 +896,33 @@ function ProactiveDialogueSection() {
         勿擾時段延後非必要訊息
       </label>
       <hr />
-      <h4>生成式主動訊息（本機 Agent）</h4>
+      <h4>由本機 AI 幫手產生的主動訊息</h4>
       <p className="muted small">
-        未選擇 Agent 時只保留本機微反應與固定安全提示。選擇不會授予讀檔、工具、網路或行動權；每次使用獨立唯讀 Session。
+        沒有選擇 AI 幫手時只保留本機微反應與固定安全提示。選擇不會授予讀檔、工具、網路或行動權；
+        每一則都是獨立、唯讀的一次性工作，不會留下長期工作。
       </p>
       <label className="field-label">
-        指定 Agent（不自動改送）
+        指定 AI 幫手（不可用時不會自動改送另一家）
         <select
           value={String(config.generativeAgent ?? "")}
           onChange={(event) => void patch({ generativeAgent: event.target.value || null })}
         >
-          <option value="">不使用生成式主動訊息</option>
-          <option value="codex">Codex</option>
-          <option value="claude-code">Claude Code</option>
+          <option value="">不使用 AI 幫手產生主動訊息</option>
+          <option value="codex">Codex（寫程式與整理資料的本機 AI 幫手）</option>
+          <option value="claude-code">Claude Code（對話、知識與審閱的本機 AI 幫手）</option>
         </select>
       </label>
       <div className="muted small">
         {agents.map((agent) => (
           <span key={String(agent.kind)} style={{ marginRight: 12 }}>
-            {String(agent.kind)}：{agent.found === true && agent.loggedIn === true ? "可用" : String(agent.detail ?? "不可用")}
+            {agentLabel(String(agent.kind))}：
+            {agent.found === true && agent.loggedIn === true ? "可用" : String(agent.detail ?? "不可用")}
           </span>
         ))}
       </div>
       <div className="settings-grid">
         <label className="field-label">
-          每日 Session 上限
+          每日產生次數上限
           <input
             type="number"
             min={0}
@@ -606,7 +944,7 @@ function ProactiveDialogueSection() {
         </label>
       </div>
       <p className="muted small">
-        今日已建立 {String((status?.generativeToday as Record<string, unknown> | undefined)?.sessions ?? 0)} 個生成式 Session，費用回報 USD {String((status?.generativeToday as Record<string, unknown> | undefined)?.costUsd ?? 0)}。
+        今天已由 AI 幫手產生 {String(generativeToday.sessions ?? 0)} 則，費用回報 USD {String(generativeToday.costUsd ?? 0)}。
       </p>
       <p className="muted small">
         本小時已發送 {String(status?.sentThisHour ?? 0)} 則。
@@ -617,14 +955,22 @@ function ProactiveDialogueSection() {
       <div className="row-gap">
         <button
           onClick={async () => {
-            setStatus(await api.proactiveDialogueQuiet(60));
+            try {
+              setStatus(await api.proactiveDialogueQuiet(60));
+            } catch (e) {
+              setError(sanitizeErrorText(e));
+            }
           }}
         >
           一小時內不要主動說話
         </button>
         <button
           onClick={async () => {
-            setStatus(await api.proactiveDialogueQuiet(12 * 60));
+            try {
+              setStatus(await api.proactiveDialogueQuiet(12 * 60));
+            } catch (e) {
+              setError(sanitizeErrorText(e));
+            }
           }}
         >
           今天安靜一點
@@ -640,7 +986,7 @@ function ProactiveDialogueSection() {
 }
 
 // ---------------------------------------------------------------------------
-// 主動程度與安靜時段（v0.5 起唯一主人＝小樞頁；由本機安全層強制執行）。
+// 主動程度與安靜時段（v0.5 起唯一主人＝角色頁；由本機安全層強制執行）。
 // ---------------------------------------------------------------------------
 
 function InitiativeQuietSection({ refreshKey }: { refreshKey: number }) {
@@ -658,7 +1004,7 @@ function InitiativeQuietSection({ refreshKey }: { refreshKey: number }) {
       setSaved(true);
       reload();
     } catch (e) {
-      setError(String(e));
+      setError(sanitizeErrorText(e));
     } finally {
       setSaving(false);
     }
@@ -694,12 +1040,7 @@ function InitiativeQuietSection({ refreshKey }: { refreshKey: number }) {
             ["active", "可以主動協助"],
           ].map(([v, label]) => (
             <label key={v} className="radio-row">
-              <input
-                type="radio"
-                name="initiative"
-                checked={initiative === v}
-                onChange={() => patch({ initiative: v })}
-              />
+              <input type="radio" name="initiative" checked={initiative === v} onChange={() => patch({ initiative: v })} />
               {label}
             </label>
           ))}
@@ -707,15 +1048,20 @@ function InitiativeQuietSection({ refreshKey }: { refreshKey: number }) {
 
         <fieldset>
           <legend>安靜時段</legend>
-          <QuietHoursEditor
-            value={quiet}
-            onChange={(q) => patch({ quietHours: q ? [q] : [] })}
-          />
+          <QuietHoursEditor value={quiet} onChange={(q) => patch({ quietHours: q ? [q] : [] })} />
         </fieldset>
       </div>
       {saving && <p className="muted small">儲存中…</p>}
-      {saved && !saving && <p className="muted small" role="status">已儲存，立即生效。</p>}
-      {error && <p className="cap-card-error" role="alert">{error}</p>}
+      {saved && !saving && (
+        <p className="muted small" role="status">
+          已儲存，立即生效。
+        </p>
+      )}
+      {error && (
+        <p className="cap-card-error" role="alert">
+          {error}
+        </p>
+      )}
     </Section>
   );
 }
@@ -771,364 +1117,5 @@ function QuietHoursEditor({
         </>
       )}
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Pack 詳情＋預覽（依 manifest 種類分流：character-rig / character-pack）。
-// ---------------------------------------------------------------------------
-
-function PackDetailsAndPreview({ pack }: { pack: string }) {
-  const [kind, setKind] = React.useState<"loading" | "rig" | "sprite" | "error">("loading");
-  const [rig, setRig] = React.useState<RigManifest | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  React.useEffect(() => {
-    let disposed = false;
-    setKind("loading");
-    void fetch(`/packs/${pack}/manifest.json`)
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json() as Promise<Record<string, unknown>>;
-      })
-      .then((manifest) => {
-        if (disposed) return;
-        if (manifest.kind === "character-rig") {
-          const issues = validateRigManifest(manifest);
-          if (issues.length > 0) throw new Error(issues.join("; "));
-          setRig(manifest as unknown as RigManifest);
-          setKind("rig");
-        } else {
-          setKind("sprite");
-        }
-      })
-      .catch((reason) => {
-        if (!disposed) {
-          setError(String(reason));
-          setKind("error");
-        }
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [pack]);
-
-  if (kind === "loading") return <Section title="Character Pack 詳情"><div className="state-box">正在驗證角色包…</div></Section>;
-  if (kind === "error")
-    return (
-      <Section title="Character Pack 詳情">
-        <div className="state-box state-error">角色包驗證失敗：{error}</div>
-      </Section>
-    );
-  if (kind === "sprite")
-    return (
-      <>
-        <CharacterPackDetails pack={pack} />
-        <Section title="狀態預覽（取自實際角色素材）">
-          <p className="muted small">
-            每張預覽都直接取自目前角色包的 sprite sheet——與桌面上實際顯示完全一致。
-            誠實對照：「完成（未驗證）」只點頭；綠勾只出現在「已驗證」。
-          </p>
-          <StatePreviewGrid pack={pack} />
-        </Section>
-      </>
-    );
-  return (
-    <>
-      <Section title="Character Pack 詳情">
-        <dl className="definition-list small">
-          <dt>名稱／ID</dt>
-          <dd>{rig!.name["zh-TW"] ?? rig!.id}（{rig!.id}）</dd>
-          <dt>版本／Schema</dt>
-          <dd>{rig!.version ?? "未標示"}／{rig!.schemaVersion}（character-rig）</dd>
-          <dt>形式</dt>
-          <dd>執行期參數化分層 rig：組合通道（身體/頭/視線/眼/耳/尾/髮/裙/粒子）由本機程式即時繪製，非靜態圖片。</dd>
-          <dt>來源</dt>
-          <dd>App 內建程式碼（無外部素材、無遠端程式）；調色盤 {rig!.palette}。</dd>
-          <dt>作者／授權</dt>
-          <dd>{rig!.author ?? "未標示"}／{rig!.license ?? "未標示"}</dd>
-          <dt>簽章</dt>
-          <dd>跟隨 Adaptive Interaction App bundle 的程式碼簽章；不接受遠端程式碼或任意動畫指令。</dd>
-        </dl>
-      </Section>
-      <Section title="36 表情預覽（即時由參數化 rig 繪製）">
-        <p className="muted small">
-          每一格由與桌面角色相同的 rig 程式即時繪出（保持段姿勢）；每個表情都有
-          進入／保持／小循環時間軸，不是靜態圖片。誠實對照：「聲稱完成」只點頭、
-          沒有綠勾；綠勾與慶祝只出現在「驗證成功」。
-        </p>
-        <div className="preview-grid">
-          {OFFICIAL_36.map((id) => (
-            <RigPreviewCell key={id} exprId={id} palette={rig!.palette} />
-          ))}
-        </div>
-      </Section>
-    </>
-  );
-}
-
-function RigPreviewCell({ exprId, palette }: { exprId: string; palette: string }) {
-  const ref = React.useRef<HTMLCanvasElement>(null);
-  React.useEffect(() => {
-    const canvas = ref.current;
-    const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) return;
-    drawExpressionPreview(ctx, exprId, palette, 96);
-  }, [exprId, palette]);
-  const label = EXPRESSIONS[exprId]?.label ?? exprId;
-  const note =
-    exprId === "success-claimed"
-      ? "只點頭，沒有綠勾"
-      : exprId === "success-verified"
-        ? "綠勾只在驗證後"
-        : null;
-  return (
-    <div className="preview-cell">
-      <canvas ref={ref} width={96} height={96} aria-label={label} />
-      <div className="small">{label}</div>
-      {note && <div className="muted small">{note}</div>}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 玩耍與互動（v0.5 Phase 3）：名字、場景、玩具/游標/靠近/移動開關、
-// 使魔、匯出/匯入。全部是呈現偏好——不含任何權限語意。
-// ---------------------------------------------------------------------------
-
-function PlaySection({
-  prefs,
-  patch,
-  setError,
-}: {
-  prefs: DesktopPrefs;
-  patch: (p: Partial<DesktopPrefs>) => Promise<void>;
-  setError: (e: string | null) => void;
-}) {
-  const [nameDraft, setNameDraft] = React.useState(prefs.companionName ?? "小樞");
-  const [notice, setNotice] = React.useState<string | null>(null);
-  React.useEffect(() => setNameDraft(prefs.companionName ?? "小樞"), [prefs.companionName]);
-
-  const familiars = prefs.companionFamiliars ?? [];
-  const memory = sanitizeMemory(prefs.companionInteractionMemory);
-  const remembers = memorySummary(memory);
-
-  /** 關掉某個反應時，順便記進角色互動記憶（純呈現，不推論人格）。 */
-  const patchReaction = async (
-    reaction: string,
-    p: Partial<DesktopPrefs>,
-    enabled: boolean
-  ) => {
-    if (enabled) {
-      await patch(p);
-      return;
-    }
-    await patch({
-      ...p,
-      companionInteractionMemory: noteReactionDisabled(memory, reaction, Date.now()),
-    });
-  };
-
-  const doExport = () => {
-    const data = JSON.stringify(exportCompanionSettings(prefs), null, 2);
-    const a = document.createElement("a");
-    a.href = `data:application/json;charset=utf-8,${encodeURIComponent(data)}`;
-    a.download = "companion-settings.json";
-    a.click();
-    setNotice("已匯出角色設定（不含權限、位置與歷史）。");
-  };
-
-  const doImport = async (file: File) => {
-    try {
-      const parsed = parseCompanionSettingsImport(JSON.parse(await file.text()));
-      await patch(parsed);
-      setNotice("已匯入角色設定並套用。");
-      setError(null);
-    } catch (e) {
-      setError(`匯入失敗：${String(e)}（設定未變更）`);
-    }
-  };
-
-  return (
-    <Section title="玩耍與互動">
-      <div className="settings-grid">
-        <label className="field-label">
-          名字（只影響顯示與 Roll Call）
-          <input
-            value={nameDraft}
-            maxLength={24}
-            onChange={(e) => setNameDraft(e.target.value)}
-            onBlur={() => {
-              if (nameDraft !== (prefs.companionName ?? "小樞")) {
-                void patch({ companionName: nameDraft || "小樞" });
-              }
-            }}
-            aria-label="角色名字"
-          />
-        </label>
-        <label className="field-label">
-          場景（透明桌面模式下只加一點小道具）
-          <select
-            value={String(prefs.companionScene ?? "none")}
-            onChange={(e) => void patch({ companionScene: e.target.value })}
-          >
-            <option value="none">透明桌面（預設）</option>
-            <option value="nest">桌面巢穴</option>
-            <option value="desk">工作桌</option>
-            <option value="sill">窗台</option>
-            <option value="night">夜間</option>
-          </select>
-        </label>
-      </div>
-      <Toggle
-        checked={prefs.companionPlay !== false}
-        onChange={(on) => void patch({ companionPlay: on })}
-        label="玩耍（玩具、追逐、撲抓）"
-      />
-      <Toggle
-        checked={prefs.companionCursorPlay !== false}
-        onChange={(on) => void patch({ companionCursorPlay: on })}
-        label="游標互動（光點、逗貓棒跟著游標）"
-      />
-      <Toggle
-        checked={prefs.companionApproach !== false}
-        onChange={(on) => void patch({ companionApproach: on })}
-        label="游標靠近時看過來"
-      />
-      <Toggle
-        checked={prefs.companionDeskMove !== false}
-        onChange={(on) => void patch({ companionDeskMove: on })}
-        label="在遊玩場內自主散步"
-      />
-      <Toggle
-        checked={prefs.companionBubbles !== false}
-        onChange={(on) => void patchReaction("bubbles", { companionBubbles: on }, on)}
-        label="說話氣泡（關掉後只剩固定的安全訊息）"
-      />
-      <Toggle
-        checked={prefs.companionSound === true}
-        onChange={(on) => void patchReaction("sound", { companionSound: on }, on)}
-        label="角色音效（預設關閉）"
-      />
-      <Toggle
-        checked={prefs.companionDragEnabled !== false}
-        onChange={(on) => void patchReaction("drag", { companionDragEnabled: on }, on)}
-        label="可以用滑鼠把她拖到別的位置"
-      />
-      <Toggle
-        checked={prefs.companionDoNotDisturb === true}
-        onChange={(on) => void patch({ companionDoNotDisturb: on })}
-        label="勿擾（安靜陪伴：不主動靠近、不主動說話）"
-      />
-      <p className="muted small">
-        玩具與游標互動只發生在角色的透明小視窗內；游標座標不會送到 Runtime 或
-        AI、也不會被保存。Reduced Motion 開啟時自動停止玩耍與移動。
-      </p>
-      <h4>使魔（最多 3 隻，純陪伴、沒有任何權限）</h4>
-      {familiars.length === 0 && <p className="muted small">還沒有使魔。</p>}
-      {familiars.map((f, i) => (
-        <div className="row wrap" key={f.id} style={{ marginBottom: 4 }}>
-          <input
-            value={f.name}
-            maxLength={24}
-            aria-label={`使魔 ${i + 1} 名字`}
-            onChange={(e) => {
-              const next = familiars.map((x, j) => (j === i ? { ...x, name: e.target.value } : x));
-              void patch({ companionFamiliars: next });
-            }}
-          />
-          <select
-            value={f.palette}
-            aria-label={`使魔 ${i + 1} 配色`}
-            onChange={(e) => {
-              const next = familiars.map((x, j) =>
-                j === i ? { ...x, palette: e.target.value } : x
-              );
-              void patch({ companionFamiliars: next });
-            }}
-          >
-            <option value="maid-classic">經典</option>
-            <option value="maid-dusk">暮色</option>
-            <option value="maid-sakura">櫻花</option>
-          </select>
-          <button
-            onClick={() => void patch({ companionFamiliars: familiars.filter((_, j) => j !== i) })}
-          >
-            移除
-          </button>
-        </div>
-      ))}
-      {familiars.length < 3 && (
-        <button
-          onClick={() =>
-            void patch({
-              companionFamiliars: [
-                ...familiars,
-                {
-                  id: `fam-${Date.now() % 100000}`,
-                  name: `使魔${familiars.length + 1}`,
-                  palette: "maid-classic",
-                },
-              ],
-            })
-          }
-        >
-          新增使魔
-        </button>
-      )}
-      <h4>小樞記得</h4>
-      {remembers.length === 0 ? (
-        <p className="muted small">
-          還沒有互動記憶。（只會記玩過的玩具、你常關掉的反應與相處天數；
-          不會變成正式知識，也不會離開本機。）
-        </p>
-      ) : (
-        <ul className="plain-list muted small">
-          {remembers.map((linetext, i) => (
-            <li key={`${i}-${linetext}`}>小樞記得：{linetext}</li>
-          ))}
-        </ul>
-      )}
-      <div className="row wrap" style={{ marginTop: 10 }}>
-        <button onClick={doExport}>匯出角色設定</button>
-        <label className="button-like">
-          匯入角色設定
-          <input
-            type="file"
-            accept="application/json"
-            className="visually-hidden"
-            aria-label="選擇角色設定 JSON"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void doImport(file);
-              e.target.value = "";
-            }}
-          />
-        </label>
-      </div>
-      {notice && <p className="muted small" role="status">{notice}</p>}
-    </Section>
-  );
-}
-
-/** Roll Call：現在大家在做什麼（來自角色視窗的真實回報；離線就誠實說）。 */
-function RollCallSection({ presence }: { presence: Record<string, unknown> | null }) {
-  const state = (presence?.behaviorState as Record<string, unknown> | null | undefined) ?? null;
-  const roll = (state?.rollCall as { name: string; activity: string }[] | undefined) ?? null;
-  return (
-    <Section title="現在大家在做什麼">
-      {!roll ? (
-        <div className="state-box">
-          尚未收到角色視窗的回報（角色隱藏、離線或剛啟動時不會用預設值冒充）。
-        </div>
-      ) : (
-        <ul className="plain-list">
-          {roll.map((r, i) => (
-            <li key={rollCallKey(i, r.name)}>
-              <strong>{r.name}</strong>：{r.activity}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Section>
   );
 }

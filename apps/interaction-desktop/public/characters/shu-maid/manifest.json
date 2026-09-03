@@ -1,0 +1,374 @@
+{
+  "legacy": {
+    "kind": "character-rig",
+    "schemaVersion": "2.0",
+    "palette": "maid-classic"
+  },
+  "schemaVersion": "1.0",
+  "characterId": "shu-maid",
+  "displayName": {
+    "zh-TW": "小樞",
+    "en": "Shu"
+  },
+  "author": "adaptive-interaction",
+  "description": {
+    "zh-TW": "執行期參數化分層 rig：組合通道（身體/頭/視線/眼/耳/尾/髮/裙）、36 表情、四段式動畫。"
+  },
+  "version": "3.0.0",
+  "adapterKind": "in-process",
+  "entrypoint": {
+    "kind": "builtin",
+    "id": "shu-rig"
+  },
+  "assets": [],
+  "capabilities": {
+    "visual.presence": {
+      "supported": true,
+      "interruptible": true,
+      "resumable": true,
+      "qualityLevel": "full",
+      "reducedMotionBehavior": "static"
+    },
+    "visual.pose": {
+      "supported": true,
+      "maxConcurrent": 1,
+      "interruptible": true,
+      "resumable": true,
+      "qualityLevel": "full",
+      "reducedMotionBehavior": "static"
+    },
+    "visual.expression": {
+      "supported": true,
+      "variants": [
+        "idle",
+        "blink",
+        "sit",
+        "lie-flat",
+        "doze",
+        "sleep",
+        "startled-awake",
+        "yawn",
+        "stretch",
+        "groom",
+        "look-around",
+        "spaced-out",
+        "legswing",
+        "tailhug",
+        "notice",
+        "curious",
+        "question",
+        "peek",
+        "lean-in",
+        "deadpan",
+        "poked",
+        "poked-rapid",
+        "lifted",
+        "poked-flinch",
+        "poked-grin",
+        "lifted-curious",
+        "lifted-wriggle",
+        "wobbly-landing",
+        "pretend-not-hear",
+        "sneak-closer",
+        "block-cursor",
+        "hold-ball",
+        "keep-ball",
+        "pounce-miss",
+        "slip-play-cool",
+        "praised",
+        "caught-slacking",
+        "await-player",
+        "player-back",
+        "play-chase",
+        "play-carry",
+        "listening",
+        "thinking",
+        "routing",
+        "working",
+        "waiting",
+        "wait-codex",
+        "wait-claude",
+        "ask",
+        "not-found",
+        "success-claimed",
+        "success-verified",
+        "blocked",
+        "unknown",
+        "failed",
+        "emergency",
+        "offline",
+        "paused",
+        "quiet",
+        "land-light",
+        "device-hello",
+        "device-lost",
+        "operate-tool",
+        "ack-nod"
+      ],
+      "maxConcurrent": 1,
+      "interruptible": true,
+      "resumable": true,
+      "durationRange": {
+        "minMs": 100,
+        "maxMs": 60000
+      },
+      "qualityLevel": "full",
+      "reducedMotionBehavior": "static"
+    },
+    "visual.gaze": {
+      "supported": true,
+      "interruptible": true,
+      "resumable": true,
+      "qualityLevel": "full",
+      "reducedMotionBehavior": "reduced"
+    },
+    "visual.locomotion": {
+      "supported": true,
+      "interruptible": true,
+      "resumable": true,
+      "qualityLevel": "full",
+      "reducedMotionBehavior": "disabled"
+    },
+    "visual.overlay": {
+      "supported": true,
+      "interruptible": true,
+      "resumable": true,
+      "qualityLevel": "full",
+      "reducedMotionBehavior": "reduced"
+    },
+    "visual.particles": {
+      "supported": true,
+      "interruptible": true,
+      "resumable": true,
+      "qualityLevel": "full",
+      "reducedMotionBehavior": "disabled"
+    },
+    "visual.prop": {
+      "supported": true,
+      "interruptible": true,
+      "resumable": true,
+      "qualityLevel": "full",
+      "reducedMotionBehavior": "static"
+    },
+    "visual.textBubble": {
+      "supported": true,
+      "maxConcurrent": 1,
+      "interruptible": true,
+      "resumable": true,
+      "qualityLevel": "full",
+      "reducedMotionBehavior": "unchanged"
+    },
+    "audio.speech": {
+      "supported": true,
+      "interruptible": true,
+      "resumable": false,
+      "requiresAudio": true,
+      "reducedMotionBehavior": "unchanged"
+    },
+    "audio.effect": {
+      "supported": true,
+      "interruptible": true,
+      "resumable": false,
+      "requiresAudio": true,
+      "reducedMotionBehavior": "unchanged"
+    },
+    "multiCharacter": {
+      "supported": true,
+      "reducedMotionBehavior": "unchanged"
+    },
+    "scene": {
+      "supported": true,
+      "reducedMotionBehavior": "reduced"
+    },
+    "rollCall": {
+      "supported": true,
+      "durationRange": {
+        "minMs": 500,
+        "maxMs": 20000
+      },
+      "reducedMotionBehavior": "reduced"
+    },
+    "gameplay.toys": {
+      "supported": true,
+      "reducedMotionBehavior": "disabled"
+    },
+    "gameplay.autonomy": {
+      "supported": true,
+      "reducedMotionBehavior": "reduced"
+    }
+  },
+  "inputCapabilities": {
+    "input.click": {
+      "supported": true
+    },
+    "input.hover": {
+      "supported": true
+    },
+    "input.drag": {
+      "supported": true
+    },
+    "input.drop": {
+      "supported": true
+    },
+    "input.pointerProximity": {
+      "supported": true
+    },
+    "input.text": {
+      "supported": true
+    },
+    "input.fileDrop": {
+      "supported": true
+    }
+  },
+  "channels": [
+    "transform",
+    "locomotion",
+    "pose",
+    "expression",
+    "gaze",
+    "speech",
+    "bubble",
+    "audio",
+    "prop",
+    "overlay",
+    "particle",
+    "scene"
+  ],
+  "states": [
+    "idle",
+    "blink",
+    "sit",
+    "lie-flat",
+    "doze",
+    "sleep",
+    "startled-awake",
+    "yawn",
+    "stretch",
+    "groom",
+    "look-around",
+    "spaced-out",
+    "legswing",
+    "tailhug",
+    "notice",
+    "curious",
+    "question",
+    "peek",
+    "lean-in",
+    "deadpan",
+    "poked",
+    "poked-rapid",
+    "lifted",
+    "poked-flinch",
+    "poked-grin",
+    "lifted-curious",
+    "lifted-wriggle",
+    "wobbly-landing",
+    "pretend-not-hear",
+    "sneak-closer",
+    "block-cursor",
+    "hold-ball",
+    "keep-ball",
+    "pounce-miss",
+    "slip-play-cool",
+    "praised",
+    "caught-slacking",
+    "await-player",
+    "player-back",
+    "play-chase",
+    "play-carry",
+    "listening",
+    "thinking",
+    "routing",
+    "working",
+    "waiting",
+    "wait-codex",
+    "wait-claude",
+    "ask",
+    "not-found",
+    "success-claimed",
+    "success-verified",
+    "blocked",
+    "unknown",
+    "failed",
+    "emergency",
+    "offline",
+    "paused",
+    "quiet",
+    "land-light",
+    "device-hello",
+    "device-lost",
+    "operate-tool",
+    "ack-nod"
+  ],
+  "intents": [
+    "idle",
+    "notice",
+    "acknowledge",
+    "think",
+    "work",
+    "wait",
+    "ask",
+    "request-consent",
+    "blocked",
+    "unknown",
+    "claim-completed",
+    "verified-success",
+    "failed",
+    "cancelled",
+    "offline",
+    "emergency",
+    "greet",
+    "play",
+    "rest",
+    "sleep"
+  ],
+  "variants": [
+    {
+      "id": "maid-classic",
+      "displayName": {
+        "zh-TW": "經典",
+        "en": "Classic"
+      }
+    },
+    {
+      "id": "maid-dusk",
+      "displayName": {
+        "zh-TW": "暮色",
+        "en": "Dusk"
+      }
+    },
+    {
+      "id": "maid-sakura",
+      "displayName": {
+        "zh-TW": "櫻花",
+        "en": "Sakura"
+      }
+    }
+  ],
+  "locales": [
+    "zh-TW"
+  ],
+  "pronouns": {
+    "zh-TW": "她",
+    "en": "she"
+  },
+  "securityRequirements": {
+    "network": false,
+    "executable": false,
+    "fileAccess": "none",
+    "audioOutput": true,
+    "microphone": false,
+    "camera": false
+  },
+  "resourceLimits": {
+    "maxAssetBytes": 8388608,
+    "maxConcurrentCommands": 4,
+    "maxQueue": 32,
+    "maxFps": 60
+  },
+  "fallbacks": {},
+  "compatibility": {
+    "protocol": "1.x",
+    "runtime": ">=0.5.0"
+  }
+}

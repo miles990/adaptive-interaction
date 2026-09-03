@@ -132,6 +132,13 @@ pub enum GatewayEvent {
         error: String,
     },
     TaskCancelled,
+    /// 這一輪結束了，但結束的方式讀不出來（例如 codex `turn/completed`
+    /// 沒帶協定要求的 `turn.status`）。不是聲稱、不是失敗——結果未知；
+    /// runtime 記為 `unknown`，絕不憑「turn 結束了」推成 completed。
+    TaskOutcomeUnknown {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+    },
     SessionClosed {
         /// 可否以 provider session id 續開（--resume / thread/resume）。
         resumable: bool,

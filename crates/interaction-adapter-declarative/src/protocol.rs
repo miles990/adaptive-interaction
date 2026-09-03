@@ -400,7 +400,7 @@ impl<L: RawLink> DeviceLink<L> {
                 _ => None,
             })
             .await
-            .map_err(|_| LinkError::Timeout("device did not answer hello".into()))?;
+            .map_err(|e| handshake_wait_error("hello", e))?;
         if hello != self.expected_device_id {
             // IP／埠／topic 不是身分：deviceId 不符即拒絕，不得配對或送命令。
             return Err(LinkError::Refused(format!(
@@ -434,7 +434,7 @@ impl<L: RawLink> DeviceLink<L> {
                 _ => None,
             })
             .await
-            .map_err(|_| LinkError::Timeout("device did not answer pairing".into()))?;
+            .map_err(|e| handshake_wait_error("pairing", e))?;
             if !ok {
                 return Err(LinkError::Refused("pairing code rejected by device".into()));
             }
@@ -736,20 +736,75 @@ impl<L: RawLink> LinkShutdown for DeviceLink<L> {
     }
 }
 
-/// 在 broadcast stream 上等第一個符合條件的訊息（有界時間）。
+/// `wait_for` 的失敗原因。具體型別而不是 `()`：呼叫端要能誠實區分
+/// 「裝置沒回」「連線已經沒了」「答覆可能被 broadcast 丟掉」——三者對
+/// 收據與重連決策的意義不同，不能都講成 timeout。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitError {
+    /// 期限內沒有符合條件的訊息。`lagged` 是等待期間 receiver 落後而被
+    /// broadcast 丟掉的訊息數；`> 0` 表示答覆可能已經送到卻被丟了，
+    /// 呼叫端不該把它講成「裝置沒回」。
+    TimedOut { lagged: u64 },
+    /// broadcast sender 全部 drop（連線世代結束）：不會再有訊息，等下去沒有意義。
+    Closed,
+    /// receiver 落後、broadcast 丟了 `n` 則訊息（只在 [`LagPolicy::Fail`] 下回傳）。
+    Lagged(u64),
+}
+
+impl std::fmt::Display for WaitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WaitError::TimedOut { lagged: 0 } => write!(f, "timed out"),
+            WaitError::TimedOut { lagged } => write!(
+                f,
+                "timed out ({lagged} message(s) dropped while waiting; the reply may have been lost)"
+            ),
+            WaitError::Closed => write!(f, "link closed"),
+            WaitError::Lagged(n) => write!(f, "receiver lagged ({n} message(s) dropped)"),
+        }
+    }
+}
+
+impl std::error::Error for WaitError {}
+
+/// 等待期間 receiver 落後（broadcast 丟訊息）時怎麼辦。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LagPolicy {
+    /// 繼續等後面的訊息，但把丟掉的數量記進 [`WaitError::TimedOut`]（握手預設）。
+    #[default]
+    Tolerate,
+    /// 立刻以 [`WaitError::Lagged`] 結束：適用於「漏掉任何一則都不能繼續」的等待。
+    Fail,
+}
+
+/// 在 broadcast stream 上等第一個符合條件的訊息（有界時間；lag 時繼續等）。
 pub async fn wait_for<T, F>(
     rx: &mut broadcast::Receiver<DeviceMsg>,
     timeout: Duration,
+    pick: F,
+) -> Result<T, WaitError>
+where
+    F: FnMut(&DeviceMsg) -> Option<T>,
+{
+    wait_for_with(rx, timeout, LagPolicy::Tolerate, pick).await
+}
+
+/// [`wait_for`] 的完整版：可指定 lag 政策。
+pub async fn wait_for_with<T, F>(
+    rx: &mut broadcast::Receiver<DeviceMsg>,
+    timeout: Duration,
+    lag: LagPolicy,
     mut pick: F,
-) -> Result<T, ()>
+) -> Result<T, WaitError>
 where
     F: FnMut(&DeviceMsg) -> Option<T>,
 {
     let deadline = tokio::time::Instant::now() + timeout;
+    let mut lagged: u64 = 0;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
-            return Err(());
+            return Err(WaitError::TimedOut { lagged });
         }
         match tokio::time::timeout(remaining, rx.recv()).await {
             Ok(Ok(msg)) => {
@@ -757,9 +812,140 @@ where
                     return Ok(v);
                 }
             }
-            Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
-            Ok(Err(broadcast::error::RecvError::Closed)) => return Err(()),
-            Err(_) => return Err(()),
+            Ok(Err(broadcast::error::RecvError::Lagged(n))) => {
+                lagged = lagged.saturating_add(n);
+                if lag == LagPolicy::Fail {
+                    return Err(WaitError::Lagged(lagged));
+                }
+            }
+            Ok(Err(broadcast::error::RecvError::Closed)) => return Err(WaitError::Closed),
+            Err(_) => return Err(WaitError::TimedOut { lagged }),
         }
+    }
+}
+
+/// 握手等待失敗 → [`LinkError`]：連線已關閉是 `Reset`（不是裝置沒回），
+/// 逾時才是 `Timeout`；lag 數量一併寫進 detail，收據不會把「答覆被丟」講成「裝置沒回」。
+fn handshake_wait_error(what: &str, err: WaitError) -> LinkError {
+    match err {
+        WaitError::Closed => LinkError::Reset(format!("link closed while waiting for {what}")),
+        WaitError::TimedOut { .. } | WaitError::Lagged(_) => {
+            LinkError::Timeout(format!("device did not answer {what} ({err})"))
+        }
+    }
+}
+
+#[cfg(test)]
+mod wait_for_tests {
+    use super::*;
+
+    fn ack(id: &str) -> DeviceMsg {
+        DeviceMsg::Ack {
+            id: Some(id.to_string()),
+            applied: None,
+            dup: None,
+            cancelled: None,
+            stop_all: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn times_out_without_lag_is_a_plain_timeout() {
+        let (tx, mut rx) = broadcast::channel::<DeviceMsg>(8);
+        let err = wait_for(&mut rx, Duration::from_millis(30), |m| match m {
+            DeviceMsg::Ack { id: Some(id), .. } if id == "never" => Some(()),
+            _ => None,
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(err, WaitError::TimedOut { lagged: 0 });
+        assert_eq!(err.to_string(), "timed out");
+        drop(tx);
+    }
+
+    #[tokio::test]
+    async fn closed_channel_is_reported_as_closed_not_timeout() {
+        let (tx, mut rx) = broadcast::channel::<DeviceMsg>(8);
+        drop(tx);
+        let err = wait_for(&mut rx, Duration::from_secs(5), |_| Some(()))
+            .await
+            .unwrap_err();
+        assert_eq!(err, WaitError::Closed);
+    }
+
+    #[tokio::test]
+    async fn lag_is_tolerated_by_default_and_counted_on_timeout() {
+        let (tx, mut rx) = broadcast::channel::<DeviceMsg>(2);
+        // 塞滿 capacity 2 的 channel 再多送兩則：receiver 會落後 2 則。
+        for i in 0..4 {
+            tx.send(ack(&format!("noise-{i}"))).unwrap();
+        }
+        let err = wait_for(&mut rx, Duration::from_millis(30), |m| match m {
+            DeviceMsg::Ack { id: Some(id), .. } if id == "wanted" => Some(()),
+            _ => None,
+        })
+        .await
+        .unwrap_err();
+        match err {
+            WaitError::TimedOut { lagged } => assert!(lagged >= 2, "lagged={lagged}"),
+            other => panic!("expected TimedOut with lag, got {other:?}"),
+        }
+        assert!(err.to_string().contains("dropped"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn lag_tolerant_wait_still_finds_a_later_reply() {
+        let (tx, mut rx) = broadcast::channel::<DeviceMsg>(2);
+        for i in 0..4 {
+            tx.send(ack(&format!("noise-{i}"))).unwrap();
+        }
+        tx.send(ack("wanted")).unwrap();
+        let got = wait_for(&mut rx, Duration::from_millis(200), |m| match m {
+            DeviceMsg::Ack { id: Some(id), .. } if id == "wanted" => Some(id.clone()),
+            _ => None,
+        })
+        .await
+        .unwrap();
+        assert_eq!(got, "wanted");
+    }
+
+    #[tokio::test]
+    async fn lag_policy_fail_stops_immediately_with_lagged() {
+        let (tx, mut rx) = broadcast::channel::<DeviceMsg>(2);
+        for i in 0..4 {
+            tx.send(ack(&format!("noise-{i}"))).unwrap();
+        }
+        tx.send(ack("wanted")).unwrap();
+        let err = wait_for_with(
+            &mut rx,
+            Duration::from_secs(5),
+            LagPolicy::Fail,
+            |m| match m {
+                DeviceMsg::Ack { id: Some(id), .. } if id == "wanted" => Some(()),
+                _ => None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, WaitError::Lagged(n) if n >= 2), "{err:?}");
+    }
+
+    #[test]
+    fn handshake_errors_map_honestly() {
+        assert!(matches!(
+            handshake_wait_error("hello", WaitError::Closed),
+            LinkError::Reset(_)
+        ));
+        match handshake_wait_error("hello", WaitError::TimedOut { lagged: 3 }) {
+            LinkError::Timeout(detail) => {
+                assert!(detail.contains("hello"), "{detail}");
+                assert!(detail.contains("3 message(s) dropped"), "{detail}");
+            }
+            other => panic!("{other}"),
+        }
+        assert!(matches!(
+            handshake_wait_error("pairing", WaitError::Lagged(1)),
+            LinkError::Timeout(_)
+        ));
     }
 }

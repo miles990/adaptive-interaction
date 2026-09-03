@@ -6,6 +6,15 @@
 // report back (`displayed` / `completed` / `unsupported` / `failed`).
 // Unsupported capabilities are ACKED as unsupported — never silently dropped,
 // never faked as displayed.
+//
+// CPP（v0.5）：`state-present`／`animation-play` 在 daemon 提供 characterProtocol
+// 時**不再走這裡**——Runtime 把它們投影成 `character.intent`，由 CharacterGateway
+// 交給角色 adapter 演出並以 character.receipt 回執。下面的 INTENT_TO_TRANSIENT／
+// PLAYABLE_ART 只服務舊 daemon（無 characterProtocol）的相容路徑；其中的名稱是
+// Runtime 公布的 legacy 詞彙（Rust presentation.rs BEHAVIOR_INTENTS／
+// PLAYABLE_ANIMATIONS：idle/notice/curious/listening/thinking/working/waiting/
+// quiet/stretch）與 machine.ts pose() 的 canonical 動畫名，不是任何 rig 的部位或
+// 表情 id；renderer 各自以 alias／fallback 鏈解析。
 
 import type { TransientKind } from "./machine";
 
@@ -37,7 +46,7 @@ export interface CommandPlan {
   };
 }
 
-/** behaviorIntent → machine transient（v2 packs 有專屬美術；v1 靠 fallback）. */
+/** legacy behaviorIntent → machine transient（canonical 動畫名；renderer 以 fallback 解析）. */
 const INTENT_TO_TRANSIENT: Record<string, { kind: TransientKind; animation?: string } | null> = {
   rest: null,
   notice: { kind: "performing", animation: "notice" },
@@ -52,7 +61,7 @@ const INTENT_TO_TRANSIENT: Record<string, { kind: TransientKind; animation?: str
   "acknowledge-briefly": { kind: "clicked" },
 };
 
-/** 可直接點播的動畫 → pack 內美術名（undefined = 本視窗不支援）。 */
+/** legacy 可點播動畫（Rust PLAYABLE_ANIMATIONS 鏡射）→ canonical 動畫名（undefined = 本視窗不支援）。 */
 const PLAYABLE_ART: Record<string, string | null | undefined> = {
   idle: null, // 回到待機（清除 transient）
   quiet: null,
@@ -66,6 +75,32 @@ const PLAYABLE_ART: Record<string, string | null | undefined> = {
 };
 
 const BUBBLE_MS = 8000;
+
+/** `cancel` vs `clear-all`：只有 estop 的 clear-all 可以清掉安全訊息（transient 與固定安全氣泡）。 */
+export function cancelEffects(command: "cancel" | "clear-all"): { forceClear: boolean; clearSafetyBubble: boolean } {
+  return command === "clear-all"
+    ? { forceClear: true, clearSafetyBubble: true }
+    : { forceClear: false, clearSafetyBubble: false };
+}
+
+/**
+ * `presence-set`：透過 host 真的 show／hide，host 確認（invoke resolve）後才維持
+ * `completed`；拒絕（舊 host 沒有這個命令、視窗不存在…）→ `failed`，永不假裝完成。
+ * 回傳的 plan 是同一個物件（就地更新 outcome／detail）。
+ */
+export async function applyPresence(
+  plan: CommandPlan,
+  setVisible: (visible: boolean) => Promise<unknown>
+): Promise<CommandPlan> {
+  if (plan.presence === undefined) return plan;
+  try {
+    await setVisible(plan.presence);
+  } catch (error) {
+    plan.outcome = "failed";
+    plan.detail = `presence not applied by the host: ${String(error)}`;
+  }
+  return plan;
+}
 
 export function planPresentationCommand(
   command: string,

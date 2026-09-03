@@ -1,12 +1,21 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Minimal capability set for the control-center window: core events and window basics only. No shell, no fs, no process, no raw device access.",
+  "description": "Capability set for the control-center and companion windows: core basics plus event LISTEN only. Neither window may emit Tauri events — the trusted host overlay is driven solely by Rust (`host-safety`), so an untrusted character renderer cannot spoof it. No shell, no fs, no process, no raw device access.",
   "windows": [
     "main",
     "companion"
   ],
   "permissions": [
-    "core:default"
+    "core:path:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:default",
+    "core:webview:default",
+    "core:app:default",
+    "core:image:default",
+    "core:resources:default",
+    "core:menu:default",
+    "core:tray:default"
   ]
 }

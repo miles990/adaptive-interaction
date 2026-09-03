@@ -1,0 +1,1584 @@
+{
+  "$defs": {
+    "AdapterKind": {
+      "description": "`adapterKind`。",
+      "enum": [
+        "in-process",
+        "web",
+        "external-process",
+        "remote-device"
+      ],
+      "type": "string"
+    },
+    "AdapterLifecycleState": {
+      "description": "Adapter 生命週期（12 個主線狀態 ＋ `crashed`／`reconnecting`，共 14）。\n\n規格：`discovered → loading → validated → initializing → negotiating → ready → shown ⇄ hidden\n→ suspended ⇄ resumed → reconfiguring → disposed`，另有 `crashed`／`reconnecting`。",
+      "enum": [
+        "discovered",
+        "loading",
+        "validated",
+        "initializing",
+        "negotiating",
+        "ready",
+        "shown",
+        "hidden",
+        "suspended",
+        "resumed",
+        "reconfiguring",
+        "disposed",
+        "crashed",
+        "reconnecting"
+      ],
+      "type": "string"
+    },
+    "AssetDecl": {
+      "description": "`assets[]`。`bytes`／`sha256` 未知時為 `None`（舊 pack 遷移不假造數字）。",
+      "properties": {
+        "bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "mediaType": {
+          "type": "string"
+        },
+        "path": {
+          "description": "相對路徑（§2.1 規則）。",
+          "type": "string"
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "mediaType"
+      ],
+      "type": "object"
+    },
+    "CapabilityDecl": {
+      "description": "§3.2 `CapabilityDecl`。",
+      "properties": {
+        "durationRange": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DurationRange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interruptible": {
+          "default": true,
+          "type": "boolean"
+        },
+        "maxConcurrent": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "parameterSchema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PreferencesSchema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "qualityLevel": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QualityLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reducedMotionBehavior": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReducedMotionBehavior"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requiresAudio": {
+          "default": false,
+          "type": "boolean"
+        },
+        "requiresForeground": {
+          "default": false,
+          "type": "boolean"
+        },
+        "resumable": {
+          "default": false,
+          "type": "boolean"
+        },
+        "supported": {
+          "default": true,
+          "type": "boolean"
+        },
+        "variants": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "CapabilityId": {
+      "description": "能力 id newtype（序列化為字串）。",
+      "type": "string"
+    },
+    "CharacterInputEvent": {
+      "description": "§6 事件 envelope。**沒有** `truthState`／verification 欄位。",
+      "properties": {
+        "characterInstanceId": {
+          "type": "string"
+        },
+        "eventId": {
+          "type": "string"
+        },
+        "generation": {
+          "description": "連線世代；舊世代事件丟棄（記 audit）。",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/InputEventKind"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "privacyClass": {
+          "$ref": "#/$defs/PrivacyClass",
+          "default": "internal"
+        },
+        "protocolVersion": {
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "eventId",
+        "characterInstanceId",
+        "generation",
+        "timestamp",
+        "kind"
+      ],
+      "title": "CharacterInputEvent",
+      "type": "object"
+    },
+    "CharacterIntent": {
+      "description": "§4.1 詞彙（20）。名稱在 1.x 內不變，只會新增。",
+      "enum": [
+        "idle",
+        "notice",
+        "acknowledge",
+        "think",
+        "work",
+        "wait",
+        "ask",
+        "request-consent",
+        "blocked",
+        "unknown",
+        "claim-completed",
+        "verified-success",
+        "failed",
+        "cancelled",
+        "offline",
+        "emergency",
+        "greet",
+        "play",
+        "rest",
+        "sleep"
+      ],
+      "type": "string"
+    },
+    "CharacterManifest": {
+      "additionalProperties": true,
+      "description": "§2 `CharacterManifest`。未知頂層欄位保留在 `extra`（同 major 相容）。",
+      "properties": {
+        "adapterKind": {
+          "$ref": "#/$defs/AdapterKind",
+          "default": "in-process"
+        },
+        "assets": {
+          "items": {
+            "$ref": "#/$defs/AssetDecl"
+          },
+          "type": "array"
+        },
+        "author": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capabilities": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CapabilityDecl"
+          },
+          "type": "object"
+        },
+        "channels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "characterId": {
+          "type": "string"
+        },
+        "compatibility": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Compatibility"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "displayName": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "entrypoint": {
+          "$ref": "#/$defs/Entrypoint"
+        },
+        "fallbacks": {
+          "$ref": "#/$defs/Fallbacks",
+          "default": {}
+        },
+        "inputCapabilities": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CapabilityDecl"
+          },
+          "type": "object"
+        },
+        "intents": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "locales": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "preferencesSchema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PreferencesSchema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pronouns": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "省略時 UI 用中立文案。",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "resourceLimits": {
+          "$ref": "#/$defs/ResourceLimits",
+          "default": {
+            "maxAssetBytes": 8388608,
+            "maxConcurrentCommands": 4,
+            "maxFps": 60,
+            "maxQueue": 32
+          }
+        },
+        "schemaVersion": {
+          "type": "string"
+        },
+        "securityRequirements": {
+          "$ref": "#/$defs/SecurityRequirements",
+          "default": {
+            "audioOutput": false,
+            "camera": false,
+            "executable": false,
+            "fileAccess": "none",
+            "microphone": false,
+            "network": false
+          }
+        },
+        "states": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "variants": {
+          "items": {
+            "$ref": "#/$defs/VariantDecl"
+          },
+          "type": "array"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "characterId",
+        "displayName",
+        "version",
+        "entrypoint"
+      ],
+      "title": "CharacterManifest",
+      "type": "object"
+    },
+    "CharacterRole": {
+      "description": "§1 Character Role。`observer`／`notification-only` 不送輸入。",
+      "enum": [
+        "primary-companion",
+        "familiar",
+        "worker",
+        "observer",
+        "notification-only"
+      ],
+      "type": "string"
+    },
+    "CommandReceipt": {
+      "description": "§7 `CommandReceipt`。",
+      "properties": {
+        "alreadyTerminal": {
+          "description": "`cancelled{alreadyTerminal:true}`：cancel 打到已終結的 command。",
+          "type": "boolean"
+        },
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "characterInstanceId": {
+          "type": "string"
+        },
+        "detail": {
+          "description": "≤ 200 字。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "duplicate": {
+          "description": "`accepted{duplicate:true}`：重複 messageId（環 256）。",
+          "type": "boolean"
+        },
+        "generation": {
+          "description": "連線世代；舊世代回執一律丟棄（記 audit）。",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "messageId": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "`cancelled{reason}`：preempted／queue-full／outbound-full／busy／merged／expired／safety-deduplicated…",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Resolution"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/ReceiptStatus"
+        }
+      },
+      "required": [
+        "messageId",
+        "characterInstanceId",
+        "generation",
+        "status",
+        "at"
+      ],
+      "title": "CommandReceipt",
+      "type": "object"
+    },
+    "Compatibility": {
+      "description": "`compatibility`。",
+      "properties": {
+        "protocol": {
+          "description": "`1.x` 或 `1.N`。",
+          "type": "string"
+        },
+        "runtime": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "protocol"
+      ],
+      "type": "object"
+    },
+    "DurationHint": {
+      "description": "§4.4 `durationHint`。",
+      "properties": {
+        "loop": {
+          "default": false,
+          "type": "boolean"
+        },
+        "ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ms"
+      ],
+      "type": "object"
+    },
+    "DurationRange": {
+      "properties": {
+        "maxMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "minMs",
+        "maxMs"
+      ],
+      "type": "object"
+    },
+    "Entrypoint": {
+      "description": "`entrypoint`（tagged `kind`）。只記錄，匯入不執行、不連線、不下載。",
+      "oneOf": [
+        {
+          "description": "in-process 內建 adapter；`id` 必須在 host 白名單。",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "builtin",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "web：相對路徑模組（匯入時不執行）。",
+          "properties": {
+            "kind": {
+              "const": "module",
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "external-process（永不自動啟動）。",
+          "properties": {
+            "command": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "process",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "command"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "remote-device（永不自動連線）。",
+          "properties": {
+            "kind": {
+              "const": "url",
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Fallbacks": {
+      "description": "`fallbacks`：能力鏈與 intent 替換（§3.4 步驟 2／3）。",
+      "properties": {
+        "capabilities": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
+        "intents": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "FileAccess": {
+      "description": "`securityRequirements.fileAccess`。",
+      "oneOf": [
+        {
+          "enum": [
+            "none"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "character-folder",
+          "description": "只讀角色資料夾。",
+          "type": "string"
+        },
+        {
+          "const": "user-granted",
+          "description": "使用者逐檔授權（file-drop grant）。",
+          "type": "string"
+        }
+      ]
+    },
+    "Hello": {
+      "description": "§3.3 步驟 1：Runtime／Gateway → Adapter。",
+      "properties": {
+        "characterInstanceId": {
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/HelloLimits",
+          "default": {
+            "maxMessageBytes": 65536,
+            "maxMessagesPerSecond": 50,
+            "maxPending": 64
+          }
+        },
+        "locale": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "string"
+        },
+        "reducedMotion": {
+          "type": "boolean"
+        },
+        "requires": {
+          "default": [],
+          "description": "Runtime 會送出的 intent（資訊性；協商仍解析全部 20 個）。",
+          "items": {
+            "$ref": "#/$defs/CharacterIntent"
+          },
+          "type": "array"
+        },
+        "role": {
+          "$ref": "#/$defs/CharacterRole"
+        },
+        "runtimeVersion": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "runtimeVersion",
+        "characterInstanceId",
+        "role",
+        "locale",
+        "reducedMotion"
+      ],
+      "title": "Hello",
+      "type": "object"
+    },
+    "HelloLimits": {
+      "description": "`hello.limits`。",
+      "properties": {
+        "maxMessageBytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxMessagesPerSecond": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxPending": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "maxMessageBytes",
+        "maxMessagesPerSecond",
+        "maxPending"
+      ],
+      "type": "object"
+    },
+    "InputEventKind": {
+      "description": "13 種 input event kind（wire 名稱帶 `character.` 前綴）。",
+      "enum": [
+        "character.clicked",
+        "character.double-clicked",
+        "character.hover-entered",
+        "character.hover-left",
+        "character.drag-started",
+        "character.dragged",
+        "character.dropped",
+        "character.text-submitted",
+        "character.file-dropped",
+        "character.toy-thrown",
+        "character.action-requested",
+        "character.dismissed",
+        "character.visibility-changed"
+      ],
+      "type": "string"
+    },
+    "IntentEnvelope": {
+      "description": "§4.4 Envelope：Runtime → Gateway → Adapter 的語意化 intent。**唯一**帶 `truthState` 的型別。",
+      "properties": {
+        "characterInstanceId": {
+          "type": "string"
+        },
+        "correlationId": {
+          "description": "串起 Agent 工作、硬體事件、receipt 與演出；安全 intent 的多實例去重也以它為鍵。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "durationHint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DurationHint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expiresAt": {
+          "description": "必填：過期不播（`expired` 回執）。",
+          "format": "date-time",
+          "type": "string"
+        },
+        "intent": {
+          "$ref": "#/$defs/CharacterIntent"
+        },
+        "interruptPolicy": {
+          "$ref": "#/$defs/InterruptPolicy",
+          "default": "queue"
+        },
+        "messageId": {
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "description": "≤ 4 KB 序列化、字串 ≤ 200 字。",
+          "type": "object"
+        },
+        "presentationHints": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PresentationHints"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "priority": {
+          "description": "最終值 = max(requested, floor)；由 [`normalize_envelope`] 夾住。",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "privacyClass": {
+          "$ref": "#/$defs/PrivacyClass",
+          "default": "internal"
+        },
+        "protocolVersion": {
+          "type": "string"
+        },
+        "resumePolicy": {
+          "$ref": "#/$defs/ResumePolicy",
+          "default": "none"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "truthState": {
+          "$ref": "#/$defs/TruthState"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "messageId",
+        "characterInstanceId",
+        "timestamp",
+        "intent",
+        "truthState",
+        "priority",
+        "expiresAt"
+      ],
+      "title": "IntentEnvelope",
+      "type": "object"
+    },
+    "IntentResolution": {
+      "description": "單一 intent 的協商結果。",
+      "properties": {
+        "resolution": {
+          "$ref": "#/$defs/Resolution"
+        },
+        "variant": {
+          "description": "該能力 `variants` 內對應此 intent 的 variant（例如 sprite 動畫名）。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "via": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CapabilityId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "實際使用的能力（`system.text` 代表 Runtime 文字退路）；`unsupported` 時為 `None`。"
+        },
+        "viaIntent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CharacterIntent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "經 `fallbacks.intents` 換成的實際 intent（§3.4 步驟 2）。"
+        }
+      },
+      "required": [
+        "resolution"
+      ],
+      "type": "object"
+    },
+    "InterruptPolicy": {
+      "description": "§4.4 `interruptPolicy`。",
+      "enum": [
+        "preempt",
+        "queue",
+        "drop-if-busy",
+        "merge"
+      ],
+      "type": "string"
+    },
+    "Negotiate": {
+      "description": "§3.3 步驟 2：Adapter → Gateway。",
+      "properties": {
+        "capabilities": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CapabilityDecl"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "channels": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "characterId": {
+          "type": "string"
+        },
+        "generation": {
+          "default": 0,
+          "description": "adapter 自己的連線計數（資訊性；Gateway 的 generation 才是權威）。",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inputCapabilities": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CapabilityDecl"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "intents": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "manifestVersion": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "string"
+        },
+        "variants": {
+          "default": [],
+          "description": "variant ids。",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "characterId",
+        "manifestVersion"
+      ],
+      "title": "Negotiate",
+      "type": "object"
+    },
+    "Negotiated": {
+      "description": "§3.3 步驟 3：Gateway → Adapter。",
+      "properties": {
+        "acceptedChannels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "capabilities": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CapabilityDecl"
+          },
+          "description": "最終有效宣告（只含 supported）。",
+          "type": "object"
+        },
+        "characterInstanceId": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ignoredChannels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "inputCapabilities": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CapabilityDecl"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "nonSafetyChannels": {
+          "default": [],
+          "description": "`acceptedChannels` 中的 namespaced custom channel（nonSafety）。",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reducedMotion": {
+          "type": "boolean"
+        },
+        "resolutions": {
+          "additionalProperties": false,
+          "properties": {
+            "acknowledge": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "ask": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "blocked": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "cancelled": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "claim-completed": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "emergency": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "failed": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "greet": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "idle": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "notice": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "offline": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "play": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "request-consent": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "rest": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "sleep": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "think": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "unknown": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "verified-success": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "wait": {
+              "$ref": "#/$defs/IntentResolution"
+            },
+            "work": {
+              "$ref": "#/$defs/IntentResolution"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "characterInstanceId",
+        "generation",
+        "reducedMotion",
+        "resolutions",
+        "acceptedChannels",
+        "ignoredChannels",
+        "capabilities"
+      ],
+      "title": "Negotiated",
+      "type": "object"
+    },
+    "PreferenceProperty": {
+      "additionalProperties": true,
+      "description": "單一屬性：`boolean`／`number`（`minimum`／`maximum`）／`integer`／`string`（`maxLength` ≤ 200、`enum` ≤ 16）。",
+      "properties": {
+        "default": true,
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enum": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "maxLength": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maximum": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "minimum": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "PreferencesSchema": {
+      "additionalProperties": true,
+      "description": "§2.1 `preferencesSchema` 白名單子集：只接受 `type: object` 與有限的屬性型別。",
+      "properties": {
+        "properties": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PreferenceProperty"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "required": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "PresentationHints": {
+      "description": "§4.4 `presentationHints`：只是建議，adapter 可忽略。",
+      "properties": {
+        "channels": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "message": {
+          "description": "≤ 200 字。安全 intent 的固定語句由 Runtime／host 決定，不由 adapter 改寫。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "variant": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PrivacyClass": {
+      "description": "§4.4／§6 `privacyClass`。",
+      "enum": [
+        "public",
+        "internal",
+        "personal",
+        "intimate"
+      ],
+      "type": "string"
+    },
+    "QualityLevel": {
+      "enum": [
+        "full",
+        "reduced",
+        "minimal"
+      ],
+      "type": "string"
+    },
+    "ReceiptStatus": {
+      "description": "回執狀態（10）。",
+      "oneOf": [
+        {
+          "const": "accepted",
+          "description": "Gateway 收進佇列。**不是**完成。",
+          "type": "string"
+        },
+        {
+          "const": "acknowledged",
+          "description": "adapter 收到，但不會回報 completion；Gateway 之後記成 `uncertain`。",
+          "type": "string"
+        },
+        {
+          "const": "scheduled",
+          "description": "adapter 已排程。",
+          "type": "string"
+        },
+        {
+          "const": "started",
+          "description": "adapter 已開始演出。",
+          "type": "string"
+        },
+        {
+          "const": "completed",
+          "description": "終態：呈現演完了（≠ 外部工作 verified）。",
+          "type": "string"
+        },
+        {
+          "const": "cancelled",
+          "description": "終態：被取消（含 preempted／queue-full／merged）。",
+          "type": "string"
+        },
+        {
+          "const": "expired",
+          "description": "終態：`expiresAt` 已過、未播。",
+          "type": "string"
+        },
+        {
+          "const": "unsupported",
+          "description": "終態：協商結果 `unsupported`。",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "終態：adapter 回報失敗。",
+          "type": "string"
+        },
+        {
+          "const": "uncertain",
+          "description": "終態：結果未知（crash／斷線／acknowledged 逾時／watchdog）。",
+          "type": "string"
+        }
+      ]
+    },
+    "ReducedMotionBehavior": {
+      "description": "Reduced Motion 下此能力的行為（§3.2／§3.4 步驟 4）。缺省視為 `unchanged`。",
+      "enum": [
+        "static",
+        "reduced",
+        "unchanged",
+        "disabled"
+      ],
+      "type": "string"
+    },
+    "Resolution": {
+      "description": "解析結果等級。",
+      "enum": [
+        "exact",
+        "substituted",
+        "reduced",
+        "unsupported",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "ResourceLimits": {
+      "description": "`resourceLimits`（含預設）。",
+      "properties": {
+        "maxAssetBytes": {
+          "default": 8388608,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxConcurrentCommands": {
+          "default": 4,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxFps": {
+          "default": 60,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxQueue": {
+          "default": 32,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "ResumePolicy": {
+      "description": "§4.4 `resumePolicy`。",
+      "enum": [
+        "resume-previous",
+        "return-idle",
+        "none"
+      ],
+      "type": "string"
+    },
+    "SecurityRequirements": {
+      "description": "`securityRequirements`（全部預設關閉）。",
+      "properties": {
+        "audioOutput": {
+          "default": false,
+          "type": "boolean"
+        },
+        "camera": {
+          "default": false,
+          "type": "boolean"
+        },
+        "executable": {
+          "default": false,
+          "type": "boolean"
+        },
+        "fileAccess": {
+          "$ref": "#/$defs/FileAccess",
+          "default": "none"
+        },
+        "microphone": {
+          "default": false,
+          "type": "boolean"
+        },
+        "network": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "TruthState": {
+      "description": "§4.2 truthState（15）。只由 Runtime 設定；`verified` 只能來自人類驗證路徑。",
+      "enum": [
+        "none",
+        "queued",
+        "working",
+        "waiting-input",
+        "waiting-consent",
+        "blocked",
+        "claimed",
+        "verified",
+        "failed",
+        "timed-out",
+        "expired",
+        "unknown",
+        "cancelled",
+        "emergency",
+        "offline"
+      ],
+      "type": "string"
+    },
+    "VariantDecl": {
+      "description": "`variants[]`。",
+      "properties": {
+        "displayName": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "WireMessage": {
+      "description": "§8 wire message（tagged `type`，kebab-case）。",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Hello",
+          "properties": {
+            "type": {
+              "const": "hello",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/Negotiate",
+          "properties": {
+            "type": {
+              "const": "negotiate",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/Negotiated",
+          "properties": {
+            "type": {
+              "const": "negotiated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "envelope": {
+              "$ref": "#/$defs/IntentEnvelope"
+            },
+            "type": {
+              "const": "intent",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "envelope"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "messageId": {
+              "type": "string"
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "cancel",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "messageId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "heartbeat",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "const": "error",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "goodbye",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "receipt": {
+              "$ref": "#/$defs/CommandReceipt"
+            },
+            "type": {
+              "const": "receipt",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "receipt"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "event": {
+              "$ref": "#/$defs/CharacterInputEvent"
+            },
+            "type": {
+              "const": "event",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "event"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "at": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "state": {
+              "$ref": "#/$defs/AdapterLifecycleState"
+            },
+            "type": {
+              "const": "lifecycle",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "state"
+          ],
+          "type": "object"
+        }
+      ],
+      "title": "WireMessage"
+    }
+  },
+  "$id": "https://github.com/miles990/adaptive-interaction/schemas/character-protocol.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Character Presentation Protocol (CPP): canonical JSON Schema generated from crates/interaction-character. Roots are listed under $defs.",
+  "protocolVersion": "1.0",
+  "roots": [
+    "CharacterManifest",
+    "IntentEnvelope",
+    "CommandReceipt",
+    "CharacterInputEvent",
+    "WireMessage",
+    "Hello",
+    "Negotiate",
+    "Negotiated"
+  ],
+  "title": "Character Presentation Protocol 1.0"
+}

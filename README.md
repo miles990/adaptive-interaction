@@ -117,6 +117,13 @@ v0.5 **不沿用** 25/25 的完成度敘述；它的誠實基線與收尾狀態�
   綠勾只在人類驗證後。
 - **iPhone Mobile Provider**：TLS wss＋配對碼＋每機金鑰；SwiftUI companion app
   已在 **iOS 模擬器**完成配對閉環（真機未驗）。
+- **Character Presentation Protocol 1.0（角色無關的呈現層）**：Runtime 只送語意化
+  Character Intent（含 truthState 與 priority 下限），角色透過可版本化 manifest＋能力協商接上
+  （參數化 rig、sprite、文字、外部 WebSocket 程式都走同一份契約；不支援就誠實降級，安全訊息
+  永遠落到可信文字）；**小樞是第一個 Reference Adapter，不是唯一角色**；estop／感測指示由可信
+  host overlay 保證。契約：[`docs/character-protocol/README.md`](docs/character-protocol/README.md)。
+- **一般模式產品化**：五入口（現在／角色／工作／連接與權限／更多）以任務、角色、權限與結果為中心；
+  工作頁先交代任務；狀態一律走共用人話投影（claimed ≠ verified）；首次成功體驗可略過。
 
 ## 安裝（3 分鐘）
 
@@ -177,6 +184,9 @@ interact-ai self uninstall --yes     # 移除（--purge 連設定資料一起刪
 | **[v0.4 機器證據](docs/v04-final-machine-evidence.md)** | v0.4 測試數字、connector、SHA-256 與未完成項 |
 | **[v0.5 Gap Matrix](docs/v05-capability-gap-matrix.md)** | v0.5 誠實基線（§0–§8）與 Phase 7 收尾狀態（§9） |
 | **[v0.5 恢復矩陣](docs/v05-recovery-matrix.md)** | 新 Session 逐規格條目核對：程式存在／已接線／測試／真環境／缺口（463 列） |
+| **[Character Presentation Protocol](docs/character-protocol/README.md)** | 角色呈現通用協定唯一契約：manifest／能力協商／intent／input event／lifecycle／receipt／wire／安全模型／版本政策 |
+| **[Character Adapter 撰寫指南](docs/character-protocol/adapter-authoring.md)** | 如何建立最小角色、宣告能力、收 intent、回 receipt、送 event、cancel／Emergency／Reduced Motion、自訂 channel、WebSocket、migration、測試 |
+| **[Reference Adapters 導覽](docs/character-protocol/reference-adapters.md)** | 小樞 rig／sprite／文字／外部 WebSocket fixture 各走一遍 |
 | **[更新日誌](CHANGELOG.md)** | 版本歷史（語意化版本） |
 
 ## 核心設計理念
@@ -263,6 +273,7 @@ Observation 嚴格分離 facts（可觀察事實）與 inferences（模型推論
 | 工具介面 | `crates/interaction-tool-schema` | 單一 Canonical Manifest → OpenAI/Anthropic/Gemini/OpenAPI/JSON-Schema |
 | API / CLI | `crates/interaction-api`、`crates/interaction-cli` | axum＋SSE；`interact-ai`（client＋daemon＋self 管理） |
 | Adapter SDK | `crates/interaction-adapter-sdk`、`adapters/builtin` | 第三方 driver 介面＋內建受器/動器 |
+| 角色協定 | `crates/interaction-character`、`apps/interaction-desktop/src/character` | Character Presentation Protocol 1.0：純函式 Gateway＋manifest／協商／intent／receipt；TS 鏡射＋in-process gateway＋reference adapters |
 | 桌面 | `apps/interaction-desktop` | Tauri 2＋React；與 CLI/API 共用同一套 application services |
 | Skill | `skills/orchestrate-adaptive-interaction` | 跨 AI Agent Skill（開放格式） |
 

@@ -106,6 +106,7 @@ gate (only the desktop IPC can).
 ## v0.4 endpoints
 
 - `GET/POST /v1/presentation{,/hello,/ack}` — companion surface presence + honest render acks.
+- `POST /v1/character/{hello,receipts,events,intent}`, `GET /v1/character/{instances,manifest,adapters}`, `POST/DELETE /v1/character/adapters[/{id}]`, `GET /v1/character/ws?token=` — Character Presentation Protocol 1.0 (human token; the WS route accepts ONLY adapter tokens, which can never reach human routes). AI never constructs intent envelopes: it can only request `companion.state.present`/`companion.animation.play` (bounded to non-safety intents, priority <= 50).
 - `GET/PATCH /v1/proactive-dialogue`, `POST /v1/proactive-dialogue/quiet` — deterministic
   proactive-speech limits (hourly cap / min interval / no-follow-up; safety class only dedups).
 - `GET /v1/agents`, `POST /v1/agents/refresh`, `GET /v1/agents/routing?kind=` — local agent

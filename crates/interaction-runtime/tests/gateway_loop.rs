@@ -412,8 +412,10 @@ async fn gateway_full_loop_with_fake_agent() {
         )
         .await;
         // 第二個任務：成本預算已爆（0.01 ≥ 0.005），gateway 誠實拒絕轉送
-        // → 訊息留在信箱、沒有 delivered 戳記。
-        let msg2 = rt4
+        // → 呼叫端拿到明確的「未送達」錯誤（不是靜默 Ok），訊息留在信箱、
+        // 沒有 delivered 戳記；而且「沒送到」≠「任務失敗」：上一輪的聲稱
+        // 仍然成立，session 不得被改寫成 Failed。
+        let err = rt4
             .mailbox_send(
                 &sid4,
                 MailboxDirection::ToSession,
@@ -422,7 +424,22 @@ async fn gateway_full_loop_with_fake_agent() {
                 None,
             )
             .await
-            .unwrap();
+            .unwrap_err();
+        assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+        assert!(err.to_string().contains("未送達"), "{err}");
+        assert_eq!(
+            rt4.get_agent_session(&sid4).await.unwrap().state,
+            AgentSessionState::ClaimedCompleted,
+            "an undelivered message is not evidence that the agent failed"
+        );
+        let msg2 = rt4
+            .mailbox_peek(&sid4, MailboxDirection::ToSession)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|m| m.body.get("task") == Some(&json!("第二個任務")))
+            .expect("the undelivered message stays queued in the mailbox");
+        assert!(msg2.delivered_at.is_none());
         // 觀察者讀信箱（GET messages 的底層路徑）：不得蓋章。
         let seen = rt4
             .mailbox_fetch(&sid4, MailboxDirection::ToSession)
@@ -452,9 +469,9 @@ async fn gateway_full_loop_with_fake_agent() {
             .unwrap()
             .delivered_at
             .is_none());
-        // 收尾：Failed 是任務結局不是 session 終局，close 負責收尾並殺掉
-        // 子程序樹（測試沒開 watchdog，事件泵又持有 runtime clone，單靠
-        // drop 不會清理；殘影會干擾後續 section 的 pgid attribution）。
+        // 收尾：close 負責收尾並殺掉子程序樹（測試沒開 watchdog，事件泵又
+        // 持有 runtime clone，單靠 drop 不會清理；殘影會干擾後續 section 的
+        // pgid attribution）。
         rt4.close_agent_session(&sid4, None, "closed")
             .await
             .unwrap();
@@ -1184,5 +1201,578 @@ async fn an_unanswered_approval_is_denied_by_the_watchdog_and_the_deny_reaches_t
     );
 
     rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    std::env::remove_var("INTERACT_AI_CODEX_BIN");
+}
+
+fn codex_exec_fixture_path() -> String {
+    format!(
+        "{}/tests/fixtures/fake_codex_exec.sh",
+        env!("CARGO_MANIFEST_DIR")
+    )
+}
+
+fn task(text: &str) -> BTreeMap<String, serde_json::Value> {
+    BTreeMap::from([("task".to_string(), json!(text))])
+}
+
+/// regression（agent-honesty）：「本輪已有結局」曾是 session 層級、只設不清
+/// 的旗標——第一輪聲稱完成後，第二輪子程序死掉不會發 unknown／failed，
+/// session 對著一個已死的程序永遠「工作中」。結局是每一輪各自的事實：
+/// 第二輪 exit≠0 必須是 failed、exit 0 無結果必須是 unknown；人工驗證只
+/// 綁第一個 claim，新任務一送達就失效；死掉之後再送任務必須被明確拒絕。
+#[tokio::test]
+async fn a_second_turn_that_dies_is_not_covered_by_the_first_turns_claim() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+
+    for (mode, expected, taxonomy) in [
+        ("claim-then-crash", AgentSessionState::Failed, "failed"),
+        ("claim-then-silent", AgentSessionState::Unknown, "unknown"),
+    ] {
+        let dir = scenario_workdir(mode);
+        let mut input = claude_input(mode, None);
+        input.workdir = Some(dir.path().to_string_lossy().into_owned());
+        let sid = rt
+            .create_agent_session(input)
+            .await
+            .unwrap()
+            .session_id
+            .as_str()
+            .to_string();
+
+        // 第一輪：健康的聲稱完成。
+        rt.mailbox_send(
+            &sid,
+            MailboxDirection::ToSession,
+            "task",
+            task("第一輪"),
+            None,
+        )
+        .await
+        .unwrap();
+        wait_for(
+            async || {
+                rt.get_agent_session(&sid)
+                    .await
+                    .map(|r| r.state == AgentSessionState::ClaimedCompleted)
+                    .unwrap_or(false)
+            },
+            &format!("{mode}: first-turn claim"),
+        )
+        .await;
+        // 人工驗證第一個 claim：驗證紀錄指向這個 claim id。
+        let verified = rt
+            .verify_agent_session(&sid, Some("第一輪看過了".into()))
+            .await
+            .unwrap();
+        let first_claim = verified
+            .claim_id
+            .clone()
+            .expect("a claimed-completed record carries a claim id");
+        assert_eq!(
+            verified
+                .human_verified
+                .as_ref()
+                .and_then(|v| v.claim_id.clone()),
+            Some(first_claim.clone()),
+            "{mode}: the verification is bound to the claim it confirmed"
+        );
+
+        // 第二輪：任務真的送進子程序 ⇒ 舊的驗證只屬於上一個 claim。
+        rt.mailbox_send(
+            &sid,
+            MailboxDirection::ToSession,
+            "task",
+            task("第二輪"),
+            None,
+        )
+        .await
+        .unwrap();
+        let after = rt.get_agent_session(&sid).await.unwrap();
+        assert!(
+            after.human_verified.is_none(),
+            "{mode}: a newly delivered task invalidates the old verification"
+        );
+        assert_eq!(
+            after.claim_id,
+            Some(first_claim.clone()),
+            "{mode}: the claim id only changes on a new claim"
+        );
+
+        // 子程序死在第二輪：第一輪的聲稱不能替它擔保。
+        wait_for(
+            async || {
+                rt.get_agent_session(&sid)
+                    .await
+                    .map(|r| r.state == expected)
+                    .unwrap_or(false)
+            },
+            &format!("{mode}: honest outcome after the second turn died"),
+        )
+        .await;
+        let record = rt.get_agent_session(&sid).await.unwrap();
+        assert!(!record.state.is_open(), "{mode}: the outcome is terminal");
+        assert!(record.human_verified.is_none());
+        let states = session_states(&rt, &sid);
+        assert_eq!(
+            states.last().map(String::as_str),
+            Some(taxonomy),
+            "{mode}: the character must not keep performing 'working': {states:?}"
+        );
+        assert_eq!(
+            states.iter().filter(|s| *s == "claimed-completed").count(),
+            1,
+            "{mode}: only the first turn claimed anything: {states:?}"
+        );
+        if expected == AgentSessionState::Failed {
+            assert!(
+                !states.iter().any(|s| s == "unknown"),
+                "{mode}: exit 3 is an observable error, not unknown: {states:?}"
+            );
+        } else {
+            assert!(
+                !states.iter().any(|s| s == "failed"),
+                "{mode}: exit 0 without a result is not evidence of failure: {states:?}"
+            );
+        }
+
+        // 死掉之後再送：明確拒絕（不得靜默 Ok 留下一則永遠 undelivered 的訊息）。
+        let err = rt
+            .mailbox_send(
+                &sid,
+                MailboxDirection::ToSession,
+                "task",
+                task("第三輪"),
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::Conflict(_)), "{mode}: {err:?}");
+
+        // 關閉只收尾，不把 failed／unknown 改寫成 closed。
+        let closed = rt.close_agent_session(&sid, None, "closed").await.unwrap();
+        assert_eq!(closed.state, expected, "{mode}: close keeps the outcome");
+        assert!(closed.closed_at.is_some());
+    }
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// 聲稱完成後子程序自行結束（exit 0）：聲稱仍然成立（不是 unknown、不是
+/// failed），但之後再送任務必須明確回錯——事件泵收攤後沒有人會送這則訊息，
+/// 靜默 Ok 會留下一則永遠「等待送達」的訊息，也不會有任何事件說明為什麼。
+#[tokio::test]
+async fn after_the_process_exits_a_new_task_is_refused_instead_of_silently_queued() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = scenario_workdir("claim-then-exit");
+    let mut input = claude_input("做完就走", None);
+    input.workdir = Some(dir.path().to_string_lossy().into_owned());
+    let sid = rt
+        .create_agent_session(input)
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+    assert!(rt.gateway_session_attached(&sid));
+
+    rt.mailbox_send(
+        &sid,
+        MailboxDirection::ToSession,
+        "task",
+        task("第一輪"),
+        None,
+    )
+    .await
+    .unwrap();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::ClaimedCompleted)
+                .unwrap_or(false)
+        },
+        "claim",
+    )
+    .await;
+    // 子程序結束、事件泵收攤——聲稱不因此變成 unknown。
+    wait_for(
+        async || !rt.gateway_session_attached(&sid),
+        "event pump finished after the process exited",
+    )
+    .await;
+    let record = rt.get_agent_session(&sid).await.unwrap();
+    assert_eq!(record.state, AgentSessionState::ClaimedCompleted);
+    let states = session_states(&rt, &sid);
+    assert!(
+        !states.iter().any(|s| s == "unknown" || s == "failed"),
+        "a claim that was actually made stands: {states:?}"
+    );
+
+    // 再送：沒有人能送了 ⇒ 明確回錯，狀態不動。
+    let err = rt
+        .mailbox_send(
+            &sid,
+            MailboxDirection::ToSession,
+            "task",
+            task("再交代一句"),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::Unavailable(_)), "{err:?}");
+    assert!(err.to_string().contains("未送達"), "{err}");
+    assert_eq!(
+        rt.get_agent_session(&sid).await.unwrap().state,
+        AgentSessionState::ClaimedCompleted
+    );
+    let queued = rt
+        .mailbox_peek(&sid, MailboxDirection::ToSession)
+        .await
+        .unwrap();
+    let ghost = queued
+        .iter()
+        .find(|m| m.body.get("task") == Some(&json!("再交代一句")))
+        .expect("the message is visible in the mailbox");
+    assert!(ghost.delivered_at.is_none(), "never stamped delivered");
+
+    let closed = rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    assert_eq!(closed.state, AgentSessionState::Closed);
+    assert_eq!(
+        closed.detail.as_deref(),
+        Some("closed (was ClaimedCompleted)")
+    );
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// regression（agent-honesty）：codex exec fallback 上一輪還在跑時的第二則
+/// 訊息回 `GatewayError::Busy`，runtime 曾把它翻成 `failed`——Failed 是
+/// terminal，看門狗接著殺掉還在正常工作的子程序，真正的結局也再也記不進來。
+/// 「訊息未送達」≠「任務失敗」：呼叫端拿到明確錯誤、訊息留在信箱沒有
+/// delivered 戳記、狀態不動、子程序活著、第一輪的聲稱照常被記錄。
+#[tokio::test]
+async fn an_undelivered_message_during_a_running_exec_turn_is_not_an_agent_failure() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CODEX_BIN", codex_exec_fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut input = codex_input("exec 忙碌中", dir.path());
+    input.max_messages = Some(50);
+    let sid = rt
+        .create_agent_session(input)
+        .await
+        .expect("fake codex without app-server attaches through the exec fallback")
+        .session_id
+        .as_str()
+        .to_string();
+
+    // 第一則：真的 spawn 一個 exec turn（fixture 睡 1.5 秒才聲稱完成）。
+    rt.mailbox_send(
+        &sid,
+        MailboxDirection::ToSession,
+        "task",
+        task("第一則"),
+        None,
+    )
+    .await
+    .unwrap();
+    let pid_file = dir.path().join("fake-pid");
+    let mut pid = 0;
+    wait_for(
+        async || {
+            pid = read_pid(&pid_file);
+            pid > 0 && pid_alive(pid)
+        },
+        "exec turn running",
+    )
+    .await;
+
+    // 第一輪還在跑：第二則必須是「未送達」，不是「任務失敗」。
+    let err = rt
+        .mailbox_send(
+            &sid,
+            MailboxDirection::ToSession,
+            "task",
+            task("第二則"),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::Conflict(_)), "{err:?}");
+    assert!(err.to_string().contains("未送達"), "{err}");
+    let record = rt.get_agent_session(&sid).await.unwrap();
+    assert!(
+        record.state.is_open(),
+        "the agent is working normally: {:?}",
+        record.state
+    );
+    assert_ne!(record.state, AgentSessionState::Failed);
+    let states = session_states(&rt, &sid);
+    assert!(
+        !states.iter().any(|s| s == "failed"),
+        "an undelivered message is not an agent failure: {states:?}"
+    );
+    let queued = rt
+        .mailbox_peek(&sid, MailboxDirection::ToSession)
+        .await
+        .unwrap();
+    assert!(queued
+        .iter()
+        .find(|m| m.body.get("task") == Some(&json!("第一則")))
+        .unwrap()
+        .delivered_at
+        .is_some());
+    assert!(queued
+        .iter()
+        .find(|m| m.body.get("task") == Some(&json!("第二則")))
+        .unwrap()
+        .delivered_at
+        .is_none());
+
+    // 看門狗掃描不得殺掉還在工作的子程序（record 仍 open）。
+    rt.gateway_sweep().await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(
+        pid_alive(pid),
+        "the running exec turn must survive the sweep"
+    );
+
+    // 第一輪的結局照常被記錄。
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::ClaimedCompleted)
+                .unwrap_or(false)
+        },
+        "first turn's claim still lands",
+    )
+    .await;
+    // 第一輪結束（子程序收割、busy 清除）後可以再送——有界重試。
+    let mut delivered = false;
+    for _ in 0..40 {
+        match rt
+            .mailbox_send(
+                &sid,
+                MailboxDirection::ToSession,
+                "task",
+                task("第三則"),
+                None,
+            )
+            .await
+        {
+            Ok(_) => {
+                delivered = true;
+                break;
+            }
+            Err(DomainError::Conflict(_)) => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(e) => panic!("unexpected: {e:?}"),
+        }
+    }
+    assert!(
+        delivered,
+        "a new turn can start once the previous one ended"
+    );
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    std::env::remove_var("INTERACT_AI_CODEX_BIN");
+}
+
+/// regression（agent-honesty）：看門狗自動拒絕時，即使拒絕**沒送到** agent
+/// 也曾回報 progress → 卡片變「工作中」，而 pending 登記已被刪掉，人類再按
+/// 核可／拒絕只會拿到 NotFound——agent 其實仍卡在等核可。送不到就照實說：
+/// 狀態留在 waiting-consent、請求留在登記中、delivered:false 進紀錄。
+#[tokio::test]
+async fn a_watchdog_deny_that_cannot_reach_the_agent_keeps_the_request_pending() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CODEX_BIN", codex_fixture_path());
+    let (_g, rt) = runtime().await;
+    rt.set_approval_ttl_secs(0);
+    let dir = scenario_workdir("deaf-after-approval");
+    let sid = rt
+        .create_agent_session(codex_input("聾掉的 agent", dir.path()))
+        .await
+        .expect("fake codex app-server attaches")
+        .session_id
+        .as_str()
+        .to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::WaitingForConsent)
+                .unwrap_or(false)
+        },
+        "waiting-for-consent",
+    )
+    .await;
+    let closed_marker = dir.path().join("fake-stdin-closed");
+    wait_for(async || closed_marker.exists(), "fixture closed its stdin").await;
+
+    rt.gateway_sweep().await;
+
+    // 狀態不得翻成「工作中」。
+    let record = rt.get_agent_session(&sid).await.unwrap();
+    assert_eq!(
+        record.state,
+        AgentSessionState::WaitingForConsent,
+        "the agent is still blocked on the approval"
+    );
+    let states = session_states(&rt, &sid);
+    assert!(
+        !states.iter().any(|s| s == "working"),
+        "an undelivered deny must not be performed as progress: {states:?}"
+    );
+    // 裁決紀錄誠實：決定了拒絕、但沒送到、請求仍待裁決。
+    let inbox = rt
+        .mailbox_peek(&sid, MailboxDirection::FromSession)
+        .await
+        .unwrap();
+    let watchdog: Vec<_> = inbox
+        .iter()
+        .filter(|m| m.kind == "approval-resolved" && m.body["by"] == json!("watchdog"))
+        .collect();
+    assert_eq!(watchdog.len(), 1, "{inbox:?}");
+    assert_eq!(watchdog[0].body["approved"], json!(false));
+    assert_eq!(watchdog[0].body["deliveredToAgent"], json!(false));
+    assert_eq!(watchdog[0].body["stillPending"], json!(true));
+    // 觀察紀錄同樣 delivered:false，且事件是 waiting-for-consent 而非 progress。
+    let observations = rt
+        .observe_stored(&ObservationQuery {
+            receptor_id: Some(ReceptorId::new("agent.session")),
+            limit: Some(100),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let denied = observations
+        .iter()
+        .find(|o| {
+            o.inferences
+                .get("report")
+                .and_then(|r| r.get("approvalAutoDenied"))
+                .is_some()
+        })
+        .expect("the auto-deny attempt is recorded");
+    assert_eq!(denied.inferences["report"]["delivered"], json!(false));
+    assert_eq!(denied.facts["event"], json!("waiting-for-consent"));
+    // deny 從未寫進 agent。
+    assert!(!dir.path().join("fake-approval-decision").exists());
+
+    // 人類仍可對同一個請求裁決：請求還在（不是 NotFound），只是這次也送不到。
+    let err = rt
+        .gateway_resolve_approval(&sid, "9001", false)
+        .await
+        .unwrap_err();
+    assert!(
+        !matches!(err, DomainError::NotFound(_)),
+        "the request must stay decidable: {err:?}"
+    );
+    assert!(matches!(err, DomainError::Unavailable(_)), "{err:?}");
+    assert_eq!(
+        rt.get_agent_session(&sid).await.unwrap().state,
+        AgentSessionState::WaitingForConsent
+    );
+
+    // 再掃一次：退避中，不重複灌同一句話。
+    rt.gateway_sweep().await;
+    let inbox = rt
+        .mailbox_peek(&sid, MailboxDirection::FromSession)
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox
+            .iter()
+            .filter(|m| m.kind == "approval-resolved" && m.body["by"] == json!("watchdog"))
+            .count(),
+        1,
+        "backoff: the watchdog does not retry on every tick"
+    );
+    assert_eq!(
+        rt.get_agent_session(&sid).await.unwrap().state,
+        AgentSessionState::WaitingForConsent
+    );
+
+    let pid = read_pid(&dir.path().join("fake-pid"));
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    wait_for(async || !pid_alive(pid), "deaf fixture killed on close").await;
+    std::env::remove_var("INTERACT_AI_CODEX_BIN");
+}
+
+/// regression（agent-honesty）：codex app-server 的 `turn/completed` 曾無條件
+/// 翻成 claimed-completed——協定裡 turn 的每種結局（完成／被 turn/interrupt
+/// 中斷／失敗）都只走 turn/completed，用 `turn.status` 區分。使用者按「中斷」
+/// 後，session 必須是 cancelled，絕不可演成「Agent 說做完了」。
+#[tokio::test]
+async fn an_interrupted_codex_turn_is_cancelled_not_claimed_completed() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CODEX_BIN", codex_fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = scenario_workdir("turns");
+    let sid = rt
+        .create_agent_session(codex_input("可中斷的 turn", dir.path()))
+        .await
+        .expect("fake codex app-server attaches")
+        .session_id
+        .as_str()
+        .to_string();
+
+    rt.mailbox_send(
+        &sid,
+        MailboxDirection::ToSession,
+        "task",
+        task("開始"),
+        None,
+    )
+    .await
+    .unwrap();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::Active)
+                .unwrap_or(false)
+        },
+        "turn/started → working",
+    )
+    .await;
+
+    let out = rt.gateway_interrupt(&sid).await.unwrap();
+    assert_eq!(out["interrupted"], json!(true));
+    let marker = dir.path().join("fake-turn-interrupt");
+    wait_for(async || marker.exists(), "turn/interrupt reached the agent").await;
+    assert!(std::fs::read_to_string(&marker)
+        .unwrap()
+        .contains("\"turnId\":\"turn-1\""));
+
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::Cancelled)
+                .unwrap_or(false)
+        },
+        "turn/completed(status=interrupted) → cancelled",
+    )
+    .await;
+    let states = session_states(&rt, &sid);
+    assert!(states.iter().any(|s| s == "cancelled"), "{states:?}");
+    assert!(
+        !states
+            .iter()
+            .any(|s| s == "claimed-completed" || s == "unknown" || s == "failed"),
+        "an interrupted turn is neither a claim nor a failure: {states:?}"
+    );
+    let record = rt.get_agent_session(&sid).await.unwrap();
+    assert!(!record.state.is_open());
+    assert!(record.claim_id.is_none(), "nothing was ever claimed");
+
+    // 關閉只收尾：cancelled 這個結局留在主要狀態。
+    let closed = rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    assert_eq!(closed.state, AgentSessionState::Cancelled);
+    assert_eq!(closed.detail.as_deref(), Some("closed (was Cancelled)"));
     std::env::remove_var("INTERACT_AI_CODEX_BIN");
 }

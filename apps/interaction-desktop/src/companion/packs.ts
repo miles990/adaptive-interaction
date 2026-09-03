@@ -85,7 +85,10 @@ export const FIXED_SAFETY_LINES: Record<string, string> = {
   "knowledge-agent-unverified": "Agent 回報完成，但尚未驗證。",
 };
 
-/** Default (小樞) non-safety lines. */
+/**
+ * Default non-safety lines（角色中立）。可用的樣板變數：`{name}`＝角色顯示名
+ * （由 host 以 displayName／使用者取的名字代入；沒給時代成中立的「角色」）。
+ */
 export const DEFAULT_LINES: Record<string, string[]> = {
   succeeded: ["做完了。", "這一段收尾了。"],
   "succeeded-verified": ["做完了，也確認過結果。"],
@@ -95,8 +98,21 @@ export const DEFAULT_LINES: Record<string, string[]> = {
   "text-received": ["收到，我記下了。"],
   "drop-received": ["記下這些檔案了。"],
   delegated: ["我把這件事交給工作階段了。它收到後才算送達。"],
-  "first-meeting": ["你好，我是小樞。我只會在你允許的範圍內幫忙留意事情。"],
+  "first-meeting": ["你好，我是{name}。我只會在你允許的範圍內幫忙留意事情。"],
 };
+
+/** 樣板變數（`{name}` 等）；沒給的變數代成中立文案，不留花括號。 */
+export type LineVars = Readonly<Partial<Record<"name", string>>>;
+
+const NEUTRAL_LINE_VARS: Readonly<Record<"name", string>> = { name: "角色" };
+
+/** 把 `{name}` 這類樣板變數代進文案（persona pack 與預設語句共用）。 */
+export function applyLineVars(text: string, vars: LineVars = {}): string {
+  return text.replace(/\{name\}/g, () => {
+    const v = vars.name;
+    return typeof v === "string" && v.length > 0 ? v : NEUTRAL_LINE_VARS.name;
+  });
+}
 
 const MAX_LINE_CHARS = 200;
 const MAX_LINES_PER_KEY = 12;
@@ -161,7 +177,8 @@ export function validateStoryPack(raw: unknown): string[] {
 export function resolveLine(
   key: string,
   persona: PersonaPack | null,
-  pick: (n: number) => number = (n) => Math.floor(Math.random() * n)
+  pick: (n: number) => number = (n) => Math.floor(Math.random() * n),
+  vars: LineVars = {}
 ): string | null {
   if (key in FIXED_SAFETY_LINES) {
     return FIXED_SAFETY_LINES[key];
@@ -173,7 +190,7 @@ export function resolveLine(
     : [];
   const candidates = fromPack.length > 0 ? fromPack : DEFAULT_LINES[key];
   if (!candidates || candidates.length === 0) return null;
-  return candidates[pick(candidates.length) % candidates.length];
+  return applyLineVars(candidates[pick(candidates.length) % candidates.length], vars);
 }
 
 /** Expressiveness → behavior tuning (behavior-pack defaults built in). */

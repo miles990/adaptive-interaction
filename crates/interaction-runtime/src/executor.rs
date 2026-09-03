@@ -499,6 +499,11 @@ impl Runtime {
                         "outcome": "silenced-proactive-dialogue",
                     }),
                 );
+                // Character Protocol §11：plan.blocked → blocked（correlationId = planId）。
+                self.character_project_plan_blocked(
+                    plan.plan_id.as_str(),
+                    Some("silenced-proactive-dialogue"),
+                );
                 return Ok(receipt);
             }
         }
@@ -524,6 +529,11 @@ impl Runtime {
                     "actuatorId": step.actuator_id.as_str(),
                     "outcome": auth.outcome,
                 }),
+            );
+            // Character Protocol §11：plan.blocked → blocked（correlationId = planId）。
+            self.character_project_plan_blocked(
+                plan.plan_id.as_str(),
+                Some(&format!("{:?}", auth.outcome)),
             );
             self.store.audit(
                 "action.blocked",

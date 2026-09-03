@@ -130,10 +130,38 @@ enum ParamStatus : uint8_t {
 
 static bool g_linkPaired[LINK_COUNT] = { false, false, false };
 
+// 配對暴力猜測防護（每條通道各自計數；規則與 scripts/esp32-serial-sim.py 一致）：
+//   * 連續 PAIR_MAX_FAILURES 次錯碼 → 該通道鎖定 PAIR_LOCKOUT_MS。
+//   * 鎖定期間的 pair 一律回 {"type":"pair-fail","reason":"pair-locked",
+//     "retryAfterMs":N}——不比對碼、也不延長鎖定；hello 的 pairingLocked
+//     誠實回報 true。
+//   * 鎖定「不」隨 MQTT／BLE 斷線重置（否則重連一次就能繞過），只在
+//     重開機後歸零；配對成功會把失敗計數歸零。
+static const uint8_t  PAIR_MAX_FAILURES = 5;
+static const uint32_t PAIR_LOCKOUT_MS   = 30000;
+static uint8_t  g_pairFailures[LINK_COUNT]      = { 0, 0, 0 };
+static bool     g_pairLocked[LINK_COUNT]        = { false, false, false };
+static uint32_t g_pairLockedUntilMs[LINK_COUNT] = { 0, 0, 0 };
+
 // 配對是否啟用（PAIRING_CODE 為空字串 = 停用；hello 仍誠實回報）
 static bool pairingEnabled() { return PAIRING_CODE[0] != '\0'; }
 static bool linkAuthorized(Link link) {
   return !pairingEnabled() || g_linkPaired[link];
+}
+
+// 這條通道目前是否在配對鎖定期內（期滿即解鎖並重新計數；millis 溢位安全）。
+static bool pairLocked(Link link, uint32_t now) {
+  if (!g_pairLocked[link]) return false;
+  if ((int32_t)(now - g_pairLockedUntilMs[link]) >= 0) {
+    g_pairLocked[link] = false;
+    g_pairFailures[link] = 0;
+    return false;
+  }
+  return true;
+}
+
+static uint32_t pairRetryAfterMs(Link link, uint32_t now) {
+  return g_pairLocked[link] ? (uint32_t)(g_pairLockedUntilMs[link] - now) : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +245,7 @@ static volatile bool g_bleConnected = false;
 // 回覆（ack/err/state）都由 loop() 在同一條路徑上做——與 Serial/MQTT 完全
 // 一樣。佇列滿＝丟棄並由 loop() 回 err busy（誠實：沒收下就不假裝收下）。
 static const size_t BLE_QUEUE_SLOTS = 8;
-static const size_t BLE_MSG_MAX     = 512;   // 單筆 write 上限（host 端 480）
+static const size_t BLE_MSG_MAX     = 512;   // 單筆 write ≥512 bytes 即拒（上限 511；host 端 480）
 struct BleMsg { char line[BLE_MSG_MAX]; };
 static QueueHandle_t g_bleQueue = nullptr;
 static volatile bool g_bleDropBusy    = false;  // 佇列滿：loop() 回 err busy
@@ -500,6 +528,8 @@ static void sendHello(Link link) {
   caps.add("sensors.read");
   // pairing=true 表示「此通道目前仍需配對」；配對停用或已配對則為 false。
   doc["pairing"] = pairingEnabled() && !g_linkPaired[link];
+  // pairingLocked=true 表示「此通道因連續錯碼而在鎖定期內」（見 pairLocked）。
+  doc["pairingLocked"] = pairingEnabled() && pairLocked(link, millis());
   sendDoc(link, doc);
 }
 
@@ -517,6 +547,7 @@ static void buildState(JsonDocument& doc) {
     facts["tempC"] = nullptr;                  // DHT 讀失敗 → 誠實 null
   }
   facts["vibeActive"] = g_vibeActive;
+  facts["buzzActive"] = g_buzzActive;          // cancel 的獨立驗證靠它（與模擬器一致）
   facts["servoAngle"] = g_servoAngle;
   JsonObject led = facts["led"].to<JsonObject>();
   led["r"] = g_ledR;
@@ -682,14 +713,32 @@ static void handleMessage(const char* line, Link link) {
       sendDoc(link, out);
       return;
     }
+    // 暴力猜測防護：鎖定期間不比對碼（也不延長鎖定），誠實回 pair-locked。
+    if (pairLocked(link, now)) {
+      JsonDocument out;
+      out["type"] = "pair-fail";
+      out["reason"] = "pair-locked";
+      out["retryAfterMs"] = pairRetryAfterMs(link, now);
+      sendDoc(link, out);
+      return;
+    }
     if (constantTimeEquals(code, PAIRING_CODE)) {
       g_linkPaired[link] = true;
+      g_pairFailures[link] = 0;
       JsonDocument out;
       out["type"] = "pair-ok";
       sendDoc(link, out);
     } else {
       JsonDocument out;
       out["type"] = "pair-fail";
+      if (++g_pairFailures[link] >= PAIR_MAX_FAILURES) {
+        // 第 PAIR_MAX_FAILURES 次錯碼：這一則就開始鎖定，回覆一併說明。
+        g_pairLocked[link] = true;
+        g_pairLockedUntilMs[link] = now + PAIR_LOCKOUT_MS;
+        g_pairFailures[link] = 0;
+        out["reason"] = "pair-locked";
+        out["retryAfterMs"] = PAIR_LOCKOUT_MS;
+      }
       sendDoc(link, out);
     }
     return;
@@ -932,6 +981,14 @@ static void setupBle() {
   server->start();
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(BLE_SERVICE_UUID);
+  // NimBLE-Arduino 2.x 預設「不」廣播裝置名稱、也不開 scan response
+  // （init(DEVICE_ID) 只設 GAP device name，要連上後才讀得到）。runtime 端
+  // 掃描以 service UUID 為主、名稱為輔，但名稱仍必須真的廣播出去：
+  // flags(3B)＋128-bit service UUID(18B) 已佔掉 31B 主封包的大半，名稱只
+  // 放得進 scan response——所以先 enableScanResponse 再 setName（順序
+  // 反過來名稱會被塞進主封包而放不下）。
+  adv->enableScanResponse(true);
+  adv->setName(DEVICE_ID);
   adv->start();
 }
 #endif

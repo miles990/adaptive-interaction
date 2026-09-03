@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "characterId": "plain-text",
+  "displayName": {
+    "zh-TW": "文字角色",
+    "en": "Plain Text"
+  },
+  "author": "adaptive-interaction",
+  "description": {
+    "zh-TW": "最小文字角色：每個 intent 一行文字。沒有 rig、沒有動畫，也是其他角色停用或崩潰時的可信退路。",
+    "en": "Minimal text character: one line per intent. No rig, no animation; the trusted fallback when other characters are disabled or crash."
+  },
+  "version": "1.0.0",
+  "adapterKind": "in-process",
+  "entrypoint": {
+    "kind": "builtin",
+    "id": "text"
+  },
+  "assets": [],
+  "capabilities": {
+    "visual.presence": {
+      "supported": true,
+      "interruptible": true,
+      "resumable": true,
+      "qualityLevel": "minimal",
+      "reducedMotionBehavior": "unchanged"
+    },
+    "visual.textBubble": {
+      "supported": true,
+      "maxConcurrent": 1,
+      "interruptible": true,
+      "resumable": true,
+      "durationRange": {
+        "minMs": 0,
+        "maxMs": 60000
+      },
+      "qualityLevel": "minimal",
+      "reducedMotionBehavior": "unchanged"
+    }
+  },
+  "inputCapabilities": {
+    "input.click": {
+      "supported": true
+    },
+    "input.text": {
+      "supported": true
+    }
+  },
+  "channels": [
+    "bubble",
+    "expression"
+  ],
+  "states": [
+    "line"
+  ],
+  "intents": [
+    "idle",
+    "notice",
+    "acknowledge",
+    "think",
+    "work",
+    "wait",
+    "ask",
+    "request-consent",
+    "blocked",
+    "unknown",
+    "claim-completed",
+    "verified-success",
+    "failed",
+    "cancelled",
+    "offline",
+    "emergency",
+    "greet",
+    "play",
+    "rest",
+    "sleep"
+  ],
+  "variants": [],
+  "locales": [
+    "zh-TW",
+    "en"
+  ],
+  "securityRequirements": {
+    "network": false,
+    "executable": false,
+    "fileAccess": "none",
+    "audioOutput": false,
+    "microphone": false,
+    "camera": false
+  },
+  "resourceLimits": {
+    "maxAssetBytes": 0,
+    "maxConcurrentCommands": 1,
+    "maxQueue": 32,
+    "maxFps": 1
+  },
+  "fallbacks": {},
+  "compatibility": {
+    "protocol": "1.x",
+    "runtime": ">=0.5.0"
+  }
+}

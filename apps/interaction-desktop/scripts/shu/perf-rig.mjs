@@ -1,8 +1,11 @@
 // 角色／遊玩場效能量測（規格 §14／§18-20）：打包 perf-entry → 無頭 Chromium 執行 → JSON。
 // 用法：node scripts/shu/perf-rig.mjs [outJson]
+//   環境變數 PERF_SOAK_MS：記憶體浸泡秒數（預設 60000；低於 60 秒只當除錯，不算證據）。
 //
 // 這是可重現的量測腳本；docs/ 內引用的效能數字必須由它產生（附 userAgent 與時間）。
 // 誠實：headless Chromium（Blink）≠ Tauri WKWebView（WebKit）；同碼同機的相對基準。
+// 量測範圍：全部在 WebView 內（合成 pointer 呼叫→下一幀）；Rust 端點擊穿透閘
+// （游標輪詢＋hit-rect 回報）與 OS 派送不在量測內，端到端未量。
 
 import { createRequire } from "node:module";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -32,42 +35,110 @@ function loadEsbuild() {
 const out = process.argv[2] ?? path.join(tmpdir(), "rig-perf.json");
 const work = mkdtempSync(path.join(tmpdir(), "rig-perf-"));
 
-const bundle = await esbuild.build({
-  entryPoints: [path.join(appRoot, "src/companion/rig/perf-entry.ts")],
-  bundle: true,
-  format: "iife",
-  write: false,
-  target: "es2020",
-});
-const js = bundle.outputFiles[0].text;
-const html = `<!doctype html><meta charset="utf-8"><body style="margin:0"><script>${js}</script></body>`;
-const htmlPath = path.join(work, "perf.html");
-writeFileSync(htmlPath, html);
+// 記憶體浸泡長度：證據等級是 ≥60 秒；PERF_SOAK_MS 可縮短除錯，但輸出會標明不算證據。
+const SOAK_EVIDENCE_MIN_MS = 60_000;
+const soakMs = Number.parseInt(process.env.PERF_SOAK_MS ?? "", 10) > 0
+  ? Number.parseInt(process.env.PERF_SOAK_MS, 10)
+  : SOAK_EVIDENCE_MIN_MS;
 
-// --expose-gc 讓量測可以在 GC 後再讀一次 heap；拿不到就誠實回報 gcAvailable:false。
-const browser = await chromium.launch({ args: ["--js-flags=--expose-gc"] });
+async function bundleToHtml(entryRel, fileName) {
+  const bundle = await esbuild.build({
+    entryPoints: [path.join(appRoot, entryRel)],
+    bundle: true,
+    format: "iife",
+    write: false,
+    target: "es2020",
+  });
+  const js = bundle.outputFiles[0].text;
+  const html = `<!doctype html><meta charset="utf-8"><body style="margin:0"><script>${js}</script></body>`;
+  const htmlPath = path.join(work, fileName);
+  writeFileSync(htmlPath, html);
+  return htmlPath;
+}
+
+const perfHtml = await bundleToHtml("src/companion/rig/perf-entry.ts", "perf.html");
+const soakHtml = await bundleToHtml("src/companion/rig/perf-soak-entry.ts", "soak.html");
+
+// 啟動旗標：
+//   --js-flags=--expose-gc         讓量測可以在 GC 後再讀一次 heap（拿不到就誠實回報 gcAvailable:false）。
+//   --enable-precise-memory-info   關掉 Chromium 對 performance.memory 的量化（否則
+//                                  usedJSHeapSize 被壓到 10 MB 級距，三個讀數一模一樣，沒有判讀力）。
+const LAUNCH_ARGS = ["--js-flags=--expose-gc", "--enable-precise-memory-info"];
+const browser = await chromium.launch({ args: LAUNCH_ARGS });
+
+// 1) 幀成本／輸入延遲／600 幀 heap（perf-entry）。
 const page = await browser.newPage({ viewport: { width: 800, height: 600 }, deviceScaleFactor: 2 });
-await page.goto(`file://${htmlPath}`);
+await page.goto(`file://${perfHtml}`);
 await page.waitForFunction(() => document.title === "perf-ready", null, { timeout: 180_000 });
-const result = await page.evaluate(() => window.__perf);
+const result = (await page.evaluate(() => window.__perf)) ?? {};
+await page.close();
+
+// 2) 記憶體浸泡：全舞台真 rAF 跑 ≥60 秒＋週期性抓玩具，GC 後差值（perf-soak-entry）。
+const soakPage = await browser.newPage({ viewport: { width: 800, height: 600 }, deviceScaleFactor: 2 });
+await soakPage.addInitScript((durationMs) => {
+  window.__soakConfig = { durationMs };
+}, soakMs);
+await soakPage.goto(`file://${soakHtml}`);
+await soakPage.waitForFunction(() => document.title === "soak-ready", null, {
+  timeout: soakMs + 120_000,
+});
+const soak = (await soakPage.evaluate(() => window.__soak)) ?? {};
+await soakPage.close();
 await browser.close();
+
+result.launchArgs = LAUNCH_ARGS;
+result.memorySoak = { ...soak, evidenceGrade: (soak.durationMs ?? 0) >= SOAK_EVIDENCE_MIN_MS };
 writeFileSync(out, JSON.stringify(result, null, 2));
-const r = result ?? {};
+
+const r = result;
 const fmt = (s) => (s ? `median ${s.medianMs.toFixed(3)} ms / p95 ${s.p95Ms.toFixed(3)} ms / max ${s.maxMs.toFixed(3)} ms (n=${s.n})` : "n/a");
 console.log(`drawRig      : ${fmt(r.drawRig)}`);
 console.log(`stage frame  : ${fmt(r.stage)}`);
 console.log(`rAF gap      : ${fmt(r.stage?.rafGap)}`);
+const num = (v) => (typeof v === "number" ? v.toFixed(3) : "n/a");
+// 真 rAF 主迴圈＋幀預算：skipEveryOther=true 代表舞台自己降到 30fps（零成本下必須是 false）。
 console.log(
-  `toy grab lat : ${fmt(r.inputLatencyToyGrab)} (confirmed ${r.inputLatencyToyGrab?.confirmedFrames}/${r.inputLatencyToyGrab?.attempts})`
+  `stage loop   : ticks=${r.stageLoop?.ticks ?? "n/a"} drawn=${r.stageLoop?.drawn ?? "n/a"} skipEveryOther=${r.stageLoop?.skipEveryOther ?? "n/a"} lastWindowAvgCost=${num(r.stageLoop?.lastWindowAvgCostMs)} ms (rAF gap ${fmt(r.stageLoop?.rafGap)})`
 );
 console.log(
-  `gaze latency : ${fmt(r.inputLatencyGaze)} (confirmed ${r.inputLatencyGaze?.confirmedFrames}/${r.inputLatencyGaze?.attempts})`
+  `toy grab lat : ${fmt(r.inputLatencyToyGrab)} (confirmed ${r.inputLatencyToyGrab?.confirmedFrames}/${r.inputLatencyToyGrab?.attempts}; WebView-only segment, host click-through gate not included)`
 );
-const mb = (v) => (typeof v === "number" ? `${(v / 1048576).toFixed(1)} MB` : "n/a");
 console.log(
-  `heap         : ${mb(r.memory?.beforeFramesBytes)} → ${mb(r.memory?.afterFramesBytes)} → ${mb(r.memory?.afterGcBytes)} after gc (gc ${r.memory?.gcAvailable ? "available" : "unavailable"})`
+  `gaze latency : ${fmt(r.inputLatencyGaze)} (confirmed ${r.inputLatencyGaze?.confirmedFrames}/${r.inputLatencyGaze?.attempts}; WebView-only segment)`
+);
+
+// 量化偵測：精確位元組幾乎不可能每一個都是 100000 的整數倍；全部整除＝Chromium 量化值。
+const isNum = (v) => typeof v === "number";
+const looksQuantized = (vals) => {
+  const nums = vals.filter(isNum);
+  return nums.length > 0 && nums.every((v) => v % 100_000 === 0);
+};
+const mb = (v) => (isNum(v) ? `${(v / 1048576).toFixed(2)} MB` : "n/a");
+const kbDelta = (v) => (isNum(v) ? `${v >= 0 ? "+" : "-"}${(Math.abs(v) / 1024).toFixed(0)} KB` : "n/a");
+const m = r.memory ?? {};
+const memQuantized = looksQuantized([m.beforeFramesBytes, m.afterFramesBytes, m.afterGcBytes]);
+console.log(
+  `heap (600 f) : ${mb(m.beforeFramesBytes)} → ${mb(m.afterFramesBytes)} → ${mb(m.afterGcBytes)} after gc (gc ${m.gcAvailable ? "available" : "unavailable"}; source usedJSHeapSize, --enable-precise-memory-info, quantized=${memQuantized ? "YES" : "no"})`
+);
+const s = r.memorySoak ?? {};
+const pct =
+  isNum(s.deltaAfterGcBytes) && isNum(s.baselineAfterGcBytes) && s.baselineAfterGcBytes > 0
+    ? `${((s.deltaAfterGcBytes / s.baselineAfterGcBytes) * 100).toFixed(1)}%`
+    : "n/a";
+console.log(
+  `heap soak    : ${((s.durationMs ?? 0) / 1000).toFixed(1)} s / ${s.frames ?? "n/a"} frames / ${s.interactions?.toyGrabs ?? "n/a"} toy grabs; after-gc ${mb(s.baselineAfterGcBytes)} → ${mb(s.endAfterGcBytes)} (Δ ${kbDelta(s.deltaAfterGcBytes)}, ${pct}); peak before gc ${mb(s.peakBytes)}; samples every ${((s.sampleEveryMs ?? 0) / 1000).toFixed(0)} s: ${(s.samples ?? []).map((x) => mb(x.bytes).replace(" MB", "")).join(", ")} MB; quantized=${s.looksQuantized ? "YES" : "no"}; evidence-grade=${s.evidenceGrade ? "yes (≥60 s)" : "NO (<60 s)"}`
 );
 console.log(`bounded toys : cap=${r.boundedQueue?.toyCap} of ${r.boundedQueue?.spawnedAttempts} spawns`);
 console.log(`3-day run    : finite=${r.longRun?.allFinite} withinClamp=${r.longRun?.allWithinClamp}`);
 if (r.error) console.error(r.error);
+if (s.error) console.error(s.error);
 console.log(`written ${out}`);
+
+// 自我檢查：heap 讀數若仍是量化值，這份輸出不能拿去當記憶體證據——直接以非零結束，
+// 免得 docs 又引用 10 MB 級距的桶值。
+if (memQuantized || s.looksQuantized) {
+  console.error(
+    "perf-rig: usedJSHeapSize 讀數是量化值（--enable-precise-memory-info 沒生效？）；記憶體數字不可引用。"
+  );
+  process.exitCode = 1;
+}

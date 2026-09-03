@@ -1,8 +1,11 @@
-// 設定：一般／進階模式切換（後端持久化）、重新執行首次設定精靈。
+// 設定：語言／外觀／可及性、重新執行首次設定精靈、視窗與啟動、版本。
+// 一般／進階模式切換的唯一主人是「更多 → 進階功能」；角色的設定在角色頁；
+// 匯出／還原／刪除資料收在第二層（折疊區）再指到「記憶與知識」。
 
 import React from "react";
 import { api } from "../api";
 import { useAppState } from "../appstate";
+import { useCharacterName } from "../characterName";
 import { Section, Toggle, useAsync } from "../ui";
 import { desktop, DesktopPrefs, isTauri } from "../desktop";
 
@@ -13,32 +16,15 @@ export function SettingsPage({
   onRerunOnboarding: () => void;
   onNavigate: (tab: string) => void;
 }) {
-  const { prefs, setMode, setPreferences } = useAppState();
-  const [error, setError] = React.useState<string | null>(null);
+  const { prefs, setPreferences } = useAppState();
+  const advanced = prefs.mode === "advanced";
+  const character = useCharacterName({ locale: prefs.locale });
   const [runtime] = useAsync(() => api.status(), []);
+  const version = String(runtime.data?.version ?? "未知");
+  const schema = String(runtime.data?.schemaVersion ?? "未知");
 
   return (
     <div>
-      <Section title="顯示模式">
-        <Toggle
-          checked={prefs.mode === "advanced"}
-          onChange={async (on) => {
-            try {
-              await setMode(on ? "advanced" : "simple");
-              setError(null);
-            } catch (e) {
-              setError(String(e));
-            }
-          }}
-          label="顯示進階功能"
-        />
-        <p className="muted small">
-          進階模式會多出技術頁面（原始受器／動器／工具／配方 YAML／政策 JSON／時間軸），
-          並在各頁顯示技術 ID 與原始資料。兩種模式使用相同的後端狀態與安全規則。
-        </p>
-        {error && <p className="cap-card-error" role="alert">{error}</p>}
-      </Section>
-
       <Section title="語言、外觀與可及性">
         <div className="settings-grid">
           <label className="field-label">
@@ -81,8 +67,8 @@ export function SettingsPage({
           label="減少非必要動畫（會與作業系統 Reduced Motion 一併生效）"
         />
         <p className="muted small">
-          安全狀態、文字標籤與鍵盤焦點不會因減少動畫而消失。音效、語音、主動說話與安靜時段在「小樞」頁；
-          通知與各項能力開關在「連接與權限」頁 —— 都是同一份 Runtime 設定，這裡不放第二份。
+          安全狀態、文字標籤與鍵盤焦點不會因減少動畫而消失。音效、語音、主動說話與安靜時段在「{character.name}」頁；
+          通知與各項能力開關在「連接與權限」頁 —— 都是同一份系統設定，這裡不放第二份。
         </p>
       </Section>
 
@@ -94,34 +80,56 @@ export function SettingsPage({
         <button onClick={onRerunOnboarding}>重新執行首次設定</button>
       </Section>
 
-      <Section title="小樞的設定">
+      <Section title={`${character.name}的設定`}>
         <p className="muted small">
-          外觀、女僕裝、表現程度、主動對話與安靜時段都由「小樞」頁統一管理，
+          外觀與名字、表現程度、主動對話與安靜時段都由「{character.name}」頁統一管理，
           這裡不再放第二份相同開關。
         </p>
-        <button onClick={() => onNavigate("companion")}>前往小樞</button>
+        <button onClick={() => onNavigate("companion")}>前往{character.name}</button>
+      </Section>
+
+      <Section title="進階功能">
+        <p className="muted small">
+          {advanced ? "目前顯示進階功能（技術頁面與原始資料）。" : "目前只顯示一般功能。"}
+          切換在「更多 → 進階功能」。
+        </p>
+        <button onClick={() => onNavigate("advanced-features")}>前往進階功能</button>
       </Section>
 
       <DesktopLifecycleSection />
 
-      <Section title="資料備份、還原與重設">
-        <p className="muted small">
-          「更多 → 記憶與知識」提供可讀 JSON 備份、逐筆驗證還原、期限修改、匯出與刪除；原始素材及其衍生物會在刪除前顯示影響預覽。重新執行首次設定不會清除既有資料。
-        </p>
-        <div className="row wrap">
-          <button onClick={() => onNavigate("memory")}>開啟匯出、還原與刪除</button>
-        </div>
+      <Section title="資料">
+        <details className="settings-data">
+          <summary>備份、還原與刪除資料</summary>
+          <p className="muted small">
+            「更多 → 記憶與知識」提供可讀的備份檔、逐筆驗證的還原、期限修改、匯出與刪除；
+            原始素材及其衍生物會在刪除前顯示影響預覽。重新執行首次設定不會清除既有資料。
+          </p>
+          <div className="row wrap">
+            <button onClick={() => onNavigate("memory")}>開啟匯出、還原與刪除</button>
+          </div>
+        </details>
       </Section>
 
       <Section title="更新與版本">
         {runtime.loading ? (
-          <p className="muted small">正在讀取 Runtime 版本…</p>
+          <p className="muted small">正在讀取版本…</p>
         ) : runtime.error ? (
           <p className="state-box state-error">目前無法確認版本：{runtime.error}</p>
-        ) : (
+        ) : advanced ? (
           <p className="muted small">
-            Runtime {String(runtime.data?.version ?? "未知")}・Schema {String(runtime.data?.schemaVersion ?? "未知")}
+            Runtime {version}・Schema {schema}
           </p>
+        ) : (
+          <>
+            <p className="muted small">系統版本 {version}</p>
+            <details className="tech-details">
+              <summary>技術資料</summary>
+              <p className="muted small">
+                Runtime {version}・Schema {schema}
+              </p>
+            </details>
+          </>
         )}
         <p className="muted small">
           更新不會自動安裝或替換執行檔；正式發布仍由簽章 Release 流程處理，避免背景更新繞過驗證。

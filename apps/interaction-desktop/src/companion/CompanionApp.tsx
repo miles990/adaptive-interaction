@@ -1,31 +1,43 @@
-// 小樞 companion window: honest runtime-state presentation + quick actions.
+// Desktop character companion window: honest runtime-state presentation + quick actions.
 //
 // This window is presentation + input entry ONLY. It holds no authority:
 // every action goes through the same backend commands/policy as everything
 // else, and safety states (emergency/blocked/unknown) use fixed standard
 // wording that packs cannot override.
+//
+// CPP（docs/character-protocol/README.md）：視窗內有一個 in-process CharacterGateway。
+// 角色由 /characters/index.json＋prefs.companionPack 選出 → builtin entrypoint
+// （shu-rig／sprite／text）→ adapter → gateway.registerInstance。Runtime 有
+// characterProtocol 時，`character.intent` 事件 → gateway.dispatch → adapter 演出，
+// 回執經 /v1/character/receipts、輸入經 /v1/character/events；舊 daemon（沒有
+// characterProtocol）維持 mapRuntimeEvent 的相容路徑。角色載入失敗／崩潰時退回
+// 文字角色，固定文案顯示在**可信 DOM 元素**上（不在任何 adapter 裡）。
 
 import React from "react";
 import { api, RuntimeEvent } from "../api";
-import { bootstrapSupervisor, desktop, isTauri } from "../desktop";
+import { bootstrapSupervisor, desktop, isTauri, type DesktopPrefs } from "../desktop";
 import { onRuntimeEvent } from "../api";
 import {
   DRAG_HOLD_MS,
   DRAG_RENEW_MS,
   initial,
+  LegacyEventArt,
+  MachineEvent,
   MachineState,
   mapRuntimeEvent,
+  MixerPort,
+  NEUTRAL_EVENT_ART,
   pose,
   reduce,
   wasPreempted,
+  wasReplacedByPerforming,
 } from "./machine";
 import { PackManifest, RendererBackend, SpriteRenderer, validateManifest } from "./renderer";
-import { validateRigManifest } from "./rig/renderer";
 import { machineStageFlags, StageRenderer } from "./rig/stage";
 import { ToyKind } from "./playfield";
-import { directorTickGate, InteractionDirector } from "./director";
+import { directorTickGate, EMPTY_DIRECTOR_TABLES, InteractionDirector } from "./director";
 import { activeConversationProvider, ConversationContext } from "./conversation";
-import { planPresentationCommand } from "./presentationCommands";
+import { applyPresence, cancelEffects, planPresentationCommand } from "./presentationCommands";
 import {
   BehaviorState as CompanionBehaviorState,
   initialBehavior,
@@ -64,7 +76,7 @@ import {
   quietBase,
   soundOutcome,
 } from "./attention";
-import { pickLanding } from "./gameFeel";
+import { LandingTable, pickLanding, planClickReaction } from "./gameFeel";
 import {
   emptyMemory,
   InteractionMemory,
@@ -72,16 +84,63 @@ import {
   noteSession,
   sanitizeMemory,
 } from "./interactionMemory";
+import { MixerRenderer } from "./mixerRenderer";
+import {
+  adapterReconfigureFor,
+  CHARACTER_LOAD_FAILED_LINE,
+  charNameFor,
+  CharacterSource,
+  companionReloadPlan,
+  cssClassForEntrypoint,
+  dropDestinationLines,
+  dropItemLine,
+  dropPreviewItems,
+  DropPreviewItem,
+  DropPreviewSession,
+  entrypointKindOf,
+  EntrypointKind,
+  envelopeForInstance,
+  ForwardDecision,
+  helloFor,
+  HelloTracker,
+  importedRigPack,
+  INITIAL_HELLO_TRACKER,
+  inputEventFor,
+  isImageDataUrl,
+  personaIdFor,
+  PRIMARY_INSTANCE_ID,
+  receiptForRuntime,
+  rehelloOnInstanceEvent,
+  rehelloOnStatus,
+  resolveCharacterSource,
+  rigPaletteFor,
+  rigPaletteForImported,
+  RuntimeFeed,
+  selectRuntimeFeed,
+  storyPackIdFor,
+  summarizeForwardDecisions,
+  systemTextFromEvent,
+} from "./gatewayWiring";
+import { CharacterGateway } from "../character/gateway";
+import type { CharacterAdapter } from "../character/adapter";
+import { loadCharacterIndex } from "../character/registry";
+import { ShuCharacterAdapter } from "../character/adapters/shu";
+import { SpriteCharacterAdapter } from "../character/adapters/sprite";
+import { TextCharacterAdapter } from "../character/adapters/text";
+import type { CharacterManifest, CommandReceipt, IntentEnvelope } from "../character/protocol";
+import type { ToyCatalogEntry } from "../character/adapters/shuTables";
 
 // v0.4: itemized Presentation Provider receptors — each interaction kind
 // routes to its own receptor so consent/enable is per-capability. Unknown
 // kinds fall back to the legacy combined receptor (kept for compat).
+// （舊 daemon 路徑；有 characterProtocol 時輸入一律走 /v1/character/events。）
 const RECEPTOR_FOR_KIND: Record<string, string> = {
   "companion-clicked": "companion.click",
   "companion-dragged": "companion.click",
   "text-submitted": "companion.text-input",
   "action-selected": "companion.quick-action",
   "pointer-approached": "companion.pointer",
+  "pointer-left": "companion.pointer",
   "companion-dropped": "companion.drag-drop",
   "drop-entered": "companion.drag-drop",
   "drop-left": "companion.drag-drop",
@@ -91,6 +150,8 @@ const RECEPTOR_FOR_KIND: Record<string, string> = {
   "animation-completed": "companion.animation-events",
   "animation-interrupted": "companion.animation-events",
 };
+
+const LOCALE = "zh-TW";
 
 /** Play one of three registered, generated-in-memory cues. No file path, URL,
  * arbitrary oscillator program or AI-provided code crosses this boundary. */
@@ -133,7 +194,7 @@ async function playRegisteredSound(sound: "chime" | "soft-pop" | "tick"): Promis
 /**
  * Stop any speech that is currently being spoken.
  *
- * 緊急停止／取消必須真的讓她閉嘴：清氣泡不會停掉已經送進語音服務的句子，
+ * 緊急停止／取消必須真的讓角色閉嘴：清氣泡不會停掉已經送進語音服務的句子，
  * 那句話會在「緊急停止中」的畫面上繼續講完。沒有語音服務時是 no-op。
  */
 export function stopSpeech(): void {
@@ -154,7 +215,7 @@ async function speakText(text: string): Promise<void> {
   }
   await new Promise<void>((resolve, reject) => {
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "zh-TW";
+    utterance.lang = LOCALE;
     utterance.rate = 1;
     let settled = false;
     const finish = (error?: Error) => {
@@ -199,13 +260,46 @@ async function nearScreenEdge(
   }
 }
 
+/** 可信文字元素上的一行（system.text／載入失敗文案）。 */
+interface TrustedText {
+  text: string;
+  marker: "verified" | "none";
+}
+
+/** 同源 fetch（角色索引／manifest／pack 只從本機資料夾載入）。 */
+const sameOriginFetch = (url: string) => fetch(url);
+
 export default function CompanionApp() {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const textHostRef = React.useRef<HTMLDivElement>(null);
   const rendererRef = React.useRef<RendererBackend | null>(null);
-  /** 遊玩場（只有 rig packs 有；sprite 相容層無遊玩）。 */
+  /** 遊玩場（只有 shu-rig adapter 有；sprite／text 無遊玩）。 */
   const stageRef = React.useRef<StageRenderer | null>(null);
+  /** 目前註冊在 gateway 的 adapter（任何 entrypoint）。 */
+  const adapterRef = React.useRef<CharacterAdapter | null>(null);
+  /** shu-rig adapter（roll call／玩具目錄／角色表）；其他角色為 null。 */
+  const shuRef = React.useRef<ShuCharacterAdapter | null>(null);
+  const gatewayRef = React.useRef<CharacterGateway | null>(null);
+  const manifestRef = React.useRef<CharacterManifest | null>(null);
+  /** 最新一次讀到的 host 偏好（companion-reload 時比對：能就地套用的就不整頁重載）。 */
+  const prefsSnapshotRef = React.useRef<DesktopPrefs | null>(null);
+  /** runtime feed：有 characterProtocol → protocol；否則 legacy。null＝還沒問過 status。 */
+  const feedRef = React.useRef<RuntimeFeed | null>(null);
+  /** Runtime hello 回給我們的世代（轉送回執時要帶）。 */
+  const runtimeGenerationRef = React.useRef<number | null>(null);
+  /** hello 追蹤：成功與否、上次嘗試時間、daemon 實例身分（startedAt）——斷線／重啟後要重新 hello。 */
+  const helloTrackerRef = React.useRef<HelloTracker>(INITIAL_HELLO_TRACKER);
+  /** 最近一批送去 Runtime 的輸入事件（拖放一檔一事件；確認流程要等**全部**的結果）。 */
+  const forwardBatchRef = React.useRef<Promise<ForwardDecision | null>[]>([]);
+  /** 讀取上一批轉送結果的總結（任何一則沒送到＝null；任何一則被丟＝dropped）。 */
+  const awaitForwardBatch = React.useCallback(async (): Promise<ForwardDecision | null> => {
+    const batch = forwardBatchRef.current;
+    forwardBatchRef.current = [];
+    return summarizeForwardDecisions(await Promise.all(batch));
+  }, []);
   const approachEnabledRef = React.useRef(true);
-  const charNameRef = React.useRef("小樞");
+  const charNameRef = React.useRef("角色");
+  const [charName, setCharName] = React.useState("角色");
   // v0.5 呈現偏好（勿擾/氣泡/音效/拖曳）＋個性 tuning＋互動記憶。
   const dndRef = React.useRef(false);
   const bubblesEnabledRef = React.useRef(true);
@@ -222,14 +316,25 @@ export default function CompanionApp() {
   const hoverSinceRef = React.useRef(0);
   /** reduced-motion 媒體查詢監聽器的解除函式。 */
   const motionCleanup = React.useRef<(() => void) | null>(null);
+  const reducedMotionRef = React.useRef(false);
   const machineRef = React.useRef<MachineState>(initial);
   const lastBubbleAt = React.useRef(0);
   const [bubble, setBubble] = React.useState<string | null>(null);
+  /** 目前氣泡是不是安全文字（cancel 不得清掉它；只有 clear-all 可以）。 */
+  const bubbleSafetyRef = React.useRef(false);
+  /** 上一句 hover 短句（防連續同句）。 */
+  const lastHoverLineRef = React.useRef<string | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [packName, setPackName] = React.useState("shu-maid");
+  const [characterId, setCharacterId] = React.useState("");
+  const characterIdRef = React.useRef("");
+  const [entrypointKind, setEntrypointKind] = React.useState<EntrypointKind | null>(null);
+  const [toyCatalog, setToyCatalog] = React.useState<readonly ToyCatalogEntry[]>([]);
   const [ready, setReady] = React.useState(false);
   const [inputOpen, setInputOpen] = React.useState(false);
   const [sensorLabel, setSensorLabel] = React.useState<string | null>(null);
+  /** 可信文字元素：system.text 與角色載入失敗文案（永遠不是 adapter 畫的）。 */
+  const [trustedText, setTrustedText] = React.useState<TrustedText | null>(null);
+  const trustedTextTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mirror the machine base into React state so the pack-immune 緊急停止中 label
   // re-renders even when estop is detected only by the status poll (no event).
   const [baseState, setBaseState] = React.useState<string>("offline");
@@ -240,10 +345,13 @@ export default function CompanionApp() {
   const storyProgress = React.useRef<Record<string, boolean>>({});
   // §17：同一 knowledge receipt 只說一次（SSE 重連會重放舊事件）。
   const receiptFirstTime = React.useRef(createReceiptDedup());
+  /** 角色表（由 adapter 注入；文字角色是空表）。 */
+  const landingTableRef = React.useRef<LandingTable>({});
+  const eventArtRef = React.useRef<LegacyEventArt>(NEUTRAL_EVENT_ART);
 
-  /** Resolve a bubble line: safety keys fixed, others persona-styled. */
+  /** Resolve a bubble line: safety keys fixed, others persona-styled；`{name}` 代成角色名。 */
   const line = React.useCallback((key: string): string | null => {
-    return resolveLine(key, personaRef.current);
+    return resolveLine(key, personaRef.current, undefined, { name: charNameRef.current });
   }, []);
 
   /** Show a bubble for `ms` (0 = sticky). Clears any prior timer so an older
@@ -254,6 +362,7 @@ export default function CompanionApp() {
       if (text !== null && !bubbleAllowed({ enabled: bubblesEnabledRef.current, safety: opts?.safety === true })) {
         return;
       }
+      bubbleSafetyRef.current = text !== null && opts?.safety === true;
       showBubbleRaw(text, ms);
     },
     []
@@ -267,6 +376,18 @@ export default function CompanionApp() {
     setBubble(text);
     if (text && ms > 0) {
       bubbleTimer.current = setTimeout(() => setBubble(null), ms);
+    }
+  }, []);
+
+  /** 可信文字元素（system.text／載入失敗）：ms=0 為 sticky。 */
+  const showTrustedText = React.useCallback((t: TrustedText | null, ms: number) => {
+    if (trustedTextTimer.current) {
+      clearTimeout(trustedTextTimer.current);
+      trustedTextTimer.current = null;
+    }
+    setTrustedText(t);
+    if (t && ms > 0) {
+      trustedTextTimer.current = setTimeout(() => setTrustedText(null), ms);
     }
   }, []);
 
@@ -284,14 +405,81 @@ export default function CompanionApp() {
     []
   );
 
-  // Settings changes (pack/persona/expressiveness) reload this window.
+  /**
+   * 就地套用 host 偏好（companion-reload 的 "live" 路徑）：更新呈現用的 ref、名字，
+   * 並把既有欄位＋各角色偏好（companionPreferences[characterId] → preferences／variant／palette）
+   * 一起交給 adapter.reconfigure。不碰角色／persona／尺寸（那些走整頁重載）。
+   */
+  const applyLivePrefs = React.useCallback((next: DesktopPrefs) => {
+    prefsSnapshotRef.current = next;
+    storyProgress.current = next.storyProgress ?? {};
+    dndRef.current = next.companionDoNotDisturb === true;
+    quietUntilRef.current = next.companionProactiveQuietUntil ?? 0;
+    bubblesEnabledRef.current = next.companionBubbles !== false;
+    soundEnabledRef.current = next.companionSound === true;
+    dragEnabledRef.current = next.companionDragEnabled !== false;
+    approachEnabledRef.current = next.companionApproach !== false;
+    const gateway = gatewayRef.current;
+    const manifest = manifestRef.current;
+    if (!gateway || !manifest) return;
+    const name = charNameFor(next.companionName ?? null, manifest, LOCALE);
+    charNameRef.current = name;
+    setCharName(name);
+    gateway.reconfigure(
+      PRIMARY_INSTANCE_ID,
+      adapterReconfigureFor(next, {
+        name,
+        characterId: manifest.characterId,
+        entrypoint: entrypointKindOf(manifest),
+        tuning: tuningRef.current,
+      })
+    );
+  }, []);
+
+  /**
+   * companion-reload（host 每次 companion_apply_prefs 都會發）：重讀偏好，只動了可就地套用的
+   * 鍵就 reconfigure，否則維持整頁重載；任何失敗也整頁重載（既有行為）。
+   */
+  const onCompanionReload = React.useCallback(async () => {
+    const prev = prefsSnapshotRef.current;
+    if (!prev || !gatewayRef.current || !adapterRef.current) {
+      window.location.reload();
+      return;
+    }
+    let next: DesktopPrefs;
+    try {
+      next = await desktop.prefsGet();
+    } catch {
+      window.location.reload();
+      return;
+    }
+    const plan = companionReloadPlan(prev, next);
+    if (plan.action === "reload") {
+      window.location.reload();
+      return;
+    }
+    if (plan.changed.length === 0) {
+      prefsSnapshotRef.current = next;
+      return;
+    }
+    try {
+      applyLivePrefs(next);
+    } catch (e) {
+      console.error("live prefs apply failed; reloading", e);
+      window.location.reload();
+    }
+  }, [applyLivePrefs]);
+  const onReloadRef = React.useRef(onCompanionReload);
+  onReloadRef.current = onCompanionReload;
+
+  // Settings changes: live-applicable prefs reconfigure in place; pack/persona/expressiveness/size reload this window.
   React.useEffect(() => {
     if (!isTauri) return;
     let unReload: (() => void) | null = null;
     let unOpacity: (() => void) | null = null;
     void (async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      unReload = await listen("companion-reload", () => window.location.reload());
+      unReload = await listen("companion-reload", () => void onReloadRef.current());
       unOpacity = await listen<number>("companion-opacity", (event) => {
         document.documentElement.style.opacity = String(event.payload);
       });
@@ -302,147 +490,11 @@ export default function CompanionApp() {
     };
   }, []);
 
-  // ---- boot: transport, pack, renderer ----
-  React.useEffect(() => {
-    let disposed = false;
-    (async () => {
-      await bootstrapSupervisor();
-      let pack = "shu-maid";
-      let personaId = "persona-shu";
-      let renderScale = 1.1;
-      try {
-        const prefs = await desktop.prefsGet();
-        pack = prefs.companionPack ?? pack;
-        personaId = prefs.companionPersona ?? personaId;
-        behaviorRef.current = behaviorFor(prefs.companionExpressiveness ?? "natural");
-        storyProgress.current = prefs.storyProgress ?? {};
-        document.documentElement.style.opacity = String(prefs.companionOpacity ?? 1);
-        renderScale = 1.1 * ((prefs.companionSize?.[0] ?? 200) / 200);
-        // 個性：表現度＋persona → profile → tuning（純函式，只影響呈現）。
-        personalityRef.current = personalityFor(prefs.companionExpressiveness ?? "natural", personaId);
-        tuningRef.current = tuningFor(personalityRef.current);
-        directorRef.current.setTuning(tuningRef.current);
-        dndRef.current = prefs.companionDoNotDisturb === true;
-        quietUntilRef.current = prefs.companionProactiveQuietUntil ?? 0;
-        bubblesEnabledRef.current = prefs.companionBubbles !== false;
-        soundEnabledRef.current = prefs.companionSound === true;
-        dragEnabledRef.current = prefs.companionDragEnabled !== false;
-        // 角色互動記憶：同一天只算一次（熟悉度隨天數緩升，不因單一事件跳動）。
-        const mem = noteSession(sanitizeMemory(prefs.companionInteractionMemory), Date.now());
-        memoryRef.current = mem;
-        void desktop.prefsPatch({ companionInteractionMemory: mem }).catch(() => {});
-      } catch {
-        /* browser mode */
-      }
-      // Persona + story packs are data-only; invalid packs fall back to the
-      // built-in default lines instead of breaking the companion.
-      try {
-        const persona = (await fetch(`/packs/${personaId}.json`).then((r) => r.json())) as unknown;
-        if (validatePersonaPack(persona).length === 0) {
-          personaRef.current = persona as PersonaPack;
-        } else {
-          console.error("invalid persona pack", validatePersonaPack(persona));
-        }
-      } catch {
-        /* keep defaults */
-      }
-      try {
-        const story = (await fetch(`/packs/story-shu-intro.json`).then((r) => r.json())) as unknown;
-        if (validateStoryPack(story).length === 0) {
-          storyRef.current = story as StoryPack;
-        }
-      } catch {
-        /* no story */
-      }
-      if (disposed) return;
-      setPackName(pack);
-      const manifest = (await fetch(`/packs/${pack}/manifest.json`).then((r) =>
-        r.json()
-      )) as PackManifest & { kind?: string; palette?: string };
-      if (disposed || !canvasRef.current) return;
-      let renderer: RendererBackend;
-      if (manifest.kind === "character-rig") {
-        // v3 執行期參數化 rig（女僕正式版）＋遊玩場。
-        const issues = validateRigManifest(manifest);
-        if (issues.length > 0) {
-          console.error("invalid character rig pack", issues);
-          return;
-        }
-        const canvasEl = canvasRef.current;
-        const stage = new StageRenderer(canvasEl, String(manifest.palette), renderScale);
-        try {
-          const prefs = await desktop.prefsGet();
-          stage.setToggles({
-            play: prefs.companionPlay !== false,
-            cursorPlay: prefs.companionCursorPlay !== false,
-            deskMove: prefs.companionDeskMove !== false,
-          });
-          stage.setScene(prefs.companionScene ?? "none");
-          stage.setCharName(prefs.companionName || "小樞");
-          charNameRef.current = prefs.companionName || "小樞";
-          stage.setFamiliars(prefs.companionFamiliars ?? []);
-          approachEnabledRef.current = prefs.companionApproach !== false;
-        } catch {
-          /* browser mode：預設全部開啟 */
-        }
-        stage.setTuning(tuningRef.current);
-        stage.onExpressionEvent((id, durationMs) => {
-          apply({ type: "transient", kind: "performing", animation: id, durationMs });
-        });
-        // 互動框：由 stage 每幀依節流政策回報（角色會走動、玩具會滾，
-        // 只靠 500ms pump 的話 Rust 會用過期的框判定點擊穿透）。
-        if (isTauri) {
-          void import("@tauri-apps/api/core").then(({ invoke }) => {
-            stage.onHitRect((b) => {
-              const rect = canvasEl.getBoundingClientRect();
-              void invoke("companion_hit_rect", {
-                x: rect.left + b.x,
-                y: rect.top + b.y,
-                w: b.w,
-                h: b.h,
-              }).catch(() => {});
-            });
-          });
-        }
-        stageRef.current = stage;
-        renderer = stage;
-      } else {
-        // v1/v2 sprite-sheet pack 相容層。
-        const issues = validateManifest(manifest);
-        if (issues.length > 0) {
-          console.error("invalid character pack", issues);
-          return;
-        }
-        renderer = new SpriteRenderer(
-          canvasRef.current,
-          manifest,
-          `/packs/${pack}/sheet.png`,
-          renderScale
-        );
-      }
-      const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-      renderer.setReducedMotion(motionQuery.matches);
-      // 執行中改系統設定也要立刻生效（不必重開視窗）。
-      const onMotionChange = (e: MediaQueryListEvent) =>
-        rendererRef.current?.setReducedMotion(e.matches);
-      motionQuery.addEventListener?.("change", onMotionChange);
-      motionCleanup.current = () => motionQuery.removeEventListener?.("change", onMotionChange);
-      rendererRef.current = renderer;
-      setReady(true);
-    })();
-    return () => {
-      disposed = true;
-      motionCleanup.current?.();
-      motionCleanup.current = null;
-      rendererRef.current?.destroy();
-    };
-  }, []);
-
   // ---- machine driving ----
   // Behavior Runtime（生命底層）狀態：平滑量＋Interaction Director（統一
   // 行為導演：注意力/冷卻/防重複/中斷恢復）、seeded RNG。
   const behaviorState = React.useRef<CompanionBehaviorState>(initialBehavior(Date.now()));
-  const directorRef = React.useRef(new InteractionDirector());
+  const directorRef = React.useRef(new InteractionDirector(DEFAULT_TUNING, EMPTY_DIRECTOR_TABLES));
   /** 上一個 tick 是否正在表演（用來判斷「自然播完」）。 */
   const performingRef = React.useRef(false);
   const microRng = React.useRef(seededRng(Date.now() >>> 0));
@@ -458,6 +510,10 @@ export default function CompanionApp() {
     if (wasPreempted(before, after, now)) {
       behaviorState.current = noteInterruption(behaviorState.current);
       directorRef.current.notePreempted(now);
+    } else if (wasReplacedByPerforming(before, after, now)) {
+      // 同優先的另一個表演把它換掉（裝置上線、CPP notice、落地…）：Director 的動作已下台，
+      // 不排恢復——否則之後的真實搶佔會拿早已下台的動作排一個假的恢復計畫。
+      directorRef.current.noteFinished();
     }
     // 緊急停止：進行中的語音也要停（machine 那邊已清掉非安全 transient）。
     if (machineRef.current.base === "emergency" && beforeBase !== "emergency") {
@@ -473,20 +529,37 @@ export default function CompanionApp() {
     const p = pose(m, now);
     rendererRef.current?.setAnimation(p.animation, p.frameSlice);
     // 舞台旗標必須跟 machine 同步生效。只在 500ms pump 更新的話，緊急停止後
-    // 角色還會追球最多半秒，而 doze/lie-flat 這類姿勢也會被步行覆蓋。
+    // 角色還會追球最多半秒，而躺臥／打盹這類姿勢也會被步行覆蓋。
     const t = m.transient && m.transient.untilMs > now ? m.transient : null;
     stageRef.current?.setMachineFlags(machineStageFlags(m.base, t, p.animation, p.ambient));
   }, []);
 
+  /** 給 adapter 的混音器入口：intent 演出與本機互動在同一台 machine 上競爭。 */
+  const mixerPort = React.useMemo<MixerPort>(
+    () => ({
+      apply: (ev: MachineEvent) => {
+        apply(ev);
+        return machineRef.current;
+      },
+      state: () => machineRef.current,
+    }),
+    [apply]
+  );
+
   // ---- 拖曳期間的「持續」transient（放下才結束） ----
   const dragHoldRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
-  /** 抱起來：dragged 用續期表示「還在手上」，不是 1.5 秒後自己過期。 */
+  /** 抱起來：dragged 用續期表示「還在手上」，不是 1.5 秒後自己過期。
+   *  表情走 Director 的 `lifted` 變體池（懸空／好奇張望／掙扎；冷卻＋防重複）；
+   *  沒有角色表就是 canonical dragged（alias → lifted）。續期沿用同一個變體。 */
   const beginDragHold = React.useCallback(() => {
-    apply({ type: "transient", kind: "dragged", durationMs: DRAG_HOLD_MS });
+    const now = Date.now();
+    const decision = directorRef.current.reactDetailed("lifted", now, DRAG_HOLD_MS, microRng.current, { cooldownMs: 1_500 });
+    const animation = decision.action?.expression;
+    apply({ type: "transient", kind: "dragged", durationMs: DRAG_HOLD_MS, animation });
     if (dragHoldRef.current) clearInterval(dragHoldRef.current);
     dragHoldRef.current = setInterval(() => {
-      apply({ type: "transient", kind: "dragged", durationMs: DRAG_HOLD_MS });
+      apply({ type: "transient", kind: "dragged", durationMs: DRAG_HOLD_MS, animation });
     }, DRAG_RENEW_MS);
   }, [apply]);
 
@@ -508,13 +581,477 @@ export default function CompanionApp() {
   // 低風險遙測（點擊／滑鼠靠近等）才可 fire-and-forget：失敗即丟棄，
   // 不重試也不誤報成功。凡是會回覆使用者「已記錄」的流程（如拖放）
   // 必須改走 recordDroppedItems 等待實際結果。
+  //
+  // CPP：有 characterProtocol 時**只**經 gateway.ingestInput → /v1/character/events
+  // （Gateway 正規化、節流、隱私）；舊 daemon 才直接 push receptor observation。
   const pushInteraction = React.useCallback((kind: string, extra?: Record<string, unknown>) => {
     behaviorState.current = noteUserInteraction(behaviorState.current, Date.now());
+    if (feedRef.current === "protocol" && gatewayRef.current) {
+      const ev = inputEventFor(kind, extra);
+      if (ev) gatewayRef.current.ingestInput(PRIMARY_INSTANCE_ID, ev);
+      return;
+    }
     const receptor = RECEPTOR_FOR_KIND[kind] ?? "desktop.companion.interaction";
     void api.pushObservation(receptor, { kind, ...extra }, 1.0).catch(() => {
       /* receptor disabled, companion hidden, or runtime offline: dropped */
     });
   }, []);
+
+  /** Runtime hello（協定模式）：帶 manifest 摘要＋協商結果＋behaviorState。 */
+  const sendHello = React.useCallback(async (visible: boolean) => {
+    const gateway = gatewayRef.current;
+    const adapter = adapterRef.current;
+    const manifest = manifestRef.current;
+    if (!gateway || !adapter || !manifest || feedRef.current !== "protocol") return;
+    const hello = helloFor(PRIMARY_INSTANCE_ID, "primary-companion", {
+      reducedMotion: reducedMotionRef.current,
+      locale: LOCALE,
+    });
+    let negotiate;
+    try {
+      negotiate = adapter.negotiate(hello);
+    } catch {
+      return; // adapter 壞了：Gateway 的 crash 流程會處理，這裡不硬送
+    }
+    const state = behaviorState.current;
+    helloTrackerRef.current = { ...helloTrackerRef.current, lastAttemptAt: Date.now() };
+    try {
+      const result = await api.characterHello({
+        instanceId: PRIMARY_INSTANCE_ID,
+        role: "primary-companion",
+        manifest,
+        negotiate,
+        visible,
+        packId: manifest.characterId,
+        behaviorState: {
+          activation: state.activation,
+          attention: state.attention,
+          taskLoad: state.taskLoad,
+          interactionReadiness: state.interactionReadiness,
+          familiarity: state.familiarity,
+          recentInterruptions: state.recentInterruptions,
+          currentFocus: state.currentFocus,
+          lastInteractionAt: Math.round(state.lastInteractionAt),
+          base: machineRef.current.base,
+          transient: machineRef.current.transient?.kind ?? null,
+        },
+      });
+      if (typeof result?.generation === "number") runtimeGenerationRef.current = result.generation;
+      helloTrackerRef.current = { ...helloTrackerRef.current, sent: true };
+    } catch {
+      helloTrackerRef.current = { ...helloTrackerRef.current, sent: false }; // 下次狀態輪詢再試
+    }
+  }, []);
+
+  // ---- boot: transport, character, adapter, gateway ----
+  React.useEffect(() => {
+    let disposed = false;
+    (async () => {
+      await bootstrapSupervisor();
+      let preferredPack: string | null = null;
+      let prefsPersona: string | null = null;
+      let prefsName: string | null = null;
+      let renderScale = 1.1;
+      let prefsSnapshot: Awaited<ReturnType<typeof desktop.prefsGet>> | null = null;
+      try {
+        const prefs = await desktop.prefsGet();
+        prefsSnapshot = prefs;
+        preferredPack = prefs.companionPack ?? null;
+        prefsPersona = prefs.companionPersona ?? null;
+        prefsName = prefs.companionName ?? null;
+        behaviorRef.current = behaviorFor(prefs.companionExpressiveness ?? "natural");
+        storyProgress.current = prefs.storyProgress ?? {};
+        document.documentElement.style.opacity = String(prefs.companionOpacity ?? 1);
+        renderScale = 1.1 * ((prefs.companionSize?.[0] ?? 200) / 200);
+        dndRef.current = prefs.companionDoNotDisturb === true;
+        quietUntilRef.current = prefs.companionProactiveQuietUntil ?? 0;
+        bubblesEnabledRef.current = prefs.companionBubbles !== false;
+        soundEnabledRef.current = prefs.companionSound === true;
+        dragEnabledRef.current = prefs.companionDragEnabled !== false;
+        approachEnabledRef.current = prefs.companionApproach !== false;
+        // 角色互動記憶：同一天只算一次（熟悉度隨天數緩升，不因單一事件跳動）。
+        const mem = noteSession(sanitizeMemory(prefs.companionInteractionMemory), Date.now());
+        memoryRef.current = mem;
+        void desktop.prefsPatch({ companionInteractionMemory: mem }).catch(() => {});
+      } catch {
+        /* browser mode */
+      }
+
+      // 先問一次 status：決定走 CPP 還是舊路徑（之後輪詢持續更新）。
+      try {
+        feedRef.current = selectRuntimeFeed(await api.status());
+      } catch {
+        feedRef.current = null;
+      }
+
+      // 角色索引 → 選角色（8 個舊 id 永遠有效；索引壞掉退回文字角色；偏好是匯入角色時
+      // 才問 host 清單——只有桌面版有本機角色資料夾，瀏覽器模式跳過，永不擲例外）。
+      const indexResult = await loadCharacterIndex(sameOriginFetch);
+      const index = indexResult.ok ? indexResult.index : null;
+      const resolved = await resolveCharacterSource({
+        index,
+        preferred: preferredPack,
+        tauri: isTauri,
+        listImported: () => desktop.characterListImported(),
+      });
+      const source = resolved.source;
+      if (resolved.importedLookup === "failed") console.error("imported character list unavailable", resolved.detail);
+      if (source.kind === "text" && source.failed) console.error("character fell back to text", source.reason);
+      prefsSnapshotRef.current = prefsSnapshot;
+      const entry = source.kind === "index" ? source.entry : null;
+      const personaId = personaIdFor(entry, prefsPersona);
+      const storyId = storyPackIdFor(entry, personaId);
+
+      // Persona + story packs are data-only; invalid packs fall back to the
+      // built-in default lines instead of breaking the companion.
+      if (personaId) {
+        try {
+          const persona = (await fetch(`/packs/${personaId}.json`).then((r) => r.json())) as unknown;
+          if (validatePersonaPack(persona).length === 0) {
+            personaRef.current = persona as PersonaPack;
+          } else {
+            console.error("invalid persona pack", validatePersonaPack(persona));
+          }
+        } catch {
+          /* keep defaults */
+        }
+      }
+      if (storyId) {
+        try {
+          const story = (await fetch(`/packs/${storyId}.json`).then((r) => r.json())) as unknown;
+          if (validateStoryPack(story).length === 0) {
+            storyRef.current = story as StoryPack;
+          }
+        } catch {
+          /* no story */
+        }
+      }
+      if (disposed || !canvasRef.current) return;
+
+      // 個性：表現度＋persona → profile；tuning 在 adapter 決定後再算（變體權重是角色表）。
+      personalityRef.current = personalityFor(prefsSnapshot?.companionExpressiveness ?? "natural", personaId);
+
+      const gateway = new CharacterGateway({
+        now: () => Date.now(),
+        locale: LOCALE,
+        reducedMotion: () => reducedMotionRef.current,
+        // 沒有任何呈現能力時的最後退路：安全文字顯示在可信元素上，不會遺失。
+        onSystemText: (m) => {
+          if (m.instanceId !== null && m.instanceId !== PRIMARY_INSTANCE_ID) return;
+          showTrustedText({ text: m.text, marker: m.marker }, m.intent === "emergency" ? 0 : 8000);
+        },
+        onReceipt: (r: CommandReceipt) => {
+          if (feedRef.current !== "protocol") return;
+          const forward = receiptForRuntime(r, PRIMARY_INSTANCE_ID, runtimeGenerationRef.current);
+          if (!forward) return;
+          void api.characterReceipt(PRIMARY_INSTANCE_ID, forward).catch(() => {
+            /* runtime 離線：Rust 端看門狗會把它記成 uncertain */
+          });
+        },
+        onInput: (event) => {
+          if (feedRef.current !== "protocol") return;
+          forwardBatchRef.current.push(
+            api
+              .characterEvent(PRIMARY_INSTANCE_ID, event)
+              .then((r) => ({ decision: String(r?.decision ?? "queued"), reason: r?.reason }))
+              .catch(() => null)
+          );
+          // 遙測類事件沒人等結果：批次有界，不讓 promise 堆積。
+          if (forwardBatchRef.current.length > 32) forwardBatchRef.current.splice(0, forwardBatchRef.current.length - 32);
+        },
+        onLifecycle: (instanceId, state, detail) => {
+          if (instanceId !== PRIMARY_INSTANCE_ID || state !== "crashed") return;
+          // adapter crash：pending 已是 uncertain、資源已釋放；退回文字角色。
+          // 延後一個 microtask：這個回呼是在 Gateway 的 tearDown 裡同步呼叫的，
+          // 不在裡面直接 reattach（避免重入）。
+          console.error("character adapter crashed", detail);
+          queueMicrotask(() => {
+            if (disposed) return;
+            void fallbackToText(gateway, renderScale, `adapter crashed: ${detail ?? ""}`);
+          });
+        },
+      });
+      gatewayRef.current = gateway;
+
+      const canvasEl = canvasRef.current;
+      let registered = false;
+      try {
+        const built = await buildAdapter(source, canvasEl, renderScale, mixerPort, prefsName);
+        if (disposed) {
+          built.renderer?.destroy();
+          return;
+        }
+        manifestRef.current = built.adapter.manifest;
+        await gateway.registerInstance(built.adapter, "primary-companion", { instanceId: PRIMARY_INSTANCE_ID });
+        adapterRef.current = built.adapter;
+        rendererRef.current = built.renderer;
+        stageRef.current = built.stage;
+        shuRef.current = built.shu;
+        setEntrypointKind(built.kind);
+        registered = true;
+      } catch (e) {
+        console.error("character adapter failed to load", e);
+      }
+      if (disposed) return;
+      if (!registered) {
+        await fallbackToText(gateway, renderScale, "load failed");
+        if (disposed) return;
+      } else if (source.kind === "text" && source.failed) {
+        // 選角階段就已經退回文字（匯入角色壞掉／清單讀不到）：固定文案照樣顯示在可信元素上。
+        showTrustedText({ text: CHARACTER_LOAD_FAILED_LINE, marker: "none" }, 0);
+      }
+      wireAdapter(gateway, prefsSnapshot, prefsName);
+
+      // Reduced Motion：由 hello 協商；執行中改系統設定也要立刻生效並重新協商。
+      const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+      reducedMotionRef.current = motionQuery.matches;
+      gateway.reconfigure(PRIMARY_INSTANCE_ID, { reducedMotion: motionQuery.matches });
+      rendererRef.current?.setReducedMotion(motionQuery.matches);
+      try {
+        gateway.renegotiate(PRIMARY_INSTANCE_ID);
+      } catch {
+        /* 尚未 live：registerInstance 已協商過 */
+      }
+      const onMotionChange = (e: MediaQueryListEvent) => {
+        reducedMotionRef.current = e.matches;
+        rendererRef.current?.setReducedMotion(e.matches);
+        gatewayRef.current?.reconfigure(PRIMARY_INSTANCE_ID, { reducedMotion: e.matches });
+        try {
+          gatewayRef.current?.renegotiate(PRIMARY_INSTANCE_ID);
+        } catch {
+          /* 實例不在線：下次 hello 再協商 */
+        }
+        void sendHello(!document.hidden);
+      };
+      motionQuery.addEventListener?.("change", onMotionChange);
+      motionCleanup.current = () => motionQuery.removeEventListener?.("change", onMotionChange);
+
+      await sendHello(!document.hidden);
+      if (disposed) return;
+      setReady(true);
+    })();
+    return () => {
+      disposed = true;
+      motionCleanup.current?.();
+      motionCleanup.current = null;
+      const gateway = gatewayRef.current;
+      if (gateway) gateway.disposeInstance(PRIMARY_INSTANCE_ID, "window closed");
+      gatewayRef.current = null;
+      adapterRef.current = null;
+      shuRef.current = null;
+      stageRef.current = null;
+      rendererRef.current?.destroy();
+      rendererRef.current = null;
+    };
+  }, []);
+
+  /** 依角色來源建 adapter（builtin entrypoint 白名單：shu-rig／sprite／text）。 */
+  async function buildAdapter(
+    source: CharacterSource,
+    canvasEl: HTMLCanvasElement,
+    renderScale: number,
+    mixer: MixerPort,
+    prefsName: string | null
+  ): Promise<{
+    adapter: CharacterAdapter;
+    renderer: RendererBackend | null;
+    stage: StageRenderer | null;
+    shu: ShuCharacterAdapter | null;
+    kind: EntrypointKind;
+  }> {
+    if (source.kind === "text") {
+      const adapter = new TextCharacterAdapter({ container: textHostRef.current ?? undefined });
+      return { adapter, renderer: null, stage: null, shu: null, kind: "text" };
+    }
+    if (source.kind === "legacy-pack") {
+      // 索引不可用但偏好是舊 id：直接由 /packs/<id> 遷移（CPP §2.2）。
+      const legacy = (await fetch(`/packs/${source.characterId}/manifest.json`).then((r) => r.json())) as PackManifest & {
+        kind?: string;
+      };
+      if (legacy.kind === "character-rig") {
+        const shu = new ShuCharacterAdapter({ legacyRig: legacy, canvas: canvasEl, scale: renderScale, mixer, charName: prefsName ?? undefined });
+        return { adapter: shu, renderer: null, stage: null, shu, kind: "shu-rig" };
+      }
+      const assetBase = `/packs/${source.characterId}`;
+      return buildSprite(legacy, assetBase, `${assetBase}/${legacy.sheet}`, canvasEl, renderScale, mixer);
+    }
+    if (source.kind === "imported") {
+      // 匯入角色（host 本機角色資料夾）：只有 builtin 白名單；資產只經 host 讀成 data URL，
+      // 不 fetch 任何遠端、不執行任何東西。摘要沒有 manifest 本文時 text／shu-rig 仍可由摘要建出。
+      const { entry, entrypoint, manifest } = source;
+      if (entrypoint === "text") {
+        const adapter = new TextCharacterAdapter({
+          container: textHostRef.current ?? undefined,
+          characterId: entry.characterId,
+          displayName: manifest?.displayName ?? entry.displayName,
+          description: manifest?.description,
+        });
+        return { adapter, renderer: null, stage: null, shu: null, kind: "text" };
+      }
+      if (entrypoint === "shu-rig") {
+        const palette = rigPaletteForImported(manifest);
+        const shu = new ShuCharacterAdapter({
+          ...(manifest ? { manifest } : { legacyRig: importedRigPack(entry, palette) }),
+          palette,
+          canvas: canvasEl,
+          scale: renderScale,
+          mixer,
+          charName: prefsName ?? undefined,
+        });
+        return { adapter: shu, renderer: null, stage: null, shu, kind: "shu-rig" };
+      }
+      if (!source.sprite) throw new Error(`imported sprite ${entry.characterId}: no pack shape`);
+      const sheetUrl = await desktop.characterAsset(entry.characterId, source.sprite.sheetAssetId);
+      if (!isImageDataUrl(sheetUrl)) throw new Error(`imported sprite ${entry.characterId}: sheet asset is not an image data URL`);
+      return buildSprite(source.sprite.pack, `imported:${entry.characterId}`, sheetUrl, canvasEl, renderScale, mixer);
+    }
+    const manifest = source.entry.manifest;
+    const kind = entrypointKindOf(manifest);
+    if (kind === "shu-rig") {
+      const shu = new ShuCharacterAdapter({
+        manifest,
+        palette: rigPaletteFor(manifest),
+        canvas: canvasEl,
+        scale: renderScale,
+        mixer,
+        charName: prefsName ?? undefined,
+      });
+      return { adapter: shu, renderer: null, stage: null, shu, kind };
+    }
+    if (kind === "sprite") {
+      const assetBase = source.entry.assetBase ?? `/packs/${source.characterId}`;
+      const legacy = (await fetch(`${assetBase}/manifest.json`).then((r) => r.json())) as PackManifest;
+      return buildSprite(legacy, assetBase, `${assetBase}/${legacy.sheet}`, canvasEl, renderScale, mixer);
+    }
+    if (kind === "text") {
+      const adapter = new TextCharacterAdapter({
+        container: textHostRef.current ?? undefined,
+        characterId: manifest.characterId,
+        displayName: manifest.displayName,
+        description: manifest.description,
+      });
+      return { adapter, renderer: null, stage: null, shu: null, kind };
+    }
+    throw new Error(`unsupported entrypoint for ${source.characterId}`);
+  }
+
+  /** sheetUrl：同源 `/packs/<id>/<sheet>`，或匯入角色經 host 讀出的 data URL。 */
+  function buildSprite(
+    legacy: PackManifest,
+    assetBase: string,
+    sheetUrl: string,
+    canvasEl: HTMLCanvasElement,
+    renderScale: number,
+    mixer: MixerPort
+  ) {
+    const issues = validateManifest(legacy);
+    if (issues.length > 0) throw new Error(`invalid character pack: ${issues.join("; ")}`);
+    // 真正的 SpriteRenderer 由 host 擁有並由 syncPose 驅動；adapter 拿到的是
+    // MixerRenderer 門面，它的 setAnimation 進入同一台 machine（不互搶畫面）。
+    const real = new SpriteRenderer(canvasEl, legacy, sheetUrl, renderScale);
+    const adapter = new SpriteCharacterAdapter({ pack: legacy, assetBase, renderer: new MixerRenderer(real, mixer), scale: renderScale });
+    return { adapter, renderer: real as RendererBackend, stage: null, shu: null, kind: "sprite" as const };
+  }
+
+  /** 角色載入失敗／崩潰：文字角色＋可信元素上的固定文案。 */
+  async function fallbackToText(gateway: CharacterGateway, _renderScale: number, reason: string) {
+    void _renderScale;
+    try {
+      adapterRef.current = null;
+      shuRef.current = null;
+      stageRef.current = null;
+      rendererRef.current?.destroy();
+      rendererRef.current = null;
+      const adapter = new TextCharacterAdapter({ container: textHostRef.current ?? undefined });
+      manifestRef.current = adapter.manifest;
+      const info = gateway.getInstance(PRIMARY_INSTANCE_ID);
+      if (info && (info.state === "crashed" || info.state === "reconnecting" || info.state === "disposed")) {
+        await gateway.reattach(PRIMARY_INSTANCE_ID, adapter);
+      } else if (!info) {
+        await gateway.registerInstance(adapter, "primary-companion", { instanceId: PRIMARY_INSTANCE_ID });
+      } else {
+        gateway.disposeInstance(PRIMARY_INSTANCE_ID, reason);
+        await gateway.reattach(PRIMARY_INSTANCE_ID, adapter);
+      }
+      adapterRef.current = adapter;
+      setEntrypointKind("text");
+      setToyCatalog([]);
+      directorRef.current.setTables(EMPTY_DIRECTOR_TABLES);
+      landingTableRef.current = {};
+      eventArtRef.current = NEUTRAL_EVENT_ART;
+      const name = charNameFor(null, adapter.manifest, LOCALE);
+      charNameRef.current = name;
+      setCharName(name);
+      setCharacterId(adapter.manifest.characterId);
+      characterIdRef.current = adapter.manifest.characterId;
+    } catch (e) {
+      console.error("text fallback failed", e);
+    }
+    // 固定文案，顯示在可信 DOM 元素上（不是 adapter 說的）。
+    showTrustedText({ text: CHARACTER_LOAD_FAILED_LINE, marker: "none" }, 0);
+    helloTrackerRef.current = { ...helloTrackerRef.current, sent: false };
+    void sendHello(!document.hidden);
+  }
+
+  /** 註冊成功後：角色表、名字、遊玩場回呼、偏好套用。 */
+  function wireAdapter(
+    gateway: CharacterGateway,
+    prefs: Awaited<ReturnType<typeof desktop.prefsGet>> | null,
+    prefsName: string | null
+  ) {
+    const adapter = adapterRef.current;
+    const manifest = manifestRef.current;
+    if (!adapter || !manifest) return;
+    const shu = shuRef.current;
+    const name = charNameFor(prefsName, manifest, LOCALE);
+    charNameRef.current = name;
+    setCharName(name);
+    setCharacterId(manifest.characterId);
+    characterIdRef.current = manifest.characterId;
+    // 角色表注入：Director／落地／舊路徑事件美術；文字角色一律空表。
+    directorRef.current.setTables(shu?.directorTables ?? EMPTY_DIRECTOR_TABLES);
+    landingTableRef.current = shu?.landingTable ?? {};
+    eventArtRef.current = shu?.eventArt ?? NEUTRAL_EVENT_ART;
+    setToyCatalog(shu?.toyCatalog ?? []);
+    tuningRef.current = tuningFor(personalityRef.current, shu?.variantWeights ?? {});
+    directorRef.current.setTuning(tuningRef.current);
+    // 既有欄位＋各角色偏好（prefs.companionPreferences[characterId] → preferences／variant／palette）。
+    gateway.reconfigure(
+      PRIMARY_INSTANCE_ID,
+      adapterReconfigureFor(prefs, {
+        name,
+        characterId: manifest.characterId,
+        entrypoint: entrypointKindOf(manifest),
+        tuning: tuningRef.current,
+      })
+    );
+    const stage = shu?.stageRenderer() ?? null;
+    stageRef.current = stage;
+    if (stage) {
+      rendererRef.current = stage;
+      stage.onExpressionEvent((id, durationMs) => {
+        apply({ type: "transient", kind: "performing", animation: id, durationMs });
+      });
+      // 互動框：由 stage 每幀依節流政策回報（角色會走動、玩具會滾，
+      // 只靠 500ms pump 的話 Rust 會用過期的框判定點擊穿透）。
+      if (isTauri && canvasRef.current) {
+        const canvasEl = canvasRef.current;
+        void import("@tauri-apps/api/core").then(({ invoke }) => {
+          stage.onHitRect((b) => {
+            const rect = canvasEl.getBoundingClientRect();
+            void invoke("companion_hit_rect", {
+              x: rect.left + b.x,
+              y: rect.top + b.y,
+              w: b.w,
+              h: b.h,
+            }).catch(() => {});
+          });
+        });
+      }
+    }
+    gateway.show(PRIMARY_INSTANCE_ID);
+    syncPose();
+  }
 
   // ---- presentation commands: runtime → this surface → honest ack ----
   const handlePresentationCommand = React.useCallback(
@@ -522,17 +1059,28 @@ export default function CompanionApp() {
       const command = String(payload["command"] ?? "");
       const actionId = typeof payload["actionId"] === "string" ? payload["actionId"] : null;
       if (command === "cancel" || command === "clear-all") {
+        stopSpeech(); // 進行中的語音也要停：清氣泡不會讓已經在講的句子閉嘴。
         // Cancelled/estopped: drop any non-safety visual (safety poses are
         // driven by base state, not by presentation commands) — including a
         // still-running `performing` transient, which used to survive here.
-        // 進行中的語音也要停：清氣泡不會讓已經在講的句子閉嘴。
+        // `cancel`（單一 action，AI 可送）不動安全訊息：被擋下／失敗／未知的 transient 與
+        // 固定安全氣泡留著；只有 estop 的 `clear-all` 才全清（基態 emergency 仍由 runtime 擁有）。
         const cancelPlan = planPresentationCommand(command, {}, isTauri);
-        stopSpeech();
-        showBubbleRaw(null, 0);
-        if (cancelPlan.transient === null) apply({ type: "clear-transient" });
+        const effects = cancelEffects(command);
+        if (effects.clearSafetyBubble || !bubbleSafetyRef.current) {
+          bubbleSafetyRef.current = false;
+          showBubbleRaw(null, 0);
+        }
+        if (cancelPlan.transient === null) apply({ type: "clear-transient", force: effects.forceClear });
         return;
       }
       if (!actionId) return;
+      // CPP：有 characterProtocol 時 state-present／animation-play 由 Runtime
+      // 投影成 character.intent（受 floor≤50／truthState none 管制）再送來；
+      // 這裡不重演、也不 ack——回執走 /v1/character/receipts。
+      if (feedRef.current === "protocol" && (command === "state-present" || command === "animation-play")) {
+        return;
+      }
       const params = (payload["params"] as Record<string, unknown> | undefined) ?? {};
       const plan = planPresentationCommand(command, params, isTauri);
       if (plan.transient !== undefined) {
@@ -551,12 +1099,8 @@ export default function CompanionApp() {
         }
       }
       if (plan.presence !== undefined && isTauri) {
-        try {
-          await desktop.prefsPatch({ companionVisible: plan.presence });
-        } catch (error) {
-          plan.outcome = "failed";
-          plan.detail = String(error);
-        }
+        // 真的 show／hide：host 命令 resolve 才算「發生了」；拒絕就是 failed，不是 completed。
+        await applyPresence(plan, (visible) => desktop.companionSetVisible(visible));
       }
       try {
         if (plan.sound) {
@@ -623,11 +1167,12 @@ export default function CompanionApp() {
                       clicked: "在跟你互動",
                       dragged: "被抱起來了",
                     }[t.kind] ?? null;
-      const rollCall = stageRef.current
-        ? stageRef.current.rollCallNow(machineLabel)
+      const rollCall = shuRef.current
+        ? shuRef.current.rollCallNow(machineLabel)
         : [{ name: charNameRef.current, activity: machineLabel ?? "在休息" }];
+      // presence 心跳維持舊路由（packId = characterId）；CPP hello 另走 /v1/character/hello。
       void api
-        .presentationHello(!document.hidden, packName, {
+        .presentationHello(!document.hidden, characterIdRef.current || undefined, {
           activation: state.activation,
           attention: state.attention,
           taskLoad: state.taskLoad,
@@ -642,17 +1187,29 @@ export default function CompanionApp() {
         })
         .catch(() => {});
     };
+    const onVisibility = () => {
+      beat();
+      const gateway = gatewayRef.current;
+      if (gateway) {
+        // 隱藏 → suspend（停 rAF／物理／計時）；回來 → resume。
+        if (document.hidden) gateway.suspend(PRIMARY_INSTANCE_ID);
+        else gateway.resume(PRIMARY_INSTANCE_ID);
+        if (feedRef.current === "protocol") {
+          gateway.ingestInput(PRIMARY_INSTANCE_ID, inputEventFor("visibility-changed", { visible: !document.hidden })!);
+        }
+      }
+    };
     beat();
     const t = setInterval(beat, 10_000);
-    document.addEventListener("visibilitychange", beat);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       stopped = true;
       clearInterval(t);
-      document.removeEventListener("visibilitychange", beat);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [ready, packName]);
+  }, [ready, characterId]);
 
-  // Runtime events → transients; status poll → base state.
+  // Runtime events → gateway intents（CPP）或 machine transients（legacy）；status poll → base state.
   React.useEffect(() => {
     if (!ready) return;
     let stopped = false;
@@ -665,12 +1222,42 @@ export default function CompanionApp() {
         maybeKnowledgeBubble(e);
         return;
       }
-      const mapped = mapRuntimeEvent(e);
+      if (e.eventType === "character.intent") {
+        if (feedRef.current !== "protocol") return;
+        const gateway = gatewayRef.current;
+        const envelope = envelopeForInstance(e.payload, PRIMARY_INSTANCE_ID);
+        if (!gateway || !envelope) return;
+        const importance = envelope.intent === "emergency" ? 1 : envelope.priority >= 50 ? 0.5 : 0.3;
+        behaviorState.current = noteEvent(behaviorState.current, `intent:${envelope.intent}`, importance);
+        gateway.dispatch(envelope, "runtime");
+        maybeBubbleForIntent(envelope);
+        return;
+      }
+      if (e.eventType === "character.system-text") {
+        const st = systemTextFromEvent(e.payload);
+        if (st && (st.instanceId === null || st.instanceId === PRIMARY_INSTANCE_ID)) {
+          showTrustedText({ text: st.text, marker: st.marker }, 8000);
+        }
+        return;
+      }
+      if (e.eventType === "character.instance") {
+        // Runtime 把我們標成 connected:false（presence 逾時 sweep、撤銷…）：心跳不會把
+        // 實例接回來，只有 hello 會——重新 hello（節流），否則角色永遠收不到 character.intent。
+        const d = rehelloOnInstanceEvent(helloTrackerRef.current, e.payload, PRIMARY_INSTANCE_ID, Date.now());
+        helloTrackerRef.current = d.tracker;
+        if (d.hello) void sendHello(!document.hidden);
+        return;
+      }
+      if (e.eventType.startsWith("character.")) return; // receipt：控制中心的事
+      // legacy：runtime 未提供 character.intent 時的相容映射（transient 由事件直接驅動）。
+      const mapped = mapRuntimeEvent(e, eventArtRef.current);
       if (mapped) {
         // 注意力：事件推高喚起度（平滑，不會 0→1）。
         const importance = e.eventType === "emergency.stop" ? 1 : e.eventType.startsWith("action.") ? 0.5 : 0.3;
         behaviorState.current = noteEvent(behaviorState.current, e.eventType, importance);
-        apply(mapped);
+        // protocol 模式：transient 由 character.intent 驅動，這裡只收基態（緊急／暫停）
+        // ——安全狀態必須立刻反映，不等 5 秒輪詢。
+        if (feedRef.current !== "protocol" || mapped.type === "base") apply(mapped);
         maybeBubble(e);
       }
     });
@@ -678,6 +1265,11 @@ export default function CompanionApp() {
       try {
         const s = await api.status();
         if (stopped) return;
+        // feed 出現／hello 沒成功／daemon 重啟（startedAt 變了）→（重新）hello。
+        const re = rehelloOnStatus(helloTrackerRef.current, feedRef.current, s, Date.now());
+        feedRef.current = re.feed;
+        helloTrackerRef.current = re.tracker;
+        if (re.hello) void sendHello(!document.hidden);
         const estop = Boolean(s["emergencyStop"]);
         const paused = Boolean(
           (s["proactivePause"] as Record<string, unknown> | undefined)?.["paused"]
@@ -715,6 +1307,8 @@ export default function CompanionApp() {
     // 觸發間隔由 hazard 抽樣決定（幾何分布）——絕不是固定週期同一動畫。
     const pump = setInterval(() => {
       const now = Date.now();
+      // CPP Gateway sweep（看門狗、acknowledged→uncertain、adapter.tick、佇列推進）。
+      gatewayRef.current?.sweep(now);
       const m = machineRef.current;
       const t = m.transient && m.transient.untilMs > now ? m.transient : null;
       // 表演自然播完（不是被搶佔）→ 告訴 Director 舞台空了。
@@ -732,9 +1326,7 @@ export default function CompanionApp() {
         waitingForHuman,
         msSinceInteraction: now - behaviorState.current.lastInteractionAt,
       });
-      const reducedMotion =
-        typeof window.matchMedia === "function" &&
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const reducedMotion = reducedMotionRef.current;
       rendererRef.current?.setMicroMotion(
         layeredMicroMotion(
           behaviorState.current,
@@ -772,10 +1364,12 @@ export default function CompanionApp() {
           quiet: m.base === "quiet" || quietHoursRef.current || dndRef.current || localQuiet,
           personality: personalityRef.current,
           rand: microRng.current(),
+          lastText: lastHoverLineRef.current,
         });
         if (decision.show && decision.text) {
           lastBubbleAt.current = now;
           hoverSinceRef.current = now; // 同一次停留不再重複說
+          lastHoverLineRef.current = decision.text;
           showBubble(decision.text, 3200);
         }
       }
@@ -801,7 +1395,7 @@ export default function CompanionApp() {
         microRng.current
       );
       if (action) {
-        // 安靜時只允許眨眼，而且要「就地眨」：套成一般表演的話，她會從安靜
+        // 安靜時只允許眨眼，而且要「就地眨」：套成一般表演的話，角色會從安靜
         // 陪伴的坐姿彈回中性站姿。rig 收得下這個提示就不換表情。
         const rig = rendererRef.current as { blinkNow?: () => boolean } | null;
         const blinkedInPlace =
@@ -884,8 +1478,17 @@ export default function CompanionApp() {
     }
   }
 
+  /** CPP intent 的隨口氣泡：只有 verified-success（且 truthState 真的是 verified）
+   *  才觸發故事章節；claim 只是聲稱，不慶祝。安全文字由事件路徑（maybeBubble）負責。 */
+  function maybeBubbleForIntent(envelope: IntentEnvelope) {
+    if (envelope.intent !== "verified-success" || envelope.truthState !== "verified") return;
+    const base = machineRef.current.base;
+    if (base === "quiet" || base === "paused" || base === "emergency") return;
+    playChapter("first-verified-success");
+  }
+
   // ---- semantic interaction events (NEVER raw coordinates to the runtime) ----
-  // 遊玩場內的指標座標只活在本視窗 canvas，供光點/逗貓棒/玩具拖曳；
+  // 遊玩場內的指標座標只活在本視窗 canvas，供角色的遊玩擴充（光點／玩具拖曳）；
   // 不推送 runtime、不持久化。
   const lastApproachAt = React.useRef(0);
   const firstOnline = React.useRef(false);
@@ -915,16 +1518,25 @@ export default function CompanionApp() {
     const now = Date.now();
     if (now - lastApproachAt.current > 30_000) {
       lastApproachAt.current = now;
+      hoverEnteredRef.current = true;
       pushInteraction("pointer-approached");
       // 游標靠近時看過來（不追蹤、不記錄座標）。
       apply({ type: "transient", kind: "listening", durationMs: 1200 });
     }
   }
 
+  /** 這次停留有沒有送過 hover-entered（離開時才對應送 hover-left；成對、不多送）。 */
+  const hoverEnteredRef = React.useRef(false);
+
   function onPointerLeaveCanvas() {
     stageRef.current?.pointerLeave();
     toyDragRef.current = false;
     hoverSinceRef.current = 0;
+    if (hoverEnteredRef.current) {
+      hoverEnteredRef.current = false;
+      // 游標離開：§5.1 靠近／進入／離開都是輸入事件（Gateway 限 4/s；不帶座標）。
+      pushInteraction("pointer-left");
+    }
   }
 
   // ---- coarse activity summary (this app's windows only) ----
@@ -957,7 +1569,10 @@ export default function CompanionApp() {
   }, [ready]);
 
   // ---- file drop: preview first, never auto-ingest ----
-  const [dropPreview, setDropPreview] = React.useState<string[] | null>(null);
+  /** 拖放預覽：路徑（記錄用，不顯示）＋顯示用項目（檔名／大小／類型；不知道就說不知道）。 */
+  const [dropPreview, setDropPreview] = React.useState<{ paths: string[]; items: DropPreviewItem[] } | null>(null);
+  /** 可讀的 AI 工作階段清單（null＝還沒拿到／拿不到；明說，不當成「沒有」）。 */
+  const [dropSessions, setDropSessions] = React.useState<DropPreviewSession[] | null>(null);
   React.useEffect(() => {
     if (!isTauri || !ready) return;
     let un: (() => void) | null = null;
@@ -965,8 +1580,10 @@ export default function CompanionApp() {
       const { getCurrentWebview } = await import("@tauri-apps/api/webview");
       un = await getCurrentWebview().onDragDropEvent((event) => {
         if (event.payload.type === "drop") {
-          const paths = (event.payload as { paths?: string[] }).paths ?? [];
-          if (paths.length > 0) setDropPreview(paths);
+          const payload = event.payload as { paths?: string[]; files?: unknown[] };
+          const paths = payload.paths ?? [];
+          // Tauri 2 的 drop 事件只有 paths＋position：大小／類型沒有來源就顯示「未知」，不補假值。
+          if (paths.length > 0) setDropPreview({ paths, items: dropPreviewItems(paths, payload.files ?? []) });
         }
       });
     })();
@@ -974,6 +1591,42 @@ export default function CompanionApp() {
       if (un) un();
     };
   }, [ready]);
+  React.useEffect(() => {
+    if (!dropPreview) return;
+    let cancelled = false;
+    setDropSessions(null);
+    api
+      .agentSessionsList()
+      .then((list) => {
+        if (!cancelled) setDropSessions(list as DropPreviewSession[]);
+      })
+      .catch(() => {
+        /* 清單拿不到：預覽明說「暫時拿不到」 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dropPreview]);
+
+  /** 拖放確認流程的 push：protocol 模式經 gateway（只有檔名＋短效 grant）並等 Runtime 的決定。 */
+  const dropPush = React.useCallback(
+    async (receptorId: string, facts: Record<string, unknown>, confidence?: number): Promise<unknown> => {
+      const gateway = gatewayRef.current;
+      if (feedRef.current === "protocol" && gateway) {
+        const ev = inputEventFor("companion-dropped", facts);
+        if (!ev) throw new Error("no file names to record");
+        forwardBatchRef.current = [];
+        // Gateway 一檔一事件（README §6 扁平形狀）：等**全部**的決定才能說「記下了」。
+        if (!gateway.ingestInput(PRIMARY_INSTANCE_ID, ev)) throw new Error("input rejected locally");
+        const result = await awaitForwardBatch();
+        if (!result) throw new Error("runtime unreachable");
+        if (result.decision === "dropped") throw new Error(result.reason ?? "runtime dropped the event");
+        return result;
+      }
+      return api.pushObservation(receptorId, facts, confidence);
+    },
+    [awaitForwardBatch]
+  );
 
   // ---- pointer: toy drag / click vs window drag ----
   const dragState = React.useRef<{ x: number; y: number; dragging: boolean } | null>(null);
@@ -1016,7 +1669,7 @@ export default function CompanionApp() {
       d.dragging = true;
       // 被抱起：懸空反應（rig 有專屬 lifted 演出）。整段拖曳期間都是
       // 「被抱著」——用續期的持續 transient，不是 1.5 秒後自己過期，
-      // 否則她會在半空中回 idle、遊玩場也重新啟動。
+      // 否則角色會在半空中回 idle、遊玩場也重新啟動。
       beginDragHold();
       pushInteraction("companion-dragged");
       if (isTauri) {
@@ -1035,12 +1688,15 @@ export default function CompanionApp() {
           const dx = from ? pos.x - from.x : 0;
           const dy = from ? pos.y - from.y : 0;
           const speedPxPerSec = (Math.hypot(dx, dy) / elapsed) * 1000;
-          const landing = pickLanding({
-            speedPxPerSec,
-            heightPx: Math.max(0, dy),
-            nearEdge: await nearScreenEdge(win, pos),
-          });
-          if (landing.durationMs > 0) {
+          const landing = pickLanding(
+            {
+              speedPxPerSec,
+              heightPx: Math.max(0, dy),
+              nearEdge: await nearScreenEdge(win, pos),
+            },
+            landingTableRef.current
+          );
+          if (landing.expression && landing.durationMs > 0) {
             apply({
               type: "transient",
               kind: "performing",
@@ -1075,23 +1731,24 @@ export default function CompanionApp() {
       const now = Date.now();
       clickTimes.current = [...clickTimes.current.filter((t) => now - t < 1_400), now];
       pushInteraction("companion-clicked");
-      if (clickTimes.current.length >= 3) {
-        // 被連戳：統一走 Director（真相狀態白名單＋冷卻＋個性）。
-        const reaction = directorRef.current.react("poked-rapid", now, 2200, microRng.current);
-        if (reaction) {
-          apply({ type: "clear-transient" });
-          apply({
-            type: "transient",
-            kind: "performing",
-            animation: reaction.expression,
-            durationMs: reaction.durationMs,
-          });
-        }
+      // 單擊／連戳都走 Director（真相狀態白名單＋變體池＋冷卻＋防重複＋個性）。
+      // 連戳冷卻中或文字角色 → 退回一般單擊（有反應、開選單），不是靜默。
+      const plan = planClickReaction({
+        rapid: clickTimes.current.length >= 3,
+        nowMs: now,
+        director: directorRef.current,
+        rng: microRng.current,
+      });
+      if (plan.kind === "rapid") {
+        apply({ type: "clear-transient" });
+        apply({ type: "transient", kind: "performing", animation: plan.animation, durationMs: plan.durationMs });
         return;
       }
-      apply({ type: "transient", kind: "clicked" });
-      setMenuOpen((v) => !v);
-      setInputOpen(false);
+      apply({ type: "transient", kind: "clicked", animation: plan.animation, durationMs: plan.durationMs });
+      if (plan.toggleMenu) {
+        setMenuOpen((v) => !v);
+        setInputOpen(false);
+      }
     }
   }
 
@@ -1129,7 +1786,7 @@ export default function CompanionApp() {
         case "quiet-1h":
           // 主動式對話安靜一小時（≠ 暫停主動行動，也 ≠ emergency stop）。
           // 同時關掉角色自己的隨口氣泡與 ambient 表演——只叫 runtime 閉嘴
-          // 的話，她照樣會自己冒話。安全文字不受影響。
+          // 的話，角色照樣會自己冒話。安全文字不受影響。
           await api.proactiveDialogueQuiet(60);
           setLocalQuiet(60);
           showBubble("好，一小時內我不主動說話。", 3500);
@@ -1155,15 +1812,15 @@ export default function CompanionApp() {
     void (async () => {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("companion_set_interactive", {
-        interactive: menuOpen || inputOpen || bubble !== null || dropPreview !== null,
+        interactive: menuOpen || inputOpen || bubble !== null || dropPreview !== null || trustedText !== null,
       }).catch(() => {});
     })();
-  }, [menuOpen, inputOpen, bubble, dropPreview]);
+  }, [menuOpen, inputOpen, bubble, dropPreview, trustedText]);
 
   React.useEffect(() => {
     if (!isTauri || !ready || !canvasRef.current) return;
-    // 遊玩場 pack 的 hit-rect 由 pump 動態更新（角色會走動）；
-    // sprite 相容層維持整個 canvas。
+    // 遊玩場 adapter 的 hit-rect 由 pump 動態更新（角色會走動）；
+    // sprite／text 維持整個 canvas／視窗。
     if (stageRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     void (async () => {
@@ -1175,25 +1832,55 @@ export default function CompanionApp() {
         h: rect.height,
       }).catch(() => {});
     })();
-  }, [ready]);
+  }, [ready, entrypointKind]);
 
-  /** 玩具快捷：由玩家丟玩具進遊玩場（純本機，不經 runtime）。 */
+  /** 玩具快捷：由玩家丟玩具進遊玩場（純本機，不經 runtime；gameplay 擴充）。 */
   function quickToy(kind: ToyKind | "clear") {
     setMenuOpen(false);
-    const stage = stageRef.current;
-    if (!stage) return;
+    const gameplay = adapterRef.current?.gameplay;
+    if (!gameplay) return;
+    // 凍結（緊急停止／離線／暫停）：停住的系統不生成也不收玩具（stage 也會拒絕；這裡不多做記憶）。
+    if (["emergency", "offline", "paused"].includes(machineRef.current.base)) return;
     if (kind === "clear") {
-      stage.clearAllToys();
+      gameplay.clearToys();
       return;
     }
-    stage.spawnToy(kind);
+    if (gameplay.spawnToy(kind) === null) return;
     // 角色互動記憶：記「玩過什麼」，不推論人格（熟悉度只看天數）。
     const mem = notePlay(memoryRef.current, kind, Date.now());
     memoryRef.current = mem;
     void desktop.prefsPatch({ companionInteractionMemory: mem }).catch(() => {});
   }
 
+  /** 文字輸入的實際送出（路由由使用者選；protocol 模式輸入事件只走 characterEvent）。 */
+  const submitText = React.useCallback(async (text: string, target: string) => {
+    if (target !== "local") {
+      await api.agentSessionSend(target, "task", { task: text, source: "desktop-companion" });
+      pushInteraction("text-submitted", { text });
+      return;
+    }
+    if (feedRef.current === "protocol" && gatewayRef.current) {
+      // CPP：文字本身在 text-submitted 事件裡（privacy personal），Runtime 轉成 companion.text-input。
+      const ev = inputEventFor("text-submitted", { text });
+      forwardBatchRef.current = [];
+      if (!ev || !gatewayRef.current.ingestInput(PRIMARY_INSTANCE_ID, ev)) {
+        throw new Error("input rejected");
+      }
+      behaviorState.current = noteUserInteraction(behaviorState.current, Date.now());
+      const result = await awaitForwardBatch();
+      if (!result) throw new Error("runtime unreachable");
+      if (result.decision === "dropped") throw new Error(result.reason ?? "runtime dropped the input");
+      return;
+    }
+    await api.pushObservation("session.input", { text, source: "desktop-companion" }, 1.0);
+    await api
+      .pushObservation("companion.text-input", { kind: "text-submitted", modality: "text" }, 1.0)
+      .catch(() => {});
+  }, [awaitForwardBatch]);
+
   const estop = baseState === "emergency";
+  const frozen = baseState === "emergency" || baseState === "offline" || baseState === "paused";
+  const canvasClass = cssClassForEntrypoint(entrypointKind);
 
   return (
     <div className="companion-root">
@@ -1208,10 +1895,18 @@ export default function CompanionApp() {
           {sensorLabel}
         </div>
       )}
+      {trustedText && (
+        // 可信 host 元素：system.text 與角色載入失敗文案。adapter 碰不到這裡。
+        <div className="companion-system-text" role="status" data-marker={trustedText.marker}>
+          {trustedText.marker === "verified" ? "✓ " : ""}
+          {trustedText.text}
+        </div>
+      )}
       <canvas
         ref={canvasRef}
-        className={packName.startsWith("shu-maid") ? "companion-stage" : "companion-canvas"}
-        aria-label={`桌面角色（${packName}）`}
+        className={canvasClass}
+        hidden={entrypointKind === "text"}
+        aria-label={`桌面角色（${charName}）`}
         role="img"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -1219,20 +1914,33 @@ export default function CompanionApp() {
         onPointerEnter={onPointerEnterCanvas}
         onPointerLeave={onPointerLeaveCanvas}
       />
+      <div
+        ref={textHostRef}
+        className="companion-text-host"
+        hidden={entrypointKind !== "text"}
+        aria-label={`桌面角色（${charName}）`}
+        onClick={() => {
+          setMenuOpen((v) => !v);
+          setInputOpen(false);
+        }}
+      />
       {dropPreview && (
         <div className="companion-menu" role="dialog" aria-label="拖放預覽">
           <div style={{ fontSize: 12, padding: "4px 8px" }}>
-            <strong>收到 {dropPreview.length} 個項目</strong>
+            <strong>收到 {dropPreview.items.length} 個項目</strong>
             <ul style={{ margin: "4px 0", paddingLeft: 16, maxHeight: 80, overflow: "auto" }}>
-              {dropPreview.slice(0, 5).map((p) => (
-                <li key={p} style={{ wordBreak: "break-all" }}>
-                  {p.split("/").pop()}
+              {dropPreview.items.slice(0, 5).map((item, i) => (
+                <li key={`${i}-${item.name}`} style={{ wordBreak: "break-all" }}>
+                  {dropItemLine(item)}
                 </li>
               ))}
-              {dropPreview.length > 5 && <li>…等 {dropPreview.length} 個</li>}
+              {dropPreview.items.length > 5 && <li>…等 {dropPreview.items.length} 個</li>}
             </ul>
             <div className="muted" style={{ fontSize: 11, opacity: 0.8 }}>
-              只記錄檔案位置，不讀取內容、不上傳、不離開本機。確認前不會做任何事。
+              {dropDestinationLines(dropSessions).map((l) => (
+                <div key={l}>{l}</div>
+              ))}
+              <div>確認前不會做任何事。</div>
             </div>
           </div>
           <button
@@ -1242,7 +1950,7 @@ export default function CompanionApp() {
               behaviorState.current = noteUserInteraction(behaviorState.current, Date.now());
               const items = dropPreview;
               setDropPreview(null);
-              void recordDroppedItems(items, api.pushObservation, showBubble, line);
+              void recordDroppedItems(items.paths, dropPush, showBubble, line, items.items);
             }}
           >
             記錄這些項目
@@ -1252,19 +1960,18 @@ export default function CompanionApp() {
       )}
       {menuOpen && (
         <div className="companion-menu" role="menu" aria-label="快捷操作">
-          {stageRef.current && (
+          {toyCatalog.length > 0 && !frozen && (
             <div className="companion-toy-row" role="group" aria-label="玩具">
-              <button role="menuitem" title="丟毛球" onClick={() => quickToy("yarn")}>🧶</button>
-              <button role="menuitem" title="丟紙團" onClick={() => quickToy("paper")}>🗞️</button>
-              <button role="menuitem" title="紙飛機" onClick={() => quickToy("plane")}>✈️</button>
-              <button role="menuitem" title="光點" onClick={() => quickToy("light")}>✨</button>
-              <button role="menuitem" title="逗貓棒" onClick={() => quickToy("wand")}>🪶</button>
-              <button role="menuitem" title="小物件（她只會好奇地看看）" onClick={() => quickToy("trinket")}>🧸</button>
+              {toyCatalog.map((toy) => (
+                <button key={toy.kind} role="menuitem" title={toy.label} onClick={() => quickToy(toy.kind)}>
+                  {toy.emoji}
+                </button>
+              ))}
               <button role="menuitem" title="收走玩具" onClick={() => quickToy("clear")}>🧹</button>
             </div>
           )}
           <button role="menuitem" onClick={() => quick("talk")}>
-            對小樞說話…
+            對{charName}說話…
           </button>
           <button role="menuitem" onClick={() => quick("tasks")}>
             查看目前工作
@@ -1288,9 +1995,11 @@ export default function CompanionApp() {
       )}
       {inputOpen && (
         <CompanionInput
+          name={charName}
           onClose={() => setInputOpen(false)}
           onBubble={setBubble}
           line={line}
+          submit={submitText}
           conversationCtx={() => ({
             openAgentSessions: 0, // CompanionInput 以實際 sessions 數覆蓋
             msSinceInteraction: Date.now() - behaviorState.current.lastInteractionAt,
@@ -1298,15 +2007,18 @@ export default function CompanionApp() {
           })}
           onIntent={(intent) => {
             // L1 語意意圖也要經過 Director：truthState 永遠不可點播，
-            // 冷卻中就不重播（playable() 白名單在 Director 內）。
-            const action = directorRef.current.react(intent, Date.now(), 2500, microRng.current);
-            if (action) {
+            // 冷卻中就不重播（playable() 白名單由角色 tables 提供）。
+            // 回 null 不是靜默：原因記在 Director.lastDecision()（no-mapping 代表表缺項）。
+            const decision = directorRef.current.reactDetailed(intent, Date.now(), 2500, microRng.current);
+            if (decision.action) {
               apply({
                 type: "transient",
                 kind: "performing",
-                animation: action.expression,
-                durationMs: action.durationMs,
+                animation: decision.action.expression,
+                durationMs: decision.action.durationMs,
               });
+            } else if (decision.reason === "no-mapping") {
+              console.warn(`director: L1 intent "${intent}" has no reaction in this character's tables`);
             }
           }}
         />
@@ -1319,15 +2031,21 @@ export default function CompanionApp() {
  *  observation; open agent sessions can be selected as the destination
  *  (mailbox task). The preview always states where the data goes. */
 function CompanionInput({
+  name,
   onClose,
   onBubble,
   line,
+  submit,
   conversationCtx,
   onIntent,
 }: {
+  /** 角色顯示名（aria-label 用）。 */
+  name: string;
   onClose: () => void;
   onBubble: (t: string | null) => void;
   line: (key: string) => string | null;
+  /** 實際送出（由 CompanionApp 決定走 CPP 事件或舊 receptor）。 */
+  submit: (text: string, target: string) => Promise<void>;
   /** L1 Conversation Provider 的情境（無 Provider 時本機模板降級）。 */
   conversationCtx?: () => ConversationContext;
   onIntent?: (intent: string) => void;
@@ -1351,17 +2069,10 @@ function CompanionInput({
     if (!t) return;
     onClose();
     try {
-      if (target === "local") {
-        await api.pushObservation("session.input", { text: t, source: "desktop-companion" }, 1.0);
-      } else {
-        await api.agentSessionSend(target, "task", { task: t, source: "desktop-companion" });
-      }
-      await api
-        .pushObservation("companion.text-input", { kind: "text-submitted", modality: "text" }, 1.0)
-        .catch(() => {});
+      await submit(t, target);
       if (target === "local") {
         // L1 Conversation Provider：決定是否回話、語氣與 behaviorIntent。
-        // 觀察已真實記錄（上面 push 成功）；模板回覆不冒充理解。
+        // 觀察已真實記錄（上面 submit 成功）；模板回覆不冒充理解。
         const ctx = conversationCtx?.() ?? {
           openAgentSessions: sessions.length,
           msSinceInteraction: 0,
@@ -1385,7 +2096,7 @@ function CompanionInput({
 
   const selected = sessions.find((s) => s.sessionId === target);
   return (
-    <div className="companion-input" role="dialog" aria-label="對小樞說話">
+    <div className="companion-input" role="dialog" aria-label={`對${name}說話`}>
       {sessions.length > 0 && (
         <select
           aria-label="交給誰"
@@ -1436,7 +2147,8 @@ export async function recordDroppedItems(
     confidence?: number
   ) => Promise<unknown>,
   showBubble: (text: string | null, ms: number) => void,
-  line: (key: string) => string | null
+  line: (key: string) => string | null,
+  items?: readonly DropPreviewItem[]
 ): Promise<boolean> {
   try {
     await push(
@@ -1446,6 +2158,10 @@ export async function recordDroppedItems(
         modality: "file-drop",
         attachments: paths,
         mayLeaveDevice: false,
+        // 已知的大小／類型（不知道的項目不帶鍵，不補 0）。
+        ...(items && items.length > 0
+          ? { files: items.map((i) => ({ ...(i.bytes !== null ? { bytes: i.bytes } : {}), ...(i.mediaType !== null ? { mediaType: i.mediaType } : {}) })) }
+          : {}),
       },
       1.0
     );

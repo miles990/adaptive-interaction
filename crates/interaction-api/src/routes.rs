@@ -739,6 +739,8 @@ async fn dispatch_tool(
                 AuthPrincipal::LegacyAgent | AuthPrincipal::AgentSession(_) => {
                     Ok(rt.run_recipe_for_agent(&id).await?)
                 }
+                // 中介層已擋下；這裡只是型別上的最後防線。
+                AuthPrincipal::CharacterAdapter { .. } => Err(ApiError::forbidden_adapter_scope()),
             }
         }
         "interaction.policy" => Ok(serde_json::to_value(rt.policy().await).unwrap_or_default()),
@@ -1397,6 +1399,8 @@ pub async fn agent_session_messages(
         AuthPrincipal::LegacyAgent | AuthPrincipal::AgentSession(_) => {
             interaction_runtime::agents::MailboxReader::Agent
         }
+        // 中介層已擋下（adapter token 讀不到 mailbox）；型別上的最後防線。
+        AuthPrincipal::CharacterAdapter { .. } => return Err(ApiError::forbidden_adapter_scope()),
     };
     let messages = state.runtime.mailbox_read(&id, direction, reader).await?;
     Ok(Json(json!(messages)))
@@ -1578,6 +1582,162 @@ pub async fn presentation_ack(
 // ---------------------------------------------------------------------------
 // 主動式對話政策（確定性頻率限制）。
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Character Presentation Protocol（docs/character-protocol/README.md）
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterHelloBody {
+    #[serde(default)]
+    pub instance_id: Option<String>,
+    #[serde(default)]
+    pub role: Option<interaction_character::CharacterRole>,
+    pub manifest: interaction_character::CharacterManifest,
+    pub negotiate: interaction_character::Negotiate,
+    #[serde(default)]
+    pub visible: bool,
+    #[serde(default)]
+    pub pack_id: Option<String>,
+    #[serde(default)]
+    pub behavior_state: Option<Value>,
+}
+
+/// 桌面視窗（可信 host）登記角色並協商；同 instanceId 重送＝重新協商（generation+1）。
+pub async fn character_hello(
+    State(state): State<ApiState>,
+    Json(body): Json<CharacterHelloBody>,
+) -> ApiResult<Json<Value>> {
+    let out = state
+        .runtime
+        .character_hello(interaction_runtime::character::CharacterHelloInput {
+            instance_id: body.instance_id,
+            role: body.role,
+            manifest: body.manifest,
+            negotiate: body.negotiate,
+            visible: body.visible,
+            pack_id: body.pack_id,
+            behavior_state: body.behavior_state,
+        })
+        .await?;
+    Ok(Json(out))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterReceiptBody {
+    pub instance_id: String,
+    pub receipt: interaction_character::CommandReceipt,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterEventBody {
+    pub instance_id: String,
+    pub event: interaction_character::CharacterInputEvent,
+}
+
+/// adapter token 只能替自己的 instance（`adapter:<id>`）說話。
+fn enforce_character_instance(auth: &AuthContext, instance_id: &str) -> Result<(), ApiError> {
+    if let AuthPrincipal::CharacterAdapter { adapter_id } = &auth.principal {
+        if interaction_runtime::character::adapter_instance_id(adapter_id) != instance_id {
+            return Err(ApiError::forbidden_adapter_scope());
+        }
+    }
+    Ok(())
+}
+
+pub async fn character_receipts(
+    State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
+    Json(body): Json<CharacterReceiptBody>,
+) -> ApiResult<Json<Value>> {
+    enforce_character_instance(&auth, &body.instance_id)?;
+    let out = state
+        .runtime
+        .character_receipt(&body.instance_id, body.receipt)
+        .await?;
+    Ok(Json(out))
+}
+
+pub async fn character_events(
+    State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
+    Json(body): Json<CharacterEventBody>,
+) -> ApiResult<Json<Value>> {
+    enforce_character_instance(&auth, &body.instance_id)?;
+    let out = state
+        .runtime
+        .character_event(&body.instance_id, body.event)
+        .await?;
+    Ok(Json(out))
+}
+
+pub async fn character_instances(State(state): State<ApiState>) -> Json<Value> {
+    Json(state.runtime.character_instances())
+}
+
+/// 目前桌面角色的 manifest；尚未 hello → 404。
+pub async fn character_manifest(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
+    let manifest = state.runtime.character_manifest().ok_or_else(|| {
+        ApiError::from(DomainError::NotFound(
+            "no desktop character negotiated yet (POST /v1/character/hello)".into(),
+        ))
+    })?;
+    Ok(Json(serde_json::to_value(manifest).unwrap_or_default()))
+}
+
+pub async fn character_adapters_list(State(state): State<ApiState>) -> Json<Value> {
+    Json(state.runtime.character_adapters())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterAdapterBody {
+    pub display_name: String,
+    pub manifest: interaction_character::CharacterManifest,
+}
+
+/// 註冊外部 adapter：回 adapterId＋**只此一次**的 token（Runtime 只存 sha256）。
+pub async fn character_adapter_add(
+    State(state): State<ApiState>,
+    Json(body): Json<CharacterAdapterBody>,
+) -> ApiResult<Json<Value>> {
+    let out = state
+        .runtime
+        .character_adapter_add(&body.display_name, body.manifest)
+        .await?;
+    Ok(Json(out))
+}
+
+pub async fn character_adapter_revoke(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.character_adapter_revoke(&id).await?))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterIntentBody {
+    pub intent: String,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+/// 人類手動測試：只允許非安全 intent（truthState 固定 none）。
+pub async fn character_intent(
+    State(state): State<ApiState>,
+    Json(body): Json<CharacterIntentBody>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        state
+            .runtime
+            .character_manual_intent(&body.intent, body.message)
+            .await?,
+    ))
+}
 
 pub async fn proactive_dialogue_get(State(state): State<ApiState>) -> Json<Value> {
     Json(state.runtime.proactive_dialogue_status().await)

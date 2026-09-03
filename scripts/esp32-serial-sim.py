@@ -16,9 +16,25 @@
   重放防護    : cmd id 與 nonce 各一組 16 筆環形緩衝，並行比對；命中任一
                 → ack dup:true 不套用。只有「真的套用成功」才記入
                 （rate-limited 之後重試應該要能成功）——與韌體一致
-  hello       : type/deviceId/fw/proto/caps/pairing 六個欄位、順序與型別
-                與韌體 sendHello() 相同（fw 值刻意不同：這是模擬器）
-  state       : 每 5 秒自動推播一次（僅在已配對時，不對未配對連線洩漏感測）
+  單行上限    : 639 bytes（韌體 g_serialBuf[640]）；超過整行丟棄並回
+                無 id 的 err bad-json——與韌體 pollSerial() 一致
+  配對鎖定    : 連續 5 次錯碼 → 鎖定 30 s（--pair-lockout-ms 可縮短，測試
+                用）；鎖定期間 pair 一律回 pair-fail reason:pair-locked，
+                不比對、不延長；hello.pairingLocked 誠實回報——與韌體一致
+  hello       : type/deviceId/fw/proto/caps/pairing/pairingLocked 七個欄位、
+                順序與型別與韌體 sendHello() 相同（fw 值刻意不同：這是模擬器）
+  state       : 每 5 秒自動推播一次（僅在已配對時，不對未配對連線洩漏感測）；
+                按鈕邊緣（去彈跳後）立即推播一次——與韌體 loop() 一致
+
+感測面控制通道（韌體上是真實感測器；模擬器用這些替代，讓閉環的「獨立
+觀察」半邊也能在模擬器上驗到）：
+
+  --facts-file PATH   JSON 物件，內容變更時（每 tick 重讀）覆寫
+                      button/distanceMm/lux/tempC；缺漏的鍵維持現值；
+                      "tempC": null 與 "distanceMm": -1 原樣穿透
+                      （韌體對讀不到的感測器就是回這兩個值）。
+  SIGUSR1             翻轉按鈕（按下↔放開），與韌體按鈕邊緣同樣立即推播 state。
+  --sensors-absent    啟動時就處於「感測器未接」：distanceMm=-1、tempC=null。
 
 用法：esp32-serial-sim.py --device-id esp32-sim01 --pairing-code 9927 \
         --pty-path-file /tmp/sim-pty --log /tmp/sim.log
@@ -30,6 +46,7 @@ import json
 import os
 import pty
 import select
+import signal
 import struct
 import sys
 import termios
@@ -52,11 +69,28 @@ SERVO_MIN_GAP_MS = 300
 STATE_PERIOD_MS = 5000
 DEDUPE_RING = 16
 
+# 韌體 g_serialBuf[640]：一行最多 639 bytes，第 640 個位元組起整行丟棄。
+MAX_LINE_BYTES = 639
+
+# 配對暴力猜測防護（韌體 PAIR_MAX_FAILURES / PAIR_LOCKOUT_MS）。
+PAIR_MAX_FAILURES = 5
+PAIR_LOCKOUT_MS = 30000
+
+# 韌體 readDistanceMm()/refreshDhtIfDue() 對「讀不到」的誠實值。
+DISTANCE_ABSENT = -1
+TEMP_ABSENT = None
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--device-id", required=True)
 parser.add_argument("--pairing-code", default="")
 parser.add_argument("--pty-path-file", required=True)
 parser.add_argument("--log", default="/dev/null")
+parser.add_argument("--facts-file", default=None,
+                    help="JSON 物件；內容變更時覆寫 button/distanceMm/lux/tempC")
+parser.add_argument("--sensors-absent", action="store_true",
+                    help="啟動即為感測器未接：distanceMm=-1、tempC=null")
+parser.add_argument("--pair-lockout-ms", type=int, default=PAIR_LOCKOUT_MS,
+                    help="配對鎖定時間（預設 30000，與韌體相同；測試可縮短）")
 args = parser.parse_args()
 
 master, slave = pty.openpty()
@@ -81,8 +115,17 @@ def emit(obj):
     log.flush()
 
 
+def note(text):
+    log.write(f"## {text}\n")
+    log.flush()
+
+
 state = {
     "paired": args.pairing_code == "",
+    # 配對暴力猜測防護（單一通道；韌體對 Serial/MQTT/BLE 各自一組）
+    "pair_failures": 0,
+    "pair_locked": False,
+    "pair_locked_until_ms": 0,
     "seen_ids": [],
     "seen_nonces": [],
     "led": {"r": 0, "g": 0, "b": 0},
@@ -102,6 +145,26 @@ state = {
     "servo_last_move_ms": 0,
     "last_state_push_ms": 0,
 }
+
+# 感測面（韌體上是真實感測器；這裡由控制通道決定）。
+sensors = {
+    "button": False,
+    "distanceMm": DISTANCE_ABSENT if args.sensors_absent else 842,
+    "lux": 133,
+    "tempC": TEMP_ABSENT if args.sensors_absent else 24.5,
+}
+
+# SIGUSR1 → 翻轉按鈕（handler 只設旗標，實際處理在主迴圈——與韌體按鈕
+# 邊緣在 loop() 裡處理同構）。
+pending_button_toggle = False
+
+
+def on_sigusr1(signum, frame):
+    global pending_button_toggle
+    pending_button_toggle = True
+
+
+signal.signal(signal.SIGUSR1, on_sigusr1)
 
 
 def clamp(value, lo, hi):
@@ -180,21 +243,40 @@ def remember(cmd_id, nonce):
         state["seen_nonces"] = (state["seen_nonces"] + [nonce])[-DEDUPE_RING:]
 
 
+def pair_locked(now):
+    """鎖定期內？期滿即解鎖並重新計數（韌體 pairLocked()）。"""
+    if not state["pair_locked"]:
+        return False
+    if now >= state["pair_locked_until_ms"]:
+        state["pair_locked"] = False
+        state["pair_failures"] = 0
+        return False
+    return True
+
+
 def build_state():
+    # 欄位集合與順序 = 韌體 buildState()（三方對齊測試會比對這裡）。
     return {
         "type": "state",
         "deviceId": args.device_id,
         "facts": {
-            "button": False,
-            "distanceMm": 842,
-            "lux": 133,
-            "tempC": 24.5,
+            "button": sensors["button"],
+            "distanceMm": sensors["distanceMm"],
+            "lux": sensors["lux"],
+            "tempC": sensors["tempC"],
             "vibeActive": state["vibe_active"],
             "buzzActive": state["buzz_active"],
             "servoAngle": state["servo_angle"],
             "led": state["led"],
         },
     }
+
+
+def push_state_now(now):
+    """按鈕邊緣：立即推播（僅已配對，與韌體 pushStateToPairedLinks 一致）。"""
+    if state["paired"]:
+        emit(build_state())
+        state["last_state_push_ms"] = now
 
 
 def apply_cmd(cid, name, params, now):
@@ -253,6 +335,36 @@ def apply_cmd(cid, name, params, now):
     return False
 
 
+def handle_pair(msg, now):
+    if not args.pairing_code:
+        # 配對停用：韌體同樣誠實回 pair-ok（hello 的 pairing 已是 false）。
+        state["paired"] = True
+        emit({"type": "pair-ok"})
+        return
+    # 暴力猜測防護：鎖定期間不比對碼（也不延長鎖定），誠實回 pair-locked。
+    if pair_locked(now):
+        emit({
+            "type": "pair-fail", "reason": "pair-locked",
+            "retryAfterMs": state["pair_locked_until_ms"] - now,
+        })
+        return
+    if msg.get("code") == args.pairing_code:
+        state["paired"] = True
+        state["pair_failures"] = 0
+        emit({"type": "pair-ok"})
+        return
+    state["pair_failures"] += 1
+    if state["pair_failures"] >= PAIR_MAX_FAILURES:
+        # 第 N 次錯碼：這一則就開始鎖定，回覆一併說明（韌體同規則）。
+        state["pair_locked"] = True
+        state["pair_locked_until_ms"] = now + args.pair_lockout_ms
+        state["pair_failures"] = 0
+        emit({"type": "pair-fail", "reason": "pair-locked",
+              "retryAfterMs": args.pair_lockout_ms})
+        return
+    emit({"type": "pair-fail"})
+
+
 def handle(msg):
     now = now_ms()
     # 韌體順序：先看 type（缺漏/空 → unknown-type），才看配對。
@@ -268,17 +380,10 @@ def handle(msg):
             "proto": 1,
             "caps": ["led.set", "buzzer.beep", "vibe.pulse", "servo.move", "sensors.read"],
             "pairing": args.pairing_code != "" and not state["paired"],
+            "pairingLocked": args.pairing_code != "" and pair_locked(now),
         })
     elif t == "pair":
-        if not args.pairing_code:
-            # 配對停用：韌體同樣誠實回 pair-ok（hello 的 pairing 已是 false）。
-            state["paired"] = True
-            emit({"type": "pair-ok"})
-        elif msg.get("code") == args.pairing_code:
-            state["paired"] = True
-            emit({"type": "pair-ok"})
-        else:
-            emit({"type": "pair-fail"})
+        handle_pair(msg, now)
     elif t == "stop-all":
         # 緊急停止不要求配對（fail-safe：只會把效果關掉）。
         stop_vibe(now)
@@ -332,13 +437,75 @@ def handle(msg):
         emit({"type": "err", "reason": "unknown-type"})   # 韌體同樣回這個
 
 
+# --- 感測面控制通道 ---------------------------------------------------------
+_facts_last_text = None
+
+
+def _valid_fact(key, value):
+    """型別守門：控制檔寫錯型別不得讓模擬器回報韌體不可能回報的值。"""
+    if key == "button":
+        return isinstance(value, bool)
+    if key in ("distanceMm", "lux"):
+        return isinstance(value, int) and not isinstance(value, bool)
+    if key == "tempC":
+        return value is None or (isinstance(value, (int, float)) and not isinstance(value, bool))
+    return False
+
+
+def poll_facts_file(now):
+    """--facts-file 內容變了就套用；按鈕因此翻轉時視同按鈕邊緣（立即推播）。"""
+    global _facts_last_text
+    if not args.facts_file:
+        return
+    try:
+        with open(args.facts_file, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return
+    if text == _facts_last_text:
+        return
+    _facts_last_text = text
+    try:
+        obj = json.loads(text)
+    except Exception as exc:
+        note(f"facts-file ignored (bad json: {exc})")
+        return
+    if not isinstance(obj, dict):
+        note("facts-file ignored (not an object)")
+        return
+    button_before = sensors["button"]
+    for key, value in obj.items():
+        if key not in sensors:
+            note(f"facts-file key ignored: {key}")
+            continue
+        if not _valid_fact(key, value):
+            note(f"facts-file value ignored for {key}: {value!r}")
+            continue
+        sensors[key] = value
+    note(f"facts-file applied: {json.dumps(sensors)}")
+    if sensors["button"] != button_before:
+        push_state_now(now)
+
+
+def poll_button_toggle(now):
+    global pending_button_toggle
+    if not pending_button_toggle:
+        return
+    pending_button_toggle = False
+    sensors["button"] = not sensors["button"]
+    note(f"button toggled by SIGUSR1: {sensors['button']}")
+    push_state_now(now)
+
+
 def tick():
-    """效果到期＋定期 state 推播（韌體 loop() 的等價物）。"""
+    """效果到期＋感測控制通道＋定期 state 推播（韌體 loop() 的等價物）。"""
     now = now_ms()
     if state["vibe_active"] and now >= state["vibe_end_ms"]:
         stop_vibe(now)
     if state["buzz_active"] and now >= state["buzz_end_ms"]:
         stop_buzzer()
+    poll_button_toggle(now)
+    poll_facts_file(now)
     if state["paired"] and (now - state["last_state_push_ms"]) >= STATE_PERIOD_MS:
         state["last_state_push_ms"] = now
         emit(build_state())
@@ -361,6 +528,13 @@ while True:
             buf += chunk
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
+                if len(line) > MAX_LINE_BYTES:
+                    # 韌體 pollSerial()：第 640 個位元組起整行丟棄，換行時回一次
+                    # 無 id 的 bad-json——超長 cmd 在模擬器上不得「照常成功」。
+                    log.write(f">> <{len(line)} bytes dropped: over {MAX_LINE_BYTES}>\n")
+                    log.flush()
+                    emit({"type": "err", "reason": "bad-json"})
+                    continue
                 text = line.decode("utf-8", "replace")
                 if not text.strip():
                     continue            # 空行忽略（韌體 handleMessage 同）

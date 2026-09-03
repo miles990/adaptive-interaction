@@ -8,4 +8,5 @@ publish = false
 [dependencies]
 interaction-tool-schema = { workspace = true }
 interaction-recipe = { workspace = true }
+interaction-character = { path = "../../crates/interaction-character" }
 serde_json = { workspace = true }

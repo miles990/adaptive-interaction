@@ -464,6 +464,14 @@ async fn successful_receptor_read_records_capability_evidence() {
         .as_str()
         .unwrap()
         .contains("desk-light.status"));
+    // note 是一般模式原樣顯示的人話：感知來源＋讀取成功，不出現受器／hello／pair-ok；
+    // 沒有實體連線握手就不得宣稱「報上身分並完成配對」。
+    let note = tested["note"].as_str().unwrap();
+    assert!(note.contains("感知來源"), "{note}");
+    assert!(note.contains("讀取成功"), "{note}");
+    for jargon in ["受器", "hello", "pair-ok", "配對"] {
+        assert!(!note.contains(jargon), "{jargon} leaked into {note}");
+    }
 }
 
 #[tokio::test]
@@ -573,4 +581,9 @@ async fn acknowledged_device_command_records_evidence_for_its_provider() {
     assert_eq!(tested["ok"], Value::Bool(true));
     assert_eq!(tested["how"], Value::from("capability"));
     assert!(tested["note"].as_str().unwrap().contains("acknowledged"));
+    // 人話：回應方式＋已回覆收到，明說不代表已完成；不出現動器。
+    let note = tested["note"].as_str().unwrap();
+    assert!(note.contains("回應方式"), "{note}");
+    assert!(note.contains("不代表已完成"), "{note}");
+    assert!(!note.contains("動器"), "{note}");
 }

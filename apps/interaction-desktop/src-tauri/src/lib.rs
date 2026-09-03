@@ -9,11 +9,15 @@
 //! read and write commands are separate, emergency stop is its own command,
 //! and every input is re-validated by the runtime's policy governor.
 
+mod character_bridge;
+mod character_store;
+mod host_safety;
 mod supervisor;
 mod tray;
 
+use host_safety::{HostSafetyView, HOST_SAFETY_EVENT};
 use interaction_core::{
-    ActionId, ActuatorId, DiscoveryContext, ObservationQuery, PlanId, ReceptorId,
+    ActionId, ActuatorId, DiscoveryContext, EventType, ObservationQuery, PlanId, ReceptorId,
 };
 use interaction_policy::ActionSource;
 use interaction_runtime::{Runtime, RuntimeOptions};
@@ -22,7 +26,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use supervisor::{DesktopPrefs, SupervisorInfo, SupervisorMode, SupervisorState};
-use tauri::{Emitter, Manager, State};
+use tauri::{Emitter, EventTarget, Manager, State};
 
 /// Desktop app state: embedded runtime handle OR external-daemon connection,
 /// plus desktop-local prefs (close behavior, companion) and the tray.
@@ -35,7 +39,17 @@ pub struct AppState {
     tray: Mutex<Option<tray::TrayHandles>>,
     /// Character hit-rect (logical px) inside the companion window.
     companion_hit_rect: Mutex<(f64, f64, f64, f64)>,
+    /// Last applied ignore-cursor-events state, shared by the poll and the
+    /// hit-rect report path so a fresh box is applied at once (perf-claims-018).
+    companion_clickthrough: Mutex<ClickThroughGate>,
     companion_interactive: AtomicBool,
+    /// 最近一次推導的 host 安全視圖（overlay 掛好 listener 時重送用）。
+    host_safety: Mutex<Option<HostSafetyView>>,
+    /// 事件驅動的 tray／overlay 刷新：進行中旗標＋「結束後再跑一次」旗標（合併尖峰，不堆 task）。
+    host_refresh_inflight: AtomicBool,
+    host_refresh_again: AtomicBool,
+    /// app 啟動時間：啟動寬限（`host_safety::STARTING_GRACE_SECS`）以此計算。
+    launched_at: std::time::Instant,
 }
 
 /// Alias used by the tray module.
@@ -133,6 +147,103 @@ impl Backend {
                     base,
                     token,
                     &format!("/v1/presentation/commands/{action_id}"),
+                )
+                .await
+            }
+        }
+    }
+
+    // ---- Character Presentation Protocol：兩種模式共用同一組 HTTP 契約 ----
+    // Embedded 走 Runtime 方法（character_bridge），External 打 /v1/character/*。
+
+    pub async fn character_hello(&self, body: Value) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => character_bridge::hello(rt, body).await,
+            Backend::External { base, token } => {
+                supervisor::daemon_post(base, token, "/v1/character/hello", body).await
+            }
+        }
+    }
+
+    pub async fn character_receipt(
+        &self,
+        instance_id: &str,
+        receipt: Value,
+    ) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => character_bridge::receipt(rt, instance_id, receipt).await,
+            Backend::External { base, token } => {
+                supervisor::daemon_post(
+                    base,
+                    token,
+                    "/v1/character/receipts",
+                    json!({"instanceId": instance_id, "receipt": receipt}),
+                )
+                .await
+            }
+        }
+    }
+
+    pub async fn character_event(&self, instance_id: &str, event: Value) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => character_bridge::event(rt, instance_id, event).await,
+            Backend::External { base, token } => {
+                supervisor::daemon_post(
+                    base,
+                    token,
+                    "/v1/character/events",
+                    json!({"instanceId": instance_id, "event": event}),
+                )
+                .await
+            }
+        }
+    }
+
+    pub async fn character_instances(&self) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => character_bridge::instances(rt).await,
+            Backend::External { base, token } => {
+                supervisor::daemon_get(base, token, "/v1/character/instances").await
+            }
+        }
+    }
+
+    pub async fn character_manifest(&self) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => character_bridge::manifest(rt).await,
+            Backend::External { base, token } => {
+                supervisor::daemon_get(base, token, "/v1/character/manifest").await
+            }
+        }
+    }
+
+    /// 外部 character adapter 清單（不含 token）。
+    pub async fn character_adapters(&self) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => character_bridge::adapters(rt).await,
+            Backend::External { base, token } => {
+                supervisor::daemon_get(base, token, "/v1/character/adapters").await
+            }
+        }
+    }
+
+    /// 撤銷外部 character adapter：token 失效並立即斷線。
+    pub async fn character_adapter_revoke(&self, adapter_id: &str) -> Result<Value, String> {
+        if adapter_id.is_empty()
+            || adapter_id.len() > 128
+            || !adapter_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        {
+            return Err("invalid adapter id".into());
+        }
+        match self {
+            Backend::Embedded(rt) => character_bridge::adapter_revoke(rt, adapter_id).await,
+            Backend::External { base, token } => {
+                supervisor::daemon_delete(
+                    base,
+                    token,
+                    &format!("/v1/character/adapters/{adapter_id}"),
                 )
                 .await
             }
@@ -1282,6 +1393,215 @@ async fn agent_session_verify(
     serde_json::to_value(record).map_err(err_s)
 }
 
+// ---------------------------------------------------------------------------
+// Character Presentation Protocol（桌面視窗＝可信 host）：兩種模式都可用。
+// 參數與回傳形狀與 /v1/character/* 完全相同（camelCase）。
+// ---------------------------------------------------------------------------
+
+fn backend_or_err(state: &State<'_, AppState>) -> Result<Backend, String> {
+    state
+        .backend()
+        .ok_or_else(|| "runtime is not available".to_string())
+}
+
+/// `POST /v1/character/hello` 的 body：省略的選填欄位不送（讓 Runtime 套預設）。
+fn character_hello_body(
+    instance_id: Option<String>,
+    role: Option<String>,
+    manifest: Value,
+    negotiate: Value,
+    visible: bool,
+    pack_id: Option<String>,
+    behavior_state: Option<Value>,
+) -> Value {
+    let mut body = serde_json::Map::new();
+    if let Some(v) = instance_id {
+        body.insert("instanceId".into(), Value::String(v));
+    }
+    if let Some(v) = role {
+        body.insert("role".into(), Value::String(v));
+    }
+    body.insert("manifest".into(), manifest);
+    body.insert("negotiate".into(), negotiate);
+    body.insert("visible".into(), Value::Bool(visible));
+    if let Some(v) = pack_id {
+        body.insert("packId".into(), Value::String(v));
+    }
+    if let Some(v) = behavior_state {
+        body.insert("behaviorState".into(), v);
+    }
+    Value::Object(body)
+}
+
+/// 桌面視窗的 CPP 握手：manifest 摘要＋negotiate → negotiated（generation 由 Runtime 決定）。
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn character_hello(
+    state: State<'_, AppState>,
+    instance_id: Option<String>,
+    role: Option<String>,
+    manifest: Value,
+    negotiate: Value,
+    visible: bool,
+    pack_id: Option<String>,
+    behavior_state: Option<Value>,
+) -> Result<Value, String> {
+    let backend = backend_or_err(&state)?;
+    backend
+        .character_hello(character_hello_body(
+            instance_id,
+            role,
+            manifest,
+            negotiate,
+            visible,
+            pack_id,
+            behavior_state,
+        ))
+        .await
+}
+
+/// 呈現回執（accepted≠started≠completed；completed 只代表演完，verification 永遠 acknowledged-only）。
+#[tauri::command]
+async fn character_receipt(
+    state: State<'_, AppState>,
+    instance_id: String,
+    receipt: Value,
+) -> Result<Value, String> {
+    let backend = backend_or_err(&state)?;
+    backend.character_receipt(&instance_id, receipt).await
+}
+
+/// 受限的角色輸入事件 → Runtime 正規化後成為 receptor observation（仍經 policy／consent）。
+#[tauri::command]
+async fn character_event(
+    state: State<'_, AppState>,
+    instance_id: String,
+    event: Value,
+) -> Result<Value, String> {
+    let backend = backend_or_err(&state)?;
+    backend.character_event(&instance_id, event).await
+}
+
+#[tauri::command]
+async fn character_instances(state: State<'_, AppState>) -> Result<Value, String> {
+    let backend = backend_or_err(&state)?;
+    backend.character_instances().await
+}
+
+/// 目前桌面角色的 manifest；尚未 hello 時 Err（同 HTTP 404）。
+#[tauri::command]
+async fn character_manifest(state: State<'_, AppState>) -> Result<Value, String> {
+    let backend = backend_or_err(&state)?;
+    backend.character_manifest().await
+}
+
+/// 外部 character adapter 清單（連接頁「使用的裝置」用）；永不回傳 token。
+#[tauri::command]
+async fn character_adapters(state: State<'_, AppState>) -> Result<Value, String> {
+    let backend = backend_or_err(&state)?;
+    backend.character_adapters().await
+}
+
+/// 撤銷外部 character adapter（人類操作；WebView 不持有任何 adapter token）。
+#[tauri::command]
+async fn character_adapter_revoke(
+    state: State<'_, AppState>,
+    adapter_id: String,
+) -> Result<Value, String> {
+    let backend = backend_or_err(&state)?;
+    backend.character_adapter_revoke(&adapter_id).await
+}
+
+// ---- 角色匯入（host 本機檔案；驗證交給 interaction-character） ----
+
+/// `character_import` 的資產參數：`{id, base64}`。
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ImportAssetArg {
+    id: String,
+    base64: String,
+}
+
+fn characters_root() -> std::path::PathBuf {
+    character_store::characters_root(&supervisor::interaction_home())
+}
+
+/// 匯入一個 in-process 角色（manifest 原文＋資產）。只驗證、只寫檔；不執行、不連線。
+/// 回 `{characterId, displayName, report, assets}`。
+#[tauri::command]
+async fn character_import(
+    manifest_text: String,
+    assets: Vec<ImportAssetArg>,
+) -> Result<Value, String> {
+    let root = characters_root();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        let mut decoded = Vec::with_capacity(assets.len());
+        for asset in assets {
+            let bytes = character_store::decode_asset_base64(&asset.base64)?;
+            decoded.push(character_store::ImportAssetInput {
+                id: asset.id,
+                bytes,
+            });
+        }
+        character_store::import(&root, &manifest_text, &decoded)
+    })
+    .await
+    .map_err(err_s)??;
+    serde_json::to_value(outcome).map_err(err_s)
+}
+
+/// 已匯入角色清單（`valid:false` 的損毀資料夾也誠實列出，可移除）。
+#[tauri::command]
+async fn character_list_imported() -> Result<Value, String> {
+    let root = characters_root();
+    let list = tauri::async_runtime::spawn_blocking(move || character_store::list(&root))
+        .await
+        .map_err(err_s)?;
+    serde_json::to_value(list).map_err(err_s)
+}
+
+/// 已匯入資產 → data URL（≤ 8 MB；路徑與 magic bytes 讀取時再核對一次）。
+#[tauri::command]
+async fn character_asset(character_id: String, asset_id: String) -> Result<String, String> {
+    let root = characters_root();
+    tauri::async_runtime::spawn_blocking(move || {
+        character_store::asset_data_url(&root, &character_id, &asset_id)
+    })
+    .await
+    .map_err(err_s)?
+}
+
+/// 移除已匯入角色；內建角色一律拒絕。
+#[tauri::command]
+async fn character_remove(character_id: String) -> Result<Value, String> {
+    let root = characters_root();
+    let id = character_id.clone();
+    tauri::async_runtime::spawn_blocking(move || character_store::remove(&root, &id))
+        .await
+        .map_err(err_s)??;
+    Ok(json!({"removed": character_id}))
+}
+
+/// overlay 視窗掛好 listener 後呼叫：host 只把**快取的** HostSafetyView 重送一次。
+/// 只接受 label 為 `overlay` 的呼叫者；其他視窗拿不到、也改不了 overlay 的內容
+/// （main／companion 的 capability 也沒有 event emit 權限）。
+#[tauri::command]
+async fn overlay_attach(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if window.label() != OVERLAY_LABEL {
+        return Err("only the overlay window may attach".into());
+    }
+    let view = state.host_safety.lock().expect("host safety mutex").clone();
+    if let Some(view) = view {
+        app.emit_to(EventTarget::labeled(OVERLAY_LABEL), HOST_SAFETY_EVENT, view)
+            .map_err(err_s)?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn supervisor_info(state: State<'_, AppState>) -> Result<Value, String> {
     let info = state.supervisor.lock().expect("supervisor mutex").clone();
@@ -1351,7 +1671,10 @@ async fn desktop_prefs_patch(
             if f.name.chars().count() > 24 {
                 return Err("familiar name must stay within 24 characters".into());
             }
-            if !matches!(f.palette.as_str(), "maid-classic" | "maid-dusk" | "maid-sakura") {
+            if !matches!(
+                f.palette.as_str(),
+                "maid-classic" | "maid-dusk" | "maid-sakura"
+            ) {
                 return Err("familiar palette must be a bundled palette".into());
             }
         }
@@ -1362,10 +1685,12 @@ async fn desktop_prefs_patch(
         {
             return Err("companionProactiveQuietUntil must be a bounded epoch millisecond".into());
         }
+        // 角色偏好（manifest.preferencesSchema 的值）：有界、只收純量；
+        // 任何不合規的內容整筆拒絕，不靜默丟棄。
+        validate_companion_preferences(&candidate.companion_preferences)?;
         // 角色互動記憶：有界（≤8 玩具/反應、≤20 事件），不做任何推論。
         let mut candidate = candidate;
-        candidate.companion_interaction_memory =
-            candidate.companion_interaction_memory.bounded();
+        candidate.companion_interaction_memory = candidate.companion_interaction_memory.bounded();
         *prefs = candidate;
         prefs.clone()
     };
@@ -1424,6 +1749,17 @@ async fn full_quit(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<
     Ok(())
 }
 
+/// 關閉行為會藏哪些視窗。可信 overlay（`OVERLAY_LABEL`）永遠不在名單內：
+/// 估停／感測／離線指示不能因為使用者關掉控制中心或藏起角色而消失。
+pub(crate) fn windows_hidden_by_close_behavior(behavior: &str) -> &'static [&'static str] {
+    match behavior {
+        "hide-companion" => &["main", "companion"],
+        // hide the control center only.
+        "keep-running" => &["main"],
+        _ => &[],
+    }
+}
+
 fn apply_close_behavior(app: &tauri::AppHandle, behavior: &str) {
     match behavior {
         "quit" => {
@@ -1431,18 +1767,11 @@ fn apply_close_behavior(app: &tauri::AppHandle, behavior: &str) {
             state.quitting.store(true, Ordering::SeqCst);
             app.exit(0);
         }
-        "hide-companion" => {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.hide();
-            }
-            if let Some(w) = app.get_webview_window("companion") {
-                let _ = w.hide();
-            }
-        }
-        "keep-running" => {
-            // hide the control center only.
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.hide();
+        "hide-companion" | "keep-running" => {
+            for label in windows_hidden_by_close_behavior(behavior) {
+                if let Some(w) = app.get_webview_window(label) {
+                    let _ = w.hide();
+                }
             }
         }
         other => {
@@ -1474,14 +1803,38 @@ pub(crate) fn toggle_companion_window(app: &tauri::AppHandle) {
         let _ = supervisor::save_prefs(&prefs);
         prefs.companion_visible
     };
+    apply_companion_visibility(app, visible);
+}
+
+/// Tell the Runtime whether the companion surface is there. Hidden → the
+/// Presentation receptors/actuators must go offline at once (spec §6.1), not
+/// after the hidden WebView's own heartbeat (which is not guaranteed to be
+/// sent) or the 45 s presence timeout. Shared by every host path that shows
+/// or hides the character so tray, prefs and runtime never disagree.
+pub(crate) async fn announce_companion_presence(
+    runtime: Runtime,
+    visible: bool,
+    pack: String,
+) -> Value {
+    runtime
+        .presentation_hello_with_behavior(visible, Some(pack), None)
+        .await
+}
+
+/// The ONE place that turns `prefs.companion_visible` into reality: show or
+/// hide the companion window, tell the Runtime (see
+/// `announce_companion_presence`), tell the WebView, and refresh the tray
+/// label. Callers persist the pref first; the tray toggle, the control-center
+/// switch (`companion_apply_prefs`) and the runtime's `companion.presence.set`
+/// (`companion_set_visible`) all end here, so hiding by any route is the same
+/// hide (director-pipeline-021／-024).
+pub(crate) fn apply_companion_visibility(app: &tauri::AppHandle, visible: bool) {
     if visible {
         ensure_companion_window(app);
     } else if let Some(w) = app.get_webview_window("companion") {
         let _ = w.hide();
     }
-    // 角色被隱藏時 Presentation receptors 必須停止（spec §6.1）：直接告訴
-    // Runtime 這個表面不在了，不等 WebView 自己的心跳（隱藏後不保證會送）。
-    // Runtime/Tray/Agent 狀態不受影響。
+    let state: State<'_, AppState> = app.state();
     let runtime = state.runtime.lock().expect("runtime mutex").clone();
     if let Some(runtime) = runtime {
         let pack = state
@@ -1490,13 +1843,19 @@ pub(crate) fn toggle_companion_window(app: &tauri::AppHandle) {
             .expect("prefs mutex")
             .companion_pack
             .clone();
-        tauri::async_runtime::spawn(async move {
-            let _ = runtime
-                .presentation_hello_with_behavior(visible, Some(pack), None)
-                .await;
-        });
+        tauri::async_runtime::spawn(announce_companion_presence(runtime, visible, pack));
     }
     let _ = app.emit("companion-visibility", visible);
+    // Tray label（顯示／隱藏桌面角色）reads the pref: refresh it now, event-driven.
+    request_host_refresh(app);
+}
+
+/// Honest window state for the callers that ack a runtime command: `true`
+/// only when a companion window exists AND the OS reports it visible.
+fn companion_window_is_visible(app: &tauri::AppHandle) -> bool {
+    app.get_webview_window("companion")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false)
 }
 
 /// 遊玩場視窗尺寸：companion_size 是「角色」大小；視窗加寬給玩具、
@@ -1504,6 +1863,69 @@ pub(crate) fn toggle_companion_window(app: &tauri::AppHandle) {
 /// 64..1024 的驗證間接約束。
 pub(crate) fn companion_window_size(char_size: (f64, f64)) -> (f64, f64) {
     (char_size.0 * 2.6, char_size.1 * 1.35)
+}
+
+/// 角色視窗標題＝使用者設定的角色名字（不再寫死任何角色）；空白時用中立文案。
+pub(crate) fn companion_window_title(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        "桌面角色".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// `companion.window.adjust` 套用計畫：位置／角色尺寸／視窗尺寸／不透明度／置頂。
+/// 視窗尺寸一律經 `companion_window_size`（與 `ensure_companion_window`／
+/// `companion_apply_prefs` 同一個乘數）；否則 AI 調整後的視窗會在下一次
+/// apply／reset 時被重新縮放成另一個大小。
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct WindowAdjustPlan {
+    pub position: (f64, f64),
+    /// 角色尺寸（寫回 `prefs.companion_size`）。
+    pub size: (f64, f64),
+    /// 實際套到視窗的尺寸。
+    pub window_size: (f64, f64),
+    pub opacity: f64,
+    pub on_top: bool,
+}
+
+pub(crate) fn plan_window_adjust(
+    prefs: &DesktopPrefs,
+    params: &serde_json::Map<String, Value>,
+) -> Result<WindowAdjustPlan, String> {
+    let current_position = prefs.companion_position.unwrap_or((0.0, 0.0));
+    let num =
+        |key: &str, fallback: f64| params.get(key).and_then(Value::as_f64).unwrap_or(fallback);
+    let position = (num("x", current_position.0), num("y", current_position.1));
+    let size = (
+        num("width", prefs.companion_size.0),
+        num("height", prefs.companion_size.1),
+    );
+    let opacity = num("opacity", prefs.companion_opacity);
+    let on_top = params
+        .get("alwaysOnTop")
+        .and_then(Value::as_bool)
+        .unwrap_or(prefs.companion_always_on_top);
+    // 與 desktop_prefs_patch 相同的邊界（Runtime 也驗過；這裡是 native 的最後一道）。
+    if !(64.0..=1024.0).contains(&size.0) || !(64.0..=1024.0).contains(&size.1) {
+        return Err("window adjustment size must stay within 64..1024 logical pixels".into());
+    }
+    if !(0.2..=1.0).contains(&opacity) {
+        return Err("window adjustment opacity must stay within 0.2..1.0".into());
+    }
+    if !(-20_000.0..=20_000.0).contains(&position.0)
+        || !(-20_000.0..=20_000.0).contains(&position.1)
+    {
+        return Err("window adjustment position is outside the supported desktop bounds".into());
+    }
+    Ok(WindowAdjustPlan {
+        position,
+        size,
+        window_size: companion_window_size(size),
+        opacity,
+        on_top,
+    })
 }
 
 /// Create (or show) the desktop companion window: transparent, frameless,
@@ -1514,12 +1936,13 @@ pub(crate) fn ensure_companion_window(app: &tauri::AppHandle) {
         return;
     }
     let state: State<'_, AppState> = app.state();
-    let (position, size, on_top) = {
+    let (position, size, on_top, name) = {
         let prefs = state.prefs.lock().expect("prefs mutex");
         (
             prefs.companion_position,
             prefs.companion_size,
             prefs.companion_always_on_top,
+            prefs.companion_name.clone(),
         )
     };
     let mut builder = tauri::WebviewWindowBuilder::new(
@@ -1527,7 +1950,7 @@ pub(crate) fn ensure_companion_window(app: &tauri::AppHandle) {
         "companion",
         tauri::WebviewUrl::App("index.html".into()),
     )
-    .title("小樞")
+    .title(companion_window_title(&name))
     .inner_size(companion_window_size(size).0, companion_window_size(size).1)
     .resizable(false)
     .maximizable(false)
@@ -1551,74 +1974,238 @@ pub(crate) fn ensure_companion_window(app: &tauri::AppHandle) {
 
 /// Poll interval for the click-through decision (ms).
 ///
-/// The renderer now reports the hit-rect at most every ~60ms while the
-/// character walks or a toy rolls (see `hitRectReportPolicy`), so the box this
-/// loop reads is at most that stale; polling at 80ms keeps the total lag under
-/// ~140ms instead of the ~660ms the old 160ms poll + 500ms report could reach.
+/// The poll only has to catch the CURSOR moving. The renderer reports the
+/// hit-rect at most every ~60ms while the character walks or a toy rolls (see
+/// `hitRectReportPolicy`), and `companion_hit_rect` re-evaluates click-through
+/// against the live cursor the moment a report lands, so a character moving
+/// under a still cursor no longer waits for the next tick on top of the
+/// report throttle. Host-side worst case is therefore ~max(80ms poll, 60ms
+/// report) plus IPC/OS dispatch, not the old 80+60ms sum — and it is a bound
+/// from reading the code, not an end-to-end measurement (the perf rig only
+/// times the in-WebView segment; see docs/acceptance-evidence.md).
 pub(crate) const CLICKTHROUGH_POLL_MS: u64 = 80;
 
 /// Upper bound for the local "stay quiet" pref (epoch ms, ~year 2100).
 pub(crate) const MAX_QUIET_UNTIL_MS: f64 = 4_102_444_800_000.0;
 
+/// 角色偏好表（`DesktopPrefs.companion_preferences`）的上限：最多幾個角色。
+pub(crate) const MAX_COMPANION_PREFERENCE_CHARACTERS: usize = 16;
+/// 每個角色最多幾個偏好鍵（與 manifest `preferencesSchema.properties ≤ 32` 一致）。
+pub(crate) const MAX_COMPANION_PREFERENCE_KEYS: usize = 32;
+/// 字串偏好值的長度上限（與 manifest `preferencesSchema` string `maxLength ≤ 200` 一致）。
+pub(crate) const MAX_COMPANION_PREFERENCE_STRING_CHARS: usize = 200;
+
+/// `characterId` 規則（docs/character-protocol/README.md §2）：`^[a-z0-9][a-z0-9._-]{0,63}$`。
+pub(crate) fn is_valid_character_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first.is_ascii_lowercase() || first.is_ascii_digit()) {
+        return false;
+    }
+    let rest = chars.as_str();
+    rest.len() <= 63
+        && rest
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
+}
+
+/// 偏好鍵規則：`^[a-zA-Z0-9_.-]{1,64}$`。
+pub(crate) fn is_valid_preference_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= 64
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+}
+
+/// 角色偏好表驗證：≤16 個角色、每角色 ≤32 鍵、值只能是 bool／有限數字／≤200 字字串。
+/// 其他型別（null、陣列、物件）一律拒絕——偏好只是純量，不是任意 JSON 倉庫。
+/// 錯誤訊息只回顯 id／鍵，不回顯值。
+pub(crate) fn validate_companion_preferences(
+    map: &BTreeMap<String, BTreeMap<String, Value>>,
+) -> Result<(), String> {
+    if map.len() > MAX_COMPANION_PREFERENCE_CHARACTERS {
+        return Err(format!(
+            "companionPreferences may hold at most {MAX_COMPANION_PREFERENCE_CHARACTERS} characters"
+        ));
+    }
+    for (character_id, values) in map {
+        if !is_valid_character_id(character_id) {
+            return Err(
+                "companionPreferences key must be a characterId (^[a-z0-9][a-z0-9._-]{0,63}$)"
+                    .into(),
+            );
+        }
+        if values.len() > MAX_COMPANION_PREFERENCE_KEYS {
+            return Err(format!(
+                "companionPreferences[{character_id}] may hold at most {MAX_COMPANION_PREFERENCE_KEYS} keys"
+            ));
+        }
+        for (key, value) in values {
+            if !is_valid_preference_key(key) {
+                return Err(format!(
+                    "companionPreferences[{character_id}] has an invalid key (must match ^[a-zA-Z0-9_.-]{{1,64}}$)"
+                ));
+            }
+            match value {
+                Value::Bool(_) => {}
+                Value::Number(n) => {
+                    if !n.as_f64().is_some_and(f64::is_finite) {
+                        return Err(format!(
+                            "companionPreferences[{character_id}].{key} must be a finite number"
+                        ));
+                    }
+                }
+                Value::String(s) => {
+                    if s.chars().count() > MAX_COMPANION_PREFERENCE_STRING_CHARS {
+                        return Err(format!(
+                            "companionPreferences[{character_id}].{key} must stay within {MAX_COMPANION_PREFERENCE_STRING_CHARS} characters"
+                        ));
+                    }
+                }
+                Value::Null | Value::Array(_) | Value::Object(_) => {
+                    return Err(format!(
+                        "companionPreferences[{character_id}].{key} must be a boolean, a number, or a string"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Everything the click-through decision looks at, in physical px except the
+/// hit-rect (logical, window-relative — exactly as the renderer reports it).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ClickThroughProbe {
+    /// Global cursor position.
+    pub cursor: (f64, f64),
+    /// Companion window outer position.
+    pub window_pos: (f64, f64),
+    /// Companion window outer size.
+    pub window_size: (f64, f64),
+    /// Window scale factor (logical → physical).
+    pub scale: f64,
+    /// Character hit-rect (logical px inside the window).
+    pub hit_rect: (f64, f64, f64, f64),
+    /// Menus/inputs open → the whole window accepts the cursor.
+    pub interactive: bool,
+}
+
+/// Pure click-through decision: should the window ignore cursor events?
+///
+/// `true` only when the cursor is inside the window but on transparent
+/// padding. An interactive window and a cursor outside the window both answer
+/// `false` — the latter re-arms interactivity so the next approach over the
+/// character is clickable again.
+pub(crate) fn clickthrough_want_ignore(p: &ClickThroughProbe) -> bool {
+    if p.interactive {
+        return false;
+    }
+    let (cx, cy) = p.cursor;
+    let (wx, wy) = p.window_pos;
+    let (ww, wh) = p.window_size;
+    let inside_window = cx >= wx && cx < wx + ww && cy >= wy && cy < wy + wh;
+    if !inside_window {
+        return false;
+    }
+    let (rx, ry, rw, rh) = p.hit_rect;
+    let rx = wx + rx * p.scale;
+    let ry = wy + ry * p.scale;
+    let rw = rw * p.scale;
+    let rh = rh * p.scale;
+    let on_character = cx >= rx && cx < rx + rw && cy >= ry && cy < ry + rh;
+    !on_character
+}
+
+/// Last applied ignore-cursor-events state. `decide` returns `Some(next)`
+/// only when the window actually has to be toggled, so both callers (the
+/// poll and the hit-rect report) stay idempotent and never double-toggle.
+#[derive(Debug, Default)]
+pub(crate) struct ClickThroughGate {
+    ignoring: bool,
+}
+
+impl ClickThroughGate {
+    pub(crate) fn decide(&mut self, want_ignore: bool) -> Option<bool> {
+        if want_ignore == self.ignoring {
+            None
+        } else {
+            self.ignoring = want_ignore;
+            Some(want_ignore)
+        }
+    }
+
+    /// A freshly built window accepts the cursor: forget stale state.
+    pub(crate) fn reset(&mut self) {
+        self.ignoring = false;
+    }
+}
+
+/// One click-through evaluation against the live cursor. Shared by the poll
+/// and by `companion_hit_rect`, so a fresh box from the renderer is applied
+/// immediately instead of waiting for the next tick.
+fn apply_companion_clickthrough(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
+    if !win.is_visible().unwrap_or(false) {
+        return;
+    }
+    let state: State<'_, AppState> = app.state();
+    let (Ok(cursor), Ok(pos), Ok(size)) = (
+        app.cursor_position(),
+        win.outer_position(),
+        win.outer_size(),
+    ) else {
+        return;
+    };
+    // Character hit-rect in logical px (reported by the renderer; defaults
+    // cover the sprite's bounding box).
+    let hit_rect = *state.companion_hit_rect.lock().expect("hit rect");
+    let probe = ClickThroughProbe {
+        cursor: (cursor.x, cursor.y),
+        window_pos: (pos.x as f64, pos.y as f64),
+        window_size: (size.width as f64, size.height as f64),
+        scale: win.scale_factor().unwrap_or(1.0),
+        hit_rect,
+        interactive: state.companion_interactive.load(Ordering::SeqCst),
+    };
+    let want_ignore = clickthrough_want_ignore(&probe);
+    // Hold the gate across the toggle so a concurrent report and poll cannot
+    // interleave decide/apply and leave the window in the other state.
+    let mut gate = state
+        .companion_clickthrough
+        .lock()
+        .expect("clickthrough gate");
+    if let Some(next) = gate.decide(want_ignore) {
+        let _ = win.set_ignore_cursor_events(next);
+    }
+}
+
 /// Click-through for the transparent padding around the character: a small
 /// Rust poll toggles ignore-cursor-events from the GLOBAL cursor position, so
 /// clicks outside the character's hit-rect pass through to whatever is
 /// underneath. The WebView cannot change policy here — it only reports where
-/// the character is drawn.
+/// the character is drawn (and that report re-evaluates at once, see
+/// `companion_hit_rect`).
 fn spawn_companion_clickthrough(app: tauri::AppHandle) {
+    {
+        // The window was just built and accepts the cursor; a gate left over
+        // from a previous companion window must not skip the first toggle.
+        let state: State<'_, AppState> = app.state();
+        state
+            .companion_clickthrough
+            .lock()
+            .expect("clickthrough gate")
+            .reset();
+    }
     tauri::async_runtime::spawn(async move {
-        let mut ignoring = false;
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(CLICKTHROUGH_POLL_MS)).await;
             let Some(win) = app.get_webview_window("companion") else {
                 return; // window gone; a new one spawns a new loop
             };
-            if !win.is_visible().unwrap_or(false) {
-                continue;
-            }
-            let state: State<'_, AppState> = app.state();
-            if state.companion_interactive.load(Ordering::SeqCst) {
-                if ignoring {
-                    let _ = win.set_ignore_cursor_events(false);
-                    ignoring = false;
-                }
-                continue;
-            }
-            let (Ok(cursor), Ok(pos), Ok(size)) = (
-                app.cursor_position(),
-                win.outer_position(),
-                win.outer_size(),
-            ) else {
-                continue;
-            };
-            let inside_window = cursor.x >= pos.x as f64
-                && cursor.x < (pos.x + size.width as i32) as f64
-                && cursor.y >= pos.y as f64
-                && cursor.y < (pos.y + size.height as i32) as f64;
-            if !inside_window {
-                // Re-arm interactivity whenever the cursor is away so the next
-                // approach over the character is clickable again.
-                if ignoring {
-                    let _ = win.set_ignore_cursor_events(false);
-                    ignoring = false;
-                }
-                continue;
-            }
-            // Character hit-rect in physical px (reported by the renderer;
-            // defaults cover the sprite's bounding box).
-            let scale = win.scale_factor().unwrap_or(1.0);
-            let rect = *state.companion_hit_rect.lock().expect("hit rect");
-            let rx = pos.x as f64 + rect.0 * scale;
-            let ry = pos.y as f64 + rect.1 * scale;
-            let rw = rect.2 * scale;
-            let rh = rect.3 * scale;
-            let on_character =
-                cursor.x >= rx && cursor.x < rx + rw && cursor.y >= ry && cursor.y < ry + rh;
-            let want_ignore = !on_character;
-            if want_ignore != ignoring {
-                let _ = win.set_ignore_cursor_events(want_ignore);
-                ignoring = want_ignore;
-            }
+            apply_companion_clickthrough(&app, &win);
         }
     });
 }
@@ -1669,8 +2256,9 @@ async fn companion_hit_rect(
 ) -> Result<(), String> {
     // Window size in logical px (fall back to the pref-derived stage size when
     // the window is not up yet — never trust the caller's numbers blindly).
-    let (win_w, win_h) = app
-        .get_webview_window("companion")
+    let win = app.get_webview_window("companion");
+    let (win_w, win_h) = win
+        .as_ref()
         .and_then(|win| {
             let scale = win.scale_factor().unwrap_or(1.0);
             win.inner_size()
@@ -1683,6 +2271,12 @@ async fn companion_hit_rect(
         });
     let rect = clamp_hit_rect(x, y, w, h, win_w, win_h)?;
     *state.companion_hit_rect.lock().expect("hit rect") = rect;
+    // A fresh box means the character (or a toy) moved: re-evaluate against
+    // the live cursor now rather than on the next poll tick, so the lag is
+    // the report throttle alone, not throttle + poll.
+    if let Some(win) = win {
+        apply_companion_clickthrough(&app, &win);
+    }
     Ok(())
 }
 
@@ -1698,14 +2292,17 @@ async fn companion_set_interactive(
     Ok(())
 }
 
-/// Apply companion-related prefs live: visibility, always-on-top, and a
-/// reload so pack/persona/expressiveness changes take effect.
+/// Apply companion-related prefs live: visibility, always-on-top, title, and a
+/// reload so character/persona/expressiveness changes take effect.
+///
+/// 只碰 `companion`；可信 overlay（`OVERLAY_LABEL`）的顯示與否由 `refresh_tray`
+/// 依安全狀態決定，藏角色不會藏掉估停／感測指示。
 #[tauri::command]
 async fn companion_apply_prefs(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let (visible, position, size, opacity, on_top) = {
+    let (visible, position, size, opacity, on_top, name) = {
         let prefs = state.prefs.lock().expect("prefs mutex");
         (
             prefs.companion_visible,
@@ -1713,11 +2310,18 @@ async fn companion_apply_prefs(
             prefs.companion_size,
             prefs.companion_opacity,
             prefs.companion_always_on_top,
+            prefs.companion_name.clone(),
         )
     };
+    // Show／hide goes through the same path as the tray toggle and the
+    // runtime's presence-set: window + Runtime hello + WebView event + tray
+    // label together. Hiding here used to only `w.hide()`, leaving the
+    // Runtime to find out from a heartbeat the hidden WebView may never send
+    // (director-pipeline-024).
+    apply_companion_visibility(&app, visible);
     if visible {
-        ensure_companion_window(&app);
         if let Some(w) = app.get_webview_window("companion") {
+            let _ = w.set_title(&companion_window_title(&name));
             let _ = w.set_always_on_top(on_top);
             let win = companion_window_size(size);
             let _ = w.set_size(tauri::LogicalSize::new(win.0, win.1));
@@ -1727,10 +2331,44 @@ async fn companion_apply_prefs(
         }
         let _ = app.emit("companion-opacity", opacity);
         let _ = app.emit("companion-reload", ());
-    } else if let Some(w) = app.get_webview_window("companion") {
-        let _ = w.hide();
     }
     Ok(())
+}
+
+/// Show or hide the companion for a caller that has to answer honestly —
+/// the WebView acking the Runtime's `companion.presence.set` (presentation
+/// actuator, AI-callable). Persists the pref, applies it through the same
+/// path as the tray toggle, and returns the window state the OS reports;
+/// `Err` when the window did not follow, so the caller acks `failed`, never
+/// `completed` for a hide/show that did not happen (director-pipeline-021).
+#[tauri::command]
+async fn companion_set_visible(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    visible: bool,
+) -> Result<Value, String> {
+    {
+        let mut prefs = state.prefs.lock().expect("prefs mutex");
+        prefs.companion_visible = visible;
+        supervisor::save_prefs(&prefs)?;
+    }
+    apply_companion_visibility(&app, visible);
+    confirm_companion_visibility(visible, companion_window_is_visible(&app))
+}
+
+/// Honesty ladder for `companion_set_visible`: the answer is the OS-reported
+/// window state, and a mismatch with the request is an error (→ the WebView
+/// acks `failed`), never a `completed` for a show/hide that did not happen.
+pub(crate) fn confirm_companion_visibility(requested: bool, actual: bool) -> Result<Value, String> {
+    let word = |v: bool| if v { "visible" } else { "hidden" };
+    if actual != requested {
+        return Err(format!(
+            "companion window is {} after asking for {}",
+            word(actual),
+            word(requested)
+        ));
+    }
+    Ok(json!({ "visible": actual }))
 }
 
 #[tauri::command]
@@ -1772,62 +2410,42 @@ async fn companion_window_adjust(
         .and_then(Value::as_object)
         .ok_or_else(|| "authorized window adjustment has no parameters".to_string())?;
 
-    let (position, size, opacity, on_top) = {
+    let plan = {
         let mut prefs = state.prefs.lock().expect("prefs mutex");
-        let current_position = prefs.companion_position.unwrap_or((0.0, 0.0));
-        let position = (
-            params
-                .get("x")
-                .and_then(Value::as_f64)
-                .unwrap_or(current_position.0),
-            params
-                .get("y")
-                .and_then(Value::as_f64)
-                .unwrap_or(current_position.1),
-        );
-        let size = (
-            params
-                .get("width")
-                .and_then(Value::as_f64)
-                .unwrap_or(prefs.companion_size.0),
-            params
-                .get("height")
-                .and_then(Value::as_f64)
-                .unwrap_or(prefs.companion_size.1),
-        );
-        let opacity = params
-            .get("opacity")
-            .and_then(Value::as_f64)
-            .unwrap_or(prefs.companion_opacity);
-        let on_top = params
-            .get("alwaysOnTop")
-            .and_then(Value::as_bool)
-            .unwrap_or(prefs.companion_always_on_top);
-        prefs.companion_position = Some(position);
-        prefs.companion_size = size;
-        prefs.companion_opacity = opacity;
-        prefs.companion_always_on_top = on_top;
+        let plan = plan_window_adjust(&prefs, params)?;
+        prefs.companion_position = Some(plan.position);
+        prefs.companion_size = plan.size;
+        prefs.companion_opacity = plan.opacity;
+        prefs.companion_always_on_top = plan.on_top;
         supervisor::save_prefs(&prefs)?;
-        (position, size, opacity, on_top)
+        plan
     };
 
     let window = app
         .get_webview_window("companion")
         .ok_or_else(|| "companion window is not present".to_string())?;
     window
-        .set_position(tauri::LogicalPosition::new(position.0, position.1))
+        .set_position(tauri::LogicalPosition::new(
+            plan.position.0,
+            plan.position.1,
+        ))
         .map_err(err_s)?;
+    // 角色尺寸 → 視窗尺寸走同一個乘數（與 ensure_companion_window／apply_prefs 一致）。
     window
-        .set_size(tauri::LogicalSize::new(size.0, size.1))
+        .set_size(tauri::LogicalSize::new(
+            plan.window_size.0,
+            plan.window_size.1,
+        ))
         .map_err(err_s)?;
-    window.set_always_on_top(on_top).map_err(err_s)?;
-    app.emit("companion-opacity", opacity).map_err(err_s)?;
+    window.set_always_on_top(plan.on_top).map_err(err_s)?;
+    app.emit("companion-opacity", plan.opacity).map_err(err_s)?;
     Ok(json!({
         "actionId": action_id,
-        "position": position,
-        "size": size,
-        "opacity": opacity,
-        "alwaysOnTop": on_top,
+        "position": plan.position,
+        "size": plan.size,
+        "windowSize": plan.window_size,
+        "opacity": plan.opacity,
+        "alwaysOnTop": plan.on_top,
     }))
 }
 
@@ -1849,11 +2467,152 @@ pub(crate) fn full_quit_from_tray(app: &tauri::AppHandle) {
     app.exit(0);
 }
 
-/// Refresh tray texts/glyph from the live backend state.
+// ---------------------------------------------------------------------------
+// 可信 host overlay：estop／感測／離線的固定文字指示，獨立於角色 renderer。
+// ---------------------------------------------------------------------------
+
+/// 可信 host overlay 視窗標籤。
+pub(crate) const OVERLAY_LABEL: &str = "overlay";
+/// overlay 視窗邏輯尺寸（放得下 estop＋離線＋麥克風＋攝影機四行）。
+pub(crate) const OVERLAY_SIZE: (f64, f64) = (340.0, 200.0);
+/// 距主螢幕工作區右上角的邊距（邏輯 px）。
+pub(crate) const OVERLAY_MARGIN: f64 = 12.0;
+
+/// 主螢幕工作區（實體 px）→ overlay 左上角邏輯座標（右上角對齊）。
+pub(crate) fn overlay_anchor_top_right(
+    work_x: f64,
+    work_y: f64,
+    work_w: f64,
+    scale: f64,
+) -> (f64, f64) {
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
+    let left = work_x / scale;
+    let right = (work_x + work_w) / scale;
+    let top = work_y / scale;
+    (
+        (right - OVERLAY_SIZE.0 - OVERLAY_MARGIN).max(left),
+        top + OVERLAY_MARGIN,
+    )
+}
+
+fn overlay_position(app: &tauri::AppHandle) -> Option<(f64, f64)> {
+    let monitor = app.primary_monitor().ok().flatten()?;
+    let area = monitor.work_area();
+    Some(overlay_anchor_top_right(
+        area.position.x as f64,
+        area.position.y as f64,
+        area.size.width as f64,
+        monitor.scale_factor(),
+    ))
+}
+
+/// 建立 overlay：透明、無邊框、無陰影、不進工作列、永遠置頂、不取焦點，
+/// 建好立刻忽略游標事件（永遠 click-through，不像 companion 需要 hit-rect 輪詢）。
+/// 內容只由 `host-safety` 事件驅動；WebView 端不呼叫任何 api.*。
+fn create_overlay_window(app: &tauri::AppHandle) {
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        app,
+        OVERLAY_LABEL,
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title("安全狀態")
+    .inner_size(OVERLAY_SIZE.0, OVERLAY_SIZE.1)
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .skip_taskbar(true)
+    .always_on_top(true)
+    .visible_on_all_workspaces(true)
+    .focused(false)
+    .accept_first_mouse(false);
+    if let Some((x, y)) = overlay_position(app) {
+        builder = builder.position(x, y);
+    }
+    match builder.build() {
+        Ok(win) => {
+            if let Err(e) = win.set_ignore_cursor_events(true) {
+                tracing::warn!(error = %e, "overlay ignore-cursor-events failed");
+            }
+        }
+        Err(e) => tracing::error!(error = %e, "overlay window create failed"),
+    }
+}
+
+/// 依安全視圖同步 overlay：需要時建立並推送內容；不需要時關閉。
+///
+/// 不用 hide()/show()：macOS 的 show 會把視窗設為 key window（搶焦點），而
+/// overlay 永遠不可以搶焦點；重新建立時 `focused(false)` 才有效。建立瞬間的
+/// 那一次 emit 可能趕在 listener 之前，因此 overlay 掛好後會呼叫 `overlay_attach`
+/// 把快取的視圖再拿一次。
+fn sync_overlay_window(app: &tauri::AppHandle, view: &HostSafetyView) {
+    let state: State<'_, AppState> = app.state();
+    *state.host_safety.lock().expect("host safety mutex") = Some(view.clone());
+    let existing = app.get_webview_window(OVERLAY_LABEL);
+    if view.active {
+        if existing.is_none() {
+            create_overlay_window(app);
+        }
+        let _ = app.emit_to(EventTarget::labeled(OVERLAY_LABEL), HOST_SAFETY_EVENT, view);
+    } else if let Some(win) = existing {
+        let _ = win.close();
+    }
+}
+
+/// 哪些 Runtime 事件會改變 host 安全視圖（estop 進入／解除、感測開始／停止、
+/// 手機連線變化＝手機麥克風可能停了）：要立刻刷新 tray 與 overlay，不等 4 秒輪詢。
+pub(crate) fn host_safety_relevant(event_type: &EventType) -> bool {
+    matches!(
+        event_type,
+        EventType::EmergencyStop
+            | EventType::SensorStarted
+            | EventType::SensorStopped
+            | EventType::ProviderStateChanged
+    )
+}
+
+/// 事件驅動的刷新（合併：進行中就記一筆「再跑一次」，不堆 task、不無界）。
+pub(crate) fn request_host_refresh(app: &tauri::AppHandle) {
+    let state: State<'_, AppState> = app.state();
+    if state
+        .host_refresh_inflight
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        state.host_refresh_again.store(true, Ordering::SeqCst);
+        return;
+    }
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            refresh_tray(&handle).await;
+            let state: State<'_, AppState> = handle.state();
+            if !state.host_refresh_again.swap(false, Ordering::SeqCst) {
+                break;
+            }
+        }
+        let state: State<'_, AppState> = handle.state();
+        state.host_refresh_inflight.store(false, Ordering::SeqCst);
+        // 收尾縫隙：剛才那一瞬間又有人要求刷新 → 再排一次，不遺漏。
+        if state.host_refresh_again.swap(false, Ordering::SeqCst) {
+            request_host_refresh(&handle);
+        }
+    });
+}
+
+/// Refresh tray texts/glyph AND the trusted overlay from the live backend state.
+/// 兩者共用同一份 `HostSafetyView`（host_safety.rs），所以永遠一致；
+/// 兩種模式都走 `Backend::status`（embedded 直呼、external 打 HTTP）。
 pub(crate) async fn refresh_tray(app: &tauri::AppHandle) {
     let state: State<'_, AppState> = app.state();
     let backend = state.backend();
-    let (ready, external) = {
+    let (ready, starting, external) = {
         let info = state.supervisor.lock().expect("supervisor mutex");
         (
             matches!(
@@ -1862,58 +2621,32 @@ pub(crate) async fn refresh_tray(app: &tauri::AppHandle) {
                     | SupervisorState::EmbeddedOwned
                     | SupervisorState::ConnectedToExternal
             ),
+            info.state == SupervisorState::Starting
+                && state.launched_at.elapsed().as_secs() < host_safety::STARTING_GRACE_SECS,
             info.mode == SupervisorMode::External,
         )
     };
-    let (mut estop, mut paused, mut sessions) = (false, false, 0usize);
-    let (mut mic_active, mut camera_active) = (false, false);
-    let mut reachable = ready;
-    if let Some(b) = backend {
-        match b.status().await {
-            Ok(s) => {
-                estop = s
-                    .get("emergencyStop")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                paused = s
-                    .pointer("/proactivePause/paused")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                sessions = s.get("agentSessions").and_then(Value::as_u64).unwrap_or(0) as usize;
-                // Sensor privacy indicator: reflect real capture in the tray
-                // glyph (the "no silent capture" contract). status.activeSensors
-                // is present in both embedded and external modes.
-                if let Some(list) = s.get("activeSensors").and_then(Value::as_array) {
-                    mic_active = list
-                        .iter()
-                        .any(|x| x.get("kind").and_then(Value::as_str) == Some("microphone"));
-                    camera_active = list
-                        .iter()
-                        .any(|x| x.get("kind").and_then(Value::as_str) == Some("camera"));
-                }
-            }
-            Err(_) => reachable = false,
-        }
-    } else {
-        reachable = false;
-    }
-    let view = tray::tray_view(
-        reachable,
-        external,
-        estop,
-        paused,
-        sessions,
-        mic_active,
-        camera_active,
-    );
+    let status = match backend {
+        Some(b) => b.status().await.ok(),
+        None => None,
+    };
+    let sessions = status
+        .as_ref()
+        .and_then(|s| s.get("agentSessions"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    // Sensor privacy indicator: status.activeSensors is present in both
+    // embedded and external modes (local capture + iPhone streaming).
+    let view = HostSafetyView::derive(ready, starting, status.as_ref(), chrono::Utc::now());
+    let tray_view = tray::tray_view(&view, external, sessions);
     let companion_visible = state.prefs.lock().expect("prefs mutex").companion_visible;
     {
         let guard = state.tray.lock().expect("tray mutex");
         if let Some(handles) = guard.as_ref() {
-            let _ = handles.info_status.set_text(&view.status_text);
-            let _ = handles.info_pause.set_text(&view.pause_text);
-            let _ = handles.info_sessions.set_text(&view.sessions_text);
-            let _ = handles.toggle_pause.set_text(&view.pause_action_text);
+            let _ = handles.info_status.set_text(&tray_view.status_text);
+            let _ = handles.info_pause.set_text(&tray_view.pause_text);
+            let _ = handles.info_sessions.set_text(&tray_view.sessions_text);
+            let _ = handles.toggle_pause.set_text(&tray_view.pause_action_text);
             let _ = handles.toggle_companion.set_text(if companion_visible {
                 "隱藏桌面角色"
             } else {
@@ -1921,10 +2654,11 @@ pub(crate) async fn refresh_tray(app: &tauri::AppHandle) {
             });
             #[cfg(target_os = "macos")]
             {
-                let _ = handles.tray.set_title(view.title_glyph);
+                let _ = handles.tray.set_title(tray_view.title_glyph);
             }
         }
     };
+    sync_overlay_window(app, &view);
 }
 
 /// Decide embedded vs external and bring the backend up (spec §6).
@@ -2000,12 +2734,26 @@ async fn start_supervised(handle: tauri::AppHandle) {
     .await
     {
         Ok(runtime) => {
-            // Forward runtime events to the WebView.
+            // Forward runtime events to the WebView, and let estop/sensor
+            // events refresh tray + overlay immediately (event-driven, not 4 s).
             let mut rx = runtime.events.subscribe();
             let event_handle = handle.clone();
             tauri::async_runtime::spawn(async move {
-                while let Ok(event) = rx.recv().await {
-                    let _ = event_handle.emit("runtime-event", &event);
+                loop {
+                    match rx.recv().await {
+                        Ok(event) => {
+                            let _ = event_handle.emit("runtime-event", &event);
+                            if host_safety_relevant(&event.event_type) {
+                                request_host_refresh(&event_handle);
+                            }
+                        }
+                        // 慢消費者落後：跳過被覆蓋的事件、繼續轉送；不能因此永遠停掉。
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(dropped)) => {
+                            tracing::warn!(dropped, "runtime event forwarder lagged");
+                            request_host_refresh(&event_handle);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
                 }
             });
             // Serve the HTTP API so CLI/agents share this instance. A bind
@@ -2099,7 +2847,12 @@ pub fn run() {
             tray: Mutex::new(None),
             // Default hit-rect ≈ the sprite's body area at scale 1.1.
             companion_hit_rect: Mutex::new((30.0, 30.0, 120.0, 150.0)),
+            companion_clickthrough: Mutex::new(ClickThroughGate::default()),
             companion_interactive: AtomicBool::new(false),
+            host_safety: Mutex::new(None),
+            host_refresh_inflight: AtomicBool::new(false),
+            host_refresh_again: AtomicBool::new(false),
+            launched_at: std::time::Instant::now(),
         })
         .setup(|app| {
             // Status-bar presence first: the tray exists even while starting.
@@ -2226,6 +2979,7 @@ pub fn run() {
             companion_set_interactive,
             companion_open_control_center,
             companion_apply_prefs,
+            companion_set_visible,
             companion_window_adjust,
             companion_reset_position,
             agent_sessions_list,
@@ -2280,6 +3034,18 @@ pub fn run() {
             asset_impact,
             asset_delete,
             sensors_stop,
+            character_hello,
+            character_receipt,
+            character_event,
+            character_instances,
+            character_manifest,
+            character_adapters,
+            character_adapter_revoke,
+            character_import,
+            character_list_imported,
+            character_asset,
+            character_remove,
+            overlay_attach,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -2322,7 +3088,199 @@ mod tests {
             poll <= renderer_max_quiet_ms + 40,
             "poll {poll}ms lags too far behind the renderer's {renderer_max_quiet_ms}ms reports"
         );
-        assert!(poll >= 40, "polling faster than 40ms wastes CPU for no gain");
+        assert!(
+            poll >= 40,
+            "polling faster than 40ms wastes CPU for no gain"
+        );
+    }
+
+    /// Pure click-through decision (physical px, 2x Retina): the transparent
+    /// padding ignores the cursor, the character accepts it, an interactive
+    /// window (menu open) and a cursor outside the window always re-arm.
+    #[test]
+    fn clickthrough_decision_ignores_padding_and_accepts_character() {
+        // Window at (100, 200) physical, 1040×568 physical (520×284 logical @2x);
+        // character box (30, 20, 52, 124) logical → (160, 240)..(264, 488) physical.
+        let base = ClickThroughProbe {
+            cursor: (0.0, 0.0),
+            window_pos: (100.0, 200.0),
+            window_size: (1040.0, 568.0),
+            scale: 2.0,
+            hit_rect: (30.0, 20.0, 52.0, 124.0),
+            interactive: false,
+        };
+        // On the character: accept the cursor.
+        assert!(!clickthrough_want_ignore(&ClickThroughProbe {
+            cursor: (200.0, 300.0),
+            ..base
+        }));
+        // Inside the window but on transparent padding: click-through.
+        assert!(clickthrough_want_ignore(&ClickThroughProbe {
+            cursor: (900.0, 300.0),
+            ..base
+        }));
+        // Boundary: the box is half-open, so its right/bottom edge is padding.
+        assert!(!clickthrough_want_ignore(&ClickThroughProbe {
+            cursor: (263.9, 487.9),
+            ..base
+        }));
+        assert!(clickthrough_want_ignore(&ClickThroughProbe {
+            cursor: (264.0, 300.0),
+            ..base
+        }));
+        // Outside the window: re-arm so the next approach is clickable.
+        assert!(!clickthrough_want_ignore(&ClickThroughProbe {
+            cursor: (10.0, 10.0),
+            ..base
+        }));
+        // Menus/inputs open: the whole window accepts the cursor, padding included.
+        assert!(!clickthrough_want_ignore(&ClickThroughProbe {
+            cursor: (900.0, 300.0),
+            interactive: true,
+            ..base
+        }));
+    }
+
+    /// Regression (perf-claims-018): a fresh hit-rect report must re-evaluate
+    /// click-through at once — a character walking under a still cursor used
+    /// to wait for the next 80ms poll on top of the ≤60ms report throttle.
+    /// `companion_hit_rect` and the poll share one gate, so the report itself
+    /// flips ignore-cursor-events and the following poll has nothing to do.
+    #[test]
+    fn hit_rect_update_reevaluates_without_waiting_for_poll() {
+        let mut gate = ClickThroughGate::default();
+        let still_cursor = (900.0, 300.0);
+        let old_rect = (30.0, 20.0, 52.0, 124.0); // character far left
+        let probe = |hit_rect: (f64, f64, f64, f64)| ClickThroughProbe {
+            cursor: still_cursor,
+            window_pos: (100.0, 200.0),
+            window_size: (1040.0, 568.0),
+            scale: 2.0,
+            hit_rect,
+            interactive: false,
+        };
+        // Poll tick: cursor on padding → start ignoring.
+        assert_eq!(
+            gate.decide(clickthrough_want_ignore(&probe(old_rect))),
+            Some(true)
+        );
+        // The character walks under the cursor; the renderer reports the new box.
+        // Cursor (900,300) physical = window-relative (400, 50) logical @2x.
+        let new_rect = (380.0, 20.0, 52.0, 124.0);
+        // The report path applies the decision immediately (no poll in between).
+        assert_eq!(
+            gate.decide(clickthrough_want_ignore(&probe(new_rect))),
+            Some(false)
+        );
+        // The next poll sees the same answer and must not toggle again.
+        assert_eq!(
+            gate.decide(clickthrough_want_ignore(&probe(new_rect))),
+            None
+        );
+        // A new companion window starts out accepting the cursor: reset forgets
+        // the stale "ignoring" state so the first padding poll re-applies it.
+        assert_eq!(
+            gate.decide(clickthrough_want_ignore(&probe(old_rect))),
+            Some(true)
+        );
+        gate.reset();
+        assert_eq!(
+            gate.decide(clickthrough_want_ignore(&probe(old_rect))),
+            Some(true)
+        );
+    }
+
+    /// Doc-consistency (perf-claims-024): the Unreleased CHANGELOG must not
+    /// carry the pre-Phase-7 "Rust 每 500ms 收到新互動框" claim, and every
+    /// click-through poll interval it quotes must equal `CLICKTHROUGH_POLL_MS`.
+    #[test]
+    fn changelog_unreleased_click_through_claims_match_code() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../CHANGELOG.md");
+        let text = std::fs::read_to_string(path).expect("CHANGELOG.md readable");
+        let start = text.find("## [Unreleased]").expect("Unreleased section");
+        let rest = &text[start + "## [Unreleased]".len()..];
+        let end = rest.find("\n## [").unwrap_or(rest.len());
+        let unreleased = &rest[..end];
+        assert!(
+            !unreleased.contains("每 500ms 收到新互動框"),
+            "stale Phase 3 hit-rect claim still in Unreleased"
+        );
+        let mut quoted = 0;
+        for (idx, _) in unreleased.match_indices("點擊穿透輪詢") {
+            let tail = &unreleased[idx + "點擊穿透輪詢".len()..];
+            let tail = tail.trim_start_matches([' ', '\u{3000}']);
+            let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
+            if digits.is_empty() {
+                continue;
+            }
+            let ms: u64 = digits.parse().expect("poll interval digits");
+            assert_eq!(
+                ms, CLICKTHROUGH_POLL_MS,
+                "CHANGELOG quotes a {ms}ms click-through poll; code uses {CLICKTHROUGH_POLL_MS}ms"
+            );
+            quoted += 1;
+        }
+        assert!(
+            quoted >= 1,
+            "Unreleased should quote the click-through poll interval at least once"
+        );
+    }
+
+    /// Regression (director-pipeline-021／-024): every host path that hides the
+    /// character must tell the Runtime itself, without waiting for a WebView
+    /// hello the hidden window may never send. The shared announcer flips the
+    /// Runtime's presentation surface to hidden at once (and back).
+    #[tokio::test]
+    async fn announce_companion_presence_marks_runtime_hidden_without_webview_hello() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let runtime = Runtime::start(RuntimeOptions {
+            home: Some(dir.path().to_path_buf()),
+            acquire_lock: false,
+            in_memory_db: true,
+            spawn_watchdog: false,
+        })
+        .await
+        .expect("runtime");
+        // Fresh runtime: no surface has said hello yet.
+        let before = runtime.presentation_status();
+        assert_eq!(before["connected"], false);
+        assert_eq!(before["visible"], false);
+
+        // The WebView says it is up (what the companion window does on load).
+        runtime
+            .presentation_hello_with_behavior(true, Some("shu-maid".into()), None)
+            .await;
+        assert_eq!(runtime.presentation_status()["visible"], true);
+
+        // Host hides the window (tray／control-center／presence-set): the
+        // Runtime must see "hidden" immediately — no WebView involvement.
+        announce_companion_presence(runtime.clone(), false, "shu-maid".into()).await;
+        let hidden = runtime.presentation_status();
+        assert_eq!(hidden["connected"], true, "hidden ≠ disconnected");
+        assert_eq!(hidden["visible"], false);
+        assert_eq!(hidden["packId"], "shu-maid");
+
+        // Showing again is the same call with `true`.
+        announce_companion_presence(runtime.clone(), true, "shu-maid".into()).await;
+        assert_eq!(runtime.presentation_status()["visible"], true);
+    }
+
+    /// `companion_set_visible` reports the window state the OS gives back,
+    /// never the requested one: with no companion window at all, asking for
+    /// "visible" is a failure the caller must ack as `failed`.
+    #[test]
+    fn set_visible_result_is_the_actual_window_state() {
+        assert_eq!(
+            confirm_companion_visibility(true, true),
+            Ok(json!({ "visible": true }))
+        );
+        assert_eq!(
+            confirm_companion_visibility(false, false),
+            Ok(json!({ "visible": false }))
+        );
+        let err = confirm_companion_visibility(true, false).expect_err("no window → failed");
+        assert!(err.contains("hidden after asking for visible"), "{err}");
+        assert!(confirm_companion_visibility(false, true).is_err());
     }
 
     #[test]
@@ -2347,5 +3305,223 @@ mod tests {
         assert!(clamp_hit_rect(0.0, 0.0, 10.0, 10.0, 0.0, 284.0).is_err());
         // 完全落在視窗外：拒絕，而不是回一個空框讓整個視窗吃掉游標。
         assert!(clamp_hit_rect(600.0, 10.0, 40.0, 40.0, 520.0, 284.0).is_err());
+    }
+
+    fn prefs_map(raw: Value) -> BTreeMap<String, BTreeMap<String, Value>> {
+        serde_json::from_value(raw).expect("preference map parses")
+    }
+
+    /// 角色偏好表：合規的純量值通過，整張表原樣保留（patch 取代整張表）。
+    #[test]
+    fn companion_preferences_accept_bounded_scalars() {
+        let map = prefs_map(json!({
+            "shu-maid": { "variant": "maid-dusk", "bubbleSpeed": 1.5, "sound": false },
+            "my.char_2-x": { "count": 3 }
+        }));
+        assert_eq!(validate_companion_preferences(&map), Ok(()));
+        // 空表也合法（使用者清掉所有偏好）。
+        assert_eq!(validate_companion_preferences(&BTreeMap::new()), Ok(()));
+        // 邊界：剛好 16 個角色、每角色剛好 32 鍵、字串剛好 200 字。
+        let mut big = BTreeMap::new();
+        for i in 0..MAX_COMPANION_PREFERENCE_CHARACTERS {
+            let mut values = BTreeMap::new();
+            for k in 0..MAX_COMPANION_PREFERENCE_KEYS {
+                values.insert(format!("k{k}"), Value::String("字".repeat(200)));
+            }
+            big.insert(format!("c{i}"), values);
+        }
+        assert_eq!(validate_companion_preferences(&big), Ok(()));
+    }
+
+    #[test]
+    fn companion_preferences_reject_too_many_characters_or_keys() {
+        let mut too_many = BTreeMap::new();
+        for i in 0..=MAX_COMPANION_PREFERENCE_CHARACTERS {
+            too_many.insert(format!("c{i}"), BTreeMap::new());
+        }
+        let err = validate_companion_preferences(&too_many).unwrap_err();
+        assert!(err.contains("at most 16 characters"), "{err}");
+
+        let mut values = BTreeMap::new();
+        for k in 0..=MAX_COMPANION_PREFERENCE_KEYS {
+            values.insert(format!("k{k}"), Value::Bool(true));
+        }
+        let map = BTreeMap::from([("shu-maid".to_string(), values)]);
+        let err = validate_companion_preferences(&map).unwrap_err();
+        assert!(err.contains("at most 32 keys"), "{err}");
+    }
+
+    #[test]
+    fn companion_preferences_reject_bad_ids_keys_and_values() {
+        // characterId 規則。
+        for bad in [
+            "",
+            "Shu",
+            "-shu",
+            "shu maid",
+            &format!("a{}", "b".repeat(64)),
+        ] {
+            let map = BTreeMap::from([(bad.to_string(), BTreeMap::new())]);
+            let err = validate_companion_preferences(&map).unwrap_err();
+            assert!(err.contains("characterId"), "{bad:?}: {err}");
+        }
+        assert!(is_valid_character_id(&format!("a{}", "b".repeat(63))));
+        // 鍵規則。
+        for bad in ["", "has space", "中文", &"k".repeat(65)] {
+            let map = prefs_map(json!({ "shu-maid": { bad: true } }));
+            let err = validate_companion_preferences(&map).unwrap_err();
+            assert!(err.contains("invalid key"), "{bad:?}: {err}");
+        }
+        // 值：null／陣列／物件／超長字串都拒絕，而且錯誤訊息不回顯值本身。
+        for bad in [json!(null), json!([1]), json!({"nested": 1})] {
+            let map = prefs_map(json!({ "shu-maid": { "variant": bad } }));
+            let err = validate_companion_preferences(&map).unwrap_err();
+            assert!(err.contains("boolean, a number, or a string"), "{err}");
+        }
+        let long = "x".repeat(201);
+        let map = prefs_map(json!({ "shu-maid": { "note": long } }));
+        let err = validate_companion_preferences(&map).unwrap_err();
+        assert!(err.contains("200 characters"), "{err}");
+        assert!(!err.contains("xxxx"), "must not echo the value");
+    }
+
+    /// 修正（map-00 gaps）：`companion_window_adjust` 過去把角色尺寸直接 set_size，
+    /// 沒套 `companion_window_size` 乘數，下一次 apply／reset 會把視窗縮回去。
+    #[test]
+    fn window_adjust_applies_the_playfield_multiplier() {
+        let prefs = DesktopPrefs::default();
+        let params: serde_json::Map<String, Value> =
+            serde_json::from_value(json!({"width": 300.0, "height": 320.0, "x": 10.0, "y": 20.0}))
+                .expect("map");
+        let plan = plan_window_adjust(&prefs, &params).expect("plan");
+        assert_eq!(plan.size, (300.0, 320.0));
+        assert_eq!(plan.window_size, companion_window_size((300.0, 320.0)));
+        assert_ne!(
+            plan.window_size, plan.size,
+            "the window must be wider/taller than the character (playfield)"
+        );
+        assert_eq!(plan.position, (10.0, 20.0));
+        assert_eq!(plan.opacity, prefs.companion_opacity);
+        assert_eq!(plan.on_top, prefs.companion_always_on_top);
+        // 缺的欄位沿用 prefs，視窗尺寸仍經同一個乘數。
+        let plan = plan_window_adjust(&prefs, &serde_json::Map::new()).expect("plan");
+        assert_eq!(plan.size, prefs.companion_size);
+        assert_eq!(
+            plan.window_size,
+            companion_window_size(prefs.companion_size)
+        );
+        // 邊界與 desktop_prefs_patch 一致（Runtime 驗過，native 仍是最後一道）。
+        for bad in [
+            json!({"width": 10.0}),
+            json!({"height": 5000.0}),
+            json!({"opacity": 0.0}),
+            json!({"opacity": 1.5}),
+            json!({"x": 99_999.0}),
+        ] {
+            let params: serde_json::Map<String, Value> =
+                serde_json::from_value(bad.clone()).expect("map");
+            assert!(plan_window_adjust(&prefs, &params).is_err(), "{bad}");
+        }
+    }
+
+    /// 可信 overlay 不得被 close-behavior（hide-companion／keep-running）藏掉。
+    #[test]
+    fn close_behavior_never_hides_the_trusted_overlay() {
+        for behavior in ["hide-companion", "keep-running", "quit", "bogus"] {
+            let hidden = windows_hidden_by_close_behavior(behavior);
+            assert!(
+                !hidden.contains(&OVERLAY_LABEL),
+                "{behavior} must not hide the overlay"
+            );
+        }
+        assert_eq!(
+            windows_hidden_by_close_behavior("hide-companion"),
+            &["main", "companion"]
+        );
+        assert_eq!(windows_hidden_by_close_behavior("keep-running"), &["main"]);
+        assert!(windows_hidden_by_close_behavior("quit").is_empty());
+        assert!(windows_hidden_by_close_behavior("bogus").is_empty());
+    }
+
+    #[test]
+    fn overlay_anchors_to_the_top_right_of_the_work_area() {
+        // 2x Retina：工作區 (0,50) 寬 2880 實體 px → 邏輯右上角。
+        let (x, y) = overlay_anchor_top_right(0.0, 50.0, 2880.0, 2.0);
+        assert_eq!(x, 1440.0 - OVERLAY_SIZE.0 - OVERLAY_MARGIN);
+        assert_eq!(y, 25.0 + OVERLAY_MARGIN);
+        // 主螢幕在左邊（負座標）也對齊該工作區的右上角。
+        let (x, _) = overlay_anchor_top_right(-1920.0, 0.0, 1920.0, 1.0);
+        assert_eq!(x, -OVERLAY_SIZE.0 - OVERLAY_MARGIN);
+        // 工作區比 overlay 還窄：貼左緣，不跑到螢幕外。
+        let (x, _) = overlay_anchor_top_right(0.0, 0.0, 100.0, 1.0);
+        assert_eq!(x, 0.0);
+        // 荒謬的 scale 退回 1。
+        let (x, _) = overlay_anchor_top_right(0.0, 0.0, 1000.0, 0.0);
+        assert_eq!(x, 1000.0 - OVERLAY_SIZE.0 - OVERLAY_MARGIN);
+    }
+
+    #[test]
+    fn host_refresh_triggers_on_safety_events_only() {
+        assert!(host_safety_relevant(&EventType::EmergencyStop));
+        assert!(host_safety_relevant(&EventType::SensorStarted));
+        assert!(host_safety_relevant(&EventType::SensorStopped));
+        assert!(host_safety_relevant(&EventType::ProviderStateChanged));
+        assert!(!host_safety_relevant(&EventType::ReceptorObservation));
+        assert!(!host_safety_relevant(&EventType::PresentationCommand));
+        assert!(!host_safety_relevant(&EventType::ActionCompleted));
+    }
+
+    #[test]
+    fn companion_title_uses_the_configured_name() {
+        assert_eq!(companion_window_title("小樞"), "小樞");
+        assert_eq!(companion_window_title("  Mika  "), "Mika");
+        assert_eq!(companion_window_title("   "), "桌面角色");
+        assert_eq!(
+            companion_window_title(&DesktopPrefs::default().companion_name),
+            "小樞"
+        );
+    }
+
+    #[test]
+    fn character_hello_body_matches_the_http_contract() {
+        let body = character_hello_body(
+            None,
+            None,
+            json!({"characterId": "x"}),
+            json!({"type": "negotiate"}),
+            true,
+            None,
+            None,
+        );
+        let obj = body.as_object().expect("object");
+        let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, vec!["manifest", "negotiate", "visible"]);
+        assert_eq!(obj["visible"], json!(true));
+
+        let body = character_hello_body(
+            Some("desktop-companion".into()),
+            Some("primary-companion".into()),
+            json!({}),
+            json!({}),
+            false,
+            Some("shu-maid".into()),
+            Some(json!({"mode": "idle"})),
+        );
+        let obj = body.as_object().expect("object");
+        for key in [
+            "instanceId",
+            "role",
+            "manifest",
+            "negotiate",
+            "visible",
+            "packId",
+            "behaviorState",
+        ] {
+            assert!(obj.contains_key(key), "missing {key}");
+        }
+        assert_eq!(obj["instanceId"], json!("desktop-companion"));
+        assert_eq!(obj["visible"], json!(false));
+        assert_eq!(obj["behaviorState"]["mode"], json!("idle"));
     }
 }

@@ -23,6 +23,9 @@ import { personalityFor } from "../companion/personality";
 import { EXPRESSIONS } from "../companion/rig/expressions";
 import { InteractionDirector } from "../companion/director";
 import { initialBehavior } from "../companion/behavior";
+import { DEFAULT_TUNING } from "../companion/personality";
+// CPP：落地美術與 Director 表屬於角色（shu adapter tables）；gameFeel／Director 本身 engine-neutral。
+import { SHU_DIRECTOR_TABLES, SHU_LANDING } from "../character/adapters/shuTables";
 
 describe("放下角色的四種落地（§5.2）", () => {
   it("快／落差大 → 踉蹌；貼邊有速度 → 滑倒；慢又低 → 輕巧；其餘站穩", () => {
@@ -39,20 +42,29 @@ describe("放下角色的四種落地（§5.2）", () => {
     );
   });
 
-  it("每種落地都對應真實存在、且非 truthState 的表情", () => {
+  it("每種落地都對應真實存在、且非 truthState 的表情（小樞表）", () => {
     for (const input of [
       { speedPxPerSec: 1_200, heightPx: 50, nearEdge: false },
       { speedPxPerSec: 500, heightPx: 80, nearEdge: true },
       { speedPxPerSec: 60, heightPx: 20, nearEdge: false },
-      { speedPxPerSec: 300, heightPx: 120, nearEdge: false },
     ]) {
-      const plan = pickLanding(input);
-      const expr = EXPRESSIONS[plan.expression];
-      expect(expr, plan.expression).toBeTruthy();
+      const plan = pickLanding(input, SHU_LANDING);
+      expect(plan.expression).not.toBeNull();
+      const expr = EXPRESSIONS[plan.expression!];
+      expect(expr, String(plan.expression)).toBeTruthy();
       expect(expr.truthState ?? false, `${plan.expression} 不得是真相狀態`).toBe(false);
+      expect(plan.durationMs).toBeGreaterThan(0);
     }
-    // 站穩＝不加演出（durationMs 0，呼叫端不會送 transient）。
-    expect(pickLanding({ speedPxPerSec: 300, heightPx: 120, nearEdge: false }).durationMs).toBe(0);
+    // 站穩＝不加演出（expression null、durationMs 0，呼叫端不會送 transient）。
+    const steady = pickLanding({ speedPxPerSec: 300, heightPx: 120, nearEdge: false }, SHU_LANDING);
+    expect(steady).toEqual({ landing: "steady", expression: null, durationMs: 0 });
+  });
+
+  it("沒有角色落地表（文字角色）：判定照舊，但沒有任何表情可演", () => {
+    const plan = pickLanding({ speedPxPerSec: 1_200, heightPx: 50, nearEdge: false });
+    expect(plan.landing).toBe("wobbly");
+    expect(plan.expression).toBeNull();
+    expect(plan.durationMs).toBe(0);
   });
 
   it("NaN／負數輸入不會產生奇怪結果", () => {
@@ -97,6 +109,17 @@ describe("幀預算：30fps 降級與遲滯（§14）", () => {
     expect(shouldDrawFrame(slow, 1)).toBe(false);
     const fast = { count: 0, sumMs: 0, avgMs: 5, skipEveryOther: false };
     expect(shouldDrawFrame(fast, 1)).toBe(true);
+  });
+
+  it("輸入是繪製成本、不是 rAF 間隔：把 60Hz 的 16.67ms 餵進來會被誤判成太慢且永遠回不來", () => {
+    // 這就是 stage.loop 不能拿 rAF 間隔當幀時間的原因（對抗審查 perf-claims-017）：
+    // 60Hz 螢幕的間隔恆為 16.67ms > 12ms → 降級；又 ≥ 8ms → 永遠回不到 60fps。
+    const asInterval = feed(initialFrameBudget(), 1000 / 60);
+    expect(asInterval.skipEveryOther).toBe(true);
+    expect(feed(asInterval, 1000 / 60).skipEveryOther).toBe(true);
+    // 真正的繪製成本（60Hz 下零～幾 ms）不會降級。
+    expect(feed(initialFrameBudget(), 0).skipEveryOther).toBe(false);
+    expect(feed(initialFrameBudget(), 3).skipEveryOther).toBe(false);
   });
 });
 
@@ -168,7 +191,7 @@ describe("勿擾／氣泡／音效開關（§5.2 可分別關閉）", () => {
   });
 
   it("quiet 基態時 Director 只回眨眼類", () => {
-    const d = new InteractionDirector();
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
     const ctx = {
       nowMs: 1_000_000,
       ambient: true,

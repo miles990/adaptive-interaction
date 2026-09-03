@@ -52,6 +52,14 @@ fn golden_recipe_schema() {
     check_golden("recipe.schema.json", &pretty(&schema));
 }
 
+/// Character Presentation Protocol schema is generated from the Rust types
+/// (`interaction-character`) and is the single source the TS mirror validates against.
+#[test]
+fn golden_character_protocol_schema() {
+    let schema = interaction_character::protocol_schema();
+    check_golden("character-protocol.schema.json", &pretty(&schema));
+}
+
 #[test]
 fn scenario_j_cross_platform_consistency() {
     let tools = canonical_tools();

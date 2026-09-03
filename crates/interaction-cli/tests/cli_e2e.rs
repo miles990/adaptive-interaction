@@ -316,3 +316,85 @@ fn agents_resume_requires_a_real_provider_thread_and_never_inherits_write_access
     assert_eq!(resumed["toolScope"], serde_json::json!([]));
     assert_ne!(resumed["sessionId"], created["sessionId"]);
 }
+
+/// Character Presentation Protocol 子命令：status／instances／manifest／adapters
+/// add→list→revoke（token 只印一次、清單永不含 token）／intent（安全 intent 拒絕）。
+#[test]
+fn character_subcommands_manage_adapters_and_refuse_safety_intents() {
+    let daemon = Daemon::spawn();
+
+    let (code, status, _) = daemon.cli(&["character", "status"]);
+    assert_eq!(code, 0);
+    assert_eq!(status["version"], "1.0");
+    assert_eq!(status["instances"], 0);
+    assert!(status["activeCharacter"].is_null());
+
+    let (code, instances, _) = daemon.cli(&["character", "instances"]);
+    assert_eq!(code, 0);
+    assert!(instances["instances"].as_array().unwrap().is_empty());
+
+    // 尚未 hello → manifest 404 → exit 5。
+    let (code, _, _) = daemon.cli(&["character", "manifest"]);
+    assert_eq!(code, 5);
+
+    let manifest_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/character-adapters/text-adapter.manifest.json"
+    );
+    let (code, added, _) = daemon.cli(&[
+        "character",
+        "adapters",
+        "add",
+        "--name",
+        "文字 adapter（fixture）",
+        "--manifest",
+        manifest_path,
+    ]);
+    assert_eq!(code, 0, "{added}");
+    let adapter_id = added["adapterId"].as_str().unwrap().to_string();
+    let token = added["token"].as_str().unwrap().to_string();
+    assert_eq!(token.len(), 64);
+
+    let (code, list, _) = daemon.cli(&["character", "adapters", "list"]);
+    assert_eq!(code, 0);
+    let entry = &list["adapters"][0];
+    assert_eq!(entry["adapterId"], adapter_id);
+    assert_eq!(entry["revoked"], false);
+    assert_eq!(entry["connected"], false);
+    assert!(entry.get("token").is_none());
+    assert!(!list.to_string().contains(&token));
+
+    // 安全 intent 只能由 runtime 事件產生：CLI 手動點播一律拒絕（403 → exit 4）。
+    let (code, _, _) = daemon.cli(&["character", "intent", "emergency"]);
+    assert_eq!(code, 4);
+    let (code, _, _) = daemon.cli(&["character", "intent", "verified-success"]);
+    assert_eq!(code, 4);
+    // 非安全 intent：沒有連線的角色 → targets 空、誠實註記。
+    let (code, out, _) = daemon.cli(&["character", "intent", "notice", "--message", "hi"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["truthState"], "none");
+    assert_eq!(out["targets"], serde_json::json!([]));
+    assert!(out["note"].as_str().unwrap().contains("no connected"));
+
+    let (code, revoked, _) = daemon.cli(&["character", "adapters", "revoke", &adapter_id]);
+    assert_eq!(code, 0);
+    assert_eq!(revoked["revoked"], true);
+    let (_, list, _) = daemon.cli(&["character", "adapters", "list"]);
+    assert_eq!(list["adapters"][0]["revoked"], true);
+    // 不存在的 adapter → 404 → exit 5。
+    let (code, _, _) = daemon.cli(&["character", "adapters", "revoke", "adp-nope"]);
+    assert_eq!(code, 5);
+    // 缺檔案的 manifest 路徑 → 一般錯誤（exit 1），不會誤註冊。
+    let (code, _, _) = daemon.cli(&[
+        "character",
+        "adapters",
+        "add",
+        "--name",
+        "x",
+        "--manifest",
+        "/nonexistent/manifest.json",
+    ]);
+    assert_eq!(code, 1);
+    let (_, list, _) = daemon.cli(&["character", "adapters", "list"]);
+    assert_eq!(list["adapters"].as_array().unwrap().len(), 1);
+}

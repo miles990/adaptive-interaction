@@ -38,6 +38,34 @@ pub enum TestedCapability {
 /// 人為測試不節流（使用者按了就要看到最新結果）。
 const TESTED_AUTO_THROTTLE_SECS: i64 = 60;
 
+/// 「已測試」證據的人話註記。UI（一般模式）會把它原樣顯示，所以這裡不用
+/// 受器／動器／hello／pair-ok 這類技術詞：感知來源＝receptor、回應方式＝actuator；
+/// 有實體連線（serial/mqtt/ble）的裝置多加一句「裝置報上身分並完成配對」。
+/// 能力 id 一律保留（是可追查的事實），有人話名稱時放在前面。
+/// 動器只證明「已回覆收到（acknowledged）」——誠實階梯：acknowledged ≠ completed。
+pub fn tested_note(
+    kind: TestedCapability,
+    capability_id: &str,
+    human_name: Option<&str>,
+    linked: bool,
+) -> String {
+    let named = match human_name.map(str::trim).filter(|n| !n.is_empty()) {
+        Some(name) if name != capability_id => format!("「{name}」（{capability_id}）"),
+        _ => capability_id.to_string(),
+    };
+    let what = match kind {
+        TestedCapability::Receptor => format!("感知來源 {named} 讀取成功"),
+        TestedCapability::Actuator => {
+            format!("回應方式 {named} 已回覆收到（acknowledged，不代表已完成）")
+        }
+    };
+    if linked {
+        format!("裝置報上身分並完成配對：{what}")
+    } else {
+        what
+    }
+}
+
 /// `detail` 既是人話註記、也是「已測試」證據的載體：有證據時寫成
 /// `{"note": …, "tested": {…}}`，沒有時維持原本的純文字（向後相容）。
 pub fn split_provider_detail(detail: Option<&str>) -> (Option<String>, Option<ProviderTested>) {
@@ -123,14 +151,16 @@ impl Runtime {
         };
         let _ = self.providers.register(builtin).await;
 
-        // 1.5) Presentation Provider：桌面角色（小樞）是一級 provider，能力
-        //      逐項宣告。信任層級 Builtin（本應用自帶的表面），但可用性誠實
-        //      跟隨視窗 presence（receptor/actuator 健康由 bridge 決定）。
+        // 1.5) Presentation Provider：桌面角色是一級 provider，能力逐項宣告。
+        //      信任層級 Builtin（本應用自帶的表面），但可用性誠實跟隨視窗
+        //      presence（receptor/actuator 健康由 bridge 決定）。顯示名不寫死
+        //      任何角色：由 `/v1/character/hello` 協商到的 manifest displayName
+        //      決定（見 `with_character_label`），未連線前誠實標示。
         let companion = ProviderDescriptor {
             identity: ProviderIdentity {
-                id: ProviderId::new("provider.companion.shu"),
+                id: ProviderId::new(crate::character::COMPANION_PROVIDER_ID),
                 kind: ProviderKind::Companion,
-                display_name: "桌面角色小樞（Presentation）".into(),
+                display_name: self.companion_provider_display_name(),
                 trust_level: TrustLevel::Builtin,
                 origin: "builtin.presentation".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
@@ -157,7 +187,7 @@ impl Runtime {
             tool_operations: vec![],
             paired_at: None,
             last_seen: Some(chrono::Utc::now()),
-            detail: Some("能力逐項授權；隱藏角色只停用視窗內能力，不影響 Runtime".into()),
+            detail: Some(self.companion_provider_detail()),
         };
         let _ = self.providers.register(companion).await;
 
@@ -300,12 +330,24 @@ impl Runtime {
             .list()
             .await
             .into_iter()
-            .map(|desc| self.with_tested(desc))
+            .map(|desc| self.with_character_label(self.with_tested(desc)))
             .collect()
     }
 
     pub async fn get_provider(&self, id: &ProviderId) -> DomainResult<ProviderDescriptor> {
-        Ok(self.with_tested(self.providers.get(id).await?))
+        Ok(self.with_character_label(self.with_tested(self.providers.get(id).await?)))
+    }
+
+    /// 桌面角色 provider 的顯示名／註記跟著目前協商到的角色走（例如
+    /// 「桌面角色：小樞（Presentation）」），尚未 hello 前為「桌面角色（尚未連線）」。
+    fn with_character_label(&self, mut desc: ProviderDescriptor) -> ProviderDescriptor {
+        if desc.identity.id.as_str() == crate::character::COMPANION_PROVIDER_ID {
+            desc.identity.display_name = self.companion_provider_display_name();
+            let (_, tested) = split_provider_detail(desc.detail.as_deref());
+            desc.detail =
+                merge_provider_detail(Some(&self.companion_provider_detail()), tested.as_ref());
+        }
+        desc
     }
 
     /// registry 裡的 detail 永遠是人話註記；對外輸出時才把證據併進去。
@@ -369,18 +411,25 @@ impl Runtime {
             .lock()
             .map(|links| links.contains(id.as_str()))
             .unwrap_or(false);
-        let what = match kind {
-            TestedCapability::Receptor => format!("受器 {capability_id} 讀取成功"),
-            TestedCapability::Actuator => format!("動器 {capability_id} 回報 acknowledged"),
+        // 人話名稱來自能力 manifest（沒有就只用 id）；UI 會把這段 note 原樣顯示。
+        let human_name = match kind {
+            TestedCapability::Receptor => self
+                .registry
+                .receptor_manifests()
+                .await
+                .into_iter()
+                .find(|m| m.id.as_str() == capability_id)
+                .map(|m| m.name),
+            TestedCapability::Actuator => self
+                .registry
+                .actuator_manifests()
+                .await
+                .into_iter()
+                .find(|m| m.id.as_str() == capability_id)
+                .map(|m| m.name),
         };
-        let (how, note) = if linked {
-            (
-                "handshake",
-                format!("裝置連線握手完成（hello 身分＋pair-ok）：{what}"),
-            )
-        } else {
-            ("capability", what)
-        };
+        let how = if linked { "handshake" } else { "capability" };
+        let note = tested_note(kind, capability_id, human_name.as_deref(), linked);
         self.record_provider_tested(&id, how, true, note).await;
     }
 
@@ -547,6 +596,8 @@ impl Runtime {
         self.providers.remove(id).await.ok();
         self.providers.register(updated.clone()).await?;
         self.persist_provider(id).await;
+        // Character Protocol §11：paired → greet（device-online）。
+        self.character_project_provider(id, ProviderState::Paired);
         self.store.audit(
             "provider.paired",
             "user",
@@ -572,6 +623,8 @@ impl Runtime {
             self.close_declarative_links(id, "disabled");
         }
         self.persist_provider(id).await;
+        // Character Protocol §11：available → greet、disconnected → notice。
+        self.character_project_provider(id, state);
         Ok(desc)
     }
 
@@ -610,6 +663,7 @@ impl Runtime {
         // 撤銷＝連線也要斷（不只是停止派工）。
         let closed_links = self.close_declarative_links(id, "revoked");
         self.persist_provider(id).await;
+        self.character_project_provider(id, ProviderState::Revoked);
         self.store.audit(
             "provider.revoked",
             "user",
@@ -635,4 +689,72 @@ impl Runtime {
 
 fn hex_lower(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 一般模式會把 note 原樣顯示：不得出現受器／動器／hello／pair-ok 這類技術詞，
+    /// 但能力 id 必須保留（可追查），有人話名稱時一起顯示。
+    #[test]
+    fn tested_note_speaks_human_and_keeps_the_capability_id() {
+        let note = tested_note(
+            TestedCapability::Receptor,
+            "desk-light.status",
+            Some("書桌燈狀態"),
+            true,
+        );
+        assert_eq!(
+            note,
+            "裝置報上身分並完成配對：感知來源 「書桌燈狀態」（desk-light.status） 讀取成功"
+        );
+        for jargon in ["受器", "動器", "hello", "pair-ok", "握手"] {
+            assert!(!note.contains(jargon), "{jargon} leaked into {note}");
+        }
+
+        // 沒有人話名稱／名稱等於 id／空白名稱：只寫 id，不寫「」（）。
+        let plain = tested_note(TestedCapability::Receptor, "desk-light.status", None, false);
+        assert_eq!(plain, "感知來源 desk-light.status 讀取成功");
+        assert_eq!(
+            tested_note(
+                TestedCapability::Receptor,
+                "desk-light.status",
+                Some("desk-light.status"),
+                false
+            ),
+            plain
+        );
+        assert_eq!(
+            tested_note(
+                TestedCapability::Receptor,
+                "desk-light.status",
+                Some("  "),
+                false
+            ),
+            plain
+        );
+    }
+
+    /// 動器只證明 acknowledged（誠實階梯：acknowledged ≠ completed），note 必須說清楚。
+    #[test]
+    fn tested_note_for_actuators_never_claims_completion() {
+        let note = tested_note(
+            TestedCapability::Actuator,
+            "desk-light.set",
+            Some("書桌燈"),
+            false,
+        );
+        assert_eq!(
+            note,
+            "回應方式 「書桌燈」（desk-light.set） 已回覆收到（acknowledged，不代表已完成）"
+        );
+        assert!(note.contains("acknowledged"));
+        assert!(!note.contains("完成。") && note.contains("不代表已完成"));
+        let linked = tested_note(TestedCapability::Actuator, "desk-light.set", None, true);
+        assert!(linked.starts_with("裝置報上身分並完成配對："));
+        assert!(
+            linked.ends_with("回應方式 desk-light.set 已回覆收到（acknowledged，不代表已完成）")
+        );
+    }
 }

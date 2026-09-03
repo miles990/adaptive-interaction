@@ -1,0 +1,171 @@
+{
+  "legacy": {
+    "kind": "character-pack",
+    "schemaVersion": "1.0"
+  },
+  "schemaVersion": "1.0",
+  "characterId": "shu-minimal",
+  "displayName": {
+    "zh-TW": "小樞・極簡型",
+    "en": "Shū · Minimal"
+  },
+  "author": "Adaptive Interaction Project",
+  "description": {
+    "zh-TW": "原創桌面互動角色小樞：介於小型機器生命與貓科夥伴之間的互動中樞。",
+    "en": "Shū, an original desktop companion between a small machine lifeform and a feline partner."
+  },
+  "version": "0.3.0",
+  "adapterKind": "in-process",
+  "entrypoint": {
+    "kind": "builtin",
+    "id": "sprite"
+  },
+  "assets": [
+    {
+      "id": "sheet",
+      "path": "sheet.png",
+      "mediaType": "image/png"
+    },
+    {
+      "id": "preview",
+      "path": "preview.png",
+      "mediaType": "image/png"
+    }
+  ],
+  "capabilities": {
+    "visual.presence": {
+      "supported": true,
+      "interruptible": true,
+      "resumable": true,
+      "qualityLevel": "full",
+      "reducedMotionBehavior": "static"
+    },
+    "visual.expression": {
+      "supported": true,
+      "variants": [
+        "idle",
+        "blink",
+        "move",
+        "notice",
+        "thinking",
+        "routing",
+        "ask",
+        "act",
+        "waiting",
+        "success",
+        "blocked",
+        "unknown",
+        "quiet",
+        "paused",
+        "emergency",
+        "offline",
+        "clicked",
+        "dragged"
+      ],
+      "maxConcurrent": 1,
+      "interruptible": true,
+      "resumable": true,
+      "durationRange": {
+        "minMs": 0,
+        "maxMs": 2000
+      },
+      "qualityLevel": "full",
+      "reducedMotionBehavior": "static"
+    }
+  },
+  "inputCapabilities": {
+    "input.click": {
+      "supported": true
+    },
+    "input.drag": {
+      "supported": true
+    },
+    "input.drop": {
+      "supported": true
+    },
+    "input.text": {
+      "supported": true
+    },
+    "input.fileDrop": {
+      "supported": true
+    }
+  },
+  "channels": [
+    "transform",
+    "expression"
+  ],
+  "states": [
+    "idle",
+    "blink",
+    "move",
+    "notice",
+    "thinking",
+    "routing",
+    "ask",
+    "act",
+    "waiting",
+    "success",
+    "blocked",
+    "unknown",
+    "quiet",
+    "paused",
+    "emergency",
+    "offline",
+    "clicked",
+    "dragged"
+  ],
+  "intents": [
+    "idle",
+    "notice",
+    "acknowledge",
+    "think",
+    "work",
+    "wait",
+    "ask",
+    "request-consent",
+    "blocked",
+    "unknown",
+    "claim-completed",
+    "verified-success",
+    "cancelled",
+    "offline",
+    "emergency",
+    "greet",
+    "rest"
+  ],
+  "variants": [],
+  "locales": [
+    "zh-TW",
+    "en"
+  ],
+  "securityRequirements": {
+    "network": false,
+    "executable": false,
+    "fileAccess": "none",
+    "audioOutput": false,
+    "microphone": false,
+    "camera": false
+  },
+  "resourceLimits": {
+    "maxAssetBytes": 8388608,
+    "maxConcurrentCommands": 1,
+    "maxQueue": 32,
+    "maxFps": 30
+  },
+  "fallbacks": {
+    "capabilities": {
+      "visual.expression": [
+        "visual.presence"
+      ]
+    },
+    "intents": {
+      "failed": "blocked",
+      "play": "notice",
+      "sleep": "rest"
+    }
+  },
+  "compatibility": {
+    "protocol": "1.x",
+    "runtime": ">=0.5.0"
+  }
+}

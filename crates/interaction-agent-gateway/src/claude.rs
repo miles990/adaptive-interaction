@@ -171,6 +171,10 @@ impl AgentConnector for ClaudeConnector {
 
         let (tx, rx) = mpsc::channel::<GatewayEvent>(EVENT_CHANNEL_CAP);
         let session_id = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
+        // 「這一輪有沒有收到結果」是**每一輪**的問題：session 可多輪，
+        // 第一輪的 result 不能替第二輪擔保。送出新訊息時（handle）重置，
+        // 讀到 result（stdout task）才設。
+        let saw_result = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         // stderr：吞掉但保留最後幾行（診斷；不視為事件）。
         let stderr_tail = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
@@ -198,10 +202,10 @@ impl AgentConnector for ClaudeConnector {
             let tx = tx.clone();
             let session_id = session_id.clone();
             let tail = stderr_tail.clone();
+            let saw_result = saw_result.clone();
             tokio::spawn(async move {
                 let mut child = child;
                 let mut lines = BufReader::new(stdout).lines();
-                let mut saw_result = false;
                 loop {
                     match lines.next_line().await {
                         Ok(Some(line)) => {
@@ -218,7 +222,7 @@ impl AgentConnector for ClaudeConnector {
                                     GatewayEvent::TaskClaimedCompleted { .. }
                                         | GatewayEvent::TaskFailed { .. }
                                 ) {
-                                    saw_result = true;
+                                    saw_result.store(true, std::sync::atomic::Ordering::SeqCst);
                                 }
                                 if tx.send(ev).await.is_err() {
                                     return;
@@ -263,7 +267,10 @@ impl AgentConnector for ClaudeConnector {
                 // 只有**觀察得到的錯誤**（非零 exit code）才是 failed。
                 // exit 0 卻沒有結果，或被訊號終止 ⇒ 結果未知，交給
                 // SessionClosed，由 runtime 誠實記為 unknown。
-                if !saw_result {
+                // saw_result 是「本輪」的：第二輪送出後重置，所以第二輪
+                // 以後的非零 exit 一樣會被記成 failed，不會被第一輪的
+                // result 吞掉。
+                if !saw_result.load(std::sync::atomic::Ordering::SeqCst) {
                     if let Some(code) = exit_code.filter(|code| *code != 0) {
                         let error: String = match &stderr_tail {
                             Some(t) => format!("agent 程序以 exit {code} 結束而未回報結果：{t}"),
@@ -287,6 +294,7 @@ impl AgentConnector for ClaudeConnector {
             stdin: Some(stdin),
             events: Some(rx),
             session_id,
+            saw_result,
         };
         if let Some(prompt) = &spec.prompt {
             handle.send_user_message(prompt).await?;
@@ -302,6 +310,8 @@ pub struct ClaudeHandle {
     stdin: Option<ChildStdin>,
     events: Option<mpsc::Receiver<GatewayEvent>>,
     session_id: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    /// 本輪是否已讀到 result／error（與 stdout task 共用；每次送出新訊息重置）。
+    saw_result: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[async_trait::async_trait]
@@ -316,6 +326,12 @@ impl AgentSessionHandle for ClaudeHandle {
             "type": "user",
             "message": {"role": "user", "content": [{"type": "text", "text": text}]},
         });
+        // 新的一輪開始：上一輪的 result 不再替這一輪擔保。在寫入**之前**
+        // 重置——寫入一落地 agent 就可能回話甚至結束，reader 不得先看到
+        // 舊的 true。寫入失敗時子程序也已經在收場，reader 依 exit code
+        // 誠實判定即可。
+        self.saw_result
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         stdin
             .write_all(format!("{msg}\n").as_bytes())
             .await

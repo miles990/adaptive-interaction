@@ -181,7 +181,7 @@ pub fn builtin_domain_packs() -> Vec<DomainPack> {
             &["耳朵與尾巴可以表達狀態，但不能暗示取得權限"],
             &["縮小仍可辨識", "Reduced Motion 正確", "短期不重複"],
             &["用 seeded 測試檢查轉場、打斷與恢復"],
-            &["小樞 Character Pack 與 Behavior Runtime"],
+            &["Character Pack 與 Behavior Runtime"],
             &["不處理任意動畫程式碼或角色外視窗控制"],
         ),
         pack(

@@ -1,5 +1,5 @@
 // Global Search＋Command Palette（spec §16-1.J）：⌘K／Ctrl+K 開啟。
-// 搜尋：設定、能力、裝置、Agent 工作階段、記憶、知識、收據。
+// 搜尋：設定、能力、裝置、AI 工作階段、記憶、知識、互動結果與知識更新紀錄。
 // 指令：只列出目前可執行且符合權限的操作（緊急停止永遠在）。
 // 安全設計：緊急停止沿用二段確認（不可單鍵誤觸）；IME 組字的 Enter
 // 不執行任何項目；指令失敗一律浮出到 Shell 警示列，不得靜默。
@@ -9,7 +9,8 @@ import { api } from "../api";
 import { actionStatusLabel, useAppState } from "../appstate";
 import { Icon } from "../icons";
 import { K_STATUS_LABEL, LAYER_LABEL } from "../pages/MemoryKnowledgePage";
-import { SESSION_STATE_LABEL } from "../pages/AiPage";
+import { capabilityKindLabel, projectProviderState, projectWorkState } from "../statusProjection";
+import { useCharacterName } from "../characterName";
 
 /** 一般模式看得懂的 id：只留尾 6 碼。進階模式才給完整 UUID。
  *  （搜尋比對用的是 label＋detail，所以縮短後仍搜得到後綴。） */
@@ -39,9 +40,10 @@ interface SearchItem {
 }
 
 // v0.5 IA：5 個一級入口＋常用細項（細項導到對應 hub 分頁的相容 id）。
+// 角色頁的 label 由 useCharacterName 在執行期代入（pagesFor）。
 const PAGES: { id: string; label: string }[] = [
   { id: "home", label: "現在" },
-  { id: "companion", label: "小樞" },
+  { id: "companion", label: "角色" },
   { id: "work", label: "工作" },
   { id: "connect", label: "連接與權限" },
   { id: "more", label: "更多" },
@@ -52,7 +54,14 @@ const PAGES: { id: string; label: string }[] = [
   { id: "memory", label: "記憶與知識" },
   { id: "activity", label: "活動歷史" },
   { id: "settings", label: "設定" },
+  { id: "manage", label: "角色與整合管理" },
+  { id: "advanced-features", label: "進階功能" },
 ];
+
+/** 頁面清單的執行期版本：角色頁用目前角色的名字。 */
+export function pagesFor(characterName: string): { id: string; label: string }[] {
+  return PAGES.map((p) => (p.id === "companion" ? { ...p, label: characterName } : p));
+}
 
 export function GlobalSearch({
   open,
@@ -73,6 +82,7 @@ export function GlobalSearch({
 }) {
   const { human, prefs } = useAppState();
   const advanced = prefs.mode === "advanced";
+  const character = useCharacterName({ locale: prefs.locale });
   const [query, setQuery] = React.useState("");
   const [dynamic, setDynamic] = React.useState<SearchItem[]>([]);
   const [active, setActive] = React.useState(0);
@@ -114,10 +124,12 @@ export function GlobalSearch({
       if (sessionsResult.status === "fulfilled") {
         const sessions = sessionsResult.value;
         for (const s of sessions.slice(0, 30)) {
+          // 狀態走共用投影：未知狀態是「結果不確定」，原始碼只在進階模式附帶。
+          const status = projectWorkState(s.state);
           items.push({
             kind: "session",
             label: `工作階段：${s.label ?? s.agentId}`,
-            detail: SESSION_STATE_LABEL[s.state]?.text ?? s.state,
+            detail: advanced ? `${status.label}・${s.state}` : status.label,
             action: () => onNavigate("ai"),
           });
         }
@@ -125,10 +137,14 @@ export function GlobalSearch({
       if (providersResult.status === "fulfilled") {
         for (const provider of providersResult.value.slice(0, 50)) {
           const identity = (provider.identity as Record<string, unknown> | undefined) ?? {};
+          const rawState = String(provider.state ?? "");
+          const providerState = projectProviderState(rawState);
           items.push({
             kind: "provider",
-            label: `裝置／Provider：${String(identity.displayName ?? identity.id)}`,
-            detail: String(provider.state ?? identity.kind ?? ""),
+            label: `裝置：${String(identity.displayName ?? identity.id)}`,
+            detail: advanced
+              ? `${providerState.label}・${String(provider.state ?? identity.kind ?? "")}`
+              : providerState.label,
             action: () => onNavigate("capabilities"),
           });
         }
@@ -160,7 +176,7 @@ export function GlobalSearch({
           const pack = (entry.pack as Record<string, unknown> | undefined) ?? {};
           items.push({
             kind: "knowledge",
-            label: `Domain Pack：${String(pack.displayName)}`,
+            label: `${advanced ? "Domain Pack" : "知識包"}：${String(pack.displayName)}`,
             detail: `${String(pack.id)}・${entry.installed === true ? "已安裝" : "未安裝"}`,
             action: () => onNavigate("memory"),
           });
@@ -170,7 +186,7 @@ export function GlobalSearch({
         for (const receipt of actionsResult.value.slice(0, 50)) {
           items.push({
             kind: "receipt",
-            label: `結果收據：${receipt.intent}`,
+            label: `${advanced ? "結果收據" : "互動結果"}：${receipt.intent}`,
             detail: actionStatusLabel(receipt.currentStatus),
             action: () => onNavigate("activity"),
           });
@@ -181,7 +197,7 @@ export function GlobalSearch({
         for (const receipt of ((receipts.receipts as Record<string, unknown>[]) ?? []).slice(0, 50)) {
           items.push({
             kind: "receipt",
-            label: `知識收據：${String(receipt.triggeredBy)}`,
+            label: `${advanced ? "知識收據" : "知識更新"}：${String(receipt.triggeredBy)}`,
             detail: shortId(String(receipt.updateId), advanced),
             action: () => onNavigate("memory"),
           });
@@ -243,12 +259,12 @@ export function GlobalSearch({
       },
       {
         kind: "command",
-        label: "重新偵測裝置與 AI agent",
+        label: "重新偵測裝置與 AI 幫手",
         doneMessage: "已完成重新偵測。",
         action: () => Promise.all([api.agentsRefresh(), api.hardwareScan()]).then(() => {}),
       },
     ];
-    const pages: SearchItem[] = PAGES.map((p) => ({
+    const pages: SearchItem[] = pagesFor(character.name).map((p) => ({
       kind: "page",
       label: p.label,
       detail: "頁面",
@@ -263,11 +279,11 @@ export function GlobalSearch({
       .map((c) => ({
         kind: "capability" as const,
         label: `能力：${c.displayName}`,
-        detail: c.kind,
+        detail: advanced ? `${capabilityKindLabel(c.kind)}・${c.kind}` : capabilityKindLabel(c.kind),
         action: () => onNavigate("capabilities"),
       }));
     return [...commands, ...pages, ...caps, ...dynamic];
-  }, [human, dynamic, estopped, estopArmed, onNavigate, onEstop]);
+  }, [human, dynamic, estopped, estopArmed, onNavigate, onEstop, advanced, character.name]);
 
   const q = query.trim().toLowerCase();
   const filtered = q
@@ -339,7 +355,7 @@ export function GlobalSearch({
                 onMouseEnter={() => setActive(i)}
                 onClick={() => runItem(item)}
               >
-                <span className="search-kind">{kindLabel(item.kind)}</span>
+                <span className="search-kind">{kindLabel(item.kind, advanced)}</span>
                 <span>{item.label}</span>
                 {item.detail && <span className="muted small">{item.detail}</span>}
               </button>
@@ -352,7 +368,8 @@ export function GlobalSearch({
   );
 }
 
-function kindLabel(kind: SearchItem["kind"]): string {
+/** 種類標籤：一般模式用人話（「收據」只在進階模式）。 */
+export function kindLabel(kind: SearchItem["kind"], advanced = false): string {
   switch (kind) {
     case "page":
       return "頁面";
@@ -369,6 +386,6 @@ function kindLabel(kind: SearchItem["kind"]): string {
     case "knowledge":
       return "知識";
     case "receipt":
-      return "收據";
+      return advanced ? "收據" : "紀錄";
   }
 }

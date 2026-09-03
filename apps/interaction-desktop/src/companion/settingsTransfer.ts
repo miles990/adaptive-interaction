@@ -1,13 +1,20 @@
 // 角色設定匯出／匯入（spec §5.1）：只搬「呈現偏好」，不含任何權限、
 // token、位置或歷史。匯入逐欄白名單驗證——未知欄位丟棄、非法值拒絕。
+//
+// CPP：`companionPack` 就是 characterId。匯入時接受「符合 CHARACTER_ID_RE 且
+// host 認得（索引裡有，或是 8 個舊 pack id）」的任何角色，不再是閉合清單；
+// 匯出同時寫 `characterId`（別名，語意等同 companionPack）。schemaVersion 維持 1。
 
 import { DesktopPrefs } from "../desktop";
+import { CHARACTER_ID_RE } from "../character/protocol";
 
 export interface CompanionSettingsExport {
   kind: "companion-settings";
   schemaVersion: 1;
   companionName: string;
   companionPack: string;
+  /** CPP 別名：與 companionPack 相同（characterId）。 */
+  characterId: string;
   companionPersona: string;
   companionExpressiveness: string;
   companionScene: string;
@@ -18,7 +25,8 @@ export interface CompanionSettingsExport {
   companionFamiliars: { id: string; name: string; palette: string }[];
 }
 
-const PACKS = [
+/** v0.4／v0.5 出貨的 8 個 pack id：CPP §2.2 規定永遠可用（視為 characterId）。 */
+export const LEGACY_CHARACTER_IDS: readonly string[] = [
   "shu-maid",
   "shu-maid-dusk",
   "shu-maid-sakura",
@@ -37,8 +45,10 @@ export function exportCompanionSettings(prefs: DesktopPrefs): CompanionSettingsE
   return {
     kind: "companion-settings",
     schemaVersion: 1,
-    companionName: prefs.companionName ?? "小樞",
+    // 沒取名字就留空：匯入端會用角色 manifest 的 displayName，不硬編任何名字。
+    companionName: prefs.companionName ?? "",
     companionPack: prefs.companionPack,
+    characterId: prefs.companionPack,
     companionPersona: prefs.companionPersona,
     companionExpressiveness: String(prefs.companionExpressiveness ?? "natural"),
     companionScene: String(prefs.companionScene ?? "none"),
@@ -50,8 +60,19 @@ export function exportCompanionSettings(prefs: DesktopPrefs): CompanionSettingsE
   };
 }
 
+export interface ImportOptions {
+  /** host 目前認得的 characterId（/characters/index.json）；舊 id 永遠接受。 */
+  knownCharacterIds?: readonly string[];
+}
+
+/** 這個 characterId 是否可匯入：格式合法，且 host 認得或是舊 id。 */
+export function isImportableCharacterId(id: string, known: readonly string[] = []): boolean {
+  if (typeof id !== "string" || !CHARACTER_ID_RE.test(id)) return false;
+  return LEGACY_CHARACTER_IDS.includes(id) || known.includes(id);
+}
+
 /** 驗證匯入 JSON → 可直接 prefsPatch 的部分偏好。非法輸入 throw。 */
-export function parseCompanionSettingsImport(raw: unknown): Partial<DesktopPrefs> {
+export function parseCompanionSettingsImport(raw: unknown, opts: ImportOptions = {}): Partial<DesktopPrefs> {
   const obj = raw as Record<string, unknown>;
   if (!obj || typeof obj !== "object") throw new Error("不是有效的設定檔");
   if (obj.kind !== "companion-settings") throw new Error("不是角色設定檔（kind 不符）");
@@ -65,9 +86,16 @@ export function parseCompanionSettingsImport(raw: unknown): Partial<DesktopPrefs
     return v;
   };
   const name = str("companionName", null, 24);
-  if (name !== null) out.companionName = name;
-  const pack = str("companionPack", PACKS, 64);
-  if (pack !== null) out.companionPack = pack;
+  if (name !== null && name.length > 0) out.companionName = name;
+  // companionPack 優先；沒有時接受 CPP 別名 characterId。
+  const packKey = typeof obj.companionPack === "string" ? "companionPack" : "characterId";
+  const pack = str(packKey, null, 64);
+  if (pack !== null) {
+    if (!isImportableCharacterId(pack, opts.knownCharacterIds ?? [])) {
+      throw new Error(`${packKey} 不是這台電腦認得的角色`);
+    }
+    out.companionPack = pack;
+  }
   const persona = str("companionPersona", PERSONAS, 64);
   if (persona !== null) out.companionPersona = persona;
   const expr = str("companionExpressiveness", EXPRESSIVENESS, 16);

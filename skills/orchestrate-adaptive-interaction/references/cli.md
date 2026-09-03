@@ -191,3 +191,17 @@ interact-ai knowledge receipts | update-check <trigger>    # honest machine-read
 Hard rules for AIs: your writes are ALWAYS candidates; you cannot approve
 your own proposals; analogies/conjecture can never claim causality; asset
 sources are immutable; claimed-completed ≠ verified.
+
+## v0.5: Character Presentation Protocol
+
+```bash
+interact-ai character status                      # protocol version, instances, active character
+interact-ai character instances                   # desktop + external adapter instances (negotiated, tested, generation)
+interact-ai character manifest                    # active desktop character manifest (404 before hello)
+interact-ai character adapters list
+interact-ai character adapters add --name "My engine" --manifest my.manifest.json   # prints adapter token ONCE
+interact-ai character adapters revoke <adapterId> # token invalid + goodbye + disconnect
+interact-ai character intent notice --message hi  # human manual test; safety intents (emergency/blocked/verified-success/...) are refused (403)
+```
+
+Truth states reach characters only through Runtime events (never through this CLI or an AI request). `completed` receipts from a character mean "the presentation played", never that work was verified.

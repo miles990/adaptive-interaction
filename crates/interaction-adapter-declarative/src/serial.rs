@@ -25,6 +25,11 @@ const BROADCAST_CAP: usize = 64;
 const WRITE_QUEUE_CAP: usize = 32;
 const BACKOFF_START_MS: u64 = 1_000;
 const BACKOFF_MAX_MS: u64 = 15_000;
+/// 參考韌體的單行上限（`g_serialBuf[640]`：一行最多 639 bytes，第 640 個
+/// 位元組起整行丟棄並回一則**沒有 id** 的 `err bad-json`）。超過的訊息在
+/// host 端就拒絕——確定沒寫出，不製造「裝置回了無 id 錯誤」的未知。
+/// 模擬器 `scripts/esp32-serial-sim.py` 的 MAX_LINE_BYTES 與此相同。
+pub const MAX_LINE_BYTES: usize = 639;
 /// shutdown 時等 reader 執行緒收尾的上限。pty fallback 的 read 沒有逾時，
 /// 裝置完全沉默時可能還卡在 read——關閉必須有界，不能無限 join。
 const READER_JOIN_GRACE_MS: u64 = 500;
@@ -348,6 +353,20 @@ fn still_in_time(deadline: Option<Instant>, now: Instant) -> bool {
     deadline.map(|d| now < d).unwrap_or(true)
 }
 
+/// 超過韌體單行上限的訊息：確定不送（Refused），而不是送出去換一則
+/// 無 id 的 bad-json。detail 以 "message too large" 開頭——link_caps 靠這個
+/// 慣例把收據原因記成 message-too-large（serial／mqtt／ble 三處一致）。
+fn check_line_size(line: &str) -> Result<(), LinkError> {
+    if line.len() > MAX_LINE_BYTES {
+        return Err(LinkError::Refused(format!(
+            "message too large ({} bytes > {MAX_LINE_BYTES}, the firmware's per-line limit); \
+             nothing was written",
+            line.len()
+        )));
+    }
+    Ok(())
+}
+
 fn interruptible_sleep(shutdown: &AtomicBool, total_ms: u64) {
     let mut waited = 0;
     while waited < total_ms && !shutdown.load(Ordering::SeqCst) {
@@ -386,6 +405,7 @@ impl RawLink for SerialRawLink {
                 self.port
             )));
         }
+        check_line_size(&line)?;
         self.enqueue(line, None)
     }
 
@@ -396,6 +416,7 @@ impl RawLink for SerialRawLink {
                 self.port
             )));
         }
+        check_line_size(&line)?;
         if Instant::now() >= deadline {
             return Err(LinkError::Unavailable(
                 "deadline passed before the message could be queued; nothing was written".into(),
@@ -465,6 +486,45 @@ mod tests {
             rx.try_recv().map(|(line, _)| line).unwrap(),
             r#"{"type":"cmd","id":"a3"}"#
         );
+    }
+
+    /// 韌體一行最多 639 bytes（第 640 個位元組起整行丟棄、回無 id 的
+    /// bad-json）。host 端必須在寫出**之前**就拒絕：確定沒送出（Refused），
+    /// 而不是送出去換一則裝置端的無 id 錯誤——模擬器以前不擋，真機會。
+    #[tokio::test]
+    async fn an_oversize_line_is_refused_before_it_reaches_the_queue() {
+        // 埠不存在也無妨：長度檢查在排隊之前，與連線狀態無關。
+        let link = SerialRawLink::spawn("/nonexistent/esp32-line-limit-probe".into(), 115_200);
+        // 以量到的骨架長度算 padding（不寫死），探針才會剛好落在上限。
+        let probe = |pad: &str| {
+            format!(r#"{{"type":"cmd","id":"e","name":"led.set","params":{{"pad":"{pad}"}}}}"#)
+        };
+        let skeleton = probe("").len();
+        let exact = probe(&"x".repeat(MAX_LINE_BYTES - skeleton));
+        assert_eq!(
+            exact.len(),
+            MAX_LINE_BYTES,
+            "probe line should sit exactly on the limit"
+        );
+        assert!(
+            RawLink::send(&*link, exact.clone()).await.is_ok(),
+            "639 bytes is the firmware's maximum and must be accepted"
+        );
+        let over = format!("{exact}x");
+        match RawLink::send(&*link, over.clone()).await {
+            Err(LinkError::Refused(detail)) => {
+                assert!(detail.starts_with("message too large"), "{detail}");
+                assert!(detail.contains("640 bytes"), "{detail}");
+            }
+            other => panic!("640 bytes must be Refused before the wire, got {other:?}"),
+        }
+        match RawLink::send_before(&*link, over, Instant::now() + Duration::from_secs(5)).await {
+            Err(LinkError::Refused(detail)) => {
+                assert!(detail.starts_with("message too large"), "{detail}")
+            }
+            other => panic!("send_before must apply the same limit, got {other:?}"),
+        }
+        link.shutdown();
     }
 
     /// 每則 cmd 帶 deadline：過期的不寫上線（沒有期限的控制訊息照送）。

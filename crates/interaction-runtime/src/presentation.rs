@@ -1,4 +1,5 @@
-//! Presentation Provider：把桌面角色（小樞）註冊為一級 provider，能力**逐項**
+//! Presentation Provider：把桌面角色（任何接上 Character Presentation Protocol
+//! 的角色；小樞只是第一個 Reference Adapter）註冊為一級 provider，能力**逐項**
 //! 宣告（7 個語意 receptor＋7 個 actuator），不是一個籠統的「角色」能力。
 //!
 //! 誠實迴路：
@@ -21,11 +22,13 @@ use adapters_builtin::PushReceptor;
 use async_trait::async_trait;
 use chrono::Utc;
 use interaction_adapter_sdk::{ActuatorManifestBuilder, DriverReceipt, ReceptorManifestBuilder};
+use interaction_character::{AdapterKind, CharacterIntent, LocalizedText};
 use interaction_core::{
     ActionId, ActionReceipt, ActionStatus, Actuator, ActuatorError, ActuatorManifest,
     BoundedAction, ComponentHealth, EventType, ReceptorMode, RiskClass, RuntimeEvent, Sensitivity,
     Timestamp, VerificationEvidence, VerificationVerdict,
 };
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -37,19 +40,75 @@ pub const PRESENCE_STALE_SECS: i64 = 20;
 const PENDING_CAP: usize = 64;
 const MAX_BUBBLE_CHARS: usize = 200;
 
-/// AI 可直接點播的動畫白名單。成功／驗證／阻擋／未知／失敗／緊急等
-/// 「真相狀態」動畫**不在**此列——它們只能由 runtime 事件真實驅動。
-pub const PLAYABLE_ANIMATIONS: &[&str] = &[
-    "idle",
-    "notice",
-    "curious",
-    "listening",
-    "thinking",
-    "working",
-    "waiting",
-    "quiet",
-    "stretch",
+/// AI 點播動畫時**永遠**排除的名稱：成功／驗證／阻擋／未知／失敗／緊急等
+/// 「真相狀態」動畫只能由 runtime 事件（truth projection）真實驅動。
+/// 有 priority floor 的安全 intent 名稱（wait／cancelled…）也一併排除。
+pub const PLAYABLE_DENY_LIST: &[&str] = &[
+    "success",
+    "success-claimed",
+    "success-verified",
+    "verified",
+    "claimed",
+    "blocked",
+    "unknown",
+    "failed",
+    "emergency",
+    "offline",
+    "ask",
+    "request-consent",
 ];
+
+/// AI 可直接點播的動畫＝協商到的 `visual.expression` variants ∪ 非安全
+/// canonical intent，扣掉 [`PLAYABLE_DENY_LIST`] 與所有安全 intent 名稱。
+/// 尚未 hello（沒有協商結果）時只有非安全 canonical intent。
+pub fn playable_animations_for(expression_variants: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = CharacterIntent::ALL
+        .iter()
+        .filter(|intent| !intent.is_safety())
+        .map(|intent| intent.as_str().to_string())
+        .collect();
+    for variant in expression_variants {
+        if !out.iter().any(|v| v == variant) {
+            out.push(variant.clone());
+        }
+    }
+    out.retain(|name| {
+        !PLAYABLE_DENY_LIST.contains(&name.as_str())
+            && !CharacterIntent::parse(name).is_some_and(|intent| intent.is_safety())
+    });
+    out
+}
+
+/// 目前接上的桌面角色（由 `POST /v1/character/hello` 協商而來）。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveCharacter {
+    pub character_id: String,
+    pub display_name: LocalizedText,
+    pub version: String,
+    pub adapter_kind: AdapterKind,
+    /// `builtin`／`imported`（桌面視窗載入的 manifest 來源）。
+    pub origin: String,
+    /// 協商後有效的能力 id（只含 supported）。
+    pub capabilities: Vec<String>,
+    /// `visual.expression` 協商到的 variants（AI 可點播動畫的來源）。
+    pub expression_variants: Vec<String>,
+    pub generation: u64,
+}
+
+/// 依 locale 偏好取角色顯示名（zh-TW → zh-Hant → zh → en → 第一個）；
+/// 沒有任何名稱時回中立的「角色」。
+pub fn display_name_zh(name: &LocalizedText) -> String {
+    for key in ["zh-TW", "zh-Hant", "zh", "en"] {
+        if let Some(value) = name.get(key).filter(|v| !v.trim().is_empty()) {
+            return value.trim().to_string();
+        }
+    }
+    name.values()
+        .find(|v| !v.trim().is_empty())
+        .map(|v| v.trim().to_string())
+        .unwrap_or_else(|| "角色".to_string())
+}
 
 /// behaviorIntent 白名單（spec §7）：AI 只能提出高層意圖，映射由前端
 /// Behavior Runtime 完成；不含任何成功／安全語意。
@@ -134,6 +193,8 @@ struct BridgeState {
     /// window. It contains no pointer coordinates, raw input or free-form
     /// reasoning; the human explanation is derived here, not trusted from JS.
     behavior_state: Option<Value>,
+    /// 協商完成的桌面角色（Character Presentation Protocol）。
+    character: Option<ActiveCharacter>,
 }
 
 /// 角色視窗與 runtime 之間的橋：presence 心跳＋待 ack 命令登記。
@@ -191,6 +252,31 @@ impl PresentationBridge {
         Self::fresh(s.last_seen, now) && s.visible
     }
 
+    /// 登記協商完成的桌面角色（每次 `POST /v1/character/hello` 都會更新）。
+    pub fn set_character(&self, character: ActiveCharacter) {
+        let mut s = self.state.lock().expect("presentation state lock");
+        s.character = Some(character);
+    }
+
+    pub fn active_character(&self) -> Option<ActiveCharacter> {
+        self.state
+            .lock()
+            .expect("presentation state lock")
+            .character
+            .clone()
+    }
+
+    /// AI 可點播的動畫（動態：協商 variants ∪ 非安全 canonical intent − deny-list）。
+    pub fn playable_animations(&self) -> Vec<String> {
+        let s = self.state.lock().expect("presentation state lock");
+        playable_animations_for(
+            s.character
+                .as_ref()
+                .map(|c| c.expression_variants.as_slice())
+                .unwrap_or(&[]),
+        )
+    }
+
     pub fn snapshot(&self, now: Timestamp) -> Value {
         let s = self.state.lock().expect("presentation state lock");
         let connected = Self::fresh(s.last_seen, now);
@@ -207,6 +293,7 @@ impl PresentationBridge {
             "pendingCommands": self.pending.lock().expect("pending lock").len(),
             "behaviorState": behavior,
             "behaviorExplanation": explanation,
+            "character": s.character,
         })
     }
 
@@ -466,13 +553,18 @@ fn validate_state_present(action: &BoundedAction) -> Result<Value, ActuatorError
     }))
 }
 
-fn validate_params(kind: PresentationKind, action: &BoundedAction) -> Result<Value, ActuatorError> {
+/// `playable` 由 [`PresentationBridge::playable_animations`] 提供（動態白名單）。
+fn validate_params(
+    kind: PresentationKind,
+    action: &BoundedAction,
+    playable: &[String],
+) -> Result<Value, ActuatorError> {
     match kind {
         PresentationKind::StatePresent => validate_state_present(action),
         PresentationKind::AnimationPlay => {
             let name = extra_str(action, "animation")
                 .ok_or_else(|| ActuatorError::Rejected("animation name is required".into()))?;
-            if !PLAYABLE_ANIMATIONS.contains(&name) {
+            if !playable.iter().any(|p| p == name) {
                 return Err(ActuatorError::Rejected(format!(
                     "animation '{name}' is not directly playable (truth-driven states are runtime-only)"
                 )));
@@ -660,7 +752,8 @@ impl Actuator for PresentationActuator {
                 "companion window not connected or hidden".into(),
             ));
         }
-        let params = validate_params(self.kind, &action)?;
+        let playable = self.bridge.playable_animations();
+        let params = validate_params(self.kind, &action, &playable)?;
         let expires_at = self
             .bridge
             .enqueue(&action.action_id, self.kind, params.clone(), now)?;
@@ -677,6 +770,17 @@ impl Actuator for PresentationActuator {
             )
             .with_correlation(action.correlation_id.clone()),
         );
+        // Character Presentation Protocol：AI 的 state-present／animation-play
+        // 轉成 `truthState: none`、priority ≤ 50 的 envelope 派給已協商的角色
+        // instance（桌面＝`character.intent` 事件、外部＝WebSocket）。回執經
+        // `/v1/character/receipts` 回來時才推進這張 presentation receipt。
+        if matches!(
+            self.kind,
+            PresentationKind::StatePresent | PresentationKind::AnimationPlay
+        ) {
+            Runtime::from_inner(rt.clone())
+                .character_ai_present(&action, self.kind, &params, now, expires_at);
+        }
         Ok(DriverReceipt::start(&action, now)
             .dispatched()
             .note("presentation", json!(self.kind.command()))
@@ -857,6 +961,9 @@ impl Runtime {
         let (conn_changed, vis_changed) =
             self.presentation
                 .hello_with_behavior(visible, pack_id, behavior_state, now);
+        // presence 心跳也是 Character Gateway 對桌面 instance 的 heartbeat
+        // （否則 45 s 沒有回執／事件會被 gateway 當成斷線）。
+        self.character_desktop_heartbeat(now);
         if conn_changed || vis_changed {
             // presence 變化立即反映到 registry 的健康快取：不等 watchdog 的
             // 週期 refresh，規劃器才不會在隱藏／剛連線的窗口內拿到過期健康。
@@ -972,6 +1079,23 @@ impl Runtime {
                     );
                     let _ = receipt.transition(ActionStatus::Failed, now);
                     deferred_events.push((EventType::ActionFailed, receipt.clone()));
+                }
+            }
+            // Character Protocol 回執 `expired`／`uncertain`（adapter 斷線、
+            // acknowledged 後沒有 completion…）：結果未知就記未知，不猜。
+            "uncertain" | "expired" => {
+                if !receipt.current_status.is_terminal() {
+                    receipt.verification =
+                        Some(VerificationEvidence {
+                            observation_ids: vec![],
+                            verdict: VerificationVerdict::Uncertain,
+                            detail: Some(detail.clone().unwrap_or_else(|| {
+                                format!("character adapter reported {outcome}")
+                            })),
+                            verified_at: now,
+                        });
+                    let _ = receipt.transition(ActionStatus::Uncertain, now);
+                    deferred_events.push((EventType::ActionUncertain, receipt.clone()));
                 }
             }
             other => {
@@ -1145,7 +1269,7 @@ mod tests {
             assert!(!reqs.is_empty(), "{id} must declare requirements");
             // 缺了宣告的必要參數（payload 空、message 空）必被拒絕。
             assert!(
-                validate_params(kind, &mk(id, None)).is_err(),
+                validate_params(kind, &mk(id, None), &playable_animations_for(&[])).is_err(),
                 "{id} without required params must be rejected at execute"
             );
         }
@@ -1203,31 +1327,71 @@ mod tests {
             metadata: BTreeMap::new(),
             schema_version: interaction_core::SCHEMA_VERSION.into(),
         };
-        assert!(
-            validate_params(PresentationKind::StatePresent, &mk("look-at-confirmation")).is_ok()
-        );
+        let playable = playable_animations_for(&[]);
+        assert!(validate_params(
+            PresentationKind::StatePresent,
+            &mk("look-at-confirmation"),
+            &playable
+        )
+        .is_ok());
         // 未登記的 intent 一律拒絕——AI 不能編造動作。
-        assert!(validate_params(PresentationKind::StatePresent, &mk("do-a-backflip")).is_err());
+        assert!(validate_params(
+            PresentationKind::StatePresent,
+            &mk("do-a-backflip"),
+            &playable
+        )
+        .is_err());
         // 成功／安全語意不可直接點播。
-        assert!(
-            validate_params(PresentationKind::StatePresent, &mk("celebrate-verified")).is_err()
-        );
+        assert!(validate_params(
+            PresentationKind::StatePresent,
+            &mk("celebrate-verified"),
+            &playable
+        )
+        .is_err());
     }
 
     #[test]
     fn animation_whitelist_excludes_truth_states() {
-        for truth in [
+        // 就算角色宣告了這些 variants，AI 也永遠不能直接點播它們。
+        let variants: Vec<String> = [
             "success",
+            "success-verified",
             "blocked",
             "unknown",
             "failed",
             "emergency",
             "offline",
+            "wait",
+            "cancelled",
+            "curious",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let playable = playable_animations_for(&variants);
+        for truth in [
+            "success",
+            "success-verified",
+            "blocked",
+            "unknown",
+            "failed",
+            "emergency",
+            "offline",
+            "wait",
+            "cancelled",
         ] {
             assert!(
-                !PLAYABLE_ANIMATIONS.contains(&truth),
+                !playable.iter().any(|p| p == truth),
                 "{truth} must never be directly playable"
             );
         }
+        assert!(playable.iter().any(|p| p == "curious"));
+        assert!(playable.iter().any(|p| p == "notice"));
+        // 未協商前：只有非安全 canonical intent。
+        let before = playable_animations_for(&[]);
+        assert_eq!(before.len(), 9);
+        assert!(!before.iter().any(|p| p == "curious"));
+        let bridge = PresentationBridge::new();
+        assert_eq!(bridge.playable_animations(), before);
     }
 }

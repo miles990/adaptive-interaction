@@ -2,6 +2,7 @@
 //! health/ready requires the local capability token (Bearer). SSE event stream
 //! supports Last-Event-ID resume.
 
+mod character_ws;
 mod dto;
 mod error;
 mod routes;
@@ -28,6 +29,12 @@ pub enum AuthPrincipal {
     Human,
     LegacyAgent,
     AgentSession(interaction_runtime::agents::AgentSessionCapability),
+    /// 外部 Character adapter token（sha256 儲存）：只能 POST 自己 instance 的
+    /// 回執／事件與開 `/v1/character/ws`；拿不到任何人類資料、不能呼叫
+    /// actuator、不能改 policy／consent／estop、不能 verify。
+    CharacterAdapter {
+        adapter_id: String,
+    },
 }
 
 #[derive(Clone)]
@@ -84,6 +91,25 @@ pub fn router(state: ApiState) -> Router {
         )
         .route("/v1/presentation/hello", post(routes::presentation_hello))
         .route("/v1/presentation/ack", post(routes::presentation_ack))
+        // Character Presentation Protocol（human；receipts／events 也收 adapter token）。
+        .route("/v1/character/hello", post(routes::character_hello))
+        .route("/v1/character/receipts", post(routes::character_receipts))
+        .route("/v1/character/events", post(routes::character_events))
+        .route("/v1/character/instances", get(routes::character_instances))
+        .route("/v1/character/manifest", get(routes::character_manifest))
+        .route(
+            "/v1/character/adapters",
+            get(routes::character_adapters_list),
+        )
+        .route(
+            "/v1/character/adapters",
+            post(routes::character_adapter_add),
+        )
+        .route(
+            "/v1/character/adapters/{id}",
+            delete(routes::character_adapter_revoke),
+        )
+        .route("/v1/character/intent", post(routes::character_intent))
         .route(
             "/v1/proactive-dialogue",
             get(routes::proactive_dialogue_get).patch(routes::proactive_dialogue_patch),
@@ -267,6 +293,9 @@ pub fn router(state: ApiState) -> Router {
         .route("/ready", get(routes::ready))
         .route("/v1/health", get(routes::health))
         .route("/v1/ready", get(routes::ready))
+        // 外部 adapter WebSocket：token 走 query（不是 Bearer），自己驗證——
+        // 只收 adapter token，human／agent token 一律 401。
+        .route("/v1/character/ws", get(character_ws::character_ws))
         .merge(authed)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
         .layer(cors_layer())
@@ -322,7 +351,13 @@ async fn auth_middleware(
     } else {
         None
     };
-    if !human && !agent && session.is_none() {
+    // Character adapter token：獨立分權，永遠不進 agent／human 的路由判斷。
+    let adapter = if !human && !agent && session.is_none() {
+        candidate.and_then(|value| state.runtime.character_adapter_for_token(value))
+    } else {
+        None
+    };
+    if !human && !agent && session.is_none() && adapter.is_none() {
         return ApiError::unauthorized().into_response();
     }
     if agent && !agent_request_allowed(request.method(), request.uri().path()) {
@@ -333,16 +368,30 @@ async fn auth_middleware(
             return ApiError::forbidden_scope().into_response();
         }
     }
-    request.extensions_mut().insert(AuthContext {
-        principal: if human {
-            AuthPrincipal::Human
-        } else if agent {
-            AuthPrincipal::LegacyAgent
-        } else {
-            AuthPrincipal::AgentSession(session.expect("session checked"))
-        },
-    });
+    if adapter.is_some() && !adapter_request_allowed(request.method(), request.uri().path()) {
+        return ApiError::forbidden_adapter_scope().into_response();
+    }
+    let principal = if human {
+        AuthPrincipal::Human
+    } else if agent {
+        AuthPrincipal::LegacyAgent
+    } else if let Some(capability) = session {
+        AuthPrincipal::AgentSession(capability)
+    } else if let Some(adapter_id) = adapter {
+        AuthPrincipal::CharacterAdapter { adapter_id }
+    } else {
+        return ApiError::unauthorized().into_response();
+    };
+    request.extensions_mut().insert(AuthContext { principal });
     next.run(request).await
+}
+
+/// README §8.2：adapter token 只能用於自己的回執／事件（與 `/v1/character/ws`，
+/// 那條路由自己驗 query token）。其餘一律 403——包括 `/v1/status`、estop、
+/// agent sessions、actuator、policy／consent／verify。
+fn adapter_request_allowed(method: &axum::http::Method, path: &str) -> bool {
+    method == axum::http::Method::POST
+        && matches!(path, "/v1/character/receipts" | "/v1/character/events")
 }
 
 fn session_request_allowed(
@@ -383,7 +432,9 @@ fn agent_request_allowed(method: &axum::http::Method, path: &str) -> bool {
             && !path.starts_with("/v1/ui/preferences")
             && !path.starts_with("/v1/onboarding")
             // 配對指紋/裝置清單屬人類層：agent token 不可讀。
-            && !path.starts_with("/v1/mobile");
+            && !path.starts_with("/v1/mobile")
+            // 角色 instance／adapter 登記屬可信 host 層：agent token 不可讀。
+            && !path.starts_with("/v1/character");
     }
     if matches!(
         path,
@@ -408,7 +459,7 @@ fn agent_request_allowed(method: &axum::http::Method, path: &str) -> bool {
         || path == "/v1/knowledge/update-check"
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -447,4 +498,55 @@ pub async fn serve(
         }
     });
     Ok((addr, handle))
+}
+
+#[cfg(test)]
+mod auth_scope_tests {
+    use super::*;
+    use axum::http::Method;
+
+    #[test]
+    fn adapter_tokens_only_reach_receipts_and_events() {
+        assert!(adapter_request_allowed(
+            &Method::POST,
+            "/v1/character/receipts"
+        ));
+        assert!(adapter_request_allowed(
+            &Method::POST,
+            "/v1/character/events"
+        ));
+        for (method, path) in [
+            (Method::GET, "/v1/status"),
+            (Method::POST, "/v1/emergency-stop"),
+            (Method::POST, "/v1/emergency-stop/clear"),
+            (Method::POST, "/v1/agent-sessions/x/verify"),
+            (Method::POST, "/v1/agent-sessions/x/interrupt"),
+            (Method::GET, "/v1/character/instances"),
+            (Method::POST, "/v1/character/hello"),
+            (Method::POST, "/v1/character/adapters"),
+            (Method::POST, "/v1/plans"),
+            (Method::POST, "/v1/tools/interaction.status/call"),
+            (Method::PATCH, "/v1/policy"),
+            (Method::GET, "/v1/character/receipts"),
+        ] {
+            assert!(
+                !adapter_request_allowed(&method, path),
+                "{method} {path} must be refused for adapter tokens"
+            );
+        }
+        // agent token 也拿不到角色層的人類資料。
+        assert!(!agent_request_allowed(
+            &Method::GET,
+            "/v1/character/instances"
+        ));
+        assert!(!agent_request_allowed(
+            &Method::GET,
+            "/v1/character/adapters"
+        ));
+        assert!(!agent_request_allowed(&Method::POST, "/v1/character/hello"));
+        assert!(!agent_request_allowed(
+            &Method::POST,
+            "/v1/character/intent"
+        ));
+    }
 }

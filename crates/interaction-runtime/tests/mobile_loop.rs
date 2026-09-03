@@ -386,7 +386,15 @@ fn map_wire_params_defaults_are_accepted_by_the_app_rules() {
 
     let (name, p) = map_wire_params("iphone.notify", &with_message("有事找你")).unwrap();
     assert_eq!(name, "notify.show");
-    assert_eq!(p["title"], "小樞");
+    // 標題不再寫死任何角色：未協商角色前用中立的「角色」，協商後跟 manifest 走。
+    assert_eq!(p["title"], "角色");
+    let (_, titled) = interaction_runtime::mobile::map_wire_params_titled(
+        "iphone.notify",
+        &with_message("有事找你"),
+        Some("小樞"),
+    )
+    .unwrap();
+    assert_eq!(titled["title"], "小樞");
     assert_eq!(p["body"], "有事找你");
     app_validate(name, &p).expect("notify defaults");
 

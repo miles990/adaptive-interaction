@@ -1,9 +1,11 @@
-// 首次設定精靈（v0.5）：3 步（認識小樞／AI 幫手／安全預設）、draft/commit。
+// 首次設定精靈（v0.5）：3 步（認識角色／AI 幫手／安全預設）、draft/commit。
 // 所有選擇最後一次性套用到後端（enable/disable、policy patch、starter recipes、
 // 偏好），中途關閉只留草稿，不會留下半套用狀態。
 // 保守原則不變：只有「確定安全」的本機低風險能力會自動啟用；攝影機、麥克風、
 // 位置、對外寫入與實體效果一律預設關閉，之後首次需要時逐項詢問。
 // 硬體掃描、iPhone 配對等移出精靈——第一次真正需要時再問。
+// 角色名稱與代詞一律來自 useCharacterName()（小樞的 manifest 宣告「她」；其他角色中立）；
+// 貓系／女僕等物種與服裝文案只給小樞家族。commit 之後接「首次成功體驗」（可略過，不是第四步）。
 
 import React from "react";
 import { api, HumanCard, OnboardingState } from "../api";
@@ -11,6 +13,22 @@ import { useAppState } from "../appstate";
 import { Icon } from "../icons";
 import { desktop, isTauri } from "../desktop";
 import { drawExpressionPreview } from "../companion/rig/renderer";
+import { useCharacterName } from "../characterName";
+import { LEGACY_CHARACTER_IDS } from "../companion/settingsTransfer";
+import { FirstSuccess, isFirstSuccessSeen } from "./FirstSuccess";
+
+/** 小樞家族（8 個內建 shu-* 角色）：只有這些角色用貓系數位精靈的物種文案。 */
+export function isShuFamily(characterId: string | null | undefined): boolean {
+  return typeof characterId === "string" && LEGACY_CHARACTER_IDS.includes(characterId);
+}
+
+/** 步驟一的介紹句：小樞家族保留原文案；其他角色只講事實（本機微動作、誠實狀態），不講物種或服裝。 */
+export function introCopy(name: string, pronoun: string, shu: boolean): string {
+  if (shu) {
+    return `${name}是住在你桌面上的貓系數位精靈。${pronoun}會眨眼、伸展、打瞌睡——這些本機微動作即時發生、不呼叫 AI；連接 AI 或裝置之後，${pronoun}會誠實呈現真實狀態。`;
+  }
+  return `${name}是住在你桌面上的角色。${pronoun}的本機微動作即時發生、不呼叫 AI；連接 AI 或裝置之後，${pronoun}會誠實呈現真實狀態，不會假裝完成。`;
+}
 
 interface Draft {
   step: number;
@@ -50,14 +68,33 @@ const EMPTY_DRAFT: Draft = {
   agentChoice: "later",
 };
 
-const STEPS = ["認識小樞", "AI 幫手", "安全預設"];
+const STEP_COUNT = 3;
+function stepsFor(name: string): string[] {
+  return [`認識${name}`, "AI 幫手", "安全預設"];
+}
 
-export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () => void }) {
+export function Onboarding({
+  onDone,
+  onSkip,
+  onNavigate,
+}: {
+  onDone: () => void;
+  onSkip: () => void;
+  /** 首次成功體驗的「交代一件小工作」／「更換角色」用；沒提供就只關閉精靈。 */
+  onNavigate?: (tab: string) => void;
+}) {
   const { human, findCard } = useAppState();
+  const character = useCharacterName();
+  const name = character.name;
+  const pronoun = character.pronoun;
+  const shu = isShuFamily(character.characterId);
+  const STEPS = stepsFor(name);
   const [state, setState] = React.useState<OnboardingState | null>(null);
   const [draft, setDraft] = React.useState<Draft>(EMPTY_DRAFT);
   const [committing, setCommitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  /** commit 成功後的可略過畫面；不是精靈的第四步。 */
+  const [phase, setPhase] = React.useState<"wizard" | "first-success">("wizard");
 
   const [loadError, setLoadError] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -68,7 +105,7 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
       setState(s);
       const d = s.draft as Partial<Draft> | null | undefined;
       if (d && typeof d.step === "number") {
-        setDraft({ ...EMPTY_DRAFT, ...d, step: Math.min(d.step, STEPS.length - 1) });
+        setDraft({ ...EMPTY_DRAFT, ...d, step: Math.min(d.step, STEP_COUNT - 1) });
       } else if (human) {
         // 預選：只挑低風險、本機、推薦新手的能力（保守原則，未知不預選）。
         setDraft((prev) => ({
@@ -144,7 +181,7 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
     try {
       await api.proactiveDialoguePatch({ mode: draft.dialogueMode });
     } catch (e) {
-      setError(`基本設定已套用，但主動對話模式設定失敗：${String(e)}。可稍後在「小樞」頁調整。`);
+      setError(`基本設定已套用，但主動對話模式設定失敗：${String(e)}。可稍後在「${name}」頁調整。`);
       setCommitting(false);
       return;
     }
@@ -157,13 +194,28 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
         });
         await desktop.companionApplyPrefs();
       } catch (e) {
-        setError(`基本設定已套用，但桌面角色設定失敗：${String(e)}。可稍後在「小樞」頁調整。`);
+        setError(`基本設定已套用，但桌面角色設定失敗：${String(e)}。可稍後在「${name}」頁調整。`);
         setCommitting(false);
         return;
       }
     }
     setCommitting(false);
-    onDone();
+    // 首次成功體驗：看過就不再打擾，直接完成。
+    let seen = false;
+    try {
+      seen = await isFirstSuccessSeen();
+    } catch {
+      seen = false;
+    }
+    if (seen) {
+      onDone();
+      return;
+    }
+    setPhase("first-success");
+  }
+
+  if (phase === "first-success") {
+    return <FirstSuccess onDone={onDone} onNavigate={onNavigate} />;
   }
 
   if (loadError)
@@ -195,19 +247,16 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
 
         {step === 0 && (
           <section>
-            <h1>認識小樞</h1>
-            <p className="muted">
-              小樞是住在你桌面上的貓系數位精靈。她會眨眼、伸展、打瞌睡——這些本機微動作
-              即時發生、不呼叫 AI；連接 AI 或裝置之後，她會誠實呈現真實狀態。
-            </p>
-            <PackPeek />
+            <h1>{STEPS[0]}</h1>
+            <p className="muted">{introCopy(name, pronoun, shu)}</p>
+            {shu ? <PackPeek name={name} /> : <CharacterPeekText name={name} />}
             <label className="radio-row">
               <input
                 type="checkbox"
                 checked={draft.companionVisible}
                 onChange={(e) => update({ companionVisible: e.target.checked })}
               />
-              在桌面上顯示小樞（可隨時隱藏）
+              在桌面上顯示{name}（可隨時隱藏）
             </label>
             <fieldset>
               <legend>表現程度</legend>
@@ -228,15 +277,15 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
               ))}
             </fieldset>
             <ul className="plain-list muted small">
-              <li>玩耍與游標互動：預設開啟（本機即時反應，不呼叫 AI）。</li>
-              <li>音效預設關閉，之後可在「小樞」頁開啟。</li>
-              <li>外觀、大小、透明度與更多表現設定也都在「小樞」頁。</li>
+              {shu && <li>玩耍與游標互動：預設開啟（本機即時反應，不呼叫 AI）。</li>}
+              <li>音效預設關閉，之後可在「{name}」頁開啟。</li>
+              <li>外觀、大小、透明度與更多陪伴設定也都在「{name}」頁。</li>
             </ul>
           </section>
         )}
 
         {step === 1 && (
-          <AgentStep choice={draft.agentChoice} onChoice={(agentChoice) => update({ agentChoice })} />
+          <AgentStep name={name} choice={draft.agentChoice} onChoice={(agentChoice) => update({ agentChoice })} />
         )}
 
         {step === 2 && (
@@ -257,7 +306,7 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
               這條底線無法被關閉。
             </p>
             <fieldset>
-              <legend>小樞主動說話</legend>
+              <legend>{name}主動說話</legend>
               {[
                 ["necessary", "必要時（建議）——只有等待確認、失敗、未知與感測提示"],
                 ["natural", "自然——加上任務進度與低頻建議"],
@@ -391,9 +440,11 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
 
 /** AI 幫手步驟：只做 Discovery／登入狀態檢查，不授權任何工作區寫入。 */
 function AgentStep({
+  name,
   choice,
   onChoice,
 }: {
+  name: string;
   choice: string;
   onChoice: (choice: string) => void;
 }) {
@@ -416,11 +467,11 @@ function AgentStep({
 
   return (
     <section>
-      <h1>要讓小樞幫忙工作嗎？</h1>
+      <h1>要讓{name}幫忙工作嗎？</h1>
       <p className="muted">
-        小樞可以把任務交給本機的 AI Agent（Codex／Claude Code）。這一步只檢查
-        安裝與登入狀態，<strong>不會</strong>授權讀寫任何資料夾——實際建立工作
-        階段時才逐項授權，且隨時可取消。
+        {name}可以把任務交給本機的 AI 幫手（Codex 擅長寫程式與整理資料；Claude Code 擅長對話、
+        知識與審閱）。這一步只檢查安裝與登入狀態，<strong>不會</strong>授權讀寫任何資料夾——實際建立工作
+        時才逐項授權，且隨時可取消。
       </p>
       {error ? (
         <div className="state-box state-error">無法檢查 Agent 狀態：{error}</div>
@@ -494,8 +545,8 @@ export function agentRoutesFor(choice: string): Record<string, string> | null {
   }
 }
 
-/** 正式角色預覽：由桌面角色使用的同一套參數化 rig 即時繪製，不是設計稿。 */
-function PackPeek() {
+/** 小樞家族的預覽：由桌面角色使用的同一套程式即時繪製，不是設計稿。 */
+function PackPeek({ name }: { name: string }) {
   const ref = React.useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -512,8 +563,18 @@ function PackPeek() {
     return <p className="muted small">（角色預覽載入失敗：{failed}）</p>;
   return (
     <div className="row" style={{ justifyContent: "center" }}>
-      <canvas ref={ref} width={128} height={128} aria-label="小樞預覽（與桌面角色同一套即時繪製）" />
+      <canvas ref={ref} width={128} height={128} aria-label={`${name}預覽（與桌面角色同一套即時繪製）`} />
     </div>
+  );
+}
+
+/** 非小樞角色：不畫 rig、不講物種；只用可信文字說明它會怎麼出現。 */
+function CharacterPeekText({ name }: { name: string }) {
+  return (
+    <p className="muted small" role="note">
+      {name}會依角色自己宣告的方式出現在桌面（圖像或文字）。緊急停止、被阻擋、結果不確定等安全訊息
+      永遠是固定文字，角色無法改寫。
+    </p>
   );
 }
 

@@ -5,12 +5,28 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { api, AgentSessionRecord, HumanCard } from "../api";
 import { AppStateProvider } from "../appstate";
-import { inboxStatusLabel, LEGACY_ANCHORS, navAnchorFor, NotificationPanel, SIMPLE_NAV } from "../App";
+import {
+  inboxStatusLabel,
+  LEGACY_ANCHORS,
+  NARROW_MORE_ITEMS,
+  navAnchorFor,
+  NotificationPanel,
+  PageBody,
+  SIMPLE_NAV,
+  simpleNavFor,
+  titleFor,
+} from "../App";
+import APP_SOURCE from "../App.tsx?raw";
+import GLOBAL_SEARCH_SOURCE from "../components/GlobalSearch.tsx?raw";
+import { characterNameFallback, primeCharacterNameForTests, resetCharacterNameForTests } from "../characterName";
+import { HomePage } from "../pages/HomePage";
+import { MorePage, MORE_TABS } from "../pages/MorePage";
+import { SettingsPage } from "../pages/SettingsPage";
 import { CapabilityCard } from "../components/CapabilityCard";
 import { AiPage, ApprovalCountdown, messageSummary } from "../pages/AiPage";
 import { dataScopeLabel, toolScopeLabel } from "../pages/HomePage";
@@ -26,6 +42,7 @@ const PAGE_SOURCES = import.meta.glob("../pages/*.tsx", {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 const SESSION: AgentSessionRecord = {
@@ -145,9 +162,12 @@ describe("通知中心（鍵盤可用，不是只能點的浮層）", () => {
 
   it("狀態顯示人話，不是原始 enum 字串", () => {
     render(<NotificationPanel inbox={inbox} onClose={() => {}} onNavigate={() => {}} />);
-    expect(screen.getByText("等待你的同意")).toBeInTheDocument();
+    // 文案以共用狀態投影（statusProjection.ts）的 spec 表格為準。
+    expect(screen.getByText("等你同意")).toBeInTheDocument();
     expect(screen.queryByText("waiting-for-consent")).not.toBeInTheDocument();
-    expect(inboxStatusLabel("some-new-state")).toBe("some-new-state");
+    // 介面不認得的狀態：不猜、也不把原始字串當標籤——投影成「結果不確定」。
+    expect(inboxStatusLabel("some-new-state")).toBe("結果不確定");
+    expect(inboxStatusLabel("some-new-state")).not.toBe("some-new-state");
   });
 });
 
@@ -266,7 +286,7 @@ describe("一般模式不外洩治理術語", () => {
     expect(toolScopeLabel("some.future.scope")).toBe("some.future.scope");
   });
 
-  it("Agent 訊息以人話標題與摘要呈現，原始 JSON 收在技術詳情", async () => {
+  it("Agent 訊息以人話標題與摘要呈現，原始 JSON 只在進階模式的技術詳情", async () => {
     vi.spyOn(api, "agentsDiscoveries").mockResolvedValue({ agents: [] });
     vi.spyOn(api, "agentSessionsList").mockResolvedValue([SESSION]);
     vi.spyOn(api, "agentSessionMessages").mockResolvedValue([
@@ -277,7 +297,7 @@ describe("一般模式不外洩治理術語", () => {
         body: { requestId: "r-1", summary: "要寫入 src/main.rs" },
       },
     ]);
-    render(
+    const simple = render(
       <AppStateProvider ready={false} refreshKey={0}>
         <AiPage refreshKey={0} onNavigate={() => {}} />
       </AppStateProvider>
@@ -285,8 +305,21 @@ describe("一般模式不外洩治理術語", () => {
     await userEvent.click(await screen.findByRole("button", { name: "查看結果／訊息" }));
     expect(await screen.findByText("等待你核可")).toBeInTheDocument();
     expect(screen.getByText("要寫入 src/main.rs")).toBeInTheDocument();
-    expect(screen.getByText("技術詳情")).toBeInTheDocument();
     expect(screen.queryByText("approval-request")).not.toBeInTheDocument();
+    // Phase 3：一般模式連「技術詳情」與原始 JSON 都不出現（brief I(3)：JSON 只在進階）。
+    expect(screen.queryByText("技術詳情")).not.toBeInTheDocument();
+    expect(simple.container.textContent).not.toContain("requestId");
+    simple.unmount();
+
+    const advanced = render(
+      <AppStateProvider ready={false} refreshKey={0}>
+        <AiPage refreshKey={0} advanced onNavigate={() => {}} />
+      </AppStateProvider>
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "查看結果／訊息" }));
+    expect(await screen.findByText("等待你核可")).toBeInTheDocument();
+    expect(screen.getByText("技術詳情")).toBeInTheDocument();
+    expect(advanced.container.textContent).toContain("requestId");
   });
 
   it("摘要優先取 summary，沒有文字時誠實說沒有", () => {
@@ -353,6 +386,14 @@ describe("AiPage 訊息不再只抓一次", () => {
 // ---------------------------------------------------------------------------
 
 describe("記憶與知識分層（一般模式只有三區）", () => {
+  // 角色名稱走 useCharacterName（memory-ui-003）：這裡釘成「小樞」，斷言文案不變；
+  // 不寫死的證明在 regressions-v05-round3（阿樂）與下方的原始碼掃描。
+  beforeEach(() => {
+    primeCharacterNameForTests({ name: "小樞", pronoun: "她", characterId: "shu-maid" });
+  });
+  afterEach(() => {
+    resetCharacterNameForTests();
+  });
   function stubMemoryApis() {
     vi.spyOn(api, "memoryList").mockResolvedValue({ items: [] });
     vi.spyOn(api, "knowledgeList").mockResolvedValue({ nodes: [], count: 0 });
@@ -395,14 +436,20 @@ describe("記憶與知識分層（一般模式只有三區）", () => {
     ]);
   });
 
-  it("advanced=false：關於我的記憶指路小樞頁，並顯示本次會提供給 AI 的內容", async () => {
+  it("advanced=false：關於我的記憶指路小樞頁，並顯示本次會提供給 AI 的內容（明說不含工作階段授權的領域知識）", async () => {
     stubMemoryApis();
     const navigate = vi.fn();
-    render(<MemoryKnowledgePage refreshKey={0} advanced={false} onNavigate={navigate} />);
+    const { container } = render(
+      <MemoryKnowledgePage refreshKey={0} advanced={false} onNavigate={navigate} />
+    );
     expect(await screen.findByText(/小樞跟你玩耍、互動累積的角色記憶/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "前往小樞" }));
     expect(navigate).toHaveBeenCalledWith("companion");
     expect(screen.getByText("本次會提供給 AI 的內容")).toBeInTheDocument();
+    // memory-ui-006：預覽固定以 domains=[] 呼叫，和真實工作階段的 bundle 不同——文案必須明說。
+    expect(container.textContent).toContain("不含工作階段授權的領域知識");
+    // memory-ui-005：只宣稱真的會記的類別。
+    expect(container.textContent).not.toContain("相處距離");
   });
 
   it("advanced=true：完整五個分頁與技術面板都還在（零能力退化）", async () => {
@@ -443,10 +490,11 @@ describe("WorkPage 顯示精靈的 agent 選擇", () => {
         review: "claude-code",
       })
     ).toContain("程式工作交給 Codex");
-    expect(agentRouteSummary(undefined)).toBe("尚未選擇（稍後再說）");
+    // ia-settings-039：沒有路由時不冒充「精靈選了稍後再說」，只說用預設分工。
+    expect(agentRouteSummary(undefined)).toBe("尚未設定（使用預設分工）");
   });
 
-  it("工作頁顯示「精靈選擇：…」摘要與前往調整的入口", async () => {
+  it("工作頁顯示「目前分工：…」摘要與前往調整的入口", async () => {
     vi.spyOn(api, "uiPrefsGet").mockResolvedValue({
       mode: "simple",
       locale: "zh-TW",
@@ -468,8 +516,12 @@ describe("WorkPage 顯示精靈的 agent 選擇", () => {
         <WorkPage refreshKey={0} advanced={false} onNavigate={() => {}} />
       </AppStateProvider>
     );
-    await waitFor(() => expect(screen.getByText(/精靈選擇：全部交給 Codex/)).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "前往工作頁調整" })).toBeInTheDocument();
+    // ia-settings-039：後端預設永遠帶四筆路由，畫面只能說「目前分工」，不能說是精靈的選擇。
+    await waitFor(() => expect(screen.getByText(/目前分工：全部交給 Codex/)).toBeInTheDocument());
+    expect(screen.queryByText(/精靈選擇/)).not.toBeInTheDocument();
+    // Phase 3 task-first：分工設定住在同一頁的「工作設定」折疊區，入口改叫「調整分工」
+    //（原「前往工作頁調整」在工作頁上是自己指自己）。
+    expect(screen.getByRole("button", { name: "調整分工" })).toBeInTheDocument();
   });
 });
 
@@ -495,6 +547,9 @@ describe("資訊架構守門", () => {
       memory: "more",
       activity: "more",
       settings: "more",
+      // v0.5 一般模式「更多」的新分頁（只新增、不移除）。
+      manage: "more",
+      "advanced-features": "more",
     };
     expect(LEGACY_ANCHORS).toEqual(expected);
     const primary = new Set(SIMPLE_NAV.map((t) => t.id));
@@ -530,6 +585,222 @@ describe("資訊架構守門", () => {
       for (const [pattern, what] of patterns) {
         expect(pattern.test(source), `${file} 不得成為「${what}」的第二個主人`).toBe(false);
       }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 13. 一般模式產品化（G）：導覽第二項跟著角色名稱、「更多」五個入口、
+//     第一屏與設定頁不外洩治理術語、程式碼裡不再寫死「小樞」
+// ---------------------------------------------------------------------------
+
+const BANNED_SIMPLE_TERMS = [
+  "Runtime",
+  "daemon",
+  "token",
+  "CLI",
+  "HTTP",
+  "Provider",
+  "受器",
+  "動器",
+  "Lease",
+  "租約",
+  "Receipt",
+  "收據",
+  "JSON",
+  "YAML",
+  "Agent Session",
+  "UUID",
+  "app-server",
+  "Receptor",
+  "Actuator",
+];
+
+/** 一般使用者看得到的文字：排除折疊中的 details 內容（summary 保留）。 */
+function visibleText(root: HTMLElement): string {
+  const clone = root.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll("details:not([open])").forEach((d) => {
+    Array.from(d.children).forEach((c) => {
+      if (c.tagName !== "SUMMARY") c.remove();
+    });
+  });
+  return clone.textContent ?? "";
+}
+
+function expectNoLeak(text: string, where: string) {
+  for (const term of BANNED_SIMPLE_TERMS) {
+    expect(text, `${where} 不得出現「${term}」`).not.toContain(term);
+  }
+}
+
+// 去掉行註解與區塊註解後的原始碼（只掃真正會進畫面的字串）。
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
+describe("一般模式產品化（G）：導覽、更多、術語", () => {
+  const OFFLINE_FETCH = () =>
+    vi.fn(async () => {
+      throw new Error("offline");
+    });
+
+  function stubShellApis() {
+    vi.stubGlobal("fetch", OFFLINE_FETCH());
+    vi.spyOn(api, "status").mockResolvedValue({
+      version: "0.5.0",
+      schemaVersion: "0.5",
+      emergencyStop: false,
+      presentation: { connected: true, visible: true },
+      characterProtocol: {
+        version: "1.0",
+        instances: 1,
+        activeCharacter: { characterId: "shu-maid", displayName: { "zh-TW": "小樞", en: "Shu" } },
+      },
+      recipes: { loaded: 2 },
+      activeSensors: [],
+    });
+    vi.spyOn(api, "characterManifest").mockResolvedValue({
+      characterId: "shu-maid",
+      displayName: { "zh-TW": "小樞", en: "Shu" },
+      pronouns: { "zh-TW": "她", en: "she" },
+    } as never);
+    vi.spyOn(api, "agentSessionsList").mockResolvedValue([SESSION]);
+    vi.spyOn(api, "activityInbox").mockResolvedValue({ items: [], count: 0, totalBeforeLimit: 0, pendingCount: 0 });
+    vi.spyOn(api, "actionsList").mockResolvedValue([]);
+    vi.spyOn(api, "sessionGet").mockResolvedValue(null);
+    vi.spyOn(api, "providersList").mockResolvedValue([]);
+    vi.spyOn(api, "knowledgeReceipts").mockResolvedValue({ receipts: [] });
+    vi.spyOn(api, "recipesList").mockResolvedValue([]);
+  }
+
+  it("導覽第二項是目前角色的名字（載入成功＝小樞；載入失敗＝角色），其餘四項不變", () => {
+    resetCharacterNameForTests();
+    const loaded = simpleNavFor({ name: "小樞", icon: "sparkles" });
+    expect(loaded.map((t) => t.label)).toEqual(["現在", "小樞", "工作", "連接與權限", "更多"]);
+    const failed = simpleNavFor({ name: characterNameFallback, icon: "sparkles" });
+    expect(failed.map((t) => t.label)).toEqual(["現在", "角色", "工作", "連接與權限", "更多"]);
+    expect(titleFor("companion", "小樞")).toBe("小樞");
+    expect(titleFor("companion", characterNameFallback)).toBe("角色");
+  });
+
+  it("「更多」有五個入口：記憶與知識／活動歷史／設定／角色與整合管理／進階功能；窄視窗更多選單也到得了", () => {
+    expect(MORE_TABS.map(([, label]) => label)).toEqual([
+      "記憶與知識",
+      "活動歷史",
+      "設定",
+      "角色與整合管理",
+      "進階功能",
+    ]);
+    expect(NARROW_MORE_ITEMS.map((t) => t.id)).toEqual(
+      expect.arrayContaining(["memory", "activity", "settings", "manage", "advanced-features"])
+    );
+    for (const item of NARROW_MORE_ITEMS) expect(navAnchorFor(item.id)).toBe("more");
+  });
+
+  it("manage／advanced-features 路由落在 MorePage 對應分頁；進階功能是顯示模式唯一的主人", async () => {
+    stubShellApis();
+    vi.spyOn(api, "uiPrefsGet").mockResolvedValue({ mode: "simple", locale: "zh-TW", customNames: {}, schemaVersion: "1.0" });
+    vi.spyOn(api, "pauseGet").mockResolvedValue({ paused: false });
+    const body = (tab: string) => (
+      <AppStateProvider ready={false} refreshKey={0}>
+        <PageBody tab={tab} refreshKey={0} events={[]} advanced={false} onNavigate={() => {}} onRerunOnboarding={() => {}} />
+      </AppStateProvider>
+    );
+    const { rerender } = render(body("manage"));
+    expect(screen.getByRole("tab", { name: "角色與整合管理" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("button", { name: /管理角色/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /管理裝置與整合/ })).toBeInTheDocument();
+    rerender(body("advanced-features"));
+    expect(screen.getByRole("tab", { name: "進階功能" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("checkbox", { name: "顯示進階功能" })).toBeInTheDocument();
+    // 設定頁只指路，不再放第二個切換。
+    rerender(body("settings"));
+    expect(screen.queryByRole("checkbox", { name: "顯示進階功能" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "前往進階功能" })).toBeInTheDocument();
+  });
+
+  it("「現在」第一屏（含展開的詳細狀態）不外洩治理術語", async () => {
+    stubShellApis();
+    const { container } = render(
+      <AppStateProvider ready={false} refreshKey={0}>
+        <HomePage refreshKey={0} events={[]} onNavigate={() => {}} />
+      </AppStateProvider>
+    );
+    await screen.findByText("小樞在桌面上，一切正常。");
+    await screen.findByText("1 個工作階段");
+    expectNoLeak(visibleText(container), "現在第一屏");
+    const details = screen.getByText("詳細狀態", { selector: "summary" }).closest("details") as HTMLDetailsElement;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    await screen.findByText("系統狀態");
+    await screen.findByText(/目前有 1 個 AI 工作階段/);
+    expectNoLeak(container.textContent ?? "", "現在詳細狀態");
+    // 工作階段的期限是人話，不是「租約」。
+    expect(container.textContent).toContain("可用到");
+  });
+
+  it("設定頁一般模式：第一層不出現 Runtime／Schema／JSON／YAML／受器／動器；技術資料折疊仍保留版本", async () => {
+    stubShellApis();
+    const { container } = render(
+      <AppStateProvider ready={false} refreshKey={0}>
+        <SettingsPage onRerunOnboarding={() => {}} onNavigate={() => {}} />
+      </AppStateProvider>
+    );
+    await screen.findByText(/系統版本 0\.5\.0/);
+    expectNoLeak(visibleText(container), "設定頁第一層");
+    // 零能力退化：版本細節還在（折疊區內）。
+    expect(container.textContent).toContain("Runtime 0.5.0");
+    // 角色名稱來自 hook，不寫死。
+    expect(await screen.findByRole("button", { name: "前往小樞" })).toBeInTheDocument();
+    expect(screen.getByText("小樞的設定")).toBeInTheDocument();
+  });
+
+  it("「更多」的角色與整合管理／進階功能與通知面板不外洩治理術語", async () => {
+    stubShellApis();
+    const { container } = render(
+      <AppStateProvider ready={false} refreshKey={0}>
+        <MorePage refreshKey={0} events={[]} advanced={false} onNavigate={() => {}} onRerunOnboarding={() => {}} initial="manage" />
+      </AppStateProvider>
+    );
+    await screen.findByText(/目前角色：/);
+    expectNoLeak(container.textContent ?? "", "角色與整合管理");
+    await userEvent.click(screen.getByRole("tab", { name: "進階功能" }));
+    expectNoLeak(container.textContent ?? "", "進階功能");
+    const panel = render(
+      <NotificationPanel
+        inbox={{ pendingCount: 1, items: [{ kind: "agent-session", itemId: "s", status: "claimed-completed", title: "報告", route: "ai", needsDecision: true }] }}
+        onClose={() => {}}
+        onNavigate={() => {}}
+      />
+    );
+    expectNoLeak(panel.container.textContent ?? "", "通知面板");
+  });
+
+  it("G 的檔案裡不再寫死「小樞」（註解除外），名稱一律走 useCharacterName", () => {
+    const byFile = new Map(
+      Object.entries(PAGE_SOURCES).map(([key, source]) => [key.split("/").pop()!, source])
+    );
+    const mine: [string, string][] = [
+      ["App.tsx", APP_SOURCE],
+      ["GlobalSearch.tsx", GLOBAL_SEARCH_SOURCE],
+      ...(
+        ["HomePage.tsx", "MorePage.tsx", "SettingsPage.tsx", "ActivityPage.tsx", "MemoryKnowledgePage.tsx"] as const
+      ).map((f) => [f, byFile.get(f) ?? ""] as [string, string]),
+    ];
+    for (const [file, source] of mine) {
+      expect(source.length, `${file} 必須被掃到`).toBeGreaterThan(0);
+      expect(stripComments(source), `${file} 不得寫死「小樞」`).not.toContain("小樞");
+    }
+    for (const file of [
+      "App.tsx",
+      "GlobalSearch.tsx",
+      "HomePage.tsx",
+      "MorePage.tsx",
+      "SettingsPage.tsx",
+      "MemoryKnowledgePage.tsx",
+    ]) {
+      const source = mine.find(([f]) => f === file)![1];
+      expect(source, `${file} 必須使用 useCharacterName`).toContain("useCharacterName");
     }
   });
 });

@@ -88,9 +88,15 @@ pub struct DesktopPrefs {
     pub companion_size: (f64, f64),
     /// Surface opacity, 0.2..=1.0. Applied inside the transparent WebView.
     pub companion_opacity: f64,
-    /// Selected character pack id (bundled: shu-standard/lively/minimal).
+    /// 目前角色的 `characterId`（Character Presentation Protocol manifest 身分；
+    /// 見 `docs/character-protocol/README.md` §2.2）。舊的 8 個 pack id
+    /// （shu-maid／shu-maid-dusk／shu-maid-sakura／shu-standard／shu-minimal／
+    /// shu-lively／shu-agile／shu-lazy）一律仍可用，與 `public/characters/index.json`
+    /// 及 `state/characters/<characterId>/`（匯入角色）對應。預設維持 `shu-maid`
+    /// 以相容既有設定檔。
     pub companion_pack: String,
-    /// Selected persona pack id (bundled: persona-shu/persona-navigator).
+    /// Persona pack id（純資料；`persona-shu`／`persona-navigator` 等）。
+    /// manifest 以 `preferences.persona` 引用它，不隨角色引擎改變。
     pub companion_persona: String,
     /// Story chapters already shown (fire once; clearable by the user).
     pub story_progress: std::collections::BTreeMap<String, bool>,
@@ -98,7 +104,7 @@ pub struct DesktopPrefs {
     pub companion_expressiveness: String,
     /// Companion stays above other windows.
     pub companion_always_on_top: bool,
-    /// 角色名字（顯示用；不影響任何權限）。
+    /// 角色名字（顯示用；不影響任何權限）。也是角色視窗的標題。
     pub companion_name: String,
     /// 遊玩場景：`none` | `nest` | `desk` | `sill` | `night`。
     pub companion_scene: String,
@@ -127,6 +133,12 @@ pub struct DesktopPrefs {
     /// 角色互動記憶（最喜歡的玩具、近期玩耍、常關掉的反應、熟悉度）。
     /// 純呈現資料，有界（≤8 玩具、≤20 事件），不會升級成正式知識。
     pub companion_interaction_memory: CompanionInteractionMemory,
+    /// 各角色由 manifest.preferencesSchema 宣告的偏好值（characterId → 鍵 → 值）。
+    /// 純呈現資料、無任何權限語意。上限（≤16 個角色、每角色 ≤32 鍵、值只能是
+    /// bool／有限數字／≤200 字的字串）由 `desktop_prefs_patch` 強制；patch 帶了
+    /// 這個欄位就整張表取代（前端一律送完整的表）。
+    pub companion_preferences:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, serde_json::Value>>,
     pub schema_version: u32,
 }
 
@@ -168,18 +180,30 @@ impl CompanionInteractionMemory {
     pub fn bounded(mut self) -> Self {
         self.toys.sort_by(|a, b| b.count.cmp(&a.count));
         self.toys.truncate(MEMORY_MAX_COUNTS);
-        self.disabled_reactions.sort_by(|a, b| b.count.cmp(&a.count));
+        self.disabled_reactions
+            .sort_by(|a, b| b.count.cmp(&a.count));
         self.disabled_reactions.truncate(MEMORY_MAX_COUNTS);
         if self.events.len() > MEMORY_MAX_EVENTS {
             let drop = self.events.len() - MEMORY_MAX_EVENTS;
             self.events.drain(0..drop);
         }
         for e in &mut self.events {
-            e.detail.truncate(48);
+            // 以「字元」截斷，不是 byte：detail 來自 WebView（任意 UTF-8），
+            // byte 48 落在 CJK／emoji 中間會讓 String::truncate panic。
+            let cut = e
+                .detail
+                .char_indices()
+                .nth(MEMORY_MAX_DETAIL_CHARS)
+                .map(|(i, _)| i)
+                .unwrap_or(e.detail.len());
+            e.detail.truncate(cut);
         }
         self
     }
 }
+
+/// 每筆事件 detail 最多幾個字元（與前端 interactionMemory.ts 的 slice(0, 48) 對應）。
+pub const MEMORY_MAX_DETAIL_CHARS: usize = 48;
 
 /// 使魔設定（純呈現資料）。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -202,6 +226,7 @@ impl Default for DesktopPrefs {
             companion_position: None,
             companion_size: (200.0, 210.0),
             companion_opacity: 1.0,
+            // characterId；預設仍是 shu-maid（相容 v0.3–v0.5 的設定檔）。
             companion_pack: "shu-maid".into(),
             companion_persona: "persona-shu".into(),
             story_progress: std::collections::BTreeMap::new(),
@@ -221,6 +246,7 @@ impl Default for DesktopPrefs {
             companion_drag_enabled: true,
             companion_proactive_quiet_until: 0.0,
             companion_interaction_memory: CompanionInteractionMemory::default(),
+            companion_preferences: std::collections::BTreeMap::new(),
             schema_version: 1,
         }
     }
@@ -371,6 +397,28 @@ pub async fn daemon_post(
     Ok(resp.json().await.unwrap_or(serde_json::Value::Null))
 }
 
+/// DELETE 到外部 daemon（撤銷外部 character adapter 等）；非 2xx 誠實回 Err。
+pub async fn daemon_delete(
+    api_base: &str,
+    token: &str,
+    path: &str,
+) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .delete(format!("{api_base}{path}"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("{} on {path}", resp.status()));
+    }
+    Ok(resp.json().await.unwrap_or(serde_json::Value::Null))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,10 +442,16 @@ mod tests {
     fn interaction_memory_is_bounded() {
         let mem = CompanionInteractionMemory {
             toys: (0..20)
-                .map(|i| MemoryCount { kind: format!("toy{i}"), count: i })
+                .map(|i| MemoryCount {
+                    kind: format!("toy{i}"),
+                    count: i,
+                })
                 .collect(),
             disabled_reactions: (0..12)
-                .map(|i| MemoryCount { kind: format!("r{i}"), count: i })
+                .map(|i| MemoryCount {
+                    kind: format!("r{i}"),
+                    count: i,
+                })
                 .collect(),
             events: (0..50)
                 .map(|i| MemoryEvent {
@@ -421,6 +475,44 @@ mod tests {
         assert_eq!(mem.toys[0].count, 19);
     }
 
+    /// regression：detail 曾以 byte 索引 `truncate(48)`——多位元組字元跨
+    /// 邊界就 panic，prefs_patch 整個中斷。截斷必須以字元為單位。
+    #[test]
+    fn interaction_memory_truncates_detail_on_char_boundaries() {
+        let cjk = format!("x{}", "毛線球".repeat(8)); // 25 chars／73 bytes，byte 48 非邊界
+        let mixed = format!("a{}", "あ".repeat(47)); // 48 chars／142 bytes
+        let emoji = "🧶🐈🎀".repeat(20); // 60 chars，每個 4 bytes
+        let mem = CompanionInteractionMemory {
+            events: [cjk.clone(), mixed.clone(), emoji.clone()]
+                .into_iter()
+                .enumerate()
+                .map(|(i, detail)| MemoryEvent {
+                    at: i as f64,
+                    kind: "play".into(),
+                    detail,
+                })
+                .collect(),
+            ..Default::default()
+        }
+        .bounded();
+        assert_eq!(mem.events.len(), 3);
+        for e in &mem.events {
+            assert!(
+                e.detail.chars().count() <= MEMORY_MAX_DETAIL_CHARS,
+                "{:?}",
+                e.detail
+            );
+            assert!(std::str::from_utf8(e.detail.as_bytes()).is_ok());
+        }
+        // 不超過上限的 CJK 原樣保留；超過的只留前 48 個「字」。
+        assert_eq!(mem.events[0].detail, cjk);
+        assert_eq!(mem.events[1].detail, mixed);
+        assert_eq!(
+            mem.events[2].detail,
+            emoji.chars().take(48).collect::<String>()
+        );
+    }
+
     #[test]
     fn desktop_prefs_roundtrip_and_unknown_fields_tolerated() {
         let json = r#"{"closeBehavior":"keep-running","askOnClose":false,"futureField":1}"#;
@@ -428,6 +520,30 @@ mod tests {
         assert_eq!(p.close_behavior.as_deref(), Some("keep-running"));
         assert!(!p.ask_on_close);
         // Unknown fields must not break loading (forward compatibility).
+        // 舊設定檔沒有 companionPreferences：預設空表，不是錯誤。
+        assert!(p.companion_preferences.is_empty());
+    }
+
+    /// 角色偏好（manifest.preferencesSchema 的值）必須真的被 host 保存並以
+    /// camelCase `companionPreferences` 回傳——否則角色頁會誠實退回 localStorage。
+    #[test]
+    fn companion_preferences_roundtrip_with_camel_case_key() {
+        let json = r#"{"companionPreferences":{"my-char":{"variant":"dusk","volume":0.5,"bubbles":true}}}"#;
+        let p: DesktopPrefs = serde_json::from_str(json).unwrap();
+        let entry = p
+            .companion_preferences
+            .get("my-char")
+            .expect("character map kept");
+        assert_eq!(entry["variant"], serde_json::json!("dusk"));
+        assert_eq!(entry["volume"], serde_json::json!(0.5));
+        assert_eq!(entry["bubbles"], serde_json::json!(true));
+
+        let out = serde_json::to_value(&p).unwrap();
+        assert_eq!(out["companionPreferences"]["my-char"]["variant"], "dusk");
+        assert!(out.get("companion_preferences").is_none(), "camelCase only");
+        // 預設值序列化成空物件（前端讀到 {} 而不是 undefined）。
+        let default = serde_json::to_value(DesktopPrefs::default()).unwrap();
+        assert_eq!(default["companionPreferences"], serde_json::json!({}));
     }
 
     #[test]

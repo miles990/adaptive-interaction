@@ -542,6 +542,128 @@ add(
   })
 );
 
+// ---- 高頻反應變體（spec §5.2：點擊／拖起各 ≥3 個變體；全部非 truthState）----
+
+add(
+  E("poked-flinch", "被點縮一下", {
+    // 變體 2：縮肩、耳貼、眼睛瞇——「嚇一跳」而不是歪頭。
+    enter: phase(
+      420,
+      kf(0, {}),
+      kf(0.2, { squash: 0.34, earPerk: 0.1, eyeOpen: 0.3, headNod: 0.5, bodyBob: 2 }),
+      kf(0.35, { squash: 0.34, earPerk: 0.1 }), // hit-stop
+      kf(0.7, { squash: -0.08, earPerk: 0.8, eyeOpen: 1, headNod: -0.1, bodyBob: -1 }),
+      kf(1, { squash: 0, earPerk: 0.7, headNod: 0, bodyBob: 0, browL: 0.3, browR: 0.3 })
+    ),
+    hold: { earPerk: 0.7, browL: 0.3, browR: 0.3, mouth: "pout", tailAngle: 48, sweat: 0.15 },
+    loop: TAIL_SWAY,
+    exit: phase(
+      200,
+      kf(0, {}),
+      kf(0.5, { browL: 0.1, browR: 0.1, sweat: 0.05 }),
+      kf(1, { browL: 0, browR: 0, mouth: "soft", sweat: 0 })
+    ),
+  })
+);
+
+add(
+  E("poked-grin", "被點得意笑", {
+    // 變體 3：知道你在戳她——露虎牙、尾巴高、單耳一動。
+    enter: phase(
+      480,
+      kf(0, {}),
+      kf(0.25, { squash: 0.2, earRTilt: 10, pupilScale: 0.9 }),
+      kf(0.55, { squash: -0.1, headTilt: -5, mouth: "smirk", fang: 1, earRTilt: 4 }),
+      kf(1, { squash: 0, headTilt: -4, mouth: "smirk", fang: 1, earRTilt: 0 })
+    ),
+    hold: { headTilt: -4, mouth: "smirk", fang: 1, earPerk: 0.85, tailAngle: 55, tailCurl: 0.6, blush: 0.2 },
+    loop: phase(
+      1600,
+      kf(0, { tailSway: -0.6, earRTilt: 0 }),
+      kf(0.5, { tailSway: 0.6, earRTilt: 6 }),
+      kf(1, { tailSway: -0.6, earRTilt: 0 })
+    ),
+    exit: phase(
+      220,
+      kf(0, {}),
+      kf(0.5, { headTilt: 1, fang: 0.4, tailSway: 0.2 }),
+      kf(1, { headTilt: 0, fang: 0, mouth: "soft", blush: 0, tailSway: 0, earRTilt: 0 })
+    ),
+  })
+);
+
+add(
+  E("lifted-curious", "被抱起張望", {
+    // 變體 2：懸空但不慌——好奇地左右看，尾巴放鬆下垂。
+    enter: phase(
+      420,
+      kf(0, {}),
+      kf(0.4, { squash: -0.22, earPerk: 1, pupilScale: 1.2, mouth: "soft" }),
+      kf(1, { squash: -0.18, headTilt: 5 })
+    ),
+    hold: {
+      squash: -0.18,
+      earPerk: 1,
+      pupilScale: 1.2,
+      headTilt: 5,
+      mouth: "soft",
+      tailAngle: 20,
+      tailCurl: 0.3,
+      legPhase: 0.2,
+      armPose: "down",
+    },
+    loop: phase(
+      2200,
+      kf(0, { pupilX: -1.8, headTurn: -0.25, headTilt: 5 }),
+      kf(0.5, { pupilX: 1.8, headTurn: 0.25, headTilt: -5 }),
+      kf(1, { pupilX: -1.8, headTurn: -0.25, headTilt: 5 })
+    ),
+    exit: phase(
+      240,
+      kf(0, {}),
+      kf(0.5, { squash: 0.05, headTilt: 1, pupilX: 0, headTurn: 0 }),
+      kf(1, { squash: 0, headTilt: 0, legPhase: 0, pupilX: 0, headTurn: 0, pupilScale: 1 })
+    ),
+  })
+);
+
+add(
+  E("lifted-wriggle", "被抱起掙扎", {
+    // 變體 3：不想被抱——踢腿更急、耳朵貼、尾巴甩。
+    enter: phase(
+      380,
+      kf(0, {}),
+      kf(0.4, { squash: -0.3, earPerk: 0.2, eyeOpen: 1, mouth: "pout", browL: -0.5, browR: -0.5 }),
+      kf(1, { squash: -0.24 })
+    ),
+    hold: {
+      squash: -0.24,
+      earPerk: 0.2,
+      mouth: "pout",
+      browL: -0.5,
+      browR: -0.5,
+      tailAngle: 60,
+      tailCurl: 0.2,
+      legPhase: 0.8,
+      hairSway: 0.5,
+      armPose: "down",
+      sweat: 0.2,
+    },
+    loop: phase(
+      520,
+      kf(0, { legPhase: 0.8, tailSway: -0.8, bodyLean: -3 }),
+      kf(0.5, { legPhase: -0.8, tailSway: 0.8, bodyLean: 3 }),
+      kf(1, { legPhase: 0.8, tailSway: -0.8, bodyLean: -3 })
+    ),
+    exit: phase(
+      240,
+      kf(0, {}),
+      kf(0.45, { legPhase: -0.2, squash: 0.06, bodyLean: 1, tailSway: 0.3 }),
+      kf(1, { legPhase: 0, squash: 0, bodyLean: 0, tailSway: 0, mouth: "soft", browL: 0, browR: 0, sweat: 0, earPerk: 0.6 })
+    ),
+  })
+);
+
 add(
   E("wobbly-landing", "落地站不穩", {
     enter: phase(

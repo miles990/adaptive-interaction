@@ -114,7 +114,7 @@ adaptive-interaction 平台的官方參考硬體裝置。一片 ESP32-WROOM-32 D
 6. **驗證**：開 Serial Monitor（**115200 baud**，行尾設 **Newline**），
    重置板子後應看到一行 `hello`：
    ```json
-   {"type":"hello","deviceId":"esp32-companion-01","fw":"1.0.0","proto":1,"caps":["led.set","buzzer.beep","vibe.pulse","servo.move","sensors.read"],"pairing":true}
+   {"type":"hello","deviceId":"esp32-companion-01","fw":"1.0.0","proto":1,"caps":["led.set","buzzer.beep","vibe.pulse","servo.move","sensors.read"],"pairing":true,"pairingLocked":false}
    ```
 
 ### 不用 IDE 的編譯檢查（arduino-cli，可重現）
@@ -128,12 +128,13 @@ brew install arduino-cli                       # 或官方安裝方式
 
 - 腳本把 `.ino`＋`config.h.example` 複製到暫存資料夾編譯（**不會**碰你的 `config.h`），
   `--warnings all`，產物（`.bin`／`.merged.bin`）留在暫存路徑，不進 repo。
-- 2026-08-28 實測（arduino-cli 1.5.1、esp32:esp32 3.3.11、ArduinoJson 7.4.3、
+- 2026-09-02 實測（arduino-cli 1.5.1、esp32:esp32 3.3.11、ArduinoJson 7.4.3、
   PubSubClient 2.8、DHT 1.4.7、ESP32Servo 3.2.1、NimBLE-Arduino 2.5.1，
   FQBN `esp32:esp32:esp32`）：兩種組態皆 **0 error、本韌體 0 warning**
   （僅 ESP32Servo 函式庫自身 4 個 unused-variable 警告）；
-  程式大小 938 615 bytes（71%）／1 188 743 bytes（90%），
-  全域變數 49 908 bytes（15%）／61 040 bytes（18%）。
+  程式大小 939 379 bytes（71%）／1 189 855 bytes（90%），
+  全域變數 49 924 bytes（15%）／61 064 bytes（18%）（含配對鎖定、BLE scan
+  response、`buzzActive` 之後的數字）。
 - **這只證明「能編譯」**，不是硬體驗收——燒進真板、跑下方「測試步驟」表格才算。
 - Apple Silicon 且**沒裝 Rosetta** 的 Mac：arduino-cli 內建的 `ctags` 是 x86_64 專用，
   會報 `bad CPU type in executable`；腳本會自動改用 `tools/ctags-shim/`
@@ -147,19 +148,23 @@ brew install arduino-cli                       # 或官方安裝方式
 | 方向 | 訊息 | 說明 |
 |---|---|---|
 | →裝置 | `{"type":"who"}` | 詢問身分；開機時裝置也主動送 hello |
-| 裝置→ | `{"type":"hello","deviceId":..,"fw":"1.0.0","proto":1,"caps":[..],"pairing":bool}` | `pairing:true` = 此通道尚需配對 |
-| →裝置 | `{"type":"pair","code":"..."}` | 近似常數時間比對 `PAIRING_CODE` |
-| 裝置→ | `{"type":"pair-ok"}` / `{"type":"pair-fail"}` | |
-| →裝置 | `{"type":"cmd","id":"..","nonce":"..","name":"led.set","params":{..}}` | id 必填；nonce 目前僅收不驗 |
+| 裝置→ | `{"type":"hello","deviceId":..,"fw":"1.0.0","proto":1,"caps":[..],"pairing":bool,"pairingLocked":bool}` | `pairing:true` = 此通道尚需配對；`pairingLocked:true` = 此通道因連續錯碼而在鎖定期內（見〈配對流程〉） |
+| →裝置 | `{"type":"pair","code":"..."}` | 近似常數時間比對 `PAIRING_CODE`；連續 5 次錯碼 → 鎖定 30 s |
+| 裝置→ | `{"type":"pair-ok"}` / `{"type":"pair-fail"}` / `{"type":"pair-fail","reason":"pair-locked","retryAfterMs":N}` | 第三種 = 鎖定期內（**不比對碼**）；host 端的 DeviceLink 只認 `type`，把它當一般 pair-fail 處理 |
+| →裝置 | `{"type":"cmd","id":"..","nonce":"..","name":"led.set","params":{..}}` | id 必填；nonce：**裝置端**驗重放（與 id 各一組 16 筆環形緩衝並行比對，同 nonce 再現 → `dup:true` 不套用）；**主機端不驗** ack 的 nonce（ack 不回送 nonce） |
 | 裝置→ | `{"type":"ack","id":"..","applied":{..}}` | **applied = clamp 後實際值** |
-| 裝置→ | `{"type":"ack","id":"..","dup":true}` | 重複 id：不重套效果（16 筆環形去重） |
+| 裝置→ | `{"type":"ack","id":"..","dup":true}` | 重複 id **或**重複 nonce：不重套效果（16 筆環形去重） |
 | →裝置 | `{"type":"cancel","id":".."}` | 停掉該 id 進行中的計時效果 |
 | 裝置→ | `{"type":"ack","id":"..","cancelled":true}` 或 `{"type":"err","id":"..","reason":"not-found"}` | |
 | →裝置 | `{"type":"read"}` | 讀 state |
-| 裝置→ | `{"type":"state","deviceId":..,"facts":{"button":bool,"distanceMm":int\|-1,"lux":int,"tempC":float\|null,"vibeActive":bool,"servoAngle":int,"led":{"r":..,"g":..,"b":..}}}` | 也會在按鈕邊緣與每 `STATE_PERIOD_MS`（預設 5000ms）自動推播 |
+| 裝置→ | `{"type":"state","deviceId":..,"facts":{"button":bool,"distanceMm":int\|-1,"lux":int,"tempC":float\|null,"vibeActive":bool,"buzzActive":bool,"servoAngle":int,"led":{"r":..,"g":..,"b":..}}}` | 也會在按鈕邊緣與每 `STATE_PERIOD_MS`（預設 5000ms）自動推播；`vibeActive`／`buzzActive` 是 cancel 的獨立驗證來源 |
 | →裝置 | `{"type":"stop-all"}` | 緊急停止；**不需配對**（fail-safe 方向） |
 | 裝置→ | `{"type":"ack","stopAll":true}` | |
-| 裝置→ | `{"type":"err","id":..,"reason":".."}` | `not-paired` / `bad-json` / `unknown-type` / `unknown-cmd` / `bad-params` / `rate-limited` / `not-found` / `busy`（僅 BLE：入站佇列滿） |
+| 裝置→ | `{"type":"err","id":..,"reason":".."}` | `not-paired` / `bad-json` / `unknown-type` / `unknown-cmd` / `bad-params` / `rate-limited` / `not-found` / `busy`（僅 BLE：入站佇列滿）。`bad-json` 也用於**超長訊息**（Serial／MQTT 一則 ≥ 640 bytes、BLE ≥ 512 bytes）——此時整則丟棄且 err **沒有 id** |
+
+單則訊息上限（裝置端強制；host 端傳輸在送出前就以 `message-too-large` 拒絕，
+不會把超長訊息寫上線）：Serial 一行 **639 bytes**、MQTT 一則 **639 bytes**、
+BLE 一次 write **511 bytes**（runtime 端 BLE 上限 480）。
 
 指令參數：`led.set {r,g,b}`、`buzzer.beep {freqHz,durationMs}`、
 `vibe.pulse {strength 0..1, durationMs}`、`servo.move {angle 0..180}`。
@@ -194,6 +199,14 @@ BLE UUID（`ENABLE_BLE 1` 時）：
 | Service | `7f2a0001-c701-4c9e-8f7e-2b3d5a1e9c01` |
 | Write characteristic（host→device） | `7f2a0002-c701-4c9e-8f7e-2b3d5a1e9c01` |
 | Notify characteristic（device→host） | `7f2a0003-c701-4c9e-8f7e-2b3d5a1e9c01` |
+
+廣播內容：主封包＝flags＋上面的 128-bit service UUID（已佔 31 bytes 的 21 bytes），
+`DEVICE_ID` 作為 Complete Local Name 放在 **scan response**（`setupBle()` 先
+`enableScanResponse(true)` 再 `setName(DEVICE_ID)`；NimBLE-Arduino 2.x 預設兩者都
+不做，名稱只會存在 GAP characteristic 裡，連上前讀不到）。runtime 端掃描以
+**service UUID 為主**：廣播含此 service 即候選（名稱缺席也連，scan response 可能
+還沒到）；名稱只用來排除「同 service 但名稱不同」的另一台裝置，`deviceName`
+留空即不做名稱過濾。身分一律由連上後的 `hello.deviceId`＋配對碼決定。
 
 ---
 
@@ -238,6 +251,14 @@ Serial Monitor 設 115200、行尾 Newline，逐行貼上並核對回覆：
 | 17 | `{"type":"cmd","id":"t7","name":"led.set","params":{"r":"255"}}` | `{"type":"err","id":"t7","reason":"bad-params"}` ← 字串不當 0 |
 | 18 | `{"type":"cmd","id":"t8","nonce":"abc","name":"led.set","params":{"r":10}}`，再送 `id":"t9"` 但 `nonce":"abc"` | 第二則回 `{"type":"ack","id":"t9","dup":true}`，LED **不變** ← nonce 重放被擋 |
 | 19 | 拔掉 Wi-Fi／關掉 broker，再送 `{"type":"cmd",...,"vibe.pulse","params":{"strength":0.5,"durationMs":1000}}` | 震動精準 1 秒停止、Serial 回應不延遲 ← 重連退避不撐破硬上限 |
+| 20 | 重開機後連送 5 次 `{"type":"pair","code":"錯的碼"}` | 前 4 次 `{"type":"pair-fail"}`，第 5 次 `{"type":"pair-fail","reason":"pair-locked","retryAfterMs":30000}`；接著送**正確**碼仍回 `pair-locked`、`who` 回 `pairingLocked:true`、`read` 仍 `not-paired`；30 秒後正確碼才 `pair-ok` ← 配對暴力猜測防護 |
+| 21 | 送一行 ≥ 640 bytes 的 `cmd`（例如 params 塞一個 700 字元字串） | `{"type":"err","reason":"bad-json"}`（**沒有 id**），效果不套用 ← 單行上限 639 bytes |
+| 22 | `{"type":"cmd","id":"t10","name":"buzzer.beep","params":{"freqHz":880,"durationMs":1500}}` 後立刻 `{"type":"read"}` | `state.facts.buzzActive:true`；1.5 秒後再 `read` → `false` ← 動器狀態可獨立觀察 |
+
+BLE 真機檢查（`ENABLE_BLE 1`，尚未執行）：用 nRF Connect 之類的掃描器看
+廣播——主封包應含 service UUID `7f2a0001-…`，**scan response** 應含
+Complete Local Name＝`DEVICE_ID`；runtime 端 `interact-ai observe --receptor <ble 受器> --fresh`
+應能在 6 秒掃描窗內連上並完成 hello/pair。
 
 ### 2. 配對流程
 
@@ -246,6 +267,19 @@ Serial Monitor 設 115200、行尾 Newline，逐行貼上並核對回覆：
 - `who`、`pair`、`stop-all` 配對前也接受（`stop-all` 是刻意的 fail-safe 設計）。
 - MQTT／BLE 斷線後配對狀態重置；Serial 通道維持到裝置重開機。
 - `PAIRING_CODE` 設空字串 = 停用配對，`hello` 誠實回 `pairing:false`。
+- **暴力猜測防護**（每條通道各自計數；`scripts/esp32-serial-sim.py` 鏡射同一規則）：
+  - 連續 **5** 次錯碼 → 該通道鎖定 **30 秒**（`PAIR_MAX_FAILURES`／`PAIR_LOCKOUT_MS`）。
+    第 5 次錯碼的回覆就是 `{"type":"pair-fail","reason":"pair-locked","retryAfterMs":30000}`。
+  - 鎖定期內任何 `pair`（**含正確碼**）一律回 `pair-fail` + `reason:"pair-locked"` +
+    剩餘毫秒數，**不比對碼、也不延長鎖定**；`hello` 回 `pairingLocked:true`；
+    `cmd`／`read`／`cancel` 照舊 `not-paired`；`stop-all` 不受影響（fail-safe）。
+  - 鎖定期滿自動解鎖並重新計數；配對成功把失敗計數歸零。
+  - 鎖定**不**隨 MQTT／BLE 斷線重置（否則重連一次就能繞過），只在重開機後歸零。
+  - host 端目前只認 `pair-fail` 的 `type`：鎖定期內的握手會被記成「pairing code
+    rejected by device」（下一次請求前重新握手，不會自動連發）；`reason` 與
+    `retryAfterMs` 只在裝置回覆／log 裡看得到。
+  - 這擋的是**線上**猜測（每 30 秒最多 5 次 ≈ 每小時 600 次）；配對碼仍應足夠長，
+    MQTT 無 TLS 的明文問題見〈已知限制〉4。
 
 ### 3. MQTT 測試
 
@@ -383,7 +417,7 @@ capabilities:
     channel: light
     transport: ble
     ble:
-      deviceName: esp32-companion-01           # 廣播名稱（掃描用，不是身分）
+      deviceName: esp32-companion-01           # scan response 裡的名稱；掃描以 serviceUuid 為主，名稱只當可選過濾（可留空），不是身分
       serviceUuid: 7f2a0001-c701-4c9e-8f7e-2b3d5a1e9c01
       commandCharUuid: 7f2a0002-c701-4c9e-8f7e-2b3d5a1e9c01
       stateCharUuid: 7f2a0003-c701-4c9e-8f7e-2b3d5a1e9c01
@@ -419,20 +453,37 @@ bounded 值**代入（不是 AI 的原始請求值）；韌體再套一層硬限
    逐欄核對訊息型別、欄位名、MQTT 主題與錯誤碼；(c) 以 `scripts/esp32-serial-sim.py`
    模擬器跑 CLI E2E 閉環。**能編譯≠真機閉環**——接線、時序、感測器讀值、
    PWM 硬限制在真板上的實際行為仍未驗收。
+   **模擬器覆蓋範圍**：動器面（led/vibe/buzzer/servo 的 clamp、節流、cancel、
+   stop-all、dedupe）與協定規則（配對鎖定、單行上限、hello/state 欄位）鏡射韌體；
+   感測面沒有真實感測器，改由控制通道驅動——`--facts-file`（覆寫
+   button/distanceMm/lux/tempC，`null`／`-1` 原樣穿透）、`SIGUSR1`（翻轉按鈕並
+   如韌體按鈕邊緣般立即推播 state）、`--sensors-absent`（未接感測器模式）——
+   CLI E2E 與 `crates/interaction-adapter-declarative/tests/esp32_sim_conformance.rs`
+   用它們驗「ack ≠ 觀察」的獨立觀察半邊。host 端目前**不**消費裝置主動推播的
+   state（`observe --fresh` 一律自己送 `read`；推播只到達傳輸層的 broadcast），
+   所以「按鈕邊緣→未請求的推播」只在線層（模擬器 log：SIGUSR1 之後、host 送 read
+   之前已出現 `button:true` 的 state）驗證，之後再以 observe 驗值。這仍是模擬：
+   HC-SR04 時序、DHT22 失敗率、LDR 讀值、按鈕去彈跳只有真板能驗。
    另外，數值參數規則、MQTT 重連退避、BLE 佇列這三段邏輯曾以「把 `.ino` 裡
    的函式逐字抽出、在桌面配真的 ArduinoJson 7.4.3 與假的 WiFi/PubSubClient/
    FreeRTOS queue 編譯執行」的方式驗過（並與模擬器逐案比對數值）——那是
    開發當下的一次性檢查，**沒有**進 repo，不是可重跑的回歸測試。
 2. **BLE 預設關閉**（`ENABLE_BLE 0`），需自行在 `config.h` 開啟並安裝
-   NimBLE-Arduino。BLE 假設一次 write 含完整 JSON（**單筆上限 512 bytes**，
-   runtime 端上限 480 bytes），未實作分段重組；訊息較長時請改用 Serial／MQTT。
+   NimBLE-Arduino。BLE 假設一次 write 含完整 JSON（**單筆上限 511 bytes**——
+   韌體對 ≥ 512 bytes 的 write 整筆拒絕；runtime 端上限 480 bytes），未實作分段
+   重組；訊息較長時請改用 Serial／MQTT。
    BLE write 回呼跑在 NimBLE host task（core 0），因此它**只**把訊息複製進一個
    **8 筆的有界佇列**，實際解析、套用效果與所有回覆（ack/err/state）都由
    `loop()`（core 1）在與 Serial／MQTT 相同的路徑上做——不會出現「效果已被
    loop() 停掉、回呼卻已回 ack 宣稱 applied」的競態。佇列滿 → `err busy`
-   （**訊息被丟棄，沒有被排隊也沒有被執行**）；單筆超過 512 bytes →
-   `err bad-json`；對端斷線時佇列內殘留訊息一律丟棄不套用。
+   （**訊息被丟棄，沒有被排隊也沒有被執行**）；單筆 ≥ 512 bytes →
+   `err bad-json`（無 id）；對端斷線時佇列內殘留訊息一律丟棄不套用。
    runtime 端 BLE transport 僅支援 macOS／Windows。
+   **BLE 廣播與掃描比對未經真機驗證**：韌體把名稱放進 scan response、runtime
+   以 service UUID 為主比對（見〈協定訊息一覽〉的 BLE 段）都只做了原始碼層級的
+   核對（NimBLE-Arduino 2.5.1 的 `setName()` 只在 scan response 已啟用時才寫進
+   scan response）與 host 端比對規則的單元測試；nRF Connect 掃描與 runtime
+   實際連線（測試步驟表下方的 BLE 真機檢查）尚未執行。
 3. **DHT22 偶發讀取失敗（NaN）**：`tempC` 誠實回 `null`，不以舊值冒充新讀值。
    未接 DHT22 時 `tempC` 恆為 `null`；未接 HC-SR04 時 `distanceMm` 恆為 `-1`。
 4. **MQTT 無 TLS**：訊息（含配對碼）在網路上明文傳輸，**僅限信任的區域網路**
@@ -446,7 +497,11 @@ bounded 值**代入（不是 AI 的原始請求值）；韌體再套一層硬限
    的指令才會記入環（rate-limited 之後的重試仍能成功）。
    限制：**環只有 16 筆**，超過 16 筆之後的舊 id／nonce 會被擠掉，
    再送同一則就會被當成新指令重新套用；`nonce` 本身沒有簽章或時間戳，
-   擋得住重送、擋不住能任意偽造訊息的中間人（MQTT 無 TLS，見第 4 點）。
+   擋得住重送、擋不住能任意偽造訊息的中間人（MQTT 無 TLS，見第 4 點）；
+   主機端不驗 ack 的 nonce（ack 不回送 nonce，host 以 id 對應 ack）。
+   **配對鎖定**（見〈配對流程〉）：5 次錯碼 → 30 秒；只擋線上猜測，鎖定狀態
+   存在 RAM，重開機即歸零；host 端把鎖定期內的 pair-fail 一律顯示為
+   「pairing code rejected」，不會解讀 `reason`／`retryAfterMs`。
 7. **`servoAngle` 是最後指令角度**：`stop-all` 會 detach 伺服（不再出力），
    之後實際角度可能被外力改變，但回報值不變。
 8. **短暫阻塞點**（`loop()` 每輪的最壞情況；效果到期檢查排在所有阻塞點之前）：
@@ -464,6 +519,15 @@ bounded 值**代入（不是 AI 的原始請求值）；韌體再套一層硬限
    - Serial 完全不受上述影響：`pollSerial()` 在 `loop()` 中排在網路之前，
      且不論 Wi-Fi／MQTT 狀態如何都會執行；host 端 2.5 秒的握手逾時
      即使撞上一次重連嘗試（≈1.5s）仍有餘裕。
-9. **單行訊息上限 639 bytes**，超過整行丟棄並回 `err bad-json`。
+   - **緊急停止**：`stop-all` 的處理同樣要等 `connect()` 阻塞結束（最壞 ≈1.5s，
+     填主機名稱時再加 DNS）。host 端 estop 等 ack 的窗口是 **2 秒**（＝runtime
+     對每個 actuator 的 estop 上限，`link_caps.rs` 的 `STOP_ALL_ACK_WINDOW`），
+     蓋得過一次重連阻塞；若超過（例如 DNS 逾時數秒），host 會誠實記成
+     「stop-all dispatched, no ack — device stop UNCONFIRMED」，裝置本身仍會在
+     阻塞結束後停下——那是假陰性，不是假成功。建議 `MQTT_HOST` 填 IP。
+9. **單則訊息上限**：Serial 一行／MQTT 一則 **639 bytes**（≥ 640 整則丟棄並回
+   無 id 的 `err bad-json`），BLE 一次 write **511 bytes**。host 端 serial／mqtt／ble
+   傳輸在送出前就拒絕超限訊息（收據原因 `message-too-large`，確定沒送出）；
+   模擬器鏡射同一條 639 bytes 規則。
 10. **`stop-all` 不需配對**：刻意的 fail-safe 設計——它只會關閉效果，
     寧可讓未配對的主機能緊急停下裝置。

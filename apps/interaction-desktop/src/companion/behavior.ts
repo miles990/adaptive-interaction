@@ -1,7 +1,7 @@
 // Behavior Runtime（spec §5）— 純本機、確定性，絕不使用生成式 AI 逐幀控制。
 //
 // 三層：
-//   生命底層：微動作排程（眨眼/耳動/伸展/晃腳/抱尾/趴下…）——本模組
+//   生命底層：微動作排程（眨眼與各種閒置小動作；動作清單由角色 tables 注入）——本模組
 //   行為層：注意力與選擇（Utility AI 評分＋優先階梯＋反重複）——本模組
 //   語意層：AI 只能經 runtime 驗證的 behaviorIntent 提出高層意圖（presentation.rs）
 //
@@ -192,7 +192,9 @@ export function scoreEvent(cls: EventClass, ctx: EventScoreContext): number {
 }
 
 // ---------------------------------------------------------------------------
-// 微動作排程器（生命底層）。
+// 微動作排程器（生命底層）。動作清單（哪些動畫、多長、多重）屬於角色，
+// 由角色 adapter 的 tables 注入（例如 shuTables.SHU_MICRO_ACTIONS）；本模組
+// 只負責「什麼時候、挑哪一個」的確定性抽樣。
 // ---------------------------------------------------------------------------
 
 export interface MicroAction {
@@ -208,18 +210,6 @@ export interface MicroAction {
   /** Reduced Motion 下是否仍允許（只有眨眼類） */
   reducedMotionOk: boolean;
 }
-
-export const MICRO_ACTIONS: MicroAction[] = [
-  { id: "blink", animation: "blink", durationMs: 350, weight: 10, minRelax: 0, reducedMotionOk: true },
-  { id: "double-blink", animation: "blink", durationMs: 750, weight: 3, minRelax: 0, reducedMotionOk: true },
-  // 耳先動（notice 前兩幀＝耳立+眼亮，頭不轉）——貓的「聽到了」。
-  { id: "ear-flick", animation: "notice", frameSlice: [0, 1], durationMs: 500, weight: 5, minRelax: 0.1, reducedMotionOk: false },
-  { id: "gaze-around", animation: "routing", frameSlice: [0, 1], durationMs: 700, weight: 4, minRelax: 0.2, reducedMotionOk: false },
-  { id: "stretch", animation: "stretch", durationMs: 1400, weight: 2, minRelax: 0.5, reducedMotionOk: false },
-  { id: "leg-swing", animation: "legswing", durationMs: 4000, weight: 3, minRelax: 0.4, reducedMotionOk: false },
-  { id: "tail-hug", animation: "tailhug", durationMs: 6000, weight: 2, minRelax: 0.7, reducedMotionOk: false },
-  { id: "lie-down", animation: "lie", durationMs: 8000, weight: 2, minRelax: 0.85, reducedMotionOk: false },
-];
 
 export interface SchedulerContext {
   /** 目前是否 ambient（idle 基態、無 transient）——非 ambient 一律不動 */
@@ -242,13 +232,15 @@ export interface SchedulerContext {
 export function scheduleMicroAction(
   s: BehaviorState,
   ctx: SchedulerContext,
-  rng: () => number
+  rng: () => number,
+  actions: readonly MicroAction[] = []
 ): MicroAction | null {
   if (!ctx.ambient) return null;
   if (s.taskLoad > 0.15) return null; // 有任務不玩鬧
   if (ctx.quiet && !ctx.reducedMotion) {
-    // 安靜時只剩偶爾眨眼。
-    return rng() < 0.03 ? MICRO_ACTIONS[0] : null;
+    // 安靜時只剩偶爾眨眼類（reducedMotionOk 的第一個）。
+    const blink = actions.find((a) => a.reducedMotionOk) ?? null;
+    return rng() < 0.03 ? blink : null;
   }
   // 放鬆度：閒置越久越放鬆（慵懶動作只在真正無事時出現）。
   const relax = clamp01(ctx.msSinceInteraction / 180_000) * (1 - s.activation);
@@ -257,7 +249,7 @@ export function scheduleMicroAction(
     0.06 * ctx.expressiveness * (1 + s.familiarity * 0.4) * (1 - Math.min(0.6, s.recentInterruptions * 0.15));
   if (rng() > hazard) return null;
 
-  const pool = MICRO_ACTIONS.filter((a) => {
+  const pool = actions.filter((a) => {
     if (ctx.reducedMotion && !a.reducedMotionOk) return false;
     if (relax < a.minRelax) return false;
     // 反重複：最近兩個動作不再選。

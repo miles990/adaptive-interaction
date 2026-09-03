@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "1.0",
+  "characterId": "text-adapter-fixture",
+  "displayName": { "zh-TW": "文字 adapter（外部）", "en": "Text adapter (external)" },
+  "author": "adaptive-interaction examples",
+  "description": {
+    "zh-TW": "外部程序參考 adapter：透過 WebSocket 接收 Character Intent，把每個 intent 印成一行文字。沒有表情、沒有 rig、沒有聲音。",
+    "en": "External-process reference adapter: receives Character Intents over WebSocket and prints one text line per intent. No expressions, no rig, no audio."
+  },
+  "version": "1.0.0",
+  "adapterKind": "external-process",
+  "entrypoint": { "kind": "process", "command": ["node", "examples/character-adapters/text-adapter.mjs"] },
+  "assets": [],
+  "capabilities": {
+    "visual.presence": { "supported": true, "version": "1", "reducedMotionBehavior": "unchanged" },
+    "visual.textBubble": { "supported": true, "version": "1", "maxConcurrent": 1, "interruptible": true }
+  },
+  "inputCapabilities": {
+    "input.text": { "supported": true, "version": "1" }
+  },
+  "channels": ["bubble"],
+  "states": ["idle", "line"],
+  "intents": [
+    "emergency", "offline", "blocked", "failed", "request-consent", "unknown", "verified-success",
+    "claim-completed", "wait", "ask", "cancelled", "idle", "notice", "acknowledge", "think", "work",
+    "greet", "play", "rest", "sleep"
+  ],
+  "variants": [],
+  "locales": ["zh-TW", "en"],
+  "preferencesSchema": { "type": "object", "properties": {} },
+  "securityRequirements": {
+    "network": false,
+    "executable": true,
+    "fileAccess": "none",
+    "audioOutput": false,
+    "microphone": false,
+    "camera": false
+  },
+  "resourceLimits": { "maxAssetBytes": 0, "maxConcurrentCommands": 1, "maxQueue": 32, "maxFps": 1 },
+  "fallbacks": { "capabilities": {}, "intents": { "play": "notice", "sleep": "rest", "greet": "notice" } },
+  "compatibility": { "protocol": "1.x", "runtime": ">=0.5.0" }
+}

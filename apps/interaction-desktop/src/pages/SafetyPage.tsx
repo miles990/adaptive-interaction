@@ -4,6 +4,7 @@
 import React from "react";
 import { api, HumanCard, Session } from "../api";
 import { useAppState } from "../appstate";
+import { useCharacterName } from "../characterName";
 import { Icon } from "../icons";
 import { riskTierOfCard } from "../riskTier";
 import { Badge, Section, useAsync } from "../ui";
@@ -16,15 +17,17 @@ export function SafetyPage({
   refreshKey: number;
   onNavigate?: (tab: string) => void;
 }) {
+  // 角色名稱一律走共用 hook（更換角色後跟著變；載入失敗顯示「角色」），不寫死。
+  const { name } = useCharacterName();
   return (
     <div>
       <EmergencySection refreshKey={refreshKey} />
       <ConsentSection refreshKey={refreshKey} />
       <Section title="主動程度與安靜時段">
         <p className="muted small">
-          AI 主動程度與安靜時段屬於小樞的表現設定，由「小樞」頁統一管理（單一主人，不放第二份開關）。
+          AI 主動程度與安靜時段屬於{name}的表現設定，由「{name}」頁統一管理（單一主人，不放第二份開關）。
         </p>
-        {onNavigate && <button onClick={() => onNavigate("companion")}>前往小樞</button>}
+        {onNavigate && <button onClick={() => onNavigate("companion")}>前往{name}</button>}
       </Section>
     </div>
   );
@@ -162,7 +165,7 @@ function ConsentSection({ refreshKey }: { refreshKey: number }) {
 
   return (
     <Section
-      title="使用授權（Consent）"
+      title="使用授權"
       actions={
         s ? <button onClick={() => setGranting(true)}>授予新權限…</button> : undefined
       }

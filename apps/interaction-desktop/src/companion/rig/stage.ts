@@ -18,6 +18,7 @@ import {
   dragToy,
   Familiar,
   grabToyAt,
+  isCursorToy,
   releaseToy,
   rollCall,
   spawnToy,
@@ -48,7 +49,11 @@ export const PLAYFIELD_EXPRESSIONS = new Set([
 
 /**
  * 工作/等待類的「非安全真相狀態」：只借用核心、頭飾、裙擺光與耳朵通道，
- * 身體姿勢仍然是遊玩中的姿勢（趴著＋核心顯示 Agent 工作中）。
+ * 身體姿勢仍然是遊玩中／休息中的姿勢（趴著＋核心顯示 Agent 工作中）。
+ *
+ * `ask`（requesting-consent，CPP floor 80）**不在**這裡：runtime 真的在等使用者
+ * 確認時，舉手＋問號必須整個人演出來，遊玩場也要停——「在玩、頭飾亮一點」
+ * 不是誠實的「在等你確認」（對抗審查 rig-renderer-011／companion-gameplay-001）。
  */
 const OVERLAY_STATUS = new Set([
   "queued",
@@ -58,9 +63,25 @@ const OVERLAY_STATUS = new Set([
   "wait-codex",
   "wait-claude",
   "waiting",
-  "ask",
   "listening",
 ]);
+
+/**
+ * 可以「一邊休息一邊亮核心」的身體姿勢（spec §6.2「趴著＋核心顯示 Agent 工作中」）：
+ * 這些表情被工作/等待類狀態取代時，身體維持原姿勢，只疊狀態通道。
+ */
+export const REST_EXPRESSIONS = new Set(["lie-flat", "doze", "sleep", "sit", "quiet"]);
+
+/**
+ * 下一幀的「休息姿勢」：machine 動畫是休息表情 → 記住它；只借通道的工作/等待狀態 →
+ * 保留上一個；其餘（idle、互動、安全與結果狀態）→ 清掉（她站起來了）。純函式。
+ */
+export function nextRestingExpression(prev: string | null, machineAnim: string): string | null {
+  const id = EXPRESSION_ALIASES[machineAnim] ?? machineAnim;
+  if (REST_EXPRESSIONS.has(id)) return id;
+  if (statusOverlay(machineAnim) === "overlay") return prev;
+  return null;
+}
 
 /** 只被狀態借用的通道（其餘通道留給遊玩姿勢）。 */
 export const STATUS_CHANNELS = [
@@ -236,20 +257,29 @@ export interface StagePlan {
 
 /**
  * 遊玩姿勢 × 機器狀態的合成計畫（純函式，可單測）：
- *   - 安全/結果狀態一律整體搶佔（永遠不會被遊玩蓋掉）。
- *   - 工作/等待狀態只點亮核心/頭飾/裙擺/耳朵，身體照樣在玩。
+ *   - 安全/結果狀態（含 ask）一律整體搶佔（永遠不會被遊玩蓋掉）。
+ *   - 工作/等待狀態只點亮核心/頭飾/裙擺/耳朵，身體照樣在玩；沒在玩但正趴著／
+ *     打盹／端坐（`resting`）時，身體維持休息姿勢——「趴著＋核心亮」由此可達。
  */
-export function stageExpressionPlan(machineAnim: string, mode: CharPlayMode): StagePlan {
+export function stageExpressionPlan(
+  machineAnim: string,
+  mode: CharPlayMode,
+  resting: string | null = null
+): StagePlan {
   const overlay = statusOverlay(machineAnim);
   const play = playExpressionFor(mode);
-  if (overlay === "takeover" || !play) {
+  if (overlay === "takeover") {
     return { expression: machineAnim, useMachineSlice: true, statusChannels: null };
   }
   if (overlay === "none") {
-    return { expression: play, useMachineSlice: false, statusChannels: null };
+    return play
+      ? { expression: play, useMachineSlice: false, statusChannels: null }
+      : { expression: machineAnim, useMachineSlice: true, statusChannels: null };
   }
+  const body = play ?? (resting && REST_EXPRESSIONS.has(resting) ? resting : null);
+  if (!body) return { expression: machineAnim, useMachineSlice: true, statusChannels: null };
   return {
-    expression: play,
+    expression: body,
     useMachineSlice: false,
     statusChannels: statusChannelParams(machineAnim),
   };
@@ -262,6 +292,8 @@ export interface StageToggles {
   play: boolean;
   cursorPlay: boolean;
   deskMove: boolean;
+  /** 「游標靠近時看過來」（DesktopPrefs.companionApproach）：注視游標的唯一主人。 */
+  approach: boolean;
 }
 
 export interface MachineFlags {
@@ -303,12 +335,18 @@ export class StageRenderer implements RendererBackend {
   private now: () => number;
   private rng: () => number;
   private destroyed = false;
+  /** 暫停中（視窗隱藏／adapter suspend）：不排 rAF、不步進物理、不畫。 */
+  private paused = false;
+  /** loop 是否曾啟動（autoStart=false 的測試實例 resume 時不會偷跑）。 */
+  private looping = false;
 
   private world: World;
   private machineAnim = "offline";
   private machineSlice: [number, number] | undefined;
   private flags: MachineFlags = { ambient: false, frozen: true, quiet: false, playPerforming: false };
-  private toggles: StageToggles = { play: true, cursorPlay: true, deskMove: true };
+  private toggles: StageToggles = { play: true, cursorPlay: true, deskMove: true, approach: true };
+  /** 目前的休息姿勢（趴平／打盹／端坐…）：工作/等待狀態只疊通道、不把她拉起來。 */
+  private resting: string | null = null;
   private scene: StageScene = "none";
   private charName = "小樞";
   private pointer: { x: number; y: number; active: boolean } | null = null;
@@ -319,7 +357,9 @@ export class StageRenderer implements RendererBackend {
   private tuning: PersonalityTuning = DEFAULT_TUNING;
   private budget: FrameBudgetState = initialFrameBudget();
   private frameParity = 0;
-  private lastLoopAt = 0;
+  /** 主迴圈統計（診斷／效能量測）：rAF 回呼次數與真正畫出的幀數。 */
+  private loopTicks = 0;
+  private drawnFrames = 0;
   private hitRectCb: ((rect: HitRect) => void) | null = null;
   private lastReportedRect: HitRect | null = null;
   private lastReportAt = 0;
@@ -343,7 +383,10 @@ export class StageRenderer implements RendererBackend {
     // 邏輯舞台大小由 canvas CSS 尺寸/scale 決定；先建立再於 render 校正。
     this.world = createWorld(320, 170);
     this.lastStep = this.now();
-    if (opts?.autoStart !== false) this.loop();
+    if (opts?.autoStart !== false) {
+      this.looping = true;
+      this.loop();
+    }
   }
 
   // ---- RendererBackend ----
@@ -368,7 +411,54 @@ export class StageRenderer implements RendererBackend {
 
   destroy(): void {
     this.destroyed = true;
-    cancelAnimationFrame(this.raf);
+    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.raf);
+  }
+
+  /**
+   * 暫停主迴圈（CPP §7 hide／suspend）：取消 rAF、物理與粒子都停下，
+   * 也不再回報互動框。狀態（世界、玩具、表情）原地保留，resume 後接續。
+   */
+  pause(): void {
+    if (this.paused) return;
+    this.paused = true;
+    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.raf);
+    this.raf = 0;
+  }
+
+  /** 恢復主迴圈；dt 從現在起算，不把暫停期間當成一大步物理。 */
+  resume(): void {
+    if (!this.paused || this.destroyed) return;
+    this.paused = false;
+    this.lastStep = this.now();
+    if (this.looping) this.loop();
+  }
+
+  isPaused(): boolean {
+    return this.paused;
+  }
+
+  /**
+   * 啟動主迴圈（給 autoStart:false 建立的實例：效能量測要走真 rAF 迴圈＋幀預算，
+   * 不能只直呼 renderFrame）。已啟動／已銷毀時 no-op；暫停中只記下要跑，resume 才排 rAF。
+   */
+  start(): void {
+    if (this.destroyed || this.looping) return;
+    this.looping = true;
+    if (!this.paused) this.loop();
+  }
+
+  /** 主迴圈統計：rAF 回呼了幾次、真正畫了幾幀（降到 30fps 時 drawn ≈ ticks/2）。 */
+  loopStats(): { ticks: number; drawn: number } {
+    return { ticks: this.loopTicks, drawn: this.drawnFrames };
+  }
+
+  /** 換配色（角色 variant）；未知名稱維持原配色。 */
+  setPalette(name: string): void {
+    if (RIG_PALETTES[name]) this.paletteName = name;
+  }
+
+  currentPalette(): string {
+    return this.paletteName;
   }
 
   // ---- stage 控制 ----
@@ -386,7 +476,7 @@ export class StageRenderer implements RendererBackend {
     this.timeline.setAttentionStagger(tuning.attentionStagger as AttentionStagger);
   }
 
-  /** 目前的幀預算狀態（30fps 降級診斷用）。 */
+  /** 目前的幀預算狀態（30fps 降級診斷用；avgMs＝上一窗的平均 renderFrame 成本）。 */
   frameBudget(): FrameBudgetState {
     return this.budget;
   }
@@ -458,8 +548,12 @@ export class StageRenderer implements RendererBackend {
     return this.world.toys.map((t) => ({ id: t.id, x: t.x * this.scale, y: t.y * this.scale }));
   }
 
-  spawnToy(kind: ToyKind): void {
+  /** 丟玩具進場。凍結（緊急停止／離線／暫停）時拒絕：停住的系統不生成懸空的玩具。 */
+  spawnToy(kind: ToyKind): boolean {
+    if (this.flags.frozen) return false;
+    const before = this.world.toys.length;
     this.world = spawnToy(this.world, kind, this.now());
+    return this.world.toys.length > before || isCursorToy(kind);
   }
 
   clearAllToys(): void {
@@ -475,7 +569,17 @@ export class StageRenderer implements RendererBackend {
   }
 
   rollCallNow(machineLabel: string | null): { name: string; activity: string }[] {
-    return rollCall(this.world, this.charName, machineLabel, this.now());
+    return rollCall(this.world, this.charName, machineLabel, this.now(), { frozen: this.flags.frozen });
+  }
+
+  /** 診斷用：目前記住的休息姿勢（null＝站著／在玩）。 */
+  restingExpression(): string | null {
+    return this.resting;
+  }
+
+  /** 診斷用：角色目前朝向（1＝右、-1＝左）。 */
+  charFacing(): 1 | -1 {
+    return this.world.char.facing;
   }
 
   /** 角色目前的 hit-rect（CSS px，供 companion_hit_rect）。 */
@@ -490,16 +594,23 @@ export class StageRenderer implements RendererBackend {
     };
   }
 
-  /** 互動範圍（角色＋玩具的聯集，CSS px）：有玩具時游標不可穿透它們。 */
+  /**
+   * 互動範圍（角色＋可抓玩具的聯集，CSS px）：有玩具時游標不可穿透它們。
+   *
+   * 跟著游標走的光點／逗貓棒**不算**：它們永遠在游標底下，算進來的話整個
+   * 角色↔游標的聯集矩形都吃掉點擊，桌面的空白區就不再穿透（對抗審查
+   * companion-gameplay-004）。
+   */
   interactiveBounds(): { x: number; y: number; w: number; h: number } {
-    let r = this.charHitRect();
-    if (this.world.toys.length === 0) return r;
+    const r = this.charHitRect();
+    const solid = this.world.toys.filter((t) => !isCursorToy(t.kind) || t.grabbed === "player");
+    if (solid.length === 0) return r;
     const s = this.scale;
     let x0 = r.x;
     let y0 = r.y;
     let x1 = r.x + r.w;
     let y1 = r.y + r.h;
-    for (const t of this.world.toys) {
+    for (const t of solid) {
       x0 = Math.min(x0, (t.x - 14) * s);
       y0 = Math.min(y0, (t.y - 14) * s);
       x1 = Math.max(x1, (t.x + 14) * s);
@@ -512,7 +623,8 @@ export class StageRenderer implements RendererBackend {
   pointerDown(cssX: number, cssY: number): "toy" | "char" | "none" {
     const x = cssX / this.scale;
     const y = cssY / this.scale;
-    const { world, toyId } = grabToyAt(this.world, x, y);
+    // 凍結時不抓玩具（角色本體仍可點：緊急停止的快捷選單要開得了）。
+    const { world, toyId } = this.flags.frozen ? { world: this.world, toyId: null } : grabToyAt(this.world, x, y);
     if (toyId != null) {
       this.world = world;
       this.draggingToy = toyId;
@@ -534,6 +646,11 @@ export class StageRenderer implements RendererBackend {
     const x = cssX / this.scale;
     const y = cssY / this.scale;
     this.pointer = { x, y, active: true };
+    if (this.draggingToy != null && this.flags.frozen) {
+      // 拖到一半世界凍結了：玩具就地放下（零速度），不跟著游標懸在半空。
+      this.dropDraggedToyInPlace();
+      return;
+    }
     if (this.draggingToy != null && this.lastDrag) {
       const now = this.now();
       const dt = Math.max(8, now - this.lastDrag.at);
@@ -552,6 +669,10 @@ export class StageRenderer implements RendererBackend {
   }
 
   pointerUp(): void {
+    if (this.draggingToy != null && this.flags.frozen) {
+      this.dropDraggedToyInPlace();
+      return;
+    }
     if (this.draggingToy != null && this.lastDrag) {
       this.world = releaseToy(
         this.world,
@@ -560,6 +681,19 @@ export class StageRenderer implements RendererBackend {
         this.lastDrag.vy,
         this.now()
       );
+    }
+    this.draggingToy = null;
+    this.lastDrag = null;
+  }
+
+  /** 凍結時放開手上的玩具：零速度、不重設興趣／冷卻（解凍後不會突然飛出去被追）。 */
+  private dropDraggedToyInPlace(): void {
+    const id = this.draggingToy;
+    if (id != null) {
+      this.world = {
+        ...this.world,
+        toys: this.world.toys.map((t) => (t.id === id && t.grabbed === "player" ? { ...t, grabbed: null, vx: 0, vy: 0 } : t)),
+      };
     }
     this.draggingToy = null;
     this.lastDrag = null;
@@ -576,17 +710,20 @@ export class StageRenderer implements RendererBackend {
 
   // ---- 主迴圈 ----
   private loop = () => {
-    if (this.destroyed) return;
+    if (this.destroyed || this.paused) return;
+    if (typeof requestAnimationFrame !== "function") return;
     this.raf = requestAnimationFrame(this.loop);
-    const now = this.now();
-    // 幀預算（§14）：最近 60 幀平均 >12ms 就每兩幀畫一次，<8ms 才回 60fps。
-    if (this.lastLoopAt > 0) {
-      this.budget = frameBudgetPolicy(this.budget, now - this.lastLoopAt);
-    }
-    this.lastLoopAt = now;
+    this.loopTicks += 1;
     this.frameParity = (this.frameParity + 1) % 2;
     if (!shouldDrawFrame(this.budget, this.frameParity)) return;
-    this.renderFrame(now);
+    // 幀預算（§14）：餵的是「這一幀真正花掉的繪製成本」（renderFrame 前後的時間差），
+    // 不是 rAF 間隔——60Hz 螢幕的 rAF 間隔恆為 16.67ms > 12ms，拿它當幀時間會讓舞台
+    // 在一秒後永久降到 30fps 且回不來（對抗審查 perf-claims-017）。最近 60 幀平均
+    // 成本 >12ms 才每兩幀畫一次，<8ms 才回 60fps；跳過的幀不計入（沒有成本）。
+    const start = this.now();
+    this.renderFrame(start);
+    this.budget = frameBudgetPolicy(this.budget, this.now() - start);
+    this.drawnFrames += 1;
   };
 
   renderFrame(now = this.now()): void {
@@ -641,8 +778,10 @@ export class StageRenderer implements RendererBackend {
     }
 
     // 表情選擇（組合式通道，spec §6.2）：安全與結果狀態整體搶佔；
-    // 工作/等待狀態只點亮核心/頭飾/裙擺/耳朵，身體維持遊玩姿勢。
-    const plan = stageExpressionPlan(this.machineAnim, this.world.char.mode);
+    // 工作/等待狀態只點亮核心/頭飾/裙擺/耳朵，身體維持遊玩或休息姿勢。
+    // 一起身去玩（mode≠free）休息姿勢就作廢。
+    this.resting = this.world.char.mode === "free" ? nextRestingExpression(this.resting, this.machineAnim) : null;
+    const plan = stageExpressionPlan(this.machineAnim, this.world.char.mode, this.resting);
     this.timeline.setAnimation(plan.expression, now, plan.useMachineSlice ? this.machineSlice : undefined);
     let params = this.timeline.paramsAt(now);
     if (plan.statusChannels) params = clampParams({ ...params, ...plan.statusChannels });
@@ -668,10 +807,12 @@ export class StageRenderer implements RendererBackend {
       });
     }
 
-    // 注視：有使魔向她打招呼就回看，否則游標靠近時看過來。
+    // 注視：有使魔向她打招呼就回看，否則「游標靠近時看過來」（toggles.approach
+    // 是這個行為唯一的主人；勿擾／安靜時段也不看）。
     // 只在「沒有整體搶佔」（idle 或只借通道的工作狀態）時疊，
     // 真相狀態與凍結狀態永遠不疊；Reduced Motion 不做這層。
-    if (!reduced && !this.flags.frozen && statusOverlay(this.machineAnim) !== "takeover") {
+    const takeover = statusOverlay(this.machineAnim) === "takeover";
+    if (!reduced && !this.flags.frozen && !takeover) {
       const char = this.world.char;
       const greeter =
         char.attendTo !== null && now <= char.attendUntil
@@ -680,7 +821,7 @@ export class StageRenderer implements RendererBackend {
       let dirWorld = 0;
       if (greeter) {
         dirWorld = Math.max(-1, Math.min(1, (greeter.x - char.x) / 60));
-      } else if (this.toggles.cursorPlay) {
+      } else if (this.toggles.approach && !this.flags.quiet) {
         dirWorld = pointerGazeDir(this.pointer, char.x);
       }
       if (dirWorld !== 0) {
@@ -712,7 +853,8 @@ export class StageRenderer implements RendererBackend {
     ctx.restore();
 
     // 回一顆愛心（有使魔跟她打招呼時；純裝飾，非狀態符號）。
-    if (this.world.char.greetBackUntil > now) {
+    // 真相狀態在台上（被擋下／失敗／未知…）或凍結時不畫：那不是賣萌的畫面。
+    if (this.world.char.greetBackUntil > now && !takeover && !this.flags.frozen) {
       this.drawGreetHeart(ctx, this.world.char.x, this.world.ground - 132, pal, now, reduced);
     }
 
@@ -814,7 +956,8 @@ export class StageRenderer implements RendererBackend {
 
   // ---- 玩具 ----
   private drawToy(ctx: CanvasRenderingContext2D, t: Toy, pal: RigPalette, now: number) {
-    const reduced = this.timeline.isReducedMotion();
+    // 凍結（緊急停止／離線／暫停）與 Reduced Motion 一樣：羽毛不擺、小物件不轉。
+    const reduced = this.timeline.isReducedMotion() || this.flags.frozen;
     ctx.save();
     switch (t.kind) {
       case "yarn": {
@@ -930,7 +1073,8 @@ export class StageRenderer implements RendererBackend {
   private drawFamiliar(ctx: CanvasRenderingContext2D, f: Familiar, now: number) {
     const pal = RIG_PALETTES[f.palette] ?? RIG_PALETTES["maid-classic"];
     const g = this.world.ground;
-    const reduced = this.timeline.isReducedMotion();
+    // 凍結時使魔也停：不上下抖、尾巴不擺、愛心不浮（停住的系統不做任何表演）。
+    const reduced = this.timeline.isReducedMotion() || this.flags.frozen;
     const bob =
       !reduced && (f.state === "walk" || f.state === "chase")
         ? Math.abs(Math.sin(now / 120)) * 2
@@ -990,15 +1134,9 @@ export class StageRenderer implements RendererBackend {
         ctx.fill();
       }
     }
-    // 打招呼：愛心。
-    if (f.state === "greet") {
-      ctx.fillStyle = pal.pinkLilac;
-      const hy = -16 - swayAt(now, 300, 1.5, reduced);
-      ctx.beginPath();
-      ctx.moveTo(0, hy + 2.4);
-      ctx.bezierCurveTo(-4.2, hy - 1, -1.8, hy - 3.4, 0, hy - 1);
-      ctx.bezierCurveTo(1.8, hy - 3.4, 4.2, hy - 1, 0, hy + 2.4);
-      ctx.fill();
+    // 打招呼：愛心。真相狀態在台上或凍結時不畫（被擋下／緊急停止的畫面上沒有愛心）。
+    if (f.state === "greet" && !this.flags.frozen && statusOverlay(this.machineAnim) !== "takeover") {
+      this.drawGreetHeart(ctx, 0, -16, pal, now, reduced);
     }
     ctx.restore();
   }

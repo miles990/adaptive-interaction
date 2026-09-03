@@ -653,6 +653,59 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                     .await?
             }
         },
+        Command::Character { action } => match action {
+            crate::CharacterAction::Status => {
+                let (status, value) = client.get("/v1/status").await?;
+                let block = value
+                    .get("characterProtocol")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                if (200..300).contains(&status) && block.is_null() {
+                    return Err(anyhow::anyhow!(
+                        "daemon does not report characterProtocol (older runtime?)"
+                    ));
+                }
+                (status, block)
+            }
+            crate::CharacterAction::Instances => client.get("/v1/character/instances").await?,
+            crate::CharacterAction::Manifest => client.get("/v1/character/manifest").await?,
+            crate::CharacterAction::Adapters { action } => match action {
+                crate::CharacterAdapterAction::List => {
+                    client.get("/v1/character/adapters").await?
+                }
+                crate::CharacterAdapterAction::Add { name, manifest } => {
+                    let text = std::fs::read_to_string(manifest)
+                        .map_err(|e| anyhow::anyhow!("read manifest {manifest}: {e}"))?;
+                    let manifest: Value = serde_json::from_str(&text)
+                        .map_err(|e| anyhow::anyhow!("manifest is not valid JSON: {e}"))?;
+                    let out = client
+                        .post(
+                            "/v1/character/adapters",
+                            Some(json!({"displayName": name, "manifest": manifest})),
+                        )
+                        .await?;
+                    if !cli.json && (200..300).contains(&out.0) {
+                        eprintln!(
+                            "note: the token is shown ONCE and stored only as sha256; keep it safe"
+                        );
+                    }
+                    out
+                }
+                crate::CharacterAdapterAction::Revoke { id } => {
+                    client
+                        .delete(&format!("/v1/character/adapters/{}", urlencode(id)))
+                        .await?
+                }
+            },
+            crate::CharacterAction::Intent { intent, message } => {
+                client
+                    .post(
+                        "/v1/character/intent",
+                        Some(json!({"intent": intent, "message": message})),
+                    )
+                    .await?
+            }
+        },
         Command::Presentation { action } => match action {
             crate::PresentationAction::Status => client.get("/v1/presentation").await?,
             crate::PresentationAction::Hello { visible, pack } => {

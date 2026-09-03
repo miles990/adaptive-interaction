@@ -671,14 +671,19 @@ impl Runtime {
                 class,
             },
         );
+        // 白名單文字與驗證器同一來源（`presentation::TONES`／`BEHAVIOR_INTENTS`），
+        // prompt 不另外手抄一份。
         let task = format!(
             "只根據下列非敏感意圖產生一則繁體中文低干擾候選，不讀檔、不使用工具、不研究、不委派。\n\
              intent: {}\nobjective: {}\n\
              只輸出單一 JSON object，欄位必須是 intent, message, tone, behaviorIntent, priority, expiresInSeconds。\n\
              intent 只能 request_attention/offer_suggestion/share_update/invite_interaction；\n\
-             tone 只能 neutral/attentive/gentle/playful/serious；behaviorIntent 只能 rest/notice/curious/listen/think/work/wait-attention/look-at-confirmation/acknowledge-briefly；\n\
+             tone 只能 {}；behaviorIntent 只能 {}；\n\
              priority 只能 low/normal；不得產生或改寫安全、授權、失敗、未知、外部傳送文字。",
-            recipe.intent, recipe.decision.objective
+            recipe.intent,
+            recipe.decision.objective,
+            crate::presentation::TONES.join("/"),
+            crate::presentation::BEHAVIOR_INTENTS.join("/")
         );
         let send = self
             .mailbox_send(

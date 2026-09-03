@@ -53,6 +53,7 @@ import {
   Settings,
   ShieldCheck,
   ShieldX,
+  Sparkles,
   Thermometer,
   Trash2,
   TriangleAlert,
@@ -117,6 +118,7 @@ const ICONS: Record<string, React.ComponentType<{ size?: number | string; classN
   settings: Settings,
   "shield-check": ShieldCheck,
   "shield-x": ShieldX,
+  sparkles: Sparkles,
   thermometer: Thermometer,
   "trash-2": Trash2,
   "triangle-alert": TriangleAlert,
@@ -129,6 +131,12 @@ const ICONS: Record<string, React.ComponentType<{ size?: number | string; classN
   workflow: Workflow,
   wrench: Wrench,
 };
+
+/** 目錄裡有沒有這個 icon 名稱（manifest／索引提示只在命中時採用，否則用中立 icon，
+ *  不讓導覽出現「?」）。 */
+export function hasIcon(name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(ICONS, name);
+}
 
 /** Render an icon by catalog/manifest hint name; decorative by default. */
 export function Icon({

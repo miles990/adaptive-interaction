@@ -6,6 +6,9 @@
 //     每批結束用 getImageData 強制 flush，不只是錄 canvas 指令）。
 //   - stage：整個遊玩場（角色＋2 使魔＋3 玩具＋2D 物理＋表情時間軸）一幀成本
 //     （同樣含 raster flush）。
+//   - stageLoop：StageRenderer **自己的** requestAnimationFrame 主迴圈（loop()＋幀預算）
+//     跑 360 個 rAF：ticks／drawn／skipEveryOther——舞台有沒有被自己的幀預算降到
+//     30fps（對抗審查 perf-claims-017：以前餵 rAF 間隔，60Hz 螢幕上一秒後永久 30fps）。
 //   - inputLatency：兩個**真的會改變狀態**的輸入路徑——
 //       toyGrab：pointerDown 於玩具 → 下一幀該玩具 grabbed=player；
 //       gaze：pointerMove 進入角色 hit-rect → 下一幀視線/耳朵參數改變。
@@ -233,6 +236,51 @@ async function run() {
     out.boundedQueue = { toyCap: stage.toyCount(), spawnedAttempts: 23 };
     stage.destroy();
     c.remove();
+  }
+
+  // 2b) 真 rAF 主迴圈（loop()＋幀預算）：上面 2) 直呼 renderFrame 繞過了幀預算，
+  //     量不到「舞台有沒有被自己的預算降到 30fps」。這裡讓 StageRenderer 自己跑
+  //     requestAnimationFrame 360 幀（6 個 60 幀窗），回報 ticks／drawn／skipEveryOther。
+  //     零成本、任何 rAF 節奏下 skipEveryOther 都必須是 false（幀預算餵的是 renderFrame
+  //     成本，不是 rAF 間隔）。
+  {
+    const c = makeCanvas(416, 216);
+    const stage = new StageRenderer(c, "maid-classic", 1, { rng: () => 0.37 }); // autoStart 預設：真迴圈
+    stage.setMachineFlags({ ambient: true, frozen: false, quiet: false, playPerforming: false });
+    stage.setAnimation("idle");
+    stage.setFamiliars([
+      { id: "f1", name: "小白", palette: "maid-dusk" },
+      { id: "f2", name: "小黑", palette: "maid-sakura" },
+    ]);
+    stage.spawnToy("yarn");
+    stage.spawnToy("paper");
+    stage.spawnToy("plane");
+    const gaps: number[] = [];
+    let prev = await nextFrame();
+    for (let i = 0; i < 360; i++) {
+      const now = await nextFrame();
+      gaps.push(now - prev);
+      prev = now;
+    }
+    stage.pause();
+    const loop = stage.loopStats();
+    const budget = stage.frameBudget();
+    const toys = stage.toyCount();
+    stage.destroy();
+    c.remove();
+    out.stageLoop = {
+      canvasCss: "416x216",
+      familiars: 2,
+      toys,
+      rafFramesWaited: 360,
+      ticks: loop.ticks,
+      drawn: loop.drawn,
+      skipEveryOther: budget.skipEveryOther,
+      lastWindowAvgCostMs: budget.avgMs,
+      rafGap: { ...stats(gaps), note: "headless Chromium 的 rAF 節奏，非使用者螢幕更新率" },
+      note:
+        "StageRenderer 自己的 requestAnimationFrame 迴圈；幀預算餵的是 renderFrame 成本（不含 raster flush）。skipEveryOther=true 代表舞台自己降到 30fps",
+    };
   }
 
   // 4) 長時間數值行為：時間軸跑 3 天（每 16.67ms 一步，取樣 20 萬點）。

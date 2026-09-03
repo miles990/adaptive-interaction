@@ -4,19 +4,30 @@
 import React from "react";
 import { api, HardwareScanReport, ProviderTested } from "../api";
 import { useAppState } from "../appstate";
+import { useCharacterName } from "../characterName";
 import { Badge, Section, StateView, useAsync } from "../ui";
 import { CapabilitiesPage } from "./CapabilitiesPage";
+import { CharacterAdaptersSection } from "./connect/CharacterAdaptersSection";
 
-type HubTab = "senses" | "responses" | "toolops" | "providers";
+export type HubTab = "senses" | "responses" | "toolops" | "providers";
+
+/** 桌面角色的呈現層 provider id（Runtime character.rs COMPANION_PROVIDER_ID）。 */
+const COMPANION_PROVIDER_ID = "provider.companion.desktop";
 
 export function CapabilitiesHub({
   refreshKey,
   advanced,
+  initial = "senses",
 }: {
   refreshKey: number;
   advanced: boolean;
+  /** 上層（連接與權限四區的「管理…」按鈕）指定分類；改變時同步切換。 */
+  initial?: HubTab;
 }) {
-  const [tab, setTab] = React.useState<HubTab>("senses");
+  const [tab, setTab] = React.useState<HubTab>(initial);
+  React.useEffect(() => {
+    setTab(initial);
+  }, [initial]);
   return (
     <div>
       <div className="hub-tabs" role="tablist" aria-label="能力分類">
@@ -42,7 +53,7 @@ export function CapabilitiesHub({
       {tab === "senses" && <CapabilitiesPage kind="receptor" advanced={advanced} />}
       {tab === "responses" && <CapabilitiesPage kind="actuator" advanced={advanced} />}
       {tab === "toolops" && <CapabilitiesPage kind="tool-operation" advanced={advanced} />}
-      {tab === "providers" && <ProvidersSection refreshKey={refreshKey} />}
+      {tab === "providers" && <ProvidersSection refreshKey={refreshKey} advanced={advanced} />}
     </div>
   );
 }
@@ -73,14 +84,46 @@ const HARDWARE_CLASS_LABEL: Record<string, string> = {
   tablet: "手寫板",
   "game-controller": "遊戲控制器",
   midi: "MIDI",
-  "usb-serial": "USB Serial",
-  "bluetooth-le": "Bluetooth LE",
+  "usb-serial": "USB 接線裝置（USB Serial：用線接上的自製硬體，例如 ESP32）",
+  "bluetooth-le": "低功耗藍牙裝置（Bluetooth LE：不用接線的小型感測器與燈具）",
   display: "螢幕呈現",
   "system-notification": "系統通知",
   "os-sensor": "作業系統感測器",
-  "mdns-device": "mDNS 本機網路裝置",
-  "esp32-declaration": "ESP32 宣告式裝置",
+  "mdns-device": "同一個 Wi-Fi 裡自動找到的裝置（mDNS：裝置自己報名字，不用輸入位址）",
+  "esp32-declaration": "ESP32 自製裝置（用設定檔描述它能感測什麼、能做什麼）",
 };
+
+/** 來源類型的人話（Runtime ProviderKind，kebab-case）。 */
+const PROVIDER_KIND_LABEL: Record<string, string> = {
+  local: "內建本機能力",
+  device: "外接裝置",
+  service: "外部服務",
+  application: "本機的其他程式",
+  "ai-provider": "AI 服務",
+  "ai-agent": "AI 幫手",
+  "ai-session": "AI 工作階段",
+};
+
+/** 信任程度的人話（Runtime TrustLevel）。 */
+const TRUST_LABEL: Record<string, string> = {
+  untrusted: "未信任",
+  discovered: "只發現（身分未驗證）",
+  paired: "已配對",
+  verified: "每次連線都驗證身分",
+  builtin: "內建",
+};
+
+function providerKindLabel(raw: unknown): string {
+  const key = String(raw ?? "");
+  return Object.prototype.hasOwnProperty.call(PROVIDER_KIND_LABEL, key)
+    ? PROVIDER_KIND_LABEL[key]
+    : "來源類型不確定";
+}
+
+function trustLabel(raw: unknown): string {
+  const key = String(raw ?? "");
+  return Object.prototype.hasOwnProperty.call(TRUST_LABEL, key) ? TRUST_LABEL[key] : "不確定";
+}
 
 const HARDWARE_AVAILABILITY: Record<string, { text: string; kind: "ok" | "warn" | "bad" | "pending" }> = {
   available: { text: "目前可見", kind: "ok" },
@@ -88,21 +131,24 @@ const HARDWARE_AVAILABILITY: Record<string, { text: string; kind: "ok" | "warn" 
   busy: { text: "被占用", kind: "warn" },
   unavailable: { text: "目前不可用", kind: "bad" },
   unsupported: { text: "此平台尚未支援", kind: "warn" },
-  unknown: { text: "結果未知", kind: "pending" },
+  unknown: { text: "結果不確定", kind: "pending" },
 };
 
-/** 已停用／不可用狀態的人話說明。 */
-const PROVIDER_STOPPED_HINT: Record<string, string> = {
-  disabled: "已停用——連線已關閉，小樞不會用它做任何事。",
-  disconnected: "連不上裝置：拔線、被占用、位址不對或裝置沒開。",
-  expired: "授權或租約已過期——需要重新配對／啟用。",
-  revoked: "已撤銷——能力立即停用，且不會自己回來。",
-  closed: "已關閉。",
-};
+/** 已停用／不可用狀態的人話說明（角色名稱由呼叫端帶入，不寫死）。 */
+function providerStoppedHint(state: string, characterName: string): string | undefined {
+  const table: Record<string, string> = {
+    disabled: `已停用——連線已關閉，${characterName}不會用它做任何事。`,
+    disconnected: "連不上裝置：拔線、被占用、位址不對或裝置沒開。",
+    expired: "授權已過期——需要重新配對／啟用。",
+    revoked: "已撤銷——能力立即停用，且不會自己回來。",
+    closed: "已關閉。",
+  };
+  return Object.prototype.hasOwnProperty.call(table, state) ? table[state] : undefined;
+}
 
 /** 證據來源的人話。 */
 const TESTED_HOW_LABEL: Record<string, string> = {
-  handshake: "裝置連線握手（hello 身分＋pair-ok）",
+  handshake: "裝置連線握手（裝置報上身分並完成配對）",
   capability: "能力實際運作（讀到資料或裝置回 ack）",
   human: "人為測試",
 };
@@ -159,11 +205,14 @@ export function parseProviderDetail(detail: unknown): { note?: string; tested?: 
  * 掃描到 metadata 不等於連線完成；狀態變成 available 也不等於測過。
  * 純函式，方便回歸測試。
  */
-export function providerProgress(input: {
-  state: string;
-  tested?: ProviderTested;
-  enabledCapabilities: number;
-}): ProviderProgress {
+export function providerProgress(
+  input: {
+    state: string;
+    tested?: ProviderTested;
+    enabledCapabilities: number;
+  },
+  characterName = "角色"
+): ProviderProgress {
   const { state, tested } = input;
   const enabled = input.enabledCapabilities > 0;
   const failedReason = tested?.note ?? "原因未知";
@@ -173,7 +222,7 @@ export function providerProgress(input: {
         stage: "discovered",
         label: "只發現",
         kind: "pending",
-        hint: "只是掃描時看見（名稱、型號這類 metadata），還沒配對，也還沒連上——小樞還不能用它做任何事。",
+        hint: `只是掃描時看見（名稱、型號這類 metadata），還沒配對，也還沒連上——${characterName}還不能用它做任何事。`,
       };
     case "unpaired":
       return {
@@ -204,7 +253,7 @@ export function providerProgress(input: {
           stage: "enabled",
           label: "已啟用",
           kind: "ok",
-          hint: `已測試通過，而且有 ${input.enabledCapabilities} 項能力真的開著——小樞此刻真的能用它。`,
+          hint: `已測試通過，而且有 ${input.enabledCapabilities} 項能力真的開著——${characterName}此刻真的能用它。`,
         };
       }
       if (enabled && tested?.ok === false) {
@@ -228,7 +277,7 @@ export function providerProgress(input: {
           stage: "tested",
           label: "已測試",
           kind: "ok",
-          hint: "測試通過（真的讀到資料），但能力還沒啟用——啟用後小樞才會真的用它。",
+          hint: `測試通過（真的讀到資料），但能力還沒啟用——啟用後${characterName}才會真的用它。`,
         };
       }
       if (tested?.ok === false) {
@@ -247,12 +296,13 @@ export function providerProgress(input: {
       };
     }
     default: {
-      const base = PROVIDER_STATE_LABEL[state] ?? { text: state, kind: "pending" as const };
+      // 介面不認得的狀態：不把原始字串當標籤（一般模式不外洩 enum）。
+      const base = PROVIDER_STATE_LABEL[state] ?? { text: "狀態不確定", kind: "pending" as const };
       return {
         stage: "stopped",
         label: base.text,
         kind: base.kind,
-        hint: PROVIDER_STOPPED_HINT[state] ?? "目前不能用。",
+        hint: providerStoppedHint(state, characterName) ?? "目前不能用。",
       };
     }
   }
@@ -267,8 +317,15 @@ export function testedSummary(tested?: ProviderTested): string {
   return `最近測試：${at}・${verdict}（${how}）${tested.note ? `——${tested.note}` : ""}`;
 }
 
-function ProvidersSection({ refreshKey }: { refreshKey: number }) {
+function ProvidersSection({
+  refreshKey,
+  advanced = false,
+}: {
+  refreshKey: number;
+  advanced?: boolean;
+}) {
   const { findCard, human } = useAppState();
+  const { name: characterName } = useCharacterName();
   const [providers, reloadProviders] = useAsync(
     () => api.providersList() as Promise<Record<string, unknown>[]>,
     [refreshKey]
@@ -291,7 +348,9 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
       setTestResult((prev) => ({
         ...prev,
         [id]: report.ok
-          ? `測試成功：讀到了 ${report.receptorId ?? "受器"} 的資料。`
+          ? `測試成功：讀到了「${
+              report.receptorId ? findCard("receptor", report.receptorId).name : "感知來源"
+            }」的資料。`
           : `測試沒過：${report.reason ?? "原因未知"}`,
       }));
       reloadProviders();
@@ -337,7 +396,7 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
           <div className="provider-list" style={{ marginTop: 12 }} aria-live="polite">
             {hardware.devices.map((device, index) => {
               const availability = HARDWARE_AVAILABILITY[device.availability] ?? {
-                text: "結果未知",
+                text: "結果不確定",
                 kind: "pending" as const,
               };
               return (
@@ -350,7 +409,11 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
                   <div className="muted small">{device.detail}</div>
                   <div className="muted small">識別依據：{device.identityBasis}</div>
                   {device.stableId ? (
-                    <div className="muted small">穩定識別：{device.stableId}</div>
+                    <div className="muted small">
+                      {advanced
+                        ? `穩定識別：${device.stableId}`
+                        : "有可以安全保存的穩定識別（可以配對或安裝）。"}
+                    </div>
                   ) : (
                     <div className="muted small">沒有可安全保存的穩定識別，不會直接配對或安裝。</div>
                   )}
@@ -376,8 +439,9 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
           </div>
         )}
       </Section>
-      <MobileSection refreshKey={refreshKey} />
-      <Section title="提供者（Provider）">
+      <MobileSection refreshKey={refreshKey} advanced={advanced} />
+      <CharacterAdaptersSection refreshKey={refreshKey} advanced={advanced} standalone />
+      <Section title="已連接的裝置與來源">
         <StateView state={providers} empty="尚未發現任何提供者。">
           {(list) => (
             <div className="provider-list">
@@ -391,9 +455,12 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
                 const enabledCapabilities =
                   receptorIds.filter((rid) => capabilityAvailable("receptor", rid)).length +
                   actuatorIds.filter((aid) => capabilityAvailable("actuator", aid)).length;
-                const progress = providerProgress({ state, tested, enabledCapabilities });
+                const progress = providerProgress(
+                  { state, tested, enabledCapabilities },
+                  characterName
+                );
                 const stateLabel = PROVIDER_STATE_LABEL[state] ?? {
-                  text: state,
+                  text: "狀態不確定",
                   kind: "pending" as const,
                 };
                 return (
@@ -403,10 +470,21 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
                       <Badge kind={progress.kind}>{progress.label}</Badge>
                     </div>
                     <div className="muted small">
-                      {String(identity?.kind ?? "")}・信任：{String(identity?.trustLevel ?? "")}
-                      ・生命週期狀態：{stateLabel.text}
+                      {providerKindLabel(identity?.kind)}・信任：{trustLabel(identity?.trustLevel)}
+                      ・狀態：{stateLabel.text}
                       {note ? `・${note}` : ""}
                     </div>
+                    {id === COMPANION_PROVIDER_ID && (
+                      <div className="muted small">
+                        這是桌面角色的呈現層：只負責演出，不持有任何權限。
+                      </div>
+                    )}
+                    {advanced && (
+                      <div className="muted small">
+                        原始：{id}・{String(identity?.kind ?? "")}・{String(identity?.trustLevel ?? "")}・
+                        {state}
+                      </div>
+                    )}
                     <div className="muted small">{progress.hint}</div>
                     <div className="muted small">{testedSummary(tested)}</div>
                     <div className="row wrap">
@@ -414,7 +492,7 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
                         {testing === id ? "測試中…" : "測試裝置"}
                       </button>
                       <span className="muted small">
-                        只讀一次目前開著的受器，不會觸發任何動作，也不會替你打開被停用的感測器。
+                        只讀一次目前開著的感知來源，不會觸發任何動作，也不會替你打開被停用的感測器。
                       </span>
                     </div>
                     {testResult[id] && (
@@ -422,11 +500,11 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
                         {testResult[id]}
                       </div>
                     )}
-                    {/* 裝置導向（spec §9.3）：以「小樞可以知道／可以做」呈現，
-                        不先丟 receptor/actuator 技術詞。 */}
+                    {/* 裝置導向（spec §9.3）：以「<角色>可以知道／可以做」呈現，
+                        不先丟 receptor/actuator 技術詞；角色名稱來自 useCharacterName。 */}
                     {receptorIds.length > 0 && (
                       <div className="small">
-                        小樞可以知道：
+                        {characterName}可以知道：
                         {receptorIds
                           .slice(0, 6)
                           .map((rid) => findCard("receptor", rid).name)
@@ -436,7 +514,7 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
                     )}
                     {actuatorIds.length > 0 && (
                       <div className="small">
-                        小樞可以做：
+                        {characterName}可以做：
                         {actuatorIds
                           .slice(0, 6)
                           .map((aid) => findCard("actuator", aid).name)
@@ -445,7 +523,7 @@ function ProvidersSection({ refreshKey }: { refreshKey: number }) {
                       </div>
                     )}
                     <div className="muted small">
-                      能力：受器 {receptorIds.length}・動器 {actuatorIds.length}・工具{" "}
+                      能力：感知來源 {receptorIds.length}・回應方式 {actuatorIds.length}・工具操作{" "}
                       {(p.toolOperations as unknown[] | undefined)?.length ?? 0}・此刻真的開著{" "}
                       {enabledCapabilities} 項
                     </div>
@@ -492,7 +570,13 @@ const MOBILE_SENSOR_LABEL: Record<string, string> = {
   bleGateway: "BLE 閘道",
 };
 
-export function MobileSection({ refreshKey }: { refreshKey: number }) {
+export function MobileSection({
+  refreshKey,
+  advanced = false,
+}: {
+  refreshKey: number;
+  advanced?: boolean;
+}) {
   const [status] = useAsync(() => api.mobileStatus(), [refreshKey]);
   const [pairing, setPairing] = React.useState<Record<string, unknown> | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -503,23 +587,25 @@ export function MobileSection({ refreshKey }: { refreshKey: number }) {
   return (
     <Section title="iPhone">
       <p className="muted small">
-        iPhone 需安裝 Interaction Companion App（apps/interaction-ios）。配對走
-        TLS＋憑證指紋釘選＋一次性配對碼；每台 iPhone 有獨立金鑰，可隨時撤銷。
-        桌面授權不能取代 iOS 系統權限；感測是否啟用以手機端顯示為準。
+        iPhone 需要安裝配套的手機 App（Interaction Companion）。配對用一次性配對碼，連線全程加密並確認是同一台電腦；
+        每台 iPhone 各自一把鑰匙，隨時可以撤銷。桌面上的同意不能取代 iOS 系統權限；感測有沒有開，以手機畫面為準。
       </p>
       {status.error && <div className="state-box state-error">無法讀取狀態：{status.error}</div>}
       {bonjour && (
         <div className="muted small">
           {bonjour.advertised === true ? (
             <>
-              區網廣播（Bonjour）：已註冊 {String(bonjour.service ?? "")}
-              {bonjour.instance ? `／${String(bonjour.instance)}` : ""}——iPhone 可自動發現。
+              同一個 Wi-Fi 裡的 iPhone 可以自動找到這台電腦（Bonjour）。
+              {advanced
+                ? `　服務：${String(bonjour.service ?? "")}${
+                    bonjour.instance ? `／${String(bonjour.instance)}` : ""
+                  }`
+                : ""}
             </>
           ) : (
             <>
-              區網廣播（Bonjour）：未註冊
-              {bonjour.error ? `（${String(bonjour.error)}）` : ""}——iPhone 無法自動發現，
-              請用 QR 或手動輸入 host:port 配對。
+              iPhone 無法自動找到這台電腦（Bonjour 未啟用
+              {bonjour.error ? `：${String(bonjour.error)}` : ""}）——請掃 QR，或在手機上手動輸入電腦位址與埠號配對。
             </>
           )}
         </div>
@@ -603,7 +689,8 @@ export function MobileSection({ refreshKey }: { refreshKey: number }) {
         <div className="notice-box" role="status">
           <p>
             在 iPhone App 掃描 QR 或輸入配對碼：<strong>{String(pairing.code)}</strong>
-            （伺服器埠 {String(pairing.port)}，憑證指紋 {String(pairing.fingerprint).slice(0, 16)}…）
+            （電腦埠號 {String(pairing.port)}；手機會核對這台電腦的識別碼{" "}
+            {String(pairing.fingerprint).slice(0, 16)}…）
           </p>
           {typeof pairing.qrSvg === "string" && pairing.qrSvg.length > 0 && (
             <div

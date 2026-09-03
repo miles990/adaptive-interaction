@@ -24,6 +24,10 @@ Gemini／OpenAPI／JSON-Schema 產生器）＋跨 AI Skill（`skills/orchestrate
 - CLI／HTTP API／Tauri 共用同一 application service；核心邏輯不進前端 JS；
   WebView 不直接控制裝置。
 - 感測不靜默：啟用中的感測器必須同時反映在 status、事件、tray 與 UI。
+- **角色呈現層沒有權限主權**：Runtime 只送語意 Character Intent（`docs/character-protocol/README.md` 是唯一契約）；
+  truthState／verified 只由 Runtime 決定，adapter／Character Pack 不能改寫安全文字、不能偽造 verified；不支援就誠實降級
+  （substituted／reduced／unsupported），安全訊息永遠落到 `system.text`＋可信 host overlay。小樞只是 Reference Adapter，
+  Runtime／頁面不得再引用小樞的部位、表情名或 pack id。
 
 ## 佈局
 
@@ -33,6 +37,11 @@ Gemini／OpenAPI／JSON-Schema 產生器）＋跨 AI Skill（`skills/orchestrate
 - `crates/interaction-adapter-declarative` YAML→HTTP/SSE／Serial／MQTT／BLE 宣告式裝置 adapter
   （SSRF 防護、secret://、`protocol.rs` 裝置線協定 v1：hello 身分＋配對＋cmd/ack＋dedupe）
 - `crates/interaction-runtime/src/mobile.rs` iPhone Mobile Provider（TLS wss、配對、每機 token）
+- `crates/interaction-character` Character Presentation Protocol 1.0（純函式；schema golden `schemas/character-protocol.schema.json`）；
+  `crates/interaction-runtime/src/character.rs` CharacterHub＋真相投影；`crates/interaction-api/src/character_ws.rs` 外部 adapter WebSocket
+- `apps/interaction-desktop/src/character/` TS 鏡射＋in-process gateway＋adapters（`shu`／`sprite`／`text`）；
+  `public/characters/` 內建 manifest；`src-tauri/src/{host_safety,character_store,character_bridge}.rs` 可信 overlay／匯入／IPC；
+  `docs/character-protocol/` 契約、adapter 撰寫指南、reference adapter 導覽；`examples/character-adapters/` 外部 WebSocket fixture
 - `adapters/{builtin,media}` 內建受器動器＋麥克風感測（feature-gated cpal）
 - `apps/interaction-desktop` Tauri 2 控制中心＋小樞（`src/companion/rig/` 執行期分層 rig；
   `scripts/shu/` 有 v2 sprite 產生器、`preview-rig.mjs` 設計稿、`perf-rig.mjs` 效能量測）
@@ -49,6 +58,7 @@ cd apps/interaction-desktop && pnpm typecheck && pnpm test && pnpm build
 pnpm test:e2e                              # Playwright（自起真 daemon＋Chromium）
 ./scripts/v03-cli-e2e.sh                   # CLI 驗收（真 daemon＋mock device）
 interact-ai serve                          # daemon；token 在 ~/.adaptive-interaction/state/api-token
+interact-ai character status|instances|adapters add --name X --manifest m.json   # 角色協定；安全 intent 不可手動送
 ./scripts/release.sh vX.Y.Z                # 發布：重生 golden schemas、打 tag、觸發 Release CI
 ./firmware/esp32-companion/compile.sh [--ble] # ESP32 韌體 arduino-cli 編譯檢查（非真機驗收）
 cd apps/interaction-desktop && pnpm perf   # 角色效能量測（headless Chromium；文件引用的數字必須由它產生）

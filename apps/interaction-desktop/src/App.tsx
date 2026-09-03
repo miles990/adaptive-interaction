@@ -12,6 +12,7 @@ import {
 import { AppStateProvider, useAppState } from "./appstate";
 import { Icon } from "./icons";
 import { Badge } from "./ui";
+import { inboxItemTitle, projectInboxStatus } from "./statusProjection";
 import { ConfirmButton, Dialog, useFocusTrap } from "./components/Dialog";
 import { HomePage } from "./pages/HomePage";
 import { CapabilitiesPage } from "./pages/CapabilitiesPage";
@@ -26,24 +27,45 @@ import { PolicyPage } from "./pages/Policy";
 import { TimelinePage } from "./pages/Timeline";
 import { CompanionPage } from "./pages/CompanionPage";
 import { WorkPage } from "./pages/WorkPage";
-import { ConnectPage } from "./pages/ConnectPage";
+import { ConnectPage, decisionPage, loadDecisionInbox } from "./pages/ConnectPage";
 import { MorePage } from "./pages/MorePage";
 import { ProvidersAdvancedPage } from "./pages/ProvidersAdvanced";
 import { KnowledgeAdvancedPage } from "./pages/KnowledgeAdvanced";
 import { GlobalSearch } from "./components/GlobalSearch";
+import {
+  characterNameFallback,
+  NEUTRAL_CHARACTER_ICON,
+  refreshCharacterName,
+  useCharacterName,
+} from "./characterName";
 
-type Tab = string;
+export type Tab = string;
 
-// v0.5 資訊架構：5 個一級入口（現在／小樞／工作／連接與權限／更多）。
+export interface NavEntry {
+  id: Tab;
+  label: string;
+  icon: string;
+}
+
+// v0.5 資訊架構：5 個一級入口（現在／角色／工作／連接與權限／更多）。
+// 第二項的 label 與 icon 是目前角色（useCharacterName：prefs 名字＞manifest
+// displayName＞「角色」），由 simpleNavFor 在執行期代入；這份靜態表只放中立值。
 // 舊 tab id 全部保留可用（tray 深連結、Inbox route、書籤），由
 // navAnchorFor 折疊到新家；內容走 PageBody 的相容路由。
-export const SIMPLE_NAV: { id: Tab; label: string; icon: string }[] = [
+export const SIMPLE_NAV: NavEntry[] = [
   { id: "home", label: "現在", icon: "house" },
-  { id: "companion", label: "小樞", icon: "cat" },
+  { id: "companion", label: characterNameFallback, icon: NEUTRAL_CHARACTER_ICON },
   { id: "work", label: "工作", icon: "bot" },
   { id: "connect", label: "連接與權限", icon: "plug" },
   { id: "more", label: "更多", icon: "menu" },
 ];
+
+/** 一級導覽的執行期版本：第二項換成目前角色的名字與 icon（其餘不變、仍恰 5 項）。 */
+export function simpleNavFor(character: { name: string; icon: string }): NavEntry[] {
+  return SIMPLE_NAV.map((t) =>
+    t.id === "companion" ? { ...t, label: character.name, icon: character.icon } : t
+  );
+}
 
 const ADVANCED_NAV: { id: Tab; label: string }[] = [
   { id: "adv-overview", label: "總覽（原始）" },
@@ -72,25 +94,16 @@ export const LEGACY_ANCHORS: Record<string, string> = {
   memory: "more",
   activity: "more",
   settings: "more",
+  // v0.5 一般模式「更多」的新分頁：角色與整合管理／進階功能。
+  manage: "more",
+  "advanced-features": "more",
 };
 
-/** 收件匣狀態的人話對照。未知狀態原樣顯示 —— 不假裝看得懂。 */
-const INBOX_STATUS_LABEL: Record<string, string> = {
-  "waiting-for-input": "等待你的輸入",
-  "waiting-for-consent": "等待你的同意",
-  "claimed-completed": "聲稱已完成（尚未驗證）",
-  candidate: "等待你確認",
-  uncertain: "結果未知",
-  blocked: "被安全規則阻止",
-  failed: "失敗",
-  "timed-out": "逾時",
-  expired: "已到期",
-  cancelled: "已取消",
-  emergency: "緊急停止",
-};
-
+/** 收件匣狀態的人話：走共用的狀態投影（statusProjection.ts），與 AiPage／
+ *  HomePage／收件匣／全域搜尋同一份文案。未知狀態不回原始字串，
+ *  投影成「結果不確定」——不假裝看得懂，也不把 enum 外洩到一般模式。 */
 export function inboxStatusLabel(status: string): string {
-  return INBOX_STATUS_LABEL[status] ?? status;
+  return projectInboxStatus(status).label;
 }
 
 /** 導覽高亮／標題所對應的 nav id（相容 tab 折疊到新 5 入口）。 */
@@ -98,14 +111,25 @@ export function navAnchorFor(tab: string): string {
   return LEGACY_ANCHORS[tab] ?? tab;
 }
 
-/** topbar 標題：相容 tab 也必須有標題，不得渲染空字串。 */
-export function titleFor(tab: string): string {
+/** topbar 標題：相容 tab 也必須有標題，不得渲染空字串。
+ *  角色頁的標題是目前角色的名字（傳入 characterName）；沒傳就是中立的「角色」。 */
+export function titleFor(tab: string, characterName?: string): string {
   const anchor = navAnchorFor(tab);
+  if (anchor === "companion" && characterName) return characterName;
   return (
     SIMPLE_NAV.find((t) => t.id === anchor)?.label ??
     ADVANCED_NAV.find((t) => t.id === anchor)?.label ??
     ""
   );
+}
+
+/** 感測器種類的人話（橫幅用；未知種類原樣顯示，不猜）。 */
+export function sensorKindLabel(kind: string): string {
+  const k = kind.toLowerCase();
+  if (k === "microphone" || k.includes("mic")) return "麥克風";
+  if (k.includes("camera")) return "攝影機";
+  if (k.includes("location") || k.includes("gps")) return "定位";
+  return kind;
 }
 
 /** 感測倒數：介面上顯示的「N 秒後自動停止」必須真的走。
@@ -182,15 +206,26 @@ export default function App() {
   }, []);
 
   if (runtimeState === "offline") {
+    // 這一頁在偏好載入前就會出現（不知道一般／進階），所以主文一律人話；
+    // daemon／token／CLI 這類技術線索收進「技術細節」折疊區，不消失也不裸露。
+    const external = supervisor?.mode === "external";
     return (
       <div className="app offline-screen">
         <h1>系統無法啟動</h1>
         <p className="state-box state-error">{offlineReason}</p>
         <p>
-          {supervisor?.mode === "external"
-            ? "偵測到外部 interact-ai daemon，但無法建立授權連線。請檢查該 daemon 的狀態與 token 檔案。"
-            : "Runtime 無法啟動。若剛剛才關閉另一個實例，請稍候幾秒再重新開啟；也可以直接使用 CLI／HTTP 管理既有實例。"}
+          {external
+            ? "偵測到另一個已在執行的系統，但無法取得授權連線。請先確認它仍在運作，或關閉它之後再重新開啟這個應用程式。"
+            : "系統沒有成功啟動。若剛剛才關閉另一個視窗，請稍候幾秒再重新開啟。"}
         </p>
+        <details className="tech-details">
+          <summary>技術細節</summary>
+          <p className="muted small">
+            {external
+              ? "外部 interact-ai daemon 已在監聽，但無法讀取其授權 token 檔案（~/.adaptive-interaction/state/api-token）。"
+              : "內嵌 Runtime 無法啟動；既有實例可用 interact-ai CLI 或 HTTP API 管理。"}
+          </p>
+        </details>
       </div>
     );
   }
@@ -226,6 +261,8 @@ function Shell({
 }) {
   const { prefs, pause } = useAppState();
   const [tab, setTab] = React.useState<Tab>("home");
+  // 目前角色（導覽第二項、標題、全域搜尋共用同一份）。
+  const character = useCharacterName({ locale: prefs.locale });
   const [estop, setEstop] = React.useState(false);
   const [estopError, setEstopError] = React.useState<string | null>(null);
   const [onboarding, setOnboarding] = React.useState<"unknown" | "open" | "closed">("unknown");
@@ -282,6 +319,23 @@ function Shell({
     return () => unlistens.forEach((u) => u.then((f) => f()).catch(() => {}));
   }, []);
 
+  // 角色換了（hello／重協商／斷線）要立刻反映在導覽與標題；換頁時順便刷新
+  // （受最短間隔保護），涵蓋在角色頁改名後回到其他頁的情況。
+  const lastEvent = events.length > 0 ? events[events.length - 1] : null;
+  React.useEffect(() => {
+    if (!lastEvent) return;
+    if (
+      lastEvent.eventType === "character.instance" ||
+      lastEvent.eventType.startsWith("presentation.")
+    ) {
+      void refreshCharacterName({ locale: prefs.locale, force: true });
+    }
+  }, [lastEvent, prefs.locale]);
+  React.useEffect(() => {
+    if (connecting) return;
+    void refreshCharacterName({ locale: prefs.locale });
+  }, [tab, connecting, prefs.locale]);
+
   React.useEffect(() => {
     if (connecting) return;
     api
@@ -296,8 +350,9 @@ function Shell({
       .catch(() => {
         /* transient backend hiccup: keep last known state; next event retries */
       });
-    api
-      .activityInbox({ limit: 20 })
+    // 通知中心只列待決定：優先用後端的 needsDecision 篩選，舊 daemon 退回最近 20 筆
+    // （面板會用 pendingCount 對照，不把「這一頁沒有」說成「沒有待決定」）。
+    loadDecisionInbox(20)
       .then(setInbox)
       .catch(() => setInbox(null));
   }, [connecting, refreshKey]);
@@ -318,6 +373,7 @@ function Shell({
   if (!connecting && onboarding === "open") {
     return (
       <Onboarding
+        onNavigate={(t) => setTab(t)}
         onDone={() => {
           setOnboarding("closed");
           bumpRefresh();
@@ -328,7 +384,8 @@ function Shell({
   }
 
   const navTab = navAnchorFor(tab);
-  const title = titleFor(tab);
+  const title = titleFor(tab, character.name);
+  const nav = simpleNavFor(character);
 
   return (
     <div className="app">
@@ -341,7 +398,7 @@ function Shell({
           <div className="brand-sub">Control Center</div>
         </div>
         <nav aria-label="主要導覽">
-          {SIMPLE_NAV.map((t) => (
+          {nav.map((t) => (
             <button
               key={t.id}
               className={navTab === t.id ? "nav-item active" : "nav-item"}
@@ -373,7 +430,7 @@ function Shell({
           {connecting ? (
             <Badge kind="pending">連線中…</Badge>
           ) : disconnected ? (
-            <Badge kind="bad">Runtime 連線中斷</Badge>
+            <Badge kind="bad">系統連線中斷</Badge>
           ) : estop ? (
             <Badge kind="bad">緊急停止中</Badge>
           ) : pause.paused ? (
@@ -382,8 +439,8 @@ function Shell({
             <Badge kind="ok">運作中</Badge>
           )}
           {supervisor?.mode === "external" && (
-            <div className="muted small" title={supervisor.apiBase}>
-              外部 Runtime
+            <div className="muted small" title={advanced ? supervisor.apiBase : undefined}>
+              {advanced ? "外部 Runtime" : "連線到外部系統"}
             </div>
           )}
         </div>
@@ -434,7 +491,7 @@ function Shell({
         {estopError && (
           <div className="estop-banner" role="alert">
             ⚠️ 緊急停止指令失敗：{estopError} — 系統可能仍在運作，請立即重試，或直接關閉應用程式
-            （關閉視窗會安全停止整個 Runtime）。
+            （關閉視窗會安全停止整個系統）。
             <button className="danger" style={{ marginLeft: 8 }} onClick={triggerEstop}>
               重試緊急停止
             </button>
@@ -449,7 +506,9 @@ function Shell({
           <div className="sensor-banner" role="status">
             {sensors.map((s) => (
               <span key={s.kind}>
-                {s.kind === "microphone" ? "🎙 正在使用麥克風" : `使用中：${s.kind}`}
+                {s.kind === "microphone"
+                  ? "🎙 正在使用麥克風"
+                  : `感測使用中：${sensorKindLabel(s.kind)}`}
                 （由 {s.startedBy === "desktop" ? "你" : s.startedBy} 啟動・{s.purpose}
                 {s.autoStopAt ? <SensorCountdown autoStopAt={s.autoStopAt} /> : ""}
                 ）
@@ -465,7 +524,7 @@ function Shell({
         )}
         {disconnected && (
           <div className="estop-banner" role="alert">
-            與外部 Runtime 的連線中斷 — 顯示的資料可能已過期，指令暫時無法送達。系統會自動重新連線。
+            與外部系統的連線中斷 — 顯示的資料可能已過期，指令暫時無法送達。會自動重新連線。
           </div>
         )}
         {trayError && (
@@ -520,6 +579,7 @@ function Shell({
       )}
       <NarrowNav
         tab={navTab}
+        nav={nav}
         onNavigate={setTab}
         advanced={advanced}
         statusBadge={
@@ -550,9 +610,8 @@ export function NotificationPanel({
   onNavigate: (tab: string) => void;
 }) {
   const { ref, onKeyDown } = useFocusTrap(onClose);
-  const pending = ((inbox?.items as Record<string, unknown>[] | undefined) ?? []).filter(
-    (item) => item.needsDecision === true
-  );
+  // 徽章用的是截斷前的全量 pendingCount；本頁（最多 10 筆）裝不下的要照實說「還有 N 項」。
+  const decisions = decisionPage(inbox, 10);
   return (
     <div
       className="notification-panel"
@@ -569,20 +628,31 @@ export function NotificationPanel({
       </div>
       {!inbox ? (
         <div className="state-box state-error">目前無法確認通知狀態。</div>
-      ) : pending.length === 0 ? (
+      ) : decisions.shown.length === 0 && decisions.notShown === 0 ? (
         <div className="state-box">目前沒有待決定事項。</div>
       ) : (
-        <ul className="plain-list">
-          {pending.slice(0, 10).map((item) => (
-            <li key={`${String(item.kind)}-${String(item.itemId)}`} className="row space-between">
-              <span>
-                <Badge kind="warn">{inboxStatusLabel(String(item.status))}</Badge>{" "}
-                {String(item.title)}
-              </span>
-              <button onClick={() => onNavigate(String(item.route))}>前往</button>
-            </li>
-          ))}
-        </ul>
+        <>
+          {decisions.shown.length > 0 && (
+            <ul className="plain-list">
+              {decisions.shown.map((item) => (
+                <li key={`${String(item.kind)}-${String(item.itemId)}`} className="row space-between">
+                  <span>
+                    <Badge kind="warn">{inboxStatusLabel(String(item.status))}</Badge>{" "}
+                    {inboxItemTitle(item)}
+                  </span>
+                  <button onClick={() => onNavigate(String(item.route))}>前往</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {decisions.notShown > 0 && (
+            // 誠實：徽章數來自全量，這一頁裝不下（或舊 daemon 只給最近 20 筆）——
+            // 不得宣稱「沒有待決定事項」。
+            <div className="state-box" role="status">
+              還有 {decisions.notShown} 項待決定不在這一頁，前往活動歷史。
+            </div>
+          )}
+        </>
       )}
       <button onClick={() => onNavigate("activity")}>查看完整活動歷史</button>
     </div>
@@ -600,7 +670,7 @@ function CloseDialog({ external, onClose }: { external: boolean; onClose: () => 
       </p>
       <p className="muted small">
         你可以從狀態列重新開啟控制中心，或選擇「完全結束」停止所有功能。
-        {external && "（目前連線到外部 Runtime：完全結束只會關閉這個視窗，不會停止外部 Runtime。）"}
+        {external && "（目前連線到外部系統：完全結束只會關閉這個視窗，不會停止那個系統。）"}
       </p>
       <p className="muted small">
         提醒：舊版（v0.2）關閉視窗會直接停止系統；新版預設改為保持在背景運作。
@@ -641,25 +711,30 @@ function CloseDialog({ external, onClose }: { external: boolean; onClose: () => 
 const NARROW_PRIMARY: string[] = ["home", "companion", "work", "connect"];
 
 /** 窄視窗「更多」選單的細項（寬視窗時這些是 MorePage 的分頁）。 */
-const NARROW_MORE_ITEMS: { id: Tab; label: string; icon: string }[] = [
+export const NARROW_MORE_ITEMS: NavEntry[] = [
   { id: "memory", label: "記憶與知識", icon: "book-open" },
   { id: "activity", label: "活動歷史", icon: "history" },
   { id: "settings", label: "設定", icon: "settings" },
+  { id: "manage", label: "角色與整合管理", icon: NEUTRAL_CHARACTER_ICON },
+  { id: "advanced-features", label: "進階功能", icon: "code2" },
 ];
 
 function NarrowNav({
   tab,
+  nav,
   onNavigate,
   advanced,
   statusBadge,
 }: {
   tab: Tab;
+  /** 執行期一級導覽（第二項已換成目前角色）。 */
+  nav: NavEntry[];
   onNavigate: (tab: Tab) => void;
   advanced: boolean;
   statusBadge: React.ReactNode;
 }) {
   const [moreOpen, setMoreOpen] = React.useState(false);
-  const primary = SIMPLE_NAV.filter((t) => NARROW_PRIMARY.includes(t.id));
+  const primary = nav.filter((t) => NARROW_PRIMARY.includes(t.id));
   const secondary = NARROW_MORE_ITEMS;
   const moreActive = !NARROW_PRIMARY.includes(tab);
   return (
@@ -728,7 +803,7 @@ function NarrowNav({
   );
 }
 
-function PageBody({
+export function PageBody({
   tab,
   refreshKey,
   events,
@@ -828,6 +903,28 @@ function PageBody({
           onNavigate={onNavigate}
           onRerunOnboarding={onRerunOnboarding}
           initial="settings"
+        />
+      );
+    case "manage":
+      return (
+        <MorePage
+          refreshKey={refreshKey}
+          events={events}
+          advanced={advanced}
+          onNavigate={onNavigate}
+          onRerunOnboarding={onRerunOnboarding}
+          initial="manage"
+        />
+      );
+    case "advanced-features":
+      return (
+        <MorePage
+          refreshKey={refreshKey}
+          events={events}
+          advanced={advanced}
+          onNavigate={onNavigate}
+          onRerunOnboarding={onRerunOnboarding}
+          initial="advanced-features"
         />
       );
     case "adv-overview":

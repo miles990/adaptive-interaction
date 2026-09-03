@@ -1,37 +1,90 @@
-// AI 與工作階段（spec §16-1.D／§9）：本機 agent 連接、路由建議、
-// session 卡片（誠實狀態階梯）、建立（ConsentSheet 預覽）、
-// approval 裁決、任務送出、中斷、關閉。
+// 工作（spec §16-1.D／§9）：本機 Agent 連接、分工偏好、工作卡片（誠實狀態階梯：
+// Agent 說已完成 ≠ 已確認完成）、核可裁決、再交代、暫停／中斷、關閉。
+//
+// 兩種版面：
+// - "task-first"（一般模式，由 WorkPage 搭配 TaskComposer 使用）：工作清單在前，
+//   Agent 管理（偵測／登入／分工）收進折疊的「工作設定」；不出現建立面板、狀態碼、
+//   原始上限與訊息 JSON。
+// - "full"（進階模式／獨立使用）：Agent 卡片＋完整建立面板（ConsentSheet 語意）＋清單。
+// 兩條建立路徑共用 work/TaskComposer 的 buildSessionCreateInput，不重複權限邏輯。
 
 import React from "react";
 import { AgentSessionRecord, api } from "../api";
 import { Badge, Section, StateView, useAsync } from "../ui";
 import { Dialog } from "../components/Dialog";
 import { useAppState } from "../appstate";
+import { useCharacterName } from "../characterName";
+import {
+  BadgeKind,
+  isOpenWorkState,
+  projectWorkState,
+  WORK_STATE_PROJECTION,
+  WORK_STATES,
+  WorkState,
+} from "../statusProjection";
+import {
+  AgentDiscovery,
+  agentAvailability,
+  agentDisplayName,
+  agentIdOfDiscovery,
+  buildSessionCreateInput,
+  DEFAULT_MAX_COST_USD,
+  DEFAULT_TTL_MINUTES,
+} from "./work/TaskComposer";
 
-const STATE_LABEL: Record<string, { text: string; kind: "ok" | "warn" | "bad" | "pending" }> = {
-  created: { text: "已建立", kind: "pending" },
-  active: { text: "工作中", kind: "ok" },
-  "waiting-for-input": { text: "等待輸入", kind: "warn" },
-  "waiting-for-consent": { text: "等待你核可", kind: "warn" },
-  "claimed-completed": { text: "回報完成（尚未驗證）", kind: "warn" },
-  failed: { text: "失敗", kind: "bad" },
-  "timed-out": { text: "逾時", kind: "bad" },
-  cancelled: { text: "已取消", kind: "bad" },
-  expired: { text: "已到期", kind: "bad" },
-  closed: { text: "已關閉", kind: "pending" },
-};
-
-/** 工作階段狀態的人話對照（Global Search 等外部介面沿用同一份，
- *  免得一般模式又冒出 `claimed-completed` 這種原始字串）。 */
-export const SESSION_STATE_LABEL = STATE_LABEL;
+/** 工作階段狀態的人話對照：由共用狀態投影（statusProjection.ts）導出的
+ *  相容檢視（text／kind），供外部介面沿用，免得一般模式又冒出
+ *  `claimed-completed` 這種原始字串。新增狀態一律改 statusProjection.ts，
+ *  這裡不另外維護文案。 */
+export const SESSION_STATE_LABEL: Record<WorkState, { text: string; kind: BadgeKind }> =
+  Object.fromEntries(
+    WORK_STATES.map((state) => [
+      state,
+      { text: WORK_STATE_PROJECTION[state].label, kind: WORK_STATE_PROJECTION[state].badge },
+    ])
+  ) as Record<WorkState, { text: string; kind: BadgeKind }>;
 
 /** 訊息輪詢間隔：展開時才跑，收合／卸載即停（有界，不會長駐）。 */
 export const MESSAGE_POLL_MS = 5000;
 /** 後端 gateway 的 approval TTL（gateway.rs APPROVAL_TTL_SECS）。 */
 export const APPROVAL_TTL_SECONDS = 300;
 
+export type AiPageLayout = "full" | "task-first";
+
+/** 後端可能額外回報的 claim 對應欄位（v0.5 多輪工作階段；舊後端沒有）。 */
+type ClaimScopedRecord = AgentSessionRecord & {
+  /** 目前這一輪 claim 的 id（每次 task-started／claimed-completed 換新）。 */
+  claimId?: unknown;
+  /** 人工驗證對應的 claim id。 */
+  humanVerifiedClaimId?: unknown;
+  humanVerified?: AgentSessionRecord["humanVerified"] & { claimId?: unknown };
+};
+
+/**
+ * 這一輪的 claim 是否已由人親自確認（綠勾的唯一來源）。
+ * 誠實階梯：human_verified 是 session 層級旗標，但 session 可多輪——
+ * - 只有 state 仍是 claimed-completed 時才可能是「已確認完成」；Active／等待中的
+ *   第二輪不得沿用上一輪的綠勾；
+ * - 後端若回報 claim id（`humanVerifiedClaimId`／`humanVerified.claimId` 對 `claimId`），
+ *   兩者必須相同；
+ * - 舊後端沒有 claim id：退回 state==claimed-completed && humanVerified。
+ */
+export function verifiedForCurrentClaim(record: AgentSessionRecord): boolean {
+  if (record.state !== "claimed-completed" || !record.humanVerified) return false;
+  const scoped = record as ClaimScopedRecord;
+  const verifiedClaim =
+    typeof scoped.humanVerifiedClaimId === "string"
+      ? scoped.humanVerifiedClaimId
+      : typeof scoped.humanVerified?.claimId === "string"
+        ? scoped.humanVerified.claimId
+        : null;
+  const currentClaim = typeof scoped.claimId === "string" ? scoped.claimId : null;
+  if (verifiedClaim !== null && currentClaim !== null) return verifiedClaim === currentClaim;
+  return true;
+}
+
 const MESSAGE_KIND_LABEL: Record<string, string> = {
-  task: "你送出的任務",
+  task: "你交代的內容",
   "approval-request": "等待你核可",
   "approval-resolved": "核可結果",
   progress: "進度更新",
@@ -41,6 +94,13 @@ const MESSAGE_KIND_LABEL: Record<string, string> = {
   text: "訊息",
   question: "Agent 的提問",
 };
+
+const ROUTE_ROLES: [string, string][] = [
+  ["conversation", "一般對話與文件"],
+  ["programming", "程式工作"],
+  ["knowledge", "知識整理"],
+  ["review", "結果複審"],
+];
 
 /** 一則已裁決的核可請求（後端 `approval-resolved` 訊息）。 */
 export interface ApprovalResolution {
@@ -105,10 +165,17 @@ export function AiPage({
   refreshKey,
   advanced = false,
   onNavigate,
+  layout = "full",
+  settingsOpen,
+  onSettingsToggle,
 }: {
   refreshKey: number;
   advanced?: boolean;
   onNavigate: (tab: string) => void;
+  layout?: AiPageLayout;
+  /** task-first 版面的「工作設定」折疊區是否展開（外層可控；缺席時自管）。 */
+  settingsOpen?: boolean;
+  onSettingsToggle?: (open: boolean) => void;
 }) {
   const { prefs, setPreferences } = useAppState();
   const [agents, retryAgents] = useAsync(
@@ -118,156 +185,175 @@ export function AiPage({
   const [sessions] = useAsync(() => api.agentSessionsList(), [refreshKey]);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [notice, setNotice] = React.useState<string | null>(null);
+  const [localSettingsOpen, setLocalSettingsOpen] = React.useState(false);
+  const settingsIsOpen = settingsOpen ?? localSettingsOpen;
+  const setSettingsIsOpen = onSettingsToggle ?? setLocalSettingsOpen;
 
-  return (
-    <div>
-      <Section title="本機 AI Agent">
-        <p className="muted small">
-          直接使用你電腦上已安裝、已登入的 Codex 與 Claude Code。系統不讀取、不保存它們的登入憑證；
-          登入由各 agent 自己管理。工作階段預設為<strong>唯讀／計畫</strong>；只有你在建立預覽中
-          明確同意時，才會建立限於單一工作目錄的寫入工作階段。
-        </p>
-        <StateView state={agents} empty="尚未偵測。">
-          {(data) => (
-            <div className="provider-list">
-              {((data.agents as Record<string, unknown>[] | undefined) ?? []).map((a) => {
-                const agentId = a.kind === "codex" ? "codex" : "claude-code";
-                const disabled = (prefs.disabledAgents ?? []).includes(agentId);
-                const usable = !disabled && a.found === true && a.loggedIn === true;
-                return (
-                  <div className="provider-card" key={String(a.kind)}>
-                    <div className="row space-between">
-                      <strong>{a.kind === "codex" ? "Codex" : "Claude Code"}</strong>
-                      {disabled ? (
-                        <Badge kind="pending">已停用</Badge>
-                      ) : usable ? (
-                        <Badge kind="ok">可用</Badge>
-                      ) : a.found === true ? (
-                        <Badge kind="warn">
-                          {a.loggedIn === false ? "未登入" : "登入狀態未知"}
-                        </Badge>
-                      ) : (
-                        <Badge kind="bad">未安裝</Badge>
-                      )}
-                    </div>
-                    <div className="muted small">{String(a.detail ?? "")}</div>
-                    <div className="row wrap" style={{ marginTop: 8 }}>
-                      <button
-                        onClick={async () => {
-                          try {
-                            await api.agentsRefresh();
-                            retryAgents();
-                            setNotice(
-                              a.found === true && a.loggedIn === true
-                                ? `${agentId === "codex" ? "Codex" : "Claude Code"} 連線前置檢查通過（已安裝且已登入；未建立付費 Session）。`
-                                : "連線前置檢查未通過；請查看版本與登入狀態。"
-                            );
-                          } catch (reason) {
-                            setNotice(`連線測試失敗：${reason}`);
-                          }
-                        }}
-                      >
-                        測試連線
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const current = new Set(prefs.disabledAgents ?? []);
-                          if (disabled) current.delete(agentId);
-                          else current.add(agentId);
-                          await setPreferences({ disabledAgents: [...current] });
-                          setNotice(
-                            disabled
-                              ? `${agentId === "codex" ? "Codex" : "Claude Code"} 已啟用。`
-                              : `${agentId === "codex" ? "Codex" : "Claude Code"} 已停用；Runtime 將拒絕新 Session。`
-                          );
-                        }}
-                      >
-                        {disabled ? "啟用" : "停用"}
-                      </button>
-                    </div>
+  const agentPanel = (
+    <>
+      <p className="muted small">
+        直接使用你電腦上已安裝、已登入的 Codex 與 Claude Code。系統不讀取、不保存它們的登入憑證；
+        登入由各 Agent 自己管理。工作預設<strong>只讀取、不修改</strong>；只有你在開始前的預覽中
+        明確同意時，才會允許修改指定資料夾裡的檔案。
+      </p>
+      <StateView state={agents} empty="尚未偵測。">
+        {(data) => (
+          <div className="provider-list">
+            {((data.agents as AgentDiscovery[] | undefined) ?? []).map((a) => {
+              const agentId = agentIdOfDiscovery(a);
+              const disabled = (prefs.disabledAgents ?? []).includes(agentId);
+              const availability = agentAvailability(a, disabled);
+              const usable = !disabled && a.found === true && a.loggedIn === true;
+              return (
+                <div className="provider-card" key={agentId}>
+                  <div className="row space-between">
+                    <strong>{agentDisplayName(agentId)}</strong>
+                    <Badge kind={availability.badge}>{availability.label}</Badge>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </StateView>
-        <div className="row wrap">
-          <button
-            onClick={async () => {
-              await api.agentsRefresh().catch(() => {});
-              retryAgents();
-            }}
-          >
-            重新偵測
-          </button>
+                  <div className="muted small">{String(a.detail ?? "")}</div>
+                  <div className="row wrap" style={{ marginTop: 8 }}>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await api.agentsRefresh();
+                          retryAgents();
+                          setNotice(
+                            usable
+                              ? `${agentDisplayName(agentId)} 前置檢查通過（已安裝且已登入；還沒開始任何會計費的工作）。`
+                              : "前置檢查未通過；請查看版本與登入狀態。"
+                          );
+                        } catch (reason) {
+                          setNotice(`連線測試失敗：${reason}`);
+                        }
+                      }}
+                    >
+                      測試連線
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const current = new Set(prefs.disabledAgents ?? []);
+                        if (disabled) current.delete(agentId);
+                        else current.add(agentId);
+                        await setPreferences({ disabledAgents: [...current] });
+                        setNotice(
+                          disabled
+                            ? `${agentDisplayName(agentId)} 已啟用。`
+                            : `${agentDisplayName(agentId)} 已停用；之後不會再把新工作交給它。`
+                        );
+                      }}
+                    >
+                      {disabled ? "啟用" : "停用"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </StateView>
+      <div className="row wrap">
+        <button
+          onClick={async () => {
+            await api.agentsRefresh().catch(() => {});
+            retryAgents();
+          }}
+        >
+          重新偵測
+        </button>
+        {layout === "full" && (
           <button className="primary" onClick={() => setCreateOpen(true)}>
             建立工作階段…
           </button>
-        </div>
-        <p className="muted small">
-          建議路由：程式實作／測試／Patch → Codex；長文件／概念歸納／規劃 → Claude Code；
-          模糊任務會顯示兩個選項讓你選。Agent 不可用時不會自動改送另一個。
-        </p>
-      </Section>
-
-      <Section title="小樞主要 AI">
-        <p className="muted small">
-          各用途只設定建議路由；建立 Session 前仍會顯示資料、工具、費用與時間預覽。指定的 Agent 不可用或已停用時不會自動改送另一家。
-        </p>
-        <div className="settings-grid">
-          {(
-            [
-              ["conversation", "一般對話"],
-              ["programming", "程式工作"],
-              ["knowledge", "知識整理"],
-              ["review", "結果複審"],
-            ] as const
-          ).map(([role, label]) => (
-            <label className="field-label" key={role}>
-              {label}
-              <select
-                value={prefs.agentRoutes?.[role] ?? (role === "programming" ? "codex" : "claude-code")}
-                onChange={(event) =>
-                  void setPreferences({
-                    agentRoutes: {
-                      ...(prefs.agentRoutes ?? {}),
-                      [role]: event.target.value as "codex" | "claude-code" | "none",
-                    },
-                  })
-                }
-              >
-                <option value="codex">Codex</option>
-                <option value="claude-code">Claude Code</option>
-                <option value="none">不交給 Agent</option>
-              </select>
-            </label>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="工作階段">
-        <StateView state={sessions} empty="目前沒有任何工作階段。">
-          {(list) => (
-            <div className="provider-list">
-              {list.map((s) => (
-                <SessionCard
-                  key={s.sessionId}
-                  record={s}
-                  advanced={advanced}
-                  onNotice={setNotice}
-                  onNavigate={onNavigate}
-                />
-              ))}
-            </div>
-          )}
-        </StateView>
-        {notice && (
-          <p className="muted small" role="status">
-            {notice}
-          </p>
         )}
-      </Section>
+      </div>
+      <p className="muted small">
+        分工建議：程式實作、測試與修改檔案 → Codex；長文件、歸納與規劃 → Claude Code。
+        指定的 Agent 不可用時不會自動改交給另一個。
+      </p>
+    </>
+  );
 
+  const routingPanel = (
+    <>
+      <p className="muted small">
+        每種工作交給誰。開始前仍會顯示讀取範圍、工具、費用與時間上限；指定的 Agent 不可用或已停用時不會自動改交給另一個。
+      </p>
+      <div className="settings-grid">
+        {ROUTE_ROLES.map(([role, label]) => (
+          <label className="field-label" key={role}>
+            {label}
+            <select
+              value={prefs.agentRoutes?.[role] ?? (role === "programming" ? "codex" : "claude-code")}
+              onChange={(event) =>
+                void setPreferences({
+                  agentRoutes: {
+                    ...(prefs.agentRoutes ?? {}),
+                    [role]: event.target.value as "codex" | "claude-code" | "none",
+                  },
+                })
+              }
+            >
+              <option value="codex">Codex</option>
+              <option value="claude-code">Claude Code</option>
+              <option value="none">不交給 Agent</option>
+            </select>
+          </label>
+        ))}
+      </div>
+    </>
+  );
+
+  const sessionsSection = (
+    <Section title="進行中與最近的工作">
+      <StateView state={sessions} empty="目前沒有交代中的工作。">
+        {(list) => (
+          <div className="provider-list">
+            {list.map((s) => (
+              <SessionCard
+                key={s.sessionId}
+                record={s}
+                advanced={advanced}
+                onNotice={setNotice}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </div>
+        )}
+      </StateView>
+      {notice && (
+        <p className="muted small" role="status">
+          {notice}
+        </p>
+      )}
+    </Section>
+  );
+
+  if (layout === "task-first") {
+    return (
+      <div>
+        {sessionsSection}
+        <details
+          className="work-settings"
+          open={settingsIsOpen}
+          onToggle={(e) => setSettingsIsOpen((e.currentTarget as HTMLDetailsElement).open)}
+        >
+          <summary>工作設定：本機 AI Agent 與分工</summary>
+          <div className="work-settings-body">
+            <h3>本機 AI Agent</h3>
+            {agentPanel}
+            <h3>每種工作交給誰</h3>
+            {routingPanel}
+          </div>
+        </details>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <Section title="本機 AI Agent">{agentPanel}</Section>
+      <Section title="每種工作交給誰">{routingPanel}</Section>
+      {sessionsSection}
       {createOpen && <CreateSessionSheet onClose={() => setCreateOpen(false)} />}
     </div>
   );
@@ -284,12 +370,24 @@ function SessionCard({
   onNotice: (m: string) => void;
   onNavigate: (tab: string) => void;
 }) {
+  const { name: characterName } = useCharacterName();
   const [expanded, setExpanded] = React.useState(false);
   const [messages, setMessages] = React.useState<Record<string, unknown>[]>([]);
   const [task, setTask] = React.useState("");
   const resolutions = React.useMemo(() => approvalResolutions(messages), [messages]);
-  const label = STATE_LABEL[record.state] ?? { text: record.state, kind: "pending" as const };
-  const open = !["closed", "cancelled", "expired"].includes(record.state);
+  // 一般模式永遠是人話；介面不認得的狀態投影成「結果不確定」，
+  // 原始狀態碼只在進階模式的次要行出現。
+  // 人工驗證是後端的獨立欄位（state 仍是 claimed-completed）：只有它對應目前這一輪
+  // claim 時才投影成「已確認完成」；沒有它，Agent 的說法永遠只是說法。
+  const verified = verifiedForCurrentClaim(record);
+  const status = verified ? projectWorkState("verified") : projectWorkState(record.state);
+  const claimed = record.state === "claimed-completed" && !verified;
+  // 「進行中」與 Rust `AgentSessionState::is_open` 對齊（statusProjection）：
+  // failed／unknown／timed-out 都是終局，續租／中斷／再交代必定失敗，不能顯示；
+  // 反過來，終局但帶 providerSessionId 的才可「接續上次」。
+  const open = isOpenWorkState(record.state);
+  // 失敗／結果不確定／逾時是終局但後端仍接受「關閉」（收進歷史）；已關閉／取消／到期則沒得關。
+  const closable = open || ["failed", "unknown", "timed-out"].includes(record.state);
 
   // 展開時持續輪詢：Agent 是非同步在跑的，只抓一次會讓等待核可、
   // 進度與結果永遠停在打開的那一瞬間。收合或離開頁面立即停止。
@@ -317,40 +415,56 @@ function SessionCard({
   return (
     <div className="provider-card">
       <div className="row space-between">
-        <strong>{record.label ?? record.agentId}</strong>
-        <Badge kind={label.kind}>{label.text}</Badge>
+        <strong>{record.label ?? agentDisplayName(record.agentId)}</strong>
+        <Badge kind={status.badge}>
+          {verified ? "✓ " : ""}
+          {status.label}
+        </Badge>
       </div>
       <div className="muted small">
         {agentDisplayName(record.agentId)}
-        {record.allowWrite ? "・限工作目錄寫入" : "・唯讀／計畫"}
+        {advanced ? `・狀態碼 ${record.state}` : ""}
+        {record.allowWrite ? "・可修改資料夾裡的檔案" : "・只讀取，不修改"}
         {record.providerSessionId
           ? advanced
             ? `・provider session ${record.providerSessionId.slice(0, 8)}…`
             : "・沿用既有對話脈絡"
           : ""}
-        ・訊息 {record.budget.spentMessages}/{record.budget.maxMessages}
-        {record.budget.maxCost > 0
-          ? `・費用 $${record.budget.spentCost.toFixed(3)}/$${record.budget.maxCost.toFixed(2)}`
-          : record.budget.spentCost > 0
-            ? `・費用 $${record.budget.spentCost.toFixed(3)}`
+        {advanced
+          ? `・訊息 ${record.budget.spentMessages}/${record.budget.maxMessages}${
+              record.budget.maxCost > 0
+                ? `・費用 $${record.budget.spentCost.toFixed(3)}/$${record.budget.maxCost.toFixed(2)}`
+                : record.budget.spentCost > 0
+                  ? `・費用 $${record.budget.spentCost.toFixed(3)}`
+                  : ""
+            }`
+          : record.budget.maxCost > 0
+            ? `・費用上限 $${record.budget.maxCost.toFixed(2)}`
             : ""}
         ・有效至 {new Date(record.lease.expiresAt).toLocaleString("zh-TW")}
+        {advanced ? `・id ${record.sessionId}` : ""}
       </div>
-      {record.state === "claimed-completed" && !record.humanVerified && (
+      {claimed && (
         <p className="muted small">
-          Agent 說做完了——這是<strong>它的說法</strong>，尚未經過驗證。
-          請實際查看結果；確認無誤後按「標記為已驗證」，小樞才會播放正式成功演出。
+          Agent 說做完了——這是<strong>它的說法</strong>，尚未經過檢查。
+          請實際查看結果；確認無誤後按「標記為已驗證」，{characterName}才會顯示綠色勾勾。
         </p>
       )}
-      {record.humanVerified && (
+      {record.humanVerified && verified && (
         <p className="muted small" role="status">
-          <Badge kind="ok">已人工驗證</Badge>{" "}
+          {status.honesty ?? "由你親自確認"}・
           {new Date(record.humanVerified.at).toLocaleString("zh-TW")}
           {record.humanVerified.note ? `・${record.humanVerified.note}` : ""}
         </p>
       )}
+      {record.humanVerified && !verified && (
+        <p className="muted small">
+          先前一輪的結果你在 {new Date(record.humanVerified.at).toLocaleString("zh-TW")} 確認過；
+          這一輪尚未檢查，不沿用綠色勾勾。
+        </p>
+      )}
       <div className="row wrap">
-        {record.state === "claimed-completed" && !record.humanVerified && (
+        {claimed && (
           <button
             onClick={async () => {
               try {
@@ -397,22 +511,24 @@ function SessionCard({
             >
               暫停／中斷目前工作
             </button>
-            <button
-              className="danger"
-              onClick={async () => {
-                try {
-                  await api.agentSessionClose(record.sessionId, "closed");
-                  // 誠實階梯：關閉是 receipt-backed 事實；子程序終止在後端是
-                  // 非同步背景工作，此刻只能宣稱「已要求」，不得宣稱「已終止」。
-                  onNotice("工作階段已關閉（已要求終止子程序）。");
-                } catch (e) {
-                  onNotice(`關閉失敗：${e}`);
-                }
-              }}
-            >
-              關閉
-            </button>
           </>
+        )}
+        {closable && (
+          <button
+            className="danger"
+            onClick={async () => {
+              try {
+                await api.agentSessionClose(record.sessionId, "closed");
+                // 誠實階梯：關閉是 receipt-backed 事實；子程序終止在後端是
+                // 非同步背景工作，此刻只能宣稱「已要求」，不得宣稱「已終止」。
+                onNotice("工作階段已關閉（已要求終止子程序）。");
+              } catch (e) {
+                onNotice(`關閉失敗：${e}`);
+              }
+            }}
+          >
+            關閉
+          </button>
         )}
         {!open && record.providerSessionId && (
           <button
@@ -423,13 +539,13 @@ function SessionCard({
                   ?.slice("workspace:".length);
                 await api.agentSessionCreate({
                   agentId: record.agentId,
-                  label: `接續：${record.label ?? record.agentId}`,
+                  label: `接續：${record.label ?? agentDisplayName(record.agentId)}`,
                   workdir,
                   resumeProviderSessionId: record.providerSessionId,
                 });
-                // 誠實：接續＝新的唯讀 session 沿用 provider 對話脈絡；
-                // 寫入權限不繼承，需要時另建限權寫入 session。
-                onNotice("已建立接續工作階段（唯讀；沿用 provider 對話脈絡）。");
+                // 誠實：接續＝新的唯讀工作沿用先前的對話脈絡；
+                // 寫入權限不繼承，需要時另外在開始前同意。
+                onNotice("已接續上次的工作（只讀取；沿用先前的對話脈絡）。");
               } catch (e) {
                 onNotice(`接續失敗：${e}`);
               }
@@ -446,7 +562,7 @@ function SessionCard({
             <div className="row wrap">
               <input
                 value={task}
-                placeholder="送一個任務給這個 agent…"
+                placeholder="再交代一句給這個 Agent…"
                 onChange={(e) => setTask(e.target.value)}
               />
               <button
@@ -455,7 +571,7 @@ function SessionCard({
                   try {
                     await api.agentSessionSend(record.sessionId, "task", { task });
                     setTask("");
-                    onNotice("任務已送出（送達 agent 子程序）。");
+                    onNotice("已送出（已送達 Agent，尚未完成）。");
                   } catch (e) {
                     onNotice(`送出失敗：${e}`);
                   }
@@ -496,10 +612,12 @@ function SessionCard({
                       );
                     })()}
                   <div className="muted small">{messageSummary(m.body)}</div>
-                  <details className="tech-details">
-                    <summary className="muted small">技術詳情</summary>
-                    <pre className="json-view small">{JSON.stringify(m.body, null, 2)}</pre>
-                  </details>
+                  {advanced && (
+                    <details className="tech-details">
+                      <summary className="muted small">技術詳情</summary>
+                      <pre className="json-view small">{JSON.stringify(m.body, null, 2)}</pre>
+                    </details>
+                  )}
                 </li>
               ))}
             </ul>
@@ -535,10 +653,6 @@ export function ApprovalCountdown({ createdAt }: { createdAt: string }) {
       　{secs > 0 ? `還有 ${secs} 秒可以決定` : "已超過決定時間，這個請求已失效"}
     </span>
   );
-}
-
-function agentDisplayName(agentId: string): string {
-  return agentId === "codex" ? "Codex" : agentId === "claude-code" ? "Claude Code" : agentId;
 }
 
 function ApprovalControls({
@@ -583,7 +697,8 @@ function ApprovalControls({
   );
 }
 
-/** 建立工作階段（Consent Sheet 語意：誰／做什麼／資料／成本／時間／如何取消）。 */
+/** 完整建立面板（進階／獨立使用；Consent Sheet 語意：誰／做什麼／資料／成本／時間／如何取消）。
+ *  一般模式的 task-first 流程改用 work/TaskComposer；兩者的 payload 同一個函式產生。 */
 function CreateSessionSheet({ onClose }: { onClose: () => void }) {
   const { prefs } = useAppState();
   const disabledAgents = prefs.disabledAgents ?? [];
@@ -592,8 +707,8 @@ function CreateSessionSheet({ onClose }: { onClose: () => void }) {
   );
   const [label, setLabel] = React.useState("");
   const [workdir, setWorkdir] = React.useState("");
-  const [ttl, setTtl] = React.useState(30);
-  const [maxCost, setMaxCost] = React.useState(0.5);
+  const [ttl, setTtl] = React.useState(DEFAULT_TTL_MINUTES);
+  const [maxCost, setMaxCost] = React.useState(DEFAULT_MAX_COST_USD);
   const [allowWrite, setAllowWrite] = React.useState(false);
   const [writeConfirmed, setWriteConfirmed] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -712,17 +827,16 @@ function CreateSessionSheet({ onClose }: { onClose: () => void }) {
             onClick={async () => {
               setCreating(true);
               try {
-                await api.agentSessionCreate({
-                  agentId: agent,
-                  label: label || null,
-                  ttlMinutes: ttl,
-                  maxCost: agent === "codex" ? null : maxCost > 0 ? maxCost : null,
-                  workdir: workdir || null,
-                  allowWrite,
-                  dataScope: workdir ? [`workspace:${workdir}`] : [],
-                  toolScope: allowWrite ? ["workspace.write"] : [],
-                  consentScope: allowWrite ? ["agent-session:workspace-write"] : [],
-                });
+                await api.agentSessionCreate(
+                  buildSessionCreateInput({
+                    agent,
+                    label,
+                    workdir,
+                    ttlMinutes: ttl,
+                    maxCost,
+                    allowWrite,
+                  })
+                );
                 onClose();
               } catch (e) {
                 setError(String(e));

@@ -11,7 +11,7 @@
 // 角色設計（spec §4）：約 2.5–2.6 頭身、大頭低重心、圓潤輪廓；
 // 女性化但無成熟成人特徵；女僕工作服非性感裝（不透膚、蓬裙+燈籠褲）。
 
-import { clamp, clamp01, mixColor, RigPalette, RigParams } from "./params";
+import { clamp, clamp01, mixColor, RigArmPose, RigPalette, RigParams } from "./params";
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -328,14 +328,220 @@ function scallopAcross(ctx: Ctx, fromX: number, toX: number, hemY: number, n: nu
 }
 
 /** 泡泡袖＋手套手臂（各姿勢）。 */
-function drawArms(ctx: Ctx, p: RigParams, pal: RigPalette, L: Layout, c: Cols) {
+// ---------------------------------------------------------------------------
+// 手臂：每個姿勢先算成幾何（袖口泡泡／手臂路徑／手），再依 armBlend 在
+// `armFrom` 與 `armPose` 兩套幾何之間線性混合，最後才畫。armPose 是字串通道，
+// 切換期間 lerpParams／blendArm 把 armBlend 從 0.5 附近連續帶過，手位不再單幀瞬移
+// （對抗審查 rig-renderer-016）。armBlend=1 時的座標與原本逐 case 繪製完全相同。
+// ---------------------------------------------------------------------------
+
+interface ArmPuff {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** 手臂路徑：二次曲線（直線＝控制點放中點）。 */
+interface ArmPath {
+  x0: number;
+  y0: number;
+  cx: number;
+  cy: number;
+  x1: number;
+  y1: number;
+  width: number;
+}
+
+interface ArmHand {
+  x: number;
+  y: number;
+  r: number;
+}
+
+interface ArmSide {
+  puff: ArmPuff;
+  path: ArmPath | null;
+  hand: ArmHand | null;
+}
+
+/** 兩側（-1 左、+1 右）的手臂幾何。 */
+type ArmGeometry = [ArmSide, ArmSide];
+
+const line = (x0: number, y0: number, x1: number, y1: number, width: number): ArmPath => ({
+  x0,
+  y0,
+  cx: (x0 + x1) / 2,
+  cy: (y0 + y1) / 2,
+  x1,
+  y1,
+  width,
+});
+
+/** 單一姿勢的手臂幾何（座標與原本逐 case 的繪製一致）。 */
+function armGeometry(pose: RigArmPose, p: RigParams, L: Layout): ArmGeometry {
   const ph = clamp01(p.armPhase);
+  const shY = L.shoulderY + 2.5;
+  const sides: ArmSide[] = [];
+  for (const side of [-1, 1] as const) {
+    switch (pose) {
+      case "raise": {
+        // 雙手上舉（ask/歡呼/伸展前段）。
+        const lift = 10 + ph * 10;
+        sides.push({
+          puff: { x: 64 + side * 13, y: shY - 1, r: 5.6 },
+          path: line(64 + side * 14, shY - 2, 64 + side * (16 + ph * 3), shY - lift, 4.6),
+          hand: { x: 64 + side * (16 + ph * 3), y: shY - lift - 1.5, r: 3.1 },
+        });
+        break;
+      }
+      case "stretch": {
+        // 伸懶腰：雙臂高舉過頭、微外八。
+        sides.push({
+          puff: { x: 64 + side * 12, y: shY - 2, r: 5.4 },
+          path: line(64 + side * 12.5, shY - 3, 64 + side * 9, shY - 24 - ph * 4, 4.6),
+          hand: { x: 64 + side * 8.5, y: shY - 26 - ph * 4, r: 3 },
+        });
+        break;
+      }
+      case "reach":
+      case "block": {
+        // 單手前伸/擋：另一手自然下垂。
+        const front = p.armSide >= 0 ? 1 : -1;
+        if (side !== front) {
+          sides.push({
+            puff: { x: 64 + side * 13, y: shY + 1, r: 5.4 },
+            path: null,
+            hand: { x: 64 + side * 14.5, y: shY + 9.5, r: 3.1 },
+          });
+        } else {
+          const reach = 8 + ph * (pose === "block" ? 14 : 10);
+          const lift = pose === "block" ? 2 : 5 - ph * 3;
+          sides.push({
+            puff: { x: 64 + side * 13, y: shY, r: 5.6 },
+            path: line(64 + side * 14, shY + 1, 64 + side * (13 + reach), shY + lift, 4.6),
+            hand: { x: 64 + side * (14.5 + reach), y: shY + lift, r: 3.4 },
+          });
+        }
+        break;
+      }
+      case "pocket": {
+        // 手插圍裙口袋：只見袖子。
+        sides.push({
+          puff: { x: 64 + side * 12.5, y: shY + 1, r: 5.4 },
+          path: line(64 + side * 13, shY + 3, 64 + side * 10.5, L.waistY + 8, 4.4),
+          hand: null,
+        });
+        break;
+      }
+      case "hug": {
+        // 環抱身前（抱尾巴/物件）。
+        sides.push({
+          puff: { x: 64 + side * 12.5, y: shY + 1.5, r: 5.4 },
+          path: {
+            x0: 64 + side * 13,
+            y0: shY + 3.5,
+            cx: 64 + side * 12,
+            cy: L.waistY + 5,
+            x1: 64 + side * 3.5,
+            y1: L.waistY + 6.5,
+            width: 4.4,
+          },
+          hand: { x: 64 + side * 3.2, y: L.waistY + 6.5, r: 2.9 },
+        });
+        break;
+      }
+      case "down": {
+        sides.push({
+          puff: { x: 64 + side * 13, y: shY + 1, r: 5.5 },
+          path: line(64 + side * 13.5, shY + 3, 64 + side * 14.5, shY + 12, 4.5),
+          hand: { x: 64 + side * 14.5, y: shY + 13.5, r: 3.1 },
+        });
+        break;
+      }
+      case "front":
+      default: {
+        // 女僕待機：雙手交疊身前（兩隻手在身體中線交疊）。
+        sides.push({
+          puff: { x: 64 + side * 12.5, y: shY + 1, r: 5.5 },
+          path: {
+            x0: 64 + side * 13,
+            y0: shY + 3,
+            cx: 64 + side * 10,
+            cy: L.waistY - 1,
+            x1: 64 + side * 2.6,
+            y1: L.waistY + 1.5,
+            width: 4.5,
+          },
+          hand: side < 0 ? { x: 62.4, y: L.waistY + 2, r: 2.9 } : { x: 65.6, y: L.waistY + 2.4, r: 2.9 },
+        });
+        break;
+      }
+    }
+  }
+  return [sides[0], sides[1]];
+}
+
+const mixN = (a: number, b: number, k: number) => a + (b - a) * k;
+
+function mixPath(a: ArmPath | null, b: ArmPath | null, k: number): ArmPath | null {
+  if (!a && !b) return null;
+  if (!a) return { ...b!, width: b!.width * k };
+  if (!b) return { ...a, width: a.width * (1 - k) };
+  return {
+    x0: mixN(a.x0, b.x0, k),
+    y0: mixN(a.y0, b.y0, k),
+    cx: mixN(a.cx, b.cx, k),
+    cy: mixN(a.cy, b.cy, k),
+    x1: mixN(a.x1, b.x1, k),
+    y1: mixN(a.y1, b.y1, k),
+    width: mixN(a.width, b.width, k),
+  };
+}
+
+function mixHand(a: ArmHand | null, b: ArmHand | null, k: number): ArmHand | null {
+  if (!a && !b) return null;
+  // 一邊沒有手（pocket）：從對方的位置淡入／淡出（半徑歸零），不憑空冒出。
+  const aa = a ?? { x: b!.x, y: b!.y, r: 0 };
+  const bb = b ?? { x: a!.x, y: a!.y, r: 0 };
+  return { x: mixN(aa.x, bb.x, k), y: mixN(aa.y, bb.y, k), r: mixN(aa.r, bb.r, k) };
+}
+
+/** `k`＝目標姿勢（b）的權重。 */
+function mixArmGeometry(a: ArmGeometry, b: ArmGeometry, k: number): ArmGeometry {
+  const mixSide = (sa: ArmSide, sb: ArmSide): ArmSide => ({
+    puff: { x: mixN(sa.puff.x, sb.puff.x, k), y: mixN(sa.puff.y, sb.puff.y, k), r: mixN(sa.puff.r, sb.puff.r, k) },
+    path: mixPath(sa.path, sb.path, k),
+    hand: mixHand(sa.hand, sb.hand, k),
+  });
+  return [mixSide(a[0], b[0]), mixSide(a[1], b[1])];
+}
+
+/** 此刻實際要畫的手臂幾何（含 armFrom↔armPose 的混合）。 */
+function resolvedArmGeometry(p: RigParams, L: Layout): ArmGeometry {
+  const current = armGeometry(p.armPose, p, L);
+  const blend = clamp01(p.armBlend);
+  if (blend >= 0.999 || p.armFrom === p.armPose) return current;
+  return mixArmGeometry(armGeometry(p.armFrom, p, L), current, blend);
+}
+
+/**
+ * 測試／量測用：此刻兩隻手的中心（邏輯座標；沒有手的姿勢回半徑 0 的點）。
+ * 連續兩幀的手位位移就是「手臂有沒有瞬移」的直接量測。
+ */
+export function armHandPoints(p: RigParams, pal: RigPalette): { x: number; y: number; r: number }[] {
+  const L = layoutFor(p, pal);
+  const g = resolvedArmGeometry(p, L);
+  return g.map((side) => side.hand ?? { x: side.puff.x, y: side.puff.y, r: 0 });
+}
+
+function drawArms(ctx: Ctx, p: RigParams, pal: RigPalette, L: Layout, c: Cols) {
   const glove = c.cream;
   const puff = (x: number, y: number, r: number) => {
     ellipse(ctx, x, y, r, r * 0.92, 0);
     fillStroke(ctx, c.cream, c.creamEdge, 0.9);
   };
-  const hand = (x: number, y: number, r = 3.1) => {
+  const hand = (x: number, y: number, r: number) => {
+    if (r <= 0.05) return;
     ellipse(ctx, x, y, r, r, 0);
     fillStroke(ctx, glove, c.creamEdge, 0.8);
     // 肉球細節（低飽和粉紫）——手心小點。
@@ -345,120 +551,23 @@ function drawArms(ctx: Ctx, p: RigParams, pal: RigPalette, L: Layout, c: Cols) {
     ctx.fill();
     ctx.globalAlpha = 1;
   };
-  const shY = L.shoulderY + 2.5;
-
-  switch (p.armPose) {
-    case "raise": {
-      // 雙手上舉（ask/歡呼/伸展前段）。
-      const lift = 10 + ph * 10;
-      for (const side of [-1, 1] as const) {
-        puff(64 + side * 13, shY - 1, 5.6);
-        ctx.beginPath();
-        ctx.moveTo(64 + side * 14, shY - 2);
-        ctx.lineTo(64 + side * (16 + ph * 3), shY - lift);
-        ctx.strokeStyle = c.cream;
-        ctx.lineWidth = 4.6;
-        ctx.lineCap = "round";
-        ctx.stroke();
-        hand(64 + side * (16 + ph * 3), shY - lift - 1.5);
-      }
-      break;
-    }
-    case "stretch": {
-      // 伸懶腰：雙臂高舉過頭、微外八。
-      for (const side of [-1, 1] as const) {
-        puff(64 + side * 12, shY - 2, 5.4);
-        ctx.beginPath();
-        ctx.moveTo(64 + side * 12.5, shY - 3);
-        ctx.lineTo(64 + side * 9, shY - 24 - ph * 4);
-        ctx.strokeStyle = c.cream;
-        ctx.lineWidth = 4.6;
-        ctx.lineCap = "round";
-        ctx.stroke();
-        hand(64 + side * 8.5, shY - 26 - ph * 4, 3);
-      }
-      break;
-    }
-    case "reach":
-    case "block": {
-      // 單手前伸/擋：另一手自然下垂。
-      const side = p.armSide >= 0 ? 1 : -1;
-      const back = -side;
-      puff(64 + back * 13, shY + 1, 5.4);
-      hand(64 + back * 14.5, shY + 9.5);
-      puff(64 + side * 13, shY, 5.6);
-      const reach = 8 + ph * (p.armPose === "block" ? 14 : 10);
-      const lift = p.armPose === "block" ? 2 : 5 - ph * 3;
+  const geometry = resolvedArmGeometry(p, L);
+  // 先畫袖口與手臂，再畫手（交疊身前時兩隻手永遠在手臂之上；與原本繪製順序一致）。
+  for (const side of geometry) {
+    puff(side.puff.x, side.puff.y, side.puff.r);
+    const path = side.path;
+    if (path && path.width > 0.05) {
       ctx.beginPath();
-      ctx.moveTo(64 + side * 14, shY + 1);
-      ctx.lineTo(64 + side * (13 + reach), shY + lift);
+      ctx.moveTo(path.x0, path.y0);
+      ctx.quadraticCurveTo(path.cx, path.cy, path.x1, path.y1);
       ctx.strokeStyle = c.cream;
-      ctx.lineWidth = 4.6;
+      ctx.lineWidth = path.width;
       ctx.lineCap = "round";
       ctx.stroke();
-      hand(64 + side * (14.5 + reach), shY + lift, 3.4);
-      break;
     }
-    case "pocket": {
-      // 手插圍裙口袋：只見袖子。
-      for (const side of [-1, 1] as const) {
-        puff(64 + side * 12.5, shY + 1, 5.4);
-        ctx.beginPath();
-        ctx.moveTo(64 + side * 13, shY + 3);
-        ctx.lineTo(64 + side * 10.5, L.waistY + 8);
-        ctx.strokeStyle = c.cream;
-        ctx.lineWidth = 4.4;
-        ctx.lineCap = "round";
-        ctx.stroke();
-      }
-      break;
-    }
-    case "hug": {
-      // 環抱身前（抱尾巴/物件）。
-      for (const side of [-1, 1] as const) {
-        puff(64 + side * 12.5, shY + 1.5, 5.4);
-        ctx.beginPath();
-        ctx.moveTo(64 + side * 13, shY + 3.5);
-        ctx.quadraticCurveTo(64 + side * 12, L.waistY + 5, 64 + side * 3.5, L.waistY + 6.5);
-        ctx.strokeStyle = c.cream;
-        ctx.lineWidth = 4.4;
-        ctx.lineCap = "round";
-        ctx.stroke();
-        hand(64 + side * 3.2, L.waistY + 6.5, 2.9);
-      }
-      break;
-    }
-    case "down": {
-      for (const side of [-1, 1] as const) {
-        puff(64 + side * 13, shY + 1, 5.5);
-        ctx.beginPath();
-        ctx.moveTo(64 + side * 13.5, shY + 3);
-        ctx.lineTo(64 + side * 14.5, shY + 12);
-        ctx.strokeStyle = c.cream;
-        ctx.lineWidth = 4.5;
-        ctx.lineCap = "round";
-        ctx.stroke();
-        hand(64 + side * 14.5, shY + 13.5);
-      }
-      break;
-    }
-    case "front":
-    default: {
-      // 女僕待機：雙手交疊身前。
-      for (const side of [-1, 1] as const) {
-        puff(64 + side * 12.5, shY + 1, 5.5);
-        ctx.beginPath();
-        ctx.moveTo(64 + side * 13, shY + 3);
-        ctx.quadraticCurveTo(64 + side * 10, L.waistY - 1, 64 + side * 2.6, L.waistY + 1.5);
-        ctx.strokeStyle = c.cream;
-        ctx.lineWidth = 4.5;
-        ctx.lineCap = "round";
-        ctx.stroke();
-      }
-      hand(62.4, L.waistY + 2, 2.9);
-      hand(65.6, L.waistY + 2.4, 2.9);
-      break;
-    }
+  }
+  for (const side of geometry) {
+    if (side.hand) hand(side.hand.x, side.hand.y, side.hand.r);
   }
 }
 

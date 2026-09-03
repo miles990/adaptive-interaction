@@ -2,7 +2,7 @@
 // 參數有界、36 表情齊全且非靜態圖、truth-state 不可點播、
 // success claimed/verified 誠實區分、Director 冷卻/防重複/搶佔恢復。
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clampParams,
   DEFAULT_PARAMS,
@@ -21,8 +21,15 @@ import {
   ExpressionTimeline,
   resolveSegments,
 } from "../companion/rig/timeline";
-import { playfieldActive, stageExpressionPlan, statusOverlay } from "../companion/rig/stage";
-import { AMBIENT_VARIANTS, InteractionDirector, REACTION_EXPRESSIONS } from "../companion/director";
+import { playfieldActive, stageExpressionPlan, StageRenderer, statusOverlay } from "../companion/rig/stage";
+import { InteractionDirector } from "../companion/director";
+import { DEFAULT_TUNING } from "../companion/personality";
+// CPP：ambient 變體／反應表屬於角色（shu adapter tables）；Director 本身 engine-neutral。
+import {
+  SHU_AMBIENT_VARIANTS,
+  SHU_DIRECTOR_TABLES,
+  SHU_REACTIONS,
+} from "../character/adapters/shuTables";
 import { initialBehavior } from "../companion/behavior";
 import { pose } from "../companion/machine";
 
@@ -215,18 +222,18 @@ describe("Interaction Director", () => {
   const always = () => 0; // rng=0：hazard 必觸發、選第一個可用變體
 
   it("ambient 變體全部非 truth-state；反應表也是", () => {
-    for (const v of AMBIENT_VARIANTS) {
+    for (const v of SHU_AMBIENT_VARIANTS) {
       const expr = resolveExpression(v.expression);
       expect(expr, v.expression).toBeTruthy();
       expect(expr!.truthState ?? false, `${v.expression} 不得是 truthState`).toBe(false);
     }
-    for (const exprId of Object.values(REACTION_EXPRESSIONS)) {
+    for (const exprId of Object.values(SHU_REACTIONS).flat()) {
       expect(resolveExpression(exprId)?.truthState ?? false).toBe(false);
     }
   });
 
   it("非 ambient／有任務時不排程", () => {
-    const d = new InteractionDirector();
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
     expect(d.tick(ctx({ ambient: false }), always)).toBeNull();
     expect(
       d.tick(ctx({ behavior: { ...initialBehavior(0), taskLoad: 0.5 } }), always)
@@ -234,14 +241,14 @@ describe("Interaction Director", () => {
   });
 
   it("quiet 只剩偶爾眨眼", () => {
-    const d = new InteractionDirector();
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
     const a = d.tick(ctx({ quiet: true }), () => 0.001);
     expect(a?.expression).toBe("blink");
     expect(d.tick(ctx({ quiet: true }), () => 0.5)).toBeNull();
   });
 
   it("Reduced Motion 只允許眨眼類", () => {
-    const d = new InteractionDirector();
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
     for (let i = 0; i < 20; i++) {
       const a = d.tick(ctx({ reducedMotion: true, nowMs: 1_000_000 + i * 60_000 }), always);
       if (a) expect(a.expression).toBe("blink");
@@ -249,7 +256,7 @@ describe("Interaction Director", () => {
   });
 
   it("防重複＋冷卻：連續排程不會馬上重播同一動作", () => {
-    const d = new InteractionDirector();
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
     const seen: string[] = [];
     for (let i = 0; i < 6; i++) {
       const a = d.tick(ctx({ nowMs: 1_000_000 + i * 1_000 }), always);
@@ -263,7 +270,7 @@ describe("Interaction Director", () => {
   });
 
   it("長動作被搶佔後可恢復；逾時則放棄", () => {
-    const d = new InteractionDirector();
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
     // 用 rng 挑出一個長動作（≥4s）：先冷卻掉前面的短動作。
     let action = null;
     let startedAt = 0;
@@ -286,7 +293,7 @@ describe("Interaction Director", () => {
   });
 
   it("react()：未知意圖回 null；已知意圖回非 truth-state 表情", () => {
-    const d = new InteractionDirector();
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
     expect(d.react("celebrate-success", 0)).toBeNull();
     const a = d.react("curious", 0);
     expect(a?.expression).toBe("curious");
@@ -424,10 +431,12 @@ describe("組合式角色通道", () => {
     expect(params.armPose).toBe("down"); // 遊玩姿勢保留（working 是 pocket）
   });
 
-  it("等待/工作類狀態只覆蓋狀態通道；安全與結果狀態整體搶佔", () => {
-    for (const anim of ["routing", "waiting", "wait-codex", "wait-claude", "ask", "listening"]) {
+  it("等待/工作類狀態只覆蓋狀態通道；安全、結果與「需要確認」狀態整體搶佔", () => {
+    for (const anim of ["routing", "waiting", "wait-codex", "wait-claude", "listening"]) {
       expect(statusOverlay(anim), anim).toBe("overlay");
     }
+    // 對抗審查 run-2 rig-renderer-011：這裡曾把 ask 釘成 overlay（錯誤行為）。ask 是
+    // truthState（runtime 真的在等 consent），必須整體搶佔——舉手＋問號要演出來、遊玩要停。
     for (const anim of [
       "emergency",
       "blocked",
@@ -437,6 +446,7 @@ describe("組合式角色通道", () => {
       "paused",
       "success",
       "clicked",
+      "ask",
     ]) {
       expect(statusOverlay(anim), anim).toBe("takeover");
     }
@@ -483,7 +493,7 @@ describe("Interaction Director 接線", () => {
   });
 
   it("react()：truth-state 一律回 null（AI/L1 意圖不能點播真相狀態）", () => {
-    const d = new InteractionDirector();
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
     for (const truth of [
       "success-verified",
       "success-claimed",
@@ -499,14 +509,14 @@ describe("Interaction Director 接線", () => {
   });
 
   it("react()：冷卻內不重播同一個反應", () => {
-    const d = new InteractionDirector();
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
     expect(d.react("poked-rapid", 0)?.expression).toBe("poked-rapid");
     expect(d.react("poked-rapid", 3_000)).toBeNull(); // 8s 冷卻內
     expect(d.react("poked-rapid", 30_000)?.expression).toBe("poked-rapid");
   });
 
   it("noteFinished()：自然播完後不再排恢復", () => {
-    const d = new InteractionDirector();
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
     let action = null;
     let startedAt = 0;
     for (let i = 0; i < 10 && (!action || action.durationMs < 4_000); i++) {
@@ -517,5 +527,131 @@ describe("Interaction Director 接線", () => {
     d.noteFinished(); // 表演自然結束
     d.notePreempted(startedAt + 1_000); // 已經沒有進行中的動作
     expect(d.tick(ctx({ nowMs: startedAt + 2_000 }), () => 0.99)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 主迴圈幀預算（§14）：量繪製成本，不量 rAF 間隔（對抗審查 perf-claims-017）
+// ---------------------------------------------------------------------------
+
+/** jsdom 沒有 canvas 2D：可鏈式 stub（stage 只下繪圖指令，不讀像素）。 */
+function stubCanvas(w = 416, h = 216): HTMLCanvasElement {
+  const store: Record<string | symbol, unknown> = {};
+  const ctx: unknown = new Proxy(store, {
+    get(target, prop) {
+      if (prop in target) return target[prop];
+      return () => ctx;
+    },
+    set(target, prop, value) {
+      target[prop] = value;
+      return true;
+    },
+  });
+  return {
+    clientWidth: w,
+    clientHeight: h,
+    width: w,
+    height: h,
+    getContext: () => ctx,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: w, height: h }),
+  } as unknown as HTMLCanvasElement;
+}
+
+/** 可手動推進的假 requestAnimationFrame：每 tick 把排隊中的回呼全部跑一次。 */
+function fakeRaf() {
+  const queue = new Map<number, FrameRequestCallback>();
+  let id = 0;
+  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+    id += 1;
+    queue.set(id, cb);
+    return id;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (h: number) => {
+    queue.delete(h);
+  });
+  return {
+    tick(now: number) {
+      const cbs = [...queue.values()];
+      queue.clear();
+      for (const cb of cbs) cb(now);
+    },
+    pending: () => queue.size,
+  };
+}
+
+describe("StageRenderer 主迴圈幀預算（§14：60fps 目標，只有真的畫太慢才降 30fps）", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("60Hz 固定節奏、零繪製成本：720 個 rAF 每個都畫、永不降到 30fps", () => {
+    const raf = fakeRaf();
+    let t = 1_000;
+    const stage = new StageRenderer(stubCanvas(), "maid-classic", 1, { rng: () => 0.9, now: () => t });
+    stage.setAnimation("idle");
+    stage.setMachineFlags({ ambient: true, frozen: false, quiet: false, playPerforming: false });
+    const render = vi.spyOn(stage, "renderFrame");
+    expect(raf.pending()).toBe(1); // autoStart：建構時就排了下一幀
+    for (let i = 0; i < 720; i++) {
+      t += 1000 / 60; // rAF 間隔 16.67ms；注入的時鐘在 renderFrame 內不前進 → 成本 0
+      raf.tick(t);
+    }
+    expect(render).toHaveBeenCalledTimes(720);
+    expect(stage.frameBudget().skipEveryOther).toBe(false);
+    const s = stage.loopStats();
+    expect(s.ticks).toBe(721); // 建構時的第一幀 + 720
+    expect(s.drawn).toBe(s.ticks);
+    stage.destroy();
+    expect(raf.pending()).toBe(0);
+  });
+
+  it("真的畫太慢（每幀 20ms）才每兩幀畫一次；成本降到 <8ms 又回到每幀都畫", () => {
+    const raf = fakeRaf();
+    let t = 0;
+    let cost = 20;
+    const stage = new StageRenderer(stubCanvas(), "maid-classic", 1, { rng: () => 0.9, now: () => t });
+    const render = vi.spyOn(stage, "renderFrame").mockImplementation(() => {
+      t += cost; // 模擬繪製成本：時鐘在 renderFrame 期間前進
+    });
+    const ticks = (n: number) => {
+      for (let i = 0; i < n; i++) {
+        t += 1000 / 60;
+        raf.tick(t);
+      }
+    };
+    ticks(60);
+    expect(stage.frameBudget().skipEveryOther).toBe(true);
+    expect(stage.frameBudget().avgMs).toBeGreaterThan(12);
+    render.mockClear();
+    ticks(120);
+    expect(render).toHaveBeenCalledTimes(60); // 30fps：每兩個 rAF 畫一次
+    cost = 2;
+    // 降級中一個窗＝60 張真的畫出來的幀＝120 個 rAF；窗滿後平均 2ms < 8ms → 回 60fps。
+    ticks(120);
+    expect(stage.frameBudget().skipEveryOther).toBe(false);
+    render.mockClear();
+    ticks(60);
+    expect(render).toHaveBeenCalledTimes(60);
+    stage.destroy();
+  });
+
+  it("pause 取消 rAF、resume 接續；autoStart:false 的實例要 start() 才跑迴圈", () => {
+    const raf = fakeRaf();
+    let t = 0;
+    const stage = new StageRenderer(stubCanvas(), "maid-classic", 1, { autoStart: false, rng: () => 0.9, now: () => t });
+    expect(raf.pending()).toBe(0);
+    stage.start();
+    expect(raf.pending()).toBe(1);
+    expect(stage.loopStats()).toEqual({ ticks: 1, drawn: 1 });
+    stage.pause();
+    expect(raf.pending()).toBe(0);
+    t += 16;
+    raf.tick(t);
+    expect(stage.loopStats().ticks).toBe(1);
+    stage.resume();
+    expect(raf.pending()).toBe(1);
+    expect(stage.loopStats().ticks).toBe(2);
+    stage.destroy();
+    expect(raf.pending()).toBe(0);
+    stage.start(); // 已銷毀：不再排程
+    expect(raf.pending()).toBe(0);
   });
 });

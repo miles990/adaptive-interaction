@@ -201,6 +201,10 @@ impl Runtime {
         let mut needs_review: Vec<String> = Vec::new();
         let mut excluded_not_visible = 0u32;
         let mut excluded_sensitive = 0u32;
+        // 排除原因都要回報（介面承諾列出「未複審候選」與 domain 過濾）：
+        // 兩者只回計數，不把被排除的 id 交給 agent 當線索。
+        let mut excluded_unreviewed_candidates = 0u32;
+        let mut excluded_outside_domains = 0u32;
         let mut bytes = 0usize;
 
         // Built-in Domain Packs are installed local reference data. They are
@@ -255,6 +259,7 @@ impl Runtime {
             }
             // Candidate 不入 bundle（未經複審的內容不給 agent 當上下文）。
             if item.kind == MemoryKind::Candidate {
+                excluded_unreviewed_candidates += 1;
                 continue;
             }
             // Domain 過濾：知識類必須命中 Session 明確授權的 domain。
@@ -267,6 +272,7 @@ impl Runtime {
             if domain_layer
                 && (domains.is_empty() || !item.tags.iter().any(|t| domains.contains(t)))
             {
+                excluded_outside_domains += 1;
                 continue;
             }
             let size = item.content.len() + item.title.len();
@@ -293,8 +299,10 @@ impl Runtime {
                 "needsReview": needs_review,
                 "notVisibleToAgent": excluded_not_visible,
                 "sensitive": excluded_sensitive,
+                "unreviewedCandidates": excluded_unreviewed_candidates,
+                "outsideGrantedDomains": excluded_outside_domains,
             },
-            "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除。",
+            "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
         }))
     }
 

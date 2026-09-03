@@ -18,6 +18,7 @@
 
 import { MicroMotionOverlay } from "../renderer";
 import {
+  blendArm,
   blendPose,
   clamp,
   clampParams,
@@ -248,9 +249,12 @@ export class ExpressionTimeline {
       const seg = resolveSegments(outgoing);
       const durationMs = Math.min(EXIT_MAX_MS, seg.exit.durationMs);
       if (durationMs > 0) {
+        // 離開段從「此刻實際輸出的參數」起算，不是從 hold：表情在 enter／loop 中途被
+        // 打斷（伸懶腰到一半被戳）時，手臂／squash／眼睛不會先瞬移回 hold 再演離開
+        // （對抗審查 rig-renderer-013）。exit 的關鍵幀只覆寫它有寫的通道，其餘沿用當下值。
         this.exiting = {
           phase: seg.exit,
-          base: clampParams({ ...DEFAULT_PARAMS, ...outgoing.hold }),
+          base: clampParams({ ...this.lastParams }),
           startAt: nowMs,
           until: nowMs + durationMs,
         };
@@ -406,9 +410,15 @@ export class ExpressionTimeline {
 
     // 姿勢過場不跟隨回彈 ease：ease 在第一幀就前進三成多，頭部照樣會跳
     // ~16px。用自己的線性進度，pose 的切換點與 poseBlend 永遠一致。
+    // 只在過場窗口內覆寫：窗口過了就交還給 enter 段自己算的 poseBlend——
+    // lie-flat 的 enter 在 450ms 才由 crouch 換成 lie，若此時仍硬寫 poseBlend=1，
+    // 頭中心會單幀跳 21px（對抗審查 rig-renderer-012）。
     if (!this.reducedMotion) {
       const kp = clamp((now - this.switchAt) / POSE_TRANSITION_MS, 0, 1);
-      params = blendPose(this.prevSnapshot, target, params, kp);
+      if (kp < 1) params = blendPose(this.prevSnapshot, target, params, kp);
+      // 手臂姿勢同理（線性、跟 crossfade 等長）：raise→front 之類的切換不再單幀跳手位。
+      const ka = clamp((now - this.switchAt) / TRANSITION_MS, 0, 1);
+      if (ka < 1) params = blendArm(this.prevSnapshot, target, params, ka);
     }
 
     if (!this.reducedMotion && this.expr.ambientOverlay) {

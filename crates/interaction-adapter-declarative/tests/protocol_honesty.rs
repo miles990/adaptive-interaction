@@ -1058,3 +1058,121 @@ async fn a_mid_send_failure_is_uncertain_and_never_retried() {
         interaction_core::ActionStatus::Acknowledged
     );
 }
+
+// ---------------------------------------------------------------------------
+// 對抗審查 2e02284：estop 的 ack 窗口必須蓋過韌體的重連阻塞
+// ---------------------------------------------------------------------------
+
+/// stop-all 的 ack 會晚到的假裝置：韌體在 broker 不通時 `maintainMqtt()` 的
+/// `connect()` 同步阻塞最多 ≈1.5s，期間 Serial／BLE 上的 stop-all 要等阻塞
+/// 結束才被處理——所以 ack 可能 1.2s 之後才回來。
+struct DelayedStopAllLink {
+    inbound: broadcast::Sender<DeviceMsg>,
+    delay: Duration,
+    sent: Mutex<Vec<Value>>,
+}
+
+#[async_trait::async_trait]
+impl RawLink for DelayedStopAllLink {
+    async fn ensure_open(&self) -> Result<(), LinkError> {
+        Ok(())
+    }
+    async fn send(&self, line: String) -> Result<(), LinkError> {
+        let msg: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
+        if let Ok(mut sent) = self.sent.lock() {
+            sent.push(msg.clone());
+        }
+        if msg["type"] == "stop-all" {
+            let inbound = self.inbound.clone();
+            let delay = self.delay;
+            tokio::spawn(async move {
+                tokio::time::sleep(delay).await;
+                let _ = inbound.send(DeviceMsg::Ack {
+                    id: None,
+                    applied: None,
+                    dup: None,
+                    cancelled: None,
+                    stop_all: Some(true),
+                });
+            });
+        }
+        Ok(())
+    }
+    fn subscribe(&self) -> broadcast::Receiver<DeviceMsg> {
+        self.inbound.subscribe()
+    }
+    fn connected(&self) -> bool {
+        true
+    }
+    fn shutdown(&self) {}
+    fn describe(&self) -> String {
+        "delayed-stop-all".into()
+    }
+}
+
+fn delayed_stop_all_actuator(delay: Duration) -> LinkActuator<Arc<DelayedStopAllLink>> {
+    let (inbound, _) = broadcast::channel(8);
+    let raw = Arc::new(DelayedStopAllLink {
+        inbound,
+        delay,
+        sent: Mutex::new(vec![]),
+    });
+    let link = Arc::new(DeviceLink::new(raw, "esp32-desk01".into(), None));
+    LinkActuator::new(
+        actuator_spec("vibe"),
+        CommandSpec {
+            name: "vibe.pulse".into(),
+            params: None,
+        },
+        "esp32-desk".into(),
+        link,
+        "serial",
+    )
+}
+
+/// 舊版只等 1s：真板 Wi-Fi 通、broker 不通時，stop-all 的 ack 撞上一次重連
+/// 阻塞（≈1.5s）就晚於 1s 到達 → estop 被誤記成 UNCONFIRMED（假陰性，且發生
+/// 在最不該有雜訊的路徑）。現在的窗口 = runtime 每個 actuator 的 estop 上限
+/// （2s）：1.2s 才到的 ack 仍算已確認停止。
+#[tokio::test]
+async fn a_stop_all_ack_delayed_by_a_firmware_reconnect_block_still_counts() {
+    let actuator = delayed_stop_all_actuator(Duration::from_millis(1_200));
+    actuator
+        .emergency_stop()
+        .await
+        .expect("an ack that arrives after a ≈1.2s firmware block is still an ack");
+    assert_eq!(
+        actuator
+            .link
+            .raw()
+            .sent
+            .lock()
+            .map(|s| s.len())
+            .unwrap_or(0),
+        1
+    );
+}
+
+/// 窗口外才到的 ack（2.5s）仍然誠實 Err：estop 不會為了等而無限等，
+/// runtime 的 stoppedActuators 不得把它算成已停止；而且 stop-all 只送一次。
+#[tokio::test]
+async fn a_stop_all_ack_after_the_window_is_still_unconfirmed() {
+    let actuator = delayed_stop_all_actuator(Duration::from_millis(2_500));
+    let err = actuator
+        .emergency_stop()
+        .await
+        .expect_err("an ack that never arrives within the window must not count");
+    let text = err.to_string();
+    assert!(text.contains("UNCONFIRMED"), "{text}");
+    assert_eq!(
+        actuator
+            .link
+            .raw()
+            .sent
+            .lock()
+            .map(|s| s.len())
+            .unwrap_or(0),
+        1,
+        "stop-all is sent exactly once (no resend storm)"
+    );
+}

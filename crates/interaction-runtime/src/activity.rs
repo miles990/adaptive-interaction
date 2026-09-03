@@ -16,6 +16,10 @@ pub struct ActivityInboxFilter {
     pub task: Option<String>,
     pub domain: Option<String>,
     pub since: Option<DateTime<Utc>>,
+    /// `true`：只要待你決定的項目；`false`：只要不需決定的；缺席：全部。
+    /// 徽章的 `pendingCount` 一律在分頁截斷前算完，通知中心用這個篩選就能
+    /// 拿到全部待決定項，而不是從「最近 N 筆」裡碰運氣。
+    pub needs_decision: Option<bool>,
     pub limit: Option<u32>,
 }
 
@@ -132,18 +136,15 @@ impl Runtime {
         // 角色演出，不是需要人類裁決的外部副作用：結果未知仍留在歷史裡
         // （誠實），但不佔「待我決定」。
         //
-        // 只認 driver，不認通道：`iphone.character` 也走 `desktop-pet` 通道，
-        // 但它是「送到另一台實體裝置」的外部副作用——結果未知一定要人看見。
-        // 「被安全規則阻止」不論通道都仍要人看見。
+        // 只認 driver，不認通道也不認 id 前綴：`iphone.character` 也走
+        // `desktop-pet` 通道，但它是「送到另一台實體裝置」的外部副作用——
+        // 結果未知一定要人看見。「被安全規則阻止」不論通道都仍要人看見。
         let presentation_actuators: std::collections::HashSet<String> = self
             .registry
             .actuator_manifests()
             .await
             .into_iter()
-            .filter(|manifest| {
-                manifest.driver == "builtin.presentation"
-                    || manifest.id.as_str().starts_with("companion.")
-            })
+            .filter(|manifest| manifest.driver == "builtin.presentation")
             .map(|manifest| manifest.id.as_str().to_string())
             .collect();
 
@@ -197,15 +198,32 @@ impl Runtime {
                 .or_else(|| event.payload.get("sensor"))
                 .and_then(Value::as_str)
                 .map(String::from);
+            // 解除緊急停止也走 EmergencyStop 事件（payload.cleared=true）：
+            // 不分辨的話，使用者剛解除就會看到一筆新的「緊急停止」。
+            let cleared = event.event_type == interaction_core::EventType::EmergencyStop
+                && event.payload.get("cleared").and_then(Value::as_bool) == Some(true);
+            let sensor_label = device_id
+                .as_deref()
+                .map(sensor_display_name)
+                .unwrap_or_else(|| "感測器".into());
+            // 標題是人話，不是原始 event_type（原始碼仍在 detail.eventType）。
+            let (status, title): (String, String) = match event.event_type {
+                interaction_core::EventType::EmergencyStop if cleared => {
+                    ("emergency-cleared".into(), "緊急停止已解除".into())
+                }
+                interaction_core::EventType::EmergencyStop => {
+                    ("emergency".into(), "緊急停止已啟動".into())
+                }
+                interaction_core::EventType::SensorStarted => {
+                    (event_type.clone(), format!("感測開始：{sensor_label}"))
+                }
+                _ => (event_type.clone(), format!("感測停止：{sensor_label}")),
+            };
             items.push(ActivityInboxItem {
                 item_id: event.event_id.as_str().to_string(),
                 kind: "safety-event".into(),
-                status: if event_type == "emergency.stop" {
-                    "emergency".into()
-                } else {
-                    event_type.clone()
-                },
-                title: event_type,
+                status,
+                title,
                 occurred_at: event.timestamp,
                 route: "safety".into(),
                 needs_decision: false,
@@ -249,6 +267,9 @@ impl Runtime {
                         .any(|domain| normalized(domain).contains(&normalized(value)))
                 })
                 && filter.since.is_none_or(|since| item.occurred_at >= since)
+                && filter
+                    .needs_decision
+                    .is_none_or(|wanted| item.needs_decision == wanted)
         });
         items.sort_by_key(|item| std::cmp::Reverse(item.occurred_at));
         let total = items.len();
@@ -264,5 +285,14 @@ impl Runtime {
             "filters": filter,
             "generatedAt": Utc::now(),
         }))
+    }
+}
+
+/// 感測器／裝置 id → 人話（認不得的照原樣顯示，不猜）。
+fn sensor_display_name(raw: &str) -> String {
+    match raw {
+        "microphone" | "mic" | "builtin.microphone" => "麥克風".into(),
+        "camera" | "builtin.camera" => "攝影機".into(),
+        other => other.to_string(),
     }
 }

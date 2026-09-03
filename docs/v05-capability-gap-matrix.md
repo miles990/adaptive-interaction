@@ -154,3 +154,80 @@ Audio SFX／區網裝置事件未做**。
 **效能實測**（可重現：`pnpm perf`＝`apps/interaction-desktop/scripts/shu/perf-rig.mjs`；headless Chromium，Apple M2 Pro，
 含 raster flush）：見 `docs/acceptance-evidence.md` v0.5 章節的最新一次輸出。Phase 6 文件裡的「drawRig 0.452 ms/幀（2.2x）」
 沒有產生程式，已作廢。
+
+---
+
+## 10. Phase 8 收尾狀態（Character Presentation Protocol＋一般模式產品化，2026-09-02）
+
+> 延續 §9 的寫法：每句「已有」都對應程式碼＋測試；「部分」與「缺」明列缺口。證據等級一律標示——
+> **單元／整合測試**（cargo test、vitest）、**CLI E2E**（真 daemon＋WebSocket fixture）、**瀏覽器**（jsdom／Playwright，
+> Playwright 本輪未跑）、**模擬器**；ESP32 與 iPhone **真機驗收仍為零**。
+
+**協定核心**：CPP v1.0 規格→**已有**（`docs/character-protocol/README.md` 唯一契約）；Rust crate→**已有**
+（`crates/interaction-character`：capability／gateway／input／intent／lifecycle／manifest／receipt／schema／wire；
+golden `schemas/character-protocol.schema.json` 由 Rust 產生）；TS 鏡射→**已有**（`apps/interaction-desktop/src/character/`
+protocol／manifest／negotiate／gateway／registry；fixture 由 Rust 驗證器測試）；§13 測試矩陣→**已有**（manifest 驗證、版本協商、
+能力協商與 fallback、命令生命週期、acknowledged→uncertain、cancel 冪等、重複 messageId、過期、世代、崩潰、有界佇列、
+惡意 manifest／路徑穿越、偽造 verified、緊急優先、reduced-motion、legacy pack 遷移）。
+
+**Runtime 接線**：`interaction-runtime::character`（CharacterHub）→**已有**（hello／receipt／event／instances／manifest／adapters／
+manual intent；truth projection 表 §11 全映射，含 AI `companion.state.present` 只能落在無 floor 的 intent；節流：receptor
+observation 2 s、dragged 1/s、hover 30 s；presence heartbeat 逾期→pending 全 uncertain、generation+1）；事件→**已有**
+（`character.intent`／`character.receipt`／`character.instance`／`character.system-text`）；HTTP／CLI→**已有**
+（`/v1/character/*`、`interact-ai character status|instances|manifest|adapters|intent`）；storage v8 adapter 紀錄→**已有**。
+
+**Transports**：In-process TS adapter→**已有**；Runtime↔桌面視窗（SSE／Tauri IPC＋human token 回執）→**已有**；
+WebSocket `GET /v1/character/ws?token=`＋adapter token 分權（403／401 有測試）→**已有**（CLI E2E 以
+`examples/character-adapters/text-adapter.mjs` 真連線：register→connect→negotiated→intent→receipt→revoke 即斷線）；
+**stdio JSON Lines→缺**（只有規格：host 不 spawn 子程序、無 stdio fixture）；README §8.1 提到的 `CharacterTransport`
+（`interaction-character::transport`）**在 crate 裡不存在**（WS session 型別在 runtime crate），屬文件與實作不一致，見開放問題。
+
+**Reference adapters**：小樞 `shu-rig`→**已有**（`src/character/adapters/shu.ts`：manifest 協商、intent→36 表情計畫→mixer、
+回執 accepted→started→completed／cancelled{preempted|replaced|cancel}、reduced-motion 協商、gameplay／familiars／scene／rollCall
+保留）；`sprite`（v1／v2 pack 相容層）→**已有**；`text`（純文字最小角色＝可信 fallback）→**已有**；角色視窗載入失敗／崩潰→文字
+＋「角色離線，改用文字。」→**已有**（瀏覽器單元測試）。
+
+**匯入**：`character_import`／`character_list_imported`／`character_asset`／`character_remove`（Tauri host，無 runtime 亦可）→**已有**
+（只收 in-process builtin entrypoint；內建 id 不可覆蓋；資產 magic bytes／bytes／sha256 核對；單檔 ≤ manifest 上限（≤32 MB）、
+總量 32 MB；不安全 id 拒絕；錯誤不回顯路徑；原子替換）；角色頁「更換或加入角色」卡片＋匯入對話框→**已有**；
+**匯入角色在角色視窗實際演出→已有（單元／模擬器證據）**（`CompanionApp` 經 `characterListImported` 取得 manifest 與資產 data URL，
+文字／sprite／shu-rig 三種 builtin 皆可建 adapter；失敗退回文字＋固定文案；**尚未在真 Tauri 視窗以真實匯入資料夾驗收**）；
+角色偏好／`variant` 轉給 `adapter.reconfigure`→**已有**；host 端 `companion_preferences`（每角色 ≤32 鍵、布林／數字／字串）／
+runtime `first_success_seen` 持久化→**已有**（Rust 驗證＋測試）
+
+**可信 host 覆蓋視窗**：Tauri 第三視窗「安全狀態」（label `overlay`，只允許 listen；`host-safety` 事件只發給它；340×200 右上角、
+透明、不搶焦點、不擋滑鼠；緊急停止／Runtime 離線／麥克風／攝影機／其他感測；有事才建立、清除即關閉；不受關閉行為與角色
+prefs 影響）→**已有**（Rust `host_safety::HostSafetyView::derive`＋TS `isOverlayActive` 鏡射有測試；**Tauri 視窗本身不在
+Playwright 覆蓋範圍**，瀏覽器模式以 `?window=overlay` 驗證 DOM）；tray 與覆蓋視窗共用同一 `HostSafetyView`→**已有**。
+
+**狀態投影**：`status().characterProtocol{version, instances, activeCharacter}`→**已有**；桌面 `useCharacterName()` 單一名稱來源
+（prefs.companionName > manifest displayName > 角色；pronoun 缺省中性）→**已有**；角色生命週期人話（角色視窗運作中／已隱藏／準備中／
+角色視窗未連線／角色目前無法顯示，改用文字）→**已有**（在 `CompanionPage.characterLiveState`，尚未併入 `statusProjection.ts`）；
+uncertain／unknown 一律「結果不確定」→**已有**。
+
+**五個入口（一般模式）**：現在＝三個答案（角色現在怎麼樣／正在做什麼／有什麼需要處理）＋快速操作（交代一件事→工作預填、暫停／恢復、
+加入裝置）＋「詳細狀態」折疊→**已有**；角色（側欄顯示目前角色名）＝目前角色／外觀與名字／平常如何陪伴／安靜與勿擾／主動式對話／
+主動程度與安靜時段／更換或加入角色，技術資料只在進階→**已有**；工作＝任務優先 composer（想讓〔名〕幫你做什麼？＋加入檔案或選擇
+資料夾＋這是哪一種工作）＋開始前預覽六項＋工作設定折疊，一般模式無 JSON→**已有**；**資料夾選擇器→缺**（src-tauri 未註冊 dialog
+plugin，按鈕誠實回報「這個版本沒有資料夾選擇器」，路徑欄可用）；連接與權限＝可以看見／可以回應／使用的裝置／需要你確認四區＋
+展開的「全部能力與裝置」＋「角色如何接上系統」adapter 列（來源／位置／可執行／網路／可以接收／已測試／撤銷）→**已有**；
+**外部 adapter 列的「可以接收」與 executable／network→部分**（`/v1/character/instances` 未帶 `inputCapabilities`／author／version，
+只有桌面 instance 能由 manifest 解析；其他列顯示「未回報」直到 API 補欄位）；更多＝記憶與知識／活動歷史／設定／角色與整合管理／
+進階功能（「顯示進階功能」唯一主人）→**已有**；右上 Inbox→**已有**（沿 §9）。
+
+**首次成功體驗**：3 步精靈後「〔名〕準備好了。要不要先試一次？」五選項（提醒我休息＝純本機 plan 路徑、收據狀態投影不冒充送達；
+交代一件小工作＝預填工作頁；先在桌面陪我；更換角色；先不用）→**已有**（瀏覽器單元測試）；**只看一次的旗標持久化→部分**
+（後端無欄位，localStorage 備援）。
+
+**殘留術語與相容妥協**（文件化，不算缺陷）：`companion_provider_display_name()` 含「（Presentation）」（e2e 釘死）；
+providers.rs 握手 note 仍含「受器」；GlobalSearch「裝置／Provider：」、ActivityPage 篩選「Domain」、「續租 30 分鐘」／
+「工作階段已關閉（已要求終止子程序）。」受既有測試釘住；「全部能力與裝置」預設展開而非獨立子頁（相容 compat-routes 與 e2e）。
+
+**證據等級總結**：Rust／vitest 單元與整合、CLI E2E（WebSocket fixture）＝本輪實跑；Playwright（app／narrow／evidence spec 已改）
+＝**未跑**；Tauri 覆蓋視窗＝Rust 單元＋瀏覽器 DOM，無真視窗自動化；ESP32／iPhone＝**無真機**；Phase 8 截圖尚未產生
+（`docs/assets/v05-evidence/` 目前是 Phase 7 證據跑的畫面）。
+
+**Phase 8 開放問題**：(1) 匯入角色路徑只有單元／模擬器證據，未在真 Tauri 視窗驗收；(2) stdio transport 無 host spawn／fixture；
+(3) README §8.1 `CharacterTransport` 與 crate 不一致；(4) instances／adapters API 缺 `inputCapabilities`／author／version；
+(5) 資料夾選擇器；(6) host 持久化 `companion_preferences`／`first_success_seen`；(7) `characterLiveState` 移入 `statusProjection.ts`；
+(8) Tauri 覆蓋視窗無 Playwright 覆蓋；(9) 真機驗收（ESP32／iPhone）仍為零。
