@@ -257,3 +257,101 @@ capabilities:
         .unwrap_or_default()
         .contains("最近一次請求失敗"));
 }
+
+/// 送出後才逾時（連線已建立、請求已寫出）＝裝置**可能已經執行了**。
+/// 誠實階梯：不得自動重送（重複的實體效果比誠實的未知更糟），也不得
+/// 記成 failed。收據停在 dispatched＋outcomeUnknown，由 runtime 標 uncertain。
+#[tokio::test]
+async fn a_timeout_after_the_request_was_sent_is_uncertain_and_never_resent() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let hits = Arc::new(AtomicU32::new(0));
+    let counter = hits.clone();
+    let app = Router::new().route(
+        "/set",
+        post(move || {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                // 裝置收到了、正在動作，但回覆遲遲不來。
+                tokio::time::sleep(std::time::Duration::from_millis(1_500)).await;
+                (axum::http::StatusCode::OK, Json(json!({})))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+
+    let yaml = format!(
+        r#"
+schemaVersion: "1.0"
+id: slow-light
+capabilities:
+  - kind: actuator
+    id: set
+    transport: http
+    timeoutMs: 300
+    retry: {{ attempts: 3, backoffMs: 10 }}
+    request: {{ method: POST, url: "http://{addr}/set", body: {{}} }}
+"#
+    );
+    let built = build(&parse_spec(&yaml).unwrap(), None).unwrap();
+    let receipt = built.actuators[0].execute(bounded_action()).await.unwrap();
+
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "送出後逾時絕不重送（retry 只適用『確定沒送出』）"
+    );
+    assert_eq!(
+        receipt.current_status,
+        ActionStatus::Dispatched,
+        "已送出、結果未知：{receipt:?}"
+    );
+    assert_ne!(
+        receipt.current_status,
+        ActionStatus::Failed,
+        "未知不得冒充失敗"
+    );
+    assert_eq!(receipt.driver_response["sendOutcomeUnknown"], json!(true));
+    assert_eq!(receipt.driver_response["outcomeUnknown"], json!(true));
+    assert!(
+        !receipt
+            .errors
+            .iter()
+            .any(|e| e.code == "device-unreachable"),
+        "「可能已送達」不是 unreachable：{:?}",
+        receipt.errors
+    );
+}
+
+/// 相對照：連線根本建立不起來＝確定沒送出，沒有實體效果 → 才可以重試，
+/// 全部失敗後誠實記成 failed（不是未知）。
+#[tokio::test]
+async fn a_connect_failure_is_definitely_not_sent_so_it_may_be_retried() {
+    let yaml = r#"
+schemaVersion: "1.0"
+id: ghost-retry
+capabilities:
+  - kind: actuator
+    id: set
+    transport: http
+    timeoutMs: 300
+    retry: { attempts: 3, backoffMs: 10 }
+    request: { method: POST, url: "http://127.0.0.1:1/set", body: {} }
+"#;
+    let built = build(&parse_spec(yaml).unwrap(), None).unwrap();
+    let receipt = built.actuators[0].execute(bounded_action()).await.unwrap();
+    assert_eq!(receipt.current_status, ActionStatus::Failed);
+    assert!(receipt
+        .errors
+        .iter()
+        .any(|e| e.code == "device-unreachable"));
+    assert!(
+        !receipt.driver_response.contains_key("sendOutcomeUnknown"),
+        "連不上是確定沒送出，不是未知：{receipt:?}"
+    );
+}

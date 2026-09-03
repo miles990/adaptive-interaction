@@ -62,6 +62,77 @@ const STATE_CONNECTED: u8 = 1;
 const STATE_DISCONNECTED: u8 = 2;
 const STATE_CLOSED: u8 = 3;
 
+/// 斷線觀察者看得懂的事件（只保留「是不是這台裝置斷了」）。
+/// 抽掉 btleplug 型別是為了不碰藍牙堆疊也能測狀態機。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LinkEvent<I> {
+    Disconnected(I),
+    Other,
+}
+
+/// 事件驅動的斷線偵測：收到**我們這台** peripheral 的 DeviceDisconnected 就把
+/// state 從 CONNECTED 翻成 DISCONNECTED。
+///
+/// 為什麼需要：舊版只在 `ensure_open()` 時才發現斷線，只有動器沒有受器的
+/// BLE adapter 在裝置離開範圍後會無限期回報 healthy／available——status()
+/// 讀的是一個過期的旗標，等於對「此刻能不能用」說謊。
+///
+/// `compare_exchange` 而非 store：不得覆蓋 CLOSED（已被 shutdown），也不得
+/// 讓上一世代的觀察者把新連線標成斷線（舊觀察者在重連前就被 abort，
+/// 這是第二層保險）。
+pub(crate) async fn watch_for_disconnect<S, I>(mut events: S, target: I, state: Arc<AtomicU8>)
+where
+    S: futures::Stream<Item = LinkEvent<I>> + Unpin,
+    I: PartialEq,
+{
+    while let Some(event) = events.next().await {
+        if let LinkEvent::Disconnected(id) = event {
+            if id == target {
+                let _ = state.compare_exchange(
+                    STATE_CONNECTED,
+                    STATE_DISCONNECTED,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                );
+                return;
+            }
+        }
+    }
+    // 事件流結束（配接器沒了）：連線狀態不再可信，誠實降級。
+    let _ = state.compare_exchange(
+        STATE_CONNECTED,
+        STATE_DISCONNECTED,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    );
+}
+
+/// 掃描守衛：不論怎麼離開 `connect()`——正常 return、`?` 提早返回，或呼叫端
+/// （例如 estop 的 2 秒逾時）直接把整個 future 丟掉——都要把掃描關掉。
+/// 舊版只在 return 路徑呼叫 `stop_scan()`，被取消時 radio 會一直掃到逾時。
+pub(crate) struct ScanGuard<F: FnOnce()> {
+    stop: Option<F>,
+}
+
+impl<F: FnOnce()> ScanGuard<F> {
+    pub(crate) fn new(stop: F) -> Self {
+        Self { stop: Some(stop) }
+    }
+
+    /// 已經自己關過了：解除守衛（不要關第二次）。
+    pub(crate) fn disarm(&mut self) {
+        self.stop = None;
+    }
+}
+
+impl<F: FnOnce()> Drop for ScanGuard<F> {
+    fn drop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            stop();
+        }
+    }
+}
+
 struct BleSession {
     peripheral: Peripheral,
     command_char: Characteristic,
@@ -80,6 +151,9 @@ pub struct BleRawLink {
     /// notification → broadcast 的 task：每次重連前 abort 舊的，
     /// shutdown 時一併回收（否則每次重連都留一條殭屍 task）。
     notify_task: TaskSlot,
+    /// CentralEvent::DeviceDisconnected 觀察者：讓 connected()／health 在
+    /// 裝置離開範圍時立刻反映，而不是等下一次派工才發現。
+    disconnect_task: TaskSlot,
 }
 
 impl BleRawLink {
@@ -101,6 +175,7 @@ impl BleRawLink {
             state: Arc::new(AtomicU8::new(STATE_CONNECTING)),
             closed: Arc::new(AtomicBool::new(false)),
             notify_task: TaskSlot::new(),
+            disconnect_task: TaskSlot::new(),
         })
     }
 
@@ -135,6 +210,18 @@ impl BleRawLink {
             })
             .await
             .map_err(|e| LinkError::Unavailable(format!("ble scan: {e}")))?;
+        // 掃描一旦開始就必須關得掉——包含「這個 future 被取消」的情況
+        // （estop 對每個動器只等 2 秒，掃描卻是 6 秒）。
+        let mut scan_guard = {
+            let adapter = adapter.clone();
+            ScanGuard::new(move || {
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        let _ = adapter.stop_scan().await;
+                    });
+                }
+            })
+        };
         // 有界掃描：service UUID 命中即連（名稱只當可選過濾；身分交給
         // 連上後的 hello.deviceId＋配對碼——見 peripheral_matches）。
         let deadline = tokio::time::Instant::now() + SCAN_TIMEOUT;
@@ -145,6 +232,7 @@ impl BleRawLink {
         let peripheral = loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
+                scan_guard.disarm();
                 let _ = adapter.stop_scan().await;
                 return Err(LinkError::Unavailable(format!(
                     "ble device {:?} (service {}) not found within {}s scan",
@@ -166,6 +254,7 @@ impl BleRawLink {
                 }
                 Ok(Some(_)) => {}
                 Ok(None) | Err(_) => {
+                    scan_guard.disarm();
                     let _ = adapter.stop_scan().await;
                     return Err(LinkError::Unavailable(format!(
                         "ble device {:?} not found (scan ended)",
@@ -174,6 +263,7 @@ impl BleRawLink {
                 }
             }
         };
+        scan_guard.disarm();
         let _ = adapter.stop_scan().await;
         peripheral
             .connect()
@@ -205,6 +295,7 @@ impl BleRawLink {
             .map_err(|e| LinkError::Unavailable(format!("ble notifications: {e}")))?;
         let inbound = self.inbound.clone();
         let state_uuid = self.state_uuid;
+        let notify_state = self.state.clone();
         // 新 task 取代舊的（TaskSlot::replace 會 abort 前一條）——
         // 重連不得累積殭屍 notification task。
         self.notify_task.replace(tokio::spawn(async move {
@@ -217,9 +308,30 @@ impl BleRawLink {
                     }
                 }
             }
+            // notification stream 結束＝GATT session 沒了（某些後端只以此
+            // 表示斷線）：狀態不得停在 connected。
+            let _ = notify_state.compare_exchange(
+                STATE_CONNECTED,
+                STATE_DISCONNECTED,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
         }));
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.state.store(STATE_CONNECTED, Ordering::SeqCst);
+        // 事件驅動的斷線偵測：裝置離開範圍後 connected()／health 立刻誠實。
+        let target = peripheral.id();
+        let disconnect_state = self.state.clone();
+        let events = events.map(|event| match event {
+            CentralEvent::DeviceDisconnected(id) => LinkEvent::Disconnected(id),
+            _ => LinkEvent::Other,
+        });
+        self.disconnect_task
+            .replace(tokio::spawn(watch_for_disconnect(
+                Box::pin(events),
+                target,
+                disconnect_state,
+            )));
         Ok(BleSession {
             peripheral,
             command_char,
@@ -242,10 +354,11 @@ impl RawLink for BleRawLink {
             if existing.peripheral.is_connected().await.unwrap_or(false) {
                 return Ok(());
             }
-            // 斷線：丟掉舊 session（連同 notification task），
+            // 斷線：丟掉舊 session（連同 notification／斷線觀察 task），
             // 重連＝新世代＝重新握手。
             *session = None;
             self.notify_task.abort();
+            self.disconnect_task.abort();
             self.state.store(STATE_DISCONNECTED, Ordering::SeqCst);
         }
         match self.connect().await {
@@ -301,8 +414,10 @@ impl RawLink for BleRawLink {
     }
 
     fn connected(&self) -> bool {
-        // GATT session 存在＝連線中（斷線由 ensure_open 的 is_connected
-        // 檢查與 state 一起更新；這裡不做阻塞 I/O）。
+        // GATT session 存在＝連線中。斷線有三個來源，都會把 state 翻掉：
+        // CentralEvent::DeviceDisconnected 觀察者（事件驅動、最即時）、
+        // notification stream 結束、以及 ensure_open 的 is_connected 檢查。
+        // 這裡只讀旗標，不做阻塞 I/O（健康檢查不能卡住）。
         self.state.load(Ordering::SeqCst) == STATE_CONNECTED && !self.closed.load(Ordering::SeqCst)
     }
 
@@ -324,6 +439,7 @@ impl RawLink for BleRawLink {
         }
         self.state.store(STATE_CLOSED, Ordering::SeqCst);
         self.notify_task.abort();
+        self.disconnect_task.abort();
         // GATT disconnect 是 async：有 runtime 就背景做（有界地做完就好），
         // 沒有 runtime（程式收尾）就只丟掉 session，由 OS 收 socket。
         let session = self.session.clone();
@@ -434,6 +550,60 @@ mod tests {
             &svc(),
             ""
         ));
+    }
+
+    /// 斷線狀態機（不碰藍牙堆疊）：收到**我們這台**的 DeviceDisconnected
+    /// 就必須把 connected 旗標翻掉——舊版只在下一次派工時才發現，
+    /// 只有動器的 adapter 會無限期回報 healthy／available。
+    #[tokio::test]
+    async fn a_disconnect_event_for_our_device_flips_the_state() {
+        let state = Arc::new(AtomicU8::new(STATE_CONNECTED));
+        let events = futures::stream::iter(vec![
+            LinkEvent::Other,
+            LinkEvent::Disconnected("someone-else"),
+            LinkEvent::Disconnected("ours"),
+        ]);
+        watch_for_disconnect(events, "ours", state.clone()).await;
+        assert_eq!(state.load(Ordering::SeqCst), STATE_DISCONNECTED);
+    }
+
+    /// 別台裝置斷線與我們無關：狀態不得被動到。
+    #[tokio::test]
+    async fn another_devices_disconnect_leaves_us_connected() {
+        let state = Arc::new(AtomicU8::new(STATE_CONNECTED));
+        let events = futures::stream::iter(vec![LinkEvent::Disconnected("someone-else")]);
+        watch_for_disconnect(events, "ours", state.clone()).await;
+        // 事件流結束才降級（配接器沒了＝狀態不再可信）——但不是「別人斷線」造成的。
+        assert_eq!(state.load(Ordering::SeqCst), STATE_DISCONNECTED);
+    }
+
+    /// 已經 shutdown（CLOSED）的連線不得被斷線事件改回 DISCONNECTED：
+    /// 「被主機關閉」與「裝置跑掉」是兩種不同的誠實訊息。
+    #[tokio::test]
+    async fn a_closed_link_is_never_downgraded_by_a_late_event() {
+        let state = Arc::new(AtomicU8::new(STATE_CLOSED));
+        let events = futures::stream::iter(vec![LinkEvent::Disconnected("ours")]);
+        watch_for_disconnect(events, "ours", state.clone()).await;
+        assert_eq!(state.load(Ordering::SeqCst), STATE_CLOSED);
+    }
+
+    /// 掃描守衛：future 被取消（drop）時掃描仍要被關掉；已經自己關過就不重關。
+    #[test]
+    fn a_cancelled_scan_is_still_stopped() {
+        let stopped = Arc::new(AtomicBool::new(false));
+        {
+            let flag = stopped.clone();
+            let _guard = ScanGuard::new(move || flag.store(true, Ordering::SeqCst));
+        }
+        assert!(stopped.load(Ordering::SeqCst), "被丟掉時必須關閉掃描");
+
+        let stopped2 = Arc::new(AtomicBool::new(false));
+        {
+            let flag = stopped2.clone();
+            let mut guard = ScanGuard::new(move || flag.store(true, Ordering::SeqCst));
+            guard.disarm();
+        }
+        assert!(!stopped2.load(Ordering::SeqCst), "解除後不得再關一次");
     }
 
     /// 別的 service、沒有名稱：絕不連（掃描過濾器只是建議，事件仍可能來）。

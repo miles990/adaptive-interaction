@@ -183,6 +183,15 @@ pub trait RawLink: Send + Sync {
     /// （serial＝supervisor 的 connected 旗標、mqtt＝ConnAck 後為真、
     /// ble＝GATT session 存在）。
     fn connected(&self) -> bool;
+    /// 裝置端沉默偵測：`Some(silent_for)` 代表「傳輸連線還在，但已經這麼久
+    /// 沒聽到**裝置本身**的任何訊息，且已超過這個傳輸的存活窗」。
+    ///
+    /// 為什麼需要它：serial／BLE 的傳輸連線就是裝置本身（拔線＝斷線），
+    /// 所以預設回 `None`；MQTT 不是——host 連著 broker 不代表 ESP32 還活著，
+    /// 少了這個判斷就會把「broker 在線」演成「裝置在線」。
+    fn device_silent_for(&self) -> Option<Duration> {
+        None
+    }
     /// 細緻連線狀態（預設由 `connected()` 推導；實作可覆寫以區分
     /// 「連線中」與「連不上」）。
     fn link_state(&self) -> LinkState {
@@ -222,6 +231,9 @@ impl<T: RawLink + ?Sized> RawLink for Arc<T> {
     }
     fn connected(&self) -> bool {
         (**self).connected()
+    }
+    fn device_silent_for(&self) -> Option<Duration> {
+        (**self).device_silent_for()
     }
     fn link_state(&self) -> LinkState {
         (**self).link_state()
@@ -305,9 +317,33 @@ pub struct DeviceLink<L: RawLink> {
     ready_generation: AtomicU64,
     /// 裝置 hello 宣告的能力清單（握手後填）。None＝還沒握手過。
     advertised_caps: RwLock<Option<Arc<Vec<String>>>>,
+    /// 目前在這條 link 上「已送出、還在等回覆」的請求數。
+    /// 沒有 id 的裝置錯誤只有在「只有我一個在等」時才能算成我的結果——
+    /// 同一條 link 上有別的請求在飛時，那則錯誤可能屬於別人。
+    in_flight: std::sync::atomic::AtomicUsize,
+}
+
+/// 進入等待前 +1、離開時 -1（不論成功、失敗或提早 return）。
+struct InFlightGuard<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl<'a> InFlightGuard<'a> {
+    fn enter(counter: &'a std::sync::atomic::AtomicUsize) -> Self {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Self(counter)
+    }
+}
+
+impl Drop for InFlightGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(2_500);
+
+/// estop 對「連線中」的 link 願意多等多久才放棄（其他裝置的 stop-all 不能
+/// 被一條正在重連的 link 拖住；runtime 對每個動器只有 2 秒）。
+pub const STOP_ALL_CONNECT_GRACE: Duration = Duration::from_millis(300);
 
 /// 握手完成的世代編碼（0 保留給「從未握手」）。
 fn ready_marker(generation: u64) -> u64 {
@@ -323,6 +359,7 @@ impl<L: RawLink> DeviceLink<L> {
             handshaken: tokio::sync::Mutex::new((false, 0)),
             ready_generation: AtomicU64::new(0),
             advertised_caps: RwLock::new(None),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -338,11 +375,18 @@ impl<L: RawLink> DeviceLink<L> {
             LinkState::Connecting => LinkReadiness::Connecting,
             LinkState::Connected => {
                 if self.ready_generation.load(Ordering::SeqCst)
-                    == ready_marker(self.raw.generation())
+                    != ready_marker(self.raw.generation())
                 {
-                    LinkReadiness::Ready
-                } else {
-                    LinkReadiness::NotHandshaken
+                    return LinkReadiness::NotHandshaken;
+                }
+                // 連線在、握手也還在世代內，但裝置本身已經沉默太久
+                // （MQTT：broker 連著 ≠ ESP32 還活著）：誠實降級，
+                // 不得繼續宣稱「此刻真的能用它」。
+                match self.raw.device_silent_for() {
+                    Some(silent) => LinkReadiness::Stale {
+                        silent_ms: silent.as_millis().min(u64::MAX as u128) as u64,
+                    },
+                    None => LinkReadiness::Ready,
                 }
             }
         }
@@ -558,28 +602,51 @@ impl<L: RawLink> DeviceLink<L> {
         };
         // deadline＝ack 逾時：排在傳輸佇列裡的命令過期就不再送出。
         let deadline = std::time::Instant::now() + timeout;
+        let in_flight = InFlightGuard::enter(&self.in_flight);
         self.raw
             .send_before(encode_host_msg(&msg), deadline)
             .await?;
-        let reply = self
+        // 等待期間看到、但無法歸屬給任何人的匿名錯誤（診斷用）。
+        let mut unattributed: Option<String> = None;
+        let waited = self
             .wait_reply(&mut rx, timeout, generation, |m| match m {
                 DeviceMsg::Ack { id: Some(id), .. } if id == action_id => Some(m.clone()),
                 DeviceMsg::Err { id: Some(id), .. } if id == action_id => Some(m.clone()),
                 // 裝置對「這一則」的明確拒絕不一定帶 id（not-paired／
-                // bad-json／unknown-type／line-too-long）：等待期間收到就是
-                // 這次請求的結果，誠實記為失敗，不要演成「逾時、結果未知」。
-                DeviceMsg::Err { id: None, .. } => Some(m.clone()),
+                // bad-json／unknown-type／line-too-long）。只有在「這條 link
+                // 上只有我一個請求在飛」時，它才確定是我的結果；同一裝置上
+                // 有平行步驟時把別人的匿名錯誤認領成自己的，會把一個**已經
+                // 套用**的命令記成 device-refused，誘發重送＝重複實體效果。
+                DeviceMsg::Err { id: None, reason } => {
+                    if self.in_flight.load(Ordering::SeqCst) <= 1 {
+                        Some(m.clone())
+                    } else {
+                        if unattributed.is_none() {
+                            unattributed = Some(reason.clone());
+                        }
+                        None
+                    }
+                }
                 _ => None,
             })
-            .await
+            .await;
+        let reply = waited
             .map_err(|end| match end {
                 WaitEnd::Reset => LinkError::Reset(format!(
                     "link reset (reconnected) while waiting for action {action_id} — outcome UNKNOWN (not retried)"
                 )),
-                WaitEnd::TimedOut => LinkError::Timeout(format!(
-                    "no ack for action {action_id} — outcome UNKNOWN (not retried: physical effects must not double-fire)"
-                )),
+                WaitEnd::TimedOut => match &unattributed {
+                    Some(reason) => LinkError::Timeout(format!(
+                        "no ack for action {action_id}; an id-less device error ({reason}) arrived \
+                         while other requests were in flight and cannot be attributed — outcome \
+                         UNKNOWN (not retried)"
+                    )),
+                    None => LinkError::Timeout(format!(
+                        "no ack for action {action_id} — outcome UNKNOWN (not retried: physical effects must not double-fire)"
+                    )),
+                },
             })?;
+        drop(in_flight);
         self.note_device_error(&reply).await;
         Ok(reply)
     }
@@ -674,9 +741,33 @@ impl<L: RawLink> DeviceLink<L> {
     /// 緊急停止：送 stop-all 並**等裝置 ack**。沒有 ack ＝「已送出／未確認」，
     /// 誠實回 Err——runtime 的 estop 摘要才不會把沒確認的裝置算成已停止。
     pub async fn stop_all(&self, timeout: Duration) -> Result<(), LinkError> {
-        // estop 路徑刻意不做完整握手：能送就送（配對過的連線本來就 ready；
-        // 沒 ready 的連線 ensure_open 失敗就誠實回報）。
-        self.raw.ensure_open().await?;
+        // estop 路徑刻意不做完整握手：能送就送（配對過的連線本來就 ready）。
+        // 也刻意**不**走完整的 ensure_open：未連線的 link 在 serial/mqtt 會
+        // 空轉輪詢 2 秒、BLE 甚至會啟動 6 秒掃描——estop 是最不該慢的路徑，
+        // 而且那 2 秒不可能等到（斷線中的 supervisor 正在 1–15 秒退避）。
+        // 沒連上就立刻誠實回報「沒送出、裝置狀態未知」。
+        match self.raw.link_state() {
+            LinkState::Connected => {}
+            LinkState::Connecting => {
+                // 連線中：只給極短的寬限，過了就誠實失敗（不拖住其他裝置）。
+                match tokio::time::timeout(STOP_ALL_CONNECT_GRACE, self.raw.ensure_open()).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => return Err(e),
+                    Err(_) => {
+                        return Err(LinkError::Unavailable(format!(
+                            "{} still connecting; stop-all NOT sent — device stop UNKNOWN",
+                            self.raw.describe()
+                        )))
+                    }
+                }
+            }
+            LinkState::Disconnected | LinkState::Closed => {
+                return Err(LinkError::Unavailable(format!(
+                    "{} not connected; nothing to stop here — stop-all NOT sent",
+                    self.raw.describe()
+                )))
+            }
+        }
         let mut rx = self.raw.subscribe();
         let generation = self.raw.generation();
         let deadline = std::time::Instant::now() + timeout;
@@ -719,6 +810,11 @@ enum WaitEnd {
 pub enum LinkReadiness {
     /// 已連線且完成當前世代的 hello/pair 握手。
     Ready,
+    /// 已連線、也握過手，但已經 `silent_ms` 毫秒沒聽到裝置本身的訊息
+    /// （超過這個傳輸的存活窗）——裝置可能已斷電／離線，狀態未知。
+    Stale {
+        silent_ms: u64,
+    },
     /// 已連線，但還沒（或需要重新）握手——首次讀取／命令時才做。
     NotHandshaken,
     Connecting,

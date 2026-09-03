@@ -2,9 +2,11 @@
 //!
 //! 誠實階梯落地：
 //! - execute：send 失敗＝failed；送達且裝置 ack＝dispatched→acknowledged
-//!   （附裝置回報的 applied 值，展示韌體端 clamp）；送出後 ack 逾時＝
-//!   dispatched＋`ackTimeout`（絕不重送、絕不冒充 acknowledged）——runtime
-//!   watchdog 會把它誠實標為 uncertain。
+//!   （附裝置回報的 applied 值，展示韌體端 clamp）；送出後 ack 逾時／等待中
+//!   重連＝dispatched＋`outcomeUnknown`（絕不重送、絕不冒充 acknowledged、
+//!   也絕不冒充 failed）——runtime 讀到 `outcomeUnknown` 就立刻標成 uncertain
+//!   （executor），watchdog 再對過了 ack 期限仍停在 dispatched 的收據兜底。
+//!   Dispatched 的時間戳＝命令真正離開這裡的時刻（不是等待結束的時刻）。
 //! - read：向裝置請求 state，逾時＝Unavailable（不用舊值冒充新觀察）。
 //! - cancel：真的送 cancel 到裝置；只有裝置 ack 才回收據。
 //! - estop：stop-all 直送裝置。
@@ -116,6 +118,11 @@ impl<L: RawLink + 'static> Receptor for LinkReceptor<L> {
 fn link_health<L: RawLink>(link: &DeviceLink<L>, transport: &str) -> ComponentHealth {
     match link.readiness() {
         LinkReadiness::Ready => ComponentHealth::healthy(),
+        // 傳輸還連著，但裝置本身沉默太久：不得繼續說「此刻真的能用它」。
+        LinkReadiness::Stale { silent_ms } => ComponentHealth::degraded(format!(
+            "{transport} 連線還在，但已 {} 秒沒聽到裝置（可能斷電或離線；狀態未知）",
+            silent_ms / 1_000
+        )),
         LinkReadiness::NotHandshaken => ComponentHealth::degraded(format!(
             "{transport} 已連線，但尚未完成 hello/pair 握手（首次讀取／命令時進行）"
         )),
@@ -181,7 +188,11 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
         .description(self.spec.description.as_deref().unwrap_or(""))
         .risk(self.spec.risk.unwrap_or(RiskClass::BoundedSideEffect))
         .external(self.spec.external_side_effect)
-        .requires_consent(true); // 外部裝置輸出一律 consent-gated
+        .requires_consent(true) // 外部裝置輸出一律 consent-gated
+        // 裝置安全上限：spec 的 `limits:` 直接進 manifest，Policy Governor 的
+        // min(AI 請求, 使用者偏好, session 限制, **裝置安全上限**, 剩餘預算)
+        // 才有「裝置」那一項——不能只靠韌體自己 clamp。
+        .limits(self.spec.limits.clone());
         if let Some(h) = &self.spec.human {
             b = b.human(h.clone());
         } else {
@@ -231,6 +242,11 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
             if attempt > 0 {
                 tokio::time::sleep(Duration::from_millis(retry.backoff_ms)).await;
             }
+            // 真正的送出時刻。收據要在 command() 回來之後才建（結果決定
+            // 狀態），但 Dispatched 的時間戳必須是「命令離開這裡的那一刻」，
+            // 不是 ack 等待結束的時刻——watchdog 用它的年齡判斷「已送出、
+            // 一直沒 ack」，蓋成結束時刻年齡就永遠 ≈0，收據會卡在 dispatched。
+            let sent_at = Utc::now();
             match self
                 .link
                 .command(
@@ -242,8 +258,8 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
                 .await
             {
                 Ok(DeviceMsg::Ack { applied, dup, .. }) => {
-                    let mut receipt = DriverReceipt::start(&action, Utc::now())
-                        .dispatched()
+                    let mut receipt = DriverReceipt::start(&action, sent_at)
+                        .dispatched_at(sent_at)
                         .note("transport", json!(self.transport_label))
                         .acknowledged();
                     if let Some(applied) = applied {
@@ -258,8 +274,8 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
                 }
                 Ok(DeviceMsg::Err { reason, .. }) => {
                     // 裝置明確拒絕（rate-limited / not-paired / 超界）＝失敗。
-                    return Ok(DriverReceipt::start(&action, Utc::now())
-                        .dispatched()
+                    return Ok(DriverReceipt::start(&action, sent_at)
+                        .dispatched_at(sent_at)
                         .note("transport", json!(self.transport_label))
                         .failed("device-refused", &reason)
                         .finish());
@@ -269,10 +285,13 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
                 }
                 Err(LinkError::Timeout(detail)) => {
                     // 已送出、無 ack：結果未知。不重送、不冒充失敗或成功。
-                    return Ok(DriverReceipt::start(&action, Utc::now())
-                        .dispatched()
+                    // outcomeUnknown 是 runtime 判讀「這張收據的結果不明」的
+                    // 統一旗標（executor 立刻標 uncertain；watchdog 兜底）。
+                    return Ok(DriverReceipt::start(&action, sent_at)
+                        .dispatched_at(sent_at)
                         .note("transport", json!(self.transport_label))
                         .note("ackTimeout", json!(true))
+                        .note("outcomeUnknown", json!(true))
                         .note("detail", json!(detail))
                         .finish());
                 }
@@ -295,22 +314,27 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
                 Err(LinkError::Uncertain(detail)) => {
                     // 送出「途中」失敗（例如 BLE write 已寫出但沒有回應）：
                     // 是否送達未知 → 不重試（重試會重複實體效果）、
-                    // 也不冒充失敗。runtime watchdog 會標成 uncertain。
-                    return Ok(DriverReceipt::start(&action, Utc::now())
-                        .dispatched()
+                    // 也不冒充失敗。executor／watchdog 會標成 uncertain。
+                    return Ok(DriverReceipt::start(&action, sent_at)
+                        .dispatched_at(sent_at)
                         .note("transport", json!(self.transport_label))
                         .note("sendOutcomeUnknown", json!(true))
+                        .note("outcomeUnknown", json!(true))
                         .note("detail", json!(detail))
                         .finish());
                 }
                 Err(LinkError::Reset(detail)) => {
-                    // 等待中連線重置：命令可能已到裝置，結果未知；
-                    // 佇列裡的舊命令已被清掉，絕不重送。
-                    return Ok(DriverReceipt::start(&action, Utc::now())
-                        .dispatched()
+                    // 等待中連線重置：命令可能已到裝置，結果**未知**；
+                    // 佇列／inflight 裡的舊命令已被清掉，絕不重送。
+                    // 未知不是失敗：標 failed 會讓人與 AI 合理地重下同一
+                    // 命令＝重複實體效果。收據停在 dispatched＋outcomeUnknown，
+                    // 由 runtime 判成 uncertain（誠實階梯：結果未知→uncertain）。
+                    return Ok(DriverReceipt::start(&action, sent_at)
+                        .dispatched_at(sent_at)
                         .note("transport", json!(self.transport_label))
                         .note("outcomeUnknown", json!(true))
-                        .failed("link-reset", &detail)
+                        .note("reason", json!("link-reset"))
+                        .note("detail", json!(detail))
                         .finish());
                 }
                 Err(LinkError::Unavailable(detail)) => {

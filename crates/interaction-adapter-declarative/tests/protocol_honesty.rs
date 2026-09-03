@@ -48,6 +48,9 @@ struct MockRawLink {
     fail_mid_send: AtomicBool,
     /// send 被呼叫的次數（含失敗的）——用來證明「不重送」。
     send_attempts: AtomicU64,
+    /// ensure_open 被呼叫的次數——用來證明 estop 不會對未連線的 link
+    /// 重新開埠／掃描（真傳輸那是 2 秒輪詢或 6 秒 BLE 掃描）。
+    ensure_open_calls: AtomicU64,
 }
 
 impl MockRawLink {
@@ -71,7 +74,17 @@ impl MockRawLink {
             err_without_id: Mutex::new(None),
             fail_mid_send: AtomicBool::new(false),
             send_attempts: AtomicU64::new(0),
+            ensure_open_calls: AtomicU64::new(0),
         })
+    }
+
+    /// 裝置吐一則「沒有 id」的錯誤（bad-json／unknown-type／BLE busy）——
+    /// 它不屬於任何特定請求。
+    fn emit_id_less_error(&self, reason: &str) {
+        let _ = self.inbound.send(DeviceMsg::Err {
+            id: None,
+            reason: reason.into(),
+        });
     }
 
     /// 裝置端配對狀態被重置（ESP32 重開機／MQTT 重連）——host 端不知情。
@@ -134,6 +147,7 @@ impl MockRawLink {
 #[async_trait::async_trait]
 impl RawLink for MockRawLink {
     async fn ensure_open(&self) -> Result<(), LinkError> {
+        self.ensure_open_calls.fetch_add(1, Ordering::SeqCst);
         if self.closed.load(Ordering::SeqCst) {
             return Err(LinkError::Unavailable("mock link closed".into()));
         }
@@ -822,7 +836,8 @@ async fn a_reconnect_ends_the_waiting_command_as_link_reset() {
     assert!(matches!(err, LinkError::Reset(_)), "{err}");
     assert_eq!(raw.sent_count("cmd"), 1, "絕不重送實體命令");
 
-    // 動器收據：failed(link-reset)＋結果未知，不是 acknowledged。
+    // 動器收據：dispatched＋outcomeUnknown（結果未知），不是 acknowledged，
+    // **也不是 failed**——命令可能已經套用；記成失敗會誘發重送＝重複實體效果。
     let actuator = LinkActuator::new(
         actuator_spec("vibe"),
         CommandSpec {
@@ -844,9 +859,20 @@ async fn a_reconnect_ends_the_waiting_command_as_link_reset() {
         .expect("honest receipt");
     assert_eq!(
         receipt.current_status,
-        interaction_core::ActionStatus::Failed
+        interaction_core::ActionStatus::Dispatched,
+        "等待中重連＝結果未知：收據停在 dispatched，由 runtime 判成 uncertain：{receipt:?}"
+    );
+    assert_ne!(
+        receipt.current_status,
+        interaction_core::ActionStatus::Failed,
+        "未知不得冒充失敗（失敗會讓人／AI 合理地重下同一命令）"
     );
     assert_eq!(receipt.driver_response["outcomeUnknown"], json!(true));
+    assert!(
+        receipt.errors.is_empty(),
+        "結果未知不得寫成錯誤：{:?}",
+        receipt.errors
+    );
     let text = serde_json::to_string(&receipt).unwrap_or_default();
     assert!(text.contains("link-reset"), "{text}");
 }
@@ -1175,4 +1201,91 @@ async fn a_stop_all_ack_after_the_window_is_still_unconfirmed() {
         1,
         "stop-all is sent exactly once (no resend storm)"
     );
+}
+
+/// estop：未連線的 link 不得再去「開埠／掃描」。真傳輸的 ensure_open 在
+/// serial/mqtt 是 2 秒輪詢、BLE 是最長 6 秒掃描；一台拔線的裝置上掛 4 個
+/// 動器就會把其他裝置的 stop-all 卡在後面。沒連上就立刻誠實回報
+/// 「沒送出、裝置狀態未知」。
+#[tokio::test]
+async fn stop_all_on_a_disconnected_link_fails_fast_without_reopening() {
+    let raw = MockRawLink::new("esp32-desk01", None);
+    let link = DeviceLink::new(raw.clone(), "esp32-desk01".into(), None);
+    link.ensure_ready().await.expect("handshake");
+    raw.set_connected(false); // 拔線
+    let before = raw.ensure_open_calls.load(Ordering::SeqCst);
+
+    let started = std::time::Instant::now();
+    let err = link
+        .stop_all(Duration::from_secs(2))
+        .await
+        .expect_err("未連線的 link 沒有東西可停");
+    assert!(
+        started.elapsed() < Duration::from_millis(200),
+        "estop 不得在未連線的 link 上空等：{:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        raw.ensure_open_calls.load(Ordering::SeqCst),
+        before,
+        "未連線就不該再嘗試開埠／掃描"
+    );
+    match err {
+        LinkError::Unavailable(detail) => {
+            assert!(detail.contains("not connected"), "{detail}");
+            assert!(detail.contains("NOT sent"), "{detail}");
+        }
+        other => panic!("expected an honest Unavailable, got {other:?}"),
+    }
+    assert_eq!(raw.sent_count("stop-all"), 0, "確定沒送出");
+}
+
+/// 連線中的 link：stop-all 照送、照等 ack（fast-fail 只針對未連線）。
+#[tokio::test]
+async fn stop_all_still_reaches_a_connected_link() {
+    let raw = MockRawLink::new("esp32-desk01", None);
+    let link = DeviceLink::new(raw.clone(), "esp32-desk01".into(), None);
+    link.stop_all(Duration::from_millis(500))
+        .await
+        .expect("connected link acks stop-all");
+    assert_eq!(raw.sent_count("stop-all"), 1);
+}
+
+/// 同一台裝置上有平行步驟時，裝置吐的「沒有 id」錯誤不得被任一等待者
+/// 認領成自己的結果：那則錯誤可能屬於另一個請求，而我這個命令**可能已經
+/// 被套用**。認領＝把已套用的命令記成 device-refused → 人或 AI 重送 →
+/// 重複實體效果。無法歸屬時誠實記成「結果未知」。
+#[tokio::test(flavor = "multi_thread")]
+async fn an_id_less_error_is_not_attributed_while_another_request_is_in_flight() {
+    let raw = MockRawLink::new("esp32-desk01", None);
+    let link = Arc::new(DeviceLink::new(raw.clone(), "esp32-desk01".into(), None));
+    link.ensure_ready().await.expect("handshake");
+    raw.ack_replies.store(false, Ordering::SeqCst); // 兩個命令都收不到 ack
+
+    let spawn_cmd = |id: &'static str| {
+        let link = link.clone();
+        tokio::spawn(async move {
+            link.command(id, "vibe.pulse", json!({}), Duration::from_millis(700))
+                .await
+        })
+    };
+    let first = spawn_cmd("a1");
+    let second = spawn_cmd("a2");
+    // 兩個都在等待中了，裝置才吐出一則匿名錯誤。
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    raw.emit_id_less_error("bad-json");
+
+    for handle in [first, second] {
+        match handle.await.expect("task") {
+            Err(LinkError::Timeout(detail)) => {
+                assert!(detail.contains("UNKNOWN"), "{detail}");
+                assert!(
+                    detail.contains("cannot be attributed"),
+                    "要說清楚為什麼是未知：{detail}"
+                );
+            }
+            other => panic!("匿名錯誤不得被任一等待者認領：{other:?}"),
+        }
+    }
+    assert_eq!(raw.sent_count("cmd"), 2, "各送一次，絕不重送");
 }

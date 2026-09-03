@@ -119,6 +119,13 @@ pub struct CapabilitySpec {
     /// Optional emergency-stop request sent on estop.
     #[serde(default)]
     pub stop_request: Option<RequestSpec>,
+    /// Actuator：**裝置安全上限**（maxMagnitude / maxDurationMs / maxPerHour …）。
+    /// 直接進 manifest，讓 Policy Governor 的
+    /// min(AI 請求, 使用者偏好, session 限制, 裝置安全上限, 剩餘預算)
+    /// 真的有「裝置」那一項——host 端先夾，不能只靠韌體自己 clamp
+    /// （非參考韌體可能根本不 clamp）。
+    #[serde(default)]
+    pub limits: interaction_core::ActuatorLimits,
     #[serde(default)]
     pub human: Option<HumanMeta>,
 }
@@ -206,6 +213,10 @@ pub struct MqttSpec {
     pub username: Option<String>,
     #[serde(default)]
     pub password: Option<String>,
+    /// 多久沒聽到裝置就算失聯（毫秒；預設 15000＝參考韌體 state 推播週期的
+    /// 3 倍）。broker 連著不代表 ESP32 還活著，健康度要看這個。
+    #[serde(default)]
+    pub liveness_timeout_ms: Option<u64>,
 }
 
 fn default_mqtt_port() -> u16 {
@@ -261,6 +272,7 @@ pub fn validate_spec(spec: &DeclarativeSpec) -> Result<(), String> {
         return Err("spec has too many capabilities (max 64)".into());
     }
     for cap in &spec.capabilities {
+        validate_limits(cap)?;
         match cap.transport {
             Transport::Http | Transport::Sse => {
                 let Some(request) = &cap.request else {
@@ -330,6 +342,48 @@ pub fn validate_spec(spec: &DeclarativeSpec) -> Result<(), String> {
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+/// 裝置安全上限的健全性檢查。壞的上限比沒有上限更危險：NaN 會讓
+/// `min()` 的比較行為無法預期，0 會把整個動器變成永遠拒絕（看起來像壞掉，
+/// 不像「被限制」）——兩者都誠實拒絕，不默默吞掉。
+fn validate_limits(cap: &CapabilitySpec) -> Result<(), String> {
+    let limits = &cap.limits;
+    if let Some(m) = limits.max_magnitude {
+        if !m.is_finite() || !(0.0..=1.0).contains(&m) {
+            return Err(format!(
+                "{}: limits.maxMagnitude must be a finite number in 0.0..=1.0 (got {m})",
+                cap.id
+            ));
+        }
+    }
+    if limits.max_duration_ms == Some(0) {
+        return Err(format!(
+            "{}: limits.maxDurationMs 0 would block every action; remove it or give a real ceiling",
+            cap.id
+        ));
+    }
+    if limits.max_per_hour == Some(0) {
+        return Err(format!(
+            "{}: limits.maxPerHour 0 would block every action; remove it or give a real ceiling",
+            cap.id
+        ));
+    }
+    if limits.max_pattern_steps == Some(0) {
+        return Err(format!(
+            "{}: limits.maxPatternSteps 0 would block every pattern; remove it or give a real ceiling",
+            cap.id
+        ));
+    }
+    if cap.kind == CapabilityKindSpec::Receptor
+        && limits != &interaction_core::ActuatorLimits::default()
+    {
+        return Err(format!(
+            "{}: `limits` is an actuator-only safety ceiling (receptors have none)",
+            cap.id
+        ));
     }
     Ok(())
 }
@@ -654,6 +708,38 @@ pub(crate) fn qualified_id(adapter: &str, id: &str) -> String {
     }
 }
 
+/// 一次 HTTP 請求失敗時，「送出去了沒有」這件事本身。
+///
+/// 誠實階梯要靠它分開兩種完全不同的處境：
+/// - `NotSent`：請求**確定沒離開這台機器**（URL/方法不合法、secret 解不出來、
+///   連線建立就失敗）——沒有實體效果，重試是安全的。
+/// - `OutcomeUnknown`：連線已建立、請求已寫出，之後才逾時／中斷——裝置**可能
+///   已經執行了**。絕不重送（會重複實體效果），也絕不記成 failed。
+#[derive(Debug, Clone)]
+pub(crate) enum SendError {
+    NotSent(String),
+    OutcomeUnknown(String),
+}
+
+impl std::fmt::Display for SendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SendError::NotSent(s) | SendError::OutcomeUnknown(s) => write!(f, "{s}"),
+        }
+    }
+}
+
+/// reqwest 錯誤 → 「送出去了沒有」。連線階段的錯誤（DNS、拒絕連線、
+/// connect timeout）確定沒送出；其餘（送出後逾時、連線被重置、回應讀不完）
+/// 一律當成結果未知——寧可標未知，也不冒充「沒發生」。
+pub(crate) fn classify_send_error(e: &reqwest::Error) -> SendError {
+    if e.is_connect() || e.is_builder() {
+        SendError::NotSent(e.to_string())
+    } else {
+        SendError::OutcomeUnknown(e.to_string())
+    }
+}
+
 async fn send_request(
     client: &reqwest::Client,
     req: &RequestSpec,
@@ -661,15 +747,15 @@ async fn send_request(
     timeout_ms: u64,
     idempotency_key: Option<&str>,
     home: Option<&std::path::Path>,
-) -> Result<(u16, Value), String> {
-    validate_url(&req.url)?;
+) -> Result<(u16, Value), SendError> {
+    validate_url(&req.url).map_err(SendError::NotSent)?;
     let method = reqwest::Method::from_bytes(req.method.as_bytes())
-        .map_err(|_| format!("bad method {:?}", req.method))?;
+        .map_err(|_| SendError::NotSent(format!("bad method {:?}", req.method)))?;
     let mut builder = client
         .request(method, &req.url)
         .timeout(Duration::from_millis(timeout_ms.clamp(100, 60_000)));
     for (k, v) in &req.headers {
-        let resolved = resolve_secret(v, home)?;
+        let resolved = resolve_secret(v, home).map_err(SendError::NotSent)?;
         builder = builder.header(k, resolved);
     }
     if let Some(key) = idempotency_key {
@@ -678,7 +764,7 @@ async fn send_request(
     if let Some(body) = body {
         builder = builder.json(&body);
     }
-    let resp = builder.send().await.map_err(|e| e.to_string())?;
+    let resp = builder.send().await.map_err(|e| classify_send_error(&e))?;
     let status = resp.status().as_u16();
     let value = resp.json::<Value>().await.unwrap_or(Value::Null);
     Ok((status, value))
@@ -719,8 +805,10 @@ impl Receptor for DeclarativeHttpReceptor {
         )
         .await
         .map_err(|e| {
-            self.endpoint.record_failure(&e);
-            ReceptorError::Unavailable(e)
+            // 受器沒有實體副作用：兩種失敗對它都只是「這次讀不到」。
+            let detail = e.to_string();
+            self.endpoint.record_failure(&detail);
+            ReceptorError::Unavailable(detail)
         })?;
         if !(200..300).contains(&status) {
             self.endpoint
@@ -777,7 +865,9 @@ impl Actuator for DeclarativeHttpActuator {
         .description(self.spec.description.as_deref().unwrap_or(""))
         .risk(self.spec.risk.unwrap_or(RiskClass::BoundedSideEffect))
         .external(self.spec.external_side_effect)
-        .requires_consent(true); // external device output is consent-gated by default
+        .requires_consent(true) // external device output is consent-gated by default
+        // 裝置安全上限（spec 的 `limits:`）→ Policy Governor 的 min() 鏈。
+        .limits(self.spec.limits.clone());
         if let Some(h) = &self.spec.human {
             b = b.human(h.clone());
         } else {
@@ -823,6 +913,8 @@ impl Actuator for DeclarativeHttpActuator {
             if attempt > 0 {
                 tokio::time::sleep(Duration::from_millis(retry.backoff_ms)).await;
             }
+            // 真正的送出時刻（收據的 Dispatched 要用它，不是回來之後的 now）。
+            let sent_at = Utc::now();
             match send_request(
                 &self.client,
                 &self.request,
@@ -840,8 +932,8 @@ impl Actuator for DeclarativeHttpActuator {
                     // secret:// credential, and receipts are persisted and
                     // readable via the local API, so the body must not land
                     // there (the receipt is not the place for device payloads).
-                    let receipt = DriverReceipt::start(&action, Utc::now())
-                        .dispatched()
+                    let receipt = DriverReceipt::start(&action, sent_at)
+                        .dispatched_at(sent_at)
                         .note("httpStatus", json!(status));
                     // Honesty: 2xx means the DEVICE ACCEPTED the request. That
                     // is "acknowledged" at most — never completed/verified.
@@ -853,10 +945,29 @@ impl Actuator for DeclarativeHttpActuator {
                     return Ok(receipt.finish());
                 }
                 Ok((status, _)) => {
+                    // 裝置回了 HTTP 錯誤＝它收到了並拒絕：確定沒有「未知」，
+                    // 可以重試（下一輪可能成功）。
                     last_err = format!("device returned HTTP {status}");
                 }
-                Err(e) => {
-                    last_err = e;
+                Err(SendError::OutcomeUnknown(detail)) => {
+                    // 連線已建立、請求已寫出，之後才逾時／中斷：裝置**可能已經
+                    // 執行了**。絕不重送（重複的實體效果比誠實的未知更糟），
+                    // 也絕不記成 failed——收據停在 dispatched＋outcomeUnknown，
+                    // runtime 據此標成 uncertain（link 傳輸同一套規則）。
+                    self.endpoint.record_failure(&detail);
+                    return Ok(DriverReceipt::start(&action, sent_at)
+                        .dispatched_at(sent_at)
+                        .note("transport", json!("http"))
+                        .note("httpTimeout", json!(true))
+                        .note("sendOutcomeUnknown", json!(true))
+                        .note("outcomeUnknown", json!(true))
+                        .note("detail", json!(detail))
+                        .finish());
+                }
+                Err(SendError::NotSent(detail)) => {
+                    // 確定沒送出（連不上／URL 不合法／secret 解不出來）：
+                    // 沒有實體效果，重試是安全的。
+                    last_err = detail;
                 }
             }
         }
@@ -904,6 +1015,41 @@ pub struct BuiltCapabilities {
     /// provider 被 disable／revoke 時，主機用它真的把連線關掉——
     /// 停用的 provider 不得繼續佔著序列埠／broker 連線做無盡重連。
     pub links: Vec<Arc<dyn protocol::LinkShutdown>>,
+    /// 建置時發現、但不足以拒絕整份 spec 的問題（例如明文憑證）。
+    /// 可稽核：呼叫端應把它顯示出來，不要靜靜吞掉。內容只點名能力與欄位，
+    /// **永遠不含憑證值**。
+    pub warnings: Vec<String>,
+}
+
+/// 明文憑證檢查：`pairingCode`／`password` 應該是 `secret://name` 參照
+/// （env `INTERACT_AI_SECRET_<NAME>` 或 state/secrets.json），寫死在 YAML 裡
+/// 等於把憑證留在 config 檔。這裡只警告不拒絕（既有 spec 不能一升級就壞掉），
+/// 訊息只點名能力與欄位，絕不回顯值。
+pub fn credential_warnings(spec: &DeclarativeSpec) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut check = |cap_id: &str, field: &str, value: &Option<String>| {
+        if let Some(v) = value {
+            if !v.starts_with("secret://") {
+                out.push(format!(
+                    "{cap_id}: {field} 是寫在 adapter spec 裡的明文憑證；請改成 \
+                     secret://<name>（環境變數 INTERACT_AI_SECRET_<NAME> 或 state/secrets.json）"
+                ));
+            }
+        }
+    };
+    for cap in &spec.capabilities {
+        if let Some(s) = &cap.serial {
+            check(&cap.id, "pairingCode", &s.pairing_code);
+        }
+        if let Some(m) = &cap.mqtt {
+            check(&cap.id, "pairingCode", &m.pairing_code);
+            check(&cap.id, "password", &m.password);
+        }
+        if let Some(b) = &cap.ble {
+            check(&cap.id, "pairingCode", &b.pairing_code);
+        }
+    }
+    out
 }
 
 /// provider id → 該 provider 的實體連線（弱參照：能力被丟棄後自動失效，
@@ -966,16 +1112,25 @@ pub fn build(
     validate_spec(spec)?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
+        // 連線階段獨立設限：這樣「連不上」會以 connect 錯誤現身（確定沒送出、
+        // 可安全重試），不會掉進請求層逾時而被當成「可能已送達」。
+        .connect_timeout(Duration::from_secs(3))
         // No redirects: a redirect Location is never re-validated by the SSRF
         // guard, so following one would let an allowlisted host bounce us to a
         // metadata/internal target. Fail instead of following.
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())?;
+    let warnings = credential_warnings(spec);
+    for w in &warnings {
+        // 可稽核：明文憑證不阻擋，但一定要留下痕跡（值本身不在訊息裡）。
+        tracing::warn!(adapter = %spec.id, "{w}");
+    }
     let mut out = BuiltCapabilities {
         receptors: vec![],
         actuators: vec![],
         links: vec![],
+        warnings,
     };
     // 每種 link 傳輸共享一條連線（同一 adapter 內設定必須一致——不一致代表
     // spec 想同時對到兩個裝置，應拆成兩個 adapter）。
@@ -1102,6 +1257,7 @@ pub fn build(
                             cfg.topic_prefix.clone(),
                             &spec.id,
                             credentials,
+                            cfg.liveness_timeout_ms,
                         );
                         let link = Arc::new(protocol::DeviceLink::new(
                             raw,

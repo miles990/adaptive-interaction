@@ -60,11 +60,21 @@ struct FakeDevice {
     apply_count: Arc<AtomicU32>,
     /// 裝置端實際收到的 publish QoS（host 必須用 AtLeastOnce）。
     qos_seen: Arc<Mutex<Vec<u8>>>,
+    /// 真正被套用的 cmd id（依序）——「遲到的實體效果」就是看它有沒有
+    /// 出現一個 host 早已放棄的 id。
+    applied_ids: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeDevice {
     fn qos_values(&self) -> Vec<u8> {
         self.qos_seen.lock().map(|q| q.clone()).unwrap_or_default()
+    }
+
+    fn applied(&self) -> Vec<String> {
+        self.applied_ids
+            .lock()
+            .map(|v| v.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -140,6 +150,9 @@ async fn spawn_fake_device(
                             } else {
                                 seen_ids.push(id.clone());
                                 device.apply_count.fetch_add(1, Ordering::SeqCst);
+                                if let Ok(mut applied) = device.applied_ids.lock() {
+                                    applied.push(id.clone());
+                                }
                                 // 模擬韌體硬限制：magnitude clamp 0.8。
                                 let requested = msg["params"]["strength"].as_f64().unwrap_or(0.0);
                                 Some(json!({
@@ -432,4 +445,287 @@ async fn mqtt_identity_mismatch_is_refused() {
     );
     let text = serde_json::to_string(&receipt).unwrap_or_default();
     assert!(text.contains("identity"), "收據要說明身分問題：{text}");
+}
+
+// ---------------------------------------------------------------------------
+// 可切斷的 TCP 代理（模擬器）：host → proxy → broker
+//
+// 為什麼需要它：要證明「斷線邊界之後 broker 不得再送出任何命令」，必須造出
+// 一則**已寫上線、但永遠到不了 broker** 的 publish（inflight、沒有 PubAck），
+// 然後在那一刻切線。真 broker 上這個時間窗只有微秒級，代理讓它變成確定的。
+// ---------------------------------------------------------------------------
+
+use std::sync::atomic::AtomicU64;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::net::{TcpListener, TcpStream};
+
+struct Proxy {
+    port: u16,
+    /// true＝把 host 送出的位元組讀掉但不轉給 broker
+    /// （「已寫上線、永遠到不了」）。
+    black_hole: Arc<std::sync::atomic::AtomicBool>,
+    /// 世代 +1＝把目前這條連線切斷（模擬斷線）。
+    epoch: Arc<AtomicU64>,
+}
+
+impl Proxy {
+    fn black_hole(&self, on: bool) {
+        self.black_hole.store(on, Ordering::SeqCst);
+    }
+
+    fn cut(&self) {
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+async fn start_proxy(broker_port: u16) -> Proxy {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("proxy bind");
+    let port = listener.local_addr().expect("proxy addr").port();
+    let black_hole = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let epoch = Arc::new(AtomicU64::new(0));
+    let (bh, ep) = (black_hole.clone(), epoch.clone());
+    tokio::spawn(async move {
+        loop {
+            let Ok((client, _)) = listener.accept().await else {
+                return;
+            };
+            let Ok(server) = TcpStream::connect(("127.0.0.1", broker_port)).await else {
+                continue;
+            };
+            let my_epoch = ep.load(Ordering::SeqCst);
+            let (client_rx, client_tx) = client.into_split();
+            let (server_rx, server_tx) = server.into_split();
+            tokio::spawn(pump(
+                client_rx,
+                server_tx,
+                bh.clone(),
+                ep.clone(),
+                my_epoch,
+                true,
+            ));
+            tokio::spawn(pump(
+                server_rx,
+                client_tx,
+                bh.clone(),
+                ep.clone(),
+                my_epoch,
+                false,
+            ));
+        }
+    });
+    Proxy {
+        port,
+        black_hole,
+        epoch,
+    }
+}
+
+async fn pump(
+    mut from: OwnedReadHalf,
+    mut to: OwnedWriteHalf,
+    black_hole: Arc<std::sync::atomic::AtomicBool>,
+    epoch: Arc<AtomicU64>,
+    my_epoch: u64,
+    drop_when_black: bool,
+) {
+    let mut buf = vec![0u8; 4096];
+    loop {
+        if epoch.load(Ordering::SeqCst) != my_epoch {
+            return; // 這條連線被切了
+        }
+        match tokio::time::timeout(Duration::from_millis(30), from.read(&mut buf)).await {
+            Ok(Ok(0)) | Ok(Err(_)) => return,
+            Ok(Ok(n)) => {
+                if drop_when_black && black_hole.load(Ordering::SeqCst) {
+                    continue; // 讀掉但不轉送
+                }
+                if to.write_all(&buf[..n]).await.is_err() {
+                    return;
+                }
+            }
+            Err(_) => continue, // 只是輪詢窗到期
+        }
+    }
+}
+
+/// 【模擬器】斷線邊界：一則已寫上線但沒收到 PubAck 的 cmd，重連後**絕不**
+/// 被補送到裝置。rumqttc 預設會把未 ack 的 QoS1 publish 搬進 pending 並在
+/// 重連後優先重播——host 早已把它記成「結果未知、不重送」，裝置卻在數秒後
+/// 才動作，那正是 serial 端 drain_stale_queue 明文要避免的遲到實體效果。
+/// 同時驗證重連後的新命令照常可用。
+#[tokio::test(flavor = "multi_thread")]
+async fn mqtt_a_reconnect_never_replays_the_inflight_command() {
+    let port = test_port() + 4;
+    start_broker(port);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // 裝置直連 broker；只有 host 走代理（我們只切 host 這一側）。
+    let device = spawn_fake_device(port, "companion/sim-e", "esp32-sim01", None).await;
+    let proxy = start_proxy(port).await;
+
+    let yaml = spec_yaml(proxy.port, "companion/sim-e", "esp32-sim01", None);
+    let built = build(&parse_spec(&yaml).expect("spec"), None).expect("build");
+
+    // 1) 正常閉環：握手＋ack。
+    let first = built.actuators[0]
+        .execute(bounded_action_with_id("live-1", 0.5))
+        .await
+        .expect("first execute");
+    assert_eq!(
+        first.current_status,
+        interaction_core::ActionStatus::Acknowledged
+    );
+
+    // 2) 黑洞：host 寫得出去，但一個位元組也到不了 broker。
+    proxy.black_hole(true);
+    let stale = built.actuators[0]
+        .execute(bounded_action_with_id("stale-1", 0.5))
+        .await
+        .expect("honest receipt");
+    assert_eq!(
+        stale.current_status,
+        interaction_core::ActionStatus::Dispatched,
+        "已送出、沒有 ack＝結果未知：{stale:?}"
+    );
+    assert_eq!(stale.driver_response["outcomeUnknown"], json!(true));
+
+    // 3) 切線 → 重連（黑洞解除）。
+    proxy.cut();
+    proxy.black_hole(false);
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+
+    // 4) 重連後的新命令要照常可用（重連本身沒被我們弄壞）。
+    let fresh = built.actuators[0]
+        .execute(bounded_action_with_id("fresh-1", 0.5))
+        .await
+        .expect("execute after reconnect");
+    assert_eq!(
+        fresh.current_status,
+        interaction_core::ActionStatus::Acknowledged,
+        "重連後的新命令必須照常可用：{fresh:?}"
+    );
+
+    // 5) 核心不變量：那則被放棄的命令**永遠**不得抵達裝置。
+    let applied = device.applied();
+    assert!(
+        !applied.iter().any(|id| id == "stale-1"),
+        "重連後不得補送上一代未 ack 的命令（遲到的實體效果）：{applied:?}"
+    );
+    assert!(
+        applied.iter().any(|id| id == "fresh-1"),
+        "重連後的新命令應該有送到：{applied:?}"
+    );
+}
+
+/// 【模擬器】等待中的命令遇到重連：結果未知（dispatched＋outcomeUnknown），
+/// **不是 failed**——命令可能已經套用，記成失敗會誘發重送＝重複實體效果。
+#[tokio::test(flavor = "multi_thread")]
+async fn mqtt_a_command_waiting_across_a_reconnect_is_uncertain_not_failed() {
+    let port = test_port() + 5;
+    start_broker(port);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let _device = spawn_fake_device(port, "companion/sim-f", "esp32-sim01", None).await;
+    let proxy = start_proxy(port).await;
+
+    let yaml = spec_yaml(proxy.port, "companion/sim-f", "esp32-sim01", None);
+    let built = build(&parse_spec(&yaml).expect("spec"), None).expect("build");
+    built.actuators[0]
+        .execute(bounded_action_with_id("warm-1", 0.5))
+        .await
+        .expect("handshake + first ack");
+
+    // 命令寫得出去但到不了裝置；等待期間把連線切掉。
+    proxy.black_hole(true);
+    let cutter = async {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        proxy.cut();
+        proxy.black_hole(false);
+    };
+    let executing = built.actuators[0].execute(bounded_action_with_id("cut-1", 0.5));
+    let (receipt, ()) = tokio::join!(executing, cutter);
+    let receipt = receipt.expect("honest receipt");
+
+    assert_eq!(
+        receipt.current_status,
+        interaction_core::ActionStatus::Dispatched,
+        "等待中重連＝結果未知：{receipt:?}"
+    );
+    assert_ne!(
+        receipt.current_status,
+        interaction_core::ActionStatus::Failed,
+        "未知不得冒充失敗"
+    );
+    assert_eq!(receipt.driver_response["outcomeUnknown"], json!(true));
+    assert!(
+        receipt.errors.is_empty(),
+        "結果未知不得寫成錯誤：{:?}",
+        receipt.errors
+    );
+}
+
+/// 【模擬器】裝置存活：broker 連著 ≠ ESP32 還活著。超過 livenessTimeoutMs
+/// 沒聽到裝置就必須誠實降級（degraded），不得繼續宣稱「此刻真的能用它」；
+/// 再次聽到裝置就恢復。
+#[tokio::test(flavor = "multi_thread")]
+async fn mqtt_device_silence_degrades_health_even_while_the_broker_is_connected() {
+    use interaction_core::HealthStatus;
+
+    let port = test_port() + 6;
+    start_broker(port);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let _device = spawn_fake_device(port, "companion/sim-g", "esp32-sim01", None).await;
+
+    // 參考韌體每 5s 推播一次 state；這裡把窗縮到 400ms 讓測試有界。
+    let yaml = format!(
+        r#"
+schemaVersion: "1.0"
+id: esp32-live
+capabilities:
+  - kind: actuator
+    id: vibe
+    channel: haptic
+    transport: mqtt
+    timeoutMs: 4000
+    command:
+      name: "vibe.pulse"
+      params: {{ strength: "{{{{magnitude}}}}" }}
+    mqtt:
+      brokerHost: "127.0.0.1"
+      brokerPort: {port}
+      topicPrefix: "companion/sim-g"
+      expectedDeviceId: "esp32-sim01"
+      livenessTimeoutMs: 400
+"#
+    );
+    let built = build(&parse_spec(&yaml).expect("spec"), None).expect("build");
+    let actuator = &built.actuators[0];
+
+    actuator
+        .execute(bounded_action_with_id("live-a", 0.5))
+        .await
+        .expect("handshake + ack");
+    let healthy = actuator.status().await;
+    assert_eq!(
+        healthy.status,
+        HealthStatus::Healthy,
+        "剛聽到裝置：healthy（{healthy:?}）"
+    );
+
+    // 裝置安靜下來（韌體會週期推播 state；沉默＝斷電／離線）。
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    let stale = actuator.status().await;
+    assert_ne!(
+        stale.status,
+        HealthStatus::Healthy,
+        "broker 連著不等於裝置在線：{stale:?}"
+    );
+    let message = stale.message.clone().unwrap_or_default();
+    assert!(message.contains("沒聽到裝置"), "{message}");
+
+    // 再次聽到裝置（一次成功的命令）→ 恢復 healthy。
+    actuator
+        .execute(bounded_action_with_id("live-b", 0.5))
+        .await
+        .expect("ack");
+    assert_eq!(actuator.status().await.status, HealthStatus::Healthy);
 }

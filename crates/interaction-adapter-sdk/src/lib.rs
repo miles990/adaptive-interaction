@@ -183,6 +183,19 @@ impl DriverReceipt {
         self
     }
 
+    /// Same as [`DriverReceipt::dispatched`], but stamped with the moment the
+    /// command actually left the driver.
+    ///
+    /// Drivers that wait for an acknowledgement build their receipt *after* the
+    /// wait, so `Utc::now()` would record the end of the ack window instead of
+    /// the dispatch. The runtime's "dispatched but never acknowledged → uncertain"
+    /// watchdog measures the age of this timestamp: stamping it late makes the
+    /// age ≈ 0 and the receipt would sit in `Dispatched` forever.
+    pub fn dispatched_at(mut self, at: Timestamp) -> Self {
+        let _ = self.receipt.transition(ActionStatus::Dispatched, at);
+        self
+    }
+
     pub fn acknowledged(mut self) -> Self {
         let _ = self
             .receipt

@@ -30,6 +30,9 @@ const BACKOFF_MAX_MS: u64 = 15_000;
 /// host 端就拒絕——確定沒寫出，不製造「裝置回了無 id 錯誤」的未知。
 /// 模擬器 `scripts/esp32-serial-sim.py` 的 MAX_LINE_BYTES 與此相同。
 pub const MAX_LINE_BYTES: usize = 639;
+/// 跨讀取逾時保留的「未完成一行」上限。裝置若一直不送換行，緩衝不得無界
+/// 成長（parse_device_msg 本來就只解析 ≤16KB）。
+const MAX_PARTIAL_LINE_BYTES: usize = 16 * 1024;
 /// shutdown 時等 reader 執行緒收尾的上限。pty fallback 的 read 沒有逾時，
 /// 裝置完全沉默時可能還卡在 read——關閉必須有界，不能無限 join。
 const READER_JOIN_GRACE_MS: u64 = 500;
@@ -237,35 +240,17 @@ fn supervisor(
                 let reader_alive = alive.clone();
                 let reader_shutdown = shutdown.clone();
                 let reader_inbound = inbound.clone();
+                let reader_port = port.clone();
                 let reader_handle = std::thread::Builder::new()
                     .name(format!("serial-read-{port}"))
                     .spawn(move || {
-                        let mut buf = BufReader::new(reader);
-                        let mut line = String::new();
-                        loop {
-                            if !reader_alive.load(Ordering::SeqCst)
-                                || reader_shutdown.load(Ordering::SeqCst)
-                            {
-                                return;
-                            }
-                            line.clear();
-                            match buf.read_line(&mut line) {
-                                Ok(0) => break, // EOF＝裝置拔線
-                                Ok(_) => {
-                                    if let Some(msg) = parse_device_msg(&line) {
-                                        let _ = reader_inbound.send(msg);
-                                    }
-                                }
-                                Err(e)
-                                    if matches!(
-                                        e.kind(),
-                                        std::io::ErrorKind::TimedOut
-                                            | std::io::ErrorKind::Interrupted
-                                            | std::io::ErrorKind::WouldBlock
-                                    ) => {}
-                                Err(_) => break,
-                            }
-                        }
+                        pump_lines(
+                            reader,
+                            &reader_port,
+                            &reader_alive,
+                            &reader_shutdown,
+                            &reader_inbound,
+                        );
                         reader_alive.store(false, Ordering::SeqCst);
                     })
                     .ok();
@@ -336,6 +321,59 @@ fn supervisor(
     connected.store(false, Ordering::SeqCst);
     state.store(STATE_CLOSED, Ordering::SeqCst);
     done.store(true, Ordering::SeqCst);
+}
+
+/// Reader 迴圈：讀行→解析→廣播。抽出來是為了不碰真硬體也能測「讀取逾時
+/// 中間的半行」。
+///
+/// 關鍵：serialport 開埠帶 200ms 逾時，裝置在一行中間停頓超過 200ms 是常態
+/// （韌體正在讀 DHT／超音波）。`BufRead::read_line` 在 I/O 錯誤時**會保留已
+/// 讀到的位元組**，所以逾時分支絕不能清掉 `line`——清掉就等於把 ack／state
+/// 的前半段丟掉，後半段解析失敗被靜默丟棄，host 端記成「ack 逾時、結果未知」。
+/// 只有讀到完整一行（或超過上限）才清。
+fn pump_lines<R: Read>(
+    reader: R,
+    port: &str,
+    alive: &AtomicBool,
+    shutdown: &AtomicBool,
+    inbound: &broadcast::Sender<DeviceMsg>,
+) {
+    let mut buf = BufReader::new(reader);
+    let mut line = String::new();
+    loop {
+        if !alive.load(Ordering::SeqCst) || shutdown.load(Ordering::SeqCst) {
+            return;
+        }
+        match buf.read_line(&mut line) {
+            Ok(0) => break, // EOF＝裝置拔線
+            Ok(_) => {
+                if let Some(msg) = parse_device_msg(&line) {
+                    let _ = inbound.send(msg);
+                }
+                line.clear();
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::Interrupted
+                        | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                // 逾時＝「還沒收到換行」，不是錯誤：保留半行等後續位元組。
+                // 但要有界：永遠不送換行的裝置不得把緩衝撐大。
+                if line.len() > MAX_PARTIAL_LINE_BYTES {
+                    tracing::warn!(
+                        port = %port,
+                        bytes = line.len(),
+                        "serial: unterminated line exceeded the limit; discarded"
+                    );
+                    line.clear();
+                }
+            }
+            Err(_) => break,
+        }
+    }
 }
 
 /// 重連（新世代）時把待送佇列清空，回傳丟棄的則數。
@@ -525,6 +563,117 @@ mod tests {
             other => panic!("send_before must apply the same limit, got {other:?}"),
         }
         link.shutdown();
+    }
+
+    /// 分段供應的讀取來源：每次 read 回一段，或一個 TimedOut（模擬真硬體
+    /// 在一行中間停頓超過 200ms 的讀取逾時）。
+    struct ChunkedReader {
+        chunks: std::collections::VecDeque<Result<String, std::io::ErrorKind>>,
+    }
+
+    impl ChunkedReader {
+        fn new(items: Vec<Result<String, std::io::ErrorKind>>) -> Self {
+            Self {
+                chunks: items.into_iter().collect(),
+            }
+        }
+    }
+
+    impl Read for ChunkedReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            match self.chunks.front_mut() {
+                None => Ok(0), // EOF：結束迴圈
+                Some(Err(kind)) => {
+                    let kind = *kind;
+                    self.chunks.pop_front();
+                    Err(std::io::Error::new(kind, "simulated read timeout"))
+                }
+                Some(Ok(text)) => {
+                    let n = text.len().min(buf.len());
+                    buf[..n].copy_from_slice(&text.as_bytes()[..n]);
+                    text.drain(..n);
+                    if text.is_empty() {
+                        self.chunks.pop_front();
+                    }
+                    Ok(n)
+                }
+            }
+        }
+    }
+
+    fn chunk(text: &str) -> Result<String, std::io::ErrorKind> {
+        Ok(text.to_string())
+    }
+
+    /// 讀取逾時**不得**丟掉已讀到的半行。真硬體在送 ack 途中被感測器讀取
+    /// 打斷（>200ms）是常態；舊版每輪先 line.clear()，半行被丟、後半解析
+    /// 失敗被靜默丟棄，host 端就把一個裝置其實已經 ack 的命令記成
+    /// 「ack 逾時、結果未知」。
+    #[test]
+    fn a_read_timeout_keeps_the_partial_line() {
+        let (inbound, mut rx) = broadcast::channel(8);
+        let alive = AtomicBool::new(true);
+        let shutdown = AtomicBool::new(false);
+        let reader = ChunkedReader::new(vec![
+            chunk(r#"{"type":"ack","id":"#),
+            Err(std::io::ErrorKind::TimedOut), // 行中間停頓
+            chunk(r#""a1"}"#),
+            Err(std::io::ErrorKind::WouldBlock), // 換行前又停頓
+            chunk("\n"),
+        ]);
+        pump_lines(reader, "/dev/fake", &alive, &shutdown, &inbound);
+        let msg = rx
+            .try_recv()
+            .expect("被逾時切成三段的 ack 仍必須解析得出來");
+        assert_eq!(
+            msg,
+            DeviceMsg::Ack {
+                id: Some("a1".into()),
+                applied: None,
+                dup: None,
+                cancelled: None,
+                stop_all: None,
+            }
+        );
+        assert!(rx.try_recv().is_err(), "只該有一則訊息");
+    }
+
+    /// 完整的一行讀完就清緩衝：下一行不得黏在前一行後面。
+    #[test]
+    fn complete_lines_are_not_concatenated() {
+        let (inbound, mut rx) = broadcast::channel(8);
+        let alive = AtomicBool::new(true);
+        let shutdown = AtomicBool::new(false);
+        let reader = ChunkedReader::new(vec![
+            chunk("{\"type\":\"ack\",\"id\":\"a1\"}\n"),
+            chunk("{\"type\":\"ack\",\"id\":\"a2\"}\n"),
+        ]);
+        pump_lines(reader, "/dev/fake", &alive, &shutdown, &inbound);
+        for want in ["a1", "a2"] {
+            match rx.try_recv().expect("兩行都要收到") {
+                DeviceMsg::Ack { id, .. } => assert_eq!(id.as_deref(), Some(want)),
+                other => panic!("expected ack, got {other:?}"),
+            }
+        }
+    }
+
+    /// 保留半行必須有界：一直不送換行的裝置不得把緩衝撐大——超過上限就
+    /// 丟掉並警告，之後的完整訊息仍要讀得到（不是把 reader 卡死）。
+    #[test]
+    fn an_unterminated_line_is_bounded_and_recovers() {
+        let (inbound, mut rx) = broadcast::channel(8);
+        let alive = AtomicBool::new(true);
+        let shutdown = AtomicBool::new(false);
+        let reader = ChunkedReader::new(vec![
+            chunk(&"x".repeat(MAX_PARTIAL_LINE_BYTES + 1_000)), // 永遠沒有換行
+            Err(std::io::ErrorKind::TimedOut),
+            chunk("{\"type\":\"ack\",\"id\":\"a1\"}\n"),
+        ]);
+        pump_lines(reader, "/dev/fake", &alive, &shutdown, &inbound);
+        match rx.try_recv().expect("超長殘段丟棄後仍要讀得到下一則") {
+            DeviceMsg::Ack { id, .. } => assert_eq!(id.as_deref(), Some("a1")),
+            other => panic!("expected ack, got {other:?}"),
+        }
     }
 
     /// 每則 cmd 帶 deadline：過期的不寫上線（沒有期限的控制訊息照送）。
