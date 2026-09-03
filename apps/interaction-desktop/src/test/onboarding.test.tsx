@@ -527,6 +527,57 @@ describe("Onboarding：重新執行", () => {
     );
   });
 
+  it("重跑：期間在別處改過的設定，不得被沒送出的舊草稿蓋回去", async () => {
+    // 使用者上次開精靈存了草稿沒送出，之後在別的頁面把主動說話改成「自然」，
+    // 也把 iPhone 動作打開了。重開精靈時草稿是舊的：真值必須贏，否則按下
+    // 「套用」就會靜默還原使用者後來的修改。
+    // `as unknown as null` 只是為了配合這份 mock 推導出來的 `draft: null` 型別；
+    // 執行期送出的就是一份完整的舊草稿。
+    const staleDraft = {
+      step: 0,
+      senses: ["task.lifecycle"],
+      responses: ["conversation"],
+      initiative: "suggest",
+      quietStart: "22:00",
+      quietEnd: "08:00",
+      quietEnabled: false,
+      starters: ["starter-task-complete"],
+      customize: false,
+      companionVisible: true,
+      expressiveness: "natural",
+      dialogueMode: "necessary",
+      agentChoice: "later",
+    } as unknown as null;
+    mockApi.onboardingGet.mockImplementation(async () => ({
+      completed: true,
+      draft: staleDraft,
+      starterRecipes: [
+        { id: "starter-task-complete", title: "任務完成時，用最低干擾方式回應" },
+        { id: "starter-quiet-log", title: "安靜時段只記錄、不打擾" },
+      ],
+    }));
+    mockApi.proactiveDialogueGet.mockImplementation(async () => ({ mode: "natural" }));
+
+    renderWizard();
+    await screen.findByRole("heading", { name: "選擇角色與陪伴方式" });
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await userEvent.click(screen.getByRole("button", { name: "下一步" }));
+    await screen.findByRole("heading", { name: "確認安全與權限預設" });
+    // 顯示的是現在的真值（自然），不是草稿裡的舊值（必要時）。
+    await waitFor(() => expect(screen.getByRole("radio", { name: /^自然——/ })).toBeChecked());
+    const dialog = await openConfirm();
+    await userEvent.click(within(dialog).getByRole("button", { name: "套用" }));
+    await waitFor(() => expect(mockApi.onboardingCommit).toHaveBeenCalled());
+    const commit = lastCommit();
+    // 草稿裡沒有 iphone.motion，但它現在是開著的 → 不得被關掉。
+    expect(commit["disableReceptors"]).toEqual([]);
+    expect(commit["enableReceptors"]).toEqual(["task.lifecycle", "iphone.motion"]);
+    // 草稿裡有起步範本，但重跑一律不重裝（會覆寫使用者改過的內容）。
+    expect(commit["starterRecipes"]).toEqual([]);
+    // 沒有真的動過主動說話 → 不送 patch，也就不會把「自然」改回「必要時」。
+    expect(mockApi.proactiveDialoguePatch).not.toHaveBeenCalled();
+  });
+
   it("重跑的步驟三文案說明「不會自動關掉任何一項」", async () => {
     renderWizard();
     await screen.findByRole("heading", { name: "選擇角色與陪伴方式" });

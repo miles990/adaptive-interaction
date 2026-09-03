@@ -274,30 +274,42 @@ export function Onboarding({
         // 重跑不重裝起步範本：那會覆寫使用者已經改過的自動互動內容。
         ...(isRerun ? { starters: [] } : {}),
       };
+      // 第一次：只挑低風險、本機、推薦新手的能力（保守原則，未知不預選）。
+      // 重跑：挑目前真的開著的，讓「不動就不會變」成立。
+      const liveSenses = human.receptors
+        .filter((r) =>
+          isRerun
+            ? wizardControllable(r) && capabilityOn(r)
+            : beginnerSafe(r) && r.availability === "available"
+        )
+        .map((r) => r.id);
+      const liveResponses = human.actuators
+        .filter((a) =>
+          isRerun
+            ? wizardControllable(a) && capabilityOn(a)
+            : beginnerSafe(a) && a.availability === "available"
+        )
+        .map((a) => a.id);
+      const fresh: Draft = { ...seeded, senses: liveSenses, responses: liveResponses };
       const d = s.draft as Partial<Draft> | null | undefined;
       if (d && typeof d.step === "number") {
-        setDraft({ ...seeded, ...d, step: Math.min(d.step, STEP_COUNT - 1) });
+        // 重跑時的草稿可能是上一次沒送出的舊值，而使用者之後已經在別處改過設定。
+        // 凡是「鏡射目前真實狀態」的欄位一律以真值為準，草稿不得蓋回舊值——
+        // 否則按下「套用」就會靜默還原使用者後來的修改（起步範本同理，重跑不重裝）。
+        const liveWins: Partial<Draft> = isRerun
+          ? {
+              ...(cur.dialogueMode !== null ? { dialogueMode: cur.dialogueMode } : {}),
+              ...(cur.companionVisible !== null ? { companionVisible: cur.companionVisible } : {}),
+              ...(cur.expressiveness !== null ? { expressiveness: cur.expressiveness } : {}),
+              starters: [],
+              senses: liveSenses,
+              responses: liveResponses,
+            }
+          : {};
+        setDraft({ ...fresh, ...d, ...liveWins, step: Math.min(d.step, STEP_COUNT - 1) });
         return;
       }
-      setDraft({
-        ...seeded,
-        // 第一次：只挑低風險、本機、推薦新手的能力（保守原則，未知不預選）。
-        // 重跑：挑目前真的開著的，讓「不動就不會變」成立。
-        senses: human.receptors
-          .filter((r) =>
-            isRerun
-              ? wizardControllable(r) && capabilityOn(r)
-              : beginnerSafe(r) && r.availability === "available"
-          )
-          .map((r) => r.id),
-        responses: human.actuators
-          .filter((a) =>
-            isRerun
-              ? wizardControllable(a) && capabilityOn(a)
-              : beginnerSafe(a) && a.availability === "available"
-          )
-          .map((a) => a.id),
-      });
+      setDraft(fresh);
     })();
     return () => {
       alive = false;

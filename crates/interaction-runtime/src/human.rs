@@ -240,6 +240,129 @@ struct OnboardingPlan {
     starter_recipes: Vec<(String, bool)>,
 }
 
+/// Everything a commit is going to write, computed with **no side effects at
+/// all** (Phase 1). Once this exists, no business rule can still reject the
+/// commit — only genuine I/O can fail.
+struct OnboardingPatch {
+    plan: OnboardingPlan,
+    /// Fully merged and validated policy, ready to write as-is.
+    policy: Option<PolicyConfig>,
+    /// Fully merged and validated UI preferences.
+    preferences: Option<UiPreferences>,
+    /// (starter id, parsed recipe) — the YAML is parsed and validated here,
+    /// never while writing.
+    recipes: Vec<(String, Recipe)>,
+}
+
+/// A file's bytes before this commit touched it (`None` = it did not exist).
+/// Restoring these is how the state that lives outside SQLite — `policy.yaml`
+/// and the recipe files — is rolled back when a later step of the same commit
+/// fails.
+struct FileBackup {
+    path: std::path::PathBuf,
+    previous: Option<String>,
+    /// The user-facing step that wrote it, for the message and the audit row.
+    step: &'static str,
+}
+
+/// One in-memory capability switch this commit flipped, with the value it had
+/// before, so the flip can be undone.
+struct ComponentFlip {
+    receptor: bool,
+    id: String,
+    from_on: bool,
+}
+
+/// What a failed commit actually did about the writes it had already made.
+#[derive(Default)]
+struct Compensation {
+    /// Put back successfully (file step names or component ids).
+    reverted: Vec<String>,
+    /// Rollback attempts that themselves failed — the only case where the end
+    /// state is genuinely unknown, so it is never swallowed.
+    revert_failed: Vec<String>,
+    /// Durable state that stayed committed on purpose (a Phase 2b failure
+    /// happens *after* the atomic durable commit; un-committing it would be a
+    /// second lie).
+    kept: Vec<&'static str>,
+}
+
+/// Restore every captured file, newest first. Used when a Phase 2a step fails:
+/// the files are the only pre-transaction writes, so putting them back makes
+/// the whole commit unobservable.
+fn restore_file_backups(backups: &[FileBackup]) -> Compensation {
+    let mut comp = Compensation::default();
+    for backup in backups.iter().rev() {
+        match crate::config::restore_file(&backup.path, backup.previous.as_deref()) {
+            Ok(()) => {
+                if !comp.reverted.iter().any(|s| s == backup.step) {
+                    comp.reverted.push(backup.step.to_string());
+                }
+            }
+            Err(e) => comp
+                .revert_failed
+                .push(format!("{}: {e}", backup.step.to_owned())),
+        }
+    }
+    comp
+}
+
+/// The durable steps a commit writes in Phase 2a, in user words. Named in the
+/// error when Phase 2b fails afterwards, so the user learns exactly what was
+/// saved and what was not.
+fn durable_steps(commit: &OnboardingCommit) -> Vec<&'static str> {
+    let mut steps = Vec::new();
+    if commit.policy_patch.is_some() {
+        steps.push(STEP_POLICY);
+    }
+    if !commit.starter_recipes.is_empty() {
+        steps.push(STEP_AUTOMATIONS);
+    }
+    if commit.preferences.is_some() {
+        steps.push(STEP_PREFERENCES);
+    }
+    steps.push(STEP_COMPLETE);
+    steps
+}
+
+/// The machine-readable summary the caller and the audit row share. Derived
+/// from the Phase 1 patch, so it describes exactly one committed change.
+fn onboarding_applied_summary(commit: &OnboardingCommit, patch: &OnboardingPatch) -> Vec<Value> {
+    let mut applied = Vec::new();
+    if commit.policy_patch.is_some() {
+        applied.push(json!({"step": "policy", "ok": true}));
+    }
+    applied.push(json!({
+        "step": "components",
+        "receptors": patch.plan.receptors.iter().map(ComponentChange::to_value).collect::<Vec<_>>(),
+        "actuators": patch.plan.actuators.iter().map(ComponentChange::to_value).collect::<Vec<_>>(),
+        "receptorsChanged": patch
+            .plan
+            .receptors
+            .iter()
+            .filter(|c| c.changed())
+            .map(|c| c.id.clone())
+            .collect::<Vec<_>>(),
+        "actuatorsChanged": patch
+            .plan
+            .actuators
+            .iter()
+            .filter(|c| c.changed())
+            .map(|c| c.id.clone())
+            .collect::<Vec<_>>(),
+    }));
+    if !patch.recipes.is_empty() {
+        applied.push(json!({
+            "step": "starterRecipes",
+            "installed": patch.recipes.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>(),
+        }));
+    }
+    if commit.preferences.is_some() {
+        applied.push(json!({"step": "preferences", "ok": true}));
+    }
+    applied
+}
+
 impl OnboardingPlan {
     fn changed_components(&self) -> bool {
         self.receptors.iter().any(ComponentChange::changed)
@@ -443,10 +566,25 @@ impl Runtime {
     }
 
     pub async fn update_ui_preferences(&self, patch: Value) -> DomainResult<UiPreferences> {
+        let updated = self.validate_ui_preferences(&patch).await?;
+        self.store
+            .set_meta(PREFS_META_KEY, &json!(updated).to_string())?;
+        Ok(updated)
+    }
+
+    /// Merge a preferences patch onto the current value and run every domain
+    /// rule — **without writing anything**. Split out of
+    /// [`Runtime::update_ui_preferences`] so the first-run wizard can run the
+    /// same validation before its first durable write, which is what makes an
+    /// invalid patch impossible to observe as a half-applied commit.
+    pub(crate) async fn validate_ui_preferences(
+        &self,
+        patch: &Value,
+    ) -> DomainResult<UiPreferences> {
         let current = self.ui_preferences().await;
         let mut merged =
             serde_json::to_value(&current).map_err(|e| DomainError::Internal(e.to_string()))?;
-        crate::runtime::merge_json(&mut merged, &patch);
+        crate::runtime::merge_json(&mut merged, patch);
         let updated: UiPreferences = serde_json::from_value(merged)
             .map_err(|e| DomainError::Validation(format!("ui preferences patch: {e}")))?;
         if !matches!(updated.mode.as_str(), "simple" | "advanced") {
@@ -493,8 +631,6 @@ impl Runtime {
                 "too many custom names (max 256)".into(),
             ));
         }
-        self.store
-            .set_meta(PREFS_META_KEY, &json!(updated).to_string())?;
         Ok(updated)
     }
 
@@ -683,207 +819,291 @@ impl Runtime {
         })
     }
 
-    /// Validate everything first, then apply: policy patch → component
-    /// enable/disable → starter recipes → preferences → mark completed.
-    /// The commit path only uses the same governor-validated services as the
-    /// rest of the system; it cannot grant anything policy would refuse.
-    /// Components already in the requested state are left untouched, so a
-    /// re-run changes nothing the user was not shown beforehand.
+    /// Apply the whole first run as ONE change, in two phases.
     ///
-    /// The apply pass is **not** atomic — a policy patch is already persisted
-    /// and components are already live by the time a later step can fail, and
-    /// none of that can be rolled back honestly. So a failure never surfaces as
-    /// a bare "it failed": the error names the steps that DID apply, the step
-    /// that failed and the steps that were never attempted, and the partial
-    /// state is written to the audit trail. Callers (the wizard) must show that
-    /// sentence verbatim instead of claiming nothing happened.
+    /// **Phase 1** ([`Runtime::build_onboarding_patch`]) is pure: it diffs
+    /// against the state the Runtime is actually in and validates *everything*
+    /// — component ids, consent gates, the merged policy, the merged
+    /// preferences and every starter recipe's YAML. Nothing is written. Once it
+    /// returns, no business rule is left that could reject this commit, so a
+    /// later step can only fail on genuine I/O.
+    ///
+    /// **Phase 2a** is the durable state. The two files that live outside
+    /// SQLite (`policy.yaml`, the starter recipe files) are written atomically
+    /// first, with their pre-write bytes kept; then every SQLite row this
+    /// commit writes — preferences, the completion marker, the cleared draft
+    /// and the audit rows — goes in through a single [`Store::transaction`].
+    /// If that transaction does not commit, the files are restored to their
+    /// pre-commit bytes, so the user's settings are exactly as before.
+    ///
+    /// **Phase 2b** flips the in-memory capability switches, and only after 2a
+    /// has committed. If one flip fails, the ones this call already flipped are
+    /// flipped straight back.
+    ///
+    /// So an outside reader ever sees only "all applied" or "none applied",
+    /// with one honestly-irreducible exception that the error states plainly:
+    /// if Phase 2b fails, the durable settings stay saved (they are committed,
+    /// and un-committing them would be a second lie) while the capability
+    /// switches are fully reverted. Components already in the requested state
+    /// are skipped entirely, so a re-run changes nothing the user was not
+    /// shown beforehand.
     pub async fn commit_onboarding(&self, commit: OnboardingCommit) -> DomainResult<Value> {
-        let plan = self.plan_onboarding(&commit).await?;
-        let starters = starter_recipes();
+        // ---------------- Phase 1: pure computation ----------------
+        let patch = self.build_onboarding_patch(&commit).await?;
+        let applied = onboarding_applied_summary(&commit, &patch);
 
-        // The steps this commit will actually attempt, in order. Used to say
-        // which ones were never reached when an earlier one fails.
-        let component_changes = plan
-            .receptors
-            .iter()
-            .chain(plan.actuators.iter())
-            .filter(|c| c.changed())
-            .count();
-        let mut planned: Vec<&'static str> = Vec::new();
-        if commit.policy_patch.is_some() {
-            planned.push(STEP_POLICY);
-        }
-        if component_changes > 0 {
-            planned.push(STEP_COMPONENTS);
-        }
-        if !commit.starter_recipes.is_empty() {
-            planned.push(STEP_AUTOMATIONS);
-        }
-        if commit.preferences.is_some() {
-            planned.push(STEP_PREFERENCES);
-        }
-        planned.push(STEP_COMPLETE);
-        let mut done: Vec<&'static str> = Vec::new();
-
-        // ---- apply pass ----
-        let mut applied = Vec::new();
-        if let Some(patch) = &commit.policy_patch {
-            if let Err(e) = self.update_policy(patch.clone()).await {
-                return Err(self.onboarding_partial(&planned, &done, STEP_POLICY, None, e));
+        // ---------------- Phase 2a: durable state ----------------
+        // Files first. Each write is atomic on its own (temp + rename), and
+        // every touched path is captured beforehand so the whole set can be
+        // put back if the SQLite transaction below does not commit.
+        let mut backups: Vec<FileBackup> = Vec::new();
+        if let Some(policy) = &patch.policy {
+            let previous = match self.config_service.policy_bytes() {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    return Err(self.onboarding_partial(STEP_POLICY, Compensation::default(), e))
+                }
+            };
+            backups.push(FileBackup {
+                path: self.config_service.paths.policy_file(),
+                previous,
+                step: STEP_POLICY,
+            });
+            if let Err(e) = self.config_service.save_policy(policy) {
+                let comp = restore_file_backups(&backups);
+                return Err(self.onboarding_partial(STEP_POLICY, comp, e));
             }
-            applied.push(json!({"step": "policy", "ok": true}));
-            done.push(STEP_POLICY);
         }
+        for (id, recipe) in &patch.recipes {
+            match self.config_service.recipe_file_backups(id) {
+                Ok(entries) => {
+                    backups.extend(entries.into_iter().map(|(path, previous)| FileBackup {
+                        path,
+                        previous,
+                        step: STEP_AUTOMATIONS,
+                    }))
+                }
+                Err(e) => {
+                    let comp = restore_file_backups(&backups);
+                    return Err(self.onboarding_partial(STEP_AUTOMATIONS, comp, e));
+                }
+            }
+            if let Err(e) = self.config_service.save_recipe(recipe) {
+                let comp = restore_file_backups(&backups);
+                return Err(self.onboarding_partial(STEP_AUTOMATIONS, comp, e));
+            }
+        }
+
+        // Then every durable row, as one atomic unit.
+        let committed = self.store.transaction(|tx| {
+            if let Some(prefs) = &patch.preferences {
+                tx.set_meta(PREFS_META_KEY, &json!(prefs).to_string())?;
+            }
+            if let Some(policy_patch) = &commit.policy_patch {
+                tx.audit(
+                    "policy.changed",
+                    "onboarding",
+                    &json!({"patch": crate::runtime::redact(policy_patch)}),
+                )?;
+            }
+            tx.set_meta(
+                ONBOARDING_META_KEY,
+                &json!({"completed": true, "completedAt": Utc::now()}).to_string(),
+            )?;
+            // A committed onboarding leaves no ambiguous half-done draft behind.
+            tx.set_meta(ONBOARDING_DRAFT_META_KEY, "null")?;
+            tx.audit("onboarding.committed", "api", &json!({"applied": applied}))
+        });
+        if let Err(e) = committed {
+            let comp = restore_file_backups(&backups);
+            return Err(self.onboarding_partial(STEP_COMPLETE, comp, e));
+        }
+
+        // The durable state is committed; from here the in-memory swaps that
+        // mirror it cannot fail, so they are not part of any rollback.
+        if let Some(policy) = &patch.policy {
+            *self.policy_config.write().await = policy.clone();
+            self.events.emit(EventType::PolicyChanged, json!({}));
+        }
+        for (_, recipe) in &patch.recipes {
+            let mut map = self.recipes.write().await;
+            let state = map
+                .get(recipe.id.as_str())
+                .map(|e| e.state.clone())
+                .unwrap_or_default();
+            map.insert(
+                recipe.id.as_str().to_string(),
+                crate::runtime::RecipeEntry {
+                    recipe: recipe.clone(),
+                    state,
+                },
+            );
+            drop(map);
+            self.events.emit(
+                EventType::RecipeChanged,
+                json!({"recipeId": recipe.id.as_str()}),
+            );
+        }
+
+        // ---------------- Phase 2b: in-memory registry ----------------
         // Only real changes are written: a no-op `set_*_enabled` would emit a
         // misleading online/offline event and count as a state change the user
         // never approved.
-        let mut flipped = 0usize;
-        for change in &plan.receptors {
-            if !change.changed() {
-                continue;
-            }
+        let mut flipped: Vec<ComponentFlip> = Vec::new();
+        for change in patch.plan.receptors.iter().filter(|c| c.changed()) {
             if let Err(e) = self
                 .registry
                 .set_receptor_enabled(&change.id.as_str().into(), change.to_on)
                 .await
             {
-                return Err(self.onboarding_partial(
-                    &planned,
-                    &done,
-                    STEP_COMPONENTS,
-                    Some(flipped),
-                    e,
-                ));
+                let mut comp = self.revert_component_flips(&flipped).await;
+                comp.kept = durable_steps(&commit);
+                return Err(self.onboarding_partial(STEP_COMPONENTS, comp, e));
             }
-            flipped += 1;
+            flipped.push(ComponentFlip {
+                receptor: true,
+                id: change.id.clone(),
+                from_on: change.from_on,
+            });
         }
-        for change in &plan.actuators {
-            if !change.changed() {
-                continue;
-            }
+        for change in patch.plan.actuators.iter().filter(|c| c.changed()) {
             if let Err(e) = self
                 .registry
                 .set_actuator_enabled(&change.id.as_str().into(), change.to_on)
                 .await
             {
-                return Err(self.onboarding_partial(
-                    &planned,
-                    &done,
-                    STEP_COMPONENTS,
-                    Some(flipped),
-                    e,
-                ));
+                let mut comp = self.revert_component_flips(&flipped).await;
+                comp.kept = durable_steps(&commit);
+                return Err(self.onboarding_partial(STEP_COMPONENTS, comp, e));
             }
-            flipped += 1;
+            flipped.push(ComponentFlip {
+                receptor: false,
+                id: change.id.clone(),
+                from_on: change.from_on,
+            });
         }
-        if component_changes > 0 {
-            done.push(STEP_COMPONENTS);
-        }
-        applied.push(json!({
-            "step": "components",
-            "receptors": plan.receptors.iter().map(ComponentChange::to_value).collect::<Vec<_>>(),
-            "actuators": plan.actuators.iter().map(ComponentChange::to_value).collect::<Vec<_>>(),
-            "receptorsChanged": plan
-                .receptors
-                .iter()
-                .filter(|c| c.changed())
-                .map(|c| c.id.clone())
-                .collect::<Vec<_>>(),
-            "actuatorsChanged": plan
-                .actuators
-                .iter()
-                .filter(|c| c.changed())
-                .map(|c| c.id.clone())
-                .collect::<Vec<_>>(),
-        }));
-        let mut installed = Vec::new();
-        for id in &commit.starter_recipes {
-            if let Some((_, _, yaml)) = starters.iter().find(|(sid, _, _)| sid == id) {
-                if let Err(e) = self.upsert_recipe_text(yaml).await {
-                    return Err(self.onboarding_partial(
-                        &planned,
-                        &done,
-                        STEP_AUTOMATIONS,
-                        Some(installed.len()),
-                        e,
-                    ));
-                }
-                installed.push(id.clone());
-            }
-        }
-        if !commit.starter_recipes.is_empty() {
-            done.push(STEP_AUTOMATIONS);
-        }
-        if !installed.is_empty() {
-            applied.push(json!({"step": "starterRecipes", "installed": installed}));
-        }
-        if let Some(prefs) = commit.preferences {
-            if let Err(e) = self.update_ui_preferences(prefs).await {
-                return Err(self.onboarding_partial(&planned, &done, STEP_PREFERENCES, None, e));
-            }
-            applied.push(json!({"step": "preferences", "ok": true}));
-            done.push(STEP_PREFERENCES);
-        }
-        if let Err(e) = self.store.set_meta(
-            ONBOARDING_META_KEY,
-            &json!({"completed": true, "completedAt": Utc::now()}).to_string(),
-        ) {
-            return Err(self.onboarding_partial(&planned, &done, STEP_COMPLETE, None, e));
-        }
-        // A committed onboarding leaves no ambiguous half-done draft behind.
-        self.store.set_meta(ONBOARDING_DRAFT_META_KEY, "null")?;
-        self.store
-            .audit("onboarding.committed", "api", &json!({"applied": applied}))?;
+
         Ok(json!({"completed": true, "applied": applied}))
     }
 
-    /// Turn a mid-commit failure into an honest, human-readable error: which
-    /// steps already applied (and are NOT rolled back), which step failed, and
-    /// which were never attempted. Also writes the partial state to the audit
-    /// trail — a half-applied first run must be reconstructable afterwards.
+    /// Phase 1: everything this commit will write, computed with no side
+    /// effects. Reuses [`Runtime::plan_onboarding`]'s diff and adds the
+    /// validation that used to happen mid-apply — the merged preferences and
+    /// each starter recipe's YAML — so that by the time anything is written,
+    /// only I/O can still fail.
+    async fn build_onboarding_patch(
+        &self,
+        commit: &OnboardingCommit,
+    ) -> DomainResult<OnboardingPatch> {
+        let plan = self.plan_onboarding(commit).await?;
+        let policy = match &commit.policy_patch {
+            Some(patch) => {
+                let current = self.policy().await;
+                let mut merged = serde_json::to_value(&current)
+                    .map_err(|e| DomainError::Internal(e.to_string()))?;
+                crate::runtime::merge_json(&mut merged, patch);
+                let mut updated: PolicyConfig = serde_json::from_value(merged)
+                    .map_err(|e| DomainError::Validation(format!("policy patch: {e}")))?;
+                // Safety invariant, identical to `Runtime::update_policy`:
+                // high-risk capabilities never come back by themselves.
+                updated.resume_high_risk_after_restart = false;
+                Some(updated)
+            }
+            None => None,
+        };
+        let preferences = match &commit.preferences {
+            Some(patch) => Some(self.validate_ui_preferences(patch).await?),
+            None => None,
+        };
+        let starters = starter_recipes();
+        let mut recipes = Vec::new();
+        for id in &commit.starter_recipes {
+            if let Some((_, _, yaml)) = starters.iter().find(|(sid, _, _)| sid == id) {
+                let recipe = interaction_recipe::parse_and_validate(yaml)
+                    .map_err(|e| DomainError::Validation(format!("starter recipe {id}: {e}")))?;
+                recipes.push((id.clone(), recipe));
+            }
+        }
+        Ok(OnboardingPatch {
+            plan,
+            policy,
+            preferences,
+            recipes,
+        })
+    }
+
+    /// Compensation for Phase 2b: put back every switch this call already
+    /// flipped, newest first. Registry state is in-memory only, so this is a
+    /// complete undo of the phase — and `set_*_enabled` is idempotent, so
+    /// re-asserting a value is always safe.
+    async fn revert_component_flips(&self, flipped: &[ComponentFlip]) -> Compensation {
+        let mut comp = Compensation::default();
+        for flip in flipped.iter().rev() {
+            let result = if flip.receptor {
+                self.registry
+                    .set_receptor_enabled(&flip.id.as_str().into(), flip.from_on)
+                    .await
+            } else {
+                self.registry
+                    .set_actuator_enabled(&flip.id.as_str().into(), flip.from_on)
+                    .await
+            };
+            match result {
+                Ok(()) => comp.reverted.push(flip.id.clone()),
+                Err(e) => comp.revert_failed.push(format!("{}: {e}", flip.id)),
+            }
+        }
+        comp
+    }
+
+    /// Turn a failed commit into an honest, human-readable error and an
+    /// `onboarding.partial` audit row. Exactly one of two things is true after
+    /// a failure, and the message says which:
+    ///
+    /// * the durable phase never committed — every file this commit rewrote is
+    ///   back to its pre-commit bytes and the user's settings are unchanged; or
+    /// * the durable phase committed and only the in-memory capability
+    ///   switches failed — those are flipped back, the saved settings stay, and
+    ///   that is stated plainly rather than dressed up as "nothing happened".
+    ///
+    /// A compensating action that itself fails is never hidden: it is named in
+    /// both the message and the audit row, because that is the one case where
+    /// the end state is genuinely unknown.
     fn onboarding_partial(
         &self,
-        planned: &[&'static str],
-        done: &[&'static str],
         failed: &'static str,
-        within_step_applied: Option<usize>,
+        comp: Compensation,
         err: DomainError,
     ) -> DomainError {
-        let remaining: Vec<&str> = planned
-            .iter()
-            .skip_while(|s| **s != failed)
-            .skip(1)
-            .copied()
-            .collect();
-        let done_text = if done.is_empty() {
-            "（沒有任何一步套用）".to_string()
-        } else {
-            done.join("、")
-        };
-        let partial = match within_step_applied {
-            Some(n) if n > 0 => format!("（「{failed}」已經套用 {n} 項才失敗）"),
-            _ => String::new(),
-        };
-        let rest_text = if remaining.is_empty() {
-            "無".to_string()
-        } else {
-            remaining.join("、")
-        };
         let _ = self.store.audit(
             "onboarding.partial",
             "api",
             &json!({
-                "applied": done,
                 "failedStep": failed,
-                "appliedWithinFailedStep": within_step_applied,
-                "notApplied": remaining,
+                "reverted": comp.reverted,
+                "revertFailed": comp.revert_failed,
+                "kept": comp.kept,
                 "error": err.to_string(),
             }),
         );
-        let note = format!(
-            "首次設定沒有全部套用完成：已套用「{done_text}」{partial}；「{failed}」這一步失敗；還沒套用「{rest_text}」。\
-             已套用的部分仍然有效、不會自動還原；重新執行一次首次設定就會從目前的狀態接著做"
-        );
+        let mut note = format!("首次設定沒有套用完成：「{failed}」這一步失敗。");
+        if comp.kept.is_empty() {
+            note.push_str(
+                "這次要改的東西已經全部還原，你的設定跟開始前一模一樣，可以直接再跑一次首次設定。",
+            );
+        } else {
+            note.push_str(&format!(
+                "已經存檔的部分（{}）保留下來；「{STEP_COMPONENTS}」已經全部還原回原狀，等於這一項沒有改到。",
+                comp.kept.join("、")
+            ));
+        }
+        if !comp.revert_failed.is_empty() {
+            note.push_str(&format!(
+                "注意：還原時有 {} 項失敗（{}），這幾項現在的狀態不確定，請對照稽核紀錄確認。",
+                comp.revert_failed.len(),
+                comp.revert_failed.join("；")
+            ));
+        }
         with_partial_note(err, note)
     }
 

@@ -1036,11 +1036,53 @@ async fn first_success_seen_persists_through_ui_preferences() {
     assert!(rt.ui_preferences().await.first_success_seen);
 }
 
-/// regression ia-settings-018：commit 不是原子的（政策已寫進磁碟、能力已經上線，
-/// 後面的步驟才失敗），但錯誤原本只是一句話，精靈就只顯示「套用失敗」——
-/// 使用者被告知什麼都沒發生，實際上一半已經生效。錯誤必須逐步說清楚。
+/// 讀出某個受器現在是不是開著（registry 的真值，經 human 投影）。
+async fn receptor_on(rt: &Runtime, id: &str) -> bool {
+    let caps = rt.human_capabilities("zh-TW", true).await;
+    caps["receptors"]
+        .as_array()
+        .expect("receptors")
+        .iter()
+        .find(|c| c["id"] == json!(id))
+        .map(|c| c["availability"] != json!("disabled"))
+        .unwrap_or(false)
+}
+
+fn audit_kinds(rt: &Runtime) -> Vec<String> {
+    rt.store
+        .audit_tail(100)
+        .unwrap_or_default()
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
+fn partial_audit(rt: &Runtime) -> Option<Value> {
+    rt.store
+        .audit_tail(100)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|e| e["kind"] == json!("onboarding.partial"))
+}
+
+/// 一份「每一步都有東西要做」的 commit：政策、能力開關、起步範本、偏好。
+fn full_commit() -> OnboardingCommit {
+    OnboardingCommit {
+        policy_patch: Some(json!({"initiative": "passive"})),
+        disable_receptors: vec!["task.lifecycle".into()],
+        starter_recipes: vec!["starter-task-complete".into()],
+        preferences: Some(json!({"mode": "advanced"})),
+        ..Default::default()
+    }
+}
+
+/// regression 9.5（取代舊的 onboarding_commit_failure_reports_which_steps_applied）：
+/// 商業邏輯驗證全部提前到 Phase 1（純計算、零副作用），所以「偏好值不合法」這種
+/// 錯誤不可能再讓政策已經寫進磁碟、起步範本已經裝好。舊測試斷言的是「半套用是
+/// 真的、而且不會還原」；現在必須反過來：一步都不能套用，也不該留下 onboarding.partial
+/// 稽核列（根本沒有 partial 這回事）。
 #[tokio::test]
-async fn onboarding_commit_failure_reports_which_steps_applied() {
+async fn onboarding_commit_validation_failure_applies_nothing() {
     let (_g, rt) = runtime().await;
     let before = rt.policy().await.initiative;
     assert_ne!(
@@ -1049,7 +1091,6 @@ async fn onboarding_commit_failure_reports_which_steps_applied() {
         "前置條件：預設不是 passive"
     );
 
-    // 政策 → 自動互動都會成功，最後一步（偏好設定）驗證失敗。
     let commit = OnboardingCommit {
         policy_patch: Some(json!({"initiative": "passive"})),
         starter_recipes: vec!["starter-task-complete".into()],
@@ -1059,30 +1100,180 @@ async fn onboarding_commit_failure_reports_which_steps_applied() {
     let err = rt
         .commit_onboarding(commit)
         .await
-        .expect_err("最後一步失敗");
-    let message = err.to_string();
-
-    // 誠實：說出已套用的、失敗的、還沒套用的，且不假裝可以還原。
-    assert!(message.contains("已套用"), "{message}");
-    assert!(message.contains("安全規則"), "{message}");
-    assert!(message.contains("自動互動"), "{message}");
-    assert!(message.contains("偏好設定"), "{message}");
-    assert!(message.contains("完成設定"), "{message}");
-    assert!(message.contains("不會自動還原"), "{message}");
-    // 錯誤種類不變（HTTP 狀態碼與 code 保持原樣）。
+        .expect_err("偏好值不合法，整份 commit 必須被拒絕");
     assert!(matches!(err, DomainError::Validation(_)), "{err:?}");
 
-    // 而且真的是半套用：政策已經改了，但 onboarding 尚未標記完成。
+    // 一步都沒套用：政策沒動、範本沒裝、沒標記完成。
+    assert_eq!(
+        format!("{:?}", rt.policy().await.initiative),
+        format!("{before:?}"),
+        "驗證失敗不得留下已寫入的政策"
+    );
+    assert!(
+        rt.get_recipe("starter-task-complete").await.is_err(),
+        "驗證失敗不得留下已安裝的起步範本"
+    );
+    assert_eq!(rt.onboarding_state().await["completed"], json!(false));
+    assert_eq!(rt.ui_preferences().await.mode, "simple");
+    // policy.yaml 連建都不該建。
+    assert!(
+        rt.config_service.policy_bytes().unwrap().is_none(),
+        "驗證失敗不得寫出 policy.yaml"
+    );
+    // 沒有半套用，就不該有半套用稽核列。
+    assert!(
+        !audit_kinds(&rt).iter().any(|k| k == "onboarding.partial"),
+        "驗證失敗不是半套用：{:?}",
+        audit_kinds(&rt)
+    );
+}
+
+/// regression 9.5：政策檔（policy.yaml，SQLite 之外）寫入失敗＝這次 commit 的
+/// 第一個持久化動作失敗，SQLite 與 registry 一律不得被碰過。
+#[tokio::test]
+async fn onboarding_commit_policy_write_failure_leaves_sqlite_and_registry_untouched() {
+    let (_g, rt) = runtime().await;
+    let before = format!("{:?}", rt.policy().await.initiative);
+    assert!(receptor_on(&rt, "task.lifecycle").await);
+
+    rt.config_service
+        .force_next_save_policy_error("injected policy.yaml write failure");
+    let err = rt
+        .commit_onboarding(full_commit())
+        .await
+        .expect_err("政策寫入失敗");
+    assert!(err.to_string().contains("injected"), "{err}");
+
+    assert_eq!(format!("{:?}", rt.policy().await.initiative), before);
+    assert!(rt.config_service.policy_bytes().unwrap().is_none());
+    assert!(rt.get_recipe("starter-task-complete").await.is_err());
+    assert_eq!(rt.onboarding_state().await["completed"], json!(false));
+    assert_eq!(rt.ui_preferences().await.mode, "simple");
+    assert!(
+        receptor_on(&rt, "task.lifecycle").await,
+        "能力開關不得在持久化步驟失敗後被翻動"
+    );
+    let partial = partial_audit(&rt).expect("要留下 onboarding.partial 稽核列");
+    assert_eq!(partial["detail"]["failedStep"], json!("安全規則"));
+}
+
+/// regression 9.5：SQLite 交易失敗時，交易之前已經原子寫出的 policy.yaml
+/// 必須被寫回原本的位元組（補償），記憶體中的政策也不得停在新值。
+#[tokio::test]
+async fn onboarding_commit_sqlite_txn_failure_restores_policy_yaml_bytes() {
+    let (_g, rt) = runtime().await;
+    // 先有一份已知的 policy.yaml。
+    rt.update_policy(json!({"initiative": "suggest"}))
+        .await
+        .unwrap();
+    let before_bytes = rt
+        .config_service
+        .policy_bytes()
+        .unwrap()
+        .expect("policy.yaml 應該已存在");
+    let before_initiative = format!("{:?}", rt.policy().await.initiative);
+    assert!(receptor_on(&rt, "task.lifecycle").await);
+
+    rt.store
+        .force_next_transaction_error("injected sqlite commit failure");
+    let err = rt
+        .commit_onboarding(full_commit())
+        .await
+        .expect_err("SQLite 交易失敗");
+    assert!(err.to_string().contains("injected"), "{err}");
+
+    assert_eq!(
+        rt.config_service.policy_bytes().unwrap().as_deref(),
+        Some(before_bytes.as_str()),
+        "交易失敗必須把 policy.yaml 寫回原本的位元組"
+    );
+    assert_eq!(
+        format!("{:?}", rt.policy().await.initiative),
+        before_initiative,
+        "記憶體中的政策不得停在未提交的新值"
+    );
+    assert!(
+        rt.get_recipe("starter-task-complete").await.is_err(),
+        "交易失敗，起步範本檔案也要一起還原"
+    );
+    assert_eq!(rt.onboarding_state().await["completed"], json!(false));
+    assert_eq!(rt.ui_preferences().await.mode, "simple");
+    assert!(receptor_on(&rt, "task.lifecycle").await);
+    let partial = partial_audit(&rt).expect("要留下 onboarding.partial 稽核列");
+    assert_eq!(partial["detail"]["revertFailed"], json!([]));
+    assert!(err.to_string().contains("還原"), "{err}");
+}
+
+/// regression 9.5：能力開關是純記憶體狀態，中途失敗必須把這次已經翻過的旗標
+/// 翻回去；持久化狀態已經提交這件事要誠實講出來，不能假裝全部沒發生。
+#[tokio::test]
+async fn onboarding_commit_component_failure_leaves_registry_unchanged() {
+    let (_g, rt) = runtime().await;
+    assert!(receptor_on(&rt, "task.lifecycle").await);
+    assert!(receptor_on(&rt, "system.time").await);
+
+    // 第二個開關失敗；第一個必須被翻回原本的「開」。
+    rt.registry.force_next_set_enabled_error("system.time");
+    let commit = OnboardingCommit {
+        policy_patch: Some(json!({"initiative": "passive"})),
+        disable_receptors: vec!["task.lifecycle".into(), "system.time".into()],
+        starter_recipes: vec!["starter-task-complete".into()],
+        preferences: Some(json!({"mode": "advanced"})),
+        ..Default::default()
+    };
+    let err = rt
+        .commit_onboarding(commit)
+        .await
+        .expect_err("能力開關失敗");
+
+    assert!(
+        receptor_on(&rt, "task.lifecycle").await,
+        "已經翻過的旗標必須被翻回原狀"
+    );
+    assert!(receptor_on(&rt, "system.time").await);
+    // 持久化狀態已經原子提交，誠實承認、不假裝還原。
+    assert_eq!(rt.onboarding_state().await["completed"], json!(true));
     assert_eq!(format!("{:?}", rt.policy().await.initiative), "Passive");
     assert!(rt.get_recipe("starter-task-complete").await.is_ok());
-    assert_eq!(rt.onboarding_state().await["completed"], json!(false));
+    assert_eq!(rt.ui_preferences().await.mode, "advanced");
+    assert!(err.to_string().contains("能力開關"), "{err}");
 
-    // 半套用的事實也要進稽核軌跡，之後查得回來。
-    let audit = rt.store.audit_tail(50).unwrap_or_default();
-    assert!(
-        audit
-            .iter()
-            .any(|entry| entry["kind"] == json!("onboarding.partial")),
-        "半套用要留下稽核紀錄：{audit:?}"
+    let partial = partial_audit(&rt).expect("要留下 onboarding.partial 稽核列");
+    assert_eq!(partial["detail"]["failedStep"], json!("能力開關"));
+    assert_eq!(partial["detail"]["revertFailed"], json!([]));
+    assert_eq!(
+        partial["detail"]["reverted"],
+        json!(["task.lifecycle"]),
+        "稽核要說清楚補償了哪一項：{partial:?}"
     );
+    assert!(
+        partial["detail"]["kept"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "已經提交的持久化狀態要列出來：{partial:?}"
+    );
+}
+
+/// regression 9.5：成功路徑只開一個 SQLite 交易——退回逐步 autocommit 就會被抓到。
+#[tokio::test]
+async fn onboarding_commit_success_uses_exactly_one_sqlite_transaction() {
+    let (_g, rt) = runtime().await;
+    let before = rt.store.transaction_count();
+    rt.commit_onboarding(full_commit())
+        .await
+        .expect("commit 成功");
+    assert_eq!(
+        rt.store.transaction_count(),
+        before + 1,
+        "持久化狀態必須在單一交易內提交"
+    );
+    // 而且真的全部套用了。
+    assert_eq!(rt.onboarding_state().await["completed"], json!(true));
+    assert_eq!(format!("{:?}", rt.policy().await.initiative), "Passive");
+    assert!(rt.get_recipe("starter-task-complete").await.is_ok());
+    assert_eq!(rt.ui_preferences().await.mode, "advanced");
+    assert!(!receptor_on(&rt, "task.lifecycle").await);
+    // 草稿被清掉，不留半完成的殘影。
+    assert_eq!(rt.onboarding_state().await["draft"], Value::Null);
 }

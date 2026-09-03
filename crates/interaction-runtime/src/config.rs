@@ -124,13 +124,46 @@ pub fn atomic_write(path: &Path, contents: &str) -> DomainResult<()> {
     Ok(())
 }
 
+/// Restore a file to bytes captured before a write: rewrite it atomically, or
+/// remove it when it did not exist before. This is the compensating action for
+/// state that lives in files instead of SQLite, so a multi-file commit can be
+/// undone as a unit when a later step fails.
+pub fn restore_file(path: &Path, previous: Option<&str>) -> DomainResult<()> {
+    match previous {
+        Some(bytes) => atomic_write(path, bytes),
+        None => match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(DomainError::Storage(format!("remove {path:?}: {e}"))),
+        },
+    }
+}
+
 pub struct ConfigService {
     pub paths: Paths,
+    /// Fault-injection seam for [`ConfigService::save_policy`]: inert unless a
+    /// test arms it. A plain field rather than a `#[cfg(test)]` item because
+    /// the tests that need it are integration tests in another crate, which
+    /// link this one without `cfg(test)`. It can only make a write FAIL.
+    forced_save_policy_error: std::sync::Mutex<Option<String>>,
 }
 
 impl ConfigService {
     pub fn new(paths: Paths) -> Self {
-        Self { paths }
+        Self {
+            paths,
+            forced_save_policy_error: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// Test seam: make the next [`ConfigService::save_policy`] fail.
+    /// Inert until armed; consumed by the next call.
+    #[doc(hidden)]
+    pub fn force_next_save_policy_error(&self, message: &str) {
+        *self
+            .forced_save_policy_error
+            .lock()
+            .expect("config fault seam") = Some(message.to_string());
     }
 
     /// Load runtime config; missing file = defaults; invalid file = error with
@@ -162,7 +195,30 @@ impl ConfigService {
         serde_yaml::from_str(&raw).map_err(|e| DomainError::Validation(format!("policy.yaml: {e}")))
     }
 
+    /// The raw bytes currently backing `policy.yaml`, or `None` when the file
+    /// does not exist yet. A caller that must be able to undo a policy write
+    /// (the first-run wizard's commit) captures these first and hands them to
+    /// [`restore_file`] if a later step of the same commit fails.
+    pub fn policy_bytes(&self) -> DomainResult<Option<String>> {
+        let path = self.paths.policy_file();
+        match std::fs::read_to_string(&path) {
+            Ok(raw) => Ok(Some(raw)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(DomainError::Storage(format!("read {path:?}: {e}"))),
+        }
+    }
+
+    /// Atomic (temp file + rename in the same directory): a reader never sees
+    /// a half-written policy, and a failure leaves the previous file intact.
     pub fn save_policy(&self, policy: &PolicyConfig) -> DomainResult<()> {
+        if let Some(message) = self
+            .forced_save_policy_error
+            .lock()
+            .expect("config fault seam")
+            .take()
+        {
+            return Err(DomainError::Storage(message));
+        }
         let yaml = serde_yaml::to_string(policy)
             .map_err(|e| DomainError::Internal(format!("serialize policy: {e}")))?;
         atomic_write(&self.paths.policy_file(), &yaml)
@@ -220,6 +276,24 @@ impl ConfigService {
             }
         }
         Ok(path)
+    }
+
+    /// Snapshot of every file that currently backs this recipe id, plus the
+    /// canonical `{id}.yaml` target (`None` = it does not exist yet). Handing
+    /// each entry to [`restore_file`] puts the recipe back exactly as it was,
+    /// including deleting a file this commit created.
+    pub fn recipe_file_backups(&self, id: &str) -> DomainResult<Vec<(PathBuf, Option<String>)>> {
+        let mut out: Vec<(PathBuf, Option<String>)> = Vec::new();
+        for path in self.recipe_files_with_id(id) {
+            let bytes = std::fs::read_to_string(&path)
+                .map_err(|e| DomainError::Storage(format!("read {path:?}: {e}")))?;
+            out.push((path, Some(bytes)));
+        }
+        let canonical = self.paths.recipes_dir().join(format!("{id}.yaml"));
+        if !out.iter().any(|(p, _)| *p == canonical) {
+            out.push((canonical, None));
+        }
+        Ok(out)
     }
 
     /// Every recipe file in the recipes dir whose PARSED id matches — the id

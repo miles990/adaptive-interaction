@@ -12,12 +12,24 @@ use interaction_core::{
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 const CURRENT_SCHEMA: i64 = 8;
 
 pub struct Store {
     conn: Mutex<Connection>,
+    /// Number of [`Store::transaction`] scopes opened so far. Test-only
+    /// observability (a caller that must write once atomically can assert it
+    /// did not silently regress to per-statement autocommit); never read by
+    /// production code.
+    txn_count: AtomicU64,
+    /// Fault-injection seam for [`Store::transaction`]: inert unless a test
+    /// arms it with [`Store::force_next_transaction_error`]. It is a plain
+    /// field rather than a `#[cfg(test)]` item because the tests that need it
+    /// are integration tests in *other* crates, which link this crate without
+    /// `cfg(test)`. Nothing in the HTTP/CLI surface can reach it.
+    forced_txn_error: Mutex<Option<String>>,
 }
 
 fn ts_to_str(ts: DateTime<Utc>) -> String {
@@ -54,6 +66,8 @@ impl Store {
             .map_err(map_err)?;
         let store = Self {
             conn: Mutex::new(conn),
+            txn_count: AtomicU64::new(0),
+            forced_txn_error: Mutex::new(None),
         };
         store.migrate()?;
         Ok(store)
@@ -431,6 +445,58 @@ impl Store {
         })
         .optional()
         .map_err(map_err)
+    }
+
+    // ---- transactions ----
+
+    /// Run several writes as ONE atomic unit: the closure's writes commit
+    /// together or not at all. Used where a half-written set of rows would be
+    /// a lie about what the user asked for (the first-run wizard's commit).
+    ///
+    /// The closure gets a [`StoreTxn`] and must use *only* its writers: the
+    /// connection mutex is held for the whole scope, so calling a `Store`
+    /// method from inside would deadlock.
+    ///
+    /// Any `Err` from the closure rolls the transaction back and is returned
+    /// unchanged; a rollback failure is reported instead of being swallowed.
+    pub fn transaction<T, F>(&self, f: F) -> DomainResult<T>
+    where
+        F: FnOnce(&StoreTxn<'_>) -> DomainResult<T>,
+    {
+        self.txn_count.fetch_add(1, Ordering::SeqCst);
+        let mut conn = self.conn.lock().expect("store lock");
+        let tx = conn.transaction().map_err(map_err)?;
+        let scoped = StoreTxn { tx };
+        let value = match f(&scoped) {
+            Ok(v) => v,
+            Err(e) => {
+                scoped.tx.rollback().map_err(map_err)?;
+                return Err(e);
+            }
+        };
+        // Armed faults fire here, after the writes and before the commit —
+        // the shape a real commit failure has, so the caller's compensation
+        // path is exercised for real.
+        let forced = self.forced_txn_error.lock().expect("store lock").take();
+        if let Some(message) = forced {
+            scoped.tx.rollback().map_err(map_err)?;
+            return Err(DomainError::Storage(message));
+        }
+        scoped.tx.commit().map_err(map_err)?;
+        Ok(value)
+    }
+
+    /// Test seam: make the next [`Store::transaction`] fail at commit time.
+    /// Inert until armed; consumed by the next transaction.
+    #[doc(hidden)]
+    pub fn force_next_transaction_error(&self, message: &str) {
+        *self.forced_txn_error.lock().expect("store lock") = Some(message.to_string());
+    }
+
+    /// Test seam: how many [`Store::transaction`] scopes have been opened.
+    #[doc(hidden)]
+    pub fn transaction_count(&self) -> u64 {
+        self.txn_count.load(Ordering::SeqCst)
     }
 
     // ---- receipts ----
@@ -1487,6 +1553,39 @@ impl Store {
     }
 }
 
+/// The write handle inside a [`Store::transaction`] scope. Deliberately tiny:
+/// it exposes only the writers the atomic callers need, so a transaction can
+/// never accidentally re-enter the connection mutex through a `Store` method.
+pub struct StoreTxn<'a> {
+    tx: rusqlite::Transaction<'a>,
+}
+
+impl StoreTxn<'_> {
+    /// Same upsert as [`Store::set_meta`], scoped to this transaction.
+    pub fn set_meta(&self, key: &str, value: &str) -> DomainResult<()> {
+        self.tx
+            .execute(
+                "INSERT INTO meta(key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, value],
+            )
+            .map_err(map_err)?;
+        Ok(())
+    }
+
+    /// Same append as [`Store::audit`], scoped to this transaction — the audit
+    /// row commits with the change it describes or not at all.
+    pub fn audit(&self, kind: &str, actor: &str, detail: &serde_json::Value) -> DomainResult<()> {
+        self.tx
+            .execute(
+                "INSERT INTO audit(at, kind, actor, detail) VALUES (?1,?2,?3,?4)",
+                params![ts_to_str(Utc::now()), kind, actor, detail.to_string()],
+            )
+            .map_err(map_err)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1715,6 +1814,58 @@ mod tests {
         let tail = store.audit_tail(10).unwrap();
         assert_eq!(tail.len(), 1);
         assert_eq!(tail[0]["kind"], "emergency.stop");
+    }
+
+    /// A transaction is all-or-nothing: a closure that fails half way must
+    /// leave the store exactly as it was, and the error must reach the caller
+    /// unchanged so it can compensate for whatever lives outside SQLite.
+    #[test]
+    fn transaction_commits_together_or_not_at_all() {
+        let store = Store::open_in_memory().unwrap();
+        let before = store.transaction_count();
+        store
+            .transaction(|tx| {
+                tx.set_meta("a", "1")?;
+                tx.set_meta("b", "2")?;
+                tx.audit("t.ok", "test", &serde_json::json!({}))?;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(store.get_meta("a").unwrap().as_deref(), Some("1"));
+        assert_eq!(store.get_meta("b").unwrap().as_deref(), Some("2"));
+        assert_eq!(store.transaction_count(), before + 1);
+
+        let err = store
+            .transaction(|tx| {
+                tx.set_meta("a", "rolled-back")?;
+                tx.set_meta("c", "3")?;
+                Err::<(), _>(DomainError::Validation("nope".into()))
+            })
+            .expect_err("closure failed");
+        assert!(matches!(err, DomainError::Validation(_)), "{err:?}");
+        assert_eq!(
+            store.get_meta("a").unwrap().as_deref(),
+            Some("1"),
+            "a failed transaction must not leave a partial write behind"
+        );
+        assert_eq!(store.get_meta("c").unwrap(), None);
+    }
+
+    /// The fault-injection seam simulates a commit-time failure: the writes
+    /// already made inside the scope must roll back too.
+    #[test]
+    fn forced_transaction_error_rolls_back() {
+        let store = Store::open_in_memory().unwrap();
+        store.set_meta("k", "old").unwrap();
+        store.force_next_transaction_error("disk on fire");
+        let err = store
+            .transaction(|tx| tx.set_meta("k", "new"))
+            .expect_err("forced failure");
+        assert!(err.to_string().contains("disk on fire"), "{err}");
+        assert_eq!(store.get_meta("k").unwrap().as_deref(), Some("old"));
+        // Armed once, consumed once.
+        store.transaction(|tx| tx.set_meta("k", "new")).unwrap();
+        assert_eq!(store.get_meta("k").unwrap().as_deref(), Some("new"));
     }
 
     #[test]
