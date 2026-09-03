@@ -529,7 +529,10 @@ describe("#5 安靜時 Director 仍然 tick（只剩眨眼）", () => {
   it("CompanionApp 在安靜時走就地眨眼，不套成一般 performing", () => {
     const src = fs.readFileSync(path.resolve("src/companion/CompanionApp.tsx"), "utf8");
     expect(src).toContain("blinkedInPlace");
-    expect(src).toContain('gate.quiet && action.expression === "blink"');
+    // director-pipeline-045：靠 Director 的 source 標記認出眨眼，**不比對表情 id**
+    // （眨眼 id 由角色 adapter 的 tables 注入，host 不該知道它叫什麼）。
+    expect(src).toContain('gate.quiet && action.source === "blink"');
+    expect(src).not.toContain('action.expression === "blink"');
   });
 });
 
@@ -872,7 +875,7 @@ describe("#13 過場的回彈不能被 lerp 夾掉", () => {
 // ---------------------------------------------------------------------------
 
 describe("#15 lie ↔ stand 不再單幀瞬移", () => {
-  it("blendPose：只處理 lie 相關的切換，切換點與權重一致", () => {
+  it("blendPose：任何姿勢對都連續，切換點與權重一致", () => {
     const lie = clampParams({ pose: "lie" });
     const stand = clampParams({ pose: "stand" });
     const sit = clampParams({ pose: "sit" });
@@ -882,8 +885,15 @@ describe("#15 lie ↔ stand 不再單幀瞬移", () => {
     expect(blendPose(lie, stand, stand, 0.51).pose).toBe("stand");
     expect(blendPose(lie, stand, stand, 0.51).poseBlend).toBeCloseTo(0.51);
     expect(blendPose(lie, stand, stand, 1)).toMatchObject({ pose: "stand", poseBlend: 1 });
-    // stand↔sit 只差 10px：不插值（也不該平白多一個通道在動）。
-    expect(blendPose(stand, sit, sit, 0.2).pose).toBe(sit.pose);
+    // rig-renderer-058：stand↔sit 差 10px，以前被排除在外（硬切＝單幀 10px
+    // 瞬移）。現在同樣連續帶過，切換點仍在 0.5。
+    expect(blendPose(stand, sit, sit, 0.2).pose).toBe("stand");
+    expect(blendPose(stand, sit, sit, 0.2).poseBlend).toBeCloseTo(0.8);
+    expect(blendPose(stand, sit, sit, 0.8).pose).toBe("sit");
+    expect(blendPose(stand, sit, sit, 0.8).poseBlend).toBeCloseTo(0.8);
+    expect(blendPose(stand, sit, sit, 1)).toMatchObject({ pose: "sit", poseBlend: 1 });
+    // 同一個姿勢＝沒有過場，原樣放行。
+    expect(blendPose(stand, stand, stand, 0.3)).toBe(stand);
   });
 
   it("layoutFor：poseBlend 讓頭中心在兩個姿勢之間連續移動", () => {

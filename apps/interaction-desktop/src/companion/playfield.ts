@@ -42,7 +42,9 @@ export type CharPlayMode =
   | "return"
   | "refuse"
   /** 靠近小物件、好奇地看/嗅（不追、不叼）。 */
-  | "sniff";
+  | "sniff"
+  /** 主動走向使魔打招呼（互相注意是雙向的，spec §5.1）。 */
+  | "greet-familiar";
 
 export interface CharPlay {
   x: number;
@@ -54,6 +56,8 @@ export interface CharPlay {
   carryToy: number | null;
   /** 撲抓落點（pounce 開始時鎖定）。 */
   pounceX: number;
+  /** 她主動要去打招呼的使魔 id（greet-familiar 模式；null＝沒有）。 */
+  targetFamiliar: string | null;
   /** 正在回看的使魔 id（有使魔向她打招呼時；null＝沒有）。 */
   attendTo: string | null;
   /** 回看到什麼時候（ms）。 */
@@ -117,6 +121,8 @@ export type WorldEvent =
   | { type: "expression"; id: string; durationMs: number }
   /** 有使魔向主角打招呼（主角回看／偶爾回一顆愛心）。 */
   | { type: "greeted-by"; id: string }
+  /** 主角主動走過去跟某隻使魔打招呼（雙向注意的另一半）。 */
+  | { type: "greeted-familiar"; id: string }
   /** 被追的使魔的反應（逃跑或回頭）。 */
   | { type: "familiar-fled"; id: string; by: string }
   | { type: "familiar-looked-back"; id: string; by: string }
@@ -140,6 +146,8 @@ const TRINKET_BOUNCE = 0.18;
 /** 尾巴推一下的力道（px/s）。 */
 const TAIL_PUSH_VX = 78;
 const TAIL_PUSH_VY = -48;
+/** 主動打招呼的冷卻（從上一次冒愛心算起）：不會一直黏著同一隻。 */
+const GREET_FAMILIAR_COOLDOWN_MS = 20_000;
 
 export function createWorld(w: number, h: number): World {
   return {
@@ -155,6 +163,7 @@ export function createWorld(w: number, h: number): World {
       targetToy: null,
       carryToy: null,
       pounceX: 0,
+      targetFamiliar: null,
       attendTo: null,
       attendUntil: 0,
       greetBackUntil: 0,
@@ -383,6 +392,7 @@ function stepChar(
     }
     c.mode = "free";
     c.targetToy = null;
+    c.targetFamiliar = null;
     c.vx = 0;
     return { ...w, char: c };
   }
@@ -422,6 +432,17 @@ function stepChar(
         events.push({ type: "expression", id: "curious", durationMs: 1_600 });
         break;
       }
+      // 主動去跟使魔打招呼（spec §5.1「互相注意」的另一半：以前只有使魔會
+      // 過來打招呼、她永遠只是原地回看，對抗審查 companion-gameplay-035）。
+      // 睡著的不吵、剛打完招呼的有冷卻；平均約 25 秒才會起一次意。
+      const awake = w.familiars.filter((f) => f.state !== "sleep" && f.id !== c.attendTo);
+      const friend = nearestFamiliar(awake, c.x);
+      if (friend && now > c.greetBackUntil + GREET_FAMILIAR_COOLDOWN_MS && rng() < 0.04 * dt) {
+        c.mode = "greet-familiar";
+        c.targetFamiliar = friend.id;
+        c.modeUntil = now + riseDelay + 6_000;
+        break;
+      }
       // 偶爾散步（桌面移動開啟時；平均約 20 秒一次）。
       if (inputs.deskMoveEnabled && rng() < 0.05 * dt) {
         c.mode = "stroll";
@@ -429,6 +450,51 @@ function stepChar(
         c.modeUntil = now + 8_000;
       }
       c.vx = 0;
+      break;
+    }
+    case "greet-familiar": {
+      const friend = w.familiars.find((f) => f.id === c.targetFamiliar);
+      if (!friend || now > c.modeUntil) {
+        c.mode = "free";
+        c.targetFamiliar = null;
+        c.vx = 0;
+        break;
+      }
+      const dx = friend.x - c.x;
+      c.facing = dx >= 0 ? 1 : -1;
+      if (now < c.modeUntil - 6_000) {
+        // 起身延遲（慵懶）：決定了，但還沒動。
+        c.vx = 0;
+        break;
+      }
+      if (Math.abs(dx) > approach + 12) {
+        c.vx = Math.sign(dx) * speed;
+        c.x += c.vx * dt;
+        break;
+      }
+      // 到了：停下、面向牠、冒一顆愛心，對方也回過頭來（雙向）。
+      c.vx = 0;
+      c.attendTo = friend.id;
+      c.attendUntil = now + 2_500;
+      c.greetBackUntil = now + 1_800;
+      w = {
+        ...w,
+        familiars: w.familiars.map((f) =>
+          f.id !== friend.id || f.state === "sleep"
+            ? f
+            : {
+                ...f,
+                state: "greet" as FamiliarState,
+                greetWith: "char",
+                facing: (c.x >= f.x ? 1 : -1) as 1 | -1,
+                vx: 0,
+                stateUntil: now + 2_500,
+              }
+        ),
+      };
+      events.push({ type: "greeted-familiar", id: friend.id });
+      c.mode = "free";
+      c.targetFamiliar = null;
       break;
     }
     case "stroll": {
@@ -625,7 +691,10 @@ function stepFamiliars(
   // 關掉「玩耍」——都不散步、不追逐、不打招呼、不冒愛心。正在動的收回原地待著；
   // 主角的回看與回愛心也一起收掉（被擋下／失敗／未知的畫面上不能有粉紅愛心）。
   const active = inputs.ambient && inputs.playEnabled && !inputs.quiet;
-  if (!active) {
+  // Reduced Motion 也走同一條「收斂到靜止」的路：以前它是在狀態機推進**之前**
+  // 直接 early return，使魔就永遠卡在切換當下的 state／vx 上——愛心永遠掛在頭上、
+  // Roll Call 還說「在散步」（對抗審查 companion-gameplay-033）。
+  if (!active || inputs.reducedMotion) {
     if (char.attendTo !== null || char.greetBackUntil !== 0) {
       char = { ...char, attendTo: null, greetBackUntil: 0 };
     }
@@ -640,7 +709,7 @@ function stepFamiliars(
     if (!changed && char === w.char) return w;
     return { ...w, char, familiars: changed ? settled : w.familiars };
   }
-  if (inputs.reducedMotion || w.familiars.length === 0) {
+  if (w.familiars.length === 0) {
     return char === w.char ? w : { ...w, char };
   }
   const list = w.familiars.map((f) => ({ ...f }));
@@ -746,11 +815,15 @@ export function rollCall(
   charName: string,
   machineLabel: string | null,
   nowMs = 0,
-  opts: { frozen?: boolean } = {}
+  opts: { frozen?: boolean; reducedMotion?: boolean } = {}
 ): { name: string; activity: string }[] {
+  // 凍結與 Reduced Motion 都是「世界沒有在動」：不能拿殘影報「在散步」。
+  const still = opts.frozen === true || opts.reducedMotion === true;
   const charActivity =
     machineLabel ??
     (() => {
+      // 世界沒有在步進時，char.mode／attendTo 也是殘影。
+      if (still) return "停下來了";
       switch (world.char.mode) {
         case "chase":
           return "在追玩具";
@@ -765,6 +838,8 @@ export function rollCall(
           return "在散步";
         case "sniff":
           return "在研究一個小東西";
+        case "greet-familiar":
+          return "正要去跟朋友打招呼";
         default:
           return world.char.attendTo !== null && nowMs <= world.char.attendUntil
             ? "在跟使魔打招呼"
@@ -774,8 +849,9 @@ export function rollCall(
   const out = [{ name: charName, activity: charActivity }];
   for (const f of world.familiars) {
     // 凍結（緊急停止／離線／暫停）：世界沒有在步進，使魔的 state 是凍結前的殘影——
-    // 不能拿它報「在散步」。誠實說：跟著停下來了。
-    const label = opts.frozen
+    // 不能拿它報「在散步」。Reduced Motion 同理：牠們真的不動了
+    // （對抗審查 companion-gameplay-033）。誠實說：跟著停下來了。
+    const label = still
       ? f.state === "sleep"
         ? "在睡覺"
         : "停下來了"

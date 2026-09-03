@@ -19,7 +19,6 @@ import { resolveRigAnimation, resolveSegments } from "../../companion/rig/timeli
 import type { AmbientVariant, DirectorTables } from "../../companion/director";
 import type { LandingTable } from "../../companion/gameFeel";
 import type { VariantWeightTable } from "../../companion/personality";
-import type { MicroAction } from "../../companion/behavior";
 import type { LegacyEventArt } from "../../companion/machine";
 import type { ToyKind } from "../../companion/playfield";
 import { CharacterIntent, isSafetyIntent, TruthState } from "../protocol";
@@ -53,9 +52,9 @@ export const SHU_AMBIENT_VARIANTS: readonly AmbientVariant[] = [
 
 /**
  * 反應意圖 → 表情（玩家/事件反應層；仍非 truthState）。
- * 高頻反應（單擊 `poked`、拖起 `lifted`）各有 3 個變體（spec §5.2），由 Director 依冷卻與
- * 上一次用的挑一個不同的；`thinking` 是 L1 本機模板判斷「像任務」時的反應——非 truthState
- * 的思考表情（machine 的 thinking transient 仍只由 runtime 事件驅動）。
+ * 高頻反應（單擊 `poked`、連戳 `poked-rapid`、拖起 `lifted`）各有 3 個變體（spec §5.2），
+ * 由 Director 依冷卻與上一次用的挑一個不同的；`thinking` 是 L1 本機模板判斷「像任務」時
+ * 的反應——非 truthState 的思考表情（machine 的 thinking transient 仍只由 runtime 事件驅動）。
  */
 export const SHU_REACTIONS: Readonly<Record<string, string | readonly string[]>> = {
   notice: "notice",
@@ -71,11 +70,16 @@ export const SHU_REACTIONS: Readonly<Record<string, string | readonly string[]>>
   "block-cursor": "block-cursor",
   poked: ["poked", "poked-flinch", "poked-grin"],
   lifted: ["lifted", "lifted-curious", "lifted-wriggle"],
-  "poked-rapid": "poked-rapid",
+  // 連戳也是高頻反應：以前只有一個變體，加上 8 秒預設冷卻，連戳 30 秒只會看到
+  // 同一段演出（對抗審查 companion-gameplay-037）。
+  "poked-rapid": ["poked-rapid", "deadpan", "pretend-not-hear"],
 };
 
 /** 單擊反應的冷卻：比一般反應短很多（連續點擊仍要有反應，只是換一個變體）。 */
 export const SHU_CLICK_COOLDOWN_MS = 1_200;
+
+/** 連戳反應的冷卻：比單擊長、比預設 8 秒短，讓三個變體真的輪得動。 */
+export const SHU_RAPID_COOLDOWN_MS = 2_500;
 
 /** 可以「假裝沒看到」的低優先意圖。 */
 export const SHU_SOFT_INTENTS: readonly string[] = ["notice", "curious", "peek", "lean-in", "player-back"];
@@ -121,19 +125,6 @@ export const SHU_VARIANT_WEIGHTS: VariantWeightTable = {
   legswing: [{ trait: "playful", gain: 0.9 }],
   tailhug: [{ trait: "playful", gain: 0.5 }],
 };
-
-/** 生命底層微動作（behavior.scheduleMicroAction 的候選清單）。 */
-export const SHU_MICRO_ACTIONS: readonly MicroAction[] = [
-  { id: "blink", animation: "blink", durationMs: 350, weight: 10, minRelax: 0, reducedMotionOk: true },
-  { id: "double-blink", animation: "blink", durationMs: 750, weight: 3, minRelax: 0, reducedMotionOk: true },
-  // 耳先動（notice 前兩幀＝耳立+眼亮，頭不轉）——「聽到了」。
-  { id: "ear-flick", animation: "notice", frameSlice: [0, 1], durationMs: 500, weight: 5, minRelax: 0.1, reducedMotionOk: false },
-  { id: "gaze-around", animation: "routing", frameSlice: [0, 1], durationMs: 700, weight: 4, minRelax: 0.2, reducedMotionOk: false },
-  { id: "stretch", animation: "stretch", durationMs: 1400, weight: 2, minRelax: 0.5, reducedMotionOk: false },
-  { id: "leg-swing", animation: "legswing", durationMs: 4000, weight: 3, minRelax: 0.4, reducedMotionOk: false },
-  { id: "tail-hug", animation: "tailhug", durationMs: 6000, weight: 2, minRelax: 0.7, reducedMotionOk: false },
-  { id: "lie-down", animation: "lie", durationMs: 8000, weight: 2, minRelax: 0.85, reducedMotionOk: false },
-];
 
 /** 舊 daemon 相容路徑（machine.mapRuntimeEvent）事件 → 小樞表情。 */
 export const SHU_EVENT_ART: LegacyEventArt = {

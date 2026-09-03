@@ -3,6 +3,12 @@
 //   事件 → Event Normalizer → Attention → Utility Scoring → Behavior Intent
 //   → Action Scheduler →（machine transient / 表情通道）
 //
+// 誠實說明 Utility Scoring 這一段目前落在哪裡（對抗審查 director-pipeline-046）：
+// 它**不在** Director 的決策裡。Director 自己的節流是 hazard 抽樣＋冷卻＋防重複
+// （tick／reactDetailed）；behavior.ts 的 scoreEvent 只被 machine.ts 用在「同優先
+// transient 的平手判定」。Director 上曾有一個 `score()` 純轉呼包裝，整個 repo
+// 沒有任何呼叫端，已移除——不留一個假裝管線接上了的入口。
+//
 // 本模組純確定性（seeded RNG 注入），不呼叫 AI。它擁有「生活層」的
 // 選擇權：ambient 變體、冷卻、防重複、中斷後恢復；真相狀態（成功/失敗/
 // 阻擋/未知/緊急）永遠由 machine.ts 的 runtime 事件／CPP intent 驅動，
@@ -13,7 +19,7 @@
 // adapter 的 DirectorTables 注入（例如 character/adapters/shuTables.ts）；
 // 沒注入時（文字角色）Director 永遠不出手。
 
-import { BehaviorState, EventClass, EventScoreContext, scoreEvent } from "./behavior";
+import { BehaviorState } from "./behavior";
 import { DEFAULT_TUNING, PersonalityTuning } from "./personality";
 
 export interface DirectorContext {
@@ -33,7 +39,13 @@ export interface DirectorAction {
   /** 表情 id（rig）／動畫名（sprite fallback 由 renderer 鏈處理）。 */
   expression: string;
   durationMs: number;
-  source: "ambient" | "reaction" | "resume";
+  /**
+   * 這個動作是哪一層排出來的。`blink` 是安靜時段唯一允許的「就地眨眼」——
+   * 呼叫端要靠這個標記認出它，不能去比對表情 id：眨眼的 id 由角色 adapter
+   * 的 DirectorTables 注入，host 不該知道它叫什麼（對抗審查
+   * director-pipeline-045；CLAUDE.md「頁面不得引用角色表情名」）。
+   */
+  source: "ambient" | "reaction" | "resume" | "blink";
 }
 
 /** ambient 變體池：全部非 truthState（由角色 tables 的 isPlayable 把關）。 */
@@ -182,11 +194,6 @@ export class InteractionDirector {
     }
   }
 
-  /** 事件效用評分（供上層決定是否值得反應；安全類不受壓制）。 */
-  score(cls: EventClass, ctx: EventScoreContext): number {
-    return scoreEvent(cls, ctx);
-  }
-
   /** 目前動作被真實事件搶佔：記下來，之後可恢復。 */
   notePreempted(nowMs: number): void {
     if (!this.currentAction) return;
@@ -302,7 +309,7 @@ export class InteractionDirector {
       // 安靜時段：只剩偶爾眨眼（角色有眨眼表情才會）。
       const blink = this.tables.blink;
       if (blink && this.playable(blink.expression) && rng() < 0.03) {
-        return { expression: blink.expression, durationMs: blink.durationMs, source: "ambient" };
+        return { expression: blink.expression, durationMs: blink.durationMs, source: "blink" };
       }
       return null;
     }

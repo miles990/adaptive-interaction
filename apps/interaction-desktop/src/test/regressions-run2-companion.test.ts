@@ -576,12 +576,20 @@ describe("高頻反應 ≥3 變體＋冷卻＋防重複", () => {
     expect(single.transientKind).toBe("clicked");
     expect((SHU_REACTIONS.poked as readonly string[]).includes(single.animation!)).toBe(true);
     expect(single.toggleMenu).toBe(true);
-    const rapid = planClickReaction({ rapid: true, nowMs: T0 + 100, director: d, rng: () => 0.5 });
-    expect(rapid.kind).toBe("rapid");
-    expect(rapid.animation).toBe("poked-rapid");
-    expect(rapid.toggleMenu).toBe(false);
-    // poked-rapid 8 秒冷卻中的第 4、5 次點擊：不是靜默——退回單擊（有反應、開選單）。
-    const during = planClickReaction({ rapid: true, nowMs: T0 + 3_000, director: d, rng: () => 0.5, singleCooldownMs: SHU_CLICK_COOLDOWN_MS });
+    const rapidPool = SHU_REACTIONS["poked-rapid"] as readonly string[];
+    // companion-gameplay-037：連戳也是高頻反應，≥3 個變體、防重複輪替。
+    expect(rapidPool.length).toBeGreaterThanOrEqual(3);
+    const seenRapid = new Set<string>();
+    for (let i = 0; i < rapidPool.length; i++) {
+      const r = planClickReaction({ rapid: true, nowMs: T0 + 100 + i, director: d, rng: () => 0.5 });
+      expect(r.kind, `variant ${i}`).toBe("rapid");
+      expect(rapidPool).toContain(r.animation!);
+      expect(r.toggleMenu).toBe(false);
+      seenRapid.add(r.animation!);
+    }
+    expect(seenRapid.size).toBe(rapidPool.length);
+    // 三個變體都在冷卻中的下一次連戳：不是靜默——退回單擊（有反應、開選單）。
+    const during = planClickReaction({ rapid: true, nowMs: T0 + 2_000, director: d, rng: () => 0.5, singleCooldownMs: SHU_CLICK_COOLDOWN_MS });
     expect(during.kind).toBe("single");
     expect(during.toggleMenu).toBe(true);
     expect(d.recentDecisions().some((x) => x.intent === "poked-rapid" && x.reason === "cooldown")).toBe(true);
@@ -998,8 +1006,8 @@ describe("Director.react 回 null 不是靜默", () => {
     expect(d.reactDetailed("celebrate-success", T0).reason).toBe("no-mapping");
     const truth = new InteractionDirector(DEFAULT_TUNING, { ...SHU_DIRECTOR_TABLES, reactions: { bad: "blocked" } });
     expect(truth.reactDetailed("bad", T0).reason).toBe("not-playable");
-    expect(d.reactDetailed("poked-rapid", T0).reason).toBe("ok");
-    const cd = d.reactDetailed("poked-rapid", T0 + REACTION_COOLDOWN_MS - 1);
+    expect(d.reactDetailed("block-cursor", T0).reason).toBe("ok");
+    const cd = d.reactDetailed("block-cursor", T0 + REACTION_COOLDOWN_MS - 1);
     expect(cd.reason).toBe("cooldown");
     expect(cd.action).toBeNull();
     expect(d.lastDecision()?.reason).toBe("cooldown");

@@ -1,7 +1,12 @@
 // Behavior Runtime（spec §5）— 純本機、確定性，絕不使用生成式 AI 逐幀控制。
 //
 // 三層：
-//   生命底層：微動作排程（眨眼與各種閒置小動作；動作清單由角色 tables 注入）——本模組
+//   生命底層：微動作排程（眨眼與各種閒置小動作）——**不在本模組**：執行期由
+//     InteractionDirector.tick() 的 ambient 變體池（director.ts＋角色 tables 的
+//     AmbientVariant）負責排程，眨眼由 rig 時間軸的 autoBlink 自己跑。本模組
+//     曾經有一份同構的 scheduleMicroAction，但生產路徑從來沒有呼叫它，只有測試
+//     在跑——已移除，不留一個執行期不存在的分層（對抗審查 companion-gameplay-036
+//     ／rig-renderer-060）。
 //   行為層：注意力與選擇（Utility AI 評分＋優先階梯＋反重複）——本模組
 //   語意層：AI 只能經 runtime 驗證的 behaviorIntent 提出高層意圖（presentation.rs）
 //
@@ -189,81 +194,6 @@ export function scoreEvent(cls: EventClass, ctx: EventScoreContext): number {
   const isSafety = cls === "emergency" || cls === "sensor-safety" || cls === "waiting-confirmation";
   if (isSafety) return Math.max(CLASS_BASE[cls] * 0.5, score); // 安全事件永不歸零
   return score;
-}
-
-// ---------------------------------------------------------------------------
-// 微動作排程器（生命底層）。動作清單（哪些動畫、多長、多重）屬於角色，
-// 由角色 adapter 的 tables 注入（例如 shuTables.SHU_MICRO_ACTIONS）；本模組
-// 只負責「什麼時候、挑哪一個」的確定性抽樣。
-// ---------------------------------------------------------------------------
-
-export interface MicroAction {
-  id: string;
-  /** pack 動畫名（renderer fallback 保證舊 pack 安全降級） */
-  animation: string;
-  frameSlice?: [number, number];
-  durationMs: number;
-  /** 權重（依情境調整前的基礎值） */
-  weight: number;
-  /** 需要的最低慵懶度（idle 越久越放鬆才會出現） */
-  minRelax: number;
-  /** Reduced Motion 下是否仍允許（只有眨眼類） */
-  reducedMotionOk: boolean;
-}
-
-export interface SchedulerContext {
-  /** 目前是否 ambient（idle 基態、無 transient）——非 ambient 一律不動 */
-  ambient: boolean;
-  reducedMotion: boolean;
-  /** quiet hours / 使用者要求安靜：完全停止微動作（呼吸眨眼除外） */
-  quiet: boolean;
-  /** 表現度：quiet(0.5) / natural(1) / lively(1.5) */
-  expressiveness: number;
-  /** 距上次使用者互動秒數 → 放鬆度 */
-  msSinceInteraction: number;
-  /** 最近播過的微動作 id（避免重複） */
-  recent: string[];
-}
-
-/**
- * 危險率（hazard）抽樣：每 tick 以與情境相關的機率觸發，
- * 觸發間隔因此呈幾何分布——絕不是固定週期。
- */
-export function scheduleMicroAction(
-  s: BehaviorState,
-  ctx: SchedulerContext,
-  rng: () => number,
-  actions: readonly MicroAction[] = []
-): MicroAction | null {
-  if (!ctx.ambient) return null;
-  if (s.taskLoad > 0.15) return null; // 有任務不玩鬧
-  if (ctx.quiet && !ctx.reducedMotion) {
-    // 安靜時只剩偶爾眨眼類（reducedMotionOk 的第一個）。
-    const blink = actions.find((a) => a.reducedMotionOk) ?? null;
-    return rng() < 0.03 ? blink : null;
-  }
-  // 放鬆度：閒置越久越放鬆（慵懶動作只在真正無事時出現）。
-  const relax = clamp01(ctx.msSinceInteraction / 180_000) * (1 - s.activation);
-  // 每 tick 觸發率：基礎 6%，表現度與熟悉度略增，最近被打斷則收斂。
-  const hazard =
-    0.06 * ctx.expressiveness * (1 + s.familiarity * 0.4) * (1 - Math.min(0.6, s.recentInterruptions * 0.15));
-  if (rng() > hazard) return null;
-
-  const pool = actions.filter((a) => {
-    if (ctx.reducedMotion && !a.reducedMotionOk) return false;
-    if (relax < a.minRelax) return false;
-    // 反重複：最近兩個動作不再選。
-    if (ctx.recent.slice(-2).includes(a.id)) return false;
-    return true;
-  });
-  if (pool.length === 0) return null;
-  const total = pool.reduce((sum, a) => sum + a.weight, 0);
-  let pick = rng() * total;
-  for (const a of pool) {
-    pick -= a.weight;
-    if (pick <= 0) return a;
-  }
-  return pool[pool.length - 1];
 }
 
 /** 可注入的確定性 RNG（mulberry32）——測試與重現用。 */

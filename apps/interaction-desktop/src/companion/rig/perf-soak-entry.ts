@@ -6,6 +6,16 @@
 // 每 5 秒取樣一次 usedJSHeapSize；開頭（暖身後）與結尾各強制 GC 一次，報
 // **GC 後差值**——那才是留下來的物件，GC 前的峰值只是分配節奏。
 //
+// 範圍（對抗審查 perf-claims-009）：以前只有 StageRenderer 這一層，卻被當成
+// 「角色視窗的記憶體證據」。現在同一頁面裡一起長跑角色視窗真正會累積的結構：
+//   - CharacterGateway（in-process，真 shu adapter）：dispatch／receipt／輸入事件
+//     ／每 500 ms sweep()——pending、去重環、grants 都在裡面
+//   - InteractionDirector：每 500 ms tick()＋反應，decisions／recent／冷卻表
+//   - BehaviorState 與 interactionMemory：每拍更新
+//   - 事件環（模擬 SSE 的 500 筆上限）：持續灌入
+// 結尾回報每個結構的大小，讓「有界」是量出來的，不是宣稱的。
+// 仍**未**涵蓋：React 樹本身、Tauri IPC、真實 SSE 連線。
+//
 // 誠實：
 //   - usedJSHeapSize 是 Blink 非標準 API；rig 以 --enable-precise-memory-info 啟動
 //     才是精確位元組，否則 Chromium 會量化到 10 MB 級距（三個數字一模一樣）。
@@ -16,8 +26,18 @@
 // 輸出 JSON 到 window.__soak，並把 document.title 設成 "soak-ready"。
 
 import { StageRenderer } from "./stage";
+import { CharacterGateway } from "../../character/gateway";
+import { ShuCharacterAdapter } from "../../character/adapters/shu";
+import { SHU_DIRECTOR_TABLES } from "../../character/adapters/shuTables";
+import { InteractionDirector } from "../director";
+import { initialBehavior, noteUserInteraction, seededRng, stepBehavior } from "../behavior";
+import { emptyMemory, notePlay } from "../interactionMemory";
+import type { IntentEnvelope } from "../../character/protocol";
 
 type Sample = { tMs: number; bytes: number | null };
+
+/** 模擬 SSE 事件環（transport.ts 的上限也是 500）。 */
+const EVENT_RING_MAX = 500;
 
 function makeCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement("canvas");
@@ -70,6 +90,49 @@ async function run() {
   stage.spawnToy("paper");
   stage.spawnToy("plane");
 
+  // ---- 角色視窗真正會累積的結構（perf-claims-009）----
+  let systemTexts = 0;
+  let receipts = 0;
+  let forwardedInputs = 0;
+  const eventRing: Array<{ at: number; kind: string }> = [];
+  const gateway = new CharacterGateway({
+    now: () => Date.now(),
+    locale: "zh-TW",
+    reducedMotion: () => false,
+    onSystemText: () => {
+      systemTexts += 1;
+    },
+    onReceipt: () => {
+      receipts += 1;
+    },
+    onInput: () => {
+      forwardedInputs += 1;
+    },
+  });
+  const adapterCanvas = makeCanvas(416, 216);
+  const adapter = new ShuCharacterAdapter({ canvas: adapterCanvas, scale: 1 });
+  await gateway.registerInstance(adapter, "primary-companion", { instanceId: "soak-companion" });
+  const director = new InteractionDirector(undefined, SHU_DIRECTOR_TABLES);
+  const dirRng = seededRng(20260903);
+  let behavior = initialBehavior(Date.now());
+  let memory = emptyMemory();
+  let intents = 0;
+  let directorActions = 0;
+  let inputEvents = 0;
+
+  const envelope = (n: number): IntentEnvelope => ({
+    protocolVersion: "1.0",
+    messageId: `soak-${n}`,
+    characterInstanceId: "soak-companion",
+    timestamp: new Date().toISOString(),
+    intent: n % 3 === 0 ? "acknowledge" : n % 3 === 1 ? "think" : "idle",
+    truthState: "none",
+    priority: 20,
+    interruptPolicy: "queue",
+    resumePolicy: "return-idle",
+    privacyClass: "public",
+  });
+
   // 暖身：第一批幀會建快取（sprite、路徑），不算成長。
   const warmStart = performance.now();
   while (performance.now() - warmStart < WARMUP_MS) {
@@ -89,6 +152,7 @@ async function run() {
   let nextSpawnAt = t0 + 9_000;
   let grabs = 0;
   let spawnAttempts = 0;
+  let nextPumpAt = t0 + 500;
 
   for (;;) {
     const now = await nextFrame();
@@ -113,9 +177,47 @@ async function run() {
       nextGrabAt = wall + 2_000;
     }
     if (wall >= nextSpawnAt) {
-      stage.spawnToy(spawnAttempts % 2 === 0 ? "yarn" : "paper");
+      if (stage.spawnToy(spawnAttempts % 2 === 0 ? "yarn" : "paper")) {
+        memory = notePlay(memory, spawnAttempts % 2 === 0 ? "yarn" : "paper", Date.now());
+      }
       spawnAttempts += 1;
       nextSpawnAt = wall + 9_000;
+    }
+    // 500 ms pump：Gateway sweep、Director tick、behavior/記憶更新、事件環灌入。
+    if (wall >= nextPumpAt) {
+      nextPumpAt = wall + 500;
+      const nowMs = Date.now();
+      gateway.dispatch(envelope(intents));
+      intents += 1;
+      gateway.ingestInput("soak-companion", {
+        kind: "character.pointer",
+        payload: { x: (intents % 40) * 8, y: 40 },
+      } as never);
+      inputEvents += 1;
+      gateway.drainInput();
+      gateway.sweep(nowMs);
+      behavior = stepBehavior(behavior, {
+        busy: intents % 6 === 0,
+        waitingForHuman: false,
+        msSinceInteraction: nowMs - behavior.lastInteractionAt,
+      });
+      if (intents % 8 === 0) behavior = noteUserInteraction(behavior, nowMs);
+      const action = director.tick(
+        {
+          nowMs,
+          ambient: true,
+          quiet: false,
+          reducedMotion: false,
+          expressiveness: 1,
+          msSinceInteraction: nowMs - behavior.lastInteractionAt,
+          behavior,
+        },
+        dirRng
+      );
+      if (action) directorActions += 1;
+      if (intents % 4 === 0) director.react("poked", nowMs, 2_000, dirRng);
+      eventRing.push({ at: nowMs, kind: "soak" });
+      if (eventRing.length > EVENT_RING_MAX) eventRing.shift();
     }
     if (wall >= nextSampleAt) {
       const bytes = heapBytes();
@@ -129,8 +231,20 @@ async function run() {
   if (gcAvailable) gc!();
   const endAfterGcBytes = heapBytes();
   const elapsedMs = performance.now() - t0;
+  const bounded = {
+    gatewayInstances: gateway.listInstances().length,
+    gatewayInputQueue: gateway.inputQueueSize(),
+    gatewayGrants: gateway.listGrants().length,
+    directorDecisions: director.recentDecisions().length,
+    eventRing: eventRing.length,
+    eventRingMax: EVENT_RING_MAX,
+    memoryToys: memory.toys.length,
+    memoryEvents: memory.events.length,
+  };
+  gateway.disposeInstance("soak-companion", "soak finished");
   stage.destroy();
   c.remove();
+  adapterCanvas.remove();
 
   const deltaAfterGcBytes =
     typeof baselineAfterGcBytes === "number" && typeof endAfterGcBytes === "number"
@@ -151,6 +265,18 @@ async function run() {
     frames,
     sampleEveryMs: SAMPLE_EVERY_MS,
     interactions: { toyGrabs: grabs, spawnAttempts, toysInWorld: stage.toyCount() },
+    scope:
+      "StageRenderer 畫布層 ＋ CharacterGateway（真 shu adapter、500 ms sweep）＋ InteractionDirector ＋ behavior/記憶 ＋ 500 筆事件環；不含 React 樹、Tauri IPC、真實 SSE 連線",
+    appLayer: {
+      pumps: Math.round(elapsedMs / 500),
+      intents,
+      inputEvents,
+      forwardedInputs,
+      receipts,
+      systemTexts,
+      directorActions,
+      bounded,
+    },
     gcAvailable,
     baselineAfterGcBytes,
     endBeforeGcBytes,

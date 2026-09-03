@@ -11,7 +11,15 @@
 // 角色設計（spec §4）：約 2.5–2.6 頭身、大頭低重心、圓潤輪廓；
 // 女性化但無成熟成人特徵；女僕工作服非性感裝（不透膚、蓬裙+燈籠褲）。
 
-import { clamp, clamp01, mixColor, RigArmPose, RigPalette, RigParams } from "./params";
+import {
+  clamp,
+  clamp01,
+  mixColor,
+  POSE_HEAD_Y,
+  RigArmPose,
+  RigPalette,
+  RigParams,
+} from "./params";
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -38,7 +46,7 @@ export interface Layout {
 function lieLayout(): Layout {
   return {
     hx: 52,
-    hy: 92,
+    hy: POSE_HEAD_Y.lie,
     hrx: 21,
     hry: 19,
     waistY: 104,
@@ -52,11 +60,12 @@ function lieLayout(): Layout {
 function uprightLayout(pose: RigParams["pose"], pal: RigPalette): Layout {
   const sit = pose === "sit";
   const crouch = pose === "crouch";
-  // stand：頭中心 46；sit 整體下移 10；crouch 下移 6。
-  const drop = sit ? 10 : crouch ? 6 : 0;
+  // stand：頭中心 46；sit 整體下移 10；crouch 下移 6（高度表由 params.ts 共用，
+  // blendPose 的姿勢混合也吃同一份，避免兩邊各寫一套）。
+  const drop = POSE_HEAD_Y[pose] - POSE_HEAD_Y.stand;
   return {
     hx: 64,
-    hy: 46 + drop,
+    hy: POSE_HEAD_Y.stand + drop,
     hrx: 21.5 * (1 + (pal.eyeScale - 1) * 0.1),
     hry: 19.5,
     waistY: 84 + drop,
@@ -83,21 +92,25 @@ function mixLayout(from: Layout, to: Layout, k: number): Layout {
   };
 }
 
+function poseLayout(pose: RigParams["pose"], pal: RigPalette): Layout {
+  return pose === "lie" ? lieLayout() : uprightLayout(pose, pal);
+}
+
 /**
- * 姿勢 → 版面。`poseBlend < 1` 時（lie ↔ stand/sit 切換的過場中）頭中心與
- * 身體高度在兩個姿勢之間線性插值，避免字串通道中點硬切造成的單幀瞬移。
- * 匯出供測試量測「連續兩幀頭部位移」。
+ * 姿勢 → 版面。`poseBlend < 1` 時（任何姿勢切換的過場中）頭中心與身體高度
+ * 在 `poseFrom` 與 `pose` 兩個版面之間線性插值，避免字串通道中點硬切造成的
+ * 單幀瞬移。匯出供測試量測「連續兩幀頭部位移」。
+ *
+ * 舊版把「另一端」硬寫成 lie／stand，所以 crouch↔lie（startled-awake 的
+ * enter）之類的過場混到錯的版面、切換點還會多跳幾 px；現在來源姿勢由
+ * `poseFrom` 明寫（對抗審查 rig-renderer-056）。`poseFrom` 未被寫入時等於
+ * `pose`，代表沒有過場。
  */
 export function layoutFor(p: RigParams, pal: RigPalette): Layout {
   const blend = clamp01(p.poseBlend);
-  if (p.pose === "lie") {
-    const lie = lieLayout();
-    if (blend >= 0.999) return lie;
-    return mixLayout(uprightLayout("stand", pal), lie, blend);
-  }
-  const up = uprightLayout(p.pose, pal);
-  if (blend >= 0.999) return up;
-  return mixLayout(lieLayout(), up, blend);
+  const cur = poseLayout(p.pose, pal);
+  if (blend >= 0.999 || p.poseFrom === p.pose) return cur;
+  return mixLayout(poseLayout(p.poseFrom, pal), cur, blend);
 }
 
 /** 圓角路徑工具。 */

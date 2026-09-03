@@ -4,28 +4,18 @@
 // 打斷後主動表現收斂。
 
 import { describe, expect, it } from "vitest";
+import { InteractionDirector } from "../companion/director";
+// CPP：ambient 變體清單屬於角色（shu adapter tables）；排程器本身 engine-neutral。
+import { SHU_DIRECTOR_TABLES } from "../character/adapters/shuTables";
 import {
   initialBehavior,
   layeredMicroMotion,
   noteEvent,
   noteInterruption,
-  scheduleMicroAction,
   scoreEvent,
   seededRng,
   stepBehavior,
 } from "../companion/behavior";
-// CPP：微動作清單屬於角色（shu adapter tables）；排程器本身 engine-neutral。
-import { SHU_MICRO_ACTIONS } from "../character/adapters/shuTables";
-
-const baseCtx = {
-  ambient: true,
-  reducedMotion: false,
-  quiet: false,
-  expressiveness: 1,
-  msSinceInteraction: 300_000,
-  recent: [] as string[],
-};
-
 const calmState = () => {
   let s = initialBehavior(0);
   // 收斂到低喚起（長時間無事）。
@@ -117,93 +107,75 @@ describe("event priority ladder", () => {
   });
 });
 
-describe("micro-action scheduler", () => {
+// ---------------------------------------------------------------------------
+// 生命底層（微動作）在執行期就是 InteractionDirector 的 ambient 排程。
+// behavior.scheduleMicroAction 曾經是一份同構但**沒有任何生產呼叫端**的排程器，
+// 已移除（對抗審查 companion-gameplay-036／rig-renderer-060）；這裡把它原本
+// 保證的不變量改釘在真的會跑的那一條路上。
+// ---------------------------------------------------------------------------
+
+describe("micro-action scheduling lives in InteractionDirector (no dead scheduler)", () => {
+  const director = () => new InteractionDirector(undefined, SHU_DIRECTOR_TABLES);
+  const ctx = (over: Partial<Parameters<InteractionDirector["tick"]>[0]> = {}) => ({
+    nowMs: 0,
+    ambient: true,
+    quiet: false,
+    reducedMotion: false,
+    expressiveness: 1,
+    msSinceInteraction: 300_000,
+    behavior: calmState(),
+    ...over,
+  });
+
+  it("behavior.ts 不再匯出死掉的排程器", async () => {
+    const mod = (await import("../companion/behavior")) as Record<string, unknown>;
+    expect(mod.scheduleMicroAction).toBeUndefined();
+  });
+
   it("never acts outside ambient or under task load", () => {
     const rng = seededRng(1);
-    const s = calmState();
-    expect(scheduleMicroAction(s, { ...baseCtx, ambient: false }, rng, SHU_MICRO_ACTIONS)).toBeNull();
-    const busy = { ...s, taskLoad: 0.8 };
+    const d = director();
+    expect(d.tick(ctx({ ambient: false }), rng)).toBeNull();
+    const busy = { ...calmState(), taskLoad: 0.8 };
     for (let i = 0; i < 200; i++) {
-      expect(scheduleMicroAction(busy, baseCtx, rng, SHU_MICRO_ACTIONS)).toBeNull();
+      expect(d.tick(ctx({ behavior: busy, nowMs: i * 500 }), rng)).toBeNull();
     }
   });
 
-  it("reduced motion only allows blink-class actions", () => {
+  it("reduced motion only allows reducedMotionOk variants", () => {
     const rng = seededRng(2);
-    const s = calmState();
+    const d = director();
+    const allowed = new Set(
+      SHU_DIRECTOR_TABLES.ambient.filter((v) => v.reducedMotionOk).map((v) => v.expression)
+    );
     for (let i = 0; i < 500; i++) {
-      const a = scheduleMicroAction(s, { ...baseCtx, reducedMotion: true }, rng, SHU_MICRO_ACTIONS);
-      if (a) expect(a.reducedMotionOk).toBe(true);
-    }
-  });
-
-  it("avoids repeating the last two actions and is not fixed-period", () => {
-    const rng = seededRng(3);
-    const s = calmState();
-    const gaps: number[] = [];
-    let last = 0;
-    const played: string[] = [];
-    for (let i = 0; i < 3000; i++) {
-      const a = scheduleMicroAction(s, { ...baseCtx, recent: played.slice(-3) }, rng, SHU_MICRO_ACTIONS);
-      if (a) {
-        expect(played.slice(-2)).not.toContain(a.id);
-        played.push(a.id);
-        gaps.push(i - last);
-        last = i;
-      }
-    }
-    expect(played.length).toBeGreaterThan(5);
-    // 間隔非固定：至少出現三種不同間隔。
-    expect(new Set(gaps).size).toBeGreaterThan(2);
-  });
-
-  it("lazy poses need real relaxation (recent interaction blocks lie-down)", () => {
-    const rng = seededRng(4);
-    const s = calmState();
-    for (let i = 0; i < 1000; i++) {
-      const a = scheduleMicroAction(s, { ...baseCtx, msSinceInteraction: 5_000 }, rng, SHU_MICRO_ACTIONS);
-      if (a) expect(["lie-down", "tail-hug"]).not.toContain(a.id);
+      const a = d.tick(ctx({ reducedMotion: true, nowMs: i * 500 }), rng);
+      if (a) expect(allowed).toContain(a.expression);
     }
   });
 
   it("interruptions dampen initiative", () => {
-    let s = calmState();
-    for (let i = 0; i < 5; i++) s = noteInterruption(s);
-    const rng1 = seededRng(5);
-    const rng2 = seededRng(5);
-    let calmCount = 0;
-    let dampedCount = 0;
-    const calm = calmState();
-    for (let i = 0; i < 2000; i++) {
-      if (scheduleMicroAction(calm, baseCtx, rng1, SHU_MICRO_ACTIONS)) calmCount++;
-      if (scheduleMicroAction(s, baseCtx, rng2, SHU_MICRO_ACTIONS)) dampedCount++;
-    }
-    expect(dampedCount).toBeLessThan(calmCount);
+    let damped = calmState();
+    for (let i = 0; i < 5; i++) damped = noteInterruption(damped);
+    // hazard 恰好落在兩者之間：平靜時出手、被打斷五次後不出手（確定性，不靠取樣）。
+    const rng = () => 0.05;
+    expect(director().tick(ctx({ nowMs: 1_000 }), rng)).not.toBeNull();
+    expect(director().tick(ctx({ nowMs: 1_000, behavior: damped }), rng)).toBeNull();
   });
 
   it("seeded rng makes scheduling reproducible", () => {
-    const s = calmState();
     const run = () => {
+      const d = director();
       const rng = seededRng(42);
       const out: string[] = [];
-      const recent: string[] = [];
       for (let i = 0; i < 500; i++) {
-        const a = scheduleMicroAction(s, { ...baseCtx, recent: recent.slice(-3) }, rng, SHU_MICRO_ACTIONS);
-        if (a) {
-          out.push(a.id);
-          recent.push(a.id);
-        }
+        const a = d.tick(ctx({ nowMs: i * 500 }), rng);
+        if (a) out.push(a.expression);
       }
       return out;
     };
-    expect(run()).toEqual(run());
-  });
-
-  it("every micro action uses only non-truth art", () => {
-    for (const a of SHU_MICRO_ACTIONS) {
-      expect(["success", "blocked", "unknown", "failed", "emergency", "offline"]).not.toContain(
-        a.animation
-      );
-    }
+    const first = run();
+    expect(first.length).toBeGreaterThan(3);
+    expect(run()).toEqual(first);
   });
 });

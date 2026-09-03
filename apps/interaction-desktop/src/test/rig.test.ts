@@ -510,9 +510,24 @@ describe("Interaction Director 接線", () => {
 
   it("react()：冷卻內不重播同一個反應", () => {
     const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
-    expect(d.react("poked-rapid", 0)?.expression).toBe("poked-rapid");
-    expect(d.react("poked-rapid", 3_000)).toBeNull(); // 8s 冷卻內
-    expect(d.react("poked-rapid", 30_000)?.expression).toBe("poked-rapid");
+    // 單一變體的意圖（block-cursor）：冷卻內就是 null。
+    expect(d.react("block-cursor", 0)?.expression).toBe("block-cursor");
+    expect(d.react("block-cursor", 3_000)).toBeNull(); // 8s 冷卻內
+    expect(d.react("block-cursor", 30_000)?.expression).toBe("block-cursor");
+  });
+
+  it("react()：多變體的意圖冷卻內換一個變體，全在冷卻才回 null（companion-gameplay-037）", () => {
+    const d = new InteractionDirector(DEFAULT_TUNING, SHU_DIRECTOR_TABLES);
+    const pool = SHU_REACTIONS["poked-rapid"] as readonly string[];
+    expect(pool.length).toBeGreaterThanOrEqual(3);
+    const seen = new Set<string>();
+    for (let i = 0; i < pool.length; i++) {
+      const a = d.react("poked-rapid", i * 100, 2_200, () => 0.5);
+      expect(a, `variant ${i}`).not.toBeNull();
+      seen.add(a!.expression);
+    }
+    expect(seen.size).toBe(pool.length); // 每個變體都輪到，沒有重複
+    expect(d.react("poked-rapid", pool.length * 100)).toBeNull(); // 全在冷卻
   });
 
   it("noteFinished()：自然播完後不再排恢復", () => {

@@ -265,6 +265,7 @@ async function run() {
     stage.pause();
     const loop = stage.loopStats();
     const budget = stage.frameBudget();
+    const pacing = stage.framePacing();
     const toys = stage.toyCount();
     stage.destroy();
     c.remove();
@@ -277,9 +278,41 @@ async function run() {
       drawn: loop.drawn,
       skipEveryOther: budget.skipEveryOther,
       lastWindowAvgCostMs: budget.avgMs,
+      pacingMissing: pacing.missing,
+      pacingBaselineMs: pacing.baselineMs,
+      pacingAvgGapMs: pacing.avgGapMs,
       rafGap: { ...stats(gaps), note: "headless Chromium 的 rAF 節奏，非使用者螢幕更新率" },
       note:
-        "StageRenderer 自己的 requestAnimationFrame 迴圈；幀預算餵的是 renderFrame 成本（不含 raster flush）。skipEveryOther=true 代表舞台自己降到 30fps",
+        "StageRenderer 自己的 requestAnimationFrame 迴圈。降級有兩條訊號：幀預算（renderFrame 的 JS 成本，不含 raster flush）與幀節奏（rAF 實際間隔 vs 這台螢幕的基準，抓得到合成／GPU／節流造成的掉幀，對抗審查 perf-claims-008）。skipEveryOther/pacingMissing 任一為 true 代表舞台自己降到 30fps",
+    };
+  }
+
+  // 2c) Reduced Motion 的工作量（對抗審查 perf-claims-007）：畫面逐幀相同時，
+  //     主迴圈只該畫第一幀＋每 500ms 一次世界維護，不是以螢幕更新率重畫同一張圖。
+  {
+    const c = makeCanvas(416, 216);
+    const stage = new StageRenderer(c, "maid-classic", 1, { rng: () => 0.37 });
+    stage.setMachineFlags({ ambient: true, frozen: false, quiet: false, playPerforming: false });
+    stage.setAnimation("idle");
+    stage.setFamiliars([{ id: "f1", name: "小白", palette: "maid-dusk" }]);
+    stage.spawnToy("yarn");
+    stage.setReducedMotion(true);
+    const startedAt = performance.now();
+    for (let i = 0; i < 360; i++) await nextFrame();
+    const elapsedMs = performance.now() - startedAt;
+    stage.pause();
+    const loop = stage.loopStats();
+    stage.destroy();
+    c.remove();
+    out.reducedMotionLoop = {
+      canvasCss: "416x216",
+      rafFramesWaited: 360,
+      ticks: loop.ticks,
+      drawn: loop.drawn,
+      elapsedMs,
+      drawnPerSecond: loop.drawn / Math.max(0.001, elapsedMs / 1000),
+      note:
+        "Reduced Motion 靜態短路：drawn 應該遠小於 ticks（第一幀＋每 500ms 一次維護），而不是每個 rAF 都重畫透明視窗",
     };
   }
 

@@ -153,8 +153,29 @@ export function transientCompetition(
   return nextScore > activeScore ? "replace" : "keep";
 }
 
-/** 緊急停止時仍可以留在台上的 transient（安全訊息本身）。 */
-const SAFETY_TRANSIENTS = new Set<TransientKind>(["blocked", "failed", "unknown"]);
+/**
+ * 緊急停止時仍可以留在台上的 transient（安全訊息本身）。
+ *
+ * `requesting-consent` **不在**這裡：緊急停止就是使用者收回同意，等待確認的
+ * 舉手不該撐過 estop。
+ */
+const ESTOP_KEEP_TRANSIENTS = new Set<TransientKind>(["blocked", "failed", "unknown"]);
+
+/**
+ * 非 force 的 clear-transient 不可以清掉的 transient。
+ *
+ * 除了安全訊息，還包含 `requesting-consent`：runtime 真的在等使用者確認時，
+ * 連戳角色或 presentation `cancel` 不該把「在等你確認」抹掉——本專案自己的
+ * 分類（behavior.ts 的 waiting-confirmation 算 isSafety、CPP RequestConsent
+ * 的優先度下限 80、ask 表情標 truthState）都把它當安全層
+ * （對抗審查 director-pipeline-044）。只有 force（estop 的 clear-all）能清。
+ */
+const CLEAR_PROTECTED_TRANSIENTS = new Set<TransientKind>([
+  "blocked",
+  "failed",
+  "unknown",
+  "requesting-consent",
+]);
 
 /**
  * 這次 transient 更替算不算「被搶佔」？
@@ -270,15 +291,18 @@ export function reduce(state: MachineState, event: MachineEvent, nowMs: number):
         // 緊急停止：進行中的表演/互動/工作狀態一律下台，不得撐過 estop
         // （安全訊息本身留著）。停住的系統不繼續演任何東西。
         const t = state.transient;
-        const keep = t && t.untilMs > nowMs && SAFETY_TRANSIENTS.has(t.kind) ? t : null;
+        const keep = t && t.untilMs > nowMs && ESTOP_KEEP_TRANSIENTS.has(t.kind) ? t : null;
         return { base: "emergency", transient: keep };
       }
       return { ...state, base: event.base };
     }
     case "clear-transient": {
       const t = state.transient;
-      // 安全訊息（被擋下／失敗／未知）只能被 force（estop clear-all）清掉；一般 cancel 不動它。
-      if (!event.force && t && t.untilMs > nowMs && SAFETY_TRANSIENTS.has(t.kind)) return state;
+      // 安全訊息（被擋下／失敗／未知）與「在等你確認」只能被 force
+      // （estop clear-all）清掉；一般 cancel／連戳不動它們。
+      if (!event.force && t && t.untilMs > nowMs && CLEAR_PROTECTED_TRANSIENTS.has(t.kind)) {
+        return state;
+      }
       return { ...state, transient: null };
     }
     case "transient": {

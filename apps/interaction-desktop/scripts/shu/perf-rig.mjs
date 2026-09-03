@@ -73,7 +73,8 @@ await page.waitForFunction(() => document.title === "perf-ready", null, { timeou
 const result = (await page.evaluate(() => window.__perf)) ?? {};
 await page.close();
 
-// 2) 記憶體浸泡：全舞台真 rAF 跑 ≥60 秒＋週期性抓玩具，GC 後差值（perf-soak-entry）。
+// 2) 記憶體浸泡：全舞台真 rAF 跑 ≥60 秒＋週期性抓玩具，另加 Gateway／Director／
+//    behavior／記憶／事件環的 500 ms pump（perf-claims-009），GC 後差值（perf-soak-entry）。
 const soakPage = await browser.newPage({ viewport: { width: 800, height: 600 }, deviceScaleFactor: 2 });
 await soakPage.addInitScript((durationMs) => {
   window.__soakConfig = { durationMs };
@@ -99,6 +100,9 @@ const num = (v) => (typeof v === "number" ? v.toFixed(3) : "n/a");
 // 真 rAF 主迴圈＋幀預算：skipEveryOther=true 代表舞台自己降到 30fps（零成本下必須是 false）。
 console.log(
   `stage loop   : ticks=${r.stageLoop?.ticks ?? "n/a"} drawn=${r.stageLoop?.drawn ?? "n/a"} skipEveryOther=${r.stageLoop?.skipEveryOther ?? "n/a"} lastWindowAvgCost=${num(r.stageLoop?.lastWindowAvgCostMs)} ms (rAF gap ${fmt(r.stageLoop?.rafGap)})`
+);
+console.log(
+  `reduced loop : ticks=${r.reducedMotionLoop?.ticks ?? "n/a"} drawn=${r.reducedMotionLoop?.drawn ?? "n/a"} (${num(r.reducedMotionLoop?.drawnPerSecond)} draws/s over ${num((r.reducedMotionLoop?.elapsedMs ?? 0) / 1000)} s) — Reduced Motion 靜態短路`
 );
 console.log(
   `toy grab lat : ${fmt(r.inputLatencyToyGrab)} (confirmed ${r.inputLatencyToyGrab?.confirmedFrames}/${r.inputLatencyToyGrab?.attempts}; WebView-only segment, host click-through gate not included)`
@@ -127,6 +131,14 @@ const pct =
     : "n/a";
 console.log(
   `heap soak    : ${((s.durationMs ?? 0) / 1000).toFixed(1)} s / ${s.frames ?? "n/a"} frames / ${s.interactions?.toyGrabs ?? "n/a"} toy grabs; after-gc ${mb(s.baselineAfterGcBytes)} → ${mb(s.endAfterGcBytes)} (Δ ${kbDelta(s.deltaAfterGcBytes)}, ${pct}); peak before gc ${mb(s.peakBytes)}; samples every ${((s.sampleEveryMs ?? 0) / 1000).toFixed(0)} s: ${(s.samples ?? []).map((x) => mb(x.bytes).replace(" MB", "")).join(", ")} MB; quantized=${s.looksQuantized ? "YES" : "no"}; evidence-grade=${s.evidenceGrade ? "yes (≥60 s)" : "NO (<60 s)"}`
+);
+const al = s.appLayer ?? {};
+const bd = al.bounded ?? {};
+console.log(
+  `soak scope   : ${s.scope ?? "n/a"}`
+);
+console.log(
+  `soak app tier: pumps=${al.pumps ?? "n/a"} intents=${al.intents ?? "n/a"} inputs=${al.inputEvents ?? "n/a"} receipts=${al.receipts ?? "n/a"} director-actions=${al.directorActions ?? "n/a"}; bounded: instances=${bd.gatewayInstances ?? "n/a"} inputQueue=${bd.gatewayInputQueue ?? "n/a"} grants=${bd.gatewayGrants ?? "n/a"} decisions=${bd.directorDecisions ?? "n/a"} eventRing=${bd.eventRing ?? "n/a"}/${bd.eventRingMax ?? "n/a"} memToys=${bd.memoryToys ?? "n/a"} memEvents=${bd.memoryEvents ?? "n/a"}`
 );
 console.log(`bounded toys : cap=${r.boundedQueue?.toyCap} of ${r.boundedQueue?.spawnedAttempts} spawns`);
 console.log(`3-day run    : finite=${r.longRun?.allFinite} withinClamp=${r.longRun?.allWithinClamp}`);

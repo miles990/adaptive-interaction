@@ -30,7 +30,10 @@ import {
 import {
   FrameBudgetState,
   frameBudgetPolicy,
+  FramePacingState,
+  framePacingPolicy,
   initialFrameBudget,
+  initialFramePacing,
   shouldDrawFrame,
 } from "../gameFeel";
 import { DEFAULT_TUNING, PersonalityTuning } from "../personality";
@@ -167,6 +170,12 @@ export interface HitRect {
   w: number;
   h: number;
 }
+
+/**
+ * Reduced Motion 的靜態短路下，世界維護（玩具 TTL、注意力到期）的節拍。
+ * 畫面不變時每 500ms 才走一幀，而不是以螢幕更新率重畫同一張圖。
+ */
+export const REDUCED_TICK_MS = 500;
 
 /** 兩次回報之間的最小間隔（不得每幀 invoke）。 */
 export const HIT_RECT_MIN_INTERVAL_MS = 50;
@@ -356,6 +365,10 @@ export class StageRenderer implements RendererBackend {
   private exprCb: ((id: string, durationMs: number) => void) | null = null;
   private tuning: PersonalityTuning = DEFAULT_TUNING;
   private budget: FrameBudgetState = initialFrameBudget();
+  /** 幀節奏（rAF 實際間隔 vs 螢幕基準）：合成／GPU／系統節流造成的掉幀。 */
+  private pacing: FramePacingState = initialFramePacing();
+  /** 上一次 rAF 回呼的時間（0＝還沒有樣本／剛 resume）。 */
+  private lastLoopAt = 0;
   private frameParity = 0;
   /** 主迴圈統計（診斷／效能量測）：rAF 回呼次數與真正畫出的幀數。 */
   private loopTicks = 0;
@@ -365,6 +378,14 @@ export class StageRenderer implements RendererBackend {
   private lastReportAt = 0;
   /** 上一幀實際套用的 rig 參數（診斷／效能量測用）。 */
   private lastFrame: RigParams | null = null;
+  /**
+   * Reduced Motion 的靜態短路（對抗審查 perf-claims-007）：畫面逐幀完全相同時
+   * 只畫一次，別在透明的常駐視窗上以螢幕更新率重複合成同一張圖
+   * （SpriteRenderer 早就這麼做，主渲染器一直沒跟上）。
+   */
+  private staticDrawn = false;
+  /** 靜態短路下的世界維護節拍（玩具 TTL／注意力到期仍要走）。 */
+  private lastReducedDrawAt = 0;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -391,22 +412,29 @@ export class StageRenderer implements RendererBackend {
 
   // ---- RendererBackend ----
   setAnimation(name: string, frameSlice?: [number, number]): void {
+    if (name !== this.machineAnim || frameSlice !== this.machineSlice) this.invalidateStatic();
     this.machineAnim = name;
     this.machineSlice = frameSlice;
   }
 
   setReducedMotion(on: boolean): void {
     this.timeline.setReducedMotion(on);
+    this.invalidateStatic();
   }
 
   /** 安靜時的「就地眨眼」：不換表情、不搶走安靜姿勢。 */
   blinkNow(): boolean {
-    return this.timeline.blinkNow(this.now());
+    const ok = this.timeline.blinkNow(this.now());
+    // Reduced Motion 下眨眼不會畫出來（rig-renderer-059）：不必為它重畫。
+    if (ok && !this.timeline.isReducedMotion()) this.invalidateStatic();
+    return ok;
   }
 
   setMicroMotion(motion: MicroMotionOverlay): void {
     // 帶上此刻的時間戳：注意力分段（耳→視線→頭）要知道「什麼時候改變的」。
     this.timeline.setMicroMotion(motion, this.now());
+    // Reduced Motion 不疊微動作：畫面不會變，別讓 500ms pump 破壞靜態短路。
+    if (!this.timeline.isReducedMotion()) this.invalidateStatic();
   }
 
   destroy(): void {
@@ -430,6 +458,10 @@ export class StageRenderer implements RendererBackend {
     if (!this.paused || this.destroyed) return;
     this.paused = false;
     this.lastStep = this.now();
+    // 暫停期間沒有 rAF：不要把整段空白當成一次超大幀距。
+    this.lastLoopAt = 0;
+    this.pacing = initialFramePacing();
+    this.invalidateStatic();
     if (this.looping) this.loop();
   }
 
@@ -454,7 +486,10 @@ export class StageRenderer implements RendererBackend {
 
   /** 換配色（角色 variant）；未知名稱維持原配色。 */
   setPalette(name: string): void {
-    if (RIG_PALETTES[name]) this.paletteName = name;
+    if (RIG_PALETTES[name] && name !== this.paletteName) {
+      this.paletteName = name;
+      this.invalidateStatic();
+    }
   }
 
   currentPalette(): string {
@@ -464,16 +499,19 @@ export class StageRenderer implements RendererBackend {
   // ---- stage 控制 ----
   setMachineFlags(flags: MachineFlags): void {
     this.flags = flags;
+    this.invalidateStatic();
   }
 
   setToggles(t: Partial<StageToggles>): void {
     this.toggles = { ...this.toggles, ...t };
+    this.invalidateStatic();
   }
 
   /** 個性 tuning：速度/距離/注意力分段（只影響呈現）。 */
   setTuning(tuning: PersonalityTuning): void {
     this.tuning = tuning;
     this.timeline.setAttentionStagger(tuning.attentionStagger as AttentionStagger);
+    this.invalidateStatic();
   }
 
   /** 目前的幀預算狀態（30fps 降級診斷用；avgMs＝上一窗的平均 renderFrame 成本）。 */
@@ -481,12 +519,19 @@ export class StageRenderer implements RendererBackend {
     return this.budget;
   }
 
+  /** 目前的幀節奏狀態（30fps 降級的另一條訊號：實際幀距 vs 螢幕基準）。 */
+  framePacing(): FramePacingState {
+    return this.pacing;
+  }
+
   setScene(scene: string): void {
     this.scene = (STAGE_SCENES as string[]).includes(scene) ? (scene as StageScene) : "none";
+    this.invalidateStatic();
   }
 
   setCharName(name: string): void {
     this.charName = name.slice(0, 24) || "小樞";
+    this.invalidateStatic();
   }
 
   setFamiliars(configs: { id: string; name: string; palette: string }[]): void {
@@ -506,6 +551,7 @@ export class StageRenderer implements RendererBackend {
       };
     });
     this.world = { ...this.world, familiars };
+    this.invalidateStatic();
   }
 
   onExpressionEvent(cb: (id: string, durationMs: number) => void): void {
@@ -523,6 +569,10 @@ export class StageRenderer implements RendererBackend {
    * ——視窗被隱藏、系統節流——仍要有一次回報）。
    */
   reportHitRect(force = false): void {
+    // 暫停（隱藏／CPP suspend）就真的不再回報：pause() 的契約這麼寫，但以前
+    // 沒有守衛，500ms 心跳照樣每拍打一次 Tauri IPC、Rust 端照樣取窗上鎖
+    // （對抗審查 perf-claims-011）。
+    if (this.paused || this.destroyed) return;
     if (!this.hitRectCb) return;
     const next = this.interactiveBounds();
     const now = this.now();
@@ -548,16 +598,27 @@ export class StageRenderer implements RendererBackend {
     return this.world.toys.map((t) => ({ id: t.id, x: t.x * this.scale, y: t.y * this.scale }));
   }
 
-  /** 丟玩具進場。凍結（緊急停止／離線／暫停）時拒絕：停住的系統不生成懸空的玩具。 */
+  /**
+   * 丟玩具進場。凍結（緊急停止／離線／暫停）時拒絕：停住的系統不生成懸空的玩具。
+   *
+   * 回傳「**真的**生成了嗎」——`nextToyId` 只有在建出玩具時才前進，所以它就是
+   * 誠實的判準。以前用 `數量變多 || isCursorToy(kind)`：光點／逗貓棒是替換式
+   * （數量不變但確實重生）才需要那半邊，卻連「玩具已滿、什麼都沒生成」也一起
+   * 判成成功，於是對 Runtime 送出根本沒發生的 toy-thrown、還寫進互動記憶
+   * （對抗審查 companion-gameplay-034）。
+   */
   spawnToy(kind: ToyKind): boolean {
     if (this.flags.frozen) return false;
-    const before = this.world.toys.length;
+    const beforeId = this.world.nextToyId;
     this.world = spawnToy(this.world, kind, this.now());
-    return this.world.toys.length > before || isCursorToy(kind);
+    const spawned = this.world.nextToyId > beforeId;
+    if (spawned) this.invalidateStatic();
+    return spawned;
   }
 
   clearAllToys(): void {
     this.world = clearToys(this.world);
+    this.invalidateStatic();
   }
 
   toyCount(): number {
@@ -569,7 +630,10 @@ export class StageRenderer implements RendererBackend {
   }
 
   rollCallNow(machineLabel: string | null): { name: string; activity: string }[] {
-    return rollCall(this.world, this.charName, machineLabel, this.now(), { frozen: this.flags.frozen });
+    return rollCall(this.world, this.charName, machineLabel, this.now(), {
+      frozen: this.flags.frozen,
+      reducedMotion: this.timeline.isReducedMotion(),
+    });
   }
 
   /** 診斷用：目前記住的休息姿勢（null＝站著／在玩）。 */
@@ -620,7 +684,19 @@ export class StageRenderer implements RendererBackend {
   }
 
   // ---- 指標（canvas CSS px；回傳命中類型供呼叫端決定行為） ----
-  pointerDown(cssX: number, cssY: number): "toy" | "char" | "none" {
+  /**
+   * 指標按下。回傳命中類型：
+   *   toy   ＝ 抓到玩具（拖曳）
+   *   char  ＝ 點在角色身上（互動＋選單）
+   *   stage ＝ 落在**回報出去的互動框內**、但既不是角色也不是玩具
+   *   none  ＝ 互動框外（正常情況收不到：Rust 端已讓這些點穿透到桌面）
+   *
+   * `stage` 是為了消掉死區：互動框是「角色 ∪ 所有玩具」的包圍盒，把毛球丟到
+   * 遠處時，角色與玩具之間那一大條空白既不穿透桌面、點下去也毫無反應
+   * （對抗審查 companion-gameplay-032）。呼叫端要把它當成一般的視窗互動
+   * （拖視窗／開選單），不是「戳到角色」。
+   */
+  pointerDown(cssX: number, cssY: number): "toy" | "char" | "stage" | "none" {
     const x = cssX / this.scale;
     const y = cssY / this.scale;
     // 凍結時不抓玩具（角色本體仍可點：緊急停止的快捷選單要開得了）。
@@ -629,10 +705,13 @@ export class StageRenderer implements RendererBackend {
       this.world = world;
       this.draggingToy = toyId;
       this.lastDrag = { x, y, at: this.now(), vx: 0, vy: 0 };
+      this.invalidateStatic();
       return "toy";
     }
     const r = this.charHitRect();
     if (cssX >= r.x && cssX <= r.x + r.w && cssY >= r.y && cssY <= r.y + r.h) return "char";
+    const b = this.interactiveBounds();
+    if (cssX >= b.x && cssX <= b.x + b.w && cssY >= b.y && cssY <= b.y + b.h) return "stage";
     return "none";
   }
 
@@ -646,6 +725,7 @@ export class StageRenderer implements RendererBackend {
     const x = cssX / this.scale;
     const y = cssY / this.scale;
     this.pointer = { x, y, active: true };
+    this.invalidateStatic();
     if (this.draggingToy != null && this.flags.frozen) {
       // 拖到一半世界凍結了：玩具就地放下（零速度），不跟著游標懸在半空。
       this.dropDraggedToyInPlace();
@@ -669,6 +749,7 @@ export class StageRenderer implements RendererBackend {
   }
 
   pointerUp(): void {
+    this.invalidateStatic();
     if (this.draggingToy != null && this.flags.frozen) {
       this.dropDraggedToyInPlace();
       return;
@@ -704,8 +785,18 @@ export class StageRenderer implements RendererBackend {
     this.pointerUp();
   }
 
+  /** 診斷／測試用：Reduced Motion 的靜態短路目前是否已畫過一幀。 */
+  isStaticDrawn(): boolean {
+    return this.staticDrawn;
+  }
+
   isDraggingToy(): boolean {
     return this.draggingToy != null;
+  }
+
+  /** 有東西變了：Reduced Motion 的靜態短路要重畫一幀。 */
+  private invalidateStatic(): void {
+    this.staticDrawn = false;
   }
 
   // ---- 主迴圈 ----
@@ -714,8 +805,27 @@ export class StageRenderer implements RendererBackend {
     if (typeof requestAnimationFrame !== "function") return;
     this.raf = requestAnimationFrame(this.loop);
     this.loopTicks += 1;
+    // 幀節奏：rAF 回呼之間的實際間隔（含 raster／合成／系統節流），跟這台螢幕
+    // 自己的基準比（對抗審查 perf-claims-008）。跳過不畫的幀也照樣量。
+    const tick = this.now();
+    if (this.lastLoopAt > 0) this.pacing = framePacingPolicy(this.pacing, tick - this.lastLoopAt);
+    this.lastLoopAt = tick;
+    // Reduced Motion（perf-claims-007）：表情只剩 hold、無 enter/loop/crossfade、
+    // 無微動作、無自動眨眼、物理與使魔都收斂到靜止——畫面逐幀相同。畫一次就好；
+    // 只有狀態真的變了（換表情／旗標／指標／玩具／resume）或每 REDUCED_TICK_MS
+    // 一次的世界維護節拍（玩具 TTL、注意力到期）才再畫。
+    if (this.timeline.isReducedMotion()) {
+      const nowMs = this.now();
+      if (this.staticDrawn && nowMs - this.lastReducedDrawAt < REDUCED_TICK_MS) return;
+      this.renderFrame(nowMs);
+      this.staticDrawn = true;
+      this.lastReducedDrawAt = nowMs;
+      this.drawnFrames += 1;
+      return;
+    }
+    this.staticDrawn = false;
     this.frameParity = (this.frameParity + 1) % 2;
-    if (!shouldDrawFrame(this.budget, this.frameParity)) return;
+    if (!shouldDrawFrame(this.budget, this.frameParity, this.pacing)) return;
     // 幀預算（§14）：餵的是「這一幀真正花掉的繪製成本」（renderFrame 前後的時間差），
     // 不是 rAF 間隔——60Hz 螢幕的 rAF 間隔恆為 16.67ms > 12ms，拿它當幀時間會讓舞台
     // 在一秒後永久降到 30fps 且回不來（對抗審查 perf-claims-017）。最近 60 幀平均

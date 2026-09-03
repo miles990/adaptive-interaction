@@ -608,7 +608,7 @@ describe("companion-reload：可就地套用的偏好 reconfigure，其餘整頁
     expect(companionReloadPlan(base, undefined)).toEqual({ action: "reload", changed: [] });
   });
 
-  it("host 自己套用的欄位（可見／位置／透明度／置頂／互動記憶）變了不需要視窗做事；沒變就沒變（鍵序不同也算相等）", () => {
+  it("host 自己套用的欄位（可見／位置／透明度／置頂）變了不需要視窗做事；沒變就沒變（鍵序不同也算相等）", () => {
     expect(companionReloadPlan(base, prefsWith({ companionVisible: false, companionOpacity: 0.5, companionPosition: [1, 2], companionAlwaysOnTop: false }))).toEqual({
       action: "live",
       changed: ["companionAlwaysOnTop", "companionOpacity", "companionPosition", "companionVisible"],

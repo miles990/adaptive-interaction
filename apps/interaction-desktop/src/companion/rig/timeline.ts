@@ -347,6 +347,9 @@ export class ExpressionTimeline {
    * 安靜時 Director 只允許眨眼類；如果把它當成一般表演套上去，她會從「安靜
    * 陪伴」的坐姿彈回中性站姿 0.4 秒——比原本的缺陷更糟。會自動眨眼的表情
    * 才收這個提示（其餘表情本來就沒有眨眼通道）。
+   *
+   * Reduced Motion 時仍回 true（提示被接受、安靜姿勢保住），但畫面上不會有
+   * 任何動作——這是呈現層的誠實降級，不是沒收到提示。
    */
   blinkNow(nowMs: number): boolean {
     if (!this.expr.autoBlink) return false;
@@ -437,7 +440,10 @@ export class ExpressionTimeline {
       }
     }
 
-    if (this.expr.autoBlink) {
+    // Reduced Motion 是「真靜態」，不是慢動作：自動眨眼也是持續動畫，一起停
+    // （對抗審查 rig-renderer-059。以前 idle/sit/lie-flat… 8 個表情在 Reduced
+    // Motion 下仍每 2.2–5.4 秒把 eyeOpen 壓到 0.05，文件卻寫「真靜態」）。
+    if (!this.reducedMotion && this.expr.autoBlink) {
       if (now >= this.nextBlinkAt) {
         this.blinkStartedAt = now;
         this.scheduleBlink(now);

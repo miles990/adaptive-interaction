@@ -109,9 +109,84 @@ export function frameBudgetPolicy(state: FrameBudgetState, frameMs: number): Fra
   return { count: 0, sumMs: 0, avgMs, skipEveryOther };
 }
 
-/** 這一幀該不該畫（降級時每兩幀畫一次）。 */
-export function shouldDrawFrame(state: FrameBudgetState, frameParity: number): boolean {
-  return !state.skipEveryOther || frameParity % 2 === 0;
+// ---------------------------------------------------------------------------
+// 幀節奏（§14 的另一半）：真正掉幀的原因多半不在 JS
+//
+// frameBudgetPolicy 量的是 renderFrame 的 JS 成本，實測中位數 0.24ms、門檻 12ms
+// ——約 50 倍餘裕，實務上不可能觸發。但使用者真正會掉幀的情境（透明常駐視窗的
+// GPU 合成貴、系統節流 rAF、別的行程搶 GPU）完全不反映在 JS 成本上
+// （對抗審查 perf-claims-008）。所以另外量「rAF 回呼之間的實際間隔」，並且跟
+// **這台螢幕自己的基準**（觀察到的最快間隔：60Hz≈16.7ms、120Hz≈8.3ms）相比，
+// 而不是拿絕對毫秒數當門檻——那正是 perf-claims-017 的錯法。
+// ---------------------------------------------------------------------------
+
+/** 窗內平均幀距超過螢幕基準的這個倍數就降級。 */
+export const FRAME_PACING_DEGRADE_RATIO = 1.5;
+/** 降級後要低於這個倍數才回全速（遲滯，避免抖動）。 */
+export const FRAME_PACING_RECOVER_RATIO = 1.15;
+/** 可以當「螢幕基準」的間隔範圍（ms）：太短是計時雜訊，太長不是刷新率。 */
+export const FRAME_GAP_MIN_MS = 4;
+export const FRAME_GAP_MAX_MS = 40;
+/** 單一樣本上限：一次 GC／系統暫停不該把整窗平均拉爆。 */
+export const FRAME_GAP_CAP_MS = 200;
+
+export interface FramePacingState {
+  /** 目前窗內已累積的樣本數。 */
+  count: number;
+  /** 目前窗內的間隔總和（ms）。 */
+  sumMs: number;
+  /** 這台螢幕的基準幀距（觀察到的最快間隔；0＝還沒有可信樣本）。 */
+  baselineMs: number;
+  /** 上一個完整窗的平均幀距（ms）。 */
+  avgGapMs: number;
+  /** true＝節奏跟不上螢幕（掉幀），該降到 30fps。 */
+  missing: boolean;
+}
+
+export function initialFramePacing(): FramePacingState {
+  return { count: 0, sumMs: 0, baselineMs: 0, avgGapMs: 0, missing: false };
+}
+
+/**
+ * 每次 rAF 回呼呼叫一次，`gapMs` 是距離上一次回呼的實際間隔。
+ * 滿一個窗（60 次）才決策；沒有可信基準前永不降級。
+ */
+export function framePacingPolicy(state: FramePacingState, gapMs: number): FramePacingState {
+  const raw = Number.isFinite(gapMs) ? Math.max(0, Math.min(FRAME_GAP_CAP_MS, gapMs)) : 0;
+  const baselineMs =
+    raw >= FRAME_GAP_MIN_MS && raw <= FRAME_GAP_MAX_MS
+      ? state.baselineMs === 0
+        ? raw
+        : Math.min(state.baselineMs, raw)
+      : state.baselineMs;
+  const count = state.count + 1;
+  const sumMs = state.sumMs + raw;
+  if (count < FRAME_WINDOW) {
+    return { ...state, count, sumMs, baselineMs };
+  }
+  const avgGapMs = sumMs / count;
+  const missing =
+    baselineMs === 0
+      ? false
+      : state.missing
+        ? avgGapMs > baselineMs * FRAME_PACING_RECOVER_RATIO
+        : avgGapMs > baselineMs * FRAME_PACING_DEGRADE_RATIO;
+  return { count: 0, sumMs: 0, baselineMs, avgGapMs, missing };
+}
+
+/**
+ * 這一幀該不該畫（降級時每兩幀畫一次）。
+ *
+ * 兩條降級訊號取聯集：JS 繪製成本（frameBudgetPolicy）與實際幀節奏
+ * （framePacingPolicy）。後者才抓得到合成／GPU／系統節流造成的掉幀。
+ */
+export function shouldDrawFrame(
+  state: FrameBudgetState,
+  frameParity: number,
+  pacing?: FramePacingState
+): boolean {
+  const degraded = state.skipEveryOther || pacing?.missing === true;
+  return !degraded || frameParity % 2 === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,8 +219,9 @@ export interface ReactionSource {
 
 /**
  * 單擊／連戳都經 Director：
- *   - 1.4 秒內第 3 次以上 → `poked-rapid`；冷卻中或沒有角色表 → **退回一般單擊**
- *     （不是什麼都不做：連戳冷卻期的點擊仍要有反應、仍要開選單）。
+ *   - 1.4 秒內第 3 次以上 → `poked-rapid` 的變體池（≥3，防重複，短冷卻）；全在冷卻或
+ *     沒有角色表 → **退回一般單擊**（不是什麼都不做：連戳冷卻期的點擊仍要有反應、
+ *     仍要開選單）。
  *   - 單擊 → `poked` 的變體池（≥3，防重複，短冷卻）；全在冷卻／文字角色 → canonical
  *     `clicked`（renderer alias → poked），保留直接互動的優先階梯（clicked 55）。
  */
@@ -155,9 +231,13 @@ export function planClickReaction(input: {
   director: ReactionSource;
   rng: () => number;
   singleCooldownMs?: number;
+  /** 連戳變體的冷卻（角色表注入；省略＝2.5 秒，讓變體池真的輪得動）。 */
+  rapidCooldownMs?: number;
 }): ClickReactionPlan {
   if (input.rapid) {
-    const d = input.director.reactDetailed("poked-rapid", input.nowMs, 2_200, input.rng);
+    const d = input.director.reactDetailed("poked-rapid", input.nowMs, 2_200, input.rng, {
+      cooldownMs: input.rapidCooldownMs ?? 2_500,
+    });
     if (d.action) {
       return {
         kind: "rapid",

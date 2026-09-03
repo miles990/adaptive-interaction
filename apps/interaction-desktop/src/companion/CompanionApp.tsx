@@ -106,6 +106,7 @@ import {
   importedRigPack,
   INITIAL_HELLO_TRACKER,
   inputEventFor,
+  interactionMemoryFromPrefs,
   isImageDataUrl,
   personaIdFor,
   PRIMARY_INSTANCE_ID,
@@ -413,6 +414,10 @@ export default function CompanionApp() {
   const applyLivePrefs = React.useCallback((next: DesktopPrefs) => {
     prefsSnapshotRef.current = next;
     storyProgress.current = next.storyProgress ?? {};
+    // 互動記憶：host 那一份是唯一真相。控制中心按「忘記這些」（或關掉某個反應）
+    // 之後，這個視窗手上的副本必須跟著換掉——否則下一次玩玩具會以陳舊副本整包
+    // 寫回，把使用者已經刪掉的記憶復活（memory-ui-001）。
+    memoryRef.current = interactionMemoryFromPrefs(next);
     dndRef.current = next.companionDoNotDisturb === true;
     quietUntilRef.current = next.companionProactiveQuietUntil ?? 0;
     bubblesEnabledRef.current = next.companionBubbles !== false;
@@ -1400,9 +1405,12 @@ export default function CompanionApp() {
       if (action) {
         // 安靜時只允許眨眼，而且要「就地眨」：套成一般表演的話，角色會從安靜
         // 陪伴的坐姿彈回中性站姿。rig 收得下這個提示就不換表情。
+        // 「就地眨眼」靠 Director 的 source 標記認出來，不比對表情 id——眨眼
+        // 的 id 由角色 adapter 的 tables 注入，host 不該知道它叫什麼
+        // （對抗審查 director-pipeline-045）。
         const rig = rendererRef.current as { blinkNow?: () => boolean } | null;
         const blinkedInPlace =
-          gate.quiet && action.expression === "blink" && rig?.blinkNow?.() === true;
+          gate.quiet && action.source === "blink" && rig?.blinkNow?.() === true;
         if (!blinkedInPlace) {
           apply({
             type: "transient",
@@ -1634,6 +1642,8 @@ export default function CompanionApp() {
   // ---- pointer: toy drag / click vs window drag ----
   const dragState = React.useRef<{ x: number; y: number; dragging: boolean } | null>(null);
   const toyDragRef = React.useRef(false);
+  /** 這次按下是落在互動框的空白處（不是角色身上）。 */
+  const bgPressRef = React.useRef(false);
   const clickTimes = React.useRef<number[]>([]);
 
   async function onPointerDown(e: React.PointerEvent) {
@@ -1647,7 +1657,11 @@ export default function CompanionApp() {
         (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
         return;
       }
-      if (hit === "none") return; // 擴大互動框內的空白：不反應
+      // 互動框（角色 ∪ 玩具的包圍盒）內的空白：以前直接 return，於是那一大條
+      // 區域既不穿透桌面、點下去也毫無反應（對抗審查 companion-gameplay-032）。
+      // 現在當成一般的視窗互動：可以拖視窗、放開時開選單，但不算「戳到角色」。
+      if (hit === "none") return; // 互動框外（Rust 端已讓它穿透，正常收不到）
+      bgPressRef.current = hit === "stage";
     }
     dragState.current = { x: e.clientX, y: e.clientY, dragging: false };
   }
@@ -1725,11 +1739,20 @@ export default function CompanionApp() {
     if (toyDragRef.current) {
       stage?.pointerUp();
       toyDragRef.current = false;
+      bgPressRef.current = false;
       return;
     }
     const d = dragState.current;
     dragState.current = null;
+    const bgPress = bgPressRef.current;
+    bgPressRef.current = false;
     if (d?.dragging) endDragHold();
+    if (d && !d.dragging && bgPress) {
+      // 互動框空白處的單擊：一般視窗互動——開/關選單，不戳角色、不送互動事件。
+      setMenuOpen((v) => !v);
+      setInputOpen(false);
+      return;
+    }
     if (d && !d.dragging) {
       const now = Date.now();
       clickTimes.current = [...clickTimes.current.filter((t) => now - t < 1_400), now];
@@ -1743,6 +1766,10 @@ export default function CompanionApp() {
         rng: microRng.current,
       });
       if (plan.kind === "rapid") {
+        // 連戳先清場再套演出，讓下一段連戳接得上。不帶 force：被擋下／失敗／
+        // 未知／「在等你確認」都在 machine 的 CLEAR_PROTECTED_TRANSIENTS 裡，
+        // 清不掉；接著的 performing（25）也搶不過它們的優先度，所以連戳不會把
+        // 真相狀態換成玩鬧姿勢（對抗審查 director-pipeline-044）。
         apply({ type: "clear-transient" });
         apply({ type: "transient", kind: "performing", animation: plan.animation, durationMs: plan.durationMs });
         return;

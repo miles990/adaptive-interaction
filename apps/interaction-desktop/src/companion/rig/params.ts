@@ -47,12 +47,21 @@ export type RigParticles = "none" | "dust" | "sparkle" | "zzz" | "heart";
 export interface RigParams {
   pose: RigPose;
   /**
+   * 姿勢過場的「另一個姿勢」（等同 armFrom 之於 armPose）。
+   *
+   * 以前 draw.ts 的 layout 硬寫「另一端＝lie 或 stand」，所以 crouch↔lie、
+   * crouch↔sit 這種過場會混到錯的版面，切換點還會多跳幾 px
+   * （對抗審查 rig-renderer-056）。改成明寫來源姿勢後，任何一對姿勢都能連續。
+   */
+  poseFrom: RigPose;
+  /**
    * 0..1 目前 pose 的權重（1＝完全就位）。
    *
    * 姿勢是字串通道，插值時會在中點硬切；lie↔stand/sit 的頭部與身體高度
-   * 差很大（~46px），硬切會單幀瞬移。lerpParams 在 lie 相關的切換期間把
-   * 這個通道從 0.5 附近連續帶過，draw.ts 的 layout 依它在「另一個姿勢」
-   * 與「目前姿勢」之間線性插值頭中心與身體高度。
+   * 差很大（~46px），stand↔sit 也差 10px，硬切都是單幀瞬移。lerpParams／
+   * blendPose 在**任何**姿勢切換期間把這個通道從 0.5 附近連續帶過，draw.ts
+   * 的 layout 依它在 `poseFrom` 與 `pose` 之間線性插值頭中心與身體高度
+   * （對抗審查 rig-renderer-056／058）。
    */
   poseBlend: number;
   /** px 垂直起伏（負=上）。呼吸/跳躍前壓。 */
@@ -161,6 +170,7 @@ export interface RigParams {
 
 export const DEFAULT_PARAMS: RigParams = {
   pose: "stand",
+  poseFrom: "stand",
   poseBlend: 1,
   bodyBob: 0,
   bodyLean: 0,
@@ -301,7 +311,7 @@ export function clampParams(p: Partial<RigParams>): RigParams {
       (out as unknown as Record<string, unknown>)[k] = Math.max(lo, Math.min(hi, value));
     } else {
       const allowed: readonly string[] =
-        k === "pose"
+        k === "pose" || k === "poseFrom"
           ? POSES
           : k === "mouth"
             ? MOUTHS
@@ -345,11 +355,13 @@ export function lerpParams(a: RigParams, b: RigParams, t: number): RigParams {
       out[key] = tt >= 0.5 ? bv : av;
     }
   }
-  // 姿勢硬切的補償：lie ↔ stand/sit 的 layout 差 ~46px，中點硬切會讓頭部
-  // 單幀瞬移。這裡把「目前姿勢的權重」連續帶過切換點（t=0→1、t=0.5 兩側
-  // 都是 0.5），draw.ts 的 layout 依它插值頭中心與身體高度。
-  if (a.pose !== b.pose && (a.pose === "lie" || b.pose === "lie")) {
+  // 姿勢硬切的補償：lie ↔ stand/sit 的 layout 差 ~46px、stand ↔ sit 差 10px、
+  // stand ↔ crouch 差 6px，中點硬切都會讓頭部單幀瞬移。這裡把「目前姿勢＋
+  // 另一個姿勢＋連續權重」帶過切換點（t=0→1、t=0.5 兩側都是 0.5），draw.ts
+  // 的 layout 依它插值頭中心與身體高度（對抗審查 rig-renderer-056／058）。
+  if (a.pose !== b.pose) {
     const k = Math.max(0, Math.min(1, tt));
+    out.poseFrom = k < 0.5 ? b.pose : a.pose;
     out.poseBlend = k < 0.5 ? 1 - k : k;
   }
   // 手臂姿勢硬切的補償：目前姿勢＋「另一個姿勢」＋連續權重，draw.ts 混合兩套幾何。
@@ -377,11 +389,36 @@ export function blendArm(from: RigParams, to: RigParams, params: RigParams, k: n
 }
 
 /**
- * 姿勢過場：把 `pose` 的切換點與 `poseBlend` 綁在**同一個進度**上。
+ * 每個姿勢的頭中心 y（128×128 邏輯座標）。draw.ts 的直立版面由它算出 `drop`，
+ * `blendPose` 用它把「姿勢混合」放在同一條高度軸上——一份定義、兩邊共用。
+ */
+export const POSE_HEAD_Y: Record<RigPose, number> = {
+  stand: 46,
+  crouch: 52,
+  sit: 56,
+  lie: 92,
+};
+
+/** 目前參數的等效頭中心高度（把過場中的 poseFrom/poseBlend 一起算進去）。 */
+export function effectivePoseHeadY(p: RigParams): number {
+  const b = Math.max(0, Math.min(1, p.poseBlend));
+  const from = POSE_HEAD_Y[p.poseFrom];
+  return from + (POSE_HEAD_Y[p.pose] - from) * b;
+}
+
+/**
+ * 姿勢過場：把 `pose` 的切換點與 `poseFrom`／`poseBlend` 綁在**同一個進度**上。
  *
- * 只處理有 `lie` 參與的切換（stand↔sit 只差 10px，硬切看不出來）。呼叫端
- * 給的 `k` 必須是線性進度：跟著回彈 ease 走的話，第一幀就會前進三成多，
- * 頭部照樣跳 ~16px。
+ * 處理**任何**一對姿勢的切換：lie ↔ 直立差 ~46px，stand↔sit 差 10px、
+ * stand↔crouch 差 6px——後兩者以前被當成「看不出來」而硬切，實測是單幀
+ * 10px 瞬移（對抗審查 rig-renderer-058）。呼叫端給的 `k` 必須是線性進度：
+ * 跟著回彈 ease 走的話，第一幀就會前進三成多，頭部照樣跳 ~16px。
+ *
+ * `to` 自己也可能正在過場（表情的 enter 段可以跨姿勢關鍵幀，例如
+ * startled-awake 的 lie→crouch→stand）。只看 `to.pose` 這個字串會在它翻面
+ * 的那一幀讓權重瞬間換算基準，頭部單幀跳 14px（對抗審查 rig-renderer-056）。
+ * 所以這裡先算兩邊的**等效高度**、在高度軸上線性內插，再解回「目前姿勢 ↔
+ * 另一個姿勢」的權重；兩邊都已就位時，結果與單純的線性權重完全相同。
  */
 export function blendPose(
   from: RigParams,
@@ -389,15 +426,38 @@ export function blendPose(
   params: RigParams,
   k: number
 ): RigParams {
-  if (from.pose === to.pose) return params;
-  if (from.pose !== "lie" && to.pose !== "lie") return params;
   const kk = Math.max(0, Math.min(1, Number.isFinite(k) ? k : 1));
-  return clampParams({
-    ...params,
-    pose: kk >= 0.5 ? to.pose : from.pose,
-    poseBlend: kk < 0.5 ? 1 - kk : kk,
-  });
+  const fromY = effectivePoseHeadY(from);
+  const toY = effectivePoseHeadY(to);
+  if (from.pose === to.pose && fromY === toY) return params;
+  const wantY = fromY + (toY - fromY) * kk;
+  const cur = kk >= 0.5 ? to.pose : from.pose;
+  const curY = POSE_HEAD_Y[cur];
+  // 「另一端」優先用實際參與過場的姿勢（兩邊都已就位時，權重就等於線性
+  // 進度，與舊行為完全相同）；目標自己還在過場、夾不住想要的高度時，退回
+  // 高度軸的兩個端點，這樣任何 wantY 都表示得出來、不必截斷。
+  const natural = kk >= 0.5 ? from.pose : to.pose;
+  const other = between(POSE_HEAD_Y[natural], curY, wantY)
+    ? natural
+    : wantY <= curY
+      ? LOWEST_POSE
+      : HIGHEST_POSE;
+  const otherY = POSE_HEAD_Y[other];
+  const w = otherY === curY ? 1 : Math.max(0, Math.min(1, (wantY - otherY) / (curY - otherY)));
+  return clampParams({ ...params, pose: cur, poseFrom: other, poseBlend: w });
 }
+
+/** `y` 是否落在 `a`、`b` 之間（含端點）。 */
+function between(a: number, b: number, y: number): boolean {
+  return y >= Math.min(a, b) && y <= Math.max(a, b);
+}
+
+const LOWEST_POSE = (Object.keys(POSE_HEAD_Y) as RigPose[]).reduce((a, b) =>
+  POSE_HEAD_Y[a] <= POSE_HEAD_Y[b] ? a : b
+);
+const HIGHEST_POSE = (Object.keys(POSE_HEAD_Y) as RigPose[]).reduce((a, b) =>
+  POSE_HEAD_Y[a] >= POSE_HEAD_Y[b] ? a : b
+);
 
 // ---------------------------------------------------------------------------
 // 調色盤（女僕正式版）：奶白＋深灰紫主色、冷藍/暖橙能力訊號、
