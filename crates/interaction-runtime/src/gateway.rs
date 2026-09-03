@@ -255,9 +255,11 @@ impl Runtime {
         let resolved = workdir.canonicalize().unwrap_or_else(|_| workdir.clone());
         let state_dir = self.paths.state_dir();
         let resolved_state = state_dir.canonicalize().unwrap_or(state_dir);
-        if resolved_state.starts_with(&resolved) {
+        // 雙向：workdir 不得是／包含狀態資料夾（子程序會讀到 api-token），
+        // 也不得**位於**狀態資料夾底下（同一把 token 就在上一層）。
+        if resolved_state.starts_with(&resolved) || resolved.starts_with(&resolved_state) {
             return Err(DomainError::Validation(format!(
-                "工作資料夾不得是（或包含）系統自己的狀態資料夾 {}；請改選一個更小的資料夾",
+                "工作資料夾不得是、包含或位於系統自己的狀態資料夾 {}；請改選一個別的資料夾",
                 resolved_state.display()
             )));
         }

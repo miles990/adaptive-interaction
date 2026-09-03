@@ -636,11 +636,7 @@ impl Runtime {
         dedup_key: String,
     ) -> interaction_core::DomainResult<String> {
         let reservation = self.reserve_generative_dialogue(class, &dedup_key).await?;
-        let workdir = self
-            .paths
-            .home
-            .join("state")
-            .join("proactive-agent-workspace");
+        let workdir = self.paths.home.join("agent-workspaces").join("proactive");
         std::fs::create_dir_all(&workdir)
             .map_err(|e| interaction_core::DomainError::Internal(e.to_string()))?;
         let max_cost =

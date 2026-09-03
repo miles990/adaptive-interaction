@@ -2529,10 +2529,9 @@ async fn resume_must_stay_in_the_recorded_workdir() {
 /// `PolicyBlocked`（換工作目錄，見 `resume_must_stay_in_the_recorded_workdir`）
 /// 是不同輸入觸發的兩道防線，彼此不遮蔽。
 ///
-/// 涵蓋範圍誠實說明：這裡驗的是「workdir 是（或包含）state/」。「workdir 位在
-/// state/ **底下**」目前仍會被接受（v0.5.1 已知限制；runtime 自己的
-/// proactive 候選工作區就放在 `state/proactive-agent-workspace`），不在本測試
-/// 涵蓋範圍內。
+/// 這裡驗的是「workdir 是（或包含）state/」；「workdir 位在 state/ **底下**」由
+/// `a_workdir_inside_the_runtime_state_dir_is_refused` 涵蓋（runtime 自己的
+/// proactive 候選工作區因此搬到 `agent-workspaces/proactive`，不再住在 state/ 裡）。
 #[tokio::test]
 async fn a_symlink_cannot_smuggle_the_runtime_state_dir_in_as_a_workdir() {
     let _env = ENV_LOCK.lock().await;
@@ -2553,6 +2552,33 @@ async fn a_symlink_cannot_smuggle_the_runtime_state_dir_in_as_a_workdir() {
     assert!(
         !state.join("fake-pid").exists() && !state.join("fake-argv").exists(),
         "子程序不得真的在狀態資料夾裡跑起來"
+    );
+    assert_eq!(rt.open_agent_sessions().await, 0, "沒有殘留 session");
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// 反方向的同一道防線：workdir **位於** runtime 的 state/ 底下也不行——
+/// 子程序只要往上走一層就能讀到 human `api-token`。之前 `resolve_gateway_workdir`
+/// 只擋「是或包含 state/」，`state/agent-bait` 這種路徑會被接受。
+#[tokio::test]
+async fn a_workdir_inside_the_runtime_state_dir_is_refused() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (home, rt) = runtime().await;
+
+    let state = home.path().join("state");
+    assert!(state.is_dir(), "前提：狀態資料夾真的在 runtime home 底下");
+    let bait = state.join("agent-bait");
+    std::fs::create_dir_all(&bait).unwrap();
+
+    let mut input = claude_input("躲進狀態資料夾底下", None);
+    input.workdir = Some(bait.to_string_lossy().into_owned());
+    let err = rt.create_agent_session(input).await.unwrap_err();
+    assert!(matches!(err, DomainError::Validation(_)), "{err:?}");
+    assert!(format!("{err}").contains("狀態資料夾"), "{err}");
+    assert!(
+        !bait.join("fake-pid").exists() && !bait.join("fake-argv").exists(),
+        "子程序不得真的在狀態資料夾底下跑起來"
     );
     assert_eq!(rt.open_agent_sessions().await, 0, "沒有殘留 session");
     std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
