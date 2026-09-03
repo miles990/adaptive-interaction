@@ -1190,10 +1190,23 @@ pub fn validate_manifest(
                 "intent fallback must name a different intent (1..=64 chars)",
             ));
         }
-        if CharacterIntent::parse(target).is_none() {
-            report.warnings.push(format!(
+        match (
+            CharacterIntent::parse(intent),
+            CharacterIntent::parse(target),
+        ) {
+            // 安全 intent 只能退到另一個安全 intent：呈現層不得用 fallbacks.intents
+            // 把「需要同意／被阻擋／失敗／離線」換成 greet／play 之類的日常演出。
+            (Some(from), Some(to)) if from.is_safety() && !to.is_safety() => {
+                return Err(ManifestError::new(
+                    ManifestErrorCode::Fallbacks,
+                    fpath,
+                    "a safety intent may only fall back to another safety intent",
+                ));
+            }
+            (_, None) => report.warnings.push(format!(
                 "{fpath} targets an unknown intent; it will never match"
-            ));
+            )),
+            _ => {}
         }
     }
 
@@ -1328,25 +1341,19 @@ const SPRITE_INTENT_ANIMATIONS: &[(CharacterIntent, &str)] = &[
     (CharacterIntent::Sleep, "paused"),
 ];
 
-/// 舊 renderer `FALLBACKS` 鏈（動畫 → 較平靜的動畫）轉成 intent → intent；
-/// 安全狀態只退到更平靜的表現，永不退到 success／慶祝。
+/// 舊 renderer `FALLBACKS` 鏈（動畫 → 較平靜的動畫）轉成 intent → intent。
+///
+/// 只保留「非安全 → 任意」與「安全 → 安全」：舊 renderer 的 `emergency → paused`、
+/// `blocked → paused`、`ask → notice` 這類鏈會把安全語意換成日常演出，遷移時一律丟掉
+/// （那些 intent 改走能力鏈，最差落到 system.text）。安全狀態永不退到 success／慶祝。
 const SPRITE_INTENT_FALLBACKS: &[(CharacterIntent, CharacterIntent)] = &[
-    (CharacterIntent::Emergency, CharacterIntent::Sleep),
-    (CharacterIntent::Offline, CharacterIntent::Sleep),
-    (CharacterIntent::Blocked, CharacterIntent::Sleep),
-    (CharacterIntent::Unknown, CharacterIntent::Sleep),
     (CharacterIntent::Failed, CharacterIntent::Blocked),
-    (CharacterIntent::VerifiedSuccess, CharacterIntent::Idle),
-    (CharacterIntent::ClaimCompleted, CharacterIntent::Notice),
+    (CharacterIntent::RequestConsent, CharacterIntent::Ask),
     (CharacterIntent::Acknowledge, CharacterIntent::Notice),
     (CharacterIntent::Greet, CharacterIntent::Notice),
     (CharacterIntent::Play, CharacterIntent::Notice),
-    (CharacterIntent::RequestConsent, CharacterIntent::Ask),
-    (CharacterIntent::Cancelled, CharacterIntent::Idle),
     (CharacterIntent::Think, CharacterIntent::Idle),
     (CharacterIntent::Work, CharacterIntent::Idle),
-    (CharacterIntent::Wait, CharacterIntent::Idle),
-    (CharacterIntent::Ask, CharacterIntent::Notice),
     (CharacterIntent::Rest, CharacterIntent::Idle),
     (CharacterIntent::Sleep, CharacterIntent::Rest),
 ];
@@ -1500,6 +1507,10 @@ fn migrate_sprite_pack(
         }
     }
     for (intent, target) in SPRITE_INTENT_FALLBACKS {
+        // 守衛（表格已排除，這裡再擋一次）：安全 intent 只能退到安全 intent。
+        if intent.is_safety() && !target.is_safety() {
+            continue;
+        }
         manifest
             .fallbacks
             .intents

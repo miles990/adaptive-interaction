@@ -529,9 +529,15 @@ pub fn resolve_intent(
         }
     }
     // 2. fallbacks.intents（只換一次）。
+    //    安全守衛：安全 intent 只能換成另一個安全 intent（`failed → blocked` 合法，
+    //    `request-consent → greet` 不合法）。呈現層沒有權限主權——不得把「需要同意／被阻擋／
+    //    失敗／離線」演成打招呼或玩耍。被擋下的替換直接落到步驟 3／5（最差 system.text）。
     if let Some(alt) = fallbacks.intents.get(intent.as_str()) {
         if let Some(alt_intent) = CharacterIntent::parse(alt) {
-            if alt_intent != intent && offered_intents.contains(alt) {
+            if alt_intent != intent
+                && (!intent.is_safety() || alt_intent.is_safety())
+                && offered_intents.contains(alt)
+            {
                 if let Some((cap, resolution)) =
                     resolve_native(alt_intent, capabilities, reduced_motion)
                 {

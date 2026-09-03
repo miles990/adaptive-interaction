@@ -23,6 +23,7 @@ import {
   FallbackDecl,
   isCanonicalCapabilityId,
   isCharacterIntent,
+  isSafetyIntent,
   LIMITS,
   LocalizedText,
   parseProtocolVersion,
@@ -660,6 +661,18 @@ function checkVariants(c: Collector, value: unknown): VariantDecl[] {
   return out;
 }
 
+/** 丟掉「安全 intent → 非安全 intent」的映射（§3.4 步驟 2 守衛；遷移與驗證共用規則）。 */
+function safeIntentFallbacks(
+  intents: Partial<Record<CharacterIntent, CharacterIntent>>
+): Partial<Record<CharacterIntent, CharacterIntent>> {
+  const out: Partial<Record<CharacterIntent, CharacterIntent>> = {};
+  for (const [from, to] of Object.entries(intents) as Array<[CharacterIntent, CharacterIntent]>) {
+    if (isSafetyIntent(from) && !isSafetyIntent(to)) continue;
+    out[from] = to;
+  }
+  return out;
+}
+
 function checkFallbacks(c: Collector, value: unknown, caps: Record<string, CapabilityDecl>): FallbackDecl {
   const out: FallbackDecl = {};
   if (value === undefined) return out;
@@ -705,6 +718,12 @@ function checkFallbacks(c: Collector, value: unknown, caps: Record<string, Capab
           continue;
         }
         if (to === from) continue;
+        // 安全 intent 只能退到另一個安全 intent：呈現層不得用 fallbacks.intents
+        // 把「需要同意／被阻擋／失敗／離線」換成 greet／play 之類的日常演出。
+        if (isSafetyIntent(from) && !isSafetyIntent(to)) {
+          c.err(`fallbacks.intents.${from} may only fall back to another safety intent`);
+          continue;
+        }
         map[from] = to;
       }
       out.intents = map;
@@ -1053,7 +1072,9 @@ export function migratePackToManifest(legacy: unknown, opts: { assetBase?: strin
       resourceLimits: { maxAssetBytes: 8 * 1024 * 1024, maxConcurrentCommands: 1, maxQueue: 32, maxFps: 30 },
       fallbacks: {
         capabilities: { "visual.expression": ["visual.presence"] },
-        intents: deriveIntentFallbacks(pack.animations),
+        // 舊 renderer 的 emergency → paused 這類鏈會改寫安全語意：遷移時丟掉，
+        // 讓那些安全 intent 改走能力鏈／system.text。
+        intents: safeIntentFallbacks(deriveIntentFallbacks(pack.animations)),
       },
       compatibility: { protocol: "1.x", runtime: ">=0.5.0" },
       legacy: { kind: "character-pack", schemaVersion: pack.schemaVersion },

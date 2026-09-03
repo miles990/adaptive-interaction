@@ -88,8 +88,11 @@ export function resolveIntent(
   }
 
   // 2. fallbacks.intents（只換一次）
+  //    安全守衛：安全 intent 只能換成另一個安全 intent（failed → blocked 合法，
+  //    request-consent → greet 不合法）。呈現層沒有權限主權，不得把安全語意演成
+  //    打招呼／玩耍；被擋下的替換落到步驟 3／5（最差 system.text）。
   const alt = fallbacks.intents?.[intent];
-  if (alt && alt !== intent && offer.intents.includes(alt)) {
+  if (alt && alt !== intent && offer.intents.includes(alt) && (!isSafetyIntent(intent) || isSafetyIntent(alt))) {
     const hit = firstCapability(caps, INTENT_CAPABILITIES[alt], reducedMotion);
     if (hit) {
       const res: IntentResolution = {
@@ -113,6 +116,17 @@ export function resolveIntent(
   // 5. 什麼都沒有
   if (isSafetyIntent(intent)) return { resolution: "substituted", via: "system.text" };
   return { resolution: "unsupported" };
+}
+
+/**
+ * 呈現時該用哪個 intent：安全 intent 只接受同樣是安全 intent 的 `viaIntent`，
+ * 其餘一律回 envelope 的原始 intent。adapter 用它挑固定文案／動畫，確保呈現層
+ * 不會（因為惡意 manifest 或自帶 fallback）把安全語意換成日常演出。
+ */
+export function presentedIntent(intent: CharacterIntent, viaIntent?: CharacterIntent): CharacterIntent {
+  if (!viaIntent || viaIntent === intent) return intent;
+  if (isSafetyIntent(intent) && !isSafetyIntent(viaIntent)) return intent;
+  return viaIntent;
 }
 
 /** 分類 channel：語意 channel 或 namespaced custom 接受（custom 標 nonSafety）；其餘忽略。 */

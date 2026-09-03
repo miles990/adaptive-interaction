@@ -495,3 +495,50 @@ describe("SpriteRenderer 生命週期（CPP §7：pause／destroy 真的釋放 r
     expect(renderer.destroyed).toBe(0); // 注入的 renderer 由 host 擁有
   });
 });
+
+describe("呈現層沒有權限主權：viaIntent 換不掉安全語意", () => {
+  const packV1 = shuStandard as unknown as PackManifest;
+
+  it("text adapter：安全 intent 的固定文案以 envelope.intent 為準，非安全 viaIntent 一律忽略", async () => {
+    const a = new TextCharacterAdapter();
+    await a.initialize(host);
+    const receipts: AdapterReceipt[] = [];
+    const sink = (r: AdapterReceipt) => receipts.push(r);
+    const cases: Array<[CharacterIntent, TruthState, CharacterIntent, string]> = [
+      ["request-consent", "waiting-consent", "greet", "需要你的同意才能繼續。"],
+      ["blocked", "blocked", "play", FIXED_SAFETY_LINES.blocked],
+      ["emergency", "emergency", "idle", FIXED_SAFETY_LINES.emergency],
+      ["failed", "failed", "notice", FIXED_SAFETY_LINES.failed],
+    ];
+    for (const [intent, truth, viaIntent, expected] of cases) {
+      a.perform(env(intent, truth), sink, { resolution: "substituted", via: "visual.textBubble", viaIntent });
+      const line = a.currentLine();
+      expect(line?.text, `${intent} via ${viaIntent}`).toBe(expected);
+      expect(line?.fixed, `${intent} via ${viaIntent}`).toBe(true);
+      expect(line?.intent, `${intent} via ${viaIntent}`).toBe(intent);
+    }
+    // 安全 → 安全的合法替換仍照 viaIntent 演出（failed → blocked）。
+    a.perform(env("failed", "failed"), sink, { resolution: "substituted", via: "visual.textBubble", viaIntent: "blocked" });
+    expect(a.currentLine()?.text).toBe(FIXED_SAFETY_LINES.blocked);
+    // 非安全 intent 不受影響。
+    a.perform(env("think", "working"), sink, { resolution: "substituted", via: "visual.textBubble", viaIntent: "work" });
+    expect(a.currentLine()?.intent).toBe("work");
+  });
+
+  it("sprite adapter：安全 intent 不會因為 viaIntent 而播出玩耍／打招呼動畫", async () => {
+    const renderer = new FakeRenderer();
+    const a = new SpriteCharacterAdapter({ pack: packV1, assetBase: "/packs/shu-standard", renderer });
+    await a.initialize(host);
+    const sink = () => {};
+    a.perform(env("blocked", "blocked"), sink, { resolution: "substituted", via: "visual.expression", viaIntent: "play" });
+    expect(renderer.calls.slice(-1)[0]?.name).toBe("blocked");
+    a.perform(env("emergency", "emergency"), sink, { resolution: "substituted", via: "visual.expression", viaIntent: "greet" });
+    expect(renderer.calls.slice(-1)[0]?.name).toBe("emergency");
+    a.perform(env("request-consent", "waiting-consent"), sink, { resolution: "substituted", via: "visual.expression", viaIntent: "play" });
+    expect(renderer.calls.slice(-1)[0]?.name).toBe("ask");
+    // 安全 → 安全仍照 viaIntent（v1 沒有 failed 美術 → blocked）。
+    a.perform(env("failed", "failed"), sink, { resolution: "substituted", via: "visual.expression", viaIntent: "blocked" });
+    expect(renderer.calls.slice(-1)[0]?.name).toBe("blocked");
+    a.dispose();
+  });
+});

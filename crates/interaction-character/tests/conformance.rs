@@ -13,7 +13,7 @@
 
 mod common;
 
-use common::t;
+use common::{hello, t};
 use interaction_character::*;
 use std::path::{Path, PathBuf};
 
@@ -136,6 +136,13 @@ fn conform(path: &Path, manifest: &CharacterManifest) -> Negotiated {
                 r.via.is_some(),
                 "{label}: 安全 intent {intent} 必須有承載能力或 system.text"
             );
+            // 3b. 安全語意不被改寫：若走了 fallbacks.intents，替代 intent 也必須是安全 intent。
+            if let Some(via_intent) = r.via_intent {
+                assert!(
+                    via_intent.is_safety(),
+                    "{label}: 安全 intent {intent} 不得經由非安全 intent {via_intent} 呈現"
+                );
+            }
         }
         // 4. claimed 不會變成 verified：intent fallback 不得把任何 intent 換成
         //    verified-success，變體名也不得借用 verified 的別名。
@@ -170,6 +177,15 @@ fn conform(path: &Path, manifest: &CharacterManifest) -> Negotiated {
             .unwrap_or(true),
         "{label}: fallbacks.intents 不得把 claim-completed 換成 verified-success"
     );
+    // 安全 intent 的 fallbacks.intents 只能指向另一個安全 intent。
+    for (from, to) in &manifest.fallbacks.intents {
+        if let (Some(from), Some(to)) = (CharacterIntent::parse(from), CharacterIntent::parse(to)) {
+            assert!(
+                !from.is_safety() || to.is_safety(),
+                "{label}: fallbacks.intents 不得把安全 intent {from} 換成非安全 intent {to}"
+            );
+        }
+    }
 
     // 5. emergency 的 floor 仍是 100：角色端不能把安全 intent 調低。
     assert_eq!(
@@ -309,4 +325,55 @@ fn conformance_covers_the_reference_adapters() {
             .any(|n| n.contains("public/characters/") && n.ends_with("manifest.json")),
         "內建角色的 manifest 必須在驗收範圍內：{names:?}"
     );
+}
+
+/// 惡意／粗心的第三方 manifest：用 `fallbacks.intents` 把安全 intent 換成
+/// 「打招呼／玩耍」。驗證階段就要擋下；就算 adapter 在協商時自帶這種 fallback
+/// （繞過 manifest 驗證），協商也必須把安全 intent 留在安全語意（最差 system.text）。
+#[test]
+fn safety_intents_cannot_be_presented_as_non_safety_intents() {
+    let mut manifest = minimal_manifest("hostile-fallbacks", "text");
+    manifest.capabilities.insert(
+        "visual.expression".into(),
+        CapabilityDecl::supported().with_variants(["greet", "play"]),
+    );
+    manifest.intents = vec!["idle".into(), "greet".into(), "play".into()];
+    let hostile = [
+        ("request-consent", "greet"),
+        ("blocked", "play"),
+        ("failed", "play"),
+        ("offline", "greet"),
+        ("unknown", "play"),
+        ("emergency", "play"),
+    ];
+    for (from, to) in hostile {
+        manifest
+            .fallbacks
+            .intents
+            .insert(from.to_string(), to.to_string());
+    }
+    let bytes = serde_json::to_vec(&manifest).unwrap_or_default().len();
+    assert!(
+        validate_manifest(bytes, &manifest, &ValidationLimits::default()).is_err(),
+        "安全 intent → 非安全 intent 的 fallbacks.intents 必須在 manifest 驗證階段被拒"
+    );
+
+    let negotiated = negotiate(
+        &hello("hostile", false),
+        &Negotiate::from_manifest(&manifest, 1),
+        &manifest.fallbacks,
+    )
+    .expect("協商成功");
+    for (from, to) in hostile {
+        let intent = CharacterIntent::parse(from).expect("safety intent");
+        let r = &negotiated.resolutions[&intent];
+        assert_eq!(
+            r.via_intent, None,
+            "{intent} 不得被換成非安全 intent {to}：{r:?}"
+        );
+        assert!(
+            r.is_system_text(),
+            "{intent} 必須誠實落到 system.text：{r:?}"
+        );
+    }
 }

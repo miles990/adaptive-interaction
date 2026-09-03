@@ -475,8 +475,21 @@ fn legacy_pack_v1_migrates_to_sprite_manifest() {
         "v1.0 has no failed animation"
     );
     assert_eq!(m.fallbacks.intents["failed"], "blocked");
-    assert_eq!(m.fallbacks.intents["emergency"], "sleep");
     assert_eq!(m.fallbacks.intents["play"], "notice");
+    // 舊 renderer 的 emergency → paused（sleep）會把安全語意換成日常演出：遷移時丟掉，
+    // 讓 emergency 改走能力鏈／system.text（呈現層沒有權限主權）。
+    assert!(
+        !m.fallbacks.intents.contains_key("emergency"),
+        "emergency 不得被遷移成非安全 intent"
+    );
+    for (from, to) in &m.fallbacks.intents {
+        if let (Some(from), Some(to)) = (CharacterIntent::parse(from), CharacterIntent::parse(to)) {
+            assert!(
+                !from.is_safety() || to.is_safety(),
+                "遷移產生的 {from} → {to} 改寫了安全語意"
+            );
+        }
+    }
     assert_eq!(m.extra["x-legacy"]["hasAnchors"], false);
     assert_eq!(m.extra["x-legacy"]["columns"], 8);
     assert_eq!(m.states.len(), 18);
@@ -574,4 +587,36 @@ fn legacy_unknown_formats_are_refused() {
         .expect_err("traversal in legacy sheet");
     assert_eq!(err.code, ManifestErrorCode::AssetPath);
     assert!(!err.message.contains("passwd"));
+}
+
+/// `fallbacks.intents` 不得把安全 intent 映射到非安全 intent：驗證階段就要擋，
+/// 而不是讓協商／呈現層去改寫安全語意。
+#[test]
+fn safety_intent_fallbacks_must_target_another_safety_intent() {
+    for (from, to) in [
+        ("request-consent", "greet"),
+        ("blocked", "play"),
+        ("emergency", "sleep"),
+        ("offline", "idle"),
+        ("wait", "think"),
+    ] {
+        let mut m = shu_manifest();
+        m.fallbacks.intents.insert(from.into(), to.into());
+        assert_eq!(
+            err_code(validate(&m)),
+            ManifestErrorCode::Fallbacks,
+            "{from} → {to} 必須被拒絕"
+        );
+    }
+    // 安全 → 安全（規格範例 failed → blocked）與非安全 → 非安全都仍然合法。
+    for (from, to) in [
+        ("failed", "blocked"),
+        ("request-consent", "ask"),
+        ("play", "notice"),
+        ("sleep", "rest"),
+    ] {
+        let mut m = shu_manifest();
+        m.fallbacks.intents.insert(from.into(), to.into());
+        validate(&m).unwrap_or_else(|e| panic!("{from} → {to} 應該合法，卻被拒：{e}"));
+    }
 }

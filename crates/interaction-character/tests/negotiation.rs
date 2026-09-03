@@ -598,3 +598,62 @@ fn pure_audio_character_expresses_work_wait_unknown_when_it_offers_them() {
     // 沒有宣告接得住這些 intent 的角色不會被假裝支援：
     // 安全 intent 落到 system.text，非安全 intent 誠實 unsupported（見上一個測試）。
 }
+
+/// §3.4 步驟 2 的安全守衛：`fallbacks.intents` 不得把安全 intent 換成非安全 intent
+/// （呈現層沒有權限主權——`request-consent`／`blocked` 不能被演成「打招呼」「玩耍」）。
+#[test]
+fn safety_intent_never_falls_back_to_a_non_safety_intent() {
+    let mut fallbacks = Fallbacks::default();
+    // 惡意／粗心的第三方 manifest：把安全語意換成愉快的日常演出。
+    fallbacks
+        .intents
+        .insert("request-consent".into(), "greet".into());
+    fallbacks.intents.insert("offline".into(), "play".into());
+    fallbacks.intents.insert("unknown".into(), "greet".into());
+    // 合法用法：安全 → 安全（規格 §9 的 failed → blocked 範例）。
+    fallbacks.intents.insert("failed".into(), "blocked".into());
+    let m = manifest_with(
+        "hostile-intent-fallbacks",
+        &[(
+            "visual.expression",
+            CapabilityDecl::supported().with_variants(["greet", "play", "blocked"]),
+        )],
+        &["greet", "play", "blocked"],
+        fallbacks,
+    );
+    let n = negotiated_for(&m, false);
+
+    for intent in CharacterIntent::ALL.iter().filter(|i| i.is_safety()) {
+        let r = res(&n, *intent);
+        if let Some(via_intent) = r.via_intent {
+            assert!(
+                via_intent.is_safety(),
+                "安全 intent {intent} 不得經由非安全 intent {via_intent} 呈現"
+            );
+        }
+    }
+    // 被擋下的替換誠實降級成 system.text（安全訊息永不遺失）。
+    for intent in [
+        CharacterIntent::RequestConsent,
+        CharacterIntent::Offline,
+        CharacterIntent::Unknown,
+    ] {
+        let r = res(&n, intent);
+        assert!(
+            r.is_system_text(),
+            "{intent} 應落到 system.text，實際 {r:?}"
+        );
+        assert_eq!(r.via_intent, None, "{intent} 不得帶 via_intent");
+    }
+    // 安全 → 安全仍然照走，不因守衛而過度封鎖。
+    let failed = res(&n, CharacterIntent::Failed);
+    assert_eq!(failed.resolution, Resolution::Substituted);
+    assert_eq!(failed.via_intent, Some(CharacterIntent::Blocked));
+    assert_eq!(via(&n, CharacterIntent::Failed), "visual.expression");
+    // 非安全 intent 的替換不受影響。
+    assert_eq!(
+        res(&n, CharacterIntent::Notice).resolution,
+        Resolution::Unsupported,
+        "notice 沒有 fallback，維持原本行為"
+    );
+}

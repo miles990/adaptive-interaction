@@ -563,3 +563,59 @@ describe("§3.4 intent→能力表：TS 鏡射必須與 Rust 權威逐字相同"
     expect(n.resolutions.sleep).toEqual({ resolution: "exact", via: "visual.presence" });
   });
 });
+
+describe("安全 intent 不得被 fallbacks.intents 換成非安全 intent（§3.4 步驟 2 守衛）", () => {
+  it("manifest 驗證擋下安全 → 非安全的映射，安全 → 安全與非安全映射仍合法", () => {
+    for (const [from, to] of [
+      ["request-consent", "greet"],
+      ["blocked", "play"],
+      ["emergency", "sleep"],
+      ["offline", "idle"],
+      ["wait", "think"],
+    ]) {
+      const r = validateCharacterManifest(baseManifest({ fallbacks: { intents: { [from]: to } } }));
+      expect(r.ok, `${from} → ${to} 必須被拒`).toBe(false);
+      if (r.ok) continue;
+      expect(r.errors.join(" ")).toContain(from);
+    }
+    for (const [from, to] of [
+      ["failed", "blocked"],
+      ["request-consent", "ask"],
+      ["play", "notice"],
+      ["sleep", "rest"],
+    ]) {
+      const r = validateCharacterManifest(baseManifest({ fallbacks: { intents: { [from]: to } } }));
+      expect(r.ok, `${from} → ${to} 應該合法`).toBe(true);
+      if (!r.ok) continue;
+      expect(r.manifest.fallbacks.intents?.[from as never]).toBe(to);
+    }
+  });
+
+  it("協商：adapter 自帶的惡意 fallback 也換不掉安全語意，誠實落到 system.text", () => {
+    const n = negotiate(
+      hello(),
+      offer({
+        capabilities: { "visual.expression": { supported: true, variants: ["greet", "play", "blocked"] } },
+        intents: ["idle", "greet", "play", "blocked"],
+        fallbacks: {
+          intents: {
+            "request-consent": "greet",
+            offline: "play",
+            unknown: "greet",
+            emergency: "play",
+            failed: "blocked",
+          },
+        },
+      })
+    );
+    for (const intent of SAFETY_INTENTS) {
+      const via = n.resolutions[intent].viaIntent;
+      if (via) expect(isSafetyIntent(via), `${intent} → ${via}`).toBe(true);
+    }
+    for (const intent of ["request-consent", "offline", "unknown", "emergency"] as const) {
+      expect(n.resolutions[intent]).toEqual({ resolution: "substituted", via: "system.text" });
+    }
+    // 安全 → 安全（failed → blocked）不受影響。
+    expect(n.resolutions.failed).toEqual({ resolution: "substituted", via: "visual.expression", viaIntent: "blocked", variant: "blocked" });
+  });
+});

@@ -24,6 +24,7 @@ import { machineStageFlags, STAGE_SCENES, StageRenderer } from "../../companion/
 import { DEFAULT_TUNING, PersonalityTuning } from "../../companion/personality";
 import type { AdapterHost, AdapterInputEvent, CharacterAdapter, GameplayExtension, HitRect, PointerInput, ReceiptSink } from "../adapter";
 import { displayNameOf, migratePackToManifest } from "../manifest";
+import { presentedIntent } from "../negotiate";
 import {
   CharacterManifest,
   Hello,
@@ -326,7 +327,9 @@ export class ShuCharacterAdapter implements CharacterAdapter {
       sink({ messageId: envelope.messageId, status: "failed", resolution: "failed", detail: "adapter not initialized" });
       return;
     }
-    const intent = resolution?.viaIntent ?? envelope.intent;
+    // 安全 intent 的固定文案／安全動畫一律以 envelope.intent 為準：
+    // 非安全的 viaIntent 不能改寫安全語意（呈現層沒有權限主權）。
+    const intent = presentedIntent(envelope.intent, resolution?.viaIntent);
     const p = shuExpressionPlan(intent, envelope.truthState, envelope.presentationHints?.variant);
     this.lastPlan = p;
 

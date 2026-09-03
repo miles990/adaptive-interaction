@@ -16,6 +16,7 @@ import type {
   ReceiptSink,
 } from "../adapter";
 import { intentLine, type IntentLine } from "../lines";
+import { presentedIntent } from "../negotiate";
 import { validateCharacterManifest } from "../manifest";
 import {
   CHARACTER_INTENTS,
@@ -191,7 +192,9 @@ export class TextCharacterAdapter implements CharacterAdapter {
       old.sink({ messageId: old.messageId, status: "cancelled", resolution: "exact", reason: "replaced" });
     }
     sink({ messageId: envelope.messageId, status: "accepted" });
-    const intent = resolution?.viaIntent ?? envelope.intent;
+    // 安全 intent 的固定文案／安全動畫一律以 envelope.intent 為準：
+    // 非安全的 viaIntent 不能改寫安全語意（呈現層沒有權限主權）。
+    const intent = presentedIntent(envelope.intent, resolution?.viaIntent);
     const line = intentLine(intent, envelope.truthState, envelope.presentationHints?.message);
     this.current = {
       ...line,

@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { migratePackToManifest, shuRigCapabilities, validateCharacterManifest } from "../character/manifest";
 import { buildTextCharacterManifest } from "../character/adapters/text";
-import { CHARACTER_INTENTS, LIMITS, SEMANTIC_CHANNELS } from "../character/protocol";
+import { CHARACTER_INTENTS, isSafetyIntent, LIMITS, SEMANTIC_CHANNELS } from "../character/protocol";
 import {
   capabilitySummary,
   capabilitySummaryParts,
@@ -309,5 +309,26 @@ describe("registry", () => {
     expect(capabilitySummaryParts(r.manifest, "en", { origin: "imported" }).general.join("\n")).toContain(
       "Can receive: other interaction"
     );
+  });
+});
+
+describe("出貨 manifest 的安全 intent fallback", () => {
+  it("沒有任何內建角色把安全 intent 換成非安全 intent", () => {
+    for (const [path, m] of Object.entries(MANIFESTS)) {
+      const intents = ((m.fallbacks as { intents?: Record<string, string> } | undefined)?.intents ?? {}) as Record<string, string>;
+      for (const [from, to] of Object.entries(intents)) {
+        if (!isSafetyIntent(from)) continue;
+        expect(isSafetyIntent(to), `${path}: ${from} → ${to}`).toBe(true);
+      }
+    }
+  });
+
+  it("匯入驗證拒絕安全 → 非安全的 fallbacks.intents", () => {
+    const base = JSON.parse(JSON.stringify(manifestFor("plain-text"))) as Record<string, unknown>;
+    base.fallbacks = { intents: { "request-consent": "greet" } };
+    const r = validateCharacterManifest(base);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.join(" ")).toContain("request-consent");
   });
 });
