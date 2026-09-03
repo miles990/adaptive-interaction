@@ -7,6 +7,9 @@
 //  - 已配對:顯示對方主機、憑證指紋、連線狀態,以及大顆「立即中斷」按鈕。
 //  - auth-fail:誠實顯示「配對已被撤銷或過期,請重新配對」;
 //    只有使用者按「解除配對」才清除 Keychain。
+//  - 連續連線層失敗達門檻(ReconnectDiagnosis):顯示「桌面位址可能已變更」的固定文案
+//    與「重新配對」捷徑(直接展開掃描/貼上)。TLS 指紋不符與 auth-fail 各有既有文案,
+//    不會被這句蓋掉。
 //
 
 import SwiftUI
@@ -22,6 +25,8 @@ struct PairingView: View {
     @State private var manualCode = ""
     @State private var parseErrorText: String?
     @State private var showUnpairConfirm = false
+    /// 使用者按過「重新配對」捷徑:即使已配對也展開掃描/貼上區塊。
+    @State private var showRepairInput = false
     #if DEBUG
     /// DEBUG 啟動參數只套用一次(onAppear 會因切換分頁重複觸發)。
     @State private var debugLaunchPayloadConsumed = false
@@ -31,9 +36,10 @@ struct PairingView: View {
         NavigationStack {
             Form {
                 statusSection
-                if connection.pairing == nil {
+                if connection.pairing == nil || showRepairInput {
                     pairingInputSection
-                } else {
+                }
+                if connection.pairing != nil {
                     pairedInfoSection
                     disconnectSection
                 }
@@ -43,6 +49,12 @@ struct PairingView: View {
                 #if DEBUG
                 applyDebugLaunchPayloadIfAny()
                 #endif
+            }
+            .onChange(of: connection.phase) { _, newPhase in
+                // 連上了就收起重新配對區塊(不再需要)。
+                if case .connected = newPhase {
+                    showRepairInput = false
+                }
             }
             .navigationTitle("連線")
             .sheet(isPresented: $showScanner) {
@@ -79,6 +91,17 @@ struct PairingView: View {
                 Text("配對已被撤銷或過期，請重新配對。已儲存的配對資料仍保留,只有你按「解除配對」才會清除。")
                     .font(.footnote)
                     .foregroundStyle(.red)
+            } else if case .suggestRepair(let reason) = connection.reconnectDiagnosis {
+                // 只在「連續連線層失敗」時出現。TLS 指紋不符 / auth-fail 走各自文案,
+                // 不會落到這裡(ReconnectDiagnosis 已把它們排除)。
+                Text(reason.message)
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                Button {
+                    showRepairInput = true
+                } label: {
+                    Label("重新配對", systemImage: "arrow.triangle.2.circlepath")
+                }
             }
             if let error = connection.lastError {
                 Text(error)
@@ -100,7 +123,12 @@ struct PairingView: View {
     // MARK: 未配對:輸入
 
     private var pairingInputSection: some View {
-        Section("配對") {
+        Section(showRepairInput ? "重新配對" : "配對") {
+            if showRepairInput {
+                Text("在桌面重新產生配對碼(控制中心 → 手機),再掃描或貼上新的配對 JSON。配對成功會覆寫本機的舊位址。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             Button {
                 startScanner()
             } label: {
@@ -132,6 +160,12 @@ struct PairingView: View {
                 Text(parseError)
                     .font(.footnote)
                     .foregroundStyle(.red)
+            }
+            if showRepairInput {
+                Button("取消重新配對") {
+                    showRepairInput = false
+                    parseErrorText = nil
+                }
             }
         }
     }

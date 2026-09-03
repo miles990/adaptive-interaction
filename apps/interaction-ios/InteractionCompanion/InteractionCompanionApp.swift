@@ -19,6 +19,9 @@ final class AppModel: ObservableObject {
     let characterState: CharacterState
     let ble: BleGateway
 
+    /// 冷啟動自動重連只做一次(WindowGroup 的 .task 可能因場景重建再跑)。
+    private var launchReconnectAttempted = false
+
     init() {
         let store = PairingStore()
         characterState = CharacterState()
@@ -86,6 +89,25 @@ final class AppModel: ObservableObject {
             ble?.disable(reason: "連線中斷")
         }
     }
+
+    /// 冷啟動(含系統終止 App 後重新啟動)自動重連。
+    ///
+    /// 只在「Keychain 有配對」且「使用者上次的意圖是想要連線」時才連
+    /// (按過「立即中斷」、配對被撤銷、解除配對之後都不會自動連)。
+    /// 沿用 ConnectionManager 既有的 1s→15s 退避,不另開重試邏輯。
+    ///
+    /// **不變量**:這裡只重建 socket,不碰任何感測。SensorCenter / BleGateway 每次
+    /// 啟動都是全關,自動重連後麥克風、位置、BLE 閘道、電池、動作一律維持關閉,
+    /// 必須由使用者在「感測」頁重新開啟。
+    func startupReconnectIfDesired() {
+        guard !launchReconnectAttempted else { return }
+        launchReconnectAttempted = true
+        #if DEBUG
+        // 有新的配對 payload 時由 PairingView 走配對流程,不搶先開舊位址的 socket。
+        guard DebugLaunchOptions.pairingPayload == nil else { return }
+        #endif
+        connection.connectOnLaunchIfDesired()
+    }
 }
 
 #if DEBUG
@@ -143,6 +165,10 @@ struct InteractionCompanionApp: App {
                 .environmentObject(model.ble)
                 .onChange(of: scenePhase) { _, newPhase in
                     model.sensors.setForeground(newPhase == .active)
+                }
+                // 冷啟動自動重連(只重建連線,感測不隨之恢復)。
+                .task {
+                    model.startupReconnectIfDesired()
                 }
         }
     }

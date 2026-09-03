@@ -527,12 +527,28 @@ mobile wss `18790`),`.app` 依修改後的 Swift 原始碼重編、`Info.plist` 
   依平台不變量,**斷線後麥克風/位置/BLE 閘道不自動恢復**,需使用者重新開啟。**真機實測確認**
   (2026-09-03):App 切到背景後 daemon 於數秒內偵測斷線並強制停用高風險受器,這是 iOS 平台行為,
   不是本專案的缺陷,但**不得宣稱 App 能在背景永久保持連線**。
-- **桌面 IP 變更需要重新配對**(真機實測發現,2026-09-03):App 沒有 Bonjour 探索,host 位址釘在
-  配對當下——桌面 Wi-Fi 位址變更後(例如多接一張網卡),App 會用 Keychain 內的舊位址反覆重連,
-  daemon 端完全收不到連線嘗試,`--auto-connect` 冷啟動也連不上;必須用新位址重新配對(新配對後
-  數秒內連上,App 端會覆寫 Keychain)。
-- **系統終止 App 後需要手動重新連線**(真機實測發現,2026-09-03):冷啟動的 App 不會自動重連,
-  需要使用者點「連線」分頁的按鈕,或以 `--auto-connect` 啟動參數啟動(見上方 DEBUG 啟動參數表)。
+- **桌面 IP 變更仍需要重新配對,但 v0.5.1 起會明講**(限制由真機實測發現,2026-09-03;
+  提示為 v0.5.1 新增,**只在模擬器驗證**):App 沒有 Bonjour 探索,host 位址釘在配對當下——
+  桌面 Wi-Fi 位址變更後(例如多接一張網卡),App 仍會用 Keychain 內的舊位址重連,daemon 端
+  完全收不到連線嘗試;**必須用新位址重新配對**這件事沒有變。v0.5.1 新增的是誠實提示:
+  `ReconnectDiagnosis.evaluate(failures:)`(純函式,`ConnectionManager.swift`)在**連續 4 次
+  連線層失敗**(timeout / 找不到主機 / 主機不可達 / 連線被拒),或同一串失敗**持續 ≥ 60 秒**時,
+  「連線」頁會顯示固定文案「連不上桌面：可能是桌面的網路位址已變更。請在桌面重新產生配對碼並重新
+  配對。」並提供「重新配對」捷徑(直接展開掃描 QR / 貼上 JSON)。
+  **TLS 憑證指紋不符與 `auth-fail`(撤銷/過期)不會走這句**——指紋不符是安全事件、撤銷是桌面端的
+  權威回覆,兩者維持各自既有文案,任何一筆這類失敗都會打斷連續串,不得混淆成「位址變更」。
+  驗證等級:`InteractionCompanionTests/ReconnectHintTests.swift` 的門檻/分類 XCTest(模擬器)
+  **已通過**;「桌面真的換 IP 後手機上跳出這句」**尚未在真機驗證**。
+- **系統終止 App 後會自動重連(v0.5.1 新增;只在模擬器驗證)**:冷啟動時若 Keychain 有配對、
+  且使用者上次的意圖是「想要連線」,App 會自動呼叫 `connectIfPaired()`(沿用既有 1s→15s 退避),
+  不再需要手動點「連線」或用 DEBUG `--auto-connect`。
+  意圖記在 `UserDefaults`:按過「立即中斷」、配對被撤銷(`auth-fail`)、配對失敗或解除配對之後
+  **不會**自動連;從 v0.5.0 升級上來、沒有這筆紀錄但有配對資料時視為「想要連線」。
+  **不變量(未削弱)**:自動重連只重建 socket,**感測一律不自動恢復**——`SensorCenter` /
+  `BleGateway` 每次啟動都是全關,麥克風、位置、BLE 閘道、電池、動作都要使用者在「感測」頁重新開啟
+  (`ReconnectHintTests.testColdStartAutoConnectNeverResumesAnySensor` 涵蓋)。
+  驗證等級:模擬器 XCTest(純決策 `ColdStartConnectDecision.shouldAutoConnect`)**已通過**;
+  「真機被系統終止後冷啟動自動連回 daemon」**尚未在真機驗證**。
 - **External Accessory / USB 不支援**(不在 v1 範圍)。
 - QR 掃描使用 VisionKit `DataScannerViewController`,需 A12 以上晶片;
   不支援或相機被拒時 UI 誠實顯示並提供手動貼上備援。
