@@ -21,6 +21,18 @@ async fn runtime() -> (tempfile::TempDir, Runtime) {
     (dir, rt)
 }
 
+/// 同一個 home 開一個 runtime（歷史保留測試要跨「重啟」觀察落地的紀錄）。
+async fn start_in(home: &std::path::Path) -> Runtime {
+    Runtime::start(RuntimeOptions {
+        home: Some(home.to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap()
+}
+
 fn create_input(agent: &str) -> CreateAgentSession {
     serde_json::from_value(json!({
         "agentId": agent,
@@ -1237,4 +1249,118 @@ async fn a_real_agent_fetch_emits_fetched_and_send_never_fakes_delivery() {
         .await
         .unwrap();
     assert_eq!(session_states(&rt, &sid), vec!["created", "fetched"]);
+}
+
+/// 回歸（agent-honesty-024）：agent session 歷史必須有界。
+///
+/// 修好前 `delete_agent_session` 在整個 workspace 裡零呼叫：每一次啟動都把
+/// 歷史上**每一筆** session 全載進記憶體 map，SQLite 也只增不減，而
+/// `list_agent_sessions`（桌面每個 runtime 事件都會呼叫）每次都全量 clone。
+/// 這裡直接寫入一份超量的歷史，重啟後要求：記憶體與 SQLite 都被修剪到保留
+/// 上限內、過保留期的舊紀錄真的被刪掉、最近的紀錄留著。
+#[tokio::test]
+async fn closed_agent_session_history_is_bounded_and_pruned_from_storage() {
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_in(home.path()).await;
+    // 先做一筆真的 session 並關閉，拿到一份格式正確的紀錄 JSON 當模板
+    // （不手抄欄位，避免測試與真實序列化脫節）。
+    let seed = rt
+        .create_agent_session(create_input("agent.history"))
+        .await
+        .unwrap();
+    rt.close_agent_session(seed.session_id.as_str(), None, "closed")
+        .await
+        .unwrap();
+    let template = rt
+        .store
+        .all_agent_sessions()
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("seed record persisted");
+    let mut record: serde_json::Value = serde_json::from_str(&template).unwrap();
+    assert_eq!(record["state"], json!("closed"), "模板必須是已結束的紀錄");
+
+    let cap = interaction_runtime::agents::CLOSED_AGENT_SESSION_RETENTION;
+    let now = chrono::Utc::now();
+    let total = cap + 100;
+    let stale = 50usize; // 前 50 筆是「超過保留天數」的老紀錄
+    for i in 0..total {
+        let id = format!("history-{i:04}");
+        let closed_at = if i < stale {
+            now - chrono::Duration::days(90)
+        } else {
+            // i 越大＝越新
+            now - chrono::Duration::minutes((total - i) as i64)
+        };
+        record["sessionId"] = json!(id);
+        record["createdAt"] = json!(closed_at);
+        record["closedAt"] = json!(closed_at);
+        rt.store
+            .save_agent_session(&id, &record.to_string())
+            .unwrap();
+    }
+    assert_eq!(rt.store.all_agent_sessions().unwrap().len(), total + 1);
+
+    // 重啟：restore 會把歷史載回記憶體。有界保留在這裡必須生效。
+    let rt2 = start_in(home.path()).await;
+    let listed = rt2.list_agent_sessions().await;
+    assert!(
+        listed.len() <= cap,
+        "記憶體裡的已結束歷史必須有界（上限 {cap}），實際 {}",
+        listed.len()
+    );
+    let rows = rt2.store.all_agent_sessions().unwrap();
+    assert!(
+        rows.len() <= cap,
+        "SQLite 也要真的刪掉（delete_agent_session），實際 {}",
+        rows.len()
+    );
+    let ids: Vec<String> = listed
+        .iter()
+        .map(|r| r.session_id.as_str().to_string())
+        .collect();
+    assert!(
+        !ids.iter().any(|id| id == "history-0000"),
+        "超過保留天數的舊紀錄必須被清掉"
+    );
+    assert!(
+        ids.iter()
+            .any(|id| id == &format!("history-{:04}", total - 1)),
+        "最近的紀錄必須留著：{ids:?}"
+    );
+}
+
+/// 保留策略只清「已經結束」的紀錄：還開著的 session 是活的授權，永遠不清。
+#[tokio::test]
+async fn retention_never_prunes_a_live_session() {
+    let (_home, rt) = runtime().await;
+    let live = rt
+        .create_agent_session(create_input("agent.live"))
+        .await
+        .unwrap();
+    let live_id = live.session_id.as_str().to_string();
+    let cap = interaction_runtime::agents::CLOSED_AGENT_SESSION_RETENTION;
+    // 真的建立並關閉一堆 session，撐過保留上限。
+    for _ in 0..(cap + 20) {
+        let record = rt
+            .create_agent_session(create_input("agent.noise"))
+            .await
+            .unwrap();
+        rt.close_agent_session(record.session_id.as_str(), None, "closed")
+            .await
+            .unwrap();
+    }
+    let pruned = rt.prune_agent_sessions().await;
+    assert!(pruned > 0, "超過保留上限的已結束 session 應該被清掉");
+    assert!(
+        rt.get_agent_session(&live_id).await.is_ok(),
+        "還開著的 session 不得被保留策略清掉"
+    );
+    let listed = rt.list_agent_sessions().await;
+    assert!(
+        listed.len() <= cap + 1,
+        "已結束的歷史必須修剪到上限（＋還開著的那一個），實際 {}",
+        listed.len()
+    );
 }

@@ -110,6 +110,11 @@ export function resumeWorkdir(record: AgentSessionRecord): {
  * - 修改權限一律關閉，工具與使用授權不繼承（要修改檔案就重新授權一次）；
  * - 時間／費用／訊息上限沿用上次的實際值，不落到更寬的預設。
  */
+export function resumeToolScope(record: AgentSessionRecord): string[] {
+  const scope = Array.isArray(record.toolScope) ? record.toolScope : [];
+  return scope.length === 1 && scope[0] === "conversation.generate" ? ["conversation.generate"] : [];
+}
+
 export function buildResumeInput(record: AgentSessionRecord): Record<string, unknown> {
   const workspaceScope = record.dataScope.filter((s) => s.startsWith("workspace:"));
   const limits = resumeLimits(record);
@@ -118,7 +123,9 @@ export function buildResumeInput(record: AgentSessionRecord): Record<string, unk
     label: `接續：${record.label ?? agentDisplayName(record.agentId)}`,
     workdir: resumeWorkdir(record).path ?? null,
     dataScope: workspaceScope,
-    toolScope: [],
+    // intent-only（只有 conversation.generate）必須原樣帶回：空集合會被後端當成「這次要用工具」
+    // 而誠實拒絕；其餘一律空集合，不把上次的工具沿用到新的唯讀工作。
+    toolScope: resumeToolScope(record),
     consentScope: [],
     allowWrite: false,
     ttlMinutes: limits.ttlMinutes,
@@ -169,6 +176,27 @@ type ClaimScopedRecord = AgentSessionRecord & {
  */
 export function verifiedForCurrentClaim(record: AgentSessionRecord): boolean {
   if (record.state !== "claimed-completed" || !record.humanVerified) return false;
+  const scoped = record as ClaimScopedRecord;
+  const verifiedClaim =
+    typeof scoped.humanVerifiedClaimId === "string"
+      ? scoped.humanVerifiedClaimId
+      : typeof scoped.humanVerified?.claimId === "string"
+        ? scoped.humanVerified.claimId
+        : null;
+  const currentClaim = typeof scoped.claimId === "string" ? scoped.claimId : null;
+  if (verifiedClaim !== null && currentClaim !== null) return verifiedClaim === currentClaim;
+  return true;
+}
+
+/**
+ * 已收尾（closed）而且它唯一／最後一輪確實由人驗證過。
+ * 誠實階梯的另一半：`close_agent_session` 把 claimed-completed 改寫成 closed
+ * 時**不會**清掉 `human_verified`（後端只在新一輪工作、新的聲稱、失敗／未知或
+ * 新任務送達時才清），所以「已關閉」不等於「沒被驗證過」。這個 session 沒有
+ * 「這一輪」了——不能把它跟「Active／等待中的下一輪還沒檢查」用同一句話講。
+ */
+export function closedWithVerifiedHumanCheck(record: AgentSessionRecord): boolean {
+  if (record.state !== "closed" || !record.humanVerified) return false;
   const scoped = record as ClaimScopedRecord;
   const verifiedClaim =
     typeof scoped.humanVerifiedClaimId === "string"
@@ -480,6 +508,7 @@ function SessionCard({
   // 人工驗證是後端的獨立欄位（state 仍是 claimed-completed）：只有它對應目前這一輪
   // claim 時才投影成「已由你確認」；沒有它，對方的說法永遠只是說法。
   const verified = verifiedForCurrentClaim(record);
+  const closedVerified = closedWithVerifiedHumanCheck(record);
   const status = verified ? projectWorkState("verified") : projectWorkState(record.state);
   const claimed = record.state === "claimed-completed" && !verified;
   // 「進行中」與 Rust `AgentSessionState::is_open` 對齊（statusProjection）：
@@ -557,7 +586,15 @@ function SessionCard({
           {record.humanVerified.note ? `・${record.humanVerified.note}` : ""}
         </p>
       )}
-      {record.humanVerified && !verified && (
+      {record.humanVerified && closedVerified && (
+        // 已關閉且它唯一的一輪確實驗證過：不是「還沒檢查」，是「檢查過了、收尾了」。
+        // close_agent_session 不清 human_verified，所以這句話跟後端紀錄一致。
+        <p className="muted small" role="status">
+          已由你在 {new Date(record.humanVerified.at).toLocaleString("zh-TW")} 確認並收尾。
+          {record.humanVerified.note ? `・${record.humanVerified.note}` : ""}
+        </p>
+      )}
+      {record.humanVerified && !verified && !closedVerified && (
         <p className="muted small">
           先前一輪的結果你在 {new Date(record.humanVerified.at).toLocaleString("zh-TW")} 確認過；
           這一輪尚未檢查，不沿用綠色勾勾。

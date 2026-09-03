@@ -444,14 +444,20 @@ impl Runtime {
                 "dailyGenerativeCostUsd 必須是 0..100 的有限數值".into(),
             ));
         }
-        if parsed
-            .generative_agent
-            .as_deref()
-            .is_some_and(|agent| !matches!(agent, "codex" | "claude-code"))
-        {
-            return Err(interaction_core::DomainError::Validation(
-                "generativeAgent 只能是 codex、claude-code 或 null".into(),
-            ));
+        // 主動式對話是 intent-only：只有能確定性停用全部工具的 connector 才能當
+        // generativeAgent。codex 的 app-server／exec 沒有等價 `--tools ""` 的旗標，
+        // 選了只會在建立工作階段時被誠實拒絕（agent-honesty-022），不如在設定時就說清楚。
+        if let Some(agent) = parsed.generative_agent.as_deref() {
+            if agent == "codex" {
+                return Err(interaction_core::DomainError::Validation(
+                    "generativeAgent 不能是 codex：Codex 無法確定性停用工具，主動式對話只能交給 claude-code（或設為 null）".into(),
+                ));
+            }
+            if agent != "claude-code" {
+                return Err(interaction_core::DomainError::Validation(
+                    "generativeAgent 只能是 claude-code 或 null".into(),
+                ));
+            }
         }
         let prior = std::mem::replace(&mut guard.config, parsed);
         if let Err(e) = self.persist_proactive(&guard) {
@@ -572,7 +578,7 @@ impl Runtime {
             .config
             .generative_agent
             .as_deref()
-            .filter(|id| matches!(*id, "codex" | "claude-code"))
+            .filter(|id| *id == "claude-code")
             .ok_or_else(|| {
                 interaction_core::DomainError::ConsentRequired(
                     "尚未由使用者選擇主動式對話 Agent".into(),

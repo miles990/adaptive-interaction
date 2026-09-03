@@ -844,17 +844,44 @@ async fn resume_passes_the_provider_thread_and_relocks_permission_flags() {
     std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
     let (_g, rt) = runtime().await;
     let dir = scenario_workdir("default");
+    let argv_file = dir.path().join("fake-argv");
+    // 先有一次由本 runtime 授權過的工作：續開一定要有紀錄可比對
+    // （沒有紀錄的 thread id 一律拒絕，見
+    // `resume_without_a_recorded_grant_is_refused`）。
+    let mut first = claude_input("先開一次", None);
+    first.workdir = Some(dir.path().to_string_lossy().into_owned());
+    let first_sid = rt
+        .create_agent_session(first)
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&first_sid)
+                .await
+                .map(|r| r.provider_session_id.as_deref() == Some("fake-123"))
+                .unwrap_or(false)
+        },
+        "provider session id",
+    )
+    .await;
+    rt.close_agent_session(&first_sid, None, "closed")
+        .await
+        .unwrap();
+    std::fs::remove_file(&argv_file).unwrap();
+
     let mut input = claude_input("續開", None);
     input.workdir = Some(dir.path().to_string_lossy().into_owned());
-    input.resume_provider_session_id = Some("fake-thread-9".into());
+    input.resume_provider_session_id = Some("fake-123".into());
     let record = rt.create_agent_session(input).await.unwrap();
     let sid = record.session_id.as_str().to_string();
 
-    let argv_file = dir.path().join("fake-argv");
     wait_for(async || argv_file.exists(), "fixture argv log").await;
     let argv = std::fs::read_to_string(&argv_file).unwrap();
     assert!(
-        argv.contains("--resume fake-thread-9"),
+        argv.contains("--resume fake-123"),
         "resume must reach the connector: {argv}"
     );
     // 沒有要求寫入 ⇒ 續開仍是唯讀 Plan 模式，不繼承任何放寬。
@@ -983,9 +1010,21 @@ async fn codex_resume_resends_cwd_and_sandbox_instead_of_inheriting_them() {
     let (_g, rt) = runtime().await;
 
     // (1) 唯讀續開：resume 參數必須帶著 read-only 的重新上鎖。
+    //     續開的對象必須是本 runtime 授權過的紀錄（沒有紀錄一律拒絕，見
+    //     `resume_without_a_recorded_grant_is_refused`），所以先真的開一次。
     let dir = tempfile::tempdir().unwrap();
+    let first = rt
+        .create_agent_session(codex_input("先開一次", dir.path()))
+        .await
+        .unwrap();
+    assert_eq!(first.provider_session_id.as_deref(), Some("fake-thread-1"));
+    rt.close_agent_session(first.session_id.as_str(), None, "closed")
+        .await
+        .unwrap();
+    std::fs::remove_file(dir.path().join("fake-thread-start")).unwrap();
+
     let mut input = codex_input("續開唯讀", dir.path());
-    input.resume_provider_session_id = Some("fake-thread-9".into());
+    input.resume_provider_session_id = Some("fake-thread-1".into());
     let record = rt.create_agent_session(input).await.unwrap();
     let sid = record.session_id.as_str().to_string();
 
@@ -995,7 +1034,7 @@ async fn codex_resume_resends_cwd_and_sandbox_instead_of_inheriting_them() {
     let sent: serde_json::Value = serde_json::from_str(raw.trim()).expect("resume line is JSON");
     assert_eq!(sent["method"], json!("thread/resume"));
     let params = &sent["params"];
-    assert_eq!(params["threadId"], json!("fake-thread-9"));
+    assert_eq!(params["threadId"], json!("fake-thread-1"));
     assert_eq!(
         params["sandbox"],
         json!("read-only"),
@@ -1021,8 +1060,22 @@ async fn codex_resume_resends_cwd_and_sandbox_instead_of_inheriting_them() {
     // (2) 這次 SessionSpec 明確要寫入 ⇒ resume 送 workspace-write。
     // 也就是說 sandbox 完全由**本次**授權決定，與舊 thread 無關。
     let dir2 = tempfile::tempdir().unwrap();
+    // 同樣先有一次「本來就被授權可寫」的工作：續開不得憑空取得寫入權，
+    // 所以比對的對象必須自己就是寫入型 session。它得留著（consent 隨
+    // session 結束而消滅——已關閉的工作階段永遠無法再帶回寫入授權，見
+    // `resume_cannot_widen_scope` 的 sneaky 分支）。
+    let mut first_write = codex_input("先開一次可寫", dir2.path());
+    first_write.allow_write = true;
+    first_write.tool_scope = vec!["workspace.write".into()];
+    first_write.consent_scope = vec!["agent-session:workspace-write".into()];
+    let first_write = rt.create_agent_session(first_write).await.unwrap();
+    assert_eq!(
+        first_write.provider_session_id.as_deref(),
+        Some("fake-thread-1")
+    );
+
     let mut write_input = codex_input("續開可寫", dir2.path());
-    write_input.resume_provider_session_id = Some("fake-thread-9".into());
+    write_input.resume_provider_session_id = Some("fake-thread-1".into());
     write_input.allow_write = true;
     write_input.tool_scope = vec!["workspace.write".into()];
     write_input.consent_scope = vec!["agent-session:workspace-write".into()];
@@ -1034,6 +1087,9 @@ async fn codex_resume_resends_cwd_and_sandbox_instead_of_inheriting_them() {
         serde_json::from_str(std::fs::read_to_string(&resume_file2).unwrap().trim()).unwrap();
     assert_eq!(sent2["params"]["sandbox"], json!("workspace-write"));
     rt.close_agent_session(&sid2, None, "closed").await.unwrap();
+    rt.close_agent_session(first_write.session_id.as_str(), None, "closed")
+        .await
+        .unwrap();
 
     std::env::remove_var("INTERACT_AI_CODEX_BIN");
 }
@@ -2581,5 +2637,200 @@ async fn a_workdir_inside_the_runtime_state_dir_is_refused() {
         "子程序不得真的在狀態資料夾底下跑起來"
     );
     assert_eq!(rt.open_agent_sessions().await, 0, "沒有殘留 session");
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// 回歸（agent-honesty-022）：`toolScope: ["conversation.generate"]` 是
+/// intent-only（「不讀檔、不使用工具」）的宣告。在 claude 它是確定性的
+/// `--tools ""`（一個工具都不給）；codex 的 app-server（`thread/start`／
+/// `thread/resume`）與 exec fallback 都沒有等價旗標——sandbox 擋得住寫入，
+/// 擋不住讀檔與 shell，限制只剩 prompt 文字。安全由 Rust 確定性強制、
+/// 不靠 prompt：codex 不得收下一個它執行不了的限制，必須誠實拒絕。
+#[tokio::test]
+async fn codex_refuses_intent_only_sessions_it_cannot_enforce() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CODEX_BIN", codex_fixture_path());
+    let (_g, rt) = runtime().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut intent_only = codex_input("intent-only", dir.path());
+    intent_only.tool_scope = vec!["conversation.generate".into()];
+    let err = rt.create_agent_session(intent_only).await.unwrap_err();
+    assert!(matches!(err, DomainError::Validation(_)), "{err:?}");
+    assert!(format!("{err}").contains("codex"), "{err}");
+    assert_eq!(rt.open_agent_sessions().await, 0, "沒有半掛 session");
+    assert!(
+        !dir.path().join("fake-thread-start").exists() && !dir.path().join("fake-pid").exists(),
+        "被拒絕的 session 不得真的起 codex 子程序"
+    );
+    std::env::remove_var("INTERACT_AI_CODEX_BIN");
+
+    // 同一個宣告在 claude 上仍然成立，而且真的送出「零工具」旗標。
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let cdir = scenario_workdir("default");
+    let mut claude = claude_input("intent-only", None);
+    claude.workdir = Some(cdir.path().to_string_lossy().into_owned());
+    claude.tool_scope = vec!["conversation.generate".into()];
+    let record = rt.create_agent_session(claude).await.unwrap();
+    let argv_file = cdir.path().join("fake-argv");
+    wait_for(async || argv_file.exists(), "fixture argv log").await;
+    let argv = std::fs::read_to_string(&argv_file).unwrap();
+    assert!(argv.contains("--tools"), "{argv}");
+    assert!(
+        !argv.contains("Read,Glob,Grep"),
+        "intent-only 不得拿到任何工具：{argv}"
+    );
+    rt.close_agent_session(record.session_id.as_str(), None, "closed")
+        .await
+        .unwrap();
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// 回歸（agent-honesty-023）：續開一個 intent-only（零工具）的工作階段時，
+/// 桌面／CLI 送的是空 `toolScope`。空集合在字面上是子集，卻讓 provider 的
+/// 實際工具集從「一個都沒有」變成「可讀檔／glob／grep」——宣告更窄、實權
+/// 更寬，正是「不得放寬」要擋的事。
+#[tokio::test]
+async fn resuming_an_intent_only_session_may_not_widen_the_real_tool_set() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = scenario_workdir("default");
+    let argv_file = dir.path().join("fake-argv");
+
+    let mut first = claude_input("intent-only", None);
+    first.workdir = Some(dir.path().to_string_lossy().into_owned());
+    first.tool_scope = vec!["conversation.generate".into()];
+    let first_record = rt.create_agent_session(first).await.unwrap();
+    let first_sid = first_record.session_id.as_str().to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&first_sid)
+                .await
+                .map(|r| r.provider_session_id.as_deref() == Some("fake-123"))
+                .unwrap_or(false)
+        },
+        "provider session id",
+    )
+    .await;
+    assert!(
+        !std::fs::read_to_string(&argv_file)
+            .unwrap()
+            .contains("Read,Glob,Grep"),
+        "第一輪真的是零工具，續開才有東西可放寬"
+    );
+    rt.close_agent_session(&first_sid, None, "closed")
+        .await
+        .unwrap();
+    std::fs::remove_file(&argv_file).unwrap();
+
+    // (1) 空 toolScope 的續開＝把零工具換成可讀檔，必須拒絕。
+    let mut widened = claude_input("續開放寬工具", None);
+    widened.workdir = Some(dir.path().to_string_lossy().into_owned());
+    widened.resume_provider_session_id = Some("fake-123".into());
+    widened.tool_scope = vec![];
+    let err = rt.create_agent_session(widened).await.unwrap_err();
+    assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+    assert!(format!("{err}").contains("工具"), "{err}");
+    assert!(!argv_file.exists(), "被拒絕的續開不得真的起子程序");
+
+    // (2) 誠實地帶著同一個 intent-only 宣告續開才行，而且仍然是零工具。
+    let mut faithful = claude_input("誠實續開", None);
+    faithful.workdir = Some(dir.path().to_string_lossy().into_owned());
+    faithful.resume_provider_session_id = Some("fake-123".into());
+    faithful.tool_scope = vec!["conversation.generate".into()];
+    let resumed = rt.create_agent_session(faithful).await.unwrap();
+    wait_for(async || argv_file.exists(), "resumed argv log").await;
+    let argv = std::fs::read_to_string(&argv_file).unwrap();
+    assert!(argv.contains("--resume fake-123"), "{argv}");
+    assert!(!argv.contains("Read,Glob,Grep"), "續開仍然是零工具：{argv}");
+    rt.close_agent_session(resumed.session_id.as_str(), None, "closed")
+        .await
+        .unwrap();
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// 回歸（agent-honesty-025）：續開時「找不到上一次的授權紀錄」比「找得到但
+/// 缺工作目錄」更不確定——不確定就拒絕，不得整段跳過比對後落到 runtime
+/// 預設（ttl 120 分鐘、沒有金額上限）並掛上任意資料夾。
+#[tokio::test]
+async fn resume_without_a_recorded_grant_is_refused() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (home, rt) = runtime().await;
+
+    // (1) 本 runtime 從來沒有發過的 provider thread id（例如使用者自己在
+    //     終端跑 claude 拿到的）：我們不知道上次授權了什麼 ⇒ 拒絕。
+    let dir = scenario_workdir("default");
+    let mut unknown = claude_input("外部 thread", None);
+    unknown.workdir = Some(dir.path().to_string_lossy().into_owned());
+    unknown.resume_provider_session_id = Some("thread-from-somewhere-else".into());
+    let err = rt.create_agent_session(unknown).await.unwrap_err();
+    assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+    assert!(
+        !dir.path().join("fake-argv").exists() && !dir.path().join("fake-pid").exists(),
+        "被拒絕的續開不得真的起子程序"
+    );
+    assert_eq!(rt.open_agent_sessions().await, 0, "沒有半掛 session");
+
+    // (2) 升級前建立的舊紀錄沒有 resolvedWorkdir，這次也沒帶資料夾：
+    //     (None, None) 一樣無從證明沒換資料夾 ⇒ 拒絕。
+    let seed = rt
+        .create_agent_session({
+            let mut input = claude_input("做一份模板", None);
+            input.workdir = Some(dir.path().to_string_lossy().into_owned());
+            input
+        })
+        .await
+        .unwrap();
+    let seed_sid = seed.session_id.as_str().to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&seed_sid)
+                .await
+                .map(|r| r.provider_session_id.is_some())
+                .unwrap_or(false)
+        },
+        "provider session id",
+    )
+    .await;
+    rt.close_agent_session(&seed_sid, None, "closed")
+        .await
+        .unwrap();
+    let template = rt
+        .store
+        .all_agent_sessions()
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("seed record persisted");
+    let mut legacy: serde_json::Value = serde_json::from_str(&template).unwrap();
+    legacy["sessionId"] = json!("legacy-session-1");
+    legacy["providerSessionId"] = json!("legacy-thread-1");
+    legacy.as_object_mut().unwrap().remove("resolvedWorkdir");
+    rt.store
+        .save_agent_session("legacy-session-1", &legacy.to_string())
+        .unwrap();
+
+    // 重啟：restore 把舊紀錄載回記憶體，續開才找得到它。
+    let rt2 = Runtime::start(RuntimeOptions {
+        home: Some(home.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+    let legacy_dir = scenario_workdir("default");
+    let mut legacy_resume = claude_input("續開舊紀錄", None);
+    legacy_resume.resume_provider_session_id = Some("legacy-thread-1".into());
+    legacy_resume.workdir = None;
+    let err = rt2.create_agent_session(legacy_resume).await.unwrap_err();
+    assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+    assert!(format!("{err}").contains("工作目錄"), "{err}");
+    assert!(
+        !legacy_dir.path().join("fake-argv").exists(),
+        "被拒絕的續開不得真的起子程序"
+    );
     std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
 }

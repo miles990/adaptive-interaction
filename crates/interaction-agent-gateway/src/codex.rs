@@ -136,6 +136,17 @@ impl AgentConnector for CodexConnector {
         &self,
         spec: SessionSpec,
     ) -> Result<Box<dyn AgentSessionHandle>, GatewayError> {
+        // `disable_tools`（intent-only：一個 provider 工具都不給）在 codex
+        // 沒有任何等價旗標——app-server 的 thread/start・thread/resume 與
+        // exec fallback 能設的只有 cwd／approvalPolicy／sandbox，沙箱擋得住
+        // 寫入，擋不住讀檔與 shell。收下這個 spec 等於把限制降級成 prompt
+        // 文字。宣告了就必須執行得了，執行不了就誠實失敗（runtime 端在
+        // gateway_attach 已先擋一次；這裡是連接器自己的最後一道）。
+        if spec.disable_tools {
+            return Err(GatewayError::Unavailable(
+                "codex 無法確定性停用全部工具（app-server 與 exec 都沒有對應旗標）；intent-only session 不支援 codex".into(),
+            ));
+        }
         let app_server = matches!(
             capture(&self.binary, &["app-server", "--help"]).await,
             Ok((true, _))

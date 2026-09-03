@@ -902,7 +902,9 @@ function ProactiveDialogueSection({ name, advanced = false }: { name: string; ad
           onChange={(event) => void patch({ generativeAgent: event.target.value || null })}
         >
           <option value="">不使用 AI 幫手產生主動訊息</option>
-          <option value="codex">Codex（寫程式與整理資料的本機 AI 幫手）</option>
+          <option value="codex" disabled>
+            Codex（暫不支援：無法保證完全不用工具）
+          </option>
           <option value="claude-code">Claude Code（對話、知識與審閱的本機 AI 幫手）</option>
         </select>
       </label>

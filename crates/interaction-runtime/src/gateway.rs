@@ -57,6 +57,18 @@ pub fn agent_kind_for(agent_id: &str) -> Option<AgentKind> {
     }
 }
 
+/// intent-only 的宣告：`toolScope` 只有 `conversation.generate` ⇒ 這個
+/// session 完全不得使用任何 provider 工具（`SessionSpec.disable_tools`）。
+///
+/// 這是「宣告的 scope」與「實際生效的工具集」之間**唯一**的推導，所以
+/// runtime 只有這一份：`gateway_attach` 用它決定旗標，`check_resume_not_wider`
+/// 用同一份判斷續開有沒有把零工具偷換成有工具（agent-honesty-023）。兩邊
+/// 各寫一次就會像先前那樣漂開——一邊是精確等值、一邊是子集，空集合因此
+/// 「宣告更窄、實權更寬」。
+pub fn tools_disabled(tool_scope: &[String]) -> bool {
+    tool_scope == ["conversation.generate"]
+}
+
 /// binary 可用 env 覆寫（測試 fixture 與非 PATH 安裝）：
 /// INTERACT_AI_CLAUDE_BIN / INTERACT_AI_CODEX_BIN。
 fn connectors() -> Vec<Box<dyn AgentConnector>> {
@@ -288,6 +300,18 @@ impl Runtime {
                     .into(),
             ));
         }
+        // 同理，intent-only（`toolScope` 只有 conversation.generate）＝「一個
+        // 工具都不給」。claude 有確定性的 `--tools ""`；codex 沒有任何等價
+        // 旗標——`thread/start`／`thread/resume` 與 exec fallback 能設的只有
+        // cwd／approvalPolicy／sandbox，sandbox 擋得住寫入，擋不住讀檔與
+        // shell。收下它就等於把限制降級成 prompt 文字，違反「安全由 Rust
+        // 確定性強制，不靠 prompt」。誠實拒絕，不假裝限制成立。
+        if kind == AgentKind::Codex && tools_disabled(&record.tool_scope) {
+            return Err(DomainError::Validation(
+                "codex 沒有可確定性停用全部工具的旗標，intent-only（toolScope 只有 conversation.generate）的工作階段無法強制執行；請改用 claude-code"
+                    .into(),
+            ));
+        }
         let connector: Box<dyn AgentConnector> = connectors()
             .into_iter()
             .find(|c| c.kind() == kind)
@@ -307,7 +331,7 @@ impl Runtime {
         } else {
             interaction_agent_gateway::SessionSpec::read_only_in(workdir)
         };
-        spec.disable_tools = record.tool_scope == ["conversation.generate"];
+        spec.disable_tools = tools_disabled(&record.tool_scope);
         // 續開：沿用 provider 端 thread/session；sandbox 與權限旗標由
         // connector 在 resume 時重新上鎖（不繼承、不放寬）。
         spec.resume_provider_session = resume_provider_session;
@@ -1092,6 +1116,9 @@ impl Runtime {
                 }
             }
         }
+        // 已結束的 session 歷史有界：長跑的 daemon 不能只增不減。前置檢查
+        // 走讀鎖，真的有東西要清才拿寫鎖（watchdog 每 tick 都會走這裡）。
+        self.prune_agent_sessions_if_needed().await;
     }
 }
 

@@ -66,6 +66,21 @@ fn resume_limits(
 /// `dataScope` 裡的 `workspace:` 只是呼叫端自己附加的人話標籤，兩者不一致
 /// 時以後端的事實為準；連標籤都沒有就回 None，讓後端誠實拒絕（gateway
 /// session 沒有記錄＝無法證明沒有換資料夾），而不是猜一個。
+/// 續開的 `toolScope`：intent-only（只有 `conversation.generate`）的工作階段必須原樣帶回，
+/// 否則空集合會被後端當成「這次要用工具」而誠實拒絕（宣告更窄、實權更寬）；
+/// 其餘一律空集合，不把上次的工具沿用到新的唯讀工作。
+fn resume_tool_scope(previous: &Value) -> Value {
+    let intent_only = previous
+        .get("toolScope")
+        .and_then(|v| v.as_array())
+        .is_some_and(|scope| scope.len() == 1 && scope[0] == "conversation.generate");
+    if intent_only {
+        json!(["conversation.generate"])
+    } else {
+        json!([])
+    }
+}
+
 fn resume_workdir(previous: &Value, explicit: Option<&str>) -> Option<String> {
     if let Some(dir) = explicit.map(str::trim).filter(|d| !d.is_empty()) {
         return Some(dir.to_string());
@@ -940,7 +955,7 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                             "maxMessages": limits.max_messages,
                             "workdir": resume_workdir(&previous, workdir.as_deref()),
                             "allowWrite": false,
-                            "toolScope": json!([]),
+                            "toolScope": resume_tool_scope(&previous),
                             "consentScope": json!([]),
                             "resumeProviderSessionId": provider_session_id,
                         })),

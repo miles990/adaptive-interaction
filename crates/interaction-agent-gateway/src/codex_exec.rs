@@ -23,6 +23,13 @@ pub async fn start(
     binary: String,
     spec: SessionSpec,
 ) -> Result<Box<dyn AgentSessionHandle>, GatewayError> {
+    // 見 codex.rs：`disable_tools` 在 codex 無法確定性執行，exec fallback
+    // 更沒有工具白名單，所以絕不靜默忽略——誠實失敗。
+    if spec.disable_tools {
+        return Err(GatewayError::Unavailable(
+            "codex exec 無法確定性停用全部工具；intent-only session 不支援 codex".into(),
+        ));
+    }
     if !spec.workdir.is_dir() {
         return Err(GatewayError::Unavailable(format!(
             "workdir 不存在：{}",
@@ -480,6 +487,26 @@ mod tests {
         assert_eq!(&args[..2], ["exec", "resume"]);
         assert!(args.iter().any(|a| a == "sandbox_mode=\"workspace-write\""));
         assert!(!args.join(" ").contains("danger"));
+    }
+
+    /// 回歸（agent-honesty-022）：`disable_tools` 宣告的是「一個 provider
+    /// 工具都不給」。codex 兩條路徑都沒有等價旗標，所以絕不靜默接受——
+    /// 靜默接受＝限制只剩 prompt 文字。
+    #[tokio::test]
+    async fn intent_only_specs_are_refused_instead_of_silently_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut spec = SessionSpec::read_only_in(dir.path().to_path_buf());
+        spec.disable_tools = true;
+        let err = match start("/nonexistent/codex".into(), spec).await {
+            Ok(_) => panic!("codex 不得收下一個它執行不了的限制"),
+            Err(e) => e,
+        };
+        assert!(matches!(err, GatewayError::Unavailable(_)), "{err:?}");
+        assert!(format!("{err}").contains("工具"), "{err}");
+        // 沒有工具限制的 spec 照舊（這裡只驗參數層：exec_args 不帶任何
+        // 停用工具旗標，因為 codex 根本沒有這種旗標）。
+        let plain = SessionSpec::read_only_in(dir.path().to_path_buf());
+        assert!(!exec_args(&plain, "hi", None).iter().any(|a| a == "--tools"));
     }
 
     #[test]

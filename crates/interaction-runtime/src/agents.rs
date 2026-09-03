@@ -38,6 +38,15 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 const MAILBOX_CAP: usize = 200;
+/// 已結束（closed／expired／cancelled）的 agent session 保留筆數上限。
+///
+/// 紀錄是歷史，不是活的授權：沒有上限就是無界成長——每次啟動把歷史上
+/// 每一筆都載進記憶體 map，`list_agent_sessions`（桌面每個 runtime 事件都
+/// 會呼叫）每次全量 clone，SQLite 只增不減。活著的 session 永遠不受這個
+/// 上限影響。
+pub const CLOSED_AGENT_SESSION_RETENTION: usize = 200;
+/// 已結束的 session 保留天數：超過就清掉（即使還沒到筆數上限）。
+pub const CLOSED_AGENT_SESSION_RETENTION_DAYS: i64 = 30;
 const MAX_BODY_BYTES: usize = 16 * 1024;
 const CONTEXT_BUNDLE_RECEIPT_CAP: usize = 32;
 /// 緊急停止時，單一 session 的「收尾」（狀態落地、consent 撤銷、provider
@@ -105,6 +114,19 @@ fn check_resume_not_wider(
             .cloned()
             .collect()
     };
+    // 「宣告的 scope 是子集」不等於「實際生效的工具集沒有變寬」：上一次是
+    // intent-only（`conversation.generate` ⇒ provider 端一個工具都不給），
+    // 這一次送空集合，字面上是更窄的子集，實際上卻讓 claude 從 `--tools ""`
+    // 變回可讀檔／glob／grep。比對實際生效的那一個開關，縮小 scope 才不會
+    // 反而放寬實權。
+    if crate::gateway::tools_disabled(&original.tool_scope)
+        && !crate::gateway::tools_disabled(&input.tool_scope)
+    {
+        return Err(DomainError::PolicyBlocked(
+            "接續上次的工作不得放寬可用工具：上次是完全不使用工具的工作階段，要接續請一樣只帶 conversation.generate"
+                .into(),
+        ));
+    }
     for (what, added) in [
         ("資料範圍", extra(&input.data_scope, &original.data_scope)),
         ("可用工具", extra(&input.tool_scope, &original.tool_scope)),
@@ -201,7 +223,9 @@ fn check_resume_same_workdir(
             "接續上次的工作必須帶上同一個工作目錄（上次是 {previous}）；             省略＝由系統另外挑一個資料夾，那不是接續"
         ))),
         // 舊記錄（升級前建立）沒有留下實際掛載的工作目錄：不確定就拒絕。
-        (None, Some(_)) if crate::gateway::agent_kind_for(&original.agent_id).is_some() => {
+        // 這次帶不帶資料夾都一樣——「兩邊都不知道」比「知道一邊」更不確定，
+        // 不能因為請求也省略了就當作沒換過（agent-honesty-025）。
+        (None, _) if crate::gateway::agent_kind_for(&original.agent_id).is_some() => {
             Err(DomainError::PolicyBlocked(
                 "找不到上一次實際掛載的工作目錄記錄，無法確認沒有換資料夾；                 請重新建立一個明確授權的工作階段"
                     .into(),
@@ -418,13 +442,28 @@ impl Runtime {
         // 東西、不是憑證：找得到上一個 session 就逐項比對。省略欄位不是
         // 「沿用」——那會落到 runtime 預設（ttl 120 分鐘、沒有金額上限、
         // 訊息上限吃 policy），比上一次**更寬**。
+        // 找不到上一個 session 就**拒絕**：thread id 是 provider 端的東西，
+        // 任何人都能說得出一個；我們沒有紀錄＝不知道上次授權了什麼，跳過
+        // 比對等於預設放行到 runtime 預設值。不確定就拒絕（誠實階梯）。
+        //
+        // 只對 gateway agent（codex／claude-code）成立：那裡的 thread id 會
+        // 真的被送進 connector 接上一個 provider session。純對話 session 的
+        // `resumeProviderSessionId` 不會被任何 connector 使用，本身不授予
+        // 任何東西。
         if let Some(resume_id) = input.resume_provider_session_id.as_deref() {
-            if let Some(original) = self.resumed_session_record(resume_id).await {
-                check_resume_not_wider(
+            match self.resumed_session_record(resume_id).await {
+                Some(original) => check_resume_not_wider(
                     &input,
                     &original,
                     policy.delegation.max_messages_per_session,
-                )?;
+                )?,
+                None if crate::gateway::agent_kind_for(&input.agent_id).is_some() => {
+                    return Err(DomainError::PolicyBlocked(
+                        "找不到上一次的授權紀錄，無法確認接續沒有放寬任何範圍；請重新建立一個明確授權的工作階段"
+                            .into(),
+                    ));
+                }
+                None => {}
             }
         }
         let open = self.open_agent_sessions().await;
@@ -681,6 +720,19 @@ impl Runtime {
     }
 
     pub async fn list_agent_sessions(&self) -> Vec<AgentSessionRecord> {
+        // 沒有任何租約需要翻面時（桌面每個 runtime 事件都會呼叫一次，絕大
+        // 多數呼叫都是這種），走讀鎖就好：不必為了純讀取而排隊搶寫鎖。
+        // 語意完全相同——要翻面的那一輪照樣走下面的寫鎖路徑。
+        let now = Utc::now();
+        {
+            let map = self.agent_sessions.read().await;
+            if !map
+                .values()
+                .any(|entry| entry.record.state.is_open() && entry.record.lease.is_expired(now))
+            {
+                return map.values().map(|entry| entry.record.clone()).collect();
+            }
+        }
         let mut map = self.agent_sessions.write().await;
         let mut out = Vec::new();
         for entry in map.values_mut() {
@@ -688,6 +740,77 @@ impl Runtime {
             out.push(entry.record.clone());
         }
         out
+    }
+
+    /// 保留策略：把**已經結束**的 session 歷史修剪到有界（筆數＋天數），
+    /// 記憶體 map 與 SQLite 同時清。回傳清掉的筆數。
+    ///
+    /// 只碰終態紀錄：還開著（且租約未到期）的 session 是活的授權，永遠不清。
+    /// 公開（而不只是 sweep 內部呼叫）好讓「歷史有界」這條不變量能被確定性
+    /// 驗證，不必等 wall-clock。
+    pub async fn prune_agent_sessions(&self) -> usize {
+        let now = Utc::now();
+        let cutoff = now - chrono::Duration::days(CLOSED_AGENT_SESSION_RETENTION_DAYS);
+        let mut map = self.agent_sessions.write().await;
+        // 依「結束時間」新到舊排：留最近的 N 筆，其餘與過保留期的一起清。
+        let mut closed: Vec<(chrono::DateTime<Utc>, String)> = map
+            .values()
+            .filter(|entry| !entry.record.state.is_open())
+            .map(|entry| {
+                (
+                    entry.record.closed_at.unwrap_or(entry.record.created_at),
+                    entry.record.session_id.as_str().to_string(),
+                )
+            })
+            .collect();
+        closed.sort_by(|a, b| b.0.cmp(&a.0));
+        let stale: Vec<String> = closed
+            .into_iter()
+            .enumerate()
+            .filter(|(index, (ended_at, _))| {
+                *index >= CLOSED_AGENT_SESSION_RETENTION || *ended_at < cutoff
+            })
+            .map(|(_, (_, id))| id)
+            .collect();
+        for id in &stale {
+            map.remove(id);
+            let _ = self.store.delete_agent_session(id);
+        }
+        drop(map);
+        if !stale.is_empty() {
+            let _ = self.store.audit(
+                "agent-session.history-pruned",
+                "runtime",
+                &json!({
+                    "removed": stale.len(),
+                    "keepMax": CLOSED_AGENT_SESSION_RETENTION,
+                    "keepDays": CLOSED_AGENT_SESSION_RETENTION_DAYS,
+                }),
+            );
+        }
+        stale.len()
+    }
+
+    /// 便宜的前置檢查：讀鎖看一眼有沒有東西要清，有才拿寫鎖。watchdog 每
+    /// tick 都會呼叫，不能每秒搶一次寫鎖。
+    pub(crate) async fn prune_agent_sessions_if_needed(&self) -> usize {
+        let cutoff = Utc::now() - chrono::Duration::days(CLOSED_AGENT_SESSION_RETENTION_DAYS);
+        let needed = {
+            let map = self.agent_sessions.read().await;
+            let closed = map
+                .values()
+                .filter(|entry| !entry.record.state.is_open())
+                .count();
+            closed > CLOSED_AGENT_SESSION_RETENTION
+                || map.values().any(|entry| {
+                    !entry.record.state.is_open()
+                        && entry.record.closed_at.unwrap_or(entry.record.created_at) < cutoff
+                })
+        };
+        if !needed {
+            return 0;
+        }
+        self.prune_agent_sessions().await
     }
 
     pub async fn get_agent_session(&self, id: &str) -> DomainResult<AgentSessionRecord> {
@@ -1360,43 +1483,57 @@ impl Runtime {
         let Ok(bodies) = self.store.all_agent_sessions() else {
             return;
         };
-        let mut map = self.agent_sessions.write().await;
-        for body in bodies {
-            if let Ok(mut record) = serde_json::from_str::<AgentSessionRecord>(&body) {
-                // Open sessions do NOT survive a restart: the lease's host
-                // context is gone. Mark them expired, honestly.
-                if record.state.is_open() {
-                    record.state = AgentSessionState::Expired;
-                    record.closed_at = Some(Utc::now());
-                    record.detail = Some(match reaped.get(record.session_id.as_str()) {
-                        Some(pgid) => format!(
-                            "runtime restarted; orphan subprocess group reaped (pgid {pgid})"
-                        ),
-                        None => "runtime restarted".into(),
-                    });
-                    if let Ok(body) = serde_json::to_string(&record) {
-                        let _ = self
-                            .store
-                            .save_agent_session(record.session_id.as_str(), &body);
+        {
+            let mut map = self.agent_sessions.write().await;
+            for body in bodies {
+                if let Ok(mut record) = serde_json::from_str::<AgentSessionRecord>(&body) {
+                    // Open sessions do NOT survive a restart: the lease's host
+                    // context is gone. Mark them expired, honestly.
+                    if record.state.is_open() {
+                        record.state = AgentSessionState::Expired;
+                        record.closed_at = Some(Utc::now());
+                        record.detail = Some(match reaped.get(record.session_id.as_str()) {
+                            Some(pgid) => format!(
+                                "runtime restarted; orphan subprocess group reaped (pgid {pgid})"
+                            ),
+                            None => "runtime restarted".into(),
+                        });
+                        if let Ok(body) = serde_json::to_string(&record) {
+                            let _ = self
+                                .store
+                                .save_agent_session(record.session_id.as_str(), &body);
+                        }
+                        // 角色 taxonomy：上一輪 daemon 沒走完，這些工作最後
+                        // 到底成了沒有——沒有人知道。誠實發 unknown，不讓
+                        // 重啟後的 UI 停在重啟前的假象（例如「工作中」）。
+                        self.emit_agent_session_state(
+                            record.session_id.as_str(),
+                            &record.agent_id,
+                            "unknown",
+                        );
                     }
-                    // 角色 taxonomy：上一輪 daemon 沒走完，這些工作最後
-                    // 到底成了沒有——沒有人知道。誠實發 unknown，不讓
-                    // 重啟後的 UI 停在重啟前的假象（例如「工作中」）。
-                    self.emit_agent_session_state(
-                        record.session_id.as_str(),
-                        &record.agent_id,
-                        "unknown",
+                    map.insert(
+                        record.session_id.as_str().to_string(),
+                        AgentSessionEntry {
+                            record,
+                            mailbox: VecDeque::new(),
+                            next_message: 1,
+                        },
                     );
                 }
-                map.insert(
-                    record.session_id.as_str().to_string(),
-                    AgentSessionEntry {
-                        record,
-                        mailbox: VecDeque::new(),
-                        next_message: 1,
-                    },
-                );
             }
+        }
+        // 歷史有界：啟動時就把過保留期／超過保留筆數的已結束 session 清掉，
+        // 記憶體與 SQLite 一起（否則每次重啟都把整段歷史再載一次）。
+        let pruned = self.prune_agent_sessions().await;
+        if pruned > 0 {
+            tracing::info!(
+                target: "interaction.agents",
+                pruned,
+                keep_max = CLOSED_AGENT_SESSION_RETENTION,
+                keep_days = CLOSED_AGENT_SESSION_RETENTION_DAYS,
+                "pruned closed agent-session history"
+            );
         }
     }
 
@@ -1882,11 +2019,15 @@ mod resume_workdir_tests {
             10,
         )
         .expect("純對話 session 的續開與資料夾無關");
-        check_resume_not_wider(
+        // 兩邊都不知道資料夾（agent-honesty-025）：這比「只知道一邊」更
+        // 不確定——舊紀錄沒留下實際掛載的目錄，這次也沒指定（後端會自己
+        // 挑一個 scratch 目錄）。不確定就拒絕，不得因為請求也省略了就當作
+        // 「沒換過」。
+        let msg = blocked(check_resume_not_wider(
             &resume("claude-code", None),
             &record("claude-code", None),
             10,
-        )
-        .expect("兩邊都沒有資料夾：沒有換範圍可言");
+        ));
+        assert!(msg.contains("工作目錄"), "{msg}");
     }
 }
