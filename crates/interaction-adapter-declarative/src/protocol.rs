@@ -224,10 +224,11 @@ pub trait RawLink: Send + Sync {
     /// 主動關閉連線：停止重連、回收執行緒／task。呼叫後 `connected()`
     /// 必須為 false 且 `send()` 必須回 Err（不得默默排隊）。冪等。
     ///
-    /// 已知限制（serial 的 pty／一般檔案 fallback）：那條路徑的 `read` 沒有
-    /// 逾時，裝置完全沉默時 reader 執行緒可能還卡在 blocking read；關閉有界
-    /// （最多等 `serial::READER_JOIN_GRACE_MS`）之後會把它 detach，累計數見
-    /// `serial::detached_reader_threads()`。
+    /// serial 的 pty／一般檔案 fallback：unix 上 reader 以 `poll(2)`＋self-pipe
+    /// 等待，關閉時會在 `serial::READER_JOIN_GRACE_MS` 內真的回收 reader；
+    /// `serial::detached_reader_threads()` 保留為警報器（unix 上再增加即為新缺陷）。
+    /// 已知限制（僅非 unix 平台）：那條路徑的 `read` 沒有逾時，關閉有界等待後
+    /// 會把 reader detach 並計數。
     fn shutdown(&self);
     /// 傳輸描述（診斷用；不得含 secret）。
     fn describe(&self) -> String;
