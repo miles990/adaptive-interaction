@@ -205,7 +205,9 @@ say "xcodebuild -project $PROJECT -scheme $SCHEME -configuration $CONFIGURATION 
 say "  -destination id=<裝置> -allowProvisioningUpdates -allowProvisioningDeviceRegistration \\"
 say "  DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_STYLE=Automatic build"
 say "(第一次跑會跳鑰匙圈授權視窗,請按「總是允許」;必須在有登入的桌面工作階段執行,不能用 ssh。)"
-xcodebuild \
+BUILD_LOG="$WORK_DIR/xcodebuild.log"
+APP_PATH="$DERIVED/Build/Products/$CONFIGURATION-iphoneos/InteractionCompanion.app"
+if xcodebuild \
   -project "$PROJECT" \
   -scheme "$SCHEME" \
   -configuration "$CONFIGURATION" \
@@ -215,9 +217,30 @@ xcodebuild \
   -allowProvisioningDeviceRegistration \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   CODE_SIGN_STYLE=Automatic \
-  build
+  build 2>&1 | tee "$BUILD_LOG"; then
+  :
+elif grep -qE "is not installed|Unable to find a destination" "$BUILD_LOG"; then
+  # Xcode 沒有下載 iOS 平台元件時,-destination 解析不到任何 iOS 裝置(2026-09-03 本機實況:
+  # 「iOS 26.5 is not installed」)。不需要為此下載 8 GB 模擬器 runtime:改走 -sdk iphoneos
+  # 的 target 建置,簽章與裝置註冊同樣由 -allowProvisioningUpdates 完成,再交給 devicectl 安裝。
+  step "4/5b xcodebuild(平台元件未安裝:改用 -sdk iphoneos 建置)"
+  SYM="$WORK_DIR/sym"; OBJ="$WORK_DIR/obj"
+  xcodebuild \
+    -project "$PROJECT" \
+    -target "$SCHEME" \
+    -configuration "$CONFIGURATION" \
+    -sdk iphoneos -arch arm64 \
+    -allowProvisioningUpdates \
+    -allowProvisioningDeviceRegistration \
+    DEVELOPMENT_TEAM="$TEAM_ID" \
+    CODE_SIGN_STYLE=Automatic \
+    SYMROOT="$SYM" OBJROOT="$OBJ" \
+    build
+  APP_PATH="$SYM/$CONFIGURATION-iphoneos/InteractionCompanion.app"
+else
+  fail "xcodebuild 失敗(簽章或編譯錯誤)。" "請看上面的輸出;若提到 profile/team,先到 Xcode 的 Signing & Capabilities 選一次 Team。"
+fi
 
-APP_PATH="$DERIVED/Build/Products/$CONFIGURATION-iphoneos/InteractionCompanion.app"
 [[ -d "$APP_PATH" ]] || fail "編譯完成卻找不到 ${APP_PATH}。" "請把上面的 xcodebuild 輸出貼出來。"
 say "已產出:$APP_PATH"
 

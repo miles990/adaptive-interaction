@@ -7,6 +7,9 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$ROOT/target/debug/interact-ai"
 HOME_DIR="$(mktemp -d /tmp/v03-e2e.XXXXXX)"
+# Agent 工作資料夾必須是獨立目錄：runtime 自 v0.5.0 起拒絕把自己的狀態資料夾
+# （含 human api-token）當 workdir（agent-honesty-022 回歸）。
+WORK_DIR="$(mktemp -d /tmp/v03-e2e-work.XXXXXX)"
 PORT=18811
 PASS=0; FAIL=0
 J() { python3 -c "import sys,json; d=json.load(sys.stdin); print(eval(sys.argv[1]))" "$1"; }
@@ -145,6 +148,9 @@ cleanup() {
   if [[ "$HOME_DIR" == /tmp/v03-e2e.* && -d "$HOME_DIR" ]]; then
     rm -rf -- "$HOME_DIR"
   fi
+  if [[ "$WORK_DIR" == /tmp/v03-e2e-work.* && -d "$WORK_DIR" ]]; then
+    rm -rf -- "$WORK_DIR"
+  fi
 }
 trap cleanup EXIT INT TERM
 for i in $(seq 1 40); do "$BIN" status --json >/dev/null 2>&1 && break; sleep 0.25; done
@@ -254,7 +260,7 @@ check "proactive generative agent is explicit" "$PAGENT" "claude-code"
 echo "== Agent Gateway (v0.4, fake agent subprocess) =="
 FOUND=$("$BIN" agents providers --refresh --json 2>/dev/null | J "next((str(a['loggedIn']) for a in d['agents'] if a['kind']=='claude-code'),'MISSING')")
 check "fake claude discovered + logged in" "$FOUND" "True"
-GSID=$("$BIN" agents create --agent claude-code --label e2e --ttl 5 --workdir "$HOME_DIR" --json 2>/dev/null | J "d['sessionId']")
+GSID=$("$BIN" agents create --agent claude-code --label e2e --ttl 5 --workdir "$WORK_DIR" --json 2>/dev/null | J "d['sessionId']")
 [ -n "$GSID" ] && ok "gateway session created $GSID" || bad "gateway session create"
 "$BIN" agents send "$GSID" --kind task --body '{"task":"do the thing"}' --json >/dev/null 2>&1
 for i in $(seq 1 40); do
