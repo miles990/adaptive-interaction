@@ -3,11 +3,15 @@
 //   事件 → Event Normalizer → Attention → Utility Scoring → Behavior Intent
 //   → Action Scheduler →（machine transient / 表情通道）
 //
-// 誠實說明 Utility Scoring 這一段目前落在哪裡（對抗審查 director-pipeline-046）：
-// 它**不在** Director 的決策裡。Director 自己的節流是 hazard 抽樣＋冷卻＋防重複
-// （tick／reactDetailed）；behavior.ts 的 scoreEvent 只被 machine.ts 用在「同優先
-// transient 的平手判定」。Director 上曾有一個 `score()` 純轉呼包裝，整個 repo
-// 沒有任何呼叫端，已移除——不留一個假裝管線接上了的入口。
+// 誠實說明 Utility Scoring 這一段目前落在哪裡（對抗審查 director-pipeline-046／
+// director-pipeline-020）：它**不在** Director 的決策裡，也**不在**任何其他執行期
+// 路徑上。Director 自己的節流是 hazard 抽樣＋冷卻＋防重複（tick／reactDetailed）；
+// machine.ts 的同優先平手判定曾經呼叫 behavior.ts 的 scoreEvent，但四個懲罰維度
+// （重複、已回應、不可中斷、勿擾）全被硬編成停用值，結果恆為 "replace"——那是
+// 恆等式，不是評分，已改成明寫的確定性替換。Director 上曾有一個 `score()` 純轉呼
+// 包裝，整個 repo 沒有任何呼叫端，也已移除——不留假裝管線接上了的入口。
+// scoreEvent 本身留在 behavior.ts（純函式＋單元測試），等真的有呼叫端餵進真實
+// 情境時再接。
 //
 // 本模組純確定性（seeded RNG 注入），不呼叫 AI。它擁有「生活層」的
 // 選擇權：ambient 變體、冷卻、防重複、中斷後恢復；真相狀態（成功/失敗/
@@ -305,8 +309,17 @@ export class InteractionDirector {
       }
     }
 
-    if (ctx.quiet && !ctx.reducedMotion) {
-      // 安靜時段：只剩偶爾眨眼（角色有眨眼表情才會）。
+    if (ctx.quiet) {
+      // 安靜時段：只剩偶爾眨眼（角色有眨眼表情才會），而且一定標成
+      // `source: "blink"`——呼叫端靠這個標記走「就地眨眼」，不換表情。
+      //
+      // 守衛以前是 `ctx.quiet && !ctx.reducedMotion`：安靜時段**且** Reduced Motion
+      // 時整段被跳過，控制流落到下面的一般 ambient 路徑，回傳
+      // `{expression: 眨眼, source: "ambient"}`——呼叫端認不出來，就把它當成一般
+      // 表演套上去，角色從安靜陪伴的坐姿彈回中性站姿（Reduced Motion 下還是零
+      // 插值的瞬間跳位），並且打掉靜態短路（對抗審查 companion-gameplay-031／
+      // director-pipeline-019）。安靜優先於 reducedMotion：兩者同時成立時仍然
+      // 只走這一條，Reduced Motion 由呈現層自己誠實降級（畫面上不會動）。
       const blink = this.tables.blink;
       if (blink && this.playable(blink.expression) && rng() < 0.03) {
         return { expression: blink.expression, durationMs: blink.durationMs, source: "blink" };
@@ -324,14 +337,18 @@ export class InteractionDirector {
       (1 - Math.min(0.6, ctx.behavior.recentInterruptions * 0.15));
     if (rng() > hazard) return null;
 
-    const pool = this.tables.ambient.filter((v) => {
+    const eligible = this.tables.ambient.filter((v) => {
       if (!this.playable(v.expression)) return false;
       if (ctx.reducedMotion && !v.reducedMotionOk) return false;
       if (relax < v.minRelax) return false;
       if ((this.cooldownUntil.get(v.expression) ?? 0) > ctx.nowMs) return false;
-      if (this.recent.slice(-3).includes(v.expression)) return false;
       return true;
     });
+    // 防重複：最近三次演過的先排除——但池子只剩一個候選時（例如 Reduced Motion
+    // 下只有眨眼通過過濾）這條會把池子永久清空，「偶爾眨一下」在第一次之後就
+    // 再也不會發生（對抗審查 director-pipeline-019）。沒有別的選擇時不套。
+    const fresh = eligible.filter((v) => !this.recent.slice(-3).includes(v.expression));
+    const pool = fresh.length > 0 ? fresh : eligible;
     if (pool.length === 0) return null;
     // 個性權重：慵懶更常趴著/打哈欠、好奇更常張望…（權重，不是硬規則）。
     const weightOf = (v: AmbientVariant) =>

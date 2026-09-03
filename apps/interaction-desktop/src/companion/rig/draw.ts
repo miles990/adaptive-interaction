@@ -76,11 +76,54 @@ function uprightLayout(pose: RigParams["pose"], pal: RigPalette): Layout {
   };
 }
 
-/** 兩個 layout 的線性混合（`lie` 旗標跟著目標姿勢，不混合）。 */
+/** 直立（stand/sit/crouch）身體的水平錨點。 */
+export const UPRIGHT_ANCHOR_X = 64;
+/** 趴姿身體的水平錨點。 */
+export const LIE_ANCHOR_X = 52;
+
+/** 這個姿勢的軀幹水平錨點（＝身體繪製函式實際用的中心 x）。 */
+export function bodyAnchorX(pose: RigParams["pose"]): number {
+  return pose === "lie" ? LIE_ANCHOR_X : UPRIGHT_ANCHOR_X;
+}
+
+/**
+ * 姿勢過場中**整個角色**的水平位移（px）。
+ *
+ * lie 的身體畫在 x=52 附近、直立的畫在 64；以前 `layoutFor` 直接把頭中心 `hx`
+ * 在兩者之間插值，但只有頭／貓耳／頭飾讀 `hx`，兩個身體繪製函式都是各自的
+ * 固定座標——於是 lie↔直立的每一次過場中，頭會相對軀幹橫向漂移最多 6.24px、
+ * 持續 230～280ms（對抗審查 rig-renderer-045）。現在 `hx` 一律等於目標姿勢的
+ * 錨點（頭與軀幹永遠對齊），錨點差改成整個角色的水平位移，由 drawRig 一次
+ * 帶過：她是「站起來時整個人挪過去」，不是「頭自己飄」。
+ */
+export function poseShiftX(p: RigParams): number {
+  const blend = clamp01(p.poseBlend);
+  if (p.poseFrom === p.pose || blend >= 0.999) return 0;
+  return (bodyAnchorX(p.poseFrom) - bodyAnchorX(p.pose)) * (1 - blend);
+}
+
+/**
+ * 這一幀的「坐姿程度」0..1：`pose` 字串在 poseBlend 通過 0.5 那一幀才翻面，
+ * 但裙擺半寬與腿型不能跟著硬切（stand↔sit 一次跳 4px／側、腿部輪廓整組替換，
+ * 對抗審查 rig-renderer-047）。這裡把它變成連續量。
+ */
+export function sitAmount(p: RigParams): number {
+  const to = p.pose === "sit" ? 1 : 0;
+  if (p.poseFrom === p.pose) return to;
+  const from = p.poseFrom === "sit" ? 1 : 0;
+  return from + (to - from) * clamp01(p.poseBlend);
+}
+
+/** 裙擺半寬（純坐姿 27／其餘 23；過場中連續）。 */
+export function skirtFlare(p: RigParams): number {
+  return 23 + 4 * sitAmount(p);
+}
+
+/** 兩個 layout 的線性混合（`lie` 旗標與水平錨點跟著目標姿勢，不混合）。 */
 function mixLayout(from: Layout, to: Layout, k: number): Layout {
   const m = (a: number, b: number) => a + (b - a) * k;
   return {
-    hx: m(from.hx, to.hx),
+    hx: to.hx,
     hy: m(from.hy, to.hy),
     hrx: m(from.hrx, to.hrx),
     hry: m(from.hry, to.hry),
@@ -97,9 +140,11 @@ function poseLayout(pose: RigParams["pose"], pal: RigPalette): Layout {
 }
 
 /**
- * 姿勢 → 版面。`poseBlend < 1` 時（任何姿勢切換的過場中）頭中心與身體高度
+ * 姿勢 → 版面。`poseBlend < 1` 時（任何姿勢切換的過場中）頭中心高度與身體高度
  * 在 `poseFrom` 與 `pose` 兩個版面之間線性插值，避免字串通道中點硬切造成的
- * 單幀瞬移。匯出供測試量測「連續兩幀頭部位移」。
+ * 單幀瞬移。水平錨點 `hx` **不**插值——它永遠是目標姿勢的軀幹錨點，過場的水平
+ * 差由 `poseShiftX()` 移動整個角色（rig-renderer-045）。匯出供測試量測
+ * 「連續兩幀頭部位移」。
  *
  * 舊版把「另一端」硬寫成 lie／stand，所以 crouch↔lie（startled-awake 的
  * enter）之類的過場混到錯的版面、切換點還會多跳幾 px；現在來源姿勢由
@@ -111,6 +156,76 @@ export function layoutFor(p: RigParams, pal: RigPalette): Layout {
   const cur = poseLayout(p.pose, pal);
   if (blend >= 0.999 || p.poseFrom === p.pose) return cur;
   return mixLayout(poseLayout(p.poseFrom, pal), cur, blend);
+}
+
+// ---------------------------------------------------------------------------
+// 幾何形變（stand↔sit 的腿部）：兩個形狀都表示成「四段三次貝茲的封閉輪廓」，
+// 端點與原本的畫法完全相同（直線邊的控制點落在邊上；橢圓用標準 kappa 弧），
+// 中間依 poseBlend 逐點混合——不是字串硬切，也不是疊兩層半透明鬼影。
+// ---------------------------------------------------------------------------
+
+interface Pt {
+  x: number;
+  y: number;
+}
+
+/** 一段三次貝茲（起點是上一段的終點）。 */
+interface Seg {
+  c1: Pt;
+  c2: Pt;
+  to: Pt;
+}
+
+/** 四段封閉輪廓。 */
+interface Loop4 {
+  start: Pt;
+  segs: [Seg, Seg, Seg, Seg];
+}
+
+const KAPPA = 0.5522847498307936;
+
+const pt = (x: number, y: number): Pt => ({ x, y });
+const mixPt = (a: Pt, b: Pt, k: number): Pt => pt(a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k);
+
+/** 直線邊的四邊形（順時針：右上→右下→左下→左上）。 */
+function quadLoop(tr: Pt, br: Pt, bl: Pt, tl: Pt): Loop4 {
+  const edge = (from: Pt, to: Pt): Seg => ({
+    c1: mixPt(from, to, 1 / 3),
+    c2: mixPt(from, to, 2 / 3),
+    to,
+  });
+  return { start: tr, segs: [edge(tr, br), edge(br, bl), edge(bl, tl), edge(tl, tr)] };
+}
+
+/** 橢圓（順時針：右→下→左→上），與 ctx.ellipse 同形。 */
+function ellipseLoop(cx: number, cy: number, rx: number, ry: number): Loop4 {
+  const ox = rx * KAPPA;
+  const oy = ry * KAPPA;
+  return {
+    start: pt(cx + rx, cy),
+    segs: [
+      { c1: pt(cx + rx, cy + oy), c2: pt(cx + ox, cy + ry), to: pt(cx, cy + ry) },
+      { c1: pt(cx - ox, cy + ry), c2: pt(cx - rx, cy + oy), to: pt(cx - rx, cy) },
+      { c1: pt(cx - rx, cy - oy), c2: pt(cx - ox, cy - ry), to: pt(cx, cy - ry) },
+      { c1: pt(cx + ox, cy - ry), c2: pt(cx + rx, cy - oy), to: pt(cx + rx, cy) },
+    ],
+  };
+}
+
+function mixLoop(a: Loop4, b: Loop4, k: number): Loop4 {
+  const seg = (i: number): Seg => ({
+    c1: mixPt(a.segs[i].c1, b.segs[i].c1, k),
+    c2: mixPt(a.segs[i].c2, b.segs[i].c2, k),
+    to: mixPt(a.segs[i].to, b.segs[i].to, k),
+  });
+  return { start: mixPt(a.start, b.start, k), segs: [seg(0), seg(1), seg(2), seg(3)] };
+}
+
+function loopPath(ctx: Ctx, loop: Loop4) {
+  ctx.beginPath();
+  ctx.moveTo(loop.start.x, loop.start.y);
+  for (const sg of loop.segs) ctx.bezierCurveTo(sg.c1.x, sg.c1.y, sg.c2.x, sg.c2.y, sg.to.x, sg.to.y);
+  ctx.closePath();
 }
 
 /** 圓角路徑工具。 */
@@ -144,6 +259,9 @@ export function drawRig(ctx: Ctx, p: RigParams, pal: RigPalette): void {
   const boot = mixColor(pal.boot, "#4c4858", dim * 0.5);
 
   ctx.save();
+  // 姿勢過場的水平帶過（lie↔直立的錨點差；頭與軀幹一起走）。
+  const shiftX = poseShiftX(p);
+  if (shiftX !== 0) ctx.translate(shiftX, 0);
   // squash & stretch + 全身傾斜（腳底為軸）。
   const sy = 1 - p.squash * 0.16;
   const sx = 1 + p.squash * 0.12;
@@ -210,60 +328,61 @@ function drawUprightBody(
   L: Layout,
   c: Cols
 ) {
-  const sit = p.pose === "sit";
   const crouch = p.pose === "crouch";
   const legLift = p.legPhase; // -1..1
+  // 坐姿程度（0..1）：字串 `pose` 只在 poseBlend 通過 0.5 那一幀翻面，裙擺與腿型
+  // 要跟著 poseBlend 連續走（rig-renderer-047）。
+  const sitK = sitAmount(p);
+  const mix = (a: number, b: number) => a + (b - a) * sitK;
+  // 直立身體一律以 L.hx 為中心（layoutFor 保證它等於 bodyAnchorX(pose)）。
+  const bx = L.hx;
 
   // ---- 腿與靴（短短的，圓頭軟底） ----
   const legY = L.hemY - 2;
   const footY = L.groundY - 3.2;
-  if (sit) {
-    // 坐姿：雙腿前伸，小腿+靴在裙前緣下方。
-    for (const side of [-1, 1] as const) {
-      const lx = 64 + side * 8.5;
-      const sway = side * legLift * 2.4;
-      ellipse(ctx, lx, legY + 6 - Math.abs(sway) * 0.4, 4.6, 7, 0);
-      fillStroke(ctx, c.skin, pal.skinEdge, 0.8);
-      ellipse(ctx, lx + side * 1.2, footY - sway, 6.2, 4.4, 0);
-      fillStroke(ctx, c.boot, c.dressEdge, 0.9);
-      // 軟底
-      ellipse(ctx, lx + side * 1.2, footY - sway + 3, 5.4, 1.6, 0);
-      fillStroke(ctx, c.cream);
-    }
-  } else {
-    for (const side of [-1, 1] as const) {
-      const step = crouch ? 0 : side * legLift * 3;
-      const lx = 64 + side * 7;
-      // 小腿
-      ctx.beginPath();
-      ctx.moveTo(lx - 3.4, legY);
-      ctx.lineTo(lx - 3.2, footY - 2 - step);
-      ctx.lineTo(lx + 3.2, footY - 2 - step);
-      ctx.lineTo(lx + 3.4, legY);
-      ctx.closePath();
-      fillStroke(ctx, c.skin, pal.skinEdge, 0.8);
-      // 圓頭短靴
-      ellipse(ctx, lx + side * 0.8, footY - step, 6, 4.2, 0);
-      fillStroke(ctx, c.boot, c.dressEdge, 0.9);
-      ellipse(ctx, lx + side * 0.8, footY - step + 2.9, 5.2, 1.5, 0);
-      fillStroke(ctx, c.cream);
-    }
+  for (const side of [-1, 1] as const) {
+    // 站姿：小腿梯形＋踏步相位；坐姿：雙腿前伸的橢圓。兩者的座標都照舊，
+    // 只是中間依 sitK 逐點混合。
+    const step = crouch ? 0 : side * legLift * 3;
+    const sway = side * legLift * 2.4;
+    const lxStand = bx + side * 7;
+    const lxSit = bx + side * 8.5;
+    const standCalf = quadLoop(
+      pt(lxStand + 3.4, legY),
+      pt(lxStand + 3.2, footY - 2 - step),
+      pt(lxStand - 3.2, footY - 2 - step),
+      pt(lxStand - 3.4, legY)
+    );
+    const sitCalf = ellipseLoop(lxSit, legY + 6 - Math.abs(sway) * 0.4, 4.6, 7);
+    loopPath(
+      ctx,
+      sitK <= 0 ? standCalf : sitK >= 1 ? sitCalf : mixLoop(standCalf, sitCalf, sitK)
+    );
+    fillStroke(ctx, c.skin, pal.skinEdge, 0.8);
+    // 圓頭短靴（兩個姿勢都是橢圓：直接混參數）。
+    const bootX = mix(lxStand + side * 0.8, lxSit + side * 1.2);
+    const bootY = mix(footY - step, footY - sway);
+    ellipse(ctx, bootX, bootY, mix(6, 6.2), mix(4.2, 4.4), 0);
+    fillStroke(ctx, c.boot, c.dressEdge, 0.9);
+    // 軟底
+    ellipse(ctx, bootX, mix(footY - step + 2.9, footY - sway + 3), mix(5.2, 5.4), mix(1.5, 1.6), 0);
+    fillStroke(ctx, c.cream);
   }
 
   // ---- 蓬蓬裙（多層）＋燈籠褲影 ----
   const hemY = L.hemY;
   const waistY = L.waistY;
-  const flare = sit ? 27 : 23; // 裙擺半寬
+  const flare = skirtFlare(p); // 裙擺半寬（過場中連續，不是 27/23 硬切）
   // 燈籠褲（不透明安全短褲）：裙下小小奶白蓬。
   for (const side of [-1, 1] as const) {
-    ellipse(ctx, 64 + side * 9, hemY - 1, 8, 5.5, 0);
+    ellipse(ctx, bx + side * 9, hemY - 1, 8, 5.5, 0);
     fillStroke(ctx, mixColor(c.cream, "#b9ad97", 0.25), c.creamEdge, 0.8);
   }
   // 裙後層（奶白襯裙）。
-  skirtPath(ctx, waistY + 3, hemY + 2.5, flare + 2.5, 4);
+  skirtPath(ctx, bx, waistY + 3, hemY + 2.5, flare + 2.5, 4);
   fillStroke(ctx, c.cream, c.creamEdge, 0.9);
   // 裙主層（深灰紫）。
-  skirtPath(ctx, waistY, hemY, flare, 4);
+  skirtPath(ctx, bx, waistY, hemY, flare, 4);
   fillStroke(ctx, c.dress, c.dressEdge, 1.1);
   // 裙擺細光（waiting/unknown/blocked 輔助狀態）。
   if (p.skirtGlow > 0.03 && p.skirtTone !== "none") {
@@ -273,30 +392,30 @@ function drawUprightBody(
     ctx.globalAlpha = 0.35 + clamp01(p.skirtGlow) * 0.5;
     ctx.strokeStyle = tone;
     ctx.lineWidth = 1.6;
-    skirtHemPath(ctx, waistY, hemY, flare, 4);
+    skirtHemPath(ctx, bx, hemY, flare, 4);
     ctx.stroke();
     ctx.restore();
   }
 
   // ---- 軀幹（洋裝上身，小小的） ----
   ctx.beginPath();
-  ctx.moveTo(64 - 11.5, L.shoulderY);
-  ctx.bezierCurveTo(64 - 12.5, waistY - 6, 64 - 10, waistY, 64, waistY);
-  ctx.bezierCurveTo(64 + 10, waistY, 64 + 12.5, waistY - 6, 64 + 11.5, L.shoulderY);
+  ctx.moveTo(bx - 11.5, L.shoulderY);
+  ctx.bezierCurveTo(bx - 12.5, waistY - 6, bx - 10, waistY, bx, waistY);
+  ctx.bezierCurveTo(bx + 10, waistY, bx + 12.5, waistY - 6, bx + 11.5, L.shoulderY);
   ctx.closePath();
   fillStroke(ctx, c.dress, c.dressEdge, 1);
 
   // ---- 圍裙（工具圍裙＋口袋）：窄於裙，讓深灰紫洋裝在兩側可見 ----
   ctx.beginPath();
-  ctx.moveTo(64 - 6.2, L.shoulderY + 7);
-  ctx.bezierCurveTo(64 - 8.5, waistY + 2, 64 - flare * 0.5, hemY - 10, 64 - flare * 0.42, hemY - 5.5);
-  ctx.quadraticCurveTo(64, hemY - 1.5, 64 + flare * 0.42, hemY - 5.5);
-  ctx.bezierCurveTo(64 + flare * 0.5, hemY - 10, 64 + 8.5, waistY + 2, 64 + 6.2, L.shoulderY + 7);
+  ctx.moveTo(bx - 6.2, L.shoulderY + 7);
+  ctx.bezierCurveTo(bx - 8.5, waistY + 2, bx - flare * 0.5, hemY - 10, bx - flare * 0.42, hemY - 5.5);
+  ctx.quadraticCurveTo(bx, hemY - 1.5, bx + flare * 0.42, hemY - 5.5);
+  ctx.bezierCurveTo(bx + flare * 0.5, hemY - 10, bx + 8.5, waistY + 2, bx + 6.2, L.shoulderY + 7);
   ctx.closePath();
   fillStroke(ctx, c.cream, c.creamEdge, 0.9);
   // 兩側口袋。
   for (const side of [-1, 1] as const) {
-    const px = 64 + side * 8.5;
+    const px = bx + side * 8.5;
     const py = waistY + 7;
     ctx.beginPath();
     ctx.moveTo(px - 4.4, py);
@@ -310,32 +429,32 @@ function drawUprightBody(
   drawArms(ctx, p, pal, L, c);
 
   // ---- 領口＋蝴蝶結＋核心 ----
-  ellipse(ctx, 64, L.shoulderY + 0.5, 6.4, 3.1, 0);
+  ellipse(ctx, bx, L.shoulderY + 0.5, 6.4, 3.1, 0);
   fillStroke(ctx, c.cream, c.creamEdge, 0.8);
-  drawBowCore(ctx, p, pal, 64, L.shoulderY + 6.2, c);
+  drawBowCore(ctx, p, pal, bx, L.shoulderY + 6.2, c);
 }
 
 /** 蓬裙輪廓（扇形＋波浪襬）。 */
-function skirtPath(ctx: Ctx, topY: number, hemY: number, flare: number, scallops: number) {
+function skirtPath(ctx: Ctx, cx: number, topY: number, hemY: number, flare: number, scallops: number) {
   ctx.beginPath();
-  ctx.moveTo(64 - 10, topY);
-  ctx.bezierCurveTo(64 - flare * 0.95, topY + 6, 64 - flare, hemY - 7, 64 - flare, hemY - 2);
-  scallopAcross(ctx, -flare, flare, hemY, scallops);
-  ctx.bezierCurveTo(64 + flare, hemY - 7, 64 + flare * 0.95, topY + 6, 64 + 10, topY);
+  ctx.moveTo(cx - 10, topY);
+  ctx.bezierCurveTo(cx - flare * 0.95, topY + 6, cx - flare, hemY - 7, cx - flare, hemY - 2);
+  scallopAcross(ctx, cx, -flare, flare, hemY, scallops);
+  ctx.bezierCurveTo(cx + flare, hemY - 7, cx + flare * 0.95, topY + 6, cx + 10, topY);
   ctx.closePath();
 }
 
 /** 只有裙襬弧線（細光用）。 */
-function skirtHemPath(ctx: Ctx, _topY: number, hemY: number, flare: number, scallops: number) {
+function skirtHemPath(ctx: Ctx, cx: number, hemY: number, flare: number, scallops: number) {
   ctx.beginPath();
-  ctx.moveTo(64 - flare, hemY - 2);
-  scallopAcross(ctx, -flare, flare, hemY, scallops);
+  ctx.moveTo(cx - flare, hemY - 2);
+  scallopAcross(ctx, cx, -flare, flare, hemY, scallops);
 }
 
-function scallopAcross(ctx: Ctx, fromX: number, toX: number, hemY: number, n: number) {
+function scallopAcross(ctx: Ctx, cx: number, fromX: number, toX: number, hemY: number, n: number) {
   const w = (toX - fromX) / n;
   for (let i = 0; i < n; i++) {
-    const x0 = 64 + fromX + w * i;
+    const x0 = cx + fromX + w * i;
     ctx.quadraticCurveTo(x0 + w / 2, hemY + 3.4, x0 + w, hemY - 2);
   }
 }
@@ -639,7 +758,8 @@ function drawBowCore(
 // ---------------------------------------------------------------------------
 
 function drawLieBody(ctx: Ctx, p: RigParams, pal: RigPalette, L: Layout, c: Cols) {
-  // 身體橫向：裙成蓬鬆丘、靴子在後。
+  // 身體橫向：裙成蓬鬆丘、靴子在後。座標以趴姿錨點（LIE_ANCHOR_X＝L.hx）為準；
+  // 過場中的水平差由 drawRig 的 poseShiftX 帶過，頭與軀幹不會脫節。
   // 靴子（後方露出小小圓頭）。
   for (const [bx, by] of [
     [98, L.hemY - 2],

@@ -195,7 +195,9 @@ async function run() {
       ...stats(grabLat),
       confirmedFrames: grabConfirmed,
       attempts: grabLat.length,
-      target: "16-100ms (spec §14)",
+      // 規格 §14 的 16–100 ms 是端到端目標；這裡只量 WebView 段，且下界就是量測環境的
+      // 幀距（headless 120 Hz ≈ 8.3 ms；60 Hz 螢幕上同碼約 16.7 ms），不得當達標證據。
+      target: "spec §14 16-100 ms is end-to-end; this is the WebView segment only (lower bound = one frame gap of the measuring environment)",
       measures: "pointerDown 於玩具 → 下一幀 world 中該玩具 grabbed=player",
     };
 
@@ -227,7 +229,9 @@ async function run() {
       ...stats(gazeLat),
       confirmedFrames: gazeConfirmed,
       attempts: gazeLat.length,
-      target: "16-100ms (spec §14)",
+      // 規格 §14 的 16–100 ms 是端到端目標；這裡只量 WebView 段，且下界就是量測環境的
+      // 幀距（headless 120 Hz ≈ 8.3 ms；60 Hz 螢幕上同碼約 16.7 ms），不得當達標證據。
+      target: "spec §14 16-100 ms is end-to-end; this is the WebView segment only (lower bound = one frame gap of the measuring environment)",
       measures: "pointerMove 進入角色 hit-rect → 下一幀 pupilX/headTurn/earLTilt 改變",
     };
 

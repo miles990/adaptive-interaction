@@ -183,7 +183,14 @@ export interface EventScoreContext {
   novelty: number;
 }
 
-/** Utility 評分：<=0 代表不值得回應。安全類不受勿擾與重複懲罰壓到 0 以下。 */
+/**
+ * Utility 評分：<=0 代表不值得回應。安全類不受勿擾與重複懲罰壓到 0 以下。
+ *
+ * 誠實標註（對抗審查 director-pipeline-020）：這個函式目前**沒有**接進任何執行期
+ * 決策。machine.ts 的同優先平手判定曾經呼叫它，但四個懲罰維度都被硬編成停用值，
+ * 結果恆為 "replace"——那是一條假裝接上的管線，已經移除。要真的用起來，呼叫端
+ * 必須餵進真實的 recentSameClass／alreadyResponded／interruptible／doNotDisturb。
+ */
 export function scoreEvent(cls: EventClass, ctx: EventScoreContext): number {
   let score = CLASS_BASE[cls];
   score += ctx.relevance * 10 + ctx.novelty * 8;

@@ -6,7 +6,8 @@
 // - 玩具資料模型：位置/速度/重力/碰撞/抓取狀態/擁有者/興趣值/冷卻/生命週期。
 // - 角色決策（追逐/撲抓/帶回/拒絕歸還）為 hazard 抽樣＋冷卻，非固定週期。
 // - frozen（緊急/離線/暫停）：一切凍結；reduced motion：無自主移動與
-//   物理彈跳（玩具仍可拖放，直接落地）。
+//   物理彈跳（玩具仍可拖放，直接落地）——**包含**光點／逗貓棒：它們在
+//   Reduced Motion 下不追游標，一樣落地不動。
 
 export type ToyKind = "yarn" | "paper" | "plane" | "light" | "wand" | "trinket";
 
@@ -29,8 +30,6 @@ export interface Toy {
   cooldownUntil: number;
   /** 生命週期（過期自動收走）。 */
   expiresAt: number;
-  /** 靜止累計 ms（光點/逗貓棒不適用）。 */
-  restMs: number;
 }
 
 export type CharPlayMode =
@@ -56,6 +55,8 @@ export interface CharPlay {
   carryToy: number | null;
   /** 撲抓落點（pounce 開始時鎖定）。 */
   pounceX: number;
+  /** 叼起來那一拍（carry）結束後要進入的模式（null＝現在不是 carry）。 */
+  afterCarry: "return" | "refuse" | null;
   /** 她主動要去打招呼的使魔 id（greet-familiar 模式；null＝沒有）。 */
   targetFamiliar: string | null;
   /** 正在回看的使魔 id（有使魔向她打招呼時；null＝沒有）。 */
@@ -140,6 +141,8 @@ const CHAR_HALF = 20; // 角色碰撞半寬（邏輯 px）
 const CHAR_SPEED = 46; // px/s 散步
 const CHASE_SPEED = 120; // px/s 追逐
 const TOY_TTL_MS = 150_000;
+/** 叼起來之後站定的一拍（carry → return／refuse）。 */
+const CARRY_BEAT_MS = 600;
 const MAX_TOYS = 4;
 /** 小物件比毛球重：彈得少、停得快。 */
 const TRINKET_BOUNCE = 0.18;
@@ -163,6 +166,7 @@ export function createWorld(w: number, h: number): World {
       targetToy: null,
       carryToy: null,
       pounceX: 0,
+      afterCarry: null,
       targetFamiliar: null,
       attendTo: null,
       attendUntil: 0,
@@ -192,7 +196,6 @@ export function spawnToy(world: World, kind: ToyKind, nowMs: number): World {
     interest: 0.9,
     cooldownUntil: 0,
     expiresAt: nowMs + TOY_TTL_MS,
-    restMs: 0,
   };
   return { ...world, toys: [...world.toys, toy], nextToyId: world.nextToyId + 1 };
 }
@@ -248,7 +251,6 @@ export function releaseToy(world: World, toyId: number, vx: number, vy: number, 
     interest: 1,
     cooldownUntil: 0,
     expiresAt: nowMs + TOY_TTL_MS,
-    restMs: 0,
   });
 }
 
@@ -295,6 +297,19 @@ export function stepWorld(
       toys.push(toy);
       continue;
     }
+    if (inputs.reducedMotion) {
+      // Reduced Motion：不彈跳、也不追游標——直接安放地面。
+      //
+      // 這一段必須排在游標玩具（光點／逗貓棒）分支**之前**：以前它排在後面又
+      // `continue`，光點與逗貓棒就永遠拿不到這個短路，Reduced Motion 開著也照樣
+      // 以 dt*14 的指數插值每幀跟著游標跑，還每幀打掉靜態短路（對抗審查
+      // companion-gameplay-034）。玩具仍可拖放，放開就落地。
+      toy.y = w.ground - 6;
+      toy.vx = 0;
+      toy.vy = 0;
+      toys.push(toy);
+      continue;
+    }
     if (toy.kind === "light" || toy.kind === "wand") {
       // 游標玩具：跟隨 pointer（不在場內就熄滅/垂下）。
       if (inputs.pointer && inputs.cursorPlayEnabled) {
@@ -308,14 +323,6 @@ export function stepWorld(
           toy.y += (w.ground - 24 - toy.y) * Math.min(1, dt * 6);
         }
       }
-      toys.push(toy);
-      continue;
-    }
-    if (inputs.reducedMotion) {
-      // Reduced Motion：不彈跳——直接安放地面。
-      toy.y = w.ground - 6;
-      toy.vx = 0;
-      toy.vy = 0;
       toys.push(toy);
       continue;
     }
@@ -346,7 +353,6 @@ export function stepWorld(
       toy.vx *= GROUND_FRICTION;
     }
     const moving = Math.abs(toy.vx) > 4 || Math.abs(toy.vy) > 4;
-    toy.restMs = moving ? 0 : toy.restMs + inputs.dtMs;
     toy.interest = clampN(toy.interest - dt * (moving ? 0.01 : 0.06), 0, 1);
     toys.push(toy);
   }
@@ -592,13 +598,16 @@ function stepChar(
           c.targetToy = null;
           events.push({ type: "toy-grabbed", id: toy!.id });
           events.push({ type: "expression", id: "hold-ball", durationMs: 1_200 });
-          // 帶回或想獨占。
-          if (rng() < 0.3) {
-            c.mode = "refuse";
-            c.modeUntil = now + 5_000;
+          // 叼起來的那一拍：先站定（carry），再帶回或想獨占。以前 `carry` 只是
+          // 一個型別上存在、rollCall／playExpressionFor 都寫了分支、但 stepChar
+          // 永遠不會指派的死狀態（對抗審查 companion-gameplay-035）。
+          const keepIt = rng() < 0.3;
+          c.mode = "carry";
+          c.modeUntil = now + CARRY_BEAT_MS;
+          c.afterCarry = keepIt ? "refuse" : "return";
+          if (keepIt) {
             events.push({ type: "expression", id: "keep-ball", durationMs: 4_000 });
           } else {
-            c.mode = "return";
             c.pounceX = inputs.pointer ? clampN(inputs.pointer.x, 24, w.w - 24) : w.w / 2;
           }
         }
@@ -609,6 +618,15 @@ function stepChar(
         c.targetToy = null;
         if (toy) w = updateToy(w, toy.id, { cooldownUntil: now + 6_000 });
       }
+      break;
+    }
+    case "carry": {
+      // 叼著站定的一拍（不移動）；時間到才進入帶回／不還。
+      c.vx = 0;
+      if (now < c.modeUntil) break;
+      c.mode = c.afterCarry ?? "return";
+      c.modeUntil = c.mode === "refuse" ? now + 5_000 : 0;
+      c.afterCarry = null;
       break;
     }
     case "return": {
@@ -815,10 +833,13 @@ export function rollCall(
   charName: string,
   machineLabel: string | null,
   nowMs = 0,
-  opts: { frozen?: boolean; reducedMotion?: boolean } = {}
+  opts: { frozen?: boolean; reducedMotion?: boolean; paused?: boolean } = {}
 ): { name: string; activity: string }[] {
-  // 凍結與 Reduced Motion 都是「世界沒有在動」：不能拿殘影報「在散步」。
-  const still = opts.frozen === true || opts.reducedMotion === true;
+  // 凍結、Reduced Motion 與暫停都是「世界沒有在動」：不能拿殘影報「在散步」。
+  // `paused`（視窗隱藏／CPP suspend）以前不在這裡：rAF 被取消、stepWorld 停住，
+  // char.mode／familiar.state 就凍在暫停那一刻，Roll Call 照樣說「在追玩具」
+  // （對抗審查 companion-gameplay-033）。
+  const still = opts.frozen === true || opts.reducedMotion === true || opts.paused === true;
   const charActivity =
     machineLabel ??
     (() => {

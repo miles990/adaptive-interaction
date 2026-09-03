@@ -129,22 +129,43 @@ export const FRAME_GAP_MIN_MS = 4;
 export const FRAME_GAP_MAX_MS = 40;
 /** 單一樣本上限：一次 GC／系統暫停不該把整窗平均拉爆。 */
 export const FRAME_GAP_CAP_MS = 200;
+/** 基準線取樣視窗數：保留最近幾個「窗內最短間隔」，取中位數當基準。 */
+export const FRAME_BASELINE_WINDOWS = 5;
 
 export interface FramePacingState {
   /** 目前窗內已累積的樣本數。 */
   count: number;
   /** 目前窗內的間隔總和（ms）。 */
   sumMs: number;
-  /** 這台螢幕的基準幀距（觀察到的最快間隔；0＝還沒有可信樣本）。 */
+  /** 這台螢幕的基準幀距（最近數個窗內最短間隔的中位數；0＝還沒有可信樣本）。 */
   baselineMs: number;
   /** 上一個完整窗的平均幀距（ms）。 */
   avgGapMs: number;
   /** true＝節奏跟不上螢幕（掉幀），該降到 30fps。 */
   missing: boolean;
+  /** 目前窗內的最短間隔（ms；0＝這個窗還沒有可信樣本）。 */
+  windowMinMs: number;
+  /** 最近幾個窗的最短間隔（有界，最新在最後）。 */
+  recentMinMs: readonly number[];
 }
 
 export function initialFramePacing(): FramePacingState {
-  return { count: 0, sumMs: 0, baselineMs: 0, avgGapMs: 0, missing: false };
+  return {
+    count: 0,
+    sumMs: 0,
+    baselineMs: 0,
+    avgGapMs: 0,
+    missing: false,
+    windowMinMs: 0,
+    recentMinMs: [],
+  };
+}
+
+/** 最近數個窗最短間隔的中位數（偶數取較小的中間值：真的變慢時仍會降級）。 */
+function baselineFrom(mins: readonly number[]): number {
+  if (mins.length === 0) return 0;
+  const sorted = [...mins].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)];
 }
 
 /**
@@ -153,17 +174,29 @@ export function initialFramePacing(): FramePacingState {
  */
 export function framePacingPolicy(state: FramePacingState, gapMs: number): FramePacingState {
   const raw = Number.isFinite(gapMs) ? Math.max(0, Math.min(FRAME_GAP_CAP_MS, gapMs)) : 0;
-  const baselineMs =
-    raw >= FRAME_GAP_MIN_MS && raw <= FRAME_GAP_MAX_MS
-      ? state.baselineMs === 0
-        ? raw
-        : Math.min(state.baselineMs, raw)
-      : state.baselineMs;
+  const usable = raw >= FRAME_GAP_MIN_MS && raw <= FRAME_GAP_MAX_MS;
+  const windowMinMs = usable
+    ? state.windowMinMs === 0
+      ? raw
+      : Math.min(state.windowMinMs, raw)
+    : state.windowMinMs;
   const count = state.count + 1;
   const sumMs = state.sumMs + raw;
   if (count < FRAME_WINDOW) {
-    return { ...state, count, sumMs, baselineMs };
+    return { ...state, count, sumMs, windowMinMs };
   }
+  // 基準線＝最近數個「窗內最短間隔」的中位數，不是**歷史最小值**。
+  //
+  // 舊寫法 `Math.min(state.baselineMs, raw)` 是一條單向棘輪：rAF 回呼被長任務
+  // 延遲之後，下一次量到的間隔可能只有 9ms，60Hz 機器的基準線就永遠釘死在那裡，
+  // 之後正常的 16.7ms 一律被判成掉幀，角色與物理永久降到 30fps，唯一的重置點是
+  // 把視窗隱藏再顯示（對抗審查 perf-claims-012）。改成有界視窗的中位數之後，
+  // 單一抖動樣本最多影響幾個窗就會被擠掉，基準線也能隨真實更新率上飄。
+  const recentMinMs =
+    windowMinMs > 0
+      ? [...state.recentMinMs.slice(-(FRAME_BASELINE_WINDOWS - 1)), windowMinMs]
+      : state.recentMinMs;
+  const baselineMs = baselineFrom(recentMinMs);
   const avgGapMs = sumMs / count;
   const missing =
     baselineMs === 0
@@ -171,7 +204,7 @@ export function framePacingPolicy(state: FramePacingState, gapMs: number): Frame
       : state.missing
         ? avgGapMs > baselineMs * FRAME_PACING_RECOVER_RATIO
         : avgGapMs > baselineMs * FRAME_PACING_DEGRADE_RATIO;
-  return { count: 0, sumMs: 0, baselineMs, avgGapMs, missing };
+  return { count: 0, sumMs: 0, baselineMs, avgGapMs, missing, windowMinMs: 0, recentMinMs };
 }
 
 /**

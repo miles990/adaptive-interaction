@@ -8,8 +8,14 @@
 
 import { RendererBackend, MicroMotionOverlay } from "../renderer";
 import { drawRig } from "./draw";
-import { clampParams, mixColor, RIG_PALETTES, RigPalette, RigParams } from "./params";
-import { AttentionStagger, ExpressionTimeline, resolveRigAnimation } from "./timeline";
+import { clampParams, DEFAULT_PARAMS, mixColor, RIG_PALETTES, RigPalette, RigParams } from "./params";
+import {
+  AttentionStagger,
+  ExpressionTimeline,
+  evalPhase,
+  resolveRigAnimation,
+  resolveSegments,
+} from "./timeline";
 import { EXPRESSION_ALIASES } from "./expressions";
 import {
   CharPlayMode,
@@ -26,6 +32,7 @@ import {
   Toy,
   ToyKind,
   World,
+  WorldEvent,
 } from "../playfield";
 import {
   FrameBudgetState,
@@ -36,7 +43,12 @@ import {
   initialFramePacing,
   shouldDrawFrame,
 } from "../gameFeel";
-import { HitRegion, hitRegionsReportPolicy, stageHitRegions } from "../hitRegions";
+import {
+  HIT_REGION_MIN_INTERVAL_MS,
+  HitRegion,
+  hitRegionsReportPolicy,
+  stageHitRegions,
+} from "../hitRegions";
 import { DEFAULT_TUNING, PersonalityTuning } from "../personality";
 
 /** playfield 會請求的表演表情（機器 performing 中仍算遊玩狀態）。 */
@@ -45,7 +57,57 @@ export const PLAYFIELD_EXPRESSIONS = new Set([
   "keep-ball",
   "pounce-miss",
   "curious",
+  // 叼回來放下／拒絕歸還後放下（companion-gameplay-035 把這兩個世界事件接上）。
+  "await-player",
+  "slip-play-cool",
 ]);
+
+/**
+ * 遊玩世界事件 → 要演的表情（null＝這個事件不需要演出，只是診斷用）。
+ *
+ * 以前只有 `expression` 事件會走到 `exprCb`，`toy-returned`／`toy-refused`／
+ * `toy-pushed` 一律被丟棄——「叼回來放下」「拒絕歸還後放下」「尾巴推一下小物件」
+ * 在畫面上完全沒有反應（對抗審查 companion-gameplay-035）。剩下的事件
+ * （toy-grabbed／toy-expired／greeted-*／familiar-*）本來就有各自的演出或狀態
+ * 變化，這裡誠實回 null，不假裝有通道。
+ */
+export function worldEventExpression(e: WorldEvent): { id: string; durationMs: number } | null {
+  switch (e.type) {
+    case "expression":
+      return { id: e.id, durationMs: e.durationMs };
+    case "toy-returned":
+      // 放到你面前，坐著等你來玩。
+      return { id: "await-player", durationMs: 2_400 };
+    case "toy-refused":
+      // 終於放下了，裝作沒事。
+      return { id: "slip-play-cool", durationMs: 1_800 };
+    case "toy-pushed":
+      // 尾巴推了一下，盯著看它滾。
+      return { id: "curious", durationMs: 1_200 };
+    default:
+      return null;
+  }
+}
+
+/** 睡眠類休息姿勢：在這些姿勢上被戳會「驚醒」。 */
+export const SLEEPY_REST_EXPRESSIONS = new Set(["sleep", "doze", "lie-flat"]);
+/** 會把她吵醒的直接互動（表情 id，已解析別名）。 */
+const STARTLE_TRIGGERS = new Set(["poked", "poked-rapid"]);
+
+/**
+ * 睡著時被戳 → 驚醒（spec §7.1「驚醒」）。回 null＝不改寫。
+ *
+ * `startled-awake` 有完整關鍵幀、列在 OFFICIAL_36、manifest 也宣告了，卻沒有任何
+ * 程式路徑會播它（對抗審查 rig-renderer-046）。這裡是它的觸發面：只改寫直接互動
+ * 的表演藝術，安全與結果狀態永遠不經過這裡。
+ */
+export function startleExpressionFor(resting: string | null, machineAnim: string): string | null {
+  if (!resting) return null;
+  const rest = EXPRESSION_ALIASES[resting] ?? resting;
+  if (!SLEEPY_REST_EXPRESSIONS.has(rest)) return null;
+  const id = EXPRESSION_ALIASES[machineAnim] ?? machineAnim;
+  return STARTLE_TRIGGERS.has(id) ? "startled-awake" : null;
+}
 
 // ---------------------------------------------------------------------------
 // 組合式通道（spec §6.2）：狀態不一定要整體覆蓋遊玩姿勢。
@@ -130,8 +192,16 @@ export function playExpressionFor(mode: CharPlayMode): string | null {
   }
 }
 
-/** 狀態表情裡屬於「狀態通道」的參數（沒有就回 null）。 */
-export function statusChannelParams(machineAnim: string): Partial<RigParams> | null {
+/**
+ * 狀態表情裡屬於「狀態通道」的參數（沒有就回 null）。
+ *
+ * 給了 `nowMs` 時，該表情 **loop** 裡的狀態通道也會依自己的週期求值疊上去：
+ * working/thinking/routing/waiting 的 `corePulse` 全寫在 loop、不在 hold，只讀
+ * hold 的話「趴著＋核心顯示 Agent 工作中」這個組合下核心恆為 0——§4.1 要求的
+ * 「呼吸般發光」變成一顆靜態亮點（對抗審查 rig-renderer-049）。
+ * 不給 `nowMs`（Reduced Motion）時維持原本的靜態通道：真靜態，不是慢動作。
+ */
+export function statusChannelParams(machineAnim: string, nowMs?: number): Partial<RigParams> | null {
   const { expr } = resolveRigAnimation(machineAnim);
   const out: Partial<RigParams> = {};
   let found = false;
@@ -140,6 +210,21 @@ export function statusChannelParams(machineAnim: string): Partial<RigParams> | n
     if (value !== undefined) {
       (out as Record<string, unknown>)[key] = value;
       found = true;
+    }
+  }
+  if (nowMs !== undefined && Number.isFinite(nowMs)) {
+    const loop = resolveSegments(expr).loop;
+    const looped = STATUS_CHANNELS.filter((key) =>
+      loop.frames.some((f) => (f.p as Record<string, unknown>)[key] !== undefined)
+    );
+    if (looped.length > 0) {
+      const dur = Math.max(1, loop.durationMs);
+      const phase = (((nowMs % dur) + dur) % dur) / dur;
+      const at = evalPhase(clampParams({ ...DEFAULT_PARAMS, ...expr.hold }), loop, phase);
+      for (const key of looped) {
+        (out as Record<string, unknown>)[key] = (at as unknown as Record<string, unknown>)[key];
+        found = true;
+      }
     }
   }
   return found ? out : null;
@@ -274,7 +359,8 @@ export interface StagePlan {
 export function stageExpressionPlan(
   machineAnim: string,
   mode: CharPlayMode,
-  resting: string | null = null
+  resting: string | null = null,
+  nowMs?: number
 ): StagePlan {
   const overlay = statusOverlay(machineAnim);
   const play = playExpressionFor(mode);
@@ -291,7 +377,7 @@ export function stageExpressionPlan(
   return {
     expression: body,
     useMachineSlice: false,
-    statusChannels: statusChannelParams(machineAnim),
+    statusChannels: statusChannelParams(machineAnim, nowMs),
   };
 }
 
@@ -357,6 +443,8 @@ export class StageRenderer implements RendererBackend {
   private toggles: StageToggles = { play: true, cursorPlay: true, deskMove: true, approach: true };
   /** 目前的休息姿勢（趴平／打盹／端坐…）：工作/等待狀態只疊通道、不把她拉起來。 */
   private resting: string | null = null;
+  /** 正在被改寫成「驚醒」的來源動畫名（null＝沒有改寫中）。 */
+  private startleFor: string | null = null;
   private scene: StageScene = "none";
   private charName = "小樞";
   private pointer: { x: number; y: number; active: boolean } | null = null;
@@ -417,9 +505,29 @@ export class StageRenderer implements RendererBackend {
 
   // ---- RendererBackend ----
   setAnimation(name: string, frameSlice?: [number, number]): void {
-    if (name !== this.machineAnim || frameSlice !== this.machineSlice) this.invalidateStatic();
-    this.machineAnim = name;
-    this.machineSlice = frameSlice;
+    // 睡著時被戳：換成「驚醒」（只改寫直接互動的表演藝術；安全與結果狀態
+    // 永遠原樣播，rig-renderer-046）。
+    //
+    // 改寫要黏住同一個來源動畫：host 每 500ms 的 pump 會再送一次同樣的
+    // `poked`，那時 `resting` 已經被清掉（她醒了），不記住的話驚醒只會演半秒
+    // 就被戳的表情蓋掉。
+    let startled: string | null = null;
+    if (this.startleFor === name) {
+      startled = "startled-awake";
+    } else {
+      startled = startleExpressionFor(this.resting, name);
+      this.startleFor = startled ? name : null;
+    }
+    const anim = startled ?? name;
+    const slice = startled ? undefined : frameSlice;
+    if (anim !== this.machineAnim || slice !== this.machineSlice) this.invalidateStatic();
+    this.machineAnim = anim;
+    this.machineSlice = slice;
+  }
+
+  /** 診斷用：目前實際在演的機器動畫名（驚醒等改寫之後的結果）。 */
+  currentAnimation(): string {
+    return this.machineAnim;
   }
 
   setReducedMotion(on: boolean): void {
@@ -588,23 +696,30 @@ export class StageRenderer implements RendererBackend {
     // （對抗審查 perf-claims-011）。
     if (this.paused || this.destroyed) return;
     const now = this.now();
+    // 時間閘先跑：政策的第一個判斷就是「距上次不到 50ms 就不報」，但以前
+    // `interactiveBounds()`／`interactiveRegions()` 在政策**之前**無條件執行，
+    // 60fps 下約 2/3 的幀白配置一整組陣列與物件（對抗審查 perf-claims-016）。
     if (this.hitRectCb) {
-      const next = this.interactiveBounds();
       const dt = this.lastReportedRect === null ? Number.POSITIVE_INFINITY : now - this.lastReportAt;
-      if (force || hitRectReportPolicy(this.lastReportedRect, next, dt)) {
-        this.lastReportedRect = next;
-        this.lastReportAt = now;
-        this.hitRectCb(next);
+      if (force || dt >= HIT_RECT_MIN_INTERVAL_MS) {
+        const next = this.interactiveBounds();
+        if (force || hitRectReportPolicy(this.lastReportedRect, next, dt)) {
+          this.lastReportedRect = next;
+          this.lastReportAt = now;
+          this.hitRectCb(next);
+        }
       }
     }
     if (this.hitRegionsCb) {
-      const regions = this.interactiveRegions();
       const dt =
         this.lastReportedRegions === null ? Number.POSITIVE_INFINITY : now - this.lastRegionsReportAt;
-      if (force || hitRegionsReportPolicy(this.lastReportedRegions, regions, dt)) {
-        this.lastReportedRegions = regions;
-        this.lastRegionsReportAt = now;
-        this.hitRegionsCb(regions);
+      if (force || dt >= HIT_REGION_MIN_INTERVAL_MS) {
+        const regions = this.interactiveRegions();
+        if (force || hitRegionsReportPolicy(this.lastReportedRegions, regions, dt)) {
+          this.lastReportedRegions = regions;
+          this.lastRegionsReportAt = now;
+          this.hitRegionsCb(regions);
+        }
       }
     }
   }
@@ -659,6 +774,9 @@ export class StageRenderer implements RendererBackend {
     return rollCall(this.world, this.charName, machineLabel, this.now(), {
       frozen: this.flags.frozen,
       reducedMotion: this.timeline.isReducedMotion(),
+      // 暫停（視窗隱藏／CPP suspend）：rAF 停了、世界不再步進，char.mode 與
+      // familiar.state 都是殘影（對抗審查 companion-gameplay-033）。
+      paused: this.paused,
     });
   }
 
@@ -765,6 +883,13 @@ export class StageRenderer implements RendererBackend {
     }
     const r = this.charHitRect();
     if (cssX >= r.x && cssX <= r.x + r.w && cssY >= r.y && cssY <= r.y + r.h) return "char";
+    // 回報出去的 bounded regions（角色／使魔／玩具）是 Rust 端的攔截依據：分類
+    // 必須以**同一組框**為準。以前只看角色框與聯集框，落在使魔身上的按下一律
+    // 回 "none"，呼叫端直接 return——使魔身上是一塊「Rust 攔了、按下去卻什麼都
+    // 不會發生」的洞（對抗審查 companion-gameplay-030）。
+    for (const g of this.interactiveRegions()) {
+      if (cssX >= g.x && cssX <= g.x + g.w && cssY >= g.y && cssY <= g.y + g.h) return "stage";
+    }
     const b = this.interactiveBounds();
     if (cssX >= b.x && cssX <= b.x + b.w && cssY >= b.y && cssY <= b.y + b.h) return "stage";
     return "none";
@@ -939,14 +1064,20 @@ export class StageRenderer implements RendererBackend {
     );
     this.world = world;
     for (const e of events) {
-      if (e.type === "expression" && this.exprCb) this.exprCb(e.id, e.durationMs);
+      const art = worldEventExpression(e);
+      if (art && this.exprCb) this.exprCb(art.id, art.durationMs);
     }
 
     // 表情選擇（組合式通道，spec §6.2）：安全與結果狀態整體搶佔；
     // 工作/等待狀態只點亮核心/頭飾/裙擺/耳朵，身體維持遊玩或休息姿勢。
     // 一起身去玩（mode≠free）休息姿勢就作廢。
     this.resting = this.world.char.mode === "free" ? nextRestingExpression(this.resting, this.machineAnim) : null;
-    const plan = stageExpressionPlan(this.machineAnim, this.world.char.mode, this.resting);
+    const plan = stageExpressionPlan(
+      this.machineAnim,
+      this.world.char.mode,
+      this.resting,
+      reduced ? undefined : now
+    );
     this.timeline.setAnimation(plan.expression, now, plan.useMachineSlice ? this.machineSlice : undefined);
     let params = this.timeline.paramsAt(now);
     if (plan.statusChannels) params = clampParams({ ...params, ...plan.statusChannels });

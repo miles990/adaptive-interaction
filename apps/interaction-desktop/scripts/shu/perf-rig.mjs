@@ -105,7 +105,7 @@ console.log(
   `reduced loop : ticks=${r.reducedMotionLoop?.ticks ?? "n/a"} drawn=${r.reducedMotionLoop?.drawn ?? "n/a"} (${num(r.reducedMotionLoop?.drawnPerSecond)} draws/s over ${num((r.reducedMotionLoop?.elapsedMs ?? 0) / 1000)} s) — Reduced Motion 靜態短路`
 );
 console.log(
-  `toy grab lat : ${fmt(r.inputLatencyToyGrab)} (confirmed ${r.inputLatencyToyGrab?.confirmedFrames}/${r.inputLatencyToyGrab?.attempts}; WebView-only segment, host click-through gate not included)`
+  `toy grab lat : ${fmt(r.inputLatencyToyGrab)} (confirmed ${r.inputLatencyToyGrab?.confirmedFrames}/${r.inputLatencyToyGrab?.attempts}; WebView-only segment ≈ one frame gap of this environment, host click-through gate not included)`
 );
 console.log(
   `gaze latency : ${fmt(r.inputLatencyGaze)} (confirmed ${r.inputLatencyGaze?.confirmedFrames}/${r.inputLatencyGaze?.attempts}; WebView-only segment)`

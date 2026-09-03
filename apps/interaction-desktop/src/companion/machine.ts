@@ -7,8 +7,6 @@
 //   - EmergencyStopped freezes ordinary animation and outranks everything.
 //   - Blocked shows the policy shield; the standard safety text stays in UIs.
 
-import { EventClass, scoreEvent } from "./behavior";
-
 export type BaseState = "idle" | "quiet" | "paused" | "emergency" | "offline";
 
 export type TransientKind =
@@ -48,7 +46,7 @@ export interface MachineState {
 export const initial: MachineState = { base: "offline", transient: null };
 
 /** Priority for transient replacement (higher wins; spec §11.3 order). */
-const PRIORITY: Record<TransientKind, number> = {
+export const TRANSIENT_PRIORITY: Record<TransientKind, number> = {
   blocked: 90, // safety warning
   failed: 85,
   "requesting-consent": 80,
@@ -62,25 +60,6 @@ const PRIORITY: Record<TransientKind, number> = {
   thinking: 30,
   performing: 25,
   listening: 20,
-};
-
-/** Which utility class each transient belongs to (spec §5.4 ladder).
- *  Only consulted when two transients have the SAME priority — the ladder
- *  above still decides everything else. */
-const CLASS_OF: Record<TransientKind, EventClass> = {
-  blocked: "sensor-safety",
-  failed: "sensor-safety",
-  "requesting-consent": "waiting-confirmation",
-  succeeded: "task-state",
-  unknown: "task-state",
-  clicked: "direct-interaction",
-  dragged: "direct-interaction",
-  "waiting-for-receipt": "task-state",
-  acting: "task-state",
-  routing: "task-state",
-  thinking: "task-state",
-  performing: "ambient",
-  listening: "world-event",
 };
 
 /** Default display durations (ms). */
@@ -131,8 +110,8 @@ export function transientCompetition(
   next: { kind: TransientKind; verified?: boolean; animation?: string }
 ): "keep" | "refresh" | "replace" {
   if (!active) return "replace";
-  const pa = PRIORITY[active.kind];
-  const pe = PRIORITY[next.kind];
+  const pa = TRANSIENT_PRIORITY[active.kind];
+  const pe = TRANSIENT_PRIORITY[next.kind];
   if (pa > pe) return "keep";
   if (pa < pe) return "replace";
   const repeat =
@@ -140,17 +119,17 @@ export function transientCompetition(
     active.verified === next.verified &&
     active.animation === next.animation;
   if (repeat) return "refresh";
-  const base = {
-    recentSameClass: 0,
-    alreadyResponded: false,
-    interruptible: true,
-    doNotDisturb: false,
-    relevance: 1,
-    novelty: 0,
-  };
-  const activeScore = scoreEvent(CLASS_OF[active.kind], base);
-  const nextScore = scoreEvent(CLASS_OF[next.kind], { ...base, novelty: 1 });
-  return nextScore > activeScore ? "replace" : "keep";
+  // 同優先、不是同一則事件 → 新事件上台（新鮮度勝出）。
+  //
+  // 這裡以前呼叫 behavior.ts 的 `scoreEvent`，但把 recentSameClass／
+  // alreadyResponded／interruptible／doNotDisturb 全部寫死成停用值，而且每一組
+  // 同優先的 kind 在 EventClass 下又都同類，所以結果恆為 "replace"——一條
+  // 看起來接上了 Utility Scoring、實際上是恆等式的假管線（對抗審查
+  // director-pipeline-020）。誠實作法：這裡就是確定性的「新事件替換」，
+  // Utility Scoring 目前**沒有**接進執行期決策（behavior.ts 的 scoreEvent
+  // 只有單元測試在用）。要真的接上，得由 CompanionApp 把重複次數／是否已回應／
+  // 目前動作可否中斷／勿擾狀態餵進來——那是一次介面變更，不是這裡改一行。
+  return "replace";
 }
 
 /**
