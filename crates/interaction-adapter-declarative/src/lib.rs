@@ -1342,8 +1342,10 @@ capabilities:
       expectedDeviceId: "esp32-desk01"
 "#;
         let err = parse_spec(bad_uuid).unwrap_err();
+        // 有 BLE 的平台（macOS／Windows＋transport-ble）拒的是壞 UUID；
+        // 沒有 BLE 的平台（Linux CI）必須誠實拒絕「此 build 不支援」，兩者都算通過。
         assert!(
-            err.contains("UUID") || err.contains("not supported"),
+            err.contains("UUID") || err.contains("NOT supported in this build"),
             "{err}"
         );
 

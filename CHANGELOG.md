@@ -58,6 +58,10 @@
 - **一般模式狀態投影** `src/statusProjection.ts`：exhaustive（`satisfies Record<WorkState, …>`）的人話對照
   （準備中／處理中／等你補充／等你同意／無法繼續／Agent 說已完成，等待檢查／已確認完成／執行失敗／執行逾時／已到期／
   結果不確定／已停止）；未知原始值一律顯示「結果不確定」而非原始字串；AiPage／HomePage／Inbox／ActivityPage／GlobalSearch 共用。
+- **CI（Linux）修復**：`interaction-adapter-declarative` 的 `link_transports_validate_identity_command_and_facts` 在沒有 BLE 的 Linux
+  上以小寫 `"not supported"` 比對誠實拒絕訊息（實際是 `"NOT supported in this build"`），本機 macOS 走 UUID 分支所以看不到；
+  斷言改對齊訊息（兩個平台都是合法結果）；CI 的 `cargo test --workspace` 加 `--no-fail-fast`，一次曝光所有失敗；以 Docker
+  `rust:1.94-bookworm` 在本機重跑 Linux 的 fmt／clippy／test 確認。
 - **工程修復**：`protocol.rs::wait_for` 改回傳 `WaitError{TimedOut{lagged},Closed,Lagged}`＋`LagPolicy`（握手 closed 誠實映成
   `LinkError::Reset`）；`rust-toolchain.toml`（1.94.0，CI 從此檔讀 channel）；三個對抗審查 workflow 不再硬編路徑
   （preflight 解析 git root、規格存 `docs/specs/`、v05 版輸出 `docs/reviews/adversarial/<runId>.{json,md}`、
