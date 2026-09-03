@@ -46,6 +46,7 @@ import json
 import math
 import os
 import pty
+import re
 import select
 import signal
 import struct
@@ -116,7 +117,7 @@ def now_ms():
 
 
 def emit(obj):
-    line = json.dumps(obj) + "\n"
+    line = dumps_like_firmware(obj) + "\n"
     os.write(master, line.encode())
     log.write(f"<< {line}")
     log.flush()
@@ -235,6 +236,122 @@ def read_int_param(params, key, fallback, lo, hi):
     return int(clamp(value, lo, hi))
 
 
+# ---------------------------------------------------------------------------
+# 浮點輸出：韌體怎麼寫上線，模擬器就怎麼寫
+#
+# 韌體的 ack 走 ArduinoJson v7：`applied["strength"] = strength;`（C `float`）
+# → TextFormatter::writeFloat(value, sizeof(T) >= 8 ? 9 : 6) → 4 bytes 的
+# float 用 **6 位小數**、去尾零，|v| >= 1e7 或 0 < |v| <= 1e-5 才走指數。
+# Python 的 json.dumps 直接吐 float64 的 repr：float32 化之後的 0.7 會變成
+# 0.699999988079071——真板永遠不會這樣送，兩端 ack 的位元組就不同了。
+# 下面逐步鏡射 ArduinoJson 的 Numbers/FloatParts.hpp 與 Json/TextFormatter.hpp。
+# ---------------------------------------------------------------------------
+
+# ArduinoJson FloatTraits<double>：二進位冪次表（JsonFloat 預設是 double）。
+_POS_BIN_POW10 = [1e1, 1e2, 1e4, 1e8, 1e16, 1e32, 1e64, 1e128, 1e256]
+_NEG_BIN_POW10 = [1e-1, 1e-2, 1e-4, 1e-8, 1e-16, 1e-32, 1e-64, 1e-128, 1e-256]
+POSITIVE_EXPONENTIATION_THRESHOLD = 1e7
+NEGATIVE_EXPONENTIATION_THRESHOLD = 1e-5
+FLOAT_DECIMAL_PLACES = 6            # sizeof(float) < 8 → 6（double 才是 9）
+# 佔位字串的前綴帶一個每次啟動都不同的隨機 token：host 送來的 cmd id 會被
+# 原樣回進 ack，不能讓一個猜得到的前綴被拿來注入裸字面值。
+_FW_FLOAT_MARK = "fw-float-" + os.urandom(8).hex() + ":"
+_FW_FLOAT_RE = re.compile('"' + re.escape(_FW_FLOAT_MARK) + r'([-0-9.enul]+)"')
+
+
+def _normalize_like_arduinojson(value):
+    """ArduinoJson normalize()：把 value 帶進 [1,10) 並回傳十進位指數。
+    兩個迴圈共用 index／bit（第一個迴圈跑完後 bit 已為 0）——照抄，
+    否則邊界值會與韌體分岔。"""
+    powers = 0
+    index = 8                        # sizeof(JsonFloat) == 8
+    bit = 1 << index
+    if value >= POSITIVE_EXPONENTIATION_THRESHOLD:
+        while index >= 0:
+            if value >= _POS_BIN_POW10[index]:
+                value *= _NEG_BIN_POW10[index]
+                powers += bit
+            bit >>= 1
+            index -= 1
+    if value > 0 and value <= NEGATIVE_EXPONENTIATION_THRESHOLD:
+        while index >= 0:
+            if value < _NEG_BIN_POW10[index] * 10:
+                value *= _POS_BIN_POW10[index]
+                powers -= bit
+            bit >>= 1
+            index -= 1
+    return value, powers
+
+
+def firmware_float_text(value, decimal_places=FLOAT_DECIMAL_PLACES):
+    """把一個值序列化成參考韌體會寫上線的**同一串位元組**。"""
+    value = f32(value)
+    if math.isnan(value):
+        return "null"                # ARDUINOJSON_ENABLE_NAN 預設關閉
+    sign = ""
+    if math.isinf(value):
+        return "null"                # ARDUINOJSON_ENABLE_INFINITY 預設關閉
+    if value < 0.0:
+        sign = "-"
+        value = -value
+    value = float(value)             # JsonFloat(double)，與韌體同一步
+    max_decimal = 10 ** decimal_places
+    value, exponent = _normalize_like_arduinojson(value)
+    integral = int(value)            # uint32_t 截斷
+    tmp = integral
+    while tmp >= 10:                 # 整數位吃掉小數位額度
+        max_decimal //= 10
+        decimal_places -= 1
+        tmp //= 10
+    remainder = (value - float(integral)) * float(max_decimal)
+    decimal = int(remainder)
+    remainder -= float(decimal)
+    decimal += int(remainder * 2)    # remainder >= 0.5 → 進位
+    if decimal >= max_decimal:
+        decimal = 0
+        integral += 1
+        if exponent and integral >= 10:
+            exponent += 1
+            integral = 1
+    while decimal % 10 == 0 and decimal_places > 0:   # 去尾零
+        decimal //= 10
+        decimal_places -= 1
+    text = f"{sign}{integral}"
+    if decimal_places:
+        text += f".{decimal:0{decimal_places}d}"
+    if exponent:
+        text += f"e{exponent}"
+    return text
+
+
+class FirmwareFloat:
+    """一個「已經決定好位元組」的浮點數：emit() 原樣寫出它的 text。
+    數值本身仍可取用（`value`），給模擬器內部運算用。"""
+
+    __slots__ = ("text", "value")
+
+    def __init__(self, value, decimal_places=FLOAT_DECIMAL_PLACES):
+        self.text = firmware_float_text(value, decimal_places)
+        self.value = float(self.text) if self.text != "null" else None
+
+    def __repr__(self):
+        return f"FirmwareFloat({self.text})"
+
+
+def _firmware_json_default(obj):
+    if isinstance(obj, FirmwareFloat):
+        return _FW_FLOAT_MARK + obj.text
+    raise TypeError(f"not JSON serialisable: {obj!r}")
+
+
+def dumps_like_firmware(obj):
+    """json.dumps，但 FirmwareFloat 以韌體格式的裸字面值寫出。
+    （先包成一個帶隨機前綴的字串，再把那整個字串換回字面值——字面值只會是
+    數字／小數點／e／負號／null，不會有需要跳脫的字元。）"""
+    line = json.dumps(obj, default=_firmware_json_default)
+    return _FW_FLOAT_RE.sub(lambda m: m.group(1), line)
+
+
 def read_float_param(params, key, fallback, lo, hi):
     raw, _ = read_number(params, key)
     value = fallback if raw is None else f32(raw)
@@ -334,7 +451,9 @@ def apply_cmd(cid, name, params, now):
         state["vibe_end_ms"] = now + duration
         emit({
             "type": "ack", "id": cid,
-            "applied": {"strength": strength, "durationMs": duration},
+            # 韌體的 applied.strength 是 C float：位元組要一模一樣（0.7 而不是
+            # Python 的 0.699999988079071）——見 firmware_float_text()。
+            "applied": {"strength": FirmwareFloat(strength), "durationMs": duration},
         })
         return True
 

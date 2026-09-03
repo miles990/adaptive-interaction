@@ -46,6 +46,9 @@ struct MockRawLink {
     ack_stop_all: AtomicBool,
     /// 回覆 cancel 的 ack？（false＝讓 cancel 停在等待中，測並行歸屬）
     ack_cancel: AtomicBool,
+    /// 對 cancel 回一則 err：(是否帶 id, reason)。`false` 的匿名 err 對應
+    /// 韌體 BLE 入站佇列滿時的 `err busy`（那則 cancel 在解析前就被丟掉）。
+    cancel_err: Mutex<Option<(bool, String)>>,
     /// state 回覆要用的 deviceId（模擬同一 topic 上的冒名裝置）。
     state_device_id: Mutex<Option<String>>,
     /// 對 cmd/read 回一個「沒有 id」的 err（bad-json／line-too-long…）。
@@ -79,6 +82,7 @@ impl MockRawLink {
             state_replies: AtomicBool::new(true),
             ack_stop_all: AtomicBool::new(true),
             ack_cancel: AtomicBool::new(true),
+            cancel_err: Mutex::new(None),
             state_device_id: Mutex::new(None),
             err_without_id: Mutex::new(None),
             fail_mid_send: AtomicBool::new(false),
@@ -110,6 +114,15 @@ impl MockRawLink {
     fn set_state_device_id(&self, id: Option<&str>) {
         if let Ok(mut guard) = self.state_device_id.lock() {
             *guard = id.map(String::from);
+        }
+    }
+
+    /// 裝置對 cancel 回 err（而不是 ack）：韌體只有 `not-found` 代表
+    /// 「確定沒有這個 id 在跑」，其餘（busy／not-paired／rate-limited）
+    /// 代表這則 cancel 根本沒被處理。
+    fn set_cancel_err(&self, err: Option<(bool, &str)>) {
+        if let Ok(mut guard) = self.cancel_err.lock() {
+            *guard = err.map(|(with_id, reason)| (with_id, reason.to_string()));
         }
     }
 
@@ -236,7 +249,13 @@ impl RawLink for MockRawLink {
                 }
             }
             Some("cancel") => {
-                if self.ack_cancel.load(Ordering::SeqCst) {
+                let cancel_err = self.cancel_err.lock().ok().and_then(|g| g.clone());
+                if let Some((with_id, reason)) = cancel_err {
+                    Some(DeviceMsg::Err {
+                        id: with_id.then(|| msg["id"].as_str().unwrap_or_default().to_string()),
+                        reason,
+                    })
+                } else if self.ack_cancel.load(Ordering::SeqCst) {
                     Some(DeviceMsg::Ack {
                         id: msg["id"].as_str().map(String::from),
                         applied: None,
@@ -1783,4 +1802,147 @@ async fn a_timeout_after_undecodable_replies_does_not_claim_the_device_was_silen
         .await
         .expect_err("no state arrived");
     assert!(err.to_string().contains("could not be decoded"), "{err}");
+}
+
+// ---------------------------------------------------------------------------
+// link-transports-028：只有 `not-found` 才是「裝置回報沒有可取消的效果」
+// ---------------------------------------------------------------------------
+
+/// 韌體的 cancel 有三種結局：`ack cancelled:true`（真的停了）、
+/// `err not-found`（解析成功、確定沒有這個 id 在跑＝沒有可取消的效果）、
+/// 以及**別的** err——`busy`（BLE 入站佇列滿，這則 cancel 在解析前就被丟掉，
+/// 震動／蜂鳴仍在跑，而且那則 err 沒有 id）、`not-paired`（裝置重開機）。
+/// 後者代表「這則 cancel 沒被處理」，結果必須是 UNKNOWN；把它講成
+/// 「裝置回報沒有可取消的效果」是在安全路徑上給一個裝置從未做過的確定宣稱。
+#[tokio::test]
+async fn only_a_not_found_error_means_the_device_has_no_cancellable_effect() {
+    use interaction_core::{ActionId, ActuatorError};
+
+    for (with_id, reason) in [
+        (false, "busy"),
+        (true, "not-paired"),
+        (true, "rate-limited"),
+    ] {
+        let raw = MockRawLink::new("esp32-desk01", None);
+        let link = Arc::new(DeviceLink::new(raw.clone(), "esp32-desk01".into(), None));
+        let actuator = LinkActuator::new(
+            actuator_spec("vibe"),
+            CommandSpec {
+                name: "vibe.pulse".into(),
+                params: None,
+            },
+            "esp32-desk".into(),
+            link,
+            "serial",
+        );
+        actuator
+            .execute(bounded_action("a1"))
+            .await
+            .expect("receipt");
+        raw.set_cancel_err(Some((with_id, reason)));
+        let err = actuator
+            .cancel(&ActionId::new("a1"))
+            .await
+            .expect_err("device did not confirm the cancel");
+        let text = err.to_string();
+        assert!(
+            !text.contains("no cancellable effect"),
+            "err {reason}（with_id={with_id}）代表這則 cancel 沒被處理，\
+             不得講成「裝置回報沒有可取消的效果」：{text}"
+        );
+        assert!(text.contains("UNKNOWN"), "取消結果未知就要說未知：{text}");
+        assert!(text.contains(reason), "裝置給的原因不得被丟掉：{text}");
+        assert!(
+            matches!(err, ActuatorError::Unavailable(_)),
+            "未知不是 NotFound：{err:?}"
+        );
+    }
+
+    // 對照組：`not-found` 是裝置真的表過態——才可以說「沒有可取消的效果」。
+    let raw = MockRawLink::new("esp32-desk01", None);
+    let link = Arc::new(DeviceLink::new(raw.clone(), "esp32-desk01".into(), None));
+    let actuator = LinkActuator::new(
+        actuator_spec("vibe"),
+        CommandSpec {
+            name: "vibe.pulse".into(),
+            params: None,
+        },
+        "esp32-desk".into(),
+        link,
+        "serial",
+    );
+    actuator
+        .execute(bounded_action("a1"))
+        .await
+        .expect("receipt");
+    raw.set_cancel_err(Some((true, "not-found")));
+    let err = actuator
+        .cancel(&ActionId::new("a1"))
+        .await
+        .expect_err("nothing to cancel");
+    assert!(
+        matches!(err, ActuatorError::NotFound(_)),
+        "裝置明確說 not-found：{err:?}"
+    );
+    assert!(err.to_string().contains("no cancellable effect"), "{err}");
+}
+
+// ---------------------------------------------------------------------------
+// protocol-conformance-042：「這條通道已經配對過」不是「裝置不比對配對碼」
+// ---------------------------------------------------------------------------
+
+/// 韌體：`doc["pairing"] = pairingEnabled() && !g_linkPaired[link];`——同一條
+/// 通道配對成功之後，之後的 hello 就會說 `pairing:false`，但 `pair` 仍然逐位
+/// 比對 PAIRING_CODE。host 重連（Serial 偵測不到 USB 拔插、MQTT 連線沒斷時
+/// 裝置端的已配對狀態不會重置）時，不得把「碼確實被比對過」寫成
+/// 「配對碼從未被比對」——那是對真實裝置行為的錯誤陳述。
+#[tokio::test]
+async fn an_already_paired_channel_is_not_reported_as_a_never_compared_code() {
+    let raw = MockRawLink::new("esp32-desk01", Some("4321"));
+    let link = Arc::new(DeviceLink::new(
+        raw.clone(),
+        "esp32-desk01".into(),
+        Some("4321".into()),
+    ));
+    // 第一次握手：裝置要求配對（hello.pairing=true）→ 碼真的被比對過。
+    link.ensure_ready().await.expect("first handshake");
+    assert!(!link.pairing_unverified(), "第一次握手就比對過碼");
+
+    // 重連：host 重新握手，裝置端仍記得這條通道已配對 → hello.pairing=false，
+    // 但 pair 照樣逐位比對（mock 與韌體同規則）。
+    raw.set_connected(false);
+    raw.set_connected(true);
+    raw.declares_pairing.store(false, Ordering::SeqCst);
+    link.ensure_ready().await.expect("second handshake");
+    assert_eq!(raw.sent_count("pair"), 2, "重連後仍然送碼給裝置比對");
+    assert!(
+        !link.pairing_unverified(),
+        "這台裝置示範過它真的比對配對碼；hello.pairing=false 只代表\
+         「這條通道已經配對」，不得斷言「配對碼未經比對」"
+    );
+
+    let actuator = LinkActuator::new(
+        actuator_spec("vibe"),
+        CommandSpec {
+            name: "vibe.pulse".into(),
+            params: None,
+        },
+        "esp32-desk".into(),
+        link,
+        "serial",
+    );
+    let receipt = actuator
+        .execute(bounded_action("a1"))
+        .await
+        .expect("receipt");
+    assert!(
+        !receipt.driver_response.contains_key("pairingUnverified"),
+        "{receipt:?}"
+    );
+    // 但也不得反過來假裝這次握手重新比對過：收據誠實說出「這次沒有重比」。
+    assert_eq!(
+        receipt.driver_response.get("pairingNotRecompared"),
+        Some(&json!(true)),
+        "{receipt:?}"
+    );
 }

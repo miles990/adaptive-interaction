@@ -95,7 +95,7 @@ async fn provider_detail_tells_the_api_that_the_pairing_code_was_never_verified(
                 "at": "2026-09-03T02:00:00Z",
                 "how": "handshake",
                 "ok": true,
-                "note": "裝置報上身分，但配對碼未經比對，身分證據僅為裝置自報的 deviceId：回應方式 esp32-desk.vibe 已回覆收到（acknowledged，不代表已完成）",
+                "note": "裝置報上身分，但這次握手無法證明配對碼被比對過（裝置說它不需要配對），身分證據僅為裝置自報的 deviceId：回應方式 esp32-desk.vibe 已回覆收到（acknowledged，不代表已完成）",
                 "pairingUnverified": true,
             }
         }),

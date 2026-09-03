@@ -917,3 +917,66 @@ fn the_firmware_gives_ble_notifications_a_length_discipline() {
         "README 的訊息上限段必須也寫出 device→host 方向（BLE 的 MTU-3 限制）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// protocol-conformance-044：模擬器的浮點 ack 必須是韌體送得出來的位元組
+// ---------------------------------------------------------------------------
+
+/// `"strength": 0.7` 這一格，模擬器與韌體不得長得不一樣。
+/// 韌體：`float strength` → ArduinoJson 對 4-byte float 用
+/// `decimalPlaces = 6`（`sizeof(T) >= 8 ? 9 : 6`）＋去尾零 → `0.7`。
+/// Python 的 `json.dumps` 直接吐 float64 的 repr：float32 化之後的
+/// `0.699999988079071`——真板永遠不會這樣送，任何以模擬器產生的黃金輸出
+/// 都會與真板不同。
+#[test]
+fn the_simulator_serialises_the_vibe_strength_like_the_firmware_float() {
+    let ino = read_repo_file("firmware/esp32-companion/esp32-companion.ino");
+    let body = firmware_function_body(&ino, "static bool cmdVibePulse(");
+    assert!(
+        body.contains("float strength") && body.contains("applied[\"strength\"] = strength;"),
+        "前提：韌體 ack 的 strength 是 C `float`（ArduinoJson 最多 6 位小數）：\n{body}"
+    );
+
+    let Some(sim) = Sim::spawn("9927", &[]) else {
+        return;
+    };
+    let mut client = RawClient::open(&sim.pty_path);
+    client.pair("9927");
+
+    // 都是 policy 裁剪後常見的 magnitude，且都不是 float32 精確可表示的值。
+    let cases = [("0.7", "0.7"), ("0.3", "0.3"), ("0.55", "0.55")];
+    for (i, (requested, expected)) in cases.iter().enumerate() {
+        let (raw_line, reply) = client.ask_raw(json!({
+            "type": "cmd", "id": format!("vib-{i}"), "nonce": format!("n-vib-{i}"),
+            "name": "vibe.pulse",
+            "params": {"strength": requested.parse::<f64>().expect("case"), "durationMs": 1},
+        }));
+        assert_eq!(reply["type"], "ack", "{reply}");
+        let literal = json_number_literal(&raw_line, "strength");
+        assert_eq!(
+            &literal, expected,
+            "模擬器送出的位元組必須與韌體相同（原始行：{raw_line}）"
+        );
+        // 節流：韌體與模擬器都要求「上一發結束後」≥ 500ms（模擬器的 tick
+        // 是 100ms，所以這裡留足餘裕）。
+        std::thread::sleep(Duration::from_millis(800));
+    }
+}
+
+/// 從一行原始 JSON 取出某個鍵的**字面值**（不經 serde 的數字正規化——
+/// 這裡要驗的就是位元組本身）。
+fn json_number_literal(raw_line: &str, key: &str) -> String {
+    let needle = format!("\"{key}\"");
+    let start = raw_line
+        .find(&needle)
+        .unwrap_or_else(|| panic!("{key} not in {raw_line}"))
+        + needle.len();
+    let rest = raw_line[start..].trim_start();
+    let rest = rest
+        .strip_prefix(':')
+        .unwrap_or_else(|| panic!("{raw_line}"));
+    rest.trim_start()
+        .chars()
+        .take_while(|c| !matches!(c, ',' | '}' | ' '))
+        .collect()
+}

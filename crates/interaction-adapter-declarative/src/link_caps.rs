@@ -59,6 +59,25 @@ fn refusal_reason(detail: &str) -> &'static str {
     }
 }
 
+/// 裝置對 cancel 回的 err 裡，唯一代表「確定沒有這個效果在跑」的原因。
+/// 逐字比對（不是 `contains`）：這一句會變成收據與 audit 上的確定結論，
+/// 寧可把沒把握的原因落到 UNKNOWN，也不要多認一個。
+fn is_no_such_effect(reason: &str) -> bool {
+    reason.trim().eq_ignore_ascii_case("not-found")
+}
+
+/// 非 ack／err 的回覆在診斷訊息裡的稱呼（不揭露內容，只說是哪一種）。
+fn describe_reply(msg: &DeviceMsg) -> &'static str {
+    match msg {
+        DeviceMsg::Ack { .. } => "an ack that does not confirm the cancel",
+        DeviceMsg::Hello { .. } => "hello",
+        DeviceMsg::PairOk => "pair-ok",
+        DeviceMsg::PairFail { .. } => "pair-fail",
+        DeviceMsg::State { .. } => "state",
+        DeviceMsg::Err { .. } => "err",
+    }
+}
+
 pub struct LinkReceptor<L: RawLink> {
     pub spec: CapabilitySpec,
     pub adapter_id: String,
@@ -279,11 +298,17 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
                         .dispatched_at(sent_at)
                         .note("transport", json!(self.transport_label))
                         .acknowledged();
-                    // spec 有配對碼，但裝置說它不需要配對＝這次握手沒有任何
-                    // 一方比對過那組碼（參考韌體對任何碼都回 pair-ok）。
-                    // 收據要說出來：這張收據的身分證據只有裝置自報的 deviceId。
+                    // spec 有配對碼，但裝置說它不需要配對、而且這條 link 從沒
+                    // 見過它比對碼＝無法證明那組碼被比對過（參考韌體
+                    // PAIRING_CODE 為空時對任何碼都回 pair-ok）。收據要說出來：
+                    // 這張收據的身分證據只有裝置自報的 deviceId。
                     if self.link.pairing_unverified() {
                         receipt = receipt.note("pairingUnverified", json!(true));
+                    } else if self.link.pairing_not_recompared() {
+                        // 中間態：這條 link 先前真的比對過碼，但這次握手裝置
+                        // 說「這條通道已經配對」而沒有重比。不是未驗證，
+                        // 也不該假裝這次剛比對過。
+                        receipt = receipt.note("pairingNotRecompared", json!(true));
                     }
                     if let Some(applied) = applied {
                         // 裝置回報的實際套用值（韌體硬限制 clamp 後）——
@@ -409,8 +434,25 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
                 .note("deviceCancelled", json!(true))
                 .acknowledged()
                 .finish()),
-            Ok(_) => Err(ActuatorError::NotFound(format!(
-                "{action_id}: device reports no cancellable effect"
+            // 「沒有可取消的效果」是一個**確定結論**，只有裝置真的表過態
+            // （韌體：解析成功、確定沒有這個 id 在跑＝`not-found`）才能講。
+            Ok(DeviceMsg::Err { reason, .. }) if is_no_such_effect(&reason) => {
+                Err(ActuatorError::NotFound(format!(
+                    "{action_id}: device reports no cancellable effect ({reason})"
+                )))
+            }
+            // 其餘的裝置錯誤代表「這則 cancel 沒被處理」——`busy`（BLE 入站
+            // 佇列滿，write 在解析前就被丟掉，震動／蜂鳴仍在跑）、`not-paired`
+            // （裝置重開機）、`rate-limited`……效果狀態一律 UNKNOWN，
+            // 不得翻成裝置從未做過的宣稱。
+            Ok(DeviceMsg::Err { reason, .. }) => Err(ActuatorError::Unavailable(format!(
+                "{action_id}: the device refused the cancel ({reason}) \
+                 — the effect state is UNKNOWN"
+            ))),
+            Ok(other) => Err(ActuatorError::Unavailable(format!(
+                "{action_id}: unexpected device reply to the cancel ({}) \
+                 — the effect state is UNKNOWN",
+                describe_reply(&other)
             ))),
             Err(e) => Err(ActuatorError::Unavailable(format!(
                 "cancel could not be confirmed: {e} — effect state UNKNOWN"

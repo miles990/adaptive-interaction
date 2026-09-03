@@ -1314,7 +1314,7 @@ async fn a_device_that_never_verified_the_pairing_code_downgrades_the_provider_e
     );
     let note = tested["note"].as_str().unwrap();
     assert!(
-        note.contains("配對碼未經比對") && note.contains("裝置自報"),
+        note.contains("無法證明配對碼被比對過") && note.contains("裝置自報"),
         "人話註記要說出身分證據只有裝置自報的 deviceId：{note}"
     );
     assert!(
@@ -1338,5 +1338,8 @@ async fn a_device_that_really_verified_the_pairing_code_keeps_a_clean_record() {
         "真的比對過配對碼的裝置不得被標成未驗證：{tested}"
     );
     let note = tested["note"].as_str().unwrap();
-    assert!(!note.contains("配對碼未經比對"), "{note}");
+    assert!(
+        !note.contains("無法證明配對碼被比對過") && !note.contains("配對碼未經比對"),
+        "{note}"
+    );
 }

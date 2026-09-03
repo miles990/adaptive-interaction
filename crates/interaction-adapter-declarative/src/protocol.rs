@@ -353,11 +353,23 @@ pub struct DeviceLink<L: RawLink> {
     /// **每一種**請求（cmd／cancel／read／stop-all）都必須計入：只算 cmd 的話，
     /// 受器輪詢的 read 與動器的 cmd 並行時，計數仍是 1，守衛等於沒有。
     in_flight: std::sync::atomic::AtomicUsize,
-    /// spec 有配對碼、但裝置在 hello 說「我不需要配對」——它會對任何碼回
-    /// pair-ok（參考韌體 `PAIRING_CODE` 為空時就是如此），也就是這次握手
-    /// **沒有任何一方比對過配對碼**。不是失敗（裝置也可能只是「這條通道
-    /// 已經配對過」），但不得被當成配對級證據靜默通過。
+    /// spec 有配對碼、但裝置在 hello 說「我不需要配對」，而且這條 link 上
+    /// **從來沒有**見過它比對配對碼——它會對任何碼回 pair-ok（參考韌體
+    /// `PAIRING_CODE` 為空時就是如此），也就是沒有任何一方比對過配對碼。
+    /// 不是失敗，但不得被當成配對級證據靜默通過。
     pairing_unverified: std::sync::atomic::AtomicBool,
+    /// 這條 link 上曾經完成過一次「裝置說它需要配對（hello.pairing=true）
+    /// → 我們送碼 → pair-ok」。參考韌體的 `pairing` 欄位是
+    /// `pairingEnabled() && !g_linkPaired[link]`：宣告 true 就代表
+    /// `PAIRING_CODE` 非空、那次 pair 真的逐位比對過碼。有了這個證據，之後
+    /// 同一台裝置回 `pairing:false` 就只代表「這條通道已經配對」
+    /// （Serial 偵測不到 USB 拔插、MQTT 連線沒斷時裝置端不會重置），
+    /// 不得再宣稱「配對碼未經比對」。
+    pairing_ever_compared: std::sync::atomic::AtomicBool,
+    /// 上一次握手因為「裝置說這條通道已經配對」而沒有重新比對配對碼
+    /// （但這條 link 有 `pairing_ever_compared` 的證據）。不是未驗證，
+    /// 也不是「這次剛比對過」——收據要說得出這個差別。
+    pairing_not_recompared: std::sync::atomic::AtomicBool,
 }
 
 /// 進入等待前 +1、離開時 -1（不論成功、失敗或提早 return）。
@@ -398,14 +410,24 @@ impl<L: RawLink> DeviceLink<L> {
             advertised_caps: RwLock::new(None),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             pairing_unverified: std::sync::atomic::AtomicBool::new(false),
+            pairing_ever_compared: std::sync::atomic::AtomicBool::new(false),
+            pairing_not_recompared: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
     /// 這條 link 目前的握手裡，配對碼是否**從未被裝置比對過**
-    /// （spec 有 pairingCode，但裝置 hello 說不需要配對 → 對任何碼都 pair-ok）。
-    /// 收據與診斷用：不得把它靜默當成「已配對」。
+    /// （spec 有 pairingCode，但裝置 hello 說不需要配對，而且這條 link 也
+    /// 從沒見過它比對碼 → 對任何碼都 pair-ok）。收據與診斷用：不得把它
+    /// 靜默當成「已配對」。
     pub fn pairing_unverified(&self) -> bool {
         self.pairing_unverified.load(Ordering::SeqCst)
+    }
+
+    /// 這次握手沒有重新比對配對碼，但這條 link 先前確實比對成功過
+    /// （裝置回報「這條通道已經配對」）。介於「已驗證」與「從未驗證」
+    /// 之間的誠實中間態：不是 unverified，但也不是這次剛比對過。
+    pub fn pairing_not_recompared(&self) -> bool {
+        self.pairing_not_recompared.load(Ordering::SeqCst)
     }
 
     pub fn raw(&self) -> &L {
@@ -498,6 +520,7 @@ impl<L: RawLink> DeviceLink<L> {
         done.0 = false;
         self.ready_generation.store(0, Ordering::SeqCst);
         self.pairing_unverified.store(false, Ordering::SeqCst);
+        self.pairing_not_recompared.store(false, Ordering::SeqCst);
         let mut rx = self.raw.subscribe();
         self.raw.send(encode_host_msg(&HostMsg::Who)).await?;
         let (hello, caps, proto, device_wants_pairing, device_pairing_locked) =
@@ -547,18 +570,35 @@ impl<L: RawLink> DeviceLink<L> {
             ));
         }
         if let Some(code) = &self.pairing_code {
-            // 反方向也要看：裝置說「我不需要配對」時，參考韌體對**任何**碼
-            // 都直接回 pair-ok（PAIRING_CODE 設成空字串就是這樣）。pair-ok
-            // 在這種情況下不是配對證據——不擋（裝置也可能只是這條通道先前
-            // 已經配對過），但要記錄下來，不得靜默當成已驗證。
+            // 反方向也要看：裝置說「我不需要配對」有兩種成因，語意完全不同。
+            //  (a) 裝置的 PAIRING_CODE 是空的 → 它對**任何**碼都回 pair-ok，
+            //      這次的 pair-ok 不是配對證據。
+            //  (b) 這條通道**先前已經配對過**（韌體：`pairing =
+            //      pairingEnabled() && !g_linkPaired[link]`）→ pair 仍然逐位
+            //      比對 PAIRING_CODE。
+            // 單看 hello 分不出來，但「這條 link 上曾經見過它宣告
+            // pairing=true 並比對成功」就是 (b) 的證據（宣告 true 代表
+            // PAIRING_CODE 非空）。沒有那個證據時才記成未驗證——而且只說
+            // 「無法證明被比對過」，不斷言「裝置沒有比對」。
             if !device_wants_pairing {
-                self.pairing_unverified.store(true, Ordering::SeqCst);
-                tracing::warn!(
-                    device = %self.expected_device_id,
-                    "device does not require pairing (hello.pairing=false): the configured \
-                     pairing code was NOT compared by the device — this handshake is identity \
-                     evidence only (deviceId is self-reported)"
-                );
+                if self.pairing_ever_compared.load(Ordering::SeqCst) {
+                    self.pairing_not_recompared.store(true, Ordering::SeqCst);
+                    tracing::debug!(
+                        device = %self.expected_device_id,
+                        "device reports this channel is already paired (hello.pairing=false); \
+                         the code was compared earlier on this link and is not re-compared now"
+                    );
+                } else {
+                    self.pairing_unverified.store(true, Ordering::SeqCst);
+                    tracing::warn!(
+                        device = %self.expected_device_id,
+                        "device did not ask for pairing (hello.pairing=false) and this link has \
+                         never seen it compare the code: it may have no pairing code at all, or \
+                         this channel may already be paired — either way the configured code is \
+                         not proven to have been compared, so this handshake is identity \
+                         evidence only (deviceId is self-reported)"
+                    );
+                }
             }
             self.raw
                 .send(encode_host_msg(&HostMsg::Pair { code: code.clone() }))
@@ -580,6 +620,12 @@ impl<L: RawLink> DeviceLink<L> {
                     retry_after_ms,
                     device_pairing_locked,
                 ));
+            }
+            if device_wants_pairing {
+                // 裝置自己說「我需要配對」（＝PAIRING_CODE 非空）之後回
+                // pair-ok：這組碼真的被逐位比對過。記在 link 上，之後同一台
+                // 裝置說「這條通道已經配對」時才不會被誤記成從未比對。
+                self.pairing_ever_compared.store(true, Ordering::SeqCst);
             }
         }
         // hello.caps 是裝置自報的能力清單：握手後才知道「這台裝置到底

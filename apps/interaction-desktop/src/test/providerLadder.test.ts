@@ -131,7 +131,7 @@ const testedPairingUnverified = {
   ok: true,
   // 與 providers.rs `tested_note` 的實際文案一致（UI 原樣顯示）。
   note:
-    "裝置報上身分，但配對碼未經比對，身分證據僅為裝置自報的 deviceId：" +
+    "裝置報上身分，但這次握手無法證明配對碼被比對過（裝置說它不需要配對），身分證據僅為裝置自報的 deviceId：" +
     "回應方式 esp32-desk.vibe 已回覆收到（acknowledged，不代表已完成）",
   pairingUnverified: true,
 };

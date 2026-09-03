@@ -92,7 +92,9 @@ pub fn tested_note(
     if pairing_unverified {
         // 「裝置宣稱不需配對」≠「配對已驗證」：只有 DeviceLink 真的比對過碼
         // 才算。這句話取代「完成配對」，不論這個 provider 有沒有實體連線。
-        format!("裝置報上身分，但配對碼未經比對，身分證據僅為裝置自報的 deviceId：{what}")
+        format!(
+            "裝置報上身分，但這次握手無法證明配對碼被比對過（裝置說它不需要配對），身分證據僅為裝置自報的 deviceId：{what}"
+        )
     } else if linked {
         format!("裝置報上身分並完成配對：{what}")
     } else {
@@ -1114,7 +1116,7 @@ mod tests {
         );
         assert!(
             unverified
-                .starts_with("裝置報上身分，但配對碼未經比對，身分證據僅為裝置自報的 deviceId："),
+                .starts_with("裝置報上身分，但這次握手無法證明配對碼被比對過（裝置說它不需要配對），身分證據僅為裝置自報的 deviceId："),
             "{unverified}"
         );
         assert!(!unverified.contains("完成配對"), "{unverified}");
