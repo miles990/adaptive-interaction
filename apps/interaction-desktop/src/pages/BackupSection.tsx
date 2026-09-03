@@ -3,6 +3,9 @@
 //
 // 誠實原則：
 // - 匯出結果一定呈現在畫面上（不是只寫 console），否則不得宣稱「已匯出」。
+// - 匯出的**範圍**要說清楚：這裡只有記憶，不含知識、素材與角色互動記憶；
+//   後端單次上限 1,000 條，達到上限時必須明說「較舊的沒有匯出」——
+//   按鈕叫「匯出全部」＋只回「已匯出 N 條」，會讓使用者以為手上是完整備份。
 // - 還原不信任備份檔裡的身分、時間與狀態：每一筆都以「目前的你明確匯入」重新經過
 //   Runtime 驗證並取得新 ID；中途失敗會照實說已經寫進去幾筆，不假裝整批原子性。
 // - 檔案大小與筆數有上限（5 MiB／1,000 筆），超過直接拒絕，不做無界迴圈。
@@ -73,20 +76,35 @@ export function BackupSection({ onNavigate }: { onNavigate?: (tab: string) => vo
           備份是可讀的純文字檔，你可以自行保存或檢查內容。還原時每一條都會重新經過安全
           檢查並取得新編號——不會沿用備份檔裡的來源、時間或狀態。
         </p>
+        <p className="muted small">
+          這個備份只含記憶：知識、素材與衍生資料，以及角色跟你相處累積的互動記憶
+          都不在裡面（互動記憶在角色頁可以單獨清除）。單次最多匯出最近更新的 1,000 條，
+          達到上限時會在下面明說。
+        </p>
         <div className="row wrap">
           <button
             onClick={async () => {
               try {
                 const out = (await api.memoryExport()) as Record<string, unknown>;
                 setExported(out);
-                report(`已匯出 ${String(out.count)} 條（內容已在下方顯示，可自行複製保存）。`, true);
+                // 後端說達到上限就照實轉述：靜默截斷的備份比沒有備份更危險。
+                const capped = out.limitReached === true;
+                const limit = Number(out.limit ?? 0) || 0;
+                report(
+                  capped
+                    ? `已匯出 ${String(out.count)} 條記憶（內容已在下方顯示）。已達單次上限${
+                        limit > 0 ? ` ${limit} 條` : ""
+                      }：更舊的記憶沒有匯出，這不是完整備份。`
+                    : `已匯出 ${String(out.count)} 條記憶（內容已在下方顯示，可自行複製保存）。不含知識、素材與角色互動記憶。`,
+                  !capped
+                );
               } catch (e) {
                 setExported(null);
                 report(`匯出失敗：${e}`, false);
               }
             }}
           >
-            匯出全部
+            匯出記憶
           </button>
           <label className="button-like">
             還原備份

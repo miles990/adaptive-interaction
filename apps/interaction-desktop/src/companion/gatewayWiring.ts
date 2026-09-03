@@ -24,6 +24,7 @@ import {
 } from "../character/protocol";
 import type { CharacterIndex, CharacterIndexEntry } from "../character/registry";
 import type { DesktopPrefs, ImportedCharacterEntry } from "../desktop";
+import { sanitizeMemory, type InteractionMemory } from "./interactionMemory";
 import { validateManifest as validateLegacyPack, type PackManifest } from "./renderer";
 import { LEGACY_CHARACTER_IDS } from "./settingsTransfer";
 
@@ -458,6 +459,10 @@ export function adapterReconfigureFor(
 
 /** 改了只需 reconfigure／更新 ref 的偏好。 */
 export const LIVE_PREF_KEYS: readonly (keyof DesktopPrefs)[] = [
+  // 角色視窗自己也是互動記憶的寫入者：控制中心按「忘記這些」之後，
+  // 視窗手上的副本必須換成 host 的最新值，否則下一次玩玩具會用舊副本
+  // 把使用者刪掉的記憶整包寫回去（「忘記」變成沒有真的忘記）。
+  "companionInteractionMemory",
   "companionName",
   "companionScene",
   "companionPlay",
@@ -474,7 +479,9 @@ export const LIVE_PREF_KEYS: readonly (keyof DesktopPrefs)[] = [
   "storyProgress",
 ];
 
-/** host（Rust）自己套用、或角色視窗自己寫的偏好：變了不需要視窗做任何事。 */
+/** host（Rust）自己套用的偏好：變了不需要視窗做任何事。
+ *  注意：只放「視窗不是寫入者」的鍵。視窗自己也會寫的鍵放這裡＝兩份副本各自
+ *  read-modify-write，最後一個寫的人會蓋掉另一邊（互動記憶就出過這個包）。 */
 export const HOST_APPLIED_PREF_KEYS: readonly (keyof DesktopPrefs)[] = [
   "closeBehavior",
   "askOnClose",
@@ -485,7 +492,6 @@ export const HOST_APPLIED_PREF_KEYS: readonly (keyof DesktopPrefs)[] = [
   "companionPosition",
   "companionOpacity",
   "companionAlwaysOnTop",
-  "companionInteractionMemory",
   "schemaVersion",
 ];
 
@@ -527,6 +533,20 @@ export function companionReloadPlan(
   const host = new Set<string>(HOST_APPLIED_PREF_KEYS);
   const needsReload = changed.some((k) => !live.has(k) && !host.has(k));
   return { action: needsReload ? "reload" : "live", changed };
+}
+
+/**
+ * companion-reload 之後，這個視窗手上的互動記憶副本。
+ *
+ * 互動記憶有兩個寫入者（控制中心的「忘記這些」／關掉反應，以及角色視窗的玩玩具），
+ * 而 host 的 prefs patch 是整個欄位覆蓋。所以每次 host 的偏好變動，視窗都必須把
+ * 自己的副本換成 host 的最新值——否則使用者刪掉的記憶會在下一次寫回時復活。
+ * host 那一份永遠是唯一真相；這裡只做有界淨化。
+ */
+export function interactionMemoryFromPrefs(
+  prefs: Partial<DesktopPrefs> | null | undefined
+): InteractionMemory {
+  return sanitizeMemory(prefs?.companionInteractionMemory);
 }
 
 // ---------------------------------------------------------------------------

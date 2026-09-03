@@ -383,6 +383,158 @@ async fn context_bundle_is_deterministic_and_honest() {
         .await
         .unwrap();
     assert_eq!(bundle["includes"], again["includes"]);
+    // 沒有超過上限時也要明說「沒有被截斷」，而不是留白讓人自己猜。
+    assert_eq!(bundle["excluded"]["overCapacity"], 0);
+    assert_eq!(bundle["truncated"], false);
+    assert_eq!(bundle["limits"]["scanLimitReached"], false);
+}
+
+/// regression（memory-ui-002）：撞到 BUNDLE_MAX_ITEMS 時被丟掉的記憶完全不回報，
+/// 一般模式的預覽因此顯示「擋下來的：沒有」，agent 也不知道上下文不完整。
+#[tokio::test]
+async fn context_bundle_reports_capacity_truncation() {
+    let (_g, rt) = runtime().await;
+    let total = interaction_runtime::memory::BUNDLE_MAX_ITEMS + 6;
+    for i in 0..total {
+        let mut m = item(
+            MemoryLayer::DomainKnowHow,
+            MemoryKind::KnowHow,
+            &format!("可提供的 know-how {i:02}"),
+            MemoryActor::Human,
+        );
+        m.tags = vec!["rust".into()];
+        rt.memory_create(m).await.unwrap();
+    }
+    let bundle = rt
+        .memory_context_bundle("整理", &["rust".to_string()], "codex")
+        .await
+        .unwrap();
+    let included = bundle["includes"].as_array().unwrap().len();
+    assert_eq!(included, interaction_runtime::memory::BUNDLE_MAX_ITEMS);
+    assert_eq!(
+        bundle["excluded"]["overCapacity"].as_u64().unwrap(),
+        (total - included) as u64,
+        "撞到上限被丟掉的筆數必須回報：{}",
+        bundle["excluded"]
+    );
+    assert_eq!(bundle["truncated"], true);
+    assert_eq!(
+        bundle["limits"]["maxItems"].as_u64().unwrap(),
+        interaction_runtime::memory::BUNDLE_MAX_ITEMS as u64
+    );
+    // 給 agent 的 note 也要說這份上下文不完整（agent 只讀 JSON，不讀 UI）。
+    assert!(
+        bundle["note"].as_str().unwrap().contains("沒有放進來"),
+        "{}",
+        bundle["note"]
+    );
+    // 其它排除原因不得被截斷污染（都是可提供的項目）。
+    assert_eq!(bundle["excluded"]["sensitive"], 0);
+    assert_eq!(bundle["excluded"]["unreviewedCandidates"], 0);
+    assert_eq!(bundle["excluded"]["outsideGrantedDomains"], 0);
+}
+
+/// regression（memory-ui-003）：匯出只含記憶、單次 1000 筆上限，
+/// 卻只回 count——使用者會以為手上的備份是全部。
+#[tokio::test]
+async fn memory_export_declares_scope_and_reports_its_limit() {
+    let (_g, rt) = runtime().await;
+    let small = rt.memory_export().await.unwrap();
+    assert_eq!(small["count"], 0);
+    assert_eq!(small["limitReached"], false);
+    assert_eq!(small["scope"], "memory-items-only");
+    assert_eq!(
+        small["notIncluded"],
+        json!(["knowledge", "assets", "character-interaction-memory"])
+    );
+
+    // 直接寫 store 造 >1000 筆（storage 單次列表上限），避免逐筆 create 的 audit 開銷。
+    let now = Utc::now();
+    for i in 0..1005u32 {
+        let m = new_memory_item(
+            MemoryLayer::TaskMemory,
+            MemoryKind::Fact,
+            format!("任務 {i}"),
+            "x",
+            MemoryActor::Human,
+            now,
+        );
+        let body = serde_json::to_string(&m).unwrap();
+        rt.store
+            .save_memory(
+                m.memory_id.as_str(),
+                "task-memory",
+                "fact",
+                None,
+                None,
+                &body,
+            )
+            .unwrap();
+    }
+    let export = rt.memory_export().await.unwrap();
+    assert_eq!(export["count"], 1000);
+    assert_eq!(export["limit"], 1000);
+    assert_eq!(
+        export["limitReached"], true,
+        "達到單次上限必須說，不能讓使用者以為備份是全部"
+    );
+    assert!(
+        export["note"].as_str().unwrap().contains("較舊的沒有匯出"),
+        "{}",
+        export["note"]
+    );
+}
+
+/// regression（memory-ui-004）：控制中心的「重新確認」對 agent 建立的使用者記憶
+/// 只能延到 30 天，且要求更長會被降成候選（從此不入 bundle）。介面文案必須跟這個
+/// 行為一致——這個測試釘住 UI 依賴的前提。
+#[tokio::test]
+async fn agent_user_memory_cannot_be_extended_beyond_thirty_days() {
+    let (_g, rt) = runtime().await;
+    let mut stale = item(
+        MemoryLayer::UserMemory,
+        MemoryKind::Preference,
+        "早餐偏好",
+        MemoryActor::Agent("claude-code".into()),
+    );
+    stale.retention.review_after = Some(Utc::now() - chrono::Duration::days(1));
+    let created = rt.memory_create(stale).await.unwrap();
+
+    // 90 天：被壓回 30 天上限，而且降級成候選。
+    let ninety = Utc::now() + chrono::Duration::days(90);
+    let patched = rt
+        .memory_update(
+            created.memory_id.as_str(),
+            json!({"retention": {"reviewAfter": ninety}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(patched.kind, MemoryKind::Candidate);
+    let review = patched.retention.review_after.unwrap();
+    assert!(
+        review <= Utc::now() + chrono::Duration::days(30),
+        "agent 建立的使用者記憶不可延到 30 天以外：{review}"
+    );
+
+    // 30 天：在上限內，不降級（介面對 agent 建立的記憶只能承諾這個長度）。
+    let mut human_scale = item(
+        MemoryLayer::UserMemory,
+        MemoryKind::Preference,
+        "晚餐偏好",
+        MemoryActor::Agent("claude-code".into()),
+    );
+    human_scale.retention.review_after = Some(Utc::now() - chrono::Duration::days(1));
+    let second = rt.memory_create(human_scale).await.unwrap();
+    let thirty = Utc::now() + chrono::Duration::days(30);
+    let ok = rt
+        .memory_update(
+            second.memory_id.as_str(),
+            json!({"retention": {"reviewAfter": thirty}}),
+        )
+        .await
+        .unwrap();
+    assert_ne!(ok.kind, MemoryKind::Candidate, "30 天以內不該被降級");
+    assert_eq!(ok.retention.review_after.unwrap(), thirty);
 }
 
 #[tokio::test]

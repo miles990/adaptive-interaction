@@ -17,6 +17,12 @@ use serde_json::{json, Value};
 /// Bundle 上限：條數與總 bytes（提供最小必要，不是全部倒給 agent）。
 pub const BUNDLE_MAX_ITEMS: usize = 24;
 pub const BUNDLE_MAX_BYTES: usize = 48 * 1024;
+/// 單次掃描的來源上限（storage 單頁上限）。掃到上限代表「還有沒看過的記憶」，
+/// 必須誠實回報，不得讓呼叫端以為已經看過全部。
+pub const BUNDLE_SCAN_LIMIT: u32 = 1000;
+/// 單次匯出的上限（storage 單頁上限）；達到上限時必須誠實回報，
+/// 不得讓使用者以為手上的備份是完整的。
+pub const EXPORT_MAX_ITEMS: u32 = 1000;
 
 fn layer_str(layer: MemoryLayer) -> String {
     serde_json::to_value(layer)
@@ -161,11 +167,16 @@ impl Runtime {
         }
     }
 
-    /// 匯出全部記憶（使用者資料主權）。過期項仍可匯出（資料仍屬使用者），
+    /// 匯出記憶（使用者資料主權）。過期項仍可匯出（資料仍屬使用者），
     /// 但每筆附衍生 status——過期／stale 不得無標記地冒充有效資料。
+    ///
+    /// 誠實範圍：這裡**只有記憶**，不含知識節點、素材與衍生資料、角色互動記憶；
+    /// 而且單次上限 EXPORT_MAX_ITEMS 筆（依 updated_at 由新到舊）。達到上限時
+    /// `limitReached` 為 true——靜默丟掉最舊的一段，會讓使用者以為備份是全部。
     pub async fn memory_export(&self) -> DomainResult<Value> {
         let now = Utc::now();
-        let bodies = self.store.list_memory(None, 1000)?;
+        let bodies = self.store.list_memory(None, EXPORT_MAX_ITEMS)?;
+        let limit_reached = bodies.len() as u32 >= EXPORT_MAX_ITEMS;
         let mut items: Vec<Value> = Vec::new();
         for body in bodies {
             let Ok(mut v) = serde_json::from_str::<Value>(&body) else {
@@ -183,12 +194,24 @@ impl Runtime {
         Ok(json!({
             "exportedAt": now,
             "count": items.len(),
+            "scope": "memory-items-only",
+            "notIncluded": ["knowledge", "assets", "character-interaction-memory"],
+            "limit": EXPORT_MAX_ITEMS,
+            "limitReached": limit_reached,
+            "note": if limit_reached {
+                "已達單次匯出上限：只匯出最近更新的記憶，較舊的沒有匯出；本檔不含知識、素材與角色互動記憶。"
+            } else {
+                "本檔只含記憶，不含知識、素材與角色互動記憶。"
+            },
             "items": items,
         }))
     }
 
     /// 確定性 Context Bundle（spec §12）：最小必要，附排除說明。
     /// 永不包含：stale/expired、對此 agent 不可見、敏感 tag、超出上限。
+    ///
+    /// 上限造成的遺漏也是排除：`excluded.overCapacity` 計數＋`truncated` 旗標。
+    /// 靜默截斷會讓 UI 說「擋下來的：沒有」、讓 agent 以為上下文完整。
     pub async fn memory_context_bundle(
         &self,
         task: &str,
@@ -196,7 +219,9 @@ impl Runtime {
         agent_id: &str,
     ) -> DomainResult<Value> {
         let now = Utc::now();
-        let bodies = self.store.list_memory(None, 1000)?;
+        let bodies = self.store.list_memory(None, BUNDLE_SCAN_LIMIT)?;
+        // 掃到單頁上限＝還有沒看過的記憶：不知道有沒有漏，就得說不知道。
+        let scan_limit_reached = bodies.len() as u32 >= BUNDLE_SCAN_LIMIT;
         let mut included: Vec<Value> = Vec::new();
         let mut needs_review: Vec<String> = Vec::new();
         let mut excluded_not_visible = 0u32;
@@ -205,15 +230,23 @@ impl Runtime {
         // 兩者只回計數，不把被排除的 id 交給 agent 當線索。
         let mut excluded_unreviewed_candidates = 0u32;
         let mut excluded_outside_domains = 0u32;
+        // 通過所有過濾、只是撞到條數／bytes 上限而沒放進來的：也要回報。
+        let mut excluded_over_capacity = 0u32;
         let mut bytes = 0usize;
 
         // Built-in Domain Packs are installed local reference data. They are
         // included only when the Session explicitly names the exact domain;
         // an empty scope remains fail-closed and means none.
+        // 撞到上限就不再收（維持「遇到第一個放不下的就停」的確定性選擇），
+        // 但被擋下來的每一筆都要計數——break 掉的東西才是最容易被忘記的謊。
+        let mut packs_capped = false;
         for entry in self.domain_pack_context_entries(domains)? {
             let size = serde_json::to_vec(&entry).map_or(BUNDLE_MAX_BYTES + 1, |value| value.len());
-            if included.len() >= BUNDLE_MAX_ITEMS || bytes + size > BUNDLE_MAX_BYTES {
-                break;
+            if packs_capped || included.len() >= BUNDLE_MAX_ITEMS || bytes + size > BUNDLE_MAX_BYTES
+            {
+                packs_capped = true;
+                excluded_over_capacity += 1;
+                continue;
             }
             bytes += size;
             included.push(entry);
@@ -240,6 +273,7 @@ impl Runtime {
                 .then(a.memory_id.as_str().cmp(b.memory_id.as_str()))
         });
 
+        let mut items_capped = false;
         for item in items {
             match item.status(now) {
                 MemoryStatus::Expired => continue,
@@ -276,8 +310,12 @@ impl Runtime {
                 continue;
             }
             let size = item.content.len() + item.title.len();
-            if included.len() >= BUNDLE_MAX_ITEMS || bytes + size > BUNDLE_MAX_BYTES {
-                break;
+            // 同上：停止收錄，但把「本來可以給、只是放不下」的筆數如實回報。
+            if items_capped || included.len() >= BUNDLE_MAX_ITEMS || bytes + size > BUNDLE_MAX_BYTES
+            {
+                items_capped = true;
+                excluded_over_capacity += 1;
+                continue;
             }
             bytes += size;
             included.push(json!({
@@ -288,6 +326,20 @@ impl Runtime {
                 "content": item.content,
                 "confidence": item.confidence,
             }));
+        }
+        let truncated = excluded_over_capacity > 0 || scan_limit_reached;
+        let mut note = String::from(
+            "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+        );
+        if excluded_over_capacity > 0 {
+            note.push_str(&format!(
+                "本次已達份量上限，另有 {excluded_over_capacity} 筆可提供的內容沒有放進來（excluded.overCapacity）；這份上下文不完整。"
+            ));
+        }
+        if scan_limit_reached {
+            note.push_str(&format!(
+                "記憶總量已達單次掃描上限 {BUNDLE_SCAN_LIMIT} 筆，更舊的記憶這次沒有被檢視（limits.scanLimitReached）。"
+            ));
         }
         Ok(json!({
             "task": task,
@@ -301,8 +353,16 @@ impl Runtime {
                 "sensitive": excluded_sensitive,
                 "unreviewedCandidates": excluded_unreviewed_candidates,
                 "outsideGrantedDomains": excluded_outside_domains,
+                "overCapacity": excluded_over_capacity,
             },
-            "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+            "truncated": truncated,
+            "limits": {
+                "maxItems": BUNDLE_MAX_ITEMS,
+                "maxBytes": BUNDLE_MAX_BYTES,
+                "scanLimit": BUNDLE_SCAN_LIMIT,
+                "scanLimitReached": scan_limit_reached,
+            },
+            "note": note,
         }))
     }
 

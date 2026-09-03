@@ -22,6 +22,47 @@ export const LAYER_LABEL: Record<string, string> = {
   "agent-handoff": "Agent 交接",
 };
 
+/** 一般模式的人話分組（spec §11：技術分層只在進階模式）。
+ *  一般 UI 不得出現後端 taxonomy（Skill／Agent 交接／領域 Know-how…），
+ *  也不得把「領域知識」「Agent 交接」這種東西貼上「關於我的記憶」的標籤。 */
+export const GENERAL_GROUP_OF_LAYER: Record<string, string> = {
+  "user-memory": "about-me",
+  "persona-core": "character",
+  "character-memory": "character",
+  "world-knowledge": "learned",
+  "domain-knowledge": "learned",
+  "domain-know-how": "learned",
+  skill: "learned",
+  "domain-pack": "learned",
+  "task-memory": "work",
+  "agent-handoff": "work",
+  "session-context": "temporary",
+};
+
+/** 一般模式的分組順序與文案（角色名不寫死）。 */
+export function generalGroups(name: string): [string, string][] {
+  return [
+    ["about-me", "你告訴我的事"],
+    ["character", `${name}的設定`],
+    ["learned", "學到的知識"],
+    ["work", "工作與任務"],
+    ["temporary", "這次對話的暫存"],
+    ["other", "其他"],
+  ];
+}
+
+/** 一般模式下一條記憶要顯示的分組文案（找不到對應就歸「其他」，不外洩原始 id）。 */
+export function generalGroupLabel(layer: string, name: string): string {
+  const group = GENERAL_GROUP_OF_LAYER[layer] ?? "other";
+  return generalGroups(name).find(([id]) => id === group)?.[1] ?? "其他";
+}
+
+/** 分層／分組文案的唯一入口：進階模式給技術分層，一般模式給人話分組。 */
+export function memoryLayerLabel(layer: string, advanced: boolean, name: string): string {
+  if (advanced) return LAYER_LABEL[layer] ?? layer;
+  return generalGroupLabel(layer, name);
+}
+
 const KIND_LABEL: Record<string, { text: string; kind: "ok" | "warn" | "pending" }> = {
   fact: { text: "事實", kind: "ok" },
   inference: { text: "推論", kind: "warn" },
@@ -96,12 +137,19 @@ function MemorySection({
   onNavigate?: (tab: string) => void;
 }) {
   const { name } = useCharacterName();
+  // 進階模式選技術分層（後端過濾）；一般模式選人話分組（前端過濾，不外洩 taxonomy）。
   const [layer, setLayer] = React.useState<string>("");
+  const [group, setGroup] = React.useState<string>("");
   const [data, retry] = useAsync(
-    () => api.memoryList(layer || undefined, 200),
-    [refreshKey, layer]
+    () => api.memoryList(advanced ? layer || undefined : undefined, 200),
+    [refreshKey, advanced, layer]
   );
   const [notice, setNotice] = React.useState<string | null>(null);
+  const [failed, setFailed] = React.useState(false);
+  const say = (message: string, ok: boolean) => {
+    setNotice(message);
+    setFailed(!ok);
+  };
 
   return (
     <div>
@@ -123,44 +171,85 @@ function MemorySection({
           )}
         </p>
         <div className="row wrap">
+          {/* 技術分層（Skill／Agent 交接／領域 Know-how…）是後端 taxonomy：
+              一般模式只給人話分組，不把整張表倒給使用者（spec §11）。 */}
           <label className="field-label">
-            分層
-            <select value={layer} onChange={(e) => setLayer(e.target.value)}>
-              <option value="">全部</option>
-              {Object.entries(LAYER_LABEL).map(([id, label]) => (
-                <option key={id} value={id}>
-                  {label}
-                </option>
-              ))}
-            </select>
+            {advanced ? "分層" : "分類"}
+            {advanced ? (
+              <select value={layer} onChange={(e) => setLayer(e.target.value)}>
+                <option value="">全部</option>
+                {Object.entries(LAYER_LABEL).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select value={group} onChange={(e) => setGroup(e.target.value)}>
+                <option value="">全部</option>
+                {generalGroups(name).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
           {/* 匯出／還原只有一個主人：「更多 → 備份與還原」。這裡只指路，不放第二份。 */}
           {onNavigate && (
             <button onClick={() => onNavigate("backup")}>前往備份與還原</button>
           )}
+          {/* 後端在清不乾淨時會回一句誠實的失敗訊息；沒有 try/catch 的話那句話
+              會變成沒人接的 promise rejection——專案沒有全域 unhandledrejection
+              也沒有 ErrorBoundary，等於使用者按了沒反應（memory-ui-005）。 */}
           <button
             onClick={async () => {
-              const out = await api.memoryClearSession();
-              setNotice(`已清除 ${String((out as Record<string, unknown>).cleared)} 條對話暫存。`);
-              retry();
+              try {
+                const out = await api.memoryClearSession();
+                say(`已清除 ${String((out as Record<string, unknown>).cleared)} 條對話暫存。`, true);
+                retry();
+              } catch (e) {
+                say(`清除短期記憶沒有完成：${e}`, false);
+              }
             }}
           >
             清除短期記憶
           </button>
         </div>
         {notice && (
-          <p className="muted small" role="status">
+          <p
+            className={failed ? "cap-card-error" : "muted small"}
+            role={failed ? "alert" : "status"}
+          >
             {notice}
           </p>
         )}
-        <StateView state={data} empty="這個分層目前沒有記憶。">
-          {(d) => (
-            <div className="provider-list">
-              {((d.items as Record<string, unknown>[] | undefined) ?? []).map((m) => (
-                <MemoryCard key={String(m.memoryId)} item={m} onChanged={retry} />
-              ))}
-            </div>
-          )}
+        <StateView state={data} empty="這個分類目前沒有記憶。">
+          {(d) => {
+            const items = (d.items as Record<string, unknown>[] | undefined) ?? [];
+            const shown = advanced
+              ? items
+              : items.filter(
+                  (m) =>
+                    !group ||
+                    (GENERAL_GROUP_OF_LAYER[String(m.layer)] ?? "other") === group
+                );
+            if (shown.length === 0) {
+              return <p className="muted small">這個分類目前沒有記憶。</p>;
+            }
+            return (
+              <div className="provider-list">
+                {shown.map((m) => (
+                  <MemoryCard
+                    key={String(m.memoryId)}
+                    item={m}
+                    advanced={advanced}
+                    onChanged={retry}
+                  />
+                ))}
+              </div>
+            );
+          }}
         </StateView>
       </Section>
       {!advanced && <BundleSection advanced={false} />}
@@ -168,18 +257,66 @@ function MemorySection({
   );
 }
 
+/** agent 建立的記憶能延多久：後端 apply_actor_rules 的上限（interaction-core／memory.rs）。
+ *  這裡只用來決定「要求延多久」與按鈕文案；真正的強制在 Rust，前端不是把關者。
+ *  按 90 天去要求 agent 建立的使用者記憶，後端會壓回 30 天並降級成「等待確認」
+ *  （從此不再提供給 AI）——按鈕承諾 90 天就是說謊（memory-ui-004）。 */
+export const AGENT_REVIEW_CAP_DAYS: Record<string, number> = {
+  "user-memory": 30,
+  "persona-core": 30,
+  "task-memory": 90,
+  "character-memory": 180,
+  "domain-knowledge": 180,
+  "domain-know-how": 180,
+};
+
+/** 這一筆按「重新確認」實際會要求延長幾天。 */
+export function reconfirmDays(layer: string, createdByAgent: boolean): number {
+  if (!createdByAgent) return 90;
+  return Math.min(90, AGENT_REVIEW_CAP_DAYS[layer] ?? 30);
+}
+
+/** 後端回來的實際結果和要求不一樣時，要說的話（相同就回 null，不硬湊訊息）。 */
+export function reconfirmOutcome(
+  patched: Record<string, unknown> | null,
+  requestedIso: string,
+  kindBefore: string
+): string | null {
+  if (!patched) return null;
+  const retention = patched.retention as Record<string, unknown> | undefined;
+  const actual = retention?.reviewAfter ? String(retention.reviewAfter) : null;
+  const kindAfter = String(patched.kind ?? kindBefore);
+  const parts: string[] = [];
+  if (actual && Date.parse(actual) + 60_000 < Date.parse(requestedIso)) {
+    parts.push(`保存期限只延到 ${new Date(actual).toLocaleDateString("zh-TW")}（比要求的短）`);
+  }
+  if (kindAfter === "candidate" && kindBefore !== "candidate") {
+    parts.push("這條被改成「等待確認」，在你確認之前不會再提供給 AI");
+  }
+  return parts.length > 0 ? `${parts.join("；")}。` : null;
+}
+
 function MemoryCard({
   item,
+  advanced,
   onChanged,
 }: {
   item: Record<string, unknown>;
+  advanced: boolean;
   onChanged: () => void;
 }) {
+  const { name } = useCharacterName();
   const [error, setError] = React.useState<string | null>(null);
+  const [outcome, setOutcome] = React.useState<string | null>(null);
   const kind = KIND_LABEL[String(item.kind)] ?? { text: String(item.kind), kind: "pending" as const };
   const status = String(item.status ?? "active");
   const retention = item.retention as Record<string, unknown> | undefined;
   const createdBy = item.createdBy as Record<string, unknown> | string | undefined;
+  const createdByAgent =
+    typeof createdBy === "object" &&
+    createdBy !== null &&
+    String((createdBy as Record<string, unknown>).kind) === "agent";
+  const days = reconfirmDays(String(item.layer), createdByAgent);
   const creator =
     typeof createdBy === "object" && createdBy
       ? String((createdBy as Record<string, unknown>).kind) === "agent"
@@ -204,7 +341,7 @@ function MemoryCard({
         </span>
       </div>
       <div className="muted small">
-        {LAYER_LABEL[String(item.layer)] ?? String(item.layer)}・由{creator}建立・{retentionText}
+        {memoryLayerLabel(String(item.layer), advanced, name)}・由{creator}建立・{retentionText}
       </div>
       <details>
         <summary className="muted small">內容</summary>
@@ -216,6 +353,11 @@ function MemoryCard({
         </div>
       )}
       {error && <div className="state-box state-error">{error}</div>}
+      {outcome && (
+        <div className="state-box" role="status">
+          {outcome}
+        </div>
+      )}
       <div className="row wrap">
         <button
           className="danger"
@@ -237,20 +379,25 @@ function MemoryCard({
         {status === "stale" ? (
           <button
             onClick={async () => {
-              // 重新確認：把複查期往後推 90 天（明確的人類動作）。
-              const next = new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
+              // 重新確認：把複查期往後推（明確的人類動作）。天數依 layer／建立者
+              // 取後端真的會接受的長度——要求超過上限會被壓回去，而且 agent 建立
+              // 的使用者記憶還會被降級成「等待確認」，從此不再提供給 AI。
+              const next = new Date(Date.now() + days * 24 * 3600 * 1000).toISOString();
               try {
-                await api.memoryPatch(String(item.memoryId), {
+                const patched = (await api.memoryPatch(String(item.memoryId), {
                   retention: { ...(retention ?? {}), reviewAfter: next },
-                });
+                })) as Record<string, unknown> | null;
                 setError(null);
+                // 後端仍是唯一權威：實際結果和要求不同就照實說，不假裝成功。
+                setOutcome(reconfirmOutcome(patched, next, String(item.kind)));
                 onChanged();
               } catch (e) {
+                setOutcome(null);
                 setError(`重新確認失敗：${String(e)}。保存期限沒有變更。`);
               }
             }}
           >
-            重新確認（再保留 90 天）
+            重新確認（再保留 {days} 天）
           </button>
         ) : null}
       </div>
@@ -380,9 +527,19 @@ function KnowledgeSection({ refreshKey, advanced }: { refreshKey: number; advanc
                       </button>
                       <button
                         onClick={async () => {
-                          await api.knowledgeReview(String(n.nodeId), "reject", "由控制中心拒絕");
-                          setNotice("已拒絕並封存。");
-                          retry();
+                          // 「採用」有 try/catch、「不採用」沒有＝同一組按鈕一半誠實、
+                          // 一半靜默失敗（memory-ui-005）。
+                          try {
+                            await api.knowledgeReview(
+                              String(n.nodeId),
+                              "reject",
+                              "由控制中心拒絕"
+                            );
+                            setNotice("已拒絕並封存。");
+                            retry();
+                          } catch (e) {
+                            setNotice(`無法拒絕：${e}`);
+                          }
                         }}
                       >
                         不採用
@@ -662,6 +819,17 @@ function AssetsSection({ refreshKey, advanced }: { refreshKey: number; advanced:
     segment?: string;
   } | null>(null);
   const [text, setText] = React.useState("");
+  // 素材的每個動作都會打後端；失敗訊息必須看得見，不能只剩沒人接的
+  // promise rejection（專案沒有全域 unhandledrejection／ErrorBoundary）。
+  const [assetError, setAssetError] = React.useState<string | null>(null);
+  const attempt = async (what: string, action: () => Promise<void>) => {
+    try {
+      await action();
+      setAssetError(null);
+    } catch (e) {
+      setAssetError(`${what}失敗：${e}`);
+    }
+  };
   return (
     <Section title={advanced ? "原始素材（內容定址、不可覆寫）" : "素材與來源"}>
       <p className="muted small">
@@ -677,15 +845,22 @@ function AssetsSection({ refreshKey, advanced }: { refreshKey: number; advanced:
         />
         <button
           disabled={!text.trim()}
-          onClick={async () => {
-            await api.assetImport({ content: text });
-            setText("");
-            retry();
-          }}
+          onClick={() =>
+            void attempt("加入素材", async () => {
+              await api.assetImport({ content: text });
+              setText("");
+              retry();
+            })
+          }
         >
           加入素材
         </button>
       </div>
+      {assetError && (
+        <div className="state-box state-error" role="alert">
+          {assetError}
+        </div>
+      )}
       <StateView state={data} empty="還沒有素材。">
         {(d) => (
           <div className="provider-list">
@@ -702,48 +877,58 @@ function AssetsSection({ refreshKey, advanced }: { refreshKey: number; advanced:
                 </div>
                 <div className="row wrap">
                   <button
-                    onClick={async () => {
-                      setSourcePreview({ payload: await api.assetPreview(String(a.hash)) });
-                    }}
+                    onClick={() =>
+                      void attempt("開啟來源", async () => {
+                        setSourcePreview({ payload: await api.assetPreview(String(a.hash)) });
+                      })
+                    }
                   >
                     開啟來源
                   </button>
                   <button
                     disabled={derivingHash === String(a.hash)}
-                    onClick={async () => {
-                      const hash = String(a.hash);
-                      setDerivingHash(hash);
-                      try {
-                        setDerivatives(await api.assetDerive(hash));
-                        retry();
-                      } finally {
-                        setDerivingHash(null);
-                      }
-                    }}
+                    onClick={() =>
+                      void attempt("本機解析素材", async () => {
+                        const hash = String(a.hash);
+                        setDerivingHash(hash);
+                        try {
+                          setDerivatives(await api.assetDerive(hash));
+                          retry();
+                        } finally {
+                          setDerivingHash(null);
+                        }
+                      })
+                    }
                   >
                     {derivingHash === String(a.hash) ? "解析中…" : "本機解析素材"}
                   </button>
                   <button
-                    onClick={async () => {
-                      setDerivatives(await api.assetDerivatives(String(a.hash)));
-                    }}
+                    onClick={() =>
+                      void attempt("查看衍生資料", async () => {
+                        setDerivatives(await api.assetDerivatives(String(a.hash)));
+                      })
+                    }
                   >
                     查看衍生資料
                   </button>
                   <button
-                    onClick={async () => {
-                      setImpact(await api.assetImpact(String(a.hash)));
-                    }}
+                    onClick={() =>
+                      void attempt("刪除影響預覽", async () => {
+                        setImpact(await api.assetImpact(String(a.hash)));
+                      })
+                    }
                   >
                     刪除影響預覽
                   </button>
                   <button
                     className="danger"
-                    onClick={async () => {
-                      await api.assetDelete(String(a.hash));
-                      setImpact(null);
-                      retry();
-                    }}
+                    onClick={() =>
+                      void attempt("刪除素材", async () => {
+                        await api.assetDelete(String(a.hash));
+                        setImpact(null);
+                        retry();
+                      })
+                    }
                   >
                     刪除
                   </button>
@@ -1040,7 +1225,13 @@ function BundleSection({ advanced }: { advanced: boolean }) {
         <div className="state-box">
           <strong>
             會提供 {((bundle.includes as unknown[] | undefined) ?? []).length} 條
+            {bundle.truncated === true ? "（這次沒辦法全部帶上）" : ""}
           </strong>
+          {bundle.truncated === true && (
+            <p className="small" role="status">
+              超過這次能提供的份量，有內容沒有帶上——這份不是完整的。
+            </p>
+          )}
           {advanced ? (
             <pre className="json-view small">{JSON.stringify(bundle, null, 2)}</pre>
           ) : (
@@ -1061,10 +1252,19 @@ export function excludedCount(value: unknown): number {
 }
 
 /** 一般模式的內容摘要：條目標題與被擋下來的原因（含數量），不倒原始 JSON。 */
-export function BundleHumanSummary({ bundle }: { bundle: Record<string, unknown> }) {
+export function BundleHumanSummary({
+  bundle,
+  advanced = false,
+}: {
+  bundle: Record<string, unknown>;
+  advanced?: boolean;
+}) {
+  const { name } = useCharacterName();
   const includes = (bundle.includes as Record<string, unknown>[] | undefined) ?? [];
   const excluded = (bundle.excluded as Record<string, unknown> | undefined) ?? {};
-  // 後端目前回報前三種；後兩種是 v0.5 補的候選／domain 排除計數（沒回報就不顯示）。
+  // 後端目前回報前三種；其餘是 v0.5 補的候選／domain／份量上限排除計數
+  // （沒回報就不顯示）。`overCapacity` 少了的話，被上限砍掉的記憶會變成
+  // 「擋下來的：沒有」——那是主動說錯話，不只是漏講（memory-ui-002）。
   const reasons: [string, string][] = [
     ["needsReview", "需要你重新確認"],
     ["sensitive", "標為敏感"],
@@ -1072,7 +1272,10 @@ export function BundleHumanSummary({ bundle }: { bundle: Record<string, unknown>
     ["unreviewedCandidates", "還沒經你確認的說法"],
     ["outsideGrantedDomains", "不在這次授權的領域"],
     ["domainNotGranted", "不在這次授權的領域"],
+    ["overCapacity", "超過這次能提供的份量"],
   ];
+  const limits = (bundle.limits as Record<string, unknown> | undefined) ?? {};
+  const scanLimited = limits.scanLimitReached === true;
   return (
     <div>
       <ul className="plain-list small">
@@ -1080,7 +1283,7 @@ export function BundleHumanSummary({ bundle }: { bundle: Record<string, unknown>
           <li key={String(item.memoryId)}>
             {String(item.title)}
             <span className="muted">
-              　{LAYER_LABEL[String(item.layer)] ?? String(item.layer)}
+              　{memoryLayerLabel(String(item.layer), advanced, name)}
             </span>
           </li>
         ))}
@@ -1093,6 +1296,11 @@ export function BundleHumanSummary({ bundle }: { bundle: Record<string, unknown>
           .map(([key, label]) => `${label} ${excludedCount(excluded[key])} 條`)
           .join("、") || "沒有"}
       </p>
+      {scanLimited && (
+        <p className="muted small">
+          記憶太多了：這次只看了最近更新的 {String(limits.scanLimit ?? "")} 條，更舊的沒有被檢視。
+        </p>
+      )}
     </div>
   );
 }
