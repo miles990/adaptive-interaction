@@ -100,6 +100,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: build the interact-ai daemon the E2E suite boots
         run: cargo build -p interaction-cli
+      - name: build the simulated-iPhone fixture the E2E suite pairs with
+        # 【模擬 iPhone（fixture）】：程序外假手機，不是真機驗收。
+        run: cargo build -p interaction-runtime --example fake_iphone
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -117,8 +120,11 @@ jobs:
       - name: install Playwright chromium
         working-directory: apps/interaction-desktop
         run: pnpm exec playwright install --with-deps chromium
-      - name: browser E2E (onboarding, nav, pause, estop, 390px, offline)
+      - name: browser E2E (onboarding, work delegation, simulated iPhone, sensors, a11y, estop)
         working-directory: apps/interaction-desktop
+        env:
+          # 模擬不得有外部副作用：iPhone 伺服器只綁 127.0.0.1，也不對區網廣播 Bonjour。
+          INTERACT_AI_MOBILE_ADVERTISE: "0"
         run: pnpm test:e2e
       - name: upload traces on failure
         if: failure()

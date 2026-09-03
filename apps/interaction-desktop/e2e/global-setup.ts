@@ -2,12 +2,13 @@
 // The tests exercise the actual runtime + policy governor over HTTP — no mocks.
 
 import { spawn, execSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const PORT = 18790;
 const STATE_FILE = join(tmpdir(), "interaction-e2e-state.json");
+const EXTRA_DAEMONS_FILE = join(tmpdir(), "interaction-e2e-extra-daemons.json");
 
 async function waitReady(url: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -31,6 +32,16 @@ export default async function globalSetup() {
   // by an earlier run. Cargo's incremental build keeps this inexpensive when
   // nothing changed.
   execSync("cargo build -p interaction-cli", { cwd: repoRoot, stdio: "inherit" });
+  // 【模擬 iPhone（fixture）】：程序外假手機，讓 iPhone／感測相關的驗收不需要真機
+  // （也不需要在區網上出現）。它只是 mobile_loop.rs 那個程序內模擬手機的可執行版本。
+  execSync("cargo build -p interaction-runtime --example fake_iphone", {
+    cwd: repoRoot,
+    stdio: "inherit",
+  });
+  const fakeIphoneBin = join(repoRoot, "target/debug/examples/fake_iphone");
+
+  // 上一輪若沒收乾淨，這裡先清掉紀錄（pid 由 teardown 負責殺）。
+  rmSync(EXTRA_DAEMONS_FILE, { force: true });
 
   const home = mkdtempSync(join(tmpdir(), "interaction-e2e-"));
   mkdirSync(join(home, "config"), { recursive: true });
@@ -54,7 +65,14 @@ export default async function globalSetup() {
     : {};
 
   const child = spawn(bin, ["serve"], {
-    env: { ...process.env, ...agentEnv, INTERACT_AI_HOME: home },
+    env: {
+      ...process.env,
+      ...agentEnv,
+      // 模擬不得有外部副作用：iPhone 伺服器只綁 127.0.0.1，也不對區網廣播
+      // Bonjour（GET /v1/mobile/status 的 bonjour.advertised 會誠實回 false）。
+      INTERACT_AI_MOBILE_ADVERTISE: "0",
+      INTERACT_AI_HOME: home,
+    },
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
   });
@@ -66,10 +84,11 @@ export default async function globalSetup() {
 
   writeFileSync(
     STATE_FILE,
-    JSON.stringify({ pid: child.pid, home, port: PORT, token, fakeAgents })
+    JSON.stringify({ pid: child.pid, home, port: PORT, token, fakeAgents, fakeIphoneBin })
   );
   process.env.E2E_API = `http://127.0.0.1:${PORT}`;
   process.env.E2E_TOKEN = token;
   process.env.E2E_FAKE_AGENTS = fakeAgents ? "1" : "0";
   process.env.E2E_REPO_ROOT = repoRoot;
+  process.env.E2E_FAKE_IPHONE_BIN = fakeIphoneBin;
 }

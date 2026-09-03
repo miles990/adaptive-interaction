@@ -16,43 +16,27 @@
 //
 // 檔名慣例：`desktop-<state>[-<page>].png`（1200×800）／`narrow-…`（390×844）。
 
-import { test, expect, Page, APIRequestContext } from "@playwright/test";
+import { test, expect, Page } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import {
+  api,
+  apiBase,
+  appUrl,
+  confirmApply,
+  DESKTOP,
+  NARROW,
+  navigateTo,
+  openApp,
+  openNarrow,
+  PAGES,
+  waitSessionState,
+} from "./helpers";
 
 const OUT = path.resolve(process.cwd(), "../../docs/assets/v05-evidence");
 const REPO_ROOT = process.env.E2E_REPO_ROOT ?? path.resolve(process.cwd(), "../..");
-const DESKTOP = { width: 1200, height: 800 } as const;
-const NARROW = { width: 390, height: 844 } as const;
-
-function appUrl(): string {
-  return `/?api=${encodeURIComponent(process.env.E2E_API!)}&token=${encodeURIComponent(
-    process.env.E2E_TOKEN!
-  )}`;
-}
-
-function apiBase(): string {
-  return process.env.E2E_API!;
-}
-
-/** 以人類 token 打真 daemon 的 /v1 路由；非 2xx 直接讓測試失敗（不吞錯）。 */
-async function api(
-  request: APIRequestContext,
-  method: "GET" | "POST" | "PATCH" | "DELETE",
-  route: string,
-  data?: unknown
-): Promise<unknown> {
-  const res = await request.fetch(`${apiBase()}${route}`, {
-    method,
-    headers: { Authorization: `Bearer ${process.env.E2E_TOKEN!}` },
-    data,
-  });
-  const text = await res.text();
-  expect(res.ok(), `${method} ${route} → HTTP ${res.status()} ${text.slice(0, 300)}`).toBeTruthy();
-  return text ? (JSON.parse(text) as unknown) : null;
-}
 
 async function shot(page: Page, name: string) {
   await page.waitForTimeout(150);
@@ -63,76 +47,6 @@ async function shot(page: Page, name: string) {
 async function scrollTop(locator: import("@playwright/test").Locator) {
   await locator.first().evaluate((el) => el.scrollIntoView({ block: "start" }));
   await locator.first().page().waitForTimeout(120);
-}
-
-// 角色頁的 label 是目前角色的名字：瀏覽器 e2e 沒有角色視窗，名字來自 bundled 索引的
-// default（shu-maid → 小樞）。若索引載入失敗，導覽會顯示中立的「角色」而不是假名字。
-const PAGES: { id: string; label: string; marker: string | RegExp }[] = [
-  { id: "home", label: "現在", marker: "快速操作" },
-  { id: "companion", label: "小樞", marker: /36 表情預覽/ },
-  { id: "work", label: "工作", marker: "本機 AI Agent" },
-  { id: "connect", label: "連接與權限", marker: "系統時間" },
-  { id: "more", label: "更多", marker: "關於我的記憶" },
-];
-
-async function openApp(page: Page) {
-  await page.goto(appUrl());
-  const wizard = page.getByRole("dialog", { name: "首次設定" });
-  const desktopNav = page.getByRole("navigation", { name: "主要導覽" });
-  await Promise.race([
-    wizard.waitFor({ state: "visible", timeout: 15_000 }),
-    desktopNav.waitFor({ state: "visible", timeout: 15_000 }),
-  ]);
-  if (await wizard.isVisible().catch(() => false)) {
-    for (let step = 0; step < 2; step += 1) {
-      await wizard.getByRole("button", { name: "下一步" }).click();
-    }
-    await wizard.getByRole("button", { name: "完成設定" }).click();
-    // 精靈套用後可能接「首次成功體驗」（只在 host 尚未記錄看過時出現）。
-    const firstSuccess = page.getByRole("dialog", { name: "首次成功體驗" });
-    await Promise.race([
-      firstSuccess.waitFor({ state: "visible", timeout: 15_000 }),
-      desktopNav.waitFor({ state: "visible", timeout: 15_000 }),
-    ]);
-    if (await firstSuccess.isVisible().catch(() => false)) {
-      await firstSuccess.getByRole("button", { name: "完成", exact: true }).click();
-    }
-  }
-  await expect(desktopNav).toBeVisible({ timeout: 15_000 });
-}
-
-async function openNarrow(page: Page) {
-  await page.setViewportSize(NARROW);
-  await page.goto(appUrl());
-  await expect(page.getByRole("navigation", { name: "主要導覽（窄視窗）" })).toBeVisible({
-    timeout: 15_000,
-  });
-}
-
-async function clickNav(page: Page, label: string, narrow: boolean) {
-  if (!narrow) {
-    await page
-      .getByRole("navigation", { name: "主要導覽" })
-      .getByText(label, { exact: true })
-      .click();
-    return;
-  }
-  const bottomNav = page.getByRole("navigation", { name: "主要導覽（窄視窗）" });
-  if (label === "更多") {
-    // 窄視窗沒有獨立的「更多」頁——以更多選單抵達其中一個分頁。
-    await bottomNav.getByRole("button", { name: "更多" }).click();
-    await page
-      .getByRole("dialog", { name: "更多功能" })
-      .getByText("記憶與知識", { exact: true })
-      .click();
-    return;
-  }
-  await bottomNav.getByText(label, { exact: true }).click();
-}
-
-async function navigateTo(page: Page, target: (typeof PAGES)[number], narrow: boolean) {
-  await clickNav(page, target.label, narrow);
-  await expect(page.locator(".topbar-title")).toHaveText(target.label, { timeout: 10_000 });
 }
 
 async function capturePageMatrix(page: Page, state: string) {
@@ -152,33 +66,10 @@ async function capturePageMatrix(page: Page, state: string) {
   }
 }
 
-/** 輪詢 GET /v1/agent-sessions/{id} 直到 state 落在 states（回傳 record）。 */
-async function waitSessionState(
-  request: APIRequestContext,
-  sessionId: string,
-  states: string[],
-  timeoutMs = 30_000
-): Promise<Record<string, unknown>> {
-  const deadline = Date.now() + timeoutMs;
-  let last = "";
-  for (;;) {
-    const record = (await api(request, "GET", `/v1/agent-sessions/${sessionId}`)) as Record<
-      string,
-      unknown
-    >;
-    last = String(record.state);
-    if (states.includes(last)) return record;
-    if (Date.now() > deadline) {
-      throw new Error(`session ${sessionId} 停在 ${last}，等不到 ${states.join("/")}`);
-    }
-    await new Promise((r) => setTimeout(r, 300));
-  }
-}
-
 // 順序有意義（單一 worker、單一 daemon）：緊急停止放最後（會撤銷同意）。
 // 故意不用 serial mode：一張圖失敗不該讓其餘證據跟著被 skip。
 
-test("擷取：每個一級頁（桌面 1200px；現在三個回答、角色頁五區、工作空狀態、連接與權限四區）", async ({
+test("擷取：每個一級頁（桌面 1200px；現在三個回答、角色頁五區、工作空狀態、連接與權限五區）", async ({
   page,
 }) => {
   test.setTimeout(90_000);
@@ -189,14 +80,18 @@ test("擷取：每個一級頁（桌面 1200px；現在三個回答、角色頁�
     await navigateTo(page, p, false);
     await expect(page.getByText(p.marker).first()).toBeVisible({ timeout: 10_000 });
     if (p.id === "home") {
-      // 第一屏只回答三件事＋三個快速操作。
+      // 第一屏只回答三件事＋五個快速操作。
       for (const id of ["now-character", "now-work", "now-decisions"]) {
         await expect(page.getByTestId(id)).toBeVisible();
       }
       await expect(page.getByText("角色離線，改用文字。")).toBeVisible();
-      for (const name of ["交代一件事", "暫停主動互動", "加入裝置"]) {
+      for (const name of ["交代一件事", "暫停主動互動", "加入裝置", "停止所有感測"]) {
         await expect(page.getByRole("button", { name })).toBeVisible();
       }
+      // 首頁也有緊急停止（與頂部列同一條路徑）；選擇器要限定範圍避免撞名。
+      await expect(
+        page.locator(".home").getByRole("button", { name: "緊急停止", exact: true })
+      ).toBeVisible();
     }
     if (p.id === "companion") {
       for (const heading of ["目前角色", "外觀與名字", "平常如何陪伴", "更換或加入角色"]) {
@@ -210,22 +105,35 @@ test("擷取：每個一級頁（桌面 1200px；現在三個回答、角色頁�
       await expect(page.getByText("目前沒有交代中的工作。")).toBeVisible();
     }
     if (p.id === "connect") {
-      for (const id of [
+      // 裝置優先：五區固定順序，已連接的裝置排在能力兩區之前。
+      const areaIds = [
+        "connect-area-devices",
         "connect-area-see",
         "connect-area-respond",
-        "connect-area-devices",
         "connect-area-confirm",
-      ]) {
+        "connect-area-stop",
+      ];
+      for (const id of areaIds) {
         await expect(page.getByTestId(id)).toBeVisible();
       }
-      for (const heading of ["可以看見", "可以回應", "使用的裝置", "需要你確認"]) {
-        await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+      const order = await page
+        .locator("[data-testid^='connect-area-']")
+        .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")));
+      expect(order).toEqual(areaIds);
+      for (const heading of [
+        "已連接的裝置",
+        "系統可以看見什麼",
+        "系統可以做什麼",
+        "目前需要確認的權限",
+        "立即停止與撤銷",
+      ]) {
+        await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
       }
     }
     await page.waitForTimeout(400);
     await page.screenshot({ path: path.join(OUT, `desktop-${p.id}.png`), fullPage: false });
     if (p.id === "connect") {
-      await page.getByRole("tab", { name: "裝置與提供者" }).click();
+      await page.getByRole("tab", { name: "裝置與來源" }).click();
       await page.getByRole("button", { name: "重新掃描" }).click();
       await expect(page.getByText(/感測器啟動：否/)).toBeVisible();
       await page.screenshot({ path: path.join(OUT, "desktop-hardware-scan.png"), fullPage: false });
@@ -249,7 +157,7 @@ test("擷取：每個一級頁（390px 窄視窗）", async ({ page }) => {
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(OUT, `narrow-${p.id}.png`) });
     if (p.id === "connect") {
-      await page.getByRole("tab", { name: "裝置與提供者" }).click();
+      await page.getByRole("tab", { name: "裝置與來源" }).click();
       await page.getByRole("button", { name: "重新掃描" }).click();
       await expect(page.getByText(/感測器啟動：否/)).toBeVisible();
       await page.screenshot({ path: path.join(OUT, "narrow-hardware-scan.png") });
@@ -306,11 +214,13 @@ test("擷取：角色頁細節（能力摘要／外觀與名字／陪伴方式�
   await shot(page, "desktop-companion-library");
 
   // 匯入對話框：瀏覽器檢視必須誠實說匯入需要桌面版（仍可檢查角色檔）。
+  // 一般模式只有選檔；貼上角色描述檔原文的輸入框在進階模式。
   await page.getByRole("button", { name: "匯入角色…" }).click();
   const importDialog = page.getByRole("dialog", { name: "匯入角色" });
   await expect(importDialog).toBeVisible();
   await expect(importDialog.getByText(/匯入需要桌面版控制中心/)).toBeVisible();
-  await expect(importDialog.getByLabel("角色描述檔內容")).toBeVisible();
+  await expect(importDialog.getByLabel("選擇角色描述檔")).toHaveCount(1);
+  await expect(importDialog.getByLabel("角色描述檔內容")).toHaveCount(0);
   await shot(page, "desktop-companion-import");
   await page.keyboard.press("Escape");
   await expect(importDialog).toBeHidden();
@@ -361,11 +271,17 @@ test("擷取：工作 composer 填寫後的開始前預覽（桌面＋390px）",
   await expect(page.getByRole("button", { name: "開始", exact: true })).toBeDisabled();
   await task.fill("看一下這個資料夾的測試有沒有壞掉，跟我說結果就好，不要改任何檔案。");
   const preview = page.getByRole("group", { name: "開始前預覽" });
-  for (const term of ["使用哪個 Agent", "讀取範圍", "是否寫入", "工具", "時間、訊息與費用上限", "如何取消"]) {
+  for (const term of ["這次會讀取什麼", "會不會修改內容", "最多使用多少時間與費用"]) {
     await expect(preview.getByText(term, { exact: true })).toBeVisible();
   }
   await scrollTop(page.getByRole("heading", { name: "交代一件工作", exact: true }));
   await shot(page, "desktop-work-preview");
+  // 展開「查看技術細節」：Agent／工具／沙箱／工作目錄／上限／取消／原始授權範圍。
+  const techDetails = preview.locator("details.tech-details");
+  await techDetails.getByText("查看技術細節").click();
+  await expect(preview.getByText("原始授權範圍", { exact: true })).toBeVisible();
+  await scrollTop(preview);
+  await shot(page, "desktop-work-preview-details");
   await page.setViewportSize(NARROW);
   await scrollTop(preview);
   await shot(page, "narrow-work-preview");
@@ -487,7 +403,7 @@ test("擷取：工作四種誠實狀態（fixture agent：處理中／等你同�
   // 緊急停止那一支測試最後統一關閉（子程序是 fixture，stdin 收 EOF 就會結束）。
 });
 
-test("擷取：連接與權限四區＋角色 adapter 詳細資料（模擬 adapter，fixture，真 WebSocket 連線）", async ({
+test("擷取：連接與權限五區＋角色 adapter 詳細資料（模擬 adapter，fixture，真 WebSocket 連線）", async ({
   page,
   request,
 }) => {
@@ -545,8 +461,8 @@ test("擷取：連接與權限四區＋角色 adapter 詳細資料（模擬 adap
     await scrollTop(devices.getByRole("heading", { name: "角色" }));
     await shot(page, "desktop-connect-adapters");
 
-    // 全部能力與裝置 → 裝置與提供者：獨立的「角色如何接上系統」區。
-    await page.getByRole("tab", { name: "裝置與提供者" }).click();
+    // 全部能力與裝置 → 裝置與來源：獨立的「角色如何接上系統」區。
+    await page.getByRole("tab", { name: "裝置與來源" }).click();
     const hub = page.getByRole("heading", { name: "角色如何接上系統" });
     await expect(hub).toBeVisible();
     await scrollTop(hub);
@@ -721,14 +637,19 @@ test("擷取：首次成功體驗（設定 → 重新執行首次設定 → 精�
   await page.setViewportSize(DESKTOP);
   await openApp(page);
   await navigateTo(page, PAGES[4], false);
-  await page.getByRole("tablist", { name: "更多分類" }).getByRole("tab", { name: "設定" }).click();
+  await page.getByRole("tablist", { name: "更多分類" }).getByRole("tab", { name: "外觀與語言" }).click();
   await page.getByRole("button", { name: "重新執行首次設定" }).click();
   const wizard = page.getByRole("dialog", { name: "首次設定" });
   await expect(wizard).toBeVisible({ timeout: 15_000 });
-  for (let step = 0; step < 2; step += 1) {
-    await wizard.getByRole("button", { name: "下一步" }).click();
-  }
+  // 一步一步走（連按兩下會用到同一個 closure 的 step，第二下等於沒按）。
+  await expect(wizard.getByRole("heading", { name: "選擇角色與陪伴方式" })).toBeVisible();
+  await wizard.getByRole("button", { name: "下一步" }).click();
+  await expect(wizard.getByRole("heading", { name: /幫忙工作嗎？/ })).toBeVisible();
+  await wizard.getByRole("button", { name: "下一步" }).click();
+  await expect(wizard.getByRole("heading", { name: "確認安全與權限預設" })).toBeVisible();
   await wizard.getByRole("button", { name: "完成設定" }).click();
+  // 重新執行時多半「沒有任何變更」，但仍然要人按下「套用」才記錄完成。
+  await confirmApply(page);
   const firstSuccess = page.getByRole("dialog", { name: "首次成功體驗" });
   await expect(firstSuccess).toBeVisible({ timeout: 15_000 });
   await expect(
@@ -771,7 +692,7 @@ test("擷取：緊急停止狀態（放最後；真實觸發 → 擷取 → 安�
   test.setTimeout(120_000);
   await page.setViewportSize(DESKTOP);
   await openApp(page);
-  await page.getByRole("button", { name: "緊急停止", exact: true }).click();
+  await page.locator(".topbar").getByRole("button", { name: "緊急停止", exact: true }).click();
   await page.getByRole("button", { name: "立即停止一切？" }).click();
   await expect(page.getByText("緊急停止已啟動").first()).toBeVisible();
   const status = (await api(request, "GET", "/v1/status")) as { emergencyStop?: boolean };
@@ -779,14 +700,14 @@ test("擷取：緊急停止狀態（放最後；真實觸發 → 擷取 → 安�
   await capturePageMatrix(page, "emergency");
   await page.setViewportSize(DESKTOP);
   // 解除（讓 suite 保持乾淨收尾）。
-  await page.getByRole("button", { name: /緊急停止中 — 前往解除/ }).click();
+  await page.locator(".topbar").getByRole("button", { name: /緊急停止中 — 前往解除/ }).click();
   await page.getByRole("button", { name: /開始安全解除流程/ }).click();
   const dialog = page.getByRole("dialog", { name: "解除緊急停止" });
   await dialog.getByRole("button", { name: "我了解，解除緊急停止" }).click();
   await dialog.getByRole("button", { name: "確定解除？" }).click();
-  await expect(page.getByRole("button", { name: "緊急停止", exact: true })).toBeVisible({
-    timeout: 10_000,
-  });
+  await expect(
+    page.locator(".topbar").getByRole("button", { name: "緊急停止", exact: true })
+  ).toBeVisible({ timeout: 10_000 });
   // 收尾：關掉 evidence 建立的 fixture session（估計 estop 已把它們停了；關閉是冪等的收進歷史）。
   const sessions = (await api(request, "GET", "/v1/agent-sessions")) as { sessionId: string; state: string; label?: string | null }[];
   for (const s of sessions) {

@@ -1,14 +1,9 @@
 // 390px narrow-viewport navigation + keyboard accessibility（v0.5 五入口）。
 
 import { test, expect } from "@playwright/test";
+import { appUrl } from "./helpers";
 
 test.use({ viewport: { width: 390, height: 844 } });
-
-function appUrl(): string {
-  return `/?api=${encodeURIComponent(process.env.E2E_API!)}&token=${encodeURIComponent(
-    process.env.E2E_TOKEN!
-  )}`;
-}
 
 test("390px：底部導覽可抵達所有頁面，緊急停止保持可見", async ({ page }) => {
   await page.goto(appUrl());
@@ -20,18 +15,28 @@ test("390px：底部導覽可抵達所有頁面，緊急停止保持可見", asy
   await expect(bottomNav.getByText(/^(小樞|角色)$/)).toBeVisible();
   await expect(bottomNav.getByText("工作")).toBeVisible();
   await expect(bottomNav.getByText("連接與權限")).toBeVisible();
-  // Emergency stop stays reachable in the top bar.
-  await expect(page.getByRole("button", { name: "緊急停止", exact: true })).toBeVisible();
+  // Emergency stop stays reachable in the top bar（首頁快速操作也有一顆，需限定範圍）。
+  await expect(
+    page.locator(".topbar").getByRole("button", { name: "緊急停止", exact: true })
+  ).toBeVisible();
   // The "more" sheet reaches every remaining page.
   await bottomNav.getByRole("button", { name: "更多" }).click();
   const sheet = page.getByRole("dialog", { name: "更多功能" });
   await expect(sheet).toBeVisible();
-  for (const label of ["記憶與知識", "活動歷史", "設定", "角色與整合管理", "進階功能"]) {
+  for (const label of ["記憶與資料", "活動紀錄", "外觀與語言", "備份與還原", "進階模式"]) {
     await expect(sheet.getByText(label)).toBeVisible();
   }
-  await sheet.getByText("記憶與知識").click();
+  await sheet.getByText("記憶與資料").click();
   await expect(sheet).not.toBeVisible();
   await expect(page.getByText("關於我的記憶").first()).toBeVisible({ timeout: 10_000 });
+  // 再打開選單時，目前所在的細項要看得出來（regression: 細項永遠不高亮）。
+  await bottomNav.getByRole("button", { name: "更多" }).click();
+  await expect(sheet.getByRole("button", { name: "記憶與資料" })).toHaveAttribute(
+    "aria-current",
+    "page"
+  );
+  await expect(sheet.getByRole("button", { name: "活動紀錄" })).not.toHaveAttribute("aria-current");
+  await page.keyboard.press("Escape");
 });
 
 test("390px：鍵盤可操作底部導覽與更多選單", async ({ page }) => {
@@ -67,7 +72,10 @@ test("390px：「現在」第一屏的三個回答與快速操作都看得到、
   await expect(page.getByTestId("now-character")).toBeVisible();
   await expect(page.getByTestId("now-work")).toBeVisible();
   await expect(page.getByTestId("now-decisions")).toBeVisible();
-  for (const name of ["交代一件事", "暫停主動互動", "加入裝置"]) {
+  const homeEstop = page.locator(".home").getByRole("button", { name: "緊急停止", exact: true });
+  await homeEstop.scrollIntoViewIfNeeded();
+  await expect(homeEstop).toBeVisible();
+  for (const name of ["交代一件事", "暫停主動互動", "加入裝置", "停止所有感測"]) {
     const button = page.getByRole("button", { name });
     await button.scrollIntoViewIfNeeded();
     await expect(button).toBeVisible();

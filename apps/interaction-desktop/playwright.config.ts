@@ -13,10 +13,26 @@ export default defineConfig({
   workers: 1,
   timeout: 30_000,
   retries: 0,
+  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
   use: {
     baseURL: "http://127.0.0.1:5199",
     trace: "retain-on-failure",
   },
+  // 順序有意義（單一 worker、單一 daemon），而且不能只靠檔名字母序：
+  //  1. first-run —— 首次設定精靈只在 onboardingCompleted=false 時出現，所以
+  //     app.spec 必須跑在任何會完成精靈的 spec 之前。
+  //  2. main —— 其餘全部（含 evidence 的截圖矩陣）。
+  //  3. estop-last —— 緊急停止會撤銷同意、取消進行中的工作、停掉感測，
+  //     放最後才不會污染別人的狀態。
+  projects: [
+    { name: "first-run", testMatch: /app\.spec\.ts$/ },
+    {
+      name: "main",
+      testIgnore: [/app\.spec\.ts$/, /estop\.spec\.ts$/],
+      dependencies: ["first-run"],
+    },
+    { name: "estop-last", testMatch: /estop\.spec\.ts$/, dependencies: ["main"] },
+  ],
   webServer: {
     // In CI, serve the prebuilt dist (fast, no esbuild optimizeDeps cold
     // start that can exceed the timeout on a shared runner); locally use the
