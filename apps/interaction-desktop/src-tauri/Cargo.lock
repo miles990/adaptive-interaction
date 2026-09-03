@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "adapters-builtin"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2369,7 +2369,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-adapter-sdk"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2395,7 +2395,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-api"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "axum",
  "chrono",
@@ -2419,7 +2419,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-character"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "schemars 1.2.2",
@@ -2431,7 +2431,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2446,7 +2446,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-desktop"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2475,7 +2475,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-events"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -2486,7 +2486,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-policy"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -2497,7 +2497,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-recipe"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "humantime",
@@ -2512,7 +2512,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-registry"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -2528,7 +2528,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-runtime"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "adapters-builtin",
  "adapters-media",
@@ -2573,7 +2573,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-storage"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -2585,7 +2585,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-tool-schema"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "interaction-core",
  "schemars 1.2.2",
