@@ -11,3 +11,6 @@ apps/interaction-desktop/src-tauri/gen
 .claude/settings.local.json
 .claude/logs/
 __pycache__/
+
+# CodeGraph local index (machine-specific, never committed)
+.codegraph/
