@@ -24,7 +24,7 @@ export function SafetyPage({
   const { name } = useCharacterName();
   return (
     <div>
-      <EmergencySection refreshKey={refreshKey} />
+      <EmergencySection refreshKey={refreshKey} onNavigate={onNavigate} />
       <ConsentSection refreshKey={refreshKey} advanced={advanced} />
       <Section title="主動程度與安靜時段">
         <p className="muted small">
@@ -40,7 +40,13 @@ export function SafetyPage({
 // 緊急停止與安全恢復
 // ---------------------------------------------------------------------------
 
-function EmergencySection({ refreshKey }: { refreshKey: number }) {
+function EmergencySection({
+  refreshKey,
+  onNavigate,
+}: {
+  refreshKey: number;
+  onNavigate?: (tab: string) => void;
+}) {
   const [status, reloadStatus] = useAsync(() => api.status(), [refreshKey]);
   const [audit] = useAsync(() => api.auditTail(50), [refreshKey]);
   const [recovery, setRecovery] = React.useState(false);
@@ -100,13 +106,22 @@ function EmergencySection({ refreshKey }: { refreshKey: number }) {
             setRecovery(false);
             reloadStatus();
           }}
+          onNavigate={onNavigate}
         />
       )}
     </Section>
   );
 }
 
-function RecoveryDialog({ onClose, onCleared }: { onClose: () => void; onCleared: () => void }) {
+function RecoveryDialog({
+  onClose,
+  onCleared,
+  onNavigate,
+}: {
+  onClose: () => void;
+  onCleared: () => void;
+  onNavigate?: (tab: string) => void;
+}) {
   const { human } = useAppState();
   const [error, setError] = React.useState<string | null>(null);
   const [working, setWorking] = React.useState(false);
@@ -145,7 +160,13 @@ function RecoveryDialog({ onClose, onCleared }: { onClose: () => void; onCleared
       )}
       {stayDisabled.length > 0 && (
         <>
-          <p>以下能力你先前已停用，解除後仍為停用，要用得先到「回應方式」重新啟用：</p>
+          {/* v0.5 IA：沒有叫「回應方式」的一級頁面——它是「連接與權限 → 裝置與能力
+              → 全部能力與裝置」折疊區裡的第三層分頁。指路要指得到，且附一個
+              真的能走的按鈕（不能只丟一句話讓人自己找）。 */}
+          <p>
+            以下能力你先前已停用，解除後仍為停用，要用得先到「連接與權限 → 裝置與能力」
+            重新啟用：
+          </p>
           <ul className="plain-list">
             {stayDisabled.map((a) => (
               <li key={a.id}>
@@ -153,6 +174,16 @@ function RecoveryDialog({ onClose, onCleared }: { onClose: () => void; onCleared
               </li>
             ))}
           </ul>
+          {onNavigate && (
+            <button
+              onClick={() => {
+                onClose();
+                onNavigate("connect");
+              }}
+            >
+              前往「裝置與能力」
+            </button>
+          )}
         </>
       )}
       {error && <p className="cap-card-error" role="alert">{error}</p>}

@@ -449,9 +449,14 @@ button.estop.danger, .estop.danger { color: #fff; background: var(--bad); }
   background: #4a2d10; color: #ffd9a8; padding: 8px 16px; font-size: 13px;
   border-bottom: 1px solid var(--warn);
 }
+/* 固定深色（不隨 --warn 隨主題變動）：companion／overlay 視窗目前不套用
+   使用者選的外觀（main.tsx 只對主視窗寫 data-theme），淺色主題下
+   var(--warn) 換成深琥珀後配 #221600 只剩約 3.7:1，低於 11px 粗體文字
+   需要的 4.5:1。跟 .sensor-banner 用同一組固定色（對比約 9.4:1），
+   感測標籤不因主視窗主題選擇而變得難以辨識。 */
 .companion-sensor-label {
   position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
-  background: var(--warn); color: #221600; font-size: 11px; font-weight: 700;
+  background: #4a2d10; color: #ffd9a8; font-size: 11px; font-weight: 700;
   border-radius: 6px; padding: 2px 8px; z-index: 6; white-space: nowrap;
 }
 

@@ -33,7 +33,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayHandles> {
     let pause_hour = MenuItem::with_id(app, "pause_hour", "暫停一小時", true, None::<&str>)?;
     let stop_sensors = MenuItem::with_id(app, "stop_sensors", "停止所有感測", true, None::<&str>)?;
     let estop = MenuItem::with_id(app, "estop", "緊急停止", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", "設定…", true, None::<&str>)?;
+    // 標籤要對得上落地頁：id "settings" 導到 MorePage initial="settings"，
+    // 分頁標籤是「外觀與語言」（MorePage.tsx MORE_TABS）——v0.5 一級導覽／分頁
+    // 標籤都沒有「設定」這個名字，選單文案不能自己發明一個查無對應的頁名。
+    let settings = MenuItem::with_id(app, "settings", "外觀與語言…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "完全結束", true, None::<&str>)?;
 
     let menu = Menu::with_items(

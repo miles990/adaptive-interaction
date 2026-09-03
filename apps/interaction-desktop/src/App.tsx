@@ -130,7 +130,7 @@ export function titleFor(tab: string, characterName?: string): string {
   return (
     SIMPLE_NAV.find((t) => t.id === anchor)?.label ??
     ADVANCED_NAV.find((t) => t.id === anchor)?.label ??
-    ""
+    "未知頁面"
   );
 }
 
@@ -200,7 +200,7 @@ export function SensorBanner({
   return (
     <div className="sensor-banner" role="status">
       {sensors.map((s) => (
-        <span key={s.kind}>
+        <span key={`${s.kind}#${s.startedBy}`}>
           {s.kind === "microphone" ? "🎙 正在使用麥克風" : `感測使用中：${sensorKindLabel(s.kind)}`}
           （由{" "}
           <span title={advanced ? s.startedBy : undefined}>{sensorStartedByLabel(s.startedBy)}</span>{" "}
@@ -707,59 +707,70 @@ export function NotificationPanel({
   // 徽章用的是截斷前的全量 pendingCount；本頁（最多 10 筆）裝不下的要照實說「還有 N 項」。
   const decisions = decisionPage(inbox, 10);
   return (
-    <div
-      className="notification-panel"
-      role="dialog"
-      aria-modal="true"
-      aria-label="通知中心"
-      tabIndex={-1}
-      ref={ref}
-      onKeyDown={onKeyDown}
-    >
-      <div className="row space-between">
-        <strong>待你決定</strong>
-        <button onClick={onClose}>關閉</button>
-      </div>
-      {!inbox ? (
-        <div className="state-box state-error">目前無法確認通知狀態。</div>
-      ) : decisions.shown.length === 0 && decisions.notShown === 0 && !decisions.exact ? (
-        // 後端說 pendingCount 只是下限：這一頁空的不代表沒有待決定。
-        <div className="state-box" role="status">
-          {PENDING_INCOMPLETE_NOTE}。
+    // aria-modal="true" 現在是誠實的：套用跟 components/Dialog.tsx 同一套真 modal
+    // 行為——共用的 .dialog-backdrop（點外面關閉）＋焦點陷阱＋Escape 關閉。修復前
+    // 這裡沒有 backdrop，頂列的緊急停止按鈕在面板開著時仍可被滑鼠點到，但宣稱
+    // aria-modal 會讓螢幕閱讀器使用者以為面板外的內容不存在，兩者行為不一致。
+    // 现在跟 App 裡其餘的 Dialog（RecoveryDialog／CloseDialog／GlobalSearch）
+    // 一樣：面板開著時 Escape／「關閉」隨時能立刻收起，不影響「隨時能停」。
+    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div
+        className="notification-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="通知中心"
+        tabIndex={-1}
+        ref={ref}
+        onKeyDown={onKeyDown}
+      >
+        <div className="row space-between">
+          <strong>待你決定</strong>
+          <button onClick={onClose}>關閉</button>
         </div>
-      ) : decisions.shown.length === 0 && decisions.notShown === 0 ? (
-        <div className="state-box">目前沒有待決定事項。</div>
-      ) : (
-        <>
-          {decisions.shown.length > 0 && (
-            <ul className="plain-list">
-              {decisions.shown.map((item) => (
-                <li key={`${String(item.kind)}-${String(item.itemId)}`} className="row space-between">
-                  <span>
-                    <Badge kind="warn">{inboxStatusLabel(String(item.status))}</Badge>{" "}
-                    {inboxItemTitle(item)}
-                  </span>
-                  <button onClick={() => onNavigate(String(item.route))}>前往</button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {decisions.notShown > 0 && (
-            // 誠實：徽章數來自全量，這一頁裝不下（或舊 daemon 只給最近 20 筆）——
-            // 不得宣稱「沒有待決定事項」。
-            <div className="state-box" role="status">
-              {decisions.exact ? "還有" : "至少還有"} {decisions.notShown}{" "}
-              項待決定不在這一頁，前往活動歷史。
-            </div>
-          )}
-          {decisions.notShown === 0 && !decisions.exact && (
-            <div className="state-box" role="status">
-              {PENDING_INCOMPLETE_NOTE}。
-            </div>
-          )}
-        </>
-      )}
-      <button onClick={() => onNavigate("activity")}>查看完整活動歷史</button>
+        {!inbox ? (
+          <div className="state-box state-error">目前無法確認通知狀態。</div>
+        ) : decisions.shown.length === 0 && decisions.notShown === 0 && !decisions.exact ? (
+          // 後端說 pendingCount 只是下限：這一頁空的不代表沒有待決定。
+          <div className="state-box" role="status">
+            {PENDING_INCOMPLETE_NOTE}。
+          </div>
+        ) : decisions.shown.length === 0 && decisions.notShown === 0 ? (
+          <div className="state-box">目前沒有待決定事項。</div>
+        ) : (
+          <>
+            {decisions.shown.length > 0 && (
+              <ul className="plain-list">
+                {decisions.shown.map((item) => (
+                  <li
+                    key={`${String(item.kind)}-${String(item.itemId)}`}
+                    className="row space-between"
+                  >
+                    <span>
+                      <Badge kind="warn">{inboxStatusLabel(String(item.status))}</Badge>{" "}
+                      {inboxItemTitle(item)}
+                    </span>
+                    <button onClick={() => onNavigate(String(item.route))}>前往</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {decisions.notShown > 0 && (
+              // 誠實：徽章數來自全量，這一頁裝不下（或舊 daemon 只給最近 20 筆）——
+              // 不得宣稱「沒有待決定事項」。
+              <div className="state-box" role="status">
+                {decisions.exact ? "還有" : "至少還有"} {decisions.notShown}{" "}
+                項待決定不在這一頁，前往活動歷史。
+              </div>
+            )}
+            {decisions.notShown === 0 && !decisions.exact && (
+              <div className="state-box" role="status">
+                {PENDING_INCOMPLETE_NOTE}。
+              </div>
+            )}
+          </>
+        )}
+        <button onClick={() => onNavigate("activity")}>查看完整活動歷史</button>
+      </div>
     </div>
   );
 }
@@ -1090,6 +1101,14 @@ export function PageBody({
     case "adv-knowledge":
       return <KnowledgeAdvancedPage refreshKey={refreshKey} />;
     default:
-      return null;
+      // 未知路由不得靜默空白：外部 daemon（supervisor mode "external"）版本可能領先
+      // 前端，收件匣「前往」按鈕把後端給的 route 字串未經白名單直接餵進 goTo。
+      // 不確定要說不確定，並留一條回得去的路（回到「現在」），不是一片空白。
+      return (
+        <div className="state-box state-error" role="alert">
+          <p>找不到這個頁面。這個項目要開的頁面，這個版本的控制中心還不認得。</p>
+          <button onClick={() => onNavigate("home")}>回到「現在」</button>
+        </div>
+      );
   }
 }
