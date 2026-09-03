@@ -76,8 +76,12 @@ export class MyTextAdapter implements CharacterAdapter {
 
 - 沒有表情？不要宣告 `visual.expression`。協商會把需要表情的 intent 解析成 `substituted`（走 `visual.pose`／
   `visual.textBubble`／`audio.*`）或 `unsupported`；安全 intent 永遠會落到 Runtime 的 `system.text`。
-- 純聲音／燈光角色：只宣告 `audio.speech`／`audio.effect`／`light.cue`；工作／等待／阻擋／未知／聲稱完成／已驗證／
-  失敗全部都能透過這些通道表達（測試 `negotiation.rs::pure_audio_character` 證明）。
+- 純聲音／燈光角色：只宣告 `audio.speech`／`audio.effect`／`light.cue` 也能演：**只要你在 `intents` 裡宣告接得住**，
+  工作／思考／等待／未知／取消／阻擋／失敗／聲稱完成／已驗證都會解析到這些通道（`exact`，`via` 是 `audio.*`／`light.cue`）。
+  沒有在 `intents` 宣告的 intent 不會被假裝支援：安全 intent 落到 Runtime 的 `system.text`，非安全 intent 誠實 `unsupported`；
+  也可以用 `fallbacks.capabilities`（例如 `"visual.expression": ["audio.effect"]`）把視覺 intent 導到聲音，結果是 `substituted`。
+  兩種情形分別由 `negotiation.rs::pure_audio_character_expresses_work_wait_unknown_when_it_offers_them` 與
+  `negotiation.rs::pure_audio_character_still_resolves_all_safety_intents` 證明。
 - 自訂通道：`com.example.character.wings`（至少三段）。它會被接受但標 `nonSafety`——**不能影響安全搶占**。
 
 ## 3. 如何接收 intent
@@ -117,8 +121,13 @@ in-process：`onInput(cb)` 收到的 callback 呼叫 `cb({ kind: "character.clic
 kind:"character.text-submitted", payload:{ text }, privacyClass:"personal" }}`。
 
 Gateway 會正規化與節流：hover ≤ 4/s、drag ≤ 10/s（合併、8 px 量化）、佇列 64、絕對座標／檔案路徑一律丟棄。
-`character.action-requested{action}` 只是**請求**——Gateway 轉成 `companion.quick-action` 觀察，仍要過 Runtime
-policy／consent；角色點擊永遠不會直接啟動 Agent、操作硬體或碰檔案系統。
+`character.action-requested{action}` 只是**請求**——桌面（可信 host 表面）的事件會被 Gateway 轉成
+`companion.quick-action` 觀察，仍要過 Runtime policy／consent；角色點擊永遠不會直接啟動 Agent、操作硬體或碰檔案系統。
+
+**外部 adapter 的輸入事件不會變成觀察**：你送的 `event` 會被正規化、計入速率預算並留下稽核
+（`character.input-not-observed`；HTTP 回 `{"decision":"audit-only","reason":"external-adapter-input-not-observed"}`），
+但不會寫進 `companion.*` 受器，因此不會觸發配方、也不會被當成「使用者回應了」。
+adapter token 不能呼叫 actuator，同理也不能合成人類互動——要讓使用者的操作進入 Runtime，請走桌面表面。
 
 ## 6. 如何處理 cancel、Emergency、Reduced Motion
 
@@ -129,6 +138,8 @@ policy／consent；角色點擊永遠不會直接啟動 Agent、操作硬體或�
   emergency 演成慶祝，也不能因為「尾巴動畫不支援」而不演。安全文字由 host 顯示，你不必也不能覆寫。
 - Reduced Motion：`hello.reducedMotion=true` 時，協商會依你宣告的 `reducedMotionBehavior` 把解析結果標成
   `reduced`；你的 `perform` 要真的靜態（不要只是變慢）。執行中切換時 host 會重新協商或呼叫 `reconfigure`。
+  這個值由可信 host（桌面視窗）回報給 Runtime，Runtime 是唯一的主人；你回執裡的 `resolution` 只能比協商結果
+  **更差**（誠實降級），回 `exact` 不會讓它變回 `exact`。
 
 ## 7. 如何加入自訂 channel
 
@@ -174,8 +185,15 @@ Fallback 只會讓解析結果**變差**（`exact → substituted → reduced �
   emergency 搶占、cancel 冪等、suspend 停 rAF）。
 - 外部：先用 `interact-ai character intent notice` 手動送一個非安全 intent（CLI **拒絕**送安全 intent——安全
   truthState 只能來自 Runtime 事件），看 `interact-ai character instances` 與 `events` 裡的 `character.receipt`。
-- Rust 端的權威驗證：`cargo test -p interaction-character`（manifest 驗證、協商、gateway 99 個案例）；
+- Rust 端的權威驗證：`cargo test -p interaction-character`（manifest 驗證、協商、gateway 案例）；
   JSON Schema：`schemas/character-protocol.schema.json`。
+- **第三方一致性測試**：`crates/interaction-character/tests/conformance.rs` 會對
+  `examples/character-adapters/*.manifest.json` 與 `apps/interaction-desktop/public/characters/*/manifest.json`
+  逐一驗收。要驗你自己的 manifest（不必放進這個 repo），用 `:` 分隔路徑（檔案或目錄都可以）餵給它：
+  `CPP_CONFORMANCE_MANIFESTS=/path/to/my.manifest.json:/path/to/more cargo test -p interaction-character --test conformance`。
+  它檢查四件事：manifest 通過驗證、20 個 intent 全部有解析結果且安全 intent 永不 `unsupported`、
+  `claimed` 不會被換成 `verified`（含 `fallbacks.intents` 與變體名）、`emergency` 的 priority floor 仍是 100 且不會遺失。
+  路徑不存在會直接失敗（不會靜默跳過）。
 - 什麼算「已測試」：只有真的跑過閉環（hello→negotiate→intent→receipt）才會在連接頁顯示「已測試」；
   原始碼存在、編譯成功、fixture 通過都不算真機驗收。
 

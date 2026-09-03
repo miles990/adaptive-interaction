@@ -10,7 +10,7 @@
 use chrono::Utc;
 use interaction_character::{
     encode_wire, CharacterInputEvent, CharacterIntent, CharacterManifest, CommandReceipt,
-    DisconnectReason, InputEventKind, Negotiate, ReceiptStatus, WireMessage,
+    DisconnectReason, InputEventKind, Negotiate, ReceiptStatus, TruthState, WireMessage,
 };
 use interaction_core::*;
 use interaction_runtime::character::{
@@ -1471,7 +1471,9 @@ async fn external_adapter_transport_attaches_negotiates_and_times_out() {
     assert_eq!(entry["tested"], true);
     assert_eq!(entry["connected"], true);
 
-    // 外部 adapter 的 text-submitted 不受桌面隱藏閘門影響 → companion.text-input。
+    // safety-invariants-077／character-protocol-043：外部 adapter（只有 adapter token）
+    // 的互動事件不得變成桌面表面受器的觀察——那會繞過隱藏閘門、觸發 recipe，
+    // 並用假的「使用者有回應」解除主動對話退避。只留稽核，不產生觀察。
     rt.start_session(Some("t".into()), None, vec![]).await.ok();
     let event = WireMessage::Event {
         event: CharacterInputEvent {
@@ -1490,8 +1492,19 @@ async fn external_adapter_transport_attaches_negotiates_and_times_out() {
     rt.character_ws_message(&instance_id, session.conn_id, &encode_wire(&event).unwrap())
         .await;
     let texts = observations(&rt, "companion.text-input").await;
-    assert_eq!(texts.len(), 1);
-    assert_eq!(texts[0].facts["text"], "hello from fixture");
+    assert_eq!(
+        texts.len(),
+        0,
+        "外部 adapter 不得合成 companion.text-input 觀察"
+    );
+    assert!(
+        rt.store
+            .audit_tail(200)
+            .unwrap_or_default()
+            .iter()
+            .any(|row| row["kind"] == "character.input-not-observed"),
+        "被擋下的外部輸入必須留下稽核（不是靜默丟棄）"
+    );
 
     // 超過 64 KB → error{too-large}（不斷線）；runtime→adapter 方向的訊息 → wrong-direction。
     let big = format!(
@@ -1934,4 +1947,242 @@ async fn ws_adapter_dropping_mid_safety_intent_yields_uncertain_and_system_text(
         "{}",
         last.payload
     );
+}
+
+/// safety-invariants-076：緊急停止**期間**才連上（或重連）的外部角色，也必須立刻收到
+/// emergency 投影。`character_project` 只送給投影當下已連線的 instance，而 adapter token
+/// 被禁止讀 `/v1/status`，所以沒有第二條路可查——手機路徑早有同款補投。
+#[tokio::test]
+async fn external_adapter_connecting_during_emergency_stop_gets_the_emergency_projection() {
+    let (_g, rt) = runtime().await;
+    // 先進入緊急停止（此時還沒有任何角色連線）。
+    rt.emergency_stop("test", None).await.unwrap();
+    assert!(rt.is_estopped());
+
+    let added = rt
+        .character_adapter_add("fixture", fixture_manifest())
+        .await
+        .unwrap();
+    let adapter_id = added["adapterId"].as_str().unwrap().to_string();
+    let instance_id = adapter_instance_id(&adapter_id);
+    let mut session = rt.character_ws_attach(&adapter_id).await.unwrap();
+    match session.rx.recv().await.expect("hello first") {
+        WireMessage::Hello(_) => {}
+        other => panic!("first message must be hello, got {}", other.kind()),
+    }
+
+    // 協商完成後：不需要任何新的 estop 轉換，就要收到 emergency。
+    let negotiate = WireMessage::Negotiate(Negotiate::from_manifest(&fixture_manifest(), 1));
+    rt.character_ws_message(
+        &instance_id,
+        session.conn_id,
+        &encode_wire(&negotiate).unwrap(),
+    )
+    .await;
+    let mut emergency = None;
+    while let Ok(message) =
+        tokio::time::timeout(std::time::Duration::from_millis(500), session.rx.recv()).await
+    {
+        match message {
+            Some(WireMessage::Intent { envelope }) => {
+                if envelope.intent == CharacterIntent::Emergency {
+                    emergency = Some(envelope);
+                    break;
+                }
+            }
+            Some(_) => continue,
+            None => break,
+        }
+    }
+    let envelope = emergency.expect("重連時仍在緊急停止中的角色必須立刻收到 emergency 投影");
+    assert_eq!(envelope.character_instance_id, instance_id);
+    assert_eq!(envelope.truth_state, TruthState::Emergency);
+    assert!(rt
+        .store
+        .audit_tail(200)
+        .unwrap_or_default()
+        .iter()
+        .any(|row| row["kind"] == "character.estop-resync"));
+
+    // 未在緊急停止中時不補投（不無故製造 emergency）。
+    rt.clear_emergency_stop("test").await.unwrap();
+    let added2 = rt
+        .character_adapter_add("fixture-2", fixture_manifest())
+        .await
+        .unwrap();
+    let adapter2 = added2["adapterId"].as_str().unwrap().to_string();
+    let instance2 = adapter_instance_id(&adapter2);
+    let mut session2 = rt.character_ws_attach(&adapter2).await.unwrap();
+    let _ = session2.rx.recv().await;
+    rt.character_ws_message(
+        &instance2,
+        session2.conn_id,
+        &encode_wire(&WireMessage::Negotiate(Negotiate::from_manifest(
+            &fixture_manifest(),
+            1,
+        )))
+        .unwrap(),
+    )
+    .await;
+    let mut sent_emergency = false;
+    while let Ok(Some(message)) =
+        tokio::time::timeout(std::time::Duration::from_millis(200), session2.rx.recv()).await
+    {
+        if let WireMessage::Intent { envelope } = message {
+            if envelope.intent == CharacterIntent::Emergency {
+                sent_emergency = true;
+            }
+        }
+    }
+    assert!(!sent_emergency, "沒有緊急停止時不得補投 emergency");
+}
+
+/// character-protocol-042：AI 的 presentation 命令會廣播給所有已連線角色，但「AI 眼中的結果」
+/// 只能由桌面本尊決定。只有 adapter token 的外部角色搶先回 completed，不得替桌面結案。
+#[tokio::test]
+async fn only_the_desktop_instance_settles_an_ai_presentation_command() {
+    let (_g, rt) = runtime().await;
+    hello(&rt, true).await;
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    let added = rt
+        .character_adapter_add("fixture", fixture_manifest())
+        .await
+        .unwrap();
+    let adapter_id = added["adapterId"].as_str().unwrap().to_string();
+    let external = adapter_instance_id(&adapter_id);
+    let mut session = rt.character_ws_attach(&adapter_id).await.unwrap();
+    let _ = session.rx.recv().await;
+    rt.character_ws_message(
+        &external,
+        session.conn_id,
+        &encode_wire(&WireMessage::Negotiate(Negotiate::from_manifest(
+            &fixture_manifest(),
+            1,
+        )))
+        .unwrap(),
+    )
+    .await;
+
+    let receipts = plan_and_execute(
+        &rt,
+        "companion.state.present",
+        json!({"behaviorIntent": "think"}),
+        None,
+    )
+    .await;
+    let action_id = receipts[0].action_id.clone();
+    let mid = action_id.as_str();
+
+    // 外部角色搶先宣告演完了：只進 audit／事件，不推進 presentation receipt。
+    for status in [
+        ReceiptStatus::Accepted,
+        ReceiptStatus::Started,
+        ReceiptStatus::Completed,
+    ] {
+        let msg = WireMessage::Receipt {
+            receipt: CommandReceipt::new(mid, &external, 1, status, Utc::now()),
+        };
+        rt.character_ws_message(&external, session.conn_id, &encode_wire(&msg).unwrap())
+            .await;
+    }
+    let action = rt.get_action(&action_id).unwrap();
+    assert_ne!(
+        action.current_status,
+        ActionStatus::Completed,
+        "外部 adapter 不得替桌面把 AI 的呈現命令標成完成"
+    );
+
+    // 桌面回報真實結果（失敗）才算數。
+    rt.character_receipt(DESKTOP_INSTANCE_ID, receipt(mid, 1, ReceiptStatus::Failed))
+        .await
+        .unwrap();
+    let action = rt.get_action(&action_id).unwrap();
+    assert_eq!(
+        action.current_status,
+        ActionStatus::Failed,
+        "桌面的真實失敗必須反映在 AI 看得到的 receipt 上"
+    );
+}
+
+/// safety-invariants-077／character-protocol-043：外部 adapter 的 action-requested
+/// 不得變成 `companion.quick-action` 觀察（那會觸發 recipe 並解除主動對話退避）。
+#[tokio::test]
+async fn external_adapter_cannot_forge_human_interaction_observations() {
+    let (_g, rt) = runtime().await;
+    hello(&rt, true).await;
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    let added = rt
+        .character_adapter_add("fixture", fixture_manifest())
+        .await
+        .unwrap();
+    let adapter_id = added["adapterId"].as_str().unwrap().to_string();
+    let external = adapter_instance_id(&adapter_id);
+    let mut session = rt.character_ws_attach(&adapter_id).await.unwrap();
+    let _ = session.rx.recv().await;
+    rt.character_ws_message(
+        &external,
+        session.conn_id,
+        &encode_wire(&WireMessage::Negotiate(Negotiate::from_manifest(
+            &fixture_manifest(),
+            1,
+        )))
+        .unwrap(),
+    )
+    .await;
+
+    for (kind, payload) in [
+        (InputEventKind::ActionRequested, json!({"action": "run"})),
+        (InputEventKind::Clicked, json!({})),
+        (InputEventKind::TextSubmitted, json!({"text": "hi"})),
+    ] {
+        let event = CharacterInputEvent {
+            protocol_version: "1.0".into(),
+            event_id: format!("evt-{kind:?}"),
+            character_instance_id: external.clone(),
+            generation: 1,
+            timestamp: Utc::now(),
+            kind,
+            payload: payload
+                .as_object()
+                .map(|m| m.clone().into_iter().collect())
+                .unwrap_or_default(),
+            privacy_class: Default::default(),
+        };
+        let out = rt.character_event(&external, event).await.unwrap();
+        assert_eq!(
+            out["decision"], "audit-only",
+            "外部輸入必須誠實回報沒有變成觀察：{out}"
+        );
+        assert_eq!(out["reason"], "external-adapter-input-not-observed");
+    }
+    for receptor in [
+        "companion.quick-action",
+        "companion.click",
+        "companion.text-input",
+    ] {
+        assert_eq!(
+            observations(&rt, receptor).await.len(),
+            0,
+            "{receptor} 不得由外部 adapter 產生觀察"
+        );
+    }
+    assert!(rt
+        .store
+        .audit_tail(200)
+        .unwrap_or_default()
+        .iter()
+        .any(|row| row["kind"] == "character.input-not-observed"));
+
+    // 對照組：桌面（可信 host 表面）的同一則事件仍然正常變成觀察。
+    rt.character_event(
+        DESKTOP_INSTANCE_ID,
+        input_event(InputEventKind::ActionRequested, 1, json!({"action": "run"})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(observations(&rt, "companion.quick-action").await.len(), 1);
 }

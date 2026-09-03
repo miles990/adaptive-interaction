@@ -1,6 +1,8 @@
 // CPP §13（TS 側）：protocol 常數、manifest 驗證（含惡意輸入）、舊 pack 遷移、
 // 協定版本協商、能力協商（exact／substituted／reduced／unsupported）、fallback 確定性。
 
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import shuStandard from "../../public/packs/shu-standard/manifest.json";
 import shuLively from "../../public/packs/shu-lively/manifest.json";
@@ -20,6 +22,7 @@ import {
   CHARACTER_ROLES,
   Hello,
   INPUT_EVENT_KINDS,
+  INTENT_CAPABILITIES,
   isSafetyIntent,
   LIMITS,
   Negotiate,
@@ -515,5 +518,48 @@ describe("協商（§3.3／§3.4）", () => {
       expect(resolveIntent(intent, o, o.fallbacks!, true)).toEqual(a.resolutions[intent]);
     }
     expect(a.resolutions.think).toEqual({ resolution: "reduced", via: "visual.expression", viaIntent: "work" });
+  });
+});
+
+// character-protocol-041：Rust 是權威、TS 是鏡射。兩邊各自維護 intent→能力表時會靜默漂移，
+// 同一份 manifest 在 Runtime gateway 與視窗 gateway 得到不同的 resolution／via。
+// golden 由 Rust 產生（UPDATE_CPP_GOLDEN=1 cargo test -p interaction-character
+// --test intent_capabilities_golden），這裡對它逐項斷言。
+describe("§3.4 intent→能力表：TS 鏡射必須與 Rust 權威逐字相同", () => {
+  const goldenPath = path.resolve("../../crates/interaction-character/tests/golden/intent-capabilities.json");
+  const golden = JSON.parse(fs.readFileSync(goldenPath, "utf8")) as Record<string, string[]>;
+
+  it("20 個 intent 全部在 golden 裡", () => {
+    expect(Object.keys(golden).sort()).toEqual([...CHARACTER_INTENTS].sort());
+  });
+
+  it("每個 intent 的候選能力清單與順序都相同", () => {
+    for (const intent of CHARACTER_INTENTS) {
+      expect([...INTENT_CAPABILITIES[intent]], `intent ${intent} 的能力清單與 Rust 權威不符`).toEqual(
+        golden[intent]
+      );
+    }
+  });
+
+  it("同一份「只有 LED／particle／overlay／玩具能力」的 manifest 解析結果與 Rust 相同", () => {
+    // 這正是 Rust 與 TS 曾經分歧的 6 個 intent（verified-success／offline／emergency／play／rest／sleep）。
+    const o = offer({
+      capabilities: {
+        "visual.presence": { supported: true },
+        "visual.particles": { supported: true },
+        "visual.overlay": { supported: true },
+        "gameplay.toys": { supported: true },
+        "visual.locomotion": { supported: true },
+      },
+      intents: [...CHARACTER_INTENTS],
+      fallbacks: {},
+    });
+    const n = negotiate(hello(), o);
+    expect(n.resolutions["verified-success"]).toEqual({ resolution: "exact", via: "visual.particles" });
+    expect(n.resolutions.offline).toEqual({ resolution: "exact", via: "visual.presence" });
+    expect(n.resolutions.emergency).toEqual({ resolution: "exact", via: "visual.overlay" });
+    expect(n.resolutions.play).toEqual({ resolution: "exact", via: "gameplay.toys" });
+    expect(n.resolutions.rest).toEqual({ resolution: "exact", via: "visual.presence" });
+    expect(n.resolutions.sleep).toEqual({ resolution: "exact", via: "visual.presence" });
   });
 });

@@ -70,7 +70,15 @@ export interface SystemTextMessage {
   truthState: TruthState;
   text: string;
   marker: "verified" | "none";
-  reason: "negotiated" | "no-instance" | "adapter-failed" | "adapter-crashed" | "adapter-silent" | "rejected";
+  reason:
+    | "negotiated"
+    | "no-instance"
+    | "adapter-failed"
+    | "adapter-crashed"
+    | "adapter-silent"
+    | "rejected"
+    /** 終態既非 completed 也非 failed（unsupported／cancelled／expired／uncertain）：沒演到，一樣要補文字。 */
+    | "not-presented";
 }
 
 export interface AuditEntry {
@@ -960,8 +968,11 @@ export class CharacterGateway {
 
   private finalize(inst: Instance, p: Pending, status: ReceiptStatus, reason?: SystemTextMessage["reason"]) {
     this.forget(inst, p, status);
-    if (status === "failed" && p.safety) {
-      this.systemText(inst, p.envelope, reason ?? "adapter-failed");
+    // 安全 intent 只有 completed 算演到使用者眼前。其餘任何終態（failed／unsupported／
+    // cancelled／expired／uncertain）都代表訊息沒送到，一律補 system.text——否則 adapter
+    // 只要挑一個合法終態就能吞掉 emergency／blocked／request-consent／offline。
+    if (p.safety && status !== "completed") {
+      this.systemText(inst, p.envelope, reason ?? (status === "failed" ? "adapter-failed" : "not-presented"));
     }
     if (status === "completed" || status === "expired") {
       if (p.resumeOf && p.envelope.resumePolicy === "resume-previous") {

@@ -204,7 +204,75 @@ fn conform(path: &Path, manifest: &CharacterManifest) -> Negotiated {
         delivered,
         "{label}: emergency 必須送到 adapter 或落到 system.text，不得遺失"
     );
+
+    // 6. 安全訊息永不遺失：adapter 用任何「非 completed」的合法終態結束一個安全 intent，
+    //    Gateway 都必須補 system.text（呈現層對安全訊息沒有否決權）。
+    let terminal_but_not_presented = [
+        ReceiptStatus::Unsupported,
+        ReceiptStatus::Cancelled,
+        ReceiptStatus::Uncertain,
+        ReceiptStatus::Expired,
+        ReceiptStatus::Failed,
+    ];
+    for intent in CharacterIntent::ALL.iter().filter(|i| i.is_safety()) {
+        for status in terminal_but_not_presented {
+            let message_id = format!("cpp-safety-{intent}-{}", status_slug(status));
+            let envelope = IntentEnvelope::from_runtime(
+                &message_id,
+                id.as_str(),
+                Some("conformance-safety".into()),
+                *intent,
+                TruthState::None,
+                0,
+                t(2),
+                t(62),
+            );
+            let out = gw.dispatch(&id, envelope, t(2));
+            // 零能力／system.text 解析時，安全訊息在派送當下就已經落地了。
+            if out
+                .iter()
+                .any(|o| matches!(o, GatewayOutput::SystemText { .. }))
+            {
+                continue;
+            }
+            let sent = out.iter().any(|o| {
+                matches!(o, GatewayOutput::Send { message: WireMessage::Intent { envelope }, .. }
+                    if envelope.message_id == message_id)
+            });
+            assert!(
+                sent,
+                "{label}: 安全 intent {intent} 既沒送到 adapter 也沒落 system.text"
+            );
+            let generation = gw.generation(&id).unwrap_or(0);
+            let out = gw.on_receipt(
+                &id,
+                CommandReceipt::new(&message_id, id.as_str(), generation, status, t(3)),
+                t(3),
+            );
+            assert!(
+                out.iter().any(
+                    |o| matches!(o, GatewayOutput::SystemText { intent: got, .. } if got == intent)
+                ),
+                "{label}: 安全 intent {intent} 被 adapter 用 {status:?} 結束後必須補 system.text"
+            );
+        }
+    }
     negotiated
+}
+
+fn status_slug(status: ReceiptStatus) -> &'static str {
+    match status {
+        ReceiptStatus::Unsupported => "unsupported",
+        ReceiptStatus::Cancelled => "cancelled",
+        ReceiptStatus::Uncertain => "uncertain",
+        ReceiptStatus::Expired => "expired",
+        ReceiptStatus::Failed => "failed",
+        ReceiptStatus::Completed => "completed",
+        ReceiptStatus::Accepted => "accepted",
+        ReceiptStatus::Acknowledged => "acknowledged",
+        ReceiptStatus::Scheduled => "scheduled",
+        ReceiptStatus::Started => "started",
+    }
 }
 
 #[test]

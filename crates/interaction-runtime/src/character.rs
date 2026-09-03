@@ -126,6 +126,11 @@ struct Connection {
 struct AiCommand {
     action_id: String,
     command: &'static str,
+    /// 只有這個 instance 的終態回執可以結算 presentation receipt（其餘只進 audit／事件）。
+    /// 同一則命令會廣播給所有已連線角色，但「AI 眼中的結果」必須由桌面本尊決定——
+    /// 否則只有 adapter token 的外部角色搶先回一則 completed／failed，就替桌面決定了
+    /// actuator 的終態（§8.2：adapter token 不能呼叫 actuator）。
+    settle_instance: String,
 }
 
 /// messageId → AI 命令；有界（256），最舊者先出。
@@ -664,7 +669,13 @@ impl CharacterHub {
         }
     }
 
-    fn remember_ai_command(&self, message_id: &str, action_id: &str, command: &'static str) {
+    fn remember_ai_command(
+        &self,
+        message_id: &str,
+        action_id: &str,
+        command: &'static str,
+        settle_instance: &str,
+    ) {
         let mut guard = lock(&self.ai_commands);
         if guard.by_message.len() >= AI_COMMANDS_CAP {
             if let Some(old) = guard.ring.pop_front() {
@@ -676,13 +687,26 @@ impl CharacterHub {
             AiCommand {
                 action_id: action_id.to_string(),
                 command,
+                settle_instance: settle_instance.to_string(),
             },
         );
         guard.ring.push_back(message_id.to_string());
     }
 
-    fn take_ai_command(&self, message_id: &str) -> Option<(String, &'static str)> {
+    /// 只有負責結算的 instance（桌面本尊，沒有桌面時是第一個目標）能推進 presentation receipt。
+    fn take_ai_command(
+        &self,
+        message_id: &str,
+        instance_id: &str,
+    ) -> Option<(String, &'static str)> {
         let mut guard = lock(&self.ai_commands);
+        if guard
+            .by_message
+            .get(message_id)
+            .is_none_or(|cmd| cmd.settle_instance != instance_id)
+        {
+            return None;
+        }
         let taken = guard.by_message.remove(message_id)?;
         guard.ring.retain(|id| id != message_id);
         Some((taken.action_id, taken.command))
@@ -901,6 +925,9 @@ impl Runtime {
         }
         self.character_apply(outputs).await;
         self.publish_character_instance(&instance_id);
+        // 緊急停止中重新 hello 的角色也要立刻知道現在是緊急狀態（桌面另有 /v1/status 輪詢，
+        // 但補投是確定性的那條，不靠前端輪詢）。
+        self.character_resync_safety_state(&instance_id).await;
         let _ = self.store.audit(
             "character.hello",
             "user",
@@ -1013,6 +1040,11 @@ impl Runtime {
                 Ok(InputOutcome::Observed(_)) | Ok(InputOutcome::AuditOnly) => {}
                 Ok(InputOutcome::Throttled) => {
                     final_decision = "throttled";
+                }
+                // 外部 adapter：誠實回報「收到了，但不會變成人類互動觀察」。
+                Ok(InputOutcome::NotObserved(_)) => {
+                    final_decision = "audit-only";
+                    reason = Some("external-adapter-input-not-observed".to_string());
                 }
                 Err(err) => {
                     // 桌面角色隱藏／斷線時視窗內受器是關的：誠實回 dropped。
@@ -1377,6 +1409,17 @@ impl Runtime {
         if before != after {
             self.publish_character_instance(instance_id);
         }
+        // 剛協商完成（首次或重新協商）：如果現在正在緊急停止中，立刻補投 emergency。
+        let ready_now = after
+            .map(|(_, negotiated, _, _)| negotiated)
+            .unwrap_or(false);
+        let was_ready = before
+            .map(|(_, negotiated, _, _)| negotiated)
+            .unwrap_or(false);
+        let generation_changed = before.map(|(_, _, g, _)| g) != after.map(|(_, _, g, _)| g);
+        if ready_now && (!was_ready || generation_changed) {
+            self.character_resync_safety_state(instance_id).await;
+        }
         if is_goodbye || handshake_rejected {
             WsStep::Close
         } else {
@@ -1538,6 +1581,51 @@ impl Runtime {
         let sent = sent_targets(&outputs, &message_id);
         self.character_apply_sync(outputs);
         (message_id, sent)
+    }
+
+    /// 把一筆投影只補送給單一 instance（新連線／重新協商後的真相補投）。
+    /// `character_project` 只送給「投影當下已連線」的 instance，所以在緊急停止期間才接上
+    /// （或重連）的角色不會知道現在是緊急狀態；外部 adapter 又被禁止讀 `/v1/status`，
+    /// 沒有第二條路可查——手機路徑早已有同款補投（`mobile_project_estop_device`）。
+    /// correlationId 帶上 instanceId：這是給這一個 instance 的補投，不能被多實例安全去重吃掉。
+    async fn character_project_instance(
+        &self,
+        instance_id: &str,
+        projection: Projection,
+    ) -> String {
+        let hub = self.character.clone();
+        let now = hub.now();
+        let message_id = format!("rt-{}", uuid::Uuid::new_v4().simple());
+        let ttl_ms = projection
+            .duration_ms
+            .map(|ms| i64::try_from(ms).unwrap_or(DEFAULT_INTENT_TTL_MS))
+            .unwrap_or(0)
+            .max(DEFAULT_INTENT_TTL_MS);
+        let expires_at = now + chrono::Duration::milliseconds(ttl_ms);
+        let outputs = {
+            let mut gw = hub.gateway();
+            let envelope = projection.envelope(&message_id, instance_id, now, expires_at);
+            gw.dispatch(&InstanceId(instance_id.to_string()), envelope, now)
+        };
+        self.character_apply(outputs).await;
+        message_id
+    }
+
+    /// 剛協商完成的角色若正處於緊急停止中，立刻補投 emergency（不等下一次 estop 轉換）。
+    async fn character_resync_safety_state(&self, instance_id: &str) {
+        if !self.is_estopped() {
+            return;
+        }
+        let projection = Projection::new(CharacterIntent::Emergency, TruthState::Emergency)
+            .with_correlation(format!("emergency-stop:{instance_id}"))
+            .with_variant("reconnect-during-estop");
+        self.character_project_instance(instance_id, projection)
+            .await;
+        let _ = self.store.audit(
+            "character.estop-resync",
+            "runtime",
+            &json!({"instanceId": instance_id, "reason": "connected-during-emergency-stop"}),
+        );
     }
 
     /// `action.*`（非角色 actuator）投影。回傳實際投影的 (intent, truthState)。
@@ -1734,7 +1822,15 @@ impl Runtime {
                 outputs.extend(gw.dispatch(&InstanceId(id.clone()), envelope, now));
             }
         }
-        hub.remember_ai_command(&message_id, &action_id, kind.command());
+        // 結算權只給桌面本尊（沒有桌面連線時給第一個目標，順序由 gateway 的 BTreeMap 決定）：
+        // 外部 adapter 的回執只進 audit／`character.receipt` 事件，不決定 AI 眼中的結果。
+        let settle_instance = targets
+            .iter()
+            .find(|id| id.as_str() == DESKTOP_INSTANCE_ID)
+            .or_else(|| targets.first())
+            .cloned()
+            .unwrap_or_default();
+        hub.remember_ai_command(&message_id, &action_id, kind.command(), &settle_instance);
         let sent = sent_targets(&outputs, &message_id);
         self.character_apply_sync(outputs);
         sent
@@ -1839,7 +1935,7 @@ impl Runtime {
                     self.publish_character_receipt(&receipt);
                     if receipt.is_terminal() {
                         if let Some((action_id, _command)) =
-                            hub.take_ai_command(&receipt.message_id)
+                            hub.take_ai_command(&receipt.message_id, &receipt.character_instance_id)
                         {
                             settlements.push(Settlement {
                                 action_id,
@@ -2003,6 +2099,7 @@ impl Runtime {
         event: CharacterInputEvent,
     ) -> DomainResult<InputOutcome> {
         let now = self.character.now();
+        let kind = event.kind;
         let mut facts: BTreeMap<String, Value> = BTreeMap::new();
         facts.insert("instanceId".into(), json!(instance_id));
         facts.insert("eventId".into(), json!(event.event_id));
@@ -2113,9 +2210,27 @@ impl Runtime {
                 return Ok(InputOutcome::AuditOnly);
             }
         };
-        // 桌面角色的視窗內受器受隱藏／斷線閘門管制；外部 adapter 沒有桌面表面。
-        let enforce_surface_gate = origin != InstanceOrigin::External;
-        self.ingest_with_gate(receptor, facts, BTreeMap::new(), 1.0, enforce_surface_gate)
+        // 外部 adapter（只有 adapter token、role familiar）不得合成「人類互動」觀察。
+        // 這些 `companion.*` 是桌面表面的受器：寫進去等於 (a) 繞過「隱藏角色停用視窗內受器」
+        // 的確定性承諾（status／discovery 仍回報 Offline，實際卻在收資料），
+        // (b) 觸發只比對 receptor id 的 recipe，(c) 用假的「使用者有回應」解除主動對話的
+        // 「沒回覆就不追問」退避。呈現層沒有權限主權，也就不該有合成人類輸入的權力。
+        // 誠實作法：留稽核，不產生觀察（不是靜默丟棄，也不是假裝觀察到了）。
+        if origin == InstanceOrigin::External {
+            let _ = self.store.audit(
+                "character.input-not-observed",
+                "adapter",
+                &json!({
+                    "instanceId": instance_id,
+                    "kind": kind,
+                    "receptor": receptor,
+                    "reason": "external character adapters cannot synthesize human interaction observations",
+                }),
+            );
+            return Ok(InputOutcome::NotObserved(receptor));
+        }
+        // 桌面角色的視窗內受器受隱藏／斷線閘門管制。
+        self.ingest_with_gate(receptor, facts, BTreeMap::new(), 1.0, true)
             .await?;
         Ok(InputOutcome::Observed(receptor))
     }
@@ -2127,6 +2242,8 @@ pub enum InputOutcome {
     Observed(&'static str),
     Throttled,
     AuditOnly,
+    /// 外部 adapter 的互動事件：只留稽核，不寫進桌面表面受器（不得偽造人類互動）。
+    NotObserved(&'static str),
 }
 
 #[cfg(test)]

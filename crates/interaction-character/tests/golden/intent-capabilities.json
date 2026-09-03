@@ -1,0 +1,153 @@
+{
+  "acknowledge": [
+    "visual.expression",
+    "visual.pose",
+    "visual.textBubble",
+    "audio.effect",
+    "light.cue",
+    "haptic.cue"
+  ],
+  "ask": [
+    "visual.textBubble",
+    "visual.expression",
+    "audio.speech",
+    "light.cue"
+  ],
+  "blocked": [
+    "visual.expression",
+    "visual.textBubble",
+    "visual.pose",
+    "audio.effect",
+    "light.cue",
+    "haptic.cue"
+  ],
+  "cancelled": [
+    "visual.expression",
+    "visual.textBubble",
+    "visual.pose",
+    "audio.speech",
+    "audio.effect",
+    "light.cue",
+    "haptic.cue"
+  ],
+  "claim-completed": [
+    "visual.expression",
+    "visual.textBubble",
+    "visual.pose",
+    "audio.effect",
+    "light.cue"
+  ],
+  "emergency": [
+    "visual.expression",
+    "visual.overlay",
+    "visual.textBubble",
+    "audio.effect",
+    "light.cue",
+    "haptic.cue"
+  ],
+  "failed": [
+    "visual.expression",
+    "visual.textBubble",
+    "visual.pose",
+    "audio.effect",
+    "light.cue",
+    "haptic.cue"
+  ],
+  "greet": [
+    "visual.expression",
+    "visual.pose",
+    "visual.textBubble",
+    "audio.speech",
+    "audio.effect"
+  ],
+  "idle": [
+    "visual.presence",
+    "visual.pose",
+    "visual.expression",
+    "visual.textBubble",
+    "light.cue"
+  ],
+  "notice": [
+    "visual.expression",
+    "visual.pose",
+    "visual.textBubble",
+    "audio.effect",
+    "light.cue",
+    "haptic.cue"
+  ],
+  "offline": [
+    "visual.expression",
+    "visual.textBubble",
+    "visual.presence",
+    "light.cue",
+    "audio.effect"
+  ],
+  "play": [
+    "gameplay.toys",
+    "visual.locomotion",
+    "visual.pose",
+    "visual.expression"
+  ],
+  "request-consent": [
+    "visual.textBubble",
+    "visual.expression",
+    "audio.speech",
+    "light.cue",
+    "haptic.cue"
+  ],
+  "rest": [
+    "visual.pose",
+    "visual.expression",
+    "visual.presence",
+    "visual.textBubble"
+  ],
+  "sleep": [
+    "visual.pose",
+    "visual.expression",
+    "visual.presence",
+    "visual.textBubble"
+  ],
+  "think": [
+    "visual.expression",
+    "visual.pose",
+    "visual.textBubble",
+    "audio.speech",
+    "audio.effect",
+    "light.cue",
+    "haptic.cue"
+  ],
+  "unknown": [
+    "visual.expression",
+    "visual.textBubble",
+    "visual.pose",
+    "audio.speech",
+    "audio.effect",
+    "light.cue",
+    "haptic.cue"
+  ],
+  "verified-success": [
+    "visual.expression",
+    "visual.particles",
+    "visual.textBubble",
+    "audio.effect",
+    "light.cue"
+  ],
+  "wait": [
+    "visual.expression",
+    "visual.pose",
+    "visual.textBubble",
+    "audio.speech",
+    "audio.effect",
+    "light.cue",
+    "haptic.cue"
+  ],
+  "work": [
+    "visual.pose",
+    "visual.expression",
+    "visual.textBubble",
+    "audio.speech",
+    "audio.effect",
+    "light.cue",
+    "haptic.cue"
+  ]
+}

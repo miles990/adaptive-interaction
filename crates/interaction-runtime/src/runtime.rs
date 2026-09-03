@@ -592,8 +592,11 @@ impl Runtime {
             .await
     }
 
-    /// `enforce_surface_gate=false` 只給外部 character adapter 的正規化輸入用：
-    /// 它們沒有桌面視窗表面，隱藏／斷線閘門不適用（policy／consent 仍然適用）。
+    /// `enforce_surface_gate=false` 會跳過「隱藏角色停用視窗內受器」的閘門。
+    /// **目前沒有任何呼叫端傳 false**：外部 character adapter 的互動事件不再寫進
+    /// `companion.*` 表面受器（它們不得合成人類互動，見 `character_input_to_observation`），
+    /// 所以每一筆進到這些受器的觀察都必須通過閘門。新增呼叫端要傳 false 前，
+    /// 先確認來源是可信 host 表面。
     pub(crate) async fn ingest_with_gate(
         &self,
         receptor_id: &str,

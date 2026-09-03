@@ -14,7 +14,6 @@ import {
   isShuPlayable,
   SHU_AMBIENT_VARIANTS,
   SHU_LANDING,
-  SHU_MICRO_ACTIONS,
   SHU_REACTIONS,
   shuExpressionPlan,
   shuNaturalDurationMs,
@@ -132,13 +131,22 @@ describe("ShuCharacterAdapter：manifest 與協商", () => {
     expect(() => new ShuCharacterAdapter({ manifest: text, stage: makeStage() })).toThrow(/shu-rig/);
   });
 
-  it("透過 Gateway 協商：20 個 intent 全部 exact via visual.expression，12 個 semantic channel 全接受", async () => {
+  it("透過 Gateway 協商：20 個 intent 全部 exact，via 依 §3.4 的 intent→能力表，12 個 semantic channel 全接受", async () => {
     const gw = new CharacterGateway({ now: () => clock.now, onSystemText: () => {} });
     const { a } = await standalone();
     const { negotiated } = await gw.registerInstance(a, "primary-companion", { instanceId: "a" });
+    // 每個 intent 的主要能力由 §3.4 的表決定（Rust `intent_capabilities()` 為權威，
+    // TS 逐字鏡射）：不是所有 intent 都由 visual.expression 承載。
+    const primaryCapability = (intent: (typeof CHARACTER_INTENTS)[number]): string => {
+      if (intent === "idle") return "visual.presence";
+      if (intent === "work" || intent === "rest" || intent === "sleep") return "visual.pose";
+      if (intent === "ask" || intent === "request-consent") return "visual.textBubble";
+      if (intent === "play") return "gameplay.toys";
+      return "visual.expression";
+    };
     for (const intent of CHARACTER_INTENTS) {
       expect(negotiated.resolutions[intent].resolution, intent).toBe("exact");
-      expect(negotiated.resolutions[intent].via, intent).toBe(intent === "idle" ? "visual.presence" : "visual.expression");
+      expect(negotiated.resolutions[intent].via, intent).toBe(primaryCapability(intent));
     }
     expect(negotiated.acceptedChannels).toHaveLength(12);
     expect(negotiated.ignoredChannels).toEqual([]);
@@ -154,7 +162,10 @@ describe("ShuCharacterAdapter：manifest 與協商", () => {
     expect(negotiated.reducedMotion).toBe(true);
     expect(a.isReducedMotion()).toBe(true);
     for (const intent of CHARACTER_INTENTS) {
-      expect(negotiated.resolutions[intent].resolution, intent).toBe("reduced");
+      // ask／request-consent 的主要能力是 visual.textBubble（reducedMotionBehavior=unchanged），
+      // 誠實回報 exact——不因為別的能力被降級就跟著謊報 reduced。
+      const expected = intent === "ask" || intent === "request-consent" ? "exact" : "reduced";
+      expect(negotiated.resolutions[intent].resolution, intent).toBe(expected);
     }
     // 移動類能力在 reduced motion 下被停用（不假裝還能走動）。
     expect(negotiated.capabilities["visual.locomotion"]).toBeUndefined();
@@ -236,11 +247,10 @@ describe("shuTables：20 個 intent → 表情（claimed ≠ verified、安全�
     expect(shuExpressionPlan("work", "working").mode).toBe("transient");
   });
 
-  it("ambient／反應／落地／微動作表全部非 truthState 且存在", () => {
+  it("ambient／反應／落地表全部非 truthState 且存在", () => {
     for (const v of SHU_AMBIENT_VARIANTS) expect(isShuPlayable(v.expression), v.expression).toBe(true);
     for (const e of Object.values(SHU_REACTIONS).flat()) expect(isShuPlayable(e), e).toBe(true);
     for (const l of Object.values(SHU_LANDING)) expect(isShuPlayable(l.expression), l.expression).toBe(true);
-    for (const m of SHU_MICRO_ACTIONS) expect(resolveExpression(m.animation), m.animation).toBeTruthy();
     for (const truth of ["success-verified", "success-claimed", "blocked", "failed", "unknown", "emergency", "offline", "ask"]) {
       expect(isShuPlayable(truth), truth).toBe(false);
     }

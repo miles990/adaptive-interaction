@@ -1657,3 +1657,335 @@ fn merged_cancel_receipt_from_the_desktop_settles_without_waiting_for_expiry() {
     );
     assert!(sent_cancels(&out).iter().all(|(id, _)| id != "n2"));
 }
+
+/// character-protocol-038：安全 intent 只有 `completed` 算演到使用者眼前。
+/// adapter 用任何其他合法終態（unsupported／cancelled／uncertain／expired／failed）
+/// 結束一個安全 intent，Gateway 都必須補 `system.text`——否則呈現層等於對安全訊息有否決權。
+#[test]
+fn every_non_completed_terminal_receipt_of_a_safety_intent_falls_back_to_system_text() {
+    let cases = [
+        (
+            "e-unsupported",
+            CharacterIntent::Emergency,
+            TruthState::Emergency,
+            ReceiptStatus::Unsupported,
+        ),
+        (
+            "b-cancelled",
+            CharacterIntent::Blocked,
+            TruthState::Blocked,
+            ReceiptStatus::Cancelled,
+        ),
+        (
+            "c-uncertain",
+            CharacterIntent::RequestConsent,
+            TruthState::WaitingConsent,
+            ReceiptStatus::Uncertain,
+        ),
+        (
+            "o-expired",
+            CharacterIntent::Offline,
+            TruthState::Offline,
+            ReceiptStatus::Expired,
+        ),
+        (
+            "f-failed",
+            CharacterIntent::Failed,
+            TruthState::Failed,
+            ReceiptStatus::Failed,
+        ),
+    ];
+    for (message_id, intent, truth, status) in cases {
+        let (mut gw, id) = primary(&shu_manifest());
+        let out = gw.dispatch(&id, envelope(&id, message_id, intent, truth, 0, t(1)), t(1));
+        assert_eq!(
+            sent_intents(&out),
+            vec![message_id.to_string()],
+            "{message_id}: 前提是它真的被送到 adapter（不是協商時就落 system.text）"
+        );
+        assert_eq!(
+            system_texts(&out),
+            0,
+            "{message_id}: 派送時還不該補 system.text"
+        );
+
+        let out = adapter_receipt(&mut gw, &id, message_id, status, t(2));
+        assert_eq!(receipts(&out)[0].status, status);
+        assert_eq!(
+            system_texts(&out),
+            1,
+            "{message_id}: adapter 回 {status:?} 之後必須補一則 system.text，實際輸出 {out:?}"
+        );
+        match out
+            .iter()
+            .find(|o| matches!(o, GatewayOutput::SystemText { .. }))
+        {
+            Some(GatewayOutput::SystemText {
+                intent: got_intent,
+                truth_state,
+                message_id: fallback_id,
+                correlation_id,
+                ..
+            }) => {
+                assert_eq!(*got_intent, intent);
+                assert_eq!(*truth_state, truth);
+                assert_eq!(fallback_id, &format!("{message_id}/system-text"));
+                assert_eq!(correlation_id.as_deref(), Some("corr-1"));
+            }
+            _ => panic!("{message_id}: 沒有 system.text"),
+        }
+    }
+}
+
+/// 對照組：`completed` 是唯一「真的演到了」的終態，不補 system.text；
+/// 非安全 intent 的任何終態也不補。
+#[test]
+fn completed_safety_intent_and_non_safety_intents_do_not_get_system_text() {
+    let (mut gw, id) = primary(&shu_manifest());
+    gw.dispatch(
+        &id,
+        envelope(
+            &id,
+            "e1",
+            CharacterIntent::Emergency,
+            TruthState::Emergency,
+            0,
+            t(1),
+        ),
+        t(1),
+    );
+    adapter_receipt(&mut gw, &id, "e1", ReceiptStatus::Started, t(2));
+    let out = adapter_receipt(&mut gw, &id, "e1", ReceiptStatus::Completed, t(3));
+    assert_eq!(receipts(&out)[0].status, ReceiptStatus::Completed);
+    assert_eq!(
+        system_texts(&out),
+        0,
+        "completed 的安全 intent 不補 system.text"
+    );
+
+    gw.dispatch(
+        &id,
+        envelope(
+            &id,
+            "w1",
+            CharacterIntent::Work,
+            TruthState::Working,
+            10,
+            t(4),
+        ),
+        t(4),
+    );
+    let out = adapter_receipt(&mut gw, &id, "w1", ReceiptStatus::Unsupported, t(5));
+    assert_eq!(receipts(&out)[0].status, ReceiptStatus::Unsupported);
+    assert_eq!(system_texts(&out), 0, "非安全 intent 不補 system.text");
+}
+
+/// character-protocol-038（sweep 路徑）：逾時／watchdog 掃掉的安全 intent 同樣沒演到，
+/// 也要補 system.text；handoff（system.text 本身）不會再遞迴補一次。
+#[test]
+fn swept_safety_intent_falls_back_to_system_text_without_recursing() {
+    let (mut gw, id) = primary(&shu_manifest());
+    let short = IntentEnvelope::from_runtime(
+        "e-sweep",
+        id.as_str(),
+        Some("corr-1".into()),
+        CharacterIntent::Emergency,
+        TruthState::Emergency,
+        0,
+        t(1),
+        t(2),
+    );
+    let out = gw.dispatch(&id, short, t(1));
+    assert_eq!(sent_intents(&out), vec!["e-sweep".to_string()]);
+
+    let out = gw.sweep(t(3));
+    assert!(receipts(&out)
+        .iter()
+        .any(|r| r.message_id == "e-sweep" && r.status == ReceiptStatus::Expired));
+    assert_eq!(
+        system_texts(&out),
+        1,
+        "過期未播的安全 intent 必須補 system.text：{out:?}"
+    );
+
+    // 再掃一次：handoff 不得再生出 `.../system-text/system-text`。
+    let out = gw.sweep(t(4));
+    assert_eq!(system_texts(&out), 0, "handoff 不得遞迴補送：{out:?}");
+    let out = gw.sweep(t(400));
+    assert!(
+        !out.iter().any(|o| matches!(
+            o,
+            GatewayOutput::SystemText { message_id, .. } if message_id.matches("/system-text").count() > 1
+        )),
+        "衍生 messageId 不得無限延長：{out:?}"
+    );
+}
+
+/// character-protocol-039：`negotiate` 是 adapter → runtime 方向的合法訊息。
+/// adapter 不能靠重新協商把進行中的安全 intent 變成一則 uncertain 回執就算了事。
+#[test]
+fn re_negotiation_resends_in_flight_safety_intents_as_system_text() {
+    let m = shu_manifest();
+    let (mut gw, id) = primary(&m);
+    let out = gw.dispatch(
+        &id,
+        envelope(
+            &id,
+            "e1",
+            CharacterIntent::Emergency,
+            TruthState::Emergency,
+            0,
+            t(1),
+        ),
+        t(1),
+    );
+    assert_eq!(sent_intents(&out), vec!["e1".to_string()]);
+    assert_eq!(receipts(&out)[0].resolution, Some(Resolution::Exact));
+
+    // adapter 自行重送 negotiate（等同 WireMessage::Negotiate 走 on_message）。
+    let (_, out) = gw
+        .on_negotiate(&id, Negotiate::from_manifest(&m, 2), t(2))
+        .expect("re-negotiation succeeds");
+    assert!(
+        receipts(&out)
+            .iter()
+            .any(|r| r.message_id == "e1" && r.status == ReceiptStatus::Uncertain),
+        "進行中的 command 仍然誠實記成 uncertain：{out:?}"
+    );
+    assert_eq!(
+        system_texts(&out),
+        1,
+        "重新協商孤兒化的安全 intent 必須補 system.text：{out:?}"
+    );
+    match out
+        .iter()
+        .find(|o| matches!(o, GatewayOutput::SystemText { .. }))
+    {
+        Some(GatewayOutput::SystemText {
+            intent,
+            truth_state,
+            message_id,
+            ..
+        }) => {
+            assert_eq!(*intent, CharacterIntent::Emergency);
+            assert_eq!(*truth_state, TruthState::Emergency);
+            assert_eq!(message_id, "e1/system-text");
+        }
+        _ => panic!("no system text"),
+    }
+
+    // 非安全 intent 重新協商時只記 uncertain，不補 system.text。
+    gw.dispatch(
+        &id,
+        envelope(
+            &id,
+            "w1",
+            CharacterIntent::Work,
+            TruthState::Working,
+            10,
+            t(3),
+        ),
+        t(3),
+    );
+    let (_, out) = gw
+        .on_negotiate(&id, Negotiate::from_manifest(&m, 3), t(4))
+        .expect("re-negotiation succeeds");
+    assert!(receipts(&out)
+        .iter()
+        .any(|r| r.message_id == "w1" && r.status == ReceiptStatus::Uncertain));
+    assert_eq!(system_texts(&out), 0);
+}
+
+/// character-protocol-040：adapter 誠實回報的 unsupported／failed resolution 不得被
+/// 過濾掉再換回協商時的樂觀值（回執不能狀態說沒演成、resolution 卻說 exact）。
+#[test]
+fn adapter_reported_unsupported_resolution_is_adopted_not_discarded() {
+    let m = shu_manifest();
+    let (mut gw, id) = primary(&m);
+    let generation = gw.generation(&id).unwrap_or(0);
+    gw.dispatch(
+        &id,
+        envelope(
+            &id,
+            "m1",
+            CharacterIntent::Notice,
+            TruthState::None,
+            10,
+            t(1),
+        ),
+        t(1),
+    );
+    // 協商是 exact；adapter 在 started 就誠實回報「其實承載不了」。
+    let out = gw.on_receipt(
+        &id,
+        CommandReceipt::new("m1", id.as_str(), generation, ReceiptStatus::Started, t(2))
+            .with_resolution(Resolution::Unsupported),
+        t(2),
+    );
+    assert_eq!(receipts(&out)[0].resolution, Some(Resolution::Unsupported));
+
+    // 終態 unsupported：resolution 一律 unsupported，不得停在 exact。
+    gw.dispatch(
+        &id,
+        envelope(
+            &id,
+            "m2",
+            CharacterIntent::Notice,
+            TruthState::None,
+            10,
+            t(3),
+        ),
+        t(3),
+    );
+    let out = gw.on_receipt(
+        &id,
+        CommandReceipt::new(
+            "m2",
+            id.as_str(),
+            generation,
+            ReceiptStatus::Unsupported,
+            t(4),
+        ),
+        t(4),
+    );
+    let r = receipts(&out);
+    assert_eq!(r[0].status, ReceiptStatus::Unsupported);
+    assert_eq!(
+        r[0].resolution,
+        Some(Resolution::Unsupported),
+        "status=unsupported 的回執不得回報 exact"
+    );
+
+    // 仍然不得升級：adapter 謊報 exact 時保留協商結果。
+    let mut gw2 = Gateway::default();
+    let id2 = gw2.register_instance(m.clone(), CharacterRole::PrimaryCompanion);
+    gw2.set_reduced_motion(&id2, true);
+    gw2.on_negotiate(&id2, Negotiate::from_manifest(&m, 1), t(0))
+        .expect("negotiates");
+    let generation2 = gw2.generation(&id2).unwrap_or(0);
+    gw2.dispatch(
+        &id2,
+        envelope(
+            &id2,
+            "m3",
+            CharacterIntent::Notice,
+            TruthState::None,
+            10,
+            t(1),
+        ),
+        t(1),
+    );
+    let out = gw2.on_receipt(
+        &id2,
+        CommandReceipt::new(
+            "m3",
+            id2.as_str(),
+            generation2,
+            ReceiptStatus::Started,
+            t(2),
+        )
+        .with_resolution(Resolution::Exact),
+        t(2),
+    );
+    assert_eq!(receipts(&out)[0].resolution, Some(Resolution::Reduced));
+}

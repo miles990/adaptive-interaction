@@ -324,8 +324,24 @@ export function aiSafeSubstitute(intent: CharacterIntent): CharacterIntent {
  * 每個 intent 可由哪些能力承載（依偏好排序；[0] 為主要能力，也是
  * `fallbacks.capabilities` 鏈的鍵）。協商 §3.4 步驟 1「對應能力 supported」
  * 即檢查此清單中第一個 supported 者。
+ *
+ * **這是 Rust `intent_capabilities()`（權威）的逐字鏡射**：不能改成「所有 intent 共用一份
+ * 通用清單」，否則同一份 manifest 在 Runtime gateway 與視窗 gateway 會得到不同的
+ * resolution／via（例如只有 LED／particle／overlay／玩具能力的角色）。
+ * 兩邊由 `crates/interaction-character/tests/golden/intent-capabilities.json` 這份 golden
+ * 交叉把關（Rust: `intent_capabilities_golden.rs`；TS: `character-protocol.test.ts`）。
  */
-const EXPRESSIVE: CanonicalCapabilityId[] = [
+const NOTICE_LIKE: CanonicalCapabilityId[] = [
+  "visual.expression",
+  "visual.pose",
+  "visual.textBubble",
+  "audio.effect",
+  "light.cue",
+  "haptic.cue",
+];
+
+/** 純聲音／燈光／觸覺角色也要能誠實表達「在想／在等」：視覺優先，沒有視覺才落到 audio／light／haptic。 */
+const THINK_LIKE: CanonicalCapabilityId[] = [
   "visual.expression",
   "visual.pose",
   "visual.textBubble",
@@ -335,28 +351,99 @@ const EXPRESSIVE: CanonicalCapabilityId[] = [
   "haptic.cue",
 ];
 
+const BLOCKED_LIKE: CanonicalCapabilityId[] = [
+  "visual.expression",
+  "visual.textBubble",
+  "visual.pose",
+  "audio.effect",
+  "light.cue",
+  "haptic.cue",
+];
+
+const UNKNOWN_LIKE: CanonicalCapabilityId[] = [
+  "visual.expression",
+  "visual.textBubble",
+  "visual.pose",
+  "audio.speech",
+  "audio.effect",
+  "light.cue",
+  "haptic.cue",
+];
+
+const REST_LIKE: CanonicalCapabilityId[] = [
+  "visual.pose",
+  "visual.expression",
+  "visual.presence",
+  "visual.textBubble",
+];
+
 export const INTENT_CAPABILITIES: Readonly<Record<CharacterIntent, readonly CanonicalCapabilityId[]>> =
   {
-    idle: ["visual.presence", ...EXPRESSIVE],
-    notice: EXPRESSIVE,
-    acknowledge: EXPRESSIVE,
-    think: EXPRESSIVE,
-    work: EXPRESSIVE,
-    wait: EXPRESSIVE,
-    ask: EXPRESSIVE,
-    "request-consent": EXPRESSIVE,
-    blocked: EXPRESSIVE,
-    unknown: EXPRESSIVE,
-    "claim-completed": EXPRESSIVE,
-    "verified-success": EXPRESSIVE,
-    failed: EXPRESSIVE,
-    cancelled: EXPRESSIVE,
-    offline: EXPRESSIVE,
-    emergency: EXPRESSIVE,
-    greet: EXPRESSIVE,
-    play: EXPRESSIVE,
-    rest: EXPRESSIVE,
-    sleep: EXPRESSIVE,
+    idle: ["visual.presence", "visual.pose", "visual.expression", "visual.textBubble", "light.cue"],
+    notice: NOTICE_LIKE,
+    acknowledge: NOTICE_LIKE,
+    think: THINK_LIKE,
+    work: [
+      "visual.pose",
+      "visual.expression",
+      "visual.textBubble",
+      "audio.speech",
+      "audio.effect",
+      "light.cue",
+      "haptic.cue",
+    ],
+    wait: THINK_LIKE,
+    ask: ["visual.textBubble", "visual.expression", "audio.speech", "light.cue"],
+    "request-consent": [
+      "visual.textBubble",
+      "visual.expression",
+      "audio.speech",
+      "light.cue",
+      "haptic.cue",
+    ],
+    blocked: BLOCKED_LIKE,
+    unknown: UNKNOWN_LIKE,
+    "claim-completed": [
+      "visual.expression",
+      "visual.textBubble",
+      "visual.pose",
+      "audio.effect",
+      "light.cue",
+    ],
+    "verified-success": [
+      "visual.expression",
+      "visual.particles",
+      "visual.textBubble",
+      "audio.effect",
+      "light.cue",
+    ],
+    failed: BLOCKED_LIKE,
+    cancelled: UNKNOWN_LIKE,
+    offline: [
+      "visual.expression",
+      "visual.textBubble",
+      "visual.presence",
+      "light.cue",
+      "audio.effect",
+    ],
+    emergency: [
+      "visual.expression",
+      "visual.overlay",
+      "visual.textBubble",
+      "audio.effect",
+      "light.cue",
+      "haptic.cue",
+    ],
+    greet: [
+      "visual.expression",
+      "visual.pose",
+      "visual.textBubble",
+      "audio.speech",
+      "audio.effect",
+    ],
+    play: ["gameplay.toys", "visual.locomotion", "visual.pose", "visual.expression"],
+    rest: REST_LIKE,
+    sleep: REST_LIKE,
   };
 
 // ---------------------------------------------------------------------------

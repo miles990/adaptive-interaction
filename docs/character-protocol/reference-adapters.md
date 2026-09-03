@@ -70,7 +70,7 @@ INTERACT_AI_CHARACTER_TOKEN=<token> node examples/character-adapters/text-adapte
 # 另一個終端：
 interact-ai character instances                       # 看到 adapter:<id>（role familiar）
 interact-ai character intent notice --message "hi"    # 非安全 intent；fixture 印出一行並回 completed
-interact-ai events --limit 20 | grep character.receipt
+interact-ai events --seconds 5 --json | grep character.receipt   # /v1/events 會先回放最近事件再跟隨 5 秒
 interact-ai emergency-stop --reason test              # fixture 收到 intent emergency（priority 100）
 interact-ai character adapters revoke <adapterId>     # goodbye＋斷線；token 立即失效
 ```

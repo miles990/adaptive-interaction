@@ -184,7 +184,7 @@ describe("TextCharacterAdapter（最小文字角色）", () => {
     expect(events).toHaveLength(2);
   });
 
-  it("透過 Gateway：20 個 intent 全部 exact 並完成；forged verified 只能來自 Runtime", async () => {
+  it("透過 Gateway：19 個 intent exact 並完成、play 誠實 unsupported；forged verified 只能來自 Runtime", async () => {
     const lines: Array<RenderedLine | null> = [];
     const receipts: CommandReceipt[] = [];
     const systemTexts: SystemTextMessage[] = [];
@@ -192,10 +192,16 @@ describe("TextCharacterAdapter（最小文字角色）", () => {
     const a = new TextCharacterAdapter({ onRender: (l) => lines.push(l) });
     const { negotiated } = await gw.registerInstance(a, "primary-companion", { instanceId: "a" });
     for (const intent of CHARACTER_INTENTS) {
-      expect(negotiated.resolutions[intent].resolution, intent).toBe("exact");
+      // §3.4：play 只能由 gameplay.toys／visual.locomotion／visual.pose／visual.expression 承載，
+      // 純文字角色一個都沒有、也沒宣告 fallback → 誠實回 unsupported（Runtime 權威端同樣結果，
+      // 兩邊必須一致），不假裝演得出來。play 不是安全 intent，所以沒有 system.text 兜底。
+      const expected = intent === "play" ? "unsupported" : "exact";
+      expect(negotiated.resolutions[intent].resolution, intent).toBe(expected);
       const e = env(intent, intent === "verified-success" ? "verified" : "none");
       gw.dispatch(e);
-      expect(receipts.filter((r) => r.messageId === e.messageId).map((r) => r.status)).toEqual(["accepted", "started", "completed"]);
+      expect(receipts.filter((r) => r.messageId === e.messageId).map((r) => r.status), intent).toEqual(
+        intent === "play" ? ["unsupported"] : ["accepted", "started", "completed"]
+      );
     }
     expect(systemTexts).toHaveLength(0);
     // AI 來源不能讓文字角色打綠勾

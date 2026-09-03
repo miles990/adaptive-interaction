@@ -498,6 +498,7 @@ impl Gateway {
         offer: Negotiate,
         now: Timestamp,
     ) -> Result<(Negotiated, Vec<GatewayOutput>), NegotiationError> {
+        let ring = self.config.dedupe_ring;
         let hello = self
             .hello_for(id)
             .ok_or(NegotiationError::UnknownInstance)?;
@@ -549,7 +550,20 @@ impl Gateway {
             out.push(GatewayOutput::Audit(format!(
                 "instance {id} re-negotiated; pending commands marked uncertain"
             )));
-            let _ = Self::mark_all_uncertain(inst, "re-negotiated", now, &mut out);
+            let orphaned_safety = Self::mark_all_uncertain(inst, "re-negotiated", now, &mut out);
+            // `negotiate` 是 adapter → runtime 方向的合法訊息：呈現層不能靠重新協商
+            // 把進行中的安全 intent 變成一則 `uncertain` 回執就算完（呈現層沒有權限主權）。
+            // 重新協商後不重投先前的真相，所以這裡比照斷線補 `system.text`
+            // ——安全訊息重複顯示優於遺失。
+            Self::resend_safety_as_system_text(
+                inst,
+                orphaned_safety,
+                ring,
+                "re-negotiate",
+                "re-negotiated mid-presentation; system.text fallback",
+                now,
+                &mut out,
+            );
         }
         inst.generation += 1;
         negotiated.generation = inst.generation;
@@ -601,35 +615,51 @@ impl Gateway {
         safety
     }
 
-    /// 斷線／crash 時，把還沒演完的安全 intent 以 `system.text` 補送（§9：crash → `uncertain` ＋ fallback）。
-    /// 用衍生的 messageId，原本的 `uncertain` 回執不被覆蓋。
+    /// 單一安全 intent 的 `system.text` 補送：用衍生的 `<原 id>/system-text` messageId，
+    /// 原本的終態回執不被覆蓋；同一則只補一次（去重環）。
+    fn safety_system_text_fallback(
+        inst: &mut InstanceState,
+        envelope: &IntentEnvelope,
+        ring: usize,
+        audit: String,
+        detail: &str,
+        now: Timestamp,
+        out: &mut Vec<GatewayOutput>,
+    ) {
+        let mut fallback = envelope.clone();
+        fallback.message_id = format!("{}/system-text", envelope.message_id);
+        if inst.dedupe_set.contains(&fallback.message_id) {
+            return;
+        }
+        inst.remember_message_id(&fallback.message_id, ring);
+        out.push(GatewayOutput::Audit(audit));
+        Self::system_text(
+            inst,
+            &fallback,
+            IntentResolution::system_text(),
+            detail,
+            now,
+            out,
+        );
+    }
+
+    /// 斷線／crash／重新協商時，把還沒演完的安全 intent 以 `system.text` 補送
+    /// （§9：crash → `uncertain` ＋ fallback）。用衍生的 messageId，原本的 `uncertain` 回執不被覆蓋。
     fn resend_safety_as_system_text(
         inst: &mut InstanceState,
         envelopes: Vec<IntentEnvelope>,
         ring: usize,
+        audit_prefix: &str,
         detail: &str,
         now: Timestamp,
         out: &mut Vec<GatewayOutput>,
     ) {
         for envelope in envelopes {
-            let mut fallback = envelope.clone();
-            fallback.message_id = format!("{}/system-text", envelope.message_id);
-            if inst.dedupe_set.contains(&fallback.message_id) {
-                continue;
-            }
-            inst.remember_message_id(&fallback.message_id, ring);
-            out.push(GatewayOutput::Audit(format!(
-                "disconnect: safety intent {} was in flight; falling back to system.text",
+            let audit = format!(
+                "{audit_prefix}: safety intent {} was in flight; falling back to system.text",
                 envelope.message_id
-            )));
-            Self::system_text(
-                inst,
-                &fallback,
-                IntentResolution::system_text(),
-                detail,
-                now,
-                out,
             );
+            Self::safety_system_text_fallback(inst, &envelope, ring, audit, detail, now, out);
         }
     }
 
@@ -1107,15 +1137,15 @@ impl Gateway {
             inst.pending[idx].acked_at = Some(now);
         }
         let negotiated_resolution = inst.pending[idx].resolution.resolution;
-        // resolution 只能變差：adapter 可以誠實回報降級（reduced／substituted），
+        // resolution 只能變差：adapter 可以誠實回報降級（reduced／substituted／unsupported／failed），
         // 但不能把協商結果升級成 exact（`Resolution` 的 Ord 即 exact < substituted < reduced < unsupported < failed）。
-        let effective_resolution = if receipt.status == ReceiptStatus::Failed {
-            Resolution::Failed
-        } else {
-            receipt
+        // `failed`／`unsupported` 狀態本身就代表「沒演成」，resolution 不得停在協商時的樂觀值。
+        let effective_resolution = match receipt.status {
+            ReceiptStatus::Failed => Resolution::Failed,
+            ReceiptStatus::Unsupported => Resolution::Unsupported,
+            _ => receipt
                 .resolution
-                .filter(|r| *r <= Resolution::Reduced)
-                .map_or(negotiated_resolution, |r| r.max(negotiated_resolution))
+                .map_or(negotiated_resolution, |r| r.max(negotiated_resolution)),
         };
         let mut gateway_receipt = inst
             .receipt(&receipt.message_id, receipt.status, now)
@@ -1131,19 +1161,20 @@ impl Gateway {
         if receipt.status.is_terminal() {
             let envelope = inst.pending[idx].envelope.clone();
             inst.finish(idx, gateway_receipt);
-            if receipt.status == ReceiptStatus::Failed && envelope.intent.is_safety() {
-                out.push(GatewayOutput::Audit(format!(
-                    "receipt: safety intent {} failed on adapter; falling back to system.text",
-                    envelope.message_id
-                )));
-                let mut fallback = envelope.clone();
-                fallback.message_id = format!("{}/system-text", envelope.message_id);
-                inst.remember_message_id(&fallback.message_id, self.config.dedupe_ring);
-                Self::system_text(
+            // 安全 intent 只有 `completed` 才算演到使用者眼前。其餘任何合法終態
+            // （failed／unsupported／cancelled／expired／uncertain）都代表訊息沒送到，
+            // 一律補 `system.text`——否則 adapter 只要挑一個終態就能吞掉 emergency／blocked／
+            // request-consent／offline（呈現層沒有權限主權，安全訊息永不遺失）。
+            if receipt.status != ReceiptStatus::Completed && envelope.intent.is_safety() {
+                Self::safety_system_text_fallback(
                     inst,
-                    &fallback,
-                    IntentResolution::system_text(),
-                    "adapter failed; system.text fallback",
+                    &envelope,
+                    self.config.dedupe_ring,
+                    format!(
+                        "receipt: safety intent {} ended as {:?} on adapter; falling back to system.text",
+                        envelope.message_id, receipt.status
+                    ),
+                    "adapter did not present it; system.text fallback",
                     now,
                     &mut out,
                 );
@@ -1406,6 +1437,7 @@ impl Gateway {
             inst,
             orphaned_safety,
             ring,
+            "disconnect",
             "adapter gone; system.text fallback",
             now,
             &mut out,
@@ -1450,11 +1482,15 @@ impl Gateway {
             out.extend(self.on_disconnect(&id, DisconnectReason::HeartbeatTimeout, now));
         }
         let watchdog = chrono::Duration::milliseconds(self.config.started_watchdog_ms);
+        let ring = self.config.dedupe_ring;
         let ids: Vec<InstanceId> = self.instances.keys().cloned().collect();
         for id in ids {
             let Some(inst) = self.instances.get_mut(&id) else {
                 continue;
             };
+            // 逾時／watchdog 掃掉的安全 intent 同樣沒演到使用者眼前：補 system.text
+            // （在迴圈結束後統一補，避免補送本身改動 pending 索引）。
+            let mut orphaned_safety: Vec<IntentEnvelope> = Vec::new();
             let mut idx = 0;
             while idx < inst.pending.len() {
                 let p = &inst.pending[idx];
@@ -1491,11 +1527,16 @@ impl Gateway {
                 let message_id = p.envelope.message_id.clone();
                 let resolution = p.resolution.resolution;
                 let handoff = p.handoff;
+                let safety_envelope =
+                    (!handoff && p.envelope.intent.is_safety()).then(|| p.envelope.clone());
                 let receipt = inst
                     .receipt(&message_id, status, now)
                     .with_resolution(resolution)
                     .with_detail(detail);
                 inst.finish(idx, receipt.clone());
+                if let Some(envelope) = safety_envelope {
+                    orphaned_safety.push(envelope);
+                }
                 if status == ReceiptStatus::Expired && !handoff && inst.connected {
                     out.push(GatewayOutput::Send {
                         instance: id.clone(),
@@ -1507,6 +1548,15 @@ impl Gateway {
                 }
                 out.push(GatewayOutput::Receipt(receipt));
             }
+            Self::resend_safety_as_system_text(
+                inst,
+                orphaned_safety,
+                ring,
+                "sweep",
+                "not presented before timeout; system.text fallback",
+                now,
+                &mut out,
+            );
         }
         out
     }

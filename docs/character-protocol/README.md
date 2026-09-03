@@ -129,6 +129,10 @@ gameplay.autonomy    system.text   （由 Runtime 提供、永遠可用的最後
 1. Runtime／Gateway → Adapter：`hello`
    `{ type:"hello", protocolVersion:"1.0", runtimeVersion, characterInstanceId, role, locale, reducedMotion,
       requires:[…intent ids the runtime will send…], limits:{maxMessageBytes, maxMessagesPerSecond, maxPending} }`
+   - `reducedMotion` 只有一個主人：可信 host（桌面視窗）在 `POST /v1/character/hello` 的 body 帶
+     `reducedMotion`（`prefers-reduced-motion`／使用者偏好），Gateway 以它協商並記在該 instance 上；
+     adapter 不能自己宣告。使用者中途改設定 → 視窗重送 hello（generation+1）重新協商。
+     外部 WebSocket adapter 目前沒有自己的來源，收到的是該 instance 的現值（預設 false）。
 2. Adapter → Gateway：`negotiate`
    `{ type:"negotiate", protocolVersion, characterId, manifestVersion, capabilities, inputCapabilities, channels,
       intents, variants, generation }`
@@ -147,7 +151,7 @@ gameplay.autonomy    system.text   （由 Runtime 提供、永遠可用的最後
 3. 否則依 `fallbacks.capabilities[cap]` 鏈往下找第一個 `supported` 的能力 → `substituted`。
 4. `reducedMotion=true` 時，若所用能力 `reducedMotionBehavior ∈ {static, reduced}` → `reduced`；`disabled` → 繼續往下一個 fallback。
 5. 什麼都沒有 → 安全 intent（§4.3 有 floor 者）一律解析為 `via:"system.text"`、`resolution:"substituted"`；非安全 intent → `unsupported`。
-6. 執行期失敗（adapter 回 `failed`）→ 回執 `failed`，Gateway 對安全 intent 自動改走 `system.text`。
+6. 執行期沒演成 → Gateway 對安全 intent 自動改走 `system.text`。**只有 `completed` 算演到使用者眼前**：安全 intent 的任何其他終態（`failed`／`unsupported`／`cancelled`／`expired`／`uncertain`，不論來自 adapter 回執、逾時／watchdog 掃描、斷線或重新協商）都會用衍生 messageId（`<原 id>/system-text`）補一則 `system.text`。呈現層對安全訊息沒有否決權：adapter 不能靠挑一個合法終態把 emergency／blocked／request-consent／offline 吞掉。
 
 `unknown` custom channel：namespaced 者進 `acceptedChannels` 但標 `nonSafety`，非 namespaced 者進 `ignoredChannels`；兩者都不能影響 priority、truthState 或搶占。
 
@@ -196,6 +200,8 @@ failed  timed-out  expired  unknown  cancelled  emergency  offline
 
 規則：過期不播（`expired` 回執）；重複 `messageId`（環 256）去重並回 `accepted{duplicate:true}`；`presentationHints` 只是建議；`correlationId` 串起 Agent 工作、硬體事件、receipt 與演出；AI 不能直接構造 envelope（AI 只能透過 `companion.state.present` 等受 policy 管制的 actuator 請求，Runtime 轉成 envelope 並強制 floor ≤ 50、`truthState: none`）。
 
+AI 的 presentation 命令會用同一個 `messageId` 廣播給所有已連線角色，但**只有桌面本尊的回執會推進那筆 actuator receipt**（沒有桌面連線時是第一個目標）；其他 instance 的回執只進 audit／`character.receipt` 事件。否則只有 adapter token 的外部角色搶先回一則 `completed`／`failed`，就替桌面決定了 AI 看得到的結果——而 §8.2 明訂 adapter token 不能呼叫 actuator。
+
 ## 5. Semantic channels
 
 `transform locomotion pose expression gaze speech bubble audio prop overlay particle scene` ＋ namespaced custom。
@@ -218,7 +224,8 @@ Envelope：`{ protocolVersion, eventId, characterInstanceId, generation, timesta
 - 高頻：`hover-*` ≤ 4/s、`dragged` 合併為 ≤ 10/s 且只帶量化座標（8 px 網格，視窗相對）、`pointerProximity` ≤ 1/30 s；佇列上限 64，滿了丟最舊的非安全事件。
 - **不保存原始游標軌跡、不送 AI**；payload 不含絕對螢幕座標。
 - `text-submitted` ≤ 2000 字；`file-dropped` 只帶 `{name, mediaType, bytes, readableScope, grantId, expiresAt}`，grant 短效（≤ 10 分鐘）、只授權該檔案、可撤銷；不授權整個檔案系統。
-- `action-requested{action}` 只是請求：Gateway 轉成 `companion.quick-action` receptor observation，仍經 Runtime policy／consent。
+- `action-requested{action}` 只是請求：**可信 host 表面（桌面視窗，`/v1/character/hello` 註冊的 instance）**的事件才會被 Gateway 轉成 `companion.quick-action` receptor observation，仍經 Runtime policy／consent。
+- **外部 adapter（`/v1/character/ws`＋adapter token，origin `external`）的輸入事件不會變成任何 `companion.*` 觀察**：只留稽核（`character.input-not-observed`），HTTP 回 `{decision:"audit-only", reason:"external-adapter-input-not-observed"}`。理由：那些 receptor 是桌面表面的受器，寫進去會繞過「隱藏角色停用視窗內受器」的閘門、觸發只比對 receptor id 的 recipe，並用假的「使用者有回應」解除主動對話的不追問守則——呈現層沒有權限主權，也就不該有合成人類輸入的權力。
 - 普通角色互動不啟動工作 Agent；角色輸入不能直接變成 OS／硬體／檔案系統操作；Adapter 不能偽造 human verification（沒有任何 event kind 能表達它）。
 - 多角色：每個 event 都帶 `characterInstanceId`；Gateway 依 role 過濾（`observer`／`notification-only` 不送輸入）。
 
@@ -239,7 +246,9 @@ Command 回執（`CommandReceipt`）：
   `acknowledged` 代表「收到但這個 adapter 不會回報 completion」，Gateway 之後把它記成 `uncertain`（不猜 completed）。
 - `completed` 只代表呈現 adapter 完成演出；Runtime 端 receipt 的 verification 永遠是 `acknowledged-only`。
 - `cancel` 冪等：重複 cancel 同一 messageId 回同一結果；對已終結的 command 回 `cancelled{alreadyTerminal:true}` 不報錯。
-- crash／斷線／`goodbye`：Gateway 把所有 pending 標 `uncertain`、釋放 timer／audio／physics／rAF、`generation += 1`；舊 generation 的回執與事件一律丟棄（記 audit）。
+- crash／斷線／`goodbye`：Gateway 把所有 pending 標 `uncertain`、釋放 timer／audio／physics／rAF、`generation += 1`；舊 generation 的回執與事件一律丟棄（記 audit）。斷線當下**還在演的安全 intent** 會以衍生 messageId（`<原 id>/system-text`）改走 `system.text`——安全訊息不因 adapter 掛掉而遺失。
+- 重新協商（`negotiate`）：pending 一律 `uncertain`，其中**還在演的安全 intent** 比照斷線補 `system.text`——adapter 不能靠重送 `negotiate` 讓安全訊息無聲消失。
+- 回執的 `resolution` 只能比協商結果**更差**：adapter 可以誠實回報降級（`reduced`／`substituted`／`unsupported`／`failed`），Gateway 不接受升級成 `exact`（Reduced Motion 下也不會被改寫成 `exact`）。`status:"failed"` 的 resolution 一律 `failed`、`status:"unsupported"` 一律 `unsupported`：回執不會出現「狀態說沒演成、resolution 說 exact」這種自相矛盾。
 - 外部 adapter：heartbeat 每 15 s、45 s 無訊息視為斷線、重連退避 1 s → 15 s（倍增）、每次重連重新 `hello`。
 - 回執進入 Runtime 的 audit／event（`character.receipt`），但**不**改動任何工作 verification。
 
@@ -252,6 +261,12 @@ adapter → runtime : negotiate | receipt{receipt} | event{event} | lifecycle{st
 
 限制：單則 ≤ 64 KB；每個 adapter ≤ 50 則/s（超過 → `error{code:"rate-limited"}` 並丟棄）；pending intents ≤ 64；outbound 佇列 ≤ 32（滿了先丟最舊的非安全 intent，安全 intent 不丟）。
 
+50 則/s 是**每個 instance 一份預算，所有入口共用**：WebSocket 訊息、`POST /v1/character/receipts`
+（超量回 `{accepted:false, status:"rate-limited"}`）、`POST /v1/character/events`（超量回
+`{decision:"dropped", reason:"rate-limited"}`），以及連 JSON 都解不開的畸形 frame——畸形訊息**先扣預算再處理**，
+不能靠丟垃圾繞過限制。畸形訊息的稽核也有界：同一個 instance 每 5 秒最多留下一列
+`character.wire-rejected`，其間被壓下的次數記在下一列的 `suppressed`。
+
 ### 8.1 Transports
 
 | Transport | 用途 | 狀態 |
@@ -263,7 +278,12 @@ adapter → runtime : negotiate | receipt{receipt} | event{event} | lifecycle{st
 | HTTP | 管理：`/v1/character/adapters`（註冊／撤銷）、`/v1/character/instances`、`/v1/character/manifest`、`/v1/character/intent`（人類手動測試非安全 intent；安全 intent 一律 403） | 已實作 |
 | SSE | 只讀事件訂閱（`character.intent`／`character.receipt`／`character.instance`）；不適合雙向控制 | 已實作 |
 
-新增 transport：實作 `CharacterTransport`（Rust `interaction-character::transport`）——只要能收送 §8 的 JSON 訊息、提供 generation 與 close，就能掛進 Gateway；不得另外定義訊息語意。
+新增 transport（host 端）：本版**沒有**可插拔的 `CharacterTransport` trait（`interaction-character` 是純函式 crate，
+沒有 tokio、沒有 I/O，見 §1）。外部 transport 目前只有 WebSocket 一種具體實作：`crates/interaction-api/src/character_ws.rs`
+的 `character_ws_loop` 驅動 `interaction_runtime::character::WsSession`（`rx: mpsc::Receiver<WireMessage>` 有界 32、
+第一則必為 `hello`；`close: CancellationToken` 由撤銷／取代／heartbeat 逾時觸發），inbound 走
+`Runtime::character_ws_message` → `WsStep`。要加 stdio 等新 transport，需在 `interaction-runtime`／`interaction-api`
+層仿照這個迴圈實作（不是在 `interaction-character` 裡定義 trait），且只能沿用 §8 的 JSON 訊息，不得另外定義訊息語意。
 
 ### 8.2 Adapter token
 
@@ -321,6 +341,8 @@ adapter → runtime : negotiate | receipt{receipt} | event{event} | lifecycle{st
 
 Runtime 端節流（避免佇列與 DB 無界）：`receptor.observation`→notice 每個 receptor 至多 2 s 一次（merge，correlation `receptor:<id>`）；companion.* 表面 receptor 不投影（不自我回音）；`dragged` 輸入→`companion.click{companion-dragged}` 每 instance 至多 1/s；`hover-entered`→`companion.pointer` 每 instance 30 s 一次。非安全 runtime 投影 priority 40、AI 請求 30。桌面 instance 的 presence heartbeat（`/v1/presentation/hello`，20 s）逾期即視為斷線（pending→uncertain、generation+1、發 `character.instance{connected:false}`），視窗必須重新 `/v1/character/hello`。
 
+**協商完成後的真相補投**：投影只送給「投影當下已連線」的 instance，所以剛協商完成的角色（首次連上或重連）如果此刻正在**緊急停止**中，Runtime 會立刻單獨補投一則 `emergency`（correlation `emergency-stop:<instanceId>`，稽核 `character.estop-resync`），不必等下一次 estop 轉換。外部 adapter 沒有第二條路可查（adapter token 不能讀 `/v1/status`），所以這條補投是它知道「現在是緊急狀態」的唯一保證。
+
 ## 12. Reference adapters
 
 | Adapter | 型態 | 宣告能力 | 用途 |
@@ -334,8 +356,8 @@ Runtime 端節流（避免佇列與 DB 無界）：`receptor.observation`→noti
 
 | 層 | 檔案 | 覆蓋 |
 |---|---|---|
-| Rust 權威實作 | `crates/interaction-character/tests/{manifest,negotiation,gateway}.rs`＋各模組單元測試（101） | manifest 驗證／惡意 manifest／路徑穿越／migration；協商（版本、能力、fallback、reduced motion、純聲音、零能力）；lifecycle／ack 誠實／cancel 冪等／重複／過期／世代／crash／有界佇列／payload 上限／偽造 verified／emergency 搶占 |
-| Rust runtime 接線 | `crates/interaction-runtime/tests/character_loop.rs`（13）、`crates/interaction-api/tests/api_e2e.rs`（WS fixture）、`crates/interaction-cli/tests/cli_e2e.rs` | hello／re-hello 世代、§11 投影每一列、receipt 結算 presentation receipt、input 正規化、adapter token 分權、WS 握手／估限／撤銷 |
+| Rust 權威實作 | `crates/interaction-character/tests/{manifest,negotiation,gateway,conformance}.rs`＋各模組單元測試（116） | manifest 驗證／惡意 manifest／路徑穿越／migration；協商（版本、能力、fallback、reduced motion、純聲音、零能力）；lifecycle／ack 誠實／cancel 冪等／重複／過期／世代／crash／有界佇列／payload 上限／偽造 verified／emergency 搶占／速率預算共用；`conformance.rs` 對每份內建與第三方 manifest（`CPP_CONFORMANCE_MANIFESTS`）驗 20 個 intent、安全 intent 不遺失（含「adapter 用任何非 completed 終態結束安全 intent 都必須補 system.text」）、claimed≠verified、emergency floor 100；`intent_capabilities_golden.rs` 與 TS `character-protocol.test.ts` 對同一份 golden 比對 §3.4 的 intent→能力表，擋住權威／鏡射漂移 |
+| Rust runtime 接線 | `crates/interaction-runtime/tests/character_loop.rs`（19）、`crates/interaction-api/tests/api_e2e.rs`（WS fixture＋HTTP 速率限制）、`crates/interaction-cli/tests/cli_e2e.rs` | hello／re-hello 世代、Reduced Motion 一路協商到回執、§11 投影每一列、receipt 結算 presentation receipt、input 正規化、adapter token 分權、WS 握手／估限／撤銷、斷線／重新協商 → uncertain＋system.text、外部 adapter 不得偽造人類互動、估停期間連線的補投、AI 呈現命令只由桌面結算 |
 | TS 鏡射 | `apps/interaction-desktop/src/test/character-{protocol,gateway,adapters,manifests,shu-adapter}.test.ts`、`companion-gateway-wiring.test.ts`、`companion-imported-characters.test.ts`、`regressions-run2-companion.test.ts` | 同上的 TS 端＋三個 reference adapter＋角色視窗接線＋匯入角色＋對抗審查回歸 |
 | 外部 transport | `scripts/v03-cli-e2e.sh`「Character Protocol」段（Node fixture 走 WebSocket，標示模擬 adapter） | 註冊→WS hello/negotiate→intent→receipt→撤銷；human token 上 WS 被拒、adapter token 打人類路由被拒 |
 | 可信 host | `apps/interaction-desktop/src-tauri/src/{host_safety,character_store}.rs` 單元、`src/test/overlay.test.tsx` | overlay 只由 Rust 驅動、匯入驗證、資產 magic bytes、路徑再檢查 |

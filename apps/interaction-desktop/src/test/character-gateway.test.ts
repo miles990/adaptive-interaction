@@ -704,6 +704,45 @@ describe("system.text 退路與多實例", () => {
     expect(h.receipts.find((r) => r.messageId === e.messageId && r.status === "failed")?.resolution).toBe("failed");
   });
 
+  // character-protocol-038：unsupported／cancelled／uncertain／expired 都是協定允許的終態，
+  // adapter 不能用它們把安全訊息吞掉（呈現層對安全訊息沒有否決權）。
+  it.each(["unsupported", "cancelled", "uncertain", "expired"] as const)(
+    "adapter 用 %s 結束安全 intent 一樣改走 system.text",
+    async (status) => {
+      const h = harness();
+      const a = new FakeAdapter();
+      // unsupported／expired 只在 accepted／scheduled 之後合法（§7），所以停在 accepted。
+      a.mode = "accepted-only";
+      await h.gw.registerInstance(a, "primary-companion", { instanceId: "a" });
+      const e = env("a", "emergency", { truthState: "emergency" });
+      h.gw.dispatch(e);
+      expect(h.systemTexts).toHaveLength(0);
+      a.emit(e.messageId, { status, detail: "adapter chose a terminal status" });
+      expect(h.systemTexts).toHaveLength(1);
+      expect(h.systemTexts[0]).toMatchObject({
+        intent: "emergency",
+        truthState: "emergency",
+        reason: "not-presented",
+      });
+      expect(h.receipts.find((r) => r.messageId === e.messageId && r.status === status)).toBeTruthy();
+    }
+  );
+
+  it("completed 的安全 intent 與非安全 intent 的終態都不補 system.text", async () => {
+    const h = harness();
+    const a = new FakeAdapter();
+    await h.gw.registerInstance(a, "primary-companion", { instanceId: "a" });
+    const safe = env("a", "emergency", { truthState: "emergency" });
+    h.gw.dispatch(safe);
+    a.emit(safe.messageId, { status: "started" });
+    a.emit(safe.messageId, { status: "completed" });
+    expect(h.systemTexts).toHaveLength(0);
+    const plain = env("a", "notice");
+    h.gw.dispatch(plain);
+    a.emit(plain.messageId, { status: "unsupported" });
+    expect(h.systemTexts).toHaveLength(0);
+  });
+
   it("沒有任何實例時安全 intent 仍不遺失", () => {
     const h = harness();
     const r = h.gw.dispatch(env("ghost", "blocked", { truthState: "blocked" }));
