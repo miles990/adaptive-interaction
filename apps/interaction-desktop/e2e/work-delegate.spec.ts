@@ -130,7 +130,8 @@ test("工作：在 composer 交代一件唯讀工作 → 真的建立成唯讀 s
 
   await page.getByRole("button", { name: "開始", exact: true }).click();
   createdLabels.push(label);
-  await expect(page.getByText(/已交給 Codex：/)).toBeVisible({ timeout: 20_000 });
+  // 送出後的句子由 work/delivery 六態投影決定：fake_codex 會立刻取走，所以是「已送到…手上」。
+  await expect(page.getByText(/已送到 Codex 手上，尚未完成/)).toBeVisible({ timeout: 20_000 });
 
   // 後端事實：唯讀、資料範圍就是那個資料夾、沒有工具授權。
   const record = await sessionByLabel(request, label);
