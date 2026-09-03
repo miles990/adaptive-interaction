@@ -807,8 +807,20 @@ pub struct MobileBridge {
     /// 認證失敗（未知裝置／錯 token／已撤銷）的次數。撤銷之後手機還在重連、
     /// 或區網上有人猜 deviceId／token，都必須看得見（audit 有逐筆，這裡是計數）。
     failed_auths: AtomicU64,
+    /// `receptor.offline` watcher 是否已經在跑（伺服器重啟不得疊第二個）。
+    receptor_watcher: AtomicBool,
+    /// runtime 自己關掉高風險受器（斷線／撤銷／緊急停止）時先記一筆：那些
+    /// 路徑各自已經送過停止請求，`receptor.offline` watcher 不必（也不得）
+    /// 再送一則，否則同一次事件會對手機多廣播一次 stop-all。
+    self_receptor_disables: std::sync::Mutex<BTreeMap<String, u32>>,
+    /// 配對清單讀不到／解析失敗的原因（`None`＝清單是可信的）。
+    /// 誠實階梯：unknown ≠ 「還沒有配對的 iPhone」——UI 必須看得出差別。
+    devices_load_error: RwLock<Option<String>>,
     /// 測試用故障注入：讓 accept 迴圈走幾次錯誤分支（預設 0＝永不注入）。
     inject_accept_errors: AtomicU64,
+    /// 測試用故障注入：讓所有出站訊息一律排不進去（模擬「連線還在、但佇列
+    /// 塞爆／寫入端卡住」——這正是誠實階梯最容易破功的情境）。預設 false。
+    inject_outbound_failure: AtomicBool,
     /// 目前桌面角色的顯示名（Character Protocol hello 更新；notify 標題用）。
     character_title: std::sync::Mutex<Option<String>>,
 }
@@ -860,7 +872,11 @@ impl MobileBridge {
             conn_permits: Arc::new(tokio::sync::Semaphore::new(MOBILE_MAX_CONNS)),
             refused_connections: AtomicU64::new(0),
             failed_auths: AtomicU64::new(0),
+            receptor_watcher: AtomicBool::new(false),
+            self_receptor_disables: std::sync::Mutex::new(BTreeMap::new()),
+            devices_load_error: RwLock::new(None),
             inject_accept_errors: AtomicU64::new(0),
+            inject_outbound_failure: AtomicBool::new(false),
             character_title: std::sync::Mutex::new(None),
         })
     }
@@ -955,6 +971,25 @@ impl MobileBridge {
         self.inject_accept_errors.store(times, Ordering::SeqCst);
     }
 
+    /// 測試用故障注入：出站訊息一律視為排不進去（連線仍在 `conns` 裡）。
+    /// 預設 false（生產路徑永遠不會注入），只用來回歸「沒送出去不得謊報停止」。
+    #[doc(hidden)]
+    pub fn inject_outbound_failure(&self, on: bool) {
+        self.inject_outbound_failure.store(on, Ordering::SeqCst);
+    }
+
+    /// 對一條連線送一則出站訊息；回傳「有沒有真的排進佇列」。
+    /// 排進佇列 ≠ 手機收到——但排不進去一定是沒收到。
+    async fn send_outbound(&self, outbound: &mpsc::Sender<Message>, msg: Message) -> bool {
+        if self.inject_outbound_failure.load(Ordering::SeqCst) {
+            return false;
+        }
+        outbound
+            .send_timeout(msg, Duration::from_millis(300))
+            .await
+            .is_ok()
+    }
+
     fn take_injected_accept_error(&self) -> Option<std::io::Error> {
         self.inject_accept_errors
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
@@ -965,6 +1000,36 @@ impl MobileBridge {
                     "injected accept error (test fault injection)",
                 )
             })
+    }
+
+    /// runtime 自己要關掉這個受器了（斷線／撤銷／緊急停止路徑）。
+    fn note_self_receptor_disable(&self, receptor_id: &str) {
+        *self
+            .self_receptor_disables
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(receptor_id.to_string())
+            .or_insert(0) += 1;
+    }
+
+    /// 這一則 `receptor.offline` 是不是 runtime 自己剛剛造成的（消費一次）。
+    fn take_self_receptor_disable(&self, receptor_id: &str) -> bool {
+        let mut map = self
+            .self_receptor_disables
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match map.get_mut(receptor_id) {
+            Some(n) if *n > 0 => {
+                *n -= 1;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 配對清單目前是不是「讀不到／壞掉」（status 誠實顯示；`None`＝可信）。
+    pub async fn devices_load_error(&self) -> Option<String> {
+        self.devices_load_error.read().await.clone()
     }
 
     pub fn dropped_observations(&self) -> u64 {
@@ -1032,11 +1097,9 @@ impl MobileBridge {
         let conns = self.conns.read().await;
         let mut delivered = 0;
         for conn in conns.values() {
-            if conn
-                .outbound
-                .send_timeout(Message::Text(text.clone()), Duration::from_millis(300))
+            if self
+                .send_outbound(&conn.outbound, Message::Text(text.clone()))
                 .await
-                .is_ok()
             {
                 delivered += 1;
             }
@@ -1233,12 +1296,15 @@ impl MobileBridge {
                     .to_string(),
             )
             .await;
-        *last = Some((Instant::now(), sensors));
         if delivered == 0 {
+            // 一則都沒排進去＝什麼都沒被停：去重窗**不得**因此關上，否則接下來
+            // 的五個動器會落進去重分支回 Ok(())，被算進 `stoppedActuators`
+            // ——同一份 payload 一邊說手機 unreachable、一邊說六個動器已停止。
             return Err(ActuatorError::Unavailable(
                 "stop-all could not be queued to any iPhone".into(),
             ));
         }
+        *last = Some((Instant::now(), sensors));
         Ok(())
     }
 
@@ -1302,10 +1368,9 @@ impl MobileBridge {
         let mut outcomes = Vec::new();
         for (device_id, outbound, tracker) in targets {
             tracker.request();
-            if outbound
-                .send_timeout(Message::Text(text.clone()), Duration::from_millis(300))
+            if self
+                .send_outbound(&outbound, Message::Text(text.clone()))
                 .await
-                .is_ok()
             {
                 waiting.push((device_id, tracker));
             } else {
@@ -1339,7 +1404,14 @@ impl MobileBridge {
         }
         // 去重窗從「這一輪停止序列結束」起算：緊急停止時 6 個動器隨後各自
         // 呼叫 stop-all，那是同一次事件，不該再對手機多送一則。
-        *self.last_stop_all.lock().await = Some((Instant::now(), true));
+        // 但**只有真的排進去至少一台**才算送過：全部 unreachable 時關上去重窗
+        // 等於替失敗的那一則代簽，讓六個動器一起謊報「已停止」。
+        if outcomes
+            .iter()
+            .any(|o| o.outcome != StopOutcome::Unreachable)
+        {
+            *self.last_stop_all.lock().await = Some((Instant::now(), true));
+        }
         outcomes
     }
 
@@ -1591,6 +1663,47 @@ fn mobile_provider_note(device_id: &str) -> String {
     )
 }
 
+/// 原子落地：暫存檔（0600）→ `write_all` → `sync_all` → `rename`。
+/// `fs::write` 會先把目標截斷再寫，ENOSPC／崩潰因此留下半截檔案；rename 是
+/// 同一個檔案系統上的原子操作，讀到的永遠是「上一份完整的」或「這一份完整的」。
+/// 目錄本身盡力 fsync（失敗不致命：rename 已經生效，只是耐當機性差一點）。
+fn write_file_atomically(
+    tmp: &std::path::Path,
+    path: &std::path::Path,
+    bytes: &[u8],
+) -> Result<(), String> {
+    use std::io::Write;
+    // 上一次失敗留下的暫存檔不該擋住這一次（create_new 需要它不存在）。
+    if let Err(e) = std::fs::remove_file(tmp) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            return Err(format!("{}: {e}", tmp.display()));
+        }
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // 清單裡有每台手機的 token 雜湊：不必給同機其他使用者看。
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(tmp)
+        .map_err(|e| format!("{}: {e}", tmp.display()))?;
+    file.write_all(bytes)
+        .map_err(|e| format!("{}: {e}", tmp.display()))?;
+    file.sync_all()
+        .map_err(|e| format!("{}: {e}", tmp.display()))?;
+    drop(file);
+    std::fs::rename(tmp, path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if let Some(parent) = path.parent() {
+        if let Ok(dir) = std::fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
+    Ok(())
+}
+
 /// 私鑰落地：先以 0600 建立暫存檔、寫完再 rename——檔案從第一刻起就只有
 /// 擁有者可讀（「先 write 再 chmod」會有一小段 umask 決定的空窗）。
 /// 任何一步失敗都往上拋，不用 `let _` 吞掉。
@@ -1674,6 +1787,10 @@ impl Runtime {
 
     /// 寫入配對裝置清單。**寫檔失敗必須被呼叫端看見**：撤銷若只改了記憶體，
     /// 重啟後 token 會復活（等於撤銷沒發生）。
+    ///
+    /// 原子寫入（暫存檔 0600 ＋ `sync_all` ＋ `rename`）：`fs::write` 是
+    /// 「先截斷再寫」，ENOSPC／崩潰會在磁碟上留下半截 JSON——下次啟動時所有
+    /// 已配對的 iPhone 就無聲消失。半截檔案永遠不得取代好的那一份。
     async fn mobile_persist_devices(&self) -> Result<(), String> {
         let devices: Vec<PairedDevice> =
             self.mobile.devices.read().await.values().cloned().collect();
@@ -1683,24 +1800,77 @@ impl Runtime {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+        let tmp = path.with_extension("json.tmp");
+        if let Err(e) = write_file_atomically(&tmp, &path, text.as_bytes()) {
+            // 暫存檔不留垃圾；原本的清單原封不動（撤銷／配對都會誠實回 Err）。
+            let _ = std::fs::remove_file(&tmp);
+            return Err(format!("{}: {e}", path.display()));
+        }
+        // 清單重新可信：先前的「讀不到」不得繼續掛在 status 上。
+        *self.mobile.devices_load_error.write().await = None;
+        Ok(())
     }
 
-    pub async fn mobile_load_devices(&self) {
+    /// 讀取配對裝置清單。**「讀不到」與「解析失敗」不是「沒有配對過」**：
+    /// 靜默當成空清單會讓已配對的 iPhone 無聲消失（UI 顯示「還沒有配對的
+    /// iPhone」、autostart 也不開埠），而使用者無從得知狀態檔壞了。
+    /// 壞掉的檔案改名保留成證據、留 audit，原因記進 status（`devicesUnknown`）。
+    pub async fn mobile_load_devices(&self) -> Result<(), String> {
         let path = self.mobile_devices_path();
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            return;
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            // 從來沒有配對過：這是**已知**的空，不是未知。
+            // （檔案不見也可能是剛剛被隔離成 `.corrupt`——那時先前記下的原因
+            // 必須留著，不得被「沒有檔案」洗成可信的空清單。）
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => {
+                return Err(self
+                    .mobile_note_devices_unreadable(format!("read: {e}"), false)
+                    .await)
+            }
         };
-        if let Ok(value) = serde_json::from_str::<Value>(&text) {
-            if let Ok(devices) =
+        let parsed = serde_json::from_str::<Value>(&text)
+            .map_err(|e| format!("parse: {e}"))
+            .and_then(|value| {
                 serde_json::from_value::<Vec<PairedDevice>>(value["devices"].clone())
-            {
+                    .map_err(|e| format!("devices: {e}"))
+            });
+        match parsed {
+            Ok(devices) => {
                 let mut map = self.mobile.devices.write().await;
                 for d in devices {
                     map.insert(d.device_id.clone(), d);
                 }
+                drop(map);
+                *self.mobile.devices_load_error.write().await = None;
+                Ok(())
+            }
+            Err(e) => Err(self.mobile_note_devices_unreadable(e, true).await),
+        }
+    }
+
+    /// 清單讀不到／壞掉：留證據（改名 `.corrupt`，人可以救回來）、留 audit、
+    /// 記下 status 要顯示的原因。回傳同一段原因字串給呼叫端。
+    async fn mobile_note_devices_unreadable(&self, error: String, quarantine: bool) -> String {
+        let path = self.mobile_devices_path();
+        let mut detail = json!({"path": path.display().to_string(), "error": error});
+        if quarantine {
+            let backup = path.with_extension("json.corrupt");
+            match std::fs::rename(&path, &backup) {
+                Ok(()) => detail["quarantined"] = json!(backup.display().to_string()),
+                Err(e) => detail["quarantineError"] = json!(e.to_string()),
             }
         }
+        *self.mobile.devices_load_error.write().await = Some(error.clone());
+        tracing::warn!(
+            error = %error,
+            path = %path.display(),
+            "paired iPhone list unreadable — reported as unknown, not as “no devices”"
+        );
+        self.store
+            .audit("mobile.devices-load-failed", "runtime", &detail)
+            .ok();
+        error
     }
 
     /// 憑證：state/mobile-cert.der＋mobile-key.der（自簽、首次產生、指紋供 QR 釘選）。
@@ -1736,21 +1906,40 @@ impl Runtime {
 
     /// 目前仍有配對裝置 → daemon/桌面啟動時自動起 mobile 伺服器（讓 iPhone
     /// 能重連）。沒配對過、或全部撤銷後（檔案存在但 devices 為空）就不開網路服務。
+    ///
+    /// 清單讀不到／壞掉是**第三種**情況：不開伺服器（沒有可信的裝置清單，
+    /// 誰都認證不過），但必須留 audit ＋在 status 標成未知——不得靜默演成
+    /// 「還沒有配對的 iPhone」，那會讓已配對的手機在畫面上無聲消失。
     pub fn mobile_autostart_if_paired(&self) {
-        let has_devices = std::fs::read_to_string(self.mobile_devices_path())
-            .ok()
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-            .and_then(|v| v["devices"].as_array().map(|a| !a.is_empty()))
-            .unwrap_or(false);
-        if !has_devices {
-            return;
-        }
-        let rt = self.clone();
-        tokio::spawn(async move {
-            if let Err(e) = rt.mobile_ensure_started().await {
-                tracing::warn!(error = %e, "mobile autostart failed");
+        let devices = match std::fs::read_to_string(self.mobile_devices_path()) {
+            Ok(text) => serde_json::from_str::<Value>(&text)
+                .map_err(|e| format!("parse: {e}"))
+                .and_then(|v| {
+                    v["devices"]
+                        .as_array()
+                        .map(|a| !a.is_empty())
+                        .ok_or_else(|| "devices: not an array".to_string())
+                }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(format!("read: {e}")),
+        };
+        match devices {
+            Ok(true) => {
+                let rt = self.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = rt.mobile_ensure_started().await {
+                        tracing::warn!(error = %e, "mobile autostart failed");
+                    }
+                });
             }
-        });
+            Ok(false) => {}
+            Err(error) => {
+                let rt = self.clone();
+                tokio::spawn(async move {
+                    rt.mobile_note_devices_unreadable(error, false).await;
+                });
+            }
+        }
     }
 
     /// 啟動 mobile 伺服器（冪等）。`started` 只在全部步驟成功後才設；
@@ -1762,7 +1951,11 @@ impl Runtime {
         }
         // rustls 需要 process-level CryptoProvider（重複安裝無害）。
         let _ = rustls::crypto::ring::default_provider().install_default();
-        self.mobile_load_devices().await;
+        if let Err(e) = self.mobile_load_devices().await {
+            // 讀不到清單不阻止伺服器啟動（記憶體表裡可能已有裝置），但錯誤
+            // 不得被吞掉：status 的 `devicesUnknown` 會照實說「未知」。
+            tracing::warn!(error = %e, "mobile device list unreadable — starting with what is known");
+        }
         let (cert_der, key_der, fingerprint) = self
             .mobile_cert()
             .map_err(|e| DomainError::Internal(format!("mobile cert: {e}")))?;
@@ -1866,6 +2059,10 @@ impl Runtime {
         self.mobile_register_capabilities().await?;
         self.store
             .audit("mobile.server-started", "runtime", &json!({"port": port}))?;
+
+        // 受器被直接停用時，仍在串流的手機必須被請去停止（感測不靜默）。
+        // 只有 mobile 伺服器真的在跑時才需要這個 watcher。
+        self.mobile_spawn_receptor_off_watcher();
 
         // Accept loop（只有走到這裡才算啟動成功）。
         // 單一 accept 錯誤不得讓整個 iPhone 伺服器悄悄消失：退避重試，
@@ -2084,6 +2281,7 @@ impl Runtime {
     }
 
     pub async fn mobile_status(&self) -> DomainResult<Value> {
+        let devices_error = self.mobile.devices_load_error().await;
         let conns = self.mobile.conns.read().await;
         let devices: Vec<Value> = self
             .mobile
@@ -2128,6 +2326,9 @@ impl Runtime {
                 "maxInboundPerSec": MOBILE_MAX_INBOUND_PER_SEC,
             },
             "droppedObservations": self.mobile.dropped_observations(),
+            // 配對清單讀不到／壞掉＝**未知**，不是「還沒有配對的 iPhone」。
+            "devicesUnknown": devices_error.is_some(),
+            "devicesError": devices_error,
             // 配對期被未認證 peer 燒掉的時間（null＝沒發生過）。
             "pairingBurnedAt": *self.mobile.pairing_burned_at.read().await,
             "pendingActs": self.mobile.pending_len(),
@@ -2212,7 +2413,7 @@ impl Runtime {
             .await;
         // 全域受器被關掉之後，另一台仍在串流的手機不得從 activeSensors 無聲
         // 消失：請它也停止感測，並照實顯示「停止中／結果未知」直到它確認。
-        self.mobile_stop_other_streaming_phones(device_id, "revoked")
+        self.mobile_stop_other_streaming_phones(Some(device_id), "revoked")
             .await;
         self.store.audit(
             "mobile.device-revoked",
@@ -2231,6 +2432,9 @@ impl Runtime {
             if self.registry.receptor(&id).await.is_err() {
                 continue;
             }
+            // 這一則 `receptor.offline` 是 runtime 自己造成的：watcher 要略過
+            // （這條路徑的呼叫端隨後就會送停止請求，不必也不得重送）。
+            self.mobile.note_self_receptor_disable(spec.id);
             if self.registry.set_receptor_enabled(&id, false).await.is_ok() {
                 self.store
                     .audit(
@@ -2243,6 +2447,9 @@ impl Runtime {
                         }),
                     )
                     .ok();
+            } else {
+                // 標記沒有對應的事件：立刻收回，否則會吃掉之後**人類**發動的停用。
+                self.mobile.take_self_receptor_disable(spec.id);
             }
         }
     }
@@ -2363,14 +2570,16 @@ impl Runtime {
     /// `activeSensors` 無聲消失（消失＝宣稱它停了），也不該繼續錄一份沒有人
     /// 在收的音。對每一台仍在串流、且還沒有待確認停止請求的其他手機送出停止
     /// 請求：它會留在 `activeSensors` 標「停止中／結果未知」直到手機確認為止。
-    async fn mobile_stop_other_streaming_phones(&self, excluding: &str, reason: &str) {
+    async fn mobile_stop_other_streaming_phones(&self, excluding: Option<&str>, reason: &str) {
         let others: Vec<String> = self
             .mobile
             .mic_streaming_devices()
             .await
             .into_iter()
             // 已經有待確認的停止請求就不重送（重送會把已確認的等待重新打開）。
-            .filter(|(id, _, stop_pending)| id != excluding && stop_pending.is_none())
+            .filter(|(id, _, stop_pending)| {
+                excluding != Some(id.as_str()) && stop_pending.is_none()
+            })
             .map(|(id, _, _)| id)
             .collect();
         if others.is_empty() {
@@ -2394,11 +2603,60 @@ impl Runtime {
                 &json!({
                     "reason": reason,
                     "triggeredBy": excluding,
+                    "receptor": "iphone.mic-level",
                     "waitedMsBudget": STOP_SENSORS_WAIT.as_millis() as u64,
                     "devices": devices,
                 }),
             )
             .ok();
+    }
+
+    /// 感測不靜默（對抗審查 safety-invariants-056）：使用者／AI 直接把
+    /// `iphone.mic-level` 停用時（CapabilityCard 的「停用」、PATCH
+    /// `/v1/receptors/{id}`、Tauri `set_receptor_enabled`、CLI），registry 只翻
+    /// 一個旗標——手機不會知道，於是它**繼續錄**，桌面卻因為受器 disabled 把
+    /// 它從 `activeSensors` 濾掉（tray／可信 overlay／首頁一起變成「沒有感測
+    /// 在用」）＝畫面宣稱已停、實體仍在擷取。
+    ///
+    /// 這個 watcher 監聽 `receptor.offline`，替那條路徑補上唯一正確的動作：
+    /// 對每一台仍在串流的手機送停止請求（reason=user）。手機因此會留在
+    /// `activeSensors` 標「停止中／結果未知」直到它確認——誠實：未知≠已停。
+    /// runtime 自己關（斷線／撤銷／緊急停止）的那些已在原路徑送過停止請求，
+    /// 由 `note_self_receptor_disable` 標記後在此略過，不重複廣播。
+    fn mobile_spawn_receptor_off_watcher(&self) {
+        // accept 迴圈停掉之後重新啟動伺服器時，不得疊出第二個 watcher。
+        if self.mobile.receptor_watcher.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let rt = self.clone();
+        let mut rx = self.events.subscribe();
+        tokio::spawn(async move {
+            loop {
+                let event = match rx.recv().await {
+                    Ok(event) => event,
+                    // 落後只代表漏了幾則事件，不是結束：繼續聽下一則。
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                };
+                if event.event_type != EventType::ReceptorOffline {
+                    continue;
+                }
+                let Some(receptor_id) = event.payload["receptorId"].as_str() else {
+                    continue;
+                };
+                if !MOBILE_RECEPTOR_SPECS
+                    .iter()
+                    .any(|spec| spec.high_risk && spec.id == receptor_id)
+                {
+                    continue;
+                }
+                if rt.mobile.take_self_receptor_disable(receptor_id) {
+                    continue;
+                }
+                rt.mobile_stop_other_streaming_phones(None, "receptor-disabled")
+                    .await;
+            }
+        });
     }
 
     /// 感測不靜默：手機端正在串流的高風險感測也要出現在 `status.activeSensors`
@@ -3378,13 +3636,13 @@ impl Runtime {
                 Some(reason) => {
                     self.mobile_disable_high_risk_receptors(&device_id, reason)
                         .await;
-                    self.mobile_stop_other_streaming_phones(&device_id, reason)
+                    self.mobile_stop_other_streaming_phones(Some(&device_id), reason)
                         .await;
                 }
                 None if was_active => {
                     self.mobile_disable_high_risk_receptors(&device_id, "disconnected")
                         .await;
-                    self.mobile_stop_other_streaming_phones(&device_id, "disconnected")
+                    self.mobile_stop_other_streaming_phones(Some(&device_id), "disconnected")
                         .await;
                 }
                 None => {}

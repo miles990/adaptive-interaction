@@ -606,6 +606,42 @@ function ProvidersSection({
 // 每一台手機的卡片與第一層共用同一個元件（PhoneDeviceCard），只有一份真相。
 // ---------------------------------------------------------------------------
 
+/** 配對載荷（QR 內容＝iOS「手動貼上」欄位吃的同一份）裡的主機位址。 */
+export function pairingHostPort(payload: unknown): string | null {
+  if (typeof payload !== "string" || payload.length === 0) return null;
+  try {
+    const parsed = JSON.parse(payload) as Record<string, unknown>;
+    const host = typeof parsed.host === "string" ? parsed.host : null;
+    if (!host) return null;
+    const port = typeof parsed.port === "number" ? parsed.port : null;
+    return port ? `${host}:${port}` : host;
+  } catch {
+    return null;
+  }
+}
+
+/** 這一段配對期為什麼不能用了（`null`＝還有效）。 */
+export function pairingInvalidReason(
+  expiresAt: unknown,
+  live: { active: boolean; burnedAt: string | null } | null,
+  now: number
+): string | null {
+  // runtime 在每段配對期開始時把 pairingBurnedAt 歸零，所以這裡看到值就是
+  // 「這一段被燒掉了」——區網上任何未認證 peer 送一則錯的回應就會發生。
+  if (live?.burnedAt) {
+    return "這段配對期已經作廢：有別的裝置試過配對（配對碼一次只能用一次）。請重新開始配對。";
+  }
+  const deadline = Date.parse(String(expiresAt ?? ""));
+  if (Number.isFinite(deadline) && deadline <= now) {
+    return "這段配對期已經過期。請重新開始配對。";
+  }
+  // 已經去問過 runtime，而它說沒有配對期在進行中（被用掉或被清掉）。
+  if (live && !live.active) {
+    return "這段配對期已經結束（配對碼只能用一次）。請重新開始配對。";
+  }
+  return null;
+}
+
 export function MobileSection({
   refreshKey,
   advanced = false,
@@ -618,12 +654,60 @@ export function MobileSection({
   const [runtimeStatus] = useAsync(() => api.status(), [refreshKey]);
   const [pairing, setPairing] = React.useState<Record<string, unknown> | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [copied, setCopied] = React.useState(false);
+  // 配對面板是一次性快照，runtime 才是真相：這一段配對期可能已經被區網上的
+  // peer 燒掉、被用掉或過期（status.pairingBurnedAt／pairingActive）。畫面不
+  // 得繼續顯示配對碼與「有效至 …」——那是在宣稱一件已經不成立的事。
+  const [pairingLive, setPairingLive] = React.useState<{
+    active: boolean;
+    burnedAt: string | null;
+  } | null>(null);
+  const [now, setNow] = React.useState(() => Date.now());
+  const reloadStatusRef = React.useRef(reloadStatus);
+  reloadStatusRef.current = reloadStatus;
+  const invalidPairing = pairing
+    ? pairingInvalidReason(pairing.expiresAt, pairingLive, now)
+    : null;
+
+  React.useEffect(() => {
+    if (!pairing || invalidPairing) return;
+    let alive = true;
+    const check = async () => {
+      try {
+        const s = await api.mobileStatus();
+        if (!alive) return;
+        setPairingLive({
+          active: s["pairingActive"] === true,
+          burnedAt: (s["pairingBurnedAt"] as string | null) ?? null,
+        });
+      } catch {
+        // 問不到就不臆測：維持上一次已知的狀態（不假裝有效，也不假裝失效）。
+      }
+    };
+    void check();
+    const timer = setInterval(() => {
+      setNow(Date.now());
+      void check();
+    }, 2000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [pairing, invalidPairing, refreshKey]);
+
+  // 配對期收掉的同時，裝置清單可能已經多了一台（別人用掉了這組碼）。
+  React.useEffect(() => {
+    if (invalidPairing) reloadStatusRef.current();
+  }, [invalidPairing]);
 
   const activeSensors = (runtimeStatus.data?.["activeSensors"] as SensorUse[] | undefined) ?? [];
   const devices = ((status.data?.devices as Record<string, unknown>[] | undefined) ?? []).map((d) =>
     phoneCardModel(d, human, activeSensors)
   );
   const bonjour = (status.data?.bonjour as Record<string, unknown> | undefined) ?? null;
+  // runtime 讀不到／解析不了配對清單時的誠實訊號（`devicesUnknown`）。
+  const devicesUnknown = status.data?.["devicesUnknown"] === true;
+  const devicesError = (status.data?.["devicesError"] as string | null) ?? null;
 
   return (
     <Section title="iPhone">
@@ -633,7 +717,7 @@ export function MobileSection({
       </p>
       {status.error && <div className="state-box state-error">無法讀取狀態：{status.error}</div>}
       {bonjour && (
-        <div className="muted small">
+        <div className="muted small" data-testid="mobile-bonjour">
           {bonjour.advertised === true ? (
             <>
               同一個 Wi-Fi 裡的 iPhone 可以自動找到這台電腦。
@@ -646,12 +730,22 @@ export function MobileSection({
           ) : (
             <>
               iPhone 無法自動找到這台電腦（自動尋找未啟用
-              {advanced && bonjour.error ? `：${String(bonjour.error)}` : ""}）——請掃 QR，或在手機上手動輸入電腦位址配對。
+              {advanced && bonjour.error ? `：${String(bonjour.error)}` : ""}
+              ）——請掃 QR；不能掃（相機被占用、沒授權或機型不支援）時，開始配對後把下面那段
+              「配對資料」複製到 iPhone App 手動貼上。
             </>
           )}
         </div>
       )}
-      {devices.length === 0 ? (
+      {devicesUnknown ? (
+        // 誠實階梯：狀態檔讀不到＝**未知**，不得演成「還沒有配對的 iPhone」
+        // ——那會讓已配對的手機在畫面上無聲消失。
+        <div className="state-box state-error" role="alert" data-testid="mobile-devices-unknown">
+          讀不到已配對的 iPhone 清單（狀態檔讀取或解析失敗），所以現在無法確定有哪些手機配對過
+          ——這不等於「沒有配對過」。已配對的手機可能因此連不上；重新配對可以重建這份清單。
+          {advanced && devicesError ? `　原因：${devicesError}` : ""}
+        </div>
+      ) : devices.length === 0 ? (
         <p className="muted small">還沒有配對的 iPhone。</p>
       ) : (
         <div className="provider-list">
@@ -669,6 +763,9 @@ export function MobileSection({
         <button
           onClick={async () => {
             try {
+              setPairingLive(null);
+              setCopied(false);
+              setNow(Date.now());
               setPairing(await api.mobilePairingBegin());
               setError(null);
             } catch (e) {
@@ -679,7 +776,12 @@ export function MobileSection({
           開始配對（5 分鐘內有效）
         </button>
       </div>
-      {pairing && (
+      {pairing && invalidPairing && (
+        <div className="notice-box state-error" role="alert" data-testid="pairing-invalid">
+          <p>{invalidPairing}</p>
+        </div>
+      )}
+      {pairing && !invalidPairing && (
         <div className="notice-box" role="status">
           <p>
             在 iPhone App 掃描 QR 或輸入配對碼：<strong>{String(pairing.code)}</strong>
@@ -693,6 +795,43 @@ export function MobileSection({
               // 後端 qrcode crate 產生的 SVG（本機生成，非外部內容）。
               dangerouslySetInnerHTML={{ __html: pairing.qrSvg }}
             />
+          )}
+          {typeof pairing.payload === "string" && pairing.payload.length > 0 && (
+            <div className="pairing-manual">
+              <p className="muted small">
+                不能掃 QR 時：把下面這段「配對資料」整段複製，貼進 iPhone App 的手動配對欄位
+                （手機需要的是這一整段，只有 6 位配對碼是不夠的）。
+              </p>
+              <textarea
+                data-testid="pairing-payload"
+                aria-label="配對資料（複製到 iPhone App 手動貼上）"
+                readOnly
+                rows={3}
+                value={String(pairing.payload)}
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <div className="row wrap">
+                <button
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(String(pairing.payload));
+                      setCopied(true);
+                    } catch {
+                      // 沒有剪貼簿權限就誠實不宣稱複製成功：內容本來就看得到、選得起來。
+                      setCopied(false);
+                    }
+                  }}
+                >
+                  複製配對資料
+                </button>
+                {copied && <span className="muted small">已複製到剪貼簿。</span>}
+              </div>
+              {pairingHostPort(pairing.payload) && (
+                <p className="muted small" data-testid="pairing-host">
+                  這台電腦的位址：{pairingHostPort(pairing.payload)}
+                </p>
+              )}
+            </div>
           )}
           <p className="muted small">
             有效至 {new Date(String(pairing.expiresAt)).toLocaleTimeString("zh-TW")}；配對碼只能用一次。

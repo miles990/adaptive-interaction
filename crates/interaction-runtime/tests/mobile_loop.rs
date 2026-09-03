@@ -1084,7 +1084,7 @@ async fn six_actuators_pass_app_grade_parameter_validation() {
         }
     });
 
-    for (id, _, _) in MOBILE_ACTUATORS {
+    for (id, _, _) in MOBILE_ACTUATORS.iter() {
         let id: &str = id;
         // notify/tts 需要真正的文字（runtime 不替使用者編句子）。
         let message = match id {
@@ -3558,5 +3558,196 @@ async fn a_failed_auth_is_audited_and_counted() {
         rt.mobile_status().await.unwrap()["heartbeat"]["failedAuths"],
         json!(1),
         "status 要數得出來"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// v0.5.1 對抗審查第三輪（0c845e0）：safety-invariants-056、mobile-server-059／060
+// ---------------------------------------------------------------------------
+
+/// safety-invariants-056：使用者在「連接與權限」按下 `iphone.mic-level` 的
+/// 「停用」（＝PATCH /v1/receptors／Tauri set_receptor_enabled）之後，手機
+/// **不會自己停**——桌面必須 (a) 請它停止感測，(b) 在它確認之前不得讓它從
+/// `status.activeSensors` 消失（消失＝宣稱已停＝感測靜默）。
+#[tokio::test(flavor = "multi_thread")]
+async fn disabling_the_shared_mic_receptor_stops_the_phone_and_keeps_it_visible() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+    send_phone_status(&mut ws, true).await;
+    wait_for_iphone_mic_sensor(&rt, true).await;
+
+    // 模擬 iPhone：收得到 stop-all，但先不回覆（結果未知＝可能仍在錄）。
+    let (tx, mut saw_stop_all) = tokio::sync::mpsc::unbounded_channel::<Value>();
+    let phone = tokio::spawn(async move {
+        while let Ok(Some(Ok(msg))) = tokio::time::timeout(Duration::from_secs(8), ws.next()).await
+        {
+            let Message::Text(text) = msg else { continue };
+            let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            if v["type"] == "stop-all" {
+                let _ = tx.send(v);
+            }
+        }
+    });
+
+    // 這一行就是使用者按下「停用」時 runtime 唯一會發生的事。
+    rt.registry.set_receptor_enabled(&mic, false).await.unwrap();
+
+    // (a) 手機必須收到「連感測一起停」的請求，而且說明是使用者發起的。
+    let stop_all = tokio::time::timeout(Duration::from_secs(3), saw_stop_all.recv())
+        .await
+        .expect("停用共享的高風險受器必須請手機停止擷取")
+        .expect("stop-all payload");
+    assert_eq!(stop_all["sensors"], json!(true), "{stop_all}");
+    assert_eq!(stop_all["reason"], json!("user"), "{stop_all}");
+
+    // (b) 手機還沒確認 → 仍要出現在 activeSensors，並誠實標「停止中／未知」。
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let entry = loop {
+        let status = rt.status().await;
+        let found = status["activeSensors"]
+            .as_array()
+            .and_then(|l| l.iter().find(|s| s["kind"] == "iphone.mic-level").cloned());
+        match found {
+            Some(entry) => break entry,
+            None if std::time::Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            None => panic!(
+                "仍在擷取的 iPhone 不得從 activeSensors 無聲消失：{}",
+                rt.status().await["activeSensors"]
+            ),
+        }
+    };
+    assert!(
+        matches!(
+            entry["state"].as_str(),
+            Some("stopping") | Some("stop-unknown")
+        ),
+        "受器停用後手機未確認，狀態要說「停止中／結果未知」：{entry}"
+    );
+    assert!(
+        entry["startedBy"]
+            .as_str()
+            .unwrap_or_default()
+            .contains(&device_id),
+        "要指得出是哪一台手機：{entry}"
+    );
+
+    // audit 留痕：使用者事後查得到「桌面確實請手機停了」（逐台結果，
+    // 有界等待之後才落地，所以這裡也要有界輪詢）。
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let audit = loop {
+        match last_audit(&rt, "mobile.sensors-stop-shared-receptor-off") {
+            Some(audit) => break audit,
+            None if std::time::Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            None => panic!("停用共享受器要留 audit"),
+        }
+    };
+    assert_eq!(audit["detail"]["devices"][0]["deviceId"], json!(device_id));
+    assert_eq!(
+        audit["detail"]["receptor"],
+        json!("iphone.mic-level"),
+        "{audit}"
+    );
+    phone.abort();
+}
+
+/// mobile-server-059：緊急停止時「有連線但一則都送不出去」——沒有任何一台
+/// iPhone 收到 stop-all 時，六個 mobile 動器都不得回 Ok，`stoppedActuators`
+/// 也不得把它們算成已停止（誠實階梯：排進佇列／送不出去 ≠ 已停止）。
+#[tokio::test(flavor = "multi_thread")]
+async fn estop_never_counts_mobile_actuators_when_no_phone_received_stop_all() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, _ws) = pair(&rt).await;
+    // 連線還在（any_connected() 為真），但出站訊息一則都排不進去。
+    rt.mobile.inject_outbound_failure(true);
+
+    let total_actuators = rt.registry.all_actuator_instances().await.len();
+    let payload = rt.emergency_stop("user", None).await.unwrap();
+
+    // 感測面誠實：這台手機是 unreachable。
+    assert_eq!(
+        payload["sensors"]["devices"][0]["deviceId"],
+        json!(device_id),
+        "{payload}"
+    );
+    assert_eq!(
+        payload["sensors"]["devices"][0]["outcome"],
+        json!("unreachable"),
+        "{payload}"
+    );
+    // 動器面不得自相矛盾：六個 iphone.* 動器一個都不能被算進去。
+    let stopped = payload["stoppedActuators"].as_u64().unwrap();
+    assert!(
+        stopped as usize <= total_actuators - MOBILE_ACTUATORS.len(),
+        "沒送出任何 stop-all 卻把 mobile 動器算成已停止：stoppedActuators={stopped}／全部 {total_actuators}"
+    );
+
+    // 去重窗不得替失敗的那一則「代簽」：同一輪內再問一次仍必須誠實 Err。
+    for (id, _, _) in MOBILE_ACTUATORS.iter() {
+        let id: &str = id;
+        let actuator = rt
+            .registry
+            .actuator_any(&interaction_core::ActuatorId::new(id))
+            .await
+            .unwrap_or_else(|e| panic!("{id} registered: {e}"));
+        assert!(
+            actuator.emergency_stop().await.is_err(),
+            "{id}: 沒有任何手機收到 stop-all 時不得回 Ok"
+        );
+    }
+}
+
+/// mobile-server-060：配對清單讀不到／被截斷時，不得靜默演成「還沒有配對的
+/// iPhone」。壞掉的檔案要留證據、要有 audit，status 要說「未知」。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_corrupt_paired_device_list_is_reported_as_unknown_not_as_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = runtime_at(dir.path()).await;
+    let (device_id, _token, ws) = pair(&rt).await;
+    drop(ws);
+    let path = dir.path().join("state").join("mobile-devices.json");
+    let text = std::fs::read_to_string(&path).expect("device list written");
+    assert!(text.contains(&device_id), "{text}");
+
+    // 模擬 ENOSPC／崩潰：檔案被截成半截（非原子寫入的典型結果）。
+    std::fs::write(&path, &text[..text.len() / 2]).unwrap();
+
+    let rt2 = runtime_at(dir.path()).await;
+    rt2.mobile_ensure_started().await.expect("mobile server");
+    let status = rt2.mobile_status().await.unwrap();
+    assert_eq!(
+        status["devices"].as_array().map(|d| d.len()),
+        Some(0),
+        "{status}"
+    );
+    assert_eq!(
+        status["devicesUnknown"],
+        json!(true),
+        "讀不到配對清單不得假裝成「還沒有配對的 iPhone」：{status}"
+    );
+    assert!(
+        !status["devicesError"]
+            .as_str()
+            .unwrap_or_default()
+            .is_empty(),
+        "要說得出讀不到的原因：{status}"
+    );
+    let audit = last_audit(&rt2, "mobile.devices-load-failed")
+        .unwrap_or_else(|| panic!("配對清單讀不到必須留 audit"));
+    assert!(
+        audit["detail"]["error"].as_str().unwrap_or_default().len() > 3,
+        "{audit}"
+    );
+    // 壞掉的檔案要留著（人可以救回來），不是被就地覆蓋。
+    let quarantined = dir.path().join("state").join("mobile-devices.json.corrupt");
+    assert!(quarantined.exists(), "壞掉的清單要保留成證據：{audit}");
+    assert_eq!(
+        std::fs::read_to_string(&quarantined).unwrap().len(),
+        text.len() / 2
     );
 }
