@@ -706,6 +706,195 @@ async fn assist_requiring_human_confirmation_never_autofires_on_timeout() {
     );
 }
 
+/// Find the `components` entry of a commit result's `applied` list.
+fn components_step(result: &Value) -> Value {
+    result["applied"]
+        .as_array()
+        .expect("applied list")
+        .iter()
+        .find(|step| step["step"] == json!("components"))
+        .expect("components step")
+        .clone()
+}
+
+/// How many `receptor.offline` events this receptor has produced so far.
+fn offline_events(rt: &Runtime, receptor_id: &str) -> usize {
+    rt.events
+        .recent(500)
+        .into_iter()
+        .filter(|e| {
+            e.event_type == EventType::ReceptorOffline
+                && e.payload.get("receptorId").and_then(Value::as_str) == Some(receptor_id)
+        })
+        .count()
+}
+
+fn availability_of(rt_human: &Value, kind: &str, id: &str) -> String {
+    rt_human[kind]
+        .as_array()
+        .expect("cards")
+        .iter()
+        .find(|card| card["id"] == json!(id))
+        .unwrap_or_else(|| panic!("{kind} {id} missing"))["availability"]
+        .as_str()
+        .expect("availability")
+        .to_string()
+}
+
+/// The wizard's 「套用前確認」 dialog is built from this preview, so it must
+/// report the real before/after state and change absolutely nothing.
+#[tokio::test]
+async fn onboarding_preview_reports_changes_without_touching_anything() {
+    let (_g, rt) = runtime().await;
+    rt.add_push_receptor("probe.motion", "Probe motion", "device", false)
+        .await
+        .unwrap();
+    let commit = OnboardingCommit {
+        disable_receptors: vec!["probe.motion".into()],
+        starter_recipes: vec!["starter-task-complete".into()],
+        preferences: Some(json!({"locale": "zh-TW"})),
+        ..Default::default()
+    };
+    let preview = rt.preview_onboarding(commit).await.unwrap();
+    assert_eq!(preview["receptors"][0]["id"], json!("probe.motion"));
+    assert_eq!(preview["receptors"][0]["from"], json!("on"));
+    assert_eq!(preview["receptors"][0]["to"], json!("off"));
+    assert_eq!(preview["receptors"][0]["changed"], json!(true));
+    assert_eq!(preview["changed"], json!(true));
+    assert_eq!(
+        preview["starterRecipes"][0]["id"],
+        json!("starter-task-complete")
+    );
+    assert_eq!(
+        preview["starterRecipes"][0]["exists"],
+        json!(false),
+        "not installed yet"
+    );
+
+    // Nothing happened: the receptor is still on, no recipe was installed,
+    // onboarding is still incomplete.
+    let human = rt.human_capabilities("zh-TW", true).await;
+    assert_eq!(
+        availability_of(&human, "receptors", "probe.motion"),
+        "available"
+    );
+    assert!(rt.get_recipe("starter-task-complete").await.is_err());
+    assert_eq!(rt.onboarding_state().await["completed"], json!(false));
+
+    // An unknown id is refused exactly like commit refuses it.
+    let bad = OnboardingCommit {
+        enable_receptors: vec!["no.such.receptor".into()],
+        ..Default::default()
+    };
+    assert!(matches!(
+        rt.preview_onboarding(bad).await,
+        Err(DomainError::NotFound(_))
+    ));
+}
+
+/// Re-running onboarding must not re-apply state a component is already in:
+/// a no-op `set_*_enabled` would emit a misleading online/offline event and
+/// count as a change the user never approved.
+#[tokio::test]
+async fn onboarding_commit_skips_unchanged_components() {
+    let (_g, rt) = runtime().await;
+    rt.add_push_receptor("probe.motion", "Probe motion", "device", false)
+        .await
+        .unwrap();
+    let disable = || OnboardingCommit {
+        disable_receptors: vec!["probe.motion".into()],
+        ..Default::default()
+    };
+
+    let first = rt.commit_onboarding(disable()).await.unwrap();
+    let step = components_step(&first);
+    assert_eq!(step["receptors"][0]["changed"], json!(true));
+    assert_eq!(step["receptorsChanged"], json!(["probe.motion"]));
+    let human = rt.human_capabilities("zh-TW", true).await;
+    assert_eq!(
+        availability_of(&human, "receptors", "probe.motion"),
+        "disabled"
+    );
+
+    // Second run: already off → reported as unchanged and left alone. No
+    // second offline event may be emitted for a state that did not change.
+    let offline_before = offline_events(&rt, "probe.motion");
+    let second = rt.commit_onboarding(disable()).await.unwrap();
+    let step = components_step(&second);
+    assert_eq!(step["receptors"][0]["from"], json!("off"));
+    assert_eq!(step["receptors"][0]["changed"], json!(false));
+    assert_eq!(step["receptorsChanged"], json!([]));
+    assert_eq!(
+        offline_events(&rt, "probe.motion"),
+        offline_before,
+        "an unchanged component must not emit another offline event"
+    );
+
+    // Enabling something already enabled is a no-op too.
+    let third = rt
+        .commit_onboarding(OnboardingCommit {
+            enable_receptors: vec!["task.lifecycle".into()],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let step = components_step(&third);
+    assert_eq!(step["receptors"][0]["from"], json!("on"));
+    assert_eq!(step["receptors"][0]["changed"], json!(false));
+    assert_eq!(step["receptorsChanged"], json!([]));
+}
+
+/// A re-run that installs no starter recipe must not overwrite an automation
+/// the user has since edited.
+#[tokio::test]
+async fn onboarding_rerun_keeps_edited_starter_recipe() {
+    let (_g, rt) = runtime().await;
+    rt.commit_onboarding(OnboardingCommit {
+        starter_recipes: vec!["starter-task-complete".into()],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    // Preview now honestly says installing again would overwrite it.
+    let preview = rt
+        .preview_onboarding(OnboardingCommit {
+            starter_recipes: vec!["starter-task-complete".into()],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(preview["starterRecipes"][0]["exists"], json!(true));
+
+    // The user edits the recipe (same body, their own name), then re-runs the
+    // wizard without starters.
+    let base = interaction_runtime::human::starter_recipes()
+        .into_iter()
+        .find(|(id, _, _)| *id == "starter-task-complete")
+        .expect("starter recipe")
+        .2;
+    let mine = "任務完成提醒（我改過）";
+    let yaml = base
+        .lines()
+        .map(|line| {
+            if line.starts_with("name: ") {
+                format!("name: {mine}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    rt.upsert_recipe_text(&yaml).await.unwrap();
+    rt.commit_onboarding(OnboardingCommit::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        rt.get_recipe("starter-task-complete").await.unwrap().name,
+        mine,
+        "a re-run without starters must not overwrite the edited recipe"
+    );
+}
+
 #[tokio::test]
 async fn onboarding_commit_refuses_consent_gated_components() {
     let (_g, rt) = runtime().await;

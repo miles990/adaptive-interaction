@@ -91,6 +91,11 @@ fn fixture_manifest() -> CharacterManifest {
 }
 
 async fn hello(rt: &Runtime, visible: bool) -> Value {
+    hello_with_motion(rt, visible, false).await
+}
+
+/// hello 並回報視窗目前的 Reduced Motion（協商的唯一來源）。
+async fn hello_with_motion(rt: &Runtime, visible: bool, reduced_motion: bool) -> Value {
     let manifest = desktop_manifest();
     rt.character_hello(CharacterHelloInput {
         instance_id: None,
@@ -100,6 +105,7 @@ async fn hello(rt: &Runtime, visible: bool) -> Value {
         visible,
         pack_id: None,
         behavior_state: None,
+        reduced_motion,
     })
     .await
     .expect("hello accepted")
@@ -310,6 +316,7 @@ async fn hello_refuses_external_manifests_and_reserved_instance_ids() {
             visible: true,
             pack_id: None,
             behavior_state: None,
+            reduced_motion: false,
         })
         .await
         .expect_err("external-process manifest must go over the adapter WebSocket");
@@ -324,6 +331,7 @@ async fn hello_refuses_external_manifests_and_reserved_instance_ids() {
             visible: true,
             pack_id: None,
             behavior_state: None,
+            reduced_motion: false,
         })
         .await
         .expect_err("adapter: prefix is reserved");
@@ -341,6 +349,7 @@ async fn hello_refuses_external_manifests_and_reserved_instance_ids() {
             visible: true,
             pack_id: None,
             behavior_state: None,
+            reduced_motion: false,
         })
         .await
         .expect_err("character mismatch refused");
@@ -1593,4 +1602,336 @@ async fn desktop_presence_expiry_disconnects_the_desktop_instance() {
     assert!(events_of(&rt, EventType::CharacterSystemText)
         .last()
         .is_some_and(|e| e.payload["intent"] == "emergency"));
+}
+
+/// 桌面 manifest，但表情／存在感在 Reduced Motion 下只能靜態呈現。
+fn desktop_manifest_reduced() -> CharacterManifest {
+    let mut value = serde_json::to_value(desktop_manifest()).expect("manifest to value");
+    value["capabilities"]["visual.expression"]["reducedMotionBehavior"] = json!("reduced");
+    value["capabilities"]["visual.presence"]["reducedMotionBehavior"] = json!("static");
+    serde_json::from_value(value).expect("reduced-motion manifest parses")
+}
+
+#[tokio::test]
+async fn hello_carries_reduced_motion_and_receipts_report_reduced_not_exact() {
+    let (_g, rt) = runtime().await;
+    let manifest = desktop_manifest_reduced();
+    let out = rt
+        .character_hello(CharacterHelloInput {
+            instance_id: None,
+            role: None,
+            negotiate: Negotiate::from_manifest(&manifest, 1),
+            manifest,
+            visible: true,
+            pack_id: None,
+            behavior_state: None,
+            reduced_motion: true,
+        })
+        .await
+        .expect("hello accepted");
+    // 協商結果誠實反映視窗的 Reduced Motion。
+    assert_eq!(out["negotiated"]["reducedMotion"], true, "{out}");
+    assert_eq!(
+        out["negotiated"]["resolutions"]["notice"]["resolution"], "reduced",
+        "{out}"
+    );
+    assert_eq!(
+        rt.character_instances()["instances"][0]["reducedMotion"],
+        true
+    );
+    // audit 也留下這次協商用的值。
+    let audit = rt.store.audit_tail(50).unwrap_or_default();
+    assert!(
+        audit
+            .iter()
+            .any(|row| row["kind"] == "character.hello" && row["detail"]["reducedMotion"] == true),
+        "character.hello 的 audit 必須帶 reducedMotion：{audit:?}"
+    );
+
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    let receipts = plan_and_execute(
+        &rt,
+        "companion.state.present",
+        json!({"behaviorIntent": "notice"}),
+        None,
+    )
+    .await;
+    let mid = receipts[0].action_id.clone();
+    for status in [
+        ReceiptStatus::Accepted,
+        ReceiptStatus::Started,
+        ReceiptStatus::Completed,
+    ] {
+        let mut r = receipt(mid.as_str(), 1, status);
+        r.resolution = Some(interaction_character::Resolution::Reduced);
+        rt.character_receipt(DESKTOP_INSTANCE_ID, r).await.unwrap();
+    }
+    let receipt_events = events_of(&rt, EventType::CharacterReceipt);
+    let mine: Vec<&RuntimeEvent> = receipt_events
+        .iter()
+        .filter(|e| e.payload["receipt"]["messageId"] == mid.as_str())
+        .collect();
+    assert!(!mine.is_empty(), "至少要有一筆該命令的回執事件");
+    for e in &mine {
+        assert_eq!(
+            e.payload["receipt"]["resolution"], "reduced",
+            "Reduced Motion 下不得回報 exact：{}",
+            e.payload
+        );
+    }
+    let audit = rt.store.audit_tail(200).unwrap_or_default();
+    let audited: Vec<&Value> = audit
+        .iter()
+        .filter(|row| {
+            row["kind"] == "character.receipt" && row["detail"]["messageId"] == mid.as_str()
+        })
+        .collect();
+    assert!(!audited.is_empty());
+    for row in audited {
+        assert_eq!(row["detail"]["resolution"], "reduced", "{row}");
+    }
+
+    // adapter 謊報 exact 也不會把協商結果升級回 exact。
+    let receipts = plan_and_execute(
+        &rt,
+        "companion.state.present",
+        json!({"behaviorIntent": "think"}),
+        None,
+    )
+    .await;
+    let mid2 = receipts[0].action_id.clone();
+    let mut lying = receipt(mid2.as_str(), 1, ReceiptStatus::Started);
+    lying.resolution = Some(interaction_character::Resolution::Exact);
+    rt.character_receipt(DESKTOP_INSTANCE_ID, lying)
+        .await
+        .unwrap();
+    let last = events_of(&rt, EventType::CharacterReceipt)
+        .into_iter()
+        .rfind(|e| e.payload["receipt"]["messageId"] == mid2.as_str())
+        .expect("receipt event");
+    assert_eq!(last.payload["receipt"]["resolution"], "reduced");
+}
+
+#[tokio::test]
+async fn adapter_rate_limit_covers_http_receipts_events_and_malformed_ws_frames() {
+    let (_g, rt) = runtime().await;
+    let added = rt
+        .character_adapter_add("fixture", fixture_manifest())
+        .await
+        .unwrap();
+    let adapter_id = added["adapterId"].as_str().unwrap().to_string();
+    let instance_id = adapter_instance_id(&adapter_id);
+    let mut session = rt.character_ws_attach(&adapter_id).await.unwrap();
+    assert!(matches!(
+        session.rx.recv().await,
+        Some(WireMessage::Hello(_))
+    ));
+    let negotiate = WireMessage::Negotiate(Negotiate::from_manifest(&fixture_manifest(), 1));
+    rt.character_ws_message(
+        &instance_id,
+        session.conn_id,
+        &encode_wire(&negotiate).unwrap(),
+    )
+    .await;
+
+    // 時鐘凍結在同一秒：50 則/s 的預算對 HTTP 與 WebSocket 是同一份。
+    let base = Utc::now();
+    let clock_at = |secs: i64| {
+        let t = base + chrono::Duration::seconds(secs);
+        Arc::new(move || t) as interaction_runtime::character::NowFn
+    };
+    rt.character.set_clock(clock_at(1));
+
+    // (a) POST /v1/character/events：超量後誠實回 dropped{rate-limited}，不寫進 observation。
+    let mut queued = 0;
+    let mut limited = 0;
+    for _ in 0..80 {
+        let event = CharacterInputEvent {
+            protocol_version: "1.0".into(),
+            event_id: format!("evt-{}", uuid::Uuid::new_v4().simple()),
+            character_instance_id: instance_id.clone(),
+            generation: 1,
+            timestamp: base,
+            kind: InputEventKind::TextSubmitted,
+            payload: [("text".to_string(), json!("spam"))].into_iter().collect(),
+            privacy_class: Default::default(),
+        };
+        let out = rt.character_event(&instance_id, event).await.unwrap();
+        if out["reason"] == "rate-limited" {
+            limited += 1;
+            assert_eq!(out["decision"], "dropped");
+        } else {
+            queued += 1;
+        }
+    }
+    assert!(queued <= 50, "同一秒內最多 50 則，實際 {queued}");
+    assert!(limited >= 20, "超量的必須被擋下，實際 {limited}");
+
+    // (b) POST /v1/character/receipts：共用同一份預算 → 立刻 rate-limited。
+    let out = rt
+        .character_receipt(
+            &instance_id,
+            CommandReceipt::new("nope", &instance_id, 1, ReceiptStatus::Accepted, base),
+        )
+        .await
+        .unwrap();
+    assert_eq!(out["status"], "rate-limited", "{out}");
+    assert_eq!(out["accepted"], false);
+
+    // (c) 畸形 WebSocket frame：先扣預算，稽核有界（5 秒視窗最多一列）。
+    let before = rt
+        .store
+        .audit_tail(500)
+        .unwrap_or_default()
+        .iter()
+        .filter(|row| row["kind"] == "character.wire-rejected")
+        .count();
+    for _ in 0..40 {
+        let step = rt
+            .character_ws_message(&instance_id, session.conn_id, b"not json at all")
+            .await;
+        assert_eq!(step, WsStep::KeepOpen);
+    }
+    let rejected: Vec<Value> = rt
+        .store
+        .audit_tail(500)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|row| row["kind"] == "character.wire-rejected")
+        .collect();
+    assert_eq!(
+        rejected.len() - before,
+        1,
+        "40 則畸形訊息只能留下 1 列稽核，實際 {}",
+        rejected.len() - before
+    );
+
+    // (d) 下一秒預算回補：事件又被接受。
+    rt.character.set_clock(clock_at(2));
+    let event = CharacterInputEvent {
+        protocol_version: "1.0".into(),
+        event_id: "evt-after-window".into(),
+        character_instance_id: instance_id.clone(),
+        generation: 1,
+        timestamp: base,
+        kind: InputEventKind::TextSubmitted,
+        payload: [("text".to_string(), json!("again"))].into_iter().collect(),
+        privacy_class: Default::default(),
+    };
+    let out = rt.character_event(&instance_id, event).await.unwrap();
+    assert_ne!(out["reason"], "rate-limited", "{out}");
+
+    // 稽核視窗過了才會再留一列，且帶出被壓下的次數。
+    rt.character.set_clock(clock_at(9));
+    rt.character_ws_message(&instance_id, session.conn_id, b"still not json")
+        .await;
+    let rejected: Vec<Value> = rt
+        .store
+        .audit_tail(500)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|row| row["kind"] == "character.wire-rejected")
+        .collect();
+    assert_eq!(rejected.len() - before, 2);
+    assert!(
+        rejected
+            .iter()
+            .any(|row| row["detail"]["suppressed"].as_u64().unwrap_or(0) > 0),
+        "被壓下的畸形訊息數必須被記下來：{rejected:?}"
+    );
+    rt.character.set_clock(Arc::new(Utc::now));
+}
+
+#[tokio::test]
+async fn ws_adapter_dropping_mid_safety_intent_yields_uncertain_and_system_text() {
+    let (_g, rt) = runtime().await;
+    let added = rt
+        .character_adapter_add("fixture", fixture_manifest())
+        .await
+        .unwrap();
+    let adapter_id = added["adapterId"].as_str().unwrap().to_string();
+    let instance_id = adapter_instance_id(&adapter_id);
+    let mut session = rt.character_ws_attach(&adapter_id).await.unwrap();
+    assert!(matches!(
+        session.rx.recv().await,
+        Some(WireMessage::Hello(_))
+    ));
+    let negotiate = WireMessage::Negotiate(Negotiate::from_manifest(&fixture_manifest(), 1));
+    rt.character_ws_message(
+        &instance_id,
+        session.conn_id,
+        &encode_wire(&negotiate).unwrap(),
+    )
+    .await;
+    assert!(matches!(
+        session.rx.recv().await,
+        Some(WireMessage::Negotiated(_))
+    ));
+
+    // 安全 intent 送出去，adapter 只回 started 就掛掉。
+    rt.emergency_stop("test", None).await.unwrap();
+    let envelope = loop {
+        match session.rx.recv().await.unwrap() {
+            WireMessage::Intent { envelope } => break envelope,
+            _ => continue,
+        }
+    };
+    assert_eq!(envelope.intent, CharacterIntent::Emergency);
+    let started = WireMessage::Receipt {
+        receipt: CommandReceipt::new(
+            &envelope.message_id,
+            &instance_id,
+            1,
+            ReceiptStatus::Started,
+            Utc::now(),
+        ),
+    };
+    rt.character_ws_message(
+        &instance_id,
+        session.conn_id,
+        &encode_wire(&started).unwrap(),
+    )
+    .await;
+    let texts_before = events_of(&rt, EventType::CharacterSystemText).len();
+
+    // 連線斷掉（程序崩潰）。
+    rt.character_ws_closed(&instance_id, session.conn_id, DisconnectReason::Crash)
+        .await;
+
+    // 進行中的 command → uncertain（不猜 completed）。
+    let uncertain = events_of(&rt, EventType::CharacterReceipt)
+        .into_iter()
+        .filter(|e| {
+            e.payload["receipt"]["messageId"] == envelope.message_id.as_str()
+                && e.payload["receipt"]["status"] == "uncertain"
+        })
+        .count();
+    assert_eq!(uncertain, 1, "斷線時進行中的 command 必須是 uncertain");
+
+    // 安全訊息不得遺失：以 system.text 補送（可信 overlay 呈現）。
+    let texts = events_of(&rt, EventType::CharacterSystemText);
+    assert!(
+        texts.len() > texts_before,
+        "adapter 掛掉後安全訊息必須改走 system.text"
+    );
+    let last = texts.last().expect("system text event");
+    assert_eq!(last.payload["intent"], "emergency");
+    assert!(
+        last.payload["messageId"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with(&envelope.message_id),
+        "{}",
+        last.payload
+    );
+    assert!(
+        last.payload["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("緊急停止"),
+        "{}",
+        last.payload
+    );
 }

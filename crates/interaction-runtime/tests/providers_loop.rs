@@ -587,3 +587,108 @@ async fn acknowledged_device_command_records_evidence_for_its_provider() {
     assert!(note.contains("不代表已完成"), "{note}");
     assert!(!note.contains("動器"), "{note}");
 }
+
+// ---------------------------------------------------------------------------
+// 建置時的設定檔警告（明文憑證）必須跟著 provider 走，不得被靜靜吞掉
+// ---------------------------------------------------------------------------
+
+/// broker 位址故意指向一個沒有人在聽的 loopback 埠：這個測試不需要真的連上
+/// broker（rumqttc 的重連在背景 task 裡），只驗證「明文憑證的警告有沒有被
+/// 誠實帶到 provider 記錄上」。
+async fn runtime_with_plaintext_credential_spec() -> (tempfile::TempDir, Runtime) {
+    let dir = tempfile::tempdir().unwrap();
+    let adapters = dir.path().join("config").join("adapters");
+    std::fs::create_dir_all(&adapters).unwrap();
+    std::fs::write(
+        adapters.join("esp32-plain.yaml"),
+        r#"
+schemaVersion: "1.0"
+id: esp32-plain
+displayName: 明文憑證裝置
+capabilities:
+  - kind: actuator
+    id: vibe
+    channel: haptic
+    transport: mqtt
+    timeoutMs: 4000
+    command:
+      name: "vibe.pulse"
+      params: { strength: "{{magnitude}}" }
+    mqtt:
+      brokerHost: "127.0.0.1"
+      brokerPort: 1
+      topicPrefix: "interact-ai/esp32-plain"
+      expectedDeviceId: "esp32-plain"
+      pairingCode: "123456"
+"#,
+    )
+    .unwrap();
+    let rt = Runtime::start(RuntimeOptions {
+        home: Some(dir.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+    (dir, rt)
+}
+
+#[tokio::test]
+async fn plaintext_credential_warnings_reach_the_provider_record() {
+    let (_g, rt) = runtime_with_plaintext_credential_spec().await;
+    let id = ProviderId::new("provider.adapter.esp32-plain");
+    let desc = provider_named(&rt, id.as_str()).await;
+    let detail = desc.detail.clone().expect("警告必須寫進 provider detail");
+
+    // (a) 原文（點名能力與欄位）給 CLI／進階模式。
+    let warnings = interaction_runtime::providers::provider_detail_warnings(Some(&detail));
+    assert_eq!(warnings.len(), 1, "{detail}");
+    assert!(warnings[0].contains("pairingCode"), "{detail}");
+    assert!(warnings[0].contains("secret://"), "{detail}");
+    assert!(
+        !warnings[0].contains("123456"),
+        "警告永遠不得回顯憑證值：{detail}"
+    );
+
+    // (b) 一般模式看到的那一句是人話摘要，不外洩欄位名。
+    let (note, _tested) = interaction_runtime::providers::split_provider_detail(Some(&detail));
+    let note = note.expect("一般模式要有一句人話");
+    assert!(note.contains("安全提醒"), "{note}");
+    assert!(!note.contains("pairingCode"), "{note}");
+    assert!(!note.contains("secret://"), "{note}");
+
+    // (c) 狀態改變（啟用／停用）不得把警告洗掉——那是這台裝置的事實，
+    //     不是上一個狀態的註記。
+    rt.transition_provider(&id, ProviderState::Disabled)
+        .await
+        .unwrap();
+    rt.transition_provider(&id, ProviderState::Available)
+        .await
+        .unwrap();
+    let after = provider_named(&rt, id.as_str()).await;
+    let after_warnings =
+        interaction_runtime::providers::provider_detail_warnings(after.detail.as_deref());
+    assert_eq!(
+        after_warnings, warnings,
+        "換狀態之後警告不見了：{:?}",
+        after.detail
+    );
+
+    // 收工：關掉這個 provider 開出來的連線，別留背景重連 task。
+    rt.transition_provider(&id, ProviderState::Disabled)
+        .await
+        .unwrap();
+}
+
+/// 沒有警告的 spec 不得憑空長出 `warnings` 鍵（也不得把純文字註記變成 JSON）。
+#[tokio::test]
+async fn a_spec_without_plaintext_credentials_gets_no_warnings() {
+    let (_g, rt, _device) = runtime_with_device_spec().await;
+    let desk = provider_named(&rt, "provider.adapter.desk-light").await;
+    assert!(
+        interaction_runtime::providers::provider_detail_warnings(desk.detail.as_deref()).is_empty(),
+        "{:?}",
+        desk.detail
+    );
+}

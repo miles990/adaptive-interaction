@@ -105,6 +105,12 @@ type Ws =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn connect(port: u16, fingerprint: &str) -> Ws {
+    try_connect(port, fingerprint).await.expect("wss connect")
+}
+
+/// 同 [`connect`]，但把失敗交給呼叫端判斷（連線名額用完時伺服器會直接丟掉
+/// 連線，交握就不會成功——那是預期行為，不是測試錯誤）。
+async fn try_connect(port: u16, fingerprint: &str) -> Result<Ws, String> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let config = rustls::ClientConfig::builder()
         .dangerous()
@@ -113,15 +119,15 @@ async fn connect(port: u16, fingerprint: &str) -> Ws {
             provider: rustls::crypto::ring::default_provider(),
         }))
         .with_no_client_auth();
-    let (ws, _) = tokio_tungstenite::connect_async_tls_with_config(
+    tokio_tungstenite::connect_async_tls_with_config(
         format!("wss://127.0.0.1:{port}/"),
         None,
         false,
         Some(tokio_tungstenite::Connector::Rustls(Arc::new(config))),
     )
     .await
-    .expect("wss connect");
-    ws
+    .map(|(ws, _)| ws)
+    .map_err(|e| e.to_string())
 }
 
 async fn recv_json(ws: &mut Ws) -> Value {
@@ -445,8 +451,9 @@ fn map_wire_params_defaults_are_accepted_by_the_app_rules() {
     assert!(unknown.is_err(), "unknown actuator must be refused");
 }
 
-/// `verified-success` 只能由呼叫端明確帶入（human verified 流程）；
-/// 絕不能從 message 推導出來——否則綠勾號會變成謊言。
+/// Runtime 專屬真相狀態（`verified-success` 綠勾與 `emergency` 緊急停止中）
+/// 只能由 runtime 的人工驗證／緊急停止路徑直送；絕不能從 message 推導、
+/// 也不能由 plan 的 `extra.state` 指定——否則兩個安全狀態都會變成謊言。
 #[test]
 fn character_present_never_infers_verified_success() {
     use interaction_core::ActionParameters;
@@ -478,12 +485,138 @@ fn character_present_never_infers_verified_success() {
         .expect_err("verified-success must never come from a plan");
     assert!(err.contains("human-verification only"), "{err}");
 
+    // `emergency` 同理：手機上的「緊急停止中」只能由真正的緊急停止產生，
+    // AI 不得冒充（也不得從 message 推導成 emergency）。
+    let from_message = ActionParameters {
+        message: Some("emergency".into()),
+        ..Default::default()
+    };
+    let (_, p) = map_wire_params("iphone.character", &from_message).unwrap();
+    assert_eq!(p["state"], "idle", "message 不得被升級成 emergency：{p}");
+    let explicit_emergency = ActionParameters {
+        extra: Some(json!({"state": "emergency"})),
+        ..Default::default()
+    };
+    let err = map_wire_params("iphone.character", &explicit_emergency)
+        .expect_err("emergency must never come from a plan");
+    assert!(err.contains("emergency-stop only"), "{err}");
+
     // 白名單外的狀態一律拒絕。
     let bogus = ActionParameters {
         extra: Some(json!({"state":"totally-done"})),
         ..Default::default()
     };
     assert!(map_wire_params("iphone.character", &bogus).is_err());
+}
+
+/// 伺服器端的參數守門必須和 iOS App 的驗證一致（甚至更嚴）：超長／型別錯／
+/// 色碼錯在這裡就要被拒絕，不是等手機回 `bad-params`——那時 policy 已經授權、
+/// 動作也已經送出去了。而且不代為截斷使用者的文字。
+#[test]
+fn map_wire_params_refuses_what_the_app_would_refuse() {
+    use interaction_core::ActionParameters;
+    use interaction_runtime::mobile::{
+        NOTIFY_BODY_MAX_CHARS, NOTIFY_TITLE_MAX_CHARS, TTS_MAX_CHARS,
+    };
+
+    let with_message = |m: String| ActionParameters {
+        message: Some(m),
+        ..Default::default()
+    };
+    let with_extra = |v: Value| ActionParameters {
+        extra: Some(v),
+        ..Default::default()
+    };
+
+    // tts：剛好 200 字可以，201 字誠實拒絕（訊息要說出實際字數與上限）。
+    let (name, p) = map_wire_params("iphone.tts", &with_message("字".repeat(TTS_MAX_CHARS)))
+        .expect("200 chars is fine");
+    app_validate(name, &p).expect("tts at the limit");
+    let err = map_wire_params("iphone.tts", &with_message("字".repeat(TTS_MAX_CHARS + 1)))
+        .expect_err("201 chars must be refused server-side");
+    assert!(err.contains("201") && err.contains("200"), "{err}");
+    // 型別錯：extra.text 不是字串。
+    assert!(map_wire_params("iphone.tts", &with_extra(json!({"text": 12345}))).is_err());
+    assert!(map_wire_params("iphone.tts", &with_extra(json!({"text": ""}))).is_err());
+
+    // notify：title／body 必須是字串，且有伺服器端長度上限。
+    assert!(map_wire_params(
+        "iphone.notify",
+        &with_extra(json!({"title": 5, "body": "x"}))
+    )
+    .is_err());
+    assert!(map_wire_params("iphone.notify", &with_extra(json!({"body": true}))).is_err());
+    assert!(map_wire_params(
+        "iphone.notify",
+        &with_extra(json!({"title": "標".repeat(NOTIFY_TITLE_MAX_CHARS + 1), "body": "x"})),
+    )
+    .is_err());
+    assert!(map_wire_params(
+        "iphone.notify",
+        &with_extra(json!({"body": "文".repeat(NOTIFY_BODY_MAX_CHARS + 1)})),
+    )
+    .is_err());
+
+    // flash：色碼必須是 6 位十六進位（App 的 parseHexColor 也是這條規則）。
+    assert!(map_wire_params("iphone.flash", &with_extra(json!({"color": "red"}))).is_err());
+    assert!(map_wire_params("iphone.flash", &with_extra(json!({"color": 16711680}))).is_err());
+    let (name, p) = map_wire_params("iphone.flash", &with_extra(json!({"color": "ffb347"})))
+        .expect("bare hex is fine");
+    app_validate(name, &p).expect("flash hex without #");
+
+    // 屬性檢查：只要映射成功，模擬 iPhone（＝App 規則）就必須接受。
+    for (actuator, params) in [
+        ("iphone.haptic", ActionParameters::default()),
+        ("iphone.notify", with_message("嗨".into())),
+        ("iphone.tts", with_message("嗨".into())),
+        ("iphone.torch", ActionParameters::default()),
+        ("iphone.flash", ActionParameters::default()),
+        ("iphone.character", ActionParameters::default()),
+    ] {
+        if let Ok((name, p)) = map_wire_params(actuator, &params) {
+            app_validate(name, &p)
+                .unwrap_or_else(|e| panic!("{actuator} 映射出 App 會拒絕的參數：{e} / {p}"));
+        }
+    }
+}
+
+/// accept 錯誤的處置是純函式：暫時性錯誤退避重試（伺服器不能因為一次
+/// accept 失敗就悄悄消失），監聽 socket 真的不可用或連續錯太多次才停。
+#[test]
+fn accept_errors_are_retried_until_they_are_clearly_hopeless() {
+    use interaction_runtime::mobile::{accept_error_action, AcceptErrorAction};
+    use std::io::{Error, ErrorKind};
+
+    let transient = Error::new(ErrorKind::ConnectionAborted, "peer went away");
+    assert!(matches!(
+        accept_error_action(&transient, 0),
+        AcceptErrorAction::RetryAfter(_)
+    ));
+    // 檔案描述子用盡在 Rust 沒有穩定的 ErrorKind（Uncategorized）——預設必須
+    // 當成暫時性，否則一次 EMFILE 就殺掉整個 iPhone 伺服器。
+    let emfile = Error::from_raw_os_error(24);
+    assert!(matches!(
+        accept_error_action(&emfile, 3),
+        AcceptErrorAction::RetryAfter(_)
+    ));
+    // 退避有界且遞增。
+    let first = accept_error_action(&transient, 0);
+    let later = accept_error_action(&transient, 5);
+    match (first, later) {
+        (AcceptErrorAction::RetryAfter(a), AcceptErrorAction::RetryAfter(b)) => {
+            assert!(a < b, "{a:?} 應該比 {b:?} 短");
+            assert!(b <= Duration::from_secs(1), "退避上限 1 秒：{b:?}");
+        }
+        other => panic!("{other:?}"),
+    }
+    // 監聽 socket 本身不可用：不要無止境重試，誠實停下來。
+    let fatal = Error::new(ErrorKind::PermissionDenied, "no");
+    assert_eq!(accept_error_action(&fatal, 0), AcceptErrorAction::Stop);
+    // 連續錯太多次也停（不是無界迴圈）。
+    assert_eq!(
+        accept_error_action(&transient, 999),
+        AcceptErrorAction::Stop
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1075,7 +1208,7 @@ async fn ble_scan_timeout_is_honest_and_clears_pending() {
     let (_tmp, rt) = runtime().await;
 
     // 沒有手機 → 誠實 Unavailable，不假裝掃到 0 台。
-    let err = rt.mobile_ble_scan(500).await.unwrap_err();
+    let err = rt.mobile_ble_scan(500, None).await.unwrap_err();
     assert!(err.to_string().contains("no iPhone connected"), "{err}");
 
     let (_device_id, _token, mut ws) = pair(&rt).await;
@@ -1093,7 +1226,7 @@ async fn ble_scan_timeout_is_honest_and_clears_pending() {
         false
     });
 
-    let err = rt.mobile_ble_scan(500).await.unwrap_err();
+    let err = rt.mobile_ble_scan(500, None).await.unwrap_err();
     assert!(err.to_string().contains("outcome unknown"), "{err}");
     assert_eq!(
         rt.mobile_status().await.unwrap()["pendingActs"],
@@ -1242,7 +1375,7 @@ async fn emergency_stop_also_stops_iphone_sensing() {
         }
     });
 
-    rt.emergency_stop("test", None).await.unwrap();
+    let payload = rt.emergency_stop("test", None).await.unwrap();
     let stop_all = tokio::time::timeout(Duration::from_secs(3), rx.recv())
         .await
         .expect("stop-all reached the iPhone")
@@ -1251,6 +1384,26 @@ async fn emergency_stop_also_stops_iphone_sensing() {
         stop_all["sensors"],
         json!(true),
         "緊急停止的 stop-all 必須要求手機連感測一起停：{stop_all}"
+    );
+    // estop 的回傳／事件／audit 都要逐台說出感測結果（手機有回 ack ⇒ stopped）。
+    assert_eq!(payload["sensors"]["stopped"], json!(true), "{payload}");
+    assert_eq!(payload["sensors"]["uncertain"], json!(false), "{payload}");
+    assert_eq!(
+        payload["sensors"]["devices"][0]["outcome"],
+        json!("stopped"),
+        "{payload}"
+    );
+    let estop_audit = rt
+        .store
+        .audit_tail(300)
+        .unwrap()
+        .into_iter()
+        .rfind(|a| a["kind"] == json!("mobile.estop-stop-sensors"))
+        .expect("mobile.estop-stop-sensors audit");
+    assert_eq!(
+        estop_audit["detail"]["devices"][0]["outcome"],
+        json!("stopped"),
+        "audit 要記每台結果，而不是只記有沒有排進佇列：{estop_audit}"
     );
 
     // 桌面端強制停用高風險受器（重連／重啟都不自動恢復）。
@@ -1695,4 +1848,1403 @@ async fn test_mode_never_advertises_bonjour_on_the_lan() {
         status["bonjour"]["service"],
         serde_json::json!("_interact-ai._tcp")
     );
+}
+
+// ---------------------------------------------------------------------------
+// v0.5 產品化：「停止所有感測」必須真的傳到 iPhone 並等確認
+// （對抗審查 safety-invariants-034／035、mobile-server-040／045／047）
+// ---------------------------------------------------------------------------
+
+/// 事件流裡 `sensor.*` 事件（指定型別）針對 iPhone 麥克風的筆數。
+fn iphone_sensor_events(rt: &Runtime, kind: interaction_core::EventType) -> Vec<Value> {
+    rt.events
+        .recent(300)
+        .into_iter()
+        .filter(|e| e.event_type == kind)
+        .filter(|e| e.payload["sensor"] == json!("iphone.mic-level"))
+        .map(|e| e.payload)
+        .collect()
+}
+
+/// audit 尾端第一筆指定 kind。
+fn last_audit(rt: &Runtime, kind: &str) -> Option<Value> {
+    rt.store
+        .audit_tail(300)
+        .unwrap_or_default()
+        .into_iter()
+        .rfind(|a| a["kind"] == json!(kind))
+}
+
+/// 讓模擬 iPhone 在收到 stop-all 後照 iOS 的行為回覆：`ack{stopAll:true}`
+/// ＋一則 `status{micLevel:false}`。回傳看到的 stop-all 訊息。
+fn spawn_phone_confirming_stop_all(
+    mut ws: Ws,
+) -> (
+    tokio::task::JoinHandle<()>,
+    tokio::sync::mpsc::UnboundedReceiver<Value>,
+) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
+    let handle = tokio::spawn(async move {
+        while let Ok(Some(Ok(msg))) = tokio::time::timeout(Duration::from_secs(8), ws.next()).await
+        {
+            let Message::Text(text) = msg else { continue };
+            let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            if v["type"] == "stop-all" {
+                let _ = tx.send(v);
+                send_json(&mut ws, json!({"type":"ack","stopAll":true})).await;
+                send_phone_status(&mut ws, false).await;
+            }
+        }
+    });
+    (handle, rx)
+}
+
+/// 「停止所有感測」必須真的送到 iPhone，並等到手機確認才敢說停了。
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_all_sensors_reaches_iphone_and_waits_for_confirmation() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+    send_phone_status(&mut ws, true).await;
+    wait_for_iphone_mic_sensor(&rt, true).await;
+
+    let (phone, mut rx) = spawn_phone_confirming_stop_all(ws);
+    let report = rt.stop_all_sensors("test").await.expect("stop all sensors");
+    let report = serde_json::to_value(&report).unwrap();
+
+    // (a) 手機真的收到 stop-all，而且是「連感測一起停」。
+    let stop_all = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+        .await
+        .expect("stop-all reached the iPhone")
+        .expect("stop-all payload");
+    assert_eq!(stop_all["sensors"], json!(true), "{stop_all}");
+
+    // (b) 報告誠實逐台列出結果。
+    assert_eq!(report["stopped"], json!(true), "{report}");
+    assert_eq!(report["uncertain"], json!(false), "{report}");
+    assert_eq!(report["local"]["microphone"], json!("idle"), "{report}");
+    let device = &report["devices"][0];
+    assert_eq!(device["deviceId"], json!(device_id), "{report}");
+    assert_eq!(device["outcome"], json!("stopped"), "{report}");
+    assert!(
+        matches!(device["via"].as_str(), Some("ack") | Some("status")),
+        "確認來源要說清楚：{report}"
+    );
+
+    // (c) status 立刻清空，且事件流有 sensor.stopped（帶 deviceId）。
+    wait_for_iphone_mic_sensor(&rt, false).await;
+    let stopped = iphone_sensor_events(&rt, interaction_core::EventType::SensorStopped);
+    assert!(
+        stopped.iter().any(|p| p["deviceId"] == json!(device_id)),
+        "手機麥克風停止必須進事件流：{stopped:?}"
+    );
+
+    // (d) audit 記整份報告（不再是空的 detail）。
+    let audit = last_audit(&rt, "sensor.stopped-all").expect("sensor.stopped-all audit");
+    assert_eq!(audit["detail"]["devices"][0]["outcome"], json!("stopped"));
+    assert_eq!(audit["detail"]["local"]["microphone"], json!("idle"));
+
+    // (e) 高風險受器強制停用：要再串流必須人類重新啟用。
+    assert!(
+        rt.registry.receptor(&mic).await.is_err(),
+        "停止所有感測之後 iphone.mic-level 必須是 disabled"
+    );
+    phone.abort();
+}
+
+/// 手機沒回覆＝結果未知：有界回來、誠實標 uncertain、畫面上不得消失。
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_all_sensors_reports_unknown_when_iphone_does_not_reply() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+    send_phone_status(&mut ws, true).await;
+    wait_for_iphone_mic_sensor(&rt, true).await;
+
+    // 手機收得到但完全不回（App 當掉／背景被殺）。
+    let (tx, mut saw_stop_all) = tokio::sync::mpsc::unbounded_channel::<Value>();
+    let mut ws = {
+        let (probe_tx, probe_rx) = tokio::sync::oneshot::channel::<Ws>();
+        let phone = tokio::spawn(async move {
+            while let Ok(Some(Ok(msg))) =
+                tokio::time::timeout(Duration::from_secs(8), ws.next()).await
+            {
+                let Message::Text(text) = msg else { continue };
+                let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                if v["type"] == "stop-all" {
+                    let _ = tx.send(v);
+                    break;
+                }
+            }
+            let _ = probe_tx.send(ws);
+        });
+        let started = std::time::Instant::now();
+        let report = rt.stop_all_sensors("test").await.expect("stop all sensors");
+        let report = serde_json::to_value(&report).unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "等待必須有界（2 秒預算）：{:?}",
+            started.elapsed()
+        );
+        assert_eq!(report["stopped"], json!(false), "{report}");
+        assert_eq!(report["uncertain"], json!(true), "{report}");
+        assert_eq!(
+            report["devices"][0]["outcome"],
+            json!("unknown"),
+            "{report}"
+        );
+        assert!(report["devices"][0]["via"].is_null(), "{report}");
+
+        // 未確認的感測不得從畫面上消失（消失＝宣稱已停）。
+        let status = rt.status().await;
+        let entry = status["activeSensors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["kind"] == "iphone.mic-level")
+            .unwrap_or_else(|| panic!("結果未知時仍要列出：{}", status["activeSensors"]))
+            .clone();
+        assert_eq!(entry["state"], json!("stop-unknown"), "{entry}");
+        assert!(
+            entry["purpose"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("未知"),
+            "{entry}"
+        );
+
+        // 事件與 audit 都要說「未知」。
+        let uncertain = iphone_sensor_events(&rt, interaction_core::EventType::SensorStopUncertain);
+        assert!(
+            uncertain
+                .iter()
+                .any(|p| p["deviceId"] == json!(device_id) && p["outcome"] == json!("unknown")),
+            "{uncertain:?}"
+        );
+        let audit = last_audit(&rt, "sensor.stopped-all").expect("audit");
+        assert_eq!(audit["detail"]["devices"][0]["outcome"], json!("unknown"));
+
+        let _ = tokio::time::timeout(Duration::from_secs(3), saw_stop_all.recv())
+            .await
+            .expect("stop-all 要真的送到手機");
+        phone.await.expect("phone task");
+        probe_rx.await.expect("ws back")
+    };
+
+    // 手機終於回報停了 → 清空並補一則 sensor.stopped。
+    send_phone_status(&mut ws, false).await;
+    wait_for_iphone_mic_sensor(&rt, false).await;
+    let stopped = iphone_sensor_events(&rt, interaction_core::EventType::SensorStopped);
+    assert!(
+        stopped.iter().any(|p| p["deviceId"] == json!(device_id)),
+        "{stopped:?}"
+    );
+}
+
+/// 手機麥克風的開始／停止必須恰好在「變化」時各發一次事件
+/// （30 秒心跳 status 不得洗版事件流）。
+#[tokio::test(flavor = "multi_thread")]
+async fn iphone_mic_status_changes_emit_sensor_events() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+
+    send_phone_status(&mut ws, true).await;
+    wait_for_iphone_mic_sensor(&rt, true).await;
+    let started = iphone_sensor_events(&rt, interaction_core::EventType::SensorStarted);
+    assert_eq!(started.len(), 1, "{started:?}");
+    assert_eq!(started[0]["deviceId"], json!(device_id));
+
+    // 心跳：同樣的 true 再送兩次 → 不再發事件。
+    send_phone_status(&mut ws, true).await;
+    send_phone_status(&mut ws, true).await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(
+        iphone_sensor_events(&rt, interaction_core::EventType::SensorStarted).len(),
+        1,
+        "心跳不得洗版事件流"
+    );
+
+    // 關掉 → 恰好一則 sensor.stopped。
+    send_phone_status(&mut ws, false).await;
+    wait_for_iphone_mic_sensor(&rt, false).await;
+    assert_eq!(
+        iphone_sensor_events(&rt, interaction_core::EventType::SensorStopped).len(),
+        1,
+        "停止也只發一次"
+    );
+    send_phone_status(&mut ws, false).await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(
+        iphone_sensor_events(&rt, interaction_core::EventType::SensorStopped).len(),
+        1
+    );
+}
+
+/// 感測不靜默：只要觀察真的在流進來，即使手機沒送過 status，
+/// `activeSensors` 也不得是空的。
+#[tokio::test(flavor = "multi_thread")]
+async fn ingested_mic_observations_alone_make_the_sensor_visible() {
+    let (_tmp, rt) = runtime().await;
+    let (_device_id, _token, mut ws) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+    rt.start_session(
+        Some("human".into()),
+        None,
+        vec!["receptor:iphone.mic-level".into()],
+    )
+    .await
+    .unwrap();
+
+    // 完全沒有 status 訊息，只有觀察。
+    send_json(
+        &mut ws,
+        json!({"type":"observation","receptor":"iphone.mic-level","facts":{"level":0.3}}),
+    )
+    .await;
+    let status = wait_for_iphone_mic_sensor(&rt, true).await;
+    let entry = status["activeSensors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["kind"] == "iphone.mic-level")
+        .unwrap()
+        .clone();
+    assert_eq!(entry["state"], json!("active"), "{entry}");
+}
+
+/// 只停「這一台」：沒連線＝誠實 unreachable；連線中＝送出去並等確認。
+#[tokio::test(flavor = "multi_thread")]
+async fn mobile_sensors_stop_targets_one_phone_and_is_honest_when_unreachable() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, token, ws) = pair(&rt).await;
+    let port = rt.mobile_status().await.unwrap()["port"].as_u64().unwrap() as u16;
+    let fingerprint = rt.mobile_status().await.unwrap()["fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // 沒配對過的裝置 → NotFound。
+    let err = rt.mobile_sensors_stop("iphone-nope").await.unwrap_err();
+    assert!(matches!(err, interaction_core::DomainError::NotFound(_)));
+
+    // 斷線 → 誠實 unreachable（沒有任何東西被停），且留 audit。
+    drop(ws);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let out = rt.mobile_sensors_stop(&device_id).await.unwrap();
+    assert_eq!(out["connected"], json!(false), "{out}");
+    assert_eq!(out["requested"], json!(false), "{out}");
+    assert_eq!(out["outcome"], json!("unreachable"), "{out}");
+    assert!(
+        last_audit(&rt, "mobile.sensors-stop-not-delivered").is_some(),
+        "沒送到也要留痕"
+    );
+
+    // 重新連線 → 送到並確認。
+    let mut ws = connect(port, &fingerprint).await;
+    send_json(
+        &mut ws,
+        json!({"type":"auth","deviceId":device_id,"token":token}),
+    )
+    .await;
+    assert_eq!(recv_json(&mut ws).await["type"], "auth-ok");
+    let (phone, mut rx) = spawn_phone_confirming_stop_all(ws);
+    let out = rt.mobile_sensors_stop(&device_id).await.unwrap();
+    assert_eq!(out["connected"], json!(true), "{out}");
+    assert_eq!(out["requested"], json!(true), "{out}");
+    assert_eq!(out["outcome"], json!("stopped"), "{out}");
+    assert!(out["waitedMs"].is_u64(), "{out}");
+    let stop_all = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+        .await
+        .expect("stop-all reached the iPhone")
+        .expect("payload");
+    assert_eq!(stop_all["sensors"], json!(true));
+    let audit = last_audit(&rt, "mobile.sensors-stop").expect("audit");
+    assert_eq!(audit["detail"]["outcome"], json!("stopped"));
+    phone.abort();
+}
+
+/// 「測試這台手機」：ok 只代表 socket 有回答；沒連線／estop 都誠實拒絕。
+#[tokio::test(flavor = "multi_thread")]
+async fn mobile_test_pings_the_phone_and_never_claims_more_than_a_pong() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, ws) = pair(&rt).await;
+
+    // 未配對 → NotFound。
+    let err = rt.mobile_test("iphone-nope").await.unwrap_err();
+    assert!(matches!(err, interaction_core::DomainError::NotFound(_)));
+
+    // 連線中：tungstenite 自動回 Pong → ok（但只代表連線有回應）。
+    let phone = tokio::spawn(async move {
+        let mut ws = ws;
+        while let Ok(Some(Ok(_))) = tokio::time::timeout(Duration::from_secs(8), ws.next()).await {}
+        ws
+    });
+    let out = rt.mobile_test(&device_id).await.unwrap();
+    assert_eq!(out["ok"], json!(true), "{out}");
+    assert_eq!(out["connected"], json!(true), "{out}");
+    assert!(out["latencyMs"].is_u64(), "{out}");
+    assert!(
+        out["note"].as_str().unwrap_or_default().contains("不代表"),
+        "不得宣稱 App 功能正常：{out}"
+    );
+    assert!(last_audit(&rt, "mobile.test").is_some());
+
+    // 緊急停止中：什麼都不送。
+    rt.emergency_stop("test", None).await.unwrap();
+    let err = rt.mobile_test(&device_id).await.unwrap_err();
+    assert!(
+        matches!(err, interaction_core::DomainError::PolicyBlocked(_)),
+        "{err:?}"
+    );
+    phone.abort();
+
+    // 斷線 → not-connected（不是 ok）。
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    rt.clear_emergency_stop("test").await.unwrap();
+    let out = rt.mobile_test(&device_id).await.unwrap();
+    assert_eq!(out["ok"], json!(false), "{out}");
+    assert_eq!(out["connected"], json!(false), "{out}");
+    assert_eq!(out["reason"], json!("not-connected"), "{out}");
+}
+
+/// 手機斷線：在途 act 立刻以「結果未知」收場，pending 不留殘骸。
+#[tokio::test(flavor = "multi_thread")]
+async fn pending_acts_end_when_the_phone_disconnects() {
+    let (_tmp, rt) = runtime().await;
+    let (_device_id, _token, ws) = pair(&rt).await;
+    let actuator = enabled_actuator(&rt, "iphone.haptic").await;
+
+    // 手機收得到但不回 ack，然後斷線。
+    let phone = tokio::spawn(async move {
+        let mut ws = ws;
+        while let Ok(Some(Ok(msg))) = tokio::time::timeout(Duration::from_secs(6), ws.next()).await
+        {
+            if let Message::Text(text) = msg {
+                let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                if v["type"] == "act" {
+                    break;
+                }
+            }
+        }
+        drop(ws);
+    });
+
+    let started = std::time::Instant::now();
+    let receipt = actuator
+        .execute(test_action("iphone.haptic"))
+        .await
+        .expect("receipt");
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "斷線後不必等滿 4 秒 ack 逾時：{:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        receipt.current_status,
+        interaction_core::ActionStatus::Failed,
+        "{receipt:?}"
+    );
+    assert_eq!(receipt.driver_response["outcomeUnknown"], json!(true));
+    assert_eq!(
+        rt.mobile_status().await.unwrap()["pendingActs"],
+        json!(0),
+        "斷線必須清掉那台手機的 pending"
+    );
+    phone.await.expect("phone task");
+}
+
+/// 等待端 future 被丟棄（HTTP client 斷線／CLI 中斷）也不得洩漏 pending。
+#[tokio::test(flavor = "multi_thread")]
+async fn dropping_the_waiting_future_clears_the_pending_act() {
+    let (_tmp, rt) = runtime().await;
+    let (_device_id, _token, ws) = pair(&rt).await;
+    let phone = tokio::spawn(async move {
+        let mut ws = ws;
+        // 收得到但永遠不回。
+        while let Ok(Some(Ok(_))) = tokio::time::timeout(Duration::from_secs(8), ws.next()).await {}
+    });
+
+    let scan = rt.mobile_ble_scan(4_000, None);
+    // 等 pending 登記好，然後丟掉整個 future（等於呼叫端中斷）。
+    let dropped = tokio::time::timeout(Duration::from_millis(400), scan).await;
+    assert!(dropped.is_err(), "這裡本來就不該在 400ms 內完成");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        rt.mobile_status().await.unwrap()["pendingActs"],
+        json!(0),
+        "等待端消失後 pending 不得殘留"
+    );
+    phone.abort();
+}
+
+/// 手機回 err（含與 stop-all 競態的 stopped）＝綠勾沒上去：誠實回 Err。
+#[tokio::test(flavor = "multi_thread")]
+async fn mobile_present_verified_fails_when_the_phone_refuses() {
+    let (_tmp, rt) = runtime().await;
+    let (_device_id, _token, ws) = pair(&rt).await;
+    let phone = tokio::spawn(async move {
+        let mut ws = ws;
+        while let Ok(Some(Ok(msg))) = tokio::time::timeout(Duration::from_secs(6), ws.next()).await
+        {
+            let Message::Text(text) = msg else { continue };
+            let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            if v["type"] == "act" {
+                send_json(
+                    &mut ws,
+                    json!({"type":"err","id":v["id"],"reason":"bad-state"}),
+                )
+                .await;
+            }
+        }
+    });
+
+    let err = rt
+        .mobile_present_verified("agent-session-1")
+        .await
+        .expect_err("手機拒絕就不能算成功");
+    assert!(err.to_string().contains("bad-state"), "{err}");
+    let audit = last_audit(&rt, "mobile.present-verified").expect("audit");
+    assert_eq!(audit["detail"]["reply"], json!("err"));
+    phone.abort();
+}
+
+/// E2E／CI 需要「真 daemon 但不對區網廣播」：環境開關關閉時只綁 127.0.0.1，
+/// 且 status.bonjour 誠實說明原因（不得假裝 advertised）。
+#[tokio::test(flavor = "multi_thread")]
+async fn serve_mode_can_disable_bonjour_via_env() {
+    use interaction_runtime::mobile::mobile_advertise_enabled;
+
+    // 預設允許（真 daemon 才會真的廣播；測試模式另外關）。
+    std::env::remove_var("INTERACT_AI_MOBILE_ADVERTISE");
+    assert!(mobile_advertise_enabled());
+
+    std::env::set_var("INTERACT_AI_MOBILE_ADVERTISE", "0");
+    assert!(!mobile_advertise_enabled());
+    let (_tmp, rt) = runtime().await;
+    let status = rt.mobile_ensure_started().await.expect("server starts");
+    std::env::remove_var("INTERACT_AI_MOBILE_ADVERTISE");
+
+    assert_eq!(status["bonjour"]["advertised"], json!(false), "{status}");
+    assert_eq!(status["bonjour"]["bindIp"], json!("127.0.0.1"), "{status}");
+    let error = status["bonjour"]["error"].as_str().unwrap_or_default();
+    assert!(
+        error.contains("INTERACT_AI_MOBILE_ADVERTISE"),
+        "關閉原因要說人話：{error}"
+    );
+    // loopback 仍然可用（配對／連線不受影響）。
+    let (_device_id, _token, _ws) = pair(&rt).await;
+}
+
+// ---------------------------------------------------------------------------
+// 緊急停止的真相投影（`emergency` 只能由 Runtime 產生，而且一定要送到手機）
+// ---------------------------------------------------------------------------
+
+/// 讓模擬 iPhone 自動回 ack（act 與 stop-all 都回），並把看到的 act 交給測試。
+fn spawn_phone_acking_acts(mut ws: Ws) -> (tokio::task::JoinHandle<()>, ActRx) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
+    let handle = tokio::spawn(async move {
+        while let Ok(Some(Ok(msg))) = tokio::time::timeout(Duration::from_secs(15), ws.next()).await
+        {
+            let Message::Text(text) = msg else { continue };
+            let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            match v["type"].as_str() {
+                Some("act") => {
+                    let _ = tx.send(v.clone());
+                    send_json(
+                        &mut ws,
+                        json!({"type":"ack","id":v["id"],"applied":v["params"]}),
+                    )
+                    .await;
+                }
+                Some("stop-all") => {
+                    send_json(&mut ws, json!({"type":"ack","stopAll":true})).await;
+                }
+                _ => {}
+            }
+        }
+    });
+    (handle, rx)
+}
+
+type ActRx = tokio::sync::mpsc::UnboundedReceiver<Value>;
+
+/// 真正的緊急停止必須投影到每一台已連線手機（`character.present emergency`），
+/// 而且逐台結果要誠實記在 estop payload 與 audit 裡。
+#[tokio::test(flavor = "multi_thread")]
+async fn estop_projects_emergency_to_connected_phone() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, ws) = pair(&rt).await;
+    let (phone, mut acts) = spawn_phone_acking_acts(ws);
+
+    let payload = rt.emergency_stop("test", None).await.unwrap();
+
+    let act = tokio::time::timeout(Duration::from_secs(3), acts.recv())
+        .await
+        .expect("emergency presentation reached the phone")
+        .expect("act");
+    assert_eq!(act["name"], "character.present", "{act}");
+    assert_eq!(act["params"]["state"], "emergency", "{act}");
+    assert_eq!(
+        act["params"]["source"], "runtime-estop",
+        "來源必須是 runtime，不是 plan：{act}"
+    );
+    assert_eq!(
+        payload["characterEmergency"][0]["deviceId"],
+        json!(device_id),
+        "{payload}"
+    );
+    assert_eq!(
+        payload["characterEmergency"][0]["outcome"],
+        json!("acknowledged"),
+        "estop payload 要逐台說出投影結果：{payload}"
+    );
+    let audit = last_audit(&rt, "mobile.character-emergency").expect("audit");
+    assert_eq!(audit["detail"]["state"], json!("emergency"), "{audit}");
+    assert_eq!(
+        audit["detail"]["devices"][0]["outcome"],
+        json!("acknowledged"),
+        "{audit}"
+    );
+    phone.abort();
+}
+
+/// 解除緊急停止（只有人類做得到）之後，手機不能停在「緊急停止中」。
+#[tokio::test(flavor = "multi_thread")]
+async fn clearing_the_emergency_stop_tells_the_phone_it_is_over() {
+    let (_tmp, rt) = runtime().await;
+    let (_device_id, _token, ws) = pair(&rt).await;
+    let (phone, mut acts) = spawn_phone_acking_acts(ws);
+
+    rt.emergency_stop("test", None).await.unwrap();
+    let engaged = tokio::time::timeout(Duration::from_secs(3), acts.recv())
+        .await
+        .expect("emergency reached the phone")
+        .expect("act");
+    assert_eq!(engaged["params"]["state"], "emergency", "{engaged}");
+
+    rt.clear_emergency_stop("test").await.unwrap();
+    let cleared = tokio::time::timeout(Duration::from_secs(3), acts.recv())
+        .await
+        .expect("clear reached the phone")
+        .expect("act");
+    assert_eq!(cleared["name"], "character.present", "{cleared}");
+    assert_eq!(cleared["params"]["state"], "idle", "{cleared}");
+    assert_eq!(cleared["params"]["source"], "runtime-estop", "{cleared}");
+    phone.abort();
+}
+
+/// 緊急停止期間才連上（或重連）的手機，一連上就要看到緊急狀態——
+/// 不能停在上一次 plan 留下的畫面上等下一次 estop。
+#[tokio::test(flavor = "multi_thread")]
+async fn phone_connecting_during_estop_receives_emergency() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, token, ws) = pair(&rt).await;
+    let status = rt.mobile_status().await.unwrap();
+    let port = status["port"].as_u64().unwrap() as u16;
+    let fp = status["fingerprint"].as_str().unwrap().to_string();
+    drop(ws);
+    for _ in 0..60 {
+        if !rt.mobile.any_connected().await {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // 沒有任何手機連線時的 estop：誠實地什麼都沒投影。
+    let payload = rt.emergency_stop("test", None).await.unwrap();
+    assert_eq!(payload["characterEmergency"], json!([]), "{payload}");
+
+    let mut ws = connect(port, &fp).await;
+    send_json(
+        &mut ws,
+        json!({"type":"auth","deviceId":device_id,"token":token}),
+    )
+    .await;
+    assert_eq!(recv_json(&mut ws).await["type"], "auth-ok");
+    let act = recv_json_within(&mut ws, Duration::from_secs(4)).await;
+    assert_eq!(act["type"], "act", "{act}");
+    assert_eq!(act["name"], "character.present", "{act}");
+    assert_eq!(act["params"]["state"], "emergency", "{act}");
+    assert_eq!(act["params"]["source"], "runtime-estop", "{act}");
+}
+
+// ---------------------------------------------------------------------------
+// 資源上限（未認證 peer 不得吃光連線／記憶體／處理時間）
+// ---------------------------------------------------------------------------
+
+/// 連線名額用完就在 accept 當下拒絕（不是先接進來再說）；連線關閉後名額歸還。
+#[tokio::test(flavor = "multi_thread")]
+async fn too_many_connections_are_refused_at_accept_and_the_slots_come_back() {
+    use interaction_runtime::mobile::MOBILE_MAX_CONNS;
+
+    let (_tmp, rt) = runtime().await;
+    // 這個測試要的是「名額」，不是認證死線。
+    rt.mobile.set_auth_timeout(Duration::from_secs(60));
+    let session = rt.mobile_pairing_begin().await.unwrap();
+    let port = session["port"].as_u64().unwrap() as u16;
+    let fp = session["fingerprint"].as_str().unwrap().to_string();
+
+    let mut held = Vec::new();
+    for i in 0..MOBILE_MAX_CONNS {
+        held.push(
+            try_connect(port, &fp)
+                .await
+                .unwrap_or_else(|e| panic!("第 {i} 條連線應該在上限之內：{e}")),
+        );
+    }
+    assert!(
+        try_connect(port, &fp).await.is_err(),
+        "超過連線上限的 peer 必須被拒絕"
+    );
+    let heartbeat = rt.mobile_status().await.unwrap()["heartbeat"].clone();
+    assert_eq!(heartbeat["maxConnections"], json!(MOBILE_MAX_CONNS));
+    assert!(
+        heartbeat["refusedConnections"].as_u64().unwrap_or(0) >= 1,
+        "被拒絕的次數要看得見：{heartbeat}"
+    );
+
+    drop(held);
+    let mut recovered = false;
+    for _ in 0..60 {
+        if try_connect(port, &fp).await.is_ok() {
+            recovered = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(recovered, "連線關閉之後名額必須釋放");
+}
+
+/// 未認證連線有絕對死線：送 Ping／未知訊息「續命」也沒用。
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unauthenticated_peer_is_closed_when_its_deadline_passes() {
+    let (_tmp, rt) = runtime().await;
+    rt.mobile.set_auth_timeout(Duration::from_millis(500));
+    let session = rt.mobile_pairing_begin().await.unwrap();
+    let port = session["port"].as_u64().unwrap() as u16;
+    let fp = session["fingerprint"].as_str().unwrap().to_string();
+    let mut ws = connect(port, &fp).await;
+
+    // 每 200ms 送一次心跳（遠低於速率上限）：證明關閉的原因是認證死線，
+    // 不是閒置、也不是速率限制。
+    let started = std::time::Instant::now();
+    let mut closed = false;
+    while started.elapsed() < Duration::from_secs(4) && !closed {
+        let _ = ws
+            .send(Message::Text(json!({"type":"keep-alive"}).to_string()))
+            .await;
+        let until = tokio::time::Instant::now() + Duration::from_millis(200);
+        loop {
+            let left = until.saturating_duration_since(tokio::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            match tokio::time::timeout(left, ws.next()).await {
+                Err(_) => break,
+                Ok(None) | Ok(Some(Err(_))) | Ok(Some(Ok(Message::Close(_)))) => {
+                    closed = true;
+                    break;
+                }
+                Ok(Some(Ok(_))) => continue,
+            }
+        }
+    }
+    assert!(
+        closed,
+        "未認證連線必須在死線到期時關閉（心跳不能續命）：{:?}",
+        started.elapsed()
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "關閉必須發生在死線附近，而不是閒置逾時：{:?}",
+        started.elapsed()
+    );
+    let mut audited = None;
+    for _ in 0..40 {
+        audited = last_audit(&rt, "mobile.unauthenticated-timeout");
+        if audited.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let audited = audited.expect("關閉未認證連線要留痕");
+    assert!(
+        audited["detail"]["afterMs"].as_u64().unwrap_or(0) >= 1,
+        "{audited}"
+    );
+    // 伺服器本身沒事（單一 peer 的死線不影響服務）。
+    assert_eq!(rt.mobile_status().await.unwrap()["started"], json!(true));
+}
+
+/// 單一連線的入站速率上限：狂灌訊息會被關掉並留 audit（不是讓 runtime
+/// 把處理時間全花在一個 peer 身上）。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_flooding_connection_is_rate_limited_and_audited() {
+    use interaction_runtime::mobile::MOBILE_MAX_INBOUND_PER_SEC;
+
+    let (_tmp, rt) = runtime().await;
+    let (_device_id, _token, mut ws) = pair(&rt).await;
+    for _ in 0..(MOBILE_MAX_INBOUND_PER_SEC * 4) {
+        if ws
+            .send(Message::Text(json!({"type":"noop"}).to_string()))
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
+    let mut gone = false;
+    for _ in 0..80 {
+        if !rt.mobile.any_connected().await {
+            gone = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(gone, "超過入站速率上限的連線必須被關掉");
+    let audit = last_audit(&rt, "mobile.rate-limited").expect("速率限制要留痕");
+    assert_eq!(
+        audit["detail"]["limitPerSec"],
+        json!(MOBILE_MAX_INBOUND_PER_SEC),
+        "{audit}"
+    );
+    assert_eq!(
+        rt.mobile_status().await.unwrap()["started"],
+        json!(true),
+        "限制單一連線不得拖垮伺服器"
+    );
+}
+
+/// 超大訊息不得被整則讀進記憶體再解析：連線直接收掉，伺服器照常運作。
+#[tokio::test(flavor = "multi_thread")]
+async fn an_oversized_message_closes_the_connection() {
+    use interaction_runtime::mobile::MOBILE_WS_MAX_MESSAGE_BYTES;
+
+    let (_tmp, rt) = runtime().await;
+    let (_device_id, _token, mut ws) = pair(&rt).await;
+    assert!(rt.mobile.any_connected().await);
+
+    let _ = ws
+        .send(Message::Text("x".repeat(MOBILE_WS_MAX_MESSAGE_BYTES * 2)))
+        .await;
+    let mut gone = false;
+    for _ in 0..80 {
+        if !rt.mobile.any_connected().await {
+            gone = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(gone, "超過訊息上限的連線必須被收掉");
+    assert_eq!(
+        rt.mobile_status().await.unwrap()["started"],
+        json!(true),
+        "一條濫用連線不得拖垮整個伺服器"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// accept 迴圈的存活與誠實
+// ---------------------------------------------------------------------------
+
+/// 暫時性的 accept 錯誤不得讓 iPhone 伺服器悄悄消失：退避重試之後照常配對。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_transient_accept_error_does_not_kill_the_mobile_server() {
+    let (_tmp, rt) = runtime().await;
+    // 故障注入：接下來三次 accept 直接走錯誤分支。
+    rt.mobile.inject_accept_errors(3);
+    let status = rt.mobile_ensure_started().await.expect("server starts");
+    assert_eq!(status["started"], json!(true));
+
+    // 迴圈活著才配對得起來。
+    let (_device_id, _token, _ws) = pair(&rt).await;
+    let after = rt.mobile_status().await.unwrap();
+    assert_eq!(after["started"], json!(true), "{after}");
+    assert!(after["port"].as_u64().is_some(), "{after}");
+}
+
+/// accept 迴圈真的停了：status 必須說 started:false（不是繼續假裝在跑），
+/// Bonjour 要撤掉並說明原因，而且下一次啟動可以乾淨重綁。
+#[tokio::test(flavor = "multi_thread")]
+async fn an_accept_loop_that_stops_is_reported_as_stopped() {
+    let (_tmp, rt) = runtime().await;
+    let status = rt.mobile_ensure_started().await.expect("server starts");
+    let port = status["port"].as_u64().unwrap() as u16;
+
+    rt.mobile_note_accept_loop_stopped(port, "simulated fatal accept error")
+        .await;
+
+    let stopped = rt.mobile_status().await.unwrap();
+    assert_eq!(stopped["started"], json!(false), "{stopped}");
+    assert_eq!(stopped["port"], Value::Null, "{stopped}");
+    assert_eq!(stopped["bonjour"]["advertised"], json!(false), "{stopped}");
+    let why = stopped["bonjour"]["error"].as_str().unwrap_or_default();
+    assert!(why.contains("simulated fatal accept error"), "{stopped}");
+    let audit = last_audit(&rt, "mobile.server-stopped").expect("停下來要留痕");
+    assert_eq!(audit["detail"]["port"], json!(port), "{audit}");
+
+    let restarted = rt.mobile_ensure_started().await.expect("clean restart");
+    assert_eq!(restarted["started"], json!(true), "{restarted}");
+    assert!(restarted["port"].as_u64().is_some(), "{restarted}");
+}
+
+// ---------------------------------------------------------------------------
+// 多台 iPhone：動作必須指定目標，收據要記真正送到哪一台
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn with_two_phones_an_act_must_name_its_target_and_the_receipt_records_it() {
+    let (_tmp, rt) = runtime().await;
+    let (id_a, _token_a, ws_a) = pair(&rt).await;
+    let (id_b, _token_b, ws_b) = pair(&rt).await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(String, Value)>();
+    let mut phones = Vec::new();
+    for (id, ws) in [(id_a.clone(), ws_a), (id_b.clone(), ws_b)] {
+        let tx = tx.clone();
+        phones.push(tokio::spawn(async move {
+            let mut ws = ws;
+            while let Ok(Some(Ok(msg))) =
+                tokio::time::timeout(Duration::from_secs(15), ws.next()).await
+            {
+                let Message::Text(text) = msg else { continue };
+                let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                if v["type"] == "act" {
+                    let _ = tx.send((id.clone(), v.clone()));
+                    send_json(
+                        &mut ws,
+                        json!({"type":"ack","id":v["id"],"applied":v["params"]}),
+                    )
+                    .await;
+                }
+            }
+        }));
+    }
+    drop(tx);
+
+    let actuator = enabled_actuator(&rt, "iphone.haptic").await;
+
+    // (1) 兩台在線又沒指定目標：拒絕，而且要說出有哪些可選——絕不偷偷挑一台。
+    let receipt = actuator
+        .execute(test_action("iphone.haptic"))
+        .await
+        .expect("receipt");
+    assert_eq!(
+        receipt.current_status,
+        interaction_core::ActionStatus::Failed,
+        "{receipt:?}"
+    );
+    let why = serde_json::to_string(&receipt.errors).unwrap_or_default();
+    assert!(
+        why.contains(&id_a) && why.contains(&id_b) && why.contains("deviceId"),
+        "錯誤要列出連線中的手機並說怎麼指定：{why}"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(400), rx.recv())
+            .await
+            .is_err(),
+        "被拒絕的動作不得送到任何一台手機"
+    );
+
+    // (2) 指定目標：只送那一台，收據記真正的那一台。
+    let mut targeted = test_action("iphone.haptic");
+    targeted.effective.extra = Some(json!({"deviceId": id_b}));
+    let receipt = actuator.execute(targeted).await.expect("receipt");
+    assert_eq!(
+        receipt.current_status,
+        interaction_core::ActionStatus::Acknowledged,
+        "{receipt:?}"
+    );
+    assert_eq!(receipt.driver_response["deviceId"], json!(id_b));
+    assert_eq!(
+        receipt.driver_response["deviceName"],
+        json!("測試 iPhone"),
+        "{receipt:?}"
+    );
+    let (delivered_to, act) = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+        .await
+        .expect("act delivered")
+        .expect("act");
+    assert_eq!(delivered_to, id_b, "動作必須送到指定的那一台");
+    assert!(
+        act["params"].get("deviceId").is_none(),
+        "deviceId 是路由參數，不該混進 wire 參數：{act}"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(400), rx.recv())
+            .await
+            .is_err(),
+        "另一台不得收到同一個動作"
+    );
+
+    // (3) 指定一台沒連線的：誠實失敗，兩台都收不到。
+    let mut nowhere = test_action("iphone.haptic");
+    nowhere.effective.extra = Some(json!({"deviceId": "iphone-nope"}));
+    let receipt = actuator.execute(nowhere).await.expect("receipt");
+    assert_eq!(
+        receipt.current_status,
+        interaction_core::ActionStatus::Failed,
+        "{receipt:?}"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(400), rx.recv())
+            .await
+            .is_err(),
+        "指定不存在的手機不得改送別台"
+    );
+
+    // 每台的能力說明都要誠實：這六項是共用的，不是這一台專屬。
+    let desc = rt
+        .get_provider(&interaction_core::ProviderId::new(format!(
+            "provider.mobile.{id_a}"
+        )))
+        .await
+        .unwrap();
+    let detail = desc.detail.clone().unwrap_or_default();
+    assert!(
+        detail.contains("共用") && detail.contains("deviceId"),
+        "{detail}"
+    );
+
+    for phone in phones {
+        phone.abort();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TLS 私鑰權限與公開身分指紋
+// ---------------------------------------------------------------------------
+
+/// 私鑰從建立的第一刻起就只有擁有者可讀寫；被放寬過的舊鑰在下次啟動時修回來
+/// （修不回來就拒絕啟動，不會安靜地用一把全機可讀的私鑰）。
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn the_tls_private_key_is_owner_only_and_loose_permissions_are_repaired() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_path_buf();
+    let rt = runtime_at(&home).await;
+    rt.mobile_ensure_started().await.expect("server starts");
+
+    let key = home.join("state").join("mobile-key.der");
+    let mode = std::fs::metadata(&key).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "私鑰必須是 0600（實際 {mode:o}）");
+    assert!(
+        !home.join("state").join("mobile-key.der.tmp").exists(),
+        "暫存檔不得留在 state 目錄"
+    );
+
+    rt.shutdown_token.cancel();
+    drop(rt);
+    // 有人（或舊版本）把它放寬了。
+    std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let rt2 = runtime_at(&home).await;
+    rt2.mobile_ensure_started()
+        .await
+        .expect("loose key is repaired, not silently used");
+    let mode = std::fs::metadata(&key).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "載入時必須把權限收回來（實際 {mode:o}）");
+}
+
+/// 對外的裝置身分指紋不得等於認證比對用的驗證值，也不得能當成憑據使用。
+#[tokio::test(flavor = "multi_thread")]
+async fn the_public_device_fingerprint_is_not_the_token_verifier() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, token, ws) = pair(&rt).await;
+    let status = rt.mobile_status().await.unwrap();
+    let port = status["port"].as_u64().unwrap() as u16;
+    let tls_fp = status["fingerprint"].as_str().unwrap().to_string();
+
+    let pid = interaction_core::ProviderId::new(format!("provider.mobile.{device_id}"));
+    let fingerprint = rt
+        .get_provider(&pid)
+        .await
+        .unwrap()
+        .identity
+        .fingerprint
+        .expect("paired device has a public fingerprint");
+    let verifier = format!("{:x}", Sha256::digest(token.as_bytes()));
+    assert_eq!(fingerprint.len(), 64);
+    assert_ne!(
+        fingerprint, verifier,
+        "公開的身分指紋不得直接是認證比對用的雜湊"
+    );
+
+    drop(ws);
+    for _ in 0..60 {
+        if !rt.mobile.any_connected().await {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // 指紋不能當憑據重放。
+    let mut ws = connect(port, &tls_fp).await;
+    send_json(
+        &mut ws,
+        json!({"type":"auth","deviceId":device_id,"token":fingerprint}),
+    )
+    .await;
+    assert_eq!(recv_json(&mut ws).await["type"], "auth-fail");
+    drop(ws);
+
+    // 真正的 token 仍然可用，而且指紋跨連線穩定（衍生是決定性的）。
+    let mut ws = connect(port, &tls_fp).await;
+    send_json(
+        &mut ws,
+        json!({"type":"auth","deviceId":device_id,"token":token}),
+    )
+    .await;
+    assert_eq!(recv_json(&mut ws).await["type"], "auth-ok");
+    let again = rt
+        .get_provider(&pid)
+        .await
+        .unwrap()
+        .identity
+        .fingerprint
+        .expect("fingerprint");
+    assert_eq!(again, fingerprint, "身分指紋必須跨連線穩定");
+}
+
+// ---------------------------------------------------------------------------
+// stop-all 的 wire `reason`：使用者按的 vs 緊急停止（iOS 端據此顯示停用說明）
+// ---------------------------------------------------------------------------
+
+/// 純函式：只有緊急停止那條路徑是 `emergency`；不認得的 reason 保守地
+/// 也當成 emergency（顯示比較嚴格的那一句，不會把緊急停止講成使用者操作）。
+#[test]
+fn stop_all_wire_reason_only_calls_the_estop_path_emergency() {
+    use interaction_runtime::mobile::{
+        stop_all_wire_reason, STOP_REASON_EMERGENCY, STOP_REASON_USER,
+    };
+    assert_eq!(stop_all_wire_reason("stop-all-sensors"), STOP_REASON_USER);
+    assert_eq!(
+        stop_all_wire_reason("emergency-stop"),
+        STOP_REASON_EMERGENCY
+    );
+    assert_eq!(stop_all_wire_reason("who-knows"), STOP_REASON_EMERGENCY);
+}
+
+/// 使用者按「停止所有感測」（POST /v1/sensors/stop）→ wire 上 `reason:"user"`；
+/// 手機不得顯示成「因桌面緊急停止而停用」。
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_all_sensors_tells_the_phone_the_user_asked() {
+    let (_tmp, rt) = runtime().await;
+    let (_device_id, _token, mut ws) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+    send_phone_status(&mut ws, true).await;
+    wait_for_iphone_mic_sensor(&rt, true).await;
+
+    let (phone, mut rx) = spawn_phone_confirming_stop_all(ws);
+    rt.stop_all_sensors("test").await.expect("stop all sensors");
+    let stop_all = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+        .await
+        .expect("stop-all reached the iPhone")
+        .expect("stop-all payload");
+    assert_eq!(stop_all["sensors"], json!(true), "{stop_all}");
+    assert_eq!(
+        stop_all["reason"],
+        json!("user"),
+        "使用者按的停止不得在手機上顯示成緊急停止：{stop_all}"
+    );
+    phone.abort();
+}
+
+/// 每機的「停止這台手機的感測」也是使用者發起的 → `reason:"user"`。
+#[tokio::test(flavor = "multi_thread")]
+async fn per_device_sensors_stop_tells_the_phone_the_user_asked() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, ws) = pair(&rt).await;
+    let (phone, mut rx) = spawn_phone_confirming_stop_all(ws);
+    rt.mobile_sensors_stop(&device_id)
+        .await
+        .expect("per-device stop");
+    let stop_all = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+        .await
+        .expect("stop-all reached the iPhone")
+        .expect("stop-all payload");
+    assert_eq!(stop_all["reason"], json!("user"), "{stop_all}");
+    phone.abort();
+}
+
+/// 緊急停止 → `reason:"emergency"`（手機顯示「因桌面緊急停止而停用」）。
+#[tokio::test(flavor = "multi_thread")]
+async fn emergency_stop_tells_the_phone_it_is_an_emergency() {
+    let (_tmp, rt) = runtime().await;
+    let (_device_id, _token, ws) = pair(&rt).await;
+    let (phone, mut rx) = spawn_phone_confirming_stop_all(ws);
+    rt.emergency_stop("test", None).await.expect("estop");
+    let stop_all = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .expect("stop-all reached the iPhone")
+        .expect("stop-all payload");
+    assert_eq!(stop_all["sensors"], json!(true), "{stop_all}");
+    assert_eq!(
+        stop_all["reason"],
+        json!("emergency"),
+        "緊急停止不得被手機顯示成使用者按的停止：{stop_all}"
+    );
+    phone.abort();
+}
+
+// ---------------------------------------------------------------------------
+// F-043：「已測試」證據必須記在真正執行的那一台手機上
+// ---------------------------------------------------------------------------
+
+/// 兩台手機同時連線、動作指名第二台：`provider.mobile.<第二台>` 才拿到
+/// 「已測試」證據，第一台（字典序可能在前）不得被記上它沒做過的事。
+#[tokio::test(flavor = "multi_thread")]
+async fn tested_evidence_lands_on_the_phone_that_actually_ran_the_action() {
+    use interaction_core::SemanticIntent;
+    use std::collections::BTreeMap;
+
+    let (_tmp, rt) = runtime().await;
+    let (id_1, _token_a, ws_a) = pair(&rt).await;
+    let (id_2, _token_b, ws_b) = pair(&rt).await;
+    assert_ne!(id_1, id_2);
+    // 目標刻意挑「provider id 字典序在後」的那一台：舊實作用
+    // `providers.list().find(...)`（字典序第一個）會把證據記到另一台，
+    // 這個測試就會紅——不靠隨機的配對順序碰運氣。
+    let (id_other, id_target) = if id_1 < id_2 {
+        (id_1.clone(), id_2.clone())
+    } else {
+        (id_2.clone(), id_1.clone())
+    };
+
+    let mut phones = Vec::new();
+    for ws in [ws_a, ws_b] {
+        phones.push(tokio::spawn(async move {
+            let mut ws = ws;
+            while let Ok(Some(Ok(msg))) =
+                tokio::time::timeout(Duration::from_secs(15), ws.next()).await
+            {
+                let Message::Text(text) = msg else { continue };
+                let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                if v["type"] == "act" {
+                    send_json(
+                        &mut ws,
+                        json!({"type":"ack","id":v["id"],"applied":v["params"]}),
+                    )
+                    .await;
+                }
+            }
+        }));
+    }
+
+    let _ = enabled_actuator(&rt, "iphone.haptic").await;
+    // 測試 runtime 沒有 watchdog：健康快取要手動刷一次，計畫器才看得到
+    // 「iPhone 已連線」（否則動器仍是 offline，計畫會被擋下）。
+    rt.registry.refresh_health().await;
+    // 政策仍是預設拒絕：人類明確允許這個動器與通道之後才可能執行。
+    rt.update_policy(json!({
+        "actuatorAllowlist": ["iphone.haptic"],
+        "allowedChannels": ["conversation", "web-ui", "log", "haptic"],
+    }))
+    .await
+    .unwrap();
+    rt.start_session(
+        Some("f043".into()),
+        None,
+        vec!["actuator:iphone.haptic".into()],
+    )
+    .await
+    .unwrap();
+
+    let mut intent = SemanticIntent::new("f043");
+    intent.preferred_channels = vec!["haptic".into()];
+    // `extra.deviceId` ＝ 指名第二台手機。
+    intent.payload = Some(json!({"deviceId": id_target}));
+    let plan = rt
+        .create_plan(
+            intent,
+            vec!["iphone.haptic".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
+        .await
+        .expect("plan");
+    let planned = serde_json::to_value(&plan).unwrap();
+    let receipts = rt
+        .execute_plan(
+            &plan.plan_id,
+            interaction_policy::ActionSource::ExplicitRequest,
+            false,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "execute failed: {e}; plan: {}",
+                serde_json::to_string_pretty(&planned).unwrap()
+            )
+        });
+    let receipt = receipts.first().expect("one receipt");
+    assert_eq!(
+        receipt.current_status,
+        interaction_core::ActionStatus::Acknowledged,
+        "{receipt:?}"
+    );
+    assert_eq!(receipt.driver_response["deviceId"], json!(id_target));
+
+    async fn tested_of(rt: &Runtime, id: &str) -> Option<Value> {
+        let pid = interaction_core::ProviderId::new(format!("provider.mobile.{id}"));
+        let desc = rt.get_provider(&pid).await.ok()?;
+        let detail: Value = serde_json::from_str(desc.detail.as_deref()?).ok()?;
+        detail.get("tested").cloned()
+    }
+    assert!(
+        tested_of(&rt, &id_target).await.is_some(),
+        "證據要記在真正執行的那一台（{id_target}）"
+    );
+    assert!(
+        tested_of(&rt, &id_other).await.is_none(),
+        "沒有執行過的那一台（{id_other}）不得被記上「已測試」"
+    );
+
+    for phone in phones {
+        phone.abort();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BLE 掃描：可以指名目標手機
+// ---------------------------------------------------------------------------
+
+/// 兩台手機同時連線時：不指名＝誠實回 Err（列出可選的 id）；
+/// 指名＝只有那一台收到 `ble.scan`，另一台完全沒被打擾。
+#[tokio::test(flavor = "multi_thread")]
+async fn ble_scan_can_name_its_target_phone() {
+    let (_tmp, rt) = runtime().await;
+    let (id_a, _token_a, ws_a) = pair(&rt).await;
+    let (id_b, _token_b, ws_b) = pair(&rt).await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(String, Value)>();
+    let mut phones = Vec::new();
+    for (id, ws) in [(id_a.clone(), ws_a), (id_b.clone(), ws_b)] {
+        let tx = tx.clone();
+        phones.push(tokio::spawn(async move {
+            let mut ws = ws;
+            while let Ok(Some(Ok(msg))) =
+                tokio::time::timeout(Duration::from_secs(15), ws.next()).await
+            {
+                let Message::Text(text) = msg else { continue };
+                let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                if v["type"] == "ble.scan" {
+                    let _ = tx.send((id.clone(), v.clone()));
+                    send_json(
+                        &mut ws,
+                        json!({"type":"ble.result","id":v["id"],"peripherals":[]}),
+                    )
+                    .await;
+                }
+            }
+        }));
+    }
+    drop(tx);
+
+    // (1) 沒指名：兩台在線 → 誠實 Err，不偷偷挑一台。
+    let err = rt
+        .mobile_ble_scan(600, None)
+        .await
+        .expect_err("兩台在線又沒指名時必須拒絕");
+    let text = err.to_string();
+    assert!(
+        text.contains(&id_a) && text.contains(&id_b) && text.contains("deviceId"),
+        "錯誤要說出可選的手機與怎麼指定：{text}"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(400), rx.recv())
+            .await
+            .is_err(),
+        "被拒絕的掃描不得送到任何一台手機"
+    );
+
+    // (2) 指名第二台：只有它收到。
+    rt.mobile_ble_scan(600, Some(&id_b))
+        .await
+        .expect("targeted scan");
+    let (delivered_to, _msg) = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+        .await
+        .expect("ble.scan delivered")
+        .expect("ble.scan");
+    assert_eq!(delivered_to, id_b, "掃描必須送到指名的那一台");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(400), rx.recv())
+            .await
+            .is_err(),
+        "另一台不得收到同一次掃描"
+    );
+
+    for phone in phones {
+        phone.abort();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// sensor.stop-uncertain 進統一收件匣（要人處理，不是純歷史）
+// ---------------------------------------------------------------------------
+
+/// 手機沒確認停止 → `sensor.stop-uncertain` 必須以「感測停止結果不確定：<手機名>」
+/// 出現在收件匣的「待我決定」，而且徽章要數到它。
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_uncertain_is_a_pending_decision_in_the_inbox() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+    send_phone_status(&mut ws, true).await;
+    wait_for_iphone_mic_sensor(&rt, true).await;
+
+    // 手機收到 stop-all 但完全不回覆（socket 還在）→ 結果未知。
+    let silent = tokio::spawn(async move {
+        while let Ok(Some(Ok(_))) = tokio::time::timeout(Duration::from_secs(8), ws.next()).await {}
+    });
+    let report = rt.stop_all_sensors("test").await.expect("stop all sensors");
+    assert!(report.uncertain, "沒回覆就必須是 uncertain");
+
+    let uncertain = iphone_sensor_events(&rt, interaction_core::EventType::SensorStopUncertain);
+    assert!(
+        uncertain.iter().any(|p| p["deviceId"] == json!(device_id)),
+        "結果未知必須進事件流：{uncertain:?}"
+    );
+
+    let inbox = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter {
+            needs_decision: Some(true),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let items = inbox["items"].as_array().expect("items");
+    let item = items
+        .iter()
+        .find(|i| i["status"] == json!("sensor.stop-uncertain"))
+        .unwrap_or_else(|| panic!("stop-uncertain 必須進「待我決定」：{inbox}"));
+    assert_eq!(item["kind"], json!("safety-event"), "{item}");
+    assert_eq!(item["needsDecision"], json!(true), "{item}");
+    let title = item["title"].as_str().unwrap_or_default();
+    assert!(
+        title.starts_with("感測停止結果不確定："),
+        "標題要是人話：{title}"
+    );
+    assert!(
+        title.contains("測試 iPhone"),
+        "標題要點名是哪一台裝置：{title}"
+    );
+    assert!(
+        !title.contains(&device_id),
+        "一般模式標題不得外洩原始裝置 id：{title}"
+    );
+    assert!(
+        inbox["pendingCount"].as_u64().unwrap_or(0) >= 1,
+        "徽章要數到它：{inbox}"
+    );
+    silent.abort();
 }

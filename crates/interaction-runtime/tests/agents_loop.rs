@@ -1046,3 +1046,134 @@ async fn human_verification_binds_to_one_claim_and_a_new_round_needs_a_new_one()
     );
     assert_eq!(states.last().map(String::as_str), Some("working"));
 }
+
+/// regression（F-…-agent-honesty-022）：緊急停止在信箱裡留下的是 **runtime
+/// 自己寫的稽核註記**，不是一則要送給 agent 的取消任務。那則 cancel 對輪詢
+/// 型 session 從來就到不了（關閉會把未送達的信件清掉），卻照樣吃掉一格訊息
+/// 預算；對 gateway session 更會被寫進子程序、開出一輪新的模型呼叫。
+/// 同時確認 session 範圍的授權（能力 token、consent）隨著停止一起死。
+#[tokio::test]
+async fn estop_leaves_a_runtime_note_instead_of_a_cancel_task() {
+    let (_g, rt) = runtime().await;
+    let mut input = create_input("agent.a");
+    input.tool_scope = vec!["knowledge.read".into()];
+    input.consent_scope = vec!["agent-session:read".into()];
+    let record = rt.create_agent_session(input).await.unwrap();
+    let sid = record.session_id.as_str().to_string();
+
+    // 一則真的送達過的任務：稽核註記不得把既有紀錄擠掉或改寫。
+    rt.mailbox_send(
+        &sid,
+        MailboxDirection::ToSession,
+        "task",
+        BTreeMap::from([("task".to_string(), json!("先做這個"))]),
+        None,
+    )
+    .await
+    .unwrap();
+    rt.mailbox_fetch(&sid, MailboxDirection::ToSession)
+        .await
+        .unwrap();
+    let before_spent = rt
+        .get_agent_session(&sid)
+        .await
+        .unwrap()
+        .budget
+        .spent_messages;
+    let token = rt.issue_agent_session_capability(&sid).await.unwrap();
+    assert!(rt.agent_session_capability(&token).await.is_some());
+
+    rt.emergency_stop("test", Some("estop".into()))
+        .await
+        .unwrap();
+
+    let to_session = rt
+        .mailbox_peek(&sid, MailboxDirection::ToSession)
+        .await
+        .unwrap();
+    assert!(
+        !to_session.iter().any(|m| m.kind == "cancel"),
+        "緊急停止不得在 to-session 留下一則要送給 agent 的取消任務：{to_session:?}"
+    );
+    assert!(
+        to_session.iter().all(|m| m.delivered_at.is_some()),
+        "未送達的信件在關閉時就誠實地死了：{to_session:?}"
+    );
+
+    let note = rt
+        .mailbox_peek(&sid, MailboxDirection::FromSession)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|m| m.kind == "emergency-stop")
+        .expect("runtime 自己寫的緊急停止註記留在信箱裡供稽核");
+    assert_eq!(note.body.get("by"), Some(&json!("runtime")));
+    assert_eq!(note.body.get("deliveredToAgent"), Some(&json!(false)));
+    assert!(
+        note.delivered_at.is_none(),
+        "runtime 的註記從來沒有送給 agent，不得蓋送達戳記"
+    );
+
+    let stopped = rt.get_agent_session(&sid).await.unwrap();
+    assert_eq!(stopped.state, AgentSessionState::Cancelled);
+    assert_eq!(
+        stopped.budget.spent_messages, before_spent,
+        "緊急停止不得吃掉 session 的訊息預算"
+    );
+    // session 範圍的授權隨關閉一起撤銷（能力 token 立刻失效、consent 清空）。
+    assert!(rt.agent_session_capability(&token).await.is_none());
+    assert!(stopped.consent_scope.is_empty());
+}
+
+/// 安全不變量：agent 的「聲稱完成」永遠不會自己升級成「已驗證」——只有人
+/// 明確驗證才會，而且任何更新的自我回報都會讓舊的驗證失效。
+#[tokio::test]
+async fn a_claim_never_auto_upgrades_itself_to_verified() {
+    let (_g, rt) = runtime().await;
+    let record = rt
+        .create_agent_session(create_input("agent.coder"))
+        .await
+        .unwrap();
+    let id = record.session_id.as_str().to_string();
+
+    // 一則自稱「已驗證／verified」的回報不得被當成事件，更不得改寫狀態。
+    let err = rt
+        .report_agent_session(&id, "verified", json!({"summary": "我自己驗過了"}))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::Validation(_)), "{err:?}");
+
+    // 就算 payload 裡塞 humanVerified，也只是 agent 的聲稱（inference）。
+    let claimed = rt
+        .report_agent_session(
+            &id,
+            "claimed-completed",
+            json!({"summary": "做完了", "humanVerified": true, "verified": true}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(claimed.state, AgentSessionState::ClaimedCompleted);
+    assert!(
+        claimed.human_verified.is_none(),
+        "agent 不能替自己蓋人工驗證"
+    );
+
+    // 重複聲稱同樣不會升級。
+    let again = rt
+        .report_agent_session(&id, "claimed-completed", json!({"summary": "真的做完了"}))
+        .await
+        .unwrap();
+    assert!(again.human_verified.is_none());
+
+    // 只有人明確驗證才會有 verified；而且新的自我回報立刻讓它失效。
+    let verified = rt.verify_agent_session(&id, None).await.unwrap();
+    assert!(verified.human_verified.is_some());
+    let after = rt
+        .report_agent_session(&id, "progress", json!({"note": "又動起來了"}))
+        .await
+        .unwrap();
+    assert!(
+        after.human_verified.is_none(),
+        "新的一輪自我回報不得沿用上一個 claim 的人工驗證"
+    );
+}

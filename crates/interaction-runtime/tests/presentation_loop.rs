@@ -684,3 +684,131 @@ async fn desktop_pet_uncertain_is_not_a_pending_decision_but_haptic_is() {
     );
     assert_eq!(inbox["pendingCount"].as_u64(), Some(2));
 }
+
+/// regression（ia-settings-012）：安靜時段的預設靜音清單含 `desktop-pet`，
+/// 視窗內任何角色演出都會產生一筆 Blocked 收據。那是「這次不演」，使用者
+/// 沒有任何可做的決定——必須留在歷史裡（誠實），但不得佔「待我決定」。
+/// 對照組：同樣被擋下的實體通道（haptic）仍要人看見；卡在「需要人類核可」
+/// 的呈現動作也仍要人看見（核可只能由人給，那才是真的有決定要做）。
+#[tokio::test]
+async fn quiet_hours_blocked_desktop_pet_is_not_a_pending_decision() {
+    let (_g, rt) = runtime().await;
+    visible_session(&rt).await;
+
+    // 涵蓋當下本地時間的安靜視窗；silencedChannels 留空＝套用預設清單，
+    // 正是設定精靈與角色頁寫進來的形狀。
+    let now = chrono::Local::now().time();
+    let start = (now - chrono::Duration::hours(1))
+        .format("%H:%M")
+        .to_string();
+    let end = (now + chrono::Duration::hours(1))
+        .format("%H:%M")
+        .to_string();
+    rt.update_policy(json!({
+        "quietHours": [{ "start": start, "end": end, "silencedChannels": [] }]
+    }))
+    .await
+    .unwrap();
+
+    let receipts =
+        plan_and_execute(&rt, "companion.bubble.show", json!({}), Some("安靜時段")).await;
+    assert_eq!(receipts.len(), 1);
+    let pet = receipts[0].clone();
+    assert_eq!(
+        pet.current_status,
+        ActionStatus::Blocked,
+        "安靜時段必須確實擋下角色演出（政策仍然生效）"
+    );
+    assert!(
+        pet.policy_decisions.iter().any(|decision| matches!(
+            decision,
+            PolicyDecision::Blocked { rule, .. } if rule == "quiet-hours"
+        )),
+        "{:?}",
+        pet.policy_decisions
+    );
+
+    // 對照組一：同樣被安靜時段擋下，但落在 haptic 通道的實體裝置動器上。
+    let haptic = ActionReceipt {
+        action_id: ActionId::new("act-haptic-blocked"),
+        plan_id: PlanId::new("plan-haptic"),
+        session_id: SessionId::new("sess-haptic"),
+        actuator_id: ActuatorId::new("mock.actuator"),
+        intent: "震動提醒".into(),
+        requested_parameters: ActionParameters::default(),
+        effective_bounded_parameters: ActionParameters::default(),
+        policy_decisions: vec![PolicyDecision::Blocked {
+            rule: "quiet-hours".into(),
+            reason: "channel haptic is silenced during quiet hours".into(),
+        }],
+        current_status: ActionStatus::Blocked,
+        timestamps: vec![(ActionStatus::Blocked, chrono::Utc::now())],
+        errors: vec![],
+        driver_response: BTreeMap::new(),
+        verification: None,
+        expires_at: None,
+        correlation_id: CorrelationId::new("corr-haptic"),
+        schema_version: SCHEMA_VERSION.to_string(),
+    };
+    assert!(rt.store.upsert_receipt(&haptic, "haptic").unwrap());
+
+    // 對照組二：同一個呈現動器，但卡在「需要人類核可」——那是真的有決定要做。
+    let approval = ActionReceipt {
+        action_id: ActionId::new("act-pet-approval"),
+        actuator_id: pet.actuator_id.clone(),
+        intent: "角色氣泡（待核可）".into(),
+        policy_decisions: vec![PolicyDecision::ApprovalRequired {
+            rule: "risk.approval".into(),
+            reason: "requires explicit human approval".into(),
+        }],
+        correlation_id: CorrelationId::new("corr-pet-approval"),
+        ..haptic.clone()
+    };
+    assert!(rt.store.upsert_receipt(&approval, "desktop-pet").unwrap());
+
+    let inbox = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter::default())
+        .await
+        .unwrap();
+    let items = inbox["items"].as_array().unwrap();
+    let needs = |action_id: &str| -> bool {
+        items
+            .iter()
+            .find(|item| item["itemId"].as_str() == Some(action_id))
+            .unwrap_or_else(|| panic!("{action_id} missing from the inbox history"))
+            ["needsDecision"]
+            .as_bool()
+            .unwrap()
+    };
+    assert!(
+        !needs(pet.action_id.as_str()),
+        "被安靜時段擋下的角色演出沒有任何可做的決定，不該進「待我決定」"
+    );
+    assert!(needs("act-haptic-blocked"), "實體通道被擋下仍要人看見");
+    assert!(
+        needs("act-pet-approval"),
+        "呈現動作卡在人類核可時仍要人看見"
+    );
+    assert_eq!(inbox["pendingCount"].as_u64(), Some(2));
+
+    // 「待我決定」清單裡不能出現那筆角色演出。
+    let pending = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter {
+            needs_decision: Some(true),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let pending_ids: Vec<&str> = pending["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["itemId"].as_str())
+        .collect();
+    assert!(
+        !pending_ids.contains(&pet.action_id.as_str()),
+        "{pending_ids:?}"
+    );
+    assert!(pending_ids.contains(&"act-haptic-blocked"));
+    assert!(pending_ids.contains(&"act-pet-approval"));
+}

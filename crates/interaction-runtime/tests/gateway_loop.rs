@@ -1776,3 +1776,400 @@ async fn an_interrupted_codex_turn_is_cancelled_not_claimed_completed() {
     assert_eq!(closed.detail.as_deref(), Some("closed (was Cancelled)"));
     std::env::remove_var("INTERACT_AI_CODEX_BIN");
 }
+
+/// regression（agent-honesty：終局狀態不得被觀察管線吃掉）：`report_agent_session`
+/// 曾把 `ingest("agent.session", …).await?` 排在 `emit_agent_session_state` 前面。
+/// `agent.session` push receptor 只要不可用（被停用／不存在——例如中斷的同時感測層
+/// 被關掉），`?` 就提早返回，**事件完全不發**：SSE 從中斷前的序號重放只會停在
+/// `working`，每一個即時畫面都停在「處理中」直到重新載入，而後端其實已經
+/// cancelled。state 已經落地就必須發得出去；同樣的形狀也會讓 failed／unknown／
+/// timed-out 一起靜默。
+#[tokio::test]
+async fn a_cancelled_session_still_emits_its_state_event_when_ingest_is_unavailable() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CODEX_BIN", codex_fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = scenario_workdir("turns");
+    let sid = rt
+        .create_agent_session(codex_input("中斷時觀察管線壞掉", dir.path()))
+        .await
+        .expect("fake codex app-server attaches")
+        .session_id
+        .as_str()
+        .to_string();
+
+    rt.mailbox_send(
+        &sid,
+        MailboxDirection::ToSession,
+        "task",
+        task("開始"),
+        None,
+    )
+    .await
+    .unwrap();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::Active)
+                .unwrap_or(false)
+        },
+        "turn/started → working",
+    )
+    .await;
+    assert!(
+        session_states(&rt, &sid).iter().any(|s| s == "working"),
+        "working 是中斷前使用者看到的最後一個狀態"
+    );
+
+    // 觀察管線壞掉：session-as-receptor 這條路徑從現在起會失敗。
+    rt.registry
+        .set_receptor_enabled(&ReceptorId::new("agent.session"), false)
+        .await
+        .unwrap();
+    // 確認前提成立：這時候 report 真的會回 Err（測試沒有把 bug 條件擺錯）。
+    assert!(
+        rt.report_agent_session(&sid, "progress", json!({}))
+            .await
+            .is_err(),
+        "停用 agent.session receptor 之後 ingest 必須真的失敗"
+    );
+
+    rt.gateway_interrupt(&sid).await.unwrap();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::Cancelled)
+                .unwrap_or(false)
+        },
+        "turn/completed(status=interrupted) → cancelled",
+    )
+    .await;
+
+    // 真相不靠 receptor：狀態事件照發，畫面才有機會自己更新。
+    let states = session_states(&rt, &sid);
+    assert!(
+        states.iter().any(|s| s == "cancelled"),
+        "cancelled 落地了卻沒有發出 agent.session.state：即時畫面會停在 working：{states:?}"
+    );
+    assert_eq!(
+        states.last().map(String::as_str),
+        Some("cancelled"),
+        "cancelled 必須是使用者看到的最後一個狀態：{states:?}"
+    );
+    std::env::remove_var("INTERACT_AI_CODEX_BIN");
+}
+
+/// regression（F-…-agent-honesty-022）：緊急停止**不是**一次新的模型回合。
+/// 舊版先把一則 `cancel` 送進信箱，而 `to-session` 的信箱訊息一律會被轉送
+/// 進 agent 子程序的 stdin——停止這個動作因此自己對外開了一輪計費呼叫、
+/// 發出 `fetched`（角色演成「工作中」）、還吃掉一格訊息預算，而且要等
+/// stdin 寫入逾時之後才輪得到殺程序。現在只留 runtime 自己寫的稽核註記。
+#[tokio::test]
+async fn estop_does_not_send_a_user_turn() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = scenario_workdir("default");
+    let mut input = claude_input("緊急停止不得開新回合", None);
+    input.workdir = Some(dir.path().to_string_lossy().into_owned());
+    let record = rt.create_agent_session(input).await.unwrap();
+    let sid = record.session_id.as_str().to_string();
+
+    let pid_path = dir.path().join("fake-pid");
+    let stdin_log = dir.path().join("fake-input");
+    let mut pid = 0;
+    wait_for(
+        async || {
+            pid = read_pid(&pid_path);
+            pid > 0
+        },
+        "fixture pid file",
+    )
+    .await;
+    assert!(pid_alive(pid), "fixture alive before estop");
+
+    rt.mailbox_send(
+        &sid,
+        MailboxDirection::ToSession,
+        "task",
+        BTreeMap::from([("task".to_string(), json!("看一下這個 repo"))]),
+        None,
+    )
+    .await
+    .unwrap();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::ClaimedCompleted)
+                .unwrap_or(false)
+        },
+        "claimed-completed",
+    )
+    .await;
+
+    let before_lines = std::fs::read_to_string(&stdin_log).unwrap();
+    assert_eq!(
+        before_lines.lines().count(),
+        1,
+        "只有那一則任務進過 agent 的 stdin：{before_lines}"
+    );
+    let before_states = session_states(&rt, &sid);
+    let before_spent = rt
+        .get_agent_session(&sid)
+        .await
+        .unwrap()
+        .budget
+        .spent_messages;
+
+    rt.emergency_stop("test", None).await.unwrap();
+
+    // 1) agent 子程序沒有被開第二個回合。
+    let after_lines = std::fs::read_to_string(&stdin_log).unwrap();
+    assert_eq!(
+        after_lines.lines().count(),
+        1,
+        "緊急停止不得再送任何東西進 agent 的 stdin：{after_lines}"
+    );
+    assert!(
+        !after_lines.contains("emergency stop"),
+        "停止指令不得變成使用者發言：{after_lines}"
+    );
+
+    // 2) taxonomy：停止之後不得再多出 fetched／working（角色不得演成工作中）。
+    let states = session_states(&rt, &sid);
+    let fetched = |v: &[String]| v.iter().filter(|s| s.as_str() == "fetched").count();
+    assert_eq!(
+        fetched(&states),
+        fetched(&before_states),
+        "estop 不得再發 fetched：{states:?}"
+    );
+    assert!(
+        !states[before_states.len()..]
+            .iter()
+            .any(|s| s == "working" || s == "fetched"),
+        "停止之後只該有 cancelled：{states:?}"
+    );
+    assert_eq!(states.last().map(String::as_str), Some("cancelled"));
+
+    // 3) 信箱：沒有偽裝成任務的 cancel；只有 runtime 自己寫的稽核註記。
+    let to_session = rt
+        .mailbox_peek(&sid, MailboxDirection::ToSession)
+        .await
+        .unwrap();
+    assert!(
+        !to_session.iter().any(|m| m.kind == "cancel"),
+        "緊急停止不得在 to-session 留下一則要送給 agent 的取消任務"
+    );
+    let note = rt
+        .mailbox_peek(&sid, MailboxDirection::FromSession)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|m| m.kind == "emergency-stop")
+        .expect("runtime 自己寫的緊急停止註記留在信箱裡供稽核");
+    assert_eq!(note.body.get("by"), Some(&json!("runtime")));
+    assert_eq!(note.body.get("deliveredToAgent"), Some(&json!(false)));
+    assert!(
+        note.delivered_at.is_none(),
+        "runtime 的註記從來沒有送進 agent，不得蓋送達戳記"
+    );
+
+    // 4) 停止本身不花掉 session 的訊息預算。
+    let stopped = rt.get_agent_session(&sid).await.unwrap();
+    assert_eq!(stopped.budget.spent_messages, before_spent);
+    assert_eq!(stopped.state, AgentSessionState::Cancelled);
+
+    // 5) 停止之後不得再開新的一輪。
+    let err = rt
+        .mailbox_send(
+            &sid,
+            MailboxDirection::ToSession,
+            "task",
+            BTreeMap::from([("task".to_string(), json!("再來一輪"))]),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::Conflict(_)), "{err:?}");
+
+    wait_for(async || !pid_alive(pid), "estop kills the subprocess tree").await;
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// stdin 已經塞爆、agent 又不再讀的 session：對它寫入會一路卡到逾時。
+/// 把管線灌滿，讓「送訊息給 agent」變成一件會卡住的事。
+async fn fill_agent_stdin_until_it_blocks(rt: &Runtime, sid: &str) {
+    let big = "x".repeat(4_000);
+    for _ in 0..40u32 {
+        if let Err(e) = rt
+            .mailbox_send(
+                sid,
+                MailboxDirection::ToSession,
+                "task",
+                BTreeMap::from([("task".to_string(), json!(big))]),
+                None,
+            )
+            .await
+        {
+            assert!(
+                e.to_string().contains("無回應"),
+                "前提是 stdin 被塞爆而寫入卡住，不是別的錯：{e}"
+            );
+            return;
+        }
+    }
+    panic!("agent 的 stdin 沒有塞爆，這個測試的前提不成立");
+}
+
+/// regression（F-…-agent-honesty-022，延遲面）：緊急停止不得因為「先禮貌
+/// 地通知每個 agent」而把終止排成一列。兩個卡死（stdin 塞爆、不再讀）的
+/// session 曾經各要等一次 5 秒的寫入逾時才輪到殺程序，總共 ~10 秒；期間
+/// 撤銷同意、EmergencyStop 事件與角色的緊急投影全都被拖著。現在每個
+/// session 的收尾有界（2 秒）且彼此併行。
+#[tokio::test]
+async fn estop_terminates_sessions_concurrently() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+
+    let mut dirs = Vec::new();
+    let mut sids = Vec::new();
+    let mut pids = Vec::new();
+    for label in ["卡死一號", "卡死二號"] {
+        let dir = scenario_workdir("hang");
+        let mut input = claude_input(label, None);
+        input.workdir = Some(dir.path().to_string_lossy().into_owned());
+        input.max_messages = Some(60);
+        let sid = rt
+            .create_agent_session(input)
+            .await
+            .unwrap()
+            .session_id
+            .as_str()
+            .to_string();
+        let pid_path = dir.path().join("fake-pid");
+        let mut pid = 0;
+        wait_for(
+            async || {
+                pid = read_pid(&pid_path);
+                pid > 0
+            },
+            "hung fixture pid file",
+        )
+        .await;
+        sids.push(sid);
+        pids.push(pid);
+        dirs.push(dir);
+    }
+
+    // 兩個 session 同時灌爆 stdin，設定本身才不會被序列化。
+    tokio::join!(
+        fill_agent_stdin_until_it_blocks(&rt, &sids[0]),
+        fill_agent_stdin_until_it_blocks(&rt, &sids[1]),
+    );
+
+    let started = std::time::Instant::now();
+    rt.emergency_stop("test", None).await.unwrap();
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "兩個卡死的 session 不得把緊急停止排成一列（每個 session 上限 2 秒）：實際 {elapsed:?}"
+    );
+
+    for (sid, pid) in sids.iter().zip(pids.iter().copied()) {
+        let stopped = rt.get_agent_session(sid).await.unwrap();
+        assert_eq!(stopped.state, AgentSessionState::Cancelled, "{stopped:?}");
+        wait_for(async || !pid_alive(pid), "hung subprocess tree killed").await;
+    }
+    assert_eq!(rt.open_agent_sessions().await, 0);
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// 安全不變量：續開既有的 provider 對話**不得**放寬任何範圍。thread id 是
+/// provider 端的東西，不是憑證：工作目錄、寫入權、tool／consent scope 與
+/// session 能力一律由**這一次**的授權決定，絕不從上一個 session 繼承。
+#[tokio::test]
+async fn resume_cannot_widen_scope() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+
+    // (1) 先有一個「可寫、掛在寬工作目錄、帶著領域授權」的 session。
+    let wide = scenario_workdir("default");
+    let mut writable = claude_input("可寫的前一輪", None);
+    writable.workdir = Some(wide.path().to_string_lossy().into_owned());
+    writable.allow_write = true;
+    writable.tool_scope = vec!["workspace.write".into()];
+    writable.consent_scope = vec!["agent-session:workspace-write".into()];
+    writable.data_scope = vec!["domain:home-automation".into()];
+    let first = rt.create_agent_session(writable).await.unwrap();
+    let first_sid = first.session_id.as_str().to_string();
+    let wide_argv = wide.path().join("fake-argv");
+    wait_for(async || wide_argv.exists(), "writable argv log").await;
+    assert!(
+        std::fs::read_to_string(&wide_argv)
+            .unwrap()
+            .contains("acceptEdits"),
+        "前一輪真的是可寫的，續開才有東西可繼承"
+    );
+    rt.close_agent_session(&first_sid, None, "closed")
+        .await
+        .unwrap();
+
+    // (2) 續開同一個 provider 對話，但這一次什麼都沒授權。
+    let narrow = scenario_workdir("default");
+    let mut resumed = claude_input("續開不得放寬", None);
+    resumed.workdir = Some(narrow.path().to_string_lossy().into_owned());
+    resumed.resume_provider_session_id = Some("fake-123".into());
+    let second = rt.create_agent_session(resumed).await.unwrap();
+    let sid = second.session_id.as_str().to_string();
+
+    let narrow_argv = narrow.path().join("fake-argv");
+    wait_for(async || narrow_argv.exists(), "resumed argv log").await;
+    let argv = std::fs::read_to_string(&narrow_argv).unwrap();
+    assert!(argv.contains("--resume fake-123"), "{argv}");
+    assert!(
+        argv.contains("--permission-mode plan"),
+        "續開一律重新上鎖成唯讀：{argv}"
+    );
+    assert!(
+        !argv.contains("acceptEdits") && !argv.contains("dangerously"),
+        "續開不得繼承上一輪的寫入放寬：{argv}"
+    );
+    // 工作目錄由這一次決定：新的子程序只在新的工作目錄裡留下紀錄。
+    assert!(narrow.path().join("fake-pid").exists());
+    assert!(!second.allow_write, "續開不得繼承寫入權");
+    assert!(second.tool_scope.is_empty(), "{:?}", second.tool_scope);
+    assert!(
+        second.consent_scope.is_empty(),
+        "{:?}",
+        second.consent_scope
+    );
+    assert!(second.data_scope.is_empty(), "{:?}", second.data_scope);
+
+    // (3) session 能力（工具／領域）同樣不得繼承。
+    let token = rt.issue_agent_session_capability(&sid).await.unwrap();
+    let capability = rt
+        .agent_session_capability(&token)
+        .await
+        .expect("續開的 session 有自己的能力");
+    assert!(capability.tool_scope.is_empty());
+    assert!(capability.domains.is_empty());
+    assert!(!capability.allows_tool("workspace.write"));
+    assert!(!capability.allows_domain(&["home-automation".to_string()]));
+
+    // (4) 想在續開時把寫入權要回來，仍要走完整的人類同意。
+    let sneaky_dir = scenario_workdir("default");
+    let mut sneaky = claude_input("續開偷渡寫入", None);
+    sneaky.workdir = Some(sneaky_dir.path().to_string_lossy().into_owned());
+    sneaky.resume_provider_session_id = Some("fake-123".into());
+    sneaky.allow_write = true;
+    let err = rt.create_agent_session(sneaky).await.unwrap_err();
+    assert!(matches!(err, DomainError::ConsentRequired(_)), "{err:?}");
+
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}

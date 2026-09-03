@@ -30,6 +30,11 @@ pub enum EventType {
     SensorStarted,
     #[serde(rename = "sensor.stopped")]
     SensorStopped,
+    /// 已要求停止感測，但來源沒有在有界時間內確認（例如 iPhone 沒回
+    /// `ack{stopAll}`／沒回報 `micLevel:false`）。誠實階梯：requested ≠ stopped，
+    /// 結果未知就要說未知，不得當成已停止。
+    #[serde(rename = "sensor.stop-uncertain")]
+    SensorStopUncertain,
     #[serde(rename = "plan.created")]
     PlanCreated,
     #[serde(rename = "plan.blocked")]
@@ -122,6 +127,7 @@ impl EventType {
             EventType::ProviderStateChanged => "provider.state-changed",
             EventType::SensorStarted => "sensor.started",
             EventType::SensorStopped => "sensor.stopped",
+            EventType::SensorStopUncertain => "sensor.stop-uncertain",
             EventType::PlanCreated => "plan.created",
             EventType::PlanBlocked => "plan.blocked",
             EventType::PlanAuthorized => "plan.authorized",

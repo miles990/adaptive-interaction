@@ -377,8 +377,23 @@ impl Runtime {
         runtime.character_load_adapters();
         runtime.rebuild_vector_index();
 
-        // 測試模式（無 watchdog）＝模擬：iPhone 伺服器不得把 Bonjour 記錄廣播到實體區網。
-        runtime.mobile.set_advertise_mdns(opts.spawn_watchdog);
+        // 測試模式（無 watchdog）＝模擬：iPhone 伺服器不得把 Bonjour 記錄廣播到
+        // 實體區網。`INTERACT_AI_MOBILE_ADVERTISE=0` 讓真 daemon（E2E／CI）也
+        // 只綁 127.0.0.1、不廣播——關閉時 status.bonjour 誠實說明原因。
+        let env_advertise = crate::mobile::mobile_advertise_enabled();
+        let mut off_reasons: Vec<&str> = Vec::new();
+        if !opts.spawn_watchdog {
+            off_reasons.push("test mode: no LAN side effects");
+        }
+        if !env_advertise {
+            off_reasons.push("INTERACT_AI_MOBILE_ADVERTISE=0: loopback only (127.0.0.1)");
+        }
+        runtime
+            .mobile
+            .set_advertise_mdns(opts.spawn_watchdog && env_advertise);
+        runtime
+            .mobile
+            .set_advertise_off_reason(off_reasons.join("; "));
         if opts.spawn_watchdog {
             runtime.spawn_watchdog();
             // 背景發現本機 AI agent（codex/claude-code）；不阻塞啟動。
@@ -861,15 +876,39 @@ impl Runtime {
         self.estop.store(true, Ordering::SeqCst);
         self.store.set_meta("estop_engaged", "true")?;
 
-        // Sensors first: releasing capture is synchronous and cheap, and must
-        // not wait behind a serial per-actuator emergency_stop loop (a slow
-        // declarative device driver could otherwise delay mic release).
-        let _ = self.stop_all_sensors(actor).await;
+        // Sensors first: releasing local capture is synchronous and cheap, and
+        // must not wait behind a serial per-actuator emergency_stop loop (a slow
+        // declarative device driver could otherwise delay mic release) — nor
+        // behind the bounded wait for the phones below.
+        let local = self.stop_local_capture();
         // Remote sensors too: a paired iPhone's microphone is a sensor of this
         // system. The desktop forces the high-risk receptor off and tells every
         // phone to stop sensing (`stop-all { sensors: true }`) — an emergency
         // stop that only silenced local capture was not an emergency stop.
-        self.mobile_estop_stop_sensors(actor).await;
+        // 有界等待每台確認（2 秒）：沒回覆＝結果未知，誠實記在 payload 裡。
+        // 同時做兩件事（各自有界、都不重送）：
+        // (1) 停手機端感測；(2) 真相投影——每一台手機的角色都要說出「緊急停止
+        // 中」（這是 `emergency` 狀態唯一的來源；plan／agent 永遠請求不到）。
+        // 並行是為了不讓「多做一件誠實的事」把緊急停止拖慢一倍。
+        let (devices, character_emergency) = tokio::join!(
+            self.mobile_estop_stop_sensors(actor),
+            self.mobile_project_estop(true)
+        );
+        let sensors = crate::sensors::StopAllSensorsReport {
+            stopped: devices
+                .iter()
+                .all(|d| d.outcome == crate::mobile::StopOutcome::Stopped),
+            uncertain: devices
+                .iter()
+                .any(|d| d.outcome != crate::mobile::StopOutcome::Stopped),
+            local,
+            devices,
+        };
+        self.emit_stop_sensor_events(&sensors.devices);
+        let sensors_value = serde_json::to_value(&sensors).unwrap_or_else(|_| json!({}));
+        let _ = self
+            .store
+            .audit("sensor.stopped-all", actor, &sensors_value);
 
         let mut stopped_actions = 0;
         if let Ok(open) = self.store.open_receipts() {
@@ -884,16 +923,18 @@ impl Runtime {
                 stopped_actions += 1;
             }
         }
-        let mut stopped_actuators = 0;
-        for actuator in self.registry.all_actuator_instances().await {
-            if tokio::time::timeout(std::time::Duration::from_secs(2), actuator.emergency_stop())
-                .await
-                .map(|r| r.is_ok())
-                .unwrap_or(false)
-            {
-                stopped_actuators += 1;
-            }
-        }
+        // Every actuator is stopped CONCURRENTLY, each with its own 2 s bound.
+        // Serially, one dead device (four actuators sharing an unplugged serial
+        // link) would burn 8 s before the next device is even asked to stop —
+        // an emergency stop must not make other devices wait their turn.
+        let actuators = self.registry.all_actuator_instances().await;
+        let results = futures_util::future::join_all(actuators.iter().map(|actuator| {
+            tokio::time::timeout(std::time::Duration::from_secs(2), actuator.emergency_stop())
+        }))
+        .await;
+        // Only a confirmed stop counts. Timed out / errored ones stay
+        // unconfirmed — never reported as stopped.
+        let stopped_actuators = results.iter().filter(|r| matches!(r, Ok(Ok(())))).count();
         // Cancel every open agent session; delegated work never survives an
         // emergency stop and never resumes automatically.
         self.estop_agent_sessions().await;
@@ -920,6 +961,10 @@ impl Runtime {
             "reason": reason,
             "stoppedActions": stopped_actions,
             "stoppedActuators": stopped_actuators,
+            // 感測結果逐一列出：哪一台手機確認停了、哪一台沒回覆（結果未知）。
+            "sensors": sensors_value,
+            // 角色真相投影逐一列出：哪一台手機確認顯示了「緊急停止中」。
+            "characterEmergency": character_emergency,
         });
         self.events.emit(EventType::EmergencyStop, payload.clone());
         // Character Protocol §11：emergency.stop → emergency（floor 100，可搶占任何演出；
@@ -941,6 +986,8 @@ impl Runtime {
             )
             .await;
         }
+        // 手機端的「緊急停止中」也要撤掉（回 idle）——解除只有人類做得到。
+        self.mobile_project_estop(false).await;
         self.events.emit(
             EventType::EmergencyStop,
             json!({"cleared": true, "actor": actor}),
@@ -1963,6 +2010,63 @@ impl Runtime {
     // Watchdog
     // ------------------------------------------------------------------
 
+    /// One watchdog pass over the open receipts (injectable clock, so the
+    /// deadlines are testable without waiting in real time).
+    ///
+    /// Order matters and is part of the honesty ladder:
+    /// 1. Dispatched + the driver said "outcome unknown" + the ack window has
+    ///    passed → **Uncertain**. Never Failed (a false "it failed" invites a
+    ///    human or an AI to re-issue a physical command) and never Expired
+    ///    first (TTL would hide that something may already have happened).
+    /// 2. Anything else past its TTL → Expired.
+    pub async fn sweep_receipts_at(&self, now: Timestamp) {
+        let Ok(open) = self.store.open_receipts() else {
+            return;
+        };
+        for mut receipt in open {
+            if receipt.current_status == ActionStatus::Dispatched
+                && crate::executor::driver_reports_outcome_unknown(&receipt)
+            {
+                let dispatched_at = receipt
+                    .timestamps
+                    .iter()
+                    .find(|(s, _)| *s == ActionStatus::Dispatched)
+                    .map(|(_, t)| *t)
+                    .unwrap_or(now);
+                let age = now
+                    .signed_duration_since(dispatched_at)
+                    .num_milliseconds()
+                    .max(0) as u64;
+                if age > crate::executor::DEFAULT_VERIFY_TIMEOUT_MS {
+                    receipt.verification = Some(interaction_core::VerificationEvidence {
+                        observation_ids: vec![],
+                        verdict: interaction_core::VerificationVerdict::Uncertain,
+                        detail: Some(
+                            "dispatched but never acknowledged within the ack window — \
+                             outcome unknown"
+                                .into(),
+                        ),
+                        verified_at: now,
+                    });
+                    let _ = receipt.transition(ActionStatus::Uncertain, now);
+                    let _ = self.store.upsert_receipt(&receipt, "");
+                    self.emit_action_event(
+                        EventType::ActionUncertain,
+                        &receipt,
+                        json!({"reason": "ack-timeout"}),
+                    );
+                    continue;
+                }
+            }
+            if receipt.expires_at.map(|e| now > e).unwrap_or(false) {
+                let _ = receipt.transition(ActionStatus::Expired, now);
+                receipt.push_error("ttl", "watchdog expired the action", now);
+                let _ = self.store.upsert_receipt(&receipt, "");
+                self.emit_action_event(EventType::ActionExpired, &receipt, json!({}));
+            }
+        }
+    }
+
     fn spawn_watchdog(&self) {
         let runtime = self.clone();
         tokio::spawn(async move {
@@ -2001,22 +2105,8 @@ impl Runtime {
                 if tick.is_multiple_of(600) {
                     let _ = runtime.knowledge_freshness_sweep().await;
                 }
-                // TTL sweep: expire non-terminal receipts past their deadline.
-                if let Ok(open) = runtime.store.open_receipts() {
-                    let now = Utc::now();
-                    for mut receipt in open {
-                        if receipt.expires_at.map(|e| now > e).unwrap_or(false) {
-                            let _ = receipt.transition(ActionStatus::Expired, now);
-                            receipt.push_error("ttl", "watchdog expired the action", now);
-                            let _ = runtime.store.upsert_receipt(&receipt, "");
-                            runtime.emit_action_event(
-                                EventType::ActionExpired,
-                                &receipt,
-                                json!({}),
-                            );
-                        }
-                    }
-                }
+                // 收據掃描：ack 逾時 → uncertain；過 TTL → expired。
+                runtime.sweep_receipts_at(Utc::now()).await;
                 // Emergency-stop marker file (out-of-band trigger).
                 let estop_file = runtime.paths.estop_file();
                 if estop_file.exists() {

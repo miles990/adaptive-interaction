@@ -56,6 +56,7 @@ pub fn router(state: ApiState) -> Router {
             "/v1/onboarding/draft",
             axum::routing::put(routes::onboarding_draft_put),
         )
+        .route("/v1/onboarding/preview", post(routes::onboarding_preview))
         .route("/v1/onboarding/commit", post(routes::onboarding_commit))
         .route("/v1/pause", get(routes::pause_get))
         .route("/v1/pause", post(routes::pause_set))
@@ -222,6 +223,11 @@ pub fn router(state: ApiState) -> Router {
             post(routes::mobile_pairing_begin),
         )
         .route("/v1/mobile/devices/{id}", delete(routes::mobile_revoke))
+        .route(
+            "/v1/mobile/devices/{id}/sensors/stop",
+            post(routes::mobile_sensors_stop),
+        )
+        .route("/v1/mobile/devices/{id}/test", post(routes::mobile_test))
         .route("/v1/mobile/ble/scan", post(routes::mobile_ble_scan))
         .route("/v1/providers/{id}", get(routes::provider_get))
         .route("/v1/providers/{id}/pair", post(routes::provider_pair))
@@ -406,7 +412,13 @@ fn session_request_allowed(
     if method == Method::POST && path.starts_with("/v1/tools/") && path.ends_with("/call") {
         return true;
     }
-    if method == Method::POST && matches!(path, "/v1/emergency-stop" | "/v1/stop-all") {
+    // 安全遞減操作（停止）：與 estop 同級，AI 想主動停感測不必整個 estop。
+    if method == Method::POST
+        && matches!(
+            path,
+            "/v1/emergency-stop" | "/v1/stop-all" | "/v1/sensors/stop"
+        )
+    {
         return true;
     }
     method == Method::POST
@@ -438,7 +450,12 @@ fn agent_request_allowed(method: &axum::http::Method, path: &str) -> bool {
     }
     if matches!(
         path,
-        "/v1/emergency-stop" | "/v1/stop-all" | "/v1/session/revoke" | "/v1/session/stop"
+        "/v1/emergency-stop"
+            | "/v1/stop-all"
+            | "/v1/session/revoke"
+            | "/v1/session/stop"
+            // 停止所有感測也是安全遞減操作（audit 記的是實際 principal）。
+            | "/v1/sensors/stop"
     ) {
         return true;
     }

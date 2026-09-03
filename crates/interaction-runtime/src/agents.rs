@@ -40,6 +40,10 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 const MAILBOX_CAP: usize = 200;
 const MAX_BODY_BYTES: usize = 16 * 1024;
 const CONTEXT_BUNDLE_RECEIPT_CAP: usize = 32;
+/// 緊急停止時，單一 session 的「收尾」（狀態落地、consent 撤銷、provider
+/// 關閉）上限。程序樹終止本身走鎖外路徑、不受這個期限影響；這個期限只是
+/// 保證一個卡住的紀錄 I/O 不會拖住其他 session 的停止。
+const ESTOP_SESSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Authorization carried by one memory-only Agent Session token. The token
 /// itself is never stored; the map key is its SHA-256 digest.
@@ -904,6 +908,14 @@ impl Runtime {
             entry.record.clone()
         };
 
+        // 角色 taxonomy 事件（agent 的自我回報照實轉譯；claim 不升級）。
+        //
+        // 狀態已經落地，事件就**必須**發得出去——所以先發事件，再做 receptor
+        // ingest。regression（agent-honesty）：舊版把 `ingest(...).await?` 排在
+        // 前面，`agent.session` push receptor 被停用／不存在時（例如中斷的同時
+        // 感測層被關掉）`?` 會提早返回，cancelled／failed／unknown／timed-out
+        // 因此**完全靜默**：SSE 從中斷前的序號重放只會停在 working，每一個即時
+        // 畫面都停在舊狀態直到重新載入。觀察管線失敗不得吃掉狀態真相。
         // Session-as-receptor: the report becomes an observation. Facts are
         // only what actually happened (a report arrived); the content is an
         // inference (the agent's own claim).
@@ -921,19 +933,20 @@ impl Runtime {
             }
             inferences.insert("report".to_string(), claim);
         }
-        // The FACT (a report arrived) is certain; the agent's CLAIM inside it is
-        // not. Confidence describes the inferences, so a self-report carries a
-        // deliberately moderate 0.5 — never 1.0 — so fusion/uncertainty gates
-        // never treat an unverified claim as unambiguous evidence.
-        self.ingest("agent.session", facts, inferences, 0.5).await?;
-        // 角色 taxonomy 事件（agent 的自我回報照實轉譯；claim 不升級）。
         let taxonomy = match event {
             "task-started" | "progress" => "working",
             "waiting-for-input" => "waiting-input",
             "waiting-for-consent" => "waiting-consent",
             other => other, // claimed-completed / failed / unknown / timed-out / cancelled
         };
+        // 狀態真相已落地：事件在觀察管線之前發出，receptor 停用／缺席時
+        // 只影響下面的 ingest（誠實回 Err 給回報者），不會吞掉狀態事件。
         self.emit_agent_session_state(id, &record.agent_id, taxonomy);
+        // The FACT (a report arrived) is certain; the agent's CLAIM inside it is
+        // not. Confidence describes the inferences, so a self-report carries a
+        // deliberately moderate 0.5 — never 1.0 — so fusion/uncertainty gates
+        // never treat an unverified claim as unambiguous evidence.
+        self.ingest("agent.session", facts, inferences, 0.5).await?;
         Ok(record)
     }
 
@@ -1057,8 +1070,17 @@ impl Runtime {
         Ok(record)
     }
 
-    /// Emergency stop propagation: every open session is cancelled and gets a
-    /// cancel message; nothing resumes automatically.
+    /// Emergency stop propagation: every open session is cancelled, its
+    /// subprocess tree is terminated, and nothing resumes automatically.
+    ///
+    /// 緊急停止**不得**變成一次新的模型回合。舊版先送一則 `cancel` 進信箱，
+    /// 而 ToSession 的信箱訊息一律會被轉送進 agent 子程序的 stdin（codex 是
+    /// `turn/start`、claude 是新的 user message、codex exec 甚至會重新 spawn
+    /// 一個程序）——等於「停止」這個動作自己對外開了一輪計費呼叫、發出
+    /// `fetched`（角色因此演成「工作中」）、吃掉一格訊息預算，而且得等
+    /// stdin 逾時之後才輪得到殺程序；多個卡死的 session 還會把終止排成
+    /// 一列。現在改成：只留 runtime 自己寫的稽核註記（不是使用者回合），
+    /// 直接關閉 session 並終止程序樹，且每個 session 的收尾有界又彼此併行。
     pub(crate) async fn estop_agent_sessions(&self) {
         let ids: Vec<String> = {
             // 與 create_agent_session 互斥（agent_create_lock）：進行中的
@@ -1072,21 +1094,67 @@ impl Runtime {
                 .map(|e| e.record.session_id.as_str().to_string())
                 .collect()
         };
-        for id in ids {
-            let _ = self
-                .mailbox_send(
-                    &id,
-                    MailboxDirection::ToSession,
-                    "cancel",
-                    BTreeMap::from([(
+        let stops = ids.iter().map(|id| async move {
+            // 收尾有界：紀錄 I/O 卡住不得擋住「停止」本身，也不得讓下一個
+            // session 排隊等待。逾時就直接走鎖外的程序樹終止路徑。
+            if tokio::time::timeout(
+                ESTOP_SESSION_TIMEOUT,
+                self.close_agent_session(id, None, "cancelled"),
+            )
+            .await
+            .is_err()
+            {
+                self.gateway_spawn_kill(id, "emergency-stop");
+                tracing::warn!(
+                    target: "interaction.agents",
+                    agent_session = %id,
+                    "緊急停止：session 收尾逾時，仍已終止其子程序樹"
+                );
+            }
+            // 稽核註記要在關閉**之後**才寫：close 會把未送達的信件清掉。
+            self.estop_mailbox_note(id).await;
+        });
+        futures_util::future::join_all(stops).await;
+    }
+
+    /// 緊急停止留在信箱裡的稽核註記：**runtime 自己寫**的系統紀錄，不是
+    /// 使用者回合——不經 gateway 轉送、不會寫進 agent 子程序的 stdin、不
+    /// 佔訊息預算、也不發 `fetched`。放在 `from-session`（人類讀的那一側，
+    /// 與 `approval-resolved` 一致），並明說沒有送給 agent。
+    async fn estop_mailbox_note(&self, id: &str) {
+        {
+            let mut map = self.agent_sessions.write().await;
+            let Some(entry) = map.get_mut(id) else {
+                return;
+            };
+            if entry.mailbox.len() >= MAILBOX_CAP {
+                entry.mailbox.pop_front();
+            }
+            let message = MailboxMessage {
+                message_id: format!("msg-{}-{}", id, entry.next_message),
+                session_id: entry.record.session_id.clone(),
+                direction: MailboxDirection::FromSession,
+                kind: "emergency-stop".to_string(),
+                body: BTreeMap::from([
+                    ("by".to_string(), json!("runtime")),
+                    (
                         "reason".to_string(),
-                        json!("emergency stop — stop all work now"),
-                    )]),
-                    None,
-                )
-                .await;
-            let _ = self.close_agent_session(&id, None, "cancelled").await;
+                        json!("緊急停止：這個工作已被取消，並已對它的子程序樹送出終止（先禮貌終止，寬限後強制）；不會自動恢復。"),
+                    ),
+                    ("deliveredToAgent".to_string(), json!(false)),
+                ]),
+                created_at: Utc::now(),
+                delivered_at: None,
+                action_id: None,
+            };
+            entry.next_message += 1;
+            entry.mailbox.push_back(message);
         }
+        let _ = self.store.audit(
+            "agent-session.emergency-stop",
+            "runtime",
+            &json!({"agentSessionId": id, "deliveredToAgent": false}),
+        );
     }
 
     pub(crate) fn persist_agent_session(&self, record: &AgentSessionRecord) {

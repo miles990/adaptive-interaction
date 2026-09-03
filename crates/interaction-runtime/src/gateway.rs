@@ -35,7 +35,8 @@ const AUTO_DENY_RETRY_BASE_SECS: i64 = 30;
 
 /// 對 agent 子程序 stdin 送訊的逾時上限：agent 卡死不讀 stdin 時，OS pipe
 /// 緩衝填滿後 write 會永遠等待——不設限就會佔住 handle 鎖，讓排在後面的
-/// 呼叫（estop 的禮貌 cancel、interrupt、approval）跟著卡死。
+/// 呼叫（下一則任務、interrupt、approval 裁決）跟著卡死。緊急停止不走這條
+/// 路：它從不對 agent 送訊，直接關閉 session 並在鎖外終止程序樹。
 const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub fn agent_kind_for(agent_id: &str) -> Option<AgentKind> {
@@ -586,6 +587,14 @@ impl Runtime {
         session_id: &str,
         message: &MailboxMessage,
     ) -> DomainResult<bool> {
+        // 緊急停止已生效：不得再替任何 session 開新的一輪。開一輪就是一次
+        // 對外的模型呼叫（外部副作用＋計費），而且會發出 `fetched`／
+        // `working`——停止之後不能再有這種演出。這道屏障不靠呼叫端自律。
+        if self.is_estopped() {
+            return Err(DomainError::PolicyBlocked(
+                "緊急停止已生效：不再把訊息送進 agent，也不開新的一輪；這則訊息未送達".into(),
+            ));
+        }
         let Some(managed) = self.gateway.managed(session_id) else {
             // gateway agent 但子程序已不在（事件泵已收攤）：record 若還 open
             // （例如上一輪聲稱完成後子程序自行結束），這則訊息永遠不會有人
@@ -646,8 +655,15 @@ impl Runtime {
         };
         // send 有界：stdin 對面卡死（pipe 滿且 agent 不讀）時不得永久佔住
         // handle 鎖——逾時放棄（未寫完的半截訊息視同未送達，誠實回錯）。
+        // 取鎖本身也有界（與 gateway_interrupt／gateway_spawn_kill 一致）：
+        // 前一個寫入者卡在 stdin 時，後面的呼叫端不得被無限期掛住。
         let outcome = {
-            let mut handle = managed.handle.lock().await;
+            let Ok(mut handle) = tokio::time::timeout(SEND_TIMEOUT, managed.handle.lock()).await
+            else {
+                return Err(DomainError::Unavailable(
+                    "agent 子程序無回應（前一則訊息仍卡在 stdin），這則訊息未送達；請中斷或關閉 session".into(),
+                ));
+            };
             tokio::time::timeout(SEND_TIMEOUT, handle.send_user_message(&text)).await
         };
         match outcome {

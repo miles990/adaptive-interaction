@@ -3,9 +3,30 @@
 
 use crate::runtime::Runtime;
 use chrono::{DateTime, Utc};
-use interaction_core::{DomainResult, Timestamp};
+use interaction_core::{ActionReceipt, DomainResult, PolicyDecision, Timestamp};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashSet;
+
+/// 歷史區塊的時間視窗：最近 N 筆收據。純歷史用，不決定徽章數字。
+const HISTORY_RECEIPT_LIMIT: u32 = 200;
+
+/// 安全事件歷史區塊的視窗：最近 N 筆事件。純歷史用。
+/// `sensor.stop-uncertain` 是例外（要人處理），不受這個視窗限制。
+const HISTORY_EVENT_LIMIT: usize = 200;
+
+/// 「待你決定」的收據狀態：結果未知（誠實階梯：不得當成成功或失敗）與
+/// 被安全規則阻止，兩者都是黏著終態且沒有 ack／dismiss 介面。
+const PENDING_RECEIPT_STATUSES: &[&str] = &["uncertain", "blocked"];
+
+/// 待決定收據的掃描上限。只看「最近 200 筆」的話，較舊的未決項會被較新的
+/// 收據擠出視窗而從徽章上靜靜消失，介面還會宣稱「目前沒有待決定事項」——
+/// 所以另外用狀態查詢把視窗外的待決項撈回來。撈滿這個上限時
+/// `pendingCountExact` 誠實回 `false`，介面必須改口「至少 N 項，還有未載入的」。
+const PENDING_RECEIPT_SCAN_LIMIT: u32 = 1000;
+
+/// 知識複審候選的掃描上限（同樣算待你決定，超過上限一樣標記為不精確）。
+const CANDIDATE_SCAN_LIMIT: u32 = 1000;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
@@ -17,8 +38,9 @@ pub struct ActivityInboxFilter {
     pub domain: Option<String>,
     pub since: Option<DateTime<Utc>>,
     /// `true`：只要待你決定的項目；`false`：只要不需決定的；缺席：全部。
-    /// 徽章的 `pendingCount` 一律在分頁截斷前算完，通知中心用這個篩選就能
-    /// 拿到全部待決定項，而不是從「最近 N 筆」裡碰運氣。
+    /// 徽章的 `pendingCount` 一律在分頁截斷前算完，且待決定項是直接依狀態
+    /// 查出來的（不受歷史區塊「最近 N 筆」的時間視窗影響）；只有在待決定項
+    /// 多到撞上掃描上限時 `pendingCountExact` 才會是 `false`。
     pub needs_decision: Option<bool>,
     pub limit: Option<u32>,
 }
@@ -41,6 +63,22 @@ pub struct ActivityInboxItem {
 }
 
 impl Runtime {
+    /// `sensor.stop-uncertain` 的裝置人話名稱。優先用已配對手機的名稱
+    /// （payload 只有 deviceId——原始 id 不進一般模式的標題），
+    /// 手機已被撤銷／查不到時退回感測來源的人話名稱，再不行才說「裝置」。
+    async fn stop_uncertain_device_label(&self, payload: &Value) -> String {
+        if let Some(device_id) = payload.get("deviceId").and_then(Value::as_str) {
+            if let Some(name) = self.mobile.device_name(device_id).await {
+                return name;
+            }
+        }
+        match payload.get("sensor").and_then(Value::as_str) {
+            Some(sensor) if sensor.starts_with("iphone.") => "iPhone".into(),
+            Some(sensor) => sensor_display_name(sensor),
+            None => "裝置".into(),
+        }
+    }
+
     pub async fn activity_inbox(&self, filter: ActivityInboxFilter) -> DomainResult<Value> {
         let mut items = Vec::new();
 
@@ -96,8 +134,14 @@ impl Runtime {
             });
         }
 
-        if let Some(nodes) = self.knowledge_list(Some("candidate"), 500).await?["nodes"].as_array()
-        {
+        let candidates = self
+            .knowledge_list(Some("candidate"), CANDIDATE_SCAN_LIMIT)
+            .await?;
+        // 撈滿上限＝可能還有沒撈到的候選，數字不得宣稱精確。
+        let candidates_exact = candidates["nodes"]
+            .as_array()
+            .is_none_or(|nodes| nodes.len() < CANDIDATE_SCAN_LIMIT as usize);
+        if let Some(nodes) = candidates["nodes"].as_array() {
             for node in nodes {
                 let id = node["nodeId"].as_str().unwrap_or("unknown").to_string();
                 let occurred_at = node["createdAt"]
@@ -133,13 +177,14 @@ impl Runtime {
         }
 
         // L0 純呈現（桌面角色視窗，driver `builtin.presentation`）的動作是
-        // 角色演出，不是需要人類裁決的外部副作用：結果未知仍留在歷史裡
-        // （誠實），但不佔「待我決定」。
+        // 角色演出，不是需要人類裁決的外部副作用：結果未知或被安靜時段擋下
+        // 都仍留在歷史裡（誠實），但不佔「待我決定」——使用者對它沒有任何
+        // 可做的決定。
         //
         // 只認 driver，不認通道也不認 id 前綴：`iphone.character` 也走
         // `desktop-pet` 通道，但它是「送到另一台實體裝置」的外部副作用——
-        // 結果未知一定要人看見。「被安全規則阻止」不論通道都仍要人看見。
-        let presentation_actuators: std::collections::HashSet<String> = self
+        // 結果未知或被擋下一定要人看見。
+        let presentation_actuators: HashSet<String> = self
             .registry
             .actuator_manifests()
             .await
@@ -148,42 +193,49 @@ impl Runtime {
             .map(|manifest| manifest.id.as_str().to_string())
             .collect();
 
-        for receipt in self.list_actions(None, 200)? {
-            let status = serde_json::to_value(receipt.current_status)
-                .ok()
-                .and_then(|value| value.as_str().map(String::from))
-                .unwrap_or_else(|| "unknown".into());
-            let occurred_at = receipt
-                .timestamps
-                .last()
-                .map(|(_, at)| *at)
-                .unwrap_or_else(Utc::now);
-            let needs_decision = match status.as_str() {
-                "uncertain" => !presentation_actuators.contains(receipt.actuator_id.as_str()),
-                "blocked" => true,
-                _ => false,
-            };
-            items.push(ActivityInboxItem {
-                item_id: receipt.action_id.as_str().to_string(),
-                kind: "action-result".into(),
-                status: status.clone(),
-                title: receipt.intent.clone(),
-                occurred_at,
-                route: "activity".into(),
-                needs_decision,
-                agent_id: None,
-                device_id: Some(receipt.actuator_id.as_str().to_string()),
-                task_id: Some(receipt.plan_id.as_str().to_string()),
-                domains: vec![],
-                detail: serde_json::to_value(receipt).unwrap_or_default(),
-            });
+        // 歷史區塊：最近 N 筆收據（含不需決定的）。
+        let mut seen_receipts: HashSet<String> = HashSet::new();
+        for receipt in self.list_actions(None, HISTORY_RECEIPT_LIMIT)? {
+            seen_receipts.insert(receipt.action_id.as_str().to_string());
+            items.push(receipt_item(receipt, &presentation_actuators));
+        }
+        // 待決定區塊：直接依狀態查，把落在歷史視窗外的未決項撈回來。
+        // 少了這一段，一筆較舊的「結果未知」實體動作只要被 200 筆較新的
+        // 收據擠出視窗，就會從徽章與「待我決定」裡靜靜消失。
+        let open_pending = self
+            .store
+            .receipts_with_status(PENDING_RECEIPT_STATUSES, PENDING_RECEIPT_SCAN_LIMIT)?;
+        let pending_receipts_exact = open_pending.len() < PENDING_RECEIPT_SCAN_LIMIT as usize;
+        for receipt in open_pending {
+            if !seen_receipts.insert(receipt.action_id.as_str().to_string()) {
+                continue;
+            }
+            let item = receipt_item(receipt, &presentation_actuators);
+            // 視窗外只補「真的要人決定」的項目；其餘（例如安靜時段擋下的
+            // 角色演出）留在歷史區塊，不灌爆收件匣。
+            if item.needs_decision {
+                items.push(item);
+            }
         }
 
-        for event in self.events.recent(200) {
+        // 安全事件多半只是歷史通知（`needs_decision: false`），所以這個
+        // 最近 N 筆的視窗不會影響徽章數字。
+        // 例外：`sensor.stop-uncertain`（要求手機停止感測但沒等到確認）是
+        // 「要人處理」的項目——它不得因為被較新的事件擠出歷史視窗就從徽章上
+        // 靜靜消失，所以對它掃整個事件環（`recent` 只會回它手上還有的）。
+        let events = self.events.recent(usize::MAX);
+        let history_start = events.len().saturating_sub(HISTORY_EVENT_LIMIT);
+        for (index, event) in events.into_iter().enumerate() {
+            let stop_uncertain =
+                event.event_type == interaction_core::EventType::SensorStopUncertain;
+            if !stop_uncertain && index < history_start {
+                continue;
+            }
             if !matches!(
                 event.event_type,
                 interaction_core::EventType::SensorStarted
                     | interaction_core::EventType::SensorStopped
+                    | interaction_core::EventType::SensorStopUncertain
                     | interaction_core::EventType::EmergencyStop
             ) {
                 continue;
@@ -217,6 +269,12 @@ impl Runtime {
                 interaction_core::EventType::SensorStarted => {
                     (event_type.clone(), format!("感測開始：{sensor_label}"))
                 }
+                interaction_core::EventType::SensorStopUncertain => {
+                    // 誠實：要求停止 ≠ 已停止。手機沒回覆時它可能還在擷取，
+                    // 所以標題說「結果不確定」，並點名是哪一台裝置。
+                    let device = self.stop_uncertain_device_label(&event.payload).await;
+                    (event_type.clone(), format!("感測停止結果不確定：{device}"))
+                }
                 _ => (event_type.clone(), format!("感測停止：{sensor_label}")),
             };
             items.push(ActivityInboxItem {
@@ -226,7 +284,9 @@ impl Runtime {
                 title,
                 occurred_at: event.timestamp,
                 route: "safety".into(),
-                needs_decision: false,
+                // 「停止結果不確定」是使用者要處理的事（去手機上確認／再停一次），
+                // 其餘安全事件只是歷史通知。
+                needs_decision: stop_uncertain,
                 agent_id: None,
                 device_id,
                 task_id: event
@@ -276,15 +336,62 @@ impl Runtime {
         // 待決定數量必須在分頁截斷「之前」算完：徽章代表全部待辦，
         // 不是本頁剛好裝得下的那幾筆（截斷後計算會漏報）。
         let pending = items.iter().filter(|item| item.needs_decision).count();
+        // 待決定項是依狀態查出來的，所以只有撞到掃描上限時才可能不完整；
+        // 這時 `pendingCount` 是「至少」而不是「總共」，介面必須據此改口，
+        // 絕不能在旗標為 false 時宣稱「目前沒有待決定事項」。
+        let pending_count_exact = pending_receipts_exact && candidates_exact;
         items.truncate(filter.limit.unwrap_or(100).clamp(1, 500) as usize);
         Ok(json!({
             "items": items,
             "count": items.len(),
             "totalBeforeLimit": total,
             "pendingCount": pending,
+            "pendingCountExact": pending_count_exact,
             "filters": filter,
             "generatedAt": Utc::now(),
         }))
+    }
+}
+
+/// 收據 → 收件匣項目。`needs_decision` 的判準：
+/// * 結果未知（`uncertain`）與被安全規則阻止（`blocked`）是人要處理的項目；
+/// * 但 L0 純呈現（driver `builtin.presentation`）只是本機角色演出，被安靜
+///   時段擋下或沒被確認時使用者沒有任何可做的決定 → 只留歷史，不上徽章；
+/// * 例外的例外：呈現動作若卡在「需要人類核可」，那確實有一個決定要做
+///   （核可只能由人給），仍要人看見。
+fn receipt_item(
+    receipt: ActionReceipt,
+    presentation_actuators: &HashSet<String>,
+) -> ActivityInboxItem {
+    let status = serde_json::to_value(receipt.current_status)
+        .ok()
+        .and_then(|value| value.as_str().map(String::from))
+        .unwrap_or_else(|| "unknown".into());
+    let occurred_at = receipt
+        .timestamps
+        .last()
+        .map(|(_, at)| *at)
+        .unwrap_or_else(Utc::now);
+    let awaits_human_approval = receipt
+        .policy_decisions
+        .iter()
+        .any(|decision| matches!(decision, PolicyDecision::ApprovalRequired { .. }));
+    let presentation_only = presentation_actuators.contains(receipt.actuator_id.as_str());
+    let needs_decision = matches!(status.as_str(), "uncertain" | "blocked")
+        && (!presentation_only || awaits_human_approval);
+    ActivityInboxItem {
+        item_id: receipt.action_id.as_str().to_string(),
+        kind: "action-result".into(),
+        status,
+        title: receipt.intent.clone(),
+        occurred_at,
+        route: "activity".into(),
+        needs_decision,
+        agent_id: None,
+        device_id: Some(receipt.actuator_id.as_str().to_string()),
+        task_id: Some(receipt.plan_id.as_str().to_string()),
+        domains: vec![],
+        detail: serde_json::to_value(receipt).unwrap_or_default(),
     }
 }
 

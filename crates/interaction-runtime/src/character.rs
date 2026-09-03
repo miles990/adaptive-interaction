@@ -570,7 +570,14 @@ impl CharacterHub {
     /// 作者、版本、能力、網路需求；連接頁據此顯示「可以接收／作者／版本」）。
     pub fn instance_entry(&self, instance_id: &str) -> Option<Value> {
         let meta = self.instance_meta(instance_id)?;
-        let view = lock(&self.gateway).instance(&InstanceId(instance_id.to_string()))?;
+        let iid = InstanceId(instance_id.to_string());
+        let (view, reduced_motion) = {
+            let gw = lock(&self.gateway);
+            let view = gw.instance(&iid)?;
+            // 已協商 → 協商當下的值；還沒協商 → null（Unknown，不假裝 false）。
+            let reduced_motion = gw.negotiated(&iid).map(|n| n.reduced_motion);
+            (view, reduced_motion)
+        };
         let manifest = &meta.manifest;
         let (executable, network) = manifest_security_flags(manifest);
         Some(json!({
@@ -585,6 +592,7 @@ impl CharacterHub {
             "lifecycle": view.lifecycle,
             "connected": view.connected,
             "negotiated": view.negotiated,
+            "reducedMotion": reduced_motion,
             "pending": view.pending,
             "adapterKind": manifest.adapter_kind,
             "origin": meta.origin,
@@ -772,6 +780,9 @@ pub struct CharacterHelloInput {
     pub visible: bool,
     pub pack_id: Option<String>,
     pub behavior_state: Option<Value>,
+    /// 視窗（可信 host）目前的 Reduced Motion（`prefers-reduced-motion` 或使用者偏好）。
+    /// 協商的唯一來源：Runtime 以它決定 `reduced`，adapter 不能自己宣告。
+    pub reduced_motion: bool,
 }
 
 impl Runtime {
@@ -840,6 +851,8 @@ impl Runtime {
                 }
                 gw.register_instance_with_id(iid.clone(), input.manifest.clone(), role);
             }
+            // Reduced Motion 只有一個主人：視窗回報 → Gateway 協商 → resolutions／回執一路帶 `reduced`。
+            gw.set_reduced_motion(&iid, input.reduced_motion);
             let (negotiated, outs) = gw
                 .on_negotiate(&iid, input.negotiate, now)
                 .map_err(|e| DomainError::Validation(format!("negotiate rejected: {e}")))?;
@@ -896,6 +909,7 @@ impl Runtime {
                 "characterId": input.manifest.character_id,
                 "generation": generation,
                 "origin": origin,
+                "reducedMotion": input.reduced_motion,
             }),
         );
         Ok(json!({
@@ -920,6 +934,17 @@ impl Runtime {
             let generation = gw.generation(&iid).ok_or_else(|| {
                 DomainError::NotFound(format!("character instance {instance_id}"))
             })?;
+            // §8：每個 adapter ≤ 50 則/s——HTTP 與 WebSocket 共用同一個計數器。
+            if !gw.allow_message(&iid, now) {
+                // 稽核有界：超量本身不寫 audit 列（否則被 flood 的一方反而把資料庫撐大），
+                // 只留 tracing 與誠實的回應。
+                tracing::debug!(
+                    instance = instance_id,
+                    route = "receipts",
+                    "character adapter rate-limited"
+                );
+                return Ok(json!({ "accepted": false, "status": "rate-limited" }));
+            }
             let outputs = gw.on_receipt(&iid, receipt.clone(), now);
             let status_after = gw.command_status(&iid, &receipt.message_id);
             (generation, outputs, status_after)
@@ -955,6 +980,15 @@ impl Runtime {
             .ok_or_else(|| DomainError::NotFound(format!("character instance {instance_id}")))?;
         let (decision, drained) = {
             let mut gw = hub.gateway();
+            // §8：每個 adapter ≤ 50 則/s——HTTP 與 WebSocket 共用同一個計數器。
+            if !gw.allow_message(&iid, now) {
+                tracing::debug!(
+                    instance = instance_id,
+                    route = "events",
+                    "character adapter rate-limited"
+                );
+                return Ok(json!({ "decision": "dropped", "reason": "rate-limited" }));
+            }
             let decision = gw.on_event(&iid, event, now);
             let drained = gw.drain_input(&iid);
             (decision, drained)
@@ -1285,12 +1319,29 @@ impl Runtime {
         let message = match parse_wire(bytes) {
             Ok(message) => message,
             Err(err) => {
-                let _ = self.store.audit(
-                    "character.wire-rejected",
-                    "adapter",
-                    &json!({"instanceId": instance_id, "code": err.code(), "bytes": bytes.len()}),
-                );
-                hub.send_external(instance_id, WireMessage::error(err.code(), err.to_string()));
+                // 畸形訊息也要扣 50 則/s 的預算（否則丟垃圾就能繞過速率限制），
+                // 而且稽核有界：每個 instance 每 5 秒至多一列，其餘只累加 `suppressed`。
+                let verdict = hub.gateway().note_wire_rejected(&iid, now);
+                if verdict.audit {
+                    let _ = self.store.audit(
+                        "character.wire-rejected",
+                        "adapter",
+                        &json!({
+                            "instanceId": instance_id,
+                            "code": err.code(),
+                            "bytes": bytes.len(),
+                            "suppressed": verdict.suppressed,
+                        }),
+                    );
+                }
+                if verdict.within_rate {
+                    hub.send_external(instance_id, WireMessage::error(err.code(), err.to_string()));
+                } else {
+                    hub.send_external(
+                        instance_id,
+                        WireMessage::error("rate-limited", "too many messages; dropped"),
+                    );
+                }
                 return WsStep::KeepOpen;
             }
         };

@@ -66,8 +66,9 @@ pub fn tested_note(
     }
 }
 
-/// `detail` 既是人話註記、也是「已測試」證據的載體：有證據時寫成
-/// `{"note": …, "tested": {…}}`，沒有時維持原本的純文字（向後相容）。
+/// `detail` 既是人話註記、也是「已測試」證據與設定檔警告的載體：有證據或
+/// 警告時寫成 `{"note": …, "tested": {…}, "warnings": [ … ]}`，
+/// 都沒有時維持原本的純文字（向後相容）。
 pub fn split_provider_detail(detail: Option<&str>) -> (Option<String>, Option<ProviderTested>) {
     let Some(text) = detail else {
         return (None, None);
@@ -75,34 +76,83 @@ pub fn split_provider_detail(detail: Option<&str>) -> (Option<String>, Option<Pr
     let Ok(Value::Object(map)) = serde_json::from_str::<Value>(text) else {
         return (Some(text.to_string()), None);
     };
-    let Some(tested) = map
-        .get("tested")
-        .and_then(|v| serde_json::from_value::<ProviderTested>(v.clone()).ok())
-    else {
+    // 只拆我們自己寫出來的形狀；其他 JSON 一律當純文字註記（不臆造證據）。
+    if !map.contains_key("tested") && !map.contains_key("warnings") {
         return (Some(text.to_string()), None);
-    };
+    }
+    let tested = map
+        .get("tested")
+        .and_then(|v| serde_json::from_value::<ProviderTested>(v.clone()).ok());
     let note = map
         .get("note")
         .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
-    (note, Some(tested))
+    (note, tested)
 }
 
-fn merge_provider_detail(note: Option<&str>, tested: Option<&ProviderTested>) -> Option<String> {
-    match tested {
-        None => note.map(|s| s.to_string()),
-        Some(record) => {
-            let mut obj = serde_json::Map::new();
-            if let Some(note) = note {
-                obj.insert("note".into(), Value::String(note.to_string()));
-            }
-            obj.insert(
-                "tested".into(),
-                serde_json::to_value(record).unwrap_or(Value::Null),
-            );
-            Some(Value::Object(obj).to_string())
-        }
+/// `detail` 裡的設定檔警告（明文憑證…）。純文字或沒有警告時回空陣列。
+/// 這些字串會點名能力與欄位，是**進階模式／CLI** 的內容，
+/// 一般模式看到的是 [`warning_summary`] 那一句。
+pub fn provider_detail_warnings(detail: Option<&str>) -> Vec<String> {
+    let Some(text) = detail else {
+        return vec![];
+    };
+    let Ok(Value::Object(map)) = serde_json::from_str::<Value>(text) else {
+        return vec![];
+    };
+    map.get("warnings")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 警告的人話摘要（一般模式那一句）：只說有幾項與性質，不外洩能力 id 或欄位名
+/// （原文在 `warnings` 陣列裡，給進階模式與 `interact-ai providers show`）。
+fn warning_summary(warnings: &[String]) -> String {
+    format!(
+        "設定檔有 {} 項安全提醒：連線密碼／配對碼是明文寫在設定檔裡，建議改成外部保管。",
+        warnings.len()
+    )
+}
+
+fn merge_provider_detail(
+    note: Option<&str>,
+    tested: Option<&ProviderTested>,
+    warnings: &[String],
+) -> Option<String> {
+    if tested.is_none() && warnings.is_empty() {
+        return note.map(|s| s.to_string());
     }
+    let mut obj = serde_json::Map::new();
+    // 警告存在時 `note` 一定要有內容：舊介面看不懂新鍵時會退回整串 JSON 當註記，
+    // 那樣就會把技術字串印到一般模式畫面上。
+    let note = match (note, warnings.is_empty()) {
+        (Some(note), _) if !note.is_empty() => note.to_string(),
+        (_, false) => warning_summary(warnings),
+        _ => String::new(),
+    };
+    if !note.is_empty() {
+        obj.insert("note".into(), Value::String(note));
+    }
+    if let Some(record) = tested {
+        obj.insert(
+            "tested".into(),
+            serde_json::to_value(record).unwrap_or(Value::Null),
+        );
+    }
+    if !warnings.is_empty() {
+        obj.insert(
+            "warnings".into(),
+            Value::Array(warnings.iter().cloned().map(Value::String).collect()),
+        );
+    }
+    Some(Value::Object(obj).to_string())
 }
 
 impl Runtime {
@@ -306,10 +356,21 @@ impl Runtime {
 
         // A persisted record (e.g. already paired) wins over a fresh one.
         if let Ok(existing) = self.providers.get(&provider_id).await {
-            let _ = existing;
             self.providers
                 .attach_capabilities(&provider_id, receptor_ids, actuator_ids, vec![])
                 .await?;
+            // 明文憑證警告是「這份 spec 現在的事實」，不是狀態註記：重啟後
+            // （persisted 記錄勝出）與 re-arm 的「requires explicit enable」
+            // 都不得把它吃掉，所以每次註冊都重新掛回去。狀態不變（自轉移合法），
+            // 只換 detail。
+            let (note, _) = split_provider_detail(existing.detail.as_deref());
+            let detail = merge_provider_detail(note.as_deref(), None, &built.warnings);
+            if detail != existing.detail {
+                self.providers
+                    .transition(&provider_id, existing.state, detail)
+                    .await?;
+                self.persist_provider(&provider_id).await;
+            }
             return Ok(());
         }
         let mut desc = discovered(identity);
@@ -318,6 +379,9 @@ impl Runtime {
         desc.state = ProviderState::Installed;
         desc.receptors = receptor_ids;
         desc.actuators = actuator_ids;
+        // 建置時發現的問題（明文憑證…）跟著 provider 走，一般模式看得到摘要、
+        // 進階模式與 CLI 看得到原文。靜靜吞掉等於幫使用者隱瞞。
+        desc.detail = merge_provider_detail(None, None, &built.warnings);
         self.providers.register(desc.clone()).await?;
         self.persist_provider(&provider_id).await;
         Ok(())
@@ -344,16 +408,21 @@ impl Runtime {
         if desc.identity.id.as_str() == crate::character::COMPANION_PROVIDER_ID {
             desc.identity.display_name = self.companion_provider_display_name();
             let (_, tested) = split_provider_detail(desc.detail.as_deref());
-            desc.detail =
-                merge_provider_detail(Some(&self.companion_provider_detail()), tested.as_ref());
+            desc.detail = merge_provider_detail(
+                Some(&self.companion_provider_detail()),
+                tested.as_ref(),
+                &[],
+            );
         }
         desc
     }
 
-    /// registry 裡的 detail 永遠是人話註記；對外輸出時才把證據併進去。
+    /// registry 裡的 detail 是人話註記＋設定檔警告；對外輸出時才把證據併進去。
     fn with_tested(&self, mut desc: ProviderDescriptor) -> ProviderDescriptor {
         let tested = self.provider_tested_record(desc.identity.id.as_str());
-        desc.detail = merge_provider_detail(desc.detail.as_deref(), tested.as_ref());
+        let warnings = provider_detail_warnings(desc.detail.as_deref());
+        let (note, _) = split_provider_detail(desc.detail.as_deref());
+        desc.detail = merge_provider_detail(note.as_deref(), tested.as_ref(), &warnings);
         desc
     }
 
@@ -402,7 +471,24 @@ impl Runtime {
     /// 某個能力剛剛真的成功了 → 把證據記到它的 provider 上。
     /// 讀不到 provider（例如能力不屬於任何 provider）就什麼都不做。
     pub(crate) async fn note_capability_tested(&self, kind: TestedCapability, capability_id: &str) {
-        let Some(descriptor) = self.provider_of_capability(kind, capability_id).await else {
+        self.note_capability_tested_on(kind, capability_id, None)
+            .await
+    }
+
+    /// 同上，但由呼叫端指名「真正執行的那一台裝置」（driver 回報的 deviceId）。
+    /// 同一個能力 id 可能同時屬於多台手機（`provider.mobile.<deviceId>`），
+    /// 這時只有 driver 說的那一台才是事實——指名了卻找不到對應的 provider 時
+    /// 什麼都不記，絕不把證據掛到別台身上。
+    pub(crate) async fn note_capability_tested_on(
+        &self,
+        kind: TestedCapability,
+        capability_id: &str,
+        device_id: Option<&str>,
+    ) {
+        let Some(descriptor) = self
+            .provider_of_capability(kind, capability_id, device_id)
+            .await
+        else {
             return;
         };
         let id = descriptor.identity.id;
@@ -437,14 +523,23 @@ impl Runtime {
         &self,
         kind: TestedCapability,
         capability_id: &str,
+        device_id: Option<&str>,
     ) -> Option<ProviderDescriptor> {
-        self.providers.list().await.into_iter().find(|p| {
+        let lists = |p: &ProviderDescriptor| {
             let list = match kind {
                 TestedCapability::Receptor => &p.receptors,
                 TestedCapability::Actuator => &p.actuators,
             };
             list.iter().any(|id| id == capability_id)
-        })
+        };
+        // 指名了裝置：只認那一台的 provider（手機是 `provider.mobile.<deviceId>`）。
+        // 找不到、或那台 provider 根本沒有這個能力 → 什麼都不記；把證據記到
+        // 另一台身上比沒有證據更糟（使用者會以為那台測過了）。
+        if let Some(device_id) = device_id.map(str::trim).filter(|id| !id.is_empty()) {
+            let pid = ProviderId::new(format!("provider.mobile.{device_id}"));
+            return self.providers.get(&pid).await.ok().filter(lists);
+        }
+        self.providers.list().await.into_iter().find(lists)
     }
 
     /// 人類按下「測試裝置」：對這個 provider 的第一個**現在真的開著、且能
@@ -615,7 +710,21 @@ impl Runtime {
         id: &ProviderId,
         state: ProviderState,
     ) -> DomainResult<ProviderDescriptor> {
-        let desc = self.providers.transition(id, state, None).await?;
+        // 狀態換了，設定檔警告還在：`transition` 會整個覆寫 detail，所以警告
+        // 必須自己帶過去，否則按一次「啟用」就會把明文憑證的提醒洗掉。
+        // 狀態註記（例如 re-arm 的說明）本來就只屬於前一個狀態，不帶。
+        let warnings = provider_detail_warnings(
+            self.providers
+                .get(id)
+                .await
+                .ok()
+                .and_then(|d| d.detail)
+                .as_deref(),
+        );
+        let desc = self
+            .providers
+            .transition(id, state, merge_provider_detail(None, None, &warnings))
+            .await?;
         if matches!(
             state,
             ProviderState::Disabled | ProviderState::Closed | ProviderState::Expired

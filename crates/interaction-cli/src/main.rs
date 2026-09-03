@@ -470,6 +470,12 @@ pub enum MobileAction {
     Pair,
     /// Revoke one paired iPhone (disconnects immediately).
     Revoke { device_id: String },
+    /// Ask ONE paired iPhone to stop sensing and wait (bounded) for its
+    /// confirmation. No answer in time = outcome unknown, never "stopped".
+    StopSensors { device_id: String },
+    /// Ping one paired iPhone over its live connection. `ok` only means the
+    /// socket answered — it does not mean the App's features work.
+    Test { device_id: String },
     /// Ask the connected iPhone to scan for BLE peripherals (gateway must be
     /// switched on in the App). No answer in time = outcome unknown, not empty.
     BleScan {

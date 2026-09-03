@@ -924,6 +924,19 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                     .delete(&format!("/v1/mobile/devices/{device_id}"))
                     .await?
             }
+            crate::MobileAction::StopSensors { device_id } => {
+                client
+                    .post(
+                        &format!("/v1/mobile/devices/{device_id}/sensors/stop"),
+                        Some(json!({})),
+                    )
+                    .await?
+            }
+            crate::MobileAction::Test { device_id } => {
+                client
+                    .post(&format!("/v1/mobile/devices/{device_id}/test"), Some(json!({})))
+                    .await?
+            }
             crate::MobileAction::BleScan { duration_ms } => {
                 client
                     .post(

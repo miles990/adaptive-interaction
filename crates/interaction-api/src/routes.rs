@@ -1073,6 +1073,15 @@ pub async fn onboarding_draft_put(
     Ok(Json(json!({"saved": true})))
 }
 
+/// Dry run: same validation as commit, no side effects. The wizard's
+/// 「套用前確認」dialog is built from this, so it quotes Runtime truth.
+pub async fn onboarding_preview(
+    State(state): State<ApiState>,
+    Json(commit): Json<interaction_runtime::human::OnboardingCommit>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.preview_onboarding(commit).await?))
+}
+
 pub async fn onboarding_commit(
     State(state): State<ApiState>,
     Json(commit): Json<interaction_runtime::human::OnboardingCommit>,
@@ -1234,18 +1243,35 @@ pub async fn recipe_convert(Json(body): Json<ConvertBody>) -> ApiResult<Json<Val
 // Providers (devices / services / agents)
 // ---------------------------------------------------------------------------
 
-pub async fn providers_list(State(state): State<ApiState>) -> Json<Value> {
-    Json(json!(state.runtime.list_providers().await))
+/// 裝置身分指紋屬於人類層的配對資訊（`/v1/mobile` 整條路由 agent token 都讀
+/// 不到）：從 `/v1/providers` 繞過去讀一樣不行。非人類 principal 一律拿不到。
+fn redact_identity_for(auth: &AuthContext, desc: &mut interaction_core::ProviderDescriptor) {
+    if !matches!(auth.principal, AuthPrincipal::Human) {
+        desc.identity.fingerprint = None;
+    }
+}
+
+pub async fn providers_list(
+    State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
+) -> Json<Value> {
+    let mut providers = state.runtime.list_providers().await;
+    for desc in &mut providers {
+        redact_identity_for(&auth, desc);
+    }
+    Json(json!(providers))
 }
 
 pub async fn provider_get(
     State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let desc = state
+    let mut desc = state
         .runtime
         .get_provider(&interaction_core::ProviderId::new(&id))
         .await?;
+    redact_identity_for(&auth, &mut desc);
     Ok(Json(serde_json::to_value(desc).unwrap_or_default()))
 }
 
@@ -1513,9 +1539,31 @@ pub async fn sensor_mic_listen(
     Ok(Json(json!(out)))
 }
 
-pub async fn sensors_stop(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
-    state.runtime.stop_all_sensors("api").await?;
-    Ok(Json(json!({"stopped": true})))
+/// 停止所有感測（本機麥克風＋每一台已連線 iPhone）。
+///
+/// 誠實階梯：頂層 `stopped` ＝**所有**來源都確認停止；任一台沒回覆時
+/// `uncertain: true`（手機可能還在錄音）。安全遞減操作，agent／session token
+/// 也可呼叫——audit actor 記的是實際呼叫者，不是一律 "api"。
+pub async fn sensors_stop(
+    State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
+) -> ApiResult<Json<Value>> {
+    let report = state.runtime.stop_all_sensors(&stop_actor(&auth)).await?;
+    Ok(Json(
+        serde_json::to_value(report).unwrap_or_else(|_| json!({})),
+    ))
+}
+
+/// 誰按下的停止：agent／session token 也能停感測，audit 必須看得出是誰。
+fn stop_actor(auth: &AuthContext) -> String {
+    match &auth.principal {
+        AuthPrincipal::Human => "api".into(),
+        AuthPrincipal::LegacyAgent => "agent".into(),
+        AuthPrincipal::AgentSession(capability) => {
+            format!("agent:{}@{}", capability.agent_id, capability.session_id)
+        }
+        AuthPrincipal::CharacterAdapter { adapter_id } => format!("adapter:{adapter_id}"),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1602,6 +1650,9 @@ pub struct CharacterHelloBody {
     pub pack_id: Option<String>,
     #[serde(default)]
     pub behavior_state: Option<Value>,
+    /// 視窗回報的 Reduced Motion（`prefers-reduced-motion` 或使用者偏好）；省略＝false。
+    #[serde(default)]
+    pub reduced_motion: bool,
 }
 
 /// 桌面視窗（可信 host）登記角色並協商；同 instanceId 重送＝重新協商（generation+1）。
@@ -1619,6 +1670,7 @@ pub async fn character_hello(
             visible: body.visible,
             pack_id: body.pack_id,
             behavior_state: body.behavior_state,
+            reduced_motion: body.reduced_motion,
         })
         .await?;
     Ok(Json(out))
@@ -2214,12 +2266,39 @@ pub async fn mobile_revoke(
 pub struct BleScanBody {
     #[serde(default)]
     pub duration_ms: Option<u64>,
+    /// 指名由哪一台手機代掃。缺席時只有恰好一台手機連線才成立——
+    /// 多台連線時 Runtime 誠實回 Err，不替使用者挑一台。
+    #[serde(default)]
+    pub device_id: Option<String>,
 }
 
 pub async fn mobile_ble_scan(
     State(state): State<ApiState>,
     body: Option<Json<BleScanBody>>,
 ) -> ApiResult<Json<Value>> {
-    let duration = body.and_then(|Json(b)| b.duration_ms).unwrap_or(4_000);
-    Ok(Json(state.runtime.mobile_ble_scan(duration).await?))
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let duration = body.duration_ms.unwrap_or(4_000);
+    Ok(Json(
+        state
+            .runtime
+            .mobile_ble_scan(duration, body.device_id.as_deref())
+            .await?,
+    ))
+}
+
+/// 只停這一台手機的感測（有界等待確認；沒回覆＝outcome `unknown`）。
+pub async fn mobile_sensors_stop(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.mobile_sensors_stop(&id).await?))
+}
+
+/// 測試這台手機的連線（WebSocket Ping／Pong）。
+/// `ok` 只代表 socket 有回答，不代表 App 功能正常。
+pub async fn mobile_test(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(state.runtime.mobile_test(&id).await?))
 }

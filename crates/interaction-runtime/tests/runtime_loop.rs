@@ -1201,6 +1201,84 @@ async fn inbox_needs_decision_filter_returns_pending_items_beyond_the_first_page
     assert_eq!(everything["pendingCount"].as_u64(), Some(3));
 }
 
+/// regression（ia-settings-011）：「待我決定」不能只從最近 200 筆收據裡碰
+/// 運氣。uncertain／blocked 是黏著終態、又沒有 ack／dismiss 介面，一旦被
+/// 200 筆較新的收據擠出歷史視窗，舊實作的 pendingCount 就會掉成 0，介面
+/// 接著宣稱「目前沒有待決定事項」——一筆結果未知的實體動作就這樣無聲消失。
+/// 待決定項現在改成直接依狀態查，並用 `pendingCountExact` 誠實表態。
+#[tokio::test]
+async fn inbox_pending_items_survive_the_history_window_overflow() {
+    let (_g, rt) = runtime().await;
+    let base = chrono::Utc::now();
+
+    // 3 筆較舊、需要人類決定的動作（結果未知，實體通道）。
+    for i in 0..3 {
+        let receipt = stub_receipt(
+            &format!("old-pending-{i}"),
+            "mock.actuator",
+            ActionStatus::Uncertain,
+            base - chrono::Duration::hours(2) + chrono::Duration::seconds(i),
+        );
+        assert!(rt.store.upsert_receipt(&receipt, "haptic").unwrap());
+    }
+    // 200 筆較新的收據：剛好把「最近 200 筆」的歷史視窗整個填滿。
+    for i in 0..200 {
+        let receipt = stub_receipt(
+            &format!("recent-done-{i}"),
+            "conversation",
+            ActionStatus::Completed,
+            base + chrono::Duration::seconds(i),
+        );
+        assert!(rt.store.upsert_receipt(&receipt, "conversation").unwrap());
+    }
+
+    // 前提：歷史視窗裡真的一筆待決定都不剩（舊實作就是從這裡數出 0）。
+    let window = rt.list_actions(None, 200).unwrap();
+    assert_eq!(window.len(), 200);
+    assert!(window
+        .iter()
+        .all(|receipt| receipt.current_status == ActionStatus::Completed));
+
+    let inbox = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox["pendingCount"].as_u64(),
+        Some(3),
+        "pushed-out pending items must still be counted, not silently dropped"
+    );
+    assert_eq!(
+        inbox["pendingCountExact"],
+        json!(true),
+        "3 待決定項遠低於掃描上限，數字是精確的"
+    );
+    // 歷史 200 筆 ＋ 視窗外補回來的 3 筆待決定（不重複、也不多補不需決定的）。
+    assert_eq!(inbox["totalBeforeLimit"].as_u64(), Some(203));
+
+    let pending = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter {
+            needs_decision: Some(true),
+            limit: Some(20),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(pending["count"].as_u64(), Some(3));
+    let ids: Vec<&str> = pending["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["itemId"].as_str())
+        .collect();
+    for i in 0..3 {
+        assert!(
+            ids.contains(&format!("old-pending-{i}").as_str()),
+            "{ids:?}"
+        );
+    }
+}
+
 /// regression（ia-settings）：收件匣安全事件的標題曾是原始 event_type
 /// （`emergency.stop`／`sensor.started`），而「解除緊急停止」也走
 /// EmergencyStop 事件（payload.cleared=true），被投影成 status "emergency"

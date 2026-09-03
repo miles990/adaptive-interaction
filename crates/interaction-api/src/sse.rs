@@ -35,6 +35,7 @@ fn event_allowed(auth: &AuthContext, event: &RuntimeEvent) -> bool {
             | interaction_core::EventType::PolicyChanged
             | interaction_core::EventType::SensorStarted
             | interaction_core::EventType::SensorStopped
+            | interaction_core::EventType::SensorStopUncertain
             | interaction_core::EventType::PresentationCommand
             | interaction_core::EventType::PresentationState
             | interaction_core::EventType::AiAssistRequested

@@ -13,7 +13,33 @@ use interaction_policy::{ActionSource, AuthorizationRequest, Governor, UsageCont
 use serde_json::json;
 
 const DISPATCH_TIMEOUT_MS: u64 = 10_000;
-const DEFAULT_VERIFY_TIMEOUT_MS: u64 = 5_000;
+pub(crate) const DEFAULT_VERIFY_TIMEOUT_MS: u64 = 5_000;
+
+/// Driver notes that mean "the command left, but the outcome is UNKNOWN"
+/// (ack timeout, mid-send failure, link reset, HTTP timeout after send).
+///
+/// A driver may not declare `Uncertain` itself — the runtime owns terminal
+/// truth — but it can honestly say "I don't know", and the runtime must act on
+/// it instead of leaving the receipt sitting in `Dispatched` (which the UI and
+/// the character layer render as "working"). Never `Failed`: a false "it
+/// failed" invites a human or an AI to re-issue the same physical command.
+pub(crate) const OUTCOME_UNKNOWN_NOTES: [&str; 4] = [
+    "outcomeUnknown",
+    "ackTimeout",
+    "sendOutcomeUnknown",
+    "httpTimeout",
+];
+
+/// Does this receipt carry a driver note that says the outcome is unknown?
+pub(crate) fn driver_reports_outcome_unknown(receipt: &ActionReceipt) -> bool {
+    OUTCOME_UNKNOWN_NOTES.iter().any(|key| {
+        receipt
+            .driver_response
+            .get(*key)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    })
+}
 
 struct PlanExecutionClaim {
     runtime: Runtime,
@@ -658,6 +684,24 @@ impl Runtime {
                     .iter()
                     .any(|(status, _)| *status == ActionStatus::Dispatched);
                 interaction_adapter_sdk::merge_driver_receipt(&mut receipt, &driver_receipt);
+                // The driver dispatched but honestly does not know the outcome
+                // (ack timeout / mid-send failure / link reset / HTTP timeout
+                // after send). Settle it as uncertain right here: leaving it in
+                // Dispatched shows "working" forever, and Failed would be a lie
+                // that invites a retry of a physical effect.
+                if receipt.current_status == ActionStatus::Dispatched
+                    && driver_reports_outcome_unknown(&receipt)
+                {
+                    receipt.verification = Some(VerificationEvidence {
+                        observation_ids: vec![],
+                        verdict: VerificationVerdict::Uncertain,
+                        detail: Some(
+                            "driver reports outcome unknown (sent, no acknowledgement)".into(),
+                        ),
+                        verified_at: now2,
+                    });
+                    let _ = receipt.transition(ActionStatus::Uncertain, now2);
+                }
                 let applied = self.persist_receipt(&receipt, &step.channel).await?;
                 if driver_dispatched {
                     self.commit_invocation_cost(&receipt.action_id).await;
@@ -682,15 +726,30 @@ impl Runtime {
                         // 裝置真的回了 ack ⇒ 這個 provider 通得過「已測試」。
                         // acknowledged≠completed 的誠實階梯不變：這裡只記錄
                         // 「連得上、命令送得出去」，不宣稱效果已達成。
-                        self.note_capability_tested(
+                        //
+                        // 證據要記在**真正執行的那一台**上：同一個動器 id 可能
+                        // 屬於多台手機（兩支 iPhone ＝兩個 provider），driver 回報
+                        // 的 deviceId 才是事實，字典序第一個 provider 不是。
+                        let tested_device = receipt
+                            .driver_response
+                            .get("deviceId")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string);
+                        self.note_capability_tested_on(
                             crate::providers::TestedCapability::Actuator,
                             step.actuator_id.as_str(),
+                            tested_device.as_deref(),
                         )
                         .await;
                     }
                     ActionStatus::Failed => {
                         self.emit_action_event(EventType::ActionFailed, &receipt, json!({}))
                     }
+                    ActionStatus::Uncertain => self.emit_action_event(
+                        EventType::ActionUncertain,
+                        &receipt,
+                        json!({"reason": "driver reports outcome unknown"}),
+                    ),
                     _ => {}
                 }
             }

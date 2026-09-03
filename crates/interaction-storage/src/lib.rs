@@ -598,6 +598,49 @@ impl Store {
         Ok(out)
     }
 
+    /// Receipts in the given statuses, newest first (used by the human inbox
+    /// to find every open decision item).
+    ///
+    /// `receipts(None, n)` only returns the newest `n` rows regardless of
+    /// status, so an older receipt that still needs a human decision (a
+    /// terminal `uncertain`/`blocked` row — sticky, with no ack/dismiss path)
+    /// silently drops out of the badge once `n` newer receipts exist. This
+    /// query goes straight at the status index instead. `limit` is the caller's
+    /// honest scan bound: when the result length equals `limit` there may be
+    /// more, and the caller MUST report the count as inexact rather than
+    /// claiming "nothing pending".
+    pub fn receipts_with_status(
+        &self,
+        statuses: &[&str],
+        limit: u32,
+    ) -> DomainResult<Vec<ActionReceipt>> {
+        if statuses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let limit = limit.clamp(1, 5000);
+        let placeholders = vec!["?"; statuses.len()].join(",");
+        let sql = format!(
+            "SELECT json FROM receipts WHERE status IN ({placeholders}) ORDER BY created_at DESC LIMIT ?"
+        );
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn.prepare(&sql).map_err(map_err)?;
+        let mut args: Vec<Box<dyn rusqlite::types::ToSql>> = statuses
+            .iter()
+            .map(|s| Box::new(s.to_string()) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+        args.push(Box::new(limit));
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            args.iter().map(|b| b.as_ref()).collect();
+        let rows = stmt
+            .query_map(params_ref.as_slice(), |r| r.get::<_, String>(0))
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(serde_json::from_str(&row.map_err(map_err)?).map_err(map_json)?);
+        }
+        Ok(out)
+    }
+
     /// Non-terminal receipts (used by emergency stop and crash recovery).
     pub fn open_receipts(&self) -> DomainResult<Vec<ActionReceipt>> {
         let conn = self.conn.lock().expect("store lock");
@@ -1481,6 +1524,66 @@ mod tests {
 
         assert_eq!(store.scheduled_action_count().unwrap(), 1);
         assert_eq!(store.open_receipts().unwrap().len(), 1);
+    }
+
+    /// The inbox badge must not depend on a receipt still being in the recent-N
+    /// window: an older `uncertain`/`blocked` receipt (sticky, no ack/dismiss
+    /// path) has to be findable by status alone.
+    #[test]
+    fn receipts_with_status_finds_pending_rows_outside_the_recency_window() {
+        let store = Store::open_in_memory().unwrap();
+        let session = SessionId::generate();
+
+        let mut old = receipt_for("mock", &session, ActionStatus::Uncertain);
+        old.timestamps = vec![(
+            ActionStatus::Uncertain,
+            Utc::now() - chrono::Duration::hours(2),
+        )];
+        assert!(store.upsert_receipt(&old, "haptic").unwrap());
+        for _ in 0..5 {
+            let newer = receipt_for("conversation", &session, ActionStatus::Completed);
+            assert!(store.upsert_receipt(&newer, "conversation").unwrap());
+        }
+
+        // The recency window no longer shows it...
+        let window = store.receipts(None, 5).unwrap();
+        assert_eq!(window.len(), 5);
+        assert!(
+            window.iter().all(|r| r.action_id != old.action_id),
+            "the older pending receipt is pushed out of the recency window"
+        );
+        // ...but the status query still does.
+        let pending = store
+            .receipts_with_status(&["uncertain", "blocked"], 100)
+            .unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].action_id, old.action_id);
+
+        // Other statuses are not swept in.
+        assert!(store
+            .receipts_with_status(&["blocked"], 100)
+            .unwrap()
+            .is_empty());
+        assert!(store.receipts_with_status(&[], 100).unwrap().is_empty());
+
+        // Hitting `limit` is the caller's signal that the count may be
+        // incomplete — it must be reported, never silently rounded down.
+        let mut blocked = receipt_for("mock", &session, ActionStatus::Authorized);
+        blocked.current_status = ActionStatus::Blocked;
+        blocked.timestamps = vec![(ActionStatus::Blocked, Utc::now())];
+        assert!(store.upsert_receipt(&blocked, "haptic").unwrap());
+        let capped = store
+            .receipts_with_status(&["uncertain", "blocked"], 1)
+            .unwrap();
+        assert_eq!(capped.len(), 1, "limit honoured");
+        assert_eq!(
+            store
+                .receipts_with_status(&["uncertain", "blocked"], 100)
+                .unwrap()
+                .len(),
+            2,
+            "both open decision items are there when the scan bound allows"
+        );
     }
 
     #[test]

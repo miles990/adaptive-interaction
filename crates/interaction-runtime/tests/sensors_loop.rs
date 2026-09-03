@@ -78,10 +78,73 @@ async fn microphone_is_off_by_default_and_consent_gated() {
     assert!(obs.facts.contains_key("level"));
     assert!(!obs.facts.contains_key("audio"));
 
-    // Manual stop releases the device and clears the indicator.
-    rt.stop_all_sensors("test").await.unwrap();
+    // Manual stop releases the device and clears the indicator, and reports
+    // honestly: local mic stopped, no phones involved, nothing uncertain.
+    let report = rt.stop_all_sensors("test").await.unwrap();
     assert!(fake.stopped.load(std::sync::atomic::Ordering::SeqCst));
     assert!(rt.active_sensors().is_empty());
+    assert_eq!(report.local.microphone, "stopped");
+    assert!(report.devices.is_empty());
+    assert!(report.stopped, "沒有任何來源沒確認 → 確實停了");
+    assert!(!report.uncertain);
+    assert_eq!(rt.active_sensors_all().await.len(), 0);
+}
+
+/// 「停止所有感測」的 audit 必須看得出停了什麼（不再是空的 detail），
+/// 而且本機本來就沒在擷取時要誠實說 `idle`，不得發假的 sensor.stopped。
+#[tokio::test]
+async fn stop_all_sensors_reports_and_audits_what_it_actually_stopped() {
+    let (_g, rt, _fake) = runtime().await;
+
+    let report = rt.stop_all_sensors("test").await.unwrap();
+    assert_eq!(
+        report.local.microphone, "idle",
+        "本來就沒在擷取＝idle，不是 stopped"
+    );
+    assert!(report.stopped && !report.uncertain);
+    let stopped_events = rt
+        .events
+        .recent(50)
+        .into_iter()
+        .filter(|e| e.event_type == EventType::SensorStopped)
+        .count();
+    assert_eq!(stopped_events, 0, "沒有東西在跑就不該發 sensor.stopped");
+
+    let audit = rt
+        .store
+        .audit_tail(50)
+        .unwrap()
+        .into_iter()
+        .rfind(|a| a["kind"] == serde_json::json!("sensor.stopped-all"))
+        .expect("sensor.stopped-all audit");
+    assert_eq!(audit["detail"]["local"]["microphone"], "idle");
+    assert!(
+        audit["detail"]["devices"].is_array(),
+        "audit 要逐台列出結果：{audit}"
+    );
+    assert_eq!(audit["detail"]["uncertain"], serde_json::json!(false));
+
+    // 有在擷取時 → stopped，並且確實發了一則 sensor.stopped。
+    rt.registry
+        .set_receptor_enabled(&ReceptorId::new("microphone.listen"), true)
+        .await
+        .unwrap();
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.grant_consent("receptor:microphone.listen", None)
+        .await
+        .unwrap();
+    rt.begin_mic_listen(5_000, "test").await.unwrap();
+    let report = rt.stop_all_sensors("test").await.unwrap();
+    assert_eq!(report.local.microphone, "stopped");
+    let stopped_events = rt
+        .events
+        .recent(50)
+        .into_iter()
+        .filter(|e| e.event_type == EventType::SensorStopped)
+        .count();
+    assert_eq!(stopped_events, 1);
 }
 
 #[tokio::test]

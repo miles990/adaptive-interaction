@@ -147,6 +147,88 @@ pub struct OnboardingCommit {
     pub starter_recipes: Vec<String>,
 }
 
+/// One capability's before/after state in an onboarding plan.
+/// `from_on` is the *current* runtime truth (availability != disabled), never
+/// a guess: the wizard's confirmation dialog quotes it verbatim.
+#[derive(Debug, Clone)]
+struct ComponentChange {
+    id: String,
+    from_on: bool,
+    to_on: bool,
+}
+
+impl ComponentChange {
+    fn changed(&self) -> bool {
+        self.from_on != self.to_on
+    }
+
+    fn to_value(&self) -> Value {
+        json!({
+            "id": self.id,
+            "from": on_off(self.from_on),
+            "to": on_off(self.to_on),
+            "changed": self.changed(),
+        })
+    }
+}
+
+fn on_off(on: bool) -> &'static str {
+    if on {
+        "on"
+    } else {
+        "off"
+    }
+}
+
+/// Record a target state for `id`, keeping first-seen order. An id named in
+/// both the enable and the disable list keeps the later target, which is the
+/// state a sequential apply would have left behind.
+fn upsert_change(list: &mut Vec<ComponentChange>, id: &str, from_on: bool, to_on: bool) {
+    if let Some(existing) = list.iter_mut().find(|c| c.id == id) {
+        existing.to_on = to_on;
+        return;
+    }
+    list.push(ComponentChange {
+        id: id.to_string(),
+        from_on,
+        to_on,
+    });
+}
+
+/// Validated onboarding plan: exactly what a commit would change, and nothing
+/// more. Shared by the dry-run preview and the real commit so the dialog the
+/// user confirms and the work that is actually done cannot drift apart.
+struct OnboardingPlan {
+    receptors: Vec<ComponentChange>,
+    actuators: Vec<ComponentChange>,
+    /// Starter recipe ids to install, with whether one already exists (an
+    /// install overwrites its body).
+    starter_recipes: Vec<(String, bool)>,
+}
+
+impl OnboardingPlan {
+    fn changed_components(&self) -> bool {
+        self.receptors.iter().any(ComponentChange::changed)
+            || self.actuators.iter().any(ComponentChange::changed)
+    }
+
+    fn has_changes(&self, commit: &OnboardingCommit) -> bool {
+        self.changed_components()
+            || !self.starter_recipes.is_empty()
+            || non_empty_patch(&commit.policy_patch)
+            || non_empty_patch(&commit.preferences)
+    }
+}
+
+/// A patch that is absent, null, or `{}` changes nothing.
+fn non_empty_patch(patch: &Option<Value>) -> bool {
+    match patch {
+        None | Some(Value::Null) => false,
+        Some(Value::Object(map)) => !map.is_empty(),
+        Some(_) => true,
+    }
+}
+
 /// Built-in starter recipes offered by the onboarding wizard.
 /// (id, zh-TW title, YAML)
 pub fn starter_recipes() -> Vec<(&'static str, &'static str, &'static str)> {
@@ -424,12 +506,29 @@ impl Runtime {
         Ok(())
     }
 
-    /// Validate everything first, then apply: policy patch → component
-    /// enable/disable → starter recipes → preferences → mark completed.
-    /// The commit path only uses the same governor-validated services as the
-    /// rest of the system; it cannot grant anything policy would refuse.
-    pub async fn commit_onboarding(&self, commit: OnboardingCommit) -> DomainResult<Value> {
-        // ---- validation pass (no side effects) ----
+    /// Dry run of [`commit_onboarding`]: the same validation, the same diff,
+    /// **no side effects**. The wizard shows this before asking the user to
+    /// confirm, so what the dialog lists is Runtime truth rather than a guess
+    /// from a possibly stale UI snapshot.
+    pub async fn preview_onboarding(&self, commit: OnboardingCommit) -> DomainResult<Value> {
+        let plan = self.plan_onboarding(&commit).await?;
+        Ok(json!({
+            "receptors": plan.receptors.iter().map(ComponentChange::to_value).collect::<Vec<_>>(),
+            "actuators": plan.actuators.iter().map(ComponentChange::to_value).collect::<Vec<_>>(),
+            "starterRecipes": plan
+                .starter_recipes
+                .iter()
+                .map(|(id, exists)| json!({"id": id, "exists": exists}))
+                .collect::<Vec<_>>(),
+            "policyPatch": commit.policy_patch.clone().unwrap_or(Value::Null),
+            "preferences": commit.preferences.clone().unwrap_or(Value::Null),
+            "changed": plan.has_changes(&commit),
+        }))
+    }
+
+    /// Validate the whole commit and work out what would actually change.
+    /// Pure read path: capability snapshot + current policy, nothing written.
+    async fn plan_onboarding(&self, commit: &OnboardingCommit) -> DomainResult<OnboardingPlan> {
         let snapshot = self
             .capabilities(&DiscoveryContext {
                 include_unavailable: true,
@@ -502,38 +601,105 @@ impl Runtime {
                 .map_err(|e| DomainError::Validation(format!("policy patch: {e}")))?;
         }
 
+        // ---- diff against the state the Runtime is actually in ----
+        // "On" means the registry does not report the component disabled.
+        // Re-running onboarding must not silently flip anything, so ids that
+        // are already in the requested state come back `changed: false` and
+        // the commit skips them entirely.
+        let mut receptors: Vec<ComponentChange> = Vec::new();
+        for (id, to_on) in commit
+            .enable_receptors
+            .iter()
+            .map(|id| (id, true))
+            .chain(commit.disable_receptors.iter().map(|id| (id, false)))
+        {
+            let from_on = snapshot
+                .receptors
+                .iter()
+                .find(|m| m.id.as_str() == id.as_str())
+                .map(|m| m.availability != Availability::Disabled)
+                .unwrap_or(false);
+            upsert_change(&mut receptors, id, from_on, to_on);
+        }
+        let mut actuators: Vec<ComponentChange> = Vec::new();
+        for (id, to_on) in commit
+            .enable_actuators
+            .iter()
+            .map(|id| (id, true))
+            .chain(commit.disable_actuators.iter().map(|id| (id, false)))
+        {
+            let from_on = snapshot
+                .actuators
+                .iter()
+                .find(|m| m.id.as_str() == id.as_str())
+                .map(|m| m.availability != Availability::Disabled)
+                .unwrap_or(false);
+            upsert_change(&mut actuators, id, from_on, to_on);
+        }
+        let mut starter_plan = Vec::new();
+        for id in &commit.starter_recipes {
+            // `exists` is honest about the overwrite: installing a starter
+            // replaces the body of an automation the user may have edited.
+            starter_plan.push((id.clone(), self.get_recipe(id).await.is_ok()));
+        }
+        Ok(OnboardingPlan {
+            receptors,
+            actuators,
+            starter_recipes: starter_plan,
+        })
+    }
+
+    /// Validate everything first, then apply: policy patch → component
+    /// enable/disable → starter recipes → preferences → mark completed.
+    /// The commit path only uses the same governor-validated services as the
+    /// rest of the system; it cannot grant anything policy would refuse.
+    /// Components already in the requested state are left untouched, so a
+    /// re-run changes nothing the user was not shown beforehand.
+    pub async fn commit_onboarding(&self, commit: OnboardingCommit) -> DomainResult<Value> {
+        let plan = self.plan_onboarding(&commit).await?;
+        let starters = starter_recipes();
+
         // ---- apply pass ----
         let mut applied = Vec::new();
         if let Some(patch) = &commit.policy_patch {
             self.update_policy(patch.clone()).await?;
             applied.push(json!({"step": "policy", "ok": true}));
         }
-        for id in &commit.enable_receptors {
+        // Only real changes are written: a no-op `set_*_enabled` would emit a
+        // misleading online/offline event and count as a state change the user
+        // never approved.
+        for change in &plan.receptors {
+            if !change.changed() {
+                continue;
+            }
             self.registry
-                .set_receptor_enabled(&id.as_str().into(), true)
+                .set_receptor_enabled(&change.id.as_str().into(), change.to_on)
                 .await?;
         }
-        for id in &commit.disable_receptors {
+        for change in &plan.actuators {
+            if !change.changed() {
+                continue;
+            }
             self.registry
-                .set_receptor_enabled(&id.as_str().into(), false)
-                .await?;
-        }
-        for id in &commit.enable_actuators {
-            self.registry
-                .set_actuator_enabled(&id.as_str().into(), true)
-                .await?;
-        }
-        for id in &commit.disable_actuators {
-            self.registry
-                .set_actuator_enabled(&id.as_str().into(), false)
+                .set_actuator_enabled(&change.id.as_str().into(), change.to_on)
                 .await?;
         }
         applied.push(json!({
             "step": "components",
-            "receptorsEnabled": commit.enable_receptors,
-            "receptorsDisabled": commit.disable_receptors,
-            "actuatorsEnabled": commit.enable_actuators,
-            "actuatorsDisabled": commit.disable_actuators,
+            "receptors": plan.receptors.iter().map(ComponentChange::to_value).collect::<Vec<_>>(),
+            "actuators": plan.actuators.iter().map(ComponentChange::to_value).collect::<Vec<_>>(),
+            "receptorsChanged": plan
+                .receptors
+                .iter()
+                .filter(|c| c.changed())
+                .map(|c| c.id.clone())
+                .collect::<Vec<_>>(),
+            "actuatorsChanged": plan
+                .actuators
+                .iter()
+                .filter(|c| c.changed())
+                .map(|c| c.id.clone())
+                .collect::<Vec<_>>(),
         }));
         let mut installed = Vec::new();
         for id in &commit.starter_recipes {

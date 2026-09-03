@@ -982,6 +982,33 @@ async fn human_layer_endpoints_roundtrip() {
     assert_eq!(ob["completed"], json!(false));
     let (code, _) = server.put("/v1/onboarding/draft", json!({"step": 2})).await;
     assert_eq!(code, 200);
+    // Preview is a dry run: it reports the diff and changes nothing.
+    let (code, preview) = server
+        .post(
+            "/v1/onboarding/preview",
+            json!({"disableReceptors": ["task.lifecycle"], "starterRecipes": ["starter-quiet-log"]}),
+        )
+        .await;
+    assert_eq!(code, 200);
+    assert_eq!(preview["receptors"][0]["id"], json!("task.lifecycle"));
+    assert_eq!(preview["receptors"][0]["from"], json!("on"));
+    assert_eq!(preview["receptors"][0]["to"], json!("off"));
+    assert_eq!(preview["receptors"][0]["changed"], json!(true));
+    assert_eq!(preview["changed"], json!(true));
+    let (_, after_preview) = server.get("/v1/onboarding").await;
+    assert_eq!(
+        after_preview["completed"],
+        json!(false),
+        "preview must not complete onboarding"
+    );
+    // Unknown ids are refused the same way commit refuses them.
+    let (code, _) = server
+        .post(
+            "/v1/onboarding/preview",
+            json!({"enableReceptors": ["no.such.receptor"]}),
+        )
+        .await;
+    assert_eq!(code, 404);
     let (code, result) = server
         .post(
             "/v1/onboarding/commit",
@@ -1068,6 +1095,17 @@ async fn mobile_routes_are_human_only_for_agent_and_session_tokens() {
             "/v1/mobile/ble/scan",
             json!({"durationMs": 1000}),
         ),
+        // 每機動作（停止感測／測試連線）同樣是人類層。
+        (
+            reqwest::Method::POST,
+            "/v1/mobile/devices/x/sensors/stop",
+            json!({}),
+        ),
+        (
+            reqwest::Method::POST,
+            "/v1/mobile/devices/x/test",
+            json!({}),
+        ),
     ];
     for (label, token) in [
         ("agent token", server.agent_token.clone()),
@@ -1096,6 +1134,101 @@ async fn mobile_routes_are_human_only_for_agent_and_session_tokens() {
     let (code, status) = server.get("/v1/mobile/status").await;
     assert_eq!(code, 200);
     assert_eq!(status["started"], json!(false));
+
+    // 人類 token 打不存在的裝置 → 404（不是假裝停成功）。
+    let (code, error) = server
+        .post("/v1/mobile/devices/iphone-nope/sensors/stop", json!({}))
+        .await;
+    assert_eq!(code, 404, "{error}");
+    let (code, error) = server
+        .post("/v1/mobile/devices/iphone-nope/test", json!({}))
+        .await;
+    assert_eq!(code, 404, "{error}");
+}
+
+/// 「停止所有感測」是安全遞減操作：三種 token 都可呼叫，回傳誠實報告
+/// （頂層 stopped＝全部確認、uncertain＝有來源沒回覆），未認證仍 401。
+#[tokio::test]
+async fn sensors_stop_is_available_to_every_token_and_reports_honestly() {
+    let server = TestServer::spawn().await;
+
+    // 人類：沒有手機、本機沒在擷取 → stopped=true、uncertain=false、devices 空。
+    let (code, report) = server.post("/v1/sensors/stop", json!({})).await;
+    assert_eq!(code, 200);
+    assert_eq!(report["stopped"], json!(true), "{report}");
+    assert_eq!(report["uncertain"], json!(false), "{report}");
+    assert_eq!(report["local"]["microphone"], json!("idle"), "{report}");
+    assert_eq!(report["devices"], json!([]), "{report}");
+
+    let record = server
+        .runtime
+        .create_agent_session(interaction_runtime::agents::CreateAgentSession {
+            provider_id: Some("provider.ai-agent.sensors-stop".into()),
+            agent_id: "sensors-stop".into(),
+            label: Some("sensors stop scope".into()),
+            ttl_minutes: Some(5),
+            data_scope: vec![],
+            tool_scope: vec!["status".into()],
+            consent_scope: vec![],
+            allow_write: false,
+            max_cost: None,
+            max_messages: Some(5),
+            delegation: None,
+            workdir: None,
+            resume_provider_session_id: None,
+        })
+        .await
+        .unwrap();
+    let session_token = server
+        .runtime
+        .issue_agent_session_capability(record.session_id.as_str())
+        .await
+        .unwrap();
+
+    for (label, token) in [
+        ("agent token", server.agent_token.clone()),
+        ("agent-session token", session_token.clone()),
+    ] {
+        let response = server
+            .client
+            .post(format!("{}/v1/sensors/stop", server.base))
+            .bearer_auth(&token)
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            200,
+            "{label} must be able to stop sensing (safety-decreasing)"
+        );
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["stopped"], json!(true), "{label}: {body}");
+    }
+
+    // audit 記得出是誰停的（agent 不會被記成 "api"）。
+    let audits = server.runtime.store.audit_tail(50).unwrap();
+    let actors: Vec<String> = audits
+        .iter()
+        .filter(|a| a["kind"] == json!("sensor.stopped-all"))
+        .map(|a| a["actor"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(actors.iter().any(|a| a == "api"), "{actors:?}");
+    assert!(actors.iter().any(|a| a == "agent"), "{actors:?}");
+    assert!(
+        actors.iter().any(|a| a.starts_with("agent:")),
+        "session token 要記成 agent:<id>@<session>：{actors:?}"
+    );
+
+    // 未認證仍然 401。
+    let response = server
+        .client
+        .post(format!("{}/v1/sensors/stop", server.base))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
 }
 
 /// 「claim ≠ verified」必須由 Runtime 確定性強制，而不是靠 UI 藏按鈕：
@@ -1849,4 +1982,173 @@ async fn character_hello_route_negotiates_and_manual_intent_refuses_safety() {
         )
         .await;
     assert_eq!(obs[0]["facts"]["kind"], "companion-clicked");
+}
+
+/// §8 的 50 則/s 對每個入口一致：adapter token 走 HTTP 也要被同一個計數器擋下，
+/// 不能靠改用 `POST /v1/character/{receipts,events}` 繞過 WebSocket 的限制。
+#[tokio::test]
+async fn adapter_token_http_routes_share_the_websocket_rate_limit() {
+    let server = TestServer::spawn().await;
+    let manifest: Value = serde_json::from_str(FIXTURE_MANIFEST).unwrap();
+    let (status, added) = server
+        .post(
+            "/v1/character/adapters",
+            json!({"displayName": "文字 adapter（速率）", "manifest": manifest}),
+        )
+        .await;
+    assert_eq!(status, 200, "{added}");
+    let adapter_id = added["adapterId"].as_str().unwrap().to_string();
+    let token = added["token"].as_str().unwrap().to_string();
+    let instance_id = format!("adapter:{adapter_id}");
+    // instance 要先存在（adapter 連上 WebSocket 才會註冊）。
+    let mut ws = ws_connect(&server.base, &token).await.expect("adapter ws");
+    assert_eq!(ws_next(&mut ws).await["type"], "hello");
+
+    let post_as_adapter = |path: &'static str, body: Value| {
+        server
+            .client
+            .post(format!("{}{path}", server.base))
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+    };
+
+    let mut limited = 0;
+    let mut accepted = 0;
+    for i in 0..90 {
+        let response = post_as_adapter(
+            "/v1/character/receipts",
+            json!({"instanceId": instance_id, "receipt": {
+                "messageId": format!("m{i}"), "characterInstanceId": instance_id,
+                "generation": 0, "status": "accepted", "at": chrono::Utc::now()}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), 200);
+        let body: Value = response.json().await.unwrap();
+        if body["status"] == "rate-limited" {
+            limited += 1;
+            assert_eq!(body["accepted"], false);
+        } else {
+            accepted += 1;
+        }
+    }
+    assert!(
+        limited > 0,
+        "90 則回執在一秒內必須有被擋下的（accepted={accepted}, limited={limited}）"
+    );
+    // 真實時鐘會邊跑邊回補（50 則/s），所以只斷言「明顯被限制住」，不斷言剛好 50。
+    assert!(
+        accepted <= 70,
+        "90 則不可能全過（accepted={accepted}, limited={limited}）"
+    );
+
+    // events 也共用同一份預算：此時已超量 → 誠實回 dropped{rate-limited}。
+    let response = post_as_adapter(
+        "/v1/character/events",
+        json!({"instanceId": instance_id, "event": {
+            "protocolVersion": "1.0", "eventId": "evt-rate", "characterInstanceId": instance_id,
+            "generation": 0, "timestamp": chrono::Utc::now(), "kind": "character.text-submitted",
+            "payload": {"text": "spam"}, "privacyClass": "internal"}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["decision"], "dropped", "{body}");
+    assert_eq!(body["reason"], "rate-limited", "{body}");
+}
+
+/// 裝置的身分指紋屬於人類層的配對資訊：`/v1/mobile` 整條路由 agent token 都
+/// 讀不到，就不能從 `/v1/providers` 繞過去讀（人類 token 仍然看得到）。
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_token_never_sees_a_device_identity_fingerprint() {
+    use interaction_core::{
+        ProviderDescriptor, ProviderId, ProviderIdentity, ProviderKind, ProviderState, TrustLevel,
+    };
+
+    let server = TestServer::spawn().await;
+    let provider_id = "provider.mobile.iphone-test01";
+    let fingerprint = "a".repeat(64);
+    server
+        .runtime
+        .providers
+        .register(ProviderDescriptor {
+            identity: ProviderIdentity {
+                id: ProviderId::new(provider_id),
+                kind: ProviderKind::Device,
+                display_name: "iPhone：測試".into(),
+                trust_level: TrustLevel::Paired,
+                origin: "mobile-wss".into(),
+                version: String::new(),
+                fingerprint: Some(fingerprint.clone()),
+                human: None,
+            },
+            state: ProviderState::Available,
+            receptors: vec![],
+            actuators: vec![],
+            tool_operations: vec![],
+            paired_at: None,
+            last_seen: None,
+            detail: None,
+        })
+        .await
+        .unwrap();
+
+    // 人類 token：看得到（這是人類層的配對資訊）。
+    let (status, list) = server.get("/v1/providers").await;
+    assert_eq!(status, 200);
+    let mine = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["identity"]["id"] == json!(provider_id))
+        .expect("registered provider");
+    assert_eq!(mine["identity"]["fingerprint"], json!(fingerprint));
+    let (status, one) = server.get(&format!("/v1/providers/{provider_id}")).await;
+    assert_eq!(status, 200);
+    assert_eq!(one["identity"]["fingerprint"], json!(fingerprint));
+
+    // agent token：`/v1/mobile` 直接 403，`/v1/providers` 也不得洩漏同一個值。
+    let denied = server
+        .client
+        .get(format!("{}/v1/mobile/status", server.base))
+        .bearer_auth(&server.agent_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403, "agent token 不得讀 /v1/mobile");
+
+    for path in ["/v1/providers", &format!("/v1/providers/{provider_id}")] {
+        let response = server
+            .client
+            .get(format!("{}{path}", server.base))
+            .bearer_auth(&server.agent_token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200, "{path}");
+        let body: Value = response.json().await.unwrap();
+        let text = serde_json::to_string(&body).unwrap();
+        assert!(
+            !text.contains(&fingerprint),
+            "{path} 不得對 agent token 透出裝置身分指紋：{text}"
+        );
+        let descriptor = match &body {
+            Value::Array(items) => items
+                .iter()
+                .find(|p| p["identity"]["id"] == json!(provider_id))
+                .cloned()
+                .expect("provider in list"),
+            other => other.clone(),
+        };
+        assert_eq!(
+            descriptor["identity"]["fingerprint"],
+            Value::Null,
+            "{path}: {descriptor}"
+        );
+        // 其餘欄位照常可讀（這不是把整條路由關掉）。
+        assert_eq!(descriptor["identity"]["id"], json!(provider_id));
+        assert_eq!(descriptor["state"], json!("available"));
+    }
 }
