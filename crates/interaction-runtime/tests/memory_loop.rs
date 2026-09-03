@@ -20,6 +20,33 @@ async fn runtime() -> (tempfile::TempDir, Runtime) {
     (dir, rt)
 }
 
+/// 直接寫 store 造大量記憶（storage 單次列表上限相關的邊界測試用），
+/// 避免逐筆 `memory_create` 的 audit 開銷。
+fn seed_memories(rt: &Runtime, n: u32) {
+    let now = Utc::now();
+    for i in 0..n {
+        let m = new_memory_item(
+            MemoryLayer::TaskMemory,
+            MemoryKind::Fact,
+            format!("任務 {i}"),
+            "x",
+            MemoryActor::Human,
+            now,
+        );
+        let body = serde_json::to_string(&m).unwrap();
+        rt.store
+            .save_memory(
+                m.memory_id.as_str(),
+                "task-memory",
+                "fact",
+                None,
+                None,
+                &body,
+            )
+            .unwrap();
+    }
+}
+
 fn item(layer: MemoryLayer, kind: MemoryKind, title: &str, actor: MemoryActor) -> MemoryItem {
     new_memory_item(
         layer,
@@ -443,34 +470,20 @@ async fn memory_export_declares_scope_and_reports_its_limit() {
     assert_eq!(small["count"], 0);
     assert_eq!(small["limitReached"], false);
     assert_eq!(small["scope"], "memory-items-only");
+    // 範圍要正反兩面都明列：只寫「不含什麼」而不寫「含什麼」，
+    // 使用者仍得自己猜這個檔到底是什麼。
+    assert_eq!(small["included"], json!(["memory-items"]));
     assert_eq!(
         small["notIncluded"],
-        json!(["knowledge", "assets", "character-interaction-memory"])
+        json!([
+            "knowledge-nodes",
+            "assets-and-derivatives",
+            "knowledge-receipts",
+            "character-interaction-memory"
+        ])
     );
 
-    // 直接寫 store 造 >1000 筆（storage 單次列表上限），避免逐筆 create 的 audit 開銷。
-    let now = Utc::now();
-    for i in 0..1005u32 {
-        let m = new_memory_item(
-            MemoryLayer::TaskMemory,
-            MemoryKind::Fact,
-            format!("任務 {i}"),
-            "x",
-            MemoryActor::Human,
-            now,
-        );
-        let body = serde_json::to_string(&m).unwrap();
-        rt.store
-            .save_memory(
-                m.memory_id.as_str(),
-                "task-memory",
-                "fact",
-                None,
-                None,
-                &body,
-            )
-            .unwrap();
-    }
+    seed_memories(&rt, 1005);
     let export = rt.memory_export().await.unwrap();
     assert_eq!(export["count"], 1000);
     assert_eq!(export["limit"], 1000);
@@ -478,6 +491,45 @@ async fn memory_export_declares_scope_and_reports_its_limit() {
         export["limitReached"], true,
         "達到單次上限必須說，不能讓使用者以為備份是全部"
     );
+    assert!(
+        export["note"].as_str().unwrap().contains("較舊的沒有匯出"),
+        "{}",
+        export["note"]
+    );
+}
+
+/// regression（v0.5.1 §15）：`limitReached` 曾用「這一頁剛好裝滿」推得，
+/// 於是「剛好 1000 筆、一筆都沒漏」也會被誤報成截斷——使用者會以為自己
+/// 的匯出不完整而白做一次。誠實階梯兩個方向都要守：不得謊稱完整，也不得
+/// 謊稱殘缺。
+#[tokio::test]
+async fn memory_export_exact_limit_is_not_falsely_reported() {
+    let (_g, rt) = runtime().await;
+    seed_memories(&rt, 1000);
+    let export = rt.memory_export().await.unwrap();
+    assert_eq!(export["count"], 1000);
+    assert_eq!(export["limit"], 1000);
+    assert_eq!(
+        export["limitReached"], false,
+        "剛好等於上限、沒有任何一筆被丟掉，不得誤報成截斷"
+    );
+    assert_eq!(export["total"], 1000, "資料庫裡的真實筆數要照實回報");
+    assert!(
+        !export["note"].as_str().unwrap().contains("較舊的沒有匯出"),
+        "{}",
+        export["note"]
+    );
+}
+
+/// 另一邊的邊界：只多一筆也必須說截斷（1005 那種明顯超量掩蓋不了 1001）。
+#[tokio::test]
+async fn memory_export_one_over_limit_reports_truncation() {
+    let (_g, rt) = runtime().await;
+    seed_memories(&rt, 1001);
+    let export = rt.memory_export().await.unwrap();
+    assert_eq!(export["count"], 1000);
+    assert_eq!(export["total"], 1001);
+    assert_eq!(export["limitReached"], true, "只要真的有一筆沒匯出就必須說");
     assert!(
         export["note"].as_str().unwrap().contains("較舊的沒有匯出"),
         "{}",

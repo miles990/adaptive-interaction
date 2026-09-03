@@ -170,13 +170,18 @@ impl Runtime {
     /// 匯出記憶（使用者資料主權）。過期項仍可匯出（資料仍屬使用者），
     /// 但每筆附衍生 status——過期／stale 不得無標記地冒充有效資料。
     ///
-    /// 誠實範圍：這裡**只有記憶**，不含知識節點、素材與衍生資料、角色互動記憶；
-    /// 而且單次上限 EXPORT_MAX_ITEMS 筆（依 updated_at 由新到舊）。達到上限時
-    /// `limitReached` 為 true——靜默丟掉最舊的一段，會讓使用者以為備份是全部。
+    /// 誠實範圍：這裡**只有記憶**（`included`），不含知識節點、素材與衍生物、
+    /// 知識收據、角色互動記憶（`notIncluded` 逐項明列，不用一句「其他」帶過）；
+    /// 而且單次上限 EXPORT_MAX_ITEMS 筆（依 updated_at 由新到舊）。
+    ///
+    /// `limitReached` 用資料庫真實筆數（`count_memory`）與上限相比，不是用
+    /// 「這一頁剛好裝滿」去猜：靜默丟掉最舊的一段會讓使用者以為備份是全部，
+    /// 而剛好存 1000 筆就誤報截斷同樣是謊——誠實階梯兩個方向都要守。
     pub async fn memory_export(&self) -> DomainResult<Value> {
         let now = Utc::now();
+        let total = self.store.count_memory(None)?;
         let bodies = self.store.list_memory(None, EXPORT_MAX_ITEMS)?;
-        let limit_reached = bodies.len() as u32 >= EXPORT_MAX_ITEMS;
+        let limit_reached = total > EXPORT_MAX_ITEMS;
         let mut items: Vec<Value> = Vec::new();
         for body in bodies {
             let Ok(mut v) = serde_json::from_str::<Value>(&body) else {
@@ -194,14 +199,21 @@ impl Runtime {
         Ok(json!({
             "exportedAt": now,
             "count": items.len(),
+            "total": total,
             "scope": "memory-items-only",
-            "notIncluded": ["knowledge", "assets", "character-interaction-memory"],
+            "included": ["memory-items"],
+            "notIncluded": [
+                "knowledge-nodes",
+                "assets-and-derivatives",
+                "knowledge-receipts",
+                "character-interaction-memory"
+            ],
             "limit": EXPORT_MAX_ITEMS,
             "limitReached": limit_reached,
             "note": if limit_reached {
-                "已達單次匯出上限：只匯出最近更新的記憶，較舊的沒有匯出；本檔不含知識、素材與角色互動記憶。"
+                "已達單次匯出上限：只匯出最近更新的記憶，較舊的沒有匯出；本檔不含知識節點、素材與衍生物、知識收據與角色互動記憶。"
             } else {
-                "本檔只含記憶，不含知識、素材與角色互動記憶。"
+                "本檔只含記憶，不含知識節點、素材與衍生物、知識收據與角色互動記憶。"
             },
             "items": items,
         }))

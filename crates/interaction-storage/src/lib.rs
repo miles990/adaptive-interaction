@@ -1018,6 +1018,28 @@ impl Store {
         Ok(out)
     }
 
+    /// 資料庫裡實際的記憶筆數（layer 過濾可選）。
+    ///
+    /// `list_memory` 只回一頁，呼叫端無法分辨「剛好裝滿一頁」與「後面還有」；
+    /// 匯出／掃描要判斷有沒有被截斷，必須拿真值來比，不能用「這頁滿了」去猜——
+    /// 猜出來的截斷警告在剛好等於上限時是誤報。
+    pub fn count_memory(&self, layer: Option<&str>) -> Result<u32, DomainError> {
+        let conn = self.conn.lock().expect("store lock");
+        let n: i64 = match layer {
+            Some(l) => conn
+                .query_row(
+                    "SELECT COUNT(*) FROM memory_items WHERE layer = ?1",
+                    [l],
+                    |r| r.get(0),
+                )
+                .map_err(map_err)?,
+            None => conn
+                .query_row("SELECT COUNT(*) FROM memory_items", [], |r| r.get(0))
+                .map_err(map_err)?,
+        };
+        Ok(n.clamp(0, u32::MAX as i64) as u32)
+    }
+
     /// 依 delete_with_parent（隨父素材刪除）找出**所有**衍生記憶 id。
     /// 全表 json_extract 掃描——刪素材是罕見的人類動作，級聯完整性
     /// 優先於速度；不設 recency 窗或上限（recency 窗會讓舊衍生物
@@ -1807,5 +1829,53 @@ mod tests {
             }
         }
         assert_eq!(seen.len(), 505, "所有 active 節點都要被掃到");
+    }
+
+    /// `list_memory` 只能回「一頁」，呼叫端無法分辨「剛好裝滿」與「後面還有」。
+    /// `count_memory` 給的是資料庫裡真正的筆數——匯出要用它判斷有沒有截斷。
+    #[test]
+    fn count_memory_matches_actual_row_count() {
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!(store.count_memory(None).unwrap(), 0);
+        assert_eq!(store.count_memory(Some("task-memory")).unwrap(), 0);
+
+        for i in 0..7u32 {
+            let layer = if i % 3 == 0 {
+                "user-memory"
+            } else {
+                "task-memory"
+            };
+            store
+                .save_memory(
+                    &format!("mem-{i:04}"),
+                    layer,
+                    "fact",
+                    None,
+                    None,
+                    &format!("{{\"memoryId\":\"mem-{i:04}\"}}"),
+                )
+                .unwrap();
+        }
+        assert_eq!(store.count_memory(None).unwrap(), 7);
+        assert_eq!(store.count_memory(Some("user-memory")).unwrap(), 3);
+        assert_eq!(store.count_memory(Some("task-memory")).unwrap(), 4);
+        assert_eq!(store.count_memory(Some("no-such-layer")).unwrap(), 0);
+
+        // 超過單頁上限時，count 仍是真值（不被 LIMIT 夾住）——這正是
+        // 「剛好 1000 筆」與「1001 筆」得以分辨的依據。
+        for i in 7..1002u32 {
+            store
+                .save_memory(
+                    &format!("mem-{i:04}"),
+                    "task-memory",
+                    "fact",
+                    None,
+                    None,
+                    "{}",
+                )
+                .unwrap();
+        }
+        assert_eq!(store.count_memory(None).unwrap(), 1002);
+        assert_eq!(store.list_memory(None, 1000).unwrap().len(), 1000);
     }
 }

@@ -1,11 +1,14 @@
-// 備份與還原（更多 → 備份與還原）：可讀的備份檔、逐筆重新驗證的還原。
+// 備份與還原（更多 → 備份與還原）：可讀的記憶匯出檔、逐筆重新驗證的還原。
 // 這是匯出／還原唯一的家——「記憶與資料」只留一個指路按鈕，不放第二份控制項。
 //
 // 誠實原則：
 // - 匯出結果一定呈現在畫面上（不是只寫 console），否則不得宣稱「已匯出」。
-// - 匯出的**範圍**要說清楚：這裡只有記憶，不含知識、素材與角色互動記憶；
+// - 匯出的**範圍**要正反兩面說清楚：這裡只有記憶（included），不含知識節點、
+//   素材與衍生物、知識的來源紀錄與角色互動記憶（notIncluded 逐項明列）；
 //   後端單次上限 1,000 條，達到上限時必須明說「較舊的沒有匯出」——
-//   按鈕叫「匯出全部」＋只回「已匯出 N 條」，會讓使用者以為手上是完整備份。
+//   叫它「完整備份」＋只回「已匯出 N 條」，會讓使用者以為手上是全部家當。
+// - 範圍清單以後端回應為準：後端沒說的（舊版回應沒有 included／notIncluded）
+//   就不顯示，不由前端補一份好看的清單冒充後端的承諾。
 // - 還原不信任備份檔裡的身分、時間與狀態：每一筆都以「目前的你明確匯入」重新經過
 //   Runtime 驗證並取得新 ID；中途失敗會照實說已經寫進去幾筆，不假裝整批原子性。
 // - 檔案大小與筆數有上限（5 MiB／1,000 筆），超過直接拒絕，不做無界迴圈。
@@ -17,6 +20,23 @@ import { Section } from "../ui";
 /** 備份檔上限：避免一次把整台機器的記憶塞進前端逐筆重放。 */
 export const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
 export const MAX_BACKUP_ITEMS = 1000;
+
+/** 後端範圍鍵 → 人話。認不得的鍵照原樣顯示，不吞掉（寧可醜，不可漏）。 */
+const SCOPE_LABEL: Record<string, string> = {
+  "memory-items": "記憶項目",
+  "knowledge-nodes": "知識節點",
+  "assets-and-derivatives": "素材與衍生物",
+  "knowledge-receipts": "知識的來源紀錄",
+  "character-interaction-memory": "角色互動記憶",
+};
+
+/** 把後端的 included／notIncluded 轉成可讀清單；不是字串陣列就當作「後端沒說」。 */
+export function scopeLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((v): v is string => typeof v === "string" && v.length > 0)
+    .map((key) => SCOPE_LABEL[key] ?? key);
+}
 
 export function BackupSection({ onNavigate }: { onNavigate?: (tab: string) => void }) {
   const [notice, setNotice] = React.useState<string | null>(null);
@@ -73,13 +93,13 @@ export function BackupSection({ onNavigate }: { onNavigate?: (tab: string) => vo
     <div>
       <Section title="備份與還原">
         <p className="muted small">
-          備份是可讀的純文字檔，你可以自行保存或檢查內容。還原時每一條都會重新經過安全
-          檢查並取得新編號——不會沿用備份檔裡的來源、時間或狀態。
+          匯出的記憶檔是可讀的純文字檔，你可以自行保存或檢查內容。還原時每一條都會重新
+          經過安全檢查並取得新編號——不會沿用檔案裡的來源、時間或狀態。
         </p>
         <p className="muted small">
-          這個備份只含記憶：知識、素材與衍生資料，以及角色跟你相處累積的互動記憶
-          都不在裡面（互動記憶在角色頁可以單獨清除）。單次最多匯出最近更新的 1,000 條，
-          達到上限時會在下面明說。
+          這裡匯出的只含記憶：知識節點、素材與衍生物、知識的來源紀錄，以及角色跟你相處累積的
+          互動記憶都不在裡面（互動記憶在角色頁可以單獨清除）。單次最多匯出最近更新的
+          1,000 條，達到上限時會在下面明說。
         </p>
         <div className="row wrap">
           <button
@@ -95,7 +115,7 @@ export function BackupSection({ onNavigate }: { onNavigate?: (tab: string) => vo
                     ? `已匯出 ${String(out.count)} 條記憶（內容已在下方顯示）。已達單次上限${
                         limit > 0 ? ` ${limit} 條` : ""
                       }：更舊的記憶沒有匯出，這不是完整備份。`
-                    : `已匯出 ${String(out.count)} 條記憶（內容已在下方顯示，可自行複製保存）。不含知識、素材與角色互動記憶。`,
+                    : `已匯出 ${String(out.count)} 條記憶（內容已在下方顯示，可自行複製保存）。不含知識節點、素材與衍生物、知識的來源紀錄與角色互動記憶。`,
                   !capped
                 );
               } catch (e) {
@@ -128,6 +148,7 @@ export function BackupSection({ onNavigate }: { onNavigate?: (tab: string) => vo
               <strong>匯出結果</strong>
               <button onClick={() => setExported(null)}>關閉</button>
             </div>
+            <ExportScope value={exported} />
             <pre className="json-view small">{JSON.stringify(exported, null, 2)}</pre>
           </div>
         )}
@@ -139,6 +160,21 @@ export function BackupSection({ onNavigate }: { onNavigate?: (tab: string) => vo
         </p>
         {onNavigate && <button onClick={() => onNavigate("memory")}>前往記憶與資料</button>}
       </Section>
+    </div>
+  );
+}
+
+/** 匯出範圍：只轉述後端說的 included／notIncluded，後端沒說就不顯示。 */
+function ExportScope({ value }: { value: Record<string, unknown> }) {
+  const included = scopeLabels(value.included);
+  const notIncluded = scopeLabels(value.notIncluded);
+  if (included.length === 0 && notIncluded.length === 0) return null;
+  return (
+    <div className="muted small">
+      {included.length > 0 && <div data-testid="export-included">包含：{included.join("、")}</div>}
+      {notIncluded.length > 0 && (
+        <div data-testid="export-not-included">不包含：{notIncluded.join("、")}</div>
+      )}
     </div>
   );
 }
