@@ -16,10 +16,12 @@ import { GlobalSearch } from "../components/GlobalSearch";
 import {
   agentDisplayLabel,
   capabilityKindLabel,
+  CHARACTER_UNAVAILABLE_TEXT,
   inboxKindLabel,
   INBOX_STATUSES,
   isOpenWorkState,
   isWorkState,
+  projectCharacterLifecycle,
   projectInboxStatus,
   projectProviderState,
   projectWorkState,
@@ -493,5 +495,30 @@ describe("感測橫幅：誰啟動的說人話，不外洩內部身分字串", (
   it("沒有感測就沒有橫幅（不留空殼）", () => {
     const { container } = render(<SensorBanner sensors={[]} advanced onStopAll={() => {}} />);
     expect(container.querySelector(".sensor-banner")).toBeNull();
+  });
+});
+
+describe("projectCharacterLifecycle（角色頁單一角色生命週期投影）", () => {
+  it("崩潰／未連線／隱藏／運作中／瀏覽器沒有角色視窗", () => {
+    expect(projectCharacterLifecycle({ lifecycle: "crashed", connected: true }, null).label).toBe(
+      CHARACTER_UNAVAILABLE_TEXT
+    );
+    expect(projectCharacterLifecycle({ lifecycle: "ready", connected: false }, null).label).toBe(
+      CHARACTER_UNAVAILABLE_TEXT
+    );
+    expect(projectCharacterLifecycle({ lifecycle: "hidden", connected: true }, null).label).toBe("已隱藏");
+    expect(
+      projectCharacterLifecycle({ lifecycle: "shown", connected: true }, { visible: true }).label
+    ).toBe("角色視窗運作中");
+    expect(projectCharacterLifecycle({ lifecycle: "loading", connected: true }, null).label).toBe("準備中");
+    expect(projectCharacterLifecycle(null, { connected: true, visible: false }).label).toBe("已隱藏");
+    expect(projectCharacterLifecycle(null, { connected: false }).label).toBe("角色視窗未連線");
+  });
+
+  it("未知的原始生命週期值不外洩：不印原始字串，退回中立的「準備中」", () => {
+    const projected = projectCharacterLifecycle({ lifecycle: "some-future-value", connected: true }, null);
+    expect(projected.label).not.toBe("some-future-value");
+    expect(projected.label).toBe("準備中");
+    expect(projected.kind).toBe("pending");
   });
 });

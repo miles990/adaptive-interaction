@@ -201,12 +201,8 @@ vi.mock("../characterName", () => ({
 }));
 
 import { AppStateProvider } from "../appstate";
-import {
-  CompanionPage,
-  characterLiveState,
-  resolveActiveCharacterId,
-  CHARACTER_UNAVAILABLE_TEXT,
-} from "../pages/CompanionPage";
+import { CompanionPage, resolveActiveCharacterId } from "../pages/CompanionPage";
+import { CHARACTER_UNAVAILABLE_TEXT } from "../statusProjection";
 import { boundValue, boundValues } from "../pages/character/preferences";
 import { sanitizeErrorText, TEXT_FALLBACK_CHARACTER_ID } from "../pages/character/catalog";
 import { emptyMemory } from "../companion/interactionMemory";
@@ -579,14 +575,16 @@ describe("角色頁：目前角色與陪伴設定", () => {
     expect(screen.getByText(/由外部程式或裝置呈現；控制中心不會啟動它/)).toBeInTheDocument();
   });
 
-  it("characterLiveState：崩潰／未連線／隱藏／運作中／瀏覽器沒有角色視窗", () => {
-    expect(characterLiveState({ lifecycle: "crashed", connected: true }, null).label).toBe(CHARACTER_UNAVAILABLE_TEXT);
-    expect(characterLiveState({ lifecycle: "ready", connected: false }, null).label).toBe(CHARACTER_UNAVAILABLE_TEXT);
-    expect(characterLiveState({ lifecycle: "hidden", connected: true }, null).label).toBe("已隱藏");
-    expect(characterLiveState({ lifecycle: "shown", connected: true }, { visible: true }).label).toBe("角色視窗運作中");
-    expect(characterLiveState({ lifecycle: "loading", connected: true }, null).label).toBe("準備中");
-    expect(characterLiveState(null, { connected: true, visible: false }).label).toBe("已隱藏");
-    expect(characterLiveState(null, { connected: false }).label).toBe("角色視窗未連線");
+  it("CompanionPage 不再自有角色生命週期投影（單一主人在 statusProjection）", () => {
+    const source = fs
+      .readFileSync(path.resolve("src/pages/CompanionPage.tsx"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(source).not.toContain("function characterLiveState");
+    expect(source).not.toContain("interface CharacterLiveState");
+    expect(source).not.toContain("CRASHED_LIFECYCLES");
+    expect(source).toContain('from "../statusProjection"');
+    expect(source).toContain("projectCharacterLifecycle");
   });
 
   it("進階模式才有收合的「技術資料」，安全宣告（執行方式／可執行程式／需要網路／簽章）也在裡面", async () => {

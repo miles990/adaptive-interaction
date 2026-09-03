@@ -12,6 +12,7 @@ import { api, type CharacterInstanceView } from "../api";
 import { useAppState } from "../appstate";
 import { refreshCharacterName, useCharacterName } from "../characterName";
 import { desktop, DesktopPrefs, isTauri } from "../desktop";
+import { projectCharacterLifecycle } from "../statusProjection";
 import { Badge, Section, Toggle, useAsync } from "../ui";
 import { PRIMARY_INSTANCE_ID } from "../companion/gatewayWiring";
 import { emptyMemory, memorySummary, noteReactionDisabled, sanitizeMemory } from "../companion/interactionMemory";
@@ -39,55 +40,7 @@ import {
   type PreferenceSource,
   type PreferenceValue,
 } from "./character/preferences";
-
-// ---------------------------------------------------------------------------
-// 角色即時狀態（可信 host 文案；崩潰／失聯一律「改用文字」）
-// ---------------------------------------------------------------------------
-
-export const CHARACTER_UNAVAILABLE_TEXT = "角色目前無法顯示，改用文字";
-
-export interface CharacterLiveState {
-  label: string;
-  kind: "ok" | "warn" | "bad" | "muted" | "pending";
-  detail: string;
-}
-
-const CRASHED_LIFECYCLES = new Set(["crashed", "reconnecting", "disposed"]);
-const HIDDEN_LIFECYCLES = new Set(["hidden", "suspended"]);
-const READY_LIFECYCLES = new Set(["ready", "shown", "resumed", "reconfiguring"]);
-
-/** Runtime 實例（優先）＋ presence 推導；沒有任何回報就誠實說未連線。 */
-export function characterLiveState(
-  instance: Pick<CharacterInstanceView, "lifecycle" | "connected"> | null,
-  presence: Record<string, unknown> | null
-): CharacterLiveState {
-  if (instance) {
-    if (!instance.connected || CRASHED_LIFECYCLES.has(instance.lifecycle)) {
-      return {
-        label: CHARACTER_UNAVAILABLE_TEXT,
-        kind: "warn",
-        detail: "角色的呈現程式已停止或失去連線；安全訊息會改以固定文字顯示，系統與進行中的工作不受影響。",
-      };
-    }
-    if (HIDDEN_LIFECYCLES.has(instance.lifecycle) || presence?.visible === false) {
-      return { label: "已隱藏", kind: "muted", detail: "角色視窗已連線但目前隱藏；打開「顯示桌面角色」就會出現。" };
-    }
-    if (READY_LIFECYCLES.has(instance.lifecycle)) {
-      return { label: "角色視窗運作中", kind: "ok", detail: "角色視窗已連線並正在呈現。" };
-    }
-    return { label: "準備中", kind: "pending", detail: "角色視窗正在載入。" };
-  }
-  if (presence?.connected === true) {
-    return presence.visible === true
-      ? { label: "角色視窗運作中", kind: "ok", detail: "角色視窗已連線並正在呈現。" }
-      : { label: "已隱藏", kind: "muted", detail: "角色視窗已連線但目前隱藏；打開「顯示桌面角色」就會出現。" };
-  }
-  return {
-    label: "角色視窗未連線",
-    kind: "bad",
-    detail: "桌面角色視窗沒有連上（瀏覽器檢視沒有角色視窗）。安全訊息仍會以固定文字顯示在控制中心。",
-  };
-}
+import { buildQuietHoursPatch, QUIET_SILENCED_CHANNELS as CANONICAL_QUIET_SILENCED_CHANNELS } from "../quietHours";
 
 /**
  * 目前角色 id：使用者選的 → 角色視窗回報的 → 索引宣告的預設 → 純文字角色。
@@ -267,7 +220,7 @@ export function CompanionPage({
     [active, catalog.cards, changePreference, selectCharacter]
   );
 
-  const live = characterLiveState(instance, presence);
+  const live = projectCharacterLifecycle(instance, presence);
   const explanation = String(
     presence?.behaviorExplanation ??
       (presence?.behaviorState as Record<string, unknown> | null | undefined)?.explanation ??
