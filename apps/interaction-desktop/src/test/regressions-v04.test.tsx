@@ -255,7 +255,8 @@ describe("Source Viewer 真實媒體預覽", () => {
       dataBase64: "iVBORw0KGgo=",
       note: "runtime payload",
     });
-    render(<MemoryKnowledgePage refreshKey={0} />);
+    // 進階模式才原樣顯示後端 note；一般模式改用人話（memory-ui-002）。
+    render(<MemoryKnowledgePage refreshKey={0} advanced />);
     await userEvent.click(screen.getByRole("tab", { name: "素材與來源" }));
     await userEvent.click(await screen.findByRole("button", { name: "開啟來源" }));
     const viewer = await screen.findByTestId("source-media-viewer");

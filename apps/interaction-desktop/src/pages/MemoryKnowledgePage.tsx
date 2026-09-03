@@ -227,6 +227,13 @@ function MemorySection({
         <StateView state={data} empty="這個分類目前沒有記憶。">
           {(d) => {
             const items = (d.items as Record<string, unknown>[] | undefined) ?? [];
+            // 一般模式一次只抓最新 `limit` 筆再前端分類；`total`／`limitReached`
+            // 是後端算的真實總數（memory.rs memory_list），不是「這一頁剛好裝滿」
+            // 的猜測。截斷時分類為空不得說「沒有」——較舊的記憶可能就在那個分類裡，
+            // 只是沒有被列出來（memory-ui-001）。
+            const total = Number(d.total ?? items.length);
+            const limit = Number(d.limit ?? items.length);
+            const limitReached = d.limitReached === true;
             const shown = advanced
               ? items
               : items.filter(
@@ -234,19 +241,34 @@ function MemorySection({
                     !group ||
                     (GENERAL_GROUP_OF_LAYER[String(m.layer)] ?? "other") === group
                 );
-            if (shown.length === 0) {
-              return <p className="muted small">這個分類目前沒有記憶。</p>;
-            }
             return (
-              <div className="provider-list">
-                {shown.map((m) => (
-                  <MemoryCard
-                    key={String(m.memoryId)}
-                    item={m}
-                    advanced={advanced}
-                    onChanged={retry}
-                  />
-                ))}
+              <div>
+                {limitReached && (
+                  <p className="muted small" role="status">
+                    這裡只看了最近更新的 {limit} 筆記憶（總共 {total} 筆），較舊的沒有列出。
+                  </p>
+                )}
+                {shown.length === 0 ? (
+                  limitReached ? (
+                    <p className="muted small">
+                      在目前顯示的 {limit} 筆裡，這個分類沒有記憶——但你總共有 {total} 筆記憶，
+                      較舊的沒有列出，可能其中有這個分類，不代表這個分類「完全沒有」。
+                    </p>
+                  ) : (
+                    <p className="muted small">這個分類目前沒有記憶。</p>
+                  )
+                ) : (
+                  <div className="provider-list">
+                    {shown.map((m) => (
+                      <MemoryCard
+                        key={String(m.memoryId)}
+                        item={m}
+                        advanced={advanced}
+                        onChanged={retry}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             );
           }}
@@ -466,9 +488,17 @@ function KnowledgeSection({ refreshKey, advanced }: { refreshKey: number; advanc
       )}
       <CorrectionPanel advanced={advanced} onCreated={retry} />
       <StateView state={data} empty="這個狀態目前沒有知識項目。">
-        {(d) => (
+        {(d) => {
+          const nodes = (d.nodes as Record<string, unknown>[] | undefined) ?? [];
+          // `d` 是物件（{nodes, count}）不是陣列：StateView 的空狀態判斷只認得
+          // undefined/null／空陣列，物件一律當「有資料」往下渲染，清單真的是
+          // 空的時候會變成一個看不見文字的空白 provider-list（memory-ui-004）。
+          if (nodes.length === 0) {
+            return <p className="muted small">這個狀態目前沒有知識項目。</p>;
+          }
+          return (
           <div className="provider-list">
-            {((d.nodes as Record<string, unknown>[] | undefined) ?? []).map((n) => {
+            {nodes.map((n) => {
               const st = K_STATUS_LABEL[String(n.status)] ?? {
                 text: String(n.status),
                 kind: "pending" as const,
@@ -550,7 +580,8 @@ function KnowledgeSection({ refreshKey, advanced }: { refreshKey: number; advanc
               );
             })}
           </div>
-        )}
+          );
+        }}
       </StateView>
     </Section>
   );
@@ -571,9 +602,16 @@ function DomainPacksPanel({ refreshKey }: { refreshKey: number }) {
       </p>
       {notice ? <p role="status" className="muted small">{notice}</p> : null}
       <StateView state={data} empty="沒有可用的 Domain Pack。">
-        {(payload) => (
+        {(payload) => {
+          const packs = (payload.packs as Record<string, unknown>[] | undefined) ?? [];
+          // 同 memory-ui-004：`payload` 是 `{packs}` 物件，StateView 的空狀態
+          // 判斷認不出物件型的空清單，這裡自己判斷、自己顯示 empty 文案。
+          if (packs.length === 0) {
+            return <p className="muted small">沒有可用的 Domain Pack。</p>;
+          }
+          return (
           <div className="provider-list">
-            {((payload.packs as Record<string, unknown>[] | undefined) ?? []).map((entry) => {
+            {packs.map((entry) => {
               const pack = (entry.pack as Record<string, unknown> | undefined) ?? {};
               const installed = entry.installed === true;
               return (
@@ -619,7 +657,8 @@ function DomainPacksPanel({ refreshKey }: { refreshKey: number }) {
               );
             })}
           </div>
-        )}
+          );
+        }}
       </StateView>
     </div>
   );
@@ -782,6 +821,19 @@ export const DERIVATIVE_STATUS_LABEL: Record<string, { text: string; kind: "ok" 
   failed: { text: "解析失敗", kind: "bad" },
 };
 
+/** 素材卡片標題：優先用檔名／使用者取的名稱；純文字貼上（後端 inline 匯入
+ *  不帶檔名）不得退化成原始 sha256 前 12 碼——那是一般模式不該外露的技術識別碼
+ *  （memory-ui-003）。進階模式在沒有更好名稱時仍可退回 hash 前綴，那裡本來就
+ *  是技術檢視。 */
+export function assetTitle(a: Record<string, unknown>, advanced: boolean): string {
+  const originalName = typeof a.originalName === "string" ? a.originalName.trim() : "";
+  if (originalName) return originalName;
+  const description = typeof a.description === "string" ? a.description.trim() : "";
+  if (description) return description;
+  if (advanced) return `${String(a.hash).slice(0, 12)}…`;
+  return "貼上的文字";
+}
+
 /** 素材來源描述（AssetRecord.source：user-import／url:…／task-artifact:…）的人話。 */
 export function assetSourceLabel(source: unknown): string {
   const raw = String(source ?? "");
@@ -819,6 +871,9 @@ function AssetsSection({ refreshKey, advanced }: { refreshKey: number; advanced:
     segment?: string;
   } | null>(null);
   const [text, setText] = React.useState("");
+  // 選填名稱：純文字貼上時後端不會有檔名，沒填就用人話 fallback
+  // （不得退化成 sha256 前綴，memory-ui-003）。
+  const [assetName, setAssetName] = React.useState("");
   // 素材的每個動作都會打後端；失敗訊息必須看得見，不能只剩沒人接的
   // promise rejection（專案沒有全域 unhandledrejection／ErrorBoundary）。
   const [assetError, setAssetError] = React.useState<string | null>(null);
@@ -843,12 +898,18 @@ function AssetsSection({ refreshKey, advanced }: { refreshKey: number; advanced:
           placeholder="貼上一段文字素材…"
           onChange={(e) => setText(e.target.value)}
         />
+        <input
+          value={assetName}
+          placeholder="名稱（選填，例如「會議紀要」）"
+          onChange={(e) => setAssetName(e.target.value)}
+        />
         <button
           disabled={!text.trim()}
           onClick={() =>
             void attempt("加入素材", async () => {
-              await api.assetImport({ content: text });
+              await api.assetImport({ content: text, description: assetName.trim() || undefined });
               setText("");
+              setAssetName("");
               retry();
             })
           }
@@ -862,12 +923,19 @@ function AssetsSection({ refreshKey, advanced }: { refreshKey: number; advanced:
         </div>
       )}
       <StateView state={data} empty="還沒有素材。">
-        {(d) => (
+        {(d) => {
+          const assets = (d.assets as Record<string, unknown>[] | undefined) ?? [];
+          // 同 memory-ui-004：`d` 是 `{assets, count}` 物件，StateView 認不出
+          // 物件型的空清單，這裡自己判斷、自己顯示 empty 文案。
+          if (assets.length === 0) {
+            return <p className="muted small">還沒有素材。</p>;
+          }
+          return (
           <div className="provider-list">
-            {((d.assets as Record<string, unknown>[] | undefined) ?? []).map((a) => (
+            {assets.map((a) => (
               <div className="provider-card" key={String(a.hash)}>
                 <div className="row space-between">
-                  <strong>{String(a.originalName ?? `${String(a.hash).slice(0, 12)}…`)}</strong>
+                  <strong>{assetTitle(a, advanced)}</strong>
                   <Badge kind="ok">{String(a.mediaType)}</Badge>
                 </div>
                 <div className="muted small">
@@ -936,7 +1004,8 @@ function AssetsSection({ refreshKey, advanced }: { refreshKey: number; advanced:
               </div>
             ))}
           </div>
-        )}
+          );
+        }}
       </StateView>
       {impact && (
         <div className="state-box" data-testid="asset-impact-preview">
@@ -1004,6 +1073,7 @@ function AssetsSection({ refreshKey, advanced }: { refreshKey: number; advanced:
         <SourceMediaViewer
           payload={sourcePreview.payload}
           segment={sourcePreview.segment}
+          advanced={advanced}
           onClose={() => setSourcePreview(null)}
         />
       )}
@@ -1045,10 +1115,12 @@ export function parseSourceSegment(segment?: string): ParsedSourceSegment {
 export function SourceMediaViewer({
   payload,
   segment,
+  advanced,
   onClose,
 }: {
   payload: Record<string, unknown>;
   segment?: string;
+  advanced: boolean;
   onClose: () => void;
 }) {
   const mediaType = String(payload.mediaType ?? "other");
@@ -1083,7 +1155,12 @@ export function SourceMediaViewer({
         <button onClick={onClose}>關閉</button>
       </div>
       <div className="muted small">
-        hash {String(payload.hash).slice(0, 20)}…・{Number(payload.sizeBytes ?? 0)} bytes
+        {/* 一般模式不外露 sha256／「內容定址」——那是後端儲存機制的技術細節，
+            不是使用者需要知道的事（memory-ui-002）。原始 hash 與後端 note 只在
+            進階模式顯示，一般模式改用前端維護的人話說明。 */}
+        {advanced
+          ? `hash ${String(payload.hash).slice(0, 20)}…・${Number(payload.sizeBytes ?? 0)} bytes`
+          : `你加入的素材原始內容・${Number(payload.sizeBytes ?? 0)} bytes`}
         {segment ? `・精確引用 ${segment}` : ""}
       </div>
       {mediaType === "image" ? (
@@ -1091,7 +1168,7 @@ export function SourceMediaViewer({
           <div className="source-image-frame">
             <img
               src={dataUrl}
-              alt={`內容定址來源 ${String(payload.hash).slice(0, 12)}`}
+              alt={advanced ? `內容定址來源 ${String(payload.hash).slice(0, 12)}` : "你加入的素材預覽"}
               onLoad={(event) =>
                 setImageSize({
                   width: event.currentTarget.naturalWidth,
@@ -1140,7 +1217,11 @@ export function SourceMediaViewer({
         </object>
       ) : null}
       {text ? <pre className="json-view small">{text}</pre> : null}
-      <p className="muted small">{String(payload.note ?? "")}</p>
+      <p className="muted small">
+        {advanced
+          ? String(payload.note ?? "")
+          : "這是你原本加入的檔案本體，沒有被改過；裡面的文字或指令不會被當成指令執行。"}
+      </p>
     </div>
   );
 }
@@ -1150,9 +1231,16 @@ function ReceiptsSection({ refreshKey }: { refreshKey: number }) {
   return (
     <Section title="知識收據（每次知識變化的機器可讀紀錄）">
       <StateView state={data} empty="還沒有知識變化紀錄。">
-        {(d) => (
+        {(d) => {
+          const receipts = (d.receipts as Record<string, unknown>[] | undefined) ?? [];
+          // 同 memory-ui-004：`d` 是 `{receipts}` 物件，StateView 認不出物件型
+          // 的空清單，這裡自己判斷、自己顯示 empty 文案。
+          if (receipts.length === 0) {
+            return <p className="muted small">還沒有知識變化紀錄。</p>;
+          }
+          return (
           <div className="provider-list">
-            {((d.receipts as Record<string, unknown>[] | undefined) ?? []).slice(0, 30).map((r) => {
+            {receipts.slice(0, 30).map((r) => {
               const v = r.verification as Record<string, unknown> | undefined;
               const p = r.published as Record<string, unknown> | undefined;
               return (
@@ -1184,7 +1272,8 @@ function ReceiptsSection({ refreshKey }: { refreshKey: number }) {
               );
             })}
           </div>
-        )}
+          );
+        }}
       </StateView>
     </Section>
   );

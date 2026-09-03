@@ -112,8 +112,13 @@ impl Runtime {
     }
 
     /// 列出（layer 可選）＋衍生狀態（active/stale/expired）。
+    ///
+    /// `count` 只是「這次回了幾筆」；`total`（`count_memory`，同一個 layer 篩選）
+    /// 才是資料庫真實筆數，`limitReached` 比照 `memory_export` 誠實回報是否被截斷——
+    /// 呼叫端（尤其一般模式在前端再分組過濾）不得把「這一頁裡沒有」講成「沒有」。
     pub async fn memory_list(&self, layer: Option<&str>, limit: u32) -> DomainResult<Value> {
         let now = Utc::now();
+        let total = self.store.count_memory(layer)?;
         let bodies = self.store.list_memory(layer, limit)?;
         let mut items = Vec::new();
         for body in bodies {
@@ -126,7 +131,14 @@ impl Runtime {
                 items.push(v);
             }
         }
-        Ok(json!({"items": items, "count": items.len()}))
+        let limit_reached = total > limit;
+        Ok(json!({
+            "items": items,
+            "count": items.len(),
+            "total": total,
+            "limit": limit,
+            "limitReached": limit_reached,
+        }))
     }
 
     /// 清除 session 暫存（session 結束／使用者「清除短期記憶」）。
