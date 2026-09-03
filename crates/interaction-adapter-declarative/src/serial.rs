@@ -36,6 +36,27 @@ const MAX_PARTIAL_LINE_BYTES: usize = 16 * 1024;
 /// shutdown 時等 reader 執行緒收尾的上限。pty fallback 的 read 沒有逾時，
 /// 裝置完全沉默時可能還卡在 read——關閉必須有界，不能無限 join。
 const READER_JOIN_GRACE_MS: u64 = 500;
+/// 一段連線活多久才算「真的連上過」。開得起來、但立刻 EOF 的節點
+/// （一般檔案、/dev/null、peer 已關閉的 pty）不能被當成成功連線而
+/// 把退避歸零——否則會變成每 ≤200ms 重連一輪的 churn。
+const SESSION_MIN_ALIVE_MS: u64 = 1_000;
+/// 連續幾段「立刻斷」的連線之後，健康度必須誠實落到 offline。
+/// 一直在 Connecting／已連線之間跳動＝永遠不告訴使用者這台裝置不能用。
+const SHORT_SESSIONS_BEFORE_OFFLINE: u32 = 2;
+
+/// 被放生（沒 join 到）的 reader 執行緒累計數。
+///
+/// 已知限制：reader 與 writer 是同一個 fd 的 `dup`，POSIX 下關掉其中一個
+/// **不會**讓另一個上面的 blocking read 返回。serialport 路徑有 200ms 讀取
+/// 逾時所以無妨；ENOTTY 的檔案／pty fallback 沒有逾時，裝置完全沉默時
+/// reader 會一直卡著，寬限期過後只能 detach。計數在這裡，測試與診斷才看得到
+/// 洩漏，而不是「契約說會回收、實際上沒有」。
+static DETACHED_READERS: AtomicU64 = AtomicU64::new(0);
+
+/// 目前為止被放生的 reader 執行緒數（見 [`DETACHED_READERS`]）。
+pub fn detached_reader_threads() -> u64 {
+    DETACHED_READERS.load(Ordering::SeqCst)
+}
 
 // link_state 的原子編碼（AtomicU8）。
 const STATE_CONNECTING: u8 = 0;
@@ -114,6 +135,9 @@ pub struct SerialRawLink {
     state: Arc<AtomicU8>,
     /// supervisor 執行緒是否已收尾（shutdown 測試用）。
     supervisor_done: Arc<AtomicBool>,
+    /// 收到但解不開的行數（亂碼、截斷、非 JSON）。靜默丟棄會把「裝置有回、
+    /// 我們讀不懂」講成「裝置沒回」——等待逾時的 detail 要帶上它。
+    undecodable: Arc<AtomicU64>,
 }
 
 impl SerialRawLink {
@@ -131,6 +155,7 @@ impl SerialRawLink {
             generation: Arc::new(AtomicU64::new(0)),
             state: Arc::new(AtomicU8::new(STATE_CONNECTING)),
             supervisor_done: Arc::new(AtomicBool::new(false)),
+            undecodable: Arc::new(AtomicU64::new(0)),
         });
         let ctx = SupervisorCtx {
             connected: link.connected.clone(),
@@ -138,6 +163,7 @@ impl SerialRawLink {
             generation: link.generation.clone(),
             state: link.state.clone(),
             done: link.supervisor_done.clone(),
+            undecodable: link.undecodable.clone(),
         };
         if std::thread::Builder::new()
             .name(format!("serial-sup-{port}"))
@@ -180,6 +206,7 @@ struct SupervisorCtx {
     generation: Arc<AtomicU64>,
     state: Arc<AtomicU8>,
     done: Arc<AtomicBool>,
+    undecodable: Arc<AtomicU64>,
 }
 
 fn supervisor(
@@ -195,12 +222,16 @@ fn supervisor(
         generation,
         state,
         done,
+        undecodable,
     } = ctx;
     let mut backoff = BACKOFF_START_MS;
+    // 連續幾段「開得起來但立刻斷」的連線。退避只寫在「開不起來」那一邊時，
+    // 這種節點會每 ≤200ms 重連一輪：thread churn、世代狂跳、排隊的命令被
+    // 一直丟掉，而 health 永遠不落到 offline。
+    let mut short_sessions: u32 = 0;
     while !shutdown.load(Ordering::SeqCst) {
         match open_port(&port, baud) {
             Ok(halves) => {
-                backoff = BACKOFF_START_MS;
                 let (reader, mut writer): (Box<dyn Read + Send>, Box<dyn Write + Send>) =
                     match halves {
                         PortHalves::Serial(handle) => match handle.try_clone() {
@@ -235,12 +266,14 @@ fn supervisor(
                 connected.store(true, Ordering::SeqCst);
                 state.store(STATE_CONNECTED, Ordering::SeqCst);
                 let alive = Arc::new(AtomicBool::new(true));
+                let session_start = Instant::now();
 
                 // Reader thread：讀行→廣播；EOF/錯誤＝連線死。
                 let reader_alive = alive.clone();
                 let reader_shutdown = shutdown.clone();
                 let reader_inbound = inbound.clone();
                 let reader_port = port.clone();
+                let reader_undecodable = undecodable.clone();
                 let reader_handle = std::thread::Builder::new()
                     .name(format!("serial-read-{port}"))
                     .spawn(move || {
@@ -250,6 +283,7 @@ fn supervisor(
                             &reader_alive,
                             &reader_shutdown,
                             &reader_inbound,
+                            &reader_undecodable,
                         );
                         reader_alive.store(false, Ordering::SeqCst);
                     })
@@ -283,10 +317,28 @@ fn supervisor(
                 }
                 alive.store(false, Ordering::SeqCst);
                 connected.store(false, Ordering::SeqCst);
+                let lived = session_start.elapsed();
+                let died_immediately = lived < Duration::from_millis(SESSION_MIN_ALIVE_MS);
+                if died_immediately {
+                    short_sessions = short_sessions.saturating_add(1);
+                } else {
+                    short_sessions = 0;
+                    backoff = BACKOFF_START_MS; // 真的連上過才把退避歸零
+                }
                 if !shutdown.load(Ordering::SeqCst) {
-                    state.store(STATE_CONNECTING, Ordering::SeqCst);
+                    // 連續立刻斷的埠不得永遠停在「連線中」：使用者要看得出
+                    // 這台裝置現在就是不能用。
+                    state.store(
+                        if short_sessions >= SHORT_SESSIONS_BEFORE_OFFLINE {
+                            STATE_DISCONNECTED
+                        } else {
+                            STATE_CONNECTING
+                        },
+                        Ordering::SeqCst,
+                    );
                 }
                 drop(writer); // 關掉 fd，讓 reader 的 blocking read 解除
+                              // （注意：dup 過的 fd 上這不成立——見 DETACHED_READERS）
                 if let Some(handle) = reader_handle {
                     // 有界 join：pty fallback 的 read 沒有逾時，裝置沉默時
                     // reader 可能還卡著——關閉不能無限等，逾時就放生
@@ -300,11 +352,31 @@ fn supervisor(
                     if handle.is_finished() {
                         let _ = handle.join();
                     } else {
-                        tracing::debug!(
+                        // 放生一條執行緒是真的洩漏（reader 與 writer 是同一個
+                        // fd 的 dup，關掉 writer 解不開對方的 blocking read）。
+                        // 計數並以 warn 記錄，才不會變成「契約說會回收、
+                        // 實際上悄悄留著」。
+                        let total = DETACHED_READERS.fetch_add(1, Ordering::SeqCst) + 1;
+                        tracing::warn!(
                             port = %port,
-                            "serial reader thread still blocked on read; detaching it"
+                            detached_total = total,
+                            "serial reader thread still blocked on read; detaching it \
+                             (known limitation of the pty/file fallback: no read timeout)"
                         );
                     }
+                }
+                // 開得起來但立刻斷：與「開不起來」套用同一組指數退避，
+                // 否則會變成無退避的重連 churn。
+                if died_immediately && !shutdown.load(Ordering::SeqCst) {
+                    tracing::debug!(
+                        port = %port,
+                        lived_ms = lived.as_millis() as u64,
+                        backoff_ms = backoff,
+                        short_sessions,
+                        "serial link died immediately after opening; backing off"
+                    );
+                    interruptible_sleep(&shutdown, backoff);
+                    backoff = (backoff * 2).min(BACKOFF_MAX_MS);
                 }
             }
             Err(e) => {
@@ -337,6 +409,7 @@ fn pump_lines<R: Read>(
     alive: &AtomicBool,
     shutdown: &AtomicBool,
     inbound: &broadcast::Sender<DeviceMsg>,
+    undecodable: &AtomicU64,
 ) {
     let mut buf = BufReader::new(reader);
     let mut line = String::new();
@@ -347,8 +420,22 @@ fn pump_lines<R: Read>(
         match buf.read_line(&mut line) {
             Ok(0) => break, // EOF＝裝置拔線
             Ok(_) => {
-                if let Some(msg) = parse_device_msg(&line) {
-                    let _ = inbound.send(msg);
+                match parse_device_msg(&line) {
+                    Some(msg) => {
+                        let _ = inbound.send(msg);
+                    }
+                    // 解不開的一行不得靜默消失：等待中的請求會把它講成
+                    // 「裝置沒回」，人與 AI 因此去查拔線／配對，而真因是
+                    // 這一行讀不懂（亂碼、被截斷、非本協定）。
+                    None if !line.trim().is_empty() => {
+                        undecodable.fetch_add(1, Ordering::SeqCst);
+                        tracing::warn!(
+                            port = %port,
+                            bytes = line.trim_end().len(),
+                            "serial: a line from the device could not be decoded; discarded"
+                        );
+                    }
+                    None => {}
                 }
                 line.clear();
             }
@@ -482,6 +569,10 @@ impl RawLink for SerialRawLink {
             STATE_CLOSED => LinkState::Closed,
             _ => LinkState::Disconnected,
         }
+    }
+
+    fn undecodable_messages(&self) -> u64 {
+        self.undecodable.load(Ordering::SeqCst)
     }
 
     fn shutdown(&self) {
@@ -621,7 +712,14 @@ mod tests {
             Err(std::io::ErrorKind::WouldBlock), // 換行前又停頓
             chunk("\n"),
         ]);
-        pump_lines(reader, "/dev/fake", &alive, &shutdown, &inbound);
+        pump_lines(
+            reader,
+            "/dev/fake",
+            &alive,
+            &shutdown,
+            &inbound,
+            &AtomicU64::new(0),
+        );
         let msg = rx
             .try_recv()
             .expect("被逾時切成三段的 ack 仍必須解析得出來");
@@ -648,7 +746,14 @@ mod tests {
             chunk("{\"type\":\"ack\",\"id\":\"a1\"}\n"),
             chunk("{\"type\":\"ack\",\"id\":\"a2\"}\n"),
         ]);
-        pump_lines(reader, "/dev/fake", &alive, &shutdown, &inbound);
+        pump_lines(
+            reader,
+            "/dev/fake",
+            &alive,
+            &shutdown,
+            &inbound,
+            &AtomicU64::new(0),
+        );
         for want in ["a1", "a2"] {
             match rx.try_recv().expect("兩行都要收到") {
                 DeviceMsg::Ack { id, .. } => assert_eq!(id.as_deref(), Some(want)),
@@ -669,7 +774,14 @@ mod tests {
             Err(std::io::ErrorKind::TimedOut),
             chunk("{\"type\":\"ack\",\"id\":\"a1\"}\n"),
         ]);
-        pump_lines(reader, "/dev/fake", &alive, &shutdown, &inbound);
+        pump_lines(
+            reader,
+            "/dev/fake",
+            &alive,
+            &shutdown,
+            &inbound,
+            &AtomicU64::new(0),
+        );
         match rx.try_recv().expect("超長殘段丟棄後仍要讀得到下一則") {
             DeviceMsg::Ack { id, .. } => assert_eq!(id.as_deref(), Some("a1")),
             other => panic!("expected ack, got {other:?}"),
@@ -718,6 +830,93 @@ mod tests {
             SpKind::Io(std::io::ErrorKind::PermissionDenied),
             "Permission denied (os error 13)"
         )));
+    }
+
+    /// link-transports-054：pty／檔案 fallback 的 read 沒有逾時，reader 與
+    /// writer 又是同一個 fd 的 `dup`（關掉 writer 解不開對方的 blocking read）。
+    /// 裝置完全沉默時 shutdown 只能放生那條執行緒——這是真的洩漏，所以**必須
+    /// 被計數**，不能讓 `RawLink::shutdown` 的契約（「回收執行緒」）與實際
+    /// 行為悄悄不一致。
+    ///
+    /// 若日後把 fallback 改成可中斷的讀法（O_NONBLOCK＋poll），這個測試要
+    /// 反過來斷言計數**不**增加。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_reader_that_cannot_be_reclaimed_is_counted_not_hidden() {
+        let Some(mut pty) = Pty::spawn() else {
+            eprintln!("python3 unavailable; skipping pty test");
+            return;
+        };
+        // 只有沒有讀取逾時的 fallback 路徑才會卡住；serialport 正常路徑
+        // 有 200ms 逾時，reader 自己就會結束。
+        let fallback = matches!(open_port(&pty.path, 115_200), Ok(PortHalves::File(_)));
+        if !fallback {
+            eprintln!("this platform opens the pty through serialport (read timeout); skipping");
+            pty.kill();
+            return;
+        }
+        let before = detached_reader_threads();
+        let link = SerialRawLink::spawn(pty.path.clone(), 115_200);
+        // 等 supervisor 真的連上（並起了 reader）。
+        for _ in 0..30 {
+            if RawLink::connected(&*link) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(RawLink::connected(&*link), "pty should open");
+        link.shutdown();
+        // supervisor 最多 200ms 看到旗標，再給 reader 500ms 寬限。
+        for _ in 0..40 {
+            if detached_reader_threads() > before {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(
+            detached_reader_threads() > before,
+            "沉默的 pty 上放生的 reader 必須被計數（現在是已知限制，不是「已回收」）"
+        );
+        pty.kill();
+    }
+
+    /// link-transports-049：開得起來、但立刻 EOF 的節點（一般檔案／
+    /// /dev/null／peer 已關的 pty）必須退避，並在連續幾輪之後把健康度
+    /// 誠實降到 offline。舊版的退避只寫在「開不起來」那一邊：這種節點會
+    /// 每 ≤200ms 重連一輪（thread churn、世代狂跳、排隊的命令被一直丟掉），
+    /// 而 health 永遠停在「連線中」，使用者永遠不知道這台裝置不能用。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_port_that_dies_immediately_backs_off_and_is_reported_offline() {
+        let path = std::env::temp_dir().join(format!(
+            "serial-churn-{}-{}.probe",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::write(&path, b"").expect("probe file");
+        let path_str = path.to_string_lossy().to_string();
+        if !matches!(open_port(&path_str, 115_200), Ok(PortHalves::File(_))) {
+            eprintln!("this platform does not take the file fallback; skipping");
+            let _ = std::fs::remove_file(&path);
+            return;
+        }
+        let link = SerialRawLink::spawn(path_str, 115_200);
+        // 每段連線約 200ms（writer 迴圈的 recv_timeout）。沒有退避時，
+        // 1.5 秒內會轉 6 輪以上；有退避（1s→2s）最多 2 輪。
+        tokio::time::sleep(Duration::from_millis(1_500)).await;
+        let generations = RawLink::generation(&*link);
+        assert!(
+            generations <= 3,
+            "立刻斷的埠必須退避（世代 {generations} 次＝無退避的重連 churn）"
+        );
+        assert_eq!(
+            RawLink::link_state(&*link),
+            LinkState::Disconnected,
+            "連續立刻斷之後，健康度必須誠實落到 offline，不能一直停在「連線中」"
+        );
+        link.shutdown();
+        let _ = std::fs::remove_file(&path);
     }
 
     /// 一般檔案不是 tty：termios ioctl 會回 ENOTTY。用它固定「真實

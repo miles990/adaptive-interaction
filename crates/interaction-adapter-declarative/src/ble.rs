@@ -55,6 +55,88 @@ pub(crate) fn peripheral_matches(
     }
 }
 
+/// 重組緩衝上限。裝置一直不送換行也不得讓緩衝無界成長
+/// （parse_device_msg 本來就只解析 ≤16KB）。
+const NOTIFY_BUFFER_MAX: usize = 16 * 1024;
+
+/// device→host 的 notification 重組器。
+///
+/// 為什麼需要它：ATT 的 Handle-Value-Notification 可攜 payload 只有
+/// `ATT_MTU − 3`（預設 MTU 23 → 20 bytes），超過的部分由協定棧直接截掉。
+/// 參考韌體的 `state` 訊息在預設 deviceId 下就有 193 bytes——只要協商到的
+/// MTU 不夠大，host 每次收到的都是破 JSON。舊版把解不出來的 bytes 無聲
+/// 丟掉，`read_state` 只會逾時說「device did not answer read」，沒有任何
+/// 一行 log 指向真因。
+///
+/// 規則（與韌體的分段送出配套）：
+/// - 換行界定一則訊息：湊齊一行就解析、送出。
+/// - 沒有換行時，若目前緩衝**整段**就是一則合法訊息，也送出（相容
+///   「一則訊息一個 notification、不加換行」的舊韌體）。
+/// - 解不開就 warn＋計數，絕不靜默丟棄。
+#[derive(Default)]
+pub(crate) struct NotifyAssembler {
+    buffer: Vec<u8>,
+}
+
+impl NotifyAssembler {
+    pub(crate) fn push(
+        &mut self,
+        chunk: &[u8],
+        device: &str,
+        inbound: &broadcast::Sender<DeviceMsg>,
+        undecodable: &AtomicU64,
+    ) {
+        self.buffer.extend_from_slice(chunk);
+        while let Some(idx) = self.buffer.iter().position(|b| *b == b'\n') {
+            let line: Vec<u8> = self.buffer.drain(..=idx).collect();
+            Self::emit(&line[..line.len() - 1], device, inbound, undecodable, true);
+        }
+        if self.buffer.is_empty() {
+            return;
+        }
+        // 沒有換行：可能是舊韌體「一則訊息一個 notification」。整段解得開
+        // 就當一則訊息；解不開就先留著等後續分段（超過上限才誠實丟棄）。
+        if Self::emit(&self.buffer, device, inbound, undecodable, false) {
+            self.buffer.clear();
+        } else if self.buffer.len() > NOTIFY_BUFFER_MAX {
+            undecodable.fetch_add(1, Ordering::SeqCst);
+            tracing::warn!(
+                device = %device,
+                bytes = self.buffer.len(),
+                "ble: unterminated notification data exceeded the buffer limit; discarded"
+            );
+            self.buffer.clear();
+        }
+    }
+
+    /// 回傳「這段 bytes 是否是一則可解析的訊息」。`complete`＝這是一整行
+    /// （換行界定），解不開就是真的壞掉，必須 warn＋計數。
+    fn emit(
+        bytes: &[u8],
+        device: &str,
+        inbound: &broadcast::Sender<DeviceMsg>,
+        undecodable: &AtomicU64,
+        complete: bool,
+    ) -> bool {
+        let text = std::str::from_utf8(bytes).ok();
+        if let Some(msg) = text.and_then(parse_device_msg) {
+            let _ = inbound.send(msg);
+            return true;
+        }
+        if complete && !bytes.iter().all(|b| b.is_ascii_whitespace()) {
+            undecodable.fetch_add(1, Ordering::SeqCst);
+            tracing::warn!(
+                device = %device,
+                bytes = bytes.len(),
+                utf8 = text.is_some(),
+                "ble: a notification could not be decoded (truncated by the ATT MTU, or not this \
+                 protocol); discarded"
+            );
+        }
+        false
+    }
+}
+
 // link_state 的原子編碼（與 serial/mqtt 對齊）。BLE 是「用到才連」，
 // 所以初始狀態是 Connecting（尚未連線，但會在首次使用時連）。
 const STATE_CONNECTING: u8 = 0;
@@ -154,6 +236,9 @@ pub struct BleRawLink {
     /// CentralEvent::DeviceDisconnected 觀察者：讓 connected()／health 在
     /// 裝置離開範圍時立刻反映，而不是等下一次派工才發現。
     disconnect_task: TaskSlot,
+    /// 收到但解不開的 notification 數（被 ATT MTU 截斷、非 UTF-8、非本協定）。
+    /// 靜默丟棄會把「裝置有回、我們讀不懂」講成「裝置沒回」。
+    undecodable: Arc<AtomicU64>,
 }
 
 impl BleRawLink {
@@ -176,7 +261,13 @@ impl BleRawLink {
             closed: Arc::new(AtomicBool::new(false)),
             notify_task: TaskSlot::new(),
             disconnect_task: TaskSlot::new(),
+            undecodable: Arc::new(AtomicU64::new(0)),
         })
+    }
+
+    /// 收到但解不開的 notification 累計數（診斷／誠實逾時訊息用）。
+    pub fn undecodable_notifications(&self) -> u64 {
+        self.undecodable.load(Ordering::SeqCst)
     }
 
     /// notification task 是否仍在跑（回收驗證用）。
@@ -296,16 +387,15 @@ impl BleRawLink {
         let inbound = self.inbound.clone();
         let state_uuid = self.state_uuid;
         let notify_state = self.state.clone();
+        let notify_undecodable = self.undecodable.clone();
+        let notify_device = self.device_name.clone();
         // 新 task 取代舊的（TaskSlot::replace 會 abort 前一條）——
         // 重連不得累積殭屍 notification task。
         self.notify_task.replace(tokio::spawn(async move {
+            let mut assembler = NotifyAssembler::default();
             while let Some(data) = notifications.next().await {
                 if data.uuid == state_uuid {
-                    if let Ok(text) = std::str::from_utf8(&data.value) {
-                        if let Some(msg) = parse_device_msg(text) {
-                            let _ = inbound.send(msg);
-                        }
-                    }
+                    assembler.push(&data.value, &notify_device, &inbound, &notify_undecodable);
                 }
             }
             // notification stream 結束＝GATT session 沒了（某些後端只以此
@@ -431,6 +521,10 @@ impl RawLink for BleRawLink {
             STATE_CLOSED => LinkState::Closed,
             _ => LinkState::Disconnected,
         }
+    }
+
+    fn undecodable_messages(&self) -> u64 {
+        self.undecodable.load(Ordering::SeqCst)
     }
 
     fn shutdown(&self) {
@@ -604,6 +698,94 @@ mod tests {
             guard.disarm();
         }
         assert!(!stopped2.load(Ordering::SeqCst), "解除後不得再關一次");
+    }
+
+    /// 韌體 buildState() 在預設 deviceId 下產生的 state（193 bytes）。
+    /// 用它當基準，才不會把「這個問題只在很長的訊息上發生」講成理論。
+    fn firmware_state_json() -> String {
+        r#"{"type":"state","deviceId":"esp32-companion-01","facts":{"button":false,"distanceMm":842,"lux":133,"tempC":24.5,"vibeActive":false,"buzzActive":false,"servoAngle":90,"led":{"r":0,"g":0,"b":0}}}"#.to_string()
+    }
+
+    /// protocol-conformance-028：被 ATT MTU 截斷的 notification 不得靜默消失。
+    /// 舊版 `if let Ok(text) … if let Some(msg) …` 沒有 else 分支：host 只會
+    /// 逾時說「device did not answer read」，沒有一行 log 指向真因。
+    #[test]
+    fn a_truncated_notification_is_counted_and_never_silently_dropped() {
+        let state = firmware_state_json();
+        assert!(
+            state.len() > 182,
+            "the reference state must exceed a 185-MTU payload: {} bytes",
+            state.len()
+        );
+        let (tx, mut rx) = broadcast::channel(8);
+        let undecodable = AtomicU64::new(0);
+        let mut assembler = NotifyAssembler::default();
+        // 協定棧把它截到 MTU-3 = 182 bytes，並（如韌體般）以換行結尾。
+        let mut truncated = state.as_bytes()[..182].to_vec();
+        truncated.push(b'\n');
+        assembler.push(&truncated, "esp32-companion-01", &tx, &undecodable);
+        assert!(rx.try_recv().is_err(), "破 JSON 不得被當成一則訊息");
+        assert_eq!(
+            undecodable.load(Ordering::SeqCst),
+            1,
+            "解不開的 notification 必須被計數（等待逾時才說得出真因）"
+        );
+    }
+
+    /// 韌體端分段送出（每段 ≤ MTU-3、換行結尾）後，host 必須重組回同一則。
+    #[test]
+    fn a_chunked_notification_is_reassembled_into_one_message() {
+        let state = firmware_state_json();
+        let (tx, mut rx) = broadcast::channel(8);
+        let undecodable = AtomicU64::new(0);
+        let mut assembler = NotifyAssembler::default();
+        // 最保守的情況：協商失敗，一次只送得動 ATT 預設的 20 bytes。
+        for chunk in state.as_bytes().chunks(20) {
+            assembler.push(chunk, "esp32-companion-01", &tx, &undecodable);
+        }
+        assembler.push(b"\n", "esp32-companion-01", &tx, &undecodable);
+        match rx.try_recv() {
+            Ok(DeviceMsg::State { device_id, facts }) => {
+                assert_eq!(device_id.as_deref(), Some("esp32-companion-01"));
+                assert_eq!(facts["distanceMm"], serde_json::json!(842));
+            }
+            other => panic!("分段的 state 必須被重組回來，得到 {other:?}"),
+        }
+        assert_eq!(undecodable.load(Ordering::SeqCst), 0, "重組成功不算解不開");
+    }
+
+    /// 相容舊韌體：「一則訊息一個 notification、不加換行」仍要能用。
+    #[test]
+    fn a_whole_message_without_a_newline_still_works() {
+        let (tx, mut rx) = broadcast::channel(8);
+        let undecodable = AtomicU64::new(0);
+        let mut assembler = NotifyAssembler::default();
+        assembler.push(
+            br#"{"type":"pair-ok"}"#,
+            "esp32-companion-01",
+            &tx,
+            &undecodable,
+        );
+        assert!(matches!(rx.try_recv(), Ok(DeviceMsg::PairOk)));
+        assert_eq!(undecodable.load(Ordering::SeqCst), 0);
+    }
+
+    /// 一直不送換行也不得讓緩衝無界成長（有界解析）。
+    #[test]
+    fn unterminated_notification_data_is_bounded() {
+        let (tx, _rx) = broadcast::channel(8);
+        let undecodable = AtomicU64::new(0);
+        let mut assembler = NotifyAssembler::default();
+        let junk = vec![b'x'; 4096];
+        for _ in 0..6 {
+            assembler.push(&junk, "esp32-companion-01", &tx, &undecodable);
+        }
+        assert_eq!(
+            undecodable.load(Ordering::SeqCst),
+            1,
+            "超過上限要誠實丟棄＋計數，不得無限累積"
+        );
+        assert!(assembler.buffer.len() <= NOTIFY_BUFFER_MAX);
     }
 
     /// 別的 service、沒有名稱：絕不連（掃描過濾器只是建議，事件仍可能來）。

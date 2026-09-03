@@ -533,19 +533,36 @@ fn five_wrong_pairing_codes_lock_pairing_until_the_window_passes() {
 /// 否則真板一鎖定，host 會把它的回覆當成壞訊息而不是「配對被拒」。
 #[test]
 fn the_host_parses_the_locked_pair_fail_and_the_pairing_locked_hello() {
+    // link-transports-051：reason／retryAfterMs 不得被靜默吃掉。裝置已經算好
+    // 「碼可能是對的、N 毫秒後再試」，丟掉它就只剩「配對碼被拒絕」。
     assert_eq!(
         parse_device_msg(r#"{"type":"pair-fail","reason":"pair-locked","retryAfterMs":30000}"#),
-        Some(DeviceMsg::PairFail)
+        Some(DeviceMsg::PairFail {
+            reason: Some("pair-locked".into()),
+            retry_after_ms: Some(30_000),
+        })
+    );
+    // 沒帶原因的 pair-fail（一般錯碼）仍要解析得出來。
+    assert_eq!(
+        parse_device_msg(r#"{"type":"pair-fail"}"#),
+        Some(DeviceMsg::PairFail {
+            reason: None,
+            retry_after_ms: None,
+        })
     );
     let hello = parse_device_msg(
         r#"{"type":"hello","deviceId":"esp32-companion-01","fw":"1.0.0","proto":1,"caps":["led.set"],"pairing":true,"pairingLocked":true}"#,
     );
     match hello {
         Some(DeviceMsg::Hello {
-            device_id, pairing, ..
+            device_id,
+            pairing,
+            pairing_locked,
+            ..
         }) => {
             assert_eq!(device_id, "esp32-companion-01");
             assert!(pairing);
+            assert!(pairing_locked, "hello.pairingLocked must not be dropped");
         }
         other => panic!("hello with pairingLocked must still parse: {other:?}"),
     }
@@ -729,4 +746,174 @@ fn top_level_key_scanner_ignores_nested_objects() {
         vec!["a", "b", "c"]
     );
     assert_eq!(top_level_keys(r#"{"a": 1, "b": {"x": 2}}"#), vec!["a", "b"]);
+}
+
+// ---------------------------------------------------------------------------
+// protocol-conformance-027：超出 float32 範圍的數值參數 —— 韌體 clamp 後 ack，
+// 模擬器必須做同一件事。舊版讓 struct.pack 的 OverflowError 冒出去，
+// **整個模擬器程序退出**：host 只看到 ack/read 逾時，把參數問題誤診成傳輸問題。
+// ---------------------------------------------------------------------------
+
+#[test]
+fn out_of_range_numbers_are_clamped_like_the_firmware_and_never_kill_the_simulator() {
+    let Some(mut sim) = Sim::spawn("9927", &[]) else {
+        return;
+    };
+    let mut client = RawClient::open(&sim.pty_path);
+    client.pair("9927");
+
+    // 韌體：readNumber → as<float>()（溢位成 ±inf）→ roundToLong → clampLong。
+    // 一定會 ack，且 applied 落在硬限制表的邊界值上。
+    let cases: Vec<(&str, Value, &str, Value)> = vec![
+        (
+            "buzzer.beep",
+            json!({"durationMs": 1e39}),
+            "durationMs",
+            json!(2000),
+        ),
+        ("led.set", json!({"r": 1e39}), "r", json!(255)),
+        ("servo.move", json!({"angle": 1e40}), "angle", json!(170)),
+        (
+            "vibe.pulse",
+            json!({"strength": 0.5, "durationMs": 1e39}),
+            "durationMs",
+            json!(3000),
+        ),
+    ];
+    for (i, (name, params, field, expected)) in cases.iter().enumerate() {
+        let reply = client.ask(json!({
+            "type": "cmd", "id": format!("oor-{i}"), "nonce": format!("n-oor-{i}"),
+            "name": name, "params": params
+        }));
+        assert_eq!(
+            reply["type"], "ack",
+            "{name} 超界參數必須 clamp 後 ack（韌體行為），得到 {reply}"
+        );
+        assert_eq!(
+            reply["applied"][field], *expected,
+            "{name}.{field} 必須被 clamp 到硬限制邊界：{reply}"
+        );
+        // 節流：vibe/servo 兩次之間要等夠久（韌體同規則）。
+        std::thread::sleep(Duration::from_millis(600));
+    }
+
+    // 而且模擬器還活著——「裝置憑空消失」不是合法的協定回覆。
+    let hello = client.ask(json!({"type": "who"}));
+    assert_eq!(hello["type"], "hello", "模擬器必須還在：{hello}");
+    assert!(
+        sim.child.try_wait().expect("try_wait").is_none(),
+        "模擬器程序不得因為一個參數而退出"
+    );
+}
+
+/// 負的超界值往另一個邊界收斂（同一條 clamp 規則的另一半）。
+#[test]
+fn a_negative_out_of_range_number_clamps_to_the_low_bound() {
+    let Some(sim) = Sim::spawn("9927", &[]) else {
+        return;
+    };
+    let mut client = RawClient::open(&sim.pty_path);
+    client.pair("9927");
+    let reply = client.ask(json!({
+        "type": "cmd", "id": "neg", "nonce": "n-neg",
+        "name": "servo.move", "params": {"angle": -1e39}
+    }));
+    assert_eq!(reply["type"], "ack", "{reply}");
+    assert_eq!(reply["applied"]["angle"], json!(10), "{reply}");
+}
+
+/// ArduinoJson 不接受 `NaN`／`Infinity` 字面值（整則訊息解析失敗 → bad-json）。
+/// Python 的 json 預設**會**接受——模擬器必須擋掉，兩端才一致。
+#[test]
+fn json_constants_the_firmware_parser_rejects_are_bad_json_in_the_simulator_too() {
+    let Some(sim) = Sim::spawn("9927", &[]) else {
+        return;
+    };
+    let mut client = RawClient::open(&sim.pty_path);
+    client.pair("9927");
+    client
+        .send_raw(r#"{"type":"cmd","id":"nan","nonce":"n1","name":"led.set","params":{"r":NaN}}"#);
+    let reply = client.recv().expect("reply to a NaN literal").1;
+    assert_eq!(
+        reply,
+        json!({"type": "err", "reason": "bad-json"}),
+        "NaN 字面值：韌體的解析器讀不了，整則 bad-json"
+    );
+    let hello = client.ask(json!({"type": "who"}));
+    assert_eq!(hello["type"], "hello", "模擬器必須還在：{hello}");
+}
+
+// ---------------------------------------------------------------------------
+// protocol-conformance-031：README 的指令參數段不得與硬限制表矛盾
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_readme_command_parameter_ranges_match_the_hard_limits() {
+    let readme = read_repo_file("firmware/esp32-companion/README.md");
+    assert!(
+        !readme.contains("0..180"),
+        "README 曾把 servo.move 寫成 angle 0..180，與硬限制表（10..170）與兩端實作矛盾"
+    );
+    let params_line = readme
+        .lines()
+        .find(|l| l.contains("servo.move {angle"))
+        .expect("README lists the command parameters");
+    assert!(
+        params_line.contains("10..170"),
+        "指令參數段的 servo 範圍必須與硬限制表一致：{params_line}"
+    );
+    // 兩端實作也必須是同一組邊界（README 不是唯一真相）。
+    let ino = read_repo_file("firmware/esp32-companion/esp32-companion.ino");
+    // 韌體用對齊過的空白（`SERVO_MIN_ANGLE      = 10;`），所以比對「常數名
+    // 那一行的值」而不是固定字串。
+    let firmware_bound = |name: &str| -> String {
+        let line = ino
+            .lines()
+            .find(|l| l.contains(name) && l.contains('='))
+            .unwrap_or_else(|| panic!("firmware defines {name}"));
+        line.split('=')
+            .nth(1)
+            .unwrap_or_default()
+            .trim()
+            .trim_end_matches(';')
+            .to_string()
+    };
+    assert_eq!(firmware_bound("SERVO_MIN_ANGLE"), "10");
+    assert_eq!(firmware_bound("SERVO_MAX_ANGLE"), "170");
+    let sim = read_repo_file("scripts/esp32-serial-sim.py");
+    assert!(
+        sim.contains("SERVO_MIN_ANGLE = 10"),
+        "simulator servo lower bound"
+    );
+    assert!(
+        sim.contains("SERVO_MAX_ANGLE = 170"),
+        "simulator servo upper bound"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// protocol-conformance-028：device→host 也必須有長度紀律（韌體＋README）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_firmware_gives_ble_notifications_a_length_discipline() {
+    let ino = read_repo_file("firmware/esp32-companion/esp32-companion.ino");
+    assert!(
+        ino.contains("NimBLEDevice::setMTU("),
+        "韌體必須主動提高偏好 MTU，否則預設 23 只送得動 20 bytes 的 payload"
+    );
+    let send_line = firmware_function_body(&ino, "static void sendLine(");
+    assert!(
+        send_line.contains("bleNotifyPayloadMax()"),
+        "sendLine(LINK_BLE) 必須依協商後的 MTU 分段，不能無條件 setValue+notify：\n{send_line}"
+    );
+    assert!(
+        send_line.contains("kNewline"),
+        "分段之後要以換行界定一則訊息（host 端據此重組）：\n{send_line}"
+    );
+    let readme = read_repo_file("firmware/esp32-companion/README.md");
+    assert!(
+        readme.contains("裝置→host 方向") && readme.contains("MTU"),
+        "README 的訊息上限段必須也寫出 device→host 方向（BLE 的 MTU-3 限制）"
+    );
 }

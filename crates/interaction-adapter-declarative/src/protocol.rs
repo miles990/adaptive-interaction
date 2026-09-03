@@ -37,9 +37,21 @@ pub enum DeviceMsg {
         caps: Vec<String>,
         #[serde(default)]
         pairing: bool,
+        /// 裝置自報「此通道因連續錯碼而在鎖定期內」。丟掉它會讓「配對碼
+        /// 其實是對的、只是被鎖住」被演成「配對碼錯」。
+        #[serde(default, rename = "pairingLocked")]
+        pairing_locked: bool,
     },
     PairOk,
-    PairFail,
+    PairFail {
+        /// 裝置說明的拒絕原因（參考韌體：`pair-locked`）。缺席＝只知道被拒。
+        #[serde(default)]
+        reason: Option<String>,
+        /// 裝置算好的「多久以後可以再試」。丟掉它等於把裝置已經給的資訊
+        /// 藏起來，使用者只能亂猜。
+        #[serde(default, rename = "retryAfterMs")]
+        retry_after_ms: Option<u64>,
+    },
     Ack {
         #[serde(default)]
         id: Option<String>,
@@ -201,8 +213,21 @@ pub trait RawLink: Send + Sync {
             LinkState::Disconnected
         }
     }
+    /// 從裝置**收到了、但解不開**的訊息累計數（被 MTU 截斷、亂碼、半行）。
+    ///
+    /// 為什麼要有：靜默丟棄會把「裝置有回、我們讀不懂」講成「裝置沒回」，
+    /// 使用者被指向錯誤的方向（去查拔線／配對，而不是訊息長度）。等待逾時
+    /// 時要能區分這兩件事——收據的 detail 會帶上等待期間的增量。
+    fn undecodable_messages(&self) -> u64 {
+        0
+    }
     /// 主動關閉連線：停止重連、回收執行緒／task。呼叫後 `connected()`
     /// 必須為 false 且 `send()` 必須回 Err（不得默默排隊）。冪等。
+    ///
+    /// 已知限制（serial 的 pty／一般檔案 fallback）：那條路徑的 `read` 沒有
+    /// 逾時，裝置完全沉默時 reader 執行緒可能還卡在 blocking read；關閉有界
+    /// （最多等 `serial::READER_JOIN_GRACE_MS`）之後會把它 detach，累計數見
+    /// `serial::detached_reader_threads()`。
     fn shutdown(&self);
     /// 傳輸描述（診斷用；不得含 secret）。
     fn describe(&self) -> String;
@@ -237,6 +262,9 @@ impl<T: RawLink + ?Sized> RawLink for Arc<T> {
     }
     fn link_state(&self) -> LinkState {
         (**self).link_state()
+    }
+    fn undecodable_messages(&self) -> u64 {
+        (**self).undecodable_messages()
     }
     fn shutdown(&self) {
         (**self).shutdown()
@@ -320,7 +348,15 @@ pub struct DeviceLink<L: RawLink> {
     /// 目前在這條 link 上「已送出、還在等回覆」的請求數。
     /// 沒有 id 的裝置錯誤只有在「只有我一個在等」時才能算成我的結果——
     /// 同一條 link 上有別的請求在飛時，那則錯誤可能屬於別人。
+    ///
+    /// **每一種**請求（cmd／cancel／read／stop-all）都必須計入：只算 cmd 的話，
+    /// 受器輪詢的 read 與動器的 cmd 並行時，計數仍是 1，守衛等於沒有。
     in_flight: std::sync::atomic::AtomicUsize,
+    /// spec 有配對碼、但裝置在 hello 說「我不需要配對」——它會對任何碼回
+    /// pair-ok（參考韌體 `PAIRING_CODE` 為空時就是如此），也就是這次握手
+    /// **沒有任何一方比對過配對碼**。不是失敗（裝置也可能只是「這條通道
+    /// 已經配對過」），但不得被當成配對級證據靜默通過。
+    pairing_unverified: std::sync::atomic::AtomicBool,
 }
 
 /// 進入等待前 +1、離開時 -1（不論成功、失敗或提早 return）。
@@ -360,7 +396,15 @@ impl<L: RawLink> DeviceLink<L> {
             ready_generation: AtomicU64::new(0),
             advertised_caps: RwLock::new(None),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
+            pairing_unverified: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// 這條 link 目前的握手裡，配對碼是否**從未被裝置比對過**
+    /// （spec 有 pairingCode，但裝置 hello 說不需要配對 → 對任何碼都 pair-ok）。
+    /// 收據與診斷用：不得把它靜默當成「已配對」。
+    pub fn pairing_unverified(&self) -> bool {
+        self.pairing_unverified.load(Ordering::SeqCst)
     }
 
     pub fn raw(&self) -> &L {
@@ -422,29 +466,62 @@ impl<L: RawLink> DeviceLink<L> {
 
     /// hello（身分驗證）＋pair（配對碼）握手。冪等：已握手且未重連直接通過。
     pub async fn ensure_ready(&self) -> Result<(), LinkError> {
+        self.ensure_ready_generation().await.map(|_| ())
+    }
+
+    /// 等待期間連線世代改變＝這條連線已經不是握手時那一條：舊握手作廢。
+    /// hello/pair 的等待原本沒有這個守衛（只有 cmd/read/cancel 的 wait_reply
+    /// 有），握手進行中重連就會用**舊世代**把新連線標成「已握手」，
+    /// 之後的命令等於送到一條身分／配對從未在該世代驗證過的線上。
+    fn same_generation(&self, gen: u64, what: &str) -> Result<(), LinkError> {
+        let now = self.raw.generation();
+        if now != gen {
+            return Err(LinkError::Reset(format!(
+                "link reconnected while waiting for {what} (generation {gen} → {now}); \
+                 the previous connection's handshake must not be reused"
+            )));
+        }
+        Ok(())
+    }
+
+    /// 同 [`Self::ensure_ready`]，但回傳「握手成立的那個連線世代」。
+    /// 呼叫端必須拿它當後續等待與送出的基準——重連後再讀一次 `generation()`
+    /// 拿到的是一個 hello/pair 從未在其中驗證過的新世代。
+    async fn ensure_ready_generation(&self) -> Result<u64, LinkError> {
         self.raw.ensure_open().await?;
         let gen = self.raw.generation();
         let mut done = self.handshaken.lock().await;
         if done.0 && done.1 == gen {
-            return Ok(());
+            return Ok(gen);
         }
         done.0 = false;
         self.ready_generation.store(0, Ordering::SeqCst);
+        self.pairing_unverified.store(false, Ordering::SeqCst);
         let mut rx = self.raw.subscribe();
         self.raw.send(encode_host_msg(&HostMsg::Who)).await?;
-        let (hello, caps, proto, device_wants_pairing) =
+        let (hello, caps, proto, device_wants_pairing, device_pairing_locked) =
             wait_for(&mut rx, HANDSHAKE_TIMEOUT, |m| match m {
                 DeviceMsg::Hello {
                     device_id,
                     caps,
                     proto,
                     pairing,
+                    pairing_locked,
                     ..
-                } => Some((device_id.clone(), caps.clone(), *proto, *pairing)),
+                } => Some((
+                    device_id.clone(),
+                    caps.clone(),
+                    *proto,
+                    *pairing,
+                    *pairing_locked,
+                )),
                 _ => None,
             })
             .await
             .map_err(|e| handshake_wait_error("hello", e))?;
+        // 等 hello 的這 2.5 秒內可能已經重連過：那則 hello 屬於哪一條連線
+        // 不再確定，舊世代的握手不得沿用到新連線上。
+        self.same_generation(gen, "hello")?;
         if hello != self.expected_device_id {
             // IP／埠／topic 不是身分：deviceId 不符即拒絕，不得配對或送命令。
             return Err(LinkError::Refused(format!(
@@ -469,18 +546,39 @@ impl<L: RawLink> DeviceLink<L> {
             ));
         }
         if let Some(code) = &self.pairing_code {
+            // 反方向也要看：裝置說「我不需要配對」時，參考韌體對**任何**碼
+            // 都直接回 pair-ok（PAIRING_CODE 設成空字串就是這樣）。pair-ok
+            // 在這種情況下不是配對證據——不擋（裝置也可能只是這條通道先前
+            // 已經配對過），但要記錄下來，不得靜默當成已驗證。
+            if !device_wants_pairing {
+                self.pairing_unverified.store(true, Ordering::SeqCst);
+                tracing::warn!(
+                    device = %self.expected_device_id,
+                    "device does not require pairing (hello.pairing=false): the configured \
+                     pairing code was NOT compared by the device — this handshake is identity \
+                     evidence only (deviceId is self-reported)"
+                );
+            }
             self.raw
                 .send(encode_host_msg(&HostMsg::Pair { code: code.clone() }))
                 .await?;
-            let ok = wait_for(&mut rx, HANDSHAKE_TIMEOUT, |m| match m {
-                DeviceMsg::PairOk => Some(true),
-                DeviceMsg::PairFail => Some(false),
+            let failure = wait_for(&mut rx, HANDSHAKE_TIMEOUT, |m| match m {
+                DeviceMsg::PairOk => Some(None),
+                DeviceMsg::PairFail {
+                    reason,
+                    retry_after_ms,
+                } => Some(Some((reason.clone(), *retry_after_ms))),
                 _ => None,
             })
             .await
             .map_err(|e| handshake_wait_error("pairing", e))?;
-            if !ok {
-                return Err(LinkError::Refused("pairing code rejected by device".into()));
+            self.same_generation(gen, "pairing")?;
+            if let Some((reason, retry_after_ms)) = failure {
+                return Err(pairing_refusal(
+                    reason.as_deref(),
+                    retry_after_ms,
+                    device_pairing_locked,
+                ));
             }
         }
         // hello.caps 是裝置自報的能力清單：握手後才知道「這台裝置到底
@@ -492,10 +590,12 @@ impl<L: RawLink> DeviceLink<L> {
             );
         }
         self.store_caps(caps);
+        // 最後一道：整段握手期間世代都沒變，這個 (true, gen) 才誠實。
+        self.same_generation(gen, "the handshake")?;
         *done = (true, gen);
         self.ready_generation
             .store(ready_marker(gen), Ordering::SeqCst);
-        Ok(())
+        Ok(gen)
     }
 
     /// 握手作廢：裝置端配對狀態被重置（MQTT 重連、ESP32 重開機）後，
@@ -524,11 +624,15 @@ impl<L: RawLink> DeviceLink<L> {
 
     /// 等回覆，並在「連線世代改變」時立刻中止：重連＝握手作廢，等待中的
     /// 請求不得沿用舊連線的語意繼續等（且佇列中的舊命令不再送出）。
+    ///
+    /// `undecodable_before`＝**送出前**的解碼失敗計數。必須在 send 之前取，
+    /// 因為裝置可能在我們進到這個迴圈之前就已經回了一則（被截斷的）訊息。
     async fn wait_reply<T, F>(
         &self,
         rx: &mut broadcast::Receiver<DeviceMsg>,
         timeout: Duration,
         generation: u64,
+        undecodable_before: u64,
         mut pick: F,
     ) -> Result<T, WaitEnd>
     where
@@ -536,13 +640,27 @@ impl<L: RawLink> DeviceLink<L> {
     {
         const RESET_POLL: Duration = Duration::from_millis(100);
         let deadline = tokio::time::Instant::now() + timeout;
+        // 等待期間「答覆可能已經到了卻讀不到」的兩個來源：broadcast 追不上
+        // 而丟掉的訊息，以及傳輸層收到但解不開（截斷／亂碼）的訊息。
+        // 靜默吞掉它們就會把「答覆可能遺失」講成「裝置沒回」。
+        let mut lagged: u64 = 0;
+        let lost = |lagged: u64, undecodable_before: u64, raw: &L| WaitLoss {
+            lagged,
+            undecodable: raw
+                .undecodable_messages()
+                .saturating_sub(undecodable_before),
+        };
         loop {
             if self.raw.generation() != generation {
                 return Err(WaitEnd::Reset);
             }
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
-                return Err(WaitEnd::TimedOut);
+                return Err(WaitEnd::TimedOut(lost(
+                    lagged,
+                    undecodable_before,
+                    &self.raw,
+                )));
             }
             match tokio::time::timeout(remaining.min(RESET_POLL), rx.recv()).await {
                 Ok(Ok(msg)) => {
@@ -550,8 +668,16 @@ impl<L: RawLink> DeviceLink<L> {
                         return Ok(v);
                     }
                 }
-                Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
-                Ok(Err(broadcast::error::RecvError::Closed)) => return Err(WaitEnd::TimedOut),
+                Ok(Err(broadcast::error::RecvError::Lagged(n))) => {
+                    lagged = lagged.saturating_add(n);
+                }
+                Ok(Err(broadcast::error::RecvError::Closed)) => {
+                    return Err(WaitEnd::TimedOut(lost(
+                        lagged,
+                        undecodable_before,
+                        &self.raw,
+                    )))
+                }
                 // 只是輪詢窗到期：回頭檢查世代後繼續等。
                 Err(_) => continue,
             }
@@ -569,9 +695,14 @@ impl<L: RawLink> DeviceLink<L> {
         // 握手逾時 ≠ ack 逾時：前者代表 cmd 根本沒送出（沒有實體效果的
         // 未知），後者才是「送出了但不知道結果」。兩者不能共用 Timeout，
         // 否則收據會宣稱 dispatched——那是硬編的「已送出」。
-        self.ensure_ready().await.map_err(|e| match e {
+        let generation = self.ensure_ready_generation().await.map_err(|e| match e {
             LinkError::Timeout(detail) => LinkError::Unavailable(format!(
                 "handshake did not complete ({detail}); no cmd was sent"
+            )),
+            // 握手期間重連：cmd 一個 byte 都還沒寫出，所以是「確定沒送出」
+            // （可重試），不是「送出了但結果未知」。
+            LinkError::Reset(detail) => LinkError::Unavailable(format!(
+                "handshake was invalidated by a reconnect ({detail}); no cmd was sent"
             )),
             other => other,
         })?;
@@ -593,7 +724,16 @@ impl<L: RawLink> DeviceLink<L> {
             )));
         }
         let mut rx = self.raw.subscribe();
-        let generation = self.raw.generation();
+        // 送出前最後一次核對：現在這條連線必須就是剛剛握手的那個世代。
+        // 用「當下」的 generation 當基準等於承認一條沒驗證過身分／配對的
+        // 新連線——實體命令不得寫上去。
+        self.same_generation(generation, "the cmd to be sent")
+            .map_err(|e| match e {
+                LinkError::Reset(detail) => {
+                    LinkError::Unavailable(format!("{detail}; no cmd was sent"))
+                }
+                other => other,
+            })?;
         let msg = HostMsg::Cmd {
             id: action_id.to_string(),
             nonce: new_nonce(),
@@ -603,46 +743,55 @@ impl<L: RawLink> DeviceLink<L> {
         // deadline＝ack 逾時：排在傳輸佇列裡的命令過期就不再送出。
         let deadline = std::time::Instant::now() + timeout;
         let in_flight = InFlightGuard::enter(&self.in_flight);
+        let undecodable_before = self.raw.undecodable_messages();
         self.raw
             .send_before(encode_host_msg(&msg), deadline)
             .await?;
         // 等待期間看到、但無法歸屬給任何人的匿名錯誤（診斷用）。
         let mut unattributed: Option<String> = None;
         let waited = self
-            .wait_reply(&mut rx, timeout, generation, |m| match m {
-                DeviceMsg::Ack { id: Some(id), .. } if id == action_id => Some(m.clone()),
-                DeviceMsg::Err { id: Some(id), .. } if id == action_id => Some(m.clone()),
-                // 裝置對「這一則」的明確拒絕不一定帶 id（not-paired／
-                // bad-json／unknown-type／line-too-long）。只有在「這條 link
-                // 上只有我一個請求在飛」時，它才確定是我的結果；同一裝置上
-                // 有平行步驟時把別人的匿名錯誤認領成自己的，會把一個**已經
-                // 套用**的命令記成 device-refused，誘發重送＝重複實體效果。
-                DeviceMsg::Err { id: None, reason } => {
-                    if self.in_flight.load(Ordering::SeqCst) <= 1 {
-                        Some(m.clone())
-                    } else {
-                        if unattributed.is_none() {
-                            unattributed = Some(reason.clone());
+            .wait_reply(
+                &mut rx,
+                timeout,
+                generation,
+                undecodable_before,
+                |m| match m {
+                    DeviceMsg::Ack { id: Some(id), .. } if id == action_id => Some(m.clone()),
+                    DeviceMsg::Err { id: Some(id), .. } if id == action_id => Some(m.clone()),
+                    // 裝置對「這一則」的明確拒絕不一定帶 id（not-paired／
+                    // bad-json／unknown-type／line-too-long）。只有在「這條 link
+                    // 上只有我一個請求在飛」時，它才確定是我的結果；同一裝置上
+                    // 有平行步驟時把別人的匿名錯誤認領成自己的，會把一個**已經
+                    // 套用**的命令記成 device-refused，誘發重送＝重複實體效果。
+                    DeviceMsg::Err { id: None, reason } => {
+                        if self.in_flight.load(Ordering::SeqCst) <= 1 {
+                            Some(m.clone())
+                        } else {
+                            if unattributed.is_none() {
+                                unattributed = Some(reason.clone());
+                            }
+                            None
                         }
-                        None
                     }
-                }
-                _ => None,
-            })
+                    _ => None,
+                },
+            )
             .await;
         let reply = waited
             .map_err(|end| match end {
                 WaitEnd::Reset => LinkError::Reset(format!(
                     "link reset (reconnected) while waiting for action {action_id} — outcome UNKNOWN (not retried)"
                 )),
-                WaitEnd::TimedOut => match &unattributed {
+                WaitEnd::TimedOut(loss) => match &unattributed {
                     Some(reason) => LinkError::Timeout(format!(
                         "no ack for action {action_id}; an id-less device error ({reason}) arrived \
                          while other requests were in flight and cannot be attributed — outcome \
-                         UNKNOWN (not retried)"
+                         UNKNOWN (not retried){}",
+                        loss.note()
                     )),
                     None => LinkError::Timeout(format!(
-                        "no ack for action {action_id} — outcome UNKNOWN (not retried: physical effects must not double-fire)"
+                        "no ack for action {action_id} — outcome UNKNOWN (not retried: physical effects must not double-fire){}",
+                        loss.note()
                     )),
                 },
             })?;
@@ -653,10 +802,14 @@ impl<L: RawLink> DeviceLink<L> {
 
     /// 取消進行中的命令。
     pub async fn cancel(&self, action_id: &str, timeout: Duration) -> Result<DeviceMsg, LinkError> {
-        self.ensure_ready().await?;
+        let generation = self.ensure_ready_generation().await?;
         let mut rx = self.raw.subscribe();
-        let generation = self.raw.generation();
+        self.same_generation(generation, "the cancel to be sent")?;
         let deadline = std::time::Instant::now() + timeout;
+        // cmd 以外的請求也必須計入 in_flight：不計的話，並行的 cmd 會以為
+        // 「這條 link 上只有我一個在等」而認領本來屬於 cancel 的匿名錯誤。
+        let _in_flight = InFlightGuard::enter(&self.in_flight);
+        let undecodable_before = self.raw.undecodable_messages();
         self.raw
             .send_before(
                 encode_host_msg(&HostMsg::Cancel {
@@ -665,19 +818,49 @@ impl<L: RawLink> DeviceLink<L> {
                 deadline,
             )
             .await?;
+        let mut unattributed: Option<String> = None;
         let reply = self
-            .wait_reply(&mut rx, timeout, generation, |m| match m {
-                DeviceMsg::Ack { id: Some(id), .. } if id == action_id => Some(m.clone()),
-                DeviceMsg::Err { id: Some(id), .. } if id == action_id => Some(m.clone()),
-                DeviceMsg::Err { id: None, .. } => Some(m.clone()),
-                _ => None,
-            })
+            .wait_reply(
+                &mut rx,
+                timeout,
+                generation,
+                undecodable_before,
+                |m| match m {
+                    DeviceMsg::Ack { id: Some(id), .. } if id == action_id => Some(m.clone()),
+                    DeviceMsg::Err { id: Some(id), .. } if id == action_id => Some(m.clone()),
+                    // 與 command() 同一條規則：沒有 id 的錯誤只有在「這條 link 上
+                    // 只有我一個在等」時才確定是我的。認領別人的錯誤會讓 cancel
+                    // 對一個**還在震動／發聲**的效果回報「沒有可取消的效果」——
+                    // 在安全路徑上給出確定卻錯誤的結論。
+                    DeviceMsg::Err { id: None, reason } => {
+                        if self.in_flight.load(Ordering::SeqCst) <= 1 {
+                            Some(m.clone())
+                        } else {
+                            if unattributed.is_none() {
+                                unattributed = Some(reason.clone());
+                            }
+                            None
+                        }
+                    }
+                    _ => None,
+                },
+            )
             .await
             .map_err(|end| match end {
                 WaitEnd::Reset => {
                     LinkError::Reset(format!("link reset while cancelling {action_id}"))
                 }
-                WaitEnd::TimedOut => LinkError::Timeout(format!("no cancel ack for {action_id}")),
+                WaitEnd::TimedOut(loss) => match &unattributed {
+                    Some(reason) => LinkError::Timeout(format!(
+                        "no cancel ack for {action_id}; an id-less device error ({reason}) arrived \
+                         while other requests were in flight and cannot be attributed — the effect \
+                         state is UNKNOWN{}",
+                        loss.note()
+                    )),
+                    None => {
+                        LinkError::Timeout(format!("no cancel ack for {action_id}{}", loss.note()))
+                    }
+                },
             })?;
         self.note_device_error(&reply).await;
         Ok(reply)
@@ -689,16 +872,19 @@ impl<L: RawLink> DeviceLink<L> {
     /// 身分：`state.deviceId` 必須等於 expectedDeviceId——同一個 topic／埠上
     /// 冒名的 state 不得被當成這台裝置的觀察（丟棄＋warn）。
     pub async fn read_state(&self, timeout: Duration) -> Result<Value, LinkError> {
-        self.ensure_ready().await?;
+        let generation = self.ensure_ready_generation().await?;
         let mut rx = self.raw.subscribe();
-        let generation = self.raw.generation();
+        self.same_generation(generation, "the read to be sent")?;
         let deadline = std::time::Instant::now() + timeout;
+        let _in_flight = InFlightGuard::enter(&self.in_flight);
+        let undecodable_before = self.raw.undecodable_messages();
         self.raw
             .send_before(encode_host_msg(&HostMsg::Read), deadline)
             .await?;
         let expected = self.expected_device_id.clone();
+        let mut unattributed: Option<String> = None;
         let reply = self
-            .wait_reply(&mut rx, timeout, generation, |m| match m {
+            .wait_reply(&mut rx, timeout, generation, undecodable_before, |m| match m {
                 DeviceMsg::State { device_id, facts } => {
                     if device_id.as_deref() == Some(expected.as_str()) {
                         Some(StateReply::State(serde_json::json!({
@@ -715,7 +901,19 @@ impl<L: RawLink> DeviceLink<L> {
                     }
                 }
                 // 裝置明確拒絕這次 read（not-paired／bad-json…）：失敗，不是逾時。
-                DeviceMsg::Err { id: None, reason } => Some(StateReply::Refused(reason.clone())),
+                // 但和 cmd 一樣要能歸屬：同一條 link 上有別的請求在飛時，
+                // 那則沒有 id 的錯誤可能是別人的（例如動器 cmd 的 bad-json），
+                // 認領它就會把一次「其實沒答案」的讀取講成「裝置拒絕了」。
+                DeviceMsg::Err { id: None, reason } => {
+                    if self.in_flight.load(Ordering::SeqCst) <= 1 {
+                        Some(StateReply::Refused(reason.clone()))
+                    } else {
+                        if unattributed.is_none() {
+                            unattributed = Some(reason.clone());
+                        }
+                        None
+                    }
+                }
                 _ => None,
             })
             .await
@@ -723,7 +921,16 @@ impl<L: RawLink> DeviceLink<L> {
                 WaitEnd::Reset => {
                     LinkError::Reset("link reset (reconnected) while reading device state".into())
                 }
-                WaitEnd::TimedOut => LinkError::Timeout("device did not answer read".into()),
+                WaitEnd::TimedOut(loss) => match &unattributed {
+                    Some(reason) => LinkError::Timeout(format!(
+                        "device did not answer read; an id-less device error ({reason}) arrived \
+                         while other requests were in flight and cannot be attributed{}",
+                        loss.note()
+                    )),
+                    None => {
+                        LinkError::Timeout(format!("device did not answer read{}", loss.note()))
+                    }
+                },
             })?;
         match reply {
             StateReply::State(value) => Ok(value),
@@ -771,24 +978,35 @@ impl<L: RawLink> DeviceLink<L> {
         let mut rx = self.raw.subscribe();
         let generation = self.raw.generation();
         let deadline = std::time::Instant::now() + timeout;
+        // estop 也是「這條 link 上的一個等待者」：不計入的話，並行的 cmd
+        // 會誤以為自己是唯一的等待者而認領 stop-all 引發的匿名錯誤。
+        let _in_flight = InFlightGuard::enter(&self.in_flight);
+        let undecodable_before = self.raw.undecodable_messages();
         self.raw
             .send_before(encode_host_msg(&HostMsg::StopAll), deadline)
             .await?;
-        self.wait_reply(&mut rx, timeout, generation, |m| match m {
-            DeviceMsg::Ack {
-                stop_all: Some(true),
-                ..
-            } => Some(()),
-            _ => None,
-        })
+        self.wait_reply(
+            &mut rx,
+            timeout,
+            generation,
+            undecodable_before,
+            |m| match m {
+                DeviceMsg::Ack {
+                    stop_all: Some(true),
+                    ..
+                } => Some(()),
+                _ => None,
+            },
+        )
         .await
         .map_err(|end| match end {
             WaitEnd::Reset => {
                 LinkError::Reset("stop-all dispatched, link reset before ack — UNCONFIRMED".into())
             }
-            WaitEnd::TimedOut => {
-                LinkError::Timeout("stop-all dispatched, no ack — device stop UNCONFIRMED".into())
-            }
+            WaitEnd::TimedOut(loss) => LinkError::Timeout(format!(
+                "stop-all dispatched, no ack — device stop UNCONFIRMED{}",
+                loss.note()
+            )),
         })
     }
 }
@@ -801,8 +1019,38 @@ enum StateReply {
 
 /// `wait_reply` 的結束原因（逾時 vs 連線世代改變）。
 enum WaitEnd {
-    TimedOut,
+    TimedOut(WaitLoss),
     Reset,
+}
+
+/// 等待期間「答覆可能已經到了卻沒讀到」的計數。逾時訊息必須帶上它——
+/// 有掉訊息時不得把結果講成「裝置沒回」（那會把人指向拔線／配對，
+/// 真因其實是主機端追不上或訊息被截斷）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct WaitLoss {
+    lagged: u64,
+    undecodable: u64,
+}
+
+impl WaitLoss {
+    /// 附在逾時 detail 後面的說明（沒掉東西時是空字串）。
+    fn note(&self) -> String {
+        match (self.lagged, self.undecodable) {
+            (0, 0) => String::new(),
+            (lagged, 0) => format!(
+                "; {lagged} message(s) were dropped by the host while waiting — the reply may \
+                 have been lost rather than never sent"
+            ),
+            (0, bad) => format!(
+                "; {bad} message(s) arrived but could not be decoded (truncated or corrupt) — \
+                 the device did answer something"
+            ),
+            (lagged, bad) => format!(
+                "; {lagged} message(s) were dropped by the host and {bad} could not be decoded \
+                 while waiting — the reply may have been lost rather than never sent"
+            ),
+        }
+    }
 }
 
 /// DeviceLink 的誠實可用狀態（傳輸狀態＋握手狀態）。
@@ -922,6 +1170,37 @@ where
 
 /// 握手等待失敗 → [`LinkError`]：連線已關閉是 `Reset`（不是裝置沒回），
 /// 逾時才是 `Timeout`；lag 數量一併寫進 detail，收據不會把「答覆被丟」講成「裝置沒回」。
+/// pair-fail → [`LinkError::Refused`]，**帶著裝置給的原因與可重試時間**。
+///
+/// 為什麼不能一律講「配對碼被裝置拒絕」：參考韌體在暴力猜測鎖定期內對
+/// 任何 pair（含**正確的**碼）都不比對就回 `pair-locked`，並附上還要等多久。
+/// 把它翻成「碼錯了」是把 unknown 演成另一個確定結論，使用者會去改一個
+/// 其實正確的配對碼。detail 以 `pairing-locked` 開頭——link_caps 靠這個
+/// 慣例把收據原因分成獨立一類（與 message-too-large 同樣的做法）。
+fn pairing_refusal(
+    reason: Option<&str>,
+    retry_after_ms: Option<u64>,
+    hello_said_locked: bool,
+) -> LinkError {
+    let locked = reason == Some("pair-locked") || (reason.is_none() && hello_said_locked);
+    if locked {
+        let wait = match retry_after_ms {
+            Some(ms) => format!(" retry in about {} s", ms.div_ceil(1_000)),
+            None => " the device did not say how long".into(),
+        };
+        return LinkError::Refused(format!(
+            "pairing-locked: the device locked pairing after repeated wrong codes and did not \
+             compare this one —{wait}. The configured code may well be correct; nothing was retried"
+        ));
+    }
+    match reason {
+        Some(other) => {
+            LinkError::Refused(format!("pairing code rejected by device (reason: {other})"))
+        }
+        None => LinkError::Refused("pairing code rejected by device".into()),
+    }
+}
+
 fn handshake_wait_error(what: &str, err: WaitError) -> LinkError {
     match err {
         WaitError::Closed => LinkError::Reset(format!("link closed while waiting for {what}")),

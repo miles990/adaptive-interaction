@@ -16,7 +16,9 @@
 //!   若在此回 offline，availability gate 會反過來讓握手永遠不會發生）。
 
 use crate::protocol::{DeviceLink, DeviceMsg, LinkError, LinkReadiness, RawLink};
-use crate::{qualified_id, substitute, CapabilitySpec, CommandSpec, RetrySpec};
+use crate::{
+    qualified_id, substitute, unresolved_facts_detail, CapabilitySpec, CommandSpec, RetrySpec,
+};
 use async_trait::async_trait;
 use chrono::Utc;
 use interaction_adapter_sdk::{ActuatorManifestBuilder, DriverReceipt, ReceptorManifestBuilder};
@@ -48,6 +50,10 @@ const STOP_ALL_ACK_WINDOW: Duration = Duration::from_millis(2_000);
 fn refusal_reason(detail: &str) -> &'static str {
     if detail.contains("message too large") {
         "message-too-large"
+    } else if detail.starts_with("pairing-locked") {
+        // 配對鎖定期：裝置**沒有比對**這次的碼（正確的碼也一樣被擋）。
+        // 混進 device-identity-or-pairing 會叫使用者去改一個其實正確的碼。
+        "pairing-locked"
     } else {
         "device-identity-or-pairing"
     }
@@ -101,6 +107,17 @@ impl<L: RawLink + 'static> Receptor for LinkReceptor<L> {
             if let Some(v) = state.pointer(pointer) {
                 obs.facts.insert(fact.clone(), v.clone());
             }
+        }
+        // 一個 fact 都沒解出來＝這次沒有讀到任何資料（韌體欄位改名、pointer
+        // 打錯、裝置回了空的 facts）。回 Ok 會讓 runtime 把它當成一次成功的
+        // 觀察、把 provider 記成「已測試」，並把一筆零 fact 的觀察寫進 store
+        // 與事件流——那是拿 metadata 冒充資料。
+        if obs.facts.is_empty() {
+            return Err(ReceptorError::Unavailable(unresolved_facts_detail(
+                self.transport_label,
+                &self.spec.facts,
+                &state,
+            )));
         }
         Ok(obs)
     }
@@ -262,6 +279,12 @@ impl<L: RawLink + 'static> Actuator for LinkActuator<L> {
                         .dispatched_at(sent_at)
                         .note("transport", json!(self.transport_label))
                         .acknowledged();
+                    // spec 有配對碼，但裝置說它不需要配對＝這次握手沒有任何
+                    // 一方比對過那組碼（參考韌體對任何碼都回 pair-ok）。
+                    // 收據要說出來：這張收據的身分證據只有裝置自報的 deviceId。
+                    if self.link.pairing_unverified() {
+                        receipt = receipt.note("pairingUnverified", json!(true));
+                    }
                     if let Some(applied) = applied {
                         // 裝置回報的實際套用值（韌體硬限制 clamp 後）——
                         // 有界記錄，讓人看見「要求 vs 實際」。

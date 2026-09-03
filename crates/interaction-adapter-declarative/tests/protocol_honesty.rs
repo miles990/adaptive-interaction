@@ -38,8 +38,14 @@ struct MockRawLink {
     declares_pairing: AtomicBool,
     /// 裝置端目前是否處於已配對狀態（重開機／broker 重連會被重置）。
     paired: AtomicBool,
+    /// 裝置端配對鎖定中（連續錯碼）：任何 pair 都回 pair-locked，不比對碼。
+    pair_locked: AtomicBool,
+    /// read 是否回覆 state？（false＝讓 read 卡在等待，測並行歸屬）
+    state_replies: AtomicBool,
     /// 回覆 stop-all 的 ack？（false＝裝置沒確認）
     ack_stop_all: AtomicBool,
+    /// 回覆 cancel 的 ack？（false＝讓 cancel 停在等待中，測並行歸屬）
+    ack_cancel: AtomicBool,
     /// state 回覆要用的 deviceId（模擬同一 topic 上的冒名裝置）。
     state_device_id: Mutex<Option<String>>,
     /// 對 cmd/read 回一個「沒有 id」的 err（bad-json／line-too-long…）。
@@ -69,7 +75,10 @@ impl MockRawLink {
             proto: Mutex::new(Some(1)),
             declares_pairing: AtomicBool::new(pairing_code.is_some()),
             paired: AtomicBool::new(false),
+            pair_locked: AtomicBool::new(false),
+            state_replies: AtomicBool::new(true),
             ack_stop_all: AtomicBool::new(true),
+            ack_cancel: AtomicBool::new(true),
             state_device_id: Mutex::new(None),
             err_without_id: Mutex::new(None),
             fail_mid_send: AtomicBool::new(false),
@@ -180,13 +189,28 @@ impl RawLink for MockRawLink {
                 proto: self.proto.lock().ok().and_then(|g| *g),
                 caps: self.caps(),
                 pairing: self.declares_pairing.load(Ordering::SeqCst),
+                pairing_locked: self.pair_locked.load(Ordering::SeqCst),
             }),
             Some("pair") => {
-                if self.pairing_code.as_deref() == msg["code"].as_str() {
+                if self.pair_locked.load(Ordering::SeqCst) {
+                    // 鎖定期：不比對碼（正確的碼也一樣），誠實回 pair-locked。
+                    Some(DeviceMsg::PairFail {
+                        reason: Some("pair-locked".into()),
+                        retry_after_ms: Some(30_000),
+                    })
+                } else if self.pairing_code.is_none() {
+                    // 裝置端配對停用（PAIRING_CODE 為空）：**不比對**任何碼，
+                    // 一律 pair-ok——與參考韌體 handlePair() 相同。
+                    self.paired.store(true, Ordering::SeqCst);
+                    Some(DeviceMsg::PairOk)
+                } else if self.pairing_code.as_deref() == msg["code"].as_str() {
                     self.paired.store(true, Ordering::SeqCst);
                     Some(DeviceMsg::PairOk)
                 } else {
-                    Some(DeviceMsg::PairFail)
+                    Some(DeviceMsg::PairFail {
+                        reason: None,
+                        retry_after_ms: None,
+                    })
                 }
             }
             Some("cmd") => {
@@ -211,16 +235,24 @@ impl RawLink for MockRawLink {
                     None // ack 遺失
                 }
             }
-            Some("cancel") => Some(DeviceMsg::Ack {
-                id: msg["id"].as_str().map(String::from),
-                applied: None,
-                dup: None,
-                cancelled: Some(true),
-                stop_all: None,
-            }),
+            Some("cancel") => {
+                if self.ack_cancel.load(Ordering::SeqCst) {
+                    Some(DeviceMsg::Ack {
+                        id: msg["id"].as_str().map(String::from),
+                        applied: None,
+                        dup: None,
+                        cancelled: Some(true),
+                        stop_all: None,
+                    })
+                } else {
+                    None // cancel ack 遺失：停在等待中
+                }
+            }
             Some("read") => {
                 if let Some(reason) = self.err_without_id_reason() {
                     Some(DeviceMsg::Err { id: None, reason })
+                } else if !self.state_replies.load(Ordering::SeqCst) {
+                    None // state 遺失：讓 read 停在等待中
                 } else {
                     Some(DeviceMsg::State {
                         device_id: Some(
@@ -1288,4 +1320,467 @@ async fn an_id_less_error_is_not_attributed_while_another_request_is_in_flight()
         }
     }
     assert_eq!(raw.sent_count("cmd"), 2, "各送一次，絕不重送");
+}
+
+// ---------------------------------------------------------------------------
+// link-transports-048：握手期間重連 → 舊世代的握手不得沿用到新連線上
+// ---------------------------------------------------------------------------
+
+/// 一條「在回覆 who／pair 之前就重連過」的假連線：世代先 +1，才把
+/// hello／pair-ok 推進同一條 broadcast channel——模擬真板重連後主動重送
+/// hello（韌體每次連上就送）而 host 還等在舊世代的 wait 上。
+struct HandshakeRaceLink {
+    inbound: broadcast::Sender<DeviceMsg>,
+    sent: Mutex<Vec<Value>>,
+    generation: AtomicU64,
+    /// 在哪一種 host 訊息之後推進世代（"who" 或 "pair"）。
+    bump_after: &'static str,
+    device_id: String,
+}
+
+impl HandshakeRaceLink {
+    fn new(bump_after: &'static str) -> Arc<Self> {
+        let (inbound, _) = broadcast::channel(32);
+        Arc::new(Self {
+            inbound,
+            sent: Mutex::new(vec![]),
+            generation: AtomicU64::new(1),
+            bump_after,
+            device_id: "esp32-desk01".into(),
+        })
+    }
+
+    fn sent_count(&self, msg_type: &str) -> usize {
+        self.sent
+            .lock()
+            .map(|s| s.iter().filter(|v| v["type"] == msg_type).count())
+            .unwrap_or(0)
+    }
+}
+
+#[async_trait::async_trait]
+impl RawLink for HandshakeRaceLink {
+    async fn ensure_open(&self) -> Result<(), LinkError> {
+        Ok(())
+    }
+
+    async fn send(&self, line: String) -> Result<(), LinkError> {
+        let msg: Value = serde_json::from_str(&line).expect("host sends json");
+        let kind = msg["type"].as_str().unwrap_or_default().to_string();
+        if let Ok(mut sent) = self.sent.lock() {
+            sent.push(msg);
+        }
+        // 重連發生在「裝置回覆之前」：世代先 +1，回覆才進來。
+        if kind == self.bump_after {
+            self.generation.fetch_add(1, Ordering::SeqCst);
+        }
+        let reply = match kind.as_str() {
+            "who" => Some(DeviceMsg::Hello {
+                device_id: self.device_id.clone(),
+                fw: Some("1.0.0".into()),
+                proto: Some(1),
+                caps: vec!["led.set".into()],
+                pairing: true,
+                pairing_locked: false,
+            }),
+            "pair" => Some(DeviceMsg::PairOk),
+            "cmd" => Some(DeviceMsg::Ack {
+                id: None,
+                applied: None,
+                dup: None,
+                cancelled: None,
+                stop_all: None,
+            }),
+            _ => None,
+        };
+        if let Some(reply) = reply {
+            let _ = self.inbound.send(reply);
+        }
+        Ok(())
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<DeviceMsg> {
+        self.inbound.subscribe()
+    }
+
+    fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
+    fn connected(&self) -> bool {
+        true
+    }
+
+    fn shutdown(&self) {}
+
+    fn describe(&self) -> String {
+        "handshake-race mock".into()
+    }
+}
+
+/// 清單：hello 等待期間重連 → ensure_ready 必須誠實回 Reset，
+/// 且後續 command() 一個 byte 都不得寫上線（那條連線的身分從未在這個
+/// 世代被比對過）。舊版會用舊世代標記「已握手」並照樣送 cmd。
+#[tokio::test]
+async fn a_reconnect_during_the_hello_wait_invalidates_the_handshake() {
+    let raw = HandshakeRaceLink::new("who");
+    let link = DeviceLink::new(raw.clone(), "esp32-desk01".into(), Some("4321".into()));
+
+    match link.ensure_ready().await {
+        Err(LinkError::Reset(detail)) => {
+            assert!(detail.contains("reconnected"), "{detail}");
+            assert!(detail.contains("hello"), "要說清楚是哪一段被打斷：{detail}");
+        }
+        other => panic!("握手期間重連必須作廢握手，得到 {other:?}"),
+    }
+    // 握手沒完成：readiness 誠實回「尚未握手」。
+    assert_eq!(
+        link.readiness(),
+        interaction_adapter_declarative::protocol::LinkReadiness::NotHandshaken
+    );
+    // 而且 cmd 從未寫上線（不是「送出了、結果未知」）。
+    let err = link
+        .command("a1", "led.set", json!({}), Duration::from_millis(300))
+        .await
+        .expect_err("no cmd may be sent on a connection whose identity was never verified");
+    match &err {
+        LinkError::Unavailable(detail) => assert!(detail.contains("no cmd was sent"), "{detail}"),
+        other => panic!("expected Unavailable (definitely not sent), got {other}"),
+    }
+    assert_eq!(raw.sent_count("cmd"), 0, "cmd 一個 byte 都不得寫上線");
+}
+
+/// 同一條規則要覆蓋 pair 那一段的等待（不是只有 hello）。
+#[tokio::test]
+async fn a_reconnect_during_the_pairing_wait_invalidates_the_handshake() {
+    let raw = HandshakeRaceLink::new("pair");
+    let link = DeviceLink::new(raw.clone(), "esp32-desk01".into(), Some("4321".into()));
+    match link.ensure_ready().await {
+        Err(LinkError::Reset(detail)) => assert!(detail.contains("pairing"), "{detail}"),
+        other => panic!("配對等待期間重連必須作廢握手，得到 {other:?}"),
+    }
+    assert_eq!(raw.sent_count("cmd"), 0);
+}
+
+// ---------------------------------------------------------------------------
+// protocol-conformance-029 / link-transports-053：in_flight 必須涵蓋每一種請求
+// ---------------------------------------------------------------------------
+
+/// 同一條 link 上受器輪詢的 read 與動器的 cmd 天然並行（一個 adapter 的所有
+/// capability 共用同一個 DeviceLink）。裝置對 read 回一則**沒有 id** 的錯誤
+/// 時，並行的 cmd 不得認領它——認領＝把一個**已經套用**的命令記成
+/// device-refused，人或 AI 就會重下同一命令＝重複實體效果。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_concurrent_read_makes_an_id_less_error_unattributable_to_the_cmd() {
+    let raw = MockRawLink::new("esp32-desk01", None);
+    let link = Arc::new(DeviceLink::new(raw.clone(), "esp32-desk01".into(), None));
+    link.ensure_ready().await.expect("handshake");
+    raw.ack_replies.store(false, Ordering::SeqCst); // cmd 收不到 ack
+    raw.state_replies.store(false, Ordering::SeqCst); // read 也停在等待
+
+    let cmd = {
+        let link = link.clone();
+        tokio::spawn(async move {
+            link.command("a1", "vibe.pulse", json!({}), Duration::from_millis(700))
+                .await
+        })
+    };
+    let read = {
+        let link = link.clone();
+        tokio::spawn(async move { link.read_state(Duration::from_millis(700)).await })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    raw.emit_id_less_error("bad-json");
+
+    match cmd.await.expect("cmd task") {
+        Err(LinkError::Timeout(detail)) => {
+            assert!(detail.contains("UNKNOWN"), "{detail}");
+            assert!(detail.contains("cannot be attributed"), "{detail}");
+        }
+        other => panic!("並行 read 在飛時，cmd 不得認領匿名錯誤：{other:?}"),
+    }
+    // 對稱地：read 也不得把它當成「裝置拒絕了這次讀取」。
+    match read.await.expect("read task") {
+        Err(LinkError::Timeout(detail)) => {
+            assert!(detail.contains("cannot be attributed"), "{detail}")
+        }
+        other => panic!("並行 cmd 在飛時，read 不得認領匿名錯誤：{other:?}"),
+    }
+    assert_eq!(raw.sent_count("cmd"), 1, "絕不重送");
+}
+
+/// 反向：cancel 在有並行 cmd 時，也不得把匿名錯誤翻成「沒有可取消的效果」
+/// ——那是在安全路徑上給出確定卻錯誤的結論（震動／蜂鳴可能還在跑）。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_concurrent_cmd_makes_an_id_less_error_unattributable_to_the_cancel() {
+    let raw = MockRawLink::new("esp32-desk01", None);
+    let link = Arc::new(DeviceLink::new(raw.clone(), "esp32-desk01".into(), None));
+    link.ensure_ready().await.expect("handshake");
+    raw.ack_replies.store(false, Ordering::SeqCst); // cmd 收不到 ack
+    raw.ack_cancel.store(false, Ordering::SeqCst); // cancel 也停在等待
+
+    let cmd = {
+        let link = link.clone();
+        tokio::spawn(async move {
+            link.command("a2", "vibe.pulse", json!({}), Duration::from_millis(700))
+                .await
+        })
+    };
+    let cancel = {
+        let link = link.clone();
+        tokio::spawn(async move { link.cancel("a2", Duration::from_millis(700)).await })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    raw.emit_id_less_error("not-paired");
+
+    match cancel.await.expect("cancel task") {
+        Err(LinkError::Timeout(detail)) => {
+            assert!(detail.contains("cannot be attributed"), "{detail}");
+            assert!(
+                detail.contains("UNKNOWN"),
+                "取消結果未知就要說未知，不能說「沒有可取消的效果」：{detail}"
+            );
+        }
+        other => panic!("cancel 不得認領無法歸屬的匿名錯誤：{other:?}"),
+    }
+    match cmd.await.expect("cmd task") {
+        Err(LinkError::Timeout(detail)) => assert!(detail.contains("UNKNOWN"), "{detail}"),
+        other => panic!("cmd 應停在 UNKNOWN：{other:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// link-transports-050：一個 fact 都沒解出來不是一次成功的觀察
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_state_that_resolves_no_declared_fact_is_not_an_observation() {
+    let raw = MockRawLink::new("esp32-desk01", None);
+    let link = Arc::new(DeviceLink::new(raw.clone(), "esp32-desk01".into(), None));
+    let mut spec = receptor_spec();
+    // 裝置回的是 lux/distanceMm；spec 指向改過名的欄位。
+    spec.facts = std::collections::BTreeMap::from([
+        ("lumens".to_string(), "/facts/renamedLux".to_string()),
+        ("range".to_string(), "/facts/renamedDistance".to_string()),
+    ]);
+    let receptor = LinkReceptor {
+        spec,
+        adapter_id: "esp32-desk".into(),
+        link,
+        transport_label: "serial",
+    };
+    let err = receptor
+        .read()
+        .await
+        .expect_err("zero resolved facts is not a successful observation");
+    let text = err.to_string();
+    assert!(text.contains("/facts/renamedLux"), "{text}");
+    assert!(text.contains("lux"), "也要說裝置實際回了哪些鍵：{text}");
+}
+
+// ---------------------------------------------------------------------------
+// link-transports-051：pair-locked 的原因與可重試時間不得被丟掉
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_pairing_lockout_is_not_reported_as_a_wrong_pairing_code() {
+    let raw = MockRawLink::new("esp32-desk01", Some("4321"));
+    raw.pair_locked.store(true, Ordering::SeqCst);
+    let link = Arc::new(DeviceLink::new(
+        raw.clone(),
+        "esp32-desk01".into(),
+        // 碼是「對的」——鎖定期內裝置根本不比對。
+        Some("4321".into()),
+    ));
+    let err = link.ensure_ready().await.expect_err("locked out");
+    match &err {
+        LinkError::Refused(detail) => {
+            assert!(detail.starts_with("pairing-locked"), "{detail}");
+            assert!(
+                detail.contains("30 s"),
+                "要帶上裝置算好的重試時間：{detail}"
+            );
+            assert!(
+                detail.contains("may well be correct"),
+                "不得說成配對碼錯誤：{detail}"
+            );
+        }
+        other => panic!("expected Refused, got {other}"),
+    }
+
+    // 收據原因要與「身分／配對被拒」分開，人才不會去改一個其實正確的碼。
+    let actuator = LinkActuator::new(
+        actuator_spec("vibe"),
+        CommandSpec {
+            name: "vibe.pulse".into(),
+            params: None,
+        },
+        "esp32-desk".into(),
+        link,
+        "serial",
+    );
+    let receipt = actuator
+        .execute(bounded_action("a1"))
+        .await
+        .expect("receipt");
+    assert_eq!(
+        receipt.current_status,
+        interaction_core::ActionStatus::Failed
+    );
+    assert!(
+        receipt.errors.iter().any(|e| e.code == "pairing-locked"),
+        "{receipt:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// protocol-conformance-030：裝置停用配對時的 pair-ok 不是配對證據
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_device_that_never_asked_for_pairing_leaves_the_code_unverified() {
+    // 裝置的 PAIRING_CODE 是空字串：hello.pairing=false，且對任何碼都回 pair-ok。
+    let raw = MockRawLink::new("esp32-desk01", None);
+    raw.declares_pairing.store(false, Ordering::SeqCst);
+    let link = Arc::new(DeviceLink::new(
+        raw.clone(),
+        "esp32-desk01".into(),
+        Some("1234".into()), // spec 以為有配對
+    ));
+    link.ensure_ready().await.expect("device accepts any code");
+    assert!(
+        link.pairing_unverified(),
+        "裝置沒要求配對＝這組碼從未被比對過，不得靜默當成已配對"
+    );
+
+    let actuator = LinkActuator::new(
+        actuator_spec("vibe"),
+        CommandSpec {
+            name: "vibe.pulse".into(),
+            params: None,
+        },
+        "esp32-desk".into(),
+        link,
+        "serial",
+    );
+    let receipt = actuator
+        .execute(bounded_action("a1"))
+        .await
+        .expect("receipt");
+    assert_eq!(
+        receipt.driver_response.get("pairingUnverified"),
+        Some(&json!(true)),
+        "收據必須說出「這次的身分證據只有裝置自報的 deviceId」：{receipt:?}"
+    );
+
+    // 對照組：裝置真的要求配對時，收據不得帶這個註記。
+    let raw2 = MockRawLink::new("esp32-desk01", Some("4321"));
+    let link2 = Arc::new(DeviceLink::new(
+        raw2,
+        "esp32-desk01".into(),
+        Some("4321".into()),
+    ));
+    let actuator2 = LinkActuator::new(
+        actuator_spec("vibe"),
+        CommandSpec {
+            name: "vibe.pulse".into(),
+            params: None,
+        },
+        "esp32-desk".into(),
+        link2.clone(),
+        "serial",
+    );
+    let receipt2 = actuator2
+        .execute(bounded_action("a2"))
+        .await
+        .expect("receipt");
+    assert!(!link2.pairing_unverified());
+    assert!(!receipt2.driver_response.contains_key("pairingUnverified"));
+}
+
+// ---------------------------------------------------------------------------
+// link-transports-052：等待期間丟掉的訊息不得被講成「裝置沒回」
+// ---------------------------------------------------------------------------
+
+/// 一條「什麼都不回，但把 undecodable 計數往上加」的假連線：模擬裝置有回、
+/// 但 host 端解不開（BLE 被 ATT MTU 截斷、serial 亂碼）。
+struct NoisyLink {
+    inbound: broadcast::Sender<DeviceMsg>,
+    undecodable: AtomicU64,
+}
+
+impl NoisyLink {
+    fn new() -> Arc<Self> {
+        let (inbound, _) = broadcast::channel(8);
+        Arc::new(Self {
+            inbound,
+            undecodable: AtomicU64::new(0),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl RawLink for NoisyLink {
+    async fn ensure_open(&self) -> Result<(), LinkError> {
+        Ok(())
+    }
+
+    async fn send(&self, line: String) -> Result<(), LinkError> {
+        let msg: Value = serde_json::from_str(&line).expect("host sends json");
+        if msg["type"] == "who" {
+            let _ = self.inbound.send(DeviceMsg::Hello {
+                device_id: "esp32-desk01".into(),
+                fw: None,
+                proto: Some(1),
+                caps: vec![],
+                pairing: false,
+                pairing_locked: false,
+            });
+        } else {
+            // 裝置「有回」，但那幾則我們解不開。
+            self.undecodable.fetch_add(3, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<DeviceMsg> {
+        self.inbound.subscribe()
+    }
+
+    fn connected(&self) -> bool {
+        true
+    }
+
+    fn undecodable_messages(&self) -> u64 {
+        self.undecodable.load(Ordering::SeqCst)
+    }
+
+    fn shutdown(&self) {}
+
+    fn describe(&self) -> String {
+        "noisy mock".into()
+    }
+}
+
+#[tokio::test]
+async fn a_timeout_after_undecodable_replies_does_not_claim_the_device_was_silent() {
+    let raw = NoisyLink::new();
+    let link = DeviceLink::new(raw, "esp32-desk01".into(), None);
+    let err = link
+        .command("a1", "led.set", json!({}), Duration::from_millis(300))
+        .await
+        .expect_err("no ack arrived");
+    match &err {
+        LinkError::Timeout(detail) => {
+            assert!(detail.contains("could not be decoded"), "{detail}");
+            assert!(detail.contains("did answer something"), "{detail}");
+        }
+        other => panic!("expected Timeout, got {other}"),
+    }
+    // read 也一樣：不得只說「device did not answer read」。
+    let err = link
+        .read_state(Duration::from_millis(300))
+        .await
+        .expect_err("no state arrived");
+    assert!(err.to_string().contains("could not be decoded"), "{err}");
 }

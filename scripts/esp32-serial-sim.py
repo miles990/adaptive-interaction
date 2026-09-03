@@ -43,6 +43,7 @@
 
 import argparse
 import json
+import math
 import os
 import pty
 import select
@@ -102,6 +103,12 @@ with open(args.pty_path_file, "w") as f:
     f.write(slave_path)
 
 log = open(args.log, "a")
+
+
+def _reject_constant(name):
+    """NaN／Infinity／-Infinity 字面值：韌體的 ArduinoJson 解析不了，
+    整則訊息回 bad-json——模擬器一樣。"""
+    raise ValueError(f"json constant not accepted by the firmware parser: {name}")
 
 
 def now_ms():
@@ -176,11 +183,25 @@ class BadParam(Exception):
     """非數值參數 → err bad-params（韌體同樣回 err，兩端一致）。"""
 
 
+# roundToLong() 在超出範圍時的收斂目標。韌體的 long 是 32-bit，
+# 之後一定會 clampLong 進 lo..hi；這裡用同樣量級的哨兵值，讓 clamp
+# 得到與韌體相同的邊界值（不是讓模擬器崩潰）。
+INT_SENTINEL = 2 ** 31 - 1
+
+
 def f32(v):
     """收斂成 IEEE754 單精度。韌體以 ArduinoJson 的 as<float>() 取值、之後
     全程用 float 運算；Python 預設是 double，取整前不鏡射精度的話，像
-    {"r":0.3} 這種輸入會一端算 76、另一端算 77。"""
-    return struct.unpack("<f", struct.pack("<f", v))[0]
+    {"r":0.3} 這種輸入會一端算 76、另一端算 77。
+
+    超出 float32 範圍（例如 1e39）：ArduinoJson 的 as<float>() 會溢位成
+    ±inf，韌體照樣 clamp 後回 ack。這裡鏡射同一件事——絕不讓 struct 的
+    OverflowError 冒出去把整個模擬器打死（那會讓 host 看到「裝置憑空消失」，
+    把參數問題誤診成傳輸問題）。"""
+    try:
+        return struct.unpack("<f", struct.pack("<f", v))[0]
+    except (OverflowError, ValueError):
+        return math.copysign(math.inf, v)
 
 
 def read_number(params, key):
@@ -197,8 +218,15 @@ def read_number(params, key):
 
 
 def round_to_int(v):
-    """韌體 roundToLong()：float 加 0.5 後往零截斷（單精度）。"""
-    return int(f32(f32(v) + 0.5))
+    """韌體 roundToLong()：float 加 0.5 後往零截斷（單精度）。
+    ±inf／NaN 收斂成哨兵整數，交給後續的 clamp（韌體的 float→long 轉換
+    同樣不會回傳一個「合法的中間值」，最終都被 clampLong 夾進邊界）。"""
+    x = f32(f32(v) + 0.5)
+    if math.isnan(x):
+        return 0
+    if math.isinf(x):
+        return INT_SENTINEL if x > 0 else -INT_SENTINEL
+    return int(x)
 
 
 def read_int_param(params, key, fallback, lo, hi):
@@ -209,7 +237,10 @@ def read_int_param(params, key, fallback, lo, hi):
 
 def read_float_param(params, key, fallback, lo, hi):
     raw, _ = read_number(params, key)
-    return clamp(fallback if raw is None else raw, lo, hi)
+    value = fallback if raw is None else f32(raw)
+    if math.isnan(value):
+        value = fallback          # NaN 不可比較：退回預設（韌體 clampFloat 同樣不會留下 NaN）
+    return clamp(value, lo, hi)
 
 
 def read_led_channel(params, key):
@@ -541,9 +572,21 @@ while True:
                 log.write(f">> {text}\n")
                 log.flush()
                 try:
-                    msg = json.loads(text)
+                    # parse_constant：ArduinoJson 不接受 NaN／Infinity 字面值，
+                    # Python 的 json 預設會接受——這裡拒掉，兩端才一致。
+                    msg = json.loads(text, parse_constant=_reject_constant)
                 except Exception:
                     emit({"type": "err", "reason": "bad-json"})   # 韌體同樣回這個
                     continue
-                handle(msg)
+                try:
+                    handle(msg)
+                except Exception as exc:
+                    # 最後一道防線：模擬器絕不能以「整個程序消失」當作協定
+                    # 回覆。裝置憑空不見時 host 只會看到 ack/read 逾時，
+                    # 把參數問題誤診成傳輸問題。誠實回一則 err 並記進 log。
+                    note(f"handle() raised {type(exc).__name__}: {exc}")
+                    err = {"type": "err", "reason": "bad-params"}
+                    if isinstance(msg, dict) and msg.get("id"):
+                        err = {"type": "err", "id": msg["id"], "reason": "bad-params"}
+                    emit(err)
     tick()

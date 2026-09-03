@@ -247,6 +247,15 @@ static volatile bool g_bleConnected = false;
 static const size_t BLE_QUEUE_SLOTS = 8;
 static const size_t BLE_MSG_MAX     = 512;   // 單筆 write ≥512 bytes 即拒（上限 511；host 端 480）
 struct BleMsg { char line[BLE_MSG_MAX]; };
+// device→host 方向也要有長度紀律。ATT 的 Handle-Value-Notification 可攜
+// payload 只有「協商後 MTU − 3」；超過的部分由協定棧**直接截掉**，host 端
+// 收到的是破 JSON（舊版無聲丟棄 → read 只會逾時，沒有任何線索指向真因）。
+// 所以：(1) 主動把偏好 MTU 提高，(2) 送出時依實際協商值分段，
+// (3) 以換行界定一則訊息，host 端（ble.rs 的 NotifyAssembler）據此重組。
+static const uint16_t BLE_PREFERRED_MTU = 517;   // ATT 上限（BLE 4.2+ data length）
+static const uint16_t BLE_MIN_ATT_MTU   = 23;    // 協商不到就用最保守值
+static NimBLEServer* g_bleServer = nullptr;
+static volatile uint16_t g_bleConnHandle = 0xFFFF;   // BLE_HS_CONN_HANDLE_NONE
 static QueueHandle_t g_bleQueue = nullptr;
 static volatile bool g_bleDropBusy    = false;  // 佇列滿：loop() 回 err busy
 static volatile bool g_bleDropTooLong = false;  // 單筆過長：loop() 回 err bad-json
@@ -257,6 +266,9 @@ static volatile bool g_bleDropTooLong = false;  // 單筆過長：loop() 回 err
 // ---------------------------------------------------------------------------
 static void handleMessage(const char* line, Link link);
 static void sendLine(Link link, const char* line);
+#if ENABLE_BLE
+static size_t bleNotifyPayloadMax();
+#endif
 static void sendDoc(Link link, JsonDocument& doc);
 static void pushStateToPairedLinks();
 static void sendHello(Link link);
@@ -476,6 +488,20 @@ static void stopAllEffects() {
 // JSON 輸出
 // ---------------------------------------------------------------------------
 
+#if ENABLE_BLE
+// 這一次 notify 能塞多少 bytes：協商後的 ATT MTU − 3（opcode 1 + handle 2）。
+// 協商不到（還沒連上、後端沒回報）就退回 ATT 預設 23 → 20 bytes：寧可多分
+// 幾段，也不要送出去被截斷。
+static size_t bleNotifyPayloadMax() {
+  uint16_t mtu = BLE_MIN_ATT_MTU;
+  if (g_bleServer != nullptr && g_bleConnHandle != 0xFFFF) {
+    uint16_t peer = g_bleServer->getPeerMTU(g_bleConnHandle);
+    if (peer >= BLE_MIN_ATT_MTU) mtu = peer;
+  }
+  return (size_t)(mtu - 3);
+}
+#endif
+
 static void sendLine(Link link, const char* line) {
   switch (link) {
     case LINK_SERIAL:
@@ -489,7 +515,21 @@ static void sendLine(Link link, const char* line) {
     case LINK_BLE:
 #if ENABLE_BLE
       if (g_bleConnected && g_bleNotifyChar != nullptr) {
-        g_bleNotifyChar->setValue((const uint8_t*)line, strlen(line));
+        // 一次 notify 最多送得動 MTU-3 bytes；長訊息（state 在預設 deviceId
+        // 下就有 193 bytes）必須自己分段，否則會被協定棧靜默截斷。
+        const size_t maxPayload = bleNotifyPayloadMax();
+        const size_t len = strlen(line);
+        size_t offset = 0;
+        while (offset < len) {
+          size_t take = len - offset;
+          if (take > maxPayload) take = maxPayload;
+          g_bleNotifyChar->setValue((const uint8_t*)(line + offset), take);
+          g_bleNotifyChar->notify();
+          offset += take;
+        }
+        // 訊息結束符：host 端據此知道「這一則到齊了」。
+        static const uint8_t kNewline = (uint8_t)'\n';
+        g_bleNotifyChar->setValue(&kNewline, 1);
         g_bleNotifyChar->notify();
       }
 #endif
@@ -917,12 +957,16 @@ static void maintainMqtt(uint32_t now) {
 #if ENABLE_BLE
 class CompanionServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* server, NimBLEConnInfo& connInfo) override {
-    (void)server; (void)connInfo;
+    // 記下 server 與這條連線的 handle：送出時要問「這條連線協商到多大的
+    // MTU」，才知道一次 notify 塞得下多少 bytes（見 bleNotifyPayloadMax）。
+    g_bleServer = server;
+    g_bleConnHandle = connInfo.getConnHandle();
     g_bleConnected = true;
   }
   void onDisconnect(NimBLEServer* server, NimBLEConnInfo& connInfo, int reason) override {
     (void)server; (void)connInfo; (void)reason;
     g_bleConnected = false;
+    g_bleConnHandle = 0xFFFF;
     // 這兩個是 BLE task 唯一會寫的共享狀態，且方向都是「收緊」
     // （斷線＝配對失效、不再送資料）；效果與回覆一律由 loop() 處理。
     g_linkPaired[LINK_BLE] = false;
@@ -968,6 +1012,9 @@ static void drainBleQueue() {
 static void setupBle() {
   g_bleQueue = xQueueCreate(BLE_QUEUE_SLOTS, sizeof(BleMsg));
   NimBLEDevice::init(DEVICE_ID);
+  // 偏好 MTU：對端同意的話，一則 state（193 bytes）一次就送得完。
+  // 對端不同意也沒關係——sendLine 會依實際協商值分段。
+  NimBLEDevice::setMTU(BLE_PREFERRED_MTU);
   NimBLEServer* server = NimBLEDevice::createServer();
   server->setCallbacks(new CompanionServerCallbacks());
   NimBLEService* svc = server->createService(BLE_SERVICE_UUID);

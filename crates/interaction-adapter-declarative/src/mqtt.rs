@@ -80,6 +80,9 @@ pub struct MqttRawLink {
     last_heard: Arc<AtomicU64>,
     /// 超過這麼久沒聽到裝置就算失聯（degraded）。
     liveness_window: Duration,
+    /// 收到但解不開的訊息數（非 UTF-8、非本協定、被截斷）。靜默丟棄會把
+    /// 「裝置有回、我們讀不懂」講成「裝置沒回」。
+    undecodable: Arc<AtomicU64>,
 }
 
 impl MqttRawLink {
@@ -107,6 +110,7 @@ impl MqttRawLink {
         let closed = Arc::new(AtomicBool::new(false));
         let stop = Arc::new(tokio::sync::Notify::new());
         let last_heard = Arc::new(AtomicU64::new(now_ms()));
+        let undecodable = Arc::new(AtomicU64::new(0));
         let client_slot = Arc::new(std::sync::Mutex::new(client));
         let topic_from = format!("{topic_prefix}/from-device");
         let link = Arc::new(Self {
@@ -121,6 +125,7 @@ impl MqttRawLink {
             task: TaskSlot::new(),
             describe: format!("mqtt {host}:{port} prefix {topic_prefix}"),
             last_heard: last_heard.clone(),
+            undecodable: undecodable.clone(),
             liveness_window: Duration::from_millis(
                 liveness_timeout_ms
                     .unwrap_or(DEFAULT_LIVENESS_TIMEOUT_MS)
@@ -152,9 +157,22 @@ impl MqttRawLink {
                         if publish.topic == topic_from {
                             // 聽到裝置了——即使這則解析不出來，也證明它還活著。
                             last_heard.store(now_ms(), Ordering::SeqCst);
-                            if let Ok(text) = std::str::from_utf8(&publish.payload) {
-                                if let Some(msg) = parse_device_msg(text) {
+                            match std::str::from_utf8(&publish.payload)
+                                .ok()
+                                .and_then(parse_device_msg)
+                            {
+                                Some(msg) => {
                                     let _ = inbound.send(msg);
+                                }
+                                // 解不開的訊息不得靜默消失：等待中的請求會把
+                                // 它講成「裝置沒回」，人與 AI 因此查錯方向。
+                                None => {
+                                    undecodable.fetch_add(1, Ordering::SeqCst);
+                                    tracing::warn!(
+                                        topic = %topic_from,
+                                        bytes = publish.payload.len(),
+                                        "mqtt: a device message could not be decoded; discarded"
+                                    );
                                 }
                             }
                         }
@@ -296,6 +314,10 @@ impl RawLink for MqttRawLink {
             STATE_CLOSED => LinkState::Closed,
             _ => LinkState::Disconnected,
         }
+    }
+
+    fn undecodable_messages(&self) -> u64 {
+        self.undecodable.load(Ordering::SeqCst)
     }
 
     fn shutdown(&self) {

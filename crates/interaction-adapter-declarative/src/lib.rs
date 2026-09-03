@@ -561,6 +561,43 @@ pub fn resolve_secret(reference: &str, home: Option<&std::path::Path>) -> Result
 }
 
 // ---------------------------------------------------------------------------
+// Receptor honesty: a reply that resolves no declared fact is not an observation
+// ---------------------------------------------------------------------------
+
+/// 「裝置有回應，但宣告的 fact 一個都對不上」的誠實說明。
+///
+/// 為什麼要點名兩邊：這種失敗幾乎都是 pointer 打錯或韌體欄位改名，只講
+/// 「讀不到」會讓人去查線路。detail 列出 spec 宣告的 pointer 與裝置實際
+/// 回了哪些鍵（有界：最多 12 個鍵），一眼就能對出差在哪。
+pub(crate) fn unresolved_facts_detail(
+    source: &str,
+    declared: &BTreeMap<String, String>,
+    payload: &Value,
+) -> String {
+    const MAX_KEYS: usize = 12;
+    let pointers: Vec<&str> = declared.values().map(String::as_str).collect();
+    let root = payload.pointer("/facts").unwrap_or(payload);
+    let mut seen: Vec<String> = match root {
+        Value::Object(map) => map.keys().take(MAX_KEYS).cloned().collect(),
+        _ => Vec::new(),
+    };
+    if matches!(root, Value::Object(map) if map.len() > MAX_KEYS) {
+        seen.push("…".into());
+    }
+    let seen = if seen.is_empty() {
+        "<none>".to_string()
+    } else {
+        seen.join(", ")
+    };
+    format!(
+        "{source} 裝置有回應，但宣告的 {} 個 fact 一個都對不上（pointer: {}；裝置回的鍵: {seen}）\
+         ——這不算一次成功的觀察",
+        declared.len(),
+        pointers.join(", ")
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Template substitution (bounded values ONLY)
 // ---------------------------------------------------------------------------
 
@@ -828,6 +865,14 @@ impl Receptor for DeclarativeHttpReceptor {
                 obs.facts.insert(fact.clone(), v.clone());
             }
         }
+        // 一個 fact 都沒解出來＝這次沒有讀到任何資料（pointer 打錯、對方
+        // 的欄位改名、回了空物件）。回 Ok 會讓 runtime 把它算成一次成功的
+        // 觀察並把 provider 記成「已測試」——那是拿 metadata 冒充資料。
+        if obs.facts.is_empty() {
+            let detail = unresolved_facts_detail("http", &self.spec.facts, &value);
+            self.endpoint.record_failure(&detail);
+            return Err(ReceptorError::Unavailable(detail));
+        }
         Ok(obs)
     }
 
@@ -988,19 +1033,56 @@ impl Actuator for DeclarativeHttpActuator {
         )))
     }
 
+    /// estop：只有「裝置真的收下了停止請求」才算確認停止。
+    ///
+    /// runtime 的 estop 摘要把 `Ok(Ok(()))` 當成 stoppedActuators 的計數
+    /// （已確認停止）。舊版無條件回 `Ok(())`：沒宣告 stopRequest 時什麼都
+    /// 沒送、送了逾時／連不上／HTTP 500 也被 `let _ =` 丟掉——一台正在
+    /// 發聲／亮燈的裝置會被列進「已停止」。誠實階梯：未確認不得算成已停止。
     async fn emergency_stop(&self) -> Result<(), ActuatorError> {
-        if let Some(stop) = &self.spec.stop_request {
-            let _ = send_request(
-                &self.client,
-                stop,
-                stop.body.clone(),
-                2_000,
-                None,
-                self.home.as_deref(),
-            )
-            .await;
+        let Some(stop) = &self.spec.stop_request else {
+            return Err(ActuatorError::Unavailable(format!(
+                "{}: no stop endpoint is declared for this actuator (spec has no stopRequest); \
+                 nothing was sent — the device's state is UNKNOWN",
+                qualified_id(&self.adapter_id, &self.spec.id)
+            )));
+        };
+        match send_request(
+            &self.client,
+            stop,
+            stop.body.clone(),
+            2_000,
+            None,
+            self.home.as_deref(),
+        )
+        .await
+        {
+            // 2xx＝裝置收下了停止請求。這是這個傳輸能誠實達到的最深等級
+            // （acknowledged），足以計入 stoppedActuators。
+            Ok((status, _)) if (200..300).contains(&status) => {
+                self.endpoint.record_ok();
+                Ok(())
+            }
+            Ok((status, _)) => {
+                let detail = format!(
+                    "stop request refused by the device (HTTP {status}) — stop UNCONFIRMED"
+                );
+                self.endpoint.record_failure(&detail);
+                Err(ActuatorError::Unavailable(detail))
+            }
+            Err(SendError::OutcomeUnknown(detail)) => {
+                let detail = format!(
+                    "stop request was written but not answered ({detail}) — stop UNCONFIRMED"
+                );
+                self.endpoint.record_failure(&detail);
+                Err(ActuatorError::Unavailable(detail))
+            }
+            Err(SendError::NotSent(detail)) => {
+                let detail = format!("stop request NOT sent ({detail}) — stop UNCONFIRMED");
+                self.endpoint.record_failure(&detail);
+                Err(ActuatorError::Unavailable(detail))
+            }
         }
-        Ok(())
     }
 }
 
@@ -1166,6 +1248,18 @@ pub fn build(
                         }))
                     }
                     CapabilityKindSpec::Actuator => {
+                        // 有外部副作用、卻沒有停止端點：emergency stop 對它
+                        // 永遠只能誠實回「未確認」。載入時就講清楚，不要等到
+                        // 真的按下 estop 才發現這台裝置停不了。
+                        if cap.external_side_effect && cap.stop_request.is_none() {
+                            tracing::warn!(
+                                adapter = %spec.id,
+                                capability = %cap.id,
+                                "actuator has external side effects but declares no stopRequest: \
+                                 emergency stop cannot be confirmed for it (it will never be \
+                                 counted as stopped)"
+                            );
+                        }
                         out.actuators.push(Arc::new(DeclarativeHttpActuator {
                             spec: cap.clone(),
                             request,

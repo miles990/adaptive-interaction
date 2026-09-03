@@ -355,3 +355,150 @@ capabilities:
         "連不上是確定沒送出，不是未知：{receipt:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// link-transports-047：HTTP 動器的 emergency stop 只有「裝置真的收下」才算
+// 已停止。舊版無條件回 Ok(())：沒宣告 stopRequest 時什麼都沒送、送了失敗也
+// 被丟掉——runtime 會把一台還在動作的裝置列進 stoppedActuators。
+// ---------------------------------------------------------------------------
+
+fn actuator_spec_with_stop(addr: SocketAddr, stop_path: &str) -> String {
+    format!(
+        r#"
+schemaVersion: "1.0"
+id: siren
+capabilities:
+  - kind: actuator
+    id: sound
+    transport: http
+    externalSideEffect: true
+    timeoutMs: 2000
+    request: {{ method: POST, url: "http://{addr}/set", body: {{}} }}
+    stopRequest: {{ method: POST, url: "http://{addr}{stop_path}", body: {{}} }}
+"#
+    )
+}
+
+#[tokio::test]
+async fn an_actuator_without_a_stop_endpoint_never_claims_a_confirmed_stop() {
+    let (addr, _state) = spawn_mock_device().await;
+    let yaml = format!(
+        r#"
+schemaVersion: "1.0"
+id: siren-no-stop
+capabilities:
+  - kind: actuator
+    id: sound
+    transport: http
+    externalSideEffect: true
+    request: {{ method: POST, url: "http://{addr}/set", body: {{}} }}
+"#
+    );
+    let built = build(&parse_spec(&yaml).unwrap(), None).unwrap();
+    let err = built.actuators[0]
+        .emergency_stop()
+        .await
+        .expect_err("no stop endpoint = nothing was sent, so nothing is confirmed");
+    let text = err.to_string();
+    assert!(text.contains("no stop endpoint"), "{text}");
+    assert!(text.contains("UNKNOWN"), "{text}");
+}
+
+#[tokio::test]
+async fn a_stop_request_the_device_refuses_is_not_a_confirmed_stop() {
+    let (addr, _state) = spawn_mock_device().await;
+    // /nope 不存在 → axum 回 404：裝置收到了但沒有停。
+    let built = build(
+        &parse_spec(&actuator_spec_with_stop(addr, "/nope")).unwrap(),
+        None,
+    )
+    .unwrap();
+    let err = built.actuators[0]
+        .emergency_stop()
+        .await
+        .expect_err("HTTP 404 is not a confirmed stop");
+    let text = err.to_string();
+    assert!(text.contains("404"), "{text}");
+    assert!(text.contains("UNCONFIRMED"), "{text}");
+}
+
+#[tokio::test]
+async fn a_stop_request_that_never_reaches_the_device_is_not_a_confirmed_stop() {
+    let yaml = r#"
+schemaVersion: "1.0"
+id: siren-offline
+capabilities:
+  - kind: actuator
+    id: sound
+    transport: http
+    externalSideEffect: true
+    request: { method: POST, url: "http://127.0.0.1:1/set", body: {} }
+    stopRequest: { method: POST, url: "http://127.0.0.1:1/stop", body: {} }
+"#;
+    let built = build(&parse_spec(yaml).unwrap(), None).unwrap();
+    let err = built.actuators[0]
+        .emergency_stop()
+        .await
+        .expect_err("a stop request that was never sent confirms nothing");
+    assert!(err.to_string().contains("UNCONFIRMED"), "{err}");
+}
+
+#[tokio::test]
+async fn a_stop_request_the_device_accepts_is_a_confirmed_stop() {
+    let (addr, state) = spawn_mock_device().await;
+    let built = build(
+        &parse_spec(&actuator_spec_with_stop(addr, "/set")).unwrap(),
+        None,
+    )
+    .unwrap();
+    built.actuators[0]
+        .emergency_stop()
+        .await
+        .expect("a 2xx from the device is the deepest honest confirmation this transport has");
+    assert_eq!(
+        state.set_calls.lock().unwrap().len(),
+        1,
+        "the stop request really went out"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// link-transports-050：一個 fact 都沒解出來不是一次成功的觀察
+// （runtime 會據此把 provider 記成「已測試」）。
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_reply_that_resolves_no_declared_fact_is_not_an_observation() {
+    let (addr, _state) = spawn_mock_device().await;
+    // pointer 全部指向裝置沒有的欄位（欄位改名／spec 打錯的等價情境）。
+    let yaml = format!(
+        r#"
+schemaVersion: "1.0"
+id: mismatched
+capabilities:
+  - kind: receptor
+    id: status
+    transport: http
+    request: {{ method: GET, url: "http://{addr}/status" }}
+    facts:
+      lumens: "/renamed/lumens"
+      humidity: "/renamed/humidity"
+"#
+    );
+    let built = build(&parse_spec(&yaml).unwrap(), None).unwrap();
+    let err = built.receptors[0]
+        .read()
+        .await
+        .expect_err("zero resolved facts must not be reported as a successful read");
+    let text = err.to_string();
+    assert!(
+        text.contains("/renamed/lumens"),
+        "點名解不到的 pointer：{text}"
+    );
+    assert!(text.contains("power"), "也要點名裝置實際回了哪些鍵：{text}");
+    // 健康度也不得繼續宣稱 healthy。
+    assert_ne!(
+        built.receptors[0].health().await.status,
+        interaction_core::HealthStatus::Healthy
+    );
+}

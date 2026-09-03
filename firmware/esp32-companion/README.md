@@ -162,12 +162,21 @@ brew install arduino-cli                       # 或官方安裝方式
 | 裝置→ | `{"type":"ack","stopAll":true}` | |
 | 裝置→ | `{"type":"err","id":..,"reason":".."}` | `not-paired` / `bad-json` / `unknown-type` / `unknown-cmd` / `bad-params` / `rate-limited` / `not-found` / `busy`（僅 BLE：入站佇列滿）。`bad-json` 也用於**超長訊息**（Serial／MQTT 一則 ≥ 640 bytes、BLE ≥ 512 bytes）——此時整則丟棄且 err **沒有 id** |
 
-單則訊息上限（裝置端強制；host 端傳輸在送出前就以 `message-too-large` 拒絕，
-不會把超長訊息寫上線）：Serial 一行 **639 bytes**、MQTT 一則 **639 bytes**、
-BLE 一次 write **511 bytes**（runtime 端 BLE 上限 480）。
+單則訊息上限（host→裝置；裝置端強制，host 端傳輸在送出前就以
+`message-too-large` 拒絕，不會把超長訊息寫上線）：Serial 一行 **639 bytes**、
+MQTT 一則 **639 bytes**、BLE 一次 write **511 bytes**（runtime 端 BLE 上限 480）。
 
-指令參數：`led.set {r,g,b}`、`buzzer.beep {freqHz,durationMs}`、
-`vibe.pulse {strength 0..1, durationMs}`、`servo.move {angle 0..180}`。
+裝置→host 方向：Serial／MQTT 一則就是一行（換行界定，無額外上限）；**BLE 有**
+——ATT notification 的可攜 payload 只有「協商後 MTU − 3」（預設 MTU 23 → 20 bytes），
+而 `state` 在預設 `deviceId` 下就有 193 bytes。韌體因此 (1) 以
+`NimBLEDevice::setMTU(517)` 提高偏好 MTU、(2) 依**實際協商值**把長訊息分段
+notify、(3) 以**換行**界定一則訊息；host 端（`crates/interaction-adapter-declarative/src/ble.rs`
+的 `NotifyAssembler`）依換行重組，解不開的 bytes 一律 warn＋計數，
+不得靜默丟棄（否則 `read` 只會逾時說「裝置沒回」，真因卻是訊息被截斷）。
+
+指令參數（超出範圍一律 **clamp**，實際值見 `ack.applied` 與下方硬限制表）：
+`led.set {r,g,b}`、`buzzer.beep {freqHz 200..4000, durationMs ≤2000}`、
+`vibe.pulse {strength 0..0.8, durationMs ≤3000}`、`servo.move {angle 10..170}`。
 
 ### 數值參數的型別規則（韌體與模擬器逐位一致）
 
@@ -275,9 +284,10 @@ Complete Local Name＝`DEVICE_ID`；runtime 端 `interact-ai observe --receptor 
     `cmd`／`read`／`cancel` 照舊 `not-paired`；`stop-all` 不受影響（fail-safe）。
   - 鎖定期滿自動解鎖並重新計數；配對成功把失敗計數歸零。
   - 鎖定**不**隨 MQTT／BLE 斷線重置（否則重連一次就能繞過），只在重開機後歸零。
-  - host 端目前只認 `pair-fail` 的 `type`：鎖定期內的握手會被記成「pairing code
-    rejected by device」（下一次請求前重新握手，不會自動連發）；`reason` 與
-    `retryAfterMs` 只在裝置回覆／log 裡看得到。
+  - host 端會讀 `pair-fail` 的 `reason` 與 `retryAfterMs`（以及 `hello.pairingLocked`）：
+    鎖定期內的握手記成獨立的收據原因 `pairing-locked`，訊息明說「裝置沒有比對這次的碼，
+    約 N 秒後可再試，設定的碼可能是對的」——不會再把它演成「配對碼錯誤」讓人去改一個
+    其實正確的碼。下一次請求前重新握手，不會自動連發。
   - 這擋的是**線上**猜測（每 30 秒最多 5 次 ≈ 每小時 600 次）；配對碼仍應足夠長，
     MQTT 無 TLS 的明文問題見〈已知限制〉4。
 
