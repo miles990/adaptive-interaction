@@ -277,7 +277,9 @@ pub enum SessionCmd {
         expires_minutes: Option<u32>,
         /// Real "only this once": `--max-uses 1` is spent by the first
         /// authorized dispatch. Omit for the historical unlimited-within-TTL
-        /// grant. Never resets on a failed dispatch.
+        /// grant. Never resets on a failed dispatch. Only `actuator:` and
+        /// `channel:` scopes spend uses; `receptor:` / `tool:` scopes refuse
+        /// `--max-uses` (use `--expires-minutes` instead).
         #[arg(long)]
         max_uses: Option<u32>,
     },

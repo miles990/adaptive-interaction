@@ -847,7 +847,19 @@ impl Runtime {
         self.verify_receipt(receipt, "", &strategy).await
     }
 
+    /// 人類路徑（控制中心／CLI）的取消。audit actor 記 `"api"`。
     pub async fn cancel_action(&self, action_id: &ActionId) -> DomainResult<ActionReceipt> {
+        self.cancel_action_as(action_id, "api").await
+    }
+
+    /// safety-invariants-057：取消是安全遞減操作，agent／session token 也打得到。
+    /// audit 記的必須是實際的 principal（比照 `stop_all_sensors`），否則事後
+    /// 分不出「是人按的」還是「是 AI 觸發的」。
+    pub async fn cancel_action_as(
+        &self,
+        action_id: &ActionId,
+        actor: &str,
+    ) -> DomainResult<ActionReceipt> {
         let mut receipt = self.store.receipt(action_id)?;
         if receipt.is_terminal() {
             return Err(DomainError::Conflict(format!(
@@ -908,7 +920,7 @@ impl Runtime {
         }
         self.store.audit(
             "action.cancelled",
-            "api",
+            actor,
             &json!({
                 "actionId": action_id.as_str(),
                 "outcome": if unconfirmed.is_some() { "uncertain" } else { "cancelled" },
@@ -919,11 +931,16 @@ impl Runtime {
     }
 
     /// Cancel every non-terminal action (soft stop-all; not the e-stop).
-    pub async fn stop_all(&self) -> DomainResult<u32> {
+    /// `actor` 一路帶到每一筆 `action.cancelled` 的 audit（safety-invariants-057）。
+    pub async fn stop_all(&self, actor: &str) -> DomainResult<u32> {
         let open = self.store.open_receipts()?;
         let mut count = 0;
         for receipt in open {
-            if self.cancel_action(&receipt.action_id).await.is_ok() {
+            if self
+                .cancel_action_as(&receipt.action_id, actor)
+                .await
+                .is_ok()
+            {
                 count += 1;
             }
         }
@@ -996,7 +1013,38 @@ impl Runtime {
         .await;
         // Only a confirmed stop counts. Timed out / errored ones stay
         // unconfirmed — never reported as stopped.
-        let stopped_actuators = results.iter().filter(|r| matches!(r, Ok(Ok(())))).count();
+        //
+        // link-transports-027：光數「確認了幾個」還不夠誠實。傳輸層刻意區分
+        // 「送出去了但沒有 ack」（Timeout）與「driver 直接說停不了」（Err），
+        // 這些誤差必須一路帶到事件／audit／給人的那句話，否則介面只會看到一句
+        // 「所有輸出已中止」，而三台沒回 ack 的 ESP32 誰都不知道。
+        let total_actuators = actuators.len();
+        let mut stopped_actuators = 0usize;
+        let mut unconfirmed_actuators: Vec<Value> = Vec::new();
+        for (actuator, result) in actuators.iter().zip(results.into_iter()) {
+            match result {
+                Ok(Ok(())) => stopped_actuators += 1,
+                Ok(Err(e)) => unconfirmed_actuators.push(json!({
+                    "actuatorId": actuator.manifest().id.as_str(),
+                    "outcome": "failed",
+                    "detail": format!("driver refused or failed the emergency stop: {e}"),
+                })),
+                Err(_) => unconfirmed_actuators.push(json!({
+                    "actuatorId": actuator.manifest().id.as_str(),
+                    "outcome": "unconfirmed",
+                    "detail": "no stop confirmation within 2 s — the device state is UNKNOWN",
+                })),
+            }
+        }
+        if !unconfirmed_actuators.is_empty() {
+            let detail = json!(unconfirmed_actuators).to_string();
+            tracing::warn!(
+                unconfirmed = unconfirmed_actuators.len(),
+                total = total_actuators,
+                detail = detail.as_str(),
+                "emergency stop: some actuators never confirmed the stop"
+            );
+        }
         // Cancel every open agent session; delegated work never survives an
         // emergency stop and never resumes automatically.
         self.estop_agent_sessions().await;
@@ -1011,10 +1059,20 @@ impl Runtime {
             self.events
                 .emit(EventType::ConsentChanged, json!({"revokedAll": true}));
         }
+        // 誠實階梯：dispatched≠confirmed。全部確認才說「所有輸出已中止」；
+        // 只要有一個沒確認，這句話就必須降級成「已要求全部停止；N 個未確認」。
+        let estop_text = if unconfirmed_actuators.is_empty() {
+            "緊急停止已執行，所有輸出已中止。".to_string()
+        } else {
+            format!(
+                "緊急停止已執行：已要求全部停止；{} 個動器未回覆確認，狀態未知。",
+                unconfirmed_actuators.len()
+            )
+        };
         self.outbox.push(OutboxMessage {
             channel: "conversation".into(),
             intent: "emergency-stop".into(),
-            text: Some("緊急停止已執行，所有輸出已中止。".into()),
+            text: Some(estop_text),
             action_id: ActionId::new("emergency-stop"),
             at: Utc::now(),
         });
@@ -1023,6 +1081,9 @@ impl Runtime {
             "reason": reason,
             "stoppedActions": stopped_actions,
             "stoppedActuators": stopped_actuators,
+            // 動器結果逐一列出：總數、確認停了的、以及每一個沒確認的（含原因）。
+            "totalActuators": total_actuators,
+            "unconfirmedActuators": unconfirmed_actuators,
             // 感測結果逐一列出：哪一台手機確認停了、哪一台沒回覆（結果未知）。
             "sensors": sensors_value,
             // 角色真相投影逐一列出：哪一台手機確認顯示了「緊急停止中」。
@@ -1157,6 +1218,23 @@ impl Runtime {
                 "maxUses must be at least 1; a consent that can never be used is not a consent"
                     .into(),
             ));
+        }
+        // safety-invariants-058：`maxUses` 只有動器派工的授權臨界區真的會扣減
+        // （`Executor::consume_one_shot_consent`，範圍限 actuator／channel）。
+        // 受器（麥克風等）與 tool-operation 沒有等價的原子消耗點，接下這個參數
+        // 等於在事件、audit 與 session JSON 上回報一個後端永遠不會強制的
+        // 「只這一次」——誠實階梯禁止這種宣稱。在真的實作扣減之前，寧可拒絕。
+        if max_uses.is_some()
+            && matches!(
+                scope,
+                ConsentScope::Receptor(_) | ConsentScope::ToolOperation(_)
+            )
+        {
+            return Err(DomainError::Validation(format!(
+                "scope {scope_str:?} does not support maxUses: nothing spends a use on this scope, \
+                 so a count here would be a promise the runtime cannot keep. Use a short-lived \
+                 expiry (expiresMinutes) instead."
+            )));
         }
         let mut guard = self.session.write().await;
         let session = guard

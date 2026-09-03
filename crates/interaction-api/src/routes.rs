@@ -401,9 +401,15 @@ pub async fn action_get(
 
 pub async fn action_cancel(
     State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let receipt = state.runtime.cancel_action(&ActionId::new(&id)).await?;
+    // safety-invariants-057：取消也是 agent／session token 打得到的安全遞減
+    // 操作，audit 記的是實際呼叫者，不是一律 "api"。
+    let receipt = state
+        .runtime
+        .cancel_action_as(&ActionId::new(&id), &stop_actor(&auth))
+        .await?;
     Ok(Json(serde_json::to_value(receipt).unwrap_or_default()))
 }
 
@@ -723,10 +729,11 @@ async fn dispatch_tool(
         }
         "interaction.cancel" => {
             let id = required(&input, "actionId")?;
-            Ok(
-                serde_json::to_value(rt.cancel_action(&ActionId::new(&id)).await?)
-                    .unwrap_or_default(),
+            Ok(serde_json::to_value(
+                rt.cancel_action_as(&ActionId::new(&id), &stop_actor(auth))
+                    .await?,
             )
+            .unwrap_or_default())
         }
         "interaction.stop" => {
             let reason = str_field(&input, "reason");
@@ -972,10 +979,16 @@ fn enforce_proposal_domains(auth: &AuthContext, domains: &[String]) -> Result<()
 
 pub async fn emergency_stop(
     State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
     body: Option<Json<EmergencyStopInput>>,
 ) -> ApiResult<Json<Value>> {
     let reason = body.and_then(|Json(b)| b.reason);
-    let result = state.runtime.emergency_stop("api", reason).await?;
+    // safety-invariants-057：agent／session token 也能按下緊急停止，
+    // audit 必須看得出是誰按的（比照 sensors_stop）。
+    let result = state
+        .runtime
+        .emergency_stop(&stop_actor(&auth), reason)
+        .await?;
     Ok(Json(result))
 }
 
@@ -984,8 +997,11 @@ pub async fn emergency_stop_clear(State(state): State<ApiState>) -> ApiResult<Js
     Ok(Json(json!({"cleared": true})))
 }
 
-pub async fn stop_all(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
-    let count = state.runtime.stop_all().await?;
+pub async fn stop_all(
+    State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
+) -> ApiResult<Json<Value>> {
+    let count = state.runtime.stop_all(&stop_actor(&auth)).await?;
     Ok(Json(json!({"cancelled": count})))
 }
 
@@ -1420,12 +1436,20 @@ pub async fn agent_session_messages(
         Some("from-session") => interaction_core::MailboxDirection::FromSession,
         _ => interaction_core::MailboxDirection::ToSession,
     };
-    let reader = match auth.principal {
+    let reader = match &auth.principal {
         AuthPrincipal::Human => interaction_runtime::agents::MailboxReader::Human,
-        AuthPrincipal::LegacyAgent | AuthPrincipal::AgentSession(_) => {
+        // agent-honesty-021：agent 身分的讀取＝取走（蓋 deliveredAt、推進委派
+        // receipt、發 `fetched`），所以只有「自己的 session」才算得上取走。
+        // 擁有權在這裡再比對一次，不依賴 middleware 的掛載順序（比照 078）。
+        AuthPrincipal::AgentSession(capability) if capability.session_id == id => {
             interaction_runtime::agents::MailboxReader::Agent
         }
-        // 中介層已擋下（adapter token 讀不到 mailbox）；型別上的最後防線。
+        // 跨 session 的 capability token 證明不了擁有權；legacy agent token
+        // 是零欄位 variant，架構上不帶任何 session 身分——都不得取走信箱
+        // （中介層已擋下，這是型別上的最後防線）。
+        AuthPrincipal::AgentSession(_) | AuthPrincipal::LegacyAgent => {
+            return Err(ApiError::forbidden_scope())
+        }
         AuthPrincipal::CharacterAdapter { .. } => return Err(ApiError::forbidden_adapter_scope()),
     };
     let messages = state.runtime.mailbox_read(&id, direction, reader).await?;

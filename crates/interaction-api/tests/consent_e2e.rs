@@ -54,6 +54,18 @@ impl TestServer {
         (status, resp.json().await.unwrap_or(Value::Null))
     }
 
+    async fn get(&self, path: &str) -> (u16, Value) {
+        let resp = self
+            .client
+            .get(format!("{}{path}", self.base))
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .unwrap();
+        let status = resp.status().as_u16();
+        (status, resp.json().await.unwrap_or(Value::Null))
+    }
+
     async fn patch(&self, path: &str, body: Value) -> (u16, Value) {
         let resp = self
             .client
@@ -181,4 +193,56 @@ async fn consent_with_max_uses_zero_is_rejected() {
         (400..500).contains(&status),
         "maxUses=0 是無意義的同意，必須被拒絕：{status} {body}"
     );
+}
+
+/// safety-invariants-058：HTTP 介面不得照收一個後端不會強制的 `maxUses`。
+/// 受器／tool-operation 範圍沒有任何扣減點，帶次數必須被拒絕，而且 session
+/// JSON 裡不得出現假的 `maxUses`／`remainingUses`。
+#[tokio::test]
+async fn consent_max_uses_is_rejected_for_scopes_that_never_spend_it() {
+    let server = armed_server().await;
+
+    for scope in ["receptor:microphone.listen", "tool:interaction.observe"] {
+        let (status, body) = server
+            .post(
+                "/v1/session/consent",
+                json!({"scope": scope, "expiresMinutes": 5, "maxUses": 1}),
+            )
+            .await;
+        assert!(
+            (400..500).contains(&status),
+            "{scope} 沒有任何地方會用掉 maxUses，介面必須拒絕而不是照收：{status} {body}"
+        );
+    }
+
+    let (status, session) = server.get("/v1/session").await;
+    assert_eq!(status, 200, "{session}");
+    let consents = session["consents"].as_array().cloned().unwrap_or_default();
+    assert!(
+        consents
+            .iter()
+            .all(|c| c["maxUses"].is_null() && c["remainingUses"].is_null()),
+        "被拒絕的授權不得在 session JSON 留下假的次數：{session}"
+    );
+
+    // 純 TTL 的受器授權仍然可用。
+    let (status, session) = server
+        .post(
+            "/v1/session/consent",
+            json!({"scope": "receptor:microphone.listen", "expiresMinutes": 5}),
+        )
+        .await;
+    assert_eq!(status, 200, "{session}");
+    let mic = session["consents"]
+        .as_array()
+        .and_then(|cs| {
+            cs.iter()
+                .find(|c| {
+                    c["scope"]["kind"] == json!("receptor")
+                        && c["scope"]["id"] == json!("microphone.listen")
+                })
+                .cloned()
+        })
+        .expect("純 TTL 的受器授權必須成立");
+    assert!(mic["maxUses"].is_null(), "{mic}");
 }

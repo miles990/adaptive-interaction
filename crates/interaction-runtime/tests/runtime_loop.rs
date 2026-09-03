@@ -1654,3 +1654,29 @@ async fn cancel_action_is_cancelled_only_when_the_driver_confirms() {
     let stored = rt.store.receipt(&receipt.action_id).unwrap();
     assert_eq!(stored.current_status, ActionStatus::Cancelled);
 }
+
+/// safety-invariants-057：`stop_all` 是 agent／session token 也打得到的安全
+/// 遞減操作，它逐一取消動作留下的 `action.cancelled` audit 必須寫實際的
+/// principal，不得一律記成人類的 "api"。
+#[tokio::test]
+async fn stop_all_records_the_calling_principal_on_every_cancelled_action() {
+    let (_g, rt) = cancel_probe_runtime("cancel.actor", true).await;
+    let receipt = open_receipt_for(&rt, "cancel.actor").await;
+
+    let cancelled = rt.stop_all("agent:agent.coder@asession-1").await.unwrap();
+    assert!(cancelled >= 1, "至少要取消掉那一筆進行中的動作");
+
+    let audit = rt.store.audit_tail(50).unwrap();
+    let entry = audit
+        .iter()
+        .find(|e| {
+            e["kind"] == json!("action.cancelled")
+                && e["detail"]["actionId"] == json!(receipt.action_id.as_str())
+        })
+        .expect("取消要留下 audit");
+    assert_eq!(
+        entry["actor"],
+        json!("agent:agent.coder@asession-1"),
+        "audit 必須記實際呼叫者：{entry}"
+    );
+}

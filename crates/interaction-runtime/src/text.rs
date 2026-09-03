@@ -42,10 +42,9 @@ fn catalog(intent: &str) -> (&'static [&'static str], &'static [&'static str]) {
             &["Your confirmation is required to continue."],
         ),
         "stopped" => (&["已停止。"], &["Stopped."]),
-        "emergency-stop" => (
-            &["緊急停止已執行，所有輸出已中止。"],
-            &["Emergency stop executed; all outputs halted."],
-        ),
+        // 「所有輸出已中止」是實測結果，只能由 runtime 的緊急停止摘要說
+        // （逐一數過確認的動器才算）；計畫文案不得預先宣稱。
+        "emergency-stop" => (&["緊急停止已執行。"], &["Emergency stop executed."]),
         "calm" => (&["一切平穩。"], &["All steady."]),
         "tension" => (
             &["情況緊湊，保持專注。"],

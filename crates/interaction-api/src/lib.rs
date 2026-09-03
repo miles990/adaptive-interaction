@@ -409,6 +409,18 @@ fn session_request_allowed(
     if method == Method::GET && (path == "/v1/tools" || path.starts_with("/v1/tools/")) {
         return true;
     }
+    // agent-honesty-021：輪詢型（非 gateway）agent 必須能取走**自己** session
+    // 信箱裡的任務——那是 `dispatched → fetched → acknowledged` 這條誠實階梯
+    // 對這類 session 唯一的推進路徑。擁有權比照 interrupt：只准自己的 session
+    // （legacy agent token 不帶 session 身分，仍然一律擋在 agent_request_allowed）。
+    if method == Method::GET {
+        if let Some(session_id) = path
+            .strip_prefix("/v1/agent-sessions/")
+            .and_then(|value| value.strip_suffix("/messages"))
+        {
+            return session_id == capability.session_id;
+        }
+    }
     if method == Method::POST && path.starts_with("/v1/tools/") && path.ends_with("/call") {
         return true;
     }

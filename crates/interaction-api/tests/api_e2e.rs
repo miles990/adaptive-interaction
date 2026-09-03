@@ -2319,3 +2319,347 @@ async fn interrupt_requires_session_ownership_or_a_human_token() {
     }
     assert_eq!(server.runtime.open_agent_sessions().await, 0);
 }
+
+/// agent-honesty-021：非 gateway（輪詢型）agent session 必須真的能用自己的
+/// session token 取走信箱裡的任務——否則 `dispatched → fetched → acknowledged`
+/// 這條誠實階梯對整類 session 都是死碼，介面卻一直說「它來取走之後才會開始」。
+///
+/// 同時鎖住兩條界線：human token 的 GET 仍然是純觀看（不蓋送達戳記），
+/// 跨 session 的 capability token 一律 403。
+#[tokio::test]
+async fn an_agent_session_can_fetch_its_own_mailbox_and_that_is_what_marks_delivery() {
+    let server = TestServer::spawn().await;
+    let make_session = |label: &'static str| {
+        let runtime = server.runtime.clone();
+        async move {
+            runtime
+                .create_agent_session(interaction_runtime::agents::CreateAgentSession {
+                    provider_id: Some("provider.ai-agent.external-test".into()),
+                    agent_id: "agent.coder".into(),
+                    label: Some(label.into()),
+                    ttl_minutes: Some(5),
+                    data_scope: vec![],
+                    tool_scope: vec![],
+                    consent_scope: vec![],
+                    allow_write: false,
+                    max_cost: None,
+                    max_messages: Some(5),
+                    delegation: None,
+                    workdir: None,
+                    resume_provider_session_id: None,
+                })
+                .await
+                .unwrap()
+        }
+    };
+    let id = make_session("polling agent")
+        .await
+        .session_id
+        .as_str()
+        .to_string();
+    let other_id = make_session("someone else")
+        .await
+        .session_id
+        .as_str()
+        .to_string();
+    let session_token = server
+        .runtime
+        .issue_agent_session_capability(&id)
+        .await
+        .unwrap();
+    let other_token = server
+        .runtime
+        .issue_agent_session_capability(&other_id)
+        .await
+        .unwrap();
+
+    // 人類派一則任務進信箱。
+    let (status, sent) = server
+        .post(
+            &format!("/v1/agent-sessions/{id}/messages"),
+            json!({"kind": "task", "body": {"summary": "去把燈打開"}}),
+        )
+        .await;
+    assert_eq!(status, 200, "{sent}");
+    assert!(
+        sent["deliveredAt"].is_null(),
+        "還沒有人來取，不得先蓋送達戳記：{sent}"
+    );
+
+    // 人類看一眼信箱：純觀看，不得把「看過」偽裝成「agent 收到了」。
+    let (status, peeked) = server
+        .get(&format!("/v1/agent-sessions/{id}/messages"))
+        .await;
+    assert_eq!(status, 200, "{peeked}");
+    assert!(
+        peeked[0]["deliveredAt"].is_null(),
+        "human token 的 GET 是純觀看：{peeked}"
+    );
+
+    // 別人的 session token 不得讀這個信箱。
+    let response = server
+        .client
+        .get(format!("{}/v1/agent-sessions/{id}/messages", server.base))
+        .bearer_auth(&other_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        403,
+        "跨 session 的 capability token 不得讀別人的信箱"
+    );
+
+    // legacy agent token 沒有 session 身分，證明不了擁有權，一律拒絕。
+    let response = server
+        .client
+        .get(format!("{}/v1/agent-sessions/{id}/messages", server.base))
+        .bearer_auth(&server.agent_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        403,
+        "legacy agent token 不帶 session 身分，不得取走任何 session 的信箱"
+    );
+
+    // 這個 session 自己的 token：真的取得到，而且取走＝送達。
+    let response = server
+        .client
+        .get(format!("{}/v1/agent-sessions/{id}/messages", server.base))
+        .bearer_auth(&session_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        200,
+        "agent 必須能用自己的 session token 取走自己的任務"
+    );
+    let fetched: Value = response.json().await.unwrap();
+    assert_eq!(fetched.as_array().map(|a| a.len()), Some(1), "{fetched}");
+    assert!(
+        fetched[0]["deliveredAt"].is_string(),
+        "agent 身分的取走必須蓋上送達戳記：{fetched}"
+    );
+
+    // 送達之後，狀態序列裡要看得到 `fetched`（taxonomy §7.4）。
+    let fetched_event = server.runtime.events.recent(300).into_iter().any(|e| {
+        e.event_type == interaction_core::EventType::AgentSessionState
+            && e.payload["agentSessionId"] == json!(id)
+            && e.payload["state"] == json!("fetched")
+    });
+    assert!(
+        fetched_event,
+        "任務真的被 agent 取走必須發出 `fetched`（沒有它，介面會永遠停在「準備中」）"
+    );
+
+    // 再讀一次不得重複蓋章／重複發 fetched（送達只發生一次）。
+    let response = server
+        .client
+        .get(format!("{}/v1/agent-sessions/{id}/messages", server.base))
+        .bearer_auth(&session_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let again: Value = response.json().await.unwrap();
+    assert_eq!(
+        again[0]["deliveredAt"], fetched[0]["deliveredAt"],
+        "{again}"
+    );
+    let fetched_events = server
+        .runtime
+        .events
+        .recent(300)
+        .into_iter()
+        .filter(|e| {
+            e.event_type == interaction_core::EventType::AgentSessionState
+                && e.payload["agentSessionId"] == json!(id)
+                && e.payload["state"] == json!("fetched")
+        })
+        .count();
+    assert_eq!(fetched_events, 1, "送達只發生一次，fetched 不得重複發");
+}
+
+/// safety-invariants-057：agent／session token 也打得到 estop、stop-all 與
+/// cancel。audit 必須寫實際的 principal（比照 sensors/stop），否則事後分不出
+/// 是人按的還是 AI 觸發的。
+#[tokio::test]
+async fn stop_operations_record_the_real_principal_in_the_audit_trail() {
+    let server = TestServer::spawn().await;
+
+    // 1) agent token 觸發的緊急停止。
+    let response = server
+        .client
+        .post(format!("{}/v1/emergency-stop", server.base))
+        .bearer_auth(&server.agent_token)
+        .json(&json!({"reason": "agent drill"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let (status, audit) = server.get("/v1/audit?limit=200").await;
+    assert_eq!(status, 200, "{audit}");
+    let entry = audit
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == json!("emergency.stop"))
+        .cloned()
+        .expect("緊急停止要留下 audit");
+    assert_eq!(
+        entry["actor"], "agent",
+        "agent token 觸發的緊急停止不得記成人類的 \"api\"：{entry}"
+    );
+
+    // 人類解除，才能繼續下一段。
+    let (status, _) = server.post("/v1/emergency-stop/clear", json!({})).await;
+    assert_eq!(status, 200);
+
+    // 2) agent token 觸發的 stop-all（逐一取消 → action.cancelled 的 actor）。
+    let (status, session) = server
+        .post("/v1/session/start", json!({"label": "stop-all"}))
+        .await;
+    assert_eq!(status, 200, "{session}");
+    let response = server
+        .client
+        .post(format!("{}/v1/stop-all", server.base))
+        .bearer_auth(&server.agent_token)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    // 3) session-scoped capability token 觸發的緊急停止：actor 要指名哪個
+    //    agent、哪個 session。
+    let record = server
+        .runtime
+        .create_agent_session(interaction_runtime::agents::CreateAgentSession {
+            provider_id: Some("provider.ai-agent.external-test".into()),
+            agent_id: "agent.coder".into(),
+            label: Some("stop actor".into()),
+            ttl_minutes: Some(5),
+            data_scope: vec![],
+            tool_scope: vec![],
+            consent_scope: vec![],
+            allow_write: false,
+            max_cost: None,
+            max_messages: Some(5),
+            delegation: None,
+            workdir: None,
+            resume_provider_session_id: None,
+        })
+        .await
+        .unwrap();
+    let sid = record.session_id.as_str().to_string();
+    let session_token = server
+        .runtime
+        .issue_agent_session_capability(&sid)
+        .await
+        .unwrap();
+    let response = server
+        .client
+        .post(format!("{}/v1/emergency-stop", server.base))
+        .bearer_auth(&session_token)
+        .json(&json!({"reason": "session drill"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let (_, audit) = server.get("/v1/audit?limit=200").await;
+    let entry = audit
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == json!("emergency.stop"))
+        .cloned()
+        .expect("緊急停止要留下 audit");
+    assert_eq!(
+        entry["actor"],
+        json!(format!("agent:agent.coder@{sid}")),
+        "session token 觸發的停止必須記到是哪個 agent／哪個 session：{entry}"
+    );
+}
+
+/// safety-invariants-057（cancel 分支）：agent token 取消單一動作時，
+/// `action.cancelled` 的 audit actor 同樣不得寫死成人類的 "api"。
+#[tokio::test]
+async fn cancelling_an_action_records_the_real_principal_in_the_audit_trail() {
+    let server = TestServer::spawn().await;
+    server
+        .runtime
+        .registry
+        .set_actuator_enabled(&interaction_core::ActuatorId::new("mock.actuator"), true)
+        .await
+        .unwrap();
+    let (status, _) = server
+        .patch(
+            "/v1/policy",
+            json!({"allowedChannels": ["conversation", "haptic"]}),
+        )
+        .await;
+    assert_eq!(status, 200);
+    let (status, session) = server
+        .post("/v1/session/start", json!({"label": "cancel actor"}))
+        .await;
+    assert_eq!(status, 200, "{session}");
+    let (status, _) = server
+        .post(
+            "/v1/session/consent",
+            json!({"scope": "actuator:mock.actuator"}),
+        )
+        .await;
+    assert_eq!(status, 200);
+
+    let (status, plan) = server
+        .post(
+            "/v1/plans",
+            json!({
+                "intent": "presence",
+                "candidates": ["mock.actuator"],
+                "minChannels": 1,
+                "maxChannels": 1,
+                "allowNoAction": false,
+                "preferredChannels": ["haptic"]
+            }),
+        )
+        .await;
+    assert_eq!(status, 200, "{plan}");
+    let plan_id = plan["planId"].as_str().unwrap().to_string();
+    let (status, receipts) = server
+        .post(&format!("/v1/plans/{plan_id}/execute"), json!({}))
+        .await;
+    assert_eq!(status, 200, "{receipts}");
+    let action_id = receipts[0]["actionId"].as_str().unwrap().to_string();
+
+    let response = server
+        .client
+        .post(format!("{}/v1/actions/{action_id}/cancel", server.base))
+        .bearer_auth(&server.agent_token)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        response.status().is_success() || response.status().as_u16() == 409,
+        "取消請求要嘛成功、要嘛因為已終結而衝突：{}",
+        response.status()
+    );
+    if response.status().is_success() {
+        let (_, audit) = server.get("/v1/audit?limit=200").await;
+        let entry = audit
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["kind"] == json!("action.cancelled"))
+            .cloned()
+            .expect("取消要留下 audit");
+        assert_eq!(
+            entry["actor"], "agent",
+            "agent token 觸發的取消不得記成人類的 \"api\"：{entry}"
+        );
+    }
+}

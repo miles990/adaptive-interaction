@@ -512,3 +512,58 @@ async fn one_shot_consent_used_as_high_risk_approval_is_also_spent() {
     );
     assert_eq!(executions.load(Ordering::SeqCst), 1);
 }
+
+/// safety-invariants-058：`maxUses` 只有動器派工路徑（動器／頻道範圍）真的會
+/// 扣減。受器與 tool-operation 沒有等價的原子消耗點，因此不得照收一個後端
+/// 永遠不會強制的次數——否則事件、audit 與 session JSON 都在回報一個假的
+/// 「只這一次」。
+#[tokio::test]
+async fn max_uses_is_refused_for_scopes_where_nothing_ever_spends_it() {
+    let (_g, rt, _executions) = one_shot_runtime(false).await;
+
+    for scope in [
+        "receptor:microphone.listen",
+        "receptor:iphone.mic-level",
+        "tool:interaction.observe",
+    ] {
+        let err = rt
+            .grant_consent_with_uses(scope, Some(5), Some(1))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, DomainError::Validation(_)),
+            "{scope} 的 maxUses 沒有任何地方會扣減，必須在授權時就拒絕：{err:?}"
+        );
+        let session = rt.current_session().await.unwrap();
+        assert!(
+            !session
+                .consents
+                .iter()
+                .any(|c| c.max_uses.is_some() && c.revoked_at.is_none()),
+            "被拒絕的授權不得留下任何帶 maxUses 的同意：{:?}",
+            session.consents
+        );
+    }
+
+    // 同樣的範圍改成純 TTL（不帶 maxUses）仍然照常可以授權——修法不得順手
+    // 拿掉受器的短效授權能力。
+    let session = rt
+        .grant_consent_with_uses("receptor:microphone.listen", Some(5), None)
+        .await
+        .unwrap();
+    let mic = session
+        .consents
+        .iter()
+        .find(|c| c.scope == ConsentScope::Receptor("microphone.listen".into()))
+        .expect("純 TTL 的受器授權必須成立");
+    assert_eq!(mic.max_uses, None);
+    assert_eq!(mic.remaining_uses, None);
+
+    // 真的會被扣減的範圍不受影響。
+    rt.grant_consent_with_uses("actuator:one-shot.probe", None, Some(1))
+        .await
+        .expect("動器範圍的 maxUses 是後端真的會用掉的，必須維持可用");
+    rt.grant_consent_with_uses("channel:haptic", None, Some(1))
+        .await
+        .expect("頻道範圍的 maxUses 也會在派工時用掉");
+}
