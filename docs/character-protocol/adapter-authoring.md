@@ -162,19 +162,24 @@ adapter token 不能呼叫 actuator，同理也不能合成人類互動——要
 **模擬 adapter（fixture）**，不是真引擎）。
 
 stdio JSON Lines 用同一批訊息（一行一則）；本版**不**自動啟動任何子程序（`entrypoint.process` 只是紀錄），
-所以 stdio 只有規格，沒有 host spawn。
+所以 stdio **只有規格、沒有實作**（沒有 host spawn、沒有 fixture、沒有 E2E）。相容表：WebSocket＝已實作、
+In-process＝已實作、stdio JSON Lines＝規格已定／未實作（README §8.1）。
 
 ## 9. 如何從舊 Character Pack 遷移
 
 不用改設定。舊 `character-pack` 1.0／1.1（sprite sheet）與 `character-rig` 2.0 由 `migratePackToManifest`
 （TS）／`migrate_legacy_pack`（Rust）自動變成 manifest：sprite 的動畫名成為 `visual.expression.variants`，
 FALLBACKS 鏈成為 `fallbacks.intents`（例如 v1 沒有 `failed` 動畫 → `failed→blocked`，永遠不會落到 success）。
+安全 intent 只會映到另一個安全 intent：v0.5.1 起遷移不再產生 `emergency→sleep`、`blocked→sleep`、`ask→notice` 這類映射，
+缺美術的安全 intent 改走能力鏈或 `system.text`。
 `DesktopPrefs.companionPack` 的 8 個舊 id 全部仍可用。匯入舊 pack JSON 時同樣自動遷移。
 
 ## 10. 如何在缺少某項能力時提供 fallback
 
 `fallbacks.capabilities["visual.expression"] = ["visual.pose", "visual.textBubble"]`：表情做不到就換姿勢，再不行就
 換文字泡泡。`fallbacks.intents = { play: "notice", sleep: "rest" }`：不會玩就「注意到」，不會睡就「休息」。
+**安全 intent → 非安全 intent 的 `fallbacks.intents`（例如 `request-consent: "greet"`）會在 manifest 驗證階段被拒**（Rust／TS 同步；
+匯入也擋）；`failed → blocked` 這種安全→安全的用法照舊。
 Fallback 只會讓解析結果**變差**（`exact → substituted → reduced → unsupported`），不能把 `claimed` 變成
 `verified`，也不能把安全 intent 變成 `unsupported`（安全 intent 最後一定落在 `system.text`）。
 

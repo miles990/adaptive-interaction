@@ -4,8 +4,8 @@
 （127.0.0.1:8787，Bearer token）＋SSE＋Canonical Tool Manifest（OpenAI／Anthropic／
 Gemini／OpenAPI／JSON-Schema 產生器）＋跨 AI Skill（`skills/orchestrate-adaptive-interaction`）
 ＋Tauri 2 控制中心（狀態列常駐＋桌面角色「小樞」）＋v0.5 的真硬體 adapter
-（Serial／MQTT／BLE＋ESP32 參考韌體）與 iPhone Mobile Provider。已發布版本 v0.4.1；
-`main` 上為 v0.5 開發中（未發布）。
+（Serial／MQTT／BLE＋ESP32 參考韌體）與 iPhone Mobile Provider。已發布版本 v0.5.0（2026-09-03，tag `v0.5.0`）；
+`main` 上為 v0.5.1 修補版本開發中（未發布）。
 架構細節見 `docs/ARCHITECTURE.md`，功能總覽見 `docs/FEATURES.md`。
 
 ## 不可違反的不變量
@@ -76,4 +76,5 @@ cd apps/interaction-desktop && pnpm perf   # 角色效能量測（headless Chrom
 - 本機 `target/` 約 30 GB，磁碟接近滿時 build 會以 ENOSPC 中斷；可安全刪除 `target/debug/incremental`
   （純快取），不要動 `deps/`。Apple Silicon 無 Rosetta：arduino-cli 內建 ctags 跑不起來，`compile.sh` 會自動改用
   `firmware/esp32-companion/tools/ctags-shim`（需 `brew install universal-ctags`）。
-- 模擬器／fixture／程序內 client 的結果一律標示「模擬器」；ESP32 與 iPhone 真機驗收目前為零，不得寫成已驗收。
+- 模擬器／fixture／程序內 client 的結果一律標示「模擬器」；ESP32 真板驗收目前為零；iPhone 只有
+  `docs/releases/v0.5.0-iphone-device-evidence.md` 逐列標示的真機證據，其餘列不得寫成已驗收。

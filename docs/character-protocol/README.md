@@ -148,6 +148,10 @@ gameplay.autonomy    system.text   （由 Runtime 提供、永遠可用的最後
 
 1. 若 `intents` 含該 intent 且對應能力 `supported` → `exact`。
 2. 否則依 `fallbacks.intents[intent]` 換成另一個 intent（一次），能達成者 → `substituted`（`via` 記錄實際 intent）。
+   **安全 intent（`request-consent`／`blocked`／`unknown`／`failed`／`cancelled`／`offline`／`emergency`）只能換成另一個安全 intent**：
+   來源是安全 intent 而目標不是，manifest 驗證直接回錯誤（Rust `ManifestErrorCode::Fallbacks`／TS `c.err`），協商時也跳過本步驟
+   （落到步驟 3／5，最差誠實落 `system.text`）。舊 Character Pack 遷移不再產生 `emergency→sleep`、`blocked→sleep`、`ask→notice`
+   這類映射（v0.5.1，對抗審查 character-protocol-036）。
 3. 否則依 `fallbacks.capabilities[cap]` 鏈往下找第一個 `supported` 的能力 → `substituted`。
 4. `reducedMotion=true` 時，若所用能力 `reducedMotionBehavior ∈ {static, reduced}` → `reduced`；`disabled` → 繼續往下一個 fallback。
 5. 什麼都沒有 → 安全 intent（§4.3 有 floor 者）一律解析為 `via:"system.text"`、`resolution:"substituted"`；非安全 intent → `unsupported`。
@@ -223,9 +227,15 @@ Envelope：`{ protocolVersion, eventId, characterInstanceId, generation, timesta
 正規化與限制（Gateway 強制）：
 - 高頻：`hover-*` ≤ 4/s、`dragged` 合併為 ≤ 10/s 且只帶量化座標（8 px 網格，視窗相對）、`pointerProximity` ≤ 1/30 s；佇列上限 64，滿了丟最舊的非安全事件。
 - **不保存原始游標軌跡、不送 AI**；payload 不含絕對螢幕座標。
+- **宣告即契約**（v0.5.1，character-protocol-040）：`clicked`／`double-clicked`／`action-requested` 需要 `input.click`、`hover-entered` 需要 `input.hover`、
+  `drag-started`／`dragged` 需要 `input.drag`、`dropped` 需要 `input.drop`、`text-submitted` 需要 `input.text`、`file-dropped` 需要 `input.fileDrop`。
+  manifest（協商後為 `negotiated.inputCapabilities`）沒宣告的種類在進佇列前就被丟棄（`{decision:"dropped", reason:"capability-not-declared", requires}`）、
+  留稽核 `character.input-capability-not-declared`，不產生任何 `companion.*` 觀察；連接頁「可以接收：…」由同一份 manifest 產生，不會說一套做一套。
+  `hover-left`／`toy-thrown`／`dismissed`／`visibility-changed` 只留稽核，不設閘。
 - `text-submitted` ≤ 2000 字；`file-dropped` 只帶 `{name, mediaType, bytes, readableScope, grantId, expiresAt}`，grant 短效（≤ 10 分鐘）、只授權該檔案、可撤銷；不授權整個檔案系統。
 - `action-requested{action}` 只是請求：**可信 host 表面（桌面視窗，`/v1/character/hello` 註冊的 instance）**的事件才會被 Gateway 轉成 `companion.quick-action` receptor observation，仍經 Runtime policy／consent。
-- **外部 adapter（`/v1/character/ws`＋adapter token，origin `external`）的輸入事件不會變成任何 `companion.*` 觀察**：只留稽核（`character.input-not-observed`），HTTP 回 `{decision:"audit-only", reason:"external-adapter-input-not-observed"}`。理由：那些 receptor 是桌面表面的受器，寫進去會繞過「隱藏角色停用視窗內受器」的閘門、觸發只比對 receptor id 的 recipe，並用假的「使用者有回應」解除主動對話的不追問守則——呈現層沒有權限主權，也就不該有合成人類輸入的權力。
+- **外部 adapter（`/v1/character/ws`＋adapter token，origin `external`）的輸入事件不會變成任何 `companion.*` 觀察**：只留稽核（`character.input-not-observed`），HTTP 回 `{decision:"audit-only", reason:"external-adapter-input-not-observed"}`。
+  **v0.5.1 決定**：維持這個安全拒絕。要讓外部 adapter 真的回報使用者互動，需要專屬的 receptor 命名空間（例如 `character.external.click`／`hover`／`drag`／`drop`／`touch`）配上 manifest 宣告、人類同意、surface／instance 綁定（`ConsentScope` 目前沒有 instance 維度）、速率限制、payload 正規化（不存原始軌跡）、origin 身分、稽核與撤銷，且 adapter 只能回報自己 surface 的互動、不得偽造 OS 全域輸入——這些牽涉 `interaction-core` 的 consent／observation 資料模型與 recipe 觸發語意，超出 patch version 範圍，列為下一個 minor version 的設計項目；本版沒有任何管道讓外部 adapter 的輸入落成觀察。理由：那些 receptor 是桌面表面的受器，寫進去會繞過「隱藏角色停用視窗內受器」的閘門、觸發只比對 receptor id 的 recipe，並用假的「使用者有回應」解除主動對話的不追問守則——呈現層沒有權限主權，也就不該有合成人類輸入的權力。
 - 普通角色互動不啟動工作 Agent；角色輸入不能直接變成 OS／硬體／檔案系統操作；Adapter 不能偽造 human verification（沒有任何 event kind 能表達它）。
 - 多角色：每個 event 都帶 `characterInstanceId`；Gateway 依 role 過濾（`observer`／`notification-only` 不送輸入）。
 
@@ -259,7 +269,8 @@ runtime → adapter : hello | negotiated | intent{envelope} | cancel{messageId, 
 adapter → runtime : negotiate | receipt{receipt} | event{event} | lifecycle{state} | heartbeat | error | goodbye
 ```
 
-限制：單則 ≤ 64 KB；每個 adapter ≤ 50 則/s（超過 → `error{code:"rate-limited"}` 並丟棄）；pending intents ≤ 64；outbound 佇列 ≤ 32（滿了先丟最舊的非安全 intent，安全 intent 不丟）。
+限制：單則 ≤ 64 KB；每個 adapter ≤ 50 則/s（超過 → `error{code:"rate-limited"}` 並丟棄）；pending intents ≤ 64；outbound 佇列 ≤ 32（滿了丟**剛進來的**非安全訊息並留稽核；安全訊息不丟——最多 8 則在有界等待（5 s）內等空位，
+等不到就結算 uncertain＋`system.text`；WS 寫入逾時 5 s 即斷線並把 pending 結算為 uncertain）。「淘汰隊首」需要自管佇列，v0.5.1 未做。
 
 50 則/s 是**每個 instance 一份預算，所有入口共用**：WebSocket 訊息、`POST /v1/character/receipts`
 （超量回 `{accepted:false, status:"rate-limited"}`）、`POST /v1/character/events`（超量回
@@ -271,10 +282,10 @@ adapter → runtime : negotiate | receipt{receipt} | event{event} | lifecycle{st
 
 | Transport | 用途 | 狀態 |
 |---|---|---|
-| In-process（TS `CharacterAdapter` 介面） | 桌面視窗內建 adapter（小樞 rig、sprite、text） | 已實作 |
+| In-process（TS `CharacterAdapter` 介面） | 桌面視窗內建 adapter（小樞 rig、sprite、text） | **已實作（implemented）** |
 | Runtime ↔ 桌面視窗 | `character.intent` 事件（SSE／Tauri IPC）＋ `POST /v1/character/receipts`、`POST /v1/character/events`（human token；桌面視窗是可信 host） | 已實作 |
-| WebSocket `GET /v1/character/ws?token=<adapter token>` | 外部程式／遊戲引擎／遠端顯示（loopback） | 已實作（reference） |
-| stdio JSON Lines | 本機子程序 | 規格同上（同一批訊息、一行一則）；host **不**自動啟動子程序；本版只有規格，沒有 host spawn 也沒有 stdio fixture（外部 fixture 走 WebSocket） |
+| WebSocket `GET /v1/character/ws?token=<adapter token>` | 外部程式／遊戲引擎／遠端顯示（loopback） | **已實作（implemented）**：reference fixture＋CLI E2E 閉環 |
+| stdio JSON Lines | 本機子程序 | **規格已定、未實作（specified / not implemented）**：訊息同 §8、一行一則；host **不**自動啟動子程序、沒有 host 端 spawn、沒有 stdio fixture、CLI E2E 也不涵蓋（外部 fixture 走 WebSocket）。文件範例不是完成證據；若要實作，屬下一個 minor version 的範圍 |
 | HTTP | 管理：`/v1/character/adapters`（註冊／撤銷）、`/v1/character/instances`、`/v1/character/manifest`、`/v1/character/intent`（人類手動測試非安全 intent；安全 intent 一律 403） | 已實作 |
 | SSE | 只讀事件訂閱（`character.intent`／`character.receipt`／`character.instance`）；不適合雙向控制 | 已實作 |
 

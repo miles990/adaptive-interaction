@@ -14,6 +14,13 @@ adaptive-interaction 平台的官方參考硬體裝置。一片 ESP32-WROOM-32 D
 `ack.applied` 回報的是經硬限制 clamp 後的**實際套用值**；讀不到的感測器誠實回
 `-1` / `null`，絕不捏造。
 
+> **ESP32 firmware compiled and simulator-tested; not validated on a physical ESP32 board.**
+
+> **BLE implementation compiled and fixture-tested; not validated against a physical BLE peripheral.**
+
+（上面兩句是本專案在所有文件裡對 ESP32／BLE 的固定說法，不得改寫成更樂觀的措辭。逐輪的編譯結果
+與模擬器覆蓋範圍見下方〈不用 IDE 的編譯檢查〉與〈已知限制（誠實列出）〉。）
+
 ---
 
 ## BOM（材料清單）
@@ -150,7 +157,7 @@ brew install arduino-cli                       # 或官方安裝方式
 | →裝置 | `{"type":"who"}` | 詢問身分；開機時裝置也主動送 hello |
 | 裝置→ | `{"type":"hello","deviceId":..,"fw":"1.0.0","proto":1,"caps":[..],"pairing":bool,"pairingLocked":bool}` | `pairing:true` = 此通道尚需配對；`pairingLocked:true` = 此通道因連續錯碼而在鎖定期內（見〈配對流程〉） |
 | →裝置 | `{"type":"pair","code":"..."}` | 近似常數時間比對 `PAIRING_CODE`；連續 5 次錯碼 → 鎖定 30 s |
-| 裝置→ | `{"type":"pair-ok"}` / `{"type":"pair-fail"}` / `{"type":"pair-fail","reason":"pair-locked","retryAfterMs":N}` | 第三種 = 鎖定期內（**不比對碼**）；host 端的 DeviceLink 只認 `type`，把它當一般 pair-fail 處理 |
+| 裝置→ | `{"type":"pair-ok"}` / `{"type":"pair-fail"}` / `{"type":"pair-fail","reason":"pair-locked","retryAfterMs":N}` | 第三種 = 鎖定期內（**不比對碼**）；host 端的 DeviceLink 會解讀 `reason:"pair-locked"`／`retryAfterMs`（以及 `hello.pairingLocked`），收據原因記成 `pairing-locked` 並帶上可重試時間，不再演成「配對碼錯」 |
 | →裝置 | `{"type":"cmd","id":"..","nonce":"..","name":"led.set","params":{..}}` | id 必填；nonce：**裝置端**驗重放（與 id 各一組 16 筆環形緩衝並行比對，同 nonce 再現 → `dup:true` 不套用）；**主機端不驗** ack 的 nonce（ack 不回送 nonce） |
 | 裝置→ | `{"type":"ack","id":"..","applied":{..}}` | **applied = clamp 後實際值** |
 | 裝置→ | `{"type":"ack","id":"..","dup":true}` | 重複 id **或**重複 nonce：不重套效果（16 筆環形去重） |
@@ -195,7 +202,8 @@ runtime 的模板佔位符 `{{magnitude}}` 是以 **JSON number（浮點）** �
   等同 `1500`），一律四捨五入後再套硬限制 clamp；`strength` 是 0..1 浮點。
 - 超出範圍一律 clamp（不是 err），`ack.applied` 回報 clamp 後的實際值。
 - 韌體以 `float`（單精度）運算，`scripts/esp32-serial-sim.py` 鏡射同一精度，
-  所以像 `{"r":0.3}` 兩端都得到 `77`。
+  所以像 `{"r":0.3}` 兩端都得到 `77`。ack 的浮點欄位（`applied.strength`）兩端都以
+  ArduinoJson 對 C `float` 的規則序列化：最多 6 位小數、去尾零（模擬器 `firmware_float_text()` 逐步鏡射）。
 
 MQTT 主題（與 runtime adapter 對齊）：下行 `<prefix>/to-device`、上行
 `<prefix>/from-device`。topic 不是身分——runtime 仍會驗 `hello.deviceId` 與配對碼，

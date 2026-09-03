@@ -36,7 +36,7 @@ GET  /v1/events                    (SSE; resume with Last-Event-ID header)
 ## Sessions, policy, recipes, tools
 ```
 POST /v1/session/start   {"label": "...", "consents": ["channel:haptic"]} # HUMAN ONLY
-GET  /v1/session ; POST /v1/session/consent {"scope": "..."} ;
+GET  /v1/session ; POST /v1/session/consent {"scope": "...", "maxUses": 1|null} ;
 POST /v1/session/revoke {"scope": "..."} ; POST /v1/session/stop
 GET/PATCH /v1/policy               (PATCH = HUMAN ONLY JSON merge patch)
 GET/POST /v1/recipes ; GET/PATCH/DELETE /v1/recipes/{id}
@@ -187,3 +187,43 @@ gate (only the desktop IPC can).
   `characterDisplayName`, `adapterKind`) for every registered instance/adapter, including ones that have
   never connected — these were already present before Phase 9, this note only corrects prior
   documentation drift.
+
+## v0.5.1 additions (patch release; in development)
+
+- `POST /v1/session/consent` accepts an optional `maxUses` (number or null). `maxUses: 1` is a REAL
+  one-shot grant: the first authorized dispatch spends it inside the authorization critical section,
+  two concurrent plans racing one grant let exactly one through, a failed dispatch does NOT refund it,
+  and the spent state survives a restart. `maxUses: 0` is refused. Omitting it (or null) keeps the
+  historical unlimited-within-TTL semantics. `Consent` gained `maxUses`/`remainingUses`
+  (`serde(default)`), so old session blobs load unchanged. **`maxUses` is only accepted for
+  `actuator:` / `channel:` scopes** — nothing spends a use on a `receptor:` or `tool:` scope, so a
+  grant with `maxUses` on those scopes is refused with HTTP 400 (use `expiresMinutes`); the API never
+  reports a `maxUses` it does not enforce. CLI: `interact-ai session consent <scope> --max-uses 1`.
+- `GET /v1/memory/export` gained `total` (the real row count from `SELECT COUNT(*)`, so exactly 1000
+  stored items no longer reports truncation) and `included` (always `["memory-items"]`); `notIncluded`
+  is now the precise list `["knowledge-nodes","assets-and-derivatives","knowledge-receipts",
+  "character-interaction-memory"]` (it used to be the vaguer `["knowledge","assets",
+  "character-interaction-memory"]`). Export scope itself is unchanged: memory items only.
+- `GET /v1/providers/{id}` carries `detail.tested.pairingUnverified` (`serde(default)`, absent when
+  false, old records do not grow one): the device reported `hello.pairing=false`, i.e. the pairing code
+  was never compared, so the only identity evidence is the deviceId the device claims for itself.
+  `tested_note` says so instead of claiming the pairing completed. Sources that cannot know (a human
+  test, a receptor read) pass none and never wash an earlier unverified mark clean. "A device that says
+  it needs no pairing" is never a verified pairing.
+- Agent session records carry `resolvedWorkdir` (`serde(default)`): the canonicalized absolute path the
+  gateway subprocess was actually mounted in. A resume must keep the same folder — a different folder,
+  a missing one, or a gateway session recorded before this field existed is `PolicyBlocked`.
+  **Breaking**: gateway sessions created before v0.5.1 cannot be resumed and must be recreated.
+  CLI `interact-ai agents resume` gained `--max-cost`/`--max-messages`; omitted flags reuse the previous
+  session's actual limits (not the wider runtime defaults), and an omitted `--workdir` uses the
+  recorded folder.
+- Provider lifecycle is now enforced at execution time: when every provider owning a capability is
+  stopped (Disabled/Expired/Revoked/Closed), `observe` returns `Unavailable` and `execute`/`simulate`
+  return `Blocked{rule:"provider.not-operational"}`; the capability projects as
+  `Availability::Disabled` (no new enum variant). Installed/Paired/Disconnected are connection facts,
+  not decisions, and do not gate. Shared capabilities (several paired iPhones, several agent sessions)
+  are gated only when ALL owners are stopped.
+- `POST /v1/actions/{id}/cancel` is honest: only a driver confirmation within 2 s is `Cancelled`;
+  errors, timeouts and unreachable actuators become `Uncertain` with a `cancel_unconfirmed` error.
+  Built-in actuators (conversation, notification, …) cannot be recalled, so cancelling one always
+  returns `Uncertain`. Do not read "cancel accepted" as "cancelled".

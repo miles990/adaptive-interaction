@@ -26,6 +26,10 @@
 | CLI E2E | `./scripts/v03-cli-e2e.sh` | **51 passed / 0 failed** |
 | Playwright | `pnpm test:e2e` | **23 passed / 0 failed**(52.7s) |
 
+> **閱讀提示（2026-09-04 補註）**：§1–§6 各表的「狀態」欄是 2026-08-28 Phase 0 動工前的**基線快照**，刻意不回寫；
+> 表中寫「**缺**」的項目（例如 §4 的五個一級入口、三步精靈、右上 Inbox、設定單一主人、風險分級）多數已在 Phase 1–9
+> 落地，現況以 §9–§12（與 v0.5.1 的 `docs/releases/v0.5.1-*.md`）為準。
+
 ## 1. 核心一:角色生命感與遊戲互動
 
 | 能力 | 現況(v0.4.1 實際程式碼) | 目標 | 狀態 |
@@ -39,7 +43,7 @@
 | 多角色 | 單一 companion 視窗硬編碼、prefs 單槽 | 多角色/使魔、互相注意、追逐、Roll Call | **缺** |
 | 命名/場景/匯入匯出 | 無命名、無場景、pack 固定 5 選項下拉 | 命名、場景切換、角色設定匯入匯出 | **缺** |
 | 檔案接取 | 有(drag-drop 確認流程,誠實等待 push 結果) | 保留並加上角色演出 | 部分 |
-| 本機反射延遲 | click/drag 同幀反應(<16ms),已達標 | 16–100ms | **已有** |
+| 本機反射延遲 | click/drag 同幀反應(<16ms)（Phase 0 基線快照的說法；後續實測只量到 WebView 內段 ~8 ms，**端到端未量、不得宣稱達標**，見 `docs/acceptance-evidence.md` 效能節） | 16–100ms | **已有**（WebView 段） |
 | 誠實演出 | verified 才有綠勾;truth-state 動畫不在 AI 可播白名單 | 保留 | **已有** |
 
 ## 2. 核心二:真實硬體閉環
@@ -107,7 +111,8 @@ CHANGELOG v0.4.0 的 10 項 closing-audit 已知限制全部仍然成立,本文�
 **核心一（角色）**：渲染→**已有**（執行期參數化分層 rig＋組合通道；`poseBlend` 通道讓 lie↔stand 頭部連續過渡）；
 動畫數→**已有**（36 正式表情，每個都有**四段**——進入／保持／小循環／離開；Phase 2 交付時「離開」段是死資料、
 0/36 四段齊全，Phase 7 讓 timeline 真的播 exit、未手寫的段落以有意義的派生段補齊並標 `derived`，測試逐幀釘死）；
-Interaction Director→**已有**（`react()`/`noteFinished()`/`scoreEvent` 已接進 App；等優先事件用 utility 競爭；
+Interaction Director→**已有**（`react()`/`noteFinished()` 已接進 App；等優先事件為確定性替換，Utility Scoring（`behavior.ts` `scoreEvent`）
+目前沒有接進任何執行期決策——v0.5.1 對抗審查 director-pipeline-020 誠實移除了假的 utility 競爭；
 quiet 分支可達；「一小時內不要主動說話」同時管住角色端氣泡與 ambient）；組合式通道→**已有**（工作／等待類真相狀態只覆蓋
 核心／頭飾／裙光／耳朵通道，身體保留遊玩姿勢；安全與結果狀態整體搶佔）；個性→**已有**（`personality.ts`：安靜／自然／活潑
 ＋persona 派生速度、靠近距離、冷卻、變體權重、假裝沒看到、耳→視線→轉頭分段）；自主移動→**部分**（遊玩場內散步／追逐／翻面；
@@ -311,7 +316,8 @@ conformance 測試套件（`conformance.rs`）與斷線時安全 intent 交接�
 角色頁的安靜時段編輯器已送出明確的靜音通道清單（不含桌面角色，L0 呈現不再被安靜時段誤判為「待你決定」）；
 **首次設定精靈那一側未修**——`Onboarding.tsx` 仍寫 `silencedChannels: []`，從精靈建立的安靜時段預設仍會靜音
 桌面角色；Rust 根因（`activity.rs` 對 L0 呈現動器的 blocked 收據一律回 `needs_decision:true`）也已在
-`receipt_item()` 修正為排除純呈現動器，僅 wizard 那一條路徑殘留。
+`receipt_item()` 修正為排除純呈現動器，僅 wizard 那一條路徑殘留。**（v0.5.1 已修，commit `f3a9eea`：
+抽出 `src/quietHours.ts` 作為唯一 canonical builder，精靈與角色頁共用；見 §13。）**
 
 **agent-honesty（1 項，fixed）**：緊急停止不再把「cancel」包裝成新的 user turn 送進每個 gateway agent（不再
 觸發模型呼叫、不再消耗 message 預算、不再誤發 `fetched` taxonomy 事件）；改為直接關閉 session 並在事後補一則
@@ -348,8 +354,9 @@ stream）；ESP32 韌體兩種組態的 `arduino-cli` 編譯本輪重跑通過�
 `ia-settings-012` 精靈半邊未修（見上，第二輪覆核仍為真，保留）；MQTT 重連不重送只在內嵌 broker 驗證，無
 真實 ESP32 board 上的重送測試；BLE 斷線偵測只有假事件流的單元測試，零真實周邊驗證；HTTP 逾時分類保守地把
 「TLS 握手失敗」等未知錯誤也歸類成 `OutcomeUnknown`（方向安全，但可能把真的沒送出的請求也標成不確定）；
-原生資料夾選擇器沒有任何自動化驗收（vitest mock、Playwright 走瀏覽器版，需桌面手動驗收）；iOS 新增
-Xcode 專案＋裝置腳本。**以下三項第一輪誤留為限制、第二輪對抗審查核對程式碼後確認已修**（見
+原生資料夾選擇器沒有任何自動化驗收（vitest mock、Playwright 走瀏覽器版，需桌面手動驗收）**（v0.5.1 已在
+真 Tauri 視窗完成手動驗收四列——取消／選擇／唯讀不取得 write scope／寫入二次確認；**仍無自動化**，見
+§13）**；iOS 新增 Xcode 專案＋裝置腳本。**以下三項第一輪誤留為限制、第二輪對抗審查核對程式碼後確認已修**（見
 `known-limitations.md` §5）：`F-043` executor 已測試證據歸屬、`credential_warnings()` 未轉發進 provider
 紀錄、`mobile_ble_scan` 沒有 `deviceId` 參數。
 
@@ -370,7 +377,7 @@ export 誠實聲明範圍、agent 記憶重新確認天數對齊 Governor、按�
 mobile-server／provider 生命週期 7 項全 fixed（estop 中連線的手機真的被要求停止感測、宣告式裝置停用／撤銷
 跨重啟持久、BLE scan 尊重 estop、其他串流手機不再無聲消失、撤銷立即結束在途動作、觀察 `at` 時間戳併入
 facts、認證失敗留 audit）；agent-honesty／SSE 邊界 6 項（5 fixed／1 partial：SSE 已對齊，interrupt 擁有權
-未修）；ia-settings／前端 IA 10 項全 fixed（導覽解除流程自動對焦、收件匣裝置 id／人話標題／感測標題、
+未修**（v0.5.1 已修，commit `af8d1f1`：legacy 共享 agent token 一律 403；見 §13）**）；ia-settings／前端 IA 10 項全 fixed（導覽解除流程自動對焦、收件匣裝置 id／人話標題／感測標題、
 GlobalSearch 標籤、精靈套用失敗誠實回報、重新驗證與工作階段按鈕錯誤可見、L4 同意對話框依風險分級）；角色
 rig／perf／Director 17 項全 fixed（跨姿勢交叉淡出連續化、快速連點不再清掉待確認狀態、舞台死區消除、
 Reduced Motion 使魔真收斂與真靜態、玩具滿額誠實拒絕、真正的使魔互相打招呼、pacing 降級、soak 涵蓋範圍
@@ -379,7 +386,9 @@ Reduced Motion 使魔真收斂與真靜態、玩具滿額誠實拒絕、真正�
 intent 每種非 completed 終態都會 fallback 到 `system.text`；重新協商不再讓在飛安全提示消失；TS intent→
 capability 表改 golden 雙邊斷言；resolution 不再被樂觀改寫；AI 呈現命令只由桌面 instance 結算；外部
 adapter 不再能合成人類互動觀察；緊急停止期間連線／協商立即收到投影）；link-transports／
-protocol-conformance 13 項（11 fixed／2 partial：宣告式配對驗證與 serial fallback 讀取執行緒留為已知限制）。
+protocol-conformance 13 項（11 fixed／2 partial：宣告式配對驗證與 serial fallback 讀取執行緒留為已知限制
+**（兩項皆 v0.5.1 已修，commit `ddbab07`／`4029316`；serial 的修復只涵蓋 unix，非 unix 仍是
+bounded-join＋detach＋計數。見 §13）**）。
 
 **iPhone Mobile Provider — 真機部分驗收（不再是「真機驗收仍為零」）**：iPhone 11（`iPhone12,1`，
 iOS 26.3.1）2026-09-03 完成 Developer Mode 開啟、Xcode 簽章身分設定、USB 安裝與啟動，對真 daemon（區網
@@ -390,7 +399,9 @@ acknowledged、AI 偽造 `emergency`／`verified-success` 被 runtime 擋下（r
 麥克風音量（activeSensors 反映、查詢為空是設計非缺陷）、BLE 閘道 scan（8 秒內回傳 10+ 個周邊）、停止所有
 感測（使用者路徑，313 ms 內確認）、緊急停止（178 ms 內確認停感測＋角色投影）、解除緊急停止不自動恢復。
 **尚未涵蓋**：observe-motion（需使用者搖手機）、BLE connect／GATT read/write/subscribe（無測試用
-peripheral）、系統終止 App 後的冷啟動恢復（實測需按「連線」或 `--auto-connect`）。**真機測試額外發現
+peripheral）、系統終止 App 後的冷啟動恢復（實測需按「連線」或 `--auto-connect`）**（v0.5.1 已在 App 端加上
+冷啟動自動重連，commit `5111208`；驗證等級僅 **iPhone 17 模擬器 XCTest**，真機驗證 blocked，不得寫成
+已在真機驗收。見 §13 與 `docs/releases/v0.5.1-iphone-device-evidence.md`）**。**真機測試額外發現
 三個真機限定的限制**：桌面 Wi-Fi IP 變更後 App 沒有 Bonjour 探索、host 釘死在配對當下，換 IP 必須重新配對
 （daemon 端 0 次連線嘗試，非 bug）；App 進背景會被 iOS 收回 WebSocket（平台限制，非缺陷）；
 `device-acceptance.sh` 原本會卡在「沒有 active session／iPhone 動器預設 disabled／policy allowlist 未含
@@ -420,7 +431,8 @@ iphone.\*」三道前置關卡（Governor 正確運作），新增 `--grant-cons
 2026-09-03 最終覆核跑 exit 0（非真板）；iPhone＝**真機部分驗收**（見上）；BLE／MQTT 仍為模擬器或程序內
 fixture（無真實周邊／broker）。
 
-**Phase 9 第二輪已知限制（完整清單見 `docs/releases/v0.5.0-known-limitations.md`）**：4 項 partial
+**Phase 9 第二輪已知限制（完整清單見 `docs/releases/v0.5.0-known-limitations.md`；逐項的 v0.5.1 重新分類見
+`docs/releases/v0.5.1-known-limitations.md` §1）**：4 項 partial
 （`safety-invariants-078` interrupt 擁有權未修、`companion-gameplay-032` 單一 hit-rect IPC 未修、
 `protocol-conformance-030` providers.rs 未依 pairing_unverified 降級、`link-transports-054` reader thread
 洩漏已計數未消除）；`safety-invariants-074` 的 `provider-off` 標記在升級邊界有一次性缺口；
@@ -429,3 +441,122 @@ fixture（無真實周邊／broker）。
 `safety-invariants-075`「只這一次」目前是 5 分鐘 TTL，非真正單次；`character-protocol-043`／
 `safety-invariants-077` 外部 adapter 輸入已完全移除（比原本更嚴格，尚無安全的新管道）；
 `interaction-api` 的 WebSocket 限流測試在機器負載高時會 flake（既有脆弱性，本輪未改動限流程式碼）。
+
+---
+
+## 13. v0.5.1 修補（產品完成度、一般模式易用性、誠實狀態與剩餘技術債，2026-09-04）
+
+> 延續 §9–§12 的寫法：每句「已有」都對應程式碼＋測試；「部分」與「缺」明列缺口。基準是 v0.5.0
+> （tag `v0.5.0` ＝ `8b713c7`），分支 `release/v0.5.1-product-hardening` 共 30 個修復 commit（20 個規格修復＋10 個對抗審查修復）。
+> 每一項修復都附「舊行為下先紅燈」的回歸測試。測試數字見 `docs/releases/v0.5.1-test-matrix.md`；
+> 已知限制見 `docs/releases/v0.5.1-known-limitations.md`；20 道發布關卡見
+> `docs/releases/v0.5.1-release-readiness.md`。對抗審查見 §13.5。
+
+### 13.1 §11／§12 五個刻意保留的 partial：現況
+
+| finding | v0.5.0 狀態 | v0.5.1 現況 | 缺口 |
+|---|---|---|---|
+| `ia-settings-012` | 部分（精靈那一側未修） | **已有**（`f3a9eea`）：`src/quietHours.ts` 是唯一 canonical builder（`QUIET_SILENCED_CHANNELS`＋`buildQuietHoursPatch`），精靈與角色頁共用；一般安靜時段保留 L0 呈現，只有明確關閉角色顯示才隱藏 | 無 |
+| `safety-invariants-078` | 部分（SSE 已對齊，interrupt 擁有權未修） | **已有**（`af8d1f1`）：`/interrupt` 對 legacy 共享 agent token 一律 `403 token_scope_forbidden`；session-scoped token 只能中斷自己的 session（middleware＋handler `interrupt_principal_allowed` 雙層）；human token 保留管理能力；runtime 緊急停止走內部呼叫不受影響 | **Breaking**：以 `state/api-agent-token` 中斷 session 的 connector 需改用 `INTERACT_AI_SESSION_TOKEN` 或人類平面 |
+| `companion-gameplay-032` | 部分（死區已消除，單一 hit-rect IPC 未拆） | **已有**（`73f0694`）：`companion_hit_regions` IPC 收多個 bounded regions（角色本體、每隻使魔、每個可抓玩具、每個真正互動的 UI），游標只在落於某個 region 時才攔截；≤16 個、逐一 clamp、單框不得兩軸皆 ≥80%、總面積 ≤80%、空清單／非有限值整份拒絕並沿用上一份（fail-closed）、每 45 ms 最多接受一次；`companion_hit_rect` 保留為相容 shim。**真 Tauri 視窗**驗過空白穿透與角色本體攔截 | 快捷選單／玩具／使魔未在真視窗驗收 |
+| `protocol-conformance-030` | 部分（host 已標示，runtime 證據等級未降級） | **已有**（`ddbab07`）：`ProviderTested.pairingUnverified`（serde default）從 driver 收據一路投影到 provider 證據、`GET /v1/providers/{id}`、CLI JSON 與桌面六階階梯（「已測試」「已啟用」降為警告色「（配對碼未驗證）」）；`tested_note` 改說「配對碼未經比對，身分證據僅為裝置自報的 deviceId」 | 受器讀取路徑拿不到旗標（傳 `None`，不會洗白也不會主動標示） |
+| `link-transports-054` | 部分（已計數，根因未消除） | **已有（unix）**（`4029316`）：fallback reader 改為獨立 `O_RDONLY\|O_NONBLOCK` fd＋`poll(2)`＋per-session self-pipe；shutdown 在 `READER_JOIN_GRACE_MS` 內真的 join 回 reader；EAGAIN／EINTR 回到 poll 不 busy loop。50 圈 open/shutdown soak 零 detached、最差關閉 203 ms | **非 unix 平台**仍是 bounded-join＋detach＋計數；`detached_reader_threads()` 保留為警報器 |
+
+### 13.2 一般模式與誠實狀態的缺口：現況
+
+| 缺口（v0.5.0 已知限制編號） | v0.5.1 現況 | 缺口 |
+|---|---|---|
+| #14 角色生命週期人話未集中 | **已有**（`e11c0d9`）：`projectCharacterLifecycle()` 併入 `statusProjection.ts`，以 `satisfies Record<AdapterLifecycleState, …>` 窮舉表取代三個 Set，未知原始值退回中立「準備中」不外洩 enum | 無 |
+| #18 resume workdir 未持久化 | **已有**（`c8e78c6`）：`AgentSessionRecord.resolvedWorkdir`（canonicalize，serde default）；續開比對資料夾，不相等／未帶／舊記錄一律 `PolicyBlocked`；CLI `agents resume --max-cost/--max-messages` 省略時帶入原 session 實際上限 | **Breaking**：升級前的 gateway session 不可續開 |
+| #19 首次設定 commit 非原子 | **已有**（`69a8ca3`）：兩段式提交（Phase 1 純驗證／Phase 2a 檔案 temp+rename＋SQLite 單一交易並在失敗時回寫舊 bytes／Phase 2b 記憶體旗標只在 2a 後翻、失敗全翻回並寫 `onboarding.partial` audit）；五條故障注入路徑各有測試 | 檔案寫入與 SQLite 提交之間的程序崩潰**沒有 journal** |
+| #20 「只這一次」其實是 TTL | **部分**（`0c845e0`）：`Consent.maxUses`／`remainingUses`（serde default），executor 在授權臨界區內原子消耗一次並在同一把鎖內持久化；並行兩個 plan 只有一個通過、dispatch 失敗不歸還、重啟後仍是用掉的狀態、`maxUses=0` 拒絕 | **受器與 tool-operation 的授權仍是短效 TTL** |
+| #21 記憶匯出 `limitReached` 不精確 | **部分**（`0551b9f`）：`Store::count_memory(layer)`，以真實筆數判斷截斷（剛好 1 000 筆不再誤報）；回應新增 `total`／`included`／精確的 `notIncluded`；備份頁改為轉述後端回報的範圍，文案不再稱「備份」 | **匯出範圍仍只有記憶項目**（方案 B，刻意） |
+| #23 一般模式技術分層外洩 | **已有**（`5ad1262`）：GlobalSearch 改走 `memoryLayerLabel(layer, advanced, name)`，角色改名後重投影 | 無。原本兩條「一般模式術語」斷言只在 vitest 全量跑失敗，**已查明與一般模式無關**（`characterName.ts` 刷新無世代概念造成的測試輔助 product-race），由 `a6e289e` 修好；vitest **1168/0（60 檔）**，全量連跑 6 次全綠 |
+| #24 TaskComposer 印固定「已送達」 | **已有**（`5760f7d`／`8ba2a51`）：`src/work/delivery.ts` 六態投影，只有後端蓋 `deliveredAt` 才說「已送達」；TaskComposer 與工作卡片「再交代」共用；工作狀態標籤對齊產品用語且 claimed 仍無綠勾 | 無 |
+| #25 限流測試 flake | **已有**（`af8d1f1`）：改以 `CharacterHub::set_clock` 注入假時鐘，精確斷言 50 接受／第 51 rate-limited／每 20 ms 補一則，HTTP 回執與 WS 共用同一份預算；連續 20 次 20/20 | 限流演算法本身未改 |
+| #26 provider `is_operational()` 未接執行期 | **部分**（`c4ad753`）：`ProviderGate`（capability→provider 反向索引）接進 `observe_fresh`／push ingest／`run_step`／`simulate_plan`；共用能力只在**所有**擁有者都停下時才擋；能力清單投影為 `Availability::Disabled`（不新增 enum 值）；升級邊界改為第一次重啟即採安全預設並留 `provider.legacy-off-assumed` audit | 驗證仍是 fixture（無真 serial／MQTT／BLE）；`transition_provider` 不同步 registry 旗標（gate 在更外層，非安全漏洞） |
+| iPhone 冷啟動／位址變更（真機發現） | **已有（App 端）**（`5111208`）：冷啟動依使用者上次連線意圖自動重連（沿用 1 s→15 s 退避，**感測絕不隨之恢復**）；連續 4 次連線層失敗或持續 60 秒後顯示固定文案並提供「重新配對」捷徑；TLS 指紋不符與撤銷維持各自文案 | **只有 iPhone 17 模擬器 XCTest（`ReconnectHintTests` 21 條）**；真機驗證 blocked |
+| 一般模式易用性（非 finding） | **已有**（`6f5c7c6`）：「現在」頁待決定精確為 0 時顯示「目前沒有需要處理的事」（下限時維持「至少 N 項」）；iPhone 卡片新增「重新配對」與離線時的位址提醒；進階模式的原始欄位收進「連接診斷」區塊，一般模式完全不顯示 | 無 |
+| 安全邊界（非 finding） | **已有**（`80fe2c8`）：`resolve_gateway_workdir` 改為雙向檢查，工作資料夾不得位於 runtime `state/` 之下；runtime 自己的主動式對話工作區搬到 `agent-workspaces/proactive` | 無 |
+| `cancel_action` 誠實化（非 finding） | **已有**（`0c845e0`）：只有 driver 在 2 秒內確認才是 `Cancelled`，回錯／逾時／不可達一律 `Uncertain`；內建動器取消一律誠實回 `Uncertain` | **Breaking**（呼叫端不得把送出取消讀成已取消） |
+
+### 13.3 流程與 CI
+
+- `desktop-backend` CI job 從 `cargo check` 升為 `cargo clippy -D warnings`＋`cargo test`（`e70ef28`）——
+  src-tauri 的單元測試（host safety overlay、character store、tray、click-through）與 clippy 此前從未在
+  CI 上被強制。**本分支尚未 push，CI 從未對它跑過。**
+- `scripts/release.sh`：CHANGELOG 既沒有 `## [<version>]` 也沒有 `## [Unreleased]` 時直接失敗，不再靜默
+  跳過（v0.5.0 就是被這個靜默跳過影響）。
+- `RawLink::shutdown` 的 trait 文件改為對齊新的可中斷 fallback（`977731c`）。
+
+### 13.4 證據等級總結（v0.5.1）
+
+| 等級 | 範圍 |
+|---|---|
+| **真 Tauri 視窗**（本輪新增） | 主視窗、狀態列 11 項、首次設定精靈、原生資料夾選擇器四列、claimed≠verified、角色視窗顯示／隱藏、空白穿透與角色本體攔截、緊急停止＋可信覆蓋視窗、感測指示、停止所有感測、角色匯入資料夾、外部 daemon 與離線覆蓋、完全結束。**未驗**：Reduced Motion（需人類切 OS 設定）、快捷選單／玩具／使魔、adapter 崩潰 fallback |
+| **模擬器** | iOS build＋XCTest 46/46（iPhone 17 模擬器）、serial pty 模擬器 |
+| **fixture** | fake agent 子程序、`examples/fake_iphone`、內嵌 rumqttd broker、BLE 假事件流、arduino-cli 編譯 |
+| **browser（Playwright）** | `pnpm test:e2e` 65/0（2.0 分）、`docs/assets/v05-evidence/` 的 39 張截圖重新產生（`desktop-companion`／`desktop-work`／`desktop-connect`／`desktop-more`.png 不在本輪拍攝清單內，仍是舊圖）、`pnpm perf` |
+| **單元** | `cargo test --workspace` 827/0（66 target；基線 736／63）、Tauri backend 50/0（基線 46）、vitest **1168/0（60 檔；基線 988／49 檔）** |
+| **真機** | **無**。iPhone 真機 blocked（鑰匙圈授權），ESP32 無實體板。v0.5.0 的 iPhone 真機證據仍然有效、未被推翻 |
+
+### 13.5 v0.5.1 對抗審查
+
+**執行**：`.claude/workflows/adversarial-review-v05.js`（find＝opus、independent verify＝sonnet）對 `0c845e0`
+（20 個修復 commit 之後的分支狀態）跑一次，run id `0c845e0-20260903T185130Z`，完整報告在
+`docs/reviews/adversarial/0c845e0-20260903T185130Z.md`（＋同名 `.json`）。**62 個 finding 送審、55 個 confirmed**
+（high 7／medium 27／low 21）、5 個 refuted、2 個在審查期間已被其他 commit 修掉。
+
+**處置**：55 個 confirmed 依檔案歸屬分 10 組（`.claude` 動態 workflow，每組先寫「舊行為下紅燈」的回歸測試再修），
+整合者再補各組因檔案獨占清單而留下的清單外小修。最終：**已修 52／部分修 3／未修 0**；**7 個 high 全部已修**。
+新增回歸測試（各組報告合計）：Rust 約 27 個（`interaction-runtime` 14、`interaction-api` 5、`interaction-character` 4、
+`interaction-adapter-declarative` 3、`interaction-agent-gateway` 1；整合者另加 `interaction-character` 純 Gateway 閘門 1 個）＋前端 5 個新測試檔
+（`regressions-review3-{companion,ia,memory,mobile,rig}`，約 43 個案例）＋既有測試檔的新增案例；新增測試在修復前全部實跑為紅燈（各組報告內有紅燈輸出）。
+
+| 嚴重度 | finding | 處置 | 摘要 |
+|---|---|---|---|
+| high | agent-honesty-021 | 已修 | session token 現在只能讀自己 session 的 mailbox（`GET /v1/agent-sessions/{id}/messages` middleware＋handler 雙層擁有權），`MailboxReader::Agent` 在正式環境可達 |
+| high | agent-honesty-022 | 已修 | `tools_disabled()` 成為唯一真相；codex connector 對 intent-only session 誠實拒絕（app-server／exec 都沒有等價 `--tools ""`）；主動式對話 `generativeAgent` 只接受 `claude-code` |
+| high | character-protocol-036 | 已修 | 安全 intent 只能 fallback 到安全 intent：協商守衛（Rust＋TS）、manifest 驗證拒絕、三個 adapter 以 `envelope.intent` 為準、conformance 逐 intent 斷言；舊 pack 遷移不再產生 `emergency→sleep` 類映射 |
+| high | ia-settings-005 | 已修 | 角色感測標籤改走 `statusProjection.sensorKindLabel`（與 tray／首頁／host overlay 同一份投影），iPhone 麥克風不再漏判 |
+| high | link-transports-027 | 已修 | 緊急停止逐一 zip 動器結果；未確認的動器列進事件／audit／outbox（`totalActuators`／`unconfirmedActuators`），只有全部確認才說「所有輸出已中止」；`text.rs` 計畫罐頭文案不再預先宣稱 |
+| high | mobile-server-059 | 已修 | stop-all 一則都沒送出時不再關去重窗，六個 mobile 動器不再被代簽「已停」 |
+| high | safety-invariants-056 | 已修 | 停用高風險受器時 mobile provider 的 `receptor.offline` watcher 對仍在串流的手機送 stop，status／tray／overlay 不再無聲 |
+| medium | agent-honesty-023 | 已修 | 續開比對**實際生效**的工具開關（零工具→有工具一律 `PolicyBlocked`）；桌面／CLI 續開 intent-only session 時原樣帶回 `["conversation.generate"]` |
+| medium | agent-honesty-024 | 部分修 | 已關閉 session 保留 200 筆／30 天並真的呼叫 `Storage::delete_agent_session`；**殘留**：桌面每個 runtime 事件仍全量重取、`/v1/agent-sessions` 無分頁（§4 殘留 1） |
+| medium | character-protocol-037 | 已修 | TS Gateway `renegotiate()` 先把 pending 結清為 uncertain、安全 intent 補 `system.text` |
+| medium | character-protocol-039 | 已修 | 外部 adapter outbound：安全訊息等空位有配額 8／TTL 5 s，WS 寫入逾時 5 s 即斷線並把 pending 結清為 uncertain；**殘留**見 §4 殘留 4 |
+| medium | character-protocol-040 | 已修 | 宣告即契約：Runtime 觀察邊界＋純 Gateway 進佇列前都擋沒宣告的輸入能力（`capability-not-declared`），TS 端同步 |
+| medium | companion-gameplay-030 | 已修 | 使魔框以 `interactiveRegions()` 分類為 stage，不再吞掉點擊 |
+| medium | companion-gameplay-031／director-pipeline-019 | 已修 | quiet 時永遠只走就地眨眼；單元素 ambient 池不再自我飢餓 |
+| medium | companion-gameplay-032 | 已修 | 所有氣泡回到同一個 `bubbleTimer` 主人；sticky 安全文字不再被孤兒計時器抹掉 |
+| medium | companion-gameplay-033 | 已修 | Roll Call 在暫停後一律回「停下來了」；`onVisibility` 先 suspend 再 beat |
+| medium | companion-gameplay-034 | 已修 | Reduced Motion 下光點／逗貓棒不再跟游標；manifest 的 `gameplay.toys: disabled` 指自主遊玩（§4 殘留 6） |
+| medium | director-pipeline-018 | 已修 | CompanionApp 保留中斷前 ambient 計畫；**殘留**：`director.ts` 根因（reactDetailed 無條件清 interrupted）未動（§4 殘留 7） |
+| medium | director-pipeline-020 | 已修 | 誠實移除假的 utility 競爭：等優先事件為確定性替換，文件同步 |
+| medium | docs-claims-050／052／054 | 已修 | CHANGELOG 不存在的 `asyncUtilTimeout` 條目移除；README／CLAUDE.md／FEATURES 改為「v0.5.0 已發布」；iOS README 46/46＋目錄樹 |
+| medium | link-transports-028 | 已修 | cancel 只有裝置回 `not-found` 才是 `NotFound`，其他錯誤／逾時回 `Uncertain` |
+| medium | memory-ui-001／002 | 已修 | `memory_list` 回 `total`／`limit`／`limitReached`；來源檢視器一般／進階分層 |
+| medium | mobile-server-060／061 | 已修 | 已配對清單原子寫入＋載入錯誤不再吞；配對面板每 2 秒查 `pairingBurnedAt`／到期並顯示原因 |
+| medium | perf-claims-012 | 已修 | 幀節奏基準線改為近 5 窗最短間隔中位數，可回升 |
+| medium | perf-claims-013 | 已修 | v0.5.0 最終報告加效能／記憶體補記與正確交叉引用 |
+| medium | protocol-conformance-042 | 部分修 | `pairing_ever_compared`／`pairing_not_recompared`：本連線曾比對過碼的通道不再被標 `pairingUnverified`；註記文案改為「這次握手無法證明」；**殘留**見 §4 殘留 2 |
+| medium | rig-renderer-045 | 已修 | 過場水平錨點整體位移，頭與軀幹對齊；**觀察**：overlay／particles 不吃位移（§4 殘留 8） |
+| medium | rig-renderer-046 | 部分修 | `startled-awake` 接上真實觸發（休息姿勢被戳）；**殘留**：`not-found`（36 之 1）仍只有預覽格（§4 殘留 3） |
+| medium | safety-invariants-057 | 已修 | emergency-stop／stop-all／cancel 的 audit actor 依 token 種類歸因（`api`／`agent`／`agent:{id}@{session}`／`adapter:{id}`） |
+| low | agent-honesty-025 | 已修 | 續開找不到紀錄、或舊紀錄沒有 `resolvedWorkdir` 一律拒絕（§4 殘留 9 為刻意的範圍限縮） |
+| low | agent-honesty-026 | 已修 | 已關閉且經人工驗證的工作顯示「已由你確認並收尾」 |
+| low | character-protocol-038 | 已修 | pending 佇列滿時安全 intent 補 `system.text`＋audit |
+| low | companion-gameplay-035 | 已修 | 移除只寫不讀的 `restMs`；`carry` 成為真的中繼狀態；世界事件→表情用純函式 |
+| low | ia-settings-007／008／009／010／011 | 已修 | 感測 banner key 含 `startedBy`；標籤對比 ~9.4:1；未知路由顯示「找不到這個頁面」；通知中心成為真 modal；狀態列「外觀與語言…」；**殘留**見 §4 殘留 10／11 |
+| low | memory-ui-003／004 | 已修 | 貼上文字可命名；四處空清單文案真的會顯示 |
+| low | mobile-server-062 | 已修 | 配對面板顯示配對資料全文＋主機位址＋複製按鈕（沒有相機也能配） |
+| low | perf-claims-014／015／016／017 | 已修 | 「輸入→下一幀」改標為 WebView 段（下界＝量測環境幀距）；能力矩陣 <16ms 改為未達標；`reportHitRect` 先做時間閘；隱藏時只保留 CPP sweep 與記帳（狀態輪詢降頻 30 s，見 §4 殘留 12） |
+| low | protocol-conformance-043／044 | 已修 | 韌體 README 對 pair-locked 的描述改正；模擬器浮點序列化鏡射 ArduinoJson |
+| low | rig-renderer-047／049 | 已修 | stand↔sit 幾何連續形變（逐幀最大跳動 1.87 px）；組合式通道核心會呼吸 |
+| low | safety-invariants-058 | 已修 | receptor／tool scope 帶 `maxUses` 直接拒絕（HTTP 400），不再回報假的 `maxUses` |
+
+**refuted 5**（未修，報告內有反證）與**審查期間已修 2** 見報告。審查對象是 `0c845e0`，本輪修復之後**未再跑第二次
+對抗審查**（時間預算）；修復本身由各組的紅燈→綠燈測試與最終全套回歸背書。
+
+殘留 17 條見 `docs/releases/v0.5.1-known-limitations.md` §4.1。

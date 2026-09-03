@@ -33,7 +33,7 @@
 > - ✅ **裝置 SDK 建置通過(未簽章)**:`-sdk iphoneos -arch arm64 -configuration Release
 >   CODE_SIGNING_ALLOWED=NO` → `** BUILD SUCCEEDED **`;12 個 `.swift` 對
 >   `arm64-apple-ios17.0` + iphoneos26.5 SDK 的 `swiftc -typecheck` 也是 0 error / 0 warning。
-> - ✅ **XCTest 25/25 通過**(MotionClassifier 8 + Protocol 17,其中 4 個是驗證 stop-all 緊急狀態
+> - ✅ **XCTest 46/46 通過（2026-09-04 重跑；2026-09-03 時為 25/25）**(MotionClassifier 8 + Protocol 17 + ReconnectHint 21,其中 Protocol 的 4 個是驗證 stop-all 緊急狀態
 >   誠實性的 async 測試——之前的 21/21 只算到 13 個 Protocol 測試,`repo` 內其實一直有 17 個,見
 >   下方「2026-09-03」章節)——用 xcodebuild 產出的 app-hosted `.xctest`,注入 iPhone 17
 >   **模擬器**(iOS 26.2)以 `simctl` 執行(見上方「跑 XCTest」指令)。**這是模擬器測試,與下面的
@@ -75,8 +75,9 @@ apps/interaction-ios/
 │   └── device-acceptance.sh           真機:對真 daemon 跑驗收矩陣(只印 daemon 原文)
 ├── InteractionCompanionTests/
 │   ├── MotionClassifierTests.swift    純分類器行為測試(XCTest:8 個 test 方法)
-│   └── ProtocolTests.swift            Wire protocol 編解碼測試(XCTest:17 個 test 方法,含 4 個
-│                                       stop-all 緊急狀態誠實性 async 測試)
+│   ├── ProtocolTests.swift            Wire protocol 編解碼測試(XCTest:17 個 test 方法,含 4 個
+│   │                                   stop-all 緊急狀態誠實性 async 測試)
+│   └── ReconnectHintTests.swift       冷啟動自動重連決策＋位址變更診斷的純函式測試(XCTest:21 個,v0.5.1)
 └── InteractionCompanion/
     ├── InteractionCompanionApp.swift  App 進入點 + 元件接線(scenePhase → 前景觀察)
     ├── Info.plist.example             隱私描述的來源範本(內容已複製到上面的 Info.plist)
@@ -161,6 +162,9 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 > 產出的 `InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest` 可用
 > `simctl` 注入模擬器執行(見下方「本機驗證了什麼」),2026-09-03 實測 **25/25 通過**
 >（MotionClassifier 8＋ProtocolTests 17）。
+> **2026-09-04（v0.5.1）重跑：Executed 46 tests, with 0 failures**
+>（MotionClassifier 8＋ProtocolTests 17＋ReconnectHintTests 21）——仍是 **iPhone 17 模擬器**，
+> 與真機驗收是兩件事。
 
 ### DEBUG 限定啟動參數(自動化驗收,僅供模擬器/CI;release 不編入)
 
@@ -435,7 +439,7 @@ status 訊息(`sensors` 五旗標 + `microphone/location/bluetooth` 權限)於
    `testActuatorOnlyStopAllTouchesNeitherSensorsNorCharacterState`／
    `testOnlyTheRuntimeClearsTheEmergencyCharacterState`),但先前的執行紀錄一直停在 21/21,沒有人
    重跑過完整的 25 個。用同一套 `simctl` 注入流程重新執行:**Executed 25 tests, with 0 failures**
-   (MotionClassifier 8 + Protocol 17)。這是目前 XCTest 的權威數字。
+   (MotionClassifier 8 + Protocol 17)。**2026-09-04（v0.5.1）加入 `ReconnectHintTests.swift` 21 個測試後，同一套注入流程重跑為 Executed 46 tests, 0 failures——這才是目前 XCTest 的權威數字。**
 
 > ⚠️ 這一輪**全部在模擬器**,而且 `xcodebuild test -destination …` 在本機無法執行
 > (Xcode 未安裝 iOS 26.5 平台元件,見上方 Xcode 專案章節的警告框)。**模擬器 XCTest 與真機驗收
@@ -539,6 +543,8 @@ mobile wss `18790`),`.app` 依修改後的 Swift 原始碼重編、`Info.plist` 
   權威回覆,兩者維持各自既有文案,任何一筆這類失敗都會打斷連續串,不得混淆成「位址變更」。
   驗證等級:`InteractionCompanionTests/ReconnectHintTests.swift` 的門檻/分類 XCTest(模擬器)
   **已通過**;「桌面真的換 IP 後手機上跳出這句」**尚未在真機驗證**。
+  (2026-09-04 曾嘗試真機驗證,**因 macOS 鑰匙圈授權對話框未完成而未執行**——App 從未裝上手機;
+  見 `docs/releases/v0.5.1-iphone-device-evidence.md`。)
 - **系統終止 App 後會自動重連(v0.5.1 新增;只在模擬器驗證)**:冷啟動時若 Keychain 有配對、
   且使用者上次的意圖是「想要連線」,App 會自動呼叫 `connectIfPaired()`(沿用既有 1s→15s 退避),
   不再需要手動點「連線」或用 DEBUG `--auto-connect`。
@@ -549,6 +555,9 @@ mobile wss `18790`),`.app` 依修改後的 Swift 原始碼重編、`Info.plist` 
   (`ReconnectHintTests.testColdStartAutoConnectNeverResumesAnySensor` 涵蓋)。
   驗證等級:模擬器 XCTest(純決策 `ColdStartConnectDecision.shouldAutoConnect`)**已通過**;
   「真機被系統終止後冷啟動自動連回 daemon」**尚未在真機驗證**。
+  (2026-09-04 曾嘗試真機驗證,**因 macOS 鑰匙圈授權對話框未完成而未執行**——`xcodebuild` 停在
+  `codesign` 等待私鑰授權,冷啟動測試 0 次執行;需要的人工步驟見
+  `docs/releases/v0.5.1-iphone-device-evidence.md`。)
 - **External Accessory / USB 不支援**(不在 v1 範圍)。
 - QR 掃描使用 VisionKit `DataScannerViewController`,需 A12 以上晶片;
   不支援或相機被拒時 UI 誠實顯示並提供手動貼上備援。

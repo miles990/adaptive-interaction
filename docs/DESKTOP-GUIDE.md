@@ -1,6 +1,6 @@
 # 視覺化工具使用說明（Tauri 桌面控制中心）
 
-![現在（v0.5 Phase 7 證據截圖）](assets/v05-evidence/desktop-home.png)
+![現在（v0.5.1 Playwright evidence spec 重產，2026-09-04；browser 等級）](assets/v05-evidence/desktop-home.png)
 
 桌面控制中心是**人類的駕駛艙**：設定、測試、監控、授權、喊停。
 它不是 AI 使用 Runtime 的必要條件——沒有它，CLI／API／Skill 一樣全功能。
@@ -9,12 +9,17 @@
 > 待決定事項走右上角 **Inbox**。每項設定只有一個主人：角色的外觀、名字、陪伴方式、主動對話與安靜時段都在「角色」頁；
 > 一般／進階模式的切換在「更多 → 進階模式」。
 >
-> 本文描述的是 `main` 上 v0.5 Phase 9（發布硬化，2026-09-03；`docs/v05-capability-gap-matrix.md` §11、
-> `CHANGELOG.md` 同段）的控制中心：工作頁預覽收斂為三個回答、原生資料夾選擇器、連接與權限改裝置優先五區、
-> 角色頁一般／進階分層、「更多」分頁改名（記憶與資料／活動紀錄／外觀與語言／備份與還原／進階模式）、首次設定
-> 精靈新增套用前確認對話框。文中引用的 `assets/v05-evidence/` 截圖仍是較早一輪證據跑產生的，尚未反映
-> Phase 9 的版面與文案細節；下一次證據跑（`pnpm test:e2e` 的 evidence spec）後會落到同一個資料夾——**核對版面時
-> 以本文的文字敘述為準，圖片僅供大致參考**。v0.2–v0.4 的圖片一律視為升級歷史，集中在文末。
+> 本文描述的是 v0.5.1（產品完成度修補，2026-09-04；`docs/v05-capability-gap-matrix.md` §13、
+> `CHANGELOG.md` 的 v0.5.1 段）的控制中心：工作頁預覽收斂為三個回答、送出結果六態投影與新的工作狀態
+> 用語、原生資料夾選擇器（已在真 Tauri 視窗驗收）、連接與權限改裝置優先五區＋iPhone 重新配對與連接
+> 診斷、角色頁一般／進階分層、「更多」分頁改名（記憶與資料／活動紀錄／外觀與語言／備份與還原／進階模式）、
+> 首次設定精靈的套用前確認對話框。
+>
+> 截圖狀態：`assets/v05-evidence/` 底下 **39 張已由 v0.5.1 的 Playwright evidence spec 重新產生**
+> （2026-09-04，寬版＋390px 窄版；`pnpm test:e2e` 的 evidence spec，瀏覽器版控制中心）。
+> 少數本輪 evidence spec 沒有拍攝的舊圖仍留在同一資料夾——`desktop-companion.png`、`desktop-work.png`、
+> `desktop-connect.png`、`desktop-more.png` 是較早一輪的版面，**已在圖說標明**。
+> **核對版面時以本文的文字敘述為準。** v0.2–v0.4 的圖片一律視為升級歷史，集中在文末。
 
 ## 啟動
 
@@ -69,7 +74,7 @@ v0.5 Phase 8 新增一個由 Rust host 直接控制、**角色與任何第三方
 
 ## 桌面角色（預設小樞）
 
-![桌面角色（v0.5 Phase 7 證據截圖）](assets/v05-evidence/desktop-companion.png)
+![桌面角色（v0.5 Phase 7 舊圖：本輪 evidence spec 未拍攝這一張，版面以本文敘述為準）](assets/v05-evidence/desktop-companion.png)
 
 桌面角色是**呈現層與輸入入口**，不持有任何權限。從 v0.5 Phase 8 起，角色視窗內的角色都透過同一份
 **Character Presentation Protocol（CPP v1.0，`docs/character-protocol/README.md`）** 接上 Runtime：Runtime 只送
@@ -205,8 +210,14 @@ flowchart LR
 
 > 匯入成功的角色會出現在卡片清單並可選用；角色視窗會從匯入資料夾建 adapter（文字／sprite／shu-rig），角色宣告的偏好與
 > 變體會轉給 adapter；桌面程式把偏好存在 `companionPreferences`（每角色 ≤32 個布林／數字／字串）。**誠實邊界**：匯入角色
-> 只在單元測試（假 host 清單、jsdom stub）驗證過，尚未在真 Tauri 視窗以真實匯入資料夾走過；任何載入失敗都退回純文字角色
-> 並顯示固定文案。
+> 已於 v0.5.1（2026-09-04）在**真 Tauri 視窗**以原生 Open 對話框選擇真實資料夾走過完整流程（驗證 → 匯入 →
+> `state/characters/<id>/` 建立）；任何載入失敗都退回純文字角色並顯示固定文案。**adapter 崩潰後的 fallback
+> 仍只有單元測試覆蓋**，無法在真視窗誘發。
+
+> **角色視窗會被主視窗蓋住（正常的 macOS 行為，不是缺陷）**：角色視窗沒有開「保持在其他視窗上方」時，
+> 把控制中心疊上去就會蓋住它。被遮蔽時 WebKit 會暫停繪製，Runtime 因此每 20 秒左右會收到角色視窗重新
+> 打招呼（instance generation 增加）；把角色移出遮蔽範圍就恢復、generation 停止增加。要讓角色永遠在上面，
+> 開角色頁的「保持在其他視窗上方」。
 
 **技術資料**（只在進階模式）：Character Pack 詳情、現在的 Behavior State、adapter 型態、協商結果、instance 世代等原始資料。
 
@@ -223,14 +234,23 @@ flowchart LR
   Agent、工具、沙箱、訊息上限、原始授權範圍等技術細節收進可收合的「**查看技術細節**」。預設唯讀、30 分鐘 TTL、
   費用上限 0.5 USD；勾選寫入後還要第二次確認（文字印出完整路徑與到期時間），換一個資料夾會讓先前的確認作廢。
 - 「精靈選擇：…」顯示首次設定時選的分工；**調整分工**展開「**工作設定**」折疊區（agent 分工路由與本機 AI 幫手的偵測、登入狀態）。
-- 「開始」建立工作階段並送出任務；下方列表以人話狀態顯示每個工作（排隊中／進行中／等你回答／說做完了／**驗證成功只在你按下驗證後**）。
+- 「開始」建立工作階段並送出任務；送出後**不會**印固定的「已送達」，而是依後端的真實訊號顯示六種送出結果之一：
+  **已送達／尚未送達（已放進信箱）／排隊中／Agent 不可用／傳送失敗／結果不確定**，每種各附一句人話與誠實註記——
+  **只有後端蓋了送達戳記才會說「已送達」**。原始後端文字只在進階模式顯示。
+- 下方列表以人話狀態顯示每個工作：**正在準備／已交給工作助手／處理中／等你回答／等你允許／對方說已完成／
+  已由你確認／逾時失敗／失敗／已取消／結果不確定**。「對方說已完成」保留警示徽章、「對方的說法，尚未檢查」
+  註記與待你裁決，**永遠不會出現綠勾**；綠勾只在你按下「標記為已驗證」之後。
   一般模式不顯示 JSON；「技術詳情」只在進階模式。
 - 第二個分頁「自動互動」是句子式編輯器與模擬（見下）。
 
-> 目前的限制：原生資料夾選擇器只通過編譯驗證（`cargo check`／`clippy`／`cargo test`），vitest 的 IPC 是 mock、
-> Playwright 跑的是瀏覽器版（沒有 Tauri IPC）——實際能否開出對話框需要桌面手動驗收。
+> **已在真 Tauri 視窗驗收（v0.5.1，2026-09-04）**：原生資料夾選擇器四列都以實際 `.app` 視窗＋原生
+> NSOpenPanel 走過——取消（Escape 後欄位仍空、沒有錯誤文案）、選擇（欄位顯示實際路徑、預覽「不會修改：
+> 這次只看不改」）、唯讀不取得寫入範圍（API 回 `allowWrite:false`、`toolScope:[]`、`resolvedWorkdir` 未擴大）、
+> 勾寫入需第二次確認（預覽列出完整路徑與到期時間，不勾第二個核取就無法以寫入模式開始）。
+> **仍然沒有自動化**：vitest 的 IPC 是 mock、Playwright 跑瀏覽器版（沒有 Tauri IPC），每次改動仍需人工
+> 重跑真視窗驗收。逐項見 `docs/releases/v0.5.1-test-matrix.md`。
 
-![工作（v0.5 Phase 7 證據截圖；Phase 8 改為任務優先版面）](assets/v05-evidence/desktop-work.png)
+![工作（v0.5 Phase 7 舊圖：本輪 evidence spec 未拍攝這一張；現況請看重產的 desktop-work-working／-claimed／-verified／-consent.png）](assets/v05-evidence/desktop-work.png)
 
 ### 連接與權限
 
@@ -248,7 +268,11 @@ flowchart LR
 
 **iPhone 卡片**（同一個元件也用在第二層的 iPhone 區，只有一份真相）：卡片內容全部來自 Runtime 的真實狀態——
 `mobile_status`（連線、手機自報的感測與 iPhone 上的權限）、能力清單（可以提供／可以執行，含每項的可用狀態）、
-`status.activeSensors`（用 `startedBy` 精確比對這一台）。四顆按鈕：管理權限／測試連接／停止感測／移除此手機（二次確認）。
+`status.activeSensors`（用 `startedBy` 精確比對這一台）。按鈕：管理權限／測試連接／停止感測／**重新配對**／移除此手機（二次確認）。
+**重新配對**會把你帶到既有的配對區（「全部能力與裝置」裡的 iPhone 配對）；手機未連線時卡片會多一行提醒
+「若桌面的網路位址變了，需要重新配對。」——桌面換 IP 後手機沒有 Bonjour 探索，位址是釘在配對當下的。
+**連接診斷**（只在進階模式）把 deviceId、pairedAt、原始連線狀態與手機自報的感測旗標原始值收成一個區塊；
+**一般模式完全不顯示這些**。
 誠實階梯：**停止感測**送出後只說「已要求停止（以手機回報為準）」，只有後端回報手機已停止才寫「已停止」，送不到就寫「未送達（手機未連線）」；
 **測試連接**有回應只寫「有回應（N ms）——只代表連線還在，不代表手機 App 的功能都能用」，沒有回應一律「沒有回應（結果不確定）」，永遠不寫「已測試」。
 手機未連線時這兩顆按鈕停用並說明原因。
@@ -273,8 +297,8 @@ flowchart LR
 安全規則摘要（編輯在角色頁）、**緊急停止解除流程**（顯示停止原因與時間、列出「會恢復／不會自動恢復／你先前已停用因此仍為停用」三份能力清單、再次確認；
 高風險與需同意能力永不自動恢復，解除也**不會**替你重新啟用你自己關掉的能力）。緊急停止由右上角紅鈕**二段確認**觸發，觸發後右上角變成「緊急停止中 — 前往解除」。
 
-![連接與權限（v0.5 Phase 7 證據截圖；Phase 8 改為裝置優先五區版面）](assets/v05-evidence/desktop-connect.png)
-![緊急停止時的連接與權限（v0.5 Phase 7 證據截圖）](assets/v05-evidence/desktop-emergency-connect.png)
+![連接與權限（v0.5 Phase 7 舊圖：本輪 evidence spec 未拍攝這一張；現況請看重產的 desktop-connect-adapters／-adapters-hub／-iphone-fixture.png）](assets/v05-evidence/desktop-connect.png)
+![緊急停止時的連接與權限（v0.5.1 Playwright evidence spec 重產，2026-09-04；browser 等級）](assets/v05-evidence/desktop-emergency-connect.png)
 
 ### 更多
 
@@ -283,20 +307,20 @@ flowchart LR
 | 記憶與資料 | 一般模式只有三區：關於我的記憶／〔角色名〕學會的知識／素材與來源；可執行更新決策、送出使用者糾正、複審。使用者糾正不會直接變成普遍知識；匯出／還原搬到「備份與還原」，這裡留一顆指路按鈕 |
 | 活動紀錄 | 人話的活動故事，嚴格區分 已規劃／已授權／已排入／已送出／已收到／說做完了／驗證成功／被擋下／已取消／結果不確定；原始 receipt 只在進階 |
 | 外觀與語言 | 語言／外觀／縮放／Reduced Motion、視窗與啟動（關閉行為、登入時啟動、啟動時顯示角色／開啟控制中心）、重新執行首次設定 |
-| 備份與還原 | 「匯出記憶」（只含記憶，不含知識、素材與角色互動記憶；單次上限 1,000 條，達到上限會明說）、還原備份（JSON，一般模式的檔案選擇器 aria-label 為「選擇記憶備份檔」）、清除短期記憶 |
+| 備份與還原 | 「匯出記憶」產出的是**匯出的記憶檔**，不是完整備份——範圍由後端回報並逐項轉述（含：記憶項目；不含：知識節點、素材與衍生物、知識收據、角色互動記憶）；單次上限 1,000 條與 5 MiB，達到上限會明說（以資料庫真實筆數判斷，剛好 1,000 條不會誤報截斷）、還原（JSON，一般模式的檔案選擇器 aria-label 為「選擇記憶備份檔」）、清除短期記憶 |
 | 進階模式 | **「顯示進階功能」開關的唯一主人**；打開後這一頁展開第二層：版本與 Runtime、Provider 診斷／配方 YAML／政策原始設定、開發者工具與 api-token 路徑 |
 
 「角色與整合管理」與「進階功能」不再是「更多」的分頁按鈕（角色管理併入「角色」頁，進階開關併入「進階模式」分頁）；
 `manage` 仍是隱藏的相容路由（全域搜尋可找到，但沒有對應的分頁按鈕）。
 
-![更多（v0.5 Phase 7 證據截圖）](assets/v05-evidence/desktop-more.png)
+![更多（v0.5 Phase 7 舊圖：本輪 evidence spec 未拍攝這一張；現況請看重產的 desktop-emergency-more.png）](assets/v05-evidence/desktop-more.png)
 
 ### 右上角 Inbox
 
 同意、agent 等待、知識複審、說做完了／結果不確定／失敗與收據共用同一個資料源；待決定數量在截斷前計算；
 鍵盤可完整操作（焦點圈養、Esc 關閉）。
 
-![Inbox（v0.5 Phase 7 證據截圖）](assets/v05-evidence/desktop-inbox.png)
+![Inbox（v0.5.1 Playwright evidence spec 重產，2026-09-04；browser 等級）](assets/v05-evidence/desktop-inbox.png)
 
 ## 自動互動（工作 → 自動互動）
 
@@ -325,7 +349,7 @@ flowchart LR
 - 完整鍵盤操作：對話框有焦點圈養與 Esc 關閉；緊急停止可用鍵盤觸發，但**單次 Enter 只會進入確認狀態，不會誤觸**。
 - `prefers-reduced-motion` 尊重系統設定並轉給角色 adapter 協商（真靜態，不是慢動作）；狀態不只用顏色表達（都有文字）。
 
-![390px 窄視窗（v0.5 Phase 7 證據截圖）](assets/v05-evidence/narrow-home.png)
+![390px 窄視窗（v0.5.1 Playwright evidence spec 重產，2026-09-04；browser 等級）](assets/v05-evidence/narrow-home.png)
 
 ## 收據狀態機（進階）
 
@@ -368,4 +392,4 @@ v0.4 一般模式首頁 `assets/simple-home.png`、進階模式 `assets/simple-a
 回應方式 `assets/simple-responses.png`、自動互動 `assets/simple-automations.png`、模擬 `assets/simple-simulate.png`、
 緊急停止解除 `assets/simple-estop-recovery.png`、窄視窗 `assets/simple-narrow.png`；v0.3 關閉對話框 `assets/v03-close-dialog.png`、
 sprite 版小樞 `assets/v03-companion-shu.png`、設定頁的桌面角色區塊 `assets/v03-settings-companion.png`；
-v0.4 closing 證據在 [`assets/v04-evidence/`](assets/v04-evidence/)，v0.5 Phase 7 證據在 [`assets/v05-evidence/`](assets/v05-evidence/)。
+v0.4 closing 證據在 [`assets/v04-evidence/`](assets/v04-evidence/)；v0.5 證據在 [`assets/v05-evidence/`](assets/v05-evidence/)，其中 39 張已由 v0.5.1 的 Playwright evidence spec 於 2026-09-04 重新產生（browser 等級），其餘為較早一輪的舊圖。

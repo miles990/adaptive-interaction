@@ -104,11 +104,12 @@ v0.4 的 Capability Matrix（**25/25 complete**）衡量的是治理平台的完
 [`docs/capability-completion-matrix.md`](docs/capability-completion-matrix.md) 與
 [`docs/v04-final-machine-evidence.md`](docs/v04-final-machine-evidence.md)。
 
-## main 開發中的 v0.5（角色・硬體・AI 三核心重定位，未發布）
+## v0.5（角色・硬體・AI 三核心重定位）——v0.5.0 已發布，v0.5.1 開發中
 
-v0.5 **不沿用** 25/25 的完成度敘述；它的誠實基線與收尾狀態在
-[`docs/v05-capability-gap-matrix.md`](docs/v05-capability-gap-matrix.md)，Phase 7 的逐條
-恢復矩陣在 [`docs/v05-recovery-matrix.md`](docs/v05-recovery-matrix.md)。重點：
+**v0.5.0 已於 2026-09-03 發布**（tag `v0.5.0`）；`main`／`release/v0.5.1-product-hardening` 上的
+**v0.5.1 修補版本開發中，尚未發布**。v0.5 **不沿用** 25/25 的完成度敘述；它的誠實基線與收尾狀態在
+[`docs/v05-capability-gap-matrix.md`](docs/v05-capability-gap-matrix.md)（v0.5.1 修補見 §13），
+Phase 7 的逐條恢復矩陣在 [`docs/v05-recovery-matrix.md`](docs/v05-recovery-matrix.md)。重點：
 
 - **小樞 v3 女僕正式版**：執行期參數化分層 rig（非 sprite sheet）、36 正式表情、
   Interaction Director、遊玩場（玩具＋輕量 2D 物理、使魔、場景、Roll Call）。
@@ -127,6 +128,17 @@ v0.5 **不沿用** 25/25 的完成度敘述；它的誠實基線與收尾狀態�
   host overlay 保證。契約：[`docs/character-protocol/README.md`](docs/character-protocol/README.md)。
 - **一般模式產品化**：五入口（現在／角色／工作／連接與權限／更多）以任務、角色、權限與結果為中心；
   工作頁先交代任務；狀態一律走共用人話投影（claimed ≠ verified）；首次成功體驗可略過。
+- **v0.5.1 修補（開發中，未發布）**：修掉 v0.5.0 刻意保留的五個 partial（精靈安靜時段不再封鎖桌面角色、
+  agent interrupt 擁有權、角色舞台逐物件點擊穿透、配對未比對就降級證據等級、serial fallback 讀取執行緒
+  回收）與一般模式的殘留缺口（工作送達六態誠實投影、真正的「只這一次」授權、provider 生命週期真的擋得住、
+  首次設定原子提交、記憶匯出範圍明列、iPhone 冷啟動自動重連與位址變更提示）。新增**真 Tauri 視窗驗收**
+  這個證據等級；**iPhone 真機驗收本輪 blocked（鑰匙圈授權待人工），ESP32 仍未真板驗收**。
+  逐項見 [`docs/releases/v0.5.1-release-readiness.md`](docs/releases/v0.5.1-release-readiness.md)、
+  [`v0.5.1-test-matrix.md`](docs/releases/v0.5.1-test-matrix.md)、
+  [`v0.5.1-known-limitations.md`](docs/releases/v0.5.1-known-limitations.md)、
+  [`v0.5.1-migration.md`](docs/releases/v0.5.1-migration.md)、
+  [`v0.5.1-final-report.md`](docs/releases/v0.5.1-final-report.md)、
+  [`v0.5.1-iphone-device-evidence.md`](docs/releases/v0.5.1-iphone-device-evidence.md)。
 
 ## 安裝（3 分鐘）
 
@@ -185,12 +197,13 @@ interact-ai self uninstall --yes     # 移除（--purge 連設定資料一起刪
 | **[架構總覽](docs/ARCHITECTURE.md)** | crate 責任、生命週期、誠實階梯、provider／agent／sensor 設計 |
 | **[驗收證據](docs/acceptance-evidence.md)** | 真實環境端到端測試紀錄 |
 | **[v0.4 機器證據](docs/v04-final-machine-evidence.md)** | v0.4 測試數字、connector、SHA-256 與未完成項 |
-| **[v0.5 Gap Matrix](docs/v05-capability-gap-matrix.md)** | v0.5 誠實基線（§0–§8）、Phase 7 收尾狀態（§9）、Phase 8 收尾狀態（§10，Character Presentation Protocol＋一般模式產品化）與 Phase 9 發布硬化（§11） |
+| **[v0.5 Gap Matrix](docs/v05-capability-gap-matrix.md)** | v0.5 誠實基線（§0–§8）、Phase 7 收尾狀態（§9）、Phase 8 收尾狀態（§10，Character Presentation Protocol＋一般模式產品化）、Phase 9 發布硬化（§11／§12）與 v0.5.1 修補（§13） |
 | **[v0.5 恢復矩陣](docs/v05-recovery-matrix.md)** | 新 Session 逐規格條目核對：程式存在／已接線／測試／真環境／缺口（463 列） |
 | **[Character Presentation Protocol](docs/character-protocol/README.md)** | 角色呈現通用協定唯一契約：manifest／能力協商／intent／input event／lifecycle／receipt／wire／安全模型／版本政策 |
 | **[Character Adapter 撰寫指南](docs/character-protocol/adapter-authoring.md)** | 如何建立最小角色、宣告能力、收 intent、回 receipt、送 event、cancel／Emergency／Reduced Motion、自訂 channel、WebSocket、migration、測試 |
 | **[Reference Adapters 導覽](docs/character-protocol/reference-adapters.md)** | 小樞 rig／sprite／文字／外部 WebSocket fixture 各走一遍 |
 | **[v0.5.0 發布就緒](docs/releases/v0.5.0-release-readiness.md)** | 發布關卡清單、測試矩陣、已知限制、iPhone 真機證據、遷移指南（`docs/releases/`） |
+| **[v0.5.1 發布文件](docs/releases/v0.5.1-release-readiness.md)** | v0.5.1（開發中）的 20 道發布關卡；同一資料夾另有 [測試矩陣](docs/releases/v0.5.1-test-matrix.md)（含真 Tauri 視窗驗收表）、[已知限制](docs/releases/v0.5.1-known-limitations.md)、[遷移指南](docs/releases/v0.5.1-migration.md)、[最終交付報告](docs/releases/v0.5.1-final-report.md)、[iPhone 真機證據（blocked）](docs/releases/v0.5.1-iphone-device-evidence.md) |
 | **[更新日誌](CHANGELOG.md)** | 版本歷史（語意化版本） |
 
 ## 核心設計理念
