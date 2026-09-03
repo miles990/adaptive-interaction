@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "adapters-builtin"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1581,7 +1581,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-adapter-sdk"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1608,7 +1608,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-api"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "axum 0.8.9",
  "chrono",
@@ -1635,7 +1635,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-character"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "schemars",
@@ -1647,7 +1647,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-cli"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1673,7 +1673,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-core"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1689,7 +1689,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-e2e"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "interaction-character",
  "interaction-recipe",
@@ -1699,7 +1699,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-events"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -1710,7 +1710,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-policy"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -1721,7 +1721,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-recipe"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "humantime",
@@ -1736,7 +1736,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-registry"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1753,7 +1753,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-runtime"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "adapters-builtin",
  "adapters-media",
@@ -1800,7 +1800,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-storage"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -1813,7 +1813,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-tool-schema"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "interaction-core",
  "schemars",
