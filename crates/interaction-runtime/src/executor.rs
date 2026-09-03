@@ -41,6 +41,17 @@ pub(crate) fn driver_reports_outcome_unknown(receipt: &ActionReceipt) -> bool {
     })
 }
 
+/// `kind:id` — the same spelling the API/CLI accept for a consent scope.
+fn scope_label(scope: &interaction_core::ConsentScope) -> String {
+    use interaction_core::ConsentScope::*;
+    match scope {
+        Channel(id) => format!("channel:{id}"),
+        Actuator(id) => format!("actuator:{id}"),
+        Receptor(id) => format!("receptor:{id}"),
+        ToolOperation(id) => format!("tool:{id}"),
+    }
+}
+
 struct PlanExecutionClaim {
     runtime: Runtime,
     plan_id: String,
@@ -181,6 +192,23 @@ impl Runtime {
                     continue;
                 }
             };
+            // Dry run must consult the SAME execution-time provider gate
+            // run_step uses (spec §19.1): a stopped provider's capability would
+            // be refused at dispatch, so simulating it as "would execute" is a
+            // lie the AI and the user would plan around.
+            if let Some(block) = self.actuator_provider_block(step.actuator_id.as_str()) {
+                steps.push(SimulatedStep {
+                    actuator_id: step.actuator_id.as_str().into(),
+                    channel: step.channel.clone(),
+                    outcome: AuthorizationOutcome::Blocked,
+                    decisions: vec![PolicyDecision::Blocked {
+                        rule: "provider.not-operational".into(),
+                        reason: block.reason(&format!("actuator {}", step.actuator_id)),
+                    }],
+                    effective: Default::default(),
+                });
+                continue;
+            }
             let usage = self.usage_for(&session, &manifest).await?;
             let result = self.authorize_step(
                 &policy,
@@ -363,12 +391,68 @@ impl Runtime {
         receipt
     }
 
+    /// Spend one use of the consent that authorized this dispatch, if it is a
+    /// bounded ("only this once") grant. Returns the scope actually debited so
+    /// the pre-dispatch gate can tell "I just used the last use" apart from
+    /// "someone revoked this while I was in flight".
+    ///
+    /// MUST be called inside the `authorization_lock` critical section: the
+    /// session write lock alone would not stop two steps that both passed the
+    /// Governor from each spending the same single use.
+    ///
+    /// Scope covered: actuator dispatch. Receptor consents (microphone and the
+    /// other sensors) have no equivalent single critical section and are NOT
+    /// one-shot aware yet — a known, narrower limitation.
+    ///
+    /// `scopes` must be exactly what the Governor would have accepted, in its
+    /// own priority order, so the counter debited is the one the authorization
+    /// actually leaned on.
+    async fn consume_one_shot_consent(
+        &self,
+        scopes: &[interaction_core::ConsentScope],
+    ) -> DomainResult<Option<interaction_core::ConsentScope>> {
+        let now = Utc::now();
+        let mut guard = self.session.write().await;
+        let Some(session) = guard.as_mut() else {
+            return Ok(None);
+        };
+        match session.consume_one_shot(scopes, now) {
+            interaction_core::ConsentConsumption::Consumed { scope, remaining } => {
+                // Persisted in the same write: a restart must not hand the use
+                // back. A failed store write must not let the dispatch proceed
+                // on a consent whose debit was never recorded.
+                self.store.upsert_session(session)?;
+                let session_id = session.session_id.as_str().to_string();
+                drop(guard);
+                if remaining == 0 {
+                    // 用完就是失效：狀態列／安全頁不得繼續顯示「已授權」。
+                    self.events.emit(
+                        EventType::ConsentChanged,
+                        json!({
+                            "sessionId": session_id,
+                            "exhausted": scope_label(&scope),
+                        }),
+                    );
+                }
+                Ok(Some(scope))
+            }
+            _ => Ok(None),
+        }
+    }
+
     /// Last-instant gate evaluated immediately before driver dispatch. Closes
     /// the authorize→dispatch race window for emergency stop, consent
     /// revocation, session death and runtime shutdown.
+    ///
+    /// `consumed_scope` is the one-shot consent this very action just spent
+    /// inside the authorization critical section. Its use counter is already at
+    /// zero, so it must be checked for revocation/expiry ONLY — otherwise a
+    /// genuine "only this once" grant would always block itself here and could
+    /// never reach a driver. Every other scope is still checked in full.
     async fn pre_dispatch_gate(
         &self,
         manifest: &ActuatorManifest,
+        consumed_scope: Option<&interaction_core::ConsentScope>,
     ) -> Result<(), (ActionStatus, PolicyDecision)> {
         if self.is_estopped() {
             return Err((
@@ -404,14 +488,19 @@ impl Runtime {
         }
         if manifest.requires_consent {
             let session = session.expect("checked above");
-            let by_actuator = session.has_consent(
-                &interaction_core::ConsentScope::Actuator(manifest.id.as_str().to_string()),
-                now,
-            );
-            let by_channel = session.has_consent(
-                &interaction_core::ConsentScope::Channel(manifest.channel.clone()),
-                now,
-            );
+            let still_granted = |scope: interaction_core::ConsentScope| {
+                if consumed_scope == Some(&scope) {
+                    session.has_consent_ignoring_uses(&scope, now)
+                } else {
+                    session.has_consent(&scope, now)
+                }
+            };
+            let by_actuator = still_granted(interaction_core::ConsentScope::Actuator(
+                manifest.id.as_str().to_string(),
+            ));
+            let by_channel = still_granted(interaction_core::ConsentScope::Channel(
+                manifest.channel.clone(),
+            ));
             if !by_actuator && !by_channel {
                 return Err((
                     ActionStatus::Cancelled,
@@ -587,6 +676,38 @@ impl Runtime {
             return Ok(receipt);
         }
 
+        // A one-shot ("only this once") consent is spent HERE: the Governor has
+        // said Authorized, and that is the moment the human's single permission
+        // is exercised. Still inside `authorization_lock`, so two concurrent
+        // steps can never spend the same use, and the debit is persisted in the
+        // same session write so a restart cannot resurrect it.
+        //
+        // Deliberately NOT refunded when the dispatch afterwards fails (gate,
+        // timeout, driver error): unlike money there is no later moment where we
+        // learn the permission "wasn't really used", and a refund would silently
+        // turn "only this once" into "once per successful attempt".
+        //
+        // Which scopes count is exactly what the Governor accepted: step 6
+        // (`requires_consent`) takes an actuator OR channel consent, while the
+        // high-risk approval gate (step 7) only ever accepts the actuator one.
+        let actuator_scope =
+            interaction_core::ConsentScope::Actuator(manifest.id.as_str().to_string());
+        let consumable: Vec<interaction_core::ConsentScope> = if manifest.requires_consent {
+            vec![
+                actuator_scope,
+                interaction_core::ConsentScope::Channel(manifest.channel.clone()),
+            ]
+        } else if manifest.risk_class >= policy.require_approval_at {
+            vec![actuator_scope]
+        } else {
+            Vec::new()
+        };
+        let consumed_scope = if consumable.is_empty() {
+            None
+        } else {
+            self.consume_one_shot_consent(&consumable).await?
+        };
+
         // Build the immutable bounded action.
         let mut metadata = std::collections::BTreeMap::new();
         let mut decisions = auth.decisions.clone();
@@ -652,7 +773,10 @@ impl Runtime {
         // Last-instant gate: emergency stop / shutdown / consent revocation may
         // have happened between authorization and this point. Never dispatch
         // through that window.
-        if let Err((terminal, decision)) = self.pre_dispatch_gate(&manifest).await {
+        if let Err((terminal, decision)) = self
+            .pre_dispatch_gate(&manifest, consumed_scope.as_ref())
+            .await
+        {
             self.release_invocation_cost(&receipt.action_id).await;
             receipt.policy_decisions.push(decision.clone());
             receipt.push_error("pre_dispatch_gate", format!("{decision:?}"), Utc::now());

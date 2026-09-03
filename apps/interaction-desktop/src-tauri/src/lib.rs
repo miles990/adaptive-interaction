@@ -670,11 +670,14 @@ async fn consent_grant(
     state: State<'_, AppState>,
     scope: String,
     expires_minutes: Option<u32>,
+    max_uses: Option<u32>,
 ) -> Result<Value, String> {
     let runtime = rt(&state)?;
+    // `max_uses`（「只這一次」＝1）必須一路送進 runtime：Tauri 對 payload 多出來的
+    // 鍵是靜默忽略，少了這個參數桌面版的單次授權會悄悄退化成 TTL。
     serde_json::to_value(
         runtime
-            .grant_consent(&scope, expires_minutes)
+            .grant_consent_with_uses(&scope, expires_minutes, max_uses)
             .await
             .map_err(err_s)?,
     )

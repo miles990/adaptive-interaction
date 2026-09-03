@@ -456,7 +456,7 @@ pub async fn session_consent(
 ) -> ApiResult<Json<Value>> {
     let session = state
         .runtime
-        .grant_consent(&body.scope, body.expires_minutes)
+        .grant_consent_with_uses(&body.scope, body.expires_minutes, body.max_uses)
         .await?;
     Ok(Json(serde_json::to_value(session).unwrap_or_default()))
 }

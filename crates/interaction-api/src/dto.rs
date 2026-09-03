@@ -68,6 +68,10 @@ pub struct ConsentInput {
     pub scope: String,
     #[serde(default)]
     pub expires_minutes: Option<u32>,
+    /// Real "only this once": the first authorized dispatch spends the consent.
+    /// Absent = unlimited within the TTL (the behaviour older clients rely on).
+    #[serde(default)]
+    pub max_uses: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]

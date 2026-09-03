@@ -670,6 +670,39 @@ mod tests {
         assert_eq!(r2.outcome, AuthorizationOutcome::Authorized);
     }
 
+    /// 真正的「只這一次」：一次性同意用完之後，即使沒被撤銷也沒過期，
+    /// Governor 仍然必須擋在 `consent.required`（呈現層不能替它決定）。
+    #[test]
+    fn exhausted_one_shot_consent_blocks_even_without_revocation_or_expiry() {
+        let mut m = manifest("device.serial", "haptic", RiskClass::Low);
+        m.requires_consent = true;
+        let mut policy = policy_with("device.serial", "haptic");
+        policy.initiative = InitiativeLevel::Active;
+        let now = chrono::Utc::now();
+        let mut session = Session::new(now, None, None);
+        let scope = ConsentScope::Actuator("device.serial".into());
+        session.grant_with_uses(scope.clone(), now, None, Some(1));
+        let requested = ActionParameters::default();
+        let req = base_req(&m, &requested);
+        assert_eq!(
+            Governor::authorize(&policy, &session, &req, &UsageContext::default()).outcome,
+            AuthorizationOutcome::Authorized
+        );
+
+        session.consume_one_shot(std::slice::from_ref(&scope), now);
+        assert!(session.consents[0].revoked_at.is_none());
+        assert!(session.consents[0].expires_at.is_none());
+        let after = Governor::authorize(&policy, &session, &req, &UsageContext::default());
+        assert_eq!(after.outcome, AuthorizationOutcome::Blocked);
+        assert!(
+            after.decisions.iter().any(
+                |d| matches!(d, PolicyDecision::Blocked { rule, .. } if rule == "consent.required")
+            ),
+            "{:?}",
+            after.decisions
+        );
+    }
+
     #[test]
     fn quiet_hours_block_audio_but_not_conversation() {
         let audio = manifest("audio.player", "audio", RiskClass::BoundedSideEffect);

@@ -144,8 +144,14 @@ export const api = {
   sessionStart: (label: string, consents: string[]) =>
     invoke<Session>("session_start", { label, consents }),
   sessionStop: () => invoke("session_stop"),
-  consentGrant: (scope: string, expiresMinutes?: number) =>
-    invoke<Session>("consent_grant", { scope, expiresMinutes: expiresMinutes ?? null }),
+  // maxUses 是後端真正的「只這一次」：第一次成功派工就用掉（Rust 端強制，
+  // 不是畫面上的約定）。不帶＝維持原本「只受有效期間約束、次數不限」。
+  consentGrant: (scope: string, expiresMinutes?: number, maxUses?: number) =>
+    invoke<Session>("consent_grant", {
+      scope,
+      expiresMinutes: expiresMinutes ?? null,
+      maxUses: maxUses ?? null,
+    }),
   consentRevoke: (scope: string) => invoke<Session>("consent_revoke", { scope }),
   recipesList: () =>
     invoke<{ recipe: Record<string, unknown>; state: Record<string, unknown> }[]>("recipes_list"),

@@ -320,10 +320,20 @@ function ConsentSection({
   );
 }
 
-/** L4 的「只這一次」在後端的對應：Consent 沒有 single-use 計數，能給的最短
- *  範圍就是最短的有效期間，所以「只這一次」＝ 5 分鐘的短效授權（誠實命名，
- *  不假裝那是用完即失效）。 */
+/** 「只這一次」在動器上現在是後端真的算得出來的單次授權：`maxUses: 1`，
+ *  第一次成功派工就用掉（Rust Policy Governor 強制，不是畫面上的約定）。
+ *  5 分鐘的有效期間留著當雙重保險——授權了卻一直沒用到也會自己失效。 */
 export const SHORT_LIVED_CONSENT_MINUTES = 5;
+
+/** 「只這一次」送給後端的次數上限。 */
+export const ONE_SHOT_MAX_USES = 1;
+
+/** 後端只在動器派工的路徑上真的把單次授權用掉（executor 的授權臨界區）。
+ *  受器（麥克風／攝影機）與工具操作沒有等價的原子消耗點，那裡的「只這一次」
+ *  仍然只是最短的有效期間——照實講，不假裝那是用完即失效。 */
+export function oneShotIsEnforced(card: HumanCard | null): boolean {
+  return card?.kind === "actuator";
+}
 
 /** 這張卡可以選的授權範圍。
  *  L4（攝影機、持續麥克風、定位、Agent 寫入檔案）的政策文字明寫「每次使用都要你
@@ -332,7 +342,9 @@ export const SHORT_LIVED_CONSENT_MINUTES = 5;
 export function consentScopeOptions(card: HumanCard | null): { value: string; label: string }[] {
   const shortLived = {
     value: String(SHORT_LIVED_CONSENT_MINUTES),
-    label: `只這一次（${SHORT_LIVED_CONSENT_MINUTES} 分鐘內有效）`,
+    label: oneShotIsEnforced(card)
+      ? `只這一次（用過一次即失效；${SHORT_LIVED_CONSENT_MINUTES} 分鐘內未使用也失效）`
+      : `只這一次（${SHORT_LIVED_CONSENT_MINUTES} 分鐘內有效）`,
   };
   if (card && riskTierOfCard(card).tier >= 4) {
     return [shortLived, { value: "30", label: "30 分鐘" }];
@@ -428,7 +440,10 @@ function GrantDialog({
           </label>
           {riskTierOfCard(selected).tier >= 4 && (
             <p className="muted small">
-              這是高敏感能力：只能給短效授權，不提供「整個工作階段」。時間到就自動失效，要再用會再問你一次。
+              這是高敏感能力：只能給短效授權，不提供「整個工作階段」。
+              {oneShotIsEnforced(selected)
+                ? "用過一次或時間到就自動失效，要再用會再問你一次。"
+                : "時間到就自動失效，要再用會再問你一次。"}
             </p>
           )}
           {error && <p className="cap-card-error" role="alert">{error}</p>}
@@ -441,9 +456,15 @@ function GrantDialog({
                   const allowed = consentScopeOptions(selected).some((o) => o.value === expires)
                     ? expires
                     : defaultConsentScope(selected);
+                  // 「只這一次」＝ maxUses 1（後端用掉即失效）＋短效 TTL 雙重保險。
+                  // 只在後端真的會消耗的範圍送次數，其餘維持純 TTL（別讓畫面
+                  // 承諾後端沒有強制的事）。
+                  const oneShot =
+                    allowed === String(SHORT_LIVED_CONSENT_MINUTES) && oneShotIsEnforced(selected);
                   await api.consentGrant(
                     scope,
-                    allowed === "session" ? undefined : Number(allowed)
+                    allowed === "session" ? undefined : Number(allowed),
+                    oneShot ? ONE_SHOT_MAX_USES : undefined
                   );
                   onGranted();
                 } catch (e) {

@@ -1776,6 +1776,41 @@ mod tests {
         assert!(store.latest_active_session().unwrap().is_none());
     }
 
+    /// 一次性同意的剩餘次數必須跟著 session blob 一起持久化：重啟之後
+    /// 「用過一次」不得因為序列化掉了欄位而復活。
+    #[test]
+    fn session_roundtrip_preserves_one_shot_use_counters() {
+        use interaction_core::ConsentScope;
+        let store = Store::open_in_memory().unwrap();
+        let now = Utc::now();
+        let mut s = Session::new(now, Some("one-shot".into()), None);
+        let one_shot = ConsentScope::Actuator("device.serial".into());
+        let unlimited = ConsentScope::Channel("haptic".into());
+        s.grant_with_uses(one_shot.clone(), now, None, Some(1));
+        s.grant(unlimited.clone(), now, None);
+        s.consume_one_shot(std::slice::from_ref(&one_shot), now);
+        store.upsert_session(&s).unwrap();
+
+        let back = store.session(&s.session_id).unwrap();
+        let consent = back
+            .consents
+            .iter()
+            .find(|c| c.scope == one_shot)
+            .expect("one-shot consent survives");
+        assert_eq!(consent.max_uses, Some(1));
+        assert_eq!(consent.remaining_uses, Some(0));
+        assert!(!back.has_consent(&one_shot, now), "用掉的次數不得復活");
+        // 不限次的那一筆維持 None（沒有被寫成 0）。
+        let other = back
+            .consents
+            .iter()
+            .find(|c| c.scope == unlimited)
+            .expect("unlimited consent survives");
+        assert_eq!(other.max_uses, None);
+        assert_eq!(other.remaining_uses, None);
+        assert!(back.has_consent(&unlimited, now));
+    }
+
     #[test]
     fn observation_query_filters() {
         let store = Store::open_in_memory().unwrap();

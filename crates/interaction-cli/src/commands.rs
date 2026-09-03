@@ -260,6 +260,11 @@ pub enum SessionCmd {
         scope: String,
         #[arg(long)]
         expires_minutes: Option<u32>,
+        /// Real "only this once": `--max-uses 1` is spent by the first
+        /// authorized dispatch. Omit for the historical unlimited-within-TTL
+        /// grant. Never resets on a failed dispatch.
+        #[arg(long)]
+        max_uses: Option<u32>,
     },
     /// Revoke a consent scope (cancels covered in-flight actions).
     Revoke {
@@ -1262,11 +1267,16 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
             SessionCmd::Consent {
                 scope,
                 expires_minutes,
+                max_uses,
             } => {
                 client
                     .post(
                         "/v1/session/consent",
-                        Some(json!({"scope": scope, "expiresMinutes": expires_minutes})),
+                        Some(json!({
+                            "scope": scope,
+                            "expiresMinutes": expires_minutes,
+                            "maxUses": max_uses,
+                        })),
                     )
                     .await?
             }

@@ -1503,3 +1503,154 @@ async fn provider_gate_does_not_block_builtin_or_unowned_capabilities() {
     );
     assert_eq!(executions.load(Ordering::SeqCst), 1);
 }
+
+// ---------------------------------------------------------------------------
+// 恢復矩陣列 12：撤回／取消的誠實化。
+//
+// SafetyPage 對使用者的承諾是「進行中的動作已要求取消（無法取消的會標示
+// 『結果未知』）」。`cancel_action` 因此不得把「driver 拒絕／逾時／不支援／
+// 找不到動器」一律寫成 Cancelled——那是 completed≠verified 同一類的謊。
+// 只有 driver 真的確認取消才是 Cancelled，其餘一律 Uncertain。
+// ---------------------------------------------------------------------------
+
+/// 執行只走到 Dispatched（非終結），留一筆 open receipt 給取消路徑；
+/// `cancel_ok` 決定 driver 是確認取消還是回錯。
+struct CancelProbeActuator {
+    id: &'static str,
+    cancel_ok: bool,
+    last: std::sync::Mutex<Option<BoundedAction>>,
+}
+
+impl CancelProbeActuator {
+    fn new(id: &'static str, cancel_ok: bool) -> Self {
+        Self {
+            id,
+            cancel_ok,
+            last: std::sync::Mutex::new(None),
+        }
+    }
+}
+
+#[async_trait]
+impl Actuator for CancelProbeActuator {
+    fn manifest(&self) -> ActuatorManifest {
+        ActuatorManifestBuilder::new(self.id, "Cancel probe", "log", "test")
+            .risk(RiskClass::Low)
+            .supports_cancel(true)
+            .build()
+    }
+
+    async fn execute(&self, action: BoundedAction) -> Result<ActionReceipt, ActuatorError> {
+        *self.last.lock().unwrap() = Some(action.clone());
+        Ok(DriverReceipt::start(&action, chrono::Utc::now())
+            .dispatched()
+            .finish())
+    }
+
+    async fn status(&self) -> ComponentHealth {
+        ComponentHealth::healthy()
+    }
+
+    async fn cancel(&self, action_id: &ActionId) -> Result<ActionReceipt, ActuatorError> {
+        if !self.cancel_ok {
+            return Err(ActuatorError::NotFound(format!(
+                "{action_id}: driver cannot recall this"
+            )));
+        }
+        let action = self
+            .last
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| ActuatorError::NotFound(action_id.to_string()))?;
+        Ok(DriverReceipt::start(&action, chrono::Utc::now()).finish())
+    }
+
+    async fn emergency_stop(&self) -> Result<(), ActuatorError> {
+        Ok(())
+    }
+}
+
+async fn open_receipt_for(rt: &Runtime, actuator_id: &str) -> ActionReceipt {
+    let mut intent = SemanticIntent::new("presence");
+    intent.preferred_channels = vec!["log".into()];
+    let plan = rt
+        .create_plan(
+            intent,
+            vec![actuator_id.into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
+        .await
+        .unwrap();
+    let receipt = rt
+        .execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false)
+        .await
+        .unwrap()
+        .remove(0);
+    assert!(
+        !receipt.is_terminal(),
+        "取消測試需要一筆進行中的動作：{receipt:?}"
+    );
+    receipt
+}
+
+async fn cancel_probe_runtime(id: &'static str, cancel_ok: bool) -> (tempfile::TempDir, Runtime) {
+    let (dir, rt) = runtime().await;
+    rt.start_session(Some("cancel".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.update_policy(json!({
+        "allowedChannels": ["conversation", "log"],
+        "actuatorAllowlist": ["conversation", "local-log", id]
+    }))
+    .await
+    .unwrap();
+    rt.registry
+        .register_actuator(Arc::new(CancelProbeActuator::new(id, cancel_ok)))
+        .await
+        .unwrap();
+    (dir, rt)
+}
+
+#[tokio::test]
+async fn cancel_action_is_uncertain_when_the_driver_does_not_confirm() {
+    let (_g, rt) = cancel_probe_runtime("cancel.unconfirmed", false).await;
+    let receipt = open_receipt_for(&rt, "cancel.unconfirmed").await;
+
+    let cancelled = rt.cancel_action(&receipt.action_id).await.unwrap();
+    assert_eq!(
+        cancelled.current_status,
+        ActionStatus::Uncertain,
+        "driver 回錯 ⇒ 結果未知，不得謊稱已取消：{cancelled:?}"
+    );
+    assert!(
+        cancelled
+            .errors
+            .iter()
+            .any(|e| e.code == "cancel_unconfirmed"),
+        "receipt 必須留下『為什麼是未知』的理由：{:?}",
+        cancelled.errors
+    );
+    // 持久化的那一份也要一樣誠實。
+    let stored = rt.store.receipt(&receipt.action_id).unwrap();
+    assert_eq!(stored.current_status, ActionStatus::Uncertain);
+}
+
+#[tokio::test]
+async fn cancel_action_is_cancelled_only_when_the_driver_confirms() {
+    let (_g, rt) = cancel_probe_runtime("cancel.confirmed", true).await;
+    let receipt = open_receipt_for(&rt, "cancel.confirmed").await;
+
+    let cancelled = rt.cancel_action(&receipt.action_id).await.unwrap();
+    assert_eq!(
+        cancelled.current_status,
+        ActionStatus::Cancelled,
+        "driver 確認取消 ⇒ Cancelled：{cancelled:?}"
+    );
+    let stored = rt.store.receipt(&receipt.action_id).unwrap();
+    assert_eq!(stored.current_status, ActionStatus::Cancelled);
+}

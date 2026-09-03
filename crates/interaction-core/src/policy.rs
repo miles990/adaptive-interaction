@@ -254,10 +254,34 @@ pub struct Consent {
     pub expires_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revoked_at: Option<Timestamp>,
+    /// Bounded-use consent ("only this once" = 1). `None` keeps the original
+    /// semantics: unlimited within the TTL. Absent in older persisted sessions,
+    /// so it must stay `#[serde(default)]` — a missing counter is unlimited,
+    /// never zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_uses: Option<u32>,
+    /// Uses left. Only ever `Some` when `max_uses` is `Some`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remaining_uses: Option<u32>,
 }
 
 impl Consent {
     pub fn is_active(&self, now: Timestamp) -> bool {
+        self.still_granted(now) && self.has_uses_left()
+    }
+
+    /// Revocation and expiry only — deliberately blind to the use counter.
+    ///
+    /// The dispatch path needs this: the action that just spent the LAST use of
+    /// a one-shot consent would otherwise be refused by the pre-dispatch gate
+    /// (the counter it just legitimately consumed reads as "no longer active"),
+    /// so a one-shot consent could never actually reach a driver. A genuine
+    /// revocation or expiry between authorization and dispatch still blocks.
+    pub fn still_granted(&self, now: Timestamp) -> bool {
         self.revoked_at.is_none() && self.expires_at.map(|e| now <= e).unwrap_or(true)
+    }
+
+    pub fn has_uses_left(&self) -> bool {
+        self.remaining_uses.map(|r| r > 0).unwrap_or(true)
     }
 }

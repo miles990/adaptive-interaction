@@ -511,6 +511,68 @@ describe("safety-invariants-075 L4 同意只給短效授權", () => {
     fireEvent.click(await dialog.findByText("iPhone 攝影機"));
     expect(dialog.queryByRole("option", { name: "整個工作階段" })).not.toBeInTheDocument();
     fireEvent.click(dialog.getByRole("button", { name: "同意" }));
-    await waitFor(() => expect(grant).toHaveBeenCalledWith("receptor:iphone.camera", 5));
+    // 受器路徑後端還沒有原子消耗點：這裡仍然只是短效 TTL，畫面不得偷偷
+    // 送出一個後端不會強制的 maxUses（那就變成假的「只這一次」）。
+    await waitFor(() =>
+      expect(grant).toHaveBeenCalledWith("receptor:iphone.camera", 5, undefined)
+    );
+    expect(consentScopeOptions(CAMERA)[0].label).toBe("只這一次（5 分鐘內有效）");
+  });
+
+  it("動器的「只這一次」送出後端真的會消耗的 maxUses=1；其他選項不送", async () => {
+    const NOTIFY = card({
+      id: "notify.desktop",
+      kind: "actuator",
+      displayName: "桌面通知",
+      consent: { required: true, reason: "會跳出通知" },
+      requiresConsent: true,
+    });
+    expect(consentScopeOptions(NOTIFY)[0].label).toBe(
+      "只這一次（用過一次即失效；5 分鐘內未使用也失效）"
+    );
+    vi.spyOn(api, "sessionGet").mockResolvedValue({
+      sessionId: "s-1",
+      state: "active",
+      startedAt: "2026-09-01T00:00:00Z",
+      consents: [],
+    });
+    vi.spyOn(api, "capabilitiesHuman").mockResolvedValue({
+      ...HUMAN,
+      receptors: [],
+      actuators: [NOTIFY],
+    });
+    vi.spyOn(api, "status").mockResolvedValue({ emergencyStop: false });
+    vi.spyOn(api, "auditTail").mockResolvedValue([]);
+    vi.spyOn(api, "uiPrefsGet").mockResolvedValue({
+      mode: "simple",
+      locale: "zh-TW",
+      customNames: {},
+      schemaVersion: "1.0",
+    });
+    vi.spyOn(api, "pauseGet").mockResolvedValue({ paused: false });
+    const grant = vi.spyOn(api, "consentGrant").mockResolvedValue(undefined as never);
+
+    render(
+      <AppStateProvider ready refreshKey={0}>
+        <SafetyPage refreshKey={0} onNavigate={() => {}} />
+      </AppStateProvider>
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /授予新權限/ }));
+    const dialog = within(await screen.findByRole("dialog"));
+    fireEvent.click(await dialog.findByText("桌面通知"));
+    // 預設是「整個工作階段」（非 L4）：不送次數。
+    fireEvent.click(dialog.getByRole("button", { name: "同意" }));
+    await waitFor(() =>
+      expect(grant).toHaveBeenCalledWith("actuator:notify.desktop", undefined, undefined)
+    );
+
+    // 改選「只這一次」：maxUses=1 一定要送到後端，否則就退回舊的 TTL 近似。
+    grant.mockClear();
+    fireEvent.click(await screen.findByRole("button", { name: /授予新權限/ }));
+    const again = within(await screen.findByRole("dialog"));
+    fireEvent.click(await again.findByText("桌面通知"));
+    fireEvent.change(again.getByRole("combobox"), { target: { value: "5" } });
+    fireEvent.click(again.getByRole("button", { name: "同意" }));
+    await waitFor(() => expect(grant).toHaveBeenCalledWith("actuator:notify.desktop", 5, 1));
   });
 });

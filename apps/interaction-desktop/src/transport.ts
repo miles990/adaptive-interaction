@@ -110,7 +110,12 @@ const ROUTES: Record<string, Route> = {
   session_start: (a) => http("POST", "/v1/session/start", { label: a.label, consents: a.consents }),
   session_stop: () => http("POST", "/v1/session/stop"),
   consent_grant: (a) =>
-    http("POST", "/v1/session/consent", { scope: a.scope, expiresMinutes: a.expiresMinutes }),
+    http("POST", "/v1/session/consent", {
+      scope: a.scope,
+      expiresMinutes: a.expiresMinutes,
+      // 「只這一次」＝maxUses:1；漏掉這個欄位會把單次授權悄悄退化成 TTL。
+      maxUses: a.maxUses,
+    }),
   consent_revoke: (a) => http("POST", "/v1/session/revoke", { scope: a.scope }),
   recipes_list: () => http("GET", "/v1/recipes"),
   recipe_upsert: (a) => http("POST", "/v1/recipes", { text: a.text }),

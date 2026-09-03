@@ -15,7 +15,7 @@ use interaction_core::{
     ActionId, ActionReceipt, ActionStatus, CapabilityConstraint, CapabilitySnapshot, ConsentScope,
     DiscoveryContext, DomainError, DomainResult, EventType, MessageStrategy, Observation,
     ObservationQuery, Plan, PlanId, PlanStatus, PolicyConfig, ReceptorId, RuntimeEvent,
-    SemanticIntent, Session, SessionId, Timestamp,
+    SemanticIntent, Session, SessionId, Timestamp, VerificationEvidence, VerificationVerdict,
 };
 use interaction_events::EventBus;
 use interaction_policy::ActionSource;
@@ -30,6 +30,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
+
+/// Bound on how long a driver may take to confirm a cancel. Past it the
+/// outcome is UNKNOWN, never "cancelled".
+const CANCEL_TIMEOUT_MS: u64 = 2_000;
 
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeOptions {
@@ -72,7 +76,9 @@ pub struct RuntimeInner {
     pub mock_actuator: Arc<MockActuator>,
     pub recipes: RwLock<BTreeMap<String, RecipeEntry>>,
     pub recipe_errors: RwLock<Vec<(PathBuf, String)>>,
-    session: RwLock<Option<Session>>,
+    /// pub(crate)：executor 的一次性同意消耗必須在 authorization_lock 臨界區
+    /// 內直接改這一份 session（clone 出去改回不來就不是原子的）。
+    pub(crate) session: RwLock<Option<Session>>,
     pub shutdown_token: CancellationToken,
     pub started_at: Timestamp,
     lock: std::sync::Mutex<Option<InstanceLock>>,
@@ -849,18 +855,65 @@ impl Runtime {
                 receipt.current_status
             )));
         }
-        if let Ok(actuator) = self.registry.actuator_any(&receipt.actuator_id).await {
-            let _ = actuator.cancel(action_id).await;
-        }
+        // 誠實階梯：只有 driver 真的確認取消才算 Cancelled。回錯／逾時／
+        // 動器不在了 ⇒ 我們不知道那個外部效果有沒有停下來，必須是 Uncertain
+        // （比照 emergency stop 只把 `Ok(Ok(()))` 算成「已停」的作法）。把每一次
+        // 取消都寫成 Cancelled，等於對「進行中的動作已要求取消（無法取消的會
+        // 標示『結果未知』）」這句承諾說謊。
+        let unconfirmed: Option<String> =
+            match self.registry.actuator_any(&receipt.actuator_id).await {
+                Ok(actuator) => match tokio::time::timeout(
+                    std::time::Duration::from_millis(CANCEL_TIMEOUT_MS),
+                    actuator.cancel(action_id),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => None,
+                    Ok(Err(e)) => Some(format!("driver did not confirm the cancel: {e}")),
+                    Err(_) => Some(format!(
+                        "driver did not answer the cancel request within {CANCEL_TIMEOUT_MS} ms"
+                    )),
+                },
+                Err(e) => Some(format!(
+                    "actuator {} is not reachable to cancel: {e}",
+                    receipt.actuator_id
+                )),
+            };
+        let now = Utc::now();
+        let terminal = match &unconfirmed {
+            None => ActionStatus::Cancelled,
+            Some(detail) => {
+                receipt.push_error("cancel_unconfirmed", detail, now);
+                receipt.verification = Some(VerificationEvidence {
+                    observation_ids: vec![],
+                    verdict: VerificationVerdict::Uncertain,
+                    detail: Some(detail.clone()),
+                    verified_at: now,
+                });
+                ActionStatus::Uncertain
+            }
+        };
         receipt
-            .transition(ActionStatus::Cancelled, Utc::now())
+            .transition(terminal, now)
             .map_err(|e| DomainError::Internal(e.to_string()))?;
         self.store.upsert_receipt(&receipt, "")?;
-        self.emit_action_event(EventType::ActionCancelled, &receipt, json!({}));
+        if unconfirmed.is_some() {
+            self.emit_action_event(
+                EventType::ActionUncertain,
+                &receipt,
+                json!({"reason": "cancel not confirmed by driver"}),
+            );
+        } else {
+            self.emit_action_event(EventType::ActionCancelled, &receipt, json!({}));
+        }
         self.store.audit(
             "action.cancelled",
             "api",
-            &json!({"actionId": action_id.as_str()}),
+            &json!({
+                "actionId": action_id.as_str(),
+                "outcome": if unconfirmed.is_some() { "uncertain" } else { "cancelled" },
+                "detail": unconfirmed,
+            }),
         )?;
         Ok(receipt)
     }
@@ -1085,21 +1138,47 @@ impl Runtime {
         scope_str: &str,
         expires_minutes: Option<u32>,
     ) -> DomainResult<Session> {
+        self.grant_consent_with_uses(scope_str, expires_minutes, None)
+            .await
+    }
+
+    /// `max_uses = Some(1)` is the real "only this once": the first authorized
+    /// dispatch spends it (see `Executor::consume_one_shot_consent`). `None`
+    /// keeps the historical unlimited-within-TTL behaviour.
+    pub async fn grant_consent_with_uses(
+        &self,
+        scope_str: &str,
+        expires_minutes: Option<u32>,
+        max_uses: Option<u32>,
+    ) -> DomainResult<Session> {
         let scope = parse_scope(scope_str)?;
+        if max_uses == Some(0) {
+            return Err(DomainError::Validation(
+                "maxUses must be at least 1; a consent that can never be used is not a consent"
+                    .into(),
+            ));
+        }
         let mut guard = self.session.write().await;
         let session = guard
             .as_mut()
             .filter(|s| s.is_active(Utc::now()))
             .ok_or_else(|| DomainError::SessionInactive("no active session".into()))?;
         let expires = expires_minutes.map(|m| Utc::now() + chrono::Duration::minutes(m as i64));
-        session.grant(scope, Utc::now(), expires);
+        session.grant_with_uses(scope, Utc::now(), expires, max_uses);
         self.store.upsert_session(session)?;
         self.events.emit(
             EventType::ConsentChanged,
-            json!({"sessionId": session.session_id.as_str(), "granted": scope_str}),
+            json!({
+                "sessionId": session.session_id.as_str(),
+                "granted": scope_str,
+                "maxUses": max_uses,
+            }),
         );
-        self.store
-            .audit("consent.granted", "api", &json!({"scope": scope_str}))?;
+        self.store.audit(
+            "consent.granted",
+            "api",
+            &json!({"scope": scope_str, "maxUses": max_uses}),
+        )?;
         Ok(session.clone())
     }
 
