@@ -457,6 +457,24 @@ impl Runtime {
                 return Ok(receipt);
             }
         };
+        // 擁有這個動器的 provider 被停用／撤銷／到期時，能力層旗標即使還開著
+        // 也不得派工（spec §19.1）。形狀比照上面的「動器不可用」：blocked
+        // receipt＋理由，不是 raw error。
+        if let Some(block) = self.actuator_provider_block(step.actuator_id.as_str()) {
+            let reason = block.reason(&format!("actuator {}", step.actuator_id));
+            let receipt = refused_receipt(
+                plan,
+                step,
+                vec![PolicyDecision::Blocked {
+                    rule: "provider.not-operational".into(),
+                    reason: reason.clone(),
+                }],
+                now,
+            );
+            self.persist_receipt(&receipt, &step.channel).await?;
+            self.emit_action_event(EventType::ActionFailed, &receipt, json!({"reason": reason}));
+            return Ok(receipt);
+        }
         let manifest = actuator.manifest();
         // Health gate: offline drivers are not dispatched to.
         if !manifest.availability.is_available() || !actuator.status().await.is_usable() {

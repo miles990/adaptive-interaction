@@ -39,6 +39,18 @@ pub struct CapabilityRegistry {
     tools: RwLock<BTreeMap<String, ToolOperationManifest>>,
     version: AtomicU64,
     events: EventBus,
+    /// Fault-injection seam for `set_receptor_enabled` / `set_actuator_enabled`:
+    /// inert unless a test arms it with `force_next_set_enabled_error`. It is a
+    /// plain field rather than a `#[cfg(test)]` item because the tests that
+    /// need it are integration tests in *other* crates, which link this crate
+    /// without `cfg(test)`. Nothing in the HTTP/CLI surface can reach it, and
+    /// it can only ever make an enable/disable FAIL — never grant anything.
+    forced_set_enabled_error: std::sync::Mutex<Option<String>>,
+    /// capability → provider 狀態的投影（見 [`providers::ProviderGate`]）。
+    /// 沒有掛上（或沒有 provider 記錄）時能力清單維持原本的 enabled/health
+    /// 判斷；掛上之後，被停用／撤銷的 provider 底下的能力必須誠實顯示為
+    /// Disabled，不得繼續宣稱 Available。
+    provider_gate: std::sync::RwLock<Option<Arc<providers::ProviderGate>>>,
 }
 
 impl CapabilityRegistry {
@@ -49,7 +61,47 @@ impl CapabilityRegistry {
             tools: RwLock::new(BTreeMap::new()),
             version: AtomicU64::new(1),
             events,
+            forced_set_enabled_error: std::sync::Mutex::new(None),
+            provider_gate: std::sync::RwLock::new(None),
         }
+    }
+
+    /// 掛上 provider 狀態投影。由 runtime 在 provider 註冊流程啟動時呼叫一次。
+    pub fn attach_provider_gate(&self, gate: Arc<providers::ProviderGate>) {
+        if let Ok(mut slot) = self.provider_gate.write() {
+            *slot = Some(gate);
+        }
+    }
+
+    fn provider_gate(&self) -> Option<Arc<providers::ProviderGate>> {
+        self.provider_gate.read().ok()?.clone()
+    }
+
+    /// Test seam: make the next `set_receptor_enabled` / `set_actuator_enabled`
+    /// for this id fail, so a caller's compensation path can be exercised for
+    /// real. Inert until armed; consumed by the next matching call.
+    #[doc(hidden)]
+    pub fn force_next_set_enabled_error(&self, id: &str) {
+        *self
+            .forced_set_enabled_error
+            .lock()
+            .expect("registry fault seam") = Some(id.to_string());
+    }
+
+    /// Consume an armed fault when it names `id`. Never grants anything: the
+    /// only possible outcome is an error the caller must handle.
+    fn take_forced_set_enabled_error(&self, id: &str) -> Option<DomainError> {
+        let mut armed = self
+            .forced_set_enabled_error
+            .lock()
+            .expect("registry fault seam");
+        if armed.as_deref() == Some(id) {
+            armed.take();
+            return Some(DomainError::Storage(format!(
+                "injected set_enabled failure for {id}"
+            )));
+        }
+        None
     }
 
     fn bump(&self) {
@@ -102,6 +154,9 @@ impl CapabilityRegistry {
     }
 
     pub async fn set_receptor_enabled(&self, id: &ReceptorId, enabled: bool) -> DomainResult<()> {
+        if let Some(e) = self.take_forced_set_enabled_error(id.as_str()) {
+            return Err(e);
+        }
         let mut map = self.receptors.write().await;
         let entry = map
             .get_mut(id)
@@ -141,12 +196,16 @@ impl CapabilityRegistry {
     }
 
     pub async fn receptor_manifests(&self) -> Vec<ReceptorManifest> {
+        let gate = self.provider_gate();
         let map = self.receptors.read().await;
         map.values()
             .map(|entry| {
                 let mut m = entry.instance.manifest();
+                let stopped = gate
+                    .as_ref()
+                    .is_some_and(|g| g.receptor_block(m.id.as_str()).is_some());
                 m.health = entry.last_health.clone();
-                m.availability = availability_of(entry.enabled, &entry.last_health);
+                m.availability = availability_of(entry.enabled && !stopped, &entry.last_health);
                 m
             })
             .collect()
@@ -206,6 +265,9 @@ impl CapabilityRegistry {
     }
 
     pub async fn set_actuator_enabled(&self, id: &ActuatorId, enabled: bool) -> DomainResult<()> {
+        if let Some(e) = self.take_forced_set_enabled_error(id.as_str()) {
+            return Err(e);
+        }
         let mut map = self.actuators.write().await;
         let entry = map
             .get_mut(id)
@@ -250,12 +312,16 @@ impl CapabilityRegistry {
     }
 
     pub async fn actuator_manifests(&self) -> Vec<ActuatorManifest> {
+        let gate = self.provider_gate();
         let map = self.actuators.read().await;
         map.values()
             .map(|entry| {
                 let mut m = entry.instance.manifest();
+                let stopped = gate
+                    .as_ref()
+                    .is_some_and(|g| g.actuator_block(m.id.as_str()).is_some());
                 m.health = entry.last_health.clone();
-                m.availability = availability_of(entry.enabled, &entry.last_health);
+                m.availability = availability_of(entry.enabled && !stopped, &entry.last_health);
                 m
             })
             .collect()
@@ -366,6 +432,9 @@ impl CapabilityRegistry {
     }
 }
 
+/// `enabled` 是「能力層旗標 AND 擁有它的 provider 沒有被停下來」：provider
+/// 被停用／撤銷時能力必須顯示為 Disabled（沿用既有列舉值，不新增 variant，
+/// 免得 tool-schema 消費者的 exhaustive match 壞掉）。
 fn availability_of(enabled: bool, health: &ComponentHealth) -> Availability {
     if !enabled {
         Availability::Disabled
@@ -430,6 +499,46 @@ mod tests {
         async fn stop(&self) -> Result<(), ReceptorError> {
             Ok(())
         }
+    }
+
+    /// The onboarding commit compensates a half-applied component flip by
+    /// flipping the successful ones back, so `set_*_enabled` must be safe to
+    /// call again with either value — idempotent, never an error, and never
+    /// left in a half state. The fault seam must also be strictly one-shot and
+    /// id-scoped, so it can never silently break unrelated calls.
+    #[tokio::test]
+    async fn set_enabled_is_reentrant_and_fault_seam_is_one_shot() {
+        let registry = CapabilityRegistry::new(EventBus::default());
+        registry
+            .register_receptor(Arc::new(FakeReceptor {
+                id: "a",
+                sensitive: false,
+            }))
+            .await
+            .unwrap();
+        let id = ReceptorId::new("a");
+        // Same value twice, then back, then back again: all fine.
+        registry.set_receptor_enabled(&id, false).await.unwrap();
+        registry.set_receptor_enabled(&id, false).await.unwrap();
+        assert!(registry.receptor(&id).await.is_err(), "still disabled");
+        registry.set_receptor_enabled(&id, true).await.unwrap();
+        registry.set_receptor_enabled(&id, true).await.unwrap();
+        assert!(registry.receptor(&id).await.is_ok(), "back on");
+
+        // Armed fault fires once, for that id only, and changes nothing.
+        registry.force_next_set_enabled_error("a");
+        assert!(registry.set_receptor_enabled(&id, false).await.is_err());
+        assert!(
+            registry.receptor(&id).await.is_ok(),
+            "a rejected flip must not mutate the entry"
+        );
+        registry.set_receptor_enabled(&id, false).await.unwrap();
+        assert!(registry.receptor(&id).await.is_err());
+
+        // An armed fault for a different id never touches this one.
+        registry.force_next_set_enabled_error("other");
+        registry.set_receptor_enabled(&id, true).await.unwrap();
+        assert!(registry.receptor(&id).await.is_ok());
     }
 
     #[tokio::test]
@@ -500,5 +609,68 @@ mod tests {
 
         // Version bumps on every change.
         assert!(registry.version() > 1);
+    }
+
+    /// 能力層旗標開著、但擁有它的 provider 被停用／撤銷 ⇒ 清單必須誠實回
+    /// Disabled（不新增 Availability variant，沿用既有值）。
+    #[tokio::test]
+    async fn availability_follows_the_owning_provider_state() {
+        let events = EventBus::default();
+        let registry = CapabilityRegistry::new(events.clone());
+        let provider_registry = providers::ProviderRegistry::new(events);
+        registry.attach_provider_gate(provider_registry.gate());
+        registry
+            .register_receptor(Arc::new(FakeReceptor {
+                id: "owned",
+                sensitive: false,
+            }))
+            .await
+            .unwrap();
+
+        let id = ProviderId::new("provider.device.owner");
+        let mut desc = providers::discovered(ProviderIdentity {
+            id: id.clone(),
+            kind: ProviderKind::Device,
+            display_name: "owner".into(),
+            trust_level: TrustLevel::Discovered,
+            origin: "test".into(),
+            version: "1".into(),
+            fingerprint: None,
+            human: None,
+        });
+        desc.receptors = vec!["owned".into()];
+        desc.state = ProviderState::Installed;
+        provider_registry.register(desc).await.unwrap();
+
+        let availability = |manifests: Vec<ReceptorManifest>| {
+            manifests
+                .into_iter()
+                .find(|m| m.id.as_str() == "owned")
+                .expect("listed")
+                .availability
+        };
+        assert_eq!(
+            availability(registry.receptor_manifests().await),
+            Availability::Available
+        );
+
+        provider_registry
+            .transition(&id, ProviderState::Disabled, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            availability(registry.receptor_manifests().await),
+            Availability::Disabled,
+            "provider 被停用時不得繼續宣稱可用"
+        );
+
+        provider_registry
+            .transition(&id, ProviderState::Available, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            availability(registry.receptor_manifests().await),
+            Availability::Available
+        );
     }
 }

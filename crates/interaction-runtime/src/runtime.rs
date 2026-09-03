@@ -557,6 +557,9 @@ impl Runtime {
     /// Live read from a receptor; the observation is stored and announced.
     pub async fn observe_fresh(&self, receptor_id: &ReceptorId) -> DomainResult<Observation> {
         let receptor = self.registry.receptor(receptor_id).await?;
+        // 能力層的旗標之外，擁有這個受器的 provider 也必須還在線上：被停用／
+        // 撤銷／到期的 provider 不得再被觀察（spec §19.1）。
+        self.receptor_provider_gate(receptor_id.as_str())?;
         let mut obs = receptor.read().await?;
         obs.session_id = self
             .session
@@ -614,6 +617,9 @@ impl Runtime {
             .registry
             .receptor(&ReceptorId::new(receptor_id))
             .await?;
+        // 同一個 provider 閘門也套在 push 路徑上：外部推進來的觀察不得成為
+        // 繞過「這台裝置已被停用／撤銷」的後門。
+        self.receptor_provider_gate(receptor_id)?;
         // Companion-surface receptors stop when the companion is hidden or
         // disconnected (spec: hiding the companion stops its in-window
         // senses — deterministically, not just by frontend courtesy).
@@ -2179,7 +2185,7 @@ pub(crate) fn merge_json(target: &mut Value, patch: &Value) {
     }
 }
 
-fn redact(v: &Value) -> Value {
+pub(crate) fn redact(v: &Value) -> Value {
     // Shallow redaction of obviously sensitive keys in audit payloads.
     match v {
         Value::Object(map) => {

@@ -131,7 +131,18 @@ impl ProviderState {
         )
     }
 
-    /// Only these states may execute/observe anything.
+    /// Is this provider *live* right now (paired, installed, enabled and not
+    /// stopped or disconnected)?
+    ///
+    /// Honest scope: this is a state predicate, not the enforcement point. It
+    /// answers "was this provider up?" — used for the restart downgrade (an
+    /// operational provider comes back `Disabled`, never re-arming itself) and
+    /// for status projections. The dispatch gate is
+    /// `interaction_registry::providers::ProviderGate`, which refuses
+    /// observe/execute for providers that were *stopped*
+    /// (disabled/expired/revoked/closed); a not-yet-enabled provider
+    /// (`Installed`/`Paired`) is also not operational, but its capabilities
+    /// are authorized one by one at the capability layer instead.
     pub fn is_operational(self) -> bool {
         matches!(
             self,

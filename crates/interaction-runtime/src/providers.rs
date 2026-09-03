@@ -7,7 +7,7 @@ use interaction_core::{
     ActuatorId, DomainError, DomainResult, ProviderDescriptor, ProviderId, ProviderIdentity,
     ProviderKind, ProviderState, ReceptorId, ReceptorMode, Timestamp, TrustLevel,
 };
-use interaction_registry::providers::discovered;
+use interaction_registry::providers::{discovered, provider_stopped, ProviderBlock};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
@@ -45,6 +45,10 @@ const TESTED_AUTO_THROTTLE_SECS: i64 = 60;
 /// 那是系統的降級，不是人類的決定；只看狀態會把兩者混為一談，讓每次重啟都變成
 /// 永久停用。這個鍵只在人類真的按下停用／撤銷時寫入，重新啟用時清掉。
 const PROVIDER_OFF_META_PREFIX: &str = "provider-off:";
+
+/// 重啟降級（系統做的，不是人類的決定）留下的註記。用來把它跟「人類真的
+/// 按了停用」分開，見升級邊界的判斷。
+const RE_ARM_NOTE: &str = "re-armed on restart requires explicit enable";
 
 fn provider_off_key(id: &ProviderId) -> String {
     format!("{PROVIDER_OFF_META_PREFIX}{}", id.as_str())
@@ -170,7 +174,33 @@ fn merge_provider_detail(
 impl Runtime {
     /// Called once at startup: builtin provider + persisted providers +
     /// declarative adapters from `config/adapters/*.yaml`.
+    /// 執行期閘門：擁有這個受器的 provider 是否已被停下來（停用／撤銷／到期／
+    /// 關閉）。沒有 provider 記錄的能力（內建、動態註冊）回 `None`。
+    pub(crate) fn receptor_provider_block(&self, receptor_id: &str) -> Option<ProviderBlock> {
+        self.providers.gate().receptor_block(receptor_id)
+    }
+
+    /// 動器版本的同一個閘門。
+    pub(crate) fn actuator_provider_block(&self, actuator_id: &str) -> Option<ProviderBlock> {
+        self.providers.gate().actuator_block(actuator_id)
+    }
+
+    /// 觀察路徑用：provider 被停下來時回 `Unavailable`，形狀比照 registry 的
+    /// 「這個受器被停用了」。
+    pub(crate) fn receptor_provider_gate(&self, receptor_id: &str) -> DomainResult<()> {
+        match self.receptor_provider_block(receptor_id) {
+            Some(block) => Err(DomainError::Unavailable(
+                block.reason(&format!("receptor {receptor_id}")),
+            )),
+            None => Ok(()),
+        }
+    }
+
     pub(crate) async fn init_providers(&self) {
+        // 能力清單的 availability 投影要看得到 provider 狀態：被停用／撤銷的
+        // provider 底下的能力不得繼續宣稱 Available。
+        self.registry.attach_provider_gate(self.providers.gate());
+
         // 1) Builtin local provider (trust: builtin, always available).
         let builtin = ProviderDescriptor {
             identity: ProviderIdentity {
@@ -273,9 +303,36 @@ impl Runtime {
                     let downgraded = desc.state.is_operational();
                     if downgraded {
                         desc.state = ProviderState::Disabled;
-                        desc.detail = Some("re-armed on restart requires explicit enable".into());
+                        desc.detail = Some(RE_ARM_NOTE.into());
                     }
                     let id = desc.identity.id.clone();
+                    // 升級邊界：舊版寫下的「已停用／已撤銷」記錄還沒有
+                    // provider-off 記號（那個記號是後來才加的）。第一次重啟
+                    // 一律採安全預設——不重開連線、能力維持關閉——並留一則
+                    // audit 請使用者確認，而不是默默把裝置打開。
+                    // 系統自己在重啟時做的降級（上面那一段）不算人類的決定，
+                    // 用它留下的註記辨識，避免每次重啟都變成永久停用。
+                    if !downgraded
+                        && provider_stopped(desc.state)
+                        && desc.detail.as_deref() != Some(RE_ARM_NOTE)
+                        && self.provider_off_reason(&id).is_none()
+                    {
+                        let label = format!("{:?}", desc.state).to_lowercase();
+                        let reason = format!("legacy-{label}");
+                        self.mark_provider_off(&id, &reason);
+                        self.store
+                            .audit(
+                                "provider.legacy-off-assumed",
+                                "runtime",
+                                &json!({
+                                    "providerId": id.as_str(),
+                                    "state": desc.state,
+                                    "reason": "no provider-off marker from an older version",
+                                    "action": "kept off until a human confirms",
+                                }),
+                            )
+                            .ok();
+                    }
                     let _ = self.providers.register(desc).await;
                     if downgraded {
                         self.persist_provider(&id).await;

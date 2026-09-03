@@ -1420,3 +1420,86 @@ async fn inbox_sensor_titles_never_leak_the_raw_device_id() {
         "deviceId 欄位不該消失：{inbox}"
     );
 }
+
+/// 9.8 provider 閘門不得回歸內建能力：沒有 provider 記錄的能力（測試裡動態
+/// 註冊的動器）與內建 provider 底下的能力都必須照常派工。
+#[tokio::test]
+async fn provider_gate_does_not_block_builtin_or_unowned_capabilities() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("test".into()), None, vec![])
+        .await
+        .unwrap();
+    rt.update_policy(json!({
+        "allowedChannels": ["conversation", "paid"],
+        "actuatorAllowlist": [
+            "conversation", "web-ui", "local-log", "local-notification", "paid.test"
+        ],
+        "sessionMonetaryBudget": 1.0,
+        "channelLimits": {"paid": {"enabled": true}}
+    }))
+    .await
+    .unwrap();
+
+    // (a) 內建 provider 底下的能力（conversation）照常走到 completed。
+    let builtin = rt
+        .get_provider(&ProviderId::new("provider.local.builtin"))
+        .await
+        .unwrap();
+    assert_eq!(builtin.state, ProviderState::Available);
+    let mut intent = SemanticIntent::new("success");
+    intent.preferred_channels = vec!["conversation".into()];
+    let plan = rt
+        .create_plan(
+            intent,
+            vec!["conversation".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
+        .await
+        .unwrap();
+    let receipts = rt
+        .execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false)
+        .await
+        .unwrap();
+    assert_eq!(receipts[0].current_status, ActionStatus::Completed);
+
+    // (b) 完全沒有 provider 記錄的能力（註冊在 init_providers 之後）也不得被擋。
+    let executions = Arc::new(AtomicUsize::new(0));
+    rt.registry
+        .register_actuator(Arc::new(PaidActuator {
+            executions: executions.clone(),
+        }))
+        .await
+        .unwrap();
+    assert!(rt
+        .list_providers()
+        .await
+        .iter()
+        .all(|p| !p.actuators.iter().any(|a| a == "paid.test")));
+    let plan = rt
+        .create_plan(
+            SemanticIntent::new("paid-test"),
+            vec!["paid.test".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
+        .await
+        .unwrap();
+    let receipts = rt
+        .execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false)
+        .await
+        .unwrap();
+    assert_ne!(
+        receipts[0].current_status,
+        ActionStatus::Blocked,
+        "沒有 provider 記錄的能力不得被 provider 閘門擋掉：{:?}",
+        receipts[0].policy_decisions
+    );
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+}

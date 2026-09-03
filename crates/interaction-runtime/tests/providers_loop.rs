@@ -787,3 +787,284 @@ async fn a_disabled_declarative_device_stays_off_until_a_human_enables_it_again(
         "人類重新啟用之後，重啟應該恢復這台裝置"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 9.8 provider 狀態必須真的擋住執行期：停用／撤銷的 provider 不得再被觀察或
+// 派工，能力清單也不得繼續宣稱 Available（誠實階梯：狀態 ≠ 標籤）。
+// ---------------------------------------------------------------------------
+
+/// 讓書桌燈動器可以被派工的最小前置（能力啟用＋政策允許＋session 同意）。
+async fn arm_desk_light_actuator(rt: &Runtime) {
+    rt.registry
+        .set_actuator_enabled(&ActuatorId::new("desk-light.set"), true)
+        .await
+        .unwrap();
+    rt.update_policy(json!({"actuatorAllowlist": ["desk-light.set"], "allowedChannels": ["conversation", "web-ui", "log", "light"]}))
+        .await
+        .unwrap();
+    rt.start_session(
+        Some("test".into()),
+        None,
+        vec!["actuator:desk-light.set".into()],
+    )
+    .await
+    .unwrap();
+}
+
+/// 先把計畫做好（此時 provider 還開著），停用之後才執行：擋必須發生在
+/// 派工前的那一刻，而不是只靠規劃時的能力清單。
+async fn plan_desk_light(rt: &Runtime) -> Plan {
+    let mut intent = SemanticIntent::new("calm");
+    intent.magnitude = Some(0.5);
+    intent.preferred_channels = vec!["light".into()];
+    let plan = rt
+        .create_plan(
+            intent,
+            vec!["desk-light.set".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(plan.steps.len(), 1, "{plan:?}");
+    plan
+}
+
+async fn run_plan(rt: &Runtime, plan: &Plan) -> ActionReceipt {
+    rt.execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false)
+        .await
+        .unwrap()
+        .remove(0)
+}
+
+#[tokio::test]
+async fn a_disabled_provider_blocks_observe_even_when_the_receptor_stays_enabled() {
+    let (_g, rt, _device) = runtime_with_device_spec().await;
+    let desk = ProviderId::new("provider.adapter.desk-light");
+    let status = ReceptorId::new("desk-light.status");
+    rt.registry
+        .set_receptor_enabled(&status, true)
+        .await
+        .unwrap();
+    assert!(rt.observe_fresh(&status).await.is_ok(), "停用前讀得到");
+
+    rt.transition_provider(&desk, ProviderState::Disabled)
+        .await
+        .unwrap();
+    // 一般的停用轉換不會動能力層的 enabled 旗標，所以這裡的擋只能來自
+    // provider 狀態本身——這正是 9.8 要接上的那一段。
+    assert!(
+        rt.registry.receptor(&status).await.is_ok(),
+        "能力層旗標沒被動過（擋必須來自 provider 狀態）"
+    );
+    let err = rt.observe_fresh(&status).await.unwrap_err().to_string();
+    assert!(err.contains("desk-light.status"), "{err}");
+    assert!(err.contains("provider.adapter.desk-light"), "{err}");
+    assert!(err.contains("disabled"), "{err}");
+
+    // 人類重新啟用 ⇒ 立刻回來（不得永久鎖死）。
+    rt.transition_provider(&desk, ProviderState::Available)
+        .await
+        .unwrap();
+    assert!(rt.observe_fresh(&status).await.is_ok(), "重新啟用後要恢復");
+}
+
+#[tokio::test]
+async fn a_disabled_provider_blocks_execution_with_a_blocked_receipt() {
+    let (_g, rt, device) = runtime_with_device_spec().await;
+    let desk = ProviderId::new("provider.adapter.desk-light");
+    arm_desk_light_actuator(&rt).await;
+    let plan = plan_desk_light(&rt).await;
+    rt.transition_provider(&desk, ProviderState::Disabled)
+        .await
+        .unwrap();
+    assert!(
+        rt.registry
+            .actuator(&ActuatorId::new("desk-light.set"))
+            .await
+            .is_ok(),
+        "能力層旗標沒被動過（擋必須來自 provider 狀態）"
+    );
+
+    let receipt = run_plan(&rt, &plan).await;
+    // 誠實形狀：blocked receipt（不是 raw error），理由點名 provider。
+    assert_eq!(receipt.current_status, ActionStatus::Blocked);
+    let reason = receipt
+        .policy_decisions
+        .iter()
+        .find_map(|d| match d {
+            PolicyDecision::Blocked { rule, reason } if rule == "provider.not-operational" => {
+                Some(reason.clone())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("expected a provider block: {:?}", receipt.policy_decisions));
+    assert!(reason.contains("provider.adapter.desk-light"), "{reason}");
+    assert!(
+        device.set_calls.lock().unwrap().is_empty(),
+        "停用中的 provider 不得真的把命令送到裝置"
+    );
+
+    // 停用之後才規劃：能力清單已經誠實地不可用，規劃階段就先擋下來（防禦
+    // 縱深，不是取代派工前的閘門）。
+    let mut intent = SemanticIntent::new("calm");
+    intent.magnitude = Some(0.5);
+    intent.preferred_channels = vec!["light".into()];
+    let late = rt
+        .create_plan(
+            intent,
+            vec!["desk-light.set".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(late.status, PlanStatus::Blocked);
+    assert!(late.steps.is_empty());
+}
+
+#[tokio::test]
+async fn capability_availability_reports_disabled_while_the_provider_is_off() {
+    let (_g, rt, _device) = runtime_with_device_spec().await;
+    let desk = ProviderId::new("provider.adapter.desk-light");
+    let status = ReceptorId::new("desk-light.status");
+    rt.registry
+        .set_receptor_enabled(&status, true)
+        .await
+        .unwrap();
+    rt.registry
+        .set_actuator_enabled(&ActuatorId::new("desk-light.set"), true)
+        .await
+        .unwrap();
+
+    let availability = |snap: &CapabilitySnapshot| {
+        let r = snap
+            .receptors
+            .iter()
+            .find(|m| m.id.as_str() == "desk-light.status")
+            .expect("receptor listed")
+            .availability;
+        let a = snap
+            .actuators
+            .iter()
+            .find(|m| m.id.as_str() == "desk-light.set")
+            .expect("actuator listed")
+            .availability;
+        (r, a)
+    };
+    let all = DiscoveryContext {
+        include_unavailable: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        availability(&rt.capabilities(&all).await),
+        (Availability::Available, Availability::Available)
+    );
+
+    rt.transition_provider(&desk, ProviderState::Disabled)
+        .await
+        .unwrap();
+    assert_eq!(
+        availability(&rt.capabilities(&all).await),
+        (Availability::Disabled, Availability::Disabled),
+        "provider 關掉時能力清單不得繼續宣稱可用"
+    );
+}
+
+#[tokio::test]
+async fn a_revoked_provider_stays_blocked_even_if_a_capability_is_re_enabled() {
+    let (_g, rt, device) = runtime_with_device_spec().await;
+    let desk = ProviderId::new("provider.adapter.desk-light");
+    let status = ReceptorId::new("desk-light.status");
+    arm_desk_light_actuator(&rt).await;
+    let plan = plan_desk_light(&rt).await;
+    rt.revoke_provider(&desk).await.unwrap();
+
+    // 撤銷會關掉能力旗標；把旗標重新打開不得成為繞過撤銷的後門。
+    rt.registry
+        .set_receptor_enabled(&status, true)
+        .await
+        .unwrap();
+    rt.registry
+        .set_actuator_enabled(&ActuatorId::new("desk-light.set"), true)
+        .await
+        .unwrap();
+
+    let err = rt.observe_fresh(&status).await.unwrap_err().to_string();
+    assert!(err.contains("revoked"), "{err}");
+    let receipt = run_plan(&rt, &plan).await;
+    assert_eq!(receipt.current_status, ActionStatus::Blocked);
+    assert!(receipt.policy_decisions.iter().any(|d| matches!(
+        d,
+        PolicyDecision::Blocked { rule, .. } if rule == "provider.not-operational"
+    )));
+    assert!(
+        device.set_calls.lock().unwrap().is_empty(),
+        "撤銷後不得再送任何命令到裝置"
+    );
+}
+
+/// 升級邊界：舊版留下的「已停用」provider 記錄沒有 provider-off 記號時，
+/// 第一次重啟必須採安全預設（能力維持關閉），並留下要人類確認的痕跡。
+#[tokio::test]
+async fn a_legacy_disabled_provider_without_the_off_marker_stays_locked_after_restart() {
+    let (home, rt, _device) = runtime_with_device_spec().await;
+    let desk = ProviderId::new("provider.adapter.desk-light");
+    let status = ReceptorId::new("desk-light.status");
+    rt.registry
+        .set_receptor_enabled(&status, true)
+        .await
+        .unwrap();
+    rt.shutdown().await;
+
+    // 直接改寫落地記錄，模擬舊版寫下的 state=disabled（沒有 provider-off meta）。
+    {
+        let store =
+            interaction_storage::Store::open(&home.path().join("state").join("interaction.db"))
+                .unwrap();
+        let body = store
+            .all_providers()
+            .unwrap()
+            .into_iter()
+            .map(|b| serde_json::from_str::<Value>(&b).unwrap())
+            .find(|v| v["identity"]["id"] == json!(desk.as_str()))
+            .expect("persisted desk provider");
+        let mut body = body;
+        body["state"] = json!("disabled");
+        body["detail"] = json!("停用（舊版寫下的記錄）");
+        store
+            .save_provider(desk.as_str(), &serde_json::to_string(&body).unwrap())
+            .unwrap();
+        assert!(
+            store
+                .get_meta(&format!("provider-off:{}", desk.as_str()))
+                .unwrap()
+                .is_none(),
+            "前置條件：沒有 provider-off 記號"
+        );
+    }
+
+    let rt = restart_runtime(home.path()).await;
+    assert_eq!(
+        rt.get_provider(&desk).await.unwrap().state,
+        ProviderState::Disabled
+    );
+    assert!(
+        rt.registry.receptor(&status).await.is_err(),
+        "舊記錄沒有記號時，第一次重啟必須採安全預設（能力維持關閉）"
+    );
+    assert!(rt.observe_fresh(&status).await.is_err());
+    let audit = rt.store.audit_tail(200).unwrap();
+    assert!(
+        audit
+            .iter()
+            .any(|row| row["kind"] == json!("provider.legacy-off-assumed")),
+        "採安全預設必須留痕（請使用者確認）"
+    );
+}
