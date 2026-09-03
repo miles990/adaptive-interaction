@@ -1563,6 +1563,7 @@ dependencies = [
  "futures",
  "interaction-adapter-sdk",
  "interaction-core",
+ "libc",
  "rand 0.8.8",
  "reqwest",
  "rumqttc",

@@ -10,6 +10,13 @@
 //! （pty 由模擬器端設 raw）。這個 fallback 只在 ENOTTY 時啟用，
 //! 真硬體路徑不受影響。
 //!
+//! Fallback 的 reader 在 unix 上**不是**沒有逾時的 blocking read：它另開一個
+//! 獨立的 open file description（O_NONBLOCK；不能用 `try_clone()`——dup 出來的
+//! fd 與 writer 共用 flags，會把 writer 一起變成非阻塞），再用 `poll(2)` 同時
+//! 等「裝置來了位元組」與「supervisor 的 self-pipe 收攤訊號」。所以連線結束／
+//! shutdown 一定叫得醒 reader、在寬限期內 join 得回來，不必放生執行緒。
+//! 真 serialport 路徑（200ms 讀取逾時）與非 unix 平台的行為完全不變。
+//!
 //! 身分誠實：埠路徑（/dev/cu.*）不是身分——握手時 hello.deviceId 必須
 //! 等於 spec.expectedDeviceId，否則拒絕（macOS 無 stable serial id 的
 //! 已知限制由此補上：身分由裝置自報＋配對碼驗證，而非路徑）。
@@ -46,11 +53,11 @@ const SHORT_SESSIONS_BEFORE_OFFLINE: u32 = 2;
 
 /// 被放生（沒 join 到）的 reader 執行緒累計數。
 ///
-/// 已知限制：reader 與 writer 是同一個 fd 的 `dup`，POSIX 下關掉其中一個
-/// **不會**讓另一個上面的 blocking read 返回。serialport 路徑有 200ms 讀取
-/// 逾時所以無妨；ENOTTY 的檔案／pty fallback 沒有逾時，裝置完全沉默時
-/// reader 會一直卡著，寬限期過後只能 detach。計數在這裡，測試與診斷才看得到
-/// 洩漏，而不是「契約說會回收、實際上沒有」。
+/// 現在這是**警報器，不是預期結果**：serialport 路徑有 200ms 讀取逾時；unix 的
+/// 檔案／pty fallback 走獨立 fd＋`poll(2)`＋self-pipe（見 [`FallbackReader`]），
+/// 收攤訊號一定叫得醒它。會累加只剩兩種情況——非 unix 平台的 fallback，或
+/// unix 上連「另開 fd／建 pipe」都失敗而退回舊的 blocking 讀法。計數留著，
+/// 是為了讓「契約說會回收、實際上沒有」永遠看得見，而不是被藏起來。
 static DETACHED_READERS: AtomicU64 = AtomicU64::new(0);
 
 /// 目前為止被放生的 reader 執行緒數（見 [`DETACHED_READERS`]）。
@@ -116,6 +123,214 @@ fn open_port(port: &str, baud: u32) -> Result<PortHalves, String> {
             }
         }
     }
+}
+
+/// fallback reader 的 `poll(2)` 逾時：沒有位元組時每 200ms 醒一次重新檢查
+/// alive／shutdown（與 serialport 路徑的讀取逾時同一個節奏）。self-pipe 讓收攤
+/// 不必等這個逾時，所以它只是保險——絕不是靠輪詢在忙等。
+#[cfg(unix)]
+const FALLBACK_POLL_TIMEOUT_MS: libc::c_int = 200;
+
+/// self-pipe 的寫端：supervisor 收尾時寫一個位元組，把卡在 `poll` 的 reader
+/// 叫醒。Drop 時關閉 fd（reader 端會看到 POLLHUP，同樣醒得來）。
+#[cfg(unix)]
+struct WakeWriteEnd(std::os::fd::RawFd);
+
+/// self-pipe 的讀端，由 reader 執行緒獨佔。
+#[cfg(unix)]
+struct WakeReadEnd(std::os::fd::RawFd);
+
+#[cfg(unix)]
+impl WakeWriteEnd {
+    /// 叫醒 reader。best-effort：寫失敗（pipe 滿）代表訊號早就在裡面了。
+    fn wake(&self) {
+        let byte = [1u8];
+        // SAFETY: self.0 是本結構獨佔、尚未關閉的 pipe 寫端；只寫一個位元組。
+        unsafe { libc::write(self.0, byte.as_ptr().cast(), 1) };
+    }
+}
+
+#[cfg(unix)]
+impl Drop for WakeWriteEnd {
+    fn drop(&mut self) {
+        // SAFETY: fd 由本結構獨佔，只在這裡關一次。
+        unsafe { libc::close(self.0) };
+    }
+}
+
+#[cfg(unix)]
+impl Drop for WakeReadEnd {
+    fn drop(&mut self) {
+        // SAFETY: fd 由本結構獨佔，只在這裡關一次。
+        unsafe { libc::close(self.0) };
+    }
+}
+
+/// 建一對 self-pipe（兩端都 O_NONBLOCK＋FD_CLOEXEC：寫端不得因為沒人讀而
+/// 卡住 supervisor，兩端也不得漏進子行程）。
+#[cfg(unix)]
+fn wake_pipe() -> Option<(WakeWriteEnd, WakeReadEnd)> {
+    let mut fds = [0 as libc::c_int; 2];
+    // SAFETY: pipe(2) 只寫入這個長度 2 的本地陣列。
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    for fd in fds {
+        // SAFETY: 剛建立、尚無其他擁有者的 fd。
+        unsafe {
+            libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+            let flags = libc::fcntl(fd, libc::F_GETFL);
+            if flags >= 0 {
+                libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+            }
+        }
+    }
+    Some((WakeWriteEnd(fds[1]), WakeReadEnd(fds[0])))
+}
+
+/// 為 fallback 另開一個**獨立的** open file description 來讀。
+///
+/// 不能用 `try_clone()`：dup 出來的 fd 與 writer 共用同一個 open file
+/// description——O_NONBLOCK 會連 writer 一起變成非阻塞（寫到一半 EAGAIN＝
+/// 假斷線），而且關掉其中一個 fd 也不會解開另一個上面的 blocking read。
+/// 後者正是 link-transports-054 的根因。
+#[cfg(unix)]
+fn open_fallback_reader(port: &str) -> Option<std::fs::File> {
+    let path = std::ffi::CString::new(port).ok()?;
+    // O_NONBLOCK：poll 說有資料之後的 read 也絕不阻塞（開 tty 時也不等載波）。
+    // O_NOCTTY：pty 不得變成本行程的控制終端。
+    // SAFETY: path 是有效的 NUL 結尾字串；失敗回 -1，下面就檢查。
+    let fd = unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOCTTY | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return None;
+    }
+    // SAFETY: fd 剛由 open(2) 取得、尚無其他擁有者，交給 File 管理生命週期。
+    Some(unsafe { <std::fs::File as std::os::fd::FromRawFd>::from_raw_fd(fd) })
+}
+
+/// 可中斷的 fallback reader：`poll(2)` 同時等「裝置來了位元組」與「supervisor
+/// 的收攤訊號」，所以永遠不會有解不開的 blocking read。
+///
+/// 回傳值語意刻意對齊 [`pump_lines`] 既有的處理，解析行為兩條路徑完全共用：
+/// - `Ok(0)`＝收攤／EOF → reader 迴圈結束；
+/// - `Err(WouldBlock)`＝這段時間沒有位元組 → 保留半行、重新檢查旗標；
+/// - 其他錯誤原樣往上（＝這段連線死了）。
+#[cfg(unix)]
+struct FallbackReader {
+    device: std::fs::File,
+    wake: WakeReadEnd,
+    alive: Arc<AtomicBool>,
+    shutdown: Arc<AtomicBool>,
+    poll_timeout_ms: libc::c_int,
+}
+
+#[cfg(unix)]
+impl Read for FallbackReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        use std::os::fd::AsRawFd;
+        loop {
+            if !self.alive.load(Ordering::SeqCst) || self.shutdown.load(Ordering::SeqCst) {
+                return Ok(0);
+            }
+            let mut fds = [
+                libc::pollfd {
+                    fd: self.device.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: self.wake.0,
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+            ];
+            // SAFETY: fds 是本地陣列，兩個 fd 都由本結構持有且仍開著。
+            let ready = unsafe { libc::poll(fds.as_mut_ptr(), 2, self.poll_timeout_ms) };
+            if ready < 0 {
+                let err = std::io::Error::last_os_error();
+                if err.kind() == std::io::ErrorKind::Interrupted {
+                    continue; // EINTR：重新等，不是錯誤
+                }
+                return Err(err);
+            }
+            if ready == 0 {
+                // 逾時＝這段時間沒有位元組。不是錯誤也不是 EOF：回 WouldBlock，
+                // pump_lines 會保留半行並重新檢查旗標。等待發生在 poll 裡面，
+                // 不是 busy loop。
+                return Err(std::io::Error::from(std::io::ErrorKind::WouldBlock));
+            }
+            if fds[1].revents != 0 {
+                return Ok(0); // supervisor 說收攤（寫入一個位元組或關掉寫端）
+            }
+            if fds[0].revents == 0 {
+                continue;
+            }
+            match self.device.read(buf) {
+                Ok(n) => return Ok(n), // n == 0＝真的 EOF（裝置拔線／peer 關閉）
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                    ) =>
+                {
+                    continue; // 假就緒／EINTR：回去 poll 等，不空轉
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+}
+
+/// supervisor 手上的「叫醒 reader」把手。unix fallback＝self-pipe 寫端。
+#[cfg(unix)]
+type ReaderWake = WakeWriteEnd;
+
+/// 非 unix：ENOTTY 退路是 POSIX 專屬的失敗模式（Windows 的 COM 埠不會走到
+/// 這裡），維持原本的 bounded-join＋detach＋計數行為，一個位元組都不動。
+/// 這個型別在非 unix 上永遠不會被建出來（只出現在型別位置），所以要 allow。
+#[cfg(not(unix))]
+#[allow(dead_code)]
+struct ReaderWake;
+
+#[cfg(not(unix))]
+impl ReaderWake {
+    #[allow(dead_code)]
+    fn wake(&self) {}
+}
+
+/// unix：為 fallback 準備可中斷的 reader（獨立 fd＋poll＋self-pipe）。
+/// 任何一步失敗就回 `None`，呼叫端誠實退回舊的 blocking 讀法——仍是有界
+/// join＋放生計數，不會把關閉流程卡死。
+#[cfg(unix)]
+fn interruptible_fallback_reader(
+    port: &str,
+    alive: &Arc<AtomicBool>,
+    shutdown: &Arc<AtomicBool>,
+) -> Option<(Box<dyn Read + Send>, ReaderWake)> {
+    let device = open_fallback_reader(port)?;
+    let (wake_wr, wake_rd) = wake_pipe()?;
+    let reader = FallbackReader {
+        device,
+        wake: wake_rd,
+        alive: alive.clone(),
+        shutdown: shutdown.clone(),
+        poll_timeout_ms: FALLBACK_POLL_TIMEOUT_MS,
+    };
+    Some((Box::new(reader), wake_wr))
+}
+
+#[cfg(not(unix))]
+fn interruptible_fallback_reader(
+    _port: &str,
+    _alive: &Arc<AtomicBool>,
+    _shutdown: &Arc<AtomicBool>,
+) -> Option<(Box<dyn Read + Send>, ReaderWake)> {
+    None
 }
 
 /// 待送出的一則訊息＋它的截止時間（過期不送：斷線期間排隊、重連後才
@@ -232,25 +447,44 @@ fn supervisor(
     while !shutdown.load(Ordering::SeqCst) {
         match open_port(&port, baud) {
             Ok(halves) => {
-                let (reader, mut writer): (Box<dyn Read + Send>, Box<dyn Write + Send>) =
-                    match halves {
-                        PortHalves::Serial(handle) => match handle.try_clone() {
-                            Ok(r) => (Box::new(r), Box::new(handle)),
-                            Err(e) => {
-                                tracing::warn!(port = %port, error = %e, "serial clone failed");
-                                interruptible_sleep(&shutdown, backoff);
-                                continue;
-                            }
-                        },
-                        PortHalves::File(file) => match file.try_clone() {
-                            Ok(r) => (Box::new(r), Box::new(file)),
-                            Err(e) => {
-                                tracing::warn!(port = %port, error = %e, "pty clone failed");
-                                interruptible_sleep(&shutdown, backoff);
-                                continue;
-                            }
-                        },
-                    };
+                // alive 要先建：fallback 的 reader 從 poll 醒來時得靠它判斷
+                // 「這段連線還算不算活著」。
+                let alive = Arc::new(AtomicBool::new(true));
+                // reader_wake = Some：這條 reader 走可中斷的 poll(2) 讀法，
+                // supervisor 收尾時寫一個位元組就叫得回來 join。
+                #[allow(clippy::type_complexity)]
+                let (reader, mut writer, reader_wake): (
+                    Box<dyn Read + Send>,
+                    Box<dyn Write + Send>,
+                    Option<ReaderWake>,
+                ) = match halves {
+                    // 真硬體：serialport 開埠自帶 200ms 讀取逾時，reader 本來
+                    // 就醒得來——這條路徑一個位元組都不動。
+                    PortHalves::Serial(handle) => match handle.try_clone() {
+                        Ok(r) => (Box::new(r), Box::new(handle), None),
+                        Err(e) => {
+                            tracing::warn!(port = %port, error = %e, "serial clone failed");
+                            interruptible_sleep(&shutdown, backoff);
+                            continue;
+                        }
+                    },
+                    PortHalves::File(file) => {
+                        match interruptible_fallback_reader(&port, &alive, &shutdown) {
+                            Some((reader, wake)) => (reader, Box::new(file), Some(wake)),
+                            // 準備不出可中斷的 reader（另開 fd 或建 pipe 失敗，
+                            // 或非 unix 平台）：誠實退回舊的 blocking 讀法，
+                            // 關閉仍是有界 join＋放生計數。
+                            None => match file.try_clone() {
+                                Ok(r) => (Box::new(r), Box::new(file), None),
+                                Err(e) => {
+                                    tracing::warn!(port = %port, error = %e, "pty clone failed");
+                                    interruptible_sleep(&shutdown, backoff);
+                                    continue;
+                                }
+                            },
+                        }
+                    }
+                };
                 // 新世代＝新連線：斷線期間堆在佇列裡的舊命令一律丟棄。
                 // 它們屬於上一條連線、也還沒重新 hello/pair——重連後照原樣
                 // 送出等於在握手前觸發遲到的實體效果。
@@ -265,7 +499,6 @@ fn supervisor(
                 generation.fetch_add(1, Ordering::SeqCst);
                 connected.store(true, Ordering::SeqCst);
                 state.store(STATE_CONNECTED, Ordering::SeqCst);
-                let alive = Arc::new(AtomicBool::new(true));
                 let session_start = Instant::now();
 
                 // Reader thread：讀行→廣播；EOF/錯誤＝連線死。
@@ -337,13 +570,17 @@ fn supervisor(
                         Ordering::SeqCst,
                     );
                 }
-                drop(writer); // 關掉 fd，讓 reader 的 blocking read 解除
-                              // （注意：dup 過的 fd 上這不成立——見 DETACHED_READERS）
+                drop(writer); // 關掉 writer 的 fd
+                if let Some(wake) = &reader_wake {
+                    // fallback 的 reader 此刻正卡在 poll：寫一個位元組叫它收工。
+                    // 不能只靠 drop(writer)——dup 過的 fd（或另開的獨立 fd）都
+                    // 不會讓對方的讀取自己返回，這正是 link-transports-054。
+                    wake.wake();
+                }
                 if let Some(handle) = reader_handle {
-                    // 有界 join：pty fallback 的 read 沒有逾時，裝置沉默時
-                    // reader 可能還卡著——關閉不能無限等，逾時就放生
-                    // （reader 只寫 broadcast，下一次讀到資料/EOF 就會看到
-                    // alive=false 而自行結束）。
+                    // 有界 join。可中斷的 fallback（unix）與 serialport 路徑都
+                    // 會在這個寬限期內回來；只有退回 blocking 讀法的殘餘情況
+                    // 才可能逾時，那時誠實計數而不是無限等。
                     let deadline =
                         std::time::Instant::now() + Duration::from_millis(READER_JOIN_GRACE_MS);
                     while !handle.is_finished() && std::time::Instant::now() < deadline {
@@ -352,16 +589,16 @@ fn supervisor(
                     if handle.is_finished() {
                         let _ = handle.join();
                     } else {
-                        // 放生一條執行緒是真的洩漏（reader 與 writer 是同一個
-                        // fd 的 dup，關掉 writer 解不開對方的 blocking read）。
-                        // 計數並以 warn 記錄，才不會變成「契約說會回收、
-                        // 實際上悄悄留著」。
+                        // 走到這裡＝真的洩漏一條 OS thread。unix 的 fallback 有
+                        // poll＋self-pipe 叫得醒，不該再發生；計數與 warn 留著
+                        // 當警報器，才不會變成「契約說會回收、實際上悄悄留著」。
                         let total = DETACHED_READERS.fetch_add(1, Ordering::SeqCst) + 1;
                         tracing::warn!(
                             port = %port,
                             detached_total = total,
-                            "serial reader thread still blocked on read; detaching it \
-                             (known limitation of the pty/file fallback: no read timeout)"
+                            interruptible = reader_wake.is_some(),
+                            "serial reader thread did not return within the grace period; \
+                             detaching it (leaked OS thread)"
                         );
                     }
                 }
@@ -832,21 +1069,22 @@ mod tests {
         )));
     }
 
-    /// link-transports-054：pty／檔案 fallback 的 read 沒有逾時，reader 與
-    /// writer 又是同一個 fd 的 `dup`（關掉 writer 解不開對方的 blocking read）。
-    /// 裝置完全沉默時 shutdown 只能放生那條執行緒——這是真的洩漏，所以**必須
-    /// 被計數**，不能讓 `RawLink::shutdown` 的契約（「回收執行緒」）與實際
-    /// 行為悄悄不一致。
+    /// link-transports-054：pty／檔案 fallback 的 reader 以前是「沒有逾時的
+    /// blocking read」，而且 reader 與 writer 共用同一個 open file description
+    /// （`try_clone()`＝dup），POSIX 下關掉其中一個 fd **不會**讓另一個上的
+    /// blocking read 返回——裝置完全沉默時 shutdown 只能放生那條執行緒。
     ///
-    /// 若日後把 fallback 改成可中斷的讀法（O_NONBLOCK＋poll），這個測試要
-    /// 反過來斷言計數**不**增加。
+    /// 現在 unix 的 fallback 走「獨立 fd＋`poll(2)`＋self-pipe」：shutdown 必須
+    /// 真的把 reader 叫回來 join，`detached_reader_threads()` **不得**增加。
+    /// （這是舊測試 `a_reader_that_cannot_be_reclaimed_is_counted_not_hidden`
+    /// 的反轉——它的 doc 本來就寫明「改成 O_NONBLOCK＋poll 後要反過來斷言」。）
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_reader_that_cannot_be_reclaimed_is_counted_not_hidden() {
+    async fn a_silent_fallback_reader_is_reclaimed_not_detached() {
         let Some(mut pty) = Pty::spawn() else {
             eprintln!("python3 unavailable; skipping pty test");
             return;
         };
-        // 只有沒有讀取逾時的 fallback 路徑才會卡住；serialport 正常路徑
+        // 只有沒有讀取逾時的 fallback 路徑才有這個問題；serialport 正常路徑
         // 有 200ms 逾時，reader 自己就會結束。
         let fallback = matches!(open_port(&pty.path, 115_200), Ok(PortHalves::File(_)));
         if !fallback {
@@ -857,26 +1095,198 @@ mod tests {
         let before = detached_reader_threads();
         let link = SerialRawLink::spawn(pty.path.clone(), 115_200);
         // 等 supervisor 真的連上（並起了 reader）。
-        for _ in 0..30 {
+        for _ in 0..40 {
             if RawLink::connected(&*link) {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            tokio::time::sleep(Duration::from_millis(25)).await;
         }
         assert!(RawLink::connected(&*link), "pty should open");
+        // master 端一個位元組都沒送：reader 此刻正卡在讀取上。
+        let started = std::time::Instant::now();
         link.shutdown();
-        // supervisor 最多 200ms 看到旗標，再給 reader 500ms 寬限。
-        for _ in 0..40 {
-            if detached_reader_threads() > before {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+        let deadline = started + Duration::from_secs(3);
+        while !link.supervisor_finished() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
+        let elapsed = started.elapsed();
         assert!(
-            detached_reader_threads() > before,
-            "沉默的 pty 上放生的 reader 必須被計數（現在是已知限制，不是「已回收」）"
+            link.supervisor_finished(),
+            "shutdown 後 supervisor 必須在 3 秒內收工（實際 {} ms）",
+            elapsed.as_millis()
+        );
+        // 計數是在 supervisor 收尾（join 逾時）時才加的，所以此刻檢查是準的。
+        assert_eq!(
+            detached_reader_threads(),
+            before,
+            "沉默的 pty 上 shutdown 必須在寬限期內 join 回 reader，不得放生"
         );
         pty.kill();
+    }
+
+    /// link-transports-054 soak：重複 open→shutdown（其中三分之一不等連上就
+    /// 關，讓 shutdown 與 open/reconnect 競速）不得累積放生的 reader 執行緒，
+    /// 且每一次 shutdown 到 supervisor 收工都要在有界時間內完成。
+    /// 舊行為每一圈放生一條 OS thread——50 圈就是 50 條永遠回不來的執行緒。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn repeated_open_shutdown_cycles_do_not_accumulate_detached_readers() {
+        let Some(mut pty) = Pty::spawn() else {
+            eprintln!("python3 unavailable; skipping pty test");
+            return;
+        };
+        let fallback = matches!(open_port(&pty.path, 115_200), Ok(PortHalves::File(_)));
+        if !fallback {
+            eprintln!("this platform opens the pty through serialport (read timeout); skipping");
+            pty.kill();
+            return;
+        }
+        let before = detached_reader_threads();
+        const CYCLES: usize = 50;
+        let mut worst_ms = 0u128;
+        for i in 0..CYCLES {
+            let link = SerialRawLink::spawn(pty.path.clone(), 115_200);
+            if i % 3 != 0 {
+                for _ in 0..40 {
+                    if RawLink::connected(&*link) {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+                assert!(RawLink::connected(&*link), "第 {i} 圈：pty 應該連得上");
+            }
+            // i % 3 == 0 的那幾圈不等連上就 shutdown：與開埠／重連競速。
+            let started = std::time::Instant::now();
+            link.shutdown();
+            let deadline = started + Duration::from_secs(3);
+            while !link.supervisor_finished() && std::time::Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let elapsed = started.elapsed();
+            worst_ms = worst_ms.max(elapsed.as_millis());
+            assert!(
+                link.supervisor_finished(),
+                "第 {i} 圈：shutdown 到 supervisor 收工必須 ≤3s（實際 {} ms）",
+                elapsed.as_millis()
+            );
+            assert_eq!(
+                detached_reader_threads(),
+                before,
+                "第 {i} 圈：reader 執行緒不得被放生（累積洩漏）"
+            );
+        }
+        eprintln!("soak: {CYCLES} cycles; worst shutdown->supervisor-done {worst_ms} ms");
+        pty.kill();
+    }
+
+    /// link-transports-054：可中斷不得靠忙等換來。沉默的裝置上一次 `read`
+    /// 必須真的睡在 `poll(2)` 裡（≈逾時長度）而不是立刻回 WouldBlock 讓
+    /// pump_lines 空轉燒 CPU；收攤訊號要立刻叫得醒；一般檔案（poll 永遠說
+    /// ready）必須以 EOF 收場，不得原地打轉。
+    #[cfg(unix)]
+    #[test]
+    fn the_fallback_reader_sleeps_in_poll_and_wakes_on_the_shutdown_signal() {
+        use std::os::fd::FromRawFd;
+        // 「沉默的裝置」＝一條沒人寫的 pipe（讀端永遠沒資料，但沒有 EOF）。
+        let mut fds = [0 as libc::c_int; 2];
+        // SAFETY: pipe(2) 只寫入這個長度 2 的本地陣列。
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0, "test pipe");
+        // SAFETY: 兩個 fd 剛由 pipe(2) 取得，交給 File 各自管理生命週期。
+        let device = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+        let mut device_writer = unsafe { std::fs::File::from_raw_fd(fds[1]) };
+        let (wake_wr, wake_rd) = wake_pipe().expect("wake pipe");
+        let alive = Arc::new(AtomicBool::new(true));
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut reader = FallbackReader {
+            device,
+            wake: wake_rd,
+            alive,
+            shutdown,
+            poll_timeout_ms: FALLBACK_POLL_TIMEOUT_MS,
+        };
+        let mut buf = [0u8; 64];
+
+        // 1) 沉默：必須睡滿 poll 逾時才回 WouldBlock（忙等的話會立刻回）。
+        let started = Instant::now();
+        let err = reader.read(&mut buf).expect_err("沉默時不該回出資料");
+        let waited = started.elapsed();
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::WouldBlock,
+            "沉默＝還沒收到位元組，不是錯誤也不是 EOF"
+        );
+        assert!(
+            // 門檻寫死成 150ms（不拿 FALLBACK_POLL_TIMEOUT_MS 去換算）：把逾時
+            // 改成 0 的忙等版本必須被這一行抓到，而不是跟著門檻一起縮水。
+            waited >= Duration::from_millis(150),
+            "沉默時必須睡在 poll 裡；只等了 {} ms 等於 busy loop",
+            waited.as_millis()
+        );
+
+        // 之後的步驟改用「長逾時」：這樣「被叫醒」與「等到逾時」差了 10 秒，
+        // 機器再忙也分得開，不必用容易偽紅的毫秒級上限。
+        const LONG_POLL_MS: libc::c_int = 10_000;
+        reader.poll_timeout_ms = LONG_POLL_MS;
+
+        // 2) 有位元組：poll 立刻醒（不是等滿 10 秒的逾時）。
+        device_writer
+            .write_all(b"{\"type\":\"ack\",\"id\":\"a1\"}\n")
+            .expect("write to test pipe");
+        let started = Instant::now();
+        let n = reader.read(&mut buf).expect("有資料就要讀得到");
+        assert_eq!(&buf[..n], b"{\"type\":\"ack\",\"id\":\"a1\"}\n");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "有資料時不該等到 poll 逾時（實際 {} ms）",
+            started.elapsed().as_millis()
+        );
+
+        // 3) 收攤訊號：立刻醒並回 EOF（這就是 shutdown 叫得醒 reader 的機制）。
+        wake_wr.wake();
+        let started = Instant::now();
+        assert_eq!(
+            reader.read(&mut buf).expect("收攤訊號後回 EOF"),
+            0,
+            "收到收攤訊號就要結束 reader 迴圈"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "收攤訊號必須叫醒 poll，而不是等滿逾時（實際 {} ms）",
+            started.elapsed().as_millis()
+        );
+
+        // 4) 一般檔案：poll 永遠說 ready，必須以 EOF 收場而不是原地打轉。
+        let path = std::env::temp_dir().join(format!(
+            "serial-poll-eof-{}-{}.probe",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::write(&path, b"").expect("probe file");
+        let path_str = path.to_string_lossy().to_string();
+        let file = open_fallback_reader(&path_str).expect("fallback open");
+        // 寫端要留著，否則 reader 會因為 POLLHUP 而「剛好」通過。
+        let (_wake_wr2, wake_rd2) = wake_pipe().expect("wake pipe");
+        let mut eof_reader = FallbackReader {
+            device: file,
+            wake: wake_rd2,
+            alive: Arc::new(AtomicBool::new(true)),
+            shutdown: Arc::new(AtomicBool::new(false)),
+            poll_timeout_ms: LONG_POLL_MS,
+        };
+        let started = Instant::now();
+        assert_eq!(
+            eof_reader.read(&mut buf).expect("空檔案要讀得到 EOF"),
+            0,
+            "一般檔案讀到底＝EOF（連線死），不得回 WouldBlock 空轉"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "EOF 不該卡住或空轉（實際 {} ms）",
+            started.elapsed().as_millis()
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     /// link-transports-049：開得起來、但立刻 EOF 的節點（一般檔案／

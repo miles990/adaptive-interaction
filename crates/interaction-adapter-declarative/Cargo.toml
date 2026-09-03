@@ -35,6 +35,12 @@ btleplug = { version = "0.11" }
 futures = "0.3"
 uuid = { version = "1", features = ["v4"] }
 
+# serial 的 pty/檔案 fallback 需要 poll(2)＋self-pipe 才能中斷讀取執行緒
+# （見 serial.rs 的 FallbackReader）。libc 本來就已經在 lock 檔裡（tokio/mio、
+# serialport 都用它），加成直接依賴不引入新版本。
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 axum = "0.8"
 rumqttd = { version = "0.19", default-features = false }
