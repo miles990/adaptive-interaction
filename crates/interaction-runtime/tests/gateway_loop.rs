@@ -182,15 +182,19 @@ async fn gateway_full_loop_with_fake_agent() {
     //          建立後 access mode 寫進 record，不能只存在 UI request。 ----
     {
         let (home, rt) = runtime().await;
+        // 工作目錄是使用者的專案資料夾，不是 runtime 自己的家（那裡面有
+        // 人類 capability token；見 workdir_never_exposes_the_runtime_state_dir）。
+        let project = home.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
         let mut missing = claude_input("缺少授權", None);
         missing.allow_write = true;
-        missing.workdir = Some(home.path().to_string_lossy().into_owned());
+        missing.workdir = Some(project.to_string_lossy().into_owned());
         let err = rt.create_agent_session(missing).await.unwrap_err();
         assert!(matches!(err, DomainError::ConsentRequired(_)), "{err:?}");
 
         let mut writable = claude_input("限權寫入", None);
         writable.allow_write = true;
-        writable.workdir = Some(home.path().to_string_lossy().into_owned());
+        writable.workdir = Some(project.to_string_lossy().into_owned());
         writable.tool_scope = vec!["workspace.write".into()];
         writable.consent_scope = vec!["agent-session:workspace-write".into()];
         let record = rt.create_agent_session(writable).await.unwrap();
@@ -2169,6 +2173,218 @@ async fn resume_cannot_widen_scope() {
     sneaky.allow_write = true;
     let err = rt.create_agent_session(sneaky).await.unwrap_err();
     assert!(matches!(err, DomainError::ConsentRequired(_)), "{err:?}");
+
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// 回歸（agent-honesty-022）：runtime 自己的狀態資料夾裡有人類 capability
+/// token（`state/api-token`, 0600）。它**永遠不得**成為 agent 的工作目錄——
+/// 子程序的 env 早就把 token 拿掉了，用檔案系統把同一把 token 送回去是同一
+/// 個威脅換一條管道。沒指定資料夾時要落在專屬的空資料夾，不是 runtime home。
+#[tokio::test]
+async fn workdir_never_exposes_the_runtime_state_dir() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (home, rt) = runtime().await;
+
+    // (1) 明確指定 runtime home（或任何包含 state/ 的上層資料夾）＝誠實拒絕。
+    let mut into_home = claude_input("把家目錄當工作區", None);
+    into_home.workdir = Some(home.path().to_string_lossy().into_owned());
+    let err = rt.create_agent_session(into_home).await.unwrap_err();
+    assert!(matches!(err, DomainError::Validation(_)), "{err:?}");
+    assert!(format!("{err}").contains("狀態資料夾"), "{err}");
+    assert_eq!(rt.open_agent_sessions().await, 0, "沒有殘留 session");
+
+    // (2) 沒指定資料夾（純對話）也不得退回 runtime home。
+    //     在 runtime home 放一個 fixture 情境檔：子程序只要 cwd 真的是
+    //     runtime home 就會讀到它並留下 fake-argv／fake-pid。
+    std::fs::write(home.path().join("fake-mode"), "crash").unwrap();
+    let record = rt
+        .create_agent_session(claude_input("純對話", None))
+        .await
+        .expect("沒有資料夾的對話 session 仍可建立");
+    let sid = record.session_id.as_str().to_string();
+    assert!(
+        !home.path().join("fake-argv").exists() && !home.path().join("fake-pid").exists(),
+        "子程序的工作目錄不得是 runtime home（那裡有人類 token）"
+    );
+    assert!(
+        home.path().join("state").is_dir(),
+        "前提：狀態資料夾（正式環境的 api-token 就放這裡）真的在 runtime home 底下"
+    );
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// 回歸（agent-honesty-022）：「接續上次」不得放寬上一次的上限。省略欄位
+/// **不是**沿用——那會落到 runtime 預設（120 分鐘、沒有金額上限），比上次寬。
+#[tokio::test]
+async fn resume_cannot_widen_time_or_cost_limits() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+
+    // 上一次：30 分鐘、US$0.5、限定一個資料夾。
+    let first_dir = scenario_workdir("default");
+    let mut first = claude_input("原本的工作", Some(0.5));
+    first.ttl_minutes = Some(30);
+    first.workdir = Some(first_dir.path().to_string_lossy().into_owned());
+    first.data_scope = vec![format!("workspace:{}", first_dir.path().display())];
+    let original = rt.create_agent_session(first).await.unwrap();
+    let first_sid = original.session_id.as_str().to_string();
+    // fixture 的 init 事件回報 provider session id；接續就是靠它找回上一次。
+    wait_for(
+        async || {
+            rt.get_agent_session(&first_sid)
+                .await
+                .map(|r| r.provider_session_id.is_some())
+                .unwrap_or(false)
+        },
+        "provider session id",
+    )
+    .await;
+    let provider_sid = rt
+        .get_agent_session(&first_sid)
+        .await
+        .unwrap()
+        .provider_session_id
+        .unwrap();
+    rt.close_agent_session(&first_sid, None, "closed")
+        .await
+        .unwrap();
+
+    let resume_dir = scenario_workdir("default");
+    let base_resume = |label: &str| {
+        let mut input = claude_input(label, None);
+        input.ttl_minutes = None;
+        input.max_cost = None;
+        input.max_messages = None;
+        input.workdir = Some(resume_dir.path().to_string_lossy().into_owned());
+        input.resume_provider_session_id = Some(provider_sid.clone());
+        input
+    };
+
+    // (1) 桌面舊行為：什麼上限都不帶＝時間從 30 分鐘變 120 分鐘、費用上限消失。
+    let err = rt
+        .create_agent_session(base_resume("放寬時間"))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+    assert!(format!("{err}").contains("時間上限"), "{err}");
+
+    // (2) 時間帶對了，但費用上限沒帶＝沒有金額上限，一樣是放寬。
+    let mut no_cost = base_resume("放寬費用");
+    no_cost.ttl_minutes = Some(30);
+    no_cost.max_messages = Some(10);
+    let err = rt.create_agent_session(no_cost).await.unwrap_err();
+    assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+    assert!(format!("{err}").contains("費用上限"), "{err}");
+
+    // (3) 資料範圍也不得長出上次沒有的項目。
+    let mut wider_scope = base_resume("放寬資料範圍");
+    wider_scope.ttl_minutes = Some(30);
+    wider_scope.max_cost = Some(0.5);
+    wider_scope.max_messages = Some(10);
+    wider_scope.data_scope = vec!["domain:health".into()];
+    let err = rt.create_agent_session(wider_scope).await.unwrap_err();
+    assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+    assert!(format!("{err}").contains("資料範圍"), "{err}");
+
+    // (4) 誠實地沿用上次的上限＝可以接續（而且仍然是唯讀）。
+    let mut faithful = base_resume("誠實接續");
+    faithful.ttl_minutes = Some(30);
+    faithful.max_cost = Some(0.5);
+    faithful.max_messages = Some(10);
+    faithful.data_scope = vec![format!("workspace:{}", first_dir.path().display())];
+    let resumed = rt.create_agent_session(faithful).await.unwrap();
+    assert!(!resumed.allow_write);
+    assert_eq!(resumed.budget.max_cost, 0.5);
+    assert_eq!(resumed.budget.max_duration_ms, 30 * 60_000);
+    rt.close_agent_session(resumed.session_id.as_str(), None, "closed")
+        .await
+        .unwrap();
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// 回歸（agent-honesty-024）：委派給 gateway session 時，訊息在 executor 還
+/// 沒 merge driver receipt 之前就已經真的寫進子程序。receipt 必須推進到
+/// acknowledged 並發出 `action.acknowledged`，不能永遠停在 dispatched。
+#[tokio::test]
+async fn delegated_gateway_receipt_reaches_acknowledged() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = scenario_workdir("default");
+    let mut input = claude_input("委派目標", None);
+    input.workdir = Some(dir.path().to_string_lossy().into_owned());
+    let record = rt.create_agent_session(input).await.unwrap();
+    let sid = record.session_id.as_str().to_string();
+
+    rt.registry
+        .set_actuator_enabled(&ActuatorId::new("agent.delegate"), true)
+        .await
+        .unwrap();
+    rt.start_session(Some("human".into()), None, vec!["channel:agent".into()])
+        .await
+        .unwrap();
+    let mut intent = SemanticIntent::new("delegate-work");
+    intent.payload = Some(json!({"sessionId": sid, "task": "檢查這個專案"}));
+    intent.preferred_channels = vec!["agent".into()];
+    let plan = rt
+        .create_plan(
+            intent,
+            vec!["agent.delegate".into()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
+        .await
+        .unwrap();
+    let receipts = rt
+        .execute_plan(
+            &plan.plan_id,
+            interaction_policy::ActionSource::ExplicitRequest,
+            false,
+        )
+        .await
+        .unwrap();
+    let action_id = receipts[0].action_id.clone();
+    assert_eq!(
+        receipts[0].current_status,
+        ActionStatus::Acknowledged,
+        "訊息真的寫進 agent 子程序了：receipt 不得停在 dispatched"
+    );
+    let stored = rt.get_action(&action_id).unwrap();
+    assert_eq!(stored.current_status, ActionStatus::Acknowledged);
+    assert!(rt
+        .events
+        .recent(2000)
+        .into_iter()
+        .any(|e| e.event_type == EventType::ActionAcknowledged
+            && e.payload.get("actionId").and_then(|v| v.as_str()) == Some(action_id.as_str())));
+
+    // 送達戳記也要真的落在信箱訊息上（誠實：有戳記才敢說已送達）。
+    let messages = rt
+        .mailbox_peek(&sid, MailboxDirection::ToSession)
+        .await
+        .unwrap();
+    assert!(messages.iter().any(|m| m.delivered_at.is_some()));
+
+    // 回歸（agent-honesty-025）：`mailbox_send` 的**回傳值**也要帶戳記——
+    // 呼叫端（HTTP／Tauri／介面）只看得到這一份，沒有戳記就不得說「已送達」。
+    let mut body = BTreeMap::new();
+    body.insert("task".to_string(), json!("再交代一句"));
+    let sent = rt
+        .mailbox_send(&sid, MailboxDirection::ToSession, "task", body, None)
+        .await
+        .unwrap();
+    assert!(
+        sent.delivered_at.is_some(),
+        "真的寫進子程序了，回傳的訊息必須帶送達戳記"
+    );
 
     rt.close_agent_session(&sid, None, "closed").await.unwrap();
     std::env::remove_var("INTERACT_AI_CLAUDE_BIN");

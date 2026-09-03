@@ -28,9 +28,14 @@ fn event_allowed(auth: &AuthContext, event: &RuntimeEvent) -> bool {
     // a side channel for payloads rejected by those route families.
     // Character Protocol 事件（intent／receipt／instance／system-text）只給
     // 可信 host（human）；外部 adapter 走自己的 WebSocket，不開 SSE。
+    // `agent.session.state` 同理：REST 已經拒絕 agent token 讀
+    // `/v1/agent-sessions*`（見 `agent_request_allowed` 的 GET 分支），
+    // SSE 不得反過來把每一個 session 的 {agentSessionId, agentId, state}
+    // 播送給同一把 token——那正是「被 REST 拒絕的 payload 的側通道」。
     !matches!(
         event.event_type,
-        interaction_core::EventType::KnowledgeUpdated
+        interaction_core::EventType::AgentSessionState
+            | interaction_core::EventType::KnowledgeUpdated
             | interaction_core::EventType::ConsentChanged
             | interaction_core::EventType::PolicyChanged
             | interaction_core::EventType::SensorStarted
@@ -114,6 +119,40 @@ mod tests {
         }
         let action = RuntimeEvent::new(EventType::ActionFailed, Utc::now(), json!({}));
         assert!(event_allowed(&auth, &action));
+    }
+
+    /// 回歸（safety-invariants-078）：REST 拒絕 agent token 讀
+    /// `/v1/agent-sessions*`，SSE 就不得把同一份 payload 從
+    /// `/v1/events` 播送出去（同界線，不當側通道）。
+    #[test]
+    fn agent_session_state_is_human_only_on_sse_like_rest() {
+        let event = RuntimeEvent::new(
+            EventType::AgentSessionState,
+            Utc::now(),
+            json!({"agentSessionId": "as-1", "agentId": "claude-code", "state": "working"}),
+        );
+        assert!(event_allowed(
+            &AuthContext {
+                principal: AuthPrincipal::Human
+            },
+            &event
+        ));
+        for principal in [
+            AuthPrincipal::LegacyAgent,
+            AuthPrincipal::CharacterAdapter {
+                adapter_id: "adp-1".into(),
+            },
+        ] {
+            assert!(
+                !event_allowed(&AuthContext { principal }, &event),
+                "agent.session.state 只給可信 host（human）"
+            );
+        }
+        // REST 端的界線本身也要保持：agent token 不得 GET /v1/agent-sessions。
+        assert!(!crate::agent_request_allowed(
+            &axum::http::Method::GET,
+            "/v1/agent-sessions"
+        ));
     }
 
     #[test]

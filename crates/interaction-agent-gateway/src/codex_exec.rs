@@ -212,28 +212,20 @@ impl AgentSessionHandle for CodexExecHandle {
             if let Some(task) = stderr_task {
                 let _ = tokio::time::timeout(std::time::Duration::from_secs(1), task).await;
             }
-            if cancel_requested.swap(false, Ordering::SeqCst) || closed.load(Ordering::SeqCst) {
-                if !saw_terminal {
-                    let _ = tx.send(GatewayEvent::TaskCancelled).await;
-                }
-            } else if !saw_terminal {
-                let detail = stderr_tail
-                    .lock()
-                    .expect("stderr tail lock")
-                    .trim()
-                    .to_string();
-                let status_text = status
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "unknown exit".into());
-                let error = if detail.is_empty() {
-                    format!("codex exec 在回報結果前結束（{status_text}）")
-                } else {
-                    format!("codex exec 在回報結果前結束（{status_text}）：{detail}")
-                        .chars()
-                        .take(700)
-                        .collect()
-                };
-                let _ = tx.send(GatewayEvent::TaskFailed { error }).await;
+            let cancelled =
+                cancel_requested.swap(false, Ordering::SeqCst) || closed.load(Ordering::SeqCst);
+            let stderr_detail = stderr_tail
+                .lock()
+                .expect("stderr tail lock")
+                .trim()
+                .to_string();
+            if let Some(event) = drain_outcome_event(
+                saw_terminal,
+                cancelled,
+                ExitObservation::from_status(status),
+                &stderr_detail,
+            ) {
+                let _ = tx.send(event).await;
             }
             group.clear_if(spawned_pgid);
             busy.store(false, Ordering::SeqCst);
@@ -272,6 +264,86 @@ impl AgentSessionHandle for CodexExecHandle {
 
     fn take_events(&mut self) -> Option<mpsc::Receiver<GatewayEvent>> {
         self.events.take()
+    }
+}
+
+/// 子程序收攤時**觀察得到**的結束方式。`Signal`／`Unknown` 都不是錯誤證據。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExitObservation {
+    /// 讀得到 exit code。
+    Code(i32),
+    /// 有結束狀態但沒有 exit code（被訊號終止）。
+    Signal,
+    /// 連結束狀態都讀不到（`wait()` 失敗）。
+    Unknown,
+}
+
+impl ExitObservation {
+    fn from_status(status: Option<std::process::ExitStatus>) -> Self {
+        match status {
+            Some(status) => match status.code() {
+                Some(code) => Self::Code(code),
+                None => Self::Signal,
+            },
+            None => Self::Unknown,
+        }
+    }
+
+    fn note(self) -> String {
+        match self {
+            Self::Code(code) => format!("exit {code}"),
+            Self::Signal => "terminated by signal".into(),
+            Self::Unknown => "exit status unknown".into(),
+        }
+    }
+}
+
+/// 子程序在沒有回報結局的情況下收攤時，該送哪一個事件（純函式，可測）。
+///
+/// 誠實階梯（與 `claude.rs` 同一條規則、與 `interaction_core::AgentSessionState::Unknown`
+/// 的定義一致）：
+/// - agent 自己已經回報過結局 ⇒ `None`（不覆寫它的回報）。
+/// - 人類中斷／關閉 ⇒ `TaskCancelled`。
+/// - **只有觀察得到的錯誤**（非零 exit code）才是 `TaskFailed`。
+/// - exit 0 卻沒有結果、被訊號終止、或連 exit status 都讀不到 ⇒ 結果**未知**
+///   （`TaskOutcomeUnknown`，runtime 記為 `unknown`）。輸出格式漂移
+///   （例如 `turn.completed` 改名）屬於這一類，不得記成失敗。
+pub(crate) fn drain_outcome_event(
+    saw_terminal: bool,
+    cancelled: bool,
+    exit: ExitObservation,
+    stderr_tail: &str,
+) -> Option<GatewayEvent> {
+    if saw_terminal {
+        return None;
+    }
+    if cancelled {
+        return Some(GatewayEvent::TaskCancelled);
+    }
+    let note = exit.note();
+    let tail = stderr_tail.trim();
+    let suffix = if tail.is_empty() {
+        String::new()
+    } else {
+        format!("：{tail}")
+    };
+    match exit {
+        ExitObservation::Code(code) if code != 0 => Some(GatewayEvent::TaskFailed {
+            error: format!("codex exec 以 {note} 結束而未回報結果{suffix}")
+                .chars()
+                .take(700)
+                .collect(),
+        }),
+        _ => Some(GatewayEvent::TaskOutcomeUnknown {
+            detail: Some(
+                format!(
+                    "codex exec 在回報結果前結束（{note}）；結果未知，未經人工確認前不得視為成功或失敗{suffix}"
+                )
+                .chars()
+                .take(700)
+                .collect(),
+            ),
+        }),
     }
 }
 
@@ -441,6 +513,50 @@ mod tests {
             }
         );
         assert!(matches!(done[1], GatewayEvent::TaskClaimedCompleted { .. }));
+    }
+
+    /// 回歸（agent-honesty-023）：exit 0 但沒有結局事件（例如 codex 輸出格式
+    /// 漂移、`turn.completed` 改名）＝結果**未知**，不是失敗。只有觀察得到的
+    /// 非零 exit code 才誠實到可以說 failed。
+    #[test]
+    fn exit_without_terminal_event_is_unknown_unless_exit_code_says_otherwise() {
+        // exit 0、沒有結局事件 ⇒ 未知（絕不是 failed）。
+        let unknown = drain_outcome_event(false, false, ExitObservation::Code(0), "")
+            .expect("收攤時必須回報一個結局");
+        assert!(
+            matches!(unknown, GatewayEvent::TaskOutcomeUnknown { .. }),
+            "exit 0 而沒有結果＝結果未知，不得記為失敗：{unknown:?}"
+        );
+
+        // 被訊號終止／連 exit status 都讀不到 ⇒ 一樣是未知。
+        for exit in [ExitObservation::Signal, ExitObservation::Unknown] {
+            let event = drain_outcome_event(false, false, exit, "boom").expect("有結局");
+            assert!(
+                matches!(event, GatewayEvent::TaskOutcomeUnknown { .. }),
+                "{exit:?} 沒有錯誤證據，必須是未知：{event:?}"
+            );
+        }
+
+        // 觀察得到的錯誤（非零 exit code）才是 failed，且訊息有界。
+        let failed = drain_outcome_event(false, false, ExitObservation::Code(2), &"x".repeat(4000))
+            .expect("有結局");
+        match failed {
+            GatewayEvent::TaskFailed { error } => {
+                assert!(error.contains("exit 2"), "{error}");
+                assert!(error.chars().count() <= 700, "{}", error.chars().count());
+            }
+            other => panic!("非零 exit 必須是 failed：{other:?}"),
+        }
+
+        // agent 自己回報過結局 ⇒ 不覆寫；人類中斷 ⇒ cancelled。
+        assert_eq!(
+            drain_outcome_event(true, false, ExitObservation::Code(1), ""),
+            None
+        );
+        assert_eq!(
+            drain_outcome_event(false, true, ExitObservation::Code(0), ""),
+            Some(GatewayEvent::TaskCancelled)
+        );
     }
 
     #[test]

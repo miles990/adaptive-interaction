@@ -88,6 +88,73 @@ fn capability_digest(token: &str) -> String {
     format!("{:x}", Sha256::digest(token.as_bytes()))
 }
 
+/// 續開不得放寬：把這一次的請求逐項和上一個 session 的**實際授權**比對。
+///
+/// 誠實階梯的延伸：介面說「接續上次的工作（只讀取）」，那就不能偷偷換成
+/// 更長的租期、更高的費用上限或更多的資料範圍。省略欄位＝落到 runtime
+/// 預設，而預設幾乎總是比上一次寬——所以「沒帶」也算放寬，一樣拒絕。
+fn check_resume_not_wider(
+    input: &CreateAgentSession,
+    original: &AgentSessionRecord,
+    policy_max_messages: u32,
+) -> DomainResult<()> {
+    let extra = |requested: &[String], granted: &[String]| -> Vec<String> {
+        requested
+            .iter()
+            .filter(|item| !granted.iter().any(|g| g == *item))
+            .cloned()
+            .collect()
+    };
+    for (what, added) in [
+        ("資料範圍", extra(&input.data_scope, &original.data_scope)),
+        ("可用工具", extra(&input.tool_scope, &original.tool_scope)),
+        (
+            "使用授權",
+            extra(&input.consent_scope, &original.consent_scope),
+        ),
+    ] {
+        if !added.is_empty() {
+            return Err(DomainError::PolicyBlocked(format!(
+                "接續上次的工作不得放寬{what}：{} 不在上次的授權範圍裡",
+                added.join("、")
+            )));
+        }
+    }
+    if input.allow_write && !original.allow_write {
+        return Err(DomainError::ConsentRequired(
+            "接續上次的工作不得憑空取得修改權限；要修改檔案請重新建立一個明確授權的工作階段".into(),
+        ));
+    }
+    let requested_ttl = input.ttl_minutes.unwrap_or(120);
+    let original_ttl = ((original.budget.max_duration_ms / 60_000) as u32).max(1);
+    if requested_ttl > original_ttl {
+        return Err(DomainError::PolicyBlocked(format!(
+            "接續上次的工作不得放寬時間上限（上次 {original_ttl} 分鐘，這次要求 {requested_ttl} 分鐘）"
+        )));
+    }
+    // 0＝沒有金額上限。上次有上限、這次沒帶（或帶更高）都是放寬。
+    let requested_cost = input.max_cost.unwrap_or(0.0);
+    if original.budget.max_cost > 0.0
+        && (requested_cost <= 0.0 || requested_cost > original.budget.max_cost)
+    {
+        return Err(DomainError::PolicyBlocked(format!(
+            "接續上次的工作不得放寬費用上限（上次 US${:.2}）",
+            original.budget.max_cost
+        )));
+    }
+    let requested_messages = match input.max_messages {
+        None | Some(0) => policy_max_messages,
+        Some(n) => n.min(policy_max_messages),
+    };
+    if requested_messages > original.budget.max_messages {
+        return Err(DomainError::PolicyBlocked(format!(
+            "接續上次的工作不得放寬訊息上限（上次 {}，這次 {requested_messages}）",
+            original.budget.max_messages
+        )));
+    }
+    Ok(())
+}
+
 pub struct AgentSessionEntry {
     pub record: AgentSessionRecord,
     pub mailbox: VecDeque<MailboxMessage>,
@@ -198,6 +265,24 @@ impl Runtime {
         Some(capability)
     }
 
+    /// 這個 provider thread／session id 上一次是掛在哪個 session 上（最近的
+    /// 一個）。找不到就是 None——那時我們**不知道**上一次授權了什麼，
+    /// 不能假裝比對過。
+    async fn resumed_session_record(
+        &self,
+        provider_session_id: &str,
+    ) -> Option<AgentSessionRecord> {
+        self.agent_sessions
+            .read()
+            .await
+            .values()
+            .filter(|entry| {
+                entry.record.provider_session_id.as_deref() == Some(provider_session_id)
+            })
+            .max_by_key(|entry| entry.record.created_at)
+            .map(|entry| entry.record.clone())
+    }
+
     async fn revoke_agent_session_capabilities(&self, id: &str) {
         self.agent_session_capabilities
             .write()
@@ -272,6 +357,19 @@ impl Runtime {
         }
         let session_id = AgentSessionId::generate();
         let policy = self.policy().await;
+        // 續開（resume）**不得放寬**上一次的授權。thread id 是 provider 端的
+        // 東西、不是憑證：找得到上一個 session 就逐項比對。省略欄位不是
+        // 「沿用」——那會落到 runtime 預設（ttl 120 分鐘、沒有金額上限、
+        // 訊息上限吃 policy），比上一次**更寬**。
+        if let Some(resume_id) = input.resume_provider_session_id.as_deref() {
+            if let Some(original) = self.resumed_session_record(resume_id).await {
+                check_resume_not_wider(
+                    &input,
+                    &original,
+                    policy.delegation.max_messages_per_session,
+                )?;
+            }
+        }
         let open = self.open_agent_sessions().await;
         if let Some(envelope) = &input.delegation {
             check_delegation(envelope, &policy.delegation, session_id.as_str(), open)
@@ -629,7 +727,7 @@ impl Runtime {
         if entry.mailbox.len() >= MAILBOX_CAP {
             entry.mailbox.pop_front();
         }
-        let message = MailboxMessage {
+        let mut message = MailboxMessage {
             message_id: format!("msg-{}-{}", id, entry.next_message),
             session_id: entry.record.session_id.clone(),
             direction,
@@ -663,8 +761,21 @@ impl Runtime {
         // 沒送到（上一輪還在跑、stdin 阻塞、預算用盡、子程序已不在）就把
         // 錯誤交給呼叫端：訊息留在信箱、沒有 delivered 戳記，session 狀態
         // 不因「沒送到」而改寫——「未送達」不是「任務失敗」。
-        if direction == MailboxDirection::ToSession {
-            self.gateway_deliver(id, &message).await?;
+        //
+        // 回傳值必須誠實：只有真的送進 agent 子程序時，回傳的訊息才帶
+        // `delivered_at` 戳記。非 gateway session（輪詢流程）與 stdin 已關閉
+        // 的情況都回傳沒有戳記的訊息——呼叫端（HTTP／Tauri／介面）據此區分
+        // 「已放進信箱」與「已送達 Agent」，不得一律宣稱送達。
+        if direction == MailboxDirection::ToSession && self.gateway_deliver(id, &message).await? {
+            if let Some(delivered) = self.agent_sessions.read().await.get(id).and_then(|entry| {
+                entry
+                    .mailbox
+                    .iter()
+                    .find(|m| m.message_id == message.message_id)
+                    .cloned()
+            }) {
+                message = delivered;
+            }
         }
         Ok(message)
     }
@@ -711,6 +822,9 @@ impl Runtime {
         direction: MailboxDirection,
     ) -> DomainResult<Vec<MailboxMessage>> {
         let mut acked: Vec<(String, String)> = Vec::new();
+        // 真的被 agent 取走時要發 `fetched`（taxonomy §7.4）；在鎖外發，
+        // 與 gateway 路徑同一個事實來源。
+        let mut fetched_by_agent: Option<String> = None;
         let out = {
             let mut map = self.agent_sessions.write().await;
             let entry = map
@@ -744,11 +858,21 @@ impl Runtime {
             }
             // 新任務送達 ⇒ 舊的人工驗證只屬於上一個 claim，不再顯示為
             // 「目前這個」已確認。
-            if newly_delivered && entry.record.human_verified.take().is_some() {
-                self.persist_agent_session(&entry.record);
+            if newly_delivered {
+                fetched_by_agent = Some(entry.record.agent_id.clone());
+                if entry.record.human_verified.take().is_some() {
+                    self.persist_agent_session(&entry.record);
+                }
             }
             out
         };
+        // v0.5 角色 taxonomy：任務真的被 agent 取走了＝fetched。gateway
+        // session 的 fetched 由 gateway_deliver 發（子程序真的收到才算）；
+        // 輪詢流程的 agent 走這裡。沒有這個事件，角色與介面會一直停在
+        // 「準備中」，等於 fetched 這一態對非 gateway agent 不存在。
+        if let Some(agent_id) = fetched_by_agent {
+            self.emit_agent_session_state(id, &agent_id, "fetched");
+        }
         for (action_id, message_id) in acked {
             let _ = self
                 .acknowledge_delegated_action(&action_id, &message_id)
@@ -1516,13 +1640,27 @@ impl interaction_core::Actuator for DelegateActuator {
             )
             .await
         {
-            Ok(message) => Ok(
-                interaction_adapter_sdk::DriverReceipt::start(&action, Utc::now())
+            Ok(message) => {
+                // 誠實階梯：dispatched＝任務已放進信箱；acknowledged＝
+                // agent 真的收到了。gateway session 在這裡就已經把訊息寫進
+                // 子程序（delivered 戳記＝觀察得到的送達事實），receipt 必須
+                // 當場推進到 acknowledged——否則委派 receipt 會永遠停在
+                // dispatched，`action.acknowledged` 從不發出。沒有戳記
+                //（輪詢流程、stdin 已關閉）就維持 dispatched，等 agent 自己
+                // fetch 時才由 mailbox_fetch 推進。
+                let receipt = interaction_adapter_sdk::DriverReceipt::start(&action, Utc::now())
                     .dispatched()
                     .note("messageId", json!(message.message_id))
-                    .note("agentSessionId", json!(session_id))
-                    .finish(),
-            ),
+                    .note("agentSessionId", json!(session_id));
+                let receipt = match message.delivered_at {
+                    Some(delivered_at) => receipt
+                        .acknowledged()
+                        .note("deliveredMessage", json!(message.message_id))
+                        .note("deliveredAt", json!(delivered_at)),
+                    None => receipt,
+                };
+                Ok(receipt.finish())
+            }
             Err(e) => Ok(
                 interaction_adapter_sdk::DriverReceipt::start(&action, Utc::now())
                     .failed("delegation-refused", &e.to_string())

@@ -44,6 +44,91 @@ export const SESSION_STATE_LABEL: Record<WorkState, { text: string; kind: BadgeK
     ])
   ) as Record<WorkState, { text: string; kind: BadgeKind }>;
 
+/** 後端 budget 另外回報的原始時間上限（舊後端沒有；缺席時退回租期長度）。 */
+type BudgetWithDuration = AgentSessionRecord["budget"] & { maxDurationMs?: unknown };
+
+/**
+ * 「接續上次」要沿用的上限：時間、費用、訊息則數。
+ *
+ * 誠實／最小權限：省略欄位**不是**沿用——後端省略就落到預設（時間 120 分鐘、
+ * 沒有金額上限、訊息吃 policy），每一項都比上次寬。所以這裡一律把上次的
+ * 實際值算出來帶過去。
+ */
+export function resumeLimits(record: AgentSessionRecord): {
+  ttlMinutes: number;
+  maxCost: number;
+  maxMessages: number;
+} {
+  const budget = record.budget as BudgetWithDuration;
+  const fromBudget =
+    typeof budget.maxDurationMs === "number" && budget.maxDurationMs > 0
+      ? Math.round(budget.maxDurationMs / 60000)
+      : 0;
+  const leaseSpan = Math.round(
+    (Date.parse(record.lease.expiresAt) - Date.parse(record.lease.issuedAt)) / 60000
+  );
+  const ttlMinutes = Math.max(
+    1,
+    fromBudget || (Number.isFinite(leaseSpan) && leaseSpan > 0 ? leaseSpan : DEFAULT_TTL_MINUTES)
+  );
+  return {
+    ttlMinutes,
+    maxCost: typeof record.budget.maxCost === "number" ? record.budget.maxCost : 0,
+    maxMessages: record.budget.maxMessages,
+  };
+}
+
+/**
+ * 「接續上次（唯讀）」送出的建立內容。
+ *
+ * 不變量：接續**不得放寬**上次的範圍——
+ * - 資料夾沿用上次那一個（同時寫回 `dataScope`，下一次接續才找得到，
+ *   不會退回沒有資料夾、由後端自行決定的狀態）；
+ * - 修改權限一律關閉，工具與使用授權不繼承（要修改檔案就重新授權一次）；
+ * - 時間／費用／訊息上限沿用上次的實際值，不落到更寬的預設。
+ */
+export function buildResumeInput(record: AgentSessionRecord): Record<string, unknown> {
+  const workspaceScope = record.dataScope.filter((s) => s.startsWith("workspace:"));
+  const workdir = workspaceScope[0]?.slice("workspace:".length);
+  const limits = resumeLimits(record);
+  return {
+    agentId: record.agentId,
+    label: `接續：${record.label ?? agentDisplayName(record.agentId)}`,
+    workdir: workdir ?? null,
+    dataScope: workspaceScope,
+    toolScope: [],
+    consentScope: [],
+    allowWrite: false,
+    ttlMinutes: limits.ttlMinutes,
+    maxCost: limits.maxCost,
+    maxMessages: limits.maxMessages,
+    resumeProviderSessionId: record.providerSessionId,
+  };
+}
+
+/**
+ * 送出的訊息是否**真的**送到 Agent 了。
+ *
+ * 誠實階梯（dispatched ≠ acknowledged）：後端只有在訊息真的寫進 Agent
+ * 子程序時才蓋 `deliveredAt`。輪詢型 Agent（尚未來取）、子程序已經不再
+ * 接收的情況都會回一則沒有戳記的訊息——那是「已排進信箱」，不是「已送達」。
+ */
+export function deliveredToAgent(message: unknown): boolean {
+  const at = (message as { deliveredAt?: unknown } | null | undefined)?.deliveredAt;
+  return typeof at === "string" && at.length > 0;
+}
+
+/** 接續時實際沿用了什麼——說出來，不讓人以為只是「同一段對話」。 */
+export function resumeLimitsText(record: AgentSessionRecord): string {
+  const limits = resumeLimits(record);
+  const folder = record.dataScope
+    .find((s) => s.startsWith("workspace:"))
+    ?.slice("workspace:".length);
+  const parts = [folder ? `原本的資料夾（${folder}）` : "不指定資料夾", `${limits.ttlMinutes} 分鐘`];
+  if (limits.maxCost > 0) parts.push(`最多 US$${limits.maxCost}`);
+  return `沿用${parts.join("、")}`;
+}
+
 /** 訊息輪詢間隔：展開時才跑，收合／卸載即停（有界，不會長駐）。 */
 export const MESSAGE_POLL_MS = 5000;
 /** 後端 gateway 的 approval TTL（gateway.rs APPROVAL_TTL_SECS）。 */
@@ -558,18 +643,12 @@ function SessionCard({
           <button
             onClick={async () => {
               try {
-                const workdir = record.dataScope
-                  .find((s) => s.startsWith("workspace:"))
-                  ?.slice("workspace:".length);
-                await api.agentSessionCreate({
-                  agentId: record.agentId,
-                  label: `接續：${record.label ?? agentDisplayName(record.agentId)}`,
-                  workdir,
-                  resumeProviderSessionId: record.providerSessionId,
-                });
-                // 誠實：接續＝新的唯讀工作沿用先前的對話脈絡；
+                await api.agentSessionCreate(buildResumeInput(record));
+                // 誠實：接續＝新的唯讀工作沿用先前的對話脈絡與**上次的上限**；
                 // 寫入權限不繼承，需要時另外在開始前同意。
-                onNotice("已接續上次的工作（只讀取；沿用先前的對話脈絡）。");
+                onNotice(
+                  `已接續上次的工作（只讀取；沿用先前的對話脈絡、${resumeLimitsText(record)}）。`
+                );
               } catch (e) {
                 onNotice(`接續失敗：${e}`);
               }
@@ -593,9 +672,16 @@ function SessionCard({
                 disabled={!task.trim()}
                 onClick={async () => {
                   try {
-                    await api.agentSessionSend(record.sessionId, "task", { task });
+                    const sent = await api.agentSessionSend(record.sessionId, "task", { task });
                     setTask("");
-                    onNotice("已送出（已送達 Agent，尚未完成）。");
+                    // 誠實階梯：只有後端蓋了送達戳記才算「已送達」。沒有戳記
+                    // ＝訊息還在信箱裡（輪詢型 Agent 尚未取走，或子程序已經
+                    // 不再接收），不得一律宣稱送達。
+                    onNotice(
+                      deliveredToAgent(sent)
+                        ? "已送出（已送達 Agent，尚未完成）。"
+                        : "已放進信箱，尚未送達 Agent（Agent 取走後才會開始）。"
+                    );
                   } catch (e) {
                     onNotice(`送出失敗：${e}`);
                   }

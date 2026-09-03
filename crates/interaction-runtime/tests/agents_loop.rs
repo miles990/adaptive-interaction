@@ -3,7 +3,7 @@
 
 use interaction_core::*;
 use interaction_policy::ActionSource;
-use interaction_runtime::agents::CreateAgentSession;
+use interaction_runtime::agents::{CreateAgentSession, MailboxReader};
 use interaction_runtime::{Runtime, RuntimeOptions};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -1176,4 +1176,65 @@ async fn a_claim_never_auto_upgrades_itself_to_verified() {
         after.human_verified.is_none(),
         "新的一輪自我回報不得沿用上一個 claim 的人工驗證"
     );
+}
+
+/// 回歸（agent-honesty-026）：輪詢型 agent 真的把任務取走時，必須發
+/// `fetched` taxonomy 事件。少了它，角色與介面會一直停在「準備中」，
+/// fetched 這一態對非 gateway agent 等於不存在。
+///
+/// 同時回歸（agent-honesty-025）：`mailbox_send` 的回傳值要誠實——
+/// 沒有送進 agent（輪詢流程還沒來取）就不得帶 `delivered_at` 戳記，
+/// 呼叫端才能區分「已放進信箱」與「已送達 Agent」。
+#[tokio::test]
+async fn a_real_agent_fetch_emits_fetched_and_send_never_fakes_delivery() {
+    let (_g, rt) = runtime().await;
+    let session = rt
+        .create_agent_session(create_input("agent.poller"))
+        .await
+        .unwrap();
+    let sid = session.session_id.as_str().to_string();
+
+    // 放進信箱：這是 queued，不是送達。
+    let mut body = BTreeMap::new();
+    body.insert("task".to_string(), json!("整理報告"));
+    let queued = rt
+        .mailbox_send(&sid, MailboxDirection::ToSession, "task", body, None)
+        .await
+        .unwrap();
+    assert!(
+        queued.delivered_at.is_none(),
+        "非 gateway session 只是排進信箱，不得回報成已送達"
+    );
+    assert_eq!(
+        session_states(&rt, &sid),
+        vec!["created"],
+        "還沒有人取走，不得先演出 fetched"
+    );
+
+    // 人類看信箱＝純觀看：不算送達，也不得發 fetched。
+    let peeked = rt
+        .mailbox_read(&sid, MailboxDirection::ToSession, MailboxReader::Human)
+        .await
+        .unwrap();
+    assert!(peeked[0].delivered_at.is_none());
+    assert_eq!(session_states(&rt, &sid), vec!["created"]);
+
+    // agent 自己來取＝真的送達：蓋戳記並發 fetched。
+    let fetched = rt
+        .mailbox_read(&sid, MailboxDirection::ToSession, MailboxReader::Agent)
+        .await
+        .unwrap();
+    assert!(fetched[0].delivered_at.is_some());
+    assert_eq!(
+        session_states(&rt, &sid),
+        vec!["created", "fetched"],
+        "任務真的被取走要有 fetched：{:?}",
+        session_states(&rt, &sid)
+    );
+
+    // 再取一次沒有新的送達事實，不得重複演出。
+    rt.mailbox_read(&sid, MailboxDirection::ToSession, MailboxReader::Agent)
+        .await
+        .unwrap();
+    assert_eq!(session_states(&rt, &sid), vec!["created", "fetched"]);
 }

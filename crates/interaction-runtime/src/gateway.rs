@@ -204,6 +204,56 @@ impl Runtime {
         results
     }
 
+    /// 解析 gateway session 的工作目錄。
+    ///
+    /// 安全不變量：runtime 自己的狀態資料夾（`state/`，裡面有 0600 的人類
+    /// capability token）**永遠不得**落在 agent 的工作目錄樹裡。子程序的
+    /// env 早就把 token 拿掉了（`remove_runtime_auth_env`）；用檔案系統把
+    /// 同一把 token 送回去是同一個威脅換一條管道。
+    ///
+    /// - 沒有指定資料夾（純對話 session）：不再退回 runtime home，改用一個
+    ///   專屬的空資料夾。
+    /// - 明確指定一個**包含** `state/` 的資料夾（runtime home、使用者家目錄）：
+    ///   誠實拒絕，請人類改選更小的範圍。
+    pub(crate) fn resolve_gateway_workdir(
+        &self,
+        requested: Option<String>,
+    ) -> DomainResult<std::path::PathBuf> {
+        let workdir = match requested
+            .map(|w| w.trim().to_string())
+            .filter(|w| !w.is_empty())
+        {
+            Some(explicit) => std::path::PathBuf::from(explicit),
+            None => {
+                let scratch = self.paths.home.join("agent-workspaces").join("no-folder");
+                std::fs::create_dir_all(&scratch).map_err(|e| {
+                    DomainError::Storage(format!(
+                        "建立預設工作資料夾失敗（{}）：{e}",
+                        scratch.display()
+                    ))
+                })?;
+                scratch
+            }
+        };
+        if !workdir.is_dir() {
+            return Err(DomainError::Validation(format!(
+                "workdir 不存在：{}",
+                workdir.display()
+            )));
+        }
+        // 正規化後再比對（symlink／`..` 都算進去），不讓相對路徑繞過。
+        let resolved = workdir.canonicalize().unwrap_or_else(|_| workdir.clone());
+        let state_dir = self.paths.state_dir();
+        let resolved_state = state_dir.canonicalize().unwrap_or(state_dir);
+        if resolved_state.starts_with(&resolved) {
+            return Err(DomainError::Validation(format!(
+                "工作資料夾不得是（或包含）系統自己的狀態資料夾 {}；請改選一個更小的資料夾",
+                resolved_state.display()
+            )));
+        }
+        Ok(workdir)
+    }
+
     /// 在 create_agent_session 成功後把 gateway agent 掛上子程序。
     /// 失敗＝建立失敗（誠實），不留半掛的 session。
     pub(crate) async fn gateway_attach(
@@ -236,15 +286,7 @@ impl Runtime {
                 discovery.detail
             )));
         }
-        let workdir = workdir
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| self.paths.home.clone());
-        if !workdir.is_dir() {
-            return Err(DomainError::Validation(format!(
-                "workdir 不存在：{}",
-                workdir.display()
-            )));
-        }
+        let workdir = self.resolve_gateway_workdir(workdir)?;
         let mut spec = if record.allow_write {
             interaction_agent_gateway::SessionSpec::write_enabled_in(workdir)
         } else {
