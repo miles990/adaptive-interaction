@@ -31,6 +31,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
+# Native folder picker for the work page. The dialog crate pulls
+# `tauri-plugin-fs` in as a Rust dependency, but we deliberately never call
+# `tauri_plugin_fs::init()` and grant no `fs:*` permission, so no filesystem
+# command is exposed to the WebView — it receives a path string and nothing
+# else. `dialog:allow-open` is granted to the `main` window alone
+# (capabilities/main-dialog.json).
+tauri-plugin-dialog = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
 base64 = "0.22"
 sha2 = "0.10"

@@ -47,7 +47,7 @@ fn optional<T: serde::de::DeserializeOwned>(body: &Value, key: &str) -> Result<O
 }
 
 /// `POST /v1/character/hello` 的內嵌對應。body 與 HTTP 路由完全相同：
-/// `{instanceId?, role?, manifest, negotiate, visible, packId?, behaviorState?}`
+/// `{instanceId?, role?, manifest, negotiate, visible, packId?, behaviorState?, reducedMotion?}`
 /// → `{instanceId, generation, negotiated}`。
 pub async fn hello(rt: &Runtime, body: Value) -> Result<Value, String> {
     let manifest: CharacterManifest = field(&body, "manifest")?;
@@ -64,6 +64,10 @@ pub async fn hello(rt: &Runtime, body: Value) -> Result<Value, String> {
             .unwrap_or(false),
         pack_id: optional(&body, "packId")?,
         behavior_state: body.get("behaviorState").cloned().filter(|v| !v.is_null()),
+        reduced_motion: body
+            .get("reducedMotion")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     };
     rt.character_hello(input)
         .await

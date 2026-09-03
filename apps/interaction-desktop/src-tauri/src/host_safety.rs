@@ -29,7 +29,17 @@ pub struct SensorView {
     pub purpose: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_stop_at: Option<String>,
+    /// `active`／`stopping`（已要求停止、等來源確認）／`stop-unknown`
+    /// （沒在有界時間內確認）。舊 daemon 沒有這個欄位＝視為 active。
+    /// **停止中與結果未知仍然算感測中**：不得因為 state 不是 active 就不顯示。
+    #[serde(default)]
+    pub state: String,
 }
+
+/// 已要求停止但尚未確認。
+pub const SENSOR_STATE_STOPPING: &str = "stopping";
+/// 已要求停止、來源沒回覆：可能仍在擷取（誠實：未知 ≠ 已停）。
+pub const SENSOR_STATE_STOP_UNKNOWN: &str = "stop-unknown";
 
 /// Host 安全視圖：tray 與 overlay 的唯一資料來源。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,6 +111,7 @@ impl HostSafetyView {
                             .get("autoStopAt")
                             .and_then(Value::as_str)
                             .map(String::from),
+                        state: text("state"),
                     });
                 }
             }
@@ -143,6 +154,20 @@ impl HostSafetyView {
             .collect();
         if !others.is_empty() {
             parts.push(format!("感測使用中（{}）", others.join("、")));
+        }
+        // 停止中／結果未知也要說出來——「已要求停止」不等於「已經停了」。
+        if self
+            .sensors
+            .iter()
+            .any(|s| s.state == SENSOR_STATE_STOP_UNKNOWN)
+        {
+            parts.push("停止結果未知（來源未回覆）".into());
+        } else if self
+            .sensors
+            .iter()
+            .any(|s| s.state == SENSOR_STATE_STOPPING)
+        {
+            parts.push("停止中（等待確認）".into());
         }
         Some(parts.join("、"))
     }
@@ -211,6 +236,37 @@ mod tests {
         let both = json!({"activeSensors": [{"kind": "microphone"}, {"kind": "camera"}]});
         let v = HostSafetyView::derive(true, false, Some(&both), now());
         assert_eq!(v.sensor_text().as_deref(), Some("麥克風＋攝影機使用中"));
+    }
+
+    /// 「停止中／結果未知」仍然是感測中：不得從 tray／overlay 消失，
+    /// 而且文字要說出結果未知（誠實：已要求停止 ≠ 已經停了）。
+    #[test]
+    fn a_sensor_being_stopped_is_never_hidden_and_says_so() {
+        let stopping = json!({"activeSensors": [
+            {"kind": "iphone.mic-level", "startedBy": "iphone:abc",
+             "purpose": "iPhone 麥克風音量：停止中（等待 iPhone 確認）",
+             "state": "stopping"}
+        ]});
+        let v = HostSafetyView::derive(true, false, Some(&stopping), now());
+        assert!(v.mic_active && v.active, "停止中仍要亮");
+        let text = v.sensor_text().expect("sensor text");
+        assert!(text.contains("麥克風使用中"), "{text}");
+        assert!(text.contains("停止中"), "{text}");
+
+        let unknown = json!({"activeSensors": [
+            {"kind": "iphone.mic-level", "startedBy": "iphone:abc",
+             "purpose": "停止結果未知", "state": "stop-unknown"}
+        ]});
+        let v = HostSafetyView::derive(true, false, Some(&unknown), now());
+        assert!(v.mic_active && v.active, "結果未知一定不能消失");
+        let text = v.sensor_text().expect("sensor text");
+        assert!(text.contains("結果未知"), "{text}");
+
+        // 舊 daemon 沒有 state 欄位 → 視為 active（相容，不多話）。
+        let legacy = json!({"activeSensors": [{"kind": "microphone"}]});
+        let v = HostSafetyView::derive(true, false, Some(&legacy), now());
+        assert_eq!(v.sensors[0].state, "");
+        assert_eq!(v.sensor_text().as_deref(), Some("麥克風使用中"));
     }
 
     #[test]

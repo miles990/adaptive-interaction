@@ -31,6 +31,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayHandles> {
         MenuItem::with_id(app, "toggle_companion", "顯示桌面角色", true, None::<&str>)?;
     let toggle_pause = MenuItem::with_id(app, "toggle_pause", "暫停主動互動", true, None::<&str>)?;
     let pause_hour = MenuItem::with_id(app, "pause_hour", "暫停一小時", true, None::<&str>)?;
+    let stop_sensors = MenuItem::with_id(app, "stop_sensors", "停止所有感測", true, None::<&str>)?;
     let estop = MenuItem::with_id(app, "estop", "緊急停止", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "設定…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "完全結束", true, None::<&str>)?;
@@ -47,6 +48,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayHandles> {
             &toggle_pause,
             &pause_hour,
             &PredefinedMenuItem::separator(app)?,
+            &stop_sensors,
             &estop,
             &PredefinedMenuItem::separator(app)?,
             &settings,
@@ -87,6 +89,10 @@ fn on_menu_event(app: &AppHandle, id: &str) {
         "pause_hour" => {
             dispatch(app, TrayAction::PauseOneHour);
         }
+        "stop_sensors" => {
+            // 感測不靜默：狀態列一定要停得掉（不經 WebView）。
+            dispatch(app, TrayAction::StopSensors);
+        }
         "estop" => {
             // Straight to the backend; no WebView involved, never blocked by UI.
             dispatch(app, TrayAction::EmergencyStop);
@@ -101,6 +107,7 @@ fn on_menu_event(app: &AppHandle, id: &str) {
 enum TrayAction {
     TogglePause,
     PauseOneHour,
+    StopSensors,
     EmergencyStop,
 }
 
@@ -116,6 +123,11 @@ fn dispatch(app: &AppHandle, action: TrayAction) {
                 Err(e) => Err(e),
             },
             (Some(b), TrayAction::PauseOneHour) => b.pause(Some(60)).await,
+            // 停止所有感測：結果未知（手機沒回覆）也要說出來，不得靜默當成功。
+            (Some(b), TrayAction::StopSensors) => match b.sensors_stop("tray").await {
+                Ok(report) => stop_sensors_error(&report).map_or(Ok(()), Err),
+                Err(e) => Err(e),
+            },
             (Some(b), TrayAction::EmergencyStop) => b.emergency_stop("tray").await,
             (None, _) => Err("runtime not available".to_string()),
         };
@@ -126,6 +138,44 @@ fn dispatch(app: &AppHandle, action: TrayAction) {
         }
         crate::refresh_tray(&app).await;
     });
+}
+
+/// 「停止所有感測」的誠實回報：只要有來源沒確認就回一段人話錯誤訊息，
+/// 由 tray 以既有的 `tray-action-error` 事件送出（失敗／未知不得靜默）。
+pub fn stop_sensors_error(report: &serde_json::Value) -> Option<String> {
+    if !report
+        .get("uncertain")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let unknown: Vec<String> = report
+        .get("devices")
+        .and_then(serde_json::Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter(|d| d["outcome"] != "stopped")
+                .map(|d| {
+                    let name = d["name"].as_str().unwrap_or("iPhone");
+                    let outcome = d["outcome"].as_str().unwrap_or("unknown");
+                    let what = if outcome == "unreachable" {
+                        "沒送到"
+                    } else {
+                        "未回覆"
+                    };
+                    format!("{name}（{what}）")
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if unknown.is_empty() {
+        return Some("已要求停止感測，但結果未知。".into());
+    }
+    Some(format!(
+        "已要求停止感測，但這些裝置沒有確認（可能仍在擷取）：{}",
+        unknown.join("、")
+    ))
 }
 
 /// Compose the status line texts + macOS title glyph for the current state.
@@ -286,6 +336,39 @@ mod tests {
 
         let quiet = tray_view(&view(true, false, false, false, false), false, 0);
         assert!(!quiet.status_text.contains("使用中"));
+    }
+
+    /// tray 的「停止所有感測」：全部確認才安靜；有來源沒確認就一定要出聲
+    /// （失敗／未知不得靜默）。
+    #[test]
+    fn stop_sensors_reports_unconfirmed_devices() {
+        let all_stopped = json!({
+            "stopped": true, "uncertain": false,
+            "local": {"microphone": "stopped"},
+            "devices": [{"deviceId": "iphone-1", "name": "小明的 iPhone",
+                         "outcome": "stopped", "waitedMs": 12, "via": "ack"}]
+        });
+        assert_eq!(super::stop_sensors_error(&all_stopped), None);
+
+        let unknown = json!({
+            "stopped": false, "uncertain": true,
+            "local": {"microphone": "stopped"},
+            "devices": [{"deviceId": "iphone-1", "name": "小明的 iPhone",
+                         "outcome": "unknown", "waitedMs": 2000}]
+        });
+        let message = super::stop_sensors_error(&unknown).expect("未確認一定要回報");
+        assert!(message.contains("小明的 iPhone"), "{message}");
+        assert!(message.contains("未回覆"), "{message}");
+        assert!(message.contains("可能仍在擷取"), "{message}");
+
+        let unreachable = json!({
+            "stopped": false, "uncertain": true,
+            "local": {"microphone": "idle"},
+            "devices": [{"deviceId": "iphone-2", "name": "舊 iPhone",
+                         "outcome": "unreachable", "waitedMs": 0}]
+        });
+        let message = super::stop_sensors_error(&unreachable).expect("送不到也要回報");
+        assert!(message.contains("沒送到"), "{message}");
     }
 
     #[test]

@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-dialog",
+  "description": "Native folder picker for the control-center window only. `dialog:allow-open` returns a path string and grants no filesystem scope: the fs plugin is never registered and no `fs:*` permission is granted anywhere. Note it also permits file-open dialogs, not just directory ones — acceptable because the WebView only ever receives the chosen path. The companion and overlay windows are excluded: an untrusted character renderer must never be able to raise a file dialog.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "dialog:allow-open"
+  ]
+}

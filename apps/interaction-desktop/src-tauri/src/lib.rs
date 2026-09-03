@@ -137,6 +137,54 @@ impl Backend {
         }
     }
 
+    /// 停止所有感測（本機麥克風＋每一台已連線 iPhone，有界等待確認）。
+    /// tray 也走這條——不經 WebView，UI 掛掉也停得了。
+    pub async fn sensors_stop(&self, actor: &str) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => rt
+                .stop_all_sensors(actor)
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|report| serde_json::to_value(report).map_err(|e| e.to_string())),
+            Backend::External { base, token } => {
+                supervisor::daemon_post(base, token, "/v1/sensors/stop", json!({})).await
+            }
+        }
+    }
+
+    pub async fn mobile_sensors_stop(&self, device_id: &str) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => rt
+                .mobile_sensors_stop(device_id)
+                .await
+                .map_err(|e| e.to_string()),
+            Backend::External { base, token } => {
+                supervisor::daemon_post(
+                    base,
+                    token,
+                    &format!("/v1/mobile/devices/{device_id}/sensors/stop"),
+                    json!({}),
+                )
+                .await
+            }
+        }
+    }
+
+    pub async fn mobile_test(&self, device_id: &str) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => rt.mobile_test(device_id).await.map_err(|e| e.to_string()),
+            Backend::External { base, token } => {
+                supervisor::daemon_post(
+                    base,
+                    token,
+                    &format!("/v1/mobile/devices/{device_id}/test"),
+                    json!({}),
+                )
+                .await
+            }
+        }
+    }
+
     pub async fn presentation_pending_command(&self, action_id: &str) -> Result<Value, String> {
         match self {
             Backend::Embedded(rt) => rt
@@ -767,6 +815,15 @@ async fn onboarding_draft(state: State<'_, AppState>, draft: Value) -> Result<Va
     Ok(serde_json::json!({"saved": true}))
 }
 
+/// 套用前的試算：與 commit 同一套驗證，但不改任何東西。
+#[tauri::command]
+async fn onboarding_preview(state: State<'_, AppState>, commit: Value) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let commit: interaction_runtime::human::OnboardingCommit =
+        serde_json::from_value(commit).map_err(err_s)?;
+    runtime.preview_onboarding(commit).await.map_err(err_s)
+}
+
 #[tauri::command]
 async fn onboarding_commit(state: State<'_, AppState>, commit: Value) -> Result<Value, String> {
     let runtime = rt(&state)?;
@@ -905,11 +962,19 @@ async fn sensor_mic_listen(state: State<'_, AppState>, duration_ms: u64) -> Resu
     Ok(json!(out))
 }
 
+/// 停止所有感測。回傳誠實報告：頂層 `stopped` ＝所有來源都確認停止，
+/// `uncertain` ＝有來源沒回覆（手機可能還在錄音），`devices[]` 逐台列出結果。
 #[tauri::command]
 async fn sensors_stop(state: State<'_, AppState>) -> Result<Value, String> {
-    let runtime = rt(&state)?;
-    runtime.stop_all_sensors("desktop").await.map_err(err_s)?;
-    Ok(json!({"stopped": true}))
+    let backend = state.backend().ok_or_else(|| {
+        state
+            .startup_error
+            .lock()
+            .expect("error mutex")
+            .clone()
+            .unwrap_or_else(|| "runtime not started".into())
+    })?;
+    backend.sensors_stop("desktop").await
 }
 
 #[tauri::command]
@@ -1370,12 +1435,33 @@ async fn mobile_revoke(state: State<'_, AppState>, id: String) -> Result<Value, 
 async fn mobile_ble_scan(
     state: State<'_, AppState>,
     duration_ms: Option<u64>,
+    device_id: Option<String>,
 ) -> Result<Value, String> {
     let runtime = rt(&state)?;
     runtime
-        .mobile_ble_scan(duration_ms.unwrap_or(4_000))
+        .mobile_ble_scan(duration_ms.unwrap_or(4_000), device_id.as_deref())
         .await
         .map_err(err_s)
+}
+
+/// 只停這一台手機的感測（有界等待確認）。手機沒回覆＝`outcome: "unknown"`，
+/// 不得顯示成已停止；沒連線＝`unreachable`（沒有任何東西被停）。
+#[tauri::command]
+async fn mobile_sensors_stop(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    let backend = state
+        .backend()
+        .ok_or_else(|| "runtime not available".to_string())?;
+    backend.mobile_sensors_stop(&id).await
+}
+
+/// 測試這台手機的連線（Ping／Pong）。`ok` 只代表連線有回應，
+/// 不代表 App 的感測／動器功能正常。
+#[tauri::command]
+async fn mobile_test(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    let backend = state
+        .backend()
+        .ok_or_else(|| "runtime not available".to_string())?;
+    backend.mobile_test(&id).await
 }
 
 /// 人工驗證 claimed-completed（桌面＝human 身分；claim ≠ verified）。
@@ -2573,6 +2659,9 @@ pub(crate) fn host_safety_relevant(event_type: &EventType) -> bool {
         EventType::EmergencyStop
             | EventType::SensorStarted
             | EventType::SensorStopped
+            // 停止結果未知：tray／overlay 必須立刻改口說「結果未知」，
+            // 不能等 4 秒輪詢，更不能讓畫面看起來像已經停了。
+            | EventType::SensorStopUncertain
             | EventType::ProviderStateChanged
     )
 }
@@ -2838,6 +2927,10 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        // Native folder picker (work page). Returns a path string only; the
+        // capability grant is scoped to the `main` window and there is no fs
+        // plugin, so the WebView still cannot touch the filesystem.
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             runtime: Mutex::new(None),
             startup_error: Mutex::new(None),
@@ -2959,6 +3052,7 @@ pub fn run() {
             ui_prefs_patch,
             onboarding_get,
             onboarding_draft,
+            onboarding_preview,
             onboarding_commit,
             pause_get,
             pause_set,
@@ -2989,6 +3083,8 @@ pub fn run() {
             mobile_status,
             mobile_pairing_begin,
             mobile_revoke,
+            mobile_sensors_stop,
+            mobile_test,
             mobile_ble_scan,
             sensor_mic_listen,
             presentation_status,
@@ -3190,20 +3286,41 @@ mod tests {
         );
     }
 
-    /// Doc-consistency (perf-claims-024): the Unreleased CHANGELOG must not
-    /// carry the pre-Phase-7 "Rust 每 500ms 收到新互動框" claim, and every
-    /// click-through poll interval it quotes must equal `CLICKTHROUGH_POLL_MS`.
+    /// The CHANGELOG section still being written: `## [Unreleased]` while it is
+    /// unnamed, or — once a release is being prepared and the heading is renamed
+    /// to `## [x.y.z] — …` — the topmost version section. Returns its body (the
+    /// text up to the next `## [` heading).
+    ///
+    /// Release prep renames the heading; the claim checks below must follow it
+    /// instead of silently having nothing to check (or panicking on a heading
+    /// that is simply no longer called "Unreleased").
+    fn changelog_topmost_section(text: &str) -> &str {
+        let start = text
+            .find("## [Unreleased]")
+            .or_else(|| text.find("\n## [").map(|i| i + 1))
+            .expect("CHANGELOG has a version section");
+        let after_heading = start
+            + text[start..]
+                .find('\n')
+                .expect("version heading ends with a newline");
+        let rest = &text[after_heading..];
+        let end = rest.find("\n## [").unwrap_or(rest.len());
+        &rest[..end]
+    }
+
+    /// Doc-consistency (perf-claims-024): the topmost CHANGELOG section (the one
+    /// still being written — `## [Unreleased]`, or the version heading it was
+    /// renamed to during release prep) must not carry the pre-Phase-7
+    /// "Rust 每 500ms 收到新互動框" claim, and every click-through poll interval
+    /// it quotes must equal `CLICKTHROUGH_POLL_MS`.
     #[test]
     fn changelog_unreleased_click_through_claims_match_code() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../CHANGELOG.md");
         let text = std::fs::read_to_string(path).expect("CHANGELOG.md readable");
-        let start = text.find("## [Unreleased]").expect("Unreleased section");
-        let rest = &text[start + "## [Unreleased]".len()..];
-        let end = rest.find("\n## [").unwrap_or(rest.len());
-        let unreleased = &rest[..end];
+        let unreleased = changelog_topmost_section(&text);
         assert!(
             !unreleased.contains("每 500ms 收到新互動框"),
-            "stale Phase 3 hit-rect claim still in Unreleased"
+            "stale Phase 3 hit-rect claim still in the topmost CHANGELOG section"
         );
         let mut quoted = 0;
         for (idx, _) in unreleased.match_indices("點擊穿透輪詢") {
@@ -3222,7 +3339,41 @@ mod tests {
         }
         assert!(
             quoted >= 1,
-            "Unreleased should quote the click-through poll interval at least once"
+            "the topmost CHANGELOG section should quote the click-through poll interval at least once"
+        );
+    }
+
+    /// The section finder itself: it must follow a renamed heading (release prep
+    /// turns `## [Unreleased]` into `## [0.5.0] — …`) and must stop at the next
+    /// version heading, so a claim from an older release can never satisfy — or
+    /// break — the checks above.
+    #[test]
+    fn changelog_topmost_section_follows_a_renamed_heading() {
+        let unreleased = "# CHANGELOG\n\n## [Unreleased]\n新的一句\n\n## [0.4.0] - 2026-08-28\n舊的一句\n";
+        assert_eq!(
+            changelog_topmost_section(unreleased),
+            "\n新的一句\n",
+            "still finds the classic Unreleased heading"
+        );
+        let renamed = "# CHANGELOG\n\n## [0.5.0] — 2026-09-03（準備中）\n新的一句\n\n## [0.4.0] - 2026-08-28\n舊的一句\n";
+        assert_eq!(
+            changelog_topmost_section(renamed),
+            "\n新的一句\n",
+            "release prep renamed the heading; the topmost version section is still the one checked"
+        );
+        assert!(
+            !changelog_topmost_section(renamed).contains("舊的一句"),
+            "must stop at the next version heading"
+        );
+        // The real file: whichever shape it is in, the section is non-empty and
+        // is not the 0.4.x history.
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../CHANGELOG.md");
+        let text = std::fs::read_to_string(path).expect("CHANGELOG.md readable");
+        let section = changelog_topmost_section(&text);
+        assert!(!section.trim().is_empty(), "topmost section is empty");
+        assert!(
+            !section.contains("## [0.4.1]"),
+            "topmost section leaked into an older release"
         );
     }
 
@@ -3465,6 +3616,8 @@ mod tests {
         assert!(host_safety_relevant(&EventType::EmergencyStop));
         assert!(host_safety_relevant(&EventType::SensorStarted));
         assert!(host_safety_relevant(&EventType::SensorStopped));
+        // 停止結果未知：tray／overlay 必須立刻改口，不能等 4 秒輪詢。
+        assert!(host_safety_relevant(&EventType::SensorStopUncertain));
         assert!(host_safety_relevant(&EventType::ProviderStateChanged));
         assert!(!host_safety_relevant(&EventType::ReceptorObservation));
         assert!(!host_safety_relevant(&EventType::PresentationCommand));
