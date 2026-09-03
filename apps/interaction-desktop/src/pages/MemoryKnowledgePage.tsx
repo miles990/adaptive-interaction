@@ -102,49 +102,6 @@ function MemorySection({
     [refreshKey, layer]
   );
   const [notice, setNotice] = React.useState<string | null>(null);
-  // 匯出結果必須真的呈現在畫面上（不是只丟 devtools console）才可宣稱「已在下方顯示」。
-  const [exported, setExported] = React.useState<Record<string, unknown> | null>(null);
-
-  const restoreBackup = async (file: File | undefined) => {
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setNotice("還原失敗：備份檔超過 5 MiB 安全上限。");
-      return;
-    }
-    try {
-      const parsed = JSON.parse(await file.text()) as Record<string, unknown>;
-      const items = Array.isArray(parsed.items) ? parsed.items : null;
-      if (!items || items.length > 1000) {
-        throw new Error("格式不符或超過 1,000 條上限");
-      }
-      let restored = 0;
-      for (const raw of items) {
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-          throw new Error(`第 ${restored + 1} 條不是物件`);
-        }
-        const source = raw as Record<string, unknown>;
-        // 不信任備份中的身分、時間與狀態；每一筆都以目前人類明確匯入，
-        // 重新經過 Runtime schema、Secret 與 retention 驗證，並取得新 ID。
-        await api.memoryCreate({
-          layer: source.layer,
-          kind: source.kind,
-          title: source.title,
-          content: source.content,
-          provenance: source.provenance,
-          confidence: source.confidence,
-          tags: source.tags,
-          agentVisibility: source.agentVisibility,
-          agentDenylist: source.agentDenylist,
-          retention: source.retention,
-        });
-        restored += 1;
-      }
-      setNotice(`已還原 ${restored} 條；每一條都重新通過 Runtime 驗證並取得新 ID。`);
-      retry();
-    } catch (e) {
-      setNotice(`還原失敗：${e}。已成功寫入的項目會保留，請依訊息檢查備份。`);
-    }
-  };
 
   return (
     <div>
@@ -177,30 +134,10 @@ function MemorySection({
               ))}
             </select>
           </label>
-          <button
-            onClick={async () => {
-              try {
-                const out = (await api.memoryExport()) as Record<string, unknown>;
-                setExported(out);
-                setNotice(`已匯出 ${String(out.count)} 條（JSON 已在下方顯示，可自行複製保存）。`);
-              } catch (e) {
-                setExported(null);
-                setNotice(`匯出失敗：${e}`);
-              }
-            }}
-          >
-            匯出全部
-          </button>
-          <label className="button-like">
-            還原備份
-            <input
-              className="visually-hidden"
-              type="file"
-              accept="application/json,.json"
-              aria-label="選擇記憶備份 JSON"
-              onChange={(event) => void restoreBackup(event.target.files?.[0])}
-            />
-          </label>
+          {/* 匯出／還原只有一個主人：「更多 → 備份與還原」。這裡只指路，不放第二份。 */}
+          {onNavigate && (
+            <button onClick={() => onNavigate("backup")}>前往備份與還原</button>
+          )}
           <button
             onClick={async () => {
               const out = await api.memoryClearSession();
@@ -215,15 +152,6 @@ function MemorySection({
           <p className="muted small" role="status">
             {notice}
           </p>
-        )}
-        {exported && (
-          <div className="state-box">
-            <div className="row space-between">
-              <strong>匯出結果</strong>
-              <button onClick={() => setExported(null)}>關閉</button>
-            </div>
-            <pre className="json-view small">{JSON.stringify(exported, null, 2)}</pre>
-          </div>
         )}
         <StateView state={data} empty="這個分層目前沒有記憶。">
           {(d) => (

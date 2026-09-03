@@ -76,7 +76,7 @@ const TIERS: Record<RiskTierLevel, RiskTier> = {
   1: {
     tier: 1,
     label: "L1 本機低風險",
-    policy: "只在這台電腦上發生（通知、短音效、角色移動）：設定一次就好，隨時可以關掉。",
+    policy: "只在這台電腦上發生（通知、短音效、語音朗讀、角色移動）：設定一次就好，隨時可以關掉。",
   },
   2: {
     tier: 2,
@@ -147,8 +147,17 @@ export function riskTierOf(input: RiskTierInput): RiskTier {
     return TIERS[2];
   }
 
-  // 需要明確同意的能力至少是 L2 —— 不可因為「沒宣告語意」就降到 L0／L1。
-  if (input.requiresConsent === true) return TIERS[2];
+  // 需要明確同意的能力永遠不會降到 L0，但也不該憑空多出一句「會用到你的檔案、
+  // 偏好或記憶」（L2 的文案）。只有通道已知是本機（L0／L1 通道）而且 effect 明確
+  // 宣告 external=No、physical=No 時才落 L1（例：播放音效、語音朗讀）；
+  // 通道或副作用只要有一項沒宣告，仍舊保守當成 L2。
+  if (input.requiresConsent === true) {
+    const declaredLocal =
+      (L0_CHANNELS.has(channel) || L1_CHANNELS.has(channel)) &&
+      input.external === false &&
+      input.physical === false;
+    return declaredLocal ? TIERS[1] : TIERS[2];
+  }
 
   if (L0_CHANNELS.has(channel)) return TIERS[0];
   if (L1_CHANNELS.has(channel) || sensitivity === "none" || sensitivity === "low") return TIERS[1];

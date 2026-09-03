@@ -11,6 +11,8 @@ import { api, AgentSessionRecord } from "../api";
 import { AppStateProvider } from "../appstate";
 import { GlobalSearch } from "../components/GlobalSearch";
 import { MemoryKnowledgePage, parseSourceSegment } from "../pages/MemoryKnowledgePage";
+import { BackupSection } from "../pages/BackupSection";
+import { MorePage } from "../pages/MorePage";
 import { recordDroppedItems } from "../companion/CompanionApp";
 import { AiPage } from "../pages/AiPage";
 import { SettingsPage } from "../pages/SettingsPage";
@@ -117,6 +119,55 @@ describe("GlobalSearch 指令結果回報（失敗不得靜默）", () => {
     expect(String(vi.mocked(onCommandFeedback).mock.calls[0][0])).toContain("失敗");
   });
 
+  // v0.5：不得再寫死「已停止所有感測。」——送出 ≠ 已停止。
+  it("停止所有感測：重讀後仍在使用中就不算成功", async () => {
+    stubPaletteData();
+    vi.spyOn(api, "sensorsStop").mockResolvedValue({ stopped: true });
+    vi.spyOn(api, "status").mockResolvedValue({
+      activeSensors: [{ kind: "microphone", startedAt: "", startedBy: "desktop", purpose: "" }],
+    });
+    const { onCommandFeedback } = renderPalette();
+    const input = screen.getByPlaceholderText(/搜尋設定/);
+    fireEvent.change(input, { target: { value: "停止所有感測" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onCommandFeedback).toHaveBeenCalled());
+    const [message, ok] = vi.mocked(onCommandFeedback).mock.calls[0];
+    expect(ok).toBe(false);
+    expect(String(message)).toContain("仍在使用中");
+    expect(String(message)).not.toContain("已停止所有感測");
+  });
+
+  it("停止所有感測：裝置沒回覆是「結果不確定」（ok=false）", async () => {
+    stubPaletteData();
+    vi.spyOn(api, "sensorsStop").mockResolvedValue({
+      stopped: true,
+      uncertain: true,
+      local: { microphone: "stopped" },
+      devices: [{ deviceId: "d1", name: "iPhone", outcome: "unreachable", waitedMs: 3000 }],
+    });
+    vi.spyOn(api, "status").mockResolvedValue({ activeSensors: [] });
+    const { onCommandFeedback } = renderPalette();
+    const input = screen.getByPlaceholderText(/搜尋設定/);
+    fireEvent.change(input, { target: { value: "停止所有感測" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onCommandFeedback).toHaveBeenCalled());
+    const [message, ok] = vi.mocked(onCommandFeedback).mock.calls[0];
+    expect(ok).toBe(false);
+    expect(String(message)).toContain("結果不確定");
+    expect(String(message)).toContain("iPhone");
+  });
+
+  it("停止所有感測：真的都停了才回報成功", async () => {
+    stubPaletteData();
+    vi.spyOn(api, "sensorsStop").mockResolvedValue({ stopped: true, uncertain: false, devices: [] });
+    vi.spyOn(api, "status").mockResolvedValue({ activeSensors: [] });
+    const { onCommandFeedback } = renderPalette();
+    const input = screen.getByPlaceholderText(/搜尋設定/);
+    fireEvent.change(input, { target: { value: "停止所有感測" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onCommandFeedback).toHaveBeenCalledWith("已停止感測。", true));
+  });
+
   it("暫停主動互動成功時回報成功訊息", async () => {
     stubPaletteData();
     vi.spyOn(api, "pauseSet").mockResolvedValue({ paused: true });
@@ -130,14 +181,15 @@ describe("GlobalSearch 指令結果回報（失敗不得靜默）", () => {
   });
 });
 
-describe("MemoryKnowledgePage 匯出", () => {
+// v0.5 IA：匯出／還原搬到「更多 → 備份與還原」（BackupSection）；
+// 「記憶與資料」只留一個指路按鈕，不再有第二份控制項。
+describe("備份與還原（BackupSection）", () => {
   it("匯出結果真的呈現在畫面上（不是只寫 console）", async () => {
-    vi.spyOn(api, "memoryList").mockResolvedValue({ items: [] });
     vi.spyOn(api, "memoryExport").mockResolvedValue({
       count: 2,
       items: [{ title: "demo-item-1" }, { title: "demo-item-2" }],
     });
-    render(<MemoryKnowledgePage refreshKey={0} />);
+    render(<BackupSection />);
     await userEvent.click(await screen.findByRole("button", { name: "匯出全部" }));
     expect(await screen.findByText("匯出結果")).toBeInTheDocument();
     expect(screen.getByText(/demo-item-1/)).toBeInTheDocument();
@@ -145,29 +197,38 @@ describe("MemoryKnowledgePage 匯出", () => {
   });
 
   it("匯出失敗時誠實回報，不顯示匯出結果", async () => {
-    vi.spyOn(api, "memoryList").mockResolvedValue({ items: [] });
     vi.spyOn(api, "memoryExport").mockRejectedValue(new Error("export boom"));
-    render(<MemoryKnowledgePage refreshKey={0} />);
+    render(<BackupSection />);
     await userEvent.click(await screen.findByRole("button", { name: "匯出全部" }));
-    expect(await screen.findByText(/匯出失敗/)).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/匯出失敗/);
     expect(screen.queryByText("匯出結果")).not.toBeInTheDocument();
   });
 
-  it("從匯出 JSON 還原時逐筆經 human-only Runtime API 驗證", async () => {
-    vi.spyOn(api, "memoryList").mockResolvedValue({ items: [] });
+  it("從備份檔還原時逐筆經 human-only Runtime API 驗證", async () => {
     const create = vi.spyOn(api, "memoryCreate").mockResolvedValue({});
-    render(<MemoryKnowledgePage refreshKey={0} />);
+    render(<BackupSection />);
     const file = new File(
       [JSON.stringify({ count: 1, items: [{ layer: "user-memory", kind: "preference", title: "偏好", content: "簡短回答", retention: {} }] })],
       "memory-backup.json",
       { type: "application/json" }
     );
-    await userEvent.upload(screen.getByLabelText("選擇記憶備份 JSON"), file);
+    await userEvent.upload(screen.getByLabelText("選擇記憶備份檔"), file);
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ title: "偏好", content: "簡短回答" })
     );
     expect(await screen.findByText(/已還原 1 條/)).toBeInTheDocument();
+  });
+
+  it("「記憶與資料」不再有第二份匯出／還原，只指路到備份與還原", async () => {
+    vi.spyOn(api, "memoryList").mockResolvedValue({ items: [] });
+    const onNavigate = vi.fn();
+    render(<MemoryKnowledgePage refreshKey={0} onNavigate={onNavigate} />);
+    await screen.findByText(/沒有你不能刪除的記憶/);
+    expect(screen.queryByRole("button", { name: "匯出全部" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/選擇記憶備份/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "前往備份與還原" }));
+    expect(onNavigate).toHaveBeenCalledWith("backup");
   });
 });
 
@@ -282,18 +343,43 @@ describe("AiPage 關閉工作階段文案", () => {
   });
 });
 
-describe("SettingsPage 資料管理與版本", () => {
-  it("顯示 Runtime 真實版本並提供匯出／還原入口", async () => {
+describe("版本與資料管理的新家（v0.5 IA）", () => {
+  it("Runtime 真實版本搬到「更多 → 進階模式」的第二層（只有進階模式看得到）", async () => {
     vi.spyOn(api, "status").mockResolvedValue({ version: "0.4.0", schemaVersion: "0.4" });
+    vi.spyOn(api, "uiPrefsGet").mockResolvedValue({
+      mode: "advanced",
+      locale: "zh-TW",
+      customNames: {},
+      schemaVersion: "1.0",
+    });
+    vi.spyOn(api, "pauseGet").mockResolvedValue({ paused: false });
+    render(
+      <AppStateProvider ready={true} refreshKey={0}>
+        <MorePage
+          refreshKey={0}
+          events={[]}
+          advanced
+          onNavigate={() => {}}
+          onRerunOnboarding={() => {}}
+          initial="advanced-features"
+        />
+      </AppStateProvider>
+    );
+    expect(await screen.findByText(/Runtime 0\.4\.0/)).toBeInTheDocument();
+  });
+
+  it("外觀與語言頁只指路到進階模式，不再自己放版本或匯出入口", async () => {
     const navigate = vi.fn();
     render(
       <AppStateProvider ready={false} refreshKey={0}>
         <SettingsPage onRerunOnboarding={() => {}} onNavigate={navigate} />
       </AppStateProvider>
     );
-    expect(await screen.findByText(/Runtime 0\.4\.0/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "開啟匯出、還原與刪除" }));
-    expect(navigate).toHaveBeenCalledWith("memory");
+    await screen.findByText("語言、外觀與可及性");
+    expect(screen.queryByText(/Runtime/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "開啟匯出、還原與刪除" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "前往進階模式" }));
+    expect(navigate).toHaveBeenCalledWith("advanced-features");
   });
 });
 

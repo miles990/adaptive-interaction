@@ -8,7 +8,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AgentSessionRecord, api } from "../api";
 import { AppStateProvider } from "../appstate";
-import { inboxStatusLabel, NotificationPanel } from "../App";
+import { inboxStatusLabel, NotificationPanel, SensorBanner } from "../App";
 import { AiPage, SESSION_STATE_LABEL } from "../pages/AiPage";
 import { InboxSection } from "../pages/ActivityPage";
 import { NowStrip } from "../pages/HomePage";
@@ -433,5 +433,65 @@ describe("GlobalSearch 動態項目用投影", () => {
     await screen.findByText("裝置：客廳燈");
     expect(container.textContent).toContain("未連線");
     expect(container.textContent).not.toContain("disconnected");
+  });
+});
+
+// regression（App.tsx 感測橫幅）：「（由 … 啟動…）」曾經把 runtime 的原始 `startedBy`
+// 直接印給使用者看——一般模式因此看到 `iphone:iphone-87b4c1d2` 這種內部裝置 id。
+// 同一條規則：認得的來源說人話，認不得的說「系統」，原始字串只留給進階模式。
+describe("感測橫幅：誰啟動的說人話，不外洩內部身分字串", () => {
+  const use = (over: Partial<import("../api").SensorUse> = {}) => ({
+    kind: "iphone.mic-level",
+    startedAt: "2026-09-03T00:00:00Z",
+    startedBy: "iphone:iphone-87b4c1d2",
+    purpose: "音量",
+    ...over,
+  });
+
+  it("一般模式：iPhone 顯示「你的 iPhone」，原始裝置 id 不出現在畫面上", () => {
+    const { container } = render(
+      <SensorBanner sensors={[use()]} advanced={false} onStopAll={() => {}} />
+    );
+    expect(container.textContent).toContain("你的 iPhone");
+    expect(container.textContent).not.toContain("iphone:iphone-87b4c1d2");
+    expect(container.textContent).not.toContain("87b4c1d2");
+    // 感測不靜默：種類、用途與「立即停止」照樣都在。
+    expect(container.textContent).toContain("麥克風");
+    expect(container.textContent).toContain("音量");
+    expect(screen.getByRole("button", { name: "立即停止" })).toBeInTheDocument();
+    // 一般模式連 title 都不掛原始值。
+    expect(container.querySelector("[title]")).toBeNull();
+  });
+
+  it("進階模式：人話照樣在，原始值只補在 title（不是內文）", () => {
+    const { container } = render(
+      <SensorBanner sensors={[use()]} advanced onStopAll={() => {}} />
+    );
+    expect(container.textContent).toContain("你的 iPhone");
+    expect(container.textContent).not.toContain("iphone:iphone-87b4c1d2");
+    expect(container.querySelector('[title="iphone:iphone-87b4c1d2"]')).not.toBeNull();
+  });
+
+  it("本機與未知來源：desktop→這台電腦、user→你、認不得→系統（不冒充使用者）", () => {
+    const { container } = render(
+      <SensorBanner
+        sensors={[
+          use({ kind: "microphone", startedBy: "desktop", purpose: "聽指令" }),
+          use({ kind: "camera", startedBy: "user", purpose: "看畫面" }),
+          use({ kind: "lidar", startedBy: "recipe:auto-listen", purpose: "測距" }),
+        ]}
+        advanced={false}
+        onStopAll={() => {}}
+      />
+    );
+    expect(container.textContent).toContain("由 這台電腦 啟動");
+    expect(container.textContent).toContain("由 你 啟動");
+    expect(container.textContent).toContain("由 系統 啟動");
+    expect(container.textContent).not.toContain("recipe:auto-listen");
+  });
+
+  it("沒有感測就沒有橫幅（不留空殼）", () => {
+    const { container } = render(<SensorBanner sensors={[]} advanced onStopAll={() => {}} />);
+    expect(container.querySelector(".sensor-banner")).toBeNull();
   });
 });

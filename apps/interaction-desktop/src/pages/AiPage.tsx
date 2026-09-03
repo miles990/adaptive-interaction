@@ -374,6 +374,8 @@ function SessionCard({
   const [expanded, setExpanded] = React.useState(false);
   const [messages, setMessages] = React.useState<Record<string, unknown>[]>([]);
   const [task, setTask] = React.useState("");
+  // 延長有效期＝連同「可修改資料夾」的權限一起延長，所以可寫入的工作要再問一次。
+  const [renewConfirm, setRenewConfirm] = React.useState(false);
   const resolutions = React.useMemo(() => approvalResolutions(messages), [messages]);
   // 一般模式永遠是人話；介面不認得的狀態投影成「結果不確定」，
   // 原始狀態碼只在進階模式的次要行出現。
@@ -484,20 +486,42 @@ function SessionCard({
         {open && (
           <>
             {record.lease.renewable && (
-              <button
-                onClick={async () => {
-                  try {
-                    const renewed = await api.agentSessionRenew(record.sessionId, 30);
-                    onNotice(
-                      `已續租至 ${new Date(renewed.lease.expiresAt).toLocaleString("zh-TW")}。`
-                    );
-                  } catch (e) {
-                    onNotice(`續租失敗：${e}。有效期間未變更。`);
-                  }
-                }}
-              >
-                續租 30 分鐘
-              </button>
+              <>
+                <button
+                  onClick={async () => {
+                    // 可寫入的工作：第一次點擊只是提出要求，要再確認一次才真的延長。
+                    if (record.allowWrite && !renewConfirm) {
+                      setRenewConfirm(true);
+                      return;
+                    }
+                    setRenewConfirm(false);
+                    try {
+                      const renewed = await api.agentSessionRenew(record.sessionId, 30);
+                      onNotice(
+                        `已續租至 ${new Date(renewed.lease.expiresAt).toLocaleString("zh-TW")}。`
+                      );
+                    } catch (e) {
+                      onNotice(`續租失敗：${e}。有效期間未變更。`);
+                    }
+                  }}
+                >
+                  {record.allowWrite && renewConfirm
+                    ? "確認延長（含修改權限）"
+                    : "續租 30 分鐘"}
+                </button>
+                {record.allowWrite && renewConfirm && (
+                  <>
+                    <button onClick={() => setRenewConfirm(false)}>不延長</button>
+                    <span className="risk-note" role="status">
+                      延長 30 分鐘會連同「可修改{" "}
+                      {record.dataScope
+                        .find((s) => s.startsWith("workspace:"))
+                        ?.slice("workspace:".length) ?? "系統資料夾"}{" "}
+                      裡的檔案」一起延長。
+                    </span>
+                  </>
+                )}
+              </>
             )}
             <button
               onClick={async () => {

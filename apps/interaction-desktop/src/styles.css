@@ -659,6 +659,10 @@ html.companion-window, html.companion-window body, html.companion-window #root {
 .work-preview-list { display: grid; grid-template-columns: minmax(8rem, .3fr) minmax(0, 1fr); gap: .45rem .9rem; margin: 8px 0 0; font-size: 13px; }
 .work-preview-list dt { color: var(--muted); }
 .work-preview-list dd { margin: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 4px; }
+/* 「查看技術細節」裡的巢狀清單沿用同一組欄位，只是標題欄窄一點。 */
+.work-preview .tech-details { margin-top: 10px; }
+.work-preview .tech-details summary { font-size: 13px; }
+.work-preview-tech { grid-template-columns: minmax(7rem, .25fr) minmax(0, 1fr); }
 .work-consent { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--text); }
 .work-consent input { margin-top: 3px; }
 .work-settings { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; background: var(--bg-card); }

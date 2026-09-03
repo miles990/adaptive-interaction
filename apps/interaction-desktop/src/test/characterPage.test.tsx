@@ -163,15 +163,19 @@ vi.mock("../api", async (importOriginal) => {
 
 const mockDesktop = vi.hoisted(() => {
   const state: { prefs: Record<string, unknown> } = { prefs: {} };
+  // 模擬 Rust host：未知欄位（companionPreferences）被 serde 丟掉，不會回傳。
+  // 具名留著，讓失敗路徑的測試（mockRejectedValue）能在 beforeEach 還原它——
+  // `vi.clearAllMocks()` 只清呼叫紀錄，不會還原被覆寫的實作。
+  const applyPrefsPatch = async (patch: Record<string, unknown>) => {
+    const { companionPreferences: _dropped, ...rest } = patch;
+    Object.assign(state.prefs, rest);
+    return { ...state.prefs };
+  };
   return {
     state,
+    applyPrefsPatch,
     prefsGet: vi.fn(async () => ({ ...state.prefs })),
-    // 模擬 Rust host：未知欄位（companionPreferences）被 serde 丟掉，不會回傳。
-    prefsPatch: vi.fn(async (patch: Record<string, unknown>) => {
-      const { companionPreferences: _dropped, ...rest } = patch;
-      Object.assign(state.prefs, rest);
-      return { ...state.prefs };
-    }),
+    prefsPatch: vi.fn(applyPrefsPatch),
     companionApplyPrefs: vi.fn(async () => null),
     companionResetPosition: vi.fn(async () => null),
     characterListImported: vi.fn(async () => [] as Record<string, unknown>[]),
@@ -197,9 +201,14 @@ vi.mock("../characterName", () => ({
 }));
 
 import { AppStateProvider } from "../appstate";
-import { CompanionPage, characterLiveState, CHARACTER_UNAVAILABLE_TEXT } from "../pages/CompanionPage";
+import {
+  CompanionPage,
+  characterLiveState,
+  resolveActiveCharacterId,
+  CHARACTER_UNAVAILABLE_TEXT,
+} from "../pages/CompanionPage";
 import { boundValue, boundValues } from "../pages/character/preferences";
-import { sanitizeErrorText } from "../pages/character/catalog";
+import { sanitizeErrorText, TEXT_FALLBACK_CHARACTER_ID } from "../pages/character/catalog";
 import { emptyMemory } from "../companion/interactionMemory";
 
 function renderPage(props: { advanced?: boolean } = {}) {
@@ -217,6 +226,7 @@ beforeEach(() => {
   localStorage.clear();
   mockDesktop.state.prefs = { ...BASE_PREFS };
   mockName.current = { name: "小樞", pronoun: "她", characterId: "shu-maid", loaded: true, icon: "cat" };
+  mockDesktop.prefsPatch.mockImplementation(mockDesktop.applyPrefsPatch);
   mockDesktop.characterListImported.mockResolvedValue([]);
   mockApi.characterInstances.mockResolvedValue({ instances: [] });
   vi.stubGlobal(
@@ -234,25 +244,36 @@ afterEach(() => {
 });
 
 describe("角色頁：更換或加入角色", () => {
-  it("列出索引角色與已匯入角色，並標示內建／第三方、本機／外部、可執行、網路、可接收、已測試", async () => {
+  it("一般模式：只標示內建／第三方、可接收、已測試；額外授權只給一句人話（無執行位置／可執行程式／網路欄位）", async () => {
     mockDesktop.characterListImported.mockResolvedValue([IMPORTED_SPRITE]);
     renderPage();
     const badge = { selector: ".badge" };
     const shu = await screen.findByRole("article", { name: "角色 小樞" });
     expect(within(shu).getByText("內建", badge)).toBeInTheDocument();
     expect(within(shu).getByText("使用中", badge)).toBeInTheDocument();
-    expect(within(shu).getByText("本機")).toBeInTheDocument();
     expect(within(shu).getByText(/是（隨 App 自動化測試）/)).toBeInTheDocument();
     expect(within(shu).queryByRole("button", { name: "移除" })).not.toBeInTheDocument();
     expect(within(shu).queryByText("有可執行程式", badge)).not.toBeInTheDocument();
+    // 一般模式沒有執行位置／可執行程式／需要網路欄位。
+    expect(within(shu).queryByText("執行位置")).not.toBeInTheDocument();
+    expect(within(shu).queryByText("可執行程式")).not.toBeInTheDocument();
+    expect(within(shu).queryByText("需要網路")).not.toBeInTheDocument();
+    // 不需要額外授權的角色不出現提示。
+    expect(within(shu).queryByText(/這個角色需要額外授權/)).not.toBeInTheDocument();
     // 內建文字角色是永遠可用的退路。
     expect(await screen.findByRole("article", { name: "角色 文字角色" })).toBeInTheDocument();
 
     const ext = await screen.findByRole("article", { name: "角色 外部機器人" });
     expect(within(ext).getByText("第三方", badge)).toBeInTheDocument();
-    expect(within(ext).getByText("外部", badge)).toBeInTheDocument();
-    expect(within(ext).getByText("有可執行程式", badge)).toBeInTheDocument();
-    expect(within(ext).getByText("需要網路", badge)).toBeInTheDocument();
+    expect(within(ext).queryByText("外部", badge)).not.toBeInTheDocument();
+    expect(within(ext).queryByText("有可執行程式", badge)).not.toBeInTheDocument();
+    expect(within(ext).queryByText("需要網路", badge)).not.toBeInTheDocument();
+    // 誠實：需要跑自己的程式／需要網路的事實仍在一般模式，只是一句人話。
+    expect(
+      within(ext).getByText(
+        "這個角色需要額外授權：在你的電腦上執行它自己的程式、連上網路。控制中心不會自動執行它的程式、也不會自動連線。"
+      )
+    ).toBeInTheDocument();
     expect(within(ext).getByText("不接收任何輸入")).toBeInTheDocument();
     expect(within(ext).getByText(/否（未經本機測試）/)).toBeInTheDocument();
     expect(within(ext).getByRole("button", { name: "移除" })).toBeInTheDocument();
@@ -262,8 +283,25 @@ describe("角色頁：更換或加入角色", () => {
     expect(within(imported).getByText("匯入", badge)).toBeInTheDocument();
     expect(within(imported).queryByText("外部", badge)).not.toBeInTheDocument();
     expect(within(imported).getByText(/不明（角色資料尚未載入）/)).toBeInTheDocument();
+    expect(within(imported).queryByText(/這個角色需要額外授權/)).not.toBeInTheDocument();
     expect(within(imported).getByRole("button", { name: "移除" })).toBeInTheDocument();
     expect(within(imported).getByRole("button", { name: "選用" })).toBeInTheDocument();
+  });
+
+  it("進階模式：外部／可執行程式／需要網路旗標與執行位置欄位才出現（一句人話提示改由旗標取代）", async () => {
+    mockDesktop.characterListImported.mockResolvedValue([IMPORTED_SPRITE]);
+    renderPage({ advanced: true });
+    const badge = { selector: ".badge" };
+    const shu = await screen.findByRole("article", { name: "角色 小樞" });
+    expect(within(shu).getByText("本機")).toBeInTheDocument();
+    expect(within(shu).getByText("執行位置")).toBeInTheDocument();
+
+    const ext = await screen.findByRole("article", { name: "角色 外部機器人" });
+    expect(within(ext).getByText("外部", badge)).toBeInTheDocument();
+    expect(within(ext).getByText("有可執行程式", badge)).toBeInTheDocument();
+    expect(within(ext).getByText("需要網路", badge)).toBeInTheDocument();
+    expect(within(ext).getByText("有（只記錄，不會自動執行）")).toBeInTheDocument();
+    expect(within(ext).queryByText(/這個角色需要額外授權/)).not.toBeInTheDocument();
   });
 
   it("停用 → 純文字角色；選用 → prefs.companionPack ＋ companionApplyPrefs", async () => {
@@ -289,6 +327,47 @@ describe("角色頁：更換或加入角色", () => {
     expect(await within(buddyActive).findByText("使用中", { selector: ".badge" })).toBeInTheDocument();
   });
 
+  // regression（CompanionPage `patch()`）：`patch` 曾經把 host 失敗吞成 error 狀態
+  // 之後照樣 resolve，於是 `disableCharacter`／`selectCharacter` 在錯誤訊息旁邊又貼上
+  // 「已停用目前角色…」「已改用…」——同一個畫面同時說失敗又說成功。送出 ≠ 完成。
+  it("停用／選用失敗：只顯示誠實錯誤，不得出現「已停用目前角色」「已改用」成功文案", async () => {
+    mockDesktop.prefsPatch.mockRejectedValue(new Error("桌面角色設定需要桌面版控制中心"));
+    renderPage();
+
+    const shu = await screen.findByRole("article", { name: "角色 小樞" });
+    await userEvent.click(within(shu).getByRole("button", { name: "停用" }));
+    await waitFor(() => expect(mockDesktop.prefsPatch).toHaveBeenCalled());
+    expect(await screen.findByRole("alert")).toHaveTextContent(/桌面角色設定需要桌面版控制中心/);
+    expect(screen.queryByText(/已停用目前角色/)).not.toBeInTheDocument();
+    // 失敗不得套用：使用中的角色沒有換掉。
+    expect(await within(shu).findByText("使用中", { selector: ".badge" })).toBeInTheDocument();
+
+    // 選用另一個角色也一樣。
+    const buddy = await screen.findByRole("article", { name: "角色 阿寶" });
+    await userEvent.click(within(buddy).getByRole("button", { name: "選用" }));
+    await waitFor(() =>
+      expect(mockDesktop.prefsPatch).toHaveBeenLastCalledWith({ companionPack: "buddy" })
+    );
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByText(/已改用/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/已停用目前角色/)).not.toBeInTheDocument();
+  });
+
+  // 成功之後又失敗：舊的成功提示不得替新的失敗背書。
+  it("先成功再失敗：失敗時清掉上一次的成功文案，只留錯誤", async () => {
+    renderPage();
+    const shu = await screen.findByRole("article", { name: "角色 小樞" });
+    await userEvent.click(within(shu).getByRole("button", { name: "停用" }));
+    expect(await screen.findByText(/已停用目前角色，改用純文字角色/)).toBeInTheDocument();
+
+    mockDesktop.prefsPatch.mockRejectedValueOnce(new Error("host 拒絕"));
+    const buddy = await screen.findByRole("article", { name: "角色 阿寶" });
+    await userEvent.click(within(buddy).getByRole("button", { name: "選用" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/host 拒絕/);
+    await waitFor(() => expect(screen.queryByText(/已停用目前角色/)).not.toBeInTheDocument());
+    expect(screen.queryByText(/已改用/)).not.toBeInTheDocument();
+  });
+
   it("移除只給匯入角色；確認後呼叫 characterRemove", async () => {
     mockDesktop.characterListImported.mockResolvedValue([IMPORTED_SPRITE]);
     renderPage();
@@ -298,8 +377,32 @@ describe("角色頁：更換或加入角色", () => {
     await waitFor(() => expect(mockDesktop.characterRemove).toHaveBeenCalledWith("imp-sprite"));
   });
 
-  it("匯入：本機驗證錯誤與 host 錯誤都顯示，且不回顯路徑", async () => {
+  it("一般模式匯入：只有選檔（沒有貼上原文的輸入框），驗證器原文收在收合的問題明細裡", async () => {
     renderPage();
+    await screen.findByRole("article", { name: "角色 小樞" });
+    await userEvent.click(screen.getByRole("button", { name: "匯入角色…" }));
+    const dialog = await screen.findByRole("dialog", { name: "匯入角色" });
+    expect(within(dialog).getByLabelText("選擇角色描述檔")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("textbox", { name: "角色描述檔內容" })).not.toBeInTheDocument();
+    expect(dialog.textContent).not.toContain("貼上");
+
+    // 超過大小上限：人話訊息，不是驗證器的英文位元組數。
+    const picker = within(dialog).getByLabelText("選擇角色描述檔") as HTMLInputElement;
+    const big = new File(["x".repeat(256 * 1024 + 1)], "big.json", { type: "application/json" });
+    Object.defineProperty(picker, "files", { value: [big], configurable: true });
+    fireEvent.change(picker);
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveTextContent("角色描述檔不符合規格（1 個問題）");
+    expect(alert.textContent).not.toContain("262144");
+    // 原文只在收合的 details 裡，一般模式的畫面文字看不到。
+    const details = alert.querySelector("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+    expect(details).toHaveTextContent("角色描述檔超過 256 KB");
+  });
+
+  it("匯入（進階模式）：本機驗證錯誤與 host 錯誤都顯示，且不回顯路徑", async () => {
+    renderPage({ advanced: true });
     await screen.findByRole("article", { name: "角色 小樞" });
     await userEvent.click(screen.getByRole("button", { name: "匯入角色…" }));
     const dialog = await screen.findByRole("dialog", { name: "匯入角色" });
@@ -365,16 +468,21 @@ describe("角色頁：目前角色與陪伴設定", () => {
     expect(await screen.findByRole("heading", { name: "36 表情預覽" })).toBeInTheDocument();
     const summary = await screen.findByRole("list", { name: "角色能力摘要" });
     expect(summary).toHaveTextContent("內建角色");
-    expect(summary).toHaveTextContent("需要網路：否");
+    expect(summary).toHaveTextContent("可以接收：");
     expect(summary).toHaveTextContent("已測試：是");
+    // 執行方式／可執行程式／需要網路／簽章只在進階模式的技術資料。
+    expect(summary).not.toHaveTextContent("需要網路");
+    expect(summary).not.toHaveTextContent("有可執行程式");
+    expect(summary).not.toHaveTextContent("簽章");
     expect(screen.getByText("只點頭，沒有綠勾")).toBeInTheDocument();
     expect(screen.getByText("綠勾只在驗證後")).toBeInTheDocument();
     // 小樞才有玩耍設定與使魔。
     expect(screen.getByRole("checkbox", { name: /玩耍（玩具、追逐、撲抓）/ })).toBeInTheDocument();
     expect(screen.getByText(/現在大家在做什麼/)).toBeInTheDocument();
-    // 一般模式：沒有技術資料。
+    // 一般模式：沒有技術資料，也沒有 adapter／協商／簽章／pack id 之類的字眼。
     expect(screen.queryByText("技術資料")).not.toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/schemaVersion|adapterKind|manifest JSON|Behavior State/);
+    expect(document.body.textContent).not.toMatch(/adapter|in-process|external-process|input\.|簽章|協商|事件合併窗|shu-maid/i);
     // 分區順序。
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     const order = ["目前角色", "外觀與名字", "平常如何陪伴", "安靜與勿擾", "主動式對話", "主動程度與安靜時段", "更換或加入角色"];
@@ -456,7 +564,11 @@ describe("角色頁：目前角色與陪伴設定", () => {
     // 實例是另一個角色（小樞）：外部機器人的「已測試」維持否。
     const summary = await screen.findByRole("list", { name: "角色能力摘要" });
     expect(summary).toHaveTextContent("已測試：否");
-    expect(summary).toHaveTextContent("需要網路：是");
+    // 需要網路的事實在一般模式改成一句人話（不再是摘要裡的技術行）。
+    expect(summary).not.toHaveTextContent("需要網路：是");
+    expect(
+      screen.getAllByText(/這個角色需要額外授權：在你的電腦上執行它自己的程式、連上網路。/).length
+    ).toBeGreaterThan(0);
     first.unmount();
 
     mockApi.characterInstances.mockResolvedValue({ instances: [{ ...instance, characterId: "ext-bot" }] });
@@ -477,7 +589,7 @@ describe("角色頁：目前角色與陪伴設定", () => {
     expect(characterLiveState(null, { connected: false }).label).toBe("角色視窗未連線");
   });
 
-  it("進階模式才有收合的「技術資料」", async () => {
+  it("進階模式才有收合的「技術資料」，安全宣告（執行方式／可執行程式／需要網路／簽章）也在裡面", async () => {
     renderPage({ advanced: true });
     await screen.findByRole("article", { name: "角色 小樞" });
     const details = screen.getByText("技術資料").closest("details");
@@ -486,6 +598,70 @@ describe("角色頁：目前角色與陪伴設定", () => {
     expect(details).toHaveTextContent("schemaVersion");
     expect(details).toHaveTextContent("builtin:shu-rig");
     expect(details).toHaveTextContent("Behavior State");
+    const declared = within(details!).getByRole("list", { name: "角色安全宣告" });
+    expect(declared).toHaveTextContent("有可執行程式：否（純資料）");
+    expect(declared).toHaveTextContent("需要網路：否");
+    expect(declared).toHaveTextContent("簽章：無（本版不支援簽章驗證）");
+  });
+
+  it("事件合併窗只在進階模式；一般模式的主動式對話只有模式與頻率上限", async () => {
+    const general = renderPage();
+    expect(await screen.findByRole("heading", { name: "主動式對話" })).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "每小時最多則數" })).toBeInTheDocument();
+    expect(screen.queryByRole("spinbutton", { name: "事件合併窗（秒）" })).not.toBeInTheDocument();
+    general.unmount();
+
+    renderPage({ advanced: true });
+    expect(await screen.findByRole("spinbutton", { name: "事件合併窗（秒）" })).toBeInTheDocument();
+  });
+
+  it("改名後所有一般模式文案都跟著新名字（含文字範例）", async () => {
+    mockDesktop.state.prefs = { ...BASE_PREFS, companionPack: "plain-text", companionName: "阿福" };
+    mockName.current = { name: "阿福", pronoun: "角色", characterId: "plain-text", loaded: true, icon: "sparkles" };
+    renderPage();
+    expect(await screen.findByRole("heading", { name: "阿福", level: 3 })).toBeInTheDocument();
+    expect(screen.getByText(/^阿福以一行文字出現在桌面/)).toBeInTheDocument();
+    expect(screen.getByText(/阿福什麼情況下可以主動說話/)).toBeInTheDocument();
+    expect(screen.getByText(/這一區決定阿福什麼時候保持安靜/)).toBeInTheDocument();
+    // 不再用 manifest 的原名寫死文案。
+    expect(screen.queryByText(/^文字角色以一行文字出現在桌面/)).not.toBeInTheDocument();
+  });
+
+  it("安靜時段送出明確的靜音通道清單，不含桌面角色（L0 呈現不該被消音）", async () => {
+    mockApi.policyGet.mockResolvedValue({ initiative: "suggest", quietHours: [] });
+    renderPage();
+    const toggle = await screen.findByRole("checkbox", { name: /未啟用|已啟用/ });
+    await userEvent.click(toggle);
+    await waitFor(() => expect(mockApi.policyPatch).toHaveBeenCalled());
+    const calls = mockApi.policyPatch.mock.calls as unknown as unknown[][];
+    const sent = calls[calls.length - 1][0] as { quietHours: { silencedChannels: string[] }[] };
+    const channels = sent.quietHours[0].silencedChannels;
+    expect(channels.length).toBeGreaterThan(0);
+    expect(channels).not.toContain("desktop-pet");
+    expect(channels).toEqual(["audio", "haptic", "notification", "light"]);
+  });
+
+  it("resolveActiveCharacterId：全部沒有時退到純文字角色，永遠不寫死任何角色 id", () => {
+    expect(resolveActiveCharacterId("buddy", "shu-maid", "plain-text")).toBe("buddy");
+    expect(resolveActiveCharacterId(null, "ext-bot", "plain-text")).toBe("ext-bot");
+    expect(resolveActiveCharacterId(null, "", "buddy")).toBe("buddy");
+    expect(resolveActiveCharacterId(null, "", null)).toBe(TEXT_FALLBACK_CHARACTER_ID);
+    expect(resolveActiveCharacterId(undefined, undefined, undefined)).toBe("plain-text");
+  });
+
+  it("角色頁與其目錄模組不寫死參考角色的 pack id", () => {
+    for (const rel of [
+      "src/pages/CompanionPage.tsx",
+      "src/pages/character/catalog.ts",
+      "src/pages/character/CharacterPreview.tsx",
+      "src/pages/character/CharacterLibrary.tsx",
+    ]) {
+      const source = fs
+        .readFileSync(path.resolve(rel), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      expect(source, `${rel} 不得寫死 shu-maid`).not.toContain("shu-maid");
+    }
   });
 
   it("主動對話／主動程度／安靜時段仍住在角色頁（單一主人），且文案用角色名", async () => {

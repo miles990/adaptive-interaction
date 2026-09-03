@@ -1,6 +1,12 @@
 // 工作頁 task-first 交代流程（一般模式第一屏）：
-// 「想讓{角色}幫你做什麼？」→ 加入檔案或選擇資料夾 → 開始前預覽（使用哪個 Agent／
-// 讀取範圍／是否寫入／工具／時間、訊息與費用上限／如何取消）→ 開始。
+// 「想讓{角色}幫你做什麼？」→ 選擇檔案或資料夾 → 開始前只回答三件事
+// （這次會讀取什麼／會不會修改內容／最多使用多少時間與費用）→ 開始。
+// 其餘技術資訊（交給誰、工具、沙箱、工作目錄、時間與費用輸入、訊息上限、
+// 服務提供者、完整取消方式、原始授權範圍）一律收進「查看技術細節」。
+//
+// 誠實邊界：後端真正強制的是「寫入邊界」（唯讀沙箱／限資料夾寫入＋工作目錄），
+// 讀取沒有硬邊界，所以「這次會讀取什麼」只能說「從你選擇的資料夾開始工作」，
+// 不得寫成「只讀取這個資料夾」。
 //
 // 建立走 AiPage 同一條 api.agentSessionCreate 路徑：payload 由這裡的
 // buildSessionCreateInput 產生，AiPage 的完整建立面板（進階／獨立）也用同一個函式，
@@ -178,6 +184,50 @@ export function writeConsentSatisfied(d: {
   return !d.allowWrite || (d.workdir.trim().length > 0 && d.writeConfirmed);
 }
 
+/** 路徑的最後一段（同時吃 / 與 \；沒有分隔就回原字串）。只用於顯示。 */
+export function basename(p: string): string {
+  const trimmed = p.trim();
+  const parts = trimmed.split(/[/\\]+/).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : trimmed;
+}
+
+export interface PreviewAnswers {
+  reads: string;
+  writes: string;
+  limits: string;
+}
+
+/**
+ * 開始前預覽的三個回答。純函式，方便逐句驗證用字。
+ *
+ * 誠實：後端只強制寫入邊界（唯讀沙箱／限資料夾寫入＋工作目錄），讀取沒有硬邊界，
+ * 因此 reads 只說「從你選擇的資料夾開始工作」，不宣稱「只讀取這個資料夾」。
+ * limits 與後端一致：Codex 依登入方案計費，這裡送不出費用上限。
+ */
+export function previewAnswers(d: {
+  agent: AgentChoice;
+  workdir: string;
+  allowWrite: boolean;
+  writeConfirmed: boolean;
+  ttlMinutes: number;
+  maxCost: number;
+}): PreviewAnswers {
+  const workdir = d.workdir.trim();
+  const reads = workdir
+    ? `你選擇的資料夾（${basename(workdir)}）：從這個資料夾開始工作。系統擋得住的是「改不到別的地方」，不保證它完全不看資料夾以外的內容。`
+    : "沒有選資料夾：從系統資料夾開始工作，不會用到你自己的檔案。";
+  const writes = !d.allowWrite
+    ? "不會修改：這次只看不改，任何檔案都不會被動到。"
+    : d.writeConfirmed && workdir
+      ? `會修改：只限 ${workdir}（你已確認）`
+      : `會修改：只限 ${workdir || "（尚未選擇資料夾）"}——還需要你確認一次`;
+  const limits =
+    d.agent === "codex"
+      ? `${d.ttlMinutes} 分鐘；費用依 Codex 登入方案計費，這裡無法設上限`
+      : `${d.ttlMinutes} 分鐘，最多 US$${d.maxCost.toFixed(2)}`;
+  return { reads, writes, limits };
+}
+
 /** 由任務描述取第一行當名稱（去多餘空白、限長）。 */
 export function taskLabelFrom(task: string): string {
   const line =
@@ -279,12 +329,18 @@ export function readWorkPrefill(
 export type PickDirectoryResult =
   | { kind: "picked"; path: string }
   | { kind: "cancelled" }
-  | { kind: "unavailable" };
+  /** 這個執行環境本來就沒有原生選擇器（瀏覽器版）。 */
+  | { kind: "unsupported" }
+  /** 桌面版有選擇器但這次打不開：照實把原因說出來，不冒充「沒有選擇器」。 */
+  | { kind: "error"; message: string };
 
-/** 資料夾選擇器：只在 Tauri 且 host 有提供對話框指令時可用；沒有就誠實說沒有，
- *  讓使用者直接貼路徑。不新增任何依賴。 */
+/**
+ * 原生資料夾選擇器：桌面版走 host 的對話框外掛（回傳一段路徑字串，
+ * 網頁層拿不到任何檔案存取權）。四種結果分得清楚：
+ * 選好／使用者取消／這個版本沒有／這次打不開（附原因）。
+ */
 export async function pickDirectory(): Promise<PickDirectoryResult> {
-  if (!isTauri) return { kind: "unavailable" };
+  if (!isTauri) return { kind: "unsupported" };
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     const picked = await invoke<unknown>("plugin:dialog|open", {
@@ -295,8 +351,8 @@ export async function pickDirectory(): Promise<PickDirectoryResult> {
       return { kind: "picked", path: picked[0] };
     }
     return { kind: "cancelled" };
-  } catch {
-    return { kind: "unavailable" };
+  } catch (reason) {
+    return { kind: "error", message: String(reason) };
   }
 }
 
@@ -331,7 +387,11 @@ export function TaskComposer({
   const [starting, setStarting] = React.useState(false);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [pickerHint, setPickerHint] = React.useState<string | null>(null);
+  const [pickerError, setPickerError] = React.useState<string | null>(null);
+  // 改了資料夾就要重新確認：確認的對象是「那一個路徑」，不是「一次同意」。
+  React.useEffect(() => {
+    setWriteConfirmed(false);
+  }, [workdir]);
   const [agents] = useAsync(
     () => api.agentsDiscoveries() as Promise<Record<string, unknown>>,
     []
@@ -355,14 +415,43 @@ export function TaskComposer({
         ? `${agentDisplayName(agentId)}${availability.label}：${availability.reason ?? ""}`
         : null;
   const canStart = task.trim().length > 0 && !blockReason && consentOk && !starting;
+  const answers = previewAnswers({
+    agent: agentId,
+    workdir,
+    allowWrite,
+    writeConfirmed,
+    ttlMinutes: ttl,
+    maxCost,
+  });
+  // 技術細節裡的「原始授權範圍」＝真正會送出去的那三組字串，不另外編一份。
+  const rawScope = (() => {
+    const input = buildSessionCreateInput({
+      agent: agentId,
+      label: "",
+      workdir: trimmedWorkdir,
+      ttlMinutes: ttl,
+      maxCost,
+      allowWrite,
+    });
+    const parts = [
+      ...(input.dataScope as string[]),
+      ...(input.toolScope as string[]),
+      ...(input.consentScope as string[]),
+    ];
+    return parts.length > 0 ? parts.join("、") : "（沒有：沒指定資料夾，也不修改檔案）";
+  })();
 
   const pick = async () => {
-    setPickerHint(null);
+    setPickerError(null);
     const result = await pickDirectory();
-    if (result.kind === "picked") setWorkdir(result.path);
-    else if (result.kind === "unavailable") {
-      setPickerHint("這個版本沒有資料夾選擇器；請直接貼上資料夾路徑。");
+    if (result.kind === "picked") {
+      setWorkdir(result.path);
+      // 換了資料夾＝換了授權對象，先前的確認一律作廢。
+      setWriteConfirmed(false);
+    } else if (result.kind === "error") {
+      setPickerError(result.message);
     }
+    // cancelled／unsupported：不用打擾使用者，旁邊已經寫著可以直接貼路徑。
   };
 
   const start = async () => {
@@ -430,13 +519,21 @@ export function TaskComposer({
             placeholder="貼上資料夾路徑（留空＝只用系統資料夾）"
             onChange={(e) => setWorkdir(e.target.value)}
           />
-          {isTauri && (
+          {isTauri ? (
             <button type="button" onClick={() => void pick()}>
               選擇資料夾…
             </button>
+          ) : (
+            <span className="muted small" role="note">
+              瀏覽器版沒有原生資料夾選擇器；請貼上資料夾路徑。
+            </span>
           )}
         </div>
-        {pickerHint && <p className="muted small">{pickerHint}</p>}
+        {pickerError && (
+          <p className="cap-card-error" role="alert">
+            打不開資料夾選擇器：{pickerError}。可以直接貼上路徑。
+          </p>
+        )}
         <label className="field-label" htmlFor="work-kind">
           這是哪一種工作
         </label>
@@ -453,40 +550,12 @@ export function TaskComposer({
 
         <div className="work-preview" role="group" aria-label="開始前預覽">
           <strong>開始前先看一下</strong>
-          <dl className="work-preview-list">
-            <dt>使用哪個 Agent</dt>
+          <dl className="work-preview-list work-preview-answers">
+            <dt>這次會讀取什麼</dt>
+            <dd>{answers.reads}</dd>
+            <dt>會不會修改內容</dt>
             <dd>
-              {agentId === "none" ? (
-                <span>
-                  {agentDisplayName("none")}：你把「{kindLabel}」設定為不交給 Agent。
-                </span>
-              ) : (
-                <>
-                  <span>
-                    <strong>{agentDisplayName(agentId)}</strong>{" "}
-                    {availability && <Badge kind={availability.badge}>{availability.label}</Badge>}
-                  </span>
-                  <span className="muted small">
-                    {AGENT_PURPOSE[agentId]}・依你的分工設定（{kindLabel}）
-                  </span>
-                </>
-              )}
-            </dd>
-            <dt>讀取範圍</dt>
-            <dd>
-              {trimmedWorkdir
-                ? `資料夾 ${trimmedWorkdir}（只讀取這個資料夾）`
-                : "沒有指定資料夾：只在系統資料夾裡工作，不會讀取你的其他檔案。"}
-            </dd>
-            <dt>是否寫入</dt>
-            <dd>
-              <span>
-                {allowWrite
-                  ? writeConfirmed && trimmedWorkdir
-                    ? "可以修改上面資料夾裡的檔案（你已確認）"
-                    : "可以修改上面資料夾裡的檔案——還需要你再確認一次"
-                  : "不寫入：只讀取，不修改任何檔案（預設）"}
-              </span>
+              <span>{answers.writes}</span>
               <label className="work-consent">
                 <input
                   type="checkbox"
@@ -513,26 +582,53 @@ export function TaskComposer({
                     checked={writeConfirmed}
                     onChange={(e) => setWriteConfirmed(e.target.checked)}
                   />
-                  <span>我已確認上面的資料夾，同意這次工作可以在裡面修改檔案。</span>
+                  <span>
+                    我已確認：這次工作只可以在 {trimmedWorkdir} 裡修改檔案，工作結束、{ttl}{" "}
+                    分鐘到期、關閉或緊急停止時立即失效。
+                  </span>
                 </label>
               )}
             </dd>
-            <dt>工具</dt>
-            <dd>
-              {allowWrite
-                ? "讀取與修改這個資料夾裡的檔案；不含其他位置或網路。"
-                : "只讀取檔案；不修改、不碰資料夾以外的位置。"}
-            </dd>
-            <dt>時間、訊息與費用上限</dt>
-            <dd>
-              <span>
-                時間最多 {ttl} 分鐘・訊息則數依安全設定（開始後在工作卡片看得到）・費用
-                {agentId === "codex"
-                  ? "依 Codex 的登入方案計費（這裡不另設上限）"
-                  : `最多 $${maxCost.toFixed(2)}`}
-              </span>
-              <details className="tech-details" style={{ marginTop: 4 }}>
-                <summary className="muted small">調整時間與費用上限</summary>
+            <dt>最多使用多少時間與費用</dt>
+            <dd>{answers.limits}</dd>
+          </dl>
+          <details className="tech-details">
+            <summary>查看技術細節</summary>
+            <dl className="work-preview-list work-preview-tech">
+              <dt>使用哪個 Agent</dt>
+              <dd>
+                {agentId === "none" ? (
+                  <span>
+                    {agentDisplayName("none")}：你把「{kindLabel}」設定為不交給 Agent。
+                  </span>
+                ) : (
+                  <>
+                    <span>
+                      <strong>{agentDisplayName(agentId)}</strong>{" "}
+                      {availability && <Badge kind={availability.badge}>{availability.label}</Badge>}
+                    </span>
+                    <span className="muted small">
+                      {AGENT_PURPOSE[agentId]}・依你的分工設定（{kindLabel}）
+                    </span>
+                  </>
+                )}
+              </dd>
+              <dt>工具</dt>
+              <dd>
+                {allowWrite
+                  ? "讀取與修改這個資料夾裡的檔案；不含其他位置或網路。"
+                  : "只讀取檔案；不修改、不碰資料夾以外的位置。"}
+              </dd>
+              <dt>沙箱</dt>
+              <dd>
+                {allowWrite
+                  ? "限資料夾寫入沙箱：只有下面那個工作目錄可以被改。"
+                  : "唯讀沙箱：不給修改權限。"}
+              </dd>
+              <dt>工作目錄</dt>
+              <dd>{trimmedWorkdir || "系統資料夾（沒有指定時的預設位置）"}</dd>
+              <dt>時間與費用上限</dt>
+              <dd>
                 <div className="row wrap">
                   <label className="field-label">
                     時間上限（分鐘）
@@ -541,7 +637,9 @@ export function TaskComposer({
                       min={1}
                       max={240}
                       value={ttl}
-                      onChange={(e) => setTtl(Math.max(1, Math.min(240, Number(e.target.value) || 1)))}
+                      onChange={(e) =>
+                        setTtl(Math.max(1, Math.min(240, Number(e.target.value) || 1)))
+                      }
                     />
                   </label>
                   {agentId !== "codex" && (
@@ -557,11 +655,21 @@ export function TaskComposer({
                     </label>
                   )}
                 </div>
-              </details>
-            </dd>
-            <dt>如何取消</dt>
-            <dd>{CANCEL_SENTENCE}</dd>
-          </dl>
+              </dd>
+              <dt>訊息上限</dt>
+              <dd>依安全設定決定，開始後在工作卡片看得到。</dd>
+              <dt>服務提供者</dt>
+              <dd>
+                {agentId === "none"
+                  ? "沒有：這種工作你設定為不交給 Agent。"
+                  : `${agentDisplayName(agentId)}（內容會送到它的模型服務，依你在它那裡的登入方案計費）`}
+              </dd>
+              <dt>如何取消</dt>
+              <dd>{CANCEL_SENTENCE}</dd>
+              <dt>原始授權範圍</dt>
+              <dd>{rawScope}</dd>
+            </dl>
+          </details>
           <p className="muted small">
             內容會送到該 Agent 的模型服務（依你在該 Agent 的登入方案計費）。到期、關閉或緊急停止時，權限立即失效。
           </p>

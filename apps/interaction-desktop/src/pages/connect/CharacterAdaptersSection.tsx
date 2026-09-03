@@ -1,4 +1,4 @@
-// 角色 adapter（連接與權限 → 使用的裝置）：把「角色是怎麼接上系統的」用人話列出來。
+// 角色 adapter（連接與權限 → 已連接的裝置）：把「角色是怎麼接上系統的」用人話列出來。
 // 資料只來自 /v1/character/instances 與 /v1/character/adapters；介面拿不到的欄位誠實寫
 // 「未回報」，「已測試」只在 Runtime 旗標為 true（真的跑過 連上→演出→回報 一整圈）時出現。
 // 一般模式不出現 hello／receipt／manifest／UUID 這類字；原始 id 只在進階模式一行帶過。
@@ -206,12 +206,26 @@ const INPUT_CAPABILITY_LABEL: Record<string, string> = {
   "input.fileDrop": "檔案拖放（只有檔名與大小）",
 };
 
-/** Runtime 回報的 input capability id → 「可以接收：…」；沒有清單回 null（不猜）。 */
-export function receiveLineFromInputs(ids: string[] | null | undefined): string | null {
+/**
+ * Runtime 回報的 input capability id → 「可以接收：…」；沒有清單回 null（不猜）。
+ * 介面不認得的 id：一般模式只說「介面沒有這項的名稱」（不把原始 id 丟給使用者，
+ * 也不由 id 拼一個看起來像人話的名字），進階模式才照實列出原始 id。
+ */
+export function receiveLineFromInputs(
+  ids: string[] | null | undefined,
+  advanced = false
+): string | null {
   if (!Array.isArray(ids)) return null;
-  const labels = ids
-    .filter((id): id is string => typeof id === "string")
-    .map((id) => INPUT_CAPABILITY_LABEL[id] ?? (id.startsWith("input.") ? id.slice("input.".length) : id));
+  const labels: string[] = [];
+  for (const id of ids) {
+    if (typeof id !== "string") continue;
+    const label = Object.prototype.hasOwnProperty.call(INPUT_CAPABILITY_LABEL, id)
+      ? INPUT_CAPABILITY_LABEL[id]
+      : advanced
+        ? id
+        : "其他互動（介面沒有這項的名稱）";
+    if (!labels.includes(label)) labels.push(label);
+  }
   if (labels.length === 0) return "可以接收：不接收任何互動（只演出）";
   return `可以接收：${labels.join("、")}`;
 }
@@ -233,7 +247,7 @@ export function CharacterAdaptersSection({
 }: {
   refreshKey: number;
   advanced?: boolean;
-  /** true＝自己包一個 Section（裝置與提供者分頁）；false＝嵌在四區的「使用的裝置」裡。 */
+  /** true＝自己包一個 Section（裝置與來源分頁）；false＝嵌在第一層的「已連接的裝置」裡。 */
   standalone?: boolean;
 }) {
   const { name } = useCharacterName();
@@ -294,7 +308,8 @@ export function CharacterAdaptersSection({
             const receive =
               row.instanceId === PRIMARY_INSTANCE_ID && primaryReceive
                 ? primaryReceive
-                : receiveLineFromInputs(row.inputCapabilities) ?? "可以接收：介面沒有拿到清單（未回報）";
+                : receiveLineFromInputs(row.inputCapabilities, advanced) ??
+                  "可以接收：介面沒有拿到清單（未回報）";
             return (
               <div
                 className="provider-card connect-adapter-row"

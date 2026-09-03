@@ -12,7 +12,16 @@ import {
 import { AppStateProvider, useAppState } from "./appstate";
 import { Icon } from "./icons";
 import { Badge } from "./ui";
-import { inboxItemTitle, projectInboxStatus } from "./statusProjection";
+import {
+  inboxItemTitle,
+  isPendingCountExact,
+  PENDING_INCOMPLETE_NOTE,
+  pendingCountLabel,
+  projectInboxStatus,
+  projectSensorStop,
+  sensorKindLabel,
+  sensorStartedByLabel,
+} from "./statusProjection";
 import { ConfirmButton, Dialog, useFocusTrap } from "./components/Dialog";
 import { HomePage } from "./pages/HomePage";
 import { CapabilitiesPage } from "./pages/CapabilitiesPage";
@@ -94,7 +103,9 @@ export const LEGACY_ANCHORS: Record<string, string> = {
   memory: "more",
   activity: "more",
   settings: "more",
-  // v0.5 一般模式「更多」的新分頁：角色與整合管理／進階功能。
+  // v0.5 一般模式「更多」的新分頁：備份與還原／進階模式。
+  backup: "more",
+  // 相容保留：角色與整合管理不再是「更多」的分頁按鈕，但舊書籤／深連結仍要到得了。
   manage: "more",
   "advanced-features": "more",
 };
@@ -123,14 +134,9 @@ export function titleFor(tab: string, characterName?: string): string {
   );
 }
 
-/** 感測器種類的人話（橫幅用；未知種類原樣顯示，不猜）。 */
-export function sensorKindLabel(kind: string): string {
-  const k = kind.toLowerCase();
-  if (k === "microphone" || k.includes("mic")) return "麥克風";
-  if (k.includes("camera")) return "攝影機";
-  if (k.includes("location") || k.includes("gps")) return "定位";
-  return kind;
-}
+/** 感測器種類的人話（橫幅用）。未知種類不猜、也不外洩原始 id：走共用投影
+ *  （statusProjection.ts）說「其他感測器」，與「現在」頁、角色一句話同一份文案。 */
+export { sensorKindLabel };
 
 /** 感測倒數：介面上顯示的「N 秒後自動停止」必須真的走。
  *  interval 只在此元件掛載期間存在（感測結束、banner 消失即清除），有界。 */
@@ -146,6 +152,45 @@ export function SensorCountdown({ autoStopAt }: { autoStopAt: string }) {
     return () => clearInterval(t);
   }, [remaining]);
   return <>{`・${secs} 秒後自動停止`}</>;
+}
+
+/**
+ * 感測不靜默：只要有感測在跑就一定有這條橫幅（種類、誰啟動的、用途、狀態、倒數、
+ * 立即停止）。
+ *
+ * 「誰啟動的」走 `sensorStartedByLabel`：一般模式說人話，**不得**把 runtime 的內部
+ * 身分字串（`iphone:iphone-87b4…` 這種裝置 id）原樣印給使用者看；原始值只在進階模式
+ * 以 `title` 補上，所以透明度沒有變少、只是不再外洩實作細節。
+ */
+export function SensorBanner({
+  sensors,
+  advanced,
+  onStopAll,
+}: {
+  sensors: readonly import("./api").SensorUse[];
+  advanced: boolean;
+  onStopAll: () => void;
+}) {
+  if (sensors.length === 0) return null;
+  return (
+    <div className="sensor-banner" role="status">
+      {sensors.map((s) => (
+        <span key={s.kind}>
+          {s.kind === "microphone" ? "🎙 正在使用麥克風" : `感測使用中：${sensorKindLabel(s.kind)}`}
+          （由{" "}
+          <span title={advanced ? s.startedBy : undefined}>{sensorStartedByLabel(s.startedBy)}</span>{" "}
+          啟動・{s.purpose}
+          {s.state !== undefined && s.state !== "active" ? "・狀態未確認" : ""}
+          {s.autoStopAt ? <SensorCountdown autoStopAt={s.autoStopAt} /> : ""}
+          ）
+        </span>
+      ))}
+      {/* 停止結果不得靜默吞掉：成功／仍在使用／不確定都會落到同一條回報列。 */}
+      <button style={{ marginLeft: 8 }} onClick={onStopAll}>
+        立即停止
+      </button>
+    </div>
+  );
 }
 
 export default function App() {
@@ -357,6 +402,29 @@ function Shell({
       .catch(() => setInbox(null));
   }, [connecting, refreshKey]);
 
+  /** 「立即停止」：送出 ≠ 已停止。送出後重讀 status，把真實剩餘的感測誠實回報出來
+   *  （成功走綠色狀態列、仍在使用／不確定／失敗走警示列）；不得靜默 catch。 */
+  async function stopAllSensors() {
+    let report: unknown;
+    try {
+      report = await api.sensorsStop();
+    } catch (e) {
+      setCommandNotice({ message: `停止所有感測失敗：${String(e)}`, ok: false });
+      return;
+    }
+    let remaining: import("./api").SensorUse[] | null = null;
+    try {
+      const s = await api.status();
+      remaining = (s["activeSensors"] as import("./api").SensorUse[] | undefined) ?? [];
+      setSensors(remaining);
+      setEstop(Boolean(s["emergencyStop"]));
+    } catch {
+      remaining = null;
+    }
+    setCommandNotice(projectSensorStop(report, remaining));
+    bumpRefresh();
+  }
+
   async function triggerEstop() {
     try {
       await api.emergencyStop("desktop button");
@@ -459,10 +527,10 @@ function Shell({
           <button
             className="notification-trigger"
             onClick={() => setNotificationOpen((open) => !open)}
-            aria-label={`通知中心，${String(inbox?.pendingCount ?? "未知")} 項待決定`}
+            aria-label={`通知中心，${inboxBadgeLabel(inbox)}待決定`}
             aria-expanded={notificationOpen}
           >
-            通知 {inbox ? String(inbox.pendingCount ?? 0) : "?"}
+            通知 {inbox ? inboxBadgeText(inbox) : "?"}
           </button>
           {/* 觸發是一鍵；「解除」刻意不在這裡 — 要走安全頁的恢復流程。 */}
           {estop ? (
@@ -502,26 +570,7 @@ function Shell({
             緊急停止已啟動：所有回應已停止、未完成動作已中止。解除需到「連接與權限 → 同意與安全」走安全流程，不會自動恢復。
           </div>
         )}
-        {sensors.length > 0 && (
-          <div className="sensor-banner" role="status">
-            {sensors.map((s) => (
-              <span key={s.kind}>
-                {s.kind === "microphone"
-                  ? "🎙 正在使用麥克風"
-                  : `感測使用中：${sensorKindLabel(s.kind)}`}
-                （由 {s.startedBy === "desktop" ? "你" : s.startedBy} 啟動・{s.purpose}
-                {s.autoStopAt ? <SensorCountdown autoStopAt={s.autoStopAt} /> : ""}
-                ）
-              </span>
-            ))}
-            <button
-              style={{ marginLeft: 8 }}
-              onClick={() => api.sensorsStop().then(bumpRefresh).catch(() => {})}
-            >
-              立即停止
-            </button>
-          </div>
-        )}
+        <SensorBanner sensors={sensors} advanced={advanced} onStopAll={() => void stopAllSensors()} />
         {disconnected && (
           <div className="estop-banner" role="alert">
             與外部系統的連線中斷 — 顯示的資料可能已過期，指令暫時無法送達。會自動重新連線。
@@ -559,6 +608,8 @@ function Shell({
               advanced={advanced}
               onNavigate={setTab}
               onRerunOnboarding={() => setOnboarding("open")}
+              estopped={estop}
+              onEstop={triggerEstop}
             />
           )}
         </div>
@@ -578,7 +629,7 @@ function Shell({
         <CloseDialog external={supervisor?.mode === "external"} onClose={() => setCloseDialog(false)} />
       )}
       <NarrowNav
-        tab={navTab}
+        tab={tab}
         nav={nav}
         onNavigate={setTab}
         advanced={advanced}
@@ -596,6 +647,22 @@ function Shell({
       />
     </div>
   );
+}
+
+/** 右上角徽章的數字。後端說 `pendingCountExact: false` 時 pendingCount 只是
+ *  下限，徽章要說「至少 N」——不得讓使用者以為那就是全部。 */
+export function inboxBadgeText(inbox: Record<string, unknown> | null): string {
+  const raw = inbox?.pendingCount;
+  const count = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
+  return isPendingCountExact(inbox) ? String(count) : `至少 ${count}`;
+}
+
+/** 徽章的螢幕閱讀器說明（同一份真相，含「至少」）。 */
+export function inboxBadgeLabel(inbox: Record<string, unknown> | null): string {
+  if (!inbox) return "未知 項";
+  const raw = inbox.pendingCount;
+  const count = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
+  return pendingCountLabel(count, isPendingCountExact(inbox));
 }
 
 /** 右上角通知中心：與 Dialog 共用同一個焦點陷阱（Escape 關閉並還原焦點、
@@ -628,6 +695,11 @@ export function NotificationPanel({
       </div>
       {!inbox ? (
         <div className="state-box state-error">目前無法確認通知狀態。</div>
+      ) : decisions.shown.length === 0 && decisions.notShown === 0 && !decisions.exact ? (
+        // 後端說 pendingCount 只是下限：這一頁空的不代表沒有待決定。
+        <div className="state-box" role="status">
+          {PENDING_INCOMPLETE_NOTE}。
+        </div>
       ) : decisions.shown.length === 0 && decisions.notShown === 0 ? (
         <div className="state-box">目前沒有待決定事項。</div>
       ) : (
@@ -649,7 +721,13 @@ export function NotificationPanel({
             // 誠實：徽章數來自全量，這一頁裝不下（或舊 daemon 只給最近 20 筆）——
             // 不得宣稱「沒有待決定事項」。
             <div className="state-box" role="status">
-              還有 {decisions.notShown} 項待決定不在這一頁，前往活動歷史。
+              {decisions.exact ? "還有" : "至少還有"} {decisions.notShown}{" "}
+              項待決定不在這一頁，前往活動歷史。
+            </div>
+          )}
+          {decisions.notShown === 0 && !decisions.exact && (
+            <div className="state-box" role="status">
+              {PENDING_INCOMPLETE_NOTE}。
             </div>
           )}
         </>
@@ -710,22 +788,31 @@ function CloseDialog({ external, onClose }: { external: boolean; onClose: () => 
  *  所有頁面都可抵達、鍵盤可操作、永遠有文字標籤（不只靠 Icon）。 */
 const NARROW_PRIMARY: string[] = ["home", "companion", "work", "connect"];
 
-/** 窄視窗「更多」選單的細項（寬視窗時這些是 MorePage 的分頁）。 */
+/** 窄視窗「更多」選單的細項（寬視窗時這些是 MorePage 的分頁）。
+ *  與 MORE_TABS 同一組 id／文案；`manage` 是隱藏的相容路由，不列在這裡。 */
 export const NARROW_MORE_ITEMS: NavEntry[] = [
-  { id: "memory", label: "記憶與知識", icon: "book-open" },
-  { id: "activity", label: "活動歷史", icon: "history" },
-  { id: "settings", label: "設定", icon: "settings" },
-  { id: "manage", label: "角色與整合管理", icon: NEUTRAL_CHARACTER_ICON },
-  { id: "advanced-features", label: "進階功能", icon: "code2" },
+  { id: "memory", label: "記憶與資料", icon: "book-open" },
+  { id: "activity", label: "活動紀錄", icon: "history" },
+  { id: "settings", label: "外觀與語言", icon: "settings" },
+  { id: "backup", label: "備份與還原", icon: "cloud-download" },
+  { id: "advanced-features", label: "進階模式", icon: "code2" },
 ];
 
-function NarrowNav({
+/** 「更多」選單裡目前所在的細項 id。傳進來的是**未折疊**的路由（settings／memory…）；
+ *  裸的 `more` 對應 PageBody 的預設分頁（記憶與資料），與寬視窗 MorePage 的高亮一致。 */
+export function moreSheetCurrent(tab: Tab): Tab {
+  return tab === "more" ? "memory" : tab;
+}
+
+export function NarrowNav({
   tab,
   nav,
   onNavigate,
   advanced,
   statusBadge,
 }: {
+  /** 未折疊的目前路由。一級入口的高亮走 navAnchorFor（相容 id 也會亮對），
+   *  「更多」選單的細項則要用原始路由比對，否則永遠沒有細項會亮。 */
   tab: Tab;
   /** 執行期一級導覽（第二項已換成目前角色）。 */
   nav: NavEntry[];
@@ -736,16 +823,18 @@ function NarrowNav({
   const [moreOpen, setMoreOpen] = React.useState(false);
   const primary = nav.filter((t) => NARROW_PRIMARY.includes(t.id));
   const secondary = NARROW_MORE_ITEMS;
-  const moreActive = !NARROW_PRIMARY.includes(tab);
+  const anchor = navAnchorFor(tab);
+  const current = moreSheetCurrent(tab);
+  const moreActive = !NARROW_PRIMARY.includes(anchor);
   return (
     <>
       <nav className="bottom-nav" aria-label="主要導覽（窄視窗）">
         {primary.map((t) => (
           <button
             key={t.id}
-            className={tab === t.id ? "bottom-nav-item active" : "bottom-nav-item"}
+            className={anchor === t.id ? "bottom-nav-item active" : "bottom-nav-item"}
             onClick={() => onNavigate(t.id)}
-            aria-current={tab === t.id ? "page" : undefined}
+            aria-current={anchor === t.id ? "page" : undefined}
           >
             <Icon name={t.icon} size={18} />
             <span>{t.label}</span>
@@ -768,7 +857,8 @@ function NarrowNav({
             {secondary.map((t) => (
               <button
                 key={t.id}
-                className={tab === t.id ? "more-item active" : "more-item"}
+                className={current === t.id ? "more-item active" : "more-item"}
+                aria-current={current === t.id ? "page" : undefined}
                 onClick={() => {
                   onNavigate(t.id);
                   setMoreOpen(false);
@@ -785,7 +875,8 @@ function NarrowNav({
                 {ADVANCED_NAV.map((t) => (
                   <button
                     key={t.id}
-                    className={tab === t.id ? "more-item active" : "more-item"}
+                    className={current === t.id ? "more-item active" : "more-item"}
+                    aria-current={current === t.id ? "page" : undefined}
                     onClick={() => {
                       onNavigate(t.id);
                       setMoreOpen(false);
@@ -810,6 +901,8 @@ export function PageBody({
   advanced,
   onNavigate,
   onRerunOnboarding,
+  estopped = false,
+  onEstop,
 }: {
   tab: Tab;
   refreshKey: number;
@@ -817,10 +910,22 @@ export function PageBody({
   advanced: boolean;
   onNavigate: (tab: Tab) => void;
   onRerunOnboarding: () => void;
+  /** Shell 已知的緊急停止狀態（供「現在」頁的快速操作顯示「前往解除」）。 */
+  estopped?: boolean;
+  /** Shell 的緊急停止流程；與頂部列、⌘K 是同一條路徑（失敗會有重試警示列）。 */
+  onEstop?: () => Promise<void>;
 }) {
   switch (tab) {
     case "home":
-      return <HomePage refreshKey={refreshKey} events={events} onNavigate={onNavigate} />;
+      return (
+        <HomePage
+          refreshKey={refreshKey}
+          events={events}
+          onNavigate={onNavigate}
+          estopped={estopped}
+          onEstop={onEstop}
+        />
+      );
     case "companion":
       return <CompanionPage refreshKey={refreshKey} />;
     // 工作：AI 工作階段＋自動互動（舊 id 進到對應分頁）。
@@ -870,7 +975,7 @@ export function PageBody({
       return <CapabilitiesPage kind="actuator" advanced={advanced} />;
     case "toolops":
       return <CapabilitiesPage kind="tool-operation" advanced={advanced} />;
-    // 更多：記憶與知識／活動歷史／設定（舊 id 進到對應分頁）。
+    // 更多：記憶與資料／活動紀錄／外觀與語言／備份與還原（舊 id 進到對應分頁）。
     case "more":
     case "memory":
       return (
@@ -905,6 +1010,18 @@ export function PageBody({
           initial="settings"
         />
       );
+    case "backup":
+      return (
+        <MorePage
+          refreshKey={refreshKey}
+          events={events}
+          advanced={advanced}
+          onNavigate={onNavigate}
+          onRerunOnboarding={onRerunOnboarding}
+          initial="backup"
+        />
+      );
+    // 隱藏的相容路由：角色與整合管理不再有分頁按鈕，舊書籤／深連結仍到得了。
     case "manage":
       return (
         <MorePage

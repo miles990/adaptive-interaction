@@ -1,6 +1,8 @@
 // 「現在」頁（一般模式）第一屏：只回答三件事——角色現在怎麼樣（角色狀態一句話＋
 // 可信文字 fallback）、正在做什麼（進行中工作以 statusProjection 投影）、有什麼需要
-// 處理（待決定）——加三個快速操作；數量／系統狀態收在「詳細狀態」折疊區，展開才出現。
+// 處理（待決定）——加五個快速操作（交代一件事／暫停或恢復主動互動／加入裝置／
+// 停止所有感測／緊急停止）；數量／系統狀態收在「詳細狀態」折疊區，展開才出現。
+// 「停止所有感測」必須誠實：送出 ≠ 已停止，重讀狀態還有感測就不得說已停止。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -91,10 +93,19 @@ function stubHome(opts: { status?: Record<string, unknown>; sessions?: AgentSess
   vi.spyOn(api, "recipesList").mockResolvedValue([]);
 }
 
-function renderHome(onNavigate = vi.fn()) {
+function renderHome(
+  onNavigate = vi.fn(),
+  extra: { estopped?: boolean; onEstop?: () => Promise<void> } = {}
+) {
   const utils = render(
     <AppStateProvider ready={false} refreshKey={0}>
-      <HomePage refreshKey={0} events={[]} onNavigate={onNavigate} />
+      <HomePage
+        refreshKey={0}
+        events={[]}
+        onNavigate={onNavigate}
+        estopped={extra.estopped}
+        onEstop={extra.onEstop}
+      />
     </AppStateProvider>
   );
   return { ...utils, onNavigate };
@@ -167,7 +178,9 @@ describe("characterSentence：角色現在怎麼樣（一句話，安全文字�
     expect(characterSentence({ ...base, name: "" })).toBe("角色在桌面上，一切正常。");
     expect(sensorLabel("microphone")).toBe("麥克風");
     expect(sensorLabel("iphone.camera")).toBe("攝影機");
-    expect(sensorLabel("weird.sensor")).toBe("weird.sensor");
+    // 認不得的種類不外洩原始 id，也不假裝知道是什麼感測器。
+    expect(sensorLabel("weird.sensor")).toBe("其他感測器");
+    expect(sensorLabel("iphone.motion")).toBe("其他感測器");
   });
 });
 
@@ -196,13 +209,21 @@ describe("「現在」第一屏只回答三件事", () => {
     expect(decisions.textContent).not.toContain("waiting-for-consent");
   });
 
-  it("三個快速操作都在第一屏", async () => {
+  it("五個快速操作都在第一屏（含停止所有感測與二段確認的緊急停止）", async () => {
     stubHome();
-    renderHome();
+    const { container } = renderHome();
     await screen.findByText("小樞在桌面上，一切正常。");
     expect(screen.getByRole("button", { name: "交代一件事" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "暫停主動互動" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "加入裝置" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "停止所有感測" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "緊急停止" })).toBeInTheDocument();
+    // 暫停／恢復是同一組（一個動作、兩個狀態），有可讀的群組名稱。
+    const group = screen.getByRole("group", { name: "暫停或恢復主動互動" });
+    expect(within(group).getByRole("button", { name: "暫停主動互動" })).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: "暫停一段時間…" })).toBeInTheDocument();
+    // 全部都在折疊區之外（第一屏就看得到）。
+    expect(visibleText(container)).toContain("停止所有感測");
+    expect(visibleText(container)).toContain("緊急停止");
   });
 
   it("數量與系統狀態收在「詳細狀態」，展開前不在畫面上，展開後才查詢並顯示", async () => {
@@ -305,6 +326,200 @@ describe("快速操作", () => {
     await userEvent.click(screen.getByRole("button", { name: "暫停主動互動" }));
     await waitFor(() => expect(pauseSet).toHaveBeenCalled());
     expect(await screen.findByRole("alert")).toHaveTextContent("操作失敗");
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("快速操作：緊急停止（只能觸發、不能解除）", () => {
+  it("二段確認後才走 Shell 的緊急停止流程；頁面上沒有任何解除路徑", async () => {
+    stubHome();
+    const clear = vi.spyOn(api, "emergencyStopClear");
+    const onEstop = vi.fn().mockResolvedValue(undefined);
+    renderHome(vi.fn(), { onEstop });
+    await screen.findByText("小樞在桌面上，一切正常。");
+    await userEvent.click(screen.getByRole("button", { name: "緊急停止" }));
+    // 第一下只進入確認態，不得直接觸發。
+    expect(onEstop).not.toHaveBeenCalled();
+    const confirm = await screen.findByRole("button", { name: "立即停止一切？" });
+    await userEvent.click(confirm);
+    await waitFor(() => expect(onEstop).toHaveBeenCalledTimes(1));
+    expect(clear).not.toHaveBeenCalled();
+  });
+
+  it("沒有 onEstop 時直接呼叫後端並導到安全頁（仍是二段確認）", async () => {
+    stubHome();
+    const estop = vi.spyOn(api, "emergencyStop").mockResolvedValue({});
+    const { onNavigate } = renderHome();
+    await screen.findByText("小樞在桌面上，一切正常。");
+    await userEvent.click(screen.getByRole("button", { name: "緊急停止" }));
+    await userEvent.click(await screen.findByRole("button", { name: "立即停止一切？" }));
+    await waitFor(() => expect(estop).toHaveBeenCalledWith("home quick action"));
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith("safety"));
+  });
+
+  it("已在緊急停止中：顯示「前往解除」而不是第二顆觸發鈕", async () => {
+    stubHome({ status: status({ emergencyStop: true }) });
+    const clear = vi.spyOn(api, "emergencyStopClear");
+    const { onNavigate } = renderHome(vi.fn(), { estopped: true });
+    await screen.findByText(/^緊急停止中：小樞已停止所有回應。$/);
+    expect(screen.queryByRole("button", { name: "緊急停止" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /緊急停止中 — 前往解除/ }));
+    expect(onNavigate).toHaveBeenCalledWith("safety");
+    expect(clear).not.toHaveBeenCalled();
+  });
+});
+
+describe("快速操作：停止所有感測（誠實階梯）", () => {
+  it("重讀後仍有感測在用：說仍在使用中，不得說已停止", async () => {
+    stubHome();
+    // 停止之後手機仍在感測：用可變的後端狀態，避免依賴呼叫順序。
+    let active: { kind: string }[] = [];
+    vi.spyOn(api, "status").mockImplementation(async () => status({ activeSensors: active }));
+    const stop = vi.spyOn(api, "sensorsStop").mockImplementation(async () => {
+      active = [{ kind: "iphone.mic-level" }];
+      return {
+        stopped: true,
+        uncertain: true,
+        local: { microphone: "stopped" },
+        devices: [{ deviceId: "d1", name: "iPhone", outcome: "unknown", waitedMs: 3000 }],
+      };
+    });
+    renderHome();
+    await screen.findByText("小樞在桌面上，一切正常。");
+    await userEvent.click(screen.getByRole("button", { name: "停止所有感測" }));
+    await waitFor(() => expect(stop).toHaveBeenCalled());
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("仍在使用中");
+    expect(alert).toHaveTextContent("麥克風");
+    expect(alert.textContent).not.toContain("已停止感測");
+    expect(alert.textContent).not.toContain("iphone.mic-level");
+  });
+
+  it("裝置沒回覆：結果不確定，不算成功", async () => {
+    stubHome();
+    vi.spyOn(api, "sensorsStop").mockResolvedValue({
+      stopped: true,
+      uncertain: true,
+      local: { microphone: "stopped" },
+      devices: [{ deviceId: "d1", name: "iPhone", outcome: "unreachable", waitedMs: 3000 }],
+    });
+    vi.spyOn(api, "status").mockResolvedValue(status());
+    renderHome();
+    await screen.findByText("小樞在桌面上，一切正常。");
+    await userEvent.click(screen.getByRole("button", { name: "停止所有感測" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("結果不確定");
+    expect(alert).toHaveTextContent("iPhone");
+    expect(alert.textContent).not.toContain("已停止感測");
+  });
+
+  it("舊 daemon 的 {stopped:true}＋重讀沒有感測：才敢說已停止感測", async () => {
+    stubHome();
+    vi.spyOn(api, "sensorsStop").mockResolvedValue({ stopped: true });
+    vi.spyOn(api, "status").mockResolvedValue(status({ activeSensors: [] }));
+    renderHome();
+    await screen.findByText("小樞在桌面上，一切正常。");
+    await userEvent.click(screen.getByRole("button", { name: "停止所有感測" }));
+    expect(await screen.findByText("已停止感測。")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("重讀狀態失敗：說無法確認，不猜成功也不猜失敗", async () => {
+    stubHome();
+    let down = false;
+    vi.spyOn(api, "status").mockImplementation(async () => {
+      if (down) throw new Error("status down");
+      return status();
+    });
+    vi.spyOn(api, "sensorsStop").mockImplementation(async () => {
+      down = true;
+      return { stopped: true };
+    });
+    renderHome();
+    await screen.findByText("小樞在桌面上，一切正常。");
+    await userEvent.click(screen.getByRole("button", { name: "停止所有感測" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("無法確認感測狀態");
+    expect(alert.textContent).not.toContain("已停止感測");
+  });
+
+  it("停止請求本身失敗：不得靜默", async () => {
+    stubHome();
+    vi.spyOn(api, "sensorsStop").mockRejectedValue(new Error("daemon offline"));
+    renderHome();
+    await screen.findByText("小樞在桌面上，一切正常。");
+    await userEvent.click(screen.getByRole("button", { name: "停止所有感測" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("停止所有感測失敗");
+  });
+});
+
+describe("第一屏與詳細狀態不外洩機器字串", () => {
+  it("待決定標題、知識更新來由、動作意圖與未知感測種類都翻成人話", async () => {
+    stubHome({
+      status: status({ activeSensors: [{ kind: "iphone.motion" }] }),
+      sessions: [],
+    });
+    vi.spyOn(api, "activityInbox").mockResolvedValue({
+      pendingCount: 1,
+      count: 1,
+      totalBeforeLimit: 1,
+      items: [
+        {
+          kind: "safety-event",
+          itemId: "e-1",
+          status: "emergency",
+          title: "emergency.stop",
+          route: "safety",
+          needsDecision: true,
+          occurredAt: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+    vi.spyOn(api, "knowledgeReceipts").mockResolvedValue({
+      receipts: [{ updateId: "u-1", triggeredBy: "task-experience", verification: {} }],
+    });
+    vi.spyOn(api, "actionsList").mockResolvedValue([
+      {
+        actionId: "a-1",
+        planId: "p-1",
+        actuatorId: "notify.desktop",
+        intent: "emergency-stop",
+        currentStatus: "completed",
+        timestamps: [],
+        policyDecisions: [],
+        effectiveBoundedParameters: {},
+        requestedParameters: {},
+        errors: [],
+      },
+    ]);
+    vi.spyOn(api, "planGet").mockResolvedValue({ metadata: {} });
+    const { container } = renderHome();
+    await screen.findByText(/小樞在桌面上/);
+    openDetails("詳細狀態");
+    await screen.findByText("系統狀態");
+    await screen.findByText(/最近更新：工作經驗/);
+    const all = container.textContent ?? "";
+    for (const raw of ["emergency.stop", "task-experience", "emergency-stop", "iphone.motion"]) {
+      expect(all, `不得外洩原始字串「${raw}」`).not.toContain(raw);
+    }
+    expect(all).toContain("其他感測器");
+  });
+
+  it("詳細狀態不再列出每個工作階段，只給一行摘要與前往工作", async () => {
+    stubHome();
+    const close = vi.spyOn(api, "agentSessionClose");
+    const { onNavigate, container } = renderHome();
+    await screen.findByText("小樞在桌面上，一切正常。");
+    openDetails("詳細狀態");
+    await screen.findByText("系統狀態");
+    expect(await screen.findByText(/目前有 1 件交代中的工作/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取消這個工作階段" })).not.toBeInTheDocument();
+    expect(container.textContent).not.toContain("權限：");
+    expect(container.textContent).not.toContain("可用到");
+    await userEvent.click(screen.getByRole("button", { name: "前往工作" }));
+    expect(onNavigate).toHaveBeenCalledWith("work");
+    expect(close).not.toHaveBeenCalled();
   });
 });
 

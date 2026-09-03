@@ -7,8 +7,7 @@
 
 import React from "react";
 import { PackManifest, validateManifest } from "../../companion/renderer";
-import { drawExpressionPreview } from "../../companion/rig/renderer";
-import { EXPRESSIONS, OFFICIAL_36 } from "../../companion/rig/expressions";
+import { drawPreviewExpression, PALETTES, previewExpressions } from "../../character/adapters/shu";
 import { intentLine } from "../../character/lines";
 import { rigPaletteFor } from "../../companion/gatewayWiring";
 import type { CharacterCard } from "./catalog";
@@ -29,7 +28,7 @@ const SPRITE_PREVIEW_STATES: { label: string; animation: string; frame?: number;
   { label: "緊急停止", animation: "emergency", frame: 0 },
 ];
 
-export function CharacterPreview({ card }: { card: CharacterCard | null }) {
+export function CharacterPreview({ card, name }: { card: CharacterCard | null; name?: string }) {
   if (!card) {
     return <p className="muted small">角色資料尚未載入，無法預覽。</p>;
   }
@@ -39,7 +38,8 @@ export function CharacterPreview({ card }: { card: CharacterCard | null }) {
     case "sprite":
       return <SpritePreview card={card} />;
     case "text":
-      return <TextPreview name={card.name} />;
+      // 文案跟著使用者取的名字（沒有解析出名字時才退回角色原名）。
+      return <TextPreview name={name && name.length > 0 ? name : card.name} />;
     default:
       return (
         <div className="character-preview" data-preview="none">
@@ -53,7 +53,9 @@ export function CharacterPreview({ card }: { card: CharacterCard | null }) {
 }
 
 function RigPreview({ card }: { card: CharacterCard }) {
-  const palette = card.manifest ? rigPaletteFor(card.manifest) : "maid-classic";
+  // 表情清單與預設配色都由 Reference Adapter 宣告；這一頁不寫死任何表情名或配色 id。
+  const palette = card.manifest ? rigPaletteFor(card.manifest) : PALETTES[0].id;
+  const expressions = React.useMemo(() => previewExpressions(), []);
   return (
     <div className="character-preview" data-preview="rig">
       <h3>36 表情預覽</h3>
@@ -62,27 +64,26 @@ function RigPreview({ card }: { card: CharacterCard }) {
         沒有綠勾；綠勾與慶祝只出現在「驗證成功」。
       </p>
       <div className="preview-grid">
-        {OFFICIAL_36.map((id) => (
-          <RigPreviewCell key={id} exprId={id} palette={palette} />
+        {expressions.map((e) => (
+          <RigPreviewCell key={e.id} exprId={e.id} label={e.label} palette={palette} />
         ))}
       </div>
     </div>
   );
 }
 
-function RigPreviewCell({ exprId, palette }: { exprId: string; palette: string }) {
+function RigPreviewCell({ exprId, label, palette }: { exprId: string; label: string; palette: string }) {
   const ref = React.useRef<HTMLCanvasElement>(null);
   React.useEffect(() => {
     const canvas = ref.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
     try {
-      drawExpressionPreview(ctx, exprId, palette, 96);
+      drawPreviewExpression(ctx, exprId, palette, 96);
     } catch {
       /* 預覽畫不出來就留空格；不影響其他格 */
     }
   }, [exprId, palette]);
-  const label = EXPRESSIONS[exprId]?.label ?? exprId;
   const note =
     exprId === "success-claimed"
       ? "只點頭，沒有綠勾"

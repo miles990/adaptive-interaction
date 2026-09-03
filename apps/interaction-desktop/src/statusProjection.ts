@@ -232,7 +232,8 @@ export type InboxOnlyStatus =
   | "emergency"
   | "emergency-cleared"
   | "sensor.started"
-  | "sensor.stopped";
+  | "sensor.stopped"
+  | "sensor.stop-uncertain";
 
 export type InboxStatus = WorkState | InboxOnlyStatus;
 
@@ -326,6 +327,15 @@ export const INBOX_ONLY_PROJECTION = {
     badge: "muted",
     needsDecision: false,
   },
+  // 誠實階梯：要求停止 ≠ 已停止。裝置沒回覆時它可能還在擷取，
+  // 所以這一筆是「要你處理」的，不是純歷史。
+  "sensor.stop-uncertain": {
+    label: "停止結果不確定",
+    kind: "unknown",
+    badge: "warn",
+    needsDecision: true,
+    honesty: "裝置沒有回覆，可能仍在感測",
+  },
 } satisfies Record<InboxOnlyStatus, Projection>;
 
 export const INBOX_STATUSES: readonly InboxStatus[] = [
@@ -359,6 +369,28 @@ const INBOX_KIND_LABEL = {
   "ai-assist": "AI 協助判斷",
 } satisfies Record<InboxKind, string>;
 
+// ---------------------------------------------------------------------------
+// 待決定計數的誠實度（activity.rs `pendingCountExact`）
+// ---------------------------------------------------------------------------
+
+/** 後端說 `pendingCount` 是不是完整總數。
+ *  舊 daemon 不送這個欄位（undefined）＝ 精確；只有明確的 `false` 才是「至少」。
+ *  不是布林的值一律當成不精確（寧可說「至少」，也不宣稱數字是全部）。 */
+export function isPendingCountExact(inbox: unknown): boolean {
+  if (!inbox || typeof inbox !== "object") return true;
+  const raw = (inbox as Record<string, unknown>).pendingCountExact;
+  return raw === undefined || raw === true;
+}
+
+/** 待決定數的人話：不精確時它只是下限，一定要說「至少」。 */
+export function pendingCountLabel(count: number, exact: boolean): string {
+  return exact ? `${count} 項` : `至少 ${count} 項`;
+}
+
+/** `pendingCountExact === false` 時的共用說明。
+ *  這種情況下**絕不可以**說「目前沒有待決定事項」——後端只是沒把全部撈完。 */
+export const PENDING_INCOMPLETE_NOTE = "還有未載入的待決定項，請到活動紀錄查看";
+
 /** 收件匣種類的人話；不認得的種類說「其他活動」，不回原始字串。 */
 export function inboxKindLabel(kind: string): string {
   return ownKey(INBOX_KIND_LABEL, kind) ? INBOX_KIND_LABEL[kind] : "其他活動";
@@ -370,6 +402,7 @@ const SAFETY_EVENT_TITLE = {
   "emergency-cleared": "緊急停止已解除",
   "sensor.started": "感測開始",
   "sensor.stopped": "感測結束",
+  "sensor.stop-uncertain": "感測停止結果不確定",
 } satisfies Partial<Record<InboxOnlyStatus, string>>;
 
 /** 原始事件型別字串（`emergency.stop`／`sensor.started`…）：小寫英文加點或連字號。 */
@@ -479,4 +512,104 @@ export function capabilityKindLabel(kind: string): string {
 /** 本機 agent id 的顯示名稱。agent id 是身分不是狀態，不認得的照原樣顯示。 */
 export function agentDisplayLabel(agentId: string): string {
   return agentId === "codex" ? "Codex" : agentId === "claude-code" ? "Claude Code" : agentId;
+}
+
+// ---------------------------------------------------------------------------
+// 感測：種類的人話，與「停止所有感測」的誠實回報
+// ---------------------------------------------------------------------------
+
+/** 感測來源種類的人話。認不得的種類（`iphone.motion` 這種原始 id）不猜、也不外洩原始
+ *  字串——一般模式一律說「其他感測器」，使用者仍看得到「有東西在感測」這件事實。 */
+export function sensorKindLabel(kind: string): string {
+  const k = kind.toLowerCase();
+  if (k === "microphone" || k.includes("mic")) return "麥克風";
+  if (k.includes("camera") || k.includes("cam")) return "攝影機";
+  if (k.includes("location") || k.includes("gps")) return "定位";
+  return "其他感測器";
+}
+
+/**
+ * 「是誰開始感測的」的人話（`SensorUse.startedBy`）。
+ *
+ * 原始值是內部身分字串（`iphone:iphone-87b4…` 這種裝置 id、`api`、`cli`…），一般模式
+ * 直接印出來只是外洩實作細節、對使用者沒有意義。這裡只把**認得**的來源翻成人話；
+ * 認不得的一律說「系統」——不猜、也絕不冒充成「你」（把系統自動啟動的感測說成使用者
+ * 自己開的，是感測透明度的謊）。
+ *
+ * @param startedBy runtime 回報的原始值。
+ * @param deviceName 若呼叫端知道那台裝置的名字就用它（目前 `SensorUse` 不帶，保留給
+ *                   帶得出名字的呼叫端；空字串／未提供時退回通用標籤）。
+ */
+export function sensorStartedByLabel(
+  startedBy: string | null | undefined,
+  deviceName?: string | null
+): string {
+  const raw = typeof startedBy === "string" ? startedBy.trim() : "";
+  if (raw.startsWith("iphone:")) {
+    const name = typeof deviceName === "string" ? deviceName.trim() : "";
+    return name.length > 0 ? name : "你的 iPhone";
+  }
+  if (raw === "user") return "你";
+  if (raw === "desktop" || raw === "api" || raw === "cli") return "這台電腦";
+  return "系統";
+}
+
+export interface SensorStopProjection {
+  /** true 只代表「已確認全部停止」；任何不確定都必須是 false。 */
+  ok: boolean;
+  message: string;
+}
+
+function uniqueLabels(values: string[]): string[] {
+  return values.filter((v, i) => v.length > 0 && values.indexOf(v) === i);
+}
+
+/**
+ * 「停止所有感測」之後可以誠實說出口的一句話。
+ *
+ * 誠實階梯：送出請求 ≠ 已停止；裝置沒回覆是「結果不確定」，既不是成功也不是失敗。
+ * 判斷主要看**重新讀取**到的 activeSensors（Runtime 的真實狀態），其次才看回報裡的
+ * 每台裝置結果。舊 daemon 只回 `{stopped:true}`（沒有 devices／uncertain），這裡容忍
+ * 缺欄位；但缺欄位不會被升級成「已確認停止」——只有重讀清單真的空了才敢這樣說。
+ *
+ * @param report `/v1/sensors/stop` 的回報（形狀不可信，任何值都要能吃）。
+ * @param remaining 停止後重新讀到的 activeSensors；`null` ＝ 讀不到（查詢失敗）。
+ */
+export function projectSensorStop(
+  report: unknown,
+  remaining: readonly { kind?: unknown; state?: unknown }[] | null
+): SensorStopProjection {
+  const raw = (report && typeof report === "object" ? report : {}) as Record<string, unknown>;
+  const devices = Array.isArray(raw.devices) ? (raw.devices as Record<string, unknown>[]) : [];
+  const unsure = devices.filter((d) => {
+    const outcome = d && typeof d === "object" ? d.outcome : undefined;
+    return typeof outcome !== "string" || outcome !== "stopped";
+  });
+  const uncertain = raw.uncertain === true || raw.stopped === false || unsure.length > 0;
+
+  if (remaining === null) {
+    return {
+      ok: false,
+      message: "已要求停止，但目前無法確認感測狀態（系統查詢失敗）。請到「連接與權限」再確認一次。",
+    };
+  }
+  const still = uniqueLabels(
+    remaining.map((s) => sensorKindLabel(typeof s.kind === "string" ? s.kind : ""))
+  );
+  if (still.length > 0) {
+    return {
+      ok: false,
+      message: `已要求停止，但仍在使用中：${still.join("、")}。手機上的感測要在手機上停止，或到「連接與權限」撤銷那台裝置。`,
+    };
+  }
+  if (uncertain) {
+    const who = uniqueLabels(
+      unsure.map((d) => (typeof d.name === "string" && d.name.trim() ? d.name.trim() : "某台裝置"))
+    );
+    return {
+      ok: false,
+      message: `已要求停止，結果不確定（${who.length > 0 ? who.join("、") : "有來源"}未回覆）。`,
+    };
+  }
+  return { ok: true, message: "已停止感測。" };
 }

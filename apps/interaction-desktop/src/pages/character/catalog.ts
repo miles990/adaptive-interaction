@@ -6,7 +6,7 @@
 
 import React from "react";
 import {
-  capabilitySummary,
+  capabilitySummaryParts,
   loadCharacterIndex,
   type CharacterIndex,
   type CharacterIndexEntry,
@@ -40,8 +40,10 @@ export interface CharacterCard {
   assetBase?: string;
   persona?: string;
   story?: string;
-  /** registry.capabilitySummary（zh-TW）；匯入角色沒有 manifest 時是同措辭的縮減版。 */
+  /** 一般模式的人話摘要（來源與版本、可以接收、需要的裝置、已測試）。 */
   summary: string[];
+  /** 只在進階模式「技術資料」出現的宣告（執行方式、可執行程式、需要網路、檔案存取、簽章）。 */
+  technical: string[];
 }
 
 export interface CharacterCatalog {
@@ -86,6 +88,7 @@ export function cardFromIndexEntry(entry: CharacterIndexEntry): CharacterCard {
   const external = entry.report.flags.external || manifest.adapterKind !== "in-process";
   const origin: CharacterOriginKind = external ? "external" : entry.origin;
   const tested = entry.origin === "builtin" && !external;
+  const parts = capabilitySummaryParts(manifest, CHARACTER_LOCALE, { origin: entry.origin, tested });
   return {
     characterId: entry.characterId,
     name: displayNameOf(manifest, CHARACTER_LOCALE),
@@ -104,7 +107,8 @@ export function cardFromIndexEntry(entry: CharacterIndexEntry): CharacterCard {
     ...(entry.assetBase ? { assetBase: entry.assetBase } : {}),
     ...(entry.persona ? { persona: entry.persona } : {}),
     ...(entry.story ? { story: entry.story } : {}),
-    summary: capabilitySummary(manifest, CHARACTER_LOCALE, { origin: entry.origin, tested }),
+    summary: parts.general,
+    technical: parts.technical,
   };
 }
 
@@ -114,10 +118,12 @@ export function cardFromImported(entry: ImportedCharacterEntry): CharacterCard {
   const external = entry.external === true || (entry.adapterKind !== undefined && entry.adapterKind !== "in-process");
   const summary = [
     `${name}：第三方角色（${entry.version ? `版本 ${entry.version}` : "版本未標示"}）`,
+    "已測試：否（未經本機測試；請先在受控環境試用）",
+  ];
+  const technical = [
     external ? "外部程式（永不自動啟動，需明確安裝與授權）" : "在本機視窗內執行（內建 adapter）",
     entry.executable ? "有可執行程式：是（只記錄，不會自動執行）" : "有可執行程式：否（純資料）",
     entry.network ? "需要網路：是" : "需要網路：否",
-    "已測試：否（未經本機測試；請先在受控環境試用）",
     "簽章：無（本版不支援簽章驗證）",
   ];
   return {
@@ -133,6 +139,7 @@ export function cardFromImported(entry: ImportedCharacterEntry): CharacterCard {
     ...(entry.error ? { error: sanitizeErrorText(entry.error) } : {}),
     ...(entry.version ? { version: entry.version } : {}),
     summary,
+    technical,
   };
 }
 
@@ -175,6 +182,19 @@ export function partyLabel(origin: CharacterOriginKind): string {
 /** 本機／外部（執行位置）。 */
 export function locationLabel(card: Pick<CharacterCard, "flags">): string {
   return card.flags.external ? "外部" : "本機";
+}
+
+/**
+ * 一般模式唯一的「額外授權」提示：需要跑自己的程式或需要網路的角色不能被藏起來
+ * （誠實不可協商），但一般模式只給一句人話；細節在進階模式的技術資料。
+ * 不需要額外授權時回 null。
+ */
+export function extraPermissionLine(card: Pick<CharacterCard, "flags">): string | null {
+  const needs: string[] = [];
+  if (card.flags.executable) needs.push("在你的電腦上執行它自己的程式");
+  if (card.flags.network) needs.push("連上網路");
+  if (needs.length === 0) return null;
+  return `這個角色需要額外授權：${needs.join("、")}。控制中心不會自動執行它的程式、也不會自動連線。`;
 }
 
 /** 「可以接收：…」那一行（沒有 manifest 時誠實說不明）。 */

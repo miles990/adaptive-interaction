@@ -260,6 +260,7 @@ const ROUTES: Record<string, Route> = {
   ui_prefs_patch: (a) => http("PATCH", "/v1/ui/preferences", a.patch),
   onboarding_get: () => http("GET", "/v1/onboarding"),
   onboarding_draft: (a) => http("PUT", "/v1/onboarding/draft", a.draft),
+  onboarding_preview: (a) => http("POST", "/v1/onboarding/preview", a.commit),
   onboarding_commit: (a) => http("POST", "/v1/onboarding/commit", a.commit),
   pause_get: () => http("GET", "/v1/pause"),
   pause_set: (a) =>
@@ -288,8 +289,13 @@ const ROUTES: Record<string, Route> = {
   mobile_status: () => http("GET", "/v1/mobile/status"),
   mobile_pairing_begin: () => http("POST", "/v1/mobile/pairing-session", {}),
   mobile_revoke: (a) => http("DELETE", `/v1/mobile/devices/${q(a.id)}`),
+  mobile_sensors_stop: (a) => http("POST", `/v1/mobile/devices/${q(a.id)}/sensors/stop`, {}),
+  mobile_test: (a) => http("POST", `/v1/mobile/devices/${q(a.id)}/test`, {}),
   mobile_ble_scan: (a) =>
-    http("POST", "/v1/mobile/ble/scan", { durationMs: a.durationMs ?? 4000 }),
+    http("POST", "/v1/mobile/ble/scan", {
+      durationMs: a.durationMs ?? 4000,
+      deviceId: a.deviceId ?? null,
+    }),
   sensor_mic_listen: (a) =>
     http("POST", "/v1/sensors/microphone/listen", { durationMs: a.durationMs }),
   sensors_stop: () => http("POST", "/v1/sensors/stop"),

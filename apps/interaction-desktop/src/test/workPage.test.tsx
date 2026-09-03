@@ -1,5 +1,7 @@
-// 工作頁 task-first（v0.5 Phase 3 I）：交代流程與預填、開始前預覽的六件事、
-// 「開始」走既有 agentSessionCreate 路徑（payload 精確）、寫入的第二次確認、
+// 工作頁 task-first（v0.5 Phase 3 I）：交代流程與預填、開始前預覽只回答三件事
+// （這次會讀取什麼／會不會修改內容／最多使用多少時間與費用）＋其餘收進「查看技術細節」、
+// 「開始」走既有 agentSessionCreate 路徑（payload 精確）、寫入的第二次確認要印出完整路徑
+// 且換路徑就作廢、瀏覽器版誠實說沒有原生資料夾選擇器、
 // claimed／verified／unknown 的誠實呈現、一般模式不外洩治理術語（畫面＋原始碼）、
 // 自動互動分頁仍可達、Agent 管理收進折疊的工作設定、進階模式零退化。
 
@@ -21,16 +23,21 @@ vi.mock("../characterName", () => ({
   characterNameFallback: "角色",
 }));
 
+import { invoke } from "@tauri-apps/api/core";
+
 import { api, AgentSessionRecord } from "../api";
 import { AppStateProvider } from "../appstate";
 import { WorkPage } from "../pages/WorkPage";
 import {
   agentAvailability,
   agentForKind,
+  basename,
   buildSessionCreateInput,
   CANCEL_SENTENCE,
   DEFAULT_TTL_MINUTES,
   parseWorkPrefill,
+  pickDirectory,
+  previewAnswers,
   readWorkPrefill,
   taskLabelFrom,
   WORK_PREFILL_KEY,
@@ -156,35 +163,68 @@ describe("交代一件工作（task-first 第一屏）", () => {
     expect(removed).toEqual([WORK_PREFILL_KEY]);
   });
 
-  it("開始前預覽列出六件事；Agent 有用途說明、偵測狀態與分工依據", async () => {
+  it("開始前預覽只回答三件事；其餘（Agent／工具／沙箱／上限／取消／原始授權範圍）收進「查看技術細節」", async () => {
     stubApis();
     renderWork();
     await userEvent.type(screen.getByLabelText("加入檔案或選擇資料夾"), "/tmp/repo");
     await userEvent.selectOptions(screen.getByLabelText("這是哪一種工作"), "programming");
     const preview = screen.getByRole("group", { name: "開始前預覽" });
-    expect(within(preview).getAllByRole("term").map((t) => t.textContent)).toEqual([
-      "使用哪個 Agent",
-      "讀取範圍",
-      "是否寫入",
-      "工具",
-      "時間、訊息與費用上限",
-      "如何取消",
+    const answers = preview.querySelector<HTMLElement>(".work-preview-answers")!;
+    expect(within(answers).getAllByRole("term").map((t) => t.textContent)).toEqual([
+      "這次會讀取什麼",
+      "會不會修改內容",
+      "最多使用多少時間與費用",
     ]);
-    expect(await within(preview).findByText("可用")).toBeInTheDocument();
-    const text = preview.textContent ?? "";
-    expect(text).toContain("Codex");
-    expect(text).toContain("擅長程式實作");
-    expect(text).toContain("依你的分工設定（程式工作）");
-    expect(text).toContain("資料夾 /tmp/repo");
-    expect(text).toContain("不寫入：只讀取，不修改任何檔案");
-    expect(text).toContain("只讀取檔案；不修改");
-    expect(text).toContain(`時間最多 ${DEFAULT_TTL_MINUTES} 分鐘`);
-    expect(text).toContain("依 Codex 的登入方案計費");
-    expect(text).toContain(CANCEL_SENTENCE);
+    const answerText = answers.textContent ?? "";
+    expect(answerText).toContain("你選擇的資料夾（repo）");
+    // 誠實：後端只擋寫入，不擋讀取——不得宣稱「只讀取這個資料夾」。
+    expect(answerText).not.toContain("只讀取這個資料夾");
+    expect(answerText).toContain("不會修改");
+    expect(answerText).toContain(`${DEFAULT_TTL_MINUTES} 分鐘`);
+    expect(answerText).toContain("依 Codex 登入方案計費");
+
+    // 技術細節預設收合：Agent／工具／如何取消都看不到。
+    const details = preview.querySelector<HTMLElement>("details.tech-details")!;
+    const summary = within(details).getByText("查看技術細節");
+    expect(within(details).getByText("使用哪個 Agent")).not.toBeVisible();
+    expect(within(details).getByText("工具")).not.toBeVisible();
+    expect(within(details).getByText("如何取消")).not.toBeVisible();
+    expect(within(details).getByText(CANCEL_SENTENCE)).not.toBeVisible();
+    // 三個回答本身永遠看得見。
+    expect(within(answers).getByText("這次會讀取什麼")).toBeVisible();
+
+    await userEvent.click(summary);
+    expect(details).toHaveAttribute("open");
+    expect(within(details).getByText("使用哪個 Agent")).toBeVisible();
+    expect(within(details).getByText(CANCEL_SENTENCE)).toBeVisible();
+    expect(await within(details).findByText("可用")).toBeInTheDocument();
+    const techText = details.textContent ?? "";
+    expect(techText).toContain("Codex");
+    expect(techText).toContain("擅長程式實作");
+    expect(techText).toContain("依你的分工設定（程式工作）");
+    expect(techText).toContain("唯讀沙箱");
+    expect(techText).toContain("/tmp/repo");
+    expect(techText).toContain("訊息上限");
+    expect(techText).toContain("原始授權範圍");
+    expect(techText).toContain("workspace:/tmp/repo");
+    // 沒開寫入時，寫入相關的原始授權範圍不會出現在任何地方。
+    expect(preview.textContent).not.toContain("agent-session:workspace-write");
+
     // 費用上限只對非 Codex 顯示金額。
     await userEvent.selectOptions(screen.getByLabelText("這是哪一種工作"), "conversation");
-    expect(preview.textContent).toContain("Claude Code");
-    expect(preview.textContent).toContain("最多 $0.50");
+    expect(answers.textContent).toContain(`${DEFAULT_TTL_MINUTES} 分鐘，最多 US$0.50`);
+    expect(details.textContent).toContain("Claude Code");
+  });
+
+  it("瀏覽器版（非桌面）沒有假的「選擇資料夾…」按鈕，改用一句誠實說明", async () => {
+    stubApis();
+    renderWork();
+    expect(screen.queryByRole("button", { name: "選擇資料夾…" })).not.toBeInTheDocument();
+    expect(screen.getByText("瀏覽器版沒有原生資料夾選擇器；請貼上資料夾路徑。")).toBeInTheDocument();
+    // 這個環境沒有原生選擇器：誠實回 unsupported，而且不去呼叫任何 host 指令。
+    vi.mocked(invoke).mockClear();
+    await expect(pickDirectory()).resolves.toEqual({ kind: "unsupported" });
+    expect(vi.mocked(invoke)).not.toHaveBeenCalled();
   });
 
   it("「開始」走既有 agentSessionCreate 路徑，再把內容送給 Agent，只宣稱已送達", async () => {
@@ -226,31 +266,52 @@ describe("交代一件工作（task-first 第一屏）", () => {
     expect(textarea).toHaveValue("");
   });
 
-  it("寫入要有資料夾＋第二次確認，payload 才帶精確的 scope", async () => {
+  it("寫入要有資料夾＋第二次確認（確認文字印出完整路徑）；換路徑就作廢，payload 才帶精確的 scope", async () => {
     stubApis();
     const create = vi.spyOn(api, "agentSessionCreate").mockResolvedValue(session({ sessionId: "s-w" }));
     vi.spyOn(api, "agentSessionSend").mockResolvedValue({});
     renderWork();
     await userEvent.type(screen.getByLabelText("想讓小樞幫你做什麼？"), "修掉失敗的測試");
     await userEvent.selectOptions(screen.getByLabelText("這是哪一種工作"), "programming");
-    await within(screen.getByRole("group", { name: "開始前預覽" })).findByText("可用");
+    const preview = screen.getByRole("group", { name: "開始前預覽" });
+    await within(preview).findByText("可用");
     const start = screen.getByRole("button", { name: "開始" });
     await userEvent.click(screen.getByRole("checkbox", { name: /允許修改這個資料夾裡的檔案/ }));
     expect(start).toBeDisabled();
     expect(screen.getByText("要允許修改，必須先指定資料夾。")).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText("加入檔案或選擇資料夾"), "/tmp/repo");
+    const folder = screen.getByLabelText("加入檔案或選擇資料夾");
+    await userEvent.type(folder, "/tmp/repo");
     expect(start).toBeDisabled();
-    expect(screen.getByText(/還需要你再確認一次/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("checkbox", { name: /我已確認上面的資料夾/ }));
+    expect(screen.getByText(/還需要你確認一次/)).toBeInTheDocument();
+    // 確認文字必須印出這一次真正會被寫入的完整路徑，不能只說「上面的資料夾」。
+    const confirmOld = screen.getByRole("checkbox", {
+      name: /我已確認：這次工作只可以在 \/tmp\/repo 裡修改檔案/,
+    });
+    expect(confirmOld.closest("label")!.textContent).toContain(
+      `${DEFAULT_TTL_MINUTES} 分鐘到期、關閉或緊急停止時立即失效`
+    );
+    await userEvent.click(confirmOld);
     expect(start).toBeEnabled();
-    expect(screen.getByText(/可以修改上面資料夾裡的檔案（你已確認）/)).toBeInTheDocument();
+    expect(preview.textContent).toContain("會修改：只限 /tmp/repo（你已確認）");
+    // 沒有「允許所有」之類的萬用開關。
+    expect(screen.queryByText(/允許所有/)).not.toBeInTheDocument();
+
+    // 改了路徑＝換了授權對象：確認自動作廢，「開始」重新變灰。
+    await userEvent.type(folder, "-2");
+    const confirmNew = screen.getByRole("checkbox", {
+      name: /我已確認：這次工作只可以在 \/tmp\/repo-2 裡修改檔案/,
+    });
+    expect(confirmNew).not.toBeChecked();
+    expect(start).toBeDisabled();
+    await userEvent.click(confirmNew);
+    expect(start).toBeEnabled();
     await userEvent.click(start);
     await waitFor(() =>
       expect(create).toHaveBeenCalledWith(
         expect.objectContaining({
-          workdir: "/tmp/repo",
+          workdir: "/tmp/repo-2",
           allowWrite: true,
-          dataScope: ["workspace:/tmp/repo"],
+          dataScope: ["workspace:/tmp/repo-2"],
           toolScope: ["workspace.write"],
           consentScope: ["agent-session:workspace-write"],
         })
@@ -341,6 +402,38 @@ describe("進行中與最近的工作（誠實狀態階梯）", () => {
     );
     expect(verify).toHaveBeenCalledWith("s-a");
     expect(await screen.findByText("已標記為已驗證（由你人工確認）。")).toBeInTheDocument();
+  });
+
+  it("可修改資料夾的工作：延長有效期要再確認一次（延長＝修改權限也跟著延長）", async () => {
+    stubApis([
+      session({ sessionId: "s-w", label: "會改檔案的工作", state: "active", allowWrite: true }),
+    ]);
+    const renew = vi.spyOn(api, "agentSessionRenew").mockResolvedValue(session());
+    renderWork();
+    const card = (await screen.findByText("會改檔案的工作")).closest<HTMLElement>(".provider-card")!;
+    await userEvent.click(within(card).getByRole("button", { name: "續租 30 分鐘" }));
+    expect(renew).not.toHaveBeenCalled();
+    expect(
+      within(card).getByText("延長 30 分鐘會連同「可修改 /tmp/repo 裡的檔案」一起延長。")
+    ).toBeInTheDocument();
+    // 可以反悔，且反悔不會延長。
+    await userEvent.click(within(card).getByRole("button", { name: "不延長" }));
+    expect(renew).not.toHaveBeenCalled();
+    expect(within(card).getByRole("button", { name: "續租 30 分鐘" })).toBeInTheDocument();
+    // 第二次確認才真的送出。
+    await userEvent.click(within(card).getByRole("button", { name: "續租 30 分鐘" }));
+    await userEvent.click(within(card).getByRole("button", { name: "確認延長（含修改權限）" }));
+    await waitFor(() => expect(renew).toHaveBeenCalledWith("s-w", 30));
+  });
+
+  it("只讀取的工作：延長有效期不多問一次（沒有寫入權限可延長）", async () => {
+    stubApis([session({ sessionId: "s-r", label: "只讀取的工作", state: "active" })]);
+    const renew = vi.spyOn(api, "agentSessionRenew").mockResolvedValue(session());
+    renderWork();
+    const card = (await screen.findByText("只讀取的工作")).closest<HTMLElement>(".provider-card")!;
+    await userEvent.click(within(card).getByRole("button", { name: "續租 30 分鐘" }));
+    await waitFor(() => expect(renew).toHaveBeenCalledWith("s-r", 30));
+    expect(within(card).queryByRole("button", { name: "不延長" })).not.toBeInTheDocument();
   });
 });
 
@@ -490,6 +583,57 @@ describe("純函式", () => {
         allowWrite: false,
       })
     ).toMatchObject({ label: null, maxCost: null, workdir: null, dataScope: [] });
+  });
+
+  it("basename：吃 / 與 \\，尾端斜線不影響，沒有分隔就回原字串", () => {
+    expect(basename("/tmp/repo")).toBe("repo");
+    expect(basename("/tmp/repo/")).toBe("repo");
+    expect(basename("C:\\Users\\me\\proj")).toBe("proj");
+    expect(basename("  /a/b/c  ")).toBe("c");
+    expect(basename("repo")).toBe("repo");
+    expect(basename("")).toBe("");
+  });
+
+  it("previewAnswers：三個回答的用字（讀取不宣稱硬邊界、寫入印路徑、Codex 沒有費用上限）", () => {
+    const base = {
+      agent: "codex" as const,
+      workdir: "",
+      allowWrite: false,
+      writeConfirmed: false,
+      ttlMinutes: 30,
+      maxCost: 0.5,
+    };
+    // 沒選資料夾。
+    expect(previewAnswers(base)).toEqual({
+      reads: "沒有選資料夾：從系統資料夾開始工作，不會用到你自己的檔案。",
+      writes: "不會修改：這次只看不改，任何檔案都不會被動到。",
+      limits: "30 分鐘；費用依 Codex 登入方案計費，這裡無法設上限",
+    });
+    // 選了資料夾、不寫入：只說「從這個資料夾開始工作」，不宣稱只讀取。
+    const readOnly = previewAnswers({ ...base, workdir: " /tmp/repo " });
+    expect(readOnly.reads).toContain("你選擇的資料夾（repo）");
+    expect(readOnly.reads).toContain("不保證它完全不看資料夾以外的內容");
+    expect(readOnly.reads).not.toContain("只讀取這個資料夾");
+    // 寫入未確認 vs 已確認：兩者都印出完整路徑。
+    expect(previewAnswers({ ...base, workdir: "/tmp/repo", allowWrite: true }).writes).toBe(
+      "會修改：只限 /tmp/repo——還需要你確認一次"
+    );
+    expect(
+      previewAnswers({ ...base, workdir: "/tmp/repo", allowWrite: true, writeConfirmed: true })
+        .writes
+    ).toBe("會修改：只限 /tmp/repo（你已確認）");
+    // 勾了寫入但還沒選資料夾：不得假裝已經有範圍。
+    expect(previewAnswers({ ...base, allowWrite: true, writeConfirmed: true }).writes).toBe(
+      "會修改：只限 （尚未選擇資料夾）——還需要你確認一次"
+    );
+    // 非 Codex 才有金額上限（與後端一致：Codex 會拒絕費用上限）。
+    expect(previewAnswers({ ...base, agent: "claude-code" }).limits).toBe(
+      "30 分鐘，最多 US$0.50"
+    );
+    // Windows 路徑的最後一段。
+    expect(previewAnswers({ ...base, workdir: "C:\\Users\\me\\proj" }).reads).toContain(
+      "你選擇的資料夾（proj）"
+    );
   });
 });
 

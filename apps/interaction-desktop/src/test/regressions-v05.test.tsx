@@ -38,6 +38,12 @@ const PAGE_SOURCES = import.meta.glob("../pages/*.tsx", {
   import: "default",
   eager: true,
 }) as Record<string, string>;
+/** 角色頁的子模組（一般模式看得到的卡片、預覽、匯入對話框）。 */
+const CHARACTER_PAGE_SOURCES = import.meta.glob("../pages/character/*.{ts,tsx}", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -548,6 +554,7 @@ describe("資訊架構守門", () => {
       activity: "more",
       settings: "more",
       // v0.5 一般模式「更多」的新分頁（只新增、不移除）。
+      backup: "more",
       manage: "more",
       "advanced-features": "more",
     };
@@ -598,9 +605,13 @@ const BANNED_SIMPLE_TERMS = [
   "Runtime",
   "daemon",
   "token",
+  "Token",
   "CLI",
   "HTTP",
   "Provider",
+  "Adapter",
+  "Manifest",
+  "GATT",
   "受器",
   "動器",
   "Lease",
@@ -683,21 +694,30 @@ describe("一般模式產品化（G）：導覽、更多、術語", () => {
     expect(titleFor("companion", characterNameFallback)).toBe("角色");
   });
 
-  it("「更多」有五個入口：記憶與知識／活動歷史／設定／角色與整合管理／進階功能；窄視窗更多選單也到得了", () => {
+  it("「更多」有五個入口：記憶與資料／活動紀錄／外觀與語言／備份與還原／進階模式；窄視窗更多選單一致", () => {
     expect(MORE_TABS.map(([, label]) => label)).toEqual([
-      "記憶與知識",
-      "活動歷史",
-      "設定",
-      "角色與整合管理",
-      "進階功能",
+      "記憶與資料",
+      "活動紀錄",
+      "外觀與語言",
+      "備份與還原",
+      "進階模式",
     ]);
-    expect(NARROW_MORE_ITEMS.map((t) => t.id)).toEqual(
-      expect.arrayContaining(["memory", "activity", "settings", "manage", "advanced-features"])
-    );
+    // 窄視窗選單與寬視窗分頁是同一組 id／文案（順序也一樣）；`manage` 只是隱藏的相容路由。
+    expect(NARROW_MORE_ITEMS.map((t) => t.id)).toEqual([
+      "memory",
+      "activity",
+      "settings",
+      "backup",
+      "advanced-features",
+    ]);
+    expect(NARROW_MORE_ITEMS.map((t) => t.label)).toEqual(MORE_TABS.map(([, label]) => label));
+    expect(NARROW_MORE_ITEMS.some((t) => t.id === "manage")).toBe(false);
     for (const item of NARROW_MORE_ITEMS) expect(navAnchorFor(item.id)).toBe("more");
+    // 相容路由仍然到得了「更多」。
+    expect(navAnchorFor("manage")).toBe("more");
   });
 
-  it("manage／advanced-features 路由落在 MorePage 對應分頁；進階功能是顯示模式唯一的主人", async () => {
+  it("backup／manage／advanced-features 路由落在 MorePage 對應分頁；進階模式是顯示模式唯一的主人", async () => {
     stubShellApis();
     vi.spyOn(api, "uiPrefsGet").mockResolvedValue({ mode: "simple", locale: "zh-TW", customNames: {}, schemaVersion: "1.0" });
     vi.spyOn(api, "pauseGet").mockResolvedValue({ paused: false });
@@ -706,17 +726,39 @@ describe("一般模式產品化（G）：導覽、更多、術語", () => {
         <PageBody tab={tab} refreshKey={0} events={[]} advanced={false} onNavigate={() => {}} onRerunOnboarding={() => {}} />
       </AppStateProvider>
     );
+    // manage 是隱藏的相容路由：內容仍在，但不再有分頁按鈕。
     const { rerender } = render(body("manage"));
-    expect(screen.getByRole("tab", { name: "角色與整合管理" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("tab", { name: "角色與整合管理" })).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /管理角色/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /管理裝置與整合/ })).toBeInTheDocument();
+    rerender(body("backup"));
+    expect(screen.getByRole("tab", { name: "備份與還原" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "匯出全部" })).toBeInTheDocument();
     rerender(body("advanced-features"));
-    expect(screen.getByRole("tab", { name: "進階功能" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "進階模式" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("checkbox", { name: "顯示進階功能" })).toBeInTheDocument();
-    // 設定頁只指路，不再放第二個切換。
+    // 一般模式下第二層（版本與技術入口）完全不渲染。
+    expect(screen.queryByText(/Runtime 0\.5\.0/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Provider 診斷" })).not.toBeInTheDocument();
+    // 外觀與語言只指路，不再放第二個切換、也不再有版本區。
     rerender(body("settings"));
     expect(screen.queryByRole("checkbox", { name: "顯示進階功能" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "前往進階功能" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "前往進階模式" })).toBeInTheDocument();
+  });
+
+  it("進階模式開啟後，第二層才出現版本、診斷與開發者工具", async () => {
+    stubShellApis();
+    vi.spyOn(api, "uiPrefsGet").mockResolvedValue({ mode: "advanced", locale: "zh-TW", customNames: {}, schemaVersion: "1.0" });
+    vi.spyOn(api, "pauseGet").mockResolvedValue({ paused: false });
+    render(
+      <AppStateProvider ready={true} refreshKey={0}>
+        <MorePage refreshKey={0} events={[]} advanced onNavigate={() => {}} onRerunOnboarding={() => {}} initial="advanced-features" />
+      </AppStateProvider>
+    );
+    expect(await screen.findByText(/Runtime 0\.5\.0・Schema 0\.5/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Provider 診斷" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "配方 YAML" })).toBeInTheDocument();
+    expect(screen.getByText(/api-token/)).toBeInTheDocument();
   });
 
   it("「現在」第一屏（含展開的詳細狀態）不外洩治理術語", async () => {
@@ -733,29 +775,33 @@ describe("一般模式產品化（G）：導覽、更多、術語", () => {
     details.open = true;
     fireEvent(details, new Event("toggle"));
     await screen.findByText("系統狀態");
-    await screen.findByText(/目前有 1 個 AI 工作階段/);
+    // 首頁只留一行摘要：完整清單、權限範圍、期限與取消的主人是工作頁。
+    await screen.findByText(/目前有 1 件交代中的工作/);
     expectNoLeak(container.textContent ?? "", "現在詳細狀態");
-    // 工作階段的期限是人話，不是「租約」。
-    expect(container.textContent).toContain("可用到");
+    expect(container.textContent).not.toContain("取消這個工作階段");
+    expect(container.textContent).not.toContain("權限：");
   });
 
-  it("設定頁一般模式：第一層不出現 Runtime／Schema／JSON／YAML／受器／動器；技術資料折疊仍保留版本", async () => {
+  it("外觀與語言（一般模式）：沒有版本區，也沒有 Runtime／Schema／自訂名稱數字", async () => {
     stubShellApis();
     const { container } = render(
       <AppStateProvider ready={false} refreshKey={0}>
         <SettingsPage onRerunOnboarding={() => {}} onNavigate={() => {}} />
       </AppStateProvider>
     );
-    await screen.findByText(/系統版本 0\.5\.0/);
-    expectNoLeak(visibleText(container), "設定頁第一層");
-    // 零能力退化：版本細節還在（折疊區內）。
-    expect(container.textContent).toContain("Runtime 0.5.0");
+    await screen.findByText("語言、外觀與可及性");
+    expectNoLeak(visibleText(container), "外觀與語言第一層");
+    // 版本與技術資訊整段搬到「更多 → 進階模式」的第二層，這一頁連折疊區都沒有。
+    const all = container.textContent ?? "";
+    for (const gone of ["Runtime", "Schema", "系統版本", "自訂名稱"]) {
+      expect(all, `外觀與語言不得再出現「${gone}」`).not.toContain(gone);
+    }
     // 角色名稱來自 hook，不寫死。
     expect(await screen.findByRole("button", { name: "前往小樞" })).toBeInTheDocument();
     expect(screen.getByText("小樞的設定")).toBeInTheDocument();
   });
 
-  it("「更多」的角色與整合管理／進階功能與通知面板不外洩治理術語", async () => {
+  it("「更多」的備份與還原／隱藏的角色與整合管理／進階模式與通知面板不外洩治理術語", async () => {
     stubShellApis();
     const { container } = render(
       <AppStateProvider ready={false} refreshKey={0}>
@@ -764,8 +810,10 @@ describe("一般模式產品化（G）：導覽、更多、術語", () => {
     );
     await screen.findByText(/目前角色：/);
     expectNoLeak(container.textContent ?? "", "角色與整合管理");
-    await userEvent.click(screen.getByRole("tab", { name: "進階功能" }));
-    expectNoLeak(container.textContent ?? "", "進階功能");
+    await userEvent.click(screen.getByRole("tab", { name: "備份與還原" }));
+    expectNoLeak(container.textContent ?? "", "備份與還原");
+    await userEvent.click(screen.getByRole("tab", { name: "進階模式" }));
+    expectNoLeak(container.textContent ?? "", "進階模式");
     const panel = render(
       <NotificationPanel
         inbox={{ pendingCount: 1, items: [{ kind: "agent-session", itemId: "s", status: "claimed-completed", title: "報告", route: "ai", needsDecision: true }] }}
@@ -784,12 +832,36 @@ describe("一般模式產品化（G）：導覽、更多、術語", () => {
       ["App.tsx", APP_SOURCE],
       ["GlobalSearch.tsx", GLOBAL_SEARCH_SOURCE],
       ...(
-        ["HomePage.tsx", "MorePage.tsx", "SettingsPage.tsx", "ActivityPage.tsx", "MemoryKnowledgePage.tsx"] as const
+        [
+          "HomePage.tsx",
+          "MorePage.tsx",
+          "SettingsPage.tsx",
+          "ActivityPage.tsx",
+          "MemoryKnowledgePage.tsx",
+          // 角色頁與首次設定精靈：文案一律跟著目前角色的名字，不寫死參考角色。
+          "CompanionPage.tsx",
+          "Onboarding.tsx",
+        ] as const
       ).map((f) => [f, byFile.get(f) ?? ""] as [string, string]),
+      // 角色頁的子模組（卡片／預覽／匯入對話框／目錄）。
+      ...Object.entries(CHARACTER_PAGE_SOURCES).map(
+        ([key, source]) => [`character/${key.split("/").pop()!}`, source] as [string, string]
+      ),
     ];
+    expect(Object.keys(CHARACTER_PAGE_SOURCES).length, "pages/character/* 必須被掃到").toBeGreaterThan(3);
     for (const [file, source] of mine) {
       expect(source.length, `${file} 必須被掃到`).toBeGreaterThan(0);
       expect(stripComments(source), `${file} 不得寫死「小樞」`).not.toContain("小樞");
+    }
+    // 參考角色的 pack id、配色 id 與說話風格 id 都不得出現在角色頁與其子模組
+    //（退路一律用純文字角色；選項一律由 Reference Adapter 匯出）。
+    for (const [file, source] of mine) {
+      if (file !== "CompanionPage.tsx" && !file.startsWith("character/")) continue;
+      const code = stripComments(source);
+      for (const literal of ["shu-maid", "maid-classic", "maid-dusk", "maid-sakura", "persona-shu"]) {
+        expect(code, `${file} 不得寫死參考角色的「${literal}」`).not.toContain(literal);
+      }
+      expect(code, `${file} 不得直接 import rig 內部的表情表`).not.toContain("companion/rig/expressions");
     }
     for (const file of [
       "App.tsx",

@@ -9,7 +9,12 @@ import { api } from "../api";
 import { actionStatusLabel, useAppState } from "../appstate";
 import { Icon } from "../icons";
 import { K_STATUS_LABEL, LAYER_LABEL } from "../pages/MemoryKnowledgePage";
-import { capabilityKindLabel, projectProviderState, projectWorkState } from "../statusProjection";
+import {
+  capabilityKindLabel,
+  projectProviderState,
+  projectSensorStop,
+  projectWorkState,
+} from "../statusProjection";
 import { useCharacterName } from "../characterName";
 
 /** 一般模式看得懂的 id：只留尾 6 碼。進階模式才給完整 UUID。
@@ -32,11 +37,20 @@ interface SearchItem {
     | "receipt";
   label: string;
   detail?: string;
-  action: () => void | Promise<void>;
+  /** 回傳 CommandOutcome 的指令自己決定回報什麼、算不算成功（例如停止感測要看
+   *  重讀到的真實狀態）；回傳 void 的指令沿用 doneMessage＋成功。 */
+  action: () => void | Promise<void | CommandOutcome>;
   /** 只進入下一步（例如緊急停止的確認態），面板保持開啟。 */
   keepOpen?: boolean;
   /** 成功後回報給 Shell 的訊息；不設定則靜默成功（純導頁類）。 */
   doneMessage?: string;
+}
+
+/** 指令自己回報的結果。`ok=false` 會走 Shell 的警示列——
+ *  「已送出」不等於「已完成」，不確定一律不算成功。 */
+export interface CommandOutcome {
+  ok: boolean;
+  message: string;
 }
 
 // v0.5 IA：5 個一級入口＋常用細項（細項導到對應 hub 分頁的相容 id）。
@@ -51,11 +65,13 @@ const PAGES: { id: string; label: string }[] = [
   { id: "automations", label: "自動互動" },
   { id: "capabilities", label: "裝置與能力" },
   { id: "safety", label: "同意與安全" },
-  { id: "memory", label: "記憶與知識" },
-  { id: "activity", label: "活動歷史" },
-  { id: "settings", label: "設定" },
+  { id: "memory", label: "記憶與資料" },
+  { id: "activity", label: "活動紀錄" },
+  { id: "settings", label: "外觀與語言" },
+  { id: "backup", label: "備份與還原" },
+  // 隱藏的相容路由：「更多」已沒有這個分頁按鈕，但舊書籤與搜尋仍到得了。
   { id: "manage", label: "角色與整合管理" },
-  { id: "advanced-features", label: "進階功能" },
+  { id: "advanced-features", label: "進階模式" },
 ];
 
 /** 頁面清單的執行期版本：角色頁用目前角色的名字。 */
@@ -254,8 +270,19 @@ export function GlobalSearch({
       {
         kind: "command",
         label: "停止所有感測",
-        doneMessage: "已停止所有感測。",
-        action: () => api.sensorsStop().then(() => {}),
+        // 誠實階梯：送出 ≠ 已停止。送出後重讀狀態，只有真的沒有感測在用才算成功；
+        // 有裝置沒回覆是「結果不確定」（ok=false），不得謊稱「已停止所有感測」。
+        action: async (): Promise<CommandOutcome> => {
+          const report = await api.sensorsStop();
+          let remaining: import("../api").SensorUse[] | null = null;
+          try {
+            const s = await api.status();
+            remaining = (s["activeSensors"] as import("../api").SensorUse[] | undefined) ?? [];
+          } catch {
+            remaining = null;
+          }
+          return projectSensorStop(report, remaining);
+        },
       },
       {
         kind: "command",
@@ -302,8 +329,13 @@ export function GlobalSearch({
     }
     Promise.resolve()
       .then(() => item.action())
-      .then(() => {
-        if (item.doneMessage) onCommandFeedback(item.doneMessage, true);
+      .then((outcome) => {
+        // 指令自己回報的結果優先（可能是「結果不確定」＝ ok:false）。
+        if (outcome && typeof outcome === "object" && typeof outcome.message === "string") {
+          onCommandFeedback(outcome.message, outcome.ok === true);
+        } else if (item.doneMessage) {
+          onCommandFeedback(item.doneMessage, true);
+        }
       })
       .catch((e) => onCommandFeedback(`「${item.label}」失敗：${String(e)}`, false));
     onClose();

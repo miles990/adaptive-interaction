@@ -1,11 +1,14 @@
 // 「現在」頁（v0.5 一般模式）：第一屏只回答三件事——角色現在怎麼樣、正在做什麼、
-// 有什麼需要處理——外加三個快速操作（交代一件事／暫停或恢復主動互動／加入裝置）。
-// 系統狀態、工作階段／自動互動／裝置數量、最近一次互動、記憶更新全部收進
-// 「詳細狀態」折疊區。全部來自後端真實狀態；沒有驗證佐證絕不顯示「已確認完成」；
-// 狀態標籤一律走 statusProjection；安全文字（緊急停止中／感測使用中）固定。
+// 有什麼需要處理——外加五個快速操作（交代一件事／暫停或恢復主動互動／加入裝置／
+// 停止所有感測／緊急停止）。緊急停止是二段確認、只能觸發不能解除（解除走安全頁）；
+// 「停止所有感測」送出後一定重讀狀態，只有真的沒有感測在用才敢說「已停止感測」。
+// 系統狀態、自動互動／裝置數量、最近一次互動、記憶更新全部收進「詳細狀態」折疊區
+// （工作階段只留一行摘要＋前往工作，完整清單的主人是工作頁）。全部來自後端真實狀態；
+// 沒有驗證佐證絕不顯示「已確認完成」；狀態標籤一律走 statusProjection；
+// 安全文字（緊急停止中／感測使用中）固定；機器字串一律翻成人話再上畫面。
 
 import React from "react";
-import { api, HumanCard, Receipt, RuntimeEvent } from "../api";
+import { api, HumanCard, Receipt, RuntimeEvent, SensorUse } from "../api";
 import { actionStatusLabel, useAppState } from "../appstate";
 import { characterNameFallback, useCharacterName } from "../characterName";
 import { displayNameOf } from "../character/manifest";
@@ -13,11 +16,17 @@ import { Icon } from "../icons";
 import { Badge, Section, StateView, useAsync } from "../ui";
 import {
   agentDisplayLabel,
+  inboxItemTitle,
   isOpenWorkState,
+  isPendingCountExact,
+  PENDING_INCOMPLETE_NOTE,
+  pendingCountLabel,
   projectInboxStatus,
+  projectSensorStop,
   projectWorkState,
+  sensorKindLabel,
 } from "../statusProjection";
-import { Dialog } from "../components/Dialog";
+import { ConfirmButton, Dialog } from "../components/Dialog";
 
 /** 「交代一件事」把描述先放進 sessionStorage，工作頁掛載時讀取並預填。純文字。 */
 export const WORK_PREFILL_KEY = "work.prefill";
@@ -29,10 +38,16 @@ export function HomePage({
   refreshKey,
   events,
   onNavigate,
+  estopped = false,
+  onEstop,
 }: {
   refreshKey: number;
   events: RuntimeEvent[];
   onNavigate: (tab: string) => void;
+  /** Shell 已知的緊急停止狀態（沒傳＝未知，一律當作未停止並顯示觸發鈕）。 */
+  estopped?: boolean;
+  /** Shell 的緊急停止流程（含失敗時的重試警示列）；沒傳就直接呼叫後端。 */
+  onEstop?: () => Promise<void>;
 }) {
   const { pause, doPause, doResume, prefs } = useAppState();
   const character = useCharacterName({ locale: prefs.locale });
@@ -41,6 +56,10 @@ export function HomePage({
   const [pauseError, setPauseError] = React.useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [task, setTask] = React.useState("");
+  // 「停止所有感測」的結果：ok=true 才是確認停止，其餘一律以警示呈現（不得靜默）。
+  const [sensorNotice, setSensorNotice] = React.useState<{ message: string; ok: boolean } | null>(
+    null
+  );
   const tryPause = async (minutes?: number) => {
     try {
       await doPause(minutes);
@@ -50,6 +69,26 @@ export function HomePage({
       setPauseError(String(e));
       return false;
     }
+  };
+
+  // 誠實階梯：送出停止請求 ≠ 已停止。送出後一定重讀 status，只有 activeSensors 真的空了
+  // 而且回報沒有「不確定」時才敢說「已停止感測」；讀不到狀態就說讀不到，不猜。
+  const stopSensors = async () => {
+    setSensorNotice(null);
+    let report: unknown;
+    try {
+      report = await api.sensorsStop();
+    } catch (e) {
+      setSensorNotice({ message: `停止所有感測失敗：${String(e)}`, ok: false });
+      return;
+    }
+    let remaining: SensorUse[] | null = null;
+    try {
+      remaining = ((await api.status())["activeSensors"] as SensorUse[] | undefined) ?? [];
+    } catch {
+      remaining = null;
+    }
+    setSensorNotice(projectSensorStop(report, remaining));
   };
 
   const delegate = (event: React.FormEvent) => {
@@ -90,18 +129,51 @@ export function HomePage({
           </button>
         </form>
         <div className="row wrap">
-          {pause.paused ? (
-            <button onClick={() => doResume().catch((e) => setPauseError(String(e)))}>
-              恢復主動互動
+          <span className="row wrap" role="group" aria-label="暫停或恢復主動互動">
+            {pause.paused ? (
+              <button onClick={() => doResume().catch((e) => setPauseError(String(e)))}>
+                恢復主動互動
+              </button>
+            ) : (
+              <>
+                <button onClick={() => tryPause()}>暫停主動互動</button>
+                <button onClick={() => setPauseDialog(true)}>暫停一段時間…</button>
+              </>
+            )}
+          </span>
+          <button onClick={() => onNavigate("connect")}>加入裝置</button>
+          <button onClick={() => void stopSensors()}>停止所有感測</button>
+          {/* 觸發是二段確認；「解除」刻意不在這裡——要走安全頁的恢復流程。 */}
+          {estopped ? (
+            <button className="estop-indicator" onClick={() => onNavigate("safety")}>
+              <Icon name="octagon-x" size={16} /> 緊急停止中 — 前往解除
             </button>
           ) : (
-            <>
-              <button onClick={() => tryPause()}>暫停主動互動</button>
-              <button onClick={() => setPauseDialog(true)}>暫停一段時間…</button>
-            </>
+            <ConfirmButton
+              className="estop"
+              label="緊急停止"
+              confirmLabel="立即停止一切？"
+              onConfirm={() => {
+                if (onEstop) void onEstop();
+                else
+                  void api
+                    .emergencyStop("home quick action")
+                    .then(() => onNavigate("safety"))
+                    .catch((e) => setPauseError(String(e)));
+              }}
+            />
           )}
-          <button onClick={() => onNavigate("connect")}>加入裝置</button>
         </div>
+        {sensorNotice &&
+          (sensorNotice.ok ? (
+            <p className="muted small" role="status">
+              {sensorNotice.message}
+            </p>
+          ) : (
+            <p className="cap-card-error" role="alert">
+              {sensorNotice.message}
+            </p>
+          ))}
         {pauseError && (
           <p className="cap-card-error" role="alert">
             操作失敗：{pauseError}
@@ -156,7 +228,7 @@ export function HomePage({
 }
 
 /** 詳細狀態（折疊區，展開才掛載、才查詢）：系統狀態、工作階段、自動互動、數量、
- *  AI 工作階段、最近一次互動、記憶與知識。 */
+ *  交代中的工作摘要、最近一次互動、記憶與資料。 */
 function HomeDetails({
   refreshKey,
   status,
@@ -181,7 +253,9 @@ function HomeDetails({
   const pendingAi = Number(status.data?.["pendingAiAssists"] ?? 0);
   const cp = status.data?.["characterProtocol"] as Record<string, unknown> | undefined;
   const instances = Number(cp?.["instances"] ?? 0);
-  const sensors = (status.data?.["activeSensors"] as { kind: string }[] | undefined) ?? [];
+  const sensors = (status.data?.["activeSensors"] as SensorUse[] | undefined) ?? [];
+  // 來源沒回報狀態（例如手機失聯）＝ 可能仍在使用，不得當作已停止。
+  const sensorStateUnknown = sensors.some((s) => s.state !== undefined && s.state !== "active");
   const latestReceipt = (
     (receiptsData.data as Record<string, unknown> | undefined)?.receipts as
       | Record<string, unknown>[]
@@ -225,6 +299,7 @@ function HomeDetails({
                 <p className="home-status-line warn">
                   <Icon name="mic" size={16} /> 感測使用中：
                   {sensors.map((s) => sensorLabel(s.kind)).join("、")}
+                  {sensorStateUnknown ? "（其中有來源沒回報狀態，視為仍在使用）" : ""}
                 </p>
               )}
               {pendingAi > 0 && (
@@ -278,7 +353,7 @@ function HomeDetails({
         </div>
       </Section>
 
-      <AgentSessionsSection refreshKey={refreshKey} />
+      <AgentSessionsSection refreshKey={refreshKey} onNavigate={onNavigate} />
 
       <Section title="最近一次互動">
         <StateView state={actions} empty="還沒有任何互動。">
@@ -286,10 +361,10 @@ function HomeDetails({
         </StateView>
       </Section>
 
-      <Section title="記憶與知識">
+      <Section title="記憶與資料">
         {latestReceipt ? (
           <p className="muted small">
-            最近更新：{String(latestReceipt.triggeredBy)}（
+            最近更新：{knowledgeTriggerLabel(String(latestReceipt.triggeredBy ?? ""))}（
             {(latestReceipt.verification as Record<string, unknown> | undefined)?.humanReviewed ===
             true
               ? "已複審"
@@ -299,19 +374,44 @@ function HomeDetails({
         ) : (
           <p className="muted small">尚無更新。</p>
         )}
-        <button onClick={() => onNavigate("memory")}>前往記憶與知識</button>
+        <button onClick={() => onNavigate("memory")}>前往記憶與資料</button>
       </Section>
     </div>
   );
 }
 
-/** 感測器種類的人話（未知種類原樣，不猜）。 */
-export function sensorLabel(kind: string): string {
-  const k = kind.toLowerCase();
-  if (k === "microphone" || k.includes("mic")) return "麥克風";
-  if (k.includes("camera")) return "攝影機";
-  if (k.includes("location") || k.includes("gps")) return "定位";
-  return kind;
+/** 感測器種類的人話。未知種類不猜、也不外洩原始 id（`iphone.motion` 這種），
+ *  一律走共用投影說「其他感測器」——「有東西在感測」這件事實仍然看得到。 */
+export const sensorLabel = sensorKindLabel;
+
+const KNOWLEDGE_TRIGGER_LABEL: Record<string, string> = {
+  "user-correction": "你的更正",
+  "review-overdue": "複審到期",
+  "conflict-detected": "發現衝突",
+  "task-experience": "工作經驗",
+  "human-review": "人工複審",
+};
+
+/** 知識更新的來由（Runtime 的 `triggeredBy`，kebab-case 原始值）翻成人話。
+ *  認不得的值不外洩原始字串，一律說「系統」——寧可少說，不假裝看得懂。 */
+export function knowledgeTriggerLabel(raw: string): string {
+  return Object.prototype.hasOwnProperty.call(KNOWLEDGE_TRIGGER_LABEL, raw)
+    ? KNOWLEDGE_TRIGGER_LABEL[raw]
+    : "系統";
+}
+
+/** 動作意圖（Receipt 的 `intent`）：Runtime 的原始 id（`emergency-stop`／`companion-test`）
+ *  不該出現在一般模式的第一層文字裡。認得的翻成人話，其餘只說「一個需要回應的訊號」。 */
+export function receiptIntentLabel(intent: string): string {
+  const known: Record<string, string> = {
+    "emergency-stop": "緊急停止",
+    "companion-test": "角色測試",
+    notify: "通知",
+    speak: "說話",
+  };
+  if (Object.prototype.hasOwnProperty.call(known, intent)) return known[intent];
+  // 原始機器 id（小寫英數與 . _ -）不上畫面；人類寫的描述照原樣顯示。
+  return /^[a-z0-9][a-z0-9._-]*$/i.test(intent) ? "一個需要回應的訊號" : intent;
 }
 
 export interface CharacterSentenceInput {
@@ -381,6 +481,9 @@ export function NowStrip({
   const pendingDegraded = Boolean(inbox.error);
   const inboxData = inbox.data as Record<string, unknown> | undefined;
   const pendingTotal = Number(inboxData?.pendingCount ?? 0);
+  // 後端說 pendingCount 只是下限時，這裡的數字要說「至少」，而且 0 也不可以
+  // 用綠色的「0 項」宣稱沒事——那會把「還沒撈完」講成「沒有待辦」。
+  const pendingExact = isPendingCountExact(inboxData);
   const pendingItems = ((inboxData?.items as Record<string, unknown>[] | undefined) ?? [])
     .filter((item) => item.needsDecision === true)
     .slice(0, 3);
@@ -435,17 +538,24 @@ export function NowStrip({
         <span className="now-title">待我決定</span>
         {pendingDegraded ? (
           <Badge kind="warn">無法確認（查詢失敗）</Badge>
-        ) : pendingTotal > 0 ? (
-          <Badge kind="warn">{pendingTotal} 項</Badge>
+        ) : pendingTotal > 0 || !pendingExact ? (
+          <Badge kind="warn">{pendingCountLabel(pendingTotal, pendingExact)}</Badge>
         ) : (
           <Badge kind="ok">0 項</Badge>
+        )}
+        {!pendingDegraded && !pendingExact && (
+          <p className="muted small" role="status">
+            {PENDING_INCOMPLETE_NOTE}。
+          </p>
         )}
         {pendingItems.length > 0 && (
           <ul className="plain-list now-list">
             {pendingItems.map((item) => (
               <li key={`${String(item.kind)}-${String(item.itemId)}`}>
                 <Badge kind="warn">{projectInboxStatus(String(item.status)).label}</Badge>
-                <span>{String(item.title)}</span>
+                {/* 安全事件在舊 daemon 的 title 是原始事件型別（`emergency.stop`）——
+                    一般模式第一屏不得印它，走與通知中心同一份人話投影。 */}
+                <span>{inboxItemTitle(item)}</span>
                 <button onClick={() => onNavigate(String(item.route))}>前往</button>
               </li>
             ))}
@@ -582,7 +692,7 @@ function LastInteraction({ receipt }: { receipt: Receipt; events: RuntimeEvent[]
     <ol className="story-flow" aria-label="最近一次互動的過程">
       <li>
         <span className="story-label">感知</span>
-        <span>系統收到「{receipt.intent}」相關的訊號</span>
+        <span>系統收到「{receiptIntentLabel(receipt.intent)}」相關的訊號</span>
       </li>
       <li>
         <span className="story-label">理解</span>
@@ -635,50 +745,38 @@ export function toolScopeLabel(scope: string): string {
   return TOOL_SCOPE_LABEL[scope] ?? scope;
 }
 
-/** 目前 AI 工作階段（一般模式視圖）：真實工作、人話狀態、權限範圍；
- *  「聲稱完成」明確標示為聲稱，非驗證。 */
-function AgentSessionsSection({ refreshKey }: { refreshKey: number }) {
+/** 交代中的工作（首頁只給一行摘要）：完整清單、權限範圍、期限與取消都住在工作頁，
+ *  首頁不放第二份（規格 §12.1「不要在首頁重複全部工作階段」）。 */
+function AgentSessionsSection({
+  refreshKey,
+  onNavigate,
+}: {
+  refreshKey: number;
+  onNavigate: (tab: string) => void;
+}) {
   const [sessions] = useAsync(() => api.agentSessionsList(), [refreshKey]);
+  if (sessions.loading) return null;
+  // 查詢失敗＝未知，不得顯示綠色的「沒有進行中」。
+  if (sessions.error) {
+    return (
+      <Section title="交代中的工作">
+        <p className="muted small" role="status">
+          無法確認目前交代中的工作（查詢失敗）。
+        </p>
+        <button onClick={() => onNavigate("work")}>前往工作</button>
+      </Section>
+    );
+  }
   const open = (sessions.data ?? []).filter((s) => !s.closedAt);
-  if (sessions.loading || open.length === 0) return null;
+  if (open.length === 0) return null;
 
   return (
-    <Section title={`目前有 ${open.length} 個 AI 工作階段`}>
-      {open.map((s) => {
-        // 狀態文案與徽章走共用投影（statusProjection.ts）；未知狀態是
-        // 「結果不確定」，不是原始字串。
-        const status = projectWorkState(s.state);
-        return (
-          <div key={s.sessionId} className="agent-session-row">
-            <div className="agent-session-head">
-              <strong>{s.label ?? agentDisplayLabel(s.agentId)}</strong>
-              <Badge kind={status.badge}>{status.label}</Badge>
-            </div>
-            <div className="muted small">
-              權限：
-              {s.dataScope.length > 0
-                ? `可讀取${s.dataScope.map(dataScopeLabel).join("、")}`
-                : "沒有任何資料範圍"}
-              {s.toolScope.length > 0 ? `；${s.toolScope.map(toolScopeLabel).join("、")}` : ""}
-              　·　訊息 {s.budget.spentMessages}/{s.budget.maxMessages || "不限"}
-              　·　可用到 {new Date(s.lease.expiresAt).toLocaleTimeString()}
-            </div>
-            <div className="row wrap" style={{ marginTop: 4 }}>
-              <button
-                onClick={() =>
-                  api.agentSessionClose(s.sessionId, "cancelled").catch(() => {})
-                }
-              >
-                取消這個工作階段
-              </button>
-            </div>
-          </div>
-        );
-      })}
+    <Section title="交代中的工作">
       <p className="muted small">
-        AI 工作階段是有期限、有預算的委派工作。它們的回報是「聲稱」，
-        實際結果要等你檢查確認之後才算數。
+        目前有 {open.length} 件交代中的工作。它們的回報是「聲稱」，實際結果要等你檢查確認
+        之後才算數；詳細狀態、可用期限與取消都在工作頁。
       </p>
+      <button onClick={() => onNavigate("work")}>前往工作</button>
     </Section>
   );
 }

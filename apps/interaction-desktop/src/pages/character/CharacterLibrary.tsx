@@ -1,6 +1,9 @@
-// 更換或加入角色：內建索引＋已匯入角色的卡片（名稱、內建／第三方、本機／外部、
-// 有可執行程式、需要網路、可以接收哪些資料、已測試），選用／停用／移除，
-// 以及匯入第三方角色（manifest 原文＋宣告的資產 → host `character_import`）。
+// 更換或加入角色：內建索引＋已匯入角色的卡片（名稱、內建／第三方、可以接收哪些資料、
+// 已測試），選用／停用／移除，以及匯入第三方角色（角色描述檔＋宣告的資產 → host
+// `character_import`）。
+//
+// 一般／進階分層（v0.5 §15）：執行位置、可執行程式、需要網路、貼上原文的輸入框與
+// 驗證器原文只在進階模式；一般模式改成一句人話的「額外授權」提示（誠實不隱藏事實）。
 //
 // 匯入只寫入本機角色資料夾；不執行程式、不連線、不下載。錯誤訊息來自驗證器／host，
 // 這裡再過一次 sanitizeErrorText（不回顯路徑）。
@@ -15,6 +18,7 @@ import { desktop, isTauri, type DesktopPrefs } from "../../desktop";
 import { exportCompanionSettings, parseCompanionSettingsImport } from "../../companion/settingsTransfer";
 import {
   CHARACTER_LOCALE,
+  extraPermissionLine,
   locationLabel,
   partyLabel,
   receivesLine,
@@ -23,22 +27,37 @@ import {
   type CharacterCatalog,
 } from "./catalog";
 
-export function FlagBadges({ card }: { card: Pick<CharacterCard, "origin" | "flags" | "valid"> }) {
+export function FlagBadges({
+  card,
+  advanced = false,
+}: {
+  card: Pick<CharacterCard, "origin" | "flags" | "valid">;
+  /** 進階模式才顯示執行方式旗標；一般模式改用一句人話的額外授權提示。 */
+  advanced?: boolean;
+}) {
   return (
     <span className="character-flags">
       <Badge kind={card.origin === "builtin" ? "info" : "warn"}>{partyLabel(card.origin)}</Badge>
       {card.origin === "imported" && <Badge kind="muted">匯入</Badge>}
-      {card.flags.external && <Badge kind="warn">外部</Badge>}
-      {card.flags.executable && <Badge kind="bad">有可執行程式</Badge>}
-      {card.flags.network && <Badge kind="warn">需要網路</Badge>}
+      {advanced && card.flags.external && <Badge kind="warn">外部</Badge>}
+      {advanced && card.flags.executable && <Badge kind="bad">有可執行程式</Badge>}
+      {advanced && card.flags.network && <Badge kind="warn">需要網路</Badge>}
       {!card.valid && <Badge kind="bad">資料損壞</Badge>}
     </span>
   );
 }
 
+/** 需要額外授權時的一句人話（一般模式）；不需要時什麼都不畫。 */
+function ExtraPermissionNote({ card }: { card: Pick<CharacterCard, "flags"> }) {
+  const line = extraPermissionLine(card);
+  if (!line) return null;
+  return <p className="muted small character-extra-permission">{line}</p>;
+}
+
 function CharacterCardView({
   card,
   active,
+  advanced,
   busy,
   onSelect,
   onDisable,
@@ -46,6 +65,7 @@ function CharacterCardView({
 }: {
   card: CharacterCard;
   active: boolean;
+  advanced: boolean;
   busy: boolean;
   onSelect: () => void;
   onDisable: () => void;
@@ -57,25 +77,30 @@ function CharacterCardView({
         <strong>{card.name}</strong>
         {active && <Badge kind="ok">使用中</Badge>}
       </header>
-      <FlagBadges card={card} />
+      <FlagBadges card={card} advanced={advanced} />
       {card.error && <p className="cap-card-error">這個角色的資料無法讀取：{card.error}</p>}
+      {!advanced && <ExtraPermissionNote card={card} />}
       <dl className="cap-facts">
         <div>
           <dt>來源</dt>
           <dd>{partyLabel(card.origin)}{card.origin === "imported" ? "（匯入）" : card.origin === "external" ? "（外部）" : ""}</dd>
         </div>
-        <div>
-          <dt>執行位置</dt>
-          <dd>{locationLabel(card)}</dd>
-        </div>
-        <div>
-          <dt>可執行程式</dt>
-          <dd>{card.flags.executable ? "有（只記錄，不會自動執行）" : "沒有（純資料）"}</dd>
-        </div>
-        <div>
-          <dt>需要網路</dt>
-          <dd>{card.flags.network ? "是" : "否"}</dd>
-        </div>
+        {advanced && (
+          <>
+            <div>
+              <dt>執行位置</dt>
+              <dd>{locationLabel(card)}</dd>
+            </div>
+            <div>
+              <dt>可執行程式</dt>
+              <dd>{card.flags.executable ? "有（只記錄，不會自動執行）" : "沒有（純資料）"}</dd>
+            </div>
+            <div>
+              <dt>需要網路</dt>
+              <dd>{card.flags.network ? "是" : "否"}</dd>
+            </div>
+          </>
+        )}
         <div>
           <dt>可以接收</dt>
           <dd>{receivesLine(card).replace(/^可以接收：/, "")}</dd>
@@ -110,6 +135,7 @@ export function CharacterLibrarySection({
   activeId,
   prefs,
   busy,
+  advanced = false,
   onSelect,
   onDisable,
   onRemove,
@@ -120,10 +146,13 @@ export function CharacterLibrarySection({
   activeId: string;
   prefs: DesktopPrefs | null;
   busy: boolean;
+  /** 進階模式：執行方式旗標／欄位與貼上角色描述檔原文的輸入框。 */
+  advanced?: boolean;
   onSelect: (characterId: string) => Promise<void>;
   onDisable: () => Promise<void>;
   onRemove: (characterId: string) => Promise<void>;
-  onPatch: (patch: Partial<DesktopPrefs>) => Promise<void>;
+  /** 回傳 `true` 只在 host 真的接受寫入時；失敗時呼叫端不得顯示成功文案。 */
+  onPatch: (patch: Partial<DesktopPrefs>) => Promise<boolean>;
   setError: (message: string | null) => void;
 }) {
   const [importOpen, setImportOpen] = React.useState(false);
@@ -144,7 +173,11 @@ export function CharacterLibrarySection({
       const parsed = parseCompanionSettingsImport(JSON.parse(await file.text()), {
         knownCharacterIds: catalog.knownIds,
       });
-      await onPatch(parsed);
+      // 送出 ≠ 套用：host 拒絕（例如瀏覽器檢視沒有桌面 host）時不得說已套用。
+      if (!(await onPatch(parsed))) {
+        setError("匯入設定失敗：桌面角色設定沒有寫入成功（設定未變更）。");
+        return;
+      }
       setNotice("已匯入角色設定並套用。");
       setError(null);
     } catch (e) {
@@ -181,6 +214,7 @@ export function CharacterLibrarySection({
               key={card.characterId}
               card={card}
               active={card.characterId === activeId}
+              advanced={advanced}
               busy={busy}
               onSelect={() => void onSelect(card.characterId)}
               onDisable={() => void onDisable()}
@@ -216,6 +250,7 @@ export function CharacterLibrarySection({
       )}
       {importOpen && (
         <ImportCharacterDialog
+          advanced={advanced}
           onClose={() => setImportOpen(false)}
           onImported={(_characterId, name) => {
             catalog.reload();
@@ -262,10 +297,13 @@ export function ImportCharacterDialog({
   onClose,
   onImported,
   onSelect,
+  advanced = false,
 }: {
   onClose: () => void;
   onImported: (characterId: string, name: string) => void;
   onSelect: (characterId: string) => Promise<void>;
+  /** 進階模式才有貼上原文的輸入框與驗證器原文；一般模式只有選檔＋人話摘要。 */
+  advanced?: boolean;
 }) {
   const [manifestText, setManifestText] = React.useState("");
   const [validation, setValidation] = React.useState<LocalValidation>(null);
@@ -341,8 +379,8 @@ export function ImportCharacterDialog({
           </div>
         )}
         <p className="muted small">
-          貼上或選擇角色描述檔，再附上它宣告的圖檔等資產。匯入只會存到本機角色資料夾：
-          不會執行任何程式、不會連線、不會下載。有可執行程式或需要網路的角色會被明確標示。
+          {advanced ? "貼上或選擇角色描述檔" : "選擇角色描述檔"}，再附上它宣告的圖檔等資產。匯入只會存到本機角色資料夾：
+          不會執行任何程式、不會連線、不會下載。需要執行程式或需要網路的角色會被明確標示。
         </p>
         <label className="button-like">
           選擇角色描述檔
@@ -356,37 +394,53 @@ export function ImportCharacterDialog({
               e.target.value = "";
               if (!file) return;
               if (file.size > 256 * 1024) {
-                setValidation({ ok: false, errors: ["manifest exceeds 262144 bytes"] });
+                setValidation({ ok: false, errors: ["角色描述檔超過 256 KB"] });
                 return;
               }
               applyText(await file.text());
             }}
           />
         </label>
-        <label className="field-label">
-          或直接貼上角色描述檔內容
-          <textarea
-            className="editor small-editor"
-            aria-label="角色描述檔內容"
-            value={manifestText}
-            spellCheck={false}
-            onChange={(e) => applyText(e.target.value)}
-          />
-        </label>
+        {advanced && (
+          <label className="field-label">
+            或直接貼上角色描述檔內容
+            <textarea
+              className="editor small-editor"
+              aria-label="角色描述檔內容"
+              value={manifestText}
+              spellCheck={false}
+              onChange={(e) => applyText(e.target.value)}
+            />
+          </label>
+        )}
         {validation && !validation.ok && (
           <div className="state-box state-error" role="alert">
-            <div>角色描述檔不符合規格：</div>
-            <ul className="plain-list small">
-              {validation.errors.slice(0, 12).map((err) => (
-                <li key={err}>{sanitizeErrorText(err)}</li>
-              ))}
-            </ul>
+            <div>
+              角色描述檔不符合規格{advanced ? "：" : `（${validation.errors.length} 個問題）；請向角色作者索取正確的檔案。`}
+            </div>
+            {advanced ? (
+              <ul className="plain-list small">
+                {validation.errors.slice(0, 12).map((err) => (
+                  <li key={err}>{sanitizeErrorText(err)}</li>
+                ))}
+              </ul>
+            ) : (
+              <details className="tech-details">
+                <summary>問題明細</summary>
+                <ul className="plain-list small">
+                  {validation.errors.slice(0, 12).map((err) => (
+                    <li key={err}>{sanitizeErrorText(err)}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
         )}
         {validation?.ok && (
           <div className="character-import-preview">
             <strong>{displayNameOf(validation.manifest, CHARACTER_LOCALE)}</strong>{" "}
             <FlagBadges
+              advanced={advanced}
               card={{
                 origin: validation.report.flags.external ? "external" : "imported",
                 flags: {
@@ -397,13 +451,34 @@ export function ImportCharacterDialog({
                 valid: true,
               }}
             />
-            {validation.report.warnings.length > 0 && (
-              <ul className="plain-list muted small">
-                {validation.report.warnings.slice(0, 8).map((w) => (
-                  <li key={w}>提醒：{sanitizeErrorText(w)}</li>
-                ))}
-              </ul>
+            {!advanced && (
+              <ExtraPermissionNote
+                card={{
+                  flags: {
+                    external: validation.report.flags.external,
+                    executable: validation.report.flags.executable,
+                    network: validation.report.flags.network,
+                  },
+                }}
+              />
             )}
+            {validation.report.warnings.length > 0 &&
+              (advanced ? (
+                <ul className="plain-list muted small">
+                  {validation.report.warnings.slice(0, 8).map((w) => (
+                    <li key={w}>提醒：{sanitizeErrorText(w)}</li>
+                  ))}
+                </ul>
+              ) : (
+                <details className="tech-details">
+                  <summary>這個角色檔有 {validation.report.warnings.length} 個提醒</summary>
+                  <ul className="plain-list muted small">
+                    {validation.report.warnings.slice(0, 8).map((w) => (
+                      <li key={w}>提醒：{sanitizeErrorText(w)}</li>
+                    ))}
+                  </ul>
+                </details>
+              ))}
             {declared.length > 0 ? (
               <div className="character-import-assets">
                 <div className="small">這個角色宣告了 {declared.length} 個資產，請逐一附上：</div>

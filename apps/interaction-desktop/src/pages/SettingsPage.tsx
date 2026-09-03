@@ -1,12 +1,13 @@
-// 設定：語言／外觀／可及性、重新執行首次設定精靈、視窗與啟動、版本。
-// 一般／進階模式切換的唯一主人是「更多 → 進階功能」；角色的設定在角色頁；
-// 匯出／還原／刪除資料收在第二層（折疊區）再指到「記憶與知識」。
+// 外觀與語言（更多 → 外觀與語言）：語言／外觀／縮放／減少動畫、視窗與啟動、
+// 重新執行首次設定的入口。
+// 一般／進階模式切換的唯一主人是「更多 → 進階模式」，版本與技術資訊也住在那一層；
+// 角色的設定在角色頁；匯出／還原的唯一主人是「更多 → 備份與還原」。這一頁只放
+// 「這台電腦上這個視窗長什麼樣、怎麼開關」，不放第二份任何設定。
 
 import React from "react";
-import { api } from "../api";
 import { useAppState } from "../appstate";
 import { useCharacterName } from "../characterName";
-import { Section, Toggle, useAsync } from "../ui";
+import { Section, Toggle } from "../ui";
 import { desktop, DesktopPrefs, isTauri } from "../desktop";
 
 export function SettingsPage({
@@ -19,9 +20,6 @@ export function SettingsPage({
   const { prefs, setPreferences } = useAppState();
   const advanced = prefs.mode === "advanced";
   const character = useCharacterName({ locale: prefs.locale });
-  const [runtime] = useAsync(() => api.status(), []);
-  const version = String(runtime.data?.version ?? "未知");
-  const schema = String(runtime.data?.schemaVersion ?? "未知");
 
   return (
     <div>
@@ -74,8 +72,9 @@ export function SettingsPage({
 
       <Section title="首次設定">
         <p className="muted small">
-          重新執行首次設定精靈，重新選擇感知來源、回應方式與互動偏好。已有的設定不會被清除，
-          精靈套用時才會變更。
+          三個步驟：選擇角色與陪伴方式、選擇 AI 工作方式、確認安全與權限預設。
+          重新執行<strong>不會</strong>自動關掉你已經開啟的能力；按「完成設定」後會先列出每一項變更，
+          你按下「套用」才會生效，沒被列出的設定完全不動。
         </p>
         <button onClick={onRerunOnboarding}>重新執行首次設定</button>
       </Section>
@@ -88,60 +87,15 @@ export function SettingsPage({
         <button onClick={() => onNavigate("companion")}>前往{character.name}</button>
       </Section>
 
-      <Section title="進階功能">
+      <Section title="進階模式">
         <p className="muted small">
           {advanced ? "目前顯示進階功能（技術頁面與原始資料）。" : "目前只顯示一般功能。"}
-          切換在「更多 → 進階功能」。
+          切換、版本與技術資訊都在「更多 → 進階模式」。
         </p>
-        <button onClick={() => onNavigate("advanced-features")}>前往進階功能</button>
+        <button onClick={() => onNavigate("advanced-features")}>前往進階模式</button>
       </Section>
 
       <DesktopLifecycleSection />
-
-      <Section title="資料">
-        <details className="settings-data">
-          <summary>備份、還原與刪除資料</summary>
-          <p className="muted small">
-            「更多 → 記憶與知識」提供可讀的備份檔、逐筆驗證的還原、期限修改、匯出與刪除；
-            原始素材及其衍生物會在刪除前顯示影響預覽。重新執行首次設定不會清除既有資料。
-          </p>
-          <div className="row wrap">
-            <button onClick={() => onNavigate("memory")}>開啟匯出、還原與刪除</button>
-          </div>
-        </details>
-      </Section>
-
-      <Section title="更新與版本">
-        {runtime.loading ? (
-          <p className="muted small">正在讀取版本…</p>
-        ) : runtime.error ? (
-          <p className="state-box state-error">目前無法確認版本：{runtime.error}</p>
-        ) : advanced ? (
-          <p className="muted small">
-            Runtime {version}・Schema {schema}
-          </p>
-        ) : (
-          <>
-            <p className="muted small">系統版本 {version}</p>
-            <details className="tech-details">
-              <summary>技術資料</summary>
-              <p className="muted small">
-                Runtime {version}・Schema {schema}
-              </p>
-            </details>
-          </>
-        )}
-        <p className="muted small">
-          更新不會自動安裝或替換執行檔；正式發布仍由簽章 Release 流程處理，避免背景更新繞過驗證。
-        </p>
-      </Section>
-
-      <Section title="關於名稱">
-        <p className="muted small">
-          你在各能力「詳情」中自訂的名稱只影響顯示，不影響行為或安全規則；
-          目前有 {Object.keys(prefs.customNames).length} 個自訂名稱。
-        </p>
-      </Section>
     </div>
   );
 }

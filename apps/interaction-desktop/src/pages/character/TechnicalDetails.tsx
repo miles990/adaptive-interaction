@@ -1,5 +1,6 @@
-// 技術資料（只在進階模式渲染；預設收合）：manifest 原文、schema 版本、引擎／entrypoint、
-// adapter 種類、通道、狀態、能力、資源上限、Runtime 實例與 Behavior State 數值。
+// 技術資料（只在進階模式渲染；預設收合）：安全宣告（執行方式、可執行程式、需要網路、
+// 檔案存取、簽章）、manifest 原文、schema 版本、引擎／entrypoint、adapter 種類、通道、
+// 狀態、能力、資源上限、Runtime 實例與 Behavior State 數值。
 // 一般模式永遠不 import／不渲染這個元件。
 
 import type { CharacterInstanceView } from "../../api";
@@ -39,7 +40,18 @@ export function TechnicalDetails({
       {!card ? (
         <p className="muted small">角色資料尚未載入。</p>
       ) : (
-        <dl className="definition-list small">
+        <>
+          <h4>安全宣告</h4>
+          {card.technical.length > 0 ? (
+            <ul className="plain-list small" aria-label="角色安全宣告">
+              {card.technical.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted small">這個角色沒有可轉述的宣告（角色資料尚未載入）。</p>
+          )}
+          <dl className="definition-list small">
           <dt>characterId</dt>
           <dd>{card.characterId}</dd>
           <dt>schemaVersion／版本</dt>
@@ -85,7 +97,8 @@ export function TechnicalDetails({
             connected {String(presence?.connected === true)}；visible {String(presence?.visible === true)}；pendingCommands{" "}
             {String(presence?.pendingCommands ?? 0)}
           </dd>
-        </dl>
+          </dl>
+        </>
       )}
       <h4>Behavior State</h4>
       {!state ? (

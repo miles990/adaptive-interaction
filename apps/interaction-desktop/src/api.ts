@@ -264,6 +264,7 @@ export const api = {
       visible: input.visible,
       packId: input.packId ?? null,
       behaviorState: input.behaviorState ?? null,
+      reducedMotion: input.reducedMotion ?? false,
     }),
   /** 角色演出回執（accepted≠started≠completed；completed 永遠只是「演完了」）。 */
   characterReceipt: (instanceId: string, receipt: CommandReceipt) =>
@@ -296,6 +297,9 @@ export const api = {
     invoke<UiPreferences>("ui_prefs_patch", { patch }),
   onboardingGet: () => invoke<OnboardingState>("onboarding_get"),
   onboardingDraft: (draft: Record<string, unknown>) => invoke("onboarding_draft", { draft }),
+  /** 套用前試算：與 commit 同一套驗證，不會改任何設定。 */
+  onboardingPreview: (commit: Record<string, unknown>) =>
+    invoke<OnboardingPreview>("onboarding_preview", { commit }),
   onboardingCommit: (commit: Record<string, unknown>) =>
     invoke<Record<string, unknown>>("onboarding_commit", { commit }),
   pauseGet: () => invoke<PauseState>("pause_get"),
@@ -339,11 +343,20 @@ export const api = {
   mobileStatus: () => invoke<Record<string, unknown>>("mobile_status"),
   mobilePairingBegin: () => invoke<Record<string, unknown>>("mobile_pairing_begin"),
   mobileRevoke: (id: string) => invoke<Record<string, unknown>>("mobile_revoke", { id }),
-  mobileBleScan: (durationMs = 4000) =>
-    invoke<Record<string, unknown>>("mobile_ble_scan", { durationMs }),
+  /** 只對這一台手機要求停止感測。送出≠停止：`outcome` 是 stopped 才可以說「已停止」。 */
+  mobileSensorsStop: (id: string) => invoke<MobileSensorsStopResult>("mobile_sensors_stop", { id }),
+  /** 只測連線還在不在。有回應不代表手機 App 的功能可用；沒有回應一律「結果不確定」。 */
+  mobileTest: (id: string) => invoke<MobileTestResult>("mobile_test", { id }),
+  /** BLE 閘道代掃。`deviceId` 指名由哪一台手機掃；不指定時只有恰好一台
+   *  手機連線才成立（多台連線時後端誠實回錯，不替你挑一台）。 */
+  mobileBleScan: (durationMs = 4000, deviceId?: string) =>
+    invoke<Record<string, unknown>>("mobile_ble_scan", {
+      durationMs,
+      deviceId: deviceId ?? null,
+    }),
   sensorMicListen: (durationMs: number) =>
     invoke<Record<string, unknown>>("sensor_mic_listen", { durationMs }),
-  sensorsStop: () => invoke("sensors_stop"),
+  sensorsStop: () => invoke<SensorStopReport>("sensors_stop"),
 };
 
 // ---- Character Presentation Protocol types（與 crates/interaction-character 的 wire 一致） ----
@@ -359,6 +372,8 @@ export interface CharacterHelloInput {
   /** 相容：presence 的 packId（= characterId）。 */
   packId?: string;
   behaviorState?: Record<string, unknown>;
+  /** 視窗目前的 Reduced Motion；Runtime 以它協商（`reduced`），是這項設定的唯一來源。 */
+  reducedMotion?: boolean;
 }
 
 export interface CharacterHelloResult {
@@ -395,6 +410,8 @@ export interface CharacterInstanceView {
   tested: boolean;
   /** 外部 adapter 實例才有；內建／匯入角色為 null。 */
   adapterId?: string | null;
+  /** 這次協商採用的 Reduced Motion；尚未協商為 null（不假裝 false）。 */
+  reducedMotion?: boolean | null;
   /** manifest 作者／版本／支援的 input capability id（Phase 8 F1 起由 Runtime 回報）。 */
   author?: string | null;
   version?: string;
@@ -442,7 +459,59 @@ export interface SensorUse {
   startedBy: string;
   purpose: string;
   autoStopAt?: string;
+  /** 這個感測來源目前的狀態（runtime `sensors.rs`）：
+   *  `active` ＝仍在擷取（已確認）；`stopping` ＝已要求停止、還在有界等待確認；
+   *  `stop-unknown` ＝等不到確認（來源沒回報，可能仍在擷取）。
+   *  後兩者**仍然是感測中**，介面不得因此隱藏。舊 daemon 不送這個欄位
+   *  （undefined），呼叫端要把 undefined 視同 `active`；不認得的字串一律當成
+   *  「可能仍在使用」，不得當作已停止。 */
+  state?: "active" | "stopping" | "stop-unknown" | (string & {});
 }
+
+/** `/v1/sensors/stop` 對單一裝置的回報。`outcome` 只有 `stopped` 才是「已停止」，
+ *  `unknown`／`unreachable`（或任何不認得的值）都是結果不確定，不是失敗也不是成功。 */
+export interface SensorStopDeviceReport {
+  deviceId?: string;
+  name?: string;
+  outcome?: string;
+  waitedMs?: number;
+}
+
+/** `/v1/sensors/stop` 的回報。舊 daemon 只回 `{stopped:true}`（沒有 uncertain／local／
+ *  devices）——呼叫端必須容忍缺欄位，並以重新讀取 status 的 activeSensors 為準。 */
+export interface SensorStopReport {
+  stopped?: boolean;
+  /** 有任何來源沒能確認停止（手機未回覆…）。舊 daemon 不送，缺席不代表確定停了。 */
+  uncertain?: boolean;
+  /** 本機擷取的結果（runtime `LocalStopReport`）：`stopped` ＝本來在擷取、已停；
+   *  `idle` ＝本來就沒有在擷取。**不是布林值**——舊程式碼曾誤宣告成 boolean。 */
+  local?: { microphone?: "stopped" | "idle" | (string & {}) };
+  devices?: SensorStopDeviceReport[];
+}
+
+/** 單台手機的「停止感測」結果（runtime `mobile_sensors_stop`）。
+ *  `requested` 只代表指令送出去了；手機那邊的事實看 `outcome`：
+ *  `stopped`＝手機回報已停止；`unknown`＝送出了但還沒回報（結果不確定）；
+ *  `unreachable`＝根本沒送到（手機未連線）。UI 不得把 requested 說成已停止。 */
+export type MobileSensorsStopResult = {
+  deviceId: string;
+  requested: boolean;
+  connected: boolean;
+  outcome: "stopped" | "unknown" | "unreachable" | string;
+  waitedMs?: number;
+};
+
+/** 單台手機的「測試連接」結果（runtime `mobile_test`）。
+ *  `ok`＝這一次來回有回應——只證明連線還在，不證明手機 App 的功能可用；
+ *  逾時／沒有回應時 `uncertain` 為 true，一律標「結果不確定」，不得說成失敗或成功。 */
+export type MobileTestResult = {
+  deviceId: string;
+  ok: boolean;
+  connected: boolean;
+  latencyMs?: number;
+  uncertain?: boolean;
+  reason?: string;
+};
 
 /** 統一收件匣查詢（activity.rs `ActivityInboxFilter`）。後端是 deny_unknown_fields：
  *  只能送它認得的鍵。`needsDecision` 是 v0.5 新增的「只要待你決定的項目」篩選——
@@ -602,6 +671,24 @@ export interface OnboardingState {
   completedAt?: string | null;
   draft?: Record<string, unknown> | null;
   starterRecipes: { id: string; title: string }[];
+}
+
+/** 一項能力在套用前後的狀態（from/to 由後端以目前真實狀態計算）。 */
+export interface OnboardingChange {
+  id: string;
+  from: "on" | "off";
+  to: "on" | "off";
+  changed: boolean;
+}
+
+/** 套用前試算的結果；沒有任何副作用。 */
+export interface OnboardingPreview {
+  receptors: OnboardingChange[];
+  actuators: OnboardingChange[];
+  starterRecipes: { id: string; exists: boolean }[];
+  policyPatch: Record<string, unknown> | null;
+  preferences: Record<string, unknown> | null;
+  changed: boolean;
 }
 
 export interface PauseState {

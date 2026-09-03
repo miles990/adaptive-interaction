@@ -1,6 +1,7 @@
 // 角色頁（v0.5 一般模式五分區，依序）：目前角色／外觀與名字／平常如何陪伴／安靜與勿擾／
-// 更換或加入角色。技術資料（manifest 原文、schema 版本、引擎、adapter、通道、Behavior State
-// 數值）只在進階模式的收合區塊。
+// 更換或加入角色。技術資料（安全宣告、manifest 原文、schema 版本、引擎、adapter、通道、
+// Behavior State 數值、執行位置／可執行程式／需要網路旗標、貼上角色描述檔原文、事件合併窗）
+// 只在進階模式的收合區塊；一般模式對需要額外授權的角色仍給一句人話提示（誠實不隱藏）。
 //
 // 角色名稱一律 useCharacterName()；預覽依 manifest.entrypoint 分流（不用 pack id 字串）。
 // 安全語句固定不可覆寫；成功綠勾只在 verified。主動對話／主動程度／安靜時段的編輯器
@@ -15,11 +16,13 @@ import { Badge, Section, Toggle, useAsync } from "../ui";
 import { PRIMARY_INSTANCE_ID } from "../companion/gatewayWiring";
 import { emptyMemory, memorySummary, noteReactionDisabled, sanitizeMemory } from "../companion/interactionMemory";
 import { rollCallKey } from "../companion/playfield";
+import { PALETTES, PERSONAS } from "../character/adapters/shu";
 import { CharacterLibrarySection } from "./character/CharacterLibrary";
 import { CharacterPreview } from "./character/CharacterPreview";
 import { PreferencesForm } from "./character/PreferencesForm";
 import { TechnicalDetails } from "./character/TechnicalDetails";
 import {
+  extraPermissionLine,
   isShuRig,
   originLabel,
   sanitizeErrorText,
@@ -72,7 +75,7 @@ export function characterLiveState(
     if (READY_LIFECYCLES.has(instance.lifecycle)) {
       return { label: "角色視窗運作中", kind: "ok", detail: "角色視窗已連線並正在呈現。" };
     }
-    return { label: "準備中", kind: "pending", detail: "角色視窗正在載入或協商中。" };
+    return { label: "準備中", kind: "pending", detail: "角色視窗正在載入。" };
   }
   if (presence?.connected === true) {
     return presence.visible === true
@@ -84,6 +87,21 @@ export function characterLiveState(
     kind: "bad",
     detail: "桌面角色視窗沒有連上（瀏覽器檢視沒有角色視窗）。安全訊息仍會以固定文字顯示在控制中心。",
   };
+}
+
+/**
+ * 目前角色 id：使用者選的 → 角色視窗回報的 → 索引宣告的預設 → 純文字角色。
+ * 最後一段刻意是永遠可用的純文字角色，頁面不引用任何特定角色的 id。
+ */
+export function resolveActiveCharacterId(
+  companionPack: string | null | undefined,
+  presencePackId: unknown,
+  defaultId: string | null | undefined
+): string {
+  if (typeof companionPack === "string" && companionPack.length > 0) return companionPack;
+  if (typeof presencePackId === "string" && presencePackId.length > 0) return presencePackId;
+  if (typeof defaultId === "string" && defaultId.length > 0) return defaultId;
+  return TEXT_FALLBACK_CHARACTER_ID;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,7 +156,15 @@ export function CompanionPage({
     return () => window.clearInterval(timer);
   }, [load, refreshKey]);
 
-  const patch = React.useCallback(async (p: Partial<DesktopPrefs>) => {
+  /**
+   * 寫入桌面角色偏好。回傳 `true` **只**代表 host 真的接受了這次寫入。
+   *
+   * 誠實階梯（送出 ≠ 完成）：這裡曾經把失敗吞成 error 狀態之後照樣 resolve，
+   * 於是呼叫端（`selectCharacter`／`disableCharacter`）在錯誤訊息旁邊又貼上
+   * 「已改用…」「已停用目前角色…」的成功文案——瀏覽器檢視沒有 Tauri host，
+   * 每一次都同時顯示兩種互相矛盾的說法。失敗就只留錯誤，成功才有成功文案。
+   */
+  const patch = React.useCallback(async (p: Partial<DesktopPrefs>): Promise<boolean> => {
     setBusy(true);
     try {
       setPrefs(await desktop.prefsPatch(p));
@@ -147,18 +173,18 @@ export function CompanionPage({
       if (p.companionPack !== undefined || p.companionName !== undefined) {
         void refreshCharacterName({ force: true });
       }
+      return true;
     } catch (e) {
       setError(sanitizeErrorText(e));
+      // 上一次成功留下的提示不得替這一次失敗背書。
+      setNotice(null);
+      return false;
     } finally {
       setBusy(false);
     }
   }, []);
 
-  const activeId =
-    prefs?.companionPack ??
-    (typeof presence?.packId === "string" && presence.packId.length > 0 ? presence.packId : null) ??
-    catalog.defaultId ??
-    "shu-maid";
+  const activeId = resolveActiveCharacterId(prefs?.companionPack, presence?.packId, catalog.defaultId);
   const active = catalog.cards.find((c) => c.characterId === activeId) ?? null;
   const shu = isShuRig(active);
   const schema = active?.manifest?.preferencesSchema;
@@ -173,7 +199,7 @@ export function CompanionPage({
   const selectCharacter = React.useCallback(
     async (characterId: string) => {
       const target = catalog.cards.find((c) => c.characterId === characterId);
-      await patch({ companionPack: characterId });
+      if (!(await patch({ companionPack: characterId }))) return;
       setNotice(
         target
           ? `已改用「${target.name}」。桌面角色視窗會重新載入；無法顯示時會改用文字。`
@@ -184,7 +210,7 @@ export function CompanionPage({
   );
 
   const disableCharacter = React.useCallback(async () => {
-    await patch({ companionPack: TEXT_FALLBACK_CHARACTER_ID });
+    if (!(await patch({ companionPack: TEXT_FALLBACK_CHARACTER_ID }))) return;
     setNotice("已停用目前角色，改用純文字角色；安全訊息照常以固定文字顯示。");
   }, [patch]);
 
@@ -257,6 +283,7 @@ export function CompanionPage({
     }
     return active.summary;
   }, [active, instance?.tested, instance?.characterId]);
+  const extraPermission = active ? extraPermissionLine(active) : null;
 
   const currentVariant =
     typeof effective.values[VARIANT_PREFERENCE_KEY] === "string"
@@ -271,12 +298,14 @@ export function CompanionPage({
           <div className="character-current-head">
             <h3 className="character-current-name">{name}</h3>
             {active && <Badge kind={active.origin === "builtin" ? "info" : "warn"}>{originLabel(active.origin)}</Badge>}
-            {active?.flags.external && <Badge kind="warn">外部</Badge>}
-            {active?.flags.executable && <Badge kind="bad">有可執行程式</Badge>}
-            {active?.flags.network && <Badge kind="warn">需要網路</Badge>}
+            {advanced && active?.flags.external && <Badge kind="warn">外部</Badge>}
+            {advanced && active?.flags.executable && <Badge kind="bad">有可執行程式</Badge>}
+            {advanced && active?.flags.network && <Badge kind="warn">需要網路</Badge>}
             <Badge kind={live.kind}>{live.label}</Badge>
           </div>
           <p className="muted small">{live.detail}</p>
+          {/* 需要額外授權的事實在一般模式也不能藏，只是改成一句人話。 */}
+          {!advanced && active && extraPermission && <p className="muted small">{extraPermission}</p>}
           {explanation.length > 0 && (
             <p className="small" role="status">
               現在：{explanation}
@@ -332,7 +361,7 @@ export function CompanionPage({
             onVariant={chooseVariant}
           />
         )}
-        <CharacterPreview card={active} />
+        <CharacterPreview card={active} name={name} />
       </Section>
 
       {/* 3. 平常如何陪伴 */}
@@ -360,8 +389,11 @@ export function CompanionPage({
                     value={prefs.companionPersona}
                     onChange={(e) => void patch({ companionPersona: e.target.value })}
                   >
-                    <option value="persona-shu">{name}・預設</option>
-                    <option value="persona-navigator">導航員（世界觀範例）</option>
+                    {PERSONAS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.followsName ? `${name}・${p.label}` : p.label}
+                      </option>
+                    ))}
                   </select>
                 </label>
               )}
@@ -418,7 +450,7 @@ export function CompanionPage({
           <div className="state-box">勿擾開關需要桌面版控制中心；下方的主動對話與安靜時段在瀏覽器也能設定。</div>
         )}
       </Section>
-      <ProactiveDialogueSection name={name} />
+      <ProactiveDialogueSection name={name} advanced={advanced} />
       <InitiativeQuietSection refreshKey={refreshKey} />
 
       {/* 5. 更換或加入角色 */}
@@ -427,6 +459,7 @@ export function CompanionPage({
         activeId={activeId}
         prefs={prefs}
         busy={busy}
+        advanced={advanced}
         onSelect={selectCharacter}
         onDisable={disableCharacter}
         onRemove={removeCharacter}
@@ -456,7 +489,8 @@ function AppearanceControls({
   prefs: DesktopPrefs;
   active: CharacterCard | null;
   busy: boolean;
-  patch: (p: Partial<DesktopPrefs>) => Promise<void>;
+  /** 回傳 `true` 只在 host 真的接受寫入時；失敗時呼叫端不得顯示成功文案。 */
+  patch: (p: Partial<DesktopPrefs>) => Promise<boolean>;
   setError: (e: string | null) => void;
   variants: { id: string; displayName?: Record<string, string> }[];
   currentVariant: string;
@@ -565,7 +599,8 @@ function BasicCompanionToggles({
   pronoun,
 }: {
   prefs: DesktopPrefs;
-  patch: (p: Partial<DesktopPrefs>) => Promise<void>;
+  /** 回傳 `true` 只在 host 真的接受寫入時；失敗時呼叫端不得顯示成功文案。 */
+  patch: (p: Partial<DesktopPrefs>) => Promise<boolean>;
   pronoun: string;
 }) {
   const memory = sanitizeMemory(prefs.companionInteractionMemory);
@@ -605,7 +640,8 @@ function ShuPlayControls({
   presence,
 }: {
   prefs: DesktopPrefs;
-  patch: (p: Partial<DesktopPrefs>) => Promise<void>;
+  /** 回傳 `true` 只在 host 真的接受寫入時；失敗時呼叫端不得顯示成功文案。 */
+  patch: (p: Partial<DesktopPrefs>) => Promise<boolean>;
   name: string;
   pronoun: string;
   presence: Record<string, unknown> | null;
@@ -685,9 +721,11 @@ function ShuPlayControls({
               void patch({ companionFamiliars: next });
             }}
           >
-            <option value="maid-classic">經典</option>
-            <option value="maid-dusk">暮色</option>
-            <option value="maid-sakura">櫻花</option>
+            {PALETTES.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
           </select>
           <button onClick={() => void patch({ companionFamiliars: familiars.filter((_, j) => j !== i) })}>移除</button>
         </div>
@@ -698,7 +736,7 @@ function ShuPlayControls({
             void patch({
               companionFamiliars: [
                 ...familiars,
-                { id: `fam-${Date.now() % 100000}`, name: `使魔${familiars.length + 1}`, palette: "maid-classic" },
+                { id: `fam-${Date.now() % 100000}`, name: `使魔${familiars.length + 1}`, palette: PALETTES[0].id },
               ],
             })
           }
@@ -760,7 +798,7 @@ function RollCall({ presence }: { presence: Record<string, unknown> | null }) {
 // 主動式對話（v0.5 起唯一主人＝角色頁；模式與頻率由 Rust 確定性強制）。
 // ---------------------------------------------------------------------------
 
-function ProactiveDialogueSection({ name }: { name: string }) {
+function ProactiveDialogueSection({ name, advanced = false }: { name: string; advanced?: boolean }) {
   const [status, setStatus] = React.useState<Record<string, unknown> | null>(null);
   const [agents, setAgents] = React.useState<Record<string, unknown>[]>([]);
   const [error, setError] = React.useState<string | null>(null);
@@ -868,16 +906,19 @@ function ProactiveDialogueSection({ name }: { name: string }) {
             onChange={(event) => void patch({ minIntervalMinutes: Number(event.target.value) })}
           />
         </label>
-        <label className="field-label">
-          事件合併窗（秒）
-          <input
-            type="number"
-            min={5}
-            max={300}
-            value={Number(config.mergeWindowSeconds ?? 30)}
-            onChange={(event) => void patch({ mergeWindowSeconds: Number(event.target.value) })}
-          />
-        </label>
+        {/* 合併窗是調校參數，不是一般模式的選擇；只在進階模式出現。 */}
+        {advanced && (
+          <label className="field-label">
+            事件合併窗（秒）
+            <input
+              type="number"
+              min={5}
+              max={300}
+              value={Number(config.mergeWindowSeconds ?? 30)}
+              onChange={(event) => void patch({ mergeWindowSeconds: Number(event.target.value) })}
+            />
+          </label>
+        )}
       </div>
       <label className="row">
         <input
@@ -1066,6 +1107,13 @@ function InitiativeQuietSection({ refreshKey }: { refreshKey: number }) {
   );
 }
 
+/**
+ * 安靜時段要消音的干擾通道。刻意不含桌面角色（L0 純呈現）：角色只是安靜地待在桌面上，
+ * 不會發出聲音或通知；把它一起消音只會產生使用者無事可決的「被阻止」項目。
+ * 空陣列會讓後端套用內建預設清單（含桌面角色），所以這裡一定送出明確清單。
+ */
+export const QUIET_SILENCED_CHANNELS = ["audio", "haptic", "notification", "light"];
+
 function QuietHoursEditor({
   value,
   onChange,
@@ -1089,7 +1137,7 @@ function QuietHoursEditor({
         checked={enabled}
         onChange={(on) => {
           setEnabled(on);
-          onChange(on ? { start, end, silencedChannels: [] } : null);
+          onChange(on ? { start, end, silencedChannels: [...QUIET_SILENCED_CHANNELS] } : null);
         }}
         label={enabled ? "已啟用" : "未啟用"}
       />
@@ -1101,7 +1149,7 @@ function QuietHoursEditor({
               type="time"
               value={start}
               onChange={(e) => setStart(e.target.value)}
-              onBlur={() => onChange({ start, end, silencedChannels: [] })}
+              onBlur={() => onChange({ start, end, silencedChannels: [...QUIET_SILENCED_CHANNELS] })}
             />
           </label>
           <label>
@@ -1110,10 +1158,12 @@ function QuietHoursEditor({
               type="time"
               value={end}
               onChange={(e) => setEnd(e.target.value)}
-              onBlur={() => onChange({ start, end, silencedChannels: [] })}
+              onBlur={() => onChange({ start, end, silencedChannels: [...QUIET_SILENCED_CHANNELS] })}
             />
           </label>
-          <span className="muted small">期間聲音、震動、通知等干擾通道會被消音</span>
+          <span className="muted small">
+            期間聲音、震動、通知、燈光會被消音；桌面角色仍會安靜待著（不出聲、不通知）
+          </span>
         </>
       )}
     </div>

@@ -12,9 +12,12 @@ import { ConfirmButton, Dialog } from "../components/Dialog";
 
 export function SafetyPage({
   refreshKey,
+  advanced = false,
   onNavigate,
 }: {
   refreshKey: number;
+  /** 進階模式才顯示原始技術識別（能力 id 等）；一般模式只說人話。 */
+  advanced?: boolean;
   onNavigate?: (tab: string) => void;
 }) {
   // 角色名稱一律走共用 hook（更換角色後跟著變；載入失敗顯示「角色」），不寫死。
@@ -22,7 +25,7 @@ export function SafetyPage({
   return (
     <div>
       <EmergencySection refreshKey={refreshKey} />
-      <ConsentSection refreshKey={refreshKey} />
+      <ConsentSection refreshKey={refreshKey} advanced={advanced} />
       <Section title="主動程度與安靜時段">
         <p className="muted small">
           AI 主動程度與安靜時段屬於{name}的表現設定，由「{name}」頁統一管理（單一主人，不放第二份開關）。
@@ -95,14 +98,17 @@ function RecoveryDialog({ onClose, onCleared }: { onClose: () => void; onCleared
   const { human } = useAppState();
   const [error, setError] = React.useState<string | null>(null);
   const [working, setWorking] = React.useState(false);
-  // 對齊後端事實：緊急停止會撤回所有同意，因此「需同意」的能力解除後
-  // 仍不可用，直到重新同意；其餘能力恢復「可用」但仍受安全規則限制。
-  const willResume = (human?.actuators ?? []).filter(
-    (a) => a.consent.required !== true && a.requiresConsent !== true
-  );
-  const willNotResume = (human?.actuators ?? []).filter(
-    (a) => a.consent.required === true || a.requiresConsent === true
-  );
+  // 對齊後端事實（runtime `clear_emergency_stop`）：解除只解開緊急停止的閂鎖，
+  // 不會啟用任何東西、也不會重新授權。因此
+  //   * 你自己停用的能力 → 解除後仍是停用（不得說成「會恢復可用」）；
+  //   * 需同意的能力 → 解除後仍不可用，直到重新同意；
+  //   * 其餘目前可用的能力 → 恢復「可用」，但仍受安全規則限制。
+  const actuators = human?.actuators ?? [];
+  const needsConsent = (a: HumanCard) => a.consent.required === true || a.requiresConsent === true;
+  const isDisabled = (a: HumanCard) => a.availability === "disabled";
+  const willResume = actuators.filter((a) => !needsConsent(a) && !isDisabled(a));
+  const willNotResume = actuators.filter((a) => needsConsent(a) && !isDisabled(a));
+  const stayDisabled = actuators.filter(isDisabled);
   return (
     <Dialog title="解除緊急停止" onClose={onClose} danger>
       <p>解除後，以下能力會恢復「可用」（仍受安全規則限制）：</p>
@@ -118,6 +124,18 @@ function RecoveryDialog({ onClose, onCleared }: { onClose: () => void; onCleared
           <p>以下能力「不會」自動恢復，需要你重新啟用／重新同意：</p>
           <ul className="plain-list">
             {willNotResume.map((a) => (
+              <li key={a.id}>
+                <Icon name={a.icon} size={14} /> {a.displayName}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {stayDisabled.length > 0 && (
+        <>
+          <p>以下能力你先前已停用，解除後仍為停用，要用得先到「回應方式」重新啟用：</p>
+          <ul className="plain-list">
+            {stayDisabled.map((a) => (
               <li key={a.id}>
                 <Icon name={a.icon} size={14} /> {a.displayName}
               </li>
@@ -154,7 +172,13 @@ function RecoveryDialog({ onClose, onCleared }: { onClose: () => void; onCleared
 // 使用授權（Consent）：能力選擇器
 // ---------------------------------------------------------------------------
 
-function ConsentSection({ refreshKey }: { refreshKey: number }) {
+function ConsentSection({
+  refreshKey,
+  advanced = false,
+}: {
+  refreshKey: number;
+  advanced?: boolean;
+}) {
   const { human, findCard } = useAppState();
   const [session, reload] = useAsync(() => api.sessionGet(), [refreshKey]);
   const [granting, setGranting] = React.useState(false);
@@ -179,7 +203,16 @@ function ConsentSection({ refreshKey }: { refreshKey: number }) {
       ) : (
         <ul className="consent-list">
           {active.map((c, i) => {
-            const kind = c.scope.kind === "channel" ? "整個通道" : c.scope.kind === "toolOperation" ? "工具操作" : "";
+            const kind =
+              c.scope.kind === "channel"
+                ? "整個通道"
+                : c.scope.kind === "toolOperation"
+                  ? "工具操作"
+                  : c.scope.kind === "receptor"
+                    ? "感知來源"
+                    : c.scope.kind === "actuator"
+                      ? "回應方式"
+                      : "授權項目";
             const card =
               c.scope.kind === "actuator"
                 ? findCard("actuator", c.scope.id)
@@ -201,12 +234,17 @@ function ConsentSection({ refreshKey }: { refreshKey: number }) {
               <li key={i} className="consent-item">
                 <div>
                   <strong>
-                    {card ? (
+                    {source && card ? (
                       <>
                         <Icon name={card.icon} size={14} /> {card.name}
                       </>
+                    ) : c.scope.kind === "channel" ? (
+                      `整個通道${advanced ? `　${c.scope.id}` : ""}`
+                    ) : !human ? (
+                      `${kind}（名稱載入中）`
                     ) : (
-                      `${kind} ${c.scope.id}`
+                      // 能力清單裡查不到：不把原始 id 丟給一般模式的使用者（進階模式才附上）。
+                      `${kind}（介面沒有這項能力的名稱）${advanced ? `　${c.scope.id}` : ""}`
                     )}
                   </strong>
                   <span className="muted small">

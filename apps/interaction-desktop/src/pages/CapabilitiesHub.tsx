@@ -1,13 +1,19 @@
-// 能力與裝置（spec §16-1.E）：內建能力（感知／回應／工具）＋裝置與提供者。
+// 能力與裝置（spec §16-1.E）：內建能力（感知／回應／工具）＋裝置與來源。
 // 掃描文案誠實：只宣稱「已偵測到目前可用」，不宣稱找到所有硬體。
+// 一般模式不外洩技術識別（線路名稱、埠號、識別碼、原始能力 id）——那些只在進階模式出現。
 
 import React from "react";
-import { api, HardwareScanReport, ProviderTested } from "../api";
+import { api, HardwareScanReport, ProviderTested, SensorUse } from "../api";
 import { useAppState } from "../appstate";
 import { useCharacterName } from "../characterName";
 import { Badge, Section, StateView, useAsync } from "../ui";
 import { CapabilitiesPage } from "./CapabilitiesPage";
 import { CharacterAdaptersSection } from "./connect/CharacterAdaptersSection";
+import {
+  isMobileProviderId,
+  phoneCardModel,
+  PhoneDeviceCard,
+} from "./connect/PhoneDeviceCard";
 
 export type HubTab = "senses" | "responses" | "toolops" | "providers";
 
@@ -36,7 +42,7 @@ export function CapabilitiesHub({
             ["senses", "感知來源"],
             ["responses", "回應方式"],
             ["toolops", "工具操作"],
-            ["providers", "裝置與提供者"],
+            ["providers", "裝置與來源"],
           ] as [HubTab, string][]
         ).map(([id, label]) => (
           <button
@@ -84,13 +90,20 @@ const HARDWARE_CLASS_LABEL: Record<string, string> = {
   tablet: "手寫板",
   "game-controller": "遊戲控制器",
   midi: "MIDI",
-  "usb-serial": "USB 接線裝置（USB Serial：用線接上的自製硬體，例如 ESP32）",
-  "bluetooth-le": "低功耗藍牙裝置（Bluetooth LE：不用接線的小型感測器與燈具）",
+  "usb-serial": "USB 接線裝置（用線接上的自製硬體，例如 ESP32）",
+  "bluetooth-le": "低功耗藍牙裝置（不用接線的小型感測器與燈具）",
   display: "螢幕呈現",
   "system-notification": "系統通知",
   "os-sensor": "作業系統感測器",
-  "mdns-device": "同一個 Wi-Fi 裡自動找到的裝置（mDNS：裝置自己報名字，不用輸入位址）",
+  "mdns-device": "同一個 Wi-Fi 裡自動找到的裝置（裝置自己報名字，不用輸入位址）",
   "esp32-declaration": "ESP32 自製裝置（用設定檔描述它能感測什麼、能做什麼）",
+};
+
+/** 進階模式才附上的技術名稱（一般模式只說人話）。 */
+const HARDWARE_CLASS_TECHNICAL: Record<string, string> = {
+  "usb-serial": "USB Serial",
+  "bluetooth-le": "Bluetooth LE",
+  "mdns-device": "mDNS",
 };
 
 /** 來源類型的人話（Runtime ProviderKind，kebab-case）。 */
@@ -402,12 +415,19 @@ function ProvidersSection({
               return (
                 <div className="provider-card" key={`${device.class}-${device.stableId ?? index}`}>
                   <div className="row space-between">
-                    <strong>{HARDWARE_CLASS_LABEL[device.class] ?? device.displayName}</strong>
+                    <strong>
+                      {HARDWARE_CLASS_LABEL[device.class] ?? device.displayName}
+                      {advanced && HARDWARE_CLASS_TECHNICAL[device.class]
+                        ? `（${HARDWARE_CLASS_TECHNICAL[device.class]}）`
+                        : ""}
+                    </strong>
                     <Badge kind={availability.kind}>{availability.text}</Badge>
                   </div>
                   <div>{device.displayName}</div>
                   <div className="muted small">{device.detail}</div>
-                  <div className="muted small">識別依據：{device.identityBasis}</div>
+                  {advanced && (
+                    <div className="muted small">識別依據：{device.identityBasis}</div>
+                  )}
                   {device.stableId ? (
                     <div className="muted small">
                       {advanced
@@ -424,7 +444,17 @@ function ProvidersSection({
                     <ul className="plain-list small">
                       {device.capabilities.map((capability) => (
                         <li key={capability.id}>
-                          <strong>{capability.id}</strong> — {capability.scope}
+                          {/* 一般模式只說這項能力會做什麼；原始識別留給進階模式。 */}
+                          <strong>
+                            {advanced
+                              ? capability.id
+                              : capability.kind === "receptor"
+                                ? "可以感知"
+                                : capability.kind === "actuator"
+                                  ? "可以執行"
+                                  : "能力"}
+                          </strong>{" "}
+                          — {capability.scope}
                           {capability.requiresConsent ? "（必須先取得使用授權）" : ""}
                         </li>
                       ))}
@@ -442,13 +472,15 @@ function ProvidersSection({
       <MobileSection refreshKey={refreshKey} advanced={advanced} />
       <CharacterAdaptersSection refreshKey={refreshKey} advanced={advanced} standalone />
       <Section title="已連接的裝置與來源">
-        <StateView state={providers} empty="尚未發現任何提供者。">
+        <StateView state={providers} empty="還沒有任何裝置或來源。">
           {(list) => (
             <div className="provider-list">
               {list.map((p) => {
                 const identity = p.identity as Record<string, unknown>;
                 const state = String(p.state ?? "");
                 const id = String(identity?.id ?? "");
+                // 手機已經有自己的卡片（上方 iPhone 區），這裡不再重複列一次。
+                if (isMobileProviderId(id)) return null;
                 const receptorIds = (p.receptors as string[] | undefined) ?? [];
                 const actuatorIds = (p.actuators as string[] | undefined) ?? [];
                 const { note, tested } = parseProviderDetail(p.detail);
@@ -546,29 +578,10 @@ function ProvidersSection({
 }
 
 // ---------------------------------------------------------------------------
-// iPhone Mobile Provider（v0.5 Phase 6）：配對、狀態、撤銷。
+// iPhone（v0.5 Phase 6）：配對、狀態、撤銷。
 // 誠實：配對碼 5 分鐘一段；斷線＝能力不可用；感測狀態由手機自報。
+// 每一台手機的卡片與第一層共用同一個元件（PhoneDeviceCard），只有一份真相。
 // ---------------------------------------------------------------------------
-
-/** 手機自報的 iOS 系統權限（桌面 Consent 不能取代，誠實照抄手機的回報）。 */
-const MOBILE_PERMISSION_LABEL: Record<string, string> = {
-  microphone: "麥克風",
-  location: "位置",
-  bluetooth: "藍牙",
-};
-const MOBILE_PERMISSION_STATE: Record<string, string> = {
-  granted: "已授權",
-  denied: "已拒絕",
-  notDetermined: "未詢問",
-};
-/** 手機自報的感測開關（開＝手機端真的在感測）。 */
-const MOBILE_SENSOR_LABEL: Record<string, string> = {
-  motion: "動作",
-  battery: "電量",
-  micLevel: "麥克風音量",
-  location: "位置",
-  bleGateway: "BLE 閘道",
-};
 
 export function MobileSection({
   refreshKey,
@@ -577,11 +590,16 @@ export function MobileSection({
   refreshKey: number;
   advanced?: boolean;
 }) {
-  const [status] = useAsync(() => api.mobileStatus(), [refreshKey]);
+  const { human } = useAppState();
+  const [status, reloadStatus] = useAsync(() => api.mobileStatus(), [refreshKey]);
+  const [runtimeStatus] = useAsync(() => api.status(), [refreshKey]);
   const [pairing, setPairing] = React.useState<Record<string, unknown> | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
-  const devices = ((status.data?.devices as Record<string, unknown>[] | undefined) ?? []);
+  const activeSensors = (runtimeStatus.data?.["activeSensors"] as SensorUse[] | undefined) ?? [];
+  const devices = ((status.data?.devices as Record<string, unknown>[] | undefined) ?? []).map((d) =>
+    phoneCardModel(d, human, activeSensors)
+  );
   const bonjour = (status.data?.bonjour as Record<string, unknown> | undefined) ?? null;
 
   return (
@@ -595,17 +613,17 @@ export function MobileSection({
         <div className="muted small">
           {bonjour.advertised === true ? (
             <>
-              同一個 Wi-Fi 裡的 iPhone 可以自動找到這台電腦（Bonjour）。
+              同一個 Wi-Fi 裡的 iPhone 可以自動找到這台電腦。
               {advanced
-                ? `　服務：${String(bonjour.service ?? "")}${
+                ? `　Bonjour 服務：${String(bonjour.service ?? "")}${
                     bonjour.instance ? `／${String(bonjour.instance)}` : ""
                   }`
                 : ""}
             </>
           ) : (
             <>
-              iPhone 無法自動找到這台電腦（Bonjour 未啟用
-              {bonjour.error ? `：${String(bonjour.error)}` : ""}）——請掃 QR，或在手機上手動輸入電腦位址與埠號配對。
+              iPhone 無法自動找到這台電腦（自動尋找未啟用
+              {advanced && bonjour.error ? `：${String(bonjour.error)}` : ""}）——請掃 QR，或在手機上手動輸入電腦位址配對。
             </>
           )}
         </div>
@@ -615,59 +633,12 @@ export function MobileSection({
       ) : (
         <div className="provider-list">
           {devices.map((d) => (
-            <div className="provider-card" key={String(d.deviceId)}>
-              <div className="row space-between">
-                <strong>{String(d.name)}</strong>
-                {d.connected === true ? (
-                  <Badge kind="ok">已連線</Badge>
-                ) : (
-                  <Badge kind="bad">未連線（能力不可用）</Badge>
-                )}
-              </div>
-              <div className="muted small">
-                {String(d.model || "")}・配對於 {new Date(String(d.pairedAt)).toLocaleString("zh-TW")}
-              </div>
-              {d.connected === true && d.sensors ? (
-                <div className="muted small">
-                  手機自報感測：
-                  {Object.entries((d.sensors as Record<string, unknown>) ?? {})
-                    .map(
-                      ([k, v]) =>
-                        `${MOBILE_SENSOR_LABEL[k] ?? k}：${v === true ? "開" : "關"}`,
-                    )
-                    .join("、")}
-                </div>
-              ) : null}
-              {d.connected === true && d.permissions ? (
-                <div className="muted small">
-                  iOS 系統權限（手機自報，桌面授權不能取代）：
-                  {Object.entries((d.permissions as Record<string, unknown>) ?? {})
-                    .map(
-                      ([k, v]) =>
-                        `${MOBILE_PERMISSION_LABEL[k] ?? k}：${
-                          MOBILE_PERMISSION_STATE[String(v)] ?? String(v)
-                        }`,
-                    )
-                    .join("、")}
-                </div>
-              ) : null}
-              {d.connected === true && !d.permissions ? (
-                <div className="muted small">iOS 系統權限：手機尚未回報（未知）。</div>
-              ) : null}
-              <button
-                className="danger"
-                onClick={async () => {
-                  try {
-                    await api.mobileRevoke(String(d.deviceId));
-                    setError(null);
-                  } catch (e) {
-                    setError(String(e));
-                  }
-                }}
-              >
-                撤銷配對（立即斷線）
-              </button>
-            </div>
+            <PhoneDeviceCard
+              key={d.deviceId}
+              model={d}
+              advanced={advanced}
+              onChanged={reloadStatus}
+            />
           ))}
         </div>
       )}
@@ -689,8 +660,9 @@ export function MobileSection({
         <div className="notice-box" role="status">
           <p>
             在 iPhone App 掃描 QR 或輸入配對碼：<strong>{String(pairing.code)}</strong>
-            （電腦埠號 {String(pairing.port)}；手機會核對這台電腦的識別碼{" "}
-            {String(pairing.fingerprint).slice(0, 16)}…）
+            （手機會核對這台電腦的配對安全碼前 6 碼{" "}
+            {String(pairing.fingerprint ?? "").slice(0, 6)}）
+            {advanced ? `　電腦埠號 ${String(pairing.port)}・識別碼 ${String(pairing.fingerprint ?? "")}` : ""}
           </p>
           {typeof pairing.qrSvg === "string" && pairing.qrSvg.length > 0 && (
             <div

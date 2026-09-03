@@ -1,4 +1,4 @@
-// 相容路由（v0.5 五入口）：舊 tab id（ai／automations／capabilities／safety／memory／activity／settings）
+// 相容路由（v0.5 五入口）：舊 tab id（ai／automations／capabilities／safety／memory／activity／settings／manage）
 // 由 PageBody 導到同一個複合頁的不同分頁。因為 work↔automations 渲染的是同一個元件型別，
 // React 會沿用已掛載的實例；這裡直接對「已掛載的 PageBody 收到新 route」斷言內容真的切換，
 // 而不是只測 route→anchor 對照表。
@@ -23,6 +23,9 @@ vi.mock("../pages/ActivityPage", () => ({
 }));
 vi.mock("../pages/SettingsPage", () => ({
   SettingsPage: () => <div data-testid="stub-settings">STUB SettingsPage</div>,
+}));
+vi.mock("../pages/BackupSection", () => ({
+  BackupSection: () => <div data-testid="stub-backup">STUB BackupSection</div>,
 }));
 vi.mock("../pages/HomePage", async (importOriginal) => {
   const mod = (await importOriginal()) as Record<string, unknown>;
@@ -94,22 +97,43 @@ describe("相容路由：已掛載元件收到新 route 後真的切換內容", 
     expect(screen.queryByTestId("stub-safety")).not.toBeInTheDocument();
   });
 
-  it("memory ↔ activity ↔ settings（同一個 MorePage 實例）", () => {
+  it("memory ↔ activity ↔ settings ↔ backup（同一個 MorePage 實例）", () => {
     const { go } = mountBody("more");
     expect(screen.getByTestId("stub-memory")).toBeInTheDocument();
 
     go("activity");
     expect(screen.getByTestId("stub-activity")).toBeInTheDocument();
     expect(screen.queryByTestId("stub-memory")).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "活動歷史" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "活動紀錄" })).toHaveAttribute("aria-selected", "true");
 
     go("settings");
     expect(screen.getByTestId("stub-settings")).toBeInTheDocument();
     expect(screen.queryByTestId("stub-activity")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "外觀與語言" })).toHaveAttribute("aria-selected", "true");
+
+    go("backup");
+    expect(screen.getByTestId("stub-backup")).toBeInTheDocument();
+    expect(screen.queryByTestId("stub-settings")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "備份與還原" })).toHaveAttribute("aria-selected", "true");
 
     go("memory");
     expect(screen.getByTestId("stub-memory")).toBeInTheDocument();
-    expect(screen.queryByTestId("stub-settings")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("stub-backup")).not.toBeInTheDocument();
+  });
+
+  it("manage 是隱藏的相容路由：內容到得了，但沒有分頁按鈕", () => {
+    const { go } = mountBody("more");
+    go("manage");
+    // 五個分頁按鈕不含「角色與整合管理」。
+    expect(
+      screen
+        .getAllByRole("tab")
+        .map((t) => t.textContent)
+    ).toEqual(["記憶與資料", "活動紀錄", "外觀與語言", "備份與還原", "進階模式"]);
+    expect(screen.queryByRole("tab", { name: "角色與整合管理" })).not.toBeInTheDocument();
+    // 舊書籤／深連結仍看得到內容。
+    expect(screen.getByRole("button", { name: /管理角色/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /管理裝置與整合/ })).toBeInTheDocument();
   });
 
   it("使用者在頁內點分頁後，route 再次改變仍以 route 為準", () => {
