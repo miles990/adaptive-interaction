@@ -547,6 +547,11 @@ export interface AgentSessionRecord {
    *  一律視為唯讀——徽章依此欄位呈現，絕不依建立時的請求值宣稱可寫。 */
   allowWrite?: boolean;
   providerSessionId?: string;
+  /** 上一次**真的**掛上子程序的工作目錄（後端正規化後的絕對路徑）。
+   *  這是續開時唯一可信的資料夾來源：`dataScope` 裡的 `workspace:` 只是
+   *  呼叫端自己附加的人話標籤，不代表子程序實際被掛在哪裡。舊記錄／純對話
+   *  session 沒有這個欄位。 */
+  resolvedWorkdir?: string;
   /** 最新一次 claimed-completed 的識別；每個新的聲稱都拿到新 id。 */
   claimId?: string;
   /** 人工驗證（human-only）：存在＝人類確認過**目前這個** claim；缺席＝仍只是聲稱。

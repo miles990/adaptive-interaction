@@ -10,7 +10,13 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AgentSessionRecord, api } from "../api";
 import { AppStateProvider } from "../appstate";
-import { AiPage, buildResumeInput, deliveredToAgent, resumeLimits } from "../pages/AiPage";
+import {
+  AiPage,
+  buildResumeInput,
+  deliveredToAgent,
+  resumeLimits,
+  resumeLimitsText,
+} from "../pages/AiPage";
 import { resetCharacterNameForTests } from "../characterName";
 
 afterEach(() => {
@@ -104,6 +110,21 @@ describe("agent-honesty-022：接續上次（唯讀）不得放寬範圍", () =>
     } as unknown as AgentSessionRecord;
     expect(resumeLimits(withDuration).ttlMinutes).toBe(45);
     expect(resumeLimits(FINISHED).ttlMinutes).toBe(30);
+  });
+
+  it("資料夾以後端記錄的 resolvedWorkdir 為準，dataScope 標籤只是備援", () => {
+    // 後端記錄的是「上一次真的掛上子程序的資料夾」（正規化後的絕對路徑）。
+    // dataScope 裡的 `workspace:` 只是呼叫端自己附加的人話標籤，兩者不一致時
+    // 必須以後端的事實為準——否則送出的續開會因為換資料夾而被後端擋下。
+    const relocated = {
+      ...FINISHED,
+      resolvedWorkdir: "/private/Users/me/project",
+    } as unknown as AgentSessionRecord;
+    expect(buildResumeInput(relocated).workdir).toBe("/private/Users/me/project");
+    expect(resumeLimitsText(relocated)).toContain("/private/Users/me/project");
+    // 沒有記錄時才退回標籤，而且要誠實說出「沒能確認」。
+    expect(buildResumeInput(FINISHED).workdir).toBe("/Users/me/project");
+    expect(resumeLimitsText(FINISHED)).toContain("未確認");
   });
 
   it("通知說出實際沿用的資料夾與時間，不只是「沿用先前的對話脈絡」", async () => {

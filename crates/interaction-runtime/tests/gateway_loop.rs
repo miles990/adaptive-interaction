@@ -1002,9 +1002,11 @@ async fn codex_resume_resends_cwd_and_sandbox_instead_of_inheriting_them() {
         "resume must re-lock the sandbox: {params}"
     );
     assert_eq!(params["approvalPolicy"], json!("untrusted"), "{params}");
+    // 送出去的 cwd 是**正規化後**的絕對路徑（symlink／`..` 都解掉）：那才是
+    // 子程序真的被掛上去、也是記錄下來供續開比對的那一個目錄。
     assert_eq!(
         params["cwd"].as_str().unwrap_or_default(),
-        dir.path().to_string_lossy(),
+        dir.path().canonicalize().unwrap().to_string_lossy(),
         "resume must re-scope the working directory: {params}"
     );
     assert!(
@@ -2119,21 +2121,36 @@ async fn resume_cannot_widen_scope() {
             .contains("acceptEdits"),
         "前一輪真的是可寫的，續開才有東西可繼承"
     );
+    // 續開要比對的是上一次**實際**掛上子程序的工作目錄；等它真的落到記錄裡
+    // （fixture 的 init 事件同時帶回 provider session id），比對才是確定性的。
+    wait_for(
+        async || {
+            rt.get_agent_session(&first_sid)
+                .await
+                .map(|r| r.provider_session_id.as_deref() == Some("fake-123"))
+                .unwrap_or(false)
+        },
+        "provider session id",
+    )
+    .await;
     rt.close_agent_session(&first_sid, None, "closed")
         .await
         .unwrap();
+    std::fs::remove_file(&wide_argv).unwrap();
+    std::fs::remove_file(wide.path().join("fake-pid")).unwrap();
 
     // (2) 續開同一個 provider 對話，但這一次什麼都沒授權。
-    let narrow = scenario_workdir("default");
+    //     資料夾必須是**同一個**：換資料夾就是換範圍（見
+    //     `resume_must_stay_in_the_recorded_workdir`），所以這裡只驗
+    //     「同一個資料夾裡，權限旗標與 scope 一律重新上鎖」。
     let mut resumed = claude_input("續開不得放寬", None);
-    resumed.workdir = Some(narrow.path().to_string_lossy().into_owned());
+    resumed.workdir = Some(wide.path().to_string_lossy().into_owned());
     resumed.resume_provider_session_id = Some("fake-123".into());
     let second = rt.create_agent_session(resumed).await.unwrap();
     let sid = second.session_id.as_str().to_string();
 
-    let narrow_argv = narrow.path().join("fake-argv");
-    wait_for(async || narrow_argv.exists(), "resumed argv log").await;
-    let argv = std::fs::read_to_string(&narrow_argv).unwrap();
+    wait_for(async || wide_argv.exists(), "resumed argv log").await;
+    let argv = std::fs::read_to_string(&wide_argv).unwrap();
     assert!(argv.contains("--resume fake-123"), "{argv}");
     assert!(
         argv.contains("--permission-mode plan"),
@@ -2143,8 +2160,7 @@ async fn resume_cannot_widen_scope() {
         !argv.contains("acceptEdits") && !argv.contains("dangerously"),
         "續開不得繼承上一輪的寫入放寬：{argv}"
     );
-    // 工作目錄由這一次決定：新的子程序只在新的工作目錄裡留下紀錄。
-    assert!(narrow.path().join("fake-pid").exists());
+    assert!(wide.path().join("fake-pid").exists());
     assert!(!second.allow_write, "續開不得繼承寫入權");
     assert!(second.tool_scope.is_empty(), "{:?}", second.tool_scope);
     assert!(
@@ -2165,10 +2181,10 @@ async fn resume_cannot_widen_scope() {
     assert!(!capability.allows_tool("workspace.write"));
     assert!(!capability.allows_domain(&["home-automation".to_string()]));
 
-    // (4) 想在續開時把寫入權要回來，仍要走完整的人類同意。
-    let sneaky_dir = scenario_workdir("default");
+    // (4) 想在續開時把寫入權要回來，仍要走完整的人類同意（資料夾相同，
+    //     被擋下的就只有「寫入權」這一個維度）。
     let mut sneaky = claude_input("續開偷渡寫入", None);
-    sneaky.workdir = Some(sneaky_dir.path().to_string_lossy().into_owned());
+    sneaky.workdir = Some(wide.path().to_string_lossy().into_owned());
     sneaky.resume_provider_session_id = Some("fake-123".into());
     sneaky.allow_write = true;
     let err = rt.create_agent_session(sneaky).await.unwrap_err();
@@ -2291,16 +2307,46 @@ async fn resume_cannot_widen_time_or_cost_limits() {
     assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
     assert!(format!("{err}").contains("資料範圍"), "{err}");
 
-    // (4) 誠實地沿用上次的上限＝可以接續（而且仍然是唯讀）。
+    // (4) 上限都帶對了，`dataScope` 也照抄上次那個資料夾的標籤——但真正
+    //     送出去的 `workdir` 是**另一個**資料夾。宣告與事實不一致：字面上
+    //     什麼都沒放寬，實際上整個工作範圍換了一棵檔案樹。
+    //     （v0.5.1 之前這個案例是 `.unwrap()` 成功的——既有測試把漏洞
+    //     斷言成了預期行為。）
+    let mut lying = base_resume("宣告與事實不一致");
+    lying.ttl_minutes = Some(30);
+    lying.max_cost = Some(0.5);
+    lying.max_messages = Some(10);
+    lying.data_scope = vec![format!("workspace:{}", first_dir.path().display())];
+    let err = rt.create_agent_session(lying).await.unwrap_err();
+    assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+    assert!(format!("{err}").contains("工作目錄"), "{err}");
+    assert!(
+        !resume_dir.path().join("fake-pid").exists(),
+        "被拒絕的續開不得真的把子程序掛到另一個資料夾"
+    );
+
+    // (5) 誠實地沿用上次的上限**與上次那個資料夾**＝可以接續（仍然唯讀）。
     let mut faithful = base_resume("誠實接續");
     faithful.ttl_minutes = Some(30);
     faithful.max_cost = Some(0.5);
     faithful.max_messages = Some(10);
+    faithful.workdir = Some(first_dir.path().to_string_lossy().into_owned());
     faithful.data_scope = vec![format!("workspace:{}", first_dir.path().display())];
     let resumed = rt.create_agent_session(faithful).await.unwrap();
     assert!(!resumed.allow_write);
     assert_eq!(resumed.budget.max_cost, 0.5);
     assert_eq!(resumed.budget.max_duration_ms, 30 * 60_000);
+    assert_eq!(
+        resumed.resolved_workdir.as_deref(),
+        Some(
+            first_dir
+                .path()
+                .canonicalize()
+                .unwrap()
+                .to_string_lossy()
+                .as_ref()
+        )
+    );
     rt.close_agent_session(resumed.session_id.as_str(), None, "closed")
         .await
         .unwrap();
@@ -2387,5 +2433,127 @@ async fn delegated_gateway_receipt_reaches_acknowledged() {
     );
 
     rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// 回歸（v0.5.1 / 已知限制 #18）：「接續上次」不得換工作目錄。
+///
+/// 上一次實際掛上子程序的資料夾是這個 session **真正的**授權範圍；它必須被
+/// 記錄下來（`resolvedWorkdir`），續開時才有東西可比。宣告的 `dataScope`
+/// 只是人話標籤，換一個 workdir 卻不動 scope，字面上「什麼都沒放寬」，
+/// 實際上子程序被掛到另一棵檔案樹——那是換範圍，不是接續。
+///
+/// 這裡同時涵蓋 `A/../B`：字串前綴看起來還在 A 底下，canonicalize 之後其實
+/// 是隔壁的 B。比對一律以正規化後的絕對路徑為準。
+#[tokio::test]
+async fn resume_must_stay_in_the_recorded_workdir() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+
+    let parent = tempfile::tempdir().unwrap();
+    let dir_a = parent.path().join("A");
+    let dir_b = parent.path().join("B");
+    for dir in [&dir_a, &dir_b] {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("fake-mode"), "default").unwrap();
+    }
+
+    let mut first = claude_input("原本的工作", None);
+    first.workdir = Some(dir_a.to_string_lossy().into_owned());
+    let original = rt.create_agent_session(first).await.unwrap();
+    let first_sid = original.session_id.as_str().to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&first_sid)
+                .await
+                .map(|r| r.provider_session_id.is_some())
+                .unwrap_or(false)
+        },
+        "provider session id",
+    )
+    .await;
+    let stored = rt.get_agent_session(&first_sid).await.unwrap();
+    let provider_sid = stored.provider_session_id.clone().unwrap();
+    // 真正掛上去的資料夾要留下記錄（正規化後的絕對路徑），否則續開時
+    // 根本無從比對。
+    assert_eq!(
+        stored.resolved_workdir.as_deref(),
+        Some(dir_a.canonicalize().unwrap().to_string_lossy().as_ref()),
+        "實際掛上子程序的工作目錄必須寫進記錄"
+    );
+    rt.close_agent_session(&first_sid, None, "closed")
+        .await
+        .unwrap();
+
+    // (1) `A/../B`：正規化之後是隔壁的資料夾＝換範圍，誠實拒絕。
+    let mut traversal = claude_input("穿越到隔壁", None);
+    traversal.workdir = Some(format!("{}/../B", dir_a.display()));
+    traversal.resume_provider_session_id = Some(provider_sid.clone());
+    let err = rt.create_agent_session(traversal).await.unwrap_err();
+    assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+    assert!(format!("{err}").contains("工作目錄"), "{err}");
+    assert!(
+        !dir_b.join("fake-argv").exists() && !dir_b.join("fake-pid").exists(),
+        "被拒絕的續開不得真的把子程序掛到另一個資料夾"
+    );
+
+    // (2) 完全不帶資料夾也是換範圍：後端會自己挑一個 scratch 目錄，
+    //     那不是上一次那一個。
+    let mut omitted = claude_input("不帶資料夾", None);
+    omitted.resume_provider_session_id = Some(provider_sid.clone());
+    let err = rt.create_agent_session(omitted).await.unwrap_err();
+    assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+    assert!(format!("{err}").contains("工作目錄"), "{err}");
+
+    // (3) 誠實地帶同一個資料夾（寫法不同、正規化後相同）才能接續。
+    let mut faithful = claude_input("誠實接續", None);
+    faithful.workdir = Some(format!("{}/./", dir_a.display()));
+    faithful.resume_provider_session_id = Some(provider_sid);
+    let resumed = rt.create_agent_session(faithful).await.unwrap();
+    assert_eq!(
+        resumed.resolved_workdir.as_deref(),
+        Some(dir_a.canonicalize().unwrap().to_string_lossy().as_ref())
+    );
+    rt.close_agent_session(resumed.session_id.as_str(), None, "closed")
+        .await
+        .unwrap();
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
+/// 回歸（agent-honesty-022）：symlink 不得繞過「工作資料夾不是狀態資料夾」
+/// 這道防線——比對走的是正規化後的路徑，所以一個名字人畜無害、指向
+/// runtime `state/` 的連結一樣被擋。
+///
+/// 這條防線走 `DomainError::Validation`（建立時就拒絕），與續開的
+/// `PolicyBlocked`（換工作目錄，見 `resume_must_stay_in_the_recorded_workdir`）
+/// 是不同輸入觸發的兩道防線，彼此不遮蔽。
+///
+/// 涵蓋範圍誠實說明：這裡驗的是「workdir 是（或包含）state/」。「workdir 位在
+/// state/ **底下**」目前仍會被接受（v0.5.1 已知限制；runtime 自己的
+/// proactive 候選工作區就放在 `state/proactive-agent-workspace`），不在本測試
+/// 涵蓋範圍內。
+#[tokio::test]
+async fn a_symlink_cannot_smuggle_the_runtime_state_dir_in_as_a_workdir() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (home, rt) = runtime().await;
+
+    let state = home.path().join("state");
+    assert!(state.is_dir(), "前提：狀態資料夾真的在 runtime home 底下");
+    let elsewhere = tempfile::tempdir().unwrap();
+    let link = elsewhere.path().join("looks-innocent");
+    std::os::unix::fs::symlink(&state, &link).unwrap();
+
+    let mut input = claude_input("用連結躲進狀態資料夾", None);
+    input.workdir = Some(link.to_string_lossy().into_owned());
+    let err = rt.create_agent_session(input).await.unwrap_err();
+    assert!(matches!(err, DomainError::Validation(_)), "{err:?}");
+    assert!(format!("{err}").contains("狀態資料夾"), "{err}");
+    assert!(
+        !state.join("fake-pid").exists() && !state.join("fake-argv").exists(),
+        "子程序不得真的在狀態資料夾裡跑起來"
+    );
+    assert_eq!(rt.open_agent_sessions().await, 0, "沒有殘留 session");
     std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
 }

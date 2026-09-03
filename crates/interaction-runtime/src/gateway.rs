@@ -39,6 +39,16 @@ const AUTO_DENY_RETRY_BASE_SECS: i64 = 30;
 /// 路：它從不對 agent 送訊，直接關閉 session 並在鎖外終止程序樹。
 const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// `gateway_attach` 的結果：provider 端 thread id（可能還沒到，claude 是
+/// None）＋**實際**掛上子程序的工作目錄（正規化後的絕對路徑）。
+///
+/// 後者要寫進 `AgentSessionRecord.resolved_workdir`：續開時唯一能證明
+/// 「沒有換資料夾」的事實來源。
+pub(crate) struct GatewayAttached {
+    pub provider_session_id: Option<String>,
+    pub resolved_workdir: String,
+}
+
 pub fn agent_kind_for(agent_id: &str) -> Option<AgentKind> {
     match agent_id {
         "codex" => Some(AgentKind::Codex),
@@ -251,7 +261,9 @@ impl Runtime {
                 resolved_state.display()
             )));
         }
-        Ok(workdir)
+        // 回傳正規化後的絕對路徑：這是「真的掛上去的那一個目錄」，續開時
+        // 唯一可比對的事實。
+        Ok(resolved)
     }
 
     /// 在 create_agent_session 成功後把 gateway agent 掛上子程序。
@@ -263,7 +275,7 @@ impl Runtime {
         workdir: Option<String>,
         session_capability_token: String,
         resume_provider_session: Option<String>,
-    ) -> DomainResult<Option<String>> {
+    ) -> DomainResult<GatewayAttached> {
         // Codex app-server 只回報 token 用量、不回報 USD 成本：maxCost 在
         // 這裡無法確定性強制。誠實拒絕建立，而不是收下一個永遠不會執行的
         // 上限（誠實階梯：不得假裝有預算防護）。token 用量另以 progress
@@ -287,6 +299,7 @@ impl Runtime {
             )));
         }
         let workdir = self.resolve_gateway_workdir(workdir)?;
+        let resolved_workdir = workdir.to_string_lossy().into_owned();
         let mut spec = if record.allow_write {
             interaction_agent_gateway::SessionSpec::write_enabled_in(workdir)
         } else {
@@ -331,7 +344,10 @@ impl Runtime {
             approvals,
             turn_settled,
         );
-        Ok(provider_session_id)
+        Ok(GatewayAttached {
+            provider_session_id,
+            resolved_workdir,
+        })
     }
 
     /// 事件泵：正規化事件 → 既有誠實回報路徑。

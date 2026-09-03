@@ -8,6 +8,88 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 use serde_json::{json, Value};
 
+/// 續開要沿用的上限（分鐘／美元／訊息則數）。
+struct ResumeLimits {
+    ttl_minutes: u32,
+    max_cost: f64,
+    max_messages: u32,
+}
+
+/// 「接續上次」要送出的上限：使用者顯式帶的旗標優先，否則沿用**上一個
+/// session 的實際上限**。
+///
+/// 誠實／最小權限：省略欄位不是「沿用」——後端省略就落到 runtime 預設
+/// （120 分鐘、沒有金額上限、訊息吃 policy），每一項都比上次寬，會被
+/// `check_resume_not_wider` 拒絕。所以這裡一律把上次的實際值算出來帶過去。
+/// 讀不到上次的租期時退回租約長度（issuedAt→expiresAt），再讀不到才用 1
+/// 分鐘這個**最窄**的值——不確定就選窄的，不選寬的。
+fn resume_limits(
+    previous: &Value,
+    ttl: Option<u32>,
+    max_cost: Option<f64>,
+    max_messages: Option<u32>,
+) -> ResumeLimits {
+    let budget = previous.get("budget");
+    let from_budget = budget
+        .and_then(|b| b.get("maxDurationMs"))
+        .and_then(|v| v.as_u64())
+        .filter(|ms| *ms > 0)
+        .map(|ms| ((ms as f64) / 60_000.0).round() as u32);
+    let from_lease = || {
+        let lease = previous.get("lease")?;
+        let issued = chrono::DateTime::parse_from_rfc3339(lease.get("issuedAt")?.as_str()?).ok()?;
+        let expires =
+            chrono::DateTime::parse_from_rfc3339(lease.get("expiresAt")?.as_str()?).ok()?;
+        let minutes = (expires - issued).num_seconds() as f64 / 60.0;
+        (minutes > 0.0).then(|| minutes.round() as u32)
+    };
+    ResumeLimits {
+        ttl_minutes: ttl.or(from_budget).or_else(from_lease).unwrap_or(1).max(1),
+        max_cost: max_cost.unwrap_or_else(|| {
+            budget
+                .and_then(|b| b.get("maxCost"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0)
+        }),
+        max_messages: max_messages.unwrap_or_else(|| {
+            budget
+                .and_then(|b| b.get("maxMessages"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32
+        }),
+    }
+}
+
+/// 續開要掛的資料夾：使用者顯式帶的優先，否則用後端記錄的
+/// `resolvedWorkdir`（上一次**真的**掛上子程序的那一個目錄）。
+///
+/// `dataScope` 裡的 `workspace:` 只是呼叫端自己附加的人話標籤，兩者不一致
+/// 時以後端的事實為準；連標籤都沒有就回 None，讓後端誠實拒絕（gateway
+/// session 沒有記錄＝無法證明沒有換資料夾），而不是猜一個。
+fn resume_workdir(previous: &Value, explicit: Option<&str>) -> Option<String> {
+    if let Some(dir) = explicit.map(str::trim).filter(|d| !d.is_empty()) {
+        return Some(dir.to_string());
+    }
+    if let Some(dir) = previous
+        .get("resolvedWorkdir")
+        .and_then(|v| v.as_str())
+        .filter(|d| !d.is_empty())
+    {
+        return Some(dir.to_string());
+    }
+    previous
+        .get("dataScope")
+        .and_then(|v| v.as_array())
+        .and_then(|scopes| {
+            scopes
+                .iter()
+                .filter_map(|s| s.as_str())
+                .find_map(|s| s.strip_prefix("workspace:"))
+        })
+        .filter(|d| !d.is_empty())
+        .map(str::to_string)
+}
+
 #[derive(Subcommand)]
 pub enum ReceptorCmd {
     List,
@@ -804,6 +886,8 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                 id,
                 label,
                 ttl,
+                max_cost,
+                max_messages,
                 workdir,
             } => {
                 let (previous_status, previous) =
@@ -830,6 +914,11 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                 // 續開＝新的租約與新的權限審核。舊 session 的 allowWrite／
                 // toolScope／consentScope 一律不繼承：權限旗標重新上鎖，
                 // 要寫入就得再走一次 `agents create --allow-write`。
+                //
+                // 上限則相反：省略旗標**不是**「不限制」，而是沿用上一次的
+                // 實際上限。落到 runtime 預設（120 分鐘、沒有金額上限、訊息
+                // 吃 policy）每一項都比上次寬，後端會誠實拒絕。
+                let limits = resume_limits(&previous, *ttl, *max_cost, *max_messages);
                 client
                     .post(
                         "/v1/agent-sessions",
@@ -841,8 +930,10 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                                     .and_then(|v| v.as_str())
                                     .map(|l| format!("{l}（續開）"))
                             }),
-                            "ttlMinutes": ttl,
-                            "workdir": workdir,
+                            "ttlMinutes": limits.ttl_minutes,
+                            "maxCost": limits.max_cost,
+                            "maxMessages": limits.max_messages,
+                            "workdir": resume_workdir(&previous, workdir.as_deref()),
                             "allowWrite": false,
                             "toolScope": json!([]),
                             "consentScope": json!([]),
@@ -1451,4 +1542,73 @@ async fn serve(cli: &Cli, host: Option<String>, port: Option<u16>) -> Result<i32
     runtime.shutdown().await;
     handle.abort();
     Ok(0)
+}
+
+#[cfg(test)]
+mod resume_defaults_tests {
+    use super::*;
+
+    fn previous() -> Value {
+        json!({
+            "budget": {"maxDurationMs": 30 * 60_000u64, "maxCost": 0.5, "maxMessages": 7},
+            "lease": {"issuedAt": "2026-01-01T00:00:00Z", "expiresAt": "2026-01-01T00:45:00Z"},
+            "dataScope": ["workspace:/labelled/guess", "domain:project-source"],
+            "resolvedWorkdir": "/real/mounted/dir"
+        })
+    }
+
+    /// 省略旗標＝沿用上次的實際上限，不是落到 runtime 預設（那更寬）。
+    #[test]
+    fn omitted_flags_reuse_the_previous_limits() {
+        let limits = resume_limits(&previous(), None, None, None);
+        assert_eq!(limits.ttl_minutes, 30);
+        assert_eq!(limits.max_cost, 0.5);
+        assert_eq!(limits.max_messages, 7);
+    }
+
+    /// 顯式帶的旗標仍然照送（放寬與否由後端確定性裁決，CLI 不代為放行）。
+    #[test]
+    fn explicit_flags_win_over_the_previous_limits() {
+        let limits = resume_limits(&previous(), Some(999), Some(9.0), Some(99));
+        assert_eq!(limits.ttl_minutes, 999);
+        assert_eq!(limits.max_cost, 9.0);
+        assert_eq!(limits.max_messages, 99);
+    }
+
+    /// 舊後端沒有回報 maxDurationMs 時退回租約長度；連租約都讀不到就選
+    /// 最窄的 1 分鐘——不確定選窄的，不選寬的。
+    #[test]
+    fn ttl_falls_back_to_the_lease_span_then_to_the_narrowest_value() {
+        let mut without_duration = previous();
+        without_duration["budget"]
+            .as_object_mut()
+            .unwrap()
+            .remove("maxDurationMs");
+        assert_eq!(
+            resume_limits(&without_duration, None, None, None).ttl_minutes,
+            45
+        );
+        assert_eq!(resume_limits(&json!({}), None, None, None).ttl_minutes, 1);
+    }
+
+    /// 資料夾以後端記錄的 resolvedWorkdir 為準；dataScope 的 `workspace:`
+    /// 只是人話標籤，缺席時才當備援。
+    #[test]
+    fn workdir_prefers_the_recorded_directory_over_the_scope_label() {
+        assert_eq!(
+            resume_workdir(&previous(), None).as_deref(),
+            Some("/real/mounted/dir")
+        );
+        assert_eq!(
+            resume_workdir(&previous(), Some("/explicit")).as_deref(),
+            Some("/explicit")
+        );
+        let mut legacy = previous();
+        legacy.as_object_mut().unwrap().remove("resolvedWorkdir");
+        assert_eq!(
+            resume_workdir(&legacy, None).as_deref(),
+            Some("/labelled/guess")
+        );
+        assert_eq!(resume_workdir(&json!({}), None), None);
+    }
 }

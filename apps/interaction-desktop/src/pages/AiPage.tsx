@@ -79,6 +79,28 @@ export function resumeLimits(record: AgentSessionRecord): {
 }
 
 /**
+ * 接續要用的資料夾，以及「這個資料夾是不是後端確認過的事實」。
+ *
+ * 誠實階梯：後端記錄的 `resolvedWorkdir` 是上一次**真的**掛上子程序的目錄
+ * （正規化後的絕對路徑）；`dataScope` 裡的 `workspace:` 只是呼叫端自己附加
+ * 的人話標籤，兩者不一致時以後端的事實為準。只有標籤、沒有記錄時（升級前
+ * 建立的舊 session）不得假裝確認過——後端也會據此保守拒絕。
+ */
+export function resumeWorkdir(record: AgentSessionRecord): {
+  path?: string;
+  confirmed: boolean;
+} {
+  const recorded = record.resolvedWorkdir;
+  if (typeof recorded === "string" && recorded.length > 0) {
+    return { path: recorded, confirmed: true };
+  }
+  const labelled = record.dataScope
+    .find((s) => s.startsWith("workspace:"))
+    ?.slice("workspace:".length);
+  return { path: labelled, confirmed: false };
+}
+
+/**
  * 「接續上次（唯讀）」送出的建立內容。
  *
  * 不變量：接續**不得放寬**上次的範圍——
@@ -89,12 +111,11 @@ export function resumeLimits(record: AgentSessionRecord): {
  */
 export function buildResumeInput(record: AgentSessionRecord): Record<string, unknown> {
   const workspaceScope = record.dataScope.filter((s) => s.startsWith("workspace:"));
-  const workdir = workspaceScope[0]?.slice("workspace:".length);
   const limits = resumeLimits(record);
   return {
     agentId: record.agentId,
     label: `接續：${record.label ?? agentDisplayName(record.agentId)}`,
-    workdir: workdir ?? null,
+    workdir: resumeWorkdir(record).path ?? null,
     dataScope: workspaceScope,
     toolScope: [],
     consentScope: [],
@@ -121,10 +142,13 @@ export function deliveredToAgent(message: unknown): boolean {
 /** 接續時實際沿用了什麼——說出來，不讓人以為只是「同一段對話」。 */
 export function resumeLimitsText(record: AgentSessionRecord): string {
   const limits = resumeLimits(record);
-  const folder = record.dataScope
-    .find((s) => s.startsWith("workspace:"))
-    ?.slice("workspace:".length);
-  const parts = [folder ? `原本的資料夾（${folder}）` : "不指定資料夾", `${limits.ttlMinutes} 分鐘`];
+  const folder = resumeWorkdir(record);
+  const parts = [
+    folder.path
+      ? `原本的資料夾（${folder.path}${folder.confirmed ? "" : "；未確認"}）`
+      : "不指定資料夾",
+    `${limits.ttlMinutes} 分鐘`,
+  ];
   if (limits.maxCost > 0) parts.push(`最多 US$${limits.maxCost}`);
   return `沿用${parts.join("、")}`;
 }

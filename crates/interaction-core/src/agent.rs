@@ -216,6 +216,15 @@ pub struct AgentSessionRecord {
     /// 供進階詳情與續開（resume）；不是 runtime 的 session 身分。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_session_id: Option<String>,
+    /// 這個 session **實際**掛上子程序的工作目錄（正規化後的絕對路徑）。
+    /// 只有 gateway agents（codex／claude-code）有值；純對話 session 永遠
+    /// 是 None，升級前建立的舊記錄也是 None（新增欄位、舊 JSON 相容）。
+    ///
+    /// 安全用途：`dataScope` 裡的 `workspace:` 只是呼叫端自己附加的人話
+    /// 標籤，不代表子程序真的被掛在哪裡。續開時只認這個欄位——沒有它就
+    /// 無法證明「沒有換資料夾」。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_workdir: Option<String>,
     /// 最新一次 claimed-completed 的識別（每一個新的聲稱都拿到新的 id）。
     /// 人工驗證只綁定這一個 claim：session 可多輪，第二輪的聲稱不得繼承
     /// 第一輪的綠勾。
@@ -439,6 +448,55 @@ mod tests {
     }
 
     /// regression（誠實階梯）：程序結束而沒有結果聲稱曾被記成 `failed`。
+    /// `resolvedWorkdir` 是**純加法**的新欄位：升級前存下來的舊 JSON 沒有
+    /// 這個鍵，反序列化必須落到 None 而不是報錯；None 也不得寫進 JSON
+    /// （`skip_serializing_if`），舊版讀回去才不會看到多餘的鍵。
+    #[test]
+    fn resolved_workdir_is_additive_and_round_trips_old_records() {
+        let old_json = serde_json::json!({
+            "sessionId": "asession-1",
+            "providerId": "provider.ai-agent.claude-code",
+            "agentId": "claude-code",
+            "state": "created",
+            "lease": {
+                "issuedAt": "2026-01-01T00:00:00Z",
+                "expiresAt": "2026-01-01T00:30:00Z",
+                "renewable": true,
+                "revokeOnSessionEnd": true
+            },
+            "budget": {
+                "maxDurationMs": 1_800_000,
+                "maxCost": 0.5,
+                "spentCost": 0.0,
+                "maxMessages": 10,
+                "spentMessages": 0
+            },
+            "createdAt": "2026-01-01T00:00:00Z",
+            "providerSessionId": "thread-abc"
+        });
+        let record: AgentSessionRecord =
+            serde_json::from_value(old_json).expect("舊記錄仍要讀得回來");
+        assert_eq!(record.resolved_workdir, None, "舊記錄沒有這個欄位＝未知");
+
+        // None 不寫進 JSON。
+        let encoded = serde_json::to_value(&record).unwrap();
+        assert!(
+            encoded.get("resolvedWorkdir").is_none(),
+            "None 不得序列化成 null：{encoded}"
+        );
+
+        // 有值時原樣往返。
+        let mut with_dir = record.clone();
+        with_dir.resolved_workdir = Some("/private/tmp/workspace".into());
+        let encoded = serde_json::to_value(&with_dir).unwrap();
+        assert_eq!(
+            encoded["resolvedWorkdir"],
+            serde_json::json!("/private/tmp/workspace")
+        );
+        let decoded: AgentSessionRecord = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded, with_dir);
+    }
+
     /// 未知就是未知——terminal、非 open、序列化為 kebab-case `unknown`，
     /// 而且**不等於**任何一種成功或失敗狀態。
     #[test]

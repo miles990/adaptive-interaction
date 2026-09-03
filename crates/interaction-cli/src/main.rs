@@ -408,10 +408,19 @@ pub enum AgentsAction {
         id: String,
         #[arg(long)]
         label: Option<String>,
-        /// Lease TTL in minutes (default 120).
+        /// Lease TTL in minutes. Omitted = reuse the previous session's actual
+        /// limit (NOT the runtime default, which would be wider and refused).
         #[arg(long)]
         ttl: Option<u32>,
-        /// Working directory for gateway agents (codex/claude-code).
+        /// Max session cost in USD. Omitted = reuse the previous session's.
+        #[arg(long)]
+        max_cost: Option<f64>,
+        /// Max mailbox messages. Omitted = reuse the previous session's.
+        #[arg(long)]
+        max_messages: Option<u32>,
+        /// Working directory for gateway agents (codex/claude-code). Omitted =
+        /// the directory the previous session was actually mounted in
+        /// (`resolvedWorkdir`); resuming may never move to another folder.
         #[arg(long)]
         workdir: Option<String>,
     },

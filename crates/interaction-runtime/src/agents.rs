@@ -152,7 +152,64 @@ fn check_resume_not_wider(
             original.budget.max_messages
         )));
     }
-    Ok(())
+    check_resume_same_workdir(input, original)
+}
+
+/// 把一個請求裡的 workdir 正規化成可比對的絕對路徑。
+///
+/// 正規化（symlink／`..`／`.`／結尾斜線都算進去）之後才比對：`A/../B` 的
+/// 字串前綴看起來還在 A 底下，實際上是隔壁的 B。目錄不存在時 canonicalize
+/// 會失敗——那就退回原字串，讓後續的 `resolve_gateway_workdir` 用「workdir
+/// 不存在」誠實拒絕，而不是在這裡假裝比對過。
+fn canonical_workdir(raw: &str) -> String {
+    let trimmed = raw.trim();
+    std::path::Path::new(trimmed)
+        .canonicalize()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| trimmed.to_string())
+}
+
+/// 續開不得換工作目錄。
+///
+/// `dataScope` 裡的 `workspace:` 只是呼叫端自己附加的人話標籤；真正決定
+/// 子程序掛在哪一棵檔案樹的是 `workdir`。宣稱「什麼範圍都沒放寬」卻換一個
+/// workdir，字面上通過了所有 scope 檢查，實際上換了整個工作範圍。
+///
+/// 不確定就拒絕（誠實階梯）：升級前建立的 gateway session 沒有
+/// `resolved_workdir` 記錄，無從證明沒有換資料夾——請人類重新建立一個
+/// 明確授權的工作階段，而不是預設放行。純對話 session（非 gateway agent、
+/// 從來沒有掛過子程序）不受影響。
+fn check_resume_same_workdir(
+    input: &CreateAgentSession,
+    original: &AgentSessionRecord,
+) -> DomainResult<()> {
+    let requested = input
+        .workdir
+        .as_deref()
+        .map(str::trim)
+        .filter(|w| !w.is_empty());
+    match (original.resolved_workdir.as_deref(), requested) {
+        (Some(previous), Some(next)) => {
+            if canonical_workdir(previous) != canonical_workdir(next) {
+                return Err(DomainError::PolicyBlocked(format!(
+                    "接續上次的工作不得更換工作目錄（上次是 {previous}）；                     要換資料夾請重新建立一個明確授權的工作階段"
+                )));
+            }
+            Ok(())
+        }
+        (Some(previous), None) => Err(DomainError::PolicyBlocked(format!(
+            "接續上次的工作必須帶上同一個工作目錄（上次是 {previous}）；             省略＝由系統另外挑一個資料夾，那不是接續"
+        ))),
+        // 舊記錄（升級前建立）沒有留下實際掛載的工作目錄：不確定就拒絕。
+        (None, Some(_)) if crate::gateway::agent_kind_for(&original.agent_id).is_some() => {
+            Err(DomainError::PolicyBlocked(
+                "找不到上一次實際掛載的工作目錄記錄，無法確認沒有換資料夾；                 請重新建立一個明確授權的工作階段"
+                    .into(),
+            ))
+        }
+        // 純對話 session 從來沒有工作目錄，接續與資料夾無關。
+        _ => Ok(()),
+    }
 }
 
 pub struct AgentSessionEntry {
@@ -449,6 +506,7 @@ impl Runtime {
             detail: None,
             handoff: None,
             provider_session_id: None,
+            resolved_workdir: None,
             claim_id: None,
             human_verified: None,
             context_bundles: vec![],
@@ -511,7 +569,7 @@ impl Runtime {
                 )
                 .await
             {
-                Ok(provider_sid) => {
+                Ok(attached) => {
                     let updated = {
                         let mut map = self.agent_sessions.write().await;
                         match map.get_mut(session_id.as_str()) {
@@ -519,8 +577,13 @@ impl Runtime {
                                 // 事件泵可能已用 init 事件回填 provider session
                                 // id——attach 的回傳值（claude 是 None）不得
                                 // 把它蓋掉。
-                                entry.record.provider_session_id =
-                                    provider_sid.or(entry.record.provider_session_id.take());
+                                entry.record.provider_session_id = attached
+                                    .provider_session_id
+                                    .or(entry.record.provider_session_id.take());
+                                // 真的掛上去的那一個資料夾（正規化後的絕對
+                                // 路徑）落地：續開時才有事實可比對。
+                                entry.record.resolved_workdir =
+                                    Some(attached.resolved_workdir.clone());
                                 self.persist_agent_session(&entry.record);
                                 entry.record.clone()
                             }
@@ -1685,5 +1748,145 @@ impl interaction_core::Actuator for DelegateActuator {
     async fn emergency_stop(&self) -> Result<(), interaction_core::ActuatorError> {
         // Session cancellation is propagated by the runtime's estop path.
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod resume_workdir_tests {
+    use super::*;
+    use interaction_core::{AgentSessionId, AgentSessionState, ProviderId};
+
+    fn record(agent_id: &str, resolved_workdir: Option<&str>) -> AgentSessionRecord {
+        let now = Utc::now();
+        AgentSessionRecord {
+            session_id: AgentSessionId::generate(),
+            provider_id: ProviderId::new("provider.ai-agent.claude-code"),
+            agent_id: agent_id.to_string(),
+            label: None,
+            state: AgentSessionState::Closed,
+            lease: CapabilityLease {
+                issued_at: now,
+                expires_at: now + chrono::Duration::minutes(10),
+                renewable: true,
+                revoke_on_session_end: true,
+            },
+            data_scope: vec![],
+            tool_scope: vec![],
+            consent_scope: vec![],
+            allow_write: false,
+            budget: SessionBudget {
+                max_duration_ms: 10 * 60_000,
+                max_cost: 0.0,
+                spent_cost: 0.0,
+                max_messages: 10,
+                spent_messages: 0,
+            },
+            delegation: None,
+            created_at: now,
+            closed_at: Some(now),
+            detail: None,
+            handoff: None,
+            provider_session_id: Some("thread-1".into()),
+            resolved_workdir: resolved_workdir.map(str::to_string),
+            claim_id: None,
+            human_verified: None,
+            context_bundles: vec![],
+        }
+    }
+
+    fn resume(agent_id: &str, workdir: Option<&str>) -> CreateAgentSession {
+        CreateAgentSession {
+            provider_id: None,
+            agent_id: agent_id.to_string(),
+            label: None,
+            ttl_minutes: Some(10),
+            data_scope: vec![],
+            tool_scope: vec![],
+            consent_scope: vec![],
+            allow_write: false,
+            max_cost: None,
+            max_messages: Some(10),
+            delegation: None,
+            workdir: workdir.map(str::to_string),
+            resume_provider_session_id: Some("thread-1".into()),
+        }
+    }
+
+    fn blocked(result: DomainResult<()>) -> String {
+        match result {
+            Err(DomainError::PolicyBlocked(msg)) => msg,
+            other => panic!("expected PolicyBlocked, got {other:?}"),
+        }
+    }
+
+    /// 續開必須留在同一個工作目錄，而且比對的是**正規化後**的絕對路徑。
+    #[test]
+    fn resume_must_use_the_same_recorded_workdir() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir_a = parent.path().join("A");
+        let dir_b = parent.path().join("B");
+        std::fs::create_dir_all(&dir_a).unwrap();
+        std::fs::create_dir_all(&dir_b).unwrap();
+        let a = dir_a.canonicalize().unwrap().to_string_lossy().into_owned();
+
+        // 同一個目錄的不同寫法（`.`／結尾斜線）＝同一個目錄。
+        check_resume_not_wider(
+            &resume("claude-code", Some(&format!("{a}/./"))),
+            &record("claude-code", Some(&a)),
+            10,
+        )
+        .expect("誠實地帶同一個資料夾要能接續");
+
+        // `A/../B`：字串前綴像 A，正規化後其實是隔壁的 B。
+        let traversal = format!("{}/../B", dir_a.display());
+        let msg = blocked(check_resume_not_wider(
+            &resume("claude-code", Some(&traversal)),
+            &record("claude-code", Some(&a)),
+            10,
+        ));
+        assert!(msg.contains("工作目錄"), "{msg}");
+
+        // 省略＝由系統另外挑一個資料夾，一樣是換範圍。
+        let msg = blocked(check_resume_not_wider(
+            &resume("claude-code", None),
+            &record("claude-code", Some(&a)),
+            10,
+        ));
+        assert!(msg.contains("工作目錄"), "{msg}");
+    }
+
+    /// 舊記錄（升級前建立的 gateway session）沒有留下實際掛載的工作目錄：
+    /// 不確定就拒絕，請人類重新建立；純對話 session 不受影響。
+    #[test]
+    fn a_gateway_session_without_a_recorded_workdir_is_refused_not_assumed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_string_lossy().into_owned();
+
+        let msg = blocked(check_resume_not_wider(
+            &resume("claude-code", Some(&path)),
+            &record("claude-code", None),
+            10,
+        ));
+        assert!(msg.contains("工作目錄"), "{msg}");
+        let msg = blocked(check_resume_not_wider(
+            &resume("codex", Some(&path)),
+            &record("codex", None),
+            10,
+        ));
+        assert!(msg.contains("工作目錄"), "{msg}");
+
+        // 純對話 session（非 gateway agent）從來沒有工作目錄，不受影響。
+        check_resume_not_wider(
+            &resume("agent.conversation", Some(&path)),
+            &record("agent.conversation", None),
+            10,
+        )
+        .expect("純對話 session 的續開與資料夾無關");
+        check_resume_not_wider(
+            &resume("claude-code", None),
+            &record("claude-code", None),
+            10,
+        )
+        .expect("兩邊都沒有資料夾：沒有換範圍可言");
     }
 }

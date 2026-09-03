@@ -24,6 +24,12 @@ fn next_port() -> u16 {
 
 impl Daemon {
     fn spawn() -> Self {
+        Self::spawn_with_env(&[])
+    }
+
+    /// 帶 env 啟動 daemon：gateway connector 的 binary 可用
+    /// `INTERACT_AI_*_BIN` 覆寫成測試 fixture（真 spawn、真 pipe，不是 mock）。
+    fn spawn_with_env(env: &[(&str, &str)]) -> Self {
         let mut last_err = String::new();
         for _attempt in 0..3 {
             let home = tempfile::tempdir().unwrap();
@@ -37,6 +43,7 @@ impl Daemon {
                     "--port",
                     &port.to_string(),
                 ])
+                .envs(env.iter().copied())
                 .stdout(Stdio::null())
                 .stderr(std::fs::File::create(&stderr_file).unwrap())
                 .spawn()
@@ -397,4 +404,90 @@ fn character_subcommands_manage_adapters_and_refuse_safety_intents() {
     assert_eq!(code, 1);
     let (_, list, _) = daemon.cli(&["character", "adapters", "list"]);
     assert_eq!(list["adapters"].as_array().unwrap().len(), 1);
+}
+
+/// 回歸（v0.5.1 / 已知限制 #18）：`agents resume` 省略上限旗標時要沿用
+/// **上一個 session 的實際上限**，而不是落到 runtime 預設（120 分鐘、沒有
+/// 金額上限）——後端把「沒帶」當成放寬，會誠實拒絕，於是桌面做得到的事
+/// CLI 卻做不到。資料夾同樣沿用後端記錄的 `resolvedWorkdir`（上一次真的
+/// 掛上子程序的那一個目錄），而不是讓後端另外挑一個。
+///
+/// 自動帶入**不得**變成自動放寬：使用者顯式要求更寬的上限仍然被擋。
+#[test]
+fn agents_resume_auto_fills_the_previous_limits_and_workdir() {
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../interaction-runtime/tests/fixtures/fake_claude.sh"
+    );
+    let daemon = Daemon::spawn_with_env(&[("INTERACT_AI_CLAUDE_BIN", fixture)]);
+    let workdir = tempfile::tempdir().unwrap();
+    let resolved = workdir
+        .path()
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+
+    let (code, created, stderr) = daemon.cli(&[
+        "agents",
+        "create",
+        "--agent",
+        "claude-code",
+        "--label",
+        "原本的工作",
+        "--workdir",
+        workdir.path().to_str().unwrap(),
+        "--ttl",
+        "30",
+        "--max-cost",
+        "0.5",
+        "--max-messages",
+        "7",
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    let id = created["sessionId"].as_str().unwrap().to_string();
+    assert_eq!(
+        created["resolvedWorkdir"],
+        Value::String(resolved.clone()),
+        "實際掛上子程序的資料夾要回報出來：{created}"
+    );
+
+    // provider thread id 由 fixture 的 init 事件回填；沒有它就無從續開。
+    let mut shown = Value::Null;
+    for _ in 0..100 {
+        let (_, s, _) = daemon.cli(&["agents", "show", &id]);
+        if s["providerSessionId"].is_string() {
+            shown = s;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        shown["providerSessionId"].is_string(),
+        "provider thread id 沒有落地：{shown}"
+    );
+    let (code, _, stderr) = daemon.cli(&["agents", "close", &id]);
+    assert_eq!(code, 0, "{stderr}");
+
+    // 什麼旗標都不帶：沿用上次的 30 分鐘／US$0.5／7 則，資料夾也是同一個。
+    let (code, resumed, stderr) = daemon.cli(&["agents", "resume", &id]);
+    assert_eq!(code, 0, "省略旗標的續開應該成功：{stderr}");
+    assert_eq!(resumed["budget"]["maxDurationMs"], 30 * 60_000);
+    assert_eq!(resumed["budget"]["maxCost"], 0.5);
+    assert_eq!(resumed["budget"]["maxMessages"], 7);
+    assert_eq!(resumed["allowWrite"], false);
+    assert_eq!(resumed["toolScope"], serde_json::json!([]));
+    assert_eq!(resumed["consentScope"], serde_json::json!([]));
+    assert_eq!(resumed["resolvedWorkdir"], Value::String(resolved));
+    let resumed_id = resumed["sessionId"].as_str().unwrap().to_string();
+    let (code, _, _) = daemon.cli(&["agents", "close", &resumed_id]);
+    assert_eq!(code, 0);
+
+    // 自動帶入不是自動放寬：顯式要更長的租期仍然被後端擋下，而且說得出原因。
+    let (code, refusal, _) = daemon.cli(&["agents", "resume", &id, "--ttl", "999"]);
+    assert_ne!(code, 0, "顯式放寬時間上限必須被拒絕");
+    assert!(
+        refusal.to_string().contains("時間上限"),
+        "拒絕要說出原因：{refusal}"
+    );
 }
