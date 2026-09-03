@@ -18,6 +18,8 @@ import {
   reduce,
   Transient,
 } from "../../companion/machine";
+import { EXPRESSIONS, OFFICIAL_36 } from "../../companion/rig/expressions";
+import { drawExpressionPreview } from "../../companion/rig/renderer";
 import { machineStageFlags, STAGE_SCENES, StageRenderer } from "../../companion/rig/stage";
 import { DEFAULT_TUNING, PersonalityTuning } from "../../companion/personality";
 import type { AdapterHost, AdapterInputEvent, CharacterAdapter, GameplayExtension, HitRect, PointerInput, ReceiptSink } from "../adapter";
@@ -54,6 +56,44 @@ const DEFAULT_LEGACY_RIG = {
   version: "3.0.0",
   author: "adaptive-interaction",
 };
+
+// ---------------------------------------------------------------------------
+// 給設定頁用的公開表（Reference Adapter 自己宣告的選項）
+//
+// 角色頁只認這幾個匯出：表情名、配色 id、說話風格 id 都留在 adapter 裡，頁面不再直接
+// 讀 rig 內部表，也不寫死任何屬於這個參考角色的字串（CLAUDE.md 呈現層主權）。
+// ---------------------------------------------------------------------------
+
+/** 角色頁的表情預覽清單（官方 36 格：id＋人話標籤，順序即畫面順序）。 */
+export function previewExpressions(): { id: string; label: string }[] {
+  return OFFICIAL_36.map((id) => ({ id, label: EXPRESSIONS[id]?.label ?? id }));
+}
+
+/** 這個角色提供的配色（第一個是預設值）。 */
+export const PALETTES: { id: string; label: string }[] = [
+  { id: "maid-classic", label: "經典" },
+  { id: "maid-dusk", label: "暮色" },
+  { id: "maid-sakura", label: "櫻花" },
+];
+
+/**
+ * 說話風格。`followsName` 的項目由頁面把目前角色的名字接在前面
+ * （名字一律來自 useCharacterName，不由 adapter 決定）。
+ */
+export const PERSONAS: { id: string; label: string; followsName: boolean }[] = [
+  { id: "persona-shu", label: "預設", followsName: true },
+  { id: "persona-navigator", label: "導航員（世界觀範例）", followsName: false },
+];
+
+/** 預覽一格表情：與桌面角色同一套 rig 程式即時繪製，不是靜態圖片。 */
+export function drawPreviewExpression(
+  ctx: CanvasRenderingContext2D,
+  expressionId: string,
+  palette: string,
+  size: number
+): void {
+  drawExpressionPreview(ctx, expressionId, palette, size);
+}
 
 export interface ShuAdapterOptions {
   /** bundled /characters/<characterId>/manifest.json（已驗證）；省略時由 legacyRig 遷移。 */

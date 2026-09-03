@@ -622,6 +622,9 @@ export default function CompanionApp() {
         manifest,
         negotiate,
         visible,
+        // Reduced Motion 只有一個主人：視窗的實際值一路送到 Runtime 協商，
+        // Runtime 才能誠實把 resolution 記成 reduced（不是永遠 exact）。
+        reducedMotion: reducedMotionRef.current,
         packId: manifest.characterId,
         behaviorState: {
           activation: state.activation,

@@ -4,6 +4,8 @@
 // MixerRenderer 門面、machineEventForAnimation、settingsTransfer 的 characterId 別名、
 // DEFAULT_LINES 的 `{name}` 樣板。全部不碰 React、不起 daemon。
 
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import shuMaidRaw from "../../public/characters/shu-maid/manifest.json";
 import type { AdapterHost, CharacterAdapter } from "../character/adapter";
@@ -255,6 +257,27 @@ describe("回執轉送：只送主角、去掉 @instance 後綴、帶 Runtime �
     expect(h.reducedMotion).toBe(true);
     expect(h.limits).toEqual({ maxMessageBytes: 65536, maxMessagesPerSecond: 50, maxPending: 64 });
     expect(h.locale).toBe("zh-TW");
+  });
+
+  it("Reduced Motion 只有一個主人：視窗的值一路送進 /v1/character/hello（TS 與 Runtime 協商同一個值）", () => {
+    // 視窗 → api → Tauri bridge → Runtime：任何一段掉了，Runtime 就會永遠以 false 協商，
+    // 把實際 reduced 的演出記成 exact。
+    const app = fs.readFileSync(path.resolve("src/companion/CompanionApp.tsx"), "utf8");
+    const call = app.slice(app.indexOf("api.characterHello({"));
+    const body = call.slice(0, call.indexOf("});"));
+    expect(body).toContain("reducedMotion: reducedMotionRef.current");
+    // 同一個值也給本機 adapter 協商（helloFor），兩邊不會各算各的。
+    const sendHello = app.slice(app.indexOf("const sendHello = React.useCallback"));
+    expect(sendHello.slice(0, sendHello.indexOf("api.characterHello("))).toContain(
+      "reducedMotion: reducedMotionRef.current"
+    );
+
+    const api = fs.readFileSync(path.resolve("src/api.ts"), "utf8");
+    const invokeHello = api.slice(api.indexOf('invoke<CharacterHelloResult>("character_hello"'));
+    expect(invokeHello.slice(0, invokeHello.indexOf("}),"))).toContain("reducedMotion: input.reducedMotion ?? false");
+
+    const bridge = fs.readFileSync(path.resolve("src-tauri/src/character_bridge.rs"), "utf8");
+    expect(bridge).toContain('.get("reducedMotion")');
   });
 });
 

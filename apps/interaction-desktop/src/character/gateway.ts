@@ -160,7 +160,8 @@ interface Instance {
   negotiated: Negotiated | null;
   hello: Hello | null;
   pending: Map<string, Pending>;
-  seen: Map<string, ReceiptStatus>;
+  /** 去重環：記住終結狀態**與當時協商出的 resolution**（重複／已終結的回執要照實帶，不能一律 exact）。 */
+  seen: Map<string, { status: ReceiptStatus; resolution: Resolution }>;
   seenOrder: string[];
   channelOwners: Map<string, string>;
   unsubscribe: (() => void) | null;
@@ -630,33 +631,36 @@ export class CharacterGateway {
     }
     inst.lastSeenAt = at;
 
-    // 去重（環 256）
+    const resolution = inst.negotiated.resolutions[envelope.intent];
+    const negotiatedResolution: Resolution = resolution?.resolution ?? "unsupported";
+
+    // 去重（環 256）：回執帶原命令的 resolution（Rust 權威端同樣行為），不硬編 exact。
     if (inst.seen.has(messageId) || inst.pending.has(messageId)) {
-      const r = this.emit(inst, messageId, { status: "accepted", resolution: "exact", duplicate: true, detail: "duplicate" });
+      const known = inst.pending.get(messageId)?.effective ?? inst.seen.get(messageId)?.resolution ?? negotiatedResolution;
+      const r = this.emit(inst, messageId, { status: "accepted", resolution: known, duplicate: true, detail: "duplicate" });
       return r;
     }
-    this.remember(inst, messageId, "accepted");
+    this.remember(inst, messageId, "accepted", negotiatedResolution);
 
     // 過期
     const expiresAt = parseIso(envelope.expiresAt);
     if (expiresAt !== null && at > expiresAt) {
       this.audit("envelope-expired", { instanceId: inst.instanceId, messageId });
       const r = this.emit(inst, messageId, { status: "expired", resolution: "unsupported", detail: "expired before dispatch" });
-      this.remember(inst, messageId, "expired");
+      this.remember(inst, messageId, "expired", "unsupported");
       return r;
     }
 
-    const resolution = inst.negotiated.resolutions[envelope.intent];
-    if (resolution.resolution === "unsupported") {
+    if (negotiatedResolution === "unsupported") {
       const r = this.emit(inst, messageId, { status: "unsupported", resolution: "unsupported", detail: "not negotiated" });
-      this.remember(inst, messageId, "unsupported");
+      this.remember(inst, messageId, "unsupported", "unsupported");
       return r;
     }
     if (resolution.via === "system.text") {
       const accepted = this.emit(inst, messageId, { status: "accepted", resolution: "substituted", detail: "system.text" });
       this.systemText(inst, envelope, "negotiated");
       this.emit(inst, messageId, { status: "completed", resolution: "substituted", detail: "system.text" });
-      this.remember(inst, messageId, "completed");
+      this.remember(inst, messageId, "completed", "substituted");
       return accepted;
     }
 
@@ -684,7 +688,7 @@ export class CharacterGateway {
     if (inst.pending.size >= LIMITS.maxPending && !this.makeRoom(inst, pending)) {
       const accepted = this.emit(inst, messageId, { status: "accepted", resolution: pending.effective });
       this.emit(inst, messageId, { status: "cancelled", resolution: pending.effective, reason: "queue-full" });
-      this.remember(inst, messageId, "cancelled");
+      this.remember(inst, messageId, "cancelled", pending.effective);
       return accepted;
     }
 
@@ -849,12 +853,19 @@ export class CharacterGateway {
         this.cancelPending(inst, p, "busy");
         return;
       case "merge": {
-        const same = owners.find((o) => o.envelope.intent === p.envelope.intent);
+        // 合併鍵與 Rust 權威端一致：同 intent＋同 correlationId 才算同一件事。
+        const same = owners.find(
+          (o) => o.envelope.intent === p.envelope.intent && o.envelope.correlationId === p.envelope.correlationId
+        );
         if (same) {
-          p.startedAt = this.now();
-          p.status = "started";
-          this.emit(inst, p.envelope.messageId, { status: "completed", resolution: p.effective, detail: "merged" });
-          this.forget(inst, p, "completed");
+          // 併入既有演出的命令**沒有被演出過**：誠實回 cancelled{merged}，不得謊報 completed。
+          this.emit(inst, p.envelope.messageId, {
+            status: "cancelled",
+            resolution: p.effective,
+            reason: "merged",
+            detail: `merged into ${same.envelope.messageId}`,
+          });
+          this.forget(inst, p, "cancelled");
           return;
         }
         this.schedule(inst, p);
@@ -927,7 +938,7 @@ export class CharacterGateway {
     return r;
   }
 
-  private remember(inst: Instance, messageId: string, status: ReceiptStatus) {
+  private remember(inst: Instance, messageId: string, status: ReceiptStatus, resolution: Resolution) {
     if (!inst.seen.has(messageId)) {
       inst.seenOrder.push(messageId);
       while (inst.seenOrder.length > LIMITS.dedupeRing) {
@@ -935,7 +946,7 @@ export class CharacterGateway {
         if (old !== undefined) inst.seen.delete(old);
       }
     }
-    inst.seen.set(messageId, status);
+    inst.seen.set(messageId, { status, resolution });
   }
 
   private forget(inst: Instance, p: Pending, status: ReceiptStatus) {
@@ -944,7 +955,7 @@ export class CharacterGateway {
     for (const [ch, owner] of [...inst.channelOwners.entries()]) {
       if (owner === id) inst.channelOwners.delete(ch);
     }
-    this.remember(inst, id, status);
+    this.remember(inst, id, status, status === "failed" ? "failed" : p.effective);
   }
 
   private finalize(inst: Instance, p: Pending, status: ReceiptStatus, reason?: SystemTextMessage["reason"]) {
@@ -1022,9 +1033,9 @@ export class CharacterGateway {
           characterInstanceId: inst.instanceId,
           generation: inst.generation,
           status: "cancelled",
-          resolution: "exact",
+          resolution: last.resolution,
           alreadyTerminal: true,
-          detail: `already ${last}`,
+          detail: `already ${last.status}`,
           at: this.iso(),
         };
       }

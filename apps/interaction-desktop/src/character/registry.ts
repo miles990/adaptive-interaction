@@ -193,21 +193,32 @@ const INPUT_LABELS_EN: Record<string, string> = {
 };
 
 /**
- * 給 UI 的人話摘要：來源、執行位置、可執行程式、網路、可接收的資料、測試狀態、
- * 感測需求。每一行都只是 manifest 宣告的轉述，不評價角色本身。
+ * 摘要分組：`general` 是一般模式看得到的人話事實（來源與版本、可以接收、需要的裝置、
+ * 已測試）；`technical` 是執行方式與安全宣告（執行位置、可執行程式、需要網路、檔案存取、
+ * 簽章），只在進階模式的技術資料出現。分組只影響「放在哪一層」，不隱藏任何事實。
  */
-export function capabilitySummary(
+export interface CapabilitySummaryParts {
+  general: string[];
+  technical: string[];
+}
+
+/**
+ * 給 UI 的人話摘要（一般＋進階兩組）：來源、執行位置、可執行程式、網路、可接收的資料、
+ * 測試狀態、感測需求。每一行都只是 manifest 宣告的轉述，不評價角色本身。
+ */
+export function capabilitySummaryParts(
   manifest: CharacterManifest,
   locale: string,
   opts: CapabilitySummaryOptions = {}
-): string[] {
+): CapabilitySummaryParts {
   const zh = locale.toLowerCase().startsWith("zh");
   const name = displayNameOf(manifest, locale);
   const origin = opts.origin ?? "imported";
   const sec = manifest.securityRequirements;
-  const lines: string[] = [];
+  const general: string[] = [];
+  const technical: string[] = [];
 
-  lines.push(
+  general.push(
     zh
       ? `${name}：${origin === "builtin" ? "內建角色" : "第三方角色"}（${manifest.author ? `作者 ${manifest.author}` : "作者未標示"}，版本 ${manifest.version}）`
       : `${name}: ${origin === "builtin" ? "built-in character" : "third-party character"} (${manifest.author ? `author ${manifest.author}` : "author not stated"}, version ${manifest.version})`
@@ -225,10 +236,10 @@ export function capabilitySummary(
     "external-process": "external program (never auto-started; requires explicit install and approval)",
     "remote-device": "remote device (never auto-connects; requires pairing)",
   };
-  lines.push(zh ? kindZh[manifest.adapterKind] : kindEn[manifest.adapterKind]);
+  technical.push(zh ? kindZh[manifest.adapterKind] : kindEn[manifest.adapterKind]);
 
   const executable = sec.executable || manifest.entrypoint.kind === "process";
-  lines.push(
+  technical.push(
     zh
       ? executable
         ? "有可執行程式：是（只記錄，不會自動執行）"
@@ -237,7 +248,7 @@ export function capabilitySummary(
         ? "Executable content: yes (recorded only, never auto-run)"
         : "Executable content: no (data only)"
   );
-  lines.push(
+  technical.push(
     zh
       ? sec.network
         ? "需要網路：是"
@@ -248,8 +259,11 @@ export function capabilitySummary(
   );
 
   const inputs = Object.keys(manifest.inputCapabilities).filter((id) => manifest.inputCapabilities[id]?.supported);
-  const labels = inputs.map((id) => (zh ? INPUT_LABELS_ZH[id] : INPUT_LABELS_EN[id]) ?? id);
-  lines.push(
+  // 不認得的 input id 一律用中性詞，一般模式不會看到原始 id。
+  const labels = Array.from(
+    new Set(inputs.map((id) => (zh ? INPUT_LABELS_ZH[id] : INPUT_LABELS_EN[id]) ?? (zh ? "其他互動" : "other interaction")))
+  );
+  general.push(
     zh
       ? labels.length > 0
         ? `可以接收：${labels.join("、")}`
@@ -269,13 +283,13 @@ export function capabilitySummary(
     "character-folder": "reads only its own character folder",
     "user-granted": "reads only files you explicitly drop and grant (short-lived)",
   };
-  lines.push(zh ? `檔案存取：${fileAccessZh[sec.fileAccess]}` : `File access: ${fileAccessEn[sec.fileAccess]}`);
+  technical.push(zh ? `檔案存取：${fileAccessZh[sec.fileAccess]}` : `File access: ${fileAccessEn[sec.fileAccess]}`);
 
   const sensors: string[] = [];
   if (sec.microphone) sensors.push(zh ? "麥克風" : "microphone");
   if (sec.camera) sensors.push(zh ? "攝影機" : "camera");
   if (sec.audioOutput) sensors.push(zh ? "音訊輸出" : "audio output");
-  lines.push(
+  general.push(
     zh
       ? sensors.length > 0
         ? `需要的裝置：${sensors.join("、")}（感測器預設關閉，啟用時會顯示指示）`
@@ -286,7 +300,7 @@ export function capabilitySummary(
   );
 
   const tested = opts.tested ?? origin === "builtin";
-  lines.push(
+  general.push(
     zh
       ? tested
         ? "已測試：是（隨 App 自動化測試）"
@@ -296,6 +310,16 @@ export function capabilitySummary(
         : "Tested: no (not tested on this machine; try it in a controlled setting first)"
   );
 
-  lines.push(zh ? "簽章：無（本版不支援簽章驗證）" : "Signature: none (this version does not verify signatures)");
-  return lines;
+  technical.push(zh ? "簽章：無（本版不支援簽章驗證）" : "Signature: none (this version does not verify signatures)");
+  return { general, technical };
+}
+
+/** 完整摘要（一般＋進階）。既有呼叫端（「可以接收：…」那一行）維持不變。 */
+export function capabilitySummary(
+  manifest: CharacterManifest,
+  locale: string,
+  opts: CapabilitySummaryOptions = {}
+): string[] {
+  const parts = capabilitySummaryParts(manifest, locale, opts);
+  return [...parts.general, ...parts.technical];
 }

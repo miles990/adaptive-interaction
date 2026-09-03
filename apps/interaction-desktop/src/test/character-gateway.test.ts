@@ -369,6 +369,28 @@ describe("cancel 冪等、去重、過期", () => {
     expect(h.gw.dispatch(e).duplicate).toBeUndefined();
   });
 
+  it("duplicate／alreadyTerminal 回執帶原命令協商出的 resolution，不硬編 exact", async () => {
+    const h = harness({ reducedMotion: true });
+    const a = new FakeAdapter();
+    await h.gw.registerInstance(a, "primary-companion", { instanceId: "a" });
+    // fakeManifest 的 visual.expression 是 reducedMotionBehavior:"static" → 協商成 reduced。
+    const e = env("a", "notice");
+    const accepted = h.gw.dispatch(e);
+    expect(accepted.resolution).toBe("reduced");
+    const dup = h.gw.dispatch(e);
+    expect(dup.duplicate).toBe(true);
+    expect(dup.resolution).toBe("reduced");
+    a.emit(e.messageId, { status: "completed" });
+    const terminal = h.gw.cancel(e.messageId);
+    expect(terminal.alreadyTerminal).toBe(true);
+    expect(terminal.resolution).toBe("reduced");
+    expect(terminal.detail).toBe("already completed");
+    // 已終結之後再送同一個 messageId：一樣不會退回 exact。
+    expect(h.gw.dispatch(e).resolution).toBe("reduced");
+    // 未知 messageId：誠實 unsupported（沒有原命令可帶）。
+    expect(h.gw.cancel("never-seen").resolution).toBe("unsupported");
+  });
+
   it("expiresAt 已過 → expired，不派給 adapter；排隊中過期 → sweep 記 expired", async () => {
     const h = harness();
     const a = new FakeAdapter();
@@ -617,7 +639,7 @@ describe("Mixer／搶占（§5）", () => {
     expect(resumed.priority).toBe(30);
   });
 
-  it("return-idle：結束後派 idle；drop-if-busy → cancelled{busy}；merge 同 intent → completed{merged}", async () => {
+  it("return-idle：結束後派 idle；drop-if-busy → cancelled{busy}；merge 同 intent＋同 correlation → cancelled{merged}（沒演過就不能說 completed）", async () => {
     const h = harness();
     const a = new FakeAdapter();
     await h.gw.registerInstance(a, "primary-companion", { instanceId: "a" });
@@ -628,7 +650,17 @@ describe("Mixer／搶占（§5）", () => {
     expect(h.receipts.find((r) => r.messageId === drop.messageId && r.status === "cancelled")?.reason).toBe("busy");
     const merge = env("a", "work", { priority: 40, interruptPolicy: "merge" });
     h.gw.dispatch(merge);
-    expect(h.receipts.find((r) => r.messageId === merge.messageId && r.status === "completed")?.detail).toBe("merged");
+    // 併入既有演出：adapter 從沒收到它 → 只能是 cancelled{merged}（與 Rust 權威端一致）。
+    expect(statuses(h.receipts, merge.messageId)).toEqual(["accepted", "cancelled"]);
+    const merged = h.receipts.find((r) => r.messageId === merge.messageId && r.status === "cancelled");
+    expect(merged?.reason).toBe("merged");
+    expect(merged?.detail).toBe(`merged into ${w.messageId}`);
+    expect(h.receipts.some((r) => r.messageId === merge.messageId && r.status === "completed")).toBe(false);
+    expect(a.performed).toHaveLength(1);
+    // 同 intent 但不同 correlation：不是同一件事 → 排隊（scheduled），不是合併。
+    const other = env("a", "work", { priority: 40, interruptPolicy: "merge", correlationId: "corr-2" });
+    h.gw.dispatch(other);
+    expect(statuses(h.receipts, other.messageId)).toEqual(["accepted", "scheduled"]);
     expect(a.performed).toHaveLength(1);
     const blocked = env("a", "blocked", { truthState: "blocked", resumePolicy: "return-idle" });
     h.gw.dispatch(blocked);

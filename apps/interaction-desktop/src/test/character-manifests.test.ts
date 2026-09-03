@@ -6,7 +6,12 @@ import { describe, expect, it } from "vitest";
 import { migratePackToManifest, shuRigCapabilities, validateCharacterManifest } from "../character/manifest";
 import { buildTextCharacterManifest } from "../character/adapters/text";
 import { CHARACTER_INTENTS, LIMITS, SEMANTIC_CHANNELS } from "../character/protocol";
-import { capabilitySummary, loadCharacterIndex, validateImportedManifestText } from "../character/registry";
+import {
+  capabilitySummary,
+  capabilitySummaryParts,
+  loadCharacterIndex,
+  validateImportedManifestText,
+} from "../character/registry";
 
 const MANIFESTS = import.meta.glob("../../public/characters/*/manifest.json", { eager: true, import: "default" }) as Record<
   string,
@@ -261,5 +266,48 @@ describe("registry", () => {
     });
     if (!proc.ok) throw new Error(proc.errors.join("; "));
     expect(capabilitySummary(proc.manifest, "zh-TW").join("\n")).toContain("有可執行程式：是（只記錄，不會自動執行）");
+  });
+
+  it("capabilitySummaryParts：一般／進階分層，且不認得的互動 id 不外洩原始字串", () => {
+    const r = validateCharacterManifest({
+      schemaVersion: "1.0",
+      characterId: "gesture-bot",
+      displayName: { "zh-TW": "手勢機器人" },
+      version: "0.1.0",
+      adapterKind: "external-process",
+      entrypoint: { kind: "process", command: ["gesture-adapter"] },
+      capabilities: { "visual.textBubble": { supported: true } },
+      inputCapabilities: { "input.gesture": { supported: true }, "input.mind": { supported: true } },
+      securityRequirements: { network: true, executable: true, fileAccess: "none", audioOutput: false, microphone: false, camera: false },
+    });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    const parts = capabilitySummaryParts(r.manifest, "zh-TW", { origin: "imported" });
+    const general = parts.general.join("\n");
+    const technical = parts.technical.join("\n");
+    // 一般模式：來源與版本、可以接收、需要的裝置、已測試。
+    expect(general).toContain("第三方角色");
+    expect(general).toContain("可以接收：其他互動");
+    expect(general).toContain("需要的裝置：無");
+    expect(general).toContain("已測試：否");
+    // 原始 id 永遠不進一般模式（重複的未知 id 也只出現一次）。
+    expect(general).not.toContain("input.");
+    expect(general.match(/其他互動/g)).toHaveLength(1);
+    // 進階模式：執行方式、可執行程式、需要網路、檔案存取、簽章。
+    expect(technical).toContain("外部程式（永不自動啟動，需明確安裝與授權）");
+    expect(technical).toContain("有可執行程式：是");
+    expect(technical).toContain("需要網路：是");
+    expect(technical).toContain("檔案存取：不讀取檔案");
+    expect(technical).toContain("簽章：無（本版不支援簽章驗證）");
+    // 一般模式不含任何進階行；完整摘要仍是兩者的聯集（既有呼叫端不會少資訊）。
+    for (const line of parts.technical) expect(parts.general).not.toContain(line);
+    expect(capabilitySummary(r.manifest, "zh-TW", { origin: "imported" })).toEqual([
+      ...parts.general,
+      ...parts.technical,
+    ]);
+    // 「可以接收：」前綴保持不變（CharacterAdaptersSection.receiveLine 依賴它）。
+    expect(capabilitySummary(r.manifest, "zh-TW").some((l) => l.startsWith("可以接收："))).toBe(true);
+    expect(capabilitySummaryParts(r.manifest, "en", { origin: "imported" }).general.join("\n")).toContain(
+      "Can receive: other interaction"
+    );
   });
 });
