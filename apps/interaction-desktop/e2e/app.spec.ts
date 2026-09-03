@@ -216,10 +216,10 @@ test("更多：五個入口；備份與還原是匯出／還原唯一的家", as
     await expect(tabs.getByRole("tab", { name: label })).toBeVisible();
   }
   await tabs.getByRole("tab", { name: "備份與還原" }).click();
-  await expect(page.getByRole("button", { name: "匯出全部" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "匯出記憶" })).toBeVisible();
   // 「記憶與資料」只指路，不放第二份匯出／還原。
   await tabs.getByRole("tab", { name: "記憶與資料" }).click();
-  await expect(page.getByRole("button", { name: "匯出全部" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "匯出記憶" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "前往備份與還原" })).toBeVisible();
 });
 

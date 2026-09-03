@@ -11,9 +11,11 @@ import { Icon } from "../icons";
 import { K_STATUS_LABEL, LAYER_LABEL } from "../pages/MemoryKnowledgePage";
 import {
   capabilityKindLabel,
+  knowledgeTriggerLabel,
   projectProviderState,
   projectSensorStop,
   projectWorkState,
+  receiptIntentLabel,
 } from "../statusProjection";
 import { useCharacterName } from "../characterName";
 
@@ -193,17 +195,26 @@ export function GlobalSearch({
           items.push({
             kind: "knowledge",
             label: `${advanced ? "Domain Pack" : "知識包"}：${String(pack.displayName)}`,
-            detail: `${String(pack.id)}・${entry.installed === true ? "已安裝" : "未安裝"}`,
+            // 原始包 id 只在進階模式顯示；一般模式只說安裝狀態。
+            detail: advanced
+              ? `${String(pack.id)}・${entry.installed === true ? "已安裝" : "未安裝"}`
+              : entry.installed === true
+                ? "已安裝"
+                : "未安裝",
             action: () => onNavigate("memory"),
           });
         }
       }
       if (actionsResult.status === "fulfilled") {
         for (const receipt of actionsResult.value.slice(0, 50)) {
+          // 意圖走共用投影：`emergency-stop` 這種 Runtime 原始 id 不進一般模式的
+          // 標籤（進階模式才在 detail 附上原值，搜尋仍比對得到）。
           items.push({
             kind: "receipt",
-            label: `${advanced ? "結果收據" : "互動結果"}：${receipt.intent}`,
-            detail: actionStatusLabel(receipt.currentStatus),
+            label: `${advanced ? "結果收據" : "互動結果"}：${receiptIntentLabel(receipt.intent)}`,
+            detail: advanced
+              ? `${actionStatusLabel(receipt.currentStatus)}・${receipt.intent}`
+              : actionStatusLabel(receipt.currentStatus),
             action: () => onNavigate("activity"),
           });
         }
@@ -211,10 +222,15 @@ export function GlobalSearch({
       if (receiptsResult.status === "fulfilled") {
         const receipts = receiptsResult.value;
         for (const receipt of ((receipts.receipts as Record<string, unknown>[]) ?? []).slice(0, 50)) {
+          // 來由同樣走共用投影：`user-correction` 這種原始值不上一般模式的標籤。
           items.push({
             kind: "receipt",
-            label: `${advanced ? "知識收據" : "知識更新"}：${String(receipt.triggeredBy)}`,
-            detail: shortId(String(receipt.updateId), advanced),
+            label: `${advanced ? "知識收據" : "知識更新"}：${knowledgeTriggerLabel(
+              String(receipt.triggeredBy)
+            )}`,
+            detail: advanced
+              ? `${shortId(String(receipt.updateId), advanced)}・${String(receipt.triggeredBy)}`
+              : shortId(String(receipt.updateId), advanced),
             action: () => onNavigate("memory"),
           });
         }

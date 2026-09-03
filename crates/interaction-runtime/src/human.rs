@@ -33,6 +33,40 @@ const ONBOARDING_DRAFT_META_KEY: &str = "onboarding_draft";
 const MAX_DRAFT_BYTES: usize = 64 * 1024;
 const MAX_PENDING_ASSISTS: usize = 32;
 
+// Onboarding commit steps, in apply order. These strings go straight into the
+// error the first-run wizard shows, so they are the user's words (no
+// governance jargon, no internal field names).
+const STEP_POLICY: &str = "安全規則";
+const STEP_COMPONENTS: &str = "能力開關";
+const STEP_AUTOMATIONS: &str = "自動互動";
+const STEP_PREFERENCES: &str = "偏好設定";
+const STEP_COMPLETE: &str = "完成設定";
+
+/// Attach the partial-application note to an error **without** changing its
+/// kind, so HTTP status codes and the machine-readable `code` stay put. The
+/// three payload-less variants have nowhere to carry the note, so they become
+/// `Unavailable` — losing the honest sentence would be worse than the code
+/// change (a half-applied first run must never look like a clean failure).
+fn with_partial_note(err: DomainError, note: String) -> DomainError {
+    let message = format!("{note}（原因：{err}）");
+    match err {
+        DomainError::NotFound(_) => DomainError::NotFound(message),
+        DomainError::Conflict(_) => DomainError::Conflict(message),
+        DomainError::Validation(_) => DomainError::Validation(message),
+        DomainError::PolicyBlocked(_) => DomainError::PolicyBlocked(message),
+        DomainError::ApprovalRequired(_) => DomainError::ApprovalRequired(message),
+        DomainError::ConsentRequired(_) => DomainError::ConsentRequired(message),
+        DomainError::SessionInactive(_) => DomainError::SessionInactive(message),
+        DomainError::Expired(_) => DomainError::Expired(message),
+        DomainError::Unavailable(_) => DomainError::Unavailable(message),
+        DomainError::Storage(_) => DomainError::Storage(message),
+        DomainError::Internal(_) => DomainError::Internal(message),
+        DomainError::Receptor(_) | DomainError::Actuator(_) | DomainError::EmergencyStop => {
+            DomainError::Unavailable(message)
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Proactive pause (an ordinary user control — NOT emergency stop)
 // ---------------------------------------------------------------------------
@@ -655,34 +689,95 @@ impl Runtime {
     /// rest of the system; it cannot grant anything policy would refuse.
     /// Components already in the requested state are left untouched, so a
     /// re-run changes nothing the user was not shown beforehand.
+    ///
+    /// The apply pass is **not** atomic — a policy patch is already persisted
+    /// and components are already live by the time a later step can fail, and
+    /// none of that can be rolled back honestly. So a failure never surfaces as
+    /// a bare "it failed": the error names the steps that DID apply, the step
+    /// that failed and the steps that were never attempted, and the partial
+    /// state is written to the audit trail. Callers (the wizard) must show that
+    /// sentence verbatim instead of claiming nothing happened.
     pub async fn commit_onboarding(&self, commit: OnboardingCommit) -> DomainResult<Value> {
         let plan = self.plan_onboarding(&commit).await?;
         let starters = starter_recipes();
 
+        // The steps this commit will actually attempt, in order. Used to say
+        // which ones were never reached when an earlier one fails.
+        let component_changes = plan
+            .receptors
+            .iter()
+            .chain(plan.actuators.iter())
+            .filter(|c| c.changed())
+            .count();
+        let mut planned: Vec<&'static str> = Vec::new();
+        if commit.policy_patch.is_some() {
+            planned.push(STEP_POLICY);
+        }
+        if component_changes > 0 {
+            planned.push(STEP_COMPONENTS);
+        }
+        if !commit.starter_recipes.is_empty() {
+            planned.push(STEP_AUTOMATIONS);
+        }
+        if commit.preferences.is_some() {
+            planned.push(STEP_PREFERENCES);
+        }
+        planned.push(STEP_COMPLETE);
+        let mut done: Vec<&'static str> = Vec::new();
+
         // ---- apply pass ----
         let mut applied = Vec::new();
         if let Some(patch) = &commit.policy_patch {
-            self.update_policy(patch.clone()).await?;
+            if let Err(e) = self.update_policy(patch.clone()).await {
+                return Err(self.onboarding_partial(&planned, &done, STEP_POLICY, None, e));
+            }
             applied.push(json!({"step": "policy", "ok": true}));
+            done.push(STEP_POLICY);
         }
         // Only real changes are written: a no-op `set_*_enabled` would emit a
         // misleading online/offline event and count as a state change the user
         // never approved.
+        let mut flipped = 0usize;
         for change in &plan.receptors {
             if !change.changed() {
                 continue;
             }
-            self.registry
+            if let Err(e) = self
+                .registry
                 .set_receptor_enabled(&change.id.as_str().into(), change.to_on)
-                .await?;
+                .await
+            {
+                return Err(self.onboarding_partial(
+                    &planned,
+                    &done,
+                    STEP_COMPONENTS,
+                    Some(flipped),
+                    e,
+                ));
+            }
+            flipped += 1;
         }
         for change in &plan.actuators {
             if !change.changed() {
                 continue;
             }
-            self.registry
+            if let Err(e) = self
+                .registry
                 .set_actuator_enabled(&change.id.as_str().into(), change.to_on)
-                .await?;
+                .await
+            {
+                return Err(self.onboarding_partial(
+                    &planned,
+                    &done,
+                    STEP_COMPONENTS,
+                    Some(flipped),
+                    e,
+                ));
+            }
+            flipped += 1;
+        }
+        if component_changes > 0 {
+            done.push(STEP_COMPONENTS);
         }
         applied.push(json!({
             "step": "components",
@@ -704,26 +799,92 @@ impl Runtime {
         let mut installed = Vec::new();
         for id in &commit.starter_recipes {
             if let Some((_, _, yaml)) = starters.iter().find(|(sid, _, _)| sid == id) {
-                self.upsert_recipe_text(yaml).await?;
+                if let Err(e) = self.upsert_recipe_text(yaml).await {
+                    return Err(self.onboarding_partial(
+                        &planned,
+                        &done,
+                        STEP_AUTOMATIONS,
+                        Some(installed.len()),
+                        e,
+                    ));
+                }
                 installed.push(id.clone());
             }
+        }
+        if !commit.starter_recipes.is_empty() {
+            done.push(STEP_AUTOMATIONS);
         }
         if !installed.is_empty() {
             applied.push(json!({"step": "starterRecipes", "installed": installed}));
         }
         if let Some(prefs) = commit.preferences {
-            self.update_ui_preferences(prefs).await?;
+            if let Err(e) = self.update_ui_preferences(prefs).await {
+                return Err(self.onboarding_partial(&planned, &done, STEP_PREFERENCES, None, e));
+            }
             applied.push(json!({"step": "preferences", "ok": true}));
+            done.push(STEP_PREFERENCES);
         }
-        self.store.set_meta(
+        if let Err(e) = self.store.set_meta(
             ONBOARDING_META_KEY,
             &json!({"completed": true, "completedAt": Utc::now()}).to_string(),
-        )?;
+        ) {
+            return Err(self.onboarding_partial(&planned, &done, STEP_COMPLETE, None, e));
+        }
         // A committed onboarding leaves no ambiguous half-done draft behind.
         self.store.set_meta(ONBOARDING_DRAFT_META_KEY, "null")?;
         self.store
             .audit("onboarding.committed", "api", &json!({"applied": applied}))?;
         Ok(json!({"completed": true, "applied": applied}))
+    }
+
+    /// Turn a mid-commit failure into an honest, human-readable error: which
+    /// steps already applied (and are NOT rolled back), which step failed, and
+    /// which were never attempted. Also writes the partial state to the audit
+    /// trail — a half-applied first run must be reconstructable afterwards.
+    fn onboarding_partial(
+        &self,
+        planned: &[&'static str],
+        done: &[&'static str],
+        failed: &'static str,
+        within_step_applied: Option<usize>,
+        err: DomainError,
+    ) -> DomainError {
+        let remaining: Vec<&str> = planned
+            .iter()
+            .skip_while(|s| **s != failed)
+            .skip(1)
+            .copied()
+            .collect();
+        let done_text = if done.is_empty() {
+            "（沒有任何一步套用）".to_string()
+        } else {
+            done.join("、")
+        };
+        let partial = match within_step_applied {
+            Some(n) if n > 0 => format!("（「{failed}」已經套用 {n} 項才失敗）"),
+            _ => String::new(),
+        };
+        let rest_text = if remaining.is_empty() {
+            "無".to_string()
+        } else {
+            remaining.join("、")
+        };
+        let _ = self.store.audit(
+            "onboarding.partial",
+            "api",
+            &json!({
+                "applied": done,
+                "failedStep": failed,
+                "appliedWithinFailedStep": within_step_applied,
+                "notApplied": remaining,
+                "error": err.to_string(),
+            }),
+        );
+        let note = format!(
+            "首次設定沒有全部套用完成：已套用「{done_text}」{partial}；「{failed}」這一步失敗；還沒套用「{rest_text}」。\
+             已套用的部分仍然有效、不會自動還原；重新執行一次首次設定就會從目前的狀態接著做"
+        );
+        with_partial_note(err, note)
     }
 
     // -------------------------------------------------------------------

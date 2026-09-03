@@ -6,7 +6,16 @@ import { api, Receipt, RuntimeEvent } from "../api";
 import { actionStatusLabel, useAppState } from "../appstate";
 import { Icon } from "../icons";
 import { Badge, JsonView, Section, statusBadgeKind, useAsync } from "../ui";
-import { agentDisplayLabel, inboxKindLabel, projectInboxStatus } from "../statusProjection";
+import {
+  agentDisplayLabel,
+  inboxDeviceLabel,
+  inboxItemTitle,
+  inboxKindLabel,
+  isPendingCountExact,
+  pendingCountLabel,
+  projectInboxStatus,
+  receiptIntentLabel,
+} from "../statusProjection";
 
 export function ActivityPage({
   refreshKey,
@@ -20,6 +29,14 @@ export function ActivityPage({
   onNavigate?: (tab: string) => void;
 }) {
   const [actions] = useAsync(() => api.actionsList(30), [refreshKey]);
+  const { human } = useAppState();
+  // 收件匣的裝置名稱只能來自能力清單；查不到就不說（原始 id 不進一般模式）。
+  const resolveDeviceName = React.useCallback(
+    (id: string): string | null =>
+      [...(human?.receptors ?? []), ...(human?.actuators ?? []), ...(human?.toolOperations ?? [])]
+        .find((c) => c.id === id)?.displayName ?? null,
+    [human]
+  );
 
   return (
     <div>
@@ -27,6 +44,7 @@ export function ActivityPage({
         refreshKey={refreshKey}
         advanced={advanced}
         onNavigate={onNavigate ?? (() => {})}
+        resolveDeviceName={resolveDeviceName}
       />
       <p className="page-intro">
         每一次互動的完整歷程：系統感知到什麼、如何決定、安全規則說了什麼、實際結果到哪一層。
@@ -47,6 +65,18 @@ export function ActivityPage({
   );
 }
 
+/** 「重新驗證」之後可以誠實說出口的一句話。
+ *  查驗過了 ≠ 成功：只有真的觀察到效果才說「確認觀察到」，其餘照實說仍不確定
+ *  ／只確認送出；查驗本身失敗更不能靜默（原本是無回饋的 floating promise）。 */
+export function verifyResultMessage(receipt: Receipt): string {
+  const verdict = receipt.verification?.verdict;
+  if (verdict === "observed") return "已重新查驗：確認觀察到實際效果。";
+  if (verdict === "acknowledged-only")
+    return "已重新查驗：只確認送出，仍未觀察到實際效果。";
+  if (receipt.currentStatus === "uncertain") return "已重新查驗：結果仍然不確定。";
+  return `已重新查驗：目前狀態是「${actionStatusLabel(receipt.currentStatus)}」。`;
+}
+
 function ActivityStory({ receipt, advanced }: { receipt: Receipt; advanced: boolean }) {
   const { findCard } = useAppState();
   const actuator = findCard("actuator", receipt.actuatorId);
@@ -62,11 +92,14 @@ function ActivityStory({ receipt, advanced }: { receipt: Receipt; advanced: bool
     .filter((d) => d.outcome === "clamped");
   const verdict = receipt.verification?.verdict;
   const [cancelMsg, setCancelMsg] = React.useState<string | null>(null);
+  // 「重新驗證」也要回報結果：送出 ≠ 已驗證，失敗不得只留下未處理的 promise。
+  const [verifyMsg, setVerifyMsg] = React.useState<string | null>(null);
+  const [verifying, setVerifying] = React.useState(false);
   const cancellable = ["accepted", "dispatched", "acknowledged"].includes(receipt.currentStatus);
 
   return (
     <Section
-      title={`${time}　${receipt.intent}`}
+      title={`${time}　${receiptIntentLabel(receipt.intent)}`}
       actions={
         <Badge kind={statusBadgeKind(receipt.currentStatus)}>
           {actionStatusLabel(receipt.currentStatus)}
@@ -128,10 +161,26 @@ function ActivityStory({ receipt, advanced }: { receipt: Receipt; advanced: bool
           </button>
         )}
         {["acknowledged", "uncertain", "completed"].includes(receipt.currentStatus) && (
-          <button onClick={() => api.verifyAction(receipt.actionId)}>重新驗證</button>
+          <button
+            disabled={verifying}
+            onClick={async () => {
+              setVerifying(true);
+              setVerifyMsg(null);
+              try {
+                setVerifyMsg(verifyResultMessage(await api.verifyAction(receipt.actionId)));
+              } catch (e) {
+                setVerifyMsg(`重新查驗失敗：${e}。這個動作的結果仍然不確定。`);
+              } finally {
+                setVerifying(false);
+              }
+            }}
+          >
+            {verifying ? "查驗中…" : "重新驗證"}
+          </button>
         )}
       </div>
       {cancelMsg && <p className="muted small" role="status">{cancelMsg}</p>}
+      {verifyMsg && <p className="muted small" role="status">{verifyMsg}</p>}
       {advanced && (
         <details className="tech-details">
           <summary>技術詳細資料</summary>
@@ -211,11 +260,15 @@ export function InboxSection({
   refreshKey,
   advanced = false,
   onNavigate,
+  resolveDeviceName,
 }: {
   refreshKey: number;
   /** 進階模式才在次要行顯示原始狀態碼／種類；一般模式只有人話。 */
   advanced?: boolean;
   onNavigate: (tab: string) => void;
+  /** 能力 id → 顯示名稱（查不到回 null）。沒提供就只做通用的裝置人話，
+   *  絕不退回原始 id。 */
+  resolveDeviceName?: (id: string) => string | null;
 }) {
   const [filters, setFilters] = React.useState({
     status: "",
@@ -237,9 +290,14 @@ export function InboxSection({
   const items = ((inbox.data?.items as Record<string, unknown>[] | undefined) ?? []);
   const pending = Number(inbox.data?.pendingCount ?? 0);
   const total = Number(inbox.data?.totalBeforeLimit ?? items.length);
+  // 後端撞到掃描上限時 pendingCount 只是下限：這一頁正是其他頁面叫人「來這裡看」
+  // 的目的地，更不能把下限講成精確總數。
+  const pendingExact = isPendingCountExact(inbox.data);
 
   return (
-    <Section title={`統一收件匣（待決定 ${pending}／共 ${total}）`}>
+    <Section
+      title={`統一收件匣（待決定 ${pendingCountLabel(pending, pendingExact)}／共 ${total}）`}
+    >
       <details className="inbox-filters" open>
         <summary>依時間、狀態、Agent、裝置、任務、知識領域篩選</summary>
         <div className="inbox-filter-grid">
@@ -265,6 +323,13 @@ export function InboxSection({
           </button>
         </div>
       </details>
+      {!inbox.loading && !inbox.error && !pendingExact && (
+        // 這一頁就是其他頁面 PENDING_INCOMPLETE_NOTE 指過來的目的地，所以不再叫人
+        // 「到活動紀錄查看」，而是直接說清楚這個數字為什麼不是全部。
+        <div className="state-box" role="status">
+          待決定數只是下限：系統這次沒有把全部掃完，實際可能更多。縮小時間或篩選範圍可以查得更完整。
+        </div>
+      )}
       {inbox.loading ? (
         <div className="state-box">載入中…</div>
       ) : inbox.error ? (
@@ -280,10 +345,13 @@ export function InboxSection({
             const rawStatus = String(item.status);
             const rawKind = String(item.kind);
             const status = projectInboxStatus(rawStatus);
+            // 裝置：後端的 deviceId 是原始識別碼（動器 id、手機 id、感測來源 id），
+            // 一般模式不印原值——查得到名字就說名字，認不得就不說（進階模式才附原值）。
+            const device = inboxDeviceLabel(item.deviceId, resolveDeviceName);
             return (
               <div className="provider-card" key={`${rawKind}-${String(item.itemId)}`}>
                 <div className="row space-between">
-                  <strong>{String(item.title)}</strong>
+                  <strong>{inboxItemTitle(item) || inboxKindLabel(rawKind)}</strong>
                   <Badge kind={item.needsDecision === true ? "warn" : status.badge}>
                     {status.label}
                   </Badge>
@@ -291,13 +359,14 @@ export function InboxSection({
                 <div className="muted small">
                   {new Date(String(item.occurredAt)).toLocaleString("zh-TW")}・{inboxKindLabel(rawKind)}
                   {item.agentId ? `・${agentDisplayLabel(String(item.agentId))}` : ""}
-                  {item.deviceId ? `・裝置 ${String(item.deviceId)}` : ""}
+                  {device ? `・裝置 ${device}` : ""}
                   {Array.isArray(item.domains) && item.domains.length ? `・${item.domains.join(", ")}` : ""}
                   {status.honesty ? `・${status.honesty}` : ""}
                 </div>
                 {advanced && (
                   <div className="muted small">
                     原始狀態：{rawStatus}・{rawKind}
+                    {item.deviceId ? `・${String(item.deviceId)}` : ""}
                   </div>
                 )}
                 <button onClick={() => onNavigate(String(item.route))}>開啟對應頁面</button>

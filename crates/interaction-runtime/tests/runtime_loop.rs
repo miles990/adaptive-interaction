@@ -1355,3 +1355,68 @@ async fn inbox_safety_events_distinguish_emergency_clear_and_use_human_titles() 
         .unwrap();
     assert_eq!(only_cleared["count"].as_u64(), Some(1));
 }
+
+/// regression ia-settings-016：手機的感測事件 payload 同時帶 `deviceId`
+/// （`iphone-<hex>`，token 衍生的內部 id）與 `sensor`，而收件匣標題原本直接把
+/// `deviceId` 當「感測器名稱」印出來——「感測開始：iphone-a1b2c3d4」。原始裝置 id
+/// 不得進一般模式的標題（同檔的 stop-uncertain 早就會解析成人話名稱）。
+#[tokio::test]
+async fn inbox_sensor_titles_never_leak_the_raw_device_id() {
+    let (_g, rt) = runtime().await;
+    let device_id = "iphone-a1b2c3d4";
+    // mobile.rs 實際送出的形狀（deviceId 優先於 sensor 被取用）。
+    rt.events.emit(
+        EventType::SensorStarted,
+        json!({"sensor": "iphone.mic-level", "deviceId": device_id, "source": "iphone"}),
+    );
+    rt.events.emit(
+        EventType::SensorStopped,
+        json!({"sensor": "iphone.mic-level", "deviceId": device_id, "source": "iphone"}),
+    );
+    // 認不得的種類也不得外洩原始字串（退回通用標籤）。
+    rt.events.emit(
+        EventType::SensorStarted,
+        json!({"sensor": "weird.internal"}),
+    );
+
+    let inbox = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter::default())
+        .await
+        .unwrap();
+    let titles: Vec<String> = inbox["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["kind"] == json!("safety-event"))
+        .filter_map(|item| item["title"].as_str().map(String::from))
+        .collect();
+    assert!(
+        titles.iter().all(|t| !t.contains(device_id)),
+        "原始裝置 id 外洩到標題：{titles:?}"
+    );
+    assert!(
+        titles.iter().all(|t| !t.contains("iphone.mic-level")),
+        "原始感測 id 外洩到標題：{titles:?}"
+    );
+    assert!(
+        titles.iter().any(|t| t == "感測開始：iPhone"),
+        "手機感測開始要說人話：{titles:?}"
+    );
+    assert!(
+        titles.iter().any(|t| t == "感測停止：iPhone"),
+        "手機感測停止要說人話：{titles:?}"
+    );
+    assert!(
+        titles.iter().any(|t| t == "感測開始：感測器"),
+        "認不得的種類退回通用標籤：{titles:?}"
+    );
+    // deviceId 欄位本身仍在（篩選與進階模式要用），只是不進標題。
+    assert!(
+        inbox["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["deviceId"] == json!(device_id)),
+        "deviceId 欄位不該消失：{inbox}"
+    );
+}

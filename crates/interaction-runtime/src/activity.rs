@@ -63,10 +63,13 @@ pub struct ActivityInboxItem {
 }
 
 impl Runtime {
-    /// `sensor.stop-uncertain` 的裝置人話名稱。優先用已配對手機的名稱
-    /// （payload 只有 deviceId——原始 id 不進一般模式的標題），
-    /// 手機已被撤銷／查不到時退回感測來源的人話名稱，再不行才說「裝置」。
-    async fn stop_uncertain_device_label(&self, payload: &Value) -> String {
+    /// 感測事件標題裡的「是哪一台／哪一種」。
+    ///
+    /// payload 的 `deviceId` 是原始識別碼（`iphone-a1b2c3d4` 這種由 token 衍生的
+    /// 內部 id）——原始 id 不進一般模式的標題。順序：已配對手機的名稱 →
+    /// 感測來源種類的人話 → `fallback`。認不得的一律用 `fallback`，
+    /// **絕不**把原始字串照樣吐回去。
+    async fn sensor_event_label(&self, payload: &Value, fallback: &str) -> String {
         if let Some(device_id) = payload.get("deviceId").and_then(Value::as_str) {
             if let Some(name) = self.mobile.device_name(device_id).await {
                 return name;
@@ -74,8 +77,8 @@ impl Runtime {
         }
         match payload.get("sensor").and_then(Value::as_str) {
             Some(sensor) if sensor.starts_with("iphone.") => "iPhone".into(),
-            Some(sensor) => sensor_display_name(sensor),
-            None => "裝置".into(),
+            Some(sensor) => sensor_display_name(sensor).unwrap_or_else(|| fallback.to_string()),
+            None => fallback.to_string(),
         }
     }
 
@@ -254,10 +257,6 @@ impl Runtime {
             // 不分辨的話，使用者剛解除就會看到一筆新的「緊急停止」。
             let cleared = event.event_type == interaction_core::EventType::EmergencyStop
                 && event.payload.get("cleared").and_then(Value::as_bool) == Some(true);
-            let sensor_label = device_id
-                .as_deref()
-                .map(sensor_display_name)
-                .unwrap_or_else(|| "感測器".into());
             // 標題是人話，不是原始 event_type（原始碼仍在 detail.eventType）。
             let (status, title): (String, String) = match event.event_type {
                 interaction_core::EventType::EmergencyStop if cleared => {
@@ -267,15 +266,21 @@ impl Runtime {
                     ("emergency".into(), "緊急停止已啟動".into())
                 }
                 interaction_core::EventType::SensorStarted => {
-                    (event_type.clone(), format!("感測開始：{sensor_label}"))
+                    // 手機的感測事件 payload 同時有 deviceId 與 sensor：標題走同一套
+                    // 解析（手機名稱 → 種類人話），原始裝置 id 不上一般模式的標題。
+                    let subject = self.sensor_event_label(&event.payload, "感測器").await;
+                    (event_type.clone(), format!("感測開始：{subject}"))
                 }
                 interaction_core::EventType::SensorStopUncertain => {
                     // 誠實：要求停止 ≠ 已停止。手機沒回覆時它可能還在擷取，
                     // 所以標題說「結果不確定」，並點名是哪一台裝置。
-                    let device = self.stop_uncertain_device_label(&event.payload).await;
+                    let device = self.sensor_event_label(&event.payload, "裝置").await;
                     (event_type.clone(), format!("感測停止結果不確定：{device}"))
                 }
-                _ => (event_type.clone(), format!("感測停止：{sensor_label}")),
+                _ => {
+                    let subject = self.sensor_event_label(&event.payload, "感測器").await;
+                    (event_type.clone(), format!("感測停止：{subject}"))
+                }
             };
             items.push(ActivityInboxItem {
                 item_id: event.event_id.as_str().to_string(),
@@ -395,11 +400,12 @@ fn receipt_item(
     }
 }
 
-/// 感測器／裝置 id → 人話（認不得的照原樣顯示，不猜）。
-fn sensor_display_name(raw: &str) -> String {
+/// 感測來源種類 → 人話。認不得的回 `None`：呼叫端要給通用標籤，
+/// **不得**把原始字串（`iphone.mic-level`、裝置 id）當標題印出去。
+fn sensor_display_name(raw: &str) -> Option<String> {
     match raw {
-        "microphone" | "mic" | "builtin.microphone" => "麥克風".into(),
-        "camera" | "builtin.camera" => "攝影機".into(),
-        other => other.to_string(),
+        "microphone" | "mic" | "builtin.microphone" => Some("麥克風".into()),
+        "camera" | "builtin.camera" => Some("攝影機".into()),
+        _ => None,
     }
 }

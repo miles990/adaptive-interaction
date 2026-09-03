@@ -138,6 +138,31 @@ export function titleFor(tab: string, characterName?: string): string {
  *  （statusProjection.ts）說「其他感測器」，與「現在」頁、角色一句話同一份文案。 */
 export { sensorKindLabel };
 
+/**
+ * 導覽狀態：目前路由＋內容區的掛載 key。
+ *
+ * `setTab(目前的路由)` 是 React 的同值 bail-out（不重新渲染），而 hub 頁（連接與
+ * 權限／工作／更多）的內部分頁只在 `initial` prop 的值改變時才同步。兩件事加起來，
+ * 「導到已經在的路由」原本完全沒有作用——例如緊急停止中、人已在安全頁但把內部分頁
+ * 切到「裝置與能力」，再按頂列（或 ⌘K）的「前往解除」就是死點擊，安全關鍵的解除
+ * 流程到不了。`mountKey` 每次導覽都改變，所以目標頁一定重新掛載、內部分頁一定回到
+ * route 指定的那一個。
+ */
+export function useNavigation(initial: Tab): {
+  tab: Tab;
+  /** 內容區的 key：同一個路由被再次導覽也會變，強制重新掛載。 */
+  mountKey: string;
+  goTo: (next: Tab) => void;
+} {
+  const [tab, setTab] = React.useState<Tab>(initial);
+  const [nonce, setNonce] = React.useState(0);
+  const goTo = React.useCallback((next: Tab) => {
+    setNonce((n) => n + 1);
+    setTab(next);
+  }, []);
+  return { tab, mountKey: `${tab}#${nonce}`, goTo };
+}
+
 /** 感測倒數：介面上顯示的「N 秒後自動停止」必須真的走。
  *  interval 只在此元件掛載期間存在（感測結束、banner 消失即清除），有界。 */
 export function SensorCountdown({ autoStopAt }: { autoStopAt: string }) {
@@ -305,7 +330,7 @@ function Shell({
   disconnected: boolean;
 }) {
   const { prefs, pause } = useAppState();
-  const [tab, setTab] = React.useState<Tab>("home");
+  const { tab, mountKey, goTo } = useNavigation("home");
   // 目前角色（導覽第二項、標題、全域搜尋共用同一份）。
   const character = useCharacterName({ locale: prefs.locale });
   const [estop, setEstop] = React.useState(false);
@@ -358,7 +383,7 @@ function Shell({
   React.useEffect(() => {
     const unlistens = [
       onCloseRequested(() => setCloseDialog(true)),
-      onNavigate((t) => setTab(t)),
+      onNavigate((t) => goTo(t)),
       onTrayActionError((m) => setTrayError(m)),
     ];
     return () => unlistens.forEach((u) => u.then((f) => f()).catch(() => {}));
@@ -441,7 +466,7 @@ function Shell({
   if (!connecting && onboarding === "open") {
     return (
       <Onboarding
-        onNavigate={(t) => setTab(t)}
+        onNavigate={(t) => goTo(t)}
         onDone={() => {
           setOnboarding("closed");
           bumpRefresh();
@@ -470,7 +495,7 @@ function Shell({
             <button
               key={t.id}
               className={navTab === t.id ? "nav-item active" : "nav-item"}
-              onClick={() => setTab(t.id)}
+              onClick={() => goTo(t.id)}
               aria-current={navTab === t.id ? "page" : undefined}
             >
               <Icon name={t.icon} size={16} /> <span>{t.label}</span>
@@ -485,7 +510,7 @@ function Shell({
                 <button
                   key={t.id}
                   className={navTab === t.id ? "nav-item active" : "nav-item"}
-                  onClick={() => setTab(t.id)}
+                  onClick={() => goTo(t.id)}
                   aria-current={navTab === t.id ? "page" : undefined}
                 >
                   <span>{t.label}</span>
@@ -534,7 +559,7 @@ function Shell({
           </button>
           {/* 觸發是一鍵；「解除」刻意不在這裡 — 要走安全頁的恢復流程。 */}
           {estop ? (
-            <button className="estop-indicator" onClick={() => setTab("safety")}>
+            <button className="estop-indicator" onClick={() => goTo("safety")}>
               <Icon name="octagon-x" size={16} /> 緊急停止中 — 前往解除
             </button>
           ) : (
@@ -551,7 +576,7 @@ function Shell({
             inbox={inbox}
             onClose={() => setNotificationOpen(false)}
             onNavigate={(t) => {
-              setTab(t);
+              goTo(t);
               setNotificationOpen(false);
             }}
           />
@@ -597,7 +622,9 @@ function Shell({
               </button>
             </div>
           ))}
-        <div className="content" id="main-content" key={tab}>
+        {/* key 含導覽序號：同一個路由被再次導覽（例如緊急停止中重複按「前往解除」）
+            也會重新掛載，hub 頁的內部分頁因此一定回到 route 指定的那一個。 */}
+        <div className="content" id="main-content" key={mountKey}>
           {connecting ? (
             <div className="state-box">正在啟動系統…</div>
           ) : (
@@ -606,7 +633,7 @@ function Shell({
               refreshKey={refreshKey}
               events={events}
               advanced={advanced}
-              onNavigate={setTab}
+              onNavigate={goTo}
               onRerunOnboarding={() => setOnboarding("open")}
               estopped={estop}
               onEstop={triggerEstop}
@@ -618,7 +645,7 @@ function Shell({
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         onNavigate={(t) => {
-          setTab(t);
+          goTo(t);
           setSearchOpen(false);
         }}
         estopped={estop}
@@ -631,7 +658,7 @@ function Shell({
       <NarrowNav
         tab={tab}
         nav={nav}
-        onNavigate={setTab}
+        onNavigate={goTo}
         advanced={advanced}
         statusBadge={
           connecting ? (

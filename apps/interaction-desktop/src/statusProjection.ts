@@ -514,6 +514,71 @@ export function agentDisplayLabel(agentId: string): string {
   return agentId === "codex" ? "Codex" : agentId === "claude-code" ? "Claude Code" : agentId;
 }
 
+const KNOWLEDGE_TRIGGER_LABEL: Record<string, string> = {
+  "user-correction": "你的更正",
+  "review-overdue": "複審到期",
+  "conflict-detected": "發現衝突",
+  "task-experience": "工作經驗",
+  "human-review": "人工複審",
+};
+
+/** 原始機器 id 的形狀（小寫英數與 `. _ -`）：`user-correction`／`emergency-stop`
+ *  這種值不上一般模式的第一層文字；人類寫的描述（有空白或中文）照原樣顯示。 */
+const MACHINE_ID = /^[a-z0-9][a-z0-9._-]*$/i;
+
+/** 知識更新的來由（Runtime 的 `triggeredBy`，kebab-case 原始值）翻成人話。
+ *  認不得的原始 id 不外洩，一律說「系統」——寧可少說，不假裝看得懂。 */
+export function knowledgeTriggerLabel(raw: string): string {
+  if (ownKey(KNOWLEDGE_TRIGGER_LABEL, raw)) return KNOWLEDGE_TRIGGER_LABEL[raw];
+  return MACHINE_ID.test(raw) ? "系統" : raw;
+}
+
+const RECEIPT_INTENT_LABEL: Record<string, string> = {
+  "emergency-stop": "緊急停止",
+  "companion-test": "角色測試",
+  notify: "通知",
+  speak: "說話",
+};
+
+/** 動作意圖（互動結果的 `intent`）：Runtime 的原始 id（`emergency-stop`／
+ *  `companion-test`／`presence`）不該出現在一般模式的第一層文字裡。認得的翻成
+ *  人話，其餘只說「一個需要回應的訊號」；人類寫的描述（含空白或中文）照原樣顯示。
+ *  活動紀錄、「現在」頁與全域搜尋共用這一份，不各自拼一套。 */
+export function receiptIntentLabel(intent: string): string {
+  if (ownKey(RECEIPT_INTENT_LABEL, intent)) return RECEIPT_INTENT_LABEL[intent];
+  // 原始機器 id 不上畫面；人類寫的描述照原樣顯示。
+  return MACHINE_ID.test(intent) ? "一個需要回應的訊號" : intent;
+}
+
+/**
+ * 收件匣項目的「裝置」人話（`ActivityInboxItem.deviceId`）。
+ *
+ * 後端的 deviceId 是原始識別碼：互動結果是動器 id（`builtin.notification`），
+ * 安全事件是感測來源或手機 id（`iphone-a1b2c3d4`／`iphone.mic-level`）。一般模式
+ * 不得把它印出來（spec §15.5），但也不能因此連「哪一台」都不說：
+ *  - 能力清單查得到名字 → 用那個名字；
+ *  - `iphone-…`／`iphone.…` → 「你的 iPhone」；
+ *  - 認得的感測種類 → 麥克風／攝影機／定位；
+ *  - 其餘一律回 `null`：寧可不說，也不外洩原始識別碼（進階模式另有原始值那一行）。
+ *
+ * @param deviceId 後端給的原始值（形狀不可信）。
+ * @param resolveName 呼叫端的能力名稱查詢；查不到請回 `null`／`undefined`
+ *                    （回傳與 id 相同的字串一律視為沒查到）。
+ */
+export function inboxDeviceLabel(
+  deviceId: unknown,
+  resolveName?: (id: string) => string | null | undefined
+): string | null {
+  const raw = typeof deviceId === "string" ? deviceId.trim() : "";
+  if (raw.length === 0) return null;
+  const named = resolveName?.(raw);
+  const name = typeof named === "string" ? named.trim() : "";
+  if (name.length > 0 && name !== raw) return name;
+  if (/^iphone([-.].*)?$/i.test(raw)) return "你的 iPhone";
+  const kind = sensorKindLabel(raw);
+  return kind === "其他感測器" ? null : kind;
+}
+
 // ---------------------------------------------------------------------------
 // 感測：種類的人話，與「停止所有感測」的誠實回報
 // ---------------------------------------------------------------------------

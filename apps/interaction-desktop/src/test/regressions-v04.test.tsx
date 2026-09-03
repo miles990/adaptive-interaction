@@ -190,7 +190,7 @@ describe("備份與還原（BackupSection）", () => {
       items: [{ title: "demo-item-1" }, { title: "demo-item-2" }],
     });
     render(<BackupSection />);
-    await userEvent.click(await screen.findByRole("button", { name: "匯出全部" }));
+    await userEvent.click(await screen.findByRole("button", { name: "匯出記憶" }));
     expect(await screen.findByText("匯出結果")).toBeInTheDocument();
     expect(screen.getByText(/demo-item-1/)).toBeInTheDocument();
     expect(screen.getByText(/已匯出 2 條/)).toBeInTheDocument();
@@ -199,7 +199,7 @@ describe("備份與還原（BackupSection）", () => {
   it("匯出失敗時誠實回報，不顯示匯出結果", async () => {
     vi.spyOn(api, "memoryExport").mockRejectedValue(new Error("export boom"));
     render(<BackupSection />);
-    await userEvent.click(await screen.findByRole("button", { name: "匯出全部" }));
+    await userEvent.click(await screen.findByRole("button", { name: "匯出記憶" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/匯出失敗/);
     expect(screen.queryByText("匯出結果")).not.toBeInTheDocument();
   });
@@ -225,7 +225,7 @@ describe("備份與還原（BackupSection）", () => {
     const onNavigate = vi.fn();
     render(<MemoryKnowledgePage refreshKey={0} onNavigate={onNavigate} />);
     await screen.findByText(/沒有你不能刪除的記憶/);
-    expect(screen.queryByRole("button", { name: "匯出全部" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "匯出記憶" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/選擇記憶備份/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "前往備份與還原" }));
     expect(onNavigate).toHaveBeenCalledWith("backup");
@@ -436,7 +436,8 @@ describe("待我決定計數誠實（收件匣與 NowStrip）", () => {
       pendingCount: 0,
     });
     render(<InboxSection refreshKey={0} onNavigate={() => {}} />);
-    await screen.findByText("統一收件匣（待決定 0／共 0）");
+    // 標題走 pendingCountLabel：精確時是「0 項」，不精確時會變成「至少 N 項」。
+    await screen.findByText("統一收件匣（待決定 0 項／共 0）");
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Agent"), "codex");
     await user.type(screen.getByLabelText("裝置"), "camera");

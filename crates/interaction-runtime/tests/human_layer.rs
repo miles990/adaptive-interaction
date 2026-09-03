@@ -1035,3 +1035,54 @@ async fn first_success_seen_persists_through_ui_preferences() {
         .is_err());
     assert!(rt.ui_preferences().await.first_success_seen);
 }
+
+/// regression ia-settings-018：commit 不是原子的（政策已寫進磁碟、能力已經上線，
+/// 後面的步驟才失敗），但錯誤原本只是一句話，精靈就只顯示「套用失敗」——
+/// 使用者被告知什麼都沒發生，實際上一半已經生效。錯誤必須逐步說清楚。
+#[tokio::test]
+async fn onboarding_commit_failure_reports_which_steps_applied() {
+    let (_g, rt) = runtime().await;
+    let before = rt.policy().await.initiative;
+    assert_ne!(
+        format!("{before:?}"),
+        "Passive",
+        "前置條件：預設不是 passive"
+    );
+
+    // 政策 → 自動互動都會成功，最後一步（偏好設定）驗證失敗。
+    let commit = OnboardingCommit {
+        policy_patch: Some(json!({"initiative": "passive"})),
+        starter_recipes: vec!["starter-task-complete".into()],
+        preferences: Some(json!({"mode": "not-a-mode"})),
+        ..Default::default()
+    };
+    let err = rt
+        .commit_onboarding(commit)
+        .await
+        .expect_err("最後一步失敗");
+    let message = err.to_string();
+
+    // 誠實：說出已套用的、失敗的、還沒套用的，且不假裝可以還原。
+    assert!(message.contains("已套用"), "{message}");
+    assert!(message.contains("安全規則"), "{message}");
+    assert!(message.contains("自動互動"), "{message}");
+    assert!(message.contains("偏好設定"), "{message}");
+    assert!(message.contains("完成設定"), "{message}");
+    assert!(message.contains("不會自動還原"), "{message}");
+    // 錯誤種類不變（HTTP 狀態碼與 code 保持原樣）。
+    assert!(matches!(err, DomainError::Validation(_)), "{err:?}");
+
+    // 而且真的是半套用：政策已經改了，但 onboarding 尚未標記完成。
+    assert_eq!(format!("{:?}", rt.policy().await.initiative), "Passive");
+    assert!(rt.get_recipe("starter-task-complete").await.is_ok());
+    assert_eq!(rt.onboarding_state().await["completed"], json!(false));
+
+    // 半套用的事實也要進稽核軌跡，之後查得回來。
+    let audit = rt.store.audit_tail(50).unwrap_or_default();
+    assert!(
+        audit
+            .iter()
+            .any(|entry| entry["kind"] == json!("onboarding.partial")),
+        "半套用要留下稽核紀錄：{audit:?}"
+    );
+}

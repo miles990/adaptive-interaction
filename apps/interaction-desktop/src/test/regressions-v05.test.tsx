@@ -733,7 +733,7 @@ describe("一般模式產品化（G）：導覽、更多、術語", () => {
     expect(screen.getByRole("button", { name: /管理裝置與整合/ })).toBeInTheDocument();
     rerender(body("backup"));
     expect(screen.getByRole("tab", { name: "備份與還原" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("button", { name: "匯出全部" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "匯出記憶" })).toBeInTheDocument();
     rerender(body("advanced-features"));
     expect(screen.getByRole("tab", { name: "進階模式" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("checkbox", { name: "顯示進階功能" })).toBeInTheDocument();

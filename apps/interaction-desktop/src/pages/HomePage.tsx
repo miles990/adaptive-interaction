@@ -19,11 +19,13 @@ import {
   inboxItemTitle,
   isOpenWorkState,
   isPendingCountExact,
+  knowledgeTriggerLabel,
   PENDING_INCOMPLETE_NOTE,
   pendingCountLabel,
   projectInboxStatus,
   projectSensorStop,
   projectWorkState,
+  receiptIntentLabel,
   sensorKindLabel,
 } from "../statusProjection";
 import { ConfirmButton, Dialog } from "../components/Dialog";
@@ -245,7 +247,9 @@ function HomeDetails({
   onNavigate: (tab: string) => void;
 }) {
   const [actions] = useAsync(() => api.actionsList(5), [refreshKey]);
-  const [session] = useAsync(() => api.sessionGet(), [refreshKey]);
+  const [session, reloadSession] = useAsync(() => api.sessionGet(), [refreshKey]);
+  // 開始／結束工作階段失敗不得靜默：畫面沒改變的話，使用者會以為狀態已經變了。
+  const [sessionError, setSessionError] = React.useState<string | null>(null);
   const [providers] = useAsync(() => api.providersList(), [refreshKey]);
   const [receiptsData] = useAsync(() => api.knowledgeReceipts(), [refreshKey]);
   const estop = Boolean(status.data?.["emergencyStop"]);
@@ -312,16 +316,43 @@ function HomeDetails({
                 {session.loading ? null : !session.data ? (
                   <button
                     onClick={async () => {
-                      await api.sessionStart("desktop", []);
-                      onNavigate("home");
+                      try {
+                        await api.sessionStart("desktop", []);
+                        setSessionError(null);
+                        reloadSession();
+                        onNavigate("home");
+                      } catch (e) {
+                        setSessionError(
+                          `開始工作階段失敗：${e}。工作階段沒有開始，自動互動仍然不會執行。`
+                        );
+                      }
                     }}
                   >
                     開始工作階段
                   </button>
                 ) : (
-                  <button onClick={() => api.sessionStop()}>結束工作階段</button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await api.sessionStop();
+                        setSessionError(null);
+                        reloadSession();
+                      } catch (e) {
+                        setSessionError(
+                          `結束工作階段失敗：${e}。工作階段可能仍在進行，請重試或到工作頁確認。`
+                        );
+                      }
+                    }}
+                  >
+                    結束工作階段
+                  </button>
                 )}
               </div>
+              {sessionError && (
+                <p className="cap-card-error" role="alert">
+                  {sessionError}
+                </p>
+              )}
             </div>
           )}
         </Section>
@@ -384,35 +415,9 @@ function HomeDetails({
  *  一律走共用投影說「其他感測器」——「有東西在感測」這件事實仍然看得到。 */
 export const sensorLabel = sensorKindLabel;
 
-const KNOWLEDGE_TRIGGER_LABEL: Record<string, string> = {
-  "user-correction": "你的更正",
-  "review-overdue": "複審到期",
-  "conflict-detected": "發現衝突",
-  "task-experience": "工作經驗",
-  "human-review": "人工複審",
-};
-
-/** 知識更新的來由（Runtime 的 `triggeredBy`，kebab-case 原始值）翻成人話。
- *  認不得的值不外洩原始字串，一律說「系統」——寧可少說，不假裝看得懂。 */
-export function knowledgeTriggerLabel(raw: string): string {
-  return Object.prototype.hasOwnProperty.call(KNOWLEDGE_TRIGGER_LABEL, raw)
-    ? KNOWLEDGE_TRIGGER_LABEL[raw]
-    : "系統";
-}
-
-/** 動作意圖（Receipt 的 `intent`）：Runtime 的原始 id（`emergency-stop`／`companion-test`）
- *  不該出現在一般模式的第一層文字裡。認得的翻成人話，其餘只說「一個需要回應的訊號」。 */
-export function receiptIntentLabel(intent: string): string {
-  const known: Record<string, string> = {
-    "emergency-stop": "緊急停止",
-    "companion-test": "角色測試",
-    notify: "通知",
-    speak: "說話",
-  };
-  if (Object.prototype.hasOwnProperty.call(known, intent)) return known[intent];
-  // 原始機器 id（小寫英數與 . _ -）不上畫面；人類寫的描述照原樣顯示。
-  return /^[a-z0-9][a-z0-9._-]*$/i.test(intent) ? "一個需要回應的訊號" : intent;
-}
+/** 知識更新來由與動作意圖的人話：定義搬到共用投影（statusProjection），
+ *  活動紀錄與全域搜尋走同一份；這裡保留具名輸出給既有的引用點。 */
+export { knowledgeTriggerLabel, receiptIntentLabel };
 
 export interface CharacterSentenceInput {
   name: string;

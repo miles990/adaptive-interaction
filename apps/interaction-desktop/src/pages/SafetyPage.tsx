@@ -45,6 +45,18 @@ function EmergencySection({ refreshKey }: { refreshKey: number }) {
   const [audit] = useAsync(() => api.auditTail(50), [refreshKey]);
   const [recovery, setRecovery] = React.useState(false);
   const estop = Boolean(status.data?.["emergencyStop"]);
+  // 「前往解除」把人導到這裡：解除入口要自己捲進視野並取得焦點，
+  // 不能只是換頁後讓使用者自己找（每次掛載只做一次，不搶正在操作中的焦點）。
+  const recoverRef = React.useRef<HTMLButtonElement | null>(null);
+  const focused = React.useRef(false);
+  React.useEffect(() => {
+    if (!estop || focused.current) return;
+    const el = recoverRef.current;
+    if (!el) return;
+    focused.current = true;
+    el.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    el.focus?.();
+  }, [estop]);
 
   const lastStop = (audit.data ?? []).find(
     (a) => (a as Record<string, unknown>)["kind"] === "emergency.stop"
@@ -53,7 +65,7 @@ function EmergencySection({ refreshKey }: { refreshKey: number }) {
   return (
     <Section title="緊急停止">
       {estop ? (
-        <div className="estop-panel">
+        <div className="estop-panel" id="emergency-recovery">
           <p className="home-status-line bad">
             <Icon name="octagon-x" size={18} /> 緊急停止已啟動。所有回應方式已停止，未完成的動作已中止。
           </p>
@@ -71,7 +83,7 @@ function EmergencySection({ refreshKey }: { refreshKey: number }) {
             解除後：一般的回應方式（對話、紀錄）會恢復可用；
             高風險與實體能力<strong>不會自動恢復</strong>，需要重新啟用並重新取得同意。
           </p>
-          <button className="estop-recover" onClick={() => setRecovery(true)}>
+          <button className="estop-recover" ref={recoverRef} onClick={() => setRecovery(true)}>
             開始安全解除流程…
           </button>
         </div>
@@ -308,6 +320,38 @@ function ConsentSection({
   );
 }
 
+/** L4 的「只這一次」在後端的對應：Consent 沒有 single-use 計數，能給的最短
+ *  範圍就是最短的有效期間，所以「只這一次」＝ 5 分鐘的短效授權（誠實命名，
+ *  不假裝那是用完即失效）。 */
+export const SHORT_LIVED_CONSENT_MINUTES = 5;
+
+/** 這張卡可以選的授權範圍。
+ *  L4（攝影機、持續麥克風、定位、Agent 寫入檔案）的政策文字明寫「每次使用都要你
+ *  同意（或只給短效授權）」——所以 L4 只提供短效選項，**不提供**整個工作階段，
+ *  預設也一定是最短的那個；把 L4 預設成整個工作階段等於畫面說一套、做一套。 */
+export function consentScopeOptions(card: HumanCard | null): { value: string; label: string }[] {
+  const shortLived = {
+    value: String(SHORT_LIVED_CONSENT_MINUTES),
+    label: `只這一次（${SHORT_LIVED_CONSENT_MINUTES} 分鐘內有效）`,
+  };
+  if (card && riskTierOfCard(card).tier >= 4) {
+    return [shortLived, { value: "30", label: "30 分鐘" }];
+  }
+  return [
+    shortLived,
+    { value: "30", label: "30 分鐘" },
+    { value: "120", label: "2 小時" },
+    { value: "session", label: "整個工作階段" },
+  ];
+}
+
+/** 預設選項：L4 一律是最短的短效授權；其餘維持原本的整個工作階段。 */
+export function defaultConsentScope(card: HumanCard | null): string {
+  return card && riskTierOfCard(card).tier >= 4
+    ? String(SHORT_LIVED_CONSENT_MINUTES)
+    : "session";
+}
+
 function GrantDialog({
   cards,
   onClose,
@@ -318,7 +362,7 @@ function GrantDialog({
   onGranted: () => void;
 }) {
   const [selected, setSelected] = React.useState<HumanCard | null>(null);
-  const [expires, setExpires] = React.useState<string>("session");
+  const [expires, setExpires] = React.useState<string>(defaultConsentScope(null));
   const [error, setError] = React.useState<string | null>(null);
   return (
     <Dialog title="授予新權限" onClose={onClose}>
@@ -328,7 +372,14 @@ function GrantDialog({
         <ul className="grant-list">
           {cards.map((c) => (
             <li key={`${c.kind}-${c.id}`}>
-              <button className="grant-choice" onClick={() => setSelected(c)}>
+              <button
+                className="grant-choice"
+                onClick={() => {
+                  setSelected(c);
+                  // 預設範圍跟著這張卡的風險分級走（L4 一律短效）。
+                  setExpires(defaultConsentScope(c));
+                }}
+              >
                 <Icon name={c.icon} size={18} />
                 <span>
                   <strong>{c.displayName}</strong>
@@ -368,20 +419,31 @@ function GrantDialog({
           <label className="row">
             有效期間：
             <select value={expires} onChange={(e) => setExpires(e.target.value)}>
-              <option value="30">30 分鐘</option>
-              <option value="120">2 小時</option>
-              <option value="session">整個工作階段</option>
+              {consentScopeOptions(selected).map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
             </select>
           </label>
+          {riskTierOfCard(selected).tier >= 4 && (
+            <p className="muted small">
+              這是高敏感能力：只能給短效授權，不提供「整個工作階段」。時間到就自動失效，要再用會再問你一次。
+            </p>
+          )}
           {error && <p className="cap-card-error" role="alert">{error}</p>}
           <div className="row wrap" style={{ marginTop: 10 }}>
             <button
               onClick={async () => {
                 try {
                   const scope = `${selected.kind === "tool-operation" ? "tool" : selected.kind}:${selected.id}`;
+                  // 保險：L4 永遠不會送出「沒有到期時間」的同意，即使選單被繞過。
+                  const allowed = consentScopeOptions(selected).some((o) => o.value === expires)
+                    ? expires
+                    : defaultConsentScope(selected);
                   await api.consentGrant(
                     scope,
-                    expires === "session" ? undefined : Number(expires)
+                    allowed === "session" ? undefined : Number(allowed)
                   );
                   onGranted();
                 } catch (e) {
