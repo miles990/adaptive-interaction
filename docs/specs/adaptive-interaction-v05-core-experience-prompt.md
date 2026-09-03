@@ -537,6 +537,11 @@ Candidate、Active、Stale、Disputed、Superseded、Knowledge Receipt、Context
 
 ### 12.1 現在
 
+> **2026-09-03 落地標籤（不改規格，僅記錄最終命名）**：一級導覽最終為「現在／角色（顯示目前角色的名字，
+> 預設「小樞」）／工作／連接與權限／更多」——本節與 §12.2 草案寫的「小樞」在實作中改成跟著目前角色名字走的
+> 「角色」入口（因為角色不再是寫死的小樞，見 Character Presentation Protocol）。細節與程式碼對照見
+> `docs/DESKTOP-GUIDE.md` 與 `docs/v05-capability-gap-matrix.md` §10–§11。
+
 - 系統是否正常。
 - 是否有感測器運作。
 - 有什麼需要玩家決定。
@@ -573,6 +578,11 @@ Candidate、Active、Stale、Disputed、Superseded、Knowledge Receipt、Context
 - Consent、資料去向、測試與立即停止。
 
 ### 12.5 更多
+
+> **2026-09-03 落地標籤（不改規格，僅記錄最終命名）**：「更多」最終的五個分頁標籤為
+> 「記憶與資料／活動紀錄／外觀與語言／備份與還原／進階模式」；「進階模式」是「顯示進階功能」開關的唯一主人，
+> 打開後才展開版本與 Runtime、Provider 診斷、配方 YAML、政策原始設定等第二層。角色管理併入「角色」頁而非
+> 獨立分頁。`manage`（舊「角色與整合管理」）保留為隱藏相容路由（全域搜尋可達，無分頁按鈕）。
 
 - 記憶與知識。
 - Activity 歷史。

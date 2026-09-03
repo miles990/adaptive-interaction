@@ -502,15 +502,16 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
 16. **效能數字**是 headless Chromium 的 CPU 數字，非 Tauri WKWebView 實機；輸入延遲只量 WebView 內段（Rust 點擊穿透閘＋OS 派送
     未量，**端到端未量**）；heap 已是精確位元組（`--enable-precise-memory-info`）但只有 60 s 浸泡，GC 後 +231 KB 未判定是快取暖身還是洩漏。
 17. **磁碟**：本機 `target/` 約 30 GB，Phase 7 期間兩度寫滿導致 build 中斷（刪除 `target/debug/incremental` 恢復）。
-18. 本輪未 push、release、deploy、開 PR 或建立 commit（依 repo 規則需使用者明確授權）；HEAD 仍為 `a898996`，
-    Phase 6＋Phase 7 全部為工作樹未提交變更。
+18. 本輪未 push、release、deploy 或開 PR（依 repo 規則需使用者明確授權）；Phase 6＋7 已提交為 `2e02284`，
+    Phase 8 為 `d03e0b9`／`521c232`。
 
 ---
 
 ## v0.5 Phase 8（Character Presentation Protocol＋小樞 Reference Adapter＋一般模式產品化；2026-09-02，macOS 26.2／Apple M2 Pro／rustc 1.94.0 (4a4ef493e 2026-03-02) (Homebrew)／node v24.5.0／pnpm 10.27.0）
 
 > 每個數字都是本機實跑；模擬器／fixture／瀏覽器版控制中心一律標示。**沒有任何 Tauri 角色視窗、可信 overlay 視窗、匯入資料夾、
-> ESP32 或 iPhone 真機的證據**——這些只有單元／模擬器／fixture 證據。本節不 commit、不 push、不 release。
+> ESP32 或 iPhone 真機的證據**——這些只有單元／模擬器／fixture 證據。本節已提交（`d03e0b9`、`521c232`），
+> 未 push、未 release。
 
 ### 對抗審查（Phase 8；`.claude/workflows/adversarial-review-v05.js`，報告落盤於 `docs/reviews/adversarial/`）
 
@@ -579,3 +580,124 @@ evidence spec 在 1200×800（`desktop-*`）與 390×844（`narrow-*`）各擷�
 | `3-day run    : finite=true withinClamp=true` |
 
 數字由 `apps/interaction-desktop/scripts/shu/perf-rig.mjs` 產生（`--expose-gc --enable-precise-memory-info`）；「輸入→下一幀」只量 WebView 內段，端到端未量（見已知限制）。
+
+---
+
+## v0.5 Phase 9（發布硬化＋兩輪對抗審查修復；2026-09-03，macOS 26.2／Apple M2 Pro／rustc 1.94.0／node 24.5.0／pnpm 10.27.0）
+
+> 每個數字都是本機實跑或工程 agent 的第一手記錄；模擬器／fixture／程序內 client／真機一律標示。本節已提交
+> Phase 8（`d03e0b9`、`521c232`）之後的工作樹變更；**本輪未 push、未 release、未 deploy、未開 PR、未
+> commit**（依 repo 規則需使用者明確授權）。完整測試矩陣見 `docs/releases/v0.5.0-test-matrix.md`；已知限制
+> 完整清單見 `docs/releases/v0.5.0-known-limitations.md`；收尾狀態見 `docs/v05-capability-gap-matrix.md`
+> §11（第一輪）／§12（第二輪）。
+
+### 對抗審查（兩輪；`.claude/workflows/adversarial-review-v05.js` 與 `adversarial-review-adaptive-interaction.js`）
+
+| run | 範圍 | reviewed | confirmed | fixed／partial | refuted |
+|---|---|---:|---:|---:|---:|
+| 第一輪 `2e02284-20260902T142608Z` | 13 維度 find→verify，run 2 的 47 項再重驗 | 47 | 44 | 43 fixed／1 partial（1 already-fixed：`docs-claims-026`） | 2 |
+| 第二輪 `c3d1786-20260903T124638Z` | 對第一輪收尾 commit `521c232` 全面重跑；find＝opus、verify＝sonnet | 78 | 74 | 63 fixed／4 partially-fixed／7 docs-claims 修在文件本身 | 4 |
+
+第二輪 4 項 partial（根因已定位、範圍已明確劃定，非未處理）：`safety-invariants-078`（SSE 半邊已對齊，
+`interrupt` 端點的擁有權比對未修）、`companion-gameplay-032`（舞台死區已消除，Tauri 單一 hit-rect IPC 未
+拆分）、`protocol-conformance-030`（host 端已誠實標示配對碼未比對，`providers.rs` 尚未依此降級 evidence
+level）、`link-transports-054`（serial pty/file fallback 讀取執行緒洩漏已計數，根因未消除）。7 項
+docs-claims（文件與程式碼不符，非程式碼缺陷）：三項第一輪已知限制其實在 HEAD 已修好（`F-043`、
+`credential_warnings()`、`mobile_ble_scan` deviceId）、桌面/iOS stop-all reason 與 emergency 角色狀態誤留
+限制、測試矩陣 TBD-FINAL 過期、iOS XCTest 計數（21→25）、Playwright／`fake_iphone.rs` 未記錄、README／
+FEATURES 精靈與導覽文案綁死「小樞」、FEATURES 指向不存在的 CHANGELOG `[Unreleased]`。workflow 的 persist
+步驟因 API 529 失敗，本節與 `docs/releases/v0.5.0-*.md` 的第二輪內容由 integrator 依 workflow 執行結果
+人工落盤。
+
+修復分 7 個 AREA（memory-ui／mobile-server＋provider 生命週期／agent-honesty＋SSE／ia-settings＋前端 IA／
+角色 rig＋perf＋Director／Character Presentation Protocol／link-transports＋協定＋韌體），**每項修復皆附
+regression test 與「把 bug 放回去→測試變紅→還原」的實測記錄**（各工程 agent 的 stage-3 報告
+`testCommandsRun`／`findingsAddressed[].regressionTest`）。逐項 summary 見 `CHANGELOG.md`「對抗審查第二輪」
+小節。
+
+### 回歸實測（第二輪修復收尾，最終一次全套；2026-09-03，所有 commit 就緒後同一台機器實跑）
+
+| 套件 | 命令 | 結果 | 環境／限制 |
+|---|---|---|---|
+| Rust fmt／clippy／workspace tests | `cargo fmt --check`／`cargo clippy --workspace --all-targets -- -D warnings`／`cargo test --workspace` | **fmt exit 0／clippy 0 warning／736 passed / 0 failed / 0 ignored（63 個 test target）**；`cargo build --workspace` 成功 | 真 runtime、fake agent 子程序、程序內【模擬 iPhone】、內嵌 rumqttd broker |
+| Tauri backend | `cargo test --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml`＋clippy | **46 passed / 0 failed**；clippy 0 warning | 單元測試 |
+| 前端 typecheck | `pnpm typecheck` | **通過**（`tsc --noEmit` 乾淨） | — |
+| 前端 unit | `pnpm test`（vitest） | **988 passed / 0 failed（49 檔）** | jsdom＋stub canvas（模擬器） |
+| 前端 build | `pnpm build` | **成功** | — |
+| CLI E2E | `./scripts/v03-cli-e2e.sh` | **82 passed / 0 failed** | 真 daemon＋mock HTTP／serial 裝置＋模擬 adapter fixture |
+| Playwright | `pnpm test:e2e` | **65 passed / 0 failed（12 spec，1.9 分）** | 真 daemon＋Chromium，瀏覽器版控制中心；iPhone 相關 spec 對接【模擬 iPhone（fixture）】 |
+| ESP32 韌體 | `./firmware/esp32-companion/compile.sh [--ble]` | **兩組態 exit 0（2026-09-03，最終覆核跑）** | arduino-cli 1.5.1、esp32:esp32 3.3.11（非真板） |
+| iOS 模擬器 XCTest | simctl 注入 `.xctest` | **25 passed / 0 failed**（MotionClassifier 8＋ProtocolTests 17） | 模擬器（iPhone 17，`docs-claims-070`訂正） |
+| iPhone 真機 | `device-build.sh`／`device-acceptance.sh --grant-consent` | **部分驗收，見下方「iPhone 真機（2026-09-03）」** | 真機（iPhone 11／iOS 26.3.1），非模擬器 |
+
+### Playwright user-task 套件與模擬 iPhone fixture（`docs-claims-071`）
+
+第二輪修復期間新增 8 個 Playwright user-task spec（`a11y`／`agent-not-installed`／`character`／`estop`／
+`home-state`／`iphone`／`sensors`／`work-delegate`），加上既有 `app`／`evidence`／`narrow`／`offline`，
+`apps/interaction-desktop/e2e/` 現有 **12 個 spec、65 個 `test(`**；`playwright.config.ts` 三個有序
+project：`first-run`（`app.spec.ts`）→`main`（其餘）→`estop-last`（`estop.spec.ts`，破壞性列放最後）。
+新增 `crates/interaction-runtime/examples/fake_iphone.rs`：程序外**【模擬 iPhone（fixture）】**，讓
+Playwright 能在真 daemon 上重現手機連線／斷線／權限拒絕／停止感測未回應等狀態；`iphone.spec.ts` 的 4 個
+測試標題全部明寫「iPhone（模擬 fixture）」——**這不是真機驗收**，真機證據只在
+`v0.5.0-iphone-device-evidence.md`。
+
+### 角色效能量測（可重現：`pnpm perf`；headless Chromium，Apple M2 Pro；2026-09-03 第二輪修復收尾最終跑，
+非 Tauri WKWebView）
+
+> `perf-claims-007/008/009` 修復後的量測：Reduced Motion 加入真靜態短路、30fps 降級改用顯示器自身節奏的
+> pacing 基準線、soak 涵蓋範圍擴大到 `CharacterGateway`／`InteractionDirector`／behavior／記憶／事件環。
+
+| 指標 | 結果 |
+|---|---|
+| drawRig 單角色一幀 | median **0.100 ms**／p95 0.130／max 1.270（n=72） |
+| 全舞台一幀（stage frame） | median **0.220 ms**／p95 0.500／max 0.520（n=120） |
+| rAF 間隔（headless 節奏） | median **8.3 ms**／p95 9.0／max 9.4（n=600） |
+| WebView 內段：抓玩具（toy grab） | median **8.4 ms**／p95 9.3（n=20；只是 WebView 段，不含主機端點擊穿透閘） |
+| WebView 內段：看向游標（gaze） | median **8.3 ms**／p95 8.5 |
+| JS heap（600 幀前／後／GC 後） | 3.02 → 3.93 → 2.26 MB |
+| heap 浸泡（60 s） | after-GC **1.92 → 2.14 MB（Δ +223 KB）** |
+| **heap 浸泡（10 分鐘，`PERF_SOAK_MS=600000`）** | **600.0 s／72,008 幀／299 次抓玩具，after-GC 1.92 → 2.12 MB（Δ +210 KB，10.7%），GC 前峰值 8.37 MB** |
+
+10 分鐘的 Δ（+210 KB）沒有比 60 秒的 Δ（+223 KB）大，判讀為固定保留集合，不是隨時間累積的洩漏；**30 分鐘
+浸泡未執行**。本輪 soak 涵蓋範圍比 Phase 8（僅 `StageRenderer`）更廣，兩次數字不是直接可比的回歸對照。
+
+### iPhone 真機（2026-09-03）
+
+完整逐列輸出見 `docs/releases/v0.5.0-iphone-device-evidence.md`（本文件不重複轉錄每一列，只總結）。裝置：
+iPhone 11（`iPhone12,1`），iOS 26.3.1；桌面：macOS 26.2、Xcode 26.6；通訊：區網 Wi-Fi TLS WebSocket（非
+loopback），憑證指紋釘選＋HMAC 配對＋每機獨立 token。
+
+**已驗證（真機）**：安裝與啟動、配對、首次連線權限誠實顯示未授權、haptic／notify／tts／torch／flash 動器
+acknowledged（deviceApplied 各異，如 haptic 在 iPhone 11 走 UIImpact 降級路徑並誠實回報 engine）、角色六態
+acknowledged、AI 偽造 `emergency`／`verified-success` 被 runtime 擋下（receipt failed、從未 dispatched）、
+背景／鎖定行為（App 進背景後 daemon 偵測斷線並強制停用高風險受器 `iphone.mic-level`，reason
+`disconnected`，不自動恢復）、桌面 IP 變更需重新配對（daemon 端 0 次連線嘗試，見下方限制）、撤銷離線裝置、
+觀察 battery／touch／麥克風音量（`activeSensors` 反映一致；`POST /v1/observations/query` 對
+`iphone.mic-level` 一律為空是設計——mic-level retention none、不入 SQLite，不是缺陷）、BLE 閘道 scan（≈8 秒
+回傳 10+ 個周邊，多數 name 為 null，誠實不編造）、停止所有感測（使用者路徑，313 ms 內確認）、緊急停止
+（178 ms 內確認停感測＋角色投影，`stoppedActuators:20`）、解除緊急停止不自動恢復（5 秒後感測仍全 false）。
+
+**未涵蓋（沒有結果就是沒有）**：observe-motion（需使用者在開啟「動作」時搖手機）、BLE connect／GATT
+read/write/subscribe（無測試用 peripheral）、系統終止 App 後的冷啟動恢復（實測需按「連線」或
+`--auto-connect`）。
+
+**真機測試發現的三個真機限定的限制**（見 `docs/releases/v0.5.0-known-limitations.md`）：桌面 Wi-Fi IP
+變更後 App 沒有 Bonjour 探索、host 釘死在配對當下的位址，換 IP 必須重新配對（新配對後 4 秒內連上）；App
+進背景會被 iOS 收回 WebSocket（平台限制，非缺陷，行為與不變量一致：斷線後高風險受器不自動恢復）；
+`device-acceptance.sh` 原本會在「沒有 active session／iPhone 動器預設 disabled／policy allowlist 未含
+`iphone.*`」三道前置關卡誠實回 `session_inactive`／`no-action`／`blocked(actuator.allowlist)`（Governor
+正確運作，不是手機問題），新增 `--grant-consent` 後這三道關卡會依序打開，讓完整矩陣可以跑完。
+
+**使用者親眼確認**：`acknowledged` 只代表手機回報已套用；震動、通知橫幅、語音、手電筒、閃屏、角色狀態的
+使用者親身確認尚未回填（見 `v0.5.0-iphone-device-evidence.md`「使用者親眼／親身確認」一節）。
+
+### 已知限制（v0.5 Phase 9，誠實聲明；修掉時同步更新 CHANGELOG 與 known-limitations.md）
+
+完整清單見 `docs/releases/v0.5.0-known-limitations.md`（第二輪整合版）。摘要：4 項第二輪 partial
+（`safety-invariants-078`／`companion-gameplay-032`／`protocol-conformance-030`／`link-transports-054`）；
+`ia-settings-012` 精靈半邊未修（第二輪覆核仍為真）；ESP32 真板未驗收（僅編譯＋模擬器對測）；iPhone
+observe-motion／BLE connect-GATT／冷啟動恢復未涵蓋（見上）；`rig-renderer-056` 最差單幀跳動 4.48 px（非
+0）；`memory-ui-003` 匯出仍只涵蓋記憶項目；`safety-invariants-075`「只這一次」是 5 分鐘 TTL 非真正單次；
+`agent-honesty-022` resume workdir 未持久化；`ia-settings-018` 精靈 commit 非原子；外部角色 adapter 輸入
+已完全移除（比原本更嚴格）；`interaction-api` WebSocket 限流測試在機器負載高時會 flake。上一輪（v0.5
+Phase 7／8）已知限制清單見上方對應章節，第二輪已修復項目不再重複列出。

@@ -7,7 +7,378 @@
 `apps/interaction-desktop/src-tauri/tauri.conf.json`、`apps/interaction-desktop/package.json`
 四處版本必須相同——用 `scripts/release.sh <version>` 一次搞定。
 
-## [Unreleased] — v0.5 產品重定位（角色・硬體・AI 三核心）
+## [0.5.0] - 2026-09-03 — v0.5 產品重定位（角色・硬體・AI 三核心）
+
+> 尚未發布：待 `./scripts/release.sh 0.5.0` 打 tag 觸發 Release CI 才算正式發布。發布關卡清單、完整測試矩陣、
+> 已知限制、iPhone 真機證據與升級指南見 `docs/releases/v0.5.0-*.md`。
+
+### Phase 9：發布硬化（對抗審查第三輪覆核與修復，2026-09-03）
+
+> 對 v0.5 對抗審查第三輪（`2e02284-20260902T142608Z`，13 維度、136 findings 收斂到 44 筆）的獨立覆核與修復：
+> 44 筆 finding 逐一以獨立懷疑者對 commit `521c232` 重新驗證——**43 confirmed／1 already-fixed**
+> （`docs-claims-026`：Phase 8 commit `d03e0b9` 已把 acceptance-evidence 的證據跑一節填實，覆核時已不成立）。
+> 43 項 confirmed 全數在本分支處理，除下方明列的兩項刻意保留為 partial（範圍已明確劃定、根因已定位）。
+> 完整清單、每項的 finding id、回歸測試與「把 bug 放回去」驗證見 `docs/v05-capability-gap-matrix.md` §11 與
+> `docs/releases/v0.5.0-known-limitations.md`；測試矩陣見 `docs/releases/v0.5.0-test-matrix.md`。
+
+#### Fixed — link-transports（9 項）
+- **MQTT 重連不再重送在飛的命令**：斷線時整個 teardown／重建 rumqttc client＋eventloop，舊 handle 上未 ack 的
+  QoS1 publish 隨之作廢，不會在重連後遲到套用到裝置上。
+- **ack 逾時／連線中途失敗不再卡在假裝進行中的 Dispatched**：`dispatched_at` 改在真正送出當下蓋章（不是逾時後才蓋，
+  修正 executor 算出 age≈0 的問題）；executor 立刻把「送出但結果未知」的收據結算為 `Uncertain`；watchdog 新增
+  `Runtime::sweep_receipts_at` 對帳掃描（先判斷 outcome-unknown 再判斷 TTL→Expired）。
+- **`LinkError::Reset` 不再誤報 `Failed`**（改 `Uncertain`）——原本會誘發對「結果未知」的重試，可能造成實體效果重複。
+- **HTTP 宣告式動器逾時後不再自動重送**：連線失敗（`NotSent`：URL／secret／connect 錯誤，請求確定沒送出）維持既有
+  retry；請求送出後才逾時（`OutcomeUnknown`）改為立即回誠實 uncertain，不重送（與 safety-invariants-036 同一根因）。
+- **裝置安全上限終於能宣告並到達 Policy `min()`**：宣告式 YAML 新增可選 `limits:`（`maxMagnitude`／`maxDurationMs`／
+  `maxPerHour`／`maxPatternSteps`／`maxPayloadBytes`），Serial／MQTT／BLE／HTTP 動器 manifest 一律帶上（與
+  safety-invariants-037 同一修復）。
+- **MQTT 健康度改成真的追蹤裝置存活**：新增 `RawLink::device_silent_for()`、`LinkReadiness::Stale{silent_ms}`，
+  `MqttSpec.livenessTimeoutMs`（預設 15 s＝ESP32 參考韌體 5 s 心跳的 3 倍）；裝置沉默超過視窗才會被判定不健康，
+  帶人話原因（「連線還在，但已 N 秒沒聽到裝置」），不再永遠 healthy 到下一次派工。
+- **BLE `connected()`／health 現在真的反映斷線**：新增 cancel-safe 的斷線事件監看，裝置離開範圍後不再繼續回報
+  healthy 直到下一次派工才發現。
+- **estop 更快更不互相拖慢**：`stop_all` 對未連線／連線中的裝置改快速失敗（不再整套 `ensure_open`，serial/mqtt
+  不再等 2 s、BLE 不再起 6 s 掃描）；BLE 的 scan guard 改成 cancel-safe，估停被取消也真的 `stop_scan`；
+  Runtime 的緊急停止動器階段改成並行執行、有界 ~2 s（原本每台裝置各自最多等 2 s、序列化執行）。
+- **id-less 裝置錯誤不再誤歸屬**：平行步驟共用同一裝置時，無 id 的錯誤只有恰好一筆命令在飛才會被當成那筆的結果；
+  多筆同時在飛時改列為無法歸屬，逾時結算為 `Uncertain` 而非 `device-refused`（避免把已套用的命令誤標為拒絕而誘發重送）。
+- **Serial reader 不再丟棄殘段**：read 逾時（200 ms）時保留已讀到的半行（16 KiB 上限＋警告），不再整段清空造成
+  之後的解析失敗。
+- **明文憑證現在會被警告**：`pairingCode`／MQTT password 若不是 `secret://` 參照，`build()` 時記 `tracing::warn!`
+  並列在 `BuiltCapabilities.warnings`（不阻擋既有 spec，只是不再靜默）。
+
+#### Fixed — safety-invariants（5 項）
+- **「停止所有感測」／緊急停止現在真的到達 iPhone**：對每台已連線手機送 `stop-all{sensors:true}` 並等待（≤2 s）
+  `ack{stopAll:true}` 或後續 `status{micLevel:false}` 確認，本機麥克風＋每台手機逐一誠實回報
+  stopped／unknown／unreachable，UI 與 audit 都拿得到整份 `StopAllSensorsReport`，不再只憑本機狀態就宣稱
+  「已停止所有感測」。
+- **iPhone 麥克風事件改成真的變化才發**：`sensor.started`／`sensor.stopped` 只在 `micLevel` 真正改變時發出（不再
+  被 30 秒心跳洗版），斷線時補一則 `sensor.stopped{reason:"disconnected"}`；SSE 訂閱者不再永遠看不到。
+- **HTTP 宣告式動器逾時不再自動重送**（同 link-transports）。
+- **裝置安全上限終於能到達 Policy `min()`**（同 link-transports）。
+- **agent token 不再能經 `/v1/providers` 讀到 iPhone 的公開身分指紋**：`mobile_register_provider` 改用
+  `sha256("mobile-identity:v1:{deviceId}:{tokenHash}")` 衍生指紋（不是驗證用的 token_hash 本身）；
+  `providers_list`／`provider_get` 對非人類 principal 一律抹掉 `identity.fingerprint`，補上原本「`/v1/mobile`
+  讀不到就安全」的邊界漏洞。
+
+#### Fixed — mobile-server（8 項；1 partial 見下）
+- **emergency／verified-success 兩個真相狀態收回 Runtime 專屬**：新增 `RUNTIME_ONLY_STATES`，AI 再也不能經
+  `character.present` plan 讓 iPhone 顯示「緊急停止中」；Runtime 自己的 estop／解除改為並行投影到每台已連線
+  手機（≤1.5 s 有界等待，逐台 acknowledged／refused／unknown／unreachable，寫入 `mobile.character-emergency`
+  audit）。
+- **DoS 面補齊並在 `mobile_status` 誠實顯示**：連線數上限 8（`MOBILE_MAX_CONNS`，超過在 accept 當下拒絕）、
+  TLS／WebSocket 交握 5 s 逾時、未認證連線 10 s 死線（`mobile.unauthenticated-timeout` audit）、單則訊息
+  128 KiB 上限（原本是 tungstenite 預設 64 MiB）、每連線 30 msg/s 速率限制（超過關閉並記
+  `mobile.rate-limited`）；heartbeat 新增 `authTimeoutMs`／`maxConnections`／`refusedConnections`／
+  `maxMessageBytes`／`maxInboundPerSec`。
+- **accept loop 對暫時性錯誤改退避重試**：新增 `accept_error_action()` 分流暫時性／致命錯誤（`EMFILE`／`ENFILE`
+  等在 Rust 沒有穩定 ErrorKind，一律當暫時性重試；只有 PermissionDenied／AddrInUse 等或連續 20 次才停）；真的
+  停下來時誠實回報 `started:false`、`port:null`、關掉 Bonjour 廣播並記 `mobile.server-stopped`（不再讓 status
+  假裝仍在運作）。
+- **多台 iPhone 動作必須指定目標**：`pick_conn` 不再挑 BTreeMap 第一台——只有恰好一台連線才能省略 `deviceId`，
+  兩台以上一律誠實拒絕並列出目前連線中的 id；收據的 `driver_response` 帶上實際送達的 `deviceId`／`deviceName`。
+- **TLS 私鑰改成原子式 0600 落地＋載入時檢查**：新增 `write_private_key`（`create_new`＋`mode(0o600)`，先寫暫存檔
+  再 rename，不再有先 0644 再 chmod 的空窗）與 `ensure_key_is_owner_only`（載入既有金鑰時權限過鬆會嘗試修復，
+  修不動就誠實拒絕啟動而不是帶著鬆散權限的私鑰繼續跑）。
+- **`pending_acts` 不再永久殘留**：等待端 future 被丟棄（HTTP client 斷線／CLI Ctrl-C）或手機斷線時，
+  新的 `PendingGuard`（Drop 時移除表項）與 `fail_pending_for_device` 保證清空，在途動作立刻以誠實的
+  `dispatched＋outcomeUnknown＋failed(iphone-disconnected)` 收場。
+- **伺服器端參數驗證對齊 iOS App**：新增 `validate_wire_params`，haptic／notify／tts／torch／flash／
+  character.present 的規則（字數上限、數值範圍、列舉白名單）與 App 端一致，不再只能靠手機拒絕才浮現規則落差。
+- **`mobile_present_verified` 誠實化**：手機回非 `ack`（含與 stop-all 競態的 `stopped`、App 的 bad-state）時
+  誠實回 `Err`（不再吞成 `Ok`）；同一類問題也修在 `mobile_ble_scan`（手機回 err 不再被當成掃描結果）。
+- **Partial（`F-043` 多台 iPhone）——已於第二輪修復**：目標選擇與收據歸屬已修好；`executor.rs::
+  note_capability_tested` 原本仍透過「字典序第一個 provider」記「已測試」證據，第二輪對抗審查覆核時發現
+  這一半實際上也已在 HEAD 修好（`executor.rs` 取 driver 收據的 `deviceId` 呼叫
+  `note_capability_tested_on`），見下方「對抗審查第二輪」與 `docs/releases/v0.5.0-known-limitations.md` §5。
+
+#### Fixed — character-protocol（4 項）
+- **Reduced Motion 改成每個 instance 各自真實協商**：新增 `Gateway::set_reduced_motion`／`reduced_motion`，
+  `hello_for` 用它協商（不再是永遠 `false` 的寫死值）；`CharacterHelloInput`／`CharacterHelloBody`／IPC／
+  `CharacterInstanceView` 新增 `reducedMotion`；回執 resolution 只能降級不能升級（adapter 可誠實降級為
+  `reduced`，不能自己升回 `exact`），修正回執與 `GET /v1/character/instances` 把 `reduced` 誤報成 `exact`。
+- **TS Gateway 的 merge 分支不再說謊**：合併進既有演出的 intent 改誠實回 `cancelled{reason:"merged"}`（不再假裝
+  從未演出過的 `completed{merged}`）；duplicate／alreadyTerminal 回執改帶原命令協商出的真實 resolution（不再
+  硬編 `exact`），與 Rust 端的 `cancelled{merged}` 行為一致。
+- **50 則/s 限流改成每個 instance 一份真正共用的預算**：新增 `Gateway::allow_message()`／`note_wire_rejected()`，
+  HTTP 回執／事件與 WS 畸形訊息全部算在同一份預算內（外部 adapter 之前可以繞過 WS 限流無上限灌 audit 與
+  `companion.click` 觀察）；畸形訊息稽核有界（同一 instance 每 5 秒最多一列，`suppressed` 記被壓下的次數）。
+- **純聲音／燈光角色能真的表達工作／等待／未知**：`intent_capabilities` 為 Think/Wait、Work、Unknown/Cancelled
+  補上 `audio.speech`／`audio.effect`／`haptic.cue`——之前只宣告 `audio.*`／`haptic.*` 的角色，work/think 會被
+  誤判 `unsupported`、wait/unknown 會被誤判走 `system.text`，與文件承諾相反。
+- 附帶新增：第三方 manifest conformance 測試套件（`conformance.rs`，涵蓋 bundled＋`examples/character-adapters/`
+  ＋`CPP_CONFORMANCE_MANIFESTS` 指定的外部 manifest）；斷線（crash／transport-closed／goodbye／revoke）時進行中的
+  安全 intent 改為交接給 `system.text`（原本 README §9 承諾的 fallback 並不存在，進行中的安全 intent 會直接消失）。
+
+#### Fixed — ia-settings（6 項；1 partial 見下）
+- **首次設定精靈「進一步自訂」不再寫入沒有主人的設定**：移除一般模式的 `channelLimits["*"]`／
+  `requireApprovalAt` 孤兒控制項（「主動打擾次數」標籤與實際效果本來就不符），只保留安靜時段。
+- **重新執行精靈不再靜默停用已啟用的非新手能力**：例如已配對 iPhone 的動作／電量／觸碰感測，重跑時會保留現況
+  而不是退回 beginner-safe 預選；新增 `POST /v1/onboarding/preview` 零副作用試算端點，精靈「完成設定」前先彈出
+  「套用前確認」對話框列出真的會變動的項目（差異來自後端試算；試算失敗才退回本機估算並在畫面上明說）。
+- **收件匣 `pendingCount` 不再只看最近視窗**：新增 `Store::receipts_with_status`，直接依狀態（`uncertain`／
+  `blocked`）查詢開放收據（上限 1000），不再只從最近 200 筆歷史裡數；新增 `pendingCountExact` 誠實旗標，撈滿
+  上限時回 `false`（代表 pendingCount 是下限，不是總數）。
+- **窄視窗「更多」選單現在會正確高亮目前所在的子項**（原本折疊後的 anchor 與選單比對的 id 對不上，五個細項與
+  「更多」自己都永遠不會亮）。
+- **解除緊急停止對話框改三段式**：會恢復可用／不會自動恢復／你先前已停用因此仍為停用——不再把使用者自己
+  停用的動器列為「解除後會恢復可用」。
+- **風險分級修正本機音效／語音朗讀**：從 L2「會用到你的檔案、偏好或記憶」降為正確的 L1（`companion.sound.play`／
+  `companion.speak` 沒有外部或實體效果，不該套用需要檔案存取的風險文案）。
+- **Partial（`ia-settings-012` 安靜時段預設封鎖桌面角色）**：角色頁的安靜時段編輯器已送出明確的靜音通道清單
+  `["audio","haptic","notification","light"]`（不含 `desktop-pet`），L0 呈現不再被安靜時段誤判為「待你決定」；
+  Rust 根因（`activity.rs` 的收件匣投影，`receipt_item()` 已改為排除純呈現動器的 blocked 收據，只有卡在
+  「需要人類核可」的呈現動作才計入待決定）已修。**首次設定精靈那一側未修**——`Onboarding.tsx` 仍寫
+  `silencedChannels: []`，從精靈建立的安靜時段預設仍會靜音桌面角色（DEFAULT_QUIET_SILENCED 含
+  `desktop-pet`）。
+
+#### Fixed — agent-honesty（1 項）
+- **緊急停止不再偷偷開一輪新的模型呼叫**：`estop_agent_sessions` 不再把「cancel」包裝成 `ToSession` 訊息送進
+  每個 gateway agent（原本會觸發 codex `turn/start`、claude 新的 user 訊息、甚至整個新的 `codex exec` 程序，
+  誤發 `fetched` taxonomy、消耗一則 message 預算，且每個卡住的 session 最多拖 5 秒才被強制終止）。改為直接
+  關閉 session（撤銷能力＋清空未送達信箱＋終止程序樹）並在事後補一則不送達 agent 的 `from-session` 稽核訊息
+  （`kind:"emergency-stop"`，`deliveredToAgent:false`，不占 message 預算）；所有 session 改為並行終止
+  （`futures_util::future::join_all`，每個 ≤2 s 有界），實測兩個卡住的 session 從 10.0 s 降到 5.8 ms。
+
+#### Added — 前端 IA 結構性改動（任務要求，非對抗審查 finding）
+- **工作頁「開始前預覽」從固定六項收斂為三個回答**：這次會讀取什麼／會不會修改內容／最多使用多少時間與費用，
+  其餘（使用哪個 Agent、工具、沙箱、時間／訊息／費用上限、如何取消、原始授權範圍）移入可收合的
+  「查看技術細節」；讀取範圍文案改為誠實描述（系統擋得住「改不到別的地方」，不宣稱「只讀取這個資料夾」的
+  硬邊界）；換資料夾會使先前的寫入第二次確認作廢；續租寫入權限的工作改為二次確認（「確認延長（含修改權限）」）。
+- **原生資料夾選擇器**：`apps/interaction-desktop/src-tauri` 新增 `tauri-plugin-dialog`（僅 `main` 視窗的
+  capability，未註冊 `tauri-plugin-fs`、未給任何 `fs:*` 權限，WebView 只拿到一段路徑字串）；`pickDirectory`
+  改回傳 `picked／cancelled／unsupported／error{message}` 四態，瀏覽器版改成誠實的靜態說明（「瀏覽器版沒有
+  原生資料夾選擇器；請貼上資料夾路徑。」），不再是點了沒反應的假按鈕。
+- **連接與權限第一層改為裝置優先五區**：已連接的裝置／系統可以看見什麼／系統可以做什麼／目前需要確認的
+  權限／立即停止與撤銷（固定順序）；iPhone 裝置卡片新增「停止感測」「測試連接」按鈕，用字遵守誠實階梯
+  （「已要求停止（以手機回報為準）」≠「已停止」；「有回應」≠「已測試」）；新增每機端點
+  `POST /v1/mobile/devices/{id}/sensors/stop`、`POST /v1/mobile/devices/{id}/test`。
+- **角色頁一般／進階分層**：一般模式只顯示內建／第三方、可接收、已測試三個徽章，額外授權（可執行程式／
+  需要網路）只給一句人話說明；外部／可執行程式／需要網路徽章與執行位置欄位移到進階模式；一般模式匯入角色
+  只有選檔（移除貼上原文的輸入框），驗證器原文收在收合的「問題明細」裡；不認得的互動能力 id 不再外洩原始
+  字串（顯示「其他互動」）。
+
+#### Added / Changed — 對外契約（完整清單見 `docs/releases/v0.5.0-migration.md`）
+- 新端點：`POST /v1/onboarding/preview`（零副作用試算，回應形狀同 commit 的 diff）、
+  `POST /v1/mobile/devices/{id}/sensors/stop`、`POST /v1/mobile/devices/{id}/test`。
+- `POST /v1/sensors/stop` 回應形狀改為 `{stopped, uncertain, local:{microphone}, devices:[{deviceId,name,
+  outcome,waitedMs,via}]}`（原本是 `{stopped:true}` 固定值）。
+- `POST /v1/emergency-stop` 的 payload／事件／audit 新增 `sensors`（`StopAllSensorsReport`）與
+  `characterEmergency`（`[{deviceId, outcome}]`）。
+- `activity_inbox` 回應新增 `pendingCountExact: bool`。
+- `GET /v1/providers`／`/v1/providers/{id}` 對非人類 principal（agent／session／character adapter token）
+  省略 `identity.fingerprint`。
+- 宣告式 YAML 新增可選欄位 `limits:`（`CapabilitySpec`，maxMagnitude／maxDurationMs／maxPerHour／
+  maxPatternSteps／maxPayloadBytes）與 `mqtt.livenessTimeoutMs`（預設 15000）。
+- 新環境變數 `INTERACT_AI_MOBILE_ADVERTISE`（`0`／`false`／`off`／`no` 關閉 Bonjour 廣播並只綁
+  `127.0.0.1`；供 E2E／CI 使用，避免區網廣播）。
+- iOS：`ServerMessage.stopAll` 新增 `reason`（`user`／`emergency`，缺省或未知一律 fail-safe 為 `emergency`）；
+  `ClientMessage.ackStopAll` 新增回聲 `sensors` 欄位。桌面端於第二輪修復（見下）補上送出 `reason`；桌面端
+  尚未消費 ack 回聲的 `sensors` 欄位（已知限制，見下）。
+- `CharacterHelloInput`／`CharacterHelloBody` 新增 `reducedMotion`。
+
+#### Known limitations（第一輪，已由第二輪修復部分項目——見下方「已於第二輪修復」）
+- `ia-settings-012` 精靈那一側未修（見上，第二輪覆核仍為真，保留）。
+- MQTT 重連不重送只在內嵌 `rumqttd` broker 上驗證，沒有真實 ESP32 board 上的重送測試。
+- BLE 斷線偵測只有假事件流（`futures::stream::iter`）的單元測試，零真實周邊驗證；Linux 仍誠實拒絕 BLE。
+- HTTP 逾時分類保守地把「TLS 握手失敗」等 reqwest 未分類錯誤也歸類成 `OutcomeUnknown`（方向安全：不會把真的
+  沒送出的請求說成已送出；代價是可能把少數真的沒送出的請求也標成不確定而非可重試的失敗）。
+- 原生資料夾選擇器（`tauri-plugin-dialog`）沒有任何自動化驗收：vitest 的 `invoke` 是 mock，Playwright 跑
+  瀏覽器版（無 Tauri IPC），只通過 `cargo check`／`clippy`／`cargo test` 的編譯驗證，需要桌面手動驗收。
+- iOS 新增 Xcode 專案（`InteractionCompanion.xcodeproj`）＋裝置腳本（`device-build.sh`／`device-acceptance.sh`）；
+  詳見下方「對抗審查第二輪」——真機部分驗收已完成（2026-09-03，iPhone 11／iOS 26.3.1），XCTest 修正為 25/25。
+- 本輪未 push、release、deploy、開 PR 或建立 commit（依 repo 規則需使用者明確授權）。
+
+**已於第二輪修復、不再是限制**（第一輪誤留或第二輪修復；避免文件漂移重犯，完整說明見
+`docs/releases/v0.5.0-known-limitations.md` §5）：`F-043` executor 已測試證據歸屬；
+`credential_warnings()` 未轉發進 provider 紀錄；`mobile_ble_scan` 沒有 `deviceId` 參數；桌面端未送出
+stop-all 的 `reason`；iOS `ActuatorCenter.stopAll` 不會設 emergency 角色狀態。
+
+#### 對抗審查第二輪 `c3d1786-20260903T124638Z`：78 reviewed／74 confirmed／4 refuted；63 fixed、4 partially-fixed、7 docs-claims fixed in docs（2026-09-03）
+
+- **最終回歸抓到的額外缺陷（已修）**：`StateView` 在 `useAsync` 背景重新整理時把清單換成「載入中…」，底下的工作卡整個卸載重掛，使用者展開的訊息面板與核可「拒絕」的裁決結果（「你已拒絕」）在每一次 SSE 事件觸發的刷新時消失（Playwright `work-delegate` 拒絕列復現）。現在只有第一次載入顯示載入中，之後保留舊資料（`aria-busy`），更新失敗顯示「更新失敗（顯示的是上一次的資料）」；`useAsync` 失敗時保留 `data`。回歸測試 `src/test/stateView.test.tsx`。
+- **CLI E2E 腳本**：agent 工作資料夾改用獨立暫存目錄（Runtime 自本版起拒絕把自己的狀態資料夾當 workdir，見 agent-honesty-022）。
+
+> find＝opus、verify＝sonnet；74 項 confirmed 中 63 項 fixed、4 項 partially-fixed（根因已定位、範圍已
+> 明確劃定，見 `docs/releases/v0.5.0-known-limitations.md` §1）、7 項 docs-claims（文件與程式碼不符）直接
+> 訂正在文件本身（本節與各 `docs/releases/v0.5.0-*.md`）。workflow 的 persist 步驟因 API 529 失敗，本節與
+> 對應報告由 integrator 依 workflow 執行結果人工落盤。完整 finding 清單見
+> `docs/reviews/adversarial/c3d1786-20260903T124638Z.{md,json}`；回歸測試與「把 bug 放回去」驗證見各
+> finding id 對應段落。
+
+##### Fixed — memory-ui（6 項，全 fixed）
+- **`memory-ui-001`**：控制中心「忘記這些」不再被角色視窗自己的舊記憶副本復活——`companionInteractionMemory`
+  改為 Runtime／host prefs 是唯一真相來源，每次 companion-reload 都從 prefs 重建。
+- **`memory-ui-002`**：`memory_context_bundle` 不再靜默丟資料——新增 `excluded.overCapacity`／`truncated`／
+  `limits`／`note`，被卡住的項目與掃描上限現在都會誠實回報，UI 顯示「這份不是完整的」。
+- **`memory-ui-003`**：`memory_export` 誠實聲明範圍——`scope:"memory-items-only"`／`notIncluded`／
+  `limitReached`；UI 按鈕改名「匯出記憶」並說明知識／素材／角色互動記憶不在匯出範圍內。
+- **`memory-ui-004`**：Agent 建立的 user-memory／persona-core 重新確認按鈕改顯示真實可延展天數（30 天，不是
+  會被 Governor 砍掉且降級的 90 天），送出後對照後端實際回應誠實顯示是否被縮短或降級。
+- **`memory-ui-005`**：記憶頁每個會呼叫後端的按鈕（清除短期記憶、知識「不採用」、素材操作）補上
+  try/catch，失敗會顯示 `role="alert"` 訊息，不再是無聲的 floating promise。
+- **`memory-ui-006`**：一般模式不再外洩 10 層技術分類——新增人話分組（你告訴我的事／角色的設定／學到的
+  知識／工作與任務／這次對話的暫存＋其他），進階模式維持原始技術分層與標籤。
+
+##### Fixed — mobile-server ＋ safety-invariants（provider 生命週期）（7 項，全 fixed）
+- **`mobile-server-061`**：緊急停止中連上／重連的 iPhone 現在會收到 `stop-all{sensors:true,reason:emergency}`
+  並被有界等待確認（不再只送純 UI 的 `character.present emergency`）。
+- **`safety-invariants-074`**：宣告式裝置 provider 的停用／撤銷現在跨重啟持久——新的 `provider-off:<id>`
+  store meta 標記讓 `register_declarative_spec` 在 `build()` 前就關連線、強制停用受器／動器（升級邊界殘留，
+  見已知限制）。
+- **`mobile-server-062`**：`mobile_ble_scan` 補上與其他手機動作一致的 `is_estopped()` 閘門，緊急停止期間不再
+  送出 BLE 掃描指令。
+- **`mobile-server-063`**：一台手機斷線／撤銷時，其他仍在串流的手機不再從 `status.activeSensors` 無聲消失——
+  新增 `mobile_stop_other_streaming_phones()` 逐台誠實要求停止並等待確認。
+- **`mobile-server-064`**：撤銷一台正在串流的手機現在會立即結束其感測與在途動作（`mark_disconnected`＋
+  `fail_pending_for_device`），不再要等到 4 秒 ACT_TIMEOUT。
+- **`mobile-server-065`**：觀察訊息頂層的 `at` 時間戳現在會併入 facts，manifest 宣告的 `provides:["event",
+  "at"]` 不再是空話。
+- **`mobile-server-066`**：認證失敗（未知裝置／錯 token／已撤銷手機重連）現在會寫 `mobile.auth-failed`
+  audit（含 peer／deviceId／knownDevice，絕不含 token）並計入 `status.heartbeat.failedAuths`。
+
+##### Fixed — agent-honesty ＋ SSE 邊界（6 項，5 fixed／1 partial）
+- **`agent-honesty-022`**：「接續上次」不再悄悄放寬時間／費用／資料範圍上限——`resolve_gateway_workdir`
+  拒絕任何指到 runtime state 目錄的 workdir，`create_agent_session` 對已知的原始 session 強制續租不得比原本
+  寬（省略欄位＝變寬也算）。
+- **`agent-honesty-023`**：`codex_exec.rs` 的結束事件判讀抽成純函式 `drain_outcome_event`——只有觀察到非零
+  結束碼才算 `TaskFailed`，其餘（no terminal event、訊號終止、無法讀取結束碼）一律 `TaskOutcomeUnknown`。
+- **`agent-honesty-024`**：委派動作的收據現在真的能到 `Acknowledged`——透過 `DriverReceipt` 的
+  `.dispatched().acknowledged()` 路徑（而非放寬 executor 的 Dispatched 守衛，那樣會被 executor 自己的合併
+  邏輯洗回去）。
+- **`agent-honesty-025`**：`mailbox_send` 誠實回報是否真的送達 agent（`deliveredAt` 有無），AiPage 據此區分
+  「已送達 Agent，尚未完成」與「已放進信箱，尚未送達」兩種文案。
+- **`agent-honesty-026`**：非 gateway agent 真的取走任務時會發出 `fetched` taxonomy 事件（原本只有 gateway
+  session 會發，人類只是看一眼信箱不會誤觸發）。
+- **`safety-invariants-078`（partial）**：`EventType::AgentSessionState` 加進 SSE `event_allowed` 排除清單，
+  legacy agent token 不再能經 SSE 側通道讀到 agent session 狀態；`POST /v1/agent-sessions/{id}/interrupt`
+  仍對任何 session id 放行未修（見已知限制）。
+
+##### Fixed — ia-settings ＋ 前端 IA（10 項，全 fixed）
+- **`ia-settings-012`（此編號為第二輪新 finding，非同名第一輪 partial）**：安全頁「解除緊急停止」現在導覽到
+  時會自動捲動並取得焦點，重複導到同一路由也會換一把新的掛載 key 讓子頁狀態重置。
+- **`ia-settings-013`**：統一收件匣不再直接印 `裝置 {deviceId}`——改用 `inboxDeviceLabel` 轉成「你的
+  iPhone」或能力名稱，原始 id 只留在進階模式。
+- **`ia-settings-015`**：收件匣標題在後端只回下限時誠實顯示「待決定 至少 N 項／共 N」，不再說成總數。
+- **`ia-settings-016`**：收件匣的感測開始／停止標題不再外洩原始裝置 id（`sensor_event_label` 一律轉成人話
+  或安全的 fallback）。
+- **`ia-settings-017`**：ActivityPage／GlobalSearch 的收據意圖標籤共用 `receiptIntentLabel`，一般模式不再顯示
+  原始 runtime intent 字串。
+- **`ia-settings-018`**：首次設定精靈套用失敗時不再合併成一行——誠實列出已套用／失敗於哪一步／未嘗試的
+  項目，且不假裝自動還原（`onboarding.partial` audit；仍非原子，見已知限制）。
+- **`ia-settings-019`**：安全頁「重新驗證」按鈕的結果與失敗都會顯示訊息，不再是無聲的 floating promise。
+- **`ia-settings-020`**：首頁開始／結束工作階段失敗時會顯示 `role="alert"` 訊息。
+- **`ia-settings-021`**：GlobalSearch 的知識收據標籤與網域包 id 只在進階模式顯示原始值。
+- **`safety-invariants-075`**：L4 高風險能力的同意對話框依風險分級決定選項——tier ≥ 4 不再有「整個工作階段」
+  選項，預設改為 5 分鐘短效授權。
+
+##### Fixed — 角色 rig／perf／Director（17 項，全 fixed）
+- **`rig-renderer-056`**：跨姿勢交叉淡出新增 `poseFrom` 通道，混合目標本身也在轉場中時的最差單幀頭部跳動從
+  14.14 px 降到 4.48 px（未到 0，見已知限制）。
+- **`rig-renderer-058`**：`stand↔sit`／`stand↔crouch` 等非 lie 姿勢過渡不再在插值中點硬切，最差單幀跳動從
+  10.00 px 降到 0.64 px。
+- **`director-pipeline-044`**：新增 `CLEAR_PROTECTED_TRANSIENTS`，快速連點／取消／舊版 idle 動畫路徑不再能
+  清掉正在等待使用者確認的 `requesting-consent` 狀態；緊急停止仍會清掉它。
+- **`companion-gameplay-032`（partial）**：舞台上角色與玩具之間的死區改成正常視窗互動而非吞掉點擊；Tauri
+  單一 hit-rect 仍未拆成多矩形（見已知限制）。
+- **`companion-gameplay-033`**：Reduced Motion 下的招呼／走動使魔會真正收斂到靜止並清除愛心圖示，不再永久
+  卡在「打招呼中」。
+- **`companion-gameplay-034`**：`spawnToy` 改用 `world.nextToyId` 是否真的推進判斷成功，玩具滿額時丟出新玩具
+  不再假裝成功並寫入互動記憶。
+- **`companion-gameplay-035`**：新增真正的 `greet-familiar` 玩法——角色會主動走向使魔打招呼並收到回應，不再
+  只是轉頭看一眼。
+- **`perf-claims-007`**：`StageRenderer.loop()` 補上 Reduced Motion 靜態短路，量測到 361 tick 只畫 7 幀。
+- **`perf-claims-008`**：新增以顯示器自身 rAF 節奏基準線比較的 pacing 降級判斷，raster／compositor 卡頓現在
+  也能觸發 30 fps 降級（不只是 JS 成本超支）。
+- **`perf-claims-009`**：`pnpm perf` 的 soak 量測範圍擴大到涵蓋真 `CharacterGateway`（真 shu adapter）、
+  `InteractionDirector`、behavior／記憶與 500 筆事件環，並在輸出誠實列出涵蓋與不涵蓋的範圍。
+- **`companion-gameplay-036`／`rig-renderer-060`**：移除死程式碼 `behavior.scheduleMicroAction`／
+  `SHU_MICRO_ACTIONS`（無production caller，內含會誤點亮工作狀態通道的隱藏假資料）。
+- **`companion-gameplay-037`**：連續戳弄的反應從單一字串擴充成 3 個變體池＋更短的冷卻，不再每 8 秒重播同一
+  段演出。
+- **`rig-renderer-059`**：Reduced Motion 下 `ExpressionTimeline` 的自動眨眼完全關閉（原本每 2.2–5.4 秒仍有
+  0.05 的眼睛開合抖動），`blinkNow()` 仍接受提示但不再實際渲染。
+- **`director-pipeline-045`**：Host 端判斷是否為眨眼演出改用新的 `DirectorAction.source === "blink"`，不再
+  硬編比對特定角色的表情 id 字面值。
+- **`director-pipeline-046`**：移除 `InteractionDirector.score()`（零呼叫者的死程式碼），並在 `director.ts`
+  header 誠實記錄 Utility Scoring 實際只用在 `machine.ts` 的同優先權 tie-break，不是決策主路徑。
+- **`perf-claims-011`**：`reportHitRect()` 在舞台暫停／銷毀時提早返回，不再每 500 ms 心跳仍觸發 Tauri IPC。
+
+##### Fixed — Character Presentation Protocol（8 項，全 fixed）
+- **`character-protocol-038`（blocker）**：安全 intent 的每一種非 completed 終態（不只 `failed`）現在都會
+  落到 `system.text`，包含斷線與重新協商時尚未結算的安全 intent（sweep 也會補送）。
+- **`character-protocol-039`**：adapter 在安全 intent 進行中重新 `negotiate` 不再讓在飛的安全提示消失——
+  `on_negotiate` 現在會把它們透過 `resend_safety_as_system_text` 重送。
+- **`character-protocol-041`**：TS 的 `INTENT_CAPABILITIES` 改回逐 intent 對照表並用 Rust 產生的 golden JSON
+  雙邊斷言，不再是可能與 Rust 權威表不同步的單一共用清單。
+- **`character-protocol-040`**：adapter 回報的 `Unsupported`／`Failed` resolution 不再被 gateway 丟棄改寫成
+  `Reduced`，收據不會再說「什麼都沒演出」卻標成 `exact`。
+- **`character-protocol-042`**：AI 的 `character.present` 這類命令現在只由桌面 instance 結算，外部 adapter
+  不能再用自己的回覆搶先決定收據結果。
+- **`character-protocol-043`／`safety-invariants-077`**：外部 adapter 的輸入事件不再能合成
+  `companion.quick-action`／`companion.click` 等人類互動觀察（只留 `character.input-not-observed` 稽核），
+  堵死了繞過桌面 surface 閘門的路徑。
+- **`safety-invariants-076`**：adapter 在緊急停止期間（重新）連線／協商時會立刻收到緊急投影＋
+  `character.estop-resync` 稽核，不用等下一次事件才追上真相。
+
+##### Fixed — link-transports ＋ protocol-conformance（13 項，11 fixed／2 partial）
+- **`link-transports-047`**：宣告式 HTTP 動器的 `emergency_stop` 不再無條件回 `Ok(())`——沒有 stop 端點、
+  或裝置拒絕／逾時都會誠實回錯，緊急停止的 `stoppedActuators` 不會再算進從未被要求停止的裝置。
+- **`link-transports-048`**：`ensure_ready` 補上世代檢查，重連期間收到的舊握手不會被誤蓋到新連線上。
+- **`protocol-conformance-029`／`link-transports-053`**：`InFlightGuard` 現在涵蓋 `cancel()`／`read_state()`／
+  `stop_all()`，並行請求時無 id 的裝置錯誤不再被誤歸屬給恰好在飛的那一筆命令。
+- **`protocol-conformance-027`**：ESP32 序列模擬器不再因超出 float32 範圍的參數而整個程序當掉（改成
+  clamp＋誠實錯誤，與韌體 `roundToLong`＋`clampLong` 行為一致）。
+- **`protocol-conformance-028`**：韌體與桌面兩端補上 BLE notification 的長度紀律（`setMTU`＋分段＋換行
+  終止符；桌面端新增 `NotifyAssembler` 重組並計數解不出來的訊息）。
+- **`link-transports-049`**：serial 埠立刻掛掉的連線現在會退避並在連續兩次「活不到 1 秒」後回報離線，不再
+  在 Connecting 狀態原地打轉。
+- **`link-transports-050`**：一次讀不到任何 manifest 宣告的 fact 不再算是成功觀察——改回 `Unavailable` 並
+  記健康度失敗，runtime 不會再把零 fact 的回覆標成「已測試」。
+- **`link-transports-051`**：裝置的配對鎖定（`pairingLocked`）現在會被辨識為「鎖定中，不是密碼錯」，不再
+  誤報成配對碼錯誤。
+- **`protocol-conformance-030`（partial）**：host 端現在會誠實記錄「配對碼從未被比較」
+  （`pairing_unverified`），但 `providers.rs` 尚未依此降級 evidence level（見已知限制）。
+- **`link-transports-052`**：逾時訊息現在會附帶「N 則訊息在等待期間被丟棄／解不出來」的說明，不再是單純
+  的「沒有回應」。
+- **`link-transports-054`（partial）**：serial pty/file fallback 的讀取執行緒洩漏現在會被計數＋警告，尚未
+  消除根因（見已知限制）。
+- **`protocol-conformance-031`**：ESP32 韌體 README 的參數範圍表訂正為與硬限制表一致（`servo.move` 是
+  10..170，不是 0..180）。
+
+##### Added — 測試（`docs-claims-071`：先前未記錄的既有新增）
+- **Playwright user-task 套件**：12 個 spec、65 個 `test(`（8 個新增：`a11y`／`agent-not-installed`／
+  `character`／`estop`／`home-state`／`iphone`／`sensors`／`work-delegate`，加上既有
+  `app`／`evidence`／`narrow`／`offline`）；`playwright.config.ts` 新增三個有序 project
+  （`first-run`→`main`→`estop-last`，破壞性列放最後）；共用 `e2e/helpers.ts`。
+- **`examples/fake_iphone.rs`**：程序外**【模擬 iPhone（fixture）】**可執行檔，供 Playwright 的
+  `iphone.spec.ts` 等 4 個測試重現手機連線／斷線／權限拒絕／停止感測未回應等狀態；不是真機證據。
+
+##### Known limitations（第二輪新增；完整清單與根因見 `docs/releases/v0.5.0-known-limitations.md`）
+- `safety-invariants-074`：`provider-off:<id>` 標記在升級邊界有一次性缺口——舊版本停用的裝置在升級後第一次
+  重啟仍會重開連線，之後每次明確停用／啟用才會正確持久。
+- `link-transports-054`：serial pty/file fallback 的讀取執行緒洩漏已計數（`detached_reader_threads()`），
+  根因（blocking read 無逾時）未消除，只影響 fallback 路徑，不影響真硬體的 `serialport` 路徑。
+- `protocol-conformance-030`：host 已標示配對碼未被比較（`pairingUnverified`），`providers.rs` 尚未依此降級
+  handshake evidence level。
+- `companion-gameplay-032`：舞台死區已消除，但 Tauri `companion_hit_rect` 仍只回報單一矩形，該區域仍非桌面
+  可點穿。
+- `rig-renderer-056`：跨姿勢交叉淡出的最差單幀頭部跳動降到 4.48 px，未到 0（pose 通道仍是兩姿勢混合的
+  近似）。
+- `agent-honesty-022`：resume 的原始 workdir 未持久化到 `AgentSessionRecord`；CLI `agent open --resume` 省略
+  `--ttl`／`--max-cost` 時會被誠實拒絕，但尚未自動帶入原始限額。
+- `safety-invariants-078`：`POST /v1/agent-sessions/{id}/interrupt` 對 legacy agent token 仍未做擁有權比對。
+- `memory-ui-003`：`memory_export` 仍只涵蓋記憶項目（不含知識／素材／角色互動記憶）；`limitReached` 是「這頁
+  剛好裝滿」推得，非精確計數。
+- `ia-settings-018`：首次設定精靈的 `commit_onboarding` 中途失敗時已誠實回報進度，但仍非原子（已套用的
+  不會自動回滾）。
+- `safety-invariants-075`：L4「只這一次」目前是最短 TTL（5 分鐘），不是真正的單次授權（`Consent` 尚無
+  `max_uses`／one-shot 欄位）。
+- `character-protocol-043`／`safety-invariants-077`：外部 adapter 的輸入事件已完全不能合成人類互動觀察
+  （比原本更嚴格），還沒有安全的新管道讓外部 adapter 未來能回報使用者互動。
+- `interaction-api`：`adapter_token_http_routes_share_the_websocket_rate_limit` 這個真實時鐘限流測試在機器
+  負載高（多個 agent 並行 build）時會兩邊 flake，單獨跑穩定通過；本輪未改動任何限流程式碼。
 
 ### Phase 8：Character Presentation Protocol、小樞改為 Reference Adapter、一般模式產品化（2026-09-02）
 
@@ -131,7 +502,9 @@
   Live2D／Spine／Rive／3D／影片等引擎沒有內建 adapter——它們要以外部 WebSocket adapter 或未來的 in-process adapter 接上。
 - 外部 adapter 一律以 `familiar` 角色加入，還沒有 UI 可指定 role；多角色安全去重只按 role class。
 - `hello` body 上限 256 KB，最大 manifest 加 negotiate 副本可能超過（極端情況，未處理）。
-- 工作頁「選擇資料夾…」在桌面版沒有內建資料夾選擇器（無 dialog plugin），以路徑文字欄代替。
+- ~~工作頁「選擇資料夾…」在桌面版沒有內建資料夾選擇器（無 dialog plugin），以路徑文字欄代替。~~
+  已在 Phase 9 解決（`tauri-plugin-dialog`，僅 `main` 視窗；瀏覽器版誠實顯示不支援），但沒有自動化驗收，
+  見 Phase 9 已知限制。
 - iPhone `character.present` 仍是獨立的 7 態 actuator，未改走 CPP（「前往 iPhone」呈現表面未做）。
 - 效能數字仍為 headless Chromium（`pnpm perf`），非 WKWebView。
 - 對抗審查未修（誠實記錄）：多角色「玩耍」只有使魔↔使魔與使魔→主角 greet（使魔不追球、主角不主動找使魔）；頭飾光沒有真實連線
@@ -657,7 +1030,9 @@ Home Assistant adapter 未做；配對期可被區網 peer 燒掉（已 audit）
 - 文件：ELI5 安裝、特點能力、人類使用手冊、桌面指南（mermaid＋插圖）
 - 25-agent 對抗式審查，14 項確認缺陷全數修復；105 測試
 
-[Unreleased]: https://github.com/miles990/adaptive-interaction/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/miles990/adaptive-interaction/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/miles990/adaptive-interaction/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/miles990/adaptive-interaction/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/miles990/adaptive-interaction/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/miles990/adaptive-interaction/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/miles990/adaptive-interaction/releases/tag/v0.1.0

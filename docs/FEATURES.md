@@ -103,7 +103,7 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 - **四層語意解析**：Adapter 宣告 → 中央能力目錄（44 個常見概念、zh-TW/en、alias glob）
   → 確定性 fallback（技術 ID 分詞＋schema 說明）→ AI 輔助說明（綁 manifest hash、
   變更即失效）。缺漏一律保守顯示為「未知」，永不猜成安全。
-- **首次設定精靈**：三步（認識小樞／AI 幫手／安全預設）draft/commit；
+- **首次設定精靈**：三步（選擇角色與陪伴方式／選擇 AI 工作方式／確認安全與權限預設）draft/commit；
   敏感與對外能力永不預選；硬體掃描與 iPhone 配對移到第一次需要時再問（v0.5 起）。
 - **句子式配方編輯器**：不寫 YAML；自然語言摘要由結構確定性生成；
   YAML↔JSON 無損 round-trip（未知欄位 serde flatten 保留）。
@@ -126,7 +126,7 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 | 桌面 | Tauri 2 + React：總覽／受器／動器／工具／配方／政策／時間軸＋常駐緊急停止鈕 |
 | 儲存 | File=Truth（YAML 設定人類可改）＋SQLite（收據/審計/會話）＋atomic write＋last-known-good |
 | 稽核 | 每個敏感操作寫 audit；緊急停止全程留痕；敏感欄位遮罩 |
-| 測試 | v0.4.1 基線 Rust 336、Vitest 94、Playwright 23、Tauri 4、CLI E2E 51（v0.5 最新數字見 `docs/v05-recovery-matrix.md` 與 CHANGELOG [Unreleased]）；含未授權、撤回、超載、path traversal、雙 daemon、crash 恢復與 scoped-token 邊界 |
+| 測試 | v0.4.1 基線 Rust 336、Vitest 94、Playwright 23、Tauri 4、CLI E2E 51（v0.5 最新數字見 `docs/releases/v0.5.0-test-matrix.md` 與 CHANGELOG [0.5.0]）；含未授權、撤回、超載、path traversal、雙 daemon、crash 恢復與 scoped-token 邊界 |
 
 ## v0.4
 
@@ -142,7 +142,8 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 - CAS 素材庫＋知識圖譜＋FTS5＋candidate-only AI 寫入＋人類專屬 activate
 - 知識更新決策器＋經驗轉知識（升格需反例＋適用範圍）＋Knowledge Receipt
 - 控制中心 IA：v0.4 為 8 要求頁；**v0.5 起簡化為 5 個一級入口
-  （現在／小樞／工作／連接與權限／更多）**，Activity 改為右上 Inbox，
+  （現在／〔目前角色〕／工作／連接與權限／更多，第二項顯示你目前角色的名字，預設小樞）**，
+  Activity 改為右上 Inbox，
   舊 tab id（tray 深連結、Inbox route）全部相容折疊＋全域搜尋/指令＋統一待辦收件匣＋真實畫面證據
 
 ## v0.5（開發中：角色・硬體・AI 三核心重定位；未發布）
@@ -166,7 +167,10 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
   ESP32 官方參考韌體（8 周邊、韌體硬限制、arduino-cli 已編譯，**未真板驗收**）；模擬器與真機分開標示；
   provider 六階人話（只發現／已配對／已安裝未連線／已連線未測試／**已測試**／已啟用）＋「測試裝置」。
 - **iPhone Mobile Provider**：TLS wss＋指紋釘選＋配對碼 HMAC＋每機 token；4 受器／6 動器；撤銷即斷線；heartbeat；
-  estop 同時停手機感測；感測不靜默；綠勾只走人類驗證；SwiftUI companion app（**模擬器**驗收、真機未驗）；BLE gateway 只有 scan。
+  estop 同時停手機感測；感測不靜默；綠勾只走人類驗證；SwiftUI companion app（**iOS 模擬器**驗收完整，
+  **iPhone 11／iOS 26.3.1 真機部分驗收**——配對、動器、緊急停止投影＋停感測、撤銷等列已過，動作觀察與
+  BLE connect／GATT 未涵蓋，見 `docs/releases/v0.5.0-iphone-device-evidence.md`）；BLE gateway 桌面端只有
+  scan（真機 CoreBluetooth scan 已驗，connect／GATT 未驗）。
 - **控制中心**：5 入口＋3 步精靈＋右上 Inbox（鍵盤可用）＋單一主人守門測試＋L0–L4 風險分級標籤＋§11 記憶與知識三區人話。
 - **Character Presentation Protocol 1.0**（`docs/character-protocol/`）：可版本化 manifest（characterId 穩定身分、adapterKind、
   assets、capabilities／inputCapabilities、channels、intents、variants、pronouns、preferencesSchema、securityRequirements、
@@ -177,5 +181,5 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
   （adapter token 分權）、stdio 規格；reference adapters：小樞 rig、sprite（舊 pack 相容層）、文字、外部 Node fixture。
   可信 host overlay（Tauri）保證 estop／感測指示不依賴任何 renderer；角色匯入只收純資料（Rust 驗證＋magic bytes）。
 - **一般模式狀態投影**：所有工作／收件匣狀態走同一份 exhaustive 人話表；未知原始值顯示「結果不確定」而非原始字串。
-- 測試：以 `docs/acceptance-evidence.md` v0.5 最新章節（Phase 8）的實跑數字為準；詳見
-  `docs/acceptance-evidence.md` v0.5 章節與 `docs/v05-recovery-matrix.md`。
+- 測試：以 `docs/acceptance-evidence.md` v0.5 最新章節（Phase 9）與 `docs/releases/v0.5.0-test-matrix.md`
+  的實跑數字為準；詳見 `docs/acceptance-evidence.md` v0.5 章節與 `docs/v05-recovery-matrix.md`。

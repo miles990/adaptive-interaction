@@ -94,6 +94,14 @@ POST   /v1/sensors/microphone/listen   {"durationMs"}   # needs enable + explici
 POST   /v1/sensors/stop
 ```
 
+`POST /v1/sensors/stop` (v0.5 Phase 9; available to human, agent, and agent-session tokens) returns
+`{"stopped": bool, "uncertain": bool, "local": {"microphone": "stopped"|"idle"}, "devices": [{"deviceId",
+"name", "outcome": "stopped"|"unknown"|"unreachable", "waitedMs", "via": "ack"|"status"}]}` — `stopped` is
+only `true` when every local and remote source confirmed; `uncertain` means at least one source (typically
+a connected iPhone) did not confirm within the ~2 s wait. Never read the old `{"stopped": true}` shape as a
+guarantee of anything before Phase 9; check `stopped`/`uncertain`/`devices[].outcome`, not just presence of
+a 200 response.
+
 Events added: `provider.registered`, `provider.state-changed`,
 `sensor.started`, `sensor.stopped`.
 
@@ -129,3 +137,34 @@ gate (only the desktop IPC can).
   a Knowledge Candidate, never an immediately active universal rule.
 - Tool surface adds `interaction.knowledge_*` (search/get/get_source/expand_graph/
   propose_entity/propose_claim/propose_relation/propose_supersede/submit_review).
+
+## v0.5 Phase 9 additions (release hardening)
+
+- `POST /v1/onboarding/preview` — HUMAN TOKEN ONLY (same `!path.starts_with("/v1/onboarding")` rule as
+  `/v1/onboarding/commit`). Same request body as `/v1/onboarding/commit`; zero side effects. Returns
+  `{"receptors":[{"id","from":"on"|"off","to","changed"}],"actuators":[same shape],
+  "starterRecipes":[{"id","exists"}],"policyPatch","preferences","changed"}` — a dry-run diff the desktop
+  wizard shows before committing. Errors mirror commit exactly (404 unknown id, `consent_required` for a
+  consent-gated capability, validation error for a bad policy patch).
+- `POST /v1/mobile/devices/{id}/sensors/stop` and `POST /v1/mobile/devices/{id}/test` — HUMAN TOKEN ONLY
+  (agent/session tokens get 403 `token_scope_forbidden`; unknown `id` is 404). Per-device counterparts to
+  `POST /v1/sensors/stop`: `sensors/stop` returns `{"deviceId","requested":bool,"connected":bool,
+  "outcome":"stopped"|"unknown"|"unreachable","waitedMs","via"}`; `test` sends a WebSocket ping and returns
+  `{"deviceId","ok":bool,"connected":bool,"latencyMs"?,"uncertain"?,"reason"?}` — `ok:true` only means the
+  socket answered, never that the phone's app functionality works.
+- `POST /v1/emergency-stop` response/event/audit payload gained `"sensors"` (the same
+  `StopAllSensorsReport` shape as `POST /v1/sensors/stop`) and `"characterEmergency"`
+  (`[{"deviceId","outcome":"acknowledged"|"refused"|"unknown"|"unreachable"}]` — every connected iPhone's
+  presentation-emergency projection outcome). An AI token can no longer make an iPhone display
+  "emergency-stop" state through `character.present` — that truth state is runtime-owned now.
+- `GET /v1/providers` / `GET /v1/providers/:id` omit `identity.fingerprint` for any non-human principal
+  (agent token, agent-session token, character adapter token). Only the human/control-plane caller sees a
+  paired iPhone's public identity fingerprint.
+- Character Presentation Protocol: `POST /v1/character/hello` accepts an optional `reducedMotion: bool`
+  (defaults `false` if omitted) reflecting the caller's `prefers-reduced-motion` — negotiation and every
+  subsequent receipt's `resolution` for that instance depend on it (a receipt's resolution can only degrade
+  from what was negotiated, never upgrade). `GET /v1/character/instances` and `GET /v1/character/adapters`
+  report `author`, `version`, `inputCapabilities`, `executable`, `network` (and adapters:
+  `characterDisplayName`, `adapterKind`) for every registered instance/adapter, including ones that have
+  never connected — these were already present before Phase 9, this note only corrects prior
+  documentation drift.

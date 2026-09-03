@@ -44,8 +44,9 @@
 
 ## 給一般人的介面：一般模式
 
-桌面控制中心預設是**一般模式**：首次啟動有三步設定精靈（認識小樞／要讓小樞幫忙工作嗎／
-安全預設），之後只有 **5 個一級入口：現在／小樞／工作／連接與權限／更多**，待決定事項在
+桌面控制中心預設是**一般模式**：首次啟動有三步設定精靈（選擇角色與陪伴方式／選擇 AI 工作方式／
+確認安全與權限預設），之後只有 **5 個一級入口：現在／〔目前角色〕／工作／連接與權限／更多**
+（第二項顯示你目前角色的名字，預設是小樞），待決定事項在
 右上角 Inbox——全部人話、全部卡片，不需要理解 UUID、YAML 或 JSON。
 
 - 每個能力都有一張卡片：它是什麼、資料從哪來、會不會離開這台電腦、
@@ -116,7 +117,9 @@ v0.5 **不沿用** 25/25 的完成度敘述；它的誠實基線與收尾狀態�
 - **AI 角色閉環**：Agent session taxonomy 事件→角色演出；claimed ≠ verified，
   綠勾只在人類驗證後。
 - **iPhone Mobile Provider**：TLS wss＋配對碼＋每機金鑰；SwiftUI companion app
-  已在 **iOS 模擬器**完成配對閉環（真機未驗）。
+  已在 **iOS 模擬器**完成配對閉環，**iPhone 11／iOS 26.3.1 真機部分驗收**（2026-09-03：配對、動器、
+  緊急停止投影與停感測、撤銷等列已過真機；動作觀察、BLE connect／GATT 尚未涵蓋，見
+  [`docs/releases/v0.5.0-iphone-device-evidence.md`](docs/releases/v0.5.0-iphone-device-evidence.md)）。
 - **Character Presentation Protocol 1.0（角色無關的呈現層）**：Runtime 只送語意化
   Character Intent（含 truthState 與 priority 下限），角色透過可版本化 manifest＋能力協商接上
   （參數化 rig、sprite、文字、外部 WebSocket 程式都走同一份契約；不支援就誠實降級，安全訊息
@@ -182,11 +185,12 @@ interact-ai self uninstall --yes     # 移除（--purge 連設定資料一起刪
 | **[架構總覽](docs/ARCHITECTURE.md)** | crate 責任、生命週期、誠實階梯、provider／agent／sensor 設計 |
 | **[驗收證據](docs/acceptance-evidence.md)** | 真實環境端到端測試紀錄 |
 | **[v0.4 機器證據](docs/v04-final-machine-evidence.md)** | v0.4 測試數字、connector、SHA-256 與未完成項 |
-| **[v0.5 Gap Matrix](docs/v05-capability-gap-matrix.md)** | v0.5 誠實基線（§0–§8）與 Phase 7 收尾狀態（§9） |
+| **[v0.5 Gap Matrix](docs/v05-capability-gap-matrix.md)** | v0.5 誠實基線（§0–§8）、Phase 7 收尾狀態（§9）、Phase 8 收尾狀態（§10，Character Presentation Protocol＋一般模式產品化）與 Phase 9 發布硬化（§11） |
 | **[v0.5 恢復矩陣](docs/v05-recovery-matrix.md)** | 新 Session 逐規格條目核對：程式存在／已接線／測試／真環境／缺口（463 列） |
 | **[Character Presentation Protocol](docs/character-protocol/README.md)** | 角色呈現通用協定唯一契約：manifest／能力協商／intent／input event／lifecycle／receipt／wire／安全模型／版本政策 |
 | **[Character Adapter 撰寫指南](docs/character-protocol/adapter-authoring.md)** | 如何建立最小角色、宣告能力、收 intent、回 receipt、送 event、cancel／Emergency／Reduced Motion、自訂 channel、WebSocket、migration、測試 |
 | **[Reference Adapters 導覽](docs/character-protocol/reference-adapters.md)** | 小樞 rig／sprite／文字／外部 WebSocket fixture 各走一遍 |
+| **[v0.5.0 發布就緒](docs/releases/v0.5.0-release-readiness.md)** | 發布關卡清單、測試矩陣、已知限制、iPhone 真機證據、遷移指南（`docs/releases/`） |
 | **[更新日誌](CHANGELOG.md)** | 版本歷史（語意化版本） |
 
 ## 核心設計理念
