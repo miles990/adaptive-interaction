@@ -163,6 +163,8 @@ struct InstanceState {
     manifest: CharacterManifest,
     role: CharacterRole,
     generation: u64,
+    /// 這個 instance 的 Reduced Motion（由可信 host 的 hello 帶進來）；`None` = 沿用 config 預設。
+    reduced_motion: Option<bool>,
     negotiated: Option<Negotiated>,
     lifecycle: AdapterLifecycleState,
     connected: bool,
@@ -176,7 +178,25 @@ struct InstanceState {
     resume_seq: u64,
     input: InputNormalizer,
     rate: RateLimiter,
+    /// 上一次寫出 wire-rejected 稽核的時間（毫秒）；`None` = 還沒寫過。
+    wire_reject_audit_at: Option<i64>,
+    /// 自上次稽核以來被壓下的畸形訊息數（有界稽核用的計數器）。
+    wire_reject_suppressed: u64,
 }
+
+/// 畸形（parse 失敗）訊息的計費結果：先扣速率預算，再決定要不要寫稽核。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WireRejectVerdict {
+    /// 這則訊息是否還在 50 則/s 的預算內（false = 已超量，連錯誤回覆都不再送）。
+    pub within_rate: bool,
+    /// 是否應該寫一列稽核（每個 instance 每 [`WIRE_REJECT_AUDIT_WINDOW_MS`] 至多一列）。
+    pub audit: bool,
+    /// 這一列稽核代表的、上次稽核後被壓下的畸形訊息數（`audit=false` 時為 0）。
+    pub suppressed: u64,
+}
+
+/// 畸形訊息稽核的時間窗：同一個 instance 每 5 秒至多留下一列（其餘只累加計數）。
+pub const WIRE_REJECT_AUDIT_WINDOW_MS: i64 = 5_000;
 
 impl InstanceState {
     fn remember_message_id(&mut self, message_id: &str, ring: usize) {
@@ -301,6 +321,7 @@ impl Gateway {
             manifest,
             role,
             generation: 0,
+            reduced_motion: None,
             negotiated: None,
             lifecycle: AdapterLifecycleState::Validated,
             connected: false,
@@ -314,8 +335,74 @@ impl Gateway {
             resume_seq: 0,
             input: InputNormalizer::new(role, self.config.input_limits),
             rate: RateLimiter::new(Limits::MAX_MESSAGES_PER_SEC, 0),
+            wire_reject_audit_at: None,
+            wire_reject_suppressed: 0,
         };
         self.instances.insert(id, state);
+    }
+
+    /// 設定這個 instance 的 Reduced Motion（只有可信 host／Runtime 能呼叫；adapter 不能自己宣告）。
+    /// 之後的 `hello_for`／`on_negotiate` 都以這個值協商。回傳 instance 是否存在。
+    pub fn set_reduced_motion(&mut self, id: &InstanceId, on: bool) -> bool {
+        match self.instances.get_mut(id) {
+            Some(inst) => {
+                inst.reduced_motion = Some(on);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// 這個 instance 目前協商用的 Reduced Motion（沒設定過就是 config 預設）。
+    pub fn reduced_motion(&self, id: &InstanceId) -> Option<bool> {
+        self.instances
+            .get(id)
+            .map(|i| i.reduced_motion.unwrap_or(self.config.reduced_motion))
+    }
+
+    /// 對這個 instance 扣一則速率預算（§8：每個 adapter ≤ 50 則/s）。
+    /// HTTP `POST /v1/character/{receipts,events}` 與 WebSocket 共用同一個計數器。
+    /// 未知 instance 回 `true`（由呼叫端各自回 404／unknown-instance）。
+    pub fn allow_message(&mut self, id: &InstanceId, now: Timestamp) -> bool {
+        match self.instances.get_mut(id) {
+            Some(inst) => inst.rate.allow(now.timestamp_millis()),
+            None => true,
+        }
+    }
+
+    /// 畸形訊息（連 wire 都解不開）：**先**扣速率預算，再決定要不要寫稽核。
+    /// 稽核有界：同一個 instance 每 [`WIRE_REJECT_AUDIT_WINDOW_MS`] 至多一列，
+    /// 被壓下的次數累加到下一列的 `suppressed`。
+    pub fn note_wire_rejected(&mut self, id: &InstanceId, now: Timestamp) -> WireRejectVerdict {
+        let ms = now.timestamp_millis();
+        let Some(inst) = self.instances.get_mut(id) else {
+            return WireRejectVerdict {
+                within_rate: true,
+                audit: true,
+                suppressed: 0,
+            };
+        };
+        let within_rate = inst.rate.allow(ms);
+        let due = inst
+            .wire_reject_audit_at
+            .is_none_or(|last| ms.saturating_sub(last) >= WIRE_REJECT_AUDIT_WINDOW_MS);
+        if due {
+            let suppressed = inst.wire_reject_suppressed;
+            inst.wire_reject_suppressed = 0;
+            inst.wire_reject_audit_at = Some(ms);
+            WireRejectVerdict {
+                within_rate,
+                audit: true,
+                suppressed,
+            }
+        } else {
+            inst.wire_reject_suppressed = inst.wire_reject_suppressed.saturating_add(1);
+            WireRejectVerdict {
+                within_rate,
+                audit: false,
+                suppressed: 0,
+            }
+        }
     }
 
     /// 移除 instance（dispose）：進行中的 command 全部 `uncertain`。
@@ -393,7 +480,7 @@ impl Gateway {
             character_instance_id: inst.id.0.clone(),
             role: inst.role,
             locale: self.config.locale.clone(),
-            reduced_motion: self.config.reduced_motion,
+            reduced_motion: inst.reduced_motion.unwrap_or(self.config.reduced_motion),
             requires: CharacterIntent::ALL.to_vec(),
             limits: HelloLimits {
                 max_message_bytes: Limits::MAX_MESSAGE_BYTES,
@@ -462,7 +549,7 @@ impl Gateway {
             out.push(GatewayOutput::Audit(format!(
                 "instance {id} re-negotiated; pending commands marked uncertain"
             )));
-            Self::mark_all_uncertain(inst, "re-negotiated", now, &mut out);
+            let _ = Self::mark_all_uncertain(inst, "re-negotiated", now, &mut out);
         }
         inst.generation += 1;
         negotiated.generation = inst.generation;
@@ -483,12 +570,15 @@ impl Gateway {
         Ok((negotiated, out))
     }
 
+    /// 進行中的 command 全部 `uncertain`（不猜 completed），回傳其中的安全 intent envelope
+    /// （呼叫端決定要不要用 `system.text` 補送——斷線／crash 要補，重新協商不補）。
     fn mark_all_uncertain(
         inst: &mut InstanceState,
         reason: &str,
         now: Timestamp,
         out: &mut Vec<GatewayOutput>,
-    ) {
+    ) -> Vec<IntentEnvelope> {
+        let mut safety = Vec::new();
         let mut idx = 0;
         while idx < inst.pending.len() {
             if inst.pending[idx].handoff || inst.pending[idx].status.is_terminal() {
@@ -497,12 +587,49 @@ impl Gateway {
             }
             let message_id = inst.pending[idx].envelope.message_id.clone();
             let resolution = inst.pending[idx].resolution.resolution;
+            let envelope = inst.pending[idx].envelope.clone();
             let receipt = inst
                 .receipt(&message_id, ReceiptStatus::Uncertain, now)
                 .with_resolution(resolution)
                 .with_reason(reason);
             inst.finish(idx, receipt.clone());
+            if envelope.intent.is_safety() {
+                safety.push(envelope);
+            }
             out.push(GatewayOutput::Receipt(receipt));
+        }
+        safety
+    }
+
+    /// 斷線／crash 時，把還沒演完的安全 intent 以 `system.text` 補送（§9：crash → `uncertain` ＋ fallback）。
+    /// 用衍生的 messageId，原本的 `uncertain` 回執不被覆蓋。
+    fn resend_safety_as_system_text(
+        inst: &mut InstanceState,
+        envelopes: Vec<IntentEnvelope>,
+        ring: usize,
+        detail: &str,
+        now: Timestamp,
+        out: &mut Vec<GatewayOutput>,
+    ) {
+        for envelope in envelopes {
+            let mut fallback = envelope.clone();
+            fallback.message_id = format!("{}/system-text", envelope.message_id);
+            if inst.dedupe_set.contains(&fallback.message_id) {
+                continue;
+            }
+            inst.remember_message_id(&fallback.message_id, ring);
+            out.push(GatewayOutput::Audit(format!(
+                "disconnect: safety intent {} was in flight; falling back to system.text",
+                envelope.message_id
+            )));
+            Self::system_text(
+                inst,
+                &fallback,
+                IntentResolution::system_text(),
+                detail,
+                now,
+                out,
+            );
         }
     }
 
@@ -980,13 +1107,19 @@ impl Gateway {
             inst.pending[idx].acked_at = Some(now);
         }
         let negotiated_resolution = inst.pending[idx].resolution.resolution;
+        // resolution 只能變差：adapter 可以誠實回報降級（reduced／substituted），
+        // 但不能把協商結果升級成 exact（`Resolution` 的 Ord 即 exact < substituted < reduced < unsupported < failed）。
+        let effective_resolution = if receipt.status == ReceiptStatus::Failed {
+            Resolution::Failed
+        } else {
+            receipt
+                .resolution
+                .filter(|r| *r <= Resolution::Reduced)
+                .map_or(negotiated_resolution, |r| r.max(negotiated_resolution))
+        };
         let mut gateway_receipt = inst
             .receipt(&receipt.message_id, receipt.status, now)
-            .with_resolution(if receipt.status == ReceiptStatus::Failed {
-                Resolution::Failed
-            } else {
-                negotiated_resolution
-            });
+            .with_resolution(effective_resolution);
         if let Some(detail) = &receipt.detail {
             gateway_receipt = gateway_receipt.with_detail(detail.clone());
         }
@@ -1178,13 +1311,17 @@ impl Gateway {
         now: Timestamp,
     ) -> Vec<GatewayOutput> {
         let mut out = Vec::new();
-        let Some(inst) = self.instances.get_mut(id) else {
+        if !self.instances.contains_key(id) {
             out.push(GatewayOutput::Audit(format!(
                 "message: unknown instance {id}"
             )));
             return out;
+        }
+        let within_rate = self.allow_message(id, now);
+        let Some(inst) = self.instances.get_mut(id) else {
+            return out;
         };
-        if !inst.rate.allow(now.timestamp_millis()) {
+        if !within_rate {
             out.push(GatewayOutput::Audit(format!(
                 "message: {} from {id} rate-limited; dropped",
                 message.kind()
@@ -1259,11 +1396,20 @@ impl Gateway {
         now: Timestamp,
     ) -> Vec<GatewayOutput> {
         let mut out = Vec::new();
+        let ring = self.config.dedupe_ring;
         let Some(inst) = self.instances.get_mut(id) else {
             return out;
         };
         let was_connected = inst.connected;
-        Self::mark_all_uncertain(inst, reason.as_str(), now, &mut out);
+        let orphaned_safety = Self::mark_all_uncertain(inst, reason.as_str(), now, &mut out);
+        Self::resend_safety_as_system_text(
+            inst,
+            orphaned_safety,
+            ring,
+            "adapter gone; system.text fallback",
+            now,
+            &mut out,
+        );
         inst.generation += 1;
         inst.connected = false;
         inst.negotiated = None;

@@ -1369,3 +1369,291 @@ fn wire_round_trip_of_gateway_outputs() {
     assert_eq!(v["envelope"]["truthState"], "waiting-input");
     assert_eq!(v["envelope"]["priority"], 60);
 }
+
+// ---------------------------------------------------------------------------
+// Reduced Motion 只有一個主人（每個 instance 由可信 host 設定）＋回執只能誠實變差
+// ---------------------------------------------------------------------------
+
+#[test]
+fn reduced_motion_is_per_instance_and_drives_negotiation() {
+    let m = shu_manifest();
+    let mut gw = Gateway::default();
+    let id = gw.register_instance(m.clone(), CharacterRole::PrimaryCompanion);
+    // 預設（config）：非 reduced。
+    assert_eq!(gw.reduced_motion(&id), Some(false));
+    assert!(!gw.hello_for(&id).expect("hello").reduced_motion);
+
+    // 可信 host 回報 Reduced Motion → hello 與協商都跟著變。
+    assert!(gw.set_reduced_motion(&id, true));
+    assert_eq!(gw.reduced_motion(&id), Some(true));
+    assert!(gw.hello_for(&id).expect("hello").reduced_motion);
+    let (negotiated, _) = gw
+        .on_negotiate(&id, Negotiate::from_manifest(&m, 1), t(0))
+        .expect("negotiates");
+    assert!(negotiated.reduced_motion, "negotiated 必須回報真值");
+    assert_eq!(
+        negotiated
+            .resolutions
+            .get(&CharacterIntent::Notice)
+            .map(|r| r.resolution),
+        Some(Resolution::Reduced),
+        "reducedMotionBehavior=reduced 的能力必須解析成 reduced，不能假裝 exact"
+    );
+    // 不存在的 instance：誠實回 false／None，不 panic。
+    assert!(!gw.set_reduced_motion(&InstanceId("nope".into()), true));
+    assert_eq!(gw.reduced_motion(&InstanceId("nope".into())), None);
+}
+
+#[test]
+fn receipt_resolution_may_degrade_but_never_upgrade() {
+    let m = shu_manifest();
+    let mut gw = Gateway::default();
+    let id = gw.register_instance(m.clone(), CharacterRole::PrimaryCompanion);
+    gw.set_reduced_motion(&id, true);
+    gw.on_negotiate(&id, Negotiate::from_manifest(&m, 1), t(0))
+        .expect("negotiates");
+    let generation = gw.generation(&id).unwrap_or(0);
+    gw.dispatch(
+        &id,
+        envelope(
+            &id,
+            "m1",
+            CharacterIntent::Notice,
+            TruthState::None,
+            10,
+            t(1),
+        ),
+        t(1),
+    );
+    // adapter 謊報 exact：協商是 reduced → 仍回 reduced。
+    let out = gw.on_receipt(
+        &id,
+        CommandReceipt::new("m1", id.as_str(), generation, ReceiptStatus::Started, t(2))
+            .with_resolution(Resolution::Exact),
+        t(2),
+    );
+    assert_eq!(receipts(&out)[0].resolution, Some(Resolution::Reduced));
+
+    // adapter 誠實降級（substituted 比協商的 reduced 好 → 取較差者；unsupported 更差 → 採用）。
+    let out = gw.on_receipt(
+        &id,
+        CommandReceipt::new(
+            "m1",
+            id.as_str(),
+            generation,
+            ReceiptStatus::Completed,
+            t(3),
+        )
+        .with_resolution(Resolution::Substituted),
+        t(3),
+    );
+    assert_eq!(receipts(&out)[0].resolution, Some(Resolution::Reduced));
+
+    // 非 reduced 的實例：adapter 回 reduced → 誠實採用（不是覆蓋成 exact）。
+    let mut gw2 = Gateway::default();
+    let id2 = connect(&mut gw2, &m, CharacterRole::PrimaryCompanion);
+    let generation2 = gw2.generation(&id2).unwrap_or(0);
+    gw2.dispatch(
+        &id2,
+        envelope(
+            &id2,
+            "m2",
+            CharacterIntent::Notice,
+            TruthState::None,
+            10,
+            t(1),
+        ),
+        t(1),
+    );
+    let out = gw2.on_receipt(
+        &id2,
+        CommandReceipt::new(
+            "m2",
+            id2.as_str(),
+            generation2,
+            ReceiptStatus::Started,
+            t(2),
+        )
+        .with_resolution(Resolution::Reduced),
+        t(2),
+    );
+    assert_eq!(receipts(&out)[0].resolution, Some(Resolution::Reduced));
+}
+
+// ---------------------------------------------------------------------------
+// 速率限制對所有入口一致（HTTP／WS 共用）＋畸形訊息先計費、稽核有界
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rate_budget_is_shared_by_every_entry_point() {
+    let (mut gw, id) = primary(&text_manifest());
+    // 50 則/s：前 50 則過，第 51 則起被擋。
+    for i in 0..50 {
+        assert!(gw.allow_message(&id, t(1)), "第 {i} 則應在預算內");
+    }
+    assert!(!gw.allow_message(&id, t(1)));
+    // on_message 走同一個預算（已用完 → rate-limited）。
+    let out = gw.on_message(&id, WireMessage::Heartbeat { generation: None }, t(1));
+    assert!(audits(&out).iter().any(|a| a.contains("rate-limited")));
+    // 下一秒回補。
+    assert!(gw.allow_message(&id, t(2)));
+    // 未知 instance：不 panic，交給呼叫端回 404。
+    assert!(gw.allow_message(&InstanceId("nope".into()), t(1)));
+}
+
+#[test]
+fn malformed_frames_are_charged_first_and_audited_at_most_once_per_window() {
+    let (mut gw, id) = primary(&text_manifest());
+    let first = gw.note_wire_rejected(&id, t(1));
+    assert!(first.within_rate);
+    assert!(first.audit, "第一則畸形訊息要留下稽核");
+    assert_eq!(first.suppressed, 0);
+    // 同一個 5 秒視窗內：只計數、不再寫稽核。
+    for _ in 0..40 {
+        let v = gw.note_wire_rejected(&id, t(1));
+        assert!(!v.audit);
+    }
+    // 一直丟垃圾也會吃掉 50 則/s 的預算（不能用畸形訊息繞過限制）。
+    for _ in 0..20 {
+        gw.note_wire_rejected(&id, t(1));
+    }
+    assert!(
+        !gw.note_wire_rejected(&id, t(1)).within_rate,
+        "畸形訊息必須先扣速率預算"
+    );
+    // 視窗過了：寫一列稽核，並帶出被壓下的次數。
+    let later = gw.note_wire_rejected(&id, t(7));
+    assert!(later.audit);
+    assert!(later.suppressed >= 40, "suppressed={}", later.suppressed);
+    assert_eq!(
+        gw.note_wire_rejected(&id, t(7)).suppressed,
+        0,
+        "同一視窗第二則不再寫稽核"
+    );
+}
+
+#[test]
+fn disconnect_hands_in_flight_safety_intent_to_system_text() {
+    let (mut gw, id) = primary(&text_manifest());
+    gw.dispatch(
+        &id,
+        envelope(
+            &id,
+            "e1",
+            CharacterIntent::Emergency,
+            TruthState::Emergency,
+            100,
+            t(1),
+        ),
+        t(1),
+    );
+    adapter_receipt(&mut gw, &id, "e1", ReceiptStatus::Started, t(2));
+    // adapter 在演出中掛掉：uncertain（不猜 completed）＋安全訊息以 system.text 補送。
+    let out = gw.on_disconnect(&id, DisconnectReason::Crash, t(3));
+    let uncertain: Vec<_> = receipts(&out)
+        .into_iter()
+        .filter(|r| r.status == ReceiptStatus::Uncertain)
+        .collect();
+    assert_eq!(uncertain.len(), 1);
+    assert_eq!(uncertain[0].message_id, "e1");
+    assert_eq!(uncertain[0].reason.as_deref(), Some("crash"));
+    assert_eq!(system_texts(&out), 1, "安全 intent 不得因斷線而遺失");
+    let handed = out.iter().find_map(|o| match o {
+        GatewayOutput::SystemText {
+            message_id, intent, ..
+        } => Some((message_id.clone(), *intent)),
+        _ => None,
+    });
+    let (message_id, intent) = handed.expect("system.text output");
+    assert_eq!(intent, CharacterIntent::Emergency);
+    assert_eq!(message_id, "e1/system-text");
+    assert!(audits(&out)
+        .iter()
+        .any(|a| a.contains("falling back to system.text")));
+
+    // 非安全 intent 不補送（只有 uncertain）。
+    let (mut gw2, id2) = primary(&text_manifest());
+    gw2.dispatch(
+        &id2,
+        envelope(
+            &id2,
+            "w1",
+            CharacterIntent::Work,
+            TruthState::Working,
+            10,
+            t(1),
+        ),
+        t(1),
+    );
+    let out = gw2.on_disconnect(&id2, DisconnectReason::TransportClosed, t(2));
+    assert_eq!(receipts(&out)[0].status, ReceiptStatus::Uncertain);
+    assert_eq!(system_texts(&out), 0);
+}
+
+#[test]
+fn merged_cancel_receipt_from_the_desktop_settles_without_waiting_for_expiry() {
+    // 桌面 TS Gateway 把「併入既有演出」回報成 cancelled{merged}（不是 completed）。
+    // Rust 端必須接受這個轉移並就地終結，不能當成非法轉移丟掉、讓命令一路掛到過期。
+    let (mut gw, id) = primary(&text_manifest());
+    let mut first = envelope(
+        &id,
+        "n1",
+        CharacterIntent::Notice,
+        TruthState::None,
+        40,
+        t(1),
+    );
+    first.correlation_id = Some("receptor:a".into());
+    first.interrupt_policy = InterruptPolicy::Merge;
+    gw.dispatch(&id, first, t(1));
+    let mut second = envelope(
+        &id,
+        "n2",
+        CharacterIntent::Notice,
+        TruthState::None,
+        40,
+        t(2),
+    );
+    second.correlation_id = Some("receptor:b".into());
+    second.interrupt_policy = InterruptPolicy::Merge;
+    let out = gw.dispatch(&id, second, t(2));
+    assert_eq!(
+        sent_intents(&out),
+        vec!["n2".to_string()],
+        "不同 correlation 不是同一件事：Rust 也會送出去"
+    );
+
+    let generation = gw.generation(&id).unwrap_or(0);
+    let out = gw.on_receipt(
+        &id,
+        CommandReceipt::new(
+            "n2",
+            id.as_str(),
+            generation,
+            ReceiptStatus::Cancelled,
+            t(3),
+        )
+        .with_reason("merged"),
+        t(3),
+    );
+    assert!(
+        !audits(&out)
+            .iter()
+            .any(|a| a.contains("illegal transition")),
+        "cancelled{{merged}} 是合法轉移：{:?}",
+        audits(&out)
+    );
+    let r = receipts(&out);
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].status, ReceiptStatus::Cancelled);
+    assert_eq!(r[0].reason.as_deref(), Some("merged"));
+    assert_eq!(gw.command_status(&id, "n2"), Some(ReceiptStatus::Cancelled));
+
+    // 過期掃描不會再對它做任何事（不會補一筆 expired，也不會送 cancel 給 adapter）。
+    let out = gw.sweep(t(200));
+    assert!(
+        receipts(&out).iter().all(|r| r.message_id != "n2"),
+        "已終結的命令不該再被 sweep 記一次"
+    );
+    assert!(sent_cancels(&out).iter().all(|(id, _)| id != "n2"));
+}

@@ -214,6 +214,9 @@ fn pure_audio_character_still_resolves_all_safety_intents() {
     assert_eq!(via(&n, CharacterIntent::Ask), "audio.speech");
     assert_eq!(res(&n, CharacterIntent::Ask).resolution, Resolution::Exact);
     assert_eq!(via(&n, CharacterIntent::Blocked), "audio.effect");
+    // 這個 manifest 的 `intents` 只列了 7 個：沒宣告接得住 wait／unknown，就不會被假裝支援
+    // （安全 intent 落 system.text）。有宣告的情況見
+    // `pure_audio_character_expresses_work_wait_unknown_when_it_offers_them`。
     assert_eq!(via(&n, CharacterIntent::Wait), SYSTEM_TEXT);
     assert_eq!(
         res(&n, CharacterIntent::Wait).resolution,
@@ -523,4 +526,75 @@ fn negotiated_wire_shape_matches_spec() {
     let keys: BTreeMap<String, serde_json::Value> =
         serde_json::from_value(v["resolutions"].clone()).expect("map");
     assert_eq!(keys.len(), 20);
+}
+
+#[test]
+fn pure_audio_character_expresses_work_wait_unknown_when_it_offers_them() {
+    // 只有聲音的角色（沒有臉、沒有燈），但誠實宣告自己接得住全部 20 個 intent。
+    let mut speech = CapabilityDecl::supported();
+    speech.requires_audio = true;
+    let mut effect = CapabilityDecl::supported();
+    effect.requires_audio = true;
+    let all: Vec<&str> = CharacterIntent::ALL.iter().map(|i| i.as_str()).collect();
+    let m = manifest_with(
+        "audio-only-full",
+        &[("audio.speech", speech), ("audio.effect", effect)],
+        &all,
+        Fallbacks::default(),
+    );
+    let n = negotiated_for(&m, false);
+    for intent in [
+        CharacterIntent::Work,
+        CharacterIntent::Think,
+        CharacterIntent::Wait,
+        CharacterIntent::Unknown,
+        CharacterIntent::Cancelled,
+        CharacterIntent::Blocked,
+        CharacterIntent::Failed,
+    ] {
+        let r = res(&n, intent);
+        assert_ne!(
+            r.resolution,
+            Resolution::Unsupported,
+            "{intent} 應該能用聲音表達"
+        );
+        assert!(
+            via(&n, intent).starts_with("audio."),
+            "{intent} 走的是 {}",
+            via(&n, intent)
+        );
+        assert!(!r.is_system_text(), "{intent} 不需要退到 system.text");
+    }
+    // 安全 intent 一個都沒少。
+    for intent in CharacterIntent::ALL.iter().filter(|i| i.is_safety()) {
+        assert_ne!(
+            res(&n, *intent).resolution,
+            Resolution::Unsupported,
+            "{intent} 是安全 intent，永不 unsupported"
+        );
+    }
+    // 沒有對應聲音通道的視覺專屬 intent 仍然誠實：idle 的主要能力是 visual.presence。
+    assert_eq!(
+        res(&n, CharacterIntent::Idle).resolution,
+        Resolution::Unsupported
+    );
+
+    // 純燈光角色：同樣能表達工作／等待／未知。
+    let m = manifest_with(
+        "light-only",
+        &[("light.cue", CapabilityDecl::supported())],
+        &all,
+        Fallbacks::default(),
+    );
+    let n = negotiated_for(&m, false);
+    for intent in [
+        CharacterIntent::Work,
+        CharacterIntent::Wait,
+        CharacterIntent::Unknown,
+    ] {
+        assert_eq!(via(&n, intent), "light.cue", "{intent}");
+    }
+
+    // 沒有宣告接得住這些 intent 的角色不會被假裝支援：
+    // 安全 intent 落到 system.text，非安全 intent 誠實 unsupported（見上一個測試）。
 }

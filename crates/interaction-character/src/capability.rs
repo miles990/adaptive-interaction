@@ -186,17 +186,24 @@ pub fn intent_capabilities(intent: CharacterIntent) -> &'static [&'static str] {
             "light.cue",
             "haptic.cue",
         ],
+        // 純聲音／燈光／觸覺角色也要能誠實表達「在想／在等」：視覺優先，沒有視覺才落到 audio／light／haptic。
         Think | Wait => &[
             "visual.expression",
             "visual.pose",
             "visual.textBubble",
+            "audio.speech",
+            "audio.effect",
             "light.cue",
+            "haptic.cue",
         ],
         Work => &[
             "visual.pose",
             "visual.expression",
             "visual.textBubble",
+            "audio.speech",
+            "audio.effect",
             "light.cue",
+            "haptic.cue",
         ],
         Ask => &[
             "visual.textBubble",
@@ -223,7 +230,10 @@ pub fn intent_capabilities(intent: CharacterIntent) -> &'static [&'static str] {
             "visual.expression",
             "visual.textBubble",
             "visual.pose",
+            "audio.speech",
+            "audio.effect",
             "light.cue",
+            "haptic.cue",
         ],
         ClaimCompleted => &[
             "visual.expression",
