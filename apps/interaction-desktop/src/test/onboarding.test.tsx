@@ -378,9 +378,13 @@ describe("Onboarding (3 步)", () => {
     await finish();
     await waitFor(() => expect(mockApi.onboardingCommit).toHaveBeenCalled());
     const policy = lastCommit()["policyPatch"] as Record<string, unknown>;
-    expect(policy["quietHours"]).toEqual([
-      { start: "22:00", end: "08:00", silencedChannels: [] },
+    const quietHours = policy["quietHours"] as { start: string; end: string; silencedChannels: string[] }[];
+    expect(quietHours).toEqual([
+      { start: "22:00", end: "08:00", silencedChannels: ["audio", "haptic", "notification", "light"] },
     ]);
+    // 空陣列會被後端解讀成內建預設（含 desktop-pet），精靈必須送出明確清單，
+    // 不能讓桌面角色在精靈建立的安靜時段裡被誤靜音（ia-settings-012）。
+    expect(quietHours[0].silencedChannels).not.toContain("desktop-pet");
     // 這兩項精靈永遠不寫：一般模式看不到也改不回來。
     expect(policy).not.toHaveProperty("channelLimits");
     expect(policy).not.toHaveProperty("requireApprovalAt");

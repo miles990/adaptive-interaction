@@ -1064,8 +1064,12 @@ function InitiativeQuietSection({ refreshKey }: { refreshKey: number }) {
  * 安靜時段要消音的干擾通道。刻意不含桌面角色（L0 純呈現）：角色只是安靜地待在桌面上，
  * 不會發出聲音或通知；把它一起消音只會產生使用者無事可決的「被阻止」項目。
  * 空陣列會讓後端套用內建預設清單（含桌面角色），所以這裡一定送出明確清單。
+ *
+ * Re-export 自 ../quietHours（ia-settings-012 的 canonical builder）——
+ * 角色頁與首次設定精靈共用同一份清單，避免兩邊字面量各自維護而漂移。
+ * 保留這個名字是為了不破壞既有 import（測試與其他模組）。
  */
-export const QUIET_SILENCED_CHANNELS = ["audio", "haptic", "notification", "light"];
+export const QUIET_SILENCED_CHANNELS = CANONICAL_QUIET_SILENCED_CHANNELS;
 
 function QuietHoursEditor({
   value,
@@ -1090,7 +1094,7 @@ function QuietHoursEditor({
         checked={enabled}
         onChange={(on) => {
           setEnabled(on);
-          onChange(on ? { start, end, silencedChannels: [...QUIET_SILENCED_CHANNELS] } : null);
+          onChange(on ? buildQuietHoursPatch(start, end) : null);
         }}
         label={enabled ? "已啟用" : "未啟用"}
       />
@@ -1102,7 +1106,7 @@ function QuietHoursEditor({
               type="time"
               value={start}
               onChange={(e) => setStart(e.target.value)}
-              onBlur={() => onChange({ start, end, silencedChannels: [...QUIET_SILENCED_CHANNELS] })}
+              onBlur={() => onChange(buildQuietHoursPatch(start, end))}
             />
           </label>
           <label>
@@ -1111,7 +1115,7 @@ function QuietHoursEditor({
               type="time"
               value={end}
               onChange={(e) => setEnd(e.target.value)}
-              onBlur={() => onChange({ start, end, silencedChannels: [...QUIET_SILENCED_CHANNELS] })}
+              onBlur={() => onChange(buildQuietHoursPatch(start, end))}
             />
           </label>
           <span className="muted small">

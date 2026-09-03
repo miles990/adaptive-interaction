@@ -25,6 +25,7 @@ import { useCharacterName } from "../characterName";
 import { LEGACY_CHARACTER_IDS } from "../companion/settingsTransfer";
 import { Dialog } from "../components/Dialog";
 import { FirstSuccess, isFirstSuccessSeen } from "./FirstSuccess";
+import { buildQuietHoursPatch } from "../quietHours";
 
 /** 小樞家族（8 個內建 shu-* 角色）：只有這些角色用貓系數位精靈的物種文案。 */
 export function isShuFamily(characterId: string | null | undefined): boolean {
@@ -341,9 +342,9 @@ export function Onboarding({
         policyPatch.initiative = draft.initiative;
       }
       if (draft.quietEnabled) {
-        policyPatch.quietHours = [
-          { start: draft.quietStart, end: draft.quietEnd, silencedChannels: [] },
-        ];
+        // 空陣列會被後端解讀成含 desktop-pet 的內建預設（ia-settings-012），
+        // 用與角色頁相同的 canonical builder 送出明確清單。
+        policyPatch.quietHours = [buildQuietHoursPatch(draft.quietStart, draft.quietEnd)];
       }
     }
     // 步驟二的選擇寫進既有的 AI 路由偏好（只是路由建議：不授權

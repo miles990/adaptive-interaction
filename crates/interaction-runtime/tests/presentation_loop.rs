@@ -812,3 +812,105 @@ async fn quiet_hours_blocked_desktop_pet_is_not_a_pending_decision() {
     assert!(pending_ids.contains(&"act-haptic-blocked"));
     assert!(pending_ids.contains(&"act-pet-approval"));
 }
+
+/// regression（ia-settings-012）：精靈與角色頁現在共用同一個 canonical
+/// quiet-hours builder（`apps/interaction-desktop/src/quietHours.ts`），送出
+/// 明確的靜音清單（`["audio","haptic","notification","light"]`），刻意不含
+/// `desktop-pet`。這裡驗證那份「精靈新形狀」在後端真的產生正確效果：
+/// desktop-pet 的 L0 呈現在安靜時段內完全不被 quiet-hours 擋下（不是被擋
+/// 但不進 Inbox，是根本沒被擋——channel 不在清單裡），也就不會出現在待決定
+/// 清單；對照組 haptic 明確在清單裡，被擋下的收據仍要留給人看見（比照
+/// `quiet_hours_blocked_desktop_pet_is_not_a_pending_decision` 的既有寫法）。
+#[tokio::test]
+async fn explicit_quiet_hours_list_without_desktop_pet_does_not_silence_the_character() {
+    let (_g, rt) = runtime().await;
+    visible_session(&rt).await;
+
+    let now = chrono::Local::now().time();
+    let start = (now - chrono::Duration::hours(1))
+        .format("%H:%M")
+        .to_string();
+    let end = (now + chrono::Duration::hours(1))
+        .format("%H:%M")
+        .to_string();
+    // 精靈／角色頁的 canonical builder 送出的明確清單：不含 desktop-pet。
+    rt.update_policy(json!({
+        "quietHours": [{
+            "start": start,
+            "end": end,
+            "silencedChannels": ["audio", "haptic", "notification", "light"],
+        }]
+    }))
+    .await
+    .unwrap();
+
+    let receipts = plan_and_execute(
+        &rt,
+        "companion.bubble.show",
+        json!({}),
+        Some("安靜時段（明確清單）"),
+    )
+    .await;
+    assert_eq!(receipts.len(), 1);
+    let pet = receipts[0].clone();
+    assert_ne!(
+        pet.current_status,
+        ActionStatus::Blocked,
+        "desktop-pet 不在明確清單裡，quiet-hours 不該擋下角色演出"
+    );
+    assert!(
+        !pet.policy_decisions.iter().any(|decision| matches!(
+            decision,
+            PolicyDecision::Blocked { rule, .. } if rule == "quiet-hours"
+        )),
+        "{:?}",
+        pet.policy_decisions
+    );
+
+    // 對照組：haptic 明確在清單裡，仍要被擋下，而且要留給人看見。
+    let haptic = ActionReceipt {
+        action_id: ActionId::new("act-haptic-blocked-explicit"),
+        plan_id: PlanId::new("plan-haptic-explicit"),
+        session_id: SessionId::new("sess-haptic-explicit"),
+        actuator_id: ActuatorId::new("mock.actuator"),
+        intent: "震動提醒".into(),
+        requested_parameters: ActionParameters::default(),
+        effective_bounded_parameters: ActionParameters::default(),
+        policy_decisions: vec![PolicyDecision::Blocked {
+            rule: "quiet-hours".into(),
+            reason: "channel haptic is silenced during quiet hours".into(),
+        }],
+        current_status: ActionStatus::Blocked,
+        timestamps: vec![(ActionStatus::Blocked, chrono::Utc::now())],
+        errors: vec![],
+        driver_response: BTreeMap::new(),
+        verification: None,
+        expires_at: None,
+        correlation_id: CorrelationId::new("corr-haptic-explicit"),
+        schema_version: SCHEMA_VERSION.to_string(),
+    };
+    assert!(rt.store.upsert_receipt(&haptic, "haptic").unwrap());
+
+    let inbox = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter::default())
+        .await
+        .unwrap();
+    let items = inbox["items"].as_array().unwrap();
+    let needs = |action_id: &str| -> bool {
+        items
+            .iter()
+            .find(|item| item["itemId"].as_str() == Some(action_id))
+            .unwrap_or_else(|| panic!("{action_id} missing from the inbox history"))
+            ["needsDecision"]
+            .as_bool()
+            .unwrap()
+    };
+    assert!(
+        !needs(pet.action_id.as_str()),
+        "desktop-pet 根本沒被擋下，沒有任何可做的決定，不該進「待我決定」"
+    );
+    assert!(
+        needs("act-haptic-blocked-explicit"),
+        "被安靜時段擋下的實體通道（haptic）仍要人看見"
+    );
+}
