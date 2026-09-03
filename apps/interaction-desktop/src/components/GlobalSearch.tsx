@@ -8,7 +8,7 @@ import React from "react";
 import { api } from "../api";
 import { actionStatusLabel, useAppState } from "../appstate";
 import { Icon } from "../icons";
-import { K_STATUS_LABEL, LAYER_LABEL } from "../pages/MemoryKnowledgePage";
+import { K_STATUS_LABEL, memoryLayerLabel } from "../pages/MemoryKnowledgePage";
 import {
   capabilityKindLabel,
   knowledgeTriggerLabel,
@@ -173,7 +173,7 @@ export function GlobalSearch({
           items.push({
             kind: "memory",
             label: `記憶：${String(m.title)}`,
-            detail: LAYER_LABEL[String(m.layer)] ?? String(m.layer),
+            detail: memoryLayerLabel(String(m.layer), advanced, character.name),
             action: () => onNavigate("memory"),
           });
         }
@@ -240,7 +240,7 @@ export function GlobalSearch({
     return () => {
       alive = false;
     };
-  }, [open, onNavigate, advanced]);
+  }, [open, onNavigate, advanced, character.name]);
 
   const items = React.useMemo<SearchItem[]>(() => {
     // 緊急停止：第一下只進入確認態（面板保持開啟），第二下才執行。

@@ -284,8 +284,12 @@ describe("Global Search 一般模式說人話", () => {
     stubSearchApis();
     const container = await openAndSearch("早餐");
     await screen.findByText("記憶：早餐偏好");
-    expect(container.textContent).toContain("關於我的記憶");
+    // user-memory 在一般模式走 memoryLayerLabel 的人話分組（「你告訴我的事」），
+    // 不是進階模式專用的 LAYER_LABEL 技術對照表（「關於我的記憶」）——兩者在這個
+    // key 上文字不同，之前用「關於我的記憶」斷言其實是巧合撞到 bug 的輸出。
+    expect(container.textContent).toContain("你告訴我的事");
     expect(container.textContent).not.toContain("user-memory");
+    expect(container.textContent).not.toContain("關於我的記憶");
 
     const input = screen.getByPlaceholderText(/搜尋設定、能力、記憶、知識/);
     await userEvent.clear(input);
@@ -322,6 +326,75 @@ describe("Global Search 一般模式說人話", () => {
     expect(shortId(UPDATE_ID, true)).toBe(UPDATE_ID);
     expect(shortId(UPDATE_ID, false)).toBe("…7890ab");
     expect(shortId("short", false)).toBe("short");
+  });
+
+  function stubTechnicalLayerMemories() {
+    vi.spyOn(api, "agentSessionsList").mockResolvedValue([]);
+    vi.spyOn(api, "providersList").mockResolvedValue([]);
+    vi.spyOn(api, "memoryList").mockResolvedValue({
+      items: [
+        { memoryId: "m-handoff", title: "接手的待辦", layer: "agent-handoff" },
+        { memoryId: "m-skill", title: "學到的沖泡技巧", layer: "skill" },
+      ],
+    });
+    vi.spyOn(api, "knowledgeList").mockResolvedValue({ nodes: [], count: 0 });
+    vi.spyOn(api, "domainPacks").mockResolvedValue({ packs: [] });
+    vi.spyOn(api, "actionsList").mockResolvedValue([]);
+    vi.spyOn(api, "knowledgeReceipts").mockResolvedValue({ receipts: [] });
+  }
+
+  it("一般模式：memory-ui-006——agent-handoff／skill 這類技術分層不外洩，走人話分組", async () => {
+    stubTechnicalLayerMemories();
+    const container = await openAndSearch("接手");
+    await screen.findByText("記憶：接手的待辦");
+    // 技術分層字串（原始 layer id 與 LAYER_LABEL 的技術文案）一律不得出現。
+    expect(container.textContent).not.toContain("agent-handoff");
+    expect(container.textContent).not.toContain("skill");
+    expect(container.textContent).not.toContain("Agent 交接");
+    expect(container.textContent).not.toContain("Skill");
+    // 一般模式該顯示的是人話分組。
+    expect(container.textContent).toContain("工作與任務");
+
+    const input = screen.getByPlaceholderText(/搜尋設定、能力、記憶、知識/);
+    await userEvent.clear(input);
+    await userEvent.type(input, "沖泡技巧");
+    await screen.findByText("記憶：學到的沖泡技巧");
+    expect(container.textContent).not.toContain("agent-handoff");
+    expect(container.textContent).not.toContain("skill");
+    expect(container.textContent).not.toContain("Agent 交接");
+    expect(container.textContent).not.toContain("Skill");
+    expect(container.textContent).toContain("學到的知識");
+  });
+
+  it("進階模式：同一批記憶改回顯示技術分層（零能力退化）", async () => {
+    stubTechnicalLayerMemories();
+    vi.spyOn(api, "uiPrefsGet").mockResolvedValue({
+      mode: "advanced",
+      locale: "zh-TW",
+      customNames: {},
+      schemaVersion: "1.0",
+    });
+    const { container } = render(
+      <AppStateProvider ready={true} refreshKey={0}>
+        <GlobalSearch
+          open
+          onClose={() => {}}
+          onNavigate={() => {}}
+          estopped={false}
+          onEstop={async () => {}}
+          onCommandFeedback={() => {}}
+        />
+      </AppStateProvider>
+    );
+    const input = await screen.findByPlaceholderText(/搜尋設定、能力、記憶、知識/);
+    await userEvent.type(input, "接手");
+    await screen.findByText("記憶：接手的待辦");
+    expect(container.textContent).toContain("Agent 交接");
+
+    await userEvent.clear(input);
+    await userEvent.type(input, "沖泡技巧");
+    await screen.findByText("記憶：學到的沖泡技巧");
+    expect(container.textContent).toContain("Skill");
   });
 });
 
