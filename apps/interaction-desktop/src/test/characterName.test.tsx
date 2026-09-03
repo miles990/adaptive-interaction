@@ -301,6 +301,77 @@ describe("primeCharacterNameForTests：其他測試可直接釘住角色，不�
 });
 
 // ---------------------------------------------------------------------------
+// 遲到的舊刷新不得覆寫新世代（前一個測試沒 stub api.status 時會打真的 HTTP，
+// 那一輪常常在下一個測試才回來；reset／prime 之後它就只是舊答案）。
+// ---------------------------------------------------------------------------
+
+describe("reset／prime 之後，上一輪還沒回來的刷新不得蓋掉新結果", () => {
+  /** 手動控制何時回答的 api.status（模擬還在飛的真實 HTTP）。 */
+  function deferredStatus() {
+    let settle!: (value: Record<string, unknown>) => void;
+    const promise = new Promise<Record<string, unknown>>((resolve) => {
+      settle = resolve;
+    });
+    return { promise, settle };
+  }
+
+  it("reset 換世代後，舊刷新回來只是遲到的答案，不覆寫已解析好的角色名", async () => {
+    vi.stubGlobal("fetch", failingFetch());
+    const stale = deferredStatus();
+    const status = vi.spyOn(api, "status").mockReturnValue(stale.promise as never);
+    const manifest = vi.spyOn(api, "characterManifest").mockResolvedValue(SHU as never);
+
+    // 第一輪（等同上一個測試沒 stub 就掛載的元件）：還沒回來就被 reset 打斷。
+    const straggler = refreshCharacterName();
+    resetCharacterNameForTests();
+
+    // 第二輪（等同下一個測試自己 stub 好才 render）：正確解析成小樞。
+    status.mockResolvedValue(STATUS_WITH_SHU);
+    await refreshCharacterName();
+    expect(currentCharacterName().name).toBe("小樞");
+
+    // 舊那輪這時才回來（Runtime 沒有 activeCharacter、bundled 索引也讀不到 → 中立值）。
+    stale.settle({});
+    await straggler;
+    expect(currentCharacterName().name).toBe("小樞");
+    expect(currentCharacterName().characterId).toBe("shu-maid");
+    expect(manifest).toHaveBeenCalled();
+  });
+
+  it("prime 換世代後也一樣：釘住的角色不會被遲到的舊刷新蓋成「角色」", async () => {
+    vi.stubGlobal("fetch", failingFetch());
+    const stale = deferredStatus();
+    vi.spyOn(api, "status").mockReturnValue(stale.promise as never);
+
+    const straggler = refreshCharacterName();
+    primeCharacterNameForTests({ name: "小樞", pronoun: "她", characterId: "shu-maid" });
+    expect(currentCharacterName().name).toBe("小樞");
+
+    stale.settle({});
+    await straggler;
+    expect(currentCharacterName().name).toBe("小樞");
+  });
+
+  it("遲到的舊刷新也不得更新節流時間戳（否則下一輪會被誤判成剛刷過而跳過）", async () => {
+    vi.stubGlobal("fetch", failingFetch());
+    const stale = deferredStatus();
+    const status = vi.spyOn(api, "status").mockReturnValue(stale.promise as never);
+    vi.spyOn(api, "characterManifest").mockResolvedValue(SHU as never);
+
+    const straggler = refreshCharacterName();
+    resetCharacterNameForTests();
+    stale.settle({});
+    await straggler;
+    expect(currentCharacterName().name).toBe(characterNameFallback);
+
+    // reset 把節流時間戳歸零；遲到那輪不得把它推回「剛剛」，否則這一次刷新會被跳過。
+    status.mockResolvedValue(STATUS_WITH_SHU);
+    await refreshCharacterName();
+    expect(currentCharacterName().name).toBe("小樞");
+  });
+});
+
+// ---------------------------------------------------------------------------
 
 describe("導覽／標題／全域搜尋的角色名稱來源", () => {
   it("SIMPLE_NAV 靜態表第二項是中立值；simpleNavFor 只換第二項的 label 與 icon，仍恰 5 項", () => {

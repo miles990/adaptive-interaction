@@ -92,6 +92,13 @@ let indexPromise: Promise<CharacterIndex | null> | null = null;
 let lastRefreshAt = 0;
 /** 測試釘住的角色：非 force 的刷新不會蓋掉它（reset 解除）。 */
 let pinned = false;
+/**
+ * 世代編號：`resetCharacterNameForTests()`／`primeCharacterNameForTests()` 會換一代。
+ * 它們把 `inflight` 清成 null，所以上一代還在飛的刷新不會被新的呼叫等到——那一輪回來時
+ * 若世代已經換過，就只是遲到的舊答案，不得覆寫 state 或 `lastRefreshAt`（否則會把新
+ * 世代已經解析好的角色名蓋回中立值）。正式執行期沒有人換世代，行為完全不變。
+ */
+let generation = 0;
 
 /** 換頁觸發的刷新最短間隔（角色事件用 force 略過）。 */
 export const CHARACTER_NAME_MIN_REFRESH_MS = 1500;
@@ -122,8 +129,9 @@ export function currentCharacterName(): CharacterNameState {
   return state;
 }
 
-/** 測試用：清掉快取與 inflight，讓每個測試從中立狀態開始。 */
+/** 測試用：清掉快取與 inflight，讓每個測試從中立狀態開始（前一輪還沒回來的刷新就此作廢）。 */
 export function resetCharacterNameForTests(): void {
+  generation += 1;
   state = INITIAL;
   inflight = null;
   indexPromise = null;
@@ -142,6 +150,7 @@ export function primeCharacterNameForTests(partial: Partial<CharacterNameState>)
     loaded: true,
     ...partial,
   };
+  generation += 1;
   pinned = true;
   inflight = null;
   setState(next);
@@ -235,6 +244,9 @@ export function refreshCharacterName(
   }
   if (opts.force) pinned = false;
   const locale = opts.locale ?? DEFAULT_CHARACTER_LOCALE;
+  const startedGeneration = generation;
+  /** 這一輪還算不算數：reset／prime 換過世代就是遲到的舊答案，不得落地。 */
+  const current = () => generation === startedGeneration;
   inflight = (async () => {
     try {
       const [prefs, live] = await Promise.all([readPrefs(), readLiveManifest()]);
@@ -243,12 +255,15 @@ export function refreshCharacterName(
         const index = await loadBundledIndex();
         if (index) manifest = pickBundledManifest(index, prefs?.companionPack);
       }
-      setState(resolveCharacterName(prefs, manifest, locale));
+      if (current()) setState(resolveCharacterName(prefs, manifest, locale));
     } catch {
-      setState(resolveCharacterName(null, null, locale));
+      if (current()) setState(resolveCharacterName(null, null, locale));
     } finally {
-      lastRefreshAt = Date.now();
-      inflight = null;
+      // 世代換過時 `inflight` 已經是 null（或別人那一輪），不能亂清。
+      if (current()) {
+        lastRefreshAt = Date.now();
+        inflight = null;
+      }
     }
     return state;
   })();

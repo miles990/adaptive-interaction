@@ -656,6 +656,9 @@ describe("一般模式產品化（G）：導覽、更多、術語", () => {
     });
 
   function stubShellApis() {
+    // 每個案例自己重新解析角色名：不吃上一個案例留下的節流時間戳，也讓前一輪
+    // 還沒回來的刷新（沒 stub 的案例會打真的 HTTP）作廢，不會把名字蓋回「角色」。
+    resetCharacterNameForTests();
     vi.stubGlobal("fetch", OFFLINE_FETCH());
     vi.spyOn(api, "status").mockResolvedValue({
       version: "0.5.0",
