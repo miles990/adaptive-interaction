@@ -3643,18 +3643,38 @@ mod tests {
     /// Release prep renames the heading; the claim checks below must follow it
     /// instead of silently having nothing to check (or panicking on a heading
     /// that is simply no longer called "Unreleased").
+    ///
+    /// Right after `scripts/release.sh` cuts a version, the file has an **empty**
+    /// `## [Unreleased]` heading above the freshly named section (the script
+    /// inserts the version heading directly under it). An empty section has no
+    /// claims to check, so the finder skips it and follows the newest section
+    /// that actually has a body — otherwise the release commit itself fails
+    /// these tests (it did on `v0.5.1`, `ccf3bfe`).
     fn changelog_topmost_section(text: &str) -> &str {
-        let start = text
-            .find("## [Unreleased]")
-            .or_else(|| text.find("\n## [").map(|i| i + 1))
-            .expect("CHANGELOG has a version section");
-        let after_heading = start
-            + text[start..]
-                .find('\n')
-                .expect("version heading ends with a newline");
-        let rest = &text[after_heading..];
-        let end = rest.find("\n## [").unwrap_or(rest.len());
-        &rest[..end]
+        let mut cursor = 0usize;
+        loop {
+            let start = if cursor == 0 {
+                text.find("## [Unreleased]")
+                    .or_else(|| text.find("\n## [").map(|i| i + 1))
+                    .expect("CHANGELOG has a version section")
+            } else {
+                match text[cursor..].find("\n## [") {
+                    Some(i) => cursor + i + 1,
+                    None => break &text[cursor..cursor],
+                }
+            };
+            let after_heading = start
+                + text[start..]
+                    .find('\n')
+                    .expect("version heading ends with a newline");
+            let rest = &text[after_heading..];
+            let end = rest.find("\n## [").unwrap_or(rest.len());
+            let body = &rest[..end];
+            if !body.trim().is_empty() {
+                break body;
+            }
+            cursor = after_heading + end;
+        }
     }
 
     /// Doc-consistency (perf-claims-024): the topmost CHANGELOG section (the one
@@ -3714,6 +3734,15 @@ mod tests {
         assert!(
             !changelog_topmost_section(renamed).contains("舊的一句"),
             "must stop at the next version heading"
+        );
+        // The shape release.sh leaves behind: an empty `## [Unreleased]` directly
+        // above the version it just cut. The newest section with a body is the
+        // one still worth checking.
+        let just_released = "# CHANGELOG\n\n## [Unreleased]\n\n## [0.5.1] - 2026-09-04\n新的一句\n\n## [0.5.0] - 2026-09-03\n舊的一句\n";
+        assert_eq!(
+            changelog_topmost_section(just_released),
+            "\n新的一句\n",
+            "an empty Unreleased heading is skipped in favour of the newest released section"
         );
         // The real file: whichever shape it is in, the section is non-empty and
         // is not the 0.4.x history.
