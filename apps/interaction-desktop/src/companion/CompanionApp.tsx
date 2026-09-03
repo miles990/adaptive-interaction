@@ -34,6 +34,13 @@ import {
 } from "./machine";
 import { PackManifest, RendererBackend, SpriteRenderer, validateManifest } from "./renderer";
 import { machineStageFlags, StageRenderer } from "./rig/stage";
+import {
+  HitRegion,
+  mergeHitRegions,
+  prepareHitRegions,
+  sendHitRegions,
+  translateRegions,
+} from "./hitRegions";
 import { ToyKind } from "./playfield";
 import { directorTickGate, EMPTY_DIRECTOR_TABLES, InteractionDirector } from "./director";
 import { activeConversationProvider, ConversationContext } from "./conversation";
@@ -272,6 +279,10 @@ const sameOriginFetch = (url: string) => fetch(url);
 
 export default function CompanionApp() {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  /** 視窗根節點：量 UI 面（快捷選單／氣泡／可信文字）的 hit region 用。 */
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  /** hit-region IPC 是否在飛（同時只送一個；丟掉的由下一次回報補上）。 */
+  const hitRegionsBusyRef = React.useRef(false);
   const textHostRef = React.useRef<HTMLDivElement>(null);
   const rendererRef = React.useRef<RendererBackend | null>(null);
   /** 遊玩場（只有 shu-rig adapter 有；sprite／text 無遊玩）。 */
@@ -1001,6 +1012,57 @@ export default function CompanionApp() {
     void sendHello(!document.hidden);
   }
 
+  /**
+   * 真的需要接住游標的 UI 面（視窗相對 CSS px）。
+   *
+   * 由 JSX 上的 `data-hit-region="…"` 標出來：快捷選單（有按鈕）、氣泡、可信
+   * 系統文字、緊急停止／感測標籤（訊息面不該被點穿）、文字角色的本體。
+   * 文字輸入與拖放確認**不在**這裡——它們需要原生文字選取／OS drop target，
+   * 走 `companion_set_interactive`（整窗）。其餘透明區一律留給桌面。
+   */
+  function uiHitRegions(): HitRegion[] {
+    const root = rootRef.current;
+    if (!root) return [];
+    const out: HitRegion[] = [];
+    root.querySelectorAll("[data-hit-region]").forEach((el) => {
+      const id = el.getAttribute("data-hit-region");
+      if (!id) return;
+      const r = el.getBoundingClientRect();
+      if (!(r.width > 0) || !(r.height > 0)) return;
+      out.push({ id: `ui:${id}`, x: r.left, y: r.top, w: r.width, h: r.height });
+    });
+    return out;
+  }
+
+  /**
+   * 送出 bounded hit regions（companion-gameplay-032）。
+   *
+   * stage 給的是 canvas 相對座標 → 平移成視窗相對 → 併入 UI 面（角色第一、UI
+   * 其次）→ 依 Rust 同一組上限先截斷 → `companion_hit_regions`。
+   * `stageRegions=null` 表示「現在就重算一次」（UI 面剛出現／消失時）。
+   * 空清單不送：Rust 會拒絕空報告並保留上一份，這是刻意的 fail-closed。
+   */
+  const pushHitRegions = React.useCallback(async (stageRegions: HitRegion[] | null) => {
+    if (!isTauri) return;
+    // 同時只有一個 IPC 在飛：不排隊、不堆積，也不會有舊報告後到把新的蓋掉。
+    // 丟掉的那一次由下一次回報補上（節流政策保證 ≤60ms 一定會再來一次）。
+    if (hitRegionsBusyRef.current) return;
+    const stage = stageRegions ?? stageRef.current?.interactiveRegions() ?? [];
+    const box = canvasRef.current?.getBoundingClientRect();
+    const moved = box ? translateRegions(stage, box.left, box.top) : stage;
+    const merged = mergeHitRegions(moved, uiHitRegions());
+    const regions = prepareHitRegions(merged, window.innerWidth, window.innerHeight);
+    if (regions.length === 0) return;
+    hitRegionsBusyRef.current = true;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await sendHitRegions(invoke, regions);
+    } finally {
+      hitRegionsBusyRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** 註冊成功後：角色表、名字、遊玩場回呼、偏好套用。 */
   function wireAdapter(
     gateway: CharacterGateway,
@@ -1040,20 +1102,14 @@ export default function CompanionApp() {
       stage.onExpressionEvent((id, durationMs) => {
         apply({ type: "transient", kind: "performing", animation: id, durationMs });
       });
-      // 互動框：由 stage 每幀依節流政策回報（角色會走動、玩具會滾，
+      // 互動區：由 stage 每幀依節流政策回報（角色會走動、玩具會滾，
       // 只靠 500ms pump 的話 Rust 會用過期的框判定點擊穿透）。
+      // 回報的是**多個 bounded regions**（角色／使魔／玩具／UI 面各一個），
+      // 不是一個聯集矩形——聯集內的空白區要能點穿到桌面
+      // （對抗審查 companion-gameplay-032）。
       if (isTauri && canvasRef.current) {
-        const canvasEl = canvasRef.current;
-        void import("@tauri-apps/api/core").then(({ invoke }) => {
-          stage.onHitRect((b) => {
-            const rect = canvasEl.getBoundingClientRect();
-            void invoke("companion_hit_rect", {
-              x: rect.left + b.x,
-              y: rect.top + b.y,
-              w: b.w,
-              h: b.h,
-            }).catch(() => {});
-          });
+        stage.onHitRegions((regions) => {
+          void pushHitRegions(regions);
         });
       }
     }
@@ -1835,34 +1891,49 @@ export default function CompanionApp() {
     }
   }
 
-  // Click-through coordination: while a menu/input/bubble is open the whole
-  // window must accept the cursor; otherwise only the character hit-rect does.
+  // Click-through coordination: only a focused text input and the drop
+  // confirmation need the WHOLE window (native text selection / OS drop
+  // target). Passive or self-contained surfaces — speech bubble, safety
+  // labels, the quick menu — report their own bounded hit region instead, so
+  // the transparent space around them still clicks through to the desktop
+  // (companion-gameplay-032). This mirrors the contract documented on
+  // `companion_set_interactive` in src-tauri/src/lib.rs.
   React.useEffect(() => {
     if (!isTauri) return;
     void (async () => {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("companion_set_interactive", {
-        interactive: menuOpen || inputOpen || bubble !== null || dropPreview !== null || trustedText !== null,
+        interactive: inputOpen || dropPreview !== null,
       }).catch(() => {});
     })();
-  }, [menuOpen, inputOpen, bubble, dropPreview, trustedText]);
+  }, [inputOpen, dropPreview]);
+
+  // UI 面剛出現／消失（選單、氣泡、可信文字、安全與感測標籤）：立刻補一份
+  // regions，不要等下一次 stage 回報（≤60ms）。stage 不在場（sprite／text）時
+  // 這也是唯一的回報路徑。
+  React.useEffect(() => {
+    if (!isTauri || !ready) return;
+    let cancelled = false;
+    // 版面要先算完才量得到 UI 面的矩形。
+    const id = requestAnimationFrame(() => {
+      if (!cancelled) void pushHitRegions(null);
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
+  }, [ready, entrypointKind, menuOpen, bubble, trustedText, sensorLabel, baseState, pushHitRegions]);
 
   React.useEffect(() => {
     if (!isTauri || !ready || !canvasRef.current) return;
-    // 遊玩場 adapter 的 hit-rect 由 pump 動態更新（角色會走動）；
-    // sprite／text 維持整個 canvas／視窗。
+    // 遊玩場 adapter 的 regions 由 stage 動態更新（角色會走動）；
+    // sprite／text 沒有遊玩場，整個 canvas 就是唯一的互動面。
     if (stageRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    void (async () => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("companion_hit_rect", {
-        x: rect.left,
-        y: rect.top,
-        w: rect.width,
-        h: rect.height,
-      }).catch(() => {});
-    })();
-  }, [ready, entrypointKind]);
+    if (!(rect.width > 0) || !(rect.height > 0)) return;
+    // canvas 相對座標（pushHitRegions 會平移成視窗相對）。
+    void pushHitRegions([{ id: "surface", x: 0, y: 0, w: rect.width, h: rect.height }]);
+  }, [ready, entrypointKind, pushHitRegions]);
 
   /** 玩具快捷：由玩家丟玩具進遊玩場（純本機，不經 runtime；gameplay 擴充）。 */
   function quickToy(kind: ToyKind | "clear") {
@@ -1913,21 +1984,36 @@ export default function CompanionApp() {
   const canvasClass = cssClassForEntrypoint(entrypointKind);
 
   return (
-    <div className="companion-root">
+    // `data-hit-region` 的元素會各自成為一個 bounded hit region（見 uiHitRegions）：
+    // 訊息面不該被點穿，但它們周圍的透明區仍然屬於桌面。
+    <div className="companion-root" ref={rootRef}>
       {bubble && (
-        <div className={estop ? "companion-bubble danger" : "companion-bubble"} role="status">
+        <div
+          className={estop ? "companion-bubble danger" : "companion-bubble"}
+          role="status"
+          data-hit-region="bubble"
+        >
           {bubble}
         </div>
       )}
-      {estop && <div className="companion-estop-label">緊急停止中</div>}
+      {estop && (
+        <div className="companion-estop-label" data-hit-region="estop-label">
+          緊急停止中
+        </div>
+      )}
       {!estop && sensorLabel && (
-        <div className="companion-sensor-label" role="status">
+        <div className="companion-sensor-label" role="status" data-hit-region="sensor-label">
           {sensorLabel}
         </div>
       )}
       {trustedText && (
         // 可信 host 元素：system.text 與角色載入失敗文案。adapter 碰不到這裡。
-        <div className="companion-system-text" role="status" data-marker={trustedText.marker}>
+        <div
+          className="companion-system-text"
+          role="status"
+          data-marker={trustedText.marker}
+          data-hit-region="system-text"
+        >
           {trustedText.marker === "verified" ? "✓ " : ""}
           {trustedText.text}
         </div>
@@ -1948,6 +2034,7 @@ export default function CompanionApp() {
         ref={textHostRef}
         className="companion-text-host"
         hidden={entrypointKind !== "text"}
+        data-hit-region="text-host"
         aria-label={`桌面角色（${charName}）`}
         onClick={() => {
           setMenuOpen((v) => !v);
@@ -1989,7 +2076,7 @@ export default function CompanionApp() {
         </div>
       )}
       {menuOpen && (
-        <div className="companion-menu" role="menu" aria-label="快捷操作">
+        <div className="companion-menu" role="menu" aria-label="快捷操作" data-hit-region="menu">
           {toyCatalog.length > 0 && !frozen && (
             <div className="companion-toy-row" role="group" aria-label="玩具">
               {toyCatalog.map((toy) => (

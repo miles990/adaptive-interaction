@@ -37,8 +37,15 @@ pub struct AppState {
     prefs: Mutex<DesktopPrefs>,
     quitting: AtomicBool,
     tray: Mutex<Option<tray::TrayHandles>>,
-    /// Character hit-rect (logical px) inside the companion window.
-    companion_hit_rect: Mutex<(f64, f64, f64, f64)>,
+    /// Bounded hit REGIONS (logical px) inside the companion window: the
+    /// character, each familiar, each grabbable toy and each genuinely
+    /// interactive UI surface get their own rectangle. The cursor is only
+    /// intercepted where one of them actually is — the blank space between
+    /// them belongs to the desktop (companion-gameplay-032).
+    companion_hit_regions: Mutex<Vec<HitRect>>,
+    /// When the last hit-region report was ACCEPTED. Host-side rate limit so a
+    /// buggy or hostile WebView cannot flood the IPC (`MIN_HIT_REGION_INTERVAL_MS`).
+    companion_hit_regions_at: Mutex<Option<std::time::Instant>>,
     /// Last applied ignore-cursor-events state, shared by the poll and the
     /// hit-rect report path so a fresh box is applied at once (perf-claims-018).
     companion_clickthrough: Mutex<ClickThroughGate>,
@@ -2061,8 +2068,8 @@ pub(crate) fn ensure_companion_window(app: &tauri::AppHandle) {
 /// Poll interval for the click-through decision (ms).
 ///
 /// The poll only has to catch the CURSOR moving. The renderer reports the
-/// hit-rect at most every ~60ms while the character walks or a toy rolls (see
-/// `hitRectReportPolicy`), and `companion_hit_rect` re-evaluates click-through
+/// hit regions at most every ~60ms while the character walks or a toy rolls
+/// (see `hitRegionsReportPolicy`), and `companion_hit_regions` re-evaluates click-through
 /// against the live cursor the moment a report lands, so a character moving
 /// under a still cursor no longer waits for the next tick on top of the
 /// report throttle. Host-side worst case is therefore ~max(80ms poll, 60ms
@@ -2162,10 +2169,92 @@ pub(crate) fn validate_companion_preferences(
     Ok(())
 }
 
+/// One hit rectangle in logical px, window-relative: `(x, y, w, h)`.
+pub(crate) type HitRect = (f64, f64, f64, f64);
+
+/// How many regions the host will keep from one report. The renderer sends the
+/// character, its familiars, the grabbable toys and the open UI surfaces; more
+/// than this is either a bug or an attempt to fence off the whole window, so
+/// the extra ones are dropped (with a warning) instead of trusted.
+pub(crate) const MAX_HIT_REGIONS: usize = 16;
+
+/// A single region may not be ≥80% of the window in BOTH axes — that is not a
+/// character, that is "make the whole window opaque to the desktop".
+pub(crate) const MAX_HIT_REGION_WINDOW_FRACTION: f64 = 0.8;
+
+/// …and the regions together may not cover more than this share of the window,
+/// so 16 merely-large boxes cannot add up to the same land grab.
+pub(crate) const MAX_HIT_REGION_TOTAL_AREA_FRACTION: f64 = 0.8;
+
+/// Host-side floor between two ACCEPTED reports (ms).
+///
+/// The renderer already throttles (`HIT_REGION_MIN_INTERVAL_MS` = 50ms in
+/// src/companion/hitRegions.ts, with a ≤60ms quiet heartbeat), but the host may
+/// not depend on the WebView behaving. 45ms sits under the renderer's own 50ms
+/// floor, so honest reports are never dropped while a runaway caller is still
+/// bounded to ~22 reports/s.
+pub(crate) const MIN_HIT_REGION_INTERVAL_MS: u64 = 45;
+
+/// Should this report be accepted, or is it arriving too fast?
+///
+/// Pure so the rate limit is testable: `elapsed_ms` is `None` for the very
+/// first report (always accepted).
+pub(crate) fn hit_regions_accept(elapsed_ms: Option<u64>, min_interval_ms: u64) -> bool {
+    match elapsed_ms {
+        None => true,
+        Some(ms) => ms >= min_interval_ms,
+    }
+}
+
+/// Validate a renderer-reported region list against the window (logical px).
+///
+/// Fail-closed: any bad region rejects the WHOLE report, and the caller keeps
+/// the previous (known-good) regions rather than falling back to "everything"
+/// or "nothing". Rejects: an empty list, non-finite / non-positive boxes,
+/// boxes entirely outside the window, a box that is ≥80% of the window in both
+/// axes, and a list whose total area is >80% of the window. Extra regions past
+/// `MAX_HIT_REGIONS` are dropped with a warning (the first ones win: the
+/// renderer puts the character and the open UI first).
+pub(crate) fn sanitize_hit_regions(
+    regions: &[HitRect],
+    win_w: f64,
+    win_h: f64,
+) -> Result<Vec<HitRect>, String> {
+    if regions.is_empty() {
+        return Err("hit regions must not be empty".into());
+    }
+    if !win_w.is_finite() || !win_h.is_finite() || win_w <= 0.0 || win_h <= 0.0 {
+        return Err("window size must be positive".into());
+    }
+    if regions.len() > MAX_HIT_REGIONS {
+        tracing::warn!(
+            reported = regions.len(),
+            kept = MAX_HIT_REGIONS,
+            "companion reported more hit regions than allowed; extra regions dropped"
+        );
+    }
+    let mut out = Vec::with_capacity(regions.len().min(MAX_HIT_REGIONS));
+    let mut area = 0.0_f64;
+    for &(x, y, w, h) in regions.iter().take(MAX_HIT_REGIONS) {
+        let (cx, cy, cw, ch) = clamp_hit_rect(x, y, w, h, win_w, win_h)?;
+        if cw >= win_w * MAX_HIT_REGION_WINDOW_FRACTION
+            && ch >= win_h * MAX_HIT_REGION_WINDOW_FRACTION
+        {
+            return Err("a hit region may not cover the whole companion window".into());
+        }
+        area += cw * ch;
+        out.push((cx, cy, cw, ch));
+    }
+    if area > win_w * win_h * MAX_HIT_REGION_TOTAL_AREA_FRACTION {
+        return Err("hit regions may not cover the whole companion window".into());
+    }
+    Ok(out)
+}
+
 /// Everything the click-through decision looks at, in physical px except the
-/// hit-rect (logical, window-relative — exactly as the renderer reports it).
+/// hit regions (logical, window-relative — exactly as the renderer reports them).
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct ClickThroughProbe {
+pub(crate) struct ClickThroughProbe<'a> {
     /// Global cursor position.
     pub cursor: (f64, f64),
     /// Companion window outer position.
@@ -2174,19 +2263,23 @@ pub(crate) struct ClickThroughProbe {
     pub window_size: (f64, f64),
     /// Window scale factor (logical → physical).
     pub scale: f64,
-    /// Character hit-rect (logical px inside the window).
-    pub hit_rect: (f64, f64, f64, f64),
-    /// Menus/inputs open → the whole window accepts the cursor.
+    /// Character/familiar/toy/UI hit regions (logical px inside the window).
+    /// Already sanitized by `sanitize_hit_regions`.
+    pub hit_regions: &'a [HitRect],
+    /// A focused text input / drop confirmation → the whole window accepts the
+    /// cursor. Passive surfaces (speech bubble, safety labels, quick menu) do
+    /// NOT set this: they report their own region instead, so the transparent
+    /// space around them still belongs to the desktop.
     pub interactive: bool,
 }
 
 /// Pure click-through decision: should the window ignore cursor events?
 ///
 /// `true` only when the cursor is inside the window but on transparent
-/// padding. An interactive window and a cursor outside the window both answer
-/// `false` — the latter re-arms interactivity so the next approach over the
-/// character is clickable again.
-pub(crate) fn clickthrough_want_ignore(p: &ClickThroughProbe) -> bool {
+/// padding — i.e. inside NO reported region. An interactive window and a
+/// cursor outside the window both answer `false` — the latter re-arms
+/// interactivity so the next approach over the character is clickable again.
+pub(crate) fn clickthrough_want_ignore(p: &ClickThroughProbe<'_>) -> bool {
     if p.interactive {
         return false;
     }
@@ -2197,13 +2290,16 @@ pub(crate) fn clickthrough_want_ignore(p: &ClickThroughProbe) -> bool {
     if !inside_window {
         return false;
     }
-    let (rx, ry, rw, rh) = p.hit_rect;
-    let rx = wx + rx * p.scale;
-    let ry = wy + ry * p.scale;
-    let rw = rw * p.scale;
-    let rh = rh * p.scale;
-    let on_character = cx >= rx && cx < rx + rw && cy >= ry && cy < ry + rh;
-    !on_character
+    // Intercept only where something is actually drawn: the union's blank
+    // space (character on the left, a toy thrown far right) is desktop.
+    let on_object = p.hit_regions.iter().any(|&(rx, ry, rw, rh)| {
+        let rx = wx + rx * p.scale;
+        let ry = wy + ry * p.scale;
+        let rw = rw * p.scale;
+        let rh = rh * p.scale;
+        cx >= rx && cx < rx + rw && cy >= ry && cy < ry + rh
+    });
+    !on_object
 }
 
 /// Last applied ignore-cursor-events state. `decide` returns `Some(next)`
@@ -2245,15 +2341,19 @@ fn apply_companion_clickthrough(app: &tauri::AppHandle, win: &tauri::WebviewWind
     ) else {
         return;
     };
-    // Character hit-rect in logical px (reported by the renderer; defaults
-    // cover the sprite's bounding box).
-    let hit_rect = *state.companion_hit_rect.lock().expect("hit rect");
+    // Hit regions in logical px (reported by the renderer; defaults cover the
+    // sprite's bounding box).
+    let hit_regions = state
+        .companion_hit_regions
+        .lock()
+        .expect("hit regions")
+        .clone();
     let probe = ClickThroughProbe {
         cursor: (cursor.x, cursor.y),
         window_pos: (pos.x as f64, pos.y as f64),
         window_size: (size.width as f64, size.height as f64),
         scale: win.scale_factor().unwrap_or(1.0),
-        hit_rect,
+        hit_regions: &hit_regions,
         interactive: state.companion_interactive.load(Ordering::SeqCst),
     };
     let want_ignore = clickthrough_want_ignore(&probe);
@@ -2329,21 +2429,24 @@ pub(crate) fn clamp_hit_rect(
     Ok((cx, cy, cw, ch))
 }
 
-/// The renderer reports where the character actually is (logical px within
-/// the window) so transparent padding stays click-through.
-#[tauri::command]
-async fn companion_hit_rect(
-    app: tauri::AppHandle,
-    state: State<'_, AppState>,
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
-) -> Result<(), String> {
-    // Window size in logical px (fall back to the pref-derived stage size when
-    // the window is not up yet — never trust the caller's numbers blindly).
-    let win = app.get_webview_window("companion");
-    let (win_w, win_h) = win
+/// One rectangle from the renderer. `id` is advisory (diagnostics only): the
+/// host never lets the WebView name a region into extra authority.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct HitRegionInput {
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+/// Companion window size in logical px. Falls back to the pref-derived stage
+/// size when the window is not up yet — the caller's numbers are never trusted
+/// as the window bounds.
+fn companion_logical_size(app: &tauri::AppHandle, state: &State<'_, AppState>) -> (f64, f64) {
+    app.get_webview_window("companion")
         .as_ref()
         .and_then(|win| {
             let scale = win.scale_factor().unwrap_or(1.0);
@@ -2354,19 +2457,85 @@ async fn companion_hit_rect(
         .unwrap_or_else(|| {
             let size = state.prefs.lock().expect("prefs mutex").companion_size;
             companion_window_size(size)
-        });
-    let rect = clamp_hit_rect(x, y, w, h, win_w, win_h)?;
-    *state.companion_hit_rect.lock().expect("hit rect") = rect;
-    // A fresh box means the character (or a toy) moved: re-evaluate against
-    // the live cursor now rather than on the next poll tick, so the lag is
-    // the report throttle alone, not throttle + poll.
-    if let Some(win) = win {
-        apply_companion_clickthrough(&app, &win);
+        })
+}
+
+/// Store a validated region list and re-evaluate click-through at once.
+///
+/// Rate-limited (`MIN_HIT_REGION_INTERVAL_MS`) and fail-closed: a rejected
+/// report leaves the previous regions in place and logs a warning, so a buggy
+/// renderer degrades to a slightly stale character box instead of either
+/// swallowing the whole desktop or letting every click fall through the
+/// character.
+fn store_hit_regions(
+    app: &tauri::AppHandle,
+    state: &State<'_, AppState>,
+    regions: &[HitRect],
+) -> Result<(), String> {
+    {
+        let mut last = state
+            .companion_hit_regions_at
+            .lock()
+            .expect("hit regions clock");
+        let now = std::time::Instant::now();
+        let elapsed = last.map(|t| now.duration_since(t).as_millis() as u64);
+        if !hit_regions_accept(elapsed, MIN_HIT_REGION_INTERVAL_MS) {
+            return Ok(()); // too fast; keep the regions we already have
+        }
+        *last = Some(now);
+    }
+    let (win_w, win_h) = companion_logical_size(app, state);
+    let sanitized = match sanitize_hit_regions(regions, win_w, win_h) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, "companion hit-region report rejected; keeping the previous regions");
+            return Err(e);
+        }
+    };
+    *state.companion_hit_regions.lock().expect("hit regions") = sanitized;
+    // Fresh boxes mean the character (or a toy, or a menu) moved: re-evaluate
+    // against the live cursor now rather than on the next poll tick, so the lag
+    // is the report throttle alone, not throttle + poll.
+    if let Some(win) = app.get_webview_window("companion") {
+        apply_companion_clickthrough(app, &win);
     }
     Ok(())
 }
 
-/// Menus/inputs open → the whole window must accept the cursor.
+/// The renderer reports every place something is actually drawn (logical px
+/// within the window): the character, each familiar, each grabbable toy and
+/// each open interactive UI surface. The transparent space BETWEEN them stays
+/// click-through (companion-gameplay-032).
+#[tauri::command]
+async fn companion_hit_regions(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    regions: Vec<HitRegionInput>,
+) -> Result<(), String> {
+    let rects: Vec<HitRect> = regions.iter().map(|r| (r.x, r.y, r.w, r.h)).collect();
+    store_hit_regions(&app, &state, &rects)
+}
+
+/// Compatibility shim for a single rectangle (older callers / sprite and text
+/// entrypoints that really are one surface).
+#[tauri::command]
+async fn companion_hit_rect(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+) -> Result<(), String> {
+    store_hit_regions(&app, &state, &[(x, y, w, h)])
+}
+
+/// A focused text input / drop confirmation → the whole window must accept the
+/// cursor (native text selection and the OS drop target both need it).
+///
+/// Passive or self-contained surfaces (speech bubble, safety labels, the quick
+/// menu) must NOT come through here: they report their own hit region, so the
+/// transparent space around them still clicks through to the desktop.
 #[tauri::command]
 async fn companion_set_interactive(
     state: State<'_, AppState>,
@@ -2938,8 +3107,9 @@ pub fn run() {
             prefs: Mutex::new(supervisor::load_prefs()),
             quitting: AtomicBool::new(false),
             tray: Mutex::new(None),
-            // Default hit-rect ≈ the sprite's body area at scale 1.1.
-            companion_hit_rect: Mutex::new((30.0, 30.0, 120.0, 150.0)),
+            // Default region ≈ the sprite's body area at scale 1.1.
+            companion_hit_regions: Mutex::new(vec![(30.0, 30.0, 120.0, 150.0)]),
+            companion_hit_regions_at: Mutex::new(None),
             companion_clickthrough: Mutex::new(ClickThroughGate::default()),
             companion_interactive: AtomicBool::new(false),
             host_safety: Mutex::new(None),
@@ -3070,6 +3240,7 @@ pub fn run() {
             close_decision,
             full_quit,
             companion_hit_rect,
+            companion_hit_regions,
             companion_set_interactive,
             companion_open_control_center,
             companion_apply_prefs,
@@ -3197,12 +3368,13 @@ mod tests {
     fn clickthrough_decision_ignores_padding_and_accepts_character() {
         // Window at (100, 200) physical, 1040×568 physical (520×284 logical @2x);
         // character box (30, 20, 52, 124) logical → (160, 240)..(264, 488) physical.
+        let character = [(30.0, 20.0, 52.0, 124.0)];
         let base = ClickThroughProbe {
             cursor: (0.0, 0.0),
             window_pos: (100.0, 200.0),
             window_size: (1040.0, 568.0),
             scale: 2.0,
-            hit_rect: (30.0, 20.0, 52.0, 124.0),
+            hit_regions: &character,
             interactive: false,
         };
         // On the character: accept the cursor.
@@ -3237,6 +3409,178 @@ mod tests {
         }));
     }
 
+    /// Regression (companion-gameplay-032): the host must intercept the cursor
+    /// only where an object actually is. The renderer draws a character on the
+    /// left and a toy thrown far to the right; the empty band between them
+    /// belongs to the desktop, so a click there has to pass through.
+    ///
+    /// A single union rectangle (30, 20, 378, 128) would swallow that band;
+    /// two bounded regions do not.
+    #[test]
+    fn clickthrough_ignores_gaps_between_objects() {
+        // Character (30, 20, 52, 124) logical; toy (380, 120, 28, 28) logical.
+        let regions = [(30.0, 20.0, 52.0, 124.0), (380.0, 120.0, 28.0, 28.0)];
+        let base = ClickThroughProbe {
+            cursor: (0.0, 0.0),
+            window_pos: (100.0, 200.0),
+            window_size: (1040.0, 568.0),
+            scale: 2.0,
+            hit_regions: &regions,
+            interactive: false,
+        };
+        // On the character: intercept.
+        assert!(!clickthrough_want_ignore(&ClickThroughProbe {
+            cursor: (200.0, 300.0),
+            ..base
+        }));
+        // On the toy: intercept.
+        assert!(!clickthrough_want_ignore(&ClickThroughProbe {
+            cursor: (870.0, 450.0),
+            ..base
+        }));
+        // Between them: nothing is drawn there, so the desktop gets the click.
+        assert!(
+            clickthrough_want_ignore(&ClickThroughProbe {
+                cursor: (500.0, 300.0),
+                ..base
+            }),
+            "the blank band between the character and a far toy must click through"
+        );
+        // The union of the same two boxes DOES swallow that point — this is
+        // exactly the bug the regions fix (companion-gameplay-032).
+        let union = [(30.0, 20.0, 378.0, 128.0)];
+        assert!(!clickthrough_want_ignore(&ClickThroughProbe {
+            cursor: (500.0, 300.0),
+            hit_regions: &union,
+            ..base
+        }));
+        // A focused input / drop confirmation still takes the whole window.
+        assert!(!clickthrough_want_ignore(&ClickThroughProbe {
+            cursor: (500.0, 300.0),
+            interactive: true,
+            ..base
+        }));
+        // Outside the window: re-arm regardless of how many regions there are.
+        assert!(!clickthrough_want_ignore(&ClickThroughProbe {
+            cursor: (10.0, 10.0),
+            ..base
+        }));
+    }
+
+    /// Several characters (the maid plus her familiars) and several toys: every
+    /// one of them intercepts, and the gaps between them all click through.
+    #[test]
+    fn clickthrough_handles_many_regions_and_their_gaps() {
+        // logical: character, two familiars, one toy.
+        let regions = [
+            (30.0, 20.0, 52.0, 124.0),
+            (150.0, 100.0, 30.0, 26.0),
+            (260.0, 100.0, 30.0, 26.0),
+            (400.0, 130.0, 28.0, 28.0),
+        ];
+        let base = ClickThroughProbe {
+            cursor: (0.0, 0.0),
+            window_pos: (0.0, 0.0),
+            window_size: (520.0, 284.0),
+            scale: 1.0,
+            hit_regions: &regions,
+            interactive: false,
+        };
+        for (x, y) in [(40.0, 30.0), (160.0, 110.0), (270.0, 110.0), (410.0, 140.0)] {
+            assert!(
+                !clickthrough_want_ignore(&ClickThroughProbe {
+                    cursor: (x, y),
+                    ..base
+                }),
+                "({x},{y}) is on an object and must intercept"
+            );
+        }
+        for (x, y) in [
+            (120.0, 110.0),
+            (220.0, 110.0),
+            (350.0, 140.0),
+            (40.0, 200.0),
+        ] {
+            assert!(
+                clickthrough_want_ignore(&ClickThroughProbe {
+                    cursor: (x, y),
+                    ..base
+                }),
+                "({x},{y}) is blank and must click through to the desktop"
+            );
+        }
+    }
+
+    /// Bounds and fail-closed validation of a report.
+    #[test]
+    fn hit_regions_are_bounded_clamped_and_fail_closed() {
+        let (w, h) = (520.0, 284.0);
+        // Normal report survives untouched.
+        let ok = sanitize_hit_regions(
+            &[(30.0, 20.0, 52.0, 124.0), (400.0, 130.0, 28.0, 28.0)],
+            w,
+            h,
+        )
+        .expect("valid");
+        assert_eq!(ok.len(), 2);
+        assert_eq!(ok[0], (30.0, 20.0, 52.0, 124.0));
+        // Clamped into the window (and the character stays first).
+        let clamped = sanitize_hit_regions(&[(-40.0, -10.0, 90.0, 60.0)], w, h).expect("clamped");
+        assert_eq!(clamped, vec![(0.0, 0.0, 90.0, 60.0)]);
+        // Count cap: only the first MAX_HIT_REGIONS survive.
+        let many: Vec<HitRect> = (0..40).map(|i| (i as f64, 0.0, 4.0, 4.0)).collect();
+        let kept = sanitize_hit_regions(&many, w, h).expect("capped");
+        assert_eq!(kept.len(), MAX_HIT_REGIONS);
+        assert_eq!(kept[0], (0.0, 0.0, 4.0, 4.0));
+        // Empty report: rejected (never "the whole window is transparent").
+        assert!(sanitize_hit_regions(&[], w, h).is_err());
+        // Whole-window grab: rejected.
+        assert!(sanitize_hit_regions(&[(0.0, 0.0, w, h)], w, h).is_err());
+        assert!(sanitize_hit_regions(&[(0.0, 0.0, w * 0.85, h * 0.85)], w, h).is_err());
+        // Wide-but-short and tall-but-narrow bars are still legitimate.
+        assert!(sanitize_hit_regions(&[(0.0, 0.0, w, 20.0)], w, h).is_ok());
+        assert!(sanitize_hit_regions(&[(0.0, 0.0, 20.0, h)], w, h).is_ok());
+        // …but boxes that each squeak past the per-region cap may not add up to
+        // the whole window either (stacked/overlapping is the obvious dodge).
+        let land_grab: Vec<HitRect> = (0..4).map(|_| (0.0, 0.0, w * 0.95, h * 0.75)).collect();
+        assert!(sanitize_hit_regions(&land_grab[..1], w, h).is_ok()); // one is fine
+        assert!(sanitize_hit_regions(&land_grab, w, h).is_err());
+        // Garbage anywhere in the list rejects the WHOLE report (fail-closed).
+        assert!(sanitize_hit_regions(
+            &[(30.0, 20.0, 52.0, 124.0), (f64::NAN, 0.0, 4.0, 4.0)],
+            w,
+            h
+        )
+        .is_err());
+        assert!(
+            sanitize_hit_regions(&[(30.0, 20.0, 52.0, 124.0), (0.0, 0.0, -4.0, 4.0)], w, h)
+                .is_err()
+        );
+        assert!(
+            sanitize_hit_regions(&[(30.0, 20.0, 52.0, 124.0), (900.0, 0.0, 4.0, 4.0)], w, h)
+                .is_err()
+        );
+    }
+
+    /// Host-side rate limit: the renderer's own 50ms floor passes, a flood does
+    /// not, and the first report is always accepted.
+    #[test]
+    fn hit_region_reports_are_rate_limited_on_the_host() {
+        assert!(hit_regions_accept(None, MIN_HIT_REGION_INTERVAL_MS));
+        // The renderer's honest cadence (≥50ms) is never dropped.
+        assert!(hit_regions_accept(Some(50), MIN_HIT_REGION_INTERVAL_MS));
+        assert!(hit_regions_accept(Some(60), MIN_HIT_REGION_INTERVAL_MS));
+        // A runaway caller is bounded.
+        assert!(!hit_regions_accept(Some(0), MIN_HIT_REGION_INTERVAL_MS));
+        assert!(!hit_regions_accept(Some(16), MIN_HIT_REGION_INTERVAL_MS));
+        // The floor itself stays under the renderer's 50ms and within 60ms
+        // (compile-time: a constant assertion, so clippy wants a const block).
+        const {
+            assert!(MIN_HIT_REGION_INTERVAL_MS <= 60);
+            assert!(MIN_HIT_REGION_INTERVAL_MS < 50);
+        }
+    }
+
     /// Regression (perf-claims-018): a fresh hit-rect report must re-evaluate
     /// click-through at once — a character walking under a still cursor used
     /// to wait for the next 80ms poll on top of the ≤60ms report throttle.
@@ -3246,13 +3590,14 @@ mod tests {
     fn hit_rect_update_reevaluates_without_waiting_for_poll() {
         let mut gate = ClickThroughGate::default();
         let still_cursor = (900.0, 300.0);
-        let old_rect = (30.0, 20.0, 52.0, 124.0); // character far left
-        let probe = |hit_rect: (f64, f64, f64, f64)| ClickThroughProbe {
+        const OLD_RECT: &[HitRect] = &[(30.0, 20.0, 52.0, 124.0)]; // character far left
+        let old_rect = OLD_RECT;
+        let probe = |hit_regions: &'static [HitRect]| ClickThroughProbe {
             cursor: still_cursor,
             window_pos: (100.0, 200.0),
             window_size: (1040.0, 568.0),
             scale: 2.0,
-            hit_rect,
+            hit_regions,
             interactive: false,
         };
         // Poll tick: cursor on padding → start ignoring.
@@ -3262,7 +3607,8 @@ mod tests {
         );
         // The character walks under the cursor; the renderer reports the new box.
         // Cursor (900,300) physical = window-relative (400, 50) logical @2x.
-        let new_rect = (380.0, 20.0, 52.0, 124.0);
+        const NEW_RECT: &[HitRect] = &[(380.0, 20.0, 52.0, 124.0)];
+        let new_rect = NEW_RECT;
         // The report path applies the decision immediately (no poll in between).
         assert_eq!(
             gate.decide(clickthrough_want_ignore(&probe(new_rect))),
@@ -3349,7 +3695,8 @@ mod tests {
     /// break — the checks above.
     #[test]
     fn changelog_topmost_section_follows_a_renamed_heading() {
-        let unreleased = "# CHANGELOG\n\n## [Unreleased]\n新的一句\n\n## [0.4.0] - 2026-08-28\n舊的一句\n";
+        let unreleased =
+            "# CHANGELOG\n\n## [Unreleased]\n新的一句\n\n## [0.4.0] - 2026-08-28\n舊的一句\n";
         assert_eq!(
             changelog_topmost_section(unreleased),
             "\n新的一句\n",

@@ -36,6 +36,7 @@ import {
   initialFramePacing,
   shouldDrawFrame,
 } from "../gameFeel";
+import { HitRegion, hitRegionsReportPolicy, stageHitRegions } from "../hitRegions";
 import { DEFAULT_TUNING, PersonalityTuning } from "../personality";
 
 /** playfield 會請求的表演表情（機器 performing 中仍算遊玩狀態）。 */
@@ -376,6 +377,10 @@ export class StageRenderer implements RendererBackend {
   private hitRectCb: ((rect: HitRect) => void) | null = null;
   private lastReportedRect: HitRect | null = null;
   private lastReportAt = 0;
+  /** Bounded regions 回報（companion-gameplay-032）：與聯集框各自節流。 */
+  private hitRegionsCb: ((regions: HitRegion[]) => void) | null = null;
+  private lastReportedRegions: HitRegion[] | null = null;
+  private lastRegionsReportAt = 0;
   /** 上一幀實際套用的 rig 參數（診斷／效能量測用）。 */
   private lastFrame: RigParams | null = null;
   /**
@@ -565,22 +570,43 @@ export class StageRenderer implements RendererBackend {
   }
 
   /**
-   * 依節流政策回報互動框。`force=true` 供 500ms 心跳使用（rAF 停擺時
-   * ——視窗被隱藏、系統節流——仍要有一次回報）。
+   * Bounded regions 回報（companion-gameplay-032）：角色／每個使魔／每個玩具
+   * 各一個矩形，聯集內的空白區留給桌面。與聯集框同樣每幀依節流政策呼叫。
+   */
+  onHitRegions(cb: (regions: HitRegion[]) => void): void {
+    this.hitRegionsCb = cb;
+    this.lastReportedRegions = null; // 換 callback：先報一次目前的 regions
+  }
+
+  /**
+   * 依節流政策回報互動框與 bounded regions。`force=true` 供 500ms 心跳使用
+   * （rAF 停擺時——視窗被隱藏、系統節流——仍要有一次回報）。
    */
   reportHitRect(force = false): void {
     // 暫停（隱藏／CPP suspend）就真的不再回報：pause() 的契約這麼寫，但以前
     // 沒有守衛，500ms 心跳照樣每拍打一次 Tauri IPC、Rust 端照樣取窗上鎖
     // （對抗審查 perf-claims-011）。
     if (this.paused || this.destroyed) return;
-    if (!this.hitRectCb) return;
-    const next = this.interactiveBounds();
     const now = this.now();
-    const dt = this.lastReportedRect === null ? Number.POSITIVE_INFINITY : now - this.lastReportAt;
-    if (!force && !hitRectReportPolicy(this.lastReportedRect, next, dt)) return;
-    this.lastReportedRect = next;
-    this.lastReportAt = now;
-    this.hitRectCb(next);
+    if (this.hitRectCb) {
+      const next = this.interactiveBounds();
+      const dt = this.lastReportedRect === null ? Number.POSITIVE_INFINITY : now - this.lastReportAt;
+      if (force || hitRectReportPolicy(this.lastReportedRect, next, dt)) {
+        this.lastReportedRect = next;
+        this.lastReportAt = now;
+        this.hitRectCb(next);
+      }
+    }
+    if (this.hitRegionsCb) {
+      const regions = this.interactiveRegions();
+      const dt =
+        this.lastReportedRegions === null ? Number.POSITIVE_INFINITY : now - this.lastRegionsReportAt;
+      if (force || hitRegionsReportPolicy(this.lastReportedRegions, regions, dt)) {
+        this.lastReportedRegions = regions;
+        this.lastRegionsReportAt = now;
+        this.hitRegionsCb(regions);
+      }
+    }
   }
 
   /** 診斷用：上一幀實際套用的 rig 參數（無座標、無使用者資料）。 */
@@ -656,6 +682,35 @@ export class StageRenderer implements RendererBackend {
       w: 52 * s,
       h: 124 * s,
     };
+  }
+
+  /**
+   * Bounded 互動區（CSS px，canvas 相對）：角色本體／每個使魔／每個可抓玩具
+   * 各一個矩形。
+   *
+   * 這是 `interactiveBounds()` 的替代品，也是 companion-gameplay-032 的修法：
+   * 聯集矩形會把「角色在左、毛球被丟到右邊」中間那一整條空白也吃掉，桌面在
+   * 那裡就再也點不到。分成多個框之後，Rust 端只在游標真的落在某個框內時才
+   * 攔截；框與框之間的透明區屬於桌面。
+   *
+   * 拖曳中角色與被抓著的玩具會略放大（`HIT_REGION_DRAG_PAD`）——游標甩得比
+   * 框快時不會掉出去，但仍然是 bounded 的。
+   */
+  interactiveRegions(): HitRegion[] {
+    return stageHitRegions({
+      scale: this.scale,
+      ground: this.world.ground,
+      charX: this.world.char.x,
+      familiars: this.world.familiars.map((f) => ({ id: f.id, x: f.x })),
+      toys: this.world.toys.map((t) => ({
+        id: t.id,
+        x: t.x,
+        y: t.y,
+        cursorToy: isCursorToy(t.kind),
+        grabbed: t.grabbed,
+      })),
+      dragging: this.draggingToy != null,
+    });
   }
 
   /**
