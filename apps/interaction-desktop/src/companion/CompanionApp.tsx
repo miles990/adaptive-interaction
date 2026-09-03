@@ -92,6 +92,7 @@ import {
   sanitizeMemory,
 } from "./interactionMemory";
 import { MixerRenderer } from "./mixerRenderer";
+import { companionSensorLabel } from "./sensorLabels";
 import {
   adapterReconfigureFor,
   CHARACTER_LOAD_FAILED_LINE,
@@ -266,6 +267,83 @@ async function nearScreenEdge(
     // 取不到螢幕資訊就當作不在邊緣（不猜、不假裝知道）。
     return false;
   }
+}
+
+/** Director 的 ambient 動作在 App 這一側的鏡像（對抗審查 director-pipeline-018）。 */
+export interface AmbientActionMirror {
+  animation?: string;
+  durationMs: number;
+  startedAt: number;
+}
+
+/** 被點擊／拖曳中斷的長 ambient 的恢復計畫（App 側）。 */
+export interface CompanionResumePlan {
+  animation?: string;
+  remainingMs: number;
+  expiresAt: number;
+}
+
+/** 恢復計畫的有效期（與 InteractionDirector.notePreempted 一致）。 */
+const RESUME_PLAN_TTL_MS = 20_000;
+
+/**
+ * 中斷前先留一份恢復計畫（對抗審查 director-pipeline-018）。
+ *
+ * 點擊／拖曳的反應會走 `InteractionDirector.reactDetailed()`，而它會把 Director 自己的
+ * `interrupted` 計畫清掉（新反應取消舊的恢復計畫），因此「先 react 再 notePreempted」
+ * 與「先 notePreempted 再 react」都留不住計畫——§6.1「動作可中斷、可恢復」在這兩條
+ * 最常見的中斷路徑上永遠不成立。App 這一側在反應**之前**依同樣的門檻留一份，
+ * 短反應播完後再接回去。
+ *
+ * 門檻與 Director 相同：原動作 >= 4000ms 且還剩 > 1500ms 才值得恢復。
+ */
+export function resumePlanFor(
+  current: AmbientActionMirror | null,
+  nowMs: number
+): CompanionResumePlan | null {
+  if (!current) return null;
+  const remaining = current.durationMs - (nowMs - current.startedAt);
+  if (!(remaining > 1_500 && current.durationMs >= 4_000)) return null;
+  return {
+    animation: current.animation,
+    remainingMs: remaining,
+    expiresAt: nowMs + RESUME_PLAN_TTL_MS,
+  };
+}
+
+/**
+ * 取用恢復計畫：過期就放棄；安靜／Reduced Motion 期間先不演（但保留計畫，
+ * 與 Director 的恢復分支同樣的情境判斷）；其餘取用一次後計畫就用掉。
+ */
+export function takeResumePlan(
+  plan: CompanionResumePlan | null,
+  ctx: { nowMs: number; quiet: boolean; reducedMotion: boolean }
+): { plan: CompanionResumePlan | null; action: CompanionResumePlan | null } {
+  if (!plan) return { plan: null, action: null };
+  if (ctx.nowMs > plan.expiresAt) return { plan: null, action: null };
+  if (ctx.quiet || ctx.reducedMotion) return { plan, action: null };
+  return { plan: null, action: plan };
+}
+
+/** 500ms behavior pump 在目前可見性下該做的事（對抗審查 perf-claims-017）。
+ *
+ *  隱藏 ≠ 靜音：CPP Gateway 的看門狗（acknowledged→uncertain 的誠實階梯）與
+ *  Behavior Runtime 的記帳（presence 心跳照實回報 activation／attention）不能停；
+ *  但沒有觀眾的演出——micro-motion、姿勢刷新、互動框回報、Director 的 ambient
+ *  排程與 hover 氣泡——在隱藏期間全部停下。 */
+export function companionPumpWork(hidden: boolean): {
+  sweep: boolean;
+  behavior: boolean;
+  present: boolean;
+} {
+  return { sweep: true, behavior: true, present: !hidden };
+}
+
+/** 狀態輪詢週期（對抗審查 perf-claims-017）。隱藏時降頻而**不是**關掉：
+ *  SSE 斷線時這條輪詢是緊急停止／暫停的唯一後盾（關掉它會弱化安全網），
+ *  回到可見時另外立刻補一次。 */
+export function statusPollIntervalMs(hidden: boolean): number {
+  return hidden ? 30_000 : 5_000;
 }
 
 /** 可信文字元素上的一行（system.text／載入失敗文案）。 */
@@ -513,6 +591,11 @@ export default function CompanionApp() {
   const directorRef = React.useRef(new InteractionDirector(DEFAULT_TUNING, EMPTY_DIRECTOR_TABLES));
   /** 上一個 tick 是否正在表演（用來判斷「自然播完」）。 */
   const performingRef = React.useRef(false);
+  /** Director 目前 ambient 動作的 App 側鏡像；點擊／拖曳的反應會清掉 Director
+   *  自己的恢復計畫（reactDetailed），所以中斷前要靠它留一份。 */
+  const ambientActionRef = React.useRef<AmbientActionMirror | null>(null);
+  /** 被點擊／拖曳中斷的長 ambient 的恢復計畫（對抗審查 director-pipeline-018）。 */
+  const resumePlanRef = React.useRef<CompanionResumePlan | null>(null);
   const microRng = React.useRef(seededRng(Date.now() >>> 0));
 
   const apply = React.useCallback((ev: Parameters<typeof reduce>[1]) => {
@@ -570,7 +653,16 @@ export default function CompanionApp() {
    *  沒有角色表就是 canonical dragged（alias → lifted）。續期沿用同一個變體。 */
   const beginDragHold = React.useCallback(() => {
     const now = Date.now();
+    // director-pipeline-018：reactDetailed 會清掉 Director 的恢復計畫，所以在
+    // 反應**之前**先把「被抱起來時中斷的長 ambient」記在 App 這一側。
+    const preempted = resumePlanFor(ambientActionRef.current, now);
     const decision = directorRef.current.reactDetailed("lifted", now, DRAG_HOLD_MS, microRng.current, { cooldownMs: 1_500 });
+    if (decision.action) {
+      // 反應成立＝Director 的 interrupted 已被清掉，由 App 接手恢復；
+      // 沒反應時 Director 自己還留著計畫，不能兩邊都排（會恢復兩次）。
+      if (preempted) resumePlanRef.current = preempted;
+      ambientActionRef.current = null;
+    }
     const animation = decision.action?.expression;
     apply({ type: "transient", kind: "dragged", durationMs: DRAG_HOLD_MS, animation });
     if (dragHoldRef.current) clearInterval(dragHoldRef.current);
@@ -1252,12 +1344,15 @@ export default function CompanionApp() {
         .catch(() => {});
     };
     const onVisibility = () => {
-      beat();
       const gateway = gatewayRef.current;
       if (gateway) {
-        // 隱藏 → suspend（停 rAF／物理／計時）；回來 → resume。
+        // 隱藏 → suspend（停 rAF／物理／計時）；回來 → resume。先切狀態再 beat，
+        // 「剛隱藏」那一拍回報的才是暫停後的事實，不是暫停前的活動。
         if (document.hidden) gateway.suspend(PRIMARY_INSTANCE_ID);
         else gateway.resume(PRIMARY_INSTANCE_ID);
+      }
+      beat();
+      if (gateway) {
         if (feedRef.current === "protocol") {
           gateway.ingestInput(PRIMARY_INSTANCE_ID, inputEventFor("visibility-changed", { visible: !document.hidden })!);
         }
@@ -1345,13 +1440,9 @@ export default function CompanionApp() {
           doNotDisturb: dndRef.current,
         });
         const sensors = (s["activeSensors"] as { kind: string }[] | undefined) ?? [];
-        setSensorLabel(
-          sensors.length > 0
-            ? sensors.some((x) => x.kind === "microphone")
-              ? "🎙 正在使用麥克風"
-              : `使用中：${sensors.map((x) => x.kind).join("、")}`
-            : null
-        );
+        // 感測不靜默，但不外洩原始 id：與 tray／首頁／host overlay 共用同一份投影
+        // （iphone.mic-level 也算麥克風；認不得的種類說「其他感測器」）。
+        setSensorLabel(companionSensorLabel(sensors));
         apply({
           type: "base",
           base: estop ? "emergency" : paused ? "paused" : quiet ? "quiet" : "idle",
@@ -1364,20 +1455,44 @@ export default function CompanionApp() {
         if (!stopped) apply({ type: "base", base: "offline" });
       }
     };
-    void poll();
-    const t = setInterval(poll, 5000);
+    // perf-claims-017：隱藏時降頻（不是關掉——SSE 斷線時這條輪詢是緊急停止／
+    // 暫停的唯一後盾），回到可見時立刻補一次並讓姿勢跟上。
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    // 世代編號：回到可見時插隊的那一次會作廢還在飛的舊鏈，避免兩條輪詢鏈並存。
+    let pollGen = 0;
+    const schedulePoll = (gen: number) => {
+      if (stopped || gen !== pollGen) return;
+      pollTimer = setTimeout(() => runPoll(), statusPollIntervalMs(document.hidden));
+    };
+    const runPoll = () => {
+      const gen = ++pollGen;
+      void poll().finally(() => schedulePoll(gen));
+    };
+    const pollVisibility = () => {
+      if (document.hidden) return;
+      if (pollTimer) clearTimeout(pollTimer);
+      syncPose();
+      runPoll();
+    };
+    runPoll();
+    document.addEventListener("visibilitychange", pollVisibility);
     // Pose re-evaluation for transient expiry + ambient blink.
     // Behavior Runtime tick（500ms）：平滑步進 → 姿勢刷新 → 微動作排程。
     // 觸發間隔由 hazard 抽樣決定（幾何分布）——絕不是固定週期同一動畫。
     const pump = setInterval(() => {
       const now = Date.now();
+      // perf-claims-017：隱藏 ≠ 靜音。看門狗（誠實階梯）與行為記帳照跑，
+      // 沒有觀眾的演出（micro-motion／姿勢刷新／互動框回報／hover 氣泡／
+      // Director ambient 排程）在隱藏期間全部停下。
+      const work = companionPumpWork(document.hidden);
       // CPP Gateway sweep（看門狗、acknowledged→uncertain、adapter.tick、佇列推進）。
-      gatewayRef.current?.sweep(now);
+      if (work.sweep) gatewayRef.current?.sweep(now);
       const m = machineRef.current;
       const t = m.transient && m.transient.untilMs > now ? m.transient : null;
       // 表演自然播完（不是被搶佔）→ 告訴 Director 舞台空了。
       if (performingRef.current && t?.kind !== "performing") {
         performingRef.current = false;
+        ambientActionRef.current = null;
         directorRef.current.noteFinished();
       } else if (t?.kind === "performing") {
         performingRef.current = true;
@@ -1385,11 +1500,16 @@ export default function CompanionApp() {
       const busy =
         t != null && ["acting", "waiting-for-receipt", "routing", "thinking"].includes(t.kind);
       const waitingForHuman = t?.kind === "requesting-consent";
-      behaviorState.current = stepBehavior(behaviorState.current, {
-        busy,
-        waitingForHuman,
-        msSinceInteraction: now - behaviorState.current.lastInteractionAt,
-      });
+      // 行為記帳在隱藏期間也要走：presence 心跳照實回報 activation／attention，
+      // 凍結在「隱藏那一刻」的值等於對 Runtime 說謊。
+      if (work.behavior) {
+        behaviorState.current = stepBehavior(behaviorState.current, {
+          busy,
+          waitingForHuman,
+          msSinceInteraction: now - behaviorState.current.lastInteractionAt,
+        });
+      }
+      if (!work.present) return;
       const reducedMotion = reducedMotionRef.current;
       rendererRef.current?.setMicroMotion(
         layeredMicroMotion(
@@ -1439,6 +1559,28 @@ export default function CompanionApp() {
       }
       // 遊玩中（追逐/叼回）不再疊 Director 的 ambient 動作。
       if (stage?.worldBusy()) return;
+      // §6.1 動作可中斷、可恢復：被點擊／拖曳打斷的長 ambient 接回去
+      // （Director 的 interrupted 已被那次反應清掉，計畫留在 App 這側）。
+      const resume = takeResumePlan(resumePlanRef.current, {
+        nowMs: now,
+        quiet: gate.quiet,
+        reducedMotion,
+      });
+      resumePlanRef.current = resume.plan;
+      if (resume.action) {
+        ambientActionRef.current = {
+          animation: resume.action.animation,
+          durationMs: resume.action.remainingMs,
+          startedAt: now,
+        };
+        apply({
+          type: "transient",
+          kind: "performing",
+          animation: resume.action.animation,
+          durationMs: resume.action.remainingMs,
+        });
+        return;
+      }
       const expr = behaviorRef.current.allowCasualBubbles
         ? behaviorRef.current.bubbleCooldownMs < 60_000
           ? 1.5
@@ -1468,6 +1610,14 @@ export default function CompanionApp() {
         const blinkedInPlace =
           gate.quiet && action.source === "blink" && rig?.blinkNow?.() === true;
         if (!blinkedInPlace) {
+          // 新的 ambient 上台：記下它（中斷時要靠這份鏡像留恢復計畫），
+          // 並取代任何還沒用掉的舊恢復計畫。
+          ambientActionRef.current = {
+            animation: action.expression,
+            durationMs: action.durationMs,
+            startedAt: now,
+          };
+          resumePlanRef.current = null;
           apply({
             type: "transient",
             kind: "performing",
@@ -1479,7 +1629,8 @@ export default function CompanionApp() {
     }, 500);
     return () => {
       stopped = true;
-      clearInterval(t);
+      if (pollTimer) clearTimeout(pollTimer);
+      document.removeEventListener("visibilitychange", pollVisibility);
       clearInterval(pump);
       un.then((f) => f()).catch(() => {});
     };
@@ -1815,12 +1966,18 @@ export default function CompanionApp() {
       pushInteraction("companion-clicked");
       // 單擊／連戳都走 Director（真相狀態白名單＋變體池＋冷卻＋防重複＋個性）。
       // 連戳冷卻中或文字角色 → 退回一般單擊（有反應、開選單），不是靜默。
+      // director-pipeline-018：同上——先留計畫，再讓 Director 建立短反應。
+      const preempted = resumePlanFor(ambientActionRef.current, now);
       const plan = planClickReaction({
         rapid: clickTimes.current.length >= 3,
         nowMs: now,
         director: directorRef.current,
         rng: microRng.current,
       });
+      if (plan.kind !== "fallback") {
+        if (preempted) resumePlanRef.current = preempted;
+        ambientActionRef.current = null;
+      }
       if (plan.kind === "rapid") {
         // 連戳先清場再套演出，讓下一段連戳接得上。不帶 force：被擋下／失敗／
         // 未知／「在等你確認」都在 machine 的 CLEAR_PROTECTED_TRANSIENTS 裡，
@@ -2114,7 +2271,9 @@ export default function CompanionApp() {
         <CompanionInput
           name={charName}
           onClose={() => setInputOpen(false)}
-          onBubble={setBubble}
+          // 氣泡一律走 showBubble：同一個 bubbleTimer 主人，才不會有沒被追蹤的
+          // 計時器提早抹掉更新的安全氣泡（對抗審查 companion-gameplay-032）。
+          onBubble={(text, ms, opts) => showBubble(text, ms ?? 0, opts)}
           line={line}
           submit={submitText}
           conversationCtx={() => ({
@@ -2147,7 +2306,7 @@ export default function CompanionApp() {
 /** Text input with deterministic routing preview: default = local
  *  observation; open agent sessions can be selected as the destination
  *  (mailbox task). The preview always states where the data goes. */
-function CompanionInput({
+export function CompanionInput({
   name,
   onClose,
   onBubble,
@@ -2159,7 +2318,10 @@ function CompanionInput({
   /** 角色顯示名（aria-label 用）。 */
   name: string;
   onClose: () => void;
-  onBubble: (t: string | null) => void;
+  /** 顯示氣泡：`ms` 交給氣泡的主人（showBubble）排計時器；這裡不自排計時器，
+   *  否則會抹掉期間出現的安全氣泡。送出失敗屬於「不得靜默」的失敗回報，
+   *  用 `safety` 讓它不被「關掉氣泡」的偏好吃掉。 */
+  onBubble: (t: string | null, ms?: number, opts?: { safety?: boolean }) => void;
   line: (key: string) => string | null;
   /** 實際送出（由 CompanionApp 決定走 CPP 事件或舊 receptor）。 */
   submit: (text: string, target: string) => Promise<void>;
@@ -2199,15 +2361,14 @@ function CompanionInput({
           ...ctx,
           openAgentSessions: sessions.length,
         });
-        onBubble(result.reply ?? line("text-received"));
+        onBubble(result.reply ?? line("text-received"), 3500);
         if (result.behaviorIntent && onIntent) onIntent(result.behaviorIntent);
       } else {
-        onBubble(line("delegated"));
+        onBubble(line("delegated"), 3500);
       }
-      setTimeout(() => onBubble(null), 3500);
     } catch (e) {
-      onBubble(`送出失敗：${e}`);
-      setTimeout(() => onBubble(null), 4000);
+      // 使用者按了送出卻沒送成：這是失敗結果，不是隨口閒聊，不可被靜默。
+      onBubble(`送出失敗：${e}`, 4000, { safety: true });
     }
   }
 
