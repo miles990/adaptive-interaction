@@ -12,6 +12,10 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Wry};
 
 pub struct TrayHandles {
+    /// 只有 macOS 會讀（`set_title` 的 title glyph）；Windows／Linux 的狀態列沒有
+    /// 標題文字，感測文字一律已進 `status_text`。非 macOS 目標上這個欄位沒有讀取端，
+    /// 對 `-D warnings` 的 CI（ubuntu）明說這是刻意的，不是遺漏。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub tray: tauri::tray::TrayIcon<Wry>,
     pub info_status: MenuItem<Wry>,
     pub info_pause: MenuItem<Wry>,
@@ -187,6 +191,8 @@ pub struct TrayView {
     pub pause_text: String,
     pub sessions_text: String,
     pub pause_action_text: String,
+    /// macOS 狀態列標題的 glyph；其他平台沒有讀取端（感測文字已在 `status_text`）。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub title_glyph: Option<&'static str>,
 }
 
