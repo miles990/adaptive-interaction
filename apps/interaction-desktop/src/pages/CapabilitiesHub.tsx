@@ -202,15 +202,16 @@ export function parseProviderDetail(detail: unknown): { note?: string; tested?: 
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { note: note ?? detail };
   const t = raw as Record<string, unknown>;
   if (typeof t.ok !== "boolean") return { note: note ?? detail };
-  return {
-    note,
-    tested: {
-      at: String(t.at ?? ""),
-      how: String(t.how ?? ""),
-      ok: t.ok,
-      note: typeof t.note === "string" ? t.note : undefined,
-    },
+  const tested: ProviderTested = {
+    at: String(t.at ?? ""),
+    how: String(t.how ?? ""),
+    ok: t.ok,
+    note: typeof t.note === "string" ? t.note : undefined,
   };
+  // 只在 Runtime 真的標了旗標時才帶上：缺席的舊記錄維持原本的形狀，
+  // 不憑空長出「未驗證」（也不讓既有比較／快照被這個鍵改變）。
+  if (t.pairingUnverified === true) tested.pairingUnverified = true;
+  return { note, tested };
 }
 
 /**
@@ -229,6 +230,12 @@ export function providerProgress(
   const { state, tested } = input;
   const enabled = input.enabledCapabilities > 0;
   const failedReason = tested?.note ?? "原因未知";
+  // 「裝置宣稱不需配對」不等於「配對已驗證」：Runtime 標了這個旗標時，
+  // 這次的身分證據只有裝置自報的 deviceId，不得與真配對同樣顯示成綠燈。
+  const pairingUnverified = tested?.pairingUnverified === true;
+  const pairingHint =
+    "配對碼未經比對（裝置說它不需要配對），身分證據只有裝置自報的 deviceId" +
+    "——只能確定「有一台自稱是它的裝置回應了」。";
   switch (state) {
     case "discovered":
       return {
@@ -262,6 +269,14 @@ export function providerProgress(
     case "busy":
     case "degraded": {
       if (enabled && tested?.ok === true) {
+        if (pairingUnverified) {
+          return {
+            stage: "enabled",
+            label: "已啟用（配對碼未驗證）",
+            kind: "warn",
+            hint: `有 ${input.enabledCapabilities} 項能力真的開著，測試也通過了，但${pairingHint}`,
+          };
+        }
         return {
           stage: "enabled",
           label: "已啟用",
@@ -286,6 +301,14 @@ export function providerProgress(
         };
       }
       if (tested?.ok === true) {
+        if (pairingUnverified) {
+          return {
+            stage: "tested",
+            label: "已測試（配對碼未驗證）",
+            kind: "warn",
+            hint: `測試通過（真的有回應），但${pairingHint}`,
+          };
+        }
         return {
           stage: "tested",
           label: "已測試",

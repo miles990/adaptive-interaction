@@ -19,12 +19,23 @@ use sha2::{Digest, Sha256};
 pub struct ProviderTested {
     pub at: Timestamp,
     /// `handshake`＝宣告式裝置連線（serial/mqtt/ble）成功，代表 hello 身分
-    /// 驗證＋pair-ok 已完成；`capability`＝該 provider 的受器讀成功／動器回
-    /// ack；`human`＝使用者按下「測試裝置」。
+    /// 驗證＋pair-ok 已完成——但 pair-ok **不一定**代表配對碼被比對過：裝置
+    /// 若在 hello 宣告 `pairing=false`（韌體的 PAIRING_CODE 是空的），它會對
+    /// 任何碼都回 pair-ok。那種情況由 [`ProviderTested::pairing_unverified`]
+    /// 標出來，`how` 的字串不變；`capability`＝該 provider 的受器讀成功／
+    /// 動器回 ack；`human`＝使用者按下「測試裝置」。
     pub how: String,
     pub ok: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// 這次握手的配對碼從未被任何一方比對過（裝置說它不需要配對）。
+    /// true ⇒ 身分證據只有「裝置自報的 deviceId」，證據等級必須誠實降級，
+    /// 不得與真的比對過配對碼的裝置顯示成同一階。
+    ///
+    /// 舊的落地 JSON 沒有這個鍵：`default` 讓它讀回 false（缺席≠未驗證），
+    /// `skip_serializing_if` 讓沒有問題的記錄維持原本的形狀（不新增噪音）。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pairing_unverified: bool,
 }
 
 /// 記錄來源：哪一種能力提供了這次證據。
@@ -59,11 +70,14 @@ fn provider_off_key(id: &ProviderId) -> String {
 /// 有實體連線（serial/mqtt/ble）的裝置多加一句「裝置報上身分並完成配對」。
 /// 能力 id 一律保留（是可追查的事實），有人話名稱時放在前面。
 /// 動器只證明「已回覆收到（acknowledged）」——誠實階梯：acknowledged ≠ completed。
+/// `pairing_unverified`＝這次握手的配對碼從未被比對過（裝置說它不需要配對）：
+/// 那一句「完成配對」不得出現，改說身分證據只有裝置自報的 deviceId。
 pub fn tested_note(
     kind: TestedCapability,
     capability_id: &str,
     human_name: Option<&str>,
     linked: bool,
+    pairing_unverified: bool,
 ) -> String {
     let named = match human_name.map(str::trim).filter(|n| !n.is_empty()) {
         Some(name) if name != capability_id => format!("「{name}」（{capability_id}）"),
@@ -75,7 +89,11 @@ pub fn tested_note(
             format!("回應方式 {named} 已回覆收到（acknowledged，不代表已完成）")
         }
     };
-    if linked {
+    if pairing_unverified {
+        // 「裝置宣稱不需配對」≠「配對已驗證」：只有 DeviceLink 真的比對過碼
+        // 才算。這句話取代「完成配對」，不論這個 provider 有沒有實體連線。
+        format!("裝置報上身分，但配對碼未經比對，身分證據僅為裝置自報的 deviceId：{what}")
+    } else if linked {
         format!("裝置報上身分並完成配對：{what}")
     } else {
         what
@@ -549,26 +567,41 @@ impl Runtime {
 
     /// 記一次證據。`how != "human"` 時同結果一分鐘內只寫一次（節流），
     /// 人為測試永遠即時覆蓋。回傳實際生效的紀錄。
+    ///
+    /// `pairing_unverified`：`Some(_)`＝這次的證據來源知道配對驗證狀態
+    /// （裝置握手）；`None`＝這個來源根本不知道（人為測試、受器讀取）。
+    /// 不知道的來源**不得**把先前握手記下的「配對碼未經比對」洗成乾淨記錄
+    /// ——沉默的降級跟謊稱已驗證是同一件事。
     pub(crate) async fn record_provider_tested(
         &self,
         id: &ProviderId,
         how: &str,
         ok: bool,
         note: impl Into<String>,
+        pairing_unverified: Option<bool>,
     ) -> ProviderTested {
-        let record = ProviderTested {
+        let mut record = ProviderTested {
             at: chrono::Utc::now(),
             how: how.to_string(),
             ok,
             note: Some(note.into()),
+            pairing_unverified: pairing_unverified.unwrap_or(false),
         };
         {
             let Ok(mut map) = self.provider_tested.lock() else {
                 return record;
             };
+            let previous = map.get(id.as_str()).cloned();
+            if pairing_unverified.is_none() {
+                record.pairing_unverified = previous.as_ref().is_some_and(|p| p.pairing_unverified);
+            }
             if how != "human" {
-                if let Some(previous) = map.get(id.as_str()) {
-                    let same = previous.ok == ok && previous.how == record.how;
+                if let Some(previous) = previous.as_ref() {
+                    // 配對驗證狀態變了就不算「同樣的結果」：節流不得把
+                    // 「這次的碼沒被比對過」壓成上一分鐘的乾淨記錄（反之亦然）。
+                    let same = previous.ok == ok
+                        && previous.how == record.how
+                        && previous.pairing_unverified == record.pairing_unverified;
                     let fresh = (record.at - previous.at).num_seconds() < TESTED_AUTO_THROTTLE_SECS;
                     if same && fresh {
                         return previous.clone();
@@ -584,7 +617,7 @@ impl Runtime {
     /// 某個能力剛剛真的成功了 → 把證據記到它的 provider 上。
     /// 讀不到 provider（例如能力不屬於任何 provider）就什麼都不做。
     pub(crate) async fn note_capability_tested(&self, kind: TestedCapability, capability_id: &str) {
-        self.note_capability_tested_on(kind, capability_id, None)
+        self.note_capability_tested_on(kind, capability_id, None, None)
             .await
     }
 
@@ -592,11 +625,17 @@ impl Runtime {
     /// 同一個能力 id 可能同時屬於多台手機（`provider.mobile.<deviceId>`），
     /// 這時只有 driver 說的那一台才是事實——指名了卻找不到對應的 provider 時
     /// 什麼都不記，絕不把證據掛到別台身上。
+    ///
+    /// `pairing_unverified` 來自 driver 收據（`driver_response.pairingUnverified`）：
+    /// 裝置在 hello 說它不需要配對時，spec 配的那組碼從未被任何一方比對過。
+    /// 這件事只有單次握手知道，必須跟著證據一起記下來，否則 provider 的
+    /// 證據等級會把它演成與真配對無法區分的「已測試」。
     pub(crate) async fn note_capability_tested_on(
         &self,
         kind: TestedCapability,
         capability_id: &str,
         device_id: Option<&str>,
+        pairing_unverified: Option<bool>,
     ) {
         let Some(descriptor) = self
             .provider_of_capability(kind, capability_id, device_id)
@@ -628,8 +667,21 @@ impl Runtime {
                 .map(|m| m.name),
         };
         let how = if linked { "handshake" } else { "capability" };
-        let note = tested_note(kind, capability_id, human_name.as_deref(), linked);
-        self.record_provider_tested(&id, how, true, note).await;
+        // 這次的來源不知道配對驗證狀態（受器讀取）就沿用既有記錄：人話註記
+        // 與旗標必須一致，才不會出現「文案說完成配對、旗標說沒驗證」。
+        let pairing_unverified = pairing_unverified.unwrap_or_else(|| {
+            self.provider_tested_record(id.as_str())
+                .is_some_and(|previous| previous.pairing_unverified)
+        });
+        let note = tested_note(
+            kind,
+            capability_id,
+            human_name.as_deref(),
+            linked,
+            pairing_unverified,
+        );
+        self.record_provider_tested(&id, how, true, note, Some(pairing_unverified))
+            .await;
     }
 
     async fn provider_of_capability(
@@ -668,7 +720,7 @@ impl Runtime {
                 (false, None) => "這個提供者的受器現在都讀不到".to_string(),
             };
             let tested = self
-                .record_provider_tested(id, "human", false, reason.clone())
+                .record_provider_tested(id, "human", false, reason.clone(), None)
                 .await;
             self.audit_provider_test(id, None, false, &reason);
             return Ok(json!({
@@ -682,7 +734,9 @@ impl Runtime {
         match self.observe_fresh(&receptor_id).await {
             Ok(observation) => {
                 let note = format!("人為測試：讀取受器 {receptor_id} 成功");
-                let tested = self.record_provider_tested(id, "human", true, note).await;
+                let tested = self
+                    .record_provider_tested(id, "human", true, note, None)
+                    .await;
                 self.audit_provider_test(id, Some(receptor_id.as_str()), true, "read ok");
                 Ok(json!({
                     "providerId": id.as_str(),
@@ -700,6 +754,7 @@ impl Runtime {
                         "human",
                         false,
                         format!("人為測試：讀取受器 {receptor_id} 失敗：{reason}"),
+                        None,
                     )
                     .await;
                 self.audit_provider_test(id, Some(receptor_id.as_str()), false, &reason);
@@ -975,6 +1030,7 @@ mod tests {
             "desk-light.status",
             Some("書桌燈狀態"),
             true,
+            false,
         );
         assert_eq!(
             note,
@@ -985,13 +1041,20 @@ mod tests {
         }
 
         // 沒有人話名稱／名稱等於 id／空白名稱：只寫 id，不寫「」（）。
-        let plain = tested_note(TestedCapability::Receptor, "desk-light.status", None, false);
+        let plain = tested_note(
+            TestedCapability::Receptor,
+            "desk-light.status",
+            None,
+            false,
+            false,
+        );
         assert_eq!(plain, "感知來源 desk-light.status 讀取成功");
         assert_eq!(
             tested_note(
                 TestedCapability::Receptor,
                 "desk-light.status",
                 Some("desk-light.status"),
+                false,
                 false
             ),
             plain
@@ -1001,6 +1064,7 @@ mod tests {
                 TestedCapability::Receptor,
                 "desk-light.status",
                 Some("  "),
+                false,
                 false
             ),
             plain
@@ -1015,6 +1079,7 @@ mod tests {
             "desk-light.set",
             Some("書桌燈"),
             false,
+            false,
         );
         assert_eq!(
             note,
@@ -1022,10 +1087,53 @@ mod tests {
         );
         assert!(note.contains("acknowledged"));
         assert!(!note.contains("完成。") && note.contains("不代表已完成"));
-        let linked = tested_note(TestedCapability::Actuator, "desk-light.set", None, true);
+        let linked = tested_note(
+            TestedCapability::Actuator,
+            "desk-light.set",
+            None,
+            true,
+            false,
+        );
         assert!(linked.starts_with("裝置報上身分並完成配對："));
         assert!(
             linked.ends_with("回應方式 desk-light.set 已回覆收到（acknowledged，不代表已完成）")
+        );
+    }
+
+    /// protocol-conformance-030：裝置說它不需要配對時，spec 配的那組碼從未被
+    /// 任何一方比對過。人話註記不得沿用「完成配對」——那是這個缺陷最會誤導
+    /// 人的一句（有實體連線的裝置本來就會走到 `linked = true`）。
+    #[test]
+    fn tested_note_never_claims_a_pairing_that_was_never_compared() {
+        let unverified = tested_note(
+            TestedCapability::Actuator,
+            "esp32-desk.vibe",
+            None,
+            true,
+            true,
+        );
+        assert!(
+            unverified
+                .starts_with("裝置報上身分，但配對碼未經比對，身分證據僅為裝置自報的 deviceId："),
+            "{unverified}"
+        );
+        assert!(!unverified.contains("完成配對"), "{unverified}");
+        assert!(
+            unverified
+                .ends_with("回應方式 esp32-desk.vibe 已回覆收到（acknowledged，不代表已完成）"),
+            "{unverified}"
+        );
+        // 沒有實體連線登記（linked=false）時同樣要說出來：旗標是單次握手的
+        // 事實，不是 provider 層級的 device_link 集合說了算。
+        assert_eq!(
+            tested_note(
+                TestedCapability::Actuator,
+                "esp32-desk.vibe",
+                None,
+                false,
+                true
+            ),
+            unverified
         );
     }
 }

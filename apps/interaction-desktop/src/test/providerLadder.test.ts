@@ -121,3 +121,53 @@ describe("testedSummary", () => {
     expect(summary).toContain("裝置連線握手");
   });
 });
+
+// protocol-conformance-030：裝置說「我不需要配對」時，spec 配的那組配對碼
+// 從未被任何一方比對過（參考韌體對任何碼都回 pair-ok）。Runtime 會在證據上
+// 標 `pairingUnverified`；階梯不得再把它顯示成與真配對無法區分的綠燈。
+const testedPairingUnverified = {
+  at: "2026-09-03T02:00:00Z",
+  how: "handshake",
+  ok: true,
+  // 與 providers.rs `tested_note` 的實際文案一致（UI 原樣顯示）。
+  note:
+    "裝置報上身分，但配對碼未經比對，身分證據僅為裝置自報的 deviceId：" +
+    "回應方式 esp32-desk.vibe 已回覆收到（acknowledged，不代表已完成）",
+  pairingUnverified: true,
+};
+
+describe("配對碼未經比對時的證據等級", () => {
+  it("已測試：不得與真配對同樣顯示成綠燈", () => {
+    const p = providerProgress({
+      state: "available",
+      tested: testedPairingUnverified,
+      enabledCapabilities: 0,
+    });
+    expect(p.stage).toBe("tested");
+    expect(p.label).toContain("未驗證");
+    expect(p.kind).toBe("warn");
+    expect(p.hint).toContain("配對碼未經比對");
+    // 真的比對過配對碼的那筆維持原本的人話（既有案例不得被改變）。
+    expect(p.label).not.toBe(
+      providerProgress({ state: "available", tested: testedOk, enabledCapabilities: 0 }).label
+    );
+  });
+
+  it("已啟用：能力開著也不得升成綠燈", () => {
+    const p = providerProgress({
+      state: "available",
+      tested: testedPairingUnverified,
+      enabledCapabilities: 2,
+    });
+    expect(p.stage).toBe("enabled");
+    expect(p.label).toContain("未驗證");
+    expect(p.kind).toBe("warn");
+    expect(p.hint).toContain("配對碼未經比對");
+  });
+
+  it("parseProviderDetail 讀得到旗標，且不替沒有旗標的舊記錄憑空加上", () => {
+    const flagged = JSON.stringify({ tested: testedPairingUnverified });
+    expect(parseProviderDetail(flagged).tested?.pairingUnverified).toBe(true);
+    expect(parseProviderDetail(JSON.stringify({ tested: testedOk })).tested).toEqual(testedOk);
+  });
+});

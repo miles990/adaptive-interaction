@@ -1068,3 +1068,275 @@ async fn a_legacy_disabled_provider_without_the_off_marker_stays_locked_after_re
         "採安全預設必須留痕（請使用者確認）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// protocol-conformance-030：「裝置宣稱不需配對」不得等同「配對已驗證」
+//
+// DeviceLink 在裝置 hello.pairing=false 時記下 pairing_unverified（spec 配了
+// 配對碼，但沒有任何一方比對過它——參考韌體對任何碼都回 pair-ok），
+// link_caps 把 `pairingUnverified` 寫進 driver 收據。這一段測 executor →
+// providers 的投影：provider 的「已測試」證據必須把這件事說出來，否則 CLI／
+// UI 會把「從未驗證過的配對」顯示成與真配對完全無法區分的已測試／已啟用。
+// ---------------------------------------------------------------------------
+
+use interaction_adapter_declarative::link_caps::LinkActuator;
+use interaction_adapter_declarative::protocol::{DeviceLink, DeviceMsg, LinkError, RawLink};
+use interaction_adapter_declarative::{CapabilitySpec, CommandSpec};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::broadcast;
+
+/// 最小的假傳輸：只回 hello／pair／cmd 三種訊息，其餘一律忽略。
+/// `device_code = None` 模擬 PAIRING_CODE 為空的韌體：hello.pairing=false，
+/// 且對**任何**碼都回 pair-ok（＝那組碼從未被比對過）。
+struct MockRawLink {
+    inbound: broadcast::Sender<DeviceMsg>,
+    device_id: String,
+    device_code: Option<String>,
+    paired: AtomicBool,
+    closed: AtomicBool,
+}
+
+impl MockRawLink {
+    fn new(device_id: &str, device_code: Option<&str>) -> Arc<Self> {
+        let (inbound, _) = broadcast::channel(16);
+        Arc::new(Self {
+            inbound,
+            device_id: device_id.into(),
+            device_code: device_code.map(String::from),
+            paired: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl RawLink for MockRawLink {
+    async fn ensure_open(&self) -> Result<(), LinkError> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(LinkError::Unavailable("mock link closed".into()));
+        }
+        Ok(())
+    }
+
+    async fn send(&self, line: String) -> Result<(), LinkError> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(LinkError::Unavailable("mock link closed".into()));
+        }
+        let msg: Value = serde_json::from_str(&line).expect("host sends json");
+        let reply = match msg["type"].as_str() {
+            Some("who") => Some(DeviceMsg::Hello {
+                device_id: self.device_id.clone(),
+                fw: Some("1.0.0".into()),
+                proto: Some(1),
+                caps: vec!["vibe.pulse".into()],
+                pairing: self.device_code.is_some(),
+                pairing_locked: false,
+            }),
+            Some("pair") => match &self.device_code {
+                // 韌體停用配對：不比對任何碼，一律 pair-ok（參考韌體行為）。
+                None => {
+                    self.paired.store(true, Ordering::SeqCst);
+                    Some(DeviceMsg::PairOk)
+                }
+                Some(code) if Some(code.as_str()) == msg["code"].as_str() => {
+                    self.paired.store(true, Ordering::SeqCst);
+                    Some(DeviceMsg::PairOk)
+                }
+                Some(_) => Some(DeviceMsg::PairFail {
+                    reason: None,
+                    retry_after_ms: None,
+                }),
+            },
+            Some("cmd") => Some(DeviceMsg::Ack {
+                id: msg["id"].as_str().map(String::from),
+                applied: None,
+                dup: None,
+                cancelled: None,
+                stop_all: None,
+            }),
+            _ => None,
+        };
+        if let Some(reply) = reply {
+            let _ = self.inbound.send(reply);
+        }
+        Ok(())
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<DeviceMsg> {
+        self.inbound.subscribe()
+    }
+
+    fn connected(&self) -> bool {
+        !self.closed.load(Ordering::SeqCst)
+    }
+
+    fn shutdown(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+    }
+
+    fn describe(&self) -> String {
+        "mock".into()
+    }
+}
+
+/// 一台掛在假傳輸上的裝置：`device_wants_pairing=false` ⇒ 配對碼未經比對。
+async fn runtime_with_mock_device(
+    device_wants_pairing: bool,
+) -> (tempfile::TempDir, Runtime, ProviderId, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = Runtime::start(RuntimeOptions {
+        home: Some(dir.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+
+    let device_code = device_wants_pairing.then_some("4321");
+    let raw = MockRawLink::new("esp32-desk01", device_code);
+    let link = Arc::new(DeviceLink::new(
+        raw,
+        "esp32-desk01".into(),
+        Some("4321".into()), // spec 兩邊都配了碼
+    ));
+    let spec: CapabilitySpec = serde_json::from_value(json!({
+        "kind": "actuator",
+        "id": "vibe",
+        "channel": "haptic",
+        "transport": "serial",
+        "timeoutMs": 500,
+    }))
+    .expect("actuator spec");
+    let actuator = LinkActuator::new(
+        spec,
+        CommandSpec {
+            name: "vibe.pulse".into(),
+            params: None,
+        },
+        "esp32-desk".into(),
+        link,
+        "serial",
+    );
+    let actuator_id = actuator.manifest().id.as_str().to_string();
+    rt.registry
+        .register_actuator(Arc::new(actuator))
+        .await
+        .unwrap();
+
+    let provider_id = ProviderId::new("provider.adapter.esp32-desk");
+    let mut descriptor = interaction_registry::providers::discovered(ProviderIdentity {
+        id: provider_id.clone(),
+        kind: ProviderKind::Device,
+        display_name: "ESP32 桌面裝置".into(),
+        trust_level: TrustLevel::Paired,
+        origin: "declarative".into(),
+        version: "1".into(),
+        fingerprint: None,
+        human: None,
+    });
+    descriptor.state = ProviderState::Installed;
+    descriptor.actuators = vec![actuator_id.clone()];
+    rt.providers.register(descriptor).await.unwrap();
+    (dir, rt, provider_id, actuator_id)
+}
+
+async fn acknowledge_once(rt: &Runtime, actuator_id: &str, expect_receipt_flag: bool) {
+    rt.registry
+        .set_actuator_enabled(&ActuatorId::new(actuator_id), true)
+        .await
+        .unwrap();
+    rt.update_policy(json!({
+        "actuatorAllowlist": [actuator_id],
+        "allowedChannels": ["conversation", "web-ui", "log", "haptic"],
+    }))
+    .await
+    .unwrap();
+    rt.start_session(
+        Some("test".into()),
+        None,
+        vec![format!("actuator:{actuator_id}")],
+    )
+    .await
+    .unwrap();
+    let mut intent = SemanticIntent::new("calm");
+    intent.magnitude = Some(0.5);
+    intent.preferred_channels = vec!["haptic".into()];
+    let plan = rt
+        .create_plan(
+            intent,
+            vec![actuator_id.to_string()],
+            1,
+            1,
+            false,
+            None,
+            BTreeMap::new(),
+        )
+        .await
+        .unwrap();
+    let receipts = rt
+        .execute_plan(&plan.plan_id, ActionSource::ExplicitRequest, false)
+        .await
+        .unwrap();
+    assert_eq!(
+        receipts[0].current_status,
+        ActionStatus::Acknowledged,
+        "前置條件：裝置真的回了 ack（{:?}）",
+        receipts[0]
+    );
+    // 前置條件：這個測試的輸入是 driver 收據上的旗標（由 link_caps 寫入）。
+    assert_eq!(
+        receipts[0]
+            .driver_response
+            .get("pairingUnverified")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        expect_receipt_flag,
+        "driver 收據：{:?}",
+        receipts[0].driver_response
+    );
+}
+
+#[tokio::test]
+async fn a_device_that_never_verified_the_pairing_code_downgrades_the_provider_evidence() {
+    let (_g, rt, provider_id, actuator_id) = runtime_with_mock_device(false).await;
+    acknowledge_once(&rt, &actuator_id, true).await;
+
+    let tested = tested_of(&provider_named(&rt, provider_id.as_str()).await)
+        .expect("acknowledged 命令必須留下證據");
+    assert_eq!(tested["ok"], Value::Bool(true));
+    // how 的三個既有取值不變（不新增第四種字串，避免相容性破壞）。
+    assert_eq!(tested["how"], Value::from("capability"));
+    assert_eq!(
+        tested["pairingUnverified"],
+        Value::Bool(true),
+        "裝置說它不需要配對＝那組碼從未被比對過，證據等級必須誠實降級：{tested}"
+    );
+    let note = tested["note"].as_str().unwrap();
+    assert!(
+        note.contains("配對碼未經比對") && note.contains("裝置自報"),
+        "人話註記要說出身分證據只有裝置自報的 deviceId：{note}"
+    );
+    assert!(
+        !note.contains("完成配對"),
+        "不得沿用「已完成配對」的說法：{note}"
+    );
+}
+
+#[tokio::test]
+async fn a_device_that_really_verified_the_pairing_code_keeps_a_clean_record() {
+    let (_g, rt, provider_id, actuator_id) = runtime_with_mock_device(true).await;
+    acknowledge_once(&rt, &actuator_id, false).await;
+
+    let tested = tested_of(&provider_named(&rt, provider_id.as_str()).await)
+        .expect("acknowledged 命令必須留下證據");
+    assert_eq!(tested["ok"], Value::Bool(true));
+    assert_eq!(tested["how"], Value::from("capability"));
+    assert!(
+        tested.get("pairingUnverified").is_none()
+            || tested["pairingUnverified"] == Value::Bool(false),
+        "真的比對過配對碼的裝置不得被標成未驗證：{tested}"
+    );
+    let note = tested["note"].as_str().unwrap();
+    assert!(!note.contains("配對碼未經比對"), "{note}");
+}

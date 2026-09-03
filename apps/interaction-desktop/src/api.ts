@@ -629,6 +629,12 @@ export interface ProviderTested {
   how: string;
   ok: boolean;
   note?: string;
+  /**
+   * 這次握手的配對碼從未被任何一方比對過（裝置在 hello 說它不需要配對，
+   * 韌體對任何碼都回 pair-ok）：身分證據只剩裝置自報的 deviceId。
+   * 缺席＝Runtime 沒有標記（舊記錄或真的比對過），不得當成「未驗證」。
+   */
+  pairingUnverified?: boolean;
 }
 
 export interface ProviderTestReport {

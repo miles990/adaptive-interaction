@@ -753,10 +753,21 @@ impl Runtime {
                             .get("deviceId")
                             .and_then(|value| value.as_str())
                             .map(str::to_string);
+                        // 同一份收據還說出「這次握手的配對碼有沒有被比對過」：
+                        // 裝置在 hello 宣告不需配對時，spec 配的那組碼從未被
+                        // 任何一方比對過（韌體對任何碼都回 pair-ok），身分證據
+                        // 只剩裝置自報的 deviceId。這個事實只有單次握手知道，
+                        // 不往下傳，provider 的證據等級就會把它演成真配對。
+                        let pairing_unverified = receipt
+                            .driver_response
+                            .get("pairingUnverified")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false);
                         self.note_capability_tested_on(
                             crate::providers::TestedCapability::Actuator,
                             step.actuator_id.as_str(),
                             tested_device.as_deref(),
+                            Some(pairing_unverified),
                         )
                         .await;
                     }
