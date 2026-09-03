@@ -1849,10 +1849,18 @@ pub async fn agent_session_approve(
     Ok(Json(out))
 }
 
+/// 中斷單一 session 的目前 turn。擁有權：session-scoped capability token 只能
+/// 中斷自己的 session（middleware 的 `session_request_allowed` 已擋下跨 session，
+/// 這裡是 defense-in-depth 的第二層，避免未來路由／middleware 順序變動時裸露這個
+/// handler）；legacy 共享 agent token 沒有 session 身分，在 middleware 就是 403。
 pub async fn agent_session_interrupt(
     State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
+    if !crate::interrupt_principal_allowed(&auth.principal, &id) {
+        return Err(ApiError::forbidden_scope());
+    }
     Ok(Json(state.runtime.gateway_interrupt(&id).await?))
 }
 

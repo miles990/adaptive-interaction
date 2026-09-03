@@ -1986,6 +1986,11 @@ async fn character_hello_route_negotiates_and_manual_intent_refuses_safety() {
 
 /// §8 的 50 則/s 對每個入口一致：adapter token 走 HTTP 也要被同一個計數器擋下，
 /// 不能靠改用 `POST /v1/character/{receipts,events}` 繞過 WebSocket 的限制。
+///
+/// 決定論（9.9）：限流是純 token bucket，時間由呼叫端注入，所以這裡注入假時鐘
+/// 後可以精確斷言「50 則通過、第 51 則 rate-limited、推進 20 ms 恰好再放行 1
+/// 則」，而不是量真實時鐘再放寬邊界。三個入口（HTTP receipts／HTTP events／
+/// WebSocket）共用同一份預算也在同一條測試裡逐一驗證。
 #[tokio::test]
 async fn adapter_token_http_routes_share_the_websocket_rate_limit() {
     let server = TestServer::spawn().await;
@@ -2004,6 +2009,18 @@ async fn adapter_token_http_routes_share_the_websocket_rate_limit() {
     let mut ws = ws_connect(&server.base, &token).await.expect("adapter ws");
     assert_eq!(ws_next(&mut ws).await["type"], "hello");
 
+    // 決定論：注入假時鐘。限流是純 token bucket（`interaction-character`
+    // `wire.rs::RateLimiter`：capacity = 50、refill = 50/1000 = 0.05 格/ms），
+    // 完全由呼叫端注入的 `now` 驅動——HTTP receipts／events 與 WebSocket 三個
+    // 入口都經過同一個 `CharacterHub::now()`。改用假時鐘後，這個測試不再量真實
+    // 時鐘、不受機器負載影響（限流演算法本身一行未改）。
+    let base = chrono::Utc::now();
+    let clock_at = |ms: i64| {
+        let at = base + chrono::Duration::milliseconds(ms);
+        std::sync::Arc::new(move || at) as interaction_runtime::character::NowFn
+    };
+    server.runtime.character.set_clock(clock_at(0));
+
     let post_as_adapter = |path: &'static str, body: Value| {
         server
             .client
@@ -2013,37 +2030,33 @@ async fn adapter_token_http_routes_share_the_websocket_rate_limit() {
             .send()
     };
 
-    let mut limited = 0;
-    let mut accepted = 0;
-    for i in 0..90 {
-        let response = post_as_adapter(
-            "/v1/character/receipts",
-            json!({"instanceId": instance_id, "receipt": {
-                "messageId": format!("m{i}"), "characterInstanceId": instance_id,
-                "generation": 0, "status": "accepted", "at": chrono::Utc::now()}}),
-        )
-        .await
-        .unwrap();
-        assert_eq!(response.status(), 200);
-        let body: Value = response.json().await.unwrap();
-        if body["status"] == "rate-limited" {
-            limited += 1;
-            assert_eq!(body["accepted"], false);
-        } else {
-            accepted += 1;
+    // 回執本身的 messageId 不存在（沒有對應的 intent），所以「通過限流」的正常
+    // 回應就是 accepted:false / status:"unknown-message"——與 "rate-limited"
+    // 明確可分。
+    let post_receipt = |i: usize| {
+        let body = json!({"instanceId": instance_id, "receipt": {
+            "messageId": format!("m{i}"), "characterInstanceId": instance_id,
+            "generation": 0, "status": "accepted", "at": chrono::Utc::now()}});
+        async move {
+            let response = post_as_adapter("/v1/character/receipts", body)
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 200);
+            response.json::<Value>().await.unwrap()
         }
-    }
-    assert!(
-        limited > 0,
-        "90 則回執在一秒內必須有被擋下的（accepted={accepted}, limited={limited}）"
-    );
-    // 真實時鐘會邊跑邊回補（50 則/s），所以只斷言「明顯被限制住」，不斷言剛好 50。
-    assert!(
-        accepted <= 70,
-        "90 則不可能全過（accepted={accepted}, limited={limited}）"
-    );
+    };
 
-    // events 也共用同一份預算：此時已超量 → 誠實回 dropped{rate-limited}。
+    // 第 1..=50 則：預算滿的那一瞬間全部通過。
+    for i in 0..50 {
+        let body = post_receipt(i).await;
+        assert_eq!(body["status"], "unknown-message", "第 {i} 則應通過：{body}");
+    }
+    // 第 51 則：同一瞬間預算用盡 → 誠實回 rate-limited。
+    let body = post_receipt(50).await;
+    assert_eq!(body["accepted"], false, "{body}");
+    assert_eq!(body["status"], "rate-limited", "{body}");
+
+    // events 共用同一份預算：此時已超量 → 誠實回 dropped{rate-limited}。
     let response = post_as_adapter(
         "/v1/character/events",
         json!({"instanceId": instance_id, "event": {
@@ -2057,6 +2070,28 @@ async fn adapter_token_http_routes_share_the_websocket_rate_limit() {
     let body: Value = response.json().await.unwrap();
     assert_eq!(body["decision"], "dropped", "{body}");
     assert_eq!(body["reason"], "rate-limited", "{body}");
+
+    // WebSocket 也吃同一份預算（不是各自一份）：HTTP 把預算耗盡後，WS 上的
+    // adapter→runtime 訊息立刻收到 error{code:"rate-limited"}。
+    ws_send(&mut ws, fixture_negotiate(1)).await;
+    let error = ws_wait_for(&mut ws, "error").await;
+    assert_eq!(error["code"], "rate-limited", "{error}");
+
+    // 50 則/s ⇒ 每 20 ms 回補剛好 1 格：推進 20 ms 後恰好再接受 1 則。
+    server.runtime.character.set_clock(clock_at(20));
+    let body = post_receipt(51).await;
+    assert_eq!(body["status"], "unknown-message", "{body}");
+    let body = post_receipt(52).await;
+    assert_eq!(body["status"], "rate-limited", "{body}");
+
+    // 再推進 20 ms，那唯一一格由 WS 取用 → negotiate 這次被接受。
+    server.runtime.character.set_clock(clock_at(40));
+    ws_send(&mut ws, fixture_negotiate(1)).await;
+    let negotiated = ws_wait_for(&mut ws, "negotiated").await;
+    assert_eq!(negotiated["generation"], 1, "{negotiated}");
+    // WS 用掉了那一格，HTTP 這邊立刻又是空的。
+    let body = post_receipt(53).await;
+    assert_eq!(body["status"], "rate-limited", "{body}");
 }
 
 /// 裝置的身分指紋屬於人類層的配對資訊：`/v1/mobile` 整條路由 agent token 都
@@ -2151,4 +2186,136 @@ async fn agent_token_never_sees_a_device_identity_fingerprint() {
         assert_eq!(descriptor["identity"]["id"], json!(provider_id));
         assert_eq!(descriptor["state"], json!("available"));
     }
+}
+
+/// safety-invariants-078：`POST /v1/agent-sessions/{id}/interrupt` 指名單一
+/// session，所以必須有擁有權。三條路徑的邊界：
+///   * session-scoped capability token → 只能中斷自己的 session；
+///   * legacy 共享 agent token → 沒有 session 身分（建不了也列不到 session），
+///     一律 403 `token_scope_forbidden`（v0.5.1 起的刻意收斂）；
+///   * human token → 保留管理能力，可中斷任何 session。
+#[tokio::test]
+async fn interrupt_requires_session_ownership_or_a_human_token() {
+    let server = TestServer::spawn().await;
+    let make = |agent: &'static str| interaction_runtime::agents::CreateAgentSession {
+        provider_id: Some(format!("provider.ai-agent.{agent}")),
+        agent_id: agent.into(),
+        label: Some("interrupt ownership probe".into()),
+        ttl_minutes: Some(5),
+        data_scope: vec![],
+        tool_scope: vec!["status".into()],
+        consent_scope: vec![],
+        allow_write: false,
+        max_cost: None,
+        max_messages: Some(5),
+        delegation: None,
+        workdir: None,
+        resume_provider_session_id: None,
+    };
+    let a = server
+        .runtime
+        .create_agent_session(make("owner-a"))
+        .await
+        .unwrap();
+    let b = server
+        .runtime
+        .create_agent_session(make("owner-b"))
+        .await
+        .unwrap();
+    let a_id = a.session_id.as_str().to_string();
+    let b_id = b.session_id.as_str().to_string();
+    let a_token = server
+        .runtime
+        .issue_agent_session_capability(&a_id)
+        .await
+        .unwrap();
+
+    let interrupt = |token: String, id: String| {
+        server
+            .client
+            .post(format!("{}/v1/agent-sessions/{id}/interrupt", server.base))
+            .bearer_auth(token)
+            .json(&json!({}))
+            .send()
+    };
+
+    // 1) 跨 session：A 的 token 打 B 的 id → 403 token_scope_forbidden。
+    let response = interrupt(a_token.clone(), b_id.clone()).await.unwrap();
+    assert_eq!(
+        response.status(),
+        403,
+        "session-scoped token must not interrupt another session"
+    );
+    let error: Value = response.json().await.unwrap();
+    assert_eq!(error["error"]["code"], "token_scope_forbidden");
+
+    // 2) legacy 共享 agent token：任何 session 都不行（含存在的 session id）。
+    for id in [a_id.clone(), b_id.clone(), "no-such-session".to_string()] {
+        let response = interrupt(server.agent_token.clone(), id.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            403,
+            "legacy agent token must not interrupt {id}"
+        );
+        let error: Value = response.json().await.unwrap();
+        assert_eq!(error["error"]["code"], "token_scope_forbidden");
+    }
+    // 前提：legacy token 也建不了 session，所以「自己的 session」不存在。
+    let response = server
+        .client
+        .post(format!("{}/v1/agent-sessions", server.base))
+        .bearer_auth(&server.agent_token)
+        .json(&json!({"agentId": "owner-c"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+    let response = server
+        .client
+        .get(format!("{}/v1/agent-sessions", server.base))
+        .bearer_auth(&server.agent_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+
+    // 3) 自己的 session：授權通過，請求真的抵達 runtime。這兩個 session 沒有
+    //    受管子程序（沒有真的 spawn codex／claude-code），所以 runtime 誠實
+    //    回 404 not_found；關鍵是它**不是** 403 scope 錯誤。
+    let response = interrupt(a_token.clone(), a_id.clone()).await.unwrap();
+    assert_eq!(
+        response.status(),
+        404,
+        "own-session interrupt must pass authorization and reach the runtime"
+    );
+    let error: Value = response.json().await.unwrap();
+    assert_ne!(error["error"]["code"], "token_scope_forbidden");
+    assert!(error["error"]["message"].as_str().unwrap().contains(&a_id));
+
+    // 4) human token 保留管理能力：任何 session 都不被 scope 擋。
+    for id in [a_id.clone(), b_id.clone()] {
+        let (status, body) = server
+            .post(&format!("/v1/agent-sessions/{id}/interrupt"), json!({}))
+            .await;
+        assert_eq!(status, 404, "{body}");
+        assert_ne!(body["error"]["code"], "token_scope_forbidden");
+    }
+
+    // 5) 緊急停止不走 `/interrupt`：runtime 內部路徑仍終止所有 open session。
+    assert_eq!(server.runtime.open_agent_sessions().await, 2);
+    let (status, stopped) = server
+        .post("/v1/emergency-stop", json!({"reason": "ownership test"}))
+        .await;
+    assert_eq!(status, 200, "{stopped}");
+    for id in [a_id.clone(), b_id.clone()] {
+        let record = server.runtime.get_agent_session(&id).await.unwrap();
+        assert_eq!(
+            record.state,
+            interaction_core::AgentSessionState::Cancelled,
+            "estop must cancel {id}"
+        );
+    }
+    assert_eq!(server.runtime.open_agent_sessions().await, 0);
 }

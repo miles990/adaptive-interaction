@@ -428,6 +428,21 @@ fn session_request_allowed(
             .is_some_and(|id| id == capability.session_id)
 }
 
+/// safety-invariants-078：誰可以中斷 `{id}` 這個 session。middleware 已經用路徑
+/// 形狀擋掉 legacy token 與跨 session 的 capability token；handler 再比對一次，
+/// 讓「擁有權」這條規則不依賴路由順序或 middleware 的正確掛載。
+///
+/// * human：控制中心保留管理能力，可中斷任何 session；
+/// * session-scoped capability：只能中斷自己的 session；
+/// * legacy agent／character adapter：沒有 session 身分，一律拒絕。
+pub(crate) fn interrupt_principal_allowed(principal: &AuthPrincipal, session_id: &str) -> bool {
+    match principal {
+        AuthPrincipal::Human => true,
+        AuthPrincipal::AgentSession(capability) => capability.session_id == session_id,
+        AuthPrincipal::LegacyAgent | AuthPrincipal::CharacterAdapter { .. } => false,
+    }
+}
+
 /// Restricted AI/tool-plane boundary. Human-only route families stay denied
 /// until explicitly reviewed. Safety-decreasing operations (stop, revoke,
 /// cancel) and canonical tool calls remain available.
@@ -462,9 +477,13 @@ fn agent_request_allowed(method: &axum::http::Method, path: &str) -> bool {
     if path.starts_with("/v1/actions/") && path.ends_with("/cancel") {
         return true;
     }
-    if path.starts_with("/v1/agent-sessions/") && path.ends_with("/interrupt") {
-        return true;
-    }
+    // safety-invariants-078：`/v1/agent-sessions/{id}/interrupt` 指名單一 session，
+    // 不像 estop／stop-all／sensors/stop 那樣是全域安全遞減操作——它有「誰的
+    // session」這個語意，必須能證明擁有權。`AuthPrincipal::LegacyAgent` 是零欄位
+    // variant，架構上不帶任何 session 身分（也建不了、列不到 session），所以在
+    // 這個「純路徑比對」的位置根本沒有資料可比。因此不再放行：中斷 session 必須
+    // 用 session-scoped capability token（`INTERACT_AI_SESSION_TOKEN`，見
+    // `session_request_allowed`，只准中斷自己）或 human token。
     if path.starts_with("/v1/tools/") && path.ends_with("/call") {
         return true;
     }
@@ -564,6 +583,114 @@ mod auth_scope_tests {
         assert!(!agent_request_allowed(
             &Method::POST,
             "/v1/character/intent"
+        ));
+    }
+
+    /// safety-invariants-078：`POST /v1/agent-sessions/{id}/interrupt` 指名單一
+    /// session，語意上必須有擁有權。`AuthPrincipal::LegacyAgent` 是零欄位
+    /// variant，架構上不帶任何 session 身分（GET 分支連 `/v1/agent-sessions`
+    /// 清單都讀不到，POST `/v1/agent-sessions` 也建不了 session），因此無從證明
+    /// 擁有權——中斷別人的 session 必須改用 session-scoped capability token
+    /// （`INTERACT_AI_SESSION_TOKEN`）或 human token。
+    #[test]
+    fn legacy_agent_token_cannot_interrupt_any_agent_session() {
+        for path in [
+            "/v1/agent-sessions/any-id/interrupt",
+            "/v1/agent-sessions/sess-01J0/interrupt",
+        ] {
+            assert!(
+                !agent_request_allowed(&Method::POST, path),
+                "legacy agent token must not reach POST {path}"
+            );
+        }
+        // 前提：legacy token 本來就建不了 session，也列不到 session，
+        // 所以「自己的 session」對它並不存在。
+        assert!(!agent_request_allowed(&Method::POST, "/v1/agent-sessions"));
+        assert!(!agent_request_allowed(&Method::GET, "/v1/agent-sessions"));
+        assert!(!agent_request_allowed(
+            &Method::GET,
+            "/v1/agent-sessions/any-id"
+        ));
+        // 其餘 agent-session 家族的寫入操作維持原本的 403。
+        for path in [
+            "/v1/agent-sessions/any-id/approve",
+            "/v1/agent-sessions/any-id/renew",
+            "/v1/agent-sessions/any-id/close",
+            "/v1/agent-sessions/any-id/report",
+            "/v1/agent-sessions/any-id/messages",
+            "/v1/agent-sessions/any-id/verify",
+        ] {
+            assert!(!agent_request_allowed(&Method::POST, path));
+        }
+        // 真正的全域安全遞減操作不受影響。
+        assert!(agent_request_allowed(&Method::POST, "/v1/emergency-stop"));
+        assert!(agent_request_allowed(&Method::POST, "/v1/stop-all"));
+        assert!(agent_request_allowed(&Method::POST, "/v1/sensors/stop"));
+        assert!(agent_request_allowed(
+            &Method::POST,
+            "/v1/actions/a1/cancel"
+        ));
+    }
+
+    /// session-scoped capability token 只能中斷自己的 session。
+    #[test]
+    fn session_scoped_token_interrupts_only_its_own_session() {
+        let capability = interaction_runtime::agents::AgentSessionCapability {
+            session_id: "sess-own".into(),
+            agent_id: "agent-under-test".into(),
+            tool_scope: Default::default(),
+            domains: Default::default(),
+            expires_at: chrono::Utc::now() + chrono::Duration::minutes(5),
+        };
+        assert!(session_request_allowed(
+            &Method::POST,
+            "/v1/agent-sessions/sess-own/interrupt",
+            &capability
+        ));
+        assert!(!session_request_allowed(
+            &Method::POST,
+            "/v1/agent-sessions/sess-other/interrupt",
+            &capability
+        ));
+        assert!(!session_request_allowed(
+            &Method::POST,
+            "/v1/agent-sessions",
+            &capability
+        ));
+    }
+
+    /// Handler 層的第二道擁有權比對（defense-in-depth）：即使 middleware 的路徑
+    /// 形狀比對被繞過／改動，這個判定仍必須把非擁有者擋下。
+    #[test]
+    fn interrupt_principal_check_is_ownership_scoped() {
+        let capability = |session_id: &str| interaction_runtime::agents::AgentSessionCapability {
+            session_id: session_id.into(),
+            agent_id: "agent-under-test".into(),
+            tool_scope: Default::default(),
+            domains: Default::default(),
+            expires_at: chrono::Utc::now() + chrono::Duration::minutes(5),
+        };
+        // human 保留管理能力。
+        assert!(interrupt_principal_allowed(&AuthPrincipal::Human, "sess-a"));
+        // session-scoped：只有自己的 session。
+        assert!(interrupt_principal_allowed(
+            &AuthPrincipal::AgentSession(capability("sess-a")),
+            "sess-a"
+        ));
+        assert!(!interrupt_principal_allowed(
+            &AuthPrincipal::AgentSession(capability("sess-a")),
+            "sess-b"
+        ));
+        // legacy／adapter 沒有 session 身分：一律拒絕。
+        assert!(!interrupt_principal_allowed(
+            &AuthPrincipal::LegacyAgent,
+            "sess-a"
+        ));
+        assert!(!interrupt_principal_allowed(
+            &AuthPrincipal::CharacterAdapter {
+                adapter_id: "adapter-1".into()
+            },
+            "sess-a"
         ));
     }
 }

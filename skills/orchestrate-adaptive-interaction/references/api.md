@@ -10,9 +10,9 @@ Full machine-readable spec: `GET /v1/openapi.json`.
 The restricted token can discover allowed runtime state, use canonical tools, plan/simulate/
 execute through policy, and stop/cancel/revoke. It receives HTTP 403
 `token_scope_forbidden` for human-only operations including consent grants,
-Emergency Stop clear, policy/UI/provider mutation, Agent Session creation or
-renewal, Presentation acknowledgement, memory mutation/export, source deletion,
-and knowledge approval. Direct memory, asset, knowledge, audit, outbox, and
+Emergency Stop clear, policy/UI/provider mutation, Agent Session creation,
+renewal, or interruption, Presentation acknowledgement, memory mutation/export,
+source deletion, and knowledge approval. Direct memory, asset, knowledge, audit, outbox, and
 Agent Session reads are also human-only; use the canonical tool surface where
 available. Do not retry a refused operation through a direct URL.
 
@@ -71,8 +71,25 @@ Errors: `{"error": {"code": "...", "message": "..."}}` — codes include
 
 ## Providers, agent sessions, sensors (v0.3)
 
-The Agent Session management routes below are human/control-plane routes except
-for `/interrupt`; the restricted token cannot enumerate or create sessions.
+The Agent Session management routes below are human/control-plane routes; the
+restricted token cannot enumerate, create, or interrupt sessions.
+
+`POST /v1/agent-sessions/{id}/interrupt` names one session, so the caller must
+be able to prove ownership. Since v0.5.1 it accepts only:
+
+* a **session-scoped capability token** — the token minted for that session
+  (put it in `INTERACT_AI_SESSION_TOKEN`; `interact-ai --agent-scope` prefers it
+  over `state/api-agent-token`). It can interrupt **only its own** session; any
+  other id is `403 token_scope_forbidden`.
+* the **human/control-center token** — retains management ability over any
+  session.
+
+The shared restricted token in `state/api-agent-token` carries no session
+identity (it cannot create or list sessions either), so it now receives
+`403 token_scope_forbidden` on `/interrupt` as well. This is a deliberate
+security narrowing in v0.5.1: up to v0.5.0 that token could interrupt any
+session id without any ownership check. Migration: run with the session's own
+`INTERACT_AI_SESSION_TOKEN`, or hand the interrupt to the human plane.
 
 ```http
 GET    /v1/providers
@@ -124,7 +141,9 @@ gate (only the desktop IPC can).
 - `POST /v1/agent-sessions` now spawns REAL subprocess sessions for agentId codex/claude-code
   (read-only by default; explicit human consent may set `allowWrite` for the bounded `workdir`;
   `maxCost` supported). `POST /v1/agent-sessions/{id}/approve`
-  (human approval resolution; unanswered approvals auto-deny), `/interrupt`.
+  (human approval resolution; unanswered approvals auto-deny), `/interrupt`
+  (v0.5.1: session-scoped capability token for its own session, or human token;
+  the shared restricted token is refused).
 - `GET/POST /v1/memory`, `/v1/memory/{id}`, `/v1/memory/export`, `/v1/memory/clear-session-context`,
   `POST /v1/memory/context-bundle` — layered memory with retention tri-state; deterministic bundles.
 - `GET /v1/assets`, `POST /v1/assets/import`, `GET /v1/assets/{hash}{,/impact,/content}`,
