@@ -1815,6 +1815,104 @@ pub async fn character_intent(
     ))
 }
 
+// ---------------------------------------------------------------------------
+// AIP Character Session（human token 專屬；agent／session／adapter token 一律 403）
+// ---------------------------------------------------------------------------
+
+/// `INTERACT_AI_CHARACTER_SESSION=0`：503＋穩定錯誤碼 `session-disabled`
+/// （`docs/aip/README.md` §12）。
+fn session_disabled() -> ApiError {
+    ApiError {
+        status: axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        code: "session-disabled",
+        message: interaction_runtime::character_session::SESSION_DISABLED_MESSAGE.to_string(),
+    }
+}
+
+fn require_character_session(state: &ApiState) -> Result<(), ApiError> {
+    if state.runtime.character_session_enabled() {
+        Ok(())
+    } else {
+        Err(session_disabled())
+    }
+}
+
+/// 桌面可信 host surface 的身分（human token → `{kind:"human-surface", id:"desktop"}`）。
+fn human_surface() -> interaction_runtime::character_session::Party {
+    interaction_runtime::character_session::desktop_party()
+}
+
+/// `GET /v1/character-session`：權威 snapshot（`state{kind:"snapshot"}` envelope）。
+pub async fn character_session_snapshot(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
+    require_character_session(&state)?;
+    let envelope = state
+        .runtime
+        .character_session_snapshot_envelope(&human_surface())
+        .await?;
+    Ok(Json(serde_json::to_value(envelope).unwrap_or_default()))
+}
+
+/// `GET /v1/character-session/diagnostics`：§10（不含 token、路徑、原始 payload）。
+pub async fn character_session_diagnostics(
+    State(state): State<ApiState>,
+) -> ApiResult<Json<Value>> {
+    require_character_session(&state)?;
+    Ok(Json(state.runtime.character_session_diagnostics_value()?))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterSessionResumeBody {
+    #[serde(default)]
+    pub last_revision: u64,
+    #[serde(default)]
+    pub last_sequence: u64,
+    /// 對端記得的 sessionEpoch；不同 → session-reset snapshot。
+    #[serde(default, alias = "sessionEpoch")]
+    pub epoch: u64,
+}
+
+/// `POST /v1/character-session/resume`：patches 或 snapshot（§6）。
+pub async fn character_session_resume(
+    State(state): State<ApiState>,
+    Json(body): Json<CharacterSessionResumeBody>,
+) -> ApiResult<Json<Value>> {
+    require_character_session(&state)?;
+    let party = human_surface();
+    let resume = state
+        .runtime
+        .character_session_resume(&party, body.last_revision, body.last_sequence, body.epoch)
+        .await?;
+    Ok(Json(
+        state
+            .runtime
+            .character_session_resume_value(&party, resume)
+            .await,
+    ))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterSessionEventBody {
+    pub envelope: interaction_runtime::character_session::Envelope,
+}
+
+/// `POST /v1/character-session/events`：可信 host surface 送語意事件（桌面的點擊）。
+/// 身分是綁定出來的：`source` 必須是 `{kind:"human-surface", id:"desktop"}`。
+pub async fn character_session_event(
+    State(state): State<ApiState>,
+    Json(body): Json<CharacterSessionEventBody>,
+) -> ApiResult<Json<Value>> {
+    require_character_session(&state)?;
+    let submission = state
+        .runtime
+        .character_session_submit(body.envelope, &human_surface())
+        .await?;
+    Ok(Json(
+        serde_json::to_value(submission.result).unwrap_or_default(),
+    ))
+}
+
 pub async fn proactive_dialogue_get(State(state): State<ApiState>) -> Json<Value> {
     Json(state.runtime.proactive_dialogue_status().await)
 }
@@ -2333,4 +2431,31 @@ pub async fn mobile_test(
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     Ok(Json(state.runtime.mobile_test(&id).await?))
+}
+
+#[cfg(test)]
+mod character_session_tests {
+    use super::*;
+
+    /// `INTERACT_AI_CHARACTER_SESSION=0` 的回應形狀是契約的一部分：
+    /// HTTP 503＋穩定錯誤碼 `session-disabled`（`docs/aip/README.md` §12）。
+    #[test]
+    fn a_disabled_session_answers_503_with_the_stable_code() {
+        let error = session_disabled();
+        assert_eq!(error.status, axum::http::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "session-disabled");
+        assert!(!error.message.is_empty());
+        // 錯誤訊息不得回顯輸入、不得帶路徑。
+        assert!(!error.message.contains('/'));
+    }
+
+    /// 可信 host surface 的身分是綁定出來的，不是呼叫端說了算。
+    #[test]
+    fn the_http_surface_is_always_the_desktop_human_surface() {
+        let party = human_surface();
+        assert_eq!(
+            serde_json::to_value(&party).unwrap_or_default(),
+            json!({"kind": "human-surface", "id": "desktop"})
+        );
+    }
 }

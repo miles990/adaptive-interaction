@@ -4,6 +4,7 @@
 pub mod activity;
 pub mod agents;
 pub mod character;
+pub mod character_session;
 pub mod config;
 pub mod curator;
 pub mod domain_packs;

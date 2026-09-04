@@ -2663,3 +2663,134 @@ async fn cancelling_an_action_records_the_real_principal_in_the_audit_trail() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// AIP Character Session：四條 HTTP 路由的分權與形狀
+// ---------------------------------------------------------------------------
+
+/// human token 讀得到 snapshot／diagnostics，也送得出可信 surface 的語意事件；
+/// agent／session-scoped／adapter token 一律 403（SSE 的同名事件同界線）。
+#[tokio::test]
+async fn character_session_routes_are_human_only() {
+    let server = TestServer::spawn().await;
+
+    // 1) human：snapshot 是一則 AIP `state{kind:"snapshot"}` envelope。
+    let (status, snapshot) = server.get("/v1/character-session").await;
+    assert_eq!(status, 200, "{snapshot}");
+    assert_eq!(snapshot["specVersion"], "aip/1.0");
+    assert_eq!(snapshot["messageType"], "state");
+    assert_eq!(snapshot["payload"]["kind"], "snapshot");
+    assert_eq!(
+        snapshot["target"],
+        json!({"kind":"human-surface","id":"desktop"})
+    );
+    let revision = snapshot["payload"]["revision"].as_u64().expect("revision");
+    let epoch = snapshot["payload"]["sessionEpoch"].as_u64().expect("epoch");
+
+    // 2) human：diagnostics 不含 token、路徑、原始 payload。
+    let (status, diagnostics) = server.get("/v1/character-session/diagnostics").await;
+    assert_eq!(status, 200, "{diagnostics}");
+    assert_eq!(diagnostics["sessionId"], "session.home");
+    assert!(diagnostics["counters"].is_object());
+    let printed = diagnostics.to_string();
+    assert!(!printed.contains(&server.token), "diagnostics 不得帶 token");
+    assert!(!printed.contains("/"), "diagnostics 不得帶路徑：{printed}");
+
+    // 3) human：resume 回 patches 或 snapshot（都不是錯誤）。
+    let (status, resumed) = server
+        .post(
+            "/v1/character-session/resume",
+            json!({"lastRevision": revision, "lastSequence": 0, "epoch": epoch}),
+        )
+        .await;
+    // HTTP 自帶請求-回應對應，所以回的是 `response` 的 **payload**（wss 才需要
+    // 完整 envelope＋causationId）。
+    assert_eq!(status, 200, "{resumed}");
+    assert!(
+        resumed["kind"] == json!("patches") || resumed["kind"] == json!("snapshot"),
+        "{resumed}"
+    );
+
+    // 4) 未 join 的 surface 送 event → not-a-member（桌面要先 /v1/character/hello）。
+    let event = json!({
+        "specVersion": "aip/1.0",
+        "messageId": "http-touch-1",
+        "messageType": "event",
+        "name": "character.interaction.touch",
+        "source": {"kind": "human-surface", "id": "desktop"},
+        "sessionId": "session.home",
+        "occurredAt": chrono::Utc::now().to_rfc3339(),
+        "expiresAt": (chrono::Utc::now() + chrono::Duration::seconds(5)).to_rfc3339(),
+        "payload": {"kind": "tap"},
+    });
+    let (status, result) = server
+        .post("/v1/character-session/events", json!({"envelope": event}))
+        .await;
+    assert_eq!(status, 200, "{result}");
+    assert_eq!(result["messageType"], "result");
+    assert_eq!(result["payload"]["status"], "rejected");
+    assert_eq!(result["payload"]["code"], "not-a-member");
+
+    // 5) 偽造身分：human token 綁定的是 human-surface:desktop，不是別人。
+    let mut forged = event.clone();
+    forged["messageId"] = json!("http-touch-forged");
+    forged["source"] = json!({"kind": "device", "id": "iphone-someone"});
+    let (status, result) = server
+        .post("/v1/character-session/events", json!({"envelope": forged}))
+        .await;
+    assert_eq!(status, 200, "{result}");
+    assert_eq!(result["payload"]["code"], "identity-mismatch");
+
+    // 6) agent token：四條路由全 403（GET 與 POST 都是）。
+    for (method, path, body) in [
+        (reqwest::Method::GET, "/v1/character-session", Value::Null),
+        (
+            reqwest::Method::GET,
+            "/v1/character-session/diagnostics",
+            Value::Null,
+        ),
+        (
+            reqwest::Method::POST,
+            "/v1/character-session/resume",
+            json!({"lastRevision": 0}),
+        ),
+        (
+            reqwest::Method::POST,
+            "/v1/character-session/events",
+            json!({"envelope": event}),
+        ),
+    ] {
+        let mut request = server
+            .client
+            .request(method.clone(), format!("{}{path}", server.base))
+            .bearer_auth(&server.agent_token);
+        if !body.is_null() {
+            request = request.json(&body);
+        }
+        let response = request.send().await.unwrap();
+        assert_eq!(
+            response.status(),
+            403,
+            "{method} {path} 必須拒絕 agent token"
+        );
+    }
+
+    // 7) character adapter token：同樣 403（它只能 POST 自己的回執／事件）。
+    let manifest: Value = serde_json::from_str(FIXTURE_MANIFEST).unwrap();
+    let (status, added) = server
+        .post(
+            "/v1/character/adapters",
+            json!({"displayName": "文字 adapter（session 分權）", "manifest": manifest}),
+        )
+        .await;
+    assert_eq!(status, 200, "{added}");
+    let adapter_token = added["token"].as_str().unwrap().to_string();
+    let response = server
+        .client
+        .get(format!("{}/v1/character-session", server.base))
+        .bearer_auth(&adapter_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+}

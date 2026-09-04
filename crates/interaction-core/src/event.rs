@@ -106,6 +106,10 @@ pub enum EventType {
     /// Character instance 登記／連線／世代變化（payload = instances[] 的一筆）。
     #[serde(rename = "character.instance")]
     CharacterInstance,
+    /// AIP Character Session 的權威狀態訊息（payload = 完整 AIP envelope：
+    /// snapshot／patch／capability／command）。只給可信 host（human token）。
+    #[serde(rename = "character.session.state")]
+    CharacterSessionState,
     /// 零呈現能力時的安全退路文字（payload `{instanceId?, messageId,
     /// correlationId?, intent, truthState, message}`），由可信 host 呈現。
     #[serde(rename = "character.system-text")]
@@ -157,6 +161,7 @@ impl EventType {
             EventType::CharacterIntent => "character.intent",
             EventType::CharacterReceipt => "character.receipt",
             EventType::CharacterInstance => "character.instance",
+            EventType::CharacterSessionState => "character.session.state",
             EventType::CharacterSystemText => "character.system-text",
         }
     }

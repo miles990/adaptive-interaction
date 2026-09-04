@@ -1121,6 +1121,31 @@ impl MobileBridge {
         self.pending().remove(id);
     }
 
+    /// 送一則 AIP envelope 給指定手機（`{"type":"aip","envelope":…}`）。
+    ///
+    /// 不登記 pending：AIP 的回覆是對端自己送的 `result`／`response`，不是 wire 層 ack。
+    /// 送不出去就誠實回 Err（呼叫端只記錄，不重送、不假裝送到了）。
+    pub async fn send_aip(
+        &self,
+        device_id: &str,
+        envelope: &interaction_aip::Envelope,
+    ) -> Result<(), String> {
+        let bytes = envelope
+            .encode()
+            .map_err(|_| format!("envelope for `{device_id}` exceeds the AIP message limit"))?;
+        if bytes.len() > MOBILE_WS_MAX_MESSAGE_BYTES {
+            return Err(format!("envelope for `{device_id}` exceeds the wire limit"));
+        }
+        let (device_id, outbound) = self.pick_conn(Some(device_id)).await?;
+        let value = serde_json::to_value(envelope)
+            .map_err(|_| format!("envelope for `{device_id}` could not be encoded"))?;
+        let frame = json!({"type": "aip", "envelope": value}).to_string();
+        outbound
+            .send_timeout(Message::Text(frame), Duration::from_millis(500))
+            .await
+            .map_err(|_| format!("iPhone `{device_id}` outbound queue full or closed"))
+    }
+
     /// 送一則需要回覆的訊息並登記 pending（綁定目標手機）。
     /// 回傳 (實際送往哪一台, 回覆接收端)——收據／audit 一律記真正的那一台。
     pub(crate) async fn dispatch(
@@ -2409,6 +2434,9 @@ impl Runtime {
         } else {
             self.character_project_provider(&pid, ProviderState::Revoked);
         }
+        // 撤銷＝立刻退出 Character Session（不是 offline：這台裝置不再是成員）。
+        self.character_session_leave(&interaction_aip::Party::device(device_id))
+            .await;
         self.mobile_disable_high_risk_receptors(device_id, "revoked")
             .await;
         // 全域受器被關掉之後，另一台仍在串流的手機不得從 activeSensors 無聲
@@ -3458,6 +3486,28 @@ impl Runtime {
                         });
                     }
                 }
+                // AIP Character Session（`docs/aip/README.md` §9.1）：只在 auth-ok 之後
+                // 接受；身分＝配對出來的 deviceId，宣稱不符一律拒絕。
+                Some("aip") if authed.is_some() => {
+                    if let Some(device_id) = authed.clone() {
+                        let outcome = self.character_session_device_frame(&device_id, &v).await;
+                        for reply in outcome.replies {
+                            send(&out_tx, json!({"type":"aip","envelope": reply})).await;
+                        }
+                        // recipe 相容：已套用的觸碰同時落成一筆 `iphone.touch` 觀察
+                        // （只此一次；重複／過期／被拒的訊息不會走到這裡）。
+                        if let Some(kind) = outcome.applied_touch {
+                            let mut facts = BTreeMap::new();
+                            facts.insert("kind".to_string(), json!(kind));
+                            if let Err(e) = self
+                                .ingest("iphone.touch", facts, BTreeMap::new(), 1.0)
+                                .await
+                            {
+                                self.mobile.note_dropped("iphone.touch", &e.to_string());
+                            }
+                        }
+                    }
+                }
                 Some("observation") if authed.is_some() => {
                     let receptor = v["receptor"].as_str().unwrap_or_default();
                     // 緊急停止期間：高風險受器的觀察一律丟棄（手機的 stop-all
@@ -3602,6 +3652,15 @@ impl Runtime {
                         }),
                     );
                 }
+            }
+            // AIP Character Session：斷線＝presence offline（成員保留，等 tick 逾時
+            // 才清）；重連後要重送 capability 才能再送 event。
+            if was_active {
+                self.character_session_presence(
+                    &interaction_aip::Party::device(&device_id),
+                    interaction_session::Presence::Offline,
+                )
+                .await;
             }
             // 等待中的 Ping 不留掛單（連線已經沒了）。
             ping_waiters

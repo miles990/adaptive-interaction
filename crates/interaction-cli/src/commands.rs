@@ -801,6 +801,30 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                         .await?
                 }
             },
+            crate::CharacterAction::Session { action } => match action {
+                crate::CharacterSessionAction::Status => {
+                    client.get("/v1/character-session").await?
+                }
+                crate::CharacterSessionAction::Diagnostics => {
+                    client.get("/v1/character-session/diagnostics").await?
+                }
+                crate::CharacterSessionAction::Resume {
+                    last_revision,
+                    last_sequence,
+                    epoch,
+                } => {
+                    client
+                        .post(
+                            "/v1/character-session/resume",
+                            Some(json!({
+                                "lastRevision": last_revision,
+                                "lastSequence": last_sequence,
+                                "epoch": epoch,
+                            })),
+                        )
+                        .await?
+                }
+            },
             crate::CharacterAction::Intent { intent, message } => {
                 client
                     .post(

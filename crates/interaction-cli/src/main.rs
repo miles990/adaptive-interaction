@@ -716,6 +716,13 @@ pub enum CharacterAction {
         #[command(subcommand)]
         action: CharacterAdapterAction,
     },
+    /// AIP Character Session: authoritative shared character state (snapshot,
+    /// diagnostics, resume). Read-only from the CLI — semantic events and
+    /// safety intents can only come from a bound surface or the runtime itself.
+    Session {
+        #[command(subcommand)]
+        action: CharacterSessionAction,
+    },
     /// Human manual test: present ONE non-safety intent with truthState none.
     /// Safety intents (emergency/blocked/failed/verified-success/...) are refused:
     /// they can only be produced by runtime truth projection.
@@ -725,6 +732,26 @@ pub enum CharacterAction {
         /// Optional presentation hint (<= 200 chars).
         #[arg(long)]
         message: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CharacterSessionAction {
+    /// The authoritative snapshot (state message envelope).
+    Status,
+    /// Counters, members and event-log usage (no tokens, no paths, no payloads).
+    Diagnostics,
+    /// Ask for what was missed: patches when the log covers it, otherwise a
+    /// full snapshot (that is not an error).
+    Resume {
+        #[arg(long, default_value_t = 0)]
+        last_revision: u64,
+        #[arg(long, default_value_t = 0)]
+        last_sequence: u64,
+        /// The sessionEpoch the caller remembers; a different one means the
+        /// session was rebuilt and local state must be dropped.
+        #[arg(long, default_value_t = 0)]
+        epoch: u64,
     },
 }
 

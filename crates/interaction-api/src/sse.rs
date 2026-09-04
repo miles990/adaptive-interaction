@@ -48,6 +48,7 @@ fn event_allowed(auth: &AuthContext, event: &RuntimeEvent) -> bool {
             | interaction_core::EventType::CharacterIntent
             | interaction_core::EventType::CharacterReceipt
             | interaction_core::EventType::CharacterInstance
+            | interaction_core::EventType::CharacterSessionState
             | interaction_core::EventType::CharacterSystemText
     )
 }
@@ -172,6 +173,8 @@ mod tests {
             EventType::CharacterIntent,
             EventType::CharacterReceipt,
             EventType::CharacterInstance,
+            // AIP Character Session 的權威狀態同界線：只給可信 host（human）。
+            EventType::CharacterSessionState,
             EventType::CharacterSystemText,
         ] {
             let event = RuntimeEvent::new(event_type, Utc::now(), json!({}));

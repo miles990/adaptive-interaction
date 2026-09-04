@@ -1038,6 +1038,12 @@ impl Runtime {
         }
         self.character_apply(outputs).await;
         self.publish_character_instance(&instance_id);
+        // 桌面視窗（可信 host surface）同時加入 AIP Character Session：重送 hello
+        // ＝重新協商（§7 重連流程第 2 步），Reduced Motion 也在這裡轉錄進 session。
+        if instance_id == DESKTOP_INSTANCE_ID {
+            self.character_session_join_desktop(input.reduced_motion)
+                .await;
+        }
         // 緊急停止中重新 hello 的角色也要立刻知道現在是緊急狀態（桌面另有 /v1/status 輪詢，
         // 但補投是確定性的那條，不靠前端輪詢）。
         self.character_resync_safety_state(&instance_id).await;
@@ -1772,6 +1778,64 @@ impl Runtime {
         );
     }
 
+    /// AIP Character Session 的 Behavior Intent（已由 session crate 投影成 CPP 語意）
+    /// 派給所有已連線的桌面 instance。
+    ///
+    /// 角色呈現層沒有權限主權：`truthState` 固定 `none`（session 的行為不是真相）、
+    /// priority 用投影決定的非安全值、`expiresAt` 用 session 給的 intent deadline、
+    /// `correlationId` 沿用 session 的 correlation。沒有任何 instance 時靜默略過
+    /// （非安全 intent 不走 `system.text`——那條路只保留給安全 intent）。
+    pub fn character_dispatch_session_intent(
+        &self,
+        projection: &interaction_session::CppProjection,
+        correlation_id: &str,
+        expires_at: Timestamp,
+    ) -> (String, Vec<String>) {
+        let hub = self.character.clone();
+        let now = hub.now();
+        let message_id = format!("rt-{}", uuid::Uuid::new_v4().simple());
+        let targets = hub.connected_instance_ids();
+        if targets.is_empty() {
+            return (message_id, Vec::new());
+        }
+        // 已經過期的 intent 不派（誠實：不播一個立刻作廢的演出）。
+        if expires_at <= now {
+            return (message_id, Vec::new());
+        }
+        let mut parameters: BTreeMap<String, Value> = BTreeMap::new();
+        if let Some(map) = projection.parameters.as_object() {
+            for (key, value) in map {
+                parameters.insert(key.clone(), value.clone());
+            }
+        }
+        let outputs = {
+            let mut gw = hub.gateway();
+            let mut outputs = Vec::new();
+            for id in &targets {
+                let mut envelope = IntentEnvelope::from_runtime(
+                    &message_id,
+                    id,
+                    Some(correlation_id.to_string()),
+                    projection.intent,
+                    TruthState::None,
+                    projection.priority,
+                    now,
+                    expires_at,
+                );
+                envelope.presentation_hints = Some(PresentationHints {
+                    variant: Some(projection.variant.clone()),
+                    ..Default::default()
+                });
+                envelope.parameters = parameters.clone();
+                outputs.extend(gw.dispatch(&InstanceId(id.clone()), envelope, now));
+            }
+            outputs
+        };
+        let sent = sent_targets(&outputs, &message_id);
+        self.character_apply_sync(outputs);
+        (message_id, sent)
+    }
+
     /// `action.*`（非角色 actuator）投影。回傳實際投影的 (intent, truthState)。
     pub fn character_project_action(
         &self,
@@ -1806,6 +1870,9 @@ impl Runtime {
         session_id: &str,
         state: &str,
     ) -> Option<(CharacterIntent, TruthState)> {
+        // 同一批真實事件也進 AIP Character Session（只轉錄，不推論；`verified`
+        // 只會從 `verify_agent_session` 這條人類驗證路徑來）。
+        self.character_session_note_agent_state(session_id, state);
         let (intent, truth_state) = session_projection(state)?;
         let projection = Projection::new(intent, truth_state)
             .with_correlation(session_id)
@@ -1863,6 +1930,12 @@ impl Runtime {
 
     /// `emergency.stop`／cleared → emergency／idle。
     pub fn character_project_emergency(&self, engaged: bool) {
+        // AIP Character Session：緊急停止是 Runtime 真相（凍結角色、取消 pending
+        // intent、之後的互動事件一律 scope-denied）。
+        self.character_session_submit_runtime(
+            interaction_session::RuntimeFact::Emergency { engaged },
+            None,
+        );
         let projection = if engaged {
             Projection::new(CharacterIntent::Emergency, TruthState::Emergency)
                 .with_correlation("emergency-stop")

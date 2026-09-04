@@ -18,6 +18,9 @@ interaction-adapter-declarative = { path = "../interaction-adapter-declarative" 
 interaction-character = { path = "../interaction-character" }
 # 小樞 Reference Character Pack：entrypoint id 與 character-rig 2.0 遷移（不在協定核心）。
 interaction-character-shu = { path = "../interaction-character-shu" }
+# AIP 1.0 契約與權威 Character Session（純函式；Runtime 只做 I/O 接線）。
+interaction-aip = { workspace = true }
+interaction-session = { workspace = true }
 adapters-media = { path = "../../adapters/media", default-features = false }
 sha2 = "0.10"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "pnm"] }

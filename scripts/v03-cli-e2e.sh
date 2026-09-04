@@ -522,6 +522,152 @@ print(hit)")
   wait "$FIX_PID" 2>/dev/null || true
 fi
 
+echo "== Character Session（模擬 iPhone（fixture）） =="
+# 【模擬 iPhone（fixture）】：程序外假手機走真 wss＋真配對，驅動 AIP Character
+# Session 的 capability → touch → status → disconnect → reconnect → resume。
+# 這不是 iPhone 真機驗收。
+cargo build --manifest-path "$ROOT/Cargo.toml" -p interaction-runtime --example fake_iphone >/dev/null 2>&1
+PHONE_BIN="$ROOT/target/debug/examples/fake_iphone"
+PHONE_LOG="$HOME_DIR/phone.log"
+PHONE_IN="$HOME_DIR/phone.in"
+phone_seen() {
+  # $1 = 對每一行 JSON 求值的 python 判斷式；$2 = 最多等幾個 0.25 秒
+  local expr="$1"; local tries="${2:-40}"; local i
+  for i in $(seq 1 "$tries"); do
+    if python3 - "$PHONE_LOG" "$expr" <<'PY'
+import sys, json
+path, expr = sys.argv[1], sys.argv[2]
+try:
+    lines = open(path, encoding="utf-8").read().splitlines()
+except OSError:
+    sys.exit(1)
+for line in lines:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        d = json.loads(line)
+    except Exception:
+        continue
+    try:
+        if eval(expr):
+            sys.exit(0)
+    except Exception:
+        continue
+sys.exit(1)
+PY
+    then return 0; fi
+    sleep 0.25
+  done
+  return 1
+}
+if [ ! -x "$PHONE_BIN" ]; then
+  bad "模擬 iPhone（fixture）建不起來（cargo build --example fake_iphone）"
+else
+  PAIR=$("$BIN" mobile pair --json 2>/dev/null)
+  MPORT=$(echo "$PAIR" | J "d['port']")
+  MFP=$(echo "$PAIR" | J "d['fingerprint']")
+  MCODE=$(echo "$PAIR" | J "d['code']")
+  rm -f "$PHONE_IN" "$PHONE_LOG"; mkfifo "$PHONE_IN"
+  "$PHONE_BIN" --port "$MPORT" --fingerprint "$MFP" --code "$MCODE" \
+    --name '模擬 iPhone（fixture）' >"$PHONE_LOG" 2>/dev/null <"$PHONE_IN" &
+  PHONE_PID=$!
+  exec 9>"$PHONE_IN"
+  if phone_seen "d.get('event')=='connected'" 40; then
+    ok "模擬 iPhone（fixture）已配對並連線"
+  else
+    bad "模擬 iPhone（fixture）沒有連上"
+  fi
+
+  # 1) capability 協商：host 回 negotiated＋snapshot 兩則 aip frame。
+  echo '{"op":"aip-capability"}' >&9
+  if phone_seen "d.get('event')=='aip' and d['envelope'].get('messageType')=='capability' and d['envelope']['payload']['intents'].get('react-happily-to-touch')=='exact'" 40; then
+    ok "capability negotiated（模擬 iPhone（fixture））"
+  else
+    bad "capability 沒有協商成功（模擬 iPhone（fixture））"
+  fi
+  if phone_seen "d.get('event')=='aip' and d['envelope'].get('messageType')=='state' and d['envelope']['payload'].get('kind')=='snapshot'" 40; then
+    ok "協商後立刻收到 state snapshot（模擬 iPhone（fixture））"
+  else
+    bad "協商後沒有收到 snapshot（模擬 iPhone（fixture））"
+  fi
+
+  # 2) touch → 權威狀態前進一個 revision，手機同時收到 patch 與 Behavior Intent。
+  REV0=$("$BIN" character session status --json 2>/dev/null | J "d['payload']['revision']")
+  EPOCH=$("$BIN" character session status --json 2>/dev/null | J "d['payload']['sessionEpoch']")
+  echo '{"op":"aip-touch","kind":"tap","messageId":"e2e-touch-1"}' >&9
+  if phone_seen "d.get('event')=='aip' and d['envelope'].get('messageType')=='result' and d['envelope'].get('causationId')=='e2e-touch-1' and d['envelope']['payload'].get('status')=='applied'" 40; then
+    ok "touch applied（模擬 iPhone（fixture））"
+  else
+    bad "touch 沒有被套用（模擬 iPhone（fixture））"
+  fi
+  if phone_seen "d.get('event')=='aip' and d['envelope'].get('messageType')=='command' and d['envelope']['payload'].get('intent')=='react-happily-to-touch'" 40; then
+    ok "Behavior Intent 送到模擬 iPhone（fixture）"
+  else
+    bad "模擬 iPhone（fixture）沒有收到 Behavior Intent"
+  fi
+  REV1=$("$BIN" character session status --json 2>/dev/null | J "d['payload']['revision']")
+  if [ "$REV1" -gt "$REV0" ]; then
+    ok "character session status 顯示 revision 前進 $REV0 -> $REV1"
+  else
+    bad "revision 沒有前進 $REV0 -> $REV1"
+  fi
+  MEMBER=$("$BIN" character session diagnostics --json 2>/dev/null | J "any(m['party']['kind']=='device' and m['presence']=='online' for m in d['members'])")
+  check "diagnostics 誠實列出 online 的模擬 iPhone（fixture）" "$MEMBER" "True"
+  # 重複的 messageId 不得重複套用。
+  echo '{"op":"aip-touch","kind":"tap","messageId":"e2e-touch-1"}' >&9
+  if phone_seen "d.get('event')=='aip' and d['envelope'].get('messageType')=='result' and d['envelope']['payload'].get('duplicate')==True" 40; then
+    ok "重複 messageId 回 accepted{duplicate}（不重套用）"
+  else
+    bad "重複 messageId 沒有被辨識"
+  fi
+  REV2=$("$BIN" character session status --json 2>/dev/null | J "d['payload']['revision']")
+  # status 本身只消耗 sequence，不改 revision；重複的 touch 也不得改。
+  check "重複的 touch 沒有推進 revision" "$REV2" "$REV1"
+
+  # 3) 斷線 → presence offline（成員保留）。
+  echo '{"op":"disconnect"}' >&9
+  OFFLINE=False
+  for i in $(seq 1 40); do
+    OFFLINE=$("$BIN" character session diagnostics --json 2>/dev/null | J "any(m['party']['kind']=='device' and m['presence']=='offline' for m in d['members'])")
+    [ "$OFFLINE" = "True" ] && break; sleep 0.25
+  done
+  check "斷線誠實反映成 presence offline" "$OFFLINE" "True"
+
+  # 4) 重連 → 重新協商 → resume 取回錯過的變更（patches 或 snapshot 都不是錯誤）。
+  echo '{"op":"reconnect"}' >&9
+  if phone_seen "d.get('event')=='connected'" 40; then
+    ok "模擬 iPhone（fixture）重新連上"
+  else
+    bad "模擬 iPhone（fixture）重連失敗"
+  fi
+  echo '{"op":"aip-capability"}' >&9
+  sleep 0.5
+  echo "{\"op\":\"aip-resume\",\"lastRevision\":$REV0,\"lastSequence\":0,\"epoch\":$EPOCH}" >&9
+  if phone_seen "d.get('event')=='aip' and d['envelope'].get('messageType')=='response' and d['envelope']['payload'].get('kind') in ('patches','snapshot')" 40; then
+    ok "resume 回補了錯過的狀態（模擬 iPhone（fixture））"
+  else
+    bad "resume 沒有回應（模擬 iPhone（fixture））"
+  fi
+  # CLI 的 resume 走同一條 use case（human token）。
+  KIND=$("$BIN" character session resume --last-revision "$REV0" --epoch "$EPOCH" --json 2>/dev/null | J "d['kind']")
+  if [ "$KIND" = "patches" ] || [ "$KIND" = "snapshot" ]; then
+    ok "interact-ai character session resume 回 $KIND"
+  else
+    bad "CLI resume 回了非預期的 kind: $KIND"
+  fi
+  # 5) 未知 message type 不執行（不猜）。
+  echo '{"op":"aip-raw","frame":{"specVersion":"aip/1.0","messageId":"e2e-unknown-1","messageType":"teleport","name":"character.interaction.touch","source":{"kind":"device","id":"x"},"occurredAt":"2026-09-04T00:00:00Z","payload":{}}}' >&9
+  if phone_seen "d.get('event')=='aip' and d['envelope'].get('messageType')=='error' and d['envelope']['payload'].get('code')=='unsupported-message-type'" 40; then
+    ok "未知 message type 回 error{unsupported-message-type}，不執行"
+  else
+    bad "未知 message type 沒有被誠實拒絕"
+  fi
+  echo '{"op":"quit"}' >&9
+  exec 9>&-
+  wait "$PHONE_PID" 2>/dev/null || true
+fi
+
 echo "== Emergency stop propagation =="
 SID2=$("$BIN" agents create --agent agent.b --ttl 30 --json 2>/dev/null | J "d['sessionId']")
 "$BIN" emergency-stop --json >/dev/null 2>&1

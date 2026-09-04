@@ -17,6 +17,15 @@
 //! `{"op":"status","micLevel":true,"permissions":{"microphone":"denied"}}`／
 //! `{"op":"disconnect"}`／`{"op":"reconnect"}`／`{"op":"ack-stop-all"}`／`{"op":"quit"}`。
 //!
+//! AIP Character Session（`docs/aip/README.md` §9.1）的 op：
+//! `{"op":"aip-capability"}`（協商：intents／inputs／role remote-renderer）、
+//! `{"op":"aip-touch","kind":"tap","expiresInMs":5000,"messageId":"…"?,"source":{…}?}`
+//! （`source` 可覆寫以測偽造身分）、
+//! `{"op":"aip-resume","lastRevision":n,"lastSequence":n,"epoch":n}`、
+//! `{"op":"aip-raw","frame":{…}}`（任意 frame：未知 type／超大／壞 JSON）。
+//! 收到的每則 aip frame 印一行 `{"event":"aip","envelope":…}`，送出的印
+//! `{"event":"aip-sent","messageType":…,"messageId":…}`。
+//!
 //! 誠實預設：收到 `stop-all` **不會**自動回 ack（除非 `--auto-ack-stop-all`），
 //! 這樣「桌面說已停止 vs 手機沒回應＝結果不確定」那一條路徑才測得到。
 
@@ -234,6 +243,8 @@ struct Phone {
     token: String,
     mic_level: bool,
     permissions: Value,
+    /// 這台模擬 iPhone（fixture）送出的 AIP 訊息序號（messageId 唯一）。
+    aip_seq: u64,
 }
 
 impl Phone {
@@ -276,6 +287,7 @@ impl Phone {
             token,
             mic_level: false,
             permissions: default_permissions(),
+            aip_seq: 0,
         };
         let (write, read) = ws.split();
         (phone, write, read)
@@ -334,6 +346,10 @@ impl Phone {
                 )
                 .await;
             }
+            Some("aip") => {
+                // 每一則 AIP envelope 都原封不動印出來（下游測試自己判斷）。
+                emit(json!({"event":"aip","envelope": message["envelope"].clone()}));
+            }
             Some("auth-fail") => {
                 emit(json!({
                     "event": "auth-fail",
@@ -359,9 +375,93 @@ impl Phone {
         emit(json!({"event":"status","micLevel": self.mic_level}));
     }
 
+    /// 送一則 AIP envelope（包成 `{"type":"aip","envelope":…}`）。
+    async fn send_aip(&mut self, write: &mut WsWrite, envelope: Value) {
+        emit(json!({
+            "event": "aip-sent",
+            "messageType": envelope["messageType"].clone(),
+            "messageId": envelope["messageId"].clone(),
+        }));
+        send_json(write, json!({"type":"aip","envelope": envelope})).await;
+    }
+
+    fn next_aip_id(&mut self, prefix: &str) -> String {
+        self.aip_seq += 1;
+        format!("fx-{prefix}-{}", self.aip_seq)
+    }
+
+    /// 這台模擬 iPhone（fixture）的宣稱身分（`source`）。
+    fn claimed_source(&self) -> Value {
+        json!({"kind": "device", "id": self.device_id})
+    }
+
+    fn base_envelope(&mut self, message_type: &str, name: &str, prefix: &str) -> Value {
+        let message_id = self.next_aip_id(prefix);
+        json!({
+            "specVersion": "aip/1.0",
+            "messageId": message_id,
+            "messageType": message_type,
+            "name": name,
+            "source": self.claimed_source(),
+            "sessionId": "session.home",
+            "occurredAt": chrono::Utc::now().to_rfc3339(),
+            "payload": {},
+        })
+    }
+
     /// stdin 來的一則指令。
     async fn handle_op(&mut self, write: &mut WsWrite, op: Value) -> Step {
         match op["op"].as_str() {
+            Some("aip-capability") => {
+                let mut envelope =
+                    self.base_envelope("capability", "character.session.capability", "cap");
+                envelope["payload"] = json!({
+                    "specVersions": ["aip/1.0"],
+                    "role": "remote-renderer",
+                    "profiles": ["character-session"],
+                    "syncClasses": ["semantic"],
+                    "intents": ["react-happily-to-touch", "celebrate", "idle"],
+                    "inputs": ["character.interaction.touch"],
+                    "features": {"haptic": true, "reducedMotion": false},
+                    "limits": {"maxMessageBytes": 65536},
+                });
+                self.send_aip(write, envelope).await;
+                Step::Continue
+            }
+            Some("aip-touch") => {
+                let kind = op["kind"].as_str().unwrap_or("tap").to_string();
+                let ttl = op["expiresInMs"].as_i64().unwrap_or(5_000);
+                let mut envelope =
+                    self.base_envelope("event", "character.interaction.touch", "touch");
+                if let Some(id) = op["messageId"].as_str() {
+                    envelope["messageId"] = json!(id);
+                }
+                // 偽造身分測試：呼叫端可以覆寫 source（host 必須拒絕）。
+                if op["source"].is_object() {
+                    envelope["source"] = op["source"].clone();
+                }
+                envelope["expiresAt"] =
+                    json!((chrono::Utc::now() + chrono::Duration::milliseconds(ttl)).to_rfc3339());
+                envelope["payload"] = json!({"kind": kind});
+                self.send_aip(write, envelope).await;
+                Step::Continue
+            }
+            Some("aip-resume") => {
+                let mut envelope =
+                    self.base_envelope("query", "character.session.resume", "resume");
+                envelope["target"] = json!({"kind": "session", "id": "session.home"});
+                envelope["payload"] = json!({
+                    "lastRevision": op["lastRevision"].as_u64().unwrap_or(0),
+                    "lastSequence": op["lastSequence"].as_u64().unwrap_or(0),
+                    "sessionEpoch": op["epoch"].as_u64().unwrap_or(0),
+                });
+                self.send_aip(write, envelope).await;
+                Step::Continue
+            }
+            Some("aip-raw") => {
+                self.send_aip(write, op["frame"].clone()).await;
+                Step::Continue
+            }
             Some("status") => {
                 if let Some(mic) = op.get("micLevel").and_then(Value::as_bool) {
                     self.mic_level = mic;

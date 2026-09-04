@@ -3751,3 +3751,40 @@ async fn a_corrupt_paired_device_list_is_reported_as_unknown_not_as_none() {
         text.len() / 2
     );
 }
+
+/// AIP 相容性（`docs/aip/README.md` §9.1）：**沒有**送 `capability` 的舊 App
+/// 永遠不會收到任何 `aip` frame——它只看得到 v1 線協定的訊息（這裡是
+/// `stop-all`）。模擬 iPhone（fixture），不是真機驗收。
+#[tokio::test]
+async fn a_legacy_phone_that_never_negotiates_receives_no_aip_frames() {
+    let (_g, rt) = runtime().await;
+    let (_device_id, _token, mut ws) = pair(&rt).await;
+    send_json(
+        &mut ws,
+        json!({"type":"status","sensors":{"micLevel":false}}),
+    )
+    .await;
+
+    // Runtime 真相事實（緊急停止）：Session 廣播不得外洩給未協商的 App。
+    rt.emergency_stop("user", None).await.expect("estop");
+
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        match tokio::time::timeout(Duration::from_millis(800), ws.next()).await {
+            Ok(Some(Ok(Message::Text(text)))) => {
+                let value: Value = serde_json::from_str(&text).expect("json");
+                seen.push(value["type"].as_str().unwrap_or_default().to_string());
+            }
+            Ok(Some(Ok(_))) => continue,
+            _ => break,
+        }
+    }
+    assert!(
+        !seen.iter().any(|kind| kind == "aip"),
+        "未協商的舊 App 不得收到 aip frame：{seen:?}"
+    );
+    assert!(
+        seen.iter().any(|kind| kind == "stop-all" || kind == "act"),
+        "v1 線協定的既有路徑必須照舊：{seen:?}"
+    );
+}

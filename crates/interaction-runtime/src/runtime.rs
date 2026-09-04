@@ -114,6 +114,9 @@ pub struct RuntimeInner {
     /// Character Presentation Protocol：gateway 宿主（instance 登記、truth
     /// projection、adapter token、外部 WebSocket 連線）。
     pub character: Arc<crate::character::CharacterHub>,
+    /// AIP Character Session Host（`INTERACT_AI_CHARACTER_SESSION=0` 時為 `None`：
+    /// 所有 Session 入口誠實停用，其餘 v0.5.1 行為不變）。
+    pub character_session: Option<Arc<crate::character_session::CharacterSessionHost>>,
     /// 主動式對話政策狀態（確定性頻率限制；持久化到 meta）。
     pub(crate) proactive_dialogue: RwLock<crate::proactive::ProactiveDialogueState>,
     /// Generated proactive candidates waiting for a real local Agent result.
@@ -310,6 +313,21 @@ impl Runtime {
             );
         }
 
+        // AIP Character Session Host：從 `state/character-session.json` 續接
+        // （檔案壞掉 → 改名 .corrupt＋epoch+1，不靜默）。
+        let character_session_host =
+            if crate::character_session::character_session_enabled_from_env() {
+                Some(crate::character_session::CharacterSessionHost::open(
+                    &paths.state_dir(),
+                    Utc::now(),
+                ))
+            } else {
+                tracing::info!(
+                    "character session host disabled by INTERACT_AI_CHARACTER_SESSION=0"
+                );
+                None
+            };
+
         let pause_state = crate::human::PauseState::load(&store);
         let proactive_state: crate::proactive::ProactiveDialogueState = store
             .get_meta(crate::proactive::PROACTIVE_META_KEY)
@@ -334,6 +352,7 @@ impl Runtime {
                 dynamic_push: RwLock::new(BTreeMap::new()),
                 mobile: crate::mobile::MobileBridge::new(),
                 character: crate::character::CharacterHub::new(),
+                character_session: character_session_host,
                 mock_actuator,
                 recipes: RwLock::new(recipes),
                 recipe_errors: RwLock::new(recipe_load_errors.into_iter().collect()),
@@ -414,6 +433,8 @@ impl Runtime {
     pub async fn shutdown(&self) {
         self.shutdown_token.cancel();
         self.character_shutdown();
+        // 最後一份快照落地：重啟後 revision／epoch 才續接得到（不歸零）。
+        self.character_session_persist_now();
         if let Ok(open) = self.store.open_receipts() {
             for mut receipt in open {
                 let _ = receipt.transition(ActionStatus::Cancelled, Utc::now());
@@ -2261,6 +2282,9 @@ impl Runtime {
                 // Character gateway：heartbeat 逾時／過期／acknowledged→uncertain／
                 // 桌面 presence 過期 → transport-closed。
                 runtime.character_sweep().await;
+                // Character Session：reacting 逾時、presence 逾時、過期 intent、
+                // 離線太久的成員清除、到期的持久化建議（沿用同一個 sweep）。
+                runtime.character_session_tick().await;
                 // Gateway：逾時 approval 自動拒絕＋殘留子程序清理。
                 runtime.gateway_sweep().await;
                 // 記憶到期清除（expiresAt 到＝停止使用並刪除）。

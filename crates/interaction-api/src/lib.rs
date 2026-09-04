@@ -111,6 +111,23 @@ pub fn router(state: ApiState) -> Router {
             delete(routes::character_adapter_revoke),
         )
         .route("/v1/character/intent", post(routes::character_intent))
+        // AIP Character Session（human token 專屬；SSE 的 character.session.state 同界線）。
+        .route(
+            "/v1/character-session",
+            get(routes::character_session_snapshot),
+        )
+        .route(
+            "/v1/character-session/resume",
+            post(routes::character_session_resume),
+        )
+        .route(
+            "/v1/character-session/events",
+            post(routes::character_session_event),
+        )
+        .route(
+            "/v1/character-session/diagnostics",
+            get(routes::character_session_diagnostics),
+        )
         .route(
             "/v1/proactive-dialogue",
             get(routes::proactive_dialogue_get).patch(routes::proactive_dialogue_patch),
@@ -472,7 +489,8 @@ fn agent_request_allowed(method: &axum::http::Method, path: &str) -> bool {
             && !path.starts_with("/v1/onboarding")
             // 配對指紋/裝置清單屬人類層：agent token 不可讀。
             && !path.starts_with("/v1/mobile")
-            // 角色 instance／adapter 登記屬可信 host 層：agent token 不可讀。
+            // 角色 instance／adapter 登記與 Character Session 屬可信 host 層：
+            // agent token 不可讀（`/v1/character-session*` 也在這個前綴內）。
             && !path.starts_with("/v1/character");
     }
     if matches!(

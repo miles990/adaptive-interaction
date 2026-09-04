@@ -1,0 +1,197 @@
+# AIP Transport Bindings（v0.6.0 實際形狀）
+
+> `docs/aip/README.md` §9 定義有哪些 Transport 綁定；這份文件寫**實作出來的實際形狀**：
+> iPhone wss frame、HTTP 路由、SSE 事件、CLI 子指令、fixture op，以及每一條路徑上
+> 誰是「已驗證身分」。權威實作：`crates/interaction-runtime/src/character_session.rs`
+> （Session Host 接線）＋`crates/interaction-runtime/src/mobile.rs`（iPhone frame）＋
+> `crates/interaction-api/src/{lib.rs,routes.rs,sse.rs}`。
+>
+> Transport 只是 AIP envelope 的載體：framing、重連、退避、速率窗屬各 Transport；
+> 語意、錯誤碼、outcome 階梯、revision／sequence 規則一律由 AIP 決定。
+
+## 0. 身分對照（誰是「已驗證身分」）
+
+| Transport | 已驗證身分（bound identity） | `source` 必須宣稱 |
+|---|---|---|
+| iPhone wss v1 | 配對 token → `deviceId` | `{kind:"device", id:"<deviceId>"}` |
+| HTTP（human token） | 可信 host surface | `{kind:"human-surface", id:"desktop"}` |
+| Runtime 內部 | Runtime 自己 | `{kind:"runtime", id:"runtime"}`（外部不得宣稱） |
+
+宣稱與綁定身分不符 → `error{code:"identity-mismatch"}`＋稽核 `aip.identity-mismatch`，
+**不執行**、也不「幫忙修正」後執行。
+
+> **桌面視窗的成員身分是 `human-surface:desktop`，不是 `renderer:desktop`。**
+> 桌面能證明的身分只有 human token，AIP §5 把它綁成 `human-surface`；用 `renderer`
+> 會讓 `POST /v1/character-session/events` 永遠 `not-a-member`。CPP 投影不靠成員身分：
+> host 端 renderer 一律收得到 `RendererIntent`（`character-session.md` §12.8），即使
+> session 裡一個成員也沒有。
+
+## 1. iPhone wss v1：`{"type":"aip","envelope":{…}}`
+
+* 只在 `auth-ok` 之後接受；未認證連線送 `aip` 一律忽略（連線本身仍受未認證死線約束）。
+* 每則 envelope ≤ 64 KiB（AIP `MAX_MESSAGE_BYTES`），並共用 v1 既有的 128 KiB frame 上限、
+  **30 msg/s** 連線速率窗與 8 連線上限——`aip` frame 也計入那個窗（超過即關連線，見
+  `mobile_loop.rs`）。Session 另有每個成員 30 msg/s 的 token bucket，超過回
+  `result{status:"rejected", code:"rate-limited", retryable:true}`。
+* 沒送過 `capability` 的舊 App **永遠不會**收到任何 `aip` frame；`character.present` 動器與
+  `iphone.touch` observation 路徑完全不變（回歸測試：`mobile_loop.rs`
+  `a_legacy_phone_that_never_negotiates_receives_no_aip_frames`）。
+
+### 1.1 手機 → host
+
+| envelope | host 的處理 | 回覆 |
+|---|---|---|
+| `capability{name:"character.session.capability"}` | 第一次＝加入；已是成員＝重新協商，走完整安全管線（速率上限＋去重），否則一台已配對的裝置能用 capability 洪水把 revision 與廣播打成無界成長 | **兩則** frame：`capability`（negotiated）＋`state{kind:"snapshot"}`（重新協商時另外回一則 `result{applied}`） |
+| `event{name:"character.interaction.touch"｜".dismiss"}` | §8 安全管線 → Director | 一則 `result`（`applied`／`rejected`／`expired`／`accepted{duplicate:true}`） |
+| `query{name:"character.session.resume"}` | 先過安全管線，再路由到 resume | `response`（§1.3） |
+| `query{name:"character.session.snapshot"}` | 同上 | `response{kind:"snapshot"}` |
+| `query{其他 name}` | 不猜、不執行 | `result{status:"rejected", code:"unknown-name"}` |
+| `heartbeat` | presence online（`lastSeenAt` 走投影格線） | 無（`Submission.reply=false`：不回 result，避免 result 迴圈） |
+| `result` | 只記錄成員回報的進度 | 無 |
+| `cancel` | 撤銷對應的 Behavior Intent（冪等） | `result{status:"cancel-confirmed"}` |
+| `command`／`state` | host 的權力，成員不得送 | `result{status:"rejected", code:"scope-denied"}` |
+| 未知 `messageType` | 不執行 | `error{code:"unsupported-message-type"}` |
+| 壞 JSON／超大／深度或字串超限 | 不執行 | `error{code:"schema-invalid"｜"message-too-large"｜"payload-too-large"}` |
+| 不同 major 版本 | 不猜 | `error{code:"unsupported-version"}` |
+
+`error` envelope 的 `causationId` 是出問題那一則的 `messageId`；解析不出 messageId（例如整包
+壞 JSON）時**省略** `causationId`。`error.payload.message` 是固定人話，**不回顯輸入內容**、
+不含路徑或 token。
+
+### 1.2 host → 手機
+
+| envelope | 何時 |
+|---|---|
+| `state{kind:"snapshot"}` | 協商完成、resume 需要完整對齊時 |
+| `state{kind:"patch", baseRevision}` | 每次權威狀態改變（廣播給所有 online 裝置成員） |
+| `command{name:"character.behavior.request"}` | Behavior Intent，點對點；只送給 presence `online` 且把該 intent 協商成 `exact` 的 `remote-renderer` |
+| `command{name:"character.behavior.cancel"}` | 取消已送出的 intent |
+| `capability` | 協商結果 |
+| `result`／`response`／`error` | 對手機訊息的回覆 |
+
+**sequence 跳號不是錯誤。** 點對點的 `command` 會消耗 session sequence，非目標成員因此
+會看到 sequence 跳號。**成員只以 `revision` 判斷要不要 resume**：`state.revision` 必須是
+`localRevision + 1`（patch 的 `baseRevision` 對得上）才套用；對不上才送 resume。用 sequence
+判斷會在每一次點對點 intent 之後觸發一次 resume，形成無謂的 resume 迴圈。
+（證據：`character_session_loop.rs`
+`resume_falls_back_to_a_snapshot_when_the_log_no_longer_covers_it` 證明「revision 已對齊、
+sequence 落後」時 resume 回的是**空的** patches——沒有東西要補，迴圈自然停。）
+
+### 1.3 resume 的 `response` 形狀
+
+```jsonc
+// 日誌涵蓋得到（envelope: messageType "response", name "character.session.resume",
+// causationId = query 的 messageId）
+{ "kind": "patches",
+  "patches": [ { "sequence": 12, "baseRevision": 5, "revision": 6,
+                 "patch": { … RFC 7396 merge patch … },
+                 "hash": "<sha256>", "sessionEpoch": 1 } ] }
+
+// 日誌不足、或 patches 塞不進 payload 上限 → 完整 snapshot（**不是**錯誤）
+{ "kind": "snapshot", "revision": 42, "sequence": 87, "state": { … }, "hash": "…",
+  "sessionEpoch": 1 }
+
+// epoch 不同（host 重建過 session）：丟棄本地狀態，改用這份 snapshot
+{ "kind": "snapshot", "reason": "session-reset", "revision": 1, … , "sessionEpoch": 2 }
+```
+
+`patches[]` 的項目**不是**完整 envelope，`snapshot` 也是直接內嵌 `state` 訊息的 payload：
+AIP §11 的 payload 巢狀深度上限是 8，多包一層 envelope 就會超過。
+
+## 2. HTTP（human token；`127.0.0.1`）
+
+| 路由 | 回應 |
+|---|---|
+| `GET /v1/character-session` | 一則 `state{kind:"snapshot"}` envelope（`target` = `human-surface:desktop`；消耗一個 sequence） |
+| `POST /v1/character-session/resume` `{lastRevision, lastSequence, epoch}` | §1.3 的 **payload**（HTTP 自帶請求-回應對應，不需要 `causationId`／envelope 外殼） |
+| `POST /v1/character-session/events` `{envelope}` | 該事件的 `result` envelope（桌面把 CPP 點擊轉成 `character.interaction.touch` 時用；也是 Playwright 的入口） |
+| `GET /v1/character-session/diagnostics` | §10 diagnostics（見下） |
+
+* `agent` token、agent session capability token、character adapter token 一律 **403**
+  （回歸：`api_e2e.rs` `character_session_routes_are_human_only`）。
+* `INTERACT_AI_CHARACTER_SESSION=0` → 四條路由都是 **503**
+  `{"error":{"code":"session-disabled","message":…}}`。
+* 桌面必須先 `POST /v1/character/hello`（CPP 協商）才會成為 session 成員；還沒 hello 就送
+  event → `result{rejected, code:"not-a-member"}`。
+
+diagnostics（不含 token、路徑、原始 payload）：
+
+```jsonc
+{ "sessionId": "session.home", "sessionEpoch": 1, "revision": 11, "sequence": 18,
+  "members": [ {"party": {"kind":"device","id":"iphone-…"}, "role": "remote-renderer",
+                "presence": "online", "lastSeenAt": "…"} ],
+  "counters": {"accepted": 3, "applied": 3, "patches": 9, "snapshots": 4,
+               "rejected.scope-denied": 1, "intents.emitted": 2, "…": 0},
+  "eventLog": {"len": 9, "cap": 512},
+  "storeNote": null }
+```
+
+`storeNote` 不是 `null` 時代表持久化檔案讀不到／壞掉（已改名 `.corrupt`、epoch 已 +1）——
+**不靜默**，一般模式要翻譯成人話（`character-session.md` §11），不得顯示這些技術詞。
+
+## 3. SSE（`GET /v1/events`，human token）
+
+事件型別 `character.session.state`，payload 是**完整 AIP envelope**。送出時機：
+
+* 每一則廣播（`state{kind:"patch"｜"snapshot"}`）；
+* 每一則要送給桌面可信 host surface 的 envelope（`capability`／`command`／`result`）。
+
+與既有 `character.*` 事件同界線：agent token、adapter token 一律看不到（`sse.rs`
+`character_events_are_human_only_on_sse`）。
+
+## 4. CLI（薄殼，human token）
+
+```bash
+interact-ai character session status                       # GET /v1/character-session
+interact-ai character session diagnostics                  # GET …/diagnostics
+interact-ai character session resume --last-revision N [--last-sequence M] [--epoch E]
+```
+
+CLI **不能**送語意事件：`character.interaction.*` 必須來自綁定身分的 surface（手機或桌面
+視窗），安全 intent 只能由 Runtime 真相投影產生。
+
+## 5. In-process（Rust）
+
+`Runtime::character_session_{join,leave,presence,submit,submit_runtime,resume,snapshot_envelope,
+diagnostics_value,peek,tick_at}`。`submit_runtime` 是 Runtime 真相的唯一入口
+（`task.state`／`task.verified`／`runtime.emergency`／reduced motion）；`verified` 只會從
+`verify_agent_session`（human-only）那條路徑進來。
+
+Runtime 接線點：
+
+| Runtime 事件 | Session |
+|---|---|
+| `agent.session.state`（`character_project_session` 旁） | `TaskState{truth}`；`verified` → `TaskVerified` |
+| `emergency.stop` engage／clear（`character_project_emergency`） | `Emergency{engaged}` |
+| `/v1/character/hello` 協商成功 | `join(human-surface:desktop, role host-renderer)`＋`ReducedMotion` |
+| watchdog sweep | `tick`：reacting 逾時、presence 逾時、過期 intent、離線逾時的成員清除、到期的持久化 |
+| iPhone 斷線 | `presence(device, offline)`（成員保留，逾時才清） |
+| iPhone 撤銷 | `leave(device)`（立即，不是 offline） |
+
+## 6. Fixture op（`cargo run -p interaction-runtime --example fake_iphone`）
+
+**模擬 iPhone（fixture）**，不是真機驗收。stdin 一行一則 JSON：
+
+```jsonc
+{"op":"aip-capability"}                       // role remote-renderer；intents react-happily-to-touch/celebrate/idle
+{"op":"aip-touch","kind":"tap","expiresInMs":5000,"messageId":"…","source":{…}}  // source 可覆寫以測偽造身分
+{"op":"aip-resume","lastRevision":5,"lastSequence":8,"epoch":1}
+{"op":"aip-raw","frame":{…}}                  // 任意 frame：未知 type／超大／壞 JSON
+```
+
+stdout（JSON Lines）：收到的每則 aip frame 印 `{"event":"aip","envelope":{…}}`，送出的印
+`{"event":"aip-sent","messageType":…,"messageId":…}`；既有的 `status`／`disconnect`／
+`reconnect`／`ack-stop-all`／`quit` op 與 `{"event":"connected"｜"disconnected"｜"act"…}`
+輸出不變。驗收腳本：`scripts/v03-cli-e2e.sh` 的「Character Session（模擬 iPhone（fixture））」段。
+
+## 7. 1.0 的邊界（誠實記錄）
+
+* **`consentGrantId` 不會出現在 1.0 的 session 訊息裡**：帶 grant 的訊息只可能是 `command`，
+  而 1.0 的成員不得送 `command`（`scope-denied`）。因此 `ConsentVerifier` port 已定義但
+  session 尚未使用它——不是「已驗過」，是「這條路目前走不到」。
+* **同一瞬間多則 Runtime 真相事實的送達順序不保證**：狀態變更是同步、有序的（revision 依序
+  遞增），但派送在背景任務裡；接收端以 revision 判定，落後的一律忽略（rollback 防護），
+  必要時 resume。這是 AIP §6 設計內的行為，不是錯誤。
+* **`characterId` 目前固定是 `"character"`**：session 在 Runtime 啟動時就建立，那時還沒有
+  任何角色 hello。角色顯示名走 CPP／`/v1/character/manifest`，不從 session state 取。
+* 多台電腦競爭 host、雲端同步、multi-master、CRDT：**不在 1.0**。
