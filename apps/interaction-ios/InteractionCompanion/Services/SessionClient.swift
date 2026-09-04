@@ -295,7 +295,11 @@ enum SessionDecisions {
         switch message.kind {
         case .snapshot(let state):
             let epoch = message.epoch ?? local.epoch
-            let reset = message.isSessionReset && epoch > local.epoch
+            // §7 步驟 4 寫的是「epoch **不同** → 丟棄本地狀態、套用 snapshot」，不是「更大」。
+            // host 重建 session 或這支手機被重新配對到**另一台桌面**時，新 host 的 epoch
+            // 可能比手機記得的小（全新 session 的 epoch 就是 1）；用 `>` 會把那份權威快照
+            // 判成 rollback，之後每一則狀態都被同樣理由丟掉、永遠不會恢復。
+            let reset = message.isSessionReset && epoch != local.epoch
             if !reset {
                 if message.revision < local.revision { return .ignoredRollback }
                 if message.revision == local.revision { return .ignoredAlreadyApplied }
@@ -330,6 +334,19 @@ enum SessionDecisions {
     static func noteSyncSucceeded(_ local: inout SessionSyncLocal) {
         local.resumeFailures = 0
         local.unrecoverable = false
+    }
+
+    /// 新的一條連線：重新給一輪補齊的機會。
+    /// 只清失敗計數，**不**清 revision／state——重連是 reconcile，不是重來（§7）。
+    static func noteNewConnection(_ local: inout SessionSyncLocal) {
+        local.resumeFailures = 0
+        local.unrecoverable = false
+    }
+
+    /// 換了配對目標（另一台桌面）：本地對權威狀態的一切認知都失效，全部歸零。
+    /// 留著舊的 revision／epoch 會讓新 host 的第一份快照被當成 rollback。
+    static func forgetAuthoritativeState(_ local: inout SessionSyncLocal) {
+        local = SessionSyncLocal()
     }
 
     // MARK: intent
@@ -447,6 +464,10 @@ final class SessionClient: ObservableObject {
         nowPlaying = nil
         queue.removeAll()
         resuming = false
+        // 新連線 ＝ 新的一輪嘗試。§11 給使用者的指示就是「請重新連接」；如果重新連接
+        // 之後計數還留著，第一次 resume 就會被吞掉並繼續顯示「無法恢復」，那句指示等於
+        // 是假的（上一條連線的失敗不能算在這一條頭上）。
+        SessionDecisions.noteNewConnection(&local)
         guard
             let envelope = SessionDecisions.capabilityEnvelope(
                 deviceId: deviceId, sessionId: sessionId, messageId: nextMessageId("cap"),
@@ -460,6 +481,22 @@ final class SessionClient: ObservableObject {
         if local.revision > 0 {
             sendResume(now: now)
         }
+        refreshStatus()
+    }
+
+    /// 換配對目標（首次配對、位址變更後重新配對、使用者解除配對）。
+    ///
+    /// 新的桌面是另一個 session：它的 epoch／revision 與這支手機記得的沒有可比性
+    /// （全新 host 的 epoch 就是 1），留著舊認知只會讓對方的權威快照被當成 rollback。
+    func pairingDidChange() {
+        SessionDecisions.forgetAuthoritativeState(&local)
+        presentation = nil
+        negotiated = false
+        unsupportedIntents = []
+        nowPlaying = nil
+        queue.removeAll()
+        resuming = false
+        advanced = SessionAdvancedInfo()
         refreshStatus()
     }
 
@@ -659,9 +696,17 @@ final class SessionClient: ObservableObject {
             advanced.sequence = local.sequence
             advanced.epoch = epoch
             return true
-        case .ignoredRollback, .ignoredAlreadyApplied:
+        case .ignoredAlreadyApplied:
+            // 同一版又來一次：本來就已經套用過，還在同步軌道上。
             advanced.framesIgnored += 1
             return true
+        case .ignoredRollback:
+            // host 送來的權威狀態比本地舊：雙方對「現在是哪一版」的認知已經不一致。
+            // 什麼都不做的話，之後每一則狀態都會被同樣理由丟掉，而畫面卻顯示「已同步」
+            //（received ≠ applied）。走 §7 的補齊流程；連續補不齊就誠實顯示「無法恢復」。
+            advanced.framesIgnored += 1
+            sendResume(now: now)
+            return false
         case .needsResume:
             sendResume(now: now)
             return false
@@ -775,13 +820,18 @@ final class SessionClient: ObservableObject {
 
     // MARK: - 內部：送訊
 
+    /// 送一次 §7 的 resume。
+    ///
+    /// **順序很重要**：先判斷「已經放棄了嗎」，真的送出去之後才記一次嘗試。
+    /// 反過來寫的話，第 3 次會只增加計數卻根本沒送出，使用者看到「無法恢復」時
+    /// 實際只做過 2 次 round-trip（誠實階梯：宣稱的嘗試次數必須等於真的做過的次數）。
     private func sendResume(now: Date) {
+        // 走到這裡就代表本地與 host 對不齊：在真的補齊之前都不得宣稱「已同步」，
+        // 送不出去也一樣（誠實階梯：received ≠ applied）。
+        resuming = true
         guard let transport, transport.isConnected, let deviceId = transport.boundDeviceId else {
             return
         }
-        SessionDecisions.noteResumeAttempt(&local)
-        advanced.resumesSent += 1
-        resuming = !local.unrecoverable
         guard !local.unrecoverable else {
             note("連續無法補齊角色狀態，需要重新連接")
             return
@@ -789,22 +839,31 @@ final class SessionClient: ObservableObject {
         let envelope = SessionDecisions.resumeEnvelope(
             local: local, deviceId: deviceId, sessionId: sessionId,
             messageId: nextMessageId("resume"), now: now)
-        _ = transport.sendAip(envelope)
+        guard transport.sendAip(envelope) else {
+            // 有界佇列丟掉或編碼失敗：沒送出去就不算一次嘗試（也不能算成失敗）。
+            note("角色狀態的補齊要求沒有送出，稍後再試")
+            return
+        }
+        advanced.resumesSent += 1
+        SessionDecisions.noteResumeAttempt(&local)
     }
 
     private func sendSnapshotQuery(now: Date) {
+        resuming = true
         guard let transport, transport.isConnected, let deviceId = transport.boundDeviceId else {
             return
         }
-        SessionDecisions.noteResumeAttempt(&local)
-        resuming = !local.unrecoverable
         guard !local.unrecoverable else {
             note("連續無法補齊角色狀態，需要重新連接")
             return
         }
         let envelope = SessionDecisions.snapshotQueryEnvelope(
             deviceId: deviceId, sessionId: sessionId, messageId: nextMessageId("snap"), now: now)
-        _ = transport.sendAip(envelope)
+        guard transport.sendAip(envelope) else {
+            note("角色狀態的補齊要求沒有送出，稍後再試")
+            return
+        }
+        SessionDecisions.noteResumeAttempt(&local)
     }
 
     private func failedToSync() {

@@ -369,6 +369,9 @@ final class ConnectionManager: NSObject, ObservableObject {
         cancelRetry()
         // 換了配對目標:舊位址的失敗紀錄不再有參考價值。
         resetFailureHistory()
+        // 新的桌面是另一個 character session(epoch 可能比手機記得的還小):
+        // 本地對權威狀態的認知必須歸零,否則對方的第一份快照會被當成 rollback。
+        withSession { $0.pairingDidChange() }
         pendingPairing = payload
         openSocket(host: payload.host, port: payload.port, fingerprint: payload.fp)
     }
@@ -396,6 +399,7 @@ final class ConnectionManager: NSObject, ObservableObject {
             logLine("清除配對失敗:\(error.localizedDescription)")
         }
         pairing = nil
+        withSession { $0.pairingDidChange() }
         logLine("使用者解除配對,Keychain 已清除")
     }
 

@@ -34,8 +34,9 @@
 > - ✅ **裝置 SDK 建置通過(未簽章)**:`-sdk iphoneos -arch arm64 -configuration Release
 >   CODE_SIGNING_ALLOWED=NO` → `** BUILD SUCCEEDED **`;12 個 `.swift` 對
 >   `arm64-apple-ios17.0` + iphoneos26.5 SDK 的 `swiftc -typecheck` 也是 0 error / 0 warning。
-> - ✅ **XCTest 92/92 通過（2026-09-04 v0.6.0 wave 2；同日 v0.5.1 時為 46/46、2026-09-03 為 25/25）**
->   (AIPConformance 14 + MotionClassifier 8 + Protocol 21 + ReconnectHint 21 + SessionClient 28)
+> - ✅ **XCTest 101/101 通過（2026-09-05 v0.6.0 對抗審查修復後；2026-09-04 wave 2 為 92/92、
+>   同日 v0.5.1 為 46/46、2026-09-03 為 25/25）**
+>   (AIPConformance 17 + MotionClassifier 8 + Protocol 21 + ReconnectHint 21 + SessionClient 34)
 >   ——用 xcodebuild 產出的 app-hosted `.xctest`,注入 iPhone 17
 >   **模擬器**(iOS 26.2)以 `simctl` 執行(見下方「跑 XCTest:`simctl` 注入流程」)。
 >   **這是模擬器測試,與下面的真機驗收是兩件事**。
@@ -201,7 +202,10 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 >（MotionClassifier 8＋ProtocolTests 17＋ReconnectHintTests 21）。
 > **2026-09-04（v0.6.0 wave 2）重跑：Executed 92 tests, with 0 failures**
 >（AIPConformance 14＋MotionClassifier 8＋ProtocolTests 21＋ReconnectHint 21＋SessionClient 28）
-> ——仍是 **iPhone 17 模擬器**，與真機驗收是兩件事。
+> **2026-09-05（v0.6.0 對抗審查修復）重跑：Executed 101 tests, with 0 failures**
+>（AIPConformance 17＋MotionClassifier 8＋ProtocolTests 21＋ReconnectHint 21＋SessionClient 34）
+> ——仍是 **iPhone 17 模擬器**（UDID 66067313…，跑完即 `simctl shutdown`），
+> 與真機驗收是兩件事。
 
 ### 跑 XCTest:`simctl` 注入流程(可重現;`-destination` 不可用時的等價做法)
 
@@ -241,7 +245,7 @@ SIMCTL_CHILD_XCInjectBundleInto="$APP/InteractionCompanion" \
 xcrun simctl launch --console-pty "$UDID" "$BID" -XCTest All "$APP/PlugIns/InteractionCompanionTests.xctest"
 ```
 
-輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 92。
+輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 101。
 
 ### DEBUG 限定啟動參數(自動化驗收,僅供模擬器/CI;release 不編入)
 
@@ -594,6 +598,34 @@ xcodebuild -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 **沒有驗到的**:真機的 haptic／Reduced Motion 實機行為／背景重連；
 模擬器 app 被系統掛起後 45 秒 idle timeout 會被桌面移出成員(這是預期行為,
 重連時會重送 capability),但「長時間背景後再回前景」這條路沒有在真機上走過。
+
+### 2026-09-05(v0.6.0 對抗審查修復):AIP 一致性與角色同步恢復
+
+對抗審查 `docs/reviews/adversarial/6683403-20260904T161327Z.json` 裡屬於 iPhone 端的
+confirmed findings。全部只在**模擬器**驗:`swiftc -typecheck` 16 個 App `.swift`
+0 error / 0 warning、`xcodebuild` 兩個 target 0 error / 0 warning、
+XCTest **Executed 101 tests, with 0 failures**(iPhone 17 模擬器、iOS 26.2)。
+
+| finding | 修了什麼 |
+|---|---|
+| `aip-protocol-034` | `JSONValue.intValue` 改用 `Int(exactly:)` 並新增 `uint64Value`；`payload.revision` 依 Rust 的 `Value::as_u64` 判斷。以前對方送 `{"revision":1e30}` 會讓**整個 App 進程 trap**(實測 `Fatal error: Double value cannot be converted to Int`, exit 133),而 `validate()` 的契約是「拒絕、不執行、不崩潰」。 |
+| `aip-protocol-037` | `checkId`／payload 字串長度／錯誤訊息 200 字截斷全部改數 **Unicode scalar**(Rust `chars()`／TS code point)。以前 Swift 數 grapheme cluster:128 個「e+結合尖音符」(256 scalar)的 `messageId` 在 Swift 過、在 Rust/TS 被拒。 |
+| `aip-protocol-038` | `JSONValue` 新增 `.integer(Int64)`／`.unsigned(UInt64)`:超過 2^53 的整數不再被改值或寫成指數形式(以前 `9007199254740993 → 9007199254740992`、`1000000000000000001 → 1e+18`),AIP §1「未知欄位 round-trip 不遺失」在 Swift 端才是真的。 |
+| `pairing-migration-001` | `session-reset` 的判斷從「epoch 更大」改成契約 §7 第 4 步寫的「**epoch 不同**」;被忽略的 rollback 不再是終點(會送 resume,而且期間不得宣稱「已同步」);重新配對(`startPairing`／`unpairByUser`)會把本地權威狀態認知歸零。以前換一台桌面之後手機會**永久失聯卻顯示「已同步」**。 |
+| `reconnect-recovery-045` | resume 改成「先確認還沒放棄 → 真的送出 → 才記一次嘗試」;新連線重設失敗預算。以前第 3 次 resume 根本沒送出就宣告「無法恢復,請重新連接」,而且重新連接不會清掉那個狀態——等於那句指示是假的。 |
+| `evidence-honesty-011` | Reduced Motion 開啟時 `react-happily-to-touch` 現在真的**換色**(`CharacterPlaybackEffect.plan` 是純函式,可測)。以前那個 intent 的全部效果都包在 `if !reduceMotion` 裡,播放只剩一段 `Task.sleep`,卻仍回 `result{observed}`——`observed` 的定義是「呈現完成」。 |
+
+順手補齊的跨語言一致性(同一份 conformance fixture index 釘住,不是我這組的 finding
+但 Swift 端不修就會與 Rust 分岔):`specVersion` 不再 trim 前後空白、major／minor 溢出
+u32 一律 `schema-invalid`;`character.session.approval` 先歸 `require-reconfirmation`
+再看 `character.session.` 前綴;`sequence`／`baseRevision`／`payload.revision` 必須寫成
+JSON **整數字面**(Foundation 的 `JSONDecoder` 會把 `2.0` 悄悄收成 `UInt64`,serde 不收)。
+
+**已知的跨語言分岔(尚未收斂)**:`crates/interaction-session/src/patch.rs`
+的 `accept_state_with_epoch` 仍然是 `reset && epoch > local_epoch`,與這次 Swift 改成的
+「epoch 不同」不一致。host 自己(`session.rs::resume`)送 `session-reset` 的條件是
+`epoch != self.epoch`,所以**契約與 host 都站在 `!=` 這邊**;Rust 那份接收端 helper
+需要由負責該 crate 的人一併改。**這一列不得寫成已修好。**
 
 ### 第二輪模擬器復測(2026-08-28 晚)
 

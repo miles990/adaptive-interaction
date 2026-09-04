@@ -27,7 +27,8 @@ struct AIPFailure: Error, Equatable {
 
     init(_ code: AIPErrorCode, _ message: String) {
         self.code = code
-        self.message = String(message.prefix(200))
+        // 截斷以 Unicode scalar 計，與 Rust 的 `chars().take(200)`、TS 的 `[...message]` 一致。
+        self.message = String(String.UnicodeScalarView(message.unicodeScalars.prefix(200)))
         self.retryable = code == .rateLimited || code == .`internal`
     }
 }
@@ -72,7 +73,10 @@ enum AIPTime {
 enum AIPName {
     /// `^[a-z][a-z0-9]*(\.[a-z][a-z0-9-]*)+$`，≤ MAX_NAME_CHARS。
     static func isValid(_ name: String) -> Bool {
-        guard !name.isEmpty, name.count <= AIPLimits.maxNameChars else { return false }
+        // 長度以 Unicode scalar 計（Rust `chars().count()`／TS `[...name].length`）。
+        guard !name.isEmpty, name.unicodeScalars.count <= AIPLimits.maxNameChars else {
+            return false
+        }
         let segments = name.split(separator: ".", omittingEmptySubsequences: false)
         guard segments.count >= 2 else { return false }
         for (index, segment) in segments.enumerated() {
@@ -124,9 +128,13 @@ func aipOfflinePolicy(_ name: String, hasConsentGrant: Bool = false) -> AIPOffli
     if name.hasPrefix("character.interaction.") { return .dropIfOffline }
     if name.hasPrefix("character.behavior.") { return .dropIfOffline }
     if name.hasPrefix("character.preference.") { return .queueIdempotent }
+    // `character.session.approval`（approval-request 的線上名字）同時符合
+    // `character.session.` 前綴，所以這條**必須**先判斷；反過來排的話，唯一真正存在的
+    // approval name 會被歸成 `state-reconcile`＝離線後可以自動對齊——那是人類決定，
+    // 不得自動重送。與 `crates/interaction-aip/src/offline.rs` 同一條界線。
+    if name.hasPrefix("approval.") || name.hasSuffix(".approval") { return .requireReconfirmation }
     if name.hasPrefix("character.session.") { return .stateReconcile }
     if name.hasPrefix("task.") || name.hasPrefix("runtime.") { return .stateReconcile }
-    if name == "approval.request" { return .requireReconfirmation }
     return .dropIfOffline
 }
 
@@ -218,17 +226,20 @@ struct AIPNegotiatedVersion: Equatable {
 }
 
 enum AIPVersion {
+    /// 語法是**精確**的，不是「大概像」：前後空白／換行不得被 trim 掉
+    ///（Swift 的 `.whitespaces` 連換行都不含，容忍它只會讓三個語言的界線不一樣），
+    /// major／minor 溢出 u32 一律回 nil → `schema-invalid`（看不懂的字串不叫
+    ///「不支援的版本」）。對齊 `crates/interaction-aip/src/version.rs::parse_spec_version`。
     static func parse(_ value: String) -> (major: Int, minor: Int)? {
-        let trimmed = value.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("aip/") else { return nil }
-        let rest = trimmed.dropFirst("aip/".count)
+        guard value.hasPrefix("aip/") else { return nil }
+        let rest = value.dropFirst("aip/".count)
         let parts = rest.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 2,
             !parts[0].isEmpty, !parts[1].isEmpty,
             parts[0].allSatisfy(\.isAsciiDigit), parts[1].allSatisfy(\.isAsciiDigit),
-            let major = Int(parts[0]), let minor = Int(parts[1])
+            let major = UInt32(parts[0]), let minor = UInt32(parts[1])
         else { return nil }
-        return (major, minor)
+        return (Int(major), Int(minor))
     }
 
     static var local: (major: Int, minor: Int) { parse(AIPConstants.specVersion) ?? (1, 0) }
@@ -274,7 +285,39 @@ extension AIPEnvelope {
         if let expiresAt = envelope.expiresAt, AIPTime.parse(expiresAt) == nil {
             return .failure(AIPFailure(.schemaInvalid, "invalid envelope (data)"))
         }
+        if let failure = checkIntegerLiterals(data) { return .failure(failure) }
         return .success(envelope)
+    }
+
+    /// §1／§6：`sequence`／`baseRevision`／`payload.revision` 這些欄位是**整數**。
+    ///
+    /// Foundation 的 `JSONDecoder` 會把 `2.0`（甚至 `1e3`）悄悄收成 `UInt64`，但權威 host
+    /// 的 serde 不收（`Value::as_u64` 對浮點字面回 `None`）——同一則訊息在兩端會得到
+    /// 相反的結論。所以這裡對**原文**再看一次字面形狀（`SemanticJSON` 逐字保留數字）。
+    private static func checkIntegerLiterals(_ data: Data) -> AIPFailure? {
+        guard let root = SemanticJSON.parse(String(decoding: data, as: UTF8.self)) else {
+            // 這裡解析不出來不代表訊息有問題（上面的 JSONDecoder 已經過了）：不重複報錯。
+            return nil
+        }
+        let payload = root["payload"]
+        let integerFields: [SemanticJSON?] = [
+            root["sequence"], root["baseRevision"],
+            payload?["revision"], payload?["baseRevision"], payload?["sequence"],
+            payload?["sessionEpoch"], payload?["lastRevision"], payload?["lastSequence"],
+        ]
+        for field in integerFields {
+            guard case .number(let raw)? = field, !isIntegerLiteral(raw) else { continue }
+            // §5：不回顯輸入，只說類別。
+            return AIPFailure(.schemaInvalid, "integer fields must be written as JSON integers")
+        }
+        return nil
+    }
+
+    /// `-?[0-9]+`。小數點與指數都不是整數字面（serde 的 u64／i64 也是這條界線）。
+    private static func isIntegerLiteral(_ raw: String) -> Bool {
+        var body = Substring(raw)
+        if body.hasPrefix("-") { body = body.dropFirst() }
+        return !body.isEmpty && body.allSatisfy(\.isAsciiDigit)
     }
 
     func encode() -> Result<Data, AIPFailure> {
@@ -346,8 +389,8 @@ extension AIPEnvelope {
         case .state:
             if let failure = need(sessionId != nil, "sessionId") { return failure }
             if let failure = need(sequence != nil, "sequence") { return failure }
-            let revision = body["revision"]?.intValue
-            if let failure = need(revision != nil && revision! >= 0, "payload.revision") {
+            // Rust 用 `Value::as_u64`：非負整數才算數（超出 Int 範圍的數字不得讓進程崩潰）。
+            if let failure = need(body["revision"]?.uint64Value != nil, "payload.revision") {
                 return failure
             }
             if body["kind"]?.stringValue == "patch" {
@@ -375,7 +418,9 @@ extension AIPEnvelope {
     }
 
     private static func checkId(_ value: String) -> AIPFailure? {
-        guard !value.isEmpty, value.count <= AIPLimits.maxIdChars else {
+        // §11 的字元上限在 Rust 數 `chars()`、TS 數 code point：Swift 的 `String.count`
+        // 數的是 grapheme cluster，同一個 id 會得到相反的結論，所以這裡也數 scalar。
+        guard !value.isEmpty, value.unicodeScalars.count <= AIPLimits.maxIdChars else {
             return AIPFailure(
                 .schemaInvalid, "identifiers must be 1..=\(AIPLimits.maxIdChars) chars")
         }
@@ -405,7 +450,7 @@ extension AIPEnvelope {
             return AIPFailure(.schemaInvalid, "payload nesting too deep")
         }
         if case .string(let text) = value {
-            if text.count > AIPLimits.maxStringChars {
+            if text.unicodeScalars.count > AIPLimits.maxStringChars {
                 return AIPFailure(
                     .schemaInvalid, "payload string exceeds \(AIPLimits.maxStringChars) chars")
             }

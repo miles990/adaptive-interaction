@@ -10,6 +10,7 @@
 //  驗證——同一份 state 在 Rust 與 Swift 必須算出同一個 SHA-256，patch 串接後也必須續得上。
 //
 
+import SwiftUI
 import XCTest
 
 @testable import InteractionCompanion
@@ -526,6 +527,296 @@ final class SessionClientTests: XCTestCase {
         }
         XCTAssertEqual(ring.count, AIPLimits.dedupeRing)
         XCTAssertFalse(ring.has("m-0"), "最舊的必須被淘汰，環不會無界成長")
+    }
+
+    // MARK: - 換桌面／換 epoch（endpoint migration）
+
+    /// §7 步驟 4 寫的是「epoch **不同** → 丟棄本地狀態、套用 snapshot」，不是「更大」。
+    ///
+    /// host 送 `session-reset` 時帶的是 **host 自己的** epoch：同一支 iPhone 被重新配對到
+    /// 另一台桌面時，那個值可能比手機記得的小（全新 host 的 epoch 就是 1，
+    /// `crates/interaction-runtime/src/character_session.rs`）。用 `>` 判斷會把那份權威快照
+    /// 當成 rollback 丟掉，之後每一則狀態都被同樣理由丟掉、永遠不會恢復。
+    func testASessionResetIsAppliedWheneverTheEpochDiffersEvenIfItWentBackwards() throws {
+        for hostEpoch in [1, 2, 9] {
+            var local = SessionSyncLocal()
+            local.revision = 300
+            local.epoch = 3
+            local.state = try XCTUnwrap(fixture("state-snapshot.json")["payload"]?["state"])
+            let payload = try XCTUnwrap(
+                SemanticJSON.parse(
+                    """
+                    {"kind":"snapshot","reason":"session-reset","revision":1,"sequence":1,
+                     "sessionEpoch":\(hostEpoch),
+                     "state":{"characterId":"ref-shape","mood":{"kind":"neutral","intensity":0.0},
+                              "activity":"idle","attention":{"kind":"none"},
+                              "truth":{"state":"none"},"members":[],"reducedMotion":false}}
+                    """))
+            let message = try XCTUnwrap(SessionDecisions.stateMessage(payload: payload))
+            guard case .applied(let revision, let epoch, _) = SessionDecisions.apply(
+                message, to: local)
+            else {
+                return XCTFail("host 說它重建了 session（epoch \(hostEpoch) ≠ 本地 3），必須套用")
+            }
+            XCTAssertEqual(revision, 1)
+            XCTAssertEqual(epoch, UInt64(hostEpoch))
+        }
+    }
+
+    /// 被丟掉的 rollback **不是**終點：什麼都不做的話，之後每一則權威狀態都會用同樣理由
+    /// 被丟掉，而畫面卻顯示「角色狀態已同步」（received ≠ applied）。
+    @MainActor
+    func testAnIgnoredRollbackAsksForAResumeInsteadOfClaimingSynced() throws {
+        let transport = RecordingTransport()
+        let client = SessionClient()
+        client.transport = transport
+        try negotiate(client)
+        try applyFixtureSnapshot(client)
+        XCTAssertEqual(client.syncStatus, .synced)
+        XCTAssertEqual(transport.resumes.count, 0)
+
+        // 沒有 `reason` 的舊快照（例如另一台桌面的權威狀態）：忽略是對的，
+        // 但忽略之後必須去補齊，而且不得繼續宣稱「已同步」。
+        try feed(client, stateEnvelope(revision: 7, sequence: 206, epoch: 3))
+        XCTAssertEqual(transport.resumes.count, 1, "被忽略的權威狀態必須觸發補齊")
+        XCTAssertNotEqual(client.syncStatus, .synced, "一則都沒套用就不能說已同步")
+    }
+
+    /// 重新配對到另一台桌面：本地對權威狀態的認知必須歸零，
+    /// 否則新 host 的第一份快照（revision 從 1 起）會被當成 rollback。
+    @MainActor
+    func testRepairingToAnotherDesktopForgetsTheOldAuthoritativeState() throws {
+        let transport = RecordingTransport()
+        let client = SessionClient()
+        client.transport = transport
+        try negotiate(client)
+        try applyFixtureSnapshot(client)
+        XCTAssertEqual(client.advanced.revision, 204)
+
+        client.pairingDidChange()
+        XCTAssertEqual(client.advanced.revision, 0)
+        XCTAssertNil(client.presentation)
+        XCTAssertFalse(client.negotiated)
+
+        // 全新桌面：epoch 1、revision 1，沒有 `reason`——歸零之後它就不再是 rollback。
+        try negotiate(client)
+        try feed(client, stateEnvelope(revision: 1, sequence: 1, epoch: 1))
+        XCTAssertEqual(client.advanced.revision, 1)
+        XCTAssertEqual(client.advanced.epoch, 1)
+        XCTAssertEqual(client.syncStatus, .synced)
+    }
+
+    // MARK: - resume 預算（真的送出去才算一次嘗試）
+
+    /// 兩件事一起釘住：
+    /// 1. 第 3 次 resume 必須**真的送出去**——把計數擺在送出之前，使用者看到
+    ///    「無法恢復，請重新連接」時實際只做過 2 次 round-trip。
+    /// 2. §11 給使用者的指示就是「請重新連接」，所以重新連接必須真的重新給一輪機會；
+    ///    失敗計數跨連線累積的話那句指示等於是假的。
+    @MainActor
+    func testEveryCountedResumeAttemptIsActuallySentAndReconnectingRestoresTheBudget() throws {
+        let transport = RecordingTransport()
+        let client = SessionClient()
+        client.transport = transport
+        try negotiate(client)
+        try applyFixtureSnapshot(client)
+
+        for attempt in 1...SessionSyncLocal.resumeFailureLimit {
+            // 接不上的 patch（baseRevision 與本地對不起來）→ §7 要送 resume。
+            try feed(
+                client,
+                statePatchEnvelope(
+                    revision: UInt64(300 + attempt), baseRevision: UInt64(299 + attempt),
+                    sequence: UInt64(300 + attempt)))
+            XCTAssertEqual(
+                transport.resumes.count, attempt,
+                "第 \(attempt) 次嘗試必須真的送出一則 resume，而不是只加計數")
+        }
+        XCTAssertEqual(
+            client.syncStatus, .unrecoverable,
+            "連續 \(SessionSyncLocal.resumeFailureLimit) 次補不齊才誠實說「無法恢復」")
+
+        client.connectionDidDisconnect()
+        client.connectionDidConnect()
+        XCTAssertEqual(
+            transport.resumes.count, SessionSyncLocal.resumeFailureLimit + 1,
+            "重新連接之後的第一次 resume 必須真的送出去")
+        XCTAssertNotEqual(client.syncStatus, .unrecoverable, "新連線＝新的一輪嘗試")
+    }
+
+    /// 送不出去（有界佇列丟棄／編碼失敗）就不算一次嘗試，但也不得假裝還在同步。
+    @MainActor
+    func testAResumeThatWasNeverSentIsNotCountedAsAnAttempt() throws {
+        let transport = RecordingTransport()
+        let client = SessionClient()
+        client.transport = transport
+        try negotiate(client)
+        try applyFixtureSnapshot(client)
+
+        transport.accepts = false
+        for _ in 1...(SessionSyncLocal.resumeFailureLimit + 2) {
+            try feed(
+                client, statePatchEnvelope(revision: 400, baseRevision: 399, sequence: 400))
+        }
+        XCTAssertEqual(transport.resumes.count, 0)
+        XCTAssertNotEqual(
+            client.syncStatus, .unrecoverable,
+            "一次都沒送出去，就不能宣稱「試過三次」")
+        XCTAssertNotEqual(client.syncStatus, .synced)
+    }
+
+    // MARK: - Reduced Motion 下的呈現（observed ＝ 真的演過）
+
+    /// `docs/aip/iphone-companion.md` §4 的表格：Reduced Motion 開啟時
+    /// `react-happily-to-touch` 是「不縮放，只換顏色」。
+    /// 之前這個 intent 的**全部**效果都包在 `if !reduceMotion` 裡、沒有任何換色，
+    /// 於是那次播放只是一段 `Task.sleep`，卻仍然回 `result{observed}`
+    ///（`observed` 的定義是「呈現完成」——沒有呈現就不能這樣說）。
+    func testReducedMotionStillHasSomethingToShowForReactHappilyToTouch() {
+        let reduced = CharacterPlaybackEffect.plan(
+            intent: .reactHappilyToTouch, intensity: 0.8, reduceMotion: true)
+        XCTAssertEqual(reduced.scale, 1, "Reduced Motion 不得做位移或縮放")
+        XCTAssertTrue(
+            reduced.hasVisibleChange, "只剩一段 sleep 的播放不能回 observed")
+
+        let resting = presentation(tone: .happy)
+        XCTAssertNotEqual(
+            CharacterView.components(presentation: resting, effect: reduced),
+            CharacterView.components(presentation: resting, effect: CharacterPlaybackEffect()),
+            "「只換顏色」那一格必須真的有顏色可換")
+
+        // 沒開 Reduced Motion 時才有縮放，幅度隨 intensity（長度不變）。
+        let full = CharacterPlaybackEffect.plan(
+            intent: .reactHappilyToTouch, intensity: 0.8, reduceMotion: false)
+        XCTAssertGreaterThan(full.scale, 1)
+        XCTAssertLessThan(
+            CharacterPlaybackEffect.plan(
+                intent: .reactHappilyToTouch, intensity: 0.2, reduceMotion: false).scale,
+            full.scale)
+
+        // celebrate 兩種模式都是換色；settle／idle 是「回到靜止」。
+        for reduceMotion in [true, false] {
+            XCTAssertEqual(
+                CharacterPlaybackEffect.plan(
+                    intent: .celebrate, intensity: 1, reduceMotion: reduceMotion).highlight,
+                .celebrate)
+            XCTAssertEqual(
+                CharacterPlaybackEffect.plan(
+                    intent: .settle, intensity: 1, reduceMotion: reduceMotion),
+                CharacterPlaybackEffect())
+        }
+
+        // 安全訊息只能加嚴：任何播放效果都不得蓋掉緊急停止的顏色。
+        let emergency = presentation(tone: .emergency, isEmergency: true)
+        for intent in BehaviorIntent.allCases {
+            XCTAssertEqual(
+                CharacterView.components(
+                    presentation: emergency,
+                    effect: CharacterPlaybackEffect.plan(
+                        intent: intent, intensity: 1, reduceMotion: false)),
+                CharacterView.components(for: .emergency),
+                "\(intent.rawValue) 不得改寫緊急停止的呈現")
+        }
+    }
+
+    // MARK: - 小工具
+
+    private func presentation(tone: CharacterTone, isEmergency: Bool = false)
+        -> CharacterPresentation
+    {
+        CharacterPresentation(
+            headline: isEmergency ? CharacterPresentation.emergencyText : "待機", detail: nil,
+            tone: tone, showsVerifiedCheck: false, isEmergency: isEmergency, fromSession: true)
+    }
+
+    /// 記錄每一則送出訊息的 mock transport。
+    private final class RecordingTransport: SessionTransport {
+        var isConnected = true
+        var boundDeviceId: String? = "iphone-87b42264"
+        /// false ＝ 模擬有界佇列丟棄／編碼失敗（`sendAip` 回 false，不假裝送出）。
+        var accepts = true
+        private(set) var sent: [AIPEnvelope] = []
+        private(set) var observations: [String] = []
+
+        @discardableResult
+        func sendAip(_ envelope: AIPEnvelope) -> Bool {
+            guard accepts else { return false }
+            sent.append(envelope)
+            return true
+        }
+
+        func sendObservation(receptor: String, facts: [String: JSONValue]) {
+            observations.append(receptor)
+        }
+
+        var resumes: [AIPEnvelope] { sent.filter { $0.name == SessionNames.resume } }
+    }
+
+    /// 把 envelope 文字包成真正的 frame（`SessionClient` 讀的是 frame 原文）。
+    @MainActor
+    private func feed(_ client: SessionClient, _ envelopeText: String, now: Date = Date()) throws {
+        client.handleFrame(
+            try envelope(envelopeText),
+            rawFrame: #"{"type":"aip","envelope":"# + envelopeText + "}", now: now)
+    }
+
+    @MainActor
+    private func negotiate(_ client: SessionClient) throws {
+        try feed(
+            client,
+            """
+            {"specVersion":"aip/1.0","messageId":"aip-neg-\(UUID().uuidString.prefix(8))",
+             "messageType":"capability","name":"character.session.capability",
+             "source":{"kind":"session","id":"session.home"},
+             "target":{"kind":"device","id":"iphone-87b42264"},
+             "sessionId":"session.home","occurredAt":"2026-09-04T12:30:00.000Z",
+             "payload":{"specVersion":"aip/1.0","newerMinor":false,"role":"remote-renderer",
+                        "syncClass":"semantic",
+                        "intents":{"react-happily-to-touch":"exact","celebrate":"exact",
+                                   "settle":"exact","idle":"exact"},
+                        "inputs":["character.interaction.touch"],"unsupportedInputs":[],
+                        "limits":{"maxMessageBytes":65536,"maxPayloadBytes":32768,
+                                  "maxIntentsPerMinute":60}}}
+            """)
+        XCTAssertTrue(client.negotiated, "協商失敗，後面的斷言就沒有意義")
+    }
+
+    /// 套用 Rust conformance fixture 的那份權威快照（revision 204、epoch 3）。
+    @MainActor
+    private func applyFixtureSnapshot(_ client: SessionClient) throws {
+        let text = try XCTUnwrap(AIPFixtures.files["state-snapshot.json"])
+        try feed(client, text)
+        XCTAssertEqual(client.advanced.revision, 204, "快照必須被套用")
+    }
+
+    private func stateEnvelope(revision: UInt64, sequence: UInt64, epoch: UInt64) -> String {
+        """
+        {"specVersion":"aip/1.0","messageId":"aip-st-\(revision)-\(sequence)",
+         "messageType":"state","name":"character.session.snapshot",
+         "source":{"kind":"session","id":"session.home"},
+         "target":{"kind":"device","id":"iphone-87b42264"},
+         "sessionId":"session.home","occurredAt":"2026-09-04T12:30:04.000Z",
+         "sequence":\(sequence),
+         "payload":{"kind":"snapshot","revision":\(revision),"sessionEpoch":\(epoch),
+                    "state":{"characterId":"ref-shape","mood":{"kind":"happy","intensity":0.5},
+                             "activity":"idle","attention":{"kind":"none"},
+                             "truth":{"state":"none"},"members":[],"reducedMotion":false}}}
+        """
+    }
+
+    private func statePatchEnvelope(revision: UInt64, baseRevision: UInt64, sequence: UInt64)
+        -> String
+    {
+        """
+        {"specVersion":"aip/1.0","messageId":"aip-pt-\(revision)-\(sequence)",
+         "messageType":"state","name":"character.session.patch",
+         "source":{"kind":"session","id":"session.home"},
+         "target":{"kind":"device","id":"iphone-87b42264"},
+         "sessionId":"session.home","occurredAt":"2026-09-04T12:30:05.000Z",
+         "sequence":\(sequence),"baseRevision":\(baseRevision),
+         "payload":{"kind":"patch","revision":\(revision),"baseRevision":\(baseRevision),
+                    "patch":{"activity":"working"}}}
+        """
     }
 
     // MARK: - 小工具

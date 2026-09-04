@@ -28,8 +28,8 @@ struct CharacterView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var lastTouchNote: String?
-    @State private var pulse: CGFloat = 1
-    @State private var celebrating = false
+    /// 目前這一則 intent 在畫面上的效果(純資料;決策在 `CharacterPlaybackEffect.plan`)。
+    @State private var effect = CharacterPlaybackEffect()
     @State private var playback: Task<Void, Never>?
     #if DEBUG
     @State private var debugTouchEmitted = false
@@ -54,7 +54,7 @@ struct CharacterView: View {
                         .fill(bodyColor.gradient)
                         .frame(width: 200, height: 200)
                         .shadow(color: bodyColor.opacity(0.35), radius: 18)
-                        .scaleEffect(pulse)
+                        .scaleEffect(CGFloat(effect.scale))
                     stateBadge
                         .offset(y: 26)
                 }
@@ -201,23 +201,13 @@ struct CharacterView: View {
     @MainActor
     private func play(_ playing: PlayingIntent) async -> Bool {
         let seconds = Double(playing.intent.playbackMs) / 1000
-        switch playing.intent {
-        case .reactHappilyToTouch:
-            if !reduceMotion {
-                // 一次縮放脈衝。強度只影響幅度,不影響長度。
-                withAnimation(.spring(duration: seconds * 0.5)) {
-                    pulse = 1 + 0.12 * CGFloat(playing.intensity)
-                }
-            }
-        case .celebrate:
-            // 色彩閃一次(Reduced Motion 也保留:換色不是位移)。
-            withAnimation(.easeInOut(duration: seconds * 0.4)) {
-                celebrating = true
-            }
-        case .settle, .idle:
-            withAnimation(.easeOut(duration: seconds * 0.6)) {
-                resetMotion()
-            }
+        let planned = CharacterPlaybackEffect.plan(
+            intent: playing.intent, intensity: playing.intensity, reduceMotion: reduceMotion)
+        // Reduced Motion 下 `react-happily-to-touch` 只剩換色(§4 的表格),
+        // 但**一定有**東西可看——沒有呈現就不能回 observed。
+        let duration = seconds * (planned.scale == 1 ? 0.4 : 0.5)
+        withAnimation(planned.scale == 1 ? .easeInOut(duration: duration) : .spring(duration: duration)) {
+            effect = planned
         }
         do {
             try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
@@ -231,31 +221,73 @@ struct CharacterView: View {
     }
 
     private func resetMotion() {
-        pulse = 1
-        celebrating = false
+        effect = CharacterPlaybackEffect()
     }
 
     // MARK: 外觀
 
     private var bodyColor: Color {
-        if celebrating && !presentation.isEmergency {
-            return .yellow
+        Self.bodyColor(presentation: presentation, effect: effect)
+    }
+
+    /// 目前該畫什麼顏色(純函式,可測)。
+    ///
+    /// 緊急停止**永遠**壓過任何播放效果:安全訊息只能加嚴,不能被一段動畫蓋掉。
+    static func bodyColor(presentation: CharacterPresentation, effect: CharacterPlaybackEffect)
+        -> Color
+    {
+        let rgb = components(presentation: presentation, effect: effect)
+        return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
+    }
+
+    /// 同上,但回 RGB 分量——測試要能斷言「顏色真的變了」,不能只比 `Color` 的相等性。
+    static func components(presentation: CharacterPresentation, effect: CharacterPlaybackEffect)
+        -> RGB
+    {
+        if presentation.isEmergency { return components(for: .emergency) }
+        switch effect.highlight {
+        case .none: return components(for: presentation.tone)
+        case .celebrate: return RGB(red: 1.0, green: 0.85, blue: 0.20)
+        // 回應觸摸:把語意色調往亮處推。Reduced Motion 下這是**唯一**的呈現手段,
+        // 所以它必須真的與靜止時不同(evidence-honesty-011)。
+        case .react: return components(for: presentation.tone).lightened(by: 0.35)
         }
-        return Self.color(for: presentation.tone)
     }
 
     /// 語意色調 → 顏色。顏色只是呈現,語意在 `CharacterPresentation`。
     static func color(for tone: CharacterTone) -> Color {
+        let rgb = components(for: tone)
+        return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
+    }
+
+    /// 語意色調 → RGB 分量(0…1)。
+    static func components(for tone: CharacterTone) -> RGB {
         switch tone {
-        case .neutral: return Color(red: 0.45, green: 0.55, blue: 0.75)
-        case .happy: return Color(red: 0.98, green: 0.68, blue: 0.25)
-        case .playful: return Color(red: 0.95, green: 0.45, blue: 0.65)
-        case .proud: return .green
-        case .tired: return Color(red: 0.55, green: 0.55, blue: 0.62)
-        case .alert: return .orange
-        case .down: return Color(red: 0.42, green: 0.48, blue: 0.70)
-        case .unknown: return .gray
-        case .emergency: return .red
+        case .neutral: return RGB(red: 0.45, green: 0.55, blue: 0.75)
+        case .happy: return RGB(red: 0.98, green: 0.68, blue: 0.25)
+        case .playful: return RGB(red: 0.95, green: 0.45, blue: 0.65)
+        case .proud: return RGB(red: 0.20, green: 0.68, blue: 0.33)
+        case .tired: return RGB(red: 0.55, green: 0.55, blue: 0.62)
+        case .alert: return RGB(red: 1.0, green: 0.58, blue: 0.0)
+        case .down: return RGB(red: 0.42, green: 0.48, blue: 0.70)
+        case .unknown: return RGB(red: 0.56, green: 0.56, blue: 0.58)
+        case .emergency: return RGB(red: 0.90, green: 0.22, blue: 0.21)
+        }
+    }
+
+    /// 呈現用的 RGB(0…1)。與語意無關,只是為了讓顏色變化可以被斷言。
+    struct RGB: Equatable {
+        var red: Double
+        var green: Double
+        var blue: Double
+
+        /// 往白色推 `amount`(0…1)。
+        func lightened(by amount: Double) -> RGB {
+            let t = min(max(amount, 0), 1)
+            return RGB(
+                red: red + (1 - red) * t,
+                green: green + (1 - green) * t,
+                blue: blue + (1 - blue) * t)
         }
     }
 

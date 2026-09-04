@@ -587,6 +587,51 @@ struct PlayingIntent: Equatable {
     let interruptible: Bool
 }
 
+/// 一則 Behavior Intent 在本機的呈現效果（純資料，View 只負責畫）。
+///
+/// 為什麼要把它拆出來：`observed` 的定義是「**呈現完成**」
+/// （`docs/aip/iphone-companion.md` §4 第 4 點）。如果 Reduced Motion 把某個 intent
+/// 的唯一效果整個關掉，那次播放就只剩一段 sleep，回 `observed` 等於謊稱演過
+/// （誠實階梯：呈現完成才是 observed）。做成純資料，「這次到底有沒有東西可看」
+/// 才會變成一句可以被測試斷言的事實，而不是埋在 View 的 `if` 裡。
+struct CharacterPlaybackEffect: Equatable {
+    /// 色彩效果。Reduced Motion 開啟時這是唯一可用的呈現手段（換色不是位移）。
+    enum Highlight: Equatable {
+        case none
+        /// 慶祝：整隻換成高亮色。
+        case celebrate
+        /// 回應觸摸。
+        case react
+    }
+
+    /// 縮放倍率（1 ＝ 不縮放）。Reduced Motion 開啟時**永遠**是 1。
+    var scale: Double = 1
+    var highlight: Highlight = .none
+
+    /// 這次播放對畫面有沒有可見的變化。
+    /// `settle`／`idle` 的呈現本來就是「回到靜止」，不適用這個判斷。
+    var hasVisibleChange: Bool { scale != 1 || highlight != .none }
+
+    /// §4 的表格：
+    /// `react-happily-to-touch` → 一次縮放脈衝（幅度隨 intensity）；
+    /// Reduced Motion 開啟 → 不縮放，**只換顏色**（所以那一格必須真的有顏色可換）。
+    /// `celebrate` → 色彩閃一次（兩種模式相同）。`settle`／`idle` → 回到靜止。
+    static func plan(intent: BehaviorIntent, intensity: Double, reduceMotion: Bool)
+        -> CharacterPlaybackEffect
+    {
+        let strength = min(max(intensity, 0), 1)
+        switch intent {
+        case .reactHappilyToTouch:
+            return CharacterPlaybackEffect(
+                scale: reduceMotion ? 1 : 1 + 0.12 * strength, highlight: .react)
+        case .celebrate:
+            return CharacterPlaybackEffect(scale: 1, highlight: .celebrate)
+        case .settle, .idle:
+            return CharacterPlaybackEffect()
+        }
+    }
+}
+
 // MARK: - 呈現投影（可測；View 只負責畫）
 
 /// 角色外觀的語意色調。View 再把它對應到實際顏色。

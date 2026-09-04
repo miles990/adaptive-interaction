@@ -18,9 +18,25 @@ enum JSONValue: Codable, Equatable {
     case null
     case bool(Bool)
     case number(Double)
+    /// 精確整數:|n| > 2^53 時 Double 存不下,保留原值(AIP §1「未知欄位 round-trip 不遺失」)。
+    case integer(Int64)
+    /// 超過 Int64.max 的正整數(仍在 u64 內);與 serde_json 的 u64 分支對齊。
+    case unsigned(UInt64)
     case string(String)
     case array([JSONValue])
     case object([String: JSONValue])
+
+    /// 整數字面:Double 能精確表示的仍走 `.number`(既有語意不變),
+    /// 超過 2^53 的才用精確整數保存,重新編碼時才不會被改值或寫成指數形式。
+    private static func exact(_ value: Int64) -> JSONValue {
+        if let lossless = Double(exactly: value) { return .number(lossless) }
+        return .integer(value)
+    }
+
+    private static func exact(_ value: UInt64) -> JSONValue {
+        if let lossless = Double(exactly: value) { return .number(lossless) }
+        return .unsigned(value)
+    }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -28,6 +44,10 @@ enum JSONValue: Codable, Equatable {
             self = .null
         } else if let value = try? container.decode(Bool.self) {
             self = .bool(value)
+        } else if let value = try? container.decode(Int64.self) {
+            self = Self.exact(value)
+        } else if let value = try? container.decode(UInt64.self) {
+            self = Self.exact(value)
         } else if let value = try? container.decode(Double.self) {
             self = .number(value)
         } else if let value = try? container.decode(String.self) {
@@ -51,11 +71,15 @@ enum JSONValue: Codable, Equatable {
             try container.encode(value)
         case .number(let value):
             // 整數值以整數輸出(count: 2 而非 2.0),與伺服器端 serde 行為一致
-            if value.rounded() == value && abs(value) < 1e15 {
-                try container.encode(Int64(value))
+            if value.rounded() == value, let exact = Int64(exactly: value), abs(value) < 1e15 {
+                try container.encode(exact)
             } else {
                 try container.encode(value)
             }
+        case .integer(let value):
+            try container.encode(value)
+        case .unsigned(let value):
+            try container.encode(value)
         case .string(let value):
             try container.encode(value)
         case .array(let value):
@@ -71,13 +95,35 @@ enum JSONValue: Codable, Equatable {
     }
 
     var doubleValue: Double? {
-        if case .number(let value) = self { return value }
-        return nil
+        switch self {
+        case .number(let value): return value
+        // 大整數轉 Double 可能失真,但呼叫端要的就是浮點近似值。
+        case .integer(let value): return Double(value)
+        case .unsigned(let value): return Double(value)
+        default: return nil
+        }
     }
 
+    /// 整數值。**必須用 `Int(exactly:)`**:超出 Int 範圍或非整數的 JSON 數字
+    /// (例如對方送來的 `1e30`)在未檢查的 `Int(Double)` 下會讓整個進程 trap,
+    /// 而 `validate()` 的契約是「拒絕、不執行、不崩潰」(AIP §4.1／§11)。
     var intValue: Int? {
-        if case .number(let value) = self, value.rounded() == value { return Int(value) }
-        return nil
+        switch self {
+        case .number(let value): return Int(exactly: value)
+        case .integer(let value): return Int(exactly: value)
+        case .unsigned(let value): return Int(exactly: value)
+        default: return nil
+        }
+    }
+
+    /// 非負整數(對應 Rust 的 `Value::as_u64`):`revision`／`sequence` 這類欄位用它。
+    var uint64Value: UInt64? {
+        switch self {
+        case .number(let value): return UInt64(exactly: value)
+        case .integer(let value): return UInt64(exactly: value)
+        case .unsigned(let value): return value
+        default: return nil
+        }
     }
 
     var boolValue: Bool? {

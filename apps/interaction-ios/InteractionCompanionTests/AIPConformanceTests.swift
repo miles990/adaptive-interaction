@@ -297,6 +297,105 @@ final class AIPConformanceTests: XCTestCase {
         XCTAssertEqual(syntax.code, .schemaInvalid)
     }
 
+    // MARK: - 數值與字元計數的跨語言一致性
+
+    /// AIP §4.1／§11：`validate()` 的契約是「拒絕、不執行、**不崩潰**」。
+    /// `payload.revision` 是對方可控的資料；超出 Int 範圍的數字以前會讓整個 App 進程 trap。
+    func testAStateEnvelopeWithAnOutOfRangeRevisionIsRejectedInsteadOfTrapping() {
+        for revision in ["1e30", "-1", "1.5", "1e400"] {
+            let text = """
+                {"specVersion":"aip/1.0","messageId":"aip-1-1","messageType":"state",
+                 "name":"character.session.snapshot",
+                 "source":{"kind":"runtime","id":"runtime"},
+                 "sessionId":"session.home","sequence":1,
+                 "occurredAt":"2026-09-04T12:30:00.000Z",
+                 "payload":{"kind":"snapshot","revision":\(revision),"state":{}}}
+                """
+            switch AIPCheck.evaluate(Data(text.utf8)) {
+            case .success:
+                XCTFail("revision \(revision) 不是 u64，必須被拒絕")
+            case .failure(let failure):
+                XCTAssertEqual(
+                    failure.code, .schemaInvalid, "revision \(revision) 應該回 schema-invalid")
+            }
+        }
+
+        // 2^63 仍在 u64 內：Rust 的 `Value::as_u64` 收，Swift 也必須收（不能因為超過
+        // Int.max 就拒絕，那是另一種分歧）。
+        let big = """
+            {"specVersion":"aip/1.0","messageId":"aip-1-2","messageType":"state",
+             "name":"character.session.snapshot",
+             "source":{"kind":"runtime","id":"runtime"},
+             "sessionId":"session.home","sequence":1,
+             "occurredAt":"2026-09-04T12:30:00.000Z",
+             "payload":{"kind":"snapshot","revision":9223372036854775808,"state":{}}}
+            """
+        if case .failure(let failure) = AIPCheck.evaluate(Data(big.utf8)) {
+            XCTFail("2^63 是合法的 u64 revision，卻被拒絕（\(failure.code.rawValue)）")
+        }
+    }
+
+    /// §11 的 `MAX_ID_CHARS`／`MAX_STRING_CHARS` 在 Rust 數 `chars()`（scalar）、
+    /// TS 數 code point；Swift 的 `String.count` 數的是 grapheme cluster，
+    /// 同一則訊息會得到相反的結論（`docs/aip/conformance.md` §1 宣稱三邊一致）。
+    func testIdentifierAndStringLimitsAreCountedInUnicodeScalarsLikeRustAndTypeScript() {
+        // 128 個「e + 結合尖音符」＝128 grapheme cluster、256 scalar：Rust／TS 只因長度就拒絕
+        //（結合符號既不是控制字元也不是空白，所以只有字元計數這一關會擋）。
+        let oversizedId = String(repeating: "e\u{0301}", count: AIPLimits.maxIdChars)
+        XCTAssertEqual(oversizedId.count, AIPLimits.maxIdChars)
+        XCTAssertGreaterThan(oversizedId.unicodeScalars.count, AIPLimits.maxIdChars)
+        let idText = """
+            {"specVersion":"aip/1.0","messageId":"\(oversizedId)","messageType":"heartbeat",
+             "name":"character.session.presence",
+             "source":{"kind":"runtime","id":"runtime"},
+             "occurredAt":"2026-09-04T12:30:00.000Z","payload":{}}
+            """
+        switch AIPCheck.evaluate(Data(idText.utf8)) {
+        case .success:
+            XCTFail("messageId 超過 128 個 scalar，必須與 Rust／TS 一樣拒絕")
+        case .failure(let failure):
+            XCTAssertEqual(failure.code, .schemaInvalid)
+        }
+
+        // 2000 個「e + 結合尖音符」＝2000 grapheme cluster、4000 scalar：同樣必須拒絕。
+        let oversizedString = String(repeating: "e\u{0301}", count: 2_000)
+        XCTAssertEqual(oversizedString.count, AIPLimits.maxStringChars)
+        XCTAssertGreaterThan(oversizedString.unicodeScalars.count, AIPLimits.maxStringChars)
+        XCTAssertEqual(
+            AIPEnvelope.checkPayload(.object(["note": .string(oversizedString)]))?.code,
+            .schemaInvalid,
+            "payload 字串長度也必須以 scalar 計")
+
+        // 錯誤訊息的 200 字截斷同樣以 scalar 計（Rust `chars().take(200)`）。
+        let failure = AIPFailure(.schemaInvalid, String(repeating: "e\u{0301}", count: 300))
+        XCTAssertEqual(failure.message.unicodeScalars.count, 200)
+    }
+
+    /// AIP §1：未知的頂層選填欄位必須 round-trip 不遺失。
+    /// `JSONValue` 只有 Double 一種數字，超過 2^53 的整數會被改值、≥1e15 還會被寫成指數形式。
+    func testLargeIntegersInUnknownTopLevelFieldsSurviveTheRoundTripByteForByte() {
+        let text = """
+            {"specVersion":"aip/1.0","messageId":"aip-1-1","messageType":"heartbeat",
+             "name":"character.session.presence",
+             "source":{"kind":"runtime","id":"runtime"},
+             "occurredAt":"2026-09-04T12:30:00.000Z",
+             "traceId":9007199254740993,"big":1000000000000000001,"payload":{}}
+            """
+        guard case .success(let parsed) = AIPEnvelope.parse(Data(text.utf8)) else {
+            return XCTFail("信封應該可以解析")
+        }
+        guard case .success(let encoded) = parsed.encode() else {
+            return XCTFail("信封應該可以重新編碼")
+        }
+        let out = String(decoding: encoded, as: UTF8.self)
+        XCTAssertTrue(
+            out.contains("9007199254740993"),
+            "2^53 以上的整數不得被改值（實際輸出：\(out)）")
+        XCTAssertTrue(
+            out.contains("1000000000000000001"),
+            "大整數不得被寫成指數形式（實際輸出：\(out)）")
+    }
+
     // MARK: - helpers
 
     private func party(_ value: Any?) -> AIPParty? {
