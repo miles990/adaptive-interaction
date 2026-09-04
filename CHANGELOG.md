@@ -15,6 +15,9 @@
   python 端也固定用 `newline="\n"` 寫檔；`scripts/tests/release-scripts.sh` 以假 `gh` 重現 CRLF 清單釘住（44/0）。
   v0.6.0 的兩個 Windows `.sha256` 由整合者從已上傳資產計算並上傳、本機重跑 finalize 盤點後手動 publish；tag 未移動
   （詳見 `docs/releases/v0.6.0-final-report.md` §34）。
+- 上一條修正 commit（`ea7de59`）本身讓 main CI 的 `Tauri backend` job 紅：`[Unreleased]` 段落一旦非空，CHANGELOG claim-check
+  與 `docs-claims.sh` 就要求最上層段落含保護行為敘述，而本機提交前的檢查用管線吞掉了非零 exit code。`8826656` 補回下方
+  「保護行為核對」小節後 main CI 四 job 綠；本機檢查改以 `set -eo pipefail` 執行。
 
 ### 保護行為核對（沿用 0.6.0，本段未改動）
 - 桌面角色視窗的主機端點擊穿透輪詢 80ms（`CLICKTHROUGH_POLL_MS`）不變。
