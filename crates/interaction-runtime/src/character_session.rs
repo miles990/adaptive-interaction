@@ -40,6 +40,13 @@ use crate::runtime::Runtime;
 
 /// Feature flag（預設開）。`0` = 不啟動 Session Host。
 pub const CHARACTER_SESSION_ENV: &str = "INTERACT_AI_CHARACTER_SESSION";
+/// diagnostics `storeNote`：持久化檔壞掉時的固定文字。故意不含錯誤細節與路徑
+/// （AIP §5：診斷不得洩漏路徑／輸入內容）。
+pub const STORE_NOTE_UNUSABLE: &str =
+    "stored character session state was unusable; it was quarantined and a new session was started";
+/// diagnostics `storeNote`：持久化檔讀不到時的固定文字。
+pub const STORE_NOTE_UNREADABLE: &str =
+    "character session state could not be read; it was quarantined and a new session was started";
 /// 持久化檔名（`<home>/state/`）。
 pub const SESSION_STORE_FILE: &str = "character-session.json";
 /// 1.0 只有一個 session。
@@ -189,23 +196,23 @@ impl CharacterSessionHost {
             Ok(Some(snapshot)) => match CharacterSession::restore(config.clone(), &snapshot, now) {
                 Ok(session) => (session, None),
                 Err(error) => {
+                    // 錯誤細節只進 log；diagnostics 的 note 是固定文字（不帶路徑、不帶
+                    // 反序列化訊息——那些可能回顯檔案內容或檔案系統路徑）。
+                    tracing::warn!(%error, "stored character session state was unusable");
                     let epoch = store.quarantine();
                     (
                         CharacterSession::new(config.clone(), epoch, now),
-                        Some(format!(
-                            "stored character session state was unusable ({error}); a new session was started"
-                        )),
+                        Some(STORE_NOTE_UNUSABLE.to_string()),
                     )
                 }
             },
             Ok(None) => (CharacterSession::new(config.clone(), 1, now), None),
             Err(error) => {
+                tracing::warn!(%error, "character session state could not be read");
                 let epoch = store.quarantine();
                 (
                     CharacterSession::new(config.clone(), epoch, now),
-                    Some(format!(
-                        "character session state could not be read ({error}); a new session was started"
-                    )),
+                    Some(STORE_NOTE_UNREADABLE.to_string()),
                 )
             }
         };
@@ -1157,5 +1164,33 @@ mod tests {
         assert_eq!(salvaged_epoch(r#"{"epoch": 12, "revision": 3}"#), 12);
         assert_eq!(salvaged_epoch("not json at all"), 0);
         assert_eq!(salvaged_epoch(r#"{"epoch":"nine"}"#), 0);
+    }
+
+    /// diagnostics 的 `storeNote` 只能是固定文字：壞檔的反序列化錯誤會回顯檔案內容，
+    /// I/O 錯誤會帶檔案系統路徑，兩者都不得進到任何 API 回應。
+    #[test]
+    fn store_note_never_carries_error_details_or_paths() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(SESSION_STORE_FILE);
+        std::fs::write(&path, "{\"epoch\": 4, \"secret-looking-content\": ")
+            .expect("seed corrupt file");
+        let host = CharacterSessionHost::open(dir.path(), Utc::now());
+        let note = host.load_note().expect("a corrupt store must be reported");
+        assert!(
+            note == STORE_NOTE_UNUSABLE || note == STORE_NOTE_UNREADABLE,
+            "note must be one of the fixed strings, got {note:?}"
+        );
+        assert!(!note.contains("secret-looking-content"));
+        assert!(!note.contains(dir.path().to_string_lossy().as_ref()));
+        assert!(!note.contains('('), "no interpolated error detail");
+        assert!(
+            dir.path().join("character-session.json.corrupt").exists(),
+            "the unreadable file is quarantined, not silently replaced"
+        );
+        assert_eq!(
+            host.session.lock().expect("lock").epoch(),
+            5,
+            "epoch salvaged from the broken file +1"
+        );
     }
 }
