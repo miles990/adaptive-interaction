@@ -36,6 +36,21 @@
 //! 5. `attention` 的擁有者是 Director：touch → `member`、`task.*` 帶 correlation → `task`、
 //!    dismiss／emergency → `none`。
 //! 6. Host 送出的 messageId 形如 `aip-<epoch>-<epochMillis>-<n>`。
+//! 7. **成員自報的欄位都只是宣稱**：`role` 依 Transport 綁定身分夾住（`host-renderer` 只有
+//!    `human-surface` 能擔任，其餘降級成 `remote-renderer` 並稽核）；`expiresAt` 對
+//!    `character.interaction.*` 夾在 `occurredAt + touchTtlMs` 內（離線排隊的舊觸摸不得復活）；
+//!    帶 `consentGrantId` 的 inbound 訊息一律 `rejected{scope-denied}`（見 [`ports::ConsentVerifier`]）。
+//! 8. **去重環只記真的被處理過的訊息**：被 gate 後段或 handler 拒絕的 messageId 不佔位，
+//!    否則重送會拿到 `accepted{duplicate:true}` 卻從未被套用。
+//! 9. **重新協商是存活證明，不是狀態變更**：既有成員重送 `capability` 走 §12.7 的投影格線，
+//!    也不重填 rate-limit token bucket。
+//! 10. **沒有任何目標的 Behavior Intent 不進 pending**：`character.behavior.*` 是 drop-if-offline，
+//!     記成 `intents.dropped{reason:"no-online-renderer"}`；`intents.expired` 只描述
+//!     「送出去了卻沒人回終態」。成員回報要結清 intent，必須真的在 `outstanding` 名單裡。
+//! 11. **緊急停止**：只有 `runtime.emergency{engaged:false}` 能離開 emergency；期間 `task.*`
+//!     的真相轉錄只留稽核、不進狀態，且已派送的 intent 會收到 `character.behavior.cancel`。
+//! 12. **restore 不讓 revision 倒退**：以一個持久化間隔保守跳號；成員拿出「看過更高 revision」
+//!     的證據時才 epoch+1 並發 `session-reset`（成員的宣稱本身不能重建 session）。
 
 pub mod cpp;
 pub mod director;
@@ -52,6 +67,7 @@ pub use patch::{
 };
 pub use session::{
     CharacterSession, Diagnostics, JoinOutcome, LogEntry, Output, Resume, Submission,
+    MAX_UNSUPPORTED_INPUTS,
 };
 pub use state::{
     format_party, parse_party, Activity, Attention, LastInteraction, Member, MemberView, Mood,

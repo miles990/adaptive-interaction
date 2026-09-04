@@ -64,7 +64,7 @@ pub fn state_hash(state: &Value) -> String {
 pub enum StateDecision {
     /// 可以套用；套用後本地 revision 變成這個值。
     Apply { revision: u64 },
-    /// host 明確重建了 session（`payload.reason:"session-reset"` 且 epoch 更大）：丟棄本地狀態。
+    /// host 明確重建了 session（`payload.reason:"session-reset"` 且 epoch 與本地不同）：丟棄本地狀態。
     Reset { revision: u64 },
     /// `baseRevision` 與本地不符：**不得**套用，改送 `character.session.resume`。
     Resume,
@@ -114,7 +114,11 @@ pub fn accept_state_with_epoch(
                 .get("sessionEpoch")
                 .and_then(Value::as_u64)
                 .unwrap_or(local_epoch);
-            if reset && epoch > local_epoch {
+            // §7 第 4 步：「epoch **不同** → 丟棄本地狀態、套用 snapshot」，不是「更大」。
+            // host 重灌（epoch 從 1 重新起跳）或這台裝置被重新配對到另一台桌面時，新 host 的
+            // epoch 可能比本地記得的小；用 `>` 會把那份權威快照當成 rollback 丟掉，裝置就永遠
+            // 停在舊狀態。`reason: session-reset` 是 host 明確的重建宣告，才享有這個例外。
+            if reset && epoch != local_epoch {
                 return StateDecision::Reset { revision };
             }
             stale_or(revision, local_revision, StateDecision::Apply { revision })

@@ -174,9 +174,30 @@ fn accept_state_handles_snapshots_and_session_reset() {
         accept_state_with_epoch(30, 6, &reset),
         StateDecision::Reset { revision: 1 }
     );
-    // epoch 沒有變大 → 不接受回頭。
+    // epoch 相同 → 不是新 session，照 rollback 防護處理。
     assert_eq!(
         accept_state_with_epoch(30, 7, &reset),
+        StateDecision::Ignore {
+            reason: IgnoreReason::Rollback
+        }
+    );
+    // §7 第 4 步寫的是「epoch **不同**」：host 重灌／被重新配對到另一台桌面之後，
+    // 新 host 的 epoch 可能比本地記得的**小**（全新 session 的 epoch 就是 1），
+    // 這一份仍然是權威快照，不得被當成 rollback 丟掉（否則手機永遠停在舊狀態）。
+    let reinstalled = state_envelope(
+        "snapshot",
+        1,
+        None,
+        json!({"reason": "session-reset", "sessionEpoch": 1}),
+    );
+    assert_eq!(
+        accept_state_with_epoch(30, 5, &reinstalled),
+        StateDecision::Reset { revision: 1 }
+    );
+    // 沒有 `reason: session-reset` 的 snapshot 不享有這個例外（任何人都能宣稱 epoch 不同）。
+    let plain = state_envelope("snapshot", 1, None, json!({"sessionEpoch": 1}));
+    assert_eq!(
+        accept_state_with_epoch(30, 5, &plain),
         StateDecision::Ignore {
             reason: IgnoreReason::Rollback
         }

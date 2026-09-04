@@ -43,9 +43,15 @@ const AUDIT_EMERGENCY: &str = "character.session.emergency";
 const AUDIT_INTENT_EXPIRED: &str = "character.session.intent-expired";
 const AUDIT_INTENT_DROPPED: &str = "character.session.intent-dropped";
 const AUDIT_INTENT_SETTLED: &str = "character.session.intent-settled";
+/// 不在 `outstanding` 名單裡的成員回報了一則對得上 causation／correlation 的終態。
+const AUDIT_INTENT_UNSOLICITED: &str = "character.session.intent-report-unsolicited";
 const AUDIT_CANCEL: &str = "character.session.cancel";
 const AUDIT_REPORT: &str = "character.session.report";
 const AUDIT_INTERNAL: &str = "aip.internal";
+/// 成員自報的 `role` 與 Transport 綁定身分不相容，已被夾回可證實的角色。
+const AUDIT_ROLE_CORRECTED: &str = "character.session.role-corrected";
+/// `occurredAt` 與 host 時鐘的偏差超過 [`limits::MAX_CLOCK_SKEW_MS`]（只記偏差量，不回顯 payload）。
+const AUDIT_CLOCK_SKEW: &str = "aip.clock-skew";
 
 // counters 的固定鍵（有界：`rejected.*` 只會出現在已知的 19 個錯誤碼上）。
 const C_ACCEPTED: &str = "accepted";
@@ -53,6 +59,8 @@ const C_APPLIED: &str = "applied";
 const C_DUPLICATES: &str = "duplicates";
 const C_EXPIRED: &str = "expired";
 const C_RESUMES: &str = "resumes";
+/// 成員宣稱的進度超前 host（host 沒有證據自己倒退過時只記數，不重建 session）。
+const C_RESUMES_AHEAD: &str = "resumes.ahead";
 const C_SNAPSHOTS: &str = "snapshots";
 const C_PATCHES: &str = "patches";
 const C_IDENTITY_MISMATCH: &str = "identity_mismatch";
@@ -62,7 +70,12 @@ const C_INTENTS_DROPPED: &str = "intents.dropped";
 const C_INTENTS_OBSERVED: &str = "intents.observed";
 const C_INTENTS_REJECTED: &str = "intents.rejected";
 const C_INTENTS_FAILED: &str = "intents.failed";
+/// 冒領：不是待覆目標的成員回報了終態（只記數與稽核，不結清、不計進上面三個）。
+const C_INTENTS_UNSOLICITED: &str = "intents.unsolicited";
 const C_INTERNAL: &str = "internal";
+
+/// 協商結果裡 `unsupportedInputs` 的上限（有界；host 送出的 capability 回覆不得無界成長）。
+pub const MAX_UNSUPPORTED_INPUTS: usize = 16;
 
 /// 成員回報 `result` 時的終態（§5：`observed`／`rejected`／`failed`／`cancel-confirmed`）。
 /// 終態才結清 host 的 pending intent；`accepted`／`acknowledged` 只是「收到了」。
@@ -181,6 +194,10 @@ pub struct CharacterSession {
     updated_at: Timestamp,
     last_persist_at: Timestamp,
     last_persist_revision: u64,
+    /// 這個 session 是從持久化 snapshot 還原的，而那份 snapshot **無法證明**自己就是當機前
+    /// 最後廣播出去的那一版（§6 持久化是有間隔的）。只有在這個旗標為真時，「成員宣稱的進度
+    /// 超前 host」才是 host 真的倒退過的證據 → 重建 session（epoch+1）並發 `session-reset`。
+    restored_from_snapshot: bool,
 }
 
 impl CharacterSession {
@@ -206,13 +223,29 @@ impl CharacterSession {
             updated_at: now,
             last_persist_at: now,
             last_persist_revision: INITIAL_REVISION,
+            restored_from_snapshot: false,
         }
     }
 
-    /// 從持久化 snapshot 續接（§1：重啟後 revision 不歸零）。hash 不符或狀態違反不變量 → `Err`。
+    /// 從持久化 snapshot 續接（§1：重啟後 revision 不歸零、也**不倒退**）。
+    /// hash 不符、帶未知欄位或狀態違反不變量 → `Err`。
     ///
     /// 還原出來的成員保留 presence 投影，但**沒有**協商結果：他們必須重送 `capability`
     /// （§7 重連流程第 2 步）才能再送 event，否則會拿到 `scope-denied`。
+    ///
+    /// # 兩個安全取捨
+    ///
+    /// 1. **未知欄位一律拒絕**（session-integrity-061）：hash 自洽只證明「這份 JSON 沒有被改過」，
+    ///    不證明「這份 JSON 是本實作寫出來的」。被污染的 state 若原樣還原，會被當成權威狀態
+    ///    重新廣播給所有成員。所以還原後把反序列化結果重新序列化成 canonical state，再比一次 hash：
+    ///    任何本實作寫不出來的鍵都會讓 hash 對不上 → `HashMismatch`。
+    /// 2. **revision 保守跳號**（session-integrity-058）：持久化是有間隔的（預設每
+    ///    `persist_every_revisions` 個 revision 或每 `persist_interval_ms`），所以當機前最後幾個
+    ///    revision 可能已經廣播出去卻沒落地。直接從 snapshot 的 revision 續接會讓 host 倒退，
+    ///    成員依 §6 的 rollback 防護忽略權威狀態、永久停在舊版本。這裡以「一個持久化間隔」為
+    ///    上界往前跳號。**這只是啟發式**：跳號不足以涵蓋所有情況（`presence()`／`note_alive_party`
+    ///    這些路徑不呼叫 `persist_if_due`），真正的保證由 [`CharacterSession::resume`] 提供——
+    ///    只要有成員拿出「我看過更高的 revision」的證據，host 就 epoch+1 並發 `session-reset`。
     pub fn restore(
         config: SessionConfig,
         snapshot: &Snapshot,
@@ -230,6 +263,14 @@ impl CharacterSession {
         if state.violates_limits(config.max_members) {
             return Err(SessionError::InvalidState);
         }
+        // 只有本實作寫得出來的 canonical state 才能成為權威狀態（見上面取捨 1）。
+        let canonical = state_value(&state);
+        if state_hash(&canonical) != snapshot.hash {
+            return Err(SessionError::HashMismatch);
+        }
+        let revision = snapshot
+            .revision
+            .saturating_add(config.persist_every_revisions);
         let members = state
             .members
             .iter()
@@ -252,11 +293,11 @@ impl CharacterSession {
         Ok(Self {
             config,
             epoch: snapshot.epoch,
-            revision: snapshot.revision,
+            revision,
             sequence: snapshot.sequence,
             // messageId 空間跟著已持久化的 sequence 走，避免重啟後與舊訊息撞號。
             emitted: snapshot.sequence,
-            state_json: snapshot.state.clone(),
+            state_json: canonical,
             state,
             members,
             log,
@@ -265,7 +306,8 @@ impl CharacterSession {
             reacting_since,
             updated_at: snapshot.at,
             last_persist_at: now,
-            last_persist_revision: snapshot.revision,
+            last_persist_revision: revision,
+            restored_from_snapshot: true,
         })
     }
 
@@ -318,35 +360,50 @@ impl CharacterSession {
         announcement: &CapabilityAnnouncement,
         now: Timestamp,
     ) -> Result<JoinOutcome, SessionError> {
-        let negotiated = negotiate_capabilities(&self.host_offer(), announcement)
+        let mut negotiated = negotiate_capabilities(&self.host_offer(), announcement)
             .map_err(SessionError::Negotiation)?;
+        // §5 身分綁定的延伸：`role` 也是宣稱。`host-renderer`（可信桌面 surface、拿得到
+        // 安全 overlay 的那一個）只能由 `human-surface` 身分擔任；device／renderer 自報
+        // host-renderer 只會得到一個「共享狀態說它能演、但它永遠不在派送名單上」的假象。
+        // 夾回可證實的角色並稽核，不拒絕連線（identity-binding-007）。
+        let claimed_role = negotiated.role;
+        negotiated.role = effective_role(&party.kind, claimed_role);
+        // `unsupportedInputs` 直接來自對方宣告的 inputs，本身無界：截斷成有界清單，
+        // 否則 host 自己送出的 capability 回覆會超過 §11 的 payload 上限（session-integrity-060）。
+        let announced_inputs = negotiated.unsupported_inputs.len();
+        let truncated_upstream = negotiated.unsupported_inputs_truncated;
+        negotiated
+            .unsupported_inputs
+            .truncate(MAX_UNSUPPORTED_INPUTS);
         let existing = self.index_of(&party);
         if existing.is_none() && self.members.len() >= self.config.max_members {
             return Err(SessionError::MembersFull);
         }
         match existing {
             Some(index) => {
-                let entry = &mut self.members[index];
-                entry.member.role = negotiated.role;
-                entry.member.presence = Presence::Online;
-                entry.member.last_seen_at = now;
-                entry.member.negotiated = negotiated.clone();
-                entry.projected_seen_at = now;
-                entry.bucket = RateBucket::new(self.config.rate_limit_per_sec, now);
+                self.members[index].member.role = negotiated.role;
+                self.members[index].member.negotiated = negotiated.clone();
+                // 重新協商是**存活證明**，不是狀態變更：`lastSeenAt` 走 §12.7 的投影格線
+                // （identity-binding-004），token bucket 也**不重填**——否則成員只要每隔幾則
+                // 就插一則 capability，就能自己解除 §8 第 10 關的速率上限
+                // （capability-consent-049／identity-binding-005）。
+                self.note_alive(index, now);
             }
-            None => self.members.push(MemberRuntime::new(
-                Member {
-                    party: party.clone(),
-                    role: negotiated.role,
-                    presence: Presence::Online,
-                    last_seen_at: now,
-                    negotiated: negotiated.clone(),
-                },
-                self.config.rate_limit_per_sec,
-                now,
-            )),
+            None => {
+                self.members.push(MemberRuntime::new(
+                    Member {
+                        party: party.clone(),
+                        role: negotiated.role,
+                        presence: Presence::Online,
+                        last_seen_at: now,
+                        negotiated: negotiated.clone(),
+                    },
+                    self.config.rate_limit_per_sec,
+                    now,
+                ));
+                self.project_members();
+            }
         }
-        self.project_members();
         let mut outputs = Vec::new();
         if let Some(envelope) = self.commit_and_patch(now) {
             outputs.push(Output::Broadcast {
@@ -368,9 +425,24 @@ impl CharacterSession {
                 "party": safe_party(&party),
                 "role": negotiated.role,
                 "unsupportedIntents": unsupported,
+                "unsupportedInputs": negotiated.unsupported_inputs.len(),
+                // 上游（`negotiate_capabilities`）已經先截斷過一次，`announced_inputs`
+                // 因此可能已經是被截過的數字：兩層都要納入判斷，否則會少報截斷。
+                "unsupportedInputsTruncated": truncated_upstream
+                    || announced_inputs > negotiated.unsupported_inputs.len(),
                 "members": self.members.len(),
             }),
         ));
+        if negotiated.role != claimed_role {
+            outputs.push(audit(
+                AUDIT_ROLE_CORRECTED,
+                json!({
+                    "party": safe_party(&party),
+                    "claimed": claimed_role,
+                    "effective": negotiated.role,
+                }),
+            ));
+        }
         if let Some(persist) = self.persist_if_due(now) {
             outputs.push(persist);
         }
@@ -455,6 +527,12 @@ impl CharacterSession {
         bound_identity: &Party,
         now: Timestamp,
     ) -> Submission {
+        // §11 時鐘偏差：只稽核偏差量（不拒絕、不回顯 payload）。成員身分先確認過才記，
+        // 陌生人的訊息不該替我們製造稽核。
+        let skew = self
+            .index_of(bound_identity)
+            .and_then(|_| clock_skew_audit(&envelope, now));
+        let message_id = envelope.message_id.clone();
         let mut submission = match self.gate(&envelope, bound_identity, now) {
             Err(failure) => self.rejection(&envelope, failure, now),
             Ok(Gate::Duplicate) => {
@@ -471,8 +549,23 @@ impl CharacterSession {
                     reply: true,
                 }
             }
-            Ok(Gate::Proceed) => self.dispatch(envelope, bound_identity, now),
+            Ok(Gate::Proceed) => {
+                let submission = self.dispatch(envelope, bound_identity, now);
+                // §7 去重：`accepted{duplicate:true}` 的意思是「上一次真的處理過了」。
+                // 被後面任何一關（emergency、handler 自己的 schema 檢查）拒絕的訊息
+                // **不佔**去重環的位置，否則重送會拿到 duplicate 卻從未被套用
+                // （session-integrity-062）。
+                if !matches!(submission.outcome, Outcome::Rejected | Outcome::Expired) {
+                    if let Some(index) = self.index_of(bound_identity) {
+                        self.members[index].dedupe.note(&message_id);
+                    }
+                }
+                submission
+            }
         };
+        if let Some(skew) = skew {
+            submission.outputs.push(skew);
+        }
         // 存活證明（見 `gate` 第 4.1 關）造成的 presence／`lastSeenAt` 變動也要廣播出去：
         // 被拒絕／過期／重複的路徑不會經過任何 handler 的 commit。已經 commit 過的路徑
         // 在這裡拿到 `None`，所以一則訊息永遠只產生一則 patch。
@@ -493,6 +586,23 @@ impl CharacterSession {
         now: Timestamp,
     ) -> Vec<Output> {
         let correlation = correlation.map(|c| safe_id(&c));
+        // 緊急停止守衛：**只有** `runtime.emergency{engaged:false}` 能離開 emergency。
+        // 任何 `task.*` 的真相轉錄都會把 `truth`／`activity` 寫回非 emergency 的值，等於讓
+        // 一個不相關的工作解除守衛，互動立刻重新被接受（CLAUDE.md：AI 不可解除 emergency
+        // stop；session-integrity-056）。被擋下的真相只留稽核，不進狀態。
+        if self.state.truth.state == TruthState::Emergency {
+            let blocked = match fact {
+                RuntimeFact::TaskState { .. } => Some("task.state"),
+                RuntimeFact::TaskVerified { .. } => Some("task.verified"),
+                _ => None,
+            };
+            if let Some(blocked) = blocked {
+                return vec![audit(
+                    AUDIT_EMERGENCY,
+                    json!({"engaged": true, "blocked": blocked}),
+                )];
+            }
+        }
         let Some((patch, intents)) = director::on_fact(
             &self.state,
             &fact,
@@ -507,9 +617,21 @@ impl CharacterSession {
         }
         let mut outputs = Vec::new();
         let mut cancelled = 0usize;
+        // 緊急停止不只清掉 host 自己的帳：已經拿到 command 的 renderer 必須收到
+        // `character.behavior.cancel`，否則它會把還沒演完的動作演完（capability-consent-054）。
+        let mut cancel_sends = Vec::new();
         if matches!(fact, RuntimeFact::Emergency { engaged: true }) {
-            cancelled = self.pending.len();
-            self.pending.clear();
+            let pending: Vec<PendingIntent> = self.pending.drain(..).collect();
+            cancelled = pending.len();
+            for entry in &pending {
+                for party in &entry.outstanding {
+                    let envelope = self.cancel_envelope(party, &entry.intent, now);
+                    cancel_sends.push(Output::Send {
+                        to: party.clone(),
+                        envelope,
+                    });
+                }
+            }
         }
         if let Some(envelope) = self.commit_and_patch(now) {
             outputs.push(Output::Broadcast {
@@ -517,6 +639,7 @@ impl CharacterSession {
                 except: None,
             });
         }
+        outputs.append(&mut cancel_sends);
         self.sync_reacting_clock(now);
         for intent in intents {
             outputs.extend(self.emit_intent(intent, now));
@@ -583,12 +706,26 @@ impl CharacterSession {
         now: Timestamp,
     ) -> Resume {
         self.bump(C_RESUMES);
+        // 對方宣稱看過的進度超前 host。這是**宣稱**，不是證據——除非本 session 是從一份
+        // 無法證明自己最新的 snapshot 還原出來的（見 [`CharacterSession::restore`] 的取捨 2），
+        // 那時它就是「host 真的倒退過」的證據：重建 session（epoch+1）並發 `session-reset`，
+        // 讓成員依 §6 合法丟棄本地狀態。沒有這一步，重啟後的權威 snapshot 會被 rollback
+        // 防護忽略，成員永遠停在舊狀態（session-integrity-058）。
+        let ahead = last_revision > self.revision || last_sequence > self.sequence;
+        if ahead && self.restored_from_snapshot {
+            self.restored_from_snapshot = false;
+            self.epoch = self.epoch.saturating_add(1);
+            let envelope = self.snapshot_envelope_inner(party, now, Some(REASON_SESSION_RESET));
+            return Resume::EpochMismatch { envelope };
+        }
         if epoch != self.epoch {
             let envelope = self.snapshot_envelope_inner(party, now, Some(REASON_SESSION_RESET));
             return Resume::EpochMismatch { envelope };
         }
-        // 對方宣稱看過的進度超前 host → 只能用 snapshot 對齊。
-        if last_revision > self.revision || last_sequence > self.sequence {
+        // host 沒有倒退過的證據時，成員自己宣稱超前不能讓它重建整個 session
+        // （否則任何一個成員都能用一則 resume 逼所有人重來）：只記數並給它權威 snapshot。
+        if ahead {
+            self.bump(C_RESUMES_AHEAD);
             return Resume::Snapshot {
                 envelope: self.snapshot_envelope_inner(party, now, None),
             };
@@ -757,6 +894,17 @@ impl CharacterSession {
         {
             return Err(GateFailure::rejected(ErrorCode::ScopeDenied));
         }
+        // 8.1 `consentGrantId` 只出現在 host→裝置、需要授權的 command 上。成員送來的
+        //     inbound 訊息一律沒有理由帶 grant：AI／adapter／裝置**不能**授予 consent
+        //     （CLAUDE.md 不變量），所以 1.0 直接 `scope-denied`，不去問任何驗證器
+        //     （見 `ports::ConsentVerifier` 的說明）。
+        if envelope
+            .consent_grant_id
+            .as_ref()
+            .is_some_and(|grant| !grant.is_empty())
+        {
+            return Err(GateFailure::rejected(ErrorCode::ScopeDenied));
+        }
         // 9. member 能送的 message type（`command`／`state` 是 host 的權力）。
         if !matches!(
             envelope.message_type,
@@ -776,16 +924,20 @@ impl CharacterSession {
         {
             return Err(GateFailure::rejected(ErrorCode::RateLimited));
         }
-        // 11. deadline。
-        if envelope.is_expired(now) {
+        // 11. deadline。成員自報的 `expiresAt` 是宣稱，不是授權：互動事件的有效期一律夾在
+        //     `occurredAt + touch_ttl_ms` 內（§8「touch 是 expire-by-deadline」）。沒有這個夾制，
+        //     一台離線幾分鐘的手機只要把 `expiresAt` 寫成一小時後，重連時排隊的舊觸摸就會被
+        //     當成新鮮互動套用（reconnect-recovery-042）。
+        if now >= self.effective_deadline(envelope) {
             return Err(GateFailure {
                 code: ErrorCode::Expired,
                 outcome: Outcome::Expired,
                 audit_kind: AUDIT_REJECTED,
             });
         }
-        // 12. 去重（重複回 accepted{duplicate:true}，不重套用）。
-        if !self.members[index].dedupe.note(&envelope.message_id) {
+        // 12. 去重（重複回 accepted{duplicate:true}，不重套用）。這裡**只查不記**：
+        //     真的被套用之後才由 `submit` 佔位（session-integrity-062）。
+        if self.members[index].dedupe.contains(&envelope.message_id) {
             return Ok(Gate::Duplicate);
         }
         // 13. emergency 中不接受互動。
@@ -795,6 +947,21 @@ impl CharacterSession {
             return Err(GateFailure::rejected(ErrorCode::ScopeDenied));
         }
         Ok(Gate::Proceed)
+    }
+
+    /// 這則訊息真正的有效期限：成員自報的 `expiresAt` 與 host 上界取小。
+    /// `character.interaction.*` 的上界是 `occurredAt + touch_ttl_ms`；沒帶 `expiresAt`
+    /// 的其他訊息沒有 deadline（回 `Timestamp::MAX` 語意的遠期時間）。
+    fn effective_deadline(&self, envelope: &Envelope) -> Timestamp {
+        let claimed = envelope.expires_at;
+        if envelope.name.starts_with("character.interaction.") {
+            let ceiling = envelope.occurred_at + Duration::milliseconds(self.config.touch_ttl_ms);
+            return match claimed {
+                Some(claimed) => claimed.min(ceiling),
+                None => ceiling,
+            };
+        }
+        claimed.unwrap_or(chrono::DateTime::<chrono::Utc>::MAX_UTC)
     }
 
     fn dispatch(
@@ -864,6 +1031,13 @@ impl CharacterSession {
     /// 把一則成員回報對應到 host 的 pending intent 並依 status 結清。
     /// 對應不到（已經結清、已過期、根本不是回報 intent）就什麼都不做——重播的終態回報
     /// 因此不會重複計數。
+    ///
+    /// **回報者必須真的在 `outstanding` 名單裡**：`causationId`／`correlationId` 是任何成員
+    /// 都看得到、也編得出來的識別字，不是授權。沒有這一關的話，一台從未收到 command 的裝置
+    /// 只要用自己那則 touch 的 messageId 當 `correlationId`，就能把 intent 結清、把
+    /// `intents.observed` 灌上去，還順手吃掉之後的 `intent-expired` 稽核
+    /// （capability-consent-050／session-integrity-057／evidence-honesty-010）。
+    /// 已經回報過終態的目標會被移出 `outstanding`，所以同一個目標重播也只會計一次。
     fn settle_intent(
         &mut self,
         envelope: &Envelope,
@@ -877,6 +1051,21 @@ impl CharacterSession {
         else {
             return Vec::new();
         };
+        if !self.pending[index]
+            .outstanding
+            .iter()
+            .any(|party| party == reporter)
+        {
+            self.bump(C_INTENTS_UNSOLICITED);
+            return vec![audit(
+                AUDIT_INTENT_UNSOLICITED,
+                json!({
+                    "intent": self.pending[index].intent.intent,
+                    "status": status,
+                    "party": safe_party(reporter),
+                }),
+            )];
+        }
         if !terminal_report(status) {
             // `accepted`／`acknowledged` 只是「收到了」：更新狀態，intent 繼續掛著。
             self.pending[index].last_status = Some(status.to_string());
@@ -996,19 +1185,21 @@ impl CharacterSession {
                     .as_deref()
                     .is_some_and(|id| pending.commands.iter().any(|sent| sent == id))
         };
-        let cancelled: Vec<BehaviorIntent> = self
+        // 撤銷只送給**真的拿到過 command 的那些成員**（`outstanding`），不是「現在剛好符合
+        // 條件的 renderer」：後者會漏掉已經在演、但協商結果剛被改掉的目標。
+        let cancelled: Vec<PendingIntent> = self
             .pending
             .iter()
             .filter(|pending| matches_target(pending))
-            .map(|pending| pending.intent.clone())
+            .cloned()
             .collect();
         self.pending.retain(|pending| !matches_target(pending));
         let mut outputs = Vec::new();
-        for intent in &cancelled {
-            for party in self.intent_targets(&intent.intent) {
-                let envelope = self.cancel_envelope(&party, intent, now);
+        for entry in &cancelled {
+            for party in &entry.outstanding {
+                let envelope = self.cancel_envelope(party, &entry.intent, now);
                 outputs.push(Output::Send {
-                    to: party,
+                    to: party.clone(),
                     envelope,
                 });
             }
@@ -1281,6 +1472,9 @@ impl CharacterSession {
         .with_payload(Value::Object(payload))
     }
 
+    /// host→member 的協商結果。**host 自己送出的訊息也必須通過 `validate()`**：協商結果的
+    /// `unsupportedInputs` 來自對方宣告的 inputs，超限時寧可降級成一則只帶計數的摘要，
+    /// 也不送一則違反 §11 的訊息出去（session-integrity-060）。
     fn capability_envelope(
         &mut self,
         to: &Party,
@@ -1288,18 +1482,45 @@ impl CharacterSession {
         now: Timestamp,
     ) -> Envelope {
         let message_id = self.next_message_id(now);
-        let payload =
-            serde_json::to_value(negotiated).unwrap_or_else(|_| Value::Object(Map::new()));
-        Envelope::new(
-            MessageType::Capability,
-            NAME_SESSION_CAPABILITY,
-            Party::runtime(),
-            message_id,
-            now,
-        )
-        .with_session(self.config.session_id.clone())
-        .with_target(to.clone())
-        .with_payload(payload)
+        let build = |payload: Value| {
+            Envelope::new(
+                MessageType::Capability,
+                NAME_SESSION_CAPABILITY,
+                Party::runtime(),
+                message_id.clone(),
+                now,
+            )
+            .with_session(self.config.session_id.clone())
+            .with_target(to.clone())
+            .with_payload(payload)
+        };
+        let full = serde_json::to_value(negotiated).unwrap_or_else(|_| Value::Object(Map::new()));
+        let envelope = build(full);
+        if envelope.validate().is_ok() {
+            return envelope;
+        }
+        // 降級 1：丟掉兩份字串清單，只留計數。
+        let mut reduced = negotiated.clone();
+        let unsupported_inputs = reduced.unsupported_inputs.len();
+        reduced.unsupported_inputs = Vec::new();
+        reduced.inputs = Vec::new();
+        let mut payload =
+            serde_json::to_value(&reduced).unwrap_or_else(|_| Value::Object(Map::new()));
+        if let Value::Object(map) = &mut payload {
+            map.insert("truncated".into(), Value::Bool(true));
+            map.insert("unsupportedInputsCount".into(), json!(unsupported_inputs));
+        }
+        let envelope = build(payload);
+        if envelope.validate().is_ok() {
+            return envelope;
+        }
+        // 降級 2：只留角色與版本（對方至少知道自己被協商成什麼）。
+        build(json!({
+            "specVersion": reduced.spec_version,
+            "role": reduced.role,
+            "syncClass": reduced.sync_class,
+            "truncated": true,
+        }))
     }
 
     fn result_envelope(
@@ -1353,15 +1574,28 @@ impl CharacterSession {
                 envelope,
             });
         }
-        self.push_pending(
-            PendingIntent {
-                intent: intent.clone(),
-                outstanding: targets,
-                commands,
-                last_status: None,
-            },
-            &mut outputs,
-        );
+        if targets.is_empty() {
+            // §8 `character.behavior.*` 是 drop-if-offline：沒有任何遠端目標時這則 intent
+            // **從未被派送**。把它掛進 pending 等 TTL 會誠實階梯倒退——`intents.expired`
+            // 與 `intent-expired` 稽核講的是「送出去了卻沒人回報」，不是「沒有人被問過」
+            // （capability-consent-053／reconnect-recovery-043）。host 端 renderer 仍照收
+            // 下面的 `Output::RendererIntent`。
+            self.bump(C_INTENTS_DROPPED);
+            outputs.push(audit(
+                AUDIT_INTENT_DROPPED,
+                json!({"intent": intent.intent, "reason": "no-online-renderer"}),
+            ));
+        } else {
+            self.push_pending(
+                PendingIntent {
+                    intent: intent.clone(),
+                    outstanding: targets,
+                    commands,
+                    last_status: None,
+                },
+                &mut outputs,
+            );
+        }
         outputs.extend(sends);
         self.bump(C_INTENTS_EMITTED);
         outputs.push(Output::RendererIntent {
@@ -1638,19 +1872,59 @@ fn state_value(state: &SemanticState) -> Value {
     serde_json::to_value(state).unwrap_or_else(|_| Value::Object(Map::new()))
 }
 
-/// 沒有協商過的成員（restore 之後）：不能呈現任何 intent、不能送任何 event。
+/// 依 Transport 綁定身分夾住成員自報的 `role`（identity-binding-007）。
+///
+/// `host-renderer` 是「可信人類操作面上的 renderer」——它拿得到 host overlay、也是安全訊息的
+/// 落點，因此只有 `human-surface` 身分能擔任。device／renderer／agent 自報 host-renderer 一律
+/// 降級成 `remote-renderer`：這樣共享狀態裡的 `role` 與 `intent_targets()` 的實際派送名單一致，
+/// 一般模式不會因為一個宣稱就顯示「已同步」。其餘角色（remote-renderer／input-device／observer）
+/// 不需要額外權力，照對方宣告採用。
+fn effective_role(kind: &PartyKind, claimed: MemberRole) -> MemberRole {
+    match claimed {
+        MemberRole::HostRenderer if *kind != PartyKind::HumanSurface => MemberRole::RemoteRenderer,
+        other => other,
+    }
+}
+
+/// `occurredAt` 與 host 時鐘的偏差超過 §11 上限時的稽核（只記名稱與偏差毫秒數）。
+fn clock_skew_audit(envelope: &Envelope, now: Timestamp) -> Option<Output> {
+    let skew_ms = now
+        .signed_duration_since(envelope.occurred_at)
+        .num_milliseconds();
+    (skew_ms.abs() > limits::MAX_CLOCK_SKEW_MS).then(|| {
+        audit(
+            AUDIT_CLOCK_SKEW,
+            json!({
+                "name": safe_name(&envelope.name),
+                "messageId": safe_id(&envelope.message_id),
+                "skewMs": skew_ms,
+                "maxMs": limits::MAX_CLOCK_SKEW_MS,
+            }),
+        )
+    })
+}
+
+/// 沒有協商過的成員（restore 之後）：不能呈現任何 intent、不能送任何 event（§12.10）。
+///
+/// `intents` 明確寫成「每個 host intent 都 unsupported」而不是空表：兩者對派送的效果一樣，
+/// 但只有前者投影得出 `members[].unsupportedIntents`——空表會被讀成「沒有任何不支援的能力」，
+/// 那是一句 host 現在證明不了的話（誠實階梯：不知道不等於做得到）。
 fn unnegotiated(role: MemberRole) -> NegotiatedCapabilities {
     NegotiatedCapabilities {
         spec_version: interaction_aip::SPEC_VERSION.to_string(),
         newer_minor: false,
         role,
         sync_class: SyncClass::Semantic,
-        intents: BTreeMap::new(),
+        intents: HOST_INTENTS
+            .iter()
+            .map(|name| (name.to_string(), IntentSupport::Unsupported))
+            .collect(),
         inputs: Vec::new(),
         unsupported_inputs: Vec::new(),
         limits: interaction_aip::CapabilityLimits {
             max_message_bytes: Some(limits::MAX_MESSAGE_BYTES),
         },
+        unsupported_inputs_truncated: false,
     }
 }
 

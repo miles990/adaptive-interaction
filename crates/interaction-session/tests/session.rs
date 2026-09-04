@@ -1235,8 +1235,19 @@ fn restore_continues_the_revision_and_survives_a_round_trip() {
         .expect("snapshot is present");
 
     let restored = CharacterSession::restore(config(), &loaded, at(10_000)).expect("restore");
-    assert_eq!(restored.revision(), session.revision(), "revision 不歸零");
-    assert_eq!(restored.epoch(), session.epoch());
+    // revision 不歸零，而且**不倒退**：持久化是有間隔的，當機前最後幾個 revision 可能已經
+    // 廣播出去卻沒落地，所以 restore 以一個持久化間隔為上界保守跳號（session-integrity-058）。
+    assert!(
+        restored.revision() >= session.revision(),
+        "revision 不歸零也不倒退（{} → {}）",
+        session.revision(),
+        restored.revision()
+    );
+    assert_eq!(
+        restored.revision(),
+        loaded.revision + config().persist_every_revisions
+    );
+    assert_eq!(restored.epoch(), session.epoch(), "還原本身不重建 session");
     assert_eq!(restored.sequence(), session.sequence());
     assert_eq!(restored.snapshot().hash, snapshot.hash);
     assert_eq!(restored.state(), session.state());
@@ -1404,4 +1415,93 @@ fn persist_is_suggested_on_a_bounded_cadence() {
         .filter(|o| matches!(o, Output::Persist(_)))
         .count();
     assert!(persisted > 0, "revision 累積到門檻要建議持久化");
+}
+
+// ------------------------------------------- 協商結果投影（session-integrity-056c）
+
+/// §3 `members[].unsupportedIntents`：協商為 `unsupported` 的 intent 名要投影出去，
+/// 否則桌面／iPhone 只能顯示「能力核對中」——契約 §11「部分能力目前不可用」那一列
+/// 在 Runtime 沒有投影協商結果之前不可能被觸發（誠實階梯：不知道就不能說「都做得到」）。
+#[test]
+fn negotiated_unsupported_intents_are_projected_into_members() {
+    let mut session = session();
+    let full = Party::device("iphone-full");
+    let partial = Party::device("iphone-partial");
+    join(&mut session, &full, &device_announcement(), t0());
+    join(
+        &mut session,
+        &partial,
+        &announcement(MemberRole::RemoteRenderer, &["idle"], &[EVENT_TOUCH]),
+        at(10),
+    );
+
+    let members = session.state().members();
+    let view = |party: &Party| {
+        members
+            .iter()
+            .find(|m| &m.party == party)
+            .expect("member projected")
+    };
+    assert!(
+        view(&full).unsupported_intents.is_empty(),
+        "全支援的 renderer 沒有 unsupported intent（空陣列，不是缺鍵）"
+    );
+    let mut partial_unsupported = view(&partial).unsupported_intents.clone();
+    partial_unsupported.sort();
+    assert_eq!(
+        partial_unsupported,
+        vec![
+            "celebrate".to_string(),
+            "react-happily-to-touch".to_string(),
+            "settle".to_string()
+        ],
+        "只宣告 idle 的 renderer 其餘三個 intent 都是 unsupported"
+    );
+
+    // 形狀：進得了 snapshot 的 JSON（桌面／iPhone 讀的是這個），而且永遠是陣列。
+    let value = serde_json::to_value(session.state()).expect("state serializes");
+    let entries = value["members"].as_array().expect("members array");
+    for entry in entries {
+        assert!(
+            entry["unsupportedIntents"].is_array(),
+            "members[].unsupportedIntents 必須是陣列（沒有就是空陣列）：{entry}"
+        );
+    }
+
+    // diagnostics 走同一份投影，仍然不外洩協商細節。
+    let diagnostics = session.diagnostics();
+    let text = serde_json::to_string(&diagnostics.members).expect("members serialize");
+    assert!(text.contains("unsupportedIntents"));
+    assert!(!text.contains("negotiated"));
+}
+
+/// 這個欄位出現之前寫下的持久化 snapshot 少了這個鍵。`restore` 的規則是「只有本實作寫得出來的
+/// canonical state 才能成為權威狀態」，所以那份舊快照會**誠實地**被判成 `HashMismatch`（host 因此
+/// 隔離它、開新 session，diagnostics 標 `storeNote`＝「角色同步紀錄曾損毀，已重新開始」），
+/// 而不是被靜靜補成空陣列後假裝 hash 對得上——後者會讓 host 與成員對同一份 state 算出不同的 hash。
+#[test]
+fn a_snapshot_written_before_the_field_existed_is_rejected_not_silently_upgraded() {
+    let mut session = session();
+    let phone = Party::device("iphone-1");
+    join(&mut session, &phone, &device_announcement(), t0());
+    let mut snapshot = session.snapshot();
+    for member in snapshot.state["members"]
+        .as_array_mut()
+        .expect("members array")
+    {
+        member
+            .as_object_mut()
+            .expect("member object")
+            .remove("unsupportedIntents");
+    }
+    snapshot.hash = state_hash(&snapshot.state);
+    let error = CharacterSession::restore(config(), &snapshot, at(1_000))
+        .expect_err("舊形狀的快照不得被當成權威狀態");
+    assert!(matches!(error, SessionError::HashMismatch), "{error:?}");
+
+    // 反面：本實作自己寫出來的快照（含空陣列）照常還原。
+    let fresh = session.snapshot();
+    let restored = CharacterSession::restore(config(), &fresh, at(1_000)).expect("restore");
+    assert_eq!(restored.state().members().len(), 1);
+    assert!(restored.state().members()[0].unsupported_intents.is_empty());
 }

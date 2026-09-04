@@ -38,7 +38,16 @@ pub trait IdentityVerifier {
     fn verify(&self, transport_identity: &Party, claimed: &Party) -> IdentityDecision;
 }
 
-/// `consentGrantId` 是否有效（1.0 只對帶 grant 的 command）。AI／adapter 不能授予 consent。
+/// `consentGrantId` 是否有效。AI／adapter／裝置**不能**授予 consent。
+///
+/// **1.0 沒有接進 [`crate::CharacterSession::gate`]，而且刻意如此。** `consentGrantId` 只出現在
+/// host→裝置、需要授權的 `command` 上；成員送進來的 inbound 訊息本來就沒有理由帶 grant，
+/// 所以 gate 對「帶 grant 的 inbound 訊息」一律 `rejected{scope-denied}`——不需要問任何驗證器，
+/// 也不會有「驗證器說 yes 就放行」的路徑（fail-closed 比可設定更安全）。
+///
+/// 這個 port 留給 host 端的**外送**方向（Consent Service 發出的 grant 在送 command 之前自我檢查）
+/// 與 1.1 以後的 `approval-*` 流程。它是純分類函式，不是 session 安全管線的一環：讀契約時
+/// 不要把它當成「host 會驗成員帶來的 grant」（capability-consent-055）。
 pub trait ConsentVerifier {
     fn is_valid(&self, grant_id: &str, now: Timestamp) -> bool;
 }

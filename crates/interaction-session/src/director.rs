@@ -163,13 +163,26 @@ pub fn react(
 }
 
 /// §4：Runtime 真相事實 → patch＋Behavior Intent。Session **只轉錄真相，不推論**。
+///
+/// emergency 守衛（第二道；第一道在 [`crate::CharacterSession::submit_runtime`]）：緊急停止期間
+/// `task.*` 的真相轉錄一律回 `None`。`task.state{truth:"unknown"}` 會把 `truth` 寫成 `unknown`、
+/// `activity` 寫回非 frozen，等於讓一個不相關的工作解除 emergency 守衛
+/// （CLAUDE.md：AI 不可解除 emergency stop）。只有 `runtime.emergency{engaged:false}` 能離開。
 pub fn on_fact(
-    _state: &SemanticState,
+    state: &SemanticState,
     fact: &RuntimeFact,
     correlation: Option<&str>,
     config: &SessionConfig,
     now: Timestamp,
 ) -> Option<(Value, Vec<BehaviorIntent>)> {
+    if state.truth().state == TruthState::Emergency
+        && matches!(
+            fact,
+            RuntimeFact::TaskState { .. } | RuntimeFact::TaskVerified { .. }
+        )
+    {
+        return None;
+    }
     let expires_at = now + Duration::milliseconds(config.intent_ttl_ms);
     match fact {
         RuntimeFact::TaskState {

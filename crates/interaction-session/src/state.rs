@@ -9,7 +9,9 @@
 //! - 值為「無」的選填鍵一律**省略**，不寫 `null`：RFC 7396 的 `null` 代表刪除鍵，host 若寫 `null`
 //!   而接收端刪除鍵，兩邊 canonical hash 會不一致。
 
-use interaction_aip::{MemberRole, NegotiatedCapabilities, Party, PartyKind, Timestamp};
+use interaction_aip::{
+    IntentSupport, MemberRole, NegotiatedCapabilities, Party, PartyKind, Timestamp,
+};
 use interaction_character::TruthState;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -139,7 +141,7 @@ impl Presence {
 
 /// §3 `mood`。`intensity` 恆為 0..=1 且四捨五入到 3 位小數（保證 canonical JSON 穩定）。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Mood {
     pub kind: MoodKind,
     pub intensity: f64,
@@ -165,7 +167,7 @@ pub fn clamp_unit(value: f64) -> f64 {
 
 /// §3 `truth`。**只有** Runtime 的真相事件能改；Session 只轉錄，不推論。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TruthView {
     pub state: TruthState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -201,7 +203,7 @@ pub enum Attention {
 
 /// §3 `lastInteraction`。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LastInteraction {
     pub name: String,
     pub kind: String,
@@ -211,14 +213,23 @@ pub struct LastInteraction {
     pub at: Timestamp,
 }
 
-/// §3 `members[]`：共享狀態裡的成員投影（**不含**協商結果——那是 host 私有）。
+/// §3 `members[]`：共享狀態裡的成員投影。
+///
+/// **不含**協商結果的細節（`NegotiatedCapabilities` 是 host 私有），只投影一件所有人都需要
+/// 知道的事實：這個成員把哪些 Behavior Intent 協商成 `unsupported`。沒有它，桌面與 iPhone
+/// 只能顯示「能力核對中」——契約 §11 的「部分能力目前不可用」永遠不會被觸發。
+/// 沒有任何不支援的 intent 時是**空陣列**（不是缺鍵），這樣接收端不必區分「都支援」與「不知道」。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemberView {
     pub party: Party,
     pub role: MemberRole,
     pub presence: Presence,
     pub last_seen_at: Timestamp,
+    /// 協商為 `unsupported` 的 intent 名（排序穩定：來自 `BTreeMap`）。
+    /// `default` 是為了讓這個欄位出現之前寫下的持久化 snapshot 仍然還原得回來。
+    #[serde(default)]
+    pub unsupported_intents: Vec<String>,
 }
 
 /// Host 私有的成員紀錄（含協商結果）。不進 `SemanticState`。
@@ -239,6 +250,13 @@ impl Member {
             role: self.role,
             presence: self.presence,
             last_seen_at: self.last_seen_at,
+            unsupported_intents: self
+                .negotiated
+                .intents
+                .iter()
+                .filter(|(_, support)| **support == IntentSupport::Unsupported)
+                .map(|(name, _)| name.clone())
+                .collect(),
         }
     }
 }
@@ -246,7 +264,7 @@ impl Member {
 /// §3 權威語意狀態。欄位是 `pub(crate)`：**只有** [`crate::CharacterSession`] 能改
 /// （§2「`SemanticState` 只有 `CharacterSession::apply` 能改」），對外只有 getter 與 `Serialize`。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SemanticState {
     pub(crate) character_id: String,
     pub(crate) mood: Mood,
@@ -393,6 +411,7 @@ mod tests {
             role: MemberRole::RemoteRenderer,
             presence: Presence::Online,
             last_seen_at: t0(),
+            unsupported_intents: Vec::new(),
         });
         let value = serde_json::to_value(&state).expect("serialize");
         assert_eq!(value["characterId"], json!("ref-shape"));
