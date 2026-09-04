@@ -16,6 +16,11 @@
   v0.6.0 的兩個 Windows `.sha256` 由整合者從已上傳資產計算並上傳、本機重跑 finalize 盤點後手動 publish；tag 未移動
   （詳見 `docs/releases/v0.6.0-final-report.md` §34）。
 
+### 保護行為核對（沿用 0.6.0，本段未改動）
+- 桌面角色視窗的主機端點擊穿透輪詢 80ms（`CLICKTHROUGH_POLL_MS`）不變。
+- Runtime Session Host（`character_session.rs`）、桌面同步卡（`CharacterSyncCard.tsx`）、iOS Session client
+  （`SessionClient.swift`）皆已於 0.6.0 落地，本段只修發布 workflow，不動它們。
+
 ## [0.6.0] - 2026-09-05
 
 ### v0.6.0 — Foundation：AIP 1.0 最小協定、權威 Character Session、小樞脫離核心
