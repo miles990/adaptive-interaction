@@ -59,7 +59,9 @@ pnpm test:e2e                              # Playwright（自起真 daemon＋Chr
 ./scripts/v03-cli-e2e.sh                   # CLI 驗收（真 daemon＋mock device）
 interact-ai serve                          # daemon；token 在 ~/.adaptive-interaction/state/api-token
 interact-ai character status|instances|adapters add --name X --manifest m.json   # 角色協定；安全 intent 不可手動送
-./scripts/release.sh vX.Y.Z                # 發布：重生 golden schemas、打 tag、觸發 Release CI
+./scripts/release-prepare.sh X.Y.Z         # 發布 1/3：版本號＋CHANGELOG＋golden／codegen（不 commit）
+./scripts/release-verify.sh X.Y.Z          # 發布 2/3：關卡（worktree／版本／CHANGELOG／secrets／drift／CI）
+./scripts/release-tag.sh X.Y.Z --push      # 發布 3/3：從已驗證 commit 打 annotated tag 並推送
 ./firmware/esp32-companion/compile.sh [--ble] # ESP32 韌體 arduino-cli 編譯檢查（非真機驗收）
 cd apps/interaction-desktop && pnpm perf   # 角色效能量測（headless Chromium；文件引用的數字必須由它產生）
 # iOS：export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer 再 xcrun swiftc -typecheck（見 apps/interaction-ios/README.md）
@@ -67,7 +69,7 @@ cd apps/interaction-desktop && pnpm perf   # 角色效能量測（headless Chrom
 
 ## 工作規則
 
-- 不自行 push／發布／部署／開 PR，除非使用者要求；發布一律走 `release.sh`。
+- 不自行 push／發布／部署／開 PR，除非使用者要求；發布一律走 `release-prepare.sh → release-verify.sh → release-tag.sh`（v0.6.0 起拆開；`release.sh` 只印流程）。
 - 交付前跑全套測試並回報**實際數字**，不寫「全部通過」了事；未完成項列明原因。
 - 大改動用 `.claude/workflows/adversarial-review-adaptive-interaction.js` 跑對抗審查
   （find→independent verify），確認的缺陷修掉或誠實記為已知限制。
