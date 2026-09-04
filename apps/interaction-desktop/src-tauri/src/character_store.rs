@@ -22,29 +22,52 @@ use base64::Engine;
 use interaction_character::{
     asset_magic_matches, check_relative_path, is_valid_character_id, parse_manifest, AdapterKind,
     AssetDecl, CharacterManifest, Entrypoint, LocalizedText, ManifestReport, ValidationLimits,
-    BUILTIN_ENTRYPOINTS, MAX_ASSET_BYTES_CEILING,
+    MAX_ASSET_BYTES_CEILING,
 };
+use interaction_runtime::character::character_host_registry;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::{Component, Path, PathBuf};
+use std::sync::OnceLock;
 
 /// 一次匯入的資產總量上限。
 pub const MAX_TOTAL_IMPORT_BYTES: u64 = 32 * 1024 * 1024;
 /// `character_asset` 回傳 data URL 的單檔上限（WebView 記憶體考量）。
 pub const MAX_ASSET_DATA_URL_BYTES: u64 = 8 * 1024 * 1024;
-/// 內建角色 id（鏡射 `apps/interaction-desktop/public/characters/index.json`；
-/// 該檔由前端擁有，host 不在編譯期讀它以免耦合建置）。匯入不得撞名、移除不得碰。
-pub const BUNDLED_CHARACTER_IDS: [&str; 9] = [
-    "shu-maid",
-    "shu-maid-dusk",
-    "shu-maid-sakura",
-    "shu-standard",
-    "shu-minimal",
-    "shu-lively",
-    "shu-agile",
-    "shu-lazy",
-    "plain-text",
-];
+/// 內建角色索引（前端擁有的 `public/characters/index.json`）。編譯期 include：
+/// 索引改了就要重編，不會靜默漂移；執行期只解析一次。
+const BUNDLED_CHARACTER_INDEX: &str = include_str!("../../public/characters/index.json");
+/// 內建角色數量上限（有界集合；索引若異常膨脹一律截斷並在日誌留下記錄）。
+pub const MAX_BUNDLED_CHARACTERS: usize = 64;
+
+/// 內建角色 id（由 [`BUNDLED_CHARACTER_INDEX`] 解析而來）。匯入不得撞名、移除不得碰。
+///
+/// 索引壞掉時回空清單：那代表「host 目前不知道任何內建角色」，匯入撞名保護會失效，
+/// 所以解析失敗不會被吞掉——`bundled_character_index_parses` 測試會擋在 CI。
+pub fn bundled_character_ids() -> &'static [String] {
+    static IDS: OnceLock<Vec<String>> = OnceLock::new();
+    IDS.get_or_init(|| parse_bundled_ids(BUNDLED_CHARACTER_INDEX))
+}
+
+fn parse_bundled_ids(text: &str) -> Vec<String> {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(items) = json.get("characters").and_then(|c| c.as_array()) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    for item in items.iter().take(MAX_BUNDLED_CHARACTERS) {
+        let Some(id) = item.get("characterId").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if !is_valid_character_id(id) || out.iter().any(|seen| seen == id) {
+            continue;
+        }
+        out.push(id.to_string());
+    }
+    out
+}
 const MANIFEST_FILE: &str = "manifest.json";
 const ASSETS_DIR: &str = "assets";
 
@@ -77,7 +100,7 @@ pub struct ImportedCharacter {
     pub display_name: LocalizedText,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapter_kind: Option<AdapterKind>,
-    /// builtin entrypoint id（shu-rig／sprite／text）。
+    /// builtin entrypoint id（host adapter registry 的白名單之一）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entrypoint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,7 +132,18 @@ pub fn characters_root(home: &Path) -> PathBuf {
 }
 
 pub fn is_bundled(character_id: &str) -> bool {
-    BUNDLED_CHARACTER_IDS.contains(&character_id)
+    bundled_character_ids().iter().any(|id| id == character_id)
+}
+
+/// host 注入給 CPP 驗證的限制（builtin 白名單來自桌面 host 的 adapter registry；
+/// 核心自己沒有預設值）。
+fn host_limits() -> ValidationLimits {
+    character_host_registry().validation_limits()
+}
+
+/// host 白名單（錯誤訊息與 entrypoint 檢查共用）。
+fn host_builtin_ids() -> Vec<String> {
+    host_limits().builtin_whitelist
 }
 
 /// 單一路徑片段白名單：非空、≤ 64 字、不以 `.` 開頭、只含英數與 `._-`。
@@ -179,7 +213,7 @@ pub fn validate_import(
     manifest_text: &str,
     assets: &[ImportAssetInput],
 ) -> Result<ValidatedImport, String> {
-    let (manifest, report) = parse_manifest(manifest_text.as_bytes(), &ValidationLimits::default())
+    let (manifest, report) = parse_manifest(manifest_text.as_bytes(), &host_limits())
         .map_err(|e| format!("manifest invalid: {e}"))?;
     let character_id = manifest.character_id.clone();
     if !is_valid_character_id(&character_id) || !is_safe_segment(&character_id) {
@@ -197,12 +231,13 @@ pub fn validate_import(
                 .into(),
         );
     }
+    let builtin_ids = host_builtin_ids();
     match &manifest.entrypoint {
-        Entrypoint::Builtin { id } if BUILTIN_ENTRYPOINTS.contains(&id.as_str()) => {}
+        Entrypoint::Builtin { id } if builtin_ids.iter().any(|w| w == id) => {}
         Entrypoint::Builtin { .. } => {
             return Err(format!(
                 "entrypoint must be a whitelisted builtin ({})",
-                BUILTIN_ENTRYPOINTS.join("/")
+                builtin_ids.join("/")
             ))
         }
         _ => {
@@ -393,8 +428,7 @@ pub fn import(
 fn read_manifest(dir: &Path) -> Result<(CharacterManifest, ManifestReport), String> {
     let path = resolve_inside(dir, &[MANIFEST_FILE])?;
     let bytes = std::fs::read(&path).map_err(|e| format!("read manifest: {e}"))?;
-    parse_manifest(&bytes, &ValidationLimits::default())
-        .map_err(|e| format!("manifest invalid: {e}"))
+    parse_manifest(&bytes, &host_limits()).map_err(|e| format!("manifest invalid: {e}"))
 }
 
 fn list_asset_files(dir: &Path) -> Vec<String> {
@@ -828,10 +862,10 @@ mod tests {
         assert!(list(dir.path()).is_empty());
     }
 
-    /// `BUNDLED_CHARACTER_IDS` 是前端 `public/characters/index.json` 的鏡射：兩邊必須一致，
-    /// 否則匯入撞名／移除保護會漏掉新加入的內建角色。
+    /// 內建角色 id 由前端擁有的 `public/characters/index.json` 在編譯期 include 後解析而來：
+    /// 這個測試釘住「解析結果 == 索引檔內容」，避免解析失敗被靜默吞成空清單。
     #[test]
-    fn bundled_ids_mirror_the_frontend_index() {
+    fn bundled_character_index_parses_and_matches_the_frontend_index() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../public/characters/index.json");
         let text = std::fs::read_to_string(path)
@@ -844,15 +878,43 @@ mod tests {
             .filter_map(|c| c["characterId"].as_str().map(String::from))
             .collect();
         ids.sort();
-        let mut ours: Vec<String> = BUNDLED_CHARACTER_IDS
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let mut ours: Vec<String> = bundled_character_ids().to_vec();
         ours.sort();
+        assert_eq!(ours, ids, "bundled ids must come from the character index");
+        assert!(!ours.is_empty(), "index must not parse to an empty list");
+        assert!(ours.len() <= MAX_BUNDLED_CHARACTERS);
+        // 第二個 reference character 也在內建清單裡（匯入撞名保護涵蓋它）。
+        assert!(ours.iter().any(|id| id == "ref-shape"));
+        assert!(is_bundled("ref-shape"));
+    }
+
+    /// 壞索引不得 panic、不得產生無界清單，也不得混進不合法 id。
+    #[test]
+    fn a_broken_or_oversized_index_degrades_to_a_bounded_list() {
+        assert!(parse_bundled_ids("{not json").is_empty());
+        assert!(parse_bundled_ids("{}").is_empty());
+        assert!(parse_bundled_ids(r#"{"characters": {}}"#).is_empty());
         assert_eq!(
-            ours, ids,
-            "update BUNDLED_CHARACTER_IDS when the bundled character index changes"
+            parse_bundled_ids(
+                r#"{"characters": [{"characterId": "ok"}, {"characterId": "Bad Id"},
+                     {"characterId": "ok"}, {"nope": 1}]}"#
+            ),
+            vec!["ok".to_string()]
         );
+        let many: Vec<String> = (0..(MAX_BUNDLED_CHARACTERS + 20))
+            .map(|i| format!(r#"{{"characterId": "c{i}"}}"#))
+            .collect();
+        let json = format!(r#"{{"characters": [{}]}}"#, many.join(","));
+        assert_eq!(parse_bundled_ids(&json).len(), MAX_BUNDLED_CHARACTERS);
+    }
+
+    /// 匯入不得撞到第二個 reference character 的 id。
+    #[test]
+    fn importing_a_bundled_reference_character_id_is_refused() {
+        let dir = root();
+        let err = import(dir.path(), &manifest_json("ref-shape", ""), &sheet(png(32))).unwrap_err();
+        assert!(err.contains("bundled"), "{err}");
+        assert!(!dir.path().join("ref-shape").exists());
     }
 
     #[test]

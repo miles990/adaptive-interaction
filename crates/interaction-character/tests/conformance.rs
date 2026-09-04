@@ -10,12 +10,36 @@
 //! - 環境變數 `CPP_CONFORMANCE_MANIFESTS`（以 `:` 分隔的額外路徑，可以是檔案或目錄）
 //!
 //! 第三方作者的用法見 `docs/character-protocol/adapter-authoring.md` §11。
+//!
+//! v0.6.0 起核心不認識任何具名 builtin adapter：這裡只注入**核心自己**提供的
+//! in-process id（[`CORE_BUILTIN_IDS`]）。宣告其他 builtin id 的 manifest（例如某個角色
+//! 專屬的 rig）由**那個角色自己的 crate** 跑同一套 conformance，這裡誠實地列為 deferred，
+//! 不默默當成通過。
 
 mod common;
 
 use common::{hello, t};
 use interaction_character::*;
 use std::path::{Path, PathBuf};
+
+/// 核心自己提供的 in-process adapter id（通用 sprite／純文字／幾何 reference）。
+const CORE_BUILTIN_IDS: [&str; 3] = ["shape", "sprite", "text"];
+
+/// 核心 conformance 用的驗證限制（host 注入 [`CORE_BUILTIN_IDS`]）。
+fn core_limits() -> ValidationLimits {
+    ValidationLimits {
+        builtin_whitelist: CORE_BUILTIN_IDS.iter().map(|s| s.to_string()).collect(),
+        ..ValidationLimits::default()
+    }
+}
+
+/// manifest 是否宣告核心不提供的 builtin adapter（→ 交給該角色的 crate 驗）。
+fn defers_to_host_adapter(manifest: &CharacterManifest) -> Option<String> {
+    match &manifest.entrypoint {
+        Entrypoint::Builtin { id } if !CORE_BUILTIN_IDS.contains(&id.as_str()) => Some(id.clone()),
+        _ => None,
+    }
+}
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -92,7 +116,7 @@ fn load(path: &Path) -> CharacterManifest {
         .unwrap_or_else(|e| panic!("{} 不是合法 JSON：{e}", path.display()));
     // 舊 Character Pack（`kind: "character-pack"`）先遷移成 CPP manifest 再驗。
     if value.get("kind").and_then(|v| v.as_str()) == Some("character-pack") {
-        return migrate_legacy_pack(&value)
+        return migrate_pack_to_manifest(&value, &MigrationRegistry::with_core_migrators())
             .unwrap_or_else(|e| panic!("{} 無法從舊 pack 遷移：{e}", path.display()));
     }
     serde_json::from_value(value)
@@ -105,7 +129,7 @@ fn conform(path: &Path, manifest: &CharacterManifest) -> Negotiated {
 
     // 1. manifest 通過驗證（大小、能力 id、資產路徑、fallback…）。
     let bytes = serde_json::to_vec(manifest).unwrap_or_default().len();
-    validate_manifest(bytes, manifest, &ValidationLimits::default())
+    validate_manifest(bytes, manifest, &core_limits())
         .unwrap_or_else(|e| panic!("{label}: manifest 驗證失敗：{e}"));
 
     // 2. 以「角色照 manifest 全數提供」協商：20 個 intent 全部有結果。
@@ -299,11 +323,22 @@ fn every_bundled_and_third_party_manifest_conforms() {
         "至少要有參考 adapter 與內建角色的 manifest，實際找到 {}",
         paths.len()
     );
+    let mut checked = 0usize;
+    let mut deferred: Vec<String> = Vec::new();
     for path in &paths {
         let manifest = load(path);
+        if let Some(id) = defers_to_host_adapter(&manifest) {
+            deferred.push(format!("{} (builtin:{id})", path.display()));
+            continue;
+        }
         conform(path, &manifest);
+        checked += 1;
     }
-    eprintln!("CPP conformance: {} 份 manifest 通過", paths.len());
+    assert!(
+        checked >= 2,
+        "核心 conformance 至少要跑到參考 adapter 與內建角色各一份，實際 {checked} 份"
+    );
+    eprintln!("CPP conformance: {checked} 份 manifest 通過；{} 份交給 host／角色 crate 的 conformance：{deferred:?}", deferred.len());
 }
 
 #[test]
@@ -354,7 +389,7 @@ fn safety_intents_cannot_be_presented_as_non_safety_intents() {
     }
     let bytes = serde_json::to_vec(&manifest).unwrap_or_default().len();
     assert!(
-        validate_manifest(bytes, &manifest, &ValidationLimits::default()).is_err(),
+        validate_manifest(bytes, &manifest, &core_limits()).is_err(),
         "安全 intent → 非安全 intent 的 fallbacks.intents 必須在 manifest 驗證階段被拒"
     );
 

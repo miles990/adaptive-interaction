@@ -4,6 +4,7 @@
 // 巢狀 schema 都在這裡擋下；錯誤訊息不回顯輸入內容（只講欄位與規則），
 // 不含絕對路徑。entrypoint 的 process／url／module 只記錄，永不執行／連線／下載。
 
+import { builtinEntrypointIds } from "./adapterRegistry";
 import { validateManifest as validateLegacyPack, type PackManifest } from "../companion/renderer";
 import { validateRigManifest, type RigManifest } from "../companion/rig/renderer";
 import { RIG_PALETTES } from "../companion/rig/params";
@@ -11,7 +12,6 @@ import { EXPRESSIONS } from "../companion/rig/expressions";
 import {
   AdapterKind,
   AssetDecl,
-  BUILTIN_ENTRYPOINT_IDS,
   CANONICAL_CAPABILITY_PREFIXES,
   CapabilityDecl,
   CHARACTER_ID_RE,
@@ -66,7 +66,7 @@ export type ManifestValidation =
 export interface ValidateOptions {
   /** 若提供，檢查 JSON 文字大小 ≤ 256 KB。 */
   jsonText?: string;
-  /** host 的 builtin entrypoint 白名單（預設 shu-rig／sprite／text）。 */
+  /** host 的 builtin entrypoint 白名單（預設取 adapter registry 的宣告清單）。 */
   builtinWhitelist?: readonly string[];
   /** 實作者的 schema minor（預設 PROTOCOL_MINOR）。 */
   implMinor?: number;
@@ -789,7 +789,7 @@ export function validateCharacterManifest(input: unknown, opts: ValidateOptions 
   }
   if (!isPlainObject(input)) return { ok: false, errors: ["manifest must be a JSON object"] };
   const m = input;
-  const whitelist = opts.builtinWhitelist ?? BUILTIN_ENTRYPOINT_IDS;
+  const whitelist = opts.builtinWhitelist ?? builtinEntrypointIds();
   const implMinor = opts.implMinor ?? PROTOCOL_MINOR;
 
   // schemaVersion

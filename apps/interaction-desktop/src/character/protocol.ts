@@ -120,8 +120,10 @@ export type LocalizedText = Record<string, string>;
 
 export type AdapterKind = "in-process" | "web" | "external-process" | "remote-device";
 
-export const BUILTIN_ENTRYPOINT_IDS = ["shu-rig", "sprite", "text"] as const;
-export type BuiltinEntrypointId = (typeof BUILTIN_ENTRYPOINT_IDS)[number];
+// host 的 builtin entrypoint 白名單由 adapter registry 擁有（協定本身不認識任何具名
+// adapter）；這裡只保留既有名稱的再匯出，呼叫端不必改。
+export { BUILTIN_ADAPTER_IDS as BUILTIN_ENTRYPOINT_IDS } from "./adapterRegistry";
+export type { BuiltinEntrypointId } from "./adapterRegistry";
 
 export type Entrypoint =
   | { kind: "builtin"; id: string }

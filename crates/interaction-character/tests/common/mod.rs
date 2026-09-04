@@ -1,4 +1,8 @@
-//! 測試共用 fixture：三種 reference manifest（shu-rig 風格／sprite／純文字）、時間與 envelope 工具。
+//! 測試共用 fixture：三種 manifest 範例（第三方 rig 風格／sprite／純文字）、時間與 envelope 工具。
+//!
+//! v0.6.0 起核心不再認識任何具名角色：這裡的 rig 風格 manifest 只是**第三方 manifest 範例**
+//! （欄位齊全、能力最多的那種），核心並不知道它的 entrypoint id 代表什麼。
+//! builtin 白名單一律由 host 注入（[`TEST_BUILTIN_WHITELIST`]），核心預設是空的。
 #![allow(dead_code)]
 
 use chrono::{TimeZone, Utc};
@@ -22,7 +26,10 @@ pub fn read_pack(name: &str) -> serde_json::Value {
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {path:?}: {e}"))
 }
 
-/// §2 範例風格的完整 manifest（shu-rig）。含一個 namespaced custom 能力與一個未知 canonical 前綴能力。
+/// 測試 host 注入的 builtin 白名單（桌面 host 的實際白名單見 runtime／Tauri）。
+pub const TEST_BUILTIN_WHITELIST: [&str; 4] = ["shu-rig", "sprite", "text", "shape"];
+
+/// §2 範例風格的完整第三方 manifest。含一個 namespaced custom 能力與一個未知 canonical 前綴能力。
 pub const SHU_MAID_JSON: &str = r#"{
   "schemaVersion": "1.0",
   "characterId": "shu-maid",
@@ -117,22 +124,49 @@ pub fn parse_json(json: &str) -> CharacterManifest {
     serde_json::from_str(json).expect("fixture manifest parses")
 }
 
-pub fn shu_manifest() -> CharacterManifest {
+/// 能力最完整的第三方 manifest 範例。
+pub fn reference_manifest() -> CharacterManifest {
     parse_json(SHU_MAID_JSON)
+}
+
+/// [`reference_manifest`] 的既有名稱（測試沿用）。
+pub fn shu_manifest() -> CharacterManifest {
+    reference_manifest()
 }
 
 pub fn text_manifest() -> CharacterManifest {
     parse_json(TEXT_JSON)
 }
 
-/// 由真實舊 pack（`shu-standard`，character-pack 1.0）遷移出的 sprite manifest。
-pub fn sprite_manifest() -> CharacterManifest {
-    migrate_legacy_pack(&read_pack("shu-standard")).expect("shu-standard migrates")
+/// 核心 registry（只有通用 sprite migrator）。
+pub fn core_registry() -> MigrationRegistry {
+    MigrationRegistry::with_core_migrators()
 }
 
+/// 由真實舊 pack（`shu-standard`，character-pack 1.0）遷移出的 sprite manifest。
+pub fn sprite_manifest() -> CharacterManifest {
+    migrate_pack_to_manifest(&read_pack("shu-standard"), &core_registry())
+        .expect("shu-standard migrates")
+}
+
+/// host 注入白名單後的驗證（核心預設白名單是空的）。
 pub fn validate(manifest: &CharacterManifest) -> Result<ManifestReport, ManifestError> {
+    validate_with_whitelist(manifest, &TEST_BUILTIN_WHITELIST)
+}
+
+pub fn test_limits(whitelist: &[&str]) -> ValidationLimits {
+    ValidationLimits {
+        builtin_whitelist: whitelist.iter().map(|s| s.to_string()).collect(),
+        ..ValidationLimits::default()
+    }
+}
+
+pub fn validate_with_whitelist(
+    manifest: &CharacterManifest,
+    whitelist: &[&str],
+) -> Result<ManifestReport, ManifestError> {
     let bytes = serde_json::to_vec(manifest).unwrap_or_default().len();
-    validate_manifest(bytes, manifest, &ValidationLimits::default())
+    validate_manifest(bytes, manifest, &test_limits(whitelist))
 }
 
 pub fn hello(instance: &str, reduced_motion: bool) -> Hello {

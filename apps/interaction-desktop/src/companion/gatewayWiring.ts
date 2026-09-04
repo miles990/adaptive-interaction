@@ -9,6 +9,14 @@
 // 所以這些判斷可以在 vitest 裡逐條驗。
 
 import type { AdapterInputEvent } from "../character/adapter";
+import {
+  builtinAdapterMeta,
+  isBuiltinEntrypointId,
+  type AdapterCssClass,
+  type BuiltinEntrypointId,
+} from "../character/adapterRegistry";
+// side effect：載入 host 的 builtin adapter 註冊（白名單／meta 才有內容）。
+import { SHU_RIG_VARIANT_IDS } from "../character/adapters";
 import { baseMessageId } from "../character/gateway";
 import { displayNameOf, validateCharacterManifest } from "../character/manifest";
 import {
@@ -51,7 +59,8 @@ export function selectRuntimeFeed(status: unknown): RuntimeFeed {
 // 角色選擇
 // ---------------------------------------------------------------------------
 
-export type EntrypointKind = "shu-rig" | "sprite" | "text";
+/** builtin entrypoint id。白名單與每個 adapter 的呈現細節都由 adapter registry 擁有。 */
+export type EntrypointKind = BuiltinEntrypointId;
 
 /**
  * host 匯入清單的一列（desktop.characterListImported）。`manifest` 是可選的完整 manifest：
@@ -120,9 +129,7 @@ export function selectCharacterSource(
 // 已匯入角色（host 本機角色資料夾；只認 in-process＋builtin 白名單，任何不符 → 文字角色）
 // ---------------------------------------------------------------------------
 
-export function isBuiltinEntrypointId(id: unknown): id is EntrypointKind {
-  return id === "shu-rig" || id === "sprite" || id === "text";
-}
+export { isBuiltinEntrypointId };
 
 /** 偏好的 id 不在索引、也不是 8 個舊 id → 才需要問 host 的匯入清單（Tauri 才有本機角色資料夾）。 */
 export function needsImportedLookup(index: CharacterIndex | null, preferred: string | null | undefined): boolean {
@@ -176,7 +183,7 @@ export function importedCharacterSource(
     return loadFailure(characterId, "imported character requires executable code or network (not granted to builtin adapters)");
   }
   if (!isBuiltinEntrypointId(entry.entrypoint)) {
-    return loadFailure(characterId, "imported entrypoint is not builtin shu-rig/sprite/text");
+    return loadFailure(characterId, "imported entrypoint is not a host builtin adapter");
   }
   let manifest: CharacterManifest | null = null;
   if (entry.manifest !== undefined && entry.manifest !== null) {
@@ -186,13 +193,14 @@ export function importedCharacterSource(
     if (entrypointKindOf(v.manifest) !== entry.entrypoint) return loadFailure(characterId, "imported manifest entrypoint mismatch");
     manifest = v.manifest;
   }
-  if (entry.entrypoint === "sprite") {
+  // 需要舊 pack 版型的 adapter（sprite）由 meta 宣告；host 不看 entrypoint 字串。
+  if (builtinAdapterMeta(entry.entrypoint)?.requiresLegacyPackShape === true) {
     if (!manifest) {
       return loadFailure(characterId, "imported sprite needs its manifest (x-legacy pack shape) but the host list carries none");
     }
     const sprite = spritePackFromManifest(manifest);
     if (!sprite) return loadFailure(characterId, "imported sprite manifest has no usable x-legacy pack shape or sheet asset");
-    return { kind: "imported", entry, characterId, entrypoint: "sprite", manifest, sprite };
+    return { kind: "imported", entry, characterId, entrypoint: entry.entrypoint, manifest, sprite };
   }
   return { kind: "imported", entry, characterId, entrypoint: entry.entrypoint, manifest };
 }
@@ -205,7 +213,7 @@ const MAX_SHEET_COLUMNS = 4096;
  * 再用既有的 validateManifest 驗一次。sheet 必須是 manifest 宣告的資產（id "sheet" 或同路徑）。
  */
 export function spritePackFromManifest(manifest: CharacterManifest): ImportedSpriteShape | null {
-  if (entrypointKindOf(manifest) !== "sprite") return null;
+  if (builtinAdapterMeta(entrypointKindOf(manifest))?.requiresLegacyPackShape !== true) return null;
   const ext = extensionOf(manifest, "x-legacy") ?? extensionOf(manifest, "legacy");
   if (!ext || ext.kind !== "character-pack") return null;
   const candidate: Record<string, unknown> = {
@@ -241,8 +249,8 @@ export function isImageDataUrl(value: unknown): value is string {
   return typeof value === "string" && /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]/i.test(value);
 }
 
-/** shu-rig 的三種配色（rig/params RIG_PALETTES 的鍵；manifest variants 用同一組 id）。 */
-export const SHU_RIG_PALETTES = ["maid-classic", "maid-dusk", "maid-sakura"] as const;
+/** rig 角色的配色 id（由 adapter registry 宣告；host 只是轉述）。 */
+export const SHU_RIG_PALETTES = SHU_RIG_VARIANT_IDS;
 
 export function isShuRigPalette(value: unknown): value is (typeof SHU_RIG_PALETTES)[number] {
   return typeof value === "string" && (SHU_RIG_PALETTES as readonly string[]).includes(value);
@@ -322,14 +330,12 @@ export async function resolveCharacterSource(
 export function entrypointKindOf(manifest: Pick<CharacterManifest, "entrypoint"> | null | undefined): EntrypointKind | null {
   const e = manifest?.entrypoint;
   if (!e || e.kind !== "builtin") return null;
-  return e.id === "shu-rig" || e.id === "sprite" || e.id === "text" ? e.id : null;
+  return isBuiltinEntrypointId(e.id) ? e.id : null;
 }
 
-/** canvas 的 CSS class 由 entrypoint 種類決定（不再看 pack id 前綴）。 */
-export function cssClassForEntrypoint(kind: EntrypointKind | null): "companion-stage" | "companion-canvas" | "companion-text" {
-  if (kind === "shu-rig") return "companion-stage";
-  if (kind === "text") return "companion-text";
-  return "companion-canvas";
+/** canvas 的 CSS class 由 adapter 自己宣告（host 不看 entrypoint 字串，也不看 pack id 前綴）。 */
+export function cssClassForEntrypoint(kind: EntrypointKind | null): AdapterCssClass {
+  return builtinAdapterMeta(kind)?.cssClass ?? "companion-canvas";
 }
 
 /** 索引項目可帶 persona 提示；沒有就用 prefs（persona pack 是資料，不綁角色）。 */
@@ -416,7 +422,16 @@ export function characterPreferencesFor(
   const variant = preferences["variant"];
   if (typeof variant === "string" && variant.length > 0) {
     out.variant = variant;
-    if (entrypoint === "shu-rig" && isShuRigPalette(variant)) out.palette = variant;
+    // 別名鍵（例如 rig 的 `palette`）與認得的 variant 清單都由 adapter meta 宣告：
+    // host 不知道哪個角色有配色，也不會把未知 variant 猜成配色。
+    const meta = builtinAdapterMeta(entrypoint);
+    const known = meta?.variants;
+    if (meta && (known === undefined || known.includes(variant))) {
+      for (const key of meta.variantAliasKeys ?? []) {
+        if (key === "variant" || key === "preferences") continue;
+        (out as unknown as Record<string, unknown>)[key] = variant;
+      }
+    }
   }
   return out;
 }

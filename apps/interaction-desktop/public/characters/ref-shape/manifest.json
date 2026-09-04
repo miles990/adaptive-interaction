@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0",
+  "characterId": "ref-shape",
+  "displayName": {
+    "zh-TW": "參考形狀",
+    "en": "Reference Shape"
+  },
+  "author": "adaptive-interaction",
+  "description": {
+    "zh-TW": "第二個 Reference Character：一個幾何圓形。顏色隨 intent 家族改變，play 縮放脈衝一次、notice 輕微位移，其餘靜止。沒有音訊、沒有視線、沒有粒子；安全 intent 一律落到可信系統文字。",
+    "en": "The second reference character: one geometric circle. Colour follows the intent family, play pulses once, notice nudges, everything else rests. No audio, gaze or particles; safety intents always fall back to trusted system text."
+  },
+  "version": "1.0.0",
+  "adapterKind": "in-process",
+  "entrypoint": {
+    "kind": "builtin",
+    "id": "shape"
+  },
+  "assets": [],
+  "capabilities": {
+    "visual.presence": {
+      "supported": true,
+      "interruptible": true,
+      "resumable": true,
+      "qualityLevel": "minimal",
+      "reducedMotionBehavior": "static"
+    },
+    "visual.expression": {
+      "supported": true,
+      "maxConcurrent": 1,
+      "interruptible": true,
+      "resumable": false,
+      "variants": [
+        "idle",
+        "notice",
+        "play",
+        "rest",
+        "work",
+        "think",
+        "acknowledge",
+        "wait",
+        "greet",
+        "sleep"
+      ],
+      "durationRange": {
+        "minMs": 0,
+        "maxMs": 4000
+      },
+      "qualityLevel": "minimal",
+      "reducedMotionBehavior": "static"
+    }
+  },
+  "inputCapabilities": {
+    "input.click": {
+      "supported": true
+    }
+  },
+  "channels": [
+    "transform",
+    "expression"
+  ],
+  "states": [
+    "shape"
+  ],
+  "intents": [
+    "idle",
+    "notice",
+    "acknowledge",
+    "think",
+    "work",
+    "greet",
+    "play",
+    "rest",
+    "sleep"
+  ],
+  "variants": [],
+  "locales": [
+    "zh-TW",
+    "en"
+  ],
+  "securityRequirements": {
+    "network": false,
+    "executable": false,
+    "fileAccess": "none",
+    "audioOutput": false,
+    "microphone": false,
+    "camera": false
+  },
+  "resourceLimits": {
+    "maxAssetBytes": 0,
+    "maxConcurrentCommands": 1,
+    "maxQueue": 16,
+    "maxFps": 30
+  },
+  "fallbacks": {},
+  "compatibility": {
+    "protocol": "1.x",
+    "runtime": ">=0.6.0"
+  }
+}

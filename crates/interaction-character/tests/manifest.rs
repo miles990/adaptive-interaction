@@ -61,17 +61,14 @@ fn sprite_and_text_manifests_are_valid() {
 
 #[test]
 fn parse_manifest_from_bytes_enforces_size_and_json() {
+    let limits = test_limits(&TEST_BUILTIN_WHITELIST);
     let bytes = SHU_MAID_JSON.as_bytes();
-    let (manifest, _) = parse_manifest(bytes, &ValidationLimits::default()).expect("parses");
+    let (manifest, _) = parse_manifest(bytes, &limits).expect("parses");
     assert_eq!(manifest.character_id, "shu-maid");
     let big = vec![b' '; MAX_MANIFEST_BYTES + 1];
-    let err = parse_manifest(&big, &ValidationLimits::default()).expect_err("too large");
+    let err = parse_manifest(&big, &limits).expect_err("too large");
     assert_eq!(err.code, ManifestErrorCode::TooLarge);
-    let err = parse_manifest(
-        b"{\"characterId\": \"/Users/secret\"",
-        &ValidationLimits::default(),
-    )
-    .expect_err("json");
+    let err = parse_manifest(b"{\"characterId\": \"/Users/secret\"", &limits).expect_err("json");
     assert_eq!(err.code, ManifestErrorCode::Json);
     assert!(
         !err.message.contains("/Users"),
@@ -160,8 +157,12 @@ fn malicious_asset_paths_are_rejected_without_echo() {
 #[test]
 fn oversize_limits() {
     let m = shu_manifest();
-    let err = validate_manifest(MAX_MANIFEST_BYTES + 1, &m, &ValidationLimits::default())
-        .expect_err("too large");
+    let err = validate_manifest(
+        MAX_MANIFEST_BYTES + 1,
+        &m,
+        &test_limits(&TEST_BUILTIN_WHITELIST),
+    )
+    .expect_err("too large");
     assert_eq!(err.code, ManifestErrorCode::TooLarge);
 
     let mut m = shu_manifest();
@@ -229,7 +230,8 @@ fn process_and_url_entrypoints_are_recorded_not_executed() {
     m.entrypoint = Entrypoint::Builtin { id: "evil".into() };
     let err = validate(&m).expect_err("not whitelisted");
     assert_eq!(err.code, ManifestErrorCode::Entrypoint);
-    assert!(err.message.contains("shu-rig, sprite, text"));
+    // 錯誤訊息列出 host 注入的白名單（核心自己沒有預設值）。
+    assert!(err.message.contains(&TEST_BUILTIN_WHITELIST.join(", ")));
 
     let mut m = shu_manifest();
     m.adapter_kind = AdapterKind::RemoteDevice;
@@ -413,7 +415,7 @@ fn magic_bytes_reject_spoofed_extension() {
 #[test]
 fn legacy_pack_v1_migrates_to_sprite_manifest() {
     let pack = read_pack("shu-standard");
-    let m = migrate_legacy_pack(&pack).expect("v1.0 migrates");
+    let m = migrate_pack_to_manifest(&pack, &core_registry()).expect("v1.0 migrates");
     assert_eq!(m.character_id, "shu-standard");
     assert_eq!(m.adapter_kind, AdapterKind::InProcess);
     assert_eq!(
@@ -503,7 +505,7 @@ fn legacy_pack_v1_migrates_to_sprite_manifest() {
 #[test]
 fn legacy_pack_v1_1_with_anchors_gains_gaze_and_failed() {
     let pack = read_pack("shu-lively");
-    let m = migrate_legacy_pack(&pack).expect("v1.1 migrates");
+    let m = migrate_pack_to_manifest(&pack, &core_registry()).expect("v1.1 migrates");
     assert_eq!(m.character_id, "shu-lively");
     assert!(m.capabilities.contains_key("visual.gaze"));
     assert_eq!(
@@ -517,74 +519,35 @@ fn legacy_pack_v1_1_with_anchors_gains_gaze_and_failed() {
     validate(&m).expect("validates");
 }
 
+/// `character-rig` 2.0（某個角色專屬的 rig pack）不在核心：核心 registry 沒有它的
+/// migrator，遷移必須誠實失敗，由該角色自己的 crate 註冊（見 `interaction-character-shu`）。
 #[test]
-fn legacy_rig_2_0_migrates_to_shu_rig_manifest() {
-    let pack = read_pack("shu-maid-dusk");
-    let m = migrate_legacy_pack(&pack).expect("rig migrates");
-    assert_eq!(m.character_id, "shu-maid-dusk");
-    assert_eq!(
-        m.entrypoint,
-        Entrypoint::Builtin {
-            id: "shu-rig".into()
-        }
-    );
-    assert_eq!(
-        m.variants.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(),
-        vec!["maid-classic", "maid-dusk", "maid-sakura"]
-    );
-    assert_eq!(m.intents.len(), 20);
-    for cap in [
-        "visual.presence",
-        "visual.pose",
-        "visual.expression",
-        "visual.gaze",
-        "visual.locomotion",
-        "visual.overlay",
-        "visual.particles",
-        "visual.prop",
-        "visual.textBubble",
-        "audio.speech",
-        "audio.effect",
-        "multiCharacter",
-        "scene",
-        "rollCall",
-        "gameplay.toys",
-        "gameplay.autonomy",
-    ] {
-        assert!(m.capabilities.contains_key(cap), "{cap}");
-    }
-    assert_eq!(m.input_capabilities.len(), 7);
-    assert_eq!(m.channels.len(), 12);
-    let prefs = m.preferences_schema.as_ref().expect("preferences");
-    assert_eq!(
-        prefs.properties["palette"].default,
-        Some(serde_json::json!("maid-dusk"))
-    );
-    assert_eq!(m.extra["x-legacy"]["palette"], "maid-dusk");
-    assert!(m.security_requirements.audio_output);
-    assert!(!m.security_requirements.executable);
-    validate(&m).expect("validates");
-    // 三個 palette 都能遷移。
-    for pack in ["shu-maid", "shu-maid-sakura"] {
-        migrate_legacy_pack(&read_pack(pack)).unwrap_or_else(|e| panic!("{pack}: {e}"));
-    }
+fn rig_packs_are_not_migrated_by_the_core_registry() {
+    let err = migrate_pack_to_manifest(&read_pack("shu-maid-dusk"), &core_registry())
+        .expect_err("core has no rig migrator");
+    assert_eq!(err.code, ManifestErrorCode::Legacy);
 }
 
 #[test]
 fn legacy_unknown_formats_are_refused() {
-    let err = migrate_legacy_pack(
+    let err = migrate_pack_to_manifest(
         &serde_json::json!({"kind": "persona-pack", "schemaVersion": "1.0", "id": "x"}),
+        &core_registry(),
     )
     .expect_err("persona packs are not character manifests");
     assert_eq!(err.code, ManifestErrorCode::Legacy);
-    let err = migrate_legacy_pack(
+    let err = migrate_pack_to_manifest(
         &serde_json::json!({"kind": "character-pack", "schemaVersion": "3.0", "id": "x"}),
+        &core_registry(),
     )
     .expect_err("unknown version");
     assert_eq!(err.code, ManifestErrorCode::Legacy);
-    let err = migrate_legacy_pack(&serde_json::json!({"kind": "character-pack", "schemaVersion": "1.0",
-        "id": "x", "name": {"en": "x"}, "sheet": "../../../etc/passwd", "animations": {"idle": {}}}))
-        .expect_err("traversal in legacy sheet");
+    let err = migrate_pack_to_manifest(
+        &serde_json::json!({"kind": "character-pack", "schemaVersion": "1.0",
+            "id": "x", "name": {"en": "x"}, "sheet": "../../../etc/passwd", "animations": {"idle": {}}}),
+        &core_registry(),
+    )
+    .expect_err("traversal in legacy sheet");
     assert_eq!(err.code, ManifestErrorCode::AssetPath);
     assert!(!err.message.contains("passwd"));
 }

@@ -67,6 +67,11 @@
       "characterId": "plain-text",
       "manifestPath": "/characters/plain-text/manifest.json",
       "origin": "builtin"
+    },
+    {
+      "characterId": "ref-shape",
+      "manifestPath": "/characters/ref-shape/manifest.json",
+      "origin": "builtin"
     }
   ]
 }

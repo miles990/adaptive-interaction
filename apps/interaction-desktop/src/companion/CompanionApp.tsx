@@ -32,7 +32,7 @@ import {
   wasPreempted,
   wasReplacedByPerforming,
 } from "./machine";
-import { PackManifest, RendererBackend, SpriteRenderer, validateManifest } from "./renderer";
+import type { PackManifest, RendererBackend } from "./renderer";
 import { machineStageFlags, StageRenderer } from "./rig/stage";
 import {
   HitRegion,
@@ -91,7 +91,6 @@ import {
   noteSession,
   sanitizeMemory,
 } from "./interactionMemory";
-import { MixerRenderer } from "./mixerRenderer";
 import { companionSensorLabel } from "./sensorLabels";
 import {
   adapterReconfigureFor,
@@ -133,9 +132,16 @@ import {
 import { CharacterGateway } from "../character/gateway";
 import type { CharacterAdapter } from "../character/adapter";
 import { loadCharacterIndex } from "../character/registry";
-import { ShuCharacterAdapter } from "../character/adapters/shu";
-import { SpriteCharacterAdapter } from "../character/adapters/sprite";
-import { TextCharacterAdapter } from "../character/adapters/text";
+import {
+  builtinAdapterMeta,
+  createBuiltinAdapter,
+  entrypointForLegacyPackKind,
+  FALLBACK_ADAPTER_ID,
+  type BuiltinAdapterContext,
+  type CompanionSurface,
+} from "../character/adapterRegistry";
+// side effect：註冊 host 的 builtin adapter（shu-rig／sprite／text／shape）。
+import "../character/adapters";
 import type { CharacterManifest, CommandReceipt, IntentEnvelope } from "../character/protocol";
 import type { ToyCatalogEntry } from "../character/adapters/shuTables";
 
@@ -363,12 +369,12 @@ export default function CompanionApp() {
   const hitRegionsBusyRef = React.useRef(false);
   const textHostRef = React.useRef<HTMLDivElement>(null);
   const rendererRef = React.useRef<RendererBackend | null>(null);
-  /** 遊玩場（只有 shu-rig adapter 有；sprite／text 無遊玩）。 */
+  /** 遊玩場（只有宣告 hasPlayfield 的 adapter 有；其餘為 null）。 */
   const stageRef = React.useRef<StageRenderer | null>(null);
   /** 目前註冊在 gateway 的 adapter（任何 entrypoint）。 */
   const adapterRef = React.useRef<CharacterAdapter | null>(null);
-  /** shu-rig adapter（roll call／玩具目錄／角色表）；其他角色為 null。 */
-  const shuRef = React.useRef<ShuCharacterAdapter | null>(null);
+  /** 有遊玩場的角色會提供這個介面（roll call／玩具目錄／角色表）；其他角色為 null。 */
+  const companionRef = React.useRef<CompanionSurface | null>(null);
   const gatewayRef = React.useRef<CharacterGateway | null>(null);
   const manifestRef = React.useRef<CharacterManifest | null>(null);
   /** 最新一次讀到的 host 偏好（companion-reload 時比對：能就地套用的就不整頁重載）。 */
@@ -896,8 +902,7 @@ export default function CompanionApp() {
         await gateway.registerInstance(built.adapter, "primary-companion", { instanceId: PRIMARY_INSTANCE_ID });
         adapterRef.current = built.adapter;
         rendererRef.current = built.renderer;
-        stageRef.current = built.stage;
-        shuRef.current = built.shu;
+        companionRef.current = built.companion;
         setEntrypointKind(built.kind);
         registered = true;
       } catch (e) {
@@ -949,119 +954,117 @@ export default function CompanionApp() {
       if (gateway) gateway.disposeInstance(PRIMARY_INSTANCE_ID, "window closed");
       gatewayRef.current = null;
       adapterRef.current = null;
-      shuRef.current = null;
+      companionRef.current = null;
       stageRef.current = null;
       rendererRef.current?.destroy();
       rendererRef.current = null;
     };
   }, []);
 
-  /** 依角色來源建 adapter（builtin entrypoint 白名單：shu-rig／sprite／text）。 */
+  /**
+   * 依角色來源決定 entrypoint 與 adapter context。
+   *
+   * host 不認得任何角色名字：要不要 canvas、要不要舊 pack 版型、有沒有 variant 別名，
+   * 全部問 adapter registry 的 meta。加一個新角色不需要動這裡。
+   */
+  async function planAdapter(
+    source: CharacterSource,
+    canvasEl: HTMLCanvasElement | null,
+    renderScale: number,
+    mixer: MixerPort,
+    prefsName: string | null
+  ): Promise<{ entrypoint: EntrypointKind; ctx: BuiltinAdapterContext }> {
+    const base: BuiltinAdapterContext = {
+      canvas: canvasEl,
+      textHost: textHostRef.current,
+      scale: renderScale,
+      mixer,
+      charName: prefsName,
+    };
+    if (source.kind === "text") {
+      return { entrypoint: FALLBACK_ADAPTER_ID, ctx: base };
+    }
+    if (source.kind === "legacy-pack") {
+      // 索引不可用但偏好是舊 id：直接由 /packs/<id> 遷移（CPP §2.2）。
+      const legacy = (await sameOriginFetch(`/packs/${source.characterId}/manifest.json`).then((r) => r.json())) as PackManifest & {
+        kind?: string;
+      };
+      const entrypoint = entrypointForLegacyPackKind(legacy.kind);
+      if (!entrypoint) throw new Error("no builtin adapter handles this legacy character pack");
+      const assetBase = `/packs/${source.characterId}`;
+      return {
+        entrypoint,
+        ctx: {
+          ...base,
+          characterId: source.characterId,
+          legacyPack: legacy,
+          assetBase,
+          ...(typeof legacy.sheet === "string" ? { sheetUrl: `${assetBase}/${legacy.sheet}` } : {}),
+        },
+      };
+    }
+    if (source.kind === "imported") {
+      // 匯入角色（host 本機角色資料夾）：只有 builtin 白名單；資產只經 host 讀成 data URL，
+      // 不 fetch 任何遠端、不執行任何東西。
+      const { entry, entrypoint, manifest } = source;
+      const meta = builtinAdapterMeta(entrypoint);
+      const variant = meta?.variants ? rigPaletteForImported(manifest) : null;
+      const ctx: BuiltinAdapterContext = {
+        ...base,
+        characterId: entry.characterId,
+        manifest,
+        displayName: manifest?.displayName ?? entry.displayName,
+        description: manifest?.description ?? null,
+        variant,
+      };
+      if (meta?.requiresLegacyPackShape === true) {
+        if (!source.sprite) throw new Error("imported character has no usable pack shape");
+        const sheetUrl = await desktop.characterAsset(entry.characterId, source.sprite.sheetAssetId);
+        if (!isImageDataUrl(sheetUrl)) throw new Error("imported character sheet asset is not an image data URL");
+        return { entrypoint, ctx: { ...ctx, legacyPack: source.sprite.pack, assetBase: `imported:${entry.characterId}`, sheetUrl } };
+      }
+      if (!manifest && variant !== null) {
+        // 清單只有摘要：用摘要組一份舊 pack 交給 adapter 遷移（純資料，不執行任何東西）。
+        return { entrypoint, ctx: { ...ctx, legacyPack: importedRigPack(entry, variant) } };
+      }
+      return { entrypoint, ctx };
+    }
+    const manifest = source.entry.manifest;
+    const entrypoint = entrypointKindOf(manifest);
+    if (!entrypoint) throw new Error("unsupported entrypoint for this character");
+    const meta = builtinAdapterMeta(entrypoint);
+    const ctx: BuiltinAdapterContext = {
+      ...base,
+      characterId: manifest.characterId,
+      manifest,
+      displayName: manifest.displayName,
+      description: manifest.description ?? null,
+      variant: meta?.variants ? rigPaletteFor(manifest) : null,
+    };
+    if (meta?.requiresLegacyPackShape === true) {
+      const assetBase = source.entry.assetBase ?? `/packs/${source.characterId}`;
+      const legacy = (await sameOriginFetch(`${assetBase}/manifest.json`).then((r) => r.json())) as PackManifest;
+      return { entrypoint, ctx: { ...ctx, legacyPack: legacy, assetBase, sheetUrl: `${assetBase}/${legacy.sheet}` } };
+    }
+    return { entrypoint, ctx };
+  }
+
+  /** 建 adapter：只透過 registry，永遠不直接 new 任何角色類別。 */
   async function buildAdapter(
     source: CharacterSource,
-    canvasEl: HTMLCanvasElement,
+    canvasEl: HTMLCanvasElement | null,
     renderScale: number,
     mixer: MixerPort,
     prefsName: string | null
   ): Promise<{
     adapter: CharacterAdapter;
     renderer: RendererBackend | null;
-    stage: StageRenderer | null;
-    shu: ShuCharacterAdapter | null;
+    companion: CompanionSurface | null;
     kind: EntrypointKind;
   }> {
-    if (source.kind === "text") {
-      const adapter = new TextCharacterAdapter({ container: textHostRef.current ?? undefined });
-      return { adapter, renderer: null, stage: null, shu: null, kind: "text" };
-    }
-    if (source.kind === "legacy-pack") {
-      // 索引不可用但偏好是舊 id：直接由 /packs/<id> 遷移（CPP §2.2）。
-      const legacy = (await fetch(`/packs/${source.characterId}/manifest.json`).then((r) => r.json())) as PackManifest & {
-        kind?: string;
-      };
-      if (legacy.kind === "character-rig") {
-        const shu = new ShuCharacterAdapter({ legacyRig: legacy, canvas: canvasEl, scale: renderScale, mixer, charName: prefsName ?? undefined });
-        return { adapter: shu, renderer: null, stage: null, shu, kind: "shu-rig" };
-      }
-      const assetBase = `/packs/${source.characterId}`;
-      return buildSprite(legacy, assetBase, `${assetBase}/${legacy.sheet}`, canvasEl, renderScale, mixer);
-    }
-    if (source.kind === "imported") {
-      // 匯入角色（host 本機角色資料夾）：只有 builtin 白名單；資產只經 host 讀成 data URL，
-      // 不 fetch 任何遠端、不執行任何東西。摘要沒有 manifest 本文時 text／shu-rig 仍可由摘要建出。
-      const { entry, entrypoint, manifest } = source;
-      if (entrypoint === "text") {
-        const adapter = new TextCharacterAdapter({
-          container: textHostRef.current ?? undefined,
-          characterId: entry.characterId,
-          displayName: manifest?.displayName ?? entry.displayName,
-          description: manifest?.description,
-        });
-        return { adapter, renderer: null, stage: null, shu: null, kind: "text" };
-      }
-      if (entrypoint === "shu-rig") {
-        const palette = rigPaletteForImported(manifest);
-        const shu = new ShuCharacterAdapter({
-          ...(manifest ? { manifest } : { legacyRig: importedRigPack(entry, palette) }),
-          palette,
-          canvas: canvasEl,
-          scale: renderScale,
-          mixer,
-          charName: prefsName ?? undefined,
-        });
-        return { adapter: shu, renderer: null, stage: null, shu, kind: "shu-rig" };
-      }
-      if (!source.sprite) throw new Error(`imported sprite ${entry.characterId}: no pack shape`);
-      const sheetUrl = await desktop.characterAsset(entry.characterId, source.sprite.sheetAssetId);
-      if (!isImageDataUrl(sheetUrl)) throw new Error(`imported sprite ${entry.characterId}: sheet asset is not an image data URL`);
-      return buildSprite(source.sprite.pack, `imported:${entry.characterId}`, sheetUrl, canvasEl, renderScale, mixer);
-    }
-    const manifest = source.entry.manifest;
-    const kind = entrypointKindOf(manifest);
-    if (kind === "shu-rig") {
-      const shu = new ShuCharacterAdapter({
-        manifest,
-        palette: rigPaletteFor(manifest),
-        canvas: canvasEl,
-        scale: renderScale,
-        mixer,
-        charName: prefsName ?? undefined,
-      });
-      return { adapter: shu, renderer: null, stage: null, shu, kind };
-    }
-    if (kind === "sprite") {
-      const assetBase = source.entry.assetBase ?? `/packs/${source.characterId}`;
-      const legacy = (await fetch(`${assetBase}/manifest.json`).then((r) => r.json())) as PackManifest;
-      return buildSprite(legacy, assetBase, `${assetBase}/${legacy.sheet}`, canvasEl, renderScale, mixer);
-    }
-    if (kind === "text") {
-      const adapter = new TextCharacterAdapter({
-        container: textHostRef.current ?? undefined,
-        characterId: manifest.characterId,
-        displayName: manifest.displayName,
-        description: manifest.description,
-      });
-      return { adapter, renderer: null, stage: null, shu: null, kind };
-    }
-    throw new Error(`unsupported entrypoint for ${source.characterId}`);
-  }
-
-  /** sheetUrl：同源 `/packs/<id>/<sheet>`，或匯入角色經 host 讀出的 data URL。 */
-  function buildSprite(
-    legacy: PackManifest,
-    assetBase: string,
-    sheetUrl: string,
-    canvasEl: HTMLCanvasElement,
-    renderScale: number,
-    mixer: MixerPort
-  ) {
-    const issues = validateManifest(legacy);
-    if (issues.length > 0) throw new Error(`invalid character pack: ${issues.join("; ")}`);
-    // 真正的 SpriteRenderer 由 host 擁有並由 syncPose 驅動；adapter 拿到的是
-    // MixerRenderer 門面，它的 setAnimation 進入同一台 machine（不互搶畫面）。
-    const real = new SpriteRenderer(canvasEl, legacy, sheetUrl, renderScale);
-    const adapter = new SpriteCharacterAdapter({ pack: legacy, assetBase, renderer: new MixerRenderer(real, mixer), scale: renderScale });
-    return { adapter, renderer: real as RendererBackend, stage: null, shu: null, kind: "sprite" as const };
+    const plan = await planAdapter(source, canvasEl, renderScale, mixer, prefsName);
+    const built = await createBuiltinAdapter(plan.entrypoint, plan.ctx);
+    return { adapter: built.adapter, renderer: built.renderer, companion: built.companion, kind: plan.entrypoint };
   }
 
   /** 角色載入失敗／崩潰：文字角色＋可信元素上的固定文案。 */
@@ -1069,11 +1072,12 @@ export default function CompanionApp() {
     void _renderScale;
     try {
       adapterRef.current = null;
-      shuRef.current = null;
+      companionRef.current = null;
       stageRef.current = null;
       rendererRef.current?.destroy();
       rendererRef.current = null;
-      const adapter = new TextCharacterAdapter({ container: textHostRef.current ?? undefined });
+      const built = await createBuiltinAdapter(FALLBACK_ADAPTER_ID, { textHost: textHostRef.current });
+      const adapter = built.adapter;
       manifestRef.current = adapter.manifest;
       const info = gateway.getInstance(PRIMARY_INSTANCE_ID);
       if (info && (info.state === "crashed" || info.state === "reconnecting" || info.state === "disposed")) {
@@ -1085,7 +1089,7 @@ export default function CompanionApp() {
         await gateway.reattach(PRIMARY_INSTANCE_ID, adapter);
       }
       adapterRef.current = adapter;
-      setEntrypointKind("text");
+      setEntrypointKind(FALLBACK_ADAPTER_ID);
       setToyCatalog([]);
       directorRef.current.setTables(EMPTY_DIRECTOR_TABLES);
       landingTableRef.current = {};
@@ -1164,18 +1168,18 @@ export default function CompanionApp() {
     const adapter = adapterRef.current;
     const manifest = manifestRef.current;
     if (!adapter || !manifest) return;
-    const shu = shuRef.current;
+    const companion = companionRef.current;
     const name = charNameFor(prefsName, manifest, LOCALE);
     charNameRef.current = name;
     setCharName(name);
     setCharacterId(manifest.characterId);
     characterIdRef.current = manifest.characterId;
     // 角色表注入：Director／落地／舊路徑事件美術；文字角色一律空表。
-    directorRef.current.setTables(shu?.directorTables ?? EMPTY_DIRECTOR_TABLES);
-    landingTableRef.current = shu?.landingTable ?? {};
-    eventArtRef.current = shu?.eventArt ?? NEUTRAL_EVENT_ART;
-    setToyCatalog(shu?.toyCatalog ?? []);
-    tuningRef.current = tuningFor(personalityRef.current, shu?.variantWeights ?? {});
+    directorRef.current.setTables(companion?.directorTables ?? EMPTY_DIRECTOR_TABLES);
+    landingTableRef.current = companion?.landingTable ?? {};
+    eventArtRef.current = companion?.eventArt ?? NEUTRAL_EVENT_ART;
+    setToyCatalog((companion?.toyCatalog ?? []) as readonly ToyCatalogEntry[]);
+    tuningRef.current = tuningFor(personalityRef.current, companion?.variantWeights ?? {});
     directorRef.current.setTuning(tuningRef.current);
     // 既有欄位＋各角色偏好（prefs.companionPreferences[characterId] → preferences／variant／palette）。
     gateway.reconfigure(
@@ -1187,7 +1191,7 @@ export default function CompanionApp() {
         tuning: tuningRef.current,
       })
     );
-    const stage = shu?.stageRenderer() ?? null;
+    const stage = companion?.stageRenderer() ?? null;
     stageRef.current = stage;
     if (stage) {
       rendererRef.current = stage;
@@ -1323,8 +1327,8 @@ export default function CompanionApp() {
                       clicked: "在跟你互動",
                       dragged: "被抱起來了",
                     }[t.kind] ?? null;
-      const rollCall = shuRef.current
-        ? shuRef.current.rollCallNow(machineLabel)
+      const rollCall = companionRef.current
+        ? companionRef.current.rollCallNow(machineLabel)
         : [{ name: charNameRef.current, activity: machineLabel ?? "在休息" }];
       // presence 心跳維持舊路由（packId = characterId）；CPP hello 另走 /v1/character/hello。
       void api
@@ -2139,6 +2143,8 @@ export default function CompanionApp() {
   const estop = baseState === "emergency";
   const frozen = baseState === "emergency" || baseState === "offline" || baseState === "paused";
   const canvasClass = cssClassForEntrypoint(entrypointKind);
+  // 角色畫面掛在 canvas 還是 DOM 宿主，由 adapter 自己宣告（host 不看 entrypoint 字串）。
+  const usesCanvasSurface = builtinAdapterMeta(entrypointKind)?.surface === "canvas";
 
   return (
     // `data-hit-region` 的元素會各自成為一個 bounded hit region（見 uiHitRegions）：
@@ -2178,7 +2184,7 @@ export default function CompanionApp() {
       <canvas
         ref={canvasRef}
         className={canvasClass}
-        hidden={entrypointKind === "text"}
+        hidden={!usesCanvasSurface}
         aria-label={`桌面角色（${charName}）`}
         role="img"
         onPointerDown={onPointerDown}
@@ -2190,7 +2196,7 @@ export default function CompanionApp() {
       <div
         ref={textHostRef}
         className="companion-text-host"
-        hidden={entrypointKind !== "text"}
+        hidden={usesCanvasSurface}
         data-hit-region="text-host"
         aria-label={`桌面角色（${charName}）`}
         onClick={() => {

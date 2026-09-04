@@ -27,9 +27,10 @@ use interaction_character::{
     CharacterInputEvent, CharacterIntent, CharacterManifest, CharacterRole, CommandReceipt,
     DisconnectReason, DurationHint, Entrypoint, Gateway, GatewayConfig, GatewayOutput,
     InputDecision, InputDropReason, InputEventKind, InstanceId, IntentEnvelope, InterruptPolicy,
-    Negotiate, PresentationHints, ReceiptStatus, TruthState, ValidationLimits, WireMessage,
-    PROTOCOL_VERSION,
+    MigrationRegistry, Negotiate, PresentationHints, ReceiptStatus, TruthState, ValidationLimits,
+    WireMessage, PROTOCOL_VERSION,
 };
+use interaction_character_shu::ShuRigPack;
 use interaction_core::{
     ActionReceipt, BoundedAction, CorrelationId, DomainError, DomainResult, EventType, Observation,
     ProviderId, ProviderState, RuntimeEvent, Timestamp, VerificationVerdict,
@@ -43,6 +44,70 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+
+// ---------------------------------------------------------------------------
+// Host 注入（v0.6.0）：CPP 核心不認識任何具名角色，白名單與舊 pack migrator 由 host 提供。
+// ---------------------------------------------------------------------------
+
+/// 桌面 host 提供的 in-process builtin adapter id（排序固定，方便釘住）。
+/// `shu-rig` 的 id 由 `interaction-character-shu` 提供，Runtime 不自己寫字串。
+pub const CHARACTER_BUILTIN_ENTRYPOINTS: [&str; 4] =
+    [ShuRigPack::ENTRYPOINT_ID, "shape", "sprite", "text"];
+
+/// host 端角色 registry：builtin adapter 白名單 ＋ 舊 pack migrator。
+///
+/// 有界：白名單是固定長度陣列，migrator 數量由 `MigrationRegistry` 自己限制。
+pub struct CharacterHostRegistry {
+    builtin_entrypoints: Vec<String>,
+    migrations: MigrationRegistry,
+}
+
+impl CharacterHostRegistry {
+    /// 桌面 host 的組合：核心通用 sprite ＋ 小樞的 `character-rig` 2.0 migrator。
+    pub fn desktop() -> Self {
+        let mut migrations = MigrationRegistry::with_core_migrators();
+        // 註冊失敗只可能是重複／超界；桌面組合是固定的，失敗就記下來而不是 panic。
+        if let Err(e) = migrations.register(ShuRigPack::migrator()) {
+            tracing::warn!(error = %e, "character host registry: rig migrator not registered");
+        }
+        CharacterHostRegistry {
+            builtin_entrypoints: CHARACTER_BUILTIN_ENTRYPOINTS
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
+            migrations,
+        }
+    }
+
+    /// 注入給 CPP 核心的驗證限制（`builtin_whitelist` 只有 host 知道）。
+    pub fn validation_limits(&self) -> ValidationLimits {
+        ValidationLimits {
+            builtin_whitelist: self.builtin_entrypoints.clone(),
+            ..ValidationLimits::default()
+        }
+    }
+
+    /// 舊 Character Pack 的遷移 registry。
+    pub fn migrations(&self) -> &MigrationRegistry {
+        &self.migrations
+    }
+}
+
+impl Default for CharacterHostRegistry {
+    fn default() -> Self {
+        CharacterHostRegistry::desktop()
+    }
+}
+
+/// 桌面 Runtime 的角色 registry（白名單＋migrator）。
+pub fn character_host_registry() -> CharacterHostRegistry {
+    CharacterHostRegistry::desktop()
+}
+
+/// 桌面 Runtime 注入給 manifest 驗證的限制。
+fn host_validation_limits() -> ValidationLimits {
+    character_host_registry().validation_limits()
+}
 
 /// 桌面視窗（可信 host）的預設 instance id。
 pub const DESKTOP_INSTANCE_ID: &str = "desktop-companion";
@@ -890,7 +955,7 @@ impl Runtime {
         let bytes = serde_json::to_vec(&input.manifest)
             .map(|b| b.len())
             .unwrap_or(usize::MAX);
-        validate_manifest(bytes, &input.manifest, &ValidationLimits::default())
+        validate_manifest(bytes, &input.manifest, &host_validation_limits())
             .map_err(|e| DomainError::Validation(format!("manifest rejected: {e}")))?;
         if matches!(
             input.manifest.adapter_kind,
@@ -1172,7 +1237,7 @@ impl Runtime {
         let bytes = serde_json::to_vec(&manifest)
             .map(|b| b.len())
             .unwrap_or(usize::MAX);
-        validate_manifest(bytes, &manifest, &ValidationLimits::default())
+        validate_manifest(bytes, &manifest, &host_validation_limits())
             .map_err(|e| DomainError::Validation(format!("manifest rejected: {e}")))?;
         if matches!(manifest.adapter_kind, AdapterKind::InProcess) {
             return Err(DomainError::Validation(

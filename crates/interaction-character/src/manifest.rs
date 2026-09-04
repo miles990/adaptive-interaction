@@ -29,8 +29,10 @@ pub const MAX_VARIANTS: usize = 64;
 pub const MAX_LIST_ENTRIES: usize = 256;
 pub const MAX_ID_CHARS: usize = 64;
 pub const MAX_PATH_CHARS: usize = 512;
-/// host 白名單：in-process builtin adapter。
-pub const BUILTIN_ENTRYPOINTS: [&str; 3] = ["shu-rig", "sprite", "text"];
+/// `MigrationRegistry` 可容納的 migrator 數量上限（有界集合）。
+pub const MAX_MIGRATORS: usize = 32;
+/// 單一 migrator 可宣告的 `schemaVersion` 數量上限。
+pub const MAX_MIGRATOR_VERSIONS: usize = 8;
 /// `x-` 開頭的頂層欄位視為 vendor extension：保留但不列入 `unknownFields`。
 pub const VENDOR_EXTENSION_PREFIX: &str = "x-";
 
@@ -378,6 +380,10 @@ pub struct CharacterManifest {
 }
 
 /// 驗證限制（host 可調，但不得高於協定上限）。
+///
+/// `builtin_whitelist` 沒有預設值：核心不知道有哪些 in-process adapter，
+/// host（runtime／Tauri／桌面 TS registry）必須注入自己的 adapter registry keys；
+/// 空白名單代表「這個 host 不提供任何 builtin 角色」，所有 builtin entrypoint 都會被拒。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidationLimits {
@@ -395,7 +401,9 @@ impl Default for ValidationLimits {
             max_manifest_bytes: MAX_MANIFEST_BYTES,
             max_assets: MAX_ASSETS,
             max_asset_bytes_ceiling: MAX_ASSET_BYTES_CEILING,
-            builtin_whitelist: BUILTIN_ENTRYPOINTS.iter().map(|s| s.to_string()).collect(),
+            // 核心不認識任何具名 builtin adapter：白名單一律由 host 注入
+            // （runtime／Tauri／TS registry 各自提供），預設是空的。
+            builtin_whitelist: Vec::new(),
             implemented_minor: PROTOCOL_MINOR,
         }
     }
@@ -1358,14 +1366,8 @@ const SPRITE_INTENT_FALLBACKS: &[(CharacterIntent, CharacterIntent)] = &[
     (CharacterIntent::Sleep, CharacterIntent::Rest),
 ];
 
-/// 小樞 rig 2.0 的三個 palette（固定順序）。
-pub const SHU_RIG_VARIANTS: [(&str, &str, &str); 3] = [
-    ("maid-classic", "經典", "Classic"),
-    ("maid-dusk", "暮色", "Dusk"),
-    ("maid-sakura", "櫻", "Sakura"),
-];
-
-fn json_localized(value: Option<&serde_json::Value>) -> LocalizedText {
+/// 舊 pack 的 localized 欄位（`{"zh-TW": "…"}`）→ [`LocalizedText`]。第三方 migrator 可用。
+pub fn legacy_json_localized(value: Option<&serde_json::Value>) -> LocalizedText {
     value
         .and_then(|v| v.as_object())
         .map(|m| {
@@ -1376,34 +1378,41 @@ fn json_localized(value: Option<&serde_json::Value>) -> LocalizedText {
         .unwrap_or_default()
 }
 
-fn json_str(value: &serde_json::Value, key: &str) -> Option<String> {
+/// 舊 pack 的字串欄位。第三方 migrator 可用。
+pub fn legacy_json_str(value: &serde_json::Value, key: &str) -> Option<String> {
     value
         .get(key)
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
 }
 
-fn legacy_error(message: impl Into<String>) -> ManifestError {
+/// 遷移錯誤（`ManifestErrorCode::Legacy`）。第三方 migrator 可用。
+pub fn legacy_migration_error(message: impl Into<String>) -> ManifestError {
     ManifestError::new(ManifestErrorCode::Legacy, "", message)
 }
 
-fn base_manifest(
+/// 舊 pack 的共同骨架（id／名字／版本／in-process builtin entrypoint）→ 最小 manifest。
+///
+/// 第三方 migrator（例如某個角色自己的 crate）用它組出 manifest 再補自己的能力，
+/// 這樣核心就不必知道任何具名角色的欄位。
+pub fn legacy_base_manifest(
     json: &serde_json::Value,
     entrypoint_id: &str,
 ) -> Result<CharacterManifest, ManifestError> {
-    let id = json_str(json, "id").ok_or_else(|| legacy_error("legacy pack has no id"))?;
-    let name = json_localized(json.get("name"));
+    let id = legacy_json_str(json, "id")
+        .ok_or_else(|| legacy_migration_error("legacy pack has no id"))?;
+    let name = legacy_json_localized(json.get("name"));
     if name.is_empty() {
-        return Err(legacy_error("legacy pack has no name"));
+        return Err(legacy_migration_error("legacy pack has no name"));
     }
     Ok(CharacterManifest {
         schema_version: crate::PROTOCOL_VERSION.to_string(),
         character_id: id,
         locales: name.keys().cloned().collect(),
         display_name: name,
-        author: json_str(json, "author"),
-        description: json_localized(json.get("description")),
-        version: json_str(json, "version").unwrap_or_else(|| "0.0.0".to_string()),
+        author: legacy_json_str(json, "author"),
+        description: legacy_json_localized(json.get("description")),
+        version: legacy_json_str(json, "version").unwrap_or_else(|| "0.0.0".to_string()),
         adapter_kind: AdapterKind::InProcess,
         entrypoint: Entrypoint::Builtin {
             id: entrypoint_id.to_string(),
@@ -1432,9 +1441,9 @@ fn migrate_sprite_pack(
     json: &serde_json::Value,
     schema_version: &str,
 ) -> Result<CharacterManifest, ManifestError> {
-    let mut manifest = base_manifest(json, "sprite")?;
-    let sheet =
-        json_str(json, "sheet").ok_or_else(|| legacy_error("character-pack has no sheet"))?;
+    let mut manifest = legacy_base_manifest(json, "sprite")?;
+    let sheet = legacy_json_str(json, "sheet")
+        .ok_or_else(|| legacy_migration_error("character-pack has no sheet"))?;
     check_relative_path(&sheet)
         .map_err(|reason| ManifestError::new(ManifestErrorCode::AssetPath, "sheet", reason))?;
     manifest.assets.push(AssetDecl {
@@ -1444,7 +1453,7 @@ fn migrate_sprite_pack(
         bytes: None,
         sha256: None,
     });
-    if let Some(preview) = json_str(json, "preview") {
+    if let Some(preview) = legacy_json_str(json, "preview") {
         if check_relative_path(&preview).is_ok() {
             manifest.assets.push(AssetDecl {
                 id: "preview".to_string(),
@@ -1461,7 +1470,7 @@ fn migrate_sprite_pack(
         .map(|m| m.keys().cloned().collect())
         .unwrap_or_default();
     if animations.is_empty() {
-        return Err(legacy_error("character-pack has no animations"));
+        return Err(legacy_migration_error("character-pack has no animations"));
     }
     let has_anchors = json
         .get("anchors")
@@ -1548,164 +1557,167 @@ fn migrate_sprite_pack(
     Ok(manifest)
 }
 
-/// §12 `shu-rig` 完整能力集。
-pub fn shu_rig_capabilities() -> BTreeMap<String, CapabilityDecl> {
-    let mut caps = BTreeMap::new();
-    let all_intents: Vec<String> = CharacterIntent::ALL
-        .iter()
-        .map(|i| i.as_str().to_string())
-        .collect();
-    caps.insert(
-        "visual.presence".into(),
-        CapabilityDecl::supported().with_reduced_motion(ReducedMotionBehavior::Static),
-    );
-    for cap in [
-        "visual.pose",
-        "visual.expression",
-        "visual.gaze",
-        "visual.locomotion",
-        "visual.overlay",
-        "visual.prop",
-        "visual.textBubble",
-    ] {
-        let mut decl =
-            CapabilityDecl::supported().with_reduced_motion(ReducedMotionBehavior::Reduced);
-        if cap == "visual.expression" {
-            decl = decl.with_variants(all_intents.iter().cloned());
+// ---------------------------------------------------------------------------
+// §2.2 舊 pack 遷移：`PackMigrator` registry（核心只內建通用 sprite）
+// ---------------------------------------------------------------------------
+
+/// 錯誤訊息裡回顯 kind／schemaVersion 的長度上限（識別字本來就短；不回顯完整輸入）。
+const MAX_KIND_ECHO_CHARS: usize = 64;
+
+fn truncate_identifier(value: &str) -> String {
+    if char_len(value) <= MAX_KIND_ECHO_CHARS {
+        return value.to_string();
+    }
+    let mut out: String = value.chars().take(MAX_KIND_ECHO_CHARS).collect();
+    out.push('…');
+    out
+}
+
+/// 一種舊 pack 格式的遷移器。核心只內建通用 sprite（`character-pack` 1.0／1.1）；
+/// 任何具名角色（例如某個 rig）的遷移由它自己的 crate 實作並由 host 註冊。
+///
+/// 純函式：不讀檔、不執行 entrypoint、不改寫使用者設定。
+pub trait PackMigrator: Send + Sync {
+    /// 這個 migrator 負責的 pack `kind`（例如 `character-pack`）。
+    fn kind(&self) -> &str;
+    /// 支援的 `schemaVersion`（≤ [`MAX_MIGRATOR_VERSIONS`] 個）。
+    fn schema_versions(&self) -> &[&str];
+    /// 遷移；輸入不合格時回 `ManifestErrorCode::Legacy`（訊息不回顯輸入內容）。
+    fn migrate(&self, json: &serde_json::Value) -> Result<CharacterManifest, ManifestError>;
+}
+
+/// 通用 sprite pack（`character-pack` 1.0／1.1）遷移器。與任何具名角色無關。
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SpritePackMigrator;
+
+impl PackMigrator for SpritePackMigrator {
+    fn kind(&self) -> &str {
+        "character-pack"
+    }
+    fn schema_versions(&self) -> &[&str] {
+        &["1.0", "1.1"]
+    }
+    fn migrate(&self, json: &serde_json::Value) -> Result<CharacterManifest, ManifestError> {
+        let schema_version = legacy_json_str(json, "schemaVersion").unwrap_or_default();
+        migrate_sprite_pack(json, &schema_version)
+    }
+}
+
+/// 依 (kind, schemaVersion) 分派的遷移器登錄表。**有界**（≤ [`MAX_MIGRATORS`]）、
+/// 不允許重複註冊同一組 (kind, version)：後註冊者不得悄悄覆蓋前者。
+#[derive(Default)]
+pub struct MigrationRegistry {
+    migrators: Vec<Box<dyn PackMigrator>>,
+}
+
+impl std::fmt::Debug for MigrationRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MigrationRegistry")
+            .field("kinds", &self.supported_kinds())
+            .finish()
+    }
+}
+
+impl MigrationRegistry {
+    /// 空的 registry：什麼都不遷移。
+    pub fn new() -> Self {
+        MigrationRegistry {
+            migrators: Vec::new(),
         }
-        caps.insert(cap.into(), decl);
     }
-    caps.insert(
-        "visual.particles".into(),
-        CapabilityDecl::supported().with_reduced_motion(ReducedMotionBehavior::Disabled),
-    );
-    let mut speech = CapabilityDecl::supported();
-    speech.requires_audio = true;
-    caps.insert("audio.speech".into(), speech);
-    let mut effect = CapabilityDecl::supported();
-    effect.requires_audio = true;
-    caps.insert("audio.effect".into(), effect);
-    for cap in ["multiCharacter", "scene", "rollCall"] {
-        caps.insert(cap.into(), CapabilityDecl::supported());
+
+    /// 核心內建的 registry：只有通用 sprite。
+    pub fn with_core_migrators() -> Self {
+        let mut registry = MigrationRegistry::new();
+        // 核心自己註冊，數量在上限內，不可能失敗。
+        let _ = registry.register(Box::new(SpritePackMigrator));
+        registry
     }
-    caps.insert(
-        "gameplay.toys".into(),
-        CapabilityDecl::supported().with_reduced_motion(ReducedMotionBehavior::Reduced),
-    );
-    caps.insert(
-        "gameplay.autonomy".into(),
-        CapabilityDecl::supported().with_reduced_motion(ReducedMotionBehavior::Disabled),
-    );
-    caps
-}
 
-/// §12 `shu-rig` 輸入能力集。
-pub fn shu_rig_input_capabilities() -> BTreeMap<String, CapabilityDecl> {
-    [
-        "input.click",
-        "input.hover",
-        "input.drag",
-        "input.drop",
-        "input.pointerProximity",
-        "input.text",
-        "input.fileDrop",
-    ]
-    .iter()
-    .map(|id| (id.to_string(), CapabilityDecl::supported()))
-    .collect()
-}
-
-fn migrate_rig_pack(json: &serde_json::Value) -> Result<CharacterManifest, ManifestError> {
-    let mut manifest = base_manifest(json, "shu-rig")?;
-    let palette = json_str(json, "palette").unwrap_or_else(|| "maid-classic".to_string());
-    if !SHU_RIG_VARIANTS.iter().any(|(id, _, _)| *id == palette) {
-        return Err(legacy_error(
-            "character-rig palette is not one of the known palettes",
-        ));
-    }
-    manifest.capabilities = shu_rig_capabilities();
-    manifest.input_capabilities = shu_rig_input_capabilities();
-    manifest.channels = crate::capability::CANONICAL_CHANNELS
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-    manifest.intents = CharacterIntent::ALL
-        .iter()
-        .map(|i| i.as_str().to_string())
-        .collect();
-    manifest.variants = SHU_RIG_VARIANTS
-        .iter()
-        .map(|(id, zh, en)| VariantDecl {
-            id: id.to_string(),
-            display_name: [
-                ("zh-TW".to_string(), zh.to_string()),
-                ("en".to_string(), en.to_string()),
-            ]
-            .into_iter()
-            .collect(),
-        })
-        .collect();
-    manifest.security_requirements.audio_output = true;
-    manifest.preferences_schema = Some(PreferencesSchema {
-        schema_type: "object".into(),
-        properties: [(
-            "palette".to_string(),
-            PreferenceProperty {
-                property_type: "string".into(),
-                enum_values: Some(
-                    SHU_RIG_VARIANTS
-                        .iter()
-                        .map(|(id, _, _)| id.to_string())
-                        .collect(),
-                ),
-                default: Some(serde_json::Value::String(palette.clone())),
-                ..PreferenceProperty::default()
-            },
-        )]
-        .into_iter()
-        .collect(),
-        required: Vec::new(),
-        extra: BTreeMap::new(),
-    });
-    manifest
-        .fallbacks
-        .capabilities
-        .insert("visual.particles".into(), vec!["visual.expression".into()]);
-    manifest.fallbacks.capabilities.insert(
-        "visual.locomotion".into(),
-        vec!["visual.pose".into(), "visual.presence".into()],
-    );
-    manifest
-        .fallbacks
-        .capabilities
-        .insert("gameplay.toys".into(), vec!["visual.pose".into()]);
-    manifest.extra.insert(
-        "x-legacy".into(),
-        serde_json::json!({
-            "kind": "character-rig",
-            "schemaVersion": "2.0",
-            "palette": palette,
-        }),
-    );
-    Ok(manifest)
-}
-
-/// §2.2 舊 pack JSON → manifest。支援 `character-pack` 1.0／1.1（sprite）與 `character-rig` 2.0（shu-rig）。
-/// 不改寫使用者設定、不讀檔。
-pub fn migrate_legacy_pack(json: &serde_json::Value) -> Result<CharacterManifest, ManifestError> {
-    let kind = json_str(json, "kind").unwrap_or_default();
-    let schema_version = json_str(json, "schemaVersion").unwrap_or_default();
-    match (kind.as_str(), schema_version.as_str()) {
-        ("character-pack", "1.0") | ("character-pack", "1.1") => {
-            migrate_sprite_pack(json, &schema_version)
+    /// 註冊一個 migrator。超過上限、宣告版本過多或 (kind, version) 重複一律拒絕。
+    pub fn register(&mut self, migrator: Box<dyn PackMigrator>) -> Result<(), ManifestError> {
+        if self.migrators.len() >= MAX_MIGRATORS {
+            return Err(legacy_migration_error(format!(
+                "migration registry is full (max {MAX_MIGRATORS})"
+            )));
         }
-        ("character-rig", "2.0") => migrate_rig_pack(json),
-        _ => Err(legacy_error(format!(
+        let kind = migrator.kind().to_string();
+        let versions = migrator.schema_versions();
+        if versions.is_empty() || versions.len() > MAX_MIGRATOR_VERSIONS {
+            return Err(legacy_migration_error(format!(
+                "migrator must declare 1..={MAX_MIGRATOR_VERSIONS} schema versions"
+            )));
+        }
+        for version in versions {
+            if self.find(&kind, version).is_some() {
+                return Err(legacy_migration_error(format!(
+                    "a migrator for '{}' {} is already registered",
+                    truncate_identifier(&kind),
+                    truncate_identifier(version)
+                )));
+            }
+        }
+        self.migrators.push(migrator);
+        Ok(())
+    }
+
+    /// 已註冊的 migrator 數量。
+    pub fn len(&self) -> usize {
+        self.migrators.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.migrators.is_empty()
+    }
+
+    /// 支援的 (kind, schemaVersion)，依註冊順序。
+    pub fn supported_kinds(&self) -> Vec<(String, String)> {
+        self.migrators
+            .iter()
+            .flat_map(|m| {
+                m.schema_versions()
+                    .iter()
+                    .map(|v| (m.kind().to_string(), (*v).to_string()))
+            })
+            .collect()
+    }
+
+    fn find(&self, kind: &str, schema_version: &str) -> Option<&dyn PackMigrator> {
+        self.migrators
+            .iter()
+            .find(|m| m.kind() == kind && m.schema_versions().contains(&schema_version))
+            .map(|m| m.as_ref())
+    }
+}
+
+/// §2.2 舊 pack JSON → manifest，依 `registry` 註冊的 (kind, schemaVersion) 分派。
+/// 未註冊的格式一律拒絕（不猜、不執行）；不改寫使用者設定、不讀檔。
+pub fn migrate_pack_to_manifest(
+    json: &serde_json::Value,
+    registry: &MigrationRegistry,
+) -> Result<CharacterManifest, ManifestError> {
+    let kind = legacy_json_str(json, "kind").unwrap_or_default();
+    let schema_version = legacy_json_str(json, "schemaVersion").unwrap_or_default();
+    match registry.find(&kind, &schema_version) {
+        Some(migrator) => migrator.migrate(json),
+        None => Err(legacy_migration_error(format!(
             "unsupported legacy pack kind/schemaVersion: {}/{}",
-            truncate_for_echo(&kind),
-            truncate_for_echo(&schema_version)
+            truncate_identifier(&kind),
+            truncate_identifier(&schema_version)
         ))),
     }
+}
+
+/// §2.2 舊 pack JSON → manifest（只有核心內建的通用 sprite）。
+///
+/// 保留給既有呼叫端；核心不依賴任何角色 crate，所以這條路徑**只**能遷移 sprite pack。
+/// 需要其他格式（例如某個角色的 rig pack）請改用 [`migrate_pack_to_manifest`] 並註冊 migrator。
+#[deprecated(
+    since = "0.6.0",
+    note = "use migrate_pack_to_manifest with a host MigrationRegistry; this path only migrates sprite packs"
+)]
+pub fn migrate_legacy_pack(json: &serde_json::Value) -> Result<CharacterManifest, ManifestError> {
+    migrate_pack_to_manifest(json, &MigrationRegistry::with_core_migrators())
 }
 
 /// 建立最小合法 manifest（測試與 reference adapter 用）。
@@ -1747,7 +1759,7 @@ mod tests {
 
     #[test]
     fn character_id_regex() {
-        assert!(is_valid_character_id("shu-maid"));
+        assert!(is_valid_character_id("demo-character"));
         assert!(is_valid_character_id("a"));
         assert!(is_valid_character_id("0abc.def_g-h"));
         assert!(!is_valid_character_id(""));

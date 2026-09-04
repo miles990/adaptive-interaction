@@ -84,6 +84,13 @@ Renderer／角色互動 ──受限 Interaction Event──▶ Gateway（正規
 - `characterId` 正則；`displayName` 至少一個 locale；所有 LocalizedText 值長度上限如上。
 - `assets[].path`：相對路徑、不得含 `..`、不得以 `/` 或磁碟代號開頭、不得含 `\\`、不得為 URL；**MIME／副檔名不可作唯一信任依據**（載入時以 magic bytes 核對 png/jpg/gif/webp/svg/json/mp3/wav/ogg/webm）。
 - `entrypoint`：`process`／`url`／`module` 只允許記錄，**匯入不執行、不連線、不下載**；`builtin.id` 必須在 host 白名單內。
+  白名單**由 host 注入**：協定核心（`interaction-character`）不認識任何具名 adapter，
+  `ValidationLimits::default().builtin_whitelist` 是**空的**（＝這個 host 不提供任何 builtin 角色，所有
+  builtin entrypoint 都會被拒）。桌面 host 的來源是
+  `interaction_runtime::character::character_host_registry()`（Rust，同時供 Tauri 匯入路徑使用）與
+  `apps/interaction-desktop/src/character/adapterRegistry.ts` 的 `builtinEntrypointIds()`（TS）。
+  兩邊目前都是 `shu-rig`／`sprite`／`text`／`shape`；`shu-rig` 的 id 由
+  `crates/interaction-character-shu` 提供，核心不再有這個字串。
 - `capabilities` 鍵：canonical id（§3）或 namespaced custom（`^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*){2,}$`，至少三段，例如 `com.example.character.wings`）；未知 canonical 前綴（`visual.`／`audio.`／`haptic.`／`light.`／`input.`）但未收錄的 id 視為 custom 並標 `unknown: true`。
 - `preferencesSchema`：只接受 `type: object`，`properties` ≤ 32 個，每個屬性只允許 `boolean`／`number`（含 `minimum`／`maximum`）／`string`（`maxLength` ≤ 200、可有 `enum` ≤ 16）／`integer`；不允許 `$ref`、`pattern`、巢狀物件、陣列。
 - 錯誤訊息不得回顯超過 200 字的輸入內容、不得包含絕對路徑。
@@ -98,7 +105,16 @@ Renderer／角色互動 ──受限 Interaction Event──▶ Gateway（正規
 | persona-pack／story-pack | 不變（純資料、安全語句固定）；manifest 以 `preferences.persona`／`preferences.story` 引用 id |
 | `DesktopPrefs.companionPack`（8 個 shu-* id） | 視為 `characterId`；`shu-standard`→sprite adapter；`shu-maid*`→shu-rig adapter |
 
-舊 id 一律可用；匯入舊 pack JSON 時自動產生 manifest（`migratePackToManifest`），不改寫使用者設定。
+舊 id 一律可用；匯入舊 pack JSON 時自動產生 manifest，不改寫使用者設定。
+
+**Migrator registry（v0.6.0）**：遷移由 host 註冊的 `PackMigrator` 依 (`kind`, `schemaVersion`) 分派
+（`interaction_character::MigrationRegistry`，有界：≤ 32 個 migrator、每個 ≤ 8 個 schemaVersion，
+同一組 (kind, version) 不得註冊兩次）。核心只內建通用 sprite（`character-pack` 1.0／1.1，
+`SpritePackMigrator`）；`character-rig` 2.0 由 `interaction-character-shu` 的 `RigPackMigrator` 提供，
+桌面 host 在 `character_host_registry()` 裡註冊。入口是
+`migrate_pack_to_manifest(json, &registry)`；舊的 `migrate_legacy_pack` 已 `#[deprecated]`，
+只剩 sprite 一條路（核心不能依賴任何角色 crate）。沒有 migrator 的格式一律誠實拒絕
+（`ManifestErrorCode::Legacy`），不猜、不執行。TS 端的 `migratePackToManifest` 語意不變。
 
 ## 3. 能力（Capability）與協商
 
@@ -360,7 +376,8 @@ Runtime 端節流（避免佇列與 DB 無界）：`receptor.observation`→noti
 |---|---|---|---|
 | `shu-rig`（小樞 v3） | in-process、參數化 rig＋遊玩場 | 全部 visual.*、audio.speech／effect、input.*、multiCharacter、scene、rollCall、gameplay.* | 完整 Reference Implementation；36 表情與遊戲功能不變 |
 | `sprite`（舊 v1／v2 pack） | in-process、sprite sheet | visual.presence／expression（variants=animations）、visual.gaze（有 anchors 時）、input.click／drag／drop／text／fileDrop | 舊 Character Pack 相容層 |
-| `text`（最小文字角色） | in-process、DOM 文字 | visual.presence、visual.textBubble、audio.effect（可選）、input.click／text | 證明協定不依賴 rig；也是 shu adapter 停用／崩潰時的可信 fallback |
+| `text`（最小文字角色） | in-process、DOM 文字 | visual.presence、visual.textBubble、audio.effect（可選）、input.click／text | 證明協定不依賴 rig；也是其他 adapter 停用／崩潰時的可信 fallback（`FALLBACK_ADAPTER_ID`） |
+| `shape`（`ref-shape`，幾何角色） | in-process、DOM 圓形 | visual.presence、visual.expression（variants：idle／notice／play／rest／work／think／acknowledge／wait／greet／sleep）、input.click | 第二個 Reference Character：證明「加一個角色不必改協定核心」。顏色隨 intent 家族、`play` 脈衝一次、`notice` 位移、其餘靜止；Reduced Motion 只變色。不支援 audio／gaze／particles／遊玩，安全 intent 不宣告 → 一律落 `system.text`。加入方式見 `docs/aip/reference-character.md` |
 | WebSocket 外部 adapter fixture | external、`examples/character-adapters/text-adapter.mjs` | 純文字（無 expression）；只回 accepted／started／completed | 證明外部 transport；CLI E2E 使用 |
 
 ## 13. 測試矩陣（必須存在的測試）

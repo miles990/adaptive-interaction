@@ -9,3 +9,6 @@ description = "Shu (小樞) reference character pack for the Character Presentat
 interaction-character = { path = "../interaction-character" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+chrono = { workspace = true }

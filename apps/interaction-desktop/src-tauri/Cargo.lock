@@ -2430,6 +2430,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "interaction-character-shu"
+version = "0.5.1"
+dependencies = [
+ "interaction-character",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "interaction-core"
 version = "0.5.1"
 dependencies = [
@@ -2543,6 +2552,7 @@ dependencies = [
  "interaction-adapter-sdk",
  "interaction-agent-gateway",
  "interaction-character",
+ "interaction-character-shu",
  "interaction-core",
  "interaction-events",
  "interaction-policy",

@@ -46,7 +46,8 @@ function packFor(id: string): Record<string, unknown> {
 describe("bundled character manifests", () => {
   it("每一份都通過 validateCharacterManifest（含檔案大小），characterId 與資料夾一致", () => {
     const entries = Object.entries(MANIFESTS);
-    expect(entries.length).toBe(9);
+    // 9 個小樞系列 ＋ plain-text ＋ ref-shape（第二個 Reference Character）。
+    expect(entries.length).toBe(10);
     for (const [path, manifest] of entries) {
       const text = MANIFEST_TEXTS[path];
       expect(typeof text, path).toBe("string");
@@ -73,11 +74,13 @@ describe("bundled character manifests", () => {
       expect(c.manifestPath).toBe(`/characters/${c.characterId}/manifest.json`);
       expect(c.origin).toBe("builtin");
       expect(manifestFor(c.characterId).characterId).toBe(c.characterId);
-      if (c.characterId.startsWith("shu-maid") || c.characterId === "plain-text") expect(c.assetBase).toBeUndefined();
-      else expect(c.assetBase).toBe(`/packs/${c.characterId}`);
+      // 沒有 sprite sheet 的角色（rig／文字／幾何）不帶 assetBase。
+      if (c.characterId.startsWith("shu-maid") || c.characterId === "plain-text" || c.characterId === "ref-shape") {
+        expect(c.assetBase).toBeUndefined();
+      } else expect(c.assetBase).toBe(`/packs/${c.characterId}`);
     }
     expect(ids.sort()).toEqual(
-      ["plain-text", "shu-agile", "shu-lazy", "shu-lively", "shu-maid", "shu-maid-dusk", "shu-maid-sakura", "shu-minimal", "shu-standard"].sort()
+      ["plain-text", "ref-shape", "shu-agile", "shu-lazy", "shu-lively", "shu-maid", "shu-maid-dusk", "shu-maid-sakura", "shu-minimal", "shu-standard"].sort()
     );
   });
 
@@ -167,13 +170,13 @@ describe("registry", () => {
     return { fetchImpl, requested };
   }
 
-  it("loadCharacterIndex 載入 9 個內建角色，預設 shu-maid，只讀同源路徑", async () => {
+  it("loadCharacterIndex 載入 10 個內建角色，預設 shu-maid，只讀同源路徑", async () => {
     const { fetchImpl, requested } = fakeFetch();
     const r = await loadCharacterIndex(fetchImpl);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.index.default).toBe("shu-maid");
-    expect(r.index.characters).toHaveLength(9);
+    expect(r.index.characters).toHaveLength(10);
     expect(r.index.errors).toEqual([]);
     expect(r.index.characters.every((c) => c.origin === "builtin")).toBe(true);
     expect(r.index.characters.find((c) => c.characterId === "shu-standard")?.assetBase).toBe("/packs/shu-standard");
@@ -185,7 +188,7 @@ describe("registry", () => {
     const r = await loadCharacterIndex(broken.fetchImpl);
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.index.characters).toHaveLength(8);
+      expect(r.index.characters).toHaveLength(9);
       expect(r.index.errors).toHaveLength(1);
       expect(r.index.errors[0]).toMatch(/^shu-lazy: /);
     }

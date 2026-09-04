@@ -56,6 +56,25 @@ Adapters / Transport / Platform  mobile.rs（iPhone wss）、character.rs＋char
 新增第二 Reference Character：`ref-shape`（幾何形，`entrypoint builtin:shape`，只宣告 `visual.presence`／`visual.expression`（variants=四個 intent）／`input.click`，
 無耳尾、無玩具）。驗收：加入它**不改** `interaction-character`、`character.rs`、`CompanionApp.tsx` 任何 switch-case（用 `git diff --stat` 證明）。
 
+#### 實作註記（v0.6.0 `refactor(character)` 實作時補）
+
+1. **函式名**：本表寫的 `migrate_pack_to_manifest` 在 v0.5.1 的實際名稱是
+   `interaction_character::migrate_legacy_pack`。實作採「新函式＋舊函式 deprecated」：新增
+   `migrate_pack_to_manifest(json, &MigrationRegistry)`；`migrate_legacy_pack` 標 `#[deprecated]`
+   且只剩通用 sprite（核心不能依賴任何角色 crate）。
+2. **Tauri 依賴**：`src-tauri` 沒有加 `interaction-character-shu` 依賴，改為直接用
+   `interaction_runtime::character::character_host_registry()`。桌面 host 只有一份白名單／migrator
+   registry，Tauri 匯入路徑與 Runtime 不可能漂移；`interaction-character-shu` 由 runtime 傳遞。
+3. **TS 白名單與工廠分離**：`adapterRegistry.ts` 用 `BUILTIN_ADAPTER_IDS`（宣告）決定白名單，
+   工廠由 `adapters/index.ts` 註冊。理由：`manifest.ts` 的驗證不能因為 adapter 模組有沒有被
+   import 而給出不同答案。「宣告了卻沒註冊工廠」由 `adapter-contract.test.ts` 擋。
+4. **`ref-shape` 的 variants**：本文寫「variants=四個 intent」，實作依本輪任務書採 10 個
+   （idle／notice／play／rest／work／think／acknowledge／wait／greet／sleep）。其中 `wait` 是 CPP
+   的**安全** intent（floor 60），所以它只出現在 `visual.expression.variants`，**沒有**列進 manifest
+   的 `intents`；協商時仍落 `system.text`。細節見 `docs/aip/reference-character.md` §4。
+5. **entrypoint 分岔的例外**：`CharacterSource.kind`（`index`／`legacy-pack`／`imported`／`text` 退路）
+   是**來源**判別標籤，與有哪些 adapter 無關，架構守門測試不把它算成 entrypoint 分岔。
+
 ## 5. Feature flags 與相容
 
 - `INTERACT_AI_CHARACTER_SESSION`（env，預設 `1`）：`0` 時 Runtime 不啟動 Session Host，所有 `/v1/character-session/*` 回 503 `session-disabled`，
