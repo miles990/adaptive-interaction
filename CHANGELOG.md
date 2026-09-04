@@ -166,9 +166,33 @@
 - `.claude/workflows/adversarial-review-v06.js`：12 維度 v0.6.0 對抗審查（尚未執行）。
 - iOS README 補記 XCTest 注入需要 `lib_TestingInterop.dylib`（v0.5.1 文件漏寫，基線階段實際踩到）。
 
-#### 回歸（wave 1 之後，同機實跑）
-Rust workspace **945 passed / 0 failed（81 targets）**（基線 827／66）、Tauri **52/0**（基線 50）、vitest **1302/0（65 檔）**
-（基線 1168／60）、typecheck／build／`aip:check`／clippy 乾淨；Playwright、CLI E2E、iOS 在後續 wave 重跑。
+#### 回歸（對抗審查修復後，最終整合回歸；同機實跑，2026-09-05）
+
+> 逐項數字、命令與各 wave 的疊加過程見 `docs/releases/v0.6.0-test-matrix.md` §8「最終回歸（對抗審查修復後）」。
+
+Rust workspace **1040 passed / 0 failed（85 個 test target）**（基線 827／66 → **+213／+19**）、Tauri backend
+**56 passed / 0 failed（3 target）**（基線 50 → **+6**）、前端 vitest **1416 passed / 0 failed（70 檔）**
+（基線 1168／60 → **+248／+10 檔**）；`cargo fmt --check`／`cargo clippy --workspace -D warnings`／
+`aip:check`／`pnpm typecheck`／`pnpm build`／`git diff --check` 全部乾淨。
+
+CLI E2E 第一次全套跑出 **95 passed / 1 failed**——失敗是驗收腳本本身的斷言寫錯（斷線後預期立刻變成
+`presence offline`，但 `reconnect-recovery-044` 修復後的正確行為是先進 `Presence::Reconnecting`、逾時
+才轉 `Offline`），修正斷言後重跑 **96 passed / 0 failed**（基線 82 → **+14**），非產品回歸。
+
+Playwright 第一次全套跑出 **65 passed / 1 failed / 5 did not run**——`character-session.spec.ts` 的旅程與
+CLI E2E 同一根因：斷線後仍等 `offline`／「iPhone 暫時離線」，而正確行為是先 `reconnecting`／「iPhone 正在
+重新連線」；改測試期待（截圖改名為 `*-reconnecting.png`）後受影響 3 個 spec 重跑 **30 passed / 0 failed**，
+隨後重新跑一次完整套件確認 **71 passed / 0 failed**（2.3 分鐘，基線 65 → **+6**），非產品回歸。
+
+iOS `InteractionCompanionTests`（iPhone 17 模擬器）**101 passed / 0 failed**（基線 46 → **+55**，含新增
+`SessionClientTests` 34、`AIPConformanceTests` 17（基線 14 → +3）、`ProtocolTests` 21（基線 17 → +4）、
+`MotionClassifierTests` 8、`ReconnectHintTests` 21 不變）。
+
+角色效能（`pnpm perf`，headless Chromium，非 Tauri WKWebView；量測時與其他對抗審查 agent 並行，非獨占機器）：
+touch result 延遲 p50 2.6 ms／p95 4.8 ms／max 5.8 ms（n=20，全數 applied）、join→協商 2.0 ms、
+reconnect→resume 3.3 ms、snapshot 862 bytes、patch 中位數 492 bytes、閒置 RSS 41.0 MB、活動 RSS 45.6 MB。
+burst100（連續灌 100 則 touch）量測到前 30 則被接受並套用後，既有 iPhone 線協定 v1 的 30 msg/s 速率窗
+把連線關閉、其餘 70 則未送達——是既有速率限制與量測腳本互動的結果，非本輪缺陷（見「已知限制」）。
 
 ## [0.5.1] - 2026-09-04
 
