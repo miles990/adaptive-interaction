@@ -168,7 +168,9 @@ In-process＝已實作、stdio JSON Lines＝規格已定／未實作（README §
 ## 9. 如何從舊 Character Pack 遷移
 
 不用改設定。舊 `character-pack` 1.0／1.1（sprite sheet）與 `character-rig` 2.0 由 `migratePackToManifest`
-（TS）／`migrate_legacy_pack`（Rust）自動變成 manifest：sprite 的動畫名成為 `visual.expression.variants`，
+（TS）／`migrate_pack_to_manifest(json, &registry)`（Rust；v0.6.0 起走 host 註冊的 `MigrationRegistry`，
+核心只內建 sprite，`character-rig` 由 `interaction-character-shu` 的 `RigPackMigrator` 提供；舊的
+`migrate_legacy_pack` 已 `#[deprecated]`、只剩 sprite）自動變成 manifest：sprite 的動畫名成為 `visual.expression.variants`，
 FALLBACKS 鏈成為 `fallbacks.intents`（例如 v1 沒有 `failed` 動畫 → `failed→blocked`，永遠不會落到 success）。
 安全 intent 只會映到另一個安全 intent：v0.5.1 起遷移不再產生 `emergency→sleep`、`blocked→sleep`、`ask→notice` 這類映射，
 缺美術的安全 intent 改走能力鏈或 `system.text`。
