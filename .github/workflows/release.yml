@@ -208,7 +208,7 @@ jobs:
                   continue
               digest = hashlib.sha256(open(p, "rb").read()).hexdigest()
               out = p + ".sha256"
-              with open(out, "w", encoding="utf-8") as fh:
+              with open(out, "w", encoding="utf-8", newline="\n") as fh:
                   fh.write(f"{digest}  {os.path.basename(p)}\n")
               print(out)
           EOF
@@ -216,7 +216,11 @@ jobs:
           [[ "$RC" == 0 ]] || { echo "checksum generation failed"; exit 1; }
           [[ -s sha256-files.txt ]] || { echo "no bundle produced a .sha256"; exit 1; }
           cat sha256-files.txt
+          # Windows 的 python 以文字模式寫檔會把換行寫成 \r\n；`read -r` 會把 \r 留在檔名尾巴，
+          # `gh release upload` 就找不到「…sha256\r」（v0.6.0 Release run 33918252926 的 Windows job
+          # 就是這樣紅的）。逐行去掉尾端的 \r 再上傳。
           while IFS= read -r f; do
+            f="${f%$'\r'}"
             [[ -n "$f" ]] || continue
             gh release upload "${GITHUB_REF_NAME}" "$f" --repo "$GITHUB_REPOSITORY" --clobber
           done < sha256-files.txt

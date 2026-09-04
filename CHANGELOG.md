@@ -9,6 +9,13 @@
 
 ## [Unreleased]
 
+### Fixed
+- `release.yml` 桌面 `.sha256` 上傳迴圈在 Windows 上讀到 `\r\n` 清單會把 `\r` 留在檔名尾巴、`gh release upload` 找不到檔案
+  （v0.6.0 Release run 33918252926 的 `Desktop (windows-latest)` job 因此紅、`finalize` 依設計 skipped）。現在逐行去掉 `\r`，
+  python 端也固定用 `newline="\n"` 寫檔；`scripts/tests/release-scripts.sh` 以假 `gh` 重現 CRLF 清單釘住（44/0）。
+  v0.6.0 的兩個 Windows `.sha256` 由整合者從已上傳資產計算並上傳、本機重跑 finalize 盤點後手動 publish；tag 未移動
+  （詳見 `docs/releases/v0.6.0-final-report.md` §34）。
+
 ## [0.6.0] - 2026-09-05
 
 ### v0.6.0 — Foundation：AIP 1.0 最小協定、權威 Character Session、小樞脫離核心

@@ -330,6 +330,20 @@ else
   done
 fi
 
+# ------------------------ v0.6.0 Release run 33918252926：Windows 上 CRLF 清單讓 gh 找不到 .sha256
+# release.yml 的上傳迴圈必須把每行尾端的 \r 去掉；用假的 gh 重現：檔名帶 \r 就失敗。
+UPLOAD_LOOP="$(sed -n '/while IFS= read -r f; do/,/done < sha256-files.txt/p' .github/workflows/release.yml | sed 's/^ *//')"
+if [[ -z "$UPLOAD_LOOP" ]]; then
+  bad "release.yml 的 .sha256 上傳迴圈可被取出"
+else
+  mkdir -p "$WORK/crlf" && printf 'a.msi.sha256\r\nb.exe.sha256\r\n' > "$WORK/crlf/sha256-files.txt"
+  touch "$WORK/crlf/a.msi.sha256" "$WORK/crlf/b.exe.sha256"
+  ( cd "$WORK/crlf" && gh() { local f="$4"; [[ "$f" == *$'\r' ]] && { echo "gh: no matches found for \`$f\`" >&2; return 1; }; [[ -f "$f" ]] || { echo "gh: missing $f" >&2; return 1; }; echo "uploaded $f"; }
+    export -f gh 2>/dev/null || true; GITHUB_REF_NAME=v0.0.0 GITHUB_REPOSITORY=x/y bash -c "$(declare -f gh); set -uo pipefail; $UPLOAD_LOOP" ) > "$WORK/crlf.out" 2>&1
+  check "release.yml 上傳迴圈對 CRLF 清單（Windows python）仍能上傳每個 .sha256" $? "$(tail -2 "$WORK/crlf.out" | tr '\n' '|')"
+  [[ "$(grep -c '^uploaded ' "$WORK/crlf.out")" == "2" ]]; check "CRLF 清單的兩個 .sha256 都被上傳" $?
+fi
+
 echo
 echo "release-scripts: ${PASS} passed / ${FAIL} failed"
 [[ "$FAIL" == "0" ]]
