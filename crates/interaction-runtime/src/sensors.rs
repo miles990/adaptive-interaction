@@ -10,8 +10,48 @@
 use crate::mobile::MobileStopOutcome;
 use crate::runtime::Runtime;
 use interaction_core::{ConsentScope, DomainError, DomainResult, EventType, Timestamp};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
+
+/// 遠端感測來源對「停止所有感測」的誠實回報介面。
+///
+/// 這個檔案不認識任何具體裝置：要補「可能還在擷取」的事件時，它只問來源三件
+/// 事——你是誰、你這次涵蓋哪些高風險受器（由 provider 自己宣告，核心不猜）、
+/// 你確認停了沒有。新增一種行動裝置只要實作這個 trait，不必改這裡。
+pub trait SensorStopOutcome {
+    /// 來源識別碼（裝置 id 之類）。只進 payload，不進人話標題。
+    fn source_id(&self) -> &str;
+    /// 這次停止涵蓋的高風險受器 id（provider 宣告的清單）。
+    fn sensor_ids(&self) -> Vec<String>;
+    /// 結果字串（`stopped`／`unknown`／`unreachable` 這一類）。
+    fn outcome_label(&self) -> &str;
+    /// 實際等待毫秒（有界）。
+    fn waited_ms(&self) -> u64;
+    /// 來源**明確確認**已停止感測嗎？未確認一律當成「可能還在擷取」。
+    fn confirmed_stopped(&self) -> bool;
+}
+
+/// 純函式：把「沒有確認停止」的來源攤成要補發的事件 payload。
+///
+/// 誠實階梯：確認停止的來源在連線 loop 已經發過 `sensor.stopped`，這裡只補
+/// 「結果未知」——requested ≠ stopped，未確認不得被算成已停。
+pub fn sensor_stop_uncertain_payloads<T: SensorStopOutcome>(outcomes: &[T]) -> Vec<Value> {
+    let mut payloads = Vec::new();
+    for outcome in outcomes {
+        if outcome.confirmed_stopped() {
+            continue;
+        }
+        for sensor in outcome.sensor_ids() {
+            payloads.push(json!({
+                "sensor": sensor,
+                "deviceId": outcome.source_id(),
+                "outcome": outcome.outcome_label(),
+                "waitedMs": outcome.waited_ms(),
+            }));
+        }
+    }
+    payloads
+}
 
 /// 正在感測。
 pub const SENSOR_STATE_ACTIVE: &str = "active";
@@ -42,10 +82,14 @@ pub struct LocalStopReport {
     pub microphone: String,
 }
 
-/// 「停止所有感測」的誠實報告（本機＋每一台已連線 iPhone）。
+/// 「停止所有感測」的誠實報告（本機＋每一台已連線的遠端來源）。
 ///
 /// 誠實階梯：`stopped` 只有在**所有**來源都確認停止時才是 true；
-/// 任何一台沒回覆就是 `uncertain`（手機可能還在錄音），不得謊稱成功。
+/// 任何一台沒回覆就是 `uncertain`（它可能還在錄音），不得謊稱成功。
+///
+/// `devices` 目前仍是 `Vec<MobileStopOutcome>` 這個具體型別：它是 HTTP／CLI／
+/// 桌面共用的回傳形狀（前端逐欄位讀），換成 trait object 會改變 wire 契約，
+/// 不屬於本輪範圍。行為上的耦合（要補發哪些事件）已經走 [`SensorStopOutcome`]。
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StopAllSensorsReport {
@@ -194,29 +238,19 @@ impl Runtime {
         }
     }
 
-    /// 依每台手機的結果補發事件：確認停止的那台在連線 loop 已發過
-    /// `sensor.stopped`（以 mic_since 變化為準），這裡只補「結果未知」。
-    pub(crate) fn emit_stop_sensor_events(&self, devices: &[MobileStopOutcome]) {
-        for device in devices {
-            if device.outcome == crate::mobile::StopOutcome::Stopped {
-                continue;
-            }
-            self.events.emit(
-                EventType::SensorStopUncertain,
-                json!({
-                    "sensor": "iphone.mic-level",
-                    "deviceId": device.device_id,
-                    "outcome": device.outcome.as_str(),
-                    "waitedMs": device.waited_ms,
-                }),
-            );
+    /// 依每個來源的結果補發事件：確認停止的那台在連線 loop 已發過
+    /// `sensor.stopped`（以感測起訖變化為準），這裡只補「結果未知」。
+    /// 受器 id 由來源自己宣告（[`SensorStopOutcome::sensor_ids`]）。
+    pub(crate) fn emit_stop_sensor_events<T: SensorStopOutcome>(&self, devices: &[T]) {
+        for payload in sensor_stop_uncertain_payloads(devices) {
+            self.events.emit(EventType::SensorStopUncertain, payload);
         }
     }
 
     /// 立刻停止**所有**感測來源（使用者動作或 estop 路徑）：本機擷取先停，
-    /// 再要求每一台已連線 iPhone 停止感測並有界等待確認。
+    /// 再要求每一台已連線的遠端來源停止感測並有界等待確認。
     ///
-    /// 誠實階梯：回傳的 `stopped` 只有在所有來源都確認時才是 true；手機沒
+    /// 誠實階梯：回傳的 `stopped` 只有在所有來源都確認時才是 true；來源沒
     /// 回覆＝`uncertain`（它可能還在錄音），絕不謊稱已停。
     pub async fn stop_all_sensors(&self, actor: &str) -> DomainResult<StopAllSensorsReport> {
         let local = self.stop_local_capture();
@@ -224,12 +258,8 @@ impl Runtime {
             .mobile_stop_sensors(actor, "mobile.stop-sensors", "stop-all-sensors")
             .await;
         let report = StopAllSensorsReport {
-            stopped: devices
-                .iter()
-                .all(|d| d.outcome == crate::mobile::StopOutcome::Stopped),
-            uncertain: devices
-                .iter()
-                .any(|d| d.outcome != crate::mobile::StopOutcome::Stopped),
+            stopped: devices.iter().all(|d| d.confirmed_stopped()),
+            uncertain: devices.iter().any(|d| !d.confirmed_stopped()),
             local,
             devices,
         };

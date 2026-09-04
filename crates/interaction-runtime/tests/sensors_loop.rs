@@ -327,3 +327,66 @@ async fn status_active_sensors_covers_local_capture_and_invents_nothing_remote()
         Some(0)
     );
 }
+
+/// v0.6.0：「停止結果未知」補發的事件說得出**哪一個受器**還可能在擷取，而那個
+/// 受器 id 是由來源 provider 自己宣告的（`SensorStopOutcome::sensor_ids`），
+/// 不是 sensors.rs 裡寫死的裝置字面值。確認停止的來源不補事件（誠實：只有
+/// 未確認的才需要人處理）。
+#[derive(Debug)]
+struct FakeStopOutcome {
+    id: String,
+    sensors: Vec<String>,
+    outcome: String,
+    waited_ms: u64,
+    stopped: bool,
+}
+
+impl interaction_runtime::sensors::SensorStopOutcome for FakeStopOutcome {
+    fn source_id(&self) -> &str {
+        &self.id
+    }
+    fn sensor_ids(&self) -> Vec<String> {
+        self.sensors.clone()
+    }
+    fn outcome_label(&self) -> &str {
+        &self.outcome
+    }
+    fn waited_ms(&self) -> u64 {
+        self.waited_ms
+    }
+    fn confirmed_stopped(&self) -> bool {
+        self.stopped
+    }
+}
+
+#[test]
+fn stop_uncertain_payloads_name_the_receptors_the_provider_declared() {
+    let outcomes = vec![
+        FakeStopOutcome {
+            id: "robot-1".into(),
+            sensors: vec!["robot.mic-level".into(), "robot.camera".into()],
+            outcome: "unknown".into(),
+            waited_ms: 3000,
+            stopped: false,
+        },
+        FakeStopOutcome {
+            id: "robot-2".into(),
+            sensors: vec!["robot.mic-level".into()],
+            outcome: "stopped".into(),
+            waited_ms: 12,
+            stopped: true,
+        },
+    ];
+    let payloads = interaction_runtime::sensors::sensor_stop_uncertain_payloads(&outcomes);
+    assert_eq!(payloads.len(), 2, "只有未確認的來源補事件：{payloads:?}");
+    assert!(payloads
+        .iter()
+        .all(|p| p["deviceId"] == serde_json::json!("robot-1")));
+    let sensors: Vec<String> = payloads
+        .iter()
+        .filter_map(|p| p["sensor"].as_str().map(String::from))
+        .collect();
+    assert_eq!(sensors, vec!["robot.mic-level", "robot.camera"]);
+    assert_eq!(payloads[0]["outcome"], serde_json::json!("unknown"));
+    assert_eq!(payloads[0]["waitedMs"], serde_json::json!(3000));
+}

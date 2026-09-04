@@ -3788,3 +3788,92 @@ async fn a_legacy_phone_that_never_negotiates_receives_no_aip_frames() {
         "v1 線協定的既有路徑必須照舊：{seen:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// v0.6.0：mobile provider 自己宣告能力語意（核心不再認得 `iphone.*` 字面值）
+// ---------------------------------------------------------------------------
+
+/// 呈現面、高風險受器與人話種類名由這個 provider 自己宣告，而且必須跟它實際
+/// 註冊的能力表一致——宣告漂掉的話，runtime 核心會把手機的角色呈現當成一般
+/// 動作再投影一次，或漏掉「還可能在錄音」的誠實提示。
+#[test]
+fn the_mobile_provider_declares_its_own_presentation_surface_and_high_risk_receptors() {
+    use interaction_runtime::mobile::{mobile_capability_declaration, MOBILE_RECEPTOR_SPECS};
+    let decl = mobile_capability_declaration();
+
+    assert_eq!(decl.class_label.as_deref(), Some("iPhone"));
+    assert!(decl
+        .presentation_surfaces
+        .iter()
+        .any(|s| s.matches("iphone.character")));
+    for (id, _, _) in MOBILE_ACTUATORS.iter() {
+        if *id == "iphone.character" {
+            continue;
+        }
+        assert!(
+            !decl.presentation_surfaces.iter().any(|s| s.matches(id)),
+            "{id} 不是呈現面：它的收據必須照常投影成 action.*"
+        );
+    }
+    let expected_high_risk: Vec<String> = MOBILE_RECEPTOR_SPECS
+        .iter()
+        .filter(|s| s.high_risk)
+        .map(|s| s.id.to_string())
+        .collect();
+    assert_eq!(decl.high_risk_receptors, expected_high_risk);
+    assert!(!expected_high_risk.is_empty());
+    let expected_receptors: Vec<String> = MOBILE_RECEPTOR_SPECS
+        .iter()
+        .map(|s| s.id.to_string())
+        .collect();
+    assert_eq!(decl.receptors, expected_receptors);
+}
+
+/// 每一台手機的停止結果自己說得出「還可能在擷取的是哪個受器」，所以
+/// sensors.rs 不需要知道任何 `iphone.*` 字面值。
+#[test]
+fn a_mobile_stop_outcome_names_the_receptors_its_provider_declared() {
+    use interaction_runtime::mobile::{MobileStopOutcome, StopOutcome};
+    use interaction_runtime::sensors::SensorStopOutcome;
+    let unknown = MobileStopOutcome {
+        device_id: "iphone-a1b2c3d4".into(),
+        name: "測試 iPhone".into(),
+        outcome: StopOutcome::Unknown,
+        waited_ms: 3000,
+        via: None,
+    };
+    assert_eq!(unknown.source_id(), "iphone-a1b2c3d4");
+    assert_eq!(unknown.sensor_ids(), vec!["iphone.mic-level".to_string()]);
+    assert_eq!(unknown.outcome_label(), "unknown");
+    assert_eq!(unknown.waited_ms(), 3000);
+    assert!(!unknown.confirmed_stopped());
+
+    let stopped = MobileStopOutcome {
+        outcome: StopOutcome::Stopped,
+        ..unknown.clone()
+    };
+    assert!(stopped.confirmed_stopped());
+}
+
+/// 宣告有被 runtime 接上：開機（沒有配對任何裝置、伺服器也還沒起來）之後，
+/// 核心就已經知道手機的角色呈現面與高風險受器。核心對能力 id 的理解不得
+/// 依賴某個 provider 剛好在線上。
+#[tokio::test]
+async fn the_mobile_declaration_is_wired_into_the_runtime_at_startup() {
+    let (_g, rt) = runtime().await;
+    let decls = rt.capability_declarations();
+    assert!(
+        decls.is_presentation_surface("iphone.character"),
+        "手機的角色呈現面要在開機時就宣告好：{:?}",
+        decls.declaration_ids()
+    );
+    assert!(!decls.is_presentation_surface("iphone.haptic"));
+    assert_eq!(
+        decls.class_label_of_receptor("iphone.mic-level").as_deref(),
+        Some("iPhone")
+    );
+    assert!(decls
+        .high_risk_receptors()
+        .iter()
+        .any(|r| r == "iphone.mic-level"));
+}

@@ -163,6 +163,11 @@ pub const MOBILE_RECEPTORS: &[&str] = &[
     "iphone.touch",
     "iphone.mic-level",
 ];
+/// 手機上的角色呈現動器。這是這個 provider 的**呈現面**：它的收據不投影成
+/// `action.*`（角色不會對自己的呈現動作再演一次）。這件事由下面的
+/// [`mobile_capability_declaration`] 對外宣告，runtime 核心不認得這個字面值。
+pub const MOBILE_CHARACTER_ACTUATOR: &str = "iphone.character";
+
 pub const MOBILE_ACTUATORS: &[(&str, &str, &str)] = &[
     // (id, channel, 人話名稱)
     ("iphone.haptic", "haptic", "iPhone 觸覺回饋"),
@@ -170,8 +175,54 @@ pub const MOBILE_ACTUATORS: &[(&str, &str, &str)] = &[
     ("iphone.tts", "audio", "iPhone 語音"),
     ("iphone.torch", "light", "iPhone 手電筒"),
     ("iphone.flash", "display", "iPhone 螢幕閃示"),
-    ("iphone.character", "desktop-pet", "iPhone 角色呈現"),
+    (MOBILE_CHARACTER_ACTUATOR, "desktop-pet", "iPhone 角色呈現"),
 ];
+
+// ---------------------------------------------------------------------------
+// 這個 provider 對外的能力語意宣告（v0.6.0）
+//
+// 「哪個動器是角色的呈現面」「哪些受器是高風險」「這一類來源的人話種類名」
+// 過去寫死在 runtime 核心（character.rs／activity.rs／sensors.rs）裡，等於核心
+// 只理解 iPhone 這一種裝置。現在由這個 provider 自己說明，核心只查宣告表。
+// ---------------------------------------------------------------------------
+
+/// 宣告來源 id（一整個 provider 家族共用一筆；不是單台裝置的 provider id）。
+pub const MOBILE_PROVIDER_DECLARATION_ID: &str = "provider.mobile";
+
+/// 單台裝置的 provider id 前綴。命名規則是對外契約（前端／API 測試依賴它），
+/// 所以只有這裡一個地方組得出來，runtime 其它檔案一律呼叫
+/// [`mobile_provider_id`]。
+pub const MOBILE_PROVIDER_ID_PREFIX: &str = "provider.mobile.";
+
+/// 這一類來源的人話「種類名」：介面知道「是哪一種」但不知道「是哪一台」時用它
+/// （例如收件匣標題）。單台裝置的暱稱另外由 `device_name` 提供。
+pub const MOBILE_CLASS_LABEL: &str = "iPhone";
+
+/// 每台已配對裝置的 provider id（命名規則的唯一產生點）。
+pub fn mobile_provider_id(device_id: &str) -> ProviderId {
+    ProviderId::new(format!("{MOBILE_PROVIDER_ID_PREFIX}{device_id}"))
+}
+
+/// 這個 provider 宣告的高風險受器（＝能力表自己標 `high_risk` 的那些）。
+pub fn mobile_high_risk_receptors() -> Vec<&'static str> {
+    MOBILE_RECEPTOR_SPECS
+        .iter()
+        .filter(|spec| spec.high_risk)
+        .map(|spec| spec.id)
+        .collect()
+}
+
+/// 對 runtime 核心的完整宣告。內容一律從這個模組自己的能力表推出來，
+/// 不另外抄一份字面值——宣告與實際註冊的能力不可能漂移。
+pub fn mobile_capability_declaration() -> crate::providers::ProviderCapabilityDeclaration {
+    crate::providers::ProviderCapabilityDeclaration::new(MOBILE_PROVIDER_DECLARATION_ID)
+        .with_class_label(MOBILE_CLASS_LABEL)
+        .with_presentation_surface(crate::providers::CapabilitySelector::exact(
+            MOBILE_CHARACTER_ACTUATOR,
+        ))
+        .with_receptors(MOBILE_RECEPTOR_SPECS.iter().map(|spec| spec.id))
+        .with_high_risk_receptors(mobile_high_risk_receptors())
+}
 /// `character.present` 允許的狀態（與 iOS `CharacterPresentState` 一致）。
 /// 其中 `verified-success` 與 `emergency` 是 **Runtime 專屬的真相狀態**：
 /// 前者只能由人工驗證路徑（`Runtime::mobile_present_verified`）直送、後者只能
@@ -742,6 +793,34 @@ impl StopOutcome {
             StopOutcome::Unknown => "unknown",
             StopOutcome::Unreachable => "unreachable",
         }
+    }
+}
+
+/// 「停止所有感測」的通用回報介面：sensors.rs 靠這個補「可能還在擷取」的
+/// 事件，不必知道任何 `iphone.*` 字面值。涵蓋的受器＝這個 provider 宣告的
+/// 高風險受器清單。
+impl crate::sensors::SensorStopOutcome for MobileStopOutcome {
+    fn source_id(&self) -> &str {
+        &self.device_id
+    }
+
+    fn sensor_ids(&self) -> Vec<String> {
+        mobile_high_risk_receptors()
+            .into_iter()
+            .map(|id| id.to_string())
+            .collect()
+    }
+
+    fn outcome_label(&self) -> &str {
+        self.outcome.as_str()
+    }
+
+    fn waited_ms(&self) -> u64 {
+        self.waited_ms
+    }
+
+    fn confirmed_stopped(&self) -> bool {
+        self.outcome == StopOutcome::Stopped
     }
 }
 
@@ -2424,7 +2503,7 @@ impl Runtime {
                 );
             }
         }
-        let pid = ProviderId::new(format!("provider.mobile.{device_id}"));
+        let pid = mobile_provider_id(device_id);
         if let Err(e) = self
             .providers
             .transition(&pid, ProviderState::Revoked, Some("revoked by user".into()))
@@ -3006,7 +3085,7 @@ impl Runtime {
     async fn mobile_register_provider(&self, device: &PairedDevice) {
         let descriptor = ProviderDescriptor {
             identity: ProviderIdentity {
-                id: ProviderId::new(format!("provider.mobile.{}", device.device_id)),
+                id: mobile_provider_id(&device.device_id),
                 kind: ProviderKind::Device,
                 display_name: format!("iPhone：{}", device.name),
                 trust_level: TrustLevel::Paired,
@@ -3030,7 +3109,7 @@ impl Runtime {
             detail: Some(mobile_provider_note(&device.device_id)),
         };
         let _ = self.providers.register(descriptor).await;
-        let pid = ProviderId::new(format!("provider.mobile.{}", device.device_id));
+        let pid = mobile_provider_id(&device.device_id);
         // transition 會覆寫 detail：註記要一起帶過去，否則「能力是共用的」這件
         // 事會在連上線的那一刻消失。
         let _ = self
@@ -3667,7 +3746,7 @@ impl Runtime {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clear();
-            let pid = ProviderId::new(format!("provider.mobile.{device_id}"));
+            let pid = mobile_provider_id(&device_id);
             let already_revoked = self
                 .providers
                 .get(&pid)

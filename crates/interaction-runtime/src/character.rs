@@ -348,6 +348,10 @@ pub struct CharacterHub {
     observation_last: Mutex<BTreeMap<String, Timestamp>>,
     conn_seq: AtomicU64,
     clock: Mutex<NowFn>,
+    /// Provider 能力宣告表（呈現面／高風險受器／人話種類名）。投影路徑是同步
+    /// 的（沒有 await 點），所以這張表必須同步可讀；語意上它屬於 provider 層，
+    /// 由 `crate::providers` 定義與填寫，這裡只是目前唯一同步可達的容器。
+    capability_declarations: crate::providers::ProviderCapabilityRegistry,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -404,8 +408,15 @@ pub fn adapter_kind_str(kind: AdapterKind) -> &'static str {
 }
 
 /// 呈現表面（角色自己）的 actuator：它們的 receipt 不投影成 `action.*` intent。
-pub fn is_presentation_surface_actuator(actuator_id: &str) -> bool {
-    actuator_id.starts_with("companion.") || actuator_id == "iphone.character"
+///
+/// v0.6.0 起完全由 provider 宣告驅動（`ProviderCapabilityRegistry`）：核心不再
+/// 認得任何具名裝置的動器 id，新增一種行動裝置只要在自己的 provider 宣告
+/// 呈現面，不必改這裡。沒有任何 provider 宣告過的動器一律是一般動器。
+pub fn is_presentation_surface_actuator(
+    declarations: &crate::providers::ProviderCapabilityRegistry,
+    actuator_id: &str,
+) -> bool {
+    declarations.is_presentation_surface(actuator_id)
 }
 
 fn settlement_outcome(status: ReceiptStatus) -> &'static str {
@@ -597,7 +608,13 @@ impl CharacterHub {
             observation_last: Mutex::new(BTreeMap::new()),
             conn_seq: AtomicU64::new(0),
             clock: Mutex::new(now),
+            capability_declarations: crate::providers::ProviderCapabilityRegistry::default(),
         }
+    }
+
+    /// Provider 能力宣告表（見欄位說明）。
+    pub fn capability_declarations(&self) -> &crate::providers::ProviderCapabilityRegistry {
+        &self.capability_declarations
     }
 
     /// 替換時鐘（測試模擬 heartbeat 逾時／節流窗）。
@@ -1842,7 +1859,10 @@ impl Runtime {
         event_type: EventType,
         receipt: &ActionReceipt,
     ) -> Option<(CharacterIntent, TruthState)> {
-        if is_presentation_surface_actuator(receipt.actuator_id.as_str()) {
+        if is_presentation_surface_actuator(
+            self.character.capability_declarations(),
+            receipt.actuator_id.as_str(),
+        ) {
             return None;
         }
         let (intent, truth_state) = action_projection(event_type)?;
@@ -2710,9 +2730,40 @@ mod tests {
         assert_eq!(settlement_outcome(ReceiptStatus::Cancelled), "interrupted");
         assert_eq!(settlement_outcome(ReceiptStatus::Expired), "expired");
         assert_eq!(settlement_outcome(ReceiptStatus::Uncertain), "uncertain");
-        assert!(is_presentation_surface_actuator("companion.bubble.show"));
-        assert!(is_presentation_surface_actuator("iphone.character"));
-        assert!(!is_presentation_surface_actuator("iphone.haptic"));
-        assert!(!is_presentation_surface_actuator("conversation"));
+    }
+
+    /// 呈現面判斷完全由宣告驅動：沒有宣告就沒有呈現面，宣告了就算——
+    /// 這個測試刻意不使用任何真實裝置的能力 id。
+    #[test]
+    fn presentation_surfaces_come_from_provider_declarations_only() {
+        use crate::providers::{
+            CapabilitySelector, ProviderCapabilityDeclaration, ProviderCapabilityRegistry,
+        };
+        let declarations = ProviderCapabilityRegistry::default();
+        assert!(!is_presentation_surface_actuator(
+            &declarations,
+            "surface.face"
+        ));
+        declarations.declare(
+            ProviderCapabilityDeclaration::new("provider.test.surface")
+                .with_presentation_surface(CapabilitySelector::exact("surface.face"))
+                .with_presentation_surface(CapabilitySelector::prefix("surface.screen.")),
+        );
+        assert!(is_presentation_surface_actuator(
+            &declarations,
+            "surface.face"
+        ));
+        assert!(is_presentation_surface_actuator(
+            &declarations,
+            "surface.screen.left"
+        ));
+        assert!(!is_presentation_surface_actuator(
+            &declarations,
+            "surface.arm"
+        ));
+        assert!(!is_presentation_surface_actuator(
+            &declarations,
+            "conversation"
+        ));
     }
 }

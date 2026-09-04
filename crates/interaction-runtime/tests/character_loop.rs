@@ -2324,3 +2324,54 @@ async fn a_stalled_external_adapter_cannot_park_unbounded_safety_messages() {
         "還在演的安全 intent 必須補 system.text，不得無聲消失"
     );
 }
+
+/// v0.6.0：呈現面判斷改成宣告驅動——一個跟 iPhone 完全無關的遠端角色呈現面
+/// （假 provider 註冊的 `robot.face`）同樣不投影成 `action.*`；同一個假 provider
+/// 底下沒宣告成呈現面的動器（`robot.arm`）照常投影。核心不再認得任何具名裝置。
+#[tokio::test]
+async fn a_declared_remote_presentation_surface_is_never_projected_as_an_action() {
+    let (_g, rt) = runtime().await;
+    rt.start_session(Some("t".into()), None, vec![])
+        .await
+        .unwrap();
+    hello(&rt, true).await;
+    let receipts = plan_and_execute(
+        &rt,
+        "companion.state.present",
+        json!({"behaviorIntent": "rest"}),
+        None,
+    )
+    .await;
+    let base = rt.get_action(&receipts[0].action_id).unwrap();
+
+    let mut remote_surface = base.clone();
+    remote_surface.actuator_id = ActuatorId::new("robot.face");
+    let mut remote_arm = base.clone();
+    remote_arm.actuator_id = ActuatorId::new("robot.arm");
+
+    // 宣告之前：`robot.face` 只是一般動器，會投影。
+    assert!(rt
+        .character_project_action(EventType::ActionDispatched, &remote_surface)
+        .is_some());
+
+    rt.declare_provider_capabilities(
+        interaction_runtime::providers::ProviderCapabilityDeclaration::new("provider.fake.robot")
+            .with_class_label("測試機器人")
+            .with_presentation_surface(interaction_runtime::providers::CapabilitySelector::exact(
+                "robot.face",
+            )),
+    );
+
+    // 宣告之後：呈現面不投影（角色不對自己的呈現動作再演一次）。
+    let before = intent_count(&rt);
+    assert!(rt
+        .character_project_action(EventType::ActionDispatched, &remote_surface)
+        .is_none());
+    assert_eq!(intent_count(&rt), before);
+
+    // 同一個 provider 底下沒宣告成呈現面的動器仍然照常投影。
+    assert_eq!(
+        rt.character_project_action(EventType::ActionDispatched, &remote_arm),
+        Some((CharacterIntent::Work, TruthState::Working))
+    );
+}

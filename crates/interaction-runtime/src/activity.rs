@@ -65,10 +65,14 @@ pub struct ActivityInboxItem {
 impl Runtime {
     /// 感測事件標題裡的「是哪一台／哪一種」。
     ///
-    /// payload 的 `deviceId` 是原始識別碼（`iphone-a1b2c3d4` 這種由 token 衍生的
-    /// 內部 id）——原始 id 不進一般模式的標題。順序：已配對手機的名稱 →
-    /// 感測來源種類的人話 → `fallback`。認不得的一律用 `fallback`，
-    /// **絕不**把原始字串照樣吐回去。
+    /// payload 的 `deviceId` 是原始識別碼（由 token 衍生的內部 id）——原始 id
+    /// 不進一般模式的標題。順序：已配對裝置的名稱（這一台叫什麼）→ 提供這個
+    /// 受器的 provider 宣告的人話種類名（這是哪一種來源）→ 內建本機感測器的
+    /// 人話 → `fallback`。認不得的一律用 `fallback`，**絕不**把原始字串照樣
+    /// 吐回去。
+    ///
+    /// 種類名一律來自 provider 自己的宣告（`ProviderCapabilityRegistry`），
+    /// 核心不比對能力 id 的字面前綴：新增一種行動裝置不必改這個檔案。
     async fn sensor_event_label(&self, payload: &Value, fallback: &str) -> String {
         if let Some(device_id) = payload.get("deviceId").and_then(Value::as_str) {
             if let Some(name) = self.mobile.device_name(device_id).await {
@@ -76,8 +80,11 @@ impl Runtime {
             }
         }
         match payload.get("sensor").and_then(Value::as_str) {
-            Some(sensor) if sensor.starts_with("iphone.") => "iPhone".into(),
-            Some(sensor) => sensor_display_name(sensor).unwrap_or_else(|| fallback.to_string()),
+            Some(sensor) => self
+                .capability_declarations()
+                .class_label_of_receptor(sensor)
+                .or_else(|| sensor_display_name(sensor))
+                .unwrap_or_else(|| fallback.to_string()),
             None => fallback.to_string(),
         }
     }
@@ -400,8 +407,9 @@ fn receipt_item(
     }
 }
 
-/// 感測來源種類 → 人話。認不得的回 `None`：呼叫端要給通用標籤，
-/// **不得**把原始字串（`iphone.mic-level`、裝置 id）當標題印出去。
+/// **內建本機**感測來源種類 → 人話（外部 provider 的種類名由它自己宣告）。
+/// 認不得的回 `None`：呼叫端要給通用標籤，**不得**把原始字串（能力 id、
+/// 裝置 id）當標題印出去。
 fn sensor_display_name(raw: &str) -> Option<String> {
     match raw {
         "microphone" | "mic" | "builtin.microphone" => Some("麥克風".into()),

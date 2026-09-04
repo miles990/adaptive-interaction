@@ -8,6 +8,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use interaction_core::*;
 use interaction_policy::ActionSource;
+use interaction_runtime::providers::{CapabilitySelector, ProviderCapabilityDeclaration};
 use interaction_runtime::{Runtime, RuntimeOptions};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -1341,5 +1342,120 @@ async fn a_device_that_really_verified_the_pairing_code_keeps_a_clean_record() {
     assert!(
         !note.contains("無法證明配對碼被比對過") && !note.contains("配對碼未經比對"),
         "{note}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// v0.6.0：跨切面能力語意一律由 provider 自己宣告
+// ---------------------------------------------------------------------------
+
+async fn plain_runtime() -> (tempfile::TempDir, Runtime) {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = Runtime::start(RuntimeOptions {
+        home: Some(dir.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+    (dir, rt)
+}
+
+/// 呈現面 actuator、高風險受器、感測來源的人話種類名，全部由 provider 註冊時
+/// 自己宣告——runtime 核心（character／activity／sensors）不得再認得任何具名
+/// 裝置的能力字面值。這裡用一個跟 iPhone 完全無關的假 provider 證明去耦合：
+/// 只要它宣告了，三個語意就同時生效；沒宣告的能力一個都不算。
+#[tokio::test]
+async fn provider_declarations_drive_presentation_and_sensor_semantics() {
+    let (_g, rt) = plain_runtime().await;
+    let decls = rt.capability_declarations();
+
+    // 開機時內建 provider 已經各自宣告過（誰宣告的由 provider 自己說）。
+    assert!(
+        !decls.declaration_ids().is_empty(),
+        "內建 provider 開機時就要宣告自己的能力語意"
+    );
+
+    // 沒宣告過的 provider：三個語意都不成立。
+    assert!(!decls.is_presentation_surface("robot.face"));
+    assert!(decls.class_label_of_receptor("robot.mic-level").is_none());
+    assert!(!decls
+        .high_risk_receptors()
+        .iter()
+        .any(|r| r == "robot.mic-level"));
+
+    rt.declare_provider_capabilities(
+        ProviderCapabilityDeclaration::new("provider.fake.robot")
+            .with_class_label("測試機器人")
+            .with_presentation_surface(CapabilitySelector::exact("robot.face"))
+            .with_presentation_surface(CapabilitySelector::prefix("robot.screen."))
+            .with_receptor("robot.mic-level")
+            .with_high_risk_receptor("robot.mic-level"),
+    );
+
+    assert!(decls.is_presentation_surface("robot.face"));
+    assert!(decls.is_presentation_surface("robot.screen.left"));
+    assert!(
+        !decls.is_presentation_surface("robot.arm"),
+        "沒宣告成呈現面的動器仍然是一般動器"
+    );
+    assert_eq!(
+        decls.class_label_of_receptor("robot.mic-level").as_deref(),
+        Some("測試機器人")
+    );
+    assert!(decls
+        .high_risk_receptors()
+        .iter()
+        .any(|r| r == "robot.mic-level"));
+    assert!(decls
+        .declaration_ids()
+        .iter()
+        .any(|id| id == "provider.fake.robot"));
+}
+
+/// 收件匣的感測事件標題用 provider 宣告的人話種類名，不是能力 id 的字面前綴。
+/// 沒有任何 provider 宣告過的感測器一律退回中性字樣，原始 id 不上標題。
+#[tokio::test]
+async fn inbox_sensor_titles_use_the_provider_declared_class_label() {
+    let (_g, rt) = plain_runtime().await;
+    rt.declare_provider_capabilities(
+        ProviderCapabilityDeclaration::new("provider.fake.robot")
+            .with_class_label("測試機器人")
+            .with_receptor("robot.mic-level"),
+    );
+    rt.events.emit(
+        EventType::SensorStarted,
+        json!({"sensor": "robot.mic-level", "deviceId": "robot-a1b2"}),
+    );
+    rt.events.emit(
+        EventType::SensorStarted,
+        json!({"sensor": "nobody.declared-this"}),
+    );
+
+    let inbox = rt
+        .activity_inbox(interaction_runtime::activity::ActivityInboxFilter::default())
+        .await
+        .unwrap();
+    let titles: Vec<String> = inbox["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["kind"] == json!("safety-event"))
+        .filter_map(|item| item["title"].as_str().map(String::from))
+        .collect();
+    assert!(
+        titles.iter().any(|t| t == "感測開始：測試機器人"),
+        "標題要用 provider 宣告的種類名：{titles:?}"
+    );
+    assert!(
+        titles.iter().any(|t| t == "感測開始：感測器"),
+        "沒人宣告的感測器退回中性字樣：{titles:?}"
+    );
+    assert!(
+        titles
+            .iter()
+            .all(|t| !t.contains("robot.mic-level") && !t.contains("robot-a1b2")),
+        "原始能力 id／裝置 id 不得上標題：{titles:?}"
     );
 }

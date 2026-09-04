@@ -75,6 +75,40 @@ Adapters / Transport / Platform  mobile.rs（iPhone wss）、character.rs＋char
 5. **entrypoint 分岔的例外**：`CharacterSource.kind`（`index`／`legacy-pack`／`imported`／`text` 退路）
    是**來源**判別標籤，與有哪些 adapter 無關，架構守門測試不把它算成 entrypoint 分岔。
 
+### 4.1 Runtime 核心去特定裝置耦合（provider 能力宣告）
+
+`refactor(character)` 之後仍有第二條「核心只理解一種特定裝置」的耦合：Runtime 核心以 `iphone.*`／
+`companion.` 這類**能力 id 字面前綴**判斷跨切面語意。v0.6.0 一併改成宣告驅動——provider 註冊時
+自己說明，核心只查表。
+
+| 現況（v0.5.1） | v0.6.0 |
+|---|---|
+| `character.rs::is_presentation_surface_actuator` 硬編 `starts_with("companion.")` ＋ `== "iphone.character"` | 改成 `is_presentation_surface_actuator(&ProviderCapabilityRegistry, actuator_id)`；呈現面由 provider 宣告（`presentation_surfaces`），沒宣告過的動器一律是一般動器 |
+| `activity.rs::sensor_event_label` 以 `sensor.starts_with("iphone.")` 決定人話標題「iPhone」 | 由「宣告了這個受器的 provider」提供 `class_label`；沒有宣告就退回中性字樣（內建本機感測器仍走 `sensor_display_name`） |
+| `sensors.rs::emit_stop_sensor_events` 直接寫 `"sensor": "iphone.mic-level"`，並以 `crate::mobile::StopOutcome` 比對 | 改成通用 trait `sensors::SensorStopOutcome`（`source_id`／`sensor_ids`／`outcome_label`／`waited_ms`／`confirmed_stopped`）＋純函式 `sensor_stop_uncertain_payloads`；受器 id 來自 provider 宣告的高風險受器清單 |
+| `providers.rs` 自己組 `provider.mobile.<deviceId>` | id 命名規則移到 `mobile::mobile_provider_id`（字串格式不變，前端／API 測試把它當契約）；`MOBILE_PROVIDER_ID_PREFIX` 是唯一產生點 |
+
+**Ports**：`crates/interaction-runtime/src/providers.rs` 新增 `CapabilitySelector`（`Exact`／`Prefix`）、
+`ProviderCapabilityDeclaration`（`class_label`／`presentation_surfaces`／`receptors`／`high_risk_receptors`）、
+`ProviderCapabilityRegistry`（同步 `RwLock`，每個 `declaration_id` 一筆）。內建宣告在
+`Runtime::init_providers()` 一次登記完（`companion_capability_declaration()`＋
+`mobile::mobile_capability_declaration()`）——**與伺服器有沒有起來、有沒有配對過裝置無關**：核心對
+能力 id 的理解不能依賴某個 provider 剛好在線上。
+
+驗收：`rg -n '"iphone[.-]|provider\.mobile\.' crates/interaction-runtime/src --glob '!mobile.rs'` 為 0 命中。
+
+#### 實作註記
+
+1. **宣告表的存放位置**：投影路徑（`character_project_action`）是同步的、沒有 await 點，所以宣告表
+   必須同步可讀。它目前掛在 `CharacterHub` 上（`character.capability_declarations()`），因為那是本次
+   重構可動的檔案裡唯一同步可達的 runtime 級容器。語意上它屬於 provider 層，`RuntimeInner` 進入
+   可改範圍時應搬成 `RuntimeInner` 的欄位或併進 `interaction_registry::providers::ProviderGate`。
+2. **`StopAllSensorsReport.devices` 仍是 `Vec<MobileStopOutcome>`**：那是 HTTP／CLI／桌面共用的回傳
+   形狀（前端逐欄位讀），換成 trait object 會改 wire 契約，不在本輪範圍。**行為上**的耦合（要補發
+   哪些事件、哪些算確認停止）已經全部走 `SensorStopOutcome`，`sensors.rs` 不再出現任何裝置字面值。
+3. **宣告是動態的**：`Runtime::declare_provider_capabilities()` 是公開 API，測試與未來的動態 provider
+   都可以在執行期登記自己的呈現面／高風險受器，不必改核心的任何分支。
+
 ## 5. Feature flags 與相容
 
 - `INTERACT_AI_CHARACTER_SESSION`（env，預設 `1`）：`0` 時 Runtime 不啟動 Session Host，所有 `/v1/character-session/*` 回 503 `session-disabled`，

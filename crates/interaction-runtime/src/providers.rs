@@ -10,6 +10,7 @@ use interaction_core::{
 use interaction_registry::providers::{discovered, provider_stopped, ProviderBlock};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 
 /// 「已測試」證據（spec §9.3）。掃描到 metadata、設定檔存在、甚至狀態變成
 /// Available，都**不等於**測過：這筆記錄只在 runtime 真的觀察到一次成功／
@@ -43,6 +44,195 @@ pub struct ProviderTested {
 pub enum TestedCapability {
     Receptor,
     Actuator,
+}
+
+// ---------------------------------------------------------------------------
+// Provider 能力宣告（v0.6.0）
+//
+// 「哪些動器是角色自己的呈現面」「哪些受器是高風險」「這一類來源的人話名稱
+// 叫什麼」，過去散在 character.rs／activity.rs／sensors.rs 裡以特定裝置的
+// 能力 id 前綴判斷——等於 runtime 核心只理解一種特定裝置。現在改成
+// **provider 註冊時自己宣告**：核心只查這張表，新增一種行動裝置不必再改
+// 這幾個檔案的 if 分支。
+//
+// 有界：每個 `declaration_id` 一筆，宣告內容是純資料（沒有 I/O、沒有回呼）。
+// ---------------------------------------------------------------------------
+
+/// 能力 id 的比對方式：完全相同，或共用同一個前綴（一個 provider 的整組能力）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CapabilitySelector {
+    Exact(String),
+    Prefix(String),
+}
+
+impl CapabilitySelector {
+    pub fn exact(id: impl Into<String>) -> Self {
+        CapabilitySelector::Exact(id.into())
+    }
+
+    pub fn prefix(prefix: impl Into<String>) -> Self {
+        CapabilitySelector::Prefix(prefix.into())
+    }
+
+    pub fn matches(&self, capability_id: &str) -> bool {
+        match self {
+            CapabilitySelector::Exact(id) => capability_id == id,
+            // 空前綴會match全部，那是宣告錯誤而不是「全部都算」：直接不match。
+            CapabilitySelector::Prefix(prefix) => {
+                !prefix.is_empty() && capability_id.starts_with(prefix.as_str())
+            }
+        }
+    }
+}
+
+/// 一個 provider 對自己能力的語意宣告（純資料）。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ProviderCapabilityDeclaration {
+    /// 宣告來源（provider id 或 provider 家族 id）；同一個 id 再宣告一次＝覆寫。
+    pub declaration_id: String,
+    /// 這一類來源的人話「種類名」（由 provider 自己給）。注意它不是某一台
+    /// 裝置的暱稱：介面只知道「是哪一種來源」而不知道是哪一台時才用它，
+    /// 沒有宣告就由呼叫端退回中性字樣。
+    pub class_label: Option<String>,
+    /// 呈現面 actuator（角色自己）：它們的收據不投影成 `action.*` intent，
+    /// 否則角色會對自己的呈現動作再演一次。
+    pub presentation_surfaces: Vec<CapabilitySelector>,
+    /// 這個 provider 提供的受器 id（種類名查表用）。
+    pub receptors: Vec<String>,
+    /// 高風險受器：停止結果未知時要誠實補「可能還在擷取」的事件。
+    pub high_risk_receptors: Vec<String>,
+}
+
+impl ProviderCapabilityDeclaration {
+    pub fn new(declaration_id: impl Into<String>) -> Self {
+        ProviderCapabilityDeclaration {
+            declaration_id: declaration_id.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn with_class_label(mut self, label: impl Into<String>) -> Self {
+        self.class_label = Some(label.into());
+        self
+    }
+
+    pub fn with_presentation_surface(mut self, selector: CapabilitySelector) -> Self {
+        self.presentation_surfaces.push(selector);
+        self
+    }
+
+    pub fn with_receptor(mut self, receptor_id: impl Into<String>) -> Self {
+        self.receptors.push(receptor_id.into());
+        self
+    }
+
+    pub fn with_receptors<I, S>(mut self, receptor_ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.receptors
+            .extend(receptor_ids.into_iter().map(Into::into));
+        self
+    }
+
+    pub fn with_high_risk_receptor(mut self, receptor_id: impl Into<String>) -> Self {
+        self.high_risk_receptors.push(receptor_id.into());
+        self
+    }
+
+    pub fn with_high_risk_receptors<I, S>(mut self, receptor_ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.high_risk_receptors
+            .extend(receptor_ids.into_iter().map(Into::into));
+        self
+    }
+}
+
+/// 宣告表：同步可讀（投影路徑沒有 await 點可用），寫入只發生在 provider
+/// 註冊時。鎖中毒時退回既有內容繼續用——純資料表，讓整個 Runtime 崩潰
+/// 不會比較誠實。
+#[derive(Default)]
+pub struct ProviderCapabilityRegistry {
+    inner: std::sync::RwLock<BTreeMap<String, ProviderCapabilityDeclaration>>,
+}
+
+impl std::fmt::Debug for ProviderCapabilityRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderCapabilityRegistry")
+            .field("declarations", &self.declaration_ids())
+            .finish()
+    }
+}
+
+impl ProviderCapabilityRegistry {
+    /// 登記（或覆寫）一個 provider 的宣告。
+    pub fn declare(&self, declaration: ProviderCapabilityDeclaration) {
+        if let Ok(mut map) = self.inner.write() {
+            map.insert(declaration.declaration_id.clone(), declaration);
+        }
+    }
+
+    fn read(
+        &self,
+    ) -> Option<std::sync::RwLockReadGuard<'_, BTreeMap<String, ProviderCapabilityDeclaration>>>
+    {
+        self.inner.read().ok()
+    }
+
+    /// 這個 actuator 是某個 provider 宣告的呈現面嗎？
+    pub fn is_presentation_surface(&self, actuator_id: &str) -> bool {
+        self.read().is_some_and(|map| {
+            map.values().any(|d| {
+                d.presentation_surfaces
+                    .iter()
+                    .any(|s| s.matches(actuator_id))
+            })
+        })
+    }
+
+    /// 提供這個受器的來源，它的人話種類名（沒有宣告＝None，呼叫端用中性字樣）。
+    pub fn class_label_of_receptor(&self, receptor_id: &str) -> Option<String> {
+        let map = self.read()?;
+        map.values()
+            .find(|d| d.receptors.iter().any(|r| r == receptor_id))
+            .and_then(|d| d.class_label.clone())
+    }
+
+    /// 所有 provider 宣告的高風險受器（去重、排序固定）。
+    pub fn high_risk_receptors(&self) -> Vec<String> {
+        let Some(map) = self.read() else {
+            return Vec::new();
+        };
+        let set: std::collections::BTreeSet<String> = map
+            .values()
+            .flat_map(|d| d.high_risk_receptors.iter().cloned())
+            .collect();
+        set.into_iter().collect()
+    }
+
+    /// 目前有哪些宣告（除錯／測試用；順序固定）。
+    pub fn declaration_ids(&self) -> Vec<String> {
+        self.read()
+            .map(|map| map.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    pub fn declaration(&self, declaration_id: &str) -> Option<ProviderCapabilityDeclaration> {
+        self.read()?.get(declaration_id).cloned()
+    }
+}
+
+/// 桌面角色（Presentation Provider）能力 id 的共同前綴。
+pub const COMPANION_CAPABILITY_PREFIX: &str = "companion.";
+
+/// 桌面角色 provider 的宣告：它整組能力都是角色自己的呈現面。
+pub fn companion_capability_declaration() -> ProviderCapabilityDeclaration {
+    ProviderCapabilityDeclaration::new(crate::character::COMPANION_PROVIDER_ID)
+        .with_presentation_surface(CapabilitySelector::prefix(COMPANION_CAPABILITY_PREFIX))
 }
 
 /// 自動記錄的節流窗：同樣的結果一分鐘內只寫一次，避免每次讀取都打 DB。
@@ -216,10 +406,31 @@ impl Runtime {
         }
     }
 
+    /// Provider 能力宣告表（同步可讀）。character／activity／sensors 只查這張
+    /// 表，不比對任何具名裝置的能力字面值。
+    ///
+    /// 存放位置說明：目前掛在 `CharacterHub` 上，因為它是本工作流可動的檔案
+    /// 裡唯一同步可達的 runtime 級容器（投影路徑沒有 await 點可用）。語意上
+    /// 它屬於 provider 層，日後 `RuntimeInner` 進入可改範圍時應搬過去。
+    pub fn capability_declarations(&self) -> &ProviderCapabilityRegistry {
+        self.character.capability_declarations()
+    }
+
+    /// 登記一個 provider 對自己能力的語意宣告（呈現面／高風險受器／種類名）。
+    pub fn declare_provider_capabilities(&self, declaration: ProviderCapabilityDeclaration) {
+        self.capability_declarations().declare(declaration);
+    }
+
     pub(crate) async fn init_providers(&self) {
         // 能力清單的 availability 投影要看得到 provider 狀態：被停用／撤銷的
         // provider 底下的能力不得繼續宣稱 Available。
         self.registry.attach_provider_gate(self.providers.gate());
+
+        // 0) 能力語意宣告：呈現面、高風險受器、人話種類名一律由 provider 自己
+        //    說明。這一步跟「伺服器有沒有起來」「有沒有配對過裝置」無關——
+        //    核心對能力 id 的理解不能依賴某個 provider 剛好在線上。
+        self.declare_provider_capabilities(companion_capability_declaration());
+        self.declare_provider_capabilities(crate::mobile::mobile_capability_declaration());
 
         // 1) Builtin local provider (trust: builtin, always available).
         let builtin = ProviderDescriptor {
@@ -624,7 +835,7 @@ impl Runtime {
     }
 
     /// 同上，但由呼叫端指名「真正執行的那一台裝置」（driver 回報的 deviceId）。
-    /// 同一個能力 id 可能同時屬於多台手機（`provider.mobile.<deviceId>`），
+    /// 同一個能力 id 可能同時屬於多台裝置（每台各有自己的 provider 記錄），
     /// 這時只有 driver 說的那一台才是事實——指名了卻找不到對應的 provider 時
     /// 什麼都不記，絕不把證據掛到別台身上。
     ///
@@ -699,11 +910,12 @@ impl Runtime {
             };
             list.iter().any(|id| id == capability_id)
         };
-        // 指名了裝置：只認那一台的 provider（手機是 `provider.mobile.<deviceId>`）。
+        // 指名了裝置：只認那一台的 provider。id 的組法由 provider 自己提供
+        // （`crate::mobile::mobile_provider_id`），這裡不重寫命名規則。
         // 找不到、或那台 provider 根本沒有這個能力 → 什麼都不記；把證據記到
         // 另一台身上比沒有證據更糟（使用者會以為那台測過了）。
         if let Some(device_id) = device_id.map(str::trim).filter(|id| !id.is_empty()) {
-            let pid = ProviderId::new(format!("provider.mobile.{device_id}"));
+            let pid = crate::mobile::mobile_provider_id(device_id);
             return self.providers.get(&pid).await.ok().filter(lists);
         }
         self.providers.list().await.into_iter().find(lists)
