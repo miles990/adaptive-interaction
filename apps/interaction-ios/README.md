@@ -18,7 +18,8 @@
 >   mic/BLE/battery 全部 false、App 顯示「因桌面緊急停止而停用」)、
 >   Bonjour 以 `_interact-ai._tcp` 實際廣播成功(`dns-sd -B` 看得到)。
 >   證據截圖:`docs/assets/v05-evidence/ios-sim-*.png`(檔名前綴即標示模擬器)。
-> - ✅ 全部 12 個 `.swift` 通過 iOS 模擬器目標的完整 `swiftc -typecheck`(0 錯誤、0 警告)
+> - ✅ 全部 **16** 個 App `.swift` 通過 iOS 模擬器目標的完整 `swiftc -typecheck`(0 錯誤、0 警告;
+>   2026-09-04 v0.6.0 wave 2 重測。v0.5.1 當時是 12 個)
 > - ❌ **未經真機驗收**:haptic / torch / CoreMotion / 真實 BLE / 通知顯示 / QR 相機掃描
 >   在模擬器上不可用或未觸發,行為仍未驗證。
 >
@@ -33,11 +34,15 @@
 > - ✅ **裝置 SDK 建置通過(未簽章)**:`-sdk iphoneos -arch arm64 -configuration Release
 >   CODE_SIGNING_ALLOWED=NO` → `** BUILD SUCCEEDED **`;12 個 `.swift` 對
 >   `arm64-apple-ios17.0` + iphoneos26.5 SDK 的 `swiftc -typecheck` 也是 0 error / 0 warning。
-> - ✅ **XCTest 46/46 通過（2026-09-04 重跑；2026-09-03 時為 25/25）**(MotionClassifier 8 + Protocol 17 + ReconnectHint 21,其中 Protocol 的 4 個是驗證 stop-all 緊急狀態
->   誠實性的 async 測試——之前的 21/21 只算到 13 個 Protocol 測試,`repo` 內其實一直有 17 個,見
->   下方「2026-09-03」章節)——用 xcodebuild 產出的 app-hosted `.xctest`,注入 iPhone 17
->   **模擬器**(iOS 26.2)以 `simctl` 執行(見上方「跑 XCTest」指令)。**這是模擬器測試,與下面的
->   真機驗收是兩件事**。
+> - ✅ **XCTest 92/92 通過（2026-09-04 v0.6.0 wave 2；同日 v0.5.1 時為 46/46、2026-09-03 為 25/25）**
+>   (AIPConformance 14 + MotionClassifier 8 + Protocol 21 + ReconnectHint 21 + SessionClient 28)
+>   ——用 xcodebuild 產出的 app-hosted `.xctest`,注入 iPhone 17
+>   **模擬器**(iOS 26.2)以 `simctl` 執行(見下方「跑 XCTest:`simctl` 注入流程」)。
+>   **這是模擬器測試,與下面的真機驗收是兩件事**。
+> - ✅ **AIP Character Session 對真 daemon 的閉環(模擬器)**:配對 → capability 協商 →
+>   snapshot → 觸摸事件 applied → Behavior Intent → 手機播完動畫後回 `observed`,
+>   而且只落成**一筆** `iphone.touch` observation。細節與實際數字見下方
+>   「2026-09-04(v0.6.0 wave 2)」章節。**真機未驗**。
 > - ⚠️ **`xcodebuild -destination` 在本機無法解析任何 iOS destination**:Xcode 26.6 回報
 >   「iOS 26.5 is not installed」(平台元件未下載,只有 iOS 26.2 模擬器 runtime),
 >   連純 SwiftPM 專案也一樣,**不是本 xcodeproj 的問題**。要用 `-scheme … -destination …`
@@ -74,17 +79,24 @@ apps/interaction-ios/
 │   ├── device-build.sh                真機:前置閘門 → xcodebuild → devicectl 安裝/啟動
 │   └── device-acceptance.sh           真機:對真 daemon 跑驗收矩陣(只印 daemon 原文)
 ├── InteractionCompanionTests/
+│   ├── AIPFixtures.swift              codegen 內嵌的 AIP conformance fixture(不要手改)
+│   ├── AIPConformanceTests.swift      AIP 1.0 跨語言 conformance(XCTest:14 個 test 方法,v0.6.0)
 │   ├── MotionClassifierTests.swift    純分類器行為測試(XCTest:8 個 test 方法)
-│   ├── ProtocolTests.swift            Wire protocol 編解碼測試(XCTest:17 個 test 方法,含 4 個
-│   │                                   stop-all 緊急狀態誠實性 async 測試)
-│   └── ReconnectHintTests.swift       冷啟動自動重連決策＋位址變更診斷的純函式測試(XCTest:21 個,v0.5.1)
+│   ├── ProtocolTests.swift            Wire protocol 編解碼測試(XCTest:21 個 test 方法,含 4 個
+│   │                                   stop-all 緊急狀態誠實性 async 測試與 4 個 aip frame 測試)
+│   ├── ReconnectHintTests.swift       冷啟動自動重連決策＋位址變更診斷的純函式測試(XCTest:21 個,v0.5.1)
+│   └── SessionClientTests.swift       AIP Character Session 純決策測試(XCTest:28 個,v0.6.0)
 └── InteractionCompanion/
     ├── InteractionCompanionApp.swift  App 進入點 + 元件接線(scenePhase → 前景觀察)
     ├── Info.plist.example             隱私描述的來源範本(內容已複製到上面的 Info.plist)
     ├── Models/
-    │   └── Protocol.swift             Wire protocol v1 訊息模型(Codable)
+    │   ├── Protocol.swift             Wire protocol v1 訊息模型(Codable;含 aip frame)
+    │   ├── AIPGenerated.swift         AIP 1.0 型別(codegen 產生,不要手改)
+    │   ├── AIPEnvelope.swift          AIP 1.0 驗證邏輯(手寫,與 Rust 權威實作同一組規則)
+    │   └── CharacterSemantic.swift    語意狀態鏡射 + RFC 7396 merge patch + canonical hash
     ├── Services/
     │   ├── ConnectionManager.swift    WebSocket + TLS 指紋固定 + 配對/認證 + 重連 backoff
+    │   ├── SessionClient.swift        AIP Character Session 手機端(remote-renderer)
     │   ├── PairingStore.swift         Keychain(deviceId/token/host/port/指紋;不存配對碼)
     │   ├── MotionSemantics.swift      CoreMotion → 語意事件(純分類器核心可測)
     │   ├── SensorCenter.swift         電池/前景/麥克風音量/位置權限(全部預設關閉)
@@ -92,10 +104,33 @@ apps/interaction-ios/
     │   └── BleGateway.swift           CoreBluetooth central(使用者開啟才存在)
     └── Views/
         ├── ContentView.swift          分頁:連線 / 感測 / 角色 + 閃光覆蓋層
-        ├── PairingView.swift          QR 掃描(VisionKit)或手動貼上 + 立即中斷
+        ├── PairingView.swift          QR 掃描(VisionKit)或手動貼上 + 立即中斷 + 角色同步進階診斷
         ├── SensorsView.swift          感測開關 + 權限誠實顯示 + 「感測中」橫幅
-        └── CharacterView.swift        簡化角色(貓耳剪影)+ 觸控事件
+        └── CharacterView.swift        角色語意呈現 + Behavior Intent 本地動畫 + 觸控事件
 ```
+
+## AIP Character Session(v0.6.0)
+
+手機在 session 裡是 **`remote-renderer`**:`auth-ok` 之後送 capability 宣告,
+之後收語意狀態(snapshot／patch)與 Behavior Intent,送觸摸／離開兩種語意事件。
+完整說明(生命週期、狀態規則、呈現規則、文案表、有界、安全)見
+[`docs/aip/iphone-companion.md`](../../docs/aip/iphone-companion.md)。
+
+重點:
+
+- **舊桌面完全不受影響**:沒有協商過的桌面永遠不會送 `aip` frame;手機這一端
+  也會退回既有的 `observation{receptor:"iphone.touch"}` 與 `character.present` 路徑。
+- **兩條觸摸路徑互斥**:已協商就只送 AIP 事件(桌面會把它落成恰好一筆
+  `iphone.touch` observation),不會同一次觸碰算兩次。
+- **`observed` 只在本地動畫真的播完之後才回**;不支援的 intent 一律
+  `rejected{unsupported-capability}`,絕不回 `observed`。
+- **緊急停止取兩條路徑的聯集**:語意狀態或 `character.present` 任一邊說緊急,
+  角色頁就顯示固定文案「緊急停止中」。
+- **一般模式只顯示一行人話**;revision／sequence／sessionEpoch 等只在
+  「連線」頁 → 診斷 → **角色同步(進階)** 這個預設收合的折疊區。
+- **數字字面必須逐字保留**:桌面的 state hash 是對 serde_json 寫出來的文字取的,
+  `mood.intensity` 為 0 時寫的是 `0.0`;用一般 JSON 解析器 round-trip 會變成 `0`、
+  hash 就永遠對不上。`CharacterSemantic.swift` 的 `SemanticJSON` 因此保留原始數字字面。
 
 ## Xcode 專案(已在 repo 內,不用再手動建立)
 
@@ -160,11 +195,53 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 > ```
 >
 > 產出的 `InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest` 可用
-> `simctl` 注入模擬器執行(見下方「本機驗證了什麼」),2026-09-03 實測 **25/25 通過**
+> `simctl` 注入模擬器執行(完整步驟見下一節),2026-09-03 實測 **25/25 通過**
 >（MotionClassifier 8＋ProtocolTests 17）。
 > **2026-09-04（v0.5.1）重跑：Executed 46 tests, with 0 failures**
->（MotionClassifier 8＋ProtocolTests 17＋ReconnectHintTests 21）——仍是 **iPhone 17 模擬器**，
-> 與真機驗收是兩件事。
+>（MotionClassifier 8＋ProtocolTests 17＋ReconnectHintTests 21）。
+> **2026-09-04（v0.6.0 wave 2）重跑：Executed 92 tests, with 0 failures**
+>（AIPConformance 14＋MotionClassifier 8＋ProtocolTests 21＋ReconnectHint 21＋SessionClient 28）
+> ——仍是 **iPhone 17 模擬器**，與真機驗收是兩件事。
+
+### 跑 XCTest:`simctl` 注入流程(可重現;`-destination` 不可用時的等價做法)
+
+四步。**第 2 步不能省**——`xcodebuild` 只會把 `libXCTestBundleInject.dylib` 與
+`libXCTestSwiftSupport.dylib` 複製進 `Frameworks/`,`lib_TestingInterop.dylib` 與
+`_Testing_*.framework` **不會**被複製;缺了它們 dyld 找不到
+`@rpath/lib_TestingInterop.dylib`,結果是**執行 0 個測試卻不報錯**(靜默假通過)。
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+OUT=$(mktemp -d)            # 建置產物放暫存目錄,不污染 repo
+UDID=$(xcrun simctl list devices booted -j | python3 -c 'import sys,json;d=json.load(sys.stdin)["devices"];print([x["udid"] for v in d.values() for x in v][0])')
+BID=dev.interact-ai.companion
+
+# 1) 建 app-hosted 測試 bundle
+xcodebuild -project apps/interaction-ios/InteractionCompanion.xcodeproj \
+  -target InteractionCompanionTests -configuration Debug \
+  -sdk iphonesimulator -arch arm64 CODE_SIGNING_ALLOWED=NO \
+  CONFIGURATION_BUILD_DIR="$OUT/out" OBJROOT="$OUT/obj" SYMROOT="$OUT/sym" build
+
+# 2) 補進 xcodebuild 不會複製的測試執行期(缺了會靜默跑 0 個測試)
+P="$DEVELOPER_DIR/Platforms/iPhoneSimulator.platform/Developer"
+FW="$OUT/out/InteractionCompanion.app/Frameworks"
+cp "$P/usr/lib/lib_TestingInterop.dylib" "$FW/"
+for f in _Testing_CoreGraphics _Testing_CoreImage _Testing_Foundation _Testing_UIKit; do
+  cp -R "$P/Library/Frameworks/$f.framework" "$FW/"
+done
+
+# 3) 安裝
+xcrun simctl uninstall "$UDID" "$BID" 2>/dev/null
+xcrun simctl install "$UDID" "$OUT/out/InteractionCompanion.app"
+APP=$(xcrun simctl get_app_container "$UDID" "$BID")
+
+# 4) 以 libXCTestBundleInject.dylib 注入啟動
+SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="@executable_path/Frameworks/libXCTestBundleInject.dylib" \
+SIMCTL_CHILD_XCInjectBundleInto="$APP/InteractionCompanion" \
+xcrun simctl launch --console-pty "$UDID" "$BID" -XCTest All "$APP/PlugIns/InteractionCompanionTests.xctest"
+```
+
+輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 92。
 
 ### DEBUG 限定啟動參數(自動化驗收,僅供模擬器/CI;release 不編入)
 
@@ -178,6 +255,7 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 | `--pairing-payload '<json>'` | `INTERACT_PAIRING_PAYLOAD` | 把 JSON 貼進「手動貼上」並按「開始配對」(`PairingView.applyPayloadText` 同一路徑) |
 | `--auto-connect` | `INTERACT_AUTO_CONNECT=1` | 已配對時按「連線」(`ConnectionManager.connectIfPaired`,走 Keychain token 的 `auth → auth-ok`) |
 | `--initial-tab pairing\|sensors\|character` | `INTERACT_INITIAL_TAB` | 啟動後點該分頁(截圖用;有 `--pairing-payload` 時一律停在「連線」) |
+| `--emit-touch tap\|longpress` | `INTERACT_EMIT_TOUCH` | 在「角色」頁點一次角色(`CharacterView.sendTouch` 同一路徑)。模擬器沒有觸控注入,這是唯一能自動觸發觸摸的入口:等角色同步協商完成(最多 10 秒)才送,等不到就什麼都不做,**不會**退回舊路徑假裝成功;每次啟動只送一次 |
 
 配對 JSON 即桌面端 `POST /v1/mobile/pairing-session` 回傳的 `payload`
 (`{"v":1,"host":…,"port":…,"fp":…,"code":…}`);在模擬器上請把 `host` 改成
@@ -448,6 +526,74 @@ status 訊息(`sensors` 五旗標 + `microphone/location/bluetooth` 權限)於
 > (Xcode 未安裝 iOS 26.5 平台元件,見上方 Xcode 專案章節的警告框)。**模擬器 XCTest 與真機驗收
 > 是兩件事**——真機部分驗收見下方「真機」章節與
 > [`docs/releases/v0.5.0-iphone-device-evidence.md`](../../docs/releases/v0.5.0-iphone-device-evidence.md)。
+
+### 2026-09-04(v0.6.0 wave 2):AIP Character Session 的模擬器閉環
+
+同一台機器(Xcode 26.6 / iOS 26.5 SDK / **iPhone 17 模擬器** iOS 26.2)對**真的
+`interact-ai` daemon**(隔離 home、API `127.0.0.1:18991`、`INTERACT_AI_MOBILE_ADVERTISE=0`
+只綁 loopback)跑完整條路。**這是模擬器,不是真機。**
+
+要先解決一件事:`CODE_SIGNING_ALLOWED=NO` 建出來的 app **不能寫 Keychain**
+(`SecItemAdd` 回 `-34018` errSecMissingEntitlement),配對會停在
+「配對成功但無法寫入 Keychain」。模擬器的解法是把 entitlements 用 `-sectcreate`
+烘進執行檔——`xcodebuild` 只要給了 `CODE_SIGN_ENTITLEMENTS` 就會自動這麼做:
+
+```bash
+cat > /tmp/sim.entitlements <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>application-identifier</key><string>dev.interact-ai.companion</string>
+  <key>keychain-access-groups</key><array><string>dev.interact-ai.companion</string></array>
+</dict></plist>
+EOF
+xcodebuild -project apps/interaction-ios/InteractionCompanion.xcodeproj \
+  -target InteractionCompanion -configuration Debug -sdk iphonesimulator -arch arm64 \
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="-" \
+  CODE_SIGN_ENTITLEMENTS=/tmp/sim.entitlements \
+  CONFIGURATION_BUILD_DIR=... OBJROOT=... SYMROOT=... build
+```
+
+(`codesign -d --entitlements -` 對模擬器 app 會印空的 `[Dict]`——entitlements 在
+`otool -s __TEXT __entitlements` 看得到,這是模擬器的正常形狀。)
+
+流程與**實際觀測到的結果**:
+
+1. `POST /v1/mobile/pairing-session` → 把 payload 的 `host` 改成 `127.0.0.1`,
+   `simctl launch … --pairing-payload '<json>'` → 配對完成、Keychain 寫入成功、
+   `GET /v1/mobile/status` 的 `devices[].connected = true`。
+2. App 在 `auth-ok` 之後自動送 capability → daemon 稽核
+   `character.session.join {"party":"device:iphone-…","role":"remote-renderer","unsupportedIntents":[]}`,
+   `GET /v1/character-session/diagnostics` 的 `members[]` 出現該裝置、`presence: online`。
+   (`unsupportedIntents` 是空的:1.0 的四個 intent 手機全部支援。)
+3. `simctl launch … --auto-connect --initial-tab character --emit-touch tap`
+   (**不能**同時帶 `--pairing-payload`:那會強制停在「連線」頁,角色頁不出現就不會送觸摸)
+   → 稽核 `character.session.applied {"name":"character.interaction.touch","revision":6,
+   "source":"device:iphone-…"}`;`counters` 變成 `accepted 2 / applied 1 / intents.emitted 1`。
+4. `GET /v1/character-session` 的 state:`mood {"kind":"happy","intensity":0.5}`、
+   `attention {"kind":"member","id":"device:iphone-…"}`、
+   `lastInteraction {"kind":"tap","name":"character.interaction.touch"}`。
+   換成 `--emit-touch longpress` 則是 `mood {"kind":"playful"}`(§4 的 longpress → playful)。
+5. **恰好一筆** `iphone.touch` observation
+   (`POST /v1/observations/query {"receptor":"iphone.touch"}` → `rows 1`,`facts {"kind":"tap"}`)
+   ——AIP 事件與舊 observation 兩條路互斥,沒有同一次觸碰算兩次。
+6. 桌面把 `react-happily-to-touch` 送回手機,手機播完本地動畫後回
+   `result{status:"observed"}` → 稽核
+   `character.session.report {"kind":"result","name":"character.session.result","status":"observed"}`。
+7. 角色頁截圖:同步狀態一行人話「已連接桌面，角色狀態已同步」、角色顏色由語意
+   `mood` 決定(longpress 後是 playful 的粉色)、下方「已送出觸控事件:longpress」。
+   「連線」頁的診斷區出現預設收合的「角色同步(進階)」。證據截圖(檔名前綴
+   `ios-sim-` 即標示模擬器):`docs/assets/v06-evidence/ios-sim-character-session-synced.png`、
+   `docs/assets/v06-evidence/ios-sim-character-session-advanced-diagnostics.png`。
+
+另外實測確認了一件跨語言的事:daemon 回的 state 裡 `mood.intensity` 寫的是 **`0.0`**,
+而 `payload.hash` 正是對含 `0.0` 的 canonical 文字取的 SHA-256;把 `0.0` 正規化成 `0`
+會算出**不同**的 hash。手機端因此逐字保留數字字面(見
+[`docs/aip/iphone-companion.md`](../../docs/aip/iphone-companion.md) §3.1)。
+
+**沒有驗到的**:真機的 haptic／Reduced Motion 實機行為／背景重連；
+模擬器 app 被系統掛起後 45 秒 idle timeout 會被桌面移出成員(這是預期行為,
+重連時會重送 capability),但「長時間背景後再回前景」這條路沒有在真機上走過。
 
 ### 第二輪模擬器復測(2026-08-28 晚)
 

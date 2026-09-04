@@ -285,4 +285,63 @@ final class ProtocolTests: XCTestCase {
         XCTAssertNil(Hex.decode("abc"))
         XCTAssertNil(Hex.decode("zz"))
     }
+
+    // MARK: - AIP frame(v0.6.0 Character Session)
+
+    /// `{"type":"aip","envelope":…}` 的編碼:信封逐字輸出,外殼只有 type 與 envelope 兩個鍵。
+    func testAipFrameEncodesTheEnvelopeVerbatim() throws {
+        let envelope = SessionDecisions.touchEnvelope(
+            kind: "tap", deviceId: "iphone-87b42264", sessionId: "session.home",
+            messageId: "ios-touch-1", now: Date())
+        let text = try ClientMessage.aip(envelope).encodeToJSONString()
+        let object = try jsonObject(text)
+        XCTAssertEqual(object["type"] as? String, "aip")
+        XCTAssertEqual(object.count, 2)
+        let body = try XCTUnwrap(object["envelope"] as? [String: Any])
+        XCTAssertEqual(body["messageType"] as? String, "event")
+        XCTAssertEqual(body["name"] as? String, "character.interaction.touch")
+        XCTAssertEqual(body["sessionId"] as? String, "session.home")
+        XCTAssertNotNil(body["expiresAt"])
+        let source = try XCTUnwrap(body["source"] as? [String: Any])
+        XCTAssertEqual(source["kind"] as? String, "device")
+        XCTAssertEqual(source["id"] as? String, "iphone-87b42264")
+    }
+
+    /// 解碼後仍是同一個信封(round-trip 不遺失,含未知的頂層選填欄位)。
+    func testAipFrameDecodesBackToTheSameEnvelopeAndKeepsUnknownFields() throws {
+        let frame = """
+            {"type":"aip","envelope":{"specVersion":"aip/1.0","messageId":"aip-1-1",\
+            "messageType":"state","name":"character.session.patch",\
+            "source":{"kind":"runtime","id":"runtime"},"sessionId":"session.home",\
+            "occurredAt":"2026-09-04T12:30:03Z","sequence":206,"baseRevision":204,\
+            "futureField":{"keep":true},\
+            "payload":{"kind":"patch","revision":205,"hash":"abc","patch":{"activity":"reacting"}}}}
+            """
+        guard case .aip(let envelope) = try ServerMessage.decode(frame) else {
+            return XCTFail("type=aip 必須解碼成 .aip")
+        }
+        XCTAssertEqual(envelope.messageType, .state)
+        XCTAssertEqual(envelope.name, "character.session.patch")
+        XCTAssertEqual(envelope.sequence, 206)
+        XCTAssertEqual(envelope.baseRevision, 204)
+        XCTAssertEqual(envelope.extra["futureField"], .object(["keep": .bool(true)]))
+        XCTAssertNil(envelope.validate())
+    }
+
+    /// 壞掉的 aip frame 誠實丟錯,而且錯誤訊息不回顯輸入內容(AIP §5)。
+    func testABrokenAipFrameFailsWithoutEchoingTheInput() {
+        let frame = #"{"type":"aip","envelope":{"messageId":"secret-token-value"}}"#
+        XCTAssertThrowsError(try ServerMessage.decode(frame)) { error in
+            let text = (error as? ProtocolError)?.errorDescription ?? "\(error)"
+            XCTAssertFalse(text.contains("secret-token-value"), "錯誤訊息不得回顯輸入")
+        }
+    }
+
+    /// 舊 App 的既有行為不變:未知 type 仍然是 `.unknown`,不假裝處理。
+    func testUnknownServerMessageTypeIsStillUnknown() throws {
+        XCTAssertEqual(try ServerMessage.decode(#"{"type":"aip-v2","x":1}"#),
+                       .unknown(type: "aip-v2"))
+        XCTAssertEqual(try ServerMessage.decode(#"{"type":"character.future"}"#),
+                       .unknown(type: "character.future"))
+    }
 }

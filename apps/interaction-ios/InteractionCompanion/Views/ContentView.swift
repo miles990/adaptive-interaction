@@ -4,6 +4,7 @@
 //
 //  三個分頁:連線 / 感測 / 角色。
 //  screen.flash 以全螢幕覆蓋層呈現(僅前景;由 ActuatorCenter 控制生命週期)。
+//  角色同步用戶端(SessionClient)由 ConnectionManager 擁有,在這裡注入環境。
 //
 
 import SwiftUI
@@ -44,6 +45,9 @@ struct ContentView: View {
                     }
                     .tag(AppTab.character)
             }
+            // 角色同步的用戶端由 ConnectionManager 擁有(auth-ok 之後才協商);
+            // 在這裡注入,分頁裡的視圖才觀察得到它的變化。
+            .environmentObject(connection.characterSession)
             .onAppear {
                 #if DEBUG
                 // `--auto-connect`:已配對且沒有新的配對 payload 時,等同按「連線」。

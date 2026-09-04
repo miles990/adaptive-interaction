@@ -430,6 +430,19 @@ final class ActuatorCenter: NSObject, ObservableObject {
 
     // MARK: character.present
 
+    /// 舊的角色呈現路徑(wire protocol v1 的動器,受 Policy Governor 管)。
+    ///
+    /// v0.6.0 之後這條路**保留不變**:桌面仍會送 `character.present`,本方法仍要
+    /// 誠實回 ack。但一旦 AIP Character Session 協商成功,畫面以 session 的語意狀態
+    /// 為權威,這一則只是 legacy hint(`docs/aip/README.md` §9.1)——衝突時以
+    /// `state` 為準,由 `CharacterPresentation.resolve` 決定。
+    ///
+    /// **唯一的例外是安全訊息**:`emergency` 取兩條路徑的聯集(任一邊說緊急就是緊急),
+    /// 因為 `stop-all{reason:"emergency"}` 可能先到、session 的 state 後到,
+    /// 而安全訊息只能加嚴、不能被淡化。
+    ///
+    /// Behavior Intent **不會**走到這裡,也不會觸發任何動器:角色 intent 只做本地
+    /// 呈現,震動一律只由受 governor 管的 `haptic.pulse` 產生。
     private func handleCharacterPresent(id: String, params: [String: JSONValue]) -> ClientMessage {
         guard let raw = params.string("state"),
               let state = CharacterPresentState(rawValue: raw) else {

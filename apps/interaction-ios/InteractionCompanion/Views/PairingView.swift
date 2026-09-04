@@ -285,6 +285,7 @@ struct PairingView: View {
     private var diagnosticsSection: some View {
         Section("診斷") {
             LabeledContent("丟棄的訊息", value: "\(connection.droppedFrames)")
+            characterSyncAdvanced
             DisclosureGroup("連線記錄(僅本機)") {
                 if connection.log.isEmpty {
                     Text("尚無記錄")
@@ -296,6 +297,43 @@ struct PairingView: View {
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundStyle(.secondary)
                     }
+                }
+            }
+        }
+    }
+
+    /// 角色同步的進階細節。**只**在這個折疊區出現——一般模式(角色頁、狀態列)
+    /// 一律只顯示 `docs/aip/character-session.md` §11 的人話,不得出現版本號等技術詞。
+    private var characterSyncAdvanced: some View {
+        DisclosureGroup("角色同步(進階)") {
+            let session = connection.characterSession
+            Text(session.syncStatus.text)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            LabeledContent("已協商", value: session.negotiated ? "是" : "否")
+            LabeledContent("state revision", value: "\(session.advanced.revision)")
+            LabeledContent("state sequence", value: "\(session.advanced.sequence)")
+            LabeledContent("sessionEpoch", value: "\(session.advanced.epoch)")
+            LabeledContent("已套用的狀態數", value: "\(session.advanced.appliedStates)")
+            LabeledContent("已送出的 resume", value: "\(session.advanced.resumesSent)")
+            LabeledContent("已播完的角色動作", value: "\(session.advanced.intentsPlayed)")
+            LabeledContent("回報不支援的動作", value: "\(session.advanced.intentsRejected)")
+            LabeledContent("捨棄的角色動作", value: "\(session.advanced.intentsDropped)")
+            LabeledContent("忽略的同步訊息", value: "\(session.advanced.framesIgnored)")
+            if !session.unsupportedIntents.isEmpty {
+                Text("不支援的動作:\(session.unsupportedIntents.joined(separator: "、"))")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            if session.log.isEmpty {
+                Text("尚無記錄")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(session.log.suffix(20).enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 }
             }
         }

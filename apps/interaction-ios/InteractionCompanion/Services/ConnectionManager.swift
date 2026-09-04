@@ -257,6 +257,13 @@ final class ConnectionManager: NSObject, ObservableObject {
     /// 診斷記錄(最多保留 100 行,只在本機)
     @Published private(set) var log: [String] = []
 
+    /// AIP Character Session 的手機端(`docs/aip/character-session.md`)。
+    /// 由本類別擁有:auth-ok 之後才協商,斷線即重置協商狀態。
+    /// 所有存取都經 `withSession`——接收迴圈已把回呼 funnel 到主執行緒,
+    /// 同步處理才能保證 state 的套用順序等於到達順序。
+    let characterSession = SessionClient()
+    private var characterSessionAttached = false
+
     // MARK: 外部接線(由 AppModel 設定)
 
     /// status 訊息內容的提供者
@@ -415,6 +422,24 @@ final class ConnectionManager: NSObject, ObservableObject {
         }
     }
 
+    // MARK: AIP Character Session 橋接
+
+    /// 在主執行緒上同步操作 SessionClient。
+    ///
+    /// 呼叫點全部來自已經 funnel 到主執行緒的路徑(`receiveNext` 的
+    /// `DispatchQueue.main.async`、握手回呼、使用者操作),所以
+    /// `assumeIsolated` 是**成立的事實**而不是繞過檢查;真的在別的執行緒被呼叫
+    /// 時會立刻中止,而不是靜默地弄壞狀態。
+    private func withSession(_ body: @MainActor (SessionClient) -> Void) {
+        MainActor.assumeIsolated {
+            if !characterSessionAttached {
+                characterSession.transport = self
+                characterSessionAttached = true
+            }
+            body(characterSession)
+        }
+    }
+
     /// 立即送出一次 status(感測/權限變更時由接線方呼叫)。
     func sendStatusNow() {
         guard case .connected = phase, let provider = statusProvider else { return }
@@ -479,6 +504,8 @@ final class ConnectionManager: NSObject, ObservableObject {
         if notify {
             // 不變量:斷線即停用高風險感測(mic/location/BLE gateway),不自動恢復
             onDisconnected?()
+            // 角色同步:成員身分留在桌面那邊等逾時,但本地必須重新協商才能再送事件。
+            withSession { $0.connectionDidDisconnect() }
         }
     }
 
@@ -607,6 +634,11 @@ final class ConnectionManager: NSObject, ObservableObject {
                 send(.err(id: id, reason: "ble-gateway-disabled"))
             }
 
+        case .aip(let envelope):
+            // 原始 frame 文字要一起帶進去:角色狀態的 hash 必須對「桌面寫出來的文字」取,
+            // 重新編碼過的 JSON 會讓數字字面走樣、hash 就對不上(見 CharacterSemantic.swift)。
+            withSession { $0.handleFrame(envelope, rawFrame: text) }
+
         case .unknown(let type):
             logLine("未知訊息型別 \(type),已忽略(不假裝處理)")
         }
@@ -634,6 +666,10 @@ final class ConnectionManager: NSObject, ObservableObject {
         // 連上不代表感測恢復:感測只由使用者在「感測」頁明確開啟。
         sendStatusNow()
         startStatusTimer()
+        // 角色同步:auth-ok 之後才(重新)協商。舊桌面收到 aip frame 只會忽略,
+        // 所以這裡不需要先問「桌面支不支援」——沒有協商結果就一直是「尚未提供角色同步」。
+        // 重連**不重播**任何互動事件或 intent,只 reconcile 狀態(AIP §8)。
+        withSession { $0.connectionDidConnect() }
     }
 
     /// 每 30 秒:送 status + WebSocket ping(watchdog,偵測殭屍連線)。
@@ -787,5 +823,40 @@ final class ConnectionManager: NSObject, ObservableObject {
         if log.count > 100 {
             log.removeFirst(log.count - 100)
         }
+    }
+}
+
+// MARK: - SessionTransport
+
+/// AIP Character Session 用得到的傳輸能力。全部沿用既有的有界佇列與連線狀態判斷——
+/// 角色同步**不會**多開一條旁路,也不會在未連線時假裝送出。
+extension ConnectionManager: SessionTransport {
+    var isConnected: Bool {
+        if case .connected = phase { return true }
+        return false
+    }
+
+    /// 配對綁定出來的身分。AIP 的 `source` 只能宣稱這一個 id(不符會被桌面拒絕)。
+    var boundDeviceId: String? { pairing?.deviceId }
+
+    @discardableResult
+    func sendAip(_ envelope: AIPEnvelope) -> Bool {
+        guard isConnected, task != nil else {
+            droppedFrames += 1
+            return false
+        }
+        do {
+            enqueue(try ClientMessage.aip(envelope).encodeToJSONString())
+            return true
+        } catch {
+            // 編碼失敗(例如超過 AIP 大小上限):誠實計數,不假裝已送出。
+            droppedFrames += 1
+            logLine("角色同步訊息編碼失敗,未送出")
+            return false
+        }
+    }
+
+    func sendObservation(receptor: String, facts: [String: JSONValue]) {
+        send(.observation(receptor: receptor, facts: facts, at: nil))
     }
 }

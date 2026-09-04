@@ -276,6 +276,9 @@ enum ClientMessage {
     case bleResult(id: String, devices: [BleDeviceInfo])
     /// {"type":"ble.value","id":"...","charUuid":"...","valueHex":"..."}
     case bleValue(id: String, charUuid: String, valueHex: String)
+    /// {"type":"aip","envelope":{…}} — AIP Character Session(`docs/aip/README.md` §9.1)。
+    /// 只在 auth-ok 之後送;信封本身由 `AIPEnvelope.encode()` 輸出並套用 AIP 大小上限。
+    case aip(AIPEnvelope)
 
     private var jsonObject: [String: JSONValue] {
         switch self {
@@ -359,11 +362,22 @@ enum ClientMessage {
                 "charUuid": .string(charUuid),
                 "valueHex": .string(valueHex),
             ]
+        case .aip:
+            // 走不到:`encodeToJSONString` 會先處理 `.aip`(直接用信封自己的編碼,
+            // 才能套用 AIP 的大小上限,也不必把信封轉一手 JSONValue)。
+            return ["type": .string("aip")]
         }
     }
 
     /// 編碼為單一 WebSocket text frame 的 JSON 字串。
     func encodeToJSONString() throws -> String {
+        if case .aip(let envelope) = self {
+            guard case .success(let data) = envelope.encode(),
+                  let body = String(data: data, encoding: .utf8) else {
+                throw ProtocolError.encodingFailed
+            }
+            return "{\"type\":\"aip\",\"envelope\":" + body + "}"
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(JSONValue.object(jsonObject))
@@ -408,6 +422,10 @@ enum StopAllReason: String, Equatable {
     }
 }
 
+/// `{"type":"aip","envelope":…}` 的外殼長度上限(型別欄位 + 大括號 + 鍵名)。
+/// 信封本身的上限是 `AIPLimits.maxMessageBytes`。
+private let aipFrameOverheadBytes = 64
+
 enum ServerMessage: Equatable {
     case pairChallenge(nonce: String)
     case paired(deviceId: String, deviceToken: String)
@@ -429,6 +447,10 @@ enum ServerMessage: Equatable {
     /// {"type":"ble.gatt","id","peripheralId","op":"read|write|subscribe","serviceUuid","charUuid","valueHex"?}
     case bleGatt(id: String, peripheralId: String, op: String,
                  serviceUuid: String, charUuid: String, valueHex: String?)
+    /// {"type":"aip","envelope":{…}} — AIP Character Session。
+    /// 這裡只做結構解碼;profile／上限／版本的驗證在 `SessionClient` 用
+    /// `AIPEnvelope.validate()` 做(與 Rust 權威實作同一組規則)。
+    case aip(AIPEnvelope)
     /// 未知型別:保留原字串供記錄,不假裝已處理
     case unknown(type: String)
 
@@ -503,6 +525,16 @@ enum ServerMessage: Equatable {
                 return .bleGatt(id: body.id, peripheralId: body.peripheralId, op: body.op,
                                 serviceUuid: body.serviceUuid, charUuid: body.charUuid,
                                 valueHex: body.valueHex)
+            case "aip":
+                struct AipBody: Decodable { let envelope: AIPEnvelope }
+                guard data.count <= AIPLimits.maxMessageBytes + aipFrameOverheadBytes else {
+                    // 不回顯輸入內容(AIP §5),只說類別。
+                    throw ProtocolError.decodingFailed("aip 訊息超過大小上限")
+                }
+                guard let body = try? decoder.decode(AipBody.self, from: data) else {
+                    throw ProtocolError.decodingFailed("aip 訊息的信封格式不正確")
+                }
+                return .aip(body.envelope)
             default:
                 return .unknown(type: probe.type)
             }
