@@ -14,6 +14,7 @@ import { refreshCharacterName, useCharacterName } from "../characterName";
 import { desktop, DesktopPrefs, isTauri } from "../desktop";
 import { projectCharacterLifecycle } from "../statusProjection";
 import { Badge, Section, Toggle, useAsync } from "../ui";
+import { CharacterSyncCard } from "../components/CharacterSyncCard";
 import { PRIMARY_INSTANCE_ID } from "../companion/gatewayWiring";
 import { emptyMemory, memorySummary, noteReactionDisabled, sanitizeMemory } from "../companion/interactionMemory";
 import { rollCallKey } from "../companion/playfield";
@@ -296,6 +297,13 @@ export function CompanionPage({
             </p>
           )}
         </div>
+      </Section>
+
+      {/* 1.5 同步（AIP Character Session；`docs/aip/character-session.md` §11）：
+          手機上的角色跟這台電腦是不是同一個狀態。一般模式只有人話，
+          revision／sequence／計數留在進階模式的「連接診斷」。 */}
+      <Section title="同步">
+        <CharacterSyncCard refreshKey={refreshKey} advanced={advanced} />
       </Section>
 
       {/* 2. 外觀與名字 */}

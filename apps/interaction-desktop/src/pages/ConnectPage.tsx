@@ -24,6 +24,7 @@ import { ConfirmButton } from "../components/Dialog";
 import { Icon } from "../icons";
 import { RISK_TIERS } from "../riskTier";
 import {
+  characterSyncDeviceLine,
   inboxItemTitle,
   inboxKindLabel,
   isPendingCountExact,
@@ -288,6 +289,15 @@ function ConnectOverview({
     [refreshKey]
   );
   const [mobile, reloadMobile] = useAsync(() => api.mobileStatus(), [refreshKey]);
+  // 角色同步（AIP Character Session）：手機卡上多一行「連上 ≠ 已同步」的人話。
+  // 讀不到就是讀不到（投影會照實說），不用上一次的狀態冒充現在。
+  const [characterSession] = useAsync(async () => {
+    try {
+      return (await api.characterSessionSnapshot()) as unknown;
+    } catch {
+      return null;
+    }
+  }, [refreshKey]);
   const [inbox] = useAsync(() => loadDecisionInbox(20), [refreshKey]);
   const [session, reloadSession] = useAsync(() => api.sessionGet(), [refreshKey]);
   const [status] = useAsync(() => api.status(), [refreshKey]);
@@ -433,6 +443,7 @@ function ConnectOverview({
                 key={m.deviceId}
                 model={m}
                 advanced={advanced}
+                syncLine={characterSyncDeviceLine(characterSession.data ?? null, m.deviceId)}
                 onChanged={reloadMobile}
                 onManagePermissions={onSafety}
                 onRepair={() => onShowAll("providers")}

@@ -242,6 +242,18 @@ const ROUTES: Record<string, Route> = {
     http("POST", "/v1/character/receipts", { instanceId: a.instanceId, receipt: a.receipt }),
   character_event: (a) =>
     http("POST", "/v1/character/events", { instanceId: a.instanceId, event: a.event }),
+  // AIP Character Session（`docs/aip/transport-bindings.md` §2；human token）。
+  // Tauri 內嵌模式走同名 IPC 指令，語意完全相同——同一個 application service。
+  character_session_snapshot: () => http("GET", "/v1/character-session"),
+  character_session_resume: (a) =>
+    http("POST", "/v1/character-session/resume", {
+      lastRevision: a.lastRevision ?? 0,
+      lastSequence: a.lastSequence ?? 0,
+      epoch: a.epoch ?? 0,
+    }),
+  character_session_events: (a) =>
+    http("POST", "/v1/character-session/events", { envelope: a.envelope }),
+  character_session_diagnostics: () => http("GET", "/v1/character-session/diagnostics"),
   character_instances: () => http("GET", "/v1/character/instances"),
   character_manifest: () => http("GET", "/v1/character/manifest"),
   character_adapters: () => http("GET", "/v1/character/adapters"),

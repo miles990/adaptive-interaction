@@ -4,6 +4,7 @@
 
 import { UnlistenFn } from "@tauri-apps/api/event";
 import { call, onError, onEvent, onReady } from "./transport";
+import type { Envelope as AipEnvelope } from "./aip/generated";
 import type {
   CharacterInputEvent,
   CharacterManifest,
@@ -278,6 +279,26 @@ export const api = {
   /** 正規化後的角色輸入事件（Runtime 轉成 receptor observation，仍經 policy／consent）。 */
   characterEvent: (instanceId: string, event: CharacterInputEvent) =>
     invoke<CharacterEventResult>("character_event", { instanceId, event }),
+  // ---- AIP Character Session（docs/aip/transport-bindings.md §2；human token） ----
+  /** 權威快照（一則 `state{kind:"snapshot"}` envelope）。讀不到就是讀不到，不得用上一次冒充。 */
+  characterSessionSnapshot: () => invoke<CharacterSessionEnvelope>("character_session_snapshot"),
+  /** 對齊：回補丁或完整快照（形狀見 transport-bindings §1.3）。 */
+  characterSessionResume: (input: {
+    lastRevision: number;
+    lastSequence?: number;
+    epoch?: number;
+  }) =>
+    invoke<Record<string, unknown>>("character_session_resume", {
+      lastRevision: input.lastRevision,
+      lastSequence: input.lastSequence ?? 0,
+      epoch: input.epoch ?? 0,
+    }),
+  /** 可信 host surface（桌面視窗）送語意事件；身分由後端綁定，宣稱不符一律拒絕。 */
+  characterSessionEvent: (envelope: CharacterSessionEnvelope) =>
+    invoke<CharacterSessionEnvelope>("character_session_events", { envelope }),
+  /** 進階模式的連接診斷（不含 token、路徑、原始內容）；一般模式不顯示這些。 */
+  characterSessionDiagnostics: () =>
+    invoke<CharacterSessionDiagnostics>("character_session_diagnostics"),
   characterInstances: () => invoke<{ instances: CharacterInstanceView[] }>("character_instances"),
   characterManifest: () => invoke<CharacterManifest>("character_manifest"),
   /** 已登記的外部角色 adapter 清單（永遠不含 token 或其 hash）。 */
@@ -364,6 +385,29 @@ export const api = {
     invoke<Record<string, unknown>>("sensor_mic_listen", { durationMs }),
   sensorsStop: () => invoke<SensorStopReport>("sensors_stop"),
 };
+
+// ---- AIP Character Session types（與 crates/interaction-aip 的 wire 一致） ----
+
+/** AIP 1.0 信封（型別由 `scripts/aip-codegen.mjs` 從 golden schema 產生）。 */
+export type CharacterSessionEnvelope = AipEnvelope;
+
+/** `GET /v1/character-session/diagnostics`（進階模式限定；不含 token、路徑、原始內容）。 */
+export interface CharacterSessionDiagnostics {
+  sessionId: string;
+  sessionEpoch: number;
+  revision: number;
+  sequence: number;
+  members: {
+    party: { kind: string; id: string };
+    role: string;
+    presence: string;
+    lastSeenAt: string;
+  }[];
+  counters: Record<string, number>;
+  eventLog: { len: number; cap: number };
+  /** 不是 null＝保存的角色狀態讀不回來；一般模式要翻成人話，不得靜默。 */
+  storeNote: string | null;
+}
 
 // ---- Character Presentation Protocol types（與 crates/interaction-character 的 wire 一致） ----
 

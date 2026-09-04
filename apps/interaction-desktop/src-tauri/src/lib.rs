@@ -70,6 +70,16 @@ pub enum Backend {
     External { base: String, token: String },
 }
 
+/// 外部 daemon 的 503 只有一個意思：角色同步被關掉了（`docs/aip/README.md` §12）。
+/// 把它翻成穩定錯誤碼，讓一般模式能誠實說「關閉」而不是說成「讀不到」。
+/// 其他失敗照原樣往上傳——不知道就說不知道，不猜。
+fn session_result(result: Result<Value, String>) -> Result<Value, String> {
+    match result {
+        Err(message) if message.starts_with("503") => Err(format!("session-disabled: {message}")),
+        other => other,
+    }
+}
+
 impl Backend {
     pub async fn status(&self) -> Result<Value, String> {
         match self {
@@ -251,6 +261,108 @@ impl Backend {
                 )
                 .await
             }
+        }
+    }
+
+    // ---- AIP Character Session（`docs/aip/transport-bindings.md` §2／§5） ----
+    //
+    // 內嵌模式直接呼叫 Runtime 的 use case，外部模式打同一組 HTTP 路由；
+    // 兩條路徑的輸入輸出形狀完全一樣（前端不需要知道自己在哪一種模式）。
+    // 身分不是宣稱來的：內嵌模式綁 `desktop_party()`（可信 host surface），
+    // 外部模式綁 human token——WebView 沒有任何方式改寫它。
+
+    /// 權威快照（一則 `state{kind:"snapshot"}` envelope，與 HTTP 同形狀）。
+    pub async fn character_session_snapshot(&self) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => {
+                let envelope = rt
+                    .character_session_snapshot_envelope(
+                        &interaction_runtime::character_session::desktop_party(),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                serde_json::to_value(envelope).map_err(|e| e.to_string())
+            }
+            Backend::External { base, token } => {
+                session_result(supervisor::daemon_get(base, token, "/v1/character-session").await)
+            }
+        }
+    }
+
+    /// 對齊：回補丁或完整快照（形狀見 transport-bindings §1.3）。
+    pub async fn character_session_resume(
+        &self,
+        last_revision: u64,
+        last_sequence: u64,
+        epoch: u64,
+    ) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => {
+                let party = interaction_runtime::character_session::desktop_party();
+                let resume = rt
+                    .character_session_resume(&party, last_revision, last_sequence, epoch)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(rt.character_session_resume_value(&party, resume).await)
+            }
+            Backend::External { base, token } => session_result(
+                supervisor::daemon_post(
+                    base,
+                    token,
+                    "/v1/character-session/resume",
+                    json!({
+                        "lastRevision": last_revision,
+                        "lastSequence": last_sequence,
+                        "epoch": epoch,
+                    }),
+                )
+                .await,
+            ),
+        }
+    }
+
+    /// 可信 host surface 的語意事件（桌面角色被摸了一下）。
+    /// 綁定身分固定是 `human-surface:desktop`；`source` 不符時 Runtime 自己會拒絕，
+    /// 這裡**不**幫忙改寫再送（AIP §5：不得「幫忙修正」後執行）。
+    pub async fn character_session_events(&self, envelope: Value) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => {
+                let parsed: interaction_runtime::character_session::Envelope =
+                    serde_json::from_value(envelope)
+                        // 不回顯輸入內容（AIP §5：錯誤訊息不含輸入）。
+                        .map_err(|_| {
+                            "character session event is not a valid AIP envelope".to_string()
+                        })?;
+                let submission = rt
+                    .character_session_submit(
+                        parsed,
+                        &interaction_runtime::character_session::desktop_party(),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                serde_json::to_value(submission.result).map_err(|e| e.to_string())
+            }
+            Backend::External { base, token } => session_result(
+                supervisor::daemon_post(
+                    base,
+                    token,
+                    "/v1/character-session/events",
+                    json!({ "envelope": envelope }),
+                )
+                .await,
+            ),
+        }
+    }
+
+    /// 連接診斷（進階模式限定；不含 token、路徑、原始內容）。
+    pub async fn character_session_diagnostics(&self) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => rt
+                .character_session_diagnostics_value()
+                .map_err(|e| e.to_string()),
+            Backend::External { base, token } => session_result(
+                supervisor::daemon_get(base, token, "/v1/character-session/diagnostics").await,
+            ),
         }
     }
 
@@ -1582,6 +1694,51 @@ async fn character_event(
 async fn character_instances(state: State<'_, AppState>) -> Result<Value, String> {
     let backend = backend_or_err(&state)?;
     backend.character_instances().await
+}
+
+// ---- AIP Character Session 的四個 IPC 指令（與 HTTP 同語意、同形狀） ----
+
+/// 權威快照。讀不到就是 Err：介面照實說「同步尚未完成」，不用上一次冒充現在。
+#[tauri::command]
+async fn character_session_snapshot(state: State<'_, AppState>) -> Result<Value, String> {
+    let backend = backend_or_err(&state)?;
+    backend.character_session_snapshot().await
+}
+
+/// 對齊（補丁或完整快照）。
+#[tauri::command]
+async fn character_session_resume(
+    state: State<'_, AppState>,
+    last_revision: u64,
+    last_sequence: Option<u64>,
+    epoch: Option<u64>,
+) -> Result<Value, String> {
+    let backend = backend_or_err(&state)?;
+    backend
+        .character_session_resume(
+            last_revision,
+            last_sequence.unwrap_or(0),
+            epoch.unwrap_or(0),
+        )
+        .await
+}
+
+/// 可信 host surface 的語意事件（桌面角色被摸了一下）。
+/// 回傳的是 Runtime 對這一則事件的處理結果——`applied` 才代表狀態真的改了。
+#[tauri::command]
+async fn character_session_events(
+    state: State<'_, AppState>,
+    envelope: Value,
+) -> Result<Value, String> {
+    let backend = backend_or_err(&state)?;
+    backend.character_session_events(envelope).await
+}
+
+/// 連接診斷（進階模式限定）。
+#[tauri::command]
+async fn character_session_diagnostics(state: State<'_, AppState>) -> Result<Value, String> {
+    let backend = backend_or_err(&state)?;
+    backend.character_session_diagnostics().await
 }
 
 /// 目前桌面角色的 manifest；尚未 hello 時 Err（同 HTTP 404）。
@@ -3308,6 +3465,10 @@ pub fn run() {
             character_receipt,
             character_event,
             character_instances,
+            character_session_snapshot,
+            character_session_resume,
+            character_session_events,
+            character_session_diagnostics,
             character_manifest,
             character_adapters,
             character_adapter_revoke,
@@ -3344,6 +3505,30 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 外部 daemon 的 503 只有一個意思（`docs/aip/README.md` §12：`session-disabled`）。
+    /// 一般模式要能誠實說「角色同步目前關閉」，而不是把它說成「讀不到」。
+    #[test]
+    fn character_session_503_carries_the_stable_disabled_code() {
+        let mapped = session_result(Err(
+            "503 Service Unavailable on /v1/character-session".into()
+        ));
+        assert!(mapped.unwrap_err().contains("session-disabled"));
+    }
+
+    /// 其他失敗不得被翻成「關閉」——不知道就說不知道。
+    #[test]
+    fn character_session_other_failures_stay_unknown() {
+        let mapped = session_result(Err(
+            "500 Internal Server Error on /v1/character-session".into()
+        ));
+        let message = mapped.unwrap_err();
+        assert!(!message.contains("session-disabled"), "{message}");
+        assert_eq!(
+            session_result(Ok(json!({"ok": true}))).unwrap(),
+            json!({"ok": true})
+        );
+    }
 
     /// Regression (Phase 7 review #1): the click-through poll must not lag so
     /// far behind the renderer that a walking character's box is stale. The

@@ -509,9 +509,16 @@ export async function spawnFakeIphone(options: {
 
 /** 直接用 API 開一段配對期（不經 UI；回應本身就帶 code／port／fingerprint）。 */
 export async function beginPairing(
-  request: APIRequestContext
+  request: APIRequestContext,
+  options?: { base?: string; token?: string }
 ): Promise<{ code: string; port: number; fingerprint: string }> {
-  const session = (await api(request, "POST", "/v1/mobile/pairing-session")) as {
+  const session = (await api(
+    request,
+    "POST",
+    "/v1/mobile/pairing-session",
+    undefined,
+    options
+  )) as {
     code: string;
     port: number;
     fingerprint: string;
@@ -522,7 +529,8 @@ export async function beginPairing(
 /** 開始一段配對期並回傳 UI 上看得到的配對碼＋連線用的 port／fingerprint。 */
 export async function beginPairingFromUi(
   page: Page,
-  request: APIRequestContext
+  request: APIRequestContext,
+  options?: { base?: string; token?: string }
 ): Promise<{ code: string; port: number; fingerprint: string }> {
   await page.getByRole("button", { name: "開始配對（5 分鐘內有效）" }).click();
   const notice = page.locator(".notice-box", { hasText: "輸入配對碼" });
@@ -530,7 +538,7 @@ export async function beginPairingFromUi(
   const text = await notice.innerText();
   const match = text.match(/輸入配對碼：\s*(\d{6})/);
   expect(match, `配對通知裡沒有 6 位數配對碼：${text}`).not.toBeNull();
-  const status = (await api(request, "GET", "/v1/mobile/status")) as {
+  const status = (await api(request, "GET", "/v1/mobile/status", undefined, options)) as {
     port: number;
     fingerprint: string;
   };
@@ -554,4 +562,146 @@ export async function waitActiveSensors(
     }
     await new Promise((r) => setTimeout(r, 250));
   }
+}
+
+// ---------------------------------------------------------------------------
+// AIP Character Session（`docs/aip/transport-bindings.md` §6 的 fixture op）
+//
+// 這一段全部是【模擬 iPhone（fixture）】的包裝：程序外假手機送 AIP frame，
+// 不是 iPhone 真機。用到它的斷言、截圖與文件一律標示 fixture。
+// ---------------------------------------------------------------------------
+
+/** fixture 收到的 AIP 信封（stdout 的 `{"event":"aip","envelope":…}`）。 */
+export function aipEnvelopes(phone: FakeIphone, from = 0): Record<string, unknown>[] {
+  return phone.events
+    .slice(from)
+    .filter((e) => e.event === "aip")
+    .map((e) => (e.envelope ?? {}) as Record<string, unknown>);
+}
+
+/** 等 fixture 收到一則符合條件的 AIP 信封（回傳那一則）。 */
+export async function waitAip(
+  phone: FakeIphone,
+  predicate: (envelope: Record<string, unknown>) => boolean,
+  timeoutMs = 15_000,
+  from = 0
+): Promise<Record<string, unknown>> {
+  const index = await phone.waitForEvent(
+    (e) => e.event === "aip" && predicate((e.envelope ?? {}) as Record<string, unknown>),
+    timeoutMs,
+    from
+  );
+  return (phone.events[index].envelope ?? {}) as Record<string, unknown>;
+}
+
+/** state 信封的 payload（snapshot／patch 共用）。 */
+export function aipPayload(envelope: Record<string, unknown>): Record<string, unknown> {
+  const payload = envelope.payload;
+  return payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+}
+
+/**
+ * 模擬 iPhone（fixture）送 `capability`（第一次＝加入 session，重連後＝重新協商）。
+ * host 會回 negotiated capability ＋ 一則完整 snapshot；回傳那份 snapshot 的 payload。
+ */
+export async function aipCapability(
+  phone: FakeIphone,
+  timeoutMs = 20_000
+): Promise<Record<string, unknown>> {
+  const from = phone.events.length;
+  phone.send({ op: "aip-capability" });
+  await waitAip(phone, (e) => e.messageType === "capability", timeoutMs, from);
+  const snapshot = await waitAip(
+    phone,
+    (e) => e.messageType === "state" && aipPayload(e).kind === "snapshot",
+    timeoutMs,
+    from
+  );
+  return aipPayload(snapshot);
+}
+
+/** 模擬 iPhone（fixture）摸一下角色；回傳 host 回的 `result` payload（不預設成功）。 */
+export async function aipTouch(
+  phone: FakeIphone,
+  kind: "tap" | "longpress" | "pat" | "stroke" = "tap",
+  timeoutMs = 20_000
+): Promise<Record<string, unknown>> {
+  const from = phone.events.length;
+  phone.send({ op: "aip-touch", kind, expiresInMs: 5000 });
+  const result = await waitAip(phone, (e) => e.messageType === "result", timeoutMs, from);
+  return aipPayload(result);
+}
+
+/** 模擬 iPhone（fixture）重連之後的對齊；回傳 `response` 的 payload。 */
+export async function aipResume(
+  phone: FakeIphone,
+  cursor: { lastRevision: number; lastSequence?: number; epoch?: number },
+  timeoutMs = 20_000
+): Promise<Record<string, unknown>> {
+  const from = phone.events.length;
+  phone.send({
+    op: "aip-resume",
+    lastRevision: cursor.lastRevision,
+    lastSequence: cursor.lastSequence ?? 0,
+    epoch: cursor.epoch ?? 0,
+  });
+  const response = await waitAip(phone, (e) => e.messageType === "response", timeoutMs, from);
+  return aipPayload(response);
+}
+
+/** 後端真相：`GET /v1/character-session` 的 snapshot payload（revision／state 都在這裡）。 */
+export async function characterSessionSnapshot(
+  request: APIRequestContext,
+  options?: { base?: string; token?: string }
+): Promise<Record<string, unknown>> {
+  const envelope = (await api(
+    request,
+    "GET",
+    "/v1/character-session",
+    undefined,
+    options
+  )) as Record<string, unknown>;
+  return aipPayload(envelope);
+}
+
+/** 有界輪詢後端真相直到符合條件（回傳最後一次讀到的 snapshot payload）。 */
+export async function waitCharacterSession(
+  request: APIRequestContext,
+  predicate: (payload: Record<string, unknown>) => boolean,
+  timeoutMs = 20_000,
+  options?: { base?: string; token?: string }
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + timeoutMs;
+  let last: Record<string, unknown> = {};
+  for (;;) {
+    last = await characterSessionSnapshot(request, options);
+    if (predicate(last)) return last;
+    if (Date.now() > deadline) {
+      throw new Error(`角色同步狀態等不到預期值，最後一次是 ${JSON.stringify(last).slice(0, 400)}`);
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+/** snapshot payload 裡的權威狀態（成員、最近互動、真相都在這裡）。 */
+export function sessionState(payload: Record<string, unknown>): Record<string, unknown> {
+  const state = payload.state;
+  return state && typeof state === "object" ? (state as Record<string, unknown>) : {};
+}
+
+/** 這個裝置現在的 presence（不是成員就回 null——不猜）。 */
+export function memberPresence(
+  payload: Record<string, unknown>,
+  deviceId: string
+): string | null {
+  const members = sessionState(payload).members;
+  if (!Array.isArray(members)) return null;
+  for (const entry of members) {
+    const member = entry as Record<string, unknown>;
+    const party = (member.party ?? {}) as Record<string, unknown>;
+    if (party.kind === "device" && String(party.id) === deviceId) {
+      return String(member.presence ?? "");
+    }
+  }
+  return null;
 }

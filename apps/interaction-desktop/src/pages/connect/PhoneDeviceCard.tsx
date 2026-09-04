@@ -251,9 +251,13 @@ export function PhoneDeviceCard({
   onChanged,
   onManagePermissions,
   onRepair,
+  syncLine,
 }: {
   model: PhoneCardModel;
   advanced?: boolean;
+  /** 角色同步的一行人話（`statusProjection.characterSyncDeviceLine`）。
+   *  沒給就不顯示這一行——不猜、也不用「已同步」當預設。 */
+  syncLine?: string | null;
   /** 撤銷成功／失敗後重新讀取裝置清單。 */
   onChanged?: () => void;
   /** 「管理權限」：帶去同意與安全。沒給就不顯示這顆按鈕。 */
@@ -315,6 +319,8 @@ export function PhoneDeviceCard({
         目前使用中的感測：
         {model.activeSensing.length === 0 ? "無" : model.activeSensing.join("、")}
       </div>
+      {/* 角色同步（AIP Character Session §11）：連上 ≠ 同步，兩件事分開說。 */}
+      {syncLine && <div className="small">{syncLine}</div>}
       {model.permissions === null ? (
         <div className="muted small">手機上的權限：手機尚未回報（未知）。</div>
       ) : (

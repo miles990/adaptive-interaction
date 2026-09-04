@@ -1,0 +1,108 @@
+# 一般模式的角色同步 UX（v0.6.0）
+
+> 契約來源：`docs/aip/character-session.md` §11（文案表）、`docs/aip/transport-bindings.md` §2（四條路由）。
+> 權威投影：`apps/interaction-desktop/src/statusProjection.ts`（`projectCharacterSession` 等純函式）；
+> 呈現：`apps/interaction-desktop/src/components/CharacterSyncCard.tsx`。
+> 這份文件寫的是**使用者看到什麼**，以及哪些東西一般模式**永遠不會**看到。
+
+## 1. 五個主入口不變
+
+角色同步**不是**第六個一級入口。它住在第二個入口（「目前角色」的動態名稱）的頁內區塊「同步」裡。
+主入口永遠恰好五個：現在／〔角色名〕／工作／連接與權限／更多。
+守門測試：`src/test/regressions-v06-general-mode.test.tsx`（`SIMPLE_NAV` 長度與 id 鎖死）。
+
+| 入口 | 角色同步在這裡出現的形式 |
+|---|---|
+| 現在 | 不出現（首頁只回答三個問題，不加第四張卡） |
+| 〔角色名〕 | 「同步」卡：狀態一句話＋裝置清單＋最近互動＋（進階）連接診斷 |
+| 工作 | 不出現 |
+| 連接與權限 | 手機卡上多一行「角色同步：…」——連上 ≠ 已同步 |
+| 更多 | 不出現（進階模式的開關仍在「更多 → 進階」） |
+
+## 2. 文案表（一字不改）
+
+九種狀態窮舉（`CHARACTER_SYNC_PROJECTION`，`satisfies Record<CharacterSyncState, …>`：
+少一個狀態就 typecheck 失敗，不會靜默退化成把技術值印到畫面上）。
+
+| 狀態 | 主要句子 | 補充 | 顏色 |
+|---|---|---|---|
+| `synced` | iPhone 已連接，角色狀態已同步 | 手機上的角色和這台電腦看到的是同一個狀態。 | ok（唯一的綠） |
+| `reconnecting` | iPhone 正在重新連線 | 連線斷了一下，正在接回來；這段時間的互動不會補播。 | pending |
+| `offline` | iPhone 暫時離線 | 手機現在收不到角色狀態，也送不出互動；接回來之後才會重新對齊。 | warn |
+| `partial-capability` | 部分能力目前不可用 | 這台裝置接上了，但它做不到角色的部分表演；做不到的不會假裝做到。 | warn |
+| `syncing` | 同步尚未完成 | 還在對齊角色狀態；在這之前不要把畫面上的樣子當成最新的。 | pending |
+| `unrecoverable` | 無法恢復，請重新連接 | 連續好幾次都對不齊角色狀態，需要你重新連一次裝置。 | bad |
+| `needs-reconfirmation` | 需要重新確認裝置 | 這台裝置的授權已經撤銷；要再同步角色，必須重新確認一次。 | warn |
+| `no-device` | 尚未連接 iPhone | 目前只有這台電腦在陪你；連上手機之後才會有東西可以同步。 | muted |
+| `disabled` | 角色同步目前關閉 | 這台電腦沒有啟用角色同步；其他功能不受影響。 | muted |
+
+判定順序（先擋住「不能相信」的情況，最後才談成功）：
+關閉 → 連續讀不到 → 這一次讀不到 → 認不得的回報 → 有 online → reconnecting → offline →
+需要重新確認 → 沒有裝置。
+
+**成員行**：已連接／重新連線中／離線／狀態不確定。
+**最近互動**：摸了摸角色／輕拍了角色／撫摸了角色／按著角色不放／和角色互動了一下／請角色休息一下。
+
+## 3. 空狀態 ≠ 成功
+
+「沒有裝置」是中性狀態，不是成就。`no-device` 的顏色是 muted，卡片上**不會**出現任何綠色徽章；
+文案也不寫成「一切正常」。同樣地：
+
+- 「讀不到權威狀態」不是「已同步」——一律 `syncing`（同步尚未完成）。
+- 「離線」不是「沒有裝置」——成員還在，只是這台裝置現在收不到。
+- 「撤銷」不是回到空狀態——是 `needs-reconfirmation`（需要重新確認裝置）。
+- 認不得的 presence 不猜：退回 `syncing` 並把 `known` 標成 `false`，補充句改成
+  「有裝置回報了這台電腦不認得的狀態；在弄清楚之前都當成尚未完成，不會當成已同步。」
+
+**刻意的行為（不是缺陷）**：撤銷過一台手機之後，即使裝置清單已經空了，卡片仍然顯示
+`needs-reconfirmation`（需要重新確認裝置），直到你重新配對。理由是它講的是事實——那台裝置的
+授權被撤銷了，角色要再同步就得再確認一次——而不是把「我把它移除了」偷偷說成「一切正常」。
+`no-device` 只留給**從來沒有裝置被撤銷過**的那台電腦。
+
+## 4. claimed ≠ verified：綠勾只給真的
+
+同步卡的九種狀態裡只有 `synced` 是 `ok`（綠）。這條規則和工作狀態的誠實階梯是同一條：
+`claimed-completed`（對方說做完了）永遠不是 `verified`（你檢查過了），
+`projectWorkState` 沒有任何路徑能把 claimed 升級成 verified。
+角色同步不會、也不能改寫這一層——它同步的是「角色現在是什麼語意狀態」，不是「工作有沒有做完」。
+`task.*` 的真相由 Runtime 轉錄進 session，session 只轉錄、不推論。
+
+**送出 ≠ 生效**：桌面角色被點一下時送出的語意事件，只有 Runtime 回 `applied` 才代表權威狀態真的改了；
+`rejected`／`expired`／不知道，介面一律照實說，不當成成功。
+
+## 5. 一般模式看不到的東西
+
+以下只在**進階模式**（更多 → 進階）的「連接診斷」收合區塊出現，一般模式一個字都不會有：
+
+`revision`、`sequence`、`sessionEpoch`、`eventLog`、各種 counters、`storeNote`、
+schema 版本、transport／token／provider id、裝置識別碼、原始 payload 或信封。
+
+裝置在畫面上永遠用**名稱**稱呼；名稱查不到時用中性的「一台裝置」，**絕不**退回裝置識別碼。
+守門測試同時做正反斷言（該有的人話有、不該有的技術詞一個都沒有）：
+`src/test/statusProjection-session.test.ts`、`src/test/character-sync-card.test.tsx`、
+`src/test/regressions-v06-general-mode.test.tsx`。
+
+## 6. 模擬 iPhone（fixture）的標示
+
+瀏覽器 journey（`e2e/character-session.spec.ts`）用的是
+`crates/interaction-runtime/examples/fake_iphone.rs`——**模擬 iPhone（fixture）**，程序外的假手機，
+不是 iPhone 真機。
+
+- fixture 的裝置名稱本身就是「模擬 iPhone（fixture）」，投影**原樣顯示**、不再加工，
+  所以成員清單、最近互動、連接頁的手機卡上都自帶這個標籤。
+- 狀態句子（例如「iPhone 已連接，角色狀態已同步」）是契約 §11 的固定文案，
+  裝置名稱在旁邊的清單裡各自列出，兩者不互相冒充。
+- 截圖存在 `docs/assets/v06-evidence/`（寬視窗與 390px 各一組），檔名與說明一律標示 fixture。
+- **iPhone 真機的角色同步驗收目前為零。** 任何文件都不得把上面這些寫成真機證據。
+
+## 7. 緊急停止
+
+緊急停止中，同步卡會多一句固定安全句：
+「緊急停止中：角色已停止表演，解除前不會接受任何互動。」
+
+**安全狀態壓過同步狀態**：這一句在的時候，徽章一律不是綠色（即使同步本身「技術上」還好好的）。
+句子本身照實不改——已同步就是已同步——但綠色會讀成「一切正常」，和正下方的安全句互相矛盾。
+
+這一句由可信的 host 介面顯示，角色、Character Pack、外部 adapter 都無法覆寫或隱藏它。
+同一時間任何裝置送來的互動事件都會被 Runtime 拒絕（`rejected{scope-denied}`），
+解除只能由人走安全流程，**不會**在重啟後自動恢復。

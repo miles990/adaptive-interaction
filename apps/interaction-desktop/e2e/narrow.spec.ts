@@ -88,3 +88,41 @@ test("390px：「現在」第一屏的三個回答與快速操作都看得到、
   await page.getByRole("button", { name: "加入裝置" }).click();
   await expect(page.locator(".topbar-title")).toHaveText("連接與權限");
 });
+
+// v0.6：角色頁的「同步」卡在 390px 上要讀得完（不是桌面限定的資訊）。
+test("390px：角色頁的「同步」卡看得到、不溢出，而且空狀態是中性的", async ({ page }) => {
+  await page.goto(appUrl());
+  const bottomNav = page.getByRole("navigation", { name: "主要導覽（窄視窗）" });
+  await expect(bottomNav).toBeVisible({ timeout: 15_000 });
+  await bottomNav.getByText(/^(小樞|角色)$/).click();
+  const card = page.getByTestId("character-sync");
+  await card.scrollIntoViewIfNeeded();
+  await expect(card).toBeVisible({ timeout: 20_000 });
+  // 這一支跑在共用 daemon 上，前面的 spec 可能配對過或撤銷過手機——所以不假設
+  // 是哪一種狀態，只驗「一定是九句人話之一」，而且綠勾只給真的已同步。
+  const headline = await card.locator(".badge").first().innerText();
+  expect([
+    "iPhone 已連接，角色狀態已同步",
+    "iPhone 正在重新連線",
+    "iPhone 暫時離線",
+    "部分能力目前不可用",
+    "同步尚未完成",
+    "無法恢復，請重新連接",
+    "需要重新確認裝置",
+    "尚未連接 iPhone",
+    "角色同步目前關閉",
+  ]).toContain(headline.trim());
+  if (headline.trim() !== "iPhone 已連接，角色狀態已同步") {
+    await expect(card.locator(".badge-ok")).toHaveCount(0);
+  }
+  // 一般模式看不到技術數字。
+  expect((await card.innerText()).toLowerCase()).not.toMatch(/revision|sequence|epoch|schema|token/);
+  // 卡片不超出 390px。
+  const box = await card.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+  );
+  expect(overflow).toBeLessThanOrEqual(1);
+});

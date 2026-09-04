@@ -144,6 +144,7 @@ import {
 import "../character/adapters";
 import type { CharacterManifest, CommandReceipt, IntentEnvelope } from "../character/protocol";
 import type { ToyCatalogEntry } from "../character/adapters/shuTables";
+import { sendCharacterTouch } from "./sessionTouch";
 
 // v0.4: itemized Presentation Provider receptors — each interaction kind
 // routes to its own receptor so consent/enable is per-capability. Unknown
@@ -867,6 +868,11 @@ export default function CompanionApp() {
         },
         onInput: (event) => {
           if (feedRef.current !== "protocol") return;
+          // 桌面視窗是可信 host surface：點角色除了照舊變成 companion.click 觀察，
+          // 也同時進 Character Session（手機那頭才知道角色被摸了一下）。
+          // 這是**額外**的一則語意事件，既有觀察路徑一個字都沒改；送出 ≠ 生效，
+          // 回應由 Runtime 決定，這裡不假設成功、也不排隊重送。
+          if (event.kind === "character.clicked") void sendCharacterTouch("tap");
           forwardBatchRef.current.push(
             api
               .characterEvent(PRIMARY_INSTANCE_ID, event)

@@ -171,3 +171,29 @@ test("外觀：淺色／深色／跟隨系統在五個一級入口、兩種視�
     await api(request, "PATCH", "/v1/ui/preferences", { appearance: "system" });
   }
 });
+
+// v0.6：角色頁（含新的「同步」卡）也要過同一套可及性檢查。
+test("螢幕閱讀器：角色頁每個可按的東西都有名字，「同步」卡是一個有名字的區域", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize(DESKTOP);
+  await openApp(page);
+  await navigateTo(page, PAGES[1], false);
+
+  // 同步卡：有 region 名稱、有可鍵盤操作的「重新檢查」。
+  const card = page.getByRole("region", { name: "角色同步" });
+  await expect(card).toBeVisible({ timeout: 20_000 });
+  const recheck = card.getByRole("button", { name: "重新檢查" });
+  await recheck.focus();
+  await expect(recheck).toBeFocused();
+
+  // 角色頁的每一顆按鈕都有非空的可及名稱（沿用 390px 那一支的檢查方式）。
+  const nameless = await page.locator(".character-page button").evaluateAll((els) =>
+    els
+      .filter((el) => {
+        const label = el.getAttribute("aria-label") ?? el.textContent ?? "";
+        return label.trim().length === 0;
+      })
+      .map((el) => el.outerHTML.slice(0, 120))
+  );
+  expect(nameless, "角色頁有按鈕沒有可及名稱").toEqual([]);
+});
