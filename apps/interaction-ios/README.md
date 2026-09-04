@@ -427,7 +427,10 @@ status 訊息(`sensors` 五旗標 + `microphone/location/bluetooth` 權限)於
    `swiftc -typecheck -D DEBUG`:**0 error、0 warning**。
 5. `-target InteractionCompanionTests … build` 產出 app-hosted
    `InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest`;
-   把 `_Testing_*.framework` 補進 `Frameworks/` 後 `simctl install` 並以
+   把 `_Testing_*.framework` **與 `lib_TestingInterop.dylib`**（v0.6.0 補記：兩者都在
+   `Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/`
+   與 `.../Library/Frameworks/`；漏掉 dylib 時 dyld 會因 `@rpath/lib_TestingInterop.dylib`
+   找不到而讓 0 個測試執行、卻不報錯）補進 `Frameworks/` 後 `simctl install` 並以
    `libXCTestBundleInject.dylib` 注入啟動(`-XCTest All`):
    當時(`ProtocolTests.swift` 只有 13 個 test 方法時)**Executed 21 tests, with 0 failures**
    (MotionClassifier 8 + Protocol 13)。
