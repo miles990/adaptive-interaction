@@ -89,6 +89,14 @@ AIP／Session 層寫入的稽核種類（`crates/interaction-session/src/session
   下次覆寫或被使用者手動刪除；壞檔案會被改名為 `.corrupt` 隔離（`quarantine()`，
   `character_session.rs`:90-96）但**不會被刪除**。這點本次未在既有文件（README／FEATURES／
   known-limitations）看到揭露，屬本文件新記錄的觀察，不是重新確認既有宣稱。
+- **AIP session epoch 檔**（`<home>/state/character-session.epoch`，
+  `crates/interaction-runtime/src/character_session.rs::SESSION_EPOCH_FILE`，權限 `0600`）：
+  只有一個十進位整數（`sessionEpoch`），**沒有任何個人資料、裝置識別碼或互動內容**。
+  它的用途是「這台電腦曾經以多大的 epoch 跑過 session」——快照被隔離（`.corrupt`）或整個被清空時，
+  靠它保證新 epoch 一定大於成員記得的值，成員才會在 resume 時拿到 `session-reset` 而不是把
+  host 的新狀態當成 rollback 忽略。**可以與快照一起刪除**（兩個檔案一起刪最乾淨）；
+  刪除之後 epoch 從**牆鐘秒數**（unix 秒）重新起跳，那個值保證大於任何以 1 起算的遞增 epoch，
+  所以舊裝置重連時仍會正確地拿到 `session-reset`。與 snapshot 一樣沒有以天數為單位的自動清除。
 - **有界事件日誌**（`EVENT_LOG_RING=512`，`crates/interaction-aip/src/limits.rs`）是容量上限，
   不是時間上限——舊事件因為環滿而被淘汰（`crates/interaction-session/src/session.rs::EventLog::push`
   :1454），不是因為到期。

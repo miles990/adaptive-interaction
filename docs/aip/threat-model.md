@@ -29,33 +29,43 @@ Runtime（唯一權威：Character Session Host、Policy Governor、Consent Serv
    └── AI Agent（agent token；不可授予 consent、不可解除 estop、不可產生 verified）
 ```
 
-跨越這些邊界的任何訊息都要先過 `crates/interaction-session/src/session.rs::gate()`（§3 的 13 步固定管線）
+跨越這些邊界的任何訊息都要先過 `crates/interaction-session/src/session.rs` 的 `gate()`（§3 的 13 步固定管線）
 或（外部 CPP adapter 路徑）CPP 自己的驗證管線；沒有任何邊界外的呼叫端能繞過去直接改
 `SemanticState`——欄位私有，只有 `CharacterSession::apply` 能改（`docs/aip/character-session.md` §2）。
 
 ## 3. 核心防線：`gate()` 的 13 步固定管線
 
-`crates/interaction-session/src/session.rs::gate()`（`:642-737`），逐步引用：
+程式碼位置：`crates/interaction-session/src/session.rs` 的 `fn gate(`。
 
-| 步 | 檢查 | 位置 | 失敗結果 |
+> **不用行號當錨點。** 這份文件曾以「冒號＋行號區間」這種硬編位置逐步引用 `gate()`，程式碼一插入
+> 就整體漂移約 55 行，讀者按圖索驥會讀到 `diagnostics()` 的欄位。錨點改成
+> 「`fn gate(` ＋每一步的步驟註解 `// N.`」——它們和程式碼綁在一起，重排也不會指錯地方。
+> `scripts/tests/docs-claims.sh` 會斷言 `fn gate(` 與 `// 1.`…`// 13.` 十三個註解錨點都還在
+> `session.rs` 裡，並禁止本節再出現硬編行號；該 lint 是 `release-verify.sh` 的關卡之一。
+>
+> 逐步定位：`rg -n "fn gate\(" crates/interaction-session/src/session.rs`，再在函式內找
+> `// 1.` … `// 13.`。
+
+| 步 | 檢查 | 錨點（`session.rs` 內的步驟註解） | 失敗結果 |
 |---|---|---|---|
-| 1 | schema／profile／大小／深度／版本／name 語法 | `:648-651`（呼叫 `envelope.validate()`，`crates/interaction-aip/src/envelope.rs`） | 對應 `ErrorCode`（來自 `validate()`） |
-| 2 | 身分綁定（宣稱 vs Transport 綁定身分） | `:652-659`（呼叫 `bind_identity`，`crates/interaction-aip/src/envelope.rs:330`） | `IdentityMismatch` |
-| 3 | 外部訊息不得宣稱 `Runtime` 身分 | `:660-666` | `IdentityMismatch` |
-| 4 | Session membership | `:668-671` | `NotAMember` |
-| 5 | 跨 session 注入（`sessionId` 不符） | `:672-677` | `NotAMember` |
-| 6 | `task.*`／`runtime.*` 只有 Runtime 可送 | `:678-681`（`is_runtime_only_name`，`crates/interaction-aip/src/message.rs:164`） | `ScopeDenied` |
-| 7 | `event` 的 `name` 必須在協商過的 `inputs` 內 | `:682-692` | `ScopeDenied` |
-| 8 | `result.payload.status:"verified"` 只有 Runtime 能送 | `:693-698` | `ScopeDenied` |
-| 9 | member 只能送 `event／cancel／query／result／heartbeat／capability` | `:699-710` | `ScopeDenied` |
-| 10 | Rate limit（per-member token bucket，時間注入） | `:711-717` | `RateLimited` |
-| 11 | Deadline（`envelope.is_expired(now)`） | `:718-725` | `Expired` |
-| 12 | 去重（256 筆 messageId 環，重複回 `accepted{duplicate:true}` 不重套用） | `:726-729` | `Gate::Duplicate`（非錯誤，是特殊路徑） |
-| 13 | Emergency 中拒絕互動事件 | `:730-735` | `ScopeDenied` |
+| 1 | schema／profile／大小／深度／版本／name 語法 | `// 1.`（呼叫 `envelope.validate()`，`crates/interaction-aip/src/envelope.rs`） | 對應 `ErrorCode`（來自 `validate()`） |
+| 2 | 身分綁定（宣稱 vs Transport 綁定身分） | `// 2.`（呼叫 `bind_identity`，`interaction-aip/src/envelope.rs::bind_identity`） | `IdentityMismatch` |
+| 3 | 外部訊息不得宣稱 `Runtime` 身分 | `// 3.` | `IdentityMismatch` |
+| 4 | Session membership | `// 4.` | `NotAMember` |
+| 4.1 | 通過身分＋membership 的 inbound envelope 即算存活證明 | `// 4.1` | （非拒絕路徑：更新 liveness） |
+| 5 | 跨 session 注入（`sessionId` 不符） | `// 5.` | `NotAMember` |
+| 6 | `task.*`／`runtime.*` 只有 Runtime 可送 | `// 6.`（`is_runtime_only_name`，`interaction-aip/src/message.rs`） | `ScopeDenied` |
+| 7 | `event` 的 `name` 必須在協商過的 `inputs` 內 | `// 7.` | `ScopeDenied` |
+| 8 | `result.payload.status:"verified"` 只有 Runtime 能送 | `// 8.` | `ScopeDenied` |
+| 8.1 | `consentGrantId` 只能出現在 host→裝置、需要授權的 command 上 | `// 8.1` | `ScopeDenied` |
+| 9 | member 只能送 `event／cancel／query／result／heartbeat／capability` | `// 9.` | `ScopeDenied` |
+| 10 | Rate limit（per-member token bucket，時間注入） | `// 10.` | `RateLimited` |
+| 11 | Deadline（`envelope.is_expired(now)`；成員自報的 `expiresAt` 只是宣稱，會被夾住） | `// 11.` | `Expired` |
+| 12 | 去重（256 筆 messageId 環，重複回 `accepted{duplicate:true}` 不重套用） | `// 12.` | `Gate::Duplicate`（非錯誤，是特殊路徑） |
+| 13 | Emergency 中拒絕互動事件 | `// 13.` | `ScopeDenied` |
 
 這 13 步的順序本身是安全屬性（先確認身分再看內容，避免用「內容合法」掩護「身分不合法」）：測試
-`crates/interaction-session/tests/security_matrix.rs::the_pipeline_order_is_fixed_identity_before_membership_before_scope`
-（`:217`）。
+`crates/interaction-session/tests/security_matrix.rs::the_pipeline_order_is_fixed_identity_before_membership_before_scope`。
 
 ## 4. 攻擊面逐項
 

@@ -194,9 +194,14 @@ interact-ai session start    # 開始一個互動 session（授權的邊界）
 之後更新／移除：
 
 ```bash
-interact-ai self update              # 一鍵更新（自動驗證 sha256 檔案指紋）
+interact-ai self update              # 一鍵更新（比對 Release 的 .sha256；缺校驗檔即中止安裝）
 interact-ai self uninstall --yes     # 移除（--purge 連設定資料一起刪）
 ```
+
+> 完整性說明：安裝／更新一律比對 Release 附的 `.sha256`，不符或抓不到就中止（fail-closed）。
+> 但**沒有程式碼簽章、Apple 公證、SBOM 或 build provenance**——sha256 只證明位元組與 Release 一致，
+> 不證明來源；桌面安裝包也未簽章。Linux aarch64 沒有預編譯檔，需從原始碼建置。
+> 細節見 [安裝指南](docs/INSTALL.md#完整性驗證能證明什麼不能證明什麼)。
 
 ## 三種使用方式
 

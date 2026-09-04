@@ -12,8 +12,8 @@
 ### v0.6.0 — Foundation：AIP 1.0 最小協定、權威 Character Session、小樞脫離核心（開發中）
 
 > 保守、可回退的架構升級：不重寫既有功能，先建立修改前基線與恢復矩陣，再以 Strangler／feature flag
-> 逐條路徑替換。本段只記錄**已提交並經回歸**的事實；尚未落地的項目（Runtime Session Host、iPhone `aip`
-> frame、桌面同步 UI、iOS Session client、對抗審查）在落地前不會出現在這裡。證據等級逐項標明。
+> 逐條路徑替換。本段只記錄**已提交**的事實，證據等級逐項標明；未落地的項目列在文末「已知限制／尚未落地」。
+> 通過數字一律引自 `docs/releases/v0.6.0-{baseline,test-matrix}.md`，本檔不做第一手宣稱。
 
 #### Added — 協定與領域核心
 - **AIP 1.0（Adaptive Interaction Protocol）**：新 crate `interaction-aip`（純函式、無 tokio／I/O）——
@@ -53,11 +53,111 @@
   核心 `interaction-character/src`、`character.rs`、`CompanionApp.tsx` 沒有為它新增任何分岔。
 
 #### Changed — 發布流程
+- `scripts/release-verify.sh` 的 secret 掃描擴充到 GitHub（`gh[pousr]_`／`github_pat_`）、Anthropic／OpenAI（`sk-ant-`／`sk-proj-`／`sk-`）、AWS（`AKIA`）、Google（`AIza`）、Slack（`xox[abprs]-`）與私鑰形狀；`scripts/tests/release-scripts.sh` 以 9 個正例＋4 個反例釘住（對抗審查 `release-provenance-076`，該項在報告中為 unverified，順手修正、不計入 confirmed 統計）。
 - `scripts/release.sh` 拆成 `release-prepare.sh`（改版本號／CHANGELOG／golden／codegen，不 commit、空的 Unreleased
   直接拒絕）、`release-verify.sh`（唯讀關卡：worktree 乾淨、四處版本一致、CHANGELOG 段非空、tag 不存在、
   `openapi.json` 版本、tracked 檔無 secret、AIP codegen 無漂移、HEAD 的 CI check-runs 全綠、可選全量測試）與
   `release-tag.sh`（只從已在 origin 上且 verify 通過的 commit 建 annotated tag，`--push` 才推）。`release.sh` 只印流程，
   保留 `--all-in-one` 給離線緊急情況。
+
+#### Added — wave 2／3：Session Host、iPhone 閉環與桌面同步（證據等級逐項標明）
+- **Runtime Session Host**（`crates/interaction-runtime/src/character_session.rs`，`e71ab45`）：把
+  `interaction-session` 的權威 Session 接進 Runtime，並綁到 iPhone 線協定、HTTP、SSE 與 CLI。
+  由 feature flag `INTERACT_AI_CHARACTER_SESSION`（預設 `1`）控制；`0` 時四條
+  `/v1/character-session/*` 路由回 `503 session-disabled`，行為回到 v0.5.1。
+  **證據等級：unit／contract**（`crates/interaction-runtime/tests/character_session_loop.rs`）。
+- **iPhone 線協定 v1 的 `aip` frame**（`crates/interaction-runtime/src/mobile.rs`，`e71ab45`）：
+  只在 `auth-ok` 之後接受，共用既有 128 KiB frame 上限與 30 msg/s 速率窗；沒送過 `capability`
+  的舊 App 永遠收不到任何 `aip` frame。**證據等級：fixture**（模擬 iPhone，非真機）。
+- **桌面同步卡**（`apps/interaction-desktop/src/components/CharacterSyncCard.tsx`＋
+  `src/statusProjection.ts` 的 `CHARACTER_SYNC_PROJECTION`，`f28bb84`／`6683403`）：角色頁新增「同步」卡，
+  以一般模式人話呈現 session 狀態（不外洩 envelope／revision／capability 等技術詞），
+  安全訊息仍走可信 host overlay。**證據等級：browser fixture**（vitest＋Playwright，非真機 iPhone）。
+- **iOS Session Client**（`apps/interaction-ios/InteractionCompanion/Services/SessionClient.swift`，`012ff69`）：
+  iPhone App 加入 session 並由 semantic state 驅動角色呈現。
+  **證據等級：simulator**（iOS Simulator XCTest，`SessionClientTests.swift`；iPhone 真機未驗）。
+- **v0.6.0 對抗審查已執行**：`.claude/workflows/adversarial-review-v06.js` 的 findings 落盤於
+  `docs/reviews/adversarial/6683403-20260904T161327Z.{json,md}`（`5689b4f`）。
+
+#### Fixed — 發布來源可信度與文件誠實度（本輪對抗審查 confirmed findings）
+- **`self update`／`install.sh` 的 sha256 驗證改為 fail-closed**（`release-provenance-074`）：
+  抓不到 `<asset>.sha256` 不再印一行 warning 就照裝，而是中止安裝。要接受未驗證下載必須明示
+  `INTERACT_AI_ALLOW_UNVERIFIED_DOWNLOAD=1`。**Breaking**：Release 資產尚未上傳完成時安裝會失敗
+  （這是刻意的——draft release 期間本來就不該被安裝）。
+- **桌面安裝包有 checksum 了**（`release-provenance-075`）：`release.yml` 的 `desktop` job 為每個
+  bundle 產生並上傳 `.sha256`；`interact-ai self install-desktop` 下載後先驗證才交給 OS，驗證失敗
+  會刪掉下載檔並中止。
+- **tag → Release 有 CI 關卡，且先 draft 後發布**（`release-provenance-072`／`079`）：
+  `release.yml` 新增 `ci-gate` job，用 `scripts/ci-required-checks.sh` 斷言 `ci.yml` 定義的每個 job
+  在被 tag 的 commit 上都存在且 `success`（`ci.yml` 不在 tag 上跑，`--verify-tag` 只證明 tag 存在）；
+  `create-release` 改以 `--draft` 建立，新增 `finalize` job 在四個平台的 CLI、桌面 bundle 與 extras
+  全部到齊後才 `--draft=false`。任一平台建置失敗，Release 就停在 draft，安裝器看不到它。
+- **`release-verify.sh` 不再把「沒查」寫成「通過」**（`release-provenance-073`）：跳過的關卡印
+  `⊘ … SKIPPED`，收尾改成 `passed-with-skips`；CI 關卡改為逐一斷言必需 job 在場且成功
+  （`release-provenance-077`，含 `gh api --paginate`）；新增「每個 crate 版本都跟著 workspace」關卡
+  （`release-provenance-078`）與文件誠實度 lint 關卡。
+- **`release-tag.sh` 在 macOS 預設 bash 3.2 下不再 crash**（`release-provenance-071`）：`set -u` 下的
+  空陣列展開改用 `${ARR[@]+"${ARR[@]}"}`。修復前「不跳過 CI」的安全路徑會 unbound variable 直接退出，
+  只有 `--skip-ci` 能跑——關卡被 shell 相容性反向篩選。
+- **`release.sh --all-in-one` 需要明示 `--i-know-there-is-no-ci`**（`release-provenance-072`），
+  且 tag message 會寫入「無 CI 證據」。
+- **`interaction-agent-gateway` 版本跟著 workspace 走**（`release-provenance-078`）：修復前它固定是
+  `0.3.0`，並經由 `clientInfo.version` 洩漏給外部 Codex agent。
+- **Linux aarch64 不再被謊稱支援**（`release-provenance-080`）：`release.yml` 從未建置該 target，
+  `get.sh` 與 `target_triple()` 改為明確指向從原始碼建置，而不是讓使用者拿到 HTTP 404。
+- **文件與程式碼現況對齊**（`evidence-honesty-012`／`013`／`014`／`016`）：CHANGELOG 不再宣稱已落地的
+  wave 2／3 功能「尚未落地」；`docs/ARCHITECTURE.md` §6 改為 HEAD 現況；`docs/aip/threat-model.md`
+  改用函式名／步驟錨點取代會漂移的硬編行號；`docs/aip/README.md` §10 改為誠實標示 `EvidenceClass`
+  尚未接進 diagnostics。新增 `scripts/tests/docs-claims.sh` 把這些宣稱釘成 lint。
+
+#### 對抗審查 `6683403-20260904T161327Z`（80 送審／73 confirmed／已修 68／部分修 5／deferred 0）
+
+12 維度、find→獨立 verifier 覆核；7 則 refuted、1 則 unverified 不計入 confirmed。逐條處置在
+`docs/releases/v0.6.0-known-limitations.md` §2.1，完整報告在 `docs/reviews/adversarial/6683403-20260904T161327Z.{json,md}`。
+修復依檔案歸屬分成 7 組平行進行，每組先寫「舊行為下紅燈」的回歸測試再修。
+
+- **已修 68**（根因消除＋回歸測試）。其中 6 則需要跨組收尾（一組改不到另一組的檔案），
+  由最後一輪收尾補齊：`pairing-migration-001`（Rust 端 `accept_state_with_epoch` 改成
+  「`session-reset` 且 epoch **不同**即接受」，與 iOS 端與契約 §7 第 4 步一致；含 host 重灌後
+  epoch 變小的回歸）、`session-integrity-056`（Runtime 啟動時若 estop 仍生效就補送
+  `RuntimeFact::Emergency{engaged:true}` 進 session，且排在 `restore_agent_sessions` 之前）、
+  `identity-binding-009`（`character_session_device_query` 對去重命中直接回
+  `accepted{duplicate:true}`，不重跑 resume／snapshot、不消耗 sequence）、
+  `general-mode-ux-022`／`capability-consent-052`（`MemberView`／diagnostics `members[]` 新增
+  `unsupportedIntents: [String]`，讓一般模式的「部分能力目前不可用」有真實來源）、
+  `reconnect-recovery-044`（`mobile.rs` 斷線收尾對已協商成員送 `Presence::Reconnecting`，
+  逾時後才由 session tick 轉 `Offline`；撤銷仍是 `leave`）。
+- **部分修 5**（主要缺口關掉、剩餘範圍逐條記在下方「已知限制」）：`identity-binding-007`、
+  `runtime-boundaries-065`、`release-provenance-078`、`character-package-020`、`aip-protocol-036`。
+- **deferred 0**：沒有任何 confirmed finding 被留成「知道但沒動也沒記錄」。
+
+#### 已知限制（v0.6.0 進行中，尚未修）
+- **`runtime-boundaries-065`：高風險受器的停止路徑只做到誠實回報，沒有做 `SensorSource` port**。
+  stop-all-sensors 對非 mobile provider 的高風險受器會回 `stopped=false` 與
+  `SensorStopUncertain{no-stop-path}`（不再假裝停掉了），但那些受器**仍然收不到真正的停止請求**。
+  結構性修復（把「停止感測」抽成 provider 都要實作的 port）不在本輪範圍。
+  測試：`crates/interaction-runtime/tests/sensors_loop.rs::stop_all_sensors_is_honest_about_high_risk_receptors_it_never_asked`。
+- **`settingsTransfer.ts` 仍以 `SHU_RIG_PALETTES` 驗證使魔配色**：小樞脫離協定核心之後，桌面設定
+  匯入／匯出這條路徑還留著一個對小樞 palette 表的引用（`isShuRigPalette` 的相容 re-export）。
+  行為正確，但它是「Runtime／頁面不得再引用小樞」這條不變量在前端的最後一個例外。
+- **burst > 30 msg/s 會觸發既有 v1 連線關閉**：AIP frame 共用 iPhone 線協定 v1 的速率窗，
+  超過就是**關連線**（不是只丟那一則）。session 端另有每成員 30/s 的 token bucket 會先回
+  `rejected{rate-limited}`，但一次爆量仍可能先撞到 transport 那一層。這是既有 v1 行為，本輪不改。
+- **iPhone 真機仍是 implemented-unverified**：wave 1-3 與本輪修復的 iOS 證據全部來自
+  iOS Simulator（XCTest）與程序內 fixture（模擬 iPhone）。`docs/releases/v0.6.0-test-matrix.md`
+  記載「iPhone 真機／ESP32 真板：未執行」，本檔沿用同一結論。
+- **沒有程式碼簽章／公證／SBOM／build provenance**：Release 只發布 `.sha256`，它證明「位元組與 Release
+  一致」，不證明來源。macOS bundle 未簽章未公證、Windows 安裝程式未簽章（`release-provenance-075`
+  的 provenance 部分只做到誠實揭露，見 `docs/INSTALL.md`）。
+- **Linux aarch64 沒有預編譯檔**：需從原始碼建置（`release-provenance-080`）。
+- **兩個 crate 的版本仍脫離 workspace**：`crates/interaction-adapter-declarative`（`0.2.0`）與
+  `adapters/media`（`0.2.0`）寫死自有版本，`release-prepare.sh` 改不到它們。`release-verify.sh`
+  會以 `⚠ 已知版本漂移` 明列，不當成通過（`release-provenance-078` 的剩餘部分）。
+- **`EvidenceClass` 只有詞彙、沒有機制**：diagnostics 回傳沒有證據等級欄位，「fixture 不得標成
+  real-device」目前靠人工文件紀律（`evidence-honesty-016`）。
+- **`ci-gate`／`finalize` 未經真實 tag push 驗證**：兩個新 job 的邏輯由
+  `scripts/tests/release-yml-embedded.py` 抽出內嵌 shell／python 實跑（資產不齊會擋、缺 check-run 會擋），
+  但整條 workflow 只有下一次真的推 tag 時才會被 GitHub 執行。**證據等級：unit，不是端對端。**
 
 #### Added — 基線與審查
 - `docs/releases/v0.6.0-baseline.md`（修改前同機實跑：Rust 827/0、Tauri 50/0、vitest 1168/0、CLI E2E 82/0、Playwright 65/0、

@@ -259,34 +259,40 @@ iPhone 線協定 v1（`mobile.rs`）新增一種 frame `{"type":"aip","envelope"
 `0` 時 Runtime 不啟動 Session Host，四條 `/v1/character-session/*` 路由回 `503 session-disabled`，iPhone 的
 `aip` frame 回 `error{unsupported-capability}`；其餘行為與 v0.5.1 相同（回退路徑）。
 
-### 6. 已落地（HEAD `edb1682`）vs 進行中
+### 6. 已落地（HEAD `5689b4f`）vs 尚未落地
 
-**已落地**（程式碼與對應測試函式已提交；未在本次任務內重跑驗證）：
+**已落地**（程式碼與對應測試函式已提交；本節只陳述「檔案／符號在 HEAD 上存在」這個可用
+`rg` 逐條複核的事實，不代表本次任務重跑過測試——通過數字一律以
+`docs/releases/v0.6.0-test-matrix.md` 為準）：
 
 - `interaction-aip`、`interaction-session`、`interaction-character-shu` 三個新 crate＋golden schema＋codegen＋conformance fixture。
 - 小樞脫離 `interaction-character` 核心（strangler）＋TS `character/adapterRegistry.ts`＋第二個 Reference Character `ref-shape`。
-- Runtime Session Host 接線（`character_session.rs`）＋HTTP／SSE／CLI（`e71ab45 feat(runtime): host the authoritative
-  Character Session and bind it to the iPhone wire protocol, HTTP, SSE and CLI`）。
+- Runtime Session Host 接線（`crates/interaction-runtime/src/character_session.rs`）＋HTTP／SSE／CLI
+  （`e71ab45 feat(runtime): host the authoritative Character Session and bind it to the iPhone wire protocol, HTTP, SSE and CLI`）。
 - iPhone `aip` frame（同一個 commit `e71ab45`，`mobile.rs`）。
-- 發布流程拆分（`release-prepare.sh`／`release-verify.sh`／`release-tag.sh`）。
+- **桌面同步狀態文案**（`f28bb84`）：`docs/aip/character-session.md` §11 的一般模式人話已落在
+  `apps/interaction-desktop/src/statusProjection.ts` 的 `CHARACTER_SYNC_PROJECTION`，並由
+  `src/components/CharacterSyncCard.tsx` 呈現；證據等級 **browser fixture**
+  （vitest／Playwright，非真機 iPhone）。
+- **iOS Session Client**（`012ff69`）：`apps/interaction-ios/InteractionCompanion/Services/SessionClient.swift`
+  ＋`InteractionCompanionTests/SessionClientTests.swift`，由 semantic state 驅動角色呈現；證據等級
+  **simulator**（iOS Simulator XCTest，非 iPhone 真機）。
+- **對抗審查**：`.claude/workflows/adversarial-review-v06.js` 已執行，findings 落盤於
+  `docs/reviews/adversarial/6683403-20260904T161327Z.{json,md}`（commit `5689b4f`）。
+- 發布流程拆分（`release-prepare.sh`／`release-verify.sh`／`release-tag.sh`）＋ tag→Release 的 CI 關卡
+  （`.github/workflows/release.yml` 的 `ci-gate`／`finalize`、`scripts/ci-required-checks.sh`）。
 - `docs/aip/*` 契約文件、`docs/releases/v0.6.0-baseline.md`（修改前基線）、`v0.6.0-recovery-matrix.md`（恢復矩陣）、
-  `.claude/workflows/adversarial-review-v06.js`（**已加入，尚未執行**）。
+  `v0.6.0-test-matrix.md`、`v0.6.0-migration.md`。
 
-**進行中，未驗證**（本次任務在 `apps/interaction-desktop/src`、`apps/interaction-ios` 搜尋不到對應實作，
-`rg -n "characterSession|CharacterSession" apps/interaction-desktop/src apps/interaction-ios` 除 `aip/generated.ts`
-的型別定義外無其他命中）：
+**尚未落地**：
 
-- **桌面同步狀態文案**：`docs/aip/character-session.md` §11 定義的一般模式人話（「iPhone 已連接，角色狀態已同步」等）
-  尚未出現在 `statusProjection.ts` 或任何桌面頁面；`aip/envelope.ts`／`generated.ts`（AIP 型別鏡射）與
-  `aip-conformance.test.ts`／`aip-envelope.test.ts` 已存在，但沒有把 session state 接上 UI 的程式碼。
-- **iOS Session client**：`apps/interaction-ios` 目前只有 AIP 型別鏡射與 conformance（`AIPEnvelope.swift`／
-  `AIPGenerated.swift`／`AIPConformanceTests.swift`／`AIPFixtures.swift`），沒有加入 session、渲染 semantic state
-  的 client 程式碼。
-- **對抗審查**：workflow 檔已提交，尚未執行（無 finding 記錄）。
+- **`crates/interaction-adapter-declarative`（ESP32／BLE／Serial）尚未接上 AIP Device Profile**
+  （`rg -n "AIP" crates/interaction-adapter-declarative/src` 零命中）；`docs/aip/device-profile.md` §6
+  的 profile 目前只有 iPhone Mobile Provider 一個實作。
+- **iPhone 真機／ESP32 真板驗收**：v0.6.0 的證據全部是模擬器與 fixture，見
+  `docs/releases/v0.6.0-test-matrix.md` §1。
+- **`EvidenceClass` 尚未接進 diagnostics**：AIP §10 只定義詞彙，Runtime／API／CLI 沒有生產或消費端，
+  「fixture 不得標成 real-device」目前靠人工文件紀律維持（見 `docs/aip/README.md` §10）。
 
-**文件落後程式碼的已知落差**：`CHANGELOG.md` 的 `[Unreleased]` 段最後一次更新（`336a6b6 docs(changelog): open
-the v0.6.0 Foundation section with the landed wave-1 facts`）早於 `94abf5c`（TS migrator registry 鏡射收尾）、
-`e71ab45`（Session Host＋iPhone `aip` frame＋HTTP／SSE／CLI）與 `edb1682`（桌面 lockfile 更新）三個 commit，
-因此目前 CHANGELOG 正文仍寫「Runtime Session Host、iPhone `aip` frame……在落地前不會出現在這裡」，但這兩項
-的程式碼與測試函式**已經**在 HEAD 上；這是文件更新滯後於程式碼，不是功能缺失，記錄於此供補寫 CHANGELOG 時參考
-（CHANGELOG.md 不在本輪文件任務的可修改清單內，未逕行修改）。
+> 本節的「已落地／尚未落地」由 `scripts/tests/docs-claims.sh` 釘住：文件若再把一個已存在於
+> HEAD 的模組寫成不存在，該 lint 會在 `release-verify.sh` 的關卡上紅燈。

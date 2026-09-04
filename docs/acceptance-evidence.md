@@ -931,7 +931,7 @@ re-hello（macOS 行為，非缺陷）；故障注入接縫編進正式碼（ine
 |---|---|---|
 | iPhone 送語意事件（touch）→ Desktop 權威狀態前進、Behavior Intent 回送 | 達成（**模擬 iPhone fixture＋模擬器**，非真機） | CLI E2E Character Session 段（14 斷言）；`character-session.spec.ts` 第一個 test＋`desktop-character-sync-synced.png` |
 | Desktop 真相變化（`task.verified`）→ iPhone 收到 celebrate Behavior Intent | 達成（單元／integration 層） | `interaction-session/tests/pure_functions.rs`（Director `task.verified→proud+celebrate` 案例）；`docs/aip/README.md` §13。**沒有端到端 UI 截圖直接誘發並驗證這條路徑**（見 `v0.6.0-test-matrix.md` §6） |
-| 斷線→重連→resume（delta patch 優先，超出日誌環才 snapshot fallback） | 達成 | CLI E2E（斷線／重連／resume 兩層）；`perf-session-after.json` 的 `reconnectResumeKind:"patches"`、`reconnectToResumedMs` 5.7 ms；`docs/assets/v06-evidence/desktop-character-sync-offline.png` |
+| 斷線→重連→resume（delta patch 優先，超出日誌環才 snapshot fallback） | 達成 | CLI E2E（斷線／重連／resume 兩層）；`perf-session-after.json` 的 `reconnectResumeKind:"patches"`、`reconnectToResumedMs` 5.7 ms；`docs/assets/v06-evidence/desktop-character-sync-reconnecting.png` |
 | 撤銷裝置後需要重新確認，不自動恢復同步 | 達成 | `character-session.spec.ts` 撤銷段落＋`desktop-character-sync-needs-reconfirmation.png` |
 | 緊急停止中，觸摸被拒且畫面誠實顯示緊急狀態 | 達成 | `character-session.spec.ts` 第三個 test＋`desktop-character-sync-emergency.png`（僅桌面寬度；390px 版本未產出，見已知限制） |
 | iOS 原生 App（非 Web）能作為 `remote-renderer` 加入 session | 達成（**iOS 模擬器**） | `apps/interaction-ios/InteractionCompanion/Services/SessionClient.swift`；`SessionClientTests` 28 個；`ios-sim-character-session-synced.png`／`ios-sim-character-session-advanced-diagnostics.png` |
@@ -975,3 +975,26 @@ iPhone 真機上的 AIP／Character Session 完整閉環零執行（implemented-
 真 `codex`／`claude` 二進位對接 AIP／Character Session 仍未跑（沿用既有 fixture agent）；對抗審查
 （`adversarial-review-v06.js`）執行結果不在本節範圍內；CHANGELOG 的 v0.6.0 段落只記到 wave1，wave2／
 wave3／hardening 的落地事實尚未回填。
+
+#### 對抗審查修復後的已知限制（2026-09-05 收尾；完整清單見 `CHANGELOG.md` `[Unreleased]`）
+
+對抗審查 `6683403-20260904T161327Z`：**80 送審／73 confirmed／已修 68／部分修 5／deferred 0**
+（逐條處置在 `docs/releases/v0.6.0-known-limitations.md` §2.1）。修完之後仍然成立的限制，
+簡短列在這裡，細節與 finding id 對應以 `CHANGELOG.md` `[Unreleased]` 那一段為準：
+
+- `runtime-boundaries-065`：高風險受器停止路徑**只做到誠實回報**（`stopped=false`＋
+  `SensorStopUncertain{no-stop-path}`），沒有做 `SensorSource` port；非 mobile provider 的高風險受器
+  仍收不到真正的停止請求。
+- `crates/interaction-adapter-declarative`（`0.2.0`）與 `adapters/media`（`0.2.0`）版本仍脫離
+  workspace，`release-verify.sh` 以 `⚠ 已知版本漂移` 明列，不當成通過。
+- Linux aarch64 已從支援宣告移除（不再給 404），需從原始碼建置。
+- 沒有程式碼簽章／公證／SBOM／build provenance；Release 只有 `.sha256`。
+- `release.yml` 的 `ci-gate`／`finalize` 兩個 job **未經真實 tag push 驗證**（證據等級：unit）。
+- `apps/desktop` 的 `settingsTransfer.ts` 仍以 `SHU_RIG_PALETTES` 驗證使魔配色——「Runtime／頁面
+  不得再引用小樞」這條不變量在前端的最後一個例外。
+- iPhone 真機仍是 **implemented-unverified**（本輪 iOS 證據全部是 iOS Simulator 與程序內 fixture）。
+- AIP frame 共用 iPhone 線協定 v1 的速率窗：burst > 30 msg/s 會觸發**既有 v1 的連線關閉**
+  （不是只丟那一則）；session 端每成員 30/s 的 token bucket 在那之前會先回 `rejected{rate-limited}`。
+- 桌面同步卡的「iPhone 已連接，能力核對中」（`capability-unknown`）在本輪之後**只剩讀不到／
+  形狀不認得時的保守回退**：Runtime 已把協商結果投影成 `members[].unsupportedIntents`
+  （`docs/aip/character-session.md` §3），正式路徑上會直接落到「已同步」或「部分能力目前不可用」。

@@ -44,12 +44,24 @@
   "attention": { "kind": "none" },                    // none | {kind:"member", id} | {kind:"task", correlationId}
   "truth": { "state": "none", "correlationId": null },// CPP TruthState 詞彙（none…verified…emergency…）
   "lastInteraction": { "name": "character.interaction.touch", "kind": "tap", "source": "device:iphone-…", "at": "…" },
-  "members": [ { "party": {"kind":"device","id":"…"}, "role": "remote-renderer", "presence": "online", "lastSeenAt": "…" } ],
+  "members": [ { "party": {"kind":"device","id":"…"}, "role": "remote-renderer", "presence": "online",
+                 "lastSeenAt": "…", "unsupportedIntents": [] } ],   // 協商為 unsupported 的 intent 名；沒有就是空陣列
   "reducedMotion": false
 }
 ```
 
 字串長度、成員數（≤ 16）、巢狀深度受 AIP limits 約束。
+
+`members[].unsupportedIntents` 是**協商結果裡唯一被投影出去的欄位**：其餘 `NegotiatedCapabilities`
+（inputs、limits、specVersion…）仍是 host 私有。投影它的理由是 §11 的「部分能力目前不可用」需要一個
+真實來源——沒有它，一般模式只能顯示保守的「能力核對中」，或更糟：把「不知道」說成「已同步」。
+規則：
+- 永遠是**陣列**（沒有不支援的 intent 就是 `[]`），接收端因此不必區分「都支援」與「不知道」。
+- 還沒重新協商的還原成員（§12.10）會列出**全部** host intent——它現在確實一個都演不了，
+  空陣列會是一句 host 證明不了的話。
+- 這個欄位加進 `SemanticState` 之後，**舊形狀的持久化快照會被 `restore` 判成 `HashMismatch`**
+  （只有本實作寫得出來的 canonical state 才能成為權威狀態），host 隔離它、開新 session，
+  diagnostics 的 `storeNote` 誠實標示（§11 的「角色同步紀錄曾損毀，已重新開始」）。
 
 > **實作註記（`crates/interaction-session`）**：一則外部訊息只回**一則** `result`（`applied`／`rejected`／`expired`／`cancel-confirmed`）；
 > 同一個 `messageId` 再送一次回 `accepted{duplicate:true}` 且**不重套用**。上面的 JSON 是示意：值為「無」的選填鍵
@@ -135,7 +147,27 @@ host 呼叫 `Runtime::character_session_touch_presence` 記下存活（`transpor
 順序固定：message bytes ≤ 64 KiB → JSON 解析 → schema／profile 驗證 → payload ≤ 32 KiB、深度、字串長度 →
 `specVersion` major → 身分綁定（Transport 身分 vs `source`）→ session membership（未 join 的 device 不能送 event）→
 `sessionId` 等於本 session（跨 session 注入 → `not-a-member`）→ name scope（capability 宣告過的 inputs 才能送）→
-rate limit → deadline → dedupe → apply。任一失敗：`result{rejected}`／`error`＋稽核（`aip.rejected{code}`），不執行。
+`consentGrantId` scope（第 8.1 關）→ message type 白名單 → rate limit → deadline（第 11 關，含夾制）→
+dedupe（第 12 關，只查不記）→ emergency → apply。任一失敗：`result{rejected}`／`error`＋稽核
+（`aip.rejected{code}`），不執行。
+
+三個容易被誤讀的關卡，權威實作（`session.rs::gate`，十三個 `// 1.`…`// 13.` 註解錨點）補齊如下：
+
+- **第 8.1 關 — inbound 的 `consentGrantId` 一律 `scope-denied`**。`consentGrantId` 只存在於
+  host→裝置、需要授權的 `command` 上。成員送進來的訊息**沒有任何理由**帶 grant：AI／adapter／裝置
+  不能授予 consent（CLAUDE.md 不變量）。1.0 直接拒絕，**不去問任何驗證器**——把一個偽造的 grant 拿去
+  查詢，本身就已經把「誰能授權」這個決定交給了外部輸入。
+- **第 11 關 — `expiresAt` 是宣稱，不是授權**。互動事件（`character.interaction.*`）的有效期一律夾成
+  `min(成員自報的 expiresAt, occurredAt + touchTtlMs)`；沒帶 `expiresAt` 就用上界。沒有這個夾制，
+  一台離線幾分鐘的手機只要把 `expiresAt` 寫成一小時後，重連時排隊的舊觸摸就會被當成新鮮互動套用。
+  `occurredAt` 與 host 時鐘偏差超過 `MAX_CLOCK_SKEW_MS`（30 s）時**只稽核不拒絕**：留下
+  `aip.clock-skew{skewMs, maxMs}`（只記偏差量，不回顯 payload），因為時鐘不準不是攻擊的證據，
+  而夾制已經把它造成的傷害關掉了。
+- **第 12 關 — 去重「只查不記」**。這一關命中就回 `accepted{duplicate:true}` 且**不重套用**；
+  沒命中則**先不佔位**，等訊息真的被 `apply` 之後才把 `messageId` 放進去重環。先佔位的話，
+  一則後來被拒絕／過期的訊息會把自己的 id 燒進 256 筆的環裡，讓合法的重送永遠得不到處理。
+  去重對**每一種** message type 都成立，`query`（resume／snapshot）不例外：重播不得再跑一次
+  resume／snapshot，那會多消耗一個 sequence 並灌大 diagnostics 計數器。
 
 membership 那一關通過之後**立刻記存活證明**（§7.1）：後面每一關都可能拒絕這則訊息，但拒絕的是訊息，
 不是這個成員的存在。身分綁定或 membership 沒過的訊息**不算**存活證明（那才是「不認識的人」）。
@@ -154,26 +186,49 @@ scope mismatch、renderer capability spoofing（宣告不存在的 intent 只會
 ## 10. Diagnostics（`GET /v1/character-session/diagnostics`，human token）
 
 `{ sessionId, sessionEpoch, revision, sequence, members[], counters:{ accepted, applied, rejected:{<code>:n},
-duplicates, expired, resumes, snapshots, patches, intents.emitted, intents.expired, intents.dropped,
-intents.observed, intents.rejected, intents.failed }, eventLog:{ len, cap } }`。不含 token、路徑、原始 payload。
+duplicates, expired, resumes, resumes.ahead, snapshots, patches, identity_mismatch, internal,
+intents.emitted, intents.expired, intents.dropped, intents.observed, intents.rejected, intents.failed,
+intents.unsolicited }, eventLog:{ len, cap }, storeNote }`。不含 token、路徑、原始 payload。
 一般模式不顯示這些；只顯示 §11 的人話。
+
+`members[]` 是 §3 的 `MemberView`（含 `unsupportedIntents`），不含 `negotiated` 的其餘細節。
+幾個計數器的語意值得寫明，因為它們是「誠實記錄，不動狀態」的地方：
+
+| counter | 意思 |
+|---|---|
+| `resumes` | 收到 `character.session.resume` 的次數（重播被去重擋掉的不算） |
+| `resumes.ahead` | 成員宣稱的進度**超前 host**。這是宣稱不是證據：host 只在自己確實從一份無法證明最新的快照還原過時才重建 session，其餘一律只留這個計數 |
+| `intents.emitted` / `expired` | 送出的 Behavior Intent 數／真的沒有任何人回覆而逾時的數 |
+| `intents.dropped` | 因為沒有任何 online 且協商為 `exact` 的 remote-renderer 而沒送出去的 intent |
+| `intents.observed` / `rejected` / `failed` | 成員回報的終態（`observed` **不是** `verified`） |
+| `intents.unsolicited` | 對不上任何待決 intent 的 `result`（重播或亂送）；只計數，不結清任何東西 |
+| `identity_mismatch` | 身分綁定沒過的訊息數（`source` 與 Transport 身分不符） |
 
 ## 11. 一般模式文案（人話；由 `statusProjection.ts` 投影，不外洩 revision／sequence）
 
 | 狀態 | 文案 |
 |---|---|
-| 有 online 遠端成員 | 「iPhone 已連接，角色狀態已同步」 |
+| 有 online 遠端成員、協商結果說它全部演得出來 | 「iPhone 已連接，角色狀態已同步」 |
+| 有 online 遠端成員，但**拿不到**協商結果（`members[].unsupportedIntents` 讀不到／形狀不認得） | 「iPhone 已連接，能力核對中」（`capability-unknown`；補充：「狀態對齊了，但還沒確認這台裝置演得出哪些表演；在確認之前不要當成完全同步。」） |
 | 遠端成員 presence=reconnecting | 「iPhone 正在重新連線」 |
 | 遠端成員 offline | 「iPhone 暫時離線」 |
 | 協商後有 unsupported intent | 「部分能力目前不可用」 |
 | resume 進行中 | 「同步尚未完成」 |
 | 連續 resume 失敗 | 「無法恢復，請重新連接」 |
-| 裝置被撤銷 | 「需要重新確認裝置」 |
-| 持久化紀錄曾損毀（diagnostics `storeNote` 不是 null） | 「角色同步紀錄曾損毀，已重新開始」（補充：「已重新連接的裝置會重新同步；不影響角色本身。」） |
+| **有裝置現在連著這台電腦、卻不是 session 成員**（含撤銷後重連） | 「需要重新確認裝置」（`needs-reconfirmation`） |
+| 持久化紀錄曾損毀（diagnostics `storeNote` 不是 null） | 「角色同步紀錄曾損毀，已重新開始」（`store-reset`；補充：「已重新連接的裝置會重新同步；不影響角色本身。」） |
 | 模擬 iPhone（fixture） | 一律附「模擬 iPhone（fixture）」 |
 
-`storeNote` 那一列排在「有 online 成員」之前、「讀不到」之後：它講的是紀錄，不是角色，
-所以不給綠色也不給紅色（警示色）；緊急停止的固定安全句永遠壓過它。
+三條排序規則（`statusProjection.ts` 的宣告順序就是判定順序，vitest 釘住）：
+
+1. `storeNote` 那一列排在「有 online 成員」之前、「讀不到」之後：它講的是紀錄，不是角色，
+   所以不給綠色也不給紅色（警示色）；緊急停止的固定安全句永遠壓過它。
+2. 「需要重新確認裝置」看的是**當下**的事實（有裝置連著卻不是成員），**不是**「曾經有裝置被撤銷過」
+   的歷史。provider 列會永遠留著 revoked，拿它壓過一台真的在線的裝置會變成永遠亮著的假警報；
+   真的需要重新確認的裝置只要連上來就會以「連著但不是成員」的身分出現。
+3. 「能力核對中」排在「部分能力目前不可用」與「已同步」之間：不知道就不給綠勾（綠勾只給真的），
+   也不誣賴裝置做不到。Runtime 投影 `members[].unsupportedIntents`（§3）之後，正式路徑上這一列
+   只會在讀不到 diagnostics／形狀不認得時出現。
 
 ## 12. 實作註記（`crates/interaction-session`，v0.6.0）
 
@@ -203,7 +258,25 @@ intents.observed, intents.rejected, intents.failed }, eventLog:{ len, cap } }`�
     event，否則得到 `rejected{scope-denied}`。
 11. **`activity: reacting` 的計時器不持久化**：restore 後以 `now` 重新起算，`reactionMs` 後回到 `idle`。
 12. **`persist`**：實作以 `Output::Persist` 建議 host 存檔（預設每 32 個 revision 或每 60 s，且 revision 有變動才建議）。
-13. **待決 intent 的紀錄是 host 私有的**：`pending` 除了 intent 本身，還記著「送給了誰」與「送出去的
+13. **`role` 被 Transport 身分夾住**：`capability` 裡的 `role` 也是**宣稱**。`host-renderer`
+    （可信桌面 surface、拿得到安全 overlay 的那一個）只能由 `human-surface` 身分擔任；device／renderer
+    自報 `host-renderer` 會被夾回 `remote-renderer` 並稽核 `character.session.role-corrected`
+    （`{party, claimed, effective}`），**不拒絕連線**。不夾的話會得到一個「共享狀態說它能演、
+    但它永遠不在派送名單上」的假象——一般模式會據此顯示綠色「已同步」。
+14. **restore 的保守跳號 vs `resumes.ahead` 的取捨**：`restore` 把 revision 直接加上一個持久化間隔
+    （`persist_every_revisions`），因為那份快照**無法證明**自己就是當機前最後廣播出去的那一版
+    （§6 持久化是有間隔的）。代價是重啟後 revision 會跳號（成員看得到，屬預期）；換來的是不會
+    倒退。反過來，成員送 `resume{lastRevision}` 宣稱自己領先 host 時：那是**宣稱**，不是證據——
+    只計數 `resumes.ahead` 並回一份普通 snapshot。**唯一**的例外是本 session 確實是從那種
+    無法自證最新的快照還原出來的：那時成員的領先就是「host 真的倒退過」的證據，host 才重建
+    session（epoch+1）並發 `session-reset`。沒有這個不對稱，任何成員送一則
+    `resume{lastRevision: u64::MAX}` 就能讓所有人丟掉本地狀態。
+15. **`Presence::Reconnecting` 由 Transport 產生，不由 session 推論**：socket 斷了、而這台裝置仍在
+    配對狀態、對方仍在退避窗口內重連——這是 Transport 才知道的事實。`mobile.rs` 的斷線收尾對
+    **已協商過的成員**送 `Reconnecting`（沒協商過的舊 App 不是成員，什麼都不做），逾時之後由
+    session `tick` 轉成 `Offline`，再久才清除成員。撤銷仍然是 `leave`（那台裝置不再是成員）。
+    session 自己**不能**從「45 秒沒聽到聲音」推論出「對方正在重連」——那是推論，不是真相。
+16. **待決 intent 的紀錄是 host 私有的**：`pending` 除了 intent 本身，還記著「送給了誰」與「送出去的
     command messageId」（成員的 `result{causationId}` 靠它對回來）。這些都不進 `SemanticState`，
     也不出現在任何 patch 裡。稽核 `character.session.intent-settled` 只寫 intent 名稱、status、
     對方的 `<kind>:<id>` 與是否已結清，不回顯 payload。

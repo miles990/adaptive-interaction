@@ -198,7 +198,7 @@ inputs:[…accepted…], limits }`。協商是確定性的：交集＋min。rend
 
 ## 8. 離線事件政策（Offline policy）
 
-每個 name 固定歸類（實作在 `interaction_aip::offline_policy(name)`，session 用它決定重連行為）：
+每個 name 固定歸類（實作在 `interaction_aip::offline_policy(name)`）：
 
 | class | 意義 | 1.0 歸類 |
 |---|---|---|
@@ -209,6 +209,23 @@ inputs:[…accepted…], limits }`。協商是確定性的：交集＋min。rend
 | `state-reconcile` | 不重播事件，以最新 snapshot／patch 對齊 | `task.*`、`runtime.*`、`character.session.*`、`state` |
 
 不得讓幾分鐘前的觸摸事件在重連後連續播放：touch 是 `expire-by-deadline`，intent 是 `drop-if-offline`。
+
+**這張表與 `offline_policy()` 的真實關係（誠實敘述）**：Character Session **不呼叫** `offline_policy()`——
+它把同一組語意直接寫進了自己的機制裡，因此不需要查表：
+
+- 互動事件靠 **deadline**（§8 第 11 關把 `expiresAt` 夾成 `min(自報, occurredAt + touchTtlMs)`），
+  過期就是 `expired`，這就是 `expire-by-deadline`。
+- Behavior Intent **不排隊**：只送給 presence 為 `online`、且把該 intent 協商成 `exact` 的成員，
+  沒有人符合就計 `intents.dropped`，這就是 `drop-if-offline`。
+- 狀態靠 **snapshot／patch 對齊**（§6 的 revision／epoch 規則與 `character.session.resume`），
+  從不重播事件，這就是 `state-reconcile`。
+- `require-reconfirmation` 在 session 裡是更嚴格的形式：inbound 訊息只要帶 `consentGrantId` 就
+  `scope-denied`（§8 第 8.1 關），連問驗證器都不問。
+
+所以 `offline_policy()` 目前是一個**給 Transport／UI／文件用的分類函式**，
+**沒有 production 呼叫者**（只有測試與跨語言 conformance fixture 用它）。它存在的價值是把
+「哪些 name 屬於哪一類」寫成三個語言都對得起來的可執行事實；把它說成「session 用它決定重連行為」
+會是一句程式碼背不起來的話。要接線的話，該接的地方是 Transport 層的離線佇列——1.0 沒有那個佇列。
 
 ## 9. Transport bindings（1.0）
 
@@ -231,8 +248,17 @@ inputs:[…accepted…], limits }`。協商是確定性的：交集＋min。rend
 ## 10. 證據分類（Evidence classification）
 
 `EvidenceClass` ∈ `unit | contract | fixture | simulator | integration | browser | real-agent | real-device |
-real-hardware | unverified`。用於 diagnostics、文件與 acceptance evidence；**fixture／simulator 永遠不得標成
-real-device**。Runtime 的 `ProviderTested`／`pairingUnverified` 語意不變，AIP 只提供統一詞彙。
+real-hardware | unverified`。**1.0 只定義詞彙，尚未接進 diagnostics（implemented-unverified）**：這個列舉
+目前只存在於 Rust 型別、golden schema 與 codegen 產物中，Runtime／API／CLI／桌面 TS／iOS App 都沒有
+生產端或消費端，`GET /v1/character-session/diagnostics` 的回傳裡也沒有證據等級欄位。
+
+因此 **fixture／simulator 永遠不得標成 real-device** 這條不變量，目前是**由人工文件紀律維持的**——
+`docs/releases/*-test-matrix.md`、`acceptance-evidence.md` 與 CHANGELOG 逐列標註，沒有任何程式在執行期
+強制它。要把它變成機制，得由 host 依 transport／配對事實決定每個成員的來源等級並帶進 diagnostics
+（裝置自報不算數），再補一則「fixture 來源不得被標成 real-device」的測試；在那之前，讀到
+`EvidenceClass` 的人請把它當成**待接線的詞彙表**，不是既有的執行期保證。
+
+Runtime 的 `ProviderTested`／`pairingUnverified` 語意不變，AIP 只提供統一詞彙。
 
 ## 11. Limits（1.0 常數，`interaction_aip::limits`）
 

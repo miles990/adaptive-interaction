@@ -21,7 +21,7 @@
 
 ## 2. 文案表（一字不改）
 
-十種狀態窮舉（`CHARACTER_SYNC_PROJECTION`，`satisfies Record<CharacterSyncState, …>`：
+十一種狀態窮舉（`CHARACTER_SYNC_PROJECTION`，`satisfies Record<CharacterSyncState, …>`：
 少一個狀態就 typecheck 失敗，不會靜默退化成把技術值印到畫面上）。
 
 | 狀態 | 主要句子 | 補充 | 顏色 |
@@ -30,16 +30,33 @@
 | `reconnecting` | iPhone 正在重新連線 | 連線斷了一下，正在接回來；這段時間的互動不會補播。 | pending |
 | `offline` | iPhone 暫時離線 | 手機現在收不到角色狀態，也送不出互動；接回來之後才會重新對齊。 | warn |
 | `partial-capability` | 部分能力目前不可用 | 這台裝置接上了，但它做不到角色的部分表演；做不到的不會假裝做到。 | warn |
+| `capability-unknown` | iPhone 已連接，能力核對中 | 狀態對齊了，但還沒確認這台裝置演得出哪些表演；在確認之前不要當成完全同步。 | pending |
 | `syncing` | 同步尚未完成 | 還在對齊角色狀態；在這之前不要把畫面上的樣子當成最新的。 | pending |
 | `unrecoverable` | 無法恢復，請重新連接 | 連續好幾次都對不齊角色狀態，需要你重新連一次裝置。 | bad |
-| `needs-reconfirmation` | 需要重新確認裝置 | 這台裝置的授權已經撤銷；要再同步角色，必須重新確認一次。 | warn |
+| `needs-reconfirmation` | 需要重新確認裝置 | 有裝置現在連著這台電腦，但還不是角色同步的成員（撤銷過的裝置重新連上來也算）；要再同步角色，必須在手機上重新確認一次。 | warn |
 | `no-device` | 尚未連接 iPhone | 目前只有這台電腦在陪你；連上手機之後才會有東西可以同步。 | muted |
 | `disabled` | 角色同步目前關閉 | 這台電腦沒有啟用角色同步；其他功能不受影響。 | muted |
 | `store-reset` | 角色同步紀錄曾損毀，已重新開始 | 已重新連接的裝置會重新同步；不影響角色本身。 | warn |
 
 判定順序（先擋住「不能相信」的情況，最後才談成功）：
-關閉 → 連續讀不到 → 這一次讀不到 → 認不得的回報 → 紀錄曾損毀 → 有 online → reconnecting →
+關閉 → 連續讀不到 → 這一次讀不到 → 認不得的回報 → 紀錄曾損毀 → 有 online 成員
+（已知做不到 → `partial-capability`；另有裝置**現在連著**卻不是成員 → `needs-reconfirmation`；
+拿不到協商結果 → `capability-unknown`；全部確認演得出來 → `synced`）→ reconnecting →
 offline → 需要重新確認 → 沒有裝置。
+
+綠勾只在「所有 online 成員都確認演得出來、而且沒有別的裝置連著卻沒同步」時出現。
+`needs-reconfirmation` 在有 online 成員時只看「現在連著卻不是成員」，**不看**「曾經有裝置被撤銷過」
+——後者是歷史事實（provider 列會永遠留著 revoked），拿它壓過一台真的在線的裝置就成了
+§3 說的那種永遠亮著的假警報；真的需要重新確認的裝置只要連上來，就會以「連著但不是成員」
+的身分被算進去。
+
+`partial-capability` 與 `capability-unknown` 的判定來源是**協商結果**，不是成員自報的 `role`：
+`role` 是裝置在 capability 宣告裡自己填的，拿它當能力結論等於讓 renderer capability spoofing
+影響人類看到的答案（§8 必測清單要防的正是這件事）。Runtime 目前還沒有把協商結果投影到
+`GET /v1/character-session`／`/diagnostics`（`MemberView` 只有 party／role／presence／lastSeenAt），
+所以實務上多數情況會落在 `capability-unknown`——**不猜**：既不給綠勾，也不誣賴裝置做不到。
+桌面認得 `members[].unsupportedIntents`（數字或陣列）與 `members[].negotiated.intents`
+（intent → `exact`／`unsupported`）兩種形狀，Runtime 補上任一種就會自動生效。
 
 `store-reset` 的判定來源是 Runtime 診斷的 `storeNote` 不是 null（持久化檔讀不回來、已隔離、
 epoch 已 +1）。**不靜默**：它排在「已同步」之前，因為那一刻技術上也許真的同步著，但綠色徽章
@@ -90,7 +107,7 @@ epoch 已 +1）。**不靜默**：它排在「已同步」之前，因為那一�
 
 ## 4. claimed ≠ verified：綠勾只給真的
 
-同步卡的十種狀態裡只有 `synced` 是 `ok`（綠）。這條規則和工作狀態的誠實階梯是同一條：
+同步卡的十一種狀態裡只有 `synced` 是 `ok`（綠）。這條規則和工作狀態的誠實階梯是同一條：
 `claimed-completed`（對方說做完了）永遠不是 `verified`（你檢查過了），
 `projectWorkState` 沒有任何路徑能把 claimed 升級成 verified。
 角色同步不會、也不能改寫這一層——它同步的是「角色現在是什麼語意狀態」，不是「工作有沒有做完」。

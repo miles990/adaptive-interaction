@@ -40,9 +40,9 @@ agent token。
 | 不負責 | 為什麼 | 誰負責 |
 |---|---|---|
 | 改權威情緒／活動／注意力 | `SemanticState` 欄位私有，只有 `CharacterSession::apply` 能改（`docs/aip/character-session.md` §2：「Renderer／Device port 沒有任何 setter」） | Character Session Host（Director） |
-| 判斷 consent | AIP 層沒有把 grant 判定邏輯交給任何 member（`ConsentVerifier` port 定義在 `crates/interaction-session/src/ports.rs:42-45` 但**目前沒有任何呼叫端使用它**——本次以 `rg -n "consent" crates/interaction-session/src` 核實零命中，是「這條路目前走不到」，不是「已驗過安全」） | Runtime Consent Service（既有，`interaction-policy`，本文件未盤點其原始碼） |
-| 決定 `verified` | `crates/interaction-session/src/session.rs::gate`（:690-693）拒絕任何 member 送來的 `status:"verified"` | Runtime 人類驗證路徑（`verify_agent_session`） |
-| 覆寫共享狀態 | 同上，`SemanticState` 沒有 setter；廣播出去的 `state` patch 由 host 端 `commit_and_patch`（`session.rs`:1067）產生 | Character Session Host |
+| 判斷 consent | AIP 層沒有把 grant 判定邏輯交給任何 member（`ConsentVerifier` port 定義在 `crates/interaction-session/src/ports.rs`（`pub trait ConsentVerifier`）但**目前沒有接進 gate**——v0.6.0 起 inbound envelope 帶 `consentGrantId` 一律 `scope-denied`（gate 第 8.1 關，fail-closed），所以這條路走不到，不是「已驗過安全」） | Runtime Consent Service（既有，`interaction-policy`，本文件未盤點其原始碼） |
+| 決定 `verified` | `crates/interaction-session/src/session.rs::gate` 的第 8 關（註解錨點 `// 8. \`verified\` 只有 Runtime 的人類驗證路徑能產生。`）拒絕任何 member 送來的 `status:"verified"` | Runtime 人類驗證路徑（`verify_agent_session`） |
+| 覆寫共享狀態 | 同上，`SemanticState` 沒有 setter；廣播出去的 `state` patch 由 host 端 `crates/interaction-session/src/session.rs::commit_and_patch` 產生 | Character Session Host |
 | 偽造 human verification | CPP §6：「Adapter 不能偽造 human verification（沒有任何 event kind 能表達它）」 | — |
 | 解除 Emergency Stop | CPP §0 不變量 7；外部 adapter 沒有這個路由 | Runtime |
 
