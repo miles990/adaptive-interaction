@@ -9,6 +9,67 @@
 
 ## [Unreleased]
 
+### v0.6.0 — Foundation：AIP 1.0 最小協定、權威 Character Session、小樞脫離核心（開發中）
+
+> 保守、可回退的架構升級：不重寫既有功能，先建立修改前基線與恢復矩陣，再以 Strangler／feature flag
+> 逐條路徑替換。本段只記錄**已提交並經回歸**的事實；尚未落地的項目（Runtime Session Host、iPhone `aip`
+> frame、桌面同步 UI、iOS Session client、對抗審查）在落地前不會出現在這裡。證據等級逐項標明。
+
+#### Added — 協定與領域核心
+- **AIP 1.0（Adaptive Interaction Protocol）**：新 crate `interaction-aip`（純函式、無 tokio／I/O）——
+  versioned envelope（`aip/1.0`）、十二種 message type 與各自的 profile 必填規則、十二值 Outcome 誠實階梯
+  （received≠accepted≠applied≠observed≠claimed-completed≠verified）、19 個穩定錯誤碼、版本協商（同 major、
+  min minor、`newerMinor`）、確定性能力協商（交集＋min）、身分綁定決策（宣稱不符一律拒絕，不「修正後執行」）、
+  有界去重環、離線事件政策表、證據分類、canonical JSON hash 與上限（訊息 64 KiB／payload 32 KiB／深度 8／
+  字串 2000）。未知 message type 會解析成 `Unknown` 但**永不執行**；未知選填欄位 round-trip 不遺失；錯誤訊息
+  不回顯輸入。契約：`docs/aip/README.md`。
+- **Schema 單一來源**：`schemas/aip-1.0.schema.json` 由 Rust 型別產生（golden，`GOLDEN_UPDATE=1` 重生），
+  `scripts/aip-codegen.mjs` 確定性產生 `apps/interaction-desktop/src/aip/generated.ts` 與
+  `apps/interaction-ios/.../AIPGenerated.swift`（含內嵌 fixtures），`pnpm aip:check` 在漂移時 exit 1 並納入 CI。
+  38 份 golden fixture 由 Rust（10 conformance）、TypeScript（91 vitest）、Swift（14 XCTest，iPhone 17 **模擬器**）
+  三方共用；`tests/e2e/tests/dependency_boundaries.rs` 釘住純 crate 不含 tokio／axum／tauri／transport 依賴。
+- **權威 Character Session**：新 crate `interaction-session`（純函式）——語意狀態（mood／activity／attention／
+  truth／lastInteraction／members）與唯一 owner、確定性 Director（touch→happy／playful 反應 intent；
+  `task.verified`→proud＋celebrate；emergency→frozen 且拒絕互動）、單調 revision／sequence、RFC 7396 patch＋
+  SHA-256 state hash、有界事件日誌（512）delta replay／snapshot fallback、epoch-aware resume、每成員去重環、
+  deadline 過期、rate limit、membership／presence、十三關固定順序的安全管線、CPP 投影（celebrate 不投影到桌面，
+  避免與既有 `verified-success` 雙播）、ports（Clock／SessionStore／IdentityVerifier／ConsentVerifier／
+  RendererPort／DevicePort）與不含 secret 的 diagnostics。70 個測試含安全矩陣。契約：`docs/aip/character-session.md`
+  （含 State Ownership 表）。
+
+#### Changed — 小樞脫離協定核心（Strangler，行為不變）
+- `crates/interaction-character`（CPP 核心）不再含任何小樞字串：`SHU_RIG_VARIANTS`／`shu_rig_capabilities()`／
+  rig-pack 遷移搬到新 crate `interaction-character-shu`（`ShuRigPack`、`RigPackMigrator`）；核心新增
+  `PackMigrator` trait 與有界 `MigrationRegistry`（sprite 遷移留在核心）；`ValidationLimits::default().builtin_whitelist`
+  改為**空**，host 必須注入（Runtime `character_host_registry()`：shu-rig／shape／sprite／text，Tauri 匯入沿用同一份；
+  `BUNDLED_CHARACTER_IDS` 改由 `public/characters/index.json` 解析）。`migrate_legacy_pack` 標 `#[deprecated]`。
+- 桌面角色視窗的點擊穿透行為不變：仍是多框 hit regions、fail-closed、主機端點擊穿透輪詢 80ms（`CLICKTHROUGH_POLL_MS`）；本輪只動 adapter 建立方式，不動 host 攔截。
+- 桌面 TS：`character/adapterRegistry.ts` 取代 `CompanionApp`／`gatewayWiring` 的 entrypoint if-chain，shu／sprite／
+  text 各自註冊並以 meta（palette／playfield／surface）表達差異；`architecture-no-entrypoint-switch.test.ts` 讀原始碼
+  鎖住不再有字面分岔；`adapter-contract.test.ts` 對四個內建 adapter 跑同一套生命週期／unsupported／cancel／dispose／
+  資源清理契約。
+- **第二個 Reference Character `ref-shape`**（幾何形，只有 visual.presence／visual.expression／input.click，無耳尾、
+  無音效、無玩具）：加入它只動 manifest、adapter、兩個 host 白名單清單、測試與文件（`docs/aip/reference-character.md` §5），
+  核心 `interaction-character/src`、`character.rs`、`CompanionApp.tsx` 沒有為它新增任何分岔。
+
+#### Changed — 發布流程
+- `scripts/release.sh` 拆成 `release-prepare.sh`（改版本號／CHANGELOG／golden／codegen，不 commit、空的 Unreleased
+  直接拒絕）、`release-verify.sh`（唯讀關卡：worktree 乾淨、四處版本一致、CHANGELOG 段非空、tag 不存在、
+  `openapi.json` 版本、tracked 檔無 secret、AIP codegen 無漂移、HEAD 的 CI check-runs 全綠、可選全量測試）與
+  `release-tag.sh`（只從已在 origin 上且 verify 通過的 commit 建 annotated tag，`--push` 才推）。`release.sh` 只印流程，
+  保留 `--all-in-one` 給離線緊急情況。
+
+#### Added — 基線與審查
+- `docs/releases/v0.6.0-baseline.md`（修改前同機實跑：Rust 827/0、Tauri 50/0、vitest 1168/0、CLI E2E 82/0、Playwright 65/0、
+  ESP32 兩組態、iOS typecheck＋XCTest 46/0 模擬器；daemon 與角色效能基線）與 `docs/releases/v0.6.0-recovery-matrix.md`
+  （九列恢復矩陣、受保護行為與「無測試鎖住」清單、未盤點模組）。
+- `.claude/workflows/adversarial-review-v06.js`：12 維度 v0.6.0 對抗審查（尚未執行）。
+- iOS README 補記 XCTest 注入需要 `lib_TestingInterop.dylib`（v0.5.1 文件漏寫，基線階段實際踩到）。
+
+#### 回歸（wave 1 之後，同機實跑）
+Rust workspace **945 passed / 0 failed（81 targets）**（基線 827／66）、Tauri **52/0**（基線 50）、vitest **1302/0（65 檔）**
+（基線 1168／60）、typecheck／build／`aip:check`／clippy 乾淨；Playwright、CLI E2E、iOS 在後續 wave 重跑。
+
 ## [0.5.1] - 2026-09-04
 
 ### v0.5.1 — 產品完成度、一般模式易用性、誠實狀態與剩餘技術債（修補版本，2026-09-04 發布）
