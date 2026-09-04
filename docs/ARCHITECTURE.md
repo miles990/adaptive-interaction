@@ -1,4 +1,4 @@
-# 架構總覽（v0.5.1 已發布；v0.6.0 開發中；v0.3 基線＋v0.4／v0.5／v0.6 增量）
+# 架構總覽（v0.5.1 已發布；v0.6.0 候選版本，尚未 tag／發布；v0.3 基線＋v0.4／v0.5／v0.6 增量）
 
 跨 AI 自適應互動平台的核心是一個 **Rust runtime**。CLI、HTTP API 與 Tauri 桌面
 控制中心都是它的 client，共用同一套 application service 與同一個 deterministic

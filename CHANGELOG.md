@@ -9,7 +9,9 @@
 
 ## [Unreleased]
 
-### v0.6.0 — Foundation：AIP 1.0 最小協定、權威 Character Session、小樞脫離核心（開發中）
+## [0.6.0] - 2026-09-05
+
+### v0.6.0 — Foundation：AIP 1.0 最小協定、權威 Character Session、小樞脫離核心
 
 > 保守、可回退的架構升級：不重寫既有功能，先建立修改前基線與恢復矩陣，再以 Strangler／feature flag
 > 逐條路徑替換。本段只記錄**已提交**的事實，證據等級逐項標明；未落地的項目列在文末「已知限制／尚未落地」。

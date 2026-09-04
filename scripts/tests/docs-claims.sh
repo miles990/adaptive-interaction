@@ -4,7 +4,7 @@
 #   bash scripts/tests/docs-claims.sh
 #
 # 覆蓋：
-#   - CHANGELOG [Unreleased] 不得宣稱已落地的功能「尚未落地」（evidence-honesty-012）
+#   - CHANGELOG 最上層非空段（Unreleased 或剛命名的版本段）不得宣稱已落地的功能「尚未落地」（evidence-honesty-012）
 #   - ARCHITECTURE.md 不得以「搜尋不到對應實作」宣告已存在的模組不存在（evidence-honesty-013）
 #   - threat-model.md 不得用會漂移的硬編行號引用 session.rs::gate()（evidence-honesty-014）
 #   - AIP §10 的 EvidenceClass 措辭必須與「有沒有生產／消費端」一致（evidence-honesty-016）
@@ -32,7 +32,16 @@ def need(cond, msg):
 
 # ---- evidence-honesty-012：CHANGELOG [Unreleased] --------------------------
 ch = read("CHANGELOG.md")
-unreleased = ch.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+# 最上層「非空」段：release-prepare 會把 Unreleased 改名成版本段並留下一個空的 Unreleased 標題，
+# 此時要檢查的是那個剛命名的版本段（與 src-tauri 的 changelog_topmost_section 同一規則）。
+def topmost_section(text):
+    parts = text.split("\n## [")
+    for part in parts[1:]:
+        body = part.split("\n", 1)[1] if "\n" in part else ""
+        if body.strip():
+            return body
+    return ""
+unreleased = topmost_section(ch)
 landed = {
     "Runtime Session Host": "crates/interaction-runtime/src/character_session.rs",
     "桌面同步卡": "apps/interaction-desktop/src/components/CharacterSyncCard.tsx",
@@ -41,12 +50,12 @@ landed = {
 present = {k: v for k, v in landed.items() if os.path.exists(v)}
 if present:
     need("在落地前不會出現在這裡" not in unreleased,
-         "CHANGELOG [Unreleased] 仍寫『尚未落地的項目…在落地前不會出現在這裡』，"
+         "CHANGELOG 最上層段仍寫『尚未落地的項目…在落地前不會出現在這裡』，"
          "但這些已在 HEAD 上：%s" % sorted(present))
     for name, path in present.items():
         base = os.path.basename(path)
         need(base in unreleased or name in unreleased,
-             "CHANGELOG [Unreleased] 沒有 %s（%s）的條目，但程式碼已落地" % (name, base))
+             "CHANGELOG 最上層段沒有 %s（%s）的條目，但程式碼已落地" % (name, base))
 
 # ---- evidence-honesty-013：ARCHITECTURE.md ---------------------------------
 arch = read("docs/ARCHITECTURE.md")
