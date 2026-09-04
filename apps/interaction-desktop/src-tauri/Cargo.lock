@@ -2394,6 +2394,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "interaction-aip"
+version = "0.5.1"
+dependencies = [
+ "chrono",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "interaction-api"
 version = "0.5.1"
 dependencies = [
@@ -2551,6 +2563,7 @@ dependencies = [
  "interaction-adapter-declarative",
  "interaction-adapter-sdk",
  "interaction-agent-gateway",
+ "interaction-aip",
  "interaction-character",
  "interaction-character-shu",
  "interaction-core",
@@ -2558,6 +2571,7 @@ dependencies = [
  "interaction-policy",
  "interaction-recipe",
  "interaction-registry",
+ "interaction-session",
  "interaction-storage",
  "interaction-tool-schema",
  "mdns-sd",
@@ -2579,6 +2593,19 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "interaction-session"
+version = "0.5.1"
+dependencies = [
+ "chrono",
+ "interaction-aip",
+ "interaction-character",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
