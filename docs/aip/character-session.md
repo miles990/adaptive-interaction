@@ -51,6 +51,11 @@
 
 字串長度、成員數（≤ 16）、巢狀深度受 AIP limits 約束。
 
+> **實作註記（`crates/interaction-session`）**：一則外部訊息只回**一則** `result`（`applied`／`rejected`／`expired`／`cancel-confirmed`）；
+> 同一個 `messageId` 再送一次回 `accepted{duplicate:true}` 且**不重套用**。上面的 JSON 是示意：值為「無」的選填鍵
+> （`truth.correlationId`、`lastInteraction`）實作上**省略**該鍵而不是寫 `null`，因為 RFC 7396 的 `null` 是刪除語意，
+> host 寫 `null` 而接收端刪除鍵會讓兩邊 canonical hash 分歧。其餘落差見文末 §12。
+
 ## 4. 語意事件目錄（1.0）
 
 | name | 誰可送 | payload | 離線政策 | Director 效果 |
@@ -131,3 +136,31 @@ duplicates, expired, resumes, snapshots, patches }, eventLog:{ len, cap } }`。�
 | 連續 resume 失敗 | 「無法恢復，請重新連接」 |
 | 裝置被撤銷 | 「需要重新確認裝置」 |
 | 模擬 iPhone（fixture） | 一律附「模擬 iPhone（fixture）」 |
+
+## 12. 實作註記（`crates/interaction-session`，v0.6.0）
+
+這些是本文件沒有寫死、由權威實作補齊的細節。語意不變，只是把留白補上；改動它們等同改契約。
+
+1. **revision／sequence 起點**：全新 session 的 `revision` 從 1 起、`sequence` 從 0 起（第一則送出的訊息 sequence = 1）。
+   每次成功 `applied` 使 `revision` +1；host 每送一則 `state`／`command` 消耗一個 sequence。點對點的 `command`
+   會讓其他成員看到 sequence 跳號，這是預期的（gap 偵測屬 Transport，不是狀態錯誤）。
+2. **`inputs` 只約束 `event`**：§4.2 的 `inputs` 定義是「可產生的 event name」，因此 §8 的 name scope 只套用在
+   `messageType: event`；`heartbeat`／`capability`／`query`／`cancel`／`result` 的 name 不受 `inputs` 限制
+   （它們仍受 message type 白名單、身分、membership、rate limit 管）。
+3. **member 可送的 message type**：`event`／`cancel`／`query`／`result`／`heartbeat`／`capability`。
+   `command`／`state` 是 host 的權力，成員送來一律 `rejected{scope-denied}`。
+4. **`task.state{truth:"verified"}` 只轉錄真相**，不產生 `celebrate`；慶祝只由 `task.verified` 產生（避免雙播）。
+5. **`attention` 的擁有者是 Director**：touch → `{kind:"member"}`、`task.*` 帶 correlation → `{kind:"task"}`、
+   dismiss 與 emergency → `{kind:"none"}`。
+6. **`Party` 的兩種書寫**：`attention.id` 與 `lastInteraction.source` 是 `"<kind>:<id>"` 字串（§3 範例的形狀），
+   `members[].party` 是物件。
+7. **`lastSeenAt` 投影格線**：heartbeat 只在距離上次投影超過 `presenceTimeout / 3` 時才更新共享狀態裡的
+   `lastSeenAt`，否則一個高頻 heartbeat 的成員就能把 revision 與廣播打成無界成長。presence 本身的變化一律即時反映。
+8. **`character.behavior.*` 是 drop-if-offline**：只送給 presence 為 `online`、且把該 intent 協商成 `exact` 的
+   `remote-renderer`。host 端 renderer 一律拿得到 `RendererIntent`（含 CPP 投影），即使沒有任何遠端成員。
+9. **host 送出的 `messageId`** 形如 `aip-<epoch>-<epochMillis>-<n>`；`n` 在 restore 時以持久化的 `sequence` 為起點。
+   host→member 的去重靠 revision／sequence（§6），不靠 messageId。
+10. **restore 之後的成員沒有協商結果**：他們留在 `members` 投影裡，但必須重送 `capability`（§7 第 2 步）才能再送
+    event，否則得到 `rejected{scope-denied}`。
+11. **`activity: reacting` 的計時器不持久化**：restore 後以 `now` 重新起算，`reactionMs` 後回到 `idle`。
+12. **`persist`**：實作以 `Output::Persist` 建議 host 存檔（預設每 32 個 revision 或每 60 s，且 revision 有變動才建議）。
