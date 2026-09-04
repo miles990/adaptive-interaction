@@ -19,7 +19,8 @@ import {
   shuNaturalDurationMs,
 } from "../character/adapters/shuTables";
 import { CharacterGateway } from "../character/gateway";
-import { shuRigCapabilities, validateCharacterManifest } from "../character/manifest";
+import { shuRigCapabilities } from "../character/adapters/shu";
+import { validateCharacterManifest } from "../character/manifest";
 import {
   CHARACTER_INTENTS,
   CharacterIntent,

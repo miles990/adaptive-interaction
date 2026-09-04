@@ -114,7 +114,17 @@ Renderer／角色互動 ──受限 Interaction Event──▶ Gateway（正規
 桌面 host 在 `character_host_registry()` 裡註冊。入口是
 `migrate_pack_to_manifest(json, &registry)`；舊的 `migrate_legacy_pack` 已 `#[deprecated]`，
 只剩 sprite 一條路（核心不能依賴任何角色 crate）。沒有 migrator 的格式一律誠實拒絕
-（`ManifestErrorCode::Legacy`），不猜、不執行。TS 端的 `migratePackToManifest` 語意不變。
+（`ManifestErrorCode::Legacy`），不猜、不執行。
+
+TS 鏡射同一套：`character/manifest.ts` 有 `PackMigrator`／`MigrationRegistry`
+（同樣的上限與「(kind, version) 不得註冊兩次」規則）與核心內建的 `spritePackMigrator`；
+`character-rig` 2.0 的 `rigPackMigrator` 住在 `character/adapters/shu.ts`，由
+`character/adapters/index.ts` 跟 adapter 工廠一起呼叫 `registerHostMigrator(...)`，
+桌面 host 的完整 registry 由 `character/adapterRegistry.ts` 的 `hostMigrationRegistry()`
+提供。入口是 `migratePackToManifest(json, { registry })`；沒帶 `registry` 時用
+`defaultMigrationRegistry()`（host 在載入 `character/adapters` 時以
+`setDefaultMigrationRegistry` 注入，未注入前只有核心的 sprite）。拿得到 host registry 的
+呼叫端一律明確帶。
 
 ## 3. 能力（Capability）與協商
 

@@ -6,9 +6,6 @@
 
 import { builtinEntrypointIds } from "./adapterRegistry";
 import { validateManifest as validateLegacyPack, type PackManifest } from "../companion/renderer";
-import { validateRigManifest, type RigManifest } from "../companion/rig/renderer";
-import { RIG_PALETTES } from "../companion/rig/params";
-import { EXPRESSIONS } from "../companion/rig/expressions";
 import {
   AdapterKind,
   AssetDecl,
@@ -31,7 +28,6 @@ import {
   PreferencesSchema,
   PROTOCOL_MINOR,
   ResourceLimits,
-  SEMANTIC_CHANNELS,
   SecurityRequirements,
   VariantDecl,
 } from "./protocol";
@@ -924,22 +920,127 @@ export function validateCharacterManifest(input: unknown, opts: ValidateOptions 
 }
 
 // ---------------------------------------------------------------------------
-// §2.2 Migration
+// §2.2 Migration：PackMigrator registry
+//
+// v0.6.0 strangler（docs/aip/architecture-boundaries.md §4）：協定核心只認識**通用**
+// sprite pack（character-pack 1.0／1.1）。任何具名角色的舊格式（例如某個 rig）由它自己的
+// adapter 模組實作 PackMigrator，再由 host 註冊（character/adapterRegistry.ts 的
+// registerHostMigrator）。鏡射 Rust 的 interaction_character::{PackMigrator, MigrationRegistry}
+// （docs/character-protocol/README.md §2.2）。
 // ---------------------------------------------------------------------------
 
 export type MigrationResult =
-  | { ok: true; manifest: CharacterManifest; source: "character-pack" | "character-rig"; assetBase?: string }
+  | { ok: true; manifest: CharacterManifest; source: string; assetBase?: string }
   | { ok: false; errors: string[] };
 
-const ALL_INPUT_CAPABILITIES = [
-  "input.click",
-  "input.hover",
-  "input.drag",
-  "input.drop",
-  "input.pointerProximity",
-  "input.text",
-  "input.fileDrop",
-] as const;
+/** migrator 拿得到的 host 脈絡：純資料，沒有 I/O、沒有權限、沒有時間來源。 */
+export interface MigrationContext {
+  /** 同源資產根（host 已解析）；原樣帶進 MigrationResult。 */
+  readonly assetBase?: string;
+}
+
+/**
+ * 一種舊 pack 格式的遷移器。純函式：不讀檔、不執行 entrypoint、不下載、不改寫使用者設定。
+ * 錯誤一律走 `MigrationResult.ok = false`，訊息不回顯輸入內容。
+ */
+export interface PackMigrator {
+  /** 負責的舊 pack `kind`（例如 `character-pack`）。 */
+  readonly kind: string;
+  /** 支援的 `schemaVersion`（1..=MAX_MIGRATOR_VERSIONS 個）。 */
+  readonly schemaVersions: readonly string[];
+  migrate(legacy: Record<string, unknown>, ctx: MigrationContext): MigrationResult;
+}
+
+/** registry 有界：host 不可能有無限多種舊格式。 */
+export const MAX_MIGRATORS = 32;
+/** 單一 migrator 能宣告的 schemaVersion 數上限。 */
+export const MAX_MIGRATOR_VERSIONS = 8;
+
+/** 只有「看起來就是識別字」的 kind／schemaVersion 才會出現在錯誤訊息裡（不回顯任意輸入）。 */
+const SAFE_IDENTIFIER_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+function identifierEcho(value: unknown): string {
+  return typeof value === "string" && SAFE_IDENTIFIER_RE.test(value) ? value : "(unreadable)";
+}
+
+/**
+ * 依 (kind, schemaVersion) 分派的遷移器登錄表。**有界**、不允許重複註冊同一組
+ * (kind, version)：後註冊者不得悄悄覆蓋前者（否則第三方角色可以劫持別人的舊格式）。
+ */
+export class MigrationRegistry {
+  private readonly migrators: PackMigrator[] = [];
+
+  /** 註冊一個 migrator；超過上限、版本數不合法或 (kind, version) 重複一律擲例外。 */
+  register(migrator: PackMigrator): this {
+    if (typeof migrator.kind !== "string" || migrator.kind.length === 0) {
+      throw new Error("a pack migrator must declare a kind");
+    }
+    const versions = migrator.schemaVersions;
+    if (!versions || versions.length === 0 || versions.length > MAX_MIGRATOR_VERSIONS) {
+      throw new Error(`a pack migrator must declare 1..=${MAX_MIGRATOR_VERSIONS} schema versions`);
+    }
+    if (this.migrators.length >= MAX_MIGRATORS) {
+      throw new Error(`migration registry is full (max ${MAX_MIGRATORS})`);
+    }
+    for (const version of versions) {
+      if (this.find(migrator.kind, version)) {
+        throw new Error(`a migrator for '${identifierEcho(migrator.kind)}' ${identifierEcho(version)} is already registered`);
+      }
+    }
+    this.migrators.push(migrator);
+    return this;
+  }
+
+  /** 依 (kind, schemaVersion) 找 migrator；找不到就是 null（不猜、不退而求其次）。 */
+  find(kind: unknown, schemaVersion: unknown): PackMigrator | null {
+    if (typeof kind !== "string" || typeof schemaVersion !== "string") return null;
+    return this.migrators.find((m) => m.kind === kind && m.schemaVersions.includes(schemaVersion)) ?? null;
+  }
+
+  /** 已註冊的 migrator 數量。 */
+  get size(): number {
+    return this.migrators.length;
+  }
+
+  /** 支援的 (kind, schemaVersion)，依註冊順序。 */
+  supportedKinds(): { kind: string; schemaVersion: string }[] {
+    return this.migrators.flatMap((m) => m.schemaVersions.map((schemaVersion) => ({ kind: m.kind, schemaVersion })));
+  }
+}
+
+/** 核心內建的 registry：只有通用 sprite，沒有任何具名角色。 */
+export function coreMigrationRegistry(): MigrationRegistry {
+  return new MigrationRegistry().register(spritePackMigrator);
+}
+
+let injectedDefaultRegistry: MigrationRegistry | null = null;
+
+/**
+ * host 注入預設 registry（`character/adapters/index.ts` 在模組載入時呼叫一次）。
+ * 呼叫端能明確帶 `opts.registry` 時一律明確帶；這條路只服務拿不到 host registry 的呼叫端。
+ */
+export function setDefaultMigrationRegistry(registry: MigrationRegistry | null): void {
+  injectedDefaultRegistry = registry;
+}
+
+/** 沒帶 `opts.registry` 時用的 registry：host 注入過就用它，否則只有核心的 sprite。 */
+export function defaultMigrationRegistry(): MigrationRegistry {
+  return injectedDefaultRegistry ?? coreMigrationRegistry();
+}
+
+/**
+ * migrator 的收尾：候選 manifest 以 validateCharacterManifest 二次驗證後才算數。
+ * 外部（角色 crate／adapter 模組）的 migrator 也用這一條，驗證規則不會分叉。
+ */
+export function finalizeMigratedManifest(
+  candidate: Record<string, unknown>,
+  source: string,
+  ctx: MigrationContext = {}
+): MigrationResult {
+  const validated = validateCharacterManifest(candidate);
+  if (!validated.ok) return { ok: false, errors: validated.errors.map((e) => `migrated manifest: ${e}`) };
+  return { ok: true, manifest: validated.manifest, source, ...(ctx.assetBase ? { assetBase: ctx.assetBase } : {}) };
+}
 
 const SPRITE_INPUT_CAPABILITIES = [
   "input.click",
@@ -949,66 +1050,24 @@ const SPRITE_INPUT_CAPABILITIES = [
   "input.fileDrop",
 ] as const;
 
-function supported(extra: Partial<CapabilityDecl> = {}): CapabilityDecl {
+/** `CapabilityDecl` 的 supported 捷徑；外部 migrator 也用得到（避免各自長出不同預設值）。 */
+export function supportedCapability(extra: Partial<CapabilityDecl> = {}): CapabilityDecl {
   return { supported: true, ...extra };
 }
 
-/** §12 shu-rig 的完整能力集（全部 visual.*、audio.speech／effect、input.*、multiCharacter、scene、rollCall、gameplay.*）。 */
-export function shuRigCapabilities(): {
-  capabilities: Record<string, CapabilityDecl>;
-  inputCapabilities: Record<string, CapabilityDecl>;
-} {
-  const rm = { interruptible: true, resumable: true, qualityLevel: "full" as const };
-  const capabilities: Record<string, CapabilityDecl> = {
-    "visual.presence": supported({ ...rm, reducedMotionBehavior: "static" }),
-    "visual.pose": supported({ ...rm, reducedMotionBehavior: "static", maxConcurrent: 1 }),
-    "visual.expression": supported({
-      ...rm,
-      reducedMotionBehavior: "static",
-      maxConcurrent: 1,
-      variants: Object.keys(EXPRESSIONS),
-      durationRange: { minMs: 100, maxMs: LIMITS.durationMaxMs },
-    }),
-    "visual.gaze": supported({ ...rm, reducedMotionBehavior: "reduced" }),
-    "visual.locomotion": supported({ ...rm, reducedMotionBehavior: "disabled" }),
-    "visual.overlay": supported({ ...rm, reducedMotionBehavior: "reduced" }),
-    "visual.particles": supported({ ...rm, reducedMotionBehavior: "disabled" }),
-    "visual.prop": supported({ ...rm, reducedMotionBehavior: "static" }),
-    "visual.textBubble": supported({ ...rm, reducedMotionBehavior: "unchanged", maxConcurrent: 1 }),
-    "audio.speech": supported({ interruptible: true, resumable: false, requiresAudio: true, reducedMotionBehavior: "unchanged" }),
-    "audio.effect": supported({ interruptible: true, resumable: false, requiresAudio: true, reducedMotionBehavior: "unchanged" }),
-    multiCharacter: supported({ reducedMotionBehavior: "unchanged" }),
-    scene: supported({ reducedMotionBehavior: "reduced" }),
-    rollCall: supported({ reducedMotionBehavior: "reduced", durationRange: { minMs: 500, maxMs: 20_000 } }),
-    "gameplay.toys": supported({ reducedMotionBehavior: "disabled" }),
-    "gameplay.autonomy": supported({ reducedMotionBehavior: "reduced" }),
-  };
-  const inputCapabilities: Record<string, CapabilityDecl> = {};
-  for (const id of ALL_INPUT_CAPABILITIES) inputCapabilities[id] = supported();
-  return { capabilities, inputCapabilities };
-}
-
-const RIG_VARIANT_NAMES: Record<string, LocalizedText> = {
-  "maid-classic": { "zh-TW": "經典", en: "Classic" },
-  "maid-dusk": { "zh-TW": "暮色", en: "Dusk" },
-  "maid-sakura": { "zh-TW": "櫻花", en: "Sakura" },
-};
-
-function normalizeVersion(v: unknown): string {
+/** 舊 pack 的 version 欄位 → 合法 semver（外部 migrator 共用同一條規則）。 */
+export function normalizeLegacyVersion(v: unknown): string {
   return typeof v === "string" && SEMVER_RE.test(v) ? v : "0.0.0";
 }
 
 /**
- * 舊 Character Pack → CharacterManifest（§2.2）。先用既有驗證器確認舊格式，
- * 再產生 manifest 並以 validateCharacterManifest 二次驗證；不改寫使用者設定。
+ * 通用 sprite pack（`character-pack` 1.0／1.1）遷移器。與任何具名角色無關：
+ * 能力只來自 sheet 真的有的動畫，安全 intent 的舊 fallback 鏈一律丟掉（§3.4）。
  */
-export function migratePackToManifest(legacy: unknown, opts: { assetBase?: string } = {}): MigrationResult {
-  if (!isPlainObject(legacy)) return { ok: false, errors: ["legacy pack must be an object"] };
-  const kind = legacy.kind;
-  let candidate: Record<string, unknown>;
-  let source: "character-pack" | "character-rig";
-
-  if (kind === "character-pack") {
+export const spritePackMigrator: PackMigrator = {
+  kind: "character-pack",
+  schemaVersions: ["1.0", "1.1"],
+  migrate(legacy, ctx) {
     const issues = validateLegacyPack(legacy);
     if (issues.length > 0) return { ok: false, errors: issues.map((i) => `legacy pack: ${i}`) };
     const pack = legacy as unknown as PackManifest;
@@ -1019,8 +1078,8 @@ export function migratePackToManifest(legacy: unknown, opts: { assetBase?: strin
       1
     );
     const capabilities: Record<string, CapabilityDecl> = {
-      "visual.presence": supported({ interruptible: true, resumable: true, reducedMotionBehavior: "static", qualityLevel: "full" }),
-      "visual.expression": supported({
+      "visual.presence": supportedCapability({ interruptible: true, resumable: true, reducedMotionBehavior: "static", qualityLevel: "full" }),
+      "visual.expression": supportedCapability({
         interruptible: true,
         resumable: true,
         maxConcurrent: 1,
@@ -1031,7 +1090,7 @@ export function migratePackToManifest(legacy: unknown, opts: { assetBase?: strin
       }),
     };
     if (hasAnchors) {
-      capabilities["visual.gaze"] = supported({
+      capabilities["visual.gaze"] = supportedCapability({
         interruptible: true,
         resumable: true,
         reducedMotionBehavior: "disabled",
@@ -1039,18 +1098,18 @@ export function migratePackToManifest(legacy: unknown, opts: { assetBase?: strin
       });
     }
     const inputCapabilities: Record<string, CapabilityDecl> = {};
-    for (const id of SPRITE_INPUT_CAPABILITIES) inputCapabilities[id] = supported();
+    for (const id of SPRITE_INPUT_CAPABILITIES) inputCapabilities[id] = supportedCapability();
     const assets: AssetDecl[] = [{ id: "sheet", path: pack.sheet, mediaType: "image/png" }];
     if (typeof pack.preview === "string" && !assetPathIssue(pack.preview)) {
       assets.push({ id: "preview", path: pack.preview, mediaType: "image/png" });
     }
-    candidate = {
+    const candidate: Record<string, unknown> = {
       schemaVersion: "1.0",
       characterId: pack.id,
       displayName: pack.name,
       ...(pack.author ? { author: pack.author } : {}),
       ...(pack.description ? { description: pack.description } : {}),
-      version: normalizeVersion(pack.version),
+      version: normalizeLegacyVersion(pack.version),
       adapterKind: "in-process",
       entrypoint: { kind: "builtin", id: "sprite" },
       assets,
@@ -1079,74 +1138,30 @@ export function migratePackToManifest(legacy: unknown, opts: { assetBase?: strin
       compatibility: { protocol: "1.x", runtime: ">=0.5.0" },
       legacy: { kind: "character-pack", schemaVersion: pack.schemaVersion },
     };
-    source = "character-pack";
-  } else if (kind === "character-rig") {
-    const issues = validateRigManifest(legacy);
-    if (issues.length > 0) return { ok: false, errors: issues.map((i) => `legacy rig: ${i}`) };
-    const rig = legacy as unknown as RigManifest;
-    const palettes = Object.keys(RIG_PALETTES);
-    const ordered = [rig.palette, ...palettes.filter((p) => p !== rig.palette)];
-    const { capabilities, inputCapabilities } = shuRigCapabilities();
-    candidate = {
-      schemaVersion: "1.0",
-      characterId: rig.id,
-      displayName: rig.name,
-      ...(rig.author ? { author: rig.author } : {}),
-      ...(rig.description ? { description: rig.description } : {}),
-      version: normalizeVersion(rig.version),
-      adapterKind: "in-process",
-      entrypoint: { kind: "builtin", id: "shu-rig" },
-      assets: [],
-      capabilities,
-      inputCapabilities,
-      channels: [...SEMANTIC_CHANNELS],
-      states: Object.keys(EXPRESSIONS),
-      intents: [
-        "idle",
-        "notice",
-        "acknowledge",
-        "think",
-        "work",
-        "wait",
-        "ask",
-        "request-consent",
-        "blocked",
-        "unknown",
-        "claim-completed",
-        "verified-success",
-        "failed",
-        "cancelled",
-        "offline",
-        "emergency",
-        "greet",
-        "play",
-        "rest",
-        "sleep",
-      ],
-      variants: ordered.map((id) => ({ id, displayName: RIG_VARIANT_NAMES[id] ?? { en: id } })),
-      locales: Object.keys(rig.name),
-      pronouns: { "zh-TW": "她", en: "she" },
-      securityRequirements: {
-        network: false,
-        executable: false,
-        fileAccess: "none",
-        audioOutput: true,
-        microphone: false,
-        camera: false,
-      },
-      resourceLimits: { maxAssetBytes: 8 * 1024 * 1024, maxConcurrentCommands: 4, maxQueue: 32, maxFps: 60 },
-      fallbacks: {},
-      compatibility: { protocol: "1.x", runtime: ">=0.5.0" },
-      legacy: { kind: "character-rig", schemaVersion: rig.schemaVersion, palette: rig.palette },
-    };
-    source = "character-rig";
-  } else {
-    return { ok: false, errors: ["legacy pack kind must be character-pack or character-rig"] };
-  }
+    return finalizeMigratedManifest(candidate, "character-pack", ctx);
+  },
+};
 
-  const validated = validateCharacterManifest(candidate);
-  if (!validated.ok) return { ok: false, errors: validated.errors.map((e) => `migrated manifest: ${e}`) };
-  return { ok: true, manifest: validated.manifest, source, ...(opts.assetBase ? { assetBase: opts.assetBase } : {}) };
+/**
+ * 舊 Character Pack → CharacterManifest（§2.2）。依 registry 註冊的 (kind, schemaVersion)
+ * 分派；沒有 migrator 的格式一律誠實拒絕（不猜、不執行），不改寫使用者設定。
+ */
+export function migratePackToManifest(
+  legacy: unknown,
+  opts: { assetBase?: string; registry?: MigrationRegistry } = {}
+): MigrationResult {
+  if (!isPlainObject(legacy)) return { ok: false, errors: ["legacy pack must be an object"] };
+  const registry = opts.registry ?? defaultMigrationRegistry();
+  const migrator = registry.find(legacy.kind, legacy.schemaVersion);
+  if (!migrator) {
+    return {
+      ok: false,
+      errors: [
+        `no migrator is registered for legacy pack kind ${identifierEcho(legacy.kind)} schemaVersion ${identifierEcho(legacy.schemaVersion)}`,
+      ],
+    };
+  }
+  return migrator.migrate(legacy, opts.assetBase !== undefined ? { assetBase: opts.assetBase } : {});
 }
 
 /** 資產 URL：assetBase（同源、host 提供）＋相對路徑。路徑已由驗證器保證相對且無穿越。 */

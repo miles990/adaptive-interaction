@@ -15,8 +15,8 @@ import {
   type AdapterCssClass,
   type BuiltinEntrypointId,
 } from "../character/adapterRegistry";
-// side effect：載入 host 的 builtin adapter 註冊（白名單／meta 才有內容）。
-import { SHU_RIG_VARIANT_IDS } from "../character/adapters";
+// side effect：載入 host 的 builtin adapter 與 migrator 註冊（白名單／meta 才有內容）。
+import "../character/adapters";
 import { baseMessageId } from "../character/gateway";
 import { displayNameOf, validateCharacterManifest } from "../character/manifest";
 import {
@@ -249,48 +249,20 @@ export function isImageDataUrl(value: unknown): value is string {
   return typeof value === "string" && /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]/i.test(value);
 }
 
-/** rig 角色的配色 id（由 adapter registry 宣告；host 只是轉述）。 */
-export const SHU_RIG_PALETTES = SHU_RIG_VARIANT_IDS;
-
-export function isShuRigPalette(value: unknown): value is (typeof SHU_RIG_PALETTES)[number] {
-  return typeof value === "string" && (SHU_RIG_PALETTES as readonly string[]).includes(value);
-}
-
 /**
- * 匯入 shu-rig 的初始配色：x-legacy／legacy.palette → preferencesSchema 的 variant／palette
- * 預設值 → variants[0] → maid-classic。只接受白名單裡的配色名（未知名稱不猜）。
+ * v0.6.0 strangler：這幾個 helper 全是「某個 rig 角色」的知識，已搬到
+ * `character/adapters/shu.ts`。這裡只留同名 re-export 讓既有呼叫端（CompanionApp、
+ * CharacterPreview、測試）不用一次改完。
+ *
+ * @deprecated 改 import `character/adapters/shu`。
  */
-export function rigPaletteForImported(manifest: CharacterManifest | null): string {
-  if (!manifest) return "maid-classic";
-  for (const key of ["x-legacy", "legacy"] as const) {
-    const ext = extensionOf(manifest, key);
-    if (ext && isShuRigPalette(ext.palette)) return ext.palette;
-  }
-  const props = manifest.preferencesSchema?.properties ?? {};
-  for (const key of ["variant", "palette"]) {
-    const d = props[key]?.default;
-    if (isShuRigPalette(d)) return d;
-  }
-  const first = manifest.variants[0]?.id;
-  if (isShuRigPalette(first)) return first;
-  return "maid-classic";
-}
-
-/**
- * 沒有 manifest 本文時，用清單摘要組一個 character-rig 2.0 pack 交給 ShuCharacterAdapter
- * 遷移（characterId＝匯入 id、名字＝清單 displayName）。純資料，不執行任何東西。
- */
-export function importedRigPack(entry: Pick<ImportedCharacterListing, "characterId" | "displayName" | "version">, palette: string): Record<string, unknown> {
-  const name = isPlainObject(entry.displayName) && Object.keys(entry.displayName).length > 0 ? entry.displayName : { "zh-TW": "角色" };
-  return {
-    schemaVersion: "2.0",
-    kind: "character-rig",
-    id: entry.characterId,
-    name,
-    palette: isShuRigPalette(palette) ? palette : "maid-classic",
-    ...(typeof entry.version === "string" && entry.version.length > 0 ? { version: entry.version } : {}),
-  };
-}
+export {
+  importedRigPack,
+  isShuRigPalette,
+  rigPaletteFor,
+  rigPaletteForImported,
+  SHU_RIG_PALETTES,
+} from "../character/adapters/shu";
 
 export type ImportedLookup = "skipped" | "done" | "failed";
 
@@ -366,13 +338,6 @@ export function charNameFor(prefsName: string | null | undefined, manifest: Pick
   const own = typeof prefsName === "string" ? prefsName.trim().slice(0, 24) : "";
   if (own.length > 0) return own;
   return manifest ? displayNameOf(manifest, locale) : "角色";
-}
-
-/** rig 配色：bundled manifest 的 legacy.palette，或第一個 variant。 */
-export function rigPaletteFor(manifest: CharacterManifest): string {
-  const legacy = (manifest as unknown as { legacy?: { palette?: unknown } }).legacy;
-  if (legacy && typeof legacy.palette === "string") return legacy.palette;
-  return manifest.variants[0]?.id ?? "maid-classic";
 }
 
 // ---------------------------------------------------------------------------

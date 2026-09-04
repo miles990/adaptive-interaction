@@ -22,17 +22,32 @@ import { EXPRESSIONS, OFFICIAL_36 } from "../../companion/rig/expressions";
 import { drawExpressionPreview } from "../../companion/rig/renderer";
 import { machineStageFlags, STAGE_SCENES, StageRenderer } from "../../companion/rig/stage";
 import { DEFAULT_TUNING, PersonalityTuning } from "../../companion/personality";
+import { validateRigManifest, type RigManifest } from "../../companion/rig/renderer";
 import type { AdapterHost, AdapterInputEvent, CharacterAdapter, GameplayExtension, HitRect, PointerInput, ReceiptSink } from "../adapter";
-import { displayNameOf, migratePackToManifest } from "../manifest";
+import {
+  displayNameOf,
+  finalizeMigratedManifest,
+  migratePackToManifest,
+  MigrationRegistry,
+  normalizeLegacyVersion,
+  supportedCapability,
+  type MigrationContext,
+  type MigrationResult,
+  type PackMigrator,
+} from "../manifest";
 import { presentedIntent } from "../negotiate";
 import {
+  CapabilityDecl,
+  CHARACTER_INTENTS,
   CharacterManifest,
   Hello,
   IntentEnvelope,
   IntentResolution,
   LIMITS,
+  LocalizedText,
   Negotiate,
   PROTOCOL_VERSION,
+  SEMANTIC_CHANNELS,
 } from "../protocol";
 import {
   isShuToyKind,
@@ -47,7 +62,10 @@ import {
   type ShuExpressionPlan,
 } from "./shuTables";
 
-/** 沒有 bundled manifest 時的 legacy rig pack（character-rig 2.0）——migratePackToManifest 會產生完整能力集。 */
+/** 這個 adapter 的 in-process builtin entrypoint id（host 白名單裡的同一個字串）。 */
+export const SHU_RIG_ENTRYPOINT_ID = "shu-rig";
+
+/** 沒有 bundled manifest 時的 legacy rig pack（character-rig 2.0）——rigPackMigrator 會產生完整能力集。 */
 const DEFAULT_LEGACY_RIG = {
   schemaVersion: "2.0",
   kind: "character-rig",
@@ -70,12 +88,32 @@ export function previewExpressions(): { id: string; label: string }[] {
   return OFFICIAL_36.map((id) => ({ id, label: EXPRESSIONS[id]?.label ?? id }));
 }
 
-/** 這個角色提供的配色（第一個是預設值）。 */
-export const PALETTES: { id: string; label: string }[] = [
-  { id: "maid-classic", label: "經典" },
-  { id: "maid-dusk", label: "暮色" },
-  { id: "maid-sakura", label: "櫻花" },
+/**
+ * 這個角色的配色 variants（id ＋ 雙語顯示名，第一個是預設值）。
+ * 鏡射 Rust `interaction_character_shu::ShuRigPack::VARIANTS`；協定核心不認得這些名字。
+ */
+export const SHU_RIG_VARIANTS: readonly { readonly id: string; readonly displayName: LocalizedText }[] = [
+  { id: "maid-classic", displayName: { "zh-TW": "經典", en: "Classic" } },
+  { id: "maid-dusk", displayName: { "zh-TW": "暮色", en: "Dusk" } },
+  { id: "maid-sakura", displayName: { "zh-TW": "櫻花", en: "Sakura" } },
 ];
+
+/** 這個角色提供的配色 id（＝ manifest variants；host 用它決定 `palette` 別名要不要送）。 */
+export const SHU_RIG_PALETTES: readonly string[] = SHU_RIG_VARIANTS.map((v) => v.id);
+
+/** 舊 pack 沒宣告 palette、或宣告了未知名稱時的預設值。 */
+export const DEFAULT_SHU_RIG_PALETTE = "maid-classic";
+
+/** `value` 是不是已知配色（未知名稱不猜、不接受）。 */
+export function isShuRigPalette(value: unknown): value is string {
+  return typeof value === "string" && SHU_RIG_PALETTES.includes(value);
+}
+
+/** 這個角色提供的配色（第一個是預設值）——設定頁用的人話標籤。 */
+export const PALETTES: { id: string; label: string }[] = SHU_RIG_VARIANTS.map((v) => ({
+  id: v.id,
+  label: v.displayName["zh-TW"] ?? v.id,
+}));
 
 /**
  * 說話風格。`followsName` 的項目由頁面把目前角色的名字接在前面
@@ -94,6 +132,176 @@ export function drawPreviewExpression(
   size: number
 ): void {
   drawExpressionPreview(ctx, expressionId, palette, size);
+}
+
+// ---------------------------------------------------------------------------
+// CPP §2.2／§12：這個角色的能力集與 `character-rig` 2.0 遷移
+//
+// v0.6.0 strangler：以上全部曾經住在協定核心（character/manifest.ts）。核心現在只認識
+// 通用 sprite pack；rig 2.0 由這裡實作 PackMigrator，由 host（character/adapters/index.ts）
+// 註冊。鏡射 Rust 的 `interaction_character_shu::{ShuRigPack, RigPackMigrator}`。
+// ---------------------------------------------------------------------------
+
+/** 這個角色宣告的輸入能力（CPP §3.1 的 7 個 input.*）。 */
+const SHU_INPUT_CAPABILITIES = [
+  "input.click",
+  "input.hover",
+  "input.drag",
+  "input.drop",
+  "input.pointerProximity",
+  "input.text",
+  "input.fileDrop",
+] as const;
+
+/** CPP §12 `shu-rig` 的完整能力集（全部 visual.*、audio.speech／effect、input.*、multiCharacter、scene、rollCall、gameplay.*）。 */
+export function shuRigCapabilities(): {
+  capabilities: Record<string, CapabilityDecl>;
+  inputCapabilities: Record<string, CapabilityDecl>;
+} {
+  const rm = { interruptible: true, resumable: true, qualityLevel: "full" as const };
+  const capabilities: Record<string, CapabilityDecl> = {
+    "visual.presence": supportedCapability({ ...rm, reducedMotionBehavior: "static" }),
+    "visual.pose": supportedCapability({ ...rm, reducedMotionBehavior: "static", maxConcurrent: 1 }),
+    "visual.expression": supportedCapability({
+      ...rm,
+      reducedMotionBehavior: "static",
+      maxConcurrent: 1,
+      variants: Object.keys(EXPRESSIONS),
+      durationRange: { minMs: 100, maxMs: LIMITS.durationMaxMs },
+    }),
+    "visual.gaze": supportedCapability({ ...rm, reducedMotionBehavior: "reduced" }),
+    "visual.locomotion": supportedCapability({ ...rm, reducedMotionBehavior: "disabled" }),
+    "visual.overlay": supportedCapability({ ...rm, reducedMotionBehavior: "reduced" }),
+    "visual.particles": supportedCapability({ ...rm, reducedMotionBehavior: "disabled" }),
+    "visual.prop": supportedCapability({ ...rm, reducedMotionBehavior: "static" }),
+    "visual.textBubble": supportedCapability({ ...rm, reducedMotionBehavior: "unchanged", maxConcurrent: 1 }),
+    "audio.speech": supportedCapability({ interruptible: true, resumable: false, requiresAudio: true, reducedMotionBehavior: "unchanged" }),
+    "audio.effect": supportedCapability({ interruptible: true, resumable: false, requiresAudio: true, reducedMotionBehavior: "unchanged" }),
+    multiCharacter: supportedCapability({ reducedMotionBehavior: "unchanged" }),
+    scene: supportedCapability({ reducedMotionBehavior: "reduced" }),
+    rollCall: supportedCapability({ reducedMotionBehavior: "reduced", durationRange: { minMs: 500, maxMs: 20_000 } }),
+    "gameplay.toys": supportedCapability({ reducedMotionBehavior: "disabled" }),
+    "gameplay.autonomy": supportedCapability({ reducedMotionBehavior: "reduced" }),
+  };
+  const inputCapabilities: Record<string, CapabilityDecl> = {};
+  for (const id of SHU_INPUT_CAPABILITIES) inputCapabilities[id] = supportedCapability();
+  return { capabilities, inputCapabilities };
+}
+
+/** 這個角色接手的舊 pack `kind` 與 `schemaVersion`。 */
+export const RIG_PACK_KIND = "character-rig";
+export const RIG_PACK_SCHEMA_VERSION = "2.0";
+
+/**
+ * `character-rig` 2.0 → CPP manifest。純函式：不讀檔、不執行 entrypoint、不改寫使用者設定；
+ * 未知配色不猜（由既有的 rig 驗證器擋下）。
+ */
+export const rigPackMigrator: PackMigrator = {
+  kind: RIG_PACK_KIND,
+  schemaVersions: [RIG_PACK_SCHEMA_VERSION],
+  migrate(legacy: Record<string, unknown>, ctx: MigrationContext): MigrationResult {
+    const issues = validateRigManifest(legacy);
+    if (issues.length > 0) return { ok: false, errors: issues.map((i) => `legacy rig: ${i}`) };
+    const rig = legacy as unknown as RigManifest;
+    // 自己的配色排第一，其餘依宣告順序（未知名稱進不來：驗證器已擋）。
+    const ordered = [rig.palette, ...SHU_RIG_PALETTES.filter((p) => p !== rig.palette)];
+    const byId = new Map(SHU_RIG_VARIANTS.map((v) => [v.id, v.displayName]));
+    const { capabilities, inputCapabilities } = shuRigCapabilities();
+    const candidate: Record<string, unknown> = {
+      schemaVersion: "1.0",
+      characterId: rig.id,
+      displayName: rig.name,
+      ...(rig.author ? { author: rig.author } : {}),
+      ...(rig.description ? { description: rig.description } : {}),
+      version: normalizeLegacyVersion(rig.version),
+      adapterKind: "in-process",
+      entrypoint: { kind: "builtin", id: SHU_RIG_ENTRYPOINT_ID },
+      assets: [],
+      capabilities,
+      inputCapabilities,
+      channels: [...SEMANTIC_CHANNELS],
+      states: Object.keys(EXPRESSIONS),
+      intents: [...CHARACTER_INTENTS],
+      variants: ordered.map((id) => ({ id, displayName: byId.get(id) ?? { en: id } })),
+      locales: Object.keys(rig.name),
+      pronouns: { "zh-TW": "她", en: "she" },
+      securityRequirements: {
+        network: false,
+        executable: false,
+        fileAccess: "none",
+        audioOutput: true,
+        microphone: false,
+        camera: false,
+      },
+      resourceLimits: { maxAssetBytes: 8 * 1024 * 1024, maxConcurrentCommands: 4, maxQueue: 32, maxFps: 60 },
+      fallbacks: {},
+      compatibility: { protocol: "1.x", runtime: ">=0.5.0" },
+      legacy: { kind: RIG_PACK_KIND, schemaVersion: rig.schemaVersion, palette: rig.palette },
+    };
+    return finalizeMigratedManifest(candidate, RIG_PACK_KIND, ctx);
+  },
+};
+
+/** 只認得自己舊格式的 registry：adapter 自建 manifest 時用，不依賴 host 的載入順序。 */
+let ownRegistry: MigrationRegistry | null = null;
+function shuMigrationRegistry(): MigrationRegistry {
+  if (!ownRegistry) ownRegistry = new MigrationRegistry().register(rigPackMigrator);
+  return ownRegistry;
+}
+
+// ---------------------------------------------------------------------------
+// host 接線用的配色 helper（原本住在 companion/gatewayWiring.ts）
+// ---------------------------------------------------------------------------
+
+function plainObject(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+
+/** bundled manifest 的 legacy.palette，或第一個 variant；都沒有就用預設配色。 */
+export function rigPaletteFor(manifest: CharacterManifest): string {
+  const legacy = (manifest as unknown as { legacy?: { palette?: unknown } }).legacy;
+  if (legacy && typeof legacy.palette === "string") return legacy.palette;
+  return manifest.variants[0]?.id ?? DEFAULT_SHU_RIG_PALETTE;
+}
+
+/**
+ * 匯入角色的初始配色：x-legacy／legacy.palette → preferencesSchema 的 variant／palette
+ * 預設值 → variants[0] → 預設配色。只接受宣告過的配色名（未知名稱不猜）。
+ */
+export function rigPaletteForImported(manifest: CharacterManifest | null): string {
+  if (!manifest) return DEFAULT_SHU_RIG_PALETTE;
+  for (const key of ["x-legacy", "legacy"]) {
+    const ext = plainObject((manifest as unknown as Record<string, unknown>)[key]);
+    if (ext && isShuRigPalette(ext.palette)) return ext.palette;
+  }
+  const props = manifest.preferencesSchema?.properties ?? {};
+  for (const key of ["variant", "palette"]) {
+    const d = props[key]?.default;
+    if (isShuRigPalette(d)) return d;
+  }
+  const first = manifest.variants[0]?.id;
+  if (isShuRigPalette(first)) return first;
+  return DEFAULT_SHU_RIG_PALETTE;
+}
+
+/**
+ * 沒有 manifest 本文時，用清單摘要組一個 `character-rig` 2.0 pack 交給這個 adapter 遷移
+ * （characterId＝匯入 id、名字＝清單 displayName）。純資料，不執行任何東西。
+ */
+export function importedRigPack(
+  entry: { characterId: string; displayName?: unknown; version?: unknown },
+  palette: string
+): Record<string, unknown> {
+  const declared = plainObject(entry.displayName);
+  const name = declared && Object.keys(declared).length > 0 ? declared : { "zh-TW": "角色" };
+  return {
+    schemaVersion: RIG_PACK_SCHEMA_VERSION,
+    kind: RIG_PACK_KIND,
+    id: entry.characterId,
+    name,
+    palette: isShuRigPalette(palette) ? palette : DEFAULT_SHU_RIG_PALETTE,
+    ...(typeof entry.version === "string" && entry.version.length > 0 ? { version: entry.version } : {}),
+  };
 }
 
 export interface ShuAdapterOptions {
@@ -160,12 +368,6 @@ function transientMatches(t: Transient | null, w: Watch): boolean {
   return t.kind === w.kind && (t.animation ?? undefined) === w.animation && (t.verified ?? undefined) === w.verified;
 }
 
-function rigPaletteOf(manifest: CharacterManifest): string | null {
-  const legacy = (manifest as unknown as { legacy?: { palette?: unknown } }).legacy;
-  if (legacy && typeof legacy.palette === "string") return legacy.palette;
-  return manifest.variants[0]?.id ?? null;
-}
-
 export class ShuCharacterAdapter implements CharacterAdapter {
   readonly manifest: CharacterManifest;
   /** Director／gameFeel／personality／舊路徑 machine 需要的角色表（host 注入用）。 */
@@ -198,14 +400,14 @@ export class ShuCharacterAdapter implements CharacterAdapter {
     if (opts.manifest) {
       this.manifest = opts.manifest;
     } else {
-      const migrated = migratePackToManifest(opts.legacyRig ?? DEFAULT_LEGACY_RIG);
+      const migrated = migratePackToManifest(opts.legacyRig ?? DEFAULT_LEGACY_RIG, { registry: shuMigrationRegistry() });
       if (!migrated.ok) throw new Error(`shu rig pack rejected: ${migrated.errors.join("; ")}`);
       this.manifest = migrated.manifest;
     }
-    if (this.manifest.entrypoint.kind !== "builtin" || this.manifest.entrypoint.id !== "shu-rig") {
+    if (this.manifest.entrypoint.kind !== "builtin" || this.manifest.entrypoint.id !== SHU_RIG_ENTRYPOINT_ID) {
       throw new Error("manifest entrypoint is not builtin shu-rig");
     }
-    this.paletteName = opts.palette ?? rigPaletteOf(this.manifest) ?? "maid-classic";
+    this.paletteName = opts.palette ?? rigPaletteFor(this.manifest);
     this.canvas = opts.canvas ?? null;
     this.stage = opts.stage ?? null;
     this.ownsStage = !opts.stage;

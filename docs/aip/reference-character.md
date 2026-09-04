@@ -64,6 +64,10 @@ host 不看 entrypoint 字串，只讀 `registerBuiltinAdapter` 註冊的 meta�
 
 `interaction_character::MigrationRegistry` 依 (`kind`, `schemaVersion`) 分派，有界且不允許重複註冊。
 核心只內建通用 sprite；小樞的 `character-rig` 2.0 由 `interaction-character-shu` 提供、由 host 註冊。
+TS 端一樣：`character/manifest.ts` 的 `MigrationRegistry`＋`spritePackMigrator`（核心）、
+`character/adapters/shu.ts` 的 `rigPackMigrator`（角色）、`character/adapters/index.ts` 的
+`registerHostMigrator(...)`（host 註冊）、`character/adapterRegistry.ts` 的
+`hostMigrationRegistry()`（host 的完整 registry）。
 新角色如果沒有舊格式要遷移（`ref-shape` 就沒有），完全不必碰這裡。
 
 ## 4. `ref-shape` 是什麼
@@ -104,6 +108,16 @@ CPP 的 `wait` 有 priority floor 60，屬於**安全** intent（`is_safety()`�
   `rg -n -i 'shu|maid' crates/interaction-character/src` = **0 命中**；`ref-shape` 這個字串在核心
   `src/` 完全不存在（核心 conformance **測試**檔 `tests/conformance.rs` 裡的 `CORE_BUILTIN_IDS`
   含 `"shape"`，那是測試 host 注入什麼，不是核心程式碼）。
+- TS 協定核心同樣乾淨。驗收：
+  `rg -n -i 'shu|maid|character-rig' apps/interaction-desktop/src/character/{manifest,protocol,negotiate,gateway}.ts`
+  = **0 命中**；`character/adapterRegistry.ts` 只剩 `BUILTIN_ADAPTER_IDS` 那一行的 `"shu-rig"` id 字面
+  （host 白名單宣告，§3.1）與一行 legacy kind 註解。小樞的能力集（`shuRigCapabilities`）、
+  配色 variants（`SHU_RIG_VARIANTS`／`SHU_RIG_PALETTES`）、rig 2.0 遷移（`rigPackMigrator`）與
+  host 接線用的配色 helper（`rigPaletteFor`／`rigPaletteForImported`／`importedRigPack`／
+  `isShuRigPalette`）全部住在 `character/adapters/shu.ts`；`companion/gatewayWiring.ts` 只留
+  `@deprecated` 的同名 re-export。這條由
+  `src/test/architecture-no-entrypoint-switch.test.ts` 的「協定核心 character/*.ts（adapters/ 以外）
+  不含任何角色專屬字串」讀原始碼釘死。
 - `crates/interaction-runtime/src/character.rs` 只有白名單那一個字串；沒有任何 `if entrypoint == …`。
 - `apps/interaction-desktop/src/companion/CompanionApp.tsx` 沒有為 `ref-shape` 加過任何分岔：
   它只呼叫 `createBuiltinAdapter(entrypoint, ctx)` 並讀 meta。
@@ -119,7 +133,8 @@ CPP 的 `wait` 有 priority floor 60，屬於**安全** intent（`is_safety()`�
 |---|---|
 | `src/test/adapter-contract.test.ts` | shu-rig／sprite／text／shape 四個 adapter 跑同一套 contract：lifecycle、capability 註冊、unsupported 不回 completed、cancel 冪等、timeout 由 tick 推進、dispose 後不再回執／不再送輸入、重複訂閱不重複送、dispose 後 timer／rAF／DOM listener 歸零 |
 | `src/test/character-ref-shape.test.ts` | manifest 與 adapter 定義一致、20 個 CPP intent 逐一送（非安全演出／安全落 system.text）、動作與顏色、Reduced Motion、input.click、切換 shu ↔ ref-shape、索引列 |
-| `src/test/architecture-no-entrypoint-switch.test.ts` | host 端沒有 entrypoint 字面分岔；CompanionApp 不直接 `new` 任何角色類別 |
+| `src/test/architecture-no-entrypoint-switch.test.ts` | host 端沒有 entrypoint 字面分岔；CompanionApp 不直接 `new` 任何角色類別；協定核心 `character/*.ts`（`adapters/` 以外）不含任何角色專屬字串 |
+| `src/test/character-protocol.test.ts`（遷移器 registry） | TS `MigrationRegistry`：核心只有 sprite、重複／有界拒絕、未知 kind 誠實錯誤且不回顯輸入、rig 走 shu migrator 的 golden |
 | `crates/interaction-character/tests/migration_registry.rs` | 空白名單預設、host 注入、migrator registry 分派／重複／有界 |
 | `crates/interaction-character-shu/tests/{rig_pack,conformance}.rs` | 小樞的 variants／能力集／`character-rig` 2.0 遷移＋內建 rig 角色的 CPP conformance |
 | `crates/interaction-runtime/tests/character_host_registry.rs` | Runtime 注入的白名單與 migrator registry |

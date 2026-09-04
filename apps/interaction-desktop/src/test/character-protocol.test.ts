@@ -7,12 +7,22 @@ import { describe, expect, it } from "vitest";
 import shuStandard from "../../public/packs/shu-standard/manifest.json";
 import shuLively from "../../public/packs/shu-lively/manifest.json";
 import shuMaid from "../../public/packs/shu-maid/manifest.json";
+import { hostMigrationRegistry } from "../character/adapterRegistry";
+// side effect：載入桌面 host 的 builtin adapter 與 migrator 註冊（rig 2.0 由 shu adapter 提供）。
+import "../character/adapters";
+import { rigPackMigrator, shuRigCapabilities } from "../character/adapters/shu";
 import {
+  coreMigrationRegistry,
+  defaultMigrationRegistry,
   displayNameOf,
+  MAX_MIGRATOR_VERSIONS,
+  MAX_MIGRATORS,
+  MigrationRegistry,
   migratePackToManifest,
   pronounOf,
-  shuRigCapabilities,
+  spritePackMigrator,
   validateCharacterManifest,
+  type PackMigrator,
 } from "../character/manifest";
 import { classifyChannels, negotiate, ProtocolVersionError, resolveIntent } from "../character/negotiate";
 import {
@@ -31,6 +41,7 @@ import {
   PROTOCOL_VERSION,
   RECEIPT_STATUSES,
   SAFETY_INTENTS,
+  SEMANTIC_CHANNELS,
   TRUTH_STATES,
 } from "../character/protocol";
 import { deriveIntentFallbacks, resolveSpriteAnimation } from "../character/spriteIntents";
@@ -317,7 +328,7 @@ describe("舊 pack 遷移（§2.2）", () => {
   });
 
   it("character-rig 2.0（shu-maid）→ shu-rig adapter、三個 palette variants、完整能力集、代名詞", () => {
-    const r = migratePackToManifest(shuMaid);
+    const r = migratePackToManifest(shuMaid, { registry: hostMigrationRegistry() });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const m = r.manifest;
@@ -332,13 +343,17 @@ describe("舊 pack 遷移（§2.2）", () => {
   });
 
   it("dusk rig 的第一個 variant 是自己的 palette", () => {
-    const r = migratePackToManifest({ ...shuMaid, id: "shu-maid-dusk", palette: "maid-dusk" });
+    const r = migratePackToManifest({ ...shuMaid, id: "shu-maid-dusk", palette: "maid-dusk" }, { registry: hostMigrationRegistry() });
     expect(r.ok && r.manifest.variants[0].id).toBe("maid-dusk");
   });
 
   it("壞的舊 pack 被既有驗證器擋下", () => {
     expect(migratePackToManifest({ kind: "character-pack", id: "x" }).ok).toBe(false);
     expect(migratePackToManifest({ kind: "character-rig", id: "x", palette: "evil", name: {} }).ok).toBe(false);
+    // 有正確 schemaVersion 也一樣：分派到 shu 的 rig migrator，仍被舊 rig 驗證器擋下。
+    expect(
+      migratePackToManifest({ schemaVersion: "2.0", kind: "character-rig", id: "x", palette: "evil", name: {} }, { registry: hostMigrationRegistry() }).ok
+    ).toBe(false);
     expect(migratePackToManifest({ kind: "persona-pack" }).ok).toBe(false);
     expect(migratePackToManifest(null).ok).toBe(false);
   });
@@ -360,7 +375,7 @@ describe("舊 pack 遷移（§2.2）", () => {
   });
 
   it("displayNameOf／pronounOf 的中立 fallback", () => {
-    const r = migratePackToManifest(shuMaid);
+    const r = migratePackToManifest(shuMaid, { registry: hostMigrationRegistry() });
     if (!r.ok) throw new Error("migration failed");
     expect(displayNameOf(r.manifest, "zh-TW")).toBe(shuMaid.name["zh-TW"]);
     expect(displayNameOf(r.manifest, "ja")).toBe(shuMaid.name["zh-TW"]);
@@ -617,5 +632,147 @@ describe("安全 intent 不得被 fallbacks.intents 換成非安全 intent（§3
     }
     // 安全 → 安全（failed → blocked）不受影響。
     expect(n.resolutions.failed).toEqual({ resolution: "substituted", via: "visual.expression", viaIntent: "blocked", variant: "blocked" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §2.2 遷移器 registry（v0.6.0 strangler）：核心只內建通用 sprite，具名角色的舊格式
+// 由它自己的 adapter 模組實作 PackMigrator、由 host 註冊。鏡射 Rust 的
+// interaction_character::{PackMigrator, MigrationRegistry}。
+// ---------------------------------------------------------------------------
+
+describe("遷移器 registry（§2.2）", () => {
+  function fakeMigrator(kind: string, versions: readonly string[]): PackMigrator {
+    return {
+      kind,
+      schemaVersions: versions,
+      migrate: () => ({ ok: false as const, errors: ["not implemented"] }),
+    };
+  }
+
+  it("核心 registry 只有通用 sprite（character-pack 1.0／1.1），沒有任何具名角色", () => {
+    const core = coreMigrationRegistry();
+    expect(core.supportedKinds()).toEqual([
+      { kind: "character-pack", schemaVersion: "1.0" },
+      { kind: "character-pack", schemaVersion: "1.1" },
+    ]);
+    expect(core.size).toBe(1);
+    expect(core.find("character-pack", "1.0")).toBe(spritePackMigrator);
+    expect(core.find("character-rig", "2.0")).toBeNull();
+  });
+
+  it("核心 registry 遷移 sprite pack 成功、遇到 rig pack 誠實失敗（不猜、不落到別的 adapter）", () => {
+    const core = coreMigrationRegistry();
+    expect(migratePackToManifest(shuStandard, { registry: core }).ok).toBe(true);
+    const rig = migratePackToManifest(shuMaid, { registry: core });
+    expect(rig.ok).toBe(false);
+    if (rig.ok) return;
+    expect(rig.errors.join(" ")).toMatch(/no migrator/i);
+  });
+
+  it("同一組 (kind, schemaVersion) 不得註冊兩次（後者不得悄悄覆蓋前者）", () => {
+    const reg = new MigrationRegistry().register(fakeMigrator("demo-pack", ["1.0", "1.1"]));
+    expect(() => reg.register(fakeMigrator("demo-pack", ["1.1"]))).toThrow(/already registered/);
+    // 不同版本可以另外註冊
+    expect(() => reg.register(fakeMigrator("demo-pack", ["2.0"]))).not.toThrow();
+    expect(reg.size).toBe(2);
+  });
+
+  it("registry 有界：migrator 數量與每個 migrator 的版本數都有上限", () => {
+    expect(() => new MigrationRegistry().register(fakeMigrator("demo", []))).toThrow(/schema versions/);
+    const tooMany = Array.from({ length: MAX_MIGRATOR_VERSIONS + 1 }, (_, i) => `1.${i}`);
+    expect(() => new MigrationRegistry().register(fakeMigrator("demo", tooMany))).toThrow(/schema versions/);
+    const reg = new MigrationRegistry();
+    for (let i = 0; i < MAX_MIGRATORS; i += 1) reg.register(fakeMigrator(`demo-${i}`, ["1.0"]));
+    expect(reg.size).toBe(MAX_MIGRATORS);
+    expect(() => reg.register(fakeMigrator("overflow", ["1.0"]))).toThrow(/full/);
+  });
+
+  it("沒有 migrator 的 kind 誠實回錯，訊息不回顯輸入內容", () => {
+    const evil = "x".repeat(500);
+    const r = migratePackToManifest({ kind: evil, schemaVersion: evil, secret: "/Users/someone/private" });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    const message = r.errors.join(" ");
+    expect(message).not.toContain(evil);
+    expect(message).not.toContain("/Users/");
+    expect(message.length).toBeLessThanOrEqual(200);
+  });
+
+  it("host registry ＝ 核心 sprite ＋ shu adapter 註冊的 character-rig 2.0", () => {
+    const host = hostMigrationRegistry();
+    expect(host.supportedKinds()).toEqual([
+      { kind: "character-pack", schemaVersion: "1.0" },
+      { kind: "character-pack", schemaVersion: "1.1" },
+      { kind: "character-rig", schemaVersion: "2.0" },
+    ]);
+    expect(host.find("character-rig", "2.0")).toBe(rigPackMigrator);
+  });
+
+  it("rig 走 shu migrator 產生與 v0.5.1 相同的 manifest（golden）", () => {
+    const viaRegistry = migratePackToManifest(shuMaid, { registry: hostMigrationRegistry() });
+    const viaMigrator = rigPackMigrator.migrate(shuMaid as unknown as Record<string, unknown>, {});
+    expect(viaRegistry.ok).toBe(true);
+    expect(viaMigrator).toEqual(viaRegistry);
+    if (!viaRegistry.ok) return;
+    const m = viaRegistry.manifest;
+    expect(viaRegistry.source).toBe("character-rig");
+    expect(m.entrypoint).toEqual({ kind: "builtin", id: "shu-rig" });
+    expect(m.variants).toEqual([
+      { id: "maid-classic", displayName: { "zh-TW": "經典", en: "Classic" } },
+      { id: "maid-dusk", displayName: { "zh-TW": "暮色", en: "Dusk" } },
+      { id: "maid-sakura", displayName: { "zh-TW": "櫻花", en: "Sakura" } },
+    ]);
+    expect(Object.keys(m.capabilities)).toEqual([
+      "visual.presence",
+      "visual.pose",
+      "visual.expression",
+      "visual.gaze",
+      "visual.locomotion",
+      "visual.overlay",
+      "visual.particles",
+      "visual.prop",
+      "visual.textBubble",
+      "audio.speech",
+      "audio.effect",
+      "multiCharacter",
+      "scene",
+      "rollCall",
+      "gameplay.toys",
+      "gameplay.autonomy",
+    ]);
+    expect(Object.keys(m.inputCapabilities)).toEqual([
+      "input.click",
+      "input.hover",
+      "input.drag",
+      "input.drop",
+      "input.pointerProximity",
+      "input.text",
+      "input.fileDrop",
+    ]);
+    expect(m.channels).toEqual([...SEMANTIC_CHANNELS]);
+    expect(m.intents).toEqual([...CHARACTER_INTENTS]);
+    expect(m.fallbacks).toEqual({});
+    expect((m as unknown as { legacy?: unknown }).legacy).toEqual({
+      kind: "character-rig",
+      schemaVersion: "2.0",
+      palette: "maid-classic",
+    });
+    expect(m.securityRequirements).toEqual({
+      network: false,
+      executable: false,
+      fileAccess: "none",
+      audioOutput: true,
+      microphone: false,
+      camera: false,
+    });
+    expect(m.resourceLimits).toEqual({ maxAssetBytes: 8 * 1024 * 1024, maxConcurrentCommands: 4, maxQueue: 32, maxFps: 60 });
+    expect(m.pronouns).toEqual({ "zh-TW": "她", en: "she" });
+    expect(m.states.length).toBeGreaterThanOrEqual(36);
+  });
+
+  it("host 注入的預設 registry：不帶 registry 的呼叫端也能遷移 rig（adapters/index.ts 的載入副作用）", () => {
+    expect(defaultMigrationRegistry().find("character-rig", "2.0")).toBe(rigPackMigrator);
+    expect(migratePackToManifest(shuMaid).ok).toBe(true);
   });
 });

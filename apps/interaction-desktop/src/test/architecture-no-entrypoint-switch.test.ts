@@ -73,6 +73,21 @@ describe("架構：host 不依 entrypoint 字串分岔", () => {
     for (const id of ADAPTER_IDS) expect(index).toContain(`registerBuiltinAdapter(\n  "${id}"`);
   });
 
+  it("協定核心 character/*.ts（adapters/ 以外）不含任何角色專屬字串", () => {
+    const dir = join(SRC, "character");
+    // 唯一例外：adapterRegistry.ts 宣告 host 白名單（docs/aip/reference-character.md §3.1），
+    // 那一行的 "shu-rig" 是 id 字面，不是角色知識；其餘角色字串一律不得出現。
+    const offenders: string[] = [];
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith(".ts")) continue;
+      let source = stripComments(readFileSync(join(dir, name), "utf8"));
+      if (name === "adapterRegistry.ts") source = source.replace(/"shu-rig"/g, "DECLARED_BUILTIN_ID");
+      const hits = source.match(/shu|maid|character-rig/gi);
+      if (hits) offenders.push(`${name}: ${Array.from(new Set(hits)).join(", ")}`);
+    }
+    expect(offenders, "小樞專屬的能力集／配色／rig 遷移屬於 character/adapters/shu.ts").toEqual([]);
+  });
+
   it("CompanionApp 只透過 registry 建 adapter，不直接 new 任何角色類別", () => {
     const source = stripComments(readFileSync(join(SRC, "companion", "CompanionApp.tsx"), "utf8"));
     expect(source).toContain("createBuiltinAdapter");

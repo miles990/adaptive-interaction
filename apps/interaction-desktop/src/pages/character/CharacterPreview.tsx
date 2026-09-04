@@ -7,9 +7,8 @@
 
 import React from "react";
 import { PackManifest, validateManifest } from "../../companion/renderer";
-import { drawPreviewExpression, PALETTES, previewExpressions } from "../../character/adapters/shu";
+import { drawPreviewExpression, PALETTES, previewExpressions, rigPaletteFor } from "../../character/adapters/shu";
 import { intentLine } from "../../character/lines";
-import { rigPaletteFor } from "../../companion/gatewayWiring";
 import type { CharacterCard } from "./catalog";
 
 /** sprite 預覽狀態清單：名稱＋對應動畫＋誠實幀選擇。 */

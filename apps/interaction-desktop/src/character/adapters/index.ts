@@ -10,18 +10,18 @@
 import { MixerRenderer } from "../../companion/mixerRenderer";
 import { SpriteRenderer, validateManifest, type PackManifest } from "../../companion/renderer";
 import {
+  hostMigrationRegistry,
   registerBuiltinAdapter,
+  registerHostMigrator,
   type BuiltinAdapterBuild,
   type BuiltinAdapterContext,
   type BuiltinAdapterMeta,
 } from "../adapterRegistry";
+import { setDefaultMigrationRegistry } from "../manifest";
 import { ShapeCharacterAdapter } from "./shape";
-import { ShuCharacterAdapter } from "./shu";
+import { rigPackMigrator, SHU_RIG_PALETTES, ShuCharacterAdapter } from "./shu";
 import { SpriteCharacterAdapter } from "./sprite";
 import { TextCharacterAdapter } from "./text";
-
-/** rig 角色提供的配色 id（＝ manifest variants；host 用它決定 `palette` 別名要不要送）。 */
-export const SHU_RIG_VARIANT_IDS = ["maid-classic", "maid-dusk", "maid-sakura"] as const;
 
 const SHU_META: BuiltinAdapterMeta = {
   cssClass: "companion-stage",
@@ -29,7 +29,7 @@ const SHU_META: BuiltinAdapterMeta = {
   hasPlayfield: true,
   // rig 的配色偏好鍵：選定 variant 時同時以 `palette` 送給 adapter。
   variantAliasKeys: ["palette"],
-  variants: SHU_RIG_VARIANT_IDS,
+  variants: SHU_RIG_PALETTES,
   legacyPackKinds: ["character-rig"],
 };
 
@@ -125,3 +125,13 @@ registerBuiltinAdapter(
   },
   SHAPE_META
 );
+
+// ---------------------------------------------------------------------------
+// §2.2 舊 pack 遷移：核心只內建通用 sprite；具名角色的舊格式在這裡跟工廠一起註冊。
+// ---------------------------------------------------------------------------
+
+registerHostMigrator(rigPackMigrator);
+
+// 拿得到 host registry 的呼叫端一律明確帶 `opts.registry`；這一行只是替拿不到的呼叫端
+// （例如協定核心自己的 migratePackToManifest 預設值）補上同一份 registry。
+setDefaultMigrationRegistry(hostMigrationRegistry());

@@ -6,6 +6,8 @@
 // 匯出同時寫 `characterId`（別名，語意等同 companionPack）。schemaVersion 維持 1。
 
 import { DesktopPrefs } from "../desktop";
+// 使魔配色是那個 rig 角色的知識，由它的 adapter 宣告（host 只轉述白名單）。
+import { SHU_RIG_PALETTES } from "../character/adapters/shu";
 import { CHARACTER_ID_RE } from "../character/protocol";
 
 export interface CompanionSettingsExport {
@@ -39,7 +41,6 @@ export const LEGACY_CHARACTER_IDS: readonly string[] = [
 const PERSONAS = ["persona-shu", "persona-navigator"];
 const EXPRESSIVENESS = ["quiet", "natural", "lively"];
 const SCENES = ["none", "nest", "desk", "sill", "night"];
-const PALETTES = ["maid-classic", "maid-dusk", "maid-sakura"];
 
 export function exportCompanionSettings(prefs: DesktopPrefs): CompanionSettingsExport {
   return {
@@ -120,7 +121,7 @@ export function parseCompanionSettingsImport(raw: unknown, opts: ImportOptions =
       const palette = String(fo.palette ?? "");
       if (!/^[a-zA-Z0-9-]{1,32}$/.test(id)) throw new Error("使魔 id 非法");
       if (fname.length === 0 || fname.length > 24) throw new Error("使魔名字長度非法");
-      if (!PALETTES.includes(palette)) throw new Error("使魔配色不在允許清單");
+      if (!SHU_RIG_PALETTES.includes(palette)) throw new Error("使魔配色不在允許清單");
       familiars.push({ id, name: fname, palette });
     }
     out.companionFamiliars = familiars;

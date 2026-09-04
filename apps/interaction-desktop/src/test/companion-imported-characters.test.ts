@@ -10,7 +10,16 @@ import { describe, expect, it, vi } from "vitest";
 import shuMaidRaw from "../../public/characters/shu-maid/manifest.json";
 import shuStandard from "../../public/packs/shu-standard/manifest.json";
 import type { CharacterAdapter } from "../character/adapter";
-import { ShuCharacterAdapter } from "../character/adapters/shu";
+import { hostMigrationRegistry } from "../character/adapterRegistry";
+import {
+  importedRigPack,
+  isShuRigPalette,
+  rigPaletteFor,
+  rigPaletteForImported,
+  SHU_RIG_PALETTES,
+  SHU_RIG_VARIANTS,
+  ShuCharacterAdapter,
+} from "../character/adapters/shu";
 import { SpriteCharacterAdapter } from "../character/adapters/sprite";
 import { TextCharacterAdapter, buildTextCharacterManifest } from "../character/adapters/text";
 import { CharacterGateway } from "../character/gateway";
@@ -23,18 +32,16 @@ import {
   companionReloadPlan,
   HOST_APPLIED_PREF_KEYS,
   importedCharacterSource,
-  importedRigPack,
   isImageDataUrl,
   LIVE_PREF_KEYS,
   needsImportedLookup,
   PRIMARY_INSTANCE_ID,
   resolveCharacterSource,
-  rigPaletteForImported,
   selectCharacterSource,
-  SHU_RIG_PALETTES,
   spritePackFromManifest,
   type ImportedCharacterListing,
 } from "../companion/gatewayWiring";
+import * as gatewayWiring from "../companion/gatewayWiring";
 import { RIG_PALETTES } from "../companion/rig/params";
 import { StageRenderer } from "../companion/rig/stage";
 import { validateManifest, type PackManifest, type RendererBackend } from "../companion/renderer";
@@ -215,7 +222,7 @@ describe("匯入角色選擇：text／shu-rig／sprite", () => {
     expect(src).toMatchObject({ kind: "imported", entrypoint: "shu-rig", manifest: null });
     const rig = importedRigPack(entry, "maid-dusk");
     expect(rig).toMatchObject({ kind: "character-rig", id: "fox-rig", palette: "maid-dusk", version: "2.1.0", name: { "zh-TW": "小狐" } });
-    const migrated = migratePackToManifest(rig);
+    const migrated = migratePackToManifest(rig, { registry: hostMigrationRegistry() });
     expect(migrated.ok).toBe(true);
     if (!migrated.ok) return;
     expect(migrated.manifest.characterId).toBe("fox-rig");
@@ -252,8 +259,27 @@ describe("匯入角色選擇：text／shu-rig／sprite", () => {
     expect(bogus.ok && rigPaletteForImported(bogus.manifest)).toBe("maid-classic");
     expect(rigPaletteForImported(null)).toBe("maid-classic");
     expect(SHU_RIG_PALETTES.every((p) => p in RIG_PALETTES)).toBe(true);
-    const migratedRig = migratePackToManifest({ schemaVersion: "2.0", kind: "character-rig", id: "a", name: { en: "A" }, palette: "maid-classic" });
+    const migratedRig = migratePackToManifest(
+      { schemaVersion: "2.0", kind: "character-rig", id: "a", name: { en: "A" }, palette: "maid-classic" },
+      { registry: hostMigrationRegistry() }
+    );
     expect(migratedRig.ok && migratedRig.manifest.variants.map((v) => v.id).sort()).toEqual([...SHU_RIG_PALETTES].sort());
+  });
+
+  it("配色 helper 搬到 shu adapter：gatewayWiring 只是同名 re-export（同一個函式，不是複本）", () => {
+    expect(gatewayWiring.importedRigPack).toBe(importedRigPack);
+    expect(gatewayWiring.isShuRigPalette).toBe(isShuRigPalette);
+    expect(gatewayWiring.rigPaletteFor).toBe(rigPaletteFor);
+    expect(gatewayWiring.rigPaletteForImported).toBe(rigPaletteForImported);
+    expect(gatewayWiring.SHU_RIG_PALETTES).toBe(SHU_RIG_PALETTES);
+    // variants 帶雙語顯示名（遷移產生的 manifest.variants 就是它）。
+    expect(SHU_RIG_VARIANTS.map((v) => v.id)).toEqual([...SHU_RIG_PALETTES]);
+    for (const v of SHU_RIG_VARIANTS) {
+      expect(Object.keys(v.displayName).sort()).toEqual(["en", "zh-TW"]);
+      expect(v.displayName["zh-TW"]?.length).toBeGreaterThan(0);
+    }
+    expect(isShuRigPalette("neon")).toBe(false);
+    expect(isShuRigPalette("maid-dusk")).toBe(true);
   });
 
   it("sprite：版型由 manifest 的 x-legacy 派生（既有 validateManifest 驗過）、sheet 是宣告的資產、adapter 建得出來", async () => {

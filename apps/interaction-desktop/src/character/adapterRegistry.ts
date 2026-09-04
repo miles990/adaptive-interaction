@@ -4,7 +4,7 @@
 // 「有哪些 builtin adapter」是 **host 的事**，所以：
 //   - builtin entrypoint 白名單 ＝ 這個 registry 的 keys（manifest.ts 預設取這裡）；
 //   - CompanionApp／gatewayWiring 只呼叫 createBuiltinAdapter(entrypoint, ctx)，
-//     不再有 `entrypoint === "shu-rig"` 這類分岔；
+//     不再有「entrypoint 等於某個具名角色 id」這類分岔；
 //   - 角色專屬的畫布 class、遊玩場、variant 別名鍵由 adapter meta 宣告。
 //
 // 這個模組**不** import 任何 adapter 實作（避免循環）：id 在這裡宣告，工廠由
@@ -18,8 +18,8 @@ import type { LandingTable } from "../companion/gameFeel";
 import type { LegacyEventArt } from "../companion/machine";
 import type { VariantWeightTable } from "../companion/personality";
 import type { StageRenderer } from "../companion/rig/stage";
-import type { ToyCatalogEntry } from "./adapters/shuTables";
 import type { CharacterAdapter } from "./adapter";
+import { coreMigrationRegistry, MigrationRegistry, type PackMigrator } from "./manifest";
 import type { CharacterManifest, LocalizedText } from "./protocol";
 
 /** host 宣告的 in-process builtin adapter id（＝ builtin entrypoint 白名單）。 */
@@ -96,12 +96,19 @@ export interface BuiltinAdapterContext {
  * host 需要從「有遊玩場的角色」拿到的東西。任何 adapter 都可以提供（或不提供）；
  * host 只看有沒有，不看是哪個角色。
  */
+export interface AdapterToyEntry {
+  /** adapter 自己的玩具 kind（host 只轉述，不認得任何特定角色的清單）。 */
+  readonly kind: string;
+  readonly label: string;
+  readonly emoji: string;
+}
+
 export interface CompanionSurface {
   readonly directorTables: DirectorTables;
   readonly landingTable: LandingTable;
   readonly variantWeights: VariantWeightTable;
   readonly eventArt: LegacyEventArt;
-  readonly toyCatalog: readonly ToyCatalogEntry[];
+  readonly toyCatalog: readonly AdapterToyEntry[];
   stageRenderer(): StageRenderer | null;
   rollCallNow(machineLabel: string | null): { name: string; activity: string }[];
 }
@@ -198,4 +205,42 @@ export async function createBuiltinAdapter(id: string, ctx: BuiltinAdapterContex
 /** 測試用：清空註冊（正式路徑永遠只在模組載入時註冊一次）。 */
 export function resetBuiltinAdaptersForTest(): void {
   registry.clear();
+}
+
+// ---------------------------------------------------------------------------
+// §2.2 舊 pack 遷移：host 的 MigrationRegistry
+//
+// 協定核心只內建通用 sprite（manifest.ts 的 spritePackMigrator）；具名角色的舊格式由
+// 它自己的 adapter 模組實作 PackMigrator，在 `character/adapters/index.ts` 跟工廠註冊
+// 放在一起。host 只知道「有人接手這個 kind」，不知道那是誰。
+// ---------------------------------------------------------------------------
+
+const hostMigrators: PackMigrator[] = [];
+let cachedHostRegistry: MigrationRegistry | null = null;
+
+/**
+ * 註冊一個 host 側的 pack migrator。上限與重複檢查由 MigrationRegistry 負責
+ * （這裡先建一次以便重複／有界違規在註冊當下就擲例外，而不是等到有人遷移才發現）。
+ */
+export function registerHostMigrator(migrator: PackMigrator): void {
+  const next = coreMigrationRegistry();
+  for (const m of [...hostMigrators, migrator]) next.register(m);
+  hostMigrators.push(migrator);
+  cachedHostRegistry = next;
+}
+
+/** 桌面 host 的完整 registry：核心的通用 sprite ＋ 各 adapter 註冊的舊格式。 */
+export function hostMigrationRegistry(): MigrationRegistry {
+  if (!cachedHostRegistry) {
+    const next = coreMigrationRegistry();
+    for (const m of hostMigrators) next.register(m);
+    cachedHostRegistry = next;
+  }
+  return cachedHostRegistry;
+}
+
+/** 測試用：清空 host migrator 註冊（正式路徑只在模組載入時註冊一次）。 */
+export function resetHostMigratorsForTest(): void {
+  hostMigrators.length = 0;
+  cachedHostRegistry = null;
 }

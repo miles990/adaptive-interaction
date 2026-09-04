@@ -3,7 +3,11 @@
 // registry 載入／匯入驗證／UI 摘要。
 
 import { describe, expect, it } from "vitest";
-import { migratePackToManifest, shuRigCapabilities, validateCharacterManifest } from "../character/manifest";
+import { hostMigrationRegistry } from "../character/adapterRegistry";
+// side effect：載入桌面 host 的 builtin adapter 與 migrator 註冊。
+import "../character/adapters";
+import { rigPackMigrator, shuRigCapabilities } from "../character/adapters/shu";
+import { coreMigrationRegistry, migratePackToManifest, validateCharacterManifest } from "../character/manifest";
 import { buildTextCharacterManifest } from "../character/adapters/text";
 import { CHARACTER_INTENTS, isSafetyIntent, LIMITS, SEMANTIC_CHANNELS } from "../character/protocol";
 import {
@@ -136,6 +140,26 @@ describe("bundled character manifests", () => {
         expect(caps, c).toContain(c);
       }
       expect(Object.keys(m.inputCapabilities)).toHaveLength(7);
+
+      // v0.6.0：rig 2.0 的遷移改由 shu adapter 的 migrator 負責（核心不再認得這個 kind）。
+      // 產物必須與隨 App 出貨的 manifest 對得起來（能力、變體、intent、安全宣告）。
+      const migrated = migratePackToManifest(packFor(id), { registry: hostMigrationRegistry() });
+      expect(migrated.ok, id).toBe(true);
+      if (!migrated.ok) continue;
+      expect(migrated.source).toBe("character-rig");
+      expect(migrated.manifest.capabilities).toEqual(m.capabilities);
+      expect(migrated.manifest.inputCapabilities).toEqual(m.inputCapabilities);
+      expect(migrated.manifest.variants).toEqual(m.variants);
+      expect(migrated.manifest.intents).toEqual(m.intents);
+      expect(migrated.manifest.channels).toEqual(m.channels);
+      expect(migrated.manifest.states).toEqual(m.states);
+      expect(migrated.manifest.pronouns).toEqual(m.pronouns);
+      expect(migrated.manifest.securityRequirements).toEqual(m.securityRequirements);
+      expect(migrated.manifest.entrypoint).toEqual(m.entrypoint);
+      // 核心自己的 registry 沒有這個 kind：誠實失敗，不會靜默改用別的 adapter。
+      expect(migratePackToManifest(packFor(id), { registry: coreMigrationRegistry() }).ok).toBe(false);
+      expect(rigPackMigrator.kind).toBe("character-rig");
+      expect(rigPackMigrator.schemaVersions).toEqual(["2.0"]);
     }
   });
 
