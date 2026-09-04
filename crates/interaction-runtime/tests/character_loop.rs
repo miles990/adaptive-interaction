@@ -2375,3 +2375,50 @@ async fn a_declared_remote_presentation_surface_is_never_projected_as_an_action(
         Some((CharacterIntent::Work, TruthState::Working))
     );
 }
+
+// ---------------------------------------------------------------------------
+// 活連線被新連線取代（superseded）：對抗審查 reconnect-recovery-047
+// （v0.6.0 恢復矩陣 §2 第 11 條：受保護但一直沒有測試）
+// ---------------------------------------------------------------------------
+
+/// 同一個 adapter 在**舊連線還活著**的時候再 attach 一次（不是逾時後重連）：
+/// 舊連線必須先收到 `goodbye{reason:"superseded"}` 並被取消，新連線的第一則
+/// outbound 仍然是 `hello`。這條路上不得出現 `error`（被取代不是錯誤），也不得
+/// 讓舊連線以為自己被撤銷。
+#[tokio::test]
+async fn attaching_while_a_connection_is_live_supersedes_it_with_a_goodbye() {
+    let (_g, rt) = runtime().await;
+    let added = rt
+        .character_adapter_add("fixture", fixture_manifest())
+        .await
+        .unwrap();
+    let adapter_id = added["adapterId"].as_str().unwrap().to_string();
+
+    let mut first = rt.character_ws_attach(&adapter_id).await.unwrap();
+    assert!(matches!(first.rx.recv().await, Some(WireMessage::Hello(_))));
+    assert!(!first.close.is_cancelled(), "前提：舊連線還活著");
+
+    // 舊連線**沒有**逾時、**沒有**關閉：直接被新連線取代。
+    let mut second = rt.character_ws_attach(&adapter_id).await.unwrap();
+    assert_ne!(second.conn_id, first.conn_id, "新連線要有自己的 conn_id");
+
+    let goodbye = match first.rx.recv().await {
+        Some(WireMessage::Goodbye { reason }) => reason,
+        Some(other) => panic!("被取代前不該再收到 {}", other.kind()),
+        None => panic!("舊連線沒有收到 goodbye 就被關掉了"),
+    };
+    assert_eq!(
+        goodbye.as_deref(),
+        Some("superseded"),
+        "理由必須說清楚是被取代（不是撤銷、不是逾時）"
+    );
+    assert!(first.close.is_cancelled(), "舊連線的 socket 必須被關掉");
+
+    assert!(
+        matches!(second.rx.recv().await, Some(WireMessage::Hello(_))),
+        "新連線的第一則 outbound 一定是 hello"
+    );
+    assert!(!second.close.is_cancelled(), "新連線不得被舊連線的收尾拖掉");
+    // adapter 本身沒有被撤銷：還可以再 attach。
+    assert!(rt.character_ws_attach(&adapter_id).await.is_ok());
+}

@@ -235,6 +235,15 @@ impl ProviderCapabilityRegistry {
 /// 桌面角色（Presentation Provider）能力 id 的共同前綴。
 pub const COMPANION_CAPABILITY_PREFIX: &str = "companion.";
 
+/// 這個能力 id 屬於桌面角色（呈現面）嗎？
+///
+/// 前綴的**唯一判斷點**：宣告表（`companion_capability_declaration`）與 provider
+/// 能力歸屬（builtin／companion 的切分）都走這裡。各自寫死字面值的話，前綴一改
+/// 兩邊就瞬間不一致——能力同時被算進 builtin、又不被視為呈現面。
+pub fn is_companion_capability(id: &str) -> bool {
+    id.starts_with(COMPANION_CAPABILITY_PREFIX)
+}
+
 /// 桌面角色 provider 的宣告：它整組能力都是角色自己的呈現面。
 pub fn companion_capability_declaration() -> ProviderCapabilityDeclaration {
     ProviderCapabilityDeclaration::new(crate::character::COMPANION_PROVIDER_ID)
@@ -457,7 +466,7 @@ impl Runtime {
                 .await
                 .into_iter()
                 .map(|m| m.id.as_str().to_string())
-                .filter(|id| !id.starts_with("companion."))
+                .filter(|id| !is_companion_capability(id))
                 .collect(),
             actuators: self
                 .registry
@@ -465,7 +474,7 @@ impl Runtime {
                 .await
                 .into_iter()
                 .map(|m| m.id.as_str().to_string())
-                .filter(|id| !id.starts_with("companion."))
+                .filter(|id| !is_companion_capability(id))
                 .collect(),
             tool_operations: self
                 .registry
@@ -503,7 +512,7 @@ impl Runtime {
                 .await
                 .into_iter()
                 .map(|m| m.id.as_str().to_string())
-                .filter(|id| id.starts_with("companion."))
+                .filter(|id| is_companion_capability(id))
                 .collect(),
             actuators: self
                 .registry
@@ -511,7 +520,7 @@ impl Runtime {
                 .await
                 .into_iter()
                 .map(|m| m.id.as_str().to_string())
-                .filter(|id| id.starts_with("companion."))
+                .filter(|id| is_companion_capability(id))
                 .collect(),
             tool_operations: vec![],
             paired_at: None,
@@ -1240,6 +1249,23 @@ fn hex_lower(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 呈現面前綴只能有**一個**產生點。`COMPANION_CAPABILITY_PREFIX` 之外還有
+    /// 同樣的字面前綴另外被寫死一次時，前綴一改，宣告表（呈現面選擇器）與 provider
+    /// 能力歸屬（builtin／companion 切分）就會瞬間不一致，而且沒有任何測試會擋。
+    ///
+    /// 這裡直接掃自己的原始碼：常數定義那一行是唯一允許出現的字面值。
+    #[test]
+    fn the_companion_prefix_has_exactly_one_literal_in_this_file() {
+        let source = include_str!("providers.rs");
+        let literal = format!("\"{COMPANION_CAPABILITY_PREFIX}\"");
+        let hits = source.matches(literal.as_str()).count();
+        assert_eq!(
+            hits, 1,
+            "呈現面前綴的字面值只能出現在常數定義那一行（找到 {hits} 處）；\
+             其他地方請改用 is_companion_capability()／COMPANION_CAPABILITY_PREFIX"
+        );
+    }
 
     /// 鎖中毒時**退回既有內容繼續用**（宣告表的註解說的就是這件事）。
     /// 舊實作在中毒時 `read().ok()` 回 `None`、`write().ok()` 直接丟棄寫入：

@@ -390,3 +390,102 @@ fn stop_uncertain_payloads_name_the_receptors_the_provider_declared() {
     assert_eq!(payloads[0]["outcome"], serde_json::json!("unknown"));
     assert_eq!(payloads[0]["waitedMs"], serde_json::json!(3000));
 }
+
+// ---------------------------------------------------------------------------
+// 「停止所有感測」對非 mobile 來源的誠實度（`docs/aip/architecture-boundaries.md` §4.1）
+// ---------------------------------------------------------------------------
+
+/// 一個跟 iPhone 完全無關的假來源：只用來證明 stop-all 的涵蓋範圍是由
+/// **provider 宣告**驅動的，不是寫死 mobile。
+struct FakeRobotMic;
+
+#[async_trait::async_trait]
+impl Receptor for FakeRobotMic {
+    fn manifest(&self) -> ReceptorManifest {
+        serde_json::from_value(serde_json::json!({
+            "id": "robot.mic-level",
+            "name": "測試機器人音量",
+            "description": "fixture receptor for the stop-all coverage test",
+            "category": "device",
+            "provides": ["level"],
+            "mode": "poll",
+            "sensitivity": "intimate",
+            "requiresConsent": true,
+            "driver": "fixture.robot",
+            "version": "0.0.0",
+            "schemaVersion": "1.0"
+        }))
+        .expect("fixture manifest parses")
+    }
+
+    async fn start(&self, _context: SessionContext) -> Result<(), ReceptorError> {
+        Ok(())
+    }
+
+    async fn read(&self) -> Result<Observation, ReceptorError> {
+        Err(ReceptorError::Unavailable("fixture".into()))
+    }
+
+    async fn health(&self) -> ComponentHealth {
+        ComponentHealth::healthy()
+    }
+
+    async fn stop(&self) -> Result<(), ReceptorError> {
+        Ok(())
+    }
+}
+
+/// 高風險受器的停止涵蓋範圍由 provider 自己宣告：一個非 mobile 的 provider
+/// 宣告了高風險受器、受器也還啟用著，`stop_all_sensors` 卻從來沒問過它
+/// ——那就**不得**回報「全部已停」，而且要補一則「結果未知」讓它在收件匣、
+/// tray、status 上看得見（誠實階梯：沒問過連 requested 都談不上）。
+#[tokio::test]
+async fn stop_all_sensors_is_honest_about_high_risk_receptors_it_never_asked() {
+    let (_g, rt, _fake) = runtime().await;
+    let robot_mic = ReceptorId::new("robot.mic-level");
+
+    rt.registry
+        .register_receptor(Arc::new(FakeRobotMic))
+        .await
+        .expect("fixture receptor registers");
+    rt.declare_provider_capabilities(
+        interaction_runtime::providers::ProviderCapabilityDeclaration::new("provider.fake.robot")
+            .with_class_label("測試機器人")
+            .with_receptor("robot.mic-level")
+            .with_high_risk_receptor("robot.mic-level"),
+    );
+    // 人類啟用了它（未啟用的受器沒有東西能流進來，不必也不得嚇人）。
+    rt.registry
+        .set_receptor_enabled(&robot_mic, true)
+        .await
+        .unwrap();
+
+    let report = rt.stop_all_sensors("test").await.unwrap();
+    assert!(
+        !report.stopped,
+        "沒有任何來源回報涵蓋 robot.mic-level，不得宣稱全部已停：{report:?}"
+    );
+    assert!(report.uncertain, "沒問過＝結果未知：{report:?}");
+
+    let uncertain: Vec<_> = rt
+        .events
+        .recent(50)
+        .into_iter()
+        .filter(|e| e.event_type == EventType::SensorStopUncertain)
+        .map(|e| e.payload)
+        .collect();
+    assert!(
+        uncertain
+            .iter()
+            .any(|p| p["sensor"] == serde_json::json!("robot.mic-level")),
+        "宣告過的高風險受器必須出現在補發的事件裡：{uncertain:?}"
+    );
+
+    // 停用之後就不再是「可能還在擷取」：不得每次 stop-all 都無條件嚇人。
+    rt.registry
+        .set_receptor_enabled(&robot_mic, false)
+        .await
+        .unwrap();
+    let report = rt.stop_all_sensors("test").await.unwrap();
+    assert!(report.stopped && !report.uncertain, "{report:?}");
+}

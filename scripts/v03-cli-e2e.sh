@@ -625,14 +625,15 @@ else
   # status 本身只消耗 sequence，不改 revision；重複的 touch 也不得改。
   check "重複的 touch 沒有推進 revision" "$REV2" "$REV1"
 
-  # 3) 斷線 → presence offline（成員保留）。
+  # 3) 斷線 → presence reconnecting（成員保留；Transport 在重連退避窗內誠實說「正在重連」，
+  #    session 逾時後才轉 offline——契約 character-session.md §7／§12.15）。
   echo '{"op":"disconnect"}' >&9
-  OFFLINE=False
+  RECONNECTING=False
   for i in $(seq 1 40); do
-    OFFLINE=$("$BIN" character session diagnostics --json 2>/dev/null | J "any(m['party']['kind']=='device' and m['presence']=='offline' for m in d['members'])")
-    [ "$OFFLINE" = "True" ] && break; sleep 0.25
+    RECONNECTING=$("$BIN" character session diagnostics --json 2>/dev/null | J "any(m['party']['kind']=='device' and m['presence']=='reconnecting' for m in d['members'])")
+    [ "$RECONNECTING" = "True" ] && break; sleep 0.25
   done
-  check "斷線誠實反映成 presence offline" "$OFFLINE" "True"
+  check "斷線誠實反映成 presence reconnecting（成員保留，逾時才 offline）" "$RECONNECTING" "True"
 
   # 4) 重連 → 重新協商 → resume 取回錯過的變更（patches 或 snapshot 都不是錯誤）。
   echo '{"op":"reconnect"}' >&9

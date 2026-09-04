@@ -396,6 +396,19 @@ impl Runtime {
             );
             let _ = runtime.registry.register_actuator(Arc::new(actuator)).await;
         }
+        // 緊急停止是 latched、跨重啟保留的旗標，但 Character Session 的 `truth` 只來自
+        // `RuntimeFact::Emergency`，而持久化快照是有間隔的（預設每 32 個 revision 或 60 s），
+        // 完全可能早於那次緊急停止。不補投的話，session 會以「沒有 emergency」的狀態復活，
+        // 互動事件重新被接受——AI 不可解除 emergency stop，重啟也不行
+        // （對抗審查 session-integrity-056）。比照 `character_resync_safety_state`：
+        // 只補真相，不重播那次停止的副作用。必須在 `restore_agent_sessions` **之前**，
+        // 因為那裡會為仍 open 的 session 發 `task.state{unknown}`。
+        if estop_engaged {
+            runtime.character_session_submit_runtime(
+                interaction_session::RuntimeFact::Emergency { engaged: true },
+                None,
+            );
+        }
         runtime.restore_agent_sessions().await;
         runtime.init_providers().await;
         // 外部 character adapter 登記（token sha256＋撤銷旗標）跨重啟保留。

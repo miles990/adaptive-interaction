@@ -1757,6 +1757,19 @@ fn mobile_identity_fingerprint(device: &PairedDevice) -> String {
     )
 }
 
+/// 出站 AIP 回覆的最後一關：把要送出去的 envelope 再解析、再 `validate()`、再
+/// `encode()`（§11 上限）。任何一步不過就回 `None`——寧可誠實丟棄並稽核，也不送
+/// 一則自己都不接受的訊息。過關才包成 wss frame。
+fn mobile_aip_reply_frame(reply: &Value) -> Option<Value> {
+    let envelope: interaction_aip::Envelope = serde_json::from_value(reply.clone()).ok()?;
+    envelope.validate().ok()?;
+    let bytes = envelope.encode().ok()?;
+    if bytes.len() > MOBILE_WS_MAX_MESSAGE_BYTES {
+        return None;
+    }
+    Some(json!({"type": "aip", "envelope": reply}))
+}
+
 /// 每台手機的人話註記：六個動作能力是所有已配對 iPhone **共用**的同一組，
 /// 不是這一台專屬；同時連線多台時，動作必須指定目標手機。
 fn mobile_provider_note(device_id: &str) -> String {
@@ -3136,22 +3149,56 @@ impl Runtime {
         stop_sensors: &Arc<StopSensorsTracker>,
         ping_waiters: &PingWaiters,
     ) {
-        let mut conns = self.mobile.conns.write().await;
-        if let Some(old) = conns.insert(
-            device_id.to_string(),
-            ConnState {
-                conn_id,
-                outbound: out_tx.clone(),
-                status: Value::Null,
-                mic_since: None,
-                close: close.clone(),
-                stop_sensors: stop_sensors.clone(),
-                ping_waiters: ping_waiters.clone(),
-            },
-        ) {
-            // 舊連線的等待者不能永遠掛著：標記斷線讓它們立刻收斂成 unreachable。
-            old.stop_sensors.mark_disconnected();
-            old.close.cancel();
+        let superseded = {
+            let mut conns = self.mobile.conns.write().await;
+            conns
+                .insert(
+                    device_id.to_string(),
+                    ConnState {
+                        conn_id,
+                        outbound: out_tx.clone(),
+                        status: Value::Null,
+                        mic_since: None,
+                        close: close.clone(),
+                        stop_sensors: stop_sensors.clone(),
+                        ping_waiters: ping_waiters.clone(),
+                    },
+                )
+                .map(|old| {
+                    // 舊連線的等待者不能永遠掛著：標記斷線讓它們立刻收斂成 unreachable。
+                    old.stop_sensors.mark_disconnected();
+                    old.close.cancel();
+                    old.mic_since.is_some()
+                })
+        };
+        // 舊連線被取代 ＝ 那條有效連線消失了。舊 handler 的收尾會判成 superseded
+        // 而跳過強制停用，所以在**這裡**做：高風險受器一律回到 disabled，重連不
+        // 自動恢復（iOS 的重連退避上限 15 s < 桌面 45 s idle timeout，這是常態
+        // 而非邊界）。同時補一則 `sensor.stopped`：先前發出的 `sensor.started`
+        // 不能沒有對應的結束，而新連線的 `mic_since` 是 None（status 已經看不到它）。
+        if let Some(was_streaming) = superseded {
+            if was_streaming {
+                self.events.emit(
+                    EventType::SensorStopped,
+                    json!({
+                        "sensor": "iphone.mic-level",
+                        "deviceId": device_id,
+                        "source": "iphone",
+                        "reason": "superseded",
+                    }),
+                );
+            }
+            self.mobile_disable_high_risk_receptors(device_id, "superseded")
+                .await;
+            // 全域受器被關掉之後，另一台仍在串流的手機不得從 activeSensors 無聲
+            // 消失。另開 task：新連線的 auth-ok 不能被別台的有界等待卡住。
+            let runtime = self.clone();
+            let device_id = device_id.to_string();
+            tokio::spawn(async move {
+                runtime
+                    .mobile_stop_other_streaming_phones(Some(&device_id), "superseded")
+                    .await;
+            });
         }
     }
 
@@ -3571,7 +3618,25 @@ impl Runtime {
                     if let Some(device_id) = authed.clone() {
                         let outcome = self.character_session_device_frame(&device_id, &v).await;
                         for reply in outcome.replies {
-                            send(&out_tx, json!({"type":"aip","envelope": reply})).await;
+                            // 出站邊界：我們自己送出去的 envelope 也必須符合 AIP
+                            // （§1 id／name 語法、§11 上限）。不合格就誠實丟棄並稽核，
+                            // 不把違反契約的東西丟給手機（收端會直接拒絕）。
+                            match mobile_aip_reply_frame(&reply) {
+                                Some(frame) => send(&out_tx, frame).await,
+                                None => {
+                                    self.store
+                                        .audit(
+                                            "aip.outbound-refused",
+                                            "runtime",
+                                            &json!({
+                                                "transport": "iphone",
+                                                "deviceId": device_id,
+                                                "reason": "reply did not satisfy the aip profile",
+                                            }),
+                                        )
+                                        .ok();
+                                }
+                            }
                         }
                         // recipe 相容：已套用的觸碰同時落成一筆 `iphone.touch` 觀察
                         // （只此一次；重複／過期／被拒的訊息不會走到這裡）。
@@ -3741,14 +3806,21 @@ impl Runtime {
                     );
                 }
             }
-            // AIP Character Session：斷線＝presence offline（成員保留，等 tick 逾時
-            // 才清）；重連後要重送 capability 才能再送 event。
+            // AIP Character Session：斷線＝presence `reconnecting`（成員保留；iOS 端在
+            // 1s→15s 退避窗口內重連，桌面 45 s 逾時之後才由 session tick 轉 offline）。
+            // 「正在重新連線」是 **Transport 事實**（socket 斷了、裝置仍配對著），
+            // 不是 session 從沉默推論出來的——session 沒有能力知道對方在不在重連
+            // （reconnect-recovery-044）。撤銷仍然是 `leave`：那台裝置不再是成員。
+            // 沒協商過的舊 App 不是成員，這裡什麼都不做。
             if was_active {
-                self.character_session_presence(
-                    &interaction_aip::Party::device(&device_id),
-                    interaction_session::Presence::Offline,
-                )
-                .await;
+                let party = interaction_aip::Party::device(&device_id);
+                if self.character_session_is_member(&party) {
+                    self.character_session_presence(
+                        &party,
+                        interaction_session::Presence::Reconnecting,
+                    )
+                    .await;
+                }
             }
             // 等待中的 Ping 不留掛單（連線已經沒了）。
             ping_waiters

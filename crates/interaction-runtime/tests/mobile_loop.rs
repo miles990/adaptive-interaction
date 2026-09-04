@@ -3877,3 +3877,149 @@ async fn the_mobile_declaration_is_wired_into_the_runtime_at_startup() {
         .iter()
         .any(|r| r == "iphone.mic-level"));
 }
+
+// ---------------------------------------------------------------------------
+// 被新連線取代（superseded）：對抗審查 pairing-migration-003／reconnect-recovery-047
+// ---------------------------------------------------------------------------
+
+/// 同一台手機用同一組 token 再開一條連線（不關掉舊的）。
+/// iOS 的重連退避上限 15 s 遠小於桌面 45 s 的 idle timeout，所以「舊 handler 還沒
+/// 逾時、新連線已經上來」是**常態**而不是邊界。
+async fn reconnect_same_device(rt: &Runtime, device_id: &str, token: &str) -> Ws {
+    let status = rt.mobile_status().await.unwrap();
+    let port = status["port"].as_u64().unwrap() as u16;
+    let fp = status["fingerprint"].as_str().unwrap().to_string();
+    let mut ws = connect(port, &fp).await;
+    send_json(
+        &mut ws,
+        json!({"type":"auth","deviceId": device_id, "token": token}),
+    )
+    .await;
+    assert_eq!(recv_json(&mut ws).await["type"], "auth-ok");
+    ws
+}
+
+/// 不變量「手機斷線 → 高風險受器由桌面端強制 disabled，重連不自動恢復」在
+/// **superseded**（舊連線被新連線取代）這條收尾路徑上一樣要成立。
+///
+/// 舊行為：舊 handler 判成 superseded 就整段跳過強制停用，於是只要在 45 s 的
+/// idle timeout 之前重連，`iphone.mic-level` 就一直是 enabled——人類不必重新啟用，
+/// 手機單邊打開麥克風即可繼續推 mic-level；而且先前的 `sensor.started` 永遠等不到
+/// 對應的 `sensor.stopped`（新連線的 `mic_since` 是 None，該手機已從
+/// `status.activeSensors` 消失）。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_superseded_connection_still_forces_the_high_risk_receptor_off() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, token, mut ws) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+
+    // 人類啟用 → 手機自報串流中 → 這台手機真的在 activeSensors 裡。
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+    send_phone_status(&mut ws, true).await;
+    wait_for_iphone_mic_sensor(&rt, true).await;
+    let started_before =
+        iphone_sensor_events(&rt, interaction_core::EventType::SensorStarted).len();
+    assert!(started_before > 0, "前提：sensor.started 已經發出去了");
+
+    // 舊 socket 完全不關：新連線直接取代它。
+    let _ws2 = reconnect_same_device(&rt, &device_id, &token).await;
+
+    assert!(
+        rt.registry.receptor(&mic).await.is_err(),
+        "被新連線取代＝那條有效連線消失，高風險受器必須強制停用（重連不自動恢復）"
+    );
+    let stopped = iphone_sensor_events(&rt, interaction_core::EventType::SensorStopped);
+    assert!(
+        stopped.iter().any(|p| p["reason"] == json!("superseded")),
+        "先前的 sensor.started 必須有對應的結束事件：{stopped:?}"
+    );
+    let audit = last_audit(&rt, "mobile.high-risk-receptor-disabled")
+        .expect("強制停用要留稽核（誰、為什麼）");
+    assert_eq!(audit["detail"]["reason"], json!("superseded"), "{audit}");
+
+    // 感測不靜默：受器停用後 status 也不得再顯示這台手機在串流。
+    wait_for_iphone_mic_sensor(&rt, false).await;
+    drop(ws);
+}
+
+/// superseded 的另一半：舊連線被靜默關閉（**不得**誤報成撤銷），而且 provider
+/// 不轉 Disconnected——手機其實還在線上，只是換了一條 socket。
+/// 這條分支在 v0.6.0 恢復矩陣 §2 第 11 條被列為「受保護但無測試」。
+#[tokio::test(flavor = "multi_thread")]
+async fn superseding_a_live_connection_is_silent_and_keeps_the_provider_available() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, token, mut ws) = pair(&rt).await;
+    let pid = interaction_core::ProviderId::new(format!("provider.mobile.{device_id}"));
+    assert_eq!(
+        rt.get_provider(&pid).await.unwrap().state,
+        interaction_core::ProviderState::Available
+    );
+
+    let ws2 = reconnect_same_device(&rt, &device_id, &token).await;
+
+    // 舊連線：被關掉，但不得收到 `auth-fail`（那是撤銷的意思，iOS 會停止重連）。
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(left, ws.next()).await {
+            Err(_) => panic!("舊連線沒有被取代它的新連線關掉"),
+            Ok(None) => break,
+            Ok(Some(Err(_))) => break,
+            Ok(Some(Ok(Message::Text(text)))) => {
+                let frame: Value = serde_json::from_str(&text).expect("json");
+                assert_ne!(
+                    frame["type"],
+                    json!("auth-fail"),
+                    "被取代不是撤銷：不得回 auth-fail（{frame}）"
+                );
+            }
+            Ok(Some(Ok(_))) => continue,
+        }
+    }
+
+    // 新連線還活著；provider 不得被舊 handler 的收尾拖成 Disconnected。
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(rt.mobile.any_connected().await, "新連線必須還在");
+    assert_eq!(
+        rt.get_provider(&pid).await.unwrap().state,
+        interaction_core::ProviderState::Available,
+        "同一台手機換 socket 不是斷線"
+    );
+    let status = rt.mobile_status().await.unwrap();
+    assert_eq!(status["devices"][0]["connected"], json!(true), "{status}");
+    drop(ws2);
+}
+
+/// 斷線收尾（reconnect-recovery-044）：`Presence::Reconnecting` 只給**已經協商過**的成員。
+/// 從沒送過 AIP `capability` 的舊版 App 不是 session 成員，它斷線時不得憑空長出一個成員
+/// （「有人正在重新連線」是一句需要證據的話）。已協商成員那一半在
+/// `character_session_loop.rs::a_disconnected_member_is_reconnecting_before_it_is_offline`。
+#[tokio::test]
+async fn a_legacy_app_that_never_negotiated_creates_no_session_member_on_disconnect() {
+    let (_dir, rt) = runtime().await;
+    let (device_id, _token, ws) = pair(&rt).await;
+    let members_before = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics")["members"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or(0);
+
+    drop(ws);
+    tokio::time::sleep(Duration::from_millis(400)).await;
+
+    let diagnostics = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics");
+    let members = diagnostics["members"].as_array().expect("members");
+    assert_eq!(
+        members.len(),
+        members_before,
+        "沒協商過的裝置斷線不得改變成員名單：{diagnostics}"
+    );
+    assert!(
+        !members.iter().any(|m| m["party"]["id"] == json!(device_id)),
+        "沒協商過的裝置本來就不是成員：{diagnostics}"
+    );
+    rt.shutdown().await;
+}

@@ -1010,7 +1010,7 @@ async fn reconnecting_fixture_iphone_resumes_with_patches() {
     let sequence = snapshot["payload"]["sequence"].as_u64().unwrap_or(0);
     let epoch = snapshot["payload"]["sessionEpoch"].as_u64().expect("epoch");
 
-    // 斷線：presence → offline（成員保留，等 tick 才清）。
+    // 斷線：presence → reconnecting（成員保留；逾時後才由 tick 轉 offline，再久才清）。
     drop(ws);
     assert!(
         wait_for(
@@ -1021,13 +1021,13 @@ async fn reconnecting_fixture_iphone_resumes_with_patches() {
                     .map(|m| m
                         .iter()
                         .any(|entry| entry["party"]["kind"] == json!("device")
-                            && entry["presence"] == json!("offline")))
+                            && entry["presence"] == json!("reconnecting")))
                     .unwrap_or(false))
                 .unwrap_or(false),
             Duration::from_secs(3),
         )
         .await,
-        "斷線必須誠實反映成 presence offline：{:?}",
+        "斷線必須誠實反映成 presence reconnecting：{:?}",
         rt.character_session_peek().map(|s| s.state.clone())
     );
 
@@ -1390,6 +1390,562 @@ async fn an_unreadable_session_file_is_quarantined_and_never_silently_reused() {
     assert!(
         diagnostics["storeNote"].as_str().is_some(),
         "載入異常必須誠實顯示：{diagnostics}"
+    );
+    rt.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// 15. §8 安全管線第 1 關對**非成員的第一則 capability** 一樣生效
+//     （對抗審查 session-integrity-059／identity-binding-008／006）
+// ---------------------------------------------------------------------------
+
+/// 這則回覆本身是不是一則合法的 AIP envelope？
+/// 契約 §1／§11 對**送出去**的訊息一樣有效：回一則自己都不接受的 envelope，
+/// 接收端只會再拒絕一次。
+fn reply_is_a_valid_envelope(frame: &Value) -> bool {
+    serde_json::from_value::<interaction_aip::Envelope>(frame.clone())
+        .map(|envelope| envelope.validate().is_ok())
+        .unwrap_or(false)
+}
+
+fn session_member_ids(rt: &Runtime) -> Vec<String> {
+    rt.character_session_peek()
+        .expect("snapshot")
+        .state
+        .get("members")
+        .and_then(Value::as_array)
+        .map(|members| {
+            members
+                .iter()
+                .filter_map(|m| m["party"]["id"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 一台已配對但**還不是成員**的手機，第一則 capability 的 payload 超過 §11 的
+/// 32 KiB 上限（整包仍在 64 KiB 的訊息上限內，wss 送得出去）。
+///
+/// 舊行為：非成員分支直接 `serde_json::from_value` 後 join，從未呼叫
+/// `Envelope::validate()`——payload 上限、巢狀深度、字串長度全部不生效，裝置照樣
+/// 變成成員。現在必須回 `error{payload-too-large}` 且不得入會。
+#[tokio::test]
+async fn an_oversized_first_capability_frame_is_refused_before_it_can_join() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+
+    let mut envelope = capability_envelope(&device_id);
+    // 每則字串都在 §11 的 2000 字元以內：先觸發的一定是 payload 位元組上限。
+    let padding: Vec<Value> = (0..48)
+        .map(|i| json!(format!("character.interaction.{i}{}", "a".repeat(800))))
+        .collect();
+    envelope["payload"]["inputs"] = json!(padding);
+    let bytes = serde_json::to_vec(&envelope).expect("envelope encodes");
+    assert!(
+        bytes.len() < interaction_aip::limits::MAX_MESSAGE_BYTES,
+        "測試前提：整包訊息仍在 64 KiB 內（真的送得上線），實際 {}",
+        bytes.len()
+    );
+    assert!(
+        serde_json::to_vec(&envelope["payload"])
+            .expect("payload")
+            .len()
+            > interaction_aip::limits::MAX_PAYLOAD_BYTES,
+        "測試前提：payload 超過 32 KiB"
+    );
+
+    send_json(&mut ws, aip(envelope)).await;
+    let frames = collect_aip(&mut ws, 1, Duration::from_secs(5)).await;
+    let error = find(&frames, "error").unwrap_or_else(|| panic!("必須回 error：{frames:?}"));
+    assert_eq!(
+        error["payload"]["code"],
+        json!("payload-too-large"),
+        "{error}"
+    );
+    assert!(reply_is_a_valid_envelope(error), "{error}");
+    assert!(
+        !session_member_ids(&rt).contains(&device_id),
+        "被 §8 第 1 關擋下的 frame 不得讓裝置入會：{:?}",
+        session_member_ids(&rt)
+    );
+}
+
+/// 跨 session 注入：capability 的 `sessionId` 指向別的 session。
+/// 舊行為：非成員的 join 路徑完全不比對 `sessionId`，裝置照樣入會。
+#[tokio::test]
+async fn a_first_capability_frame_for_another_session_cannot_join() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+
+    let mut envelope = capability_envelope(&device_id);
+    envelope["sessionId"] = json!("session.somewhere-else");
+    send_json(&mut ws, aip(envelope)).await;
+
+    let frames = collect_aip(&mut ws, 1, Duration::from_secs(5)).await;
+    let error = find(&frames, "error").unwrap_or_else(|| panic!("必須回 error：{frames:?}"));
+    assert_eq!(error["payload"]["code"], json!("not-a-member"), "{error}");
+    assert!(reply_is_a_valid_envelope(error), "{error}");
+    assert!(
+        !session_member_ids(&rt).contains(&device_id),
+        "別的 session 的 frame 不得讓裝置入會"
+    );
+}
+
+/// 身分不符的稽核與回覆都不得回顯未驗證、無長度上限的攻擊者字串。
+///
+/// 舊行為：`source.kind`（untagged 的任意字串）與 `name` 原封不動寫進 audit
+/// （audit 不截斷、不過期），未消毒的 `messageId` 被當成 `causationId` 送回去——
+/// 那則回覆自己過不了 `Envelope::validate()`。
+#[tokio::test]
+async fn a_forged_frame_never_echoes_unbounded_attacker_text() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    send_json(&mut ws, aip(capability_envelope(&device_id))).await;
+    let _ = collect_aip(&mut ws, 2, Duration::from_secs(5)).await;
+
+    let marker = "z".repeat(50_000);
+    let mut envelope = touch_envelope(&device_id, "fx-forged", "tap");
+    // 宣稱一個超長的 kind（PartyKind::Unknown 保留原字串）與一個違法的 messageId
+    // （超過 128 字元、含空白）。
+    envelope["source"] = json!({"kind": marker.clone(), "id": device_id});
+    envelope["messageId"] = json!(format!("id with spaces {}", "m".repeat(400)));
+    let bytes = serde_json::to_vec(&envelope).expect("encodes");
+    assert!(
+        bytes.len() < interaction_aip::limits::MAX_MESSAGE_BYTES,
+        "測試前提：這是一則真的送得上線的 frame（{} bytes）",
+        bytes.len()
+    );
+
+    send_json(&mut ws, aip(envelope)).await;
+    let frames = collect_aip(&mut ws, 1, Duration::from_secs(5)).await;
+    let reply = frames.first().unwrap_or_else(|| panic!("必須有回覆"));
+    assert!(
+        reply_is_a_valid_envelope(reply),
+        "回送的 envelope 自己必須合法（causationId 不得回顯違法 id）：{reply}"
+    );
+    assert!(
+        !reply.to_string().contains(&marker),
+        "回覆不得回顯輸入內容：{reply}"
+    );
+
+    let audits = rt.store.audit_tail(200).expect("audit tail");
+    for row in &audits {
+        let text = row.to_string();
+        assert!(
+            !text.contains(&marker),
+            "稽核不得寫進無界的攻擊者字串：{}",
+            &text[..text.len().min(200)]
+        );
+        assert!(
+            text.len() < 4_000,
+            "單筆稽核不得無界成長（{} bytes）",
+            text.len()
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 16. presence 逾時的成員要先「暫時離線」一段時間才被清除
+//     （對抗審查 reconnect-recovery-046；契約 §11）
+// ---------------------------------------------------------------------------
+
+/// 殭屍連線（socket 還在、手機不再送任何訊息）：host 自己的 presence 逾時先到。
+/// 舊行為：`tick` 把成員標成 Offline 之後，同一輪就用**同一個門檻**把它 leave 掉，
+/// §11 的「iPhone 暫時離線」一個 tick 都活不過，UI 從「已連接」直接跳到「沒有裝置」。
+#[tokio::test]
+async fn a_timed_out_member_is_offline_before_it_is_evicted() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    send_json(&mut ws, aip(capability_envelope(&device_id))).await;
+    let _ = collect_aip(&mut ws, 2, Duration::from_secs(5)).await;
+    let joined_at = Utc::now();
+
+    let timeout = ChronoDuration::milliseconds(PRESENCE_TIMEOUT_MS);
+    // 剛過 presence 逾時：成員必須還在名單上，而且看得見是 offline。
+    rt.character_session_tick_at(joined_at + timeout + ChronoDuration::milliseconds(20))
+        .await;
+    let diagnostics = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics");
+    let member = diagnostics["members"]
+        .as_array()
+        .expect("members")
+        .iter()
+        .find(|m| m["party"]["id"] == json!(device_id))
+        .unwrap_or_else(|| panic!("逾時的成員不得在同一個 tick 就消失：{diagnostics}"))
+        .clone();
+    assert_eq!(
+        member["presence"],
+        json!("offline"),
+        "契約 §11 的「iPhone 暫時離線」必須看得到：{diagnostics}"
+    );
+
+    // 再久一點才是幽靈成員：清除門檻比 presence 逾時晚。
+    rt.character_session_tick_at(joined_at + timeout * 2 + ChronoDuration::milliseconds(20))
+        .await;
+    let diagnostics = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics");
+    assert!(
+        !diagnostics["members"]
+            .as_array()
+            .expect("members")
+            .iter()
+            .any(|m| m["party"]["id"] == json!(device_id)),
+        "離線太久的成員最後仍必須被清掉（幽靈成員＝假的「已連接」）：{diagnostics}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 17. 同一台手機的新連線取代舊連線：session 成員不得被誤標離線
+//     （對抗審查 reconnect-recovery-047）
+// ---------------------------------------------------------------------------
+
+/// 舊連線還活著的時候，同一台手機用同一組 token 再連一次（iOS 15 s 退避上限 <
+/// 桌面 45 s idle timeout，這是常態）。舊 handler 判成 superseded：不得把
+/// character session 的成員標成 offline，也不得把它踢出成員名單——手機其實還在線上。
+#[tokio::test]
+async fn a_superseded_transport_does_not_mark_the_session_member_offline() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, token, ws) = pair(&rt).await;
+    let mut ws = ws;
+    send_json(&mut ws, aip(capability_envelope(&device_id))).await;
+    let _ = collect_aip(&mut ws, 2, Duration::from_secs(5)).await;
+    assert!(session_member_ids(&rt).contains(&device_id));
+
+    // 舊 socket 不關：新連線直接取代它。
+    let _ws2 = reconnect(&rt, &device_id, &token)
+        .await
+        .expect("同一台手機可以再連一次");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let diagnostics = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics");
+    let member = diagnostics["members"]
+        .as_array()
+        .expect("members")
+        .iter()
+        .find(|m| m["party"]["id"] == json!(device_id))
+        .unwrap_or_else(|| panic!("被取代的連線不得讓成員消失：{diagnostics}"))
+        .clone();
+    assert_eq!(
+        member["presence"],
+        json!("online"),
+        "換一條 socket 不是離線：{diagnostics}"
+    );
+    drop(ws);
+}
+
+// ---------------------------------------------------------------------------
+// 18. host 進度落後成員時，回的 snapshot 必須說清楚這是重新開始
+//     （對抗審查 pairing-migration-002／reconnect-recovery-041）
+// ---------------------------------------------------------------------------
+
+/// 成員記得的 revision 比 host 大（host 被重建過／還原了更舊的快照）。
+/// 舊行為：epoch 相同就回一則**沒有 reason** 的普通 snapshot，revision 比成員小；
+/// 接收端依 AIP §6 的防重播規則把它當 rollback 忽略，畫面卻還顯示「已同步」。
+#[tokio::test]
+async fn a_snapshot_that_moves_a_member_backwards_says_it_is_a_session_reset() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    send_json(&mut ws, aip(capability_envelope(&device_id))).await;
+    let _ = collect_aip(&mut ws, 2, Duration::from_secs(5)).await;
+
+    let party = interaction_aip::Party::device(&device_id);
+    let snapshot = rt.character_session_peek().expect("snapshot");
+    let ahead = snapshot.revision + 200;
+    let resume = rt
+        .character_session_resume(&party, ahead, snapshot.sequence, snapshot.epoch)
+        .await
+        .expect("session enabled");
+    let payload = rt.character_session_resume_value(&party, resume).await;
+
+    assert_eq!(
+        payload["reason"],
+        json!("session-reset"),
+        "host 倒退回去的 snapshot 必須是明說的重新開始，不能長得像重播攻擊：{payload}"
+    );
+    let revision = payload["revision"].as_u64().expect("revision");
+    assert!(
+        revision < ahead,
+        "測試前提：host 的 revision 真的比成員記得的小（{revision} < {ahead}）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 19. capability 宣告的名稱筆數有界（對抗審查 identity-binding-008）
+// ---------------------------------------------------------------------------
+
+/// 協商結果（含 `unsupported`）會留在成員紀錄裡。宣告的名稱不夾住筆數的話，
+/// 一則合法大小的 payload 就能塞進上千筆。真實 renderer 只宣告個位數。
+#[tokio::test]
+async fn a_capability_announcement_cannot_declare_unbounded_names() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+
+    let announcement = interaction_aip::CapabilityAnnouncement {
+        spec_versions: vec!["aip/1.0".to_string()],
+        role: Some(interaction_aip::MemberRole::RemoteRenderer),
+        profiles: vec!["character-session".to_string()],
+        sync_classes: vec![interaction_aip::SyncClass::Semantic],
+        intents: Vec::new(),
+        inputs: (0..500)
+            .map(|i| format!("character.interaction.x{i}"))
+            .collect(),
+        features: serde_json::Map::new(),
+        limits: None,
+        extra: serde_json::Map::new(),
+    };
+    let party = interaction_aip::Party::device("iphone-fixture-flood");
+    assert!(
+        rt.character_session_join(party.clone(), &announcement)
+            .await
+            .is_err(),
+        "無界的宣告必須被拒（不得默默存下上百筆 unsupported）"
+    );
+    assert!(
+        !session_member_ids(&rt).contains(&"iphone-fixture-flood".to_string()),
+        "被拒的宣告不得讓 party 入會"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 20. 重播同一則 query 不得再跑一次 resume／snapshot（identity-binding-009）
+// ---------------------------------------------------------------------------
+
+/// §8 第 12 關的去重對**每一種** message type 都成立，`query` 不例外。
+/// 舊行為：去重命中回的是 `accepted{duplicate:true}` 且 `error` 為 None，於是
+/// `character_session_device_query` 的短路守衛不會觸發，resume／snapshot 被再執行一次——
+/// 多消耗一個 sequence、把 `resumes`／`snapshots` 計數器灌大，而且對方拿到的不是
+/// `accepted{duplicate:true}` 而是一份全新的 response。
+#[tokio::test]
+async fn a_replayed_resume_query_is_deduped_instead_of_re_executed() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    send_json(&mut ws, aip(capability_envelope(&device_id))).await;
+    let frames = collect_aip(&mut ws, 2, Duration::from_secs(5)).await;
+    let snapshot = find(&frames, "state").expect("snapshot");
+    let revision = snapshot["payload"]["revision"].as_u64().expect("revision");
+    let sequence = snapshot["payload"]["sequence"].as_u64().unwrap_or(0);
+    let epoch = snapshot["payload"]["sessionEpoch"].as_u64().expect("epoch");
+
+    let query = aip(resume_query(
+        &device_id,
+        "fx-resume-replay",
+        revision,
+        sequence,
+        epoch,
+    ));
+    send_json(&mut ws, query.clone()).await;
+    let response = recv_aip_of(&mut ws, "response", Duration::from_secs(5))
+        .await
+        .expect("第一次 resume 要有 response");
+    assert_eq!(response["causationId"], "fx-resume-replay");
+
+    let after_first = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics");
+    let resumes = after_first["counters"]["resumes"].as_u64().unwrap_or(0);
+    let snapshots = after_first["counters"]["snapshots"].as_u64().unwrap_or(0);
+    let seq_after_first = after_first["sequence"].as_u64().expect("sequence");
+
+    // 重播：同一個 messageId 再送一次。
+    send_json(&mut ws, query).await;
+    let result = recv_aip_of(&mut ws, "result", Duration::from_secs(5))
+        .await
+        .expect("重播必須回 result，不是再跑一次 resume");
+    assert_eq!(result["payload"]["status"], json!("accepted"), "{result}");
+    assert_eq!(result["payload"]["duplicate"], json!(true), "{result}");
+    assert!(
+        reply_is_a_valid_envelope(&result),
+        "回覆本身要是合法 envelope：{result}"
+    );
+
+    let after_replay = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics");
+    assert_eq!(
+        after_replay["counters"]["resumes"].as_u64().unwrap_or(0),
+        resumes,
+        "重播不得再灌一次 resumes：{after_replay}"
+    );
+    assert_eq!(
+        after_replay["counters"]["snapshots"].as_u64().unwrap_or(0),
+        snapshots,
+        "重播不得再灌一次 snapshots：{after_replay}"
+    );
+    assert_eq!(
+        after_replay["sequence"].as_u64().expect("sequence"),
+        seq_after_first,
+        "重播不得消耗 sequence（其他成員會看到假的跳號）：{after_replay}"
+    );
+    rt.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// 21. 重啟時仍在生效的緊急停止要補投進 session（session-integrity-056 後半）
+// ---------------------------------------------------------------------------
+
+/// estop 旗標是 latched、跨重啟保留的；但 Character Session 的 `truth` 只來自
+/// `RuntimeFact::Emergency`，而持久化快照是**有間隔的**（預設 32 個 revision 或 60 s），
+/// 完全可能早於那次緊急停止。啟動時不補投，session 就會以「沒有 emergency」的狀態復活，
+/// 互動事件重新被接受——AI 不可解除 emergency stop，重啟也不行。
+#[tokio::test]
+async fn an_engaged_emergency_stop_is_replayed_into_the_session_on_startup() {
+    let _guard = env_lock().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    {
+        let rt = runtime_at(dir.path()).await;
+        hello(&rt).await;
+        rt.emergency_stop("user", Some("test".into()))
+            .await
+            .expect("emergency stop");
+        let snapshot = rt.character_session_peek().expect("snapshot");
+        assert_eq!(snapshot.state["truth"]["state"], json!("emergency"));
+        rt.shutdown().await;
+    }
+
+    // 快照早於緊急停止（持久化有間隔）：這裡直接拿掉那份快照來代表「快照證明不了 emergency」。
+    let file = dir.path().join("state").join("character-session.json");
+    if file.exists() {
+        std::fs::remove_file(&file).expect("remove snapshot");
+    }
+
+    let rt = runtime_at(dir.path()).await;
+    let restored = rt.character_session_peek().expect("snapshot");
+    assert_eq!(
+        restored.state["truth"]["state"],
+        json!("emergency"),
+        "重啟後仍在生效的緊急停止必須重新出現在 session 裡：{}",
+        restored.state
+    );
+    assert_eq!(
+        restored.state["activity"],
+        json!("frozen"),
+        "{}",
+        restored.state
+    );
+    rt.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// 22. 協商結果要投影進 members[]（session-integrity-056c／§11「部分能力目前不可用」）
+// ---------------------------------------------------------------------------
+
+/// 桌面同步卡在 Runtime 沒有投影協商結果之前只能顯示「能力核對中」。
+/// `members[].unsupportedIntents` 是那句話的唯一真實來源。
+#[tokio::test]
+async fn negotiated_unsupported_intents_reach_the_shared_state_and_diagnostics() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    // fixture 手機宣告 3 個 intent，沒宣告 `settle`。
+    send_json(&mut ws, aip(capability_envelope(&device_id))).await;
+    let _ = collect_aip(&mut ws, 2, Duration::from_secs(5)).await;
+
+    let snapshot = rt.character_session_peek().expect("snapshot");
+    let members = snapshot.state["members"].as_array().expect("members");
+    let phone = members
+        .iter()
+        .find(|m| m["party"]["id"] == json!(device_id))
+        .unwrap_or_else(|| panic!("成員應在名單上：{}", snapshot.state));
+    assert_eq!(
+        phone["unsupportedIntents"],
+        json!(["settle"]),
+        "沒宣告的 intent 要如實投影：{}",
+        snapshot.state
+    );
+
+    let diagnostics = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics");
+    let entry = diagnostics["members"]
+        .as_array()
+        .expect("members")
+        .iter()
+        .find(|m| m["party"]["id"] == json!(device_id))
+        .unwrap_or_else(|| panic!("diagnostics 也要看得到：{diagnostics}"))
+        .clone();
+    assert_eq!(entry["unsupportedIntents"], json!(["settle"]), "{entry}");
+    // 桌面（host renderer）全部支援：空陣列，不是缺鍵。
+    let desktop = members
+        .iter()
+        .find(|m| m["party"]["kind"] == json!("human-surface"))
+        .unwrap_or_else(|| panic!("桌面成員應在名單上：{}", snapshot.state));
+    assert_eq!(desktop["unsupportedIntents"], json!([]), "{desktop}");
+    rt.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// 23. 斷線先是「正在重新連線」，逾時之後才是「暫時離線」（reconnect-recovery-044）
+// ---------------------------------------------------------------------------
+
+/// `Presence::Reconnecting` 是 **Transport 事實**：socket 斷了、但這台裝置仍在配對狀態、
+/// iOS 端正在退避重連。沒有生產者的話，契約 §11 的「iPhone 正在重新連線」與桌面
+/// statusProjection 的 reconnecting 分支永遠不會被觸發（測試全綠卻是假覆蓋率）。
+#[tokio::test]
+async fn a_disconnected_member_is_reconnecting_before_it_is_offline() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, _token, ws) = pair(&rt).await;
+    let mut ws = ws;
+    send_json(&mut ws, aip(capability_envelope(&device_id))).await;
+    let _ = collect_aip(&mut ws, 2, Duration::from_secs(5)).await;
+    let joined_at = Utc::now();
+
+    drop(ws);
+    let presence_is = |rt: &Runtime, device_id: &str, want: &str| -> bool {
+        rt.character_session_peek()
+            .map(|s| {
+                s.state["members"]
+                    .as_array()
+                    .map(|m| {
+                        m.iter().any(|entry| {
+                            entry["party"]["id"] == json!(device_id)
+                                && entry["presence"] == json!(want)
+                        })
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
+    };
+    assert!(
+        wait_for(
+            || presence_is(&rt, &device_id, "reconnecting"),
+            Duration::from_secs(3)
+        )
+        .await,
+        "斷線的第一步是「正在重新連線」，不是「離線」：{:?}",
+        rt.character_session_peek().map(|s| s.state.clone())
+    );
+
+    // 退避窗口過去仍然沒有聲音 → session tick 才把它轉成 offline。
+    rt.character_session_tick_at(
+        joined_at + ChronoDuration::milliseconds(PRESENCE_TIMEOUT_MS) + ChronoDuration::seconds(1),
+    )
+    .await;
+    assert!(
+        presence_is(&rt, &device_id, "offline"),
+        "逾時之後才是「暫時離線」：{:?}",
+        rt.character_session_peek().map(|s| s.state.clone())
     );
     rt.shutdown().await;
 }

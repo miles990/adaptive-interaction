@@ -60,6 +60,11 @@ pub const SENSOR_STATE_STOPPING: &str = "stopping";
 /// 已要求停止但沒有在有界時間內收到確認——來源可能仍在擷取。
 pub const SENSOR_STATE_STOP_UNKNOWN: &str = "stop-unknown";
 
+/// 停止結果未知的另一種成因：這個高風險受器由 provider 宣告，但**沒有任何來源**
+/// 在停止掃描裡回報涵蓋它（沒有停止管道）。requested≠stopped，這裡連 requested
+/// 都談不上。
+pub const SENSOR_STOP_NO_PATH: &str = "no-stop-path";
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SensorUse {
@@ -257,18 +262,81 @@ impl Runtime {
         let devices = self
             .mobile_stop_sensors(actor, "mobile.stop-sensors", "stop-all-sensors")
             .await;
+        // 上面那條路徑只涵蓋「有停止管道」的來源。其他 provider 宣告的高風險受器
+        // 若仍然啟用中，這次掃描根本沒問過它——不得算進「全部已停」。
+        let unreported = self.unreported_high_risk_receptors(&devices).await;
         let report = StopAllSensorsReport {
-            stopped: devices.iter().all(|d| d.confirmed_stopped()),
-            uncertain: devices.iter().any(|d| !d.confirmed_stopped()),
+            stopped: devices.iter().all(|d| d.confirmed_stopped()) && unreported.is_empty(),
+            uncertain: devices.iter().any(|d| !d.confirmed_stopped()) || !unreported.is_empty(),
             local,
             devices,
         };
         self.emit_stop_sensor_events(&report.devices);
+        self.emit_unreported_high_risk_events(&unreported);
         self.store.audit(
             "sensor.stopped-all",
             actor,
             &serde_json::to_value(&report).unwrap_or_else(|_| json!({})),
         )?;
+        if !unreported.is_empty() {
+            // 報告本身的形狀是 HTTP／CLI／桌面共用的 wire 契約（前端逐欄位讀），
+            // 不在這一輪加欄位；沒被問到的受器改記在稽核裡（可追查、不改契約）。
+            self.store.audit(
+                "sensor.stop-not-requested",
+                actor,
+                &json!({
+                    "receptors": unreported,
+                    "reason": SENSOR_STOP_NO_PATH,
+                }),
+            )?;
+        }
         Ok(report)
+    }
+
+    /// provider 宣告過、但這次停止掃描沒有任何來源回報涵蓋、而且**目前仍啟用**
+    /// 的高風險受器。
+    ///
+    /// - 涵蓋與否由來源自己說（[`SensorStopOutcome::sensor_ids`]），核心不比對
+    ///   任何具名裝置的字面值。
+    /// - 已停用／未註冊的受器不算：registry 對它們回 `Err`，沒有東西能經由它
+    ///   流進來，硬報「可能還在擷取」是另一種不誠實。
+    async fn unreported_high_risk_receptors<T: SensorStopOutcome>(
+        &self,
+        reported: &[T],
+    ) -> Vec<String> {
+        let covered: std::collections::BTreeSet<String> = reported
+            .iter()
+            .flat_map(|outcome| outcome.sensor_ids())
+            .collect();
+        let mut unreported = Vec::new();
+        for id in self.capability_declarations().high_risk_receptors() {
+            if covered.contains(&id) {
+                continue;
+            }
+            if self
+                .registry
+                .receptor(&interaction_core::ReceptorId::new(&id))
+                .await
+                .is_ok()
+            {
+                unreported.push(id);
+            }
+        }
+        unreported
+    }
+
+    /// 誠實階梯：沒有停止管道＝結果未知，不是已停。與逾時未確認共用同一種事件，
+    /// 讓收件匣、tray、status 都看得見。
+    fn emit_unreported_high_risk_events(&self, unreported: &[String]) {
+        for sensor in unreported {
+            self.events.emit(
+                EventType::SensorStopUncertain,
+                json!({
+                    "sensor": sensor,
+                    "outcome": SENSOR_STOP_NO_PATH,
+                    "waitedMs": 0,
+                }),
+            );
+        }
     }
 }

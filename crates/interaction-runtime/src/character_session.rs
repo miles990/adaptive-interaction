@@ -49,6 +49,9 @@ pub const STORE_NOTE_UNREADABLE: &str =
     "character session state could not be read; it was quarantined and a new session was started";
 /// 持久化檔名（`<home>/state/`）。
 pub const SESSION_STORE_FILE: &str = "character-session.json";
+/// 只記 epoch 的小檔（`<home>/state/`）。快照壞掉時 epoch 從這裡續接——
+/// 見 [`JsonSessionStore::next_epoch`]。
+pub const SESSION_EPOCH_FILE: &str = "character-session.epoch";
 /// 1.0 只有一個 session。
 pub const SESSION_ID: &str = "session.home";
 /// 桌面可信 host surface 的 party id（human token 綁定出來的身分）。
@@ -91,33 +94,84 @@ impl JsonSessionStore {
         &self.path
     }
 
-    /// 壞掉的檔案改名成 `<file>.corrupt` 並回傳「下一個 epoch」。
-    /// 不靜默：epoch+1 讓所有成員在 resume 時拿到 `session-reset`，而不是默默對齊到一個
-    /// 從頭開始的 revision。
-    fn quarantine(&self) -> u64 {
+    /// 只記 epoch 的小檔。**故意與快照分開**：快照壞到救不回 epoch 時，它是
+    /// 「成員記得的 epoch 至少有多大」的唯一線索。
+    fn epoch_path(&self) -> PathBuf {
+        self.path
+            .parent()
+            .map(|parent| parent.join(SESSION_EPOCH_FILE))
+            .unwrap_or_else(|| PathBuf::from(SESSION_EPOCH_FILE))
+    }
+
+    /// 上次落地時記下的 epoch（讀不到／壞掉＝0，不猜）。
+    fn remembered_epoch(&self) -> u64 {
+        let Ok(body) = std::fs::read_to_string(self.epoch_path()) else {
+            return 0;
+        };
+        salvaged_epoch(&body)
+    }
+
+    /// 記住這個 epoch（best-effort：記不下來也不能讓快照落不了地）。
+    fn remember_epoch(&self, epoch: u64) {
+        let body = json!({ "epoch": epoch }).to_string();
+        if let Err(error) = self.write_owner_only_to(&self.epoch_path(), &body) {
+            tracing::warn!(%error, "the character session epoch marker was not persisted");
+        }
+    }
+
+    /// 重建 session 時要用的下一個 epoch。
+    ///
+    /// 契約 §1：「host 每次重建 session 時 epoch+1」。壞掉的快照自己救回來的數字
+    /// **不夠**：整個檔案被清成 NUL／截成空檔時 `salvaged_epoch` 回 0，+1 之後又回到
+    /// 全新 session 的 1——與成員記得的 epoch 撞號，resume 不走 EpochMismatch，
+    /// 成員把 host 的新狀態當 rollback 忽略，兩邊都以為「已同步」。
+    ///
+    /// 所以取 `max(從壞檔救回的, 另外記住的)`；兩邊都是 0（連 epoch 檔都沒有）時
+    /// 退回一個**單調的牆鐘來源**（unix 秒），它保證大於任何以 1 起算的遞增 epoch。
+    fn next_epoch(&self) -> u64 {
         let salvaged = std::fs::read_to_string(&self.path)
             .map(|body| salvaged_epoch(&body))
             .unwrap_or(0);
+        let known = salvaged.max(self.remembered_epoch());
+        let next = if known == 0 {
+            fresh_epoch_seed()
+        } else {
+            known.saturating_add(1)
+        };
+        self.remember_epoch(next);
+        next
+    }
+
+    /// 壞掉的檔案改名成 `<file>.corrupt` 並回傳「下一個 epoch」。
+    /// 不靜默：epoch 一定往前跳，讓所有成員在 resume 時拿到 `session-reset`，
+    /// 而不是默默對齊到一個從頭開始的 revision。
+    fn quarantine(&self) -> u64 {
+        let next = self.next_epoch();
         let quarantined = self.path.with_extension("json.corrupt");
         if let Err(e) = std::fs::rename(&self.path, &quarantined) {
             tracing::warn!(error = %e, "could not quarantine the unreadable character session file");
             let _ = std::fs::remove_file(&self.path);
         }
-        salvaged.saturating_add(1)
+        next
     }
 
     fn write_owner_only(&self, contents: &str) -> Result<(), PortError> {
-        let parent = self.path.parent().ok_or(PortError::Unavailable)?;
+        self.write_owner_only_to(&self.path, contents)
+    }
+
+    fn write_owner_only_to(&self, target: &Path, contents: &str) -> Result<(), PortError> {
+        let parent = target.parent().ok_or(PortError::Unavailable)?;
         std::fs::create_dir_all(parent).map_err(|_| PortError::Unavailable)?;
         // 每次寫入都用自己的暫存檔：兩個持久化同時發生時（`Output::Persist` 各自
         // 走一次 `spawn_blocking`），共用檔名的 `truncate` 會截掉另一個寫入者已經
         // 寫進去的內容，rename 出去的就是兩份 JSON 的拼接。程序內用計數器分開，
         // 跨程序用 pid 分開。
         let ticket = TMP_TICKET.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let tmp = parent.join(format!(
-            ".{SESSION_STORE_FILE}.tmp-{}-{ticket}",
-            std::process::id()
-        ));
+        let stem = target
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| SESSION_STORE_FILE.to_string());
+        let tmp = parent.join(format!(".{stem}.tmp-{}-{ticket}", std::process::id()));
         let written = (|| -> Result<(), PortError> {
             let mut options = std::fs::OpenOptions::new();
             options.write(true).create_new(true);
@@ -137,7 +191,7 @@ impl JsonSessionStore {
             let _ = std::fs::remove_file(&tmp);
             return written;
         }
-        if let Err(error) = std::fs::rename(&tmp, &self.path) {
+        if let Err(error) = std::fs::rename(&tmp, target) {
             let _ = std::fs::remove_file(&tmp);
             tracing::debug!(%error, "character session snapshot could not be renamed into place");
             return Err(PortError::Unavailable);
@@ -146,12 +200,23 @@ impl JsonSessionStore {
     }
 }
 
+/// 完全救不回 epoch 時的起點：單調的牆鐘秒數。任何以 1 起算、每次重建 +1 的
+/// epoch 都不可能長到這個量級，所以成員記得的 epoch 一定與它不同（§1）。
+fn fresh_epoch_seed() -> u64 {
+    Utc::now().timestamp().max(1) as u64
+}
+
 /// 暫存檔名的程序內序號（見 [`JsonSessionStore::write_owner_only`]）。
 static TMP_TICKET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl SessionStore for JsonSessionStore {
     fn save(&self, snapshot: &Snapshot) -> Result<(), PortError> {
         let body = serde_json::to_string(snapshot).map_err(|_| PortError::Rejected)?;
+        // 先記 epoch 再寫快照：epoch 檔只能領先、不能落後，否則快照壞掉時就少了
+        // 「成員記得的 epoch 至少有多大」這個線索。
+        if snapshot.epoch > self.remembered_epoch() {
+            self.remember_epoch(snapshot.epoch);
+        }
         self.write_owner_only(&body)
     }
 
@@ -192,24 +257,54 @@ impl CharacterSessionHost {
             session_id: SESSION_ID.to_string(),
             ..SessionConfig::default()
         };
+        // 讀不到快照時**不覆寫**它（見下方 `Err(error)` 分支）：一次暫時性讀取失敗
+        // 不該把一份可能完好的紀錄變成永久資料遺失。
+        let mut preserve_existing = false;
         let (session, load_note) = match store.load(SESSION_ID) {
-            Ok(Some(snapshot)) => match CharacterSession::restore(config.clone(), &snapshot, now) {
-                Ok(session) => (session, None),
-                Err(error) => {
-                    // 錯誤細節只進 log；diagnostics 的 note 是固定文字（不帶路徑、不帶
-                    // 反序列化訊息——那些可能回顯檔案內容或檔案系統路徑）。
-                    tracing::warn!(%error, "stored character session state was unusable");
-                    let epoch = store.quarantine();
-                    (
-                        CharacterSession::new(config.clone(), epoch, now),
-                        Some(STORE_NOTE_UNUSABLE.to_string()),
-                    )
+            Ok(Some(mut snapshot)) => {
+                // epoch 只能往前：這台機器曾經以更大的 epoch 跑過（例如上次啟動讀不到
+                // 這份快照而另開了一個 session），成員記得的就是那個更大的值。
+                snapshot.epoch = snapshot.epoch.max(store.remembered_epoch());
+                match CharacterSession::restore(config.clone(), &snapshot, now) {
+                    Ok(session) => (session, None),
+                    Err(error) => {
+                        // 錯誤細節只進 log；diagnostics 的 note 是固定文字（不帶路徑、不帶
+                        // 反序列化訊息——那些可能回顯檔案內容或檔案系統路徑）。
+                        tracing::warn!(%error, "stored character session state was unusable");
+                        let epoch = store.quarantine();
+                        (
+                            CharacterSession::new(config.clone(), epoch, now),
+                            Some(STORE_NOTE_UNUSABLE.to_string()),
+                        )
+                    }
                 }
-            },
-            Ok(None) => (CharacterSession::new(config.clone(), 1, now), None),
+            }
+            Ok(None) => {
+                // 全新安裝：epoch 1。曾經跑過的機器不會走到這裡（檔案在），
+                // 走到這裡卻留有 epoch 檔的話，`next_epoch` 會接續下去。
+                let epoch = if store.remembered_epoch() == 0 {
+                    store.remember_epoch(1);
+                    1
+                } else {
+                    store.next_epoch()
+                };
+                (CharacterSession::new(config.clone(), epoch, now), None)
+            }
+            // 內容壞掉（解不開／不是這個 session 的快照）：隔離。
+            Err(PortError::Corrupt) => {
+                tracing::warn!("stored character session state was unusable");
+                let epoch = store.quarantine();
+                (
+                    CharacterSession::new(config.clone(), epoch, now),
+                    Some(STORE_NOTE_UNUSABLE.to_string()),
+                )
+            }
+            // 暫時性 I/O 失敗（權限、EIO、fd 用盡）：檔案**不動**。一次讀不到就把
+            // 一份可能完好的快照改名丟棄，是把暫時性故障變成永久資料遺失。
             Err(error) => {
                 tracing::warn!(%error, "character session state could not be read");
-                let epoch = store.quarantine();
+                preserve_existing = true;
+                let epoch = store.next_epoch();
                 (
                     CharacterSession::new(config.clone(), epoch, now),
                     Some(STORE_NOTE_UNREADABLE.to_string()),
@@ -217,8 +312,11 @@ impl CharacterSessionHost {
             }
         };
         // 立刻落一份：重啟後才續接得到 revision／epoch，而不是默默從頭開始。
-        if let Err(error) = store.save(&session.snapshot()) {
-            tracing::warn!(%error, "character session snapshot was not persisted at startup");
+        // 例外是「讀不到但檔案還在」：那一份留給下一次啟動（或人）去救，這次不覆寫。
+        if !preserve_existing {
+            if let Err(error) = store.save(&session.snapshot()) {
+                tracing::warn!(%error, "character session snapshot was not persisted at startup");
+            }
         }
         if let Some(note) = &load_note {
             tracing::warn!(note, "character session started from a clean state");
@@ -292,6 +390,29 @@ fn salvaged_epoch(body: &str) -> u64 {
         .unwrap_or(0)
 }
 
+/// 成員清除門檻 ＝ presence 逾時 × 這個倍數。中間那一段就是契約 §11 的
+/// 「iPhone 暫時離線」可以被看見的區間（見 [`Runtime::character_session_tick_at`]）。
+pub const MEMBER_EVICTION_TIMEOUT_FACTOR: i64 = 2;
+
+/// 一則 capability 宣告裡 `intents`／`inputs` 各自的筆數上限。
+const MAX_ANNOUNCED_NAMES: usize = 64;
+
+/// 稽核欄位的字元上限（攻擊者可控的字串不得無界寫進 audit）。
+const AUDIT_FIELD_MAX_CHARS: usize = 64;
+
+/// 夾住一段可能來自外部的字串（以字元為單位切，不會切壞 UTF-8）。
+fn audit_snippet(value: &str) -> String {
+    value.chars().take(AUDIT_FIELD_MAX_CHARS).collect()
+}
+
+/// `PartyKind` 的稽核書寫。`Unknown(String)` 是 untagged 的任意字串，一樣要夾住。
+fn audit_party_kind(kind: &PartyKind) -> String {
+    match serde_json::to_value(kind) {
+        Ok(Value::String(text)) => audit_snippet(&text),
+        _ => "unknown".to_string(),
+    }
+}
+
 /// 一則 replay patch 的線上形狀（`response{kind:"patches"}` 的項目）。
 /// 不內嵌完整 envelope：AIP §11 的 payload 深度上限是 8，包一層 envelope 會超。
 fn patch_item(envelope: &Envelope) -> Value {
@@ -343,6 +464,10 @@ impl Runtime {
                     "role": member.role,
                     "presence": member.presence.as_str(),
                     "lastSeenAt": member.last_seen_at,
+                    // 協商為 unsupported 的 intent 名（沒有就是空陣列）。這是
+                    // §11「部分能力目前不可用」的唯一真實來源；協商結果的其餘細節
+                    // 仍是 host 私有，不外洩。
+                    "unsupportedIntents": member.unsupported_intents,
                 })
             })
             .collect();
@@ -384,6 +509,16 @@ impl Runtime {
         announcement: &CapabilityAnnouncement,
     ) -> DomainResult<(Envelope, Envelope)> {
         let host = self.session_host()?;
+        // 宣告的名稱是外部輸入：協商結果（含 `unsupported`）會留在成員紀錄裡，
+        // 筆數不夾住的話一則 32 KiB 的 payload 就能塞進上千筆。真實的 renderer
+        // 只宣告個位數（`HOST_INTENTS` 4 個、`HOST_INPUTS` 2 個）。
+        if announcement.inputs.len() > MAX_ANNOUNCED_NAMES
+            || announcement.intents.len() > MAX_ANNOUNCED_NAMES
+        {
+            return Err(DomainError::Validation(format!(
+                "capability rejected: at most {MAX_ANNOUNCED_NAMES} intents and inputs"
+            )));
+        }
         let now = Utc::now();
         let joined = {
             let mut session = host.session();
@@ -513,6 +648,22 @@ impl Runtime {
             let mut session = host.session();
             session.resume(party, last_revision, last_sequence, epoch, Utc::now())
         };
+        // host 的進度**落後**成員：這只可能是 session 被重建過（或還原了更舊的快照）。
+        // 這種 snapshot 對接收端而言長得像 rollback（revision 比它自己記得的小），
+        // AIP §6 的防重播規則會直接忽略它，畫面卻仍顯示「已同步」——兩邊都不會察覺。
+        // 所以要明說這是重新開始（`reason: session-reset`），讓接收端合法地丟掉本地狀態。
+        let resume = match resume {
+            Resume::Snapshot { envelope }
+                if envelope
+                    .payload
+                    .get("revision")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|revision| revision < last_revision) =>
+            {
+                Resume::EpochMismatch { envelope }
+            }
+            other => other,
+        };
         Ok(resume)
     }
 
@@ -588,14 +739,22 @@ impl Runtime {
                 }
             }
             outputs.extend(session.tick(now));
-            // 離線超過 presence timeout 的成員不留在名單上（幽靈成員＝假的「已連接」）。
-            let timeout = ChronoDuration::milliseconds(session.config().presence_timeout_ms);
+            // 離線太久的成員不留在名單上（幽靈成員＝假的「已連接」），但清除的門檻
+            // 必須**比 presence 逾時晚**：兩者相同時，`tick` 剛把成員標成 Offline，
+            // 同一輪就把它 leave 掉，§11 的「iPhone 暫時離線」在逾時路徑上一個 tick
+            // 都活不過，UI 直接從「已連接」跳到「沒有裝置」。
+            let eviction = ChronoDuration::milliseconds(
+                session
+                    .config()
+                    .presence_timeout_ms
+                    .saturating_mul(MEMBER_EVICTION_TIMEOUT_FACTOR),
+            );
             let stale: Vec<Party> = session
                 .members()
                 .into_iter()
                 .filter(|member| {
                     member.presence == Presence::Offline
-                        && now.signed_duration_since(member.last_seen_at) >= timeout
+                        && now.signed_duration_since(member.last_seen_at) >= eviction
                 })
                 .map(|member| member.party)
                 .collect();
@@ -687,7 +846,7 @@ impl Runtime {
             return AipFrameOutcome::reply(self.character_session_error(
                 error.code,
                 "this runtime speaks aip/1.x only",
-                Some(envelope.message_id.clone()),
+                causation.clone(),
                 now,
             ));
         }
@@ -695,26 +854,50 @@ impl Runtime {
             return AipFrameOutcome::reply(self.character_session_error(
                 ErrorCode::UnsupportedMessageType,
                 "messageType is not one of the 12 known AIP message types",
-                Some(envelope.message_id.clone()),
+                causation.clone(),
+                now,
+            ));
+        }
+        // §8 第 1 關：schema／profile 驗證 → payload ≤ 32 KiB、深度、字串長度、
+        // id／name 語法。**每一則**都要過，不分 message type：非成員的第一則
+        // capability 走的是 join（不經 `CharacterSession::gate`），少了這一關就等於
+        // 每台已配對 iPhone 的第一則訊息只剩 64 KiB 整包上限與身分綁定。
+        // 這一關也讓後面的稽核與回覆只可能帶到有界、合法語法的字串。
+        if let Err(error) = envelope.validate() {
+            let _ = self.store.audit(
+                "aip.rejected",
+                "runtime",
+                &json!({
+                    "transport": "iphone",
+                    "stage": "profile-validation",
+                    "code": error.code.as_str(),
+                }),
+            );
+            return AipFrameOutcome::reply(self.character_session_error(
+                error.code,
+                "the envelope did not satisfy the aip profile limits",
+                causation.clone(),
                 now,
             ));
         }
         // 宣稱不是身分（§5）：不符一律拒絕並稽核，不得修正後執行。
         if let IdentityDecision::Reject { .. } = bind_identity(&party, &envelope.source) {
+            // 稽核欄位一律夾住長度：稽核不截斷、不過期，攻擊者可控的字串不得
+            // 無界寫進去（§8 已經先擋過一次，這裡不依賴呼叫順序）。
             let _ = self.store.audit(
                 "aip.identity-mismatch",
                 "runtime",
                 &json!({
                     "transport": "iphone",
                     "boundKind": "device",
-                    "claimedKind": envelope.source.kind,
-                    "name": envelope.name,
+                    "claimedKind": audit_party_kind(&envelope.source.kind),
+                    "name": audit_snippet(&envelope.name),
                 }),
             );
             return AipFrameOutcome::reply(self.character_session_error(
                 ErrorCode::IdentityMismatch,
                 "source does not match the paired identity of this connection",
-                Some(envelope.message_id.clone()),
+                causation.clone(),
                 now,
             ));
         }
@@ -763,8 +946,9 @@ impl Runtime {
         }
     }
 
-    /// 這個 party 目前是不是成員（決定 capability 走 join 還是走安全管線）。
-    fn character_session_is_member(&self, party: &Party) -> bool {
+    /// 這個 party 目前是不是成員（決定 capability 走 join 還是走安全管線；
+    /// 也決定斷線收尾要送 `Reconnecting` 還是什麼都不做）。
+    pub(crate) fn character_session_is_member(&self, party: &Party) -> bool {
         self.character_session.as_ref().is_some_and(|host| {
             host.session()
                 .members()
@@ -800,6 +984,29 @@ impl Runtime {
                     now,
                 )),
             };
+        }
+        // §8 的 `sessionId` 這一關：成員走 `gate` 時比對過，非成員的第一則
+        // capability 一樣要比對——否則另一個 session 的 frame 可以直接 join 進來。
+        if envelope
+            .session_id
+            .as_deref()
+            .is_some_and(|session_id| session_id != SESSION_ID)
+        {
+            let _ = self.store.audit(
+                "aip.rejected",
+                "runtime",
+                &json!({
+                    "transport": "iphone",
+                    "stage": "session-binding",
+                    "code": ErrorCode::NotAMember.as_str(),
+                }),
+            );
+            return AipFrameOutcome::reply(self.character_session_error(
+                ErrorCode::NotAMember,
+                "the envelope belongs to a different character session",
+                Some(causation),
+                now,
+            ));
         }
         let announcement: CapabilityAnnouncement =
             match serde_json::from_value(envelope.payload.clone()) {
@@ -862,6 +1069,19 @@ impl Runtime {
             }
         };
         if submission.error.is_some() {
+            return AipFrameOutcome::reply(submission.result);
+        }
+        // 去重命中（§8 第 12 關）走的是 `Gate::Duplicate`：`outcome: accepted`、`error: None`，
+        // 所以上面那道守衛不會觸發。`accepted{duplicate:true}` 已經是這則訊息的答案，
+        // 不得再跑一次 resume／snapshot——那會多消耗一個 sequence（其他成員看到假跳號）、
+        // 把 diagnostics 計數器灌大，而且把該回給對方的 duplicate 回覆丟掉（identity-binding-009）。
+        if submission
+            .result
+            .payload
+            .get("duplicate")
+            .and_then(Value::as_bool)
+            == Some(true)
+        {
             return AipFrameOutcome::reply(submission.result);
         }
         match name.as_str() {
@@ -1176,6 +1396,87 @@ mod tests {
         assert_eq!(
             spliced, 0,
             "並行持久化把兩份快照拼在一起了（{spliced} 次讀到壞檔）"
+        );
+    }
+
+    /// 一台從來沒被隔離過的桌面：epoch 就是 1、revision 已經跑了一陣子。
+    /// 它的檔案壞成「完全解不開、連 `"epoch"` 字樣都沒有」時，舊實作以
+    /// `salvaged_epoch()==0` 為底 +1，重建的 session 又是 epoch 1——與成員記得的
+    /// 完全相同。成員 resume 不會走 `EpochMismatch`，收到的是 revision 比自己小的
+    /// 普通 snapshot，再被自己的 rollback 防護忽略，兩邊都以為「已同步」。
+    #[test]
+    fn a_rebuilt_session_never_reuses_the_epoch_members_remember() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let store = JsonSessionStore::new(dir.path().join(SESSION_STORE_FILE));
+        store
+            .save(&Snapshot {
+                session_id: SESSION_ID.to_string(),
+                epoch: 1,
+                revision: 50,
+                sequence: 90,
+                state: json!({}),
+                hash: "0".repeat(64),
+                at: Utc::now(),
+            })
+            .expect("seed a healthy snapshot");
+
+        // 壞法：整份內容變成不含 "epoch" 字樣的亂碼（清成 NUL／被別的東西覆寫）。
+        std::fs::write(dir.path().join(SESSION_STORE_FILE), "\0\0\0garbage\0\0")
+            .expect("corrupt the file");
+
+        let host = CharacterSessionHost::open(dir.path(), Utc::now());
+        let epoch = host.session().epoch();
+        assert!(
+            epoch > 1,
+            "重建的 session 不得沿用成員記得的 epoch（拿到 {epoch}）"
+        );
+        assert!(
+            dir.path().join("character-session.json.corrupt").exists(),
+            "壞檔要留證據"
+        );
+        assert_eq!(
+            host.load_note(),
+            Some(STORE_NOTE_UNUSABLE),
+            "載入異常必須誠實顯示"
+        );
+    }
+
+    /// epoch 的記憶與快照分開存：快照救得回 4、另外記著的是 9 時，下一個 epoch
+    /// 要從**大的那個**續接，否則重複用過的號碼又會與成員記得的撞號。
+    #[test]
+    fn the_next_epoch_continues_from_whichever_source_is_further_ahead() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let store = JsonSessionStore::new(dir.path().join(SESSION_STORE_FILE));
+        store.remember_epoch(9);
+        std::fs::write(
+            dir.path().join(SESSION_STORE_FILE),
+            "{\"epoch\": 4, truncated",
+        )
+        .expect("seed");
+        assert_eq!(store.next_epoch(), 10);
+        // 記憶自己也要往前走（下一次重建不得再發同一個號碼）。
+        assert_eq!(store.remembered_epoch(), 10);
+    }
+
+    /// 讀不到（權限／EIO／fd 用盡）不等於壞掉：一次暫時性 I/O 失敗不得把一份
+    /// 可能完好的快照改名丟棄，也不得當場覆寫掉。
+    /// 這裡用「目錄佔住檔名」製造一個可攜的非 NotFound 讀取錯誤。
+    #[test]
+    fn a_transient_read_failure_never_throws_away_the_stored_snapshot() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(SESSION_STORE_FILE);
+        std::fs::create_dir(&path).expect("occupy the path with a directory");
+
+        let host = CharacterSessionHost::open(dir.path(), Utc::now());
+        assert_eq!(host.load_note(), Some(STORE_NOTE_UNREADABLE));
+        assert!(
+            !dir.path().join("character-session.json.corrupt").exists(),
+            "讀不到不是壞掉：不得隔離"
+        );
+        assert!(path.is_dir(), "原本的紀錄必須原封不動留著");
+        assert!(
+            host.session().epoch() >= 1,
+            "仍然要有一個可用的 session（誠實顯示 storeNote）"
         );
     }
 
