@@ -51,19 +51,12 @@ message name（`docs/aip/README.md` §2.3 的 `character.interaction.*`／`chara
   （`format!("iphone-{}", &token_hex(8)[..8])`，`crates/interaction-runtime/src/mobile.rs`），
   不是 token、不是可逆推的識別碼；純函式層測試：
   `crates/interaction-session/tests/session.rs::diagnostics_counts_without_leaking`(:1105)。
-- **`storeNote` 有一條未經測試排除的理論路徑**：它的內容來自
-  `character_session.rs::CharacterSessionHost::open`（:182-215）在快照讀取失敗時組出的
-  `format!("stored character session state was unusable ({error}); …")`；`{error}` 是底層
-  `PortError`／反序列化錯誤的 `Display`。本次核實**沒有找到**斷言「`storeNote` 不含檔案路徑片段」
-  的測試——找到的 `an_unreadable_session_file_is_quarantined_and_never_silently_reused`(:1140) 驗證的
-  是「壞檔案被隔離、session 乾淨重建」這件事本身，不是「錯誤訊息裡有沒有路徑」。
-  **誠實記錄為未覆蓋**：目前沒有程式碼或測試保證這條錯誤訊息不含本機路徑，只是實務上
-  `std::io::Error`／`serde_json::Error` 的 `Display` 通常不含完整路徑（呼叫端沒有主動拼接）。
-  這屬於 `docs/aip/threat-model.md` §「diagnostics secret leakage」列的同一個發現，不重複展開。
-
-`interaction_aip::EvidenceClass`（`crates/interaction-aip/src/evidence.rs`）本身不是隱私防線，
-是「證據分類」型別（`is_real()` 只有 `RealAgent`／`RealDevice`／`RealHardware` 為 true）；用於文件與
-diagnostics 的用字紀律（§7），不是執行期存取控制。
+- **`storeNote` 是固定文字（v0.6.0 已修，`b5cdfa2`）**：`character_session.rs::CharacterSessionHost::open`
+  在快照讀不到／壞掉時只回 `STORE_NOTE_UNUSABLE`／`STORE_NOTE_UNREADABLE` 兩個常數之一，底層
+  `PortError`／反序列化錯誤只進 tracing log，不進 API 回應。回歸測試
+  `character_session::tests::store_note_never_carries_error_details_or_paths` 以含路徑樣式與
+  「secret-looking-content」的壞檔啟動 host，斷言 note 不含檔案內容、不含暫存目錄路徑、不含任何
+  插值的錯誤細節，且壞檔被隔離為 `.corrupt`、epoch 從救回的值 +1。
 
 ## 5. 稽核紀錄
 
