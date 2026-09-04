@@ -1,0 +1,15 @@
+[package]
+name = "interaction-session"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Authoritative Character Session domain: semantic state, director, revision/sequence, snapshot/patch/replay, dedupe, deadlines, membership and ports (pure, no I/O)"
+
+[dependencies]
+interaction-aip = { workspace = true }
+interaction-character = { path = "../interaction-character" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }

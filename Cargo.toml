@@ -15,6 +15,9 @@ members = [
     "crates/interaction-agent-gateway",
     "crates/interaction-adapter-declarative",
     "crates/interaction-character",
+    "crates/interaction-aip",
+    "crates/interaction-session",
+    "crates/interaction-character-shu",
     "adapters/builtin",
     "adapters/media",
     "tests/e2e",
@@ -40,6 +43,9 @@ interaction-runtime = { path = "crates/interaction-runtime" }
 interaction-tool-schema = { path = "crates/interaction-tool-schema" }
 interaction-api = { path = "crates/interaction-api" }
 interaction-adapter-sdk = { path = "crates/interaction-adapter-sdk" }
+interaction-aip = { path = "crates/interaction-aip" }
+interaction-session = { path = "crates/interaction-session" }
+interaction-character-shu = { path = "crates/interaction-character-shu" }
 adapters-builtin = { path = "adapters/builtin" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "fs", "io-util", "net", "process"] }

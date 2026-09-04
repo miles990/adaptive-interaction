@@ -1,0 +1,11 @@
+[package]
+name = "interaction-character-shu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shu (小樞) reference character pack for the Character Presentation Protocol: rig variants, capability set and legacy rig-pack migration, kept out of the protocol core"
+
+[dependencies]
+interaction-character = { path = "../interaction-character" }
+serde = { workspace = true }
+serde_json = { workspace = true }

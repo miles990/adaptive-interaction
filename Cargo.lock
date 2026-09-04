@@ -1608,6 +1608,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "interaction-aip"
+version = "0.5.1"
+dependencies = [
+ "chrono",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "interaction-api"
 version = "0.5.1"
 dependencies = [
@@ -1644,6 +1656,15 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "uuid",
+]
+
+[[package]]
+name = "interaction-character-shu"
+version = "0.5.1"
+dependencies = [
+ "interaction-character",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1797,6 +1818,19 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "interaction-session"
+version = "0.5.1"
+dependencies = [
+ "chrono",
+ "interaction-aip",
+ "interaction-character",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
