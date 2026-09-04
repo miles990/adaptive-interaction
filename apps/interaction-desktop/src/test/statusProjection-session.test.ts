@@ -1,7 +1,7 @@
 // 角色同步的一般模式投影（`docs/aip/character-session.md` §11 文案表的 UI 鏡射）。
 //
 // 這一支釘住三件事：
-//   1. 九種同步狀態各有一句固定人話，而且**窮舉**（`satisfies Record<…>` 讓漏掉的
+//   1. 十種同步狀態各有一句固定人話，而且**窮舉**（`satisfies Record<…>` 讓漏掉的
 //      狀態在 typecheck 就爆，不會靜默退化成把技術值印到畫面上）。
 //   2. 一般模式**不得**出現 revision／sequence／epoch／schema／token 之類的技術詞
 //      （正反兩面都斷言：該有的人話有、不該有的技術詞一個都沒有）。
@@ -34,6 +34,7 @@ function signals(overrides: Partial<CharacterSyncSignals> = {}): CharacterSyncSi
     failedReads: 0,
     revokedDevice: false,
     connectedButNotSynced: false,
+    storeReset: false,
     ...overrides,
   };
 }
@@ -69,8 +70,8 @@ function snapshot(state: Record<string, unknown> = {}): Record<string, unknown> 
   };
 }
 
-describe("角色同步投影：九種狀態的固定人話", () => {
-  it("狀態表窮舉九種，且每一句都是人話（沒有技術詞）", () => {
+describe("角色同步投影：十種狀態的固定人話", () => {
+  it("狀態表窮舉十種，且每一句都是人話（沒有技術詞）", () => {
     expect(CHARACTER_SYNC_STATES).toEqual([
       "synced",
       "reconnecting",
@@ -81,6 +82,7 @@ describe("角色同步投影：九種狀態的固定人話", () => {
       "needs-reconfirmation",
       "no-device",
       "disabled",
+      "store-reset",
     ]);
     for (const state of CHARACTER_SYNC_STATES) {
       const projection = CHARACTER_SYNC_PROJECTION[state];
@@ -101,6 +103,7 @@ describe("角色同步投影：九種狀態的固定人話", () => {
       "needs-reconfirmation": "需要重新確認裝置",
       "no-device": "尚未連接 iPhone",
       disabled: "角色同步目前關閉",
+      "store-reset": "角色同步紀錄曾損毀，已重新開始",
     };
     for (const state of CHARACTER_SYNC_STATES) {
       expect(CHARACTER_SYNC_PROJECTION[state].headline).toBe(spec[state]);
@@ -176,6 +179,28 @@ describe("角色同步投影：狀態判定", () => {
     const p = projectCharacterSession(null, [], signals({ enabled: false }));
     expect(p.state).toBe("disabled");
     expect(p.tone).toBe("muted");
+  });
+
+  it("保存的角色同步紀錄曾損毀＝說出來，而且壓過「已同步」", () => {
+    const p = projectCharacterSession(snapshot(), [member()], signals({ storeReset: true }));
+    expect(p.state).toBe("store-reset");
+    expect(p.headline).toBe("角色同步紀錄曾損毀，已重新開始");
+    expect(p.tone).toBe("warn");
+    expect(p.tone).not.toBe("ok");
+    expect(p.known).toBe(true);
+    // 一般模式的人話：不得出現 storeNote／epoch／revision 之類的技術詞。
+    expect(`${p.headline}${p.detail}`).not.toMatch(FORBIDDEN);
+    expect(`${p.headline}${p.detail}`).not.toMatch(/storeNote|corrupt|quarantine/i);
+  });
+
+  it("紀錄損毀不得壓過「讀不到」與「關閉」（先擋不能相信的，再說損毀）", () => {
+    expect(
+      projectCharacterSession(null, [], signals({ storeReset: true, enabled: false })).state
+    ).toBe("disabled");
+    expect(
+      projectCharacterSession(null, [], signals({ storeReset: true, failedReads: 3 })).state
+    ).toBe("unrecoverable");
+    expect(projectCharacterSession(null, [], signals({ storeReset: true })).state).toBe("syncing");
   });
 
   it("認不得的 presence 不猜：退回「同步尚未完成」並標 known=false", () => {

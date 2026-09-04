@@ -190,6 +190,18 @@ async fn collect_aip(ws: &mut Ws, count: usize, budget: Duration) -> Vec<Value> 
     out
 }
 
+/// 收到第一則符合 `message_type` 的 aip envelope（中途的廣播 patch 直接跳過）。
+async fn recv_aip_of(ws: &mut Ws, message_type: &str, budget: Duration) -> Option<Value> {
+    let deadline = tokio::time::Instant::now() + budget;
+    loop {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let envelope = recv_aip_within(ws, left).await?;
+        if envelope["messageType"] == json!(message_type) {
+            return Some(envelope);
+        }
+    }
+}
+
 fn find<'a>(frames: &'a [Value], message_type: &str) -> Option<&'a Value> {
     frames
         .iter()
@@ -399,6 +411,27 @@ fn character_intents(rt: &Runtime) -> Vec<RuntimeEvent> {
         .collect()
 }
 
+/// Session 的 presence timeout（`SessionConfig::default()`；contract §12.7）。
+const PRESENCE_TIMEOUT_MS: i64 = 45_000;
+
+/// 等某個 async 條件成立（有界輪詢）。
+async fn wait_for_async<F, Fut>(mut predicate: F, budget: Duration) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let deadline = tokio::time::Instant::now() + budget;
+    loop {
+        if predicate().await {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 /// 等某個條件成立（有界輪詢；spawn 出去的投影不必用 sleep 猜時間）。
 async fn wait_for(mut predicate: impl FnMut() -> bool, budget: Duration) -> bool {
     let deadline = tokio::time::Instant::now() + budget;
@@ -516,6 +549,202 @@ async fn fixture_iphone_touch_updates_state_and_reaches_both_renderers() {
 // ---------------------------------------------------------------------------
 // 2. 重複 messageId → accepted{duplicate}，不重套用
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 1.5 存活證明：只送互動、不送 heartbeat 的手機不得被逾時踢出 session
+// ---------------------------------------------------------------------------
+
+/// 45 秒的 presence timeout 從**最後一則已驗證的訊息**算起，不是從協商算起。
+/// 用 `tick_at` 注入時間：從協商起算已經超時，從最後一則 touch 起算還沒。
+#[tokio::test]
+async fn a_phone_that_only_touches_is_never_timed_out_of_the_session() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+
+    let joined_at = Utc::now();
+    send_json(&mut ws, aip(capability_envelope(&device_id))).await;
+    let _ = collect_aip(&mut ws, 2, Duration::from_secs(5)).await;
+
+    // 拉開協商與 touch 的距離，讓「從協商算起」與「從 touch 算起」分得開。
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    send_json(
+        &mut ws,
+        aip(touch_envelope(&device_id, "fx-alive-1", "tap")),
+    )
+    .await;
+    let frames = collect_aip(&mut ws, 3, Duration::from_secs(5)).await;
+    assert_eq!(
+        find(&frames, "result").expect("result")["payload"]["status"],
+        "applied"
+    );
+    let touched_at = Utc::now();
+
+    let timeout = ChronoDuration::milliseconds(PRESENCE_TIMEOUT_MS);
+    let now = joined_at + timeout + ChronoDuration::milliseconds(20);
+    assert!(
+        now < touched_at + timeout,
+        "測試前提：從最後一則 touch 算起還沒逾時"
+    );
+    rt.character_session_tick_at(now).await;
+
+    let diagnostics = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics");
+    let members = diagnostics["members"].as_array().expect("members");
+    let phone = members
+        .iter()
+        .find(|m| m["party"]["id"] == json!(device_id))
+        .unwrap_or_else(|| panic!("只送 touch 的手機被踢出了 session：{diagnostics}"));
+    assert_eq!(phone["presence"], "online", "互動就是存活證明");
+
+    // 而且它還送得出互動（被踢掉之後會變成 not-a-member）。
+    // tick 造成的廣播 patch 會排在前面，所以只挑 result 那一則。
+    send_json(
+        &mut ws,
+        aip(touch_envelope(&device_id, "fx-alive-2", "pat")),
+    )
+    .await;
+    let result = recv_aip_of(&mut ws, "result", Duration::from_secs(5))
+        .await
+        .expect("second result");
+    assert_eq!(result["payload"]["status"], "applied", "{result}");
+}
+
+/// 舊協定的 `status` 心跳（iOS App 目前送的就是它）也是存活證明：已經協商過的手機
+/// 不得因為「沒送 AIP heartbeat」就被清出成員名單。
+#[tokio::test]
+async fn a_negotiated_phone_that_only_sends_legacy_status_stays_a_member() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+
+    let joined_at = Utc::now();
+    send_json(&mut ws, aip(capability_envelope(&device_id))).await;
+    let _ = collect_aip(&mut ws, 2, Duration::from_secs(5)).await;
+
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    send_json(
+        &mut ws,
+        json!({"type":"status","sensors":{"micLevel": false},"appVersion":"fixture-heartbeat"}),
+    )
+    .await;
+    // status 沒有回覆：等它出現在裝置清單裡，才確定 Runtime 真的處理過了。
+    assert!(
+        wait_for_async(
+            || {
+                let rt = rt.clone();
+                let device_id = device_id.clone();
+                async move {
+                    rt.mobile_status()
+                        .await
+                        .ok()
+                        .and_then(|status| {
+                            let devices = status["devices"].as_array()?.clone();
+                            Some(devices.iter().any(|d| {
+                                d["deviceId"] == json!(device_id)
+                                    && d["status"]["appVersion"] == json!("fixture-heartbeat")
+                            }))
+                        })
+                        .unwrap_or(false)
+                }
+            },
+            Duration::from_secs(3),
+        )
+        .await,
+        "舊協定 status 沒有被處理"
+    );
+    let reported_at = Utc::now();
+
+    let timeout = ChronoDuration::milliseconds(PRESENCE_TIMEOUT_MS);
+    let now = joined_at + timeout + ChronoDuration::milliseconds(20);
+    assert!(now < reported_at + timeout, "測試前提：status 之後還沒逾時");
+    rt.character_session_tick_at(now).await;
+
+    let diagnostics = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics");
+    let members = diagnostics["members"].as_array().expect("members");
+    assert!(
+        members
+            .iter()
+            .any(|m| m["party"]["id"] == json!(device_id) && m["presence"] == json!("online")),
+        "已協商的手機送舊 status 也算存活：{diagnostics}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 1.6 成員回報 observed → host 的 pending intent 結清（不再等 TTL）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn an_observed_report_settles_the_intent_instead_of_expiring_it() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    send_json(&mut ws, aip(capability_envelope(&device_id))).await;
+    let _ = collect_aip(&mut ws, 2, Duration::from_secs(5)).await;
+
+    send_json(&mut ws, aip(touch_envelope(&device_id, "fx-obs-1", "tap"))).await;
+    let frames = collect_aip(&mut ws, 3, Duration::from_secs(5)).await;
+    let command = find(&frames, "command").expect("behavior command");
+    let command_id = command["messageId"]
+        .as_str()
+        .expect("messageId")
+        .to_string();
+
+    // 手機誠實回報：它真的演了（observed ≠ verified）。
+    let mut report = base_envelope(
+        "result",
+        "character.behavior.request",
+        &device_id,
+        "fx-obs-report",
+    );
+    report["causationId"] = json!(command_id);
+    report["payload"] = json!({"status": "observed"});
+    send_json(&mut ws, aip(report)).await;
+
+    assert!(
+        wait_for(
+            || rt
+                .character_session_diagnostics_value()
+                .map(|d| d["counters"]["intents.observed"] == json!(1))
+                .unwrap_or(false),
+            Duration::from_secs(3),
+        )
+        .await,
+        "observed 回報必須結清 intent：{:?}",
+        rt.character_session_diagnostics_value()
+    );
+
+    // TTL 過去之後不得再稽核成過期（沒有人在等它了）。
+    rt.character_session_tick_at(Utc::now() + ChronoDuration::seconds(120))
+        .await;
+    let diagnostics = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics");
+    assert_eq!(
+        diagnostics["counters"]["intents.expired"],
+        Value::Null,
+        "已回報的 intent 不得再算成過期：{diagnostics}"
+    );
+    let audits = rt.store.audit_tail(200).expect("audit tail");
+    assert!(
+        !audits
+            .iter()
+            .any(|a| a["kind"] == json!("character.session.intent-expired")),
+        "已結清的 intent 不得留下過期稽核"
+    );
+    assert!(
+        audits
+            .iter()
+            .any(|a| a["kind"] == json!("character.session.intent-settled")),
+        "結清必須留下稽核"
+    );
+}
 
 #[tokio::test]
 async fn duplicate_touch_is_accepted_once_and_never_reapplied() {

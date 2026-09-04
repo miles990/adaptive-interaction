@@ -153,8 +153,10 @@ impl ProviderCapabilityDeclaration {
 }
 
 /// 宣告表：同步可讀（投影路徑沒有 await 點可用），寫入只發生在 provider
-/// 註冊時。鎖中毒時退回既有內容繼續用——純資料表，讓整個 Runtime 崩潰
-/// 不會比較誠實。
+/// 註冊時。鎖中毒時退回既有內容繼續用（`poisoned.into_inner()`，與本 crate
+/// 其他鎖同一個慣例）——純資料表，沒有半寫入的不變量，讓整個 Runtime 崩潰
+/// 不會比較誠實；把表當成空的更不誠實（呈現面會被當成一般動器、高風險受器
+/// 清單會憑空變空）。
 #[derive(Default)]
 pub struct ProviderCapabilityRegistry {
     inner: std::sync::RwLock<BTreeMap<String, ProviderCapabilityDeclaration>>,
@@ -171,43 +173,49 @@ impl std::fmt::Debug for ProviderCapabilityRegistry {
 impl ProviderCapabilityRegistry {
     /// 登記（或覆寫）一個 provider 的宣告。
     pub fn declare(&self, declaration: ProviderCapabilityDeclaration) {
-        if let Ok(mut map) = self.inner.write() {
-            map.insert(declaration.declaration_id.clone(), declaration);
-        }
+        self.write()
+            .insert(declaration.declaration_id.clone(), declaration);
     }
 
+    /// 中毒＝上一個持鎖者 panic 了，但這張表是純資料（沒有跨欄位不變量會因此半寫入）：
+    /// 退回既有內容繼續用，不讓一個無關的 panic 把整個能力語意投影變成空白。
     fn read(
         &self,
-    ) -> Option<std::sync::RwLockReadGuard<'_, BTreeMap<String, ProviderCapabilityDeclaration>>>
-    {
-        self.inner.read().ok()
+    ) -> std::sync::RwLockReadGuard<'_, BTreeMap<String, ProviderCapabilityDeclaration>> {
+        self.inner
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn write(
+        &self,
+    ) -> std::sync::RwLockWriteGuard<'_, BTreeMap<String, ProviderCapabilityDeclaration>> {
+        self.inner
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// 這個 actuator 是某個 provider 宣告的呈現面嗎？
     pub fn is_presentation_surface(&self, actuator_id: &str) -> bool {
-        self.read().is_some_and(|map| {
-            map.values().any(|d| {
-                d.presentation_surfaces
-                    .iter()
-                    .any(|s| s.matches(actuator_id))
-            })
+        self.read().values().any(|d| {
+            d.presentation_surfaces
+                .iter()
+                .any(|s| s.matches(actuator_id))
         })
     }
 
     /// 提供這個受器的來源，它的人話種類名（沒有宣告＝None，呼叫端用中性字樣）。
     pub fn class_label_of_receptor(&self, receptor_id: &str) -> Option<String> {
-        let map = self.read()?;
-        map.values()
+        self.read()
+            .values()
             .find(|d| d.receptors.iter().any(|r| r == receptor_id))
             .and_then(|d| d.class_label.clone())
     }
 
     /// 所有 provider 宣告的高風險受器（去重、排序固定）。
     pub fn high_risk_receptors(&self) -> Vec<String> {
-        let Some(map) = self.read() else {
-            return Vec::new();
-        };
-        let set: std::collections::BTreeSet<String> = map
+        let set: std::collections::BTreeSet<String> = self
+            .read()
             .values()
             .flat_map(|d| d.high_risk_receptors.iter().cloned())
             .collect();
@@ -216,13 +224,11 @@ impl ProviderCapabilityRegistry {
 
     /// 目前有哪些宣告（除錯／測試用；順序固定）。
     pub fn declaration_ids(&self) -> Vec<String> {
-        self.read()
-            .map(|map| map.keys().cloned().collect())
-            .unwrap_or_default()
+        self.read().keys().cloned().collect()
     }
 
     pub fn declaration(&self, declaration_id: &str) -> Option<ProviderCapabilityDeclaration> {
-        self.read()?.get(declaration_id).cloned()
+        self.read().get(declaration_id).cloned()
     }
 }
 
@@ -1234,6 +1240,49 @@ fn hex_lower(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 鎖中毒時**退回既有內容繼續用**（宣告表的註解說的就是這件事）。
+    /// 舊實作在中毒時 `read().ok()` 回 `None`、`write().ok()` 直接丟棄寫入：
+    /// 呈現面會被當成一般動器（角色對自己的動作再演一次）、高風險受器清單變空
+    /// （停止結果未知時不再補「可能還在擷取」）、種類名退回中性字樣。註解與實作
+    /// 不一致比兩者都錯更危險，因為沒有人會去查。
+    #[test]
+    fn a_poisoned_registry_still_serves_and_accepts_declarations() {
+        let registry = std::sync::Arc::new(ProviderCapabilityRegistry::default());
+        registry.declare(
+            ProviderCapabilityDeclaration::new("provider.test")
+                .with_class_label("測試來源")
+                .with_receptor("test.receptor")
+                .with_high_risk_receptor("test.mic")
+                .with_presentation_surface(CapabilitySelector::prefix("test.")),
+        );
+
+        // 持鎖時 panic → 鎖中毒（panic 訊息由測試框架印出，是預期的）。
+        let poisoner = registry.clone();
+        let joined = std::thread::spawn(move || {
+            let _guard = poisoner.inner.write().expect("write lock");
+            panic!("deliberate poison");
+        })
+        .join();
+        assert!(joined.is_err(), "製造中毒的執行緒必須真的 panic");
+        assert!(registry.inner.is_poisoned(), "鎖必須真的中毒");
+
+        assert_eq!(
+            registry.declaration_ids(),
+            vec!["provider.test".to_string()]
+        );
+        assert_eq!(
+            registry.class_label_of_receptor("test.receptor").as_deref(),
+            Some("測試來源")
+        );
+        assert_eq!(registry.high_risk_receptors(), vec!["test.mic".to_string()]);
+        assert!(registry.is_presentation_surface("test.overlay"));
+        assert!(registry.declaration("provider.test").is_some());
+
+        // 中毒之後的寫入也不得被靜默丟棄。
+        registry.declare(ProviderCapabilityDeclaration::new("provider.later"));
+        assert!(registry.declaration("provider.later").is_some());
+    }
 
     /// 一般模式會把 note 原樣顯示：不得出現受器／動器／hello／pair-ok 這類技術詞，
     /// 但能力 id 必須保留（可追查），有人話名稱時一起顯示。

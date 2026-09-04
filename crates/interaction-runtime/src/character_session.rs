@@ -428,6 +428,27 @@ impl Runtime {
         self.character_session_apply(outputs).await;
     }
 
+    /// **存活證明**：這個成員剛剛送來一則已驗證身分的訊息。
+    ///
+    /// AIP frame 走 `submit` 時 session 自己就會記下來；這個入口是給**舊協定**用的
+    /// （iOS App 目前只送 v1 的 `status` 心跳，還沒送 AIP heartbeat）。與
+    /// [`Runtime::character_session_presence`] 的差別：`lastSeenAt` 走投影格線，
+    /// 所以每 30 秒一則的心跳不會每次都製造一個 revision 與一次廣播。
+    /// 不是成員（沒協商過的舊 App）就什麼都不做。
+    pub async fn character_session_touch_presence(&self, party: &Party) {
+        let Some(host) = self.character_session.as_ref() else {
+            return;
+        };
+        let outputs = {
+            let mut session = host.session();
+            session.note_alive_party(party, Utc::now())
+        };
+        if party == &desktop_party() {
+            *host.desktop_presence() = Some(Presence::Online);
+        }
+        self.character_session_apply(outputs).await;
+    }
+
     /// §8 安全管線：一則外部訊息 → 一則 result（host 自己決定要不要送出去）。
     pub async fn character_session_submit(
         &self,

@@ -8,7 +8,7 @@
 // 只住在這一頁（單一主人；見 regressions-v05 守門測試）。
 
 import React from "react";
-import { api, type CharacterInstanceView } from "../api";
+import { api, type CharacterInstanceView, type RuntimeEvent } from "../api";
 import { useAppState } from "../appstate";
 import { refreshCharacterName, useCharacterName } from "../characterName";
 import { desktop, DesktopPrefs, isTauri } from "../desktop";
@@ -65,10 +65,13 @@ export function resolveActiveCharacterId(
 export function CompanionPage({
   refreshKey,
   advanced: advancedProp,
+  events,
 }: {
   refreshKey: number;
   /** 未提供時讀 AppState（prefs.mode）。 */
   advanced?: boolean;
+  /** Runtime SSE 事件；同步卡用其中的 `character.session.state` 對齊本地副本。 */
+  events?: RuntimeEvent[];
   onNavigate?: (tab: string) => void;
 }) {
   const { prefs: uiPrefs } = useAppState();
@@ -303,7 +306,7 @@ export function CompanionPage({
           手機上的角色跟這台電腦是不是同一個狀態。一般模式只有人話，
           revision／sequence／計數留在進階模式的「連接診斷」。 */}
       <Section title="同步">
-        <CharacterSyncCard refreshKey={refreshKey} advanced={advanced} />
+        <CharacterSyncCard refreshKey={refreshKey} advanced={advanced} sessionEvents={events} />
       </Section>
 
       {/* 2. 外觀與名字 */}

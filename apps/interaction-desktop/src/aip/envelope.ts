@@ -241,6 +241,36 @@ export function checkPayload(payload: unknown): AipOutcome<void> {
   return walk(payload ?? null, 1);
 }
 
+// ------------------------------------------------------------ state patch
+
+/**
+ * RFC 7396 JSON Merge Patch（AIP §6 的 `state{kind:"patch"}` 就是這個形狀）。
+ *
+ * 規則只有三條：patch 不是物件就整份取代；patch 的值是 `null` 就刪掉那個鍵；
+ * 兩邊都是物件就遞迴合併。**陣列整個換掉**（成員清單因此永遠是完整的一份，
+ * 不會半新半舊）。純函式：不改動傳進來的任何值，回傳新的物件。
+ *
+ * 桌面端只用它把權威狀態的變更套到本地副本上；**不做**接收端 hash 核對，
+ * 理由見 `CharacterSyncCard`（JS 的 number 留不住 `0.0` 這種字面，重算出來的
+ * canonical JSON 與 Rust 端不會逐位元組相同）。對不上的時候以重新 GET snapshot
+ * 對齊，不是靠 hash 判定。
+ */
+export function applyMergePatch(target: unknown, patch: unknown): unknown {
+  if (typeof patch !== "object" || patch === null || Array.isArray(patch)) return patch;
+  const base: Record<string, unknown> =
+    typeof target === "object" && target !== null && !Array.isArray(target)
+      ? { ...(target as Record<string, unknown>) }
+      : {};
+  for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
+    if (value === null) {
+      delete base[key];
+      continue;
+    }
+    base[key] = applyMergePatch(base[key], value);
+  }
+  return base;
+}
+
 function need(condition: boolean, messageType: string, what: string): AipOutcome<void> {
   return condition ? OK_VOID : fail("schema-invalid", `${messageType} requires ${what}`);
 }

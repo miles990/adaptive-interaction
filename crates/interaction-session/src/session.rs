@@ -42,6 +42,7 @@ const AUDIT_TRUTH: &str = "character.session.truth";
 const AUDIT_EMERGENCY: &str = "character.session.emergency";
 const AUDIT_INTENT_EXPIRED: &str = "character.session.intent-expired";
 const AUDIT_INTENT_DROPPED: &str = "character.session.intent-dropped";
+const AUDIT_INTENT_SETTLED: &str = "character.session.intent-settled";
 const AUDIT_CANCEL: &str = "character.session.cancel";
 const AUDIT_REPORT: &str = "character.session.report";
 const AUDIT_INTERNAL: &str = "aip.internal";
@@ -58,7 +59,30 @@ const C_IDENTITY_MISMATCH: &str = "identity_mismatch";
 const C_INTENTS_EMITTED: &str = "intents.emitted";
 const C_INTENTS_EXPIRED: &str = "intents.expired";
 const C_INTENTS_DROPPED: &str = "intents.dropped";
+const C_INTENTS_OBSERVED: &str = "intents.observed";
+const C_INTENTS_REJECTED: &str = "intents.rejected";
+const C_INTENTS_FAILED: &str = "intents.failed";
 const C_INTERNAL: &str = "internal";
+
+/// 成員回報 `result` 時的終態（§5：`observed`／`rejected`／`failed`／`cancel-confirmed`）。
+/// 終態才結清 host 的 pending intent；`accepted`／`acknowledged` 只是「收到了」。
+/// 誠實階梯不變：`observed` 只是對方說它演了，**不是** verified。
+fn terminal_report(status: &str) -> bool {
+    matches!(
+        status,
+        "observed" | "rejected" | "failed" | "cancel-confirmed"
+    )
+}
+
+/// 終態對應的計數器（`cancel-confirmed` 已由 cancel 路徑記過，不重複計）。
+fn report_counter(status: &str) -> Option<&'static str> {
+    match status {
+        "observed" => Some(C_INTENTS_OBSERVED),
+        "rejected" => Some(C_INTENTS_REJECTED),
+        "failed" => Some(C_INTENTS_FAILED),
+        _ => None,
+    }
+}
 
 /// 有界事件日誌的一筆（§6 `EventLog`）。
 #[derive(Debug, Clone, PartialEq)]
@@ -151,7 +175,7 @@ pub struct CharacterSession {
     state_json: Value,
     members: Vec<MemberRuntime>,
     log: EventLog,
-    pending: VecDeque<BehaviorIntent>,
+    pending: VecDeque<PendingIntent>,
     counters: BTreeMap<String, u64>,
     reacting_since: Option<Timestamp>,
     updated_at: Timestamp,
@@ -264,9 +288,10 @@ impl CharacterSession {
     pub fn members(&self) -> Vec<Member> {
         self.members.iter().map(|m| m.member.clone()).collect()
     }
-    /// 尚未過期、尚未取消的 Behavior Intent（有界 ≤ [`MAX_PENDING_INTENTS`]）。
+    /// 尚未過期、尚未取消、也還沒被成員回報成終態的 Behavior Intent
+    /// （有界 ≤ [`MAX_PENDING_INTENTS`]）。
     pub fn pending_intents(&self) -> Vec<BehaviorIntent> {
-        self.pending.iter().cloned().collect()
+        self.pending.iter().map(|p| p.intent.clone()).collect()
     }
     /// 有界事件日誌內容（§6 delta replay 用）。
     pub fn event_log(&self) -> Vec<LogEntry> {
@@ -381,6 +406,25 @@ impl CharacterSession {
         outputs
     }
 
+    /// **存活證明**：Transport 收到這個成員的任何已驗證訊息（含 AIP 之前的舊協定 frame）。
+    ///
+    /// 與 [`CharacterSession::presence`] 的差別：這裡走 `lastSeenAt` 的投影格線，所以
+    /// 每 30 秒一則的舊 `status` 心跳不會每次都推進一個 revision；presence 本身的變化
+    /// （Offline／Reconnecting → Online）仍然即時反映。不是成員就什麼都不做。
+    pub fn note_alive_party(&mut self, party: &Party, now: Timestamp) -> Vec<Output> {
+        let Some(index) = self.index_of(party) else {
+            return Vec::new();
+        };
+        self.note_alive(index, now);
+        match self.commit_and_patch(now) {
+            Some(envelope) => vec![Output::Broadcast {
+                envelope,
+                except: None,
+            }],
+            None => Vec::new(),
+        }
+    }
+
     /// 更新 presence（host 或 transport 觀察到的）。
     pub fn presence(&mut self, party: &Party, presence: Presence, now: Timestamp) -> Vec<Output> {
         let Some(index) = self.index_of(party) else {
@@ -411,7 +455,7 @@ impl CharacterSession {
         bound_identity: &Party,
         now: Timestamp,
     ) -> Submission {
-        match self.gate(&envelope, bound_identity, now) {
+        let mut submission = match self.gate(&envelope, bound_identity, now) {
             Err(failure) => self.rejection(&envelope, failure, now),
             Ok(Gate::Duplicate) => {
                 self.bump(C_DUPLICATES);
@@ -428,7 +472,17 @@ impl CharacterSession {
                 }
             }
             Ok(Gate::Proceed) => self.dispatch(envelope, bound_identity, now),
+        };
+        // 存活證明（見 `gate` 第 4.1 關）造成的 presence／`lastSeenAt` 變動也要廣播出去：
+        // 被拒絕／過期／重複的路徑不會經過任何 handler 的 commit。已經 commit 過的路徑
+        // 在這裡拿到 `None`，所以一則訊息永遠只產生一則 patch。
+        if let Some(envelope) = self.commit_and_patch(now) {
+            submission.outputs.push(Output::Broadcast {
+                envelope,
+                except: None,
+            });
         }
+        submission
     }
 
     /// 可信來源（Runtime）的真相事實。不經身分管線，但一樣只轉錄、不推論。
@@ -570,7 +624,8 @@ impl CharacterSession {
     pub fn tick(&mut self, now: Timestamp) -> Vec<Output> {
         let mut outputs = Vec::new();
         let before = self.pending.len();
-        self.pending.retain(|intent| intent.expires_at > now);
+        self.pending
+            .retain(|pending| pending.intent.expires_at > now);
         let expired = before - self.pending.len();
         if expired > 0 {
             self.bump_by(C_INTENTS_EXPIRED, expired as u64);
@@ -669,6 +724,12 @@ impl CharacterSession {
         let Some(index) = self.index_of(bound_identity) else {
             return Err(GateFailure::rejected(ErrorCode::NotAMember));
         };
+        // 4.1 **存活證明**：通過身分綁定與 membership 的 inbound envelope 就證明這個成員
+        //     還在，不論 messageType、也不論後面是 applied／rejected／duplicate／expired。
+        //     只送互動事件、從不送 heartbeat 的裝置因此不會被 presence 逾時誤判成離線，
+        //     再被 host 的 stale 清除踢出成員（之後每一則 event 都會變成 `not-a-member`）。
+        //     沿用 heartbeat 的投影格線，所以高頻訊息不會把 revision 打成無界成長。
+        self.note_alive(index, now);
         // 5. 跨 session 注入。
         if let Some(session_id) = &envelope.session_id {
             if session_id != &self.config.session_id {
@@ -746,7 +807,7 @@ impl CharacterSession {
             MessageType::Event => self.handle_event(envelope, now),
             MessageType::Cancel => self.handle_cancel(envelope, now),
             MessageType::Capability => self.handle_capability(envelope, bound_identity, now),
-            MessageType::Heartbeat => self.handle_heartbeat(envelope, bound_identity, now),
+            MessageType::Heartbeat => self.handle_heartbeat(envelope, now),
             MessageType::Query => {
                 self.bump(C_ACCEPTED);
                 let outputs = vec![audit(
@@ -762,28 +823,86 @@ impl CharacterSession {
                     reply: false,
                 }
             }
-            _ => {
-                // `result`：member 回報我們送出的 command 的進度。只記錄，不再回 result。
-                self.bump(C_ACCEPTED);
-                let status = envelope
-                    .payload
-                    .get("status")
-                    .and_then(Value::as_str)
-                    .unwrap_or("received");
-                let outputs = vec![audit(
-                    AUDIT_REPORT,
-                    json!({"kind": "result", "status": status, "name": safe_name(&envelope.name)}),
-                )];
-                let result = self.result_envelope(&envelope, Outcome::Accepted, None, false, now);
-                Submission {
-                    result,
-                    outcome: Outcome::Accepted,
-                    error: None,
-                    outputs,
-                    reply: false,
-                }
-            }
+            _ => self.handle_report(envelope, bound_identity, now),
         }
+    }
+
+    /// `result`：member 回報 host 送出的 command 的進度。只記錄，不再回 result。
+    ///
+    /// 終態（`observed`／`rejected`／`failed`／`cancel-confirmed`）會**結清**對應的
+    /// pending intent：只有真的沒人回覆的 intent 才留到 TTL 到期被稽核成 `intent-expired`。
+    /// 誠實階梯不變：`observed` 是「對方說它演了」，不是 verified（`verified` 在 `gate`
+    /// 第 8 關就被擋掉了）。
+    fn handle_report(
+        &mut self,
+        envelope: Envelope,
+        bound_identity: &Party,
+        now: Timestamp,
+    ) -> Submission {
+        self.bump(C_ACCEPTED);
+        let status = envelope
+            .payload
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("received")
+            .to_string();
+        let mut outputs = vec![audit(
+            AUDIT_REPORT,
+            json!({"kind": "result", "status": status, "name": safe_name(&envelope.name)}),
+        )];
+        outputs.extend(self.settle_intent(&envelope, bound_identity, &status));
+        let result = self.result_envelope(&envelope, Outcome::Accepted, None, false, now);
+        Submission {
+            result,
+            outcome: Outcome::Accepted,
+            error: None,
+            outputs,
+            reply: false,
+        }
+    }
+
+    /// 把一則成員回報對應到 host 的 pending intent 並依 status 結清。
+    /// 對應不到（已經結清、已過期、根本不是回報 intent）就什麼都不做——重播的終態回報
+    /// 因此不會重複計數。
+    fn settle_intent(
+        &mut self,
+        envelope: &Envelope,
+        reporter: &Party,
+        status: &str,
+    ) -> Vec<Output> {
+        let Some(index) = self
+            .pending
+            .iter()
+            .position(|pending| pending.answers(envelope))
+        else {
+            return Vec::new();
+        };
+        if !terminal_report(status) {
+            // `accepted`／`acknowledged` 只是「收到了」：更新狀態，intent 繼續掛著。
+            self.pending[index].last_status = Some(status.to_string());
+            return Vec::new();
+        }
+        let intent_name = self.pending[index].intent.intent.clone();
+        self.pending[index].last_status = Some(status.to_string());
+        self.pending[index]
+            .outstanding
+            .retain(|party| party != reporter);
+        let settled = self.pending[index].outstanding.is_empty();
+        if settled {
+            self.pending.remove(index);
+        }
+        if let Some(counter) = report_counter(status) {
+            self.bump(counter);
+        }
+        vec![audit(
+            AUDIT_INTENT_SETTLED,
+            json!({
+                "intent": intent_name,
+                "status": status,
+                "party": safe_party(reporter),
+                "settled": settled,
+            }),
+        )]
     }
 
     fn handle_event(&mut self, envelope: Envelope, now: Timestamp) -> Submission {
@@ -870,17 +989,20 @@ impl CharacterSession {
                 .map(str::to_string)
         });
         let correlation = envelope.correlation_id.clone();
-        let matches_target = |intent: &BehaviorIntent| {
-            correlation.as_deref() == Some(intent.correlation_id.as_str())
-                || target.as_deref() == Some(intent.correlation_id.as_str())
+        let matches_target = |pending: &PendingIntent| {
+            correlation.as_deref() == Some(pending.intent.correlation_id.as_str())
+                || target.as_deref() == Some(pending.intent.correlation_id.as_str())
+                || target
+                    .as_deref()
+                    .is_some_and(|id| pending.commands.iter().any(|sent| sent == id))
         };
         let cancelled: Vec<BehaviorIntent> = self
             .pending
             .iter()
-            .filter(|intent| matches_target(intent))
-            .cloned()
+            .filter(|pending| matches_target(pending))
+            .map(|pending| pending.intent.clone())
             .collect();
-        self.pending.retain(|intent| !matches_target(intent));
+        self.pending.retain(|pending| !matches_target(pending));
         let mut outputs = Vec::new();
         for intent in &cancelled {
             for party in self.intent_targets(&intent.intent) {
@@ -955,27 +1077,10 @@ impl CharacterSession {
         }
     }
 
-    fn handle_heartbeat(
-        &mut self,
-        envelope: Envelope,
-        bound_identity: &Party,
-        now: Timestamp,
-    ) -> Submission {
-        if let Some(index) = self.index_of(bound_identity) {
-            self.members[index].member.last_seen_at = now;
-            if self.members[index].member.presence != Presence::Online {
-                self.members[index].member.presence = Presence::Online;
-                self.members[index].projected_seen_at = now;
-            }
-            self.project_members();
-        }
-        let mut outputs = Vec::new();
-        if let Some(envelope) = self.commit_and_patch(now) {
-            outputs.push(Output::Broadcast {
-                envelope,
-                except: None,
-            });
-        }
+    fn handle_heartbeat(&mut self, envelope: Envelope, now: Timestamp) -> Submission {
+        // presence 已經由 `gate` 的存活證明更新過（heartbeat 不再是唯一的證明），
+        // 廣播則交給 `submit` 收尾的那一次 commit。
+        let outputs = Vec::new();
         self.bump(C_ACCEPTED);
         let result = self.result_envelope(&envelope, Outcome::Applied, None, false, now);
         Submission {
@@ -1057,6 +1162,21 @@ impl CharacterSession {
                 ..entry.member.view()
             })
             .collect();
+    }
+
+    /// 記下「這個成員剛剛證明自己還在」。`lastSeenAt` 走投影格線（見 [`Self::project_members`]），
+    /// presence 的變化即時反映。呼叫端負責在之後 commit 一次（`submit` 收尾會做）。
+    fn note_alive(&mut self, index: usize, now: Timestamp) {
+        let entry = &mut self.members[index];
+        // 時鐘倒退時不把 `lastSeenAt` 拉回過去（否則會憑空製造一次逾時）。
+        if now > entry.member.last_seen_at {
+            entry.member.last_seen_at = now;
+        }
+        if entry.member.presence != Presence::Online {
+            entry.member.presence = Presence::Online;
+            entry.projected_seen_at = entry.member.last_seen_at;
+        }
+        self.project_members();
     }
 
     fn sync_reacting_clock(&mut self, now: Timestamp) {
@@ -1220,14 +1340,29 @@ impl CharacterSession {
 
     fn emit_intent(&mut self, intent: BehaviorIntent, now: Timestamp) -> Vec<Output> {
         let mut outputs = Vec::new();
-        self.push_pending(intent.clone(), &mut outputs);
-        for party in self.intent_targets(&intent.intent) {
-            let envelope = self.command_envelope(&party, &intent, now);
-            outputs.push(Output::Send {
-                to: party,
+        // 先組 command（才知道每個目標拿到的 messageId），再掛 pending：成員的
+        // `result{causationId}` 靠這些 id 對回來。
+        let targets = self.intent_targets(&intent.intent);
+        let mut commands = Vec::new();
+        let mut sends = Vec::new();
+        for party in targets.iter() {
+            let envelope = self.command_envelope(party, &intent, now);
+            commands.push(envelope.message_id.clone());
+            sends.push(Output::Send {
+                to: party.clone(),
                 envelope,
             });
         }
+        self.push_pending(
+            PendingIntent {
+                intent: intent.clone(),
+                outstanding: targets,
+                commands,
+                last_status: None,
+            },
+            &mut outputs,
+        );
+        outputs.extend(sends);
         self.bump(C_INTENTS_EMITTED);
         outputs.push(Output::RendererIntent {
             cpp: behavior_to_cpp(&intent),
@@ -1249,17 +1384,17 @@ impl CharacterSession {
             .collect()
     }
 
-    fn push_pending(&mut self, intent: BehaviorIntent, outputs: &mut Vec<Output>) {
+    fn push_pending(&mut self, pending: PendingIntent, outputs: &mut Vec<Output>) {
         if self.pending.len() >= MAX_PENDING_INTENTS {
             if let Some(dropped) = self.pending.pop_front() {
                 self.bump(C_INTENTS_DROPPED);
                 outputs.push(audit(
                     AUDIT_INTENT_DROPPED,
-                    json!({"intent": dropped.intent, "reason": "pending-queue-full"}),
+                    json!({"intent": dropped.intent.intent, "reason": "pending-queue-full"}),
                 ));
             }
         }
-        self.pending.push_back(intent);
+        self.pending.push_back(pending);
     }
 
     fn command_envelope(
@@ -1377,6 +1512,36 @@ impl GateFailure {
             outcome: Outcome::Rejected,
             audit_kind: AUDIT_REJECTED,
         }
+    }
+}
+
+/// Host 私有的待決 Behavior Intent 紀錄（不進 `SemanticState`）。
+///
+/// `outstanding` 是還沒回報終態的目標成員；空了就代表這個 intent 已經結清，
+/// 不必再等 TTL。`commands` 是送出去的 command messageId，成員的
+/// `result{causationId}` 靠它對回來。
+#[derive(Debug, Clone)]
+struct PendingIntent {
+    intent: BehaviorIntent,
+    outstanding: Vec<Party>,
+    commands: Vec<String>,
+    /// 最後一次收到的成員回報（`accepted`／`acknowledged` 這類非終態也記下來）。
+    last_status: Option<String>,
+}
+
+impl PendingIntent {
+    /// 這則 `result` 是在回報這個 intent 嗎？
+    /// `causationId` 對到送出去的 command messageId 最精確；`correlationId` 是備援
+    /// （AIP §6：correlation 貫穿一次互動）。
+    fn answers(&self, envelope: &Envelope) -> bool {
+        if let Some(causation) = envelope.causation_id.as_deref() {
+            if self.commands.iter().any(|sent| sent == causation)
+                || causation == self.intent.correlation_id
+            {
+                return true;
+            }
+        }
+        envelope.correlation_id.as_deref() == Some(self.intent.correlation_id.as_str())
     }
 }
 

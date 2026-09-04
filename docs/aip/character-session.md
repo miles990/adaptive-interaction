@@ -80,6 +80,19 @@
 1.0 intent 詞彙：`react-happily-to-touch`、`celebrate`、`settle`、`idle`。Renderer 不支援者協商為 `unsupported`，
 本地降級（idle／文字），回 `result{status: rejected, code: unsupported-capability}` 或不回；不得回 `observed`。
 
+**結清（誰把 pending intent 收掉）**：成員回的 `result` 只要 `causationId` 對得上 host 送出的
+`command`（或 `correlationId` 對得上該 intent），就依 status 結清：
+
+| status | host 的處理 |
+|---|---|
+| `observed`／`rejected`／`failed`／`cancel-confirmed` | 終態：把這個成員從該 intent 的待覆名單移除；名單空了就結清（不再等 TTL），計數 `intents.observed`／`intents.rejected`／`intents.failed` |
+| `accepted`／`acknowledged` | 只更新狀態，intent 繼續掛著（誠實階梯：acknowledged ≠ completed） |
+| 已結清的 intent 再收到 result | 忽略（不重複計數，重播灌不進計數器） |
+
+只有**真的沒有人回覆**的 intent 才會在 TTL 到期時被稽核成 `character.session.intent-expired`。
+`observed` 仍然**不是** `verified`：`verified` 只能由 Runtime 的人類驗證路徑產生，成員送
+`result{status:"verified"}` 在 §8 第 8 關就被 `scope-denied` 擋掉。
+
 投影到 CPP（桌面 renderer，`CppRendererAdapter`）：`react-happily-to-touch` → CPP `play`（variant 同名、
 parameters.intensity、priority 40、truthState none）；`settle` → `rest`；`idle` → `idle`；`celebrate`（origin truth）
 **不投影**——桌面已由既有 Runtime 真相投影送 `verified-success`（受保護行為，不雙播）。iPhone 沒有既有真相投影，
@@ -100,12 +113,32 @@ parameters.intensity、priority 40、truthState none）；`settle` → `rest`；
 5. 之後只接受 `state.revision > local`；缺 sequence（gap）→ 再 resume 一次；連續 3 次失敗 → 顯示「無法恢復，請重新連接」。
 6. 重連期間**不**重播互動事件與 intent；本地佇列中過期的 touch 直接丟（稽核計數）。
 
+### 7.1 存活證明（`lastSeenAt` 從哪裡來）
+
+**存活證明 ＝ 任何一則通過身分綁定與 membership 檢查的 inbound 訊息**，不論 `messageType`、
+也不論它最後是 `applied`／`rejected`／`expired`／`accepted{duplicate}`。heartbeat 只是其中一種，
+**不是唯一一種**：只送 `character.interaction.touch`、從不送 heartbeat 的裝置一樣是活著的。
+
+Transport 層的舊協定 frame 也算：已經協商過（是成員）的 iPhone 送來 v1 的 `status` 心跳時，
+host 呼叫 `Runtime::character_session_touch_presence` 記下存活（`transport-bindings.md` §1.4）。
+沒協商過的舊 App 不是成員，這個呼叫對它沒有任何作用。
+
+規則：
+- `lastSeenAt` 走 §12.7 的投影格線（每則訊息都改共享狀態＝revision 無界成長）。
+- presence 的變化即時反映：`offline`／`reconnecting` 的成員送來一則已驗證訊息就轉回 `online`，
+  而且與這則訊息本身造成的狀態變更**合併成同一個 revision**（一則訊息只產生一則 patch）。
+- 沒有這條規則的後果（實測）：只送 touch 的裝置在 `presenceTimeout` 後被標 offline，
+  host 的 stale 清除接著把它 `leave`，之後每一則互動都得到 `not-a-member`。
+
 ## 8. 安全檢查（每則來自 device／renderer 的訊息）
 
 順序固定：message bytes ≤ 64 KiB → JSON 解析 → schema／profile 驗證 → payload ≤ 32 KiB、深度、字串長度 →
 `specVersion` major → 身分綁定（Transport 身分 vs `source`）→ session membership（未 join 的 device 不能送 event）→
 `sessionId` 等於本 session（跨 session 注入 → `not-a-member`）→ name scope（capability 宣告過的 inputs 才能送）→
 rate limit → deadline → dedupe → apply。任一失敗：`result{rejected}`／`error`＋稽核（`aip.rejected{code}`），不執行。
+
+membership 那一關通過之後**立刻記存活證明**（§7.1）：後面每一關都可能拒絕這則訊息，但拒絕的是訊息，
+不是這個成員的存在。身分綁定或 membership 沒過的訊息**不算**存活證明（那才是「不認識的人」）。
 
 必測（§15 安全要求）：偽造 source.id、未配對裝置、已撤銷裝置重連、duplicate、out-of-order、replay old、expired touch、
 oversized、unknown type、unknown capability、invalid baseRevision、snapshot rollback、cross-session injection、
@@ -121,7 +154,8 @@ scope mismatch、renderer capability spoofing（宣告不存在的 intent 只會
 ## 10. Diagnostics（`GET /v1/character-session/diagnostics`，human token）
 
 `{ sessionId, sessionEpoch, revision, sequence, members[], counters:{ accepted, applied, rejected:{<code>:n},
-duplicates, expired, resumes, snapshots, patches }, eventLog:{ len, cap } }`。不含 token、路徑、原始 payload。
+duplicates, expired, resumes, snapshots, patches, intents.emitted, intents.expired, intents.dropped,
+intents.observed, intents.rejected, intents.failed }, eventLog:{ len, cap } }`。不含 token、路徑、原始 payload。
 一般模式不顯示這些；只顯示 §11 的人話。
 
 ## 11. 一般模式文案（人話；由 `statusProjection.ts` 投影，不外洩 revision／sequence）
@@ -135,7 +169,11 @@ duplicates, expired, resumes, snapshots, patches }, eventLog:{ len, cap } }`。�
 | resume 進行中 | 「同步尚未完成」 |
 | 連續 resume 失敗 | 「無法恢復，請重新連接」 |
 | 裝置被撤銷 | 「需要重新確認裝置」 |
+| 持久化紀錄曾損毀（diagnostics `storeNote` 不是 null） | 「角色同步紀錄曾損毀，已重新開始」（補充：「已重新連接的裝置會重新同步；不影響角色本身。」） |
 | 模擬 iPhone（fixture） | 一律附「模擬 iPhone（fixture）」 |
+
+`storeNote` 那一列排在「有 online 成員」之前、「讀不到」之後：它講的是紀錄，不是角色，
+所以不給綠色也不給紅色（警示色）；緊急停止的固定安全句永遠壓過它。
 
 ## 12. 實作註記（`crates/interaction-session`，v0.6.0）
 
@@ -154,8 +192,9 @@ duplicates, expired, resumes, snapshots, patches }, eventLog:{ len, cap } }`。�
    dismiss 與 emergency → `{kind:"none"}`。
 6. **`Party` 的兩種書寫**：`attention.id` 與 `lastInteraction.source` 是 `"<kind>:<id>"` 字串（§3 範例的形狀），
    `members[].party` 是物件。
-7. **`lastSeenAt` 投影格線**：heartbeat 只在距離上次投影超過 `presenceTimeout / 3` 時才更新共享狀態裡的
-   `lastSeenAt`，否則一個高頻 heartbeat 的成員就能把 revision 與廣播打成無界成長。presence 本身的變化一律即時反映。
+7. **`lastSeenAt` 投影格線**：任何一則存活證明（§7.1）只在距離上次投影超過 `presenceTimeout / 3` 時才更新
+   共享狀態裡的 `lastSeenAt`，否則一個高頻送訊息的成員就能把 revision 與廣播打成無界成長。
+   presence 本身的變化一律即時反映。時鐘倒退時 `lastSeenAt` 不往回拉（不憑空製造一次逾時）。
 8. **`character.behavior.*` 是 drop-if-offline**：只送給 presence 為 `online`、且把該 intent 協商成 `exact` 的
    `remote-renderer`。host 端 renderer 一律拿得到 `RendererIntent`（含 CPP 投影），即使沒有任何遠端成員。
 9. **host 送出的 `messageId`** 形如 `aip-<epoch>-<epochMillis>-<n>`；`n` 在 restore 時以持久化的 `sequence` 為起點。
@@ -164,3 +203,7 @@ duplicates, expired, resumes, snapshots, patches }, eventLog:{ len, cap } }`。�
     event，否則得到 `rejected{scope-denied}`。
 11. **`activity: reacting` 的計時器不持久化**：restore 後以 `now` 重新起算，`reactionMs` 後回到 `idle`。
 12. **`persist`**：實作以 `Output::Persist` 建議 host 存檔（預設每 32 個 revision 或每 60 s，且 revision 有變動才建議）。
+13. **待決 intent 的紀錄是 host 私有的**：`pending` 除了 intent 本身，還記著「送給了誰」與「送出去的
+    command messageId」（成員的 `result{causationId}` 靠它對回來）。這些都不進 `SemanticState`，
+    也不出現在任何 patch 裡。稽核 `character.session.intent-settled` 只寫 intent 名稱、status、
+    對方的 `<kind>:<id>` 與是否已結清，不回顯 payload。

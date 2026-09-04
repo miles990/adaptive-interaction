@@ -782,7 +782,7 @@ export function projectCharacterLifecycle(
 //   把它寫成真機。
 // ---------------------------------------------------------------------------
 
-/** 九種同步狀態（`satisfies Record<CharacterSyncState, …>` 窮舉）。 */
+/** 十種同步狀態（`satisfies Record<CharacterSyncState, …>` 窮舉）。 */
 export type CharacterSyncState =
   | "synced"
   | "reconnecting"
@@ -792,7 +792,8 @@ export type CharacterSyncState =
   | "unrecoverable"
   | "needs-reconfirmation"
   | "no-device"
-  | "disabled";
+  | "disabled"
+  | "store-reset";
 
 export interface CharacterSyncProjection {
   /** 一般模式的主要句子（契約 §11 文案表，一字不改）。 */
@@ -849,6 +850,14 @@ export const CHARACTER_SYNC_PROJECTION = {
     detail: "這台電腦沒有啟用角色同步；其他功能不受影響。",
     tone: "muted",
   },
+  // 保存的同步紀錄壞掉、已被隔離並重新開始（Runtime 的 `storeNote`）。
+  // 不靜默：這件事會讓已連接的裝置重新對齊一次，使用者有權知道；但它不是
+  // 緊急狀況（不給紅色），也不是成功（不給綠色）。
+  "store-reset": {
+    headline: "角色同步紀錄曾損毀，已重新開始",
+    detail: "已重新連接的裝置會重新同步；不影響角色本身。",
+    tone: "warn",
+  },
 } satisfies Record<CharacterSyncState, CharacterSyncProjection>;
 
 /** 判定順序也是宣告順序（測試釘住，避免有人偷偷把 synced 往後搬）。 */
@@ -878,6 +887,12 @@ export interface CharacterSyncSignals {
   revokedDevice: boolean;
   /** 有手機連著這台電腦，但還不是角色同步的成員（要重新確認才會同步）。 */
   connectedButNotSynced: boolean;
+  /**
+   * 保存的角色同步紀錄讀不回來、已被隔離並重新開始（Runtime diagnostics 的
+   * `storeNote` 不是 null）。一般模式要翻成人話，不得靜默——但它講的是「紀錄」，
+   * 不是角色本身，所以不能當成緊急狀況。
+   */
+  storeReset: boolean;
 }
 
 export interface ProjectedCharacterSync extends CharacterSyncProjection {
@@ -996,8 +1011,13 @@ export function characterSyncSafetyNote(snapshot: unknown): string | null {
  * 角色同步的一般模式投影。
  *
  * 判定順序（先擋住「不能相信」的情況，再談成功）：
- * 關閉 → 連續讀不到 → 讀不到這一次 → 認不得的回報 → online → reconnecting →
- * offline → 需要重新確認 → 沒有裝置。
+ * 關閉 → 連續讀不到 → 讀不到這一次 → 認不得的回報 → 紀錄曾損毀 → online →
+ * reconnecting → offline → 需要重新確認 → 沒有裝置。
+ *
+ * 「紀錄曾損毀」排在 online 之前：那一刻技術上也許真的同步著，但綠色徽章讀起來
+ * 是「一切正常」，會把「你的裝置得重新對齊一次」這件事蓋掉。它仍然排在「讀不到」
+ * 之後——連現在的狀態都讀不到時，先講讀不到。緊急停止的固定安全句由呼叫端
+ * （可信 host 介面）另外顯示，永遠壓過這一句。
  */
 export function projectCharacterSession(
   snapshot: unknown,
@@ -1021,6 +1041,7 @@ export function projectCharacterSession(
       detail: "有裝置回報了這台電腦不認得的狀態；在弄清楚之前都當成尚未完成，不會當成已同步。",
     };
   }
+  if (signals.storeReset) return project("store-reset");
   const online = remote.filter((m) => m.presence === "online");
   if (online.length > 0) {
     return online.every((m) => m.canPresent)

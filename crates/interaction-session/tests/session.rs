@@ -427,12 +427,17 @@ fn out_of_order_delivery_cannot_replay_an_old_touch() {
         session.submit(older, &phone, at(2_020)).outcome,
         Outcome::Accepted
     );
+    assert_eq!(session.revision(), revision, "重複的 messageId 不改狀態");
+    let interaction = session.state().last_interaction().cloned();
     // 真正的舊事件（deadline 已過）→ expired，不執行。
     let stale = touch("m3", &phone, at(100));
     let submission = session.submit(stale, &phone, at(60_000));
     assert_eq!(submission.outcome, Outcome::Expired);
     assert_eq!(submission.error, Some(ErrorCode::Expired));
-    assert_eq!(session.revision(), revision);
+    // 過期的訊息不套用任何語意；它仍然是存活證明，所以 `lastSeenAt`（成員投影）
+    // 會前進——這是刻意的，否則手機下一個 tick 就被誤判成離線。
+    assert_eq!(session.state().last_interaction().cloned(), interaction);
+    assert_eq!(session.state().activity(), Activity::Reacting);
     assert_eq!(session.diagnostics().counters.get("expired"), Some(&1));
 }
 
@@ -725,13 +730,35 @@ fn capability_degradation_skips_renderers_that_did_not_declare_the_intent() {
 fn offline_renderers_do_not_receive_intents() {
     let mut session = session();
     let phone = Party::device("iphone-1");
+    let desktop = Party::human_surface("desktop");
     join(&mut session, &phone, &device_announcement(), t0());
+    join(
+        &mut session,
+        &desktop,
+        &announcement(
+            MemberRole::HostRenderer,
+            &["react-happily-to-touch", "celebrate", "settle", "idle"],
+            &[EVENT_TOUCH, EVENT_DISMISS],
+        ),
+        t0(),
+    );
     session.presence(&phone, Presence::Offline, at(50));
-    let submission = session.submit(touch("m1", &phone, at(100)), &phone, at(100));
+    // 互動由**桌面**送出：手機還是離線的（它自己送訊息就會證明自己還在，
+    // 那是另一條規則），所以它不得收到 Behavior Intent。
+    let submission = session.submit(touch("m1", &desktop, at(100)), &desktop, at(100));
     assert_eq!(submission.outcome, Outcome::Applied);
     assert!(
         sends(&submission.outputs).is_empty(),
         "character.behavior.* 是 drop-if-offline，不排隊"
+    );
+    assert_eq!(
+        session
+            .members()
+            .iter()
+            .find(|m| m.party == phone)
+            .map(|m| m.presence),
+        Some(Presence::Offline),
+        "別人送的訊息不會替離線的裝置作證"
     );
 }
 
@@ -870,6 +897,234 @@ fn heartbeats_do_not_flood_revisions() {
         session.revision() - start
     );
     assert_eq!(session.state().members()[0].presence, Presence::Online);
+}
+
+/// 存活證明不只是 heartbeat：只送 touch、從不送 heartbeat 的裝置跨過 presence timeout
+/// 之後仍必須是 online。否則它會被標成離線，再被 host 的 stale 清除踢出成員，
+/// 之後每一則 touch 都變成 `not-a-member`。
+#[test]
+fn events_alone_keep_a_member_online_across_the_presence_timeout() {
+    let mut session = session();
+    let phone = Party::device("iphone-1");
+    join(&mut session, &phone, &device_announcement(), t0());
+    let timeout = session.config().presence_timeout_ms;
+
+    let mut now = 0i64;
+    while now < timeout * 2 {
+        now += 5_000;
+        let submission =
+            session.submit(touch(&format!("m-{now}"), &phone, at(now)), &phone, at(now));
+        assert_eq!(
+            submission.outcome,
+            Outcome::Applied,
+            "只送 event 的成員必須一直是成員（{now} ms）"
+        );
+        session.tick(at(now));
+        assert_eq!(
+            session.state().members().len(),
+            1,
+            "成員不得在 {now} ms 被清掉"
+        );
+        assert_eq!(
+            session.state().members()[0].presence,
+            Presence::Online,
+            "已驗證的 inbound 訊息就是存活證明（{now} ms）"
+        );
+    }
+}
+
+/// 被拒絕／過期的訊息一樣是存活證明：對方還在，只是這一則不合法。
+#[test]
+fn a_rejected_message_still_proves_the_member_is_alive() {
+    let mut session = session();
+    let phone = Party::device("iphone-1");
+    join(&mut session, &phone, &device_announcement(), t0());
+    let timeout = session.config().presence_timeout_ms;
+    let late = timeout - 1_000;
+
+    // 過期的 touch：不套用，但它證明手機還連著。
+    let expired = Envelope::new(
+        MessageType::Event,
+        EVENT_TOUCH,
+        phone.clone(),
+        "m-late",
+        at(late),
+    )
+    .with_session(SESSION)
+    .with_expiry(at(late - 1))
+    .with_payload(json!({"kind": "tap"}));
+    let submission = session.submit(expired, &phone, at(late));
+    assert_eq!(submission.outcome, Outcome::Expired);
+
+    session.tick(at(late + 2_000));
+    assert_eq!(
+        session.state().members()[0].presence,
+        Presence::Online,
+        "被拒絕的訊息也證明成員還在"
+    );
+}
+
+/// Offline 的成員送 event 之後轉回 Online，而且只產生**一次** presence patch
+/// （互動與 presence 合併在同一個 revision 裡，不會一則訊息兩次廣播）。
+#[test]
+fn an_offline_member_returns_online_with_a_single_presence_patch() {
+    let mut session = session();
+    let phone = Party::device("iphone-1");
+    join(&mut session, &phone, &device_announcement(), t0());
+    let timeout = session.config().presence_timeout_ms;
+    session.tick(at(timeout + 1_000));
+    assert_eq!(session.state().members()[0].presence, Presence::Offline);
+
+    let before = session.revision();
+    let now = at(timeout + 2_000);
+    let submission = session.submit(touch("m-back", &phone, now), &phone, now);
+    assert_eq!(submission.outcome, Outcome::Applied);
+    assert_eq!(session.state().members()[0].presence, Presence::Online);
+    assert_eq!(
+        session.revision(),
+        before + 1,
+        "presence 與互動只推進一個 revision"
+    );
+    let patches = broadcasts(&submission.outputs);
+    assert_eq!(patches.len(), 1, "只送一則 state patch：{:?}", patches);
+    assert_eq!(
+        patches[0].payload["patch"]["members"][0]["presence"],
+        json!("online")
+    );
+    assert_outputs_valid(&submission.outputs);
+}
+
+// --------------------------------------------------- 成員回報結清 intent
+
+/// 成員回報的 `result` 是 host 待決 intent 的唯一結清來源之一：回了 `observed`
+/// 之後不得再等 TTL，也不得再稽核 `intent-expired`。observed 仍然 ≠ verified。
+#[test]
+fn a_member_result_settles_the_pending_intent_before_its_ttl() {
+    let mut session = session();
+    let phone = Party::device("iphone-1");
+    join(&mut session, &phone, &device_announcement(), t0());
+    let submission = session.submit(touch("m1", &phone, at(100)), &phone, at(100));
+    let command_id = sends(&submission.outputs)
+        .into_iter()
+        .find(|(_, envelope)| envelope.message_type == MessageType::Command)
+        .map(|(_, envelope)| envelope.message_id.clone())
+        .expect("host 送出了 Behavior Intent");
+    assert_eq!(session.pending_intents().len(), 1);
+
+    let report = Envelope::new(
+        MessageType::Result,
+        interaction_session::NAME_BEHAVIOR_REQUEST,
+        phone.clone(),
+        "r1",
+        at(200),
+    )
+    .with_session(SESSION)
+    .with_causation(command_id.clone())
+    .with_payload(json!({"status": "observed"}));
+    let reported = session.submit(report, &phone, at(200));
+    assert_eq!(reported.outcome, Outcome::Accepted);
+    assert!(
+        session.pending_intents().is_empty(),
+        "回報 observed 之後不該再掛著等 TTL"
+    );
+
+    let outputs = session.tick(at(60_000));
+    assert!(
+        !outputs.iter().any(|o| matches!(
+            o,
+            Output::Audit { kind, .. } if kind == "character.session.intent-expired"
+        )),
+        "已結清的 intent 不得再稽核成過期"
+    );
+    let counters = session.diagnostics().counters;
+    assert_eq!(counters.get("intents.observed"), Some(&1));
+    assert_eq!(counters.get("intents.expired"), None);
+    // 誠實階梯：observed 只是「對方說它演了」，不是 verified。
+    assert_eq!(session.state().truth().state, TruthState::None);
+}
+
+/// 沒有人回報的 intent 照舊在 TTL 到期時被稽核（結清只對真的有回覆的那些生效）。
+#[test]
+fn an_unanswered_intent_still_expires_and_is_audited() {
+    let mut session = session();
+    let phone = Party::device("iphone-1");
+    join(&mut session, &phone, &device_announcement(), t0());
+    session.submit(touch("m1", &phone, at(100)), &phone, at(100));
+    assert_eq!(session.pending_intents().len(), 1);
+
+    let outputs = session.tick(at(60_000));
+    assert!(outputs.iter().any(|o| matches!(
+        o,
+        Output::Audit { kind, .. } if kind == "character.session.intent-expired"
+    )));
+    assert_eq!(
+        session.diagnostics().counters.get("intents.expired"),
+        Some(&1)
+    );
+}
+
+/// 已終態的 intent 再收到一則 result：忽略，不重複計數（重播不得灌計數器）。
+#[test]
+fn repeating_a_terminal_result_never_counts_twice() {
+    let mut session = session();
+    let phone = Party::device("iphone-1");
+    join(&mut session, &phone, &device_announcement(), t0());
+    let submission = session.submit(touch("m1", &phone, at(100)), &phone, at(100));
+    let command_id = sends(&submission.outputs)
+        .into_iter()
+        .find(|(_, envelope)| envelope.message_type == MessageType::Command)
+        .map(|(_, envelope)| envelope.message_id.clone())
+        .expect("behavior command");
+
+    for (index, at_ms) in [200i64, 300].into_iter().enumerate() {
+        let report = Envelope::new(
+            MessageType::Result,
+            interaction_session::NAME_BEHAVIOR_REQUEST,
+            phone.clone(),
+            format!("r{index}"),
+            at(at_ms),
+        )
+        .with_session(SESSION)
+        .with_causation(command_id.clone())
+        .with_payload(json!({"status": "rejected", "code": "unsupported-capability"}));
+        session.submit(report, &phone, at(at_ms));
+    }
+    assert_eq!(
+        session.diagnostics().counters.get("intents.rejected"),
+        Some(&1),
+        "同一個 intent 的重複回報只計一次"
+    );
+}
+
+/// `accepted`／`acknowledged` 不是終態：intent 仍然掛著（誠實階梯：acknowledged ≠ completed）。
+#[test]
+fn an_acknowledged_result_does_not_settle_the_intent() {
+    let mut session = session();
+    let phone = Party::device("iphone-1");
+    join(&mut session, &phone, &device_announcement(), t0());
+    let submission = session.submit(touch("m1", &phone, at(100)), &phone, at(100));
+    let command_id = sends(&submission.outputs)
+        .into_iter()
+        .find(|(_, envelope)| envelope.message_type == MessageType::Command)
+        .map(|(_, envelope)| envelope.message_id.clone())
+        .expect("behavior command");
+
+    let report = Envelope::new(
+        MessageType::Result,
+        interaction_session::NAME_BEHAVIOR_REQUEST,
+        phone.clone(),
+        "r-ack",
+        at(200),
+    )
+    .with_session(SESSION)
+    .with_causation(command_id)
+    .with_payload(json!({"status": "acknowledged"}));
+    session.submit(report, &phone, at(200));
+    assert_eq!(
+        session.pending_intents().len(),
+        1,
+        "acknowledged 只是收到了，不是演過了"
+    );
 }
 
 // ------------------------------------------------------- resume／snapshot

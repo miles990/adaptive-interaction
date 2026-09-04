@@ -65,7 +65,7 @@ describe("守門：主入口仍然恰好五個", () => {
 });
 
 describe("守門：一般模式沒有技術詞", () => {
-  it("九種同步文案（含 presence 標籤）全部是人話", () => {
+  it("十種同步文案（含 presence 標籤）全部是人話", () => {
     for (const state of CHARACTER_SYNC_STATES) {
       const p = CHARACTER_SYNC_PROJECTION[state];
       expect(`${p.headline}｜${p.detail}`).not.toMatch(FORBIDDEN);
@@ -75,7 +75,7 @@ describe("守門：一般模式沒有技術詞", () => {
     }
   });
 
-  it("同步卡在一般模式的整段文字沒有技術詞，也不呼叫診斷", async () => {
+  it("同步卡在一般模式的整段文字沒有技術詞，也不顯示任何診斷數字", async () => {
     mockApi.characterSessionSnapshot.mockResolvedValue({
       payload: {
         kind: "snapshot",
@@ -108,7 +108,9 @@ describe("守門：一般模式沒有技術詞", () => {
     expect(card.textContent ?? "").not.toMatch(FORBIDDEN);
     // 模擬手機的名稱原樣顯示（標籤自帶，不得被改寫成真機）。
     expect(card.textContent ?? "").toContain(FIXTURE_PHONE);
-    expect(mockApi.characterSessionDiagnostics).not.toHaveBeenCalled();
+    // 診斷會被讀（`storeNote` 是「紀錄曾損毀」唯一的來源，不得靜默），但一般模式
+    // 不得出現「連接診斷」區塊，也不得印出任何診斷數字——上面兩行守的就是這件事。
+    expect(card.querySelector(".tech-details")).toBeNull();
   });
 });
 
@@ -145,6 +147,7 @@ describe("守門：誠實階梯不因為同步卡而鬆動", () => {
       failedReads: 0,
       revokedDevice: false,
       connectedButNotSynced: false,
+      storeReset: false,
     };
     for (const presence of ["offline", "reconnecting", "totally-fine"]) {
       expect(projectCharacterSession(snapshot, [member(presence)], signals).state).not.toBe(

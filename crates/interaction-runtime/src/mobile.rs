@@ -3664,6 +3664,15 @@ impl Runtime {
                 }
                 Some("status") if authed.is_some() => {
                     if let Some(device_id) = &authed {
+                        // AIP Character Session：舊協定的 status 心跳一樣是存活證明。
+                        // iOS App 目前只送這一則（還沒送 AIP heartbeat），沒有這一行，
+                        // 已協商的手機會在 presence timeout 之後被清出成員名單，之後
+                        // 每一則互動都變成 `not-a-member`。沒協商過的手機不是成員，
+                        // 這個呼叫對它什麼都不做（舊 App 依然收不到任何 aip frame）。
+                        self.character_session_touch_presence(&interaction_aip::Party::device(
+                            device_id,
+                        ))
+                        .await;
                         let mic_on = v["sensors"]["micLevel"] == json!(true);
                         {
                             let mut conns = self.mobile.conns.write().await;

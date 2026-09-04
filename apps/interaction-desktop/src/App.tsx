@@ -965,7 +965,9 @@ export function PageBody({
         />
       );
     case "companion":
-      return <CompanionPage refreshKey={refreshKey} />;
+      // events：角色同步卡靠 SSE 的 `character.session.state` 對齊本地副本，
+      // 不必每一則 runtime 事件都重問一次權威狀態（那會消耗 session sequence）。
+      return <CompanionPage refreshKey={refreshKey} events={events} />;
     // 工作：AI 工作階段＋自動互動（舊 id 進到對應分頁）。
     case "work":
     case "ai":

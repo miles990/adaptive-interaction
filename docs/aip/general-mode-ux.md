@@ -21,7 +21,7 @@
 
 ## 2. 文案表（一字不改）
 
-九種狀態窮舉（`CHARACTER_SYNC_PROJECTION`，`satisfies Record<CharacterSyncState, …>`：
+十種狀態窮舉（`CHARACTER_SYNC_PROJECTION`，`satisfies Record<CharacterSyncState, …>`：
 少一個狀態就 typecheck 失敗，不會靜默退化成把技術值印到畫面上）。
 
 | 狀態 | 主要句子 | 補充 | 顏色 |
@@ -35,10 +35,20 @@
 | `needs-reconfirmation` | 需要重新確認裝置 | 這台裝置的授權已經撤銷；要再同步角色，必須重新確認一次。 | warn |
 | `no-device` | 尚未連接 iPhone | 目前只有這台電腦在陪你；連上手機之後才會有東西可以同步。 | muted |
 | `disabled` | 角色同步目前關閉 | 這台電腦沒有啟用角色同步；其他功能不受影響。 | muted |
+| `store-reset` | 角色同步紀錄曾損毀，已重新開始 | 已重新連接的裝置會重新同步；不影響角色本身。 | warn |
 
 判定順序（先擋住「不能相信」的情況，最後才談成功）：
-關閉 → 連續讀不到 → 這一次讀不到 → 認不得的回報 → 有 online → reconnecting → offline →
-需要重新確認 → 沒有裝置。
+關閉 → 連續讀不到 → 這一次讀不到 → 認不得的回報 → 紀錄曾損毀 → 有 online → reconnecting →
+offline → 需要重新確認 → 沒有裝置。
+
+`store-reset` 的判定來源是 Runtime 診斷的 `storeNote` 不是 null（持久化檔讀不回來、已隔離、
+epoch 已 +1）。**不靜默**：它排在「已同步」之前，因為那一刻技術上也許真的同步著，但綠色徽章
+讀起來是「一切正常」，會把「你的裝置得重新對齊一次」蓋掉。它也不是緊急狀況（不給紅色），
+講的是紀錄而不是角色。緊急停止的固定安全句永遠壓過它（§7）。
+
+> 一般模式**會**讀 `GET /v1/character-session/diagnostics`（`storeNote` 只有這一個來源），
+> 但一個數字都不會顯示：「連接診斷」收合區塊仍然只在進階模式出現。
+> 守門測試同時斷言「人話有」與「`.tech-details` 不存在」。
 
 **成員行**：已連接／重新連線中／離線／狀態不確定。
 **最近互動**：摸了摸角色／輕拍了角色／撫摸了角色／按著角色不放／和角色互動了一下／請角色休息一下。
@@ -59,9 +69,28 @@
 授權被撤銷了，角色要再同步就得再確認一次——而不是把「我把它移除了」偷偷說成「一切正常」。
 `no-device` 只留給**從來沒有裝置被撤銷過**的那台電腦。
 
+## 3.5 卡片怎麼知道現在的狀態（不是每秒重問）
+
+同步卡的權威狀態來自兩個地方，順序固定：
+
+1. **首次載入**（以及使用者按「重新檢查」、收到接不上的補丁時）呼叫
+   `GET /v1/character-session` 取一份完整快照。這條路由**會消耗一個 session sequence**，
+   所以不能每則 runtime 事件都打一次。
+2. 之後靠 SSE `character.session.state`：`snapshot` 整份取代本地副本，`patch` 在 epoch 相同
+   且 `baseRevision` 等於本地 revision 時以 RFC 7396 merge patch 套上去。revision 沒有前進的
+   訊息一律忽略（不倒退）。
+
+裝置名稱、來源清單與診斷（`storeNote`）是另一組：節流成最小間隔 2 秒的 trailing 重取，
+不隨每一則 runtime 事件重打。
+
+**桌面端刻意不做接收端 hash 核對。** JS 的 number 留不住數字字面（Runtime 的 `0.0` 在 JS
+重新序列化之後是 `0`），重算出來的 canonical JSON 不可能與 Rust 端逐位元組相同——做了就是
+一個永遠亮著的假警報。不一致時的處理是「重新取一次完整快照對齊」，判斷依據是 revision
+單調遞增與 `baseRevision` 相符。這些字眼一個都不會出現在畫面上。
+
 ## 4. claimed ≠ verified：綠勾只給真的
 
-同步卡的九種狀態裡只有 `synced` 是 `ok`（綠）。這條規則和工作狀態的誠實階梯是同一條：
+同步卡的十種狀態裡只有 `synced` 是 `ok`（綠）。這條規則和工作狀態的誠實階梯是同一條：
 `claimed-completed`（對方說做完了）永遠不是 `verified`（你檢查過了），
 `projectWorkState` 沒有任何路徑能把 claimed 升級成 verified。
 角色同步不會、也不能改寫這一層——它同步的是「角色現在是什麼語意狀態」，不是「工作有沒有做完」。

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { AIP_LIMITS, AIP_SPEC_VERSION, type Envelope } from "../aip/generated";
 import {
   DedupeRing,
+  applyMergePatch,
   bindIdentity,
   canTransitionOutcome,
   checkPayload,
@@ -192,5 +193,53 @@ describe("names, identity and offline policy", () => {
     expect(canTransitionOutcome("observed", "verified")).toBe(false);
     expect(canTransitionOutcome("acknowledged", "verified")).toBe(false);
     expect(canTransitionOutcome("claimed-completed", "verified")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RFC 7396 merge patch（AIP §6 的 state patch 就是這個形狀）
+//
+// 桌面端把 SSE 的 `state{kind:"patch"}` 直接套在本地副本上，不再每則事件重取
+// snapshot。這裡釘住四件容易做錯的事：null 是刪除、物件遞迴合併、陣列整個換掉、
+// 不得改到輸入（React 的狀態必須是新物件才會重繪）。
+// ---------------------------------------------------------------------------
+
+describe("applyMergePatch", () => {
+  it("deletes with null, merges objects and replaces arrays wholesale", () => {
+    const before = {
+      mood: { kind: "neutral", intensity: 0 },
+      truth: { state: "none", correlationId: "c1" },
+      members: [{ id: "a" }, { id: "b" }],
+      activity: "idle",
+    };
+    const after = applyMergePatch(before, {
+      mood: { kind: "happy" },
+      truth: { correlationId: null },
+      members: [{ id: "c" }],
+    }) as Record<string, unknown>;
+    expect(after.mood).toEqual({ kind: "happy", intensity: 0 });
+    expect(after.truth).toEqual({ state: "none" });
+    expect(after.members).toEqual([{ id: "c" }]);
+    expect(after.activity).toBe("idle");
+  });
+
+  it("never mutates the value it was given", () => {
+    const before = { mood: { kind: "neutral" } };
+    const after = applyMergePatch(before, { mood: { kind: "happy" } });
+    expect(before).toEqual({ mood: { kind: "neutral" } });
+    expect(after).not.toBe(before);
+  });
+
+  it("replaces the whole document when the patch is not an object", () => {
+    expect(applyMergePatch({ a: 1 }, "gone")).toBe("gone");
+    expect(applyMergePatch({ a: 1 }, null)).toBe(null);
+    expect(applyMergePatch({ a: 1 }, [1, 2])).toEqual([1, 2]);
+  });
+
+  it("creates missing branches instead of dropping them", () => {
+    expect(applyMergePatch({}, { a: { b: 1 } })).toEqual({ a: { b: 1 } });
+    expect(applyMergePatch("scalar", { a: 1 })).toEqual({ a: 1 });
+    // 刪除一個不存在的鍵不是錯誤，也不會憑空造出 null。
+    expect(applyMergePatch({ a: 1 }, { b: null })).toEqual({ a: 1 });
   });
 });

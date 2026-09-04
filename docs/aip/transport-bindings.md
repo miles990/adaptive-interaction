@@ -46,8 +46,8 @@
 | `query{name:"character.session.resume"}` | 先過安全管線，再路由到 resume | `response`（§1.3） |
 | `query{name:"character.session.snapshot"}` | 同上 | `response{kind:"snapshot"}` |
 | `query{其他 name}` | 不猜、不執行 | `result{status:"rejected", code:"unknown-name"}` |
-| `heartbeat` | presence online（`lastSeenAt` 走投影格線） | 無（`Submission.reply=false`：不回 result，避免 result 迴圈） |
-| `result` | 只記錄成員回報的進度 | 無 |
+| `heartbeat` | presence online（`lastSeenAt` 走投影格線）。**不是唯一的存活證明**：任何一則過了身分綁定與 membership 的 frame 都算（`character-session.md` §7.1） | 無（`Submission.reply=false`：不回 result，避免 result 迴圈） |
+| `result` | 記錄成員回報的進度；`causationId` 對得上 host 送出的 `command` 時依 status 結清該 pending intent（`character-session.md` §5） | 無 |
 | `cancel` | 撤銷對應的 Behavior Intent（冪等） | `result{status:"cancel-confirmed"}` |
 | `command`／`state` | host 的權力，成員不得送 | `result{status:"rejected", code:"scope-denied"}` |
 | 未知 `messageType` | 不執行 | `error{code:"unsupported-message-type"}` |
@@ -98,6 +98,23 @@ sequence 落後」時 resume 回的是**空的** patches——沒有東西要補
 `patches[]` 的項目**不是**完整 envelope，`snapshot` 也是直接內嵌 `state` 訊息的 payload：
 AIP §11 的 payload 巢狀深度上限是 8，多包一層 envelope 就會超過。
 
+### 1.4 舊協定 frame 也是存活證明
+
+v1 的 `status` 心跳（iOS App 目前每次狀態變化與定期都會送）在 `mobile.rs` 收到時，
+對**已經協商過**的手機呼叫 `Runtime::character_session_touch_presence`：
+`lastSeenAt` 前進（走投影格線，不會每則心跳都生一個 revision）、presence 若不是 online 就轉回 online。
+
+沒送過 `capability` 的舊 App 不是 session 成員，這個呼叫對它完全沒有作用——它仍然
+**收不到任何 `aip` frame**（回歸：`mobile_loop.rs` `a_legacy_phone_that_never_negotiates_receives_no_aip_frames`）。
+
+沒有這條規則時：iOS App 只送 `status`＋ws ping，不送 AIP heartbeat，於是協商過的手機在
+45 秒後被標 offline、再被 stale 清除踢出成員，之後所有互動都得到 `not-a-member`
+（回歸：`character_session_loop.rs` `a_negotiated_phone_that_only_sends_legacy_status_stays_a_member`、
+`a_phone_that_only_touches_is_never_timed_out_of_the_session`）。
+
+> App 端仍然建議之後補上每 15 秒一則 AIP `heartbeat`：那是協定內的存活證明，
+> 餘裕比依賴 transport 心跳大。目前**尚未**實作。
+
 ## 2. HTTP（human token；`127.0.0.1`）
 
 | 路由 | 回應 |
@@ -138,6 +155,16 @@ diagnostics（不含 token、路徑、原始 payload）：
 
 與既有 `character.*` 事件同界線：agent token、adapter token 一律看不到（`sse.rs`
 `character_events_are_human_only_on_sse`）。
+
+**桌面同步卡就靠這條事件對齊，不靠輪詢**（`CharacterSyncCard`）：`state{kind:"snapshot"}` 整份取代
+本地副本，`state{kind:"patch"}` 在 epoch 相同且 `baseRevision` 等於本地 revision 時以 RFC 7396
+merge patch 套上去。`GET /v1/character-session` **會消耗一個 sequence**，所以只在首次載入、
+patch 接不上、使用者按「重新檢查」時才呼叫。裝置清單／來源清單／診斷是另一組，節流成
+最小間隔 2 秒的 trailing 重取。
+
+> **桌面端不做接收端 hash 核對。** JS 的 number 留不住數字字面（Rust 的 `0.0` 在 JS 重新序列化
+> 之後是 `0`），重算出來的 canonical JSON 不會與 Rust 端逐位元組相同，hash 會變成一個永遠亮著的
+> 假警報。判斷依據是 revision 單調遞增與 `baseRevision` 相符；對不上就重新 GET 一次 snapshot。
 
 ## 4. CLI（薄殼，human token）
 
