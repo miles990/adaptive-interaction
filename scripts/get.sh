@@ -67,7 +67,12 @@ case "$(uname -s)/$(uname -m)" in
   Darwin/arm64)  TRIPLE="aarch64-apple-darwin" ;;
   Darwin/x86_64) TRIPLE="x86_64-apple-darwin" ;;
   Linux/x86_64)  TRIPLE="x86_64-unknown-linux-gnu" ;;
-  Linux/aarch64) TRIPLE="aarch64-unknown-linux-gnu" ;;
+  # Linux aarch64（樹莓派／Graviton／ARM 容器）目前不在 release.yml 的 CLI matrix 內。
+  # 宣稱支援只會換來 HTTP 404，所以直接說沒有預編譯檔。
+  Linux/aarch64|Linux/arm64)
+    echo "no prebuilt CLI is published for Linux/aarch64 (the release workflow does not build it)." >&2
+    echo "build from source: git clone https://github.com/${REPO} && cargo install --path crates/interaction-cli" >&2
+    exit 1 ;;
   *) echo "unsupported platform: $(uname -s)/$(uname -m); build from source (cargo install --path crates/interaction-cli)" >&2; exit 1 ;;
 esac
 
@@ -101,14 +106,21 @@ trap 'rm -rf "$WORK"' EXIT
 
 echo "→ [1/4] CLI：下載 ${ASSET}"
 download "$ASSET" "$WORK"
+# 完整性驗證是 fail-closed：抓不到 <asset>.sha256 就中止安裝。中間人只要丟掉那一個
+# 請求，fail-open 版本就會把未驗證的二進位裝進 PATH。
 if download "${ASSET}.sha256" "$WORK"; then
   EXPECTED="$(awk '{print $1}' "$WORK/${ASSET}.sha256")"
   if have shasum; then ACTUAL="$(shasum -a 256 "$WORK/$ASSET" | awk '{print $1}')";
   else ACTUAL="$(sha256sum "$WORK/$ASSET" | awk '{print $1}')"; fi
   [[ "$EXPECTED" == "$ACTUAL" ]] || { echo "checksum mismatch!" >&2; exit 1; }
-  echo "    checksum ok"
+  echo "    checksum ok（只證明位元組與 Release 一致；沒有簽章／SBOM／build provenance）"
+elif [[ "${INTERACT_AI_ALLOW_UNVERIFIED_DOWNLOAD:-}" == "1" || "${INTERACT_AI_ALLOW_UNVERIFIED_DOWNLOAD:-}" == "true" ]]; then
+  echo "    ⚠ 沒有 ${ASSET}.sha256；因為 INTERACT_AI_ALLOW_UNVERIFIED_DOWNLOAD 已設定，安裝【未驗證】的位元組" >&2
 else
-  echo "    (no checksum published; skipping verification)"
+  echo "    ✘ 沒有發布 ${ASSET}.sha256：拒絕安裝未驗證的二進位。" >&2
+  echo "      Release 可能還在建置（資產尚未上傳）；稍後重試，或明示接受未驗證下載：" >&2
+  echo "      INTERACT_AI_ALLOW_UNVERIFIED_DOWNLOAD=1 bash install.sh" >&2
+  exit 1
 fi
 
 mkdir -p "$BIN_DIR"

@@ -1,6 +1,6 @@
 [package]
 name = "interaction-agent-gateway"
-version = "0.3.0"
+version.workspace = true
 edition = "2021"
 license = "MIT"
 description = "Local AI agent connectors (Codex app-server JSON-RPC, Claude Code stream-json) normalized into honest gateway events"

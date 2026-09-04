@@ -1,8 +1,20 @@
 name: Release
 
-# Tag `vX.Y.Z` → build cross-platform CLI archives + desktop bundles and
-# publish everything (with checksums, the version-matched skill package, the
-# quickstart and the installer script) on the GitHub Release.
+# Tag `vX.Y.Z` → verify the tagged commit's CI is green, build cross-platform CLI
+# archives + desktop bundles into a DRAFT release (with checksums, the
+# version-matched skill package, the quickstart and the installer script), and
+# publish only after every build job succeeded and every expected asset is present.
+#
+# Honesty ladder: a tag is not evidence. `ci-gate` re-checks the required CI
+# check-runs on the tagged commit (`scripts/ci-required-checks.sh`) because
+# ci.yml does not run on tag pushes and `gh release create --verify-tag` only
+# proves the tag exists. The release stays a draft until `finalize` confirms the
+# asset inventory, so `get.sh` / `interact-ai self update` can never see a
+# published-but-incomplete version.
+#
+# Not provided by this workflow (documented in docs/INSTALL.md): code signing,
+# notarization, SBOM, and build provenance attestation. The published `.sha256`
+# files only prove "these bytes match what the Release holds".
 
 on:
   push:
@@ -10,17 +22,41 @@ on:
 
 permissions:
   contents: write
+  # ci-gate 讀被 tag 的 commit 的 check-runs：宣告了 permissions 之後，沒列出的權限一律 none，
+  # 少了這一行 `gh api …/check-runs` 會 403，關卡會誤判成「沒有 check-run」（fail-closed，但原因誤導）。
+  checks: read
+  statuses: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  create-release:
-    name: Create release
+  ci-gate:
+    name: CI gate (required checks on the tagged commit)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Create GitHub release (idempotent)
+      - name: Every job ci.yml defines must exist and be success on ${{ github.sha }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          RUNS="${RUNNER_TEMP}/check-runs.txt"
+          # 抓不到就留空檔：ci-required-checks.sh 對空清單 fail-closed。
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs" \
+            --jq '.check_runs[] | "\(.name)=\(.conclusion)"' > "$RUNS" || true
+          echo "check-runs on ${GITHUB_SHA}:"
+          cat "$RUNS"
+          scripts/ci-required-checks.sh < "$RUNS"
+
+  create-release:
+    name: Create draft release
+    needs: ci-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create GitHub release as a DRAFT (idempotent)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -30,11 +66,12 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --title "adaptive-interaction $TAG" \
               --generate-notes \
+              --draft \
               --verify-tag
 
   cli:
     name: CLI (${{ matrix.target }})
-    needs: create-release
+    needs: [ci-gate, create-release]
     strategy:
       fail-fast: false
       matrix:
@@ -96,7 +133,7 @@ jobs:
 
   desktop:
     name: Desktop (${{ matrix.os }})
-    needs: create-release
+    needs: [ci-gate, create-release]
     strategy:
       fail-fast: false
       matrix:
@@ -138,6 +175,7 @@ jobs:
         with:
           workspaces: apps/interaction-desktop/src-tauri
       - name: Build + upload bundles
+        id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -145,13 +183,47 @@ jobs:
           projectPath: apps/interaction-desktop
           tagName: ${{ github.ref_name }}
           releaseName: "adaptive-interaction ${{ github.ref_name }}"
-          releaseDraft: false
+          # 建置期間 Release 必須維持 draft；publish 由 finalize job 在資產齊全後做。
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.bundles }}
+      - name: Checksum + upload .sha256 for every bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+        run: |
+          set -uo pipefail
+          PY=$(command -v python3 || command -v python)
+          # tauri-action 以 JSON 陣列回報它上傳過的 bundle 路徑；為每一個補一份 .sha256，
+          # 否則 `interact-ai self install-desktop` 沒有任何完整性關卡可用。
+          "$PY" - <<'EOF' > sha256-files.txt
+          import hashlib, json, os, sys
+          paths = json.loads(os.environ.get("ARTIFACT_PATHS") or "[]")
+          if not paths:
+              print("tauri-action reported no artifactPaths", file=sys.stderr)
+              sys.exit(1)
+          for p in paths:
+              if not os.path.isfile(p):
+                  continue
+              digest = hashlib.sha256(open(p, "rb").read()).hexdigest()
+              out = p + ".sha256"
+              with open(out, "w", encoding="utf-8") as fh:
+                  fh.write(f"{digest}  {os.path.basename(p)}\n")
+              print(out)
+          EOF
+          RC=$?
+          [[ "$RC" == 0 ]] || { echo "checksum generation failed"; exit 1; }
+          [[ -s sha256-files.txt ]] || { echo "no bundle produced a .sha256"; exit 1; }
+          cat sha256-files.txt
+          while IFS= read -r f; do
+            [[ -n "$f" ]] || continue
+            gh release upload "${GITHUB_REF_NAME}" "$f" --repo "$GITHUB_REPOSITORY" --clobber
+          done < sha256-files.txt
 
   extras:
     name: Skill package + docs + installer
-    needs: create-release
+    needs: [ci-gate, create-release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -172,3 +244,61 @@ jobs:
             "orchestrate-adaptive-interaction-skill-${GITHUB_REF_NAME}.zip" \
             QUICKSTART.md install.sh CHANGELOG.md \
             --repo "$GITHUB_REPOSITORY" --clobber
+
+  finalize:
+    name: Publish only when every asset is present
+    needs: [cli, desktop, extras]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert the asset inventory, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name' > assets.txt
+          echo "assets on $TAG:"; cat assets.txt
+          python3 - "$TAG" assets.txt <<'EOF'
+          import re, sys
+          tag, listing = sys.argv[1], sys.argv[2]
+          names = [l.strip() for l in open(listing, encoding="utf-8") if l.strip()]
+          bare = tag.lstrip("v")
+          required = []
+          for t in ("x86_64-unknown-linux-gnu", "aarch64-apple-darwin",
+                    "x86_64-apple-darwin", "x86_64-pc-windows-msvc"):
+              ext = "zip" if "windows" in t else "tar.gz"
+              required.append(f"interact-ai-{tag}-{t}.{ext}")
+              required.append(f"interact-ai-{tag}-{t}.{ext}.sha256")
+          required += [
+              f"orchestrate-adaptive-interaction-skill-{tag}.zip",
+              "QUICKSTART.md", "install.sh", "CHANGELOG.md",
+          ]
+          missing = [r for r in required if r not in names]
+          # 桌面 bundle 的檔名由 tauri 決定，用 pattern 斷言每個平台都到齊，
+          # 且每一個 bundle 都有對應的 .sha256。
+          patterns = {
+              "macOS dmg": rf"^interaction-control-center_{re.escape(bare)}_.*\.dmg$",
+              "Linux AppImage": rf"^interaction-control-center_{re.escape(bare)}_.*\.AppImage$",
+              "Linux deb": rf"^interaction-control-center_{re.escape(bare)}_.*\.deb$",
+              "Windows setup": rf"^interaction-control-center_{re.escape(bare)}_.*\.(exe|msi)$",
+          }
+          for label, pat in patterns.items():
+              hits = [n for n in names if re.match(pat, n)]
+              if not hits:
+                  missing.append(f"<{label}: {pat}>")
+                  continue
+              for h in hits:
+                  if h + ".sha256" not in names:
+                      missing.append(h + ".sha256")
+          if missing:
+              print("incomplete release — the draft stays unpublished. missing:")
+              for m in missing:
+                  print("  -", m)
+              sys.exit(1)
+          print(f"asset inventory complete: {len(names)} assets")
+          EOF
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          echo "published $TAG"

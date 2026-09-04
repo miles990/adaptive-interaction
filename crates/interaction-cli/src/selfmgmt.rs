@@ -22,8 +22,13 @@ pub fn target_triple() -> Result<&'static str> {
         ("macos", "aarch64") => Ok("aarch64-apple-darwin"),
         ("macos", "x86_64") => Ok("x86_64-apple-darwin"),
         ("linux", "x86_64") => Ok("x86_64-unknown-linux-gnu"),
-        ("linux", "aarch64") => Ok("aarch64-unknown-linux-gnu"),
         ("windows", "x86_64") => Ok("x86_64-pc-windows-msvc"),
+        // Linux aarch64（樹莓派／Graviton／ARM 容器）目前不在 release.yml 的 CLI matrix 內。
+        // 宣稱支援只會讓使用者拿到 HTTP 404，所以誠實說沒有預編譯檔。
+        ("linux", "aarch64") => bail!(
+            "no prebuilt CLI is published for linux/aarch64 (release.yml does not build it); \
+             build from source: cargo install --path crates/interaction-cli"
+        ),
         (os, arch) => bail!("unsupported platform {os}/{arch}; build from source with cargo"),
     }
 }
@@ -155,7 +160,24 @@ fn sha256_hex(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Verify `<asset>.sha256` (if published) against the downloaded file.
+/// 明示的逃生門：設成 `1`／`true` 才允許安裝未經 sha256 驗證的位元組。
+pub const ALLOW_UNVERIFIED_ENV: &str = "INTERACT_AI_ALLOW_UNVERIFIED_DOWNLOAD";
+
+/// 抓不到 `<asset>.sha256` 時該怎麼辦（純函式，方便回歸測試）。
+///
+/// 預設 fail-closed：中間人只要丟掉那一個請求，就能讓 `self update` 安裝未驗證的
+/// 二進位，所以「校驗檔拿不到」一律當成更新失敗，除非使用者自己開了逃生門。
+pub fn missing_checksum_policy(allow_unverified: Option<&str>) -> bool {
+    matches!(
+        allow_unverified
+            .map(|v| v.trim().to_ascii_lowercase())
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes")
+    )
+}
+
+/// Verify `<asset>.sha256` against the downloaded file. Fail-closed: a missing or
+/// unreachable checksum aborts the install instead of silently skipping verification.
 async fn verify_checksum(tag: &str, asset: &str, file: &Path, dir: &Path) -> Result<()> {
     match download_asset(tag, &format!("{asset}.sha256"), dir).await {
         Ok(sum_file) => {
@@ -172,8 +194,19 @@ async fn verify_checksum(tag: &str, asset: &str, file: &Path, dir: &Path) -> Res
             Ok(())
         }
         Err(e) => {
-            eprintln!("warning: no checksum published for {asset} ({e}); skipping verification");
-            Ok(())
+            // 誠實階梯：沒有校驗檔＝完整性未知，不得當成已驗證。
+            if missing_checksum_policy(std::env::var(ALLOW_UNVERIFIED_ENV).ok().as_deref()) {
+                eprintln!(
+                    "warning: no checksum published for {asset} ({e}); installing UNVERIFIED bytes \
+                     because {ALLOW_UNVERIFIED_ENV} is set"
+                );
+                return Ok(());
+            }
+            bail!(
+                "no checksum published for {asset} ({e}); refusing to install unverified bytes. \
+                 Re-run when the release is complete, or set {ALLOW_UNVERIFIED_ENV}=1 to accept \
+                 an unverified download."
+            )
         }
     }
 }
@@ -482,7 +515,35 @@ pub fn cmd_install_skill(dest: Option<PathBuf>) -> Result<i32> {
     Ok(0)
 }
 
-/// Download the desktop control center bundle for this platform.
+/// 桌面安裝包的資產名稱＋安裝提示（純函式，方便回歸測試平台宣稱）。
+///
+/// `bare` 是不含 `v` 的版本號。Release 只建置 macOS arm64、Linux x86_64、Windows x64；
+/// 其他 arch 沒有 bundle，必須誠實拒絕而不是去抓一個不存在的檔名。
+pub fn desktop_asset_name(bare: &str, os: &str, arch: &str) -> Result<(String, &'static str)> {
+    match (os, arch) {
+        ("macos", "aarch64") => Ok((
+            format!("interaction-control-center_{bare}_aarch64.dmg"),
+            "打開 dmg 後把 app 拖進 Applications；未簽章／未公證：首次啟動用右鍵→打開，或執行 \
+             xattr -dr com.apple.quarantine '/Applications/interaction-control-center.app'",
+        )),
+        ("linux", "x86_64") => Ok((
+            format!("interaction-control-center_{bare}_amd64.AppImage"),
+            "chmod +x 後直接執行；或改抓 .deb 用 apt 安裝",
+        )),
+        ("windows", "x86_64") => Ok((
+            format!("interaction-control-center_{bare}_x64-setup.exe"),
+            "執行安裝程式（未簽章，Windows SmartScreen 會警告）",
+        )),
+        (os, arch) => bail!(
+            "no desktop bundle is published for {os}/{arch} (release.yml builds macOS arm64, \
+             Linux x86_64 and Windows x64 only); build it from source with \
+             `cd apps/interaction-desktop && pnpm tauri build`"
+        ),
+    }
+}
+
+/// Download the desktop control center bundle for this platform, verify its
+/// published sha256, and only then hand it to the OS installer.
 pub async fn cmd_install_desktop(version: Option<String>, out_dir: Option<PathBuf>) -> Result<i32> {
     let tag = match version {
         Some(v) if v.starts_with('v') => v,
@@ -490,22 +551,7 @@ pub async fn cmd_install_desktop(version: Option<String>, out_dir: Option<PathBu
         None => latest_tag().await?,
     };
     let bare = tag.trim_start_matches('v');
-    let (asset, hint): (String, &str) = match std::env::consts::OS {
-        "macos" => (
-            format!("interaction-control-center_{bare}_aarch64.dmg"),
-            "打開 dmg 後把 app 拖進 Applications；未簽章：首次啟動用右鍵→打開，或執行 \
-             xattr -dr com.apple.quarantine '/Applications/interaction-control-center.app'",
-        ),
-        "linux" => (
-            format!("interaction-control-center_{bare}_amd64.AppImage"),
-            "chmod +x 後直接執行；或改抓 .deb 用 apt 安裝",
-        ),
-        "windows" => (
-            format!("interaction-control-center_{bare}_x64-setup.exe"),
-            "執行安裝程式",
-        ),
-        os => bail!("desktop bundle not published for {os}"),
-    };
+    let (asset, hint) = desktop_asset_name(bare, std::env::consts::OS, std::env::consts::ARCH)?;
     let dir = out_dir.unwrap_or_else(|| {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -513,8 +559,20 @@ pub async fn cmd_install_desktop(version: Option<String>, out_dir: Option<PathBu
     });
     eprintln!("downloading {asset} ({tag}) → {}", dir.display());
     let path = download_asset(&tag, &asset, &dir).await?;
-    println!("已下載：{}", path.display());
+    // 074／075：先驗證再交給 OS。校驗失敗或校驗檔缺席都不得往下走 —— 這是
+    // 唯一擋在「下載到的位元組」與「使用者按下安裝」之間的關卡（沒有簽章、沒有公證）。
+    if let Err(e) = verify_checksum(&tag, &asset, &path, &dir).await {
+        let _ = std::fs::remove_file(&path);
+        return Err(e).with_context(|| {
+            format!("refusing to install {asset}: integrity unverified (downloaded file removed)")
+        });
+    }
+    println!("已下載並通過 sha256 驗證：{}", path.display());
     println!("安裝：{hint}");
+    println!(
+        "注意：桌面安裝包沒有程式碼簽章／公證，也沒有 SBOM 或 build provenance；\
+         sha256 只證明「與 Release 上發布的位元組一致」，不證明來源。"
+    );
     #[cfg(target_os = "macos")]
     {
         let _ = Proc::new("open").arg(&path).status();
@@ -552,6 +610,31 @@ mod tests {
     fn this_platform_has_a_triple() {
         // The test suite only runs on supported platforms.
         assert!(target_triple().is_ok());
+    }
+
+    /// release-provenance-080：release.yml 不建置 linux/aarch64，就不能宣稱支援。
+    #[test]
+    fn unbuilt_platforms_are_refused_instead_of_404ing() {
+        // target_triple() 只看真實平台，改不了；改測它可回傳的集合是否越界由
+        // tests/release_provenance.rs 比對 release.yml。這裡釘住 desktop 的分支。
+        assert!(desktop_asset_name("0.6.0", "linux", "aarch64").is_err());
+        assert!(desktop_asset_name("0.6.0", "macos", "x86_64").is_err());
+        let (asset, _) = desktop_asset_name("0.6.0", "linux", "x86_64").expect("linux x86_64");
+        assert_eq!(asset, "interaction-control-center_0.6.0_amd64.AppImage");
+        let (asset, _) = desktop_asset_name("0.6.0", "macos", "aarch64").expect("macos arm64");
+        assert_eq!(asset, "interaction-control-center_0.6.0_aarch64.dmg");
+    }
+
+    /// release-provenance-074：缺 `<asset>.sha256` 預設必須讓安裝失敗。
+    #[test]
+    fn missing_checksum_is_fail_closed_unless_explicitly_allowed() {
+        assert!(!missing_checksum_policy(None));
+        assert!(!missing_checksum_policy(Some("")));
+        assert!(!missing_checksum_policy(Some("0")));
+        assert!(!missing_checksum_policy(Some("no")));
+        assert!(missing_checksum_policy(Some("1")));
+        assert!(missing_checksum_policy(Some("true")));
+        assert!(missing_checksum_policy(Some(" TRUE ")));
     }
 
     #[test]

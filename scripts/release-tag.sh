@@ -28,7 +28,9 @@ else
     || { echo "HEAD is not pushed to origin; push first" >&2; exit 1; }
 fi
 
-scripts/release-verify.sh "$VERSION" "${VERIFY_FLAGS[@]}"
+# bash 3.2（macOS 預設 /bin/bash）在 `set -u` 下展開空陣列會以 unbound variable 中止——
+# 用 `[@]+` 保護，讓「不跳過 CI」這條安全路徑跟 --skip-ci 一樣能跑到底。
+scripts/release-verify.sh "$VERSION" ${VERIFY_FLAGS[@]+"${VERIFY_FLAGS[@]}"}
 
 git tag -a "$TAG" -m "adaptive-interaction ${TAG}" "$HEAD_SHA"
 echo "✔ tagged ${TAG} -> ${HEAD_SHA:0:7}"

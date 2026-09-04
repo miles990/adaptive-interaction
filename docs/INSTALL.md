@@ -60,17 +60,44 @@ bash install.sh --version v0.1.0               # 固定版本
 ```
 
 每個 Release 附：四平台 CLI 壓縮檔（macOS arm64/x64、Linux x64、Windows x64，
-各附 `.sha256`）、桌面安裝包（.dmg／.AppImage＋.deb／.msi＋.exe）、
+各附 `.sha256`）、桌面安裝包（.dmg／.AppImage＋.deb／.msi＋.exe，**各附 `.sha256`**）、
 版本一致的 skill 套件 zip、`QUICKSTART.md` 與本安裝腳本。
+
+### 完整性驗證能證明什麼、不能證明什麼
+
+- **有的**：每個 CLI 壓縮檔與每個桌面安裝包都附 `<asset>.sha256`。`install.sh` 與
+  `interact-ai self update` ／ `self install-desktop` 下載後一律比對；**不符或抓不到校驗檔就中止安裝**
+  （fail-closed）。Release 在所有平台建置完成前維持 draft，安裝器不會抓到資產不全的版本。
+- **沒有的（誠實揭露）**：**沒有程式碼簽章、沒有 Apple 公證（notarization）、沒有 SBOM、
+  沒有 build provenance／attestation。** macOS 的 .dmg 與 Windows 的安裝程式都**未簽章**，
+  首次開啟會被 Gatekeeper／SmartScreen 擋下。sha256 只證明「這些位元組和 Release 上發布的一致」，
+  **不證明來源**：能改寫 Release 的人也能一併改寫 `.sha256`。要更強的保證，請走「方式 B：從原始碼編譯」。
+- **逃生門**：極少數情況（例如 Release 剛發布、校驗檔尚未同步）可以用
+  `INTERACT_AI_ALLOW_UNVERIFIED_DOWNLOAD=1` 明示接受未驗證的下載——
+  這會安裝**未經完整性驗證**的位元組，預設關閉，請只在你知道自己在做什麼時使用。
+
+### 平台覆蓋（Release 實際會建置什麼）
+
+| 平台 | 預編譯 CLI | 桌面安裝包 |
+|---|---|---|
+| macOS arm64 | ✅ | ✅ `.dmg`（未簽章） |
+| macOS x64 | ✅ | ❌（自行 `pnpm tauri build`） |
+| Linux x86_64 | ✅ | ✅ `.AppImage`／`.deb`（未簽章） |
+| Windows x64 | ✅ | ✅ `.exe`／`.msi`（未簽章） |
+| **Linux aarch64**（樹莓派／Graviton／ARM 容器） | ❌ **沒有預編譯檔** | ❌ |
+
+`aarch64-unknown-linux-gnu` **不在 Release workflow 的建置矩陣內**。`install.sh` 與
+`interact-ai self update` 在該平台會直接說明沒有預編譯檔並指向從原始碼建置，不會讓你拿到 HTTP 404。
+Linux aarch64 請走「方式 B：從原始碼編譯」（`cargo install --path crates/interaction-cli`）。
 
 之後的更新／移除全部用內建自我管理：
 
 ```bash
 interact-ai self version --check   # 有沒有新版？
-interact-ai self update            # 一鍵更新（sha256 驗證＋原子替換）
+interact-ai self update            # 一鍵更新（sha256 驗證，缺校驗檔即中止＋原子替換）
 interact-ai self update --version v0.1.0
 interact-ai self install-skill     # 跨 AI 裝 skill：偵測到的 agent 預設全裝（選單可取消）
-interact-ai self install-desktop   # 下載本平台桌面版
+interact-ai self install-desktop   # 下載本平台桌面版（先驗 sha256 才交給 OS；未簽章）
 interact-ai self uninstall --yes [--purge]   # 移除（--purge 連資料目錄）
 ```
 

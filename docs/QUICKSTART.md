@@ -39,12 +39,16 @@ interact-ai emergency-stop                 # 🔴 隨時全停（--clear 解除�
 
 ```bash
 interact-ai self version --check   # 檢查新版本
-interact-ai self update            # 一鍵更新（含 sha256 驗證）
+interact-ai self update            # 一鍵更新（比對 .sha256；缺校驗檔即中止，不裝未驗證的位元組）
 interact-ai self update --version v0.1.0   # 裝指定版本
 interact-ai self install-skill     # 跨 AI 裝 skill（偵測 Claude/Codex/Gemini/Copilot…預設全裝）
-interact-ai self install-desktop   # 下載本平台的桌面版
+interact-ai self install-desktop   # 下載本平台的桌面版（先驗 sha256 才交給 OS）
 interact-ai self uninstall --yes   # 移除（--purge 連資料一起）
 ```
+
+> 沒有簽章／公證／SBOM／provenance：`.sha256` 只證明位元組與 Release 一致，不證明來源；
+> 桌面安裝包未簽章。Linux aarch64 沒有預編譯檔，需 `cargo install --path crates/interaction-cli`。
+> 見 [安裝指南](INSTALL.md#完整性驗證能證明什麼不能證明什麼)。
 
 ## 給 AI 接入
 
