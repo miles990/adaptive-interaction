@@ -1,0 +1,502 @@
+{
+  "$defs": {
+    "CapabilityAnnouncement": {
+      "description": "`capability` 宣告 payload（member → host）。未知鍵保留在 `extra`。",
+      "properties": {
+        "features": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "inputs": {
+          "default": [],
+          "description": "可產生的 event name。",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "intents": {
+          "default": [],
+          "description": "可呈現的 Behavior Intent 名稱。",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CapabilityLimits"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profiles": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemberRole"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "specVersions": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "syncClasses": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SyncClass"
+          },
+          "type": "array"
+        }
+      },
+      "title": "CapabilityAnnouncement",
+      "type": "object"
+    },
+    "CapabilityLimits": {
+      "properties": {
+        "maxMessageBytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Envelope": {
+      "description": "AIP 1.0 訊息信封。未知頂層選填欄位保留在 `extra`（round-trip 不遺失、不執行）。",
+      "properties": {
+        "baseRevision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "consentGrantId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "correlationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expiresAt": {
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "messageId": {
+          "type": "string"
+        },
+        "messageType": {
+          "$ref": "#/$defs/MessageType"
+        },
+        "name": {
+          "type": "string"
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "payload": {
+          "default": null
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/Party"
+        },
+        "specVersion": {
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Party"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "specVersion",
+        "messageId",
+        "messageType",
+        "name",
+        "source",
+        "occurredAt"
+      ],
+      "title": "Envelope",
+      "type": "object"
+    },
+    "ErrorCode": {
+      "anyOf": [
+        {
+          "enum": [
+            "schema-invalid",
+            "unsupported-version",
+            "unsupported-message-type",
+            "unknown-name",
+            "unsupported-capability",
+            "payload-too-large",
+            "message-too-large",
+            "expired",
+            "duplicate",
+            "revision-mismatch",
+            "sequence-gap",
+            "identity-mismatch",
+            "not-a-member",
+            "scope-denied",
+            "rate-limited",
+            "session-not-found",
+            "session-disabled",
+            "cancelled",
+            "internal"
+          ],
+          "type": "string"
+        }
+      ],
+      "description": "穩定錯誤碼；1.x 內只增不改。未知值保留原字串。"
+    },
+    "ErrorPayload": {
+      "description": "`error.payload`。`message` ≤ 200 字、不回顯輸入；`details` 不得含 secret／路徑／token。",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "details": {
+          "additionalProperties": true,
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "title": "ErrorPayload",
+      "type": "object"
+    },
+    "EvidenceClass": {
+      "enum": [
+        "unit",
+        "contract",
+        "fixture",
+        "simulator",
+        "integration",
+        "browser",
+        "real-agent",
+        "real-device",
+        "real-hardware",
+        "unverified"
+      ],
+      "title": "EvidenceClass",
+      "type": "string"
+    },
+    "IntentSupport": {
+      "description": "單一 intent 的協商結果。",
+      "enum": [
+        "exact",
+        "unsupported"
+      ],
+      "type": "string"
+    },
+    "MemberRole": {
+      "description": "參與方角色。",
+      "enum": [
+        "host-renderer",
+        "remote-renderer",
+        "input-device",
+        "observer"
+      ],
+      "type": "string"
+    },
+    "MessageType": {
+      "anyOf": [
+        {
+          "enum": [
+            "event",
+            "command",
+            "query",
+            "response",
+            "result",
+            "state",
+            "cancel",
+            "approval-request",
+            "approval-result",
+            "error",
+            "heartbeat",
+            "capability"
+          ],
+          "type": "string"
+        }
+      ],
+      "description": "十二種 message type。未知值反序列化成 [`MessageType::Unknown`]，**不得執行**（§4.1）。"
+    },
+    "NegotiatedCapabilities": {
+      "description": "host 回的協商結果（`capability` payload，host → member）。",
+      "properties": {
+        "inputs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "intents": {
+          "additionalProperties": {
+            "$ref": "#/$defs/IntentSupport"
+          },
+          "type": "object"
+        },
+        "limits": {
+          "$ref": "#/$defs/CapabilityLimits"
+        },
+        "newerMinor": {
+          "type": "boolean"
+        },
+        "role": {
+          "$ref": "#/$defs/MemberRole"
+        },
+        "specVersion": {
+          "type": "string"
+        },
+        "syncClass": {
+          "$ref": "#/$defs/SyncClass"
+        },
+        "unsupportedInputs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "specVersion",
+        "newerMinor",
+        "role",
+        "syncClass",
+        "intents",
+        "inputs",
+        "unsupportedInputs",
+        "limits"
+      ],
+      "title": "NegotiatedCapabilities",
+      "type": "object"
+    },
+    "OfflinePolicy": {
+      "enum": [
+        "drop-if-offline",
+        "expire-by-deadline",
+        "queue-idempotent",
+        "require-reconfirmation",
+        "state-reconcile"
+      ],
+      "title": "OfflinePolicy",
+      "type": "string"
+    },
+    "Outcome": {
+      "description": "`result.payload.status` 的十二種值。",
+      "enum": [
+        "received",
+        "accepted",
+        "acknowledged",
+        "applied",
+        "observed",
+        "claimed-completed",
+        "verified",
+        "rejected",
+        "expired",
+        "cancel-requested",
+        "cancel-confirmed",
+        "failed"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "Party": {
+      "description": "參與方參照。**只是宣稱**；可信身分由 Transport 綁定後比對（§5）。",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/PartyKind"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "title": "Party",
+      "type": "object"
+    },
+    "PartyKind": {
+      "anyOf": [
+        {
+          "const": "runtime",
+          "description": "Runtime 本體（唯一可送 `task.*`／`runtime.*` 的來源）。",
+          "type": "string"
+        },
+        {
+          "const": "session",
+          "description": "Character Session（作為 target）。",
+          "type": "string"
+        },
+        {
+          "const": "device",
+          "description": "已配對裝置（iPhone 等）。",
+          "type": "string"
+        },
+        {
+          "const": "renderer",
+          "description": "Renderer（桌面視窗內建 adapter、外部 adapter）。",
+          "type": "string"
+        },
+        {
+          "const": "human-surface",
+          "description": "可信人類操作面（桌面控制中心）。",
+          "type": "string"
+        },
+        {
+          "const": "human",
+          "description": "人類本人（approval 的 target）。",
+          "type": "string"
+        },
+        {
+          "const": "agent",
+          "description": "AI agent／session。",
+          "type": "string"
+        }
+      ],
+      "description": "訊息／能力的參與方種類。未知值 → [`PartyKind::Unknown`]（保留原字串）。"
+    },
+    "SyncClass": {
+      "description": "同步等級（§8／character-session.md §9）。1.0 只實作 `semantic`。",
+      "enum": [
+        "semantic",
+        "timeline",
+        "realtime"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://github.com/miles990/adaptive-interaction/schemas/aip-1.0.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Adaptive Interaction Protocol (AIP): canonical JSON Schema generated from crates/interaction-aip. Roots are listed under $defs.",
+  "errorCodes": [
+    "schema-invalid",
+    "unsupported-version",
+    "unsupported-message-type",
+    "unknown-name",
+    "unsupported-capability",
+    "payload-too-large",
+    "message-too-large",
+    "expired",
+    "duplicate",
+    "revision-mismatch",
+    "sequence-gap",
+    "identity-mismatch",
+    "not-a-member",
+    "scope-denied",
+    "rate-limited",
+    "session-not-found",
+    "session-disabled",
+    "cancelled",
+    "internal"
+  ],
+  "limits": {
+    "dedupeRing": 256,
+    "defaultIntentTtlMs": 10000,
+    "defaultInteractionTtlMs": 5000,
+    "eventLogRing": 512,
+    "maxClockSkewMs": 30000,
+    "maxIdChars": 128,
+    "maxJsonDepth": 8,
+    "maxMembers": 16,
+    "maxMessageBytes": 65536,
+    "maxNameChars": 128,
+    "maxPayloadBytes": 32768,
+    "maxStringChars": 2000
+  },
+  "messageTypes": [
+    "event",
+    "command",
+    "query",
+    "response",
+    "result",
+    "state",
+    "cancel",
+    "approval-request",
+    "approval-result",
+    "error",
+    "heartbeat",
+    "capability"
+  ],
+  "roots": [
+    "Envelope",
+    "Party",
+    "ErrorPayload",
+    "CapabilityAnnouncement",
+    "NegotiatedCapabilities",
+    "Outcome",
+    "OfflinePolicy",
+    "EvidenceClass"
+  ],
+  "specVersion": "aip/1.0",
+  "title": "Adaptive Interaction Protocol 1.0"
+}

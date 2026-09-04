@@ -1,0 +1,274 @@
+{
+  "manifestVersion": 1,
+  "specVersion": "aip/1.0",
+  "note": "AIP 1.0 conformance fixture index. Rust, TypeScript and Swift all read THIS file and must reach the same conclusion for every entry. `expect` is either \"ok\" or \"error\" plus the stable ErrorCode from docs/aip/README.md §12. State fixtures carry a real SHA-256 over canonical JSON of their `state`/patched state, but hash verification itself belongs to interaction-session, not to envelope conformance.",
+  "envelopes": [
+    { "id": "event-touch", "file": "event-touch.json", "expect": "ok", "note": "§2.2 event profile; also the aip/1.0 (same-minor) version fixture" },
+    { "id": "event-dismiss", "file": "event-dismiss.json", "expect": "ok", "note": "§7 every character.interaction.* event carries a deadline, dismiss included" },
+    { "id": "command-behavior-request", "file": "command-behavior-request.json", "expect": "ok", "note": "§5 Behavior Intent" },
+    { "id": "query-session-resume", "file": "query-session-resume.json", "expect": "ok" },
+    { "id": "response-session-resume", "file": "response-session-resume.json", "expect": "ok" },
+    { "id": "result-accepted", "file": "result-accepted.json", "expect": "ok" },
+    { "id": "result-duplicate", "file": "result-duplicate.json", "expect": "ok", "note": "§7 duplicate messageId is accepted, never re-applied" },
+    { "id": "state-snapshot", "file": "state-snapshot.json", "expect": "ok" },
+    { "id": "state-patch", "file": "state-patch.json", "expect": "ok", "note": "patch requires baseRevision" },
+    { "id": "cancel-behavior", "file": "cancel-behavior.json", "expect": "ok", "note": "cancel by causationId" },
+    { "id": "cancel-by-payload-reference", "file": "cancel-by-payload-reference.json", "expect": "ok", "note": "cancel by payload.messageId" },
+    { "id": "approval-request", "file": "approval-request.json", "expect": "ok" },
+    { "id": "approval-result", "file": "approval-result.json", "expect": "ok" },
+    { "id": "error-identity-mismatch", "file": "error-identity-mismatch.json", "expect": "ok" },
+    { "id": "heartbeat", "file": "heartbeat.json", "expect": "ok" },
+    { "id": "capability-announcement", "file": "capability-announcement.json", "expect": "ok" },
+    { "id": "version-minor-1-3", "file": "version-minor-1-3.json", "expect": "ok", "roundTrip": true, "note": "§4.1 a newer minor is accepted and its unknown top-level field survives" },
+    { "id": "roundtrip-unknown-optional-field", "file": "roundtrip-unknown-optional-field.json", "expect": "ok", "roundTrip": true, "note": "§1 unknown optional top-level fields are preserved and ignored" },
+
+    { "id": "invalid-event-missing-session", "file": "invalid-event-missing-session.json", "expect": "error", "code": "schema-invalid", "note": "§2.2 event requires sessionId" },
+    { "id": "invalid-name-grammar", "file": "invalid-name-grammar.json", "expect": "error", "code": "schema-invalid", "mustNotEcho": ["Character.Interaction.Touch"] },
+    { "id": "invalid-name-single-segment", "file": "invalid-name-single-segment.json", "expect": "error", "code": "schema-invalid", "note": "names need at least two dot-separated segments" },
+    { "id": "invalid-occurred-at", "file": "invalid-occurred-at.json", "expect": "error", "code": "schema-invalid", "mustNotEcho": ["yesterday-afternoon-ish"] },
+    { "id": "invalid-unknown-message-type", "file": "invalid-unknown-message-type.json", "expect": "error", "code": "unsupported-message-type", "mustNotEcho": ["teleport", "the-moon"], "note": "§4.1 unknown type is never executed and never echoed back" },
+    { "id": "invalid-major-mismatch", "file": "invalid-major-mismatch.json", "expect": "error", "code": "unsupported-version" },
+    { "id": "invalid-spec-version-syntax", "file": "invalid-spec-version-syntax.json", "expect": "error", "code": "schema-invalid" },
+    { "id": "invalid-payload-too-deep", "file": "invalid-payload-too-deep.json", "expect": "error", "code": "schema-invalid", "note": "§11 MAX_JSON_DEPTH = 8" },
+    { "id": "invalid-payload-string-too-long", "file": "invalid-payload-string-too-long.json", "expect": "error", "code": "schema-invalid", "note": "§11 MAX_STRING_CHARS = 2000" },
+    { "id": "invalid-message-id-too-long", "file": "invalid-message-id-too-long.json", "expect": "error", "code": "schema-invalid", "note": "§11 MAX_ID_CHARS = 128" },
+    { "id": "invalid-result-unknown-status", "file": "invalid-result-unknown-status.json", "expect": "error", "code": "schema-invalid", "mustNotEcho": ["totally-finished-trust-me"], "note": "§3 an unknown Outcome is never treated as success" },
+    { "id": "invalid-result-missing-causation", "file": "invalid-result-missing-causation.json", "expect": "error", "code": "schema-invalid" },
+    { "id": "invalid-command-missing-expiry", "file": "invalid-command-missing-expiry.json", "expect": "error", "code": "schema-invalid", "note": "§7 Behavior Intent must carry a deadline" },
+    { "id": "invalid-interaction-missing-expiry", "file": "invalid-interaction-missing-expiry.json", "expect": "error", "code": "schema-invalid" },
+    { "id": "invalid-state-patch-missing-base-revision", "file": "invalid-state-patch-missing-base-revision.json", "expect": "error", "code": "schema-invalid" },
+    { "id": "invalid-cancel-missing-reference", "file": "invalid-cancel-missing-reference.json", "expect": "error", "code": "schema-invalid" },
+    { "id": "invalid-approval-request-target-not-human", "file": "invalid-approval-request-target-not-human.json", "expect": "error", "code": "schema-invalid", "note": "§2.2 only a human may be asked to approve" },
+    { "id": "invalid-source-kind-unknown", "file": "invalid-source-kind-unknown.json", "expect": "error", "code": "schema-invalid", "mustNotEcho": ["space-probe", "voyager-2"] },
+    { "id": "invalid-error-missing-code", "file": "invalid-error-missing-code.json", "expect": "error", "code": "schema-invalid" }
+  ],
+  "generated": [
+    {
+      "id": "message-too-large",
+      "base": "event-touch.json",
+      "inflatePayloadChars": 70000,
+      "expect": "error",
+      "code": "message-too-large",
+      "note": "§11 MAX_MESSAGE_BYTES = 65536; generated in-test so no oversized blob is committed"
+    },
+    {
+      "id": "payload-too-large",
+      "base": "event-touch.json",
+      "inflatePayloadChars": 40000,
+      "expect": "error",
+      "code": "payload-too-large",
+      "note": "§11 MAX_PAYLOAD_BYTES = 32768; the size check runs before the per-string check"
+    },
+    {
+      "id": "malformed-json",
+      "raw": "{\"specVersion\":\"aip/1.0\",\"messageId\":\"do-not-echo-this-token\"",
+      "expect": "error",
+      "code": "schema-invalid",
+      "mustNotEcho": ["do-not-echo-this-token"],
+      "note": "§5 parser errors must not echo caller input"
+    },
+    {
+      "id": "empty-body",
+      "raw": "",
+      "expect": "error",
+      "code": "schema-invalid"
+    },
+    {
+      "id": "json-array-not-object",
+      "raw": "[{\"specVersion\":\"aip/1.0\"}]",
+      "expect": "error",
+      "code": "schema-invalid"
+    }
+  ],
+  "negotiations": [
+    {
+      "id": "iphone-remote-renderer-same-minor",
+      "offer": {
+        "intents": ["react-happily-to-touch", "celebrate", "settle", "idle"],
+        "inputs": ["character.interaction.touch", "character.interaction.dismiss"],
+        "syncClasses": ["semantic"]
+      },
+      "announcement": {
+        "specVersions": ["aip/1.0"],
+        "role": "remote-renderer",
+        "profiles": ["character-session"],
+        "syncClasses": ["semantic"],
+        "intents": ["react-happily-to-touch", "celebrate", "idle", "settle"],
+        "inputs": ["character.interaction.touch", "character.interaction.dismiss"],
+        "features": { "haptic": true, "reducedMotion": false },
+        "limits": { "maxMessageBytes": 65536 }
+      },
+      "expect": "ok",
+      "negotiated": {
+        "specVersion": "aip/1.0",
+        "newerMinor": false,
+        "role": "remote-renderer",
+        "syncClass": "semantic",
+        "intents": {
+          "celebrate": "exact",
+          "idle": "exact",
+          "react-happily-to-touch": "exact",
+          "settle": "exact"
+        },
+        "inputs": ["character.interaction.touch", "character.interaction.dismiss"],
+        "unsupportedInputs": [],
+        "limits": { "maxMessageBytes": 65536 }
+      }
+    },
+    {
+      "id": "newer-minor-partial-intents",
+      "offer": {
+        "intents": ["react-happily-to-touch", "celebrate", "settle", "idle"],
+        "inputs": ["character.interaction.touch", "character.interaction.dismiss"],
+        "syncClasses": ["semantic"]
+      },
+      "announcement": {
+        "specVersions": ["aip/1.2"],
+        "role": "remote-renderer",
+        "syncClasses": ["realtime", "semantic"],
+        "intents": ["celebrate", "fly"],
+        "inputs": ["character.interaction.touch", "device.tilt"],
+        "limits": { "maxMessageBytes": 1048576 }
+      },
+      "expect": "ok",
+      "negotiated": {
+        "specVersion": "aip/1.0",
+        "newerMinor": true,
+        "role": "remote-renderer",
+        "syncClass": "semantic",
+        "intents": {
+          "celebrate": "exact",
+          "idle": "unsupported",
+          "react-happily-to-touch": "unsupported",
+          "settle": "unsupported"
+        },
+        "inputs": ["character.interaction.touch"],
+        "unsupportedInputs": ["device.tilt"],
+        "limits": { "maxMessageBytes": 65536 }
+      },
+      "note": "a renderer cannot invent an intent (`fly`) the host never offered, and cannot raise the size ceiling"
+    },
+    {
+      "id": "no-role-defaults-to-observer",
+      "offer": {
+        "intents": ["celebrate"],
+        "inputs": ["character.interaction.touch"],
+        "syncClasses": ["semantic"]
+      },
+      "announcement": { "specVersions": ["aip/1.0"] },
+      "expect": "ok",
+      "negotiated": {
+        "specVersion": "aip/1.0",
+        "newerMinor": false,
+        "role": "observer",
+        "syncClass": "semantic",
+        "intents": { "celebrate": "unsupported" },
+        "inputs": [],
+        "unsupportedInputs": [],
+        "limits": { "maxMessageBytes": 65536 }
+      }
+    },
+    {
+      "id": "small-device-limit-wins",
+      "offer": {
+        "intents": ["celebrate"],
+        "inputs": ["character.interaction.touch"],
+        "syncClasses": ["semantic"]
+      },
+      "announcement": {
+        "specVersions": ["aip/1.0"],
+        "role": "input-device",
+        "syncClasses": ["semantic"],
+        "intents": [],
+        "inputs": ["character.interaction.touch"],
+        "limits": { "maxMessageBytes": 8192 }
+      },
+      "expect": "ok",
+      "negotiated": {
+        "specVersion": "aip/1.0",
+        "newerMinor": false,
+        "role": "input-device",
+        "syncClass": "semantic",
+        "intents": { "celebrate": "unsupported" },
+        "inputs": ["character.interaction.touch"],
+        "unsupportedInputs": [],
+        "limits": { "maxMessageBytes": 8192 }
+      }
+    },
+    {
+      "id": "major-mismatch-is-refused",
+      "offer": { "intents": [], "inputs": [], "syncClasses": ["semantic"] },
+      "announcement": { "specVersions": ["aip/2.0"] },
+      "expect": "error",
+      "code": "unsupported-version"
+    },
+    {
+      "id": "no-versions-offered",
+      "offer": { "intents": [], "inputs": [], "syncClasses": ["semantic"] },
+      "announcement": { "specVersions": [] },
+      "expect": "error",
+      "code": "unsupported-version"
+    }
+  ],
+  "identity": [
+    { "id": "same-device", "bound": { "kind": "device", "id": "iphone-87b42264" }, "claimed": { "kind": "device", "id": "iphone-87b42264" }, "expect": "accept" },
+    { "id": "other-device-id", "bound": { "kind": "device", "id": "iphone-87b42264" }, "claimed": { "kind": "device", "id": "iphone-00000000" }, "expect": "reject" },
+    { "id": "wrong-kind-same-id", "bound": { "kind": "device", "id": "iphone-87b42264" }, "claimed": { "kind": "renderer", "id": "iphone-87b42264" }, "expect": "reject" },
+    { "id": "device-claiming-runtime", "bound": { "kind": "device", "id": "iphone-87b42264" }, "claimed": { "kind": "runtime", "id": "runtime" }, "expect": "reject", "note": "§5 a device may never claim to be the Runtime; the host must not normalise it" },
+    { "id": "trusted-host-surface", "bound": { "kind": "human-surface", "id": "desktop" }, "claimed": { "kind": "human-surface", "id": "desktop" }, "expect": "accept" },
+    { "id": "other-host-surface", "bound": { "kind": "human-surface", "id": "desktop" }, "claimed": { "kind": "human-surface", "id": "desktop-2" }, "expect": "reject" }
+  ],
+  "offlinePolicy": [
+    { "name": "character.interaction.touch", "hasConsentGrant": false, "expect": "expire-by-deadline" },
+    { "name": "character.interaction.dismiss", "hasConsentGrant": false, "expect": "drop-if-offline" },
+    { "name": "character.behavior.request", "hasConsentGrant": false, "expect": "drop-if-offline" },
+    { "name": "character.behavior.cancel", "hasConsentGrant": false, "expect": "drop-if-offline" },
+    { "name": "character.preference.volume", "hasConsentGrant": false, "expect": "queue-idempotent" },
+    { "name": "character.session.presence", "hasConsentGrant": false, "expect": "state-reconcile" },
+    { "name": "task.state", "hasConsentGrant": false, "expect": "state-reconcile" },
+    { "name": "task.verified", "hasConsentGrant": false, "expect": "state-reconcile" },
+    { "name": "runtime.emergency", "hasConsentGrant": false, "expect": "state-reconcile" },
+    { "name": "approval.request", "hasConsentGrant": false, "expect": "require-reconfirmation" },
+    { "name": "character.behavior.request", "hasConsentGrant": true, "expect": "require-reconfirmation", "note": "§8 anything carrying a consentGrantId needs a fresh human decision after a reconnect" },
+    { "name": "device.tilt", "hasConsentGrant": false, "expect": "drop-if-offline", "note": "unknown names take the most conservative class" }
+  ],
+  "outcomeTransitions": [
+    { "from": "received", "to": "accepted", "allowed": true },
+    { "from": "received", "to": "rejected", "allowed": true },
+    { "from": "accepted", "to": "acknowledged", "allowed": true },
+    { "from": "accepted", "to": "applied", "allowed": true },
+    { "from": "accepted", "to": "observed", "allowed": true },
+    { "from": "acknowledged", "to": "observed", "allowed": true },
+    { "from": "acknowledged", "to": "verified", "allowed": false },
+    { "from": "observed", "to": "verified", "allowed": false },
+    { "from": "claimed-completed", "to": "verified", "allowed": true },
+    { "from": "claimed-completed", "to": "failed", "allowed": true },
+    { "from": "applied", "to": "accepted", "allowed": false },
+    { "from": "verified", "to": "failed", "allowed": false },
+    { "from": "cancel-requested", "to": "cancel-confirmed", "allowed": true },
+    { "from": "expired", "to": "accepted", "allowed": false },
+    { "from": "rejected", "to": "accepted", "allowed": false }
+  ],
+  "outcomeProfiles": [
+    { "profile": "event", "status": "accepted", "allowed": true },
+    { "profile": "event", "status": "applied", "allowed": true },
+    { "profile": "event", "status": "observed", "allowed": false },
+    { "profile": "event", "status": "verified", "allowed": false },
+    { "profile": "command", "status": "acknowledged", "allowed": true },
+    { "profile": "command", "status": "observed", "allowed": true },
+    { "profile": "command", "status": "applied", "allowed": false },
+    { "profile": "command", "status": "verified", "allowed": false },
+    { "profile": "state", "status": "applied", "allowed": true },
+    { "profile": "state", "status": "rejected", "allowed": true },
+    { "profile": "state", "status": "observed", "allowed": false }
+  ],
+  "nameScope": [
+    { "name": "task.state", "runtimeOnly": true },
+    { "name": "task.verified", "runtimeOnly": true },
+    { "name": "runtime.emergency", "runtimeOnly": true },
+    { "name": "character.interaction.touch", "runtimeOnly": false },
+    { "name": "character.behavior.request", "runtimeOnly": false },
+    { "name": "character.session.presence", "runtimeOnly": false },
+    { "name": "device.tilt", "runtimeOnly": false }
+  ]
+}

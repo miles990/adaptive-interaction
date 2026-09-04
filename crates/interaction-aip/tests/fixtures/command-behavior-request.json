@@ -1,0 +1,21 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_intent_1",
+  "messageType": "command",
+  "name": "character.behavior.request",
+  "source": { "kind": "runtime", "id": "runtime" },
+  "target": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:00Z",
+  "correlationId": "flow_touch_1",
+  "causationId": "msg_touch_1",
+  "sequence": 202,
+  "expiresAt": "2026-09-04T12:30:10Z",
+  "payload": {
+    "intent": "react-happily-to-touch",
+    "intensity": 0.45,
+    "interruptible": true,
+    "origin": "interaction",
+    "hints": { "haptic": "light" }
+  }
+}

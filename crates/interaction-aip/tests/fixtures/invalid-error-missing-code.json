@@ -1,0 +1,11 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_error_no_code",
+  "messageType": "error",
+  "name": "character.session.error",
+  "source": { "kind": "session", "id": "session.home" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:05Z",
+  "causationId": "msg_touch_9",
+  "payload": { "message": "something went wrong" }
+}

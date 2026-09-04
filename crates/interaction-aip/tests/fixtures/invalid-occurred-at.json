@@ -1,0 +1,11 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_bad_time",
+  "messageType": "event",
+  "name": "character.interaction.touch",
+  "source": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "yesterday-afternoon-ish",
+  "expiresAt": "2026-09-04T12:30:05Z",
+  "payload": { "kind": "tap" }
+}

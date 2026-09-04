@@ -1,0 +1,11 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_patch_no_base",
+  "messageType": "state",
+  "name": "character.session.patch",
+  "source": { "kind": "session", "id": "session.home" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:03Z",
+  "sequence": 206,
+  "payload": { "kind": "patch", "revision": 205, "patch": { "activity": "reacting" } }
+}

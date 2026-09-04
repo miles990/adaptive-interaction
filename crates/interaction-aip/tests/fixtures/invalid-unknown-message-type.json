@@ -1,0 +1,10 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_unknown_type",
+  "messageType": "teleport",
+  "name": "character.interaction.touch",
+  "source": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:00Z",
+  "payload": { "destination": "the-moon" }
+}

@@ -1,0 +1,13 @@
+{
+  "specVersion": "aip/1.3",
+  "messageId": "msg_touch_future_minor",
+  "messageType": "event",
+  "name": "character.interaction.touch",
+  "source": { "kind": "device", "id": "iphone-87b42264" },
+  "target": { "kind": "session", "id": "session.home" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:00Z",
+  "expiresAt": "2026-09-04T12:30:05Z",
+  "payload": { "kind": "tap" },
+  "traceContext": { "traceparent": "00-abc-def-01" }
+}

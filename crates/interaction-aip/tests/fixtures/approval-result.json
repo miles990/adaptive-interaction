@@ -1,0 +1,13 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_approval_reply_1",
+  "messageType": "approval-result",
+  "name": "character.session.approval",
+  "source": { "kind": "human", "id": "desktop-operator" },
+  "target": { "kind": "runtime", "id": "runtime" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:20Z",
+  "correlationId": "flow_grant_1",
+  "causationId": "msg_approval_1",
+  "payload": { "decision": "denied" }
+}

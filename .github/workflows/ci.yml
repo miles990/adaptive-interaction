@@ -78,6 +78,10 @@ jobs:
           cache: pnpm
           cache-dependency-path: apps/interaction-desktop/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: AIP codegen drift (TS/Swift types are generated, never hand-edited)
+        # schemas/aip-1.0.schema.json 是單一來源；手改 generated.ts／AIPGenerated.swift
+        # 或忘記重生，這一步就 exit 1。重生：pnpm aip:codegen。
+        run: pnpm aip:check
       - run: pnpm typecheck
       - name: component tests (honesty invariants, cards, wizard, dialogs, packs)
         run: pnpm test

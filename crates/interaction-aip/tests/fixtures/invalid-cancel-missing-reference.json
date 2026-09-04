@@ -1,0 +1,11 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_cancel_no_reference",
+  "messageType": "cancel",
+  "name": "character.behavior.cancel",
+  "source": { "kind": "runtime", "id": "runtime" },
+  "target": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:04Z",
+  "payload": { "reason": "user-changed-their-mind" }
+}

@@ -1,0 +1,11 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_resume_1",
+  "messageType": "query",
+  "name": "character.session.resume",
+  "source": { "kind": "device", "id": "iphone-87b42264" },
+  "target": { "kind": "session", "id": "session.home" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:01Z",
+  "payload": { "lastRevision": 200, "lastSequence": 201, "sessionEpoch": 3 }
+}

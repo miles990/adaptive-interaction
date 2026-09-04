@@ -254,8 +254,11 @@ real-device**。Runtime 的 `ProviderTested`／`pairingUnverified` 語意不變�
 ```
 schema-invalid  unsupported-version  unsupported-message-type  unknown-name  unsupported-capability
 payload-too-large  message-too-large  expired  duplicate  revision-mismatch  sequence-gap  identity-mismatch
-not-a-member  scope-denied  rate-limited  session-not-found  cancelled  internal
+not-a-member  scope-denied  rate-limited  session-not-found  session-disabled  cancelled  internal
 ```
+
+`session-disabled`（19 個之一）：`INTERACT_AI_CHARACTER_SESSION=0` 時所有 Session 入口回它（HTTP 503），
+`retryable: false`；見 `docs/aip/architecture-boundaries.md` §5。
 
 `error.payload`：`{ code, message(≤200), retryable: bool, details?: object }`。`details` 不得含 secret／路徑／token。
 

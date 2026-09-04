@@ -1,0 +1,13 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_approval_1",
+  "messageType": "approval-request",
+  "name": "character.session.approval",
+  "source": { "kind": "runtime", "id": "runtime" },
+  "target": { "kind": "human", "id": "desktop-operator" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:04Z",
+  "correlationId": "flow_grant_1",
+  "expiresAt": "2026-09-04T12:31:04Z",
+  "payload": { "question": "character.session.join", "risk": "medium" }
+}

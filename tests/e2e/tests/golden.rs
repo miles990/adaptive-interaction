@@ -166,3 +166,12 @@ fn versions_are_in_sync() {
         "CHANGELOG.md missing section for {version}"
     );
 }
+
+/// AIP 1.0 的 JSON Schema 由 Rust 型別（`interaction-aip`）產生，是 TypeScript／Swift
+/// codegen 的**唯一**來源（`scripts/aip-codegen.mjs`）。這裡把它釘成 golden：
+/// 型別一改、schema 就漂移，CI 立刻擋下未同步的 generated 檔。
+#[test]
+fn golden_aip_schema() {
+    let schema = interaction_aip::schema::protocol_schema();
+    check_golden("aip-1.0.schema.json", &pretty(&schema));
+}

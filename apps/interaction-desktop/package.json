@@ -12,7 +12,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "perf": "node scripts/shu/perf-rig.mjs"
+    "perf": "node scripts/shu/perf-rig.mjs",
+    "aip:codegen": "node ../../scripts/aip-codegen.mjs",
+    "aip:check": "node ../../scripts/aip-codegen.mjs --check"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

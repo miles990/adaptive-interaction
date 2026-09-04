@@ -1,0 +1,10 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_unknown_source_kind",
+  "messageType": "heartbeat",
+  "name": "character.session.presence",
+  "source": { "kind": "space-probe", "id": "voyager-2" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:06Z",
+  "payload": {}
+}

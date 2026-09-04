@@ -1,0 +1,13 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_cancel_1",
+  "messageType": "cancel",
+  "name": "character.behavior.cancel",
+  "source": { "kind": "runtime", "id": "runtime" },
+  "target": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:03Z",
+  "correlationId": "flow_touch_1",
+  "causationId": "msg_intent_1",
+  "payload": { "reason": "superseded" }
+}

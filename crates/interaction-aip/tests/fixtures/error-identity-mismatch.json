@@ -1,0 +1,16 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_error_1",
+  "messageType": "error",
+  "name": "character.session.error",
+  "source": { "kind": "session", "id": "session.home" },
+  "target": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:05Z",
+  "causationId": "msg_touch_9",
+  "payload": {
+    "code": "identity-mismatch",
+    "message": "the claimed source does not match the bound transport identity",
+    "retryable": false
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_heartbeat_1",
+  "messageType": "heartbeat",
+  "name": "character.session.presence",
+  "source": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:06Z",
+  "payload": { "lastSequence": 206, "lastRevision": 205 }
+}

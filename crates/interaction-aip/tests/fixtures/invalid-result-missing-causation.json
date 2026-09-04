@@ -1,0 +1,10 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_result_no_causation",
+  "messageType": "result",
+  "name": "character.interaction.touch",
+  "source": { "kind": "session", "id": "session.home" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:00Z",
+  "payload": { "status": "accepted" }
+}

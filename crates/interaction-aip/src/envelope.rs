@@ -137,9 +137,11 @@ impl Envelope {
     pub fn validate(&self) -> Result<(), AipError> {
         crate::negotiate_version(&self.spec_version)?;
         if !self.message_type.is_known() {
+            // §5：訊息不回顯輸入。未知 type 的原字串是呼叫端可控、長度不受限的資料，
+            // 只留在 [`MessageType::Unknown`] 供本地稽核，不進 error message。
             return Err(AipError::new(
                 ErrorCode::UnsupportedMessageType,
-                format!("unknown messageType {}", self.message_type.as_str()),
+                "messageType is not one of the 12 known AIP message types",
             ));
         }
         check_id("messageId", &self.message_id)?;

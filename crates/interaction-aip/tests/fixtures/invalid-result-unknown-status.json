@@ -1,0 +1,11 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_result_unknown_status",
+  "messageType": "result",
+  "name": "character.interaction.touch",
+  "source": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:00Z",
+  "causationId": "msg_touch_1",
+  "payload": { "status": "totally-finished-trust-me" }
+}

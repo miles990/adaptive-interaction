@@ -9,4 +9,5 @@ publish = false
 interaction-tool-schema = { workspace = true }
 interaction-recipe = { workspace = true }
 interaction-character = { path = "../../crates/interaction-character" }
+interaction-aip = { workspace = true }
 serde_json = { workspace = true }

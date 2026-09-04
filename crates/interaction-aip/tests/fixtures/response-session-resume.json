@@ -1,0 +1,12 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_resume_reply_1",
+  "messageType": "response",
+  "name": "character.session.resume",
+  "source": { "kind": "session", "id": "session.home" },
+  "target": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:01Z",
+  "causationId": "msg_resume_1",
+  "payload": { "kind": "patches", "patches": [] }
+}

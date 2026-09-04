@@ -1,0 +1,13 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_touch_1",
+  "messageType": "event",
+  "name": "character.interaction.touch",
+  "source": { "kind": "device", "id": "iphone-87b42264" },
+  "target": { "kind": "session", "id": "session.home" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:00Z",
+  "correlationId": "flow_touch_1",
+  "expiresAt": "2026-09-04T12:30:05Z",
+  "payload": { "kind": "tap", "intensity": 0.4 }
+}

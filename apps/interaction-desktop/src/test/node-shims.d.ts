@@ -4,8 +4,12 @@
 // 宣告最小可用的 node 型別。正式程式碼不得使用這些模組。
 declare module "node:fs" {
   export function readFileSync(path: string, encoding: "utf8"): string;
+  export function readdirSync(path: string): string[];
 }
 
 declare module "node:path" {
   export function resolve(...parts: string[]): string;
+  export function join(...parts: string[]): string;
 }
+
+declare const __dirname: string;
