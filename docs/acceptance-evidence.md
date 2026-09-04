@@ -885,3 +885,93 @@ consent 仍是 TTL；首次設定在「檔案已寫、SQLite 未提交」之間�
 re-hello（macOS 行為，非缺陷）；故障注入接縫編進正式碼（inert、只會讓寫入失敗）；legacy agent token
 不能再 interrupt（刻意收斂，Breaking）；升級前的 gateway session 不可續開（Breaking）；外部 adapter
 輸入維持拒絕；stdio transport 仍未實作。
+
+## v0.6.0 Foundation（開發中；2026-09-05 記錄，HEAD `6683403`，分支 `feature/v0.6.0-foundation`）
+
+> 本節是**純文件任務**的產物：只讀 `rg`／`sed`／`cat` 與
+> `scratchpad/{baseline,wave1,wave2,wave3,hardening}/` 下 2026-09-04～09-05 的實跑 log 核實，
+> 未另外執行任何 `cargo`／`pnpm`／daemon／Playwright 指令。完整數字與逐項核實見
+> [`docs/releases/v0.6.0-test-matrix.md`](releases/v0.6.0-test-matrix.md)；修改前基線見
+> [`docs/releases/v0.6.0-baseline.md`](releases/v0.6.0-baseline.md)；九個子系統的 Phase 0 恢復矩陣見
+> [`docs/releases/v0.6.0-recovery-matrix.md`](releases/v0.6.0-recovery-matrix.md)。
+>
+> 下面依任務書 §21 定義的五個完成定義類別（架構／協定／跨裝置同步／保護既有能力／證據）逐條列
+> 「證據＝測試名／文件／截圖」或「未達／未驗」。任務書原文不在本 repo 版本控制內，以下條目由
+> 實際已提交並經回歸的工作回填五個類別，不引用任務書之外或尚未落地的項目。
+
+### 1. 架構——AIP 成為唯一跨裝置語意契約、小樞脫離協定核心
+
+| 完成定義 | 狀態 | 證據 |
+|---|---|---|
+| 新增純函式 `interaction-aip` crate（無 tokio／I/O），作為跨裝置語意契約的單一來源 | 達成 | `crates/interaction-aip`；14 個 lib 單元測試＋`tests/conformance.rs` 10 個；`tests/e2e/tests/dependency_boundaries.rs` 釘住不含 tokio／axum／tauri／transport 依賴（`dependency_boundaries` 2 passed，`rust-test.log`） |
+| Schema 單一來源：Rust 型別產生 golden schema，TS／Swift 由同一份 schema 產生（禁止手改、CI 擋漂移） | 達成 | `schemas/aip-1.0.schema.json`；`scripts/aip-codegen.mjs`；`pnpm aip:check` 在 wave1／wave2／wave3／hardening 四輪全部 exit 0（`aip-check.log`） |
+| `interaction-character`（CPP 核心）不再含任何小樞字串；小樞相關型別／遷移搬到新 crate `interaction-character-shu` | 達成 | `docs/aip/reference-character.md` §5 驗收清單；`rg -n -i 'shu|maid' crates/interaction-character/src` = 0 命中（文件內記錄的核實方式）；`interaction-character-shu` 7 個測試（conformance 1＋rig_pack 6） |
+| 桌面 TS 移除 entrypoint if-chain，改用 adapter 註冊表 | 達成 | `apps/interaction-desktop/src/character/adapterRegistry.ts`；`src/test/architecture-no-entrypoint-switch.test.ts`（4 個，讀原始碼鎖住不再有字面分岔）；`src/test/adapter-contract.test.ts`（31 個，四個內建 adapter 共同契約） |
+| 第二個 Reference Character（`ref-shape`）加入時，核心三個檔案（`interaction-character/src`、`character.rs`、`CompanionApp.tsx`）不新增任何分岔 | 達成 | `docs/aip/reference-character.md` §4；`src/test/character-ref-shape.test.ts`（9 個） |
+| 發布流程拆分為 prepare／verify／tag 三步，verify 是唯讀關卡 | 達成 | `scripts/release-prepare.sh`／`release-verify.sh`／`release-tag.sh`（CHANGELOG wave1 段記錄）；**本節未重新驗證這三支腳本本身的邏輯**（`v0.6.0-recovery-matrix.md` §2.9 已指出 release 相關腳本無專屬自動化測試，這是既有缺口非本輪新增） |
+| Runtime 掛載權威 Character Session 並綁定四種 transport（iPhone wire／HTTP／SSE／CLI） | 達成 | `interaction-runtime/tests/character_session_loop.rs`（17 passed）；`docs/aip/transport-bindings.md`；CLI `interact-ai character session status／diagnostics／resume` 子指令（CLI E2E Character Session 段 14 個斷言） |
+
+### 2. 協定——AIP 1.0 十二種 message type、誠實階梯、版本協商、離線政策
+
+| 完成定義 | 狀態 | 證據 |
+|---|---|---|
+| Envelope＋十二種 message type＋各自必填 profile | 達成 | `docs/aip/README.md` §1–2；`interaction_aip` 14 單元測試 |
+| 十二值 Outcome 誠實階梯（`received≠accepted≠applied≠observed≠claimed-completed≠verified`），`verified` 只能由 Runtime 產生 | 達成 | `docs/aip/README.md` §3；`interaction-session/tests/security_matrix.rs`（7 個）；iOS `SessionClientTests::testTheAppCanNeverBuildAVerifiedResult` |
+| 確定性版本協商（同 major、min minor）與確定性能力協商（交集＋min） | 達成 | `interaction_aip` 單元測試（版本協商／能力協商子集）；`docs/aip/README.md` §4 |
+| 身分綁定：宣稱不符一律拒絕，不「修正後執行」 | 達成 | `docs/aip/README.md` §5；`security_matrix.rs` 的 identity-mismatch 案例 |
+| 19 個穩定錯誤碼、有界去重環（256）、有界事件日誌（512）、訊息／payload／字串／深度上限 | 達成 | `docs/aip/README.md` §11–12；`interaction_aip` 單元測試逐一覆蓋上限 |
+| 離線事件政策表（drop-if-offline／expire-by-deadline／queue-idempotent／require-reconfirmation／state-reconcile） | 達成 | `docs/aip/README.md` §8；`interaction_aip::offline_policy(name)`；conformance fixture 覆蓋 |
+| 三方 conformance（Rust／TS／Swift）共用同一組 golden fixture | 達成 | Rust `conformance.rs` 10；TS `aip-conformance.test.ts` 73（實跑，非靜態 grep 的 11）；Swift `AIPConformanceTests` 14 |
+| 未知 message type／name／capability 誠實拒絕，不猜、不執行 | 達成 | CLI E2E「未知 message type 回 error{unsupported-message-type}，不執行」（Character Session 段最後一個斷言） |
+| CPP 既有契約不變（AIP 只投影，不改 CPP wire 語意） | 達成 | `docs/aip/README.md` §13 相容對照表；既有 `interaction-character` 測試套件（`gateway.rs` 37、`negotiation.rs` 16、`manifest.rs` 18）維持全綠 |
+
+### 3. 跨裝置同步——iPhone（模擬 fixture／模擬器）⇄ Desktop 的語意事件閉環
+
+| 完成定義 | 狀態 | 證據 |
+|---|---|---|
+| iPhone 送語意事件（touch）→ Desktop 權威狀態前進、Behavior Intent 回送 | 達成（**模擬 iPhone fixture＋模擬器**，非真機） | CLI E2E Character Session 段（14 斷言）；`character-session.spec.ts` 第一個 test＋`desktop-character-sync-synced.png` |
+| Desktop 真相變化（`task.verified`）→ iPhone 收到 celebrate Behavior Intent | 達成（單元／integration 層） | `interaction-session/tests/pure_functions.rs`（Director `task.verified→proud+celebrate` 案例）；`docs/aip/README.md` §13。**沒有端到端 UI 截圖直接誘發並驗證這條路徑**（見 `v0.6.0-test-matrix.md` §6） |
+| 斷線→重連→resume（delta patch 優先，超出日誌環才 snapshot fallback） | 達成 | CLI E2E（斷線／重連／resume 兩層）；`perf-session-after.json` 的 `reconnectResumeKind:"patches"`、`reconnectToResumedMs` 5.7 ms；`docs/assets/v06-evidence/desktop-character-sync-offline.png` |
+| 撤銷裝置後需要重新確認，不自動恢復同步 | 達成 | `character-session.spec.ts` 撤銷段落＋`desktop-character-sync-needs-reconfirmation.png` |
+| 緊急停止中，觸摸被拒且畫面誠實顯示緊急狀態 | 達成 | `character-session.spec.ts` 第三個 test＋`desktop-character-sync-emergency.png`（僅桌面寬度；390px 版本未產出，見已知限制） |
+| iOS 原生 App（非 Web）能作為 `remote-renderer` 加入 session | 達成（**iOS 模擬器**） | `apps/interaction-ios/InteractionCompanion/Services/SessionClient.swift`；`SessionClientTests` 28 個；`ios-sim-character-session-synced.png`／`ios-sim-character-session-advanced-diagnostics.png` |
+| iPhone **真機**上的完整閉環 | **未達（implemented-unverified）** | 零執行；`docs/releases/v0.5.0-iphone-device-evidence.md`／`v0.5.1-iphone-device-evidence.md` 是舊協定路徑的真機證據，**不涵蓋 AIP／Character Session** |
+| 多裝置同時連線同一 session | **未驗** | `interaction-session` 的 members 表設計上支援，但本輪所有測試都只用單一 fixture／模擬器裝置 |
+
+### 4. 保護既有能力——v0.5.1 的不變量在重構後仍然成立
+
+| 完成定義 | 狀態 | 證據 |
+|---|---|---|
+| 全部既有 Rust／Tauri／vitest／CLI E2E／Playwright／iOS 套件通過數只增不減 | 達成 | `v0.6.0-test-matrix.md` §2：Rust 827→985、Tauri 50→54、vitest 1168→1366、CLI E2E 82→96、Playwright 65→71、iOS 46→92，四個 wave 逐輪 0 failed |
+| 一般模式主入口維持五個，角色同步不是第六個入口 | 達成 | `src/test/regressions-v06-general-mode.test.tsx`（10 個，`SIMPLE_NAV` 長度與 id 鎖死）；`docs/aip/general-mode-ux.md` §1 |
+| 小樞 rig／sprite／text 三個 adapter 對 20 個 CPP intent 的協商結果不變 | 達成 | `intent_capabilities_golden.rs`（1，golden 測試，未變則 diff 為空） |
+| iPhone 線協定 v1 訊息對舊 App 保持相容（未知 `type` 只記錄不執行） | 達成 | `docs/aip/README.md` §9.1；`mobile_loop.rs` 68 passed（基線 64→+4，新增案例而非改動既有案例） |
+| 配對指紋、每機 token、revoke 即斷線、estop 傳播 stop-all、感測不靜默 | 達成 | 沿用 v0.5.1 既有測試套件（`mobile_loop.rs`／`estop_parallel.rs` 等），本輪未修改這些不變量的實作 |
+| `claimed-completed ≠ verified`；綠勾只在 verified；emergency 文案固定 | 達成 | `security_matrix.rs`；既有 `agents_loop.rs`／`gateway_loop.rs` 全數維持通過 |
+| `git diff --check`（尾隨空白／檔尾格式）全程乾淨 | 達成（wave1 一次性例外已修） | wave1 曾因新文件檔尾多一行空白 exit 2，wave2 起全部 exit 0（`v0.6.0-test-matrix.md` §2 wave1 備註） |
+
+### 5. 證據——誠實分級、不誇大、可重現
+
+| 完成定義 | 狀態 | 證據 |
+|---|---|---|
+| 每個測試數字可追溯到實跑 log，而非靜態 grep 估計 | 達成 | `v0.6.0-test-matrix.md` 全篇引用 `scratchpad/{wave1,wave2,wave3,hardening}/*.log`；文件內明確指出 `aip-conformance.test.ts` 靜態 grep（11）與實跑（73）的落差，採實跑數字 |
+| fixture／模擬器與真機分開標示，fixture 一律標「模擬 iPhone（fixture）」 | 達成 | 本節與 `v0.6.0-test-matrix.md` 全篇對 iPhone 相關證據逐項標註「模擬 iPhone（fixture）」或「iOS 模擬器」；未發現任何一處把 fixture／模擬器結果寫成真機 |
+| 效能量測前後對照，觀察項不宣稱結論 | 達成 | `v0.6.0-test-matrix.md` §5：daemon／Session／角色渲染三段前後數字；`resumeMs` 5000.4 ms 的量測缺陷誠實記錄為「不採用」而非隱藏 |
+| Playwright／CLI E2E 意外中止（記憶體不足）誠實記錄，不隱瞞重跑過程 | 達成 | `v0.6.0-test-matrix.md` §2「Playwright 重跑備註」：第一輪 `regress.sh` 在 CLI E2E／Playwright 附近因系統記憶體不足中止，log 被重跑覆寫，改用 `regress-tail.sh` 以 `--workers=1` 重跑成功 |
+| 對抗審查（`.claude/workflows/adversarial-review-v06.js`）執行並處置 | **本節未涵蓋** | workflow 已建立（`3483abf`），執行與 find→verify 結果由並行 agent 群負責，其結果不在本次純文件任務範圍內；若已產出報告，應在本節之後由後續 commit 補上（比照 v0.5.1 節「對抗審查」小節的格式） |
+| 已知限制與 CHANGELOG 同步更新 | **部分達成** | CHANGELOG `[Unreleased]` 目前只記錄到 wave1 的落地事實（`336a6b6`），wave2／wave3／hardening 尚未補寫；本節與 `v0.6.0-test-matrix.md` 是本輪能提供的最新事實來源 |
+
+### 已知限制（v0.6.0 Foundation，2026-09-05 誠實聲明；HEAD `6683403`）
+
+沿用並疊加 `v0.6.0-recovery-matrix.md` 盤點出的既有缺口（`superseded` 分支無測試、CLI
+`mobile pair/revoke/status` 子指令無自動化測試、`release.sh`／CI／Release workflow 無自動化測試、
+Memory 子系統缺 browser／真視窗覆蓋等，詳見該文件 §2／§4），本輪新增的窄限制：
+
+iPhone 真機上的 AIP／Character Session 完整閉環零執行（implemented-unverified，與舊協定路徑的真機
+證據不是同一層）；Desktop→iPhone `task.verified→celebrate` 缺端到端 UI 截圖；緊急停止場景只有桌面寬度
+截圖、390px 版本缺；多裝置同時連線同一 session 未覆蓋；真 Tauri 視窗（而非 Playwright／jsdom）尚未針對
+同步卡與十種狀態文案重新走查一次；角色渲染效能量測仍只在 headless Chromium，非 Tauri WKWebView 或真機；
+`perf-session-after.json` 的 `resumeMs` 欄位（5000.4 ms）是量測腳本缺陷，不代表真實 resume 延遲；
+真 `codex`／`claude` 二進位對接 AIP／Character Session 仍未跑（沿用既有 fixture agent）；對抗審查
+（`adversarial-review-v06.js`）執行結果不在本節範圍內；CHANGELOG 的 v0.6.0 段落只記到 wave1，wave2／
+wave3／hardening 的落地事實尚未回填。

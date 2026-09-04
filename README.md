@@ -104,10 +104,13 @@ v0.4 的 Capability Matrix（**25/25 complete**）衡量的是治理平台的完
 [`docs/capability-completion-matrix.md`](docs/capability-completion-matrix.md) 與
 [`docs/v04-final-machine-evidence.md`](docs/v04-final-machine-evidence.md)。
 
-## v0.5（角色・硬體・AI 三核心重定位）——v0.5.0 已於 2026-09-03、v0.5.1 已於 2026-09-04 發布
+## v0.5（角色・硬體・AI 三核心重定位）——**v0.5.1 已發布；v0.6.0 Foundation 開發中**
 
 **v0.5.0 已於 2026-09-03 發布**（tag `v0.5.0`）；`main`／`release/v0.5.1-product-hardening` 上的
-**v0.5.1 修補版本已於 2026-09-04 發布（tag `v0.5.1`）**。v0.5 **不沿用** 25/25 的完成度敘述；它的誠實基線與收尾狀態在
+**v0.5.1 修補版本已於 2026-09-04 發布（tag `v0.5.1`）**。**v0.6.0 Foundation 目前在
+`feature/v0.6.0-foundation` 分支開發中、尚未發布**：AIP 1.0 最小協定、權威 Character Session、
+小樞脫離協定核心，見下方「AIP 1.0 與 Character Session」小節與
+[`docs/releases/v0.6.0-test-matrix.md`](docs/releases/v0.6.0-test-matrix.md)。v0.5 **不沿用** 25/25 的完成度敘述；它的誠實基線與收尾狀態在
 [`docs/v05-capability-gap-matrix.md`](docs/v05-capability-gap-matrix.md)（v0.5.1 修補見 §13），
 Phase 7 的逐條恢復矩陣在 [`docs/v05-recovery-matrix.md`](docs/v05-recovery-matrix.md)。重點：
 
@@ -139,6 +142,26 @@ Phase 7 的逐條恢復矩陣在 [`docs/v05-recovery-matrix.md`](docs/v05-recove
   [`v0.5.1-migration.md`](docs/releases/v0.5.1-migration.md)、
   [`v0.5.1-final-report.md`](docs/releases/v0.5.1-final-report.md)、
   [`v0.5.1-iphone-device-evidence.md`](docs/releases/v0.5.1-iphone-device-evidence.md)。
+
+## AIP 1.0 與 Character Session（v0.6.0 Foundation，開發中）
+
+**Adaptive Interaction Protocol（AIP）1.0** 是唯一的跨裝置語意訊息契約：新 crate
+`crates/interaction-aip`（純函式、無 tokio／I/O）定義 versioned envelope、十二種 message type、
+十二值 Outcome 誠實階梯（`received≠accepted≠applied≠observed≠claimed-completed≠verified`）、
+確定性版本與能力協商、身分綁定、離線事件政策與 19 個穩定錯誤碼；schema 由 Rust 型別產生
+（golden：`schemas/aip-1.0.schema.json`），TypeScript 與 Swift 由同一份 schema 產生、CI 擋手改漂移。
+新 crate `crates/interaction-session` 是**權威 Character Session**：確定性 Director（touch→反應、
+`task.verified`→celebrate、emergency→凍結）、單調 revision／sequence、RFC 7396 patch＋SHA-256
+state hash、有界事件日誌 delta replay／snapshot fallback、十三關安全管線；掛在 Runtime 上並綁定
+iPhone wire、HTTP、SSE、Tauri IPC 四種 transport。小樞同步作為 **Strangler 重構**脫離協定核心：
+`interaction-character`（CPP 核心）不再含任何小樞字串，小樞邏輯搬到新 crate
+`interaction-character-shu`；第二個 Reference Character `ref-shape`（純幾何角色）證明核心對新角色
+零分岔。**全部經過模擬 iPhone（fixture）與 iOS 模擬器驗證，iPhone 真機上的 AIP／Character Session
+閉環尚未執行（implemented-unverified）**。契約與逐項證據：
+[`docs/aip/README.md`](docs/aip/README.md)（唯一契約）、
+[`docs/aip/character-session.md`](docs/aip/character-session.md)、
+[`docs/aip/general-mode-ux.md`](docs/aip/general-mode-ux.md)、
+[`docs/releases/v0.6.0-test-matrix.md`](docs/releases/v0.6.0-test-matrix.md)。
 
 ## 安裝（3 分鐘）
 
@@ -204,6 +227,8 @@ interact-ai self uninstall --yes     # 移除（--purge 連設定資料一起刪
 | **[Reference Adapters 導覽](docs/character-protocol/reference-adapters.md)** | 小樞 rig／sprite／文字／外部 WebSocket fixture 各走一遍 |
 | **[v0.5.0 發布就緒](docs/releases/v0.5.0-release-readiness.md)** | 發布關卡清單、測試矩陣、已知限制、iPhone 真機證據、遷移指南（`docs/releases/`） |
 | **[v0.5.1 發布文件](docs/releases/v0.5.1-release-readiness.md)** | v0.5.1 的 20 道發布關卡（發布後全數 met，關卡 20 附範圍備註）；同一資料夾另有 [測試矩陣](docs/releases/v0.5.1-test-matrix.md)（含真 Tauri 視窗驗收表）、[已知限制](docs/releases/v0.5.1-known-limitations.md)、[遷移指南](docs/releases/v0.5.1-migration.md)、[最終交付報告](docs/releases/v0.5.1-final-report.md)、[iPhone 真機證據（blocked）](docs/releases/v0.5.1-iphone-device-evidence.md) |
+| **[AIP 1.0（Adaptive Interaction Protocol）](docs/aip/README.md)** | v0.6.0 唯一的跨裝置語意契約：envelope／message type／Outcome 誠實階梯／版本與能力協商／離線政策／錯誤碼；同一資料夾另有 [Character Session 協定](docs/aip/character-session.md)、[iPhone Companion 手機端](docs/aip/iphone-companion.md)、[一般模式同步 UX](docs/aip/general-mode-ux.md)、[Transport bindings](docs/aip/transport-bindings.md)、[配對安全](docs/aip/pairing-security.md)、[隱私](docs/aip/privacy.md)、[威脅模型](docs/aip/threat-model.md)、[架構邊界](docs/aip/architecture-boundaries.md)、[Reference Character（`ref-shape`）](docs/aip/reference-character.md)、[相容矩陣](docs/aip/compatibility.md)、[Conformance](docs/aip/conformance.md) |
+| **[v0.6.0 Foundation 文件（開發中）](docs/releases/v0.6.0-test-matrix.md)** | 測試矩陣（四個 wave 逐輪數字＋新增測試清單＋效能前後對照＋未執行清單）；同一資料夾另有 [修改前基線](docs/releases/v0.6.0-baseline.md)、[Phase 0 恢復矩陣](docs/releases/v0.6.0-recovery-matrix.md)、[遷移指南](docs/releases/v0.6.0-migration.md) |
 | **[更新日誌](CHANGELOG.md)** | 版本歷史（語意化版本） |
 
 ## 核心設計理念
@@ -291,6 +316,9 @@ Observation 嚴格分離 facts（可觀察事實）與 inferences（模型推論
 | API / CLI | `crates/interaction-api`、`crates/interaction-cli` | axum＋SSE；`interact-ai`（client＋daemon＋self 管理） |
 | Adapter SDK | `crates/interaction-adapter-sdk`、`adapters/builtin` | 第三方 driver 介面＋內建受器/動器 |
 | 角色協定 | `crates/interaction-character`、`apps/interaction-desktop/src/character` | Character Presentation Protocol 1.0：純函式 Gateway＋manifest／協商／intent／receipt；TS 鏡射＋in-process gateway＋reference adapters |
+| 跨裝置語意契約（v0.6.0） | `crates/interaction-aip` | AIP 1.0：純函式 envelope／message type／Outcome 誠實階梯／版本與能力協商／離線政策；golden schema 來源 |
+| 權威 Character Session（v0.6.0） | `crates/interaction-session` | 純函式：語意狀態、確定性 Director、revision／sequence、RFC 7396 patch＋hash、十三關安全管線 |
+| 小樞 Reference Adapter（v0.6.0） | `crates/interaction-character-shu` | 從 `interaction-character` 拆出的小樞專屬型別／rig-pack 遷移，核心不再含任何小樞字串 |
 | 桌面 | `apps/interaction-desktop` | Tauri 2＋React；與 CLI/API 共用同一套 application services |
 | Skill | `skills/orchestrate-adaptive-interaction` | 跨 AI Agent Skill（開放格式） |
 

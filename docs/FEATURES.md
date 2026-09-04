@@ -183,3 +183,78 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 - **一般模式狀態投影**：所有工作／收件匣狀態走同一份 exhaustive 人話表；未知原始值顯示「結果不確定」而非原始字串。
 - 測試：以 `docs/acceptance-evidence.md` v0.5 最新章節（Phase 9）與 `docs/releases/v0.5.0-test-matrix.md`
   的實跑數字為準；詳見 `docs/acceptance-evidence.md` v0.5 章節與 `docs/v05-recovery-matrix.md`。
+
+## v0.6.0 Foundation（開發中；分支 `feature/v0.6.0-foundation`，HEAD `6683403`，尚未發布）
+
+> 保守、可回退的架構升級：先建立修改前基線與恢復矩陣，再以 Strangler／feature flag 逐條路徑替換，
+> 不重寫既有功能。本節只記錄**已提交並經回歸**的事實，逐項標「證據等級」（單元／integration／fixture／
+> 模擬器／browser／real-device），**沒有任何一項標成真機**——iPhone 真機上的 AIP／Character Session
+> 閉環目前是 implemented-unverified。完整數字見 `docs/releases/v0.6.0-test-matrix.md`；契約見
+> `docs/aip/README.md`。
+
+- **AIP 1.0（Adaptive Interaction Protocol）**：新 crate `interaction-aip`（純函式、無 tokio／I/O）——
+  versioned envelope、十二種 message type 與各自的必填 profile、十二值 Outcome 誠實階梯（`received≠
+  accepted≠applied≠observed≠claimed-completed≠verified`）、19 個穩定錯誤碼、確定性版本協商（同 major、
+  min minor）與確定性能力協商（交集＋min）、身分綁定（宣稱不符一律拒絕，不「修正後執行」）、有界去重環
+  （256）、離線事件政策表（drop-if-offline／expire-by-deadline／queue-idempotent／require-reconfirmation／
+  state-reconcile）、canonical JSON hash 與訊息／payload／字串／深度上限。schema 由 Rust 型別產生（golden：
+  `schemas/aip-1.0.schema.json`），TypeScript 與 Swift 由同一份 schema 產生、`pnpm aip:check` 擋手改漂移。
+  三方（Rust／TS／Swift）共用同一組 golden fixture 做 conformance。
+  **證據等級：單元**（`interaction-aip` 14 個 lib 測試＋`tests/conformance.rs` 10 個；TS
+  `aip-conformance.test.ts` 73 個實跑＋`aip-envelope.test.ts` 22 個；Swift `AIPConformanceTests` 14 個，
+  iPhone 17 **模擬器**）。契約：`docs/aip/README.md`。
+- **權威 Character Session**：新 crate `interaction-session`（純函式）——語意狀態（mood／activity／
+  attention／truth／lastInteraction／members）與唯一 owner、確定性 Director（touch→反應 intent；
+  `task.verified`→proud＋celebrate；emergency→凍結且拒絕互動）、單調 revision／sequence、RFC 7396 JSON
+  Merge Patch＋SHA-256 state hash、有界事件日誌（512）delta replay／snapshot fallback、epoch-aware
+  resume、每成員去重環、deadline 過期、rate limit、membership／presence、十三關固定順序安全管線、CPP 投影
+  （celebrate 不投影到桌面，避免與既有 `verified-success` 雙播）。掛在 Runtime 上，綁定 iPhone wire、
+  HTTP、SSE、Tauri IPC 四種 transport。
+  **證據等級：單元**（`interaction-session` 77 個：lib 14＋`pure_functions.rs` 13＋`security_matrix.rs`
+  7＋`session.rs` 43）**＋integration**（`character_session_loop.rs` 17 個，真 Runtime）。契約：
+  `docs/aip/character-session.md`。
+- **iPhone 語意事件閉環**：iPhone（模擬 fixture／模擬器）送 touch → Desktop 權威狀態前進、Behavior Intent
+  回送；Desktop 真相變化（`task.verified`）→ iPhone 收到 celebrate Behavior Intent；斷線→重連→resume
+  優先送 delta patch（超出 512 筆事件環才 snapshot fallback）；撤銷裝置後需重新確認、不自動恢復同步；
+  緊急停止中觸摸一律被拒。iOS 端新增 `SessionClient.swift`（純函式決策）＋`CharacterSemantic.swift`
+  （語意狀態鏡射／RFC 7396 merge patch／canonical hash），手機是 `remote-renderer`，不擁有任何共享狀態，
+  且**永遠宣告 `haptic:false`**（震動只走受 Policy Governor 管的動器路徑，Behavior Intent 不得自己讓
+  手機震動）。
+  **證據等級：fixture（模擬 iPhone）＋integration**（CLI E2E「Character Session」段 14 個斷言：配對→
+  協商→touch→revision 前進→重複 messageId 不重套用→斷線→重連→resume→未知 type 誠實拒絕）
+  **＋browser**（Playwright `character-session.spec.ts` 4 個：桌面寬度全流程、390px 同流程、緊急停止中
+  觸摸被拒、鍵盤可達＋Reduced Motion；`docs/assets/v06-evidence/` 9 張截圖）**＋iOS 模擬器**
+  （`SessionClientTests` 28 個＋`ios-sim-character-session-*.png`）。**iPhone 真機上的完整閉環零執行
+  （implemented-unverified）**；Desktop→iPhone celebrate 這條路只有單元／integration 證據，沒有端到端
+  UI 截圖；多裝置同時連線同一 session 未覆蓋。契約：`docs/aip/iphone-companion.md`、
+  `docs/aip/transport-bindings.md`。
+- **小樞脫離協定核心＋第二個 Reference Character（`ref-shape`）**：Strangler 重構——
+  `crates/interaction-character`（CPP 核心）不再含任何小樞字串，`SHU_RIG_VARIANTS`／
+  `shu_rig_capabilities()`／rig-pack 遷移搬到新 crate `interaction-character-shu`；核心新增
+  `PackMigrator` trait 與有界 `MigrationRegistry`（sprite 遷移留在核心，小樞遷移移出）；
+  `ValidationLimits::default().builtin_whitelist` 改為空，host 必須注入（Runtime
+  `character_host_registry()`：shu-rig／shape／sprite／text）；桌面 TS 的 `character/adapterRegistry.ts`
+  取代 entrypoint if-chain，四個內建 adapter 各自註冊並共用同一套生命週期契約。新增第二個
+  Reference Character `ref-shape`（純幾何圓形，只有 visual.presence／visual.expression／input.click，
+  無耳尾、無音效、無玩具）證明核心對新角色零分岔：加入它只動 manifest、adapter、兩個 host 白名單清單、
+  測試與文件。
+  **證據等級：單元**（`interaction-character-shu` 7 個：conformance 1＋rig_pack 6；
+  `migration_registry.rs` 10 個；`character_host_registry.rs` 4 個；TS
+  `architecture-no-entrypoint-switch.test.ts` 4 個讀原始碼鎖住不再有字面分岔、`adapter-contract.test.ts`
+  31 個、`character-ref-shape.test.ts` 9 個；Tauri backend +4）。契約：`docs/aip/reference-character.md`。
+- **一般模式同步狀態**：角色同步**不是**第六個一級入口——主入口永遠恰好五個（現在／〔角色名〕／工作／
+  連接與權限／更多），角色同步住在第二個入口的頁內「同步」卡。十種狀態窮舉文案表（`synced`／
+  `reconnecting`／`offline`／`partial-capability`／`syncing`／`unrecoverable`／`needs-reconfirmation`／
+  `no-device`／`disabled`／`store-reset`），`satisfies Record<CharacterSyncState, …>` 保證少一個狀態就
+  typecheck 失敗；空狀態（`no-device`）是中性色不是成就，不出現綠色徽章；一般模式**會**讀
+  `GET /v1/character-session/diagnostics` 但不顯示任何數字，連接診斷收合區塊只在進階模式出現；
+  緊急停止的固定安全句永遠壓過同步狀態文案。
+  **證據等級：單元**（TS `statusProjection-session.test.ts` 24 個、`character-sync-card.test.tsx` 16 個、
+  `regressions-v06-general-mode.test.tsx` 10 個五入口守門測試）**＋browser**（Playwright `narrow.spec.ts`
+  ／`a11y.spec.ts` 各 +1 個同步卡相關案例）。**真 Tauri 視窗**（而非 Playwright／jsdom）尚未針對同步卡
+  重新走查一次，屬本輪已知缺口。契約：`docs/aip/general-mode-ux.md`。
+- 回歸總數（HEAD `6683403`，四個 wave 疊加後）：Rust 985/0（82 target，基線 827／66）、Tauri 54/0（基線
+  50）、vitest 1366/0（68 檔，基線 1168／60）、CLI E2E 96/0（基線 82）、Playwright 71/0（基線 65）、iOS
+  XCTest 92/0（基線 46）；ESP32／iPhone 真機本輪未動、沿用 v0.5.1 邊界句。逐項數字、效能前後對照與
+  未執行清單見 `docs/releases/v0.6.0-test-matrix.md`；完成定義逐條核對見 `docs/acceptance-evidence.md`
+  「v0.6.0 Foundation」章節。
