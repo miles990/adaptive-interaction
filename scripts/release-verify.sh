@@ -40,16 +40,11 @@ PY
 
 ! git rev-parse "$TAG" >/dev/null 2>&1; gate "tag $TAG does not exist yet" $?
 
-python3 - <<'PY'; gate "golden schemas embed $VERSION" $?
-import json, sys, os, re
-v = re.search(r'^version = "([^"]+)"', open("Cargo.toml").read(), re.M).group(1)
-ok = True
-for name in os.listdir("schemas"):
-    if name.endswith(".json"):
-        s = open(os.path.join("schemas", name)).read()
-        if '"version"' in s and v not in s:
-            ok = False
-sys.exit(0 if ok else 1)
+python3 - "$VERSION" <<'PY'; gate "openapi.json info.version == $VERSION" $?
+import json, sys
+v = sys.argv[1]
+info = json.load(open("schemas/openapi.json")).get("info", {})
+sys.exit(0 if info.get("version") == v else 1)
 PY
 
 # secret 掃描（tracked 檔案）：私鑰、GitHub token、Anthropic／OpenAI key 形狀。
