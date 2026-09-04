@@ -9,6 +9,7 @@
 | `adversarial-review-adaptive-interaction.js` | v0.3 治理核心（policy／receipt／async／API／recipe） | 回傳值 |
 | `adversarial-review-v04.js` | v0.4 子系統（presentation／gateway／memory／knowledge／curator／前端） | 回傳值 |
 | `adversarial-review-v05.js` | v0.5 三核心＋角色呈現協定，13 維度、blocker/high 雙視角驗證 | 回傳值＋`docs/reviews/adversarial/<runId>.{json,md}` |
+| `adversarial-review-v06.js` | v0.6.0 Foundation：AIP／Session／身分／配對遷移／角色包／renderer 生命週期／一般模式／證據／重連／邊界／發布 12 維度（規格＝`docs/aip/README.md`） | 回傳值＋`docs/reviews/adversarial/<runId>.{json,md}` |
 
 ## 所需 runtime
 
