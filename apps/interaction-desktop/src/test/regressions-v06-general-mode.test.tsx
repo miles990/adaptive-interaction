@@ -86,6 +86,10 @@ describe("守門：一般模式沒有技術詞", () => {
               party: { kind: "device", id: "iphone-87b42264" },
               role: "remote-renderer",
               presence: "online",
+              // 協商結果齊全（每個 host intent 都演得出來）才有資格給綠色「已同步」；
+              // 沒有這個欄位時卡片只會說「已連接，能力核對中」
+              //（對抗審查 capability-consent-052／general-mode-ux-022）。
+              negotiated: { intents: { "react-happily-to-touch": "exact", celebrate: "exact", settle: "exact", idle: "exact" } },
             },
           ],
           lastInteraction: {
@@ -140,6 +144,7 @@ describe("守門：誠實階梯不因為同步卡而鬆動", () => {
       remote: true,
       presence,
       canPresent: true,
+      degraded: false,
     });
     const snapshot = { payload: { state: { truth: { state: "none" }, members: [] } } };
     const signals = {

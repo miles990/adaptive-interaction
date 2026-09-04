@@ -2,6 +2,7 @@
 
 import { test, expect } from "@playwright/test";
 import { appUrl } from "./helpers";
+import { CHARACTER_SYNC_PROJECTION } from "../src/statusProjection";
 
 test.use({ viewport: { width: 390, height: 844 } });
 
@@ -99,19 +100,14 @@ test("390px：角色頁的「同步」卡看得到、不溢出，而且空狀態
   await card.scrollIntoViewIfNeeded();
   await expect(card).toBeVisible({ timeout: 20_000 });
   // 這一支跑在共用 daemon 上，前面的 spec 可能配對過或撤銷過手機——所以不假設
-  // 是哪一種狀態，只驗「一定是九句人話之一」，而且綠勾只給真的已同步。
+  // 是哪一種狀態，只驗「一定是投影表裡的其中一句人話」，而且綠勾只給真的已同步。
+  //
+  // 允許清單直接從 CHARACTER_SYNC_PROJECTION 導出，不再手抄：手抄的那一份漏掉了
+  // 「角色同步紀錄曾損毀，已重新開始」，於是那一態真的出現時 e2e 會誤判為失敗，
+  // 而不是驗證它（對抗審查 evidence-honesty-015）。
   const headline = await card.locator(".badge").first().innerText();
-  expect([
-    "iPhone 已連接，角色狀態已同步",
-    "iPhone 正在重新連線",
-    "iPhone 暫時離線",
-    "部分能力目前不可用",
-    "同步尚未完成",
-    "無法恢復，請重新連接",
-    "需要重新確認裝置",
-    "尚未連接 iPhone",
-    "角色同步目前關閉",
-  ]).toContain(headline.trim());
+  const allowed = Object.values(CHARACTER_SYNC_PROJECTION).map((p) => p.headline);
+  expect(allowed).toContain(headline.trim());
   if (headline.trim() !== "iPhone 已連接，角色狀態已同步") {
     await expect(card.locator(".badge-ok")).toHaveCount(0);
   }

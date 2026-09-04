@@ -166,19 +166,21 @@ describe("Manifest 驗證（§2.1）", () => {
   it("惡意資產路徑：../、絕對、磁碟代號、反斜線、URL、~ 全部拒絕", () => {
     const bad = ["../secret.png", "/etc/passwd", "C:\\Windows\\x.png", "art\\sheet.png", "https://evil.example/x.png", "file:///x", "~/x.png", "a/../b.png"];
     for (const path of bad) {
-      const r = validateCharacterManifest(baseManifest({ assets: [{ id: "a", path }] }));
+      const r = validateCharacterManifest(baseManifest({ assets: [{ id: "a", path, mediaType: "image/png" }] }));
       expect(r.ok, path).toBe(false);
     }
-    expect(validateCharacterManifest(baseManifest({ assets: [{ id: "a", path: "sub/dir/ok.png" }] })).ok).toBe(true);
+    expect(validateCharacterManifest(baseManifest({ assets: [{ id: "a", path: "sub/dir/ok.png", mediaType: "image/png" }] })).ok).toBe(true);
   });
 
   it("assets > 64 項、單一資產超過 maxAssetBytes、maxAssetBytes > 32 MB 拒絕", () => {
-    const many = Array.from({ length: 65 }, (_, i) => ({ id: `a${i}`, path: `a${i}.png` }));
+    const many = Array.from({ length: 65 }, (_, i) => ({ id: `a${i}`, path: `a${i}.png`, mediaType: "image/png" }));
     expect(validateCharacterManifest(baseManifest({ assets: many })).ok).toBe(false);
-    expect(validateCharacterManifest(baseManifest({ assets: [{ id: "a", path: "a.png", bytes: 9_000_000 }] })).ok).toBe(false);
+    expect(validateCharacterManifest(baseManifest({ assets: [{ id: "a", path: "a.png", mediaType: "image/png", bytes: 9_000_000 }] })).ok).toBe(false);
     expect(validateCharacterManifest(baseManifest({ resourceLimits: { maxAssetBytes: 64 * 1024 * 1024 } })).ok).toBe(false);
     expect(
-      validateCharacterManifest(baseManifest({ resourceLimits: { maxAssetBytes: 16_000_000 }, assets: [{ id: "a", path: "a.png", bytes: 9_000_000 }] })).ok
+      validateCharacterManifest(
+        baseManifest({ resourceLimits: { maxAssetBytes: 16_000_000 }, assets: [{ id: "a", path: "a.png", mediaType: "image/png", bytes: 9_000_000 }] })
+      ).ok
     ).toBe(true);
   });
 

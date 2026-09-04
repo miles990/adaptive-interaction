@@ -75,6 +75,8 @@ const ASSET_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const URL_SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 const DRIVE_RE = /^[a-zA-Z]:/;
 const SHA256_RE = /^[a-f0-9]{64}$/i;
+/** §2.1 media type：與 Rust `is_media_type()` 同一套（全小寫，不接受大寫）。 */
+const MEDIA_TYPE_RE = /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/;
 const MAX_ERRORS = 64;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -567,14 +569,14 @@ function checkAssets(c: Collector, value: unknown, maxAssetBytes: number): Asset
       c.err(`assets[${i}].${issue}`);
       return;
     }
-    const asset: AssetDecl = { id: a.id, path: a.path as string };
-    if (a.mediaType !== undefined) {
-      if (typeof a.mediaType !== "string" || !/^[a-z]+\/[a-z0-9.+-]{1,64}$/i.test(a.mediaType)) {
-        c.err(`assets[${i}].mediaType invalid`);
-        return;
-      }
-      asset.mediaType = a.mediaType.toLowerCase();
+    // §2.1：mediaType 必填，且用與 Rust `is_media_type()` 同一套規則（全小寫的
+    // `<kind>/<sub>`）。兩邊只要有一邊寬鬆，就會出現「這裡說合法、那裡說不合法」
+    // 的跨語言分岔（對抗審查 character-package-020）。
+    if (typeof a.mediaType !== "string" || !MEDIA_TYPE_RE.test(a.mediaType)) {
+      c.err(`assets[${i}].mediaType invalid`);
+      return;
     }
+    const asset: AssetDecl = { id: a.id, path: a.path as string, mediaType: a.mediaType };
     if (a.bytes !== undefined) {
       if (!Number.isInteger(a.bytes) || (a.bytes as number) < 0) {
         c.err(`assets[${i}].bytes must be a non-negative integer`);

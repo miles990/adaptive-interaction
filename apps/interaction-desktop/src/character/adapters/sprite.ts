@@ -9,6 +9,11 @@
 // 輸入：宣告 input.click／drag／drop／text／fileDrop，但指標接線留給 host——host 透過
 // emitInput() 把事件餵進來（Gateway 再正規化）。
 
+import {
+  machineEventForAnimation,
+  type MixerPort,
+  type Transient,
+} from "../../companion/machine";
 import { SpriteRenderer, type PackManifest, type RendererBackend } from "../../companion/renderer";
 import type { AdapterHost, AdapterInputEvent, CharacterAdapter, ReceiptSink } from "../adapter";
 import { migratePackToManifest, resolveAssetUrl } from "../manifest";
@@ -30,6 +35,12 @@ export interface SpriteAdapterOptions {
   canvas?: HTMLCanvasElement;
   /** 測試／其他後端可注入；省略且有 canvas 時建立 SpriteRenderer。 */
   renderer?: RendererBackend;
+  /**
+   * 共享混音器（host 正式接線一定有）。`renderer.setAnimation` 只是把事件丟進這台
+   * machine，機器會依 TRANSIENT_PRIORITY 決定誰上台；沒有它就無從得知自己有沒有
+   * 上台，只能誠實把每一則都當成上台（對抗審查 renderer-lifecycle-030）。
+   */
+  mixer?: Pick<MixerPort, "state">;
   scale?: number;
 }
 
@@ -38,6 +49,20 @@ interface ActiveCommand {
   completeAt: number;
   sink: ReceiptSink;
   resolution: SpriteResolution;
+  /** 這則命令佔著的 transient；混音器換人就代表被搶佔（null＝無混音器可對照）。 */
+  watch: Watch | null;
+}
+
+/** 「我請求的那個 transient」——用來比對混音器目前台上的是不是同一個。 */
+interface Watch {
+  kind: Transient["kind"];
+  animation: string | undefined;
+  verified: boolean | undefined;
+}
+
+function transientMatches(t: Transient | null, w: Watch): boolean {
+  if (!t) return false;
+  return t.kind === w.kind && (t.animation ?? undefined) === w.animation && (t.verified ?? undefined) === w.verified;
 }
 
 export class SpriteCharacterAdapter implements CharacterAdapter {
@@ -46,6 +71,7 @@ export class SpriteCharacterAdapter implements CharacterAdapter {
   private readonly sheetUrl: string;
   private readonly canvas: HTMLCanvasElement | null;
   private renderer: RendererBackend | null;
+  private readonly mixer: Pick<MixerPort, "state"> | null;
   private readonly ownsRenderer: boolean;
   private readonly scale: number;
   private host: AdapterHost | null = null;
@@ -65,6 +91,7 @@ export class SpriteCharacterAdapter implements CharacterAdapter {
     this.sheetUrl = sheet ? resolveAssetUrl(opts.assetBase, sheet) : `${opts.assetBase}/${opts.pack.sheet}`;
     this.canvas = opts.canvas ?? null;
     this.renderer = opts.renderer ?? null;
+    this.mixer = opts.mixer ?? null;
     this.ownsRenderer = !opts.renderer;
     this.scale = opts.scale ?? 1;
   }
@@ -109,8 +136,11 @@ export class SpriteCharacterAdapter implements CharacterAdapter {
   }
 
   suspend(): void {
+    // CPP §7：暫停只是「不畫、不排 rAF」，不是「把台上的東西清掉」。
+    // 這裡以前送 setAnimation("idle")，在正式接線（MixerRenderer）下等同對共享
+    // machine 送 force clear-transient，會把只有 estop 才准清的 blocked／failed／
+    // unknown／requesting-consent 一起抹掉（對抗審查 renderer-lifecycle-028）。
     this.suspended = true;
-    this.renderer?.setAnimation("idle");
     this.renderer?.pause?.();
   }
 
@@ -157,18 +187,48 @@ export class SpriteCharacterAdapter implements CharacterAdapter {
     // resolution 只能變差：走 fallback 鏈的動畫回 substituted。
     const reported: IntentResolution["resolution"] =
       resolved.direct ? (resolution?.resolution ?? "exact") : "substituted";
+    const now = this.host?.now() ?? 0;
+    const watch = this.watchFor(resolved);
+    if (watch && this.mixer) {
+      const current = this.mixer.state().transient;
+      const live = current && current.untilMs > now ? current : null;
+      if (!transientMatches(live, watch)) {
+        // 混音器留住了更高優先的演出（或基態是 emergency／offline）：沒上台就誠實說沒上台。
+        // 「只有 completed 算演到使用者眼前」——不得對一個像素都沒換的表演回 started／completed。
+        sink({
+          messageId: envelope.messageId,
+          status: "cancelled",
+          reason: "preempted",
+          detail: "a higher-priority display kept the stage",
+        });
+        return;
+      }
+    }
     sink({ messageId: envelope.messageId, status: "started", resolution: reported });
     const hint = envelope.durationHint?.ms;
     const ms = typeof hint === "number" && Number.isFinite(hint) && hint > 0 ? Math.min(hint, 60_000) : resolved.firstLoopMs;
-    const now = this.host?.now() ?? 0;
-    this.active = { messageId: envelope.messageId, completeAt: now + ms, sink, resolution: resolved };
+    this.active = { messageId: envelope.messageId, completeAt: now + ms, sink, resolution: resolved, watch };
+  }
+
+  /** 這個動畫對應的 transient；基態／清除類事件沒有可盯的對象（回 null）。 */
+  private watchFor(resolved: SpriteResolution): Watch | null {
+    const event = machineEventForAnimation(resolved.animation, resolved.frameSlice);
+    if (event.type !== "transient") return null;
+    return { kind: event.kind, animation: event.animation, verified: event.verified };
   }
 
   tick(now: number): void {
-    if (this.active && now >= this.active.completeAt) {
-      const done = this.active;
+    const a = this.active;
+    if (!a) return;
+    if (now >= a.completeAt) {
       this.active = null;
-      done.sink({ messageId: done.messageId, status: "completed" });
+      a.sink({ messageId: a.messageId, status: "completed" });
+      return;
+    }
+    if (a.watch && this.mixer && !transientMatches(this.mixer.state().transient, a.watch)) {
+      // 播到一半被更高優先的東西換掉：不能等 completeAt 到了再謊報 completed。
+      this.active = null;
+      a.sink({ messageId: a.messageId, status: "cancelled", reason: "preempted" });
     }
   }
 

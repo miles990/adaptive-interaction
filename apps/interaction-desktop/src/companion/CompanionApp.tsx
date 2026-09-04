@@ -110,7 +110,6 @@ import {
   ForwardDecision,
   helloFor,
   HelloTracker,
-  importedRigPack,
   INITIAL_HELLO_TRACKER,
   inputEventFor,
   interactionMemoryFromPrefs,
@@ -121,8 +120,6 @@ import {
   rehelloOnInstanceEvent,
   rehelloOnStatus,
   resolveCharacterSource,
-  rigPaletteFor,
-  rigPaletteForImported,
   RuntimeFeed,
   selectRuntimeFeed,
   storyPackIdFor,
@@ -1014,7 +1011,9 @@ export default function CompanionApp() {
       // 不 fetch 任何遠端、不執行任何東西。
       const { entry, entrypoint, manifest } = source;
       const meta = builtinAdapterMeta(entrypoint);
-      const variant = meta?.variants ? rigPaletteForImported(manifest) : null;
+      // 初始 variant 由 adapter 自己決定（meta hook）：host 不得把某個角色的預設配色
+      // 當成所有宣告 variants 的 adapter 的預設值（對抗審查 character-package-018）。
+      const variant = meta?.defaultVariant?.(manifest) ?? null;
       const ctx: BuiltinAdapterContext = {
         ...base,
         characterId: entry.characterId,
@@ -1029,9 +1028,11 @@ export default function CompanionApp() {
         if (!isImageDataUrl(sheetUrl)) throw new Error("imported character sheet asset is not an image data URL");
         return { entrypoint, ctx: { ...ctx, legacyPack: source.sprite.pack, assetBase: `imported:${entry.characterId}`, sheetUrl } };
       }
-      if (!manifest && variant !== null) {
-        // 清單只有摘要：用摘要組一份舊 pack 交給 adapter 遷移（純資料，不執行任何東西）。
-        return { entrypoint, ctx: { ...ctx, legacyPack: importedRigPack(entry, variant) } };
+      if (!manifest) {
+        // 清單只有摘要：由 adapter 自己組一份舊 pack 交給遷移（純資料，不執行任何東西）。
+        // 沒宣告這條退路的 adapter 就照常收 ctx（不替它捏造任何 pack 版型）。
+        const legacyPack = meta?.legacyPackForEntry?.(entry, variant) ?? null;
+        if (legacyPack !== null) return { entrypoint, ctx: { ...ctx, legacyPack } };
       }
       return { entrypoint, ctx };
     }
@@ -1045,7 +1046,7 @@ export default function CompanionApp() {
       manifest,
       displayName: manifest.displayName,
       description: manifest.description ?? null,
-      variant: meta?.variants ? rigPaletteFor(manifest) : null,
+      variant: meta?.defaultVariant?.(manifest) ?? null,
     };
     if (meta?.requiresLegacyPackShape === true) {
       const assetBase = source.entry.assetBase ?? `/packs/${source.characterId}`;

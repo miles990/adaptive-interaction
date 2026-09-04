@@ -22,7 +22,7 @@ use base64::Engine;
 use interaction_character::{
     asset_magic_matches, check_relative_path, is_valid_character_id, parse_manifest, AdapterKind,
     AssetDecl, CharacterManifest, Entrypoint, LocalizedText, ManifestReport, ValidationLimits,
-    MAX_ASSET_BYTES_CEILING,
+    MAX_ASSETS, MAX_ASSET_BYTES_CEILING,
 };
 use interaction_runtime::character::character_host_registry;
 use serde::Serialize;
@@ -34,6 +34,9 @@ use std::sync::OnceLock;
 pub const MAX_TOTAL_IMPORT_BYTES: u64 = 32 * 1024 * 1024;
 /// `character_asset` 回傳 data URL 的單檔上限（WebView 記憶體考量）。
 pub const MAX_ASSET_DATA_URL_BYTES: u64 = 8 * 1024 * 1024;
+/// 一次匯入的資產筆數上限（＝ CPP §2.1 的 `MAX_ASSETS`）。IPC 介面在解碼之前就用它
+/// 擋掉超量呼叫，讓有界性由 host 而不是呼叫端決定（對抗審查 character-package-021）。
+pub const MAX_IMPORT_ASSETS: usize = MAX_ASSETS;
 /// 內建角色索引（前端擁有的 `public/characters/index.json`）。編譯期 include：
 /// 索引改了就要重編，不會靜默漂移；執行期只解析一次。
 const BUNDLED_CHARACTER_INDEX: &str = include_str!("../../public/characters/index.json");
@@ -196,16 +199,53 @@ pub fn decode_asset_base64(text: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| "asset is not valid base64".to_string())
 }
 
+/// IPC 介面的**有界**解碼：筆數上限先擋，再逐筆解碼並累計總量。
+///
+/// 以前 `character_import` 是「先把每一筆都解碼進 Vec，之後才在 `validate_import` 檢查
+/// ≤64 筆／≤32 MB」，記憶體用量由呼叫端說了算（對抗審查 character-package-021）。
+/// 有界性必須由 host 決定，而且要在解碼**之前**生效。
+pub fn decode_import_assets(
+    assets: impl IntoIterator<Item = (String, String)>,
+) -> Result<Vec<ImportAssetInput>, String> {
+    let assets: Vec<(String, String)> = assets.into_iter().collect();
+    if assets.len() > MAX_IMPORT_ASSETS {
+        return Err(format!(
+            "too many assets: this host imports at most {MAX_IMPORT_ASSETS} per character"
+        ));
+    }
+    let mut decoded = Vec::with_capacity(assets.len());
+    let mut total: u64 = 0;
+    for (id, base64) in assets {
+        let bytes = decode_asset_base64(&base64)?;
+        total = total.saturating_add(bytes.len() as u64);
+        if total > MAX_TOTAL_IMPORT_BYTES {
+            return Err(format!(
+                "assets exceed the {} MB total import limit",
+                MAX_TOTAL_IMPORT_BYTES / (1024 * 1024)
+            ));
+        }
+        decoded.push(ImportAssetInput { id, bytes });
+    }
+    Ok(decoded)
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// 單一資產的實際上限＝min(manifest 宣告, host 天花板, **讀得回來的上限**)。
+///
+/// 讀回資產的 `asset_data_url()` 硬性拒絕超過 [`MAX_ASSET_DATA_URL_BYTES`]，所以匯入時
+/// 若只擋到 32 MB，8–32 MB 的資產會「匯入成功」卻永遠載不起來，使用者只看得到固定的
+/// 「角色載入失敗，改用文字顯示」——accepted 被當成可用（對抗審查 character-package-019）。
+/// 兩個上限在這裡交叉檢查，匯入當下就誠實拒絕。
 fn effective_max_asset_bytes(manifest: &CharacterManifest) -> u64 {
     manifest
         .resource_limits
         .max_asset_bytes
         .min(MAX_ASSET_BYTES_CEILING)
+        .min(MAX_ASSET_DATA_URL_BYTES)
 }
 
 /// 純驗證（不碰檔案系統）：manifest 規則＋host 規則＋每個資產的大小／magic／sha256。
@@ -300,9 +340,12 @@ pub fn validate_import(
             return Err(format!("asset '{}' is empty", decl.id));
         }
         if len > max_asset {
+            // 上限可能來自 manifest 也可能來自 host（讀回上限）；訊息只講數字，不回顯輸入。
             return Err(format!(
-                "asset '{}' is {len} bytes; the manifest allows at most {max_asset}",
-                decl.id
+                "asset '{}' is {len} bytes; this host imports at most {max_asset} bytes per asset \
+                 (it must also stay under the {} MB read-back limit)",
+                decl.id,
+                MAX_ASSET_DATA_URL_BYTES / (1024 * 1024)
             ));
         }
         total = total.saturating_add(len);
@@ -723,6 +766,63 @@ mod tests {
         assert!(decode_asset_base64(&huge).is_err());
         assert!(decode_asset_base64("not base64!!").is_err());
         assert_eq!(decode_asset_base64("aGVsbG8=").expect("decode"), b"hello");
+    }
+
+    /// character-package-019：匯入上限不得高於「讀得回來」的上限。
+    ///
+    /// 舊行為：manifest 宣告 `maxAssetBytes: 16 MB` 時，一個 8–32 MB 的資產匯入成功
+    /// （對話框顯示完成、清單列為 valid），之後每次選用都在 `asset_data_url` 失敗、
+    /// 退回文字角色，使用者只看得到固定的「角色載入失敗」——accepted 被當成可用。
+    #[test]
+    fn import_never_accepts_an_asset_it_can_never_read_back() {
+        let dir = root();
+        let m = manifest_json(
+            "toobig",
+            r#",
+  "resourceLimits": { "maxAssetBytes": 16000000, "maxConcurrentCommands": 4, "maxQueue": 32, "maxFps": 60 }"#,
+        );
+        // 8 MB + 1：在 manifest 宣告與 32 MB 天花板之內，但超過讀回上限。
+        let oversize = (MAX_ASSET_DATA_URL_BYTES + 1) as usize;
+        let err = import(dir.path(), &m, &sheet(png(oversize))).unwrap_err();
+        assert!(err.contains("8 MB"), "{err}");
+        assert!(
+            !dir.path().join("toobig").exists(),
+            "失敗的匯入不得留下資料夾"
+        );
+        // 反向不變量：匯入成功的資產一定讀得回來。
+        import(dir.path(), &m, &sheet(png(4096))).expect("import ok");
+        assert!(asset_data_url(dir.path(), "toobig", "sheet").is_ok());
+        assert!(
+            effective_max_asset_bytes(
+                &parse_manifest(m.as_bytes(), &host_limits())
+                    .expect("parse")
+                    .0
+            ) <= MAX_ASSET_DATA_URL_BYTES
+        );
+    }
+
+    /// character-package-021：IPC 解碼要先擋筆數、邊解碼邊累計總量。
+    #[test]
+    fn ipc_asset_decoding_is_bounded_by_the_host_not_the_caller() {
+        // 筆數上限在**解碼之前**生效：每一筆都是合法 base64，但筆數超量就直接回錯。
+        let one = base64::engine::general_purpose::STANDARD.encode(png(64));
+        let too_many: Vec<(String, String)> = (0..=MAX_IMPORT_ASSETS)
+            .map(|i| (format!("a{i}"), one.clone()))
+            .collect();
+        let err = decode_import_assets(too_many).unwrap_err();
+        assert!(err.contains("too many assets"), "{err}");
+        // 筆數合法但總量超過 32 MB：解碼中途就中止，不會把全部收進記憶體。
+        let chunk = base64::engine::general_purpose::STANDARD
+            .encode(png((MAX_TOTAL_IMPORT_BYTES / 8) as usize));
+        let heavy: Vec<(String, String)> = (0..MAX_IMPORT_ASSETS)
+            .map(|i| (format!("a{i}"), chunk.clone()))
+            .collect();
+        let err = decode_import_assets(heavy).unwrap_err();
+        assert!(err.contains("total import limit"), "{err}");
+        // 正常情況照樣解得出來。
+        let ok = decode_import_assets(vec![("sheet".to_string(), one)]).expect("decode");
+        assert_eq!(ok.len(), 1);
+        assert_eq!(ok[0].id, "sheet");
     }
 
     #[test]

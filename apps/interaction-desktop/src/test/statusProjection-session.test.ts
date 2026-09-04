@@ -45,6 +45,8 @@ function member(overrides: Partial<CharacterSyncMember> = {}): CharacterSyncMemb
     remote: true,
     presence: "online",
     canPresent: true,
+    // 協商結果齊全（每個 host intent 都演得出來）；拿不到協商結果是 null，不是 false。
+    degraded: false,
     ...overrides,
   };
 }
@@ -70,13 +72,15 @@ function snapshot(state: Record<string, unknown> = {}): Record<string, unknown> 
   };
 }
 
-describe("角色同步投影：十種狀態的固定人話", () => {
-  it("狀態表窮舉十種，且每一句都是人話（沒有技術詞）", () => {
+describe("角色同步投影：十一種狀態的固定人話", () => {
+  it("狀態表窮舉十一種，且每一句都是人話（沒有技術詞）", () => {
     expect(CHARACTER_SYNC_STATES).toEqual([
       "synced",
       "reconnecting",
       "offline",
       "partial-capability",
+      // 拿不到協商結果的那一態：不給綠勾也不誣賴裝置（對抗審查 general-mode-ux-022）。
+      "capability-unknown",
       "syncing",
       "unrecoverable",
       "needs-reconfirmation",
@@ -98,6 +102,11 @@ describe("角色同步投影：十種狀態的固定人話", () => {
       reconnecting: "iPhone 正在重新連線",
       offline: "iPhone 暫時離線",
       "partial-capability": "部分能力目前不可用",
+      // 契約 §11 的表格沒有這一列：Runtime 還沒把協商結果投影給桌面，所以「拿不到
+      // 協商結果」是實作上真實存在、契約上尚未命名的一態。它不給綠色也不誣賴裝置
+      // （對抗審查 capability-consent-052／general-mode-ux-022）；等 Runtime 補上
+      // members[].unsupportedIntents 之後，這一態就會自然消失。
+      "capability-unknown": "iPhone 已連接，能力核對中",
       syncing: "同步尚未完成",
       unrecoverable: "無法恢復，請重新連接",
       "needs-reconfirmation": "需要重新確認裝置",
@@ -249,8 +258,8 @@ describe("角色同步投影：成員清單與最近互動", () => {
     });
     const members = characterSyncMembers(state, { "iphone-87b42264": FIXTURE_PHONE });
     expect(members).toEqual([
-      { name: FIXTURE_PHONE, remote: true, presence: "online", canPresent: true },
-      { name: "這台電腦", remote: false, presence: "online", canPresent: true },
+      { name: FIXTURE_PHONE, remote: true, presence: "online", canPresent: true, degraded: null },
+      { name: "這台電腦", remote: false, presence: "online", canPresent: true, degraded: null },
     ]);
   });
 

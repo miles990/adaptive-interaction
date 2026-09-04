@@ -1788,14 +1788,10 @@ async fn character_import(
 ) -> Result<Value, String> {
     let root = characters_root();
     let outcome = tauri::async_runtime::spawn_blocking(move || {
-        let mut decoded = Vec::with_capacity(assets.len());
-        for asset in assets {
-            let bytes = character_store::decode_asset_base64(&asset.base64)?;
-            decoded.push(character_store::ImportAssetInput {
-                id: asset.id,
-                bytes,
-            });
-        }
+        // 有界性由 host 決定，不由呼叫端決定：筆數上限在解碼**之前**生效，
+        // 解碼過程再累計總量（對抗審查 character-package-021）。
+        let decoded =
+            character_store::decode_import_assets(assets.into_iter().map(|a| (a.id, a.base64)))?;
         character_store::import(&root, &manifest_text, &decoded)
     })
     .await

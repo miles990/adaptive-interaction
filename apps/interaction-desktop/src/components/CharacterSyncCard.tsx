@@ -55,6 +55,17 @@ const SESSION_STATE_EVENT = "character.session.state";
 /** 裝置清單／來源清單／診斷的最小重取間隔（trailing）。 */
 export const SYNC_SLOW_REFRESH_MIN_MS = 2_000;
 
+/**
+ * live 模式下讀不到權威狀態時的退避重試間隔（毫秒），有界且不無限成長。
+ *
+ * live 模式只有掛載／使用者按「重新檢查」／patch 接不上才會重新 GET，所以後端一時
+ * 讀不到時 `failedReads` 會永遠停在 1，畫面永遠停在 pending 的「同步尚未完成」
+ * ——那句話暗示「正在進行中」，但其實什麼都沒有在進行；契約 §7.5 的
+ * 「連續 3 次失敗 → 無法恢復，請重新連接」在這條路徑上也永遠達不到
+ * （對抗審查 general-mode-ux-024）。所以失敗才排一次重試，成功就停。
+ */
+export const SYNC_RETRY_BACKOFF_MS: readonly number[] = [1_000, 3_000, 10_000, 30_000];
+
 /** 本地保存的一份權威狀態副本（只給投影用；沒有任何權力）。 */
 export interface LocalSessionState {
   state: Record<string, unknown>;
@@ -204,12 +215,17 @@ export function CharacterSyncCard({
   // --- A. 權威狀態：首次載入／手動重新檢查／接不上時重新對齊。
   //     `live` 時 refreshKey 不參與（那正是「每則事件三支 API」的來源）。
   const pollKey = live ? 0 : refreshKey;
+  /** 讀取失敗後的退避重試計數（成功歸零）；只在 live 模式排程。 */
+  const [retryTick, setRetryTick] = React.useState(0);
+  const retryAttemptRef = React.useRef(0);
   React.useEffect(() => {
     let alive = true;
+    let timer: number | null = null;
     void (async () => {
       try {
         const envelope = await api.characterSessionSnapshot();
         failedReadsRef.current = 0;
+        retryAttemptRef.current = 0;
         if (!alive) return;
         commitSession(readSnapshotEnvelope(envelope));
         setEnabled(true);
@@ -223,14 +239,27 @@ export function CharacterSyncCard({
         commitSession(null);
         setEnabled(!disabled);
         setFailedReads(failedReadsRef.current);
+        // live 模式沒有輪詢，得自己排一次退避重試；關閉是確定的事實，不重試。
+        if (live && !disabled) {
+          const attempt = retryAttemptRef.current;
+          retryAttemptRef.current = attempt + 1;
+          const waitMs =
+            SYNC_RETRY_BACKOFF_MS[Math.min(attempt, SYNC_RETRY_BACKOFF_MS.length - 1)] ??
+            SYNC_RETRY_BACKOFF_MS[SYNC_RETRY_BACKOFF_MS.length - 1] ??
+            30_000;
+          timer = window.setTimeout(() => {
+            if (alive) setRetryTick((n) => n + 1);
+          }, waitMs);
+        }
       } finally {
         if (alive) setLoaded(true);
       }
     })();
     return () => {
       alive = false;
+      if (timer !== null) window.clearTimeout(timer);
     };
-  }, [pollKey, reload, realign, commitSession]);
+  }, [pollKey, reload, realign, retryTick, live, commitSession]);
 
   // --- B. 裝置清單／來源清單／診斷：節流（trailing，最小間隔 2 秒）。
   //     首次載入、手動重新檢查、切換進階模式一律立刻執行。

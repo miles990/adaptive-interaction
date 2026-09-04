@@ -278,7 +278,14 @@ interface PickedAsset {
   fileName: string;
 }
 
-const MAX_ASSET_BYTES_HARD = 32 * 1024 * 1024;
+/**
+ * 單一資產的硬上限。
+ *
+ * 必須和 host 的 `MAX_ASSET_DATA_URL_BYTES`（8 MB）一致：host 讀回資產時就是用這個
+ * 數字擋，匯入時放到 32 MB 只會讓使用者匯入一個永遠載不起來的角色
+ * （對抗審查 character-package-019）。
+ */
+const MAX_ASSET_BYTES_HARD = 8 * 1024 * 1024;
 
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -331,7 +338,10 @@ export function ImportCharacterDialog({
     if (!file) return;
     const limit = Math.min(validation?.ok ? validation.manifest.resourceLimits.maxAssetBytes : MAX_ASSET_BYTES_HARD, MAX_ASSET_BYTES_HARD);
     if (file.size === 0 || file.size > limit) {
-      setAssetErrors((prev) => ({ ...prev, [decl.id]: file.size === 0 ? "檔案是空的" : "檔案超過這個角色宣告的大小上限" }));
+      setAssetErrors((prev) => ({
+        ...prev,
+        [decl.id]: file.size === 0 ? "檔案是空的" : "檔案超過可匯入的大小上限（單一資產最多 8 MB）",
+      }));
       return;
     }
     try {

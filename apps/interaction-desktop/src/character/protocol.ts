@@ -134,7 +134,13 @@ export type Entrypoint =
 export interface AssetDecl {
   id: string;
   path: string;
-  mediaType?: string;
+  /**
+   * §2.1 必填（golden schema `AssetDecl.required` 也是必填，Rust `manifest.rs` 的
+   * `media_type` 沒有 serde default）。TS 鏡射以前把它當選填，於是少了 mediaType 的
+   * manifest 在匯入對話框驗證為合法、按鈕可按，送到 host 才被打回
+   * （對抗審查 character-package-020）。
+   */
+  mediaType: string;
   bytes?: number;
   sha256?: string;
 }

@@ -19,7 +19,14 @@ import {
 } from "../adapterRegistry";
 import { setDefaultMigrationRegistry } from "../manifest";
 import { ShapeCharacterAdapter } from "./shape";
-import { rigPackMigrator, SHU_RIG_PALETTES, ShuCharacterAdapter } from "./shu";
+import {
+  DEFAULT_SHU_RIG_PALETTE,
+  importedRigPack,
+  rigPackMigrator,
+  rigPaletteForImported,
+  SHU_RIG_PALETTES,
+  ShuCharacterAdapter,
+} from "./shu";
 import { SpriteCharacterAdapter } from "./sprite";
 import { TextCharacterAdapter } from "./text";
 
@@ -31,6 +38,10 @@ const SHU_META: BuiltinAdapterMeta = {
   variantAliasKeys: ["palette"],
   variants: SHU_RIG_PALETTES,
   legacyPackKinds: ["character-rig"],
+  // 初始配色與「只有摘要時要組哪一種舊 pack」都是這個 rig 自己的知識：
+  // host 只呼叫 hook，不再 import rig 專屬 helper（對抗審查 character-package-018）。
+  defaultVariant: (manifest) => rigPaletteForImported(manifest),
+  legacyPackForEntry: (entry, variant) => importedRigPack(entry, variant ?? DEFAULT_SHU_RIG_PALETTE),
 };
 
 const SPRITE_META: BuiltinAdapterMeta = {
@@ -91,7 +102,19 @@ registerBuiltinAdapter(
     const scale = ctx.scale ?? 1;
     const real = new SpriteRenderer(canvas, pack, sheetUrl, scale);
     const renderer = ctx.mixer ? new MixerRenderer(real, ctx.mixer) : real;
-    const adapter = new SpriteCharacterAdapter({ pack, assetBase, renderer, scale });
+    // mixer 一併交給 adapter：setAnimation 只是把事件丟進這台 machine，
+    // adapter 得看得到套用結果才知道自己有沒有上台（沒上台不得回 started／completed）。
+    const adapter = new SpriteCharacterAdapter({
+      pack,
+      assetBase,
+      // canvas 一併交給 adapter：show()／hide() 的 visibility 切換以前是死碼
+      //（`this.canvas` 恆為 null；對抗審查 renderer-lifecycle-029）。renderer 已注入，
+      // 所以 adapter 不會、也不該自建第二個 SpriteRenderer（ownsRenderer 仍是 false）。
+      canvas,
+      renderer,
+      scale,
+      ...(ctx.mixer ? { mixer: ctx.mixer } : {}),
+    });
     return { adapter, renderer: real, companion: null, meta: SPRITE_META };
   },
   SPRITE_META
@@ -118,8 +141,15 @@ registerBuiltinAdapter(
 registerBuiltinAdapter(
   "shape",
   (ctx): BuiltinAdapterBuild => {
+    // 身分來自 ctx（manifest ＞ 清單摘要）：`shape` 在 host 白名單裡，第三方可以
+    // 匯入一個 entrypoint 指向它的角色；那個角色必須以**自己的** characterId 上線，
+    // 不得被內建的 ref-shape 冒名（per-character 偏好也才不會共用同一個 key）。
     const adapter = new ShapeCharacterAdapter({
       ...(ctx.textHost ? { container: ctx.textHost } : {}),
+      ...(ctx.manifest ? { manifest: ctx.manifest } : {}),
+      ...(ctx.characterId ? { characterId: ctx.characterId } : {}),
+      ...(ctx.displayName ? { displayName: ctx.displayName } : {}),
+      ...(ctx.description ? { description: ctx.description } : {}),
     });
     return { adapter, renderer: null, companion: null, meta: SHAPE_META };
   },

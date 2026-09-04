@@ -14,7 +14,6 @@ import { hostMigrationRegistry } from "../character/adapterRegistry";
 import {
   importedRigPack,
   isShuRigPalette,
-  rigPaletteFor,
   rigPaletteForImported,
   SHU_RIG_PALETTES,
   SHU_RIG_VARIANTS,
@@ -266,12 +265,12 @@ describe("匯入角色選擇：text／shu-rig／sprite", () => {
     expect(migratedRig.ok && migratedRig.manifest.variants.map((v) => v.id).sort()).toEqual([...SHU_RIG_PALETTES].sort());
   });
 
-  it("配色 helper 搬到 shu adapter：gatewayWiring 只是同名 re-export（同一個函式，不是複本）", () => {
-    expect(gatewayWiring.importedRigPack).toBe(importedRigPack);
-    expect(gatewayWiring.isShuRigPalette).toBe(isShuRigPalette);
-    expect(gatewayWiring.rigPaletteFor).toBe(rigPaletteFor);
-    expect(gatewayWiring.rigPaletteForImported).toBe(rigPaletteForImported);
-    expect(gatewayWiring.SHU_RIG_PALETTES).toBe(SHU_RIG_PALETTES);
+  it("配色 helper 只住在 shu adapter：接線層不再 re-export 任何一個（strangler 收尾）", () => {
+    // 對抗審查 character-package-018：接線層曾經 re-export 這些 rig 專屬 helper，
+    // 讓「某個角色的預設配色」有機會被當成所有 adapter 的預設值。現在只剩 adapter 自己認得。
+    for (const name of ["importedRigPack", "isShuRigPalette", "rigPaletteFor", "rigPaletteForImported", "SHU_RIG_PALETTES"]) {
+      expect(name in (gatewayWiring as unknown as Record<string, unknown>), `gatewayWiring 不該再 re-export ${name}`).toBe(false);
+    }
     // variants 帶雙語顯示名（遷移產生的 manifest.variants 就是它）。
     expect(SHU_RIG_VARIANTS.map((v) => v.id)).toEqual([...SHU_RIG_PALETTES]);
     for (const v of SHU_RIG_VARIANTS) {

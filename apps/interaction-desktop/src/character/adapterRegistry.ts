@@ -66,6 +66,22 @@ export interface BuiltinAdapterMeta {
   readonly requiresLegacyPackShape?: boolean;
   /** 這個 adapter 能接手的舊 pack `kind`（host 用它把舊 pack 導到對的 adapter）。 */
   readonly legacyPackKinds?: readonly string[];
+  /**
+   * 這份 manifest 的初始 variant 由 **adapter 自己** 決定（host 不猜）。
+   *
+   * 以前 host 接線層看到 `meta.variants` 就呼叫某個 rig 專屬的 helper，等於把
+   * 「某個角色的預設配色」當成所有宣告 variants 的 adapter 的預設值
+   * （對抗審查 character-package-018）。沒宣告這個 hook 就是「沒有初始 variant」。
+   */
+  readonly defaultVariant?: (manifest: CharacterManifest | null) => string | null;
+  /**
+   * 只有清單摘要、沒有 manifest 本文時，adapter 自己組一份可遷移的舊 pack（純資料，
+   * 不執行任何東西）。回 null＝這個 adapter 沒有這條退路，host 照常把 ctx 交出去。
+   */
+  readonly legacyPackForEntry?: (
+    entry: { characterId: string; displayName?: unknown; version?: unknown },
+    variant: string | null
+  ) => unknown | null;
 }
 
 /** 建 adapter 需要的 host 環境。欄位全部選填：每個 adapter 只讀自己要的。 */

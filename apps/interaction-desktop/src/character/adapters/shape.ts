@@ -104,6 +104,44 @@ export interface ShapeAdapterOptions {
   /** DOM 宿主；省略時只用 onRender（headless 測試）。 */
   container?: HTMLElement;
   onRender?: (state: ShapeRenderedState | null) => void;
+  /**
+   * 這個實例要扮演的角色身分。manifest 是身分的權威來源：匯入角色只要 entrypoint
+   * 落在 `shape`，它的 characterId／顯示名／能力集就是**它自己的**，不得被內建
+   * Reference Character `ref-shape` 冒名（對抗審查 character-package-017）。
+   * 沒給就退回 bundled 的 `ref-shape`。
+   */
+  manifest?: CharacterManifest | null;
+  /** 只有清單摘要、沒有 manifest 本文時的身分（顯示名同理）。 */
+  characterId?: string | null;
+  displayName?: CharacterManifest["displayName"] | null;
+  description?: CharacterManifest["description"] | null;
+}
+
+/**
+ * 以 bundled 的 ref-shape 定義為底、換上呼叫端給的身分。
+ *
+ * 只換身分欄位（characterId／displayName／description／author／version）：能力集
+ * 由 adapter 真的做得到什麼決定，不能由 manifest 灌水（宣告了做不到的能力＝說謊）。
+ */
+function shapeManifestFor(opts: ShapeAdapterOptions): CharacterManifest {
+  const base = buildShapeCharacterManifest();
+  const characterId = opts.manifest?.characterId ?? opts.characterId ?? null;
+  const displayName = opts.manifest?.displayName ?? opts.displayName ?? null;
+  const description = opts.manifest?.description ?? opts.description ?? null;
+  const author = opts.manifest?.author ?? null;
+  const version = opts.manifest?.version ?? null;
+  if (!characterId && !displayName && !description) return base;
+  const raw = {
+    ...(base as unknown as Record<string, unknown>),
+    ...(characterId ? { characterId } : {}),
+    ...(displayName ? { displayName } : {}),
+    ...(description ? { description } : {}),
+    ...(author ? { author } : {}),
+    ...(version ? { version } : {}),
+  };
+  const v = validateCharacterManifest(raw);
+  // 身分欄位不合法就誠實退回 bundled 身分，而不是拿一份壞 manifest 上線。
+  return v.ok ? v.manifest : base;
 }
 
 /** 純資料建構 manifest（bundled `/characters/ref-shape/manifest.json` 用同一份定義）。 */
@@ -186,7 +224,7 @@ export class ShapeCharacterAdapter implements CharacterAdapter {
   private disposed = false;
 
   constructor(opts: ShapeAdapterOptions = {}) {
-    this.manifest = buildShapeCharacterManifest();
+    this.manifest = shapeManifestFor(opts);
     this.container = opts.container ?? null;
     this.onRender = opts.onRender ?? null;
   }

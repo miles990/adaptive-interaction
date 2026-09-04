@@ -436,6 +436,8 @@ export class CharacterGateway {
     } catch (e) {
       this.lifecycle(inst, "disposed", e instanceof ProtocolVersionError ? "protocol-version" : "negotiate threw");
       this.audit("handshake-rejected", { instanceId: inst.instanceId, detail: describe(e) });
+      // 舊訂閱的解除函式跟著這個實例一起收掉：留著就再也沒人呼叫得到它。
+      this.unsubscribeQuietly(inst);
       try {
         inst.adapter.dispose();
       } catch {
@@ -449,11 +451,42 @@ export class CharacterGateway {
     } catch (e) {
       this.audit("adapter-negotiated-threw", { instanceId: inst.instanceId, detail: describe(e) });
     }
-    inst.unsubscribe?.();
-    inst.unsubscribe = inst.adapter.onInput((event) => this.ingestInput(inst.instanceId, event));
+    this.unsubscribeQuietly(inst);
+    try {
+      inst.unsubscribe = inst.adapter.onInput((event) => this.ingestInput(inst.instanceId, event));
+    } catch (e) {
+      // 檔頭第 12 行的承諾：任何 adapter 例外都不會擲出 Gateway。onInput 擲例外時
+      // 不能把實例留在 "negotiating"（不在 LIVE_STATES＝永遠收不到 intent、也不會被
+      // sweep 收掉），也不能讓同一個 instanceId 之後再也註冊不了
+      // （對抗審查 renderer-lifecycle-033）。
+      inst.unsubscribe = null;
+      this.audit("adapter-oninput-threw", { instanceId: inst.instanceId, detail: describe(e) });
+      this.lifecycle(inst, "crashed", "onInput threw");
+      this.instances.delete(inst.instanceId);
+      try {
+        inst.adapter.dispose();
+      } catch {
+        // adapter 已壞；忽略
+      }
+      // 沒有輸入通道的實例仍然可以只收 intent：協商結果照樣回給呼叫端，
+      // 但這個實例已經下線，呼叫端會走 crashed 的既有收尾路徑。
+      return negotiated;
+    }
     inst.lastSeenAt = this.now();
     this.lifecycle(inst, "ready");
     return negotiated;
+  }
+
+  /** 解除舊訂閱；adapter 的解除函式擲例外不得影響收尾。 */
+  private unsubscribeQuietly(inst: Instance): void {
+    const off = inst.unsubscribe;
+    inst.unsubscribe = null;
+    if (!off) return;
+    try {
+      off();
+    } catch (e) {
+      this.audit("adapter-unsubscribe-threw", { instanceId: inst.instanceId, detail: describe(e) });
+    }
   }
 
   /**

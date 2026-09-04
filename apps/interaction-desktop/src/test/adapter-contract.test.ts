@@ -372,6 +372,86 @@ describe.each(CASES.map((c) => [c.id, c] as const))("adapter contract：%s", (_i
   });
 });
 
+// ---------------------------------------------------------------------------
+// 對抗審查 renderer-lifecycle-032：上面那條「資源清理」在四個 case 裡都證明不了東西
+// ——注入的 stage 是 `autoStart:false`、注入的 renderer 是 FakeRenderer，adapter 因此
+// 從來不會走到「自建 renderer／自己排 rAF」的分支，`rafHandles.size` 在 dispose 前後
+// 恆為 0。這裡補上真的會排 rAF 的兩條正式路徑，先證明 dispose **前**有 rAF 在排，
+// 才有資格說 dispose 後歸零。
+// ---------------------------------------------------------------------------
+
+interface OwningCase {
+  readonly id: string;
+  make(): CharacterAdapter;
+}
+
+const OWNING_CASES: readonly OwningCase[] = [
+  {
+    // shu-rig：只給 canvas，不注入 stage → initialize() 自建 StageRenderer（autoStart 預設 true）。
+    id: "shu-rig（自建 StageRenderer）",
+    make: () => new ShuCharacterAdapter({ manifest: bundledShuManifest(), canvas: stubCanvas() }),
+  },
+  {
+    // sprite：只給 canvas，不注入 renderer → initialize() 自建 SpriteRenderer。
+    id: "sprite（自建 SpriteRenderer）",
+    make: () =>
+      new SpriteCharacterAdapter({
+        pack: shuStandardPack as unknown as PackManifest,
+        assetBase: "/packs/shu-standard",
+        canvas: stubCanvas(),
+      }),
+  },
+];
+
+describe.each(OWNING_CASES)("adapter 自己擁有 renderer 時的資源清理：$id", (owning) => {
+  it("dispose 前真的排了 rAF，dispose 後歸零", async () => {
+    const rafHandles = new Set<number>();
+    let rafSeq = 0;
+    const raf = vi.fn((_cb: FrameRequestCallback) => {
+      rafSeq += 1;
+      rafHandles.add(rafSeq);
+      return rafSeq;
+    });
+    const caf = vi.fn((handle: number) => {
+      rafHandles.delete(handle);
+    });
+    vi.stubGlobal("requestAnimationFrame", raf);
+    vi.stubGlobal("cancelAnimationFrame", caf);
+    // jsdom 不會真的載圖，而 SpriteRenderer 的 rAF 迴圈是在 `img.onload` 才啟動的。
+    // 用一個「設了 src 就在下一個 microtask 觸發 onload」的替身，讓正式路徑真的跑起來。
+    vi.stubGlobal(
+      "Image",
+      class {
+        onload: (() => void) | null = null;
+        width = 64;
+        height = 64;
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      }
+    );
+    try {
+      const adapter = owning.make();
+      await adapter.initialize(host);
+      adapter.show();
+      // 讓 image onload 的 microtask 跑完（sprite 的迴圈在那之後才啟動）。
+      await Promise.resolve();
+      await Promise.resolve();
+      // 前提條件：這條路徑真的會排 rAF，否則下面那句「歸零」什麼都沒證明。
+      expect(rafHandles.size, "這個 case 必須真的排了 rAF").toBeGreaterThan(0);
+      adapter.dispose();
+      expect(rafHandles.size, "dispose 後不得留下 rAF").toBe(0);
+      expect(caf, "dispose 必須 cancelAnimationFrame").toHaveBeenCalled();
+      // dispose 之後不得再排新的（loop 已停）。
+      const after = rafSeq;
+      adapter.tick?.(clock.now + 5_000);
+      expect(rafSeq, "dispose 後不得再排 rAF").toBe(after);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 /** 用 adapter 自己的輸入路徑送一個事件（沒有公開路徑的就跳過）。 */
 function emitOneInput(adapter: CharacterAdapter): void {
   const withEmit = adapter as unknown as { emitInput?: (e: { kind: string; payload?: unknown }) => void };

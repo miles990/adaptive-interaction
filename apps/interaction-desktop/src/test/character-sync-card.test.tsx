@@ -54,11 +54,28 @@ function snapshot(state: Record<string, unknown> = {}): Record<string, unknown> 
   };
 }
 
+/**
+ * 一台「協商結果齊全」的手機：每個 host intent 都演得出來。
+ *
+ * `negotiated` 是契約 §11 判定「已同步 vs 部分能力目前不可用」唯一正當的訊號
+ * （成員自報的 role 不是）。沒有這個欄位時卡片只會說「已連接，能力核對中」——
+ * 那才是誠實的，綠勾只給真的（對抗審查 capability-consent-052／general-mode-ux-022）。
+ */
+const NEGOTIATED_FULL = {
+  intents: {
+    "react-happily-to-touch": "exact",
+    celebrate: "exact",
+    settle: "exact",
+    idle: "exact",
+  },
+};
+
 const PHONE_MEMBER = {
   party: { kind: "device", id: DEVICE_ID },
   role: "remote-renderer",
   presence: "online",
   lastSeenAt: "2026-09-04T12:30:00.000Z",
+  negotiated: NEGOTIATED_FULL,
 };
 
 function setup(options: {

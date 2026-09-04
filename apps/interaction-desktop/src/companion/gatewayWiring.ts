@@ -239,7 +239,9 @@ export function spritePackFromManifest(manifest: CharacterManifest): ImportedSpr
   const sheet = candidate.sheet as string;
   const asset = manifest.assets.find((a) => a.id === "sheet") ?? manifest.assets.find((a) => a.path === sheet);
   if (!asset) return null;
-  if (typeof asset.mediaType === "string" && !asset.mediaType.startsWith("image/")) return null;
+  // mediaType 是 §2.1 必填欄位（validateCharacterManifest 已擋掉缺欄位的 manifest），
+  // 所以這裡可以直接要求它是影像——不再有「欄位缺席就整條型別檢查被略過」的洞。
+  if (!asset.mediaType.startsWith("image/")) return null;
   return { pack: candidate as unknown as PackManifest, sheetAssetId: asset.id };
 }
 
@@ -249,20 +251,11 @@ export function isImageDataUrl(value: unknown): value is string {
   return typeof value === "string" && /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]/i.test(value);
 }
 
-/**
- * v0.6.0 strangler：這幾個 helper 全是「某個 rig 角色」的知識，已搬到
- * `character/adapters/shu.ts`。這裡只留同名 re-export 讓既有呼叫端（CompanionApp、
- * CharacterPreview、測試）不用一次改完。
- *
- * @deprecated 改 import `character/adapters/shu`。
- */
-export {
-  importedRigPack,
-  isShuRigPalette,
-  rigPaletteFor,
-  rigPaletteForImported,
-  SHU_RIG_PALETTES,
-} from "../character/adapters/shu";
+// v0.6.0 strangler 收尾：那幾個 rig 專屬 helper 的同名 re-export 已移除。
+// 初始 variant 與「只有摘要時要組哪一種舊 pack」現在由 adapter meta 的
+// `defaultVariant`／`legacyPackForEntry` hook 提供（對抗審查 character-package-018），
+// 接線層不再需要、也不得再認得任何一個角色的配色名。要用請直接 import
+// `character/adapters/shu`。
 
 export type ImportedLookup = "skipped" | "done" | "failed";
 

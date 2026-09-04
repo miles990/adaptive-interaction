@@ -26,12 +26,12 @@ import {
   personaIdFor,
   PRIMARY_INSTANCE_ID,
   receiptForRuntime,
-  rigPaletteFor,
   selectCharacterSource,
   selectRuntimeFeed,
   storyPackIdFor,
   systemTextFromEvent,
 } from "../companion/gatewayWiring";
+import { rigPaletteFor } from "../character/adapters/shu";
 import { machineEventForAnimation, MachineEvent, MachineState, mapRuntimeEvent, reduce } from "../companion/machine";
 import { MixerRenderer } from "../companion/mixerRenderer";
 import type { RendererBackend } from "../companion/renderer";
@@ -364,6 +364,12 @@ describe("MixerRenderer 門面與 canonical 動畫名 → machine event", () => 
     expect(st.transient).toMatchObject({ kind: "succeeded", verified: false });
     facade.setAnimation("blocked");
     expect(st.transient?.kind).toBe("blocked"); // 90 > 60：安全訊息贏
+    // adapter 送進來的 idle 已被門面降權成非 force 的 clear-transient：安全訊息留在台上
+    // （force 是 estop clear-all 的權力，呈現層沒有；對抗審查 renderer-lifecycle-028）。
+    facade.setAnimation("idle");
+    expect(st.transient?.kind).toBe("blocked");
+    // 沒有安全訊息時 idle 照樣清得掉（一般表演不受影響）。
+    st = { base: "idle", transient: { kind: "performing", untilMs: 9_000, animation: "greet" } };
     facade.setAnimation("idle");
     expect(st.transient).toBeNull();
     facade.setReducedMotion(true);
@@ -371,7 +377,7 @@ describe("MixerRenderer 門面與 canonical 動畫名 → machine event", () => 
     facade.destroy();
     // 真正的 renderer 從未直接收到 setAnimation（畫面由 host 的 pose() 驅動）。
     expect(calls).toEqual(["reduced:true", "micro", "destroy"]);
-    expect(events).toHaveLength(3);
+    expect(events).toHaveLength(4);
   });
 
   it("mapRuntimeEvent 預設 engine-neutral：不含任何 rig 表情 id", () => {

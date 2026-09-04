@@ -782,12 +782,13 @@ export function projectCharacterLifecycle(
 //   把它寫成真機。
 // ---------------------------------------------------------------------------
 
-/** 十種同步狀態（`satisfies Record<CharacterSyncState, …>` 窮舉）。 */
+/** 十一種同步狀態（`satisfies Record<CharacterSyncState, …>` 窮舉）。 */
 export type CharacterSyncState =
   | "synced"
   | "reconnecting"
   | "offline"
   | "partial-capability"
+  | "capability-unknown"
   | "syncing"
   | "unrecoverable"
   | "needs-reconfirmation"
@@ -825,6 +826,13 @@ export const CHARACTER_SYNC_PROJECTION = {
     detail: "這台裝置接上了，但它做不到角色的部分表演；做不到的不會假裝做到。",
     tone: "warn",
   },
+  // 裝置連上了，但這台電腦拿不到「它到底演得出哪些 intent」的協商結果。
+  // 不猜：既不寫成已同步（綠勾只給真的），也不誣賴它做不到。
+  "capability-unknown": {
+    headline: "iPhone 已連接，能力核對中",
+    detail: "狀態對齊了，但還沒確認這台裝置演得出哪些表演；在確認之前不要當成完全同步。",
+    tone: "pending",
+  },
   syncing: {
     headline: "同步尚未完成",
     detail: "還在對齊角色狀態；在這之前不要把畫面上的樣子當成最新的。",
@@ -837,7 +845,7 @@ export const CHARACTER_SYNC_PROJECTION = {
   },
   "needs-reconfirmation": {
     headline: "需要重新確認裝置",
-    detail: "這台裝置的授權已經撤銷；要再同步角色，必須重新確認一次。",
+    detail: "有裝置現在連著這台電腦，但還不是角色同步的成員（撤銷過的裝置重新連上來也算）；要再同步角色，必須在手機上重新確認一次。",
     tone: "warn",
   },
   "no-device": {
@@ -875,6 +883,15 @@ export interface CharacterSyncMember {
   presence: string;
   /** 這個成員演得出角色嗎（只有遠端呈現角色的裝置可以）。 */
   canPresent: boolean;
+  /**
+   * 協商後有沒有做不到的 intent。
+   *
+   * `true`＝有（部分能力不可用）；`false`＝一個都沒有；`null`＝**這台電腦拿不到協商結果**。
+   * 契約 §11 的判定條件是協商結果，不是成員自報的 role——role 是裝置自己填的，
+   * 拿它當能力結論等於讓 renderer capability spoofing 影響人類看到的結果
+   * （對抗審查 capability-consent-052／general-mode-ux-022）。拿不到就誠實說拿不到。
+   */
+  degraded: boolean | null;
 }
 
 /** 投影需要、但不屬於權威狀態的訊號（全部由呼叫端從真實回應算出來）。 */
@@ -960,9 +977,41 @@ export function characterSyncMembers(
       presence: String(item["presence"] ?? ""),
       // 只有「遠端呈現角色」的成員演得出角色；只送輸入或只旁觀的不算。
       canPresent: item["role"] === "remote-renderer" || item["role"] === "host-renderer",
+      degraded: memberDegraded(item),
     });
   }
   return members;
+}
+
+/**
+ * 一個成員的協商摘要 → 「有沒有做不到的 intent」。
+ *
+ * Runtime 目前**沒有**把協商結果投影到 `GET /v1/character-session` 或 diagnostics
+ * （`MemberView` 只有 party／role／presence／lastSeenAt，`Member.negotiated` 是 host 私有），
+ * 所以正式路徑上這裡幾乎一定回 `null` ＝「不知道」。等 Runtime 補上欄位之後，
+ * 下面兩種寫法都認得，不必再動這一支：
+ *   - `members[].unsupportedIntents`：數字或字串陣列；
+ *   - `members[].negotiated.intents`：intent → `"exact"｜"unsupported"` 的對照表
+ *     （或 `negotiated.unsupportedIntents` 陣列）。
+ * 認不得的形狀一律回 `null`（不猜成「都做得到」）。
+ */
+function memberDegraded(item: Record<string, unknown>): boolean | null {
+  const direct = item["unsupportedIntents"];
+  if (typeof direct === "number" && Number.isFinite(direct)) return direct > 0;
+  if (Array.isArray(direct)) return direct.length > 0;
+  const negotiated = record(item["negotiated"]);
+  if (negotiated) {
+    const listed = negotiated["unsupportedIntents"];
+    if (typeof listed === "number" && Number.isFinite(listed)) return listed > 0;
+    if (Array.isArray(listed)) return listed.length > 0;
+    const intents = record(negotiated["intents"]);
+    if (intents) {
+      const values = Object.values(intents);
+      if (values.length === 0) return null;
+      return values.some((v) => String(v).toLowerCase() === "unsupported");
+    }
+  }
+  return null;
 }
 
 /** 互動種類 → 人話（未知種類不猜，用最中性的說法）。 */
@@ -1044,9 +1093,22 @@ export function projectCharacterSession(
   if (signals.storeReset) return project("store-reset");
   const online = remote.filter((m) => m.presence === "online");
   if (online.length > 0) {
-    return online.every((m) => m.canPresent)
-      ? project("synced")
-      : project("partial-capability");
+    // 已知做不到（role 根本不呈現角色，或協商出 unsupported intent）→ 部分能力不可用。
+    if (online.some((m) => !m.canPresent || m.degraded === true)) {
+      return project("partial-capability");
+    }
+    // 有 online 成員不代表「每一台裝置都同步了」：另一台**現在就連著這台電腦**卻不是
+    // session 成員的手機（送不出互動、也收不到狀態）是當下的事實，綠勾會把它蓋掉
+    //（對抗審查 general-mode-ux-026）。
+    //
+    // 這裡只看 `connectedButNotSynced`，不看 `revokedDevice`：後者是「曾經有裝置被撤銷過」
+    // 的歷史事實（provider 列會永遠留著 revoked），拿它壓過一台真的在線的裝置會變成
+    // 一個永遠亮著的假警報（general-mode-ux.md §3）。真的需要重新確認的裝置只要連上來，
+    // 就會以「連著但不是成員」的身分出現在 `connectedButNotSynced` 裡。
+    if (signals.connectedButNotSynced) return project("needs-reconfirmation");
+    // 協商結果拿不到 → 不給綠色，也不誣賴它做不到。
+    if (online.some((m) => m.degraded === null)) return project("capability-unknown");
+    return project("synced");
   }
   if (remote.some((m) => m.presence === "reconnecting")) return project("reconnecting");
   if (remote.length > 0) return project("offline");
@@ -1090,7 +1152,17 @@ export function characterSyncDeviceLine(snapshot: unknown, deviceId: string): st
     const party = record(item?.["party"]);
     if (party?.["kind"] !== "device" || String(party["id"] ?? "") !== deviceId) continue;
     const presence = String(item?.["presence"] ?? "");
-    if (presence === "online") return "角色同步：已同步";
+    if (presence === "online") {
+      // 和角色頁的同步卡走同一套判定：同一份快照不得在兩個一般模式畫面得出
+      // 互相矛盾的結論（對抗審查 general-mode-ux-025）。
+      const canPresent = item?.["role"] === "remote-renderer" || item?.["role"] === "host-renderer";
+      const degraded = item ? memberDegraded(item) : null;
+      if (!canPresent || degraded === true) {
+        return `角色同步：${CHARACTER_SYNC_PROJECTION["partial-capability"].headline}`;
+      }
+      if (degraded === null) return "角色同步：已連接，能力核對中";
+      return "角色同步：已同步";
+    }
     return `角色同步：${characterSyncPresenceLabel(presence)}`;
   }
   return "角色同步：尚未同步（需要在手機上重新確認）";
