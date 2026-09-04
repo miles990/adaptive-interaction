@@ -1,0 +1,17 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_state_revision_1e30",
+  "messageType": "state",
+  "name": "character.session.snapshot",
+  "source": { "kind": "session", "id": "session.home" },
+  "target": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:02Z",
+  "sequence": 205,
+  "payload": {
+    "kind": "snapshot",
+    "revision": 1e30,
+    "sessionEpoch": 3,
+    "state": {}
+  }
+}

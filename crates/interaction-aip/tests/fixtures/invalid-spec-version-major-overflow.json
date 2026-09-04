@@ -1,0 +1,11 @@
+{
+  "specVersion": "aip/5000000000.0",
+  "messageId": "msg_version_major_overflow",
+  "messageType": "event",
+  "name": "character.interaction.touch",
+  "source": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:00Z",
+  "expiresAt": "2026-09-04T12:30:05Z",
+  "payload": { "kind": "tap" }
+}

@@ -24,3 +24,7 @@ pub const DEFAULT_INTERACTION_TTL_MS: i64 = 5_000;
 pub const DEFAULT_INTENT_TTL_MS: i64 = 10_000;
 /// Session 成員上限。
 pub const MAX_MEMBERS: usize = 16;
+/// 協商結果裡 `unsupportedInputs` 的上限。對方宣告的 `inputs` 是外部輸入、本身無界，
+/// 而 host 的協商回覆是一則要送上線的 AIP 訊息：不截斷就會超過 [`MAX_PAYLOAD_BYTES`]，
+/// 變成 host 自己送出一則規範接收端必須拒絕的訊息（session-integrity-060）。
+pub const MAX_UNSUPPORTED_INPUTS: usize = 32;

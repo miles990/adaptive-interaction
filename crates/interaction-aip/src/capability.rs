@@ -78,8 +78,17 @@ pub struct NegotiatedCapabilities {
     pub sync_class: SyncClass,
     pub intents: BTreeMap<String, IntentSupport>,
     pub inputs: Vec<String>,
+    // 對方宣告、host 不接受的 event name。**有界**：最多 `limits::MAX_UNSUPPORTED_INPUTS`
+    // 個（超過就截斷，見下面的 `unsupported_inputs_truncated`）。
+    // （刻意用 `//` 而不是 `///`：doc comment 會變成 JSON Schema 的 `description`，
+    //   而 `schemas/aip-1.0.schema.json` 是 TS／Swift codegen 的單一來源。）
     pub unsupported_inputs: Vec<String>,
     pub limits: CapabilityLimits,
+    // `unsupported_inputs` 被截斷過。**host 私有的診斷事實，不進 wire、不進 schema**
+    // （`#[serde(skip)]`）：wire 形狀維持 1.0，截斷本身只留在 host 的稽核裡。
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub unsupported_inputs_truncated: bool,
 }
 
 /// host 端的本地能力（要求對方能呈現的 intent、接受的 input）。
@@ -116,12 +125,20 @@ pub fn negotiate_capabilities(
     }
     let mut inputs = Vec::new();
     let mut unsupported_inputs = Vec::new();
+    // 對方宣告的 `inputs` 是外部輸入、本身無界。`inputs` 有 host offer 當天花板（交集），
+    // 但 `unsupported_inputs` 沒有：不設上限，host 的協商回覆就會超過自己的 payload 上限
+    // （session-integrity-060）。截斷是確定性的（取前 N 個），並記下截斷這件事。
+    let mut unsupported_inputs_truncated = false;
     for input in &announcement.inputs {
         if offer.inputs.iter().any(|i| i == input) {
             if !inputs.contains(input) {
                 inputs.push(input.clone());
             }
         } else if !unsupported_inputs.contains(input) {
+            if unsupported_inputs.len() >= crate::limits::MAX_UNSUPPORTED_INPUTS {
+                unsupported_inputs_truncated = true;
+                continue;
+            }
             unsupported_inputs.push(input.clone());
         }
     }
@@ -141,6 +158,7 @@ pub fn negotiate_capabilities(
         inputs,
         unsupported_inputs,
         limits,
+        unsupported_inputs_truncated,
     })
 }
 
@@ -191,6 +209,55 @@ mod tests {
         assert_eq!(
             n.limits.max_message_bytes,
             Some(crate::limits::MAX_MESSAGE_BYTES)
+        );
+    }
+
+    /// 對方宣告的 `inputs` 是外部輸入（無界）。協商結果會被 host 序列化成一則要送上線的
+    /// `capability` 回覆，所以 `unsupported_inputs` 必須是**有界集合**：超過上限就截斷，
+    /// 並誠實記下「這份清單被截斷過」，不假裝自己列完了（session-integrity-060）。
+    #[test]
+    fn unsupported_inputs_are_bounded_and_truncation_is_recorded() {
+        let announced: Vec<String> = (0..500).map(|i| format!("device.sensor-{i}")).collect();
+        let ann = CapabilityAnnouncement {
+            spec_versions: vec!["aip/1.0".into()],
+            role: Some(MemberRole::RemoteRenderer),
+            inputs: announced.clone(),
+            ..Default::default()
+        };
+        let n = negotiate_capabilities(&offer(), &ann).unwrap();
+        assert_eq!(
+            n.unsupported_inputs.len(),
+            crate::limits::MAX_UNSUPPORTED_INPUTS
+        );
+        assert!(n.unsupported_inputs_truncated, "截斷過就要說截斷過");
+        assert_eq!(
+            n.unsupported_inputs,
+            announced[..crate::limits::MAX_UNSUPPORTED_INPUTS].to_vec(),
+            "截斷是取前 N 個（確定性），不是隨機取樣"
+        );
+        // host 送得出去：協商回覆本身要進得了 payload 上限。
+        let payload = serde_json::to_value(&n).unwrap();
+        assert!(
+            crate::canonical_json(&payload).len() <= crate::limits::MAX_PAYLOAD_BYTES,
+            "host 自己送出的協商回覆不得超過自己的 payload 上限"
+        );
+        // 沒截斷時旗標為 false，且不進 wire（wire 形狀不變）。
+        let small = negotiate_capabilities(
+            &offer(),
+            &CapabilityAnnouncement {
+                spec_versions: vec!["aip/1.0".into()],
+                inputs: vec!["device.tilt".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!small.unsupported_inputs_truncated);
+        assert!(
+            serde_json::to_value(&small)
+                .unwrap()
+                .get("unsupportedInputsTruncated")
+                .is_none(),
+            "這是 host 私有的診斷事實，不是新的 wire 欄位"
         );
     }
 

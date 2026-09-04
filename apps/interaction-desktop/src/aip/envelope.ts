@@ -25,6 +25,7 @@ import {
   type Party,
   type SyncClass,
 } from "./generated";
+import { isUint64Literal, scanNumberLiterals, type NumberLiteral } from "./json-source";
 
 // ------------------------------------------------------------------ 結果型別
 
@@ -64,15 +65,29 @@ export interface NegotiatedVersion {
   newerMinor: boolean;
 }
 
+/** u32 上限：權威 host 的 `parse_spec_version` 回 `Option<(u32, u32)>`，溢出就是看不懂。 */
+const MAX_VERSION_PART = 4294967295;
+
+/**
+ * 解析 `aip/<major>.<minor>`；其他格式一律 null（不猜）。
+ *
+ * 與 Rust `interaction_aip::parse_spec_version` 逐字對齊：
+ *   * **不** trim 前後空白——空白不是版本的一部分，而且「容忍多少空白」三個語言各有各的
+ *     答案（Swift 的 `.whitespaces` 不含換行），寬鬆的那個就會接受權威端拒絕的訊息。
+ *   * major／minor 溢出 u32 → null（→ `schema-invalid`）。看不懂的字串不叫「不支援的版本」，
+ *     否則 `aip/5000000000.0` 在這裡是 `unsupported-version`、在 Rust 是 `schema-invalid`。
+ */
 function parseSpecVersion(value: string): [number, number] | null {
-  const rest = value.trim().startsWith("aip/") ? value.trim().slice("aip/".length) : null;
-  if (rest === null) return null;
+  if (!value.startsWith("aip/")) return null;
+  const rest = value.slice("aip/".length);
   const dot = rest.indexOf(".");
   if (dot < 0) return null;
   const major = rest.slice(0, dot);
   const minor = rest.slice(dot + 1);
   if (!/^\d+$/.test(major) || !/^\d+$/.test(minor)) return null;
-  return [Number(major), Number(minor)];
+  const parts: [number, number] = [Number(major), Number(minor)];
+  if (parts[0] > MAX_VERSION_PART || parts[1] > MAX_VERSION_PART) return null;
+  return parts;
 }
 
 const LOCAL_VERSION = parseSpecVersion(AIP_SPEC_VERSION) ?? [1, 0];
@@ -126,6 +141,33 @@ export function isRuntimeOnlyName(name: string): boolean {
 
 const UTF8 = new TextEncoder();
 
+/**
+ * 解析時保留下來的數字字面值原文（AIP §1 的 round-trip 保證＋§6 的 u64 欄位判斷）。
+ *
+ * 掛成**非列舉**的 symbol 屬性：不會被 `JSON.stringify` 寫出去、不會被 `{...envelope}`
+ * 複製走、也不會讓深度比較看到它。模組本身仍然沒有全域狀態——這份原文跟著那一個信封走。
+ */
+export const AIP_NUMBER_SOURCE: unique symbol = Symbol("aip.numberSource");
+
+function numberSourceOf(envelope: Envelope): Map<string, NumberLiteral> | undefined {
+  const carrier = envelope as unknown as Record<symbol, unknown>;
+  const literals = carrier[AIP_NUMBER_SOURCE];
+  return literals instanceof Map ? (literals as Map<string, NumberLiteral>) : undefined;
+}
+
+/**
+ * 某個 u64 欄位（§6 的 `sequence`／`baseRevision`／`payload.revision`）是否合法。
+ *
+ * 有原文就看原文（`1.0`、`1e30`、超過 2^64 都不是 u64，權威 host 也是這樣判的）；
+ * 沒有原文（程式碼直接組出來的信封）就退回 JS 能誠實表達的範圍：安全整數且非負。
+ * 原文與現值對不上表示呼叫端改過這個欄位，這時原文已經過期，一律以現值為準。
+ */
+function isUint64Field(envelope: Envelope, pointer: string, value: unknown): boolean {
+  const literal = numberSourceOf(envelope)?.get(pointer);
+  if (literal !== undefined && Number(literal.raw) === value) return isUint64Literal(literal.raw);
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
 /** RFC 3339。chrono 端也只接受這個形狀，兩邊必須一樣嚴。 */
 const RFC3339 = /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
 
@@ -177,13 +219,17 @@ export function parseEnvelope(input: string | Uint8Array): AipOutcome<Envelope> 
       return fail("schema-invalid", "invalid envelope (data)");
     }
   }
+  // 數字字面值的原文：`sequence`／`baseRevision` 在 Rust 是 u64 欄位，`1.0`、`1e30`、
+  // 超過 2^64 的值在那邊連反序列化都過不了。JSON.parse 之後看不出差別，所以比對原文。
+  const literals = scanNumberLiterals(text);
   for (const key of ["sequence", "baseRevision"]) {
     const value = source[key];
-    if (
-      value !== undefined &&
-      value !== null &&
-      (typeof value !== "number" || !Number.isInteger(value) || value < 0)
-    ) {
+    if (value === undefined || value === null) continue;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+      return fail("schema-invalid", "invalid envelope (data)");
+    }
+    const literal = literals.get(`/${key}`);
+    if (literal !== undefined && !isUint64Literal(literal.raw)) {
       return fail("schema-invalid", "invalid envelope (data)");
     }
   }
@@ -192,7 +238,38 @@ export function parseEnvelope(input: string | Uint8Array): AipOutcome<Envelope> 
   }
   const envelope = { ...source } as Envelope;
   if (envelope.payload === undefined) envelope.payload = null;
+  Object.defineProperty(envelope, AIP_NUMBER_SOURCE, {
+    value: literals,
+    enumerable: false,
+    configurable: true,
+  });
   return ok(envelope);
+}
+
+/**
+ * 序列化一則信封，並把解析時看到的數字字面值原封寫回去（AIP §1「round-trip 不遺失」）。
+ *
+ * `JSON.stringify` 會把 9007199254740993 寫成 9007199254740992、把 1000000000000000001
+ * 寫成 1e+18——後者連 Rust 的 u64 欄位都讀不回來。只有**沒被改過**的欄位才還原原文：
+ * 呼叫端動過的值以呼叫端的為準，這個函式不會把新值蓋掉。
+ */
+export function encodeEnvelope(envelope: Envelope): string {
+  const text = JSON.stringify(envelope);
+  const preserved = numberSourceOf(envelope);
+  if (preserved === undefined || preserved.size === 0) return text;
+  const restorations: Array<{ start: number; end: number; raw: string }> = [];
+  for (const [pointer, current] of scanNumberLiterals(text)) {
+    const original = preserved.get(pointer);
+    if (original === undefined || original.raw === current.raw) continue;
+    if (Number(original.raw) !== Number(current.raw)) continue;
+    restorations.push({ start: current.start, end: current.end, raw: original.raw });
+  }
+  if (restorations.length === 0) return text;
+  // 由後往前替換，前面的位移才不會被動到。
+  restorations.sort((a, b) => b.start - a.start);
+  let out = text;
+  for (const patch of restorations) out = out.slice(0, patch.start) + patch.raw + out.slice(patch.end);
+  return out;
 }
 
 function checkId(value: string): AipOutcome<void> {
@@ -360,7 +437,8 @@ export function validateEnvelope(envelope: Envelope): AipOutcome<void> {
         [
           typeof payload.revision === "number" &&
             Number.isInteger(payload.revision) &&
-            (payload.revision as number) >= 0,
+            (payload.revision as number) >= 0 &&
+            isUint64Field(envelope, "/payload/revision", payload.revision),
           "payload.revision",
         ],
       ] as const) {
@@ -455,16 +533,27 @@ export class DedupeRing {
 
 // ---------------------------------------------------------------- 離線政策
 
+/**
+ * 需要人類再確認的 name（§8）：`approval-request` 的線上名字。
+ *
+ * `character.session.approval` 同時符合 `character.session.` 前綴，所以這條**必須**先判斷；
+ * 反過來排的話，唯一真正存在的 approval name 會被歸成 `state-reconcile`，等於離線後可以自動
+ * 對齊——那是人類決定，不得自動重送。與 Rust `interaction_aip::offline_policy` 逐條一致。
+ */
+function isApprovalName(name: string): boolean {
+  return name.startsWith("approval.") || name.endsWith(".approval");
+}
+
 /** §8 的固定歸類表。未知 name → `drop-if-offline`（最保守：不排隊、不重播）。 */
 export function offlinePolicy(name: string, hasConsentGrant = false): OfflinePolicy {
   if (hasConsentGrant) return "require-reconfirmation";
+  if (isApprovalName(name)) return "require-reconfirmation";
   if (name.startsWith("character.interaction.touch")) return "expire-by-deadline";
   if (name.startsWith("character.interaction.")) return "drop-if-offline";
   if (name.startsWith("character.behavior.")) return "drop-if-offline";
   if (name.startsWith("character.preference.")) return "queue-idempotent";
   if (name.startsWith("character.session.")) return "state-reconcile";
   if (name.startsWith("task.") || name.startsWith("runtime.")) return "state-reconcile";
-  if (name === "approval.request") return "require-reconfirmation";
   return "drop-if-offline";
 }
 
@@ -555,6 +644,13 @@ const SYNC_CLASS_ORDER: readonly SyncClass[] = ["semantic", "timeline", "realtim
  *
  * renderer 不能靠宣告憑空得到 host 沒提供的 intent，也不能把訊息上限抬高。
  */
+/**
+ * `unsupportedInputs` 的上限。權威值在 Rust（`crates/interaction-aip/src/limits.rs` 的
+ * `MAX_UNSUPPORTED_INPUTS`）；它刻意**不進** `schemas/aip-1.0.schema.json` 的 limits 表，
+ * 因為它不是 wire 契約的一部分，只是 host 端協商結果的有界性要求。
+ */
+const MAX_UNSUPPORTED_INPUTS = 32;
+
 export function negotiateCapabilities(
   offer: HostOffer,
   announcement: CapabilityAnnouncement,
@@ -580,6 +676,10 @@ export function negotiateCapabilities(
     if ((offer.inputs ?? []).includes(input)) {
       if (!inputs.includes(input)) inputs.push(input);
     } else if (!unsupportedInputs.includes(input)) {
+      // 對方宣告的 inputs 是外部輸入、本身無界；協商結果會被序列化成一則要送上線的
+      // `capability` 回覆，所以這份清單必須有界（session-integrity-060）。截斷是確定性的
+      // （取前 N 個），與 Rust 權威實作 `interaction_aip::limits::MAX_UNSUPPORTED_INPUTS` 同值。
+      if (unsupportedInputs.length >= MAX_UNSUPPORTED_INPUTS) continue;
       unsupportedInputs.push(input);
     }
   }

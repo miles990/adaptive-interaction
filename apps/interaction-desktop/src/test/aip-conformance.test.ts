@@ -15,6 +15,7 @@ import {
   DedupeRing,
   bindIdentity,
   canTransitionOutcome,
+  encodeEnvelope,
   isOutcomeAllowedFor,
   isRuntimeOnlyName,
   negotiateCapabilities,
@@ -23,6 +24,7 @@ import {
   validateEnvelope,
   type AipOutcome,
 } from "../aip/envelope";
+import { scanNumberLiterals } from "../aip/json-source";
 import { AIP_MESSAGE_TYPES, type Envelope } from "../aip/generated";
 
 // @types/node 不在這個 app 的依賴裡，所以不用 node:url 的 fileURLToPath，
@@ -111,15 +113,33 @@ describe("AIP conformance — generated (oversized and malformed)", () => {
 describe("AIP conformance — round-trip", () => {
   for (const entry of manifest.envelopes.filter((e: Record<string, unknown>) => e.expect === "ok")) {
     it(`round-trips ${entry.id} without losing unknown top-level fields`, () => {
-      const original = JSON.parse(read(entry.file));
-      const parsed = parseEnvelope(read(entry.file));
+      const raw = read(entry.file);
+      const original = JSON.parse(raw);
+      const parsed = parseEnvelope(raw);
       expect(parsed.ok).toBe(true);
       if (!parsed.ok) return;
-      const encoded = JSON.stringify(parsed.value);
+      const encoded = encodeEnvelope(parsed.value);
       const reparsed = parseEnvelope(encoded);
       expect(reparsed.ok).toBe(true);
       if (!reparsed.ok) return;
-      expect(JSON.stringify(reparsed.value)).toBe(encoded);
+      expect(encodeEnvelope(reparsed.value)).toBe(encoded);
+
+      // §1「round-trip 不遺失」是對**線上位元組**的保證，不是對「兩個都經過同一條 double
+      // 管線的值」的保證：把 9007199254740993 讀成 9007199254740992 再寫回去，
+      // parsed 與 reparsed 會一路相等，但收到的 Rust host 讀到的已經是另一個數字。
+      // 所以這裡拿原始文字的數字字面值逐字比對。
+      const before = scanNumberLiterals(raw);
+      const after = scanNumberLiterals(encoded);
+      for (const [pointer, literal] of before) {
+        const emitted = after.get(pointer);
+        expect(emitted, `fixture ${entry.id}: ${pointer} disappeared from the encoded message`)
+          .toBeDefined();
+        expect(
+          emitted?.raw,
+          `fixture ${entry.id}: number literal at ${pointer} changed across round-trip`,
+        ).toBe(literal.raw);
+      }
+
       if (entry.roundTrip === true) {
         const known = new Set([
           "specVersion",
@@ -146,6 +166,33 @@ describe("AIP conformance — round-trip", () => {
       }
     });
   }
+
+  it("keeps an integer beyond 2^53 byte-identical on the way back out", () => {
+    // JSON.stringify 會把它寫成 9007199254740992——差一個數字，而且是靜默的。
+    const raw = read("roundtrip-big-integer-unknown-field.json");
+    const parsed = parseEnvelope(raw);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const encoded = encodeEnvelope(parsed.value);
+    expect(encoded).toContain("9007199254740993");
+    expect(encoded).toContain("1000000000000000001");
+    expect(JSON.stringify(parsed.value)).not.toContain("9007199254740993");
+  });
+
+  it("does not resurrect a stale literal after the caller changes the field", () => {
+    // 保留原文只對「沒被動過」的欄位有效：呼叫端改了值就以呼叫端為準，
+    // 否則這層保留會變成默默改寫呼叫端的資料。
+    const parsed = parseEnvelope(read("roundtrip-big-integer-unknown-field.json"));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const mutated = parsed.value as Record<string, unknown> & Envelope;
+    mutated.futureTraceId = 7;
+    const encoded = encodeEnvelope(mutated);
+    expect(encoded).toContain('"futureTraceId":7');
+    expect(encoded).not.toContain("9007199254740993");
+    // 沒被動到的欄位仍然逐字保留。
+    expect(encoded).toContain("1000000000000000001");
+  });
 });
 
 describe("AIP conformance — negotiation", () => {

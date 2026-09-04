@@ -156,6 +156,31 @@ describe("version negotiation", () => {
     expect(empty.ok).toBe(false);
     if (!empty.ok) expect(empty.error.code).toBe("unsupported-version");
   });
+
+  // §4.1 的版本字串是精確語法。三個實作只要有一個「順手 trim 一下」或用比 u32 大的
+  // 整數型別，同一則訊息就會在桌面端過、在權威 host 被擋（或反過來）——
+  // docs/aip/conformance.md §1 說這種不對稱不得存在。
+  it("does not trim whitespace out of a version string", () => {
+    for (const padded of ["aip/1.0\n", " aip/1.0", "aip/1.0 ", "\taip/1.0"]) {
+      const result = negotiateVersion(padded);
+      expect(result.ok, JSON.stringify(padded)).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe("schema-invalid");
+    }
+  });
+
+  it("treats a version part beyond u32 as unreadable, not as a newer version", () => {
+    // Rust 的 parse_spec_version 回 Option<(u32, u32)>：溢出 → None → schema-invalid。
+    // 「不支援的版本」是看得懂但不接受，這裡是根本看不懂。
+    for (const overflow of ["aip/1.99999999999", "aip/5000000000.0"]) {
+      const result = negotiateVersion(overflow);
+      expect(result.ok, overflow).toBe(false);
+      if (!result.ok) expect(result.error.code, overflow).toBe("schema-invalid");
+    }
+    // 邊界本身仍然只是「major 不同」，不是語法錯誤。
+    const edge = negotiateVersion("aip/4294967295.4294967295");
+    expect(edge.ok).toBe(false);
+    if (!edge.ok) expect(edge.error.code).toBe("unsupported-version");
+  });
 });
 
 describe("bounded state", () => {
@@ -187,6 +212,15 @@ describe("names, identity and offline policy", () => {
   it("falls back to the most conservative offline class for unknown names", () => {
     expect(offlinePolicy("totally.unknown")).toBe("drop-if-offline");
     expect(offlinePolicy("character.interaction.touch", true)).toBe("require-reconfirmation");
+  });
+
+  // §8：approval-request 的線上名字是 `character.session.approval`，它同時符合
+  // `character.session.` 前綴。歸類先命中哪一條，決定了斷線重連後那筆人類決定
+  // 是「重新問一次人」還是「自動跟著最新狀態對齊」。
+  it("asks a human again for an approval name that also looks like session state", () => {
+    expect(offlinePolicy("character.session.approval")).toBe("require-reconfirmation");
+    expect(offlinePolicy("approval.request")).toBe("require-reconfirmation");
+    expect(offlinePolicy("character.session.presence")).toBe("state-reconcile");
   });
 
   it("keeps observed and acknowledged away from verified", () => {

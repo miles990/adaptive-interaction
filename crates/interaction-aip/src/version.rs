@@ -4,8 +4,12 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// 解析 `aip/<major>.<minor>`；其他格式一律 None（不猜）。
+///
+/// 語法是精確的：**不** trim 前後空白（空白不是版本的一部分，容忍它只會讓三個語言
+/// 的界線不一樣——Swift 的 `.whitespaces` 不含換行），major／minor 溢出 u32 也回 None
+/// （→ `schema-invalid`，不是 `unsupported-version`：看不懂的字串不叫「不支援的版本」）。
 pub fn parse_spec_version(value: &str) -> Option<(u32, u32)> {
-    let rest = value.trim().strip_prefix("aip/")?;
+    let rest = value.strip_prefix("aip/")?;
     let (major, minor) = rest.split_once('.')?;
     if major.is_empty()
         || minor.is_empty()
@@ -96,5 +100,29 @@ mod tests {
         let picked = negotiate_versions(&["aip/2.0".into(), "aip/1.0".into()]).unwrap();
         assert_eq!(picked.spec_version, "aip/1.0");
         assert!(negotiate_versions(&[]).is_err());
+    }
+
+    /// §4.1 的版本字串是精確語法，不是「大概像」：前後空白、換行都不算合法，
+    /// major／minor 溢出 u32 也一律不猜。三個語言必須在同一條界線上（conformance fixture 釘住）。
+    #[test]
+    fn version_syntax_has_no_fuzzy_edges() {
+        for padded in ["aip/1.0\n", " aip/1.0", "aip/1.0 ", "\taip/1.0"] {
+            assert_eq!(
+                parse_spec_version(padded),
+                None,
+                "surrounding whitespace must not be trimmed away"
+            );
+        }
+        assert_eq!(parse_spec_version("aip/1.99999999999"), None);
+        assert_eq!(parse_spec_version("aip/5000000000.0"), None);
+        assert_eq!(
+            parse_spec_version("aip/4294967295.4294967295"),
+            Some((u32::MAX, u32::MAX))
+        );
+        // 溢出不是「不支援的版本」，是看不懂的字串。
+        assert_eq!(
+            negotiate_version("aip/5000000000.0").unwrap_err().code,
+            crate::ErrorCode::SchemaInvalid
+        );
     }
 }
