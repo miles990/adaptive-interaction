@@ -1,0 +1,8 @@
+{
+  "id": "task-truth-reduced-motion",
+  "note": "truth 帶 correlationId、attention.kind=task、reducedMotion=true（布林與可選鍵）",
+  "semanticValid": true,
+  "hash": "873ec301413f3835d4c0e657690f0b6e51d10f918dbc0762ed6613b5bb08c4eb",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"correlationId\":\"task_42\",\"kind\":\"task\"},\"characterId\":\"ref-shape\",\"members\":[{\"lastSeenAt\":\"2026-09-05T09:00:00Z\",\"party\":{\"id\":\"desktop\",\"kind\":\"human-surface\"},\"presence\":\"online\",\"role\":\"host-renderer\",\"unsupportedIntents\":[]}],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":true,\"truth\":{\"correlationId\":\"task_42\",\"state\":\"claimed\"}}",
+  "state": {"activity":"idle","attention":{"correlationId":"task_42","kind":"task"},"characterId":"ref-shape","members":[{"lastSeenAt":"2026-09-05T09:00:00Z","party":{"id":"desktop","kind":"human-surface"},"presence":"online","role":"host-renderer","unsupportedIntents":[]}],"mood":{"intensity":0.0,"kind":"neutral"},"reducedMotion":true,"truth":{"correlationId":"task_42","state":"claimed"}}
+}

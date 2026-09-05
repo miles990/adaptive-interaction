@@ -1,0 +1,8 @@
+{
+  "id": "intensity-three-decimals",
+  "note": "mood.intensity 0.123：最短 round-trip 十進位，沒有指數記法",
+  "semanticValid": true,
+  "hash": "d4d321f6c4bc697052860be918f7002f0f5bc1f621860d302e03c20d1fcf7c1d",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.123,\"kind\":\"playful\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"ref-shape","members":[],"mood":{"intensity":0.123,"kind":"playful"},"reducedMotion":false,"truth":{"state":"none"}}
+}

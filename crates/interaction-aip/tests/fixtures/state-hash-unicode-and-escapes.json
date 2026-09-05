@@ -1,0 +1,8 @@
+{
+  "id": "unicode-and-escapes",
+  "note": "非 ASCII 原樣（不 \\u 跳脫）、`/` 不跳脫、控制字元 \\u0001、emoji 原樣",
+  "semanticValid": true,
+  "hash": "ae561d8eb9f2d5ddad7043e6d97ec9b2b16aa5b6c8d711cb886748ee57a32e73",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"角色／測試 \\\"quoted\\\" back\\\\slash\\ttab\\nnewline \\u0001ctrl 🎈\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"角色／測試 \"quoted\" back\\slash\ttab\nnewline \u0001ctrl 🎈","members":[],"mood":{"intensity":0.0,"kind":"neutral"},"reducedMotion":false,"truth":{"state":"none"}}
+}

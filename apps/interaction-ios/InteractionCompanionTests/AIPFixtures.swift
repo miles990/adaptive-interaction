@@ -820,6 +820,17 @@ enum AIPFixtures {
     { "name": "character.behavior.request", "runtimeOnly": false },
     { "name": "character.session.presence", "runtimeOnly": false },
     { "name": "device.tilt", "runtimeOnly": false }
+  ],
+  "stateHashes": [
+    { "id": "fresh", "file": "state-hash-fresh.json", "semanticValid": true, "note": "全新 session：mood.intensity 0.0 必須寫成 `0.0`（serde_json f64），不是 `0`" },
+    { "id": "unsorted-input", "file": "state-hash-unsorted-input.json", "semanticValid": true, "note": "與 fresh 同一份 state，但輸入鍵反序、帶空白與換行：hash 必須與 fresh 相同" },
+    { "id": "members-unsupported-intents", "file": "state-hash-members-unsupported-intents.json", "semanticValid": true, "note": "members[].unsupportedIntents：全支援＝空陣列（不是缺鍵）；部分支援＝排序後的清單" },
+    { "id": "after-touch", "file": "state-hash-after-touch.json", "semanticValid": true, "note": "touch 之後：mood.intensity 是 0..1 的小數、attention.kind=member、lastInteraction 存在" },
+    { "id": "task-truth-reduced-motion", "file": "state-hash-task-truth-reduced-motion.json", "semanticValid": true, "note": "truth 帶 correlationId、attention.kind=task、reducedMotion=true（布林與可選鍵）" },
+    { "id": "intensity-one", "file": "state-hash-intensity-one.json", "semanticValid": true, "note": "mood.intensity 1.0：整數值的 f64 仍寫成 `1.0`" },
+    { "id": "intensity-three-decimals", "file": "state-hash-intensity-three-decimals.json", "semanticValid": true, "note": "mood.intensity 0.123：最短 round-trip 十進位，沒有指數記法" },
+    { "id": "intensity-negative-zero", "file": "state-hash-intensity-negative-zero.json", "semanticValid": false, "note": "-0.0：canonical 文字是 `-0.0`；host 永不產生它，restore 拒絕（semanticValid=false）" },
+    { "id": "unicode-and-escapes", "file": "state-hash-unicode-and-escapes.json", "semanticValid": true, "note": "非 ASCII 原樣（不 \\u 跳脫）、`/` 不跳脫、控制字元 \\u0001、emoji 原樣" }
   ]
 }
 """#,
@@ -908,6 +919,111 @@ enum AIPFixtures {
   "payload": { "kind": "pat", "intensity": 0.8 },
   "futureField": { "keep": true, "nested": ["a", 1, null] },
   "anotherFutureField": "kept verbatim"
+}
+"""#,
+        "state-hash-after-touch.json": #"""
+{
+  "id": "after-touch",
+  "note": "touch 之後：mood.intensity 是 0..1 的小數、attention.kind=member、lastInteraction 存在",
+  "semanticValid": true,
+  "hash": "1fbd5a239d691acacc03d28db5445261ba4a9e526f7d010d8b08e21e283e5bf3",
+  "canonical": "{\"activity\":\"reacting\",\"attention\":{\"id\":\"device:iphone-87b42264\",\"kind\":\"member\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-05T09:00:00.100Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:iphone-87b42264\"},\"members\":[{\"lastSeenAt\":\"2026-09-05T09:00:00Z\",\"party\":{\"id\":\"iphone-87b42264\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]}],\"mood\":{\"intensity\":0.4,\"kind\":\"happy\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"reacting","attention":{"id":"device:iphone-87b42264","kind":"member"},"characterId":"ref-shape","lastInteraction":{"at":"2026-09-05T09:00:00.100Z","kind":"tap","name":"character.interaction.touch","source":"device:iphone-87b42264"},"members":[{"lastSeenAt":"2026-09-05T09:00:00Z","party":{"id":"iphone-87b42264","kind":"device"},"presence":"online","role":"remote-renderer","unsupportedIntents":[]}],"mood":{"intensity":0.4,"kind":"happy"},"reducedMotion":false,"truth":{"state":"none"}}
+}
+"""#,
+        "state-hash-fresh.json": #"""
+{
+  "id": "fresh",
+  "note": "全新 session：mood.intensity 0.0 必須寫成 `0.0`（serde_json f64），不是 `0`",
+  "semanticValid": true,
+  "hash": "8349d285021b52c83ee9aa87920158007f325946a29c851681c9798d1f3eef55",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"ref-shape","members":[],"mood":{"intensity":0.0,"kind":"neutral"},"reducedMotion":false,"truth":{"state":"none"}}
+}
+"""#,
+        "state-hash-intensity-negative-zero.json": #"""
+{
+  "id": "intensity-negative-zero",
+  "note": "-0.0：canonical 文字是 `-0.0`；host 永不產生它，restore 拒絕（semanticValid=false）",
+  "semanticValid": false,
+  "hash": "7df350082806857aabefdeea09c07352f83f4b5221f5c6a6a1b1806d5cd768ac",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":-0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"ref-shape","members":[],"mood":{"intensity":-0.0,"kind":"neutral"},"reducedMotion":false,"truth":{"state":"none"}}
+}
+"""#,
+        "state-hash-intensity-one.json": #"""
+{
+  "id": "intensity-one",
+  "note": "mood.intensity 1.0：整數值的 f64 仍寫成 `1.0`",
+  "semanticValid": true,
+  "hash": "7d6ba3bfd0fcd85d6db72f50cf4e22db877148a03857cfcdf58ebd9f0c27b594",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":1.0,\"kind\":\"happy\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"ref-shape","members":[],"mood":{"intensity":1.0,"kind":"happy"},"reducedMotion":false,"truth":{"state":"none"}}
+}
+"""#,
+        "state-hash-intensity-three-decimals.json": #"""
+{
+  "id": "intensity-three-decimals",
+  "note": "mood.intensity 0.123：最短 round-trip 十進位，沒有指數記法",
+  "semanticValid": true,
+  "hash": "d4d321f6c4bc697052860be918f7002f0f5bc1f621860d302e03c20d1fcf7c1d",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.123,\"kind\":\"playful\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"ref-shape","members":[],"mood":{"intensity":0.123,"kind":"playful"},"reducedMotion":false,"truth":{"state":"none"}}
+}
+"""#,
+        "state-hash-members-unsupported-intents.json": #"""
+{
+  "id": "members-unsupported-intents",
+  "note": "members[].unsupportedIntents：全支援＝空陣列（不是缺鍵）；部分支援＝排序後的清單",
+  "semanticValid": true,
+  "hash": "46f9dc3417749f8b7888fefb01d46ab022144928492fd943958df753d9452728",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[{\"lastSeenAt\":\"2026-09-05T09:00:00Z\",\"party\":{\"id\":\"desktop\",\"kind\":\"human-surface\"},\"presence\":\"online\",\"role\":\"host-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-05T09:00:00.010Z\",\"party\":{\"id\":\"iphone-87b42264\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[\"celebrate\",\"react-happily-to-touch\",\"settle\"]}],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"ref-shape","members":[{"lastSeenAt":"2026-09-05T09:00:00Z","party":{"id":"desktop","kind":"human-surface"},"presence":"online","role":"host-renderer","unsupportedIntents":[]},{"lastSeenAt":"2026-09-05T09:00:00.010Z","party":{"id":"iphone-87b42264","kind":"device"},"presence":"online","role":"remote-renderer","unsupportedIntents":["celebrate","react-happily-to-touch","settle"]}],"mood":{"intensity":0.0,"kind":"neutral"},"reducedMotion":false,"truth":{"state":"none"}}
+}
+"""#,
+        "state-hash-task-truth-reduced-motion.json": #"""
+{
+  "id": "task-truth-reduced-motion",
+  "note": "truth 帶 correlationId、attention.kind=task、reducedMotion=true（布林與可選鍵）",
+  "semanticValid": true,
+  "hash": "873ec301413f3835d4c0e657690f0b6e51d10f918dbc0762ed6613b5bb08c4eb",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"correlationId\":\"task_42\",\"kind\":\"task\"},\"characterId\":\"ref-shape\",\"members\":[{\"lastSeenAt\":\"2026-09-05T09:00:00Z\",\"party\":{\"id\":\"desktop\",\"kind\":\"human-surface\"},\"presence\":\"online\",\"role\":\"host-renderer\",\"unsupportedIntents\":[]}],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":true,\"truth\":{\"correlationId\":\"task_42\",\"state\":\"claimed\"}}",
+  "state": {"activity":"idle","attention":{"correlationId":"task_42","kind":"task"},"characterId":"ref-shape","members":[{"lastSeenAt":"2026-09-05T09:00:00Z","party":{"id":"desktop","kind":"human-surface"},"presence":"online","role":"host-renderer","unsupportedIntents":[]}],"mood":{"intensity":0.0,"kind":"neutral"},"reducedMotion":true,"truth":{"correlationId":"task_42","state":"claimed"}}
+}
+"""#,
+        "state-hash-unicode-and-escapes.json": #"""
+{
+  "id": "unicode-and-escapes",
+  "note": "非 ASCII 原樣（不 \\u 跳脫）、`/` 不跳脫、控制字元 \\u0001、emoji 原樣",
+  "semanticValid": true,
+  "hash": "ae561d8eb9f2d5ddad7043e6d97ec9b2b16aa5b6c8d711cb886748ee57a32e73",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"角色／測試 \\\"quoted\\\" back\\\\slash\\ttab\\nnewline \\u0001ctrl 🎈\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"角色／測試 \"quoted\" back\\slash\ttab\nnewline \u0001ctrl 🎈","members":[],"mood":{"intensity":0.0,"kind":"neutral"},"reducedMotion":false,"truth":{"state":"none"}}
+}
+"""#,
+        "state-hash-unsorted-input.json": #"""
+{
+  "id": "unsorted-input",
+  "note": "與 fresh 同一份 state，但輸入鍵反序、帶空白與換行：hash 必須與 fresh 相同",
+  "semanticValid": true,
+  "hash": "8349d285021b52c83ee9aa87920158007f325946a29c851681c9798d1f3eef55",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {
+    "truth" : {
+  "state": "none"
+},
+    "reducedMotion" : false,
+    "mood" : {
+  "intensity": 0.0,
+  "kind": "neutral"
+},
+    "members" : [],
+    "characterId" : "ref-shape",
+    "attention" : {
+  "kind": "none"
+},
+    "activity" : "idle"
+  }
 }
 """#,
         "state-patch.json": #"""

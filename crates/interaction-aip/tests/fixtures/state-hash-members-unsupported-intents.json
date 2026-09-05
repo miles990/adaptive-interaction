@@ -1,0 +1,8 @@
+{
+  "id": "members-unsupported-intents",
+  "note": "members[].unsupportedIntents：全支援＝空陣列（不是缺鍵）；部分支援＝排序後的清單",
+  "semanticValid": true,
+  "hash": "46f9dc3417749f8b7888fefb01d46ab022144928492fd943958df753d9452728",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[{\"lastSeenAt\":\"2026-09-05T09:00:00Z\",\"party\":{\"id\":\"desktop\",\"kind\":\"human-surface\"},\"presence\":\"online\",\"role\":\"host-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-05T09:00:00.010Z\",\"party\":{\"id\":\"iphone-87b42264\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[\"celebrate\",\"react-happily-to-touch\",\"settle\"]}],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"ref-shape","members":[{"lastSeenAt":"2026-09-05T09:00:00Z","party":{"id":"desktop","kind":"human-surface"},"presence":"online","role":"host-renderer","unsupportedIntents":[]},{"lastSeenAt":"2026-09-05T09:00:00.010Z","party":{"id":"iphone-87b42264","kind":"device"},"presence":"online","role":"remote-renderer","unsupportedIntents":["celebrate","react-happily-to-touch","settle"]}],"mood":{"intensity":0.0,"kind":"neutral"},"reducedMotion":false,"truth":{"state":"none"}}
+}

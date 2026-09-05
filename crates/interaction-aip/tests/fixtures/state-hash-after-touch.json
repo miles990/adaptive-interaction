@@ -1,0 +1,8 @@
+{
+  "id": "after-touch",
+  "note": "touch 之後：mood.intensity 是 0..1 的小數、attention.kind=member、lastInteraction 存在",
+  "semanticValid": true,
+  "hash": "1fbd5a239d691acacc03d28db5445261ba4a9e526f7d010d8b08e21e283e5bf3",
+  "canonical": "{\"activity\":\"reacting\",\"attention\":{\"id\":\"device:iphone-87b42264\",\"kind\":\"member\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-05T09:00:00.100Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:iphone-87b42264\"},\"members\":[{\"lastSeenAt\":\"2026-09-05T09:00:00Z\",\"party\":{\"id\":\"iphone-87b42264\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]}],\"mood\":{\"intensity\":0.4,\"kind\":\"happy\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"reacting","attention":{"id":"device:iphone-87b42264","kind":"member"},"characterId":"ref-shape","lastInteraction":{"at":"2026-09-05T09:00:00.100Z","kind":"tap","name":"character.interaction.touch","source":"device:iphone-87b42264"},"members":[{"lastSeenAt":"2026-09-05T09:00:00Z","party":{"id":"iphone-87b42264","kind":"device"},"presence":"online","role":"remote-renderer","unsupportedIntents":[]}],"mood":{"intensity":0.4,"kind":"happy"},"reducedMotion":false,"truth":{"state":"none"}}
+}

@@ -1,0 +1,8 @@
+{
+  "id": "intensity-one",
+  "note": "mood.intensity 1.0：整數值的 f64 仍寫成 `1.0`",
+  "semanticValid": true,
+  "hash": "7d6ba3bfd0fcd85d6db72f50cf4e22db877148a03857cfcdf58ebd9f0c27b594",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":1.0,\"kind\":\"happy\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"ref-shape","members":[],"mood":{"intensity":1.0,"kind":"happy"},"reducedMotion":false,"truth":{"state":"none"}}
+}

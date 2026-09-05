@@ -279,5 +279,16 @@
     { "name": "character.behavior.request", "runtimeOnly": false },
     { "name": "character.session.presence", "runtimeOnly": false },
     { "name": "device.tilt", "runtimeOnly": false }
+  ],
+  "stateHashes": [
+    { "id": "fresh", "file": "state-hash-fresh.json", "semanticValid": true, "note": "全新 session：mood.intensity 0.0 必須寫成 `0.0`（serde_json f64），不是 `0`" },
+    { "id": "unsorted-input", "file": "state-hash-unsorted-input.json", "semanticValid": true, "note": "與 fresh 同一份 state，但輸入鍵反序、帶空白與換行：hash 必須與 fresh 相同" },
+    { "id": "members-unsupported-intents", "file": "state-hash-members-unsupported-intents.json", "semanticValid": true, "note": "members[].unsupportedIntents：全支援＝空陣列（不是缺鍵）；部分支援＝排序後的清單" },
+    { "id": "after-touch", "file": "state-hash-after-touch.json", "semanticValid": true, "note": "touch 之後：mood.intensity 是 0..1 的小數、attention.kind=member、lastInteraction 存在" },
+    { "id": "task-truth-reduced-motion", "file": "state-hash-task-truth-reduced-motion.json", "semanticValid": true, "note": "truth 帶 correlationId、attention.kind=task、reducedMotion=true（布林與可選鍵）" },
+    { "id": "intensity-one", "file": "state-hash-intensity-one.json", "semanticValid": true, "note": "mood.intensity 1.0：整數值的 f64 仍寫成 `1.0`" },
+    { "id": "intensity-three-decimals", "file": "state-hash-intensity-three-decimals.json", "semanticValid": true, "note": "mood.intensity 0.123：最短 round-trip 十進位，沒有指數記法" },
+    { "id": "intensity-negative-zero", "file": "state-hash-intensity-negative-zero.json", "semanticValid": false, "note": "-0.0：canonical 文字是 `-0.0`；host 永不產生它，restore 拒絕（semanticValid=false）" },
+    { "id": "unicode-and-escapes", "file": "state-hash-unicode-and-escapes.json", "semanticValid": true, "note": "非 ASCII 原樣（不 \\u 跳脫）、`/` 不跳脫、控制字元 \\u0001、emoji 原樣" }
   ]
 }

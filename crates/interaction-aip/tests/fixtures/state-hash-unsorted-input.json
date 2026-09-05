@@ -1,0 +1,23 @@
+{
+  "id": "unsorted-input",
+  "note": "與 fresh 同一份 state，但輸入鍵反序、帶空白與換行：hash 必須與 fresh 相同",
+  "semanticValid": true,
+  "hash": "8349d285021b52c83ee9aa87920158007f325946a29c851681c9798d1f3eef55",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {
+    "truth" : {
+  "state": "none"
+},
+    "reducedMotion" : false,
+    "mood" : {
+  "intensity": 0.0,
+  "kind": "neutral"
+},
+    "members" : [],
+    "characterId" : "ref-shape",
+    "attention" : {
+  "kind": "none"
+},
+    "activity" : "idle"
+  }
+}

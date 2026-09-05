@@ -1,0 +1,8 @@
+{
+  "id": "intensity-negative-zero",
+  "note": "-0.0：canonical 文字是 `-0.0`；host 永不產生它，restore 拒絕（semanticValid=false）",
+  "semanticValid": false,
+  "hash": "7df350082806857aabefdeea09c07352f83f4b5221f5c6a6a1b1806d5cd768ac",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":-0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"ref-shape","members":[],"mood":{"intensity":-0.0,"kind":"neutral"},"reducedMotion":false,"truth":{"state":"none"}}
+}
