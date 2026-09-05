@@ -120,6 +120,9 @@ pub const LOCAL_SENSOR_SOURCE_ID: &str = "local.capture";
 pub const LOCAL_SENSOR_DECLARATION_ID: &str = "provider.local.capture";
 /// 本機麥克風受器 id（本機來源宣告它涵蓋這一個）。
 pub const LOCAL_MIC_RECEPTOR_ID: &str = "microphone.listen";
+/// 本機來源的確認來源：這個 process **就是**擷取的那一端，旗標即事實。
+/// 對比裝置線的 `ack`（要對端回話才算），這一個不需要往返。
+pub const LOCAL_STOP_CONFIRMED_VIA: &str = "local-capture";
 
 /// 停止感測的 audit reason：使用者按了「停止所有感測」。
 pub const SENSOR_STOP_REASON_USER: &str = "stop-all-sensors";
@@ -239,13 +242,17 @@ impl SensorSource for LocalMicSensorSource {
         } else {
             SensorStopStatus::AlreadyStopped
         };
+        // 這個來源**就是**本機麥克風的擁有者：旗標不是「我猜它沒在擷取」，
+        // 而是這一側的事實。證據說得出來，所以 already-stopped 也算確認
+        // （對比：宣告式裝置的旗標只反映本機收不收資料，裝置那端未知）。
         vec![SensorStopReport::new(
             LOCAL_SENSOR_SOURCE_ID,
             LOCAL_SENSOR_DECLARATION_ID,
             vec![LOCAL_MIC_RECEPTOR_ID.to_string()],
             outcome,
             0,
-        )]
+        )
+        .with_via(Some(LOCAL_STOP_CONFIRMED_VIA))]
     }
 }
 
@@ -535,9 +542,13 @@ impl Runtime {
             }
             // 這個**還登記著**的來源明確確認停止的受器：把同 id 舊世代留下的
             // 未解決記錄清掉（誠實：只清它確認過的那幾個受器，不整筆抹掉）。
+            //
+            // 「確認」要帶得出證據：一份沒有跟裝置往返過的 `already-stopped`
+            // （只是本機旗標說沒東西在擷取）不得替舊世代作證
+            // （見 `SensorStopReport::resolves_unresolved_stops`）。
             let confirmed: Vec<String> = source_reports
                 .iter()
-                .filter(|r| r.confirmed())
+                .filter(|r| r.resolves_unresolved_stops())
                 .flat_map(|r| r.sensors.clone())
                 .collect();
             self.resolve_stops_for(&source.source_id(), &confirmed)

@@ -541,6 +541,15 @@ impl FakeSensorSource {
         })
     }
 
+    /// 一個**沒有在擷取**的來源：`active_captures()` 是空的，`request_stop`
+    /// 因此走「本來就沒有東西要停」那條快速路徑（＝宣告式 adapter 的
+    /// `targets.is_empty()` 分支的形狀：完全沒有跟裝置往返過）。
+    fn new_idle(id: &str) -> Arc<Self> {
+        let source = FakeSensorSource::new(id, FakeMode::Confirm);
+        source.capturing.store(false, AtomicOrdering::SeqCst);
+        source
+    }
+
     fn calls(&self) -> usize {
         self.calls.load(AtomicOrdering::SeqCst)
     }
@@ -1287,6 +1296,60 @@ async fn confirmed_stop_from_new_source_clears_unresolved() {
             .iter()
             .any(|k| k == "sensor.unresolved-stop-resolved"),
         "清除也要留稽核"
+    );
+}
+
+/// 「本機旗標說沒東西在擷取」**不是**裝置的確認：一份沒有任何裝置往返的
+/// `already-stopped` 不得清掉舊世代留下的未解決停止。
+///
+/// 為什麼這條界線重要：`SourceKey` 的世代之所以存在，就是因為「新來源不知道
+/// 舊連線那一頭發生過什麼事」。一台剛重新綁定、受器全部回到預設關閉的裝置，
+/// 對「上一次拔線時麥克風停了沒有」一無所知——讓它替舊世代作證，等於用一台
+/// 新裝置替一台舊裝置簽名。
+#[tokio::test]
+async fn an_already_stopped_without_device_contact_does_not_clear_an_old_generation() {
+    let (_g, rt, _fake) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.flagonly", FakeMode::Timeout))
+        .await
+        .unwrap();
+    let first = rt
+        .sensor_source_generation("fixture.flagonly")
+        .await
+        .expect("generation");
+    assert!(rt.unregister_sensor_source("fixture.flagonly").await);
+    expire_orphan_window(&rt);
+    assert_eq!(rt.unresolved_stops().await.len(), 1, "先有一筆未解決");
+
+    // 同一個 id 的新來源回來了，但它這一側什麼都沒開著：它連問都沒問裝置，
+    // 就回一筆涵蓋整族受器的 already-stopped（沒有 confirmed_via）。
+    rt.register_sensor_source(FakeSensorSource::new_idle("fixture.flagonly"))
+        .await
+        .unwrap();
+    let sweep = rt
+        .stop_all_sensor_sources("test", "stop-all-sensors", Duration::from_millis(200))
+        .await;
+    assert!(
+        sweep
+            .reports
+            .iter()
+            .any(|r| r.source_id == "fixture.flagonly"
+                && r.outcome == SensorStopStatus::AlreadyStopped
+                && r.confirmed_via.is_none()),
+        "這條測試的前提：沒有裝置往返的 already-stopped：{sweep:?}"
+    );
+
+    let unresolved = rt.unresolved_stops().await;
+    assert!(
+        unresolved
+            .iter()
+            .any(|u| u.source_id == "fixture.flagonly" && u.generation == first),
+        "沒有任何裝置說過話的 already-stopped 不得替舊世代作證：{unresolved:?}"
+    );
+    assert!(
+        !audit_kinds(&rt)
+            .iter()
+            .any(|k| k == "sensor.unresolved-stop-resolved"),
+        "更不得記成「已解決」"
     );
 }
 

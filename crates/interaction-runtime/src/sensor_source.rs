@@ -194,6 +194,24 @@ impl SensorStopReport {
     pub fn confirmed(&self) -> bool {
         self.outcome.confirmed()
     }
+
+    /// 這一筆足以清掉**舊世代**留下的未解決停止嗎？
+    ///
+    /// 誠實界線：`Stopped` 是「我真的把它停下來／收到它停了的回覆」，那是一次
+    /// 主動的確認；`AlreadyStopped` 卻同時是兩件事——「本機這一側本來就沒有
+    /// 東西要停」（一個旗標）與「這個來源對該受器有權威，而它確認沒在擷取」
+    /// （本機麥克風）。前者沒有跟任何裝置往返過，拿它替**上一次登記**留下的
+    /// 未解決停止作證，就是用一台新裝置替一台舊裝置簽名（見 [`SourceKey`]）。
+    ///
+    /// 所以 `AlreadyStopped` 只有帶著 [`Self::confirmed_via`]（說得出證據來自
+    /// 哪裡：裝置 ack、來源本身的權威）時才算數。
+    pub fn resolves_unresolved_stops(&self) -> bool {
+        match self.outcome {
+            SensorStopStatus::Stopped => true,
+            SensorStopStatus::AlreadyStopped => self.confirmed_via.is_some(),
+            _ => false,
+        }
+    }
 }
 
 /// 既有的「補發未確認事件」介面：新的報告型別直接實作它，`sensors.rs` 的純
@@ -632,8 +650,10 @@ impl Runtime {
     /// 一個**登記中**的來源確認了某些受器已經停止：把同 id 舊世代留下來的
     /// 未解決記錄清掉（即時清單與未解決摘要都清）。
     ///
-    /// 誠實界線：只有 `stopped`／`already-stopped` 算確認，而且只有現在還登記
-    /// 著的來源說了才算——一台已經不在的裝置不能替自己作證。
+    /// 誠實界線：只有**帶得出證據**的確認算數
+    /// （[`SensorStopReport::resolves_unresolved_stops`]：主動停下來，或
+    /// already-stopped 而且說得出 `confirmed_via`），而且只有現在還登記著的
+    /// 來源說了才算——一台已經不在的裝置不能替自己作證。
     pub(crate) async fn resolve_stops_for(&self, source_id: &str, confirmed: &[String]) {
         if confirmed.is_empty() {
             return;
@@ -796,7 +816,7 @@ impl Runtime {
         // **還登記著**的來源自己說的（誠實：新裝置不能替舊裝置作證）。
         let confirmed: Vec<String> = reports
             .iter()
-            .filter(|r| r.confirmed())
+            .filter(|r| r.resolves_unresolved_stops())
             .flat_map(|r| r.sensors.clone())
             .collect();
         self.resolve_stops_for(&source.source_id(), &confirmed)
