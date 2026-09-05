@@ -18,9 +18,9 @@
 >   mic/BLE/battery 全部 false、App 顯示「因桌面緊急停止而停用」)、
 >   Bonjour 以 `_interact-ai._tcp` 實際廣播成功(`dns-sd -B` 看得到)。
 >   證據截圖:`docs/assets/v05-evidence/ios-sim-*.png`(檔名前綴即標示模擬器)。
-> - ✅ 全部 **17** 個 App `.swift` 通過 iOS 模擬器目標的完整 `swiftc -typecheck`(0 錯誤、0 警告;
->   2026-09-05 v0.6.x 可維護性分支重測,新增 `Services/AppLifecycle.swift`。
->   2026-09-04 v0.6.0 wave 2 為 16 個、v0.5.1 當時是 12 個)
+> - ✅ 全部 **19** 個 App `.swift` 通過 iOS 模擬器目標的完整 `swiftc -typecheck`(0 錯誤、0 警告;
+>   2026-09-06 v0.7.0 重測,新增 `Services/SessionReceive.swift` 與 `Services/SocketTransport.swift`。
+>   2026-09-05 v0.6.x 可維護性分支為 17 個、2026-09-04 v0.6.0 wave 2 為 16 個、v0.5.1 當時是 12 個)
 > - ❌ **未經真機驗收**:haptic / torch / CoreMotion / 真實 BLE / 通知顯示 / QR 相機掃描
 >   在模擬器上不可用或未觸發,行為仍未驗證。
 >
@@ -35,11 +35,11 @@
 > - ✅ **裝置 SDK 建置通過(未簽章)**:`-sdk iphoneos -arch arm64 -configuration Release
 >   CODE_SIGNING_ALLOWED=NO` → `** BUILD SUCCEEDED **`;12 個 `.swift` 對
 >   `arm64-apple-ios17.0` + iphoneos26.5 SDK 的 `swiftc -typecheck` 也是 0 error / 0 warning。
-> - ✅ **XCTest 126/126 通過（2026-09-05 v0.6.x 對抗審查修復，Lifecycle 16 → 22；同日稍早同分支為
->   120/120、104/104，v0.6.0 對抗審查修復後為 101/101；2026-09-04 wave 2 為 92/92、同日 v0.5.1 為 46/46、
->   2026-09-03 為 25/25）**
->   (AIPConformance 17 + Lifecycle 22 + MotionClassifier 8 + Protocol 21 + ReconnectHint 21 +
->   SessionClient 34 + StateHashConformance 3)
+> - ✅ **XCTest 144/144 通過（2026-09-06 v0.7.0 AIP 接收端決策表＋連線閘門可測性，
+>   126 → 144；同分支稍早為 126/126、120/120、104/104，v0.6.0 對抗審查修復後為 101/101；
+>   2026-09-04 wave 2 為 92/92、同日 v0.5.1 為 46/46、2026-09-03 為 25/25）**
+>   (AIPConformance 17 + ConnectionManagerGate 7 + Lifecycle 22 + MotionClassifier 8 + Protocol 21 +
+>   ReceiveDecisionConformance 11 + ReconnectHint 21 + SessionClient 34 + StateHashConformance 3)
 >   ——用 xcodebuild 產出的 app-hosted `.xctest`,注入 iPhone 17
 >   **模擬器**(iOS 26.2)以 `simctl` 執行(見下方「跑 XCTest:`simctl` 注入流程」)。
 >   **這是模擬器測試,與下面的真機驗收是兩件事**。
@@ -85,6 +85,10 @@ apps/interaction-ios/
 ├── InteractionCompanionTests/
 │   ├── AIPFixtures.swift              codegen 內嵌的 AIP conformance fixture(不要手改)
 │   ├── AIPConformanceTests.swift      AIP 1.0 跨語言 conformance(XCTest:17 個 test 方法,v0.6.0)
+│   ├── ConnectionManagerGateTests.swift 背景/前景閘門五個接線點的行為測試(可注入 socket 與排程;
+│   │                                   XCTest:7 個 test 方法,v0.7.0)
+│   ├── ReceiveDecisionConformanceTests.swift AIP 接收端決策表的跨語言 conformance
+│   │                                   (manifest.json 的 43 個案例逐筆對答案;XCTest:11 個,v0.7.0)
 │   ├── LifecycleTests.swift           前景/背景決策 + presence 心跳常數 + AIP heartbeat
 │   │                                   + 背景重連/心跳閘門 + 回前景 resume 防重入
 │   │                                   (XCTest:22 個 test 方法,v0.6.x)
@@ -103,7 +107,9 @@ apps/interaction-ios/
     │   └── CharacterSemantic.swift    語意狀態鏡射 + RFC 7396 merge patch + canonical hash
     ├── Services/
     │   ├── AppLifecycle.swift         前景/背景純決策 + presence 心跳常數(唯一來源)
-    │   ├── ConnectionManager.swift    WebSocket + TLS 指紋固定 + 配對/認證 + 重連 backoff
+    │   ├── ConnectionManager.swift    WebSocket + TLS 指紋固定 + 配對/認證 + 重連 backoff + 連線世代
+    │   ├── SocketTransport.swift      socket 與排程的可注入接縫(正式路徑 URLSession / RunLoop Timer)
+    │   ├── SessionReceive.swift       AIP 1.0 接收端決策表(純函式;三端共用同一張表)
     │   ├── SessionClient.swift        AIP Character Session 手機端(remote-renderer)
     │   ├── PairingStore.swift         Keychain(deviceId/token/host/port/指紋;不存配對碼)
     │   ├── MotionSemantics.swift      CoreMotion → 語意事件(純分類器核心可測)
@@ -136,6 +142,16 @@ apps/interaction-ios/
   角色頁就顯示固定文案「緊急停止中」。
 - **一般模式只顯示一行人話**;revision／sequence／sessionEpoch 等只在
   「連線」頁 → 診斷 → **角色同步(進階)** 這個預設收合的折疊區。
+- **接收端只認一張表（v0.7.0）**:收到一則 `state` 之後要做什麼,逐條照
+  [`docs/aip/character-session.md`](../../docs/aip/character-session.md) §7.2 的決策表
+  (連線世代 → 身分 → 格式 → epoch → revision → hash),權威實作是 Rust
+  `interaction_session::receive`,跨語言 fixture 是 `manifest.json` 的 `receiveDecisions` 段。
+  表在 `Services/SessionReceive.swift`,43 個案例由 `ReceiveDecisionConformanceTests` 逐筆對答案。
+  **與 v0.6.0 的行為差異三處**,全部往「不猜」的方向:epoch 不同又沒有 `session-reset` 宣告 →
+  realign(以前直接套用並靜默改寫本地 epoch);patch 也看 epoch(以前只靠 `baseRevision` 恰巧不符);
+  落後的 snapshot 忽略即可(以前一律送 resume),真的倒退過的 host 會宣告 `recovery`,那才跟著退回。
+  兩個上限(`maxResumePatches` 512、`maxRealignAttempts` 3)由 codegen 從 golden schema 帶進
+  `AIPLimits`,**不在 Swift 這一端手寫**。
 - **數字字面必須逐字保留**:桌面的 state hash 是對 serde_json 寫出來的文字取的,
   `mood.intensity` 為 0 時寫的是 `0.0`;用一般 JSON 解析器 round-trip 會變成 `0`、
   hash 就永遠對不上。`CharacterSemantic.swift` 的 `SemanticJSON` 因此保留原始數字字面。
@@ -222,7 +238,12 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 >（上列 120＋Lifecycle 再加 6：未連線回前景的誠實說明、回前景 resume 防重入與寬限窗、
 > 背景不排重連／不送心跳的閘門、`@unknown default` 的背景 fallback；同一台 iPhone 17 模擬器、
 > iOS 26.5 runtime、UDID B9A0E7F9…；先看到 4 個測試紅燈／12 個斷言失敗再實作到全綠）
-> ——仍是 **iPhone 17 模擬器**（UDID 66067313…，跑完即 `simctl shutdown`），
+> **2026-09-06（v0.7.0：AIP 接收端決策表 ＋ 連線閘門可測性）重跑：Executed 144 tests, with 0 failures**
+>（上列 126＋ReceiveDecisionConformance 11＋ConnectionManagerGate 7：`manifest.json` 的
+> `receiveDecisions` 43 個案例逐筆對答案（含 `incomingBatchChain` 展開，無跳過）、resume 中途失敗只保留前綴、
+> 缺 hash 不套用、舊連線世代丟棄、身分不符不 realign、`recovery` 才允許退回；以及背景/前景閘門五個接線點的
+> 行為測試（可注入 socket 與排程）。同一台 iPhone 17 模擬器、iOS 26.2 runtime、UDID B9A0E7F9…）
+> ——仍是 **iPhone 17 模擬器**（跑完即 `simctl shutdown`），
 > 與真機驗收是兩件事。
 
 ### 背景/前景與 presence 心跳(v0.6.x)
@@ -267,9 +288,17 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 而本 App 沒有宣稱這個能力,回了才是假裝。其餘仍然忽略的型別(`event`/`query`/`cancel`/
 `approval-request`/`approval-result`)維持不執行,但各自留一行說明,不再靜默吞掉。
 
+**閘門本身也有行為測試(v0.7.0)**:決策表寫得再好,程式沒在那五個接線點問過它就等於沒有。
+`ConnectionManagerGateTests`(7 個測試)把 socket 與 Timer 換成可注入的替身
+(`Services/SocketTransport.swift` 的 `SocketTransport`／`WorkScheduler`),握手、有界送出佇列、
+接收迴圈、重連退避全都走正式路徑,所以「背景不送心跳/不排重連」「排程時在前景、觸發時在背景
+不開 socket」「回前景補 status ＋ resume」「10 秒寬限窗內只問一次、超過就再問一次」都是
+**真的執行過**才通過的。
+
 **誠實範圍**:以上全部只在 **iPhone 17 模擬器**以 XCTest 驗證狀態機與時序決策
-(`InteractionCompanionTests/LifecycleTests.swift`,22 個測試)。**沒有**在真機上驗過
-「長時間背景 → 前景 → resume」,也沒有量過真實電量差異。
+(`InteractionCompanionTests/LifecycleTests.swift` 22 個 ＋ `ConnectionManagerGateTests.swift` 7 個)。
+**沒有**在真機上驗過「長時間背景 → 前景 → resume」,也沒有量過真實電量差異;
+上面那 7 個測試用的是替身 socket,**不是**真的 URLSession、更不是真 daemon。
 
 ### 跑 XCTest:`simctl` 注入流程(可重現;`-destination` 不可用時的等價做法)
 
@@ -309,7 +338,7 @@ SIMCTL_CHILD_XCInjectBundleInto="$APP/InteractionCompanion" \
 xcrun simctl launch --console-pty "$UDID" "$BID" -XCTest All "$APP/PlugIns/InteractionCompanionTests.xctest"
 ```
 
-輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 126。
+輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 144。
 
 ### DEBUG 限定啟動參數(自動化驗收,僅供模擬器/CI;release 不編入)
 
