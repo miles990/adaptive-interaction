@@ -35,9 +35,10 @@
 > - ✅ **裝置 SDK 建置通過(未簽章)**:`-sdk iphoneos -arch arm64 -configuration Release
 >   CODE_SIGNING_ALLOWED=NO` → `** BUILD SUCCEEDED **`;12 個 `.swift` 對
 >   `arm64-apple-ios17.0` + iphoneos26.5 SDK 的 `swiftc -typecheck` 也是 0 error / 0 warning。
-> - ✅ **XCTest 120/120 通過（2026-09-05 v0.6.x 可維護性分支，新增 Lifecycle 16；同日稍早同分支為 104/104、
->   v0.6.0 對抗審查修復後為 101/101；2026-09-04 wave 2 為 92/92、同日 v0.5.1 為 46/46、2026-09-03 為 25/25）**
->   (AIPConformance 17 + Lifecycle 16 + MotionClassifier 8 + Protocol 21 + ReconnectHint 21 +
+> - ✅ **XCTest 126/126 通過（2026-09-05 v0.6.x 對抗審查修復，Lifecycle 16 → 22；同日稍早同分支為
+>   120/120、104/104，v0.6.0 對抗審查修復後為 101/101；2026-09-04 wave 2 為 92/92、同日 v0.5.1 為 46/46、
+>   2026-09-03 為 25/25）**
+>   (AIPConformance 17 + Lifecycle 22 + MotionClassifier 8 + Protocol 21 + ReconnectHint 21 +
 >   SessionClient 34 + StateHashConformance 3)
 >   ——用 xcodebuild 產出的 app-hosted `.xctest`,注入 iPhone 17
 >   **模擬器**(iOS 26.2)以 `simctl` 執行(見下方「跑 XCTest:`simctl` 注入流程」)。
@@ -85,7 +86,8 @@ apps/interaction-ios/
 │   ├── AIPFixtures.swift              codegen 內嵌的 AIP conformance fixture(不要手改)
 │   ├── AIPConformanceTests.swift      AIP 1.0 跨語言 conformance(XCTest:17 個 test 方法,v0.6.0)
 │   ├── LifecycleTests.swift           前景/背景決策 + presence 心跳常數 + AIP heartbeat
-│   │                                   (XCTest:16 個 test 方法,v0.6.x)
+│   │                                   + 背景重連/心跳閘門 + 回前景 resume 防重入
+│   │                                   (XCTest:22 個 test 方法,v0.6.x)
 │   ├── MotionClassifierTests.swift    純分類器行為測試(XCTest:8 個 test 方法)
 │   ├── ProtocolTests.swift            Wire protocol 編解碼測試(XCTest:21 個 test 方法,含 4 個
 │   │                                   stop-all 緊急狀態誠實性 async 測試與 4 個 aip frame 測試)
@@ -215,6 +217,11 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 > **2026-09-05（v0.6.x 可維護性分支，M4 §5.4 生命週期）重跑：Executed 120 tests, with 0 failures**
 >（上列 104＋Lifecycle 16：前景/背景決策表、presence 心跳常數不變量、回前景 resume、AIP heartbeat 回應；
 > 同一台 iPhone 17 模擬器、iOS 26.5 runtime、UDID B9A0E7F9…；先看到 13 個測試紅燈／37 個斷言失敗再實作到全綠）
+> **2026-09-05（v0.6.x 對抗審查修復 ios-lifecycle-heartbeat-005/006/007/008）重跑：
+> Executed 126 tests, with 0 failures**
+>（上列 120＋Lifecycle 再加 6：未連線回前景的誠實說明、回前景 resume 防重入與寬限窗、
+> 背景不排重連／不送心跳的閘門、`@unknown default` 的背景 fallback；同一台 iPhone 17 模擬器、
+> iOS 26.5 runtime、UDID B9A0E7F9…；先看到 4 個測試紅燈／12 個斷言失敗再實作到全綠）
 > ——仍是 **iPhone 17 模擬器**（UDID 66067313…，跑完即 `simctl shutdown`），
 > 與真機驗收是兩件事。
 
@@ -241,6 +248,19 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 | `active` | 活著 | ≥ 1 s | 立刻補一則 `status`、重啟 timer、`SessionClient.foregroundDidResume()` 走一次 §7 resume(帶 lastRevision/lastSequence/epoch)。**不重播**任何互動事件或 intent(AIP §8)。 |
 | `active` | 已斷 | 任何 | 不假裝送得出 status;若使用者仍想連線且有配對,**跳過退避**立刻重連。 |
 
+「不在背景重連」不是只發生在 scenePhase 變化那一刻:既有的斷線重試路徑
+(`handleConnectionLost → scheduleRetry → openSocket`)與 status 心跳(`sendStatusNow`/
+`startStatusTimer`)都各自看生命週期(純函式 `LifecycleDecision.shouldScheduleReconnect(phase:)`
+與 `shouldSendPresenceHeartbeat(phase:)`,`ConnectionManager` 透過可注入的
+`lifecyclePhaseForGating` 讀取)。背景中 socket 回報錯誤時只誠實記錄失敗、把狀態改成
+「背景中暫停重連,回到前景再試」,不排重試;進背景時等待中的重連也會取消。否則背景裡意外
+復活的連線會送出一則 `status`、讓桌面把手機標成 online,與本機 UI 這時顯示的「背景」互相矛盾。
+
+回前景觸發的 resume 有**防重入**:上一則真的送出去的 resume 還在等桌面回覆時
+(`SessionSyncLocal.resumeResponseGraceSeconds` = 10 s 的寬限窗內),再次回前景不重送——
+重送不會帶來新資訊,卻會被 `noteResumeAttempt` 記成一次失敗,連續 3 次就會在桌面根本沒有
+拒絕過任何事情的情況下宣稱「無法恢復」。**有界**:超過寬限窗就再問一次,不會永遠卡在等回覆。
+
 收到桌面的 AIP `heartbeat` 時(目前桌面不會主動送,但協定允許):記一行進階診斷
 「收到 AIP heartbeat,本版以 wire protocol v1 的 status 心跳回應」,並回一則 legacy `status`
 (5 秒節流);**不**回 AIP heartbeat——AIP §2.1 對 heartbeat 的回應是「選填 heartbeat」,
@@ -248,7 +268,7 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 `approval-request`/`approval-result`)維持不執行,但各自留一行說明,不再靜默吞掉。
 
 **誠實範圍**:以上全部只在 **iPhone 17 模擬器**以 XCTest 驗證狀態機與時序決策
-(`InteractionCompanionTests/LifecycleTests.swift`,16 個測試)。**沒有**在真機上驗過
+(`InteractionCompanionTests/LifecycleTests.swift`,22 個測試)。**沒有**在真機上驗過
 「長時間背景 → 前景 → resume」,也沒有量過真實電量差異。
 
 ### 跑 XCTest:`simctl` 注入流程(可重現;`-destination` 不可用時的等價做法)
@@ -289,7 +309,7 @@ SIMCTL_CHILD_XCInjectBundleInto="$APP/InteractionCompanion" \
 xcrun simctl launch --console-pty "$UDID" "$BID" -XCTest All "$APP/PlugIns/InteractionCompanionTests.xctest"
 ```
 
-輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 120。
+輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 126。
 
 ### DEBUG 限定啟動參數(自動化驗收,僅供模擬器/CI;release 不編入)
 

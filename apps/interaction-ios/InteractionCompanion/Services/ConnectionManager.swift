@@ -333,6 +333,9 @@ final class ConnectionManager: NSObject, ObservableObject {
     private var leftForegroundAt: TimeInterval?
     /// 單調時鐘(測試可替換;systemUptime 不受校時影響)
     var monotonicNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    /// 生命週期閘門讀到的階段。**唯一的 owner 仍是 `lifecyclePhaseChanged`**——
+    /// 這裡只是把「讀」獨立成一個可注入的點,讓重連/心跳的閘門不必真的開一條 socket 才測得到。
+    var lifecyclePhaseForGating: () -> AppLifecyclePhase = { .active }
 
     /// UserDefaults 內的「使用者上次是否想要連線」。冷啟動據此決定要不要自動重連。
     private static let autoConnectIntentKey = "ai.adaptive-interaction.companion.autoConnectIntent"
@@ -341,6 +344,7 @@ final class ConnectionManager: NSObject, ObservableObject {
         self.store = store
         self.defaults = defaults
         super.init()
+        lifecyclePhaseForGating = { [weak self] in self?.lifecyclePhase ?? .active }
         pairing = store.load()
     }
 
@@ -472,6 +476,10 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     /// 立即送出一次 status(感測/權限變更時由接線方呼叫)。
     func sendStatusNow() {
+        guard LifecycleDecision.shouldSendPresenceHeartbeat(phase: lifecyclePhaseForGating()) else {
+            // 背景送出的心跳會讓桌面把這支手機標成 online,與本機顯示的「背景」互相矛盾。
+            return
+        }
         guard case .connected = phase, let provider = statusProvider else { return }
         let (sensors, permissions) = provider()
         send(.status(sensors: sensors, permissions: permissions))
@@ -498,6 +506,14 @@ final class ConnectionManager: NSObject, ObservableObject {
             localPresence = .background
             logLine("進入背景:停止 status 心跳。本 App 沒有 Background Mode,"
                 + "不宣稱背景仍然保持連線")
+            if case .waitingRetry = phase {
+                // 排程中的重連留著只會在背景裡偷偷開一條 socket,而畫面上的「n 秒後重試」
+                // 也不再是真的。停掉並誠實改成「回到前景再試」——`.failed` 正是
+                // `shouldReconnectImmediately` 會立刻重連的狀態。
+                cancelRetry()
+                phase = .failed(reason: "背景中暫停重連,回到前景再試")
+                logLine("進入背景:暫停等待中的重連,回到前景再試")
+            }
         case .active:
             localPresence = .foreground
         case .inactive:
@@ -771,6 +787,11 @@ final class ConnectionManager: NSObject, ObservableObject {
     /// 只停 timer 並誠實標成 background,不假裝還活著(見 `lifecyclePhaseChanged`)。
     private func startStatusTimer() {
         statusTimer?.invalidate()
+        guard LifecycleDecision.shouldSendPresenceHeartbeat(phase: lifecyclePhaseForGating()) else {
+            // 背景中意外復活的連線不得把心跳 timer 重新叫起來(見 `lifecyclePhaseChanged`)。
+            statusTimer = nil
+            return
+        }
         let timer = Timer(timeInterval: PresenceHeartbeatPolicy.statusIntervalSeconds,
                           repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
@@ -823,17 +844,36 @@ final class ConnectionManager: NSObject, ObservableObject {
             }
             return
         }
+        guard LifecycleDecision.shouldScheduleReconnect(phase: lifecyclePhaseForGating()) else {
+            // 背景:只誠實記錄失敗,不排重連。回到前景由 `lifecyclePhaseChanged(.active)`
+            // 的重連分支處理(`.failed` 會走「立刻重連、不等退避」那一支)。
+            // 底層原因已經記在 `lastError` 與診斷記錄裡;這裡只給使用者看得懂的下一步。
+            phase = .failed(reason: "背景中暫停重連,回到前景再試")
+            logLine("背景中連線中斷:不在背景重連,回到前景再試")
+            return
+        }
         scheduleRetry()
     }
 
     private func scheduleRetry() {
         cancelRetry()
+        guard LifecycleDecision.shouldScheduleReconnect(phase: lifecyclePhaseForGating()) else {
+            logLine("背景中:不排重連,回到前景再試")
+            return
+        }
         let delay = backoffSeconds
         backoffSeconds = min(backoffSeconds * 2, backoffMaxSeconds)
         phase = .waitingRetry(inSeconds: Int(delay.rounded()))
         let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self, self.userWantsConnection, let stored = self.pairing else { return }
+                guard LifecycleDecision.shouldScheduleReconnect(
+                        phase: self.lifecyclePhaseForGating()) else {
+                    // 排程時還在前景、觸發時已經進背景:不開新 socket。
+                    self.phase = .failed(reason: "背景中暫停重連,回到前景再試")
+                    self.logLine("背景中:不重連,回到前景再試")
+                    return
+                }
                 self.openSocket(host: stored.host, port: stored.port,
                                 fingerprint: stored.fingerprint)
             }

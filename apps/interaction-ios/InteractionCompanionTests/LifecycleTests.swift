@@ -16,6 +16,7 @@
 //  只有 v0.5 那一筆觀察（README「背景／前景」段落），本檔案不宣稱任何真機結論。
 //
 
+import SwiftUI
 import XCTest
 
 @testable import InteractionCompanion
@@ -252,10 +253,133 @@ final class LifecycleTests: XCTestCase {
         try applySnapshot(client, revision: 204, sequence: 87, epoch: 3)
         transport.reset()
         transport.isConnected = false
+        let logBefore = client.log.count
 
         client.foregroundDidResume()
 
         XCTAssertTrue(transport.sent.isEmpty)
+        XCTAssertFalse(
+            client.log.isEmpty,
+            "未連線時也必須留下一行誠實說明，比照 testForegroundResumeSendsNothingBeforeNegotiation")
+        XCTAssertGreaterThan(
+            client.log.count, logBefore,
+            "「未連線」是三個送不出去的分支之一，不得靜默吞掉——文件承諾三個分支對稱")
+        XCTAssertEqual(client.syncStatus, .offline, "未連線就誠實顯示未連線，不停在舊狀態")
+    }
+
+    /// F-006：快速鎖螢幕／解鎖。桌面還沒回覆第一則 resume 之前，後續的回前景不得重送，
+    /// 更不得把「還沒收到回覆」累積成「無法恢復」——桌面一次都沒有拒絕過，
+    /// 宣稱失敗就是在沒有失敗證據時說失敗（誠實階梯）。
+    @MainActor
+    func testRapidForegroundCyclesSendOneResumeAndNeverFakeUnrecoverable() throws {
+        let transport = LifecycleTransport()
+        let client = SessionClient()
+        client.transport = transport
+        try negotiate(client)
+        try applySnapshot(client, revision: 204, sequence: 87, epoch: 3)
+        transport.reset()
+
+        let base = Date(timeIntervalSince1970: 2_000)
+        for step in 0..<5 {
+            client.foregroundDidResume(now: base.addingTimeInterval(Double(step)))
+        }
+
+        XCTAssertEqual(
+            transport.resumes.count, 1,
+            "第一則 resume 還在等桌面回覆，重送不會帶來新資訊")
+        XCTAssertNotEqual(
+            client.syncStatus, .unrecoverable,
+            "桌面一次都沒有回過拒絕或失敗，不得宣稱「無法恢復」")
+        XCTAssertEqual(client.syncStatus, .resuming, "還沒對齊就誠實顯示「同步尚未完成」")
+
+        // 桌面終於回覆「已經對齊，沒有東西要補」：計數歸零、狀態才變成已同步。
+        let causationId = try XCTUnwrap(transport.resumes.first?.messageId)
+        try feed(
+            client, resumeResponse(causationId: causationId),
+            now: base.addingTimeInterval(6))
+        XCTAssertEqual(client.syncStatus, .synced)
+    }
+
+    /// 有界：等超過寬限窗之後的回前景**要**再問一次，不能永遠卡在「等回覆」。
+    @MainActor
+    func testAForegroundResumeIsRetriedOnceTheGraceWindowHasPassed() throws {
+        let transport = LifecycleTransport()
+        let client = SessionClient()
+        client.transport = transport
+        try negotiate(client)
+        try applySnapshot(client, revision: 204, sequence: 87, epoch: 3)
+        transport.reset()
+
+        let base = Date(timeIntervalSince1970: 3_000)
+        client.foregroundDidResume(now: base)
+        client.foregroundDidResume(
+            now: base.addingTimeInterval(SessionSyncLocal.resumeResponseGraceSeconds))
+
+        XCTAssertEqual(transport.resumes.count, 2, "超過寬限窗就得再問一次，否則永遠卡住")
+    }
+
+    /// 純決策：在飛的 resume 要不要重送。
+    func testAnOutstandingResumeIsNotResentUntilTheGraceWindowPasses() {
+        let sentAt = Date(timeIntervalSince1970: 1_000)
+        XCTAssertTrue(
+            SessionDecisions.shouldResendResumeOnForeground(inFlightSince: nil, now: sentAt),
+            "沒有 resume 在飛：本來就該送")
+        XCTAssertFalse(
+            SessionDecisions.shouldResendResumeOnForeground(
+                inFlightSince: sentAt, now: sentAt.addingTimeInterval(1)),
+            "還在寬限窗內：同一個問題不問第二次")
+        XCTAssertTrue(
+            SessionDecisions.shouldResendResumeOnForeground(
+                inFlightSince: sentAt,
+                now: sentAt.addingTimeInterval(SessionSyncLocal.resumeResponseGraceSeconds)),
+            "有界：超過寬限窗才允許再問一次")
+        XCTAssertTrue(
+            SessionDecisions.shouldResendResumeOnForeground(
+                inFlightSince: sentAt, now: sentAt.addingTimeInterval(-30)),
+            "時鐘往回跳時寧可再問一次，也不要卡死")
+    }
+
+    // MARK: - 6. 背景閘門（重連與心跳）
+
+    /// F-007：「不在背景重連」不能只發生在 scenePhase 變化那一刻——
+    /// 斷線重試與 status 心跳這兩條既有路徑也要看生命週期。
+    func testBackgroundNeverSchedulesAReconnectOrSendsAHeartbeat() {
+        XCTAssertFalse(
+            LifecycleDecision.shouldScheduleReconnect(phase: .background),
+            "背景沒有 Background Mode：排重連只是在被系統暫停前多開一條 socket")
+        XCTAssertFalse(
+            LifecycleDecision.shouldSendPresenceHeartbeat(phase: .background),
+            "背景送出的 status 會讓桌面把手機標成 online，與本機顯示的「背景」互相矛盾")
+        for phase: AppLifecyclePhase in [.active, .inactive] {
+            XCTAssertTrue(
+                LifecycleDecision.shouldScheduleReconnect(phase: phase), "\(phase) 應該照常重連")
+            XCTAssertTrue(
+                LifecycleDecision.shouldSendPresenceHeartbeat(phase: phase),
+                "\(phase) 還在前景，心跳照送")
+        }
+    }
+
+    // MARK: - 7. ScenePhase 對應
+
+    /// F-008：`@unknown default` 的 fallback 必須真的是「背景」，與註解一致。
+    func testUnknownScenePhaseFallsBackToBackground() {
+        XCTAssertEqual(
+            AppLifecyclePhase.unknownScenePhaseFallback, .background,
+            "未知階段一律當成不是前景：寧可停心跳並誠實標成背景")
+        XCTAssertEqual(
+            LifecycleDecision.on(
+                phase: .unknownScenePhaseFallback, socketAlive: true, sinceForeground: nil),
+            LifecycleDecision(stopTimer: true))
+        XCTAssertFalse(
+            LifecycleDecision.shouldSendPresenceHeartbeat(phase: .unknownScenePhaseFallback))
+        XCTAssertFalse(
+            LifecycleDecision.shouldScheduleReconnect(phase: .unknownScenePhaseFallback))
+    }
+
+    func testScenePhaseMapsOntoTheServiceLayerPhase() {
+        XCTAssertEqual(ScenePhase.active.appLifecyclePhase, .active)
+        XCTAssertEqual(ScenePhase.inactive.appLifecyclePhase, .inactive)
+        XCTAssertEqual(ScenePhase.background.appLifecyclePhase, .background)
     }
 
     // MARK: - 5. AIP heartbeat frame
@@ -453,6 +577,19 @@ final class LifecycleTests: XCTestCase {
         client.handleFrame(
             try envelope(envelopeText),
             rawFrame: #"{"type":"aip","envelope":"# + envelopeText + "}", now: now)
+    }
+
+    /// 桌面對 resume 的回覆：`kind:"patches"` 且沒有東西要補 ＝ 已經對齊。
+    private func resumeResponse(causationId: String) -> String {
+        """
+        {"specVersion":"aip/1.0","messageId":"aip-resume-reply-1","messageType":"response",
+         "name":"character.session.resume",
+         "source":{"kind":"session","id":"session.home"},
+         "target":{"kind":"device","id":"iphone-87b42264"},
+         "sessionId":"session.home","causationId":"\(causationId)",
+         "occurredAt":"2026-09-05T12:30:05.000Z",
+         "payload":{"kind":"patches","patches":[]}}
+        """
     }
 
     private func heartbeatEnvelope(id: String) -> String {

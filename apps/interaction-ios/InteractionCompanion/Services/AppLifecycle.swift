@@ -27,6 +27,15 @@ enum AppLifecyclePhase: String, Equatable {
     case background
 }
 
+extension AppLifecyclePhase {
+    /// SwiftUI 未來若在 `ScenePhase` 新增 case，`@unknown default` 一律映射到這裡。
+    ///
+    /// 保守方向只有一個：**不是前景就當背景**——寧可停心跳並誠實標成背景，
+    /// 也不要假裝連線還活著（`InteractionCompanionApp.ScenePhase.appLifecyclePhase`
+    /// 是唯一的使用者，映射的意圖由 `LifecycleTests` 釘住）。
+    static let unknownScenePhaseFallback: AppLifecyclePhase = .background
+}
+
 // MARK: - presence 心跳政策（唯一常數來源）
 
 /// 手機在桌面 Character Session 裡的 presence 是怎麼維持的。
@@ -117,6 +126,27 @@ struct LifecycleDecision: Equatable {
                 // 真的進過背景才 reconcile：行程可能被暫停過，收到的 state 未必連續。
                 resumeSession: awayLongEnough)
         }
+    }
+
+    /// 斷線之後可不可以排一次重連。
+    ///
+    /// 「不在背景重連」不能只發生在 scenePhase 變化那一刻：真正驅動重連的是
+    /// `handleConnectionLost → scheduleRetry → openSocket`，socket 在剛進背景、
+    /// 行程還沒被系統暫停的那幾秒窗口內回報錯誤時照樣會走這條路。本 App 沒有
+    /// Background Mode，背景排重連只是「在被暫停前多開一條 socket」，而且就算連上
+    /// 也送不出心跳——所以背景只記錄失敗，等 `lifecyclePhaseChanged(.active)` 自己的
+    /// 重連分支處理。
+    static func shouldScheduleReconnect(phase: AppLifecyclePhase) -> Bool {
+        phase != .background
+    }
+
+    /// 現在可不可以送 presence 心跳（legacy `status`）。
+    ///
+    /// 背景中意外復活的連線若把 `status` 送出去，桌面會呼叫
+    /// `character_session_touch_presence` 把這支手機標成 online，與本機 UI 這時顯示的
+    /// 「背景（心跳已停）」直接矛盾。兩邊只能有一個事實。
+    static func shouldSendPresenceHeartbeat(phase: AppLifecyclePhase) -> Bool {
+        phase != .background
     }
 
     /// 回前景時可不可以「立刻」重連（跳過退避的那一次等待）。

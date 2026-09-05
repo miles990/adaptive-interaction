@@ -71,6 +71,14 @@ struct SessionSyncLocal: Equatable {
 
     /// 連續失敗到這個數字就顯示「無法恢復，請重新連接」。
     static let resumeFailureLimit = 3
+
+    /// 一則**真的送出去**的 resume 最多等桌面回覆多久；超過這段時間，回前景才允許再問一次。
+    ///
+    /// 為什麼要有這個數字：回前景會觸發 resume，快速鎖螢幕／解鎖可以在桌面回覆第一則之前
+    /// 連續觸發好幾次。沒有這道閘門的話，`noteResumeAttempt` 會把「還沒收到回覆」一次次記成
+    /// 失敗，累到 `resumeFailureLimit` 就宣稱「無法恢復」——但桌面一次都沒有拒絕過，
+    /// 那是在沒有失敗證據時宣稱失敗。**有界**：等超過這段時間就再問一次，不會永遠卡在等回覆。
+    static let resumeResponseGraceSeconds: TimeInterval = 10
 }
 
 /// 一則 `state`（或 resume 回來的一項）的共同形狀。
@@ -332,6 +340,18 @@ enum SessionDecisions {
         }
     }
 
+    /// 回到前景時要不要**再**送一則 resume。
+    ///
+    /// `inFlightSince` ＝ 上一則真的送出去、還在等桌面回覆的 resume 的時間（`nil` ＝ 沒有）。
+    /// 還在等回覆時重送只是把同一個問題問第二次，不會帶來新資訊，卻會被記成一次失敗。
+    static func shouldResendResumeOnForeground(inFlightSince: Date?, now: Date) -> Bool {
+        guard let inFlightSince else { return true }
+        let waited = now.timeIntervalSince(inFlightSince)
+        // 時鐘往回跳（使用者改時間、NTP 校正）時寧可再問一次，也不要永遠卡在「等回覆」。
+        guard waited >= 0 else { return true }
+        return waited >= SessionSyncLocal.resumeResponseGraceSeconds
+    }
+
     /// 只要成功套用過一次狀態，先前的失敗就不再有意義。
     static func noteSyncSucceeded(_ local: inout SessionSyncLocal) {
         local.resumeFailures = 0
@@ -467,6 +487,12 @@ final class SessionClient: ObservableObject {
     private var dedupe = AIPDedupeRing()
     private var queue: [PlayingIntent] = []
     private var resuming = false
+    /// 上一則**真的送出去**、還在等桌面回覆的 resume／snapshot 查詢的時間；`nil` ＝ 沒有在飛。
+    ///
+    /// 與 `resuming` 是兩件不同的事實，不能互相取代：`resuming` 說的是「本地還沒對齊」
+    /// （連送都送不出去時也成立），這裡說的是「線上真的有一則在等回覆」。兩者一起由
+    /// `markResumeSettled()` 收尾，避免兩個地方各自記一份。
+    private var resumeInFlightSince: Date?
     private var messageCounter: UInt64 = 0
     private var sessionId = SessionNames.sessionId
     /// 上一次因為 host heartbeat 而回送 legacy status 的時間（節流用）。
@@ -485,7 +511,7 @@ final class SessionClient: ObservableObject {
         unsupportedIntents = []
         nowPlaying = nil
         queue.removeAll()
-        resuming = false
+        markResumeSettled()
         // 新連線 ＝ 新的一輪嘗試。§11 給使用者的指示就是「請重新連接」；如果重新連接
         // 之後計數還留著，第一次 resume 就會被吞掉並繼續顯示「無法恢復」，那句指示等於
         // 是假的（上一條連線的失敗不能算在這一條頭上）。
@@ -517,7 +543,7 @@ final class SessionClient: ObservableObject {
         unsupportedIntents = []
         nowPlaying = nil
         queue.removeAll()
-        resuming = false
+        markResumeSettled()
         advanced = SessionAdvancedInfo()
         refreshStatus()
     }
@@ -531,7 +557,13 @@ final class SessionClient: ObservableObject {
     /// 送不出去的情況（未連線、尚未協商、本地還沒有權威狀態）一律誠實留一行說明，
     /// **不**假裝已經對齊。
     func foregroundDidResume(now: Date = Date()) {
-        guard let transport, transport.isConnected else { return }
+        guard let transport, transport.isConnected else {
+            // 三個送不出去的分支對稱：這一支最常見（使用者回前景時 socket 剛好斷了），
+            // 靜默 return 會讓畫面停在斷線前的舊狀態、看起來像已經對齊。
+            note("回到前景：未連線，角色狀態暫時無法對齊")
+            refreshStatus()
+            return
+        }
         guard negotiated else {
             // 連線流程本身會重送 capability；這裡不搶跑，也不假裝已經是成員。
             note("回到前景：角色同步尚未協商，等待桌面回覆能力協商結果")
@@ -540,6 +572,15 @@ final class SessionClient: ObservableObject {
         }
         guard local.revision > 0 else {
             note("回到前景：本地還沒有權威角色狀態，等待桌面送出快照")
+            refreshStatus()
+            return
+        }
+        guard
+            SessionDecisions.shouldResendResumeOnForeground(
+                inFlightSince: resumeInFlightSince, now: now)
+        else {
+            // 桌面還沒回覆上一則：重送不會帶來新資訊，也不得把「還沒回覆」記成一次失敗。
+            note("回到前景：上一則對齊要求還在等桌面回覆，先不重送")
             refreshStatus()
             return
         }
@@ -553,7 +594,7 @@ final class SessionClient: ObservableObject {
         negotiated = false
         nowPlaying = nil
         queue.removeAll()
-        resuming = false
+        markResumeSettled()
         refreshStatus()
     }
 
@@ -711,7 +752,7 @@ final class SessionClient: ObservableObject {
             advanced.framesIgnored += 1
             return
         }
-        resuming = false
+        markResumeSettled()
         switch payload["kind"]?.stringValue {
         case "patches":
             let items = payload["patches"]?.arrayValue ?? []
@@ -752,7 +793,7 @@ final class SessionClient: ObservableObject {
             if let sequence = message.sequence, sequence > local.sequence {
                 local.sequence = sequence
             }
-            resuming = false
+            markResumeSettled()
             SessionDecisions.noteSyncSucceeded(&local)
             presentation = CharacterSemanticState.project(state)
             if presentation == nil {
@@ -907,6 +948,12 @@ final class SessionClient: ObservableObject {
 
     // MARK: - 內部：送訊
 
+    /// 這一輪補齊結束（成功套用、收到回覆、或連線本身換了一條）：兩個欄位一起收。
+    private func markResumeSettled() {
+        resuming = false
+        resumeInFlightSince = nil
+    }
+
     /// 送一次 §7 的 resume。
     ///
     /// **順序很重要**：先判斷「已經放棄了嗎」，真的送出去之後才記一次嘗試。
@@ -932,6 +979,7 @@ final class SessionClient: ObservableObject {
             return
         }
         advanced.resumesSent += 1
+        resumeInFlightSince = now
         SessionDecisions.noteResumeAttempt(&local)
     }
 
@@ -950,6 +998,7 @@ final class SessionClient: ObservableObject {
             note("角色狀態的補齊要求沒有送出，稍後再試")
             return
         }
+        resumeInFlightSince = now
         SessionDecisions.noteResumeAttempt(&local)
     }
 

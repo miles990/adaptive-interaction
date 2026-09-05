@@ -162,7 +162,7 @@ extension ScenePhase {
         case .active: return .active
         case .inactive: return .inactive
         case .background: return .background
-        @unknown default: return .inactive
+        @unknown default: return AppLifecyclePhase.unknownScenePhaseFallback
         }
     }
 }
