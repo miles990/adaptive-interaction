@@ -831,7 +831,8 @@ enum AIPFixtures {
     { "id": "intensity-three-decimals", "file": "state-hash-intensity-three-decimals.json", "semanticValid": true, "note": "mood.intensity 0.123：最短 round-trip 十進位，沒有指數記法" },
     { "id": "intensity-negative-zero", "file": "state-hash-intensity-negative-zero.json", "semanticValid": false, "note": "-0.0：canonical 文字是 `-0.0`；host 永不產生它，restore 拒絕（semanticValid=false）" },
     { "id": "unicode-and-escapes", "file": "state-hash-unicode-and-escapes.json", "semanticValid": true, "note": "非 ASCII 原樣（不 \\u 跳脫）、`/` 不跳脫、控制字元 \\u0001、emoji 原樣" }
-  ]
+  ],
+  "stateHashDoublePaths": ["/mood/intensity"]
 }
 """#,
         "query-session-resume.json": #"""

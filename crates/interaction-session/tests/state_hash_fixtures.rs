@@ -313,9 +313,81 @@ fn manifest_section_text(list: &[Fixture]) -> String {
     out
 }
 
+/// `SemanticState` 裡所有 **f64** 欄位的 JSON pointer（由 schemars 推導，不手寫）。
+///
+/// 這是 TypeScript 端算 hash 唯一需要的「schema 知識」：JS 的 `number` 分不出 `0` 與 `0.0`，
+/// 但知道哪些路徑是 f64 之後，就能把整數值的 f64 印成 serde_json 的 `x.0` 形式。清單寫進
+/// manifest（`stateHashDoublePaths`），TS 讀它；Rust 這邊每次跑測試都重新推導比對——
+/// 未來 `SemanticState` 多一個 f64 欄位而 manifest 沒更新，這裡就紅燈（漂移 gate）。
+fn double_paths() -> Vec<String> {
+    let schema = schemars::schema_for!(SemanticState);
+    let root: Value = serde_json::to_value(&schema).expect("schema serializes");
+    let mut out = Vec::new();
+    collect_double_paths(&root, &root, "", &mut out, 0);
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn collect_double_paths(
+    root: &Value,
+    node: &Value,
+    pointer: &str,
+    out: &mut Vec<String>,
+    depth: usize,
+) {
+    if depth > 16 {
+        return;
+    }
+    let Some(obj) = node.as_object() else {
+        return;
+    };
+    if let Some(reference) = obj.get("$ref").and_then(Value::as_str) {
+        if let Some(target) = reference
+            .strip_prefix("#/")
+            .and_then(|path| path.split('/').try_fold(root, |acc, key| acc.get(key)))
+        {
+            collect_double_paths(root, target, pointer, out, depth + 1);
+        }
+        return;
+    }
+    let is_number = match obj.get("type") {
+        Some(Value::String(t)) => t == "number",
+        Some(Value::Array(ts)) => ts.iter().any(|t| t == "number"),
+        _ => false,
+    };
+    if is_number {
+        out.push(pointer.to_string());
+    }
+    if let Some(props) = obj.get("properties").and_then(Value::as_object) {
+        for (key, child) in props {
+            collect_double_paths(root, child, &format!("{pointer}/{key}"), out, depth + 1);
+        }
+    }
+    if let Some(items) = obj.get("items") {
+        collect_double_paths(root, items, &format!("{pointer}/*"), out, depth + 1);
+    }
+    for key in ["oneOf", "anyOf", "allOf"] {
+        if let Some(variants) = obj.get(key).and_then(Value::as_array) {
+            for variant in variants {
+                collect_double_paths(root, variant, pointer, out, depth + 1);
+            }
+        }
+    }
+}
+
+fn double_paths_text() -> String {
+    let paths = double_paths();
+    format!(
+        "\"stateHashDoublePaths\": {}",
+        serde_json::to_string(&paths).expect("paths serialize")
+    )
+}
+
 fn splice_manifest(text: &str, section: &str) -> String {
     const KEY: &str = "\"stateHashes\": [";
-    if let Some(start) = text.find(KEY) {
+    const PATHS_KEY: &str = "\"stateHashDoublePaths\": [";
+    let with_section = if let Some(start) = text.find(KEY) {
         let close = text[start..]
             .find("\n  ]")
             .map(|i| start + i + "\n  ]".len())
@@ -329,6 +401,28 @@ fn splice_manifest(text: &str, section: &str) -> String {
             .trim_end()
             .len();
         format!("{},\n  {}\n}}\n", &text[..end], section)
+    };
+    // 第二個鍵：`stateHashDoublePaths`（單行陣列）。
+    let paths = double_paths_text();
+    if let Some(start) = with_section.find(PATHS_KEY) {
+        let close = with_section[start..]
+            .find(']')
+            .map(|i| start + i + 1)
+            .expect("stateHashDoublePaths closes with `]`");
+        format!(
+            "{}{}{}",
+            &with_section[..start],
+            paths,
+            &with_section[close..]
+        )
+    } else {
+        let end = with_section
+            .trim_end()
+            .strip_suffix('}')
+            .expect("manifest ends with `}`")
+            .trim_end()
+            .len();
+        format!("{},\n  {}\n}}\n", &with_section[..end], paths)
     }
 }
 
@@ -369,6 +463,28 @@ fn state_hash_fixtures_are_what_the_host_writes() {
         entries,
         manifest_entries(&list),
         "manifest.json 的 stateHashes 段與產生器不一致：AIP_UPDATE_FIXTURES=1 重生"
+    );
+
+    // (a') f64 欄位清單（TS 端的 schema 知識）與 schemars 推導一致。
+    let listed: Vec<String> = manifest
+        .get("stateHashDoublePaths")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(
+        listed,
+        double_paths(),
+        "manifest.json 的 stateHashDoublePaths 與 SemanticState 的 f64 欄位不一致：AIP_UPDATE_FIXTURES=1 重生（並更新 TS 端的假設）"
+    );
+    assert_eq!(
+        double_paths(),
+        vec!["/mood/intensity".to_string()],
+        "SemanticState 目前唯一的 f64 欄位是 mood.intensity；新增 f64 欄位必須同步 TS canonical 的處理與這個斷言"
     );
 
     for fixture in &list {
