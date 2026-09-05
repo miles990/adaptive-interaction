@@ -661,6 +661,133 @@ describe("角色頁「同步」卡：不靠輪詢對齊", () => {
     expect(screen.queryByText("iPhone 已連接，角色狀態已同步")).not.toBeInTheDocument();
   });
 
+  /** 一則帶著自己的 messageId 的 patch 事件（production 一定有；去重環用它）。 */
+  function patchEvent(sequence: number, revision: number): RuntimeEvent {
+    const event = stateEvent(
+      sequence,
+      {
+        kind: "patch",
+        revision,
+        sessionEpoch: 1,
+        patch: { activity: `step-${revision}` },
+      },
+      revision - 1
+    );
+    const payload = event.payload as Record<string, unknown>;
+    return { ...event, payload: { ...payload, messageId: `msg-patch-${revision}` } };
+  }
+
+  it("掛載時保留視窗裡的舊事件不重播：切到角色分頁不得憑空變成「無法恢復」", async () => {
+    // App 最多留 299 則事件，重連時還會一次灌進 eventsRecent(200)。切到角色分頁的那一刻，
+    // 這張卡的本地副本是空的、權威讀取才剛送出——把整個保留視窗當成新訊息重播，
+    // 每一則 patch 都會是「沒有東西可以套」，三則就把有界的對齊預算燒光，
+    // 誤報「無法恢復」（對抗審查 session-client-rollback-036）。
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+    });
+    let release: (value: unknown) => void = () => {};
+    mockApi.characterSessionSnapshot.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        })
+    );
+    const retained = [12, 13, 14].map((revision, index) => patchEvent(index + 1, revision));
+    render(<CharacterSyncCard refreshKey={0} advanced={false} sessionEvents={retained} />);
+
+    await screen.findByTestId("character-sync");
+    await waitFor(() => expect(mockApi.characterSessionSnapshot).toHaveBeenCalledTimes(1));
+    // 權威讀取還在飛：誠實的說法是「同步尚未完成」，不是「無法恢復」。
+    expect(screen.queryByText(/無法恢復/)).not.toBeInTheDocument();
+
+    await act(async () => {
+      release(snapshot({ members: [PHONE_MEMBER] }));
+    });
+    await waitFor(() =>
+      expect(screen.getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument()
+    );
+    // 保留視窗不該再引發任何一次額外的對齊請求。
+    expect(mockApi.characterSessionSnapshot).toHaveBeenCalledTimes(1);
+    expect(mockApi.characterSessionResume).not.toHaveBeenCalled();
+  });
+
+  it("掛載時保留視窗裡的舊 snapshot 也不當成現在的狀態（等權威讀取說了算）", async () => {
+    // 保留視窗裡的 snapshot 是**歷史**：它可能是好幾分鐘前的樣子。掛載那一刻正好有一個
+    // 權威讀取在飛，讓歷史先上畫面等於用舊的樣子冒充現在（對抗審查 session-client-rollback-036）。
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+    });
+    let release: (value: unknown) => void = () => {};
+    mockApi.characterSessionSnapshot.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        })
+    );
+    const retained = [
+      stateEvent(
+        1,
+        snapshotPayload(
+          {
+            characterId: "character",
+            mood: { kind: "neutral", intensity: 0 },
+            activity: "idle",
+            truth: { state: "none" },
+            members: [{ ...PHONE_MEMBER, presence: "offline" }],
+            reducedMotion: false,
+          },
+          5
+        )
+      ),
+    ];
+    render(<CharacterSyncCard refreshKey={0} advanced={false} sessionEvents={retained} />);
+
+    await screen.findByTestId("character-sync");
+    await waitFor(() => expect(mockApi.characterSessionSnapshot).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("iPhone 暫時離線")).not.toBeInTheDocument();
+
+    await act(async () => {
+      release(snapshot({ members: [PHONE_MEMBER] }));
+    });
+    await waitFor(() =>
+      expect(screen.getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument()
+    );
+  });
+
+  it("初次讀取還在飛時陸續到的補丁：不重複要對齊，也不得燒光對齊預算", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+    });
+    let release: (value: unknown) => void = () => {};
+    mockApi.characterSessionSnapshot.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        })
+    );
+    // App 的真實累積：陣列只會往後長（`[...prev.slice(-299), event]`），不是每次換一個新的單元素陣列。
+    const retained: RuntimeEvent[] = [];
+    const view = render(<CharacterSyncCard refreshKey={0} advanced={false} sessionEvents={[]} />);
+    for (const [index, revision] of [12, 13, 14].entries()) {
+      retained.push(patchEvent(index + 1, revision));
+      view.rerender(
+        <CharacterSyncCard refreshKey={0} advanced={false} sessionEvents={[...retained]} />
+      );
+    }
+    expect(screen.queryByText(/無法恢復/)).not.toBeInTheDocument();
+
+    await act(async () => {
+      release(snapshot({ members: [PHONE_MEMBER] }));
+    });
+    await waitFor(() =>
+      expect(screen.getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument()
+    );
+    expect(mockApi.characterSessionSnapshot).toHaveBeenCalledTimes(1);
+  });
+
   it("卸載重掛之後重新 GET 一次權威狀態（本地副本不跨掛載）", async () => {
     setup({
       snapshot: snapshot({ members: [PHONE_MEMBER] }),

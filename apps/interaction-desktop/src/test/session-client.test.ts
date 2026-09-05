@@ -572,6 +572,56 @@ describe("(f) daemon 重啟／重新掛載", () => {
     expect(machine.pendingRequestId).toBeNull();
   });
 
+  it("reset-local 不作廢仍然當令的請求：飛行中的權威回覆回來時照樣算數", () => {
+    // unrecoverable 之後 `CharacterSyncCard` 會馬上 reset-local。那一刻通常正好有一個
+    // GET／resume 在飛：把 pendingRequestId 清成 null 會讓它回來時被當成上一輪的遲到品
+    // 丟掉，畫面就停在「同步尚未完成」而且**沒有任何請求在跑**
+    //（對抗審查 session-client-rollback-035）。
+    const issued = run(aligned(20, 3), [{ kind: "fetch-issued", requestId: 7 }]);
+    const afterReset = run(issued.machine, [{ kind: "reset-local" }]);
+    expect(afterReset.machine.local).toBeNull();
+    expect(afterReset.machine.pendingRequestId).toBe(7);
+
+    const { machine } = run(afterReset.machine, [
+      {
+        kind: "fetch-response",
+        requestId: 7,
+        arrivedOn: 0,
+        envelope: snapshotEnvelope({ revision: 21, epoch: 3 }),
+      },
+    ]);
+    expect(local(machine).revision).toBe(21);
+    expect(machine.pendingRequestId).toBeNull();
+  });
+
+  it("reset-local 不清去重環：已經處理過的訊息重播不得再花掉對齊預算", () => {
+    // 去重環是**防重播**用的，本地副本作廢是另一件事。清掉它，呼叫端只要把保留的事件
+    // 陣列再餵一次（`CharacterSyncCard` 的 SSE effect），三則舊 patch 就把有界的
+    // realign 預算燒光，誤報「無法恢復」——後端其實完全正常
+    //（對抗審查 session-client-rollback-036）。
+    const start = aligned(20, 3);
+    const replayed: SessionInput[] = [21, 22, 23].map((revision) => ({
+      kind: "sse",
+      arrivedOn: 0,
+      envelope: patchEnvelope({
+        revision,
+        baseRevision: revision - 1,
+        epoch: 3,
+        patch: { activity: `step-${revision}` },
+      }),
+    }));
+    const applied = run(start, replayed);
+    expect(local(applied.machine).revision).toBe(23);
+    expect(applied.effects).toEqual([]);
+
+    const afterReset = run(applied.machine, [{ kind: "reset-local" }]);
+    expect(afterReset.machine.local).toBeNull();
+    const again = run(afterReset.machine, replayed);
+    expect(again.effects).toEqual([]);
+    expect(again.machine.realignStreak).toBe(0);
+    expect(again.machine.counters.duplicate).toBe(3);
+  });
+
   it("沒有本地副本時收到 patch → realign（不硬套、不猜）", () => {
     const { machine, effects } = run(initialSession(), [
       {

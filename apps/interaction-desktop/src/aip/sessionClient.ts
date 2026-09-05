@@ -300,6 +300,18 @@ export function readStateEnvelope(envelope: unknown): StateMessage | null {
 }
 
 /**
+ * 這一則 envelope 是不是「補丁」。
+ *
+ * 呼叫端需要分得出來：沒有本地副本時補丁**一定**套不上去（決策表規則 10 的
+ * `realign(no-local)`），而正在飛的那個權威讀取就是在補這件事——同一批補丁不必、
+ * 也不該一則一則各要一次對齊（對抗審查 session-client-rollback-036）。
+ * 形狀不可信：看不懂就回 `false`（交給 reducer 照規則判 `reject-invalid`）。
+ */
+export function isPatchEnvelope(envelope: unknown): boolean {
+  return readStateEnvelope(envelope)?.kind === "patch";
+}
+
+/**
  * `state` 的 payload → [`StateMessage`]。
  *
  * resume 的 snapshot 回應**就是這個 payload**（transport-bindings §1.3：少一層巢狀，
@@ -702,12 +714,19 @@ export function reduce(current: SessionMachine, input: SessionInput): SessionSte
     case "reset-local":
       // 讀不到就是讀不到：本地副本作廢，不用上一次的樣子冒充現在。
       // 計數保留（那是這條連線發生過的事實，不該被一次重掛抹掉）。
+      //
+      // 作廢的**只有本地副本**，不含另外兩件事：
+      //   * `pendingRequestId`：飛行中的請求仍然當令。清掉它，回來的權威回覆會被當成
+      //     上一輪的遲到品丟掉，畫面就停在「同步尚未完成」而且沒有任何請求在跑
+      //     （對抗審查 session-client-rollback-035）。真正讓舊請求失效的是換連線
+      //     （`connection-changed`），不是「本地副本不能用了」。
+      //   * `seen`：去重環是**防重播**用的。清掉它，呼叫端只要把保留的事件陣列再餵一次，
+      //     那些早就處理過的 patch 會在沒有本地副本時一則一則變成 `realign(no-local)`，
+      //     三則就把有界的對齊預算燒光、誤報「無法恢復」（對抗審查 session-client-rollback-036）。
       return {
         next: {
           ...current,
           local: null,
-          pendingRequestId: null,
-          seen: [],
           realignStreak: 0,
         },
         effects: [],

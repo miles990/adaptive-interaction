@@ -46,6 +46,7 @@ import React from "react";
 import { api, type CharacterSessionDiagnostics, type RuntimeEvent } from "../api";
 import {
   initialSession,
+  isPatchEnvelope,
   reduce,
   type LocalSessionState,
   type SessionInput,
@@ -363,10 +364,70 @@ export function CharacterSyncCard({
   //     所有 state 事件被永久丟棄。改由 reducer 用 AIP 的 `messageId`
   //     （沒有就退回 sessionEpoch+sequence）做有界環去重；就算沒有任何去重鍵，
   //     revision 規則本身也會把重播判成 already-applied，不會重複套用。
+  //
+  //     下面那個游標是另一件事（不是去重）：它決定「這個陣列裡哪幾則是**新到的**」，
+  //     免得每次陣列換參考就把整個保留視窗重放一遍。
+  /**
+   * 已經餵過的最後一則事件（身分＋序號）。
+   *
+   * `sessionEvents` 是 App 的**保留視窗**（`[...prev.slice(-299), event]`，重連時還會整批
+   * 換成 `eventsRecent(200)`），不是「這一刻發生的事」。沒有游標就等於每次陣列換參考都把
+   * 整個視窗重播一次——對 reducer 而言那是一批全新訊息，沒有本地副本時每一則 patch 都會
+   * 花掉一次對齊預算，三則就誤報「無法恢復」（對抗審查 session-client-rollback-036）。
+   */
+  const feedCursorRef = React.useRef<{ event: RuntimeEvent | null; sequence: number | null }>({
+    event: null,
+    sequence: null,
+  });
+  const feedPrimedRef = React.useRef(false);
+
   React.useEffect(() => {
     if (!sessionEvents) return;
-    for (const event of sessionEvents) {
+    const tail = sessionEvents.length > 0 ? sessionEvents[sessionEvents.length - 1] : null;
+    const cursor = feedCursorRef.current;
+    const advanceCursor = () => {
+      feedCursorRef.current = {
+        event: tail,
+        sequence: tail ? tail.sequence : feedCursorRef.current.sequence,
+      };
+    };
+    // 掛載當下已經在視窗裡的，是這張卡開始聽之前的歷史：不重播。這一刻正好有一個權威
+    // 讀取在飛（effect A 宣告在前，一定已經送出），最新的狀態馬上就會到。
+    if (!feedPrimedRef.current) {
+      feedPrimedRef.current = true;
+      advanceCursor();
+      return;
+    }
+    const index = cursor.event ? sessionEvents.lastIndexOf(cursor.event) : -1;
+    let fresh: readonly RuntimeEvent[];
+    if (index >= 0) {
+      fresh = sessionEvents.slice(index + 1);
+    } else if (cursor.sequence === null) {
+      // 還沒餵過任何一則（掛載時視窗是空的）：整個陣列都是新的。
+      fresh = sessionEvents;
+    } else if (tail !== null && tail.sequence > cursor.sequence) {
+      // 整批換掉、但確實比看過的更新（重連回填）：只取真的比較新的那些。
+      const seen = cursor.sequence;
+      fresh = sessionEvents.filter((event) => event.sequence > seen);
+    } else {
+      // 整批換掉而且不比看過的新：可能是回填的歷史，也可能是 daemon 重啟後序號從 1 重來
+      //（`crates/interaction-events` 的 AtomicU64 起始 1）。兩者都不重播歷史；真的漏掉的
+      // 狀態由連線世代變化那一次 resume／GET 補回來（App 換整批事件時一定會 +1 connectionKey）。
+      // 游標照樣往前，否則重啟之後的新事件會被永久當成「舊的」丟掉。
+      fresh = [];
+    }
+    advanceCursor();
+    // 沒有本地副本時，補丁只可能得到「沒有東西可以套上去」（規則 10）。那不是一次失敗的
+    // 對齊往返，不該花掉契約 §7.5 的預算：正在飛的那個權威讀取就是在補這件事。所以這一批
+    // 裡最多只讓一則補丁走進 reducer（由它要一次對齊），其餘略過；snapshot 不受影響
+    // （它自己就能 bootstrap）。
+    let alignmentPending = machineRef.current.pendingRequestId !== null;
+    for (const event of fresh) {
       if (event.eventType !== SESSION_STATE_EVENT) continue;
+      if (machineRef.current.local === null && isPatchEnvelope(event.payload)) {
+        if (alignmentPending) continue;
+        alignmentPending = true;
+      }
       // 世代是「處理這一則時這條連線的編號」。誠實地說：事件流本身沒有帶世代，所以這裡
       // 只能標上當下的值——規則 0 在這條路徑上擋不住「換連線的那一瞬間才送達的舊事件」
       // （擋得住的是飛行中的 GET／resume 回覆，它們帶著發出當下的世代回來）。真正靠的是
