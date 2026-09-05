@@ -44,6 +44,7 @@ import {
   TOUCH_TTL_MS,
 } from "../companion/sessionTouch";
 import { validateEnvelope } from "../aip/envelope";
+import { stateHash } from "../aip/canonical";
 
 /** 一般模式一個字都不能出現的技術詞。 */
 const FORBIDDEN = /revision|sequence|epoch|schema|token|provider|lease|transport|uuid|payload|envelope/i;
@@ -78,34 +79,32 @@ describe("守門：一般模式沒有技術詞", () => {
   it("同步卡在一般模式的整段文字沒有技術詞，也不顯示任何診斷數字", async () => {
     // 接收端現在是嚴格解析（`src/aip/sessionClient.ts`）：缺 messageType／revision／sessionEpoch
     // 的 envelope 是 invalid，不會被當成 revision 0 的合法狀態——fixture 要長得像 Runtime 真的送的。
+    // AIP 1.0 的 snapshot 必帶 hash（決策表規則 2：缺 hash ＝ reject-invalid），
+    // 而且桌面端會自己重算來核對——fixture 要長得像 Runtime 真的送的。
+    const state = {
+      truth: { state: "none" },
+      members: [
+        {
+          party: { kind: "device", id: "iphone-87b42264" },
+          role: "remote-renderer",
+          presence: "online",
+          // 協商結果齊全（每個 host intent 都演得出來）才有資格給綠色「已同步」；
+          // 沒有這個欄位時卡片只會說「已連接，能力核對中」
+          //（對抗審查 capability-consent-052／general-mode-ux-022）。
+          negotiated: { intents: { "react-happily-to-touch": "exact", celebrate: "exact", settle: "exact", idle: "exact" } },
+        },
+      ],
+      lastInteraction: {
+        name: "character.interaction.touch",
+        kind: "tap",
+        source: "device:iphone-87b42264",
+      },
+    };
     mockApi.characterSessionSnapshot.mockResolvedValue({
       messageType: "state",
       name: "character.session.snapshot",
       sessionId: "session.home",
-      payload: {
-        kind: "snapshot",
-        revision: 12,
-        sessionEpoch: 1,
-        state: {
-          truth: { state: "none" },
-          members: [
-            {
-              party: { kind: "device", id: "iphone-87b42264" },
-              role: "remote-renderer",
-              presence: "online",
-              // 協商結果齊全（每個 host intent 都演得出來）才有資格給綠色「已同步」；
-              // 沒有這個欄位時卡片只會說「已連接，能力核對中」
-              //（對抗審查 capability-consent-052／general-mode-ux-022）。
-              negotiated: { intents: { "react-happily-to-touch": "exact", celebrate: "exact", settle: "exact", idle: "exact" } },
-            },
-          ],
-          lastInteraction: {
-            name: "character.interaction.touch",
-            kind: "tap",
-            source: "device:iphone-87b42264",
-          },
-        },
-      },
+      payload: { kind: "snapshot", revision: 12, sessionEpoch: 1, state, hash: stateHash(state) },
     });
     mockApi.mobileStatus.mockResolvedValue({
       devices: [{ deviceId: "iphone-87b42264", name: FIXTURE_PHONE, connected: true }],

@@ -2,13 +2,14 @@
 //
 // AIP Character Session 的接收端狀態機（桌面端，純 reducer）。
 //
-// 權威決策在 Rust：`crates/interaction-session/src/patch.rs` 的 `accept_state_with_epoch`。
-// 這一支釘住桌面端逐條鏡射它，外加 §6 要求的 hash 核對與「請求世代」——這兩件事
-// 是 v0.6.0 的桌面端沒做、而 iOS（`SessionClient.swift`）做了的部分：
+// 權威決策表在 `docs/aip/character-session.md` §7.2，權威實作是 Rust 的
+// `crates/interaction-session/src/receive.rs::decide_receive`。**逐筆對答案**的那一支是
+// `receive-decision-fixtures.test.ts`（三端共用同一份 fixture）；這一支是桌面端自己的
+// 行為契約：解析的嚴格度、reducer 的世代／預算、resume 的逐則規則、以及「零差異」棘輪。
 //
 //   * 缺 `revision`／`sessionEpoch` 不得被當成 0（那會把任何一則壞訊息變成
 //     「host 回到最初」，把本地狀態整份沖掉）；
-//   * 慢的 GET 回應不得覆蓋在它之後才套用的 SSE（request generation）；
+//   * 舊連線／舊請求世代的遲到品不算數（規則 0，**先於**一切 epoch 判斷）；
 //   * 套用後 hash 對不上就不算套用（不猜、不硬套）。
 //
 // 每一條規則都可以只用純函式驗，沒有 React、沒有計時器。
@@ -18,6 +19,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { stateHash } from "../aip/canonical";
+import { AIP_LIMITS } from "../aip/generated";
 import {
   DEDUPE_RING_CAP,
   MAX_RESUME_PATCHES,
@@ -122,7 +124,7 @@ function run(
 /** 一個「已經對齊到 epoch 3 / revision 20」的起點（用真的 snapshot 走進去，不硬塞）。 */
 function aligned(revision = 20, epoch = 3): SessionMachine {
   const { machine } = run(initialSession(), [
-    { kind: "sse", envelope: snapshotEnvelope({ revision, epoch }) },
+    { kind: "sse", arrivedOn: 0, envelope: snapshotEnvelope({ revision, epoch }) },
   ]);
   if (!machine.local) throw new Error("fixture: 起點沒有對齊成功");
   return machine;
@@ -153,11 +155,51 @@ describe("readStateEnvelope：嚴格解析（缺欄位絕不變成 0）", () => 
       { kind: "snapshot", revision: 2 ** 53, sessionEpoch: 2, state: { ...BASE_STATE } },
     ],
     ["revision 是字串", { kind: "snapshot", revision: "7", sessionEpoch: 2, state: { ...BASE_STATE } }],
-    ["snapshot 缺 state", { kind: "snapshot", revision: 7, sessionEpoch: 2 }],
     ["未知 kind", { kind: "delta", revision: 7, sessionEpoch: 2, state: { ...BASE_STATE } }],
-    ["patch 缺 baseRevision", { kind: "patch", revision: 7, sessionEpoch: 2, patch: {} }],
-  ])("%s → invalid", (_label, payload) => {
+  ])("%s → 讀不出來", (_label, payload) => {
     expect(readStateEnvelope(stateEnvelope(payload as Record<string, unknown>))).toBeNull();
+  });
+
+  // 這三種**讀得出來**，但不是一則能用的 state 訊息：那是決策表的規則 2
+  // （`reject-invalid`），不是 boundary 的「讀不出來」。兩者的差別在有界 realign
+  // 預算怎麼記：壞掉的**權威回覆**算一次對齊失敗，推播上的垃圾不算。
+  it.each([
+    ["snapshot 缺 hash", { kind: "snapshot", revision: 30, sessionEpoch: 3, state: { ...BASE_STATE } }],
+    ["snapshot 缺 state", { kind: "snapshot", revision: 30, sessionEpoch: 3, hash: "f".repeat(64) }],
+    [
+      "patch 缺 baseRevision",
+      { kind: "patch", revision: 30, sessionEpoch: 3, patch: { activity: "x" } },
+    ],
+  ])("%s → reject-invalid（規則 2），本地原封不動", (_label, payload) => {
+    const start = aligned(20, 3);
+    const { machine, effects } = run(start, [
+      { kind: "sse", arrivedOn: 0, envelope: stateEnvelope(payload as Record<string, unknown>) },
+    ]);
+    expect(local(machine)).toEqual(local(start));
+    expect(machine.counters.rejectedInvalid).toBe(1);
+    // 推播上的垃圾不花對齊預算（它不是我們要來的答案）。
+    expect(machine.realignStreak).toBe(0);
+    expect(effects).toEqual([]);
+  });
+
+  it("壞掉的**權威回覆**算一次對齊失敗：連續三次就停止自動重試", () => {
+    let machine = aligned(20, 3);
+    const effects: SessionEffect[] = [];
+    for (let i = 0; i < REALIGN_STREAK_LIMIT; i += 1) {
+      machine = reduce(machine, { kind: "fetch-issued", requestId: i + 1 }).next;
+      const step = reduce(machine, {
+        kind: "fetch-response",
+        requestId: i + 1,
+        arrivedOn: 0,
+        // 讀得出來、但缺 hash：AIP 1.0 的 snapshot 必帶 hash（沒有 legacy profile）。
+        envelope: snapshotEnvelope({ revision: 30 + i, epoch: 3, hash: null }),
+      });
+      machine = step.next;
+      effects.push(...step.effects);
+    }
+    expect(machine.counters.rejectedInvalid).toBe(REALIGN_STREAK_LIMIT);
+    expect(machine.realignStreak).toBe(REALIGN_STREAK_LIMIT);
+    expect(effects[effects.length - 1]).toEqual({ kind: "unrecoverable" });
   });
 
   it("messageType 不是 state 一律 invalid（不從別種訊息猜狀態）", () => {
@@ -170,22 +212,23 @@ describe("(a) rollback 防護：同 epoch 的舊 snapshot 不得覆蓋本地", (
   it("local epoch3/rev20 收到 epoch3/rev10 的 snapshot → ignored rollback", () => {
     const start = aligned(20, 3);
     const { machine, effects } = run(start, [
-      { kind: "sse", envelope: snapshotEnvelope({ revision: 10, epoch: 3 }) },
+      { kind: "sse", arrivedOn: 0, envelope: snapshotEnvelope({ revision: 10, epoch: 3 }) },
     ]);
     expect(local(machine).revision).toBe(20);
     expect(local(machine).epoch).toBe(3);
-    expect(machine.counters.ignoredRollback).toBe(1);
+    expect(machine.counters.ignoredStale).toBe(1);
     expect(effects).toEqual([]);
   });
 });
 
-describe("(b) 請求世代：慢的 GET 不得蓋回舊狀態", () => {
-  it("新 SSE patch 先到、舊的初始 GET 後到 → GET 被忽略（stale）", () => {
+describe("(b) 世代：慢的回覆與舊連線的遲到品都不算數（決策表規則 0／7）", () => {
+  it("新 SSE patch 先到、舊的初始 GET 後到 → GET 落後，忽略（ignore-stale）", () => {
     const start = aligned(20, 3);
     const { machine, effects } = run(start, [
       { kind: "fetch-issued", requestId: 1 },
       {
         kind: "sse",
+        arrivedOn: 0,
         envelope: patchEnvelope({
           revision: 21,
           baseRevision: 20,
@@ -194,21 +237,23 @@ describe("(b) 請求世代：慢的 GET 不得蓋回舊狀態", () => {
         }),
       },
       // GET 在 SSE 之後才回來，帶的是更早的 revision 20。
-      { kind: "fetch-response", requestId: 1, envelope: snapshotEnvelope({ revision: 20, epoch: 3 }) },
+      { kind: "fetch-response", requestId: 1, arrivedOn: 0, envelope: snapshotEnvelope({ revision: 20, epoch: 3 }) },
     ]);
     expect(local(machine).revision).toBe(21);
     expect(local(machine).state["activity"]).toBe("reacting");
-    expect(machine.counters.stale).toBe(1);
-    expect(machine.counters.hostRegressed).toBe(0);
+    expect(machine.counters.ignoredStale).toBe(1);
     expect(effects).toEqual([]);
   });
 
-  it("中間沒有 SSE 套用時，同 epoch 的較舊 GET 是 host 的權威事實：接受並計 hostRegressed", () => {
+  it("比本地舊的**權威回覆**也一樣忽略：同一個 session 的回退要 host 明說（規則 7）", () => {
+    // 以前這裡是 `allowRegression`／`hostRegressed`：「中間沒有 SSE 套用過的話，
+    // 最新的 HTTP 回覆比本地舊也接受」。那等於讓「哪一則先回來」決定畫面。
     const start = aligned(20, 3);
-    const { machine } = run(start, [
+    const { machine, effects } = run(start, [
       { kind: "fetch-issued", requestId: 1 },
       {
         kind: "fetch-response",
+        arrivedOn: 0,
         requestId: 1,
         envelope: snapshotEnvelope({
           revision: 12,
@@ -217,9 +262,43 @@ describe("(b) 請求世代：慢的 GET 不得蓋回舊狀態", () => {
         }),
       },
     ]);
+    expect(local(machine)).toEqual(local(start));
+    expect(machine.counters.ignoredStale).toBe(1);
+    expect(machine.counters.applied).toBe(1); // 只有起點那一則
+    expect(effects).toEqual([]);
+  });
+
+  it("host 明說 `recovery` 時才退回它的 revision（規則 6）", () => {
+    const start = aligned(20, 3);
+    const state = { ...BASE_STATE, activity: "resting" };
+    const { machine, effects } = run(start, [
+      { kind: "fetch-issued", requestId: 1 },
+      {
+        kind: "fetch-response",
+        arrivedOn: 0,
+        requestId: 1,
+        envelope: snapshotEnvelope({ revision: 12, epoch: 3, reason: "recovery", state }),
+      },
+    ]);
     expect(local(machine).revision).toBe(12);
     expect(local(machine).state["activity"]).toBe("resting");
-    expect(machine.counters.hostRegressed).toBe(1);
+    expect(machine.counters.recovered).toBe(1);
+    // 退回是 host 說了算的事實，不是對齊失敗：不要求重新對齊，也清掉 realign 預算。
+    expect(effects).toEqual([]);
+    expect(machine.realignStreak).toBe(0);
+  });
+
+  it("`recovery` 只在同一個 epoch 內有效；epoch 不同一律 realign（不猜）", () => {
+    const start = aligned(20, 3);
+    const { machine, effects } = run(start, [
+      {
+        kind: "sse",
+        arrivedOn: 0,
+        envelope: snapshotEnvelope({ revision: 12, epoch: 4, reason: "recovery" }),
+      },
+    ]);
+    expect(local(machine)).toEqual(local(start));
+    expect(effects).toEqual([{ kind: "realign" }]);
   });
 
   it("過期的 requestId 回覆一律忽略（上一輪的請求）", () => {
@@ -227,11 +306,81 @@ describe("(b) 請求世代：慢的 GET 不得蓋回舊狀態", () => {
     const { machine, effects } = run(start, [
       { kind: "fetch-issued", requestId: 1 },
       { kind: "fetch-issued", requestId: 2 },
-      { kind: "fetch-response", requestId: 1, envelope: snapshotEnvelope({ revision: 99, epoch: 3 }) },
+      { kind: "fetch-response", requestId: 1, arrivedOn: 0, envelope: snapshotEnvelope({ revision: 99, epoch: 3 }) },
     ]);
     expect(local(machine).revision).toBe(20);
-    expect(machine.counters.stale).toBe(1);
+    expect(machine.counters.staleConnection).toBe(1);
     expect(effects).toEqual([]);
+  });
+
+  it("連線換了一條之後，舊連線的 SSE 遲到品不算數——即使它宣告 session-reset（規則 0）", () => {
+    // 舊連線送出的 `session-reset` 宣告的 epoch 一定與本地不同，任何 epoch 判斷都會被
+    // 它騙過去（會被當成「host 重建了 session」而整份採用）。世代檢查是唯一防線。
+    const start = aligned(20, 3);
+    const { machine, effects } = run(start, [
+      { kind: "connection-changed", generation: 1 },
+      {
+        kind: "sse",
+        arrivedOn: 0,
+        envelope: snapshotEnvelope({ revision: 1, epoch: 9, reason: "session-reset" }),
+      },
+    ]);
+    expect(local(machine)).toEqual(local(start));
+    expect(machine.counters.staleConnection).toBe(1);
+    expect(machine.counters.reset).toBe(0);
+    expect(effects).toEqual([]);
+  });
+
+  it("連線換了一條之後，飛行中的舊 GET 回覆也不算數（請求世代）", () => {
+    const start = aligned(20, 3);
+    const { machine } = run(start, [
+      { kind: "fetch-issued", requestId: 1 },
+      { kind: "connection-changed", generation: 1 },
+      { kind: "fetch-issued", requestId: 2 },
+      // 世代 0 發出的那一次現在才回來。
+      { kind: "fetch-response", requestId: 2, arrivedOn: 0, envelope: snapshotEnvelope({ revision: 99, epoch: 3 }) },
+    ]);
+    expect(local(machine).revision).toBe(20);
+    expect(machine.counters.staleConnection).toBe(1);
+  });
+});
+
+describe("(b2) 身分：別的 session 的狀態不相干（規則 1）", () => {
+  const identified = (id: string, revision: number, epoch = 3) =>
+    snapshotEnvelope({ revision, epoch }, { sessionId: id });
+
+  it("bootstrap 記下 host 的 sessionId，之後別的 session 一律 reject-identity", () => {
+    const { machine: bootstrapped } = run(initialSession(), [
+      { kind: "sse", arrivedOn: 0, envelope: identified("session.home", 20) },
+    ]);
+    expect(local(bootstrapped).sessionId).toBe("session.home");
+    const { machine, effects } = run(bootstrapped, [
+      { kind: "sse", arrivedOn: 0, envelope: identified("session.other-desktop", 21) },
+    ]);
+    expect(local(machine)).toEqual(local(bootstrapped));
+    expect(machine.counters.rejectedIdentity).toBe(1);
+    // **不** realign：realign 只會再要一次別人的 session。
+    expect(effects).toEqual([]);
+    expect(machine.counters.realign).toBe(0);
+  });
+
+  it("身分不符壓過 session-reset（不得讓別人的重建宣告接管本地）", () => {
+    const { machine: bootstrapped } = run(initialSession(), [
+      { kind: "sse", arrivedOn: 0, envelope: identified("session.home", 20) },
+    ]);
+    const { machine } = run(bootstrapped, [
+      {
+        kind: "sse",
+        arrivedOn: 0,
+        envelope: snapshotEnvelope(
+          { revision: 1, epoch: 9, reason: "session-reset" },
+          { sessionId: "session.other-desktop" }
+        ),
+      },
+    ]);
+    expect(local(machine)).toEqual(local(bootstrapped));
+    expect(machine.counters.reset).toBe(0);
+    expect(machine.counters.rejectedIdentity).toBe(1);
   });
 });
 
@@ -239,7 +388,7 @@ describe("(c) 重播", () => {
   it("同一份 snapshot 重播 → ignored already-applied，本地不動", () => {
     const start = aligned(20, 3);
     const replay = snapshotEnvelope({ revision: 20, epoch: 3 });
-    const { machine } = run(start, [{ kind: "sse", envelope: replay }]);
+    const { machine } = run(start, [{ kind: "sse", arrivedOn: 0, envelope: replay }]);
     expect(local(machine).revision).toBe(20);
     expect(machine.counters.ignoredAlreadyApplied).toBe(1);
   });
@@ -253,8 +402,8 @@ describe("(c) 重播", () => {
       patch: { activity: "reacting" },
     });
     const { machine } = run(start, [
-      { kind: "sse", envelope },
-      { kind: "sse", envelope },
+      { kind: "sse", arrivedOn: 0, envelope },
+      { kind: "sse", arrivedOn: 0, envelope },
     ]);
     expect(local(machine).revision).toBe(21);
     expect(machine.counters.applied).toBe(2); // 起點的 snapshot ＋ 這一則 patch
@@ -266,6 +415,7 @@ describe("(c) 重播", () => {
     for (let i = 0; i < DEDUPE_RING_CAP + 10; i += 1) {
       machine = reduce(machine, {
         kind: "sse",
+        arrivedOn: 0,
         envelope: snapshotEnvelope({ revision: 10, epoch: 3 }),
       }).next;
     }
@@ -286,12 +436,12 @@ describe("(d) 壞掉的欄位不得被當成 0", () => {
   ])("%s → invalid，本地原封不動且不會出現 revision 0", (_label, payload) => {
     const start = aligned(20, 3);
     const { machine, effects } = run(start, [
-      { kind: "sse", envelope: stateEnvelope(payload as Record<string, unknown>) },
+      { kind: "sse", arrivedOn: 0, envelope: stateEnvelope(payload as Record<string, unknown>) },
     ]);
     expect(local(machine)).toEqual(local(start));
     expect(local(machine).revision).toBe(20);
     expect(local(machine).epoch).toBe(3);
-    expect(machine.counters.invalid).toBe(1);
+    expect(machine.counters.rejectedInvalid).toBe(1);
     expect(effects).toEqual([]);
   });
 });
@@ -302,6 +452,7 @@ describe("(e) epoch 變了", () => {
     const { machine, effects } = run(start, [
       {
         kind: "sse",
+        arrivedOn: 0,
         envelope: snapshotEnvelope({
           revision: 1,
           epoch: 4,
@@ -322,6 +473,7 @@ describe("(e) epoch 變了", () => {
     const { machine } = run(start, [
       {
         kind: "sse",
+        arrivedOn: 0,
         envelope: snapshotEnvelope({ revision: 1, epoch: 1, reason: "session-reset" }),
       },
     ]);
@@ -332,7 +484,7 @@ describe("(e) epoch 變了", () => {
   it("epoch 不同但沒有 reason → 不猜，回 realign", () => {
     const start = aligned(20, 3);
     const { machine, effects } = run(start, [
-      { kind: "sse", envelope: snapshotEnvelope({ revision: 30, epoch: 4 }) },
+      { kind: "sse", arrivedOn: 0, envelope: snapshotEnvelope({ revision: 30, epoch: 4 }) },
     ]);
     expect(local(machine)).toEqual(local(start));
     expect(effects).toEqual([{ kind: "realign" }]);
@@ -348,6 +500,7 @@ describe("(f) daemon 重啟／重新掛載", () => {
     const { machine } = run(start, [
       {
         kind: "sse",
+        arrivedOn: 0,
         envelope: patchEnvelope({
           revision: 21,
           baseRevision: 20,
@@ -358,6 +511,7 @@ describe("(f) daemon 重啟／重新掛載", () => {
       },
       {
         kind: "sse",
+        arrivedOn: 0,
         envelope: patchEnvelope({
           revision: 22,
           baseRevision: 21,
@@ -382,6 +536,7 @@ describe("(f) daemon 重啟／重新掛載", () => {
     const { machine, effects } = run(initialSession(), [
       {
         kind: "sse",
+        arrivedOn: 0,
         envelope: patchEnvelope({ revision: 5, baseRevision: 4, epoch: 1, patch: { activity: "x" } }),
       },
     ]);
@@ -396,6 +551,7 @@ describe("hash 核對（AIP §6）", () => {
     const { machine, effects } = run(start, [
       {
         kind: "sse",
+        arrivedOn: 0,
         envelope: patchEnvelope({
           revision: 21,
           baseRevision: 20,
@@ -416,6 +572,7 @@ describe("hash 核對（AIP §6）", () => {
     const { machine } = run(start, [
       {
         kind: "sse",
+        arrivedOn: 0,
         envelope: patchEnvelope({
           revision: 21,
           baseRevision: 20,
@@ -434,6 +591,7 @@ describe("hash 核對（AIP §6）", () => {
     const { machine, effects } = run(start, [
       {
         kind: "sse",
+        arrivedOn: 0,
         envelope: snapshotEnvelope({ revision: 30, epoch: 3, hash: "f".repeat(64) }),
       },
     ]);
@@ -442,19 +600,37 @@ describe("hash 核對（AIP §6）", () => {
     expect(effects).toEqual([{ kind: "realign" }]);
   });
 
-  it("連續對齊失敗有上限：達上限後改回報 unrecoverable，不再無限重試", () => {
+  it("連續對齊失敗有上限：第 maxRealignAttempts 次改回報 unrecoverable，不再無限重試", () => {
     let machine = aligned(20, 3);
     const effects: SessionEffect[] = [];
-    for (let i = 0; i < REALIGN_STREAK_LIMIT + 1; i += 1) {
+    for (let i = 0; i < REALIGN_STREAK_LIMIT; i += 1) {
       const step = reduce(machine, {
         kind: "sse",
+        arrivedOn: 0,
         envelope: snapshotEnvelope({ revision: 30 + i, epoch: 3, hash: "f".repeat(64) }),
       });
       machine = step.next;
       effects.push(...step.effects);
     }
-    expect(effects.filter((e) => e.kind === "realign")).toHaveLength(REALIGN_STREAK_LIMIT);
+    expect(effects.filter((e) => e.kind === "realign")).toHaveLength(REALIGN_STREAK_LIMIT - 1);
     expect(effects[effects.length - 1]).toEqual({ kind: "unrecoverable" });
+    expect(machine.realignStreak).toBe(REALIGN_STREAK_LIMIT);
+  });
+
+  it("任何一次成功套用都把對齊預算清零（apply／reset／recover）", () => {
+    let machine = aligned(20, 3);
+    machine = reduce(machine, {
+      kind: "sse",
+      arrivedOn: 0,
+      envelope: snapshotEnvelope({ revision: 30, epoch: 3, hash: "f".repeat(64) }),
+    }).next;
+    expect(machine.realignStreak).toBe(1);
+    machine = reduce(machine, {
+      kind: "sse",
+      arrivedOn: 0,
+      envelope: snapshotEnvelope({ revision: 31, epoch: 3 }),
+    }).next;
+    expect(machine.realignStreak).toBe(0);
   });
 });
 
@@ -467,6 +643,7 @@ describe("resume 回應", () => {
       { kind: "fetch-issued", requestId: 7 },
       {
         kind: "resume-response",
+        arrivedOn: 0,
         requestId: 7,
         payload: {
           kind: "patches",
@@ -501,6 +678,7 @@ describe("resume 回應", () => {
       { kind: "fetch-issued", requestId: 7 },
       {
         kind: "resume-response",
+        arrivedOn: 0,
         requestId: 7,
         payload: {
           kind: "patches",
@@ -536,15 +714,17 @@ describe("resume 回應", () => {
     const { machine, effects } = run(start, [
       { kind: "fetch-issued", requestId: 7 },
       // 另一條管道先把本地推到 45（同 epoch、hash 正確的完整快照）。
-      { kind: "sse", envelope: snapshotEnvelope({ revision: 45, epoch: 3, state: stateAt(45) }) },
-      { kind: "resume-response", requestId: 7, payload: { kind: "patches", patches } },
+      { kind: "sse", arrivedOn: 0, envelope: snapshotEnvelope({ revision: 45, epoch: 3, state: stateAt(45) }) },
+      { kind: "resume-response", requestId: 7, arrivedOn: 0, payload: { kind: "patches", patches } },
     ]);
     // 尾段（46..50）確實比本地新，必須套下去；良性舊項只記 stale，不觸發 realign。
     expect(local(machine).revision).toBe(50);
     expect(local(machine).state["activity"]).toBe("replay-50");
     expect(effects).toEqual([]);
     expect(machine.counters.realign).toBe(0);
-    expect(machine.counters.stale).toBe(25);
+    // 21..44 落後（ignore-stale），45 是重播（already-applied）：25 則良性舊項都跳過。
+    expect(machine.counters.ignoredStale).toBe(24);
+    expect(machine.counters.ignoredAlreadyApplied).toBe(1);
   });
 
   it("良性舊項之後真的有缺口時，仍然停下來並要求 realign（不硬跳）", () => {
@@ -552,9 +732,10 @@ describe("resume 回應", () => {
     const stateAt = (revision: number) => ({ ...BASE_STATE, activity: `replay-${revision}` });
     const { machine, effects } = run(start, [
       { kind: "fetch-issued", requestId: 7 },
-      { kind: "sse", envelope: snapshotEnvelope({ revision: 30, epoch: 3, state: stateAt(30) }) },
+      { kind: "sse", arrivedOn: 0, envelope: snapshotEnvelope({ revision: 30, epoch: 3, state: stateAt(30) }) },
       {
         kind: "resume-response",
+        arrivedOn: 0,
         requestId: 7,
         payload: {
           kind: "patches",
@@ -593,7 +774,7 @@ describe("resume 回應", () => {
     expect(effects).toEqual([{ kind: "realign" }]);
   });
 
-  it("patches 有界：超過上限就停下來要求重新對齊（不無界地套下去、也不假裝追上了）", () => {
+  it("patches 有界：超過上限**整批不處理**，改要求重新對齊（不截斷成「我以為我追上了」）", () => {
     const start = aligned(20, 3);
     const stateAt = (revision: number) => ({ ...BASE_STATE, activity: `replay-${revision}` });
     const patches = [];
@@ -609,18 +790,42 @@ describe("resume 回應", () => {
     }
     const { machine, effects } = run(start, [
       { kind: "fetch-issued", requestId: 7 },
-      { kind: "resume-response", requestId: 7, payload: { kind: "patches", patches } },
+      { kind: "resume-response", requestId: 7, arrivedOn: 0, payload: { kind: "patches", patches } },
     ]);
-    // 只套到上限為止（有界），剩下的沒套 → 狀態還沒追上，必須誠實要求再對齊一次。
-    expect(local(machine).revision).toBe(20 + MAX_RESUME_PATCHES);
+    // 截斷到上限會讓本地停在一個「從來沒有完整存在過」的中間狀態：一則都不套。
+    expect(local(machine)).toEqual(local(start));
+    expect(machine.lastDecision).toEqual({ decision: "realign", reason: "resume-too-long" });
     expect(effects).toEqual([{ kind: "realign" }]);
+  });
+
+  it("剛好等於上限的一批仍然全部套用（邊界不是「差不多」）", () => {
+    const start = aligned(20, 3);
+    const stateAt = (revision: number) => ({ ...BASE_STATE, activity: `replay-${revision}` });
+    const patches = [];
+    for (let i = 0; i < MAX_RESUME_PATCHES; i += 1) {
+      const revision = 21 + i;
+      patches.push({
+        sequence: 2000 + revision,
+        baseRevision: revision - 1,
+        revision,
+        patch: { activity: `replay-${revision}` },
+        hash: stateHash(stateAt(revision)),
+        sessionEpoch: 3,
+      });
+    }
+    const { machine, effects } = run(start, [
+      { kind: "fetch-issued", requestId: 7 },
+      { kind: "resume-response", requestId: 7, arrivedOn: 0, payload: { kind: "patches", patches } },
+    ]);
+    expect(local(machine).revision).toBe(20 + MAX_RESUME_PATCHES);
+    expect(effects).toEqual([]);
   });
 
   it("空的 patches ＝ 已經對齊：本地不動、不再要求對齊", () => {
     const start = aligned(20, 3);
     const { machine, effects } = run(start, [
       { kind: "fetch-issued", requestId: 7 },
-      { kind: "resume-response", requestId: 7, payload: { kind: "patches", patches: [] } },
+      { kind: "resume-response", requestId: 7, arrivedOn: 0, payload: { kind: "patches", patches: [] } },
     ]);
     expect(local(machine)).toEqual(local(start));
     expect(effects).toEqual([]);
@@ -633,6 +838,7 @@ describe("resume 回應", () => {
       { kind: "fetch-issued", requestId: 7 },
       {
         kind: "resume-response",
+        arrivedOn: 0,
         requestId: 7,
         payload: {
           kind: "snapshot",
@@ -657,6 +863,7 @@ describe("resume 回應", () => {
       { kind: "fetch-issued", requestId: 8 },
       {
         kind: "resume-response",
+        arrivedOn: 0,
         requestId: 7,
         payload: {
           kind: "snapshot",
@@ -668,62 +875,95 @@ describe("resume 回應", () => {
       },
     ]);
     expect(local(machine).revision).toBe(20);
-    expect(machine.counters.stale).toBe(1);
+    expect(machine.counters.staleConnection).toBe(1);
   });
 
   it("看不懂的 resume payload → invalid，本地不動，也不自動再要一次（不做無界迴圈）", () => {
     const start = aligned(20, 3);
     const { machine, effects } = run(start, [
       { kind: "fetch-issued", requestId: 7 },
-      { kind: "resume-response", requestId: 7, payload: { kind: "who-knows" } },
+      { kind: "resume-response", requestId: 7, arrivedOn: 0, payload: { kind: "who-knows" } },
     ]);
     expect(local(machine)).toEqual(local(start));
-    expect(machine.counters.invalid).toBe(1);
+    expect(machine.counters.rejectedInvalid).toBe(1);
     expect(effects).toEqual([]);
   });
 });
 
-describe("與 Rust／Swift 的差異必須明說（不得靜默長出第四處）", () => {
-  // 對抗審查 session-client-rollback-021：`alignState` 對「snapshot 的 epoch 不同、
-  // 但沒有 session-reset 宣告」回 realign，Rust（`accept_state_with_epoch` 的 snapshot
-  // 分支只看 revision）與 Swift（`apply` 直接採用訊息的 epoch）都不會。這是第三處差異，
-  // 過去只在檔頭寫「兩處」。這一組測試把差異清單釘死：行為變了、或清單少寫一條，就紅。
+describe("與 Rust／Swift 零差異（同一份 receiveDecisions fixtures 裁決）", () => {
+  // 以前這裡釘的是「三處刻意差異」的清單：契約沒裁決時，桌面端選比較嚴的一邊，
+  // 差異只能靠註解說明。契約已經裁決（`docs/aip/character-session.md` §7.2），
+  // 三端改讀同一張表、對同一份跨語言 fixture 交答案——這一組把「零差異」釘死：
+  // 檔頭必須指得出那份共同來源，決策名字與 realign 原因必須就是表上那些。
   const SOURCE = readFileSync(join(__dirname, "..", "aip", "sessionClient.ts"), "utf8");
 
-  function alignStateDocBullets(): string[] {
-    const marker = "export function alignState";
-    const at = SOURCE.indexOf(marker);
-    expect(at).toBeGreaterThan(0);
-    const doc = SOURCE.slice(SOURCE.lastIndexOf("/**", at), at);
-    return doc
-      .split("\n")
-      .map((line) => line.match(/^\s*\*\s{3}\*\s+(.*)$/))
-      .filter((match): match is RegExpMatchArray => match !== null)
-      .map((match) => match[1]);
-  }
-
-  it("檔頭的差異清單剛好三條，而且第三條講的是 snapshot 的 epoch", () => {
-    const bullets = alignStateDocBullets();
-    expect(bullets).toHaveLength(3);
-    expect(SOURCE).toContain("與 Rust／Swift 的三處刻意差異");
-    // 1) patch 的 sessionEpoch 必填；2) patch 的 epoch 不同回 realign；3) snapshot 的 epoch。
-    expect(bullets[0]).toContain("sessionEpoch");
-    expect(bullets[2]).toContain("snapshot");
+  it("檔頭寫的是零差異，而且指得出三端共同的來源（receiveDecisions fixtures）", () => {
+    expect(SOURCE).toContain("零差異");
+    expect(SOURCE).toContain("receiveDecisions");
+    expect(SOURCE).toContain("crates/interaction-aip/tests/fixtures/manifest.json");
+    // 三個消費者都要指名，少一個就沒有人會發現那一端漂走了。
+    expect(SOURCE).toContain("receive_decisions_from_json.rs");
+    expect(SOURCE).toContain("src/test/receive-decision-fixtures.test.ts");
+    expect(SOURCE).toContain("InteractionCompanionTests");
   });
 
-  it("差異一：patch 缺 sessionEpoch → invalid（Rust 的 patch 分支根本不看 epoch）", () => {
+  it("已取消的桌面端特例不得以任何形式留在原始碼裡", () => {
+    // `allowRegression`／`hostRegressed` 是「最新的 HTTP 回覆比本地舊就接受」，
+    // 決策表規則 6／7 取消了它：同一個 incarnation 的回退要 host 明說 `recovery`。
+    for (const gone of ["allowRegression", "hostRegressed", "刻意差異"]) {
+      expect(SOURCE, `${gone} 應該已經消失`).not.toContain(gone);
+    }
+  });
+
+  it("兩個上限讀 codegen 的 AIP_LIMITS，不在這一端自己寫數字", () => {
+    expect(SOURCE).toContain("AIP_LIMITS.maxResumePatches");
+    expect(SOURCE).toContain("AIP_LIMITS.maxRealignAttempts");
+    expect(MAX_RESUME_PATCHES).toBe(AIP_LIMITS.maxResumePatches);
+    expect(REALIGN_STREAK_LIMIT).toBe(AIP_LIMITS.maxRealignAttempts);
+  });
+
+  it("決策名字就是表上那九個（多一個就代表某一端自己長出了新結論）", () => {
+    const body = SOURCE.slice(
+      SOURCE.indexOf("export function alignState"),
+      SOURCE.indexOf("// ------------------------------------------------------------------ reducer")
+    );
+    // 決策可能長成 `{ kind: "x" }`，也可能經由 `adopt("x")`（hash 核對過才採用）。
+    const kinds = [...body.matchAll(/(?:kind: |adopt\()"([a-z-]+)"/g)].map((match) => match[1]);
+    expect([...new Set(kinds)].sort()).toEqual([
+      "already-applied",
+      "apply",
+      "ignore-stale",
+      "realign",
+      "recover",
+      "reject-identity",
+      "reject-invalid",
+      "reset",
+    ]);
+    const reasons = [...body.matchAll(/reason: "([a-z-]+)"/g)].map((match) => match[1]);
+    // `ignore-stale-connection` 與 `resume-too-long` 是 reducer 那一層的
+    //（世代與整批上限），不在 `alignState` 的輸入裡。
+    expect([...new Set(reasons)].sort()).toEqual([
+      "base-mismatch",
+      "epoch-changed",
+      "hash-mismatch",
+      "no-local",
+    ]);
+  });
+
+  it("patch 缺 sessionEpoch → 讀不出來（boundary），不會被當成 epoch 0", () => {
     const envelope = stateEnvelope(
       { kind: "patch", revision: 21, baseRevision: 20, patch: { activity: "reacting" } },
-      { name: "character.session.patch" },
+      { name: "character.session.patch" }
     );
     expect(readStateEnvelope(envelope)).toBeNull();
   });
 
-  it("差異二：patch 的 epoch 與本地不同 → realign（不靠 baseRevision 恰巧不符去擋）", () => {
+  it("patch 的 epoch 與本地不同 → realign（規則 11，三端相同）", () => {
     const start = aligned(20, 3);
     const { machine, effects } = run(start, [
       {
         kind: "sse",
+        arrivedOn: 0,
         envelope: patchEnvelope({
           revision: 21,
           baseRevision: 20,
@@ -736,29 +976,13 @@ describe("與 Rust／Swift 的差異必須明說（不得靜默長出第四處�
     expect(effects).toEqual([{ kind: "realign" }]);
   });
 
-  it("差異三：snapshot 的 epoch 不同又沒有 session-reset → realign，本地 epoch 不被改寫", () => {
+  it("snapshot 的 epoch 不同又沒有 session-reset → realign，本地 epoch 不被改寫（規則 5）", () => {
     const start = aligned(20, 3);
     const { machine, effects } = run(start, [
-      { kind: "sse", envelope: snapshotEnvelope({ revision: 30, epoch: 4 }) },
+      { kind: "sse", arrivedOn: 0, envelope: snapshotEnvelope({ revision: 30, epoch: 4 }) },
     ]);
     expect(local(machine).epoch).toBe(3);
     expect(local(machine).revision).toBe(20);
     expect(effects).toEqual([{ kind: "realign" }]);
-  });
-
-  it("alignState 的結論理由是一份釘死的清單：多一條就要重新對過三端並更新差異說明", () => {
-    const body = SOURCE.slice(
-      SOURCE.indexOf("export function alignState"),
-      SOURCE.indexOf("// ------------------------------------------------------------------ reducer"),
-    );
-    const reasons = [...body.matchAll(/reason: "([a-z-]+)"/g)].map((match) => match[1]);
-    expect([...new Set(reasons)].sort()).toEqual([
-      "already-applied",
-      "base-mismatch",
-      "epoch-changed",
-      "hash-mismatch",
-      "no-local",
-      "rollback",
-    ]);
   });
 });

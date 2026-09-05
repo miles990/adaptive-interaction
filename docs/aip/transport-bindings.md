@@ -241,14 +241,21 @@ JSON Lines 控制指令：`aip-capability`／`aip-touch`／`aip-resume`／`aip-r
 * **`characterId` 目前固定是 `"character"`**：session 在 Runtime 啟動時就建立，那時還沒有
   任何角色 hello。角色顯示名走 CPP／`/v1/character/manifest`，不從 session state 取。
 * 多台電腦競爭 host、雲端同步、multi-master、CRDT：**不在 1.0**。
-* **三端對「snapshot 的 epoch 不同但 reason 不是 session-reset」的結論不一致**（對抗審查 427c806 指出）：
-  契約層已裁決，答案是桌面那一邊（realign，不猜）——決策表在 `docs/aip/character-session.md` §7.2，跨語言 fixture 是
-  `manifest.json` 的 `receiveDecisions` 段。**Rust（`interaction_session::receive`）已依表實作**；
-  TypeScript `alignState` 與 Swift `SessionDecisions.apply` 尚未改讀那張表（`allowRegression`／patch 的 epoch 規則
-  仍是各自的舊版本），所以差異目前只縮到一端，還沒消失。
+* **接收端決策表（AIP 1.0 接收端澄清，v0.7.0）：Rust 與 TypeScript 已接線，Swift 尚未。**
+  對抗審查 427c806 指出的三處三端分歧（snapshot 的 epoch 不同但 reason 不是 `session-reset`、patch 不看 epoch、
+  桌面端的「最新 HTTP 回覆比本地舊就接受」）契約層已裁決，答案一律是「不猜」那一邊——決策表在
+  `docs/aip/character-session.md` §7.2，跨語言 fixture 是 `manifest.json` 的 `receiveDecisions` 段（43 個具名案例）。
+  **Rust（`interaction_session::receive`）與桌面 TypeScript（`apps/interaction-desktop/src/aip/sessionClient.ts`）
+  都已依表實作，並逐筆對同一份 fixture 交答案**（`crates/interaction-session/tests/receive_decisions_from_json.rs`／
+  `apps/interaction-desktop/src/test/receive-decision-fixtures.test.ts`）：桌面端的 `allowRegression`／`hostRegressed`
+  已取消（同一個 incarnation 的回退改由 host 明說 `recovery`＝規則 6／7），並補上身分（規則 1）、
+  snapshot 必帶 hash（規則 2）、patch 的 epoch（規則 11）與連線／請求世代（規則 0，SSE 與 HTTP 回覆都帶著
+  發出當下的世代進 reducer）。**Swift `SessionDecisions.apply` 尚未改讀那張表**（`AIPFixtures.swift` 已內嵌
+  同一段 fixture，但 iPhone 的接收機仍是舊版本），所以差異目前只剩一端，還沒消失。
 * `maxResumePatches`（512 ＝ host 事件日誌環）與 `maxRealignAttempts`（3）已進 golden schema 的 `limits` 表，
-  三端由 codegen 讀同一個數字。桌面端 `sessionClient.ts` 仍寫著自己的 `MAX_RESUME_PATCHES = 1024`（較寬鬆），
-  改讀生成常數同屬上面那一批未完成的接線。
+  三端由 codegen 讀同一個數字。桌面端 `sessionClient.ts` 自 v0.7.0 起改讀 `AIP_LIMITS`（以前寫著自己的
+  `MAX_RESUME_PATCHES = 1024`，比契約寬鬆），而且**超過上限整批不處理**——以前是截斷到上限再 realign，
+  那會讓本地停在一個從來沒有完整存在過的中間狀態。Swift 端仍待接線。
 
 ## 8. 宣告式裝置線 v1.1（Serial／MQTT／BLE）：同一行 `{"type":"aip","envelope":{…}}`
 

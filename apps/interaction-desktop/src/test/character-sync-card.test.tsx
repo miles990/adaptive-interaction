@@ -32,6 +32,22 @@ vi.mock("../api", async (importOriginal) => {
 
 import { CharacterSyncCard } from "../components/CharacterSyncCard";
 import type { RuntimeEvent } from "../api";
+import { stateHash } from "../aip/canonical";
+
+/**
+ * 一則 `state{kind:"snapshot"}` 的 payload。
+ *
+ * AIP 1.0 的 snapshot **必帶 hash**（決策表規則 2：缺 hash ＝ `reject-invalid`，沒有
+ * legacy profile），而且桌面端會自己重算來核對。fixture 因此要長得像 Runtime 真的送的：
+ * hash 由同一支 canonical 實作算出來，不是隨便一串字。
+ */
+function snapshotPayload(
+  state: Record<string, unknown>,
+  revision: number,
+  sessionEpoch = 1
+): Record<string, unknown> {
+  return { kind: "snapshot", revision, sessionEpoch, state, hash: stateHash(state) };
+}
 
 function snapshot(
   state: Record<string, unknown> = {},
@@ -42,11 +58,8 @@ function snapshot(
     messageId: `msg-snapshot-${revision}`,
     messageType: "state",
     name: "character.session.snapshot",
-    payload: {
-      kind: "snapshot",
-      revision,
-      sessionEpoch: 1,
-      state: {
+    payload: snapshotPayload(
+      {
         characterId: "character",
         mood: { kind: "neutral", intensity: 0 },
         activity: "idle",
@@ -55,7 +68,8 @@ function snapshot(
         reducedMotion: false,
         ...state,
       },
-    },
+      revision
+    ),
   };
 }
 
@@ -592,16 +606,17 @@ describe("角色頁「同步」卡：不靠輪詢對齊", () => {
         refreshKey={0}
         advanced={false}
         sessionEvents={[
-          stateEvent(1, {
-            kind: "snapshot",
-            revision: 40,
-            sessionEpoch: 1,
-            state: {
-              characterId: "character",
-              truth: { state: "none" },
-              members: [{ ...PHONE_MEMBER, presence: "reconnecting" }],
-            },
-          }),
+          stateEvent(
+            1,
+            snapshotPayload(
+              {
+                characterId: "character",
+                truth: { state: "none" },
+                members: [{ ...PHONE_MEMBER, presence: "reconnecting" }],
+              },
+              40
+            )
+          ),
         ]}
       />
     );
@@ -668,16 +683,17 @@ describe("角色頁「同步」卡：不靠輪詢對齊", () => {
         refreshKey={0}
         advanced={false}
         sessionEvents={[
-          stateEvent(3, {
-            kind: "snapshot",
-            revision: 40,
-            sessionEpoch: 1,
-            state: {
-              characterId: "character",
-              truth: { state: "none" },
-              members: [{ ...PHONE_MEMBER, presence: "reconnecting" }],
-            },
-          }),
+          stateEvent(
+            3,
+            snapshotPayload(
+              {
+                characterId: "character",
+                truth: { state: "none" },
+                members: [{ ...PHONE_MEMBER, presence: "reconnecting" }],
+              },
+              40
+            )
+          ),
         ]}
       />
     );
@@ -721,6 +737,83 @@ describe("角色頁「同步」卡：不靠輪詢對齊", () => {
     );
     // 沒有套用：畫面仍然是 patch 之前的樣子。
     expect(screen.queryByText("iPhone 暫時離線")).not.toBeInTheDocument();
+  });
+
+  // 決策表規則 6／7：同一個 session 的回退要 host 明說 `recovery`。
+  it("host 明說 recovery 時退回去，並且用人話說出來（不外洩 revision）", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+    });
+    const view = render(<CharacterSyncCard refreshKey={0} advanced={false} sessionEvents={[]} />);
+    const card = await screen.findByTestId("character-sync");
+    await waitFor(() =>
+      expect(within(card).getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument()
+    );
+
+    view.rerender(
+      <CharacterSyncCard
+        refreshKey={0}
+        advanced={false}
+        sessionEvents={[
+          stateEvent(
+            4,
+            {
+              ...snapshotPayload(
+                {
+                  characterId: "character",
+                  truth: { state: "none" },
+                  members: [{ ...PHONE_MEMBER, presence: "reconnecting" }],
+                },
+                9
+              ),
+              reason: "recovery",
+            }
+          ),
+        ]}
+      />
+    );
+    await waitFor(() => expect(screen.getByText("iPhone 正在重新連線")).toBeInTheDocument());
+    const note = await within(card).findByTestId("character-sync-note");
+    expect(note).toHaveTextContent("已依桌面的權威狀態重新對齊");
+    // 一般模式不外洩 revision（也不外洩任何數字）。
+    expect(note.textContent ?? "").not.toMatch(/[0-9]/);
+    expect(card.textContent ?? "").not.toMatch(FORBIDDEN);
+  });
+
+  it("沒有 recovery 宣告的較舊 snapshot 一律忽略（不倒退、也不掛那句附註）", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+    });
+    const view = render(<CharacterSyncCard refreshKey={0} advanced={false} sessionEvents={[]} />);
+    const card = await screen.findByTestId("character-sync");
+    await waitFor(() =>
+      expect(within(card).getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument()
+    );
+    view.rerender(
+      <CharacterSyncCard
+        refreshKey={0}
+        advanced={false}
+        sessionEvents={[
+          stateEvent(
+            5,
+            snapshotPayload(
+              {
+                characterId: "character",
+                truth: { state: "none" },
+                members: [{ ...PHONE_MEMBER, presence: "reconnecting" }],
+              },
+              9
+            )
+          ),
+        ]}
+      />
+    );
+    // 畫面停在原本那一份，也沒有那句附註。
+    await waitFor(() => expect(mockApi.mobileStatus).toHaveBeenCalled());
+    expect(within(card).getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument();
+    expect(within(card).queryByTestId("character-sync-note")).not.toBeInTheDocument();
   });
 
   it("每一則 runtime 事件都重畫時，裝置清單的重取要被節流", async () => {

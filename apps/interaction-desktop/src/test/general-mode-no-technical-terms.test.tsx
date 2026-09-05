@@ -35,35 +35,33 @@ vi.mock("../api", async (importOriginal) => {
 });
 
 import { CharacterSyncCard } from "../components/CharacterSyncCard";
+import { stateHash } from "../aip/canonical";
 
 afterEach(() => {
   vi.clearAllMocks();
 });
 
 function snapshot(members: Record<string, unknown>[]): Record<string, unknown> {
+  // AIP 1.0 的 snapshot 必帶 hash（決策表規則 2），而且桌面端會自己重算來核對。
+  const state = {
+    characterId: "character",
+    mood: { kind: "neutral", intensity: 0 },
+    activity: "idle",
+    truth: { state: "none" },
+    members,
+    reducedMotion: false,
+    lastInteraction: {
+      name: "character.interaction.touch",
+      kind: "tap",
+      source: `device:${DEVICE_ID}`,
+    },
+  };
   return {
     specVersion: "aip/1.0",
     messageId: `msg-${DEVICE_ID}`,
     messageType: "state",
     name: "character.session.snapshot",
-    payload: {
-      kind: "snapshot",
-      revision: 12,
-      sessionEpoch: 3,
-      state: {
-        characterId: "character",
-        mood: { kind: "neutral", intensity: 0 },
-        activity: "idle",
-        truth: { state: "none" },
-        members,
-        reducedMotion: false,
-        lastInteraction: {
-          name: "character.interaction.touch",
-          kind: "tap",
-          source: `device:${DEVICE_ID}`,
-        },
-      },
-    },
+    payload: { kind: "snapshot", revision: 12, sessionEpoch: 3, state, hash: stateHash(state) },
   };
 }
 

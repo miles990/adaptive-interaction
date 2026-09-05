@@ -255,6 +255,15 @@ export interface CharacterSyncSignals {
   pendingDeviceNames?: readonly string[];
   /** 保存層訊號；`null`／未提供＝讀不到診斷（不猜好也不猜壞）。 */
   store?: CharacterSyncStoreSignals | null;
+  /**
+   * host 明說 `recovery`、把這台電腦的副本帶回較舊的權威狀態
+   * （`docs/aip/character-session.md` §7.2 的決策表規則 6）。
+   *
+   * 這**不是**故障：host 從較舊的快照還原過，桌面照它說的重新對齊。但畫面上剛剛看得到的
+   * 東西被換掉了，靜默處理就是讓使用者以為自己記錯——所以掛一句 muted 的附註。
+   * 附註裡不得出現 revision／任何數字：那是進階模式「連接診斷」的事。
+   */
+  recovered?: boolean;
 }
 
 export interface ProjectedCharacterSync extends CharacterSyncProjection {
@@ -314,6 +323,13 @@ function storeNotice(store: CharacterSyncStoreSignals | null | undefined): strin
     ? "先前的同步紀錄曾經重建過一次；新的紀錄還沒存下來過。"
     : "先前的同步紀錄曾經重建過一次；之後的紀錄都已經正常存下來。";
 }
+
+/**
+ * host 說它從較舊的權威狀態還原了（決策表規則 6 的 `recover`）之後的那一句人話。
+ *
+ * 只講「發生了什麼」，不講 revision——一般模式一個數字都不給。
+ */
+export const CHARACTER_SYNC_RECOVERED_NOTE = "已依桌面的權威狀態重新對齊。";
 
 /** 這台電腦自己（桌面角色視窗）在成員清單裡的稱呼——不印任何識別碼。 */
 export const CHARACTER_SYNC_LOCAL_NAME = "這台電腦";
@@ -466,8 +482,13 @@ export function projectCharacterSession(
   signals: CharacterSyncSignals
 ): ProjectedCharacterSync {
   const active = storeIssue(signals.store);
-  // 歷史通知只在「現在沒問題」時才掛：同一件事不講兩次。
-  const note = active ? null : storeNotice(signals.store);
+  // 保存層的歷史通知只在「現在沒問題」時才掛：同一件事不講兩次。
+  // 「host 從較舊的狀態還原過」是另一件事（講的是角色狀態，不是紀錄），兩句可以同時成立。
+  const notes = [
+    active ? null : storeNotice(signals.store),
+    signals.recovered === true ? CHARACTER_SYNC_RECOVERED_NOTE : null,
+  ].filter((line): line is string => line !== null);
+  const note = notes.length > 0 ? notes.join(" ") : null;
   const project = (state: CharacterSyncState, known = true): ProjectedCharacterSync => ({
     state,
     known,

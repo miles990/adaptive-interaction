@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import {
   CHARACTER_SYNC_EMERGENCY_TEXT,
   CHARACTER_SYNC_PROJECTION,
+  CHARACTER_SYNC_RECOVERED_NOTE,
   CHARACTER_SYNC_STATES,
   characterSyncLastInteraction,
   characterSyncMembers,
@@ -379,6 +380,33 @@ describe("角色同步投影：狀態判定", () => {
     );
     expect(p.state).toBe("store-issue");
     expect(p.note).toBeNull();
+  });
+
+  // 決策表規則 6（`recover`）：host 明說它從較舊的權威狀態還原了，桌面照它說的退回去。
+  // 那不是故障，但畫面上剛剛看得到的東西被換掉了——靜默處理會讓使用者以為自己記錯。
+  it("host 從較舊的權威狀態還原過：掛一句人話的附註，不改 tone、不外洩 revision", () => {
+    const p = projectCharacterSession(snapshot(), [member()], signals({ recovered: true }));
+    expect(p.state).toBe("synced");
+    expect(p.tone).toBe("ok");
+    expect(p.note).toBe(CHARACTER_SYNC_RECOVERED_NOTE);
+    expect(p.note ?? "").toContain("已依桌面的權威狀態重新對齊");
+    // 一般模式一個數字都不給（更不給 revision）。
+    expect(p.note ?? "").not.toMatch(FORBIDDEN);
+    expect(p.note ?? "").not.toMatch(/[0-9]/);
+  });
+
+  it("還原的附註與保存層的歷史通知可以同時成立（兩件不同的事）", () => {
+    const p = projectCharacterSession(
+      snapshot(),
+      [member()],
+      signals({ recovered: true, store: store({ reset: true, lastPersistedRevision: 7 }) })
+    );
+    expect(p.note ?? "").toContain("曾經重建過");
+    expect(p.note ?? "").toContain(CHARACTER_SYNC_RECOVERED_NOTE);
+  });
+
+  it("沒有還原過就沒有那一句（不無中生有）", () => {
+    expect(projectCharacterSession(snapshot(), [member()], signals()).note).toBeNull();
   });
 
   it("遷移（migratedFrom）不進一般模式：既不是狀態也不是通知", () => {

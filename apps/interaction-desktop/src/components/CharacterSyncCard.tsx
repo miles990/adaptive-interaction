@@ -23,8 +23,9 @@
 //     一個唯讀的畫面推著權威 session 的 sequence 前進。
 //   * 所以：權威狀態改由 SSE `character.session.state` 的 payload（完整 envelope）
 //     直接更新本地副本。**所有協定判斷都在 `../aip/sessionClient.ts` 的純 reducer 裡**
-//     （rollback 防護、`session-reset` 例外、patch 續接、hash 核對、請求世代）；
-//     這個元件只負責發請求、把回應餵進去、把結果投影成人話。
+//     （`docs/aip/character-session.md` §7.2 的接收端決策表：世代 → 身分 → 格式 →
+//     `session-reset` → epoch → `recovery` → revision → hash）；這個元件只負責發請求、
+//     把回應（連同它所屬的連線世代）餵進去、把結果投影成人話。
 //   * 已經有本地副本時，「重新檢查」／重新對齊／連線切換走
 //     `POST /v1/character-session/resume`（帶 lastRevision／lastSequence／epoch），
 //     **不**再 GET：resume 不消耗 sequence。只有「沒有本地副本」（首次載入、讀失敗
@@ -32,6 +33,8 @@
 //   * `connectionKey` 是「這條連線換了一條」的訊號（App 在 supervisor 連線狀態變化時 +1），
 //     不是「有新事件」——它一次連線只動一兩下，不會退回「每則事件三支 API」。
 //     `refreshKey` 每一則 runtime 事件都 +1，所以 live 模式下它**不**驅動權威狀態的重取。
+//     它同時是決策表規則 0 的**連線世代**：飛行中的 GET／resume 回覆帶著發出當下的世代
+//     回到 reducer，連線在途中換過就是舊連線的遲到品，一律不算數。
 //   * **桌面端現在會做接收端 hash 核對**（AIP §6）。過去不做的理由是「JS 的 number
 //     留不住數字字面」；`../aip/canonical.ts` 依 codegen 從跨語言 fixture 產出的
 //     double 路徑重印字面，逐位元組核對過（`src/test/canonical-hash.test.ts`），
@@ -224,6 +227,14 @@ export function CharacterSyncCard({
     setMachine(next);
   }, []);
 
+  // --- 0. 連線世代（決策表規則 0）。宣告順序就是執行順序：這個 effect 一定跑在下面
+  //     發請求與餵 SSE 的 effect 之前，所以那兩邊看到的世代永遠是最新的。
+  const connectionGenerationRef = React.useRef(connectionKey);
+  React.useEffect(() => {
+    connectionGenerationRef.current = connectionKey;
+    dispatch({ kind: "connection-changed", generation: connectionKey });
+  }, [connectionKey, dispatch]);
+
   // --- A. 權威狀態：首次載入／手動重新檢查／接不上時重新對齊／連線換了一條。
   //     `live` 時 refreshKey 不參與（那正是「每則事件三支 API」的來源）。
   const pollKey = live ? 0 : refreshKey;
@@ -236,6 +247,8 @@ export function CharacterSyncCard({
     let alive = true;
     let timer: number | null = null;
     const requestId = (requestIdRef.current += 1);
+    // 這次請求屬於「現在這條連線」；回覆帶著它回來，連線在途中換過就不算數（規則 0）。
+    const arrivedOn = connectionKey;
     dispatch({ kind: "fetch-issued", requestId });
     // 有本地副本就走 resume（不消耗 sequence）；沒有才 GET 一份完整快照。
     const known = machineRef.current.local;
@@ -248,11 +261,11 @@ export function CharacterSyncCard({
             epoch: known.epoch,
           });
           if (!alive) return;
-          dispatch({ kind: "resume-response", requestId, payload });
+          dispatch({ kind: "resume-response", requestId, payload, arrivedOn });
         } else {
           const envelope = await api.characterSessionSnapshot();
           if (!alive) return;
-          dispatch({ kind: "fetch-response", requestId, envelope });
+          dispatch({ kind: "fetch-response", requestId, envelope, arrivedOn });
         }
         failedReadsRef.current = 0;
         retryAttemptRef.current = 0;
@@ -352,7 +365,11 @@ export function CharacterSyncCard({
     if (!sessionEvents) return;
     for (const event of sessionEvents) {
       if (event.eventType !== SESSION_STATE_EVENT) continue;
-      dispatch({ kind: "sse", envelope: event.payload });
+      // 世代是「處理這一則時這條連線的編號」。誠實地說：事件流本身沒有帶世代，所以這裡
+      // 只能標上當下的值——規則 0 在這條路徑上擋不住「換連線的那一瞬間才送達的舊事件」
+      // （擋得住的是飛行中的 GET／resume 回覆，它們帶著發出當下的世代回來）。真正靠的是
+      // 表的其餘規則：revision 落後就是 `ignore-stale`，接不上就是 realign。
+      dispatch({ kind: "sse", envelope: event.payload, arrivedOn: connectionGenerationRef.current });
     }
   }, [sessionEvents, dispatch]);
 
@@ -384,6 +401,9 @@ export function CharacterSyncCard({
       pendingDeviceNames: pending.map((id) => names[id] ?? "一台裝置"),
       // 保存層：`parked`／持續寫入失敗是**現在**的問題；曾經重建過只是歷史通知。
       store: characterSyncStoreSignals(diagnostics),
+      // host 明說 `recovery`、把這台電腦的副本帶回較舊的權威狀態（決策表規則 6）。
+      // 那不是錯誤，但畫面上曾經看得到的東西被換掉了，不能靜默。
+      recovered: machine.counters.recovered > 0,
     };
     return projectCharacterSession(snapshotView, members, signals);
   }, [
@@ -397,6 +417,7 @@ export function CharacterSyncCard({
     pending,
     names,
     diagnostics,
+    machine.counters.recovered,
   ]);
   const lastInteraction = React.useMemo(
     () => characterSyncLastInteraction(snapshotView, names),
