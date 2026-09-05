@@ -241,6 +241,11 @@ JSON Lines 控制指令：`aip-capability`／`aip-touch`／`aip-resume`／`aip-r
 * **`characterId` 目前固定是 `"character"`**：session 在 Runtime 啟動時就建立，那時還沒有
   任何角色 hello。角色顯示名走 CPP／`/v1/character/manifest`，不從 session state 取。
 * 多台電腦競爭 host、雲端同步、multi-master、CRDT：**不在 1.0**。
+* **三端對「snapshot 的 epoch 不同但 reason 不是 session-reset」的結論不一致**（對抗審查 427c806 指出）：Rust `accept_state_with_epoch`
+  與 Swift 直接接受並改寫本地 epoch，桌面 TS `alignState` 回 realign（較嚴，理由與差異清單寫在 `apps/interaction-desktop/src/aip/sessionClient.ts`
+  檔頭並以棘輪測試釘死）。裁決屬契約層，需要一則跨語言 conformance fixture；在那之前這是已揭露的差異，不是錯誤。
+* 桌面端 resume 回應的 `patches[]` 有 client 上界 `MAX_RESUME_PATCHES = 1024`（超過＝套到上限並回報 realign），與 host 的事件日誌環沒有
+  共享常數。
 
 ## 8. 宣告式裝置線 v1.1（Serial／MQTT／BLE）：同一行 `{"type":"aip","envelope":{…}}`
 

@@ -461,7 +461,7 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
 
 ### iPhone Mobile Provider（**iOS 模擬器**，iPhone 17／iOS 26.2 runtime；非真機）
 
-> v0.6.x 分支（2026-09-05）：XCTest **120/120**（模擬器，iPhone 17／iOS 26.5 runtime；AIPConformance 17＋Lifecycle 16＋
+> v0.6.x 分支（2026-09-05）：XCTest **126/126**（對抗審查 Swift wave `df8e013` 後；同日稍早 120/120）（模擬器，iPhone 17／iOS 26.5 runtime；AIPConformance 17＋Lifecycle 22＋
 > MotionClassifier 8＋Protocol 21＋ReconnectHint 21＋SessionClient 34＋StateHashConformance 3），修復者與獨立驗證者各跑一次；
 > 真機仍為零執行。
 

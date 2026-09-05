@@ -56,7 +56,26 @@
   `docs-claims.sh` 的過期宣稱檢查從三個固定片語改成一組同義詞（尚未 tag／尚未發布／尚未落地／候選／進行中／開發中／未發布）與已發布
   版本字串同行即擋（先紅：`ARCHITECTURE.md` 三列「v0.6.0 進行中」被抓到，再修成已發布措辭）；`device-profile.md` §6 的
   `declarative_session_loop.rs` 計數 7→13 並列出 D2 案例；`v0.6.x-maintainability-progress.md` §1 加「矩陣列號 vs 任務章節號」對照
-  （兩套編號差 1 個里程碑位移）。程式碼部分的修復另列。
+  （兩套編號差 1 個里程碑位移）。程式碼部分的修復如下三條（opus 修＋sonnet 獨立驗，皆 confirmed）。
+- **對抗審查 Rust wave（`f250acf`，7/7 fixed）**：(blocker) 通用 `providers transition/revoke` 停用一支手機會關掉**全 iPhone 共用**的
+  `iphone.*` 受器／動器旗標而波及其他手機——`disable_provider_capabilities` 現在先反查 ProviderRegistry，同一能力 id 仍被其他操作中的
+  provider 宣告就保留旗標並稽核 `provider.capabilities-shared-kept`；`mobile_stop_sensors_target` 只停一台時不再關全域高風險受器（要全關請用
+  停止所有感測／緊急停止）；transition／revoke 改為先請來源停止、再翻旗標（兩支模擬 iPhone 的回歸測試）。(high) 宣告式來源未確認的停止
+  （unknown／unreachable／refused）以前從 activeSensors 靜默消失、孤兒安全網打不開——有界 `stop_pending` 讓它以 stopping／stop-unknown
+  留著直到確認，撤銷靜默裝置留下 `sensor.source-removed-while-capturing`。(medium) 遷移寫入失敗有自己的固定文字
+  `STORE_NOTE_MIGRATION_WRITE_FAILED`（備份已在，刻意不 park）；restore 前置檢查拒絕 `members[*].party` 夾帶的未知鍵（wire 的 `Party`
+  不動）；宣告式裝置 Disabled→Available 誠實標 `needs-restart-to-rebind`（warnings 原文＋人話 note＋稽核）而不假裝恢復。(low)
+  `MAX_PROJECTED_UNSUPPORTED_INPUTS ≤ MAX_UNSUPPORTED_INPUTS` 改為編譯期 const assert。
+- **對抗審查 TS wave（`365355d`，5/5 fixed）**：(high) `ingestResume` 對「本地已透過別的管道追上」的良性舊項不再中止（只有帶 effect 的
+  realign 才停），後面的新補丁不再被靜默丟掉；patches 有界 `MAX_RESUME_PATCHES = 1024`，超過誠實 realign。(medium) `alignState` snapshot
+  分支的「epoch 不同但非 session-reset → realign」列為與 Rust／Swift 的第三處刻意差異並以棘輪測試釘死清單；companionScene 納入 adapter-meta
+  綁定（`scenes` 只由 shu-rig 宣告，全域 SCENES 清單移除）；陪伴預設兩段寫入整段 busy＋世代計數器（舊回應不得覆蓋新請求）。(low) 同步卡
+  「去重新確認」的 deviceId 真的被消費：App → ConnectPage → 配對區 → `PhoneDeviceCard` 標示被指名的手機（`data-focused`／`aria-current`）。
+- **對抗審查 Swift wave（`df8e013`，3 fixed＋1 partial）**：(high) 回前景未連線時誠實留一行說明＋refreshStatus（三分支對稱）；回前景 resume
+  防重入——上一則仍等回覆的 10 s 寬限窗內不重送（`SessionDecisions.shouldResendResumeOnForeground`），快速切換不再假造「無法恢復」。
+  (medium，partial) 背景不重連／不送心跳的閘門擴及既有的斷線重試與心跳路徑（`LifecycleDecision.shouldScheduleReconnect`／
+  `shouldSendPresenceHeartbeat`；進背景取消等待中的重試）——純決策有測試，ConnectionManager 五個接線點只有 typecheck 與 diff 核對。
+  (low) ScenePhase `@unknown default` 改為背景 fallback。模擬器 XCTest 120→**126**（Lifecycle 16→22）。
 - **角色資料載入失敗的原因回到首屏**：M3 §4.1 之後「內建角色索引無法載入：…」被收在「更換或加入角色」收合區塊裡，首屏只剩
   「找不到目前設定的角色資料」而沒有原因——收合區塊不得把失敗藏起來。現在錯誤（`role=alert`）在「目前角色」區，角色庫不再重複顯示。
   `characterPage-first-screen.test.tsx` 釘住「未展開也看得到、只出現一次」。同時把第二波 IA 變更弄壞、M3c 未涵蓋的
@@ -198,6 +217,12 @@
   （誠實但比修改前的一行 debug log 吵）。
 - `interaction-adapter-declarative` 的 `PROVIDER_LINKS` 是行程層 static（鍵＝provider id）：production 一個 daemon 一份不會撞，但同一行程多個
   Runtime 的測試必須用不同 provider id。
+- **對抗審查後仍存在**：(a) snapshot「epoch 不同但非 session-reset」三端不一致——TS realign（較嚴）、Rust／Swift 接受並改寫本地 epoch；
+  已揭露並釘死，統一需要 AIP 契約層裁決＋跨語言 fixture。(b) `MAX_RESUME_PATCHES = 1024` 是桌面端自訂上界，與 host 事件日誌環沒有共享常數。
+  (c) iOS 背景閘門在 ConnectionManager 的接線沒有自動化測試（需可注入的 WebSocket 傳輸）；10 s resume 寬限窗不是跨端契約。
+  (d) 宣告式裝置 Disabled→Available 仍需重啟 daemon 才重新綁定（只誠實標注，不自動重連）；純 HTTP 宣告式 adapter 的高風險受器被要求停止後
+  會持續 stop-unknown 直到重新啟用或撤銷。(e) 行為變更：只要還有另一支已配對 iPhone 的 provider 處於操作中，通用停用／撤銷其中一台就**不再**
+  關掉 `iphone.*` 全域旗標——想全部關掉用「停止所有感測」或緊急停止。(f) 同步卡指名手機的捲動只在 jsdom 驗證。
 - 宣告式裝置沒有 recipe 相容的 touch observation id（iPhone 有 `iphone.touch`）；沒有憑空發明一個。
 - `declarative_session_loop.rs` 的多裝置隔離測試用程序內 device fixture 當第二成員，未與 fake_iphone 子程序並存。
 - `crates/interaction-adapter-declarative/src/serial.rs::a_port_that_dies_immediately_backs_off_and_is_reported_offline` 是既有的偶發
