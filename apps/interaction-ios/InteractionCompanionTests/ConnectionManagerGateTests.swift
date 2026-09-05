@@ -4,13 +4,18 @@
 //
 //  背景／前景閘門的**行為**測試（不是純函式表——`LifecycleTests` 已經把決策表釘住了）。
 //
-//  為什麼需要這一層：`LifecycleDecision` 說「背景不重連、不送心跳」，但真正會不會送出去
-//  取決於 `ConnectionManager` 有沒有在**五個接線點**都問過它：
+//  為什麼需要這一層：`LifecycleDecision` 說「背景不重連、不送心跳、不送角色同步」，但真正
+//  會不會送出去取決於 `ConnectionManager` 有沒有在那幾個接線點都問過它。**五個接線點，
+//  每一個都獨立可達、也各自被下面的測試真的執行過**：
 //    1. `sendStatusNow()`             — 直接送心跳的入口
 //    2. `startStatusTimer()`          — 背景中意外復活的連線不得把心跳排程叫起來
-//    3. `handleConnectionLost()`      — 背景斷線只誠實記錄，不排重連
-//    4. `scheduleRetry()`             — 同上（第二道）
-//    5. 重連 work 真的觸發的那一刻    — 排程時在前景、觸發時已在背景
+//    3. `scheduleRetry()`             — 背景斷線只誠實記錄，不排重連（斷線路徑上唯一一道；
+//                                       `handleConnectionLost` 以前有一道一模一樣的判斷，
+//                                       兩處在同一次同步呼叫裡讀同一個階段，第二道不可達）
+//    4. 重連 work 真的觸發的那一刻    — 排程時在前景、觸發時已在背景
+//    5. `sendAip()`                   — AIP 出站（capability／resume／snapshot query／result）：
+//                                       桌面把**任何一則**通過身分綁定的 inbound envelope
+//                                       都當成存活證明，只擋 legacy `status` 等於只擋一半
 //  少接一個就是「決策表寫得很好、程式沒照著做」，而畫面上照樣顯示已連線。
 //
 //  這裡用**可注入的 socket 與排程**（`SocketTransport`／`WorkScheduler`）：不開真的 wss、
@@ -42,7 +47,7 @@ final class ConnectionManagerGateTests: XCTestCase {
         XCTAssertEqual(try harness.socket().sentStatuses, 0, "背景中的直接呼叫也要被擋下來")
     }
 
-    /// 3＋4：背景斷線只誠實記錄，不排重連。
+    /// 3：背景斷線只誠實記錄，不排重連（`scheduleRetry` 是這條路上唯一一道閘門）。
     func testALostConnectionInTheBackgroundDoesNotScheduleAReconnect() throws {
         let harness = try Harness.connected()
         harness.connection.lifecyclePhaseChanged(to: .background)
@@ -58,7 +63,7 @@ final class ConnectionManagerGateTests: XCTestCase {
             reason.contains("背景中暫停重連"), "要誠實說「回到前景再試」，不是假裝還在重試")
     }
 
-    /// 5：排程時還在前景、真的觸發時已經進背景 → 不開新 socket。
+    /// 4：排程時還在前景、真的觸發時已經進背景 → 不開新 socket。
     func testAReconnectThatFiresAfterEnteringTheBackgroundDoesNotOpenASocket() throws {
         let harness = try Harness.connected()
         // 前景斷線：照常排一次重連。
@@ -112,6 +117,101 @@ final class ConnectionManagerGateTests: XCTestCase {
         harness.now += SessionSyncLocal.resumeResponseGraceSeconds + 1
         harness.connection.lifecyclePhaseChanged(to: .active)
         XCTAssertEqual(try harness.socket().sentResumes, 2, "超過寬限窗要再問一次")
+    }
+
+
+    // MARK: - AIP 出站也在同一道閘門下
+
+    /// 5：剛進背景、行程還沒被 iOS 暫停的那個窗口裡，socket 還活著、inbound 照常送達。
+    /// 桌面把**任何一則**通過身分綁定的 inbound envelope 當成存活證明
+    ///（`crates/interaction-session/src/session.rs` gate 4.1 → `note_alive` → `Presence::Online`），
+    /// 所以背景送出的 resume／snapshot query 會讓桌面顯示這支手機 online，
+    /// 與本機這時顯示的「背景（心跳已停）」互相矛盾——presence 心跳擋住了、AIP 沒擋住，
+    /// 等於同一件事只擋了一半。
+    func testBackgroundDoesNotLetAnAipFrameProveTheDeviceIsAlive() throws {
+        let harness = try Harness.connected()
+        try harness.negotiateAndSnapshot()
+        try harness.socket().clear()
+
+        harness.connection.lifecyclePhaseChanged(to: .background)
+        XCTAssertEqual(
+            harness.connection.phase, .connected, "剛進背景時 socket 還活著（正是要擋的那個窗口）")
+        let droppedBefore = harness.connection.droppedFrames
+
+        // 桌面推播一則對不上的權威狀態：決策表會說 realign（送 snapshot query／resume）。
+        try harness.socket()
+            .deliver(Harness.frame(Harness.snapshotEnvelope(revision: 11, hash: Harness.wrongHash)))
+        try harness.socket().deliver(Harness.frame(Harness.snapshotEnvelope(revision: 12, epoch: 6)))
+
+        XCTAssertEqual(try harness.socket().sentSnapshotQueries, 0, "背景中不得送 snapshot query")
+        XCTAssertEqual(try harness.socket().sentResumes, 0, "背景中不得送 resume")
+        XCTAssertGreaterThan(
+            harness.connection.droppedFrames, droppedBefore, "被擋下來的訊息要誠實計數，不得靜默")
+    }
+
+    /// 對照組：同一則 frame 在前景照樣要求對齊——閘門擋的是背景，不是把功能關掉。
+    func testTheSameStateFrameInTheForegroundStillAsksForRealignment() throws {
+        let harness = try Harness.connected()
+        try harness.negotiateAndSnapshot()
+        try harness.socket().clear()
+
+        try harness.socket()
+            .deliver(Harness.frame(Harness.snapshotEnvelope(revision: 11, hash: Harness.wrongHash)))
+        XCTAssertEqual(try harness.socket().sentSnapshotQueries, 1, "前景中 hash 對不上要問一份快照")
+    }
+
+    /// 背景中才收到 `auth-ok`：capability 被閘門擋下來，沒有人會再送第二次——
+    /// 回前景是唯一的補送時機，不補就永遠停在「尚未協商」。
+    func testAnAuthOkThatLandedInTheBackgroundIsRenegotiatedOnForeground() throws {
+        let harness = Harness()
+        harness.connection.connectIfPaired()
+        let socket = try harness.socket()
+        socket.events?.onOpen()
+        harness.connection.lifecyclePhaseChanged(to: .background)
+        socket.deliver(#"{"type":"auth-ok"}"#)
+        XCTAssertEqual(harness.connection.phase, .connected)
+        XCTAssertEqual(socket.sentCapabilities, 0, "背景中不得送能力宣告")
+        XCTAssertFalse(harness.connection.characterSession.negotiated)
+
+        harness.now += 30
+        harness.connection.lifecyclePhaseChanged(to: .active)
+        XCTAssertEqual(socket.sentCapabilities, 1, "回前景要補送一次能力宣告")
+    }
+
+    /// `SessionClient` 讀的時鐘必須就是 `ConnectionManager` 注入的那一個。
+    ///
+    /// 兩個時鐘並存時，由 inbound frame 觸發的 resume 會用真實牆鐘寫下「還在等回覆」，
+    /// 而回前景的判斷用的是注入的時鐘：`shouldResendResumeOnForeground` 會算出負值
+    ///（時鐘往回跳）而重問一次，10 秒寬限窗的保證就形同虛設。
+    func testTheSessionReadsTheSameInjectedClockAsTheLifecycleGates() throws {
+        let harness = try Harness.connected()
+        try harness.negotiateAndSnapshot()
+        try harness.socket().clear()
+
+        // 由 inbound frame（不是生命週期）觸發一次 resume：它寫下的時間也必須是注入的時鐘。
+        try harness.socket().deliver(Harness.frame(Harness.snapshotEnvelope(revision: 11, epoch: 6)))
+        XCTAssertEqual(try harness.socket().sentResumes, 1, "epoch 不同要向桌面要求對齊")
+
+        harness.connection.lifecyclePhaseChanged(to: .background)
+        harness.now += 2
+        harness.connection.lifecyclePhaseChanged(to: .active)
+        XCTAssertEqual(
+            try harness.socket().sentResumes, 1,
+            "同一個時鐘：寬限窗（\(Int(SessionSyncLocal.resumeResponseGraceSeconds)) 秒）內不重送")
+    }
+
+    /// 重連閘門只有一道。同一次同步呼叫裡問第二次不會有不同答案：多出來的那一道永遠
+    /// 不可達，只會讓「接線點」的枚舉虛胖成一件沒有任何測試能證明的事。
+    func testTheReconnectGateIsAskedExactlyOncePerDisconnect() throws {
+        let harness = try Harness.connected()
+        harness.gateReads = 0
+
+        try harness.socket()
+            .fail(NSError(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost))
+
+        XCTAssertEqual(harness.scheduler.pendingCount, 1, "前景斷線要排重連")
+        XCTAssertEqual(
+            harness.gateReads, 1, "斷線路徑上的重連閘門只有一道；問第二次代表有不可達的重複判斷")
     }
 
     // MARK: - 注入點本身
@@ -168,6 +268,8 @@ final class ConnectionManagerGateTests: XCTestCase {
         var opened: [(url: URL, fingerprint: String, socket: FakeSocket)] = []
         /// 測試自己的時鐘（單調時鐘與牆鐘一起走，省得兩邊各記一份）。
         var now: TimeInterval = 1000
+        /// 生命週期閘門被問過幾次（重複而不可達的那一道會讓這個數字虛胖）。
+        var gateReads = 0
 
         init() {
             let store = InMemoryPairingStore(
@@ -182,6 +284,10 @@ final class ConnectionManagerGateTests: XCTestCase {
                 socket.events = events
                 self?.opened.append((url, fingerprint, socket))
                 return socket
+            }
+            connection.lifecyclePhaseForGating = { [weak self] in
+                self?.gateReads += 1
+                return self?.connection.lifecyclePhase ?? .active
             }
             connection.monotonicNow = { [weak self] in self?.now ?? 0 }
             connection.wallClockNow = { [weak self] in
@@ -236,8 +342,13 @@ final class ConnectionManagerGateTests: XCTestCase {
              "truth":{"state":"none"},"members":[],"reducedMotion":false}
             """
 
-        static func snapshotEnvelope(revision: UInt64 = 10, epoch: UInt64 = 5) -> String {
-            let hash = SemanticJSON.parse(stateText)?.canonicalSHA256 ?? "?"
+        /// 一個格式正確、但一定對不上任何 state 的 hash（用來觸發 `hash-mismatch`）。
+        static let wrongHash = String(repeating: "0", count: 64)
+
+        static func snapshotEnvelope(
+            revision: UInt64 = 10, epoch: UInt64 = 5, hash overrideHash: String? = nil
+        ) -> String {
+            let hash = overrideHash ?? SemanticJSON.parse(stateText)?.canonicalSHA256 ?? "?"
             return """
                 {"specVersion":"aip/1.0","messageId":"aip-st-\(epoch)-\(revision)",
                  "messageType":"state","name":"character.session.snapshot",
@@ -298,6 +409,14 @@ final class ConnectionManagerGateTests: XCTestCase {
         func clear() { sent.removeAll() }
         var sentStatuses: Int { sent.filter { $0.contains("\"type\":\"status\"") }.count }
         var sentResumes: Int { sent.filter { $0.contains("character.session.resume") }.count }
+        var sentSnapshotQueries: Int {
+            sent.filter {
+                $0.contains("character.session.snapshot") && $0.contains("\"messageType\":\"query\"")
+            }.count
+        }
+        var sentCapabilities: Int {
+            sent.filter { $0.contains("character.session.capability") }.count
+        }
     }
 
     /// 手動排程：不等真的秒數，由測試決定何時觸發。

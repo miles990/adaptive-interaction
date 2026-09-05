@@ -482,16 +482,103 @@ final class ReceiveDecisionConformanceTests: XCTestCase {
         XCTAssertEqual(transport.resumes.count, 0, "讀得懂就不必再問一次")
     }
 
+    /// 出貨路徑與決策表對**同一批** resume 回覆得到同一個結論。
+    ///
+    /// 批次規則（良性舊項跳過不中止、第一個帶 effect 的決策中止整批、超過上限整批不處理）
+    /// 只有 `SessionDecisions.runResumeBatch` 一份實作，`SessionClient.handleResponse` 直接
+    /// 驅動它。這個測試把兩邊的結論釘在一起：任何一邊改了規則，這裡就紅——不像以前
+    /// 表只被 fixture 用到、App 另有一份手寫迴圈，漂移了沒有任何測試看得見。
+    @MainActor
+    func testTheClientAndTheDecisionTableAgreeOnOneResumeBatch() throws {
+        let transport = Transport()
+        let client = SessionClient()
+        client.transport = transport
+        try negotiate(client)
+        try applyBootstrapSnapshot(client, revision: 10, epoch: 5)
+        transport.clear()
+
+        // rev 9 ＝ 良性舊項（跳過不中止）、rev 11 接得上（套用）、
+        // rev 13 的 base 是 12（接不上 11 → 中止）、rev 14 不該再被看到。
+        let shape: [(revision: UInt64, baseRevision: UInt64)] = [
+            (9, 8), (11, 10), (13, 12), (14, 13),
+        ]
+        try feed(
+            client,
+            resumeReply(
+                patches: shape.map {
+                    patchItem(
+                        revision: $0.revision, baseRevision: $0.baseRevision,
+                        sequence: $0.revision, epoch: 5)
+                }))
+
+        let batch = SessionDecisions.decideResumeBatch(
+            view: SessionReceiverView(
+                hasState: true, sessionId: "session.home", epoch: 5, revision: 10,
+                stateHash: stateHash(), connectionGeneration: 0),
+            items: shape.map {
+                // `patchItem` 的 patch 是空物件：merge 之後的狀態不變，算出來的 hash
+                // 因此就是原狀態的 hash（與 `SessionDecisions.apply` 算的是同一件事）。
+                SessionIncomingState(
+                    kind: .patch, sessionId: "session.home", epoch: 5, revision: $0.revision,
+                    baseRevision: $0.baseRevision, hash: stateHash(),
+                    computedHash: stateHash(), arrivedOnGeneration: 0,
+                    viaAuthoritativeReply: true)
+            })
+
+        XCTAssertEqual(batch.skipped, 1, "表：rev 9 是良性舊項")
+        XCTAssertEqual(batch.applied, 1, "表：只有 rev 11 套用得了")
+        XCTAssertEqual(batch.stoppedAt, 2, "表：中止在第 3 則")
+        XCTAssertEqual(batch.halted, .realign(reason: .baseMismatch))
+
+        XCTAssertEqual(
+            client.advanced.revision, batch.view.revision, "客戶端停在表算出來的 revision")
+        XCTAssertEqual(
+            client.advanced.appliedStates, 1 + batch.applied, "bootstrap ＋ 表說套用得了的那幾則")
+        XCTAssertEqual(client.advanced.framesIgnored, batch.skipped, "良性跳過只計數，不中止")
+        XCTAssertEqual(transport.resumes.count, 1, "中止的那一則是 realign：要再問一次")
+    }
+
+    /// 沒送出去的 realign **不算**一次嘗試——這條誠實階梯的規則現在寫在共用的
+    /// `SessionRealignBudget.observing(_:viaAuthoritativeReply:realignRequestSent:)` 裡，
+    /// 出貨路徑（`SessionClient.consume`）讀的就是它。
+    ///
+    /// 反過來寫的話：送出佇列滿／背景閘門擋下時預算照樣前進，使用者會看到「無法恢復」，
+    /// 但桌面其實一次都沒有被問過。
+    @MainActor
+    func testARealignRequestThatNeverLeftTheDeviceIsNotCountedAsAnAttempt() throws {
+        let transport = Transport()
+        let client = SessionClient()
+        client.transport = transport
+        try negotiate(client)
+        try applyBootstrapSnapshot(client, revision: 10, epoch: 5)
+        transport.clear()
+        transport.sendSucceeds = false
+
+        for attempt in 0..<(AIPLimits.maxRealignAttempts + 2) {
+            let step = UInt64(attempt)
+            try feed(
+                client,
+                snapshotEnvelopeText(revision: 11 + step, sequence: 11 + step, epoch: 6 + step))
+        }
+
+        XCTAssertTrue(transport.sent.isEmpty, "一則都沒有真的離開這台裝置")
+        XCTAssertEqual(
+            client.syncStatus, .resuming, "還在對齊中：沒問過就不得宣稱「連續 N 次都沒補齊」")
+    }
+
     // MARK: - 小工具
 
     /// 記錄送出訊息的 mock transport。
     private final class Transport: SessionTransport {
         var isConnected = true
         var boundDeviceId: String? = "iphone-87b42264"
+        /// `false` ＝ 送出佇列滿／背景閘門擋下：訊息**沒有**離開這台裝置。
+        var sendSucceeds = true
         private(set) var sent: [AIPEnvelope] = []
 
         @discardableResult
         func sendAip(_ envelope: AIPEnvelope) -> Bool {
+            guard sendSucceeds else { return false }
             sent.append(envelope)
             return true
         }

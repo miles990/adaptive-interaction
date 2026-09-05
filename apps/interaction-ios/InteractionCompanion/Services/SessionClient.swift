@@ -591,6 +591,15 @@ final class SessionClient: ObservableObject {
     /// 上一次因為 host heartbeat 而回送 legacy status 的時間（節流用）。
     private var lastHeartbeatAnswerAt: Date?
 
+    /// 這個 client 讀的牆鐘。`ConnectionManager` 接上 transport 時把**自己那一個**注入進來
+    ///（`withSession`），所以 frame 驅動的路徑（`handleFrame` 一路到 `resumeInFlightSince`）
+    /// 與生命週期驅動的路徑（回前景 resume）讀的是同一個時鐘。
+    ///
+    /// 為什麼要在意：兩個時鐘並存時，inbound frame 用真實牆鐘寫下「還在等回覆」、回前景卻用
+    /// 注入的時鐘去比，`shouldResendResumeOnForeground` 會算出負值而走「時鐘往回跳就重問」
+    /// 那一支，10 秒寬限窗的保證就形同虛設。
+    var wallClockNow: () -> Date = { Date() }
+
     nonisolated init() {}
 
     // MARK: 連線生命週期
@@ -601,7 +610,8 @@ final class SessionClient: ObservableObject {
     ///
     /// - Parameter generation: 這條連線的世代（`ConnectionManager` 每開一條 socket 就 +1）。
     ///   `nil` ＝ 沿用目前的世代（單元測試不開 socket 時用）。
-    func connectionDidConnect(now: Date = Date(), generation: UInt64? = nil) {
+    func connectionDidConnect(now: Date? = nil, generation: UInt64? = nil) {
+        let now = now ?? wallClockNow()
         SessionDecisions.noteNewConnection(&local, generation: generation)
         guard let deviceId = transport?.boundDeviceId else { return }
         negotiated = false
@@ -622,8 +632,8 @@ final class SessionClient: ObservableObject {
             return
         }
         _ = transport?.sendAip(envelope)
-        if local.revision > 0 {
-            sendResume(now: now)
+        if local.revision > 0, sendResume(now: now) {
+            SessionDecisions.noteResumeAttempt(&local)
         }
         refreshStatus()
     }
@@ -652,7 +662,8 @@ final class SessionClient: ObservableObject {
     ///
     /// 送不出去的情況（未連線、尚未協商、本地還沒有權威狀態）一律誠實留一行說明，
     /// **不**假裝已經對齊。
-    func foregroundDidResume(now: Date = Date()) {
+    func foregroundDidResume(now: Date? = nil) {
+        let now = now ?? wallClockNow()
         guard let transport, transport.isConnected else {
             // 三個送不出去的分支對稱：這一支最常見（使用者回前景時 socket 剛好斷了），
             // 靜默 return 會讓畫面停在斷線前的舊狀態、看起來像已經對齊。
@@ -681,7 +692,9 @@ final class SessionClient: ObservableObject {
             return
         }
         note("回到前景：向桌面要求對齊角色狀態（只對齊狀態，不重播任何事件）")
-        sendResume(now: now)
+        if sendResume(now: now) {
+            SessionDecisions.noteResumeAttempt(&local)
+        }
         refreshStatus()
     }
 
@@ -708,8 +721,9 @@ final class SessionClient: ObservableObject {
         _ envelope: AIPEnvelope,
         rawFrame: String,
         arrivedOnGeneration: UInt64? = nil,
-        now: Date = Date()
+        now: Date? = nil
     ) {
+        let now = now ?? wallClockNow()
         if let generation = arrivedOnGeneration, generation != local.connectionGeneration {
             advanced.staleConnectionFrames += 1
             note("忽略一則上一條連線送來的角色同步訊息（世代 \(generation)，現在是 \(local.connectionGeneration)）")
@@ -785,7 +799,8 @@ final class SessionClient: ObservableObject {
 
     /// 角色頁的點擊／長按。回傳要顯示給使用者的一行誠實說明。
     @discardableResult
-    func touch(kind: String, now: Date = Date()) -> String {
+    func touch(kind: String, now: Date? = nil) -> String {
+        let now = now ?? wallClockNow()
         guard let transport, transport.isConnected else {
             return "未連線，觸控事件未送出（已丟棄）"
         }
@@ -805,7 +820,8 @@ final class SessionClient: ObservableObject {
 
     /// 使用者離開角色頁＝不再看著角色（§4 `character.interaction.dismiss`）。
     /// 只在已協商時送；舊路徑沒有對應訊息，不硬造。
-    func dismiss(now: Date = Date()) {
+    func dismiss(now: Date? = nil) {
+        let now = now ?? wallClockNow()
         guard negotiated, let transport, transport.isConnected,
             let deviceId = transport.boundDeviceId
         else { return }
@@ -815,7 +831,8 @@ final class SessionClient: ObservableObject {
     }
 
     /// 本地動畫**真的播完**之後才回 `observed`（誠實階梯的底線）。
-    func intentDidFinishPlaying(messageId: String, now: Date = Date()) {
+    func intentDidFinishPlaying(messageId: String, now: Date? = nil) {
+        let now = now ?? wallClockNow()
         guard let playing = nowPlaying, playing.messageId == messageId else { return }
         sendResult(causationId: messageId, status: .observed, code: nil, now: now)
         advanced.intentsPlayed += 1
@@ -871,31 +888,40 @@ final class SessionClient: ObservableObject {
         switch payload["kind"]?.stringValue {
         case "patches":
             let items = payload["patches"]?.arrayValue ?? []
-            guard !SessionDecisions.resumeExceedsBound(items.count) else {
+            if items.isEmpty {
+                // 已經對齊了（sequence 落後不是狀態錯誤）：沒有東西要補。
+                SessionDecisions.noteSyncSucceeded(&local)
+                return
+            }
+            // 批次規則（上限／良性跳過／第一個帶 effect 的決策中止整批）只有一份實作，
+            // 就是跨語言 fixture 對答案的那一份：`SessionDecisions.runResumeBatch`。
+            var unreadable = false
+            let batch = SessionDecisions.runResumeBatch(view: local.view, count: items.count) {
+                index, _ in
+                // 決策用的是**本地那份真的副本**（`consume` 已經把它推進了），不是驅動器
+                // 傳進來的 view：補丁的 hash 只有在前一則真的 merge 之後才算得出來，
+                // 所以整批的決策不可能先算完再套用。
+                guard
+                    let message = SessionDecisions.resumePatchMessage(
+                        items[index], sessionId: envelope.sessionId)
+                else {
+                    unreadable = true
+                    return (.rejectInvalid, local.view)
+                }
+                return (consume(message, now: now, viaAuthoritativeReply: true), local.view)
+            }
+            if unreadable {
+                failedToSync()
+                return
+            }
+            if batch.halted == .realign(reason: .resumeTooLong) {
                 // 超過上限**不**靜默截斷成「我以為我追上了」：整批不處理，改要一份完整快照。
                 // 權威 host 在補丁塞不下時本來就會改回 snapshot，所以這是縱深防禦。
                 advanced.framesIgnored += 1
                 note(
                     "桌面回來的角色補丁超過上限（\(items.count) > \(AIPLimits.maxResumePatches)），"
                         + "整批不套用，改要求完整快照")
-                sendSnapshotQuery(now: now)
-                return
-            }
-            if items.isEmpty {
-                // 已經對齊了（sequence 落後不是狀態錯誤）：沒有東西要補。
-                SessionDecisions.noteSyncSucceeded(&local)
-                return
-            }
-            for item in items {
-                guard
-                    let message = SessionDecisions.resumePatchMessage(
-                        item, sessionId: envelope.sessionId)
-                else {
-                    failedToSync()
-                    return
-                }
-                // 良性的舊項（已套用／落後）跳過不中止；第一個帶 effect 的 realign 中止整批。
-                if !consume(message, now: now, viaAuthoritativeReply: true) { return }
+                if sendSnapshotQuery(now: now) { SessionDecisions.noteResumeAttempt(&local) }
             }
         case "snapshot":
             guard
@@ -911,14 +937,19 @@ final class SessionClient: ObservableObject {
         }
     }
 
-    /// 走一遍決策表並執行結論；回傳「這一批還要不要繼續」
-    /// （resume 回覆逐則處理時：良性的舊項跳過不中止，第一個帶 effect 的決策中止）。
+    /// 走一遍決策表並執行結論；回傳**這一則的決策**。
+    ///
+    /// 「這一批還要不要繼續」不在這裡判斷：批次規則由 `SessionDecisions.runResumeBatch`
+    /// 讀這個回傳值決定（良性的舊項跳過不中止，第一個帶 effect 的決策中止整批），
+    /// 這一端不再重寫一份。
     @discardableResult
     private func consume(
         _ message: SessionStateMessage, now: Date, viaAuthoritativeReply: Bool
-    ) -> Bool {
+    ) -> SessionReceiveDecision {
         let outcome = SessionDecisions.apply(
             message, to: local, viaAuthoritativeReply: viaAuthoritativeReply)
+        /// realign 決定要發的那一則請求**真的送出去了嗎**（誠實階梯：沒送出去不算一次嘗試）。
+        var realignRequestSent = false
         switch outcome.decision {
         case .apply, .reset, .recover:
             adopt(outcome, message: message)
@@ -928,50 +959,48 @@ final class SessionClient: ObservableObject {
             if outcome.decision == .recover {
                 note("桌面回報它從較舊的快照還原（revision \(outcome.revision)），已跟著退回")
             }
-            return true
 
         case .alreadyApplied:
             // 同一版又來一次：本來就已經套用過，還在同步軌道上。
             advanced.framesIgnored += 1
-            return true
 
         case .ignoreStale:
             // 落後的權威狀態：忽略就是對的（rollback 防護）。真的倒退過的 host 會說
             // `recovery`（規則 6）；沒說就不是證據，也不必為它再問一次。
             advanced.framesIgnored += 1
-            return true
 
         case .ignoreStaleConnection:
             advanced.staleConnectionFrames += 1
-            return false
 
         case .rejectIdentity:
             // 別的 session 的狀態不是「比較舊」，是**不相干**：不套用，也**不**重新對齊
             //（realign 只會再要一次別人的 session）。
             advanced.framesIgnored += 1
             note("忽略一則別的角色 session 的狀態（身分不符，不會拿它來對齊）")
-            return false
 
         case .rejectInvalid:
+            // 對方回答了、但答案沒用：算一次對齊失敗（推播上的垃圾不算）——這條規則
+            // 由 `observing` 統一記帳，不在這裡自己加一次。
             advanced.framesIgnored += 1
-            if viaAuthoritativeReply {
-                // 對方回答了、但答案沒用：算一次對齊失敗（推播上的垃圾不算）。
-                SessionDecisions.noteResumeAttempt(&local)
-            }
             note("忽略一則不完整的角色狀態訊息（snapshot 必須帶 hash 與 state）")
-            return false
 
         case .realign(let reason):
             note("角色狀態接不上（\(reason.rawValue)），向桌面要求重新對齊")
             if reason == .hashMismatch {
                 // 內容對不起來時，補丁鏈已經沒有意義：直接要一份完整快照才收斂得了。
                 // 決策仍然是 realign（三端一致），只是這一端選了比較有效的那一種請求。
-                sendSnapshotQuery(now: now)
+                realignRequestSent = sendSnapshotQuery(now: now)
             } else {
-                sendResume(now: now)
+                realignRequestSent = sendResume(now: now)
             }
-            return false
         }
+        // 有界 realign 預算也走同一張表：出貨路徑與 fixture 對的是同一份記帳規則
+        //（`apply`／`reset`／`recover` 歸零、權威回覆的 `reject-invalid` 記一次、
+        // realign 只在請求真的送出去時記一次）。
+        local.budget = local.budget.observing(
+            outcome.decision, viaAuthoritativeReply: viaAuthoritativeReply,
+            realignRequestSent: realignRequestSent)
+        return outcome.decision
     }
 
     /// 採用一份權威狀態（apply／reset／recover 共用）。
@@ -993,7 +1022,8 @@ final class SessionClient: ObservableObject {
             }
         }
         markResumeSettled()
-        SessionDecisions.noteSyncSucceeded(&local)
+        // 失敗計數的歸零由 `consume` 的 `observing(.apply/.reset/.recover)` 負責，
+        // 這裡不再另外記一次（同一件事只有一個地方記帳）。
         presentation = CharacterSemanticState.project(state)
         if presentation == nil {
             note("收到的角色狀態不符合本版認得的形狀，未套用到畫面")
@@ -1127,52 +1157,54 @@ final class SessionClient: ObservableObject {
         resumeInFlightSince = nil
     }
 
-    /// 送一次 §7 的 resume。
+    /// 送一次 §7 的 resume；回傳**真的送出去了嗎**。
     ///
-    /// **順序很重要**：先判斷「已經放棄了嗎」，真的送出去之後才記一次嘗試。
+    /// **順序很重要**：先判斷「已經放棄了嗎」，真的送出去之後才由呼叫端記一次嘗試。
     /// 反過來寫的話，第 3 次會只增加計數卻根本沒送出，使用者看到「無法恢復」時
     /// 實際只做過 2 次 round-trip（誠實階梯：宣稱的嘗試次數必須等於真的做過的次數）。
-    private func sendResume(now: Date) {
+    private func sendResume(now: Date) -> Bool {
         // 走到這裡就代表本地與 host 對不齊：在真的補齊之前都不得宣稱「已同步」，
         // 送不出去也一樣（誠實階梯：received ≠ applied）。
         resuming = true
         guard let transport, transport.isConnected, let deviceId = transport.boundDeviceId else {
-            return
+            return false
         }
         guard !local.unrecoverable else {
             note("連續無法補齊角色狀態，需要重新連接")
-            return
+            return false
         }
         let envelope = SessionDecisions.resumeEnvelope(
             local: local, deviceId: deviceId, sessionId: sessionId,
             messageId: nextMessageId("resume"), now: now)
         guard transport.sendAip(envelope) else {
-            // 有界佇列丟掉或編碼失敗：沒送出去就不算一次嘗試（也不能算成失敗）。
+            // 有界佇列丟掉、編碼失敗、或背景中被生命週期閘門擋下：沒送出去就不算一次嘗試
+            //（也不能算成失敗）。
             note("角色狀態的補齊要求沒有送出，稍後再試")
-            return
+            return false
         }
         advanced.resumesSent += 1
         resumeInFlightSince = now
-        SessionDecisions.noteResumeAttempt(&local)
+        return true
     }
 
-    private func sendSnapshotQuery(now: Date) {
+    /// 送一次 snapshot query；回傳**真的送出去了嗎**（記帳規則同 `sendResume`）。
+    private func sendSnapshotQuery(now: Date) -> Bool {
         resuming = true
         guard let transport, transport.isConnected, let deviceId = transport.boundDeviceId else {
-            return
+            return false
         }
         guard !local.unrecoverable else {
             note("連續無法補齊角色狀態，需要重新連接")
-            return
+            return false
         }
         let envelope = SessionDecisions.snapshotQueryEnvelope(
             deviceId: deviceId, sessionId: sessionId, messageId: nextMessageId("snap"), now: now)
         guard transport.sendAip(envelope) else {
             note("角色狀態的補齊要求沒有送出，稍後再試")
-            return
+            return false
         }
         resumeInFlightSince = now
-        SessionDecisions.noteResumeAttempt(&local)
+        return true
     }
 
     private func failedToSync() {

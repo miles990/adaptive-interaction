@@ -262,6 +262,14 @@ v0.7.0（裝置線 v1.2）再加兩項：
   身分（規則 1）、snapshot 必帶 hash（規則 2）、patch 的 epoch（規則 11）與連線／請求世代（規則 0））、
   iPhone Swift `InteractionCompanionTests/ReceiveDecisionConformanceTests.swift`（`SessionReceive.swift`＋
   `SessionDecisions.apply`，含連線世代、身分、`recovery`、resume 批次與有界 realign）。
+  Swift 端的 resume 批次規則（上限／良性舊項跳過／第一個帶 effect 的決策中止整批）只有
+  `SessionDecisions.runResumeBatch` 一份實作：fixture 用的 `decideResumeBatch` 是它的薄包裝，
+  App 的 `SessionClient.handleResponse` 直接驅動同一個迴圈（逐則的決策由呼叫端提供，因為補丁的
+  `computedHash` 要等前一則真的 merge 之後才算得出來），有界 realign 預算同樣走
+  `SessionRealignBudget.observing`——fixture 對到的就是出貨路徑，不是另一份參考實作。
+  唯一的呼叫端差異寫在表裡：`observing(..., realignRequestSent:)` 預設 `true`＝決策表語意，
+  App 傳入「那則請求真的送出去了嗎」，沒送出去就不算一次嘗試（誠實階梯：宣稱的嘗試次數
+  必須等於真的做過的 round-trip）。
 * `maxResumePatches`（512 ＝ host 事件日誌環）與 `maxRealignAttempts`（3）已進 golden schema 的 `limits` 表，
   三端由 codegen 讀同一個數字：桌面端 `sessionClient.ts` 自 v0.7.0 起改讀 `AIP_LIMITS`（以前寫著自己的
   `MAX_RESUME_PATCHES = 1024`，比契約寬鬆），Swift 端改讀 `AIPLimits.maxResumePatches`／`maxRealignAttempts`

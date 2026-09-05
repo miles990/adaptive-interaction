@@ -52,8 +52,8 @@
 | 收到 `result{rejected, not-a-member}` | 逾時被清出成員：重新協商（重送 capability） |
 | 收到 `error{session-disabled｜unsupported-capability}` | 這台桌面沒開角色同步：停用同步、顯示人話，不重試轟炸 |
 | 斷線 | 協商狀態清空、待播佇列清空；**不重播**任何互動事件或 intent（AIP §8） |
-| 進背景（`scenePhase == .background`） | 停 status 心跳、本地 presence 標成 background（連線頁診斷區顯示「背景（心跳已停；桌面最遲 45 秒後會把這台裝置標成離線）」）；**不**假設 socket 會活著、不在背景重連（App 刻意沒有 Background Mode） |
-| 回前景（`.active`） | 立刻補一則 `status`、重啟心跳；socket 還活著且背景 ≥ 1 秒 → 送一次 `query character.session.resume`（只 reconcile，不重播）；socket 已死且使用者仍想連線＋有配對 → 跳過退避立即重連（使用者按過中斷／已撤銷／無配對則不動）。決策是純函式 `LifecycleDecision.on`／`shouldReconnectImmediately`。回前景的 resume 在上一則仍等回覆的 10 s 寬限窗內**不重送**（`SessionDecisions.shouldResendResumeOnForeground`；桌面真的送來對不上的狀態仍會重問）；背景中既有的斷線重試與心跳也被 `LifecycleDecision.shouldScheduleReconnect`／`shouldSendPresenceHeartbeat` 閘住，進背景取消等待中的重試（`LifecycleTests` 22 支，模擬器；ConnectionManager 的接線只有 typecheck 背書） |
+| 進背景（`scenePhase == .background`） | 停 status 心跳、本地 presence 標成 background（連線頁診斷區顯示「背景（心跳已停；桌面最遲 45 秒後會把這台裝置標成離線）」）；**不**假設 socket 會活著、不在背景重連（App 刻意沒有 Background Mode）；**AIP 出站一律不送**（capability／resume／snapshot query／result／互動事件都算），擋下時計入 `droppedFrames` 並留一行說明——桌面把任何一則通過身分綁定的 inbound envelope 都當成存活證明（`session.rs` gate 4.1 → `note_alive` → `Presence::Online`），只擋 legacy `status` 而放行 AIP，桌面就會顯示 online、與手機自己畫面上的「背景」互相矛盾（純函式 `LifecycleDecision.shouldSendCharacterSync(phase:)`） |
+| 回前景（`.active`） | 立刻補一則 `status`、重啟心跳；socket 還活著且背景 ≥ 1 秒 → 送一次 `query character.session.resume`（只 reconcile，不重播）；socket 已死且使用者仍想連線＋有配對 → 跳過退避立即重連（使用者按過中斷／已撤銷／無配對則不動）。決策是純函式 `LifecycleDecision.on`／`shouldReconnectImmediately`。已連線但**尚未協商**（`auth-ok` 是在背景才到的，capability 被上一列的閘門擋下）→ 回前景補送一次 capability，否則沒有人會再送第二次。回前景的 resume 在上一則仍等回覆的 10 s 寬限窗內**不重送**（`SessionDecisions.shouldResendResumeOnForeground`；桌面真的送來對不上的狀態仍會重問）；背景中既有的斷線重試與心跳也被 `LifecycleDecision.shouldScheduleReconnect`／`shouldSendPresenceHeartbeat` 閘住，進背景取消等待中的重試（`LifecycleTests` 22 支，模擬器；ConnectionManager 的接線只有 typecheck 背書） |
 | `.inactive`（通知中心、切換器預覽、來電橫幅） | 完全不動（常直接回 `.active`） |
 | 收到 AIP `heartbeat` | 計數＋note，5 秒節流回一則 legacy `status`（本版不送 AIP heartbeat） |
 

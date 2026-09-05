@@ -149,6 +149,22 @@ struct LifecycleDecision: Equatable {
         phase != .background
     }
 
+    /// 現在可不可以送出 AIP 角色同步訊息（capability／resume／snapshot query／result／互動事件）。
+    ///
+    /// 與 `shouldSendPresenceHeartbeat` 是**同一件事**，不是兩個獨立功能：桌面把「任何一則
+    /// 通過身分綁定的 inbound envelope」都當成存活證明
+    ///（`crates/interaction-session/src/session.rs` gate 4.1 → `note_alive` → `Presence::Online`），
+    /// 所以背景送出的任何一則 AIP frame 都會讓桌面把這支手機標成 online——與本機這時顯示的
+    ///「背景（心跳已停；桌面最遲 45 秒後會把這台裝置標成離線）」直接矛盾。只擋 legacy `status`
+    /// 而放行 AIP，等於同一個事實只擋了一半。
+    ///
+    /// 被擋下來的代價是誠實的：`ConnectionManager.sendAip` 一律計入 `droppedFrames` 並留一行
+    /// 說明，不假裝送出去了；背景中沒送成的 capability 由回前景的補送路徑收尾
+    ///（`lifecyclePhaseChanged(.active)`），不會永遠停在「尚未協商」。
+    static func shouldSendCharacterSync(phase: AppLifecyclePhase) -> Bool {
+        phase != .background
+    }
+
     /// 回前景時可不可以「立刻」重連（跳過退避的那一次等待）。
     ///
     /// 只在使用者**仍然想連線**、手上有配對、而且目前既沒連上也沒在連的時候才算：

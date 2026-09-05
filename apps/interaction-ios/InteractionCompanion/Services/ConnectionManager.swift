@@ -335,7 +335,9 @@ final class ConnectionManager: NSObject, ObservableObject {
     private var leftForegroundAt: TimeInterval?
     /// 單調時鐘(測試可替換;systemUptime 不受校時影響)
     var monotonicNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
-    /// 牆鐘(測試可替換)。AIP 的 `occurredAt`／`expiresAt`／resume 寬限窗用的是這一個。
+    /// 牆鐘(測試可替換)。**同一個時鐘也注入給 `SessionClient`**(見 `withSession`),
+    /// 所以 AIP 的 `occurredAt`／`expiresAt`、resume 寬限窗、heartbeat 節流讀的都是它——
+    /// 同一個物件裡不得同時存在兩個時鐘,否則「上一則還在等回覆」會被算成時鐘往回跳。
     var wallClockNow: () -> Date = { Date() }
     /// 怎麼開一條 socket(測試可替換;正式路徑是 URLSession + TLS 指紋固定)。
     var socketFactory: SocketFactory = { url, fingerprint, events in
@@ -478,6 +480,9 @@ final class ConnectionManager: NSObject, ObservableObject {
         MainActor.assumeIsolated {
             if !characterSessionAttached {
                 characterSession.transport = self
+                // 一個連線只有一個時鐘:`SessionClient` 的每一個 `now` 預設值都讀這裡,
+                // 不再各自呼叫 `Date()`(閘門測試注入的時鐘才涵蓋得到 frame 驅動的路徑)。
+                characterSession.wallClockNow = { [weak self] in self?.wallClockNow() ?? Date() }
                 characterSessionAttached = true
             }
             body(characterSession)
@@ -542,9 +547,19 @@ final class ConnectionManager: NSObject, ObservableObject {
         if decision.restartTimer {
             startStatusTimer()
         }
+        if decision.restartTimer, isConnected {
+            // 背景中被 `shouldSendCharacterSync` 擋下來的 capability 沒有人會再送第二次
+            //(auth-ok 是在背景才到的那個窗口)。回前景是唯一的補送時機,不補就永遠停在
+            //「尚未協商」——那時畫面會說「尚未提供角色同步」,但其實只是我們沒開口。
+            withSession { [connectionGeneration] session in
+                guard !session.negotiated else { return }
+                self.logLine("回到前景:角色同步尚未協商,重新送出能力宣告")
+                session.connectionDidConnect(generation: connectionGeneration)
+            }
+        }
         if decision.resumeSession {
             // socket 還活著:只 reconcile 角色狀態,不重播任何事件(AIP §8)。
-            withSession { $0.foregroundDidResume(now: self.wallClockNow()) }
+            withSession { $0.foregroundDidResume() }
         }
         if decision.reconnect,
            LifecycleDecision.shouldReconnectImmediately(phase: phase,
@@ -794,7 +809,7 @@ final class ConnectionManager: NSObject, ObservableObject {
         // 所以這裡不需要先問「桌面支不支援」——沒有協商結果就一直是「尚未提供角色同步」。
         // 重連**不重播**任何互動事件或 intent,只 reconcile 狀態(AIP §8)。
         withSession { [connectionGeneration] in
-            $0.connectionDidConnect(now: self.wallClockNow(), generation: connectionGeneration)
+            $0.connectionDidConnect(generation: connectionGeneration)
         }
     }
 
@@ -859,21 +874,20 @@ final class ConnectionManager: NSObject, ObservableObject {
             }
             return
         }
+        scheduleRetry()
+    }
+
+    /// 排一次退避重連。**斷線路徑上唯一的一道重連閘門**:以前 `handleConnectionLost` 也有
+    /// 一道一模一樣的判斷,兩處在同一次同步呼叫裡讀同一個 `lifecyclePhaseForGating()`,
+    /// 第二道永遠為真、永遠不可達——留著只會讓「接線點」的枚舉虛報成五件被驗過的事。
+    private func scheduleRetry() {
+        cancelRetry()
         guard LifecycleDecision.shouldScheduleReconnect(phase: lifecyclePhaseForGating()) else {
             // 背景:只誠實記錄失敗,不排重連。回到前景由 `lifecyclePhaseChanged(.active)`
             // 的重連分支處理(`.failed` 會走「立刻重連、不等退避」那一支)。
             // 底層原因已經記在 `lastError` 與診斷記錄裡;這裡只給使用者看得懂的下一步。
             phase = .failed(reason: "背景中暫停重連,回到前景再試")
             logLine("背景中連線中斷:不在背景重連,回到前景再試")
-            return
-        }
-        scheduleRetry()
-    }
-
-    private func scheduleRetry() {
-        cancelRetry()
-        guard LifecycleDecision.shouldScheduleReconnect(phase: lifecyclePhaseForGating()) else {
-            logLine("背景中:不排重連,回到前景再試")
             return
         }
         let delay = backoffSeconds
@@ -994,6 +1008,13 @@ extension ConnectionManager: SessionTransport {
 
     @discardableResult
     func sendAip(_ envelope: AIPEnvelope) -> Bool {
+        guard LifecycleDecision.shouldSendCharacterSync(phase: lifecyclePhaseForGating()) else {
+            // 桌面把任何一則通過身分綁定的 inbound envelope 都當成存活證明,背景送出去
+            // 就會讓它把這支手機標成 online,與本機顯示的「背景」互相矛盾。
+            droppedFrames += 1
+            logLine("背景中不送角色同步訊息(桌面會把任何一則 AIP 當成存活證明),回到前景再對齊")
+            return false
+        }
         guard isConnected, socket != nil else {
             droppedFrames += 1
             return false

@@ -159,18 +159,26 @@ struct SessionRealignBudget: Equatable {
 
     init() {}
 
-    /// 記下一次決策的結果（純函式：回傳新的預算，不改自己）。
+    /// 記下一次決策的結果（純函式：回傳新的預算，不改自己）。**App 的收訊路徑
+    /// （`SessionClient.consume`）走的就是這一個**，不另外手寫一份記帳。
     ///
     /// `viaAuthoritativeReply` ＝ 這一則是**權威回覆**卻被 typed boundary 或身分／格式檢查
     /// 擋下：對方回答了、但答案沒用，算一次失敗。推播上的垃圾不算——它不是我們要來的答案。
-    func observing(_ decision: SessionReceiveDecision, viaAuthoritativeReply: Bool)
-        -> SessionRealignBudget
-    {
+    ///
+    /// `realignRequestSent` ＝ realign 決定要發的那一則請求**真的送出去了嗎**。誠實階梯：
+    /// 宣稱的嘗試次數必須等於真的做過的 round-trip，送出佇列滿／未連線時只是「還沒問成」，
+    /// 不是「問了沒用」。預設 `true` ＝ 決策表本身的語意（跨語言 fixture 對的是這一版：
+    /// 表看不到傳輸層），呼叫端知道送出結果時就把真相傳進來。
+    func observing(
+        _ decision: SessionReceiveDecision,
+        viaAuthoritativeReply: Bool,
+        realignRequestSent: Bool = true
+    ) -> SessionRealignBudget {
         switch decision {
         case .apply, .reset, .recover:
             return SessionRealignBudget()
         case .realign:
-            return counting()
+            return realignRequestSent ? counting() : self
         case .rejectInvalid where viaAuthoritativeReply:
             return counting()
         default:
@@ -345,17 +353,38 @@ extension SessionDecisions {
     static func decideResumeBatch(view: SessionReceiverView, items: [SessionIncomingState])
         -> SessionResumeBatch
     {
-        guard items.count <= AIPLimits.maxResumePatches else {
+        runResumeBatch(view: view, count: items.count) { index, view in
+            let decision = decideReceive(view: view, incoming: items[index])
+            return (decision, advance(view: view, incoming: items[index], decision: decision))
+        }
+    }
+
+    /// 上面那些規則的**唯一一份實作**。
+    ///
+    /// 為什麼要多這一層：App 不能先把整批決策算完再套用——補丁的 `computedHash` 只有在
+    /// 前一則真的 merge 進本地狀態之後才算得出來。所以逐則的「怎麼決定」由呼叫端提供
+    ///（純函式版查表；`SessionClient.handleResponse` 版真的套用並回報決策），而**中止／
+    /// 跳過／上限**這三條批次規則只有這裡有一份：兩邊漂移不了，fixture 對到的就是出貨路徑。
+    ///
+    /// - Parameter step: 第 `index` 則在 `view` 之下的決策，以及採用之後的新 view。
+    static func runResumeBatch(
+        view: SessionReceiverView,
+        count: Int,
+        step: (Int, SessionReceiverView) -> (SessionReceiveDecision, SessionReceiverView)
+    ) -> SessionResumeBatch {
+        // 上限的判斷式只有一個（`resumeExceedsBound`，與 `AIPLimits` 同一個數字）：
+        // 這裡用它，那個 helper 才不會變成只有測試看得到的第二份規則。
+        guard !resumeExceedsBound(count) else {
             return SessionResumeBatch(
                 decisions: [], view: view, stoppedAt: 0,
                 halted: .realign(reason: .resumeTooLong), applied: 0, skipped: 0)
         }
         var batch = SessionResumeBatch(view: view, stoppedAt: nil, halted: nil)
-        for (index, item) in items.enumerated() {
-            let decision = decideReceive(view: batch.view, incoming: item)
+        for index in 0..<count {
+            let (decision, next) = step(index, batch.view)
             batch.decisions.append(decision)
             if decision.adoptsState {
-                batch.view = advance(view: batch.view, incoming: item, decision: decision)
+                batch.view = next
                 batch.applied += 1
             } else if decision.isBenignSkip {
                 batch.skipped += 1

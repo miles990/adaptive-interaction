@@ -86,9 +86,9 @@ apps/interaction-ios/
 │   ├── AIPFixtures.swift              codegen 內嵌的 AIP conformance fixture(不要手改)
 │   ├── AIPConformanceTests.swift      AIP 1.0 跨語言 conformance(XCTest:17 個 test 方法,v0.6.0)
 │   ├── ConnectionManagerGateTests.swift 背景/前景閘門五個接線點的行為測試(可注入 socket 與排程;
-│   │                                   XCTest:7 個 test 方法,v0.7.0)
+│   │                                   XCTest:12 個 test 方法,v0.7.0)
 │   ├── ReceiveDecisionConformanceTests.swift AIP 接收端決策表的跨語言 conformance
-│   │                                   (manifest.json 的 45 個案例逐筆對答案;XCTest:13 個,v0.7.0)
+│   │                                   (manifest.json 的 45 個案例逐筆對答案;XCTest:15 個,v0.7.0)
 │   ├── LifecycleTests.swift           前景/背景決策 + presence 心跳常數 + AIP heartbeat
 │   │                                   + 背景重連/心跳閘門 + 回前景 resume 防重入
 │   │                                   (XCTest:22 個 test 方法,v0.6.x)
@@ -248,6 +248,15 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 > `receiveDecisions` 45 個案例逐筆對答案（含 `incomingBatchChain` 展開，無跳過）、resume 中途失敗只保留前綴、
 > 缺 hash 不套用、舊連線世代丟棄、身分不符不 realign、`recovery` 才允許退回；以及背景/前景閘門五個接線點的
 > 行為測試（可注入 socket 與排程）。同一台 iPhone 17 模擬器、iOS 26.2 runtime、UDID B9A0E7F9…）
+>
+> **2026-09-06（v0.7.0 對抗審查修復 ios-lifecycle-heartbeat-043/044/045/046）重跑：
+> Executed 153 tests, with 0 failures**
+>（上列 146＋`ConnectionManagerGate` 5＋`ReceiveDecisionConformance` 2：背景中 AIP 出站也被閘門擋下
+>（前景對照組照樣要求對齊）、背景中才到的 `auth-ok` 回前景補送能力宣告、`SessionClient` 與生命週期閘門
+> 讀同一個注入時鐘、斷線路徑上的重連閘門只有一道、resume 批次規則與決策表對同一批的結論一致、
+> 沒送出去的 realign 不算一次嘗試。先看到 4 個測試紅燈／6 個斷言失敗再修到全綠，再以 4 次突變
+>（拿掉 `sendAip` 閘門／`handleFrame` 改回自己的 `Date()`／共用批次不再中止／把重複的重連閘門放回去）
+> 各驗一次會紅；同一台 iPhone 17 模擬器、UDID B9A0E7F9…）
 > ——仍是 **iPhone 17 模擬器**（跑完即 `simctl shutdown`），
 > 與真機驗收是兩件事。
 
@@ -293,17 +302,28 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 而本 App 沒有宣稱這個能力,回了才是假裝。其餘仍然忽略的型別(`event`/`query`/`cancel`/
 `approval-request`/`approval-result`)維持不執行,但各自留一行說明,不再靜默吞掉。
 
+**背景中 AIP 出站也被同一道閘門擋下**:桌面把「任何一則通過身分綁定的 inbound envelope」
+都當成存活證明(`crates/interaction-session/src/session.rs` gate 4.1 → `note_alive` →
+`Presence::Online`),所以背景送出的 capability／resume／snapshot query／result 一樣會讓桌面
+把這支手機標成 online——只擋 legacy `status` 而放行 AIP,等於同一個事實只擋了一半。純函式是
+`LifecycleDecision.shouldSendCharacterSync(phase:)`,`ConnectionManager.sendAip` 擋下時計入
+`droppedFrames` 並留一行說明,不假裝送出去了。**背景中才到的 `auth-ok`**(capability 因此送不出去)
+由回前景的補送路徑收尾,不會永遠停在「尚未協商」。
+
 **閘門本身也有行為測試(v0.7.0)**:決策表寫得再好,程式沒在那五個接線點問過它就等於沒有。
-`ConnectionManagerGateTests`(7 個測試)把 socket 與 Timer 換成可注入的替身
+`ConnectionManagerGateTests`(12 個測試)把 socket 與 Timer 換成可注入的替身
 (`Services/SocketTransport.swift` 的 `SocketTransport`／`WorkScheduler`),握手、有界送出佇列、
 接收迴圈、重連退避全都走正式路徑,所以「背景不送心跳/不排重連」「排程時在前景、觸發時在背景
-不開 socket」「回前景補 status ＋ resume」「10 秒寬限窗內只問一次、超過就再問一次」都是
-**真的執行過**才通過的。
+不開 socket」「背景中不送任何 AIP、前景照樣要求對齊」「回前景補 status ＋ resume ＋ 補送能力宣告」
+「10 秒寬限窗內只問一次、超過就再問一次」都是**真的執行過**才通過的。五個接線點**每一個都獨立
+可達**:斷線路徑上的重連閘門只有 `scheduleRetry` 一道(`handleConnectionLost` 以前有一道一模一樣
+的判斷,兩處在同一次同步呼叫裡讀同一個階段,第二道永遠不可達,已移除),而
+`testTheReconnectGateIsAskedExactlyOncePerDisconnect` 就是釘住這件事的測試。
 
 **誠實範圍**:以上全部只在 **iPhone 17 模擬器**以 XCTest 驗證狀態機與時序決策
-(`InteractionCompanionTests/LifecycleTests.swift` 22 個 ＋ `ConnectionManagerGateTests.swift` 7 個)。
+(`InteractionCompanionTests/LifecycleTests.swift` 22 個 ＋ `ConnectionManagerGateTests.swift` 12 個)。
 **沒有**在真機上驗過「長時間背景 → 前景 → resume」,也沒有量過真實電量差異;
-上面那 7 個測試用的是替身 socket,**不是**真的 URLSession、更不是真 daemon。
+上面那 12 個測試用的是替身 socket,**不是**真的 URLSession、更不是真 daemon。
 
 ### 跑 XCTest:`simctl` 注入流程(可重現;`-destination` 不可用時的等價做法)
 
