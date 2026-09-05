@@ -157,12 +157,22 @@ impl Mood {
 }
 
 /// 把任意 f64 夾進 0..=1 並四捨五入到 3 位小數；非有限值退回 0.0。
+///
+/// **負零正規化**：`f64` 有兩個零，`(-0.0).clamp(0.0, 1.0)` 與 `(-0.0 * 1000.0).round() / 1000.0`
+/// 都原樣回 `-0.0`，而 serde_json 會把它寫成字面 `-0.0`。`-0.0` 與 `0.0` 語意相同、canonical
+/// 文字不同，state hash 就跟著不同（AIP §6 的 hash 是對序列化文字取的），所以這裡把兩個零
+/// 收斂成 `0.0`——host 永遠不產生 `-0.0`，接收端也就不必猜哪一個才算數。
 pub fn clamp_unit(value: f64) -> f64 {
     if !value.is_finite() {
         return 0.0;
     }
     let clamped = value.clamp(0.0, 1.0);
-    (clamped * 1000.0).round() / 1000.0
+    let rounded = (clamped * 1000.0).round() / 1000.0;
+    if rounded == 0.0 {
+        0.0
+    } else {
+        rounded
+    }
 }
 
 /// §3 `truth`。**只有** Runtime 的真相事件能改；Session 只轉錄，不推論。
@@ -318,8 +328,14 @@ impl SemanticState {
     }
 
     /// 不可信來源（snapshot 檔案、patch 後的 JSON）是否違反不變量。違反就拒絕，不「幫忙修正」。
+    ///
+    /// `is_sign_negative` 這一條擋的是 `-0.0`：它落在 `0.0..=1.0` 之內（`-0.0 == 0.0`），
+    /// 但 host 的產生路徑（[`clamp_unit`]）永遠寫不出它。放行就等於把一個本實作寫不出來的
+    /// canonical 字面當成權威狀態廣播出去；「幫忙修正」成 `0.0` 則會讓還原後的狀態與
+    /// snapshot 的 hash 對不上。兩條都不誠實，所以拒絕。
     pub(crate) fn violates_limits(&self, max_members: usize) -> bool {
         !self.mood.intensity.is_finite()
+            || self.mood.intensity.is_sign_negative()
             || !(0.0..=1.0).contains(&self.mood.intensity)
             || self.members.len() > max_members
     }
@@ -465,5 +481,40 @@ mod tests {
             .expect("serialize"),
             json!({"kind": "task", "correlationId": "c1"})
         );
+    }
+
+    /// `violates_limits` 是 crate 私有的守門員（`CharacterSession::restore`／patch 套用都走它），
+    /// 這裡直接釘住它對兩個零的判斷：`0.0` 放行、`-0.0` 拒絕。
+    #[test]
+    fn violates_limits_rejects_a_sign_negative_zero_intensity() {
+        let mut state = SemanticState::new("ref-shape");
+        state.mood = Mood {
+            kind: MoodKind::Neutral,
+            intensity: 0.0,
+        };
+        assert!(!state.violates_limits(16));
+        // serde 反序列化不走 `Mood::new`，所以不可信來源真的送得進 `-0.0`。
+        state.mood = Mood {
+            kind: MoodKind::Neutral,
+            intensity: -0.0,
+        };
+        assert!(
+            state.violates_limits(16),
+            "-0.0 落在 0.0..=1.0 之內，但 host 寫不出它：必須拒絕"
+        );
+    }
+
+    #[test]
+    fn clamp_unit_never_returns_a_sign_negative_zero() {
+        for input in [-0.0_f64, -1.0, -0.0004, f64::NEG_INFINITY, f64::NAN] {
+            let out = clamp_unit(input);
+            assert_eq!(out, 0.0);
+            assert!(
+                !out.is_sign_negative(),
+                "clamp_unit({input}) 回了 sign-negative 的零"
+            );
+        }
+        assert_eq!(clamp_unit(0.1234), 0.123);
+        assert_eq!(clamp_unit(2.0), 1.0);
     }
 }

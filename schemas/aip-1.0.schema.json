@@ -471,7 +471,8 @@
     "maxMessageBytes": 65536,
     "maxNameChars": 128,
     "maxPayloadBytes": 32768,
-    "maxStringChars": 2000
+    "maxStringChars": 2000,
+    "maxUnsupportedInputs": 32
   },
   "messageTypes": [
     "event",

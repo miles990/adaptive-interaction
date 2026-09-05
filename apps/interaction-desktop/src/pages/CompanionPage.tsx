@@ -66,12 +66,18 @@ export function CompanionPage({
   refreshKey,
   advanced: advancedProp,
   events,
+  connectionKey = 0,
 }: {
   refreshKey: number;
   /** 未提供時讀 AppState（prefs.mode）。 */
   advanced?: boolean;
   /** Runtime SSE 事件；同步卡用其中的 `character.session.state` 對齊本地副本。 */
   events?: RuntimeEvent[];
+  /**
+   * 「這條連線換了一條」的訊號（supervisor 連線狀態變化／SSE 重連時 +1）。
+   * 同步卡收到就重新對齊一次；它**不**隨每則事件變動。
+   */
+  connectionKey?: number;
   onNavigate?: (tab: string) => void;
 }) {
   const { prefs: uiPrefs } = useAppState();
@@ -306,7 +312,12 @@ export function CompanionPage({
           手機上的角色跟這台電腦是不是同一個狀態。一般模式只有人話，
           revision／sequence／計數留在進階模式的「連接診斷」。 */}
       <Section title="同步">
-        <CharacterSyncCard refreshKey={refreshKey} advanced={advanced} sessionEvents={events} />
+        <CharacterSyncCard
+          refreshKey={refreshKey}
+          advanced={advanced}
+          sessionEvents={events}
+          connectionKey={connectionKey}
+        />
       </Section>
 
       {/* 2. 外觀與名字 */}

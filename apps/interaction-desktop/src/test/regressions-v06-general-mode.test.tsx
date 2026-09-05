@@ -76,9 +76,16 @@ describe("守門：一般模式沒有技術詞", () => {
   });
 
   it("同步卡在一般模式的整段文字沒有技術詞，也不顯示任何診斷數字", async () => {
+    // 接收端現在是嚴格解析（`src/aip/sessionClient.ts`）：缺 messageType／revision／sessionEpoch
+    // 的 envelope 是 invalid，不會被當成 revision 0 的合法狀態——fixture 要長得像 Runtime 真的送的。
     mockApi.characterSessionSnapshot.mockResolvedValue({
+      messageType: "state",
+      name: "character.session.snapshot",
+      sessionId: "session.home",
       payload: {
         kind: "snapshot",
+        revision: 12,
+        sessionEpoch: 1,
         state: {
           truth: { state: "none" },
           members: [

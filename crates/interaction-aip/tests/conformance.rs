@@ -10,9 +10,9 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use interaction_aip::{
-    bind_identity, canonical_json, is_runtime_only_name, negotiate_capabilities, offline_policy,
-    AipError, CapabilityAnnouncement, Envelope, ErrorCode, HostOffer, IdentityDecision,
-    MessageType, NegotiatedCapabilities, Outcome, Party,
+    bind_identity, canonical_hash, canonical_json, is_runtime_only_name, negotiate_capabilities,
+    offline_policy, AipError, CapabilityAnnouncement, Envelope, ErrorCode, HostOffer,
+    IdentityDecision, MessageType, NegotiatedCapabilities, Outcome, Party,
 };
 use serde_json::Value;
 
@@ -353,4 +353,83 @@ fn error_codes_in_the_index_are_all_known() {
             }
         }
     }
+}
+
+/// `stateHashes`：三端共用的 state-hash fixture。這裡是 **AIP 層的消費者**——只用
+/// `canonical_json`／`canonical_hash` 把每一份 `state` 重算一次，與 `interaction-session`
+/// 那支產生器（`tests/state_hash_fixtures.rs`）互相獨立。
+///
+/// 為什麼要兩支：產生器寫檔時用的是同一組函式，「自己驗自己」證明不了 canonical 規則本身
+/// 是穩定的。這支不知道 fixture 怎麼來的，只讀檔案裡的 `state` 與 `hash`／`canonical` 對答案；
+/// canonical 規則一改（鍵序、跳脫、數字字面），這裡立刻紅燈。
+#[test]
+fn state_hash_fixtures_agree_with_canonical_json_and_hash() {
+    let m = manifest();
+    let entries = section(&m, "stateHashes");
+    assert!(
+        entries.len() >= 9,
+        "stateHashes 至少要涵蓋 9 個情境（含 -0.0、unicode、亂序輸入），實際 {}",
+        entries.len()
+    );
+    let mut hashes: Vec<(String, String)> = Vec::new();
+    for entry in &entries {
+        let id = str_of(entry, "id");
+        let file = str_of(entry, "file");
+        let path = fixtures_dir().join(&file);
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("cannot read the state fixture {file}: {e}"));
+        let doc: Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("state fixture {file} is not JSON: {e}"));
+        assert_eq!(doc["id"].as_str(), Some(id.as_str()), "{file}: id mismatch");
+        let state = doc
+            .get("state")
+            .unwrap_or_else(|| panic!("{file}: no state"));
+        let want_hash = doc["hash"].as_str().expect("hash");
+        let want_canonical = doc["canonical"].as_str().expect("canonical");
+        assert_eq!(
+            canonical_json(state),
+            want_canonical,
+            "{file}: canonical JSON 與檔案記載的不同"
+        );
+        assert_eq!(
+            canonical_hash(state),
+            want_hash,
+            "{file}: SHA-256 與檔案記載的不同"
+        );
+        // canonical 文字自己就足以決定 hash（消費端不必先解析成值）。
+        assert_eq!(
+            hex_sha256(want_canonical.as_bytes()),
+            want_hash,
+            "{file}: hash 不是 canonical 文字的 SHA-256"
+        );
+        hashes.push((id, want_hash.to_string()));
+    }
+    // 「同一份 state、不同的輸入排版」必須得到同一個 hash；其餘情境彼此不得相同。
+    let find = |id: &str| -> String {
+        hashes
+            .iter()
+            .find(|(k, _)| k == id)
+            .unwrap_or_else(|| panic!("stateHashes 缺少 `{id}`"))
+            .1
+            .clone()
+    };
+    assert_eq!(find("fresh"), find("unsorted-input"));
+    let distinct: BTreeSet<&String> = hashes.iter().map(|(_, h)| h).collect();
+    assert_eq!(
+        distinct.len(),
+        hashes.len() - 1,
+        "除了 fresh／unsorted-input 這一對，每個情境的 hash 都必須不同"
+    );
+}
+
+/// 直接對位元組取 SHA-256（十六進位小寫），用來確認 `canonical_hash` 沒有偷加料。
+fn hex_sha256(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }

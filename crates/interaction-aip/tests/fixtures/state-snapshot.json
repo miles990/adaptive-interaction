@@ -12,20 +12,20 @@
     "kind": "snapshot",
     "revision": 204,
     "sessionEpoch": 3,
-    "hash": "35f0eafac94cf20861c1c2cd27123b9fa3b15d8c195bc89bf88cebca042a974c",
+    "hash": "7c0a267fbf11bc9479e1c6e0913938349444637f6cfd116962cf896c2f36641e",
     "state": {
       "characterId": "ref-shape",
-      "mood": { "kind": "neutral", "intensity": 0 },
+      "mood": { "kind": "neutral", "intensity": 0.0 },
       "activity": "idle",
       "attention": { "kind": "none" },
-      "truth": { "state": "none", "correlationId": null },
-      "lastInteraction": null,
+      "truth": { "state": "none" },
       "members": [
         {
           "party": { "kind": "device", "id": "iphone-87b42264" },
           "role": "remote-renderer",
           "presence": "online",
-          "lastSeenAt": "2026-09-04T12:30:02Z"
+          "lastSeenAt": "2026-09-04T12:30:02Z",
+          "unsupportedIntents": []
         }
       ],
       "reducedMotion": false

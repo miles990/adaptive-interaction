@@ -8,7 +8,7 @@
 //   * 緊急停止中固定安全句一定看得到（角色不能覆寫）。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const FIXTURE_PHONE = "模擬 iPhone（fixture）";
@@ -19,6 +19,7 @@ const FORBIDDEN = /revision|sequence|epoch|schema|token|provider|lease|transport
 
 const mockApi = vi.hoisted(() => ({
   characterSessionSnapshot: vi.fn(),
+  characterSessionResume: vi.fn(),
   characterSessionDiagnostics: vi.fn(),
   mobileStatus: vi.fn(),
   providersList: vi.fn(),
@@ -32,14 +33,18 @@ vi.mock("../api", async (importOriginal) => {
 import { CharacterSyncCard } from "../components/CharacterSyncCard";
 import type { RuntimeEvent } from "../api";
 
-function snapshot(state: Record<string, unknown> = {}): Record<string, unknown> {
+function snapshot(
+  state: Record<string, unknown> = {},
+  revision = 11
+): Record<string, unknown> {
   return {
     specVersion: "aip/1.0",
+    messageId: `msg-snapshot-${revision}`,
     messageType: "state",
     name: "character.session.snapshot",
     payload: {
       kind: "snapshot",
-      revision: 11,
+      revision,
       sessionEpoch: 1,
       state: {
         characterId: "character",
@@ -87,6 +92,13 @@ function setup(options: {
   mockApi.characterSessionSnapshot.mockImplementation(async () => {
     if (options.snapshot instanceof Error) throw options.snapshot;
     return options.snapshot ?? snapshot();
+  });
+  // 有本地副本時對齊走 `POST /v1/character-session/resume`，它回的是 **payload**
+  // （transport-bindings §1.3：少一層 envelope），host 完全對齊時是空的 patches。
+  mockApi.characterSessionResume.mockImplementation(async () => {
+    if (options.snapshot instanceof Error) throw options.snapshot;
+    const envelope = (options.snapshot ?? snapshot()) as Record<string, unknown>;
+    return envelope["payload"] as Record<string, unknown>;
   });
   mockApi.mobileStatus.mockResolvedValue({ devices: options.devices ?? [] });
   mockApi.providersList.mockResolvedValue(options.providers ?? []);
@@ -166,8 +178,9 @@ describe("角色頁「同步」卡：一般模式", () => {
     await waitFor(() => expect(screen.getByText("iPhone 暫時離線")).toBeInTheDocument());
     expect(screen.getByText("離線")).toBeInTheDocument();
 
+    // host 前進了一版：對齊回來的 revision 必須比本地新，落後的一律被 rollback 防護擋掉。
     setup({
-      snapshot: snapshot({ members: [{ ...PHONE_MEMBER, presence: "reconnecting" }] }),
+      snapshot: snapshot({ members: [{ ...PHONE_MEMBER, presence: "reconnecting" }] }, 12),
       devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
     });
     view.rerender(<CharacterSyncCard refreshKey={1} advanced={false} />);
@@ -330,7 +343,7 @@ describe("角色頁「同步」卡：不靠輪詢對齊", () => {
     expect(mockApi.characterSessionSnapshot).toHaveBeenCalledTimes(1);
   });
 
-  it("baseRevision 對不上就重新取一次權威狀態（不硬套、不猜）", async () => {
+  it("baseRevision 對不上就重新對齊（走 resume，不硬套、不猜）", async () => {
     setup({
       snapshot: snapshot({ members: [PHONE_MEMBER] }),
       devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
@@ -340,9 +353,9 @@ describe("角色頁「同步」卡：不靠輪詢對齊", () => {
       expect(screen.getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument()
     );
 
-    // 之後改成「重新取到的是離線」，再送一則接不上的 patch。
+    // 之後改成「對齊回來的是離線」，再送一則接不上的 patch。
     setup({
-      snapshot: snapshot({ members: [{ ...PHONE_MEMBER, presence: "offline" }] }),
+      snapshot: snapshot({ members: [{ ...PHONE_MEMBER, presence: "offline" }] }, 12),
       devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
     });
     view.rerender(
@@ -358,7 +371,91 @@ describe("角色頁「同步」卡：不靠輪詢對齊", () => {
         ]}
       />
     );
+    // 已經有本地副本時對齊走 resume：GET 會**消耗**一個權威 session sequence，
+    // 一個唯讀畫面不該推著它前進（`docs/aip/transport-bindings.md` §2）。
+    await waitFor(() => expect(mockApi.characterSessionResume).toHaveBeenCalledTimes(1));
+    expect(mockApi.characterSessionSnapshot).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByText("iPhone 暫時離線")).toBeInTheDocument());
+  });
+
+  it("慢的初次讀取被新的 SSE 超車之後，不得把畫面倒回舊狀態", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+    });
+    let release: (value: unknown) => void = () => {};
+    mockApi.characterSessionSnapshot.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        })
+    );
+    const view = render(<CharacterSyncCard refreshKey={0} advanced={false} sessionEvents={[]} />);
+    // 初次 GET 還在飛，SSE 先把 revision 40 的權威快照送到。
+    view.rerender(
+      <CharacterSyncCard
+        refreshKey={0}
+        advanced={false}
+        sessionEvents={[
+          stateEvent(1, {
+            kind: "snapshot",
+            revision: 40,
+            sessionEpoch: 1,
+            state: {
+              characterId: "character",
+              truth: { state: "none" },
+              members: [{ ...PHONE_MEMBER, presence: "reconnecting" }],
+            },
+          }),
+        ]}
+      />
+    );
+    await waitFor(() => expect(screen.getByText("iPhone 正在重新連線")).toBeInTheDocument());
+
+    // 現在那個慢的 GET 才回來，帶的是 revision 11 的舊狀態。
+    await act(async () => {
+      release(snapshot({ members: [PHONE_MEMBER] }));
+    });
+    expect(screen.getByText("iPhone 正在重新連線")).toBeInTheDocument();
+    expect(screen.queryByText("iPhone 已連接，角色狀態已同步")).not.toBeInTheDocument();
+  });
+
+  it("卸載重掛之後重新 GET 一次權威狀態（本地副本不跨掛載）", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+    });
+    const view = render(<CharacterSyncCard refreshKey={0} advanced={false} sessionEvents={[]} />);
+    await waitFor(() =>
+      expect(screen.getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument()
+    );
+    view.unmount();
+    render(<CharacterSyncCard refreshKey={0} advanced={false} sessionEvents={[]} />);
     await waitFor(() => expect(mockApi.characterSessionSnapshot).toHaveBeenCalledTimes(2));
+    expect(mockApi.characterSessionResume).not.toHaveBeenCalled();
+  });
+
+  it("連線狀態變化（connectionKey）會重新對齊一次，而不是每則事件都重問", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+    });
+    const view = render(
+      <CharacterSyncCard refreshKey={0} advanced={false} sessionEvents={[]} connectionKey={0} />
+    );
+    await waitFor(() =>
+      expect(screen.getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument()
+    );
+    expect(mockApi.characterSessionResume).not.toHaveBeenCalled();
+
+    setup({
+      snapshot: snapshot({ members: [{ ...PHONE_MEMBER, presence: "offline" }] }, 12),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+    });
+    view.rerender(
+      <CharacterSyncCard refreshKey={0} advanced={false} sessionEvents={[]} connectionKey={1} />
+    );
+    await waitFor(() => expect(mockApi.characterSessionResume).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByText("iPhone 暫時離線")).toBeInTheDocument());
   });
 
@@ -393,6 +490,44 @@ describe("角色頁「同步」卡：不靠輪詢對齊", () => {
     expect(mockApi.characterSessionSnapshot).toHaveBeenCalledTimes(1);
   });
 
+  it("hash 對不上的補丁不套用，而且在進階診斷裡留下痕跡（不靜默）", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+    });
+    const view = render(<CharacterSyncCard refreshKey={0} advanced sessionEvents={[]} />);
+    await waitFor(() =>
+      expect(screen.getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument()
+    );
+
+    // 這則補丁自己宣告的 hash 與套用後的本地狀態對不上：不得套用。
+    view.rerender(
+      <CharacterSyncCard
+        refreshKey={0}
+        advanced
+        sessionEvents={[
+          stateEvent(
+            1,
+            {
+              kind: "patch",
+              revision: 12,
+              sessionEpoch: 1,
+              patch: { members: [{ ...PHONE_MEMBER, presence: "offline" }] },
+              hash: "0".repeat(64),
+            },
+            11
+          ),
+        ]}
+      />
+    );
+    await userEvent.click(screen.getByText("連接診斷"));
+    await waitFor(() =>
+      expect(screen.getByText("alignment.hashMismatch 1")).toBeInTheDocument()
+    );
+    // 沒有套用：畫面仍然是 patch 之前的樣子。
+    expect(screen.queryByText("iPhone 暫時離線")).not.toBeInTheDocument();
+  });
+
   it("每一則 runtime 事件都重畫時，裝置清單的重取要被節流", async () => {
     setup({
       snapshot: snapshot({ members: [PHONE_MEMBER] }),
@@ -421,6 +556,37 @@ describe("角色頁「同步」卡：可及性", () => {
     recheck.focus();
     expect(recheck).toHaveFocus();
     await userEvent.click(recheck);
-    await waitFor(() => expect(mockApi.characterSessionSnapshot).toHaveBeenCalledTimes(2));
+    // 沒有本地副本（這個 setup 的成員是空的，但快照讀得到）時仍然有一次對齊請求。
+    await waitFor(() =>
+      expect(
+        mockApi.characterSessionResume.mock.calls.length + mockApi.characterSessionSnapshot.mock.calls.length
+      ).toBeGreaterThan(1)
+    );
+  });
+
+  it("有本地副本時「重新檢查」走 resume，不再消耗一個權威快照的 sequence", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+    });
+    render(<CharacterSyncCard refreshKey={0} advanced={false} sessionEvents={[]} />);
+    await waitFor(() =>
+      expect(screen.getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument()
+    );
+    expect(mockApi.characterSessionSnapshot).toHaveBeenCalledTimes(1);
+
+    mockApi.characterSessionResume.mockResolvedValueOnce(
+      (snapshot({ members: [{ ...PHONE_MEMBER, presence: "offline" }] }, 12) as Record<string, unknown>)[
+        "payload"
+      ]
+    );
+    await userEvent.click(screen.getByRole("button", { name: "重新檢查" }));
+    await waitFor(() => expect(screen.getByText("iPhone 暫時離線")).toBeInTheDocument());
+    expect(mockApi.characterSessionResume).toHaveBeenCalledWith({
+      lastRevision: 11,
+      lastSequence: 0,
+      epoch: 1,
+    });
+    expect(mockApi.characterSessionSnapshot).toHaveBeenCalledTimes(1);
   });
 });

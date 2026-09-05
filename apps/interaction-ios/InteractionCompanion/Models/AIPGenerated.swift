@@ -751,4 +751,5 @@ enum AIPLimits {
     static let maxNameChars = 128
     static let maxPayloadBytes = 32768
     static let maxStringChars = 2000
+    static let maxUnsupportedInputs = 32
 }

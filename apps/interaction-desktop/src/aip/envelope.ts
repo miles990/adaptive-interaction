@@ -644,13 +644,6 @@ const SYNC_CLASS_ORDER: readonly SyncClass[] = ["semantic", "timeline", "realtim
  *
  * renderer 不能靠宣告憑空得到 host 沒提供的 intent，也不能把訊息上限抬高。
  */
-/**
- * `unsupportedInputs` 的上限。權威值在 Rust（`crates/interaction-aip/src/limits.rs` 的
- * `MAX_UNSUPPORTED_INPUTS`）；它刻意**不進** `schemas/aip-1.0.schema.json` 的 limits 表，
- * 因為它不是 wire 契約的一部分，只是 host 端協商結果的有界性要求。
- */
-const MAX_UNSUPPORTED_INPUTS = 32;
-
 export function negotiateCapabilities(
   offer: HostOffer,
   announcement: CapabilityAnnouncement,
@@ -678,8 +671,10 @@ export function negotiateCapabilities(
     } else if (!unsupportedInputs.includes(input)) {
       // 對方宣告的 inputs 是外部輸入、本身無界；協商結果會被序列化成一則要送上線的
       // `capability` 回覆，所以這份清單必須有界（session-integrity-060）。截斷是確定性的
-      // （取前 N 個），與 Rust 權威實作 `interaction_aip::limits::MAX_UNSUPPORTED_INPUTS` 同值。
-      if (unsupportedInputs.length >= MAX_UNSUPPORTED_INPUTS) continue;
+      // （取前 N 個），而 N 直接讀 codegen 產出的 `AIP_LIMITS`——權威值只有一份，在
+      // `crates/interaction-aip/src/limits.rs`，經 `schemas/aip-1.0.schema.json` 傳到這裡。
+      // 這裡曾經手寫 `const MAX_UNSUPPORTED_INPUTS = 32`：值一樣，但 Rust 改了不會有人發現。
+      if (unsupportedInputs.length >= AIP_LIMITS.maxUnsupportedInputs) continue;
       unsupportedInputs.push(input);
     }
   }

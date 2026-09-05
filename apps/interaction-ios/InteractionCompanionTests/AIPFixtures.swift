@@ -1042,7 +1042,8 @@ enum AIPFixtures {
   "payload": {
     "kind": "patch",
     "revision": 205,
-    "hash": "a3954cce08e93225ac6e6b956f605e10cd3aefcb7acbce186d8738496260f1d1",
+    "sessionEpoch": 3,
+    "hash": "cf4ae10ae4f20e1de0f4682e398f6de1467a057df04363af0356ee612e8e1583",
     "patch": {
       "mood": { "kind": "happy", "intensity": 0.45 },
       "activity": "reacting",
@@ -1071,20 +1072,20 @@ enum AIPFixtures {
     "kind": "snapshot",
     "revision": 204,
     "sessionEpoch": 3,
-    "hash": "35f0eafac94cf20861c1c2cd27123b9fa3b15d8c195bc89bf88cebca042a974c",
+    "hash": "7c0a267fbf11bc9479e1c6e0913938349444637f6cfd116962cf896c2f36641e",
     "state": {
       "characterId": "ref-shape",
-      "mood": { "kind": "neutral", "intensity": 0 },
+      "mood": { "kind": "neutral", "intensity": 0.0 },
       "activity": "idle",
       "attention": { "kind": "none" },
-      "truth": { "state": "none", "correlationId": null },
-      "lastInteraction": null,
+      "truth": { "state": "none" },
       "members": [
         {
           "party": { "kind": "device", "id": "iphone-87b42264" },
           "role": "remote-renderer",
           "presence": "online",
-          "lastSeenAt": "2026-09-04T12:30:02Z"
+          "lastSeenAt": "2026-09-04T12:30:02Z",
+          "unsupportedIntents": []
         }
       ],
       "reducedMotion": false

@@ -27,4 +27,9 @@ pub const MAX_MEMBERS: usize = 16;
 /// 協商結果裡 `unsupportedInputs` 的上限。對方宣告的 `inputs` 是外部輸入、本身無界，
 /// 而 host 的協商回覆是一則要送上線的 AIP 訊息：不截斷就會超過 [`MAX_PAYLOAD_BYTES`]，
 /// 變成 host 自己送出一則規範接收端必須拒絕的訊息（session-integrity-060）。
+///
+/// 這是**協商結果的有界性要求**，不是 wire 上的欄位長度上限；但它仍然發布進
+/// `schemas/aip-1.0.schema.json` 的 `limits` 表，因為 TypeScript 與 Swift 也各自實作
+/// [`crate::negotiate_capabilities`]，截斷點必須是同一個數字。發布之後三端都從 codegen
+/// 讀它（`AIP_LIMITS.maxUnsupportedInputs`），不再有人手寫同值的字面量。
 pub const MAX_UNSUPPORTED_INPUTS: usize = 32;

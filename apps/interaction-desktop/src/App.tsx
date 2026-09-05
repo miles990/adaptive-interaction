@@ -223,6 +223,13 @@ export default function App() {
   const [offlineReason, setOfflineReason] = React.useState<string>("");
   const [events, setEvents] = React.useState<RuntimeEvent[]>([]);
   const [refreshKey, setRefreshKey] = React.useState(0);
+  /**
+   * 「這條連線換了一條」的計數（supervisor 連線狀態變化／SSE 重新接上時 +1）。
+   *
+   * 與 `refreshKey` 分開：後者每一則 runtime 事件都 +1，拿它當對齊訊號會讓角色
+   * 同步卡退回「每則事件三支 API」。斷線期間漏掉的狀態要靠一次 resume 補回來。
+   */
+  const [connectionKey, setConnectionKey] = React.useState(0);
   const [supervisor, setSupervisor] = React.useState<SupervisorInfo | null>(null);
   const [disconnected, setDisconnected] = React.useState(false);
 
@@ -253,6 +260,7 @@ export default function App() {
         onSupervisorState((s) => {
           setDisconnected(s === "disconnected");
           if (s === "connected-to-external") setRefreshKey((k) => k + 1);
+          setConnectionKey((k) => k + 1);
         })
       );
       probe = setInterval(async () => {
@@ -262,6 +270,8 @@ export default function App() {
           if (probe) clearInterval(probe);
           const recent = await api.eventsRecent(200);
           setEvents(recent);
+          // 事件流是重新接上的：中間漏掉的狀態不會自己補回來，要重新對齊一次。
+          setConnectionKey((k) => k + 1);
         } catch {
           /* keep connecting */
         }
@@ -306,6 +316,7 @@ export default function App() {
         connecting={runtimeState !== "ready"}
         events={events}
         refreshKey={refreshKey}
+        connectionKey={connectionKey}
         bumpRefresh={() => setRefreshKey((k) => k + 1)}
         supervisor={supervisor}
         disconnected={disconnected}
@@ -318,6 +329,7 @@ function Shell({
   connecting,
   events,
   refreshKey,
+  connectionKey,
   bumpRefresh,
   supervisor,
   disconnected,
@@ -325,6 +337,8 @@ function Shell({
   connecting: boolean;
   events: RuntimeEvent[];
   refreshKey: number;
+  /** 「這條連線換了一條」：只在 supervisor 連線狀態變化／SSE 重新接上時前進。 */
+  connectionKey: number;
   bumpRefresh: () => void;
   supervisor: SupervisorInfo | null;
   disconnected: boolean;
@@ -631,6 +645,7 @@ function Shell({
             <PageBody
               tab={tab}
               refreshKey={refreshKey}
+              connectionKey={connectionKey}
               events={events}
               advanced={advanced}
               onNavigate={goTo}
@@ -935,6 +950,7 @@ export function NarrowNav({
 export function PageBody({
   tab,
   refreshKey,
+  connectionKey = 0,
   events,
   advanced,
   onNavigate,
@@ -944,6 +960,8 @@ export function PageBody({
 }: {
   tab: Tab;
   refreshKey: number;
+  /** 「這條連線換了一條」：角色同步卡收到就重新對齊一次（不隨每則事件變動）。 */
+  connectionKey?: number;
   events: RuntimeEvent[];
   advanced: boolean;
   onNavigate: (tab: Tab) => void;
@@ -967,7 +985,9 @@ export function PageBody({
     case "companion":
       // events：角色同步卡靠 SSE 的 `character.session.state` 對齊本地副本，
       // 不必每一則 runtime 事件都重問一次權威狀態（那會消耗 session sequence）。
-      return <CompanionPage refreshKey={refreshKey} events={events} />;
+      return (
+        <CompanionPage refreshKey={refreshKey} events={events} connectionKey={connectionKey} />
+      );
     // 工作：AI 工作階段＋自動互動（舊 id 進到對應分頁）。
     case "work":
     case "ai":

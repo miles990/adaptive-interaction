@@ -19,20 +19,32 @@
 //     `state{kind:"snapshot"}` envelope）。Runtime 的每一則事件都重取一次，等於讓
 //     一個唯讀的畫面推著權威 session 的 sequence 前進。
 //   * 所以：權威狀態改由 SSE `character.session.state` 的 payload（完整 envelope）
-//     直接更新本地副本——`snapshot` 整份取代，`patch` 用 RFC 7396 merge patch 套上去。
-//     只有「首次載入」「patch 的 baseRevision／epoch 接不上」「使用者按重新檢查」
-//     才會再 GET 一次。
-//   * **桌面端刻意不做接收端 hash 核對。** 理由：JS 的 number 留不住數字字面
-//     （Rust 端的 `0.0` 在 JS 重新序列化後是 `0`），重算出來的 canonical JSON 不會與
-//     Rust 端逐位元組相同，hash 一定對不上——那會變成一個永遠亮著的假警報。
-//     不一致時的處理是「重新 GET 一次 snapshot 對齊」，判斷依據是 revision 單調
-//     遞增與 baseRevision 相符，不是 hash。
+//     直接更新本地副本。**所有協定判斷都在 `../aip/sessionClient.ts` 的純 reducer 裡**
+//     （rollback 防護、`session-reset` 例外、patch 續接、hash 核對、請求世代）；
+//     這個元件只負責發請求、把回應餵進去、把結果投影成人話。
+//   * 已經有本地副本時，「重新檢查」／重新對齊／連線切換走
+//     `POST /v1/character-session/resume`（帶 lastRevision／lastSequence／epoch），
+//     **不**再 GET：resume 不消耗 sequence。只有「沒有本地副本」（首次載入、讀失敗
+//     之後、卸載重掛）才 GET。
+//   * `connectionKey` 是「這條連線換了一條」的訊號（App 在 supervisor 連線狀態變化時 +1），
+//     不是「有新事件」——它一次連線只動一兩下，不會退回「每則事件三支 API」。
+//     `refreshKey` 每一則 runtime 事件都 +1，所以 live 模式下它**不**驅動權威狀態的重取。
+//   * **桌面端現在會做接收端 hash 核對**（AIP §6）。過去不做的理由是「JS 的 number
+//     留不住數字字面」；`../aip/canonical.ts` 依 codegen 從跨語言 fixture 產出的
+//     double 路徑重印字面，逐位元組核對過（`src/test/canonical-hash.test.ts`），
+//     所以那個理由沒了。對不上就**不套用**，改要求重新對齊——不硬套、不猜。
 //   * 裝置清單／來源清單／診斷是另一組（它們不消耗 sequence，但一樣不必每則事件重打）：
 //     節流成最小間隔 2 秒的 trailing 重取。
 
 import React from "react";
 import { api, type CharacterSessionDiagnostics, type RuntimeEvent } from "../api";
-import { applyMergePatch } from "../aip/envelope";
+import {
+  initialSession,
+  reduce,
+  type LocalSessionState,
+  type SessionInput,
+  type SessionMachine,
+} from "../aip/sessionClient";
 import {
   characterSyncLastInteraction,
   characterSyncMemberDeviceIds,
@@ -66,70 +78,21 @@ export const SYNC_SLOW_REFRESH_MIN_MS = 2_000;
  */
 export const SYNC_RETRY_BACKOFF_MS: readonly number[] = [1_000, 3_000, 10_000, 30_000];
 
-/** 本地保存的一份權威狀態副本（只給投影用；沒有任何權力）。 */
-export interface LocalSessionState {
-  state: Record<string, unknown>;
-  revision: number;
-  epoch: number;
-}
+/**
+ * 連續讀不到權威狀態幾次算「無法恢復」（契約 §7.5，與 `statusProjection` 的門檻一致）。
+ */
+const UNRECOVERABLE_READS = 3;
 
-/** 一則 `character.session.state` 事件對本地副本的意義。 */
-export type SessionAlignment =
-  | { kind: "aligned"; session: LocalSessionState }
-  /** 接不上：必須重新 GET 一次 snapshot（不硬套、不猜）。 */
-  | { kind: "realign" }
-  /** 落後或無關的訊息：忽略（rollback 防護）。 */
-  | { kind: "ignored" };
+/**
+ * 本地副本與對齊結果的型別都在 reducer 那一側。
+ * 這裡 re-export 是為了讓既有的呼叫端／測試不必同時 import 兩個模組。
+ */
+export type { LocalSessionState, SessionAlignment } from "../aip/sessionClient";
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-function num(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-/** `state{kind:"snapshot"}` envelope → 本地副本（讀不出來就是 null）。 */
-export function readSnapshotEnvelope(envelope: unknown): LocalSessionState | null {
-  const payload = record(record(envelope)?.["payload"]);
-  const state = record(payload?.["state"]);
-  if (!payload || !state) return null;
-  return {
-    state,
-    revision: num(payload["revision"]) ?? 0,
-    epoch: num(payload["sessionEpoch"]) ?? 0,
-  };
-}
-
-/**
- * 把一則 SSE `character.session.state` 的 envelope 對到本地副本上（純函式）。
- *
- * `snapshot` 整份取代；`patch` 只有在 epoch 相同且 `baseRevision` 正好等於本地
- * revision 時才套用（AIP §6：接收端只認 revision，不認 sequence）。落後的重播一律
- * 忽略；接不上的一律回 `realign`，由呼叫端重新 GET —— 絕不半套半猜。
- */
-export function alignSession(current: LocalSessionState | null, envelope: unknown): SessionAlignment {
-  const outer = record(envelope);
-  const payload = record(outer?.["payload"]);
-  if (!payload) return { kind: "ignored" };
-  const epoch = num(payload["sessionEpoch"]) ?? 0;
-  if (payload["kind"] === "snapshot") {
-    const next = readSnapshotEnvelope(outer);
-    return next ? { kind: "aligned", session: next } : { kind: "ignored" };
-  }
-  if (payload["kind"] !== "patch") return { kind: "ignored" };
-  const revision = num(payload["revision"]);
-  if (revision === null) return { kind: "ignored" };
-  if (!current) return { kind: "realign" };
-  // host 重建過 session：本地副本整份作廢，只能重新對齊。
-  if (epoch !== current.epoch) return { kind: "realign" };
-  if (revision <= current.revision) return { kind: "ignored" };
-  if (num(outer?.["baseRevision"]) !== current.revision) return { kind: "realign" };
-  const state = record(applyMergePatch(current.state, payload["patch"]));
-  if (!state) return { kind: "realign" };
-  return { kind: "aligned", session: { state, revision, epoch } };
 }
 
 /** 已配對裝置清單 → 「裝置識別碼 → 這台電腦上的顯示名稱」。 */
@@ -177,6 +140,7 @@ export function CharacterSyncCard({
   refreshKey,
   advanced = false,
   sessionEvents,
+  connectionKey = 0,
 }: {
   refreshKey: number;
   /** 進階模式才顯示「連接診斷」（revision／sequence／計數）。 */
@@ -188,10 +152,20 @@ export function CharacterSyncCard({
    * 收不到事件時不假裝自己是最新的。
    */
   sessionEvents?: readonly RuntimeEvent[];
+  /**
+   * 「這條連線換了一條」的訊號（App 在 supervisor 連線狀態變化／SSE 重連時 +1）。
+   *
+   * 刻意**不**重用 `refreshKey`：那個每一則 runtime 事件都會 +1，拿它當對齊訊號
+   * 就等於退回「每則事件三支 API」。斷線期間漏掉的狀態要靠一次 resume 補回來，
+   * 而不是靠事件流自己接上——所以這裡必須是一個獨立的、一次連線只動一兩下的數字。
+   */
+  connectionKey?: number;
 }) {
   const live = sessionEvents !== undefined;
-  const [session, setSession] = React.useState<LocalSessionState | null>(null);
-  const sessionRef = React.useRef<LocalSessionState | null>(null);
+  // 協定狀態機。ref 是「現在的真相」（dispatch 要同步讀它），state 只是讓畫面跟著更新。
+  const machineRef = React.useRef<SessionMachine>(initialSession());
+  const [machine, setMachine] = React.useState<SessionMachine>(machineRef.current);
+  const session: LocalSessionState | null = machine.local;
   const [loaded, setLoaded] = React.useState(false);
   const [enabled, setEnabled] = React.useState(true);
   // 連續讀不到權威狀態的次數：達 3 次才升級成「無法恢復」（契約 §7.5）。
@@ -204,30 +178,67 @@ export function CharacterSyncCard({
   const [revoked, setRevoked] = React.useState(false);
   const [diagnostics, setDiagnostics] = React.useState<CharacterSessionDiagnostics | null>(null);
   const [reload, setReload] = React.useState(0);
-  /** patch 接不上時 +1：唯一會讓畫面主動再 GET 一次 snapshot 的訊號。 */
+  /**
+   * reducer 說「接不上」時 +1：唯一會讓畫面主動再要一次對齊的訊號
+   * （有本地副本走 resume，沒有才 GET）。有界——連續失敗達上限就換成
+   * `unrecoverable`，不會變成打不完的請求迴圈。
+   */
   const [realign, setRealign] = React.useState(0);
 
-  const commitSession = React.useCallback((next: LocalSessionState | null) => {
-    sessionRef.current = next;
-    setSession(next);
+  /**
+   * 把一件事餵進協定狀態機，並照它回的 effect 行動。
+   *
+   * `effects` 是「應該做的事」，不是「已經發生的事」：`realign` 去要一次對齊，
+   * `unrecoverable` 代表連續對齊失敗達上限——狀態是**未知**的，本地副本作廢，
+   * 畫面照契約 §7.5 升級成「無法恢復，請重新連接」，而不是繼續打一個打不完的迴圈。
+   */
+  const dispatch = React.useCallback((input: SessionInput) => {
+    const step = reduce(machineRef.current, input);
+    let next = step.next;
+    if (step.effects.some((effect) => effect.kind === "unrecoverable")) {
+      next = reduce(next, { kind: "reset-local" }).next;
+      failedReadsRef.current = Math.max(failedReadsRef.current, UNRECOVERABLE_READS);
+      setFailedReads(failedReadsRef.current);
+    } else if (step.effects.some((effect) => effect.kind === "realign")) {
+      setRealign((n) => n + 1);
+    }
+    machineRef.current = next;
+    setMachine(next);
   }, []);
 
-  // --- A. 權威狀態：首次載入／手動重新檢查／接不上時重新對齊。
+  // --- A. 權威狀態：首次載入／手動重新檢查／接不上時重新對齊／連線換了一條。
   //     `live` 時 refreshKey 不參與（那正是「每則事件三支 API」的來源）。
   const pollKey = live ? 0 : refreshKey;
   /** 讀取失敗後的退避重試計數（成功歸零）；只在 live 模式排程。 */
   const [retryTick, setRetryTick] = React.useState(0);
   const retryAttemptRef = React.useRef(0);
+  /** 請求世代：只有「最近一次發出的請求」的回應算數（慢的回應不得蓋回舊狀態）。 */
+  const requestIdRef = React.useRef(0);
   React.useEffect(() => {
     let alive = true;
     let timer: number | null = null;
+    const requestId = (requestIdRef.current += 1);
+    dispatch({ kind: "fetch-issued", requestId });
+    // 有本地副本就走 resume（不消耗 sequence）；沒有才 GET 一份完整快照。
+    const known = machineRef.current.local;
     void (async () => {
       try {
-        const envelope = await api.characterSessionSnapshot();
+        if (known) {
+          const payload = await api.characterSessionResume({
+            lastRevision: known.revision,
+            lastSequence: known.sequence ?? 0,
+            epoch: known.epoch,
+          });
+          if (!alive) return;
+          dispatch({ kind: "resume-response", requestId, payload });
+        } else {
+          const envelope = await api.characterSessionSnapshot();
+          if (!alive) return;
+          dispatch({ kind: "fetch-response", requestId, envelope });
+        }
         failedReadsRef.current = 0;
         retryAttemptRef.current = 0;
         if (!alive) return;
-        commitSession(readSnapshotEnvelope(envelope));
         setEnabled(true);
         setFailedReads(0);
       } catch (e) {
@@ -236,7 +247,7 @@ export function CharacterSyncCard({
         if (!disabled) failedReadsRef.current += 1;
         if (!alive) return;
         // 讀不到就是讀不到：本地副本作廢，不用上一次的樣子冒充現在。
-        commitSession(null);
+        dispatch({ kind: "reset-local" });
         setEnabled(!disabled);
         setFailedReads(failedReadsRef.current);
         // live 模式沒有輪詢，得自己排一次退避重試；關閉是確定的事實，不重試。
@@ -259,7 +270,7 @@ export function CharacterSyncCard({
       alive = false;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [pollKey, reload, realign, retryTick, live, commitSession]);
+  }, [pollKey, reload, realign, retryTick, connectionKey, live, dispatch]);
 
   // --- B. 裝置清單／來源清單／診斷：節流（trailing，最小間隔 2 秒）。
   //     首次載入、手動重新檢查、切換進階模式一律立刻執行。
@@ -312,22 +323,20 @@ export function CharacterSyncCard({
     };
   }, [refreshKey, reload, advanced]);
 
-  // --- C. SSE：權威狀態的變更直接套在本地副本上（不重取、不做 hash 核對）。
-  const lastEventSequence = React.useRef(-1);
+  // --- C. SSE：權威狀態的變更直接餵進 reducer（不重取）。
+  //
+  //     去重**不再**用 `RuntimeEvent.sequence`：daemon 重啟後那個序號從 1 重新開始
+  //     （`crates/interaction-events` 的 AtomicU64 起始 1），舊的高水位會讓重啟後
+  //     所有 state 事件被永久丟棄。改由 reducer 用 AIP 的 `messageId`
+  //     （沒有就退回 sessionEpoch+sequence）做有界環去重；就算沒有任何去重鍵，
+  //     revision 規則本身也會把重播判成 already-applied，不會重複套用。
   React.useEffect(() => {
     if (!sessionEvents) return;
     for (const event of sessionEvents) {
       if (event.eventType !== SESSION_STATE_EVENT) continue;
-      if (typeof event.sequence === "number" && event.sequence <= lastEventSequence.current) {
-        continue;
-      }
-      if (typeof event.sequence === "number") lastEventSequence.current = event.sequence;
-      const alignment = alignSession(sessionRef.current, event.payload);
-      if (alignment.kind === "aligned") commitSession(alignment.session);
-      // 接不上：重新 GET 一次（效果 A），不硬套一個對不上的補丁。
-      else if (alignment.kind === "realign") setRealign((n) => n + 1);
+      dispatch({ kind: "sse", envelope: event.payload });
     }
-  }, [sessionEvents, commitSession]);
+  }, [sessionEvents, dispatch]);
 
   // --- 投影（純函式；所有句子都來自上面這些真實回應）。
   const snapshotView = React.useMemo(
@@ -339,7 +348,9 @@ export function CharacterSyncCard({
     [snapshotView, names]
   );
   const projection = React.useMemo(() => {
-    if (!loaded) return null;
+    // 第一次請求還沒回來，但 SSE 已經送來一份權威狀態時，那份就是真的——
+    // 沒有理由繼續說「正在讀取」。反過來，什麼都還沒有就照實說還在讀。
+    if (!loaded && !session) return null;
     const synced = new Set(characterSyncMemberDeviceIds(snapshotView));
     const signals: CharacterSyncSignals = {
       enabled,
@@ -350,7 +361,7 @@ export function CharacterSyncCard({
       storeReset: diagnostics?.storeNote != null,
     };
     return projectCharacterSession(snapshotView, members, signals);
-  }, [loaded, snapshotView, members, enabled, failedReads, revoked, connected, diagnostics]);
+  }, [loaded, session, snapshotView, members, enabled, failedReads, revoked, connected, diagnostics]);
   const lastInteraction = React.useMemo(
     () => characterSyncLastInteraction(snapshotView, names),
     [snapshotView, names]
@@ -417,6 +428,13 @@ export function CharacterSyncCard({
                 </li>
               ))}
               {diagnostics.storeNote && <li>storeNote {diagnostics.storeNote}</li>}
+              {/* 本地對齊的計數（reducer 的，不是後端的）：hash 不符、host 倒退、
+                  被忽略的重播都必須看得見——安靜地丟掉一則狀態是最難察覺的錯。 */}
+              {Object.entries(machine.counters).map(([key, value]) => (
+                <li key={`alignment-${key}`}>
+                  alignment.{key} {value}
+                </li>
+              ))}
             </ul>
           ) : (
             <p className="muted small">目前讀不到連接診斷。</p>
