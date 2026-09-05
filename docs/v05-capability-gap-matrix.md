@@ -333,7 +333,7 @@ conformance 測試套件（`conformance.rs`）與斷線時安全 intent 交接�
 收合的問題明細裡。
 
 **新增／變更的對外契約（節選；完整清單見 `docs/releases/v0.5.0-migration.md`）**：`POST /v1/onboarding/preview`；
-`POST /v1/sensors/stop` 回應改為 `{stopped, uncertain, local:{microphone}, devices:[...]}`；每機
+`POST /v1/sensors/stop` 回應改為 `{stopped, uncertain, local:{microphone}, devices:[...]}`（v0.6.x 另加 `sources:[...]`：非 mobile 來源的逐筆結果，非空才出現；五態 outcome）；每機
 `POST /v1/mobile/devices/{id}/sensors/stop`／`/test`；`POST /v1/emergency-stop` 的 payload／事件新增
 `sensors`（`StopAllSensorsReport`）與 `characterEmergency`（`[{deviceId, outcome}]`）；`activity_inbox` 新增
 `pendingCountExact`；`GET /v1/providers`／`/v1/providers/{id}` 對非人類 principal 省略 `identity.fingerprint`；

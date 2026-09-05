@@ -306,3 +306,129 @@ async fn an_emergency_stop_that_every_actuator_confirmed_still_says_so_plainly()
         "全部確認停止時要照實說：{text}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 感測階段也必須有界、平行、誠實（M2 §3.1 / X1）
+// ---------------------------------------------------------------------------
+
+/// 一個「停不下來」的感測來源：緊急停止送出去了，但它在期限內不回覆。
+struct StubbornSensorSource {
+    id: String,
+    calls: Arc<AtomicUsize>,
+    reasons: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl interaction_runtime::sensor_source::SensorSource for StubbornSensorSource {
+    fn source_id(&self) -> String {
+        self.id.clone()
+    }
+
+    fn declaration_id(&self) -> String {
+        "declaration.stubborn".into()
+    }
+
+    async fn active_captures(&self) -> Vec<interaction_runtime::sensors::SensorUse> {
+        vec![interaction_runtime::sensors::SensorUse {
+            kind: "stubborn.mic-level".into(),
+            started_at: chrono::Utc::now(),
+            started_by: self.id.clone(),
+            purpose: "fixture capture".into(),
+            auto_stop_at: None,
+            state: interaction_runtime::sensors::SENSOR_STATE_ACTIVE.into(),
+        }]
+    }
+
+    async fn request_stop(
+        &self,
+        _target: Option<&str>,
+        deadline: Duration,
+        reason: &str,
+    ) -> Vec<interaction_runtime::sensor_source::SensorStopReport> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.reasons.lock().unwrap().push(reason.to_string());
+        // 期限內不回覆（App 當掉／連線半開）。
+        tokio::time::sleep(deadline).await;
+        vec![interaction_runtime::sensor_source::SensorStopReport::new(
+            self.id.clone(),
+            "declaration.stubborn",
+            vec!["stubborn.mic-level".to_string()],
+            interaction_runtime::sensor_source::SensorStopStatus::Unknown,
+            deadline.as_millis() as u64,
+        )]
+    }
+}
+
+/// 緊急停止的感測階段：來源不回覆時仍要**有界**回來，而且誠實標
+/// uncertain（可能還在擷取），不得因為「已經按了緊急停止」就宣稱停了。
+/// 那台來源的感測也不得從 activeSensors 消失。
+#[tokio::test(flavor = "multi_thread")]
+async fn the_sensor_phase_of_an_emergency_stop_is_bounded_and_honest() {
+    let home = tempfile::tempdir().unwrap();
+    let rt = Runtime::start(RuntimeOptions {
+        home: Some(home.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let reasons = Arc::new(std::sync::Mutex::new(Vec::new()));
+    rt.register_sensor_source(Arc::new(StubbornSensorSource {
+        id: "fixture.stubborn".into(),
+        calls: calls.clone(),
+        reasons: reasons.clone(),
+    }))
+    .await
+    .unwrap();
+
+    let started = Instant::now();
+    let payload = rt.emergency_stop("test", None).await.unwrap();
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(6),
+        "緊急停止的感測階段必須有界：{elapsed:?}"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "來源要被問到，而且只問一次"
+    );
+    assert_eq!(
+        reasons.lock().unwrap().clone(),
+        vec!["emergency-stop".to_string()],
+        "來源要知道這是緊急停止（顯示的字句不同）"
+    );
+    assert_eq!(
+        payload["sensors"]["uncertain"],
+        serde_json::json!(true),
+        "沒回覆＝結果未知：{payload}"
+    );
+    assert_eq!(payload["sensors"]["stopped"], serde_json::json!(false));
+    assert_eq!(
+        payload["sensors"]["sources"][0]["outcome"],
+        serde_json::json!("unknown"),
+        "逐個來源列出結果：{payload}"
+    );
+    let uncertain: Vec<_> = rt
+        .events
+        .recent(200)
+        .into_iter()
+        .filter(|e| e.event_type == EventType::SensorStopUncertain)
+        .map(|e| e.payload)
+        .collect();
+    assert!(
+        uncertain
+            .iter()
+            .any(|p| p["sensor"] == serde_json::json!("stubborn.mic-level")),
+        "未確認的感測要補事件：{uncertain:?}"
+    );
+    assert!(
+        rt.active_sensors_all()
+            .await
+            .iter()
+            .any(|s| s.kind == "stubborn.mic-level"),
+        "沒確認停止的來源不得從 activeSensors 消失"
+    );
+}

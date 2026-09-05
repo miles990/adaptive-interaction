@@ -542,6 +542,22 @@ impl Runtime {
         self.declare_provider_capabilities(companion_capability_declaration());
         self.declare_provider_capabilities(crate::mobile::mobile_capability_declaration());
 
+        // 0.5) 感測來源登記：停止感測只有**一個**協調器
+        //      （`Runtime::stop_all_sensor_sources`），本機麥克風與行動裝置都
+        //      只是登記進來的來源之一。本機不再是特例——特例會漂移（緊急停止
+        //      那條路徑就曾經自己手刻一份報告）。
+        let weak = self.weak_inner();
+        let _ = self
+            .register_sensor_source(std::sync::Arc::new(
+                crate::sensors::LocalMicSensorSource::new(weak.clone()),
+            ))
+            .await;
+        let _ = self
+            .register_sensor_source(std::sync::Arc::new(crate::mobile::MobileSensorSource::new(
+                weak,
+            )))
+            .await;
+
         // 1) Builtin local provider (trust: builtin, always available).
         let builtin = ProviderDescriptor {
             identity: ProviderIdentity {
@@ -1231,6 +1247,21 @@ impl Runtime {
         if provider_stopped(state) {
             self.disable_provider_capabilities(&desc, &format!("{state:?}").to_lowercase())
                 .await;
+            // X2：旗標翻掉還不夠——這個 provider 底下若有登記的感測來源，必須
+            // 走同一條 request_stop 請它停止擷取（指名這一台），並把結果留痕。
+            // 只靠背景 watcher 撞事件補送是競態，不是保證。
+            let sensor_stop = self
+                .stop_provider_sensing(id.as_str(), crate::sensors::SENSOR_STOP_REASON_PROVIDER_OFF)
+                .await;
+            let _ = self.store.audit(
+                "provider.transitioned",
+                "user",
+                &serde_json::json!({
+                    "providerId": id.as_str(),
+                    "state": format!("{state:?}").to_lowercase(),
+                    "sensorStop": sensor_stop,
+                }),
+            );
         }
         // 反方向刻意不做：回到 Available／Busy／… 時**不**自動把能力打開。
         // registry 的旗標只有布林、沒有出處，runtime 分不出「是我剛才關的」還是
@@ -1372,13 +1403,22 @@ impl Runtime {
         // 撤銷＝連線也要斷（不只是停止派工），而且必須跨重啟：重啟後 spec 重新
         // 載入時不得把連線開回來、也不得讓受器回到啟用。
         let closed_links = self.close_declarative_links(id, "revoked");
+        // X2：有登記感測來源的 provider（例如已配對的行動裝置）走同一條
+        // request_stop＋release——撤銷一台正在擷取的裝置不得只翻旗標。
+        let sensor_stop = self
+            .stop_provider_sensing(id.as_str(), crate::sensors::SENSOR_STOP_REASON_PROVIDER_OFF)
+            .await;
         self.mark_provider_off(id, "revoked");
         self.persist_provider(id).await;
         self.character_project_provider(id, ProviderState::Revoked);
         self.store.audit(
             "provider.revoked",
             "user",
-            &serde_json::json!({"providerId": id.as_str(), "closedLinks": closed_links}),
+            &serde_json::json!({
+                "providerId": id.as_str(),
+                "closedLinks": closed_links,
+                "sensorStop": sensor_stop,
+            }),
         )?;
         Ok(desc)
     }

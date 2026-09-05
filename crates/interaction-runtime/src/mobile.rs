@@ -37,7 +37,7 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use tokio_tungstenite::tungstenite::Message;
@@ -522,7 +522,8 @@ pub fn target_device_id(e: &ActionParameters) -> Result<Option<String>, String> 
 /// 不認得的 reason 保守地當成 `emergency`（顯示比較嚴格的那一句）。
 pub fn stop_all_wire_reason(audit_reason: &str) -> &'static str {
     match audit_reason {
-        "stop-all-sensors" => STOP_REASON_USER,
+        crate::sensors::SENSOR_STOP_REASON_USER
+        | crate::sensors::SENSOR_STOP_REASON_PROVIDER_OFF => STOP_REASON_USER,
         _ => STOP_REASON_EMERGENCY,
     }
 }
@@ -821,6 +822,122 @@ impl crate::sensors::SensorStopOutcome for MobileStopOutcome {
 
     fn confirmed_stopped(&self) -> bool {
         self.outcome == StopOutcome::Stopped
+    }
+}
+
+/// 一台手機的結果 → 通用停止報告（協調器只認得這一種）。
+fn mobile_stop_report(outcome: &MobileStopOutcome) -> crate::sensor_source::SensorStopReport {
+    use crate::sensor_source::SensorStopStatus;
+    let status = match outcome.outcome {
+        StopOutcome::Stopped => SensorStopStatus::Stopped,
+        StopOutcome::Unknown => SensorStopStatus::Unknown,
+        StopOutcome::Unreachable => SensorStopStatus::Unreachable,
+    };
+    crate::sensor_source::SensorStopReport::new(
+        outcome.device_id.clone(),
+        MOBILE_PROVIDER_DECLARATION_ID,
+        mobile_high_risk_receptors()
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        status,
+        outcome.waited_ms,
+    )
+    .with_label(outcome.name.clone())
+    .with_via(outcome.via.clone())
+}
+
+/// 通用停止報告 → 既有的 `devices` wire 形狀（HTTP／CLI／桌面逐欄位讀）。
+///
+/// 只有這一族的報告會被投影回去；三態 wire 詞彙（stopped／unknown／unreachable）
+/// 比通用枚舉少兩種，對映一律往**保守**的那一邊靠：`already-stopped` 也是
+/// 「確認沒有在擷取」→ stopped；`refused` 是「它可能還在擷取」→ unknown。
+pub(crate) fn mobile_wire_outcomes(
+    reports: &[crate::sensor_source::SensorStopReport],
+) -> Vec<MobileStopOutcome> {
+    use crate::sensor_source::SensorStopStatus;
+    reports
+        .iter()
+        .filter(|r| r.declaration_id == MOBILE_PROVIDER_DECLARATION_ID)
+        .map(|r| MobileStopOutcome {
+            device_id: r.source_id.clone(),
+            name: r
+                .source_label
+                .clone()
+                .unwrap_or_else(|| r.source_id.clone()),
+            outcome: match r.outcome {
+                SensorStopStatus::Stopped | SensorStopStatus::AlreadyStopped => {
+                    StopOutcome::Stopped
+                }
+                SensorStopStatus::Unknown | SensorStopStatus::Refused => StopOutcome::Unknown,
+                SensorStopStatus::Unreachable => StopOutcome::Unreachable,
+            },
+            waited_ms: r.waited_ms,
+            via: r.confirmed_via.clone(),
+        })
+        .collect()
+}
+
+/// 行動裝置這一族作為一個一般的 [`SensorSource`]：核心的停止協調器只透過這個
+/// 介面認識它，`iphone.*` 這些字面值一律留在這個模組裡。
+///
+/// `source_id` 用整族的宣告 id（`provider.mobile`），單台裝置是 `target`
+/// （provider id `provider.mobile.<裝置>` 的後半）——通用的 provider 撤銷／停用
+/// 因此可以指名停「這一台」，不必認得行動裝置是什麼。
+pub struct MobileSensorSource {
+    runtime: Weak<crate::runtime::RuntimeInner>,
+}
+
+impl MobileSensorSource {
+    pub(crate) fn new(runtime: Weak<crate::runtime::RuntimeInner>) -> Self {
+        MobileSensorSource { runtime }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::sensor_source::SensorSource for MobileSensorSource {
+    fn source_id(&self) -> String {
+        MOBILE_PROVIDER_DECLARATION_ID.to_string()
+    }
+
+    fn declaration_id(&self) -> String {
+        MOBILE_PROVIDER_DECLARATION_ID.to_string()
+    }
+
+    /// 連線 loop 以「手機自報的感測起訖」為準發 `sensor.stopped`：協調器不重發。
+    fn reports_own_stop_events(&self) -> bool {
+        true
+    }
+
+    async fn active_captures(&self) -> Vec<crate::sensors::SensorUse> {
+        match crate::sensor_source::upgrade(&self.runtime) {
+            Some(rt) => rt.mobile_active_sensors().await,
+            None => vec![],
+        }
+    }
+
+    async fn request_stop(
+        &self,
+        target: Option<&str>,
+        deadline: Duration,
+        reason: &str,
+    ) -> Vec<crate::sensor_source::SensorStopReport> {
+        let Some(rt) = crate::sensor_source::upgrade(&self.runtime) else {
+            return vec![];
+        };
+        rt.mobile_stop_sensors_target(target, deadline, reason)
+            .await
+            .iter()
+            .map(mobile_stop_report)
+            .collect()
+    }
+
+    /// provider 被撤銷／停用 → 那一台的連線也要放掉（不只是停止派工）。
+    async fn release(&self, target: Option<&str>, reason: &str) -> Option<Value> {
+        let rt = crate::sensor_source::upgrade(&self.runtime)?;
+        let device_id = target?;
+        let closed = rt.mobile_close_connection(device_id, reason).await;
+        Some(json!({"deviceId": device_id, "connectionClosed": closed}))
     }
 }
 
@@ -2482,40 +2599,7 @@ impl Runtime {
                 )));
             }
         }
-        // 立即斷線：取消 token → handler 立刻送 auth-fail 並關閉 socket。
-        // 表項在這裡就移除，所以 handler 的收尾會判定「不是我的連線」而跳過
-        // 三件收斂工作——撤銷路徑必須自己做完，否則：等停止確認的人要空等到
-        // 逾時、在途 act 要等滿 ACT_TIMEOUT、麥克風正在串流也不發 sensor.stopped。
-        let mic_enabled = self.mobile_mic_receptor_enabled().await;
-        let conn = self.mobile.conns.write().await.remove(device_id);
-        let was_connected = conn.is_some();
-        if let Some(conn) = conn {
-            // 斷線前這台手機的串流是否「看得見」（活在 status.activeSensors 裡）：
-            // 看得見的才需要補一則 sensor.stopped，事件面與 status 保持一致。
-            let was_streaming =
-                conn.mic_since.is_some() && (mic_enabled || conn.stop_sensors.was_requested());
-            conn.stop_sensors.mark_disconnected();
-            conn.close.cancel();
-            let ended = self.mobile.fail_pending_for_device(device_id);
-            if ended > 0 {
-                tracing::info!(
-                    device_id,
-                    ended,
-                    "iPhone revoked — in-flight acts end with an unknown outcome"
-                );
-            }
-            if was_streaming {
-                self.events.emit(
-                    EventType::SensorStopped,
-                    json!({
-                        "sensor": "iphone.mic-level",
-                        "deviceId": device_id,
-                        "source": "iphone",
-                        "reason": "revoked",
-                    }),
-                );
-            }
-        }
+        let was_connected = self.mobile_close_connection(device_id, "revoked").await;
         let pid = mobile_provider_id(device_id);
         if let Err(e) = self
             .providers
@@ -2541,6 +2625,47 @@ impl Runtime {
             &json!({"deviceId": device_id, "wasConnected": was_connected}),
         )?;
         Ok(json!({"revoked": device_id, "wasConnected": was_connected}))
+    }
+
+    /// 立即放掉一台手機的連線：取消 token → handler 立刻送 auth-fail 並關閉
+    /// socket。表項在這裡就移除，所以 handler 的收尾會判定「不是我的連線」而
+    /// 跳過三件收斂工作——這條路徑必須自己做完，否則：等停止確認的人要空等到
+    /// 逾時、在途 act 要等滿 ACT_TIMEOUT、麥克風正在串流也不發 sensor.stopped。
+    ///
+    /// 回傳它本來是否連線中。撤銷（mobile 專屬入口）與通用 provider 撤銷／停用
+    /// （`SensorSource::release`）共用這一段，兩條路徑不得有一條漏做。
+    pub(crate) async fn mobile_close_connection(&self, device_id: &str, reason: &str) -> bool {
+        let mic_enabled = self.mobile_mic_receptor_enabled().await;
+        let Some(conn) = self.mobile.conns.write().await.remove(device_id) else {
+            return false;
+        };
+        // 斷線前這台手機的串流是否「看得見」（活在 status.activeSensors 裡）：
+        // 看得見的才需要補一則 sensor.stopped，事件面與 status 保持一致。
+        let was_streaming =
+            conn.mic_since.is_some() && (mic_enabled || conn.stop_sensors.was_requested());
+        conn.stop_sensors.mark_disconnected();
+        conn.close.cancel();
+        let ended = self.mobile.fail_pending_for_device(device_id);
+        if ended > 0 {
+            tracing::info!(
+                device_id,
+                ended,
+                reason,
+                "iPhone connection released — in-flight acts end with an unknown outcome"
+            );
+        }
+        if was_streaming {
+            self.events.emit(
+                EventType::SensorStopped,
+                json!({
+                    "sensor": "iphone.mic-level",
+                    "deviceId": device_id,
+                    "source": "iphone",
+                    "reason": reason,
+                }),
+            );
+        }
+        true
     }
 
     /// 高風險受器不自動恢復：手機有效連線消失（斷線／撤銷）即由桌面端強制
@@ -2607,48 +2732,56 @@ impl Runtime {
         }
     }
 
-    /// 停止手機端感測的共同路徑（「停止所有感測」與緊急停止共用）：
+    /// 停止手機端感測的共同路徑（「停止所有感測」、緊急停止、撤銷單一裝置共用）：
     /// (a) 桌面端把高風險受器強制 disabled（重啟／重連不自動恢復）；
-    /// (b) 對所有手機送 `stop-all { sensors: true }` 並**有界等待**每台確認。
-    /// 沒有手機連線時什麼都不做（誠實：沒有東西被停，回空清單）。
+    /// (b) 對（指定的那一台或全部）手機送 `stop-all { sensors: true }` 並**有界
+    /// 等待**確認。沒有手機連線時什麼都不做（誠實：沒有東西被停，回空清單）。
     ///
     /// audit 記的是每台的 outcome（stopped／unknown／unreachable），
     /// 不是「有沒有排進出站佇列」——排進佇列不等於手機停了。
-    pub(crate) async fn mobile_stop_sensors(
+    ///
+    /// audit 的 actor 是 `runtime`：這條路徑現在由通用協調器
+    /// （`Runtime::stop_all_sensor_sources`）驅動，「是誰要求停止的」記在同一次
+    /// 掃描的 `sensor.stop-requested`／`sensor.stopped-all` 上（帶真正的 actor）。
+    pub(crate) async fn mobile_stop_sensors_target(
         &self,
-        actor: &str,
-        audit_kind: &str,
+        target: Option<&str>,
+        deadline: Duration,
         reason: &str,
     ) -> Vec<MobileStopOutcome> {
-        self.mobile_disable_high_risk_receptors("*", reason).await;
+        let emergency = reason == crate::sensors::SENSOR_STOP_REASON_EMERGENCY;
+        if emergency {
+            // 緊急停止：在途 act 立刻以 stopped 收場（動作面），再停感測。
+            self.mobile.fail_inflight_stopped();
+        }
+        self.mobile_disable_high_risk_receptors(target.unwrap_or("*"), reason)
+            .await;
         if !self.mobile.any_connected().await {
             return Vec::new();
         }
         let devices = self
             .mobile
-            .stop_sensors_and_wait(STOP_SENSORS_WAIT, stop_all_wire_reason(reason))
+            .stop_sensors_for(target, deadline, stop_all_wire_reason(reason))
             .await;
+        let audit_kind = if emergency {
+            "mobile.estop-stop-sensors"
+        } else {
+            "mobile.stop-sensors"
+        };
         self.store
             .audit(
                 audit_kind,
-                actor,
+                "runtime",
                 &json!({
                     "sensors": true,
                     "reason": reason,
-                    "waitedMsBudget": STOP_SENSORS_WAIT.as_millis() as u64,
+                    "deviceId": target,
+                    "waitedMsBudget": deadline.as_millis() as u64,
                     "devices": devices,
                 }),
             )
             .ok();
         devices
-    }
-
-    /// 緊急停止 → 手機端也必須停止「感測」，不只是動器：在途 act 立刻以
-    /// stopped 收場，再走與「停止所有感測」相同的請求＋等待確認路徑。
-    pub(crate) async fn mobile_estop_stop_sensors(&self, actor: &str) -> Vec<MobileStopOutcome> {
-        self.mobile.fail_inflight_stopped();
-        self.mobile_stop_sensors(actor, "mobile.estop-stop-sensors", "emergency-stop")
-            .await
     }
 
     /// 緊急停止**期間**才連上／重連的「這一台」手機：緊急停止在它連上之前就

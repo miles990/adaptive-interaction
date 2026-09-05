@@ -111,9 +111,10 @@ pub async fn receptor_delete(
     State(state): State<ApiState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
+    // 走 Runtime 的停止閘門而不是直接動 registry：高風險受器會先請涵蓋它的來源停止
+    // （有界等待），來源沒確認時它的感測不整筆消失並補 uncertain 事件（感測不靜默）。
     state
         .runtime
-        .registry
         .unregister_receptor(&ReceptorId::new(&id))
         .await?;
     Ok(Json(json!({"removed": id})))

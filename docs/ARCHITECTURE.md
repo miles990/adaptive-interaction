@@ -28,7 +28,7 @@ Rust Adaptive Interaction Runtime
 | `interaction-registry` | Capability Registry、Common Capability Catalog、human-view resolver、**Provider Registry** |
 | `interaction-policy` | deterministic Governor：min() 限界鏈、consent、quiet hours、allowlist、預算、**delegation limits** |
 | `interaction-recipe` | Recipe 模型／驗證／摘要／AI 決策閘門；YAML↔JSON 無損 round-trip |
-| `interaction-runtime` | Tokio runtime：orchestrator、executor、watchdog、human 層、**providers**、**agents**、**sensors** |
+| `interaction-runtime` | Tokio runtime：orchestrator、executor、watchdog、human 層、**providers**、**agents**、**sensors**（v0.6.x：`sensor_source.rs` 的 `SensorSource` port＋單一停止協調器 `stop_all_sensor_sources`，本機麥克風與 iPhone 都是登記來源；`emergency_stop`／停止按鈕／provider revoke-disable／刪除高風險受器共用同一條有界停止路徑，結果五態且未確認一律 uncertain） |
 | `interaction-storage` | SQLite：receipts / plans / sessions / audit / ai_descriptions / **providers** / **agent_sessions**（schema v3） |
 | `interaction-events` | EventBus（broadcast）＋ bounded replay |
 | `interaction-api` | Axum HTTP API＋SSE（Last-Event-ID）；loopback-only、human/restricted-agent Bearer tokens |

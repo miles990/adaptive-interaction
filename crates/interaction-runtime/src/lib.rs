@@ -21,6 +21,7 @@ pub mod presentation;
 pub mod proactive;
 pub mod providers;
 pub mod runtime;
+pub mod sensor_source;
 pub mod sensors;
 pub mod text;
 

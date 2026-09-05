@@ -69,6 +69,19 @@
   `release-scripts.sh` 靜態核對這兩件事（48/0）。（d94abac）
 
 ### Changed
+- **停止感測只剩一個協調器＋`SensorSource` port**（M2 §3.1；`crates/interaction-runtime/src/sensor_source.rs`）：本機麥克風
+  （`LocalMicSensorSource`）與 iPhone（`MobileSensorSource`）都是登記進來的一般來源（登記表上限 32，超過拒絕並稽核）；
+  `request_stop(target, deadline, reason)` 外再包 deadline+500 ms grace，永不回覆的來源不會拖成無限等待。結果五態
+  `stopped`／`already-stopped`／`unknown`／`unreachable`／`refused`，只有前兩者算確認停止；重複停止冪等；來源在停止中被移除
+  仍回報 uncertain，且其感測以有界可見（60 s、總量 32）的 stop-unknown 留在 activeSensors（感測不靜默）。**X1**：`emergency_stop`
+  不再手刻 `StopAllSensorsReport`，與停止按鈕對「宣告了高風險受器卻沒有來源涵蓋」回同樣的 `uncertain`＋no-stop-path。**X2**：通用
+  `revoke_provider`／`transition_provider(Disabled)` 對登記了來源的 provider 指名 target 走同一條 `request_stop`＋`release`（mobile
+  的 release＝關閉連線），結果寫進 `provider.revoked`／新的 `provider.transitioned` 稽核；沒有來源的 provider 不憑空生出停止結果。
+  **S4**：`Runtime::unregister_receptor` 對高風險受器先請來源停止再移除（HTTP `DELETE /v1/receptors/{id}` 已改走它）。wire：
+  `StopAllSensorsReport.devices` 形狀不變，新增 `sources[]`（非空才序列化：sourceId／declarationId／sensors／outcome／waitedMs／
+  detail），`stopped`／`uncertain` 同時涵蓋 devices＋sources＋無停止管道的受器；撤銷／停用送到手機的 stop-all reason 是 `user`
+  不是 `emergency`。稽核新增 `sensor.stop-requested`（帶真正 actor／reason／預算）等；`mobile.stop-sensors` 的 actor 改為 runtime，
+  真正的 actor 記在同一次掃描的 `sensor.stop-requested`／`sensor.stopped-all`。全部為程序內 fixture 與模擬 iPhone 等級。
 - **角色頁首屏收斂與陪伴預設**（M3 §4.1）：一般模式從 8 個區塊全展開（首屏 40 個可互動控制項）改為首屏三格（目前角色＋預覽＋
   顯示／暫停、陪伴方式摘要、同步）＋5 個原生 `<details>` 收合區塊（外觀與名字／調整陪伴方式／安靜與勿擾／主動式對話／更換或加入
   角色），首屏控制項 5 個、展開後功能一個不少（測試釘住）。新增純函式陪伴預設 `companion/presets.ts`（安靜／自然／活潑／自訂：只寫

@@ -1813,3 +1813,165 @@ async fn the_declaration_table_has_a_read_only_projection() {
     assert_eq!(bare["classLabel"], Value::Null);
     assert_eq!(bare["presentationSurfaces"], json!([]));
 }
+
+// ---------------------------------------------------------------------------
+// X2：通用的 provider 生命週期端點對「登記了感測來源」的 provider 也要收斂
+// （不是只有 mobile 專屬入口才會停感測）。這裡的假來源跟 iPhone 無關。
+// ---------------------------------------------------------------------------
+
+/// (被指名的 target, 停止的 reason)
+type StopCalls = Arc<Mutex<Vec<(Option<String>, String)>>>;
+type ReleaseCalls = Arc<Mutex<Vec<Option<String>>>>;
+
+struct StubSensorSource {
+    id: String,
+    stops: StopCalls,
+    releases: ReleaseCalls,
+}
+
+#[async_trait::async_trait]
+impl interaction_runtime::sensor_source::SensorSource for StubSensorSource {
+    fn source_id(&self) -> String {
+        self.id.clone()
+    }
+
+    fn declaration_id(&self) -> String {
+        format!("declaration.{}", self.id)
+    }
+
+    async fn active_captures(&self) -> Vec<interaction_runtime::sensors::SensorUse> {
+        vec![]
+    }
+
+    async fn request_stop(
+        &self,
+        target: Option<&str>,
+        _deadline: std::time::Duration,
+        reason: &str,
+    ) -> Vec<interaction_runtime::sensor_source::SensorStopReport> {
+        self.stops
+            .lock()
+            .unwrap()
+            .push((target.map(str::to_string), reason.to_string()));
+        vec![interaction_runtime::sensor_source::SensorStopReport::new(
+            target.unwrap_or(&self.id).to_string(),
+            self.declaration_id(),
+            vec!["stub.mic-level".to_string()],
+            interaction_runtime::sensor_source::SensorStopStatus::Stopped,
+            1,
+        )]
+    }
+
+    async fn release(&self, target: Option<&str>, _reason: &str) -> Option<Value> {
+        self.releases
+            .lock()
+            .unwrap()
+            .push(target.map(str::to_string));
+        Some(json!({"released": true}))
+    }
+}
+
+async fn runtime_with_stub_source(dir: &tempfile::TempDir) -> (Runtime, StopCalls, ReleaseCalls) {
+    let rt = Runtime::start(RuntimeOptions {
+        home: Some(dir.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+    let stops = Arc::new(Mutex::new(Vec::new()));
+    let releases = Arc::new(Mutex::new(Vec::new()));
+    rt.register_sensor_source(Arc::new(StubSensorSource {
+        id: "provider.stub".into(),
+        stops: stops.clone(),
+        releases: releases.clone(),
+    }))
+    .await
+    .expect("source registers");
+    (rt, stops, releases)
+}
+
+async fn register_stub_provider(rt: &Runtime, id: &ProviderId) {
+    rt.providers
+        .register(ProviderDescriptor {
+            identity: ProviderIdentity {
+                id: id.clone(),
+                kind: ProviderKind::Device,
+                display_name: "stub unit".into(),
+                trust_level: TrustLevel::Paired,
+                origin: "fixture".into(),
+                version: "0".into(),
+                fingerprint: None,
+                human: None,
+            },
+            state: ProviderState::Available,
+            receptors: vec![],
+            actuators: vec![],
+            tool_operations: vec![],
+            paired_at: None,
+            last_seen: None,
+            detail: None,
+        })
+        .await
+        .expect("provider registers");
+}
+
+/// 停用一個 provider（通用端點）→ 它底下的感測來源要被指名請求停止，
+/// 結果進 `provider.transitioned` 的稽核，而且**不得**被說成緊急停止。
+#[tokio::test(flavor = "multi_thread")]
+async fn disabling_a_provider_stops_the_sensor_source_registered_under_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (rt, stops, releases) = runtime_with_stub_source(&dir).await;
+    let pid = ProviderId::new("provider.stub.unit-7");
+    register_stub_provider(&rt, &pid).await;
+
+    rt.transition_provider(&pid, ProviderState::Disabled)
+        .await
+        .expect("disabled");
+
+    let stops = stops.lock().unwrap().clone();
+    assert_eq!(
+        stops,
+        vec![(Some("unit-7".to_string()), "provider-stopped".to_string())],
+        "停用要指名這一台走同一條 request_stop"
+    );
+    assert_eq!(
+        releases.lock().unwrap().clone(),
+        vec![Some("unit-7".into())]
+    );
+    let audit = rt
+        .store
+        .audit_tail(200)
+        .unwrap()
+        .into_iter()
+        .rfind(|a| a["kind"] == json!("provider.transitioned"))
+        .expect("provider.transitioned audit");
+    assert_eq!(audit["detail"]["state"], json!("disabled"), "{audit}");
+    assert_eq!(
+        audit["detail"]["sensorStop"]["reports"][0]["outcome"],
+        json!("stopped"),
+        "{audit}"
+    );
+}
+
+/// 沒有登記感測來源的 provider 不得憑空生出停止結果（誠實：沒有就是沒有）。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_provider_without_a_sensor_source_reports_no_stop_at_all() {
+    let dir = tempfile::tempdir().unwrap();
+    let (rt, stops, _releases) = runtime_with_stub_source(&dir).await;
+    let pid = ProviderId::new("provider.other.unit-1");
+    register_stub_provider(&rt, &pid).await;
+
+    rt.revoke_provider(&pid).await.expect("revoked");
+
+    assert!(stops.lock().unwrap().is_empty(), "不是它的裝置不得被停");
+    let audit = rt
+        .store
+        .audit_tail(200)
+        .unwrap()
+        .into_iter()
+        .rfind(|a| a["kind"] == json!("provider.revoked"))
+        .expect("provider.revoked audit");
+    assert_eq!(audit["detail"]["sensorStop"], Value::Null, "{audit}");
+}

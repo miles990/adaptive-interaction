@@ -110,9 +110,16 @@ Adapters / Transport / Platform  mobile.rs（iPhone wss）、character.rs＋char
    宣告仍在，否則 stop-all 會從此不知道 `iphone.mic-level` 是高風險）。維運可讀：`GET /v1/providers/declarations`／
    `interact-ai providers declarations`（唯讀，無 HTTP 寫入入口）。命名提醒：`interaction_registry::CapabilityRegistry`
    （每個受器／動器的 enabled 旗標）與 `ProviderCapabilityRegistry`（provider 家族的語意宣告）是兩個不同的表。
-2. **`StopAllSensorsReport.devices` 仍是 `Vec<MobileStopOutcome>`**：那是 HTTP／CLI／桌面共用的回傳
-   形狀（前端逐欄位讀），換成 trait object 會改 wire 契約，不在本輪範圍。**行為上**的耦合（要補發
-   哪些事件、哪些算確認停止）已經全部走 `SensorStopOutcome`，`sensors.rs` 不再出現任何裝置字面值。
+2. **`StopAllSensorsReport.devices` 仍是 `Vec<MobileStopOutcome>`**（wire 形狀不動），**但停止已經只有一個協調器**
+   （v0.6.x，`Runtime::stop_all_sensor_sources`）：`crates/interaction-runtime/src/sensor_source.rs` 的 `SensorSource` port
+   （`source_id`／`declaration_id`／`active_captures`／`request_stop(target, deadline, reason)`／`release`）＋有界登記表
+   （上限 32，超過拒絕並稽核）。本機麥克風（`LocalMicSensorSource`）與 iPhone（`MobileSensorSource`）都是登記進來的一般來源，
+   核心沒有裝置特例分支；`emergency_stop` 與停止按鈕呼叫同一個協調器（X1：對「宣告了高風險受器卻沒有來源涵蓋」回同樣的
+   `uncertain`＋no-stop-path）；通用 `revoke_provider`／`transition_provider(Disabled)` 對登記了來源的 provider 指名 target
+   走同一條 `request_stop`＋`release`（X2，結果寫進稽核）；`Runtime::unregister_receptor` 對高風險受器先請來源停止再移除
+   （S4）。結果五態 `stopped`／`already-stopped`／`unknown`／`unreachable`／`refused`，只有前兩者算確認；非 mobile 來源的逐筆
+   結果進新增的 `sources[]`（非空才序列化），`stopped`／`uncertain` 同時涵蓋 `devices`＋`sources`＋無停止管道的受器；來源被
+   移除時仍在擷取的感測以有界可見的 stop-unknown 留在 activeSensors（感測不靜默）。第三波的宣告式 adapter 實作同一個 port。
 3. **宣告是動態的**：`Runtime::declare_provider_capabilities()` 是公開 API，測試與未來的動態 provider
    都可以在執行期登記自己的呈現面／高風險受器，不必改核心的任何分支。
 

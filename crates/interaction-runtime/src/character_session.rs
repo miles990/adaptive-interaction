@@ -477,7 +477,8 @@ pub struct CharacterSessionHost {
     /// 載入時**讓 session 重建**的異常（→ diagnostics 的 `storeNote`）。
     ///
     /// 語意刻意保持與 v0.6.0 相同：「保存的紀錄用不了，這一輪是全新的 session」。
-    /// 桌面把非 null 的 `storeNote` 翻成「角色同步紀錄曾損毀，已重新開始」，所以
+    /// 桌面把非 null 的 `storeNote` 當成「紀錄曾經重建過」的灰色附註（v0.6.x 起不再是警告狀態；
+    /// 現在存不下來才是 `store.parked`／persist 失敗的 active issue），所以
     /// **遷移不得寫進這裡**——遷移沒有重建 session，也沒有丟掉任何東西。
     load_note: Option<String>,
     /// 這一輪做過的格式遷移（來源格式，固定文字）。只進新的 `store` 欄位。

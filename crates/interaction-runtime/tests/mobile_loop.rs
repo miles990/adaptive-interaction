@@ -4069,3 +4069,67 @@ async fn a_legacy_app_that_never_negotiated_creates_no_session_member_on_disconn
     );
     rt.shutdown().await;
 }
+
+/// X2：**通用**的 provider 撤銷（`revoke_provider`，不是 mobile 專屬入口）也必須
+/// 走同一條停止感測路徑：指名這一台請它停止擷取、有界等待、結果進稽核，
+/// 並且把連線放掉。在此之前這條路只翻了受器旗標，能不能停到全靠背景 watcher
+/// 撞上事件——那是競態，不是保證。
+#[tokio::test(flavor = "multi_thread")]
+async fn generic_provider_revoke_stops_a_streaming_phone_and_drops_its_connection() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+    send_phone_status(&mut ws, true).await;
+    wait_for_iphone_mic_sensor(&rt, true).await;
+
+    let (phone, mut rx) = spawn_phone_confirming_stop_all(ws);
+    let pid = interaction_runtime::mobile::mobile_provider_id(&device_id);
+    let started = std::time::Instant::now();
+    rt.revoke_provider(&pid).await.expect("generic revoke");
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "撤銷的等待必須有界：{:?}",
+        started.elapsed()
+    );
+
+    // (a) 手機真的收到「停止感測」，而且不是被說成緊急停止。
+    let stop_all = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+        .await
+        .expect("stop-all reached the phone")
+        .expect("stop-all payload");
+    assert_eq!(stop_all["sensors"], json!(true), "{stop_all}");
+    assert_eq!(
+        stop_all["reason"], "user",
+        "撤銷不是緊急停止，手機不得顯示緊急停止那一句：{stop_all}"
+    );
+
+    // (b) 逐台結果進 provider.revoked 的稽核（誠實：stopped／unknown／unreachable）。
+    let audit = last_audit(&rt, "provider.revoked").expect("provider.revoked audit");
+    let outcome = audit["detail"]["sensorStop"]["reports"][0]["outcome"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        ["stopped", "unknown", "unreachable"].contains(&outcome.as_str()),
+        "停止結果要誠實逐台列出：{audit}"
+    );
+    assert_eq!(
+        audit["detail"]["sensorStop"]["target"],
+        json!(device_id),
+        "只停這一台：{audit}"
+    );
+
+    // (c) 連線被放掉（撤銷不是「不再派工」而已）。
+    assert!(
+        !rt.mobile.any_connected().await,
+        "撤銷之後不得留著一條還在串流的連線"
+    );
+    assert!(
+        audit["detail"]["sensorStop"]["released"]["connectionClosed"] == json!(true),
+        "稽核要說得出連線被放掉了：{audit}"
+    );
+    // (d) 高風險受器強制停用：重連不自動恢復。
+    assert!(rt.registry.receptor(&mic).await.is_err());
+    phone.abort();
+}

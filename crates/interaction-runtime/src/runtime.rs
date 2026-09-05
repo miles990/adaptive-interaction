@@ -117,6 +117,13 @@ pub struct RuntimeInner {
     pub(crate) executing_plans: std::sync::Mutex<BTreeSet<String>>,
     /// Currently-capturing sensors → always-visible indicators.
     pub(crate) sensors: std::sync::Mutex<BTreeMap<String, crate::sensors::SensorUse>>,
+    /// 登記中的感測來源（本機麥克風、行動裝置、未來的宣告式裝置）。停止感測
+    /// 的協調器只認得這張表；有界（[`crate::sensor_source::MAX_SENSOR_SOURCES`]），
+    /// 超過就拒絕並留稽核。
+    pub(crate) sensor_sources: RwLock<crate::sensor_source::SensorSourceMap>,
+    /// 來源被移除、但移除當下還在擷取的「可能還在擷取」記錄（有界可見）。
+    /// 感測不靜默：移除一個來源不得讓它的擷取從 status 無聲消失。
+    pub(crate) orphan_captures: RwLock<BTreeMap<String, crate::sensor_source::OrphanedCaptures>>,
     /// Typed handle to the microphone receptor (None when not registered).
     pub mic_receptor: Option<Arc<adapters_media::MicListenReceptor>>,
     /// Presentation bridge: companion-window presence + pending command acks.
@@ -172,6 +179,12 @@ impl Runtime {
     /// that hold a Weak reference back to the runtime).
     pub(crate) fn from_inner(inner: Arc<RuntimeInner>) -> Runtime {
         Runtime { inner }
+    }
+
+    /// 反向的弱參考（被 Runtime 持有的東西——感測來源、動器——只能這樣回頭
+    /// 找 Runtime，否則就是一個永遠釋放不掉的循環參考）。
+    pub(crate) fn weak_inner(&self) -> std::sync::Weak<RuntimeInner> {
+        Arc::downgrade(&self.inner)
     }
 
     pub async fn start(opts: RuntimeOptions) -> DomainResult<Runtime> {
@@ -383,6 +396,8 @@ impl Runtime {
                 monetary_reservations: tokio::sync::Mutex::new(BTreeMap::new()),
                 executing_plans: std::sync::Mutex::new(BTreeSet::new()),
                 sensors: std::sync::Mutex::new(BTreeMap::new()),
+                sensor_sources: RwLock::new(BTreeMap::new()),
+                orphan_captures: RwLock::new(BTreeMap::new()),
                 mic_receptor: Some(mic_receptor),
                 presentation: presentation_bridge,
                 proactive_dialogue: RwLock::new(proactive_state),
@@ -1002,39 +1017,28 @@ impl Runtime {
         self.estop.store(true, Ordering::SeqCst);
         self.store.set_meta("estop_engaged", "true")?;
 
-        // Sensors first: releasing local capture is synchronous and cheap, and
-        // must not wait behind a serial per-actuator emergency_stop loop (a slow
-        // declarative device driver could otherwise delay mic release) — nor
-        // behind the bounded wait for the phones below.
-        let local = self.stop_local_capture();
-        // Remote sensors too: a paired iPhone's microphone is a sensor of this
-        // system. The desktop forces the high-risk receptor off and tells every
-        // phone to stop sensing (`stop-all { sensors: true }`) — an emergency
-        // stop that only silenced local capture was not an emergency stop.
-        // 有界等待每台確認（2 秒）：沒回覆＝結果未知，誠實記在 payload 裡。
+        // Sensors first, through the SAME coordinator the user-facing
+        // "stop all sensors" button uses (M2 §3.1 / X1). An emergency stop that
+        // hand-rolled its own report could — and did — end up more optimistic
+        // than that button: it never asked whether a declared high-risk receptor
+        // had any stop path at all. One coordinator, one report, one set of
+        // events; local capture is released first (synchronously) inside it, so
+        // it never waits behind the bounded per-source waits.
+        //
         // 同時做兩件事（各自有界、都不重送）：
-        // (1) 停手機端感測；(2) 真相投影——每一台手機的角色都要說出「緊急停止
+        // (1) 停所有感測來源；(2) 真相投影——每一台手機的角色都要說出「緊急停止
         // 中」（這是 `emergency` 狀態唯一的來源；plan／agent 永遠請求不到）。
         // 並行是為了不讓「多做一件誠實的事」把緊急停止拖慢一倍。
-        let (devices, character_emergency) = tokio::join!(
-            self.mobile_estop_stop_sensors(actor),
+        let (sensors, character_emergency) = tokio::join!(
+            self.stop_all_sensors_with_reason(actor, crate::sensors::SENSOR_STOP_REASON_EMERGENCY),
             self.mobile_project_estop(true)
         );
-        let sensors = crate::sensors::StopAllSensorsReport {
-            stopped: devices
-                .iter()
-                .all(|d| d.outcome == crate::mobile::StopOutcome::Stopped),
-            uncertain: devices
-                .iter()
-                .any(|d| d.outcome != crate::mobile::StopOutcome::Stopped),
-            local,
-            devices,
-        };
-        self.emit_stop_sensor_events(&sensors.devices);
+        let (sensors, sensors_audited) = sensors;
+        if let Err(e) = sensors_audited {
+            // 稽核寫不進去不代表沒停：緊急停止繼續往下走，但要留下痕跡。
+            tracing::warn!(error = %e, "emergency stop: the sensor stop audit could not be written");
+        }
         let sensors_value = serde_json::to_value(&sensors).unwrap_or_else(|_| json!({}));
-        let _ = self
-            .store
-            .audit("sensor.stopped-all", actor, &sensors_value);
 
         let mut stopped_actions = 0;
         if let Ok(open) = self.store.open_receipts() {

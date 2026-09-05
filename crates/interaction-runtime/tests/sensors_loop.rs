@@ -489,3 +489,632 @@ async fn stop_all_sensors_is_honest_about_high_risk_receptors_it_never_asked() {
     let report = rt.stop_all_sensors("test").await.unwrap();
     assert!(report.stopped && !report.uncertain, "{report:?}");
 }
+
+// ---------------------------------------------------------------------------
+// SensorSource port（M2 §3.1）：停止所有感測是**一個**協調器，任何來源（本機
+// 麥克風、手機、宣告式裝置）都只是登記進來的一個 `SensorSource`。
+// 這一段的假來源跟 iPhone 完全無關：協調器不得認得任何具體裝置。
+// ---------------------------------------------------------------------------
+
+use interaction_runtime::sensor_source::{
+    SensorSource, SensorStopReport, SensorStopStatus, MAX_SENSOR_SOURCES,
+};
+use interaction_runtime::sensors::{SENSOR_STATE_ACTIVE, SENSOR_STATE_STOP_UNKNOWN};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
+use std::time::Duration;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FakeMode {
+    /// 明確確認停了。
+    Confirm,
+    /// 收到了但在期限內不回覆（App 當掉／連線半開）。
+    Timeout,
+    /// 根本送不出去。
+    Unreachable,
+    /// 來源明確拒絕停止（它知道自己停不了）。
+    Refuse,
+}
+
+/// 程序內假來源：可設定每一種停止結果，並記錄被問了幾次、target 是什麼。
+struct FakeSensorSource {
+    id: String,
+    declaration: String,
+    receptor: String,
+    mode: std::sync::Mutex<FakeMode>,
+    capturing: AtomicBool,
+    stop_requested: AtomicBool,
+    calls: AtomicUsize,
+    targets: std::sync::Mutex<Vec<Option<String>>>,
+}
+
+impl FakeSensorSource {
+    fn new(id: &str, mode: FakeMode) -> Arc<Self> {
+        Arc::new(FakeSensorSource {
+            id: id.to_string(),
+            declaration: format!("declaration.{id}"),
+            receptor: format!("{id}.mic-level"),
+            mode: std::sync::Mutex::new(mode),
+            capturing: AtomicBool::new(true),
+            stop_requested: AtomicBool::new(false),
+            calls: AtomicUsize::new(0),
+            targets: std::sync::Mutex::new(Vec::new()),
+        })
+    }
+
+    fn calls(&self) -> usize {
+        self.calls.load(AtomicOrdering::SeqCst)
+    }
+
+    fn targets(&self) -> Vec<Option<String>> {
+        self.targets.lock().unwrap().clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl SensorSource for FakeSensorSource {
+    fn source_id(&self) -> String {
+        self.id.clone()
+    }
+
+    fn declaration_id(&self) -> String {
+        self.declaration.clone()
+    }
+
+    async fn active_captures(&self) -> Vec<interaction_runtime::sensors::SensorUse> {
+        if !self.capturing.load(AtomicOrdering::SeqCst) {
+            return vec![];
+        }
+        let state = if self.stop_requested.load(AtomicOrdering::SeqCst) {
+            SENSOR_STATE_STOP_UNKNOWN
+        } else {
+            SENSOR_STATE_ACTIVE
+        };
+        vec![interaction_runtime::sensors::SensorUse {
+            kind: self.receptor.clone(),
+            started_at: chrono::Utc::now(),
+            started_by: self.id.clone(),
+            purpose: "fixture capture".into(),
+            auto_stop_at: None,
+            state: state.to_string(),
+        }]
+    }
+
+    async fn request_stop(
+        &self,
+        target: Option<&str>,
+        deadline: Duration,
+        _reason: &str,
+    ) -> Vec<SensorStopReport> {
+        self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+        self.targets
+            .lock()
+            .unwrap()
+            .push(target.map(str::to_string));
+        let sensors = vec![self.receptor.clone()];
+        if !self.capturing.load(AtomicOrdering::SeqCst) {
+            return vec![SensorStopReport::new(
+                self.id.clone(),
+                self.declaration.clone(),
+                sensors,
+                SensorStopStatus::AlreadyStopped,
+                0,
+            )];
+        }
+        let mode = *self.mode.lock().unwrap();
+        let status = match mode {
+            FakeMode::Confirm => {
+                self.capturing.store(false, AtomicOrdering::SeqCst);
+                SensorStopStatus::Stopped
+            }
+            FakeMode::Timeout => {
+                self.stop_requested.store(true, AtomicOrdering::SeqCst);
+                tokio::time::sleep(deadline).await;
+                SensorStopStatus::Unknown
+            }
+            FakeMode::Unreachable => SensorStopStatus::Unreachable,
+            FakeMode::Refuse => SensorStopStatus::Refused,
+        };
+        vec![SensorStopReport::new(
+            self.id.clone(),
+            self.declaration.clone(),
+            sensors,
+            status,
+            0,
+        )]
+    }
+}
+
+fn uncertain_sensors(rt: &Runtime) -> Vec<String> {
+    rt.events
+        .recent(200)
+        .into_iter()
+        .filter(|e| e.event_type == EventType::SensorStopUncertain)
+        .filter_map(|e| e.payload["sensor"].as_str().map(String::from))
+        .collect()
+}
+
+fn stopped_sensors(rt: &Runtime) -> Vec<String> {
+    rt.events
+        .recent(200)
+        .into_iter()
+        .filter(|e| e.event_type == EventType::SensorStopped)
+        .filter_map(|e| e.payload["sensor"].as_str().map(String::from))
+        .collect()
+}
+
+/// 每一種停止結果都要誠實地變成一份 report＋對應的事件：確認停了才發
+/// `sensor.stopped`；unknown／unreachable／refused 一律補 `sensor.stop-uncertain`
+/// （requested≠stopped）。
+#[tokio::test]
+async fn every_stop_outcome_of_a_source_is_reported_and_evented_honestly() {
+    for (mode, label, confirmed) in [
+        (FakeMode::Confirm, "stopped", true),
+        (FakeMode::Timeout, "unknown", false),
+        (FakeMode::Unreachable, "unreachable", false),
+        (FakeMode::Refuse, "refused", false),
+    ] {
+        let (_g, rt, _fake) = runtime().await;
+        let source = FakeSensorSource::new("fixture.source", mode);
+        rt.register_sensor_source(source.clone())
+            .await
+            .expect("source registers");
+
+        let sweep = rt
+            .stop_all_sensor_sources("test", "stop-all-sensors", Duration::from_millis(120))
+            .await;
+        let mine: Vec<_> = sweep
+            .reports
+            .iter()
+            .filter(|r| r.source_id == "fixture.source")
+            .collect();
+        assert_eq!(mine.len(), 1, "{mode:?}: {:?}", sweep.reports);
+        assert_eq!(mine[0].outcome.as_str(), label, "{mode:?}");
+        assert_eq!(mine[0].confirmed(), confirmed, "{mode:?}");
+        assert_eq!(sweep.stopped(), confirmed, "{mode:?}: {sweep:?}");
+        assert_eq!(sweep.uncertain(), !confirmed, "{mode:?}: {sweep:?}");
+
+        let sensor = "fixture.source.mic-level".to_string();
+        if confirmed {
+            assert!(
+                stopped_sensors(&rt).contains(&sensor),
+                "{mode:?}: 確認停了要發 sensor.stopped"
+            );
+            assert!(!uncertain_sensors(&rt).contains(&sensor), "{mode:?}");
+        } else {
+            assert!(
+                uncertain_sensors(&rt).contains(&sensor),
+                "{mode:?}: 未確認一律補 sensor.stop-uncertain"
+            );
+            assert!(
+                !stopped_sensors(&rt).contains(&sensor),
+                "{mode:?}: 沒確認不得謊稱停了"
+            );
+        }
+    }
+}
+
+/// 重複停止是冪等的：第二次問，來源誠實回「本來就沒在擷取」，
+/// 不重發 sensor.stopped，也不變成 uncertain。
+#[tokio::test]
+async fn stopping_a_source_twice_is_idempotent() {
+    let (_g, rt, _fake) = runtime().await;
+    let source = FakeSensorSource::new("fixture.source", FakeMode::Confirm);
+    rt.register_sensor_source(source.clone()).await.unwrap();
+
+    let first = rt
+        .stop_all_sensor_sources("test", "stop-all-sensors", Duration::from_millis(120))
+        .await;
+    let first_mine = first
+        .reports
+        .iter()
+        .find(|r| r.source_id == "fixture.source")
+        .expect("reported");
+    assert_eq!(first_mine.outcome, SensorStopStatus::Stopped);
+    let second = rt
+        .stop_all_sensor_sources("test", "stop-all-sensors", Duration::from_millis(120))
+        .await;
+    let mine = second
+        .reports
+        .iter()
+        .find(|r| r.source_id == "fixture.source")
+        .expect("still reported");
+    assert_eq!(mine.outcome, SensorStopStatus::AlreadyStopped);
+    assert!(second.stopped() && !second.uncertain(), "{second:?}");
+    assert_eq!(source.calls(), 2);
+    assert_eq!(
+        stopped_sensors(&rt)
+            .iter()
+            .filter(|s| s.as_str() == "fixture.source.mic-level")
+            .count(),
+        1,
+        "已經停了的來源不得再發一次 sensor.stopped"
+    );
+}
+
+/// 停止進行中把來源移除：仍然要拿到那一份 uncertain 報告，而且它的感測
+/// **不得從 activeSensors 靜默消失**（消失＝宣稱它停了）。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_source_removed_while_stopping_still_reports_and_stays_visible() {
+    let (_g, rt, _fake) = runtime().await;
+    let source = FakeSensorSource::new("fixture.source", FakeMode::Timeout);
+    rt.register_sensor_source(source.clone()).await.unwrap();
+    assert_eq!(rt.active_sensors_all().await.len(), 1, "登記後看得見");
+
+    let rt2 = rt.clone();
+    let sweep = tokio::spawn(async move {
+        rt2.stop_all_sensor_sources("test", "stop-all-sensors", Duration::from_millis(400))
+            .await
+    });
+    // 停止還在進行中就把來源移除。
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    assert!(rt.unregister_sensor_source("fixture.source").await);
+
+    let sweep = sweep.await.expect("sweep finishes");
+    let mine = sweep
+        .reports
+        .iter()
+        .find(|r| r.source_id == "fixture.source")
+        .expect("移除不得吞掉進行中的停止結果");
+    assert_eq!(mine.outcome, SensorStopStatus::Unknown);
+    assert!(sweep.uncertain(), "{sweep:?}");
+
+    let visible = rt.active_sensors_all().await;
+    assert!(
+        visible.iter().any(|s| s.kind == "fixture.source.mic-level"),
+        "來源被移除但沒確認停止 → 仍要看得見（感測不靜默）：{visible:?}"
+    );
+    assert!(
+        visible
+            .iter()
+            .all(|s| s.kind != "fixture.source.mic-level" || s.state != SENSOR_STATE_ACTIVE),
+        "已要求停止的不得再標 active：{visible:?}"
+    );
+}
+
+/// 掃描必須有界：一個永遠不回覆的來源不得把停止拖成無限等待。
+#[tokio::test(flavor = "multi_thread")]
+async fn the_stop_sweep_is_bounded_by_the_deadline() {
+    let (_g, rt, _fake) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.slow", FakeMode::Timeout))
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let sweep = rt
+        .stop_all_sensor_sources("test", "stop-all-sensors", Duration::from_millis(150))
+        .await;
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_millis(1200),
+        "等待必須有界：{elapsed:?}"
+    );
+    assert!(sweep.uncertain(), "{sweep:?}");
+}
+
+/// 來源登記表是有界的：超過上限的登記被拒絕並留稽核（區網／設定檔上的東西
+/// 不得把記憶體吃光），而且既有來源不受影響。
+#[tokio::test]
+async fn the_sensor_source_registry_is_bounded() {
+    let (_g, rt, _fake) = runtime().await;
+    let mut accepted = 0usize;
+    for i in 0..MAX_SENSOR_SOURCES + 4 {
+        if rt
+            .register_sensor_source(FakeSensorSource::new(
+                &format!("fixture.{i}"),
+                FakeMode::Confirm,
+            ))
+            .await
+            .is_ok()
+        {
+            accepted += 1;
+        }
+    }
+    assert!(
+        accepted < MAX_SENSOR_SOURCES + 4,
+        "超過上限必須被拒絕（accepted={accepted}）"
+    );
+    assert!(rt.sensor_source_ids().await.len() <= MAX_SENSOR_SOURCES);
+    let audit = rt
+        .store
+        .audit_tail(200)
+        .unwrap()
+        .into_iter()
+        .rfind(|a| a["kind"] == serde_json::json!("sensor.source-rejected"));
+    assert!(audit.is_some(), "拒絕要留痕");
+}
+
+/// wire 契約：`devices` 不動（HTTP／CLI／桌面逐欄位讀），非 mobile 來源另外
+/// 放在 `sources`；`stopped`／`uncertain` 兩個陣列一起看。
+#[tokio::test]
+async fn the_stop_all_report_keeps_devices_and_adds_sources() {
+    let (_g, rt, _fake) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.source", FakeMode::Refuse))
+        .await
+        .unwrap();
+    let report = rt.stop_all_sensors("test").await.unwrap();
+    let wire = serde_json::to_value(&report).unwrap();
+    assert!(wire["devices"].is_array(), "{wire}");
+    assert_eq!(wire["devices"].as_array().map(Vec::len), Some(0), "{wire}");
+    assert_eq!(
+        wire["sources"][0]["sourceId"],
+        serde_json::json!("fixture.source"),
+        "{wire}"
+    );
+    assert_eq!(wire["sources"][0]["outcome"], serde_json::json!("refused"));
+    assert_eq!(wire["stopped"], serde_json::json!(false), "{wire}");
+    assert_eq!(wire["uncertain"], serde_json::json!(true), "{wire}");
+}
+
+/// X1：緊急停止與「停止所有感測」是**同一個**協調器。宣告了高風險受器但沒有
+/// 任何來源涵蓋它時，兩條路徑必須回同樣的 uncertain，並補同樣的
+/// `sensor.stop-uncertain{no-stop-path}`——緊急停止不得比使用者按的那顆按鈕
+/// 更樂觀。
+#[tokio::test(flavor = "multi_thread")]
+async fn emergency_stop_and_stop_all_sensors_agree_about_an_unstoppable_receptor() {
+    async fn declare_uncoverable(rt: &Runtime) {
+        rt.registry
+            .register_receptor(Arc::new(FakeRobotMic))
+            .await
+            .expect("fixture receptor registers");
+        rt.declare_provider_capabilities(
+            interaction_runtime::providers::ProviderCapabilityDeclaration::new(
+                "provider.fake.robot",
+            )
+            .with_receptor("robot.mic-level")
+            .with_high_risk_receptor("robot.mic-level"),
+        );
+        rt.registry
+            .set_receptor_enabled(&ReceptorId::new("robot.mic-level"), true)
+            .await
+            .unwrap();
+    }
+
+    let (_g1, user_rt, _f1) = runtime().await;
+    declare_uncoverable(&user_rt).await;
+    let user_report = user_rt.stop_all_sensors("test").await.unwrap();
+
+    let (_g2, estop_rt, _f2) = runtime().await;
+    declare_uncoverable(&estop_rt).await;
+    let estop = estop_rt.emergency_stop("test", None).await.unwrap();
+    let estop_report = &estop["sensors"];
+
+    assert_eq!(
+        estop_report["stopped"],
+        serde_json::json!(user_report.stopped),
+        "兩條路徑對同一種情況必須一致：{estop_report}"
+    );
+    assert_eq!(estop_report["stopped"], serde_json::json!(false));
+    assert_eq!(estop_report["uncertain"], serde_json::json!(true));
+    assert!(user_report.uncertain);
+
+    for (name, rt) in [("stop-all", &user_rt), ("estop", &estop_rt)] {
+        let payloads: Vec<_> = rt
+            .events
+            .recent(200)
+            .into_iter()
+            .filter(|e| e.event_type == EventType::SensorStopUncertain)
+            .map(|e| e.payload)
+            .collect();
+        assert!(
+            payloads
+                .iter()
+                .any(|p| p["sensor"] == serde_json::json!("robot.mic-level")
+                    && p["outcome"] == serde_json::json!("no-stop-path")),
+            "{name}: 沒有停止管道要補事件：{payloads:?}"
+        );
+        let audit = rt
+            .store
+            .audit_tail(200)
+            .unwrap()
+            .into_iter()
+            .rfind(|a| a["kind"] == serde_json::json!("sensor.stop-not-requested"));
+        assert!(audit.is_some(), "{name}: 沒問到的受器要留稽核");
+    }
+}
+
+/// S4（DELETE 競態）：直接刪掉一個高風險受器時，桌面必須**先**請涵蓋它的來源
+/// 停止感測。否則受器記錄消失、來源還在錄，畫面卻一片安靜。
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_a_high_risk_receptor_asks_its_source_to_stop_first() {
+    let (_g, rt, _fake) = runtime().await;
+    let source = FakeSensorSource::new("fixture.source", FakeMode::Timeout);
+    rt.register_sensor_source(source.clone()).await.unwrap();
+    rt.registry
+        .register_receptor(Arc::new(FakeRobotMic))
+        .await
+        .unwrap();
+    rt.declare_provider_capabilities(
+        interaction_runtime::providers::ProviderCapabilityDeclaration::new(
+            "declaration.fixture.source",
+        )
+        .with_receptor("robot.mic-level")
+        .with_high_risk_receptor("robot.mic-level"),
+    );
+    rt.registry
+        .set_receptor_enabled(&ReceptorId::new("robot.mic-level"), true)
+        .await
+        .unwrap();
+
+    rt.unregister_receptor(&ReceptorId::new("robot.mic-level"))
+        .await
+        .expect("receptor is removed");
+
+    assert_eq!(source.calls(), 1, "刪除前要先請來源停止感測");
+    assert!(
+        rt.registry
+            .receptor(&ReceptorId::new("robot.mic-level"))
+            .await
+            .is_err(),
+        "受器確實被移除"
+    );
+    let visible = rt.active_sensors_all().await;
+    assert!(
+        visible.iter().any(|s| s.kind == "fixture.source.mic-level"),
+        "來源沒確認停止 → 不得整筆消失：{visible:?}"
+    );
+    assert!(
+        uncertain_sensors(&rt).contains(&"fixture.source.mic-level".to_string()),
+        "沒確認就要補 sensor.stop-uncertain"
+    );
+}
+
+/// 撤銷一個 provider 時，登記在它底下的來源要走**同一個** request_stop
+/// （target 指名那一台），結果進 `provider.revoked` 的稽核。
+#[tokio::test(flavor = "multi_thread")]
+async fn revoking_a_provider_stops_its_sensor_source_with_a_target() {
+    let (_g, rt, _fake) = runtime().await;
+    let source = FakeSensorSource::new("provider.fixture", FakeMode::Confirm);
+    rt.register_sensor_source(source.clone()).await.unwrap();
+    let pid = interaction_core::ProviderId::new("provider.fixture.unit-1");
+    rt.providers
+        .register(interaction_core::ProviderDescriptor {
+            identity: interaction_core::ProviderIdentity {
+                id: pid.clone(),
+                kind: interaction_core::ProviderKind::Device,
+                display_name: "fixture unit".into(),
+                trust_level: interaction_core::TrustLevel::Paired,
+                origin: "fixture".into(),
+                version: "0".into(),
+                fingerprint: None,
+                human: None,
+            },
+            state: interaction_core::ProviderState::Available,
+            receptors: vec![],
+            actuators: vec![],
+            tool_operations: vec![],
+            paired_at: None,
+            last_seen: None,
+            detail: None,
+        })
+        .await
+        .expect("fixture provider registers");
+
+    rt.revoke_provider(&pid).await.expect("revoked");
+
+    assert_eq!(source.calls(), 1, "撤銷要走同一條停止路徑");
+    assert_eq!(
+        source.targets(),
+        vec![Some("unit-1".to_string())],
+        "只停這一台，不是整族"
+    );
+    let audit = rt
+        .store
+        .audit_tail(200)
+        .unwrap()
+        .into_iter()
+        .rfind(|a| a["kind"] == serde_json::json!("provider.revoked"))
+        .expect("provider.revoked audit");
+    assert_eq!(
+        audit["detail"]["sensorStop"]["reports"][0]["outcome"],
+        serde_json::json!("stopped"),
+        "停止結果要進稽核：{audit}"
+    );
+}
+
+/// 撤銷與停止掃描**同時**發生：兩條路徑都會問同一個來源。兩者都必須有界回來、
+/// 各自誠實（沒確認就是未知），而且那台來源的感測不得在中途靜默消失。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_revoke_racing_a_stop_sweep_stays_bounded_and_honest() {
+    let (_g, rt, _fake) = runtime().await;
+    let source = FakeSensorSource::new("provider.fixture", FakeMode::Timeout);
+    rt.register_sensor_source(source.clone()).await.unwrap();
+    let pid = interaction_core::ProviderId::new("provider.fixture.unit-1");
+    rt.providers
+        .register(interaction_core::ProviderDescriptor {
+            identity: interaction_core::ProviderIdentity {
+                id: pid.clone(),
+                kind: interaction_core::ProviderKind::Device,
+                display_name: "fixture unit".into(),
+                trust_level: interaction_core::TrustLevel::Paired,
+                origin: "fixture".into(),
+                version: "0".into(),
+                fingerprint: None,
+                human: None,
+            },
+            state: interaction_core::ProviderState::Available,
+            receptors: vec![],
+            actuators: vec![],
+            tool_operations: vec![],
+            paired_at: None,
+            last_seen: None,
+            detail: None,
+        })
+        .await
+        .unwrap();
+
+    let started = std::time::Instant::now();
+    let sweeping = {
+        let rt = rt.clone();
+        tokio::spawn(async move {
+            rt.stop_all_sensor_sources("test", "stop-all-sensors", Duration::from_millis(300))
+                .await
+        })
+    };
+    let revoking = {
+        let rt = rt.clone();
+        let pid = pid.clone();
+        tokio::spawn(async move { rt.revoke_provider(&pid).await })
+    };
+    let sweep = sweeping.await.expect("sweep finishes");
+    revoking
+        .await
+        .expect("revoke finishes")
+        .expect("revoke succeeds");
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "兩條路徑都必須有界：{:?}",
+        started.elapsed()
+    );
+    assert!(sweep.uncertain(), "沒確認就是未知：{sweep:?}");
+    assert!(
+        source.calls() >= 2,
+        "兩條路徑都問過來源：{}",
+        source.calls()
+    );
+    let audit = rt
+        .store
+        .audit_tail(200)
+        .unwrap()
+        .into_iter()
+        .rfind(|a| a["kind"] == serde_json::json!("provider.revoked"))
+        .expect("provider.revoked audit");
+    assert_eq!(
+        audit["detail"]["sensorStop"]["reports"][0]["outcome"],
+        serde_json::json!("unknown"),
+        "撤銷路徑也不得謊稱停了：{audit}"
+    );
+    let visible = rt.active_sensors_all().await;
+    assert!(
+        visible
+            .iter()
+            .any(|s| s.kind == "provider.fixture.mic-level"),
+        "競態不得讓感測靜默消失：{visible:?}"
+    );
+}
+
+/// 「來源被移除時還在擷取」的記錄也必須有界：來源反覆登記／移除不得讓這張表
+/// （以及 `activeSensors`）無界成長。滿了就丟最舊的一筆並留稽核——被丟掉的
+/// 那一筆從來沒有被說成「已停止」。
+#[tokio::test]
+async fn the_removed_while_capturing_record_is_bounded() {
+    let (_g, rt, _fake) = runtime().await;
+    for i in 0..MAX_SENSOR_SOURCES + 8 {
+        let id = format!("fixture.churn-{i}");
+        rt.register_sensor_source(FakeSensorSource::new(&id, FakeMode::Timeout))
+            .await
+            .expect("registers");
+        assert!(rt.unregister_sensor_source(&id).await);
+    }
+    let visible = rt.active_sensors_all().await;
+    assert!(
+        visible.len() <= MAX_SENSOR_SOURCES,
+        "有界：{} 筆",
+        visible.len()
+    );
+    let dropped = rt
+        .store
+        .audit_tail(200)
+        .unwrap()
+        .into_iter()
+        .rfind(|a| a["kind"] == serde_json::json!("sensor.removed-capture-record-dropped"));
+    assert!(dropped.is_some(), "丟掉最舊的一筆要留痕");
+}
