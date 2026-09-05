@@ -422,7 +422,7 @@ iphone.\*」三道前置關卡（Governor 正確運作），新增 `--grant-cons
 
 **前端結構性文案訂正（`docs-claims-072`）**：README／FEATURES 先前描述的精靈步驟名（「認識小樞／要讓小樞
 幫忙工作嗎／安全預設」）與五入口第二項固定寫「小樞」，與程式碼（`Onboarding.tsx` 的 `STEPS =
-["選擇角色與陪伴方式","選擇 AI 工作方式","確認安全與權限預設"]`；`App.tsx` 的 `SIMPLE_NAV` 第二項在執行期
+["選擇角色與陪伴方式","選擇 AI 工作方式","確認安全與權限預設"]`；`routing.ts`（v0.6.x 前在 `App.tsx`）的 `SIMPLE_NAV` 第二項在執行期
 換成目前角色名稱，預設小樞）不符，已訂正。
 
 **證據等級總結（第二輪）**：Rust／vitest 單元與整合＝各工程 agent 局部實跑（詳見各自 stage-3 報告的

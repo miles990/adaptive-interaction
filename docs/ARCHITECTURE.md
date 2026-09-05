@@ -273,7 +273,8 @@ iPhone 線協定 v1（`mobile.rs`）新增一種 frame `{"type":"aip","envelope"
   （`e71ab45 feat(runtime): host the authoritative Character Session and bind it to the iPhone wire protocol, HTTP, SSE and CLI`）。
 - iPhone `aip` frame（同一個 commit `e71ab45`，`mobile.rs`）。
 - **桌面同步狀態文案**（`f28bb84`）：`docs/aip/character-session.md` §11 的一般模式人話已落在
-  `apps/interaction-desktop/src/statusProjection.ts` 的 `CHARACTER_SYNC_PROJECTION`，並由
+  `apps/interaction-desktop/src/statusProjection/characterSync.ts` 的 `CHARACTER_SYNC_PROJECTION`
+  （v0.6.x 起 `statusProjection.ts` 只是依領域拆檔後的匯總殼，import 路徑不變），並由
   `src/components/CharacterSyncCard.tsx` 呈現；證據等級 **browser fixture**
   （vitest／Playwright，非真機 iPhone）。
 - **iOS Session Client**（`012ff69`）：`apps/interaction-ios/InteractionCompanion/Services/SessionClient.swift`
