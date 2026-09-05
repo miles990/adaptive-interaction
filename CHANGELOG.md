@@ -24,6 +24,22 @@
   `scripts/tests/docs-claims.sh` 核對 tag→commit 與檔案存在，並擋下總覽文件把已發布版本寫成「候選／尚未 tag」。（81b89d1）
 
 ### Fixed
+- **桌面角色同步卡改用純函式接收端狀態機**（`apps/interaction-desktop/src/aip/sessionClient.ts`，鏡射 Rust
+  `accept_state_with_epoch`），元件只發請求與投影。修掉：SSE `state{kind:"snapshot"}` 無條件接受（同 epoch 較舊
+  revision 可覆蓋本地）、缺 `revision`／`sessionEpoch` 被當成 0、負數／小數／>2^53 被當合法、慢的初始 GET 覆蓋較新的
+  SSE 狀態（請求世代）、用 `RuntimeEvent.sequence` 去重導致 daemon 重啟後 state 事件被永久丟棄。合法 reset
+  （`reason:"session-reset"` 且 epoch 不同）接受；epoch 不同無 reason → 重新對齊。有本地副本時「重新檢查」／接不上／
+  連線切換（新 `connectionKey` prop）走 `POST /v1/character-session/resume`（不消耗 sequence）；連續對齊失敗達 3 次
+  升級成「無法恢復」。`src/test/session-client.test.ts` 40 支、`character-sync-card.test.tsx` +5 支。
+- **桌面端開始做 AIP §6 接收端 hash 核對**（`src/aip/canonical.ts`：canonical JSON、code point 鍵序、依 codegen 產出的
+  `SEMANTIC_STATE_DOUBLE_PATHS` 重印 f64 字面、自寫同步 SHA-256 附已知向量）；`src/test/canonical-hash.test.ts` 對三端共用
+  的 9 份 `stateHashes` fixture 逐位元組相同。hash 不符不套用、重新對齊，進階診斷顯示 `alignment.*` 計數。
+- `mood.intensity` 的負零：`clamp_unit(-0.0)` 過去會產生序列化為 `-0.0` 的 intensity（與 `0.0` 語意同、canonical 字面不同）。
+  現在產生端收斂為 `+0.0`，接收端（`violates_limits`／`CharacterSession::restore`／patch 套用）對 sign-negative 的零回
+  `InvalidState`（`schema-invalid`），不修正。`crates/interaction-session/tests/state_semantics.rs` 6 支。
+- `crates/interaction-aip/tests/fixtures/state-snapshot.json` 的 state 改成 host 真實形狀（`intensity` `0.0`、
+  `members[].unsupportedIntents: []`、省略 `null` 選填鍵），配對的 `state-patch.json` hash 連帶更新並以 Rust 測試釘成一對；
+  iOS 既有 `testSnapshotStateHashMatchesTheRustFixture` 改吃真實形狀。
 - `release.yml` 桌面 `.sha256` 上傳迴圈在 Windows 上讀到 `\r\n` 清單會把 `\r` 留在檔名尾巴、`gh release upload` 找不到檔案
   （v0.6.0 Release run 33918252926 的 `Desktop (windows-latest)` job 因此紅、`finalize` 依設計 skipped）。現在逐行去掉 `\r`，
   python 端也固定用 `newline="\n"` 寫檔；`scripts/tests/release-scripts.sh` 以假 `gh` 重現 CRLF 清單釘住。
@@ -34,6 +50,10 @@
   `release-scripts.sh` 靜態核對這兩件事（48/0）。（d94abac）
 
 ### Changed
+- `schemas/aip-1.0.schema.json` 的 `limits` 表新增 `maxUnsupportedInputs: 32`（權威值仍是 `interaction_aip::limits`），
+  `AIP_LIMITS`／`AIPLimits` 由 codegen 跟著多一個常數，`envelope.ts` 不再手寫 32；`schema.rs` 新增雙向漂移 gate
+  `every_limit_constant_is_published_in_the_schema`（`limits.rs` 的每個 `pub const` 都必須在 schema，反之亦然）。
+- Rust `conformance.rs` 與 Swift `StateHashConformanceTests`（iOS 模擬器 104/104）各自獨立消費 `stateHashes` fixtures。
 - CHANGELOG claim-check 不再要求「最上方非空段落至少重述一次點擊穿透輪詢間隔」：src-tauri 的
   `changelog_unreleased_click_through_claims_match_code` 只擋過期的 500ms 宣稱與數字不一致（新增
   `changelog_click_through_check_does_not_force_repetition`）；`docs-claims.sh` 的「已落地功能要有條目」改綁到落地的版本段
