@@ -396,6 +396,12 @@ extension AIPEnvelope {
             if body["kind"]?.stringValue == "patch" {
                 return need(baseRevision != nil, "baseRevision for patches")
             }
+            // AIP 1.0 的 snapshot **必帶 hash 與 state**（§7.2 規則 2），但那一關**不在這裡**：
+            // Rust（`interaction-aip/src/envelope.rs`）與 TypeScript（`aip/envelope.ts`）的
+            // typed boundary 都只檢查 sessionId／sequence／revision／baseRevision，缺 hash 由
+            // 接收端決策表記成 `reject-invalid`。這一端跟著同一條界線——boundary 多擋一分，
+            // 同一則訊息在三端就會得到不同的結論，而 `conformance.md` §1 說的正是不可以這樣。
+            // 缺 hash 的 snapshot 由 `SessionDecisions.decideReceive` 規則 2 擋下（永不套用）。
             return nil
         case .cancel:
             return need(

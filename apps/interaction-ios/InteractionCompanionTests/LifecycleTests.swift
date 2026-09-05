@@ -624,10 +624,19 @@ final class LifecycleTests: XCTestCase {
         XCTAssertTrue(client.negotiated, "協商失敗，後面的斷言就沒有意義")
     }
 
+    /// 這個檔案用的權威狀態。AIP 1.0 的 snapshot **必帶 hash**，所以下面的 `hash` 一律
+    /// 對這份文字現算，不寫死（寫死的話改一個欄位就會變成「hash 對不上」的假失敗）。
+    private static let stateText = """
+        {"characterId":"ref-shape","mood":{"kind":"happy","intensity":0.5},
+         "activity":"idle","attention":{"kind":"none"},
+         "truth":{"state":"none"},"members":[],"reducedMotion":false}
+        """
+
     @MainActor
     private func applySnapshot(
         _ client: SessionClient, revision: UInt64, sequence: UInt64, epoch: UInt64
     ) throws {
+        let hash = try XCTUnwrap(SemanticJSON.parse(Self.stateText)?.canonicalSHA256)
         try feed(
             client,
             """
@@ -638,9 +647,7 @@ final class LifecycleTests: XCTestCase {
              "sessionId":"session.home","occurredAt":"2026-09-05T12:30:04.000Z",
              "sequence":\(sequence),
              "payload":{"kind":"snapshot","revision":\(revision),"sessionEpoch":\(epoch),
-                        "state":{"characterId":"ref-shape","mood":{"kind":"happy","intensity":0.5},
-                                 "activity":"idle","attention":{"kind":"none"},
-                                 "truth":{"state":"none"},"members":[],"reducedMotion":false}}}
+                        "hash":"\(hash)","state":\(Self.stateText)}}
             """)
         XCTAssertEqual(client.advanced.revision, revision, "快照必須被套用")
     }

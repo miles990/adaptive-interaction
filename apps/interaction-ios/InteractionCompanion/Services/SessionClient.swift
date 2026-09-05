@@ -11,8 +11,18 @@
 //  - 不支援的 intent 回 `rejected{unsupported-capability}`，**絕不**回 `observed`。
 //  - `verified` 永遠不由 App 產生（host 端 gate 也會擋，這裡先自律）。
 //  - 未知 message type／未知 name／不合規訊息一律不執行，只誠實記錄。
-//  - 權威狀態只由 host 決定：revision 對不上就要 resume，hash 對不上就丟掉本地狀態要 snapshot；
-//    比本地舊的一律忽略（rollback 防護），除非 host 明說重建了 session。
+//  - 權威狀態只由 host 決定：收到一則 `state` 之後要做什麼，逐條照 **AIP 1.0 接收端決策表**
+//    （`docs/aip/character-session.md` §7.2；表本身在 `SessionReceive.swift`，權威實作是 Rust
+//    `interaction_session::receive`）。
+//
+//  與權威實作的差異：**零**（v0.7.0 起）。三處曾經各走各的規則，現在三端讀同一張表：
+//  1. snapshot 的 epoch 與本地不同又沒有 `session-reset` 宣告 → 以前直接套用並靜默改寫本地
+//     epoch，現在 `realign(epoch-changed)`（規則 5）。
+//  2. patch 以前完全不看 epoch，只靠 `baseRevision` 恰巧不符去擋 → 現在 `realign`（規則 11）。
+//  3. 落後的 snapshot 以前一律送 resume → 現在忽略（規則 7）；真的倒退過的 host 會說
+//     `recovery`（規則 6），那才套用。
+//  兩個上限（`maxResumePatches` 512、`maxRealignAttempts` 3）由 codegen 從 golden schema 帶進
+//  `AIPLimits`，**不得**在這一端手寫。
 //  - 所有集合有界：待播 intent ≤ 8、去重環 256、記錄 50 行、resume 連敗計數。
 //  - 重連不重播互動事件與 intent（§8 離線政策：touch 靠 deadline 過期、intent 是 drop-if-offline）。
 //
@@ -54,7 +64,11 @@ enum SessionNames {
     static let behaviorCancel = "character.behavior.cancel"
     static let touch = "character.interaction.touch"
     static let dismiss = "character.interaction.dismiss"
+    /// `payload.reason`：host 明說它重建了 session（Rust `REASON_SESSION_RESET`）。
     static let sessionReset = "session-reset"
+    /// `payload.reason`：host 明說它從較舊的快照還原（Rust `REASON_RECOVERY`）。
+    /// 成員自己宣稱超前不算證據，只有 host 說了才允許 revision 往回走。
+    static let recovery = "recovery"
 }
 
 // MARK: - 本機認知（純資料）
@@ -65,12 +79,31 @@ struct SessionSyncLocal: Equatable {
     var sequence: UInt64 = 0
     var epoch: UInt64 = 0
     var state: SemanticJSON?
+    /// 本地那份 state 的 canonical hash（**本地自己算的**，不是照抄 payload）。
+    var stateHash: String?
+    /// 這份權威狀態屬於哪一個 session（`nil` ＝ 還不知道，就不宣稱不符）。
+    var sessionId: String?
+    /// 現行連線／請求世代：帶著別的世代的訊息就是舊連線的遲到品（決策表規則 0）。
+    var connectionGeneration: UInt64 = 0
+    /// 有界 realign 預算（連續幾次未能 apply）。
+    var budget = SessionRealignBudget()
+
     /// 連續幾次「送了 resume 卻還是沒對齊」。
-    var resumeFailures: Int = 0
-    var unrecoverable: Bool = false
+    var resumeFailures: Int { budget.attempts }
+    /// 已達上限：狀態是**未知**，照實說，不再自動重試。
+    var unrecoverable: Bool { budget.isUnrecoverable }
 
     /// 連續失敗到這個數字就顯示「無法恢復，請重新連接」。
-    static let resumeFailureLimit = 3
+    /// 權威值在 `interaction_aip::limits::MAX_REALIGN_ATTEMPTS`，由 codegen 帶進 `AIPLimits`
+    /// ——**不得**在這一端手寫成 3。
+    static let resumeFailureLimit = AIPLimits.maxRealignAttempts
+
+    /// 決策表看得到的本地摘要（沒有 state 本身）。
+    var view: SessionReceiverView {
+        SessionReceiverView(
+            hasState: state != nil, sessionId: sessionId, epoch: epoch, revision: revision,
+            stateHash: stateHash, connectionGeneration: connectionGeneration)
+    }
 
     /// 一則**真的送出去**的 resume 最多等桌面回覆多久；超過這段時間，回前景才允許再問一次。
     ///
@@ -82,35 +115,59 @@ struct SessionSyncLocal: Equatable {
 }
 
 /// 一則 `state`（或 resume 回來的一項）的共同形狀。
+///
+/// `state`／`baseRevision` 是**選填**：缺了不是「讀不出來」，而是決策表規則 2 的
+/// `reject-invalid`（AIP 1.0 的 snapshot 必帶 hash 與 state，patch 必帶 baseRevision）。
 struct SessionStateMessage: Equatable {
     enum Kind: Equatable {
-        case snapshot(state: SemanticJSON)
-        case patch(patch: SemanticJSON, baseRevision: UInt64)
+        case snapshot(state: SemanticJSON?)
+        case patch(patch: SemanticJSON, baseRevision: UInt64?)
     }
 
     var kind: Kind
     var revision: UInt64
     var sequence: UInt64?
-    var epoch: UInt64?
+    var epoch: UInt64
     var hash: String?
-    /// host 明說重建了 session：接收端必須丟棄本地狀態。
-    var isSessionReset: Bool
+    /// `payload.reason`（`session-reset`／`recovery`；未知值視同沒有 reason）。
+    var reason: String?
+    /// envelope 的 `sessionId`（`nil` ＝ 沒宣稱）。
+    var sessionId: String?
 }
 
-/// 套用一則 state 之後該做什麼。
-enum SessionStateOutcome: Equatable {
-    /// 可以套用（`state` 是套用後的完整權威狀態）。
-    case applied(revision: UInt64, epoch: UInt64, state: SemanticJSON)
-    /// 比本地舊：忽略（rollback 防護）。
-    case ignoredRollback
-    /// 已經套用過同一個版本：忽略。
-    case ignoredAlreadyApplied
-    /// 接不上：要送 resume。
-    case needsResume
-    /// 套用後對不上 host 的 hash：丟掉本地狀態、要一份完整快照。
-    case needsSnapshot
-    /// 不是合法的 state 訊息：不執行。
-    case invalid
+extension SessionStateMessage.Kind {
+    /// 決策表看得到的種類。
+    var tableKind: SessionStateKind {
+        switch self {
+        case .snapshot: return .snapshot
+        case .patch: return .patch
+        }
+    }
+
+    /// snapshot 的 payload 真的帶了 `state`（規則 2）。
+    var statePresent: Bool {
+        if case .snapshot(let state) = self { return state != nil }
+        return false
+    }
+
+    /// patch 宣告接在哪一個 revision 後面（規則 2／13）。
+    var baseRevision: UInt64? {
+        if case .patch(_, let base) = self { return base }
+        return nil
+    }
+}
+
+/// 一則 state 走完決策表之後的結果：決策本身，加上「採用的話本地會變成什麼」。
+struct SessionStateOutcome: Equatable {
+    var decision: SessionReceiveDecision
+    /// 採用時套用後的**完整**權威狀態；不採用時 `nil`。
+    var state: SemanticJSON?
+    /// 採用後的本地摘要（不採用時就是原值）。
+    var view: SessionReceiverView
+
+    var revision: UInt64 { view.revision }
+    var epoch: UInt64 { view.epoch }
+    var hash: String? { view.stateHash }
 }
 
 /// 收到一則 Behavior Intent 之後該做什麼。
@@ -272,72 +329,98 @@ enum SessionDecisions {
     // MARK: state
 
     /// 把一則 `state` envelope 的 payload（逐字保留）讀成 `SessionStateMessage`。
+    ///
+    /// `sessionEpoch` 是**必填**：沒有 epoch 就沒有可比的順序，猜一個本地值只會讓
+    /// 「換了 session」看起來像「同一個 session 的新版本」（TypeScript 端同樣要求）。
     static func stateMessage(
-        payload: SemanticJSON, baseRevision: UInt64? = nil, sequence: UInt64? = nil
+        payload: SemanticJSON,
+        baseRevision: UInt64? = nil,
+        sequence: UInt64? = nil,
+        sessionId: String? = nil,
+        assumedKind: SessionStateKind? = nil
     ) -> SessionStateMessage? {
-        guard let revision = payload["revision"]?.uintValue else { return nil }
-        let hash = payload["hash"]?.stringValue
-        let epoch = payload["sessionEpoch"]?.uintValue
-        let seq = payload["sequence"]?.uintValue ?? sequence
-        let isReset = payload["reason"]?.stringValue == SessionNames.sessionReset
-        switch payload["kind"]?.stringValue {
-        case "snapshot":
-            guard let state = payload["state"] else { return nil }
-            return SessionStateMessage(
-                kind: .snapshot(state: state), revision: revision, sequence: seq, epoch: epoch,
-                hash: hash, isSessionReset: isReset)
-        case "patch":
-            guard let patch = payload["patch"],
-                let base = payload["baseRevision"]?.uintValue ?? baseRevision
-            else { return nil }
-            return SessionStateMessage(
-                kind: .patch(patch: patch, baseRevision: base), revision: revision, sequence: seq,
-                epoch: epoch, hash: hash, isSessionReset: isReset)
-        default:
+        guard let revision = payload["revision"]?.uintValue,
+            let epoch = payload["sessionEpoch"]?.uintValue
+        else { return nil }
+        let common = { (kind: SessionStateMessage.Kind) in
+            SessionStateMessage(
+                kind: kind, revision: revision,
+                sequence: payload["sequence"]?.uintValue ?? sequence, epoch: epoch,
+                hash: payload["hash"]?.stringValue, reason: payload["reason"]?.stringValue,
+                sessionId: payload["sessionId"]?.stringValue ?? sessionId)
+        }
+        switch SessionStateKind.parse(payload["kind"]?.stringValue) ?? assumedKind {
+        case .snapshot:
+            // 缺 `state` 不是「讀不出來」：決策表規則 2 會把它記成 reject-invalid。
+            return common(.snapshot(state: payload["state"]))
+        case .patch:
+            // 缺 `patch` 本體才是真的讀不出來（沒有東西可以套）；缺 `baseRevision` 是規則 2。
+            guard let patch = payload["patch"] else { return nil }
+            return common(
+                .patch(
+                    patch: patch,
+                    baseRevision: payload["baseRevision"]?.uintValue ?? baseRevision))
+        case nil:
             return nil
         }
     }
 
-    /// AIP §6 的完整接收規則：rollback 防護、`session-reset` 例外、patch 續接、hash 核對。
-    static func apply(_ message: SessionStateMessage, to local: SessionSyncLocal)
-        -> SessionStateOutcome
+    /// resume 回覆裡的一則補丁（`docs/aip/transport-bindings.md` §1.3 的 `patches[]`）。
+    ///
+    /// 形狀是**攤平**的（`{sequence, baseRevision, revision, patch, hash, sessionEpoch}`）：
+    /// 沒有 envelope 外殼，也**沒有 `kind`**——規則與 `state{kind:"patch"}` 完全一樣。
+    /// 認不得它的話，每一次帶補丁的 resume 都會被記成「讀不出來」，對齊永遠補不完。
+    static func resumePatchMessage(_ item: SemanticJSON, sessionId: String? = nil)
+        -> SessionStateMessage?
     {
+        stateMessage(payload: item, sessionId: sessionId, assumedKind: .patch)
+    }
+
+    /// resume 回覆的補丁數超過上限（**不**靜默截斷成「我以為我追上了」）。
+    static func resumeExceedsBound(_ count: Int) -> Bool { count > AIPLimits.maxResumePatches }
+
+    /// AIP 1.0 接收端決策表（`docs/aip/character-session.md` §7.2）＋「採用的話會變成什麼」。
+    ///
+    /// 決策本身在 `SessionReceive.swift`（三端共用、由 fixture 對答案）；這裡只負責把
+    /// wire 上的一則訊息攤平成表看得懂的欄位，並**自己算 hash**
+    ///（snapshot ＝對收到的 state；patch ＝merge 之後的結果）。
+    static func apply(
+        _ message: SessionStateMessage,
+        to local: SessionSyncLocal,
+        arrivedOnGeneration: UInt64? = nil,
+        viaAuthoritativeReply: Bool = false
+    ) -> SessionStateOutcome {
+        let candidate: SemanticJSON?
         switch message.kind {
         case .snapshot(let state):
-            let epoch = message.epoch ?? local.epoch
-            // §7 步驟 4 寫的是「epoch **不同** → 丟棄本地狀態、套用 snapshot」，不是「更大」。
-            // host 重建 session 或這支手機被重新配對到**另一台桌面**時，新 host 的 epoch
-            // 可能比手機記得的小（全新 session 的 epoch 就是 1）；用 `>` 會把那份權威快照
-            // 判成 rollback，之後每一則狀態都被同樣理由丟掉、永遠不會恢復。
-            let reset = message.isSessionReset && epoch != local.epoch
-            if !reset {
-                if message.revision < local.revision { return .ignoredRollback }
-                if message.revision == local.revision { return .ignoredAlreadyApplied }
-            }
-            if let hash = message.hash, state.canonicalSHA256 != hash {
-                // 快照自己就對不上自己的 hash：不執行、也不再要一次同一份（會無限迴圈）。
-                return .invalid
-            }
-            return .applied(revision: message.revision, epoch: epoch, state: state)
-        case .patch(let patch, let baseRevision):
-            if message.revision < local.revision { return .ignoredRollback }
-            if message.revision == local.revision { return .ignoredAlreadyApplied }
-            guard let base = local.state, baseRevision == local.revision else { return .needsResume }
-            let merged = SemanticJSON.mergePatch(base, patch)
-            if let hash = message.hash, merged.canonicalSHA256 != hash {
-                return .needsSnapshot
-            }
-            return .applied(
-                revision: message.revision, epoch: message.epoch ?? local.epoch, state: merged)
+            candidate = state
+        case .patch(let patch, _):
+            // 沒有本地副本就沒有東西可以套上去（規則 10 會處理）。
+            candidate = local.state.map { SemanticJSON.mergePatch($0, patch) }
         }
+        let incoming = SessionIncomingState(
+            kind: message.kind.tableKind,
+            sessionId: message.sessionId,
+            epoch: message.epoch,
+            revision: message.revision,
+            baseRevision: message.kind.baseRevision,
+            reason: message.reason,
+            hash: message.hash,
+            computedHash: candidate?.canonicalSHA256,
+            statePresent: message.kind.statePresent,
+            arrivedOnGeneration: arrivedOnGeneration ?? local.connectionGeneration,
+            viaAuthoritativeReply: viaAuthoritativeReply)
+        let view = local.view
+        let decision = decideReceive(view: view, incoming: incoming)
+        return SessionStateOutcome(
+            decision: decision,
+            state: decision.adoptsState ? candidate : nil,
+            view: advance(view: view, incoming: incoming, decision: decision))
     }
 
     /// 送出一次 resume 就記一次「還沒對齊」；連續達上限即視為無法恢復。
     static func noteResumeAttempt(_ local: inout SessionSyncLocal) {
-        local.resumeFailures += 1
-        if local.resumeFailures >= SessionSyncLocal.resumeFailureLimit {
-            local.unrecoverable = true
-        }
+        local.budget = local.budget.counting()
     }
 
     /// 回到前景時要不要**再**送一則 resume。
@@ -354,21 +437,28 @@ enum SessionDecisions {
 
     /// 只要成功套用過一次狀態，先前的失敗就不再有意義。
     static func noteSyncSucceeded(_ local: inout SessionSyncLocal) {
-        local.resumeFailures = 0
-        local.unrecoverable = false
+        local.budget = SessionRealignBudget()
     }
 
-    /// 新的一條連線：重新給一輪補齊的機會。
+    /// 新的一條連線：重新給一輪補齊的機會，並記下新的連線世代。
     /// 只清失敗計數，**不**清 revision／state——重連是 reconcile，不是重來（§7）。
-    static func noteNewConnection(_ local: inout SessionSyncLocal) {
-        local.resumeFailures = 0
-        local.unrecoverable = false
+    ///
+    /// 世代是決策表規則 0 的依據：上一條連線送出的訊息現在才到，它宣告的 epoch 一定與
+    /// 本地不同，任何 epoch 判斷都會被它騙過去，世代檢查是唯一防線。
+    static func noteNewConnection(_ local: inout SessionSyncLocal, generation: UInt64? = nil) {
+        local.budget = SessionRealignBudget()
+        if let generation { local.connectionGeneration = generation }
     }
 
     /// 換了配對目標（另一台桌面）：本地對權威狀態的一切認知都失效，全部歸零。
     /// 留著舊的 revision／epoch 會讓新 host 的第一份快照被當成 rollback。
+    ///
+    /// **連線世代不歸零**：它描述的是「現在這條 socket」，不是權威狀態的一部分；
+    /// 歸零會讓正在用的這條連線送來的東西被當成舊世代的遲到品。
     static func forgetAuthoritativeState(_ local: inout SessionSyncLocal) {
+        let generation = local.connectionGeneration
         local = SessionSyncLocal()
+        local.connectionGeneration = generation
     }
 
     // MARK: intent
@@ -452,6 +542,9 @@ struct SessionAdvancedInfo: Equatable {
     var intentsRejected = 0
     var intentsDropped = 0
     var framesIgnored = 0
+    /// 舊連線世代的遲到品（決策表規則 0）。與 `framesIgnored` 分開記：這不是「訊息有問題」，
+    /// 而是「這條連線已經不是那條了」。
+    var staleConnectionFrames = 0
     /// 收到桌面 AIP `heartbeat` 的次數（收到幾則就記幾則，與有沒有回覆無關）。
     var heartbeatsReceived = 0
 }
@@ -505,17 +598,20 @@ final class SessionClient: ObservableObject {
     /// auth-ok 之後：（重新）協商；已經有本地狀態時再要求對齊。
     ///
     /// **不重播**任何互動事件或 intent（§8）——重連只 reconcile 狀態。
-    func connectionDidConnect(now: Date = Date()) {
+    ///
+    /// - Parameter generation: 這條連線的世代（`ConnectionManager` 每開一條 socket 就 +1）。
+    ///   `nil` ＝ 沿用目前的世代（單元測試不開 socket 時用）。
+    func connectionDidConnect(now: Date = Date(), generation: UInt64? = nil) {
+        SessionDecisions.noteNewConnection(&local, generation: generation)
         guard let deviceId = transport?.boundDeviceId else { return }
         negotiated = false
         unsupportedIntents = []
         nowPlaying = nil
         queue.removeAll()
         markResumeSettled()
-        // 新連線 ＝ 新的一輪嘗試。§11 給使用者的指示就是「請重新連接」；如果重新連接
-        // 之後計數還留著，第一次 resume 就會被吞掉並繼續顯示「無法恢復」，那句指示等於
-        // 是假的（上一條連線的失敗不能算在這一條頭上）。
-        SessionDecisions.noteNewConnection(&local)
+        // 新連線 ＝ 新的一輪嘗試（計數已經在最上面清掉了）。§11 給使用者的指示就是
+        //「請重新連接」；如果重新連接之後計數還留著，第一次 resume 就會被吞掉並繼續顯示
+        //「無法恢復」，那句指示等於是假的（上一條連線的失敗不能算在這一條頭上）。
         guard
             let envelope = SessionDecisions.capabilityEnvelope(
                 deviceId: deviceId, sessionId: sessionId, messageId: nextMessageId("cap"),
@@ -604,7 +700,21 @@ final class SessionClient: ObservableObject {
     ///
     /// `rawFrame` 是原始 frame 文字：state 的 hash 必須對 **host 寫出來的文字**取，
     /// 重新編碼過的 JSON 會讓 `0.0` 變成 `0`、hash 就對不上（見 `CharacterSemantic.swift`）。
-    func handleFrame(_ envelope: AIPEnvelope, rawFrame: String, now: Date = Date()) {
+    /// - Parameter arrivedOnGeneration: 這則 frame 是在哪一條連線上收到的
+    ///   （`nil` ＝ 就是現在這條）。決策表規則 0：世代不符的遲到品**先於一切**被丟掉——
+    ///   上一條連線送出的 `session-reset` 宣告的 epoch 一定與本地不同，任何 epoch 判斷
+    ///   都會被它騙過去。
+    func handleFrame(
+        _ envelope: AIPEnvelope,
+        rawFrame: String,
+        arrivedOnGeneration: UInt64? = nil,
+        now: Date = Date()
+    ) {
+        if let generation = arrivedOnGeneration, generation != local.connectionGeneration {
+            advanced.staleConnectionFrames += 1
+            note("忽略一則上一條連線送來的角色同步訊息（世代 \(generation)，現在是 \(local.connectionGeneration)）")
+            return
+        }
         if let failure = envelope.validate() {
             advanced.framesIgnored += 1
             note("忽略一則不合規的角色同步訊息（\(failure.code.rawValue)）")
@@ -623,7 +733,10 @@ final class SessionClient: ObservableObject {
             advanced.framesIgnored += 1
             return
         }
-        if let id = envelope.sessionId, !id.isEmpty {
+        // 身分：已經有一份權威狀態之後，**別的 session 不得改寫我們宣稱的身分**——
+        // 改寫了的話，決策表規則 1 就再也擋不住對方的狀態（我們會以為那是自己人）。
+        if let id = envelope.sessionId, !id.isEmpty, local.sessionId == nil || local.sessionId == id
+        {
             sessionId = id
         }
 
@@ -734,13 +847,15 @@ final class SessionClient: ObservableObject {
     private func handleState(_ envelope: AIPEnvelope, rawFrame: String, now: Date) {
         guard let payload = payloadTokens(rawFrame),
             let message = SessionDecisions.stateMessage(
-                payload: payload, baseRevision: envelope.baseRevision, sequence: envelope.sequence)
+                payload: payload, baseRevision: envelope.baseRevision,
+                sequence: envelope.sequence, sessionId: envelope.sessionId)
         else {
             advanced.framesIgnored += 1
             note("忽略一則讀不出來的角色狀態訊息")
             return
         }
-        consume(message, now: now)
+        // 推播（不是我們要來的權威回覆）：被擋下來不算一次對齊失敗。
+        consume(message, now: now, viaAuthoritativeReply: false)
     }
 
     private func handleResponse(_ envelope: AIPEnvelope, rawFrame: String, now: Date) {
@@ -756,6 +871,16 @@ final class SessionClient: ObservableObject {
         switch payload["kind"]?.stringValue {
         case "patches":
             let items = payload["patches"]?.arrayValue ?? []
+            guard !SessionDecisions.resumeExceedsBound(items.count) else {
+                // 超過上限**不**靜默截斷成「我以為我追上了」：整批不處理，改要一份完整快照。
+                // 權威 host 在補丁塞不下時本來就會改回 snapshot，所以這是縱深防禦。
+                advanced.framesIgnored += 1
+                note(
+                    "桌面回來的角色補丁超過上限（\(items.count) > \(AIPLimits.maxResumePatches)），"
+                        + "整批不套用，改要求完整快照")
+                sendSnapshotQuery(now: now)
+                return
+            }
             if items.isEmpty {
                 // 已經對齊了（sequence 落後不是狀態錯誤）：沒有東西要補。
                 SessionDecisions.noteSyncSucceeded(&local)
@@ -763,72 +888,120 @@ final class SessionClient: ObservableObject {
             }
             for item in items {
                 guard
-                    let message = SessionDecisions.stateMessage(
-                        payload: item, baseRevision: item["baseRevision"]?.uintValue)
+                    let message = SessionDecisions.resumePatchMessage(
+                        item, sessionId: envelope.sessionId)
                 else {
                     failedToSync()
                     return
                 }
-                if !consume(message, now: now) { return }
+                // 良性的舊項（已套用／落後）跳過不中止；第一個帶 effect 的 realign 中止整批。
+                if !consume(message, now: now, viaAuthoritativeReply: true) { return }
             }
         case "snapshot":
-            guard let message = SessionDecisions.stateMessage(payload: payload) else {
+            guard
+                let message = SessionDecisions.stateMessage(
+                    payload: payload, sessionId: envelope.sessionId)
+            else {
                 failedToSync()
                 return
             }
-            _ = consume(message, now: now)
+            _ = consume(message, now: now, viaAuthoritativeReply: true)
         default:
             failedToSync()
         }
     }
 
-    /// 套用一則 state；回傳「是否還在同步軌道上」（false 表示已經改走 resume／snapshot）。
+    /// 走一遍決策表並執行結論；回傳「這一批還要不要繼續」
+    /// （resume 回覆逐則處理時：良性的舊項跳過不中止，第一個帶 effect 的決策中止）。
     @discardableResult
-    private func consume(_ message: SessionStateMessage, now: Date) -> Bool {
-        switch SessionDecisions.apply(message, to: local) {
-        case .applied(let revision, let epoch, let state):
-            local.revision = revision
-            local.epoch = epoch
-            local.state = state
-            if let sequence = message.sequence, sequence > local.sequence {
-                local.sequence = sequence
+    private func consume(
+        _ message: SessionStateMessage, now: Date, viaAuthoritativeReply: Bool
+    ) -> Bool {
+        let outcome = SessionDecisions.apply(
+            message, to: local, viaAuthoritativeReply: viaAuthoritativeReply)
+        switch outcome.decision {
+        case .apply, .reset, .recover:
+            adopt(outcome, message: message)
+            if outcome.decision == .reset {
+                note("桌面重建了角色 session（epoch \(outcome.epoch)），已改用它的權威狀態")
             }
-            markResumeSettled()
-            SessionDecisions.noteSyncSucceeded(&local)
-            presentation = CharacterSemanticState.project(state)
-            if presentation == nil {
-                note("收到的角色狀態不符合本版認得的形狀，未套用到畫面")
+            if outcome.decision == .recover {
+                note("桌面回報它從較舊的快照還原（revision \(outcome.revision)），已跟著退回")
             }
-            advanced.appliedStates += 1
-            advanced.revision = revision
-            advanced.sequence = local.sequence
-            advanced.epoch = epoch
             return true
-        case .ignoredAlreadyApplied:
+
+        case .alreadyApplied:
             // 同一版又來一次：本來就已經套用過，還在同步軌道上。
             advanced.framesIgnored += 1
             return true
-        case .ignoredRollback:
-            // host 送來的權威狀態比本地舊：雙方對「現在是哪一版」的認知已經不一致。
-            // 什麼都不做的話，之後每一則狀態都會被同樣理由丟掉，而畫面卻顯示「已同步」
-            //（received ≠ applied）。走 §7 的補齊流程；連續補不齊就誠實顯示「無法恢復」。
+
+        case .ignoreStale:
+            // 落後的權威狀態：忽略就是對的（rollback 防護）。真的倒退過的 host 會說
+            // `recovery`（規則 6）；沒說就不是證據，也不必為它再問一次。
             advanced.framesIgnored += 1
-            sendResume(now: now)
+            return true
+
+        case .ignoreStaleConnection:
+            advanced.staleConnectionFrames += 1
             return false
-        case .needsResume:
-            sendResume(now: now)
-            return false
-        case .needsSnapshot:
-            // 對不上 host 的內容：丟掉本地狀態，重新要一份完整的。
-            local.state = nil
-            local.revision = 0
-            sendSnapshotQuery(now: now)
-            return false
-        case .invalid:
+
+        case .rejectIdentity:
+            // 別的 session 的狀態不是「比較舊」，是**不相干**：不套用，也**不**重新對齊
+            //（realign 只會再要一次別人的 session）。
             advanced.framesIgnored += 1
-            note("忽略一則內容對不起來的角色狀態訊息")
+            note("忽略一則別的角色 session 的狀態（身分不符，不會拿它來對齊）")
+            return false
+
+        case .rejectInvalid:
+            advanced.framesIgnored += 1
+            if viaAuthoritativeReply {
+                // 對方回答了、但答案沒用：算一次對齊失敗（推播上的垃圾不算）。
+                SessionDecisions.noteResumeAttempt(&local)
+            }
+            note("忽略一則不完整的角色狀態訊息（snapshot 必須帶 hash 與 state）")
+            return false
+
+        case .realign(let reason):
+            note("角色狀態接不上（\(reason.rawValue)），向桌面要求重新對齊")
+            if reason == .hashMismatch {
+                // 內容對不起來時，補丁鏈已經沒有意義：直接要一份完整快照才收斂得了。
+                // 決策仍然是 realign（三端一致），只是這一端選了比較有效的那一種請求。
+                sendSnapshotQuery(now: now)
+            } else {
+                sendResume(now: now)
+            }
             return false
         }
+    }
+
+    /// 採用一份權威狀態（apply／reset／recover 共用）。
+    private func adopt(_ outcome: SessionStateOutcome, message: SessionStateMessage) {
+        guard let state = outcome.state else { return }
+        local.revision = outcome.revision
+        local.epoch = outcome.epoch
+        local.state = state
+        local.stateHash = outcome.hash
+        local.sessionId = outcome.view.sessionId
+        switch outcome.decision {
+        case .reset, .recover:
+            // host 重建／還原之後 sequence 也重新算：留著舊的較大值會把之後每一則的
+            // sequence 都判成「舊的」，診斷數字就永遠停在上一個 incarnation。
+            local.sequence = message.sequence ?? 0
+        default:
+            if let sequence = message.sequence, sequence > local.sequence {
+                local.sequence = sequence
+            }
+        }
+        markResumeSettled()
+        SessionDecisions.noteSyncSucceeded(&local)
+        presentation = CharacterSemanticState.project(state)
+        if presentation == nil {
+            note("收到的角色狀態不符合本版認得的形狀，未套用到畫面")
+        }
+        advanced.appliedStates += 1
+        advanced.revision = local.revision
+        advanced.sequence = local.sequence
+        advanced.epoch = local.epoch
     }
 
     private func handleCommand(_ envelope: AIPEnvelope, now: Date) {

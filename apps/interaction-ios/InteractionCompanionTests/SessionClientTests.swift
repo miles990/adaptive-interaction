@@ -102,11 +102,11 @@ final class SessionClientTests: XCTestCase {
     func testSnapshotIsAppliedWholeAndBecomesTheLocalState() throws {
         let message = try XCTUnwrap(
             SessionDecisions.stateMessage(payload: try payload("state-snapshot.json")))
-        guard case .applied(let revision, let epoch, let state) = SessionDecisions.apply(
-            message, to: SessionSyncLocal())
-        else {
-            return XCTFail("全新的 session 收到 snapshot 應該整份套用")
-        }
+        let outcome = SessionDecisions.apply(message, to: SessionSyncLocal())
+        XCTAssertEqual(outcome.decision, .apply, "全新的 session 收到 snapshot 應該整份套用")
+        let state = try XCTUnwrap(outcome.state)
+        let revision = outcome.revision
+        let epoch = outcome.epoch
         XCTAssertEqual(revision, 204)
         XCTAssertEqual(epoch, 3)
         let projected = try XCTUnwrap(CharacterSemanticState.project(state))
@@ -124,19 +124,20 @@ final class SessionClientTests: XCTestCase {
         var local = SessionSyncLocal()
         let snapshot = try XCTUnwrap(
             SessionDecisions.stateMessage(payload: try payload("state-snapshot.json")))
-        guard case .applied(let revision, let epoch, let state) = SessionDecisions.apply(
-            snapshot, to: local)
-        else { return XCTFail("snapshot 應該套用") }
-        local.revision = revision
-        local.epoch = epoch
-        local.state = state
+        let applied = SessionDecisions.apply(snapshot, to: local)
+        XCTAssertEqual(applied.decision, .apply, "snapshot 應該套用")
+        local.revision = applied.revision
+        local.epoch = applied.epoch
+        local.state = applied.state
+        local.stateHash = applied.hash
 
         let patch = try XCTUnwrap(
             SessionDecisions.stateMessage(payload: try payload("state-patch.json"), baseRevision: 204))
-        guard case .applied(let next, _, let merged) = SessionDecisions.apply(patch, to: local) else {
-            return XCTFail("baseRevision 對得上的 patch 應該套用（hash 也必須對得上）")
-        }
-        XCTAssertEqual(next, 205)
+        let outcome = SessionDecisions.apply(patch, to: local)
+        XCTAssertEqual(
+            outcome.decision, .apply, "baseRevision 對得上的 patch 應該套用（hash 也必須對得上）")
+        let merged = try XCTUnwrap(outcome.state)
+        XCTAssertEqual(outcome.revision, 205)
         let projected = try XCTUnwrap(CharacterSemanticState.project(merged))
         XCTAssertEqual(projected.mood, .happy)
         XCTAssertEqual(projected.moodIntensity, 0.45, accuracy: 0.0001)
@@ -147,23 +148,28 @@ final class SessionClientTests: XCTestCase {
     func testPatchWithAWrongBaseRevisionIsNotAppliedAndAsksForResume() throws {
         var local = SessionSyncLocal()
         local.revision = 199  // 落後：baseRevision 204 接不上
+        local.epoch = 3
         local.state = try XCTUnwrap(fixture("state-snapshot.json")["payload"]?["state"])
         let patch = try XCTUnwrap(
             SessionDecisions.stateMessage(payload: try payload("state-patch.json"), baseRevision: 204))
-        XCTAssertEqual(SessionDecisions.apply(patch, to: local), .needsResume)
+        XCTAssertEqual(
+            SessionDecisions.apply(patch, to: local).decision,
+            .realign(reason: .baseMismatch))
     }
 
     func testAPatchAppliedOntoTheWrongContentIsRejectedByTheHash() throws {
         var local = SessionSyncLocal()
         local.revision = 204
+        local.epoch = 3
         // 內容被動過（activity 不是 idle）：baseRevision 對得上，但套用後 hash 一定不同。
         local.state = try XCTUnwrap(
             SemanticJSON.parse(#"{"characterId":"ref-shape","activity":"working"}"#))
         let patch = try XCTUnwrap(
             SessionDecisions.stateMessage(payload: try payload("state-patch.json"), baseRevision: 204))
         XCTAssertEqual(
-            SessionDecisions.apply(patch, to: local), .needsSnapshot,
-            "hash 對不上就要丟掉本地狀態、重新要一份完整快照")
+            SessionDecisions.apply(patch, to: local).decision,
+            .realign(reason: .hashMismatch),
+            "hash 對不上就不套用，改要求重新對齊")
     }
 
     func testStateOlderThanOrEqualToTheLocalOneIsIgnored() throws {
@@ -174,11 +180,11 @@ final class SessionClientTests: XCTestCase {
         let snapshot = try XCTUnwrap(
             SessionDecisions.stateMessage(payload: try payload("state-snapshot.json")))
         XCTAssertEqual(
-            SessionDecisions.apply(snapshot, to: local), .ignoredRollback,
+            SessionDecisions.apply(snapshot, to: local).decision, .ignoreStale,
             "比本地舊的狀態一律忽略（rollback 防護）")
 
         local.revision = 204
-        XCTAssertEqual(SessionDecisions.apply(snapshot, to: local), .ignoredAlreadyApplied)
+        XCTAssertEqual(SessionDecisions.apply(snapshot, to: local).decision, .alreadyApplied)
     }
 
     /// host 明說重建了 session（`reason: session-reset` 且 epoch 更新）：
@@ -187,29 +193,46 @@ final class SessionClientTests: XCTestCase {
         var local = SessionSyncLocal()
         local.revision = 300
         local.epoch = 3
-        let resetPayload = try XCTUnwrap(
-            SemanticJSON.parse(
-                """
-                {"kind":"snapshot","reason":"session-reset","revision":1,"sequence":1,
-                 "sessionEpoch":4,
-                 "state":{"characterId":"ref-shape","mood":{"kind":"neutral","intensity":0.0},
-                          "activity":"idle","attention":{"kind":"none"},"truth":{"state":"none"},
-                          "members":[],"reducedMotion":false}}
-                """))
-        let message = try XCTUnwrap(SessionDecisions.stateMessage(payload: resetPayload))
-        guard case .applied(let revision, let epoch, _) = SessionDecisions.apply(message, to: local)
-        else { return XCTFail("session-reset ＋ 新 epoch 必須被接受") }
-        XCTAssertEqual(revision, 1)
-        XCTAssertEqual(epoch, 4)
+        local.state = try XCTUnwrap(fixture("state-snapshot.json")["payload"]?["state"])
+        let message = try XCTUnwrap(
+            SessionDecisions.stateMessage(payload: try resetPayload(epoch: 4)))
+        let outcome = SessionDecisions.apply(message, to: local)
+        XCTAssertEqual(outcome.decision, .reset, "session-reset ＋ 新 epoch 必須被接受")
+        XCTAssertEqual(outcome.revision, 1)
+        XCTAssertEqual(outcome.epoch, 4)
 
-        // 沒有 `reason` 的舊 epoch 快照仍然是 rollback，不得接受。
+        // 沒有 `reason` 的不同 epoch 快照：**不猜**——兩份狀態沒有可比的順序，改要求對齊
+        //（§7.2 規則 5；v0.6.0 以前 Swift 會直接套用並靜默改寫本地 epoch）。
+        let stateText = #"{"characterId":"x","mood":{"kind":"neutral","intensity":0.0}}"#
+        let hash = try XCTUnwrap(SemanticJSON.parse(stateText)?.canonicalSHA256)
         let stale = try XCTUnwrap(
             SessionDecisions.stateMessage(
                 payload: try XCTUnwrap(
                     SemanticJSON.parse(
-                        #"{"kind":"snapshot","revision":1,"sessionEpoch":4,"state":{"characterId":"x"}}"#
-                    ))))
-        XCTAssertEqual(SessionDecisions.apply(stale, to: local), .ignoredRollback)
+                        """
+                        {"kind":"snapshot","revision":1,"sessionEpoch":4,
+                         "hash":"\(hash)","state":\(stateText)}
+                        """))))
+        XCTAssertEqual(
+            SessionDecisions.apply(stale, to: local).decision,
+            .realign(reason: .epochChanged))
+    }
+
+    /// host 重建 session 時送的那份快照（`reason: session-reset`）。
+    /// AIP 1.0 的 snapshot 必帶 hash，所以這裡對 state 現算一個。
+    private func resetPayload(epoch: UInt64, revision: UInt64 = 1) throws -> SemanticJSON {
+        let stateText = """
+            {"characterId":"ref-shape","mood":{"kind":"neutral","intensity":0.0},
+             "activity":"idle","attention":{"kind":"none"},"truth":{"state":"none"},
+             "members":[],"reducedMotion":false}
+            """
+        let hash = try XCTUnwrap(SemanticJSON.parse(stateText)?.canonicalSHA256)
+        return try XCTUnwrap(
+            SemanticJSON.parse(
+                """
+                {"kind":"snapshot","reason":"session-reset","revision":\(revision),"sequence":1,
+                 "sessionEpoch":\(epoch),"hash":"\(hash)","state":\(stateText)}
+                """))
     }
 
     // MARK: - resume 連敗
@@ -543,30 +566,24 @@ final class SessionClientTests: XCTestCase {
             local.revision = 300
             local.epoch = 3
             local.state = try XCTUnwrap(fixture("state-snapshot.json")["payload"]?["state"])
-            let payload = try XCTUnwrap(
-                SemanticJSON.parse(
-                    """
-                    {"kind":"snapshot","reason":"session-reset","revision":1,"sequence":1,
-                     "sessionEpoch":\(hostEpoch),
-                     "state":{"characterId":"ref-shape","mood":{"kind":"neutral","intensity":0.0},
-                              "activity":"idle","attention":{"kind":"none"},
-                              "truth":{"state":"none"},"members":[],"reducedMotion":false}}
-                    """))
-            let message = try XCTUnwrap(SessionDecisions.stateMessage(payload: payload))
-            guard case .applied(let revision, let epoch, _) = SessionDecisions.apply(
-                message, to: local)
-            else {
-                return XCTFail("host 說它重建了 session（epoch \(hostEpoch) ≠ 本地 3），必須套用")
-            }
-            XCTAssertEqual(revision, 1)
-            XCTAssertEqual(epoch, UInt64(hostEpoch))
+            let message = try XCTUnwrap(
+                SessionDecisions.stateMessage(payload: try resetPayload(epoch: UInt64(hostEpoch))))
+            let outcome = SessionDecisions.apply(message, to: local)
+            XCTAssertEqual(
+                outcome.decision, .reset,
+                "host 說它重建了 session（epoch \(hostEpoch) ≠ 本地 3），必須套用")
+            XCTAssertEqual(outcome.revision, 1)
+            XCTAssertEqual(outcome.epoch, UInt64(hostEpoch))
         }
     }
 
-    /// 被丟掉的 rollback **不是**終點：什麼都不做的話，之後每一則權威狀態都會用同樣理由
-    /// 被丟掉，而畫面卻顯示「角色狀態已同步」（received ≠ applied）。
+    /// 落後的權威狀態：忽略就是終點——**除非** host 明說它是 `recovery`。
+    ///
+    /// 這是 v0.7.0 的接收端澄清（§7.2 規則 6／7）：同一個 incarnation 的回退要 host 自己說，
+    /// 成員宣稱超前不算證據。以前這裡會為每一則落後狀態送一次 resume，而 host 對「你已經
+    /// 是最新的」只會回空的 patches，結果是三次無效 round-trip 之後假裝「無法恢復」。
     @MainActor
-    func testAnIgnoredRollbackAsksForAResumeInsteadOfClaimingSynced() throws {
+    func testAnOlderSnapshotIsIgnoredUnlessTheHostDeclaresRecovery() throws {
         let transport = RecordingTransport()
         let client = SessionClient()
         client.transport = transport
@@ -575,11 +592,15 @@ final class SessionClientTests: XCTestCase {
         XCTAssertEqual(client.syncStatus, .synced)
         XCTAssertEqual(transport.resumes.count, 0)
 
-        // 沒有 `reason` 的舊快照（例如另一台桌面的權威狀態）：忽略是對的，
-        // 但忽略之後必須去補齊，而且不得繼續宣稱「已同步」。
+        // 沒有 `reason` 的舊快照：忽略，不套用、也不必再問一次。
         try feed(client, stateEnvelope(revision: 7, sequence: 206, epoch: 3))
-        XCTAssertEqual(transport.resumes.count, 1, "被忽略的權威狀態必須觸發補齊")
-        XCTAssertNotEqual(client.syncStatus, .synced, "一則都沒套用就不能說已同步")
+        XCTAssertEqual(client.advanced.revision, 204, "落後的狀態不得套用")
+        XCTAssertEqual(transport.resumes.count, 0, "落後不是接不上，不必為它再問一次")
+
+        // host 明說它從較舊的快照還原：這時才跟著退回。
+        try feed(client, stateEnvelope(revision: 7, sequence: 207, epoch: 3, reason: "recovery"))
+        XCTAssertEqual(client.advanced.revision, 7, "host 說了 recovery 就要跟著退回")
+        XCTAssertEqual(client.syncStatus, .synced)
     }
 
     /// 重新配對到另一台桌面：本地對權威狀態的認知必須歸零，
@@ -795,24 +816,34 @@ final class SessionClientTests: XCTestCase {
         XCTAssertEqual(client.advanced.revision, 204, "快照必須被套用")
     }
 
-    private func stateEnvelope(revision: UInt64, sequence: UInt64, epoch: UInt64) -> String {
+    /// 這幾支測試用的權威狀態。AIP 1.0 的 snapshot **必帶 hash**，所以 `hash` 一律對這份
+    /// 文字現算，不寫死。
+    private static let stateText = """
+        {"characterId":"ref-shape","mood":{"kind":"happy","intensity":0.5},
+         "activity":"idle","attention":{"kind":"none"},
+         "truth":{"state":"none"},"members":[],"reducedMotion":false}
         """
-        {"specVersion":"aip/1.0","messageId":"aip-st-\(revision)-\(sequence)",
-         "messageType":"state","name":"character.session.snapshot",
-         "source":{"kind":"session","id":"session.home"},
-         "target":{"kind":"device","id":"iphone-87b42264"},
-         "sessionId":"session.home","occurredAt":"2026-09-04T12:30:04.000Z",
-         "sequence":\(sequence),
-         "payload":{"kind":"snapshot","revision":\(revision),"sessionEpoch":\(epoch),
-                    "state":{"characterId":"ref-shape","mood":{"kind":"happy","intensity":0.5},
-                             "activity":"idle","attention":{"kind":"none"},
-                             "truth":{"state":"none"},"members":[],"reducedMotion":false}}}
-        """
+
+    private func stateEnvelope(
+        revision: UInt64, sequence: UInt64, epoch: UInt64, reason: String? = nil
+    ) -> String {
+        let hash = SemanticJSON.parse(Self.stateText)?.canonicalSHA256 ?? "?"
+        let reasonField = reason.map { #""reason":"\#($0)","# } ?? ""
+        return """
+            {"specVersion":"aip/1.0","messageId":"aip-st-\(revision)-\(sequence)",
+             "messageType":"state","name":"character.session.snapshot",
+             "source":{"kind":"session","id":"session.home"},
+             "target":{"kind":"device","id":"iphone-87b42264"},
+             "sessionId":"session.home","occurredAt":"2026-09-04T12:30:04.000Z",
+             "sequence":\(sequence),
+             "payload":{"kind":"snapshot","revision":\(revision),"sessionEpoch":\(epoch),
+                        \(reasonField)"hash":"\(hash)","state":\(Self.stateText)}}
+            """
     }
 
-    private func statePatchEnvelope(revision: UInt64, baseRevision: UInt64, sequence: UInt64)
-        -> String
-    {
+    private func statePatchEnvelope(
+        revision: UInt64, baseRevision: UInt64, sequence: UInt64, epoch: UInt64 = 3
+    ) -> String {
         """
         {"specVersion":"aip/1.0","messageId":"aip-pt-\(revision)-\(sequence)",
          "messageType":"state","name":"character.session.patch",
@@ -821,7 +852,7 @@ final class SessionClientTests: XCTestCase {
          "sessionId":"session.home","occurredAt":"2026-09-04T12:30:05.000Z",
          "sequence":\(sequence),"baseRevision":\(baseRevision),
          "payload":{"kind":"patch","revision":\(revision),"baseRevision":\(baseRevision),
-                    "patch":{"activity":"working"}}}
+                    "sessionEpoch":\(epoch),"patch":{"activity":"working"}}}
         """
     }
 
