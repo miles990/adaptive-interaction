@@ -114,6 +114,7 @@ describe("general-mode-ux-026：另一台裝置尚未同步／已撤銷時不得
     presence: "online",
     canPresent: true,
     degraded: false,
+    syncProfile: null,
     ...o,
   });
 
@@ -216,8 +217,15 @@ describe("evidence-honesty-015：使用者指南的同步狀態表不得漏掉�
    * 指南補上這兩列（以及移除舊的「角色同步紀錄曾損毀，已重新開始」）之後，
    * 這個清單要清空。
    */
-  // docs/DESKTOP-GUIDE.md 已補上 local-only 與 store-issue 兩列（v0.6.x）；清單為空＝每一態都逐句比對。
-  const PENDING_GUIDE_ROWS: string[] = [];
+  // docs/DESKTOP-GUIDE.md 已補上 local-only 與 store-issue 兩列（v0.6.x）。
+  //
+  // v0.7.0 新增的 `partial-sync`（這條線送不到完整狀態）**指南尚未補上**：這一波的
+  // 桌面工作範圍限定在 `apps/interaction-desktop/**` 與 `docs/aip/general-mode-ux.md`，
+  // 使用者指南由收尾的人統一寫。這是一筆記在程式碼裡的**文件債，不是豁免**——
+  // 指南補上這一列之後，這個清單要清空（其餘每一態照舊逐句比對，新增第四態而忘了
+  // 寫指南仍然會紅）。要補的那一列：
+  // | 有裝置收不到完整狀態 | 這台裝置的連線只送得進一部分內容；它看到的角色不一定和這台電腦一樣，不算已同步 |
+  const PENDING_GUIDE_ROWS: string[] = ["有裝置收不到完整狀態"];
 
   it("DESKTOP-GUIDE 的表格列出 CHARACTER_SYNC_PROJECTION 的每一句 headline", () => {
     const guide = readFileSync(join(__dirname, "../../../../docs/DESKTOP-GUIDE.md"), "utf8");

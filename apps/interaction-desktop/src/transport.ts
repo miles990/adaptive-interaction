@@ -146,6 +146,9 @@ const ROUTES: Record<string, Route> = {
     }),
   providers_list: () => http("GET", "/v1/providers"),
   provider_test: (a) => http("POST", `/v1/providers/${q(a.id)}/test`),
+  // 人類層：agent／session token 在 lib.rs 的 scope 守門一律 403。
+  provider_transition: (a) =>
+    http("POST", `/v1/providers/${q(a.id)}/transition`, { state: a.state }),
   hardware_scan: () => http("POST", "/v1/hardware/scan"),
   activity_inbox: (a) => {
     const filter = (a.filter ?? {}) as Record<string, unknown>;

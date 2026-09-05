@@ -1250,6 +1250,35 @@ async fn provider_test(state: State<'_, AppState>, id: String) -> Result<Value, 
         .await
         .map_err(err_s)
 }
+
+/// 生命週期狀態的字串（kebab-case，與 HTTP `POST /v1/providers/{id}/transition`
+/// 的 body 同一組值）→ 型別。認不得的字串**不猜**：直接失敗，不退回任何預設狀態
+/// ——猜一個「大概是這個」的狀態等於讓介面替使用者決定裝置的生命週期。
+fn parse_provider_state(raw: &str) -> Result<interaction_core::ProviderState, String> {
+    serde_json::from_value(Value::String(raw.to_string()))
+        .map_err(|_| "unknown provider state".to_string())
+}
+
+/// Provider 生命週期轉換（人類層；HTTP 端的同名路由在 API 的 scope 守門裡
+/// 對 agent／session token 一律 403）。與 CLI／HTTP 共用同一個 application service，
+/// 生命週期的合法性由 Runtime 判斷（`Disabled → Available` 之外的捷徑一律被拒）。
+///
+/// 誠實：這只是**允許**下一個狀態。宣告式裝置重新啟用之後狀態會誠實地留在
+/// `disconnected`（重新綁定中），實體連線與能力宣告要等握手成功才回得來。
+#[tauri::command]
+async fn provider_transition(
+    app_state: State<'_, AppState>,
+    id: String,
+    state: String,
+) -> Result<Value, String> {
+    let runtime = rt(&app_state)?;
+    let next = parse_provider_state(&state)?;
+    let desc = runtime
+        .transition_provider(&interaction_core::ProviderId::new(&id), next)
+        .await
+        .map_err(err_s)?;
+    serde_json::to_value(desc).map_err(err_s)
+}
 #[tauri::command]
 async fn agents_discoveries(state: State<'_, AppState>) -> Result<Value, String> {
     let runtime = rt(&state)?;
@@ -3554,6 +3583,7 @@ pub fn run() {
             proactive_dialogue_quiet,
             providers_list,
             provider_test,
+            provider_transition,
             agent_session_create,
             agent_session_messages,
             agents_discoveries,
@@ -3644,6 +3674,23 @@ mod tests {
             "503 Service Unavailable on /v1/character-session".into()
         ));
         assert!(mapped.unwrap_err().contains("session-disabled"));
+    }
+
+    /// 「重新啟用裝置」送來的狀態字串只認 kebab-case 的生命週期值；認不得的
+    /// **不猜**（不退回 `Discovered` 這種預設值，那會把「打錯字」變成一次降級）。
+    #[test]
+    fn provider_state_strings_are_parsed_exactly_or_refused() {
+        assert_eq!(
+            parse_provider_state("available").unwrap(),
+            interaction_core::ProviderState::Available
+        );
+        assert_eq!(
+            parse_provider_state("disabled").unwrap(),
+            interaction_core::ProviderState::Disabled
+        );
+        for bad in ["Available", "enabled", "", "revoke"] {
+            assert!(parse_provider_state(bad).is_err(), "{bad}");
+        }
     }
 
     /// 其他失敗不得被翻成「關閉」——不知道就說不知道。

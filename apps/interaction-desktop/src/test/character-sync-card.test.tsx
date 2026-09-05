@@ -183,6 +183,37 @@ describe("角色頁「同步」卡：一般模式", () => {
     expect(card.textContent ?? "").not.toContain(DEVICE_ID);
   });
 
+  // v0.7.0：這條線送不到完整狀態的成員（`docs/aip/device-profile.md` §3.1）。
+  // 診斷的 `members[].syncProfile` 是唯一來源；只有 `full-state` 可以說「已同步」。
+  it("只接收指令的裝置：不得出現「已同步」綠勾，成員那一行說得出它拿得到什麼", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+      diagnostics: {
+        sessionId: "session.home",
+        sessionEpoch: 1,
+        revision: 11,
+        sequence: 18,
+        members: [{ party: { kind: "device", id: DEVICE_ID }, syncProfile: "intent-only" }],
+        counters: { accepted: 3, applied: 3 },
+        eventLog: { len: 9, cap: 512 },
+        storeNote: null,
+      },
+    });
+    render(<CharacterSyncCard refreshKey={0} advanced={false} />);
+    const card = await screen.findByTestId("character-sync");
+    await waitFor(() =>
+      expect(within(card).getByText("有裝置收不到完整狀態")).toBeInTheDocument()
+    );
+    expect(card.querySelector(".badge-ok")).toBeNull();
+    const members = within(card).getByRole("list", { name: "同步中的裝置" });
+    expect(within(members).getByText(/只接收指令/)).toBeInTheDocument();
+    // 一般模式看不到 profile 的英文原始值，也看不到裝置識別碼。
+    expect(card.textContent ?? "").not.toContain("intent-only");
+    expect(card.textContent ?? "").not.toContain(DEVICE_ID);
+    expect(card.textContent ?? "").not.toMatch(FORBIDDEN);
+  });
+
   it("離線與重新連線都照實說（不把離線寫成沒有裝置）", async () => {
     setup({
       snapshot: snapshot({ members: [{ ...PHONE_MEMBER, presence: "offline" }] }),

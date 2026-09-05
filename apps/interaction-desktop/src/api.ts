@@ -185,6 +185,15 @@ export const api = {
   providersList: () => invoke<Record<string, unknown>[]>("providers_list"),
   /** 「測試裝置」：唯讀測一次（只讀第一個可讀受器，不觸發任何動器）。 */
   providerTest: (id: string) => invoke<ProviderTestReport>("provider_test", { id }),
+  /**
+   * Provider 生命週期轉換（人類層；agent／session token 打不到這條路徑）。
+   *
+   * 誠實：這只是**允許**下一個狀態，不是「已經到了」——重新啟用一台宣告式裝置
+   * 之後，實體連線與能力宣告要等握手成功才回得來（`PROVIDER_REENABLE_MESSAGE`）。
+   * 後端仍然逐步驗證生命週期，畫面不得靠這支跳過任何一步。
+   */
+  providerTransition: (id: string, state: string) =>
+    invoke<Record<string, unknown>>("provider_transition", { id, state }),
   hardwareScan: () => invoke<HardwareScanReport>("hardware_scan"),
   activityInbox: (filter: ActivityInboxFilter = {}) =>
     invoke<Record<string, unknown>>("activity_inbox", { filter }),
@@ -417,6 +426,14 @@ export interface CharacterSessionDiagnostics {
      * UI 不得把 `transport-hello+device-side-pairing` 顯示成「已驗證身分」。
      */
     identityStrength?: string;
+    /**
+     * 這個成員**實際上**拿得到多少共享狀態（Runtime 推導，不是裝置自報；
+     * `docs/aip/device-profile.md` §3.1）：`full-state`（沒有單則上限，或超限會被
+     * 重組）／`intent-only`（只送得到放得進上限的意圖）／`event-source`
+     * （送得進來、收不回去）。查不到出站通道時**欄位不存在**——不猜。
+     * 介面只有在 `full-state` 時可以說「已同步」；原始值不得進一般模式。
+     */
+    syncProfile?: string;
   }[];
   counters: Record<string, number>;
   eventLog: { len: number; cap: number };
@@ -438,6 +455,21 @@ export interface CharacterSessionDiagnostics {
     lastPersistError: string | null;
     note: string | null;
   };
+}
+
+/**
+ * `GET /v1/status` 的 `characterSessionSync[]`（Runtime `character_session_sync_profiles`）。
+ *
+ * **沒有裝置成員時後端不序列化這個鍵**——欄位缺席代表「沒有裝置成員」，不是「同步壞了」。
+ * `transport`／`syncProfile` 是原始值，只給進階模式與投影用；一般模式一律走
+ * `statusProjection` 的人話（`characterSyncProfileLabel`）。
+ */
+export interface CharacterSessionSyncEntry {
+  deviceId: string;
+  transport: string;
+  /** `full-state`／`intent-only`／`event-source`（只有 `full-state` 可以說「已同步」）。 */
+  syncProfile: string;
+  presence: string;
 }
 
 // ---- Character Presentation Protocol types（與 crates/interaction-character 的 wire 一致） ----

@@ -26,12 +26,15 @@ import { Icon } from "../icons";
 import { RISK_TIERS } from "../riskTier";
 import {
   characterSyncDeviceLine,
+  characterSyncProfileNote,
+  characterSyncProfiles,
   inboxItemTitle,
   inboxKindLabel,
   isPendingCountExact,
   PENDING_INCOMPLETE_NOTE,
   projectInboxStatus,
   projectProviderConnection,
+  PROVIDER_REENABLE_MESSAGE,
 } from "../statusProjection";
 import { Badge, Section, useAsync } from "../ui";
 import { CapabilitiesHub } from "./CapabilitiesHub";
@@ -334,7 +337,7 @@ function ConnectOverview({
 }) {
   const { human, humanError, findCard } = useAppState();
   const { name } = useCharacterName();
-  const [providers] = useAsync(
+  const [providers, reloadProviders] = useAsync(
     () => api.providersList() as Promise<Record<string, unknown>[]>,
     [refreshKey]
   );
@@ -355,11 +358,17 @@ function ConnectOverview({
   const [stopBusy, setStopBusy] = React.useState(false);
   const [revokeMessage, setRevokeMessage] = React.useState<string | null>(null);
   const [revokeBusy, setRevokeBusy] = React.useState(false);
+  /** 最近一次「重新啟用」的結果（一次只講一台；有界，不隨清單成長）。 */
+  const [reenable, setReenable] = React.useState<{ id: string; message: string } | null>(null);
+  const [reenableBusy, setReenableBusy] = React.useState<string | null>(null);
 
   const seeing = (human?.receptors ?? []).filter((r) => r.availability === "available");
   const responding = (human?.actuators ?? []).filter((a) => a.availability === "available");
 
   const activeSensors = (status.data?.["activeSensors"] as SensorUse[] | undefined) ?? [];
+  // 每一台裝置成員那條線送得到多少狀態（`docs/aip/device-profile.md` §3.1）。
+  // 沒有裝置成員時後端不序列化這個鍵——空的就是空的，不猜成「都已同步」。
+  const syncProfiles = characterSyncProfiles(status.data);
   const phones = ((mobile.data?.devices as Record<string, unknown>[] | undefined) ?? []).filter(
     (d) => d && typeof d === "object"
   );
@@ -423,6 +432,26 @@ function ConnectOverview({
     }
     setStopLines(lines);
     setStopBusy(false);
+  }
+
+  /**
+   * 「重新啟用」一台停用中的裝置（人類層；二段確認在按鈕上）。
+   *
+   * 誠實：成功只代表**允許再連一次**——宣告式裝置的連線與能力宣告要等握手成功才
+   * 回得來，所以回報用 `PROVIDER_REENABLE_MESSAGE`，不得說「已啟用」。失敗照實說
+   * 狀態未變（`docs/aip/general-mode-ux.md` §5.6）。
+   */
+  async function reenableProvider(id: string) {
+    setReenableBusy(id);
+    setReenable(null);
+    try {
+      await api.providerTransition(id, "available");
+      setReenable({ id, message: `${PROVIDER_REENABLE_MESSAGE}。` });
+    } catch (e) {
+      setReenable({ id, message: `沒有完成（${e}）：這台裝置的狀態未變。` });
+    }
+    setReenableBusy(null);
+    reloadProviders();
   }
 
   /** 授權項目的人話名稱：能力清單裡查不到就照實說，不把原始識別碼丟給一般模式。 */
@@ -498,7 +527,11 @@ function ConnectOverview({
                 model={m}
                 advanced={advanced}
                 focused={focusDeviceId === m.deviceId}
-                syncLine={characterSyncDeviceLine(characterSession.data ?? null, m.deviceId)}
+                syncLine={characterSyncDeviceLine(
+                  characterSession.data ?? null,
+                  m.deviceId,
+                  syncProfiles[m.deviceId]
+                )}
                 onChanged={reloadMobile}
                 onManagePermissions={onSafety}
                 onRepair={() => onShowAll("providers")}
@@ -515,16 +548,35 @@ function ConnectOverview({
               // 會讓人以為沒人在處理，失敗之後也分不出來
               //（docs/aip/general-mode-ux.md §5.6）。
               const state = projectProviderConnection(String(p.state ?? ""), p.detail);
+              // 這條線送不到完整角色狀態時要自己說出來（非 full-state 才有這一句）。
+              const syncNote = characterSyncProfileNote(syncProfiles[id]);
+              // 停用是**人自己按的**，所以人也要能按回去。撤銷／已關閉不給這顆按鈕：
+              // 那不是「停一下」，重新使用要重新配對（撤銷不得有回頭路）。
+              const canReenable = String(p.state ?? "") === "disabled";
               return (
                 <li key={`provider-${id}`} data-testid={`connect-provider-${state.phase}`}>
                   <Icon name="cpu" size={14} />
                   <span>
                     {String(identity.displayName ?? "裝置")}
                     {state.note && <span className="muted small">　{state.note}</span>}
+                    {syncNote && <span className="muted small">　{syncNote}</span>}
+                    {reenable?.id === id && (
+                      <span className="muted small" role="status">
+                        　{reenable.message}
+                      </span>
+                    )}
                     {advanced && state.rawReason && (
                       <span className="muted small">　原始：{state.rawReason}</span>
                     )}
                   </span>
+                  {canReenable && (
+                    <ConfirmButton
+                      label="重新啟用"
+                      confirmLabel="確定：允許這台裝置重新連線"
+                      disabled={reenableBusy === id}
+                      onConfirm={() => void reenableProvider(id)}
+                    />
+                  )}
                   <Badge kind={state.badge}>{state.label}</Badge>
                 </li>
               );

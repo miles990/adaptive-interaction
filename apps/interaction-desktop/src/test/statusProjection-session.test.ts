@@ -1,7 +1,7 @@
 // 角色同步的一般模式投影（`docs/aip/character-session.md` §11 文案表的 UI 鏡射）。
 //
 // 這一支釘住四件事：
-//   1. 十二種同步狀態各有一句人話，而且**窮舉**（`satisfies Record<…>` 讓漏掉的
+//   1. 十三種同步狀態各有一句人話，而且**窮舉**（`satisfies Record<…>` 讓漏掉的
 //      狀態在 typecheck 就爆，不會靜默退化成把技術值印到畫面上）。
 //   2. 一般模式**不得**出現 revision／sequence／epoch／schema／token 之類的技術詞
 //      （正反兩面都斷言：該有的人話有、不該有的技術詞一個都沒有）。
@@ -20,8 +20,12 @@ import {
   CHARACTER_SYNC_STATES,
   characterSyncLastInteraction,
   characterSyncMembers,
+  characterSyncProfileLabel,
+  characterSyncProfileNote,
+  characterSyncProfiles,
   characterSyncSafetyNote,
   characterSyncStoreSignals,
+  characterSyncDeviceLine,
   projectCharacterSession,
   type CharacterSyncAction,
   type CharacterSyncActionId,
@@ -67,6 +71,8 @@ function member(overrides: Partial<CharacterSyncMember> = {}): CharacterSyncMemb
     canPresent: true,
     // 協商結果齊全（每個 host intent 都演得出來）；拿不到協商結果是 null，不是 false。
     degraded: false,
+    // 同步模式沒有回報（舊 Runtime／查不到出站通道）：維持既有語意，不憑空降級。
+    syncProfile: null,
     ...overrides,
   };
 }
@@ -92,10 +98,13 @@ function snapshot(state: Record<string, unknown> = {}): Record<string, unknown> 
   };
 }
 
-describe("角色同步投影：十二種狀態的語意契約", () => {
-  it("狀態表窮舉十二種，且每一句都是人話（沒有技術詞）", () => {
+describe("角色同步投影：十三種狀態的語意契約", () => {
+  it("狀態表窮舉十三種，且每一句都是人話（沒有技術詞）", () => {
     expect(CHARACTER_SYNC_STATES).toEqual([
       "synced",
+      // v0.7.0：這條線送不到完整狀態的成員（`docs/aip/device-profile.md` §3.1）
+      // ——只有 full-state 可以說「已同步」。
+      "partial-sync",
       "reconnecting",
       "offline",
       "partial-capability",
@@ -128,7 +137,7 @@ describe("角色同步投影：十二種狀態的語意契約", () => {
       "緊急停止中：角色已停止表演，解除前不會接受任何互動。"
     );
 
-    // 2. 綠色只給真的已同步；其餘十一態一律不是 ok。
+    // 2. 綠色只給真的已同步；其餘一律不是 ok。
     for (const state of CHARACTER_SYNC_STATES) {
       const tone = CHARACTER_SYNC_PROJECTION[state].tone;
       if (state === "synced") expect(tone).toBe("ok");
@@ -161,6 +170,7 @@ describe("角色同步投影：十二種狀態的語意契約", () => {
   it("每一態的下一步是穩定的 action id（按鈕文案可改寫，機器語意不可）", () => {
     const expected: Record<CharacterSyncState, CharacterSyncActionId | null> = {
       synced: null,
+      "partial-sync": "open-devices",
       syncing: null,
       disabled: null,
       reconnecting: "open-devices",
@@ -521,8 +531,23 @@ describe("角色同步投影：成員清單與最近互動", () => {
     });
     const members = characterSyncMembers(state, { "iphone-87b42264": FIXTURE_PHONE });
     expect(members).toEqual([
-      { name: FIXTURE_PHONE, remote: true, presence: "online", canPresent: true, degraded: null },
-      { name: "這台電腦", remote: false, presence: "online", canPresent: true, degraded: null },
+      {
+        name: FIXTURE_PHONE,
+        remote: true,
+        presence: "online",
+        canPresent: true,
+        degraded: null,
+        // 沒有給 profiles：同步模式就是不知道（不猜成 full-state）。
+        syncProfile: null,
+      },
+      {
+        name: "這台電腦",
+        remote: false,
+        presence: "online",
+        canPresent: true,
+        degraded: null,
+        syncProfile: null,
+      },
     ]);
   });
 
@@ -589,5 +614,142 @@ describe("角色同步投影：成員清單與最近互動", () => {
     );
     expect(characterSyncSafetyNote(snapshot({ truth: { state: "working" } }))).toBeNull();
     expect(characterSyncSafetyNote(null)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 成員同步模式（syncProfile；`docs/aip/device-profile.md` §3.1）
+// ---------------------------------------------------------------------------
+//
+// Runtime 依「那條線的事實」（有沒有單則上限、會不會重組）＋已協商的 role 推導出
+// 三種值。只有 `full-state` 拿得到完整的共享狀態，也只有它可以顯示「已同步」。
+// 這一段釘住三件事：讀得出來、非 full-state 不給綠勾、一般模式看不到英文原始值。
+describe("成員同步模式：只有 full-state 可以說「已同步」", () => {
+  const DEVICE = "iphone-87b42264";
+
+  /** 一個 online 的裝置成員（協商齊全）＝在沒有 syncProfile 時原本會拿到綠勾。 */
+  function onlineSnapshot(id = DEVICE) {
+    return snapshot({
+      members: [
+        {
+          party: { kind: "device", id },
+          role: "remote-renderer",
+          presence: "online",
+          negotiated: { intents: { idle: "exact" } },
+        },
+      ],
+    });
+  }
+
+  it("status.characterSessionSync 與 diagnostics.members 都讀得出「裝置 → 同步模式」", () => {
+    expect(
+      characterSyncProfiles({
+        characterSessionSync: [
+          { deviceId: DEVICE, transport: "serial", syncProfile: "intent-only", presence: "online" },
+        ],
+      })
+    ).toEqual({ [DEVICE]: "intent-only" });
+    expect(
+      characterSyncProfiles({
+        members: [
+          { party: { kind: "device", id: DEVICE }, syncProfile: "event-source" },
+          // 這台電腦自己不是裝置成員，沒有同步模式可言。
+          { party: { kind: "human-surface", id: "desktop" }, syncProfile: "full-state" },
+        ],
+      })
+    ).toEqual({ [DEVICE]: "event-source" });
+  });
+
+  it("形狀不可信：不是物件／缺欄位／空字串都不會變成假的同步模式", () => {
+    for (const input of [null, undefined, 3, "x", {}, { characterSessionSync: 5 }, { members: {} }]) {
+      expect(characterSyncProfiles(input)).toEqual({});
+    }
+    expect(
+      characterSyncProfiles({ characterSessionSync: [{ deviceId: "", syncProfile: "full-state" }] })
+    ).toEqual({});
+    expect(
+      characterSyncProfiles({ characterSessionSync: [{ deviceId: DEVICE, syncProfile: "" }] })
+    ).toEqual({});
+  });
+
+  it("人話標籤：full-state／沒有回報＝沒有附註；其餘一律說得出「拿不到完整狀態」", () => {
+    // 沒有回報 ≠ 非 full-state（舊 Runtime 不送這個欄位）：不憑空降級。
+    expect(characterSyncProfileLabel(undefined)).toBeNull();
+    expect(characterSyncProfileLabel(null)).toBeNull();
+    expect(characterSyncProfileLabel("")).toBeNull();
+    expect(characterSyncProfileLabel("full-state")).toBeNull();
+    expect(characterSyncProfileLabel("intent-only")).toBe("只接收指令");
+    expect(characterSyncProfileLabel("event-source")).toBe("只回報事件");
+    // 認不得的值不猜成 full-state，也不外洩原始字串。
+    const unknown = characterSyncProfileLabel("something-new");
+    expect(unknown).not.toBeNull();
+    expect(unknown ?? "").not.toContain("something-new");
+    for (const raw of ["intent-only", "event-source", "something-new"]) {
+      expect(characterSyncProfileLabel(raw) ?? "").not.toMatch(/[a-z]/i);
+      expect(characterSyncProfileNote(raw) ?? "").not.toMatch(/[a-z]/i);
+      expect(characterSyncProfileNote(raw) ?? "").not.toMatch(FORBIDDEN);
+    }
+    expect(characterSyncProfileNote("full-state")).toBeNull();
+  });
+
+  it("成員帶著自己的同步模式（查不到就是 null，不猜）", () => {
+    const members = characterSyncMembers(onlineSnapshot(), { [DEVICE]: FIXTURE_PHONE }, {
+      [DEVICE]: "intent-only",
+    });
+    expect(members[0].syncProfile).toBe("intent-only");
+    expect(characterSyncMembers(onlineSnapshot(), {}, {})[0].syncProfile).toBeNull();
+  });
+
+  it("online 但只接收指令／只回報事件：不是「已同步」，也不給綠勾", () => {
+    for (const profile of ["intent-only", "event-source", "something-new"]) {
+      const members = characterSyncMembers(onlineSnapshot(), { [DEVICE]: FIXTURE_PHONE }, {
+        [DEVICE]: profile,
+      });
+      const p = projectCharacterSession(onlineSnapshot(), members, signals());
+      expect(p.state, profile).toBe("partial-sync");
+      expect(p.tone, profile).not.toBe("ok");
+      expect(p.headline, profile).not.toContain("已同步");
+      // 誠實：這一句必須自己說出「不算已同步」，不能只是不提。
+      expect(p.detail, profile).toContain("不算已同步");
+      expect(`${p.headline}${p.detail}${p.action.label ?? ""}`).not.toMatch(FORBIDDEN);
+      expect(`${p.headline}${p.detail}`).not.toMatch(/[a-z]/i);
+    }
+  });
+
+  it("full-state 與沒有回報維持既有語意（綠勾照舊）", () => {
+    const cases: Record<string, string>[] = [{ [DEVICE]: "full-state" }, {}];
+    for (const profiles of cases) {
+      const members = characterSyncMembers(onlineSnapshot(), { [DEVICE]: FIXTURE_PHONE }, profiles);
+      expect(projectCharacterSession(onlineSnapshot(), members, signals()).state).toBe("synced");
+    }
+  });
+
+  it("同步模式的判定排在能力之前：狀態根本沒對齊時不得說「狀態已經對齊」", () => {
+    const snap = snapshot({
+      members: [
+        {
+          party: { kind: "device", id: DEVICE },
+          role: "input-device",
+          presence: "online",
+        },
+      ],
+    });
+    const members = characterSyncMembers(snap, { [DEVICE]: FIXTURE_PHONE }, {
+      [DEVICE]: "event-source",
+    });
+    const p = projectCharacterSession(snap, members, signals());
+    expect(p.state).toBe("partial-sync");
+    expect(p.detail).not.toContain("對齊");
+  });
+
+  it("連接頁的裝置一行：非 full-state 不得寫成「已同步」", () => {
+    const snap = onlineSnapshot();
+    expect(characterSyncDeviceLine(snap, DEVICE)).toBe("角色同步：已同步");
+    expect(characterSyncDeviceLine(snap, DEVICE, "full-state")).toBe("角色同步：已同步");
+    const line = characterSyncDeviceLine(snap, DEVICE, "intent-only");
+    expect(line).toContain("只接收指令");
+    expect(line).not.toContain("已同步");
+    expect(line).not.toMatch(/[a-z]/i);
+    expect(characterSyncDeviceLine(snap, DEVICE, "event-source")).toContain("只回報事件");
   });
 });

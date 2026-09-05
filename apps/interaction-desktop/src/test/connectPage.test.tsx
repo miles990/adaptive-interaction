@@ -1262,3 +1262,129 @@ describe("連接與權限：沒有人確認的感測停止就在「立即停止�
     expect(stop.textContent ?? "").not.toMatch(/generation|sourceId/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// v0.7.0：停用中的裝置可以「重新啟用」，成員的同步模式說得出它拿得到什麼
+// ---------------------------------------------------------------------------
+
+describe("連接與權限：停用中的裝置可以重新啟用（人類層）", () => {
+  it("停用中：二段確認之後才呼叫 API，而且不得說「已啟用」", async () => {
+    stubApis();
+    vi.spyOn(api, "providersList").mockResolvedValue([providerRow("disabled")]);
+    const transition = vi
+      .spyOn(api, "providerTransition")
+      .mockResolvedValue({ state: "available" });
+    renderConnect();
+    const devices = await screen.findByTestId("connect-area-devices");
+    await within(devices).findByText("已停用");
+
+    // 第一段：還沒送出任何東西。
+    fireEvent.click(within(devices).getByRole("button", { name: "重新啟用" }));
+    expect(transition).not.toHaveBeenCalled();
+
+    // 第二段：確認之後才真的允許重新連線。
+    fireEvent.click(
+      within(devices).getByRole("button", { name: /確定：允許這台裝置重新連線/ })
+    );
+    await waitFor(() =>
+      expect(transition).toHaveBeenCalledWith("provider.esp32.desk", "available")
+    );
+    // 誠實：按鈕只是「允許再連一次」，連上與否要等握手。
+    await within(devices).findByText(/已允許重新連線，正在重新綁定/);
+    expect(within(devices).queryByText(/已啟用/)).not.toBeInTheDocument();
+  });
+
+  it("失敗時說狀態未變，不假裝已經允許", async () => {
+    stubApis();
+    vi.spyOn(api, "providersList").mockResolvedValue([providerRow("disabled")]);
+    vi.spyOn(api, "providerTransition").mockRejectedValue(new Error("boom"));
+    renderConnect();
+    const devices = await screen.findByTestId("connect-area-devices");
+    fireEvent.click(await within(devices).findByRole("button", { name: "重新啟用" }));
+    fireEvent.click(
+      within(devices).getByRole("button", { name: /確定：允許這台裝置重新連線/ })
+    );
+    await within(devices).findByText(/這台裝置的狀態未變/);
+    expect(within(devices).queryByText(/已允許重新連線/)).not.toBeInTheDocument();
+  });
+
+  it("撤銷／已關閉的裝置沒有這顆按鈕（重新啟用不是撤銷的回頭路）", async () => {
+    stubApis();
+    vi.spyOn(api, "providersList").mockResolvedValue([
+      providerRow("revoked"),
+      {
+        ...providerRow("closed"),
+        identity: {
+          id: "provider.esp32.shelf",
+          displayName: "架上 ESP32",
+          kind: "device",
+          trustLevel: "paired",
+        },
+      },
+    ]);
+    renderConnect();
+    const devices = await screen.findByTestId("connect-area-devices");
+    // 兩列都渲染出來了（撤銷與關閉都沒有重新綁定記號，所以是 plain 相位）。
+    expect(await within(devices).findAllByTestId("connect-provider-plain")).toHaveLength(2);
+    expect(within(devices).queryByRole("button", { name: "重新啟用" })).not.toBeInTheDocument();
+  });
+});
+
+describe("連接與權限：成員同步模式（只有 full-state 可以說已同步）", () => {
+  it("手機那一行：只接收指令時不得寫成「已同步」", async () => {
+    stubApis();
+    vi.spyOn(api, "status").mockResolvedValue({
+      emergencyStop: false,
+      characterSessionSync: [
+        { deviceId: "d1", transport: "serial", syncProfile: "intent-only", presence: "online" },
+      ],
+    });
+    vi.spyOn(api, "characterSessionSnapshot").mockResolvedValue({
+      specVersion: "aip/1.0",
+      messageId: "msg-snapshot-1",
+      messageType: "state",
+      name: "character.session.snapshot",
+      source: { kind: "runtime", id: "runtime" },
+      occurredAt: "2026-09-05T00:00:00.000Z",
+      payload: {
+        kind: "snapshot",
+        state: {
+          members: [
+            {
+              party: { kind: "device", id: "d1" },
+              role: "remote-renderer",
+              presence: "online",
+              negotiated: { intents: { idle: "exact" } },
+            },
+          ],
+        },
+      },
+    });
+    renderConnect();
+    const devices = await screen.findByTestId("connect-area-devices");
+    await within(devices).findByText(/角色同步：只接收指令/);
+    expect(within(devices).queryByText("角色同步：已同步")).not.toBeInTheDocument();
+    expect(devices.textContent ?? "").not.toContain("intent-only");
+  });
+
+  it("裝置條目：非 full-state 的來源自己說得出「不算已同步」", async () => {
+    stubApis();
+    vi.spyOn(api, "providersList").mockResolvedValue([providerRow("available")]);
+    vi.spyOn(api, "status").mockResolvedValue({
+      emergencyStop: false,
+      characterSessionSync: [
+        {
+          deviceId: "provider.esp32.desk",
+          transport: "serial",
+          syncProfile: "event-source",
+          presence: "online",
+        },
+      ],
+    });
+    renderConnect();
+    const devices = await screen.findByTestId("connect-area-devices");
+    await within(devices).findByText(/只回報事件/);
+    expect(within(devices).getByText(/只回報事件/).textContent ?? "").toContain("不算已同步");
+    expect(devices.textContent ?? "").not.toContain("event-source");
+  });
+});

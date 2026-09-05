@@ -151,6 +151,8 @@ describe("守門：誠實階梯不因為同步卡而鬆動", () => {
       presence,
       canPresent: true,
       degraded: false,
+      // 同步模式沒有回報：維持既有語意（這一支測的是 presence，不是那條線）。
+      syncProfile: null,
     });
     const snapshot = { payload: { state: { truth: { state: "none" }, members: [] } } };
     const signals = {

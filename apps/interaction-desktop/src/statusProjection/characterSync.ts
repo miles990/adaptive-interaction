@@ -13,9 +13,15 @@
 
 import type { BadgeKind } from "./workState";
 
-/** 十二種同步狀態（`satisfies Record<CharacterSyncState, …>` 窮舉）。 */
+/** 十三種同步狀態（`satisfies Record<CharacterSyncState, …>` 窮舉）。 */
 export type CharacterSyncState =
   | "synced"
+  /**
+   * 有裝置**連著、也對得上**，但它那條線送不到完整的共享狀態
+   * （`syncProfile` 是 `intent-only`／`event-source`；`docs/aip/device-profile.md` §3.1）。
+   * 不是故障、也不是已同步：它拿到的根本不是同一份狀態，綠勾會是謊。
+   */
+  | "partial-sync"
   | "reconnecting"
   | "offline"
   | "partial-capability"
@@ -87,6 +93,15 @@ export const CHARACTER_SYNC_PROJECTION = {
     detail: "手機上的角色和這台電腦看到的是同一個狀態。",
     tone: "ok",
     action: NO_ACTION,
+  },
+  // 這條線本身送不到完整狀態（單則有上限又不會重組）。和 partial-capability 不同：
+  // 那一態是「狀態對齊了、只是演不出全部」，這一態連狀態都沒有完整送到，
+  // 所以文案裡**不得**出現「已經對齊」。它也不是故障——線就是那條線。
+  "partial-sync": {
+    headline: "有裝置收不到完整狀態",
+    detail: "這台裝置的連線只送得進一部分內容；它看到的角色不一定和這台電腦一樣，不算已同步。",
+    tone: "info",
+    action: { id: "open-devices", label: "查看裝置", target: { tab: "connect", hub: "devices" } },
   },
   reconnecting: {
     headline: "iPhone 正在重新連線",
@@ -205,6 +220,97 @@ export interface CharacterSyncMember {
    * （對抗審查 capability-consent-052／general-mode-ux-022）。拿不到就誠實說拿不到。
    */
   degraded: boolean | null;
+  /**
+   * Runtime 推導的同步模式原始值（`full-state`／`intent-only`／`event-source`），
+   * 查不到就是 `null`。**不得**直接渲染：畫面一律走
+   * [`characterSyncProfileLabel`]／[`characterSyncProfileNote`]。
+   */
+  syncProfile: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// 成員同步模式（syncProfile；`docs/aip/device-profile.md` §3.1）
+// ---------------------------------------------------------------------------
+//
+// 這個成員**實際上**拿得到多少共享狀態，由 Runtime 依「那條線的事實」
+//（`DeviceOutbound::max_line_bytes`／`supports_fragmentation`）＋已協商的 role 推導
+//（`crates/interaction-runtime/src/character_session.rs::derive_sync_profile`），
+// 不是裝置自己宣稱的。只有 `full-state` 拿得到完整狀態，也只有它可以說「已同步」。
+
+/** 唯一可以說「已同步」的模式。 */
+export const CHARACTER_SYNC_PROFILE_FULL_STATE = "full-state";
+
+/** 非 full-state 的人話。一般模式一個英文原始值都不得出現。 */
+const CHARACTER_SYNC_PROFILE_LABEL: Record<string, string> = {
+  "intent-only": "只接收指令",
+  "event-source": "只回報事件",
+};
+
+/** 認不得的模式：不猜成 full-state（那會把「不知道」畫成綠勾），也不外洩原始字串。 */
+export const CHARACTER_SYNC_PROFILE_UNKNOWN_LABEL = "拿不到完整狀態";
+
+/** 一次最多認幾台裝置的同步模式（有界；後端本身也有成員上限）。 */
+const MAX_SYNC_PROFILES = 64;
+
+/**
+ * 同步模式 → 畫面上的短標籤；`null` ＝這一台沒有話要多說。
+ *
+ * 兩種情況回 `null`：
+ *   * `full-state`——就是既有語意（已同步該長什麼樣就長什麼樣）；
+ *   * **沒有回報**（欄位缺席、空字串）——舊 Runtime 不送這個欄位，Runtime 查不到
+ *     出站通道時也會省略。沒有回報 ≠ 非 full-state，所以不憑空降級，也不憑空升級。
+ */
+export function characterSyncProfileLabel(profile: unknown): string | null {
+  const raw = typeof profile === "string" ? profile.trim() : "";
+  if (raw.length === 0 || raw === CHARACTER_SYNC_PROFILE_FULL_STATE) return null;
+  return CHARACTER_SYNC_PROFILE_LABEL[raw] ?? CHARACTER_SYNC_PROFILE_UNKNOWN_LABEL;
+}
+
+/** 裝置條目上的一句補充（非 full-state 才有；`full-state`／沒有回報就是 `null`）。 */
+export function characterSyncProfileNote(profile: unknown): string | null {
+  const label = characterSyncProfileLabel(profile);
+  return label === null ? null : `${label}：這台裝置收不到完整的角色狀態，不算已同步。`;
+}
+
+/**
+ * 「裝置識別碼 → 同步模式」。
+ *
+ * 兩種來源同一個形狀概念，所以同一支函式吃得下（呼叫端手上有哪一份就給哪一份）：
+ *   * `GET /v1/status` 的 `characterSessionSync[]`（`{deviceId, syncProfile, …}`；
+ *     沒有裝置成員時後端不序列化這個鍵）；
+ *   * `GET /v1/character-session/diagnostics` 的 `members[]`
+ *     （`{party:{kind,id}, syncProfile?}`；只有裝置成員算）。
+ *
+ * 形狀不可信：缺欄位、型別不對、整包不是物件都要能吃，而且一律不會生出假的模式。
+ */
+export function characterSyncProfiles(source: unknown): Record<string, string> {
+  const root = record(source);
+  if (!root) return {};
+  const out: Record<string, string> = {};
+  const put = (id: unknown, profile: unknown) => {
+    if (Object.keys(out).length >= MAX_SYNC_PROFILES) return;
+    const key = typeof id === "string" ? id.trim() : "";
+    const value = typeof profile === "string" ? profile.trim() : "";
+    if (key.length === 0 || value.length === 0 || key in out) return;
+    out[key] = value;
+  };
+  const status = root["characterSessionSync"];
+  if (Array.isArray(status)) {
+    for (const entry of status) {
+      const item = record(entry);
+      if (item) put(item["deviceId"], item["syncProfile"]);
+    }
+  }
+  const members = root["members"];
+  if (Array.isArray(members)) {
+    for (const entry of members) {
+      const item = record(entry);
+      const party = record(item?.["party"]);
+      if (!item || party?.["kind"] !== "device") continue;
+      put(party["id"], item["syncProfile"]);
+    }
+  }
+  return out;
 }
 
 /**
@@ -366,7 +472,9 @@ function sessionState(snapshot: unknown): Record<string, unknown> | null {
  */
 export function characterSyncMembers(
   snapshot: unknown,
-  names: Record<string, string>
+  names: Record<string, string>,
+  /** 「裝置識別碼 → 同步模式」（[`characterSyncProfiles`]）；查不到就是不知道。 */
+  profiles: Record<string, string> = {}
 ): CharacterSyncMember[] {
   const raw = sessionState(snapshot)?.["members"];
   if (!Array.isArray(raw)) return [];
@@ -385,6 +493,8 @@ export function characterSyncMembers(
       // 只有「遠端呈現角色」的成員演得出角色；只送輸入或只旁觀的不算。
       canPresent: item["role"] === "remote-renderer" || item["role"] === "host-renderer",
       degraded: memberDegraded(item),
+      // 這台裝置那條線送得到多少狀態（Runtime 推導；查不到就是不知道，不猜）。
+      syncProfile: remote ? (profiles[id] ?? null) : null,
     });
   }
   return members;
@@ -520,6 +630,12 @@ export function projectCharacterSession(
   }
   const online = remote.filter((m) => m.presence === "online");
   if (online.length > 0) {
+    // 這條線送不到完整狀態（`intent-only`／`event-source`）→ 排在能力判定**之前**：
+    // partial-capability 的文案說「狀態已經對齊了」，而這一態連狀態都沒有完整送到，
+    // 講成「對齊了、只是演不出全部」就是把兩件事說反（device-profile §3.1）。
+    if (online.some((m) => characterSyncProfileLabel(m.syncProfile) !== null)) {
+      return project("partial-sync");
+    }
     // 已知做不到（role 根本不呈現角色，或協商出 unsupported intent）→ 部分能力不可用。
     if (online.some((m) => !m.canPresent || m.degraded === true)) {
       return project("partial-capability");
@@ -581,7 +697,12 @@ export function characterSyncMemberDeviceIds(snapshot: unknown): string[] {
  *
  * 讀不到權威狀態就說讀不到；手機連著卻不在成員名單裡是「尚未同步」而不是「已同步」。
  */
-export function characterSyncDeviceLine(snapshot: unknown, deviceId: string): string {
+export function characterSyncDeviceLine(
+  snapshot: unknown,
+  deviceId: string,
+  /** 這台裝置的同步模式（[`characterSyncProfiles`]）；沒有就是沒有回報，不猜。 */
+  syncProfile?: unknown
+): string {
   const state = sessionState(snapshot);
   if (state === null) return "角色同步：目前讀不到狀態";
   const raw = state["members"];
@@ -593,7 +714,9 @@ export function characterSyncDeviceLine(snapshot: unknown, deviceId: string): st
     const presence = String(item?.["presence"] ?? "");
     if (presence === "online") {
       // 和角色頁的同步卡走同一套判定：同一份快照不得在兩個一般模式畫面得出
-      // 互相矛盾的結論（對抗審查 general-mode-ux-025）。
+      // 互相矛盾的結論（對抗審查 general-mode-ux-025）。同步模式一樣排在最前面。
+      const profile = characterSyncProfileLabel(syncProfile);
+      if (profile !== null) return `角色同步：${profile}（不是完整同步）`;
       const canPresent = item?.["role"] === "remote-renderer" || item?.["role"] === "host-renderer";
       const degraded = item ? memberDegraded(item) : null;
       if (!canPresent || degraded === true) {

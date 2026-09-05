@@ -21,12 +21,15 @@
 
 ## 2. 文案表（一字不改）
 
-十一種狀態窮舉（`CHARACTER_SYNC_PROJECTION`，`satisfies Record<CharacterSyncState, …>`：
-少一個狀態就 typecheck 失敗，不會靜默退化成把技術值印到畫面上）。
+狀態窮舉（`CHARACTER_SYNC_PROJECTION`，`satisfies Record<CharacterSyncState, …>`：
+少一個狀態就 typecheck 失敗，不會靜默退化成把技術值印到畫面上）。權威清單是那份表本身，
+不是這裡的行數——下表若與程式碼對不上，以程式碼與 `src/test/statusProjection-session.test.ts` 為準
+（`store-reset` 那一列是 v0.6.x 之前的舊狀態，已被 `store-issue` 取代，尚未從本表刪除）。
 
 | 狀態 | 主要句子 | 補充 | 顏色 |
 |---|---|---|---|
 | `synced` | iPhone 已連接，角色狀態已同步 | 手機上的角色和這台電腦看到的是同一個狀態。 | ok（唯一的綠） |
+| `partial-sync`（v0.7.0） | 有裝置收不到完整狀態 | 這台裝置的連線只送得進一部分內容；它看到的角色不一定和這台電腦一樣，不算已同步。（§5.7） | info |
 | `reconnecting` | iPhone 正在重新連線 | 連線斷了一下，正在接回來；這段時間的互動不會補播。 | pending |
 | `offline` | iPhone 暫時離線 | 手機現在收不到角色狀態，也送不出互動；接回來之後才會重新對齊。 | warn |
 | `partial-capability` | 部分能力目前不可用 | 這台裝置接上了，但它做不到角色的部分表演；做不到的不會假裝做到。 | warn |
@@ -42,9 +45,12 @@
 
 判定順序（先擋住「不能相信」的情況，最後才談成功）：
 關閉 → 連續讀不到 → 這一次讀不到 → 認不得的回報 → 紀錄曾損毀 → 有 online 成員
-（已知做不到 → `partial-capability`；另有裝置**現在連著**卻不是成員 → `needs-reconfirmation`；
-拿不到協商結果 → `capability-unknown`；全部確認演得出來 → `synced`）→ reconnecting →
-offline → 需要重新確認 → 沒有裝置。
+（那條線送不到完整狀態 → `partial-sync`；已知做不到 → `partial-capability`；
+另有裝置**現在連著**卻不是成員 → `needs-reconfirmation`；拿不到協商結果 → `capability-unknown`；
+全部確認演得出來 → `synced`）→ reconnecting → offline → 需要重新確認 → 沒有裝置。
+
+`partial-sync` 排在能力判定**之前**：`partial-capability` 的文案說「狀態已經對齊了」，
+而那一態連狀態都沒有完整送到（§5.7）。
 
 綠勾只在「所有 online 成員都確認演得出來、而且沒有別的裝置連著卻沒同步」時出現。
 `needs-reconfirmation` 在有 online 成員時只看「現在連著卻不是成員」，**不看**「曾經有裝置被撤銷過」
@@ -115,7 +121,7 @@ manifest 產出，`pnpm aip:check` 是漂移 gate），三端共用的 `stateHas
 
 ## 4. claimed ≠ verified：綠勾只給真的
 
-同步卡的十一種狀態裡只有 `synced` 是 `ok`（綠）。這條規則和工作狀態的誠實階梯是同一條：
+同步卡的所有狀態裡只有 `synced` 是 `ok`（綠）。這條規則和工作狀態的誠實階梯是同一條：
 `claimed-completed`（對方說做完了）永遠不是 `verified`（你檢查過了），
 `projectWorkState` 沒有任何路徑能把 claimed 升級成 verified。
 角色同步不會、也不能改寫這一層——它同步的是「角色現在是什麼語意狀態」，不是「工作有沒有做完」。
@@ -204,9 +210,66 @@ schema 版本、transport／token／provider id、裝置識別碼、原始 paylo
 **「已允許重新連線，正在重新綁定」**（`PROVIDER_REENABLE_MESSAGE`）——不是「已啟用」：
 按鈕只是**允許再連一次**，連上與否要等握手。
 
-> 目前控制中心**沒有**「重新啟用 provider」的按鈕（provider 狀態轉換只有 CLI／HTTP
-> `POST /v1/providers/{id}/transition` 走得到），所以這句文案目前只有常數與守門測試，
-> 畫面上還沒有觸發點。加上按鈕時直接用這個常數，不要另寫一句。
+### 5.6b 「重新啟用」按鈕（v0.7.0）
+
+停用是**人自己按的**，所以人也要按得回去。連接與權限 →「已連接的裝置」裡，狀態是
+**已停用**的裝置條目多一顆「重新啟用」按鈕（`src/pages/ConnectPage.tsx`）：
+
+- **二段確認**：第一段只是把按鈕換成「確定：允許這台裝置重新連線」，什麼都沒送出；
+  第二段才呼叫 `api.providerTransition(id, "available")`
+  （Tauri 內嵌模式走同名 IPC 指令，外部 daemon 模式走 `POST /v1/providers/{id}/transition`
+  ——同一個 application service，agent／session token 在 API 的 scope 守門一律 403）。
+- **成功的一句話是「已允許重新連線，正在重新綁定」**（`PROVIDER_REENABLE_MESSAGE`），
+  **不是**「已啟用」：按鈕只是允許再連一次，連線與能力宣告要等握手成功才回得來。
+  按下之後條目本來就會照 §5.6 的投影變成「重新連線中」——那句話由 Runtime 的
+  `detail.warnings[]` 決定，不是按鈕自己宣稱的。
+- **失敗照實說**：「沒有完成（…）：這台裝置的狀態未變。」不假裝已經允許。
+- **撤銷（`revoked`）／已關閉（`closed`）不給這顆按鈕**：那不是「停一下」，
+  重新使用要重新配對——撤銷不得有回頭路（生命週期本身也拒絕這條捷徑）。
+
+守門測試：`src/test/connectPage.test.tsx`（二段確認／文案／失敗／撤銷沒有按鈕）、
+`src/test/transport.test.ts`（HTTP 路由與 body）、`src-tauri/src/lib.rs`
+（`provider_state_strings_are_parsed_exactly_or_refused`：認不得的狀態字串不猜）。
+
+## 5.7 成員同步模式（v0.7.0）：只有 `full-state` 可以說「已同步」
+
+「連上了」不等於「拿得到同一份狀態」。一條有單則上限、又不會重組分片的線
+（Serial／MQTT／BLE），送得到的只有放得進上限的意圖訊息，甚至只送得進來、收不回去。
+把這種成員畫成綠色的「已同步」是最貴的那種謊：使用者會以為手機上看到的角色就是這裡的角色。
+
+> 來源：`GET /v1/status` 的 `characterSessionSync[]`（沒有裝置成員時後端不序列化這個鍵）
+> 與 `GET /v1/character-session/diagnostics` 的 `members[].syncProfile`
+> （查不到出站通道就**省略**該欄位）。推導規則見 `docs/aip/device-profile.md` §3.1
+> ——是 Runtime 依那條線的事實推導的，不是裝置自己宣稱的。
+> 投影：`src/statusProjection/characterSync.ts`
+> （`characterSyncProfiles`／`characterSyncProfileLabel`／`characterSyncProfileNote`）。
+
+| `syncProfile` | 一般模式看到 | 同步卡的狀態 |
+|---|---|---|
+| `full-state` | （沒有多的字）照舊 | 既有語意（可以是「已同步」） |
+| `intent-only` | 只接收指令 | 有裝置收不到完整狀態（`partial-sync`，不是綠色） |
+| `event-source` | 只回報事件 | 有裝置收不到完整狀態（`partial-sync`，不是綠色） |
+| 認不得的值 | 拿不到完整狀態 | 有裝置收不到完整狀態（不猜成 `full-state`） |
+| **沒有回報**（欄位缺席） | （沒有多的字）照舊 | 既有語意 |
+
+最後一列是刻意的：舊 Runtime 不送這個欄位，Runtime 查不到出站通道時也會省略——
+**沒有回報 ≠ 非 full-state**，所以不憑空降級，也不憑空升級。
+
+三個出現的地方（同一份投影，說法一致）：
+
+- **角色頁的同步卡**：徽章變成「有裝置收不到完整狀態」（`info`，不是綠色），
+  成員清單那一行後面加「（只接收指令）」／「（只回報事件）」。
+- **連接與權限的手機卡**：那一行變成「角色同步：只接收指令（不是完整同步）」，
+  不再出現「角色同步：已同步」。
+- **連接與權限的裝置條目**：加一句「只回報事件：這台裝置收不到完整的角色狀態，不算已同步。」
+
+**判定排在能力之前**：`部分能力目前不可用` 的文案說「狀態已經對齊了」，而這一態連狀態都
+沒有完整送到，講成「對齊了、只是演不出全部」是把兩件事說反。
+
+**一般模式不外洩** `full-state`／`intent-only`／`event-source` 這三個英文原始值，也不外洩
+`transport` 與裝置識別碼；原始值只在進階模式的「連接診斷」裡以 `syncProfile …` 出現。
+守門測試：`src/test/statusProjection-session.test.ts`、`src/test/character-sync-card.test.tsx`、
+`src/test/connectPage.test.tsx`。
 
 ## 6. 模擬 iPhone（fixture）的標示
 

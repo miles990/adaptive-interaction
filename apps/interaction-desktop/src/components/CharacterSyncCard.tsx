@@ -56,6 +56,8 @@ import {
   characterSyncMemberDeviceIds,
   characterSyncMembers,
   characterSyncPresenceLabel,
+  characterSyncProfileLabel,
+  characterSyncProfiles,
   characterSyncSafetyNote,
   characterSyncStoreSignals,
   projectCharacterSession,
@@ -378,9 +380,15 @@ export function CharacterSyncCard({
     () => (session ? { payload: { kind: "snapshot", state: session.state } } : null),
     [session]
   );
+  /**
+   * 每一台裝置那條線送得到多少狀態（`docs/aip/device-profile.md` §3.1）。
+   * 來源是診斷的 `members[].syncProfile`——Runtime 推導的，不是裝置自報的。
+   * 讀不到診斷就是空的：不知道就不知道，既不降級也不升級。
+   */
+  const profiles = React.useMemo(() => characterSyncProfiles(diagnostics), [diagnostics]);
   const members = React.useMemo(
-    () => characterSyncMembers(snapshotView, names),
-    [snapshotView, names]
+    () => characterSyncMembers(snapshotView, names, profiles),
+    [snapshotView, names, profiles]
   );
   /** 連著、但不在成員名單裡的手機＝還沒重新確認過（送不出互動，也收不到狀態）。 */
   const pending = React.useMemo(() => {
@@ -459,13 +467,18 @@ export function CharacterSyncCard({
       )}
       {remote.length > 0 && (
         <ul className="plain-list small" aria-label="同步中的裝置">
-          {remote.map((m, index) => (
-            <li key={`${m.name}-${index}`}>
-              <span>{m.name}</span>
-              <span className="muted">：</span>
-              <span>{characterSyncPresenceLabel(m.presence)}</span>
-            </li>
-          ))}
+          {remote.map((m, index) => {
+            // 非 full-state 的那一台要自己說得出「它拿得到什麼」——原始值只進進階模式。
+            const profile = characterSyncProfileLabel(m.syncProfile);
+            return (
+              <li key={`${m.name}-${index}`}>
+                <span>{m.name}</span>
+                <span className="muted">：</span>
+                <span>{characterSyncPresenceLabel(m.presence)}</span>
+                {profile && <span className="muted">（{profile}）</span>}
+              </li>
+            );
+          })}
         </ul>
       )}
       {lastInteraction && (
@@ -536,7 +549,7 @@ export function CharacterSyncCard({
               {diagnostics.members.map((m) => (
                 <li key={`${m.party.kind}:${m.party.id}`}>
                   member {m.party.kind}:{m.party.id} {m.presence} identityStrength{" "}
-                  {m.identityStrength ?? "—"}
+                  {m.identityStrength ?? "—"} syncProfile {m.syncProfile ?? "—"}
                 </li>
               ))}
               {/* 本地對齊的計數（reducer 的，不是後端的）：hash 不符、host 倒退、
