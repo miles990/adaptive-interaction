@@ -123,6 +123,29 @@ parameters.intensity、priority 40、truthState none）；`settle` → `rest`；
 → `Replay::Patches(Vec<..>)` 或 `Replay::Snapshot`；`snapshot()` 含 `hash`；`apply_patch` 純函式供接收端使用；
 `state_hash` 用 canonical JSON SHA-256。Host 每 N（預設 32）個 revision 或每 60 s 把 snapshot 持久化到 `SessionStore`。
 
+**持久化容器的格式版本（`Snapshot.format`，與 AIP wire version 分開）**：`state/character-session.json` 的
+`Snapshot` 帶 `format: u32`（`interaction_session::SNAPSHOT_FORMAT`，目前 1；缺鍵讀成 0＝v0.6.0 無版本格式）。
+`format` **不進** `hash`（`hash` 只涵蓋 `state`，三端同一定義），所以改檔案佈局不是跨語言 wire 變更；
+`Snapshot` 也從不出現在任何 AIP envelope 的 payload 裡。載入是有界讀取（≤1 MiB）→ 先辨識 `format` → 五種結果：
+
+| 讀到的 | 處理 | diagnostics |
+|---|---|---|
+| 舊版本（format < 現行，例如 v0.6.0 寫的、或成員缺 `unsupportedIntents` 的檔） | 依原始 hash 驗完整性 → 反序列化（`deny_unknown_fields`＋`attention` 允許鍵）→ 驗不變量 → 遷移到記憶體；原檔先備份成 `character-session.json.pre-format-<n>`（同一來源格式只留一份）再以現行格式落地。session **不**重建（epoch 不變、成員不掉） | `store.migratedFrom`／`store.migrationNote`；`storeNote` 維持 null |
+| 現行格式 | 同上，不遷移 | — |
+| 未來版本（format > 現行） | **不隔離、不覆寫**：檔案原封不動，這一輪用記憶體 session（epoch 往前跳，成員 resume 會拿到 `session-reset`），store 進入 parked | `storeNote`＝future-format 固定文字；`store.parked=true` |
+| 暫時無法讀取（權限、EIO、目錄佔住路徑） | 檔案原封不動、parked（之後每一次 persist 都拒絕，不只跳過開機那一次）；重啟 daemon 才會再試 | `storeNote`＝unreadable 固定文字（**不**宣稱已隔離）；`store.parked=true` |
+| 真正損毀（解不開、超過上限、session id 不符、hash 不符、違反不變量） | 隔離成 `.corrupt`，開新 session（epoch 往前跳） | `storeNote`＝unusable 固定文字 |
+
+遷移中斷（備份寫不進去、落地失敗）：原檔一個位元組都不動、不隔離，`store.migrationNote` 降級成 migration-deferred。
+Downgrade：v0.6.0 讀 format 1 檔案**可以**（`Snapshot` 沒有 `deny_unknown_fields`，多一個 `format` 鍵被忽略；測試
+`a_format_1_snapshot_is_still_readable_by_the_v0_6_0_snapshot_shape`）；但若未來在 `SemanticState` 新增欄位，v0.6.0 讀那種
+檔案會因 `deny_unknown_fields` 隔離——`format` 只描述檔案佈局，不描述 `state` 內容版本。
+
+**store 實作契約（`SessionStore::save`）**：回 `Result<SaveOutcome, PortError>`（`Written`／`SkippedStale`／`SkippedParked`）；
+`(epoch, revision)` 不得倒退——檢查與寫入必須在同一把鎖內原子完成，否則兩個併發 persist 會同時通過檢查再亂序 rename，
+讓舊快照最後落盤。persist 失敗不得吞掉：計數與固定文字進 diagnostics `store`。這不是網路 exactly-once：broadcast 排在
+persist 之前、每 N 個 revision 才落地，重啟後由 `resume`／`session-reset` 補洞。
+
 ## 7. 重連流程（member 視角）
 
 1. 重連 Transport（各 Transport 自己的退避）。
@@ -195,8 +218,13 @@ scope mismatch、renderer capability spoofing（宣告不存在的 intent 只會
 `{ sessionId, sessionEpoch, revision, sequence, members[], counters:{ accepted, applied, rejected:{<code>:n},
 duplicates, expired, resumes, resumes.ahead, snapshots, patches, identity_mismatch, internal,
 intents.emitted, intents.expired, intents.dropped, intents.observed, intents.rejected, intents.failed,
-intents.unsolicited }, eventLog:{ len, cap }, storeNote }`。不含 token、路徑、原始 payload。
+intents.unsolicited }, eventLog:{ len, cap }, storeNote, store? }`。不含 token、路徑、原始 payload。
 一般模式不顯示這些；只顯示 §11 的人話。
+
+`storeNote` **只在 session 真的被重建時**非 null（unusable／unreadable／future-format 三種固定文字）。選填的
+`store` 物件是持久化 store 的健康度：`{ format, migratedFrom, migrationNote, lastPersistedRevision, persistFailures,
+skippedStale, parked, lastPersistError, note }`——遷移寫在 `migratedFrom`／`migrationNote`（不寫 `storeNote`，因為
+沒有重建）；`parked=true` 代表這一輪什麼都存不下來（`note` 是原因）；`lastPersistError` 是固定文字，不含路徑。
 
 `members[]` 是 §3 的 `MemberView`（含 `unsupportedIntents`），不含 `negotiated` 的其餘細節。
 幾個計數器的語意值得寫明，因為它們是「誠實記錄，不動狀態」的地方：

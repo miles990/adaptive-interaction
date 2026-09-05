@@ -405,8 +405,24 @@ export interface CharacterSessionDiagnostics {
   }[];
   counters: Record<string, number>;
   eventLog: { len: number; cap: number };
-  /** 不是 null＝保存的角色狀態讀不回來；一般模式要翻成人話，不得靜默。 */
+  /** 不是 null＝保存的角色狀態讀不回來、session 真的被重建了；一般模式要翻成人話，不得靜默。 */
   storeNote: string | null;
+  /**
+   * 持久化 store 的健康度（選填；舊 Runtime 沒有）。`storeNote` 只在 session 真的被重建時非 null；
+   * 遷移（舊格式→現行格式、session 沒重建）放在這裡的 `migratedFrom`／`migrationNote`。
+   * `parked`＝這一輪什麼都不會存（讀不到／未來格式／備份失敗），`note` 是固定文字的原因。
+   */
+  store?: {
+    format: number | null;
+    migratedFrom: number | null;
+    migrationNote: string | null;
+    lastPersistedRevision: number | null;
+    persistFailures: number;
+    skippedStale: number;
+    parked: boolean;
+    lastPersistError: string | null;
+    note: string | null;
+  };
 }
 
 // ---- Character Presentation Protocol types（與 crates/interaction-character 的 wire 一致） ----

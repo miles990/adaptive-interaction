@@ -24,6 +24,17 @@
   `scripts/tests/docs-claims.sh` 核對 tag→commit 與檔案存在，並擋下總覽文件把已發布版本寫成「候選／尚未 tag」。（81b89d1）
 
 ### Fixed
+- **快照檔格式版本與遷移**：`Snapshot` 新增 `format`（`SNAPSHOT_FORMAT = 1`；缺鍵＝0＝v0.6.0 無版本格式，與 AIP wire version 分開，
+  不進 `hash`）。載入有界（≤1 MiB）並區分五種結果：舊版本→遷移（原檔備份成 `character-session.json.pre-format-<n>`，
+  session 不重建）；未來版本→**不隔離、不覆寫**、store parked、記憶體 session；暫時讀不到→原封不動、parked（過去只跳過開機
+  那一次 save，之後的 persist 仍會覆寫）；真正損毀→隔離；遷移中斷→原檔不動、note 降級。restore 的第二次 canonical 重 hash
+  不再是拒絕條件（v0.6.0 known-limitations #21 修掉），未知鍵改由 `deny_unknown_fields`＋`attention` 允許鍵檢查擋住。
+  真實 v0.6.0 格式 fixtures 在 `crates/interaction-runtime/tests/fixtures/character-session/`。
+- **持久化寫入順序 guard 與可觀測性**：`SessionStore::save` 回 `Result<SaveOutcome, PortError>`（`Written`／`SkippedStale`／
+  `SkippedParked`），`JsonSessionStore`（與測試替身 `MemoryStore`）以 `(epoch, revision)` 在同一把鎖內守門——先 save(rev 6)
+  再 save(rev 5) 不再讓舊快照落盤；`character_session_persist` 不再吞掉 `Result`／`JoinError`，diagnostics 新增選填 `store`
+  物件（format／migratedFrom／migrationNote／lastPersistedRevision／persistFailures／skippedStale／parked／lastPersistError／
+  note；`storeNote` 語意不變）。`STORE_NOTE_UNREADABLE` 不再謊稱檔案已隔離。
 - **桌面角色同步卡改用純函式接收端狀態機**（`apps/interaction-desktop/src/aip/sessionClient.ts`，鏡射 Rust
   `accept_state_with_epoch`），元件只發請求與投影。修掉：SSE `state{kind:"snapshot"}` 無條件接受（同 epoch 較舊
   revision 可覆蓋本地）、缺 `revision`／`sessionEpoch` 被當成 0、負數／小數／>2^53 被當合法、慢的初始 GET 覆蓋較新的

@@ -28,7 +28,7 @@ Adapters / Transport / Platform  mobile.rs（iPhone wss）、character.rs＋char
 | `TransportAdapter` | 各 transport 自有（mobile.rs、character_ws.rs）；共同外層是 AIP binding（`docs/aip/README.md` §9） | framing、重連、退避 | — |
 | `AgentAdapter` | `interaction-agent-gateway`（既有） | 真 Agent 連接 | — |
 | `MemoryProvider` | `runtime/memory.rs`（既有） | 長期記憶 | — |
-| `SessionStore` | `interaction-session::ports::SessionStore` | snapshot 持久化 | — |
+| `SessionStore` | `interaction-session::ports::SessionStore` | snapshot 持久化：`save → Result<SaveOutcome, PortError>`（`Written`／`SkippedStale`／`SkippedParked`），`(epoch, revision)` 不得倒退且檢查＋寫入原子；`load` 有界讀取並區分 `Corrupt`／`Unavailable`／`FutureFormat`。production：`JsonSessionStore`；測試：`MemoryStore`（守同一條 guard） | — |
 | `Clock` | `interaction-session::ports::Clock` | 注入時間（millis） | — |
 | `IdentityVerifier` | `interaction-session::ports::IdentityVerifier` | Transport 身分 vs `source` | — |
 | `ConsentVerifier` | `interaction-session::ports::ConsentVerifier` | `consentGrantId` 有效性（1.0 只對帶 grant 的 command） | — |

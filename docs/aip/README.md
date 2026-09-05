@@ -183,6 +183,8 @@ inputs:[…accepted…], limits }`。協商是確定性的：交集＋min。rend
   `lastRevision+1..=current` 的 patch 就回 `response{payload:{kind:"patches", patches:[…]}}`，否則回 `kind:"snapshot"`。
   日誌是有界環（預設 512 筆），超出即 snapshot fallback，不是錯誤。
 - **hash 驗證**：套用 patch 後本地 hash 必須等於 `hash`，否則丟棄本地狀態並要 snapshot。
+- **持久化不是 wire**：host 本機快照檔的格式版本（`interaction_session::SNAPSHOT_FORMAT`）與這裡的 `specVersion`
+  完全分開演進，`hash` 只涵蓋 `state`；改檔案佈局不是 AIP 版本變更（見 `character-session.md` §6）。
 - **rollback 防護**：`state.revision` 小於或等於本地已套用 revision 的訊息一律忽略（稽核 `aip.state-rollback-ignored`），
   除非是 host 明確標 `payload.reason:"session-reset"` 且 `sessionEpoch` **與本地不同**（session 被重建；
   host 重灌後 epoch 可能從 1 重新起跳，所以是「不同」而不是「大於」——與 `docs/aip/character-session.md` §7 第 4 步及
