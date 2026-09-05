@@ -13,17 +13,29 @@ import type { Tab } from "./routing";
  * 流程到不了。`mountKey` 每次導覽都改變，所以目標頁一定重新掛載、內部分頁一定回到
  * route 指定的那一個。
  */
+/**
+ * 深連結的附帶參數（例如角色同步卡的「下一步」：`{ hub: "providers", deviceId }`）。
+ * 只在**這一次**導覽有效：下一次 `goTo` 沒帶就清空，所以「導到已經在的那一頁」不會
+ * 殘留上一次的 hub 分頁。route id 本身不變（`connect` 仍是 `connect`），深連結盤點與
+ * 舊錨點不受影響。
+ */
+export type NavigateOptions = Record<string, unknown>;
+
 export function useNavigation(initial: Tab): {
   tab: Tab;
   /** 內容區的 key：同一個路由被再次導覽也會變，強制重新掛載。 */
   mountKey: string;
-  goTo: (next: Tab) => void;
+  goTo: (next: Tab, opts?: NavigateOptions) => void;
+  /** 這一次導覽附帶的參數（沒有就是 undefined）。 */
+  options: NavigateOptions | undefined;
 } {
   const [tab, setTab] = React.useState<Tab>(initial);
   const [nonce, setNonce] = React.useState(0);
-  const goTo = React.useCallback((next: Tab) => {
+  const [options, setOptions] = React.useState<NavigateOptions | undefined>(undefined);
+  const goTo = React.useCallback((next: Tab, opts?: NavigateOptions) => {
     setNonce((n) => n + 1);
+    setOptions(opts);
     setTab(next);
   }, []);
-  return { tab, mountKey: `${tab}#${nonce}`, goTo };
+  return { tab, mountKey: `${tab}#${nonce}`, goTo, options };
 }

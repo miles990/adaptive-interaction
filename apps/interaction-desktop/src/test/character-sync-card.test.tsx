@@ -249,20 +249,35 @@ describe("角色頁「同步」卡：一般模式", () => {
     expect(screen.queryByText("尚未連接 iPhone")).not.toBeInTheDocument();
   });
 
-  it("裝置被撤銷之後要「需要重新確認裝置」，不是回到空狀態", async () => {
+  // M3 §4.3：撤銷／移除是終態。Runtime 的來源清單永遠留著 revoked 條目，舊行為
+  // 因此在零裝置時永遠亮著「需要重新確認裝置」——一個使用者做完該做的事之後
+  // 仍然亮著、而且按不動的警告。
+  it("手機被移除之後是「目前只在這台電腦使用」，不是永遠亮著的「需要重新確認」", async () => {
     setup({
       providers: [
         { identity: { id: `provider.mobile.${DEVICE_ID}`, kind: "mobile" }, state: "revoked" },
       ],
     });
     render(<CharacterSyncCard refreshKey={0} advanced={false} />);
-    await waitFor(() => expect(screen.getByText("需要重新確認裝置")).toBeInTheDocument());
+    const card = await screen.findByTestId("character-sync");
+    await waitFor(() =>
+      expect(within(card).getByText("目前只在這台電腦使用")).toBeInTheDocument()
+    );
+    expect(within(card).queryByText("需要重新確認裝置")).not.toBeInTheDocument();
+    // 安全效果不變：被移除的手機不會自動回來，要用得重新配對。
+    expect(card.textContent ?? "").toMatch(/不會自動回來/);
+    expect(card.textContent ?? "").toMatch(/重新配對/);
   });
 
-  it("手機連著但還不是同步成員也要說需要重新確認（不算已同步）", async () => {
+  it("手機連著但還不是同步成員也要說需要重新確認，並指出是哪一台", async () => {
     setup({ devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }] });
     render(<CharacterSyncCard refreshKey={0} advanced={false} />);
-    await waitFor(() => expect(screen.getByText("需要重新確認裝置")).toBeInTheDocument());
+    const card = await screen.findByTestId("character-sync");
+    await waitFor(() =>
+      expect(within(card).getByText("需要重新確認裝置")).toBeInTheDocument()
+    );
+    await waitFor(() => expect(card.textContent ?? "").toContain(FIXTURE_PHONE));
+    expect(card.textContent ?? "").not.toContain(DEVICE_ID);
   });
 
   it("緊急停止中固定安全句一定看得到（角色不能覆寫）", async () => {
@@ -280,7 +295,8 @@ describe("角色頁「同步」卡：一般模式", () => {
     expect(within(card).getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument();
   });
 
-  it("保存的同步紀錄曾損毀時，一般模式也要說出來（不靜默、不冒充已同步）", async () => {
+  // M3 §4.3b：保存層的兩類訊號要分開。
+  it("紀錄現在存不下來＝active issue，壓過綠色並給一句人話", async () => {
     setup({
       snapshot: snapshot({ members: [PHONE_MEMBER] }),
       devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
@@ -292,18 +308,148 @@ describe("角色頁「同步」卡：一般模式", () => {
         members: [],
         counters: {},
         eventLog: { len: 0, cap: 512 },
-        storeNote: "stored character session state was unusable; it was quarantined",
+        storeNote: null,
+        store: {
+          format: 2,
+          migratedFrom: null,
+          migrationNote: null,
+          lastPersistedRevision: null,
+          persistFailures: 0,
+          skippedStale: 0,
+          parked: true,
+          lastPersistError: null,
+          note: "backup failed",
+        },
       },
     });
     render(<CharacterSyncCard refreshKey={0} advanced={false} />);
     const card = await screen.findByTestId("character-sync");
     await waitFor(() =>
-      expect(within(card).getByText("角色同步紀錄曾損毀，已重新開始")).toBeInTheDocument()
+      expect(within(card).getByText("同步紀錄暫時存不下來")).toBeInTheDocument()
     );
     expect(card.querySelector(".badge-ok")).toBeNull();
     // 一般模式仍然只有人話：後端的英文技術原文不得外洩。
     expect(card.textContent ?? "").not.toMatch(FORBIDDEN);
+    expect(card.textContent ?? "").not.toContain("backup failed");
+  });
+
+  it("曾經重建過但現在存得下來＝歷史通知，不再壓過「已同步」", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+      diagnostics: {
+        sessionId: "session.home",
+        sessionEpoch: 2,
+        revision: 9,
+        sequence: 3,
+        members: [],
+        counters: {},
+        eventLog: { len: 0, cap: 512 },
+        storeNote: "stored character session state was unusable; it was quarantined",
+        store: {
+          format: 2,
+          migratedFrom: null,
+          migrationNote: null,
+          lastPersistedRevision: 9,
+          persistFailures: 0,
+          skippedStale: 0,
+          parked: false,
+          lastPersistError: null,
+          note: null,
+        },
+      },
+    });
+    render(<CharacterSyncCard refreshKey={0} advanced={false} />);
+    const card = await screen.findByTestId("character-sync");
+    await waitFor(() =>
+      expect(within(card).getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument()
+    );
+    // 通知照說（不靜默），但它是 muted 的附註，不是一個永遠亮著的警告。
+    await waitFor(() => expect(card.textContent ?? "").toMatch(/曾經重建過/));
+    expect(card.textContent ?? "").not.toMatch(FORBIDDEN);
     expect(card.textContent ?? "").not.toContain("quarantined");
+  });
+});
+
+describe("角色頁「同步」卡：下一步（M3 §4.2）", () => {
+  it("沒有 onNavigate 就不渲染主要動作按鈕（不給按不動的按鈕）", async () => {
+    setup();
+    render(<CharacterSyncCard refreshKey={0} advanced={false} />);
+    const card = await screen.findByTestId("character-sync");
+    await waitFor(() => expect(within(card).getByText("尚未連接 iPhone")).toBeInTheDocument());
+    expect(within(card).queryByTestId("character-sync-action")).not.toBeInTheDocument();
+    // 「重新檢查」不是那顆主要動作按鈕，它一直都在。
+    expect(within(card).getByRole("button", { name: "重新檢查" })).toBeInTheDocument();
+  });
+
+  it("零裝置：一鍵到配對區（connect / providers）", async () => {
+    setup();
+    const onNavigate = vi.fn();
+    render(<CharacterSyncCard refreshKey={0} advanced={false} onNavigate={onNavigate} />);
+    const card = await screen.findByTestId("character-sync");
+    const action = await within(card).findByTestId("character-sync-action");
+    expect(action).toHaveAttribute("data-action", "connect-phone");
+    await userEvent.click(action);
+    expect(onNavigate).toHaveBeenCalledWith("connect", { hub: "providers" });
+  });
+
+  it("已同步時不催促：沒有主要動作按鈕", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+    });
+    const onNavigate = vi.fn();
+    render(<CharacterSyncCard refreshKey={0} advanced={false} onNavigate={onNavigate} />);
+    const card = await screen.findByTestId("character-sync");
+    await waitFor(() =>
+      expect(within(card).getByText("iPhone 已連接，角色狀態已同步")).toBeInTheDocument()
+    );
+    expect(within(card).queryByTestId("character-sync-action")).not.toBeInTheDocument();
+  });
+
+  it("需要重新確認：一鍵到配對區，並帶上是哪一台", async () => {
+    setup({ devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }] });
+    const onNavigate = vi.fn();
+    render(<CharacterSyncCard refreshKey={0} advanced={false} onNavigate={onNavigate} />);
+    const card = await screen.findByTestId("character-sync");
+    const action = await within(card).findByTestId("character-sync-action");
+    expect(action).toHaveAttribute("data-action", "reconfirm-device");
+    await userEvent.click(action);
+    expect(onNavigate).toHaveBeenCalledWith("connect", { hub: "providers", deviceId: DEVICE_ID });
+  });
+
+  it("storage-help 是說明不是導覽：不給導覽按鈕，但話要說清楚", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+      diagnostics: {
+        sessionId: "session.home",
+        sessionEpoch: 2,
+        revision: 1,
+        sequence: 0,
+        members: [],
+        counters: {},
+        eventLog: { len: 0, cap: 512 },
+        storeNote: null,
+        store: {
+          format: 2,
+          migratedFrom: null,
+          migrationNote: null,
+          lastPersistedRevision: 3,
+          persistFailures: 5,
+          skippedStale: 0,
+          parked: false,
+          lastPersistError: "disk full",
+          note: null,
+        },
+      },
+    });
+    const onNavigate = vi.fn();
+    render(<CharacterSyncCard refreshKey={0} advanced={false} onNavigate={onNavigate} />);
+    const card = await screen.findByTestId("character-sync");
+    await waitFor(() => expect(card.textContent ?? "").toMatch(/寫不進去/));
+    expect(within(card).queryByTestId("character-sync-action")).not.toBeInTheDocument();
+    expect(card.textContent ?? "").not.toContain("disk full");
   });
 });
 

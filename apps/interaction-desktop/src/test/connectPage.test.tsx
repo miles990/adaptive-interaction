@@ -30,7 +30,11 @@ import {
   HumanCard,
 } from "../api";
 import { AppStateProvider } from "../appstate";
-import { ConnectPage, resetDecisionInboxProbeForTests } from "../pages/ConnectPage";
+import {
+  ConnectPage,
+  resetDecisionInboxProbeForTests,
+  type ConnectInitial,
+} from "../pages/ConnectPage";
 import { SafetyPage } from "../pages/SafetyPage";
 import { providerProgress } from "../pages/CapabilitiesHub";
 import {
@@ -278,11 +282,11 @@ function stubApis() {
   );
 }
 
-function renderConnect(advanced = false) {
+function renderConnect(advanced = false, initial?: ConnectInitial) {
   const onNavigate = vi.fn();
   const utils = render(
     <AppStateProvider ready refreshKey={0}>
-      <ConnectPage refreshKey={0} advanced={advanced} onNavigate={onNavigate} />
+      <ConnectPage refreshKey={0} advanced={advanced} onNavigate={onNavigate} initial={initial} />
     </AppStateProvider>
   );
   return { ...utils, onNavigate };
@@ -649,6 +653,32 @@ describe("連接與權限：第一層五區（裝置優先）", () => {
     await screen.findByRole("button", { name: /開始安全解除流程/ });
     await screen.findAllByRole("button", { name: "撤回" });
     expect(screen.getByText(/緊急停止已啟動/)).toBeInTheDocument();
+  });
+
+  // M3 §4.2：同步卡的「連接手機／去重新確認」要一步到配對區，不是把人丟在
+  // 連接頁的第一層再讓他自己找。`initial="providers"` 就是那個深連結落點。
+  it("initial=\"providers\"：一步到「裝置與來源」（配對區），不用再點一次", async () => {
+    stubApis();
+    renderConnect(false, "providers");
+    await screen.findByTestId("connect-area-devices");
+    expect(screen.getByRole("tab", { name: "裝置與能力" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(screen.getByRole("tab", { name: "裝置與來源" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  it("initial 不是 providers 時，第二層仍停在預設的「感知來源」", async () => {
+    stubApis();
+    renderConnect(false, "devices");
+    await screen.findByTestId("connect-area-devices");
+    expect(screen.getByRole("tab", { name: "感知來源" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
   });
 
   it("第二層「全部能力與裝置」仍可達：既有分類分頁都在，管理按鈕會切到對應分類", async () => {

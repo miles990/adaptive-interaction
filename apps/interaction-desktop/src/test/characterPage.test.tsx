@@ -245,6 +245,8 @@ describe("角色頁：更換或加入角色", () => {
     renderPage();
     const badge = { selector: ".badge" };
     const shu = await screen.findByRole("article", { name: "角色 小樞" });
+    // 角色庫預設只列「使用中＋最近／常用」；其餘要按「顯示全部角色」（M3 §4.1）。
+    await userEvent.click(await screen.findByRole("button", { name: /顯示全部角色/ }));
     expect(within(shu).getByText("內建", badge)).toBeInTheDocument();
     expect(within(shu).getByText("使用中", badge)).toBeInTheDocument();
     expect(within(shu).getByText(/是（隨 App 自動化測試）/)).toBeInTheDocument();
@@ -367,6 +369,7 @@ describe("角色頁：更換或加入角色", () => {
   it("移除只給匯入角色；確認後呼叫 characterRemove", async () => {
     mockDesktop.characterListImported.mockResolvedValue([IMPORTED_SPRITE]);
     renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: /顯示全部角色/ }));
     const imported = await screen.findByRole("article", { name: "角色 匯入的角色" });
     await userEvent.click(within(imported).getByRole("button", { name: "移除" }));
     await userEvent.click(within(imported).getByRole("button", { name: "確定移除這個角色？" }));
@@ -485,12 +488,16 @@ describe("角色頁：目前角色與陪伴設定", () => {
     expect(screen.queryByText("技術資料")).not.toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/schemaVersion|adapterKind|manifest JSON|Behavior State/);
     expect(document.body.textContent).not.toMatch(/adapter|in-process|external-process|input\.|簽章|協商|事件合併窗|shu-maid/i);
-    // 分區順序。
-    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    const order = ["目前角色", "外觀與名字", "平常如何陪伴", "安靜與勿擾", "主動式對話", "主動程度與安靜時段", "更換或加入角色"];
-    const idx = order.map((t) => headings.indexOf(t));
-    expect(idx.every((i) => i >= 0)).toBe(true);
-    expect([...idx].sort((a, b) => a - b)).toEqual(idx);
+    // 首屏只回答三件事，其餘按需展開（M3 §4.1）；順序固定。
+    const firstScreen = document.querySelector(".character-first-screen")!;
+    expect(
+      Array.from(firstScreen.querySelectorAll("section.section > .section-head h2")).map((h) => h.textContent)
+    ).toEqual(["目前角色", "陪伴方式", "同步"]);
+    expect(
+      Array.from(
+        document.querySelectorAll(".character-page details[data-disclosure] > summary .character-disclosure-title")
+      ).map((el) => el.textContent)
+    ).toEqual(["調整陪伴方式", "外觀與名字", "安靜與勿擾", "主動式對話", "更換或加入角色"]);
   });
 
   it("非小樞角色：由 preferencesSchema 產生 bounded 表單、文字範例，且沒有 rig 字眼", async () => {
@@ -610,7 +617,9 @@ describe("角色頁：目前角色與陪伴設定", () => {
 
   it("事件合併窗只在進階模式；一般模式的主動式對話只有模式與頻率上限", async () => {
     const general = renderPage();
-    expect(await screen.findByRole("heading", { name: "主動式對話" })).toBeInTheDocument();
+    // 收合區塊：標題在 summary，收合摘要仍帶著有效上限（費用／次數不因收起而消失）。
+    const proactive = await screen.findByText("主動式對話", { selector: ".character-disclosure-title" });
+    expect(proactive.closest("details")).toHaveAttribute("data-disclosure", "proactive");
     expect(screen.getByRole("spinbutton", { name: "每小時最多則數" })).toBeInTheDocument();
     expect(screen.queryByRole("spinbutton", { name: "事件合併窗（秒）" })).not.toBeInTheDocument();
     general.unmount();

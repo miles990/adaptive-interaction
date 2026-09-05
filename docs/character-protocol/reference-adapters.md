@@ -80,7 +80,7 @@ interact-ai character adapters revoke <adapterId>     # goodbye＋斷線；token
 
 ## 5. 匯入自己的角色（純資料）
 
-角色頁「更換或加入角色 → 匯入」貼上 manifest JSON（可附 sprite sheet base64）。Tauri host 的 `character_import`
+角色頁「展開『更換或加入角色』 → 匯入」貼上 manifest JSON（可附 sprite sheet base64）。Tauri host 的 `character_import`
 用 Rust 驗證器（`interaction-character`）＋magic bytes＋大小上限＋路徑再檢查後，存到
 `<home>/state/characters/<characterId>/`；只允許 `adapterKind: in-process` 且 `entrypoint` 在白名單
 （`shu-rig`／`sprite`／`text`）。外部可執行 adapter 一律走 `character adapters add`（人類明確授權、token 分權）。

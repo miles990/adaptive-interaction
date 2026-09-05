@@ -48,6 +48,18 @@ import {
 
 export type ConnectTab = "devices" | "safety";
 
+/**
+ * 深連結落點。`"providers"` 不是第三個分頁，而是「裝置與能力」＋第二層直接停在
+ * 配對區（`CapabilitiesHub` 的「裝置與來源」）——角色同步卡的「連接手機／去重新確認／
+ * 重新連接手機」要一步到得了那裡，而不是把人丟在第一層自己找（M3 §4.2）。
+ */
+export type ConnectInitial = ConnectTab | "providers";
+
+/** 深連結落點 → 第一層分頁。 */
+function connectTabOf(initial: ConnectInitial): ConnectTab {
+  return initial === "providers" ? "devices" : initial;
+}
+
 // ---------------------------------------------------------------------------
 // 待決定清單（通知中心與「需要你確認」共用）
 // ---------------------------------------------------------------------------
@@ -129,17 +141,21 @@ export function ConnectPage({
   refreshKey: number;
   advanced: boolean;
   onNavigate: (tab: string) => void;
-  initial?: ConnectTab;
+  initial?: ConnectInitial;
 }) {
-  const [tab, setTab] = React.useState<ConnectTab>(initial);
+  const [tab, setTab] = React.useState<ConnectTab>(() => connectTabOf(initial));
+  const { human } = useAppState();
+  const [hubTab, setHubTab] = React.useState<HubTab>(() =>
+    initial === "providers" ? "providers" : "senses"
+  );
   // 相容路由：App 對「work／automations」這類舊 id 都渲染同一個元件，React 會沿用
   // 已掛載的實例，useState(initial) 只在首次掛載生效——route 改變時必須同步分頁，
   // 否則 tray／深連結／全域搜尋／Inbox 切到舊 id 只會高亮導覽、內容不動。
   React.useEffect(() => {
-    setTab(initial);
+    setTab(connectTabOf(initial));
+    // 深連結指名配對區時，第二層也要跟著到位（同樣的理由：已掛載的實例不會自己動）。
+    if (initial === "providers") setHubTab("providers");
   }, [initial]);
-  const { human } = useAppState();
-  const [hubTab, setHubTab] = React.useState<HubTab>("senses");
   const allRef = React.useRef<HTMLDetailsElement>(null);
 
   /** 四區的「管理…」按鈕：展開第二層並切到對應分類。 */

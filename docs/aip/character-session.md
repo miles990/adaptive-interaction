@@ -239,7 +239,15 @@ skippedStale, parked, lastPersistError, note }`——遷移寫在 `migratedFrom`
 | `intents.unsolicited` | 對不上任何待決 intent 的 `result`（重播或亂送）；只計數，不結清任何東西 |
 | `identity_mismatch` | 身分綁定沒過的訊息數（`source` 與 Transport 身分不符） |
 
-## 11. 一般模式文案（人話；由 `statusProjection.ts` 投影，不外洩 revision／sequence）
+## 11. 一般模式文案（人話；由 `statusProjection/characterSync.ts` 投影，不外洩 revision／sequence）
+
+> **這是語意契約，不是逐字契約**（v0.6.x）。實作端測試保護的是：緊急停止句逐字不變；綠色只給 `synced`；
+> `needs-reconfirmation` 必須提到「重新確認」；`local-only` 必須說「不會自動回來」＋「重新配對」；空狀態／關閉不像故障；
+> `partial-capability` 不是故障。其餘文案允許改寫與本地化。每一態另有**穩定的下一步 action id**（machine semantics）：
+> `connect-phone`（`no-device`／`local-only` → connect/providers）、`reconfirm-device`（`needs-reconfirmation` → connect/providers，
+> 帶上是哪一台）、`view-capabilities`（`partial-capability`／`capability-unknown` → connect/devices）、`safe-reconnect`
+> （`unrecoverable` → connect/providers）、`open-devices`（`offline`／`reconnecting`，不催促）、`storage-help`（`store-issue`，
+> 只有說明、沒有落點）、`null`（`synced`／`syncing`／`disabled`）。按鈕文案可改，id 與落點由測試釘住。
 
 | 狀態 | 文案 |
 |---|---|
@@ -250,17 +258,19 @@ skippedStale, parked, lastPersistError, note }`——遷移寫在 `migratedFrom`
 | 協商後有 unsupported intent | 「部分能力目前不可用」 |
 | resume 進行中 | 「同步尚未完成」 |
 | 連續 resume 失敗 | 「無法恢復，請重新連接」 |
-| **有裝置現在連著這台電腦、卻不是 session 成員**（含撤銷後重連） | 「需要重新確認裝置」（`needs-reconfirmation`） |
-| 持久化紀錄曾損毀（diagnostics `storeNote` 不是 null） | 「角色同步紀錄曾損毀，已重新開始」（`store-reset`；補充：「已重新連接的裝置會重新同步；不影響角色本身。」） |
+| **有裝置現在連著這台電腦、卻不是 session 成員**（含撤銷後重連） | 「需要重新確認裝置」（`needs-reconfirmation`；detail 指出是哪一台，只用顯示名稱） |
+| **零裝置、只剩歷史撤銷**（使用者主動移除了全部手機） | 「目前只在這台電腦使用」（`local-only`；中性終態，detail 說之前移除的手機不會自動回來、要再用就重新配對；撤銷的安全效果不變） |
+| 持久化紀錄**現在**存不下來（diagnostics `store.parked`，或 `persistFailures>0` 且有 `lastPersistError`） | 「同步紀錄暫時存不下來」（`store-issue`；active issue，排在 online 判定之前） |
+| 紀錄**曾經**重建過（`storeNote` 不是 null）但現在存得下來 | 不是狀態：卡片下方一句 muted 附註，不壓過 `synced`；`store.migratedFrom` 連附註都不是，只在進階模式 |
 | 模擬 iPhone（fixture） | 一律附「模擬 iPhone（fixture）」 |
 
 三條排序規則（`statusProjection.ts` 的宣告順序就是判定順序，vitest 釘住）：
 
-1. `storeNote` 那一列排在「有 online 成員」之前、「讀不到」之後：它講的是紀錄，不是角色，
-   所以不給綠色也不給紅色（警示色）；緊急停止的固定安全句永遠壓過它。
+1. `store-issue`（現在存不下來）排在「有 online 成員」之前、「讀不到」之後：它講的是紀錄，不是角色，
+   所以不給綠色也不給紅色（警示色）；緊急停止的固定安全句永遠壓過它。`storeNote`（曾經重建過）只是附註。
 2. 「需要重新確認裝置」看的是**當下**的事實（有裝置連著卻不是成員），**不是**「曾經有裝置被撤銷過」
-   的歷史。provider 列會永遠留著 revoked，拿它壓過一台真的在線的裝置會變成永遠亮著的假警報；
-   真的需要重新確認的裝置只要連上來就會以「連著但不是成員」的身分出現。
+   的歷史。provider 列會永遠留著 revoked：零裝置時它投影成中性的 `local-only`（主動移除手機是正常終態，
+   不永久要求重配），只有那台裝置又連上來（連著但不是成員）才回到 `needs-reconfirmation`。
 3. 「能力核對中」排在「部分能力目前不可用」與「已同步」之間：不知道就不給綠勾（綠勾只給真的），
    也不誣賴裝置做不到。Runtime 投影 `members[].unsupportedIntents`（§3）之後，正式路徑上這一列
    只會在讀不到 diagnostics／形狀不認得時出現。

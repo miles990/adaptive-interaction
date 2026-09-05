@@ -329,6 +329,37 @@ describe("窄視窗「更多」選單的深連結", () => {
   });
 });
 
+describe("深連結可以帶「落點參數」，但 route id 不變", () => {
+  it("goTo('connect', { hub: 'providers' }) 一步到配對區；下一次不帶就回到預設分頁", () => {
+    let nav: ReturnType<typeof useNavigation> | null = null;
+    function Probe() {
+      nav = useNavigation("home");
+      return (
+        <PageBody
+          tab={nav.tab}
+          refreshKey={0}
+          events={[]}
+          advanced={false}
+          onNavigate={nav.goTo}
+          navOptions={nav.options}
+          onRerunOnboarding={() => {}}
+        />
+      );
+    }
+    render(<Probe />);
+    // 角色同步卡的「連接手機／去重新確認」：同一個 route id（connect），落點是第二層的配對區。
+    act(() => nav!.goTo("connect", { hub: "providers", deviceId: "iphone-1" }));
+    expect(nav!.tab).toBe("connect");
+    expect(screen.getByTestId("page-connect").getAttribute("data-initial")).toBe("providers");
+    // 參數只對這一次導覽有效：側邊欄再按一次「連接與權限」就回到預設的「裝置與能力」。
+    act(() => nav!.goTo("connect"));
+    expect(screen.getByTestId("page-connect").getAttribute("data-initial")).toBe("devices");
+    // 不認得的 hub 值不會變成別的分頁（只認 providers）。
+    act(() => nav!.goTo("connect", { hub: "nope" }));
+    expect(screen.getByTestId("page-connect").getAttribute("data-initial")).toBe("devices");
+  });
+});
+
 describe("深連結導到「已經在的那一頁」也要有作用", () => {
   it("useNavigation 的 mountKey 每次導覽都改變（重複的深連結會重新掛載）", () => {
     let nav: ReturnType<typeof useNavigation> | null = null;

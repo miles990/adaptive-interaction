@@ -7,8 +7,11 @@
 //     沒有示範資料、沒有樂觀預設。
 //   * 讀不到就說讀不到；連續讀不到才升級成「無法恢復，請重新連接」（契約 §7.5）。
 //   * 空狀態不像成功：一台裝置都沒有時是中性的「尚未連接 iPhone」。
-//   * 保存的同步紀錄壞掉過也要說（`storeNote` → 「角色同步紀錄曾損毀，已重新開始」），
-//     一般模式只給人話，不給後端原文。
+//   * 保存層的兩類訊號分開：**現在**存不下來（parked／持續寫入失敗）是狀態，
+//     「曾經重建過」（`storeNote`）只是一句 muted 的歷史通知——它在同一次 daemon
+//     執行期間永遠不會清，當成警告會讓使用者從此再也看不到綠色（M3 §4.3b）。
+//     兩者都只給人話，不給後端原文。
+//   * 每一態的「下一步」是穩定的 action id；沒有 `onNavigate`（到不了那裡）就不給按鈕。
 //   * 一般模式看不到任何技術數字；進階模式才展開「連接診斷」。
 //   * 模擬 iPhone（fixture）的名稱自帶標籤，原樣顯示，不得被寫成真機。
 //   * 緊急停止中的固定安全句由這裡（可信 host 介面）顯示，角色無法覆寫。
@@ -51,6 +54,7 @@ import {
   characterSyncMembers,
   characterSyncPresenceLabel,
   characterSyncSafetyNote,
+  characterSyncStoreSignals,
   projectCharacterSession,
   type CharacterSyncSignals,
 } from "../statusProjection";
@@ -120,7 +124,13 @@ function connectedDeviceIds(mobile: unknown): string[] {
     .filter((id) => id.length > 0);
 }
 
-/** 有沒有裝置的授權被撤銷過（撤銷之後要重新確認才會再同步）。 */
+/**
+ * 有沒有裝置的授權被撤銷過。
+ *
+ * 這是**歷史事實**：Runtime 撤銷後會把 provider 條目留成 `revoked`（永遠留著）。
+ * 零裝置時它代表「以前移除過手機」＝`local-only` 的終態；只有那台裝置**現在**又
+ * 連上來（`connectedButNotSynced`）才需要人動手重新確認（M3 §4.3）。
+ */
 export function hasRevokedDevice(providers: unknown): boolean {
   if (!Array.isArray(providers)) return false;
   return providers.some((entry) => {
@@ -141,6 +151,7 @@ export function CharacterSyncCard({
   advanced = false,
   sessionEvents,
   connectionKey = 0,
+  onNavigate,
 }: {
   refreshKey: number;
   /** 進階模式才顯示「連接診斷」（revision／sequence／計數）。 */
@@ -160,6 +171,13 @@ export function CharacterSyncCard({
    * 而不是靠事件流自己接上——所以這裡必須是一個獨立的、一次連線只動一兩下的數字。
    */
   connectionKey?: number;
+  /**
+   * 導覽（深連結）。**沒傳就不渲染主要動作按鈕**——一顆按了沒有反應的按鈕比沒有按鈕更糟。
+   *
+   * 落點由投影的 `action.target` 決定（機器語意穩定的 action id，文案可改寫）；
+   * `deviceId` 只是給呼叫端比對用的參數，**不會**出現在任何畫面上。
+   */
+  onNavigate?: (tab: string, opts?: { hub?: string; deviceId?: string }) => void;
 }) {
   const live = sessionEvents !== undefined;
   // 協定狀態機。ref 是「現在的真相」（dispatch 要同步讀它），state 只是讓畫面跟著更新。
@@ -347,21 +365,39 @@ export function CharacterSyncCard({
     () => characterSyncMembers(snapshotView, names),
     [snapshotView, names]
   );
+  /** 連著、但不在成員名單裡的手機＝還沒重新確認過（送不出互動，也收不到狀態）。 */
+  const pending = React.useMemo(() => {
+    const synced = new Set(characterSyncMemberDeviceIds(snapshotView));
+    return connected.filter((id) => !synced.has(id));
+  }, [snapshotView, connected]);
   const projection = React.useMemo(() => {
     // 第一次請求還沒回來，但 SSE 已經送來一份權威狀態時，那份就是真的——
     // 沒有理由繼續說「正在讀取」。反過來，什麼都還沒有就照實說還在讀。
     if (!loaded && !session) return null;
-    const synced = new Set(characterSyncMemberDeviceIds(snapshotView));
     const signals: CharacterSyncSignals = {
       enabled,
       failedReads,
       revokedDevice: revoked,
-      // 連著、但不在成員名單裡的手機＝還沒重新確認過（送不出互動，也收不到狀態）。
-      connectedButNotSynced: connected.some((id) => !synced.has(id)),
-      storeReset: diagnostics?.storeNote != null,
+      connectedButNotSynced: pending.length > 0,
+      // 指出「是哪一台」用的是這台電腦上的顯示名稱；查不到名字用中性稱呼，
+      // 裝置識別碼永遠不進畫面。
+      pendingDeviceNames: pending.map((id) => names[id] ?? "一台裝置"),
+      // 保存層：`parked`／持續寫入失敗是**現在**的問題；曾經重建過只是歷史通知。
+      store: characterSyncStoreSignals(diagnostics),
     };
     return projectCharacterSession(snapshotView, members, signals);
-  }, [loaded, session, snapshotView, members, enabled, failedReads, revoked, connected, diagnostics]);
+  }, [
+    loaded,
+    session,
+    snapshotView,
+    members,
+    enabled,
+    failedReads,
+    revoked,
+    pending,
+    names,
+    diagnostics,
+  ]);
   const lastInteraction = React.useMemo(
     () => characterSyncLastInteraction(snapshotView, names),
     [snapshotView, names]
@@ -373,6 +409,14 @@ export function CharacterSyncCard({
   // 讀起來就是「一切正常」，會和正下方的固定安全句互相矛盾。有安全訊息時一律
   // 不給綠色（句子本身照實不改：已同步就是已同步）。
   const tone = safetyNote ? "bad" : (projection?.tone ?? "muted");
+  /** 這一態的下一步：有 id 又有落點才是一顆按得動的按鈕。 */
+  const candidate = projection?.action;
+  const action =
+    candidate && candidate.id !== null && candidate.target
+      ? { id: candidate.id, label: candidate.label, target: candidate.target }
+      : null;
+  /** 「去重新確認」要帶上是哪一台（只當參數用，不進畫面）。 */
+  const actionDeviceId = action?.id === "reconfirm-device" ? (pending[0] ?? null) : null;
 
   return (
     <div className="character-sync" data-testid="character-sync" role="region" aria-label="角色同步">
@@ -408,8 +452,30 @@ export function CharacterSyncCard({
           最近互動：{lastInteraction}
         </p>
       )}
+      {projection?.note && (
+        <p className="muted small" data-testid="character-sync-note">
+          {projection.note}
+        </p>
+      )}
       <div className="connect-area-actions">
         <button onClick={() => setReload((n) => n + 1)}>重新檢查</button>
+        {/* 主要動作：只有「這一態真的有下一步」而且「這個畫面到得了那裡」時才出現。
+            action id 是穩定的機器語意，按鈕文案可以改寫；storage-help 沒有落點
+            （它是說明，不是一個可以去的地方），所以不會變成按鈕。 */}
+        {action && onNavigate && (
+          <button
+            data-testid="character-sync-action"
+            data-action={action.id ?? ""}
+            onClick={() =>
+              onNavigate(action.target.tab, {
+                ...(action.target.hub ? { hub: action.target.hub } : {}),
+                ...(actionDeviceId ? { deviceId: actionDeviceId } : {}),
+              })
+            }
+          >
+            {action.label}
+          </button>
+        )}
       </div>
       {advanced && (
         <details className="tech-details">
@@ -428,6 +494,21 @@ export function CharacterSyncCard({
                 </li>
               ))}
               {diagnostics.storeNote && <li>storeNote {diagnostics.storeNote}</li>}
+              {/* 保存層健康度：`migratedFrom` 只是歷史遷移通知，一般模式不顯示
+                  （它既不是狀態也不是附註），進階模式才看得到。 */}
+              {diagnostics.store && (
+                <>
+                  <li>store.parked {String(diagnostics.store.parked)}</li>
+                  <li>store.persistFailures {diagnostics.store.persistFailures}</li>
+                  <li>store.lastPersistedRevision {String(diagnostics.store.lastPersistedRevision)}</li>
+                  {diagnostics.store.migratedFrom !== null && (
+                    <li>store.migratedFrom {diagnostics.store.migratedFrom}</li>
+                  )}
+                  {diagnostics.store.lastPersistError && (
+                    <li>store.lastPersistError {diagnostics.store.lastPersistError}</li>
+                  )}
+                </>
+              )}
               {/* 本地對齊的計數（reducer 的，不是後端的）：hash 不符、host 倒退、
                   被忽略的重播都必須看得見——安靜地丟掉一則狀態是最難察覺的錯。 */}
               {Object.entries(machine.counters).map(([key, value]) => (

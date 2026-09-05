@@ -29,7 +29,6 @@ function signals(overrides: Partial<CharacterSyncSignals> = {}): CharacterSyncSi
     failedReads: 0,
     revokedDevice: false,
     connectedButNotSynced: false,
-    storeReset: false,
     ...overrides,
   };
 }
@@ -209,6 +208,17 @@ describe("general-mode-ux-024：live 模式讀不到權威狀態時要自己退�
 // --- evidence-honesty-015：第三份手抄清單 --------------------------------
 
 describe("evidence-honesty-015：使用者指南的同步狀態表不得漏掉任何一態", () => {
+  /**
+   * M3a 新增／改寫、**指南尚未補上**的狀態句。
+   *
+   * 這是一筆記在程式碼裡的文件債，不是豁免：清單只列這一次改動真的動到的兩態，
+   * 其餘每一態照舊逐句比對，任何人新增第三態而忘了寫指南仍然會紅。
+   * 指南補上這兩列（以及移除舊的「角色同步紀錄曾損毀，已重新開始」）之後，
+   * 這個清單要清空。
+   */
+  // docs/DESKTOP-GUIDE.md 已補上 local-only 與 store-issue 兩列（v0.6.x）；清單為空＝每一態都逐句比對。
+  const PENDING_GUIDE_ROWS: string[] = [];
+
   it("DESKTOP-GUIDE 的表格列出 CHARACTER_SYNC_PROJECTION 的每一句 headline", () => {
     const guide = readFileSync(join(__dirname, "../../../../docs/DESKTOP-GUIDE.md"), "utf8");
     const section = guide.slice(guide.indexOf("#### 角色同步"));
@@ -216,7 +226,7 @@ describe("evidence-honesty-015：使用者指南的同步狀態表不得漏掉�
       .map((p) => p.headline)
       .filter((headline) => !section.includes(`| ${headline} |`));
     // 漏掉的那一態使用者永遠不會在指南裡看到說明——最需要誠實的
-    //「角色同步紀錄曾損毀，已重新開始」正是被漏掉的那一列。
-    expect(missing, "docs/DESKTOP-GUIDE.md 的同步狀態表少了這幾句").toEqual([]);
+    //「保存的紀錄出問題」正是最容易被漏掉的那一列。
+    expect(missing, "docs/DESKTOP-GUIDE.md 的同步狀態表少了這幾句").toEqual(PENDING_GUIDE_ROWS);
   });
 });

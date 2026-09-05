@@ -1,7 +1,22 @@
-// 角色頁（v0.5 一般模式五分區，依序）：目前角色／外觀與名字／平常如何陪伴／安靜與勿擾／
-// 更換或加入角色。技術資料（安全宣告、manifest 原文、schema 版本、引擎、adapter、通道、
-// Behavior State 數值、執行位置／可執行程式／需要網路旗標、貼上角色描述檔原文、事件合併窗）
-// 只在進階模式的收合區塊；一般模式對需要額外授權的角色仍給一句人話提示（誠實不隱藏）。
+// 角色頁（M3 §4.1 首屏收斂）：
+//
+// 首屏只回答三件事——
+//   1. 目前角色：名字、現在怎麼樣、預覽，以及顯示／暫停這個主要動作；
+//   2. 陪伴方式：一句話的預設摘要（安靜／自然／活潑／自訂）＋「調整」展開；
+//   3. 手機連接／同步：CharacterSyncCard（`onNavigate` 由這一頁往下傳）。
+// 其餘（外觀與名字、細部行為、安靜與勿擾、完整頻率與 AI 生成設定、角色庫）改為
+// 按需展開的 <details>：鍵盤可達、有可及名稱、沒有動畫。
+//
+// 收合 ≠ 隱藏事實（誠實階梯）：
+//   - 主動式對話收起來時，摘要行仍然帶著**有效值**——每小時／最短間隔／每日次數／
+//     費用上限／指定的 AI 幫手。收起數字調校不等於藏起使用成本或重新授權。
+//   - 六組「安靜」語意各自獨立，攤在「安靜與勿擾」逐項列出（項目／由哪個設定控制／
+//     現在的有效狀態），**不**合併成一個布林；安全提示與感測提示永遠不受安靜設定影響。
+//   - 套用陪伴預設只寫既有的三個欄位（見 `src/companion/presets.ts`）：不覆蓋其它自訂值、
+//     不改費用上限、不啟用任何權限、不更換指定的 AI 幫手。
+//
+// 技術資料（安全宣告、manifest 原文、schema 版本、引擎、adapter、通道、Behavior State、
+// 執行位置／可執行程式／需要網路旗標、貼上角色描述檔原文、事件合併窗）只在進階模式。
 //
 // 角色名稱一律 useCharacterName()；預覽依 manifest.entrypoint 分流（不用 pack id 字串）。
 // 安全語句固定不可覆寫；成功綠勾只在 verified。主動對話／主動程度／安靜時段的編輯器
@@ -13,10 +28,18 @@ import { useAppState } from "../appstate";
 import { refreshCharacterName, useCharacterName } from "../characterName";
 import { desktop, DesktopPrefs, isTauri } from "../desktop";
 import { projectCharacterLifecycle } from "../statusProjection";
-import { Badge, Section, Toggle, useAsync } from "../ui";
+import { Section, Toggle, useAsync } from "../ui";
 import { CharacterSyncCard } from "../components/CharacterSyncCard";
 import { PRIMARY_INSTANCE_ID } from "../companion/gatewayWiring";
 import { noteReactionDisabled, sanitizeMemory } from "../companion/interactionMemory";
+import {
+  applyCompanionPreset,
+  describeCompanionState,
+  expressivenessLabel,
+  presetFor,
+  proactiveModeLabel,
+  type CompanionPresetId,
+} from "../companion/presets";
 // 註冊 builtin adapter 工廠與 meta（副作用）：這一頁的角色專屬區塊全部靠 meta 決定。
 import "../character/adapters";
 import { builtinAdapterMeta } from "../character/adapterRegistry";
@@ -24,9 +47,14 @@ import { CharacterLibrarySection } from "./character/CharacterLibrary";
 import { CharacterPreview } from "./character/CharacterPreview";
 import { PreferencesForm } from "./character/PreferencesForm";
 import { TechnicalDetails } from "./character/TechnicalDetails";
+import { CompanionPresetRow } from "./companion/CompanionPresets";
+import { CurrentCharacterCard } from "./companion/FirstScreen";
+import { Disclosure } from "./companion/Disclosure";
+import { libraryDigest } from "./companion/libraryDigest";
+import { ProactiveSettings, type ProactiveConfig } from "./companion/ProactiveSettings";
+import { QuietImpactList, type QuietImpactItem } from "./companion/QuietControls";
 import {
   extraPermissionLine,
-  originLabel,
   sanitizeErrorText,
   siblingForVariant,
   TEXT_FALLBACK_CHARACTER_ID,
@@ -59,6 +87,80 @@ export function resolveActiveCharacterId(
 }
 
 // ---------------------------------------------------------------------------
+// 主動式對話：狀態與寫入（v0.5 起唯一主人＝角色頁；模式與頻率由 Rust 確定性強制）。
+// 表單本身在 `./companion/ProactiveSettings`，它不碰 api——設定只有一個主人。
+// ---------------------------------------------------------------------------
+
+const AGENT_LABELS: Record<string, string> = { codex: "Codex", "claude-code": "Claude Code" };
+
+function agentLabel(kind: string): string {
+  return AGENT_LABELS[kind] ?? kind;
+}
+
+/** 後端回報的設定 → 有效值（缺值時退回後端同一組預設；不猜、不放寬）。 */
+function proactiveConfigOf(status: Record<string, unknown> | null): ProactiveConfig {
+  const c = (status?.config as Record<string, unknown> | undefined) ?? {};
+  const agent = c.generativeAgent;
+  return {
+    mode: String(c.mode ?? "natural"),
+    custom: (c.custom as Record<string, unknown> | undefined) ?? {},
+    maxPerHour: Number(c.maxPerHour ?? 3),
+    minIntervalMinutes: Number(c.minIntervalMinutes ?? 12),
+    mergeWindowSeconds: Number(c.mergeWindowSeconds ?? 30),
+    noFollowUp: c.noFollowUp !== false,
+    dndDefer: c.dndDefer !== false,
+    generativeAgent: typeof agent === "string" && agent.length > 0 ? agent : null,
+    dailyGenerativeSessions: Number(c.dailyGenerativeSessions ?? 8),
+    dailyGenerativeCostUsd: Number(c.dailyGenerativeCostUsd ?? 1),
+  };
+}
+
+function useProactiveDialogue() {
+  const [status, setStatus] = React.useState<Record<string, unknown> | null>(null);
+  const [agents, setAgents] = React.useState<Record<string, unknown>[]>([]);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    void api
+      .proactiveDialogueGet()
+      .then((r) => {
+        if (!alive) return;
+        setStatus(r);
+        setError(null);
+      })
+      .catch((e) => alive && setError(sanitizeErrorText(e)));
+    void api
+      .agentsDiscoveries()
+      .then((result) => alive && setAgents((result.agents as Record<string, unknown>[] | undefined) ?? []))
+      .catch(() => alive && setAgents([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const patch = React.useCallback(async (value: Record<string, unknown>) => {
+    try {
+      setStatus(await api.proactiveDialoguePatch(value));
+      setError(null);
+    } catch (e) {
+      setError(sanitizeErrorText(e));
+    }
+  }, []);
+
+  const quiet = React.useCallback(async (minutes: number) => {
+    try {
+      setStatus(await api.proactiveDialogueQuiet(minutes));
+      setError(null);
+    } catch (e) {
+      setError(sanitizeErrorText(e));
+    }
+  }, []);
+
+  return { status, agents, error, patch, quiet };
+}
+
+// ---------------------------------------------------------------------------
 // 頁面
 // ---------------------------------------------------------------------------
 
@@ -67,6 +169,7 @@ export function CompanionPage({
   advanced: advancedProp,
   events,
   connectionKey = 0,
+  onNavigate,
 }: {
   refreshKey: number;
   /** 未提供時讀 AppState（prefs.mode）。 */
@@ -78,7 +181,8 @@ export function CompanionPage({
    * 同步卡收到就重新對齊一次；它**不**隨每則事件變動。
    */
   connectionKey?: number;
-  onNavigate?: (tab: string) => void;
+  /** 同步卡的「下一步」要一鍵到得了連接與權限頁（M3 §4.2）。 */
+  onNavigate?: (tab: string, opts?: Record<string, unknown>) => void;
 }) {
   const { prefs: uiPrefs } = useAppState();
   const advanced = advancedProp ?? uiPrefs.mode === "advanced";
@@ -90,7 +194,9 @@ export function CompanionPage({
   const [notice, setNotice] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [prefSource, setPrefSource] = React.useState<PreferenceSource | null>(null);
+  const [showAllCharacters, setShowAllCharacters] = React.useState(false);
   const catalog = useCharacterCatalog(refreshKey);
+  const proactive = useProactiveDialogue();
 
   const load = React.useCallback(async () => {
     try {
@@ -257,75 +363,252 @@ export function CompanionPage({
       ? String(effective.values[VARIANT_PREFERENCE_KEY])
       : (variants[0]?.id ?? "");
 
+  // ---- 陪伴預設（既有欄位的組合；套用只寫那三個欄位） ----
+  const config = proactiveConfigOf(proactive.status);
+  const presetInputs = {
+    expressiveness: prefs?.companionExpressiveness ?? null,
+    doNotDisturb: prefs ? prefs.companionDoNotDisturb === true : null,
+    proactiveMode: proactive.status ? config.mode : null,
+  };
+  const presetChoice = presetFor(presetInputs);
+  const applyPreset = React.useCallback(
+    async (id: CompanionPresetId) => {
+      const next = applyCompanionPreset(id);
+      if (!next) return;
+      // 送出 ≠ 完成：桌面偏好沒寫成功就不要再去動後端的主動對話模式。
+      if (!(await patch(next.prefs))) return;
+      await proactive.patch(next.proactive);
+    },
+    [patch, proactive.patch]
+  );
+
+  // ---- 安靜與勿擾：六組語意各自的底層設定與有效狀態 ----
+  const [policy, reloadPolicy] = useAsync(() => api.policyGet(), [refreshKey]);
+  const [policySaving, setPolicySaving] = React.useState(false);
+  const [policySaved, setPolicySaved] = React.useState(false);
+  const [policyError, setPolicyError] = React.useState<string | null>(null);
+  async function patchPolicy(p: Record<string, unknown>) {
+    setPolicySaving(true);
+    setPolicyError(null);
+    setPolicySaved(false);
+    try {
+      await api.policyPatch(p);
+      setPolicySaved(true);
+      reloadPolicy();
+    } catch (e) {
+      setPolicyError(sanitizeErrorText(e));
+    } finally {
+      setPolicySaving(false);
+    }
+  }
+  const quietHours = (policy.data?.["quietHours"] as { start: string; end: string }[] | undefined)?.[0];
+  const localQuietUntil = Number(prefs?.companionProactiveQuietUntil ?? 0);
+  const localQuietActive = localQuietUntil > Date.now();
+  const proactiveQuietUntil = proactive.status?.quietUntil ? new Date(String(proactive.status.quietUntil)) : null;
+  const proactiveQuietActive = proactiveQuietUntil !== null && proactiveQuietUntil.getTime() > Date.now();
+  const dndLabel = prefs ? (prefs.companionDoNotDisturb === true ? "開啟" : "關閉") : "不明（需要桌面版控制中心）";
+  const quietHoursLabel = policy.loading
+    ? "讀取中…"
+    : quietHours
+      ? `${quietHours.start}–${quietHours.end}`
+      : "未啟用";
+  const quietImpact: QuietImpactItem[] = [
+    {
+      id: "safety",
+      label: "安全提示（緊急停止中、被阻擋、結果不確定、失敗）",
+      source: "固定安全文字",
+      state: "永遠顯示，不受任何安靜設定影響",
+    },
+    {
+      id: "sensing",
+      label: "感測提示（麥克風、攝影機）",
+      source: "感測器本身的開關",
+      state: "只要感測使用中就一定顯示；安靜設定不會讓它安靜下來",
+    },
+    {
+      id: "companion",
+      label: `視覺陪伴（${pronoun}主動靠近、隨口說話）`,
+      source: "勿擾",
+      state: prefs
+        ? prefs.companionDoNotDisturb === true
+          ? "勿擾中：不主動靠近、不主動說話"
+          : "照常陪伴"
+        : "不明（桌面角色設定需要桌面版控制中心）",
+      notes: localQuietActive
+        ? [
+            `另外還有一段本機安靜期，至 ${formatClock(localQuietUntil)}（由桌面角色自己的選單設定，這一頁只顯示）。`,
+          ]
+        : [],
+    },
+    {
+      id: "proactive",
+      label: `主動說話（${name}主動開口）`,
+      source: "主動式對話",
+      state: proactive.status ? proactiveModeLabel(config.mode) : "讀取中…",
+      notes: [
+        proactiveQuietActive && proactiveQuietUntil
+          ? `目前安靜中，至 ${proactiveQuietUntil.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}。`
+          : "目前沒有設定安靜期。",
+        config.dndDefer ? "勿擾時段會延後非必要訊息（必要訊息照送）。" : "勿擾時段不延後非必要訊息。",
+      ],
+    },
+    {
+      id: "notifications",
+      label: "工作通知（聲音、震動、通知、燈光）",
+      source: "安靜時段",
+      state: quietHoursLabel,
+    },
+  ];
+
+  // ---- 角色庫：預設只列使用中＋最近／常用；其餘收在「顯示全部角色」後面 ----
+  const usedIds = React.useMemo(
+    () => Object.keys(prefs?.companionPreferences ?? {}),
+    [prefs?.companionPreferences]
+  );
+  const digest = React.useMemo(
+    () => libraryDigest(catalog.cards, activeId, { usedIds }),
+    [catalog.cards, activeId, usedIds]
+  );
+  const libraryCatalog = React.useMemo(
+    () => (showAllCharacters ? catalog : { ...catalog, cards: digest.shown }),
+    [showAllCharacters, catalog, digest.shown]
+  );
+
+  /**
+   * M3a 會在 CharacterSyncCard 補上 `onNavigate?: (tab, opts?) => void`
+   *（同步卡的「下一步」要一鍵到得了連接與權限頁）。在它補上之前用 spread 傳遞——
+   * 補上之後這裡不必再改，沒有這個 prop 的版本會忽略它。
+   */
+  const syncNavProps: { onNavigate?: (tab: string, opts?: Record<string, unknown>) => void } = { onNavigate };
+
   return (
     <div className="character-page">
-      {/* 1. 目前角色 */}
-      <Section title="目前角色">
-        <div className="character-current">
-          <div className="character-current-head">
-            <h3 className="character-current-name">{name}</h3>
-            {active && <Badge kind={active.origin === "builtin" ? "info" : "warn"}>{originLabel(active.origin)}</Badge>}
-            {advanced && active?.flags.external && <Badge kind="warn">外部</Badge>}
-            {advanced && active?.flags.executable && <Badge kind="bad">有可執行程式</Badge>}
-            {advanced && active?.flags.network && <Badge kind="warn">需要網路</Badge>}
-            <Badge kind={live.kind}>{live.label}</Badge>
-          </div>
-          <p className="muted small">{live.detail}</p>
-          {/* 需要額外授權的事實在一般模式也不能藏，只是改成一句人話。 */}
-          {!advanced && active && extraPermission && <p className="muted small">{extraPermission}</p>}
-          {explanation.length > 0 && (
-            <p className="small" role="status">
-              現在：{explanation}
-            </p>
-          )}
-          {active ? (
-            <ul className="plain-list small character-summary" aria-label="角色能力摘要">
-              {summaryLines.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          ) : catalog.loaded ? (
-            <div className="state-box">找不到目前設定的角色資料；桌面角色視窗會改用文字顯示。</div>
+      <div className="character-first-screen">
+        {/* 1. 目前角色 */}
+        <Section title="目前角色">
+          <CurrentCharacterCard
+            name={name}
+            active={active}
+            advanced={advanced}
+            live={live}
+            explanation={explanation}
+            summaryLines={summaryLines}
+            extraPermission={extraPermission}
+            catalogLoaded={catalog.loaded}
+            visible={prefs ? prefs.companionVisible : null}
+            onVisibleChange={(on) => void patch({ companionVisible: on })}
+            preview={<CharacterPreview card={active} name={name} />}
+            error={error}
+            notice={notice}
+          />
+        </Section>
+
+        {/* 2. 陪伴方式：一句話摘要＋三個檔位；細部行為收在「調整」。 */}
+        <Section title="陪伴方式">
+          {!prefs ? (
+            <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
           ) : (
-            <div className="state-box">正在讀取角色資料…</div>
-          )}
-          {prefs && (
-            <Toggle
-              checked={prefs.companionVisible}
-              onChange={(on) => void patch({ companionVisible: on })}
-              label="顯示桌面角色"
+            <CompanionPresetRow
+              choice={presetChoice}
+              effectiveLines={describeCompanionState(presetInputs)}
+              busy={busy}
+              onApply={(id) => void applyPreset(id)}
             />
           )}
-          <p className="muted small">
-            隱藏角色只會停止角色視窗內的感知與呈現；系統、狀態列與進行中的工作都會繼續。隱藏不等於緊急停止。
-          </p>
-          {error && (
+          {/* 主動說話的設定失敗只有這一個家，而且在首屏：從收合區塊裡按下去失敗時
+              不會連錯誤都跟著被收起來（送出 ≠ 完成）。 */}
+          {proactive.error && (
             <p className="cap-card-error" role="alert">
-              {error}
+              主動說話的設定沒有寫入成功：{proactive.error}
             </p>
           )}
-          {notice && (
-            <p className="muted small" role="status">
-              {notice}
-            </p>
-          )}
-        </div>
-      </Section>
+          <Disclosure
+            id="behavior"
+            title="調整陪伴方式"
+            summary={
+              prefs
+                ? `表現程度：${expressivenessLabel(prefs.companionExpressiveness)}・說話風格與細部行為`
+                : "需要桌面版控制中心"
+            }
+          >
+            {!prefs ? (
+              <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
+            ) : (
+              <>
+                <div className="settings-grid">
+                  <label className="field-label">
+                    表現程度（只影響表演與說話頻率，不影響任何權限）
+                    <select
+                      value={prefs.companionExpressiveness}
+                      onChange={(e) => void patch({ companionExpressiveness: e.target.value })}
+                    >
+                      <option value="quiet">安靜</option>
+                      <option value="natural">自然</option>
+                      <option value="lively">活潑</option>
+                    </select>
+                  </label>
+                  {personas.length > 0 && (
+                    <label className="field-label">
+                      說話風格
+                      <select
+                        value={prefs.companionPersona}
+                        onChange={(e) => void patch({ companionPersona: e.target.value })}
+                      >
+                        {personas.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.followsName ? `${name}・${p.label}` : p.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+                {schema && (
+                  <>
+                    <h3>{name}的偏好</h3>
+                    <PreferencesForm
+                      schema={schema}
+                      values={effective.values}
+                      disabled={busy}
+                      onChange={(k, v) => void changePreference(k, v)}
+                    />
+                    {(prefSource === "local" || effective.source === "local") && (
+                      <p className="muted small" role="status">
+                        這個版本的桌面程式尚未保存角色偏好；目前只在這個視窗記住，重新啟動後會回到預設。
+                      </p>
+                    )}
+                  </>
+                )}
+                {PlayfieldControls ? (
+                  <PlayfieldControls prefs={prefs} patch={patch} name={name} pronoun={pronoun} presence={presence} />
+                ) : (
+                  <BasicCompanionToggles prefs={prefs} patch={patch} pronoun={pronoun} />
+                )}
+                <p className="muted small">
+                  說話風格與表現程度只改變表達方式；緊急停止、被阻擋、結果不確定等安全訊息永遠使用固定文字，
+                  任何角色都無法覆寫或隱藏。
+                </p>
+              </>
+            )}
+          </Disclosure>
+        </Section>
 
-      {/* 1.5 同步（AIP Character Session；`docs/aip/character-session.md` §11）：
-          手機上的角色跟這台電腦是不是同一個狀態。一般模式只有人話，
-          revision／sequence／計數留在進階模式的「連接診斷」。 */}
-      <Section title="同步">
-        <CharacterSyncCard
-          refreshKey={refreshKey}
-          advanced={advanced}
-          sessionEvents={events}
-          connectionKey={connectionKey}
-        />
-      </Section>
+        {/* 3. 同步（AIP Character Session；`docs/aip/character-session.md` §11）：
+            手機上的角色跟這台電腦是不是同一個狀態。一般模式只有人話，
+            revision／sequence／計數留在進階模式的「連接診斷」。 */}
+        <Section title="同步">
+          <CharacterSyncCard
+            refreshKey={refreshKey}
+            advanced={advanced}
+            sessionEvents={events}
+            connectionKey={connectionKey}
+            {...syncNavProps}
+          />
+        </Section>
+      </div>
 
-      {/* 2. 外觀與名字 */}
-      <Section title="外觀與名字">
+      {/* 以下按需展開。收合摘要一律帶著有效值，收起來不等於看不到。 */}
+      <Disclosure id="appearance" title="外觀與名字" summary="名字、外觀、大小、透明度、位置">
         {!prefs ? (
           <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
         ) : (
@@ -340,73 +623,18 @@ export function CompanionPage({
             onVariant={chooseVariant}
           />
         )}
-        <CharacterPreview card={active} name={name} />
-      </Section>
+      </Disclosure>
 
-      {/* 3. 平常如何陪伴 */}
-      <Section title="平常如何陪伴">
-        {!prefs ? (
-          <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
-        ) : (
-          <>
-            <div className="settings-grid">
-              <label className="field-label">
-                表現程度（只影響表演與說話頻率，不影響任何權限）
-                <select
-                  value={prefs.companionExpressiveness}
-                  onChange={(e) => void patch({ companionExpressiveness: e.target.value })}
-                >
-                  <option value="quiet">安靜</option>
-                  <option value="natural">自然</option>
-                  <option value="lively">活潑</option>
-                </select>
-              </label>
-              {personas.length > 0 && (
-                <label className="field-label">
-                  說話風格
-                  <select
-                    value={prefs.companionPersona}
-                    onChange={(e) => void patch({ companionPersona: e.target.value })}
-                  >
-                    {personas.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.followsName ? `${name}・${p.label}` : p.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </div>
-            {schema && (
-              <>
-                <h3>{name}的偏好</h3>
-                <PreferencesForm schema={schema} values={effective.values} disabled={busy} onChange={(k, v) => void changePreference(k, v)} />
-                {(prefSource === "local" || effective.source === "local") && (
-                  <p className="muted small" role="status">
-                    這個版本的桌面程式尚未保存角色偏好；目前只在這個視窗記住，重新啟動後會回到預設。
-                  </p>
-                )}
-              </>
-            )}
-            {PlayfieldControls ? (
-              <PlayfieldControls prefs={prefs} patch={patch} name={name} pronoun={pronoun} presence={presence} />
-            ) : (
-              <BasicCompanionToggles prefs={prefs} patch={patch} pronoun={pronoun} />
-            )}
-            <p className="muted small">
-              說話風格與表現程度只改變表達方式；緊急停止、被阻擋、結果不確定等安全訊息永遠使用固定文字，
-              任何角色都無法覆寫或隱藏。
-            </p>
-          </>
-        )}
-      </Section>
-
-      {/* 4. 安靜與勿擾 */}
-      <Section title="安靜與勿擾">
+      <Disclosure
+        id="quiet"
+        title="安靜與勿擾"
+        summary={`勿擾：${dndLabel}・主動說話：${proactive.status ? proactiveModeLabel(config.mode) : "讀取中…"}・安靜時段：${quietHoursLabel}`}
+      >
         <p className="muted small">
-          這一區決定{name}什麼時候保持安靜。安全訊息（緊急停止中、被阻擋、結果不確定、感測使用中）
-          不受任何安靜設定影響，一定會顯示。
+          這一區決定{name}什麼時候保持安靜。「安靜」有好幾種不同的意思，下面逐項列出各自由哪個設定控制、
+          現在的有效狀態是什麼——它們**不是**同一個開關。安全訊息與感測提示不受任何安靜設定影響。
         </p>
+        <QuietImpactList items={quietImpact} />
         {prefs ? (
           <>
             <Toggle
@@ -414,41 +642,94 @@ export function CompanionPage({
               onChange={(on) => void patch({ companionDoNotDisturb: on })}
               label="勿擾（安靜陪伴：不主動靠近、不主動說話）"
             />
-            {Number(prefs.companionProactiveQuietUntil ?? 0) > Date.now() && (
-              <p className="muted small" role="status">
-                本機安靜期至{" "}
-                {new Date(Number(prefs.companionProactiveQuietUntil)).toLocaleTimeString("zh-TW", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-                。
-              </p>
+            {localQuietActive && (
+              <div className="row wrap">
+                <span className="muted small" role="status">
+                  本機安靜期至 {formatClock(localQuietUntil)}。
+                </span>
+                <button onClick={() => void patch({ companionProactiveQuietUntil: 0 })} disabled={busy}>
+                  取消本機安靜期
+                </button>
+              </div>
             )}
           </>
         ) : (
-          <div className="state-box">勿擾開關需要桌面版控制中心；下方的主動對話與安靜時段在瀏覽器也能設定。</div>
+          <div className="state-box">勿擾開關需要桌面版控制中心；下方的主動程度與安靜時段在瀏覽器也能設定。</div>
         )}
-      </Section>
-      <ProactiveDialogueSection name={name} advanced={advanced} />
-      <InitiativeQuietSection refreshKey={refreshKey} />
+        <div className="row-gap">
+          <button onClick={() => void proactive.quiet(60)}>一小時內不要主動說話</button>
+          <button onClick={() => void proactive.quiet(12 * 60)}>今天安靜一點</button>
+        </div>
+        <hr />
+        <PolicySettings
+          loading={policy.loading}
+          loadError={policy.error}
+          initiative={String(policy.data?.["initiative"] ?? "suggest")}
+          quiet={quietHours}
+          patch={(p) => void patchPolicy(p)}
+          saving={policySaving}
+          saved={policySaved}
+          error={policyError}
+        />
+      </Disclosure>
 
-      {/* 5. 更換或加入角色 */}
-      <CharacterLibrarySection
-        catalog={catalog}
-        activeId={activeId}
-        prefs={prefs}
-        busy={busy}
-        advanced={advanced}
-        onSelect={selectCharacter}
-        onDisable={disableCharacter}
-        onRemove={removeCharacter}
-        onPatch={patch}
-        setError={setError}
-      />
+      <Disclosure
+        id="proactive"
+        title="主動式對話"
+        summary={`每小時最多 ${config.maxPerHour} 則・最短間隔 ${config.minIntervalMinutes} 分鐘・每日最多 ${config.dailyGenerativeSessions} 則・費用上限 USD ${config.dailyGenerativeCostUsd}・AI 幫手：${config.generativeAgent ? agentLabel(config.generativeAgent) : "不使用"}`}
+      >
+        <ProactiveSettings
+          name={name}
+          advanced={advanced}
+          config={config}
+          agents={proactive.agents.map((agent) => ({
+            kind: String(agent.kind),
+            label: agentLabel(String(agent.kind)),
+            detail: agent.found === true && agent.loggedIn === true ? "可用" : String(agent.detail ?? "不可用"),
+          }))}
+          sentThisHour={Number(proactive.status?.sentThisHour ?? 0)}
+          generativeToday={{
+            sessions: Number((proactive.status?.generativeToday as Record<string, unknown> | undefined)?.sessions ?? 0),
+            costUsd: Number((proactive.status?.generativeToday as Record<string, unknown> | undefined)?.costUsd ?? 0),
+          }}
+          onPatch={(value) => void proactive.patch(value)}
+        />
+      </Disclosure>
+
+      <Disclosure
+        id="library"
+        title="更換或加入角色"
+        summary={`目前使用「${name}」・共 ${catalog.cards.length} 個角色`}
+      >
+        <CharacterLibrarySection
+          catalog={libraryCatalog}
+          activeId={activeId}
+          prefs={prefs}
+          busy={busy}
+          advanced={advanced}
+          onSelect={selectCharacter}
+          onDisable={disableCharacter}
+          onRemove={removeCharacter}
+          onPatch={patch}
+          setError={setError}
+        />
+        {digest.hidden > 0 && (
+          <div className="row wrap character-library-more">
+            <button onClick={() => setShowAllCharacters((v) => !v)}>
+              {showAllCharacters ? "只顯示使用中與常用角色" : `顯示全部角色（另外 ${digest.hidden} 個）`}
+            </button>
+          </div>
+        )}
+      </Disclosure>
 
       {advanced && <TechnicalDetails card={active} instance={instance} presence={presence} />}
     </div>
   );
+}
+
+/** epoch ms → 時：分（本地時區）。 */
+function formatClock(at: number): string {
+  return new Date(at).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
 }
 
 // ---------------------------------------------------------------------------
@@ -613,282 +894,33 @@ function BasicCompanionToggles({
 }
 
 // ---------------------------------------------------------------------------
-// 主動式對話（v0.5 起唯一主人＝角色頁；模式與頻率由 Rust 確定性強制）。
-// ---------------------------------------------------------------------------
-
-function ProactiveDialogueSection({ name, advanced = false }: { name: string; advanced?: boolean }) {
-  const [status, setStatus] = React.useState<Record<string, unknown> | null>(null);
-  const [agents, setAgents] = React.useState<Record<string, unknown>[]>([]);
-  const [error, setError] = React.useState<string | null>(null);
-
-  const load = React.useCallback(async () => {
-    try {
-      setStatus(await api.proactiveDialogueGet());
-      setError(null);
-    } catch (e) {
-      setError(sanitizeErrorText(e));
-    }
-  }, []);
-  React.useEffect(() => {
-    void load();
-    void api
-      .agentsDiscoveries()
-      .then((result) => setAgents((result.agents as Record<string, unknown>[] | undefined) ?? []))
-      .catch(() => setAgents([]));
-  }, [load]);
-
-  const config = (status?.config as Record<string, unknown> | undefined) ?? {};
-  const mode = String(config.mode ?? "natural");
-  const custom = (config.custom as Record<string, unknown> | undefined) ?? {};
-  const quietUntil = status?.quietUntil ? new Date(String(status.quietUntil)) : null;
-  const quietActive = quietUntil !== null && quietUntil.getTime() > Date.now();
-
-  const setMode = async (m: string) => {
-    try {
-      setStatus(await api.proactiveDialoguePatch({ mode: m }));
-      setError(null);
-    } catch (e) {
-      setError(sanitizeErrorText(e));
-    }
-  };
-  const patch = async (value: Record<string, unknown>) => {
-    try {
-      setStatus(await api.proactiveDialoguePatch(value));
-      setError(null);
-    } catch (e) {
-      setError(sanitizeErrorText(e));
-    }
-  };
-  const agentLabel = (kind: string) => (kind === "codex" ? "Codex" : kind === "claude-code" ? "Claude Code" : kind);
-  const generativeToday = (status?.generativeToday as Record<string, unknown> | undefined) ?? {};
-
-  return (
-    <Section title="主動式對話">
-      <p className="muted small">
-        {name}什麼情況下可以主動說話。頻率限制（每小時最多 {String(config.maxPerHour ?? 3)} 則、 最短間隔{" "}
-        {String(config.minIntervalMinutes ?? 12)} 分鐘、沒有回覆不追問）由系統強制執行；
-        安全與權限提示不受模式影響，一定會顯示。主動說話不代表可以主動做事——任何行動仍需授權。
-      </p>
-      <label className="field-label">
-        模式
-        <select value={mode} onChange={(e) => void setMode(e.target.value)}>
-          <option value="off">關閉——不主動說話</option>
-          <option value="necessary">必要——只有等待確認、失敗、結果不確定與感測提示</option>
-          <option value="natural">自然（建議）——加上任務進度與低頻建議</option>
-          <option value="lively">活潑——再加問候與輕量陪伴</option>
-          <option value="custom">自訂——個別選擇訊息類型</option>
-        </select>
-      </label>
-      {mode === "custom" && (
-        <fieldset>
-          <legend>自訂觸發類型</legend>
-          {(
-            [
-              ["taskProgress", "任務進度"],
-              ["completion", "任務完成"],
-              ["suggestion", "情境建議"],
-              ["greeting", "問候"],
-              ["companionship", "輕量陪伴"],
-              ["worldEvent", "世界觀小事件"],
-            ] as const
-          ).map(([key, label]) => (
-            <label className="row" key={key}>
-              <input
-                type="checkbox"
-                checked={custom[key] === true}
-                onChange={(event) => void patch({ custom: { ...custom, [key]: event.target.checked } })}
-              />
-              {label}
-            </label>
-          ))}
-        </fieldset>
-      )}
-      <div className="settings-grid">
-        <label className="field-label">
-          每小時最多則數
-          <input
-            type="number"
-            min={1}
-            max={12}
-            value={Number(config.maxPerHour ?? 3)}
-            onChange={(event) => void patch({ maxPerHour: Number(event.target.value) })}
-          />
-        </label>
-        <label className="field-label">
-          最短間隔（分鐘）
-          <input
-            type="number"
-            min={1}
-            max={60}
-            value={Number(config.minIntervalMinutes ?? 12)}
-            onChange={(event) => void patch({ minIntervalMinutes: Number(event.target.value) })}
-          />
-        </label>
-        {/* 合併窗是調校參數，不是一般模式的選擇；只在進階模式出現。 */}
-        {advanced && (
-          <label className="field-label">
-            事件合併窗（秒）
-            <input
-              type="number"
-              min={5}
-              max={300}
-              value={Number(config.mergeWindowSeconds ?? 30)}
-              onChange={(event) => void patch({ mergeWindowSeconds: Number(event.target.value) })}
-            />
-          </label>
-        )}
-      </div>
-      <label className="row">
-        <input
-          type="checkbox"
-          checked={config.noFollowUp !== false}
-          onChange={(event) => void patch({ noFollowUp: event.target.checked })}
-        />
-        沒有回覆時不追問
-      </label>
-      <label className="row">
-        <input
-          type="checkbox"
-          checked={config.dndDefer !== false}
-          onChange={(event) => void patch({ dndDefer: event.target.checked })}
-        />
-        勿擾時段延後非必要訊息
-      </label>
-      <hr />
-      <h4>由本機 AI 幫手產生的主動訊息</h4>
-      <p className="muted small">
-        沒有選擇 AI 幫手時只保留本機微反應與固定安全提示。選擇不會授予讀檔、工具、網路或行動權；
-        每一則都是獨立、唯讀的一次性工作，不會留下長期工作。
-      </p>
-      <label className="field-label">
-        指定 AI 幫手（不可用時不會自動改送另一家）
-        <select
-          value={String(config.generativeAgent ?? "")}
-          onChange={(event) => void patch({ generativeAgent: event.target.value || null })}
-        >
-          <option value="">不使用 AI 幫手產生主動訊息</option>
-          <option value="codex" disabled>
-            Codex（暫不支援：無法保證完全不用工具）
-          </option>
-          <option value="claude-code">Claude Code（對話、知識與審閱的本機 AI 幫手）</option>
-        </select>
-      </label>
-      <div className="muted small">
-        {agents.map((agent) => (
-          <span key={String(agent.kind)} style={{ marginRight: 12 }}>
-            {agentLabel(String(agent.kind))}：
-            {agent.found === true && agent.loggedIn === true ? "可用" : String(agent.detail ?? "不可用")}
-          </span>
-        ))}
-      </div>
-      <div className="settings-grid">
-        <label className="field-label">
-          每日產生次數上限
-          <input
-            type="number"
-            min={0}
-            max={50}
-            value={Number(config.dailyGenerativeSessions ?? 8)}
-            onChange={(event) => void patch({ dailyGenerativeSessions: Number(event.target.value) })}
-          />
-        </label>
-        <label className="field-label">
-          每日費用上限（USD）
-          <input
-            type="number"
-            min={0}
-            max={100}
-            step="0.1"
-            value={Number(config.dailyGenerativeCostUsd ?? 1)}
-            onChange={(event) => void patch({ dailyGenerativeCostUsd: Number(event.target.value) })}
-          />
-        </label>
-      </div>
-      <p className="muted small">
-        今天已由 AI 幫手產生 {String(generativeToday.sessions ?? 0)} 則，費用回報 USD {String(generativeToday.costUsd ?? 0)}。
-      </p>
-      <p className="muted small">
-        本小時已發送 {String(status?.sentThisHour ?? 0)} 則。
-        {quietActive && quietUntil
-          ? ` 安靜中，至 ${quietUntil.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}。`
-          : ""}
-      </p>
-      <div className="row-gap">
-        <button
-          onClick={async () => {
-            try {
-              setStatus(await api.proactiveDialogueQuiet(60));
-            } catch (e) {
-              setError(sanitizeErrorText(e));
-            }
-          }}
-        >
-          一小時內不要主動說話
-        </button>
-        <button
-          onClick={async () => {
-            try {
-              setStatus(await api.proactiveDialogueQuiet(12 * 60));
-            } catch (e) {
-              setError(sanitizeErrorText(e));
-            }
-          }}
-        >
-          今天安靜一點
-        </button>
-      </div>
-      {error && (
-        <p className="cap-card-error" role="alert">
-          {error}
-        </p>
-      )}
-    </Section>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // 主動程度與安靜時段（v0.5 起唯一主人＝角色頁；由本機安全層強制執行）。
 // ---------------------------------------------------------------------------
 
-function InitiativeQuietSection({ refreshKey }: { refreshKey: number }) {
-  const [policy, reload] = useAsync(() => api.policyGet(), [refreshKey]);
-  const [saving, setSaving] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [saved, setSaved] = React.useState(false);
-
-  async function patch(p: Record<string, unknown>) {
-    setSaving(true);
-    setError(null);
-    setSaved(false);
-    try {
-      await api.policyPatch(p);
-      setSaved(true);
-      reload();
-    } catch (e) {
-      setError(sanitizeErrorText(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (policy.loading)
-    return (
-      <Section title="主動程度與安靜時段">
-        <div className="state-box">載入中…</div>
-      </Section>
-    );
-  if (policy.error)
-    return (
-      <Section title="主動程度與安靜時段">
-        <div className="state-box state-error">{policy.error}</div>
-      </Section>
-    );
-  const p = policy.data!;
-  const quiet = (p["quietHours"] as { start: string; end: string }[] | undefined)?.[0];
-  const initiative = String(p["initiative"] ?? "suggest");
-
+function PolicySettings({
+  loading,
+  loadError,
+  initiative,
+  quiet,
+  patch,
+  saving,
+  saved,
+  error,
+}: {
+  loading: boolean;
+  loadError?: string;
+  initiative: string;
+  quiet?: { start: string; end: string };
+  patch: (p: Record<string, unknown>) => void;
+  saving: boolean;
+  saved: boolean;
+  error: string | null;
+}) {
+  if (loading) return <div className="state-box">載入中…</div>;
+  if (loadError) return <div className="state-box state-error">{loadError}</div>;
   return (
-    <Section title="主動程度與安靜時段">
+    <>
+      <h3>主動程度與安靜時段</h3>
       <p className="muted small">
         這些規則由本機的安全層強制執行；AI 的任何建議都只能在這個範圍內生效，你的設定只會收緊、不會放寬硬性上限。
       </p>
@@ -923,7 +955,7 @@ function InitiativeQuietSection({ refreshKey }: { refreshKey: number }) {
           {error}
         </p>
       )}
-    </Section>
+    </>
   );
 }
 

@@ -65,7 +65,7 @@ describe("守門：主入口仍然恰好五個", () => {
 });
 
 describe("守門：一般模式沒有技術詞", () => {
-  it("十種同步文案（含 presence 標籤）全部是人話", () => {
+  it("十二種同步文案（含 presence 標籤）全部是人話", () => {
     for (const state of CHARACTER_SYNC_STATES) {
       const p = CHARACTER_SYNC_PROJECTION[state];
       expect(`${p.headline}｜${p.detail}`).not.toMatch(FORBIDDEN);
@@ -137,7 +137,7 @@ describe("守門：誠實階梯不因為同步卡而鬆動", () => {
     expect(verified.badge).toBe("ok");
   });
 
-  it("只有真的已同步才給 ok；其餘八種一律不是綠勾", () => {
+  it("只有真的已同步才給 ok；其餘十一種一律不是綠勾", () => {
     for (const state of CHARACTER_SYNC_STATES) {
       const tone = CHARACTER_SYNC_PROJECTION[state].tone;
       if (state === "synced") expect(tone).toBe("ok");
@@ -159,7 +159,6 @@ describe("守門：誠實階梯不因為同步卡而鬆動", () => {
       failedReads: 0,
       revokedDevice: false,
       connectedButNotSynced: false,
-      storeReset: false,
     };
     for (const presence of ["offline", "reconnecting", "totally-fine"]) {
       expect(projectCharacterSession(snapshot, [member(presence)], signals).state).not.toBe(

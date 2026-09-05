@@ -69,6 +69,23 @@
   `release-scripts.sh` 靜態核對這兩件事（48/0）。（d94abac）
 
 ### Changed
+- **角色頁首屏收斂與陪伴預設**（M3 §4.1）：一般模式從 8 個區塊全展開（首屏 40 個可互動控制項）改為首屏三格（目前角色＋預覽＋
+  顯示／暫停、陪伴方式摘要、同步）＋5 個原生 `<details>` 收合區塊（外觀與名字／調整陪伴方式／安靜與勿擾／主動式對話／更換或加入
+  角色），首屏控制項 5 個、展開後功能一個不少（測試釘住）。新增純函式陪伴預設 `companion/presets.ts`（安靜／自然／活潑／自訂：只寫
+  `companionExpressiveness`／`companionDoNotDisturb`／主動對話 mode 三個既有欄位；不覆蓋自訂值、不改費用上限、不啟用權限、不換
+  AI 幫手；安靜檔位是 necessary 不是 off；不吻合＝自訂並逐項顯示有效值）。「安靜與勿擾」攤成五項實際影響（安全提示永不安靜／感測／
+  視覺陪伴／主動說話／工作通知）各自標示底層設定與有效狀態，桌寵右鍵設的本機安靜期可在此取消；主動式對話收合摘要仍顯示每小時／
+  最短間隔／每日次數／費用上限／指定的 AI 幫手。角色庫預設 4 張＋「顯示全部角色」。任務量測（同一腳本前後）：調陪伴程度決策數 10→3；
+  暫停主動對話 30→10；換角色 38→13；設安靜時段 35→15（三個任務各多一次展開點擊）。App shell 的 `goTo(tab, opts)` 現在把
+  `{hub:"providers"}` 傳到 `ConnectPage initial="providers"`，同步卡的「連接手機／重新確認」一鍵到配對區（deep-links 測試）。
+- **角色同步卡有下一步、撤銷是正常終態、保存問題分級**（M3 §4.2／§4.3）：`statusProjection/characterSync.ts` 十一態變十二態，
+  每一態輸出穩定的 action id（`connect-phone`／`reconfirm-device`／`view-capabilities`／`safe-reconnect`／`open-devices`／
+  `storage-help`／null）與落點，卡片在有 `onNavigate` 時渲染一顆主要動作按鈕（已同步／同步中／關閉不催促）；使用者主動移除全部
+  手機後是中性的「目前只在這台電腦使用」（`local-only`）而非永遠亮著的「需要重新確認裝置」，撤銷的安全效果不變（只有那台裝置
+  又連上來才要重新確認，並指出是哪一台）；「角色同步紀錄曾損毀」降為灰色附註，只有現在存不下來（diagnostics `store.parked`
+  或持續寫入失敗且有錯誤原文）才是警告狀態 `store-issue`；`partial-capability` 改為 info（狀態已對齊，只是表演不完整）。
+  文案測試從「一字不改」改為保護語意與安全句；新增 X5 守門測試（一般模式 DOM 不含 revision／epoch／UUID／provider id）。
+  `ConnectPage` 新增 `initial="providers"` 一步到配對區（App shell 已把 hub 傳下去）。
 - **iOS 前景 presence 依生命週期**（M4 §5.4；模擬器 XCTest 120/120，真機零執行）：進背景停 status 心跳並把本地 presence 標成
   background（不假設 socket 活著、不在背景重連）；回前景立刻補一則 `status`、socket 還活著且背景 ≥ 1 秒就送一次
   `character.session.resume`（只 reconcile，不重播），socket 已死且使用者仍想連線就跳過退避重連；`.inactive` 不動。決策為純函式

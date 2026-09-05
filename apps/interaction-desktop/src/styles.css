@@ -705,6 +705,23 @@ html.companion-window, html.companion-window body, html.companion-window #root {
 .character-import-preview { border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
 .character-import-assets { display: flex; flex-direction: column; gap: 6px; }
 .character-tech summary { font-weight: 600; }
+/* 首屏（目前角色／陪伴方式／同步）＋按需展開的收合區塊。
+   刻意不用 transition／animation：Reduced Motion 下也不會動。 */
+.character-first-screen { display: flex; flex-direction: column; gap: 12px; }
+.character-disclosure { border: 1px solid var(--border); border-radius: 10px; margin-top: 12px; background: var(--bg-card); }
+.character-disclosure > .character-disclosure-summary { cursor: pointer; padding: 12px 14px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.character-disclosure-title { font-weight: 600; font-size: 14px; }
+.character-disclosure-line { min-width: 0; overflow-wrap: anywhere; }
+.character-disclosure-body { padding: 0 14px 14px; min-width: 0; }
+.character-disclosure-body > .settings-grid { max-width: 100%; }
+.character-preset-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 8px; }
+.character-preset-row button { flex: 0 1 auto; }
+.character-quiet-list { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; }
+.character-quiet-list li { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; border-left: 2px solid var(--border); padding-left: 10px; }
+.character-quiet-label { font-size: 13.5px; }
+.character-quiet-note { overflow-wrap: anywhere; }
+.character-library-more { margin-top: 10px; }
+.character-agent-status { margin-right: 12px; }
 .first-success-options { display: grid; gap: 10px; margin: 8px 0 16px; }
 .first-success-option {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left;
@@ -717,6 +734,9 @@ html.companion-window, html.companion-window body, html.companion-window #root {
   border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; }
 @media (max-width: 700px) {
   .character-page .character-current-name { font-size: 16px; }
+  .character-disclosure > .character-disclosure-summary { padding: 10px 12px; }
+  .character-disclosure-body { padding: 0 12px 12px; }
+  .character-preset-row button { flex: 1 1 auto; }
   .character-cards { grid-template-columns: 1fr; }
   .character-pref-form { grid-template-columns: 1fr; }
   .character-page .settings-grid { grid-template-columns: 1fr; }

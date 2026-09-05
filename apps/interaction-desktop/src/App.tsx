@@ -33,7 +33,7 @@ import { KnowledgeAdvancedPage } from "./pages/KnowledgeAdvanced";
 import { GlobalSearch } from "./components/GlobalSearch";
 import { refreshCharacterName, useCharacterName } from "./characterName";
 import { ADVANCED_NAV, navAnchorFor, simpleNavFor, titleFor, type Tab } from "./routing";
-import { useNavigation } from "./useNavigation";
+import { useNavigation, type NavigateOptions } from "./useNavigation";
 import { SensorBanner } from "./components/SensorBanner";
 import { CloseDialog } from "./components/CloseDialog";
 import { inboxBadgeLabel, inboxBadgeText, NotificationPanel } from "./components/NotificationPanel";
@@ -196,7 +196,7 @@ function Shell({
   disconnected: boolean;
 }) {
   const { prefs, pause } = useAppState();
-  const { tab, mountKey, goTo } = useNavigation("home");
+  const { tab, mountKey, goTo, options: navOptions } = useNavigation("home");
   // 目前角色（導覽第二項、標題、全域搜尋共用同一份）。
   const character = useCharacterName({ locale: prefs.locale });
   const [estop, setEstop] = React.useState(false);
@@ -501,6 +501,7 @@ function Shell({
               events={events}
               advanced={advanced}
               onNavigate={goTo}
+              navOptions={navOptions}
               onRerunOnboarding={() => setOnboarding("open")}
               estopped={estop}
               onEstop={triggerEstop}
@@ -550,6 +551,7 @@ export function PageBody({
   events,
   advanced,
   onNavigate,
+  navOptions,
   onRerunOnboarding,
   estopped = false,
   onEstop,
@@ -560,7 +562,9 @@ export function PageBody({
   connectionKey?: number;
   events: RuntimeEvent[];
   advanced: boolean;
-  onNavigate: (tab: Tab) => void;
+  onNavigate: (tab: Tab, opts?: NavigateOptions) => void;
+  /** 這一次導覽附帶的參數（例如同步卡要一鍵到配對區：`{ hub: "providers" }`）。 */
+  navOptions?: NavigateOptions;
   onRerunOnboarding: () => void;
   /** Shell 已知的緊急停止狀態（供「現在」頁的快速操作顯示「前往解除」）。 */
   estopped?: boolean;
@@ -581,8 +585,15 @@ export function PageBody({
     case "companion":
       // events：角色同步卡靠 SSE 的 `character.session.state` 對齊本地副本，
       // 不必每一則 runtime 事件都重問一次權威狀態（那會消耗 session sequence）。
+      // onNavigate：角色同步卡的「下一步」要一鍵到得了連接與權限頁
+      // （M3 §4.2；CompanionPage 再往下傳給 CharacterSyncCard）。
       return (
-        <CompanionPage refreshKey={refreshKey} events={events} connectionKey={connectionKey} />
+        <CompanionPage
+          refreshKey={refreshKey}
+          events={events}
+          connectionKey={connectionKey}
+          onNavigate={onNavigate}
+        />
       );
     // 工作：AI 工作階段＋自動互動（舊 id 進到對應分頁）。
     case "work":
@@ -607,12 +618,14 @@ export function PageBody({
     // 連接與權限：裝置與能力＋同意與安全（舊 id 進到對應分頁）。
     case "connect":
     case "capabilities":
+      // 深連結帶 `hub: "providers"`（角色同步卡的「連接手機／重新確認」）就一步到配對區；
+      // 其餘照舊落在「裝置與能力」第一層。route id 不變，只是落點更準。
       return (
         <ConnectPage
           refreshKey={refreshKey}
           advanced={advanced}
           onNavigate={onNavigate}
-          initial="devices"
+          initial={navOptions?.["hub"] === "providers" ? "providers" : "devices"}
         />
       );
     case "safety":
