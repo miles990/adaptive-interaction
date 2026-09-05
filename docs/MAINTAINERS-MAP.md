@@ -65,7 +65,7 @@
 | **公開契約** | `docs/aip/device-profile.md`（§3 身分強度、§6 裝置線 v1.1）、`docs/aip/adapter-development.md`、`docs/aip/pairing-security.md` |
 | **擴充點** | 新裝置＝一份 YAML spec（不改 Rust）。新傳輸＝實作 `RawLink` 並用同一個 `AipChannel<L>`——Runtime 只認得型別抹除的 `DeviceAipChannel`，**沒有** serial／mqtt／ble 分支 |
 | **必要測試** | `crates/interaction-runtime/tests/declarative_session_loop.rs::reenable_rebinds_without_restart`、`::rebind_generation_rejects_late_callbacks`、`::revoke_during_rebind_does_not_resurrect`、`::rebind_timeout_is_bounded_and_honest`；`crates/interaction-adapter-declarative/tests/{aip_link,esp32_sim_conformance}.rs` |
-| **已知限制** | ESP32 真板驗收為零（只有 `compile.sh` 編譯檢查與 pty 模擬器）；MQTT／BLE 共用程式碼但沒有 AIP session 測試；參考韌體 639 bytes 單行上限讓部分回覆送不出去（稽核 `aip.outbound-undeliverable`）。成員 `syncProfile`（`crates/interaction-runtime/src/character_session.rs:193`＝`derive_sync_profile`）與裝置線 v1.2 分片（`crates/interaction-adapter-declarative/src/fragment.rs`＋`protocol.rs:719`＝`supports_fragmentation`）已合併於 `9799b1e`，契約見 `docs/aip/device-profile.md` §3.1／§6.3 |
+| **已知限制** | ESP32 真板驗收為零（只有 `compile.sh` 編譯檢查與 pty 模擬器）；MQTT／BLE 共用程式碼但沒有 AIP session 測試；參考韌體 639 bytes 單行上限讓部分回覆送不出去（稽核 `aip.outbound-undeliverable`）。成員 `syncProfile`（`crates/interaction-runtime/src/character_session.rs:193`＝`derive_sync_profile`）與裝置線 v1.2 分片（`crates/interaction-adapter-declarative/src/fragment.rs`＋`protocol.rs:769`＝`supports_fragmentation`）已合併於 `9799b1e`，契約見 `docs/aip/device-profile.md` §3.1／§6.3 |
 
 ## 5. Transport（wss／HTTP／SSE／IPC／裝置線）
 

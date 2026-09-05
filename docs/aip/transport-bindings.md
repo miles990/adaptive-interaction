@@ -293,12 +293,18 @@ v0.7.0（裝置線 v1.2）再加兩項：
   切點只在 UTF-8 字元邊界，每一片編碼後整行仍然 ≤ 行上限——**分片沒有放寬任何上限**。
   重組完全在傳輸層內部（`AipChannel`／`DeviceLink`）：核心仍然只送出一次 `send_aip`、只收到一則
   完整的入站 envelope，`character_session.rs` 不認得「被分片」這件事。
-  規則：每裝置 1 筆進行中（新 `xfer` 到達＝取消前一筆並稽核）、重組上限 8 KiB、片數上限 64、
+  規則：每裝置 1 筆進行中——**兩個方向都是**：入站由單槽 `Reassembler`（新 `xfer` 到達＝取消前一筆並稽核）、
+  出站由每條 link 一把 `tokio::sync::Mutex`（`DeviceLink::outbound`）序列化整筆傳輸的分片迴圈，
+  兩則併發的大 envelope 不會在線上交錯（交錯會讓對端把兩筆都丟掉，而兩個呼叫端都拿到 `Ok`）；
+  中途寫失敗且已經寫出過片 → `LinkError::Uncertain`＋`aip.outbound-undeliverable`（不謊稱「什麼都沒送」）。
+  其餘：重組上限 8 KiB、片數上限 64、
   自最後一片起 2 秒逾時、hello／斷線／revoke／stop-all／rebind 一律取消、
   缺片／重片／亂序／截斷／`total`／`bytes` 不合法／crc32 不符／組回來不是 JSON → **整筆丟棄**
-  ＋稽核 `aip.fragment-dropped{xfer,reason,received,total}`。
+  ＋稽核 `aip.fragment-dropped{xfer,reason,received,total}`（待回報的丟棄排成先進先出的有界佇列，
+  上限 8 筆；滿了丟最舊的並計數，不讓同一個輪詢窗內的第二次取代把第一筆靜默覆蓋掉）。
   對端沒宣告 `aip.frag/1` 而 envelope 又放不進行上限 → 維持既有行為：一個位元組都不寫，
-  稽核原因 `over-line-limit-no-fragmentation`。
+  稽核原因 `over-line-limit-no-fragmentation`。反向也一樣：沒宣告（含完全沒有宣告 caps 的舊韌體）
+  卻送分片**進來**的裝置在 `accept_fragment` 就被拒，丟棄原因 `not-advertised`。
 * **身分**：`Party::device(<spec 的 deviceId>)` 由 Runtime 依 `DeviceLink` 的期望身分綁定；
   強度 `transport-hello+device-side-pairing`（§0）。
 * **存活**：既有 who／pair／ack／event 行也是存活證明（同 §1.4）；斷線＝`Presence::Reconnecting`，

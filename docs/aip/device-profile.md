@@ -258,21 +258,30 @@ wire 形狀（`proto` 仍為 1；`aip-frag` 與 `aip` 一樣是**追加**的訊�
 ```
 
 * **能力宣告驅動**：只有 `hello.caps` 含 `"aip.frag/1"`（`fragment.rs:31`＝`FRAG_CAP`）才使用
-  （出站閘門 `protocol.rs:719`＝`DeviceLink::supports_fragmentation`；沒宣告卻送分片進來的裝置在
-  `protocol.rs:635`＝`accept_fragment` 就被拒絕）。**參考韌體不宣告它**——真板沒有重組緩衝，替它
+  （出站閘門 `protocol.rs:769`＝`DeviceLink::supports_fragmentation` 用 `== Some(true)`；入站對稱地用
+  `!= Some(true)`，所以**沒宣告**——包含完全沒有宣告 caps 的舊韌體——卻送分片進來的裝置在
+  `protocol.rs:664`＝`accept_fragment` 就被拒絕，丟棄原因 `not-advertised`）。**參考韌體不宣告它**——真板沒有重組緩衝，替它
   宣稱就會讓 host 把一則 snapshot 切成好幾片送出去、全部被丟掉，而收據寫著「已送出」。
   模擬器有做（`scripts/esp32-serial-sim.py:140` 的 `--no-frag` 可關掉，用來驗降級路徑）。
 * **不放寬任何上限**：每一片編碼後的整行仍然 ≤ 行上限（切片 `fragment.rs:160`＝
-  `fragment_envelope_line`）；重組後仍受 8 KiB（`protocol.rs:38`＝`MAX_AIP_ENVELOPE_BYTES`，
+  `fragment_envelope_line`）；重組後仍受 8 KiB（`protocol.rs:39`＝`MAX_AIP_ENVELOPE_BYTES`，
   `fragment.rs:35`＝`MAX_REASSEMBLED_BYTES` 直接引用它）限制。切點只落在 UTF-8 字元邊界。
 * **核心零變更**：組裝／重組完全在 `crates/interaction-adapter-declarative` 的
-  `AipChannel`／`DeviceLink` 內部（`fragment.rs`＋`protocol.rs:131`＝`DeviceMsg::AipFrag`、
-  `protocol.rs:171`＝`HostMsg::AipFrag`）。對呼叫端仍然是**一次** `send_aip`（`protocol.rs:736`）、
+  `AipChannel`／`DeviceLink` 內部（`fragment.rs`＋`protocol.rs:132`＝`DeviceMsg::AipFrag`、
+  `protocol.rs:172`＝`HostMsg::AipFrag`）。對呼叫端仍然是**一次** `send_aip`（`protocol.rs:786`）、
   **一則**完整的入站 envelope；`character_session.rs` 不認得 serial／mqtt／ble，也不認得「被分片」。
 * **有界**：每台裝置同時 1 筆進行中（`fragment.rs:248`＝`Reassembler`；新 `xfer` 到達＝取消前一筆
   並稽核）、片數 ≤ 64（`fragment.rs:39`＝`MAX_FRAGMENTS`）、自最後一片起 2 秒逾時
-  （`fragment.rs:42`＝`FRAGMENT_TIMEOUT`，由 `protocol.rs:699`＝`expire_fragments` 收走）；
-  hello／斷線／revoke／stop-all／rebind 一律取消。
+  （`fragment.rs:42`＝`FRAGMENT_TIMEOUT`，由 `protocol.rs:728`＝`expire_fragments` 收走）；
+  hello／斷線／revoke／stop-all／rebind 一律取消。待回報的丟棄稽核排成先進先出的有界佇列
+  （`protocol.rs:505`＝`PENDING_FRAGMENT_AUDITS`＝8；滿了丟最舊的一筆並計數
+  `DeviceLink::fragment_audit_overflow`——有界要付的代價必須數得出來）。
+* **出站也是「每裝置 1 筆進行中」**：`send_aip` 的分片迴圈由每條 link 一把
+  `tokio::sync::Mutex`（`protocol.rs:500`＝`DeviceLink::outbound`）序列化，兩則併發的大 envelope
+  不會在線上交錯成 `A0 B0 A1 B1`（那會讓對端的重組器把兩筆都丟掉，而兩個呼叫端都拿到 `Ok`）。
+  等待有界：`timeout` 就是這一則的有效期，排不到就誠實回「沒送出」。中途寫失敗且**已經寫出過片**
+  時回 `LinkError::Uncertain`（不是 `Refused`）——線上已經有位元組，「什麼都沒送」是假話；
+  呼叫端據此稽核 `aip.outbound-undeliverable`。
 * **整筆丟棄**：缺片／重片／亂序／截斷／惡意 `total`／`bytes`／crc32 不符／組回來不是 JSON →
   整筆丟掉並稽核 `aip.fragment-dropped{xfer,reason,received,total}`。半份 envelope 絕不交給上層——
   那會把「傳輸壞了」演成「裝置說了一句沒有意義的話」。
