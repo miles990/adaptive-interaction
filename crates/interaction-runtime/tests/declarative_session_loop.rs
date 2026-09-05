@@ -2030,3 +2030,140 @@ async fn rebind_keeps_human_disabled_receptors_off() {
         "稽核必須說得出哪些受器被保留為關閉：{row}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 演練 2（v0.7.0 候選）：接入一台**只回報事件**的受限裝置（event-source）
+// ---------------------------------------------------------------------------
+
+/// 這一段驗的不是新功能，是**擴充點**：接一台新形狀的裝置要動多少東西。
+///
+/// `docs/aip/device-profile.md` §3.1 的 `syncProfile` 有三個值，v0.6.x 只驗過
+/// `full-state`（宣告 `aip.frag/1`）與 `intent-only`（`--no-frag` ＋ renderer）。
+/// 第三個值 `event-source` ——「送得進來、收不回去」——當時沒有任何測試涵蓋，
+/// 而它正是最容易被介面說成「已連線／已同步」的那一種。
+///
+/// 這支測試用的是：
+/// - **檔案裡的** spec（`examples/adapters/event-source-button.yaml`，只換掉這台
+///   模擬器的埠與 id），不是測試自己編一份 JSON；
+/// - production 的 serial adapter ＋ `scripts/esp32-serial-sim.py --no-frag`
+///   pty **模擬器**（不是 ESP32 真板）；
+/// - 模擬器**未經修改**：`aip-capability` 內建的 role 是 remote-renderer，所以這裡
+///   走 `aip-raw` 送一份 role=input-device、intents 為空的宣告。
+fn event_source_spec(pty: &str, spec_id: &str, device_id: &str) -> Value {
+    let path = repo_root().join("examples/adapters/event-source-button.yaml");
+    let text = std::fs::read_to_string(&path).expect("event-source spec yaml");
+    let mut spec: Value = serde_yaml::from_str(&text).expect("spec yaml parses");
+    // 只換連線細節與這支測試專屬的 id；其餘欄位就是檔案裡的樣子。
+    spec["id"] = json!(spec_id);
+    spec["capabilities"][0]["serial"]["port"] = json!(pty);
+    spec["capabilities"][0]["serial"]["expectedDeviceId"] = json!(device_id);
+    spec["capabilities"][0]["serial"]["pairingCode"] = json!(PAIRING_CODE);
+    spec
+}
+
+/// 一則 role=input-device、**不宣告任何 intent** 的 capability 宣告。
+fn event_source_capability(device_id: &str, seq: u64) -> Value {
+    json!({
+        "specVersion": "aip/1.0",
+        "messageId": format!("drill-cap-{seq}"),
+        "messageType": "capability",
+        "name": "character.session.capability",
+        "source": {"kind": "device", "id": device_id},
+        "sessionId": "session.home",
+        "occurredAt": chrono::Utc::now().to_rfc3339(),
+        "payload": {
+            "specVersions": ["aip/1.0"],
+            // 只送事件的裝置：不是 renderer。
+            "role": "input-device",
+            "profiles": ["character-session"],
+            "syncClasses": ["semantic"],
+            // 一個 Behavior Intent 都不呈現。
+            "intents": [],
+            "inputs": ["character.interaction.touch"],
+            "limits": {"maxMessageBytes": 8192},
+        },
+    })
+}
+
+/// 只回報事件的受限裝置：成員模式是 `event-source`，而且 UI 語意（不得說「已同步」）
+/// 由**投影**決定，不是由裝置宣稱、也不是介面自己猜。
+#[tokio::test(flavor = "multi_thread")]
+async fn an_event_only_device_is_an_event_source_member() {
+    // `--no-frag`：與參考韌體同一種能力（不會重組），所以載不動完整快照。
+    let Some(mut fx) = Fixture::spawn_with(&["--no-frag"]) else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    let spec: interaction_adapter_declarative::DeclarativeSpec = serde_json::from_value(
+        event_source_spec(&fx.sim.pty_path, &fx.spec_id, &fx.device_id),
+    )
+    .expect("spec from yaml");
+    rt.register_declarative_spec(&spec).await.expect("register");
+
+    // 重送 capability 直到 host 真的把它記成成員（有界）。
+    let mut seq = 0u64;
+    let joined = wait_until(Duration::from_secs(20), || {
+        seq += 1;
+        let envelope = event_source_capability(&fx.device_id, seq);
+        fx.control(json!({"op": "aip-raw", "envelope": envelope}));
+        let rt = rt.clone();
+        let device_id = fx.device_id.clone();
+        async move {
+            members(&rt)
+                .iter()
+                .any(|m| m["party"]["kind"] == "device" && m["party"]["id"] == device_id)
+        }
+    })
+    .await;
+    assert!(
+        joined,
+        "只送事件的裝置也要成得了成員：{:?}\nsim log:\n{}",
+        fx.members(&rt),
+        fx.log_text()
+    );
+
+    // 1) diagnostics：這個成員是 event-source。
+    assert_eq!(
+        sync_profile_of(&rt, &fx.device_id).as_deref(),
+        Some("event-source"),
+        "載不動快照、又不呈現任何 intent 的成員是 event-source：{:?}",
+        fx.members(&rt)
+    );
+    // 2) 協商出來的 role 就是它宣告的那個（host 沒有把它當成 renderer）。
+    let member = fx
+        .members(&rt)
+        .into_iter()
+        .find(|m| m["party"]["id"] == fx.device_id)
+        .expect("device member");
+    assert_eq!(member["role"], "input-device", "{member}");
+
+    // 3) status 也要說得出來——介面靠 `characterSessionSync` 決定可不可以說「已同步」。
+    let status = rt.status().await;
+    let sync = status["characterSessionSync"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let row = sync
+        .iter()
+        .find(|row| row["deviceId"] == fx.device_id)
+        .unwrap_or_else(|| panic!("status 必須列出這台裝置的同步模式：{status}"));
+    assert_eq!(row["syncProfile"], "event-source", "{row}");
+    assert_eq!(row["transport"], "serial", "{row}");
+    // 三個值裡只有 full-state 可以顯示「已同步」；這一台不是。
+    assert_ne!(row["syncProfile"], "full-state", "{row}");
+
+    // 4) 稽核要說得出這個推導是怎麼來的（線上限＋會不會重組＋role）。
+    let audit = rt
+        .store
+        .audit_tail(300)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|row| row.get("kind").and_then(Value::as_str) == Some("aip.member-sync-profile"))
+        .expect("sync profile audit");
+    assert_eq!(audit["detail"]["syncProfile"], "event-source", "{audit}");
+    assert_eq!(audit["detail"]["role"], "input-device", "{audit}");
+    assert_eq!(audit["detail"]["supportsFragmentation"], false, "{audit}");
+    assert_eq!(audit["detail"]["maxLineBytes"], 639, "{audit}");
+    assert_eq!(audit["detail"]["transport"], "serial", "{audit}");
+}

@@ -1,0 +1,38 @@
+# 受限裝置範例：**只回報事件**的宣告式 adapter（event-source）
+#
+# 用途：一顆按鈕（＋一條 serial 線）。它沒有任何動器、也不宣告任何 Behavior
+# Intent——它送得進來、收不回去。把這個檔案放進
+# `~/.adaptive-interaction/config/adapters/` 就會被載入（`docs/MAINTAINERS-MAP.md` §4）。
+#
+# 為什麼這份檔案值得單獨存在：`docs/aip/device-profile.md` §3.1 的 `syncProfile`
+# 有三個值，而 `event-source` 是唯一一個**沒有**任何測試涵蓋的（v0.6.x 只驗過
+# `full-state` 與 `intent-only`）。它的 UI 語意是「不得顯示已同步」，而這個語意
+# 完全由 Runtime 從「這條線載不載得動快照」＋「協商出來的 role」推導
+# （`crates/interaction-runtime/src/character_session.rs::derive_sync_profile`），
+# 不是裝置說了算，也不是介面自己猜。
+#
+# 誠實邊界：這份 spec 由 `crates/interaction-runtime/tests/declarative_session_loop.rs`
+# 以 `scripts/esp32-serial-sim.py` pty **模擬器**驗證，ESP32 真板驗收為零。
+# 身分強度是 `transport-hello+device-side-pairing`（裝置自報明文比對），
+# 不是「已驗證身分」。
+schemaVersion: "1"
+id: button-box
+displayName: 按鈕盒（只回報事件）
+capabilities:
+  - kind: receptor
+    id: button
+    name: 按鈕
+    description: 按下／放開；不讀任何環境數值，也不接受任何命令。
+    category: environment
+    transport: serial
+    serial:
+      port: /dev/cu.usbmodem-CHANGE-ME
+      baud: 115200
+      # 埠路徑不是身分：hello.deviceId 必須等於這個值。
+      expectedDeviceId: button-box-01
+      # 正式使用請改成 secret://（不要把配對碼寫進版本控制）。
+      pairingCode: "9927"
+    # 這台裝置自己會推播 state；輪詢只是保險，設得很長。
+    pollIntervalMs: 3600000
+    facts:
+      pressed: /facts/button
