@@ -146,7 +146,7 @@ snapshot 回覆與含 `members` 的 patch 送不出去，只能稽核 `aip.outbo
 | 欄位 | 內容 |
 |---|---|
 | 為什麼存在 | `recovery` 是接收端澄清新增的 reason **值**（訊息形狀、欄位、版本號一律不變）。只認得舊值的接收端會走「同 epoch、revision 較舊」那一格，也就是 `ignore-stale`／rollback 忽略——行為與今天完全相同，不會更糟，但也**收不到** host 真的從較舊快照還原這件事 |
-| 適用版本 | 送出端自 v0.7.0（候選）；接收端 Rust／TypeScript／Swift 已接線 |
+| 適用版本 | 送出端自 v0.7.0；接收端 Rust／TypeScript／Swift 已接線 |
 | 移除前需要的證據 | 這是「新增值」而非 deprecation，沒有移除計畫。要登記的是：任何新的接收端實作若沒有規則 6，就會靜默退化成 rollback 忽略——三端一致由跨語言 fixture 保證（`crates/interaction-aip/tests/fixtures/manifest.json` 的 `receiveDecisions`） |
 | 資料遷移 | 無 |
 | 回退方式 | host 停止送出 `reason: "recovery"`，退回無 reason 的 snapshot |
@@ -172,7 +172,7 @@ snapshot 回覆與含 `members` 的 patch 送不出去，只能稽核 `aip.outbo
 | 欄位 | 內容 |
 |---|---|
 | 為什麼存在 | 決策表落地時，桌面 reducer 的計數改名並拆細：`ignoredRollback` → `ignoredStale`、`hostRegressed` → `recovered`、`invalid` → `rejectedInvalid`，新增 `rejectedIdentity`／`staleConnection`。這些鍵直接以 `alignment.<key>` 顯示在**進階模式**的診斷區塊（一般模式一個數字都不顯示），所以任何盯著舊鍵名的外部筆記／截圖會對不上 |
-| 適用版本 | 舊名到 v0.6.x；新名自 v0.7.0（候選） |
+| 適用版本 | 舊名到 v0.6.x；新名自 v0.7.0 |
 | 移除前需要的證據 | 舊名已經移除（不是並存），這一列登記的是**沒有相容層**這個事實：`SessionCounters` 是 TypeScript 型別，改名由 `pnpm typecheck` 擋，不會有靜默的舊鍵 |
 | 資料遷移 | 無（計數只存在於記憶體，不持久化、不上 wire） |
 | 回退方式 | 改名回去；沒有外部消費者需要同時支援兩組名字 |

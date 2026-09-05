@@ -2,7 +2,7 @@
 
 跨 AI「能力感知型自適應互動平台」：Rust runtime＋`interact-ai` CLI＋HTTP API（127.0.0.1:8787，Bearer token）
 ＋SSE＋Canonical Tool Manifest＋跨 AI Skill＋Tauri 2 控制中心＋真硬體 adapter（Serial／MQTT／BLE）
-＋iPhone Mobile Provider＋AIP 1.0 與權威 Character Session。最新已發布版本 v0.6.0（tag `v0.6.0`）。
+＋iPhone Mobile Provider＋AIP 1.0 與權威 Character Session。最新已發布版本 v0.7.0（tag `v0.7.0` → `630b429`，2026-09-06；前一版 v0.6.0）。
 
 這份檔案只回答「我該從哪裡開始、不能踩什麼」。**不可違反的不變量**（嚴禁 MCP、Policy Governor
 確定性強制、誠實階梯、感測不靜默、角色呈現層沒有權限主權…）在 `CLAUDE.md`「不可違反的不變量」段，
@@ -102,7 +102,7 @@ golden schema 由 `GOLDEN_UPDATE=1 cargo test -p interaction-e2e --test golden` 
 （章節號會隨文件長大而改，所以這裡逐份寫明；`scripts/tests/docs-claims.sh` 會核對這兩件事：
 檔案存在，且下面標的 Blockers 節號與檔案裡的真實節號一致）：
 
-- 本輪 v0.7.0（候選）：`docs/releases/v0.7.0-progress.md`——下一動作在 §5，Blockers 在 §6。
+- 本輪 v0.7.0：`docs/releases/v0.7.0-progress.md`——下一動作在 §5，Blockers 在 §6。
 - 上一輪（可維護性收斂，已收尾）：`docs/releases/v0.6.x-maintainability-progress.md`——下一動作在 §3，
   Blockers 在 §4。它只涵蓋第一輪；第二輪落地了什麼要看上面那一份與 `CHANGELOG.md` 的 `[Unreleased]`。
 

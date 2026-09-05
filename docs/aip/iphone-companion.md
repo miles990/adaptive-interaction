@@ -85,7 +85,7 @@ iPhone 端把每個決策做成什麼動作：
 | 連續 `maxRealignAttempts`（3）次沒能 apply | `unrecoverable`：顯示「無法恢復，請重新連接」，不再自動重試 |
 | resume 回覆的 `patches` 超過 `maxResumePatches`（512） | 整批不處理，直接 realign（**不**靜默截斷成「我以為我追上了」） |
 
-三個容易踩到的差異（都在 v0.7.0 候選隨決策表一起改，`Services/SessionReceive.swift`）：
+三個容易踩到的差異（都在 v0.7.0隨決策表一起改，`Services/SessionReceive.swift`）：
 
 1. **snapshot 不是「整份套用」**：缺 `hash` 或缺 `state` → `rejectInvalid`；epoch 與本地不同又沒有
    `session-reset` 宣告 → `realign(epochChanged)`（v0.6.x 的 Swift 會直接套用並靜默改寫本地 epoch）。

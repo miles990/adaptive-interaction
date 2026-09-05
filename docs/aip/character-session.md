@@ -330,7 +330,7 @@ skippedStale, parked, lastPersistError, note }`——遷移寫在 `migratedFrom`
 > → connect/devices，不催促）、`storage-help`（`store-issue`，
 > 只有說明、沒有落點）、`null`（`synced`／`syncing`／`disabled`）。按鈕文案可改，id 與落點由測試釘住。
 > 狀態總數以 `apps/interaction-desktop/src/statusProjection/characterSync.ts` 的 `CharacterSyncState`
-> union 為準（v0.7.0 候選起是**十三態**，`src/test/statusProjection-session.test.ts` 窮舉）。
+> union 為準（v0.7.0起是**十三態**，`src/test/statusProjection-session.test.ts` 窮舉）。
 
 | 狀態 | 文案 |
 |---|---|

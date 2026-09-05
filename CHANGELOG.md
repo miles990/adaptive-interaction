@@ -16,7 +16,7 @@
 > `docs/releases/evidence-index.json`。本段只記本分支（`feature/v0.6.x-maintainability`）已提交的變更，
 > 每條附 commit；行為保護由 executable tests 保證，不在這裡反覆重述。
 
-### 本輪（v0.7.0 候選，2026-09-05／06）
+### 本輪（v0.7.0，2026-09-05／06）
 
 > 起點 `f5b8e2f`，**58 個 commit**（對抗審查 `713f8fe` 是第 28 個，其後是五路修復與文件收斂；
 > 最終數字由整合者回填）。
@@ -151,7 +151,7 @@
 - Runtime 把「成員領先」的 snapshot 改寫成 `session-reset` 的補救（實測無效，已由 `recovery` 取代）（`d941a9e`）。
 - `AGENTS.md` 指向 `CLAUDE.md` 的 symlink（改為獨立入口檔；不變量仍然只有 `CLAUDE.md` 一份）（`160d880`）。
 
-#### 對抗審查 `713f8fe-20260905T181800Z` 的修復（v0.7.0 候選）
+#### 對抗審查 `713f8fe-20260905T181800Z` 的修復（v0.7.0）
 
 > 54 送審／**42 confirmed**（high 11／medium 18／low 13）／11 refuted／1 fixed-meanwhile；
 > 處置 **fixed 40／partial 2／deferred 0**。逐條處置表（含每一則的 commit 與回歸測試名）在
@@ -263,7 +263,7 @@
 
 - README 分層表／`docs/ARCHITECTURE.md` crate 責任表／`docs/FEATURES.md` 補上本輪五個新模組與三份新文件（`2da6ebc`）。
 - `docs-claims.sh` 的過期宣稱 lint 加入 `AGENTS.md`（它從 symlink 變成真檔案時靜默掉出清單），本輪版本一律
-  寫成「v0.7.0（候選）」（`248e120`）。
+  寫成「v0.7.0」（`248e120`）。
 - `docs/aip/character-session.md` §6／§7.2（決策表全文與與 v0.6.0 的差異）、`docs/aip/README.md` §6／§11／§14、
   `docs/aip/conformance.md` §2／§3、`docs/aip/transport-bindings.md` §6／§7／§8／§8.1、
   `docs/aip/device-profile.md` §3.1／§6.1／§6.2／§6.3、`docs/aip/privacy.md` §5.1、
@@ -473,7 +473,7 @@
 
 ### Known limitations（第一輪新增；修掉時同步刪除——本輪修掉的就地劃掉並註明 commit）
 
-> 這一段是第一輪（可維護性收斂）結束時的清單。第二輪（v0.7.0 候選）修掉的項目在下面
+> 這一段是第一輪（可維護性收斂）結束時的清單。第二輪（v0.7.0）修掉的項目在下面
 > **就地劃掉**並註明修掉它的 commit 與釘住它的測試；本輪結束時仍然成立的完整清單見
 > `docs/releases/v0.7.0-known-limitations.md`。`docs-claims.sh` 會比對「還掛著的限制」與
 > 「修掉它的測試存不存在」，兩者同時成立就紅。

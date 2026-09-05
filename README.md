@@ -104,7 +104,7 @@ v0.4 的 Capability Matrix（**25/25 complete**）衡量的是治理平台的完
 [`docs/capability-completion-matrix.md`](docs/capability-completion-matrix.md) 與
 [`docs/v04-final-machine-evidence.md`](docs/v04-final-machine-evidence.md)。
 
-## v0.5（角色・硬體・AI 三核心重定位）——**v0.5.1 已發布；v0.6.0 Foundation 已於 2026-09-05 發布（tag `v0.6.0`）**
+## v0.5（角色・硬體・AI 三核心重定位）——**v0.5.1 已發布；v0.6.0 Foundation 已於 2026-09-05 發布（tag `v0.6.0`）；v0.7.0 已於 2026-09-06 發布（tag `v0.7.0`，見 `docs/releases/v0.7.0-final-report.md`）**
 
 **v0.5.0 已於 2026-09-03 發布**（tag `v0.5.0`）；`main`／`release/v0.5.1-product-hardening` 上的
 **v0.5.1 修補版本已於 2026-09-04 發布（tag `v0.5.1`）**。**v0.6.0 Foundation 已於 2026-09-05 發布

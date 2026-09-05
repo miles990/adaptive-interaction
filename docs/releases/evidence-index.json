@@ -8,8 +8,14 @@
       "commit": "8b713c7a8581da94729141384ab54ac508992bfe",
       "publishedAt": "2026-09-03T15:10:14Z",
       "releaseAssets": 18,
-      "ci": { "run": 33771059337, "conclusion": "success" },
-      "releaseWorkflow": { "run": 33771064257, "conclusion": "success" },
+      "ci": {
+        "run": 33771059337,
+        "conclusion": "success"
+      },
+      "releaseWorkflow": {
+        "run": 33771064257,
+        "conclusion": "success"
+      },
       "docs": {
         "finalReport": "docs/releases/v0.5.0-final-report.md",
         "knownLimitations": "docs/releases/v0.5.0-known-limitations.md",
@@ -29,8 +35,17 @@
       "commit": "ccf3bfe18612a083519b7cbfbd4bab3429b3d021",
       "publishedAt": "2026-09-03T21:36:29Z",
       "releaseAssets": 18,
-      "ci": { "run": 33808844320, "conclusion": "failure", "failedJobs": ["Tauri backend (clippy + test)"] },
-      "releaseWorkflow": { "run": 33808841552, "conclusion": "success" },
+      "ci": {
+        "run": 33808844320,
+        "conclusion": "failure",
+        "failedJobs": [
+          "Tauri backend (clippy + test)"
+        ]
+      },
+      "releaseWorkflow": {
+        "run": 33808841552,
+        "conclusion": "success"
+      },
       "docs": {
         "finalReport": "docs/releases/v0.5.1-final-report.md",
         "knownLimitations": "docs/releases/v0.5.1-known-limitations.md",
@@ -52,12 +67,38 @@
       "commit": "4bd55fe69915296ffe06f61cea989e5a0e160997",
       "publishedAt": "2026-09-04T21:06:58Z",
       "releaseAssets": 23,
-      "ci": { "run": 33917336584, "conclusion": "success", "prRun": 33916882852 },
-      "releaseWorkflow": { "run": 33918252926, "conclusion": "failure", "failedJobs": ["Desktop (windows-latest)"], "skippedJobs": ["Publish only when every asset is present"] },
+      "ci": {
+        "run": 33917336584,
+        "conclusion": "success",
+        "prRun": 33916882852
+      },
+      "releaseWorkflow": {
+        "run": 33918252926,
+        "conclusion": "failure",
+        "failedJobs": [
+          "Desktop (windows-latest)"
+        ],
+        "skippedJobs": [
+          "Publish only when every asset is present"
+        ]
+      },
       "postReleaseMain": [
-        { "commit": "ea7de59", "ci": 33919774319, "conclusion": "failure", "why": "CHANGELOG claim-check（Tauri backend）；Windows checksum 上傳的 CRLF 修正本身正確" },
-        { "commit": "8826656", "ci": 33919829058, "conclusion": "success" },
-        { "commit": "8f52837", "ci": 33920312398, "conclusion": "success" }
+        {
+          "commit": "ea7de59",
+          "ci": 33919774319,
+          "conclusion": "failure",
+          "why": "CHANGELOG claim-check（Tauri backend）；Windows checksum 上傳的 CRLF 修正本身正確"
+        },
+        {
+          "commit": "8826656",
+          "ci": 33919829058,
+          "conclusion": "success"
+        },
+        {
+          "commit": "8f52837",
+          "ci": 33920312398,
+          "conclusion": "success"
+        }
       ],
       "docs": {
         "finalReport": "docs/releases/v0.6.0-final-report.md",
@@ -75,15 +116,33 @@
       "notes": [
         "Release run 33918252926 的 Desktop (windows-latest) job 因 sha256-files.txt 帶 CRLF 而失敗、finalize 被 skipped；Windows 兩個 .sha256 由整合者從已上傳資產計算並補上（final-report §34），修正在 main ea7de59（regression：scripts/tests/release-scripts.sh 末段）。"
       ]
-    }
-  ],
-  "candidates": [
+    },
     {
-      "branch": "feature/v0.6.x-maintainability",
-      "baseCommit": "f5b8e2fc9e86d8fa8067f91303dbbcb8d04cf42f",
-      "status": "candidate v0.7.0",
-      "versionPolicy": "0.7.0（minor）：本輪新增向後相容的對外能力——兩條人類層 HTTP 路由（GET /v1/sensors/unresolved、POST /v1/sensors/unresolved/{sourceId}/dismiss）與對應 CLI 子指令、status 與 diagnostics 的選填新欄位（unresolvedStops、characterSessionSync、members[].syncProfile）、裝置線 v1.1→v1.2 的追加訊息 aip-frag（proto 仍為 1，只對宣告 hello caps aip.frag/1 的裝置使用）、AIP payload.reason 新值 recovery（specVersion 與 wire 形狀不變），以及 provider 重新啟用的語意變更（transition(Available) 對宣告式裝置回 Disconnected，握手成功才收斂）。快照容器 format 仍是 1、無資料遷移、對既有呼叫端無 breaking，所以不是 major；新增對外能力多於修補，所以不是 patch。尚未打 tag。",
-      "progress": "docs/releases/v0.7.0-progress.md",
+      "version": "0.7.0",
+      "tag": "v0.7.0",
+      "commit": "630b4291f6a59444cfb1d8185f757f9dcda9ecc4",
+      "tagObject": "b2952bfd00724335a385db570a0b1a911b5deb96",
+      "publishedAt": "2026-09-05T22:14:16Z",
+      "releaseAssets": 23,
+      "ci": {
+        "run": 33993815652,
+        "conclusion": "success",
+        "prRun": 33993446777,
+        "note": "main 推送（fast-forward，SHA 與 PR head 相同）的 run；PR run 為同一 SHA 的 pull_request 事件"
+      },
+      "releaseWorkflow": {
+        "run": 33994408124,
+        "conclusion": "success"
+      },
+      "merge": {
+        "pr": 4,
+        "method": "fast-forward push（GitHub 拒絕 rebase merge：This branch can't be rebased；歷史線性、無 merge commit、SHA 未改寫）",
+        "mergeCommit": "630b4291f6a59444cfb1d8185f757f9dcda9ecc4"
+      },
+      "assetVerification": {
+        "checksums": "9/9 .sha256 本機驗證相符（CLI 四平台壓縮檔＋dmg／AppImage／deb／msi／exe）；aarch64 .app.tar.gz 依設計無 checksum",
+        "cliSmoke": "interact-ai-v0.7.0-aarch64-apple-darwin.tar.gz 解壓後 interact-ai --version → 0.7.0"
+      },
       "docs": {
         "progress": "docs/releases/v0.7.0-progress.md",
         "finalReport": "docs/releases/v0.7.0-final-report.md",
@@ -103,10 +162,13 @@
         "integrationSuite": "not-run (整合全套尚未執行；見 progress §5)",
         "adversarialReview": "not-run (adversarial-review-v06x 尚未執行)"
       },
+      "versionPolicy": "0.7.0（minor）：本輪新增向後相容的對外能力——兩條人類層 HTTP 路由（GET /v1/sensors/unresolved、POST /v1/sensors/unresolved/{sourceId}/dismiss）與對應 CLI 子指令、status 與 diagnostics 的選填新欄位（unresolvedStops、characterSessionSync、members[].syncProfile）、裝置線 v1.1→v1.2 的追加訊息 aip-frag（proto 仍為 1，只對宣告 hello caps aip.frag/1 的裝置使用）、AIP payload.reason 新值 recovery（specVersion 與 wire 形狀不變），以及 provider 重新啟用的語意變更（transition(Available) 對宣告式裝置回 Disconnected，握手成功才收斂）。快照容器 format 仍是 1、無資料遷移、對既有呼叫端無 breaking，所以不是 major；新增對外能力多於修補，所以不是 patch。尚未打 tag。",
+      "adversarialReview": "docs/reviews/adversarial/713f8fe-20260905T181800Z.md（54 reviewed／42 confirmed／11 refuted／1 fixed-meanwhile；confirmed 全部處置，見 v0.7.0-known-limitations.md §0）",
+      "integration": "docs/releases/v0.7.0-final-report.md §7（a1015a4：Rust 1245/0、Tauri 63/0、vitest 1815/0→1816/0、CLI 96/0、Playwright 91/0、iOS 模擬器 158/0、韌體兩組態 EXIT=0）；release-verify --run-tests 於 630b429 全過",
       "notes": [
-        "第二輪（起點 f5b8e2f，28 個 commit）；第一輪（8f52837→f5b8e2f）的矩陣留在 v0.6.x-maintainability-progress.md。",
-        "PR #4 仍為 draft（標題含 do not merge yet）；未 push、未合併、未打 tag。releases 條目在真的發布之後才由主 agent 新增。"
+        "PR #4 的第一次 CI（da81d3b，run 33993012953）Rust job 失敗：兩支 rebind 測試在較慢的 Linux runner 上讀稽核早於第 8 步寫入（時序），630b429 讓測試等到 provider.rebound 落地後再斷言；程式碼未改。"
       ]
     }
-  ]
+  ],
+  "candidates": []
 }

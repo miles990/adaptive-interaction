@@ -184,6 +184,10 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 - 測試：以 `docs/acceptance-evidence.md` v0.5 最新章節（Phase 9）與 `docs/releases/v0.5.0-test-matrix.md`
   的實跑數字為準；詳見 `docs/acceptance-evidence.md` v0.5 章節與 `docs/v05-recovery-matrix.md`。
 
+## v0.7.0（已於 2026-09-06 發布，tag `v0.7.0` → `630b429`）
+
+跨平台接收決策表（三端同一份 `receiveDecisions`／`canonicalVectors` fixtures）、裝置線 v1.2 分片與成員 `syncProfile`、宣告式裝置免重啟 rebind 與未解決停止三層、陪伴預設交易化恢復、一般模式任務分類與真 Tauri 走查、AI 可維護性入口（`AGENTS.md`／`docs/MAINTAINERS-MAP.md`／`docs/aip/deprecation-ledger.md`／`scripts/tests/architecture-checks.sh`）。逐條見 `CHANGELOG.md` `[0.7.0]`；證據等級見 `docs/releases/v0.7.0-final-report.md` §8。
+
 ## v0.6.0 Foundation（已於 2026-09-05 發布，tag `v0.6.0` → `4bd55fe`）
 
 > 保守、可回退的架構升級：先建立修改前基線與恢復矩陣，再以 Strangler／feature flag 逐條路徑替換，
