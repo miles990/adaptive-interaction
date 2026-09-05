@@ -102,10 +102,12 @@ epoch 已 +1）。**不靜默**：它排在「已同步」之前，因為那一�
 裝置名稱、來源清單與診斷（`storeNote`）是另一組：節流成最小間隔 2 秒的 trailing 重取，
 不隨每一則 runtime 事件重打。
 
-**桌面端刻意不做接收端 hash 核對。** JS 的 number 留不住數字字面（Runtime 的 `0.0` 在 JS
-重新序列化之後是 `0`），重算出來的 canonical JSON 不可能與 Rust 端逐位元組相同——做了就是
-一個永遠亮著的假警報。不一致時的處理是「重新取一次完整快照對齊」，判斷依據是 revision
-單調遞增與 `baseRevision` 相符。這些字眼一個都不會出現在畫面上。
+**桌面端會做接收端 hash 核對**（AIP §6；`src/aip/canonical.ts`＋`src/aip/sessionClient.ts`）。
+JS 的 number 留不住數字字面，但 canonical 規則可重印（f64 路徑由 codegen 從跨語言 fixture
+manifest 產出，`pnpm aip:check` 是漂移 gate），三端共用的 `stateHashes` fixtures 逐位元組核對過。
+對不上就**不套用**，改走 `POST /v1/character-session/resume` 重新對齊；連續對齊失敗達 3 次
+升級成「無法恢復，請重新連接」（誠實說狀態未知，不是無限重試）。revision／epoch／hash／
+`alignment.*` 計數這些字眼一個都不會出現在一般模式的畫面上（只有進階模式的「連接診斷」）。
 
 ## 4. claimed ≠ verified：綠勾只給真的
 

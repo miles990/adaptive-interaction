@@ -19,8 +19,10 @@ AIP 的檢查是**安全邊界**，不是格式美化。同一則訊息，Rust R
 ## 2. 怎麼跑
 
 ```bash
-# Rust：型別、規則與 fixture conformance
+# Rust：型別、規則與 fixture conformance（含 stateHashes 消費者測試）
 cargo test -p interaction-aip
+# Rust：state-hash fixtures 的產生器兼驗證器（AIP_UPDATE_FIXTURES=1 重生）＋數字字面語意
+cargo test -p interaction-session --test state_hash_fixtures --test state_semantics
 
 # Golden schema 不漂移（schemas/aip-1.0.schema.json）＋ 依賴邊界
 cargo test -p interaction-e2e --test golden
@@ -29,6 +31,7 @@ cargo test -p interaction-e2e --test dependency_boundaries
 # TypeScript：conformance ＋ 邊界單元測試
 cd apps/interaction-desktop
 pnpm vitest run src/test/aip-conformance.test.ts src/test/aip-envelope.test.ts
+pnpm vitest run src/test/canonical-hash.test.ts src/test/session-client.test.ts   # state hash 三端一致＋接收端 reducer
 pnpm aip:check      # generated.ts／AIPGenerated.swift／AIPFixtures.swift 不漂移
 pnpm typecheck
 
@@ -58,12 +61,16 @@ pnpm typecheck
 | `outcomeTransitions` | `from`、`to`、`allowed` | §3 誠實階梯的合法遷移 |
 | `outcomeProfiles` | `profile`、`status`、`allowed` | §3 各 profile 的合法 Outcome 子集 |
 | `nameScope` | `name`、`runtimeOnly` | §2.3 只有 Runtime 能送的前綴 |
+| `stateHashes` | `id`、`file`、`semanticValid`、`note`；檔案內含 `state`、`hash`、`canonical` | §6 state hash：host 真實寫出的 `SemanticState` 與其 canonical 文字／SHA-256（Rust `conformance.rs`＋`state_hash_fixtures.rs`／TS `canonical-hash.test.ts`／Swift `StateHashConformanceTests`） |
+| `stateHashDoublePaths` | JSON pointer 陣列 | `SemanticState` 裡所有 f64 欄位（schemars 推導）；TS 的 `SEMANTIC_STATE_DOUBLE_PATHS` 由 codegen 從這裡產出 |
 
 `mustNotEcho` 列出這則 fixture 裡的呼叫端可控字串；三個實作都會斷言錯誤訊息**不含**它們（§5）。
 三個實作另外都會斷言錯誤訊息不含路徑片段、長度 ≤ 200 字。
 
-`state` fixture 的 `hash` 是對 `state`／套用 patch 後狀態的 canonical JSON 取 SHA-256 的**真值**，
-但 hash 驗證本身屬於 `interaction-session`，不在 envelope conformance 的範圍內。
+`state` fixture 的 `hash` 是對 `state`／套用 patch 後狀態的 canonical JSON 取 SHA-256 的**真值**
+（`state-snapshot.json` 的 state 是 host 真實形狀：`intensity` `0.0`、`members[].unsupportedIntents`；
+`state-patch.json` 的 `hash` 與它鏈在一起，Rust `state_semantics.rs` 釘住這一對）。envelope conformance
+只驗結構；hash 的**計算**由 `stateHashes` 段的三端測試驗證，hash 的**接收端決策**屬於 `interaction-session`。
 
 ## 4. 加一則 fixture
 

@@ -196,7 +196,9 @@ receipt 誠實結算（AI presentation command：completed→Completed Acknowled
 ### 1. 分層與依賴方向
 
 ```
-Presentation / UI / Renderer     apps/interaction-desktop/src（React、companion 視窗、character/adapters/*）
+Presentation / UI / Renderer     apps/interaction-desktop/src（React、companion 視窗、character/adapters/*；
+                                 aip/envelope.ts 鏡射 envelope 規則、aip/canonical.ts canonical JSON＋state hash、
+                                 aip/sessionClient.ts 接收端 reducer——協定判斷不在 React 元件裡）
                                   apps/interaction-ios（SwiftUI；AIP 型別已鏡射，Session client 進行中）
             ↓
 Application Use Cases            crates/interaction-runtime/src/character_session.rs（Session Host：

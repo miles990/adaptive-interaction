@@ -67,6 +67,13 @@
 > 同一個 `messageId` 再送一次回 `accepted{duplicate:true}` 且**不重套用**。上面的 JSON 是示意：值為「無」的選填鍵
 > （`truth.correlationId`、`lastInteraction`）實作上**省略**該鍵而不是寫 `null`，因為 RFC 7396 的 `null` 是刪除語意，
 > host 寫 `null` 而接收端刪除鍵會讓兩邊 canonical hash 分歧。其餘落差見文末 §12。
+>
+> **數字字面**：`mood.intensity` 恆為 0..=1、四捨五入到 3 位小數，且**永遠是非負零**——canonical 字面是
+> `0.0`（serde_json 的 f64：整數值也帶小數，`1.0`），不是 `0`、也不是 `-0.0`。host 的 `clamp_unit` 把 `-0.0`
+> 收斂成 `+0.0`；不可信來源（snapshot 檔、patch 結果）送進 sign-negative 的零一律拒絕
+> （`SessionError::InvalidState` → `schema-invalid`），不修正。三端對同一份 state 的 canonical 文字與 SHA-256
+> 由 `crates/interaction-aip/tests/fixtures/manifest.json` 的 `stateHashes`（9 份 host 真實輸出）釘住；
+> f64 欄位清單 `stateHashDoublePaths` 由 schemars 推導（目前只有 `/mood/intensity`）。
 
 ## 4. 語意事件目錄（1.0）
 

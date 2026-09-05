@@ -156,15 +156,24 @@ diagnostics（不含 token、路徑、原始 payload）：
 與既有 `character.*` 事件同界線：agent token、adapter token 一律看不到（`sse.rs`
 `character_events_are_human_only_on_sse`）。
 
-**桌面同步卡就靠這條事件對齊，不靠輪詢**（`CharacterSyncCard`）：`state{kind:"snapshot"}` 整份取代
-本地副本，`state{kind:"patch"}` 在 epoch 相同且 `baseRevision` 等於本地 revision 時以 RFC 7396
-merge patch 套上去。`GET /v1/character-session` **會消耗一個 sequence**，所以只在首次載入、
-patch 接不上、使用者按「重新檢查」時才呼叫。裝置清單／來源清單／診斷是另一組，節流成
-最小間隔 2 秒的 trailing 重取。
+**桌面同步卡就靠這條事件對齊，不靠輪詢**（`CharacterSyncCard` → 純函式接收端
+`apps/interaction-desktop/src/aip/sessionClient.ts`，鏡射 Rust `accept_state_with_epoch`）：
+`state{kind:"snapshot"}` 只在 revision 比本地新、或 host 明確標 `reason:"session-reset"` 且
+`sessionEpoch` 與本地不同時取代本地副本（較舊／相同 revision 一律忽略；epoch 不同但沒有
+reset 宣告 → 重新對齊，不猜）；`state{kind:"patch"}` 在 epoch 相同且 `baseRevision` 等於本地
+revision 時以 RFC 7396 merge patch 套上去。缺 `revision`／`sessionEpoch`、負數、小數、超過
+2^53 的值一律 invalid（不會變成 revision 0）。`GET /v1/character-session` **會消耗一個 sequence**，
+所以只在**沒有本地副本**時（首次載入、讀失敗之後、卸載重掛）呼叫；patch 接不上、使用者按
+「重新檢查」、連線切換（`connectionKey`）都走 `POST /v1/character-session/resume`（不消耗
+sequence）。慢的 GET／resume 回應若在請求發出後已有 SSE 狀態套用，就以請求世代判為過期忽略。
+裝置清單／來源清單／診斷是另一組，節流成最小間隔 2 秒的 trailing 重取。
 
-> **桌面端不做接收端 hash 核對。** JS 的 number 留不住數字字面（Rust 的 `0.0` 在 JS 重新序列化
-> 之後是 `0`），重算出來的 canonical JSON 不會與 Rust 端逐位元組相同，hash 會變成一個永遠亮著的
-> 假警報。判斷依據是 revision 單調遞增與 `baseRevision` 相符；對不上就重新 GET 一次 snapshot。
+> **桌面端會做接收端 hash 核對**（AIP §6）。JS 的 number 留不住數字字面，但 canonical 規則
+> 是可重印的：`apps/interaction-desktop/src/aip/canonical.ts` 依 codegen 從 fixture manifest
+> `stateHashDoublePaths` 產出的 f64 路徑把整數值的 double 印回 serde_json 的 `x.0` 形式，
+> 鍵以 code point 序排序；三端共用的 `stateHashes` fixtures（9 份 host 真實輸出）逐位元組
+> 核對（`src/test/canonical-hash.test.ts`）。hash 對不上就**不套用**並重新對齊；連續對齊
+> 失敗達 3 次升級成「無法恢復，請重新連接」（狀態未知，不是無限重試）。
 
 ## 4. CLI（薄殼，human token）
 

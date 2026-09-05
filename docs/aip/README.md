@@ -276,6 +276,12 @@ Runtime 的 `ProviderTested`／`pairingUnverified` 語意不變，AIP 只提供�
 | `MAX_CLOCK_SKEW_MS`（occurredAt 與 host 時鐘） | 30 000（超出只稽核，不拒絕） |
 | `DEFAULT_INTERACTION_TTL_MS` | 5 000 |
 | `DEFAULT_INTENT_TTL_MS` | 10 000 |
+| `MAX_MEMBERS` | 16 |
+| `MAX_UNSUPPORTED_INPUTS` | 32（協商結果 `unsupportedInputs` 的有界性要求：對方宣告的 `inputs` 本身無界，host 的協商回覆是一則要送上線的訊息，不截斷會超過 `MAX_PAYLOAD_BYTES`；它不是 wire 欄位長度上限，但仍發布進 golden schema 的 `limits` 表，讓三端的 `negotiate` 有同一個截斷點） |
+
+golden schema `schemas/aip-1.0.schema.json` 的 `limits` 表由 `interaction_aip::limits` 的**每一個** `pub const`
+產生（`schema.rs::every_limit_constant_is_published_in_the_schema` 雙向比對），TS／Swift 的 `AIP_LIMITS` 由
+codegen 產出，不再有手寫的同值字面量。
 
 ## 12. 穩定錯誤碼（`ErrorCode`）
 

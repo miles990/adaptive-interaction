@@ -34,9 +34,9 @@
 > - ✅ **裝置 SDK 建置通過(未簽章)**:`-sdk iphoneos -arch arm64 -configuration Release
 >   CODE_SIGNING_ALLOWED=NO` → `** BUILD SUCCEEDED **`;12 個 `.swift` 對
 >   `arm64-apple-ios17.0` + iphoneos26.5 SDK 的 `swiftc -typecheck` 也是 0 error / 0 warning。
-> - ✅ **XCTest 101/101 通過（2026-09-05 v0.6.0 對抗審查修復後；2026-09-04 wave 2 為 92/92、
->   同日 v0.5.1 為 46/46、2026-09-03 為 25/25）**
->   (AIPConformance 17 + MotionClassifier 8 + Protocol 21 + ReconnectHint 21 + SessionClient 34)
+> - ✅ **XCTest 104/104 通過（2026-09-05 v0.6.x 可維護性分支，新增 StateHashConformance 3；同日稍早 v0.6.0
+>   對抗審查修復後為 101/101；2026-09-04 wave 2 為 92/92、同日 v0.5.1 為 46/46、2026-09-03 為 25/25）**
+>   (AIPConformance 17 + MotionClassifier 8 + Protocol 21 + ReconnectHint 21 + SessionClient 34 + StateHashConformance 3)
 >   ——用 xcodebuild 產出的 app-hosted `.xctest`,注入 iPhone 17
 >   **模擬器**(iOS 26.2)以 `simctl` 執行(見下方「跑 XCTest:`simctl` 注入流程」)。
 >   **這是模擬器測試,與下面的真機驗收是兩件事**。
@@ -204,6 +204,9 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 >（AIPConformance 14＋MotionClassifier 8＋ProtocolTests 21＋ReconnectHint 21＋SessionClient 28）
 > **2026-09-05（v0.6.0 對抗審查修復）重跑：Executed 101 tests, with 0 failures**
 >（AIPConformance 17＋MotionClassifier 8＋ProtocolTests 21＋ReconnectHint 21＋SessionClient 34）
+> **2026-09-05（v0.6.x 可維護性分支，M1 hash 契約）重跑：Executed 104 tests, with 0 failures**
+>（上列 101＋StateHashConformance 3：三端共用 `stateHashes` fixtures 9/9 從原始文字逐字解析；iPhone 17 模擬器、
+> iOS 26.5 runtime、UDID B9A0E7F9…；修復者與獨立驗證者各跑一次）
 > ——仍是 **iPhone 17 模擬器**（UDID 66067313…，跑完即 `simctl shutdown`），
 > 與真機驗收是兩件事。
 
@@ -245,7 +248,7 @@ SIMCTL_CHILD_XCInjectBundleInto="$APP/InteractionCompanion" \
 xcrun simctl launch --console-pty "$UDID" "$BID" -XCTest All "$APP/PlugIns/InteractionCompanionTests.xctest"
 ```
 
-輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 101。
+輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 104。
 
 ### DEBUG 限定啟動參數(自動化驗收,僅供模擬器/CI;release 不編入)
 
