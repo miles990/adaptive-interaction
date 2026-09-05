@@ -422,6 +422,113 @@ fn state_hash_fixtures_agree_with_canonical_json_and_hash() {
     );
 }
 
+/// `receiveDecisions`：接收端決策表的**形狀**檢查。
+///
+/// 決策本身屬於 `interaction-session`（AIP 層沒有 session 狀態的概念，也不能反向依賴它），
+/// 所以這裡只驗「這一段長得對不對」：每一筆都要有 id／note／local／expect 與一種輸入，
+/// 決策與 realign 原因都得是已知的穩定字串，id 不得重複。TypeScript 與 Swift 讀的是同一段，
+/// 拼錯一個決策名在 Rust 這邊就要先擋下來，而不是等到另一個語言默默走進 default 分支。
+#[test]
+fn receive_decision_fixtures_have_the_documented_shape() {
+    let m = manifest();
+    let entries = section(&m, "receiveDecisions");
+    assert!(
+        entries.len() >= 32,
+        "receiveDecisions 至少要 32 個具名案例，實際 {}",
+        entries.len()
+    );
+    const DECISIONS: [&str; 9] = [
+        "ignore-stale-connection",
+        "reject-identity",
+        "reject-invalid",
+        "reset",
+        "apply",
+        "realign",
+        "recover",
+        "ignore-stale",
+        "already-applied",
+    ];
+    const REASONS: [&str; 5] = [
+        "no-local",
+        "epoch-changed",
+        "base-mismatch",
+        "hash-mismatch",
+        "resume-too-long",
+    ];
+    let mut ids: BTreeSet<String> = BTreeSet::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for entry in &entries {
+        let id = str_of(entry, "id");
+        assert!(!str_of(entry, "note").is_empty(), "{id}: note 不得為空");
+        assert!(ids.insert(id.clone()), "重複的案例 id：{id}");
+        let local = entry
+            .get("local")
+            .and_then(Value::as_object)
+            .unwrap_or_else(|| panic!("{id}: 缺 local"));
+        for key in ["hasState", "epoch", "revision", "connectionGeneration"] {
+            assert!(local.contains_key(key), "{id}: local 缺 `{key}`");
+        }
+        let inputs = ["incoming", "incomingBatch", "incomingBatchChain"]
+            .iter()
+            .filter(|key| entry.get(**key).is_some())
+            .count();
+        assert_eq!(inputs, 1, "{id}: 必須剛好有一種輸入");
+        if let Some(incoming) = entry.get("incoming") {
+            for key in [
+                "kind",
+                "epoch",
+                "revision",
+                "statePresent",
+                "arrivedOnGeneration",
+                "viaAuthoritativeReply",
+            ] {
+                assert!(incoming.get(key).is_some(), "{id}: incoming 缺 `{key}`");
+            }
+            let kind = str_of(incoming, "kind");
+            assert!(
+                kind == "snapshot" || kind == "patch",
+                "{id}: 未知的 state kind `{kind}`"
+            );
+        }
+        let expect = entry
+            .get("expect")
+            .unwrap_or_else(|| panic!("{id}: 缺 expect"));
+        let decision = str_of(expect, "decision");
+        assert!(
+            DECISIONS.contains(&decision.as_str()),
+            "{id}: 未知的決策 `{decision}`"
+        );
+        seen.insert(decision.clone());
+        match expect.get("reason").and_then(Value::as_str) {
+            Some(reason) => {
+                assert_eq!(decision, "realign", "{id}: 只有 realign 帶 reason");
+                assert!(
+                    REASONS.contains(&reason),
+                    "{id}: 未知的 realign 原因 `{reason}`"
+                );
+            }
+            None => assert_ne!(decision, "realign", "{id}: realign 必須說出原因"),
+        }
+        for key in ["revisionAfter", "epochAfter", "budgetAfter"] {
+            assert!(
+                expect.get(key).and_then(Value::as_u64).is_some(),
+                "{id}: expect 缺 `{key}`"
+            );
+        }
+        let budget = str_of(expect, "budget");
+        assert!(
+            budget == "ok" || budget == "unrecoverable",
+            "{id}: 未知的 realign 預算結論 `{budget}`"
+        );
+    }
+    for decision in DECISIONS {
+        assert!(
+            seen.contains(decision),
+            "沒有任何案例得到 `{decision}`：決策表有一條分支沒人測"
+        );
+    }
+}
+
 /// 直接對位元組取 SHA-256（十六進位小寫），用來確認 `canonical_hash` 沒有偷加料。
 fn hex_sha256(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};

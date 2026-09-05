@@ -10,6 +10,7 @@
 //! | [`director`] | §4 語意事件目錄（純函式） |
 //! | [`cpp`] | §5 Behavior Intent → CPP 投影 |
 //! | [`patch`]（re-export） | §6 revision／snapshot／patch／replay 的純函式 |
+//! | [`receive`] | §6／§7 接收端決策表（連線世代／身分／hash／recovery／有界 realign） |
 //! | [`ports`] | architecture-boundaries §2 Ports |
 //! | [`CharacterSession`] | §1／§2／§8 權威 host：安全管線、membership、sequence |
 //!
@@ -56,6 +57,7 @@ pub mod cpp;
 pub mod director;
 mod patch;
 pub mod ports;
+pub mod receive;
 mod session;
 mod state;
 mod types;
@@ -78,7 +80,7 @@ pub use types::{
     EVENT_DISMISS, EVENT_TOUCH, HOST_INPUTS, HOST_INTENTS, INTENT_CELEBRATE, INTENT_IDLE,
     INTENT_REACT_HAPPILY_TO_TOUCH, INTENT_SETTLE, MAX_PENDING_INTENTS, NAME_BEHAVIOR_REQUEST,
     NAME_SESSION_CAPABILITY, NAME_SESSION_PATCH, NAME_SESSION_RESULT, NAME_SESSION_SNAPSHOT,
-    REASON_SESSION_RESET, SNAPSHOT_FORMAT,
+    REASON_RECOVERY, REASON_SESSION_RESET, SNAPSHOT_FORMAT,
 };
 
 /// 本 crate 實作的 AIP profile 名稱（`capability.profiles`）。

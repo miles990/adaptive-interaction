@@ -122,6 +122,20 @@ parameters.intensity、priority 40、truthState none）；`settle` → `rest`；
 見 AIP §6。Session 端實作：`EventLog`（有界環 512：`{sequence, revision, patch, hash, at}`）、`resume(lastRevision)`
 → `Replay::Patches(Vec<..>)` 或 `Replay::Snapshot`；`snapshot()` 含 `hash`；`apply_patch` 純函式供接收端使用；
 `state_hash` 用 canonical JSON SHA-256。Host 每 N（預設 32）個 revision 或每 60 s 把 snapshot 持久化到 `SessionStore`。
+接收端收到這些訊息之後要做什麼，見 §7 的決策表（`interaction_session::receive`）。
+
+**host 送出的 `payload.reason`（snapshot 專用，兩個值）**：
+
+| 值 | 什麼時候送 | epoch | 接收端 |
+|---|---|---|---|
+| `session-reset` | session 真的被重建過（restore 拿到成員超前的證據、開了新 session、檔案損毀重來） | **變了**（+1 或從 1 重新起跳） | 丟棄本地狀態、採用這一份（§7 規則 3） |
+| `recovery` | 同一個 session，host 的權威狀態真的比對方記得的舊（從較舊快照還原，但沒有重建的理由） | **不變** | 採納並退回 host 的 revision（§7 規則 6），稽核 `aip.state-recovered` |
+
+`recovery` 是 **AIP 1.0 接收端澄清（2026-09-05，v0.7.0）** 新增的 reason 值：訊息形狀、欄位、版本號一律不變。
+沒有它的時候，host 只能回一則沒有 reason 的舊 snapshot（被 rollback 防護忽略）或謊稱 `session-reset`
+（§7 的 reset 例外要求 epoch **不同**，同 epoch 一樣被忽略）——兩條路都是「兩邊永久分歧、畫面卻寫著已同步」。
+只認得舊值的接收端把 `recovery` 當成沒有 reason 的 snapshot，行為與今天完全相同（不會更糟）。
+host 送出 `recovery` 時**不得** epoch+1（成員的宣稱不是重建 session 的理由），並記在 `counters.snapshots.recovery`。
 
 **持久化容器的格式版本（`Snapshot.format`，與 AIP wire version 分開）**：`state/character-session.json` 的
 `Snapshot` 帶 `format: u32`（`interaction_session::SNAPSHOT_FORMAT`，目前 1；缺鍵讀成 0＝v0.6.0 無版本格式）。
@@ -151,9 +165,55 @@ persist 之前、每 N 個 revision 才落地，重啟後由 `resume`／`session
 1. 重連 Transport（各 Transport 自己的退避）。
 2. 送 `capability`（重新協商；host 可能已重啟）。
 3. 送 `query character.session.resume{lastRevision, lastSequence, sessionEpoch}`。
-4. 收 `response{kind: patches|snapshot}`；epoch 不同 → 丟棄本地狀態、套用 snapshot。
-5. 之後只接受 `state.revision > local`；缺 sequence（gap）→ 再 resume 一次；連續 3 次失敗 → 顯示「無法恢復，請重新連接」。
+4. 收 `response{kind: patches|snapshot}`；逐則走下面的決策表。
+5. 之後每一則 `state` 也走同一張表；連續 3 次未能套用 → 顯示「無法恢復，請重新連接」（狀態是**未知**，不是「已同步」）。
 6. 重連期間**不**重播互動事件與 intent；本地佇列中過期的 touch 直接丟（稽核計數）。
+
+### 7.2 接收端決策表（AIP 1.0 接收端澄清（2026-09-05，v0.7.0）：wire 不變、新增 reason 值 `recovery`）
+
+權威實作是 `crates/interaction-session/src/receive.rs::decide_receive`（純函式），跨語言 fixture 是
+`crates/interaction-aip/tests/fixtures/manifest.json` 的 `receiveDecisions` 段（43 個具名案例）。
+桌面（TypeScript）與 iPhone（Swift）讀同一段對答案：**同一則訊息，三端必須得到同一個決策**。
+
+前提：訊息已經通過 typed boundary（envelope 合法、`messageType == state`、`revision` 與 `sessionEpoch` 是非負整數、
+大小／深度合法）。錯誤格式與超大訊息由 boundary 擋下 → `reject-invalid`；如果那是一則**權威回覆**，算一次 realign 失敗。
+
+依序評估，**第一個命中即決定**：
+
+| # | 條件 | 決策 |
+|---|---|---|
+| 0 | 訊息來自已失效的連線世代／請求世代 | `ignore-stale-connection`（計數）。**先於一切 epoch 判斷**——舊連線遲到的 `session-reset` 宣告的 epoch 一定與本地不同，任何 epoch 規則都會被它騙過去，這是唯一防線 |
+| 1 | incoming 有 `sessionId`、local 有狀態、且與 local 不同 | `reject-identity`（稽核 `aip.identity-mismatch`）。**不** realign——realign 只會再要一次別人的 session |
+| 2 | snapshot 缺 `hash` 或缺 `state`（patch 缺 `baseRevision`） | `reject-invalid`。AIP 1.0 的 snapshot 必帶 hash，**沒有 legacy profile** |
+| 3 | snapshot、`reason == "session-reset"`、epoch 與 local 不同（或 local 無狀態） | `reset`：丟棄本地狀態、採用新的 epoch／revision、清 realign 計數 |
+| 4 | snapshot、local 無狀態 | `apply`（bootstrap） |
+| 5 | snapshot、epoch 不同、無 reset 宣告 | `realign(epoch-changed)`：不套用，送 `character.session.resume`。host 對 epoch 不同的 resume 一律回 `session-reset` snapshot，所以一次就收斂 |
+| 6 | snapshot、同 epoch、`reason == "recovery"`、`revision < local` | `recover`：套用、退回 host 的 revision、稽核 `aip.state-recovered` |
+| 7 | snapshot、同 epoch、`revision < local` | `ignore-stale`（rollback；稽核 `aip.state-rollback-ignored`） |
+| 8 | snapshot、同 epoch、`revision == local` | `already-applied`（宣告的 hash 與本地算出來的不同 → `realign(hash-mismatch)`） |
+| 9 | snapshot、同 epoch、`revision > local` | hash 核對通過 → `apply`；不符 → `realign(hash-mismatch)` |
+| 10 | patch、local 無狀態 | `realign(no-local)` |
+| 11 | patch、epoch 不同 | `realign(epoch-changed)` |
+| 12 | patch、`revision <= local` | `ignore-stale`／`already-applied` |
+| 13 | patch、`baseRevision != local.revision` | `realign(base-mismatch)` |
+| 14 | merge 之後的 hash 與宣告的不同 | `realign(hash-mismatch)` |
+| 15 | 其餘 | `apply` |
+
+**resume 回覆**：逐則走上表；`already-applied`／`ignore-stale` 是良性的舊項（host 回放的範圍本來就可能與本地
+重疊），跳過**不**中止；第一個帶 effect 的 realign 中止整批（後面的補丁都建立在沒套用的那一則之上）；
+`patches` 數量超過 `maxResumePatches` → 整批不處理、直接 realign（**不**靜默截斷成「我以為我追上了」）。
+
+**有界 realign**：連續 `maxRealignAttempts`（3）次未能 apply → `unrecoverable`，照實說狀態未知、不再自動重試；
+任一次 `apply`／`reset`／`recover` 清零。兩個常數的權威值在 `interaction_aip::limits`
+（`MAX_RESUME_PATCHES` = 512 = `EVENT_LOG_RING`、`MAX_REALIGN_ATTEMPTS` = 3），發布在 golden schema 的 `limits` 表，
+三端由 codegen 讀同一個數字。本地可以更嚴，但要走 realign，**不得靜默截斷**。
+
+與 v0.6.0 的行為差異（三處，全部往「不猜」的方向）：
+
+1. snapshot 的 epoch 與本地不同又沒有 reset 宣告時，Rust／Swift 以前直接套用並靜默改寫本地 epoch；現在 realign（規則 5）。
+2. patch 以前完全不看 epoch，只靠 `baseRevision` 恰巧不符去擋；現在 realign（規則 11）。
+3. 桌面端以前有 `allowRegression`／`hostRegressed`（「最新的 HTTP 回覆比本地舊就接受」）；現在取消——同一個
+   incarnation 的回退要 host 明說 `recovery`（規則 6／7）。
 
 ### 7.1 存活證明（`lastSeenAt` 從哪裡來）
 

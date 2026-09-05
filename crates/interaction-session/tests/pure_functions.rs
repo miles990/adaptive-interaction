@@ -92,11 +92,25 @@ fn state_hash_is_canonical_and_order_independent() {
 
 // -------------------------------------------------- 接收端 revision 規則
 
+/// AIP 1.0 的 snapshot **必帶** `state` 與 `hash`（沒有 legacy profile），所以這個
+/// 測試機具預設就補上一份真的算得出 hash 的小 state；要測「缺 hash／缺 state」的案例
+/// 就在 `extra` 裡明確覆寫成 `null`。
 fn state_envelope(kind: &str, revision: u64, base_revision: Option<u64>, extra: Value) -> Envelope {
     let mut payload = json!({"kind": kind, "revision": revision});
+    if kind == "snapshot" {
+        let state = json!({"activity": "idle"});
+        if let Value::Object(p) = &mut payload {
+            p.insert("hash".into(), json!(state_hash(&state)));
+            p.insert("state".into(), state);
+        }
+    }
     if let (Value::Object(p), Value::Object(e)) = (&mut payload, &extra) {
         for (k, v) in e {
-            p.insert(k.clone(), v.clone());
+            if v.is_null() {
+                p.remove(k);
+            } else {
+                p.insert(k.clone(), v.clone());
+            }
         }
     }
     let mut env = Envelope::new(
@@ -195,9 +209,16 @@ fn accept_state_handles_snapshots_and_session_reset() {
         StateDecision::Reset { revision: 1 }
     );
     // 沒有 `reason: session-reset` 的 snapshot 不享有這個例外（任何人都能宣稱 epoch 不同）。
+    // AIP 1.0 接收端澄清（規則 5）：不再靜默套用並改寫本地 epoch，而是 realign（＝再要
+    // 一次權威讀取；host 對 epoch 不同的 resume 一律回 session-reset，所以一次就收斂）。
     let plain = state_envelope("snapshot", 1, None, json!({"sessionEpoch": 1}));
     assert_eq!(
         accept_state_with_epoch(30, 5, &plain),
+        StateDecision::Resume
+    );
+    // 同一則訊息、epoch 相同時仍然只看 revision。
+    assert_eq!(
+        accept_state_with_epoch(30, 1, &plain),
         StateDecision::Ignore {
             reason: IgnoreReason::Rollback
         }
@@ -211,6 +232,46 @@ fn accept_state_handles_snapshots_and_session_reset() {
         t0(),
     );
     assert_eq!(accept_state(1, &ev), StateDecision::Invalid);
+}
+
+/// AIP 1.0 接收端澄清（規則 2）：snapshot 必帶 `hash` 與 `state`。缺任何一個都不是
+/// 「先套用再說」，而是一則不能用的訊息——沒有 legacy profile。
+#[test]
+fn a_snapshot_without_a_hash_or_a_state_is_invalid() {
+    let no_hash = state_envelope("snapshot", 12, None, json!({"hash": null}));
+    assert_eq!(accept_state(10, &no_hash), StateDecision::Invalid);
+    let no_state = state_envelope("snapshot", 12, None, json!({"state": null}));
+    assert_eq!(accept_state(10, &no_state), StateDecision::Invalid);
+}
+
+/// AIP 1.0 接收端澄清（規則 6）：host 明說 `recovery` 的較舊 snapshot 要被採納——
+/// 這是「同一個 session 真的倒退過」的唯一合法說法（同 epoch 的 `session-reset` 沒有用，
+/// §7 的例外要求 epoch 不同）。
+#[test]
+fn a_recovery_snapshot_is_adopted_even_though_it_moves_the_revision_back() {
+    let recovery = state_envelope(
+        "snapshot",
+        9,
+        None,
+        json!({"reason": interaction_session::REASON_RECOVERY, "sessionEpoch": 4}),
+    );
+    assert_eq!(
+        accept_state_with_epoch(30, 4, &recovery),
+        StateDecision::Recover { revision: 9 }
+    );
+    // 同 epoch 卻宣稱 session-reset：不是重建，仍然是 rollback（不得靠換個說法騙過去）。
+    let fake_reset = state_envelope(
+        "snapshot",
+        9,
+        None,
+        json!({"reason": "session-reset", "sessionEpoch": 4}),
+    );
+    assert_eq!(
+        accept_state_with_epoch(30, 4, &fake_reset),
+        StateDecision::Ignore {
+            reason: IgnoreReason::Rollback
+        }
+    );
 }
 
 // ------------------------------------------------------------- Director

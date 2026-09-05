@@ -1673,15 +1673,18 @@ async fn a_superseded_transport_does_not_mark_the_session_member_offline() {
 }
 
 // ---------------------------------------------------------------------------
-// 18. host 進度落後成員時，回的 snapshot 必須說清楚這是重新開始
-//     （對抗審查 pairing-migration-002／reconnect-recovery-041）
+// 18. host 進度落後成員時，回的 snapshot 必須說清楚它是 host 的權威狀態
+//     （對抗審查 pairing-migration-002／reconnect-recovery-041／capability-consent-048）
 // ---------------------------------------------------------------------------
 
-/// 成員記得的 revision 比 host 大（host 被重建過／還原了更舊的快照）。
-/// 舊行為：epoch 相同就回一則**沒有 reason** 的普通 snapshot，revision 比成員小；
+/// 成員記得的 revision 比 host 大（host 還原了更舊的快照）。
+/// v0.6.0 行為：epoch 相同就回一則**沒有 reason** 的普通 snapshot，revision 比成員小；
 /// 接收端依 AIP §6 的防重播規則把它當 rollback 忽略，畫面卻還顯示「已同步」。
+/// 中途的補救是在 Runtime 把它改寫成 `reason:"session-reset"`——但 §7 的 reset 例外
+/// 要求 epoch **不同**，同 epoch 的 session-reset 一樣被忽略，所以那個補救無效。
+/// AIP 1.0 接收端澄清：同一個 session 內的倒退說 `recovery`（epoch 不動）。
 #[tokio::test]
-async fn a_snapshot_that_moves_a_member_backwards_says_it_is_a_session_reset() {
+async fn a_snapshot_that_moves_a_member_backwards_says_it_is_a_recovery() {
     let _guard = env_lock().await;
     let (_dir, rt) = runtime().await;
     hello(&rt).await;
@@ -1700,13 +1703,33 @@ async fn a_snapshot_that_moves_a_member_backwards_says_it_is_a_session_reset() {
 
     assert_eq!(
         payload["reason"],
-        json!("session-reset"),
-        "host 倒退回去的 snapshot 必須是明說的重新開始，不能長得像重播攻擊：{payload}"
+        json!(interaction_session::REASON_RECOVERY),
+        "host 倒退回去的 snapshot 必須明說它是權威狀態，不能長得像重播攻擊：{payload}"
+    );
+    assert_eq!(
+        payload["sessionEpoch"],
+        json!(snapshot.epoch),
+        "成員的宣稱不得讓 host 重建 session（epoch 不動）：{payload}"
     );
     let revision = payload["revision"].as_u64().expect("revision");
     assert!(
         revision < ahead,
         "測試前提：host 的 revision 真的比成員記得的小（{revision} < {ahead}）"
+    );
+    // 接收端真的會採納它（規則 6）：這一條才是「說清楚」的意義所在。
+    let envelope = interaction_aip::Envelope::new(
+        interaction_aip::MessageType::State,
+        interaction_session::NAME_SESSION_SNAPSHOT,
+        interaction_aip::Party::runtime(),
+        "fx-recovery-1",
+        chrono::Utc::now(),
+    )
+    .with_session(payload["sessionId"].as_str().unwrap_or("session.home"))
+    .with_payload(payload.clone());
+    assert_eq!(
+        interaction_session::accept_state_with_epoch(ahead, snapshot.epoch, &envelope),
+        interaction_session::StateDecision::Recover { revision },
+        "落後的權威 snapshot 不得被成員當成 rollback 丟掉：{payload}"
     );
 }
 

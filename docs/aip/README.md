@@ -186,9 +186,18 @@ inputs:[…accepted…], limits }`。協商是確定性的：交集＋min。rend
 - **持久化不是 wire**：host 本機快照檔的格式版本（`interaction_session::SNAPSHOT_FORMAT`）與這裡的 `specVersion`
   完全分開演進，`hash` 只涵蓋 `state`；改檔案佈局不是 AIP 版本變更（見 `character-session.md` §6）。
 - **rollback 防護**：`state.revision` 小於或等於本地已套用 revision 的訊息一律忽略（稽核 `aip.state-rollback-ignored`），
-  除非是 host 明確標 `payload.reason:"session-reset"` 且 `sessionEpoch` **與本地不同**（session 被重建；
-  host 重灌後 epoch 可能從 1 重新起跳，所以是「不同」而不是「大於」——與 `docs/aip/character-session.md` §7 第 4 步及
-  Rust／iOS 實作一致）。
+  除非 host 明確說出理由（見下面的 `reason` 清單）。
+- **`payload.reason`（1.0 的兩個值；未知值一律當成沒有 reason，不得給任何特權）**：
+
+  | 值 | 意義 | epoch | 接收端 |
+  |---|---|---|---|
+  | `session-reset` | host 重建了 session | 與本地**不同**（重灌後可能從 1 重新起跳，所以是「不同」不是「大於」） | 丟棄本地狀態、套用這一份 |
+  | `recovery` | 同一個 session，host 的權威狀態真的比對方記得的舊（從較舊快照還原） | **不變** | 套用並退回 host 的 revision，稽核 `aip.state-recovered` |
+
+  `recovery` 是 **AIP 1.0 接收端澄清（2026-09-05，v0.7.0）** 新增的值：wire 形狀與 `specVersion` 都不變，
+  只認得舊值的接收端把它當成沒有 reason 的 snapshot（行為與今天相同）。完整的接收端決策表（連線世代、身分、
+  hash 核對、resume 逐則規則、有界 realign）在 `docs/aip/character-session.md` §7.2，跨語言 fixture 是
+  `manifest.json` 的 `receiveDecisions` 段。
 
 ## 7. Deadline、Cancel、Idempotency
 
@@ -280,6 +289,8 @@ Runtime 的 `ProviderTested`／`pairingUnverified` 語意不變，AIP 只提供�
 | `DEFAULT_INTENT_TTL_MS` | 10 000 |
 | `MAX_MEMBERS` | 16 |
 | `MAX_UNSUPPORTED_INPUTS` | 32（協商結果 `unsupportedInputs` 的有界性要求：對方宣告的 `inputs` 本身無界，host 的協商回覆是一則要送上線的訊息，不截斷會超過 `MAX_PAYLOAD_BYTES`；它不是 wire 欄位長度上限，但仍發布進 golden schema 的 `limits` 表，讓三端的 `negotiate` 有同一個截斷點） |
+| `MAX_RESUME_PATCHES` | 512（＝`EVENT_LOG_RING`：一則 resume 回覆最多幾則 patch。超過**不得**靜默截斷，改走 realign） |
+| `MAX_REALIGN_ATTEMPTS` | 3（連續幾次未能套用就是 unrecoverable；任一次 apply／reset／recover 清零） |
 
 golden schema `schemas/aip-1.0.schema.json` 的 `limits` 表由 `interaction_aip::limits` 的**每一個** `pub const`
 產生（`schema.rs::every_limit_constant_is_published_in_the_schema` 雙向比對），TS／Swift 的 `AIP_LIMITS` 由
@@ -320,3 +331,11 @@ valid envelope（每種 type）／invalid（缺必填、壞 name、壞時間）�
 不同 major）／unknown optional field round-trip／unknown message type／oversized（message、payload、深度、字串）／
 round-trip 穩定（canonical JSON）／golden schema 不漂移／generated type 不漂移／stable error codes／deadline
 （過期＝expired）／cancel correlation／duplicate messageId／identity-mismatch 決策表／offline policy 表。
+
+manifest 另有三段不是 envelope、但同樣必須三端一致（`docs/aip/conformance.md` §3 有每一段的欄位表）：
+
+| 段 | 內容 | 誰讀它 |
+|---|---|---|
+| `stateHashes` | host 真實寫出的 `SemanticState` 與其 canonical 文字／SHA-256 | Rust `conformance.rs`＋`state_hash_fixtures.rs`／TS `canonical-hash.test.ts`／Swift `StateHashConformanceTests` |
+| `stateHashDoublePaths` | `SemanticState` 的 f64 欄位（schemars 推導） | TS `SEMANTIC_STATE_DOUBLE_PATHS`（codegen 產出） |
+| `receiveDecisions` | §6／`character-session.md` §7.2 的接收端決策表案例 | Rust `receive_decision_fixtures.rs`（產生器）＋`receive_decisions_from_json.rs`（獨立消費者）＋`conformance.rs`（形狀） |

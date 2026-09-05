@@ -613,8 +613,13 @@ fn restore_never_moves_the_revision_backwards() {
 
 /// 反面：沒有倒退過的 host **不得**被一個成員的宣稱逼著重建 session
 /// （否則任何成員送一則 `resume{lastRevision: u64::MAX}` 就能讓所有人丟掉本地狀態）。
+///
+/// 但「不重建」不等於「不回答」：host 仍然要讓對方對齊到權威狀態。以前回的是一則
+/// **沒有 reason** 的普通 snapshot，接收端依 §6 的 rollback 防護忽略它，兩邊就此永久
+/// 分歧、畫面卻都寫著「已同步」。AIP 1.0 接收端澄清給了這件事一個明確的說法：
+/// `reason:"recovery"`（同一個 session、epoch 不變、host 的 revision 就是真相）。
 #[test]
-fn a_member_cannot_rebuild_a_live_session_by_claiming_to_be_ahead() {
+fn a_member_ahead_of_the_host_in_the_same_epoch_gets_a_recovery_snapshot_and_adopts_it() {
     let mut session = session();
     let phone = Party::device("iphone-1");
     join(&mut session, &phone, &renderer_announcement(), t0());
@@ -626,21 +631,47 @@ fn a_member_cannot_rebuild_a_live_session_by_claiming_to_be_ahead() {
         Resume::Snapshot { envelope } => envelope,
         other => panic!("沒有倒退證據時只給權威 snapshot：{other:?}"),
     };
-    assert_eq!(session.epoch(), epoch, "成員的宣稱不得重建 session");
     assert_eq!(
-        envelope.payload.get("reason"),
-        None,
-        "沒有重建就不得宣稱 session-reset"
+        session.epoch(),
+        epoch,
+        "成員的宣稱不得重建 session（epoch 不得 +1）"
+    );
+    assert_eq!(
+        envelope.payload["sessionEpoch"],
+        json!(epoch),
+        "recovery 是同一個 session 內的事"
+    );
+    assert_eq!(
+        envelope.payload.get("reason").and_then(Value::as_str),
+        Some(interaction_session::REASON_RECOVERY),
+        "沒有重建就不得宣稱 session-reset，但要明說這是 host 的權威狀態"
     );
     assert_eq!(
         counter(&session, "resumes.ahead"),
         Some(1),
         "超前的宣稱要留下計數（誠實記錄，不動狀態）"
     );
-    // 成員拿到的是一則普通 snapshot：它自己宣稱的進度較高，依 §6 會忽略——這是刻意的，
-    // 因為那個進度是它自己編出來的。
+    assert_eq!(
+        counter(&session, "snapshots.recovery"),
+        Some(1),
+        "送出去的 recovery snapshot 要可觀測"
+    );
+    // 成員收到它會**採納**並退回 host 的 revision（AIP 1.0 接收端澄清規則 6）。
     assert_eq!(
         accept_state_with_epoch(ahead, epoch, &envelope),
+        StateDecision::Recover {
+            revision: session.revision()
+        }
+    );
+    envelope.validate().expect("recovery snapshot validates");
+
+    // 反面：同一則訊息如果沒有那個宣告，仍然是 rollback（不得靠「最新的回覆」放行）。
+    let mut plain = envelope.clone();
+    if let Value::Object(map) = &mut plain.payload {
+        map.remove("reason");
+    }
+    assert_eq!(
+        accept_state_with_epoch(ahead, epoch, &plain),
         StateDecision::Ignore {
             reason: IgnoreReason::Rollback
         }

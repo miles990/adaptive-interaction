@@ -1154,22 +1154,12 @@ impl Runtime {
             let mut session = host.session();
             session.resume(party, last_revision, last_sequence, epoch, Utc::now())
         };
-        // host 的進度**落後**成員：這只可能是 session 被重建過（或還原了更舊的快照）。
-        // 這種 snapshot 對接收端而言長得像 rollback（revision 比它自己記得的小），
-        // AIP §6 的防重播規則會直接忽略它，畫面卻仍顯示「已同步」——兩邊都不會察覺。
-        // 所以要明說這是重新開始（`reason: session-reset`），讓接收端合法地丟掉本地狀態。
-        let resume = match resume {
-            Resume::Snapshot { envelope }
-                if envelope
-                    .payload
-                    .get("revision")
-                    .and_then(Value::as_u64)
-                    .is_some_and(|revision| revision < last_revision) =>
-            {
-                Resume::EpochMismatch { envelope }
-            }
-            other => other,
-        };
+        // host 的進度**落後**成員時，session 自己已經在 snapshot 上標了 `reason`
+        // （`session-reset`＝真的重建過、epoch 也換了；`recovery`＝同一個 session、
+        // epoch 不變，host 就是比對方舊）。Runtime 這一層以前會把後者硬改寫成
+        // `session-reset`——但 AIP §7 的 reset 例外要求 epoch **不同**，同 epoch 的
+        // `session-reset` 一樣會被接收端忽略，所以那個改寫沒有效果，只是多說了一句
+        // 不實的「session 被重建了」。現在原樣轉交（AIP 1.0 接收端澄清規則 6）。
         Ok(resume)
     }
 

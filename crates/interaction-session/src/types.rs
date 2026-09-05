@@ -32,6 +32,15 @@ pub const NAME_SESSION_CAPABILITY: &str = "character.session.capability";
 pub const NAME_SESSION_RESULT: &str = "character.session.result";
 /// `payload.reason`：host 重建了 session，接收端必須丟棄本地狀態。
 pub const REASON_SESSION_RESET: &str = "session-reset";
+/// `payload.reason`：**同一個 session**（epoch 不變）的權威狀態真的比對方記得的舊——
+/// host 從較舊的快照還原過，這一份是 host 的真相，不是重播。
+///
+/// 為什麼需要它：沒有這個宣告的較舊 snapshot 會被接收端的 rollback 防護忽略，畫面卻仍
+/// 顯示「已同步」（`capability-consent-048`）；而謊稱 `session-reset` 也沒有用——AIP §7
+/// 的 reset 例外要求 epoch **不同**，同 epoch 的 `session-reset` 一樣會被忽略，只是換了個
+/// 說法騙自己。`recovery` 是 wire 上的**新 reason 值**（AIP 1.0 澄清，訊息形狀不變）：
+/// 只認得舊值的接收端把它當成沒有 reason 的 snapshot ＝ 與現況完全相同，不會更糟。
+pub const REASON_RECOVERY: &str = "recovery";
 
 /// pending Behavior Intent 的上限（有界；滿了淘汰最舊並稽核）。
 pub const MAX_PENDING_INTENTS: usize = 16;

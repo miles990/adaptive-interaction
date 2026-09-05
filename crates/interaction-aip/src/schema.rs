@@ -115,6 +115,10 @@ pub fn protocol_schema() -> Value {
             // 是一則要送上線的訊息。三端各自實作協商，所以截斷點必須是同一個數字——它進
             // schema 是為了讓 TS／Swift 從 codegen 讀到權威值，不是為了描述 wire 格式。
             "maxUnsupportedInputs": crate::limits::MAX_UNSUPPORTED_INPUTS,
+            // 接收端規則的兩個上界（AIP 1.0 接收端澄清）：resume 回覆最多幾則 patch、
+            // 連續 realign 幾次就是 unrecoverable。三端各自實作接收端狀態機，數字必須同一個。
+            "maxResumePatches": crate::limits::MAX_RESUME_PATCHES,
+            "maxRealignAttempts": crate::limits::MAX_REALIGN_ATTEMPTS,
         }),
     );
     doc.insert("$defs".into(), Value::Object(defs));

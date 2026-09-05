@@ -351,6 +351,8 @@ export const AIP_LIMITS = {
   maxMessageBytes: 65536,
   maxNameChars: 128,
   maxPayloadBytes: 32768,
+  maxRealignAttempts: 3,
+  maxResumePatches: 512,
   maxStringChars: 2000,
   maxUnsupportedInputs: 32,
 } as const;

@@ -33,3 +33,24 @@ pub const MAX_MEMBERS: usize = 16;
 /// [`crate::negotiate_capabilities`]，截斷點必須是同一個數字。發布之後三端都從 codegen
 /// 讀它（`AIP_LIMITS.maxUnsupportedInputs`），不再有人手寫同值的字面量。
 pub const MAX_UNSUPPORTED_INPUTS: usize = 32;
+
+/// 一則 `character.session.resume` 回覆最多攜帶幾則 patch。
+///
+/// 誠實的 host 最多只能回放事件日誌環裡的東西，所以這個數字就是 [`EVENT_LOG_RING`]：
+/// 更大代表對方送來的不是它自己日誌裡的東西，更小則會讓接收端把合法回覆截斷成
+/// 「我以為我追上了」。超過上限**不得靜默截斷**：接收端改走 realign（再要一次權威讀取）。
+pub const MAX_RESUME_PATCHES: usize = EVENT_LOG_RING;
+
+/// 連續要求重新對齊（realign）的上限；達到就是 unrecoverable，不再自動重試。
+///
+/// realign 的效果是「再打一次 resume／權威讀取」。host 送來的東西一直對不上時
+/// （snapshot 自己的 hash 就錯、epoch 每次都不同），沒有上限就是一個打不完的請求迴圈；
+/// 達上限要照實說「狀態未知」，不得繼續假裝正在同步。任一次成功套用（apply／reset／
+/// recover）清零。
+pub const MAX_REALIGN_ATTEMPTS: u32 = 3;
+
+/// `MAX_RESUME_PATCHES` 與事件日誌環必須是同一個數字（上面那段文字不能只靠註解提醒）。
+const _: () = assert!(
+    MAX_RESUME_PATCHES == EVENT_LOG_RING,
+    "resume 回覆的上界就是 host 事件日誌環的大小"
+);

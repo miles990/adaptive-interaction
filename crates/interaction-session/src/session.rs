@@ -22,8 +22,8 @@ use crate::state::{Activity, Member, MemberView, Presence, SemanticState};
 use crate::types::{
     BehaviorIntent, RuntimeFact, SessionConfig, SessionError, Snapshot, EVENT_DISMISS, EVENT_TOUCH,
     HOST_INPUTS, HOST_INTENTS, MAX_PENDING_INTENTS, NAME_BEHAVIOR_REQUEST, NAME_SESSION_CAPABILITY,
-    NAME_SESSION_PATCH, NAME_SESSION_RESULT, NAME_SESSION_SNAPSHOT, REASON_SESSION_RESET,
-    SNAPSHOT_FORMAT,
+    NAME_SESSION_PATCH, NAME_SESSION_RESULT, NAME_SESSION_SNAPSHOT, REASON_RECOVERY,
+    REASON_SESSION_RESET, SNAPSHOT_FORMAT,
 };
 
 /// 全新 session 的初始 revision（§1「revision 從 1 起」）。
@@ -62,6 +62,8 @@ const C_EXPIRED: &str = "expired";
 const C_RESUMES: &str = "resumes";
 /// 成員宣稱的進度超前 host（host 沒有證據自己倒退過時只記數，不重建 session）。
 const C_RESUMES_AHEAD: &str = "resumes.ahead";
+/// 送出去的 `reason:"recovery"` snapshot（host 的權威狀態真的比對方記得的舊）。
+const C_SNAPSHOTS_RECOVERY: &str = "snapshots.recovery";
 const C_SNAPSHOTS: &str = "snapshots";
 const C_PATCHES: &str = "patches";
 const C_IDENTITY_MISMATCH: &str = "identity_mismatch";
@@ -836,11 +838,19 @@ impl CharacterSession {
             return Resume::EpochMismatch { envelope };
         }
         // host 沒有倒退過的證據時，成員自己宣稱超前不能讓它重建整個 session
-        // （否則任何一個成員都能用一則 resume 逼所有人重來）：只記數並給它權威 snapshot。
+        // （否則任何一個成員都能用一則 resume 逼所有人重來）：不動 epoch、只記數。
+        //
+        // 但回一則**沒有 reason** 的 snapshot 等於沒回答：它的 revision 比對方記得的小，
+        // 接收端的 rollback 防護會直接忽略它，兩邊永久分歧而畫面都寫著「已同步」
+        // （`capability-consent-048`）。謊稱 `session-reset` 也沒有用——§7 的 reset 例外
+        // 要求 epoch **不同**，同 epoch 的 `session-reset` 一樣被忽略。所以這裡用
+        // [`REASON_RECOVERY`]：同一個 session、epoch 不變，host 的 revision 就是真相
+        // （AIP 1.0 接收端澄清規則 6；只認得舊 reason 值的接收端仍當普通 snapshot＝與現況相同）。
         if ahead {
             self.bump(C_RESUMES_AHEAD);
+            self.bump(C_SNAPSHOTS_RECOVERY);
             return Resume::Snapshot {
-                envelope: self.snapshot_envelope_inner(party, now, None),
+                envelope: self.snapshot_envelope_inner(party, now, Some(REASON_RECOVERY)),
             };
         }
         if last_revision == self.revision {

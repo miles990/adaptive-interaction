@@ -750,6 +750,8 @@ enum AIPLimits {
     static let maxMessageBytes = 65536
     static let maxNameChars = 128
     static let maxPayloadBytes = 32768
+    static let maxRealignAttempts = 3
+    static let maxResumePatches = 512
     static let maxStringChars = 2000
     static let maxUnsupportedInputs = 32
 }

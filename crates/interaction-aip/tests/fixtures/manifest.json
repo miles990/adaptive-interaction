@@ -291,5 +291,1381 @@
     { "id": "intensity-negative-zero", "file": "state-hash-intensity-negative-zero.json", "semanticValid": false, "note": "-0.0：canonical 文字是 `-0.0`；host 永不產生它，restore 拒絕（semanticValid=false）" },
     { "id": "unicode-and-escapes", "file": "state-hash-unicode-and-escapes.json", "semanticValid": true, "note": "非 ASCII 原樣（不 \\u 跳脫）、`/` 不跳脫、控制字元 \\u0001、emoji 原樣" }
   ],
-  "stateHashDoublePaths": ["/mood/intensity"]
+  "stateHashDoublePaths": ["/mood/intensity"],
+  "receiveDecisions": [
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "ignore-stale-connection",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "stale-connection-reset",
+      "incoming": {
+        "arrivedOnGeneration": 6,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 9,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "reason": "session-reset",
+        "revision": 1,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 0：上一條連線送出的 session-reset 現在才到。它宣告的 epoch 一定與本地不同，任何 epoch 判斷都會被騙過去——世代檢查是唯一防線"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "ignore-stale-connection",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "stale-connection-newer-snapshot",
+      "incoming": {
+        "arrivedOnGeneration": 6,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 0：舊連線上的較新 snapshot 也一樣丟掉（那條連線的權威性已經失效）"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "ignore-stale-connection",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "stale-request-generation-authoritative-reply",
+      "incoming": {
+        "arrivedOnGeneration": 6,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 40,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": true
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 0 也涵蓋**請求**世代：上一次 GET／resume 的回覆在我們重發之後才到"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "ignore-stale-connection",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "stale-connection-recovery",
+      "incoming": {
+        "arrivedOnGeneration": 6,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "reason": "recovery",
+        "revision": 9,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 0 先於規則 6：舊連線上的 recovery 宣告不得讓本地倒退"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "reject-identity",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "identity-mismatch-snapshot",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 31,
+        "sessionId": "session.other-desktop",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 1：別的 session 的狀態不是「比較舊」，是不相干——不套用、不 realign（realign 只會再要一次別人的 session）"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "reject-identity",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "identity-mismatch-beats-session-reset",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 6,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "reason": "session-reset",
+        "revision": 1,
+        "sessionId": "session.other-desktop",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 1 先於規則 3：手機被重新配對到另一台桌面（sessionId 變了），對方的 session-reset 不得清掉這一份"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "reject-identity",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "identity-mismatch-patch",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "baseRevision": 30,
+        "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "epoch": 5,
+        "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "kind": "patch",
+        "revision": 31,
+        "sessionId": "session.other-desktop",
+        "statePresent": false,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 1 對 patch 一樣成立"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "apply",
+        "epochAfter": 5,
+        "revisionAfter": 12
+      },
+      "id": "identity-unknown-locally-is-not-a-mismatch",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 12,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 0,
+        "hasState": false,
+        "revision": 0
+      },
+      "note": "本地還沒有狀態就沒有身分可比：不宣稱不符（規則 1 需要 local 有狀態）"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "reject-invalid",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "snapshot-without-hash",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "epoch": 5,
+        "kind": "snapshot",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 2：AIP 1.0 的 snapshot 必帶 hash，沒有 legacy profile。超大／壞 JSON 由 typed boundary（envelopes／generated 段）擋下，不在這一段"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "reject-invalid",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "snapshot-without-state",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": false,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 2：snapshot 的 payload 沒有 state 就沒有東西可套用"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "reject-invalid",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "patch-without-base-revision",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "epoch": 5,
+        "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "kind": "patch",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": false,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 2（patch 版）：缺 baseRevision 的 patch 接不上任何東西；typed boundary 已經擋過一次，這是第二道"
+    },
+    {
+      "budgetBefore": 2,
+      "expect": {
+        "budget": "unrecoverable",
+        "budgetAfter": 3,
+        "decision": "reject-invalid",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "boundary-rejected-authoritative-reply-costs-one-attempt",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "epoch": 5,
+        "kind": "snapshot",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": true
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "壞掉的**權威回覆**（boundary 或形狀檢查擋下）算一次 realign 失敗：對方回答了，但答案沒用"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "reset",
+        "epochAfter": 6,
+        "revisionAfter": 1
+      },
+      "id": "session-reset-with-a-larger-epoch",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 6,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "reason": "session-reset",
+        "revision": 1,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 3：host 重建了 session（epoch 變大），revision 比本地小也要接受"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "reset",
+        "epochAfter": 1,
+        "revisionAfter": 1
+      },
+      "id": "session-reset-with-a-smaller-epoch-host-reinstalled",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 1,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "reason": "session-reset",
+        "revision": 1,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 3：host 重灌後 epoch 從 1 重新起跳，比本地記得的小——§7 寫的是「不同」不是「更大」，用「更大」會讓這台裝置永遠停在舊狀態"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "ignore-stale",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "session-reset-with-the-same-epoch-is-not-a-reset",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "reason": "session-reset",
+        "revision": 9,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 3 的例外要求 epoch 不同：同 epoch 的 session-reset 只是換個說法宣稱 rollback，仍然忽略"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "apply",
+        "epochAfter": 5,
+        "revisionAfter": 12
+      },
+      "id": "bootstrap-snapshot",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 12,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 0,
+        "hasState": false,
+        "revision": 0
+      },
+      "note": "規則 4：本地什麼都沒有，第一份權威狀態直接收下"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "reset",
+        "epochAfter": 6,
+        "revisionAfter": 1
+      },
+      "id": "bootstrap-session-reset",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 6,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "reason": "session-reset",
+        "revision": 1,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 0,
+        "hasState": false,
+        "revision": 0
+      },
+      "note": "規則 3 對「local 無狀態」一樣成立：拿到的是重建宣告就記成 reset（epoch／revision 照收）"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 1,
+        "decision": "realign",
+        "epochAfter": 5,
+        "reason": "epoch-changed",
+        "revisionAfter": 30
+      },
+      "id": "different-epoch-without-a-reset-declaration",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 6,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 5：epoch 不同又沒有重建宣告＝兩份狀態沒有可比的順序，不猜（v0.6.0 的 Rust／Swift 會直接套用並靜默改寫本地 epoch）。host 對 epoch 不同的 resume 一律回 session-reset，所以一次就收斂"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 1,
+        "decision": "realign",
+        "epochAfter": 5,
+        "reason": "epoch-changed",
+        "revisionAfter": 30
+      },
+      "id": "smaller-epoch-without-a-reset-declaration",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 1,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 40,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 5：epoch 變小又沒有宣告也一樣 realign（不得因為 revision 較大就採用）"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "recover",
+        "epochAfter": 5,
+        "revisionAfter": 9
+      },
+      "id": "recovery-snapshot-moves-the-receiver-back",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "reason": "recovery",
+        "revision": 9,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": true
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 6：host 從較舊的快照還原過，同一個 session（epoch 不變）的權威狀態就是比本地舊。這是唯一合法的倒退說法——沒有它，host 的答覆會被 rollback 防護忽略，兩邊永久分歧而畫面都寫著「已同步」"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "apply",
+        "epochAfter": 5,
+        "revisionAfter": 31
+      },
+      "id": "recovery-declared-on-a-newer-snapshot-is-just-an-apply",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "reason": "recovery",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 6 只在真的倒退時成立：recovery 不是特權，revision 較新就照常套用"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 1,
+        "decision": "realign",
+        "epochAfter": 5,
+        "reason": "epoch-changed",
+        "revisionAfter": 30
+      },
+      "id": "recovery-across-epochs-still-realigns",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 6,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "reason": "recovery",
+        "revision": 9,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 5 先於規則 6：recovery 是「同一個 session 內」的說法，epoch 不同就不算數"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "ignore-stale",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "unknown-reason-is-treated-as-no-reason",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "reason": "spring-cleaning",
+        "revision": 9,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "未知的 reason 值不得被當成任何特權（舊接收端遇到新值也是這樣降級）"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "apply",
+        "epochAfter": 5,
+        "revisionAfter": 31
+      },
+      "id": "newer-snapshot-applies",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 9：同 epoch、revision 較新、hash 核對過 → 套用"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "ignore-stale",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "older-snapshot-is-stale",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 29,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 7：同 epoch、revision 較舊 → 忽略（稽核 aip.state-rollback-ignored）"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "already-applied",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "replayed-snapshot-is-already-applied",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "epoch": 5,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "kind": "snapshot",
+        "revision": 30,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 8：同 revision、同 hash ＝ 重播，什麼都不做"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 1,
+        "decision": "realign",
+        "epochAfter": 5,
+        "reason": "hash-mismatch",
+        "revisionAfter": 30
+      },
+      "id": "same-revision-different-hash-realigns",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 30,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 8：同一個 revision 卻有兩份不同的狀態——只能重新對齊，不得二選一"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 1,
+        "decision": "realign",
+        "epochAfter": 5,
+        "reason": "hash-mismatch",
+        "revisionAfter": 30
+      },
+      "id": "snapshot-whose-hash-does-not-match-its-own-state",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 9：host 宣告的 hash 與接收端算出來的不同 → 不套用（AIP §6 的 hash 是套用前的門檻，不是事後說明）"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "ignore-stale",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "http-reply-lands-after-a-newer-sse-snapshot",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 28,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": true
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "同一個世代裡，HTTP 回覆比本地舊 → 仍然是 ignore-stale：「最新的回覆」不代表同一個 incarnation 的回退合法（桌面端 v0.6.x 的 allowRegression 因此取消）"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "ignore-stale",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "authoritative-reply-that-is-behind-needs-an-explicit-recovery",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 9,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": true
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "請求發出前本地就已經領先 host：沒有 recovery 宣告就忽略，有才採納（與上一筆是同一個情境的兩半）"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "apply",
+        "epochAfter": 5,
+        "revisionAfter": 31
+      },
+      "id": "contiguous-patch-applies",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "baseRevision": 30,
+        "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "epoch": 5,
+        "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "kind": "patch",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": false,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 15：baseRevision 接得上、merge 後 hash 相符 → 套用"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 1,
+        "decision": "realign",
+        "epochAfter": 5,
+        "reason": "base-mismatch",
+        "revisionAfter": 30
+      },
+      "id": "patch-with-a-gap-realigns",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "baseRevision": 31,
+        "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "epoch": 5,
+        "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "kind": "patch",
+        "revision": 32,
+        "sessionId": "session.home",
+        "statePresent": false,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 13：baseRevision 接不上本地 revision → 不得套用，改送 character.session.resume"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "ignore-stale",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "older-patch-is-stale",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "baseRevision": 28,
+        "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "epoch": 5,
+        "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "kind": "patch",
+        "revision": 29,
+        "sessionId": "session.home",
+        "statePresent": false,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 12：落後的 patch 直接忽略（先於 base 檢查）"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "already-applied",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "replayed-patch-is-already-applied",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "baseRevision": 29,
+        "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "epoch": 5,
+        "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "kind": "patch",
+        "revision": 30,
+        "sessionId": "session.home",
+        "statePresent": false,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 12：同 revision 的 patch 是重播"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 1,
+        "decision": "realign",
+        "epochAfter": 5,
+        "reason": "epoch-changed",
+        "revisionAfter": 30
+      },
+      "id": "patch-from-another-epoch-realigns",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "baseRevision": 30,
+        "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "epoch": 6,
+        "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "kind": "patch",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": false,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 11：三端統一——v0.6.0 的 Rust patch 分支完全不看 epoch，只靠 baseRevision 恰巧不符去擋"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 1,
+        "decision": "realign",
+        "epochAfter": 0,
+        "reason": "no-local",
+        "revisionAfter": 0
+      },
+      "id": "patch-without-a-local-copy-realigns",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "baseRevision": 30,
+        "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "epoch": 5,
+        "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "kind": "patch",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": false,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 0,
+        "hasState": false,
+        "revision": 0
+      },
+      "note": "規則 10：補丁不是完整狀態，本地沒有東西可以套上去"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 1,
+        "decision": "realign",
+        "epochAfter": 5,
+        "reason": "hash-mismatch",
+        "revisionAfter": 30
+      },
+      "id": "patch-whose-merged-hash-differs-realigns",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "baseRevision": 30,
+        "computedHash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "epoch": 5,
+        "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+        "kind": "patch",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": false,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "規則 14：merge 之後算出來的 hash 與 host 宣告的不同 → 不得假裝追上了"
+    },
+    {
+      "budgetBefore": 2,
+      "expect": {
+        "budget": "unrecoverable",
+        "budgetAfter": 3,
+        "decision": "realign",
+        "epochAfter": 5,
+        "reason": "epoch-changed",
+        "revisionAfter": 30
+      },
+      "id": "realign-budget-exhausted-after-three-attempts",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 6,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "有界 realign：連續 3 次未能 apply → unrecoverable，照實說「狀態未知」，不再自動重試（無上限就是一個打不完的請求迴圈）"
+    },
+    {
+      "budgetBefore": 2,
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "apply",
+        "epochAfter": 5,
+        "revisionAfter": 31
+      },
+      "id": "an-apply-clears-the-realign-budget",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "任一次成功套用（apply／reset／recover）把連續失敗清零"
+    },
+    {
+      "expect": {
+        "applied": 2,
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "apply",
+        "epochAfter": 5,
+        "revisionAfter": 32,
+        "skipped": 2
+      },
+      "id": "resume-reply-mixes-applied-and-new-patches",
+      "incomingBatch": [
+        {
+          "arrivedOnGeneration": 7,
+          "baseRevision": 28,
+          "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "epoch": 5,
+          "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "kind": "patch",
+          "revision": 29,
+          "sessionId": "session.home",
+          "statePresent": false,
+          "viaAuthoritativeReply": false
+        },
+        {
+          "arrivedOnGeneration": 7,
+          "baseRevision": 29,
+          "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "epoch": 5,
+          "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "kind": "patch",
+          "revision": 30,
+          "sessionId": "session.home",
+          "statePresent": false,
+          "viaAuthoritativeReply": false
+        },
+        {
+          "arrivedOnGeneration": 7,
+          "baseRevision": 30,
+          "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "epoch": 5,
+          "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "kind": "patch",
+          "revision": 31,
+          "sessionId": "session.home",
+          "statePresent": false,
+          "viaAuthoritativeReply": false
+        },
+        {
+          "arrivedOnGeneration": 7,
+          "baseRevision": 31,
+          "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "epoch": 5,
+          "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "kind": "patch",
+          "revision": 32,
+          "sessionId": "session.home",
+          "statePresent": false,
+          "viaAuthoritativeReply": false
+        }
+      ],
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "resume 回覆逐則走同一張表：host 回放的範圍與本地重疊是正常的，already-applied／ignore-stale 跳過不中止"
+    },
+    {
+      "expect": {
+        "applied": 1,
+        "budget": "ok",
+        "budgetAfter": 1,
+        "decision": "realign",
+        "epochAfter": 5,
+        "reason": "base-mismatch",
+        "revisionAfter": 31,
+        "skipped": 0,
+        "stoppedAt": 1
+      },
+      "id": "resume-reply-stops-at-the-first-gap",
+      "incomingBatch": [
+        {
+          "arrivedOnGeneration": 7,
+          "baseRevision": 30,
+          "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "epoch": 5,
+          "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "kind": "patch",
+          "revision": 31,
+          "sessionId": "session.home",
+          "statePresent": false,
+          "viaAuthoritativeReply": false
+        },
+        {
+          "arrivedOnGeneration": 7,
+          "baseRevision": 32,
+          "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "epoch": 5,
+          "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "kind": "patch",
+          "revision": 33,
+          "sessionId": "session.home",
+          "statePresent": false,
+          "viaAuthoritativeReply": false
+        },
+        {
+          "arrivedOnGeneration": 7,
+          "baseRevision": 33,
+          "computedHash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "epoch": 5,
+          "hash": "13418871d6d9a6ebf294dee736754a57e149ffc51287591f03bc697913e3d3d5",
+          "kind": "patch",
+          "revision": 34,
+          "sessionId": "session.home",
+          "statePresent": false,
+          "viaAuthoritativeReply": false
+        }
+      ],
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "第一個帶 effect 的 realign 中止整批：後面的補丁都建立在沒套用的那一則之上"
+    },
+    {
+      "expect": {
+        "applied": 512,
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "apply",
+        "epochAfter": 5,
+        "revisionAfter": 542,
+        "skipped": 0
+      },
+      "id": "resume-reply-at-the-bound-applies-every-patch",
+      "incomingBatchChain": {
+        "count": 512,
+        "kind": "patch"
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "剛好 maxResumePatches 則（＝host 事件日誌環大小）仍然全部套用"
+    },
+    {
+      "expect": {
+        "applied": 0,
+        "budget": "ok",
+        "budgetAfter": 1,
+        "decision": "realign",
+        "epochAfter": 5,
+        "reason": "resume-too-long",
+        "revisionAfter": 30,
+        "skipped": 0,
+        "stoppedAt": 0
+      },
+      "id": "resume-reply-beyond-the-bound-realigns",
+      "incomingBatchChain": {
+        "count": 513,
+        "kind": "patch"
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "超過上限**不**靜默截斷成「我以為我追上了」：整批不處理，改 realign"
+    }
+  ]
 }
