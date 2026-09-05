@@ -135,7 +135,7 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
   的 patch 留痕」「身分不符與 session-binding 稽核記 transport=serial」「diagnostics identityStrength 三來源」「撤銷後出站表清空」
   「無通道成員的 no-channel 稽核」，v0.7.0 再加分片四支（§6.3）、免重啟 rebind（§6.1）、`syncProfile` 推導與 event-source 成員）
   走 **production `DeviceLink`＋serial adapter**，對端是 `scripts/esp32-serial-sim.py`（**pty 模擬器**；stdin 控制通道
-  `aip-capability`／`aip-touch`／`aip-resume`／`aip-raw`，未配對拒絕送出）；`aip_link.rs` **14 測**、
+  `aip-capability`／`aip-touch`／`aip-resume`／`aip-raw`，未配對拒絕送出）；`aip_link.rs` **17 測**、
   `esp32_sim_conformance.rs` **24 測**（其中韌體／README／模擬器三方一致 2 支）。韌體只有 `compile.sh` 編譯檢查。
   **ESP32 真板驗收為零**；MQTT 有 rebind 閉環（`crates/interaction-runtime/tests/mqtt_rebind_loop.rs`，程序內 broker ＋假裝置），
   **BLE 仍沒有任何 AIP session 測試**——三者共用同一段 `AipChannel<L>` 程式碼。
@@ -295,7 +295,7 @@ wire 形狀（`proto` 仍為 1；`aip-frag` 與 `aip` 一樣是**追加**的訊�
   `REASON_OVER_LINE_LIMIT_NO_FRAGMENTATION`），成員模式降級成 `intent-only`／`event-source`（§3.1）。
 
 **證據等級**：`aip_fragment.rs` 17 測（切片邊界、UTF-8 不切壞、缺片／重片／亂序／截斷／惡意表頭／
-crc／逾時／取消、crc32 標準向量）、`aip_link.rs` 14 測（`MockRawLink`：切片、降級拒絕、入站重組、
+crc／逾時／取消、crc32 標準向量）、`aip_link.rs` 17 測（`MockRawLink`：切片、降級拒絕、入站重組、
 未握手拒絕、重連取消）、`esp32_sim_conformance.rs`（韌體忽略 `aip-frag` 且**不**宣告 `aip.frag/1`、
 模擬器宣告且 `--no-frag` 可關、host 切的每一片模擬器都組得回來、亂序整筆丟棄）、
 `crates/interaction-runtime/tests/declarative_session_loop.rs` 的四支（走 production serial adapter

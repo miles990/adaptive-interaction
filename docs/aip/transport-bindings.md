@@ -324,7 +324,7 @@ v0.7.0（裝置線 v1.2）再加兩項：
 * **證據**：`declarative_session_loop.rs` 26 測（pty **模擬器**經 production serial adapter；含「廣播真的走
   序列線」「snapshot／含 members 的 patch 經分片真的到達且成員是 `full-state`」「`--no-frag` 降級成
   `intent-only`」「被取消的分片傳輸留稽核」「實測行長度」「event-source 成員」）、`aip_fragment.rs` 17 測（純函式與重組器）、
-  `aip_link.rs` 14 測（`MockRawLink`）、`esp32_sim_conformance.rs` 24 測（韌體／模擬器／README 三方一致）；
+  `aip_link.rs` 17 測（`MockRawLink`）、`esp32_sim_conformance.rs` 24 測（韌體／模擬器／README 三方一致）；
   MQTT 有 rebind 閉環（`crates/interaction-runtime/tests/mqtt_rebind_loop.rs::mqtt_reenable_rebinds_without_restart`，
   程序內 rumqttd broker ＋ rumqttc 假裝置，走 `register_declarative_spec`／rebind 全程並斷言重新握手），
   **BLE 仍沒有任何 AIP session 測試**——三者共用同一段 `AipChannel<L>` 程式碼；**ESP32 真板驗收仍為零**。
