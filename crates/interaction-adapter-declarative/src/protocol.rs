@@ -1,8 +1,11 @@
 //! 裝置線協定（serial / mqtt / ble 共用）＋誠實核心 `DeviceLink`。
 //!
 //! 一行（或一則）一個 JSON 物件：
-//!   device → hello / pair-ok / pair-fail / ack / err / state
-//!   host   → who / pair / cmd / cancel / read / stop-all
+//!   device → hello / pair-ok / pair-fail / ack / err / state / aip
+//!   host   → who / pair / cmd / cancel / read / stop-all / aip
+//!
+//! 協定版本仍是 v1：`aip` 是 v1.1 的**追加**訊息，兩端都可以不認得它
+//! （參考韌體收到 host 的 aip 一律忽略），所以不需要 major bump。
 //!
 //! 誠實不變量：
 //! - 身分：hello.deviceId 必須等於 spec 的 expectedDeviceId——連線埠、IP、
@@ -22,6 +25,31 @@ use tokio::sync::broadcast;
 
 /// 協定版本（與 ESP32 參考韌體對齊）。
 pub const PROTO_VERSION: u32 = 1;
+
+/// 這條線上一則 AIP envelope 的位元組上限（序列化後）。
+///
+/// 為什麼比 AIP profile 的 64 KiB 小很多：`parse_device_msg` 對整行的硬上限是
+/// 16 KiB，而參考韌體的序列埠行緩衝只有 640 bytes——超過那個長度的 envelope
+/// 在真板上根本不會被讀進去。這裡取一個兩邊都守得住的值，並且**在寫出之前**
+/// 就拒絕：寧可誠實回「沒送出」，也不要送出一則注定被裝置整行丟棄的訊息。
+pub const MAX_AIP_ENVELOPE_BYTES: usize = 8 * 1024;
+
+/// 裝置送來的一則 `aip` 行的准入結果（[`DeviceLink::admit_aip`]）。
+///
+/// 誠實：`Admitted` 只代表「這條 link 目前的握手／配對是成立的」，不代表
+/// envelope 本身合法——AIP 的 schema／profile／身分檢查一律由 Runtime 的
+/// session 那一關做，傳輸層不猜、不修正。
+#[derive(Debug, Clone, PartialEq)]
+pub enum AipAdmission {
+    Admitted(Value),
+    /// 這條 link 目前沒有有效的 hello＋配對握手（含重連後尚未重新握手）：
+    /// 忽略這一則，呼叫端必須留稽核——靜默丟棄等於裝置沒說過話。
+    RefusedNotPaired,
+    /// envelope 超過 [`MAX_AIP_ENVELOPE_BYTES`]：不放行（有界解析）。
+    RefusedTooLarge {
+        bytes: usize,
+    },
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -75,6 +103,11 @@ pub enum DeviceMsg {
         #[serde(default)]
         facts: Value,
     },
+    /// 線協定 v1.1：裝置往 host 送的一則 AIP envelope（`docs/aip/README.md`）。
+    /// 傳輸層只負責搬運與准入閘門，**不解讀** envelope 內容。
+    Aip {
+        envelope: Value,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -95,6 +128,10 @@ pub enum HostMsg {
     },
     Read,
     StopAll,
+    /// 線協定 v1.1：host 往裝置送的一則 AIP envelope。
+    Aip {
+        envelope: Value,
+    },
 }
 
 pub fn parse_device_msg(line: &str) -> Option<DeviceMsg> {
@@ -370,6 +407,9 @@ pub struct DeviceLink<L: RawLink> {
     /// （但這條 link 有 `pairing_ever_compared` 的證據）。不是未驗證，
     /// 也不是「這次剛比對過」——收據要說得出這個差別。
     pairing_not_recompared: std::sync::atomic::AtomicBool,
+    /// 在「這條 link 沒有有效握手」時被擋下來的 `aip` 行數。靜默丟棄會把
+    /// 「裝置說了話但我們不接受」講成「裝置沒說話」——這個計數是它的痕跡。
+    aip_refused_before_pairing: AtomicU64,
 }
 
 /// 進入等待前 +1、離開時 -1（不論成功、失敗或提早 return）。
@@ -412,6 +452,7 @@ impl<L: RawLink> DeviceLink<L> {
             pairing_unverified: std::sync::atomic::AtomicBool::new(false),
             pairing_ever_compared: std::sync::atomic::AtomicBool::new(false),
             pairing_not_recompared: std::sync::atomic::AtomicBool::new(false),
+            aip_refused_before_pairing: AtomicU64::new(0),
         }
     }
 
@@ -432,6 +473,92 @@ impl<L: RawLink> DeviceLink<L> {
 
     pub fn raw(&self) -> &L {
         &self.raw
+    }
+
+    /// spec 宣告的裝置身分（`expectedDeviceId`）。埠／topic／MAC 都不是身分。
+    pub fn expected_device_id(&self) -> &str {
+        &self.expected_device_id
+    }
+
+    /// 訂閱裝置訊息（AIP 綁定要自己 pump 這條流）。
+    pub fn subscribe(&self) -> broadcast::Receiver<DeviceMsg> {
+        self.raw.subscribe()
+    }
+
+    /// 這條 link **此刻**是否有一個仍然成立的 hello＋配對握手
+    /// （握手世代＝目前連線世代）。不做任何 I/O、不阻塞。
+    pub fn handshake_ready(&self) -> bool {
+        self.ready_generation.load(Ordering::SeqCst) == ready_marker(self.raw.generation())
+    }
+
+    /// 被擋下來的 `aip` 行數（診斷／稽核用）。
+    pub fn aip_refused_before_pairing(&self) -> u64 {
+        self.aip_refused_before_pairing.load(Ordering::SeqCst)
+    }
+
+    /// `aip` 行的准入閘門（比照 iPhone 的 auth-ok 之後才收 aip frame）。
+    ///
+    /// 回 `None` ＝這根本不是 `aip` 訊息（呼叫端照舊處理）。
+    ///
+    /// 為什麼閘門在這裡而不是在 Runtime：一條**沒有**通過 hello 身分驗證與
+    /// 配對的連線上，任何自稱是這台裝置的 envelope 都只是「某個開得起這個
+    /// 埠／topic 的人說的話」。Runtime 的身分綁定用的是 spec 的
+    /// expectedDeviceId，如果傳輸層先放行，那個綁定就等於把埠當成身分。
+    pub fn admit_aip(&self, msg: &DeviceMsg) -> Option<AipAdmission> {
+        let DeviceMsg::Aip { envelope } = msg else {
+            return None;
+        };
+        if !self.handshake_ready() {
+            self.aip_refused_before_pairing
+                .fetch_add(1, Ordering::SeqCst);
+            tracing::warn!(
+                device = %self.expected_device_id,
+                "an aip line arrived on a link with no valid hello+pairing handshake; ignored"
+            );
+            return Some(AipAdmission::RefusedNotPaired);
+        }
+        let bytes = serde_json::to_vec(envelope).map(|b| b.len()).unwrap_or(0);
+        if bytes > MAX_AIP_ENVELOPE_BYTES {
+            tracing::warn!(
+                device = %self.expected_device_id,
+                bytes,
+                limit = MAX_AIP_ENVELOPE_BYTES,
+                "an oversized aip envelope was refused by the transport"
+            );
+            return Some(AipAdmission::RefusedTooLarge { bytes });
+        }
+        Some(AipAdmission::Admitted(envelope.clone()))
+    }
+
+    /// 送一則 AIP envelope 給裝置。
+    ///
+    /// 誠實階梯：`Ok` 只代表「這一行已經寫上線」，**不**代表裝置收到、更不
+    /// 代表它套用了——AIP 的回覆是對端自己送回來的另一則 envelope，不是 wire
+    /// 層 ack（與 iPhone 的 `MobileBridge::send_aip` 同一個語意）。
+    ///
+    /// 與 `command()` 一樣：先握手（身分＋配對）才寫；`timeout` 只是「這一行
+    /// 排在傳輸佇列裡的有效期」，過期就不再寫出（遲到的訊息比失敗更糟）。
+    pub async fn send_aip(&self, envelope: &Value, timeout: Duration) -> Result<(), LinkError> {
+        let bytes = serde_json::to_vec(envelope)
+            .map_err(|e| LinkError::Refused(format!("envelope is not serialisable: {e}")))?
+            .len();
+        if bytes > MAX_AIP_ENVELOPE_BYTES {
+            // 寫出去也只會被裝置整行丟棄：誠實回「沒送出」，不製造未知。
+            return Err(LinkError::Refused(format!(
+                "aip envelope is {bytes} bytes, over the {MAX_AIP_ENVELOPE_BYTES} byte wire limit;                  nothing was sent"
+            )));
+        }
+        let generation = self.ensure_ready_generation().await?;
+        self.same_generation(generation, "the aip frame to be sent")?;
+        let deadline = std::time::Instant::now() + timeout;
+        self.raw
+            .send_before(
+                encode_host_msg(&HostMsg::Aip {
+                    envelope: envelope.clone(),
+                }),
+                deadline,
+            )
+            .await
     }
 
     /// 目前的誠實可用狀態（health/status 用；不做任何 I/O、不阻塞）。
@@ -1115,6 +1242,82 @@ pub enum LinkReadiness {
     Connecting,
     Disconnected,
     Closed,
+}
+
+/// 型別抹除的 AIP 通道：Runtime 只透過它認識「一台會說 AIP 的宣告式裝置」。
+///
+/// 為什麼需要它：`DeviceLink<L>` 的 `L` 是傳輸型別（serial／mqtt／ble），
+/// Runtime 不該（也不能）逐一列舉。核心因此不含任何 Serial 特判——它只看到
+/// 「一條說得出自己 expectedDeviceId、能收發 aip、能 stop-all 的通道」。
+#[async_trait::async_trait]
+pub trait DeviceAipChannel: Send + Sync {
+    /// spec 宣告的裝置身分（`expectedDeviceId`）。這是 Runtime 綁定 AIP
+    /// `Party::device(...)` 用的唯一身分來源——埠、topic、MAC 都不是身分。
+    fn expected_device_id(&self) -> String;
+    /// 傳輸描述（診斷用；不含 secret）。
+    fn describe(&self) -> String;
+    /// 這個通道的傳輸種類（`serial`／`mqtt`／`ble`）。稽核與身分強度標示用。
+    fn transport_label(&self) -> &'static str;
+    fn readiness(&self) -> LinkReadiness;
+    fn handshake_ready(&self) -> bool;
+    fn subscribe(&self) -> broadcast::Receiver<DeviceMsg>;
+    fn admit_aip(&self, msg: &DeviceMsg) -> Option<AipAdmission>;
+    fn aip_refused_before_pairing(&self) -> u64;
+    /// 配對碼從未被裝置比對過（[`DeviceLink::pairing_unverified`]）。
+    fn pairing_unverified(&self) -> bool;
+    async fn ensure_ready(&self) -> Result<(), LinkError>;
+    async fn send_aip(&self, envelope: Value, timeout: Duration) -> Result<(), LinkError>;
+    async fn stop_all(&self, timeout: Duration) -> Result<(), LinkError>;
+}
+
+/// 一條 `DeviceLink` ＋它的傳輸標籤，當成一條型別抹除的 AIP 通道。
+///
+/// 與 `LinkShutdown` 共用同一個 `Arc<DeviceLink<L>>`：不是第二條連線，
+/// 也不是第二份握手狀態——只是同一條 link 的另一個視角。
+pub struct AipChannel<L: RawLink> {
+    pub link: Arc<DeviceLink<L>>,
+    pub transport: &'static str,
+}
+
+/// 每一種傳輸的 `DeviceLink` 都自動是一條 AIP 通道：沒有第二套實作可以漂移。
+#[async_trait::async_trait]
+impl<L: RawLink + 'static> DeviceAipChannel for AipChannel<L> {
+    fn expected_device_id(&self) -> String {
+        self.link.expected_device_id().to_string()
+    }
+    fn describe(&self) -> String {
+        self.link.raw().describe()
+    }
+    fn transport_label(&self) -> &'static str {
+        self.transport
+    }
+    fn readiness(&self) -> LinkReadiness {
+        self.link.readiness()
+    }
+    fn handshake_ready(&self) -> bool {
+        self.link.handshake_ready()
+    }
+    fn subscribe(&self) -> broadcast::Receiver<DeviceMsg> {
+        self.link.subscribe()
+    }
+    fn admit_aip(&self, msg: &DeviceMsg) -> Option<AipAdmission> {
+        self.link.admit_aip(msg)
+    }
+    fn aip_refused_before_pairing(&self) -> u64 {
+        self.link.aip_refused_before_pairing()
+    }
+    fn pairing_unverified(&self) -> bool {
+        self.link.pairing_unverified()
+    }
+    async fn ensure_ready(&self) -> Result<(), LinkError> {
+        self.link.ensure_ready().await
+    }
+    async fn send_aip(&self, envelope: Value, timeout: Duration) -> Result<(), LinkError> {
+        self.link.send_aip(&envelope, timeout).await
+    }
+    async fn stop_all(&self, timeout: Duration) -> Result<(), LinkError> {
+        self.link.stop_all(timeout).await
+    }
 }
 
 impl<L: RawLink> LinkShutdown for DeviceLink<L> {

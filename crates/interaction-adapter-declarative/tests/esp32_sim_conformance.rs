@@ -52,6 +52,16 @@ struct Sim {
 }
 
 impl Sim {
+    /// 送一則控制指令給模擬器的 stdin（`{"op":…}`，一行一則；仿
+    /// `crates/interaction-runtime/examples/fake_iphone.rs`）。
+    fn control(&mut self, op: Value) {
+        let stdin = self.child.stdin.as_mut().expect("simulator stdin is piped");
+        writeln!(stdin, "{op}").expect("write control op");
+        stdin.flush().expect("flush control op");
+    }
+}
+
+impl Sim {
     /// `extra` 追加到模擬器命令列（例如 `--pair-lockout-ms 1500`、`--facts-file …`）。
     fn spawn(pairing_code: &str, extra: &[String]) -> Option<Sim> {
         if !python3_available() {
@@ -76,6 +86,7 @@ impl Sim {
             .arg("--log")
             .arg(dir.join("sim.log"))
             .args(extra)
+            .stdin(Stdio::piped())
             .stderr(Stdio::null());
         let child = cmd.spawn().expect("spawn simulator");
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -171,6 +182,25 @@ impl RawClient {
         let raw = self.rx.recv_timeout(timeout).ok()?;
         let parsed: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
         Some((raw, parsed))
+    }
+
+    /// 等一則符合條件的行（其餘忽略）。有界：超過 `timeout` 就 None。
+    fn recv_matching(
+        &self,
+        mut want: impl FnMut(&Value) -> bool,
+        timeout: Duration,
+    ) -> Option<(String, Value)> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return None;
+            }
+            let line = self.recv_within(left)?;
+            if want(&line.1) {
+                return Some(line);
+            }
+        }
     }
 
     fn ask(&mut self, msg: Value) -> Value {
@@ -979,4 +1009,91 @@ fn json_number_literal(raw_line: &str, key: &str) -> String {
         .chars()
         .take_while(|c| !matches!(c, ',' | '}' | ' '))
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// protocol-conformance-019：線協定 v1.1 的 `aip` 訊息三方一致
+// ---------------------------------------------------------------------------
+
+/// 韌體（`handleMessage`）、README 協定表、模擬器對 `aip` 這一種訊息必須說
+/// 同一件事：**配對之後**收到的 host `aip` 行一律忽略（不回 err、不當成
+/// unknown-type），配對之前照舊落在 `not-paired`。
+///
+/// 為什麼要有這條：`aip` 是 v1.1 追加的訊息，舊韌體不認得它。如果參考韌體
+/// 把它當 `unknown-type` 回錯誤，host 每送一則 session frame 就換回一則
+/// 錯誤——那會讓「這台裝置不支援 AIP」看起來像「這台裝置壞了」。
+#[test]
+fn aip_messages_are_handled_identically_by_firmware_simulator_and_readme() {
+    let ino = read_repo_file("firmware/esp32-companion/esp32-companion.ino");
+    let handle = firmware_function_body(&ino, "static void handleMessage(");
+    assert!(
+        handle.contains("\"aip\""),
+        "韌體 handleMessage() 必須明確處理 aip（忽略），否則它會落到 unknown-type：\n{handle}"
+    );
+
+    let readme = read_repo_file("firmware/esp32-companion/README.md");
+    assert!(
+        readme.contains("{\"type\":\"aip\",\"envelope\":{..}}"),
+        "README 協定表必須有 aip 這一列（兩個方向）"
+    );
+
+    let Some(mut sim) = Sim::spawn("9927", &[]) else {
+        return;
+    };
+    let mut client = RawClient::open(&sim.pty_path);
+
+    // 配對前：與 cmd/read 同一條規則——not-paired，不是靜默。
+    let refused = client.ask(json!({"type": "aip", "envelope": {"specVersion": "aip/1.0"}}));
+    assert_eq!(refused["type"], "err", "{refused}");
+    assert_eq!(refused["reason"], "not-paired", "{refused}");
+
+    client.pair("9927");
+
+    // 配對後：忽略（不回任何東西），而且不得讓後續請求錯位。
+    client.send(json!({"type": "aip", "envelope": {"specVersion": "aip/1.0"}}));
+    let state = client.ask(json!({"type": "read"}));
+    assert_eq!(state["type"], "state", "aip 之後 read 仍必須正常：{state}");
+    assert!(
+        sim.log_text().contains("aip"),
+        "模擬器必須把忽略掉的 aip 行留痕：\n{}",
+        sim.log_text()
+    );
+
+    // 裝置→host 方向：控制通道要求模擬器送一則 capability envelope。
+    sim.control(json!({"op": "aip-capability"}));
+    let frame = client
+        .recv_matching(|v| v["type"] == "aip", Duration::from_secs(3))
+        .expect("simulator must emit an aip line for the aip-capability op");
+    let parsed = parse_device_msg(&frame.0).expect("host parses the simulator's aip line");
+    match parsed {
+        DeviceMsg::Aip { envelope } => {
+            assert_eq!(envelope["specVersion"], "aip/1.0", "{envelope}");
+            assert_eq!(envelope["messageType"], "capability", "{envelope}");
+            assert_eq!(envelope["source"]["kind"], "device", "{envelope}");
+            assert_eq!(envelope["source"]["id"], "esp32-sim01", "{envelope}");
+        }
+        other => panic!("expected DeviceMsg::Aip, got {other:?}"),
+    }
+}
+
+/// 未配對的通道不得送出 session 流量：模擬器對 `aip-*` 控制指令必須誠實拒絕
+/// （而不是先送出去再說）。裝置端與 host 端的閘門方向一致。
+#[test]
+fn the_simulator_refuses_to_emit_aip_before_pairing() {
+    let Some(mut sim) = Sim::spawn("9927", &[]) else {
+        return;
+    };
+    let client = RawClient::open(&sim.pty_path);
+    sim.control(json!({"op": "aip-touch", "kind": "tap"}));
+    assert!(
+        client
+            .recv_matching(|v| v["type"] == "aip", Duration::from_millis(800))
+            .is_none(),
+        "未配對的通道不得送出 aip"
+    );
+    assert!(
+        sim.log_text().contains("aip op refused"),
+        "拒絕必須留痕：\n{}",
+        sim.log_text()
+    );
 }

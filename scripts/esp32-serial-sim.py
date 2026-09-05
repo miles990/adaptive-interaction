@@ -26,6 +26,26 @@
   state       : 每 5 秒自動推播一次（僅在已配對時，不對未配對連線洩漏感測）；
                 按鈕邊緣（去彈跳後）立即推播一次——與韌體 loop() 一致
 
+線協定 v1.1 的 `aip`（Character Session envelope）：
+
+  →裝置   配對後一律**忽略**（不回 err、不當 unknown-type），配對前照舊
+          `not-paired`——與韌體 handleMessage() 相同。
+  裝置→   參考韌體不送；模擬器用控制通道（見下）代打，讓 host 端的
+          Character Session 綁定在沒有真板時也驗得到。
+
+控制通道（stdin，一行一則 JSON；仿 crates/interaction-runtime/examples/
+fake_iphone.rs）：
+
+  {"op":"aip-capability"}                    協商（role remote-renderer）
+  {"op":"aip-touch","kind":"tap",            觸碰事件（可覆寫 source 測偽造）
+   "expiresInMs":5000,"source":{..}?}
+  {"op":"aip-resume","lastRevision":n,       續傳查詢
+   "lastSequence":n,"epoch":n}
+  {"op":"aip-raw","envelope":{..}}           任意 envelope（測未知／超大）
+
+  未配對時一律拒絕送出（記 `## aip op refused`）：未配對的通道不得送出
+  session 流量，方向與 host 端的准入閘門一致。
+
 感測面控制通道（韌體上是真實感測器；模擬器用這些替代，讓閉環的「獨立
 觀察」半邊也能在模擬器上驗到）：
 
@@ -152,6 +172,8 @@ state = {
     "servo_ever_moved": False,
     "servo_last_move_ms": 0,
     "last_state_push_ms": 0,
+    # 控制通道送出的 aip envelope 序號（messageId 用；有界遞增）
+    "aip_seq": 0,
 }
 
 # 感測面（韌體上是真實感測器；這裡由控制通道決定）。
@@ -547,6 +569,10 @@ def handle(msg):
         if msg.get("id"):
             err = {"type": "err", "id": msg["id"], "reason": "not-paired"}
         emit(err)
+    elif t == "aip":
+        # 線協定 v1.1：這份參考裝置不參與角色 session——明確忽略，不回 err
+        # （落到 unknown-type 會讓「不支援」長得像「壞掉」）。與韌體一致。
+        note("ignored an inbound aip line (this reference device does not join sessions)")
     elif t == "cmd":
         cid = msg.get("id", "")
         if not cid:
@@ -647,6 +673,71 @@ def poll_button_toggle(now):
     push_state_now(now)
 
 
+# --- AIP 控制通道（stdin）---------------------------------------------------
+
+def _aip_envelope(message_type, name, prefix):
+    """一則最小合規 envelope（欄位與 fake_iphone.rs 的 base_envelope 相同）。"""
+    state["aip_seq"] += 1
+    return {
+        "specVersion": "aip/1.0",
+        "messageId": f"sim-{prefix}-{state['aip_seq']}",
+        "messageType": message_type,
+        "name": name,
+        # 宣稱身分＝這台裝置自己的 deviceId。host 端會拿它跟 spec 的
+        # expectedDeviceId 比對——宣稱不是身分，比對才是。
+        "source": {"kind": "device", "id": args.device_id},
+        "sessionId": "session.home",
+        "occurredAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "payload": {},
+    }
+
+
+def handle_aip_op(op):
+    """一則控制指令 → 送出一則 aip 行（未配對一律拒絕）。"""
+    name = op.get("op")
+    if not state["paired"]:
+        note(f"aip op refused: {name} (this channel is not paired)")
+        return
+    if name == "aip-capability":
+        envelope = _aip_envelope("capability", "character.session.capability", "cap")
+        envelope["payload"] = {
+            "specVersions": ["aip/1.0"],
+            "role": "remote-renderer",
+            "profiles": ["character-session"],
+            "syncClasses": ["semantic"],
+            "intents": ["react-happily-to-touch", "celebrate", "idle"],
+            "inputs": ["character.interaction.touch"],
+            "features": {"haptic": True, "reducedMotion": False},
+            "limits": {"maxMessageBytes": 8192},
+        }
+    elif name == "aip-touch":
+        envelope = _aip_envelope("event", "character.interaction.touch", "touch")
+        if isinstance(op.get("messageId"), str):
+            envelope["messageId"] = op["messageId"]
+        # 偽造身分測試：呼叫端可以覆寫 source（host 必須拒絕）。
+        if isinstance(op.get("source"), dict):
+            envelope["source"] = op["source"]
+        ttl = op.get("expiresInMs", 5000)
+        envelope["expiresAt"] = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + ttl / 1000.0)
+        )
+        envelope["payload"] = {"kind": op.get("kind", "tap")}
+    elif name == "aip-resume":
+        envelope = _aip_envelope("query", "character.session.resume", "resume")
+        envelope["target"] = {"kind": "session", "id": "session.home"}
+        envelope["payload"] = {
+            "lastRevision": op.get("lastRevision", 0),
+            "lastSequence": op.get("lastSequence", 0),
+            "sessionEpoch": op.get("epoch", 0),
+        }
+    elif name == "aip-raw":
+        envelope = op.get("envelope", {})
+    else:
+        note(f"unknown control op: {name}")
+        return
+    emit({"type": "aip", "envelope": envelope})
+
+
 def tick():
     """效果到期＋感測控制通道＋定期 state 推播（韌體 loop() 的等價物）。"""
     now = now_ms()
@@ -662,14 +753,49 @@ def tick():
 
 
 buf = b""
+control_buf = b""
+control_fd = sys.stdin.fileno()
 sys.stderr.write(f"esp32-serial-sim: SIMULATOR on {slave_path}\n")
 state["last_state_push_ms"] = now_ms()
 while True:
+    watch = [master] + ([control_fd] if control_fd is not None else [])
     try:
-        ready, _, _ = select.select([master], [], [], 0.1)
+        ready, _, _ = select.select(watch, [], [], 0.1)
     except (OSError, ValueError):
         break
-    if ready:
+    if control_fd is not None and control_fd in ready:
+        try:
+            chunk = os.read(control_fd, 4096)
+        except OSError:
+            chunk = b""
+        if not chunk:
+            # EOF：不再監看，否則 select 會一直回 ready 而空轉（有界）。
+            control_fd = None
+        else:
+            control_buf += chunk
+            while b"\n" in control_buf:
+                line, control_buf = control_buf.split(b"\n", 1)
+                text = line.decode("utf-8", "replace").strip()
+                if not text:
+                    continue
+                try:
+                    op = json.loads(text)
+                except Exception:
+                    note(f"control op is not json: {text[:120]}")
+                    continue
+                if not isinstance(op, dict):
+                    note("control op is not an object")
+                    continue
+                try:
+                    handle_aip_op(op)
+                except Exception as exc:
+                    # 控制通道出錯不得讓模擬器整個消失（那會被誤診成拔線）。
+                    note(f"handle_aip_op() raised {type(exc).__name__}: {exc}")
+            # 控制通道的緩衝有界：沒有換行的超長輸入直接丟棄。
+            if len(control_buf) > 64 * 1024:
+                note("control buffer overflow; dropped")
+                control_buf = b""
+    if master in ready:
         try:
             chunk = os.read(master, 1024)
         except OSError:

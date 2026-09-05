@@ -167,6 +167,8 @@ brew install arduino-cli                       # 或官方安裝方式
 | 裝置→ | `{"type":"state","deviceId":..,"facts":{"button":bool,"distanceMm":int\|-1,"lux":int,"tempC":float\|null,"vibeActive":bool,"buzzActive":bool,"servoAngle":int,"led":{"r":..,"g":..,"b":..}}}` | 也會在按鈕邊緣與每 `STATE_PERIOD_MS`（預設 5000ms）自動推播；`vibeActive`／`buzzActive` 是 cancel 的獨立驗證來源 |
 | →裝置 | `{"type":"stop-all"}` | 緊急停止；**不需配對**（fail-safe 方向） |
 | 裝置→ | `{"type":"ack","stopAll":true}` | |
+| →裝置 | `{"type":"aip","envelope":{..}}` | 線協定 v1.1：Character Session 的 AIP envelope。**這份參考韌體忽略它**（配對後不回任何東西，不當成 `unknown-type`）；配對前照舊回 `not-paired` |
+| 裝置→ | `{"type":"aip","envelope":{..}}` | 同上，反方向。要參與角色 session 的韌體才需要送；envelope 內容見 `docs/aip/README.md`，主機端一則上限 8 KiB（且仍受單行 640 bytes 限制） |
 | 裝置→ | `{"type":"err","id":..,"reason":".."}` | `not-paired` / `bad-json` / `unknown-type` / `unknown-cmd` / `bad-params` / `rate-limited` / `not-found` / `busy`（僅 BLE：入站佇列滿）。`bad-json` 也用於**超長訊息**（Serial／MQTT 一則 ≥ 640 bytes、BLE ≥ 512 bytes）——此時整則丟棄且 err **沒有 id** |
 
 單則訊息上限（host→裝置；裝置端強制，host 端傳輸在送出前就以

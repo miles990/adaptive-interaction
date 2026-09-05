@@ -737,6 +737,20 @@ impl DeclarativeHttpReceptor {
     }
 }
 
+/// 這份 spec 的**受器** id ↔「是否需要 consent」。
+///
+/// 為什麼是這裡：受器 id 的組法（`qualified_id`）與 `requiresConsent` 都是這個
+/// 引擎的事實。呼叫端（Runtime 的能力宣告）自己再拼一次字串，spec 的 id 規則
+/// 一改，兩邊就會靜默不一致——那正是「哪些受器算高風險」這種安全語意最不能
+/// 出現的漂移。
+pub fn receptor_consent_map(spec: &DeclarativeSpec) -> Vec<(String, bool)> {
+    spec.capabilities
+        .iter()
+        .filter(|cap| cap.kind == CapabilityKindSpec::Receptor)
+        .map(|cap| (qualified_id(&spec.id, &cap.id), cap.requires_consent))
+        .collect()
+}
+
 pub(crate) fn qualified_id(adapter: &str, id: &str) -> String {
     if id.contains('.') {
         id.to_string()
@@ -1097,6 +1111,10 @@ pub struct BuiltCapabilities {
     /// provider 被 disable／revoke 時，主機用它真的把連線關掉——
     /// 停用的 provider 不得繼續佔著序列埠／broker 連線做無盡重連。
     pub links: Vec<Arc<dyn protocol::LinkShutdown>>,
+    /// 這個 spec 開出來的 AIP 通道（每條 link 傳輸一條）。Runtime 用它把裝置
+    /// 綁進 Character Session——型別抹除，所以核心不必認得 serial／mqtt／ble。
+    /// HTTP／SSE 沒有這種通道（那不是持續連線的裝置線協定），因此是空的。
+    pub aip_channels: Vec<Arc<dyn protocol::DeviceAipChannel>>,
     /// 建置時發現、但不足以拒絕整份 spec 的問題（例如明文憑證）。
     /// 可稽核：呼叫端應把它顯示出來，不要靜靜吞掉。內容只點名能力與欄位，
     /// **永遠不含憑證值**。
@@ -1212,6 +1230,7 @@ pub fn build(
         receptors: vec![],
         actuators: vec![],
         links: vec![],
+        aip_channels: vec![],
         warnings,
     };
     // 每種 link 傳輸共享一條連線（同一 adapter 內設定必須一致——不一致代表
@@ -1306,6 +1325,11 @@ pub fn build(
                         serial_link = Some((cfg.clone(), link.clone()));
                         out.links
                             .push(link.clone() as Arc<dyn protocol::LinkShutdown>);
+                        out.aip_channels.push(Arc::new(protocol::AipChannel {
+                            link: link.clone(),
+                            transport: "serial",
+                        })
+                            as Arc<dyn protocol::DeviceAipChannel>);
                         link
                     }
                 };
@@ -1361,6 +1385,11 @@ pub fn build(
                         mqtt_link = Some((cfg.clone(), link.clone()));
                         out.links
                             .push(link.clone() as Arc<dyn protocol::LinkShutdown>);
+                        out.aip_channels.push(Arc::new(protocol::AipChannel {
+                            link: link.clone(),
+                            transport: "mqtt",
+                        })
+                            as Arc<dyn protocol::DeviceAipChannel>);
                         link
                     }
                 };
@@ -1412,6 +1441,11 @@ pub fn build(
                         ble_link = Some((cfg.clone(), link.clone()));
                         out.links
                             .push(link.clone() as Arc<dyn protocol::LinkShutdown>);
+                        out.aip_channels.push(Arc::new(protocol::AipChannel {
+                            link: link.clone(),
+                            transport: "ble",
+                        })
+                            as Arc<dyn protocol::DeviceAipChannel>);
                         link
                     }
                 };

@@ -7,6 +7,7 @@ pub mod character;
 pub mod character_session;
 pub mod config;
 pub mod curator;
+pub mod declarative_session;
 pub mod domain_packs;
 pub mod executor;
 pub mod gateway;

@@ -754,8 +754,11 @@ impl Runtime {
         // 但被停用／撤銷的裝置不得因此把實體連線重新開回來、也不得讓受器
         // 回到啟用（重啟不是重新授權）。決定記在 store，重啟後仍在。
         let kept_off = self.provider_off_reason(&provider_id);
-        let built = interaction_adapter_declarative::build(spec, Some(self.paths.home.clone()))
+        let mut built = interaction_adapter_declarative::build(spec, Some(self.paths.home.clone()))
             .map_err(DomainError::Validation)?;
+        // AIP 通道（每條裝置線一條）。型別抹除：核心不認得 serial／mqtt／ble，
+        // 只看到「一條說得出身分、能收發 aip、能 stop-all 的通道」。
+        let aip_channels = std::mem::take(&mut built.aip_channels);
         // 記住這個 provider 開出來的實體連線（serial/mqtt/ble），
         // disable／revoke 時才關得掉——停用的 provider 不得繼續佔著埠或
         // broker 連線做無盡重連。
@@ -794,6 +797,26 @@ impl Runtime {
             actuator_ids.push(actuator.manifest().id.as_str().to_string());
             self.registry.register_actuator(actuator).await?;
         }
+        // 能力語意宣告（M2 §3.2）：這一族有哪些受器、人話種類名、以及**哪些是
+        // 高風險受器**（spec 自己標 requiresConsent 的那些）。沒有這一步，停止
+        // 感測的協調器對這台裝置一無所知，它的受器只會落成 `no-stop-path`。
+        let (declaration, high_risk) = crate::declarative_session::declaration_for_spec(
+            spec,
+            provider_id.as_str(),
+            &receptor_ids,
+        );
+        self.declare_provider_capabilities(declaration);
+        // 感測停止路徑＋Character Session 綁定。停用／撤銷中的 provider 不開
+        // 綁定 task（不得在背景重連握手），但仍要有人回答「它在擷取嗎」。
+        self.bind_declarative_device(
+            provider_id.as_str(),
+            spec.display_name.as_deref().unwrap_or(&spec.id),
+            aip_channels,
+            high_risk,
+            kept_off.is_some(),
+        )
+        .await;
+
         if let Some(reason) = &kept_off {
             // 能力重新註冊時 registry 會用 manifest 的預設值決定啟用與否
             // （不需 consent 的受器預設啟用）——被停用／撤銷的裝置必須立刻

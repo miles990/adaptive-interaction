@@ -806,6 +806,17 @@ static void handleMessage(const char* line, Link link) {
     return;
   }
 
+  // 線協定 v1.1 的 `aip`（Character Session envelope）。這份參考韌體**不**
+  // 參與角色 session：明確忽略，不回 err。
+  //
+  // 為什麼不落到 unknown-type：主機每送一則 session frame 就換回一則錯誤，
+  // 會讓「這台裝置不支援 AIP」在收據與 log 上長得像「這台裝置壞了」。忽略
+  // 是誠實的降級——主機那端本來就必須等對方主動送 envelope 才算它在 session
+  // 裡，沒有 envelope 就沒有成員，不會有人以為它加入了。
+  if (strcmp(type, "aip") == 0) {
+    return;
+  }
+
   if (strcmp(type, "cancel") == 0) {
     const char* id = doc["id"] | "";
     if (id[0] == '\0') {
