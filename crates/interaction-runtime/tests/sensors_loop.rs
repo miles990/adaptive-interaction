@@ -1412,3 +1412,119 @@ async fn the_unresolved_stop_summary_is_bounded() {
         "丟掉最舊的一筆要留痕"
     );
 }
+
+/// 未解決停止要說得出「是哪一台」的**人話**名稱。
+///
+/// 為什麼：`sourceId`／`declarationId` 是內部識別（`provider.mobile.7f3a…`），
+/// 一般模式不得把它丟到畫面上；沒有人話名稱時介面只能說「某個裝置」——那對
+/// 使用者等於沒說。名稱有兩個來源：同 id 的 provider 顯示名（那一台的暱稱），
+/// 沒有的話退回能力宣告的種類名（那一類來源叫什麼）。
+#[tokio::test]
+async fn unresolved_stop_carries_the_human_label_when_known() {
+    let (_g, rt, _fake) = runtime().await;
+
+    // 1) provider 顯示名優先：這是「那一台」的名字。
+    rt.providers
+        .register(ProviderDescriptor {
+            identity: ProviderIdentity {
+                id: ProviderId::new("fixture.named"),
+                kind: ProviderKind::Device,
+                display_name: "客廳的 ESP32".into(),
+                trust_level: TrustLevel::Paired,
+                origin: "fixture".into(),
+                version: "0".into(),
+                fingerprint: None,
+                human: None,
+            },
+            state: ProviderState::Available,
+            receptors: vec![],
+            actuators: vec![],
+            tool_operations: vec![],
+            paired_at: None,
+            last_seen: None,
+            detail: None,
+        })
+        .await
+        .expect("provider registers");
+
+    // 2) 沒有 provider、但有能力宣告的種類名：退回「那一類」的名字。
+    rt.declare_provider_capabilities(
+        interaction_runtime::providers::ProviderCapabilityDeclaration::new(
+            "declaration.fixture.classy",
+        )
+        .with_class_label("宣告式裝置"),
+    );
+
+    for id in ["fixture.named", "fixture.classy"] {
+        rt.register_sensor_source(FakeSensorSource::new(id, FakeMode::Timeout))
+            .await
+            .expect("source registers");
+        assert!(rt.unregister_sensor_source(id).await);
+    }
+    expire_orphan_window(&rt);
+
+    let unresolved = rt.unresolved_stops().await;
+    let named = unresolved
+        .iter()
+        .find(|u| u.source_id == "fixture.named")
+        .unwrap_or_else(|| panic!("{unresolved:?}"));
+    assert_eq!(
+        named.source_label.as_deref(),
+        Some("客廳的 ESP32"),
+        "provider 顯示名是最具體的人話名稱：{named:?}"
+    );
+    let classy = unresolved
+        .iter()
+        .find(|u| u.source_id == "fixture.classy")
+        .unwrap_or_else(|| panic!("{unresolved:?}"));
+    assert_eq!(
+        classy.source_label.as_deref(),
+        Some("宣告式裝置"),
+        "沒有 provider 就退回宣告的種類名：{classy:?}"
+    );
+
+    // status 與 GET /v1/sensors/unresolved 讀同一份記錄，欄位名必須是 camelCase
+    // 的 `sourceLabel`（桌面的 projectUnresolvedStops 吃它）。
+    let status = rt.status().await;
+    let listed = status["unresolvedStops"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let row = listed
+        .iter()
+        .find(|r| r["sourceId"] == serde_json::json!("fixture.named"))
+        .unwrap_or_else(|| panic!("{status}"));
+    assert_eq!(
+        row["sourceLabel"],
+        serde_json::json!("客廳的 ESP32"),
+        "{status}"
+    );
+}
+
+/// 不知道人話名稱時**省略**這個欄位，不得拿 `sourceId` 冒充人話。
+#[tokio::test]
+async fn unresolved_stop_omits_the_human_label_when_unknown() {
+    let (_g, rt, _fake) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.anon", FakeMode::Timeout))
+        .await
+        .expect("source registers");
+    assert!(rt.unregister_sensor_source("fixture.anon").await);
+    expire_orphan_window(&rt);
+
+    let unresolved = rt.unresolved_stops().await;
+    let mine = unresolved
+        .iter()
+        .find(|u| u.source_id == "fixture.anon")
+        .unwrap_or_else(|| panic!("{unresolved:?}"));
+    assert_eq!(
+        mine.source_label, None,
+        "沒有 provider、沒有宣告種類名＝不知道，不得用 sourceId 冒充：{mine:?}"
+    );
+
+    let row = serde_json::to_value(mine).expect("serializes");
+    assert!(
+        row.get("sourceLabel").is_none(),
+        "不知道就整個欄位省略（缺席 ≠ 空字串）：{row}"
+    );
+    assert_eq!(row["sourceId"], serde_json::json!("fixture.anon"), "{row}");
+}

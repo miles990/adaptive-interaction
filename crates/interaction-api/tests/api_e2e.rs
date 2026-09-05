@@ -2840,6 +2840,13 @@ async fn unresolved_stops_are_listed_and_only_a_human_can_dismiss_one() {
     assert!(status.get("unresolvedStops").is_none(), "{status}");
 
     // 造一筆：來源被移除時還在擷取，而且即時可見窗已經過去。
+    // 種類名由能力宣告提供——人話名稱不是介面自己拼出來的。
+    server.runtime.declare_provider_capabilities(
+        interaction_runtime::providers::ProviderCapabilityDeclaration::new(
+            "declaration.api.fixture",
+        )
+        .with_class_label("測試裝置"),
+    );
     server
         .runtime
         .register_sensor_source(std::sync::Arc::new(ApiFakeSource))
@@ -2862,8 +2869,20 @@ async fn unresolved_stops_are_listed_and_only_a_human_can_dismiss_one() {
     assert_eq!(entries.len(), 1, "{listed}");
     assert_eq!(entries[0]["sourceId"], json!("api.fixture"), "{listed}");
     assert_eq!(entries[0]["generation"], json!(generation), "{listed}");
+    assert_eq!(
+        entries[0]["sourceLabel"],
+        json!("測試裝置"),
+        "人話名稱要跟著這一筆走：{listed}"
+    );
     let (_, status) = server.get("/v1/status").await;
     assert!(status["unresolvedStops"].is_array(), "{status}");
+    // 兩個讀取面必須是**同一份**事實：status 與 /v1/sensors/unresolved 逐欄相同。
+    // 兩邊各自投影的話，遲早有一邊少一個欄位（例如 sourceLabel），畫面上就會
+    // 依進入路徑不同而說出不同的話。
+    assert_eq!(
+        status["unresolvedStops"], listed["unresolvedStops"],
+        "status {status} / listing {listed}"
+    );
 
     // agent token 不得解除：這是人類的決定。
     let response = server

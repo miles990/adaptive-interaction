@@ -277,6 +277,12 @@ pub(crate) struct OrphanedCaptures {
     pub(crate) at: std::time::Instant,
     /// 這一筆屬於哪一次登記（見 [`SourceKey`]）。
     pub(crate) since: chrono::DateTime<chrono::Utc>,
+    /// 移除**當下**問到的人話名稱（見 [`Runtime::sensor_source_label`]）。
+    ///
+    /// 為什麼在這裡定格、而不是讀取時再查：來源已經被移除了，它的 provider
+    /// 記錄與能力宣告隨時可能跟著被撤掉——之後再查只會查到空的，畫面上那一筆
+    /// 就會從「客廳的 ESP32」退化成「某個裝置」。名字是移除那一刻的事實。
+    pub(crate) label: Option<String>,
 }
 
 /// 一筆「已經不在即時清單上、但仍然沒有結論」的停止。
@@ -296,6 +302,11 @@ pub struct UnresolvedStop {
     pub since: chrono::DateTime<chrono::Utc>,
     /// 最後看到的擷取狀態（含 `state`／`purpose`）。不猜、不改寫。
     pub last_known: Vec<SensorUse>,
+    /// 人話名稱（選填）。`source_id`／`declaration_id` 是內部識別，一般模式
+    /// 不得顯示；不知道名字時整個欄位省略，呼叫端自己用中性字樣（「某個裝置」），
+    /// **不得**拿 id 冒充人話。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_label: Option<String>,
 }
 
 /// 一次登記中的感測來源＋它的世代。
@@ -353,6 +364,44 @@ impl Runtime {
             .map(|entry| entry.generation)
     }
 
+    /// 這個感測來源的**人話**名稱（不知道就是 `None`）。
+    ///
+    /// 為什麼核心要管這件事：`sourceId` 是內部識別（`provider.mobile.7f3a…`），
+    /// 一般模式不得把它丟到畫面上。但「哪一台可能還在擷取」這句話沒有名字就
+    /// 等於沒說，所以名字要由**認得那台裝置的那一層**（provider 登記表／能力
+    /// 宣告）提供，不是由呈現層去猜或去拼 id。
+    ///
+    /// 兩個來源，由具體到一般：
+    /// 1. 同 id 的 provider 顯示名——「那一台」的名字（使用者自己取的暱稱）；
+    /// 2. 能力宣告的 `class_label`——「那一類」的名字（provider 家族自己給的
+    ///    種類名），只在不知道是哪一台時才夠用。
+    ///
+    /// 誠實：兩邊都沒有就是 `None`。**不得**退回 `source_id`——那不是人話，
+    /// 而且會把內部識別洩到一般模式的畫面上。
+    pub(crate) async fn sensor_source_label(
+        &self,
+        source_id: &str,
+        declaration_id: &str,
+    ) -> Option<String> {
+        let trimmed = |value: String| {
+            let value = value.trim().to_string();
+            (!value.is_empty()).then_some(value)
+        };
+        let by_provider = self
+            .providers
+            .get(&interaction_core::ProviderId::new(source_id))
+            .await
+            .ok()
+            .and_then(|desc| trimmed(desc.identity.display_name));
+        if by_provider.is_some() {
+            return by_provider;
+        }
+        self.capability_declarations()
+            .declaration(declaration_id)
+            .and_then(|d| d.class_label)
+            .and_then(trimmed)
+    }
+
     /// 移除一個感測來源。移除當下它還在擷取的話，那一筆擷取**不得靜默消失**：
     /// 記成有界可見的「停止結果未知」、補發事件、並留永久稽核。
     pub async fn unregister_sensor_source(&self, source_id: &str) -> bool {
@@ -374,6 +423,9 @@ impl Runtime {
                 c
             })
             .collect();
+        let label = self
+            .sensor_source_label(source_id, &entry.source.declaration_id())
+            .await;
         let now = self.sensor_clock.now();
         let mut orphans = self.orphan_captures.write().await;
         // 有界：先把過期的搬進「未解決停止」（不是丟掉），還是滿的話丟最舊的
@@ -396,6 +448,7 @@ impl Runtime {
                 captures: stale,
                 at: now,
                 since: chrono::Utc::now(),
+                label,
             },
         );
         drop(orphans);
@@ -530,10 +583,12 @@ impl Runtime {
                     sensors: entry.captures.iter().map(|c| c.kind.clone()).collect(),
                     since: entry.since,
                     last_known: entry.captures,
+                    source_label: entry.label,
                 };
                 recorded.push(serde_json::json!({
                     "sourceId": record.source_id,
                     "generation": record.generation,
+                    "sourceLabel": record.source_label,
                     "sensors": record.sensors,
                     "since": record.since,
                 }));
