@@ -51,7 +51,7 @@
 
 ## 3. Deprecation 表
 
-目前**沒有**任何被標記為 deprecated 的欄位、name 或 capability。
+**AIP wire 層**目前沒有任何被標記為 deprecated 的欄位、name 或 capability。
 
 | 項目 | 標記 deprecated 的版本 | 最早可移除的版本 | 相容 adapter | diagnostics 警告 |
 |---|---|---|---|---|
@@ -60,6 +60,11 @@
 流程（AIP §4.1）：標 `deprecated` → 至少跨一個公開 minor → 提供 compatibility adapter 與
 `aip.deprecated-used` diagnostics warning → 更新本表 → 才可移除。舊 Character Package 與舊 iPhone App
 不得因為 deprecation 而無法啟動。
+
+**wire 以外的相容路徑不在這張表裡，但一樣要有退場計畫**：Rust API 的 `#[deprecated]`、舊 pack id 白名單、
+快照容器格式的遷移、裝置線的追加訊息、feature flag、進階診斷的欄位改名——這些都登記在
+[`docs/aip/deprecation-ledger.md`](deprecation-ledger.md)，每條七欄（為什麼存在／適用版本／移除前需要的證據／
+資料遷移／回退方式／下一檢查里程碑／owner）。加一條新的相容路徑時，先在那份表新增一列再寫程式碼。
 
 ## 4. 實作註記（契約補充）
 
