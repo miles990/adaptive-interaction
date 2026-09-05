@@ -42,20 +42,32 @@ def topmost_section(text):
             return body
     return ""
 unreleased = topmost_section(ch)
+def version_section(text, version):
+    marker = "\n## [%s]" % version
+    if marker not in text:
+        return ""
+    body = text.split(marker, 1)[1]
+    body = body.split("\n", 1)[1] if "\n" in body else ""
+    return body.split("\n## [", 1)[0]
+# 這三個功能在 0.6.0 落地：條目必須在 `## [0.6.0]` 段（綁版本），不是在「目前最上層的段落」——
+# 後者會逼每一個新的 [Unreleased] 段反覆抄一次（ea7de59 因此紅過一次 CI）。行為本身由
+# executable tests 保護（character_session_loop.rs／character-sync-card.test.tsx／SessionClientTests.swift）。
 landed = {
-    "Runtime Session Host": "crates/interaction-runtime/src/character_session.rs",
-    "桌面同步卡": "apps/interaction-desktop/src/components/CharacterSyncCard.tsx",
-    "iOS Session client": "apps/interaction-ios/InteractionCompanion/Services/SessionClient.swift",
+    "Runtime Session Host": ("0.6.0", "crates/interaction-runtime/src/character_session.rs"),
+    "桌面同步卡": ("0.6.0", "apps/interaction-desktop/src/components/CharacterSyncCard.tsx"),
+    "iOS Session client": ("0.6.0", "apps/interaction-ios/InteractionCompanion/Services/SessionClient.swift"),
 }
-present = {k: v for k, v in landed.items() if os.path.exists(v)}
+present = {k: v for k, v in landed.items() if os.path.exists(v[1])}
 if present:
     need("在落地前不會出現在這裡" not in unreleased,
          "CHANGELOG 最上層段仍寫『尚未落地的項目…在落地前不會出現在這裡』，"
          "但這些已在 HEAD 上：%s" % sorted(present))
-    for name, path in present.items():
+    for name, (version, path) in present.items():
         base = os.path.basename(path)
-        need(base in unreleased or name in unreleased,
-             "CHANGELOG 最上層段沒有 %s（%s）的條目，但程式碼已落地" % (name, base))
+        section = version_section(ch, version)
+        need(section != "", "CHANGELOG 缺少落地版本段 `## [%s]`" % version)
+        need(base in section or name in section,
+             "CHANGELOG `## [%s]` 段沒有 %s（%s）的條目，但程式碼在該版本落地" % (version, name, base))
 
 # ---- evidence-honesty-013：ARCHITECTURE.md ---------------------------------
 arch = read("docs/ARCHITECTURE.md")

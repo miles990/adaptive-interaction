@@ -3858,39 +3858,66 @@ mod tests {
         }
     }
 
-    /// Doc-consistency (perf-claims-024): the topmost CHANGELOG section (the one
-    /// still being written — `## [Unreleased]`, or the version heading it was
-    /// renamed to during release prep) must not carry the pre-Phase-7
-    /// "Rust 每 500ms 收到新互動框" claim, and every click-through poll interval
-    /// it quotes must equal `CLICKTHROUGH_POLL_MS`.
-    #[test]
-    fn changelog_unreleased_click_through_claims_match_code() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../CHANGELOG.md");
-        let text = std::fs::read_to_string(path).expect("CHANGELOG.md readable");
-        let unreleased = changelog_topmost_section(&text);
-        assert!(
-            !unreleased.contains("每 500ms 收到新互動框"),
-            "stale Phase 3 hit-rect claim still in the topmost CHANGELOG section"
-        );
+    /// Doc-consistency (perf-claims-024) for one CHANGELOG section body: it must
+    /// not carry the pre-Phase-7 "Rust 每 500ms 收到新互動框" claim, and every
+    /// click-through poll interval it quotes must equal `CLICKTHROUGH_POLL_MS`.
+    ///
+    /// It deliberately does **not** require the section to quote the interval:
+    /// the behaviour is protected by `CLICKTHROUGH_POLL_MS` and its tests, not
+    /// by copying the sentence into every new section. Requiring a quote turned
+    /// every non-empty `[Unreleased]` into a forced repetition (the v0.6.0
+    /// post-release commit `ea7de59` went red in CI for exactly that reason).
+    fn changelog_click_through_claims(section: &str) -> Result<usize, String> {
+        if section.contains("每 500ms 收到新互動框") {
+            return Err("stale Phase 3 hit-rect claim still in the CHANGELOG section".into());
+        }
         let mut quoted = 0;
-        for (idx, _) in unreleased.match_indices("點擊穿透輪詢") {
-            let tail = &unreleased[idx + "點擊穿透輪詢".len()..];
+        for (idx, _) in section.match_indices("點擊穿透輪詢") {
+            let tail = &section[idx + "點擊穿透輪詢".len()..];
             let tail = tail.trim_start_matches([' ', '\u{3000}']);
             let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
             if digits.is_empty() {
                 continue;
             }
-            let ms: u64 = digits.parse().expect("poll interval digits");
-            assert_eq!(
-                ms, CLICKTHROUGH_POLL_MS,
-                "CHANGELOG quotes a {ms}ms click-through poll; code uses {CLICKTHROUGH_POLL_MS}ms"
-            );
+            let ms: u64 = digits
+                .parse()
+                .map_err(|e| format!("poll interval digits: {e}"))?;
+            if ms != CLICKTHROUGH_POLL_MS {
+                return Err(format!(
+                    "CHANGELOG quotes a {ms}ms click-through poll; code uses {CLICKTHROUGH_POLL_MS}ms"
+                ));
+            }
             quoted += 1;
         }
-        assert!(
-            quoted >= 1,
-            "the topmost CHANGELOG section should quote the click-through poll interval at least once"
+        Ok(quoted)
+    }
+
+    /// The topmost CHANGELOG section (the one still being written —
+    /// `## [Unreleased]`, or the version heading it was renamed to during
+    /// release prep) passes [`changelog_click_through_claims`]; zero quotes is
+    /// fine (see there).
+    #[test]
+    fn changelog_unreleased_click_through_claims_match_code() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../CHANGELOG.md");
+        let text = std::fs::read_to_string(path).expect("CHANGELOG.md readable");
+        let unreleased = changelog_topmost_section(&text);
+        changelog_click_through_claims(unreleased)
+            .expect("topmost CHANGELOG section is consistent");
+    }
+
+    /// The check protects consistency, not repetition: a section that never
+    /// mentions the poll passes, a section quoting the right number passes, and
+    /// only a wrong number or the stale 500ms claim fails.
+    #[test]
+    fn changelog_click_through_check_does_not_force_repetition() {
+        assert_eq!(
+            changelog_click_through_claims("### Fixed\n- 只修發布 workflow。\n"),
+            Ok(0)
         );
+        let right = format!("- 點擊穿透輪詢 {CLICKTHROUGH_POLL_MS}ms 不變。\n");
+        assert_eq!(changelog_click_through_claims(&right), Ok(1));
+        assert!(changelog_click_through_claims("- 點擊穿透輪詢 500ms。\n").is_err());
+        assert!(changelog_click_through_claims("- Rust 每 500ms 收到新互動框。\n").is_err());
     }
 
     /// The section finder itself: it must follow a renamed heading (release prep

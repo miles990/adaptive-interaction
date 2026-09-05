@@ -9,20 +9,42 @@
 
 ## [Unreleased]
 
+> 進度與需求矩陣：`docs/releases/v0.6.x-maintainability-progress.md`；已發布版本的 canonical 事實：
+> `docs/releases/evidence-index.json`。本段只記本分支（`feature/v0.6.x-maintainability`）已提交的變更，
+> 每條附 commit；行為保護由 executable tests 保證，不在這裡反覆重述。
+
+### Added
+- 三端共用的 **state-hash fixtures**（`crates/interaction-aip/tests/fixtures/state-hash-*.json`，manifest 新增
+  `stateHashes` 段與 `stateHashDoublePaths`）：9 份 host 真實寫出的 `SemanticState`（intensity `0.0`／`1.0`／`0.123`／
+  `-0.0`、`unsupportedIntents`、鍵反序輸入、非 ASCII 與跳脫、task 真相）與其 canonical 文字／SHA-256；
+  產生器兼驗證器 `crates/interaction-session/tests/state_hash_fixtures.rs`（`AIP_UPDATE_FIXTURES=1` 重生），
+  f64 欄位清單由 schemars 推導、每次測試重新比對（漂移 gate）。（475c7ac、055d638）
+- `docs/releases/evidence-index.json`：每個已發布版本的 tag／commit／發布時間／資產數／CI 與 Release run（含誠實的失敗：
+  v0.5.1 被 tag 的 commit 其 Tauri backend job 失敗、v0.6.0 的 Windows desktop job 失敗）／證據等級／文件指標；
+  `scripts/tests/docs-claims.sh` 核對 tag→commit 與檔案存在，並擋下總覽文件把已發布版本寫成「候選／尚未 tag」。（81b89d1）
+
 ### Fixed
 - `release.yml` 桌面 `.sha256` 上傳迴圈在 Windows 上讀到 `\r\n` 清單會把 `\r` 留在檔名尾巴、`gh release upload` 找不到檔案
   （v0.6.0 Release run 33918252926 的 `Desktop (windows-latest)` job 因此紅、`finalize` 依設計 skipped）。現在逐行去掉 `\r`，
-  python 端也固定用 `newline="\n"` 寫檔；`scripts/tests/release-scripts.sh` 以假 `gh` 重現 CRLF 清單釘住（44/0）。
+  python 端也固定用 `newline="\n"` 寫檔；`scripts/tests/release-scripts.sh` 以假 `gh` 重現 CRLF 清單釘住。
   v0.6.0 的兩個 Windows `.sha256` 由整合者從已上傳資產計算並上傳、本機重跑 finalize 盤點後手動 publish；tag 未移動
-  （詳見 `docs/releases/v0.6.0-final-report.md` §34）。
-- 上一條修正 commit（`ea7de59`）本身讓 main CI 的 `Tauri backend` job 紅：`[Unreleased]` 段落一旦非空，CHANGELOG claim-check
-  與 `docs-claims.sh` 就要求最上層段落含保護行為敘述，而本機提交前的檢查用管線吞掉了非零 exit code。`8826656` 補回下方
-  「保護行為核對」小節後 main CI 四 job 綠；本機檢查改以 `set -eo pipefail` 執行。
+  （詳見 `docs/releases/v0.6.0-final-report.md` §34）。（main `ea7de59`）
+- `scripts/release-verify.sh --run-tests` 現在也跑 src-tauri 的 clippy＋test（CHANGELOG claim-check 住在那裡，
+  `cargo test --workspace` 跑不到這個 workspace-exclude 的 leaf crate）與 `pnpm aip:check`；每段直接取 `$?`、不經管線。
+  `release-scripts.sh` 靜態核對這兩件事（48/0）。（d94abac）
 
-### 保護行為核對（沿用 0.6.0，本段未改動）
-- 桌面角色視窗的主機端點擊穿透輪詢 80ms（`CLICKTHROUGH_POLL_MS`）不變。
-- Runtime Session Host（`character_session.rs`）、桌面同步卡（`CharacterSyncCard.tsx`）、iOS Session client
-  （`SessionClient.swift`）皆已於 0.6.0 落地，本段只修發布 workflow，不動它們。
+### Changed
+- CHANGELOG claim-check 不再要求「最上方非空段落至少重述一次點擊穿透輪詢間隔」：src-tauri 的
+  `changelog_unreleased_click_through_claims_match_code` 只擋過期的 500ms 宣稱與數字不一致（新增
+  `changelog_click_through_check_does_not_force_repetition`）；`docs-claims.sh` 的「已落地功能要有條目」改綁到落地的版本段
+  `## [0.6.0]`，不再要求每個新段落重抄。release facts 綁版本與 commit（evidence-index），行為保護由 executable tests 保證。
+
+### Docs
+- README／`docs/ARCHITECTURE.md`／`docs/FEATURES.md`／`CLAUDE.md` 改為 v0.6.0 已於 2026-09-05 發布（tag `v0.6.0` → `4bd55fe`）；
+  `docs/aip/general-mode-ux.md` 不再宣稱 Runtime 未投影協商結果（v0.6.0 起 `members[].unsupportedIntents` 已投影）；
+  `docs/aip/README.md` §6 的 session-reset 條件改為「`sessionEpoch` 與本地**不同**」（與 §7、Rust／iOS 一致）；
+  `docs/releases/v0.6.0-release-readiness.md` 的 header 與關卡表不再自相矛盾。（ca26cbe）
+- 新增 `docs/releases/v0.6.x-maintainability-progress.md`（需求矩陣、基線、已完成步驟、下一動作、blockers）。（422a5cf、830e748）
 
 ## [0.6.0] - 2026-09-05
 
