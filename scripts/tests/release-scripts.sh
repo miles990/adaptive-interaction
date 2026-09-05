@@ -128,6 +128,19 @@ grep -qiE '(SKIP|跳過)' "$WORK/verify.out"
 check "release-verify.sh --skip-ci 明確輸出『跳過』（CI 關卡未評估）" $? "$(tr '\n' '|' < "$WORK/verify.out")"
 grep -qiE '(SKIP|跳過).*(test|測試)' "$WORK/verify.out"
 check "release-verify.sh 未帶 --run-tests 時明確輸出『測試未跑』" $?
+
+# --run-tests 必須涵蓋 Tauri backend（workspace exclude 的 leaf crate；CHANGELOG claim-check 住在那裡）
+# 與 AIP codegen 漂移：v0.6.0 發布後 ea7de59 在本機通過、到 CI 的 Tauri backend job 才變紅，
+# 就是因為本機關卡漏了這一段。這裡靜態核對 --run-tests 區塊真的呼叫了它們（每段各自取 $?，不經管線）。
+RT="$(awk '/RUN_TESTS" == "1"/,/^else/' scripts/release-verify.sh)"
+grep -q 'cargo test --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml' <<<"$RT"
+check "release-verify.sh --run-tests 跑 src-tauri 的 cargo test（CHANGELOG claim-check）" $?
+grep -q 'cargo clippy --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml' <<<"$RT"
+check "release-verify.sh --run-tests 跑 src-tauri 的 clippy" $?
+grep -q 'pnpm aip:check' <<<"$RT"
+check "release-verify.sh --run-tests 跑 pnpm aip:check（codegen 漂移）" $?
+grep -Eq '\| *(tail|grep|tee)' <<<"$RT" && P=1 || P=0
+check "release-verify.sh --run-tests 區塊沒有會吞掉退出碼的管線（tail/grep/tee）" "$P"
 if grep -qE '^✔ all gates passed for v9\.9\.9$' "$WORK/verify.out"; then
   bad "有關卡被跳過時，收尾不得是無限定詞的『all gates passed』" "$(grep '^✔' "$WORK/verify.out" | tail -1)"
 else

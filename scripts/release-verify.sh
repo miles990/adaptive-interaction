@@ -144,11 +144,19 @@ if [[ "$RUN_TESTS" == "1" ]]; then
   cargo fmt --all --check >/dev/null 2>&1; gate "cargo fmt" $?
   cargo clippy --workspace --all-targets -- -D warnings >/dev/null 2>&1; gate "cargo clippy" $?
   cargo test --workspace --no-fail-fast >/dev/null 2>&1; gate "cargo test --workspace" $?
+  # Tauri backend 是獨立的 leaf crate（workspace exclude），`cargo test --workspace` 不會跑到它；
+  # CHANGELOG claim-check（changelog_unreleased_click_through_claims_match_code）就住在這裡——
+  # v0.6.0 發布後的 ea7de59 正是因為本機沒跑這一段才在 CI 變紅。每一段都直接取 $?，不經管線。
+  cargo clippy --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+  gate "cargo clippy (src-tauri)" $?
+  cargo test --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml >/dev/null 2>&1
+  gate "cargo test (src-tauri: host_safety / character_store / CHANGELOG claim-check)" $?
+  (cd apps/interaction-desktop && pnpm aip:check >/dev/null 2>&1); gate "pnpm aip:check (AIP codegen drift)" $?
   (cd apps/interaction-desktop && pnpm typecheck >/dev/null 2>&1); gate "pnpm typecheck" $?
   (cd apps/interaction-desktop && pnpm test >/dev/null 2>&1); gate "pnpm test" $?
   (cd apps/interaction-desktop && pnpm build >/dev/null 2>&1); gate "pnpm build" $?
 else
-  skip "full test matrix (fmt/clippy/cargo test/typecheck/pnpm test/build)" "沒有 --run-tests；本機測試未跑"
+  skip "full test matrix (fmt/clippy/cargo test/src-tauri clippy+test/aip:check/typecheck/pnpm test/build)" "沒有 --run-tests；本機測試未跑"
 fi
 
 if [[ "$FAIL" != "0" ]]; then
