@@ -10,6 +10,7 @@
 | `adversarial-review-v04.js` | v0.4 子系統（presentation／gateway／memory／knowledge／curator／前端） | 回傳值 |
 | `adversarial-review-v05.js` | v0.5 三核心＋角色呈現協定，13 維度、blocker/high 雙視角驗證 | 回傳值＋`docs/reviews/adversarial/<runId>.{json,md}` |
 | `adversarial-review-v06.js` | v0.6.0 Foundation：AIP／Session／身分／配對遷移／角色包／renderer 生命週期／一般模式／證據／重連／邊界／發布 12 維度（規格＝`docs/aip/README.md`） | 回傳值＋`docs/reviews/adversarial/<runId>.{json,md}` |
+| `adversarial-review-v06x.js` | v0.6.x 可維護性與一般模式收斂分支：只審 `git diff <base>..HEAD`（預設 base `8f52837`），12 維度（session client rollback／快照格式與持久化／hash 契約／SensorSource／registry 所有權／宣告式 AIP binding／角色設定綁定／一般模式／iOS 生命週期／文件與 release／**誠實階梯稽核**／非同步有界性） | 回傳值＋`docs/reviews/adversarial/<runId>.{json,md}` |
 
 ## 所需 runtime
 
