@@ -101,7 +101,7 @@ golden schema 由 `GOLDEN_UPDATE=1 cargo test -p interaction-e2e --test golden` 
 新 session 先讀進度文件的 §4（Blockers）與 §5，再決定動什麼：
 
 - 上一輪（可維護性收斂）：`docs/releases/v0.6.x-maintainability-progress.md`。
-- 本輪：`docs/releases/v0.7.0-progress.md`（由整合者建立；若檔案還不在，以上一份為準）。
+- 本輪 v0.7.0（候選）：`docs/releases/v0.7.0-progress.md`——由整合者建立；若檔案還不在，以上一份為準。
 
 進度文件、`CHANGELOG.md`、`docs/acceptance-evidence.md` 與 `docs/releases/evidence-index.json`
 由整合者統一維護——平行工作的 agent 不要各自改這幾個檔，避免衝突與重複記錄。

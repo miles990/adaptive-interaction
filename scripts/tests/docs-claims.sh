@@ -142,7 +142,7 @@ except Exception as e:  # noqa: BLE001
     need(False, "%s 不是合法 JSON：%s" % (idx_path, e))
 if idx:
     need(idx.get("schemaVersion") == 1, "%s schemaVersion 必須是 1" % idx_path)
-    stale_docs = ["README.md", "docs/ARCHITECTURE.md", "docs/FEATURES.md", "CLAUDE.md"]
+    stale_docs = ["README.md", "docs/ARCHITECTURE.md", "docs/FEATURES.md", "CLAUDE.md", "AGENTS.md"]
     stale_text = {d: read(d) for d in stale_docs if os.path.exists(d)}
     for rel in idx.get("releases", []):
         tag = rel.get("tag", "")
