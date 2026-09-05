@@ -1809,6 +1809,8 @@ dependencies = [
  "qrcode",
  "rand 0.8.8",
  "rcgen",
+ "rumqttc",
+ "rumqttd",
  "rustls 0.23.43",
  "rustls-pemfile",
  "schemars",
@@ -1822,6 +1824,7 @@ dependencies = [
  "tokio-rustls 0.26.4",
  "tokio-tungstenite 0.24.0",
  "tokio-util",
+ "toml 0.8.23",
  "tracing",
  "uuid",
 ]

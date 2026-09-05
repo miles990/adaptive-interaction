@@ -58,6 +58,12 @@ futures-util = "0.3"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 [dev-dependencies]
+# MQTT rebind 的最小閉環（`tests/mqtt_rebind_loop.rs`）：內嵌 broker＋模擬裝置。
+# 免重啟 rebind 的既有測試全部走 serial pty 模擬器；這兩個 dev-dep 只是為了證明
+# 那條路徑不是 serial 專屬的，production 依賴不變。
+rumqttd = { version = "0.19", default-features = false }
+rumqttc = "0.24"
+toml = "0.8"
 futures-util = "0.3"
 hmac = "0.12"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
