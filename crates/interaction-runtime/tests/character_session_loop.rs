@@ -1184,17 +1184,42 @@ async fn flooding_the_session_is_rate_limited() {
     );
 
     // 重新協商走同一個 bucket：已配對的裝置不能用 capability 洪水把 revision
-    // 與廣播打成無界成長。
-    let capability: interaction_aip::Envelope =
-        serde_json::from_value(capability_envelope(&device_id)).expect("envelope parses");
-    let submission = rt
-        .character_session_submit(capability, &party)
-        .await
-        .expect("session enabled");
-    assert_eq!(
-        submission.error,
-        Some(interaction_aip::ErrorCode::RateLimited),
-        "重新協商必須跟事件共用同一個速率上限"
+    // 與廣播打成無界成長。token bucket 每 33 ms 補一個：整個 workspace 並行跑時，
+    // 「事件剛被限流」到「送出 capability」之間被排程延遲幾十毫秒就足以補回一個 token
+    // （整合里程碑實跑過一次）。所以改成有界地重複「用事件灌到限流 → 立刻送 capability」：
+    // 共用同一個 bucket 時至少會有一次 capability 被限流；bucket 分開的話 capability
+    // 在這幾十次裡永遠不會被事件耗掉的額度擋到。
+    let mut capability_limited = false;
+    'rounds: for round in 0..20 {
+        for n in 0..60 {
+            let envelope: interaction_aip::Envelope = serde_json::from_value(touch_envelope(
+                &device_id,
+                &format!("fx-flood-r{round}-{n}"),
+                "tap",
+            ))
+            .expect("envelope parses");
+            let submission = rt
+                .character_session_submit(envelope, &party)
+                .await
+                .expect("session enabled");
+            if submission.error == Some(interaction_aip::ErrorCode::RateLimited) {
+                break;
+            }
+        }
+        let capability: interaction_aip::Envelope =
+            serde_json::from_value(capability_envelope(&device_id)).expect("envelope parses");
+        let submission = rt
+            .character_session_submit(capability, &party)
+            .await
+            .expect("session enabled");
+        if submission.error == Some(interaction_aip::ErrorCode::RateLimited) {
+            capability_limited = true;
+            break 'rounds;
+        }
+    }
+    assert!(
+        capability_limited,
+        "重新協商必須跟事件共用同一個速率上限（20 輪灌滿都沒有一次被限流＝bucket 是分開的）"
     );
     let _ = ws.close(None).await;
 }
