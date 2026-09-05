@@ -130,11 +130,16 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
 - **綁定生命週期與免重啟重新綁定（AIP 1.0 澄清／v0.7.0）**：見下面的 §6.1。
 - **身分強度**：`transport-hello+device-side-pairing`（§3）；稽核 `aip.device-channel-ready`／
   `aip.device-channel-lost`／`aip.device-retired` 帶 `identityStrength`／`transport`／`pairingUnverified`。
-- **證據等級**：`crates/interaction-runtime/tests/declarative_session_loop.rs`（13 測；D1 的 7 支加上 D2 的「其他成員的廣播真的經序列線到達／放不進 639 bytes 的 patch 留痕」「身分不符與 session-binding 稽核記 transport=serial」「diagnostics identityStrength 三來源」「撤銷後出站表清空」「無通道成員的 no-channel 稽核」）走 **production
-  `DeviceLink`＋serial adapter**，對端是 `scripts/esp32-serial-sim.py`（**pty 模擬器**；stdin 控制通道
-  `aip-capability`／`aip-touch`／`aip-resume`／`aip-raw`，未配對拒絕送出）；`aip_link.rs` 6 測、
-  `esp32_sim_conformance.rs` 的韌體／README／模擬器三方一致 2 測。韌體只有 `compile.sh` 編譯檢查。
-  **ESP32 真板驗收為零**；MQTT／BLE 共用同一段 `AipChannel<L>` 程式碼，但沒有 AIP session 測試。
+- **證據等級**：`crates/interaction-runtime/tests/declarative_session_loop.rs`（**26 測**：D1 的 7 支加入／touch／declare＋SensorSource／
+  stop-all 真 ack／靜默＝unknown／撤銷不影響其他成員／拔線 reconnecting→offline，D2 的「其他成員的廣播真的經序列線到達／放不進 639 bytes
+  的 patch 留痕」「身分不符與 session-binding 稽核記 transport=serial」「diagnostics identityStrength 三來源」「撤銷後出站表清空」
+  「無通道成員的 no-channel 稽核」，v0.7.0 再加分片四支（§6.3）、免重啟 rebind（§6.1）、`syncProfile` 推導與 event-source 成員）
+  走 **production `DeviceLink`＋serial adapter**，對端是 `scripts/esp32-serial-sim.py`（**pty 模擬器**；stdin 控制通道
+  `aip-capability`／`aip-touch`／`aip-resume`／`aip-raw`，未配對拒絕送出）；`aip_link.rs` **14 測**、
+  `esp32_sim_conformance.rs` **24 測**（其中韌體／README／模擬器三方一致 2 支）。韌體只有 `compile.sh` 編譯檢查。
+  **ESP32 真板驗收為零**；MQTT 有 rebind 閉環（`crates/interaction-runtime/tests/mqtt_rebind_loop.rs`，程序內 broker ＋假裝置），
+  **BLE 仍沒有任何 AIP session 測試**——三者共用同一段 `AipChannel<L>` 程式碼。
+  （數字由 `scripts/tests/docs-claims.sh` 對著檔案裡的 `#[test]`／`#[tokio::test]` 逐一核對，手抄過期就紅。）
 - **出站與 diagnostics（D2）**：Runtime 的 AIP 出站是型別抹除的登記表（`character_session::DeviceOutbound`，
   有界 64；iPhone 與宣告式裝置各自在認證／握手後登記、斷線／撤銷時移除），`character_session_send` 只問
   「這台裝置現在有沒有一條送得出去的線」——所以其他成員造成的 shared state 廣播**真的**會走序列線
@@ -299,6 +304,6 @@ crc／逾時／取消、crc32 標準向量）、`aip_link.rs` 14 測（`MockRawL
 `::a_device_without_fragmentation_degrades_to_intent_only`（`--no-frag` 降級成 `intent-only`）、
 `::a_reconnected_device_resumes_and_gets_the_state_it_missed`（重連 resume）、
 `::an_interrupted_inbound_transfer_is_audited_not_silently_dropped`（被取消的傳輸留稽核）。
-**ESP32 真板驗收仍為零**；MQTT／BLE 共用同一段 `AipChannel<L>` 程式碼，但沒有 AIP session 測試。
+**ESP32 真板驗收仍為零**；MQTT 有 rebind 閉環（`mqtt_rebind_loop.rs`，程序內 broker），**BLE 仍沒有任何 AIP session 測試**——三者共用同一段 `AipChannel<L>` 程式碼。
 
 行號對應 `9799b1e`（`fragment.rs` 443 行）。行號會漂，`＝` 後面的符號名才是錨點——對不上時以符號名為準。

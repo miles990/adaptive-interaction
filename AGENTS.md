@@ -98,10 +98,13 @@ golden schema 由 `GOLDEN_UPDATE=1 cargo test -p interaction-e2e --test golden` 
 
 ## 7. 接續進度
 
-新 session 先讀進度文件的 §4（Blockers）與 §5，再決定動什麼：
+新 session 先讀**最新那一份**進度文件的「下一動作」與「Blockers」兩節，再決定動什麼
+（章節號會隨文件長大而改，所以這裡逐份寫明；`scripts/tests/docs-claims.sh` 會核對這兩件事：
+檔案存在，且下面標的 Blockers 節號與檔案裡的真實節號一致）：
 
-- 上一輪（可維護性收斂）：`docs/releases/v0.6.x-maintainability-progress.md`。
-- 本輪 v0.7.0（候選）：`docs/releases/v0.7.0-progress.md`——由整合者建立；若檔案還不在，以上一份為準。
+- 本輪 v0.7.0（候選）：`docs/releases/v0.7.0-progress.md`——下一動作在 §5，Blockers 在 §6。
+- 上一輪（可維護性收斂，已收尾）：`docs/releases/v0.6.x-maintainability-progress.md`——下一動作在 §3，
+  Blockers 在 §4。它只涵蓋第一輪；第二輪落地了什麼要看上面那一份與 `CHANGELOG.md` 的 `[Unreleased]`。
 
 進度文件、`CHANGELOG.md`、`docs/acceptance-evidence.md` 與 `docs/releases/evidence-index.json`
 由整合者統一維護——平行工作的 agent 不要各自改這幾個檔，避免衝突與重複記錄。

@@ -175,9 +175,13 @@
   補送」的實跑；清標記是第三次寫入，失敗時標記會留到下一次 mount。
 - 真 Tauri AX 走查不在 CI（需要 macOS 桌面工作階段與輔助使用權限），且不涵蓋手機相關任務；五份非開發者
   受測者腳本仍是 **not-run**（沒有受測者）。
-- 演練 §7 的三個缺口未修：`SemanticState` 不在任何跨語言 schema（加欄位對 TS／Swift 零機械傳播）、沒有測試
-  擋得住「選填欄位寫成 `null` 進 canonical」、`docs/aip/adapter-development.md` §1 把「加角色」與「加 adapter」
-  混成一步。演練文件 §7 F3（`syncProfile` 零消費端）已由 `bc6d834` 修掉，該節記的是演練當下的事實。
+- 演練 §7 的缺口本輪已逐條變成可執行的把關（`2aad4dd`），剩下的是**範圍**而不是「沒人看著」：
+  `SemanticState` 仍然不在 `schemas/aip-1.0.schema.json`（它由 `interaction-aip` 的型別產生，state 住在
+  `interaction-session`），只是加欄位不再對 TS／Swift 零機械傳播——`state_hash_fixtures.rs` 要求 schemars
+  推導出的每一個欄位路徑都出現在 `stateHashes` fixture，缺席即紅；「選填欄位寫成 `null` 進 canonical」由
+  `state_semantics.rs::semantic_state_never_serializes_a_null` 擋住；`docs/aip/adapter-development.md` §1
+  已拆成 1a（加角色）／1b（加 adapter）。演練文件 §7 的 F1／F2／F4／F5 因此都已結清，F3（`syncProfile`
+  零消費端）更早就由 `bc6d834` 修掉——該文件記的是演練當下的事實，已就地標明 HEAD 的現況。
 
 #### Docs
 
@@ -245,7 +249,8 @@
   （unknown／unreachable／refused）以前從 activeSensors 靜默消失、孤兒安全網打不開——有界 `stop_pending` 讓它以 stopping／stop-unknown
   留著直到確認，撤銷靜默裝置留下 `sensor.source-removed-while-capturing`。(medium) 遷移寫入失敗有自己的固定文字
   `STORE_NOTE_MIGRATION_WRITE_FAILED`（備份已在，刻意不 park）；restore 前置檢查拒絕 `members[*].party` 夾帶的未知鍵（wire 的 `Party`
-  不動）；宣告式裝置 Disabled→Available 誠實標 `needs-restart-to-rebind`（warnings 原文＋人話 note＋稽核）而不假裝恢復。(low)
+  不動）；宣告式裝置 Disabled→Available 誠實標 `needs-restart-to-rebind`（warnings 原文＋人話 note＋稽核）而不假裝恢復
+  ——**這是第一輪的修法（誠實標注，不重連）；第二輪 `b32ba10` 已由真正的有界背景 rebind 取代，那句話與它的稽核都已移除**。(low)
   `MAX_PROJECTED_UNSUPPORTED_INPUTS ≤ MAX_UNSUPPORTED_INPUTS` 改為編譯期 const assert。
 - **對抗審查 TS wave（`365355d`，5/5 fixed）**：(high) `ingestResume` 對「本地已透過別的管道追上」的良性舊項不再中止（只有帶 effect 的
   realign 才停），後面的新補丁不再被靜默丟掉；patches 有界 `MAX_RESUME_PATCHES = 1024`，超過誠實 realign。(medium) `alignState` snapshot
@@ -346,7 +351,8 @@
   最短間隔／每日次數／費用上限／指定的 AI 幫手。角色庫預設 4 張＋「顯示全部角色」。任務量測（同一腳本前後）：調陪伴程度決策數 10→3；
   暫停主動對話 30→10；換角色 38→13；設安靜時段 35→15（三個任務各多一次展開點擊）。App shell 的 `goTo(tab, opts)` 現在把
   `{hub:"providers"}` 傳到 `ConnectPage initial="providers"`，同步卡的「連接手機／重新確認」一鍵到配對區（deep-links 測試）。
-- **角色同步卡有下一步、撤銷是正常終態、保存問題分級**（M3 §4.2／§4.3）：`statusProjection/characterSync.ts` 十一態變十二態，
+- **角色同步卡有下一步、撤銷是正常終態、保存問題分級**（M3 §4.2／§4.3）：`statusProjection/characterSync.ts` 十一態變十二態
+  （**第二輪再加 `partial-sync`，HEAD 上是十三態**，`9799b1e`／`bc6d834`），
   每一態輸出穩定的 action id（`connect-phone`／`reconfirm-device`／`view-capabilities`／`safe-reconnect`／`open-devices`／
   `storage-help`／null）與落點，卡片在有 `onNavigate` 時渲染一顆主要動作按鈕（已同步／同步中／關閉不催促）；使用者主動移除全部
   手機後是中性的「目前只在這台電腦使用」（`local-only`）而非永遠亮著的「需要重新確認裝置」，撤銷的安全效果不變（只有那台裝置
@@ -389,21 +395,42 @@
   `changelog_click_through_check_does_not_force_repetition`）；`docs-claims.sh` 的「已落地功能要有條目」改綁到落地的版本段
   `## [0.6.0]`，不再要求每個新段落重抄。release facts 綁版本與 commit（evidence-index），行為保護由 executable tests 保證。
 
-### Known limitations（本分支新增；修掉時同步刪除）
-- **Serial 成員拿不到初始快照，也收不到含 members 的 patch**：參考韌體單行上限 639 bytes；協商的 snapshot（實測 1019 bytes）與任何
-  含 `members` 的 `state{kind:"patch"}`（`SemanticState.members` 在 merge diff 裡整段重送，成員 presence／lastSeenAt 變動即 660–784 bytes）
-  都在寫上線前被拒絕並稽核 `aip.outbound-undeliverable`；只有不含 members 的小 patch（緊急停止真相變更，450 bytes）送得到。分段／
-  per-member diff／縮減 profile 是協定層決定，本分支未做。
+### Known limitations（第一輪新增；修掉時同步刪除——本輪修掉的就地劃掉並註明 commit）
+
+> 這一段是第一輪（可維護性收斂）結束時的清單。第二輪（v0.7.0 候選）修掉的項目在下面
+> **就地劃掉**並註明修掉它的 commit 與釘住它的測試；本輪結束時仍然成立的完整清單見
+> `docs/releases/v0.7.0-known-limitations.md`。`docs-claims.sh` 會比對「還掛著的限制」與
+> 「修掉它的測試存不存在」，兩者同時成立就紅。
+
+- ~~**Serial 成員拿不到初始快照，也收不到含 members 的 patch**：參考韌體單行上限 639 bytes；協商的 snapshot（實測 1019 bytes）與任何
+  含 `members` 的 `state{kind:"patch"}`（成員 presence／lastSeenAt 變動即 660–784 bytes）都在寫上線前被拒絕並稽核
+  `aip.outbound-undeliverable`；分段／per-member diff／縮減 profile 是協定層決定，本分支未做。~~
+  → **本輪部分修掉**（`9799b1e`）：裝置線 v1.2 的 `aip-frag` 分片讓宣告 `aip.frag/1` 的裝置真的收到 snapshot 與含
+  `members` 的 patch（`crates/interaction-adapter-declarative/src/fragment.rs`；回歸
+  `declarative_session_loop.rs::a_fragmenting_device_receives_the_snapshot_and_is_a_full_state_member`）。
+  **仍然成立的那一半**：不宣告 `aip.frag/1` 的裝置（含目前的參考韌體）照舊送不到，降級成 `intent-only`；
+  per-member diff／scope 局部投影仍未做（`docs/aip/transport-bindings.md` §8.1）。
 - 從快照還原、尚未重新連線的裝置成員沒有出站通道：在 presence tick 把它降級之前，每一則廣播都會留一列 `aip.outbound-undeliverable{reason:"no-channel"}`
   （誠實但比修改前的一行 debug log 吵）。
 - `interaction-adapter-declarative` 的 `PROVIDER_LINKS` 是行程層 static（鍵＝provider id）：production 一個 daemon 一份不會撞，但同一行程多個
   Runtime 的測試必須用不同 provider id。
-- **對抗審查後仍存在**：(a) snapshot「epoch 不同但非 session-reset」三端不一致——TS realign（較嚴）、Rust／Swift 接受並改寫本地 epoch；
-  已揭露並釘死，統一需要 AIP 契約層裁決＋跨語言 fixture。(b) `MAX_RESUME_PATCHES = 1024` 是桌面端自訂上界，與 host 事件日誌環沒有共享常數。
-  (c) iOS 背景閘門在 ConnectionManager 的接線沒有自動化測試（需可注入的 WebSocket 傳輸）；10 s resume 寬限窗不是跨端契約。
-  (d) 宣告式裝置 Disabled→Available 仍需重啟 daemon 才重新綁定（只誠實標注，不自動重連）；純 HTTP 宣告式 adapter 的高風險受器被要求停止後
-  會持續 stop-unknown 直到重新啟用或撤銷。(e) 行為變更：只要還有另一支已配對 iPhone 的 provider 處於操作中，通用停用／撤銷其中一台就**不再**
-  關掉 `iphone.*` 全域旗標——想全部關掉用「停止所有感測」或緊急停止。(f) 同步卡指名手機的捲動只在 jsdom 驗證。
+- **對抗審查後仍存在**（第二輪的處置逐條列在後面）：
+  - ~~(a) snapshot「epoch 不同但非 session-reset」三端不一致——TS realign（較嚴）、Rust／Swift 接受並改寫本地 epoch。~~
+    → 已修（`d941a9e`／`e2179d5`／`050bac7`／`dbeed51`）：三端統一 realign，45 個 `receiveDecisions` fixtures 逐筆釘住。
+  - ~~(b) `MAX_RESUME_PATCHES = 1024` 是桌面端自訂上界，與 host 事件日誌環沒有共享常數。~~
+    → 已修（`d941a9e`）：權威值移進 `interaction_aip::limits`（**512**，`const assert` 綁死 ＝ `EVENT_LOG_RING`），
+    發布進 `schemas/aip-1.0.schema.json` 的 `limits` 表，TS／Swift 由 codegen 讀同一個數字。1024 在 HEAD 已不存在。
+  - ~~(c) iOS 背景閘門在 ConnectionManager 的接線沒有自動化測試（需可注入的 WebSocket 傳輸）。~~
+    → 已修（`df8e013`／本輪 Swift wave）：`InteractionCompanionTests/ConnectionManagerGateTests.swift` 7 支，
+    傳輸接縫在 `Services/SocketTransport.swift`。**仍然成立**：10 s resume 寬限窗不是跨端契約。
+  - ~~(d) 宣告式裝置 Disabled→Available 仍需重啟 daemon 才重新綁定（只誠實標注，不自動重連）。~~
+    → 已修（`b32ba10`）：`declarative_lifecycle.rs` 的有界背景 rebind，`needs-restart-to-rebind` 的 detail 文字與稽核已移除；
+    回歸 `declarative_session_loop.rs::reenable_rebinds_without_restart`、`mqtt_rebind_loop.rs::mqtt_reenable_rebinds_without_restart`。
+    **仍然成立的那一半**：純 HTTP 宣告式 adapter 的高風險受器被要求停止後會持續 stop-unknown 直到重新啟用或撤銷；
+    rebind 失敗後狀態留在 `disconnected`；撤銷／移除永不重綁。
+  - (e) 行為變更：只要還有另一支已配對 iPhone 的 provider 處於操作中，通用停用／撤銷其中一台就**不再**
+    關掉 `iphone.*` 全域旗標——想全部關掉用「停止所有感測」或緊急停止。（仍然成立）
+  - (f) 同步卡指名手機的捲動只在 jsdom 驗證。（仍然成立）
 - 宣告式裝置沒有 recipe 相容的 touch observation id（iPhone 有 `iphone.touch`）；沒有憑空發明一個。
 - `declarative_session_loop.rs` 的多裝置隔離測試用程序內 device fixture 當第二成員，未與 fake_iphone 子程序並存。
 - `crates/interaction-adapter-declarative/src/serial.rs::a_port_that_dies_immediately_backs_off_and_is_reported_offline` 是既有的偶發

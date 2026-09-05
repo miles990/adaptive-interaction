@@ -321,11 +321,13 @@ v0.7.0（裝置線 v1.2）再加兩項：
 * **出站**：與 iPhone 走同一張型別抹除的出站登記表（`character_session::DeviceOutbound`）；握手成立登記、
   撤銷／斷線移除。送不到（超過單行上限、線已關）→ `aip.outbound-undeliverable`；沒有通道 → 同一稽核
   `reason:"no-channel"`；表滿（64）→ `aip.outbound-rejected`。
-* **證據**：`declarative_session_loop.rs` 25 測（pty **模擬器**經 production serial adapter；含「廣播真的走
+* **證據**：`declarative_session_loop.rs` 26 測（pty **模擬器**經 production serial adapter；含「廣播真的走
   序列線」「snapshot／含 members 的 patch 經分片真的到達且成員是 `full-state`」「`--no-frag` 降級成
-  `intent-only`」「被取消的分片傳輸留稽核」「實測行長度」）、`aip_fragment.rs` 17 測（純函式與重組器）、
+  `intent-only`」「被取消的分片傳輸留稽核」「實測行長度」「event-source 成員」）、`aip_fragment.rs` 17 測（純函式與重組器）、
   `aip_link.rs` 14 測（`MockRawLink`）、`esp32_sim_conformance.rs` 24 測（韌體／模擬器／README 三方一致）；
-  MQTT／BLE 共用同一段 `AipChannel<L>` 程式碼但沒有 AIP session 測試；**ESP32 真板驗收仍為零**。
+  MQTT 有 rebind 閉環（`crates/interaction-runtime/tests/mqtt_rebind_loop.rs::mqtt_reenable_rebinds_without_restart`，
+  程序內 rumqttd broker ＋ rumqttc 假裝置，走 `register_declarative_spec`／rebind 全程並斷言重新握手），
+  **BLE 仍沒有任何 AIP session 測試**——三者共用同一段 `AipChannel<L>` 程式碼；**ESP32 真板驗收仍為零**。
 
 ### 8.1 局部投影（scope／revision／hash）：**未做**的設計方向
 

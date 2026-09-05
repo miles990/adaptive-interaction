@@ -326,8 +326,11 @@ skippedStale, parked, lastPersistError, note }`——遷移寫在 `migratedFrom`
 > `partial-capability` 不是故障。其餘文案允許改寫與本地化。每一態另有**穩定的下一步 action id**（machine semantics）：
 > `connect-phone`（`no-device`／`local-only` → connect/providers）、`reconfirm-device`（`needs-reconfirmation` → connect/providers，
 > 帶上是哪一台）、`view-capabilities`（`partial-capability`／`capability-unknown` → connect/devices）、`safe-reconnect`
-> （`unrecoverable` → connect/providers）、`open-devices`（`offline`／`reconnecting`，不催促）、`storage-help`（`store-issue`，
+> （`unrecoverable` → connect/providers）、`open-devices`（`partial-sync`／`offline`／`reconnecting`
+> → connect/devices，不催促）、`storage-help`（`store-issue`，
 > 只有說明、沒有落點）、`null`（`synced`／`syncing`／`disabled`）。按鈕文案可改，id 與落點由測試釘住。
+> 狀態總數以 `apps/interaction-desktop/src/statusProjection/characterSync.ts` 的 `CharacterSyncState`
+> union 為準（v0.7.0 候選起是**十三態**，`src/test/statusProjection-session.test.ts` 窮舉）。
 
 | 狀態 | 文案 |
 |---|---|
@@ -335,6 +338,7 @@ skippedStale, parked, lastPersistError, note }`——遷移寫在 `migratedFrom`
 | 有 online 遠端成員，但**拿不到**協商結果（`members[].unsupportedIntents` 讀不到／形狀不認得） | 「iPhone 已連接，能力核對中」（`capability-unknown`；補充：「狀態對齊了，但還沒確認這台裝置演得出哪些表演；在確認之前不要當成完全同步。」） |
 | 遠端成員 presence=reconnecting | 「iPhone 正在重新連線」 |
 | 遠端成員 offline | 「iPhone 暫時離線」 |
+| **有 online 遠端成員，但它那條線送不到完整的共享狀態**（`members[].syncProfile` 是 `intent-only`／`event-source`；`device-profile.md` §3.1） | 「有裝置收不到完整狀態」（`partial-sync`；info，**不給綠勾**——它拿到的根本不是同一份狀態。排在能力判定與「已同步」之前；`syncProfile` 欄位缺席時不憑空升降級） |
 | 協商後有 unsupported intent | 「部分能力目前不可用」 |
 | resume 進行中 | 「同步尚未完成」 |
 | 連續 resume 失敗 | 「無法恢復，請重新連接」 |
@@ -354,6 +358,9 @@ skippedStale, parked, lastPersistError, note }`——遷移寫在 `migratedFrom`
 3. 「能力核對中」排在「部分能力目前不可用」與「已同步」之間：不知道就不給綠勾（綠勾只給真的），
    也不誣賴裝置做不到。Runtime 投影 `members[].unsupportedIntents`（§3）之後，正式路徑上這一列
    只會在讀不到 diagnostics／形狀不認得時出現。
+4. `partial-sync`（送不到完整狀態）排在 `partial-capability`（演不出全部）**之前**：後者的文案說
+   「狀態已經對齊了、只是演不出全部」，而 `intent-only`／`event-source` 的成員連狀態都沒有完整送到，
+   講成「對齊了」是把兩件事說反。
 
 ## 12. 實作註記（`crates/interaction-session`，v0.6.0）
 
