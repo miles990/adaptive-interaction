@@ -246,13 +246,17 @@ schema 版本、transport／token／provider id、裝置識別碼、原始 paylo
 > 來源：`GET /v1/status` 的 `characterSessionSync[]`（沒有裝置成員時後端不序列化這個鍵）
 > 與 `GET /v1/character-session/diagnostics` 的 `members[].syncProfile`
 > （查不到出站通道就**省略**該欄位）。推導規則見 `docs/aip/device-profile.md` §3.1
-> ——是 Runtime 依那條線的事實推導的，不是裝置自己宣稱的。
+> ——是 Runtime 推導的，不是裝置自己宣稱的；但**「不是裝置自己宣稱的」只對 `full-state`
+> 這一態成立**（升級條件是「真的把一份完整快照寫上那條線」這個觀察到的事實）。
+> 「我會重組分片」是裝置在握手時自己說的一句話，host 驗證不了，所以那只夠讓它停在
+> `pending-full-state`。
 > 投影：`src/statusProjection/characterSync.ts`
 > （`characterSyncProfiles`／`characterSyncProfileLabel`／`characterSyncProfileNote`）。
 
 | `syncProfile` | 一般模式看到 | 同步卡的狀態 |
 |---|---|---|
 | `full-state` | （沒有多的字）照舊 | 既有語意（可以是「已同步」） |
+| `pending-full-state` | 尚未確認能收到完整狀態 | 有裝置收不到完整狀態（`partial-sync`，不是綠色） |
 | `intent-only` | 只接收指令 | 有裝置收不到完整狀態（`partial-sync`，不是綠色） |
 | `event-source` | 只回報事件 | 有裝置收不到完整狀態（`partial-sync`，不是綠色） |
 | 認不得的值 | 拿不到完整狀態 | 有裝置收不到完整狀態（不猜成 `full-state`） |
@@ -261,6 +265,13 @@ schema 版本、transport／token／provider id、裝置識別碼、原始 paylo
 最後一列是刻意的：舊 Runtime 不送這個欄位，Runtime 查不到出站通道時也會省略——
 **沒有回報 ≠ 非 full-state**，所以不憑空降級，也不憑空升級。
 
+`pending-full-state` 這一列也是刻意分開的（對抗審查 `713f8fe` 的 `declarative-aip-binding-020`）：
+它不是「這條線送不到」，是「這條線可能送得到，但還沒有任何一份完整狀態真的送達過」。
+所以裝置條目上那一句是**尚未確認**（「這台裝置說它收得下完整的角色狀態，但還沒有任何一份真的
+送達過，所以還不算已同步。」），不是 `intent-only`／`event-source`／認不得的值共用的「收不到」——
+把未知講成已知是反方向的謊，和把它畫成綠勾一樣不誠實。卡片層級照舊只有兩種可能：不是 `full-state`
+就進 `partial-sync`（info，不是綠色）。
+
 三個出現的地方（同一份投影，說法一致）：
 
 - **角色頁的同步卡**：徽章變成「有裝置收不到完整狀態」（`info`，不是綠色），
@@ -268,6 +279,7 @@ schema 版本、transport／token／provider id、裝置識別碼、原始 paylo
 - **連接與權限的手機卡**：那一行變成「角色同步：只接收指令（不是完整同步）」，
   不再出現「角色同步：已同步」。
 - **連接與權限的裝置條目**：加一句「只回報事件：這台裝置收不到完整的角色狀態，不算已同步。」
+  （`pending-full-state` 用它自己的那一句，見上。）
 
 **判定排在能力之前**：`部分能力目前不可用` 的文案說「狀態已經對齊了」，而這一態連狀態都
 沒有完整送到，講成「對齊了、只是演不出全部」是把兩件事說反。

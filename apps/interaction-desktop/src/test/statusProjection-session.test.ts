@@ -15,6 +15,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CHARACTER_SYNC_EMERGENCY_TEXT,
+  CHARACTER_SYNC_PROFILE_UNKNOWN_LABEL,
   CHARACTER_SYNC_PROJECTION,
   CHARACTER_SYNC_RECOVERED_NOTE,
   CHARACTER_SYNC_STATES,
@@ -690,6 +691,34 @@ describe("成員同步模式：只有 full-state 可以說「已同步」", () =
       expect(characterSyncProfileNote(raw) ?? "").not.toMatch(FORBIDDEN);
     }
     expect(characterSyncProfileNote("full-state")).toBeNull();
+  });
+
+  // 對抗審查 713f8fe `declarative-aip-binding-020` 的修復（`a1015a4`）新增了第四個值。
+  it("pending-full-state 說「尚未確認」而不是「拿不到」（未知不得講成已知）", () => {
+    const label = characterSyncProfileLabel("pending-full-state");
+    expect(label).toBe("尚未確認能收到完整狀態");
+    // 反方向的謊也是謊：它不是「收不到」，是「還沒證明收得到」。
+    expect(label).not.toBe(CHARACTER_SYNC_PROFILE_UNKNOWN_LABEL);
+    expect(label ?? "").not.toContain("拿不到");
+
+    const note = characterSyncProfileNote("pending-full-state");
+    expect(note).toBe(
+      "尚未確認能收到完整狀態：這台裝置說它收得下完整的角色狀態，但還沒有任何一份真的送達過，所以還不算已同步。"
+    );
+    expect(note ?? "").not.toContain("收不到完整的角色狀態");
+    // 一般模式的兩條硬規則照舊：不外洩原始值、不外洩技術詞。
+    expect(label ?? "").not.toMatch(/[a-z]/i);
+    expect(note ?? "").not.toMatch(/[a-z]/i);
+    expect(note ?? "").not.toMatch(FORBIDDEN);
+
+    // 但它一樣**不是** full-state：同步卡照舊降級成 `partial-sync`（info，不是綠勾）。
+    const members = characterSyncMembers(onlineSnapshot(), { [DEVICE]: FIXTURE_PHONE }, {
+      [DEVICE]: "pending-full-state",
+    });
+    const p = projectCharacterSession(onlineSnapshot(), members, signals());
+    expect(p.state).toBe("partial-sync");
+    expect(p.tone).not.toBe("ok");
+    expect(p.headline).not.toContain("已同步");
   });
 
   it("成員帶著自己的同步模式（查不到就是 null，不猜）", () => {

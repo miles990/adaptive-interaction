@@ -221,8 +221,8 @@ export interface CharacterSyncMember {
    */
   degraded: boolean | null;
   /**
-   * Runtime 推導的同步模式原始值（`full-state`／`intent-only`／`event-source`），
-   * 查不到就是 `null`。**不得**直接渲染：畫面一律走
+   * Runtime 推導的同步模式原始值（`full-state`／`pending-full-state`／`intent-only`／
+   * `event-source`），查不到就是 `null`。**不得**直接渲染：畫面一律走
    * [`characterSyncProfileLabel`]／[`characterSyncProfileNote`]。
    */
   syncProfile: string | null;
@@ -234,14 +234,27 @@ export interface CharacterSyncMember {
 //
 // 這個成員**實際上**拿得到多少共享狀態，由 Runtime 依「那條線的事實」
 //（`DeviceOutbound::max_line_bytes`／`supports_fragmentation`）＋已協商的 role 推導
-//（`crates/interaction-runtime/src/character_session.rs::derive_sync_profile`），
-// 不是裝置自己宣稱的。只有 `full-state` 拿得到完整狀態，也只有它可以說「已同步」。
+//（`crates/interaction-runtime/src/character_session.rs::derive_sync_profile`）。
+//
+// **「不是裝置自己宣稱的」只對 `full-state` 成立**（對抗審查 `713f8fe` 的
+// `declarative-aip-binding-020`）：升級成 `full-state` 的條件是觀察到的事實——Runtime 真的
+// 把一份完整快照寫上那條線、每一片都寫出成功。至於「我會重組分片」（`hello.caps` 的
+// `aip.frag/1`）是裝置在握手時**自己說的一句話**，host 沒有辦法驗證，所以它只夠讓那台裝置
+// 停在 `pending-full-state`——「說得出、還沒證明」，一樣**不得**顯示「已同步」。
+// 只有 `full-state` 拿得到完整狀態，也只有它可以說「已同步」。
 
 /** 唯一可以說「已同步」的模式。 */
 export const CHARACTER_SYNC_PROFILE_FULL_STATE = "full-state";
 
-/** 非 full-state 的人話。一般模式一個英文原始值都不得出現。 */
+/**
+ * 非 full-state 的人話。一般模式一個英文原始值都不得出現。
+ *
+ * `pending-full-state` 與另外兩個不同：它不是「這條線送不到」，而是「這條線可能送得到，
+ * 但還沒有任何一份完整狀態真的送達過」。說成「拿不到完整狀態」是把未知講成已知
+ *（反方向的謊，和把它畫成綠勾一樣不誠實），所以它有自己的一句話。
+ */
 const CHARACTER_SYNC_PROFILE_LABEL: Record<string, string> = {
+  "pending-full-state": "尚未確認能收到完整狀態",
   "intent-only": "只接收指令",
   "event-source": "只回報事件",
 };
@@ -266,10 +279,23 @@ export function characterSyncProfileLabel(profile: unknown): string | null {
   return CHARACTER_SYNC_PROFILE_LABEL[raw] ?? CHARACTER_SYNC_PROFILE_UNKNOWN_LABEL;
 }
 
+/**
+ * 每一態的補充句。預設那一句斷言「收不到」，對 `pending-full-state` 不成立
+ *（它是「還沒證明收得到」），所以那一態有自己的一句。
+ */
+const CHARACTER_SYNC_PROFILE_NOTE: Record<string, string> = {
+  "pending-full-state":
+    "這台裝置說它收得下完整的角色狀態，但還沒有任何一份真的送達過，所以還不算已同步。",
+};
+
+const CHARACTER_SYNC_PROFILE_NOTE_DEFAULT = "這台裝置收不到完整的角色狀態，不算已同步。";
+
 /** 裝置條目上的一句補充（非 full-state 才有；`full-state`／沒有回報就是 `null`）。 */
 export function characterSyncProfileNote(profile: unknown): string | null {
   const label = characterSyncProfileLabel(profile);
-  return label === null ? null : `${label}：這台裝置收不到完整的角色狀態，不算已同步。`;
+  if (label === null) return null;
+  const raw = typeof profile === "string" ? profile.trim() : "";
+  return `${label}：${CHARACTER_SYNC_PROFILE_NOTE[raw] ?? CHARACTER_SYNC_PROFILE_NOTE_DEFAULT}`;
 }
 
 /**
