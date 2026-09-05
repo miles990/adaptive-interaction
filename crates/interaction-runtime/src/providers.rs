@@ -1263,16 +1263,11 @@ impl Runtime {
         // 狀態換了，設定檔警告還在：`transition` 會整個覆寫 detail，所以警告
         // 必須自己帶過去，否則按一次「啟用」就會把明文憑證的提醒洗掉。
         // 狀態註記（例如 re-arm 的說明）本來就只屬於前一個狀態，不帶。
-        let mut warnings = provider_detail_warnings(
-            self.providers
-                .get(id)
-                .await
-                .ok()
-                .and_then(|d| d.detail)
-                .as_deref(),
-        );
-        // 上一次重新綁定留下的提醒（進行中／失敗）屬於「上一個狀態」：人類再按
-        // 一次啟用時不得把舊訊息一路帶著走——這一輪失敗時它會重新出現。
+        let previous = self.providers.get(id).await.ok();
+        let previous_state = previous.as_ref().map(|d| d.state);
+        let mut warnings = provider_detail_warnings(previous.and_then(|d| d.detail).as_deref());
+        // 上一次重新綁定留下的提醒（進行中／失敗／不支援）屬於「上一個狀態」：
+        // 人類再按一次啟用時不得把舊訊息一路帶著走——這一輪失敗時它會重新出現。
         warnings.retain(|w| !is_rebind_note(w));
         let desc = self
             .providers
@@ -1365,7 +1360,71 @@ impl Runtime {
             if let Some(generation) = self.begin_declarative_rebind(id.as_str()) {
                 return self.enter_declarative_rebinding(id, generation).await;
             }
+            // 宣告式裝置，但綁定表滿的時候它沒被登記：免重啟重新綁定對它不成立。
+            // 停用時 `retire()` 已經把能力撤回了，所以這一刻回一個乾淨的
+            // `Available` 等於說「可用」，而它一個能力都沒有。
+            if previous_state.is_some_and(provider_stopped)
+                && self.declarative_untracked(id.as_str())
+            {
+                return self.note_declarative_not_rebindable(id).await;
+            }
         }
+        Ok(desc)
+    }
+
+    /// 「可以再連上，但能力要等重新啟動才會回來」：狀態誠實地退到
+    /// `Disconnected`（沒有連上、也沒有能力），detail 說得出原因，並留稽核。
+    async fn note_declarative_not_rebindable(
+        &self,
+        id: &ProviderId,
+    ) -> DomainResult<ProviderDescriptor> {
+        let mut warnings = provider_detail_warnings(
+            self.providers
+                .get(id)
+                .await
+                .ok()
+                .and_then(|d| d.detail)
+                .as_deref(),
+        );
+        if !warnings.iter().any(|w| w == REBIND_UNTRACKED_WARNING) {
+            warnings.push(REBIND_UNTRACKED_WARNING.to_string());
+        }
+        let others: Vec<String> = warnings
+            .iter()
+            .filter(|w| *w != REBIND_UNTRACKED_WARNING)
+            .cloned()
+            .collect();
+        let note = if others.is_empty() {
+            REBIND_UNTRACKED_NOTE.to_string()
+        } else {
+            format!("{} {REBIND_UNTRACKED_NOTE}", warning_summary(&others))
+        };
+        let _ = self.store.audit(
+            "provider.rebind-not-tracked",
+            "runtime",
+            &serde_json::json!({
+                "providerId": id.as_str(),
+                "limit": crate::declarative_lifecycle::MAX_DECLARATIVE_BINDINGS,
+                "reason": "this device was never recorded in the declarative binding table (it \
+                           was full); re-enabling only allows it to connect again — its \
+                           capabilities come back after a restart",
+            }),
+        );
+        let desc = match self
+            .providers
+            .transition(
+                id,
+                ProviderState::Disconnected,
+                merge_provider_detail(Some(&note), None, &warnings),
+            )
+            .await
+        {
+            Ok(desc) => desc,
+            // 這個狀態到 `Disconnected` 不合法：那就維持現況，只留稽核。
+            Err(_) => return self.providers.get(id).await,
+        };
+        self.persist_provider(id).await;
+        self.character_project_provider(id, ProviderState::Disconnected);
         Ok(desc)
     }
 
@@ -1422,22 +1481,103 @@ impl Runtime {
         Ok(desc)
     }
 
-    /// 握手成功：這時候（也只有這時候）才把狀態從 `Disconnected` 收斂成
-    /// `Available`，並把「重新連線中」那一句從 detail 拿掉。
+    /// 一條裝置線握上手了：**先**讓綁定成立，**再**把狀態從 `Disconnected`
+    /// 收斂成 `Available`。
+    ///
+    /// 為什麼順序不能反：`DeviceBinding::on_aip` 的閘門要求生命週期是
+    /// `Bound`。先翻狀態的話，中間那段窗口裡裝置送來的每一則 frame（含
+    /// 「連上就自己送 join」那一族的 join）都會被確定性丟掉，而畫面上顯示
+    /// 「可用、已連線」——狀態先於實際綁定，誠實階梯反向。
+    ///
+    /// 為什麼要拿 provider 的序列化鎖：這是一個 check-then-act，而且是由背景
+    /// task 呼叫的。不持鎖的話，人類按下停用的同一刻若有一條線握上手，
+    /// 這裡讀到的 `Disconnected` 已經過期，接著的 `Disabled → Available`
+    /// 是一條合法邊——剛被停用的裝置會立刻被背景 task 翻回可用。
     ///
     /// 只認 `Disconnected` 這一個入口狀態。宣告式裝置平常停在 `Installed`
     /// （授權是逐能力的 enable，不是 provider 狀態），一條握手成功的連線
     /// **不得**因此把它升成 `Available`——那會讓「連上了」冒充「人類啟用了」。
-    pub(crate) async fn converge_provider_after_rebind(&self, id: &ProviderId) {
+    pub(crate) async fn converge_provider_after_link_ready(&self, id: &ProviderId) {
+        use crate::declarative_lifecycle::LinkReadyOutcome;
+        let _serialized = self.providers.lock_provider(id).await;
+        // 撤銷／停用的決定跨重啟有效：store 說它是關的，就沒有任何背景握手
+        // 可以把它打開。
+        if let Some(reason) = self.provider_off_reason(id) {
+            let _ = self.store.audit(
+                "provider.link-ready-refused",
+                "runtime",
+                &serde_json::json!({
+                    "providerId": id.as_str(),
+                    "reason": format!("this device is still marked off ({reason})"),
+                }),
+            );
+            return;
+        }
+        let outcome = self.note_declarative_link_ready(id.as_str());
+        let (established, recovered) = match &outcome {
+            LinkReadyOutcome::Refused { lifecycle } => {
+                let _ = self.store.audit(
+                    "provider.link-ready-refused",
+                    "runtime",
+                    &serde_json::json!({
+                        "providerId": id.as_str(),
+                        "lifecycle": lifecycle,
+                        "reason": "a late handshake never revives a binding the human took down",
+                    }),
+                );
+                return;
+            }
+            // 綁定表對它一無所知：維持既有行為（只收斂狀態），但也不假裝
+            // 「綁定成立了」——失敗說明不得在這條路徑上被抹掉。
+            LinkReadyOutcome::NotTracked => (false, false),
+            LinkReadyOutcome::AlreadyBound | LinkReadyOutcome::Committed { .. } => (true, false),
+            LinkReadyOutcome::RecoveredAfterFailure => (true, true),
+        };
+        self.converge_provider_state_locked(id, established, recovered)
+            .await;
+        if recovered {
+            // 這一輪 rebind 的第 7 步已經把「人類先前手動關掉的受器」套用回去
+            // 了（只是握手晚了一步）；紀錄留著的話，之後一次由**斷線**觸發的
+            // 重新綁定會拿一份過期的名單去關掉人類早就重新打開的受器。
+            self.clear_declarative_human_disabled(id.as_str());
+        }
+    }
+
+    /// 把狀態從 `Disconnected` 收斂成 `Available`（**呼叫端必須持有這台
+    /// provider 的序列化鎖**）。
+    ///
+    /// `established` ＝這一次收斂真的讓綁定成立了嗎。只有它為真時才可以把
+    /// `rebind-failed: …` 那一句從 detail 拿掉——否則一條晚到的握手會把失敗
+    /// 說明抹掉，畫面上看不出這台裝置其實一句話都送不進來。
+    pub(crate) async fn converge_provider_state_locked(
+        &self,
+        id: &ProviderId,
+        established: bool,
+        recovered: bool,
+    ) {
         let Ok(existing) = self.providers.get(id).await else {
             return;
         };
         if existing.state != ProviderState::Disconnected {
             return;
         }
-        let warnings: Vec<String> = provider_detail_warnings(existing.detail.as_deref())
+        let previous = provider_detail_warnings(existing.detail.as_deref());
+        let failure_note: Option<String> = previous
+            .iter()
+            .find(|w| w.starts_with(REBIND_FAILED_WARNING))
+            .cloned();
+        let warnings: Vec<String> = previous
             .into_iter()
-            .filter(|w| !is_rebind_note(w))
+            .filter(|w| {
+                if w == REBINDING_WARNING {
+                    // 「重新連線中」屬於上一個狀態，收斂完就不再成立。
+                    return false;
+                }
+                if w.starts_with(REBIND_FAILED_WARNING) {
+                    return !established;
+                }
+                true
+            })
             .collect();
         if self
             .providers
@@ -1451,11 +1591,25 @@ impl Runtime {
         {
             self.persist_provider(id).await;
             self.character_project_provider(id, ProviderState::Available);
+            if recovered {
+                // 失敗是真的發生過：收斂把那一句從畫面上拿掉，稽核就必須把它
+                // 接住，否則「那次重連怎麼了」在紀錄上是一段空白。
+                let _ = self.store.audit(
+                    "provider.rebind-recovered",
+                    "runtime",
+                    &serde_json::json!({
+                        "providerId": id.as_str(),
+                        "previousFailure": failure_note,
+                        "note": "the device completed its handshake after the rebind had already \
+                                 given up; the binding was re-established",
+                    }),
+                );
+            }
         }
     }
 
     /// rebind 沒有成功：狀態留在 `Disconnected`，detail 換成誠實的失敗說明。
-    pub(crate) async fn note_provider_rebind_failed(&self, id: &ProviderId, reason: &str) {
+    pub(crate) async fn note_provider_rebind_failed_locked(&self, id: &ProviderId, reason: &str) {
         let Ok(existing) = self.providers.get(id).await else {
             return;
         };
@@ -1723,13 +1877,24 @@ pub(crate) const REBIND_FAILED_WARNING: &str = "rebind-failed";
 pub(crate) const REBIND_FAILED_NOTE: &str =
     "這台裝置沒有重新連上，它的能力還沒有回來；請檢查裝置與接線後再啟用一次。";
 
+/// 這台裝置**不支援**免重啟重新綁定的固定警告文字（綁定表滿時它沒被登記）。
+pub(crate) const REBIND_UNTRACKED_WARNING: &str = "rebind-not-tracked: this device was never \
+     recorded in the declarative binding table (it was full); re-enabling only allows it to \
+     connect again — its capabilities come back after a restart";
+
+/// 同一件事的人話。
+pub(crate) const REBIND_UNTRACKED_NOTE: &str =
+    "這台裝置目前不能免重新啟動重新連上，它的能力要等重新啟動後才會回來。";
+
 /// 這一則警告是「重新綁定」自己留下的（進行中或失敗）嗎？
 ///
 /// 只有一個判準：失敗那一則後面會接原因（`rebind-failed: …`），所以不能用
 /// 相等比較——用相等比較的話，舊的失敗訊息會被人類的下一次啟用一路帶著走，
 /// 於是一台已經連上的裝置畫面上還掛著上一次的失敗。
 fn is_rebind_note(warning: &str) -> bool {
-    warning == REBINDING_WARNING || warning.starts_with(REBIND_FAILED_WARNING)
+    warning == REBINDING_WARNING
+        || warning == REBIND_UNTRACKED_WARNING
+        || warning.starts_with(REBIND_FAILED_WARNING)
 }
 
 /// 稽核 `provider.capabilities-shared-kept` 的固定說明（不含路徑、不回顯輸入）。

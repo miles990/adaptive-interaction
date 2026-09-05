@@ -53,11 +53,16 @@ const AIP_SEND_TIMEOUT: Duration = Duration::from_millis(1_500);
 const RX_POLL: Duration = Duration::from_millis(400);
 /// 握手重試退避（有界：不會退到無限久，也不會忙碌重試）。
 const HANDSHAKE_BACKOFF_MIN: Duration = Duration::from_millis(500);
-const HANDSHAKE_BACKOFF_MAX: Duration = Duration::from_secs(15);
+/// 退避上限。`declarative_lifecycle::REBIND_HANDSHAKE_BUDGET` 必須蓋得住
+/// 「最壞情況的一輪重試」（這個上限＋一次握手逾時），否則 rebind 會在
+/// binding 迴圈**還沒輪到下一次嘗試**之前就宣告失敗。
+pub(crate) const HANDSHAKE_BACKOFF_MAX: Duration = Duration::from_secs(15);
 /// 一條通道最少分到多少停止預算（多條通道平分時的下限）。
 const STOP_MIN_BUDGET: Duration = Duration::from_millis(300);
 /// 「確認來源」：裝置對 stop-all 回的 ack。只有它算確認，沒有 ack 就是未知。
 const STOP_CONFIRMED_VIA_ACK: &str = "ack";
+/// 下架這一族時取消一筆進行中的入站傳輸的原因（稽核用的固定字串）。
+const FRAGMENT_CANCELLED_REASON: &str = "cancelled";
 
 /// 這一族宣告式裝置的人話種類名（介面只知道「是哪一種來源」時用它）。
 const DECLARATIVE_CLASS_LABEL: &str = "外部裝置";
@@ -108,6 +113,8 @@ fn outbound_envelope(reply: &Value) -> Option<Value> {
 /// 講話的回音。
 struct DeclarativeOutbound {
     channel: Arc<dyn DeviceAipChannel>,
+    /// 這條線屬於哪一台 provider（型別抹除之後，核心唯一問得到的來源）。
+    provider_id: String,
 }
 
 #[async_trait::async_trait]
@@ -141,6 +148,10 @@ impl DeviceOutbound for DeclarativeOutbound {
 
     fn supports_fragmentation(&self) -> bool {
         self.channel.supports_fragmentation()
+    }
+
+    fn provider_id(&self) -> Option<&str> {
+        Some(&self.provider_id)
     }
 }
 
@@ -183,6 +194,7 @@ impl DeviceBinding {
             &self.channel.expected_device_id(),
             Arc::new(DeclarativeOutbound {
                 channel: self.channel.clone(),
+                provider_id: self.provider_id.clone(),
             }),
         );
         let party = self.party();
@@ -193,8 +205,10 @@ impl DeviceBinding {
         // 這條線真的握上手了：如果 provider 還停在「重新連線中」
         // （`Disconnected`），現在才是把它收斂成 `Available` 的時刻。
         // 只認 `Disconnected` 這一個入口——握手不得冒充人類的啟用決定。
-        rt.converge_provider_after_rebind(&interaction_core::ProviderId::new(&self.provider_id))
-            .await;
+        rt.converge_provider_after_link_ready(&interaction_core::ProviderId::new(
+            &self.provider_id,
+        ))
+        .await;
     }
 
     /// 連線／握手不再成立：成員保留，presence 誠實降級成 `reconnecting`。
@@ -331,7 +345,19 @@ impl DeviceBinding {
             match outbound_envelope(&reply) {
                 Some(value) => {
                     let bytes = serde_json::to_vec(&value).map(|b| b.len()).unwrap_or(0);
-                    if let Err(error) = self.channel.send_aip(value, AIP_SEND_TIMEOUT).await {
+                    // 這一則是不是整份快照，要在送出**之前**判斷（`value` 之後
+                    // 被 move 進 send_aip）。
+                    let snapshot = serde_json::from_value::<Envelope>(value.clone())
+                        .map(|e| crate::character_session::is_full_state_snapshot(&e))
+                        .unwrap_or(false);
+                    let sent = self.channel.send_aip(value, AIP_SEND_TIMEOUT).await;
+                    if sent.is_ok() && snapshot {
+                        // 整份快照真的寫上線了：這條線**確實**載得動完整狀態。
+                        // 在這之前，`aip.frag/1` 只是裝置自己在 hello 裡宣稱的
+                        // 一句話（`syncProfile` 因此停在 `pending-full-state`）。
+                        rt.note_full_state_delivered(&device_id);
+                    }
+                    if let Err(error) = sent {
                         // 送不到不等於送到了：不重送、不假裝成功——但**也不靜默**。
                         // 只落一行 debug log 的話，「這台裝置已加入 session」與
                         // 「它其實一則狀態都沒收到」在畫面上長得一模一樣。
@@ -673,26 +699,40 @@ impl SensorSource for DeclarativeSensorSource {
                 targets.push(id);
             }
         }
-        if targets.is_empty() {
-            // 本來就沒有在擷取。`sensors` 仍然列出這一族宣告的高風險受器，
-            // 停止掃描才知道它們**有**被問過（否則會落成 no-stop-path）。
-            return vec![self.report(self.high_risk.clone(), SensorStopStatus::AlreadyStopped, 0)];
+        // 本機這一側沒有東西要停（旗標全是關的、也沒有待確認的）。
+        //
+        // 誠實：這**不是**「裝置停了」。旗標只說得出「我們收不收資料」，
+        // 裝置那一端在不在擷取只有裝置說得準——而這一筆回報會被拿去清掉
+        // 「上一次登記留下的、沒有人確認過的停止」（`resolve_stops_for`）。
+        // 所以照樣把 stop-all 送上線問一次，只是**不**把這些受器記成
+        // 「停止中」（它們本來就沒在擷取，記進去等於無中生有一次擷取）。
+        let idle = targets.is_empty();
+        // `sensors` 仍然列出這一族宣告的高風險受器，停止掃描才知道它們**有**
+        // 被問過（否則會落成 no-stop-path）。
+        let targets = if idle {
+            self.high_risk.clone()
+        } else {
+            targets
+        };
+        if !idle {
+            // 先關掉本機這一側的輪詢：不先關，下一次 poll 立刻又去讀感測器，
+            // 「已停止」在一個輪詢週期內就變成謊話。
+            for id in &open {
+                let _ = rt
+                    .registry
+                    .set_receptor_enabled(&ReceptorId::new(id), false)
+                    .await;
+            }
+            // 旗標關掉的同一刻就記成「停止中」：`active_captures` 從這裡接手，
+            // 這些受器在拿到確認之前不得從 `activeSensors` 消失。
+            self.note_stop_requested(&targets, StopPendingState::InFlight);
         }
-        // 先關掉本機這一側的輪詢：不先關，下一次 poll 立刻又去讀感測器，
-        // 「已停止」在一個輪詢週期內就變成謊話。
-        for id in &open {
-            let _ = rt
-                .registry
-                .set_receptor_enabled(&ReceptorId::new(id), false)
-                .await;
-        }
-        // 旗標關掉的同一刻就記成「停止中」：`active_captures` 從這裡接手，
-        // 這些受器在拿到確認之前不得從 `activeSensors` 消失。
-        self.note_stop_requested(&targets, StopPendingState::InFlight);
         if self.channels.is_empty() {
             // 沒有裝置線（純 HTTP adapter）：本機側已經停了，但裝置那端有沒有
             // 停我們**不知道**——不冒充已停。
-            self.note_stop_requested(&targets, StopPendingState::Unresolved);
+            if !idle {
+                self.note_stop_requested(&targets, StopPendingState::Unresolved);
+            }
             return vec![self
                 .report(
                     targets,
@@ -716,21 +756,37 @@ impl SensorSource for DeclarativeSensorSource {
                 Err(other) => (SensorStopStatus::Unknown, Some(other.to_string())),
             };
             let waited = started.elapsed().as_millis() as u64;
-            let mut report = self.report(targets.clone(), outcome.0, waited);
+            // 本機這一側本來就沒有東西在擷取：裝置 ack 之後仍然不是 `stopped`
+            // （沒有「停止」這件事可報，也不該補一則 `sensor.stopped` 事件），
+            // 而是「本來就沒有東西要停」＋說得出這句話的來源是裝置的 ack。
+            let outcome_status = if idle && outcome.0 == SensorStopStatus::Stopped {
+                SensorStopStatus::AlreadyStopped
+            } else {
+                outcome.0
+            };
+            let mut report = self.report(targets.clone(), outcome_status, waited);
             if outcome.0 == SensorStopStatus::Stopped {
                 report = report.with_via(Some(STOP_CONFIRMED_VIA_ACK));
             }
             if let Some(detail) = outcome.1 {
                 report = report.with_detail(detail);
+            } else if idle {
+                report = report.with_detail(
+                    "nothing was armed on this host; the device was asked anyway because only it \
+                     knows whether it is still capturing",
+                );
             }
             reports.push(report);
         }
         // 只有**每一條**線都明確確認才算停了；任何一條沒確認，這些受器就繼續
         // 以 stop-unknown 留在 `activeSensors`（誠實階梯：未知 ≠ 已停）。
-        if reports.iter().all(|r| r.confirmed()) {
-            self.clear_stop_pending(&targets);
-        } else {
-            self.note_stop_requested(&targets, StopPendingState::Unresolved);
+        // idle 那條路徑沒有任何待確認表項可動（本來就沒在擷取）。
+        if !idle {
+            if reports.iter().all(|r| r.confirmed()) {
+                self.clear_stop_pending(&targets);
+            } else {
+                self.note_stop_requested(&targets, StopPendingState::Unresolved);
+            }
         }
         reports
     }
@@ -748,6 +804,36 @@ impl DeclarativeSensorSource {
     async fn retire(&self, rt: &Runtime, reason: &str) -> Value {
         if self.retired.swap(true, Ordering::SeqCst) {
             return json!({"providerId": self.provider_id, "retired": "already"});
+        }
+        // 收訊迴圈是**唯一**會把「被取消的入站傳輸」寫成稽核的地方
+        // （`expire_fragments` 只在那個迴圈裡被呼叫）。abort 之後就再也沒有人
+        // 撿得走待回報槽裡的東西，所以順序是：先取消、先留痕，才收 task。
+        //
+        // 兩件事都要做：槽裡可能已經有別的取消點（stop-all／hello 重新握手）
+        // 放進來的一筆，而重組器裡可能還有一筆正在進行中的。
+        for channel in &self.channels {
+            for drop in [
+                channel.expire_fragments(),
+                channel.cancel_inbound_transfer(FRAGMENT_CANCELLED_REASON),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                let _ = rt.store.audit(
+                    "aip.fragment-dropped",
+                    "runtime",
+                    &json!({
+                        "transport": channel.transport_label(),
+                        "deviceId": channel.expected_device_id(),
+                        "providerId": self.provider_id,
+                        "xfer": drop.xfer,
+                        "reason": drop.reason,
+                        "received": drop.received,
+                        "total": drop.total,
+                        "retireReason": reason,
+                    }),
+                );
+            }
         }
         self.tasks.abort_all();
         let mut left = Vec::new();

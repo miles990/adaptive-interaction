@@ -46,9 +46,17 @@ const REBIND_DRAIN_BUDGET: Duration = Duration::from_secs(3);
 /// 收斂輪詢窗（不忙碌等待）。
 const REBIND_POLL: Duration = Duration::from_millis(50);
 /// 新連線握手的等待上限。等不到就是 rebind 失敗（誠實：沒連上）。
-const REBIND_HANDSHAKE_BUDGET: Duration = Duration::from_secs(20);
+///
+/// 下限由 binding 迴圈自己決定：它以最長
+/// [`crate::declarative_session::HANDSHAKE_BACKOFF_MAX`] 的退避重試握手，每次
+/// 嘗試另加一個 [`interaction_adapter_declarative::protocol::HANDSHAKE_TIMEOUT`]。
+/// 預算短於「最壞情況的一輪」的話，rebind 會在裝置**還沒輪到下一次嘗試**之前
+/// 就宣告失敗——ESP32 重開機、拔插線、MQTT broker 重連都會落在那個窗口裡。
+/// （晚到的握手仍然收得回來，見 [`Runtime::note_declarative_link_ready`]；
+/// 預算只是決定「要不要先說一次失敗」。）
+const REBIND_HANDSHAKE_BUDGET: Duration = Duration::from_secs(25);
 /// 整個 rebind 的總預算（watchdog）。任何一步卡住都不得變成無限等待。
-const REBIND_TOTAL_BUDGET: Duration = Duration::from_secs(40);
+const REBIND_TOTAL_BUDGET: Duration = Duration::from_secs(50);
 
 /// 綁定被拆掉的原因。誠實：`Disabled`／`Disconnected` 可以重新綁定，
 /// `Revoked`／`Removed` 不行（重新綁定會讓撤銷失效）。
@@ -100,6 +108,28 @@ impl DeclarativeLifecycle {
             DeclarativeLifecycle::Unbound { reason } => format!("unbound:{}", reason.as_str()),
         }
     }
+}
+
+/// 一條裝置線握上手時，這台 provider 的綁定該怎麼收斂。
+///
+/// 為什麼要有這個型別：握手成立是**連線**這一側的事實，而「綁定成不成立」是
+/// runtime 這一側的決定。把兩者混成一句「翻成 Available」的話，一條晚到的
+/// 握手就會把狀態說成可用、生命週期卻留在 `Unbound`——`on_aip` 的閘門於是把
+/// 這台裝置之後的每一則 frame 都丟掉，畫面上完全看不出來。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LinkReadyOutcome {
+    /// 這道閘門對它一無所知（綁定表滿了）：維持既有行為，不無中生有。
+    NotTracked,
+    /// 本來就是 `Bound`（一般的斷線重連）。
+    AlreadyBound,
+    /// 有一輪 rebind 正在進行，而這條線的握手**就是**它在等的那一件事：
+    /// 綁定在這裡成立（先 Bound，呼叫端才把狀態收斂成 Available）。
+    Committed { generation: u64 },
+    /// 上一輪 rebind 已經放棄了（握手預算過期），這條線晚一步才握上手：
+    /// 綁定重新成立。誠實：失敗是真的發生過，所以要留一則稽核。
+    RecoveredAfterFailure,
+    /// 撤銷／移除／人類停用：**不得**復活。
+    Refused { lifecycle: String },
 }
 
 /// 一台宣告式裝置在 runtime 這一側的完整記錄。
@@ -160,6 +190,13 @@ impl Runtime {
             }
         }
         if full {
+            // 記下來（有界）：之後「停用 → 啟用」必須說得出「能力要等重新啟動
+            // 才會回來」，不能只在這裡留一行稽核然後回一個乾淨的 Available。
+            if let Ok(mut untracked) = self.declarative_untracked.lock() {
+                if untracked.len() < MAX_DECLARATIVE_BINDINGS {
+                    untracked.insert(provider_id.to_string());
+                }
+            }
             let _ = self.store.audit(
                 "provider.rebind-not-tracked",
                 "runtime",
@@ -169,7 +206,18 @@ impl Runtime {
                     "reason": "the declarative binding table is full; this device will need a restart to rebind",
                 }),
             );
+        } else if let Ok(mut untracked) = self.declarative_untracked.lock() {
+            // 這一輪登記成功了：舊的「沒被記錄」不再成立。
+            untracked.remove(provider_id);
         }
+    }
+
+    /// 這台宣告式裝置在綁定表滿的時候被拒絕登記了嗎？（＝不支援免重啟重新綁定）
+    pub(crate) fn declarative_untracked(&self, provider_id: &str) -> bool {
+        self.declarative_untracked
+            .lock()
+            .map(|set| set.contains(provider_id))
+            .unwrap_or(false)
     }
 
     /// 綁定被拆掉了（停用／撤銷／連線消失／移除）。只記錄已知的裝置。
@@ -303,6 +351,56 @@ impl Runtime {
         }
     }
 
+    /// 一條裝置線握上手了：綁定該怎麼收斂（見 [`LinkReadyOutcome`]）。
+    ///
+    /// 這是**唯一**在握手成立時改寫生命週期的地方，而且只往「綁定成立」的
+    /// 方向走。呼叫端必須已經持有這台 provider 的序列化鎖：生命週期與
+    /// `ProviderState` 要一起動，中間插進一次停用就會讓兩者說出不同的話。
+    pub(crate) fn note_declarative_link_ready(&self, provider_id: &str) -> LinkReadyOutcome {
+        let Ok(mut map) = self.declarative_bindings.lock() else {
+            return LinkReadyOutcome::NotTracked;
+        };
+        let Some(entry) = map.get_mut(provider_id) else {
+            return LinkReadyOutcome::NotTracked;
+        };
+        match entry.lifecycle {
+            DeclarativeLifecycle::Bound => LinkReadyOutcome::AlreadyBound,
+            DeclarativeLifecycle::Rebinding { generation } => {
+                entry.lifecycle = DeclarativeLifecycle::Bound;
+                LinkReadyOutcome::Committed { generation }
+            }
+            // 「連線沒了」是唯一可以由一條晚到的握手自己收回來的原因：人類的
+            // 停用／撤銷／移除都是**決定**，不是連線狀態，不得被背景 task 推翻。
+            DeclarativeLifecycle::Unbound {
+                reason: UnboundReason::Disconnected,
+            } => {
+                entry.lifecycle = DeclarativeLifecycle::Bound;
+                LinkReadyOutcome::RecoveredAfterFailure
+            }
+            ref other => LinkReadyOutcome::Refused {
+                lifecycle: other.label(),
+            },
+        }
+    }
+
+    /// 這一輪 rebind 已經被**這條線的握手**收斂成 `Bound` 了嗎？
+    ///
+    /// 為什麼需要它：第 8 步的 `settle` 只認 `Rebinding{g}`。握手成立時
+    /// `note_declarative_link_ready` 已經把它推進 `Bound`（那才是正確的順序：
+    /// 綁定先成立，狀態才敢說可用），第 8 步因此會拿到 false——那不是「被別的
+    /// 決定接手」，而是「這一輪已經成功了」，兩者不得記成同一件事。
+    fn declarative_rebind_committed(&self, provider_id: &str, generation: u64) -> bool {
+        self.declarative_bindings
+            .lock()
+            .ok()
+            .and_then(|map| {
+                map.get(provider_id).map(|entry| {
+                    entry.lifecycle == DeclarativeLifecycle::Bound && entry.generation == generation
+                })
+            })
+            .unwrap_or(false)
+    }
+
     /// 這一次 rebind 還是目前這一輪嗎？（晚到的回呼依世代拒絕。）
     fn declarative_rebind_current(&self, provider_id: &str, generation: u64) -> bool {
         matches!(
@@ -408,6 +506,10 @@ impl Runtime {
     /// rebind 沒有成功：狀態留在 `Disconnected`（誠實：沒連上），detail 說得出
     /// 原因，並留稽核。**不**把它翻回 Available——那會讓「可用」變成謊話。
     async fn fail_declarative_rebind(&self, provider_id: &str, generation: u64, reason: &str) {
+        let id = ProviderId::new(provider_id);
+        // 生命週期與 `ProviderState` 是同一個決定的兩半：兩者之間插進一次
+        // 停用／一條晚到的握手，就會讓它們說出不同的話。
+        let _serialized = self.providers.lock_provider(&id).await;
         if !self.settle_declarative_rebind(provider_id, generation, false) {
             // 世代已經被接手（又停用了／又按了一次啟用／被撤銷）：這一輪的
             // 結果不再是現在的答案，所以不動任何狀態——但也不靜默，否則
@@ -419,14 +521,15 @@ impl Runtime {
                     "providerId": provider_id,
                     "generation": generation,
                     "reason": reason,
-                    "note": "another decision took over before this rebind finished; its result \
-                             was discarded and no state was changed",
+                    "committed": self.declarative_rebind_committed(provider_id, generation),
+                    "note": "another decision took over before this rebind finished (or the \
+                             device's handshake committed it first); its result was discarded \
+                             and no state was changed",
                 }),
             );
             return;
         }
-        let id = ProviderId::new(provider_id);
-        self.note_provider_rebind_failed(&id, reason).await;
+        self.note_provider_rebind_failed_locked(&id, reason).await;
         let _ = self.store.audit(
             "provider.rebind-failed",
             "runtime",
@@ -436,6 +539,79 @@ impl Runtime {
                 "reason": reason,
             }),
         );
+    }
+}
+
+/// 第 7 步關鍵區段的補償守衛。
+///
+/// 為什麼需要它：整個 `run_declarative_rebind` 被 `timeout_at` 包住，所以它會
+/// 在**任意一個 await 點**被整個 drop。第 7 步是「重新註冊整份 spec（不需
+/// consent 的受器一律回到預設的開）→ 再逐一把人類先前關掉的關回去」，中間
+/// 有多個 await。取消若落在兩者之間，受器會停在「已經用預設值打開、沒有人
+/// 關回去」——那是一次沒有人下過的決定，違反「回到 Available 不會自動恢復
+/// 任何能力」。
+///
+/// `Drop` 不能 await，所以補償交給一個**有界**的背景任務：把名單上的受器重新
+/// 關回去，並留稽核。只往「關」的方向走，永遠不會打開任何東西。
+struct HumanDisabledGuard {
+    runtime: Weak<RuntimeInner>,
+    provider_id: String,
+    /// 有界：只可能是這份 spec 自己宣告的受器 id。
+    ids: Vec<String>,
+    done: bool,
+}
+
+impl HumanDisabledGuard {
+    /// 名單已經套用回去了：不需要補償。
+    fn disarm(mut self) {
+        self.done = true;
+    }
+}
+
+impl Drop for HumanDisabledGuard {
+    fn drop(&mut self) {
+        if self.done || self.ids.is_empty() {
+            return;
+        }
+        let weak = self.runtime.clone();
+        let provider_id = std::mem::take(&mut self.provider_id);
+        let ids = std::mem::take(&mut self.ids);
+        // 沒有 runtime context 就不 spawn（drop 不得 panic）；那一刻仍然留痕。
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            tracing::warn!(
+                provider = %provider_id,
+                receptors = ?ids,
+                "a cancelled rebind left human-disabled receptors unrestored and no runtime was \
+                 available to compensate"
+            );
+            return;
+        };
+        handle.spawn(async move {
+            let Some(rt) = upgrade(&weak) else { return };
+            let mut restored = Vec::new();
+            let mut failed = Vec::new();
+            for rid in &ids {
+                let id = ReceptorId::new(rid);
+                if rt.registry.set_receptor_enabled(&id, false).await.is_ok() {
+                    restored.push(rid.clone());
+                } else {
+                    failed.push(rid.clone());
+                }
+            }
+            let _ = rt.store.audit(
+                "provider.rebind-receptors-restored",
+                "runtime",
+                &json!({
+                    "providerId": provider_id,
+                    "restored": restored,
+                    // 關不回去的（例如受器根本沒被註冊回來）也要說得出來：
+                    // 空陣列不得同時代表「沒有這種受器」與「沒關成功」。
+                    "failed": failed,
+                    "reason": "the rebind was cancelled between re-registering the spec and \
+                               re-applying the human's disabled receptors",
+                }),
+            );
+        });
     }
 }
 
@@ -593,6 +769,14 @@ async fn run_declarative_rebind(
         // 在同一把鎖裡立刻關回去——否則「停用 → 啟用」等於替使用者按下了一個
         // 他沒有按的開關（既有保證：回到 Available 不自動恢復任何能力）。
         let human_disabled = rt.declarative_human_disabled(provider_id);
+        // 取消安全：從這一行到「名單套用完」之間被 drop 的話，守衛會把它們
+        // 重新關回去並留稽核（見 [`HumanDisabledGuard`]）。
+        let guard = HumanDisabledGuard {
+            runtime: weak.clone(),
+            provider_id: provider_id.to_string(),
+            ids: human_disabled.clone(),
+            done: false,
+        };
         rt.register_declarative_spec(&spec)
             .await
             .map_err(|e| RebindStop::Failed(format!("the device could not be rebuilt: {e}")))?;
@@ -603,9 +787,12 @@ async fn run_declarative_rebind(
                 kept_disabled.push(rid.clone());
             }
         }
-        // 套用完才清：register 失敗時受器已經被 unregister 掉了，紀錄必須留給
-        // 下一次嘗試，否則預設值會把它們全部打開。
-        rt.clear_declarative_human_disabled(provider_id);
+        guard.disarm();
+        // **不**在這裡清：紀錄要留到這一輪真的收斂成 `Bound`（第 8 步）為止。
+        // 握手還沒成立就清掉的話，這一輪在握手階段失敗、人類再按一次啟用時，
+        // 第二輪拿到的是一份空名單——第 7 步的重新註冊會依 manifest 預設把
+        // 不需 consent 的受器全部打開，等於替使用者按下一個他沒有按的開關
+        // （既有保證：回到 Available 不自動恢復任何能力）。
         (rt.declarative_previous_channels(provider_id), kept_disabled)
     };
     let (channels, kept_disabled) = built;
@@ -642,12 +829,25 @@ async fn run_declarative_rebind(
     let Some(rt) = upgrade(weak) else {
         return Err(RebindStop::Superseded("the runtime is gone".into()));
     };
-    if !rt.settle_declarative_rebind(provider_id, generation, true) {
-        return Err(RebindStop::Superseded(
-            "another decision took over before the rebind could be committed".into(),
-        ));
+    {
+        // 綁定先成立、狀態才敢說可用，而且**在同一把鎖裡**：兩者之間插進一次
+        // 停用，就會讓「已停用」與「可用」同時成立。
+        let _serialized = rt.providers.lock_provider(&id).await;
+        // 這條線的握手可能已經先把這一輪收斂成 `Bound` 了（`note_ready` →
+        // `note_declarative_link_ready`）。那不是「被別的決定接手」，是「這一輪
+        // 已經成功」——兩者不得記成同一件事。
+        if !rt.settle_declarative_rebind(provider_id, generation, true)
+            && !rt.declarative_rebind_committed(provider_id, generation)
+        {
+            return Err(RebindStop::Superseded(
+                "another decision took over before the rebind could be committed".into(),
+            ));
+        }
+        rt.converge_provider_state_locked(&id, true, false).await;
     }
-    rt.converge_provider_after_rebind(&id).await;
+    // 套用完、而且真的收斂成功了才清：register 失敗或握手沒成立時，受器已經
+    // 被 unregister 過，紀錄必須留給下一次嘗試，否則預設值會把它們全部打開。
+    rt.clear_declarative_human_disabled(provider_id);
     let _ = rt.store.audit(
         "provider.rebound",
         "runtime",
@@ -691,5 +891,311 @@ pub(crate) fn unbound_reason_for_state(state: ProviderState) -> UnboundReason {
     match state {
         ProviderState::Revoked => UnboundReason::Revoked,
         _ => UnboundReason::Disabled,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Runtime, RuntimeOptions};
+    use interaction_core::{ProviderIdentity, ProviderKind};
+
+    fn fixture_spec(spec_id: &str) -> DeclarativeSpec {
+        serde_json::from_value(json!({
+            "schemaVersion": "1",
+            "id": spec_id,
+            "displayName": "fixture",
+            "capabilities": [],
+        }))
+        .expect("spec")
+    }
+
+    /// 一台已經綁定過、目前停在 `Disconnected` 的宣告式 provider。
+    async fn disconnected_provider(home: &tempfile::TempDir) -> (Runtime, ProviderId) {
+        disconnected_provider_with(home, false).await
+    }
+
+    /// `fill_table` ＝在登記這一台**之前**先把綁定表填滿（模擬「表滿了，
+    /// 這一台沒有被記錄」）。
+    async fn disconnected_provider_with(
+        home: &tempfile::TempDir,
+        fill_table: bool,
+    ) -> (Runtime, ProviderId) {
+        let rt = Runtime::start(RuntimeOptions {
+            home: Some(home.path().to_path_buf()),
+            acquire_lock: false,
+            in_memory_db: true,
+            spawn_watchdog: false,
+        })
+        .await
+        .expect("runtime");
+        let id = ProviderId::new("provider.adapter.fixture");
+        rt.providers
+            .register(interaction_core::ProviderDescriptor {
+                identity: ProviderIdentity {
+                    id: id.clone(),
+                    kind: ProviderKind::Device,
+                    display_name: "fixture".into(),
+                    trust_level: Default::default(),
+                    origin: "test".into(),
+                    version: String::new(),
+                    fingerprint: None,
+                    human: None,
+                },
+                state: ProviderState::Installed,
+                receptors: Vec::new(),
+                actuators: Vec::new(),
+                tool_operations: Vec::new(),
+                paired_at: None,
+                last_seen: None,
+                detail: None,
+            })
+            .await
+            .expect("register provider");
+        if fill_table {
+            for n in 0..MAX_DECLARATIVE_BINDINGS {
+                rt.note_declarative_bound(
+                    &format!("provider.filler.{n}"),
+                    &fixture_spec("filler"),
+                    &[],
+                );
+            }
+        }
+        rt.note_declarative_bound(id.as_str(), &fixture_spec("fixture"), &[]);
+        rt.providers
+            .transition(&id, ProviderState::Available, None)
+            .await
+            .expect("available");
+        rt.providers
+            .transition(&id, ProviderState::Disconnected, None)
+            .await
+            .expect("disconnected");
+        (rt, id)
+    }
+
+    async fn state_of(rt: &Runtime, id: &ProviderId) -> Option<ProviderState> {
+        rt.providers.get(id).await.ok().map(|d| d.state)
+    }
+
+    /// rebind 的握手預算過去了、裝置卻**晚一步**才連上：這條線握上手時，綁定
+    /// 必須跟著重新成立。只把 `ProviderState` 收斂成 `Available`、生命週期留在
+    /// `Unbound` 的話，介面說「可用」，而 `DeviceBinding::on_aip` 的閘門會把
+    /// 這台裝置之後的**每一則** frame 都丟掉——狀態先於實際綁定，誠實階梯反向。
+    #[tokio::test]
+    async fn a_late_handshake_after_a_failed_rebind_re_establishes_the_binding_too() {
+        let home = tempfile::tempdir().expect("home");
+        let (rt, id) = disconnected_provider(&home).await;
+        rt.note_declarative_unbound(id.as_str(), UnboundReason::Disconnected);
+        rt.note_provider_rebind_failed_locked(&id, "the device did not answer in time")
+            .await;
+
+        rt.converge_provider_after_link_ready(&id).await;
+
+        assert_eq!(
+            rt.declarative_lifecycle(id.as_str()),
+            Some(DeclarativeLifecycle::Bound),
+            "晚到的握手必須讓綁定重新成立，否則入站 frame 會被永久拒收"
+        );
+        assert_eq!(state_of(&rt, &id).await, Some(ProviderState::Available));
+        let kinds: Vec<String> = rt
+            .store
+            .audit_tail(50)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|r| r["kind"].as_str().map(str::to_string))
+            .collect();
+        assert!(
+            kinds.iter().any(|k| k == "provider.rebind-recovered"),
+            "一次失敗過的 rebind 後來自己好了，必須說得出來：{kinds:?}"
+        );
+    }
+
+    /// 收斂順序：綁定先成立，狀態才可以說「可用」。任何時刻都不得出現
+    /// 「state=Available 但 lifecycle≠Bound」——那個窗口裡裝置送來的 join
+    /// 會被閘門吃掉，而畫面上完全看不出來。
+    #[tokio::test]
+    async fn the_state_never_says_available_before_the_binding_is_established() {
+        let home = tempfile::tempdir().expect("home");
+        let (rt, id) = disconnected_provider(&home).await;
+        rt.note_declarative_unbound(id.as_str(), UnboundReason::Disabled);
+        let generation = rt
+            .begin_declarative_rebind(id.as_str())
+            .expect("rebind starts");
+        assert_eq!(
+            rt.declarative_lifecycle(id.as_str()),
+            Some(DeclarativeLifecycle::Rebinding { generation })
+        );
+
+        rt.converge_provider_after_link_ready(&id).await;
+
+        let lifecycle = rt.declarative_lifecycle(id.as_str());
+        let state = state_of(&rt, &id).await;
+        assert!(
+            state != Some(ProviderState::Available)
+                || lifecycle == Some(DeclarativeLifecycle::Bound),
+            "state={state:?} lifecycle={lifecycle:?}：可用不得先於綁定成立"
+        );
+    }
+
+    /// 綁定表滿的時候被拒絕登記的裝置：停用時能力已經被撤回，而免重啟重新
+    /// 綁定對它不成立。所以「停用 → 啟用」不得回一個乾淨的 `Available`——那
+    /// 是一台「顯示可用、卻一個能力都沒有」的裝置，而畫面上沒有任何說明。
+    #[tokio::test]
+    async fn a_device_the_binding_table_could_not_track_never_comes_back_as_a_clean_available() {
+        let home = tempfile::tempdir().expect("home");
+        let (rt, id) = disconnected_provider_with(&home, true).await;
+        assert!(
+            rt.declarative_lifecycle(id.as_str()).is_none(),
+            "這條測試的前提：表滿了，這一台沒有生命週期記錄"
+        );
+        assert!(rt.declarative_untracked(id.as_str()));
+
+        rt.transition_provider(&id, ProviderState::Disabled)
+            .await
+            .expect("disable");
+        let desc = rt
+            .transition_provider(&id, ProviderState::Available)
+            .await
+            .expect("re-enable");
+
+        assert_ne!(
+            desc.state,
+            ProviderState::Available,
+            "能力還沒回來就說「可用」是謊話：{desc:?}"
+        );
+        let detail = desc.detail.clone().unwrap_or_default();
+        assert!(
+            detail.contains("rebind-not-tracked"),
+            "畫面上要說得出原因，不能只留在稽核裡：{detail}"
+        );
+        let note = serde_json::from_str::<serde_json::Value>(&detail)
+            .ok()
+            .and_then(|v| v["note"].as_str().map(str::to_string))
+            .unwrap_or_default();
+        assert!(note.contains("重新啟動"), "一般模式那一句要誠實：{note}");
+        let kinds: Vec<String> = rt
+            .store
+            .audit_tail(80)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|r| r["kind"].as_str().map(str::to_string))
+            .collect();
+        assert!(
+            kinds.iter().any(|k| k == "provider.rebind-not-tracked"),
+            "{kinds:?}"
+        );
+    }
+
+    /// 第 7 步的關鍵區段在 `timeout_at` 之下不是天生 cancel-safe：受器已經用
+    /// 預設值重新註冊成「開」、人類關過的那幾支卻還沒關回去。取消落在中間時
+    /// 必須有補償，否則系統替使用者按下了一個他沒有按的開關。
+    #[tokio::test]
+    async fn a_cancelled_critical_section_re_closes_the_human_disabled_receptors() {
+        let home = tempfile::tempdir().expect("home");
+        let (rt, id) = disconnected_provider(&home).await;
+        // 任何一個目前**開著**的受器都夠用：這條測試驗的是守衛本身的契約
+        // （被取消時把名單上的受器關回去），不是某一支特定受器。
+        let mut receptor = None;
+        for manifest in rt.registry.receptor_manifests().await {
+            if rt.registry.receptor(&manifest.id).await.is_ok() {
+                receptor = Some(manifest.id.clone());
+                break;
+            }
+        }
+        let receptor = receptor.expect("runtime 啟動後至少有一個啟用中的受器");
+
+        // 關鍵區段被取消：守衛在 drop 時補償。
+        drop(HumanDisabledGuard {
+            runtime: rt.weak_inner(),
+            provider_id: id.as_str().to_string(),
+            ids: vec![receptor.as_str().to_string()],
+            done: false,
+        });
+
+        let mut closed = false;
+        for _ in 0..50 {
+            if rt.registry.receptor(&receptor).await.is_err() {
+                closed = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(closed, "被取消的重新綁定不得把人類關掉的受器留在打開的狀態");
+        let kinds: Vec<String> = rt
+            .store
+            .audit_tail(50)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|r| r["kind"].as_str().map(str::to_string))
+            .collect();
+        assert!(
+            kinds
+                .iter()
+                .any(|k| k == "provider.rebind-receptors-restored"),
+            "補償也要留痕：{kinds:?}"
+        );
+    }
+
+    /// 握手預算必須蓋得住 binding 迴圈最壞情況的一輪重試——否則「逾時」量到的
+    /// 是我們自己的退避，不是裝置真的沒連上。
+    #[test]
+    fn the_handshake_budget_covers_one_worst_case_retry_round() {
+        let worst = crate::declarative_session::HANDSHAKE_BACKOFF_MAX
+            + interaction_adapter_declarative::protocol::HANDSHAKE_TIMEOUT;
+        assert!(
+            REBIND_HANDSHAKE_BUDGET >= worst,
+            "握手預算 {REBIND_HANDSHAKE_BUDGET:?} 短於最壞的一輪重試 {worst:?}"
+        );
+        assert!(
+            REBIND_TOTAL_BUDGET > REBIND_HANDSHAKE_BUDGET + REBIND_DRAIN_BUDGET,
+            "總預算要蓋得住握手預算＋前面幾步"
+        );
+    }
+
+    /// 撤銷不復活：一條晚到的握手不得把被撤銷／被停用的 provider 翻回可用。
+    #[tokio::test]
+    async fn a_revoked_binding_is_never_resurrected_by_a_late_handshake() {
+        for reason in [UnboundReason::Revoked, UnboundReason::Removed] {
+            let home = tempfile::tempdir().expect("home");
+            let (rt, id) = disconnected_provider(&home).await;
+            rt.note_declarative_unbound(id.as_str(), reason);
+
+            rt.converge_provider_after_link_ready(&id).await;
+
+            assert_eq!(
+                state_of(&rt, &id).await,
+                Some(ProviderState::Disconnected),
+                "{reason:?} 之後不得被背景 task 翻回可用"
+            );
+            assert_eq!(
+                rt.declarative_lifecycle(id.as_str()),
+                Some(DeclarativeLifecycle::Unbound { reason })
+            );
+        }
+    }
+
+    /// 對同一台 provider 的一次完整決定不可分割：背景 task 的收斂必須排在
+    /// 人類的決定**後面**，不能在別人持鎖的中途寫進一個 `Available`。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_link_ready_convergence_waits_for_the_provider_lock() {
+        let home = tempfile::tempdir().expect("home");
+        let (rt, id) = disconnected_provider(&home).await;
+        rt.note_declarative_unbound(id.as_str(), UnboundReason::Disconnected);
+
+        let held = rt.providers.lock_provider(&id).await;
+        let converging = {
+            let rt = rt.clone();
+            let id = id.clone();
+            tokio::spawn(async move { rt.converge_provider_after_link_ready(&id).await })
+        };
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            state_of(&rt, &id).await,
+            Some(ProviderState::Disconnected),
+            "有人正在對這台 provider 做決定時，背景收斂不得先寫進一個 Available"
+        );
+        drop(held);
+        converging.await.expect("converge task");
+        assert_eq!(state_of(&rt, &id).await, Some(ProviderState::Available));
     }
 }

@@ -723,6 +723,25 @@ impl<L: RawLink> DeviceLink<L> {
         dropped
     }
 
+    /// 取消進行中的入站傳輸，並把結果**直接交給呼叫端**（不進待回報槽）。
+    ///
+    /// 與 [`Self::cancel_reassembly`] 的差別只在誰負責留稽核：那一條是給
+    /// 「旁邊沒有人會留痕」的取消點（hello 重新握手、stop-all、shutdown）用的，
+    /// 結果放進槽裡等收訊迴圈撿走；這一條是給**正要把那條收訊迴圈收掉**的
+    /// 呼叫端用的——槽裡的東西在迴圈被 abort 之後就再也沒有人撿得走了。
+    pub fn cancel_inbound_transfer(&self, reason: &'static str) -> Option<FragmentDrop> {
+        let dropped = self.reassembly_guard().cancel(reason);
+        if let Some(drop) = &dropped {
+            tracing::warn!(
+                device = %self.expected_device_id,
+                xfer = drop.xfer,
+                reason = drop.reason,
+                "an in-flight aip transfer was cancelled by the caller"
+            );
+        }
+        dropped
+    }
+
     /// 逾時／世代守衛：收訊迴圈每一輪呼叫一次。回傳非 `None` ＝有一筆傳輸被
     /// 丟掉了，呼叫端必須留稽核（`aip.fragment-dropped`）。
     pub fn expire_fragments(&self) -> Option<FragmentDrop> {
@@ -1589,6 +1608,9 @@ pub trait DeviceAipChannel: Send + Sync {
     /// 逾時／重連守衛：收訊迴圈每一輪呼叫一次。回傳非 `None` ＝有一筆進行中的
     /// 分片傳輸被整筆丟掉，呼叫端必須留稽核（`aip.fragment-dropped`）。
     fn expire_fragments(&self) -> Option<FragmentDrop>;
+    /// 取消進行中的入站傳輸並把結果交給呼叫端（[`DeviceLink::cancel_inbound_transfer`]）。
+    /// 收訊迴圈**正要被收掉**時一定要走這一條：留在待回報槽裡的東西沒有人撿得走。
+    fn cancel_inbound_transfer(&self, reason: &'static str) -> Option<FragmentDrop>;
     /// 配對碼從未被裝置比對過（[`DeviceLink::pairing_unverified`]）。
     fn pairing_unverified(&self) -> bool;
     /// 目前「已送出、還在等回覆」的請求數（[`DeviceLink::in_flight`]）。
@@ -1645,6 +1667,9 @@ impl<L: RawLink + 'static> DeviceAipChannel for AipChannel<L> {
     }
     fn expire_fragments(&self) -> Option<FragmentDrop> {
         self.link.expire_fragments()
+    }
+    fn cancel_inbound_transfer(&self, reason: &'static str) -> Option<FragmentDrop> {
+        self.link.cancel_inbound_transfer(reason)
     }
     fn pairing_unverified(&self) -> bool {
         self.link.pairing_unverified()

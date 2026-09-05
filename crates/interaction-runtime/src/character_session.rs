@@ -164,6 +164,15 @@ pub trait DeviceOutbound: Send + Sync {
     fn supports_fragmentation(&self) -> bool {
         false
     }
+    /// 這條線屬於哪一台 provider（`provider.adapter.*`／`provider.mobile.*`）。
+    ///
+    /// 為什麼由通道自己說：核心不認得傳輸種類，也沒有第二張「裝置 → provider」
+    /// 對照表可查。桌面的裝置清單是以 provider 為單位的，沒有這個欄位就只能
+    /// 用字串前綴猜——猜錯就是把一台裝置的同步狀態掛到另一台身上。
+    /// 不知道就回 `None`（省略欄位，不猜）。
+    fn provider_id(&self) -> Option<&str> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +188,10 @@ pub const SYNC_PROFILE_INTENT_ONLY: &str = "intent-only";
 /// 這個成員載不動完整快照，也沒有宣告要呈現任何意圖：它只是一個事件來源
 /// （送得進來、收不回去）。**不得**顯示「已同步」。
 pub const SYNC_PROFILE_EVENT_SOURCE: &str = "event-source";
+/// 這條線**宣稱**自己重組得回完整快照（`hello.caps` 裡的 `aip.frag/1`），但
+/// 我們還沒有真的把一份完整快照寫出去過。宣稱不是事實：在拿到證據之前一律
+/// 是這個值，**不得**顯示「已同步」。
+pub const SYNC_PROFILE_PENDING_FULL_STATE: &str = "pending-full-state";
 
 /// 從「出站通道載不載得動快照」＋「這個成員宣告的角色」推導出同步模式。
 ///
@@ -190,10 +203,31 @@ pub const SYNC_PROFILE_EVENT_SOURCE: &str = "event-source";
 /// 誠實：`intent-only`／`event-source` 是**降級**，不是另一種正常。它們存在
 /// 是為了讓介面說得出「這台裝置沒有拿到完整狀態」——把三種混成「已連線」就是
 /// 把「什麼都沒收到」演成「已同步」。
-pub fn derive_sync_profile(role: MemberRole, channel: &dyn DeviceOutbound) -> &'static str {
-    let carries_snapshot = channel.max_line_bytes().is_none() || channel.supports_fragmentation();
-    if carries_snapshot {
+///
+/// `full_state_observed` ＝我們**真的**成功把一份完整快照寫到這條線上過。
+/// 兩個「載得動」的來源強度不同，不得混為一談：
+///
+/// * 沒有行上限（iPhone 的 wss）——那是**這條線**的事實，一行就送得完，不需
+///   要裝置同意任何事；
+/// * 會重組分片（`aip.frag/1`）——那是裝置在 `hello.caps` 裡**自己宣稱**的
+///   （見 `protocol.rs` 的握手：`hello.caps 是裝置自報的能力清單`）。宣稱不是
+///   事實，所以在真的寫出過一份完整快照之前只能是
+///   [`SYNC_PROFILE_PENDING_FULL_STATE`]。
+pub fn derive_sync_profile(
+    role: MemberRole,
+    channel: &dyn DeviceOutbound,
+    full_state_observed: bool,
+) -> &'static str {
+    // 行上限這一半是傳輸事實：沒有上限就一定送得完一份快照。
+    if channel.max_line_bytes().is_none() {
         return SYNC_PROFILE_FULL_STATE;
+    }
+    if channel.supports_fragmentation() {
+        return if full_state_observed {
+            SYNC_PROFILE_FULL_STATE
+        } else {
+            SYNC_PROFILE_PENDING_FULL_STATE
+        };
     }
     match role {
         // 宣告自己會呈現 Behavior Intent（`intents`）：送得到的只有意圖。
@@ -201,6 +235,15 @@ pub fn derive_sync_profile(role: MemberRole, channel: &dyn DeviceOutbound) -> &'
         // 只送事件（input-device／observer）：收不回完整狀態。
         MemberRole::InputDevice | MemberRole::Observer => SYNC_PROFILE_EVENT_SOURCE,
     }
+}
+
+/// 這一則是**完整快照**嗎（不是 patch、不是意圖）？
+///
+/// 只有它證明得了「這條線載得動完整狀態」：patch 很小，送得到不代表整份
+/// snapshot 也送得到。
+pub(crate) fn is_full_state_snapshot(envelope: &Envelope) -> bool {
+    envelope.message_type == interaction_aip::MessageType::State
+        && envelope.payload.get("kind").and_then(Value::as_str) == Some("snapshot")
 }
 
 /// 一則裝置 frame 的來源事實（稽核用）。
@@ -945,6 +988,8 @@ impl Runtime {
     /// 已經不存在的線上送。
     pub(crate) fn unregister_device_outbound(&self, device_id: &str) {
         self.device_outbound_table().remove(device_id);
+        // 下一條線是**新的**重組器：上一條線送得動快照，不能替它作證。
+        self.forget_full_state_delivered(device_id);
     }
 
     fn device_outbound(&self, device_id: &str) -> Option<Arc<dyn DeviceOutbound>> {
@@ -989,8 +1034,45 @@ impl Runtime {
         if party.kind != PartyKind::Device {
             return None;
         }
+        let observed = self.full_state_observed(&party.id);
         self.device_outbound(&party.id)
-            .map(|channel| derive_sync_profile(role, channel.as_ref()))
+            .map(|channel| derive_sync_profile(role, channel.as_ref(), observed))
+    }
+
+    /// 我們**真的**成功把一份完整快照寫到這台裝置的線上過嗎？
+    pub(crate) fn full_state_observed(&self, device_id: &str) -> bool {
+        match self.full_state_delivered.read() {
+            Ok(guard) => guard.contains(device_id),
+            Err(poisoned) => poisoned.into_inner().contains(device_id),
+        }
+    }
+
+    /// 記下「這台裝置的線上真的寫出過一份完整快照」。
+    ///
+    /// 誠實階梯：寫出成功只是「已寫上線」。它證明的是**我們這一側**沒有因為
+    /// 行上限／不會重組而放棄，不是對端套用了——但那已經足以把「裝置自己宣稱
+    /// 會重組」與「這條線真的載得動」分開。
+    pub(crate) fn note_full_state_delivered(&self, device_id: &str) {
+        let mut guard = match self.full_state_delivered.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if guard.contains(device_id) {
+            return;
+        }
+        // 有界：與出站登記表同一個上限（滿了就不記——寧可停在 pending，
+        // 也不無界成長）。
+        if guard.len() >= MAX_DEVICE_OUTBOUND {
+            return;
+        }
+        guard.insert(device_id.to_string());
+    }
+
+    fn forget_full_state_delivered(&self, device_id: &str) {
+        match self.full_state_delivered.write() {
+            Ok(mut guard) => guard.remove(device_id),
+            Err(poisoned) => poisoned.into_inner().remove(device_id),
+        };
     }
 
     /// 目前每一個裝置成員的同步模式（status 用；沒有裝置成員就是空的）。
@@ -1008,12 +1090,18 @@ impl Runtime {
             .filter_map(|m| {
                 let profile = self.member_sync_profile(&m.party, m.role)?;
                 let channel = self.device_outbound(&m.party.id)?;
-                Some(json!({
+                let mut item = json!({
                     "deviceId": m.party.id,
                     "transport": channel.transport_label(),
                     "syncProfile": profile,
                     "presence": m.presence.as_str(),
-                }))
+                });
+                // 這台裝置屬於哪一個 provider 條目（桌面的裝置清單以 provider
+                // 為單位）。通道說不出來就省略，不用字串前綴猜。
+                if let Some(provider_id) = channel.provider_id() {
+                    item["providerId"] = Value::String(provider_id.to_string());
+                }
+                Some(item)
             })
             .collect()
     }
@@ -1049,6 +1137,13 @@ impl Runtime {
                 // 「已同步」。
                 if let Some(profile) = self.member_sync_profile(&member.party, member.role) {
                     item["syncProfile"] = Value::String(profile.to_string());
+                }
+                // 這個成員屬於哪一個 provider 條目（選填；通道說不出來就省略）。
+                if let Some(provider_id) = self
+                    .device_outbound(&member.party.id)
+                    .and_then(|channel| channel.provider_id().map(str::to_string))
+                {
+                    item["providerId"] = Value::String(provider_id);
                 }
                 item
             })
@@ -1153,7 +1248,8 @@ impl Runtime {
         let (Some(role), Some(channel)) = (role, self.device_outbound(&party.id)) else {
             return;
         };
-        let profile = derive_sync_profile(role, channel.as_ref());
+        let profile =
+            derive_sync_profile(role, channel.as_ref(), self.full_state_observed(&party.id));
         let _ = self.store.audit(
             "aip.member-sync-profile",
             "runtime",
@@ -1972,7 +2068,15 @@ impl Runtime {
                     );
                     return;
                 };
-                if let Err(error) = channel.send_aip(envelope).await {
+                let sent = channel.send_aip(envelope).await;
+                if sent.is_ok() {
+                    // 整份快照真的寫上線了：這條線**確實**載得動完整狀態
+                    // （見 `derive_sync_profile`：裝置自己宣稱會重組不算證據）。
+                    if is_full_state_snapshot(envelope) {
+                        self.note_full_state_delivered(&to.id);
+                    }
+                }
+                if let Err(error) = sent {
                     // 送不到不等於送到了：不重送、不假裝成功——但也不靜默。
                     //
                     // `envelopeBytes` 是**這一則有多大**：最常見的送不到原因就是
@@ -2045,6 +2149,77 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 一條**宣稱**自己會重組分片、但什麼都還沒收到的線。
+    struct ClaimingChannel {
+        max_line_bytes: Option<usize>,
+        supports_frag: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl DeviceOutbound for ClaimingChannel {
+        async fn send_aip(&self, _: &Envelope) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn transport_label(&self) -> &str {
+            "serial"
+        }
+        fn identity_strength(&self) -> &str {
+            IDENTITY_STRENGTH_DEVICE_LINK
+        }
+        fn max_line_bytes(&self) -> Option<usize> {
+            self.max_line_bytes
+        }
+        fn supports_fragmentation(&self) -> bool {
+            self.supports_frag
+        }
+    }
+
+    /// `full-state` 是介面唯一敢說「已同步」的值，所以它的兩個來源不得混為
+    /// 一談：「這條線沒有行上限」是傳輸事實，「對端會重組分片」是裝置在
+    /// `hello.caps` 裡自己宣稱的一句話。只要在 caps 裡塞入 `aip.frag/1`
+    /// 就能拿到綠勾的話，一台**根本不重組**的裝置會被畫成已同步。
+    #[test]
+    fn a_device_that_only_claims_fragmentation_is_not_full_state_until_a_snapshot_went_out() {
+        let claimed = ClaimingChannel {
+            max_line_bytes: Some(639),
+            supports_frag: true,
+        };
+        assert_eq!(
+            derive_sync_profile(MemberRole::RemoteRenderer, &claimed, false),
+            SYNC_PROFILE_PENDING_FULL_STATE,
+            "只有宣稱、沒有證據：不得升級成 full-state"
+        );
+        assert_eq!(
+            derive_sync_profile(MemberRole::RemoteRenderer, &claimed, true),
+            SYNC_PROFILE_FULL_STATE,
+            "真的寫出過一份完整快照之後才算數"
+        );
+
+        // 沒有行上限是**這條線**的事實，不需要裝置同意任何事。
+        let unlimited = ClaimingChannel {
+            max_line_bytes: None,
+            supports_frag: false,
+        };
+        assert_eq!(
+            derive_sync_profile(MemberRole::RemoteRenderer, &unlimited, false),
+            SYNC_PROFILE_FULL_STATE
+        );
+
+        // 載不動又不會重組：既有的降級不受影響。
+        let limited = ClaimingChannel {
+            max_line_bytes: Some(639),
+            supports_frag: false,
+        };
+        assert_eq!(
+            derive_sync_profile(MemberRole::RemoteRenderer, &limited, false),
+            SYNC_PROFILE_INTENT_ONLY
+        );
+        assert_eq!(
+            derive_sync_profile(MemberRole::InputDevice, &limited, true),
+            SYNC_PROFILE_EVENT_SOURCE
+        );
+    }
 
     /// 兩次持久化可能同時發生（`Output::Persist` 由各自的背景任務派送，`character_session_persist`
     /// 又把它丟到 `spawn_blocking`）。共用一個暫存檔名的話，後開檔的 `truncate` 會截掉前一個

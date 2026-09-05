@@ -65,16 +65,40 @@ iPhone 的 `source` 必須等於配對出來的 `{kind:"device", id:<deviceId>}`
 
 | `syncProfile` | 什麼時候 | UI 語意 |
 |---|---|---|
-| `full-state` | 出站通道沒有單則上限（iPhone wss），或它有上限但對端宣告 `aip.frag/1` 會重組 | **只有這個**可以顯示「已同步」 |
+| `full-state` | 出站通道沒有單則上限（iPhone wss），或它有上限、對端宣告 `aip.frag/1`，**而且**我們已經真的把一份完整快照寫上這條線 | **只有這個**可以顯示「已同步」 |
+| `pending-full-state` | 有上限、對端宣告 `aip.frag/1`，但還沒有任何一份完整快照真的寫出去過 | 只有裝置的**宣稱**，還沒有證據；**不得**顯示「已同步」 |
 | `intent-only` | 有上限、不會重組，但成員宣告自己是 renderer（`role` 為 `remote-renderer`／`host-renderer`） | 只收得到放得進單則上限的意圖訊息；**不得**顯示「已同步」 |
 | `event-source` | 有上限、不會重組，而且成員只送事件（`input-device`／`observer`） | 送得進來、收不回去；**不得**顯示「已同步」 |
 
 它是 **Runtime 推導**出來的，不是新的 AIP 宣告欄位——`aip/1.0` 的 wire 沒有改。裝置不該（也不能）
-自己宣稱「我拿得到完整狀態」：那是**那條線**的事實（有沒有上限、會不會重組），不是它的意見。
-Runtime 只問通道兩件事（`DeviceOutbound::max_line_bytes`／`supports_fragmentation`）再配上已經協商好的
-`role`。投影到 `GET /v1/character-session/diagnostics` 的 `members[].syncProfile`（查不到出站通道就
+自己宣稱「我拿得到完整狀態」。但推導用的兩個事實**強度不同**，不得混為一談：
+
+* **沒有單則上限**（iPhone wss）是那條線的事實，一行就送得完，不需要裝置同意任何事；
+* **會重組分片**（`aip.frag/1`）是裝置在 `hello.caps` 裡**自己宣稱**的一句話
+  （`protocol.rs` 的握手註解就是這樣寫的：`hello.caps 是裝置自報的能力清單`），host 端沒有驗證。
+
+所以第二種只夠讓成員停在 `pending-full-state`：一台只要在 caps 塞入 `aip.frag/1`、實際上不重組的
+裝置，不會因為那句話就拿到綠勾。升級成 `full-state` 的條件是**觀察到的事實**——Runtime 真的把一份
+完整快照（`messageType=state`、`payload.kind=snapshot`）寫上這條線並且**每一片都寫出成功**
+（`crates/interaction-runtime/src/character_session.rs::note_full_state_delivered`）。出站通道解除登記
+（斷線／撤銷／重新綁定）時證據一併清掉：下一條線是新的重組器，上一條線不能替它作證。
+
+**已知限制（誠實界線）**：寫出成功只代表「已寫上線」，不代表對端重組成功、更不代表它套用了——
+`aip/1.0` 對 `state` 沒有 wire 層回執，所以「宣稱會重組、也收下了、卻沒組回來」這一種目前偵測不到。
+這與 `identityStrength` 的 `transport-hello+device-side-pairing` 是同一類保留：說得出界線，不假裝沒有。
+
+投影到 `GET /v1/character-session/diagnostics` 的 `members[].syncProfile`（查不到出站通道就
 **省略**該欄位，不猜）與 `GET /v1/status` 的 `characterSessionSync`（非空才序列化），
-並在協商完成時稽核 `aip.member-sync-profile{deviceId,transport,role,syncProfile,maxLineBytes,supportsFragmentation}`。
+並在協商完成時稽核 `aip.member-sync-profile{deviceId,transport,role,syncProfile,maxLineBytes,supportsFragmentation}`
+（協商當下快照都還沒送出去，所以裝置線那一族在這則稽核裡通常是 `pending-full-state`）。
+
+兩份投影都另外帶一個**選填**的 `providerId`（由出站通道自己說出來，`DeviceOutbound::provider_id`；
+說不出來就省略）：桌面的裝置清單以 provider 為單位，沒有它就只能用字串前綴猜，而猜錯就是把一台
+裝置的同步狀態掛到另一台身上。
+
+> 人類層／AI 層：`characterSessionSync` 與未解決停止一樣屬於**人類層**，`GET /v1/status` 與
+> canonical tool `interaction.status` 對 agent／session token 一律不投影這些欄位
+> （`crates/interaction-api/src/lib.rs::project_status_for_principal`）。
 
 ## 4. Presence／Heartbeat／Offline policy
 

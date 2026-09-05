@@ -191,6 +191,32 @@ pub struct RuntimeInner {
     /// 短臨界區，鎖不跨 await。
     pub(crate) device_outbound:
         std::sync::RwLock<BTreeMap<String, Arc<dyn crate::character_session::DeviceOutbound>>>,
+    /// 已經**實際**成功寫出過一份完整快照的裝置（`deviceId`）。
+    ///
+    /// 為什麼需要它：`syncProfile = full-state` 是介面唯一敢說「已同步」的值，
+    /// 而「這條線送得動一份完整快照」的其中一半（會不會重組分片）是裝置在
+    /// `hello.caps` 裡**自己宣稱**的。宣稱不是事實：一台只要在 caps 塞入
+    /// `aip.frag/1`、實際上不重組的裝置會被畫成綠勾，而它一則快照都沒收到。
+    /// 這張表記的是「我們真的把整份寫出去了」——在那之前一律降級成
+    /// `pending-full-state`。
+    ///
+    /// 誠實界線：寫出成功仍然只是「已寫上線」，不是「對端套用了」（AIP 沒有
+    /// wire 層 ack）。所以它擋得住「device 亂宣稱 caps」，擋不住「device 宣稱
+    /// 了也收下了卻沒重組」——後者要協定層的回執才問得出來，見
+    /// `docs/aip/device-profile.md` §3.1。
+    ///
+    /// 有界（[`crate::character_session::MAX_DEVICE_OUTBOUND`]，與出站登記表
+    /// 同一個上限；解除登記時一起清掉——新的一條線是新的重組器）。
+    pub(crate) full_state_delivered: std::sync::RwLock<std::collections::BTreeSet<String>>,
+    /// 綁定表滿的時候被拒絕登記的宣告式 provider。
+    ///
+    /// 為什麼要記：沒有生命週期記錄的 provider，`begin_declarative_rebind` 一律
+    /// 回 `None`，於是「停用 → 啟用」會回一個乾淨的 `Available`——但停用時
+    /// `retire()` 已經把它的能力撤回了，要等下一次啟動才回得來。畫面上「可用
+    /// 但一個能力都沒有」必須說得出原因，不能只留在稽核裡。
+    ///
+    /// 有界（同 [`crate::declarative_lifecycle::MAX_DECLARATIVE_BINDINGS`]）。
+    pub(crate) declarative_untracked: std::sync::Mutex<std::collections::BTreeSet<String>>,
 }
 
 #[derive(Clone)]
@@ -446,6 +472,8 @@ impl Runtime {
                 declarative_bindings: std::sync::Mutex::new(BTreeMap::new()),
                 vector_index: Box::new(crate::knowledge::LocalSubwordEmbeddingIndex::default()),
                 device_outbound: std::sync::RwLock::new(BTreeMap::new()),
+                full_state_delivered: std::sync::RwLock::new(std::collections::BTreeSet::new()),
+                declarative_untracked: std::sync::Mutex::new(std::collections::BTreeSet::new()),
             }),
         };
         let _ = sensor_cb_slot.set(Arc::downgrade(&runtime.inner));

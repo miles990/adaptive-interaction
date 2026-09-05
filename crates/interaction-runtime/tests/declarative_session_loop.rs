@@ -443,6 +443,45 @@ async fn stop_all_sensors_gets_a_real_ack_from_the_serial_simulator() {
     assert!(!no_path, "這個 adapter 的受器不得再落到 no-stop-path");
 }
 
+/// 本機這一側什麼都沒開著，**不代表**裝置那一端沒有在擷取：旗標只說得出
+/// 「我們收不收資料」。所以停止掃描仍然要把 stop-all 送上線問一次，並且說得
+/// 出這一次的答案是從哪裡來的（`confirmedVia`）——沒有往返過的「已經停了」
+/// 是一句沒有來源的話，會被拿去清掉別人留下的未解決停止。
+#[tokio::test(flavor = "multi_thread")]
+async fn an_idle_declarative_source_still_asks_the_device_and_says_where_the_answer_came_from() {
+    let Some(fx) = Fixture::spawn() else { return };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec())
+        .await
+        .expect("register");
+    // 刻意**不**啟用那個 consent-gated 受器：本機這一側是空的。
+    assert!(
+        rt.registry
+            .receptor(&ReceptorId::new(&fx.receptor_id))
+            .await
+            .is_err(),
+        "這條測試的前提：本機這一側沒有東西開著"
+    );
+
+    let report = rt.stop_all_sensors("user").await.expect("stop all");
+    let value = serde_json::to_value(&report).expect("report json");
+    let sources = value["sources"].as_array().cloned().unwrap_or_default();
+    let ours = sources
+        .iter()
+        .find(|d| d["sourceId"] == fx.provider_id || d["sourceId"] == fx.device_id)
+        .unwrap_or_else(|| panic!("停止報告必須涵蓋這個 adapter：{value}"));
+    assert_eq!(
+        ours["confirmedVia"],
+        json!("ack"),
+        "沒有裝置往返過的「已經停了」不算確認：{value}\nsim log:\n{}",
+        fx.log_text()
+    );
+    // 誠實：本機這一側本來就沒在擷取，所以**不是** `stopped`（沒有「停止」
+    // 這件事可報），而是「本來就沒有東西要停，而且裝置也確認了」。
+    assert_eq!(ours["outcome"], json!("already-stopped"), "{value}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_silent_device_makes_the_stop_uncertain_not_stopped() {
     let Some(mut fx) = Fixture::spawn() else {
@@ -1382,6 +1421,100 @@ fn audit_rows(rt: &Runtime, kind: &str) -> Vec<Value> {
         .collect()
 }
 
+/// 一份**連不上**的 spec，外加一個不需要 consent（預設啟用）的受器。
+fn dead_spec_with_ambient(
+    spec_id: &str,
+    device_id: &str,
+) -> interaction_adapter_declarative::DeclarativeSpec {
+    let port = std::env::temp_dir()
+        .join(format!(
+            "decl-rebind-missing-{}-{spec_id}",
+            std::process::id()
+        ))
+        .to_string_lossy()
+        .to_string();
+    let mut value = spec_json(&port, spec_id, device_id);
+    value["capabilities"]
+        .as_array_mut()
+        .expect("capabilities")
+        .push(json!({
+            "kind": "receptor",
+            "id": "ambient",
+            "name": "環境亮度",
+            "category": "environment",
+            "transport": "serial",
+            "serial": {
+                "port": port,
+                "baud": 115200,
+                "expectedDeviceId": device_id,
+                "pairingCode": PAIRING_CODE,
+            },
+            "pollIntervalMs": 3_600_000,
+            "facts": {"lux": "/facts/lux"},
+        }));
+    serde_json::from_value(value).expect("spec")
+}
+
+/// 「人類先前手動關掉的受器」是一份**還沒套用成功就不能丟**的紀錄。
+///
+/// 一輪 rebind 在握手階段失敗（裝置沒回來）之後，人類再按一次啟用：第二輪的
+/// 第 7 步會依 manifest 預設把不需 consent 的受器重新註冊成「開」。紀錄若在
+/// 第一輪就被清掉，第二輪等於替使用者按下一個他沒有按的開關——直接違反
+/// 「回到 Available 不會自動恢復任何能力」。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_rebind_keeps_the_human_disabled_list_for_the_next_attempt() {
+    let seq = SPEC_SEQ.fetch_add(1, Ordering::SeqCst);
+    let spec = dead_spec_with_ambient(&format!("keepoff{seq}"), &format!("keepoff{seq:02}"));
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&spec).await.expect("register");
+    let pid = ProviderId::new(format!("provider.adapter.keepoff{seq}"));
+    let ambient = ReceptorId::new(format!("keepoff{seq}.ambient"));
+    assert!(
+        rt.registry.receptor(&ambient).await.is_ok(),
+        "非 consent 受器一開始是啟用的（這條測試的前提）"
+    );
+
+    // 人類自己關掉它，然後停用整台裝置。
+    rt.registry
+        .set_receptor_enabled(&ambient, false)
+        .await
+        .expect("human disables");
+    rt.transition_provider(&pid, ProviderState::Disabled)
+        .await
+        .expect("disable");
+
+    // 第一次啟用：連不上，rebind 會在握手預算過期後誠實失敗。
+    rt.transition_provider(&pid, ProviderState::Available)
+        .await
+        .expect("re-enable");
+    assert!(
+        wait_until(Duration::from_secs(60), || {
+            let rt = rt.clone();
+            async move { !audit_rows(&rt, "provider.rebind-failed").is_empty() }
+        })
+        .await,
+        "第一輪要有界地失敗"
+    );
+    assert!(
+        rt.registry.receptor(&ambient).await.is_err(),
+        "第一輪之後那個受器仍然是關的"
+    );
+
+    // 再按一次啟用：第二輪的重新註冊必須拿得到同一份名單。
+    rt.transition_provider(&pid, ProviderState::Available)
+        .await
+        .expect("retry");
+    // 第 7 步（重新註冊＋套用名單）在同一把鎖裡、毫秒內跑完；這裡等的是
+    // 「它已經跑過了」，而且遠早於第二輪的握手預算。
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(
+        rt.registry.receptor(&ambient).await.is_err(),
+        "第二輪重新註冊不得把人類手動關掉的受器打開；audit={:?}",
+        audit_rows(&rt, "provider.rebinding")
+    );
+}
+
 /// 一份指向**不存在**的序列埠的 spec：連線永遠握不上手，用來釘住
 /// 「rebind 有界、誠實、而且不會被別的決定弄壞」。
 fn dead_spec(spec_id: &str, device_id: &str) -> interaction_adapter_declarative::DeclarativeSpec {
@@ -1759,17 +1892,27 @@ async fn a_fragmenting_device_receives_the_snapshot_and_is_a_full_state_member()
         fx.members(&rt)
     );
     // 稽核要說得出這個推導是怎麼來的（線上限＋會不會重組）。
-    let row = rt
+    let rows: Vec<Value> = rt
         .store
         .audit_tail(300)
         .unwrap_or_default()
         .into_iter()
-        .find(|row| row.get("kind").and_then(Value::as_str) == Some("aip.member-sync-profile"))
-        .expect("sync profile audit");
-    assert_eq!(row["detail"]["syncProfile"], "full-state", "{row}");
-    assert_eq!(row["detail"]["supportsFragmentation"], true, "{row}");
-    assert_eq!(row["detail"]["maxLineBytes"], 639, "{row}");
-    assert_eq!(row["detail"]["transport"], "serial", "{row}");
+        .filter(|row| row.get("kind").and_then(Value::as_str) == Some("aip.member-sync-profile"))
+        .collect();
+    assert!(!rows.is_empty(), "協商完成要留一則同步模式稽核");
+    for row in &rows {
+        assert_eq!(row["detail"]["supportsFragmentation"], true, "{row}");
+        assert_eq!(row["detail"]["maxLineBytes"], 639, "{row}");
+        assert_eq!(row["detail"]["transport"], "serial", "{row}");
+    }
+    // 協商完成的那一刻，快照都還沒送出去：那時候只有裝置**宣稱**自己會重組
+    // （`hello.caps` 的 `aip.frag/1`），所以誠實的值是 `pending-full-state`。
+    // 升級成 `full-state` 的是上面那一段——整份快照真的寫上線之後（§3.1）。
+    assert!(
+        rows.iter()
+            .any(|row| row["detail"]["syncProfile"] == json!("pending-full-state")),
+        "協商當下不得只憑宣稱就算成 full-state：{rows:?}"
+    );
 }
 
 /// **沒有**宣告 `aip.frag/1` 的裝置（`--no-frag`，與參考韌體同一種）：
@@ -1934,6 +2077,124 @@ async fn an_interrupted_inbound_transfer_is_audited_not_silently_dropped() {
     assert!(
         reason == "stop-all" || reason == "timeout",
         "原因必須說得出是被取消還是逾時，得到 {reason}"
+    );
+}
+
+/// `full-state`（唯一可以說「已同步」的值）不得只建立在裝置**自己宣稱**的
+/// `aip.frag/1` 上。
+///
+/// `hello.caps` 是裝置自報的能力清單，host 端沒有任何驗證：一台只要在 caps
+/// 裡塞入 `aip.frag/1`、實際上不重組的裝置，會在協商完成的那一刻就被畫成綠勾
+/// ——它其實一則快照都還沒收到。所以協商當下只能是 `pending-full-state`，
+/// 直到我們**真的**把一份完整快照寫上線為止。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_frag_claiming_device_is_only_full_state_after_a_snapshot_really_went_out() {
+    let Some(mut fx) = Fixture::spawn() else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec())
+        .await
+        .expect("register");
+    assert!(
+        join_session(&mut fx, &rt).await,
+        "先要成為成員：{:?}\nsim log:\n{}",
+        fx.members(&rt),
+        fx.log_text()
+    );
+
+    // 協商完成的那一刻（快照都還沒送出去）：只能是「宣稱」。
+    let rows = audit_rows(&rt, "aip.member-sync-profile");
+    assert!(
+        rows.iter()
+            .any(|r| r["detail"]["syncProfile"] == json!("pending-full-state")),
+        "協商當下只有裝置的宣稱，不得直接算成 full-state：{rows:?}"
+    );
+
+    // 整份快照真的寫上線之後才升級。
+    assert!(
+        wait_until(Duration::from_secs(10), || {
+            let rt = rt.clone();
+            let device_id = fx.device_id.clone();
+            async move {
+                members(&rt).iter().any(|m| {
+                    m["party"]["id"] == device_id && m["syncProfile"] == json!("full-state")
+                })
+            }
+        })
+        .await,
+        "快照寫出去之後要升級成 full-state：{:?}\nsim log:\n{}",
+        members(&rt),
+        fx.log_text()
+    );
+
+    // 而且說得出這台裝置掛在哪一個 provider 條目底下（桌面的清單以 provider
+    // 為單位；沒有這個欄位就只能用字串前綴猜）。
+    let member = members(&rt)
+        .into_iter()
+        .find(|m| m["party"]["id"] == json!(fx.device_id))
+        .expect("device member");
+    assert_eq!(member["providerId"], json!(fx.provider_id), "{member}");
+    let sync = rt.character_session_sync_profiles();
+    assert!(
+        sync.iter()
+            .any(|s| s["deviceId"] == json!(fx.device_id)
+                && s["providerId"] == json!(fx.provider_id)),
+        "status 的 characterSessionSync 也要對得到 provider：{sync:?}"
+    );
+}
+
+/// 停用這台裝置時，一筆停在半路的入站傳輸也要留得下痕跡。
+///
+/// 收訊迴圈是**唯一**會把「被取消的傳輸」寫成 `aip.fragment-dropped` 的地方，
+/// 而停用／撤銷／重新綁定三條路徑都會先把那個迴圈 abort 掉。先 abort 再取消
+/// 的話，那一筆傳輸就此靜默消失——「裝置說了話但我們組不回來」與「裝置沒說
+/// 話」在畫面上又長得一模一樣。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_transfer_cancelled_by_disabling_the_provider_is_audited_before_the_loop_is_gone() {
+    let Some(mut fx) = Fixture::spawn() else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec())
+        .await
+        .expect("register");
+    let pid = ProviderId::new(&fx.provider_id);
+    assert!(
+        join_session(&mut fx, &rt).await,
+        "先要成為成員：{:?}\nsim log:\n{}",
+        fx.members(&rt),
+        fx.log_text()
+    );
+
+    fx.control(json!({"op": "aip-partial", "bytes": 1200}));
+    assert!(
+        wait_until(Duration::from_secs(5), || {
+            let log = fx.log_text();
+            async move { log.contains("aip-partial: sent fragment 1/") }
+        })
+        .await,
+        "模擬器必須真的送出第一片\nsim log:\n{}",
+        fx.log_text()
+    );
+
+    rt.transition_provider(&pid, ProviderState::Disabled)
+        .await
+        .expect("disable");
+
+    // 停用是**同步**完成的：它回來的那一刻，那條收訊迴圈已經不在了。所以稽核
+    // 必須在這一刻就已經寫下去——不能寄望「等一下迴圈會撿走」。
+    assert!(
+        fragment_drop_reason(&rt, &fx.device_id).is_some(),
+        "被停用取消的分片傳輸必須留稽核 aip.fragment-dropped；audit={:?}",
+        rt.store
+            .audit_tail(60)
+            .unwrap_or_default()
+            .iter()
+            .map(|r| r["kind"].clone())
+            .collect::<Vec<_>>()
     );
 }
 

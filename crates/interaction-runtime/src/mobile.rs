@@ -103,6 +103,9 @@ pub const CHARACTER_PROJECT_WAIT: Duration = Duration::from_millis(1_500);
 struct MobileOutbound {
     bridge: Arc<MobileBridge>,
     device_id: String,
+    /// 這台手機對應的 provider 條目（`provider.mobile.<裝置>`）。桌面的裝置
+    /// 清單以 provider 為單位，沒有這個欄位就只能用字串前綴猜。
+    provider_id: String,
 }
 
 #[async_trait::async_trait]
@@ -120,6 +123,10 @@ impl DeviceOutbound for MobileOutbound {
 
     fn identity_strength(&self) -> &str {
         IDENTITY_STRENGTH_PAIRED_TOKEN
+    }
+
+    fn provider_id(&self) -> Option<&str> {
+        Some(&self.provider_id)
     }
 }
 
@@ -1378,6 +1385,7 @@ impl MobileBridge {
         Arc::new(MobileOutbound {
             bridge: self.clone(),
             device_id: device_id.to_string(),
+            provider_id: mobile_provider_id(device_id).as_str().to_string(),
         })
     }
 
