@@ -206,7 +206,15 @@ export function projectSensorStop(
     const outcome = d && typeof d === "object" ? d.outcome : undefined;
     return typeof outcome !== "string" || outcome !== "stopped";
   });
-  const uncertain = raw.uncertain === true || raw.stopped === false || unsure.length > 0;
+  // 非手機來源（`sources[]`，例如宣告式 Serial 裝置）：只有 stopped／already-stopped 算確認。
+  // 名稱只用人話的 sourceLabel；沒有就說「某個裝置」，sourceId 是內部 id，不外洩。
+  const sources = Array.isArray(raw.sources) ? (raw.sources as Record<string, unknown>[]) : [];
+  const unsureSources = sources.filter((s) => {
+    const outcome = s && typeof s === "object" ? s.outcome : undefined;
+    return outcome !== "stopped" && outcome !== "already-stopped";
+  });
+  const uncertain =
+    raw.uncertain === true || raw.stopped === false || unsure.length > 0 || unsureSources.length > 0;
 
   if (remaining === null) {
     return {
@@ -224,9 +232,12 @@ export function projectSensorStop(
     };
   }
   if (uncertain) {
-    const who = uniqueLabels(
-      unsure.map((d) => (typeof d.name === "string" && d.name.trim() ? d.name.trim() : "某台裝置"))
-    );
+    const who = uniqueLabels([
+      ...unsure.map((d) => (typeof d.name === "string" && d.name.trim() ? d.name.trim() : "某台裝置")),
+      ...unsureSources.map((s) =>
+        typeof s.sourceLabel === "string" && s.sourceLabel.trim() ? s.sourceLabel.trim() : "某個裝置"
+      ),
+    ]);
     return {
       ok: false,
       message: `已要求停止，結果不確定（${who.length > 0 ? who.join("、") : "有來源"}未回覆）。`,

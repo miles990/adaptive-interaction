@@ -40,6 +40,10 @@
   沒有 HTTP 寫入入口（測試釘住 POST 同路徑非 2xx）。
 
 ### Fixed
+- **桌面把非手機來源的停止結果說出來了**（S1 交接）：`/v1/sensors/stop` 的 `sources[]`（M2 §3.1 起非手機來源、例如宣告式 Serial 裝置的逐筆結果）
+  以前桌面完全不看——狀態列的「結果不確定」指不出是誰，「連接與權限」的逐項回報少一行。現在 `projectSensorStop` 把沒確認的來源
+  （只有 `stopped`／`already-stopped` 算確認）算進不確定並指名（人話 `sourceLabel`，沒有就「某個裝置」，`sourceId` 不外洩），
+  `ConnectPage` 對每個來源一台一句（`sourceStopLine`）。`sensorStop.test.ts` 3＋`connectPage.test.tsx` 擴充。CLI 本來就原樣印 JSON。
 - **⌘K 指令面板是真的 modal 了**（M3c 任務驗收發現）：Escape 以前只掛在搜尋框上，Tab 一下（焦點落到第一個選項＝「緊急停止」）
   之後就關不掉，面板底下卻寫著「Esc 關閉」，overlay 也沒有焦點陷阱。現在 overlay 容器沿用 `useFocusTrap`（`aria-modal`、
   Escape 在面板內任何地方都收得掉、Tab 只在面板內循環、關掉後焦點回到開啟前的元素；IME 組字中的 Escape 仍是取消選字）。

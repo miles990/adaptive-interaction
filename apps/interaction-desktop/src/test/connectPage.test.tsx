@@ -524,6 +524,26 @@ describe("連接與權限：第一層五區（裝置優先）", () => {
       stopped: true,
       local: { microphone: "stopped" },
       devices: [{ deviceId: "d1", name: "Alex 的 iPhone", outcome: "unknown" }],
+      // 非手機來源（宣告式 Serial 裝置）走 sources[]：一台一句、照 outcome 說，不外洩 id。
+      sources: [
+        {
+          sourceId: "provider.adapter.esp32-desk",
+          declarationId: "provider.adapter.esp32-desk",
+          sourceLabel: "桌上的 ESP32",
+          sensors: ["esp32-desk.mic"],
+          outcome: "stopped",
+          waitedMs: 120,
+          confirmedVia: "ack",
+        },
+        {
+          sourceId: "provider.adapter.shelf",
+          declarationId: "provider.adapter.shelf",
+          sensors: ["shelf.mic"],
+          outcome: "unreachable",
+          waitedMs: 0,
+          detail: "link closed",
+        },
+      ],
     });
     const revoke = vi.spyOn(api, "consentRevoke").mockResolvedValue({
       sessionId: "sess-1",
@@ -537,6 +557,9 @@ describe("連接與權限：第一層五區（裝置優先）", () => {
     await waitFor(() => expect(sensorsStop).toHaveBeenCalled());
     await within(stop).findByText("這台電腦：已停止本機感測（麥克風）。");
     await within(stop).findByText(/Alex 的 iPhone：已要求停止（以手機回報為準）/);
+    await within(stop).findByText("桌上的 ESP32：已停止（裝置回報已停止）。");
+    await within(stop).findByText("某個裝置：未送達（裝置未連線），感測狀態未變。");
+    expect(within(stop).queryByText(/provider\.adapter/)).not.toBeInTheDocument();
 
     fireEvent.click(within(stop).getByRole("button", { name: "撤回全部授權" }));
     expect(revoke).not.toHaveBeenCalled();

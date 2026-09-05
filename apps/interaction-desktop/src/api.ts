@@ -543,6 +543,21 @@ export interface SensorStopDeviceReport {
   waitedMs?: number;
 }
 
+/** 非手機來源（runtime `SensorStopReport`；M2 §3.1 的 `SensorSource` port）對一次停止請求的逐筆回報：
+ *  例如經宣告式 adapter 的 Serial／MQTT 裝置。`outcome` 只有 `stopped`／`already-stopped` 算「確認沒在擷取」；
+ *  `unknown`（沒回覆）、`unreachable`（沒送到）、`refused`（明確拒絕）都可能還在擷取。
+ *  `sourceId`／`declarationId` 是內部 id，一般模式不上畫面；人話名稱看 `sourceLabel`。 */
+export interface SensorStopSourceReport {
+  sourceId?: string;
+  declarationId?: string;
+  sourceLabel?: string;
+  sensors?: string[];
+  outcome?: "stopped" | "already-stopped" | "unknown" | "unreachable" | "refused" | (string & {});
+  waitedMs?: number;
+  confirmedVia?: string;
+  detail?: string;
+}
+
 /** `/v1/sensors/stop` 的回報。舊 daemon 只回 `{stopped:true}`（沒有 uncertain／local／
  *  devices）——呼叫端必須容忍缺欄位，並以重新讀取 status 的 activeSensors 為準。 */
 export interface SensorStopReport {
@@ -553,6 +568,8 @@ export interface SensorStopReport {
    *  `idle` ＝本來就沒有在擷取。**不是布林值**——舊程式碼曾誤宣告成 boolean。 */
   local?: { microphone?: "stopped" | "idle" | (string & {}) };
   devices?: SensorStopDeviceReport[];
+  /** 非手機來源的逐筆結果（本機擷取投影在 `local`，不重複列）。舊 daemon 不送。 */
+  sources?: SensorStopSourceReport[];
 }
 
 /** 單台手機的「停止感測」結果（runtime `mobile_sensors_stop`）。

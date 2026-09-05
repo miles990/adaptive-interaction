@@ -17,6 +17,7 @@ import {
   SensorStopReport,
   SensorUse,
   Session,
+  SensorStopSourceReport,
 } from "../api";
 import { useAppState } from "../appstate";
 import { useCharacterName } from "../characterName";
@@ -285,6 +286,21 @@ export function deviceStopLine(report: SensorStopDeviceReport, fallbackName: str
   return `${name}：已要求停止（以手機回報為準）；手機還沒回報，結果不確定。`;
 }
 
+/** 非手機來源（`sources[]`）的一行：只有 stopped／already-stopped 可以說「沒在感測」；
+ *  名稱只用 sourceLabel，沒有就說「某個裝置」——sourceId 是內部 id，不丟給一般模式。 */
+export function sourceStopLine(report: SensorStopSourceReport): string {
+  const name =
+    typeof report.sourceLabel === "string" && report.sourceLabel.trim()
+      ? report.sourceLabel.trim()
+      : "某個裝置";
+  const outcome = String(report.outcome ?? "");
+  if (outcome === "stopped") return `${name}：已停止（裝置回報已停止）。`;
+  if (outcome === "already-stopped") return `${name}：本來就沒有在感測。`;
+  if (outcome === "unreachable") return `${name}：未送達（裝置未連線），感測狀態未變。`;
+  if (outcome === "refused") return `${name}：裝置拒絕停止，可能仍在感測。`;
+  return `${name}：已要求停止；裝置還沒回報，結果不確定。`;
+}
+
 function ConnectOverview({
   refreshKey,
   advanced,
@@ -364,6 +380,10 @@ function ConnectOverview({
       lines.push(`這台電腦：沒有完成（${e}），結果不確定。`);
     }
     const reported = report?.devices;
+    // 非手機來源（宣告式 Serial／MQTT 裝置等）：一台一句，照 outcome 說。
+    for (const src of Array.isArray(report?.sources) ? report.sources : []) {
+      lines.push(sourceStopLine(src));
+    }
     if (Array.isArray(reported) && reported.length > 0) {
       for (const d of reported) {
         const known = phoneCards.find((p) => p.deviceId === String(d.deviceId ?? ""));

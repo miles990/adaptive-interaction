@@ -103,6 +103,61 @@ describe("projectSensorStop", () => {
     expect(out.message).toContain("某台裝置");
   });
 
+  // M2 §3.1／§3.3：非手機來源（例如經宣告式 adapter 的 Serial 裝置）走 `sources[]`，
+  // 不投影進 `devices`。沒確認的來源一樣是「結果不確定」，而且要指名是誰（人話名稱）。
+  it("sources[] 裡有來源沒確認：結果不確定，帶來源名稱、不外洩 id", () => {
+    const out = projectSensorStop(
+      {
+        stopped: false,
+        uncertain: true,
+        local: { microphone: "idle" },
+        devices: [],
+        sources: [
+          {
+            sourceId: "provider.adapter.esp32-desk",
+            declarationId: "provider.adapter.esp32-desk",
+            sourceLabel: "桌上的 ESP32",
+            sensors: ["esp32-desk.mic"],
+            outcome: "unknown",
+            waitedMs: 3000,
+          },
+        ],
+      },
+      []
+    );
+    expect(out.ok).toBe(false);
+    expect(out.message).toContain("結果不確定");
+    expect(out.message).toContain("桌上的 ESP32");
+    expect(out.message).not.toContain("provider.adapter");
+  });
+
+  it("sources[] 全部確認（stopped／already-stopped）：可以說已停止", () => {
+    const out = projectSensorStop(
+      {
+        stopped: true,
+        uncertain: false,
+        local: { microphone: "idle" },
+        devices: [],
+        sources: [
+          { sourceId: "a", declarationId: "a", sensors: [], outcome: "stopped", waitedMs: 10 },
+          { sourceId: "b", declarationId: "b", sensors: [], outcome: "already-stopped", waitedMs: 0 },
+        ],
+      },
+      []
+    );
+    expect(out).toEqual({ ok: true, message: "已停止感測。" });
+  });
+
+  it("sources[] 沒有名稱時說「某個裝置」，不把 sourceId 丟給一般模式", () => {
+    const out = projectSensorStop(
+      { stopped: false, sources: [{ sourceId: "provider.adapter.x", outcome: "refused" }] },
+      []
+    );
+    expect(out.ok).toBe(false);
+    expect(out.message).toContain("某個裝置");
+    expect(out.message).not.toContain("provider.adapter.x");
+  });
+
   it("後端明說沒停成功：不算成功", () => {
     expect(projectSensorStop({ stopped: false }, []).ok).toBe(false);
   });
