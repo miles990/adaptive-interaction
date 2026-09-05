@@ -26,14 +26,15 @@
 #   * 結束一定殺掉 App 程序並確認埠號關閉。
 #
 # 用法：
-#   scripts/tauri-ax-walkthrough.sh [--app <path/to/.app>] [--build] [--port N]
-#                                   [--out <dir>] [--keep-home]
+#   scripts/tauri-ax-walkthrough.sh [--app <path/to/.app>] [--build] [--port N] [--out <dir>]
 #
 #   --app     用現成的 .app（預設找 src-tauri/target/debug/bundle/macos/…，沒有就 build）
 #   --build   強制重新 `pnpm tauri build --debug --bundles app`
 #   --port    隔離 daemon 的 API 埠號（預設 18922）
 #   --out     結果 JSON 與截圖的輸出目錄（預設 ./tauri-ax-walkthrough）
-#   --keep-home  保留隔離的家（除錯用；預設也會保留並印出路徑，只是不放進 repo）
+#
+# 隔離的家一律保留（路徑印在結果 JSON 的 `isolatedHome`）：它是這一次執行的實際狀態，
+# 出事時要看得到。它在 /tmp 底下，由系統自行清理，不進 repo。
 
 set -uo pipefail
 
@@ -45,7 +46,6 @@ APP_PATH=""
 FORCE_BUILD=0
 PORT=18922
 OUT_DIR="$PWD/tauri-ax-walkthrough"
-KEEP_HOME=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -53,7 +53,6 @@ while [ $# -gt 0 ]; do
     --build) FORCE_BUILD=1; shift ;;
     --port) PORT="${2:-}"; shift 2 ;;
     --out) OUT_DIR="${2:-}"; shift 2 ;;
-    --keep-home) KEEP_HOME=1; shift ;;
     -h|--help) sed -n '1,40p' "$0"; exit 0 ;;
     *) echo "未知參數：$1" >&2; exit 2 ;;
   esac
