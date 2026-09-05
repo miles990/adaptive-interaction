@@ -3,8 +3,8 @@
 // 不啟用任何權限、不換 AI 幫手；反推不吻合時一律是「自訂」並顯示有效值。
 
 import { describe, expect, it } from "vitest";
+import { beginPresetOp } from "../companion/applyPresetPlan";
 import {
-  applyCompanionPreset,
   COMPANION_PRESETS,
   COMPANION_PRESET_PREFS_KEYS,
   COMPANION_PRESET_PROACTIVE_KEYS,
@@ -60,17 +60,34 @@ describe("陪伴預設：反推目前是哪一個", () => {
   });
 });
 
+/**
+ * 套用檔位的**唯一**入口（`beginPresetOp`）。
+ *
+ * 這一區的守門（不改費用上限／不換 AI 幫手／不啟用任何權限）必須跑在正式路徑用的那支
+ * 函式上：曾經有第二份同名邏輯（`applyCompanionPreset`）在檔位交易化之後零呼叫端還留著
+ * export，守門測試等於跑在沒有人用的程式碼上（對抗審查 character-settings-binding-004）。
+ */
+function presetWrites(id: string): { prefs: Record<string, unknown>; proactive: Record<string, unknown> } | null {
+  const plan = beginPresetOp(id, 0);
+  return plan ? { prefs: plan.prefs, proactive: plan.proactive } : null;
+}
+
 describe("陪伴預設：套用只寫那幾個既有欄位", () => {
+  it("presets.ts 只留一份套用邏輯（不得再 export 第二個入口）", async () => {
+    const mod = await import("../companion/presets");
+    expect(Object.keys(mod)).not.toContain("applyCompanionPreset");
+  });
+
   it("只有 companionExpressiveness／companionDoNotDisturb ＋ 主動對話 mode", () => {
     expect(COMPANION_PRESET_PREFS_KEYS).toEqual(["companionExpressiveness", "companionDoNotDisturb"]);
     expect(COMPANION_PRESET_PROACTIVE_KEYS).toEqual(["mode"]);
     for (const preset of COMPANION_PRESETS) {
-      const patch = applyCompanionPreset(preset.id);
+      const patch = presetWrites(preset.id);
       expect(patch).not.toBeNull();
-      expect(Object.keys(patch!.prefs).sort()).toEqual(["companionDoNotDisturb", "companionExpressiveness"]);
-      expect(Object.keys(patch!.proactive)).toEqual(["mode"]);
+      expect(Object.keys(patch?.prefs ?? {}).sort()).toEqual(["companionDoNotDisturb", "companionExpressiveness"]);
+      expect(Object.keys(patch?.proactive ?? {})).toEqual(["mode"]);
     }
-    expect(applyCompanionPreset("custom")).toBeNull();
+    expect(presetWrites("custom")).toBeNull();
   });
 
   it("不改費用上限／不換 AI 幫手／不啟用任何權限／不動其它自訂值", () => {
@@ -96,29 +113,30 @@ describe("陪伴預設：套用只寫那幾個既有欄位", () => {
       "companionInteractionMemory",
     ];
     for (const preset of COMPANION_PRESETS) {
-      const patch = applyCompanionPreset(preset.id)!;
-      for (const key of forbiddenProactive) expect(patch.proactive).not.toHaveProperty(key);
-      for (const key of forbiddenPrefs) expect(patch.prefs).not.toHaveProperty(key);
+      const patch = presetWrites(preset.id);
+      for (const key of forbiddenProactive) expect(patch?.proactive).not.toHaveProperty(key);
+      for (const key of forbiddenPrefs) expect(patch?.prefs).not.toHaveProperty(key);
     }
   });
 
   it("套用後反推得回同一個預設（來回一致）", () => {
     for (const preset of COMPANION_PRESETS) {
-      const patch = applyCompanionPreset(preset.id)!;
+      const plan = beginPresetOp(preset.id, 0);
+      expect(plan).not.toBeNull();
       expect(
         presetFor({
-          expressiveness: patch.prefs.companionExpressiveness,
-          doNotDisturb: patch.prefs.companionDoNotDisturb,
-          proactiveMode: patch.proactive.mode,
+          expressiveness: plan?.prefs.companionExpressiveness,
+          doNotDisturb: plan?.prefs.companionDoNotDisturb,
+          proactiveMode: plan?.proactive.mode,
         })
       ).toBe(preset.id);
     }
   });
 
   it("安靜預設不得把主動對話整個關掉（必要訊息仍要送得出來）", () => {
-    const quiet = applyCompanionPreset("quiet")!;
-    expect(quiet.proactive.mode).toBe("necessary");
-    expect(quiet.proactive.mode).not.toBe("off");
+    const quiet = beginPresetOp("quiet", 0);
+    expect(quiet?.proactive.mode).toBe("necessary");
+    expect(quiet?.proactive.mode).not.toBe("off");
   });
 
   it("預設模組是純函式：不 import 任何裝置／API／角色專屬模組", async () => {

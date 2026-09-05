@@ -86,24 +86,10 @@ export function presetFor(inputs: CompanionPresetInputs): CompanionPresetChoice 
   return hit ? hit.id : "custom";
 }
 
-/**
- * 套用預設要寫的欄位。回傳的兩個物件就是**全部**會被寫入的東西——
- * 呼叫端不得再往裡面補欄位（測試會檢查鍵集合）。未知的 id 回 `null`（不猜）。
- */
-export function applyCompanionPreset(id: string): {
-  prefs: { companionExpressiveness: string; companionDoNotDisturb: boolean };
-  proactive: { mode: string };
-} | null {
-  const def = presetDefinition(id);
-  if (!def) return null;
-  return {
-    prefs: {
-      companionExpressiveness: def.state.expressiveness,
-      companionDoNotDisturb: def.state.doNotDisturb,
-    },
-    proactive: { mode: def.state.proactiveMode },
-  };
-}
+// 套用檔位要寫哪些欄位由 `./applyPresetPlan.ts` 的 `beginPresetOp()` 產生（它同時產出
+// 要與第一段原子寫入的 recovery marker）。這裡**不**再放第二份同樣的計算：兩份同名邏輯
+// 各自演化的結果，就是守門測試跑在沒有人用的那一份上（對抗審查
+// character-settings-binding-004）。這個模組只負責「有哪些檔位、它們長什麼樣、現在是哪一個」。
 
 const EXPRESSIVENESS_LABELS: Record<string, string> = {
   quiet: "安靜",
