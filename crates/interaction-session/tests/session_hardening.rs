@@ -752,11 +752,45 @@ fn restore_rejects_a_poisoned_snapshot_even_with_a_matching_hash() {
     nested.hash = state_hash(&nested.state);
     assert!(CharacterSession::restore(config(), &nested, at(1_000)).is_err());
 
+    // 再深一層：`members[].party` 自己也是一個物件（`Party` 沒有
+    // `deny_unknown_fields`），未知鍵藏在這裡一樣不得放行。
+    let mut nested_party = good.clone();
+    if let Some(party) = nested_party
+        .state
+        .get_mut("members")
+        .and_then(Value::as_array_mut)
+        .and_then(|m| m.first_mut())
+        .and_then(|m| m.get_mut("party"))
+        .and_then(Value::as_object_mut)
+    {
+        party.insert("evilKey".into(), json!("smuggled"));
+    }
+    nested_party.hash = state_hash(&nested_party.state);
+    assert!(
+        CharacterSession::restore(config(), &nested_party, at(1_000)).is_err(),
+        "未知鍵藏在 members[].party 裡也必須被拒絕"
+    );
+
     // 乾淨的 snapshot 照樣還原得回來。
     let restored = CharacterSession::restore(config(), &good, at(1_000)).expect("restore");
     let republished = restored.snapshot();
     assert_eq!(republished.hash, state_hash(&republished.state));
     assert!(republished.state.get("evilKey").is_none());
+}
+
+// ------------------------------------------------------- hash-numeric-contract-017
+
+/// host 投影上限與 AIP 協商截斷點是兩個不同的數字，關係由 doc comment 記著：
+/// 靠註解提醒下一個人不夠，任何一邊改動破壞這個關係都必須立刻紅燈。
+#[test]
+fn projected_unsupported_inputs_cap_is_at_most_the_aip_cap() {
+    const {
+        assert!(
+            interaction_session::MAX_PROJECTED_UNSUPPORTED_INPUTS
+                <= interaction_aip::limits::MAX_UNSUPPORTED_INPUTS,
+            "host 的投影上限不得大於 AIP 協商本身的截斷點"
+        )
+    };
 }
 
 // ------------------------------------------------------- session-integrity-062

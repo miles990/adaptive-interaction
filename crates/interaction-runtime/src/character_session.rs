@@ -66,6 +66,20 @@ pub const STORE_NOTE_MIGRATED: &str =
 pub const STORE_NOTE_MIGRATION_DEFERRED: &str =
     "character session state is in an older format; it was kept as it is because a backup could \
      not be made";
+/// diagnostics `storeNote`：舊格式的快照**備份成功了**，但新格式沒有落地
+/// （寫入失敗，或這一輪的 store 跳過了這次寫入）。
+///
+/// 為什麼與 [`STORE_NOTE_MIGRATION_DEFERRED`] 分開：那一句說的是「備份做不出來」，
+/// 是使用者要去看備份路徑被什麼佔住的故障；這一句是「備份在了、檔案沒換成新格式」，
+/// 要看的是磁碟／權限。共用一句話會把人指到錯的地方。
+///
+/// **不 park**：備份已經在磁碟上了，之後的 persist 把新格式寫上去不會弄丟任何東西
+/// （這正是 [`STORE_NOTE_UNREADABLE`] 那條路徑要 park 的理由——那裡沒有備份）。
+/// `SaveOutcome::SkippedStale`／`SkippedParked` 也走這一句：它們同樣是「沒有落地」，
+/// 而這句話的重點（磁碟上仍是舊格式）對它們一樣為真。
+pub const STORE_NOTE_MIGRATION_WRITE_FAILED: &str =
+    "character session state is in an older format; the migrated snapshot could not be written, \
+     so the original format is still on disk";
 /// diagnostics `store.note`：目前寫不進去（持續的持久化失敗）。
 pub const STORE_NOTE_PERSIST_FAILING: &str =
     "character session state is not being persisted right now";
@@ -660,33 +674,32 @@ impl CharacterSessionHost {
                     .path()
                     .with_extension(format!("json.{SESSION_BACKUP_SUFFIX}-{from}"));
                 // 備份失敗就不遷移：原檔留著，等下一次啟動（或人）處理。**不隔離**。
-                let landed = match std::fs::copy(store.path(), &backup) {
+                // 檔案沒換成新格式就不得說「已遷移」（誠實階梯：記憶體裡遷移了≠檔案
+                // 遷移了），而且「為什麼沒遷移」的兩種原因不得共用同一句話。
+                let note = match std::fs::copy(store.path(), &backup) {
                     Err(error) => {
                         tracing::warn!(%error, "the character session snapshot was not backed up before migrating");
+                        // 這一條要 park：沒有備份，之後每一次 persist 都會 rename
+                        // 蓋掉那份唯一的舊格式檔。
                         store.park(STORE_NOTE_MIGRATION_DEFERRED);
-                        false
+                        STORE_NOTE_MIGRATION_DEFERRED
                     }
                     Ok(_) => match store.save(&session.snapshot()) {
-                        Ok(SaveOutcome::Written) => true,
+                        Ok(SaveOutcome::Written) => STORE_NOTE_MIGRATED,
                         // 寫不進去：rename 從來沒發生，原檔仍在（store 已經記下失敗）。
+                        // `SkippedStale`／`SkippedParked` 也算沒有落地——磁碟上仍是
+                        // 舊格式，這句話對它們一樣為真。**不 park**：備份已經在磁碟
+                        // 上，下一次 persist 把新格式寫上去不會弄丟任何東西。
                         outcome => {
                             tracing::warn!(
                                 ?outcome,
                                 "the migrated character session snapshot was not persisted"
                             );
-                            false
+                            STORE_NOTE_MIGRATION_WRITE_FAILED
                         }
                     },
                 };
-                // 檔案沒換成新格式就不得說「已遷移」（誠實階梯：記憶體裡遷移了≠檔案遷移了）。
-                migration = Some((
-                    from,
-                    if landed {
-                        STORE_NOTE_MIGRATED
-                    } else {
-                        STORE_NOTE_MIGRATION_DEFERRED
-                    },
-                ));
+                migration = Some((from, note));
             }
             Startup::Persist => {
                 if let Err(error) = store.save(&session.snapshot()) {
@@ -2264,6 +2277,56 @@ mod tests {
             "備份失敗就不得動原檔"
         );
         assert!(host.store().status().parked);
+    }
+
+    /// 遷移中斷的**另一半**：備份做出來了，但新格式寫不進去。
+    ///
+    /// 這兩件事在使用者眼裡是不同的故障（一個要去看備份路徑被誰佔住了，一個是
+    /// 磁碟／權限問題），診斷文字不得共用一句「備份做不出來」。
+    #[cfg(unix)]
+    #[test]
+    fn a_migration_that_cannot_write_says_so_instead_of_blaming_the_backup() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(SESSION_STORE_FILE);
+        let original = legacy_format0_body();
+        std::fs::write(&path, &original).expect("seed");
+        // 備份檔先建出來（可寫）：`std::fs::copy` 只需要對**這個檔**有寫權限。
+        let backup = dir.path().join("character-session.json.pre-format-0");
+        std::fs::write(&backup, "").expect("seed the backup path");
+        // 目錄改成唯讀：`write_owner_only` 要在同一個目錄建暫存檔，一定失敗。
+        let restore = std::fs::metadata(dir.path()).expect("meta").permissions();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500))
+            .expect("read-only state dir");
+
+        let host = CharacterSessionHost::open(dir.path(), Utc::now());
+
+        std::fs::set_permissions(dir.path(), restore).expect("restore permissions");
+
+        assert_eq!(
+            host.migration(),
+            Some((0, STORE_NOTE_MIGRATION_WRITE_FAILED)),
+            "備份成功、寫入失敗＝另一種故障，不得沿用「備份做不出來」那一句"
+        );
+        assert_eq!(host.load_note(), None, "session 還原成功，沒有重建");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read back"),
+            original,
+            "rename 從來沒發生：原檔仍是舊格式"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&backup).expect("read the backup"),
+            original,
+            "備份這一步是成功的"
+        );
+        assert!(
+            !host.store().status().parked,
+            "備份已經在，重試是安全的：這條路徑刻意不 park"
+        );
+        assert_eq!(
+            host.store().status().last_persist_error,
+            Some(PERSIST_ERROR_WRITE)
+        );
     }
 
     /// 持久化失敗必須被計數並以固定文字回報（不含路徑、不含 I/O 細節）。

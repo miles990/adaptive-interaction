@@ -816,6 +816,8 @@ impl Runtime {
             kept_off.is_some(),
         )
         .await;
+        // 綁定回來了（宣告＋SensorSource 都重新登記）：清掉「要重啟才回得來」。
+        self.clear_declarative_rebind_pending(provider_id.as_str());
 
         if let Some(reason) = &kept_off {
             // 能力重新註冊時 registry 會用 manifest 的預設值決定啟用與否
@@ -1244,7 +1246,7 @@ impl Runtime {
         // 狀態換了，設定檔警告還在：`transition` 會整個覆寫 detail，所以警告
         // 必須自己帶過去，否則按一次「啟用」就會把明文憑證的提醒洗掉。
         // 狀態註記（例如 re-arm 的說明）本來就只屬於前一個狀態，不帶。
-        let warnings = provider_detail_warnings(
+        let mut warnings = provider_detail_warnings(
             self.providers
                 .get(id)
                 .await
@@ -1252,10 +1254,51 @@ impl Runtime {
                 .and_then(|d| d.detail)
                 .as_deref(),
         );
+        // 宣告式裝置被停用時整筆能力宣告會被 retract，spec 要等下一次啟動才
+        // 重新載入。把 state 翻回 Available **不會**讓能力回來——不說出來就是
+        // 讓使用者看到一個「可用」卻沒有任何能力的裝置（state 先於實際能力
+        // 恢復）。誠實：標記它、留稽核，不假裝已恢復。
+        let needs_rebind = !provider_stopped(state) && self.needs_declarative_rebind(id.as_str());
+        if needs_rebind && !warnings.iter().any(|w| w == REBIND_WARNING) {
+            warnings.push(REBIND_WARNING.to_string());
+        }
+        // 一般模式那一句必須自己講清楚：`warning_summary` 只會講「明文憑證」，
+        // 讓它替這一則作結論等於對使用者說一件沒發生的事。
+        let note = if needs_rebind {
+            let others: Vec<String> = warnings
+                .iter()
+                .filter(|w| *w != REBIND_WARNING)
+                .cloned()
+                .collect();
+            Some(if others.is_empty() {
+                REBIND_NOTE.to_string()
+            } else {
+                format!("{} {REBIND_NOTE}", warning_summary(&others))
+            })
+        } else {
+            None
+        };
         let desc = self
             .providers
-            .transition(id, state, merge_provider_detail(None, None, &warnings))
+            .transition(
+                id,
+                state,
+                merge_provider_detail(note.as_deref(), None, &warnings),
+            )
             .await?;
+        if needs_rebind {
+            self.store
+                .audit(
+                    "provider.needs-restart-to-rebind",
+                    "runtime",
+                    &json!({
+                        "providerId": id.as_str(),
+                        "state": format!("{state:?}").to_lowercase(),
+                        "note": REBIND_WARNING,
+                    }),
+                )
+                .ok();
+        }
         if matches!(
             state,
             ProviderState::Disabled | ProviderState::Closed | ProviderState::Expired
@@ -1268,13 +1311,18 @@ impl Runtime {
         // 啟用」判斷都讀它。只攔不翻＝使用者停用了裝置，卻還看到一支「啟用中」
         // 的麥克風。比照 `revoke_provider` 的做法。
         if provider_stopped(state) {
-            self.disable_provider_capabilities(&desc, &format!("{state:?}").to_lowercase())
-                .await;
             // X2：旗標翻掉還不夠——這個 provider 底下若有登記的感測來源，必須
             // 走同一條 request_stop 請它停止擷取（指名這一台），並把結果留痕。
             // 只靠背景 watcher 撞事件補送是競態，不是保證。
+            //
+            // 順序：**先問來源、再翻旗標**。旗標不是「裝置有沒有在擷取」的事實，
+            // 只是「本機這一側收不收資料」；先翻掉旗標的話，來源會以為本來就沒有
+            // 東西在擷取（回 already-stopped），於是既不會真的請裝置停下來，
+            // 那一筆「可能還在擷取」也不會留下（＝感測靜默）。
             let sensor_stop = self
                 .stop_provider_sensing(id.as_str(), crate::sensors::SENSOR_STOP_REASON_PROVIDER_OFF)
+                .await;
+            self.disable_provider_capabilities(&desc, &format!("{state:?}").to_lowercase())
                 .await;
             let _ = self.store.audit(
                 "provider.transitioned",
@@ -1321,9 +1369,17 @@ impl Runtime {
     /// 反映的就是 enabled 旗標本身（provider 閘門不影響它），所以先問再關。
     /// 否則重複停用同一個 provider 會一直寫出「關掉了一堆東西」的假紀錄。
     async fn disable_provider_capabilities(&self, desc: &ProviderDescriptor, reason: &str) {
+        // 家族共用能力（例如 `iphone.*`：每台已配對手機的 descriptor 都塞同一組
+        // 字面值）不得由通用路徑關旗標——旗標只有一份，翻掉它等於把**別台**
+        // 還在操作中的裝置一起關掉（違反「每個共享狀態只有一個 owner」與
+        // 「感測不靜默」）。這一台自己的擷取由 `stop_provider_sensing` 指名停止。
+        let shared = self.shared_capability_holders(desc).await;
         let mut receptors = Vec::new();
         let mut actuators = Vec::new();
         for rid in &desc.receptors {
+            if shared.receptors.contains(rid) {
+                continue;
+            }
             let id = ReceptorId::new(rid);
             if self.registry.receptor(&id).await.is_err() {
                 continue; // 已經是關的（或根本沒註冊）：沒有東西可關。
@@ -1333,6 +1389,9 @@ impl Runtime {
             }
         }
         for aid in &desc.actuators {
+            if shared.actuators.contains(aid) {
+                continue;
+            }
             let id = ActuatorId::new(aid);
             if self.registry.actuator(&id).await.is_err() {
                 continue; // 已經是關的（或根本沒註冊）。
@@ -1340,6 +1399,23 @@ impl Runtime {
             if self.registry.set_actuator_enabled(&id, false).await.is_ok() {
                 actuators.push(aid.clone());
             }
+        }
+        // 沒關的那一批要留痕：不解釋就變成「停用了卻還看得到一支啟用中的麥克風」。
+        if !shared.is_empty() {
+            self.store
+                .audit(
+                    "provider.capabilities-shared-kept",
+                    "runtime",
+                    &json!({
+                        "providerId": desc.identity.id.as_str(),
+                        "reason": reason,
+                        "sharedWith": shared.holders,
+                        "receptors": shared.receptors,
+                        "actuators": shared.actuators,
+                        "note": SHARED_CAPABILITY_NOTE,
+                    }),
+                )
+                .ok();
         }
         if receptors.is_empty() && actuators.is_empty() {
             return;
@@ -1356,6 +1432,44 @@ impl Runtime {
                 }),
             )
             .ok();
+    }
+
+    /// `desc` 宣告的能力之中，哪些**還被其他仍在操作中的 provider 宣告**。
+    ///
+    /// 「仍在操作中」＝不是 [`provider_stopped`] 的狀態。registry 的 enabled 旗標
+    /// 是全域單例（一個能力 id 一份），所以只要還有第二個持有者，這一份旗標就
+    /// 不屬於被停用的這一台，通用路徑不得代它決定。
+    async fn shared_capability_holders(&self, desc: &ProviderDescriptor) -> SharedCapabilities {
+        let mut shared = SharedCapabilities::default();
+        if desc.receptors.is_empty() && desc.actuators.is_empty() {
+            return shared;
+        }
+        for other in self.providers.list().await {
+            if other.identity.id == desc.identity.id || provider_stopped(other.state) {
+                continue;
+            }
+            let mut holds = false;
+            for rid in &desc.receptors {
+                if other.receptors.iter().any(|r| r == rid) {
+                    holds = true;
+                    if !shared.receptors.iter().any(|r| r == rid) {
+                        shared.receptors.push(rid.clone());
+                    }
+                }
+            }
+            for aid in &desc.actuators {
+                if other.actuators.iter().any(|a| a == aid) {
+                    holds = true;
+                    if !shared.actuators.iter().any(|a| a == aid) {
+                        shared.actuators.push(aid.clone());
+                    }
+                }
+            }
+            if holds {
+                shared.holders.push(other.identity.id.as_str().to_string());
+            }
+        }
+        shared
     }
 
     /// 記下「人類把這個 provider 關掉了」（跨重啟有效）。落地失敗只記警告：
@@ -1391,6 +1505,28 @@ impl Runtime {
             .filter(|reason| !reason.is_empty())
     }
 
+    /// 記下「這個宣告式 provider 的綁定已經被拆掉」（見
+    /// [`crate::runtime::RuntimeInner::declarative_rebind_pending`]）。
+    pub(crate) fn note_declarative_rebind_pending(&self, provider_id: &str) {
+        if let Ok(mut set) = self.declarative_rebind_pending.lock() {
+            set.insert(provider_id.to_string());
+        }
+    }
+
+    /// 綁定回來了（下一次啟動重新載入 spec）：記號清掉。
+    pub(crate) fn clear_declarative_rebind_pending(&self, provider_id: &str) {
+        if let Ok(mut set) = self.declarative_rebind_pending.lock() {
+            set.remove(provider_id);
+        }
+    }
+
+    fn needs_declarative_rebind(&self, provider_id: &str) -> bool {
+        self.declarative_rebind_pending
+            .lock()
+            .map(|set| set.contains(provider_id))
+            .unwrap_or(false)
+    }
+
     /// 關閉某 provider 的宣告式 adapter 連線（若有）。回傳關掉的連線描述。
     fn close_declarative_links(&self, id: &ProviderId, reason: &str) -> Vec<String> {
         let closed = interaction_adapter_declarative::shutdown_provider_links(id.as_str());
@@ -1411,26 +1547,18 @@ impl Runtime {
             .providers
             .transition(id, ProviderState::Revoked, Some("revoked by user".into()))
             .await?;
-        for rid in &desc.receptors {
-            let _ = self
-                .registry
-                .set_receptor_enabled(&ReceptorId::new(rid), false)
-                .await;
-        }
-        for aid in &desc.actuators {
-            let _ = self
-                .registry
-                .set_actuator_enabled(&ActuatorId::new(aid), false)
-                .await;
-        }
         // 撤銷＝連線也要斷（不只是停止派工），而且必須跨重啟：重啟後 spec 重新
         // 載入時不得把連線開回來、也不得讓受器回到啟用。
         let closed_links = self.close_declarative_links(id, "revoked");
         // X2：有登記感測來源的 provider（例如已配對的行動裝置）走同一條
         // request_stop＋release——撤銷一台正在擷取的裝置不得只翻旗標。
+        // 順序同 `transition_provider`：先問來源、再翻旗標。
         let sensor_stop = self
             .stop_provider_sensing(id.as_str(), crate::sensors::SENSOR_STOP_REASON_PROVIDER_OFF)
             .await;
+        // 撤銷也走同一條「家族共用能力不由通用路徑關旗標」的判斷：撤銷 A
+        // 不得順手關掉 B 還在用的同一份旗標（B 沒有被撤銷）。
+        self.disable_provider_capabilities(&desc, "revoked").await;
         self.mark_provider_off(id, "revoked");
         self.persist_provider(id).await;
         self.character_project_provider(id, ProviderState::Revoked);
@@ -1458,6 +1586,33 @@ impl Runtime {
         } else {
             let _ = self.store.delete_provider(id.as_str());
         }
+    }
+}
+
+/// 宣告式裝置重新啟用時的固定警告文字（原文給進階模式與 CLI；一般模式看到的
+/// 是 `warning_summary` 那一句人話摘要）。
+const REBIND_WARNING: &str = "needs-restart-to-rebind: this device's capability declaration was \
+     retracted while it was turned off; restart the runtime to reconnect and declare it again";
+
+/// 同一件事的**人話**（一般模式看到的那一句）：不含能力 id、不含技術詞。
+const REBIND_NOTE: &str =
+    "這台裝置停用時已經卸下它的能力；重新啟用只是允許它再連上，能力要等重新啟動後才會回來。";
+
+/// 稽核 `provider.capabilities-shared-kept` 的固定說明（不含路徑、不回顯輸入）。
+const SHARED_CAPABILITY_NOTE: &str = "these capability flags are shared with other operational \
+     providers and were left enabled; only this provider's own capture was stopped";
+
+/// 一次停用裡「因為還有別人宣告而沒有關掉」的能力，以及還有誰宣告它們。
+#[derive(Debug, Default)]
+struct SharedCapabilities {
+    receptors: Vec<String>,
+    actuators: Vec<String>,
+    holders: Vec<String>,
+}
+
+impl SharedCapabilities {
+    fn is_empty(&self) -> bool {
+        self.receptors.is_empty() && self.actuators.is_empty()
     }
 }
 

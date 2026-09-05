@@ -467,6 +467,94 @@ async fn a_silent_device_makes_the_stop_uncertain_not_stopped() {
     );
 }
 
+/// 感測不靜默：拔線後停不掉的受器**不得**從 `activeSensors` 消失。
+/// 旗標翻掉只代表「本機這一側不再收資料」，不代表裝置停了擷取——沒有
+/// 明確確認之前，那一筆必須以 `stop-unknown` 留在清單上。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_silent_device_stays_visible_as_stop_unknown() {
+    let Some(mut fx) = Fixture::spawn() else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec())
+        .await
+        .expect("register");
+    rt.registry
+        .set_receptor_enabled(&ReceptorId::new(&fx.receptor_id), true)
+        .await
+        .expect("enable receptor");
+
+    fx.unplug();
+    let report = rt.stop_all_sensors("user").await.expect("stop all");
+    let value = serde_json::to_value(&report).expect("report json");
+    assert!(
+        value["stopped"] == json!(false),
+        "沒有確認就不得宣稱全部停止：{value}"
+    );
+
+    let active = rt.active_sensors_all().await;
+    let ours = active
+        .iter()
+        .find(|s| s.kind == fx.receptor_id)
+        .unwrap_or_else(|| {
+            panic!(
+                "已要求停止但沒拿到確認的受器不得從 activeSensors 消失：{:?}",
+                active
+            )
+        });
+    assert_eq!(
+        ours.state,
+        interaction_runtime::sensors::SENSOR_STATE_STOP_UNKNOWN,
+        "沒有確認就只能誠實標 stop-unknown：{ours:?}"
+    );
+}
+
+/// 孤兒安全網：來源被移除（撤銷）時它還「可能在擷取」，那一筆必須留成
+/// 有界可見的 stop-unknown ＋稽核，而不是靜靜消失。
+#[tokio::test(flavor = "multi_thread")]
+async fn revoking_a_silent_device_leaves_an_orphaned_capture_record() {
+    let Some(mut fx) = Fixture::spawn() else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec())
+        .await
+        .expect("register");
+    rt.registry
+        .set_receptor_enabled(&ReceptorId::new(&fx.receptor_id), true)
+        .await
+        .expect("enable receptor");
+
+    fx.unplug();
+    rt.revoke_provider(&ProviderId::new(&fx.provider_id))
+        .await
+        .expect("revoke");
+
+    let active = rt.active_sensors_all().await;
+    let ours = active
+        .iter()
+        .find(|s| s.kind == fx.receptor_id)
+        .unwrap_or_else(|| panic!("來源被移除時還可能在擷取：那一筆不得靜默消失：{:?}", active));
+    assert_eq!(
+        ours.state,
+        interaction_runtime::sensors::SENSOR_STATE_STOP_UNKNOWN,
+        "{ours:?}"
+    );
+    assert!(
+        rt.store
+            .audit_tail(200)
+            .unwrap_or_default()
+            .iter()
+            .any(
+                |row| row["kind"] == json!("sensor.source-removed-while-capturing")
+                    && row["detail"]["sourceId"] == json!(fx.provider_id)
+            ),
+        "孤兒紀錄必須留稽核"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 撤銷：leave＋retract＋unregister，且不影響其他成員
 // ---------------------------------------------------------------------------

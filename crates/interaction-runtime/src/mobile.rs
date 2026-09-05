@@ -2796,8 +2796,15 @@ impl Runtime {
             // 緊急停止：在途 act 立刻以 stopped 收場（動作面），再停感測。
             self.mobile.fail_inflight_stopped();
         }
-        self.mobile_disable_high_risk_receptors(target.unwrap_or("*"), reason)
-            .await;
+        // 受器旗標是**全域**開關（一個 `iphone.*` id 一份，所有已配對手機共用）。
+        // 只停「這一台」時不得翻它——翻掉會讓另一台仍在串流的手機從
+        // `activeSensors` 消失（＝感測靜默），這正是 `mobile_sensors_stop`
+        // 已經記下來的坑。整族停止（`target == None`：停止所有感測／緊急停止）
+        // 才是這份旗標的擁有者。單台停用時該不該關旗標，由通用 provider 路徑
+        // （`disable_provider_capabilities`）在確認沒有其他持有者之後決定。
+        if target.is_none() {
+            self.mobile_disable_high_risk_receptors("*", reason).await;
+        }
         if !self.mobile.any_connected().await {
             return Vec::new();
         }

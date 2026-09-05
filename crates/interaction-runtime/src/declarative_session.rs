@@ -28,7 +28,9 @@ use crate::character_session::{DeviceOrigin, DeviceOutbound};
 use crate::providers::ProviderCapabilityDeclaration;
 use crate::runtime::{Runtime, RuntimeInner};
 use crate::sensor_source::{upgrade, SensorSource, SensorStopReport, SensorStopStatus};
-use crate::sensors::{SensorUse, SENSOR_STATE_ACTIVE};
+use crate::sensors::{
+    SensorUse, SENSOR_STATE_ACTIVE, SENSOR_STATE_STOPPING, SENSOR_STATE_STOP_UNKNOWN,
+};
 use interaction_adapter_declarative::protocol::{
     AipAdmission, DeviceAipChannel, LinkError, LinkReadiness,
 };
@@ -414,6 +416,26 @@ pub struct DeclarativeSensorSource {
     /// 讀它——每次查詢都回「現在」等於宣稱它剛剛才開始擷取，那是假的。
     /// 有界：鍵只可能是這一族宣告的高風險受器。
     started_at: Mutex<std::collections::BTreeMap<String, chrono::DateTime<chrono::Utc>>>,
+    /// 「已經要求停止、但還沒拿到明確確認」的受器（比照 mobile 的 stop_pending）。
+    ///
+    /// 為什麼需要它：`request_stop` 會**先**把 registry 旗標關掉（不先關，下一個
+    /// 輪詢週期又去讀感測器），而 `active_captures` 只看旗標——於是拔線／裝置拒絕
+    /// 的受器會在停止請求送出的瞬間從 `activeSensors` 靜默消失，等於宣稱它停了
+    /// （違反「感測不靜默」與誠實階梯），也讓 `unregister_sensor_source` 的孤兒
+    /// 安全網永遠打不開。只有明確的 `Stopped`／`AlreadyStopped` 才移除表項。
+    ///
+    /// 有界：鍵只可能是這一族宣告的高風險受器（`high_risk`）。
+    stop_pending: Mutex<std::collections::BTreeMap<String, StopPendingState>>,
+}
+
+/// 一筆「已要求停止」的目前狀態。時間不進表：`request_stop` 是**同步等完**
+/// 自己的 deadline 才回來的，所以結果一回來就已經確定，不需要再用時鐘猜。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StopPendingState {
+    /// 請求還在途中（正在等裝置的 ack）。
+    InFlight,
+    /// 問過了、沒拿到確認（逾時／送不出去／裝置拒絕）：可能仍在擷取。
+    Unresolved,
 }
 
 impl DeclarativeSensorSource {
@@ -426,6 +448,42 @@ impl DeclarativeSensorSource {
             }
         }
         open
+    }
+
+    /// 待確認表的存取（poisoned 時取回內容繼續：這張表只是可見性紀錄，
+    /// 為了它 panic 反而會讓感測從畫面上消失）。
+    fn pending_guard(
+        &self,
+    ) -> std::sync::MutexGuard<'_, std::collections::BTreeMap<String, StopPendingState>> {
+        match self.stop_pending.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    fn pending_snapshot(&self) -> Vec<(String, StopPendingState)> {
+        self.pending_guard()
+            .iter()
+            .map(|(id, state)| (id.clone(), *state))
+            .collect()
+    }
+
+    /// 記下「已要求停止」。`high_risk` 之外的 id 一律不收（有界）。
+    fn note_stop_requested(&self, ids: &[String], state: StopPendingState) {
+        let mut guard = self.pending_guard();
+        for id in ids {
+            if self.high_risk.iter().any(|h| h == id) {
+                guard.insert(id.clone(), state);
+            }
+        }
+    }
+
+    /// 明確確認才移除：`Stopped`／`AlreadyStopped` 以外一律留著。
+    fn clear_stop_pending(&self, ids: &[String]) {
+        let mut guard = self.pending_guard();
+        for id in ids {
+            guard.remove(id);
+        }
     }
 
     fn report(
@@ -460,14 +518,26 @@ impl SensorSource for DeclarativeSensorSource {
             return vec![];
         };
         let open = self.enabled_high_risk(&rt).await;
+        // 受器又被打開了＝有人重新啟用它：那就是新的擷取，舊的「停止結果未知」
+        // 不再適用（留著會把正在擷取的東西說成停止中）。
+        self.clear_stop_pending(&open);
+        // 已要求停止、還沒拿到確認的：旗標已經關了，但**裝置那端**停了沒有我們
+        // 不知道——不得從清單上消失（消失＝宣稱它停了）。
+        let pending: Vec<(String, StopPendingState)> = self
+            .pending_snapshot()
+            .into_iter()
+            .filter(|(id, _)| !open.iter().any(|o| o == id))
+            .collect();
         let now = chrono::Utc::now();
         let mut seen = match self.started_at.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        // 已經關掉的受器不再佔位（這張表跟著「目前開著的」走，不無界成長）。
-        seen.retain(|id, _| open.iter().any(|o| o == id));
-        open.into_iter()
+        // 已經關掉、也沒有待確認停止的受器不再佔位（這張表跟著「目前看得到的」
+        // 走，不無界成長）。
+        seen.retain(|id, _| open.iter().any(|o| o == id) || pending.iter().any(|(p, _)| p == id));
+        let mut captures: Vec<SensorUse> = open
+            .into_iter()
             .map(|id| {
                 let started_at = *seen.entry(id.clone()).or_insert(now);
                 SensorUse {
@@ -479,7 +549,32 @@ impl SensorSource for DeclarativeSensorSource {
                     state: SENSOR_STATE_ACTIVE.to_string(),
                 }
             })
-            .collect()
+            .collect();
+        for (id, state) in pending {
+            let started_at = *seen.entry(id.clone()).or_insert(now);
+            let (state, purpose) = match state {
+                StopPendingState::InFlight => (
+                    SENSOR_STATE_STOPPING,
+                    format!("{}（宣告式 adapter：停止中，等待裝置確認）", self.label),
+                ),
+                StopPendingState::Unresolved => (
+                    SENSOR_STATE_STOP_UNKNOWN,
+                    format!(
+                        "{}（宣告式 adapter：停止結果未知，裝置未確認，可能仍在擷取）",
+                        self.label
+                    ),
+                ),
+            };
+            captures.push(SensorUse {
+                kind: id,
+                started_at,
+                started_by: "device".into(),
+                purpose,
+                auto_stop_at: None,
+                state: state.to_string(),
+            });
+        }
+        captures
     }
 
     async fn request_stop(
@@ -493,7 +588,16 @@ impl SensorSource for DeclarativeSensorSource {
             return vec![];
         };
         let open = self.enabled_high_risk(&rt).await;
-        if open.is_empty() {
+        // 上一次要求停止、到現在還沒拿到確認的受器也要再問一次：旗標早就關了，
+        // 但「裝置停了沒有」仍然未知——只看旗標會把它們當成本來就沒在擷取，
+        // 於是第二次停止請求直接回 already-stopped（＝憑空宣稱停了）。
+        let mut targets = open.clone();
+        for (id, _) in self.pending_snapshot() {
+            if !targets.iter().any(|t| t == &id) {
+                targets.push(id);
+            }
+        }
+        if targets.is_empty() {
             // 本來就沒有在擷取。`sensors` 仍然列出這一族宣告的高風險受器，
             // 停止掃描才知道它們**有**被問過（否則會落成 no-stop-path）。
             return vec![self.report(self.high_risk.clone(), SensorStopStatus::AlreadyStopped, 0)];
@@ -506,12 +610,16 @@ impl SensorSource for DeclarativeSensorSource {
                 .set_receptor_enabled(&ReceptorId::new(id), false)
                 .await;
         }
+        // 旗標關掉的同一刻就記成「停止中」：`active_captures` 從這裡接手，
+        // 這些受器在拿到確認之前不得從 `activeSensors` 消失。
+        self.note_stop_requested(&targets, StopPendingState::InFlight);
         if self.channels.is_empty() {
             // 沒有裝置線（純 HTTP adapter）：本機側已經停了，但裝置那端有沒有
             // 停我們**不知道**——不冒充已停。
+            self.note_stop_requested(&targets, StopPendingState::Unresolved);
             return vec![self
                 .report(
-                    open,
+                    targets,
                     SensorStopStatus::Unknown,
                     started.elapsed().as_millis() as u64,
                 )
@@ -532,7 +640,7 @@ impl SensorSource for DeclarativeSensorSource {
                 Err(other) => (SensorStopStatus::Unknown, Some(other.to_string())),
             };
             let waited = started.elapsed().as_millis() as u64;
-            let mut report = self.report(open.clone(), outcome.0, waited);
+            let mut report = self.report(targets.clone(), outcome.0, waited);
             if outcome.0 == SensorStopStatus::Stopped {
                 report = report.with_via(Some(STOP_CONFIRMED_VIA_ACK));
             }
@@ -540,6 +648,13 @@ impl SensorSource for DeclarativeSensorSource {
                 report = report.with_detail(detail);
             }
             reports.push(report);
+        }
+        // 只有**每一條**線都明確確認才算停了；任何一條沒確認，這些受器就繼續
+        // 以 stop-unknown 留在 `activeSensors`（誠實階梯：未知 ≠ 已停）。
+        if reports.iter().all(|r| r.confirmed()) {
+            self.clear_stop_pending(&targets);
+        } else {
+            self.note_stop_requested(&targets, StopPendingState::Unresolved);
         }
         reports
     }
@@ -568,6 +683,9 @@ impl DeclarativeSensorSource {
             left.push(device_id);
         }
         let retracted = rt.retract_provider_capabilities(&self.provider_id);
+        // 宣告被撤回＝這一族的能力到下一次啟動重新載入 spec 之前都不會回來。
+        // 記下來，之後把 provider 轉回 Available 時才說得出「要重啟才會重新綁定」。
+        rt.note_declarative_rebind_pending(&self.provider_id);
         let _ = rt.store.audit(
             "aip.device-retired",
             "runtime",
@@ -627,6 +745,7 @@ impl Runtime {
             tasks,
             retired: AtomicBool::new(false),
             started_at: Mutex::new(std::collections::BTreeMap::new()),
+            stop_pending: Mutex::new(std::collections::BTreeMap::new()),
         });
         if let Err(error) = self.register_sensor_source(source).await {
             // 登記表滿了：綁定不成立，誠實留痕（此時停止路徑對它一無所知）。

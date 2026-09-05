@@ -154,6 +154,14 @@ pub struct RuntimeInner {
     /// 讀取／命令必然通過 hello 身分＋pair-ok 握手，所以證據等級是
     /// handshake；HTTP 宣告式或內建能力只能記到 capability。
     pub(crate) device_link_providers: std::sync::Mutex<BTreeSet<String>>,
+    /// 哪些宣告式 provider 的綁定已經被拆掉（停用／撤銷時整筆能力宣告被
+    /// retract、SensorSource 解除登記），到**這一次執行結束**都不會回來。
+    ///
+    /// 為什麼要記：把 provider 轉回 `Available` 只翻得動 state 欄位，spec 的
+    /// 連線與能力宣告要等下一次啟動重新載入才回得來。不記下來，使用者會看到
+    /// 一個「可用」卻沒有任何能力的裝置——state 先於實際能力恢復＝不誠實。
+    /// 有界：鍵只可能是宣告式 provider 的 id，重新綁定時移除。
+    pub(crate) declarative_rebind_pending: std::sync::Mutex<BTreeSet<String>>,
     /// 知識檢索的可替換向量候選介面。
     pub(crate) vector_index: Box<dyn crate::knowledge::VectorIndex>,
     /// 裝置 id → 那台裝置目前的 AIP 出站通道（**型別抹除**）。
@@ -418,6 +426,7 @@ impl Runtime {
                 gateway: crate::gateway::GatewayManager::new(),
                 provider_tested: std::sync::Mutex::new(BTreeMap::new()),
                 device_link_providers: std::sync::Mutex::new(BTreeSet::new()),
+                declarative_rebind_pending: std::sync::Mutex::new(BTreeSet::new()),
                 vector_index: Box::new(crate::knowledge::LocalSubwordEmbeddingIndex::default()),
                 device_outbound: std::sync::RwLock::new(BTreeMap::new()),
             }),

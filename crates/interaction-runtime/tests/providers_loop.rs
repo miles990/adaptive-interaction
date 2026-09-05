@@ -670,8 +670,11 @@ async fn plaintext_credential_warnings_reach_the_provider_record() {
     let after = provider_named(&rt, id.as_str()).await;
     let after_warnings =
         interaction_runtime::providers::provider_detail_warnings(after.detail.as_deref());
-    assert_eq!(
-        after_warnings, warnings,
+    // 只要求「不得被洗掉」：重新啟用**可以**多出這個狀態自己的事實
+    //（宣告式裝置的能力宣告在停用時被撤回了，要重啟才會重新綁定），
+    // 那是新增的誠實資訊，不是把明文憑證的提醒弄丟。
+    assert!(
+        warnings.iter().all(|w| after_warnings.contains(w)),
         "換狀態之後警告不見了：{:?}",
         after.detail
     );
@@ -1974,4 +1977,77 @@ async fn a_provider_without_a_sensor_source_reports_no_stop_at_all() {
         .rfind(|a| a["kind"] == json!("provider.revoked"))
         .expect("provider.revoked audit");
     assert_eq!(audit["detail"]["sensorStop"], Value::Null, "{audit}");
+}
+
+/// 停用一台宣告式裝置會把它整筆能力宣告 retract 掉；把它轉回 Available 時，
+/// 綁定並不會自己回來（要重啟 daemon）。state 欄位不得先於實際能力恢復——
+/// 沒有重新綁定就必須在 provider detail 與稽核上誠實說出來。
+#[tokio::test]
+async fn re_enabling_a_declarative_device_says_it_needs_a_restart_to_rebind() {
+    let (_g, rt, _device) = runtime_with_device_spec().await;
+    let id = ProviderId::new("provider.adapter.desk-light");
+
+    let declared = |rt: &Runtime| -> bool {
+        rt.capability_declarations_report()["declarations"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .any(|d| d["id"] == json!("provider.adapter.desk-light"))
+    };
+    assert!(declared(&rt), "啟動後這一族必須有能力宣告");
+
+    rt.transition_provider(&id, ProviderState::Disabled)
+        .await
+        .expect("disable");
+    assert!(!declared(&rt), "停用會 retract 整筆宣告（現況）");
+
+    let back = rt
+        .transition_provider(&id, ProviderState::Available)
+        .await
+        .expect("re-enable");
+    assert_eq!(back.state, ProviderState::Available);
+
+    // 宣告沒有回來就不得裝作恢復了：detail 要說得出「要重啟才會重新綁定」。
+    if !declared(&rt) {
+        let detail = rt
+            .list_providers()
+            .await
+            .into_iter()
+            .find(|p| p.identity.id == id)
+            .and_then(|p| p.detail)
+            .unwrap_or_default();
+        assert!(
+            detail.contains("needs-restart-to-rebind"),
+            "能力沒回來卻只把 state 翻成 available＝不誠實：{detail}"
+        );
+        // 一般模式那一句要講這件事，不得被「明文憑證」的罐頭摘要蓋掉。
+        let note = serde_json::from_str::<Value>(&detail)
+            .ok()
+            .and_then(|v| v["note"].as_str().map(str::to_string))
+            .unwrap_or_default();
+        assert!(
+            note.contains("重新啟動"),
+            "一般模式看到的那一句要說得出「要重新啟動」：{note}"
+        );
+        assert!(
+            !note.contains("明文"),
+            "沒有明文憑證問題時不得拿那句罐頭摘要充數：{note}"
+        );
+        assert!(
+            !note.contains("needs-restart-to-rebind"),
+            "一般模式不外洩技術詞：{note}"
+        );
+        assert!(
+            rt.store
+                .audit_tail(200)
+                .unwrap_or_default()
+                .iter()
+                .any(
+                    |row| row["kind"] == json!("provider.needs-restart-to-rebind")
+                        && row["detail"]["providerId"] == json!(id.as_str())
+                ),
+            "這件事必須留稽核"
+        );
+    }
 }

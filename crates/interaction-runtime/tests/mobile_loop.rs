@@ -4212,3 +4212,146 @@ async fn a_paired_iphone_registers_an_outbound_channel_with_its_identity_strengt
         rt.device_outbound_ids()
     );
 }
+
+// ---------------------------------------------------------------------------
+// 家族共用能力：通用 provider 停用／撤銷只能停「這一台」
+// （`iphone.*` 這一組受器／動器是所有已配對 iPhone 共用的同一份 registry 旗標，
+//  每台手機的 descriptor 都塞同一組字面值。翻旗標＝把還沒被停用的手機一起關掉。）
+// ---------------------------------------------------------------------------
+
+/// 兩台手機都在串流時，用**通用**入口撤銷其中一台：另一台的共用受器／動器
+/// 旗標不得被翻掉，它也不得從 `activeSensors` 消失（感測不靜默）。
+#[tokio::test(flavor = "multi_thread")]
+async fn generic_revoke_of_one_phone_keeps_the_shared_capabilities_of_the_other() {
+    let (_tmp, rt) = runtime().await;
+    let (id_a, _token_a, mut ws_a) = pair(&rt).await;
+    let (id_b, _token_b, mut ws_b) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+    let _haptic = enabled_actuator(&rt, "iphone.haptic").await;
+    let _notify = enabled_actuator(&rt, "iphone.notify").await;
+    let _character = enabled_actuator(&rt, "iphone.character").await;
+
+    send_phone_status(&mut ws_a, true).await;
+    send_phone_status(&mut ws_b, true).await;
+    wait_for_iphone_mic_sensor(&rt, true).await;
+
+    let (phone_a, mut rx_a) = spawn_phone_confirming_stop_all(ws_a);
+    let pid_a = interaction_runtime::mobile::mobile_provider_id(&id_a);
+    rt.revoke_provider(&pid_a).await.expect("generic revoke");
+
+    // (a) X2 還在：被撤銷的那一台真的被指名要求停止。
+    let stop_all = tokio::time::timeout(Duration::from_secs(3), rx_a.recv())
+        .await
+        .expect("stop-all reached phone A")
+        .expect("stop-all payload");
+    assert_eq!(stop_all["sensors"], json!(true), "{stop_all}");
+
+    // (b) 共用受器旗標不得被翻掉：B 從來沒有被停用。
+    assert!(
+        rt.registry.receptor(&mic).await.is_ok(),
+        "撤銷 A 不得關掉全 iPhone 共用的 iphone.mic-level（B 仍在串流）"
+    );
+    // (c) 共用動器同理。
+    for aid in ["iphone.haptic", "iphone.notify", "iphone.character"] {
+        assert!(
+            rt.registry
+                .actuator(&interaction_core::ActuatorId::new(aid))
+                .await
+                .is_ok(),
+            "撤銷 A 不得關掉全 iPhone 共用的 {aid}"
+        );
+    }
+
+    // (d) B 仍然在 activeSensors（消失＝宣稱它停了）。
+    let status = rt.status().await;
+    let listed = status["activeSensors"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .any(|s| s["startedBy"] == json!(format!("iphone:{id_b}")));
+    assert!(
+        listed,
+        "B 仍在串流卻從 activeSensors 消失了：{}",
+        status["activeSensors"]
+    );
+
+    // (e) 稽核說得出「為什麼沒關」，並指名還有誰宣告同一份能力。
+    let kept = last_audit(&rt, "provider.capabilities-shared-kept")
+        .expect("provider.capabilities-shared-kept audit");
+    assert_eq!(
+        kept["detail"]["providerId"],
+        json!(pid_a.as_str()),
+        "{kept}"
+    );
+    let shared_with = kept["detail"]["sharedWith"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        shared_with.contains(&json!(interaction_runtime::mobile::mobile_provider_id(
+            &id_b
+        )
+        .as_str())),
+        "稽核要指名共用這份能力的其他 provider：{kept}"
+    );
+    let receptors = kept["detail"]["receptors"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        receptors.contains(&json!("iphone.mic-level")),
+        "稽核要列出被保留的受器：{kept}"
+    );
+    phone_a.abort();
+}
+
+/// 同一件事的另一條通用入口：`providers transition <id> --state disabled`。
+#[tokio::test(flavor = "multi_thread")]
+async fn generic_disable_of_one_phone_keeps_the_shared_capabilities_of_the_other() {
+    let (_tmp, rt) = runtime().await;
+    let (id_a, _token_a, ws_a) = pair(&rt).await;
+    let (id_b, _token_b, mut ws_b) = pair(&rt).await;
+    let mic = interaction_core::ReceptorId::new("iphone.mic-level");
+    rt.registry.set_receptor_enabled(&mic, true).await.unwrap();
+    let _haptic = enabled_actuator(&rt, "iphone.haptic").await;
+
+    send_phone_status(&mut ws_b, true).await;
+    wait_for_iphone_mic_sensor(&rt, true).await;
+    let (phone_a, _rx_a) = spawn_phone_confirming_stop_all(ws_a);
+
+    let pid_a = interaction_runtime::mobile::mobile_provider_id(&id_a);
+    rt.transition_provider(&pid_a, interaction_core::ProviderState::Disabled)
+        .await
+        .expect("generic transition");
+
+    assert!(
+        rt.registry.receptor(&mic).await.is_ok(),
+        "停用 A 不得關掉全 iPhone 共用的 iphone.mic-level（B 仍在串流）"
+    );
+    assert!(
+        rt.registry
+            .actuator(&interaction_core::ActuatorId::new("iphone.haptic"))
+            .await
+            .is_ok(),
+        "停用 A 不得關掉全 iPhone 共用的 iphone.haptic"
+    );
+    let status = rt.status().await;
+    let listed = status["activeSensors"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .any(|s| s["startedBy"] == json!(format!("iphone:{id_b}")));
+    assert!(
+        listed,
+        "B 仍在串流卻從 activeSensors 消失了：{}",
+        status["activeSensors"]
+    );
+    assert!(
+        last_audit(&rt, "provider.capabilities-shared-kept").is_some(),
+        "沒有關旗標這件事必須留稽核"
+    );
+    phone_a.abort();
+}

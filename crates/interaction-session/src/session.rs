@@ -82,6 +82,13 @@ const C_INTERNAL: &str = "internal";
 /// 在那之上再收緊的投影上限（16 ≤ 32）。過去兩者同名、在各自 crate root 都可見，很容易誤引用。
 pub const MAX_PROJECTED_UNSUPPORTED_INPUTS: usize = 16;
 
+/// 上面那段文字裡的 `16 ≤ 32` 不能只靠註解提醒下一個人：任何一邊改動破壞這個
+/// 關係，這裡就編不過（比紅燈更早）。
+const _: () = assert!(
+    MAX_PROJECTED_UNSUPPORTED_INPUTS <= interaction_aip::limits::MAX_UNSUPPORTED_INPUTS,
+    "host 的投影上限不得大於 AIP 協商本身的截斷點"
+);
+
 /// 成員回報 `result` 時的終態（§5：`observed`／`rejected`／`failed`／`cancel-confirmed`）。
 /// 終態才結清 host 的 pending intent；`accepted`／`acknowledged` 只是「收到了」。
 /// 誠實階梯不變：`observed` 只是對方說它演了，**不是** verified。
@@ -213,6 +220,31 @@ fn attention_keys_are_known(state: &Value) -> bool {
     map.keys().all(|key| allowed.contains(&key.as_str()))
 }
 
+/// `members[*].party` 的「允許鍵」檢查。
+///
+/// [`Party`] 是**線上共用**型別（`Envelope.source`／`target`、`CapabilityAnnouncement`
+/// 都用它），對它加 `deny_unknown_fields` 會改變 wire 的向前相容行為；但持久化快照
+/// 是另一回事：只有本實作寫得出來的 canonical state 才能成為權威狀態。`SemanticState`
+/// 與 `MemberView` 都已經 `deny_unknown_fields`，唯獨再深一層的 `party` 物件會靜默
+/// 吃掉未知鍵——攻擊者只要能改檔案，就能連 hash 一起重算，把任意欄位夾帶進權威狀態。
+///
+/// 這裡在反序列化**之前**擋掉（serde 事後就看不出來了）。`Attention::Member` 與
+/// `LastInteraction.source` 走 `party_ref` 字串形式，沒有物件可污染，不在此列。
+fn member_party_keys_are_known(state: &Value) -> bool {
+    let Some(members) = state.get("members").and_then(Value::as_array) else {
+        // 缺 `members`／形狀不對：`SemanticState` 沒有 `default`，反序列化會拒絕。
+        return true;
+    };
+    const ALLOWED: &[&str] = &["kind", "id"];
+    members.iter().all(|member| {
+        match member.get("party").and_then(Value::as_object) {
+            // `party` 不是物件（缺鍵／字串）：形狀本來就不合法，交給反序列化拒絕。
+            None => true,
+            Some(map) => map.keys().all(|key| ALLOWED.contains(&key.as_str())),
+        }
+    })
+}
+
 /// §10 diagnostics（不含 token、路徑、原始 payload）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostics {
@@ -331,6 +363,9 @@ impl CharacterSession {
         // `attention` 的補洞檢查（見上面取捨 1）：要在反序列化之前做，因為 serde 會把
         // 未知鍵吃掉，之後就看不出來了。
         if !attention_keys_are_known(&snapshot.state) {
+            return Err(SessionError::InvalidState);
+        }
+        if !member_party_keys_are_known(&snapshot.state) {
             return Err(SessionError::InvalidState);
         }
         let state: SemanticState = serde_json::from_value(snapshot.state.clone())
