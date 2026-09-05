@@ -167,6 +167,14 @@
       "integration": "docs/releases/v0.7.0-final-report.md §7（a1015a4：Rust 1245/0、Tauri 63/0、vitest 1815/0→1816/0、CLI 96/0、Playwright 91/0、iOS 模擬器 158/0、韌體兩組態 EXIT=0）；release-verify --run-tests 於 630b429 全過",
       "notes": [
         "PR #4 的第一次 CI（da81d3b，run 33993012953）Rust job 失敗：兩支 rebind 測試在較慢的 Linux runner 上讀稽核早於第 8 步寫入（時序），630b429 讓測試等到 provider.rebound 落地後再斷言；程式碼未改。"
+      ],
+      "postReleaseMain": [
+        {
+          "commit": "a11245e",
+          "ci": 33995449498,
+          "conclusion": "success",
+          "why": "發布事實回填（evidence-index 0.7.0 條目、候選字樣清理、入口文件最新版本）"
+        }
       ]
     }
   ],
