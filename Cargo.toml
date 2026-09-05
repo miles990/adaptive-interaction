@@ -27,7 +27,7 @@ members = [
 exclude = ["apps/interaction-desktop/src-tauri"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/miles990/adaptive-interaction"

@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-06
+
 > 進度與需求矩陣：本輪見 `docs/releases/v0.7.0-progress.md`，第一輪見
 > `docs/releases/v0.6.x-maintainability-progress.md`；已發布版本的 canonical 事實：
 > `docs/releases/evidence-index.json`。本段只記本分支（`feature/v0.6.x-maintainability`）已提交的變更，

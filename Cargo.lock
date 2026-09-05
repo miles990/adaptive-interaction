@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "adapters-builtin"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "adapters-media"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1554,7 +1554,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-adapter-declarative"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -1582,7 +1582,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-adapter-sdk"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1594,7 +1594,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-agent-gateway"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1609,7 +1609,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-aip"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "schemars",
@@ -1621,7 +1621,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-api"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -1649,7 +1649,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-character"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "schemars",
@@ -1661,7 +1661,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-character-shu"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "interaction-character",
@@ -1671,7 +1671,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1697,7 +1697,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1713,7 +1713,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-e2e"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "interaction-aip",
  "interaction-character",
@@ -1724,7 +1724,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-events"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -1735,7 +1735,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-policy"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -1746,7 +1746,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-recipe"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "humantime",
@@ -1761,7 +1761,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-registry"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1778,7 +1778,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-runtime"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "adapters-builtin",
  "adapters-media",
@@ -1831,7 +1831,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-session"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "interaction-aip",
@@ -1844,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-storage"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "interaction-core",
@@ -1857,7 +1857,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-tool-schema"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "interaction-core",
  "schemars",
