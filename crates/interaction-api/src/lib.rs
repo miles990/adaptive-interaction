@@ -246,6 +246,10 @@ pub fn router(state: ApiState) -> Router {
         )
         .route("/v1/mobile/devices/{id}/test", post(routes::mobile_test))
         .route("/v1/mobile/ble/scan", post(routes::mobile_ble_scan))
+        .route(
+            "/v1/providers/declarations",
+            get(routes::provider_declarations),
+        )
         .route("/v1/providers/{id}", get(routes::provider_get))
         .route("/v1/providers/{id}/pair", post(routes::provider_pair))
         .route(

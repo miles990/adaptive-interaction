@@ -3878,6 +3878,52 @@ async fn the_mobile_declaration_is_wired_into_the_runtime_at_startup() {
         .any(|r| r == "iphone.mic-level"));
 }
 
+/// 撤銷**一支**手機不得動到 `provider.mobile` 這一族的能力宣告。
+///
+/// 這是刻意的設計，不是漏網：宣告說的是「`iphone.mic-level` 是高風險受器」這
+/// 件事實，跟「現在有沒有一支手機在線上」無關。若撤銷最後一支手機就把宣告刪
+/// 掉，`stop_all_sensors` 從此不知道那些受器是高風險，停止結果未知時就不會再
+/// 誠實補「可能還在擷取」——撤銷反而讓系統變得更不誠實。
+/// 移除宣告是 `retract_provider_capabilities` 的事（整族不再存在時才做）。
+#[tokio::test(flavor = "multi_thread")]
+async fn revoking_a_device_never_retracts_the_provider_family_declaration() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, ws) = pair(&rt).await;
+    drop(ws);
+
+    rt.mobile_revoke(&device_id).await.unwrap();
+    assert_eq!(
+        rt.mobile_status().await.unwrap()["devices"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0,
+        "前提：最後一支手機已經被撤銷"
+    );
+
+    let decls = rt.capability_declarations();
+    assert!(
+        decls
+            .declaration_ids()
+            .iter()
+            .any(|id| id == interaction_runtime::mobile::MOBILE_PROVIDER_DECLARATION_ID),
+        "撤銷裝置不得刪掉整族宣告：{:?}",
+        decls.declaration_ids()
+    );
+    assert!(
+        decls
+            .high_risk_receptors()
+            .iter()
+            .any(|r| r == "iphone.mic-level"),
+        "高風險受器的語意不隨裝置消失"
+    );
+    assert!(decls.is_presentation_surface("iphone.character"));
+    assert_eq!(
+        decls.class_label_of_receptor("iphone.mic-level").as_deref(),
+        Some("iPhone")
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 被新連線取代（superseded）：對抗審查 pairing-migration-003／reconnect-recovery-047
 // ---------------------------------------------------------------------------

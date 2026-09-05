@@ -66,6 +66,18 @@ pub struct RuntimeInner {
     pub policy_config: RwLock<PolicyConfig>,
     pub registry: CapabilityRegistry,
     pub providers: interaction_registry::providers::ProviderRegistry,
+    /// Provider 能力語意宣告表（呈現面／高風險受器／人話種類名）。
+    ///
+    /// 與 `registry`／`providers` 平行：它描述的是「provider 對自己能力的語意
+    /// 宣告」，屬於 provider 層而不是角色層（v0.6.0 曾暫掛在 `CharacterHub`
+    /// 上，因為那時只有它同步可達）。維持 `std::sync::RwLock`：讀者
+    /// （`character_project_action` 等投影路徑）是**非 async** 的，沒有 await
+    /// 點可用。
+    ///
+    /// 寫入只經 [`Runtime::declare_provider_capabilities`]／
+    /// [`Runtime::retract_provider_capabilities`]；讀者一律拿唯讀 view
+    /// （`Runtime::capability_declarations()`），型別上就寫不進去。
+    pub(crate) capability_declarations: crate::providers::ProviderCapabilityRegistry,
     pub store: Store,
     pub events: EventBus,
     pub outbox: Outbox,
@@ -351,6 +363,7 @@ impl Runtime {
                 push_receptors,
                 dynamic_push: RwLock::new(BTreeMap::new()),
                 mobile: crate::mobile::MobileBridge::new(),
+                capability_declarations: crate::providers::ProviderCapabilityRegistry::default(),
                 character: crate::character::CharacterHub::new(),
                 character_session: character_session_host,
                 mock_actuator,

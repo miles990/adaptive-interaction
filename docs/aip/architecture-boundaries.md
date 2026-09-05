@@ -101,9 +101,15 @@ Adapters / Transport / Platform  mobile.rs（iPhone wss）、character.rs＋char
 #### 實作註記
 
 1. **宣告表的存放位置**：投影路徑（`character_project_action`）是同步的、沒有 await 點，所以宣告表
-   必須同步可讀。它目前掛在 `CharacterHub` 上（`character.capability_declarations()`），因為那是本次
-   重構可動的檔案裡唯一同步可達的 runtime 級容器。語意上它屬於 provider 層，`RuntimeInner` 進入
-   可改範圍時應搬成 `RuntimeInner` 的欄位或併進 `interaction_registry::providers::ProviderGate`。
+   必須同步可讀。v0.6.0 時暫掛在 `CharacterHub` 上；**v0.6.x 起已搬成 `RuntimeInner` 的欄位**（與 `registry`／
+   `providers` 平行，仍是 `std::sync::RwLock`）。讀者（`character.rs`／`activity.rs`／`sensors.rs`）只拿
+   `&dyn CapabilityDeclarationsView`（is_presentation_surface／class_label_of_receptor／high_risk_receptors／
+   declaration_ids／declaration）；`declare`／`retract` 為 pub(crate)，寫入只經 `Runtime::declare_provider_capabilities`／
+   `retract_provider_capabilities`。刻意**不**併進 `ProviderGate`：那是個體、可變、async 的運行期閘門；宣告表是家族、
+   靜態、sync 的描述。單台裝置的 disable／revoke **不**動家族宣告（撤銷最後一支 iPhone 後 `provider.mobile` 的高風險受器
+   宣告仍在，否則 stop-all 會從此不知道 `iphone.mic-level` 是高風險）。維運可讀：`GET /v1/providers/declarations`／
+   `interact-ai providers declarations`（唯讀，無 HTTP 寫入入口）。命名提醒：`interaction_registry::CapabilityRegistry`
+   （每個受器／動器的 enabled 旗標）與 `ProviderCapabilityRegistry`（provider 家族的語意宣告）是兩個不同的表。
 2. **`StopAllSensorsReport.devices` 仍是 `Vec<MobileStopOutcome>`**：那是 HTTP／CLI／桌面共用的回傳
    形狀（前端逐欄位讀），換成 trait object 會改 wire 契約，不在本輪範圍。**行為上**的耦合（要補發
    哪些事件、哪些算確認停止）已經全部走 `SensorStopOutcome`，`sensors.rs` 不再出現任何裝置字面值。

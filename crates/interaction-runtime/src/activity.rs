@@ -71,8 +71,9 @@ impl Runtime {
     /// 人話 → `fallback`。認不得的一律用 `fallback`，**絕不**把原始字串照樣
     /// 吐回去。
     ///
-    /// 種類名一律來自 provider 自己的宣告（`ProviderCapabilityRegistry`），
-    /// 核心不比對能力 id 的字面前綴：新增一種行動裝置不必改這個檔案。
+    /// 種類名一律來自 provider 自己的宣告，經唯讀視角
+    /// （`CapabilityDeclarationsView`）查詢——核心不比對能力 id 的字面前綴，
+    /// 也改不了宣告內容：新增一種行動裝置不必改這個檔案。
     async fn sensor_event_label(&self, payload: &Value, fallback: &str) -> String {
         if let Some(device_id) = payload.get("deviceId").and_then(Value::as_str) {
             if let Some(name) = self.mobile.device_name(device_id).await {

@@ -85,6 +85,16 @@ impl CapabilitySelector {
     }
 }
 
+/// 唯讀投影用的比對方式描述：`exact`（單一能力）還是 `prefix`（整族能力）。
+/// 兩者在維運上意義完全不同（一個前綴宣告會把之後新增的能力也算進去），
+/// 所以投影必須看得出來，不能都攤平成一串字串。
+fn selector_json(selector: &CapabilitySelector) -> Value {
+    match selector {
+        CapabilitySelector::Exact(id) => json!({"match": "exact", "value": id}),
+        CapabilitySelector::Prefix(prefix) => json!({"match": "prefix", "value": prefix}),
+    }
+}
+
 /// 一個 provider 對自己能力的語意宣告（純資料）。
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ProviderCapabilityDeclaration {
@@ -170,11 +180,46 @@ impl std::fmt::Debug for ProviderCapabilityRegistry {
     }
 }
 
+/// 宣告表的**唯讀視角**：核心的讀者（character／activity／sensors）只能經由
+/// 它查詢。
+///
+/// 為什麼要有這個 trait：`&ProviderCapabilityRegistry` 在型別上同時給了寫入
+/// 能力——任何拿到它的投影路徑都能偷偷改寫「哪些動器是呈現面」「哪些受器是
+/// 高風險」。能力語意的寫入權必須留在 provider 註冊路徑
+/// （[`Runtime::declare_provider_capabilities`]／
+/// [`Runtime::retract_provider_capabilities`]），讀者拿不到才叫確定性強制，
+/// 不是靠慣例。
+///
+/// 這是同一份表的借用視角，不是第二份複本：沒有快照、沒有同步問題。
+pub trait CapabilityDeclarationsView {
+    /// 這個 actuator 是某個 provider 宣告的呈現面嗎？
+    fn is_presentation_surface(&self, actuator_id: &str) -> bool;
+    /// 提供這個受器的來源，它的人話種類名（沒有宣告＝None，呼叫端用中性字樣）。
+    fn class_label_of_receptor(&self, receptor_id: &str) -> Option<String>;
+    /// 所有 provider 宣告的高風險受器（去重、排序固定）。
+    fn high_risk_receptors(&self) -> Vec<String>;
+    /// 目前有哪些宣告（除錯／維運／測試用；順序固定）。
+    fn declaration_ids(&self) -> Vec<String>;
+    /// 取出一整筆宣告（唯讀投影用）。
+    fn declaration(&self, declaration_id: &str) -> Option<ProviderCapabilityDeclaration>;
+}
+
 impl ProviderCapabilityRegistry {
-    /// 登記（或覆寫）一個 provider 的宣告。
-    pub fn declare(&self, declaration: ProviderCapabilityDeclaration) {
+    /// 登記（或覆寫）一個 provider 的宣告。整份覆寫：同一個 `declaration_id`
+    /// 再宣告一次，舊的呈現面／高風險受器／種類名一律消失（宣告是那個
+    /// provider 現在的完整事實，不是累加的補丁）。
+    ///
+    /// `pub(crate)`：唯一的對外入口是 [`Runtime::declare_provider_capabilities`]。
+    pub(crate) fn declare(&self, declaration: ProviderCapabilityDeclaration) {
         self.write()
             .insert(declaration.declaration_id.clone(), declaration);
+    }
+
+    /// 移除一整筆宣告（provider 家族不再存在）。回傳是否真的移除了某一筆。
+    ///
+    /// `pub(crate)`：唯一的對外入口是 [`Runtime::retract_provider_capabilities`]。
+    pub(crate) fn retract(&self, declaration_id: &str) -> bool {
+        self.write().remove(declaration_id).is_some()
     }
 
     /// 中毒＝上一個持鎖者 panic 了，但這張表是純資料（沒有跨欄位不變量會因此半寫入）：
@@ -194,9 +239,10 @@ impl ProviderCapabilityRegistry {
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
 
-    /// 這個 actuator 是某個 provider 宣告的呈現面嗎？
-    pub fn is_presentation_surface(&self, actuator_id: &str) -> bool {
+impl CapabilityDeclarationsView for ProviderCapabilityRegistry {
+    fn is_presentation_surface(&self, actuator_id: &str) -> bool {
         self.read().values().any(|d| {
             d.presentation_surfaces
                 .iter()
@@ -204,16 +250,14 @@ impl ProviderCapabilityRegistry {
         })
     }
 
-    /// 提供這個受器的來源，它的人話種類名（沒有宣告＝None，呼叫端用中性字樣）。
-    pub fn class_label_of_receptor(&self, receptor_id: &str) -> Option<String> {
+    fn class_label_of_receptor(&self, receptor_id: &str) -> Option<String> {
         self.read()
             .values()
             .find(|d| d.receptors.iter().any(|r| r == receptor_id))
             .and_then(|d| d.class_label.clone())
     }
 
-    /// 所有 provider 宣告的高風險受器（去重、排序固定）。
-    pub fn high_risk_receptors(&self) -> Vec<String> {
+    fn high_risk_receptors(&self) -> Vec<String> {
         let set: std::collections::BTreeSet<String> = self
             .read()
             .values()
@@ -222,12 +266,11 @@ impl ProviderCapabilityRegistry {
         set.into_iter().collect()
     }
 
-    /// 目前有哪些宣告（除錯／測試用；順序固定）。
-    pub fn declaration_ids(&self) -> Vec<String> {
+    fn declaration_ids(&self) -> Vec<String> {
         self.read().keys().cloned().collect()
     }
 
-    pub fn declaration(&self, declaration_id: &str) -> Option<ProviderCapabilityDeclaration> {
+    fn declaration(&self, declaration_id: &str) -> Option<ProviderCapabilityDeclaration> {
         self.read().get(declaration_id).cloned()
     }
 }
@@ -421,19 +464,71 @@ impl Runtime {
         }
     }
 
-    /// Provider 能力宣告表（同步可讀）。character／activity／sensors 只查這張
-    /// 表，不比對任何具名裝置的能力字面值。
+    /// Provider 能力宣告表（同步可讀的**唯讀**視角）。character／activity／
+    /// sensors 只查這張表，不比對任何具名裝置的能力字面值。
     ///
-    /// 存放位置說明：目前掛在 `CharacterHub` 上，因為它是本工作流可動的檔案
-    /// 裡唯一同步可達的 runtime 級容器（投影路徑沒有 await 點可用）。語意上
-    /// 它屬於 provider 層，日後 `RuntimeInner` 進入可改範圍時應搬過去。
-    pub fn capability_declarations(&self) -> &ProviderCapabilityRegistry {
-        self.character.capability_declarations()
+    /// 擁有者是 `RuntimeInner`（provider 層），不是 `CharacterHub`：角色呈現層
+    /// 沒有能力語意的主權。
+    pub fn capability_declarations(&self) -> &dyn CapabilityDeclarationsView {
+        // 欄位存取（經 Deref 到 `RuntimeInner`）——同名方法與欄位分屬不同命名空間。
+        &self.capability_declarations
     }
 
     /// 登記一個 provider 對自己能力的語意宣告（呈現面／高風險受器／種類名）。
+    ///
+    /// 生命週期：**register**（第一次宣告）與 **update**（同一個
+    /// `declaration_id` 再宣告一次）走同一個入口，語意是整份覆寫——舊的呈現面
+    /// 與高風險受器會消失，不會留下上一版的殘影。
+    ///
+    /// 刻意**不**與單台裝置的 enable／disable／revoke 連動：宣告說的是「這一族
+    /// provider 的能力是什麼意思」，撤銷一支手機不會讓 `iphone.mic-level` 從此
+    /// 不再是高風險受器。移除宣告是 [`Runtime::retract_provider_capabilities`]
+    /// 的事（整族不再存在時才做）。
     pub fn declare_provider_capabilities(&self, declaration: ProviderCapabilityDeclaration) {
-        self.capability_declarations().declare(declaration);
+        self.capability_declarations.declare(declaration);
+    }
+
+    /// 移除一整族 provider 的能力宣告（**remove**）。回傳是否真的有一筆被移除。
+    ///
+    /// 用在整族來源不再存在的時候（例如宣告式 adapter 的 spec 被刪掉）。移除
+    /// 之後，這一族宣告過的呈現面與高風險受器就不再出現在任何查詢裡——核心
+    /// 不得繼續替一個已經不存在的來源保留語意。
+    ///
+    /// 這**不是**安全開關：它只改「這個能力 id 是什麼意思」，不改任何受器／
+    /// 動器的啟用旗標，也不會把已經關掉的東西打開。
+    pub fn retract_provider_capabilities(&self, declaration_id: &str) -> bool {
+        self.capability_declarations.retract(declaration_id)
+    }
+
+    /// 宣告表的**唯讀投影**（維運／診斷用）。
+    ///
+    /// 為什麼需要它：這張表決定了核心怎麼理解每個能力 id（哪些是角色自己的呈
+    /// 現面、哪些受器是高風險、感測事件標題用什麼種類名），但它過去只存在於
+    /// 記憶體裡，沒有任何介面看得到。出問題時無從分辨「provider 根本沒宣告」
+    /// 與「核心讀錯了」——那是一種可觀測性上的不誠實。
+    ///
+    /// 純唯讀：這條路徑不提供任何寫入或撤回的入口。
+    pub fn capability_declarations_report(&self) -> Value {
+        let declarations: Vec<Value> = self
+            .capability_declarations
+            .declaration_ids()
+            .into_iter()
+            .filter_map(|id| self.capability_declarations.declaration(&id))
+            .map(|d| {
+                json!({
+                    "id": d.declaration_id,
+                    "classLabel": d.class_label,
+                    "presentationSurfaces": d
+                        .presentation_surfaces
+                        .iter()
+                        .map(selector_json)
+                        .collect::<Vec<_>>(),
+                    "receptors": d.receptors,
+                    "highRiskReceptors": d.high_risk_receptors,
+                })
+            })
+            .collect();
+        json!({ "declarations": declarations })
     }
 
     pub(crate) async fn init_providers(&self) {
@@ -1128,6 +1223,21 @@ impl Runtime {
         ) {
             self.close_declarative_links(id, "disabled");
         }
+        // v0.5.1 已知限制 #4：停下來的 provider 底下的受器／動器，enabled 旗標
+        // 必須真的翻掉，不能只靠 `ProviderGate` 攔派工。旗標是「這個能力現在
+        // 開著嗎」的單一事實：狀態列、能力清單、`stop_all_sensors` 的「仍然
+        // 啟用」判斷都讀它。只攔不翻＝使用者停用了裝置，卻還看到一支「啟用中」
+        // 的麥克風。比照 `revoke_provider` 的做法。
+        if provider_stopped(state) {
+            self.disable_provider_capabilities(&desc, &format!("{state:?}").to_lowercase())
+                .await;
+        }
+        // 反方向刻意不做：回到 Available／Busy／… 時**不**自動把能力打開。
+        // registry 的旗標只有布林、沒有出處，runtime 分不出「是我剛才關的」還是
+        // 「人類早就自己關掉的這一支」；自動打開會默默推翻人類的決定，對高風險
+        // 受器更直接違反「高風險能力不自動恢復」的不變量（同
+        // `mobile_disable_high_risk_receptors`：重連後要人類重新啟用）。
+        // 重新啟用 provider 只是讓它「可以被啟用」，逐項啟用仍是人的動作。
         // 停用類的決定是人類做的，必須跨重啟：否則重開 daemon 就會把 serial 埠／
         // broker 連線重新開回來、受器也回到啟用（＝停用只在這次執行有效）。
         // 重新啟用（或其他狀態）就把記號清掉，裝置下一次啟動才回得來。
@@ -1146,6 +1256,52 @@ impl Runtime {
         // Character Protocol §11：available → greet、disconnected → notice。
         self.character_project_provider(id, state);
         Ok(desc)
+    }
+
+    /// 把一個已停下來的 provider 底下的受器／動器旗標全部關掉，並留下可追查的
+    /// audit（哪些能力、因為哪個狀態被關）。
+    ///
+    /// 只往「關」的方向走：這個函式永遠不會把任何東西打開。
+    ///
+    /// audit 只記**這次真的從開變關**的能力：`registry.receptor()`／`actuator()`
+    /// 反映的就是 enabled 旗標本身（provider 閘門不影響它），所以先問再關。
+    /// 否則重複停用同一個 provider 會一直寫出「關掉了一堆東西」的假紀錄。
+    async fn disable_provider_capabilities(&self, desc: &ProviderDescriptor, reason: &str) {
+        let mut receptors = Vec::new();
+        let mut actuators = Vec::new();
+        for rid in &desc.receptors {
+            let id = ReceptorId::new(rid);
+            if self.registry.receptor(&id).await.is_err() {
+                continue; // 已經是關的（或根本沒註冊）：沒有東西可關。
+            }
+            if self.registry.set_receptor_enabled(&id, false).await.is_ok() {
+                receptors.push(rid.clone());
+            }
+        }
+        for aid in &desc.actuators {
+            let id = ActuatorId::new(aid);
+            if self.registry.actuator(&id).await.is_err() {
+                continue; // 已經是關的（或根本沒註冊）。
+            }
+            if self.registry.set_actuator_enabled(&id, false).await.is_ok() {
+                actuators.push(aid.clone());
+            }
+        }
+        if receptors.is_empty() && actuators.is_empty() {
+            return;
+        }
+        self.store
+            .audit(
+                "provider.capabilities-disabled",
+                "runtime",
+                &json!({
+                    "providerId": desc.identity.id.as_str(),
+                    "reason": reason,
+                    "receptors": receptors,
+                    "actuators": actuators,
+                }),
+            )
+            .ok();
     }
 
     /// 記下「人類把這個 provider 關掉了」（跨重啟有效）。落地失敗只記警告：

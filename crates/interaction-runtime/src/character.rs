@@ -348,10 +348,6 @@ pub struct CharacterHub {
     observation_last: Mutex<BTreeMap<String, Timestamp>>,
     conn_seq: AtomicU64,
     clock: Mutex<NowFn>,
-    /// Provider 能力宣告表（呈現面／高風險受器／人話種類名）。投影路徑是同步
-    /// 的（沒有 await 點），所以這張表必須同步可讀；語意上它屬於 provider 層，
-    /// 由 `crate::providers` 定義與填寫，這裡只是目前唯一同步可達的容器。
-    capability_declarations: crate::providers::ProviderCapabilityRegistry,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -409,11 +405,11 @@ pub fn adapter_kind_str(kind: AdapterKind) -> &'static str {
 
 /// 呈現表面（角色自己）的 actuator：它們的 receipt 不投影成 `action.*` intent。
 ///
-/// v0.6.0 起完全由 provider 宣告驅動（`ProviderCapabilityRegistry`）：核心不再
+/// v0.6.0 起完全由 provider 宣告驅動（`CapabilityDeclarationsView`）：核心不再
 /// 認得任何具名裝置的動器 id，新增一種行動裝置只要在自己的 provider 宣告
 /// 呈現面，不必改這裡。沒有任何 provider 宣告過的動器一律是一般動器。
 pub fn is_presentation_surface_actuator(
-    declarations: &crate::providers::ProviderCapabilityRegistry,
+    declarations: &dyn crate::providers::CapabilityDeclarationsView,
     actuator_id: &str,
 ) -> bool {
     declarations.is_presentation_surface(actuator_id)
@@ -608,13 +604,7 @@ impl CharacterHub {
             observation_last: Mutex::new(BTreeMap::new()),
             conn_seq: AtomicU64::new(0),
             clock: Mutex::new(now),
-            capability_declarations: crate::providers::ProviderCapabilityRegistry::default(),
         }
-    }
-
-    /// Provider 能力宣告表（見欄位說明）。
-    pub fn capability_declarations(&self) -> &crate::providers::ProviderCapabilityRegistry {
-        &self.capability_declarations
     }
 
     /// 替換時鐘（測試模擬 heartbeat 逾時／節流窗）。
@@ -1860,7 +1850,7 @@ impl Runtime {
         receipt: &ActionReceipt,
     ) -> Option<(CharacterIntent, TruthState)> {
         if is_presentation_surface_actuator(
-            self.character.capability_declarations(),
+            self.capability_declarations(),
             receipt.actuator_id.as_str(),
         ) {
             return None;

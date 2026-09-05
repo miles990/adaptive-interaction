@@ -1278,6 +1278,17 @@ pub async fn providers_list(
     Json(json!(providers))
 }
 
+/// Provider 能力語意宣告表的**唯讀**投影（維運／診斷）。
+///
+/// 這張表決定核心怎麼理解每個能力 id（呈現面／高風險受器／人話種類名）。它
+/// 過去只存在於記憶體裡，出問題時無從分辨「provider 沒宣告」與「核心讀錯」。
+///
+/// 唯讀且 additive：只新增這一條 GET，沒有任何寫入／撤回的 HTTP 入口——宣告
+/// 的寫入權只在 provider 註冊路徑（Rust 內），不對外開。
+pub async fn provider_declarations(State(state): State<ApiState>) -> Json<Value> {
+    Json(state.runtime.capability_declarations_report())
+}
+
 pub async fn provider_get(
     State(state): State<ApiState>,
     Extension(auth): Extension<AuthContext>,

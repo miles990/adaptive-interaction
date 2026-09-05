@@ -1390,6 +1390,37 @@ async fn an_unknown_outcome_is_reportable_and_can_never_be_verified() {
 
 /// spec §9.3：「測試裝置」是人類動作。agent／session token 一律 403，且
 /// 沒測過的 provider 不得在 API 回應裡冒充「已測試」。
+/// 宣告表看得見：`GET /v1/providers/declarations` 是唯讀投影，讓維運分得出
+/// 「provider 沒宣告」與「核心讀錯」。靜態路徑不得被 `/v1/providers/{id}` 吃掉
+/// （那樣會變成去找一個叫 "declarations" 的 provider → 404）。
+#[tokio::test]
+async fn provider_declarations_are_visible_read_only() {
+    let server = TestServer::spawn().await;
+    let (status, doc) = server.get("/v1/providers/declarations").await;
+    assert_eq!(status, 200, "{doc}");
+    let items = doc["declarations"].as_array().expect("declarations 陣列");
+    assert!(
+        !items.is_empty(),
+        "內建 provider 開機時就宣告過，投影不得是空的：{doc}"
+    );
+    let with_surface = items
+        .iter()
+        .find(|d| !d["presentationSurfaces"].as_array().unwrap().is_empty())
+        .expect("至少一筆宣告有呈現面");
+    assert!(with_surface["id"].is_string());
+    assert!(with_surface["presentationSurfaces"][0]["match"].is_string());
+    assert!(with_surface["presentationSurfaces"][0]["value"].is_string());
+    assert!(with_surface["receptors"].is_array());
+    assert!(with_surface["highRiskReceptors"].is_array());
+
+    // 唯讀：沒有任何寫入入口（POST 一律不是 2xx）。
+    let (status, _) = server.post("/v1/providers/declarations", json!({})).await;
+    assert!(
+        !(200..300).contains(&status),
+        "宣告表不得有 HTTP 寫入入口（status={status}）"
+    );
+}
+
 #[tokio::test]
 async fn provider_test_is_human_only_and_never_fakes_evidence() {
     let server = TestServer::spawn().await;

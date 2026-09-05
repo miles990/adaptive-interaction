@@ -1088,6 +1088,11 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                 client.post("/v1/hardware/scan", Some(json!({}))).await?
             }
             crate::ProvidersAction::List => client.get("/v1/providers").await?,
+            // 唯讀：核心怎麼理解每個能力 id（呈現面／高風險受器／種類名）。
+            // 沒有對應的寫入子命令——宣告只由 provider 註冊路徑寫入。
+            crate::ProvidersAction::Declarations => {
+                client.get("/v1/providers/declarations").await?
+            }
             crate::ProvidersAction::Show { id } => {
                 client.get(&format!("/v1/providers/{id}")).await?
             }

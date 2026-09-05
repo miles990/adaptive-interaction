@@ -320,6 +320,9 @@ pub enum ProvidersAction {
     Scan,
     /// List all providers with lifecycle state and capabilities.
     List,
+    /// Show the provider capability declarations the runtime core reads
+    /// (presentation surfaces, high-risk receptors, class labels). Read-only.
+    Declarations,
     /// Show one provider.
     Show { id: String },
     /// Pair with a discovered provider using the code it displays.

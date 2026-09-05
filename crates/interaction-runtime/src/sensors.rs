@@ -298,6 +298,8 @@ impl Runtime {
     ///
     /// - 涵蓋與否由來源自己說（[`SensorStopOutcome::sensor_ids`]），核心不比對
     ///   任何具名裝置的字面值。
+    /// - 宣告表只讀不寫：拿到的是 `&dyn CapabilityDeclarationsView`（唯讀視角），
+    ///   停止路徑在型別上就改不了「哪些受器是高風險」。
     /// - 已停用／未註冊的受器不算：registry 對它們回 `Err`，沒有東西能經由它
     ///   流進來，硬報「可能還在擷取」是另一種不誠實。
     async fn unreported_high_risk_receptors<T: SensorStopOutcome>(

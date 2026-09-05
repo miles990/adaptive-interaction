@@ -855,11 +855,16 @@ async fn a_disabled_provider_blocks_observe_even_when_the_receptor_stays_enabled
     rt.transition_provider(&desk, ProviderState::Disabled)
         .await
         .unwrap();
-    // 一般的停用轉換不會動能力層的 enabled 旗標，所以這裡的擋只能來自
-    // provider 狀態本身——這正是 9.8 要接上的那一段。
+    // 停用會把能力層旗標一併關掉（v0.5.1 已知限制 #4 的修正）。這個測試要驗的
+    // 是**另一層**：即使旗標是開的，provider 狀態本身也必須擋得住。所以刻意把
+    // 旗標手動扳回開啟，讓唯一可能的擋來自 provider 狀態。
+    rt.registry
+        .set_receptor_enabled(&status, true)
+        .await
+        .unwrap();
     assert!(
         rt.registry.receptor(&status).await.is_ok(),
-        "能力層旗標沒被動過（擋必須來自 provider 狀態）"
+        "前提：能力層旗標是開的（擋只能來自 provider 狀態）"
     );
     let err = rt.observe_fresh(&status).await.unwrap_err().to_string();
     assert!(err.contains("desk-light.status"), "{err}");
@@ -882,12 +887,18 @@ async fn a_disabled_provider_blocks_execution_with_a_blocked_receipt() {
     rt.transition_provider(&desk, ProviderState::Disabled)
         .await
         .unwrap();
+    // 同上：旗標手動扳回開啟，證明 blocked receipt 是 provider 狀態擋下來的，
+    // 不是「動器剛好被關掉」的副作用。
+    rt.registry
+        .set_actuator_enabled(&ActuatorId::new("desk-light.set"), true)
+        .await
+        .unwrap();
     assert!(
         rt.registry
             .actuator(&ActuatorId::new("desk-light.set"))
             .await
             .is_ok(),
-        "能力層旗標沒被動過（擋必須來自 provider 狀態）"
+        "前提：能力層旗標是開的（擋只能來自 provider 狀態）"
     );
 
     let receipt = run_plan(&rt, &plan).await;
@@ -1458,4 +1469,347 @@ async fn inbox_sensor_titles_use_the_provider_declared_class_label() {
             .all(|t| !t.contains("robot.mic-level") && !t.contains("robot-a1b2")),
         "原始能力 id／裝置 id 不得上標題：{titles:?}"
     );
+}
+
+/// 一個跟任何真實裝置都無關的受器 fixture：旗標測試只需要「registry 裡真的
+/// 存在一個可以被開關的受器」，不需要它真的讀得到東西。
+struct FakeRobotMic;
+
+#[async_trait::async_trait]
+impl Receptor for FakeRobotMic {
+    fn manifest(&self) -> ReceptorManifest {
+        serde_json::from_value(json!({
+            "id": "robot.mic-level",
+            "name": "測試機器人音量",
+            "description": "fixture receptor for the provider capability-flag tests",
+            "category": "device",
+            "provides": ["level"],
+            "mode": "poll",
+            "sensitivity": "intimate",
+            "requiresConsent": true,
+            "driver": "fixture.robot",
+            "version": "0.0.0",
+            "schemaVersion": "1.0"
+        }))
+        .expect("fixture manifest parses")
+    }
+
+    async fn start(&self, _context: SessionContext) -> Result<(), ReceptorError> {
+        Ok(())
+    }
+
+    async fn read(&self) -> Result<Observation, ReceptorError> {
+        Err(ReceptorError::Unavailable("fixture".into()))
+    }
+
+    async fn health(&self) -> ComponentHealth {
+        ComponentHealth::healthy()
+    }
+
+    async fn stop(&self) -> Result<(), ReceptorError> {
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 宣告表的生命週期：register / update / remove（M2 §3.2 ownership）
+// ---------------------------------------------------------------------------
+
+/// **update**：同一個 `declaration_id` 再宣告一次＝整份覆寫，不是累加補丁。
+/// 上一版宣告過的呈現面／高風險受器必須真的消失——留下殘影的話，一個
+/// provider 改了自己的能力表之後，核心會永遠記得一個它已經不再提供的能力。
+#[tokio::test]
+async fn redeclaring_a_provider_replaces_the_whole_declaration() {
+    let (_g, rt) = plain_runtime().await;
+    rt.declare_provider_capabilities(
+        ProviderCapabilityDeclaration::new("provider.fake.robot")
+            .with_class_label("第一版機器人")
+            .with_presentation_surface(CapabilitySelector::exact("robot.face"))
+            .with_receptor("robot.mic-level")
+            .with_high_risk_receptor("robot.mic-level"),
+    );
+    let decls = rt.capability_declarations();
+    assert!(decls.is_presentation_surface("robot.face"));
+
+    // 第二版：呈現面換人、受器不再是高風險、種類名改了。
+    rt.declare_provider_capabilities(
+        ProviderCapabilityDeclaration::new("provider.fake.robot")
+            .with_class_label("第二版機器人")
+            .with_presentation_surface(CapabilitySelector::exact("robot.chest"))
+            .with_receptor("robot.mic-level"),
+    );
+
+    assert!(
+        !decls.is_presentation_surface("robot.face"),
+        "舊的呈現面必須消失（整份覆寫）：{:?}",
+        decls.declaration("provider.fake.robot")
+    );
+    assert!(decls.is_presentation_surface("robot.chest"));
+    assert!(
+        !decls
+            .high_risk_receptors()
+            .iter()
+            .any(|r| r == "robot.mic-level"),
+        "舊的高風險宣告必須消失：{:?}",
+        decls.high_risk_receptors()
+    );
+    assert_eq!(
+        decls.class_label_of_receptor("robot.mic-level").as_deref(),
+        Some("第二版機器人")
+    );
+    assert_eq!(
+        decls
+            .declaration_ids()
+            .iter()
+            .filter(|id| *id == "provider.fake.robot")
+            .count(),
+        1,
+        "覆寫不得留下第二筆"
+    );
+}
+
+/// **remove**：整族來源不再存在時撤回宣告，之後所有語意查詢都不得再包含它。
+/// （下一波「宣告式 adapter 的 spec 被刪掉」會用到這條路。）
+#[tokio::test]
+async fn retracting_a_declaration_removes_its_capability_semantics() {
+    let (_g, rt) = plain_runtime().await;
+    rt.declare_provider_capabilities(
+        ProviderCapabilityDeclaration::new("provider.fake.robot")
+            .with_class_label("測試機器人")
+            .with_presentation_surface(CapabilitySelector::exact("robot.face"))
+            .with_receptor("robot.mic-level")
+            .with_high_risk_receptor("robot.mic-level"),
+    );
+    let decls = rt.capability_declarations();
+    assert!(decls.is_presentation_surface("robot.face"));
+
+    assert!(
+        rt.retract_provider_capabilities("provider.fake.robot"),
+        "撤回一筆存在的宣告要回報 true"
+    );
+
+    assert!(!decls.is_presentation_surface("robot.face"));
+    assert!(decls.class_label_of_receptor("robot.mic-level").is_none());
+    assert!(!decls
+        .high_risk_receptors()
+        .iter()
+        .any(|r| r == "robot.mic-level"));
+    assert!(!decls
+        .declaration_ids()
+        .iter()
+        .any(|id| id == "provider.fake.robot"));
+    assert!(decls.declaration("provider.fake.robot").is_none());
+
+    assert!(
+        !rt.retract_provider_capabilities("provider.fake.robot"),
+        "撤回不存在的宣告要誠實回報 false，不得假裝做了事"
+    );
+    assert!(
+        !rt.retract_provider_capabilities("provider.never.declared"),
+        "沒宣告過的 id 一樣是 false"
+    );
+}
+
+/// 停用／撤銷**一台裝置**不動整族的能力宣告——這是刻意的設計，不是漏網。
+///
+/// 宣告說的是「這個能力 id 是什麼意思」（哪些是呈現面、哪些是高風險受器），
+/// 不是「這台裝置現在可不可以用」。後者由 provider 狀態＋registry 旗標決定。
+/// 若停用一台就把宣告刪掉，`stop_all_sensors` 會從此不知道那些受器是高風險，
+/// 停止結果未知時就不再誠實補「可能還在擷取」——停用反而讓系統變得更不安全。
+#[tokio::test]
+async fn disabling_one_device_never_retracts_the_family_declaration() {
+    let (_g, rt) = plain_runtime().await;
+    rt.declare_provider_capabilities(
+        ProviderCapabilityDeclaration::new("provider.fake.family")
+            .with_class_label("測試機器人")
+            .with_presentation_surface(CapabilitySelector::exact("robot.face"))
+            .with_receptor("robot.mic-level")
+            .with_high_risk_receptor("robot.mic-level"),
+    );
+    let device = interaction_core::ProviderId::new("provider.fake.family.unit-1");
+    let mut desc =
+        interaction_registry::providers::discovered(interaction_core::ProviderIdentity {
+            id: device.clone(),
+            kind: interaction_core::ProviderKind::Device,
+            display_name: "測試機器人 #1".into(),
+            trust_level: interaction_core::TrustLevel::Untrusted,
+            origin: "test".into(),
+            version: String::new(),
+            fingerprint: None,
+            human: None,
+        });
+    desc.receptors = vec!["robot.mic-level".into()];
+    desc.state = interaction_core::ProviderState::Installed;
+    rt.providers.register(desc).await.unwrap();
+
+    rt.transition_provider(&device, interaction_core::ProviderState::Disabled)
+        .await
+        .unwrap();
+    rt.revoke_provider(&device).await.unwrap();
+
+    let decls = rt.capability_declarations();
+    assert!(
+        decls.is_presentation_surface("robot.face"),
+        "撤銷一台裝置不得刪掉整族的呈現面宣告：{:?}",
+        decls.declaration_ids()
+    );
+    assert!(
+        decls
+            .high_risk_receptors()
+            .iter()
+            .any(|r| r == "robot.mic-level"),
+        "撤銷一台裝置不得讓整族的高風險受器宣告消失"
+    );
+    assert!(decls.declaration("provider.fake.family").is_some());
+}
+
+// ---------------------------------------------------------------------------
+// v0.5.1 已知限制 #4：transition_provider 不會關掉 registry 旗標
+// ---------------------------------------------------------------------------
+
+/// 人類把一個 provider 轉成 Disabled／Revoked 之後，它底下的受器／動器在
+/// registry 裡的 enabled 旗標必須真的翻掉——而不是只靠 ProviderGate 攔。
+///
+/// 為什麼旗標本身要翻：旗標是「這個能力現在開著嗎」的單一事實，狀態列、能力
+/// 清單、`stop_all_sensors` 的「仍然啟用」判斷都讀它。閘門攔得住派工，卻讓
+/// 使用者看到一個仍然「啟用中」的麥克風——那正是不誠實。
+#[tokio::test]
+async fn transitioning_a_provider_to_disabled_turns_off_its_capability_flags() {
+    let (_g, rt) = plain_runtime().await;
+    let device = interaction_core::ProviderId::new("provider.fake.flags");
+    let receptor = interaction_core::ReceptorId::new("robot.mic-level");
+
+    rt.registry
+        .register_receptor(std::sync::Arc::new(FakeRobotMic))
+        .await
+        .expect("fixture receptor registers");
+    let mut desc =
+        interaction_registry::providers::discovered(interaction_core::ProviderIdentity {
+            id: device.clone(),
+            kind: interaction_core::ProviderKind::Device,
+            display_name: "旗標測試機器人".into(),
+            trust_level: interaction_core::TrustLevel::Untrusted,
+            origin: "test".into(),
+            version: String::new(),
+            fingerprint: None,
+            human: None,
+        });
+    desc.receptors = vec!["robot.mic-level".into()];
+    desc.state = interaction_core::ProviderState::Installed;
+    rt.providers.register(desc).await.unwrap();
+    rt.registry
+        .set_receptor_enabled(&receptor, true)
+        .await
+        .unwrap();
+    assert!(
+        rt.registry.receptor(&receptor).await.is_ok(),
+        "前提：受器一開始是啟用的"
+    );
+
+    rt.transition_provider(&device, interaction_core::ProviderState::Disabled)
+        .await
+        .unwrap();
+
+    assert!(
+        rt.registry.receptor(&receptor).await.is_err(),
+        "provider 被停用之後，它的受器旗標必須真的關掉（v0.5.1 已知限制 #4）"
+    );
+}
+
+/// 重新啟用 provider **不得**自動把能力打開：高風險能力在停用／重啟之後一律
+/// 要人類重新啟用（與 `mobile_disable_high_risk_receptors` 同一條不變量）。
+#[tokio::test]
+async fn re_enabling_a_provider_never_re_arms_its_capabilities() {
+    let (_g, rt) = plain_runtime().await;
+    let device = interaction_core::ProviderId::new("provider.fake.rearm");
+    let receptor = interaction_core::ReceptorId::new("robot.mic-level");
+
+    rt.registry
+        .register_receptor(std::sync::Arc::new(FakeRobotMic))
+        .await
+        .expect("fixture receptor registers");
+    let mut desc =
+        interaction_registry::providers::discovered(interaction_core::ProviderIdentity {
+            id: device.clone(),
+            kind: interaction_core::ProviderKind::Device,
+            display_name: "重啟測試機器人".into(),
+            trust_level: interaction_core::TrustLevel::Untrusted,
+            origin: "test".into(),
+            version: String::new(),
+            fingerprint: None,
+            human: None,
+        });
+    desc.receptors = vec!["robot.mic-level".into()];
+    desc.state = interaction_core::ProviderState::Installed;
+    rt.providers.register(desc).await.unwrap();
+    rt.registry
+        .set_receptor_enabled(&receptor, true)
+        .await
+        .unwrap();
+
+    rt.transition_provider(&device, interaction_core::ProviderState::Disabled)
+        .await
+        .unwrap();
+    rt.transition_provider(&device, interaction_core::ProviderState::Available)
+        .await
+        .unwrap();
+
+    assert!(
+        rt.registry.receptor(&receptor).await.is_err(),
+        "重新啟用 provider 不得自動把受器打開——那是人類的決定"
+    );
+}
+
+/// 唯讀投影：維運看得到「核心現在相信的能力語意是什麼」。宣告表過去只存在於
+/// 記憶體裡，沒有任何介面看得到——出問題時無從分辨「provider 沒宣告」還是
+/// 「核心讀錯」。這個投影是純唯讀的：它不得提供任何寫入或撤回的路徑。
+#[tokio::test]
+async fn the_declaration_table_has_a_read_only_projection() {
+    let (_g, rt) = plain_runtime().await;
+    rt.declare_provider_capabilities(
+        ProviderCapabilityDeclaration::new("provider.fake.robot")
+            .with_class_label("測試機器人")
+            .with_presentation_surface(CapabilitySelector::exact("robot.face"))
+            .with_presentation_surface(CapabilitySelector::prefix("robot.screen."))
+            .with_receptor("robot.mic-level")
+            .with_high_risk_receptor("robot.mic-level"),
+    );
+
+    let report = rt.capability_declarations_report();
+    let items = report["declarations"]
+        .as_array()
+        .expect("declarations 陣列");
+    let robot = items
+        .iter()
+        .find(|d| d["id"] == json!("provider.fake.robot"))
+        .expect("宣告過的 provider 要出現在投影裡");
+
+    assert_eq!(robot["classLabel"], json!("測試機器人"));
+    assert_eq!(robot["receptors"], json!(["robot.mic-level"]));
+    assert_eq!(robot["highRiskReceptors"], json!(["robot.mic-level"]));
+    assert_eq!(
+        robot["presentationSurfaces"],
+        json!([
+            {"match": "exact", "value": "robot.face"},
+            {"match": "prefix", "value": "robot.screen."},
+        ]),
+        "呈現面的比對方式要看得出來（exact 還是整族前綴）"
+    );
+
+    // 內建 provider 開機時就宣告過：投影不得只看得到測試塞進去的那一筆。
+    assert!(
+        items.len() >= 2,
+        "內建 provider 的宣告也要在投影裡：{report}"
+    );
+    // 沒有 classLabel 的宣告不得憑空生一個字樣出來。
+    rt.declare_provider_capabilities(ProviderCapabilityDeclaration::new("provider.fake.bare"));
+    let report = rt.capability_declarations_report();
+    let bare = report["declarations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["id"] == json!("provider.fake.bare"))
+        .unwrap();
+    assert_eq!(bare["classLabel"], Value::Null);
+    assert_eq!(bare["presentationSurfaces"], json!([]));
 }
