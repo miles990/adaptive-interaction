@@ -1,5 +1,7 @@
 # CLAUDE.md — 給在此 repo 工作的 AI
 
+> 通用入口見 `AGENTS.md`（分層、canonical source 對照、必讀清單、遷移與發布流程、進度續接）；本檔為 Claude 專屬補充。
+
 跨 AI「能力感知型自適應互動平台」：Rust runtime＋`interact-ai` CLI＋HTTP API
 （127.0.0.1:8787，Bearer token）＋SSE＋Canonical Tool Manifest（OpenAI／Anthropic／
 Gemini／OpenAPI／JSON-Schema 產生器）＋跨 AI Skill（`skills/orchestrate-adaptive-interaction`）
