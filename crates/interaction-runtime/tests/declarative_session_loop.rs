@@ -2270,11 +2270,18 @@ async fn rebind_keeps_human_disabled_receptors_off() {
         wait_until(Duration::from_secs(30), || {
             let rt = rt.clone();
             let pid = pid.clone();
-            async move { provider_state(&rt, &pid).await == Some(ProviderState::Available) }
+            async move {
+                // 握手回呼那條路會先把狀態推到 Available，第 8 步的 `provider.rebound`
+                // 稽核晚一步才落地（同一把鎖之外）。斷言前要等到兩者都成立，否則在
+                // 較慢的機器（CI）上會讀到一份還沒寫進去的稽核。
+                provider_state(&rt, &pid).await == Some(ProviderState::Available)
+                    && !audit_rows(&rt, "provider.rebound").is_empty()
+            }
         })
         .await,
-        "重新綁定要先收斂成 Available：{:?}",
-        provider_state(&rt, &pid).await
+        "重新綁定要先收斂成 Available 並留下 provider.rebound：{:?} / {:?}",
+        provider_state(&rt, &pid).await,
+        audit_rows(&rt, "provider.rebound")
     );
 
     assert!(

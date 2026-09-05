@@ -247,6 +247,14 @@ async fn mqtt_reenable_rebinds_without_restart() {
                         .await
                         .into_iter()
                         .any(|p| p.identity.id == pid && p.state == ProviderState::Available)
+                    // 第 8 步的 `provider.rebound` 稽核在狀態收斂之後才落地；握手回呼
+                    // 可能先一步把狀態推到 Available，所以稽核也要等到。
+                    && rt
+                        .store
+                        .audit_tail(400)
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|r| r["kind"] == json!("provider.rebound"))
             }
         })
         .await,
