@@ -156,6 +156,19 @@ pub struct RuntimeInner {
     pub(crate) device_link_providers: std::sync::Mutex<BTreeSet<String>>,
     /// 知識檢索的可替換向量候選介面。
     pub(crate) vector_index: Box<dyn crate::knowledge::VectorIndex>,
+    /// 裝置 id → 那台裝置目前的 AIP 出站通道（**型別抹除**）。
+    ///
+    /// `Output::Broadcast`（別的成員造成的 shared state 變更）要送到每一個
+    /// 線上裝置成員；在此之前那條路徑直接呼叫 iPhone 的 wss 出站，所以第二種
+    /// 裝置（serial／mqtt／ble）永遠收不到廣播。核心不逐一列舉傳輸種類，只
+    /// 認得 [`crate::character_session::DeviceOutbound`]。
+    ///
+    /// 有界（[`crate::character_session::MAX_DEVICE_OUTBOUND`]）。維持
+    /// `std::sync::RwLock`：讀者之一是**非 async** 的
+    /// （`character_session_diagnostics_value`），沒有 await 點可用；寫入都是
+    /// 短臨界區，鎖不跨 await。
+    pub(crate) device_outbound:
+        std::sync::RwLock<BTreeMap<String, Arc<dyn crate::character_session::DeviceOutbound>>>,
 }
 
 #[derive(Clone)]
@@ -406,6 +419,7 @@ impl Runtime {
                 provider_tested: std::sync::Mutex::new(BTreeMap::new()),
                 device_link_providers: std::sync::Mutex::new(BTreeSet::new()),
                 vector_index: Box::new(crate::knowledge::LocalSubwordEmbeddingIndex::default()),
+                device_outbound: std::sync::RwLock::new(BTreeMap::new()),
             }),
         };
         let _ = sensor_cb_slot.set(Arc::downgrade(&runtime.inner));

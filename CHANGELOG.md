@@ -35,6 +35,18 @@
   aip 明確忽略（not-paired 閘門之後）。證據：`declarative_session_loop.rs` 7 測走 **production `DeviceLink`＋serial adapter 對 pty 模擬器**、
   `aip_link.rs` 6、`esp32_sim_conformance.rs` 20；核心（`interaction-session`／`interaction-aip`／`character_session.rs`）零變更由獨立
   驗證者核對。**ESP32 真板為零；MQTT／BLE 共用程式碼但未測。**
+- **裝置出站登記表、稽核 transport 由來源提供、diagnostics `identityStrength`（M2 §3.3 D2）**：`character_session_send` 對裝置成員以前
+  硬編 `mobile.send_aip`——宣告式裝置只收得到直接回覆、收不到其他成員造成的 shared state 廣播，而且失敗只落 debug log。現在 Runtime 持有
+  型別抹除、有界（64）的 `DeviceOutbound` 登記表（iPhone 認證後登記、宣告式握手成立登記；斷線／撤銷移除），核心沒有任何裝置種類的
+  行為分岔；沒有通道 → 稽核 `aip.outbound-undeliverable{reason:"no-channel"}`，表滿 → `aip.outbound-rejected`。入站稽核 `aip.rejected`
+  （profile-validation／session-binding）與 `aip.identity-mismatch` 的 `transport`／`identityStrength` 由來源 `DeviceOrigin` 提供（不再寫死
+  `iphone`）。diagnostics `members[]` 新增選填 `identityStrength`（`paired-token`／`transport-hello+device-side-pairing`／`host-surface`；
+  查不到出站通道就省略，不猜）。測試：`declarative_session_loop.rs` 7→13（含「桌面 touch 的 behavior.request 真的經序列線到達」與
+  「緊急停止的 450-byte patch 真的到達；660–784-byte 含 members 的 patch 送不到並留痕」兩半，上限未放寬；session-binding 稽核測試以突變
+  驗證）、`mobile_loop.rs` +1（iPhone 登記／paired-token／斷線移除）。D1 測試在預設並行下偶發失敗的根因＝`interaction-adapter-declarative`
+  行程層 `PROVIDER_LINKS` 以 provider id 為鍵、7 支測試共用同一 id 而互相 `shutdown()` 對方的序列線——修測試機具（每支唯一 id），
+  產品時間預算一字未改；預設並行 ×8＋×5＋×3 全綠。新公開 API：`Runtime::device_outbound_ids()`、`character_session::{DeviceOutbound,
+  DeviceOrigin, IDENTITY_STRENGTH_*, MAX_DEVICE_OUTBOUND}`、`mobile::MOBILE_TRANSPORT`。
 - 唯讀端點 `GET /v1/providers/declarations`（`{declarations:[{id, classLabel, presentationSurfaces:[{match,value}], receptors,
   highRiskReceptors}]}`）與 CLI `interact-ai providers declarations`：維運看得到 provider 家族宣告了哪些呈現面／高風險受器；
   沒有 HTTP 寫入入口（測試釘住 POST 同路徑非 2xx）。
@@ -164,8 +176,14 @@
   `## [0.6.0]`，不再要求每個新段落重抄。release facts 綁版本與 commit（evidence-index），行為保護由 executable tests 保證。
 
 ### Known limitations（本分支新增；修掉時同步刪除）
-- **Serial 成員拿不到初始快照**：協商的第二則回覆（`state{kind:"snapshot"}`）超過參考韌體 639 bytes 單行上限，serial 傳輸在寫上線前
-  拒絕並稽核 `aip.outbound-undeliverable`；分段／壓縮／縮減 profile 是協定層決定，本分支未做。
+- **Serial 成員拿不到初始快照，也收不到含 members 的 patch**：參考韌體單行上限 639 bytes；協商的 snapshot（實測 1019 bytes）與任何
+  含 `members` 的 `state{kind:"patch"}`（`SemanticState.members` 在 merge diff 裡整段重送，成員 presence／lastSeenAt 變動即 660–784 bytes）
+  都在寫上線前被拒絕並稽核 `aip.outbound-undeliverable`；只有不含 members 的小 patch（緊急停止真相變更，450 bytes）送得到。分段／
+  per-member diff／縮減 profile 是協定層決定，本分支未做。
+- 從快照還原、尚未重新連線的裝置成員沒有出站通道：在 presence tick 把它降級之前，每一則廣播都會留一列 `aip.outbound-undeliverable{reason:"no-channel"}`
+  （誠實但比修改前的一行 debug log 吵）。
+- `interaction-adapter-declarative` 的 `PROVIDER_LINKS` 是行程層 static（鍵＝provider id）：production 一個 daemon 一份不會撞，但同一行程多個
+  Runtime 的測試必須用不同 provider id。
 - 宣告式裝置沒有 recipe 相容的 touch observation id（iPhone 有 `iphone.touch`）；沒有憑空發明一個。
 - `declarative_session_loop.rs` 的多裝置隔離測試用程序內 device fixture 當第二成員，未與 fake_iphone 子程序並存。
 - `crates/interaction-adapter-declarative/src/serial.rs::a_port_that_dies_immediately_backs_off_and_is_reported_offline` 是既有的偶發

@@ -509,6 +509,15 @@ export function CharacterSyncCard({
                   )}
                 </>
               )}
+              {/* 成員身分怎麼來的（Runtime 依 Transport 決定；查不到通道就沒有這個欄位）。
+                  只印原始值：`transport-hello+device-side-pairing` 弱於 `paired-token`，
+                  不得翻成「已驗證身分」。 */}
+              {diagnostics.members.map((m) => (
+                <li key={`${m.party.kind}:${m.party.id}`}>
+                  member {m.party.kind}:{m.party.id} {m.presence} identityStrength{" "}
+                  {m.identityStrength ?? "—"}
+                </li>
+              ))}
               {/* 本地對齊的計數（reducer 的，不是後端的）：hash 不符、host 倒退、
                   被忽略的重播都必須看得見——安靜地丟掉一則狀態是最難察覺的錯。 */}
               {Object.entries(machine.counters).map(([key, value]) => (

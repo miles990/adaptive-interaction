@@ -2,7 +2,7 @@
 //! Runtime 接線（use case 層）。
 //!
 //! 權威狀態機是純函式 crate `interaction-session`；這個模組只做它做不到的事：持久化、
-//! 注入時間、把 [`Output`] 真的派送出去（iPhone wss、SSE、CPP renderer）、寫稽核。
+//! 注入時間、把 [`Output`] 真的派送出去（裝置出站通道登記表、SSE、CPP renderer）、寫稽核。
 //!
 //! # 不變量
 //!
@@ -11,6 +11,8 @@
 //!   路徑進來；device／renderer 送 `task.*`／`runtime.*` 一律 `scope-denied`。
 //! - 身分是綁定出來的，不是宣稱：transport 先比對 `source`，不符即 `identity-mismatch`，
 //!   不「幫忙修正」後執行。
+//! - 裝置的收送都是**型別抹除**的：入站帶 [`DeviceOrigin`]、出站查 [`DeviceOutbound`] 登記表。
+//!   這個模組沒有任何 `iphone`／`serial` 特判——傳輸標籤與身分強度都由那一側說出來。
 //! - 所有集合有界（成員、事件日誌、去重環、pending intent 都在 session crate 內夾住）；
 //!   這裡不開任何無界佇列、不做 blocking sleep，持久化走 `spawn_blocking`。
 //! - `INTERACT_AI_CHARACTER_SESSION=0`：host 為 `None`，HTTP 入口 503 `session-disabled`、
@@ -89,6 +91,63 @@ pub const SESSION_DISABLED_MESSAGE: &str = "character session is turned off on t
 /// 桌面可信 host surface 的 Party。
 pub fn desktop_party() -> Party {
     Party::human_surface(DESKTOP_SURFACE_ID)
+}
+
+// ---------------------------------------------------------------------------
+// 裝置出站通道：型別抹除的登記表
+// ---------------------------------------------------------------------------
+
+/// 已配對 iPhone 的身分強度：配對時交換的 per-device token，host 端以
+/// sha256(token) 逐次驗證。
+pub const IDENTITY_STRENGTH_PAIRED_TOKEN: &str = "paired-token";
+
+/// 宣告式裝置線（serial／mqtt／ble）的身分強度：傳輸層 hello 的 `deviceId`
+/// 明文字串比對 ＋ 配對碼由**裝置端**比對（host 只送碼、等 pair-ok）。
+///
+/// 誠實：這比 [`IDENTITY_STRENGTH_PAIRED_TOKEN`] 弱。任何能開那個埠／topic
+/// 的程序都可以自稱是這台裝置。文件與 UI 不得把它寫成「已驗證身分」。
+pub const IDENTITY_STRENGTH_DEVICE_LINK: &str = "transport-hello+device-side-pairing";
+
+/// 桌面可信 host surface 的身分強度：human token 在 transport 綁定出來的身分
+/// （宣稱的 `source` 必須與它相符才收）。
+pub const IDENTITY_STRENGTH_HOST_SURFACE: &str = "host-surface";
+
+/// 通道回報了一個核心不認得的身分強度。誠實說「不知道」——不沿用任何既有
+/// 標籤，更不預設它是強的那一種。
+pub const IDENTITY_STRENGTH_UNKNOWN: &str = "unknown";
+
+/// 出站通道登記表的上限。一台主機同時連著的裝置是個位數；這個數字只是不讓
+/// 一個壞掉的（或惡意的）登記端把表撐成無界成長。
+pub const MAX_DEVICE_OUTBOUND: usize = 64;
+
+/// 一條「送得到某台裝置」的出站通道，**型別抹除**。
+///
+/// 為什麼要有它：`Output::Broadcast`（別的成員造成的 shared state 變更）必須
+/// 送到**每一個**線上裝置成員。在此之前那條路徑直接呼叫 iPhone 的 wss 出站，
+/// 所以第二種裝置（serial／mqtt／ble）永遠收不到廣播——桌面顯示「已加入、
+/// 已同步」，那台裝置其實一則狀態都沒有收到。核心不該（也不能）逐一列舉傳輸
+/// 種類，所以它只認得這條 trait；`transport` 與身分強度由**通道自己**說出來。
+#[async_trait::async_trait]
+pub trait DeviceOutbound: Send + Sync {
+    /// 把一則 envelope 送上這條線。回 `Ok` 只代表「已寫上線」——不是對端收到、
+    /// 更不是對端套用了（誠實階梯）。
+    async fn send_aip(&self, envelope: &Envelope) -> Result<(), DomainError>;
+    /// 傳輸種類（`iphone`／`serial`／`mqtt`／`ble`）。稽核用。
+    fn transport_label(&self) -> &str;
+    /// 這條線的身分是**怎麼來的**（見上面三個 `IDENTITY_STRENGTH_*`）。
+    /// 不同傳輸的身分強度不同，diagnostics 必須說得出差別。
+    fn identity_strength(&self) -> &str;
+}
+
+/// 一則裝置 frame 的來源事實（稽核用）。
+///
+/// 核心不認得傳輸種類：這兩個值一律由**收到這則 frame 的那條路徑**提供。
+/// 寫死成某一種傳輸的話，「有人從序列線偽造身分」在稽核上會長得像
+/// 「某台 iPhone 出問題」——查錯方向、也查不到真正的來源。
+#[derive(Debug, Clone, Copy)]
+pub struct DeviceOrigin<'a> {
+    pub transport: &'a str,
+    pub identity_strength: &'a str,
 }
 
 /// 讀 feature flag（只有明確的 `0` 會關閉）。
@@ -781,6 +840,86 @@ impl Runtime {
         Ok(self.session_host()?.session().snapshot())
     }
 
+    // ------------------------------------------------------------------
+    // 裝置出站通道登記表
+    // ------------------------------------------------------------------
+
+    fn device_outbound_table(
+        &self,
+    ) -> std::sync::RwLockWriteGuard<'_, std::collections::BTreeMap<String, Arc<dyn DeviceOutbound>>>
+    {
+        match self.device_outbound.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// 登記一台裝置的出站通道（iPhone 認證後、宣告式裝置握手成立後）。
+    /// 有界：滿了誠實拒絕並留稽核，不靜默覆蓋別台裝置。
+    pub(crate) fn register_device_outbound(
+        &self,
+        device_id: &str,
+        channel: Arc<dyn DeviceOutbound>,
+    ) {
+        let mut table = self.device_outbound_table();
+        if table.len() >= MAX_DEVICE_OUTBOUND && !table.contains_key(device_id) {
+            drop(table);
+            let _ = self.store.audit(
+                "aip.outbound-rejected",
+                "runtime",
+                &json!({
+                    "deviceId": audit_snippet(device_id),
+                    "limit": MAX_DEVICE_OUTBOUND,
+                    "reason": "the device outbound registry is full",
+                }),
+            );
+            return;
+        }
+        table.insert(device_id.to_string(), channel);
+    }
+
+    /// 解除登記（斷線／撤銷／provider 下架）。留著等於之後每一則廣播都往一條
+    /// 已經不存在的線上送。
+    pub(crate) fn unregister_device_outbound(&self, device_id: &str) {
+        self.device_outbound_table().remove(device_id);
+    }
+
+    fn device_outbound(&self, device_id: &str) -> Option<Arc<dyn DeviceOutbound>> {
+        match self.device_outbound.read() {
+            Ok(guard) => guard.get(device_id).cloned(),
+            Err(poisoned) => poisoned.into_inner().get(device_id).cloned(),
+        }
+    }
+
+    /// 目前登記中的裝置出站通道 id（診斷用；不含連線細節、不含 secret）。
+    pub fn device_outbound_ids(&self) -> Vec<String> {
+        match self.device_outbound.read() {
+            Ok(guard) => guard.keys().cloned().collect(),
+            Err(poisoned) => poisoned.into_inner().keys().cloned().collect(),
+        }
+    }
+
+    /// 這個成員的身分是**怎麼來的**。查不到就回 `None`——省略欄位，不猜、
+    /// 也不冒充「已驗證身分」。
+    fn member_identity_strength(&self, party: &Party) -> Option<&'static str> {
+        match party.kind {
+            // 裝置：由登記表上那條通道自己說（核心不認得傳輸種類）。
+            PartyKind::Device => self.device_outbound(&party.id).map(|channel| {
+                // 通道的字串是 `&str`，但實際值都是上面的常數；映射回常數才
+                // 能給呼叫端 `'static`，也順便擋掉「adapter 自己編一個強度」。
+                match channel.identity_strength() {
+                    IDENTITY_STRENGTH_PAIRED_TOKEN => IDENTITY_STRENGTH_PAIRED_TOKEN,
+                    IDENTITY_STRENGTH_DEVICE_LINK => IDENTITY_STRENGTH_DEVICE_LINK,
+                    _ => IDENTITY_STRENGTH_UNKNOWN,
+                }
+            }),
+            PartyKind::HumanSurface if party == &desktop_party() => {
+                Some(IDENTITY_STRENGTH_HOST_SURFACE)
+            }
+            _ => None,
+        }
+    }
+
     /// §10 diagnostics（不含 token、路徑、原始 payload）。
     pub fn character_session_diagnostics_value(&self) -> DomainResult<Value> {
         let host = self.session_host()?;
@@ -790,7 +929,7 @@ impl Runtime {
             .members
             .iter()
             .map(|member| {
-                json!({
+                let mut item = json!({
                     "party": member.party,
                     "role": member.role,
                     "presence": member.presence.as_str(),
@@ -799,7 +938,15 @@ impl Runtime {
                     // §11「部分能力目前不可用」的唯一真實來源；協商結果的其餘細節
                     // 仍是 host 私有，不外洩。
                     "unsupportedIntents": member.unsupported_intents,
-                })
+                });
+                // 這個成員的身分是怎麼來的（選填）。三種來源的強度不同——
+                // 桌面 host surface、已配對 iPhone 的 per-device token、宣告式
+                // 裝置線的傳輸層 hello——把它們講成同一件事就是不誠實。
+                // 查不到就**省略**這個欄位，不猜。
+                if let Some(strength) = self.member_identity_strength(&member.party) {
+                    item["identityStrength"] = Value::String(strength.to_string());
+                }
+                item
             })
             .collect();
         Ok(json!({
@@ -1132,13 +1279,20 @@ impl Runtime {
     }
 
     // ------------------------------------------------------------------
-    // iPhone wss binding（`{"type":"aip","envelope":…}`）
+    // 裝置 binding（`{"type":"aip","envelope":…}`）：iPhone wss、宣告式裝置線
+    // ——**同一條**入口，差別只在呼叫端傳進來的 `DeviceOrigin`。
     // ------------------------------------------------------------------
 
-    /// 已認證手機送來的一則 `aip` frame。回傳要送回去的 envelope。
+    /// 一台**已通過該傳輸自己的准入閘門**的裝置送來的一則 `aip` frame。
+    /// 回傳要送回去的 envelope。
+    ///
+    /// `origin` 是呼叫端（iPhone wss 迴圈／宣告式裝置線）對「這一則從哪條線
+    /// 進來、身分是怎麼來的」的陳述：核心不認得傳輸種類，稽核的 `transport`
+    /// 一律由它提供。
     pub(crate) async fn character_session_device_frame(
         &self,
         device_id: &str,
+        origin: DeviceOrigin<'_>,
         frame: &Value,
     ) -> AipFrameOutcome {
         let now = Utc::now();
@@ -1220,7 +1374,8 @@ impl Runtime {
                 "aip.rejected",
                 "runtime",
                 &json!({
-                    "transport": "iphone",
+                    "transport": origin.transport,
+                    "identityStrength": origin.identity_strength,
                     "stage": "profile-validation",
                     "code": error.code.as_str(),
                 }),
@@ -1240,7 +1395,8 @@ impl Runtime {
                 "aip.identity-mismatch",
                 "runtime",
                 &json!({
-                    "transport": "iphone",
+                    "transport": origin.transport,
+                    "identityStrength": origin.identity_strength,
                     "boundKind": "device",
                     "claimedKind": audit_party_kind(&envelope.source.kind),
                     "name": audit_snippet(&envelope.name),
@@ -1256,7 +1412,7 @@ impl Runtime {
 
         match envelope.message_type {
             MessageType::Capability => {
-                self.character_session_device_capability(&party, envelope, now)
+                self.character_session_device_capability(&party, origin, envelope, now)
                     .await
             }
             MessageType::Query => {
@@ -1312,6 +1468,7 @@ impl Runtime {
     async fn character_session_device_capability(
         &self,
         party: &Party,
+        origin: DeviceOrigin<'_>,
         envelope: Envelope,
         now: Timestamp,
     ) -> AipFrameOutcome {
@@ -1344,11 +1501,14 @@ impl Runtime {
             .as_deref()
             .is_some_and(|session_id| session_id != SESSION_ID)
         {
+            // 稽核的 transport 由來源說出來：宣告式序列裝置第一次 capability 帶錯
+            // sessionId 時，不能被記成「某台 iPhone 出問題」。
             let _ = self.store.audit(
                 "aip.rejected",
                 "runtime",
                 &json!({
-                    "transport": "iphone",
+                    "transport": origin.transport,
+                    "identityStrength": origin.identity_strength,
                     "stage": "session-binding",
                     "code": ErrorCode::NotAMember.as_str(),
                 }),
@@ -1663,9 +1823,35 @@ impl Runtime {
     async fn character_session_send(&self, to: &Party, envelope: &Envelope) {
         match to.kind {
             PartyKind::Device => {
-                if let Err(reason) = self.mobile.send_aip(&to.id, envelope).await {
-                    // 送不到不等於送到了：只記錄，不重送、不假裝成功。
-                    tracing::debug!(reason, "an aip frame did not reach a paired iPhone");
+                // 型別抹除：核心只問「這台裝置現在有沒有一條送得出去的線」，
+                // 不認得 iPhone／serial／mqtt／ble。
+                let Some(channel) = self.device_outbound(&to.id) else {
+                    // 沒有通道**不是**送到了。只落一行 debug log 的話，
+                    // 「這台裝置已加入 session」與「它其實一則狀態都沒收到」
+                    // 在畫面上長得一模一樣。
+                    let _ = self.store.audit(
+                        "aip.outbound-undeliverable",
+                        "runtime",
+                        &json!({
+                            "deviceId": audit_snippet(&to.id),
+                            "reason": "no-channel",
+                            "name": audit_snippet(&envelope.name),
+                        }),
+                    );
+                    return;
+                };
+                if let Err(error) = channel.send_aip(envelope).await {
+                    // 送不到不等於送到了：不重送、不假裝成功——但也不靜默。
+                    let _ = self.store.audit(
+                        "aip.outbound-undeliverable",
+                        "runtime",
+                        &json!({
+                            "transport": channel.transport_label(),
+                            "deviceId": audit_snippet(&to.id),
+                            "reason": audit_snippet(&error.to_string()),
+                            "name": audit_snippet(&envelope.name),
+                        }),
+                    );
                 }
             }
             // 桌面可信 host surface：走 SSE（human token）。

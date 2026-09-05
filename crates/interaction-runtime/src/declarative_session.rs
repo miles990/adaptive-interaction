@@ -17,9 +17,14 @@
 //!   出這個差別（[`IDENTITY_STRENGTH_DEVICE_LINK`]），不得沿用「已驗證身分」。
 //! - 誠實階梯：`send_aip` 回 Ok 只是「已寫上線」；stop-all 沒有 ack 就是
 //!   `unknown`，不冒充已停。
+//! - 出站對稱：握手成立時把這條線登記成一條型別抹除的
+//!   [`crate::character_session::DeviceOutbound`]，撤銷時移除。沒有這一步的話，
+//!   這台裝置只收得到「對自己那則 frame 的直接回覆」——別的成員造成的 shared
+//!   state 變更（`Output::Broadcast`）永遠到不了它，而桌面顯示「已同步」。
 //! - 有界：握手重試有退避上限、每次等待都有 deadline、沒有無界佇列；provider
 //!   被撤銷／停用時 task 立刻收掉。
 
+use crate::character_session::{DeviceOrigin, DeviceOutbound};
 use crate::providers::ProviderCapabilityDeclaration;
 use crate::runtime::{Runtime, RuntimeInner};
 use crate::sensor_source::{upgrade, SensorSource, SensorStopReport, SensorStopStatus};
@@ -28,7 +33,7 @@ use interaction_adapter_declarative::protocol::{
     AipAdmission, DeviceAipChannel, LinkError, LinkReadiness,
 };
 use interaction_adapter_declarative::DeclarativeSpec;
-use interaction_aip::Party;
+use interaction_aip::{Envelope, Party};
 use interaction_core::ReceptorId;
 use interaction_session::Presence;
 use serde_json::{json, Value};
@@ -36,18 +41,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-/// 已配對 iPhone 的身分強度：配對時交換的 per-device token，host 端以
-/// sha256(token) 逐次驗證。
-pub const IDENTITY_STRENGTH_PAIRED_TOKEN: &str = "paired-token";
-
-/// 宣告式裝置線（serial／mqtt／ble）的身分強度：傳輸層 hello 的 `deviceId`
-/// 明文字串比對 ＋ 配對碼由**裝置端**比對（host 只送碼、等 pair-ok）。
-///
-/// 誠實：這比 [`IDENTITY_STRENGTH_PAIRED_TOKEN`] 弱。任何能開這個埠／topic
-/// 的程序都可以自稱是這台裝置；配對碼是否真的被比對過，host 只能從裝置的
-/// `hello.pairing` 推斷（見 `DeviceLink::pairing_unverified`）。文件與 UI 不得
-/// 把它寫成「已驗證身分」。
-pub const IDENTITY_STRENGTH_DEVICE_LINK: &str = "transport-hello+device-side-pairing";
+/// 身分強度的標籤只有一份（現在由 `character_session` 擁有：出站通道登記表與
+/// diagnostics 都要用同一組值）。舊路徑仍然解析得到。
+pub use crate::character_session::{IDENTITY_STRENGTH_DEVICE_LINK, IDENTITY_STRENGTH_PAIRED_TOKEN};
 
 /// 一則 AIP frame 寫上線的預算（過期就不再送出：遲到的訊息比失敗更糟）。
 const AIP_SEND_TIMEOUT: Duration = Duration::from_millis(1_500);
@@ -102,6 +98,42 @@ fn outbound_envelope(reply: &Value) -> Option<Value> {
     Some(reply.clone())
 }
 
+/// 這條裝置線作為一條**型別抹除**的 AIP 出站通道。
+///
+/// 為什麼要登記：對這台裝置的直接回覆走 [`DeviceBinding::on_aip`]，但別的成員
+/// 造成的 shared state 變更是 `Output::Broadcast`——那條路徑只認得
+/// [`DeviceOutbound`]。沒有登記的話，這台裝置從加入的第一秒起就只收得到自己
+/// 講話的回音。
+struct DeclarativeOutbound {
+    channel: Arc<dyn DeviceAipChannel>,
+}
+
+#[async_trait::async_trait]
+impl DeviceOutbound for DeclarativeOutbound {
+    async fn send_aip(&self, envelope: &Envelope) -> Result<(), interaction_core::DomainError> {
+        // 出站邊界與 `on_aip` 同一條規則：不合 AIP 的東西不上線。
+        let value = serde_json::to_value(envelope)
+            .map_err(|_| interaction_core::DomainError::Validation("envelope".into()))?;
+        let Some(value) = outbound_envelope(&value) else {
+            return Err(interaction_core::DomainError::Validation(
+                "reply did not satisfy the aip profile".into(),
+            ));
+        };
+        self.channel
+            .send_aip(value, AIP_SEND_TIMEOUT)
+            .await
+            .map_err(|e| interaction_core::DomainError::Unavailable(e.to_string()))
+    }
+
+    fn transport_label(&self) -> &str {
+        self.channel.transport_label()
+    }
+
+    fn identity_strength(&self) -> &str {
+        IDENTITY_STRENGTH_DEVICE_LINK
+    }
+}
+
 /// 一台宣告式裝置的 session 綁定：一條 AIP 通道 ↔ 一個 `Party::device(...)`。
 struct DeviceBinding {
     runtime: Weak<RuntimeInner>,
@@ -135,6 +167,14 @@ impl DeviceBinding {
             );
         }
         self.announced_reconnecting.store(false, Ordering::SeqCst);
+        // 出站登記：從這一刻起，別的成員造成的 shared state 變更才送得到這台
+        // 裝置。冪等（同一台裝置重複握手只是覆蓋同一個鍵）。
+        rt.register_device_outbound(
+            &self.channel.expected_device_id(),
+            Arc::new(DeclarativeOutbound {
+                channel: self.channel.clone(),
+            }),
+        );
         let party = self.party();
         if rt.character_session_is_member(&party) {
             rt.character_session_presence(&party, Presence::Online)
@@ -205,7 +245,16 @@ impl DeviceBinding {
         // 身分綁定＝spec 的 expectedDeviceId。`character_session_device_frame`
         // 會把 envelope 的 `source` 拿去跟它比對（宣稱不是身分）。
         let outcome = rt
-            .character_session_device_frame(&device_id, &json!({"envelope": envelope}))
+            .character_session_device_frame(
+                &device_id,
+                // 這一則是從**這條線**進來的：稽核的 transport 由通道自己說，
+                // 核心不猜、也不沿用別種傳輸的標籤。
+                DeviceOrigin {
+                    transport: self.channel.transport_label(),
+                    identity_strength: IDENTITY_STRENGTH_DEVICE_LINK,
+                },
+                &json!({"envelope": envelope}),
+            )
             .await;
         for reply in outcome.replies {
             match outbound_envelope(&reply) {
@@ -513,6 +562,8 @@ impl DeclarativeSensorSource {
         let mut left = Vec::new();
         for channel in &self.channels {
             let device_id = channel.expected_device_id();
+            // 出站表先清掉：留著等於之後每一則廣播都往一條已經關掉的線上送。
+            rt.unregister_device_outbound(&device_id);
             rt.character_session_leave(&Party::device(&device_id)).await;
             left.push(device_id);
         }

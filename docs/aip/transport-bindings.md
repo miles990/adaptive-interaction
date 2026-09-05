@@ -258,5 +258,8 @@ JSON Lines 控制指令：`aip-capability`／`aip-touch`／`aip-resume`／`aip-r
 * **存活**：既有 who／pair／ack／event 行也是存活證明（同 §1.4）；斷線＝`Presence::Reconnecting`，
   由既有 tick 轉 Offline／leave。
 * **速率**：與 §1 相同的 session 端 token bucket；線上另有各 Transport 自己的窗。
-* **證據**：`declarative_session_loop.rs` 7 測（pty 模擬器經 production serial adapter）；MQTT／BLE
-  共用程式碼但未測；真板零。
+* **出站**：與 iPhone 走同一張型別抹除的出站登記表（`character_session::DeviceOutbound`）；握手成立登記、
+  撤銷／斷線移除。送不到（超過單行上限、線已關）→ `aip.outbound-undeliverable`；沒有通道 → 同一稽核
+  `reason:"no-channel"`；表滿（64）→ `aip.outbound-rejected`。
+* **證據**：`declarative_session_loop.rs` 13 測（pty 模擬器經 production serial adapter；含「廣播真的走序列線」
+  與「放不進 639 bytes 的 patch 留痕」兩半）；MQTT／BLE 共用程式碼但未測；真板零。

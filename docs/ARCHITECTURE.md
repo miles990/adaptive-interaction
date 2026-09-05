@@ -210,7 +210,7 @@ Domain Core / Character Session  crates/interaction-session（純函式）、cra
 Ports / Stable Interfaces        crates/interaction-session/src/ports.rs
                                   （Clock／SessionStore／IdentityVerifier／ConsentVerifier／EventLog／RendererPort／DevicePort）
             ↓
-Adapters / Transport / Platform  mobile.rs（iPhone wss `aip` frame）、character.rs＋character_ws.rs（CPP）、
+Adapters / Transport / Platform  mobile.rs（iPhone wss `aip` frame）、declarative_session.rs（宣告式裝置線 v1.1 `aip`）、character.rs＋character_ws.rs（CPP）、
                                   interaction-api（HTTP／SSE）、Tauri src-tauri、iOS ConnectionManager、
                                   TS `character/adapters/*`（shu／sprite／text／shape）
 ```

@@ -231,6 +231,55 @@ describe("角色頁「同步」卡：一般模式", () => {
     await waitFor(() => expect(screen.getByText(/revision/)).toBeInTheDocument());
   });
 
+  it("進階模式的連接診斷印出每個成員的 identityStrength 原始值；查不到就是「—」，永遠不翻成「已驗證身分」", async () => {
+    setup({
+      snapshot: snapshot({ members: [PHONE_MEMBER] }),
+      devices: [{ deviceId: DEVICE_ID, name: FIXTURE_PHONE, connected: true }],
+      diagnostics: {
+        sessionId: "session.home",
+        sessionEpoch: 1,
+        revision: 11,
+        sequence: 18,
+        members: [
+          {
+            party: { kind: "device", id: "esp32-desk" },
+            role: "remote-renderer",
+            presence: "online",
+            lastSeenAt: "2026-09-05T00:00:00Z",
+            identityStrength: "transport-hello+device-side-pairing",
+          },
+          {
+            party: { kind: "device", id: "restored-from-snapshot" },
+            role: "remote-renderer",
+            presence: "online",
+            lastSeenAt: "2026-09-05T00:00:00Z",
+          },
+        ],
+        counters: { accepted: 3, applied: 3 },
+        eventLog: { len: 9, cap: 512 },
+        storeNote: null,
+      },
+    });
+    const view = render(<CharacterSyncCard refreshKey={0} advanced={false} />);
+    const card = await screen.findByTestId("character-sync");
+    await waitFor(() => expect(mockApi.characterSessionDiagnostics).toHaveBeenCalled());
+    expect(card.textContent ?? "").not.toContain("identityStrength");
+    expect(card.textContent ?? "").not.toContain("esp32-desk");
+
+    view.rerender(<CharacterSyncCard refreshKey={1} advanced />);
+    await waitFor(() => expect(screen.getByText("連接診斷")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("連接診斷"));
+    await waitFor(() =>
+      expect(
+        screen.getByText(/member device:esp32-desk online identityStrength transport-hello\+device-side-pairing/)
+      ).toBeInTheDocument()
+    );
+    expect(
+      screen.getByText(/member device:restored-from-snapshot online identityStrength —/)
+    ).toBeInTheDocument();
+    expect(document.body.textContent ?? "").not.toContain("已驗證身分");
+  });
+
   it("讀不到權威狀態就說「同步尚未完成」，連續失敗才升級成「無法恢復」", async () => {
     setup({ snapshot: new Error("500: boom") });
     const view = render(<CharacterSyncCard refreshKey={0} advanced={false} />);

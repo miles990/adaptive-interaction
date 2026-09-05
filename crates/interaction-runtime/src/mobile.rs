@@ -21,6 +21,7 @@
 //!   原始軌跡不進 runtime；丟棄計數在 status 誠實顯示。
 //! - 桌面 Consent 不取代 iOS 系統權限：手機回報的 permissions 誠實顯示。
 
+use crate::character_session::{DeviceOrigin, DeviceOutbound, IDENTITY_STRENGTH_PAIRED_TOKEN};
 use crate::runtime::Runtime;
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
@@ -78,6 +79,9 @@ const BLE_REPLY_GRACE: Duration = Duration::from_secs(2);
 /// 同時允許的手機連線上限：超過就在 accept 當下拒絕（區網上任何 peer 都能
 /// 連進來，不能讓它把檔案描述子／記憶體吃光）。
 pub const MOBILE_MAX_CONNS: usize = 8;
+/// 這一族的傳輸標籤（稽核與出站表用）。核心不認得它——這個字串只從
+/// **這個模組**流出去。
+pub const MOBILE_TRANSPORT: &str = "iphone";
 /// TLS 交握的有界時間（半開的 TLS 連線不得無限期佔用一個名額）。
 const MOBILE_TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 /// WebSocket 交握的有界時間。
@@ -94,6 +98,30 @@ pub const MOBILE_MAX_INBOUND_PER_SEC: u32 = 30;
 const MOBILE_ACCEPT_MAX_CONSECUTIVE_ERRORS: u32 = 20;
 /// Runtime 投影角色真相狀態（緊急停止／人工驗證）時等每台手機 ack 的有界時間。
 pub const CHARACTER_PROJECT_WAIT: Duration = Duration::from_millis(1_500);
+
+/// 一台已配對 iPhone 的 AIP 出站通道。
+struct MobileOutbound {
+    bridge: Arc<MobileBridge>,
+    device_id: String,
+}
+
+#[async_trait::async_trait]
+impl DeviceOutbound for MobileOutbound {
+    async fn send_aip(&self, envelope: &interaction_aip::Envelope) -> DomainResult<()> {
+        self.bridge
+            .send_aip(&self.device_id, envelope)
+            .await
+            .map_err(DomainError::Unavailable)
+    }
+
+    fn transport_label(&self) -> &str {
+        MOBILE_TRANSPORT
+    }
+
+    fn identity_strength(&self) -> &str {
+        IDENTITY_STRENGTH_PAIRED_TOKEN
+    }
+}
 
 /// 是否允許對區網廣播／綁 0.0.0.0（`INTERACT_AI_MOBILE_ADVERTISE=0|false|off`
 /// ＝不允許）。預設允許——只有明確關掉才降級成 loopback。
@@ -1340,6 +1368,17 @@ impl MobileBridge {
             .send_timeout(Message::Text(frame), Duration::from_millis(500))
             .await
             .map_err(|_| format!("iPhone `{device_id}` outbound queue full or closed"))
+    }
+
+    /// 這座橋作為一台已配對 iPhone 的 AIP 出站通道（**型別抹除**）。
+    ///
+    /// 綁的是 deviceId 而不是某一條連線：重連／被取代之後，同一台手機的廣播
+    /// 仍然送得到現在那條有效連線（`pick_conn` 自己找）。
+    fn outbound_for(self: &Arc<Self>, device_id: &str) -> Arc<dyn DeviceOutbound> {
+        Arc::new(MobileOutbound {
+            bridge: self.clone(),
+            device_id: device_id.to_string(),
+        })
     }
 
     /// 送一則需要回覆的訊息並登記 pending（綁定目標手機）。
@@ -2636,6 +2675,9 @@ impl Runtime {
     /// （`SensorSource::release`）共用這一段，兩條路徑不得有一條漏做。
     pub(crate) async fn mobile_close_connection(&self, device_id: &str, reason: &str) -> bool {
         let mic_enabled = self.mobile_mic_receptor_enabled().await;
+        // 出站表也不得再留著它。這一步在 early return **之前**：撤銷一台當下
+        // 沒有連線的手機，也必須把它從表上清掉。
+        self.unregister_device_outbound(device_id);
         let Some(conn) = self.mobile.conns.write().await.remove(device_id) else {
             return false;
         };
@@ -3282,6 +3324,9 @@ impl Runtime {
         stop_sensors: &Arc<StopSensorsTracker>,
         ping_waiters: &PingWaiters,
     ) {
+        // 出站登記：這台手機從現在起收得到 session 廣播（別的成員造成的
+        // shared state 變更）。綁 deviceId，重連／被取代之後仍然有效。
+        self.register_device_outbound(device_id, self.mobile.outbound_for(device_id));
         let superseded = {
             let mut conns = self.mobile.conns.write().await;
             conns
@@ -3749,7 +3794,16 @@ impl Runtime {
                 // 接受；身分＝配對出來的 deviceId，宣稱不符一律拒絕。
                 Some("aip") if authed.is_some() => {
                     if let Some(device_id) = authed.clone() {
-                        let outcome = self.character_session_device_frame(&device_id, &v).await;
+                        let outcome = self
+                            .character_session_device_frame(
+                                &device_id,
+                                DeviceOrigin {
+                                    transport: MOBILE_TRANSPORT,
+                                    identity_strength: IDENTITY_STRENGTH_PAIRED_TOKEN,
+                                },
+                                &v,
+                            )
+                            .await;
                         for reply in outcome.replies {
                             // 出站邊界：我們自己送出去的 envelope 也必須符合 AIP
                             // （§1 id／name 語法、§11 上限）。不合格就誠實丟棄並稽核，
@@ -3762,7 +3816,7 @@ impl Runtime {
                                             "aip.outbound-refused",
                                             "runtime",
                                             &json!({
-                                                "transport": "iphone",
+                                                "transport": MOBILE_TRANSPORT,
                                                 "deviceId": device_id,
                                                 "reason": "reply did not satisfy the aip profile",
                                             }),
@@ -3913,6 +3967,10 @@ impl Runtime {
                 }
             };
             if was_active {
+                // 出站表跟著連線走：斷線之後這台手機不再是可送達的通道。
+                // （被**取代**的舊連線走 `was_active == false`，那條路徑不能
+                //  動表——新連線已經登記過同一個 deviceId 了。）
+                self.unregister_device_outbound(&device_id);
                 // 等停止確認的人立刻收斂成 unreachable（不再空等到逾時），
                 // 送給這台手機的在途 act 也立刻以 disconnected 收場——結果
                 // 一樣是未知，但呼叫端不必等滿 4 秒。

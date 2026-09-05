@@ -113,8 +113,20 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
   `aip-capability`／`aip-touch`／`aip-resume`／`aip-raw`，未配對拒絕送出）；`aip_link.rs` 6 測、
   `esp32_sim_conformance.rs` 的韌體／README／模擬器三方一致 2 測。韌體只有 `compile.sh` 編譯檢查。
   **ESP32 真板驗收為零**；MQTT／BLE 共用同一段 `AipChannel<L>` 程式碼，但沒有 AIP session 測試。
-- **已知限制**：(1) 協商的第二則回覆（`state{kind:"snapshot"}`）超過參考韌體 639 bytes 單行上限，serial
-  傳輸在寫上線前拒絕並稽核 `aip.outbound-undeliverable{bytes,reason}`——Serial 成員目前拿不到初始快照
-  （分段／壓縮／縮減 profile 是協定層決定，未做）；(2) 宣告式裝置沒有 recipe 相容的 touch observation id
+- **出站與 diagnostics（D2）**：Runtime 的 AIP 出站是型別抹除的登記表（`character_session::DeviceOutbound`，
+  有界 64；iPhone 與宣告式裝置各自在認證／握手後登記、斷線／撤銷時移除），`character_session_send` 只問
+  「這台裝置現在有沒有一條送得出去的線」——所以其他成員造成的 shared state 廣播**真的**會走序列線
+  （測試以模擬器 log 的 `>>` 行證明；沒有通道時稽核 `aip.outbound-undeliverable{reason:"no-channel"}`，
+  表滿時 `aip.outbound-rejected`）。入站稽核（`aip.rejected`／`aip.identity-mismatch`）的 `transport` 與
+  `identityStrength` 由來源（`DeviceOrigin`）提供，不再寫死 `iphone`。diagnostics `members[]` 新增選填
+  `identityStrength`（`paired-token`／`transport-hello+device-side-pairing`／`host-surface`；查不到出站通道
+  就**省略**該欄位，不猜）。
+- **已知限制**：(1) 參考韌體單行上限 639 bytes：協商的第二則回覆（`state{kind:"snapshot"}`，實測 1019 bytes）
+  與任何含 `members` 的 `state{kind:"patch"}`（成員 presence／lastSeenAt 變動會整段重送，實測 660–784 bytes）
+  都在寫上線前被拒絕並稽核 `aip.outbound-undeliverable{bytes,reason}`——Serial 成員拿不到初始快照，也收不到
+  成員／互動類 patch；只有不含 members 的小 patch（例如緊急停止的真相變更，實測 450 bytes）送得到。分段／
+  per-member diff／縮減 profile 是協定層決定，未做；(2) 宣告式裝置沒有 recipe 相容的 touch observation id
   （iPhone 有 `iphone.touch`），沒有憑空發明一個；(3) 隔離測試的第二個成員是程序內 device fixture，
-  不是 fake_iphone 子程序。
+  不是 fake_iphone 子程序；(4) `crates/interaction-adapter-declarative` 的 `PROVIDER_LINKS` 是行程層 static
+  （鍵＝provider id）：同一行程多個 Runtime 的測試必須用不同 provider id，否則會互相關掉對方的裝置線
+  （這正是 D1 測試在預設並行下偶發失敗的根因，已修機具、產品時間預算未動）。

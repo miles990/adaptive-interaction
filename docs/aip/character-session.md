@@ -226,7 +226,12 @@ intents.unsolicited }, eventLog:{ len, cap }, storeNote, store? }`。不含 toke
 skippedStale, parked, lastPersistError, note }`——遷移寫在 `migratedFrom`／`migrationNote`（不寫 `storeNote`，因為
 沒有重建）；`parked=true` 代表這一輪什麼都存不下來（`note` 是原因）；`lastPersistError` 是固定文字，不含路徑。
 
-`members[]` 是 §3 的 `MemberView`（含 `unsupportedIntents`），不含 `negotiated` 的其餘細節。
+`members[]` 是 §3 的 `MemberView`（含 `unsupportedIntents`），不含 `negotiated` 的其餘細節，外加一個由 Runtime
+決定的選填欄位 `identityStrength`：`paired-token`（已配對 iPhone，host 端逐次驗 token）、
+`transport-hello+device-side-pairing`（宣告式 Serial／MQTT／BLE 裝置線：裝置自報 id＋裝置端配對碼，**弱於** paired-token）、
+`host-surface`（桌面 human token 綁定）、`unknown`（通道回報了核心不認得的值）。它來自 Runtime 的裝置出站登記表
+（`character_session::DeviceOutbound`），不是成員自報；查不到出站通道（例如從快照還原、尚未重連的裝置）就**省略**
+欄位——不猜、不冒充已驗證。介面不得把 `transport-hello+device-side-pairing` 顯示成「已驗證身分」。
 幾個計數器的語意值得寫明，因為它們是「誠實記錄，不動狀態」的地方：
 
 | counter | 意思 |

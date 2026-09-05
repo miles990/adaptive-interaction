@@ -402,6 +402,14 @@ export interface CharacterSessionDiagnostics {
     role: string;
     presence: string;
     lastSeenAt: string;
+    /**
+     * 這個成員的身分是怎麼來的（Runtime 依 Transport 決定，選填；舊 Runtime 沒有）：
+     * `paired-token`（已配對 iPhone，host 端逐次驗 token）、`transport-hello+device-side-pairing`
+     * （宣告式 Serial／MQTT／BLE 裝置線：裝置自報 id＋裝置端配對碼，**弱於** paired-token）、
+     * `host-surface`（這台電腦）、`unknown`。查不到出站通道時**欄位不存在**——不猜。
+     * UI 不得把 `transport-hello+device-side-pairing` 顯示成「已驗證身分」。
+     */
+    identityStrength?: string;
   }[];
   counters: Record<string, number>;
   eventLog: { len: number; cap: number };

@@ -4133,3 +4133,82 @@ async fn generic_provider_revoke_stops_a_streaming_phone_and_drops_its_connectio
     assert!(rt.registry.receptor(&mic).await.is_err());
     phone.abort();
 }
+
+// ---------------------------------------------------------------------------
+// AIP 出站通道登記表（型別抹除）：iPhone 那一族
+// ---------------------------------------------------------------------------
+
+/// 一則最小合規的 capability envelope（讓這台手機成為 session 成員）。
+fn iphone_capability_envelope(device_id: &str) -> Value {
+    json!({
+        "specVersion": "aip/1.0",
+        "messageId": format!("fx-cap-{}", chrono::Utc::now().timestamp_millis()),
+        "messageType": "capability",
+        "name": "character.session.capability",
+        "source": {"kind": "device", "id": device_id},
+        "sessionId": "session.home",
+        "occurredAt": chrono::Utc::now().to_rfc3339(),
+        "payload": {
+            "specVersions": ["aip/1.0"],
+            "role": "remote-renderer",
+            "profiles": ["character-session"],
+            "syncClasses": ["semantic"],
+            "intents": ["idle"],
+            "inputs": ["character.interaction.touch"],
+            "limits": {"maxMessageBytes": 65536},
+        },
+    })
+}
+
+fn member_identity_strength(rt: &Runtime, device_id: &str) -> Option<Value> {
+    rt.character_session_diagnostics_value()
+        .expect("diagnostics")["members"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|m| m["party"]["id"] == device_id)
+        .and_then(|m| m.get("identityStrength").cloned())
+}
+
+/// 已認證的 iPhone 必須登記成一條型別抹除的出站通道，而且說得出自己的身分
+/// 強度（host 端 sha256(token) 逐次驗證＝這一族最強的一種）。斷線就要移除：
+/// 留著等於之後每一則廣播都往一條已經沒有的連線上送。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_iphone_registers_an_outbound_channel_with_its_identity_strength() {
+    let (_tmp, rt) = runtime().await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    assert!(
+        rt.device_outbound_ids().contains(&device_id),
+        "已認證的手機必須在出站表上：{:?}",
+        rt.device_outbound_ids()
+    );
+
+    send_json(
+        &mut ws,
+        json!({"type":"aip","envelope": iphone_capability_envelope(&device_id)}),
+    )
+    .await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while member_identity_strength(&rt, &device_id).is_none()
+        && std::time::Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        member_identity_strength(&rt, &device_id),
+        Some(json!("paired-token")),
+        "已配對 iPhone 的身分強度＝配對時交換的 per-device token"
+    );
+
+    let _ = ws.close(None).await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while rt.device_outbound_ids().contains(&device_id) && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(
+        !rt.device_outbound_ids().contains(&device_id),
+        "斷線之後出站表不得還留著它：{:?}",
+        rt.device_outbound_ids()
+    );
+}
