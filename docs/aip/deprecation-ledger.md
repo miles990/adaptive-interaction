@@ -23,9 +23,9 @@
 | 下一檢查里程碑 | 什麼時候再來看這一列 |
 | owner | 哪個 crate／模組是這條路徑的權威實作 |
 
-本表登記 **12 條**相容路徑，其中 10 條有完整七欄表格。§2.2（未來格式不隔離、不覆寫）與 §3.2
-（裝置線 v1.2 `aip-frag`）刻意只用敘述登記：前者不是「將被移除的相容路徑」而是一條要一直留著的
-防呆規則，後者的實作在另一個 worktree（本輪進行中），合併後才補欄位與 file:line。
+本表登記 **12 條**相容路徑，其中 11 條有完整七欄表格。只有 §2.2（未來格式不隔離、不覆寫）刻意
+用敘述登記：它不是「將被移除的相容路徑」，而是一條要一直留著的防呆規則，七欄裡的「移除前需要的
+證據」對它沒有意義。§3.2（裝置線 v1.2 `aip-frag`）的實作已經合併，欄位與 file:line 已補齊。
 
 ## 1. Rust API
 
@@ -123,12 +123,23 @@ owner：`crates/interaction-session/src/ports.rs`；測試 `character_session_lo
 | 下一檢查里程碑 | ESP32 真板取得第一筆證據時（目前為零） |
 | owner | `crates/interaction-adapter-declarative/src/protocol.rs`（`DeviceMsg::Aip`／`HostMsg::Aip`／`admit_aip`／`MAX_AIP_ENVELOPE_BYTES`）；契約 `docs/aip/device-profile.md` §6 |
 
-### 3.2 裝置線 v1.2 `aip-frag`（分片）— **本輪進行中**
+### 3.2 裝置線 v1.1 → v1.2（`aip-frag` 追加訊息）
 
 分片訊息用來繞過參考韌體 639 bytes 的單行上限（`device-profile.md` §6 已知限制 (1)：協商的第二則
-snapshot 回覆與含 `members` 的 patch 送不出去，只能稽核 `aip.outbound-undeliverable`）。這條路徑
-**在另一個 worktree 進行中，尚未合併到本分支**，因此這裡只登記它會產生一條新的相容承諾——
-「只認得 v1.1 的裝置收到 `aip-frag` 必須忽略而不是斷線」——合併後補 file:line 與測試名。
+snapshot 回覆與含 `members` 的 patch 送不出去，只能稽核 `aip.outbound-undeliverable`）。實作已合併
+（`9799b1e`），下表是它產生的相容承諾。
+
+| 欄位 | 內容 |
+|---|---|
+| 為什麼存在 | 與 §3.1 同一個理由，方向相反：`aip-frag` 是 v1.2 的**追加**訊息，`proto` 仍為 1。已經燒錄的 v1.0／v1.1 韌體（含本 repo 的參考韌體）不認得它，收到必須**忽略而不是斷線**。代價是 host 端必須永遠容忍「對端不會重組」，並在那時誠實地一個位元組都不寫 |
+| 適用版本 | v1.1＝v0.6.x 起的裝置線；v1.2（`aip-frag`）自 v0.7.0。參考韌體停在 v1.1（不宣告 `aip.frag/1`，沒有重組緩衝） |
+| 移除前需要的證據 | 不會移除（追加訊息沒有「移除」問題）。要登記的是**反向承諾**：沒宣告 `aip.frag/1` 的裝置永遠不會收到 `aip-frag`。閘門在 `protocol.rs:719`（`DeviceLink::supports_fragmentation`，出站）與 `protocol.rs:635`（`accept_fragment`，入站也一樣要求宣告過）；回歸測試 `crates/interaction-runtime/tests/declarative_session_loop.rs::a_device_without_fragmentation_degrades_to_intent_only`（`--no-frag` 的模擬器一個位元組都收不到、降級成 `intent-only`）與 `crates/interaction-adapter-declarative/tests/esp32_sim_conformance.rs::the_firmware_ignores_aip_frag_and_never_claims_it_can_reassemble`（韌體 `handleMessage()` 明確處理 `aip-frag`＝忽略，且 `hello.caps` 不含 `aip.frag/1`）。**真板未驗**：模擬器的忽略行為不是韌體的忽略行為 |
+| 資料遷移 | 無 |
+| 回退方式 | 讓 `supports_fragmentation()` 恆回 `false`（`protocol.rs:719`／`:1561`）：出站退回 v1.1 的「放不進就拒絕並稽核 `over-line-limit-no-fragmentation`」，入站的 `aip-frag` 一律不收。wire 上沒有需要撤回的東西 |
+| 下一檢查里程碑 | ESP32 真板取得第一筆證據時（目前為零），或第一個非模擬器的第三方裝置宣告 `aip.frag/1` 時 |
+| owner | `crates/interaction-adapter-declarative/src/fragment.rs`（`FRAG_CAP:31`／`MAX_REASSEMBLED_BYTES:35`／`MAX_FRAGMENTS:39`／`FRAGMENT_TIMEOUT:42`／`fragment_envelope_line:160`／`Reassembler:248`）＋`src/protocol.rs`（`DeviceMsg::AipFrag:131`／`HostMsg::AipFrag:171`／`accept_fragment:635`／`expire_fragments:699`／`supports_fragmentation:719`／`send_aip:736`）；模擬器對端 `scripts/esp32-serial-sim.py:140`（`--no-frag`）；契約 `docs/aip/device-profile.md` §6.3 |
+
+行號對應 `9799b1e`；行號會漂，冒號前的符號名才是錨點。
 
 ### 3.3 `reason: "recovery"`：舊接收端把它當成沒有 reason 的 snapshot
 

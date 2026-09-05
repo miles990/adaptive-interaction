@@ -119,7 +119,7 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
   `g_serialBuf[640]`、MQTT 一則 **639 bytes**、BLE 一則 **480 bytes**＝`ble.rs::MAX_WRITE_BYTES`
   ——本文件先前寫 512 是錯的，512 是**韌體端**的入站門檻、host 端一直是 480；
   `parse_device_msg` 整行 16 KiB）。
-- **分片（裝置線 v1.2，v0.7.0）**：見下面的 §6.2。
+- **分片（裝置線 v1.2，v0.7.0）**：見下面的 §6.3（§6.2 是位元組實測表，也就是分片的動機）。
 - **Runtime 接線** `crates/interaction-runtime/src/declarative_session.rs`：Runtime 只認得型別抹除的
   `DeviceAipChannel`（沒有 serial／mqtt／ble 分支）。`register_declarative_spec` 同時宣告能力（受器；
   spec 標 `requiresConsent` 的＝高風險，id 只有 `receptor_consent_map` 一個產生點）、登記 `SensorSource`
@@ -144,7 +144,7 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
   `identityStrength`（`paired-token`／`transport-hello+device-side-pairing`／`host-surface`；查不到出站通道
   就**省略**該欄位，不猜）。
 - **已知限制**：(1) ~~參考韌體單行上限 639 bytes 讓 snapshot 與含 members 的 patch 完全送不到~~
-  **v0.7.0 已修（裝置線 v1.2 分片，見 §6.2）**——但只對**宣告了 `aip.frag/1` 的裝置**。參考韌體
+  **v0.7.0 已修（裝置線 v1.2 分片，見 §6.3）**——但只對**宣告了 `aip.frag/1` 的裝置**。參考韌體
   本身仍然不宣告（沒有重組緩衝），所以它的行為完全不變：那些訊息仍然在寫上線前被拒絕並稽核
   `aip.outbound-undeliverable{envelopeBytes,reason:"over-line-limit-no-fragmentation"}`，
   而它的成員模式誠實降級成 `intent-only`（§3.1），介面不得說「已同步」；
@@ -249,26 +249,39 @@ wire 形狀（`proto` 仍為 1；`aip-frag` 與 `aip` 一樣是**追加**的訊�
 {"type":"aip-frag","xfer":42,"seq":0,"total":3,"bytes":1019,"crc":"a1b2c3d4","data":"{\"specVersion\":…"}
 ```
 
-* **能力宣告驅動**：只有 `hello.caps` 含 `"aip.frag/1"` 才使用。**參考韌體不宣告它**——真板沒有
-  重組緩衝，替它宣稱就會讓 host 把一則 snapshot 切成好幾片送出去、全部被丟掉，而收據寫著「已送出」。
-  模擬器有做（`--no-frag` 可關掉，用來驗降級路徑）。
-* **不放寬任何上限**：每一片編碼後的整行仍然 ≤ 行上限；重組後仍受 8 KiB
-  （`MAX_AIP_ENVELOPE_BYTES`＝`fragment::MAX_REASSEMBLED_BYTES`）限制。切點只落在 UTF-8 字元邊界。
+* **能力宣告驅動**：只有 `hello.caps` 含 `"aip.frag/1"`（`fragment.rs:31`＝`FRAG_CAP`）才使用
+  （出站閘門 `protocol.rs:719`＝`DeviceLink::supports_fragmentation`；沒宣告卻送分片進來的裝置在
+  `protocol.rs:635`＝`accept_fragment` 就被拒絕）。**參考韌體不宣告它**——真板沒有重組緩衝，替它
+  宣稱就會讓 host 把一則 snapshot 切成好幾片送出去、全部被丟掉，而收據寫著「已送出」。
+  模擬器有做（`scripts/esp32-serial-sim.py:140` 的 `--no-frag` 可關掉，用來驗降級路徑）。
+* **不放寬任何上限**：每一片編碼後的整行仍然 ≤ 行上限（切片 `fragment.rs:160`＝
+  `fragment_envelope_line`）；重組後仍受 8 KiB（`protocol.rs:38`＝`MAX_AIP_ENVELOPE_BYTES`，
+  `fragment.rs:35`＝`MAX_REASSEMBLED_BYTES` 直接引用它）限制。切點只落在 UTF-8 字元邊界。
 * **核心零變更**：組裝／重組完全在 `crates/interaction-adapter-declarative` 的
-  `AipChannel`／`DeviceLink` 內部。對呼叫端仍然是**一次** `send_aip`、**一則**完整的入站 envelope；
-  `character_session.rs` 不認得 serial／mqtt／ble，也不認得「被分片」。
-* **有界**：每台裝置同時 1 筆進行中（新 `xfer` 到達＝取消前一筆並稽核）、片數 ≤ 64、
-  自最後一片起 2 秒逾時；hello／斷線／revoke／stop-all／rebind 一律取消。
+  `AipChannel`／`DeviceLink` 內部（`fragment.rs`＋`protocol.rs:131`＝`DeviceMsg::AipFrag`、
+  `protocol.rs:171`＝`HostMsg::AipFrag`）。對呼叫端仍然是**一次** `send_aip`（`protocol.rs:736`）、
+  **一則**完整的入站 envelope；`character_session.rs` 不認得 serial／mqtt／ble，也不認得「被分片」。
+* **有界**：每台裝置同時 1 筆進行中（`fragment.rs:248`＝`Reassembler`；新 `xfer` 到達＝取消前一筆
+  並稽核）、片數 ≤ 64（`fragment.rs:39`＝`MAX_FRAGMENTS`）、自最後一片起 2 秒逾時
+  （`fragment.rs:42`＝`FRAGMENT_TIMEOUT`，由 `protocol.rs:699`＝`expire_fragments` 收走）；
+  hello／斷線／revoke／stop-all／rebind 一律取消。
 * **整筆丟棄**：缺片／重片／亂序／截斷／惡意 `total`／`bytes`／crc32 不符／組回來不是 JSON →
   整筆丟掉並稽核 `aip.fragment-dropped{xfer,reason,received,total}`。半份 envelope 絕不交給上層——
   那會把「傳輸壞了」演成「裝置說了一句沒有意義的話」。
 * **不支援時的行為完全不變**：對端沒宣告 `aip.frag/1` 而 envelope 又放不進行上限 → 一個位元組都不寫，
-  稽核原因 `over-line-limit-no-fragmentation`，成員模式降級成 `intent-only`／`event-source`（§3.1）。
+  稽核原因 `over-line-limit-no-fragmentation`（`protocol.rs:43`＝
+  `REASON_OVER_LINE_LIMIT_NO_FRAGMENTATION`），成員模式降級成 `intent-only`／`event-source`（§3.1）。
 
 **證據等級**：`aip_fragment.rs` 17 測（切片邊界、UTF-8 不切壞、缺片／重片／亂序／截斷／惡意表頭／
 crc／逾時／取消、crc32 標準向量）、`aip_link.rs` 14 測（`MockRawLink`：切片、降級拒絕、入站重組、
 未握手拒絕、重連取消）、`esp32_sim_conformance.rs`（韌體忽略 `aip-frag` 且**不**宣告 `aip.frag/1`、
 模擬器宣告且 `--no-frag` 可關、host 切的每一片模擬器都組得回來、亂序整筆丟棄）、
-`declarative_session_loop.rs`（snapshot 與含 members 的 patch 經分片**真的到達** pty 模擬器並成為
-`full-state` 成員、`--no-frag` 降級成 `intent-only`、重連 resume、被取消的傳輸留稽核、實測行長度）。
+`crates/interaction-runtime/tests/declarative_session_loop.rs` 的四支（走 production serial adapter
+＋pty 模擬器）：`::a_fragmenting_device_receives_the_snapshot_and_is_a_full_state_member`（snapshot 與含
+`members` 的 patch 經分片**真的到達**並成為 `full-state` 成員）、
+`::a_device_without_fragmentation_degrades_to_intent_only`（`--no-frag` 降級成 `intent-only`）、
+`::a_reconnected_device_resumes_and_gets_the_state_it_missed`（重連 resume）、
+`::an_interrupted_inbound_transfer_is_audited_not_silently_dropped`（被取消的傳輸留稽核）。
 **ESP32 真板驗收仍為零**；MQTT／BLE 共用同一段 `AipChannel<L>` 程式碼，但沒有 AIP session 測試。
+
+行號對應 `9799b1e`（`fragment.rs` 443 行）。行號會漂，`＝` 後面的符號名才是錨點——對不上時以符號名為準。
