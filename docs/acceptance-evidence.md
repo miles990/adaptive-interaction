@@ -549,6 +549,7 @@ run 3 的 44 項 confirmed **尚未修復**（本次交付先如實記錄：清�
 
 `pnpm test:e2e`：global-setup 建真 daemon（18790）並以 `fake_claude.sh`／`fake_codex.sh` 作為 agent 子程序 fixture；
 evidence spec 在 1200×800（`desktop-*`）與 390×844（`narrow-*`）各擷取一次，全部落在 `docs/assets/v05-evidence/`（本輪重產 56 張、新增 30 張）。
+（v0.6.x 起 `e2e/evidence.spec.ts` 改寫到 `docs/assets/v06-evidence/`：M3 之後角色頁 IA 不同，v05-evidence 保留為 v0.5.x 當時的證據，不再被覆寫。）
 **每一張都是 Playwright Chromium 對瀏覽器版控制中心的截圖**——沒有 Tauri 角色視窗、沒有 overlay 視窗、沒有真硬體、沒有真機。
 
 | 截圖（desktop-／narrow-） | 內容 | 真實 vs fixture |
