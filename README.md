@@ -223,6 +223,9 @@ interact-ai self uninstall --yes     # 移除（--purge 連設定資料一起刪
 | **[人類使用手冊](docs/USER-GUIDE.md)** | 日常操作：session／同意／配方／政策／緊急停止 |
 | **[桌面控制中心指南](docs/DESKTOP-GUIDE.md)** | 圖形介面逐頁說明＋狀態列／桌面角色／感測＋收據狀態圖 |
 | **[架構總覽](docs/ARCHITECTURE.md)** | crate 責任、生命週期、誠實階梯、provider／agent／sensor 設計 |
+| **[AI 入口地圖](AGENTS.md)** | 任何 AI 的起點：分層與禁止依賴、canonical source 對照、改各領域前必讀、測試命令、遷移與發布流程、進度續接 |
+| **[能力歸屬對照表](docs/MAINTAINERS-MAP.md)** | 十個能力各自的 owner／入口／狀態來源／公開契約／擴充點／必要測試／已知限制 |
+| **[相容路徑退場登記表](docs/aip/deprecation-ledger.md)** | 每條相容路徑的存在理由、移除前需要的證據、資料遷移與回退方式 |
 | **[驗收證據](docs/acceptance-evidence.md)** | 真實環境端到端測試紀錄 |
 | **[v0.4 機器證據](docs/v04-final-machine-evidence.md)** | v0.4 測試數字、connector、SHA-256 與未完成項 |
 | **[v0.5 Gap Matrix](docs/v05-capability-gap-matrix.md)** | v0.5 誠實基線（§0–§8）、Phase 7 收尾狀態（§9）、Phase 8 收尾狀態（§10，Character Presentation Protocol＋一般模式產品化）、Phase 9 發布硬化（§11／§12）與 v0.5.1 修補（§13） |
@@ -316,15 +319,16 @@ Observation 嚴格分離 facts（可觀察事實）與 inferences（模型推論
 | 儲存 | `crates/interaction-storage` | SQLite：receipts／plans／sessions／observations／audit |
 | 註冊表 | `crates/interaction-registry` | 動態能力註冊、健康狀態、capability snapshot |
 | 事件 | `crates/interaction-events` | bounded event bus＋Last-Event-ID 重播 |
-| Runtime | `crates/interaction-runtime` | orchestrator、executor（pre-dispatch gate）、recipes 自主迴圈、watchdog |
+| Runtime | `crates/interaction-runtime` | orchestrator、executor（pre-dispatch gate）、recipes 自主迴圈、watchdog、`sensor_source.rs` 單一停止協調器、`declarative_lifecycle.rs` 宣告式裝置綁定生命週期 |
 | 工具介面 | `crates/interaction-tool-schema` | 單一 Canonical Manifest → OpenAI/Anthropic/Gemini/OpenAPI/JSON-Schema |
 | API / CLI | `crates/interaction-api`、`crates/interaction-cli` | axum＋SSE；`interact-ai`（client＋daemon＋self 管理） |
 | Adapter SDK | `crates/interaction-adapter-sdk`、`adapters/builtin` | 第三方 driver 介面＋內建受器/動器 |
 | 角色協定 | `crates/interaction-character`、`apps/interaction-desktop/src/character` | Character Presentation Protocol 1.0：純函式 Gateway＋manifest／協商／intent／receipt；TS 鏡射＋in-process gateway＋reference adapters |
 | 跨裝置語意契約（v0.6.0） | `crates/interaction-aip` | AIP 1.0：純函式 envelope／message type／Outcome 誠實階梯／版本與能力協商／離線政策；golden schema 來源 |
-| 權威 Character Session（v0.6.0） | `crates/interaction-session` | 純函式：語意狀態、確定性 Director、revision／sequence、RFC 7396 patch＋hash、十三關安全管線 |
+| 權威 Character Session（v0.6.0） | `crates/interaction-session` | 純函式：語意狀態、確定性 Director、revision／sequence、RFC 7396 patch＋hash、十三關安全管線；`src/receive.rs` 是 Rust／TypeScript／Swift 共用的接收端決策表 |
 | 小樞 Reference Adapter（v0.6.0） | `crates/interaction-character-shu` | 從 `interaction-character` 拆出的小樞專屬型別／rig-pack 遷移，核心不再含任何小樞字串 |
-| 桌面 | `apps/interaction-desktop` | Tauri 2＋React；與 CLI/API 共用同一套 application services |
+| 桌面 | `apps/interaction-desktop` | Tauri 2＋React；與 CLI/API 共用同一套 application services；`src/aip/sessionClient.ts` 接收端 reducer、`src/companion/applyPresetPlan.ts` 陪伴檔位的可恢復兩段交易（純函式，不進 React 元件） |
+| iPhone companion | `apps/interaction-ios` | SwiftUI；`Services/SessionReceive.swift` 決策表的 Swift 端、`Services/SocketTransport.swift` 可注入的 socket 與排程 |
 | Skill | `skills/orchestrate-adaptive-interaction` | 跨 AI Agent Skill（開放格式） |
 
 ```bash

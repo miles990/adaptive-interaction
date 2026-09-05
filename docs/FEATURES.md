@@ -258,3 +258,10 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
   XCTest 92/0（基線 46）；ESP32／iPhone 真機本輪未動、沿用 v0.5.1 邊界句。逐項數字、效能前後對照與
   未執行清單見 `docs/releases/v0.6.0-test-matrix.md`；完成定義逐條核對見 `docs/acceptance-evidence.md`
   「v0.6.0 Foundation」章節。
+
+## 可維護性（誰擁有什麼、什麼時候可以刪）
+
+`AGENTS.md` 是任何 AI 的入口地圖，`docs/MAINTAINERS-MAP.md` 逐能力列出 owner／入口／狀態來源／公開契約／
+擴充點／必要測試／已知限制，`docs/aip/deprecation-ledger.md` 把每一條相容路徑登記成「移除前需要什麼證據」，
+`scripts/tests/architecture-checks.sh` 則把架構邊界的可執行檢查收成一個入口（`--list` 零成本列出，
+`--rust`／`--ts`／`--docs` 分組跑，未執行的組印 SKIP 而不冒充通過）。

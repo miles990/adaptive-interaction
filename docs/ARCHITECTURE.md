@@ -28,7 +28,7 @@ Rust Adaptive Interaction Runtime
 | `interaction-registry` | Capability Registry、Common Capability Catalog、human-view resolver、**Provider Registry** |
 | `interaction-policy` | deterministic Governor：min() 限界鏈、consent、quiet hours、allowlist、預算、**delegation limits** |
 | `interaction-recipe` | Recipe 模型／驗證／摘要／AI 決策閘門；YAML↔JSON 無損 round-trip |
-| `interaction-runtime` | Tokio runtime：orchestrator、executor、watchdog、human 層、**providers**、**agents**、**sensors**（v0.6.x：`sensor_source.rs` 的 `SensorSource` port＋單一停止協調器 `stop_all_sensor_sources`，本機麥克風與 iPhone 都是登記來源；`emergency_stop`／停止按鈕／provider revoke-disable／刪除高風險受器共用同一條有界停止路徑，結果五態且未確認一律 uncertain） |
+| `interaction-runtime` | Tokio runtime：orchestrator、executor、watchdog、human 層、**providers**、**agents**、**sensors**（v0.6.x：`sensor_source.rs` 的 `SensorSource` port＋單一停止協調器 `stop_all_sensor_sources`，本機麥克風與 iPhone 都是登記來源；`emergency_stop`／停止按鈕／provider revoke-disable／刪除高風險受器共用同一條有界停止路徑，結果五態且未確認一律 uncertain）、**宣告式裝置綁定生命週期**（`declarative_lifecycle.rs` 的 `Bound`／`Rebinding`／`Unbound{reason}`＋世代：停用後再啟用不必重啟 daemon，撤銷永不復活） |
 | `interaction-storage` | SQLite：receipts / plans / sessions / audit / ai_descriptions / **providers** / **agent_sessions**（schema v3） |
 | `interaction-events` | EventBus（broadcast）＋ bounded replay |
 | `interaction-api` | Axum HTTP API＋SSE（Last-Event-ID）；loopback-only、human/restricted-agent Bearer tokens |
@@ -38,7 +38,7 @@ Rust Adaptive Interaction Runtime
 | `interaction-adapter-declarative` | **宣告式 adapter**：YAML spec → 真 HTTP/SSE receptor/actuator（policy-bounded、secret://、SSRF 防護） |
 | `interaction-character` | **Character Presentation Protocol 1.0**（純函式）：manifest 驗證／migration、能力協商、intent／truthState／priority floor、input 正規化、回執狀態機、wire messages、`Gateway`；JSON Schema 來源。v0.6.0：不再含任何小樞字串，`builtin_whitelist` 改為空、由 host 注入 |
 | `interaction-aip` | **v0.6.0** — Adaptive Interaction Protocol 1.0（純函式，無 tokio／I/O）：跨裝置語意訊息 envelope、12 種 message type、12 值 Outcome 誠實階梯、19 個穩定錯誤碼、版本協商、確定性能力協商、身分綁定決策、離線事件政策、證據分類、canonical JSON hash；JSON Schema 來源（`schemas/aip-1.0.schema.json`）。契約：`docs/aip/README.md` |
-| `interaction-session` | **v0.6.0** — 權威 Character Session（純函式）：語意狀態（mood／activity／attention／truth／members）唯一 owner、確定性 Director、revision／sequence／snapshot／patch／delta replay、有界安全管線、ports（Clock／SessionStore／IdentityVerifier／ConsentVerifier／RendererPort／DevicePort）。契約：`docs/aip/character-session.md` |
+| `interaction-session` | **v0.6.0** — 權威 Character Session（純函式）：語意狀態（mood／activity／attention／truth／members）唯一 owner、確定性 Director、revision／sequence／snapshot／patch／delta replay、有界安全管線、ports（Clock／SessionStore／IdentityVerifier／ConsentVerifier／RendererPort／DevicePort）；`src/receive.rs` 是三端共用的接收端決策表（`decide_receive`，16 條規則第一個命中即決定）。契約：`docs/aip/character-session.md` |
 | `interaction-character-shu` | **v0.6.0** — 小樞（`shu-rig`）專屬內容從 `interaction-character` 核心抽出：variants、能力集、`character-rig` 2.0 遷移（`ShuRigPack`）。核心 crate 不再含任何小樞字串 |
 | `adapters-builtin` | 內建 receptor/actuator（conversation/web-ui/log/notification/webhook/mock/companion/agent…） |
 | `adapters-media` | **高敏感媒體 receptor**：麥克風 listen（feature-gated cpal；預設關；記憶體內只留 level 事實） |
@@ -198,26 +198,35 @@ receipt 誠實結算（AI presentation command：completed→Completed Acknowled
 ```
 Presentation / UI / Renderer     apps/interaction-desktop/src（React、companion 視窗、character/adapters/*；
                                  aip/envelope.ts 鏡射 envelope 規則、aip/canonical.ts canonical JSON＋state hash、
-                                 aip/sessionClient.ts 接收端 reducer——協定判斷不在 React 元件裡）
-                                  apps/interaction-ios（SwiftUI；AIP 型別已鏡射，Session client v0.6.0 落地、v0.6.x 加生命週期／heartbeat）
+                                 aip/sessionClient.ts 接收端 reducer——協定判斷不在 React 元件裡；
+                                 companion/applyPresetPlan.ts 把「套用一個陪伴檔位」寫成可恢復的兩段交易，
+                                 純函式、不 import api／desktop／React、不認得任何角色）
+                                  apps/interaction-ios（SwiftUI；AIP 型別已鏡射，Session client v0.6.0 落地、
+                                 v0.6.x 加生命週期／heartbeat；Services/SessionReceive.swift 是接收端決策表的
+                                 Swift 端，Services/SocketTransport.swift 讓連線的 socket 與排程可注入）
             ↓
 Application Use Cases            crates/interaction-runtime/src/character_session.rs（Session Host：
                                   join／leave／presence／submit／resume／snapshot／diagnostics／tick）
             ↓                    crates/interaction-runtime/src/{character,mobile,agents,executor}.rs（既有真相來源）
-Domain Core / Character Session  crates/interaction-session（純函式）、crates/interaction-aip（純函式）、
+Domain Core / Character Session  crates/interaction-session（純函式；src/receive.rs 接收端決策表是三端
+                                  共用的權威實作）、crates/interaction-aip（純函式）、
                                   crates/interaction-character（純函式，CPP）、crates/interaction-core
             ↓
 Ports / Stable Interfaces        crates/interaction-session/src/ports.rs
                                   （Clock／SessionStore／IdentityVerifier／ConsentVerifier／EventLog／RendererPort／DevicePort）
             ↓
-Adapters / Transport / Platform  mobile.rs（iPhone wss `aip` frame）、declarative_session.rs（宣告式裝置線 v1.1 `aip`）、character.rs＋character_ws.rs（CPP）、
+Adapters / Transport / Platform  mobile.rs（iPhone wss `aip` frame）、declarative_session.rs（宣告式裝置線 v1.1 `aip`）
+                                  ＋declarative_lifecycle.rs（綁定的顯式生命週期：Bound／Rebinding／Unbound{reason}＋世代）、
+                                  character.rs＋character_ws.rs（CPP）、
                                   interaction-api（HTTP／SSE）、Tauri src-tauri、iOS ConnectionManager、
                                   TS `character/adapters/*`（shu／sprite／text／shape）
 ```
 
 依賴只能朝向核心：`interaction-session` 依賴 `interaction-aip`＋`interaction-character`（truth 詞彙）＋serde，
 不依賴 tokio／axum／Tauri／SwiftUI／WebSocket 函式庫；`tests/e2e/tests/dependency_boundaries.rs` 釘住。
-完整分層說明與 Ports 清單見 `docs/aip/architecture-boundaries.md`。
+完整分層說明與 Ports 清單見 `docs/aip/architecture-boundaries.md`；每個能力的 owner／入口／狀態來源／
+擴充點／必要測試見 `docs/MAINTAINERS-MAP.md`；相容路徑的退場計畫見 `docs/aip/deprecation-ledger.md`。
+架構檢查的單一入口是 `scripts/tests/architecture-checks.sh`（`--list` 只列、`--rust`／`--ts`／`--docs` 分組跑）。
 
 ### 2. 新 crate
 
