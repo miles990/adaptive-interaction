@@ -1006,3 +1006,61 @@ wave3／hardening 的落地事實尚未回填。
 - 桌面同步卡的「iPhone 已連接，能力核對中」（`capability-unknown`）在本輪之後**只剩讀不到／
   形狀不認得時的保守回退**：Runtime 已把協商結果投影成 `members[].unsupportedIntents`
   （`docs/aip/character-session.md` §3），正式路徑上會直接落到「已同步」或「部分能力目前不可用」。
+
+# v0.7.0（候選）本輪證據等級（第二輪；分支 `feature/v0.6.x-maintainability`，起點 `f5b8e2f`，28 個 commit）
+
+> 本節只回答一件事：**每一項落地的東西，證據是哪一級、由哪個測試持有。**
+> 數字不在這裡重述——整合全套尚未執行，各步驟當時的實跑數字在
+> [`docs/releases/v0.7.0-progress.md`](releases/v0.7.0-progress.md) §4，整合後的數字回填
+> [`docs/releases/v0.7.0-final-report.md`](releases/v0.7.0-final-report.md) §7。
+>
+> **等級用字**（由弱到強，逐列標明，不合併、不美化）：
+> `unit`＝cargo test／vitest／XCTest／src-tauri 單元；
+> `contract`＝三端共用 fixtures 逐筆對答案（`crates/interaction-aip/tests/fixtures/manifest.json`）；
+> `fixture`＝程序內替身（fake_iphone、fixture agent、in-process sensor source、替身 socket）；
+> `pty 模擬器`＝`scripts/esp32-serial-sim.py` 走 production `DeviceLink`＋serial adapter；
+> `broker 模擬器`＝in-process rumqttd broker＋rumqttc fake device；
+> `iOS 模擬器`＝iPhone 17／iOS 26.2 runtime，simctl 注入；
+> `browser`＝Playwright（Chromium）對真 daemon；
+> `真 daemon`＝真的 `interact-ai serve`（隔離 home、自選埠）但沒有 UI；
+> `真 Tauri 視窗`＝實際啟動的 `.app`（debug build）以 macOS AX API 走查；
+> **`真機／真板`＝零**（iPhone 真機 0 次、ESP32 真板 0 次，本輪沒有任何一列是這一級）。
+
+| # | 落地的東西 | 最高證據等級 | 持有它的測試／腳本 |
+|---|---|---|---|
+| 1 | AIP 接收端決策表（規則 0–15、resume 逐則、有界 realign 預算） | contract | `crates/interaction-session/tests/receive_decisions_from_json.rs`（只讀 JSON 的獨立消費者）、`receive_decision_fixtures.rs`（產生器兼驗證器）、`crates/interaction-session/tests/pure_functions.rs` |
+| 2 | 同一張表的桌面端 | contract | `apps/interaction-desktop/src/test/receive-decision-fixtures.test.ts`（45 案例逐筆，零跳過）、`session-client.test.ts`（三端零差異棘輪） |
+| 3 | 同一張表的 iPhone 端 | contract＋iOS 模擬器 | `apps/interaction-ios/InteractionCompanionTests/ReceiveDecisionConformanceTests.swift` |
+| 4 | host 的 `reason:"recovery"` 契約 | unit | `crates/interaction-session/tests/session_hardening.rs`、`crates/interaction-runtime/tests/character_session_loop.rs` |
+| 5 | 上限常數（`maxResumePatches` 512／`maxRealignAttempts` 3）不漂移 | contract | `crates/interaction-aip` 的 schema 雙向 gate（`every_limit_constant_is_published_in_the_schema`）＋`pnpm aip:check` |
+| 6 | 身分規則「local 已知才比對」 | contract | fixtures `identity-unknown-locally-adopts-incoming`／`identity-known-mismatch-still-rejected`（三端各自消費） |
+| 7 | 裝置線 v1.2 分片（切片／重組／crc32／有界／失敗整筆丟棄） | pty 模擬器 | `crates/interaction-adapter-declarative/tests/aip_fragment.rs`、`aip_link.rs`、`crates/interaction-runtime/tests/declarative_session_loop.rs` |
+| 8 | 實測 wire bytes（capability／snapshot／patch；serial 639・MQTT 639・BLE 480） | pty 模擬器 | `declarative_session_loop.rs::the_measured_wire_sizes_of_the_session_replies_are_over_the_line_limit`（`-- --nocapture` 逐行印 `MEASURED wire line bytes:`） |
+| 9 | 參考韌體兩種組態可編譯（**不是**真板驗收） | 編譯檢查 | `./firmware/esp32-companion/compile.sh`／`--ble` |
+| 10 | 成員 `syncProfile` 推導與投影 | pty 模擬器 | `declarative_session_loop.rs`（event-source 案例由 `d391f38` 新增）＋稽核 `aip.member-sync-profile` |
+| 11 | 桌面對非 full-state 成員不顯示「已同步」（`partial-sync`） | unit | `apps/interaction-desktop/src/test/statusProjection-session.test.ts`、`character-sync-card.test.tsx`、`regressions-v06-round2-general-mode.test.tsx` |
+| 12 | 宣告式裝置免重啟 rebind（八步、有界、握手才收斂） | pty 模擬器 | `declarative_session_loop.rs::reenable_rebinds_without_restart`／`rebind_timeout_is_bounded_and_honest`／`a_removed_declarative_binding_is_never_rebound` |
+| 13 | rebind 不是 serial 專屬路徑 | broker 模擬器 | `crates/interaction-runtime/tests/mqtt_rebind_loop.rs::mqtt_reenable_rebinds_without_restart`（**BLE 沒有對應測試**） |
+| 14 | rebind 保留人類手動關掉的受器 | pty 模擬器 | `declarative_session_loop.rs::rebind_keeps_human_disabled_receptors_off` |
+| 15 | 停用後裝置不得再 join（入站 `aip` 綁定閘門） | pty 模擬器 | `declarative_session_loop.rs`（稽核序列斷言；先紅後綠） |
+| 16 | 「未解決停止」不因 TTL 消失、同 id 新來源不誤清、人為解除留痕 | unit | `crates/interaction-runtime/tests/sensors_loop.rs::same_id_new_source_does_not_clear_old_generation_unknown`／`confirmed_stop_from_new_source_clears_unresolved`／`dismiss_unresolved_is_explicit_and_audited` |
+| 17 | 兩份未解決停止清單（status 與專屬端點）欄位逐欄相同、人話 `sourceLabel` | unit | `crates/interaction-api/tests/api_e2e.rs`（清單相等斷言）＋`sensors_loop.rs`（label 兩支） |
+| 18 | 桌面三處呈現＋二段人為確認、文案不得出現「已停止」 | unit | `apps/interaction-desktop/src/test/unresolvedStops.test.tsx`、tray（`src-tauri` `host_safety` 單元） |
+| 19 | 裝置「重新連線中／沒有重新連上」與「重新啟用」按鈕 | unit | `apps/interaction-desktop/src/test/connectPage.test.tsx`、`statusProjection` 的 provider 測試 |
+| 20 | 陪伴預設兩段寫入的交易與恢復（含 crash 後補送） | unit | `apps/interaction-desktop/src/test/apply-preset-plan.test.ts`（純函式）、`companion-preset-recovery.test.tsx`（mock Tauri host） |
+| 21 | `desktop_prefs_patch` persist 失敗回滾 | unit | `apps/interaction-desktop/src-tauri` 的 `commit_prefs_patch` 測試（可注入 persist 回 `Err`；**不是**真的寫滿磁碟） |
+| 22 | 陪伴預設按鈕群可及性、Reduced Motion 下文案不變 | unit | `apps/interaction-desktop/src/test/companion-preset-a11y.test.tsx` |
+| 23 | 一般模式 14 個任務、分類漂移防線、量測三欄位 | browser | `apps/interaction-desktop/e2e/general-mode-tasks.spec.ts`＋`e2e/taskMetrics.ts`（結果摘要 `test-results/general-mode-task-outcomes.json`） |
+| 24 | 對話框開啟時停止路徑可達、⌘K／通知中心焦點 | browser＋unit | `e2e/a11y.spec.ts`＋對應 vitest |
+| 25 | Tauri-only 正向路徑（換角色、陪伴檔位、勿擾、顯示／隱藏） | **真 Tauri 視窗** | `scripts/tauri-ax-walkthrough.sh`（9 步全 completed，連跑兩次；debug `.app`；**不在 CI**） |
+| 26 | 停用／重新啟用／撤銷的八步走查 | 真 daemon＋pty 模擬器 | `scripts/drills/provider-disable-reenable.sh` |
+| 27 | 移除角色套件後使用者資料仍在（`desktop.json` sha256 不變、稽核不刪、epoch 不跳） | 真 daemon | `scripts/drills/remove-package-keep-user-data.sh` |
+| 28 | 只回報事件的受限裝置走 production serial adapter | pty 模擬器 | `examples/adapters/event-source-button.yaml`＋`declarative_session_loop.rs` 的 event-source 測試 |
+| 29 | iOS 背景閘門五個接線點 | fixture（替身 socket／替身排程）＋iOS 模擬器 | `apps/interaction-ios/InteractionCompanionTests/ConnectionManagerGateTests.swift`（`URLSessionSocket` 本身**未測**） |
+| 30 | 架構邊界可執行檢查（依賴邊界、schema 漂移、entrypoint 分岔、決策表、快照遷移、adapter 生命週期、停止路徑） | unit＋腳本 | `scripts/tests/architecture-checks.sh`（`--docs`／`--ts`／`--rust`；swift 列驗存在但需模擬器故維持 SKIP，**未跑 ≠ 通過**） |
+| 31 | 文件誠實度與發布腳本 | 腳本 | `scripts/tests/docs-claims.sh`、`scripts/tests/release-scripts.sh`、`cargo test -p interaction-cli --test release_provenance` |
+
+**本輪沒有拿到的證據（逐項寫明，不留白）**：iPhone 真機 0 次；ESP32 真板 0 次（分片路徑在真板上 0 次，
+因為參考韌體刻意不宣告 `aip.frag/1`）；BLE 的 rebind 與 AIP session 端到端 0 次；非開發者受測者 0 人；
+陪伴預設的「套用→關掉→重開→補送」沒有在真桌面程式跑過；`pnpm perf` 本輪未重跑；整合全套與對抗審查
+尚未執行。詳見 [`docs/releases/v0.7.0-known-limitations.md`](releases/v0.7.0-known-limitations.md)。
