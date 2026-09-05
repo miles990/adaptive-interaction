@@ -66,8 +66,8 @@ pub use patch::{
     StateDecision,
 };
 pub use session::{
-    CharacterSession, Diagnostics, JoinOutcome, LogEntry, Output, Resume, Submission,
-    MAX_UNSUPPORTED_INPUTS,
+    CharacterSession, Diagnostics, JoinOutcome, LogEntry, Output, RestoreReport, Resume,
+    Submission, MAX_PROJECTED_UNSUPPORTED_INPUTS,
 };
 pub use state::{
     format_party, parse_party, Activity, Attention, LastInteraction, Member, MemberView, Mood,
@@ -78,7 +78,7 @@ pub use types::{
     EVENT_DISMISS, EVENT_TOUCH, HOST_INPUTS, HOST_INTENTS, INTENT_CELEBRATE, INTENT_IDLE,
     INTENT_REACT_HAPPILY_TO_TOUCH, INTENT_SETTLE, MAX_PENDING_INTENTS, NAME_BEHAVIOR_REQUEST,
     NAME_SESSION_CAPABILITY, NAME_SESSION_PATCH, NAME_SESSION_RESULT, NAME_SESSION_SNAPSHOT,
-    REASON_SESSION_RESET,
+    REASON_SESSION_RESET, SNAPSHOT_FORMAT,
 };
 
 /// 本 crate 實作的 AIP profile 名稱（`capability.profiles`）。

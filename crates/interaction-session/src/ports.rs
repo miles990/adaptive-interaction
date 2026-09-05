@@ -20,6 +20,27 @@ pub enum PortError {
     Rejected,
     #[error("stored session data is corrupt")]
     Corrupt,
+    /// 存下來的快照宣告了比 [`crate::SNAPSHOT_FORMAT`] 更新的格式版本。
+    ///
+    /// **這不是損毀**：檔案是好的，只是這個版本讀不懂。呼叫端必須把它原封不動留著
+    /// （不隔離、不覆寫），並以記憶體模式跑完這一輪——把它蓋掉等於替使用者做了降級決定。
+    #[error("stored session data was written by a newer version")]
+    FutureFormat,
+}
+
+/// [`SessionStore::save`] 的結果。**寫入不等於被要求寫入**（誠實階梯）：
+/// store 會拒絕落後的快照，也可能整個進入 parked（唯讀）狀態。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveOutcome {
+    /// 真的落地了。
+    Written,
+    /// 這份快照不比已經落地的那份新（`(epoch, revision)` 字典序），略過。
+    ///
+    /// 持久化是由多個併發任務各自派送的（HTTP、裝置 frame、tick），沒有這道 guard 的話
+    /// 「先 save(rev 6) 再 save(rev 5)」會讓檔案停在 rev 5。
+    SkippedStale,
+    /// store 是 parked 的（例如檔案由更新版本寫成、或這一輪根本讀不到它）：一律不寫。
+    SkippedParked,
 }
 
 /// 時間來源。Session 本身不讀時鐘；host 用這個把時間注入 use case 層。
@@ -28,8 +49,15 @@ pub trait Clock {
 }
 
 /// Snapshot 持久化（§6：每 N 個 revision 或每 60 s 存一次）。
+///
+/// # 實作契約
+///
+/// - `save` **不得**讓已經落地的進度倒退：`(epoch, revision)` 字典序不比已提交者新的快照要回
+///   [`SaveOutcome::SkippedStale`]，而不是覆寫。檢查與寫入必須是原子的，否則兩個併發的
+///   `save` 會同時通過檢查再亂序落地。
+/// - `save` 回 `Ok(SaveOutcome::Skipped*)` 表示「沒有寫」——呼叫端不得把它當成已持久化。
 pub trait SessionStore {
-    fn save(&self, snapshot: &Snapshot) -> Result<(), PortError>;
+    fn save(&self, snapshot: &Snapshot) -> Result<SaveOutcome, PortError>;
     fn load(&self, session_id: &str) -> Result<Option<Snapshot>, PortError>;
 }
 
@@ -151,13 +179,22 @@ impl MemoryStore {
 }
 
 impl SessionStore for MemoryStore {
-    fn save(&self, snapshot: &Snapshot) -> Result<(), PortError> {
+    fn save(&self, snapshot: &Snapshot) -> Result<SaveOutcome, PortError> {
         let mut entries = self.entries.lock().map_err(|_| PortError::Unavailable)?;
-        if !entries.contains_key(&snapshot.session_id) && entries.len() >= self.cap {
-            return Err(PortError::Rejected);
+        match entries.get(&snapshot.session_id) {
+            // 測試替身也守同一條 guard（見 [`SessionStore`] 的實作契約），否則它會掩蓋
+            // 真實 store 才會出現的亂序覆寫。
+            Some(existing)
+                if (existing.epoch, existing.revision) >= (snapshot.epoch, snapshot.revision) =>
+            {
+                return Ok(SaveOutcome::SkippedStale);
+            }
+            Some(_) => {}
+            None if entries.len() >= self.cap => return Err(PortError::Rejected),
+            None => {}
         }
         entries.insert(snapshot.session_id.clone(), snapshot.clone());
-        Ok(())
+        Ok(SaveOutcome::Written)
     }
 
     fn load(&self, session_id: &str) -> Result<Option<Snapshot>, PortError> {
@@ -179,10 +216,15 @@ mod tests {
     }
 
     fn snapshot(id: &str) -> Snapshot {
+        snapshot_at(id, 1, 1)
+    }
+
+    fn snapshot_at(id: &str, epoch: u64, revision: u64) -> Snapshot {
         Snapshot {
+            format: crate::SNAPSHOT_FORMAT,
             session_id: id.to_string(),
-            epoch: 1,
-            revision: 1,
+            epoch,
+            revision,
             sequence: 0,
             state: json!({}),
             hash: crate::state_hash(&json!({})),
@@ -196,11 +238,50 @@ mod tests {
         store.save(&snapshot("a")).expect("first");
         store.save(&snapshot("b")).expect("second");
         assert_eq!(store.save(&snapshot("c")), Err(PortError::Rejected));
-        // 覆寫既有 session 不受容量限制。
-        store.save(&snapshot("a")).expect("overwrite");
+        // 覆寫既有 session 不受容量限制（但同一個 revision 不算「更新」）。
+        assert_eq!(
+            store.save(&snapshot("a")).expect("overwrite"),
+            SaveOutcome::SkippedStale
+        );
+        assert_eq!(
+            store.save(&snapshot_at("a", 1, 2)).expect("overwrite"),
+            SaveOutcome::Written
+        );
         assert_eq!(store.len(), 2);
         assert_eq!(store.load("a").expect("load").map(|s| s.epoch), Some(1));
         assert_eq!(store.load("zz").expect("load"), None);
+    }
+
+    /// 持久化順序 guard：`save(newer)` 之後 `save(older)` **不得**覆寫。
+    /// 併發的持久化任務（HTTP／裝置 frame／tick 各自派送）本來就可能亂序抵達。
+    #[test]
+    fn a_stale_snapshot_never_overwrites_a_newer_one() {
+        let store = MemoryStore::new(2);
+        assert_eq!(
+            store.save(&snapshot_at("a", 3, 6)).expect("newer"),
+            SaveOutcome::Written
+        );
+        assert_eq!(
+            store.save(&snapshot_at("a", 3, 5)).expect("older"),
+            SaveOutcome::SkippedStale
+        );
+        assert_eq!(
+            store.load("a").expect("load").map(|s| s.revision),
+            Some(6),
+            "落後的快照不得讓已落地的進度倒退"
+        );
+        // epoch 優先於 revision（重建過的 session 即使 revision 較小也是比較新的）。
+        assert_eq!(
+            store.save(&snapshot_at("a", 4, 1)).expect("new epoch"),
+            SaveOutcome::Written
+        );
+        assert_eq!(
+            store
+                .load("a")
+                .expect("load")
+                .map(|s| (s.epoch, s.revision)),
+            Some((4, 1))
+        );
     }
 
     #[test]

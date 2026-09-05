@@ -1949,3 +1949,394 @@ async fn a_disconnected_member_is_reconnecting_before_it_is_offline() {
     );
     rt.shutdown().await;
 }
+
+// ---------------------------------------------------------------------------
+// 持久化快照的格式版本與 migration（M1 §2.2）
+//
+// fixtures 是**真的檔案**：測試把它們原樣放進 `<home>/state/` 再讓 host 開機，
+// 所以「舊格式讀不讀得回來」不是靠模擬，而是靠這一版程式真的讀一次。
+// ---------------------------------------------------------------------------
+
+use interaction_aip::{CapabilityAnnouncement, MemberRole, MessageType, SyncClass};
+use interaction_runtime::character_session::{
+    CharacterSessionHost, JsonSessionStore, SESSION_ID, SESSION_STORE_FILE,
+    STORE_NOTE_FUTURE_FORMAT, STORE_NOTE_MIGRATED,
+};
+use interaction_session::ports::{SaveOutcome, SessionStore};
+use interaction_session::{CharacterSession, SessionConfig, HOST_INPUTS, HOST_INTENTS};
+
+fn fixture_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/character-session")
+}
+
+fn fixture_now() -> chrono::DateTime<Utc> {
+    use chrono::TimeZone as _;
+    Utc.with_ymd_and_hms(2026, 9, 4, 12, 30, 0)
+        .single()
+        .expect("fixed timestamp")
+}
+
+/// 一個「桌面＋一台裝置成員＋lastInteraction＋mood.intensity 0.0」的真實 session。
+fn fixture_session() -> CharacterSession {
+    let now = fixture_now();
+    let mut session = CharacterSession::new(
+        SessionConfig {
+            session_id: SESSION_ID.to_string(),
+            ..SessionConfig::default()
+        },
+        4,
+        now,
+    );
+    let announcement = |role: MemberRole| CapabilityAnnouncement {
+        spec_versions: vec![interaction_aip::SPEC_VERSION.to_string()],
+        role: Some(role),
+        profiles: vec![interaction_session::PROFILE.to_string()],
+        sync_classes: vec![SyncClass::Semantic],
+        intents: HOST_INTENTS.iter().map(|s| s.to_string()).collect(),
+        inputs: HOST_INPUTS.iter().map(|s| s.to_string()).collect(),
+        ..Default::default()
+    };
+    let desktop = interaction_aip::Party::human_surface("desktop");
+    let phone = interaction_aip::Party::device("iphone-fixture");
+    session
+        .join(desktop, &announcement(MemberRole::HostRenderer), now)
+        .expect("desktop joins");
+    session
+        .join(
+            phone.clone(),
+            &announcement(MemberRole::RemoteRenderer),
+            now,
+        )
+        .expect("device joins");
+    // `intensity` 0.0：serde_json 的 f64 必須寫成 `0.0`（不是 `0`），這是 canonical hash
+    // 在三個語言之間對得上的前提，所以 fixture 一定要涵蓋它。
+    let touch = interaction_aip::Envelope::new(
+        MessageType::Event,
+        "character.interaction.touch",
+        phone.clone(),
+        "fixture-touch",
+        now,
+    )
+    .with_session(SESSION_ID)
+    .with_expiry(now + ChronoDuration::seconds(5))
+    .with_payload(json!({"kind": "tap", "intensity": 0.0}));
+    let submission = session.submit(touch, &phone, now);
+    assert_eq!(
+        submission.outcome,
+        interaction_aip::Outcome::Applied,
+        "fixture 的 touch 必須真的被套用"
+    );
+    session
+}
+
+/// v0.6.0 會寫出來的那份檔案：**沒有** `format` 鍵。
+fn fixture_format0() -> String {
+    let mut value = serde_json::to_value(fixture_session().snapshot()).expect("value");
+    value.as_object_mut().expect("object").remove("format");
+    pretty(&value)
+}
+
+/// v0.6.0 開發期（`MemberView.unsupportedIntents` 出現之前）寫下的檔案：
+/// 成員缺那個鍵，`hash` 以檔案裡那份原始 state 計算。這就是已知限制 #21 的實例。
+fn fixture_pre_unsupported_intents() -> String {
+    let mut value = serde_json::to_value(fixture_session().snapshot()).expect("value");
+    value.as_object_mut().expect("object").remove("format");
+    for member in value["state"]["members"]
+        .as_array_mut()
+        .expect("members array")
+    {
+        member
+            .as_object_mut()
+            .expect("member object")
+            .remove("unsupportedIntents");
+    }
+    value["hash"] = json!(interaction_session::state_hash(&value["state"]));
+    pretty(&value)
+}
+
+/// 「比這個版本更新」的檔案：格式 99，還帶了這個版本讀不懂的鍵。
+fn fixture_future_format99() -> String {
+    let mut value = serde_json::to_value(fixture_session().snapshot()).expect("value");
+    value["format"] = json!(99);
+    value["somethingThisVersionCannotUnderstand"] = json!({"safetyText": "not ours to rewrite"});
+    pretty(&value)
+}
+
+fn pretty(value: &Value) -> String {
+    let mut text = serde_json::to_string_pretty(value).expect("serialize");
+    text.push('\n');
+    text
+}
+
+fn fixtures() -> Vec<(&'static str, String)> {
+    vec![
+        ("v0.6.0-format0.json", fixture_format0()),
+        (
+            "v0.6.0-dev-pre-unsupported-intents.json",
+            fixture_pre_unsupported_intents(),
+        ),
+        ("future-format-99.json", fixture_future_format99()),
+    ]
+}
+
+/// fixtures 必須與這一版的產生器一致。重生：
+/// `AIP_UPDATE_FIXTURES=1 cargo test -p interaction-runtime --test character_session_loop`
+#[test]
+fn character_session_fixtures_are_what_this_version_writes() {
+    let dir = fixture_dir();
+    let update = std::env::var("AIP_UPDATE_FIXTURES").is_ok_and(|v| v == "1");
+    for (name, body) in fixtures() {
+        let path = dir.join(name);
+        if update {
+            std::fs::create_dir_all(&dir).expect("fixture dir");
+            std::fs::write(&path, &body).expect("write fixture");
+            continue;
+        }
+        let stored = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{name} 讀不到（AIP_UPDATE_FIXTURES=1 重生）：{e}"));
+        assert_eq!(
+            stored, body,
+            "{name} 與產生器輸出不同：AIP_UPDATE_FIXTURES=1 重生"
+        );
+    }
+}
+
+/// 把一份 fixture 放進 `<home>/state/` 並開機。
+fn open_with_fixture(name: &str) -> (tempfile::TempDir, Arc<CharacterSessionHost>, String) {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let body = std::fs::read_to_string(fixture_dir().join(name)).expect("fixture readable");
+    std::fs::write(dir.path().join(SESSION_STORE_FILE), &body).expect("seed");
+    let host = CharacterSessionHost::open(dir.path(), fixture_now());
+    (dir, host, body)
+}
+
+/// **舊版本（format 0）**：v0.6.0 寫出來的檔案必須續接得回來，不是隔離。
+#[test]
+fn a_v0_6_0_snapshot_is_restored_and_migrated_to_the_current_format() {
+    let (dir, host, original) = open_with_fixture("v0.6.0-format0.json");
+    assert_eq!(host.migration(), Some((0, STORE_NOTE_MIGRATED)));
+    assert_eq!(host.load_note(), None, "遷移不是重建，storeNote 必須留空");
+    assert!(!dir.path().join("character-session.json.corrupt").exists());
+    assert_eq!(host.session().epoch(), 4, "遷移不重建 session");
+    assert_eq!(host.session().state().members().len(), 2);
+    assert!(host.session().state().last_interaction().is_some());
+    // 原檔備份成 pre-format-0，落地的是現行格式。
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("character-session.json.pre-format-0"))
+            .expect("備份存在"),
+        original
+    );
+    let stored = JsonSessionStore::new(dir.path().join(SESSION_STORE_FILE))
+        .load(SESSION_ID)
+        .expect("load")
+        .expect("present");
+    assert_eq!(stored.format, interaction_session::SNAPSHOT_FORMAT);
+}
+
+/// **已知限制 #21 的實例**：成員缺 `unsupportedIntents` 的舊快照，v0.6.0 判 HashMismatch
+/// 後隔離；這一版必須還原並遷移。
+#[test]
+fn a_snapshot_from_before_unsupported_intents_is_migrated_instead_of_quarantined() {
+    let (dir, host, _) = open_with_fixture("v0.6.0-dev-pre-unsupported-intents.json");
+    assert_eq!(host.migration(), Some((0, STORE_NOTE_MIGRATED)));
+    assert_eq!(host.load_note(), None, "遷移不是重建，storeNote 必須留空");
+    assert!(
+        !dir.path().join("character-session.json.corrupt").exists(),
+        "缺一個帶 default 的欄位不是損毀"
+    );
+    assert_eq!(host.session().epoch(), 4);
+    let members = host.session().state().members().to_vec();
+    assert_eq!(members.len(), 2);
+    assert!(members.iter().all(|m| m.unsupported_intents.is_empty()));
+}
+
+/// **未來版本**：保留、parked、不隔離、不覆寫，diagnostics 用固定文字說明。
+#[test]
+fn a_future_format_snapshot_is_kept_untouched() {
+    let (dir, host, original) = open_with_fixture("future-format-99.json");
+    assert_eq!(host.load_note(), Some(STORE_NOTE_FUTURE_FORMAT));
+    assert!(!dir.path().join("character-session.json.corrupt").exists());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join(SESSION_STORE_FILE)).expect("read back"),
+        original,
+        "更新版本寫的快照不得被這個版本覆寫"
+    );
+    let status = host.store().status();
+    assert!(status.parked);
+    assert_eq!(status.note, Some(STORE_NOTE_FUTURE_FORMAT));
+    assert_eq!(
+        host.store().save(&host.session().snapshot()).expect("save"),
+        SaveOutcome::SkippedParked
+    );
+}
+
+/// **真正損毀**：截斷的 JSON 才隔離，而且 epoch 往前跳。
+#[test]
+fn a_truncated_snapshot_is_quarantined_with_a_new_epoch() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let body = std::fs::read_to_string(fixture_dir().join("v0.6.0-format0.json")).expect("fixture");
+    let truncated = &body[..body.len() / 2];
+    std::fs::write(dir.path().join(SESSION_STORE_FILE), truncated).expect("seed");
+    let host = CharacterSessionHost::open(dir.path(), fixture_now());
+    assert!(
+        dir.path().join("character-session.json.corrupt").exists(),
+        "真的解不開才隔離"
+    );
+    assert!(host.session().epoch() > 4, "重建的 session 要換 epoch");
+}
+
+/// **持久化必須可觀測**（M1 §2.3）：`character_session_persist` 以前把
+/// `spawn_blocking` 的 `Result` 與 `JoinError` 一起丟掉，所以「一直存不進去」在 UI 上
+/// 與「一切正常」長得一模一樣。diagnostics 現在有一組 `store` 欄位（既有欄位不動）。
+#[tokio::test]
+async fn diagnostics_report_the_persistence_store_and_never_hide_failures() {
+    let _guard = env_lock().await;
+    let (dir, rt) = runtime().await;
+
+    let diagnostics = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics");
+    let store = &diagnostics["store"];
+    assert_eq!(store["parked"], json!(false));
+    assert_eq!(store["persistFailures"], json!(0));
+    assert_eq!(store["skippedStale"], json!(0));
+    assert_eq!(
+        store["format"],
+        json!(interaction_session::SNAPSHOT_FORMAT),
+        "開機時已經落了一份現行格式的快照：{diagnostics}"
+    );
+    assert!(store["lastPersistedRevision"].is_number(), "{diagnostics}");
+    assert_eq!(store["note"], Value::Null);
+    assert_eq!(store["lastPersistError"], Value::Null);
+    assert_eq!(store["migratedFrom"], Value::Null);
+    // diagnostics 整份都不得帶路徑（API e2e 也守這條，新欄位不能破它）。
+    assert!(
+        !diagnostics.to_string().contains('/'),
+        "diagnostics 不得帶路徑：{diagnostics}"
+    );
+    // 既有欄位不得被動到。
+    for key in [
+        "sessionId",
+        "sessionEpoch",
+        "revision",
+        "sequence",
+        "members",
+        "counters",
+        "eventLog",
+        "storeNote",
+    ] {
+        assert!(
+            diagnostics.get(key).is_some(),
+            "既有 diagnostics 欄位 {key} 不見了"
+        );
+    }
+
+    // 讓寫入一定失敗：用目錄佔住快照檔名（rename 進不去）。
+    let path = dir.path().join("state").join(SESSION_STORE_FILE);
+    std::fs::remove_file(&path).expect("remove the snapshot file");
+    std::fs::create_dir(&path).expect("occupy the path with a directory");
+
+    // 真的走一次持久化：改狀態拉高 revision，再讓 tick 判定「到期」。
+    rt.character_session_submit_runtime(
+        interaction_session::RuntimeFact::ReducedMotion(true),
+        None,
+    );
+    rt.character_session_tick_at(Utc::now() + ChronoDuration::minutes(5))
+        .await;
+    // 派送是背景任務；給它一個有界的等待窗口，不做無界輪詢。
+    let mut diagnostics = rt
+        .character_session_diagnostics_value()
+        .expect("diagnostics");
+    for _ in 0..50 {
+        if diagnostics["store"]["persistFailures"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        diagnostics = rt
+            .character_session_diagnostics_value()
+            .expect("diagnostics");
+    }
+    assert!(
+        diagnostics["store"]["persistFailures"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 1,
+        "持久化失敗不得被吞掉：{diagnostics}"
+    );
+    assert_eq!(
+        diagnostics["store"]["note"],
+        json!(interaction_runtime::character_session::STORE_NOTE_PERSIST_FAILING)
+    );
+    let error = diagnostics["store"]["lastPersistError"]
+        .as_str()
+        .expect("固定文字");
+    assert!(!error.contains(dir.path().to_string_lossy().as_ref()));
+    assert!(
+        !diagnostics.to_string().contains('/'),
+        "失敗狀態下的 diagnostics 一樣不得帶路徑：{diagnostics}"
+    );
+}
+
+/// 併發持久化：兩個任務同時落地不同的 revision 時，最終檔案必須停在**最高**的
+/// `(epoch, revision)`，而不是「最後一個 rename 的人贏」。
+#[tokio::test]
+async fn concurrent_persists_leave_the_highest_revision_on_disk() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let host = CharacterSessionHost::open(dir.path(), fixture_now());
+    let base = host.session().snapshot();
+    let store = host.store();
+
+    let mut tasks = Vec::new();
+    // 交錯的 revision：由多個 spawn_blocking 各自送出，抵達順序不保證。
+    for revision in [base.revision + 9, base.revision + 3, base.revision + 7] {
+        let store = store.clone();
+        let mut snapshot = base.clone();
+        snapshot.revision = revision;
+        tasks.push(tokio::task::spawn_blocking(move || {
+            store.save(&snapshot).expect("save must not error")
+        }));
+    }
+    let mut written = 0usize;
+    for task in tasks {
+        if task.await.expect("join") == SaveOutcome::Written {
+            written += 1;
+        }
+    }
+    assert!(written >= 1, "至少要有一個真的寫進去");
+
+    let stored = JsonSessionStore::new(dir.path().join(SESSION_STORE_FILE))
+        .load(SESSION_ID)
+        .expect("load")
+        .expect("present");
+    assert_eq!(
+        stored.revision,
+        base.revision + 9,
+        "落後的快照不得讓已落地的進度倒退"
+    );
+    let status = store.status();
+    assert_eq!(status.last_persisted_revision, Some(base.revision + 9));
+
+    // 併發的抵達順序不保證（三個都照升冪抵達時一次也不會略過），所以「略過要計數」
+    // 用一次確定性的落後寫入來斷言，而不是靠賽跑的結果。
+    let stale_before = status.skipped_stale;
+    let mut stale = base.clone();
+    stale.revision = base.revision + 1;
+    assert_eq!(store.save(&stale).expect("save"), SaveOutcome::SkippedStale);
+    assert_eq!(
+        store.status().skipped_stale,
+        stale_before + 1,
+        "被略過的落後快照要誠實計數（不是靜默丟掉）"
+    );
+    assert_eq!(
+        JsonSessionStore::new(dir.path().join(SESSION_STORE_FILE))
+            .load(SESSION_ID)
+            .expect("load")
+            .expect("present")
+            .revision,
+        base.revision + 9
+    );
+}

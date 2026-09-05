@@ -710,7 +710,8 @@ fn a_capability_reply_never_exceeds_the_payload_limit() {
         .validate()
         .expect("host 送出的 capability 回覆必須自己驗得過");
     assert!(
-        outcome.negotiated.unsupported_inputs.len() <= interaction_session::MAX_UNSUPPORTED_INPUTS,
+        outcome.negotiated.unsupported_inputs.len()
+            <= interaction_session::MAX_PROJECTED_UNSUPPORTED_INPUTS,
         "unsupportedInputs 必須有界"
     );
 }

@@ -1315,6 +1315,7 @@ fn restore_rejects_tampered_snapshots() {
 
     let broken_state = json!({"characterId": "x"});
     let broken = Snapshot {
+        format: interaction_session::SNAPSHOT_FORMAT,
         session_id: SESSION.into(),
         epoch: 1,
         revision: 4,
@@ -1475,12 +1476,13 @@ fn negotiated_unsupported_intents_are_projected_into_members() {
     assert!(!text.contains("negotiated"));
 }
 
-/// 這個欄位出現之前寫下的持久化 snapshot 少了這個鍵。`restore` 的規則是「只有本實作寫得出來的
-/// canonical state 才能成為權威狀態」，所以那份舊快照會**誠實地**被判成 `HashMismatch`（host 因此
-/// 隔離它、開新 session，diagnostics 標 `storeNote`＝「角色同步紀錄曾損毀，已重新開始」），
-/// 而不是被靜靜補成空陣列後假裝 hash 對得上——後者會讓 host 與成員對同一份 state 算出不同的 hash。
+/// 這個欄位出現之前寫下的持久化 snapshot 少了這個鍵（v0.6.0 已知限制 #21）。
+///
+/// M1 §2.2 之後 `restore` 必須**遷移**它而不是拒絕：反序列化仍然 `deny_unknown_fields`
+/// （多出來的鍵照樣擋下來），只是「canonical 與原始 state 不同」不再是拒絕條件，而是
+/// 「這份快照需要遷移」的訊號。落地的權威狀態永遠是 canonical，不是檔案裡的原文。
 #[test]
-fn a_snapshot_written_before_the_field_existed_is_rejected_not_silently_upgraded() {
+fn a_snapshot_written_before_the_field_existed_is_migrated_not_rejected() {
     let mut session = session();
     let phone = Party::device("iphone-1");
     join(&mut session, &phone, &device_announcement(), t0());
@@ -1495,13 +1497,156 @@ fn a_snapshot_written_before_the_field_existed_is_rejected_not_silently_upgraded
             .remove("unsupportedIntents");
     }
     snapshot.hash = state_hash(&snapshot.state);
-    let error = CharacterSession::restore(config(), &snapshot, at(1_000))
-        .expect_err("舊形狀的快照不得被當成權威狀態");
-    assert!(matches!(error, SessionError::HashMismatch), "{error:?}");
 
-    // 反面：本實作自己寫出來的快照（含空陣列）照常還原。
-    let fresh = session.snapshot();
-    let restored = CharacterSession::restore(config(), &fresh, at(1_000)).expect("restore");
+    let restored = CharacterSession::restore(config(), &snapshot, at(1_000))
+        .expect("欄位出現之前寫下的快照必須遷移得回來，而不是被丟掉");
     assert_eq!(restored.state().members().len(), 1);
     assert!(restored.state().members()[0].unsupported_intents.is_empty());
+
+    // 遷移之後對外的 hash 是 canonical state 的 hash（不是檔案裡那份舊 hash）。
+    let republished = restored.snapshot();
+    assert_eq!(republished.hash, state_hash(&republished.state));
+    assert_ne!(republished.hash, snapshot.hash);
+
+    // 反面：本實作自己寫出來的快照（含空陣列）不算遷移。
+    let fresh = session.snapshot();
+    let restored = CharacterSession::restore(config(), &fresh, at(1_000)).expect("restore");
+    assert_eq!(restored.snapshot().hash, fresh.hash);
+}
+
+/// `attention` 是 internally tagged enum，serde **不支援** `deny_unknown_fields`：未知鍵會被
+/// 靜默忽略。舊實作靠「第二次 canonical 重 hash」間接擋住它；那道檢查改成 migration 訊號之後，
+/// 這個洞必須由明確的「允許鍵」檢查補起來，否則被污染的 attention 會成為權威狀態。
+#[test]
+fn restore_rejects_unknown_keys_inside_attention() {
+    let mut session = session();
+    let phone = Party::device("iphone-1");
+    join(&mut session, &phone, &device_announcement(), t0());
+    let good = session.snapshot();
+
+    for poison in [
+        json!({"kind": "none", "evilKey": "all clear"}),
+        json!({"kind": "member", "id": "device:iphone-1", "evilKey": 1}),
+        json!({"kind": "task", "correlationId": "c1", "id": "device:iphone-1"}),
+    ] {
+        let mut snapshot = good.clone();
+        snapshot.state["attention"] = poison.clone();
+        snapshot.hash = state_hash(&snapshot.state);
+        assert_eq!(
+            CharacterSession::restore(config(), &snapshot, at(1_000)).unwrap_err(),
+            SessionError::InvalidState,
+            "被污染的 attention 必須是 InvalidState：{poison}"
+        );
+    }
+
+    // 三種合法形狀照樣還原得回來。
+    for clean in [
+        json!({"kind": "none"}),
+        json!({"kind": "member", "id": "device:iphone-1"}),
+        json!({"kind": "task", "correlationId": "c1"}),
+    ] {
+        let mut snapshot = good.clone();
+        snapshot.state["attention"] = clean.clone();
+        snapshot.hash = state_hash(&snapshot.state);
+        CharacterSession::restore(config(), &snapshot, at(1_000))
+            .unwrap_or_else(|e| panic!("合法的 attention 必須還原得回來（{clean}）：{e}"));
+    }
+}
+
+// ------------------------------------------------------ snapshot format 版本
+
+/// `format` 是**檔案佈局**的版本，與 AIP wire version 分開；本實作寫出來的一律是現行值。
+/// 缺鍵（v0.6.0 寫的檔案）讀成 0，而且 `hash` 只涵蓋 `state`，所以加這個欄位不會讓
+/// 舊快照的 hash 對不上。
+#[test]
+fn a_snapshot_declares_the_current_format_and_missing_means_zero() {
+    let session = session();
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.format, interaction_session::SNAPSHOT_FORMAT);
+    assert_ne!(
+        interaction_session::SNAPSHOT_FORMAT,
+        0,
+        "0 保留給 v0.6.0 的無版本格式"
+    );
+
+    let mut wire = serde_json::to_value(&snapshot).expect("snapshot serializes");
+    assert_eq!(wire["format"], json!(interaction_session::SNAPSHOT_FORMAT));
+    // v0.6.0 寫出來的檔案沒有這個鍵。
+    wire.as_object_mut().expect("object").remove("format");
+    let old: Snapshot = serde_json::from_value(wire).expect("舊檔案仍然解得開");
+    assert_eq!(old.format, 0);
+    assert_eq!(old.hash, snapshot.hash, "格式版本不進 hash");
+    let (_, report) =
+        CharacterSession::restore_report(config(), &old, at(1_000)).expect("restore an old file");
+    assert_eq!(report.format_from, 0);
+    assert!(!report.canonical_changed, "只是缺 format，state 本身沒變");
+    assert!(report.needs_migration(), "format 0 要遷移成現行格式");
+}
+
+/// **Downgrade 政策**：v0.6.0 的 `Snapshot` 型別沒有 `format` 欄位，也沒有
+/// `deny_unknown_fields`，所以 format 1 的檔案在它眼裡只是多了一個不認識的鍵——照樣讀得回來。
+/// 這裡用一個複製自 v0.6.0 形狀的本地 struct 證明它（真正會擋下降級的是**未來新增的
+/// `state` 欄位**：`SemanticState` 是 `deny_unknown_fields`，那時 v0.6.0 會隔離）。
+#[test]
+fn a_format_1_snapshot_is_still_readable_by_the_v0_6_0_snapshot_shape() {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct V060Snapshot {
+        session_id: String,
+        epoch: u64,
+        revision: u64,
+        sequence: u64,
+        state: Value,
+        hash: String,
+        #[allow(dead_code)]
+        at: Timestamp,
+    }
+
+    let mut session = session();
+    let phone = Party::device("iphone-1");
+    join(&mut session, &phone, &device_announcement(), t0());
+    let current = session.snapshot();
+    let body = serde_json::to_string(&current).expect("serialize");
+
+    let old: V060Snapshot = serde_json::from_str(&body).expect("v0.6.0 仍然讀得懂 format 1 的檔案");
+    assert_eq!(old.session_id, current.session_id);
+    assert_eq!(old.epoch, current.epoch);
+    assert_eq!(old.revision, current.revision);
+    assert_eq!(old.sequence, current.sequence);
+    assert_eq!(old.hash, current.hash);
+    assert_eq!(old.state, current.state, "state 的形狀完全沒動");
+}
+
+/// `restore_report` 對「本實作自己寫出來的快照」不得回報遷移；`restore` 只是它的薄包裝。
+#[test]
+fn restore_report_only_flags_snapshots_that_are_not_canonical() {
+    let mut session = session();
+    let phone = Party::device("iphone-1");
+    join(&mut session, &phone, &device_announcement(), t0());
+    let fresh = session.snapshot();
+    let (_, report) =
+        CharacterSession::restore_report(config(), &fresh, at(1_000)).expect("restore");
+    assert_eq!(
+        report,
+        interaction_session::RestoreReport {
+            format_from: interaction_session::SNAPSHOT_FORMAT,
+            canonical_changed: false,
+        }
+    );
+    assert!(!report.needs_migration());
+
+    // 舊形狀（缺 unsupportedIntents）→ canonical 不同 → 需要遷移。
+    let mut stale = fresh.clone();
+    for member in stale.state["members"].as_array_mut().expect("members") {
+        member
+            .as_object_mut()
+            .expect("member object")
+            .remove("unsupportedIntents");
+    }
+    stale.hash = state_hash(&stale.state);
+    stale.format = 0;
+    let (_, report) =
+        CharacterSession::restore_report(config(), &stale, at(1_000)).expect("restore");
+    assert!(report.canonical_changed);
+    assert!(report.needs_migration());
 }

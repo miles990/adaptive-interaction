@@ -170,10 +170,33 @@ pub enum RuntimeFact {
     ReducedMotion(bool),
 }
 
+/// **持久化快照的格式版本**，與 AIP wire version（[`interaction_aip::SPEC_VERSION`]）**分開**。
+///
+/// wire version 描述兩端在線上講的協定；這個數字只描述「`<home>/state/` 那個檔案長什麼樣」，
+/// 兩者各自演進：換 AIP 版本不必動這個數字，改檔案佈局也不必宣告新的 wire 版本。
+///
+/// | 值 | 意義 |
+/// |---|---|
+/// | 0 | v0.6.0 寫出來的檔案（**沒有** `format` 鍵；`#[serde(default)]` 讓它讀成 0） |
+/// | 1 | 現行格式：明確帶 `format`，且 `state` 是本實作的 canonical 形狀 |
+///
+/// 規則（`JsonSessionStore::load`／[`Snapshot`]）：
+/// - `format < SNAPSHOT_FORMAT`：讀得進來，落地時遷移成現行格式（原檔另外備份一份）。
+/// - `format == SNAPSHOT_FORMAT`：照常還原。
+/// - `format > SNAPSHOT_FORMAT`：**不隔離、不覆寫**——那是更新版本寫的，這個版本沒有能力
+///   理解它，也沒有資格把它蓋掉（`PortError::FutureFormat`）。
+pub const SNAPSHOT_FORMAT: u32 = 1;
+
 /// 權威狀態快照。`hash` = `state_hash(state)`；`state` 就是 [`crate::SemanticState`] 的 serde JSON。
+///
+/// `format` 只描述**這個檔案的佈局**（見 [`SNAPSHOT_FORMAT`]），不進 `hash`：`hash` 永遠只
+/// 涵蓋 `state`，所以加欄位不會讓舊快照的 hash 對不上。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    /// 快照格式版本。缺鍵＝0（v0.6.0）。
+    #[serde(default)]
+    pub format: u32,
     pub session_id: String,
     pub epoch: u64,
     pub revision: u64,

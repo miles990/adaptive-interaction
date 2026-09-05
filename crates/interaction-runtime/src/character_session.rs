@@ -29,7 +29,7 @@ use interaction_aip::{
 /// 介面層不必各自依賴 `interaction-aip`（契約仍然只有一份）。
 pub use interaction_aip::{Envelope, Party};
 use interaction_core::{DomainError, DomainResult, EventType, RuntimeEvent};
-use interaction_session::ports::{PortError, SessionStore};
+use interaction_session::ports::{PortError, SaveOutcome, SessionStore};
 use interaction_session::{
     CharacterSession, Output, Presence, Resume, RuntimeFact, SessionConfig, Snapshot, Submission,
     EVENT_TOUCH, HOST_INPUTS, HOST_INTENTS,
@@ -44,9 +44,32 @@ pub const CHARACTER_SESSION_ENV: &str = "INTERACT_AI_CHARACTER_SESSION";
 /// （AIP §5：診斷不得洩漏路徑／輸入內容）。
 pub const STORE_NOTE_UNUSABLE: &str =
     "stored character session state was unusable; it was quarantined and a new session was started";
-/// diagnostics `storeNote`：持久化檔讀不到時的固定文字。
+/// diagnostics `storeNote`：持久化檔讀不到（權限／EIO／fd 用盡）時的固定文字。
+///
+/// **不得宣稱已隔離**：這條路徑刻意**不動**那個檔案（一次暫時性 I/O 失敗不該變成永久
+/// 資料遺失），store 改成 parked，這一輪整個以記憶體模式跑。
 pub const STORE_NOTE_UNREADABLE: &str =
-    "character session state could not be read; it was quarantined and a new session was started";
+    "character session state could not be read; the stored file was left untouched and this run \
+     uses a fresh in-memory session";
+/// diagnostics `storeNote`：快照由更新版本寫成（`format` 比這個版本認得的大）。
+/// 保留、不隔離、不覆寫——把它蓋掉等於替使用者做了降級決定。
+pub const STORE_NOTE_FUTURE_FORMAT: &str =
+    "character session state was written by a newer version; it was kept as it is and this \
+     version will not overwrite it";
+/// diagnostics `storeNote`：舊格式的快照已遷移（原檔另外備份了一份）。
+pub const STORE_NOTE_MIGRATED: &str =
+    "character session state was written in an older format; it was migrated and the original \
+     was kept as a backup";
+/// diagnostics `storeNote`：舊格式的快照這次**沒有**遷移（備份做不出來）。原檔保留、不隔離。
+pub const STORE_NOTE_MIGRATION_DEFERRED: &str =
+    "character session state is in an older format; it was kept as it is because a backup could \
+     not be made";
+/// diagnostics `store.note`：目前寫不進去（持續的持久化失敗）。
+pub const STORE_NOTE_PERSIST_FAILING: &str =
+    "character session state is not being persisted right now";
+/// 遷移備份的副檔名前綴：`character-session.json.pre-format-<n>`。同一個來源格式只保留
+/// 一份（再遷移一次會覆寫它）。
+pub const SESSION_BACKUP_SUFFIX: &str = "pre-format";
 /// 持久化檔名（`<home>/state/`）。
 pub const SESSION_STORE_FILE: &str = "character-session.json";
 /// 只記 epoch 的小檔（`<home>/state/`）。快照壞掉時 epoch 從這裡續接——
@@ -80,18 +103,161 @@ pub fn character_session_enabled_from_env() -> bool {
 // 持久化：JSON 檔（原子寫入 tmp+rename、0600）
 // ---------------------------------------------------------------------------
 
-/// Snapshot 的 JSON 檔 store。檔案內容就是 [`Snapshot`]（含 `epoch`）。
+/// 持久化檔的大小上限。快照是有界的（成員 ≤ limits::MAX_MEMBERS、事件日誌不進快照），
+/// 正常值是幾 KiB；超過這個量級代表檔案被別的東西寫過，不該整個讀進記憶體。
+pub const MAX_SNAPSHOT_BYTES: u64 = 1024 * 1024;
+
+/// `lastPersistError` 的固定文字（不含路徑、不含 I/O 錯誤細節）。
+pub const PERSIST_ERROR_WRITE: &str = "the character session snapshot could not be written";
+pub const PERSIST_ERROR_ENCODE: &str = "the character session snapshot could not be encoded";
+pub const PERSIST_ERROR_TASK: &str = "the character session persistence task did not finish";
+
+/// 持久化的可觀測狀態（進 diagnostics）。全部是計數與固定文字，不含路徑、不回顯輸入。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoreStatus {
+    /// 這一輪從檔案讀到的格式版本（沒有檔案／讀不到＝`None`）。
+    pub format: Option<u32>,
+    /// 最後一次**真的落地**的 revision（誠實階梯：被要求寫≠寫成功）。
+    pub last_persisted_revision: Option<u64>,
+    /// 寫入失敗次數。
+    pub persist_failures: u64,
+    /// 因為不比已落地者新而略過的次數。
+    pub skipped_stale: u64,
+    /// store 是否 parked（一律拒絕寫入）。
+    pub parked: bool,
+    /// 最近一次寫入失敗的固定文字。
+    pub last_persist_error: Option<&'static str>,
+    /// 給人看的固定文字（parked 原因，或「目前寫不進去」）。
+    pub note: Option<&'static str>,
+}
+
+/// [`JsonSessionStore`] 的可變狀態。**檢查與寫入必須在同一個鎖裡**：兩個併發的 `save`
+/// 若各自先檢查再寫，會同時通過 guard 再亂序 rename，等於沒有 guard。
+#[derive(Debug, Default)]
+struct StoreState {
+    /// 已經落地的 `(epoch, revision)`。`None` ＝ 還沒播種。
+    committed: Option<(u64, u64)>,
+    /// 已經嘗試過播種（避免每次 save 都去 stat 一次檔案）。
+    seeded: bool,
+    format: Option<u32>,
+    parked: Option<&'static str>,
+    persist_failures: u64,
+    skipped_stale: u64,
+    last_persisted_revision: Option<u64>,
+    last_persist_error: Option<&'static str>,
+}
+
+/// Snapshot 的 JSON 檔 store。檔案內容就是 [`Snapshot`]（含 `epoch`、`format`）。
+///
+/// # 三個不變量
+///
+/// 1. **不倒退**：`(epoch, revision)` 字典序不比已落地者新的快照一律略過
+///    （[`SaveOutcome::SkippedStale`]），因為持久化是由多個併發任務各自派送的。
+/// 2. **parked 就完全不寫**：檔案讀不到（權限／EIO）或由更新版本寫成時，這個 store
+///    變成唯讀。只跳過「開機那一次」不夠——之後每一次 persist 都會 rename 蓋掉它。
+/// 3. **有界讀取**：超過 [`MAX_SNAPSHOT_BYTES`] 直接判 [`PortError::Corrupt`]，不整個讀進記憶體。
 pub struct JsonSessionStore {
     path: PathBuf,
+    state: Mutex<StoreState>,
 }
 
 impl JsonSessionStore {
     pub fn new(path: PathBuf) -> Self {
-        Self { path }
+        Self {
+            path,
+            state: Mutex::new(StoreState::default()),
+        }
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// 鎖中毒不讓持久化整條斷掉（毒化只代表某個 panic 發生過，資料仍然是一致的計數）。
+    fn state(&self) -> MutexGuard<'_, StoreState> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// 目前的可觀測狀態（給 diagnostics）。
+    pub fn status(&self) -> StoreStatus {
+        let state = self.state();
+        StoreStatus {
+            format: state.format,
+            last_persisted_revision: state.last_persisted_revision,
+            persist_failures: state.persist_failures,
+            skipped_stale: state.skipped_stale,
+            parked: state.parked.is_some(),
+            last_persist_error: state.last_persist_error,
+            note: state.parked.or({
+                if state.last_persist_error.is_some() {
+                    Some(STORE_NOTE_PERSIST_FAILING)
+                } else {
+                    None
+                }
+            }),
+        }
+    }
+
+    /// 讓這個 store 變成唯讀。`note` 必須是固定文字（會進 diagnostics）。
+    pub fn park(&self, note: &'static str) {
+        self.state().parked = Some(note);
+    }
+
+    /// 記一次「持久化沒有完成」（例如 `spawn_blocking` 的 join 失敗）。
+    /// 錯誤不得被吞掉：queued≠completed。
+    pub fn note_persist_failure(&self, error: &'static str) {
+        let mut state = self.state();
+        state.persist_failures = state.persist_failures.saturating_add(1);
+        state.last_persist_error = Some(error);
+    }
+
+    /// 從檔案上已經有的東西播種順序 guard（`load` 之後呼叫；沒有 `load` 過的 store
+    /// 在第一次 `save` 時也會補做一次，避免跨程序的第一筆寫入就倒退）。
+    fn seed_from(state: &mut StoreState, snapshot: Option<&Snapshot>) {
+        state.seeded = true;
+        if let Some(snapshot) = snapshot {
+            state.format = Some(snapshot.format);
+            let seen = (snapshot.epoch, snapshot.revision);
+            state.committed = Some(match state.committed {
+                Some(current) => current.max(seen),
+                None => seen,
+            });
+        }
+    }
+
+    /// best-effort：從磁碟上那份檔案讀出 `(epoch, revision)`。讀不到就當作沒有。
+    fn on_disk_progress(&self) -> Option<Snapshot> {
+        self.read_bounded().ok().flatten().and_then(|body| {
+            serde_json::from_str::<Snapshot>(&body)
+                .ok()
+                .filter(|s| s.session_id == SESSION_ID)
+        })
+    }
+
+    /// 有界讀取。`Ok(None)` ＝ 檔案不存在；超過上限 → `Corrupt`；其餘 I/O 失敗 → `Unavailable`。
+    fn read_bounded(&self) -> Result<Option<String>, PortError> {
+        use std::io::Read as _;
+        let file = match std::fs::File::open(&self.path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(PortError::Unavailable),
+        };
+        if let Ok(metadata) = file.metadata() {
+            if metadata.is_file() && metadata.len() > MAX_SNAPSHOT_BYTES {
+                return Err(PortError::Corrupt);
+            }
+        }
+        let mut body = String::new();
+        // 即使 metadata 說謊（檔案在 stat 之後長大／是特殊檔案），take 也把讀取夾住。
+        file.take(MAX_SNAPSHOT_BYTES.saturating_add(1))
+            .read_to_string(&mut body)
+            .map_err(|_| PortError::Unavailable)?;
+        if body.len() as u64 > MAX_SNAPSHOT_BYTES {
+            return Err(PortError::Corrupt);
+        }
+        Ok(Some(body))
     }
 
     /// 只記 epoch 的小檔。**故意與快照分開**：快照壞到救不回 epoch 時，它是
@@ -147,6 +313,14 @@ impl JsonSessionStore {
     /// 而不是默默對齊到一個從頭開始的 revision。
     fn quarantine(&self) -> u64 {
         let next = self.next_epoch();
+        {
+            // 檔案被移走了：順序 guard 的播種基準跟著失效，否則新 session 的
+            // revision 1 會被當成「落後」而永遠寫不進去。
+            let mut state = self.state();
+            state.committed = None;
+            state.seeded = true;
+            state.format = None;
+        }
         let quarantined = self.path.with_extension("json.corrupt");
         if let Err(e) = std::fs::rename(&self.path, &quarantined) {
             tracing::warn!(error = %e, "could not quarantine the unreadable character session file");
@@ -210,26 +384,81 @@ fn fresh_epoch_seed() -> u64 {
 static TMP_TICKET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl SessionStore for JsonSessionStore {
-    fn save(&self, snapshot: &Snapshot) -> Result<(), PortError> {
-        let body = serde_json::to_string(snapshot).map_err(|_| PortError::Rejected)?;
+    fn save(&self, snapshot: &Snapshot) -> Result<SaveOutcome, PortError> {
+        let body = match serde_json::to_string(snapshot) {
+            Ok(body) => body,
+            Err(_) => {
+                self.note_persist_failure(PERSIST_ERROR_ENCODE);
+                return Err(PortError::Rejected);
+            }
+        };
+        // 檢查與寫入在同一個鎖裡（見型別文件的不變量 1）。這個鎖只跨檔案 I/O，
+        // 不跨 `.await`；呼叫端已經在 `spawn_blocking` 上。
+        let mut state = self.state();
+        if let Some(note) = state.parked {
+            tracing::debug!(
+                note,
+                "the character session store is parked; nothing was written"
+            );
+            return Ok(SaveOutcome::SkippedParked);
+        }
+        if !state.seeded {
+            drop(state);
+            let existing = self.on_disk_progress();
+            state = self.state();
+            Self::seed_from(&mut state, existing.as_ref());
+            // 播種期間可能已經被 park（另一條路徑同時發現檔案讀不到）。
+            if let Some(note) = state.parked {
+                tracing::debug!(
+                    note,
+                    "the character session store is parked; nothing was written"
+                );
+                return Ok(SaveOutcome::SkippedParked);
+            }
+        }
+        let incoming = (snapshot.epoch, snapshot.revision);
+        if let Some(committed) = state.committed {
+            if incoming <= committed {
+                state.skipped_stale = state.skipped_stale.saturating_add(1);
+                return Ok(SaveOutcome::SkippedStale);
+            }
+        }
         // 先記 epoch 再寫快照：epoch 檔只能領先、不能落後，否則快照壞掉時就少了
         // 「成員記得的 epoch 至少有多大」這個線索。
         if snapshot.epoch > self.remembered_epoch() {
             self.remember_epoch(snapshot.epoch);
         }
-        self.write_owner_only(&body)
+        match self.write_owner_only(&body) {
+            Ok(()) => {
+                state.committed = Some(incoming);
+                state.format = Some(snapshot.format);
+                state.last_persisted_revision = Some(snapshot.revision);
+                state.last_persist_error = None;
+                Ok(SaveOutcome::Written)
+            }
+            Err(error) => {
+                state.persist_failures = state.persist_failures.saturating_add(1);
+                state.last_persist_error = Some(PERSIST_ERROR_WRITE);
+                Err(error)
+            }
+        }
     }
 
     fn load(&self, session_id: &str) -> Result<Option<Snapshot>, PortError> {
-        let body = match std::fs::read_to_string(&self.path) {
-            Ok(body) => body,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(_) => return Err(PortError::Unavailable),
+        let Some(body) = self.read_bounded()? else {
+            return Ok(None);
         };
-        let snapshot: Snapshot = serde_json::from_str(&body).map_err(|_| PortError::Corrupt)?;
+        // 先解析成 `Value` 辨識格式：比這個版本新的檔案**不是**壞檔，不得隔離也不得覆寫。
+        let value: Value = serde_json::from_str(&body).map_err(|_| PortError::Corrupt)?;
+        let format = value.get("format").and_then(Value::as_u64).unwrap_or(0);
+        if format > u64::from(interaction_session::SNAPSHOT_FORMAT) {
+            return Err(PortError::FutureFormat);
+        }
+        let snapshot: Snapshot = serde_json::from_value(value).map_err(|_| PortError::Corrupt)?;
         if snapshot.session_id != session_id {
             return Err(PortError::Corrupt);
         }
+        Self::seed_from(&mut self.state(), Some(&snapshot));
         Ok(Some(snapshot))
     }
 }
@@ -245,28 +474,58 @@ pub struct CharacterSessionHost {
     /// 已經投影出去的桌面 presence。只有變化時才動狀態——否則每個 watchdog tick
     /// 都會製造一個新的 revision 與一次廣播。
     desktop_presence: Mutex<Option<Presence>>,
-    /// 載入時的異常（誠實顯示在 diagnostics，不靜默）。
+    /// 載入時**讓 session 重建**的異常（→ diagnostics 的 `storeNote`）。
+    ///
+    /// 語意刻意保持與 v0.6.0 相同：「保存的紀錄用不了，這一輪是全新的 session」。
+    /// 桌面把非 null 的 `storeNote` 翻成「角色同步紀錄曾損毀，已重新開始」，所以
+    /// **遷移不得寫進這裡**——遷移沒有重建 session，也沒有丟掉任何東西。
     load_note: Option<String>,
+    /// 這一輪做過的格式遷移（來源格式，固定文字）。只進新的 `store` 欄位。
+    migration: Option<(u32, &'static str)>,
 }
 
 impl CharacterSessionHost {
-    /// 從 `state/character-session.json` 續接；讀不到／壞掉 → 新 session（epoch+1）。
+    /// 從 `state/character-session.json` 續接。五種結果各自不同（M1 §2.2）：
+    ///
+    /// | 檔案狀態 | 做法 |
+    /// |---|---|
+    /// | 沒有檔案 | 新 session（epoch 1 或接續 epoch 檔） |
+    /// | 現行格式且 canonical | 直接續接 |
+    /// | 舊格式（`format < SNAPSHOT_FORMAT` 或 canonical 不同） | 續接＋備份原檔＋以新格式落地 |
+    /// | 更新的格式（`format > SNAPSHOT_FORMAT`） | **保留、不隔離、不覆寫**；記憶體模式＋store parked |
+    /// | 讀不到（權限／EIO） | 同上：保留、parked、記憶體模式 |
+    /// | 真的損毀（解不開／不是這個 session） | 隔離成 `.corrupt`、epoch+1、新 session |
     pub fn open(state_dir: &Path, now: Timestamp) -> Arc<Self> {
         let store = Arc::new(JsonSessionStore::new(state_dir.join(SESSION_STORE_FILE)));
         let config = SessionConfig {
             session_id: SESSION_ID.to_string(),
             ..SessionConfig::default()
         };
-        // 讀不到快照時**不覆寫**它（見下方 `Err(error)` 分支）：一次暫時性讀取失敗
-        // 不該把一份可能完好的紀錄變成永久資料遺失。
-        let mut preserve_existing = false;
-        let (session, load_note) = match store.load(SESSION_ID) {
+        /// 開機後要不要落一份快照。
+        enum Startup {
+            /// 照常落地（新 session、或續接得上的快照）。
+            Persist,
+            /// 先把原檔備份成 `<file>.pre-format-<n>` 再落地。
+            Migrate { from: u32 },
+            /// 什麼都不寫：那份檔案不是我們有資格覆寫的。
+            Preserve,
+        }
+
+        let (session, load_note, startup) = match store.load(SESSION_ID) {
             Ok(Some(mut snapshot)) => {
                 // epoch 只能往前：這台機器曾經以更大的 epoch 跑過（例如上次啟動讀不到
                 // 這份快照而另開了一個 session），成員記得的就是那個更大的值。
                 snapshot.epoch = snapshot.epoch.max(store.remembered_epoch());
-                match CharacterSession::restore(config.clone(), &snapshot, now) {
-                    Ok(session) => (session, None),
+                match CharacterSession::restore_report(config.clone(), &snapshot, now) {
+                    // 遷移**不是**重建：epoch 不變、成員不掉，所以不寫 `storeNote`。
+                    Ok((session, report)) if report.needs_migration() => (
+                        session,
+                        None,
+                        Startup::Migrate {
+                            from: report.format_from,
+                        },
+                    ),
+                    Ok((session, _)) => (session, None, Startup::Persist),
                     Err(error) => {
                         // 錯誤細節只進 log；diagnostics 的 note 是固定文字（不帶路徑、不帶
                         // 反序列化訊息——那些可能回顯檔案內容或檔案系統路徑）。
@@ -275,6 +534,7 @@ impl CharacterSessionHost {
                         (
                             CharacterSession::new(config.clone(), epoch, now),
                             Some(STORE_NOTE_UNUSABLE.to_string()),
+                            Startup::Persist,
                         )
                     }
                 }
@@ -288,44 +548,108 @@ impl CharacterSessionHost {
                 } else {
                     store.next_epoch()
                 };
-                (CharacterSession::new(config.clone(), epoch, now), None)
+                (
+                    CharacterSession::new(config.clone(), epoch, now),
+                    None,
+                    Startup::Persist,
+                )
             }
-            // 內容壞掉（解不開／不是這個 session 的快照）：隔離。
+            // 內容壞掉（解不開／不是這個 session 的快照／超過大小上限）：隔離。
             Err(PortError::Corrupt) => {
                 tracing::warn!("stored character session state was unusable");
                 let epoch = store.quarantine();
                 (
                     CharacterSession::new(config.clone(), epoch, now),
                     Some(STORE_NOTE_UNUSABLE.to_string()),
+                    Startup::Persist,
+                )
+            }
+            // 更新版本寫的快照：檔案是好的，只是這個版本讀不懂。不隔離、不覆寫。
+            Err(PortError::FutureFormat) => {
+                tracing::warn!("stored character session state was written by a newer version");
+                store.park(STORE_NOTE_FUTURE_FORMAT);
+                let epoch = store.next_epoch();
+                (
+                    CharacterSession::new(config.clone(), epoch, now),
+                    Some(STORE_NOTE_FUTURE_FORMAT.to_string()),
+                    Startup::Preserve,
                 )
             }
             // 暫時性 I/O 失敗（權限、EIO、fd 用盡）：檔案**不動**。一次讀不到就把
-            // 一份可能完好的快照改名丟棄，是把暫時性故障變成永久資料遺失。
+            // 一份可能完好的快照改名丟棄，是把暫時性故障變成永久資料遺失；只跳過開機
+            // 那一次 save 也不夠——之後每一次 persist 都會 rename 蓋掉它，所以 store parked。
             Err(error) => {
                 tracing::warn!(%error, "character session state could not be read");
-                preserve_existing = true;
+                store.park(STORE_NOTE_UNREADABLE);
                 let epoch = store.next_epoch();
                 (
                     CharacterSession::new(config.clone(), epoch, now),
                     Some(STORE_NOTE_UNREADABLE.to_string()),
+                    Startup::Preserve,
                 )
             }
         };
+
         // 立刻落一份：重啟後才續接得到 revision／epoch，而不是默默從頭開始。
-        // 例外是「讀不到但檔案還在」：那一份留給下一次啟動（或人）去救，這次不覆寫。
-        if !preserve_existing {
-            if let Err(error) = store.save(&session.snapshot()) {
-                tracing::warn!(%error, "character session snapshot was not persisted at startup");
+        let mut migration = None;
+        match startup {
+            Startup::Preserve => {}
+            Startup::Migrate { from } => {
+                // 一個來源格式只保留一份備份（再遷移一次會覆寫它），不會隨啟動次數長大。
+                let backup = store
+                    .path()
+                    .with_extension(format!("json.{SESSION_BACKUP_SUFFIX}-{from}"));
+                // 備份失敗就不遷移：原檔留著，等下一次啟動（或人）處理。**不隔離**。
+                let landed = match std::fs::copy(store.path(), &backup) {
+                    Err(error) => {
+                        tracing::warn!(%error, "the character session snapshot was not backed up before migrating");
+                        store.park(STORE_NOTE_MIGRATION_DEFERRED);
+                        false
+                    }
+                    Ok(_) => match store.save(&session.snapshot()) {
+                        Ok(SaveOutcome::Written) => true,
+                        // 寫不進去：rename 從來沒發生，原檔仍在（store 已經記下失敗）。
+                        outcome => {
+                            tracing::warn!(
+                                ?outcome,
+                                "the migrated character session snapshot was not persisted"
+                            );
+                            false
+                        }
+                    },
+                };
+                // 檔案沒換成新格式就不得說「已遷移」（誠實階梯：記憶體裡遷移了≠檔案遷移了）。
+                migration = Some((
+                    from,
+                    if landed {
+                        STORE_NOTE_MIGRATED
+                    } else {
+                        STORE_NOTE_MIGRATION_DEFERRED
+                    },
+                ));
+            }
+            Startup::Persist => {
+                if let Err(error) = store.save(&session.snapshot()) {
+                    tracing::warn!(%error, "character session snapshot was not persisted at startup");
+                }
             }
         }
         if let Some(note) = &load_note {
             tracing::warn!(note, "character session started from a clean state");
+        }
+        if let Some((from, note)) = migration {
+            tracing::info!(
+                from,
+                note,
+                "the stored character session snapshot was migrated"
+            );
         }
         Arc::new(Self {
             session: Mutex::new(session),
             store,
             desktop_presence: Mutex::new(None),
             load_note,
+            migration,
         })
     }
 
@@ -348,6 +672,11 @@ impl CharacterSessionHost {
 
     pub fn load_note(&self) -> Option<&str> {
         self.load_note.as_deref()
+    }
+
+    /// 這一輪的格式遷移：`(來源格式, 固定文字)`。沒有遷移就是 `None`。
+    pub fn migration(&self) -> Option<(u32, &'static str)> {
+        self.migration
     }
 }
 
@@ -455,6 +784,7 @@ impl Runtime {
     pub fn character_session_diagnostics_value(&self) -> DomainResult<Value> {
         let host = self.session_host()?;
         let diagnostics = host.session().diagnostics();
+        let store = host.store().status();
         let members: Vec<Value> = diagnostics
             .members
             .iter()
@@ -480,6 +810,21 @@ impl Runtime {
             "counters": diagnostics.counters,
             "eventLog": {"len": diagnostics.event_log_len, "cap": diagnostics.event_log_cap},
             "storeNote": host.load_note(),
+            // 持久化的誠實狀態（M1 §2.3）。全部是計數與固定文字：不含路徑、不回顯輸入。
+            // 既有欄位不動，這是**新增的選填欄位**。
+            "store": {
+                "format": store.format,
+                // 這一輪把檔案從哪個格式遷過來（沒有遷移＝null）。遷移不是重建：
+                // `storeNote` 保持 v0.6.0 的語意（只在 session 真的被重建時非 null）。
+                "migratedFrom": host.migration().map(|(from, _)| from),
+                "migrationNote": host.migration().map(|(_, note)| note),
+                "lastPersistedRevision": store.last_persisted_revision,
+                "persistFailures": store.persist_failures,
+                "skippedStale": store.skipped_stale,
+                "parked": store.parked,
+                "lastPersistError": store.last_persist_error,
+                "note": store.note,
+            },
         }))
     }
 
@@ -774,8 +1119,14 @@ impl Runtime {
             return;
         };
         let snapshot = host.session().snapshot();
-        if let Err(error) = host.store().save(&snapshot) {
-            tracing::warn!(%error, "character session snapshot was not persisted on shutdown");
+        match host.store().save(&snapshot) {
+            Ok(SaveOutcome::Written) => {}
+            Ok(outcome) => {
+                tracing::debug!(?outcome, "the shutdown snapshot was not written");
+            }
+            Err(error) => {
+                tracing::warn!(%error, "character session snapshot was not persisted on shutdown");
+            }
         }
     }
 
@@ -1330,13 +1681,38 @@ impl Runtime {
         ));
     }
 
+    /// 把一份快照落地。**錯誤不得被吞掉**：`spawn_blocking` 的 `Result` 與 `JoinError`
+    /// 都要進計數與 diagnostics，否則「持久化一直失敗」在 UI 上與「一切正常」長得一樣。
     async fn character_session_persist(&self, snapshot: Snapshot) {
         let Some(host) = self.character_session.as_ref() else {
             return;
         };
         let store = host.store();
+        let revision = snapshot.revision;
         // hot path 不做同步檔案 I/O。
-        let _ = tokio::task::spawn_blocking(move || store.save(&snapshot)).await;
+        let joined = tokio::task::spawn_blocking({
+            let store = store.clone();
+            move || store.save(&snapshot)
+        })
+        .await;
+        match joined {
+            Ok(Ok(SaveOutcome::Written)) => {}
+            Ok(Ok(outcome)) => {
+                tracing::debug!(
+                    ?outcome,
+                    revision,
+                    "the character session snapshot was not written"
+                );
+            }
+            // store 已經在 `save` 裡記過這次失敗（計數＋固定文字），這裡只補 log。
+            Ok(Err(error)) => {
+                tracing::warn!(%error, revision, "the character session snapshot was not persisted");
+            }
+            Err(error) => {
+                store.note_persist_failure(PERSIST_ERROR_TASK);
+                tracing::warn!(%error, revision, "the character session persistence task did not finish");
+            }
+        }
     }
 }
 
@@ -1353,6 +1729,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let store = Arc::new(JsonSessionStore::new(dir.path().join(SESSION_STORE_FILE)));
         let snapshot = |width: usize| Snapshot {
+            format: interaction_session::SNAPSHOT_FORMAT,
             session_id: SESSION_ID.to_string(),
             epoch: 1,
             revision: width as u64,
@@ -1365,14 +1742,20 @@ mod tests {
         store.save(&snapshot(8)).expect("seed");
 
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // 共用的遞增 revision：兩個寫入者都必須真的寫得出去（否則順序 guard 會讓其中一個
+        // 一直 SkippedStale，這個測試就不再測到並行寫入了）。
+        let next_revision = Arc::new(std::sync::atomic::AtomicU64::new(100));
         let mut writers = Vec::new();
         // 大小差很多的兩份快照：拼接起來一定是壞 JSON，而不是碰巧還讀得回來。
         for width in [8usize, 60_000] {
             let store = store.clone();
             let stop = stop.clone();
+            let next_revision = next_revision.clone();
             writers.push(std::thread::spawn(move || {
-                let snapshot = snapshot(width);
                 while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let mut snapshot = snapshot(width);
+                    snapshot.revision =
+                        next_revision.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     // 寫失敗是可接受的（另一個寫入者贏了）；讓別人讀到壞檔不可接受。
                     let _ = store.save(&snapshot);
                 }
@@ -1410,6 +1793,7 @@ mod tests {
         let store = JsonSessionStore::new(dir.path().join(SESSION_STORE_FILE));
         store
             .save(&Snapshot {
+                format: interaction_session::SNAPSHOT_FORMAT,
                 session_id: SESSION_ID.to_string(),
                 epoch: 1,
                 revision: 50,
@@ -1478,6 +1862,311 @@ mod tests {
             host.session().epoch() >= 1,
             "仍然要有一個可用的 session（誠實顯示 storeNote）"
         );
+    }
+
+    /// 測試用的快照（store 層只看 `epoch`／`revision`／JSON 是否完整）。
+    fn stored_snapshot(epoch: u64, revision: u64) -> Snapshot {
+        Snapshot {
+            format: interaction_session::SNAPSHOT_FORMAT,
+            session_id: SESSION_ID.to_string(),
+            epoch,
+            revision,
+            sequence: revision,
+            state: json!({}),
+            hash: "0".repeat(64),
+            at: Utc::now(),
+        }
+    }
+
+    /// 持久化沒有順序保證：`Output::Persist` 由各自的 `character_session_apply` 併發派送，
+    /// 每一次又各自 `spawn_blocking`，所以「先 save(rev 6) 再 save(rev 5)」是真的會發生的。
+    /// 沒有 guard 的話檔案就停在 rev 5，重啟後 host 從一個**倒退過的** revision 續接。
+    #[test]
+    fn a_stale_snapshot_never_overwrites_a_newer_one_on_disk() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let store = JsonSessionStore::new(dir.path().join(SESSION_STORE_FILE));
+        assert_eq!(
+            store.save(&stored_snapshot(3, 6)).expect("newer"),
+            SaveOutcome::Written
+        );
+        assert_eq!(
+            store.save(&stored_snapshot(3, 5)).expect("older"),
+            SaveOutcome::SkippedStale
+        );
+        assert_eq!(
+            store
+                .load(SESSION_ID)
+                .expect("load")
+                .map(|s| (s.epoch, s.revision)),
+            Some((3, 6)),
+            "落後的快照不得覆寫已落地的進度"
+        );
+        // epoch 比 revision 優先：重建過的 session 即使 revision 較小也是比較新的。
+        assert_eq!(
+            store.save(&stored_snapshot(4, 1)).expect("new epoch"),
+            SaveOutcome::Written
+        );
+        assert_eq!(
+            store
+                .load(SESSION_ID)
+                .expect("load")
+                .map(|s| (s.epoch, s.revision)),
+            Some((4, 1))
+        );
+    }
+
+    /// 讀不到（權限／EIO）時 host 只跳過**開機那一次** save；之後每一次 persist 仍然
+    /// rename 覆蓋那份讀不到的檔案，於是一次暫時性故障還是變成永久資料遺失。
+    /// store 必須 parked：一律不寫，而不是「這次不寫」。
+    #[test]
+    fn a_file_that_could_not_be_read_is_never_overwritten_by_a_later_persist() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(SESSION_STORE_FILE);
+        let precious = "{\"marker\":\"precious\"}";
+        std::fs::write(&path, precious).expect("seed");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000))
+                .expect("chmod 000");
+        }
+        if std::fs::read_to_string(&path).is_ok() {
+            // root 讀得到 0o000 的檔案：這個測試的前提不成立，誠實跳過而不是假裝通過。
+            eprintln!("skipped: this process can read a 0o000 file (running as root?)");
+            return;
+        }
+
+        let host = CharacterSessionHost::open(dir.path(), Utc::now());
+        assert_eq!(host.load_note(), Some(STORE_NOTE_UNREADABLE));
+        let snapshot = host.session().snapshot();
+        assert_eq!(
+            host.store().save(&snapshot).expect("save must not error"),
+            SaveOutcome::SkippedParked,
+            "讀不到的檔案不得被後續的 persist 蓋掉"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("chmod back");
+        }
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read back"),
+            precious,
+            "一次暫時性讀取失敗不得變成永久資料遺失"
+        );
+    }
+
+    /// 有界讀取：快照正常是幾 KiB，超過上限的檔案不整個讀進記憶體，直接判壞檔。
+    #[test]
+    fn an_oversized_session_file_is_corrupt_and_never_read_into_memory() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(SESSION_STORE_FILE);
+        let mut body = serde_json::to_string(&stored_snapshot(1, 1)).expect("serialize");
+        body.push_str(&" ".repeat((MAX_SNAPSHOT_BYTES + 1) as usize));
+        std::fs::write(&path, &body).expect("seed an oversized file");
+        let store = JsonSessionStore::new(path);
+        assert_eq!(store.load(SESSION_ID), Err(PortError::Corrupt));
+    }
+
+    /// 更新版本寫的快照：**不是**壞檔。store 回 `FutureFormat`，host 保留檔案、
+    /// 不隔離、不覆寫，並把 store parked。
+    #[test]
+    fn a_newer_format_is_preserved_parked_and_never_overwritten() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(SESSION_STORE_FILE);
+        let mut future = serde_json::to_value(stored_snapshot(7, 40)).expect("value");
+        future["format"] = json!(99);
+        future["somethingNewer"] = json!({"weCannotUnderstandThis": true});
+        let body = serde_json::to_string_pretty(&future).expect("serialize");
+        std::fs::write(&path, &body).expect("seed");
+
+        assert_eq!(
+            JsonSessionStore::new(path.clone()).load(SESSION_ID),
+            Err(PortError::FutureFormat),
+            "比較新的格式不是損毀"
+        );
+
+        let host = CharacterSessionHost::open(dir.path(), Utc::now());
+        assert_eq!(host.load_note(), Some(STORE_NOTE_FUTURE_FORMAT));
+        assert!(
+            !dir.path().join("character-session.json.corrupt").exists(),
+            "不得隔離"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read back"),
+            body,
+            "不得覆寫更新版本寫的快照"
+        );
+        let status = host.store().status();
+        assert!(status.parked, "store 必須 parked");
+        assert_eq!(status.note, Some(STORE_NOTE_FUTURE_FORMAT));
+        assert_eq!(status.last_persisted_revision, None);
+        // 之後每一次 persist 也一樣拒絕。
+        assert_eq!(
+            host.store().save(&host.session().snapshot()).expect("save"),
+            SaveOutcome::SkippedParked
+        );
+        assert_eq!(std::fs::read_to_string(&path).expect("read back"), body);
+        assert!(
+            host.session().epoch() > 7,
+            "記憶體模式的 session 不得沿用成員記得的 epoch"
+        );
+    }
+
+    /// 舊格式（v0.6.0：沒有 `format` 鍵，成員也缺 `unsupportedIntents`）必須**遷移**
+    /// 得回來，而不是被判 HashMismatch 後隔離（v0.6.0 已知限制 #21）。原檔留一份備份。
+    #[test]
+    fn an_older_format_file_is_migrated_and_the_original_is_backed_up() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(SESSION_STORE_FILE);
+        let original = legacy_format0_body();
+        std::fs::write(&path, &original).expect("seed");
+
+        let host = CharacterSessionHost::open(dir.path(), Utc::now());
+        assert_eq!(host.migration(), Some((0, STORE_NOTE_MIGRATED)));
+        assert_eq!(host.load_note(), None, "遷移不是重建，storeNote 必須留空");
+        assert!(
+            !dir.path().join("character-session.json.corrupt").exists(),
+            "舊格式不是損毀，不得隔離"
+        );
+        let backup = dir.path().join("character-session.json.pre-format-0");
+        assert_eq!(
+            std::fs::read_to_string(&backup).expect("備份必須存在"),
+            original
+        );
+        // 落地的是新格式，而且續接得到 epoch／成員。
+        let stored = JsonSessionStore::new(path)
+            .load(SESSION_ID)
+            .expect("load")
+            .expect("present");
+        assert_eq!(stored.format, interaction_session::SNAPSHOT_FORMAT);
+        assert_eq!(stored.epoch, 4, "遷移不重建 session");
+        assert_eq!(host.session().state().members().len(), 1);
+        assert!(host.session().state().members()[0]
+            .unsupported_intents
+            .is_empty());
+        assert_eq!(
+            host.store().status().last_persisted_revision,
+            Some(stored.revision)
+        );
+    }
+
+    /// 遷移中斷（備份寫不出來）：原檔仍在、不隔離、不覆寫，並誠實標注這次沒有遷移。
+    #[test]
+    fn a_migration_that_cannot_back_up_leaves_the_original_alone() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(SESSION_STORE_FILE);
+        let original = legacy_format0_body();
+        std::fs::write(&path, &original).expect("seed");
+        // 用目錄佔住備份檔名：copy 一定失敗。
+        std::fs::create_dir(dir.path().join("character-session.json.pre-format-0"))
+            .expect("occupy the backup path");
+
+        let host = CharacterSessionHost::open(dir.path(), Utc::now());
+        assert_eq!(host.migration(), Some((0, STORE_NOTE_MIGRATION_DEFERRED)));
+        assert_eq!(host.load_note(), None, "session 還原成功，沒有重建");
+        assert!(
+            !dir.path().join("character-session.json.corrupt").exists(),
+            "不得隔離"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read back"),
+            original,
+            "備份失敗就不得動原檔"
+        );
+        assert!(host.store().status().parked);
+    }
+
+    /// 持久化失敗必須被計數並以固定文字回報（不含路徑、不含 I/O 細節）。
+    #[test]
+    fn persist_failures_are_counted_and_reported_without_paths() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let state_dir = dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).expect("state dir");
+        let store = JsonSessionStore::new(state_dir.join(SESSION_STORE_FILE));
+        assert_eq!(
+            store.save(&stored_snapshot(1, 1)).expect("first"),
+            SaveOutcome::Written
+        );
+        assert_eq!(store.status().last_persisted_revision, Some(1));
+        assert_eq!(store.status().persist_failures, 0);
+        assert_eq!(store.status().note, None);
+
+        // 讓寫入失敗：把 state 目錄換成一個檔案，`create_dir_all` 與 open 都會失敗。
+        std::fs::remove_dir_all(&state_dir).expect("drop the state dir");
+        std::fs::write(&state_dir, "not a directory").expect("occupy the state dir");
+        assert!(store.save(&stored_snapshot(1, 2)).is_err());
+        let status = store.status();
+        assert_eq!(status.persist_failures, 1);
+        assert_eq!(status.last_persist_error, Some(PERSIST_ERROR_WRITE));
+        assert_eq!(status.note, Some(STORE_NOTE_PERSIST_FAILING));
+        assert_eq!(
+            status.last_persisted_revision,
+            Some(1),
+            "失敗不得讓 lastPersistedRevision 假裝前進"
+        );
+        for text in [
+            status.last_persist_error.unwrap_or_default(),
+            status.note.unwrap_or_default(),
+        ] {
+            assert!(!text.contains(dir.path().to_string_lossy().as_ref()));
+            assert!(!text.contains('/'));
+        }
+
+        // JoinError 之類「連結果都拿不到」的情況一樣要計數，不得靜默。
+        store.note_persist_failure(PERSIST_ERROR_TASK);
+        assert_eq!(store.status().persist_failures, 2);
+        assert_eq!(store.status().last_persist_error, Some(PERSIST_ERROR_TASK));
+    }
+
+    /// 這條路徑刻意**不**隔離檔案，所以 note 不得宣稱它被隔離了（誠實階梯）。
+    #[test]
+    fn the_unreadable_note_does_not_claim_the_file_was_quarantined() {
+        assert!(!STORE_NOTE_UNREADABLE.contains("quarantine"));
+        assert!(STORE_NOTE_UNREADABLE.contains("left untouched"));
+        assert!(STORE_NOTE_FUTURE_FORMAT.contains("will not overwrite"));
+        // 反面：真的會隔離的那一條保留原本的說法。
+        assert!(STORE_NOTE_UNUSABLE.contains("quarantined"));
+    }
+
+    /// v0.6.0 會寫出來的那份檔案：沒有 `format` 鍵，成員也沒有 `unsupportedIntents`。
+    fn legacy_format0_body() -> String {
+        let mut session = CharacterSession::new(
+            SessionConfig {
+                session_id: SESSION_ID.to_string(),
+                ..SessionConfig::default()
+            },
+            4,
+            Utc::now(),
+        );
+        let phone = Party::device("iphone-legacy");
+        let announcement = CapabilityAnnouncement {
+            spec_versions: vec![SPEC_VERSION.to_string()],
+            role: Some(MemberRole::RemoteRenderer),
+            profiles: vec![interaction_session::PROFILE.to_string()],
+            sync_classes: vec![SyncClass::Semantic],
+            intents: HOST_INTENTS.iter().map(|s| s.to_string()).collect(),
+            inputs: HOST_INPUTS.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        };
+        session
+            .join(phone, &announcement, Utc::now())
+            .expect("join");
+        let mut value = serde_json::to_value(session.snapshot()).expect("value");
+        value.as_object_mut().expect("object").remove("format");
+        for member in value["state"]["members"]
+            .as_array_mut()
+            .expect("members array")
+        {
+            member
+                .as_object_mut()
+                .expect("member object")
+                .remove("unsupportedIntents");
+        }
+        value["hash"] = json!(interaction_session::state_hash(&value["state"]));
+        serde_json::to_string(&value).expect("serialize")
     }
 
     #[test]

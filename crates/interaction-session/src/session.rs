@@ -23,6 +23,7 @@ use crate::types::{
     BehaviorIntent, RuntimeFact, SessionConfig, SessionError, Snapshot, EVENT_DISMISS, EVENT_TOUCH,
     HOST_INPUTS, HOST_INTENTS, MAX_PENDING_INTENTS, NAME_BEHAVIOR_REQUEST, NAME_SESSION_CAPABILITY,
     NAME_SESSION_PATCH, NAME_SESSION_RESULT, NAME_SESSION_SNAPSHOT, REASON_SESSION_RESET,
+    SNAPSHOT_FORMAT,
 };
 
 /// 全新 session 的初始 revision（§1「revision 從 1 起」）。
@@ -74,8 +75,12 @@ const C_INTENTS_FAILED: &str = "intents.failed";
 const C_INTENTS_UNSOLICITED: &str = "intents.unsolicited";
 const C_INTERNAL: &str = "internal";
 
-/// 協商結果裡 `unsupportedInputs` 的上限（有界；host 送出的 capability 回覆不得無界成長）。
-pub const MAX_UNSUPPORTED_INPUTS: usize = 16;
+/// host **投影**進協商回覆的 `unsupportedInputs` 上限（有界；host 送出的 capability 回覆不得無界成長）。
+///
+/// 與 [`interaction_aip::limits::MAX_UNSUPPORTED_INPUTS`]（32，協商函式本身的截斷點、發布在 golden schema
+/// 的 `limits` 表）是**兩個不同的數字**：那一個是 AIP 層「協商結果最多保留幾筆」，這一個是 session host
+/// 在那之上再收緊的投影上限（16 ≤ 32）。過去兩者同名、在各自 crate root 都可見，很容易誤引用。
+pub const MAX_PROJECTED_UNSUPPORTED_INPUTS: usize = 16;
 
 /// 成員回報 `result` 時的終態（§5：`observed`／`rejected`／`failed`／`cancel-confirmed`）。
 /// 終態才結清 host 的 pending intent；`accepted`／`acknowledged` 只是「收到了」。
@@ -163,6 +168,51 @@ pub struct JoinOutcome {
     pub outputs: Vec<Output>,
 }
 
+/// [`CharacterSession::restore_report`] 的附帶結果：這份快照是從哪個格式讀進來的，
+/// 以及還原後的 canonical state 是否與檔案裡的原文不同。
+///
+/// `canonical_changed` 為真代表「檔案裡那份 state 不是本實作現在會寫出來的形狀」——
+/// 缺了帶 `default` 的新欄位、鍵序不同、數字書寫不同都算。它**不是**錯誤：權威狀態一律
+/// 以 canonical 為準，host 只是需要知道「落地時要順便把檔案遷移成新格式」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RestoreReport {
+    /// 快照宣告的格式版本（0 ＝ v0.6.0，沒有 `format` 鍵）。
+    pub format_from: u32,
+    /// canonical state 與檔案裡的原文不同（→ 需要遷移）。
+    pub canonical_changed: bool,
+}
+
+impl RestoreReport {
+    /// 這份快照需要以現行格式重新落地嗎？
+    pub fn needs_migration(&self) -> bool {
+        self.format_from < SNAPSHOT_FORMAT || self.canonical_changed
+    }
+}
+
+/// `attention` 的「允許鍵」檢查。
+///
+/// `Attention` 是 internally tagged enum（`{"kind":…}`），serde **不支援**對它做
+/// `deny_unknown_fields`：`{"kind":"none","evilKey":…}` 會被靜默接受成 `None`。
+/// v0.6.0 靠「canonical 重 hash」間接擋住這種污染；那道檢查改成 migration 訊號之後，
+/// 這裡必須明確依 `kind` 比對允許鍵。未知 `kind`／缺 `kind` 交給後面的反序列化拒絕。
+fn attention_keys_are_known(state: &Value) -> bool {
+    let Some(attention) = state.get("attention") else {
+        // 缺 `attention`：`SemanticState` 沒有 `default`，反序列化會拒絕。
+        return true;
+    };
+    let Some(map) = attention.as_object() else {
+        return true;
+    };
+    let allowed: &[&str] = match map.get("kind").and_then(Value::as_str) {
+        Some("none") => &["kind"],
+        Some("member") => &["kind", "id"],
+        Some("task") => &["kind", "correlationId"],
+        // 未知或缺 kind：形狀本來就不合法，讓反序列化去回 `InvalidState`。
+        _ => return true,
+    };
+    map.keys().all(|key| allowed.contains(&key.as_str()))
+}
+
 /// §10 diagnostics（不含 token、路徑、原始 payload）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostics {
@@ -237,8 +287,17 @@ impl CharacterSession {
     ///
     /// 1. **未知欄位一律拒絕**（session-integrity-061）：hash 自洽只證明「這份 JSON 沒有被改過」，
     ///    不證明「這份 JSON 是本實作寫出來的」。被污染的 state 若原樣還原，會被當成權威狀態
-    ///    重新廣播給所有成員。所以還原後把反序列化結果重新序列化成 canonical state，再比一次 hash：
-    ///    任何本實作寫不出來的鍵都會讓 hash 對不上 → `HashMismatch`。
+    ///    重新廣播給所有成員。擋下污染的是**反序列化本身**：`SemanticState`／`Mood`／`TruthView`／
+    ///    `LastInteraction`／`MemberView` 都是 `deny_unknown_fields`，多一個鍵就 `InvalidState`。
+    ///    唯一的例外是 `attention`——internally tagged enum，serde 不支援 `deny_unknown_fields`，
+    ///    未知鍵會被靜默忽略，所以另外用 [`attention_keys_are_known`] 明確檢查允許鍵。
+    ///    落地的權威狀態永遠是 canonical（`state_value(&state)`），不是檔案裡的原文，
+    ///    所以就算某個鍵溜過檢查也不會被重新廣播出去。
+    ///
+    ///    **canonical 與原始不同不再是拒絕條件**（M1 §2.2）：v0.6.0 拿它當第二道 hash 檢查，
+    ///    代價是任何帶 `#[serde(default)]` 的新欄位都會讓舊快照被判 `HashMismatch`
+    ///    （v0.6.0 已知限制 #21：`MemberView.unsupportedIntents`）。現在它是「這份快照需要遷移」
+    ///    的訊號，由 [`CharacterSession::restore_report`] 回報給 host。
     /// 2. **revision 保守跳號**（session-integrity-058）：持久化是有間隔的（預設每
     ///    `persist_every_revisions` 個 revision 或每 `persist_interval_ms`），所以當機前最後幾個
     ///    revision 可能已經廣播出去卻沒落地。直接從 snapshot 的 revision 續接會讓 host 倒退，
@@ -251,12 +310,28 @@ impl CharacterSession {
         snapshot: &Snapshot,
         now: Timestamp,
     ) -> Result<Self, SessionError> {
+        Self::restore_report(config, snapshot, now).map(|(session, _)| session)
+    }
+
+    /// 與 [`CharacterSession::restore`] 相同，但額外回報這份快照的來源格式與是否被遷移。
+    ///
+    /// Host 用它決定「要不要先備份原檔再以新格式落地」；`restore` 是它的薄包裝。
+    pub fn restore_report(
+        config: SessionConfig,
+        snapshot: &Snapshot,
+        now: Timestamp,
+    ) -> Result<(Self, RestoreReport), SessionError> {
         let config = config.normalized();
         if snapshot.session_id != config.session_id {
             return Err(SessionError::SessionMismatch);
         }
         if state_hash(&snapshot.state) != snapshot.hash {
             return Err(SessionError::HashMismatch);
+        }
+        // `attention` 的補洞檢查（見上面取捨 1）：要在反序列化之前做，因為 serde 會把
+        // 未知鍵吃掉，之後就看不出來了。
+        if !attention_keys_are_known(&snapshot.state) {
+            return Err(SessionError::InvalidState);
         }
         let state: SemanticState = serde_json::from_value(snapshot.state.clone())
             .map_err(|_| SessionError::InvalidState)?;
@@ -265,9 +340,10 @@ impl CharacterSession {
         }
         // 只有本實作寫得出來的 canonical state 才能成為權威狀態（見上面取捨 1）。
         let canonical = state_value(&state);
-        if state_hash(&canonical) != snapshot.hash {
-            return Err(SessionError::HashMismatch);
-        }
+        let report = RestoreReport {
+            format_from: snapshot.format,
+            canonical_changed: canonical != snapshot.state,
+        };
         let revision = snapshot
             .revision
             .saturating_add(config.persist_every_revisions);
@@ -290,7 +366,7 @@ impl CharacterSession {
             .collect();
         let log = EventLog::new(config.event_log_cap);
         let reacting_since = (state.activity == Activity::Reacting).then_some(now);
-        Ok(Self {
+        let session = Self {
             config,
             epoch: snapshot.epoch,
             revision,
@@ -308,7 +384,8 @@ impl CharacterSession {
             last_persist_at: now,
             last_persist_revision: revision,
             restored_from_snapshot: true,
-        })
+        };
+        Ok((session, report))
     }
 
     pub fn config(&self) -> &SessionConfig {
@@ -374,7 +451,7 @@ impl CharacterSession {
         let truncated_upstream = negotiated.unsupported_inputs_truncated;
         negotiated
             .unsupported_inputs
-            .truncate(MAX_UNSUPPORTED_INPUTS);
+            .truncate(MAX_PROJECTED_UNSUPPORTED_INPUTS);
         let existing = self.index_of(&party);
         if existing.is_none() && self.members.len() >= self.config.max_members {
             return Err(SessionError::MembersFull);
@@ -681,6 +758,7 @@ impl CharacterSession {
     /// 目前的權威快照（純讀；`at` 是最後一次狀態變更的時間）。
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
+            format: SNAPSHOT_FORMAT,
             session_id: self.config.session_id.clone(),
             epoch: self.epoch,
             revision: self.revision,
