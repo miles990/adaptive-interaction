@@ -742,6 +742,32 @@ describe("成員同步模式：只有 full-state 可以說「已同步」", () =
     expect(p.detail).not.toContain("對齊");
   });
 
+  it("有裝置等著重新確認時，partial-sync 不得把它吞掉（要做的事排在前面）", () => {
+    // `needs-reconfirmation` 是 warn ＋ 有落點（reconfirm-device）＋ 說得出是哪一台；
+    // `partial-sync` 是 info、是一條線的長期性質。把 info 排在要人動手的那一態前面，
+    // 等於整個吞掉「哪一台要重新確認」（對抗審查 general-mode-ux-025）。
+    const members = characterSyncMembers(onlineSnapshot(), { [DEVICE]: FIXTURE_PHONE }, {
+      [DEVICE]: "intent-only",
+    });
+    const p = projectCharacterSession(
+      onlineSnapshot(),
+      members,
+      signals({ connectedButNotSynced: true, pendingDeviceNames: ["書桌 ESP32"] })
+    );
+    expect(p.state).toBe("needs-reconfirmation");
+    expect(p.action.id).toBe("reconfirm-device");
+    expect(p.detail).toContain("書桌 ESP32");
+    // 綠勾一樣不得出現。
+    expect(p.tone).not.toBe("ok");
+  });
+
+  it("沒有裝置等著重新確認時，非 full-state 仍然是 partial-sync（順序只影響那一種情況）", () => {
+    const members = characterSyncMembers(onlineSnapshot(), { [DEVICE]: FIXTURE_PHONE }, {
+      [DEVICE]: "intent-only",
+    });
+    expect(projectCharacterSession(onlineSnapshot(), members, signals()).state).toBe("partial-sync");
+  });
+
   it("連接頁的裝置一行：非 full-state 不得寫成「已同步」", () => {
     const snap = onlineSnapshot();
     expect(characterSyncDeviceLine(snap, DEVICE)).toBe("角色同步：已同步");

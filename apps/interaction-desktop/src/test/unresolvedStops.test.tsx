@@ -140,15 +140,48 @@ describe("連接與權限：沒有人確認的感測停止", () => {
     expect(await screen.findByText(/系統沒有收到裝置的回覆/)).toBeInTheDocument();
   });
 
+  /**
+   * 後端真正會回的那一句（`sensor_source.rs` 的 `DomainError::NotFound`）：
+   * 它自己就帶著 sourceId 與 generation，所以「把原文塞進 notice」＝ X5 外洩。
+   */
+  const BACKEND_DISMISS_ERROR =
+    "404: not found: no unresolved stop for declarative.desk-esp32 (generation 7)";
+
   it("解除失敗不得靜默，也不得說成已經處理掉", async () => {
     vi.spyOn(api, "sensorsUnresolved").mockResolvedValue({ unresolvedStops: [stop()] });
-    vi.spyOn(api, "sensorsDismissUnresolved").mockRejectedValue(new Error("404 not found"));
+    vi.spyOn(api, "sensorsDismissUnresolved").mockRejectedValue(new Error(BACKEND_DISMISS_ERROR));
     render(<UnresolvedStopsSection refreshKey={0} />);
     const row = await screen.findByTestId("unresolved-stop-0");
     await userEvent.click(within(row).getByRole("button", { name: UNRESOLVED_DISMISS_LABEL }));
     await userEvent.click(await screen.findByRole("button", { name: UNRESOLVED_DISMISS_CONFIRM }));
     expect(await screen.findByText(/沒有記下你的確認/)).toBeInTheDocument();
     expect(screen.getByText(/這一筆還在/)).toBeInTheDocument();
+  });
+
+  it("解除失敗的一般模式文案不得帶後端原文（sourceId／generation 一個字都不能有）", async () => {
+    vi.spyOn(api, "sensorsUnresolved").mockResolvedValue({ unresolvedStops: [stop()] });
+    vi.spyOn(api, "sensorsDismissUnresolved").mockRejectedValue(new Error(BACKEND_DISMISS_ERROR));
+    render(<UnresolvedStopsSection refreshKey={0} />);
+    const row = await screen.findByTestId("unresolved-stop-0");
+    await userEvent.click(within(row).getByRole("button", { name: UNRESOLVED_DISMISS_LABEL }));
+    await userEvent.click(await screen.findByRole("button", { name: UNRESOLVED_DISMISS_CONFIRM }));
+    await screen.findByText(/沒有記下你的確認/);
+    const section = screen.getByTestId("unresolved-stops");
+    const text = section.textContent ?? "";
+    expect(text).not.toContain("declarative.desk-esp32");
+    expect(text).not.toMatch(/generation/i);
+    expect(text).not.toContain("no unresolved stop");
+  });
+
+  it("進階模式才看得到後端原文，而且是次要的一行（不取代人話）", async () => {
+    vi.spyOn(api, "sensorsUnresolved").mockResolvedValue({ unresolvedStops: [stop()] });
+    vi.spyOn(api, "sensorsDismissUnresolved").mockRejectedValue(new Error(BACKEND_DISMISS_ERROR));
+    render(<UnresolvedStopsSection refreshKey={0} advanced />);
+    const row = await screen.findByTestId("unresolved-stop-0");
+    await userEvent.click(within(row).getByRole("button", { name: UNRESOLVED_DISMISS_LABEL }));
+    await userEvent.click(await screen.findByRole("button", { name: UNRESOLVED_DISMISS_CONFIRM }));
+    expect(await screen.findByText(/沒有記下你的確認/)).toBeInTheDocument();
+    expect(screen.getByText(/no unresolved stop/)).toBeInTheDocument();
   });
 
   it("讀不到就說讀不到（不把「讀取失敗」說成「沒有」）", async () => {

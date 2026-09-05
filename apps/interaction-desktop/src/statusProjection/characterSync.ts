@@ -314,6 +314,32 @@ export function characterSyncProfiles(source: unknown): Record<string, string> {
 }
 
 /**
+ * 「來源識別碼（provider id）→ 同步模式」。
+ *
+ * 為什麼要另外一張表：`GET /v1/status` 的 `characterSessionSync[].deviceId` 是 **AIP 的裝置
+ * 識別碼**（宣告式 adapter 的 `expectedDeviceId`），而「連接與權限」列出來的是 **provider**
+ * （`identity.id`，預設 `provider.adapter.<spec.id>`）。兩者在真實環境必然不同，拿後者去查
+ * 前者為鍵的字典永遠查不到，§5.7 那句「這台裝置收不到完整的角色狀態」就一次也不會出現
+ * （對抗審查 general-mode-ux-026）。對應只能由後端說出來：`providerId` 是選填欄位，
+ * **沒有就是沒有**——這裡不從識別碼的長相去猜。
+ */
+export function characterSyncProfilesByProvider(source: unknown): Record<string, string> {
+  const root = record(source);
+  const entries = root?.["characterSessionSync"];
+  if (!Array.isArray(entries)) return {};
+  const out: Record<string, string> = {};
+  for (const entry of entries) {
+    if (Object.keys(out).length >= MAX_SYNC_PROFILES) break;
+    const item = record(entry);
+    const key = typeof item?.["providerId"] === "string" ? String(item["providerId"]).trim() : "";
+    const value = typeof item?.["syncProfile"] === "string" ? String(item["syncProfile"]).trim() : "";
+    if (key.length === 0 || value.length === 0 || key in out) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/**
  * 保存層（persistent store）的訊號。
  *
  * 兩類要分開，否則會變成假警報（M3 §4.3b）：
@@ -630,6 +656,20 @@ export function projectCharacterSession(
   }
   const online = remote.filter((m) => m.presence === "online");
   if (online.length > 0) {
+    // 有 online 成員不代表「每一台裝置都同步了」：另一台**現在就連著這台電腦**卻不是
+    // session 成員的手機（送不出互動、也收不到狀態）是當下的事實，綠勾會把它蓋掉
+    //（對抗審查 general-mode-ux-026）。
+    //
+    // 它排在最前面：這一態是 warn、要人動手（`reconfirm-device`），而且**說得出是哪一台**；
+    // 底下兩態是 info／warn 的性質描述，沒有人做得了什麼。把性質排在待辦前面，等於整個
+    // 吞掉「哪一台要重新確認」與它的落點（對抗審查 general-mode-ux-025）。每一台裝置那條線
+    // 送得到多少狀態，仍然逐台顯示在成員清單與連接頁（`characterSyncDeviceLine`），不會消失。
+    //
+    // 這裡只看 `connectedButNotSynced`，不看 `revokedDevice`：後者是「曾經有裝置被撤銷過」
+    // 的歷史事實（provider 列會永遠留著 revoked），拿它壓過一台真的在線的裝置會變成
+    // 一個永遠亮著的假警報（general-mode-ux.md §3）。真的需要重新確認的裝置只要連上來，
+    // 就會以「連著但不是成員」的身分出現在 `connectedButNotSynced` 裡。
+    if (signals.connectedButNotSynced) return needsReconfirmation(project, signals);
     // 這條線送不到完整狀態（`intent-only`／`event-source`）→ 排在能力判定**之前**：
     // partial-capability 的文案說「狀態已經對齊了」，而這一態連狀態都沒有完整送到，
     // 講成「對齊了、只是演不出全部」就是把兩件事說反（device-profile §3.1）。
@@ -640,15 +680,6 @@ export function projectCharacterSession(
     if (online.some((m) => !m.canPresent || m.degraded === true)) {
       return project("partial-capability");
     }
-    // 有 online 成員不代表「每一台裝置都同步了」：另一台**現在就連著這台電腦**卻不是
-    // session 成員的手機（送不出互動、也收不到狀態）是當下的事實，綠勾會把它蓋掉
-    //（對抗審查 general-mode-ux-026）。
-    //
-    // 這裡只看 `connectedButNotSynced`，不看 `revokedDevice`：後者是「曾經有裝置被撤銷過」
-    // 的歷史事實（provider 列會永遠留著 revoked），拿它壓過一台真的在線的裝置會變成
-    // 一個永遠亮著的假警報（general-mode-ux.md §3）。真的需要重新確認的裝置只要連上來，
-    // 就會以「連著但不是成員」的身分出現在 `connectedButNotSynced` 裡。
-    if (signals.connectedButNotSynced) return needsReconfirmation(project, signals);
     // 協商結果拿不到 → 不給綠色，也不誣賴它做不到。
     if (online.some((m) => m.degraded === null)) return project("capability-unknown");
     return project("synced");

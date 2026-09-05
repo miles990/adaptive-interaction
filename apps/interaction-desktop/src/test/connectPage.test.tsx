@@ -1367,7 +1367,54 @@ describe("連接與權限：成員同步模式（只有 full-state 可以說已�
     expect(devices.textContent ?? "").not.toContain("intent-only");
   });
 
-  it("裝置條目：非 full-state 的來源自己說得出「不算已同步」", async () => {
+  /**
+   * production 的真實形狀：provider 的 `identity.id` 預設是 `provider.adapter.<spec.id>`
+   * （`crates/interaction-runtime/src/providers.rs`），而 AIP 的裝置識別碼是 spec 宣告的
+   * `expectedDeviceId`（`declarative_session.rs` 的 `Party::device`）。兩者**必然不同**，
+   * 所以對應只能由後端說出來（`characterSessionSync[].providerId`）——拿 provider id 去查
+   * 以裝置識別碼為鍵的字典，在真實環境一次都不會命中
+   * （對抗審查 general-mode-ux-026）。
+   */
+  function declarativeProviderRow(): Record<string, unknown> {
+    return {
+      identity: {
+        id: "provider.adapter.button-box",
+        displayName: "按鈕盒",
+        kind: "device",
+        trustLevel: "paired",
+      },
+      state: "available",
+      receptors: ["button.press"],
+      actuators: [],
+    };
+  }
+
+  it("裝置條目：非 full-state 的來源自己說得出「不算已同步」（provider id ≠ 裝置識別碼）", async () => {
+    stubApis();
+    vi.spyOn(api, "providersList").mockResolvedValue([declarativeProviderRow()]);
+    vi.spyOn(api, "status").mockResolvedValue({
+      emergencyStop: false,
+      characterSessionSync: [
+        {
+          deviceId: "button-box-01",
+          providerId: "provider.adapter.button-box",
+          transport: "serial",
+          syncProfile: "event-source",
+          presence: "online",
+        },
+      ],
+    });
+    renderConnect();
+    const devices = await screen.findByTestId("connect-area-devices");
+    await within(devices).findByText(/只回報事件/);
+    expect(within(devices).getByText(/只回報事件/).textContent ?? "").toContain("不算已同步");
+    expect(devices.textContent ?? "").not.toContain("event-source");
+    // 識別碼一個都不進畫面（X5）。
+    expect(devices.textContent ?? "").not.toContain("button-box-01");
+    expect(devices.textContent ?? "").not.toContain("provider.adapter.button-box");
+  });
+
+  it("後端沒有回報 providerId 時不猜：識別碼剛好相同才對得上（相容路徑）", async () => {
     stubApis();
     vi.spyOn(api, "providersList").mockResolvedValue([providerRow("available")]);
     vi.spyOn(api, "status").mockResolvedValue({
@@ -1385,6 +1432,26 @@ describe("連接與權限：成員同步模式（只有 full-state 可以說已�
     const devices = await screen.findByTestId("connect-area-devices");
     await within(devices).findByText(/只回報事件/);
     expect(within(devices).getByText(/只回報事件/).textContent ?? "").toContain("不算已同步");
-    expect(devices.textContent ?? "").not.toContain("event-source");
+  });
+
+  it("providerId 對不上這一台時不掛別人的字（不猜、不張冠李戴）", async () => {
+    stubApis();
+    vi.spyOn(api, "providersList").mockResolvedValue([declarativeProviderRow()]);
+    vi.spyOn(api, "status").mockResolvedValue({
+      emergencyStop: false,
+      characterSessionSync: [
+        {
+          deviceId: "esp32-sim01",
+          providerId: "provider.adapter.another-box",
+          transport: "serial",
+          syncProfile: "event-source",
+          presence: "online",
+        },
+      ],
+    });
+    renderConnect();
+    const devices = await screen.findByTestId("connect-area-devices");
+    await within(devices).findByText("按鈕盒");
+    expect(within(devices).queryByText(/只回報事件/)).not.toBeInTheDocument();
   });
 });

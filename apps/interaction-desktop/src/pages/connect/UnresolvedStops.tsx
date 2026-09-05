@@ -14,6 +14,7 @@ import React from "react";
 import { api } from "../../api";
 import { ConfirmButton } from "../../components/Dialog";
 import { Icon } from "../../icons";
+import { sanitizeErrorText } from "../character/catalog";
 import {
   projectUnresolvedStops,
   UNRESOLVED_DISMISS_CONFIRM,
@@ -22,21 +23,36 @@ import {
 } from "../../statusProjection";
 import { useAsync } from "../../ui";
 
-export function UnresolvedStopsSection({ refreshKey }: { refreshKey: number }) {
+/** 解除失敗的一般模式文案：固定人話，永遠不帶後端原文。 */
+const DISMISS_FAILED_MESSAGE = "沒有記下你的確認：這一筆還在，請再試一次。";
+
+export function UnresolvedStopsSection({
+  refreshKey,
+  advanced = false,
+}: {
+  refreshKey: number;
+  /** 進階模式才顯示後端原文（那句話自己就帶著 sourceId／generation）。 */
+  advanced?: boolean;
+}) {
   const [unresolved, reload] = useAsync(() => api.sensorsUnresolved(), [refreshKey]);
   const [notice, setNotice] = React.useState<string | null>(null);
+  const [rawError, setRawError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const view = projectUnresolvedStops(unresolved.data ?? null);
 
   async function dismiss(sourceId: string, generation: number) {
     setBusy(true);
     setNotice(null);
+    setRawError(null);
     try {
       await api.sensorsDismissUnresolved(sourceId, generation);
       setNotice(UNRESOLVED_DISMISSED_MESSAGE);
     } catch (e) {
       // 解除失敗＝紀錄還在；不得靜默，也不得說成已經處理掉。
-      setNotice(`沒有記下你的確認（${String(e)}）：這一筆還在，請再試一次。`);
+      // 後端那句話自己就帶著 sourceId 與 generation（`sensor_source.rs` 的 NotFound），
+      // 所以一般模式只印人話——原文留給進階模式的次要行（X5：識別碼不進一般模式畫面）。
+      setNotice(DISMISS_FAILED_MESSAGE);
+      setRawError(sanitizeErrorText(e));
     }
     setBusy(false);
     reload();
@@ -83,6 +99,7 @@ export function UnresolvedStopsSection({ refreshKey }: { refreshKey: number }) {
           {notice}
         </p>
       )}
+      {advanced && rawError && <p className="muted small">原始：{rawError}</p>}
     </div>
   );
 }

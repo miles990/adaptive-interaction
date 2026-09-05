@@ -28,6 +28,7 @@ import {
   characterSyncDeviceLine,
   characterSyncProfileNote,
   characterSyncProfiles,
+  characterSyncProfilesByProvider,
   inboxItemTitle,
   inboxKindLabel,
   isPendingCountExact,
@@ -369,6 +370,8 @@ function ConnectOverview({
   // 每一台裝置成員那條線送得到多少狀態（`docs/aip/device-profile.md` §3.1）。
   // 沒有裝置成員時後端不序列化這個鍵——空的就是空的，不猜成「都已同步」。
   const syncProfiles = characterSyncProfiles(status.data);
+  /** provider id → 同步模式（後端有回報 `providerId` 時才有；沒有就是空的，不猜）。 */
+  const syncProfilesByProvider = characterSyncProfilesByProvider(status.data);
   const phones = ((mobile.data?.devices as Record<string, unknown>[] | undefined) ?? []).filter(
     (d) => d && typeof d === "object"
   );
@@ -549,7 +552,12 @@ function ConnectOverview({
               //（docs/aip/general-mode-ux.md §5.6）。
               const state = projectProviderConnection(String(p.state ?? ""), p.detail);
               // 這條線送不到完整角色狀態時要自己說出來（非 full-state 才有這一句）。
-              const syncNote = characterSyncProfileNote(syncProfiles[id]);
+              // 先用後端說出來的 provider ↔ 裝置對應（`characterSessionSync[].providerId`）。
+              // 舊 Runtime 沒有這個欄位時退回「識別碼剛好相同」的既有比對——那條路只在
+              // 兩邊 id 真的一樣時才會命中，不會憑空生出一句話（對抗審查 general-mode-ux-026）。
+              const syncNote = characterSyncProfileNote(
+                syncProfilesByProvider[id] ?? syncProfiles[id]
+              );
               // 停用是**人自己按的**，所以人也要能按回去。撤銷／已關閉不給這顆按鈕：
               // 那不是「停一下」，重新使用要重新配對（撤銷不得有回頭路）。
               const canReenable = String(p.state ?? "") === "disabled";
@@ -765,7 +773,7 @@ function ConnectOverview({
           </ul>
         )}
         {/* 停止的另一半：離開即時清單、卻從來沒有人確認過的那些擷取。 */}
-        <UnresolvedStopsSection refreshKey={refreshKey} />
+        <UnresolvedStopsSection refreshKey={refreshKey} advanced={advanced} />
         {revokeMessage && (
           <p className="notice-box small" role="status">
             {revokeMessage}

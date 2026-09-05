@@ -45,9 +45,15 @@
 
 判定順序（先擋住「不能相信」的情況，最後才談成功）：
 關閉 → 連續讀不到 → 這一次讀不到 → 認不得的回報 → 紀錄曾損毀 → 有 online 成員
-（那條線送不到完整狀態 → `partial-sync`；已知做不到 → `partial-capability`；
-另有裝置**現在連著**卻不是成員 → `needs-reconfirmation`；拿不到協商結果 → `capability-unknown`；
+（另有裝置**現在連著**卻不是成員 → `needs-reconfirmation`；那條線送不到完整狀態 →
+`partial-sync`；已知做不到 → `partial-capability`；拿不到協商結果 → `capability-unknown`；
 全部確認演得出來 → `synced`）→ reconnecting → offline → 需要重新確認 → 沒有裝置。
+
+`needs-reconfirmation` 排在這三態**之前**：它是 warn、要人動手（`reconfirm-device`），
+而且說得出是哪一台；`partial-sync`／`partial-capability`／`capability-unknown` 是那條線的
+性質描述，當下沒有人做得了什麼。把性質排在待辦前面會整個吞掉「哪一台要重新確認」與它的
+落點（v0.6.x 對抗審查 general-mode-ux-025）。每一台裝置那條線送得到多少狀態仍然逐台顯示在
+成員清單與連接頁的裝置條目（§5.7），不會因為排序而消失。
 
 `partial-sync` 排在能力判定**之前**：`partial-capability` 的文案說「狀態已經對齊了」，
 而那一態連狀態都沒有完整送到（§5.7）。

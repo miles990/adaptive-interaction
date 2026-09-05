@@ -466,6 +466,14 @@ export interface CharacterSessionDiagnostics {
  */
 export interface CharacterSessionSyncEntry {
   deviceId: string;
+  /**
+   * 這台裝置是由哪一個 provider 提供的（`identity.id`）。
+   *
+   * 選填：舊 Runtime 不送。**只有它**能把「連接與權限」列出來的 provider 對回 AIP 的
+   * 裝置識別碼——`deviceId` 是 spec 宣告的 `expectedDeviceId`，與 provider id
+   * （`provider.adapter.<spec.id>`）在真實環境必然不同（對抗審查 general-mode-ux-026）。
+   */
+  providerId?: string;
   transport: string;
   /** `full-state`／`intent-only`／`event-source`（只有 `full-state` 可以說「已同步」）。 */
   syncProfile: string;
