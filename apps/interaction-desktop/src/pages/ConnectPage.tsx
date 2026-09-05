@@ -31,7 +31,7 @@ import {
   isPendingCountExact,
   PENDING_INCOMPLETE_NOTE,
   projectInboxStatus,
-  projectProviderState,
+  projectProviderConnection,
 } from "../statusProjection";
 import { Badge, Section, useAsync } from "../ui";
 import { CapabilitiesHub } from "./CapabilitiesHub";
@@ -39,6 +39,7 @@ import type { HubTab } from "./CapabilitiesHub";
 import { SafetyPage } from "./SafetyPage";
 import { PermissionMap } from "./HomePage";
 import { CharacterAdaptersSection } from "./connect/CharacterAdaptersSection";
+import { UnresolvedStopsSection } from "./connect/UnresolvedStops";
 import {
   isMobileProviderId,
   phoneCardModel,
@@ -510,11 +511,20 @@ function ConnectOverview({
             {deviceProviders.map((p) => {
               const identity = (p.identity as Record<string, unknown> | undefined) ?? {};
               const id = String(identity.id ?? "");
-              const state = projectProviderState(String(p.state ?? ""));
+              // 宣告式裝置重新綁定期間狀態誠實地留在 disconnected：只印「未連線」
+              // 會讓人以為沒人在處理，失敗之後也分不出來
+              //（docs/aip/general-mode-ux.md §5.6）。
+              const state = projectProviderConnection(String(p.state ?? ""), p.detail);
               return (
-                <li key={`provider-${id}`}>
+                <li key={`provider-${id}`} data-testid={`connect-provider-${state.phase}`}>
                   <Icon name="cpu" size={14} />
-                  <span>{String(identity.displayName ?? "裝置")}</span>
+                  <span>
+                    {String(identity.displayName ?? "裝置")}
+                    {state.note && <span className="muted small">　{state.note}</span>}
+                    {advanced && state.rawReason && (
+                      <span className="muted small">　原始：{state.rawReason}</span>
+                    )}
+                  </span>
                   <Badge kind={state.badge}>{state.label}</Badge>
                 </li>
               );
@@ -702,6 +712,8 @@ function ConnectOverview({
             ))}
           </ul>
         )}
+        {/* 停止的另一半：離開即時清單、卻從來沒有人確認過的那些擷取。 */}
+        <UnresolvedStopsSection refreshKey={refreshKey} />
         {revokeMessage && (
           <p className="notice-box small" role="status">
             {revokeMessage}

@@ -20,6 +20,14 @@ export interface HostSafetyView {
   micActive: boolean;
   cameraActive: boolean;
   sensors: SensorView[];
+  /**
+   * 「離開了使用中清單、但沒有人確認它停了」的筆數。
+   *
+   * overlay **刻意不顯示**它：這一區只講「此刻正在發生」的事（緊急停止、正在
+   * 感測、連不上），未解決停止是沒有結論的紀錄，它的家在狀態列與「連接與權限」。
+   * 型別留著是為了跟 Rust 那一份保持鏡射，不是給這裡渲染用的。
+   */
+  unresolvedStops?: number;
   /** Rust 算好的「該不該顯示」；缺席時以同一規則在此端推導。 */
   active?: boolean;
   at: string;

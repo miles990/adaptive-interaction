@@ -20,5 +20,6 @@
 export * from "./statusProjection/workState";
 export * from "./statusProjection/inbox";
 export * from "./statusProjection/provider";
+export * from "./statusProjection/unresolvedStops";
 export * from "./statusProjection/characterLifecycle";
 export * from "./statusProjection/characterSync";

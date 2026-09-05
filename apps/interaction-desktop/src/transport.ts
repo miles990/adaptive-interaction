@@ -316,6 +316,12 @@ const ROUTES: Record<string, Route> = {
   sensor_mic_listen: (a) =>
     http("POST", "/v1/sensors/microphone/listen", { durationMs: a.durationMs }),
   sensors_stop: () => http("POST", "/v1/sensors/stop"),
+  sensors_unresolved: () => http("GET", "/v1/sensors/unresolved"),
+  // 解除是人類層動作（agent token 打不到這條路徑），而且一定要指名世代。
+  sensors_dismiss_unresolved: (a) =>
+    http("POST", `/v1/sensors/unresolved/${q(a.sourceId)}/dismiss`, {
+      generation: a.generation,
+    }),
 };
 
 /** Invoke a backend command through whichever transport is active. */

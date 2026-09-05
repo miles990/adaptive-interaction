@@ -12,8 +12,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-/** 一般模式的 DOM 文字一個都不得命中：技術詞＋長得像識別碼的字串。 */
-const TECHNICAL = /revision|epoch|sequence|uuid|[0-9a-f]{8}-[0-9a-f]{4}-/i;
+/**
+ * 一般模式的 DOM 文字一個都不得命中：技術詞＋長得像識別碼的字串。
+ *
+ * `generation`／`sourceId` 是 v0.6.x 新增的兩個外洩面：感測來源的世代與內部 id
+ * 會經「未解決停止」與角色實例流到畫面附近，兩者都只該拿去呼叫 API。
+ */
+const TECHNICAL = /revision|epoch|sequence|generation|sourceid|uuid|[0-9a-f]{8}-[0-9a-f]{4}-/i;
 /** 來源清單的 id 前綴（Runtime `mobile.rs` 的 `provider.mobile.<id>`）。 */
 const PROVIDER_PREFIX = "provider.mobile.";
 
@@ -27,6 +32,8 @@ const mockApi = vi.hoisted(() => ({
   characterSessionDiagnostics: vi.fn(),
   mobileStatus: vi.fn(),
   providersList: vi.fn(),
+  sensorsUnresolved: vi.fn(),
+  sensorsDismissUnresolved: vi.fn(),
 }));
 
 vi.mock("../api", async (importOriginal) => {
@@ -35,6 +42,7 @@ vi.mock("../api", async (importOriginal) => {
 });
 
 import { CharacterSyncCard } from "../components/CharacterSyncCard";
+import { UnresolvedStopsSection } from "../pages/connect/UnresolvedStops";
 import { stateHash } from "../aip/canonical";
 
 afterEach(() => {
@@ -217,5 +225,53 @@ describe("X5：同步卡在一般模式的 DOM 文字沒有技術詞", () => {
     const card = await screen.findByTestId("character-sync");
     await userEvent.click(await within(card).findByText("連接診斷"));
     await waitFor(() => expect(card.textContent ?? "").toMatch(TECHNICAL));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 未解決停止：世代與來源識別碼只准拿去呼叫 API，不准上畫面
+// ---------------------------------------------------------------------------
+
+/** 刻意長得像內部識別碼的來源 id：漏進畫面就會被 `TECHNICAL` 或字面比對抓到。 */
+const SOURCE_ID = `declarative.serial.${DEVICE_ID}`;
+
+describe("X5：未解決停止在一般模式的 DOM 文字沒有技術詞", () => {
+  it("逐筆只有人話：沒有 sourceId、沒有 generation、沒有原始感測種類 id", async () => {
+    mockApi.sensorsUnresolved.mockResolvedValue({
+      unresolvedStops: [
+        {
+          sourceId: SOURCE_ID,
+          generation: 42,
+          sensors: ["iphone.motion"],
+          since: new Date(Date.now() - 5 * 60_000).toISOString(),
+          lastKnown: [{ kind: "iphone.motion", startedAt: "", startedBy: "api", purpose: "p" }],
+        },
+      ],
+    });
+    render(<UnresolvedStopsSection refreshKey={0} />);
+    const section = await screen.findByTestId("unresolved-stops");
+    await waitFor(() => expect(section.textContent ?? "").toContain("沒有人確認"));
+    const text = section.textContent ?? "";
+    expect(text).not.toContain(SOURCE_ID);
+    expect(text).not.toContain("iphone.motion");
+    expect(text, "一般模式外洩技術詞").not.toMatch(TECHNICAL);
+    // 誠實：它沒有回答「停了沒有」，所以不得出現「已停止」。
+    expect(text).not.toContain("已停止");
+  });
+
+  it("有人話名稱時用名字，沒有時用中性稱呼（都不退回識別碼）", async () => {
+    mockApi.sensorsUnresolved.mockResolvedValue({
+      unresolvedStops: [
+        { sourceId: SOURCE_ID, generation: 1, sensors: ["microphone"], since: "", sourceLabel: FIXTURE_PHONE },
+        { sourceId: SOURCE_ID, generation: 2, sensors: ["microphone"], since: "" },
+      ],
+    });
+    render(<UnresolvedStopsSection refreshKey={0} />);
+    const section = await screen.findByTestId("unresolved-stops");
+    await waitFor(() => expect(section.textContent ?? "").toContain("某個裝置"));
+    const text = section.textContent ?? "";
+    expect(text).toContain(FIXTURE_PHONE);
+    expect(text).not.toContain(SOURCE_ID);
+    expect(text).not.toMatch(TECHNICAL);
   });
 });

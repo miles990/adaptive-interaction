@@ -169,6 +169,48 @@ impl Backend {
         }
     }
 
+    /// 「未解決停止」：已經離開 `activeSensors`、但沒有任何人確認它停了的擷取。
+    /// 兩種模式共用同一份事實（內嵌直呼、外部打 HTTP）。
+    pub async fn sensors_unresolved(&self) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => {
+                let entries = rt.unresolved_stops().await;
+                Ok(json!({
+                    "unresolvedStops": serde_json::to_value(&entries)
+                        .unwrap_or(Value::Array(vec![])),
+                }))
+            }
+            Backend::External { base, token } => {
+                supervisor::daemon_get(base, token, "/v1/sensors/unresolved").await
+            }
+        }
+    }
+
+    /// 人為解除一筆未解決停止：這是「人類看過了」，**不是**「裝置回報停止」。
+    /// 一定要指名世代，才不會誤清掉同 id 的新一筆。
+    pub async fn sensors_dismiss_unresolved(
+        &self,
+        source_id: &str,
+        generation: u64,
+        actor: &str,
+    ) -> Result<Value, String> {
+        match self {
+            Backend::Embedded(rt) => rt
+                .dismiss_unresolved_stop(source_id, generation, actor)
+                .await
+                .map_err(|e| e.to_string()),
+            Backend::External { base, token } => {
+                supervisor::daemon_post(
+                    base,
+                    token,
+                    &format!("/v1/sensors/unresolved/{source_id}/dismiss"),
+                    json!({"generation": generation}),
+                )
+                .await
+            }
+        }
+    }
+
     pub async fn mobile_sensors_stop(&self, device_id: &str) -> Result<Value, String> {
         match self {
             Backend::Embedded(rt) => rt
@@ -450,6 +492,22 @@ fn rt(state: &State<'_, AppState>) -> Result<Runtime, String> {
                 .clone()
                 .unwrap_or_else(|| "runtime not started".into())
         })
+}
+
+/// 拿得到 backend（內嵌 Runtime 或已授權的外部 daemon）就回它，拿不到就回啟動失敗
+/// 的原因。`rt()` 的同伴：tray／感測這一類「兩種模式都要能用」的指令走這一條。
+///
+/// 每個呼叫點各自複製這段（含 `expect("error mutex")`）只會讓同一個鎖的處理方式散在
+/// 好幾處；集中一份之後，新增指令不必再抄一次。
+fn backend_of(state: &State<'_, AppState>) -> Result<Backend, String> {
+    state.backend().ok_or_else(|| {
+        state
+            .startup_error
+            .lock()
+            .expect("error mutex")
+            .clone()
+            .unwrap_or_else(|| "runtime not started".into())
+    })
 }
 
 fn err_s(e: impl std::fmt::Display) -> String {
@@ -1088,15 +1146,30 @@ async fn sensor_mic_listen(state: State<'_, AppState>, duration_ms: u64) -> Resu
 /// `uncertain` ＝有來源沒回覆（手機可能還在錄音），`devices[]` 逐台列出結果。
 #[tauri::command]
 async fn sensors_stop(state: State<'_, AppState>) -> Result<Value, String> {
-    let backend = state.backend().ok_or_else(|| {
-        state
-            .startup_error
-            .lock()
-            .expect("error mutex")
-            .clone()
-            .unwrap_or_else(|| "runtime not started".into())
-    })?;
+    let backend = backend_of(&state)?;
     backend.sensors_stop("desktop").await
+}
+
+/// 目前所有「未解決停止」。空陣列＝沒有任何一筆是結果不確定的，
+/// **不是**「都停了」的保證。
+#[tauri::command]
+async fn sensors_unresolved(state: State<'_, AppState>) -> Result<Value, String> {
+    let backend = backend_of(&state)?;
+    backend.sensors_unresolved().await
+}
+
+/// 人為解除一筆未解決停止（`confirmedStopped` 永遠是 false：這是人類的確認，
+/// 不是裝置的回覆）。
+#[tauri::command]
+async fn sensors_dismiss_unresolved(
+    state: State<'_, AppState>,
+    source_id: String,
+    generation: u64,
+) -> Result<Value, String> {
+    let backend = backend_of(&state)?;
+    backend
+        .sensors_dismiss_unresolved(&source_id, generation, "desktop")
+        .await
 }
 
 #[tauri::command]
@@ -3516,6 +3589,8 @@ pub fn run() {
             asset_impact,
             asset_delete,
             sensors_stop,
+            sensors_unresolved,
+            sensors_dismiss_unresolved,
             character_hello,
             character_receipt,
             character_event,

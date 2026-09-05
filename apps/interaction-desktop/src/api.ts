@@ -384,6 +384,13 @@ export const api = {
   sensorMicListen: (durationMs: number) =>
     invoke<Record<string, unknown>>("sensor_mic_listen", { durationMs }),
   sensorsStop: () => invoke<SensorStopReport>("sensors_stop"),
+  /** 目前所有「未解決停止」：已離開 activeSensors、但沒有任何人確認它停了的擷取。
+   *  空陣列＝沒有懸而未決的事，**不是**「都停了」的保證。 */
+  sensorsUnresolved: () => invoke<UnresolvedStopsReport>("sensors_unresolved"),
+  /** 人為解除一筆未解決停止。這是「人類看過了」，不是「裝置回報停止」——
+   *  一定要指名世代（`generation`），才不會誤清掉同 id 的新一筆。 */
+  sensorsDismissUnresolved: (sourceId: string, generation: number) =>
+    invoke<UnresolvedStopDismissResult>("sensors_dismiss_unresolved", { sourceId, generation }),
 };
 
 // ---- AIP Character Session types（與 crates/interaction-aip 的 wire 一致） ----
@@ -578,6 +585,40 @@ export interface SensorStopReport {
   devices?: SensorStopDeviceReport[];
   /** 非手機來源的逐筆結果（本機擷取投影在 `local`，不重複列）。舊 daemon 不送。 */
   sources?: SensorStopSourceReport[];
+}
+
+/** 一筆「已經不在即時清單上、但仍然沒有結論」的停止（runtime `sensor_source.rs`
+ *  的 `UnresolvedStop`）。`sourceId`／`generation` 是內部識別，只用來呼叫解除 API，
+ *  一般模式不得顯示；`sourceLabel` 是人話名稱（舊 Runtime 沒有這個欄位）。 */
+export interface UnresolvedStop {
+  sourceId: string;
+  /** 哪一次登記：同 id 的新來源不會蓋掉舊世代這一筆。 */
+  generation: number;
+  /** 這一筆涵蓋哪些受器（原始種類 id；畫面走 `sensorKindLabel`）。 */
+  sensors: string[];
+  /** 變成「未解決」的時間（RFC3339）。 */
+  since: string;
+  /** 最後看到的擷取狀態（不猜、不改寫）。 */
+  lastKnown?: SensorUse[];
+  /** 人話名稱（選填；沒有就用中性稱呼，不退回 `sourceId`）。 */
+  sourceLabel?: string;
+}
+
+/** `GET /v1/sensors/unresolved`。空陣列＝沒有任何一筆是結果不確定的。 */
+export interface UnresolvedStopsReport {
+  unresolvedStops?: UnresolvedStop[];
+  note?: string;
+}
+
+/** `POST /v1/sensors/unresolved/{sourceId}/dismiss`。`confirmedStopped` 永遠是 false：
+ *  解除只記下人類的決定，不是裝置確認停止。 */
+export interface UnresolvedStopDismissResult {
+  dismissed?: boolean;
+  sourceId?: string;
+  generation?: number;
+  sensors?: string[];
+  since?: string;
+  confirmedStopped?: boolean;
 }
 
 /** 單台手機的「停止感測」結果（runtime `mobile_sensors_stop`）。

@@ -23,8 +23,10 @@ import {
   isWorkState,
   projectCharacterLifecycle,
   projectInboxStatus,
+  projectProviderConnection,
   projectProviderState,
   projectWorkState,
+  PROVIDER_REENABLE_MESSAGE,
   WORK_STATE_PROJECTION,
   WORK_STATES,
   WorkState,
@@ -520,5 +522,66 @@ describe("projectCharacterLifecycle（角色頁單一角色生命週期投影）
     expect(projected.label).not.toBe("some-future-value");
     expect(projected.label).toBe("準備中");
     expect(projected.kind).toBe("pending");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 宣告式裝置的重新綁定：狀態留在 disconnected，畫面不得只說「未連線」
+// ---------------------------------------------------------------------------
+
+describe("projectProviderConnection：重新連線中 ≠ 未連線 ≠ 失敗", () => {
+  const detail = (warnings: string[]) => JSON.stringify({ note: "x", warnings });
+  const REBINDING =
+    "rebinding: this device's link and capability declaration are being rebuilt; it is NOT " +
+    "connected yet and its state stays disconnected until the handshake succeeds";
+
+  it("進行中：說「重新連線中」，補充句說能力還沒回來", () => {
+    const p = projectProviderConnection("disconnected", detail([REBINDING]));
+    expect(p.phase).toBe("rebinding");
+    expect(p.label).toBe("重新連線中");
+    expect(p.badge).toBe("pending");
+    expect(p.note).toContain("能力還沒有回來");
+    expect(p.rawReason).toBeNull();
+    // 誠實：進行中不得說成已經連上。
+    expect(p.label).not.toContain("可用");
+  });
+
+  it("失敗：人話原因給一般模式，英文原文只留在 rawReason（進階模式用）", () => {
+    const p = projectProviderConnection(
+      "disconnected",
+      detail(["rebind-failed: the device could not be rebuilt: serial port busy"])
+    );
+    expect(p.phase).toBe("rebind-failed");
+    expect(p.label).toBe("沒有重新連上");
+    expect(p.badge).toBe("bad");
+    expect(p.note).toContain("請檢查裝置與接線");
+    expect(p.note).not.toContain("serial port busy");
+    expect(p.rawReason).toBe("the device could not be rebuilt: serial port busy");
+  });
+
+  it("需要重新啟動的那一類有自己的人話", () => {
+    const p = projectProviderConnection(
+      "disconnected",
+      detail(["rebind-failed: a restart is needed to rebind"])
+    );
+    expect(p.note).toContain("重新啟動系統");
+  });
+
+  it("沒有記號／detail 不是 JSON／不是 disconnected：退回原本的生命週期標籤", () => {
+    for (const detailValue of [undefined, null, "", "not json", "{}", JSON.stringify({ note: "x" })]) {
+      const p = projectProviderConnection("disconnected", detailValue);
+      expect(p.phase).toBe("plain");
+      expect(p.label).toBe(projectProviderState("disconnected").label);
+      expect(p.note).toBeNull();
+    }
+    // 重新綁定的警告還掛著、但狀態已經收斂：那就是收斂後的狀態，不是「重新連線中」。
+    const converged = projectProviderConnection("available", detail([REBINDING]));
+    expect(converged.phase).toBe("plain");
+    expect(converged.label).toBe("可用");
+  });
+
+  it("「重新啟用」的回饋文案是「允許」不是「已啟用」", () => {
+    expect(PROVIDER_REENABLE_MESSAGE).toBe("已允許重新連線，正在重新綁定");
+    expect(PROVIDER_REENABLE_MESSAGE).not.toContain("已啟用");
   });
 });

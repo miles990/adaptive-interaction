@@ -245,3 +245,97 @@ export function projectSensorStop(
   }
   return { ok: true, message: "已停止感測。" };
 }
+
+// ---------------------------------------------------------------------------
+// 宣告式裝置的「重新連線中」（runtime `providers.rs` 的 rebind 流程）
+// ---------------------------------------------------------------------------
+
+/**
+ * 重新綁定進行中的固定警告（runtime `REBINDING_WARNING`）的前綴。
+ *
+ * 只比對前綴，不比對整句：那句話是給進階模式與 CLI 看的原文，會隨版本調整；
+ * 失敗那一則是 `rebind-failed: <原因>`，前綴不同，兩者不會互相誤判。
+ */
+const REBINDING_PREFIX = "rebinding";
+const REBIND_FAILED_PREFIX = "rebind-failed";
+
+/** 「重新連線中」的人話（誠實：這台裝置此刻**沒有**連上）。 */
+export const REBINDING_NOTE =
+  "正在重新連上這台裝置，它的能力還沒有回來；連上之後才會顯示為可用。";
+/** 沒有重新連上的人話。原始原因是英文技術訊息，只給進階模式。 */
+export const REBIND_FAILED_NOTE =
+  "這台裝置沒有重新連上，它的能力還沒有回來；請檢查裝置與接線，再重新啟用一次。";
+/** 需要重新啟動系統才救得回來的那一類。 */
+export const REBIND_NEEDS_RESTART_NOTE =
+  "這台裝置沒有重新連上：要重新啟動系統之後才能再試一次，它的能力還沒有回來。";
+/**
+ * 「重新啟用」按下之後可以誠實說出口的一句話。
+ *
+ * 誠實：按鈕只是**允許再連一次**——能力宣告與實體連線要等握手成功才回得來，
+ * 所以這裡不得說「已啟用」（那會讓「允許」冒充「連上了」）。
+ */
+export const PROVIDER_REENABLE_MESSAGE = "已允許重新連線，正在重新綁定";
+
+export interface ProviderConnectionProjection extends ProviderProjection {
+  /** 這一列現在處於重新綁定的哪一段。 */
+  phase: "rebinding" | "rebind-failed" | "plain";
+  /** 一句人話說明；沒有話要說時 `null`。 */
+  note: string | null;
+  /** 原始失敗原因（英文技術訊息）：**只有進階模式**可以顯示。 */
+  rawReason: string | null;
+}
+
+/** provider `detail` 裡的 `warnings[]`（runtime `provider_detail_warnings` 的鏡射）。 */
+function providerDetailWarnings(detail: unknown): string[] {
+  if (typeof detail !== "string" || !detail.trim()) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(detail);
+  } catch {
+    return [];
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+  const raw = (parsed as Record<string, unknown>).warnings;
+  return Array.isArray(raw) ? raw.filter((w): w is string => typeof w === "string") : [];
+}
+
+/**
+ * 裝置條目的連線狀態投影：在既有的 provider 生命週期之上，把宣告式裝置的
+ * 「重新連線中／沒有重新連上」說成人話。
+ *
+ * 為什麼不直接用 `state`：重新綁定期間狀態誠實地留在 `disconnected`（還沒握手
+ * 成功），只印「未連線」會讓使用者以為沒人在處理；而失敗之後狀態同樣是
+ * `disconnected`，兩者必須分得出來。
+ *
+ * @param state  provider 的原始狀態字串。
+ * @param detail provider 的 `detail`（JSON 字串或空值；形狀不可信）。
+ */
+export function projectProviderConnection(
+  state: string,
+  detail: unknown
+): ProviderConnectionProjection {
+  const base = projectProviderState(state);
+  const warnings = providerDetailWarnings(detail);
+  const failed = warnings.find((w) => w.startsWith(REBIND_FAILED_PREFIX));
+  if (failed) {
+    const reason = failed.slice(REBIND_FAILED_PREFIX.length).replace(/^\s*:\s*/, "").trim();
+    return {
+      label: "沒有重新連上",
+      badge: "bad",
+      phase: "rebind-failed",
+      note: /restart/i.test(reason) ? REBIND_NEEDS_RESTART_NOTE : REBIND_FAILED_NOTE,
+      rawReason: reason.length > 0 ? reason : null,
+    };
+  }
+  const rebinding = warnings.some((w) => w.startsWith(REBINDING_PREFIX));
+  if (rebinding && state === "disconnected") {
+    return {
+      label: "重新連線中",
+      badge: "pending",
+      phase: "rebinding",
+      note: REBINDING_NOTE,
+      rawReason: null,
+    };
+  }
+  return { label: base.label, badge: base.badge, phase: "plain", note: null, rawReason: null };
+}

@@ -136,6 +136,78 @@ schema 版本、transport／token／provider id、裝置識別碼、原始 paylo
 `src/test/statusProjection-session.test.ts`、`src/test/character-sync-card.test.tsx`、
 `src/test/regressions-v06-general-mode.test.tsx`。
 
+## 5.5 未解決停止（v0.6.x）
+
+「感測不靜默」的另一半：一個感測來源被移除時還在擷取，之後**沒有任何人、也沒有任何裝置**
+確認它停下來。這種紀錄離開了 `activeSensors` 即時清單，但沒有結論——不能因此從畫面上消失。
+
+> 來源：Runtime `sensor_source.rs` 的 `UnresolvedStop`（`status.unresolvedStops`，空的時候
+> 後端不序列化這個鍵）＋`GET /v1/sensors/unresolved`。
+> 投影：`src/statusProjection/unresolvedStops.ts` 的 `projectUnresolvedStops`。
+> 呈現：狀態列 `src/components/UnresolvedStopsBanner.tsx`、連接與權限
+> `src/pages/connect/UnresolvedStops.tsx`、狀態列選單 `src-tauri/src/tray.rs`。
+
+它**不是**這三件事，文案一律不得這樣寫：
+
+| 它不是 | 為什麼 |
+|---|---|
+| 「還在感測」 | 沒有任何證據說它還在跑；正在跑的東西在 `activeSensors`／感測橫幅。 |
+| 「已停止」 | 沒有任何來源確認過。這一區的存在理由就是「不知道」。 |
+| 歷史紀錄 | 歷史在稽核裡。這張表回答的是「現在還有哪些事沒有結論」。 |
+
+**三個出現的地方**（同一份投影，三處文字一致）：
+
+- **控制中心狀態列**（頂端）：一行摘要「有 N 筆感測停止沒有人確認，到「連接與權限」逐筆看。」＋前往按鈕。
+- **狀態列選單**（tray，Rust 直接算）：`系統狀態：…｜感測停止待確認 N`。感測中與未確認同時存在時兩段都在。
+  它不叫出可信 overlay——overlay 只講「此刻正在發生」的事（緊急停止、正在感測、連不上）。
+- **連接與權限 → 立即停止與撤銷**：逐筆一行，每一行說得出是哪一台、哪一種感測、多久以前的事。
+
+**逐筆的人話**：`〔名稱〕的〔感測種類〕：〔相對時間〕離開使用中清單，沒有人確認過它。`
+名稱只用後端給的人話名稱（`sourceLabel`）；沒有就說「某個裝置」，**絕不**退回 `sourceId`。
+感測種類走共用的 `sensorKindLabel`（認不得的說「其他感測器」）。相對時間讀不出來就說「時間不明」。
+清單有界（最多 20 筆），其餘誠實寫成「…還有 N 筆沒有列出來」。
+
+**人為確認是二段的**，而且第二段的按鈕文字自己就說得清楚是誰在確認：
+
+1. 「我確認它已經停了」
+2. 「確定：這是你的確認，系統沒有收到裝置的回覆」
+
+送出後的回報同樣再說一次（「已記下你的確認（這是你的確認，系統沒有收到裝置的回覆）。」）。
+後端記的是人類的決定：`POST /v1/sensors/unresolved/{sourceId}/dismiss` 的回應 `confirmedStopped`
+永遠是 `false`，而且解除**一定要指名世代**，才不會把同 id 的新一筆一起清掉。失敗不得靜默，
+也不得說成已經處理掉（「沒有記下你的確認（…）：這一筆還在，請再試一次。」）。
+
+**一般模式不外洩**：`sourceId`、`generation` 與原始感測種類 id 只拿去呼叫 API，一個字都不進畫面。
+守門測試：`src/test/unresolvedStops.test.tsx`、`src/test/general-mode-no-technical-terms.test.tsx`（X5）、
+`src-tauri/src/host_safety.rs`／`tray.rs` 的單元測試。
+
+## 5.6 裝置「重新連線中」（v0.6.x）
+
+宣告式裝置（Serial／MQTT／BLE）被重新啟用時，Runtime 不會把狀態直接跳成「可用」：它把整份宣告
+重新註冊一次，實體連線與能力宣告要等握手成功才回得來，所以狀態**誠實地留在 `disconnected`**。
+只印「未連線」會讓使用者以為沒有人在處理；失敗之後狀態也一樣是 `disconnected`，兩者必須分得出來。
+
+> 來源：provider 的 `detail.warnings[]`（Runtime `providers.rs` 的 `REBINDING_WARNING`／
+> `rebind-failed: <原因>`）。投影：`src/statusProjection/provider.ts` 的 `projectProviderConnection`。
+
+| 情況 | 一般模式看到 | 補充句 |
+|---|---|---|
+| 重新綁定中 | 重新連線中（pending） | 正在重新連上這台裝置，它的能力還沒有回來；連上之後才會顯示為可用。 |
+| 沒有重新連上 | 沒有重新連上（bad） | 這台裝置沒有重新連上，它的能力還沒有回來；請檢查裝置與接線，再重新啟用一次。 |
+| 沒有重新連上（要重開） | 沒有重新連上（bad） | 這台裝置沒有重新連上：要重新啟動系統之後才能再試一次，它的能力還沒有回來。 |
+| 沒有這些記號 | 照原本的生命週期標籤（未連線／可用／…） | — |
+
+失敗的**原始原因是英文技術訊息**（例如 `the device could not be rebuilt: serial port busy`），
+只在進階模式以「原始：…」補上；一般模式只有上表的人話。
+
+「重新啟用」按下去之後可以誠實說出口的一句話是
+**「已允許重新連線，正在重新綁定」**（`PROVIDER_REENABLE_MESSAGE`）——不是「已啟用」：
+按鈕只是**允許再連一次**，連上與否要等握手。
+
+> 目前控制中心**沒有**「重新啟用 provider」的按鈕（provider 狀態轉換只有 CLI／HTTP
+> `POST /v1/providers/{id}/transition` 走得到），所以這句文案目前只有常數與守門測試，
+> 畫面上還沒有觸發點。加上按鈕時直接用這個常數，不要另寫一句。
+
 ## 6. 模擬 iPhone（fixture）的標示
 
 瀏覽器 journey（`e2e/character-session.spec.ts`）用的是

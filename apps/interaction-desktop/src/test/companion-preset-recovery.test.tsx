@@ -426,6 +426,31 @@ describe("交易期間的併發", () => {
     await waitFor(() => expect(screen.getByRole("combobox", { name: /表現程度/ })).toBeEnabled());
   });
 
+  it("交易期間「主動式對話」整區停用（第二段寫的就是這一區的模式）", async () => {
+    const gate = deferred<{ config: typeof PROACTIVE_CONFIG; sentThisHour: number }>();
+    mockApi.proactiveDialoguePatch.mockImplementationOnce(async () => await gate.promise);
+    const { container } = renderPage();
+    await ready();
+    const details = container.querySelector<HTMLDetailsElement>('details[data-disclosure="proactive"]')!;
+    fireEvent.click(details.querySelector("summary")!);
+    const mode = () => within(details).getByRole("combobox", { name: /^模式$/ });
+    expect(mode()).toBeEnabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
+    await waitFor(() => expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledTimes(1));
+    // 模式、頻率上限與費用上限：交易期間一個都不得被改。
+    expect(mode()).toBeDisabled();
+    expect(within(details).getByRole("spinbutton", { name: /每小時最多則數/ })).toBeDisabled();
+    expect(within(details).getByRole("spinbutton", { name: /每日費用上限/ })).toBeDisabled();
+    expect(within(details).getByText(/正在套用陪伴預設/)).toBeInTheDocument();
+
+    await act(async () => {
+      gate.resolve({ config: { ...PROACTIVE_CONFIG, mode: "necessary" }, sentThisHour: 0 });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(mode()).toBeEnabled());
+  });
+
   it("兩次偏好寫入反序回來：先送出的舊回應不得蓋掉後送出的新設定", async () => {
     const older = deferred<Record<string, unknown>>();
     const newer = deferred<Record<string, unknown>>();

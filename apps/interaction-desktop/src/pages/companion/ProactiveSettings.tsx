@@ -39,6 +39,7 @@ export function ProactiveSettings({
   sentThisHour,
   generativeToday,
   onPatch,
+  disabled = false,
 }: {
   name: string;
   advanced: boolean;
@@ -48,9 +49,22 @@ export function ProactiveSettings({
   sentThisHour: number;
   generativeToday: { sessions: number; costUsd: number };
   onPatch: (value: Record<string, unknown>) => void;
+  /**
+   * 陪伴預設的兩段寫入正在進行（或正在補送）：整區鎖住（M4）。
+   *
+   * 檔位交易寫的就是這一區的「模式」。交易中途從這裡改同一個欄位，會讓補送用
+   * 一份過時的意圖覆蓋掉使用者剛選的值，也會讓「使用者沒改過」的判斷失真
+   *（`shouldResumePendingOp`）。首屏的表現程度與勿擾早就這樣鎖了，這一區是漏網的。
+   */
+  disabled?: boolean;
 }) {
   return (
     <>
+      {disabled && (
+        <p className="muted small" role="status">
+          正在套用陪伴預設，這一區暫時不能改；套用完成（或明確失敗）後會解鎖。
+        </p>
+      )}
       <p className="muted small">
         {name}什麼情況下可以主動說話。頻率限制（每小時最多 {config.maxPerHour} 則、最短間隔{" "}
         {config.minIntervalMinutes} 分鐘、沒有回覆不追問）由系統強制執行；
@@ -58,7 +72,11 @@ export function ProactiveSettings({
       </p>
       <label className="field-label">
         模式
-        <select value={config.mode} onChange={(e) => onPatch({ mode: e.target.value })}>
+        <select
+          value={config.mode}
+          disabled={disabled}
+          onChange={(e) => onPatch({ mode: e.target.value })}
+        >
           <option value="off">關閉——不主動說話</option>
           <option value="necessary">必要——只有等待確認、失敗、結果不確定與感測提示</option>
           <option value="natural">自然（建議）——加上任務進度與低頻建議</option>
@@ -74,6 +92,7 @@ export function ProactiveSettings({
               <input
                 type="checkbox"
                 checked={config.custom[key] === true}
+                disabled={disabled}
                 onChange={(event) => onPatch({ custom: { ...config.custom, [key]: event.target.checked } })}
               />
               {label}
@@ -89,6 +108,7 @@ export function ProactiveSettings({
             min={1}
             max={12}
             value={config.maxPerHour}
+            disabled={disabled}
             onChange={(event) => onPatch({ maxPerHour: Number(event.target.value) })}
           />
         </label>
@@ -99,6 +119,7 @@ export function ProactiveSettings({
             min={1}
             max={60}
             value={config.minIntervalMinutes}
+            disabled={disabled}
             onChange={(event) => onPatch({ minIntervalMinutes: Number(event.target.value) })}
           />
         </label>
@@ -111,17 +132,28 @@ export function ProactiveSettings({
               min={5}
               max={300}
               value={config.mergeWindowSeconds}
+              disabled={disabled}
               onChange={(event) => onPatch({ mergeWindowSeconds: Number(event.target.value) })}
             />
           </label>
         )}
       </div>
       <label className="row">
-        <input type="checkbox" checked={config.noFollowUp} onChange={(e) => onPatch({ noFollowUp: e.target.checked })} />
+        <input
+          type="checkbox"
+          checked={config.noFollowUp}
+          disabled={disabled}
+          onChange={(e) => onPatch({ noFollowUp: e.target.checked })}
+        />
         沒有回覆時不追問
       </label>
       <label className="row">
-        <input type="checkbox" checked={config.dndDefer} onChange={(e) => onPatch({ dndDefer: e.target.checked })} />
+        <input
+          type="checkbox"
+          checked={config.dndDefer}
+          disabled={disabled}
+          onChange={(e) => onPatch({ dndDefer: e.target.checked })}
+        />
         勿擾時段延後非必要訊息
       </label>
       <hr />
@@ -134,6 +166,7 @@ export function ProactiveSettings({
         指定 AI 幫手（不可用時不會自動改送另一家）
         <select
           value={config.generativeAgent ?? ""}
+          disabled={disabled}
           onChange={(event) => onPatch({ generativeAgent: event.target.value || null })}
         >
           <option value="">不使用 AI 幫手產生主動訊息</option>
@@ -158,6 +191,7 @@ export function ProactiveSettings({
             min={0}
             max={50}
             value={config.dailyGenerativeSessions}
+            disabled={disabled}
             onChange={(event) => onPatch({ dailyGenerativeSessions: Number(event.target.value) })}
           />
         </label>
@@ -169,6 +203,7 @@ export function ProactiveSettings({
             max={100}
             step="0.1"
             value={config.dailyGenerativeCostUsd}
+            disabled={disabled}
             onChange={(event) => onPatch({ dailyGenerativeCostUsd: Number(event.target.value) })}
           />
         </label>

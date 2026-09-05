@@ -274,6 +274,7 @@ function stubApis() {
     consents: [{ scope: { kind: "actuator", id: "light.desk" } }],
   });
   vi.spyOn(api, "status").mockResolvedValue({ emergencyStop: false });
+  vi.spyOn(api, "sensorsUnresolved").mockResolvedValue({ unresolvedStops: [] });
   vi.spyOn(api, "auditTail").mockResolvedValue([]);
   vi.spyOn(api, "characterInstances").mockResolvedValue({ instances: INSTANCES });
   vi.spyOn(api, "characterAdapters").mockResolvedValue({ adapters: ADAPTERS });
@@ -1137,5 +1138,127 @@ describe("角色可以接收的互動：不認得的項目不編名字", () => {
     );
     expect(receiveLineFromInputs([])).toBe("可以接收：不接收任何互動（只演出）");
     expect(receiveLineFromInputs(null)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v0.6.x：重新連線中的裝置條目，與「沒有人確認的感測停止」
+// ---------------------------------------------------------------------------
+
+/** 宣告式裝置重新綁定期間 Runtime 寫進 `detail` 的形狀（`merge_provider_detail`）。 */
+function rebindDetail(warnings: string[], note: string): string {
+  return JSON.stringify({ note, warnings });
+}
+
+const REBINDING_WARNING =
+  "rebinding: this device's link and capability declaration are being rebuilt; it is NOT " +
+  "connected yet and its state stays disconnected until the handshake succeeds";
+
+function providerRow(state: string, detail?: string): Record<string, unknown> {
+  return {
+    identity: {
+      id: "provider.esp32.desk",
+      displayName: "書桌 ESP32",
+      kind: "device",
+      trustLevel: "paired",
+    },
+    state,
+    receptors: ["desk.temp"],
+    actuators: [],
+    ...(detail === undefined ? {} : { detail }),
+  };
+}
+
+describe("連接與權限：宣告式裝置的「重新連線中」", () => {
+  it("重新綁定進行中：狀態是 disconnected，但不得只說「未連線」", async () => {
+    stubApis();
+    vi.spyOn(api, "providersList").mockResolvedValue([
+      providerRow(
+        "disconnected",
+        rebindDetail([REBINDING_WARNING], "正在重新連上這台裝置，它的能力還沒有回來；連上之後才會顯示為可用。")
+      ),
+    ]);
+    renderConnect();
+    const devices = await screen.findByTestId("connect-area-devices");
+    await within(devices).findByText("重新連線中");
+    expect(within(devices).queryByText("未連線")).not.toBeInTheDocument();
+    expect(within(devices).getAllByTestId("connect-provider-rebinding")).toHaveLength(1);
+    expect(within(devices).getByText(/正在重新連上這台裝置/)).toBeInTheDocument();
+    // 進行中不得說成失敗，也不得把技術原文丟給一般模式。
+    expect(devices.textContent ?? "").not.toContain("rebinding:");
+  });
+
+  it("重新綁定失敗：說出人話原因，原始英文只在進階模式", async () => {
+    stubApis();
+    vi.spyOn(api, "providersList").mockResolvedValue([
+      providerRow(
+        "disconnected",
+        rebindDetail(
+          ["rebind-failed: the device could not be rebuilt: serial port busy"],
+          "這台裝置沒有重新連上，它的能力還沒有回來；請檢查裝置與接線後再啟用一次。"
+        )
+      ),
+    ]);
+    const { unmount } = renderConnect();
+    const devices = await screen.findByTestId("connect-area-devices");
+    await within(devices).findByText("沒有重新連上");
+    expect(within(devices).getByText(/請檢查裝置與接線/)).toBeInTheDocument();
+    expect(devices.textContent ?? "").not.toContain("serial port busy");
+    unmount();
+
+    renderConnect(true);
+    const advancedDevices = await screen.findByTestId("connect-area-devices");
+    await waitFor(() =>
+      expect(advancedDevices.textContent ?? "").toContain("serial port busy")
+    );
+  });
+
+  it("需要重新啟動才救得回來的失敗有自己的人話", async () => {
+    stubApis();
+    vi.spyOn(api, "providersList").mockResolvedValue([
+      providerRow(
+        "disconnected",
+        rebindDetail(
+          ["rebind-failed: this device's spec is no longer tracked; a restart is needed to rebind"],
+          "x"
+        )
+      ),
+    ]);
+    renderConnect();
+    const devices = await screen.findByTestId("connect-area-devices");
+    expect(await within(devices).findByText(/重新啟動系統/)).toBeInTheDocument();
+  });
+
+  it("沒有重新綁定記號的裝置維持原本的狀態標籤", async () => {
+    stubApis();
+    vi.spyOn(api, "providersList").mockResolvedValue([providerRow("disconnected", "")]);
+    renderConnect();
+    const devices = await screen.findByTestId("connect-area-devices");
+    await within(devices).findByText("未連線");
+    expect(within(devices).queryByText("重新連線中")).not.toBeInTheDocument();
+    expect(within(devices).getAllByTestId("connect-provider-plain")).toHaveLength(1);
+  });
+});
+
+describe("連接與權限：沒有人確認的感測停止就在「立即停止與撤銷」裡", () => {
+  it("有未解決停止時逐筆出現在停止區，並且不外洩內部識別", async () => {
+    stubApis();
+    vi.spyOn(api, "sensorsUnresolved").mockResolvedValue({
+      unresolvedStops: [
+        {
+          sourceId: "declarative.desk-esp32",
+          generation: 3,
+          sensors: ["microphone"],
+          since: new Date(Date.now() - 120_000).toISOString(),
+          lastKnown: [],
+        },
+      ],
+    });
+    renderConnect();
+    const stop = await screen.findByTestId("connect-area-stop");
+    await within(stop).findByText(/有 1 筆感測停止沒有人確認/);
+    expect(within(stop).getByRole("button", { name: "我確認它已經停了" })).toBeInTheDocument();
+    expect(stop.textContent ?? "").not.toContain("declarative.desk-esp32");
+    expect(stop.textContent ?? "").not.toMatch(/generation|sourceId/i);
   });
 });

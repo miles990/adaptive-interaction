@@ -11,7 +11,7 @@ import {
 import { AppStateProvider, useAppState } from "./appstate";
 import { Icon } from "./icons";
 import { Badge } from "./ui";
-import { projectSensorStop, sensorKindLabel } from "./statusProjection";
+import { projectSensorStop, projectUnresolvedStops, sensorKindLabel } from "./statusProjection";
 import { ConfirmButton } from "./components/Dialog";
 import { HomePage } from "./pages/HomePage";
 import { CapabilitiesPage } from "./pages/CapabilitiesPage";
@@ -35,6 +35,7 @@ import { refreshCharacterName, useCharacterName } from "./characterName";
 import { ADVANCED_NAV, navAnchorFor, simpleNavFor, titleFor, type Tab } from "./routing";
 import { useNavigation, type NavigateOptions } from "./useNavigation";
 import { SensorBanner } from "./components/SensorBanner";
+import { UnresolvedStopsBanner } from "./components/UnresolvedStopsBanner";
 import { CloseDialog } from "./components/CloseDialog";
 import { inboxBadgeLabel, inboxBadgeText, NotificationPanel } from "./components/NotificationPanel";
 import { NarrowNav } from "./components/NarrowNav";
@@ -55,6 +56,7 @@ export {
 } from "./routing";
 export { useNavigation } from "./useNavigation";
 export { SensorBanner, SensorCountdown } from "./components/SensorBanner";
+export { UnresolvedStopsBanner } from "./components/UnresolvedStopsBanner";
 export {
   inboxBadgeLabel,
   inboxBadgeText,
@@ -205,6 +207,9 @@ function Shell({
   const [closeDialog, setCloseDialog] = React.useState(false);
   const [trayError, setTrayError] = React.useState<string | null>(null);
   const [sensors, setSensors] = React.useState<import("./api").SensorUse[]>([]);
+  /** 「離開了使用中清單、但沒有人確認它停了」的摘要那一行（status.unresolvedStops）。
+   *  感測不靜默的另一半：不能因為不在即時清單上就從狀態列消失。`null` ＝沒有這種紀錄。 */
+  const [unresolvedSummary, setUnresolvedSummary] = React.useState<string | null>(null);
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [notificationOpen, setNotificationOpen] = React.useState(false);
   const [inbox, setInbox] = React.useState<Record<string, unknown> | null>(null);
@@ -279,6 +284,7 @@ function Shell({
       .then((s) => {
         setEstop(Boolean(s["emergencyStop"]));
         setSensors((s["activeSensors"] as import("./api").SensorUse[] | undefined) ?? []);
+        setUnresolvedSummary(projectUnresolvedStops(s).summary);
         if (onboarding === "unknown") {
           setOnboarding(s["onboardingCompleted"] === true ? "closed" : "open");
         }
@@ -308,6 +314,7 @@ function Shell({
       const s = await api.status();
       remaining = (s["activeSensors"] as import("./api").SensorUse[] | undefined) ?? [];
       setSensors(remaining);
+      setUnresolvedSummary(projectUnresolvedStops(s).summary);
       setEstop(Boolean(s["emergencyStop"]));
     } catch {
       remaining = null;
@@ -462,6 +469,7 @@ function Shell({
           </div>
         )}
         <SensorBanner sensors={sensors} advanced={advanced} onStopAll={() => void stopAllSensors()} />
+        <UnresolvedStopsBanner summary={unresolvedSummary} onOpen={() => goTo("connect")} />
         {disconnected && (
           <div className="estop-banner" role="alert">
             與外部系統的連線中斷 — 顯示的資料可能已過期，指令暫時無法送達。會自動重新連線。

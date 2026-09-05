@@ -216,6 +216,11 @@ pub fn tray_view(view: &HostSafetyView, external: bool, ai_sessions: usize) -> T
         status_text.push('｜');
         status_text.push_str(&sensor);
     }
+    // 「離開了即時清單、但沒有人確認它停了」也是沒有結論的事：狀態列一定要說。
+    if let Some(unresolved) = view.unresolved_text() {
+        status_text.push('｜');
+        status_text.push_str(&unresolved);
+    }
     let pause_text = if view.paused {
         "主動互動：已暫停".to_string()
     } else {
@@ -378,6 +383,62 @@ mod tests {
         });
         let message = super::stop_sensors_error(&unreachable).expect("送不到也要回報");
         assert!(message.contains("沒送到"), "{message}");
+    }
+
+    /// 「感測停止待確認」也要進 `status_text`：它不是感測中（沒有 glyph、不叫
+    /// overlay），但它是一件沒有結論的事，每個平台都要有文字說得出來。
+    #[test]
+    fn unresolved_stops_are_text_in_the_status_line() {
+        let status = json!({
+            "activeSensors": [],
+            "unresolvedStops": [
+                {"sourceId": "declarative.a", "generation": 1, "sensors": ["microphone"],
+                 "since": "2026-09-06T00:00:00Z", "lastKnown": []}
+            ]
+        });
+        let only_unresolved =
+            HostSafetyView::derive(true, false, Some(&status), chrono::Utc::now());
+        let tv = tray_view(&only_unresolved, false, 0);
+        assert!(
+            tv.status_text.contains("感測停止待確認 1"),
+            "{}",
+            tv.status_text
+        );
+        // 誠實：不得說成已經停了，也不得冒充成正在感測。
+        assert!(!tv.status_text.contains("已停止"), "{}", tv.status_text);
+        assert!(!tv.status_text.contains("使用中"), "{}", tv.status_text);
+        assert_eq!(tv.title_glyph, None);
+
+        // 正在感測**同時**有未確認的停止：兩段文字都要在。
+        let both = json!({
+            "activeSensors": [{"kind": "microphone", "startedBy": "user", "purpose": "t"}],
+            "unresolvedStops": [
+                {"sourceId": "declarative.a", "generation": 1, "sensors": ["microphone"],
+                 "since": "2026-09-06T00:00:00Z", "lastKnown": []},
+                {"sourceId": "declarative.b", "generation": 1, "sensors": ["camera"],
+                 "since": "2026-09-06T00:00:00Z", "lastKnown": []}
+            ]
+        });
+        let both_view = HostSafetyView::derive(true, false, Some(&both), chrono::Utc::now());
+        let tv = tray_view(&both_view, false, 0);
+        assert!(
+            tv.status_text.contains("麥克風使用中"),
+            "{}",
+            tv.status_text
+        );
+        assert!(
+            tv.status_text.contains("感測停止待確認 2"),
+            "{}",
+            tv.status_text
+        );
+
+        // 沒有未確認的停止就一個字都不多說。
+        let quiet = tray_view(&view(true, false, false, false, false), false, 0);
+        assert!(
+            !quiet.status_text.contains("待確認"),
+            "{}",
+            quiet.status_text
+        );
     }
 
     #[test]

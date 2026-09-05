@@ -54,6 +54,13 @@ pub struct HostSafetyView {
     pub mic_active: bool,
     pub camera_active: bool,
     pub sensors: Vec<SensorView>,
+    /// 已經離開 `activeSensors`、但沒有人確認它停了的擷取筆數
+    /// （`status.unresolvedStops`；空的時候後端不序列化這個鍵）。
+    ///
+    /// 這**不是**「還在感測」——所以它不會把 overlay 叫出來（`active` 不看它），
+    /// 但它是一件沒有結論的事，狀態列一定要說得出來。
+    #[serde(default)]
+    pub unresolved_stops: usize,
     /// overlay 是否應顯示：estop ∨ 有感測 ∨（不可達 ∧ 非啟動寬限）。
     /// 由 Rust 算好帶過去，TS 端不必重複規則。
     pub active: bool,
@@ -83,6 +90,7 @@ impl HostSafetyView {
         let reachable = supervisor_ready && status.is_some();
         let (mut estop, mut paused) = (false, false);
         let mut sensors = Vec::new();
+        let mut unresolved_stops = 0usize;
         if let Some(s) = status {
             estop = s
                 .get("emergencyStop")
@@ -92,6 +100,11 @@ impl HostSafetyView {
                 .pointer("/proactivePause/paused")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
+            unresolved_stops = s
+                .get("unresolvedStops")
+                .and_then(Value::as_array)
+                .map(Vec::len)
+                .unwrap_or(0);
             if let Some(list) = s.get("activeSensors").and_then(Value::as_array) {
                 for item in list {
                     let Some(kind) = item.get("kind").and_then(Value::as_str) else {
@@ -128,9 +141,21 @@ impl HostSafetyView {
             mic_active,
             camera_active,
             sensors,
+            unresolved_stops,
             active,
             at: at.to_rfc3339(),
         }
+    }
+
+    /// 「感測停止待確認」那一段（`None` ＝沒有這種紀錄）。
+    ///
+    /// 誠實：這一句只說「沒有人確認」，不說它停了、也不說它還在跑——
+    /// 逐筆內容在控制中心的「連接與權限」。
+    pub fn unresolved_text(&self) -> Option<String> {
+        if self.unresolved_stops == 0 {
+            return None;
+        }
+        Some(format!("感測停止待確認 {}", self.unresolved_stops))
     }
 
     /// 感測文字（tray／overlay 共用；`None` = 沒有感測在用）。永遠是文字，
@@ -269,6 +294,39 @@ mod tests {
         assert_eq!(v.sensor_text().as_deref(), Some("麥克風使用中"));
     }
 
+    /// 「未解決停止」：離開了即時清單，但沒有人確認它停了。
+    ///
+    /// 它**不是**感測中（不得把 overlay 叫出來、不得算進 `sensors`），但也不是
+    /// 「沒事了」——所以一定要有筆數，讓狀態列說得出來。空／缺席一律是 0
+    ///（後端沒有未解決停止時根本不序列化這個鍵）。
+    #[test]
+    fn unresolved_stops_are_counted_but_do_not_pop_the_overlay() {
+        let status = json!({
+            "activeSensors": [],
+            "unresolvedStops": [
+                {"sourceId": "declarative.a", "generation": 1, "sensors": ["microphone"],
+                 "since": "2026-09-06T00:00:00Z", "lastKnown": []},
+                {"sourceId": "declarative.b", "generation": 2, "sensors": ["camera"],
+                 "since": "2026-09-06T00:00:00Z", "lastKnown": []}
+            ]
+        });
+        let v = HostSafetyView::derive(true, false, Some(&status), now());
+        assert_eq!(v.unresolved_stops, 2);
+        assert!(v.sensors.is_empty(), "未解決停止不是感測中");
+        assert!(!v.active, "沒有結論的紀錄不該把安全 overlay 叫出來");
+        assert_eq!(v.unresolved_text().as_deref(), Some("感測停止待確認 2"));
+        // 文案不得宣稱它停了。
+        let text = v.unresolved_text().expect("text");
+        assert!(!text.contains("已停止"), "{text}");
+
+        // 缺席（後端沒有未解決停止）與空陣列都是 0，而且不留任何文字。
+        for status in [json!({"activeSensors": []}), json!({"unresolvedStops": []})] {
+            let v = HostSafetyView::derive(true, false, Some(&status), now());
+            assert_eq!(v.unresolved_stops, 0);
+            assert_eq!(v.unresolved_text(), None);
+        }
+    }
+
     #[test]
     fn estop_shows_even_with_nothing_else() {
         let status = json!({"emergencyStop": true, "activeSensors": []});
@@ -317,6 +375,7 @@ mod tests {
             "micActive",
             "cameraActive",
             "sensors",
+            "unresolvedStops",
             "active",
             "at",
         ] {

@@ -915,6 +915,8 @@ export function CompanionPage({
             costUsd: Number((proactive.status?.generativeToday as Record<string, unknown> | undefined)?.costUsd ?? 0),
           }}
           onPatch={(value) => void proactive.patch(value)}
+          // 檔位交易寫的就是這一區的「模式」：交易期間整區鎖住（M4）。
+          disabled={presetTransaction}
         />
       </Disclosure>
 
