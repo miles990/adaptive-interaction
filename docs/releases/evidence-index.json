@@ -80,10 +80,33 @@
   "candidates": [
     {
       "branch": "feature/v0.6.x-maintainability",
-      "baseCommit": "8f528374fd0b1490eacb623f6e299339bfd565e0",
-      "status": "in-progress",
-      "versionPolicy": "M1/M3/M4 → patch 候選；M2（第二裝置 AIP profile、SensorSource port）→ minor 候選；未決定號碼、未打 tag",
-      "progress": "docs/releases/v0.6.x-maintainability-progress.md"
+      "baseCommit": "f5b8e2fc9e86d8fa8067f91303dbbcb8d04cf42f",
+      "status": "candidate v0.7.0",
+      "versionPolicy": "0.7.0（minor）：本輪新增向後相容的對外能力——兩條人類層 HTTP 路由（GET /v1/sensors/unresolved、POST /v1/sensors/unresolved/{sourceId}/dismiss）與對應 CLI 子指令、status 與 diagnostics 的選填新欄位（unresolvedStops、characterSessionSync、members[].syncProfile）、裝置線 v1.1→v1.2 的追加訊息 aip-frag（proto 仍為 1，只對宣告 hello caps aip.frag/1 的裝置使用）、AIP payload.reason 新值 recovery（specVersion 與 wire 形狀不變），以及 provider 重新啟用的語意變更（transition(Available) 對宣告式裝置回 Disconnected，握手成功才收斂）。快照容器 format 仍是 1、無資料遷移、對既有呼叫端無 breaking，所以不是 major；新增對外能力多於修補，所以不是 patch。尚未打 tag。",
+      "progress": "docs/releases/v0.7.0-progress.md",
+      "docs": {
+        "progress": "docs/releases/v0.7.0-progress.md",
+        "finalReport": "docs/releases/v0.7.0-final-report.md",
+        "knownLimitations": "docs/releases/v0.7.0-known-limitations.md",
+        "migration": "docs/releases/v0.7.0-migration.md",
+        "drills": "docs/releases/v0.7.0-drills.md",
+        "generalModeTasks": "docs/releases/v0.6.x-general-mode-tasks.md",
+        "firstRoundProgress": "docs/releases/v0.6.x-maintainability-progress.md",
+        "firstRoundReport": "docs/releases/v0.6.x-final-report.md"
+      },
+      "evidence": {
+        "iphone": "simulator (iPhone 17／iOS 26.2 runtime，simctl 注入；真機 0 次)",
+        "esp32": "none (arduino-cli 編譯檢查兩組態＋scripts/esp32-serial-sim.py pty 模擬器；真板 0 次，v1.2 分片路徑在真板上 0 次)",
+        "mqtt": "simulator (in-process rumqttd broker＋rumqttc fake device；BLE 無對應測試)",
+        "tauriWindow": "real-window (scripts/tauri-ax-walkthrough.sh 9/9，連跑兩次；debug .app，不在 CI)",
+        "humanSubjects": "not-run (五份非開發者腳本沒有受測者)",
+        "integrationSuite": "not-run (整合全套尚未執行；見 progress §5)",
+        "adversarialReview": "not-run (adversarial-review-v06x 尚未執行)"
+      },
+      "notes": [
+        "第二輪（起點 f5b8e2f，28 個 commit）；第一輪（8f52837→f5b8e2f）的矩陣留在 v0.6.x-maintainability-progress.md。",
+        "PR #4 仍為 draft（標題含 do not merge yet）；未 push、未合併、未打 tag。releases 條目在真的發布之後才由主 agent 新增。"
+      ]
     }
   ]
 }
