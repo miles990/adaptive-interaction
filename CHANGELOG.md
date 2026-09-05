@@ -52,6 +52,10 @@
   沒有 HTTP 寫入入口（測試釘住 POST 同路徑非 2xx）。
 
 ### Fixed
+- **角色資料載入失敗的原因回到首屏**：M3 §4.1 之後「內建角色索引無法載入：…」被收在「更換或加入角色」收合區塊裡，首屏只剩
+  「找不到目前設定的角色資料」而沒有原因——收合區塊不得把失敗藏起來。現在錯誤（`role=alert`）在「目前角色」區，角色庫不再重複顯示。
+  `characterPage-first-screen.test.tsx` 釘住「未展開也看得到、只出現一次」。同時把第二波 IA 變更弄壞、M3c 未涵蓋的
+  `e2e/character.spec.ts`／`e2e/evidence.spec.ts` 修回（展開收合區塊再找卡片／標題；證據截圖重新產出）。
 - **crate 版本政策沒有白名單了**（v0.6.0 known-limitations #13、`release-provenance-078` 收尾）：`crates/interaction-adapter-declarative`
   與 `adapters/media` 從寫死的 `0.2.0` 改為 `version.workspace = true`（Cargo.lock 隨之為 0.6.0）；`release-verify.sh` 的
   「every crate version follows the workspace」關卡移除 ⚠ 白名單——任何寫死自有版本的 crate 直接紅燈。回歸：

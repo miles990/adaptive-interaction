@@ -501,6 +501,13 @@ export function CompanionPage({
             error={error}
             notice={notice}
           />
+          {/* 角色資料載入失敗是首屏的事：收在「更換或加入角色」裡會讓「找不到角色資料」
+              看起來沒有原因（收合區塊不得把失敗藏起來）。 */}
+          {catalog.errors.map((e) => (
+            <p key={e} className="cap-card-error" role="alert">
+              {e}
+            </p>
+          ))}
         </Section>
 
         {/* 2. 陪伴方式：一句話摘要＋三個檔位；細部行為收在「調整」。 */}

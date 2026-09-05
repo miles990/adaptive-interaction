@@ -44,6 +44,15 @@ async function shot(page: Page, name: string) {
 }
 
 /** 把元素捲到視窗頂端（截圖以它為主角）。 */
+/** M3 §4.1 的收合區塊：展開它，內容才在畫面上（收合 ≠ 刪功能）。 */
+async function openDisclosure(page: Page, id: string) {
+  const disclosure = page.locator(`details[data-disclosure="${id}"]`);
+  await expect(disclosure).toBeVisible({ timeout: 20_000 });
+  if (!(await disclosure.evaluate((el) => (el as HTMLDetailsElement).open))) {
+    await disclosure.locator("summary").click();
+  }
+}
+
 async function scrollTop(locator: import("@playwright/test").Locator) {
   await locator.first().evaluate((el) => el.scrollIntoView({ block: "start" }));
   await locator.first().page().waitForTimeout(120);
@@ -94,8 +103,18 @@ test("擷取：每個一級頁（桌面 1200px；現在三個回答、角色頁�
       ).toBeVisible();
     }
     if (p.id === "companion") {
-      for (const heading of ["目前角色", "外觀與名字", "平常如何陪伴", "更換或加入角色"]) {
+      // M3 §4.1 之後的一般模式 IA：首屏三格＋按需展開的收合區塊（收合 ≠ 刪功能）。
+      for (const heading of ["目前角色", "陪伴方式", "同步"]) {
         await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+      }
+      for (const [id, title] of [
+        ["appearance", "外觀與名字"],
+        ["behavior", "調整陪伴方式"],
+        ["library", "更換或加入角色"],
+      ] as const) {
+        const disclosure = page.locator(`details[data-disclosure="${id}"]`);
+        await expect(disclosure).toBeVisible();
+        await expect(disclosure.locator("summary")).toContainText(title);
       }
       await expect(page.getByText("角色視窗未連線")).toBeVisible();
     }
@@ -190,22 +209,26 @@ test("擷取：角色頁細節（能力摘要／外觀與名字／陪伴方式�
   await scrollTop(page.getByRole("heading", { name: "目前角色", exact: true }));
   await shot(page, "desktop-companion-capabilities");
 
-  // 外觀與名字／平常如何陪伴：桌面 prefs 只在 Tauri 存在；瀏覽器檢視必須誠實說明，
-  // 但 36 表情預覽（與桌面角色同一套即時繪製）仍在。
-  await scrollTop(page.getByRole("heading", { name: "外觀與名字", exact: true }));
+  // 外觀與名字／調整陪伴方式：M3 之後是收合區塊（展開才看得到內容）。桌面 prefs 只在 Tauri 存在；
+  // 瀏覽器檢視必須誠實說明，但 36 表情預覽（與桌面角色同一套即時繪製）仍在。
+  await openDisclosure(page, "appearance");
+  await scrollTop(page.locator('details[data-disclosure="appearance"] summary'));
   await expect(
     page.getByText("桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。").first()
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "36 表情預覽" })).toBeVisible();
   await shot(page, "desktop-companion-appearance");
 
-  await scrollTop(page.getByRole("heading", { name: "平常如何陪伴", exact: true }));
+  // 陪伴方式：首屏一句話摘要＋三個檔位；瀏覽器模式沒有桌面 prefs，誠實說需要桌面版。
+  await scrollTop(page.getByRole("heading", { name: "陪伴方式", exact: true }));
+  await openDisclosure(page, "behavior");
   await expect(
     page.getByText("桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。").nth(1)
   ).toBeVisible();
   await shot(page, "desktop-companion-companionship");
 
-  await scrollTop(page.getByRole("heading", { name: "更換或加入角色", exact: true }));
+  await openDisclosure(page, "library");
+  await scrollTop(page.locator('details[data-disclosure="library"] summary'));
   // 內建目錄有多張同名「小樞」卡（女僕／黃昏／櫻）：以「使用中」那張為準。
   await expect(page.locator("article.character-card.active")).toHaveCount(1);
   await expect(page.locator("article.character-card.active")).toContainText("小樞");
@@ -227,7 +250,8 @@ test("擷取：角色頁細節（能力摘要／外觀與名字／陪伴方式�
 
   // 390px：更換角色。
   await page.setViewportSize(NARROW);
-  await scrollTop(page.getByRole("heading", { name: "更換或加入角色", exact: true }));
+  await openDisclosure(page, "library");
+  await scrollTop(page.locator('details[data-disclosure="library"] summary'));
   // 內建目錄有多張同名「小樞」卡（女僕／黃昏／櫻）：以「使用中」那張為準。
   await expect(page.locator("article.character-card.active")).toHaveCount(1);
   await expect(page.locator("article.character-card.active")).toContainText("小樞");

@@ -210,11 +210,7 @@ export function CharacterLibrarySection({
         內建角色隨 App 提供並經自動化測試。匯入的第三方角色只存在本機角色資料夾：不會自動執行程式、
         不會自動連線。任何角色都無法改寫安全訊息或取得權限。
       </p>
-      {catalog.errors.map((e) => (
-        <p key={e} className="cap-card-error" role="alert">
-          {e}
-        </p>
-      ))}
+      {/* 索引載入錯誤由角色頁首屏（「目前角色」）顯示：這裡是收合區塊，不能是失敗唯一的家。 */}
       {!catalog.loaded ? (
         <div className="state-box">正在讀取角色清單…</div>
       ) : catalog.cards.length === 0 ? (

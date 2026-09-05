@@ -22,6 +22,16 @@ async function characterState(
   return JSON.stringify(status.characterProtocol ?? null);
 }
 
+/** 角色庫在「更換或加入角色」收合區塊裡（M3 §4.1）：展開它，卡片才在畫面上。 */
+async function openLibrary(page: import("@playwright/test").Page): Promise<void> {
+  const library = page.locator('details[data-disclosure="library"]');
+  await expect(library).toBeVisible({ timeout: 20_000 });
+  if (!(await library.evaluate((el) => (el as HTMLDetailsElement).open))) {
+    await library.locator("summary").click();
+  }
+  await expect(page.locator("article.character-card").first()).toBeVisible({ timeout: 20_000 });
+}
+
 test("角色：瀏覽器檢視不提供假的開關，也不會真的改到後端角色狀態", async ({ page, request }) => {
   test.setTimeout(120_000);
   const before = await characterState(request);
@@ -44,6 +54,8 @@ test("角色：瀏覽器檢視不提供假的開關，也不會真的改到後�
   await expect(page.locator(".character-page textarea")).toHaveCount(0);
 
   // 按「停用」：畫面必須顯示錯誤，而且後端角色狀態不變、使用中的角色不變。
+  // M3 §4.1 之後角色庫收在「更換或加入角色」裡：先展開（收合 ≠ 刪功能）。
+  await openLibrary(page);
   const active = page.locator("article.character-card.active");
   await expect(active).toHaveCount(1);
   const activeName = await active.innerText();
@@ -63,6 +75,7 @@ test("角色：停用失敗時不得出現成功文案（只留誠實錯誤）",
   await page.setViewportSize(DESKTOP);
   await openApp(page);
   await navigateTo(page, COMPANION, false);
+  await openLibrary(page);
   const active = page.locator("article.character-card.active");
   await active.getByRole("button", { name: "停用" }).click();
   await expect(page.locator(".character-page").getByRole("alert").first()).toBeVisible({
@@ -77,6 +90,7 @@ test("角色：按其他角色的「選用」同樣不會偷偷換掉使用中�
   await page.setViewportSize(DESKTOP);
   await openApp(page);
   await navigateTo(page, COMPANION, false);
+  await openLibrary(page);
   const candidate = page.locator("article.character-card:not(.active)").first();
   await expect(candidate).toBeVisible({ timeout: 20_000 });
   const pick = candidate.getByRole("button", { name: "選用" });

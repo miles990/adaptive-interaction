@@ -364,6 +364,26 @@ describe("角色頁：陪伴方式摘要與預設", () => {
     await waitFor(() => expect(summary.textContent).toContain("自訂"));
   });
 
+  it("內建角色索引載入失敗時，錯誤留在首屏（不是藏在收合的角色庫裡）", async () => {
+    // 真的讓 /characters/index.json 失敗：畫面必須說出原因，而且不必展開任何區塊。
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url === "/characters/index.json") throw new Error("connection refused");
+        const body = FILES[url];
+        if (body === undefined) return { ok: false, status: 404, text: async () => "", json: async () => ({}) };
+        return { ok: true, status: 200, text: async () => body, json: async () => JSON.parse(body) };
+      })
+    );
+    const { container } = renderPage();
+    const alert = await screen.findByText(/內建角色索引無法載入/);
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(inClosedDetails(alert)).toBe(false);
+    expect(container.querySelector(".character-first-screen")!.contains(alert)).toBe(true);
+    // 同一個錯誤不在收合的角色庫裡再出現一次（螢幕閱讀器不必聽兩遍）。
+    expect(screen.getAllByText(/內建角色索引無法載入/)).toHaveLength(1);
+  });
+
   it("不吻合任何預設時顯示「自訂」並逐項列出有效值", async () => {
     mockDesktop.state.prefs = { ...BASE_PREFS, companionDoNotDisturb: true };
     renderPage();
