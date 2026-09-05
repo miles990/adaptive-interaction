@@ -597,3 +597,139 @@ async fn fragmentation_never_raises_the_envelope_cap() {
         raw.sent_types()
     );
 }
+
+/// 沒有宣告任何 caps 的舊韌體送分片進來：一樣拒絕。
+///
+/// 為什麼：能力宣告是這條線唯一的能力事實。「沒宣告」不是「宣告了會分片」，
+/// 而重組要配置緩衝、要相信對端的 `total`／`bytes`——那是替它猜。出站方向用的
+/// 就是 `== Some(true)`（`supports_fragmentation`），入站必須對稱。
+#[tokio::test]
+async fn inbound_fragments_from_a_device_that_declared_no_caps_are_dropped() {
+    let raw = MockRawLink::with_caps("esp32-01", None, vec![], Some(639));
+    let link = DeviceLink::new(raw.clone(), "esp32-01".into(), None);
+    link.ensure_ready().await.expect("handshake");
+    assert_eq!(
+        link.advertises(FRAG_CAP),
+        None,
+        "沒有宣告 caps 的裝置在這裡必須是 None（舊韌體相容），測試前提才成立"
+    );
+
+    let text = serde_json::to_string(&json!({"specVersion": "aip/1.0", "pad": "z".repeat(1_200)}))
+        .expect("text");
+    let frames = fragment_envelope_line(&text, 639, 21).expect("fragments");
+    let HostMsg::AipFrag {
+        xfer,
+        seq,
+        total,
+        bytes,
+        crc,
+        data,
+    } = &frames[0]
+    else {
+        panic!("fragment");
+    };
+    match link.admit_aip(&DeviceMsg::AipFrag {
+        xfer: *xfer,
+        seq: *seq,
+        total: *total,
+        bytes: *bytes,
+        crc: crc.clone(),
+        data: data.clone(),
+    }) {
+        Some(AipAdmission::FragmentDropped(drop)) => {
+            assert_eq!(drop.reason, "not-advertised");
+            assert_eq!(drop.xfer, 21);
+        }
+        other => panic!("沒宣告 {FRAG_CAP} 的裝置送分片必須被拒，得到 {other:?}"),
+    }
+}
+
+/// 同一個輪詢窗內連續兩次取代：**兩筆**稽核都必須留得下來（先進先出）。
+///
+/// 收訊迴圈每一輪只取走一筆（`declarative_session.rs` 的 `expire_fragments()`），
+/// 單一槽會讓先發生的那一筆被靜默覆蓋——而 `fragment.rs` 的模組文件寫的是
+/// 「每一次丟棄都回傳一個 FragmentDrop，呼叫端負責留稽核」。
+#[tokio::test]
+async fn two_supersedes_before_a_drain_keep_both_audits_in_order() {
+    let raw = MockRawLink::with_caps(
+        "esp32-01",
+        None,
+        vec!["led.set".into(), FRAG_CAP.into()],
+        Some(639),
+    );
+    let link = DeviceLink::new(raw.clone(), "esp32-01".into(), None);
+    link.ensure_ready().await.expect("handshake");
+
+    let start = |xfer: u32| DeviceMsg::AipFrag {
+        xfer,
+        seq: 0,
+        total: 2,
+        bytes: 4,
+        crc: "00000000".into(),
+        data: "{".into(),
+    };
+    for xfer in 1..=3 {
+        assert_eq!(
+            link.admit_aip(&start(xfer)),
+            Some(AipAdmission::FragmentBuffered)
+        );
+    }
+
+    let first = link.expire_fragments().expect("第一筆稽核");
+    assert_eq!(first.xfer, 1, "先發生的那一筆不得被覆蓋");
+    assert_eq!(first.reason, "superseded");
+    let second = link.expire_fragments().expect("第二筆稽核");
+    assert_eq!(second.xfer, 2);
+    assert_eq!(second.reason, "superseded");
+    assert_eq!(
+        link.fragment_audit_overflow(),
+        0,
+        "兩筆放得下，不得記成溢位"
+    );
+}
+
+/// 佇列有界：超過上限就丟最舊的那一筆，但**數得出來丟了幾筆**（有界＋不靜默）。
+#[tokio::test]
+async fn the_pending_audit_queue_is_bounded_and_counts_what_it_had_to_drop() {
+    let raw = MockRawLink::with_caps(
+        "esp32-01",
+        None,
+        vec!["led.set".into(), FRAG_CAP.into()],
+        Some(639),
+    );
+    let link = DeviceLink::new(raw.clone(), "esp32-01".into(), None);
+    link.ensure_ready().await.expect("handshake");
+
+    let start = |xfer: u32| DeviceMsg::AipFrag {
+        xfer,
+        seq: 0,
+        total: 2,
+        bytes: 4,
+        crc: "00000000".into(),
+        data: "{".into(),
+    };
+    // 12 筆傳輸 → 11 次取代 → 佇列（8）裝不下，最舊的 3 筆被丟掉並計數。
+    for xfer in 1..=12 {
+        assert_eq!(
+            link.admit_aip(&start(xfer)),
+            Some(AipAdmission::FragmentBuffered)
+        );
+    }
+    let mut drained = Vec::new();
+    while let Some(drop) = link.expire_fragments() {
+        drained.push(drop.xfer);
+        if drained.len() > 32 {
+            panic!("佇列必須有界：{drained:?}");
+        }
+    }
+    assert_eq!(
+        drained,
+        vec![4, 5, 6, 7, 8, 9, 10, 11],
+        "佇列滿了要丟最舊的，留下來的必須仍是先進先出"
+    );
+    assert_eq!(
+        link.fragment_audit_overflow(),
+        3,
+        "丟掉的筆數必須數得出來——靜默丟稽核就是把「組不回來」演成「沒說話」"
+    );
+}

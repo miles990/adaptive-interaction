@@ -21,6 +21,7 @@ use crate::fragment::{
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -471,16 +472,37 @@ pub struct DeviceLink<L: RawLink> {
     /// 為什麼在這裡而不是在 Runtime：核心不得認得「被分片」這件事。組裝在
     /// 傳輸層裡完成，呼叫端仍然只看到一則完整的入站 envelope。
     reassembly: std::sync::Mutex<Reassembler>,
-    /// 「被取消掉的那一筆」等著被回報（單一槽，有界）。
+    /// 「被取消掉的那一筆」等著被回報（先進先出，上限
+    /// [`PENDING_FRAGMENT_AUDITS`]）。
     ///
     /// 為什麼需要它：hello／stop-all／shutdown 這些取消點都在**別的**呼叫路徑
     /// 上（沒有人在那裡留稽核）。不留下來的話，一筆進行中的傳輸會在緊急停止
     /// 的瞬間靜默消失——那正好是最不該有空白的時刻。收訊迴圈下一輪呼叫
-    /// [`DeviceLink::expire_fragments`] 就會把它取走並留稽核。
-    pending_fragment_drop: std::sync::Mutex<Option<FragmentDrop>>,
+    /// [`DeviceLink::expire_fragments`] 就會把最早的一筆取走並留稽核。
+    ///
+    /// 為什麼是佇列而不是單一槽：收訊迴圈每一輪只取走一筆，而同一個輪詢窗
+    /// （400 ms）內可能發生好幾次取代——單一槽會把先發生的那一筆靜默覆蓋掉，
+    /// 違反 `fragment.rs` 的「每一次丟棄都留得下稽核」。
+    pending_fragment_drops: std::sync::Mutex<VecDeque<FragmentDrop>>,
+    /// 佇列滿了而丟掉的稽核筆數。有界必須付出代價，但**代價要數得出來**：
+    /// 靜默丟掉稽核就是把「組不回來」演成「裝置沒說話」。
+    fragment_audit_overflow: AtomicU64,
     /// 出站傳輸序號（每切一筆 +1）。
     outbound_xfer: AtomicU32,
+    /// 出站序列化鎖：一則被分片的 envelope，它的每一片必須在線上**連續**寫出。
+    ///
+    /// 為什麼需要它：裝置線 v1.2 的「每裝置同時只有一筆進行中的傳輸」原本只在
+    /// **接收**端由單槽 [`Reassembler`] 強制。同一條 link 上兩個併發的
+    /// [`DeviceLink::send_aip`]（`character_session` 的 `Output::Persist` 就是各自
+    /// 併發派送的）會在 await 點交錯成 A0 B0 A1 B1…，對端看到 `xfer` 換掉就
+    /// supersede、之後的片一律 `unknown-xfer`——兩則都丟失，而兩個呼叫端都拿到
+    /// `Ok`。有了這把鎖，交錯在送出端就不可能發生。
+    outbound: tokio::sync::Mutex<()>,
 }
+
+/// 等著被收訊迴圈取走的分片稽核上限（有界）。收訊迴圈每輪取一筆、輪距
+/// 400 ms，8 筆足以蓋住一個輪詢窗內的連續取代，而不讓佇列無界成長。
+pub const PENDING_FRAGMENT_AUDITS: usize = 8;
 
 /// 進入等待前 +1、離開時 -1（不論成功、失敗或提早 return）。
 struct InFlightGuard<'a>(&'a std::sync::atomic::AtomicUsize);
@@ -524,8 +546,10 @@ impl<L: RawLink> DeviceLink<L> {
             pairing_not_recompared: std::sync::atomic::AtomicBool::new(false),
             aip_refused_before_pairing: AtomicU64::new(0),
             reassembly: std::sync::Mutex::new(Reassembler::new()),
-            pending_fragment_drop: std::sync::Mutex::new(None),
+            pending_fragment_drops: std::sync::Mutex::new(VecDeque::new()),
+            fragment_audit_overflow: AtomicU64::new(0),
             outbound_xfer: AtomicU32::new(0),
+            outbound: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -632,8 +656,13 @@ impl<L: RawLink> DeviceLink<L> {
     ///
     /// 分片來自**沒有宣告** [`FRAG_CAP`] 的裝置時一律拒絕：它沒說自己會分片，
     /// 我們就不替它猜（能力宣告是這條線唯一的能力事實）。
+    ///
+    /// 「沒宣告」包含**完全沒有宣告 caps 的舊韌體**（[`DeviceLink::advertises`]
+    /// 回 `None`）：重組要配置緩衝、要相信對端的 `total`／`bytes`，那是替它猜。
+    /// 出站方向用的是 `== Some(true)`（[`DeviceLink::supports_fragmentation`]），
+    /// 入站對稱地用 `!= Some(true)`。
     fn accept_fragment(&self, msg: &DeviceMsg) -> Result<Option<Value>, FragmentDrop> {
-        if self.advertises(FRAG_CAP) == Some(false) {
+        if self.advertises(FRAG_CAP) != Some(true) {
             let xfer = match msg {
                 DeviceMsg::AipFrag { xfer, .. } => *xfer,
                 _ => 0,
@@ -665,7 +694,7 @@ impl<L: RawLink> DeviceLink<L> {
                 "an in-flight aip transfer was superseded by a new one"
             );
             // 被取代的那一筆永遠不會到達：留給收訊迴圈稽核，不靜默。
-            *lock_ignoring_poison(&self.pending_fragment_drop) = Some(dropped);
+            self.queue_fragment_audit(dropped);
         }
         match step {
             ReassemblyStep::Buffered => Ok(None),
@@ -688,8 +717,8 @@ impl<L: RawLink> DeviceLink<L> {
                 "an in-flight aip transfer was cancelled"
             );
             // 這些取消點（hello／stop-all／shutdown）沒有人在旁邊留稽核：
-            // 先放進待回報槽，收訊迴圈下一輪就會取走。
-            *lock_ignoring_poison(&self.pending_fragment_drop) = Some(*drop);
+            // 先排進待回報佇列，收訊迴圈下一輪就會取走。
+            self.queue_fragment_audit(*drop);
         }
         dropped
     }
@@ -697,8 +726,9 @@ impl<L: RawLink> DeviceLink<L> {
     /// 逾時／世代守衛：收訊迴圈每一輪呼叫一次。回傳非 `None` ＝有一筆傳輸被
     /// 丟掉了，呼叫端必須留稽核（`aip.fragment-dropped`）。
     pub fn expire_fragments(&self) -> Option<FragmentDrop> {
-        // 先把別的路徑取消掉的那一筆交出去（不然它會在緊急停止的瞬間靜默消失）。
-        if let Some(pending) = lock_ignoring_poison(&self.pending_fragment_drop).take() {
+        // 先把別的路徑取消掉的那些交出去（不然它們會在緊急停止的瞬間靜默消失）。
+        // 先進先出：最早被丟掉的那一筆最早被稽核。
+        if let Some(pending) = lock_ignoring_poison(&self.pending_fragment_drops).pop_front() {
             return Some(pending);
         }
         let generation = self.raw.generation();
@@ -713,6 +743,26 @@ impl<L: RawLink> DeviceLink<L> {
             );
         }
         dropped
+    }
+
+    /// 把一筆被丟棄的傳輸排進待稽核佇列（有界；滿了丟最舊的並計數）。
+    fn queue_fragment_audit(&self, drop: FragmentDrop) {
+        let mut queue = lock_ignoring_poison(&self.pending_fragment_drops);
+        while queue.len() >= PENDING_FRAGMENT_AUDITS {
+            let lost = queue.pop_front();
+            self.fragment_audit_overflow.fetch_add(1, Ordering::SeqCst);
+            tracing::warn!(
+                device = %self.expected_device_id,
+                lost_xfer = lost.map(|d| d.xfer).unwrap_or_default(),
+                "the pending aip fragment audit queue overflowed; the oldest audit was dropped"
+            );
+        }
+        queue.push_back(drop);
+    }
+
+    /// 因為佇列滿了而丟掉的稽核筆數（診斷用；有界要付的代價必須數得出來）。
+    pub fn fragment_audit_overflow(&self) -> u64 {
+        self.fragment_audit_overflow.load(Ordering::SeqCst)
     }
 
     /// 對端有沒有宣告 `aip.frag/1`（＝這條線送得出超過行上限的 envelope）。
@@ -770,6 +820,26 @@ impl<L: RawLink> DeviceLink<L> {
         }
         let envelope_text = serde_json::to_string(envelope)
             .map_err(|e| LinkError::Refused(format!("envelope is not serialisable: {e}")))?;
+        // 一筆傳輸的所有片必須在線上**連續**：這把鎖在寫出第一片之前取得，
+        // 最後一片寫完（或中途失敗）才放。等待有界——`deadline` 就是「這一則
+        // 排在傳輸佇列裡的有效期」，過期就誠實回「沒送出」而不是無限期排隊。
+        let _outbound =
+            match tokio::time::timeout_at(
+                tokio::time::Instant::from_std(deadline),
+                self.outbound.lock(),
+            )
+            .await
+            {
+                Ok(guard) => guard,
+                Err(_) => return Err(LinkError::Refused(
+                    "another aip transfer was still being written to this link when the deadline \
+                     passed; nothing was sent"
+                        .into(),
+                )),
+            };
+        // 排隊期間重連過＝握手作廢：不得把片寫到一條 hello/pair 從未在其中
+        // 驗證過的連線上。
+        self.same_generation(generation, "the aip transfer to be sent")?;
         let xfer = self.outbound_xfer.fetch_add(1, Ordering::SeqCst);
         let frames = fragment_envelope_line(&envelope_text, limit, xfer).map_err(|e| {
             LinkError::Refused(format!("message too large and not fragmentable: {e}"))
@@ -777,17 +847,29 @@ impl<L: RawLink> DeviceLink<L> {
         // 依序送出。中途失敗就停下來——對端的重組器會因為缺片／逾時把整筆
         // 丟掉並留痕，我們這邊也誠實回報這一則沒有完整送出。
         for (i, frame) in frames.iter().enumerate() {
-            self.raw
-                .send_before(encode_host_msg(frame), deadline)
-                .await
-                .map_err(|e| match e {
-                    LinkError::Refused(detail) => LinkError::Refused(format!(
-                        "fragment {}/{} of aip transfer {xfer} was refused: {detail}",
-                        i + 1,
-                        frames.len()
-                    )),
-                    other => other,
-                })?;
+            if let Err(error) = self.raw.send_before(encode_host_msg(frame), deadline).await {
+                let where_ = format!("fragment {}/{} of aip transfer {xfer}", i + 1, frames.len());
+                if i == 0 {
+                    // 一個位元組都沒寫出去：照傳輸層原樣回報（升級成「未知」
+                    // 會讓呼叫端以為可能已經送到）。
+                    return Err(match error {
+                        LinkError::Refused(detail) => {
+                            LinkError::Refused(format!("{where_} was refused: {detail}"))
+                        }
+                        LinkError::Unavailable(detail) => LinkError::Unavailable(format!(
+                            "{where_} was not written: {detail}; nothing was sent"
+                        )),
+                        other => other,
+                    });
+                }
+                // 前面幾片已經寫上線了：這一則**沒有**完整送出，但線上已經有
+                // 位元組。誠實的名字是「送達與否未知」，不是「什麼都沒送」。
+                return Err(LinkError::Uncertain(format!(
+                    "{where_} failed after {} earlier fragment(s) were already written: {error}; \
+                     the device will discard the partial transfer",
+                    i
+                )));
+            }
         }
         Ok(())
     }
