@@ -49,8 +49,14 @@ Device Profile 不是一份獨立的新協定，是 AIP `capability` 訊息（`d
 Device Profile 的身分不是自己宣稱的，是 Transport 綁定出來的（`docs/aip/README.md` §5）：
 iPhone 的 `source` 必須等於配對出來的 `{kind:"device", id:<deviceId>}`
 （`docs/aip/transport-bindings.md` §0）。宣稱與綁定不符 → `identity-mismatch`，不「幫忙修正」。
-未來若要接上第二種裝置（例如 ESP32），身分綁定的來源會是那個 Transport 自己的配對／認證機制，
-AIP 層的規則不變——但**這只是設計上的可延伸性，1.0 沒有第二個裝置實作**（§5）。
+第二種裝置（宣告式裝置線 v1.1，§6）的身分來源是那條線自己的 hello／配對機制：Runtime 依
+`DeviceLink` 的期望身分綁定 `Party::device(<spec 的 deviceId>)`，AIP 層的規則不變。但兩條線的
+**身分強度不同**，文件與稽核一律用這兩個字串、不寫「已驗證身分」：
+
+| Transport | `identityStrength` | 意思 |
+|---|---|---|
+| iPhone wss v1 | `paired-token` | host 端逐次驗 sha256(token) |
+| 宣告式裝置線 v1.1（Serial／MQTT／BLE） | `transport-hello+device-side-pairing` | `hello.deviceId` 是**裝置自報的明文比對**；配對碼由**裝置端**比對（host 只送碼等 pair-ok）。`DeviceLink::pairing_unverified()` 為 true 時連配對碼是否被比對過都無法證明 |
 
 ## 4. Presence／Heartbeat／Offline policy
 
@@ -69,25 +75,46 @@ AIP 層的規則不變——但**這只是設計上的可延伸性，1.0 沒有�
   只送給 presence 為 `online`、且把該 intent 協商成 `exact` 的 `remote-renderer`
   （`docs/aip/character-session.md` §12.8）。
 
-## 5. iPhone 是目前唯一實作
+## 5. 兩條實作：iPhone wss v1（完整）與宣告式裝置線 v1.1（Serial 經模擬器）
 
-`docs/aip/transport-bindings.md` §1 的 iPhone wss v1 綁定是唯一把 Device Profile
-（`capability` 宣告→身分綁定→安全管線→resume）跑完整條路徑的 Transport，且有端到端測試：
+`docs/aip/transport-bindings.md` §1 的 iPhone wss v1 綁定是把 Device Profile
+（`capability` 宣告→身分綁定→安全管線→resume）跑完整條路徑、且有最多端到端測試的 Transport：
 `crates/interaction-runtime/tests/character_session_loop.rs`（14 個測試，走真 TLS wss、模擬
 iPhone（fixture）——`connect`／`pair`／`hello` helper 在檔案內，非真機）與
 `crates/interaction-runtime/tests/mobile_loop.rs::a_legacy_phone_that_never_negotiates_receives_no_aip_frames`
 (:3759)。
 
-## 6. ESP32／BLE／Serial：誠實標「未實作」
+## 6. 宣告式裝置線 v1.1（Serial／MQTT／BLE）：Serial 經 pty 模擬器驗證，真板為零
 
-```bash
-rg -n "aip|AIP" crates/interaction-adapter-declarative
-```
+v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中；v0.6.x（`e86afb9`）起
+宣告式 adapter 有了正式的 AIP 綁定，**核心零變更**（`interaction-session`／`interaction-aip`／
+`character_session.rs` 的 diff 為空，由獨立驗證者核對）：
 
-本次核實**零命中**——`crates/interaction-adapter-declarative`（YAML→HTTP/SSE／Serial／MQTT／BLE
-宣告式裝置 adapter）目前完全沒有任何 AIP 相關程式碼，也沒有 Device Profile 的 `capability` 宣告
-邏輯。這些裝置目前透過既有的宣告式 adapter 協定（`protocol.rs` 裝置線協定 v1：hello 身分＋配對＋
-cmd/ack＋dedupe）與 Runtime 溝通，那是一套獨立於 AIP 的既有系統，**不在 1.0 的 Device Profile
-範圍內**。要讓 ESP32 之類的裝置成為 AIP session 成員，需要在 `interaction-adapter-declarative`
-或對應的 Runtime 接線層新增一條 AIP frame 綁定（仿照 `mobile.rs` 的 `Some("aip")` 分支），
-這是下一個 minor version 的設計項目，本文件不預先宣稱任何時程或形狀。
+- **線上訊息**：兩個方向都是一行 `{"type":"aip","envelope":{…}}`（`DeviceMsg::Aip`／`HostMsg::Aip`）。
+  `proto` 仍為 1——`aip` 是 v1.1 的追加訊息：舊韌體不認得就忽略、舊 host 當未知訊息丟棄，兩端都不壞。
+  參考韌體對入站 `aip` 明確忽略（放在 not-paired 閘門**之後**，未配對照舊回 `not-paired`）。
+- **准入在傳輸層**：只有通過 hello 身分驗證＋配對握手、且連線世代未變的通道才收 `aip`
+  （`DeviceLink::admit_aip`，比照 iPhone 的 auth-ok）。之前一律拒絕、計數並稽核
+  `aip.rejected{stage:"transport-admission"}`，不靜默丟棄。
+- **大小三層**：AIP profile 64 KiB → 這條線 `protocol::MAX_AIP_ENVELOPE_BYTES` 8 KiB（入站超限
+  `RefusedTooLarge`；出站超限一個位元組都不寫）→ 傳輸自己（serial／參考韌體單行 639 bytes、BLE 512 bytes、
+  `parse_device_msg` 整行 16 KiB）。
+- **Runtime 接線** `crates/interaction-runtime/src/declarative_session.rs`：Runtime 只認得型別抹除的
+  `DeviceAipChannel`（沒有 serial／mqtt／ble 分支）。`register_declarative_spec` 同時宣告能力（受器；
+  spec 標 `requiresConsent` 的＝高風險，id 只有 `receptor_consent_map` 一個產生點）、登記 `SensorSource`
+  （stop-all＋等 ack；靜默＝`unknown`，不冒充已停；停止前先關本機輪詢旗標，高風險受器不自動恢復）、
+  綁定收送迴圈（握手 500 ms→15 s 有上限退避、400 ms 輪詢窗、broadcast Lagged 稽核 `aip.inbound-lagged`）。
+  撤銷／停用 provider → leave session＋retract 宣告＋unregister 來源＋abort 綁定 task；停用中的 spec
+  不開綁定 task（重啟不得讓人類關掉的裝置在背景重新握手）。
+- **身分強度**：`transport-hello+device-side-pairing`（§3）；稽核 `aip.device-channel-ready`／
+  `aip.device-channel-lost`／`aip.device-retired` 帶 `identityStrength`／`transport`／`pairingUnverified`。
+- **證據等級**：`crates/interaction-runtime/tests/declarative_session_loop.rs`（7 測）走 **production
+  `DeviceLink`＋serial adapter**，對端是 `scripts/esp32-serial-sim.py`（**pty 模擬器**；stdin 控制通道
+  `aip-capability`／`aip-touch`／`aip-resume`／`aip-raw`，未配對拒絕送出）；`aip_link.rs` 6 測、
+  `esp32_sim_conformance.rs` 的韌體／README／模擬器三方一致 2 測。韌體只有 `compile.sh` 編譯檢查。
+  **ESP32 真板驗收為零**；MQTT／BLE 共用同一段 `AipChannel<L>` 程式碼，但沒有 AIP session 測試。
+- **已知限制**：(1) 協商的第二則回覆（`state{kind:"snapshot"}`）超過參考韌體 639 bytes 單行上限，serial
+  傳輸在寫上線前拒絕並稽核 `aip.outbound-undeliverable{bytes,reason}`——Serial 成員目前拿不到初始快照
+  （分段／壓縮／縮減 profile 是協定層決定，未做）；(2) 宣告式裝置沒有 recipe 相容的 touch observation id
+  （iPhone 有 `iphone.touch`），沒有憑空發明一個；(3) 隔離測試的第二個成員是程序內 device fixture，
+  不是 fake_iphone 子程序。

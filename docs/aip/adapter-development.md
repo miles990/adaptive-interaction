@@ -55,21 +55,34 @@ in-process builtin adapter；外部 transport 的等價驗收是
 
 ## 3. 加一個新裝置（Device Profile）
 
-見 `docs/aip/device-profile.md` §6：1.0 只有 iPhone 一個實作，ESP32／BLE／Serial 尚未接上 AIP。
-若要加：
+見 `docs/aip/device-profile.md` §5–§6：現在有兩條裝置 binding——iPhone wss v1 與宣告式裝置線 v1.1
+（Serial／MQTT／BLE；Serial 經 pty 模擬器驗證，真板為零）。
 
-1. 在對應的 Transport 層（例如 `crates/interaction-adapter-declarative` 或它的 Runtime 接線）
-   仿照 `crates/interaction-runtime/src/mobile.rs` 的 `Some("aip") if authed.is_some()` 分支
-   （:3491-3510）加一個 AIP frame 分派點：只在該 Transport 自己的認證完成後才接受，
-   身分綁定用該 Transport 自己的配對／認證機制。
-2. 呼叫 `Runtime::character_session_device_frame`（或對應的等價入口）把已驗證身分與 envelope
-   交給 `interaction-session`（不得繞過它自己實作一套安全檢查——安全管線只有一份，在
-   `crates/interaction-session/src/session.rs::gate`）。
+**如果你的裝置走宣告式 adapter**（YAML spec，transport 是 serial／mqtt／ble）：什麼都不用寫。
+`crates/interaction-adapter-declarative` 對每個 `DeviceLink<L>` 自動建一個 `AipChannel<L>`
+（型別抹除的 `DeviceAipChannel`），`register_declarative_spec` 會宣告能力、登記 `SensorSource`、
+綁定收送迴圈（`crates/interaction-runtime/src/declarative_session.rs`）。裝置端只要在 hello＋配對之後
+收發一行 `{"type":"aip","envelope":{…}}`（參考韌體 `firmware/esp32-companion/` 目前只忽略入站 aip，
+要真的成為成員得自己實作 capability／touch）。它的身分強度是 `transport-hello+device-side-pairing`
+（`device-profile.md` §3）——寫文件、稽核、UI 時用這個字串，不要寫成「已驗證身分」。
+
+**如果是第三種 Transport**：
+
+1. 實作 `interaction_adapter_declarative::protocol::DeviceAipChannel`（或仿照
+   `crates/interaction-runtime/src/mobile.rs` 的 `Some("aip") if authed.is_some()` 分支）：**只在該
+   Transport 自己的認證完成後才放行** aip，身分綁定用它自己的配對／認證機制；被擋下的要計數＋稽核。
+   出站 envelope 也要過 AIP profile 驗證與大小上限（`MAX_AIP_ENVELOPE_BYTES` 之下再守傳輸自己的上限），
+   送不出去要稽核 `aip.outbound-undeliverable`，不能只落 log。
+2. 呼叫 `Runtime::character_session_device_frame` 把已綁定的身分與 envelope 交給
+   `interaction-session`（不得繞過它自己實作一套安全檢查——安全管線只有一份，在
+   `crates/interaction-session/src/session.rs::gate`）；斷線→`Presence::Reconnecting`（既有 tick 轉
+   Offline／leave）；provider 撤銷→leave＋retract＋unregister。
 3. 依 Device Profile 宣告 `capability`（`role`／`inputs`／`intents`／`features`），
    不新增協定層級的欄位（除非兩個裝置都需要，見 §1 的提升規則）。
-4. 補 fixture（仿照 `crates/interaction-runtime/examples/fake_iphone.rs` 的 `aip-*` op，
-   `docs/aip/transport-bindings.md` §6）與端到端測試（仿照
-   `crates/interaction-runtime/tests/character_session_loop.rs` 的 helper 與案例）。
+4. 補 fixture（`crates/interaction-runtime/examples/fake_iphone.rs` 或 `scripts/esp32-serial-sim.py`
+   的 `aip-*` 控制指令，`docs/aip/transport-bindings.md` §6／§8）與端到端測試（仿照
+   `crates/interaction-runtime/tests/character_session_loop.rs`／`declarative_session_loop.rs`）。
+   結果一律標「模擬器／fixture」；真機為零就寫零。
 
 ## 4. 加一個新 Transport（AIP binding 規則）
 

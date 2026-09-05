@@ -13,7 +13,8 @@
 
 | Transport | 已驗證身分（bound identity） | `source` 必須宣稱 |
 |---|---|---|
-| iPhone wss v1 | 配對 token → `deviceId` | `{kind:"device", id:"<deviceId>"}` |
+| iPhone wss v1 | 配對 token → `deviceId`（`identityStrength: paired-token`） | `{kind:"device", id:"<deviceId>"}` |
+| 宣告式裝置線 v1.1（Serial／MQTT／BLE，§8） | `hello.deviceId`（裝置自報）＋裝置端配對碼（`identityStrength: transport-hello+device-side-pairing`，弱於 iPhone） | `{kind:"device", id:"<spec 的 deviceId>"}` |
 | HTTP（human token） | 可信 host surface | `{kind:"human-surface", id:"desktop"}` |
 | Runtime 內部 | Runtime 自己 | `{kind:"runtime", id:"runtime"}`（外部不得宣稱） |
 
@@ -224,6 +225,11 @@ stdout（JSON Lines）：收到的每則 aip frame 印 `{"event":"aip","envelope
 `reconnect`／`ack-stop-all`／`quit` op 與 `{"event":"connected"｜"disconnected"｜"act"…}`
 輸出不變。驗收腳本：`scripts/v03-cli-e2e.sh` 的「Character Session（模擬 iPhone（fixture））」段。
 
+**Serial 模擬器**（`scripts/esp32-serial-sim.py`，pty，不是 ESP32 真板）從 v0.6.x 起也讀 stdin 的
+JSON Lines 控制指令：`aip-capability`／`aip-touch`／`aip-resume`／`aip-raw`（同名語意），未配對一律
+拒絕送出並在 log 留痕；收到的每則 aip 行印成 `>> aip …`／`<< aip …`。EOF 後不再監看 stdin，
+既有以 `Stdio::null()` 啟動它的呼叫端不受影響。
+
 ## 7. 1.0 的邊界（誠實記錄）
 
 * **`consentGrantId` 不會出現在 1.0 的 session 訊息裡**：帶 grant 的訊息只可能是 `command`，
@@ -235,3 +241,22 @@ stdout（JSON Lines）：收到的每則 aip frame 印 `{"event":"aip","envelope
 * **`characterId` 目前固定是 `"character"`**：session 在 Runtime 啟動時就建立，那時還沒有
   任何角色 hello。角色顯示名走 CPP／`/v1/character/manifest`，不從 session state 取。
 * 多台電腦競爭 host、雲端同步、multi-master、CRDT：**不在 1.0**。
+
+## 8. 宣告式裝置線 v1.1（Serial／MQTT／BLE）：同一行 `{"type":"aip","envelope":{…}}`
+
+`crates/interaction-adapter-declarative/src/protocol.rs` 裝置線協定的 v1.1 追加訊息（`proto` 仍為 1）；
+規則與 §1 對稱，差異只在 Transport 自己的事：
+
+* **准入**：只在 hello 身分驗證＋配對握手完成、且連線世代未變之後接受（`DeviceLink::admit_aip`）；
+  之前一律拒絕、計數並稽核 `aip.rejected{stage:"transport-admission"}`。重連（世代更替）後舊准入立即失效。
+* **大小**：AIP 64 KiB → `MAX_AIP_ENVELOPE_BYTES` 8 KiB（入站 `RefusedTooLarge`；出站超限一個位元組都不寫）
+  → 傳輸自己（serial／參考韌體單行 639 bytes、BLE 512 bytes、整行解析 16 KiB）。送不出去的回覆稽核
+  `aip.outbound-undeliverable{bytes,reason}`。**目前協商的 snapshot 回覆放不進 639 bytes**（§7 之外的
+  v0.6.x 已知限制，見 `device-profile.md` §6）。
+* **身分**：`Party::device(<spec 的 deviceId>)` 由 Runtime 依 `DeviceLink` 的期望身分綁定；
+  強度 `transport-hello+device-side-pairing`（§0）。
+* **存活**：既有 who／pair／ack／event 行也是存活證明（同 §1.4）；斷線＝`Presence::Reconnecting`，
+  由既有 tick 轉 Offline／leave。
+* **速率**：與 §1 相同的 session 端 token bucket；線上另有各 Transport 自己的窗。
+* **證據**：`declarative_session_loop.rs` 7 測（pty 模擬器經 production serial adapter）；MQTT／BLE
+  共用程式碼但未測；真板零。

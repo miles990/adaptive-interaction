@@ -289,9 +289,10 @@ iPhone 線協定 v1（`mobile.rs`）新增一種 frame `{"type":"aip","envelope"
 
 **尚未落地**：
 
-- **`crates/interaction-adapter-declarative`（ESP32／BLE／Serial）尚未接上 AIP Device Profile**
-  （`rg -n "AIP" crates/interaction-adapter-declarative/src` 零命中）；`docs/aip/device-profile.md` §6
-  的 profile 目前只有 iPhone Mobile Provider 一個實作。
+- **宣告式裝置線 v1.1 的 AIP binding 只驗到 Serial 模擬器**（v0.6.x `e86afb9` 起 `crates/interaction-adapter-declarative`
+  有 `DeviceMsg::Aip`／`HostMsg::Aip`＋型別抹除的 `DeviceAipChannel`，Runtime 接線在
+  `crates/interaction-runtime/src/declarative_session.rs`；見 `docs/aip/device-profile.md` §6）：MQTT／BLE 共用程式碼但未測，
+  ESP32 真板為零，且協商的 snapshot 回覆放不進參考韌體 639 bytes 單行（稽核 `aip.outbound-undeliverable`）。
 - **iPhone 真機／ESP32 真板驗收**：v0.6.0 的證據全部是模擬器與 fixture，見
   `docs/releases/v0.6.0-test-matrix.md` §1。
 - **`EvidenceClass` 尚未接進 diagnostics**：AIP §10 只定義詞彙，Runtime／API／CLI 沒有生產或消費端，

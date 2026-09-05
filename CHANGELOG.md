@@ -24,6 +24,17 @@
   `scripts/tests/docs-claims.sh` 核對 tag→commit 與檔案存在，並擋下總覽文件把已發布版本寫成「候選／尚未 tag」。（81b89d1）
 
 ### Added
+- **第二種裝置走正式 AIP binding（M2 §3.3；`e86afb9`）**：宣告式 adapter 的裝置線協定升到 v1.1——雙向 `{"type":"aip","envelope":{…}}`
+  追加訊息（`proto` 仍為 1，舊韌體忽略、舊 host 丟棄）、`MAX_AIP_ENVELOPE_BYTES` 8 KiB、只在 hello 身分＋配對握手（且連線世代未變）
+  之後准入（拒絕計數＋稽核 `aip.rejected{stage:"transport-admission"}`）、型別抹除的 `DeviceAipChannel`（Runtime 沒有 serial／mqtt／
+  ble 分支）。新 `crates/interaction-runtime/src/declarative_session.rs`：`register_declarative_spec` 同時宣告能力（`requiresConsent`
+  受器＝高風險，id 只有 `receptor_consent_map` 一個產生點）、登記 `SensorSource`（stop-all＋等 ack；靜默＝`unknown`）、綁定有界收送迴圈；
+  撤銷／停用 → leave＋retract＋unregister＋abort。身分強度誠實標為 `transport-hello+device-side-pairing`（弱於 iPhone `paired-token`），
+  稽核 `aip.device-channel-ready`／`-lost`／`aip.device-retired` 帶 `identityStrength`／`transport`／`pairingUnverified`；送不出去的回覆
+  稽核 `aip.outbound-undeliverable{bytes,reason}`（以前只落 debug log）。`scripts/esp32-serial-sim.py` 加 stdin 控制通道；參考韌體對入站
+  aip 明確忽略（not-paired 閘門之後）。證據：`declarative_session_loop.rs` 7 測走 **production `DeviceLink`＋serial adapter 對 pty 模擬器**、
+  `aip_link.rs` 6、`esp32_sim_conformance.rs` 20；核心（`interaction-session`／`interaction-aip`／`character_session.rs`）零變更由獨立
+  驗證者核對。**ESP32 真板為零；MQTT／BLE 共用程式碼但未測。**
 - 唯讀端點 `GET /v1/providers/declarations`（`{declarations:[{id, classLabel, presentationSurfaces:[{match,value}], receptors,
   highRiskReceptors}]}`）與 CLI `interact-ai providers declarations`：維運看得到 provider 家族宣告了哪些呈現面／高風險受器；
   沒有 HTTP 寫入入口（測試釘住 POST 同路徑非 2xx）。
@@ -148,7 +159,18 @@
   `changelog_click_through_check_does_not_force_repetition`）；`docs-claims.sh` 的「已落地功能要有條目」改綁到落地的版本段
   `## [0.6.0]`，不再要求每個新段落重抄。release facts 綁版本與 commit（evidence-index），行為保護由 executable tests 保證。
 
+### Known limitations（本分支新增；修掉時同步刪除）
+- **Serial 成員拿不到初始快照**：協商的第二則回覆（`state{kind:"snapshot"}`）超過參考韌體 639 bytes 單行上限，serial 傳輸在寫上線前
+  拒絕並稽核 `aip.outbound-undeliverable`；分段／壓縮／縮減 profile 是協定層決定，本分支未做。
+- 宣告式裝置沒有 recipe 相容的 touch observation id（iPhone 有 `iphone.touch`）；沒有憑空發明一個。
+- `declarative_session_loop.rs` 的多裝置隔離測試用程序內 device fixture 當第二成員，未與 fake_iphone 子程序並存。
+- `crates/interaction-adapter-declarative/src/serial.rs::a_port_that_dies_immediately_backs_off_and_is_reported_offline` 是既有的偶發
+  失敗（並行下偶爾紅，單獨重跑 3/3 綠；與本分支改動無關，未修）。
+
 ### Docs
+- `docs/aip/device-profile.md` §3／§5／§6、`docs/aip/adapter-development.md` §3、`docs/aip/transport-bindings.md` §0／§6／§8、
+  `docs/acceptance-evidence.md` §3：不再寫「iPhone 是唯一實作／宣告式 adapter 零 AIP」，改記宣告式裝置線 v1.1 的准入、大小三層、
+  身分強度（不得寫「已驗證身分」）、證據等級（pty 模擬器，真板零）與已知限制。
 - README／`docs/ARCHITECTURE.md`／`docs/FEATURES.md`／`CLAUDE.md` 改為 v0.6.0 已於 2026-09-05 發布（tag `v0.6.0` → `4bd55fe`）；
   `docs/aip/general-mode-ux.md` 不再宣稱 Runtime 未投影協商結果（v0.6.0 起 `members[].unsupportedIntents` 已投影）；
   `docs/aip/README.md` §6 的 session-reset 條件改為「`sessionEpoch` 與本地**不同**」（與 §7、Rust／iOS 一致）；
