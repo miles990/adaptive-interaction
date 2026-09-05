@@ -9,7 +9,7 @@
 // （一份硬編的 persona 清單＋單一 rig 的配色表），同一份 JSON 說自己屬於哪個角色完全
 // 不影響驗證——匯入一個純文字角色的設定檔照樣可以夾帶 rig 的配色，存成一個沒有人吃的
 // 死值。現在先解出 characterId → 由呼叫端（角色目錄）告訴我們它的 entrypoint →
-// 用**那個 adapter** 宣告的 `personas`／`variants`／`hasPlayfield` 驗證；問不出 adapter
+// 用**那個 adapter** 宣告的 `personas`／`variants`／`hasPlayfield`／`scenes` 驗證；問不出 adapter
 // 就誠實拒絕角色專屬欄位，不拿別的角色的允許值頂替，也不靜默丟棄。
 
 import { DesktopPrefs } from "../desktop";
@@ -45,8 +45,8 @@ export const LEGACY_CHARACTER_IDS: readonly string[] = [
   "shu-standard",
   "shu-minimal",
 ];
+/** 表達強度是**桌面共用**的偏好（任何角色都吃得下），不是角色專屬欄位。 */
 const EXPRESSIVENESS = ["quiet", "natural", "lively"];
-const SCENES = ["none", "nest", "desk", "sill", "night"];
 
 /** 匯出時同樣需要「這個角色是誰」才知道哪些欄位屬於它。 */
 export interface ExportOptions {
@@ -61,6 +61,7 @@ export function exportCompanionSettings(prefs: DesktopPrefs, opts: ExportOptions
   const meta = adapterMetaFor(prefs.companionPack, opts.entrypointFor);
   const keepPersona = meta === null || (meta.personas?.length ?? 0) > 0;
   const keepFamiliars = meta === null || meta.hasPlayfield;
+  const keepScene = meta === null || (meta.scenes?.length ?? 0) > 0;
   return {
     kind: "companion-settings",
     schemaVersion: 1,
@@ -70,7 +71,7 @@ export function exportCompanionSettings(prefs: DesktopPrefs, opts: ExportOptions
     characterId: prefs.companionPack,
     companionPersona: keepPersona ? prefs.companionPersona : "",
     companionExpressiveness: String(prefs.companionExpressiveness ?? "natural"),
-    companionScene: String(prefs.companionScene ?? "none"),
+    companionScene: keepScene ? String(prefs.companionScene ?? "none") : "",
     companionPlay: prefs.companionPlay !== false,
     companionCursorPlay: prefs.companionCursorPlay !== false,
     companionApproach: prefs.companionApproach !== false,
@@ -158,8 +159,20 @@ export function parseCompanionSettingsImport(raw: unknown, opts: ImportOptions =
   }
   const expr = str("companionExpressiveness", EXPRESSIVENESS, 16);
   if (expr !== null) out.companionExpressiveness = expr;
-  const scene = str("companionScene", SCENES, 16);
-  if (scene !== null) out.companionScene = scene;
+  // 場景是**遊玩場**的東西：以前是這裡自帶的五個 id（某一個 rig 的場景），純文字／幾何角色
+  // 照樣收得下，存成一個沒有人吃的死值（對抗審查 character-settings-binding-001）。
+  // 現在比照說話風格／使魔：由目標角色的 adapter 宣告，問不出來就誠實拒絕。
+  const scene = str("companionScene", null, 16);
+  if (scene !== null && scene.length > 0) {
+    const scenes = meta?.scenes ?? [];
+    if (scenes.length === 0) {
+      if (!legacyTolerant) throw unattributable("場景");
+    } else if (!scenes.includes(scene)) {
+      throw new Error(`場景「${scene}」不在「${target}」提供的清單裡`);
+    } else {
+      out.companionScene = scene;
+    }
+  }
   for (const key of [
     "companionPlay",
     "companionCursorPlay",

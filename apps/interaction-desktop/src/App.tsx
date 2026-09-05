@@ -620,12 +620,17 @@ export function PageBody({
     case "capabilities":
       // 深連結帶 `hub: "providers"`（角色同步卡的「連接手機／重新確認」）就一步到配對區；
       // 其餘照舊落在「裝置與能力」第一層。route id 不變，只是落點更準。
+      // `deviceId`（「去重新確認」帶的「是哪一台」）一路傳到配對區把那張卡片標出來——
+      // 算出來卻沒有人消費的參數等於沒有落點（對抗審查 general-mode-ux-014）。
       return (
         <ConnectPage
           refreshKey={refreshKey}
           advanced={advanced}
           onNavigate={onNavigate}
           initial={navOptions?.["hub"] === "providers" ? "providers" : "devices"}
+          {...(typeof navOptions?.["deviceId"] === "string" && navOptions["deviceId"].length > 0
+            ? { focusDeviceId: navOptions["deviceId"] }
+            : {})}
         />
       );
     case "safety":

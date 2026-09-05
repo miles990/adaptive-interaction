@@ -38,6 +38,8 @@ const { stub } = vi.hoisted(() => ({
         {
           "data-testid": `page-${name}`,
           "data-initial": String(props.initial ?? ""),
+          // 深連結帶的「是哪一台裝置」：頁面收不到就等於那個參數是死的。
+          "data-focus-device": String(props.focusDeviceId ?? ""),
         },
         `STUB ${name}`
       );
@@ -351,9 +353,13 @@ describe("深連結可以帶「落點參數」，但 route id 不變", () => {
     act(() => nav!.goTo("connect", { hub: "providers", deviceId: "iphone-1" }));
     expect(nav!.tab).toBe("connect");
     expect(screen.getByTestId("page-connect").getAttribute("data-initial")).toBe("providers");
+    // 「去重新確認」還帶著是哪一台：ConnectPage 收得到才有辦法把人帶到那張卡片
+    //（對抗審查 general-mode-ux-014：算出來卻沒有人消費就是名不副實的落點）。
+    expect(screen.getByTestId("page-connect").getAttribute("data-focus-device")).toBe("iphone-1");
     // 參數只對這一次導覽有效：側邊欄再按一次「連接與權限」就回到預設的「裝置與能力」。
     act(() => nav!.goTo("connect"));
     expect(screen.getByTestId("page-connect").getAttribute("data-initial")).toBe("devices");
+    expect(screen.getByTestId("page-connect").getAttribute("data-focus-device")).toBe("");
     // 不認得的 hub 值不會變成別的分頁（只認 providers）。
     act(() => nav!.goTo("connect", { hub: "nope" }));
     expect(screen.getByTestId("page-connect").getAttribute("data-initial")).toBe("devices");

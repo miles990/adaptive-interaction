@@ -120,16 +120,29 @@ function useProactiveDialogue() {
   const [agents, setAgents] = React.useState<Record<string, unknown>[]>([]);
   const [error, setError] = React.useState<string | null>(null);
 
+  /**
+   * 寫入的世代計數器（對抗審查 general-mode-ux-013）。
+   *
+   * `status` 這份共享狀態只有一個 owner，但同一時間可能有好幾個請求在飛：進頁面時的 GET、
+   * 使用者按下的檔位、進階區的逐項修改。回應**不保證**照送出順序回來，先前的寫法是誰後
+   * 回來誰說了算——舊回應蓋掉新回應之後，畫面顯示的模式與後端真正生效的就不一致了。
+   * 每一次寫入開一個新世代；比目前世代舊的回應（含 mount 時那次 GET）一律不寫 status。
+   */
+  const generation = React.useRef(0);
+
   React.useEffect(() => {
     let alive = true;
+    const issued = generation.current;
+    /** 這次讀取還算不算數：中途有人寫入過就不算（不用舊讀數覆蓋新寫入）。 */
+    const current = () => alive && generation.current === issued;
     void api
       .proactiveDialogueGet()
       .then((r) => {
-        if (!alive) return;
+        if (!current()) return;
         setStatus(r);
         setError(null);
       })
-      .catch((e) => alive && setError(sanitizeErrorText(e)));
+      .catch((e) => current() && setError(sanitizeErrorText(e)));
     void api
       .agentsDiscoveries()
       .then((result) => alive && setAgents((result.agents as Record<string, unknown>[] | undefined) ?? []))
@@ -139,23 +152,39 @@ function useProactiveDialogue() {
     };
   }, []);
 
-  const patch = React.useCallback(async (value: Record<string, unknown>) => {
-    try {
-      setStatus(await api.proactiveDialoguePatch(value));
-      setError(null);
-    } catch (e) {
-      setError(sanitizeErrorText(e));
-    }
-  }, []);
+  /**
+   * 一次寫入：開新世代 → 送出 → **只有**這次仍是最新的世代時才寫回 status／error。
+   * 被後來的請求取代掉的舊回應（成功或失敗）都不寫：那一則講的是已經被覆蓋的世代，
+   * 而使用者看到的必須是最後一次請求的結果（那一則自己的成敗照樣會顯示）。
+   */
+  const write = React.useCallback(
+    async (send: () => Promise<Record<string, unknown>>): Promise<boolean> => {
+      generation.current += 1;
+      const issued = generation.current;
+      try {
+        const next = await send();
+        if (generation.current !== issued) return false;
+        setStatus(next);
+        setError(null);
+        return true;
+      } catch (e) {
+        if (generation.current !== issued) return false;
+        setError(sanitizeErrorText(e));
+        return false;
+      }
+    },
+    []
+  );
 
-  const quiet = React.useCallback(async (minutes: number) => {
-    try {
-      setStatus(await api.proactiveDialogueQuiet(minutes));
-      setError(null);
-    } catch (e) {
-      setError(sanitizeErrorText(e));
-    }
-  }, []);
+  const patch = React.useCallback(
+    async (value: Record<string, unknown>) => await write(() => api.proactiveDialoguePatch(value)),
+    [write]
+  );
+
+  const quiet = React.useCallback(
+    async (minutes: number) => await write(() => api.proactiveDialogueQuiet(minutes)),
+    [write]
+  );
 
   return { status, agents, error, patch, quiet };
 }
@@ -371,13 +400,24 @@ export function CompanionPage({
     proactiveMode: proactive.status ? config.mode : null,
   };
   const presetChoice = presetFor(presetInputs);
+  /**
+   * 套用檔位是**兩段寫入**（桌面偏好 → 後端主動對話模式）。`patch()` 自己的 busy 只涵蓋
+   * 第一段，第二段還在飛的時候按鈕就解鎖了，快速切換檔位會讓兩次套用交錯
+   *（對抗審查 general-mode-ux-013）。這個旗標涵蓋整個 applyPreset。
+   */
+  const [presetBusy, setPresetBusy] = React.useState(false);
   const applyPreset = React.useCallback(
     async (id: CompanionPresetId) => {
       const next = applyCompanionPreset(id);
       if (!next) return;
-      // 送出 ≠ 完成：桌面偏好沒寫成功就不要再去動後端的主動對話模式。
-      if (!(await patch(next.prefs))) return;
-      await proactive.patch(next.proactive);
+      setPresetBusy(true);
+      try {
+        // 送出 ≠ 完成：桌面偏好沒寫成功就不要再去動後端的主動對話模式。
+        if (!(await patch(next.prefs))) return;
+        await proactive.patch(next.proactive);
+      } finally {
+        setPresetBusy(false);
+      }
     },
     [patch, proactive.patch]
   );
@@ -518,7 +558,8 @@ export function CompanionPage({
             <CompanionPresetRow
               choice={presetChoice}
               effectiveLines={describeCompanionState(presetInputs)}
-              busy={busy}
+              // 兩段寫入都算忙碌：後端那一段還在飛時不得再按下一個檔位。
+              busy={busy || presetBusy}
               onApply={(id) => void applyPreset(id)}
             />
           )}

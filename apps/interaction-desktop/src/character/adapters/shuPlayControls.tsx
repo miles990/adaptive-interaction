@@ -24,6 +24,12 @@ const SCENES: { id: string; label: string }[] = [
   { id: "night", label: "夜間" },
 ];
 
+/**
+ * 這個 rig 的場景 id（`SHU_META.scenes` 用它宣告）。清單只有一份：設定匯入驗證與這裡的
+ * 選單讀的是同一份，host 端不再自帶一份「五個場景」的全域白名單。
+ */
+export const SHU_SCENE_IDS: readonly string[] = SCENES.map((s) => s.id);
+
 /** 使魔上限（純陪伴、沒有任何權限）。 */
 const MAX_FAMILIARS = 3;
 

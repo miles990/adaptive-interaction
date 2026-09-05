@@ -24,11 +24,14 @@ export function CapabilitiesHub({
   refreshKey,
   advanced,
   initial = "senses",
+  focusDeviceId,
 }: {
   refreshKey: number;
   advanced: boolean;
   /** 上層（連接與權限四區的「管理…」按鈕）指定分類；改變時同步切換。 */
   initial?: HubTab;
+  /** 深連結指名的裝置：配對區把那一台的卡片標出來（純呈現，不改任何狀態）。 */
+  focusDeviceId?: string;
 }) {
   const [tab, setTab] = React.useState<HubTab>(initial);
   React.useEffect(() => {
@@ -59,7 +62,13 @@ export function CapabilitiesHub({
       {tab === "senses" && <CapabilitiesPage kind="receptor" advanced={advanced} />}
       {tab === "responses" && <CapabilitiesPage kind="actuator" advanced={advanced} />}
       {tab === "toolops" && <CapabilitiesPage kind="tool-operation" advanced={advanced} />}
-      {tab === "providers" && <ProvidersSection refreshKey={refreshKey} advanced={advanced} />}
+      {tab === "providers" && (
+        <ProvidersSection
+          refreshKey={refreshKey}
+          advanced={advanced}
+          {...(focusDeviceId ? { focusDeviceId } : {})}
+        />
+      )}
     </div>
   );
 }
@@ -356,9 +365,12 @@ export function testedSummary(tested?: ProviderTested): string {
 function ProvidersSection({
   refreshKey,
   advanced = false,
+  focusDeviceId,
 }: {
   refreshKey: number;
   advanced?: boolean;
+  /** 深連結指名的裝置（往下交給 iPhone 區的那張卡片）。 */
+  focusDeviceId?: string;
 }) {
   const { findCard, human } = useAppState();
   const { name: characterName } = useCharacterName();
@@ -492,7 +504,11 @@ function ProvidersSection({
           </div>
         )}
       </Section>
-      <MobileSection refreshKey={refreshKey} advanced={advanced} />
+      <MobileSection
+        refreshKey={refreshKey}
+        advanced={advanced}
+        {...(focusDeviceId ? { focusDeviceId } : {})}
+      />
       <CharacterAdaptersSection refreshKey={refreshKey} advanced={advanced} standalone />
       <Section title="已連接的裝置與來源">
         <StateView state={providers} empty="還沒有任何裝置或來源。">
@@ -645,9 +661,12 @@ export function pairingInvalidReason(
 export function MobileSection({
   refreshKey,
   advanced = false,
+  focusDeviceId,
 }: {
   refreshKey: number;
   advanced?: boolean;
+  /** 深連結指名的裝置：那一張卡片標出來並捲到它（純呈現）。 */
+  focusDeviceId?: string;
 }) {
   const { human } = useAppState();
   const [status, reloadStatus] = useAsync(() => api.mobileStatus(), [refreshKey]);
@@ -754,6 +773,7 @@ export function MobileSection({
               key={d.deviceId}
               model={d}
               advanced={advanced}
+              focused={focusDeviceId === d.deviceId}
               onChanged={reloadStatus}
             />
           ))}

@@ -28,7 +28,7 @@ import {
   SHU_RIG_PALETTES,
   ShuCharacterAdapter,
 } from "./shu";
-import { ShuPlayControls } from "./shuPlayControls";
+import { ShuPlayControls, SHU_SCENE_IDS } from "./shuPlayControls";
 import { SpriteCharacterAdapter } from "./sprite";
 import { TextCharacterAdapter } from "./text";
 
@@ -42,6 +42,8 @@ const SHU_META: BuiltinAdapterMeta = {
   // 說話風格與遊玩場的設定 UI 都是這個角色自己的東西：host 只讀 meta 掛上去，
   // 不再用 `entrypoint === "shu-rig"` 決定要不要畫（M2 §3.4）。
   personas: SHU_PERSONAS,
+  // 遊玩場場景也是這個角色自己的清單（設定匯入不再用全域白名單驗證它）。
+  scenes: SHU_SCENE_IDS,
   playfieldControls: ShuPlayControls,
   legacyPackKinds: ["character-rig"],
   // 初始配色與「只有摘要時要組哪一種舊 pack」都是這個 rig 自己的知識：

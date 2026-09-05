@@ -282,11 +282,17 @@ function stubApis() {
   );
 }
 
-function renderConnect(advanced = false, initial?: ConnectInitial) {
+function renderConnect(advanced = false, initial?: ConnectInitial, focusDeviceId?: string) {
   const onNavigate = vi.fn();
   const utils = render(
     <AppStateProvider ready refreshKey={0}>
-      <ConnectPage refreshKey={0} advanced={advanced} onNavigate={onNavigate} initial={initial} />
+      <ConnectPage
+        refreshKey={0}
+        advanced={advanced}
+        onNavigate={onNavigate}
+        initial={initial}
+        focusDeviceId={focusDeviceId}
+      />
     </AppStateProvider>
   );
   return { ...utils, onNavigate };
@@ -692,6 +698,27 @@ describe("連接與權限：第一層五區（裝置優先）", () => {
       "aria-selected",
       "true"
     );
+  });
+
+  // 對抗審查 general-mode-ux-014：同步卡的「去重新確認」算得出是哪一台，但那個
+  // deviceId 以前沒有任何人消費——按下去只到配對區，使用者還是得自己找是哪一支手機。
+  it("深連結帶著 deviceId：配對區把那一台的卡片標出來（其他卡片不標）", async () => {
+    stubApis();
+    vi.spyOn(api, "mobileStatus").mockResolvedValue({
+      devices: [
+        { deviceId: "d1", name: "Alex 的 iPhone", model: "iPhone 15", pairedAt: "2026-08-01T00:00:00Z", connected: true },
+        { deviceId: "d2", name: "備用 iPhone", model: "iPhone 13", pairedAt: "2026-08-02T00:00:00Z", connected: true },
+      ],
+      bonjour: { advertised: true, service: "_interact-ai._tcp", instance: "mac" },
+    });
+    renderConnect(false, "providers", "d2");
+    // 第一層的裝置區與第二層的配對區用的是同一個卡片元件：兩邊都要標，不能只標一邊。
+    const focused = await screen.findAllByTestId("phone-card-d2");
+    expect(focused.length).toBeGreaterThan(0);
+    for (const card of focused) expect(card).toHaveAttribute("data-focused", "true");
+    for (const card of screen.getAllByTestId("phone-card-d1")) {
+      expect(card).not.toHaveAttribute("data-focused", "true");
+    }
   });
 
   it("initial 不是 providers 時，第二層仍停在預設的「感知來源」", async () => {

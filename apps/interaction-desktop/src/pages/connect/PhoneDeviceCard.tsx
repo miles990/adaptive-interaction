@@ -252,9 +252,15 @@ export function PhoneDeviceCard({
   onManagePermissions,
   onRepair,
   syncLine,
+  focused = false,
 }: {
   model: PhoneCardModel;
   advanced?: boolean;
+  /**
+   * 深連結指名的就是這一台（角色同步卡的「去重新確認」）：把卡片標出來並捲到它。
+   * 純呈現：不改任何狀態、不代替使用者按任何按鈕，也不會影響卡片上寫的事實。
+   */
+  focused?: boolean;
   /** 角色同步的一行人話（`statusProjection.characterSyncDeviceLine`）。
    *  沒給就不顯示這一行——不猜、也不用「已同步」當預設。 */
   syncLine?: string | null;
@@ -268,6 +274,17 @@ export function PhoneDeviceCard({
 }) {
   const [message, setMessage] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
+  const cardRef = React.useRef<HTMLDivElement>(null);
+
+  // 被指名時捲到自己身上（jsdom／舊 WebView 沒有 scrollIntoView 就什麼都不做——
+  // 標示本身已經夠用，不為了捲動而擲例外）。
+  React.useEffect(() => {
+    if (!focused) return;
+    const node = cardRef.current;
+    if (node && typeof node.scrollIntoView === "function") {
+      node.scrollIntoView({ block: "nearest" });
+    }
+  }, [focused]);
 
   async function run(kind: string, work: () => Promise<string>) {
     setBusy(kind);
@@ -284,7 +301,12 @@ export function PhoneDeviceCard({
   const offlineReason = model.connected ? null : "手機未連線時送不出任何指令。";
 
   return (
-    <div className="provider-card phone-card" data-testid={`phone-card-${model.deviceId}`}>
+    <div
+      ref={cardRef}
+      className={focused ? "provider-card phone-card focused" : "provider-card phone-card"}
+      data-testid={`phone-card-${model.deviceId}`}
+      {...(focused ? { "data-focused": "true", "aria-current": "true" as const } : {})}
+    >
       <div className="row space-between wrap">
         <strong>
           <Icon name="wifi" size={16} /> 我的 iPhone（

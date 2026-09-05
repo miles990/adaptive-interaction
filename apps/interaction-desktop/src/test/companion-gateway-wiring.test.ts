@@ -510,10 +510,12 @@ describe("設定匯入：角色專屬欄位只用目標角色的 adapter 宣告�
       { entrypointFor }
     );
     expect(out.companionPack).toBe("shu-lazy");
-    expect(out.companionScene).toBe("desk");
     expect(out.companionPlay).toBe(false);
     expect(out).not.toHaveProperty("companionPersona");
     expect(out).not.toHaveProperty("companionFamiliars");
+    // 場景同樣是遊玩場（rig）的東西：sprite 小樞的 adapter 沒宣告，舊 id 走同一條寬容路徑
+    //（誠實忽略，不拒絕整份檔）。
+    expect(out).not.toHaveProperty("companionScene");
   });
 
   it("舊小樞家族的寬容只到「忽略未宣告的欄位」：宣告了的清單仍是白名單，非舊 id 一律不寬容", () => {
@@ -530,6 +532,52 @@ describe("設定匯入：角色專屬欄位只用目標角色的 adapter 宣告�
         entrypointFor,
       })
     ).toThrowError(/說話風格/);
+  });
+
+  it("場景不再是全域白名單：問得出 adapter 但它沒宣告場景時，非舊 id 一律拒絕", () => {
+    // 對抗審查 character-settings-binding-001：companionScene 以前是 settingsTransfer 自帶的
+    // 五個 id（那是**某一個 rig** 的遊玩場場景），純文字／幾何角色照樣收得下，
+    // 存成一個沒有人吃的死值。現在由目標角色的 adapter meta 宣告。
+    expect(() =>
+      parseCompanionSettingsImport(file({ companionPack: "plain-text", companionScene: "nest" }), {
+        knownCharacterIds,
+        entrypointFor,
+      })
+    ).toThrowError(/場景/);
+    expect(() =>
+      parseCompanionSettingsImport(file({ companionPack: "ref-shape", companionScene: "night" }), {
+        knownCharacterIds,
+        entrypointFor,
+      })
+    ).toThrowError(/場景/);
+  });
+
+  it("場景：問不出 adapter（沒有對照表）時誠實拒絕，不拿別的角色的允許值頂替", () => {
+    expect(() => parseCompanionSettingsImport(file({ companionPack: "shu-maid", companionScene: "nest" }))).toThrow();
+    expect(() => parseCompanionSettingsImport(file({ companionScene: "nest" }))).toThrow();
+  });
+
+  it("場景：宣告了清單就以那份清單驗證（rig 角色的合法值通過、非法值拒絕）", () => {
+    expect(
+      parseCompanionSettingsImport(file({ companionPack: "shu-maid", companionScene: "sill" }), { entrypointFor })
+        .companionScene
+    ).toBe("sill");
+    expect(() =>
+      parseCompanionSettingsImport(file({ companionPack: "shu-maid", companionScene: "volcano" }), { entrypointFor })
+    ).toThrowError(/場景/);
+  });
+
+  it("匯出：目標角色沒有場景設定時不寫出場景（做不出一個自己匯不回來的檔案）", () => {
+    const textPrefs = {
+      companionPack: "plain-text",
+      companionPersona: "",
+      companionExpressiveness: "natural",
+      companionScene: "nest",
+      companionFamiliars: [],
+    } as unknown as DesktopPrefs;
+    expect(exportCompanionSettings(textPrefs, { entrypointFor }).companionScene).toBe("");
+    const rigPrefs = { ...textPrefs, companionPack: "shu-maid" } as unknown as DesktopPrefs;
+    expect(exportCompanionSettings(rigPrefs, { entrypointFor }).companionScene).toBe("nest");
   });
 
   it("adapter 認得角色時，值仍必須在該 adapter 宣告的清單裡", () => {
@@ -557,13 +605,22 @@ describe("設定匯入：角色專屬欄位只用目標角色的 adapter 宣告�
     ).toThrow();
   });
 
-  it("空的角色專屬欄位不算宣告：空使魔清單與空說話風格照樣通過", () => {
+  it("空的角色專屬欄位不算宣告：空使魔清單、空說話風格、空場景照樣通過", () => {
+    // 純文字角色的匯出檔就長這樣（說話風格與場景都是空字串）：它必須匯得回來。
     const out = parseCompanionSettingsImport(
-      file({ companionPack: "plain-text", companionPersona: "", companionFamiliars: [], companionScene: "none" }),
+      file({ companionPack: "plain-text", companionPersona: "", companionFamiliars: [], companionScene: "" }),
       { knownCharacterIds, entrypointFor }
     );
     expect(out.companionFamiliars).toEqual([]);
     expect("companionPersona" in out).toBe(false);
+    expect("companionScene" in out).toBe(false);
+    // 但「不是空的、只是別人的場景 id」仍然拒絕（"none" 也是 rig 清單裡的一個 id）。
+    expect(() =>
+      parseCompanionSettingsImport(file({ companionPack: "plain-text", companionScene: "none" }), {
+        knownCharacterIds,
+        entrypointFor,
+      })
+    ).toThrowError(/場景/);
   });
 
   it("說話風格清單只有一份：由 adapter meta 宣告，settingsTransfer 不再自帶", () => {

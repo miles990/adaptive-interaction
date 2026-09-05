@@ -257,13 +257,22 @@ describe("角色設定匯出／匯入", () => {
         companionFamiliars: [{ id: "a", name: "x", palette: "neon" }],
       }, { entrypointFor })
     ).toThrow();
+    // 場景也是角色專屬欄位（對抗審查 character-settings-binding-001）：問不出目標角色的
+    // adapter 就拒絕，不再用全域白名單放行。
+    expect(() =>
+      parseCompanionSettingsImport({ kind: "companion-settings", schemaVersion: 1, companionScene: "night" })
+    ).toThrowError(/場景/);
     // 未知欄位被丟棄而不是報錯。
-    const ok = parseCompanionSettingsImport({
-      kind: "companion-settings",
-      schemaVersion: 1,
-      companionScene: "night",
-      totallyUnknown: 123,
-    });
+    const ok = parseCompanionSettingsImport(
+      {
+        kind: "companion-settings",
+        schemaVersion: 1,
+        companionPack: "shu-maid",
+        companionScene: "night",
+        totallyUnknown: 123,
+      },
+      { entrypointFor }
+    );
     expect(ok.companionScene).toBe("night");
     expect("totallyUnknown" in ok).toBe(false);
   });

@@ -100,6 +100,12 @@ export interface BuiltinAdapterMeta {
    */
   readonly personas?: readonly AdapterPersona[];
   /**
+   * 這個 adapter 提供的遊玩場場景 id。有界：最多 16 個。沒宣告＝這個角色沒有場景設定。
+   * 設定匯出／匯入以**目標角色的**這份清單決定 `companionScene` 屬不屬於它：不是全域白名單
+   *（對抗審查 character-settings-binding-001）。host 只轉述 id，標籤由 adapter 自己的 UI 出。
+   */
+  readonly scenes?: readonly string[];
+  /**
    * 遊玩場的設定 UI（React 元件）。只有 `hasPlayfield` 的 adapter 能宣告；
    * host 只負責掛載並提供偏好讀寫，不認得裡面有哪些開關。
    */
@@ -196,6 +202,7 @@ const registry = new Map<string, Registration>();
 const MAX_VARIANT_ALIAS_KEYS = 4;
 const MAX_META_VARIANTS = 32;
 const MAX_META_PERSONAS = 16;
+const MAX_META_SCENES = 16;
 
 /** id 是不是 host 宣告過的 builtin adapter（白名單檢查唯一入口）。 */
 export function isBuiltinEntrypointId(id: unknown): id is BuiltinEntrypointId {
@@ -226,6 +233,9 @@ export function registerBuiltinAdapter(id: string, factory: BuiltinAdapterFactor
   }
   if ((meta.personas?.length ?? 0) > MAX_META_PERSONAS) {
     throw new Error(`builtin adapter '${id}' declares too many personas`);
+  }
+  if ((meta.scenes?.length ?? 0) > MAX_META_SCENES) {
+    throw new Error(`builtin adapter '${id}' declares too many scenes`);
   }
   // 沒有遊玩場卻帶著遊玩場 UI＝host 會掛上一組沒有人負責的開關；寧可註冊當下就失敗。
   if (meta.playfieldControls && !meta.hasPlayfield) {

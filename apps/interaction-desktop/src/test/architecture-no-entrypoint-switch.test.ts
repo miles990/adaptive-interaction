@@ -236,5 +236,7 @@ describe("架構：角色設定頁不得寫死角色專屬字面（M2 §3.4）",
     const source = stripComments(readFileSync(join(SRC, "companion", "settingsTransfer.ts"), "utf8"));
     expect(source, "說話風格由 adapter meta 宣告").not.toMatch(/persona-/);
     expect(source, "配色清單由 adapter meta 宣告").not.toMatch(/character\/adapters\/shu/);
+    // 場景清單同樣屬於某個 rig 的遊玩場（對抗審查 character-settings-binding-001）。
+    expect(source, "場景清單由 adapter meta 宣告").not.toMatch(/"(nest|sill|night|desk)"/);
   });
 });

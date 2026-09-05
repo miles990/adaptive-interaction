@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const MANIFEST_TEXTS = import.meta.glob("../../public/characters/*/manifest.json", {
@@ -221,6 +221,16 @@ beforeEach(() => {
   mockDesktop.state.prefs = { ...BASE_PREFS };
   mockName.current = { name: "小樞", pronoun: "她", characterId: "shu-maid", loaded: true, icon: "cat" };
   mockDesktop.prefsPatch.mockImplementation(mockDesktop.applyPrefsPatch);
+  // 主動對話的兩個 mock 每一則測試都回到預設實作：`mockRejectedValue`／`mockImplementation`
+  // 不會被 `clearAllMocks` 清掉，漏到下一則測試就會讓它以為「後端一直拒絕」。
+  mockApi.proactiveDialogueGet.mockImplementation(async () => ({
+    config: { ...PROACTIVE_CONFIG },
+    sentThisHour: 0,
+  }));
+  mockApi.proactiveDialoguePatch.mockImplementation(async (patch: Record<string, unknown>) => ({
+    config: { ...PROACTIVE_CONFIG, ...patch },
+    sentThisHour: 0,
+  }));
   mockDesktop.characterListImported.mockResolvedValue([]);
   mockApi.characterInstances.mockResolvedValue({ instances: [] });
   vi.stubGlobal(
@@ -382,6 +392,85 @@ describe("角色頁：陪伴方式摘要與預設", () => {
     expect(container.querySelector(".character-first-screen")!.contains(alert)).toBe(true);
     // 同一個錯誤不在收合的角色庫裡再出現一次（螢幕閱讀器不必聽兩遍）。
     expect(screen.getAllByText(/內建角色索引無法載入/)).toHaveLength(1);
+  });
+
+  // 對抗審查 general-mode-ux-013：套用預設是**兩段寫入**（桌面偏好 → 後端主動對話模式），
+  // 但 busy 以前只鎖住第一段：第二段還在飛的時候按鈕就已經解鎖了，快速切換檔位會讓
+  // 先送出的舊回應蓋掉後送出的新回應，畫面顯示的檔位與後端真正生效的不一致。
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  /** 摘要行「目前：<strong>檔位</strong>」的檔位名。 */
+  function presetLabel(): string {
+    return screen.getByTestId("companion-preset-summary").querySelector("strong")!.textContent ?? "";
+  }
+
+  it("兩段寫入都在忙碌鎖內：後端那一段還沒回來時，檔位按鈕不得再按", async () => {
+    const gate = deferred<{ config: typeof PROACTIVE_CONFIG; sentThisHour: number }>();
+    mockApi.proactiveDialoguePatch.mockImplementationOnce(async () => await gate.promise);
+    renderPage();
+    await ready();
+    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
+    // 第一段（桌面偏好）已經寫完，第二段（後端主動對話模式）還在飛。
+    await waitFor(() => expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledTimes(1));
+    const group = screen.getByRole("group", { name: "陪伴方式" });
+    for (const button of within(group).getAllByRole("button")) {
+      expect(button, `第二段寫入期間「${button.textContent}」不得可按`).toBeDisabled();
+    }
+    await act(async () => {
+      gate.resolve({ config: { ...PROACTIVE_CONFIG, mode: "necessary" }, sentThisHour: 0 });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(within(group).getByRole("button", { name: "安靜" })).toBeEnabled());
+    expect(presetLabel()).toBe("安靜");
+  });
+
+  it("較舊的讀取回應不得覆蓋剛套用的檔位（世代計數器）", async () => {
+    // 進頁面時的 GET 還在飛，使用者已經按了「活潑」：GET 帶回來的是**按之前**的模式，
+    // 套下去畫面就退回舊檔位，而後端其實已經是新的。
+    const slowGet = deferred<{ config: typeof PROACTIVE_CONFIG; sentThisHour: number }>();
+    mockApi.proactiveDialogueGet.mockImplementationOnce(async () => await slowGet.promise);
+    renderPage();
+    await ready();
+    await userEvent.click(screen.getByRole("button", { name: "活潑" }));
+    await waitFor(() => expect(presetLabel()).toBe("活潑"));
+    await act(async () => {
+      slowGet.resolve({ config: { ...PROACTIVE_CONFIG }, sentThisHour: 0 });
+      await Promise.resolve();
+    });
+    expect(presetLabel()).toBe("活潑");
+  });
+
+  it("進階區逐項修改：先送出的舊回應不得蓋掉後送出的新設定", async () => {
+    // 主動對話的 status 只有一個 owner（這個 hook），但回應不保證照送出順序回來。
+    const older = deferred<{ config: typeof PROACTIVE_CONFIG; sentThisHour: number }>();
+    const newer = deferred<{ config: typeof PROACTIVE_CONFIG; sentThisHour: number }>();
+    mockApi.proactiveDialoguePatch
+      .mockImplementationOnce(async () => await older.promise)
+      .mockImplementationOnce(async () => await newer.promise);
+    const { container } = renderPage({ advanced: true });
+    await ready();
+    const details = container.querySelector<HTMLDetailsElement>('details[data-disclosure="proactive"]')!;
+    fireEvent.click(details.querySelector("summary")!);
+    const modeSelect = details.querySelector<HTMLSelectElement>("select")!;
+    fireEvent.change(modeSelect, { target: { value: "necessary" } });
+    fireEvent.change(modeSelect, { target: { value: "lively" } });
+    await waitFor(() => expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledTimes(2));
+    // 後送出的先回來，先送出的後回來：畫面必須停在**最後一次請求**的結果。
+    await act(async () => {
+      newer.resolve({ config: { ...PROACTIVE_CONFIG, mode: "lively" }, sentThisHour: 0 });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      older.resolve({ config: { ...PROACTIVE_CONFIG, mode: "necessary" }, sentThisHour: 0 });
+      await Promise.resolve();
+    });
+    expect(details.querySelector<HTMLSelectElement>("select")!.value).toBe("lively");
   });
 
   it("不吻合任何預設時顯示「自訂」並逐項列出有效值", async () => {

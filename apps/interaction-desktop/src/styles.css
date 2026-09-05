@@ -553,6 +553,8 @@ html.companion-window, html.companion-window body, html.companion-window #root {
 .hub-tab.active { background: var(--accent, #2e3a4e); color: #fff; border-color: transparent; }
 .provider-list { display: flex; flex-direction: column; gap: 10px; }
 .provider-card { border: 1px solid var(--border, #33415c33); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+/* 深連結指名的那一台（「去重新確認」帶過來的裝置）：只是視覺標示，卡片內容照舊。 */
+.provider-card.focused { border-color: var(--accent, #4f7cff); box-shadow: 0 0 0 2px var(--accent-soft, #4f7cff33); }
 .plain-list { list-style: none; padding-left: 0; display: flex; flex-direction: column; gap: 6px; }
 .session-detail { margin-top: 8px; border-top: 1px dashed var(--border, #33415c33); padding-top: 8px; }
 .consent-sheet { display: flex; flex-direction: column; gap: 8px; }

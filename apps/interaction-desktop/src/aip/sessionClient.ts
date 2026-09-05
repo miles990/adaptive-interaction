@@ -39,6 +39,14 @@ export const DEDUPE_RING_CAP = 256;
  * 達上限改回報 `unrecoverable`：狀態是**未知**，畫面照實說，不再自動重試。
  */
 export const REALIGN_STREAK_LIMIT = 3;
+/**
+ * 一次 resume 回應最多套幾則補丁（有界，不隨 host 送來的陣列長度成長）。
+ *
+ * 誠實的 host 最多只回放事件日誌環裡的東西（`interaction-session` 的 `EVENT_LOG_RING`），
+ * 這個上限訂得比它寬鬆；超過就是不正常的回應。超過時**不**靜默截斷：套到上限為止，
+ * 然後回報 realign——剩下的沒套，狀態就還沒追上，不得假裝追上了。
+ */
+export const MAX_RESUME_PATCHES = 1024;
 
 // ------------------------------------------------------------------ 型別
 
@@ -294,10 +302,18 @@ function commit(message: StateMessage, state: Record<string, unknown>): LocalSes
  * SSE 套用過新狀態」時才是 true：那時候比本地舊的 snapshot 是 host 說了算的事實
  * （host 從快照還原、或被重置過），不是重播攻擊。
  *
- * 與 Rust 的兩處刻意差異，都是**更嚴**的方向：
+ * 與 Rust／Swift 的三處刻意差異，都是**更嚴**的方向（`src/test/session-client.test.ts`
+ * 的「與 Rust／Swift 的差異必須明說」那組測試把這份清單釘死，少寫一條就紅）：
  *   * patch 的 `sessionEpoch` 這裡是必填（Rust 的 patch 分支完全不看 epoch）。
  *     Runtime 送出的 patch 一定帶它（`session.rs` 的 `patch_envelope`／`replay_envelope`）。
  *   * patch 的 epoch 與本地不同時回 realign，而不是靠 `baseRevision` 恰巧不符去擋。
+ *   * snapshot 的 epoch 與本地不同、又沒有 `session-reset` 宣告時回 realign；Rust
+ *     （`patch.rs::accept_state_with_epoch` 的 snapshot 分支）與 Swift（`SessionClient.swift`
+ *     的 `apply`）在這個分支都不看 epoch，只憑 revision 決定是否套用，並靜默把本地 epoch
+ *     改寫成訊息的 epoch。這裡不跟：realign 是「再要一次權威讀取」，最壞只是多一次請求
+ *     （且有 `REALIGN_STREAK_LIMIT` 上限）；照抄則是把一份**沒有可比順序**的狀態當成
+ *     最新的顯示出來。三端要不要統一，是 AIP 契約層的決定（需要一則跨語言 conformance
+ *     fixture 裁決），不在這一支自行放寬——目前先誠實記為已知差異。
  */
 export function alignState(
   local: LocalSessionState | null,
@@ -320,6 +336,8 @@ export function alignState(
       return fresh("reset");
     }
     // epoch 不同又沒有重建宣告：兩份狀態沒有可比的順序，不猜——重新對齊。
+    // 這是上面差異清單的第三條：Rust／Swift 在這裡會直接套用並改寫本地 epoch，桌面端
+    // 選擇更嚴的一邊（要一次權威讀取，有 realign 上限），差異已在檔頭與契約待裁決項說明。
     if (message.epoch !== local.epoch) return { kind: "realign", reason: "epoch-changed" };
     if (message.revision < local.revision) {
       return allowRegression ? fresh("regressed") : { kind: "ignored", reason: "rollback" };
@@ -457,17 +475,28 @@ function ingestResume(machine: SessionMachine, payload: unknown): SessionStep {
     return ingestMessage(machine, message, true);
   }
   if (body && kind === "patches" && Array.isArray(body["patches"])) {
+    const patches = body["patches"];
     let current = machine;
-    for (const item of body["patches"]) {
+    for (const item of patches.slice(0, MAX_RESUME_PATCHES)) {
       const message = readResumePatch(item);
       if (!message) return { next: settle(current, { kind: "invalid" }), effects: [] };
       const outcome = ingestMessage(current, message, true);
       current = outcome.next;
-      // 中間一則接不上就停在那裡：後面的補丁都建立在沒套上的那一份之上，
-      // 硬跳過去就是拿一個從來不存在的狀態當真（AIP §6）。
+      // 序列**真的**接不上（realign／unrecoverable）才停在那裡：後面的補丁都建立在
+      // 沒套上的那一份之上，硬跳過去就是拿一個從來不存在的狀態當真（AIP §6）。
       if (outcome.effects.length > 0) return { next: current, effects: outcome.effects };
-      const applied = current.local?.revision === message.revision;
-      if (!applied) break;
+      // 沒有 effect 卻沒套上，代表這一項是**良性的舊項**：stale（飛行途中本地已被
+      // SSE／另一條管道推得更前面）、duplicate、ignored:already-applied／rollback。
+      // 這種項目跳過就好，不能中止——host 是照「client 送出 resume 時記得的
+      // lastRevision」回放的，陣列前段可能整段都是本地已經走過的，後段才是真正新的
+      // 補丁；中止會把後段靜默丟掉，而且沒有任何 effect 通知呼叫端再對齊一次。
+      // 真有缺口不會漏掉：下一項的 baseRevision 對不上本地時 `alignState` 就回
+      // realign，上一行會帶著 effect 中止（不依賴「陣列位置逐項精確銜接」的假設）。
+    }
+    // 有界：超過上限的那些沒有套用，所以本地**還沒**追上——誠實要求再對齊一次
+    //（realign 本身有 `REALIGN_STREAK_LIMIT` 上限，不會變成打不完的請求迴圈）。
+    if (patches.length > MAX_RESUME_PATCHES) {
+      return step(current, { kind: "realign", reason: "base-mismatch" });
     }
     return { next: current, effects: [] };
   }

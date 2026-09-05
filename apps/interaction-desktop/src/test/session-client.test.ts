@@ -14,10 +14,13 @@
 // 每一條規則都可以只用純函式驗，沒有 React、沒有計時器。
 
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { stateHash } from "../aip/canonical";
 import {
   DEDUPE_RING_CAP,
+  MAX_RESUME_PATCHES,
   REALIGN_STREAK_LIMIT,
   initialSession,
   readStateEnvelope,
@@ -512,6 +515,107 @@ describe("resume 回應", () => {
     expect(effects).toEqual([{ kind: "realign" }]);
   });
 
+  it("前段補丁已被別的管道追過（stale）時，後段真正新的補丁不得被丟棄", () => {
+    // 對抗審查 session-client-rollback-020：resume 在飛行途中，本地被另一條管道
+    // （例如既有成員重新協商時 host 主動送的完整快照）推進到 revision 45；
+    // host 卻仍照「client 送出時記得的 lastRevision=20」回放 21..50。
+    // 前 25 項是良性的舊項（本地已經走過），後 5 項是真正比本地新的補丁。
+    const start = aligned(20, 3);
+    const stateAt = (revision: number) => ({ ...BASE_STATE, activity: `replay-${revision}` });
+    const patches = [];
+    for (let revision = 21; revision <= 50; revision += 1) {
+      patches.push({
+        sequence: 100 + revision,
+        baseRevision: revision - 1,
+        revision,
+        patch: { activity: `replay-${revision}` },
+        hash: stateHash(stateAt(revision)),
+        sessionEpoch: 3,
+      });
+    }
+    const { machine, effects } = run(start, [
+      { kind: "fetch-issued", requestId: 7 },
+      // 另一條管道先把本地推到 45（同 epoch、hash 正確的完整快照）。
+      { kind: "sse", envelope: snapshotEnvelope({ revision: 45, epoch: 3, state: stateAt(45) }) },
+      { kind: "resume-response", requestId: 7, payload: { kind: "patches", patches } },
+    ]);
+    // 尾段（46..50）確實比本地新，必須套下去；良性舊項只記 stale，不觸發 realign。
+    expect(local(machine).revision).toBe(50);
+    expect(local(machine).state["activity"]).toBe("replay-50");
+    expect(effects).toEqual([]);
+    expect(machine.counters.realign).toBe(0);
+    expect(machine.counters.stale).toBe(25);
+  });
+
+  it("良性舊項之後真的有缺口時，仍然停下來並要求 realign（不硬跳）", () => {
+    const start = aligned(20, 3);
+    const stateAt = (revision: number) => ({ ...BASE_STATE, activity: `replay-${revision}` });
+    const { machine, effects } = run(start, [
+      { kind: "fetch-issued", requestId: 7 },
+      { kind: "sse", envelope: snapshotEnvelope({ revision: 30, epoch: 3, state: stateAt(30) }) },
+      {
+        kind: "resume-response",
+        requestId: 7,
+        payload: {
+          kind: "patches",
+          patches: [
+            // 舊項（本地已在 30）：跳過。
+            {
+              sequence: 121,
+              baseRevision: 20,
+              revision: 21,
+              patch: { activity: "replay-21" },
+              hash: stateHash(stateAt(21)),
+              sessionEpoch: 3,
+            },
+            // 真的接不上（baseRevision 40 ≠ 本地 30）：停下來要求重新對齊。
+            {
+              sequence: 141,
+              baseRevision: 40,
+              revision: 41,
+              patch: { activity: "replay-41" },
+              hash: stateHash(stateAt(41)),
+              sessionEpoch: 3,
+            },
+            {
+              sequence: 142,
+              baseRevision: 41,
+              revision: 42,
+              patch: { activity: "replay-42" },
+              hash: stateHash(stateAt(42)),
+              sessionEpoch: 3,
+            },
+          ],
+        },
+      },
+    ]);
+    expect(local(machine).revision).toBe(30);
+    expect(effects).toEqual([{ kind: "realign" }]);
+  });
+
+  it("patches 有界：超過上限就停下來要求重新對齊（不無界地套下去、也不假裝追上了）", () => {
+    const start = aligned(20, 3);
+    const stateAt = (revision: number) => ({ ...BASE_STATE, activity: `replay-${revision}` });
+    const patches = [];
+    for (let revision = 21; revision <= 21 + MAX_RESUME_PATCHES; revision += 1) {
+      patches.push({
+        sequence: 1000 + revision,
+        baseRevision: revision - 1,
+        revision,
+        patch: { activity: `replay-${revision}` },
+        hash: stateHash(stateAt(revision)),
+        sessionEpoch: 3,
+      });
+    }
+    const { machine, effects } = run(start, [
+      { kind: "fetch-issued", requestId: 7 },
+      { kind: "resume-response", requestId: 7, payload: { kind: "patches", patches } },
+    ]);
+    // 只套到上限為止（有界），剩下的沒套 → 狀態還沒追上，必須誠實要求再對齊一次。
+    expect(local(machine).revision).toBe(20 + MAX_RESUME_PATCHES);
+    expect(effects).toEqual([{ kind: "realign" }]);
+  });
+
   it("空的 patches ＝ 已經對齊：本地不動、不再要求對齊", () => {
     const start = aligned(20, 3);
     const { machine, effects } = run(start, [
@@ -576,5 +680,85 @@ describe("resume 回應", () => {
     expect(local(machine)).toEqual(local(start));
     expect(machine.counters.invalid).toBe(1);
     expect(effects).toEqual([]);
+  });
+});
+
+describe("與 Rust／Swift 的差異必須明說（不得靜默長出第四處）", () => {
+  // 對抗審查 session-client-rollback-021：`alignState` 對「snapshot 的 epoch 不同、
+  // 但沒有 session-reset 宣告」回 realign，Rust（`accept_state_with_epoch` 的 snapshot
+  // 分支只看 revision）與 Swift（`apply` 直接採用訊息的 epoch）都不會。這是第三處差異，
+  // 過去只在檔頭寫「兩處」。這一組測試把差異清單釘死：行為變了、或清單少寫一條，就紅。
+  const SOURCE = readFileSync(join(__dirname, "..", "aip", "sessionClient.ts"), "utf8");
+
+  function alignStateDocBullets(): string[] {
+    const marker = "export function alignState";
+    const at = SOURCE.indexOf(marker);
+    expect(at).toBeGreaterThan(0);
+    const doc = SOURCE.slice(SOURCE.lastIndexOf("/**", at), at);
+    return doc
+      .split("\n")
+      .map((line) => line.match(/^\s*\*\s{3}\*\s+(.*)$/))
+      .filter((match): match is RegExpMatchArray => match !== null)
+      .map((match) => match[1]);
+  }
+
+  it("檔頭的差異清單剛好三條，而且第三條講的是 snapshot 的 epoch", () => {
+    const bullets = alignStateDocBullets();
+    expect(bullets).toHaveLength(3);
+    expect(SOURCE).toContain("與 Rust／Swift 的三處刻意差異");
+    // 1) patch 的 sessionEpoch 必填；2) patch 的 epoch 不同回 realign；3) snapshot 的 epoch。
+    expect(bullets[0]).toContain("sessionEpoch");
+    expect(bullets[2]).toContain("snapshot");
+  });
+
+  it("差異一：patch 缺 sessionEpoch → invalid（Rust 的 patch 分支根本不看 epoch）", () => {
+    const envelope = stateEnvelope(
+      { kind: "patch", revision: 21, baseRevision: 20, patch: { activity: "reacting" } },
+      { name: "character.session.patch" },
+    );
+    expect(readStateEnvelope(envelope)).toBeNull();
+  });
+
+  it("差異二：patch 的 epoch 與本地不同 → realign（不靠 baseRevision 恰巧不符去擋）", () => {
+    const start = aligned(20, 3);
+    const { machine, effects } = run(start, [
+      {
+        kind: "sse",
+        envelope: patchEnvelope({
+          revision: 21,
+          baseRevision: 20,
+          epoch: 4,
+          patch: { activity: "reacting" },
+        }),
+      },
+    ]);
+    expect(local(machine)).toEqual(local(start));
+    expect(effects).toEqual([{ kind: "realign" }]);
+  });
+
+  it("差異三：snapshot 的 epoch 不同又沒有 session-reset → realign，本地 epoch 不被改寫", () => {
+    const start = aligned(20, 3);
+    const { machine, effects } = run(start, [
+      { kind: "sse", envelope: snapshotEnvelope({ revision: 30, epoch: 4 }) },
+    ]);
+    expect(local(machine).epoch).toBe(3);
+    expect(local(machine).revision).toBe(20);
+    expect(effects).toEqual([{ kind: "realign" }]);
+  });
+
+  it("alignState 的結論理由是一份釘死的清單：多一條就要重新對過三端並更新差異說明", () => {
+    const body = SOURCE.slice(
+      SOURCE.indexOf("export function alignState"),
+      SOURCE.indexOf("// ------------------------------------------------------------------ reducer"),
+    );
+    const reasons = [...body.matchAll(/reason: "([a-z-]+)"/g)].map((match) => match[1]);
+    expect([...new Set(reasons)].sort()).toEqual([
+      "already-applied",
+      "base-mismatch",
+      "epoch-changed",
+      "hash-mismatch",
+      "no-local",
+      "rollback",
+    ]);
   });
 });

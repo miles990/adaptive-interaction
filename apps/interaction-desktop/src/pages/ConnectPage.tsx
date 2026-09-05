@@ -138,11 +138,19 @@ export function ConnectPage({
   advanced,
   onNavigate,
   initial = "devices",
+  focusDeviceId,
 }: {
   refreshKey: number;
   advanced: boolean;
   onNavigate: (tab: string) => void;
   initial?: ConnectInitial;
+  /**
+   * 深連結指名的裝置（角色同步卡的「去重新確認」帶來的 deviceId）。落點是第二層的
+   * 配對區（iPhone 區）：把那一台的卡片標出來並捲到它，不改變任何狀態、
+   * 不代替使用者按任何東西。第一層的裝置區用的是同一個卡片元件，同樣標出來
+   *（兩層同時在畫面上，只標一邊會變成「同一台手機兩種說法」）。
+   */
+  focusDeviceId?: string;
 }) {
   const [tab, setTab] = React.useState<ConnectTab>(() => connectTabOf(initial));
   const { human } = useAppState();
@@ -197,13 +205,19 @@ export function ConnectPage({
             onNavigate={onNavigate}
             onShowAll={showAll}
             onSafety={() => setTab("safety")}
+            {...(focusDeviceId ? { focusDeviceId } : {})}
           />
           <details className="connect-all" open ref={allRef}>
             <summary>全部能力與裝置</summary>
             <p className="muted small">
               完整清單：每一項能力都可以測試、啟用或停用；裝置可以掃描、配對與測試。
             </p>
-            <CapabilitiesHub refreshKey={refreshKey} advanced={advanced} initial={hubTab} />
+            <CapabilitiesHub
+              refreshKey={refreshKey}
+              advanced={advanced}
+              initial={hubTab}
+              {...(focusDeviceId ? { focusDeviceId } : {})}
+            />
           </details>
         </div>
       )}
@@ -307,12 +321,15 @@ function ConnectOverview({
   onNavigate,
   onShowAll,
   onSafety,
+  focusDeviceId,
 }: {
   refreshKey: number;
   advanced: boolean;
   onNavigate: (tab: string) => void;
   onShowAll: (tab: HubTab) => void;
   onSafety: () => void;
+  /** 深連結指名的裝置：這一層與配對區用的是同一個元件，標示也只有一份真相。 */
+  focusDeviceId?: string;
 }) {
   const { human, humanError, findCard } = useAppState();
   const { name } = useCharacterName();
@@ -479,6 +496,7 @@ function ConnectOverview({
                 key={m.deviceId}
                 model={m}
                 advanced={advanced}
+                focused={focusDeviceId === m.deviceId}
                 syncLine={characterSyncDeviceLine(characterSession.data ?? null, m.deviceId)}
                 onChanged={reloadMobile}
                 onManagePermissions={onSafety}
