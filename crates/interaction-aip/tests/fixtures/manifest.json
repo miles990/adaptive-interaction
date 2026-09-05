@@ -1730,5 +1730,267 @@
       },
       "note": "超過上限**不**靜默截斷成「我以為我追上了」：整批不處理，改 realign"
     }
+  ],
+  "canonicalVectors": [
+    {
+      "canonical": "{\"0-digit\":2,\"Mike\":\"M\",\"_underscore\":1,\"alpha\":null,\"nested\":{\"a\":\"A\",\"b\":[{\"x\":2,\"y\":1}]},\"zulu\":true}",
+      "doublePaths": [],
+      "id": "ascii-keys-unsorted",
+      "input": {
+        "0-digit": 2,
+        "Mike": "M",
+        "_underscore": 1,
+        "alpha": null,
+        "nested": {
+          "a": "A",
+          "b": [
+            {
+              "x": 2,
+              "y": 1
+            }
+          ]
+        },
+        "zulu": true
+      },
+      "note": "基準線：純 ASCII 鍵、輸入順序與排序後不同；巢狀物件與陣列內的物件都要遞迴排序",
+      "sha256": "711015efa3f92712ec4cd834e71ac5c38ea1c7bad255a663a3a8d1e1792b4f62"
+    },
+    {
+      "canonical": "{\"zz\":0,\"é\":1,\"π\":2,\"中\":3,\"\":5,\"ﬀ\":4,\"�\":6,\"￿\":7}",
+      "doublePaths": [],
+      "id": "bmp-non-ascii-keys",
+      "input": {
+        "zz": 0,
+        "é": 1,
+        "π": 2,
+        "中": 3,
+        "": 5,
+        "ﬀ": 4,
+        "�": 6,
+        "￿": 7
+      },
+      "note": "BMP 非 ASCII 鍵，含 U+FFFD 與 U+F801..U+FFFF 區間（私用區、noncharacter）；值是該鍵排序後的 0-based 位置",
+      "sha256": "971b117e8b990991fc793291274765d7da250e93cb817af7a1bdccc72db822fd"
+    },
+    {
+      "canonical": "{\"𐀀\":0,\"𝄞\":1,\"🙂\":2,\"􏿿\":3}",
+      "doublePaths": [],
+      "id": "supplementary-plane-keys",
+      "input": {
+        "𐀀": 0,
+        "𝄞": 1,
+        "🙂": 2,
+        "􏿿": 3
+      },
+      "note": "補充平面鍵（U+10000、音樂符號、emoji、U+10FFFF）；值是排序後的位置",
+      "sha256": "2ee539bb2a6774a8d5edd3f9a24a0da99d16721fbca78f1300b024fb6ef32a36"
+    },
+    {
+      "canonical": "{\"A\":0,\"\":1,\"�\":2,\"￿\":3,\"𐀀\":4,\"🙂\":5}",
+      "doublePaths": [],
+      "id": "code-point-order-not-utf16",
+      "input": {
+        "A": 0,
+        "": 1,
+        "�": 2,
+        "￿": 3,
+        "𐀀": 4,
+        "🙂": 5
+      },
+      "note": "證明 code point 序 ≠ UTF-16 code unit 序：補充平面鍵在 code point 序**在後**，在 code unit 序卻因為代理對開頭 0xD800 排到 U+F801 之前。值是 code point 序的位置",
+      "sha256": "beb6720b2e5cce69d104ad1f2f03247d5f64225fcad048cb447ebf2737574891"
+    },
+    {
+      "canonical": "{\"back\\\\slash\":\"back\\\\slash\",\"backspace\\bhere\":\"backspace\\bhere\",\"formfeed\\fhere\":\"formfeed\\fhere\",\"newline\\nhere\":\"newline\\nhere\",\"nul\\u0000here\":\"nul\\u0000here\",\"quote\\\"key\":\"quote\\\"value\",\"return\\rhere\":\"return\\rhere\",\"tab\\there\":\"tab\\there\",\"unit\\u001fhere\":\"all of them: \\\"\\\\\\b\\f\\n\\r\\t\\u0000\\u001f\"}",
+      "doublePaths": [],
+      "id": "escaped-keys-and-values",
+      "input": {
+        "back\\slash": "back\\slash",
+        "backspace\bhere": "backspace\bhere",
+        "formfeed\fhere": "formfeed\fhere",
+        "newline\nhere": "newline\nhere",
+        "nul\u0000here": "nul\u0000here",
+        "quote\"key": "quote\"value",
+        "return\rhere": "return\rhere",
+        "tab\there": "tab\there",
+        "unit\u001fhere": "all of them: \"\\\b\f\n\r\t\u0000\u001f"
+      },
+      "note": "必須跳脫的鍵與值：引號、反斜線、\\b \\t \\n \\f \\r 短寫，以及沒有短寫的控制字元（U+0000、U+001F）寫成小寫 \\u00xx",
+      "sha256": "4f7ca52b40a537b094d8f9101d2ceaed72d924a343bea5f1d46bd27abb52198d"
+    },
+    {
+      "canonical": "{\"del\u007fhere\":\"del\u007fhere\",\"ls\u2028here\":\"line separator: \u2028\",\"nbsp here\":\"nbsp here\",\"ps\u2029here\":\"paragraph separator: \u2029\",\"solidus/key\":\"a/b\"}",
+      "doublePaths": [],
+      "id": "unescaped-passthrough",
+      "input": {
+        "del\u007fhere": "del\u007fhere",
+        "ls\u2028here": "line separator: \u2028",
+        "nbsp here": "nbsp here",
+        "ps\u2029here": "paragraph separator: \u2029",
+        "solidus/key": "a/b"
+      },
+      "note": "看起來像要跳脫、但 serde_json **不**跳脫的：U+2028／U+2029（JS 舊版原始碼的行終結符）、U+007F（DEL）、U+00A0 與 `/`。三端都必須原樣輸出",
+      "sha256": "0852b50fc3c8df984900ae0cdcbf8afe596e14716b2fd99afd27dc4308882e6a"
+    },
+    {
+      "canonical": "{\"e\":0,\"e\u0301\":1,\"f\":2,\"z\":3}",
+      "doublePaths": [],
+      "id": "combining-marks-not-unicode-collation",
+      "input": {
+        "e": 0,
+        "e\u0301": 1,
+        "f": 2,
+        "z": 3
+      },
+      "note": "組合附加符號：`e` + U+0301 在 UTF-8 位元組序（＝ code point 序）排在 `f`／`z` **之前**，但 Swift 的 `String` `<` 先做 NFC（變成 U+00E9）再比，會把它排到最後。值是 code point 序的位置",
+      "sha256": "a7423c0425fcaa7af936a4566698fe77f4eb38b3a4eaa6d16abbac88c9185ca7"
+    },
+    {
+      "canonical": "{\"a\":[[{\"a\":10,\"b\":9}]],\"z\":{\"A\":8,\"中\":{\"a\":{\"\":{\"α\":7,\"β\":6}},\"b\":[{\"a\":2,\"y\":1},{\"/\":5,\"~\":4,\"𐀀\":3}]}}}",
+      "doublePaths": [],
+      "id": "nested-key-order-recursion",
+      "input": {
+        "a": [
+          [
+            {
+              "a": 10,
+              "b": 9
+            }
+          ]
+        ],
+        "z": {
+          "A": 8,
+          "中": {
+            "a": {
+              "": {
+                "α": 7,
+                "β": 6
+              }
+            },
+            "b": [
+              {
+                "a": 2,
+                "y": 1
+              },
+              {
+                "/": 5,
+                "~": 4,
+                "𐀀": 3
+              }
+            ]
+          }
+        }
+      },
+      "note": "鍵序必須遞迴：陣列裡的物件、物件裡的物件、空字串鍵與非 ASCII 鍵混排，五層深",
+      "sha256": "093e61ec4d566bbe733c62d5c45dec7ef02dc5bad020f462fb396a047d34c9a7"
+    },
+    {
+      "canonical": "{\"in-array\":[0,-1,42],\"max-safe\":9007199254740992,\"min-safe\":-9007199254740992,\"minus-one\":-1,\"one\":1,\"wide\":1234567890123,\"zero\":0}",
+      "doublePaths": [],
+      "id": "numbers-integers",
+      "input": {
+        "in-array": [
+          0,
+          -1,
+          42
+        ],
+        "max-safe": 9007199254740992,
+        "min-safe": -9007199254740992,
+        "minus-one": -1,
+        "one": 1,
+        "wide": 1234567890123,
+        "zero": 0
+      },
+      "note": "整數字面原樣輸出（沒有小數點）。上下界刻意停在 ±2^53：TypeScript 端用 JSON.parse 讀 manifest，超過就已經在解析層失真",
+      "sha256": "0ef293e73eed49e7d8b1142b4ad1fc62ad71b8401eb41e0c6dad516b12196c15"
+    },
+    {
+      "canonical": "{\"half\":0.5,\"huge\":1e+21,\"in-array\":[0.5,1.0],\"neg-quarter\":-0.25,\"neg-zero\":-0.0,\"pi\":3.141592653589793,\"tiny\":1e-7,\"unit\":1.0,\"~tilde/slash\":2.0}",
+      "doublePaths": [
+        "/half",
+        "/huge",
+        "/in-array/0",
+        "/in-array/1",
+        "/neg-quarter",
+        "/neg-zero",
+        "/pi",
+        "/tiny",
+        "/unit",
+        "/~0tilde~1slash"
+      ],
+      "id": "numbers-doubles",
+      "input": {
+        "half": 0.5,
+        "huge": 1e+21,
+        "in-array": [
+          0.5,
+          1.0
+        ],
+        "neg-quarter": -0.25,
+        "neg-zero": -0.0,
+        "pi": 3.141592653589793,
+        "tiny": 1e-7,
+        "unit": 1.0,
+        "~tilde/slash": 2.0
+      },
+      "note": "f64 字面：整數值也要帶小數點（1.0／-0.0／2.0），其餘是最短 round-trip 十進位。鍵 `~tilde/slash` 同時釘住 doublePaths 的 RFC 6901 跳脫",
+      "sha256": "38e5cf61c39e00fe60e826e46b490689a2126b0adca137339cdeec9995f6ef2b"
+    },
+    {
+      "canonical": "{\"fixed-high-edge\":1000000000000000.0,\"fixed-low-edge\":0.00001,\"js-prints-fixed\":1e+20,\"js-prints-sci\":1e+21,\"largest-finite\":1.7976931348623157e+308,\"many-digits\":1.2345678901234568e+20,\"negative\":-1e-6,\"sci-high-edge\":1e+16,\"sci-low-edge\":1e-6,\"smallest-subnormal\":5e-324,\"two-pow-53\":9007199254740992.0}",
+      "doublePaths": [
+        "/fixed-high-edge",
+        "/fixed-low-edge",
+        "/js-prints-fixed",
+        "/js-prints-sci",
+        "/largest-finite",
+        "/many-digits",
+        "/negative",
+        "/sci-high-edge",
+        "/sci-low-edge",
+        "/smallest-subnormal",
+        "/two-pow-53"
+      ],
+      "id": "numbers-exponent-forms",
+      "input": {
+        "fixed-high-edge": 1000000000000000.0,
+        "fixed-low-edge": 0.00001,
+        "js-prints-fixed": 1e+20,
+        "js-prints-sci": 1e+21,
+        "largest-finite": 1.7976931348623157e+308,
+        "many-digits": 1.2345678901234568e+20,
+        "negative": -1e-6,
+        "sci-high-edge": 1e+16,
+        "sci-low-edge": 1e-6,
+        "smallest-subnormal": 5e-324,
+        "two-pow-53": 9007199254740992.0
+      },
+      "note": "f64 的固定小數 ↔ 科學記號分界：serde_json（ryu）在第一位數的十進位指數 k ∈ [-5, 16) 用固定小數，其餘用 `1e+16`／`1e-6` 這種帶正負號、不補零的指數形。JS 的 `String()` 分界是 (-7, 21)，兩者在 1e-6 與 1e16..1e21 之間完全不同",
+      "sha256": "39727b4ee931c866e53e96a84eb73d241496efece548e9470a8e4af9e61e6419"
+    },
+    {
+      "canonical": "{\"\":{},\"a\":[],\"b\":[[],{},[{},[]]],\"c\":{\"\":{\"\":[]}}}",
+      "doublePaths": [],
+      "id": "empty-containers",
+      "input": {
+        "": {},
+        "a": [],
+        "b": [
+          [],
+          {},
+          [
+            {},
+            []
+          ]
+        ],
+        "c": {
+          "": {
+            "": []
+          }
+        }
+      },
+      "note": "空物件與空陣列（含空字串鍵、陣列裡的空容器）：`{}`／`[]` 不得消失、不得變成 null",
+      "sha256": "63cc9f2f5e02759c16348fe79b73e8a71da4c8aa367d3dd89e5c157f57f002f4"
+    }
   ]
 }

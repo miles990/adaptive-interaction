@@ -8,8 +8,10 @@
 //
 //   * 鍵順序：Rust 用 `String` 的 Ord（UTF-8 位元組序）＝ Unicode code point 序；
 //     JS 的 `<` 是 UTF-16 code unit 序，遇到 U+E000..U+FFFF 與非 BMP 字元混排時會不同。
-//   * 數字字面：`serde_json` 的 f64 一律寫成帶小數點的最短 round-trip 十進位
-//     （`0.0`、`1.0`、`-0.0`），整數型別則是純數字。JS 的 `number` **留不住**這個區別
+//   * 數字字面：`serde_json` 的 f64 是最短 round-trip 十進位，指數在 `[-5, 16)` 內帶
+//     小數點（`0.0`、`1.0`、`-0.0`、`0.00001`），之外是 `1e+16`／`1e-6` 這種指數形
+//     （JS 的 `String()` 分界是 `(-7, 21)`，兩者不同）；整數型別則是純數字。
+//     JS 的 `number` **留不住**整數／f64 這個區別
 //     ——Rust 送出的 `0.0` 經過 `JSON.parse` 之後就只是 `0`。所以哪些路徑是 f64
 //     必須另外給：`doublePaths`（由 `pnpm aip:codegen` 從
 //     `crates/interaction-aip/tests/fixtures/manifest.json` 的 `stateHashDoublePaths`
@@ -146,18 +148,63 @@ export function canonicalString(value: string): string {
 /**
  * `serde_json` 的數字字面。
  *
- * `asDouble` 時整數值也要帶小數（`0` → `0.0`、`-0` → `-0.0`），因為 host 端那個欄位
- * 是 f64。非有限值在 JSON 裡不存在，`serde_json` 寫成 `null`，這裡照做（不猜）。
+ * 兩條路：`asDouble` 為假時那個欄位在 host 是整數型別（u64／i64／…），serde_json 寫純數字；
+ * 為真時是 f64，走 [`formatDouble`]。非有限值在 JSON 裡不存在，`serde_json` 寫成 `null`，
+ * 這裡照做（不猜）。
+ *
+ * `-0`：host 的整數欄位收到 `-0` 這個字面時，serde_json 讀成整數 0、寫回去是 `0`；JS 的
+ * `JSON.parse("-0")` 是 `-0`，`Object.is` 分得出來，所以這裡得主動抹平。f64 欄位則相反，
+ * `-0.0` 是要保留的字面（見 `state-hash-intensity-negative-zero` fixture）。
+ *
+ * 已知邊界：|value| > 2^53 的整數在 `JSON.parse` 那一步就已經失真，這裡救不回來
+ * （`crates/interaction-aip/tests/canonical_vectors.rs` 的向量刻意停在 ±2^53）。
  */
 export function canonicalNumber(value: number, asDouble: boolean): string {
   if (!Number.isFinite(value)) return "null";
-  if (Number.isInteger(value) && Math.abs(value) < 1e21) {
+  if (!asDouble && Number.isInteger(value)) {
     // Object.is 才分得出 -0；`-0 === 0` 是 true。
-    const text = Object.is(value, -0) ? "-0" : String(value);
-    return asDouble ? `${text}.0` : text;
+    return Object.is(value, -0) ? "0" : String(value);
   }
-  // 最短 round-trip 十進位。JS 的指數記法是 `1e+21`，ryu（serde_json）是 `1e21`。
-  return String(value).replace("e+", "e");
+  return formatDouble(value);
+}
+
+/**
+ * ryu（`serde_json` 的 f64 序列化器）的固定小數 ↔ 科學記號分界。
+ *
+ * 令 `k` 是最短 round-trip 十進位表示中**第一位數的十進位指數**（`value = d.ddd × 10^k`）。
+ * ryu 在 `k ∈ [-5, 16)` 印固定小數，其餘印 `1e+16`／`1e-6` 這種帶正負號、不補零的指數形。
+ * JS 的 `String()` 分界卻是 `(-7, 21)`——`1e-6` 它印 `0.000001`、`1e16` 它印
+ * `10000000000000000`、`1e20` 它印 `100000000000000000000`。這一整段（`intensity`
+ * 之類的 f64 欄位真的到得了 `0.000001`）兩端會算出不同的 hash，桌面端就會卡在
+ * 「hash 不符 → 要 snapshot」的迴圈裡。
+ */
+const RYU_FIXED_MIN_EXPONENT = -5;
+/** 上界不含：`k = 16` 起改用科學記號。 */
+const RYU_FIXED_MAX_EXPONENT = 16;
+
+function formatDouble(value: number): string {
+  // toExponential() 不帶參數＝「唯一決定這個 double 的最少位數」（ECMA-262），
+  // 與 ryu 的最短 round-trip 是同一組數字，所以只剩「怎麼排版」要對齊。
+  if (value === 0) return Object.is(value, -0) ? "-0.0" : "0.0";
+  const sign = value < 0 ? "-" : "";
+  const scientific = Math.abs(value).toExponential();
+  const marker = scientific.indexOf("e");
+  const digits = scientific.slice(0, marker).replace(".", "");
+  const exponent = Number(scientific.slice(marker + 1));
+
+  if (exponent >= RYU_FIXED_MIN_EXPONENT && exponent < RYU_FIXED_MAX_EXPONENT) {
+    if (exponent < 0) return `${sign}0.${"0".repeat(-exponent - 1)}${digits}`;
+    const split = exponent + 1;
+    // 位數不足就補零到小數點；serde_json 的 f64 永遠帶小數點，所以沒有小數位時補 `.0`。
+    const whole = digits.length > split ? digits.slice(0, split) : digits.padEnd(split, "0");
+    const fraction = digits.length > split ? digits.slice(split) : "0";
+    return `${sign}${whole}.${fraction}`;
+  }
+
+  const head = digits.slice(0, 1);
+  const rest = digits.slice(1);
+  const mantissa = rest.length > 0 ? `${head}.${rest}` : head;
+  return `${sign}${mantissa}e${exponent < 0 ? "-" : "+"}${Math.abs(exponent)}`;
 }
 
 /**
