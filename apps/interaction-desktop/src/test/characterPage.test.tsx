@@ -472,9 +472,15 @@ describe("角色頁：目前角色與陪伴設定", () => {
     expect(summary).not.toHaveTextContent("簽章");
     expect(screen.getByText("只點頭，沒有綠勾")).toBeInTheDocument();
     expect(screen.getByText("綠勾只在驗證後")).toBeInTheDocument();
-    // 小樞才有玩耍設定與使魔。
+    // 小樞才有玩耍設定與使魔（遊玩場 UI 由 adapter meta 提供，頁面只掛載）。
     expect(screen.getByRole("checkbox", { name: /玩耍（玩具、追逐、撲抓）/ })).toBeInTheDocument();
     expect(screen.getByText(/現在大家在做什麼/)).toBeInTheDocument();
+    // 說話風格的選項來自 adapter meta 宣告的 personas（頁面不自帶清單）。
+    const persona = screen.getByRole("combobox", { name: /說話風格/ });
+    expect(within(persona).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "小樞・預設",
+      "導航員（世界觀範例）",
+    ]);
     // 一般模式：沒有技術資料，也沒有 adapter／協商／簽章／pack id 之類的字眼。
     expect(screen.queryByText("技術資料")).not.toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/schemaVersion|adapterKind|manifest JSON|Behavior State/);

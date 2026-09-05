@@ -9,7 +9,9 @@ import { describe, expect, it, vi } from "vitest";
 import shuMaidRaw from "../../public/characters/shu-maid/manifest.json";
 import legacyRig from "../../public/packs/shu-maid/manifest.json";
 import type { AdapterHost, AdapterReceipt } from "../character/adapter";
-import { ShuCharacterAdapter } from "../character/adapters/shu";
+import "../character/adapters";
+import { builtinAdapterMeta } from "../character/adapterRegistry";
+import { PERSONAS, SHU_RIG_PALETTES, ShuCharacterAdapter } from "../character/adapters/shu";
 import {
   isShuPlayable,
   SHU_AMBIENT_VARIANTS,
@@ -560,5 +562,28 @@ describe("ShuCharacterAdapter：透過 Gateway", () => {
     expect(a.gameplay.routePointer({ type: "down", x: 1, y: 1 })).toBe(false);
     expect(a.gameplay.routePointer({ type: "move", x: 2, y: 2 })).toBe(false);
     expect(a.gameplay.routePointer({ type: "cancel", x: 0, y: 0 })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M2 §3.4：host 側宣告（說話風格、遊玩場設定 UI）都由 adapter meta 提供
+// ---------------------------------------------------------------------------
+
+describe("host meta：小樞把說話風格與遊玩場設定 UI 交給 host 掛載", () => {
+  it("SHU_META 宣告 personas／variants／playfieldControls（清單只有 adapter 這一份）", () => {
+    const meta = builtinAdapterMeta("shu-rig");
+    expect(meta?.hasPlayfield).toBe(true);
+    expect(meta?.variants).toEqual(SHU_RIG_PALETTES);
+    expect(meta?.personas?.map((p) => p.id)).toEqual(PERSONAS.map((p) => p.id));
+    expect(typeof meta?.playfieldControls).toBe("function");
+  });
+
+  it("沒有遊玩場的 adapter 不得宣告遊玩場控制項，也沒有說話風格", () => {
+    for (const id of ["sprite", "text", "shape"]) {
+      const meta = builtinAdapterMeta(id);
+      expect(meta?.hasPlayfield, id).toBe(false);
+      expect(meta?.playfieldControls, id).toBeUndefined();
+      expect(meta?.personas, id).toBeUndefined();
+    }
   });
 });

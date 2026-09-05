@@ -13,6 +13,7 @@ import { TextCharacterAdapter, buildTextCharacterManifest } from "../character/a
 import { CharacterGateway } from "../character/gateway";
 import { validateCharacterManifest } from "../character/manifest";
 import { CommandReceipt, PROTOCOL_VERSION } from "../character/protocol";
+import { builtinAdapterMeta } from "../character/adapterRegistry";
 import type { CharacterIndex, CharacterIndexEntry } from "../character/registry";
 import {
   CHARACTER_LOAD_FAILED_LINE,
@@ -435,5 +436,158 @@ describe("DEFAULT_LINES 的 `{name}` 樣板", () => {
     expect(applyLineVars("{name}{name}", { name: "A" })).toBe("AA");
     // 安全語句不受樣板影響。
     expect(resolveLine("emergency", null, () => 0, { name: "{name}" })).toBe("緊急停止中");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M2 §3.4：設定匯入／匯出的驗證邊界綁定「目標角色的 adapter」
+//
+// v0.6.0 已知限制 #17：使魔配色以前用單一 rig 的全域白名單驗證，說話風格同樣是硬編的
+// 兩個 id——同一份 JSON 說自己屬於哪個角色完全不影響驗證。現在先解出 characterId →
+// 問它的 adapter meta（variants／personas／hasPlayfield），問不出來就誠實拒絕。
+// ---------------------------------------------------------------------------
+
+describe("設定匯入：角色專屬欄位只用目標角色的 adapter 宣告驗證", () => {
+  /** 角色 → entrypoint（正式路徑由角色頁的 catalog 提供，測試直接給對照表）。 */
+  const ENTRYPOINTS: Record<string, string> = {
+    "shu-maid": "shu-rig",
+    "plain-text": "text",
+    "ref-shape": "shape",
+    "shu-lazy": "sprite",
+  };
+  const entrypointFor = (id: string): string | null => ENTRYPOINTS[id] ?? null;
+  const knownCharacterIds = ["plain-text", "ref-shape"];
+  const file = (extra: Record<string, unknown>) => ({ kind: "companion-settings", schemaVersion: 1, ...extra });
+
+  it("使魔配色不再是全域白名單：ref-shape 帶著 rig 的配色會被拒絕", () => {
+    expect(() =>
+      parseCompanionSettingsImport(
+        file({
+          companionPack: "ref-shape",
+          companionFamiliars: [{ id: "fam-1", name: "小雪", palette: "maid-classic" }],
+        }),
+        { knownCharacterIds, entrypointFor }
+      )
+    ).toThrowError(/使魔/);
+  });
+
+  it("說話風格不再是全域白名單：純文字角色帶著 rig 的 persona 會被拒絕", () => {
+    expect(() =>
+      parseCompanionSettingsImport(file({ companionPack: "plain-text", companionPersona: "persona-shu" }), {
+        knownCharacterIds,
+        entrypointFor,
+      })
+    ).toThrowError(/說話風格/);
+  });
+
+  it("舊小樞匯出檔（shu-maid＋使魔＋說話風格）照舊通過", () => {
+    const out = parseCompanionSettingsImport(
+      file({
+        companionPack: "shu-maid",
+        companionPersona: "persona-shu",
+        companionScene: "nest",
+        companionFamiliars: [{ id: "fam-1", name: "小雪", palette: "maid-dusk" }],
+      }),
+      { entrypointFor }
+    );
+    expect(out.companionPack).toBe("shu-maid");
+    expect(out.companionPersona).toBe("persona-shu");
+    expect(out.companionScene).toBe("nest");
+    expect(out.companionFamiliars).toEqual([{ id: "fam-1", name: "小雪", palette: "maid-dusk" }]);
+  });
+
+  it("v0.5.x 由 sprite 小樞（shu-lazy）匯出的舊檔夾帶說話風格與使魔：誠實忽略，不拒絕整份檔", () => {
+    // 那時說話風格／使魔是全域偏好、不分角色，5 個 sprite 小樞匯出的檔案都可能帶著它們。
+    // 目標角色的 adapter 沒宣告那一項就忽略那個欄位（不寫進 prefs），其餘欄位照常匯入。
+    const out = parseCompanionSettingsImport(
+      file({
+        companionPack: "shu-lazy",
+        companionPersona: "persona-shu",
+        companionScene: "desk",
+        companionPlay: false,
+        companionFamiliars: [{ id: "fam-1", name: "小雪", palette: "maid-dusk" }],
+      }),
+      { entrypointFor }
+    );
+    expect(out.companionPack).toBe("shu-lazy");
+    expect(out.companionScene).toBe("desk");
+    expect(out.companionPlay).toBe(false);
+    expect(out).not.toHaveProperty("companionPersona");
+    expect(out).not.toHaveProperty("companionFamiliars");
+  });
+
+  it("舊小樞家族的寬容只到「忽略未宣告的欄位」：宣告了的清單仍是白名單，非舊 id 一律不寬容", () => {
+    // shu-maid（rig）宣告了 personas：值不在清單仍拒絕。
+    expect(() =>
+      parseCompanionSettingsImport(file({ companionPack: "shu-maid", companionPersona: "persona-nobody" }), {
+        entrypointFor,
+      })
+    ).toThrowError(/說話風格/);
+    // ref-shape 不是舊 id：未宣告就拒絕（不猜、不頂替）。
+    expect(() =>
+      parseCompanionSettingsImport(file({ companionPack: "ref-shape", companionPersona: "persona-shu" }), {
+        knownCharacterIds,
+        entrypointFor,
+      })
+    ).toThrowError(/說話風格/);
+  });
+
+  it("adapter 認得角色時，值仍必須在該 adapter 宣告的清單裡", () => {
+    expect(() =>
+      parseCompanionSettingsImport(
+        file({ companionPack: "shu-maid", companionFamiliars: [{ id: "a", name: "x", palette: "neon" }] }),
+        { entrypointFor }
+      )
+    ).toThrow();
+    expect(() =>
+      parseCompanionSettingsImport(file({ companionPack: "shu-maid", companionPersona: "persona-nobody" }), {
+        entrypointFor,
+      })
+    ).toThrow();
+  });
+
+  it("問不出目標角色的 adapter 時誠實拒絕角色專屬欄位（不拿別的角色的允許值頂替）", () => {
+    expect(() =>
+      parseCompanionSettingsImport(file({ companionPack: "shu-maid", companionPersona: "persona-shu" }))
+    ).toThrow();
+    expect(() =>
+      parseCompanionSettingsImport(
+        file({ companionPack: "shu-maid", companionFamiliars: [{ id: "a", name: "x", palette: "maid-classic" }] })
+      )
+    ).toThrow();
+  });
+
+  it("空的角色專屬欄位不算宣告：空使魔清單與空說話風格照樣通過", () => {
+    const out = parseCompanionSettingsImport(
+      file({ companionPack: "plain-text", companionPersona: "", companionFamiliars: [], companionScene: "none" }),
+      { knownCharacterIds, entrypointFor }
+    );
+    expect(out.companionFamiliars).toEqual([]);
+    expect("companionPersona" in out).toBe(false);
+  });
+
+  it("說話風格清單只有一份：由 adapter meta 宣告，settingsTransfer 不再自帶", () => {
+    expect(builtinAdapterMeta("shu-rig")?.personas?.map((p) => p.id)).toEqual(["persona-shu", "persona-navigator"]);
+    for (const id of ["sprite", "text", "shape"]) {
+      expect(builtinAdapterMeta(id)?.personas ?? [], id).toEqual([]);
+    }
+  });
+
+  it("匯出：知道目標角色時只帶該 adapter 宣告得出的角色專屬欄位（匯出→匯入不自打嘴巴）", () => {
+    const prefs = {
+      companionPack: "plain-text",
+      companionPersona: "persona-shu",
+      companionExpressiveness: "natural",
+      companionScene: "none",
+      companionFamiliars: [{ id: "fam-1", name: "小雪", palette: "maid-classic" }],
+    } as unknown as DesktopPrefs;
+    const out = exportCompanionSettings(prefs, { entrypointFor });
+    expect(out.companionPersona).toBe("");
+    expect(out.companionFamiliars).toEqual([]);
+    expect(() =>
+      parseCompanionSettingsImport(JSON.parse(JSON.stringify(out)), { knownCharacterIds, entrypointFor })
+    ).not.toThrow();
+    // 不給對照表時維持原樣（完整快照；舊呼叫端行為不變）。
+    expect(exportCompanionSettings(prefs).companionPersona).toBe("persona-shu");
   });
 });

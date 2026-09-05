@@ -61,6 +61,21 @@
   `release-scripts.sh` 靜態核對這兩件事（48/0）。（d94abac）
 
 ### Changed
+- **角色專屬設定的驗證邊界綁定 adapter**（M2 §3.4）：`companion/settingsTransfer.ts` 不再 import 小樞的配色表、也不再自帶
+  persona 清單；匯入時先解出目標角色 → 由角色目錄給 entrypoint → 用**該 adapter 的 meta**（`variants`／`personas`／
+  `hasPlayfield`）驗證使魔配色與說話風格：非該角色的值拒絕並給人話錯誤（ref-shape 帶 rig 配色、plain-text 帶 persona-shu），
+  問不出 adapter（沒對照表）也拒絕。**相容**：v0.4／v0.5 出貨的 8 個小樞家族 id 匯出的舊檔（當時說話風格／使魔是全域偏好，
+  5 個 sprite 小樞的檔也會夾帶）在目標角色未宣告該項時**誠實忽略該欄位**而非拒絕整份檔；schemaVersion 1 不變。匯出端同樣綁定
+  角色，不再產生自己匯不回來的檔案。小樞遊玩場 UI（場景／玩耍開關／使魔）從 `CompanionPage.tsx` 搬進
+  `character/adapters/shuPlayControls.tsx`，由 `SHU_META.playfieldControls` 宣告；頁面依 `meta.hasPlayfield`／`meta.personas`
+  掛載，`isShuRig` 字面分岔刪除；守門測試 `architecture-no-entrypoint-switch.test.ts` 擴大到頁面層（`CharacterPreview.tsx`／
+  `CharacterLibrary.tsx` 暫列待收斂棘輪）。v0.6.0 known-limitations #17 修掉。
+- **桌面前端模組分拆（零行為變更，M2 §3.5）**：`statusProjection.ts`（1169 行）依領域拆成 `statusProjection/{workState,inbox,
+  provider,characterLifecycle,characterSync}.ts`，原檔只剩 re-export 殼（import 路徑不變、58 個匯出名不少）；`App.tsx`
+  （1136→732 行）的路由表與純函式抽到 `routing.ts`（`SIMPLE_NAV`／`ADVANCED_NAV`／`NARROW_*`／`LEGACY_ANCHORS`）、導覽狀態抽到
+  `useNavigation.ts`、四個純 UI 元件搬到 `components/`。新增 `src/test/deep-links.test.tsx`（39 支）：27 個可路由 id 與 6 條進入
+  路徑（一級導覽／窄視窗／13 個舊錨點／狀態列與角色視窗 `navigate` 事件／⌘K／通知中心 route）逐一釘住，含「角色改名後
+  `companion` 仍是同一 route」與「不認得的 route 誠實說找不到並留回路」。
 - `schemas/aip-1.0.schema.json` 的 `limits` 表新增 `maxUnsupportedInputs: 32`（權威值仍是 `interaction_aip::limits`），
   `AIP_LIMITS`／`AIPLimits` 由 codegen 跟著多一個常數，`envelope.ts` 不再手寫 32；`schema.rs` 新增雙向漂移 gate
   `every_limit_constant_is_published_in_the_schema`（`limits.rs` 的每個 `pub const` 都必須在 schema，反之亦然）。

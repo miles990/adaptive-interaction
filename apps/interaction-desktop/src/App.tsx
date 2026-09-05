@@ -2,7 +2,6 @@ import React from "react";
 import { api, onRuntimeError, onRuntimeEvent, onRuntimeReady, RuntimeEvent } from "./api";
 import {
   bootstrapSupervisor,
-  desktop,
   onCloseRequested,
   onNavigate,
   onSupervisorState,
@@ -12,17 +11,8 @@ import {
 import { AppStateProvider, useAppState } from "./appstate";
 import { Icon } from "./icons";
 import { Badge } from "./ui";
-import {
-  inboxItemTitle,
-  isPendingCountExact,
-  PENDING_INCOMPLETE_NOTE,
-  pendingCountLabel,
-  projectInboxStatus,
-  projectSensorStop,
-  sensorKindLabel,
-  sensorStartedByLabel,
-} from "./statusProjection";
-import { ConfirmButton, Dialog, useFocusTrap } from "./components/Dialog";
+import { projectSensorStop, sensorKindLabel } from "./statusProjection";
+import { ConfirmButton } from "./components/Dialog";
 import { HomePage } from "./pages/HomePage";
 import { CapabilitiesPage } from "./pages/CapabilitiesPage";
 import { Onboarding } from "./pages/Onboarding";
@@ -36,187 +26,49 @@ import { PolicyPage } from "./pages/Policy";
 import { TimelinePage } from "./pages/Timeline";
 import { CompanionPage } from "./pages/CompanionPage";
 import { WorkPage } from "./pages/WorkPage";
-import { ConnectPage, decisionPage, loadDecisionInbox } from "./pages/ConnectPage";
+import { ConnectPage, loadDecisionInbox } from "./pages/ConnectPage";
 import { MorePage } from "./pages/MorePage";
 import { ProvidersAdvancedPage } from "./pages/ProvidersAdvanced";
 import { KnowledgeAdvancedPage } from "./pages/KnowledgeAdvanced";
 import { GlobalSearch } from "./components/GlobalSearch";
-import {
-  characterNameFallback,
-  NEUTRAL_CHARACTER_ICON,
-  refreshCharacterName,
-  useCharacterName,
-} from "./characterName";
+import { refreshCharacterName, useCharacterName } from "./characterName";
+import { ADVANCED_NAV, navAnchorFor, simpleNavFor, titleFor, type Tab } from "./routing";
+import { useNavigation } from "./useNavigation";
+import { SensorBanner } from "./components/SensorBanner";
+import { CloseDialog } from "./components/CloseDialog";
+import { inboxBadgeLabel, inboxBadgeText, NotificationPanel } from "./components/NotificationPanel";
+import { NarrowNav } from "./components/NarrowNav";
 
-export type Tab = string;
-
-export interface NavEntry {
-  id: Tab;
-  label: string;
-  icon: string;
-}
-
-// v0.5 資訊架構：5 個一級入口（現在／角色／工作／連接與權限／更多）。
-// 第二項的 label 與 icon 是目前角色（useCharacterName：prefs 名字＞manifest
-// displayName＞「角色」），由 simpleNavFor 在執行期代入；這份靜態表只放中立值。
-// 舊 tab id 全部保留可用（tray 深連結、Inbox route、書籤），由
-// navAnchorFor 折疊到新家；內容走 PageBody 的相容路由。
-export const SIMPLE_NAV: NavEntry[] = [
-  { id: "home", label: "現在", icon: "house" },
-  { id: "companion", label: characterNameFallback, icon: NEUTRAL_CHARACTER_ICON },
-  { id: "work", label: "工作", icon: "bot" },
-  { id: "connect", label: "連接與權限", icon: "plug" },
-  { id: "more", label: "更多", icon: "menu" },
-];
-
-/** 一級導覽的執行期版本：第二項換成目前角色的名字與 icon（其餘不變、仍恰 5 項）。 */
-export function simpleNavFor(character: { name: string; icon: string }): NavEntry[] {
-  return SIMPLE_NAV.map((t) =>
-    t.id === "companion" ? { ...t, label: character.name, icon: character.icon } : t
-  );
-}
-
-const ADVANCED_NAV: { id: Tab; label: string }[] = [
-  { id: "adv-overview", label: "總覽（原始）" },
-  { id: "adv-receptors", label: "受器" },
-  { id: "adv-actuators", label: "動器" },
-  { id: "adv-tools", label: "工具" },
-  { id: "adv-recipes", label: "配方 YAML" },
-  { id: "adv-policy", label: "政策／同意" },
-  { id: "adv-timeline", label: "時間軸" },
-  { id: "adv-providers", label: "Provider Registry" },
-  { id: "adv-knowledge", label: "Knowledge Graph" },
-];
-
-type RuntimeState = "connecting" | "ready" | "offline";
-
-// 相容 tab id → 新一級入口的折疊表。key 是舊 id（tray 深連結、
-// Runtime Inbox route、舊書籤、GlobalSearch），value 是導覽高亮／標題的新家。
-export const LEGACY_ANCHORS: Record<string, string> = {
-  ai: "work",
-  automations: "work",
-  capabilities: "connect",
-  senses: "connect",
-  responses: "connect",
-  toolops: "connect",
-  safety: "connect",
-  memory: "more",
-  activity: "more",
-  settings: "more",
-  // v0.5 一般模式「更多」的新分頁：備份與還原／進階模式。
-  backup: "more",
-  // 相容保留：角色與整合管理不再是「更多」的分頁按鈕，但舊書籤／深連結仍要到得了。
-  manage: "more",
-  "advanced-features": "more",
-};
-
-/** 收件匣狀態的人話：走共用的狀態投影（statusProjection.ts），與 AiPage／
- *  HomePage／收件匣／全域搜尋同一份文案。未知狀態不回原始字串，
- *  投影成「結果不確定」——不假裝看得懂，也不把 enum 外洩到一般模式。 */
-export function inboxStatusLabel(status: string): string {
-  return projectInboxStatus(status).label;
-}
-
-/** 導覽高亮／標題所對應的 nav id（相容 tab 折疊到新 5 入口）。 */
-export function navAnchorFor(tab: string): string {
-  return LEGACY_ANCHORS[tab] ?? tab;
-}
-
-/** topbar 標題：相容 tab 也必須有標題，不得渲染空字串。
- *  角色頁的標題是目前角色的名字（傳入 characterName）；沒傳就是中立的「角色」。 */
-export function titleFor(tab: string, characterName?: string): string {
-  const anchor = navAnchorFor(tab);
-  if (anchor === "companion" && characterName) return characterName;
-  return (
-    SIMPLE_NAV.find((t) => t.id === anchor)?.label ??
-    ADVANCED_NAV.find((t) => t.id === anchor)?.label ??
-    "未知頁面"
-  );
-}
+// 這個檔案只剩三件事：bootstrap（App）、外框與全域狀態（Shell）、頁面分派（PageBody）。
+// 路由表與導覽的純函式在 `routing.ts`，導覽狀態在 `useNavigation.ts`，純 UI 元件在
+// `components/`。以下的 re-export 是為了讓既有的 `from "./App"` 匯入路徑不變
+// （零行為變更的搬家），新程式請直接從各自的模組匯入。
+export type { NavEntry, Tab } from "./routing";
+export {
+  LEGACY_ANCHORS,
+  moreSheetCurrent,
+  NARROW_MORE_ITEMS,
+  navAnchorFor,
+  simpleNavFor,
+  SIMPLE_NAV,
+  titleFor,
+} from "./routing";
+export { useNavigation } from "./useNavigation";
+export { SensorBanner, SensorCountdown } from "./components/SensorBanner";
+export {
+  inboxBadgeLabel,
+  inboxBadgeText,
+  inboxStatusLabel,
+  NotificationPanel,
+} from "./components/NotificationPanel";
+export { NarrowNav } from "./components/NarrowNav";
 
 /** 感測器種類的人話（橫幅用）。未知種類不猜、也不外洩原始 id：走共用投影
  *  （statusProjection.ts）說「其他感測器」，與「現在」頁、角色一句話同一份文案。 */
 export { sensorKindLabel };
 
-/**
- * 導覽狀態：目前路由＋內容區的掛載 key。
- *
- * `setTab(目前的路由)` 是 React 的同值 bail-out（不重新渲染），而 hub 頁（連接與
- * 權限／工作／更多）的內部分頁只在 `initial` prop 的值改變時才同步。兩件事加起來，
- * 「導到已經在的路由」原本完全沒有作用——例如緊急停止中、人已在安全頁但把內部分頁
- * 切到「裝置與能力」，再按頂列（或 ⌘K）的「前往解除」就是死點擊，安全關鍵的解除
- * 流程到不了。`mountKey` 每次導覽都改變，所以目標頁一定重新掛載、內部分頁一定回到
- * route 指定的那一個。
- */
-export function useNavigation(initial: Tab): {
-  tab: Tab;
-  /** 內容區的 key：同一個路由被再次導覽也會變，強制重新掛載。 */
-  mountKey: string;
-  goTo: (next: Tab) => void;
-} {
-  const [tab, setTab] = React.useState<Tab>(initial);
-  const [nonce, setNonce] = React.useState(0);
-  const goTo = React.useCallback((next: Tab) => {
-    setNonce((n) => n + 1);
-    setTab(next);
-  }, []);
-  return { tab, mountKey: `${tab}#${nonce}`, goTo };
-}
+type RuntimeState = "connecting" | "ready" | "offline";
 
-/** 感測倒數：介面上顯示的「N 秒後自動停止」必須真的走。
- *  interval 只在此元件掛載期間存在（感測結束、banner 消失即清除），有界。 */
-export function SensorCountdown({ autoStopAt }: { autoStopAt: string }) {
-  const remaining = React.useCallback(
-    () => Math.max(0, Math.round((new Date(autoStopAt).getTime() - Date.now()) / 1000)),
-    [autoStopAt]
-  );
-  const [secs, setSecs] = React.useState(remaining);
-  React.useEffect(() => {
-    setSecs(remaining());
-    const t = setInterval(() => setSecs(remaining()), 1000);
-    return () => clearInterval(t);
-  }, [remaining]);
-  return <>{`・${secs} 秒後自動停止`}</>;
-}
-
-/**
- * 感測不靜默：只要有感測在跑就一定有這條橫幅（種類、誰啟動的、用途、狀態、倒數、
- * 立即停止）。
- *
- * 「誰啟動的」走 `sensorStartedByLabel`：一般模式說人話，**不得**把 runtime 的內部
- * 身分字串（`iphone:iphone-87b4…` 這種裝置 id）原樣印給使用者看；原始值只在進階模式
- * 以 `title` 補上，所以透明度沒有變少、只是不再外洩實作細節。
- */
-export function SensorBanner({
-  sensors,
-  advanced,
-  onStopAll,
-}: {
-  sensors: readonly import("./api").SensorUse[];
-  advanced: boolean;
-  onStopAll: () => void;
-}) {
-  if (sensors.length === 0) return null;
-  return (
-    <div className="sensor-banner" role="status">
-      {sensors.map((s) => (
-        <span key={`${s.kind}#${s.startedBy}`}>
-          {s.kind === "microphone" ? "🎙 正在使用麥克風" : `感測使用中：${sensorKindLabel(s.kind)}`}
-          （由{" "}
-          <span title={advanced ? s.startedBy : undefined}>{sensorStartedByLabel(s.startedBy)}</span>{" "}
-          啟動・{s.purpose}
-          {s.state !== undefined && s.state !== "active" ? "・狀態未確認" : ""}
-          {s.autoStopAt ? <SensorCountdown autoStopAt={s.autoStopAt} /> : ""}
-          ）
-        </span>
-      ))}
-      {/* 停止結果不得靜默吞掉：成功／仍在使用／不確定都會落到同一條回報列。 */}
-      <button style={{ marginLeft: 8 }} onClick={onStopAll}>
-        立即停止
-      </button>
-    </div>
-  );
-}
 
 export default function App() {
   const [runtimeState, setRuntimeState] = React.useState<RuntimeState>("connecting");
@@ -688,262 +540,6 @@ function Shell({
         }
       />
     </div>
-  );
-}
-
-/** 右上角徽章的數字。後端說 `pendingCountExact: false` 時 pendingCount 只是
- *  下限，徽章要說「至少 N」——不得讓使用者以為那就是全部。 */
-export function inboxBadgeText(inbox: Record<string, unknown> | null): string {
-  const raw = inbox?.pendingCount;
-  const count = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
-  return isPendingCountExact(inbox) ? String(count) : `至少 ${count}`;
-}
-
-/** 徽章的螢幕閱讀器說明（同一份真相，含「至少」）。 */
-export function inboxBadgeLabel(inbox: Record<string, unknown> | null): string {
-  if (!inbox) return "未知 項";
-  const raw = inbox.pendingCount;
-  const count = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
-  return pendingCountLabel(count, isPendingCountExact(inbox));
-}
-
-/** 右上角通知中心：與 Dialog 共用同一個焦點陷阱（Escape 關閉並還原焦點、
- *  Tab 在面板內循環），不是只能用滑鼠點的浮層。 */
-export function NotificationPanel({
-  inbox,
-  onClose,
-  onNavigate,
-}: {
-  inbox: Record<string, unknown> | null;
-  onClose: () => void;
-  onNavigate: (tab: string) => void;
-}) {
-  const { ref, onKeyDown } = useFocusTrap(onClose);
-  // 徽章用的是截斷前的全量 pendingCount；本頁（最多 10 筆）裝不下的要照實說「還有 N 項」。
-  const decisions = decisionPage(inbox, 10);
-  return (
-    // aria-modal="true" 現在是誠實的：套用跟 components/Dialog.tsx 同一套真 modal
-    // 行為——共用的 .dialog-backdrop（點外面關閉）＋焦點陷阱＋Escape 關閉。修復前
-    // 這裡沒有 backdrop，頂列的緊急停止按鈕在面板開著時仍可被滑鼠點到，但宣稱
-    // aria-modal 會讓螢幕閱讀器使用者以為面板外的內容不存在，兩者行為不一致。
-    // 现在跟 App 裡其餘的 Dialog（RecoveryDialog／CloseDialog／GlobalSearch）
-    // 一樣：面板開著時 Escape／「關閉」隨時能立刻收起，不影響「隨時能停」。
-    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div
-        className="notification-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-label="通知中心"
-        tabIndex={-1}
-        ref={ref}
-        onKeyDown={onKeyDown}
-      >
-        <div className="row space-between">
-          <strong>待你決定</strong>
-          <button onClick={onClose}>關閉</button>
-        </div>
-        {!inbox ? (
-          <div className="state-box state-error">目前無法確認通知狀態。</div>
-        ) : decisions.shown.length === 0 && decisions.notShown === 0 && !decisions.exact ? (
-          // 後端說 pendingCount 只是下限：這一頁空的不代表沒有待決定。
-          <div className="state-box" role="status">
-            {PENDING_INCOMPLETE_NOTE}。
-          </div>
-        ) : decisions.shown.length === 0 && decisions.notShown === 0 ? (
-          <div className="state-box">目前沒有待決定事項。</div>
-        ) : (
-          <>
-            {decisions.shown.length > 0 && (
-              <ul className="plain-list">
-                {decisions.shown.map((item) => (
-                  <li
-                    key={`${String(item.kind)}-${String(item.itemId)}`}
-                    className="row space-between"
-                  >
-                    <span>
-                      <Badge kind="warn">{inboxStatusLabel(String(item.status))}</Badge>{" "}
-                      {inboxItemTitle(item)}
-                    </span>
-                    <button onClick={() => onNavigate(String(item.route))}>前往</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {decisions.notShown > 0 && (
-              // 誠實：徽章數來自全量，這一頁裝不下（或舊 daemon 只給最近 20 筆）——
-              // 不得宣稱「沒有待決定事項」。
-              <div className="state-box" role="status">
-                {decisions.exact ? "還有" : "至少還有"} {decisions.notShown}{" "}
-                項待決定不在這一頁，前往活動歷史。
-              </div>
-            )}
-            {decisions.notShown === 0 && !decisions.exact && (
-              <div className="state-box" role="status">
-                {PENDING_INCOMPLETE_NOTE}。
-              </div>
-            )}
-          </>
-        )}
-        <button onClick={() => onNavigate("activity")}>查看完整活動歷史</button>
-      </div>
-    </div>
-  );
-}
-
-/** 第一次關閉控制中心的說明對話框（也是 v0.2 → v0.3 行為改變的明確告知）。 */
-function CloseDialog({ external, onClose }: { external: boolean; onClose: () => void }) {
-  const [remember, setRemember] = React.useState(false);
-  return (
-    <Dialog title="關閉控制中心？" onClose={onClose}>
-      <p>
-        Adaptive Interaction 會繼續在<strong>狀態列</strong>運作。
-        桌面角色與你允許的自動互動仍會保持啟用。
-      </p>
-      <p className="muted small">
-        你可以從狀態列重新開啟控制中心，或選擇「完全結束」停止所有功能。
-        {external && "（目前連線到外部系統：完全結束只會關閉這個視窗，不會停止那個系統。）"}
-      </p>
-      <p className="muted small">
-        提醒：舊版（v0.2）關閉視窗會直接停止系統；新版預設改為保持在背景運作。
-      </p>
-      <label className="toggle">
-        <input
-          type="checkbox"
-          checked={remember}
-          onChange={(e) => setRemember(e.target.checked)}
-        />
-        <span>下次不再顯示</span>
-      </label>
-      <div className="row wrap" style={{ marginTop: 12 }}>
-        <button
-          className="primary"
-          onClick={async () => {
-            await desktop.closeDecision("keep-running", remember).catch(() => {});
-            onClose();
-          }}
-        >
-          保持運作
-        </button>
-        <button
-          onClick={async () => {
-            await desktop.closeDecision("quit", remember).catch(() => {});
-            onClose();
-          }}
-        >
-          完全結束
-        </button>
-      </div>
-    </Dialog>
-  );
-}
-
-/** 窄視窗（<700px）底部導覽：4 個主要入口＋「更多」選單。
- *  所有頁面都可抵達、鍵盤可操作、永遠有文字標籤（不只靠 Icon）。 */
-const NARROW_PRIMARY: string[] = ["home", "companion", "work", "connect"];
-
-/** 窄視窗「更多」選單的細項（寬視窗時這些是 MorePage 的分頁）。
- *  與 MORE_TABS 同一組 id／文案；`manage` 是隱藏的相容路由，不列在這裡。 */
-export const NARROW_MORE_ITEMS: NavEntry[] = [
-  { id: "memory", label: "記憶與資料", icon: "book-open" },
-  { id: "activity", label: "活動紀錄", icon: "history" },
-  { id: "settings", label: "外觀與語言", icon: "settings" },
-  { id: "backup", label: "備份與還原", icon: "cloud-download" },
-  { id: "advanced-features", label: "進階模式", icon: "code2" },
-];
-
-/** 「更多」選單裡目前所在的細項 id。傳進來的是**未折疊**的路由（settings／memory…）；
- *  裸的 `more` 對應 PageBody 的預設分頁（記憶與資料），與寬視窗 MorePage 的高亮一致。 */
-export function moreSheetCurrent(tab: Tab): Tab {
-  return tab === "more" ? "memory" : tab;
-}
-
-export function NarrowNav({
-  tab,
-  nav,
-  onNavigate,
-  advanced,
-  statusBadge,
-}: {
-  /** 未折疊的目前路由。一級入口的高亮走 navAnchorFor（相容 id 也會亮對），
-   *  「更多」選單的細項則要用原始路由比對，否則永遠沒有細項會亮。 */
-  tab: Tab;
-  /** 執行期一級導覽（第二項已換成目前角色）。 */
-  nav: NavEntry[];
-  onNavigate: (tab: Tab) => void;
-  advanced: boolean;
-  statusBadge: React.ReactNode;
-}) {
-  const [moreOpen, setMoreOpen] = React.useState(false);
-  const primary = nav.filter((t) => NARROW_PRIMARY.includes(t.id));
-  const secondary = NARROW_MORE_ITEMS;
-  const anchor = navAnchorFor(tab);
-  const current = moreSheetCurrent(tab);
-  const moreActive = !NARROW_PRIMARY.includes(anchor);
-  return (
-    <>
-      <nav className="bottom-nav" aria-label="主要導覽（窄視窗）">
-        {primary.map((t) => (
-          <button
-            key={t.id}
-            className={anchor === t.id ? "bottom-nav-item active" : "bottom-nav-item"}
-            onClick={() => onNavigate(t.id)}
-            aria-current={anchor === t.id ? "page" : undefined}
-          >
-            <Icon name={t.icon} size={18} />
-            <span>{t.label}</span>
-          </button>
-        ))}
-        <button
-          className={moreActive ? "bottom-nav-item active" : "bottom-nav-item"}
-          onClick={() => setMoreOpen(true)}
-          aria-haspopup="dialog"
-          aria-expanded={moreOpen}
-        >
-          <Icon name="menu" size={18} />
-          <span>更多</span>
-        </button>
-      </nav>
-      {moreOpen && (
-        <Dialog title="更多功能" onClose={() => setMoreOpen(false)}>
-          <div className="more-sheet">
-            <div className="more-status">{statusBadge}</div>
-            {secondary.map((t) => (
-              <button
-                key={t.id}
-                className={current === t.id ? "more-item active" : "more-item"}
-                aria-current={current === t.id ? "page" : undefined}
-                onClick={() => {
-                  onNavigate(t.id);
-                  setMoreOpen(false);
-                }}
-              >
-                <Icon name={t.icon} size={16} /> <span>{t.label}</span>
-              </button>
-            ))}
-            {advanced && (
-              <>
-                <div className="nav-group-label">
-                  <Icon name="code2" size={13} /> 進階
-                </div>
-                {ADVANCED_NAV.map((t) => (
-                  <button
-                    key={t.id}
-                    className={current === t.id ? "more-item active" : "more-item"}
-                    aria-current={current === t.id ? "page" : undefined}
-                    onClick={() => {
-                      onNavigate(t.id);
-                      setMoreOpen(false);
-                    }}
-                  >
-                    <span>{t.label}</span>
-                  </button>
-                ))}
-              </>
-            )}
-          </div>
-        </Dialog>
-      )}
-    </>
   );
 }
 

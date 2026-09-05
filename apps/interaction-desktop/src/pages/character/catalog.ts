@@ -11,6 +11,7 @@ import {
   type CharacterIndex,
   type CharacterIndexEntry,
 } from "../../character/registry";
+import { isBuiltinEntrypointId, type BuiltinEntrypointId } from "../../character/adapterRegistry";
 import { displayNameOf, type ManifestReport } from "../../character/manifest";
 import type { CharacterManifest, VariantDecl } from "../../character/protocol";
 import { desktop, type ImportedCharacterEntry } from "../../desktop";
@@ -21,7 +22,11 @@ export const CHARACTER_LOCALE = "zh-TW";
 export const TEXT_FALLBACK_CHARACTER_ID = "plain-text";
 
 export type CharacterOriginKind = "builtin" | "imported" | "external";
-export type EntrypointId = "shu-rig" | "sprite" | "text" | "module" | "process" | "url" | "unknown";
+/**
+ * 卡片上的執行方式。builtin 的部分＝host registry 宣告的白名單（`BUILTIN_ADAPTER_IDS`）：
+ * 加一個 builtin adapter 不必也不得再改這一行（M2 §3.4）。
+ */
+export type EntrypointId = BuiltinEntrypointId | "module" | "process" | "url" | "unknown";
 
 export interface CharacterCard {
   characterId: string;
@@ -62,14 +67,14 @@ export function entrypointIdOf(
   const ep = manifest?.entrypoint;
   if (!ep) return "unknown";
   if (ep.kind === "builtin") {
-    return ep.id === "shu-rig" || ep.id === "sprite" || ep.id === "text" ? ep.id : "unknown";
+    return isBuiltinEntrypointId(ep.id) ? ep.id : "unknown";
   }
   return ep.kind;
 }
 
 function entrypointFromImported(entry: ImportedCharacterEntry): EntrypointId {
   const ep = entry.entrypoint;
-  if (ep === "shu-rig" || ep === "sprite" || ep === "text") return ep;
+  if (isBuiltinEntrypointId(ep)) return ep;
   return entry.external ? "process" : "unknown";
 }
 
@@ -202,10 +207,6 @@ export function receivesLine(card: Pick<CharacterCard, "summary" | "manifest">):
   const hit = card.summary.find((line) => line.startsWith("可以接收："));
   if (hit) return hit;
   return card.manifest ? "可以接收：不接收任何輸入" : "可以接收：不明（角色資料尚未載入）";
-}
-
-export function isShuRig(card: Pick<CharacterCard, "entrypoint"> | null | undefined): boolean {
-  return card?.entrypoint === "shu-rig";
 }
 
 export function variantName(variant: VariantDecl): string {

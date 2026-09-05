@@ -23,6 +23,7 @@ import { drawExpressionPreview } from "../../companion/rig/renderer";
 import { machineStageFlags, STAGE_SCENES, StageRenderer } from "../../companion/rig/stage";
 import { DEFAULT_TUNING, PersonalityTuning } from "../../companion/personality";
 import { validateRigManifest, type RigManifest } from "../../companion/rig/renderer";
+import type { AdapterPersona } from "../adapterRegistry";
 import type { AdapterHost, AdapterInputEvent, CharacterAdapter, GameplayExtension, HitRect, PointerInput, ReceiptSink } from "../adapter";
 import {
   displayNameOf,
@@ -118,8 +119,12 @@ export const PALETTES: { id: string; label: string }[] = SHU_RIG_VARIANTS.map((v
 /**
  * 說話風格。`followsName` 的項目由頁面把目前角色的名字接在前面
  * （名字一律來自 useCharacterName，不由 adapter 決定）。
+ *
+ * 這是**唯一**一份：host 的設定頁與設定檔匯入驗證都改讀 `SHU_META.personas`
+ * （M2 §3.4；以前 `companion/settingsTransfer.ts` 另外硬編了同樣的兩個 id，
+ * 而且拿它當全域白名單，不管那份 JSON 說自己屬於哪個角色）。
  */
-export const PERSONAS: { id: string; label: string; followsName: boolean }[] = [
+export const PERSONAS: readonly AdapterPersona[] = [
   { id: "persona-shu", label: "預設", followsName: true },
   { id: "persona-navigator", label: "導航員（世界觀範例）", followsName: false },
 ];

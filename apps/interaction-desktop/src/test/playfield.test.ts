@@ -14,6 +14,8 @@ import {
   StepInputs,
   World,
 } from "../companion/playfield";
+// 註冊 builtin adapter meta：角色專屬欄位的驗證要問目標角色的 adapter 宣告了什麼。
+import "../character/adapters";
 import {
   exportCompanionSettings,
   parseCompanionSettingsImport,
@@ -222,11 +224,14 @@ describe("角色設定匯出／匯入", () => {
     expect(exported.kind).toBe("companion-settings");
     expect(JSON.stringify(exported)).not.toContain("token");
     expect(JSON.stringify(exported)).not.toContain("Position");
-    const imported = parseCompanionSettingsImport(JSON.parse(JSON.stringify(exported)));
+    const imported = parseCompanionSettingsImport(JSON.parse(JSON.stringify(exported)), { entrypointFor });
     expect(imported.companionScene).toBe("nest");
     expect(imported.companionCursorPlay).toBe(false);
     expect(imported.companionFamiliars).toHaveLength(1);
   });
+
+  /** 角色 → entrypoint（正式路徑由角色頁的 catalog 提供）：角色專屬欄位只用它的 adapter 驗證。 */
+  const entrypointFor = (id: string): string | null => (id === "shu-maid" ? "shu-rig" : null);
 
   it("匯入驗證：壞 kind／未知 pack／過多使魔／非法配色都拒絕", () => {
     expect(() => parseCompanionSettingsImport({ kind: "evil" })).toThrow();
@@ -248,8 +253,9 @@ describe("角色設定匯出／匯入", () => {
       parseCompanionSettingsImport({
         kind: "companion-settings",
         schemaVersion: 1,
+        companionPack: "shu-maid",
         companionFamiliars: [{ id: "a", name: "x", palette: "neon" }],
-      })
+      }, { entrypointFor })
     ).toThrow();
     // 未知欄位被丟棄而不是報錯。
     const ok = parseCompanionSettingsImport({

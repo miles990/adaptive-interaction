@@ -11,6 +11,8 @@
 // `character/adapters/index.ts` 註冊。宣告了卻沒註冊工廠 → createBuiltinAdapter 誠實失敗，
 // 不會假裝角色載入成功。
 
+import type { ComponentType } from "react";
+import type { DesktopPrefs } from "../desktop";
 import type { MixerPort } from "../companion/machine";
 import type { RendererBackend } from "../companion/renderer";
 import type { DirectorTables } from "../companion/director";
@@ -42,8 +44,38 @@ export type AdapterSurface = "canvas" | "dom";
 export type AdapterCssClass = "companion-stage" | "companion-canvas" | "companion-text";
 
 /**
- * adapter 的 host 側中繼資料。角色專屬的呈現細節（舞台 class、遊玩場、variant 別名）
- * 在這裡宣告，host 只讀 meta。
+ * adapter 宣告的說話風格（persona）。host 只轉述 id 與標籤，本身不認得任何角色的清單；
+ * 沒宣告＝這個角色沒有說話風格設定：頁面不顯示那個選單，匯入的設定檔帶了說話風格也會
+ * 被誠實拒絕（不會靜默存成一個沒有人吃的死值）。
+ */
+export interface AdapterPersona {
+  readonly id: string;
+  readonly label: string;
+  /** true＝標籤前面接目前角色的名字（名字一律來自 host 的 useCharacterName）。 */
+  readonly followsName: boolean;
+}
+
+/**
+ * 角色遊玩場設定 UI 的 props。玩耍開關、使魔、roll call 這些**角色專屬**的設定
+ * 住在 adapter 模組裡；host 只提供偏好讀寫、名字與角色視窗回報的狀態，
+ * 不認得裡面有哪些開關（CLAUDE.md：核心／頁面不得引用某個角色的部位或表情名）。
+ */
+export interface PlayfieldControlsProps {
+  readonly prefs: DesktopPrefs;
+  /** 寫入桌面偏好。回傳 `true` **只**在 host 真的接受寫入時（送出 ≠ 完成）。 */
+  readonly patch: (p: Partial<DesktopPrefs>) => Promise<boolean>;
+  /** 目前角色的名字與代稱（一律來自 host 的 useCharacterName）。 */
+  readonly name: string;
+  readonly pronoun: string;
+  /** 角色視窗回報的 presentation status；沒有就是 null（不得用預設值冒充回報）。 */
+  readonly presence: Record<string, unknown> | null;
+}
+
+export type PlayfieldControlsComponent = ComponentType<PlayfieldControlsProps>;
+
+/**
+ * adapter 的 host 側中繼資料。角色專屬的呈現細節（舞台 class、遊玩場、variant 別名、
+ * 說話風格、遊玩場設定 UI）在這裡宣告，host 只讀 meta。
  */
 export interface BuiltinAdapterMeta {
   /** 畫布 CSS class。 */
@@ -62,6 +94,16 @@ export interface BuiltinAdapterMeta {
    * （未知 variant 只原樣透傳，不猜）。有界：最多 32 個。
    */
   readonly variants?: readonly string[];
+  /**
+   * 這個 adapter 提供的說話風格。有界：最多 16 個。沒宣告＝這個角色沒有說話風格設定。
+   * 設定匯入以**目標角色的**這份清單驗證 `companionPersona`：不是全域白名單。
+   */
+  readonly personas?: readonly AdapterPersona[];
+  /**
+   * 遊玩場的設定 UI（React 元件）。只有 `hasPlayfield` 的 adapter 能宣告；
+   * host 只負責掛載並提供偏好讀寫，不認得裡面有哪些開關。
+   */
+  readonly playfieldControls?: PlayfieldControlsComponent;
   /** 這個 adapter 需要舊 pack 版型（`x-legacy` character-pack）才能建出來。 */
   readonly requiresLegacyPackShape?: boolean;
   /** 這個 adapter 能接手的舊 pack `kind`（host 用它把舊 pack 導到對的 adapter）。 */
@@ -153,6 +195,7 @@ const registry = new Map<string, Registration>();
 
 const MAX_VARIANT_ALIAS_KEYS = 4;
 const MAX_META_VARIANTS = 32;
+const MAX_META_PERSONAS = 16;
 
 /** id 是不是 host 宣告過的 builtin adapter（白名單檢查唯一入口）。 */
 export function isBuiltinEntrypointId(id: unknown): id is BuiltinEntrypointId {
@@ -180,6 +223,13 @@ export function registerBuiltinAdapter(id: string, factory: BuiltinAdapterFactor
   }
   if ((meta.variants?.length ?? 0) > MAX_META_VARIANTS) {
     throw new Error(`builtin adapter '${id}' declares too many variants`);
+  }
+  if ((meta.personas?.length ?? 0) > MAX_META_PERSONAS) {
+    throw new Error(`builtin adapter '${id}' declares too many personas`);
+  }
+  // 沒有遊玩場卻帶著遊玩場 UI＝host 會掛上一組沒有人負責的開關；寧可註冊當下就失敗。
+  if (meta.playfieldControls && !meta.hasPlayfield) {
+    throw new Error(`builtin adapter '${id}' declares playfield controls without a playfield`);
   }
   registry.set(id, { factory, meta });
 }

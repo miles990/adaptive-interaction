@@ -16,16 +16,16 @@ import { projectCharacterLifecycle } from "../statusProjection";
 import { Badge, Section, Toggle, useAsync } from "../ui";
 import { CharacterSyncCard } from "../components/CharacterSyncCard";
 import { PRIMARY_INSTANCE_ID } from "../companion/gatewayWiring";
-import { emptyMemory, memorySummary, noteReactionDisabled, sanitizeMemory } from "../companion/interactionMemory";
-import { rollCallKey } from "../companion/playfield";
-import { PALETTES, PERSONAS } from "../character/adapters/shu";
+import { noteReactionDisabled, sanitizeMemory } from "../companion/interactionMemory";
+// 註冊 builtin adapter 工廠與 meta（副作用）：這一頁的角色專屬區塊全部靠 meta 決定。
+import "../character/adapters";
+import { builtinAdapterMeta } from "../character/adapterRegistry";
 import { CharacterLibrarySection } from "./character/CharacterLibrary";
 import { CharacterPreview } from "./character/CharacterPreview";
 import { PreferencesForm } from "./character/PreferencesForm";
 import { TechnicalDetails } from "./character/TechnicalDetails";
 import {
   extraPermissionLine,
-  isShuRig,
   originLabel,
   sanitizeErrorText,
   siblingForVariant,
@@ -149,7 +149,11 @@ export function CompanionPage({
 
   const activeId = resolveActiveCharacterId(prefs?.companionPack, presence?.packId, catalog.defaultId);
   const active = catalog.cards.find((c) => c.characterId === activeId) ?? null;
-  const shu = isShuRig(active);
+  // 角色專屬區塊（說話風格、遊玩場設定）全部由該角色的 adapter meta 宣告；
+  // 這一頁不認得任何角色 id，也不 import 任何角色的配色／說話風格表（M2 §3.4）。
+  const adapterMeta = builtinAdapterMeta(active?.entrypoint);
+  const personas = adapterMeta?.personas ?? [];
+  const PlayfieldControls = adapterMeta?.hasPlayfield ? (adapterMeta.playfieldControls ?? null) : null;
   const schema = active?.manifest?.preferencesSchema;
   const variants = active?.manifest?.variants ?? [];
   const variantIds = React.useMemo(() => variants.map((v) => v.id), [variants]);
@@ -357,14 +361,14 @@ export function CompanionPage({
                   <option value="lively">活潑</option>
                 </select>
               </label>
-              {shu && (
+              {personas.length > 0 && (
                 <label className="field-label">
                   說話風格
                   <select
                     value={prefs.companionPersona}
                     onChange={(e) => void patch({ companionPersona: e.target.value })}
                   >
-                    {PERSONAS.map((p) => (
+                    {personas.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.followsName ? `${name}・${p.label}` : p.label}
                       </option>
@@ -384,8 +388,8 @@ export function CompanionPage({
                 )}
               </>
             )}
-            {shu ? (
-              <ShuPlayControls prefs={prefs} patch={patch} name={name} pronoun={pronoun} presence={presence} />
+            {PlayfieldControls ? (
+              <PlayfieldControls prefs={prefs} patch={patch} name={name} pronoun={pronoun} presence={presence} />
             ) : (
               <BasicCompanionToggles prefs={prefs} patch={patch} pronoun={pronoun} />
             )}
@@ -565,7 +569,8 @@ function AppearanceControls({
 }
 
 // ---------------------------------------------------------------------------
-// 平常如何陪伴：小樞（builtin shu-rig）的玩耍設定；其他角色只有 host 層的基本開關
+// 平常如何陪伴：宣告了遊玩場的角色由它自己的 adapter 提供設定 UI（meta.playfieldControls）；
+// 其他角色只有 host 層的基本開關。這一頁不認得任何角色的玩具、配色或部位名。
 // ---------------------------------------------------------------------------
 
 function BasicCompanionToggles({
@@ -604,168 +609,6 @@ function BasicCompanionToggles({
         label={`可以用滑鼠把${pronoun}拖到別的位置`}
       />
     </div>
-  );
-}
-
-function ShuPlayControls({
-  prefs,
-  patch,
-  name,
-  pronoun,
-  presence,
-}: {
-  prefs: DesktopPrefs;
-  /** 回傳 `true` 只在 host 真的接受寫入時；失敗時呼叫端不得顯示成功文案。 */
-  patch: (p: Partial<DesktopPrefs>) => Promise<boolean>;
-  name: string;
-  pronoun: string;
-  presence: Record<string, unknown> | null;
-}) {
-  const familiars = prefs.companionFamiliars ?? [];
-  const memory = sanitizeMemory(prefs.companionInteractionMemory);
-  const remembers = memorySummary(memory);
-
-  /** 關掉某個反應時，順便記進角色互動記憶（純呈現，不推論人格）。 */
-  const patchReaction = async (reaction: string, p: Partial<DesktopPrefs>, enabled: boolean) => {
-    if (enabled) {
-      await patch(p);
-      return;
-    }
-    await patch({ ...p, companionInteractionMemory: noteReactionDisabled(memory, reaction, Date.now()) });
-  };
-
-  return (
-    <div className="character-play">
-      <div className="settings-grid">
-        <label className="field-label">
-          場景（透明桌面模式下只加一點小道具）
-          <select value={String(prefs.companionScene ?? "none")} onChange={(e) => void patch({ companionScene: e.target.value })}>
-            <option value="none">透明桌面（預設）</option>
-            <option value="nest">桌面巢穴</option>
-            <option value="desk">工作桌</option>
-            <option value="sill">窗台</option>
-            <option value="night">夜間</option>
-          </select>
-        </label>
-      </div>
-      <Toggle checked={prefs.companionPlay !== false} onChange={(on) => void patch({ companionPlay: on })} label="玩耍（玩具、追逐、撲抓）" />
-      <Toggle
-        checked={prefs.companionCursorPlay !== false}
-        onChange={(on) => void patch({ companionCursorPlay: on })}
-        label="游標互動（光點、逗貓棒跟著游標）"
-      />
-      <Toggle checked={prefs.companionApproach !== false} onChange={(on) => void patch({ companionApproach: on })} label="游標靠近時看過來" />
-      <Toggle checked={prefs.companionDeskMove !== false} onChange={(on) => void patch({ companionDeskMove: on })} label="在遊玩場內自主散步" />
-      <Toggle
-        checked={prefs.companionBubbles !== false}
-        onChange={(on) => void patchReaction("bubbles", { companionBubbles: on }, on)}
-        label="說話氣泡（關掉後只剩固定的安全訊息）"
-      />
-      <Toggle
-        checked={prefs.companionSound === true}
-        onChange={(on) => void patchReaction("sound", { companionSound: on }, on)}
-        label="角色音效（預設關閉）"
-      />
-      <Toggle
-        checked={prefs.companionDragEnabled !== false}
-        onChange={(on) => void patchReaction("drag", { companionDragEnabled: on }, on)}
-        label={`可以用滑鼠把${pronoun}拖到別的位置`}
-      />
-      <p className="muted small">
-        玩具與游標互動只發生在角色的透明小視窗內；游標座標不會送到系統或 AI、也不會被保存。
-        減少動態效果開啟時自動停止玩耍與移動。
-      </p>
-      <h4>使魔（最多 3 隻，純陪伴、沒有任何權限）</h4>
-      {familiars.length === 0 && <p className="muted small">還沒有使魔。</p>}
-      {familiars.map((f, i) => (
-        <div className="row wrap" key={f.id} style={{ marginBottom: 4 }}>
-          <input
-            value={f.name}
-            maxLength={24}
-            aria-label={`使魔 ${i + 1} 名字`}
-            onChange={(e) => {
-              const next = familiars.map((x, j) => (j === i ? { ...x, name: e.target.value } : x));
-              void patch({ companionFamiliars: next });
-            }}
-          />
-          <select
-            value={f.palette}
-            aria-label={`使魔 ${i + 1} 配色`}
-            onChange={(e) => {
-              const next = familiars.map((x, j) => (j === i ? { ...x, palette: e.target.value } : x));
-              void patch({ companionFamiliars: next });
-            }}
-          >
-            {PALETTES.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-          <button onClick={() => void patch({ companionFamiliars: familiars.filter((_, j) => j !== i) })}>移除</button>
-        </div>
-      ))}
-      {familiars.length < 3 && (
-        <button
-          onClick={() =>
-            void patch({
-              companionFamiliars: [
-                ...familiars,
-                { id: `fam-${Date.now() % 100000}`, name: `使魔${familiars.length + 1}`, palette: PALETTES[0].id },
-              ],
-            })
-          }
-        >
-          新增使魔
-        </button>
-      )}
-      <h4>{name}記得</h4>
-      {remembers.length === 0 ? (
-        <p className="muted small">
-          還沒有互動記憶。（只會記玩過的玩具、你常關掉的反應與相處天數；不會變成正式知識，也不會離開本機。）
-        </p>
-      ) : (
-        <>
-          <ul className="plain-list muted small">
-            {remembers.map((linetext, i) => (
-              <li key={`${i}-${linetext}`}>
-                {name}記得：{linetext}
-              </li>
-            ))}
-          </ul>
-          {/* 沒有你不能刪除的記憶：互動記憶也一樣，一鍵清空並寫回偏好（不是只清畫面）。 */}
-          <p className="muted small">
-            <button onClick={() => void patch({ companionInteractionMemory: emptyMemory() })}>
-              忘記這些
-            </button>{" "}
-            會清掉玩過的玩具、常關掉的反應與相處天數；{name}會從頭開始記。
-          </p>
-        </>
-      )}
-      <RollCall presence={presence} />
-    </div>
-  );
-}
-
-/** Roll Call：現在大家在做什麼（來自角色視窗的真實回報；離線就誠實說）。 */
-function RollCall({ presence }: { presence: Record<string, unknown> | null }) {
-  const state = (presence?.behaviorState as Record<string, unknown> | null | undefined) ?? null;
-  const roll = (state?.rollCall as { name: string; activity: string }[] | undefined) ?? null;
-  return (
-    <>
-      <h4>現在大家在做什麼</h4>
-      {!roll ? (
-        <div className="state-box">尚未收到角色視窗的回報（角色隱藏、離線或剛啟動時不會用預設值冒充）。</div>
-      ) : (
-        <ul className="plain-list">
-          {roll.map((r, i) => (
-            <li key={rollCallKey(i, r.name)}>
-              <strong>{r.name}</strong>：{r.activity}
-            </li>
-          ))}
-        </ul>
-      )}
-    </>
   );
 }
 

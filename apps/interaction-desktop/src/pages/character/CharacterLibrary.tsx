@@ -158,9 +158,20 @@ export function CharacterLibrarySection({
   const [importOpen, setImportOpen] = React.useState(false);
   const [notice, setNotice] = React.useState<string | null>(null);
 
+  /**
+   * 角色專屬欄位（說話風格、使魔）只用**目標角色**的 adapter 宣告驗證：這裡把
+   * 「這個 characterId 在這台電腦上是哪個 adapter」告訴 settingsTransfer，
+   * 不認得的角色回 null（那些欄位就會被誠實拒絕，不會靜默存成死值）。
+   */
+  const entrypointFor = React.useCallback(
+    (characterId: string): string | null =>
+      catalog.cards.find((c) => c.characterId === characterId)?.entrypoint ?? null,
+    [catalog.cards]
+  );
+
   const doExport = () => {
     if (!prefs) return;
-    const data = JSON.stringify(exportCompanionSettings(prefs), null, 2);
+    const data = JSON.stringify(exportCompanionSettings(prefs, { entrypointFor }), null, 2);
     const a = document.createElement("a");
     a.href = `data:application/json;charset=utf-8,${encodeURIComponent(data)}`;
     a.download = "companion-settings.json";
@@ -172,6 +183,7 @@ export function CharacterLibrarySection({
     try {
       const parsed = parseCompanionSettingsImport(JSON.parse(await file.text()), {
         knownCharacterIds: catalog.knownIds,
+        entrypointFor,
       });
       // 送出 ≠ 套用：host 拒絕（例如瀏覽器檢視沒有桌面 host）時不得說已套用。
       if (!(await onPatch(parsed))) {

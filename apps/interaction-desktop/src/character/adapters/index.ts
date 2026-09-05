@@ -22,11 +22,13 @@ import { ShapeCharacterAdapter } from "./shape";
 import {
   DEFAULT_SHU_RIG_PALETTE,
   importedRigPack,
+  PERSONAS as SHU_PERSONAS,
   rigPackMigrator,
   rigPaletteForImported,
   SHU_RIG_PALETTES,
   ShuCharacterAdapter,
 } from "./shu";
+import { ShuPlayControls } from "./shuPlayControls";
 import { SpriteCharacterAdapter } from "./sprite";
 import { TextCharacterAdapter } from "./text";
 
@@ -37,6 +39,10 @@ const SHU_META: BuiltinAdapterMeta = {
   // rig 的配色偏好鍵：選定 variant 時同時以 `palette` 送給 adapter。
   variantAliasKeys: ["palette"],
   variants: SHU_RIG_PALETTES,
+  // 說話風格與遊玩場的設定 UI 都是這個角色自己的東西：host 只讀 meta 掛上去，
+  // 不再用 `entrypoint === "shu-rig"` 決定要不要畫（M2 §3.4）。
+  personas: SHU_PERSONAS,
+  playfieldControls: ShuPlayControls,
   legacyPackKinds: ["character-rig"],
   // 初始配色與「只有摘要時要組哪一種舊 pack」都是這個 rig 自己的知識：
   // host 只呼叫 hook，不再 import rig 專屬 helper（對抗審查 character-package-018）。

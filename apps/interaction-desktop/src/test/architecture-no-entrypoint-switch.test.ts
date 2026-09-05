@@ -158,8 +158,9 @@ describe("架構：adapter 規劃的接線層不得 import 角色專屬模組（
   // 靠的是某個 rig 專屬的 helper；任何**別的** adapter 只要宣告 variants 就會拿到那個
   // rig 的預設配色。現在由 adapter meta 的 hook 提供，接線層不必也不得認得它們。
   //
-  // 尚未涵蓋（已知限制）：`companion/settingsTransfer.ts` 仍以 `SHU_RIG_PALETTES`
-  // 驗匯入設定裡的「使魔配色」——那是 rig 遊玩場的設定結構，不在這條規劃路徑上。
+  // v0.6.x M2 §3.4 起 `companion/settingsTransfer.ts` 也收斂了：匯入的「使魔配色」與
+  // 「說話風格」改用**目標 characterId 的** adapter meta 驗證，不再 import 任何 rig 的表
+  //（同一節的「設定匯入」測試釘住行為，下面那條測試釘住它不再 import）。
   const WIRING = ["CompanionApp.tsx", "gatewayWiring.ts"];
 
   it("CompanionApp／gatewayWiring 只有副作用註冊與型別 import 碰得到 character/adapters", () => {
@@ -177,5 +178,63 @@ describe("架構：adapter 規劃的接線層不得 import 角色專屬模組（
       }
     }
     expect(offenders, "角色專屬知識請放進 adapter meta（defaultVariant／legacyPackForEntry）").toEqual([]);
+  });
+});
+
+describe("架構：角色設定頁不得寫死角色專屬字面（M2 §3.4）", () => {
+  /** 受檢的頁面層檔案（角色設定介面）。 */
+  function pageFiles(): string[] {
+    const out = [join(SRC, "pages", "CompanionPage.tsx")];
+    const dir = join(SRC, "pages", "character");
+    for (const name of readdirSync(dir)) {
+      if (name.endsWith(".ts") || name.endsWith(".tsx")) out.push(join(dir, name));
+    }
+    return out.sort();
+  }
+
+  /**
+   * 尚未收斂的頁面（M3 待辦，只准縮短不准變長）：
+   *   - CharacterPreview.tsx 仍以 `switch (card.entrypoint)` 分流，且直接 import rig 的表；
+   *   - CharacterLibrary.tsx 的「停用」鈕仍比對純文字角色的 entrypoint id。
+   */
+  const PENDING = new Set(["pages/character/CharacterPreview.tsx", "pages/character/CharacterLibrary.tsx"]);
+
+  const rel = (file: string) => file.slice(SRC.length + 1);
+
+  it("CompanionPage 與 catalog 沒有 builtin id 的字面分岔", () => {
+    const offenders: string[] = [];
+    for (const file of pageFiles()) {
+      if (PENDING.has(rel(file))) continue;
+      const hits = literalBranches(stripSourceDiscriminants(stripComments(readFileSync(file, "utf8"))));
+      if (hits.length > 0) offenders.push(`${rel(file)}: ${hits.join(", ")}`);
+    }
+    expect(offenders, "改用 adapterRegistry（builtinAdapterMeta／isBuiltinEntrypointId）").toEqual([]);
+  });
+
+  // 棘輪：待收斂清單既不得成長，也不得留著已經修好的檔案（修好就要把它從名單刪掉，
+  // 否則這份清單會慢慢變成一張沒有人看的謊）。
+  it("待收斂清單剛好等於還留著 entrypoint 字面的頁面", () => {
+    const offenders = pageFiles()
+      .filter((file) => literalBranches(stripSourceDiscriminants(stripComments(readFileSync(file, "utf8")))).length > 0)
+      .map(rel)
+      .sort();
+    expect(offenders, "修好的頁面請從 PENDING 移除；新出現的請改用 adapterRegistry").toEqual(
+      [...PENDING].sort()
+    );
+  });
+
+  it("CompanionPage 與 catalog 不含任何角色專屬詞彙（角色名／配色／rig）", () => {
+    const offenders: string[] = [];
+    for (const file of [join(SRC, "pages", "CompanionPage.tsx"), join(SRC, "pages", "character", "catalog.ts")]) {
+      const hits = stripComments(readFileSync(file, "utf8")).match(/shu|maid|persona-|character-rig/gi);
+      if (hits) offenders.push(`${rel(file)}: ${Array.from(new Set(hits)).join(", ")}`);
+    }
+    expect(offenders, "角色專屬的配色／說話風格／遊玩場 UI 屬於 character/adapters/**").toEqual([]);
+  });
+
+  it("settingsTransfer 不再自帶任何角色的說話風格或配色清單", () => {
+    const source = stripComments(readFileSync(join(SRC, "companion", "settingsTransfer.ts"), "utf8"));
+    expect(source, "說話風格由 adapter meta 宣告").not.toMatch(/persona-/);
+    expect(source, "配色清單由 adapter meta 宣告").not.toMatch(/character\/adapters\/shu/);
   });
 });
