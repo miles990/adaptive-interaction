@@ -72,17 +72,27 @@ async fn simulate_plan_blocks_when_the_owning_provider_is_not_operational() {
         "停用中的 provider 不得回 wouldExecute=true：{after:?}"
     );
     assert_eq!(after.steps[0].outcome, AuthorizationOutcome::Blocked);
+    // 兩種誠實理由都可以：v0.6.x 起停用 provider 會真的把它的能力旗標關掉（v0.5.1 已知限制 #4），
+    // 所以 registry 的可用性閘門先擋（`registry.availability`：actuator 已停用）；若某條路徑仍先
+    // 問 provider 閘門，則是 `provider.not-operational` 並點名 provider。兩者都不是「會執行」。
     let reason = after.steps[0]
         .decisions
         .iter()
         .find_map(|d| match d {
-            PolicyDecision::Blocked { rule, reason } if rule == "provider.not-operational" => {
-                Some(reason.clone())
+            PolicyDecision::Blocked { rule, reason }
+                if rule == "provider.not-operational" || rule == "registry.availability" =>
+            {
+                Some((rule.clone(), reason.clone()))
             }
             _ => None,
         })
         .unwrap_or_else(|| panic!("expected a provider block: {:?}", after.steps[0].decisions));
-    assert!(reason.contains("provider.local.builtin"), "{reason}");
+    match reason.0.as_str() {
+        "provider.not-operational" => {
+            assert!(reason.1.contains("provider.local.builtin"), "{}", reason.1)
+        }
+        _ => assert!(reason.1.contains("disabled"), "{}", reason.1),
+    }
 }
 
 // ---------------------------------------------------------------------------
