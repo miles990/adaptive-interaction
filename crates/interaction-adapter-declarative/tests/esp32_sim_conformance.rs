@@ -89,7 +89,9 @@ impl Sim {
             .stdin(Stdio::piped())
             .stderr(Stdio::null());
         let child = cmd.spawn().expect("spawn simulator");
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // 啟動期限：python 模擬器在重負載（整個 workspace 測試並行）下曾超過 5 s 才發布 pty 路徑，
+        // 讓這支測試偶發失敗（整合里程碑實跑一次）。這只是測試機具的等待上限，不是產品時序。
+        let deadline = Instant::now() + Duration::from_secs(20);
         let pty_path = loop {
             if let Ok(text) = std::fs::read_to_string(&pty_file) {
                 if !text.trim().is_empty() {
