@@ -107,7 +107,99 @@ describe("任務量測：計數規則", () => {
     expect(line).toMatch(/安全步驟 1/);
     const row = taskMetricsRow(s);
     expect(row.startsWith("|")).toBe(true);
-    expect(row.split("|").length).toBe(8);
+    // 欄位固定 9 欄（M5 起含求助、失敗後恢復、耗時）。
+    expect(row.split("|").length).toBe(11);
     expect(row).toContain("設定安靜時段");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M5：耗時／求助／失敗後恢復
+//
+// 三個欄位的定義（文件與 e2e 都照這一份）：
+//   * `durationMs`：從量測開始（建構或 `start()`）到 `snapshot()` 的實際經過時間。
+//     時鐘可注入——測試要釘住的是「怎麼算」，不是「跑多快」。
+//   * `helpRequested`：任務中「必須另外去找說明才做得下去」的次數（自動化＝打開說明
+//     區塊／點進說明；受測者腳本＝開口問主持人）。**不自動計入點擊**：口頭求助沒有
+//     點擊，自動化裡真的按了什麼就自己再呼叫一次 `click()`。同一個定義兩種情境都成立。
+//   * `recoveredFromFailure`：任務中是否至少發生過一次「出現失敗／被拒絕之後，靠畫面
+//     上的指示回到可繼續的狀態」。它是**布林**：恢復過就是恢復過，次數多不代表更好。
+// ---------------------------------------------------------------------------
+
+describe("任務量測：耗時、求助與失敗後恢復", () => {
+  /** 可注入的假時鐘（毫秒）。 */
+  function fakeClock(start = 1_000) {
+    let now = start;
+    return {
+      now: () => now,
+      advance: (ms: number) => {
+        now += ms;
+      },
+    };
+  }
+
+  it("durationMs 從建構算到 snapshot（時鐘可注入）", () => {
+    const clock = fakeClock();
+    const m = new TaskMetrics("暫停主動對話", "desktop", { now: clock.now });
+    clock.advance(2_500);
+    expect(m.snapshot().durationMs).toBe(2_500);
+    clock.advance(1_500);
+    expect(m.snapshot().durationMs).toBe(4_000);
+  });
+
+  it("start() 重設起點（前置準備不算進任務耗時）", () => {
+    const clock = fakeClock();
+    const m = new TaskMetrics("暫停主動對話", "desktop", { now: clock.now });
+    clock.advance(10_000); // 前置：起 daemon、走完精靈
+    m.start();
+    clock.advance(800);
+    expect(m.snapshot().durationMs).toBe(800);
+  });
+
+  it("時鐘倒退時 durationMs 不得為負（退回 0）", () => {
+    let now = 5_000;
+    const m = new TaskMetrics("t", "desktop", { now: () => now });
+    now = 4_000;
+    expect(m.snapshot().durationMs).toBe(0);
+  });
+
+  it("help() 只計求助，不會偷偷變成一次點擊或決策", () => {
+    const m = new TaskMetrics("設定安靜時段", "desktop");
+    m.help("打開「哪些提示不受安靜影響」");
+    const s = m.snapshot();
+    expect(s.helpRequested).toBe(1);
+    expect(s.clicks).toBe(0);
+    expect(s.decisions).toBe(0);
+    expect(s.steps).toEqual(["求助：打開「哪些提示不受安靜影響」"]);
+  });
+
+  it("recover() 是布林：恢復過就是 true，重複呼叫仍是 true，但每次都留下軌跡", () => {
+    const m = new TaskMetrics("更換角色", "desktop");
+    expect(m.snapshot().recoveredFromFailure).toBe(false);
+    m.recover("讀了誠實錯誤後改用桌面版");
+    expect(m.snapshot().recoveredFromFailure).toBe(true);
+    m.recover("第二次");
+    const s = m.snapshot();
+    expect(s.recoveredFromFailure).toBe(true);
+    expect(s.steps).toEqual(["恢復：讀了誠實錯誤後改用桌面版", "恢復：第二次"]);
+  });
+
+  it("摘要行與表格列帶上三個新欄位（表格固定 9 欄）", () => {
+    const clock = fakeClock();
+    const m = new TaskMetrics("暫停主動對話", "desktop", { now: clock.now });
+    m.visit("home");
+    m.decide("暫停主動互動");
+    m.help("讀「暫停期間仍會執行你的直接要求」");
+    m.recover("暫停失敗後按恢復再試一次");
+    clock.advance(3_400);
+    const s = m.snapshot();
+    const line = formatTaskMetrics(s);
+    expect(line).toMatch(/求助 1/);
+    expect(line).toMatch(/失敗後恢復 是/);
+    expect(line).toMatch(/耗時 3\.4 s/);
+    const row = taskMetricsRow(s);
+    // | 任務 | 視窗 | 決策 | 點擊 | 回頭 | 安全步驟 | 求助 | 失敗後恢復 | 耗時 |
+    expect(row.split("|").length).toBe(11);
+    expect(row).toContain("| 1 | 是 | 3.4 |");
   });
 });

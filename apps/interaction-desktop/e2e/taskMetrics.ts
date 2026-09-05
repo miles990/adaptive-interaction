@@ -14,6 +14,15 @@
 //   * **點擊**（`click`）：找路、展開收合區塊、捲動到定位這類純操作。
 //   * **回頭**（`visit`）：導覽落到先前造訪過的頁面就算一次；連續停在同一頁不算。
 //     回頭多＝資訊放錯地方（要在兩個頁面之間來回才問得完一件事）。
+//   * **耗時**（`durationMs`）：從量測開始（建構，或呼叫 `start()` 重設）到 `snapshot()`
+//     的實際經過時間。時鐘可注入，所以「怎麼算」測得住、「跑多快」不入測試。
+//     前置準備（起 daemon、走完精靈）用 `start()` 切掉，不算進任務耗時。
+//   * **求助**（`help`）：任務中「必須另外去找說明才做得下去」的次數（自動化＝打開
+//     說明區塊／點進說明；受測者腳本＝開口問主持人）。**不自動計入點擊**——口頭求助
+//     沒有點擊，自動化裡真的按了什麼就自己再呼叫一次 `click()`。同一份定義要能同時
+//     用在自動化與真人腳本上，否則 §2 與 §4 的數字永遠沒辦法並排看。
+//   * **失敗後恢復**（`recover`）：任務中是否至少發生過一次「出現失敗／被拒絕之後，
+//     靠畫面上的指示回到可繼續的狀態」。**布林**：恢復過就是恢復過，次數多不代表更好。
 //
 // 這個檔刻意**不** import `@playwright/test`：它同時被 e2e spec 與 vitest 用，
 // 必須在 jsdom 裡也能跑。
@@ -32,6 +41,12 @@ export interface TaskMetricSnapshot {
   backtracks: number;
   /** 不可省略的安全步驟數（愈少**不**代表愈好）。 */
   safetySteps: number;
+  /** 求助次數（要另外找說明才做得下去）。 */
+  helpRequested: number;
+  /** 任務中是否至少一次「失敗／被拒絕之後靠畫面指示回到可繼續狀態」。 */
+  recoveredFromFailure: boolean;
+  /** 量測經過時間（毫秒；`start()` 之後重新起算，永不為負）。 */
+  durationMs: number;
   /** 逐步軌跡（報告要說得出決策是哪幾個）。 */
   steps: string[];
   /** 誠實註記（例如「瀏覽器模式只驗得到負向」）。 */
@@ -48,16 +63,31 @@ export class TaskMetrics {
   private clicks = 0;
   private backtracks = 0;
   private safetySteps = 0;
+  private helpRequested = 0;
+  private recoveredFromFailure = false;
   private readonly steps: string[] = [];
   private readonly notes: string[] = [];
   /** 造訪過的頁面（判斷「回頭」用）。 */
   private readonly visited = new Set<string>();
   private current: string | null = null;
+  /** 時鐘（可注入：測試釘的是計法，不是速度）。 */
+  private readonly now: () => number;
+  /** 量測起點（epoch ms）。 */
+  private startedAtMs: number;
 
   constructor(
     readonly task: string,
-    readonly viewport: TaskViewport
-  ) {}
+    readonly viewport: TaskViewport,
+    options?: { now?: () => number }
+  ) {
+    this.now = options?.now ?? (() => Date.now());
+    this.startedAtMs = this.now();
+  }
+
+  /** 重設耗時起點：前置準備（起 daemon、走完精靈）不算進任務耗時。 */
+  start(): void {
+    this.startedAtMs = this.now();
+  }
 
   /** 一個主要決策（使用者必須自己選的事）；同時是一次點擊。 */
   decide(label: string): void {
@@ -77,6 +107,26 @@ export class TaskMetrics {
     this.safetySteps += 1;
     this.clicks += 1;
     this.steps.push(`安全步驟：${label}`);
+  }
+
+  /**
+   * 求助一次：要另外去找說明才做得下去。
+   *
+   * 刻意**不**計點擊：受測者的口頭求助沒有點擊，自動化裡真的按了什麼就自己再呼叫
+   * 一次 `click()`。這樣自動化與真人腳本用的是同一個定義。
+   */
+  help(label: string): void {
+    this.helpRequested += 1;
+    this.steps.push(`求助：${label}`);
+  }
+
+  /**
+   * 失敗／被拒絕之後靠畫面指示回到可繼續的狀態。布林——恢復過就是恢復過。
+   * 恢復本身若有按鈕，那一下由 `click()`／`decide()` 各自記，不在這裡重複計數。
+   */
+  recover(label: string): void {
+    this.recoveredFromFailure = true;
+    this.steps.push(`恢復：${label}`);
   }
 
   /** 導覽落點；回到造訪過的頁面＝一次回頭（連續停在同一頁不算）。 */
@@ -101,6 +151,10 @@ export class TaskMetrics {
       clicks: this.clicks,
       backtracks: this.backtracks,
       safetySteps: this.safetySteps,
+      helpRequested: this.helpRequested,
+      recoveredFromFailure: this.recoveredFromFailure,
+      // 時鐘倒退（校時、注入的假時鐘）不得產生負數耗時：不知道就說 0。
+      durationMs: Math.max(0, this.now() - this.startedAtMs),
       steps: [...this.steps],
       notes: [...this.notes],
     };
@@ -112,6 +166,11 @@ export function withinDecisionTarget(snapshot: TaskMetricSnapshot, max = 5): boo
   return snapshot.decisions <= max;
 }
 
+/** 耗時的人話（秒，一位小數）——文件與 console 用同一個格式。 */
+export function durationSeconds(snapshot: TaskMetricSnapshot): string {
+  return (snapshot.durationMs / 1000).toFixed(1);
+}
+
 /** 一行摘要（console 與測試附件用）。 */
 export function formatTaskMetrics(snapshot: TaskMetricSnapshot): string {
   return [
@@ -120,8 +179,17 @@ export function formatTaskMetrics(snapshot: TaskMetricSnapshot): string {
     `點擊 ${snapshot.clicks}`,
     `回頭 ${snapshot.backtracks}`,
     `安全步驟 ${snapshot.safetySteps}`,
+    `求助 ${snapshot.helpRequested}`,
+    `失敗後恢復 ${snapshot.recoveredFromFailure ? "是" : "否"}`,
+    `耗時 ${durationSeconds(snapshot)} s`,
   ].join("｜");
 }
+
+/** 量測表的表頭（文件與 console 共用同一份欄位順序）。 */
+export const TASK_METRICS_HEADER = [
+  "| 任務 | 視窗 | 主要決策 | 點擊 | 回頭 | 安全步驟 | 求助 | 失敗後恢復 | 耗時（秒） |",
+  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+];
 
 /** Markdown 表格列（文件的前後對照表直接貼）。 */
 export function taskMetricsRow(snapshot: TaskMetricSnapshot): string {
@@ -132,6 +200,9 @@ export function taskMetricsRow(snapshot: TaskMetricSnapshot): string {
     String(snapshot.clicks),
     String(snapshot.backtracks),
     String(snapshot.safetySteps),
+    String(snapshot.helpRequested),
+    snapshot.recoveredFromFailure ? "是" : "否",
+    durationSeconds(snapshot),
   ];
   return `| ${cells.join(" | ")} |`;
 }

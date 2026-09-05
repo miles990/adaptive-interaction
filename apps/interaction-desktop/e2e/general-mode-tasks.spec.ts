@@ -9,8 +9,9 @@
 //   * 手機全部是【模擬 iPhone（fixture）】——`crates/interaction-runtime/examples/fake_iphone.rs`，
 //     程序外的假手機。**iPhone 真機驗收仍然是零**，本檔的任何數字都不得寫成真機。
 //   * 這是**瀏覽器模式**的控制中心：桌面角色偏好（換角色、陪伴程度、勿擾、顯示／隱藏）
-//     住在 Tauri host，瀏覽器只驗得到「誠實降級」這一面（負向）。正向效果屬於
-//     Tauri 驗收，標為 needs-environment，不得用這裡的通過冒充。
+//     住在 Tauri host，瀏覽器只驗得到「誠實降級」這一面（負向）。正向效果由
+//     `scripts/tauri-ax-walkthrough.sh`（真 Tauri 視窗，AX 驅動）驗，
+//     不得用這裡的通過冒充，也不得反過來用那邊的通過說這裡也做得到。
 //   * 這一支自己起一支 daemon（隔離的家與埠號）：它會配對／移除手機、改安靜時段、
 //     取消工作、按下緊急停止——放在共用 daemon 上會污染別的 spec。
 //     `INTERACT_AI_MOBILE_ADVERTISE=0`：不對區網廣播、只綁 127.0.0.1。
@@ -19,6 +20,7 @@
 // 一個任務紅了不應該讓其餘十幾個任務變成「已跳過」而失去證據。
 
 import { test, expect, APIRequestContext, Locator, Page } from "@playwright/test";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CHARACTER_SYNC_PROJECTION } from "../src/statusProjection";
 import {
@@ -48,6 +50,7 @@ import {
 } from "./helpers";
 import {
   formatTaskMetrics,
+  TASK_METRICS_HEADER,
   taskMetricsRow,
   TaskMetrics,
   withinDecisionTarget,
@@ -65,6 +68,84 @@ const ONLINE_HONEST = [
   CHARACTER_SYNC_PROJECTION["partial-capability"].headline,
   CHARACTER_SYNC_PROJECTION.synced.headline,
 ];
+
+// ---------------------------------------------------------------------------
+// 分類漂移防線（M5）
+//
+// 每個任務都要**事先宣告**它應該落在哪一種結果，spec 才有辦法在「有一天它變了」
+// 的時候變紅。四種結果只有這幾個字（誠實階梯）：
+//
+//   * `completed`         —— 真的做完了，而且後端事實對得上。
+//   * `correctly-blocked` —— 這個模式下**做不到**，畫面誠實拒絕／降級，**後端零變動**。
+//   * `failed`            —— 該做到卻沒做到（測試紅）。
+//   * `not-run`           —— 這一輪沒有跑到（只會出現在結果摘要裡，不會是斷言結果）。
+//
+// 為什麼要有這張表：`correctly-blocked` 很容易在某次改動之後悄悄變成「其實按下去
+// 有效了」（例如哪天瀏覽器模式也能寫桌面偏好），那時候文件裡「這個模式做不到」
+// 就變成謊話；反過來，`completed` 的任務退化成拒絕也一樣要被抓到。`record()` 會拿
+// 實際結果跟這張表對，不一致就紅。
+// ---------------------------------------------------------------------------
+
+/** 一個任務在這一輪可能的結果分類（斷言只會產生前兩種；紅了就是 `failed`）。 */
+type TaskClassification = "completed" | "correctly-blocked";
+
+interface TaskDeclaration {
+  /** 事先宣告的分類。 */
+  expected: TaskClassification;
+  /** 證據等級（文件表格的第三欄）。 */
+  evidence: string;
+  /** 限制（文件表格的第四欄）。 */
+  limits: string;
+}
+
+/** 瀏覽器模式的證據等級（這一支唯一會產出的那一種）。 */
+const BROWSER_EVIDENCE =
+  "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）";
+const SIMULATED_PHONE = "手機是【模擬 iPhone（fixture）】，非 iPhone 真機";
+const FIXTURE_AGENT = "AI 幫手是 fixture 子程序，非真 Codex／Claude Code";
+/** 桌面偏好住在 Tauri host：瀏覽器模式只驗得到誠實降級。 */
+const TAURI_ONLY = "正向效果是 Tauri-only（見「真 Tauri 視窗走查」章節）";
+
+const TASK_MANIFEST: Record<string, TaskDeclaration> = {
+  第一次使用桌面角色: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: "—" },
+  稍後連手機: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: SIMULATED_PHONE },
+  手機與桌面互動: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: SIMULATED_PHONE },
+  暫時離線後恢復: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: SIMULATED_PHONE },
+  等待離線逾時: {
+    expected: "completed",
+    evidence: BROWSER_EVIDENCE,
+    limits: `${SIMULATED_PHONE}；presence 逾時無可調參數，只能真的等 45 秒`,
+  },
+  主動移除手機: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: SIMULATED_PHONE },
+  撤銷後重新連線: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: SIMULATED_PHONE },
+  更換角色: { expected: "correctly-blocked", evidence: BROWSER_EVIDENCE, limits: TAURI_ONLY },
+  調整陪伴程度: { expected: "correctly-blocked", evidence: BROWSER_EVIDENCE, limits: TAURI_ONLY },
+  設定安靜時段: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: "—" },
+  暫停主動對話: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: "—" },
+  取消進行中的工作: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: FIXTURE_AGENT },
+  "390px：看角色頁並連手機": {
+    expected: "completed",
+    evidence: BROWSER_EVIDENCE,
+    limits: SIMULATED_PHONE,
+  },
+  "390px：設定安靜時段": { expected: "completed", evidence: BROWSER_EVIDENCE, limits: "—" },
+  緊急停止: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: "—" },
+};
+
+/** 這一輪某個任務的結果（寫進 `test-results/` 的摘要 JSON）。 */
+interface TaskOutcome {
+  task: string;
+  viewport: string;
+  expected: TaskClassification;
+  actual: TaskClassification;
+  evidence: string;
+  limits: string;
+  /** `correctly-blocked` 才有：後端零變動與畫面誠實文案的證據。 */
+  blocked?: { backendUnchanged: boolean; honestText: string };
+  metrics: TaskMetricSnapshot;
+}
+
+const outcomes: TaskOutcome[] = [];
 
 let daemon: SpawnedDaemon | null = null;
 const phones: FakeIphone[] = [];
@@ -102,14 +183,78 @@ test.afterAll(async () => {
     const lines = [
       "",
       "=== 一般模式任務量測（本輪實跑；模擬 iPhone（fixture）／瀏覽器模式控制中心）===",
-      "| 任務 | 視窗 | 主要決策 | 點擊 | 回頭 | 安全步驟 |",
-      "| --- | --- | --- | --- | --- | --- |",
+      ...TASK_METRICS_HEADER,
       ...measured.map(taskMetricsRow),
       "",
     ];
     console.log(lines.join("\n"));
   }
+  writeOutcomeSummary();
 });
+
+/**
+ * 任務 → 分類 → 證據等級的摘要 JSON。
+ *
+ * 沒跑到的任務誠實寫成 `not-run`（不是「通過」，也不是「失敗」）：這一支刻意不是
+ * serial，單獨跑某幾個任務時其餘就是沒跑，摘要必須說得出這件事。
+ */
+function writeOutcomeSummary(): void {
+  const seen = new Set(outcomes.map((o) => o.task));
+  const missing = Object.entries(TASK_MANIFEST)
+    .filter(([task]) => !seen.has(task))
+    .map(([task, decl]) => ({
+      task,
+      expected: decl.expected,
+      actual: "not-run" as const,
+      evidence: decl.evidence,
+      limits: decl.limits,
+    }));
+  const summary = {
+    generatedAt: new Date().toISOString(),
+    spec: "apps/interaction-desktop/e2e/general-mode-tasks.spec.ts",
+    mode: BROWSER_EVIDENCE,
+    honesty: {
+      phone: "全部是【模擬 iPhone（fixture）】；iPhone 真機驗收仍然是零",
+      agent: FIXTURE_AGENT,
+      desktopPrefs:
+        "桌面角色偏好（換角色、陪伴程度、勿擾、顯示／隱藏）住在 Tauri host；瀏覽器模式只驗得到誠實降級",
+      classifications: "completed／correctly-blocked／failed（測試紅）／not-run（本輪沒跑到）",
+    },
+    tasks: [...outcomes, ...missing],
+  };
+  try {
+    const dir = join(process.cwd(), "test-results");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, "general-mode-task-outcomes.json");
+    // Playwright 在有測試失敗之後會換一個 worker：module 層的 `outcomes` 會歸零，
+    // `afterAll` 也會再跑一次。直接覆寫會讓前半段跑過的任務在摘要裡憑空變成
+    // `not-run`——那是假的。所以先讀回既有的檔案，以「有結果的那一筆」為準合併。
+    let merged: unknown[] = summary.tasks;
+    try {
+      const previous = JSON.parse(readFileSync(file, "utf8")) as {
+        tasks?: { task: string; actual: string }[];
+      };
+      if (Array.isArray(previous.tasks)) {
+        const byTask = new Map<string, unknown>(previous.tasks.map((t) => [t.task, t]));
+        for (const row of summary.tasks) {
+          const earlier = byTask.get(row.task) as { actual?: string } | undefined;
+          // 這一輪沒跑到、但上一個 worker 跑過 → 保留上一個 worker 的結果。
+          if (row.actual === "not-run" && earlier && earlier.actual !== "not-run") continue;
+          byTask.set(row.task, row);
+        }
+        merged = [...byTask.values()];
+      }
+    } catch {
+      /* 沒有既有檔案（第一次寫）或內容壞掉：就用這一輪的結果 */
+    }
+    writeFileSync(file, `${JSON.stringify({ ...summary, tasks: merged }, null, 2)}\n`, "utf8");
+    console.log(`[任務分類摘要] ${file}`);
+  } catch (e) {
+    // 摘要寫不出來不得讓已經跑完的任務結果消失：印出來，至少 log 裡有。
+    console.log(`[任務分類摘要] 寫檔失敗：${String(e)}`);
+    console.log(JSON.stringify(summary, null, 2));
+  }
+}
 
 /** 這一支自己的 daemon（所有 API 呼叫都要帶）。 */
 function target(): { base: string; token: string } {
@@ -120,18 +265,92 @@ function openHere(page: Page) {
   return openApp(page, appUrl(daemon!.api, daemon!.token));
 }
 
-/** 收尾：把這一輪的量測寫進附件、印一行、並檢查決策數在目標區間內。 */
-async function record(m: TaskMetrics, options?: { maxDecisions?: number }): Promise<void> {
+/**
+ * 收尾：把這一輪的量測與**分類**寫進附件、印一行、檢查決策數在目標區間內，
+ * 並拿實際分類跟 `TASK_MANIFEST` 事先宣告的對照（漂移就紅）。
+ *
+ * `correctly-blocked` 一定要附證據：後端零變動（同一段狀態的前後 JSON 相等）＋
+ * 畫面上真的有一句誠實文案＋**動作的目標**沒有長出綠勾。少任何一項都算沒有證明「被正確擋下」，
+ * 這裡直接讓它失敗——不准用「反正它就是做不到」帶過。
+ */
+async function record(
+  m: TaskMetrics,
+  outcome: {
+    actual: TaskClassification;
+    maxDecisions?: number;
+    blocked?: {
+      /** 動作之前的後端狀態（JSON 字串）。 */
+      backendBefore: string;
+      /** 動作之後的後端狀態（必須與 before 一模一樣）。 */
+      backendAfter: string;
+      /** 畫面上那句誠實拒絕／降級的文字。 */
+      honestText: string;
+      /**
+       * **這個動作的目標**——用來確認它沒有長出替失敗背書的綠勾。
+       *
+       * 範圍要收斂到動作真正指向的那個東西（被按下的那張卡片、那一格設定），不是整頁：
+       * 頁面上同時存在別的、**真實**的成功狀態（手機已同步、另一個角色「使用中」），
+       * 把它們一起掃進來會讓這個檢查變成噪音，然後遲早被人放寬掉。
+       */
+      scope: Locator;
+    };
+  }
+): Promise<void> {
   const snapshot = m.snapshot();
+  const declared = TASK_MANIFEST[snapshot.task];
+  expect(
+    declared,
+    `任務「${snapshot.task}」沒有在 TASK_MANIFEST 宣告分類與證據等級`
+  ).toBeTruthy();
+  expect(
+    outcome.actual,
+    `任務「${snapshot.task}」的分類漂移了：宣告 ${declared.expected}，這一輪是 ${outcome.actual}`
+  ).toBe(declared.expected);
+
+  let blocked: TaskOutcome["blocked"];
+  if (outcome.actual === "correctly-blocked") {
+    const evidence = outcome.blocked;
+    expect(evidence, `「${snapshot.task}」宣告被正確擋下，卻沒有附任何證據`).toBeTruthy();
+    expect(
+      evidence!.backendAfter,
+      `「${snapshot.task}」被擋下時後端狀態卻變了（correctly-blocked 的定義就是零變動）`
+    ).toBe(evidence!.backendBefore);
+    expect(
+      evidence!.honestText.trim().length,
+      `「${snapshot.task}」被擋下時畫面沒有任何誠實文案`
+    ).toBeGreaterThan(0);
+    await expect(
+      evidence!.scope.locator(".badge-ok"),
+      `「${snapshot.task}」被擋下時不得出現綠勾`
+    ).toHaveCount(0);
+    blocked = { backendUnchanged: true, honestText: evidence!.honestText.trim().slice(0, 300) };
+  } else {
+    expect(
+      outcome.blocked,
+      `「${snapshot.task}」是 completed，不該附「被擋下」的證據`
+    ).toBeUndefined();
+  }
+
   measured.push(snapshot);
-  const line = formatTaskMetrics(snapshot);
+  outcomes.push({
+    task: snapshot.task,
+    viewport: snapshot.viewport,
+    expected: declared.expected,
+    actual: outcome.actual,
+    evidence: declared.evidence,
+    limits: declared.limits,
+    ...(blocked ? { blocked } : {}),
+    metrics: snapshot,
+  });
+
+  const line = `${formatTaskMetrics(snapshot)}｜分類 ${outcome.actual}`;
   console.log(line);
   await test.info().attach(`task-metrics-${snapshot.task}`, {
-    body: JSON.stringify(snapshot, null, 2),
+    body: JSON.stringify(outcomes[outcomes.length - 1], null, 2),
     contentType: "application/json",
   });
   expect(
-    withinDecisionTarget(snapshot, options?.maxDecisions),
+    withinDecisionTarget(snapshot, outcome.maxDecisions),
     `${line}：主要決策超過目標上限`
   ).toBe(true);
 }
@@ -341,7 +560,7 @@ test("任務 1：第一次使用——走完首次設定精靈，安全確認一
 
   // 桌面角色在「現在」第一屏就看得到（第一次使用的人不必先去找它）。
   await expect(page.getByTestId("now-character")).toBeVisible({ timeout: 20_000 });
-  await record(m);
+  await record(m, { actual: "completed" });
 });
 
 // ---------------------------------------------------------------------------
@@ -379,7 +598,7 @@ test("任務 2＋3：稍後連手機（同步卡 → 配對區 → 模擬 iPhone
   const members = card.getByRole("list", { name: "同步中的裝置" });
   await expect(members.getByText(FAKE_IPHONE_LABEL)).toBeVisible();
   await expectNoTechnicalTerms(card);
-  await record(connectTask);
+  await record(connectTask, { actual: "completed" });
 
   // --- 任務 3：手機與桌面互動（桌面端零決策：不必為了「收到互動」再去設定什麼）。
   const touchTask = new TaskMetrics("手機與桌面互動", "desktop");
@@ -397,7 +616,7 @@ test("任務 2＋3：稍後連手機（同步卡 → 配對區 → 模擬 iPhone
   expect(Number(touched.revision)).toBeGreaterThan(beforeRevision);
   // SSE 會把卡片推到最新：使用者盯著畫面就看得到，不必重新整理（零點擊）。
   await expect(card.getByText(/摸了摸角色/)).toBeVisible({ timeout: 30_000 });
-  await record(touchTask);
+  await record(touchTask, { actual: "completed" });
 });
 
 // ---------------------------------------------------------------------------
@@ -451,7 +670,7 @@ test("任務 4：暫時離線 → 重新連線——畫面誠實說「正在重�
     .poll(async () => syncHeadline(card), { timeout: 30_000 })
     .not.toBe(CHARACTER_SYNC_PROJECTION.reconnecting.headline);
   expect(ONLINE_HONEST, "接回來之後同步卡必須說得出它回來了").toContain(await syncHeadline(card));
-  await record(m);
+  await record(m, { actual: "completed" });
 });
 
 // ---------------------------------------------------------------------------
@@ -505,7 +724,7 @@ test("任務 5：手機一直沒回來——45 秒 presence 逾時之後畫面�
     30_000,
     target()
   );
-  await record(m);
+  await record(m, { actual: "completed" });
 });
 
 // ---------------------------------------------------------------------------
@@ -557,7 +776,7 @@ test("任務 6：主動移除手機——移除是正常終態「目前只在這
 
   fixture.kill();
   phone = null;
-  await record(m);
+  await record(m, { actual: "completed" });
 });
 
 // ---------------------------------------------------------------------------
@@ -598,21 +817,21 @@ test("任務 7：移除之後又想用手機——重新配對，重新確認之
     .poll(async () => syncHeadline(card), { timeout: 30_000 })
     .not.toBe(CHARACTER_SYNC_PROJECTION["needs-reconfirmation"].headline);
   expect(ONLINE_HONEST).toContain(await syncHeadline(card));
-  await record(m);
+  await record(m, { actual: "completed" });
 });
 
 // ---------------------------------------------------------------------------
 // 任務 8：更換角色（瀏覽器模式＝誠實拒絕；正向效果是 Tauri 驗收）
 // ---------------------------------------------------------------------------
 
-test("任務 8：更換角色——瀏覽器模式誠實拒絕，不假裝換成功（正向效果 needs-environment）", async ({
+test("任務 8：更換角色——瀏覽器模式誠實拒絕，不假裝換成功（正向效果由真 Tauri 走查驗）", async ({
   page,
   request,
 }) => {
   test.setTimeout(180_000);
   const m = new TaskMetrics("更換角色", "desktop");
   m.note(
-    "瀏覽器模式：桌面角色偏好住在 Tauri host，這裡只驗得到誠實拒絕；真的換成功屬於 Tauri 驗收（needs-environment，本輪未執行）。"
+    "瀏覽器模式：桌面角色偏好住在 Tauri host，這裡只驗得到誠實拒絕；真的換成功由 scripts/tauri-ax-walkthrough.sh 的真 Tauri 走查驗。"
   );
   await page.setViewportSize(DESKTOP);
   await openHere(page);
@@ -636,16 +855,31 @@ test("任務 8：更換角色——瀏覽器模式誠實拒絕，不假裝換成
   await candidate.getByRole("button", { name: "選用" }).click();
 
   // 誠實：畫面出現錯誤，使用中的角色不變，後端角色狀態一個位元都沒動。
-  await expect(page.locator(".character-page").getByRole("alert").first()).toBeVisible({
-    timeout: 20_000,
-  });
+  const alert = page.locator(".character-page").getByRole("alert").first();
+  await expect(alert).toBeVisible({ timeout: 20_000 });
   await expect(page.locator("article.character-card.active")).toHaveCount(1);
+  // 被按下的那一張卡片**沒有**變成使用中：失敗就不能長出「使用中」的綠勾。
+  await expect(candidate, "換角色失敗時，被選的那個角色不得變成使用中").not.toHaveClass(
+    /\bactive\b/
+  );
   const after = JSON.stringify(
     ((await api(request, "GET", "/v1/status", undefined, target())) as Record<string, unknown>)
       .characterProtocol ?? null
   );
   expect(after, "換角色失敗時不得改到後端角色狀態").toBe(before);
-  await record(m);
+  // 分類：correctly-blocked。哪天瀏覽器模式真的換得動（或改成無聲失敗），
+  // `record()` 會拿這份證據跟 TASK_MANIFEST 對，兩種漂移都會紅。
+  await record(m, {
+    actual: "correctly-blocked",
+    blocked: {
+      backendBefore: before,
+      backendAfter: after,
+      honestText: await alert.innerText(),
+      // 綠勾檢查看的是**這個動作的目標**：範圍就是那張被按下的卡片。放大到整個角色庫
+      // 會掃到另一個角色的「使用中」——那是真的，不該讓這個檢查變紅。
+      scope: candidate,
+    },
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -654,29 +888,45 @@ test("任務 8：更換角色——瀏覽器模式誠實拒絕，不假裝換成
 
 test("任務 9：調整陪伴程度——瀏覽器模式照實說需要桌面版，不給按了沒用的檔位", async ({
   page,
+  request,
 }) => {
   test.setTimeout(180_000);
   const m = new TaskMetrics("調整陪伴程度", "desktop");
   m.note(
-    "陪伴預設（安靜／自然／活潑）寫的是桌面偏好，只有 Tauri 控制中心有；瀏覽器模式驗的是誠實降級。正向切換屬於 Tauri 驗收（needs-environment，本輪未執行）。"
+    "陪伴預設（安靜／自然／活潑）寫的是桌面偏好，只有 Tauri 控制中心有；瀏覽器模式驗的是誠實降級。正向切換屬於 Tauri 驗收（見「真 Tauri 視窗走查」章節）。"
   );
   await page.setViewportSize(DESKTOP);
   await openHere(page);
+  // 套用一個檔位的**第二段**寫的是後端主動說話模式：拿它當「後端零變動」的證據。
+  const before = JSON.stringify(
+    await api(request, "GET", "/v1/proactive-dialogue", undefined, target())
+  );
   await navigateTo(page, COMPANION, false);
   m.visit("companion");
 
   // 首屏第二格就是「陪伴方式」：不必展開任何東西就看得到現在是什麼情況。
   const companionship = page.locator("section.section", { hasText: "陪伴方式" }).first();
   await expect(companionship).toBeVisible({ timeout: 20_000 });
-  await expect(
-    companionship.getByText("桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。").first(),
-    "沒有桌面 host 時要照實說，而不是給一排按了沒用的檔位"
-  ).toBeVisible();
+  const honest = companionship
+    .getByText("桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。")
+    .first();
+  await expect(honest, "沒有桌面 host 時要照實說，而不是給一排按了沒用的檔位").toBeVisible();
   await expect(
     companionship.getByRole("group", { name: "陪伴方式" }),
     "瀏覽器模式不得渲染假的陪伴檔位"
   ).toHaveCount(0);
-  await record(m);
+  const after = JSON.stringify(
+    await api(request, "GET", "/v1/proactive-dialogue", undefined, target())
+  );
+  await record(m, {
+    actual: "correctly-blocked",
+    blocked: {
+      backendBefore: before,
+      backendAfter: after,
+      honestText: await honest.innerText(),
+      scope: companionship,
+    },
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -754,7 +1004,75 @@ test("任務 10：設定安靜時段——存進 policy，而且 status 的安�
       { timeout: 20_000 }
     )
     .toBe(false);
-  await record(m);
+  await record(m, { actual: "completed" });
+});
+
+// ---------------------------------------------------------------------------
+// 任務 14：暫停主動對話（Home 一鍵暫停 → 後端真的暫停 → 恢復）
+//
+// 這一項**不得**用「設定安靜時段」代打：那是另一個機制（安靜時段是排程，暫停是
+// 使用者現在就要它閉嘴），兩者的有效值也分開存。所以這裡除了驗 `/v1/pause` 之外，
+// 還要驗安靜時段一個位元都沒被順手改掉——否則「暫停」就變成偷偷設了一段安靜時間。
+// ---------------------------------------------------------------------------
+
+test("任務 14：暫停主動對話——一鍵暫停，/v1/pause 真的是暫停，恢復也是真的", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(180_000);
+  const m = new TaskMetrics("暫停主動對話", "desktop");
+  m.note("暫停與安靜時段是兩件事：這一支同時驗「暫停真的生效」與「安靜時段沒被順手改掉」。");
+  await page.setViewportSize(DESKTOP);
+  await openHere(page);
+  m.start();
+  m.visit("home");
+
+  const pauseState = async () =>
+    (await api(request, "GET", "/v1/pause", undefined, target())) as { paused?: boolean };
+  const quietHours = async () =>
+    JSON.stringify(
+      ((await api(request, "GET", "/v1/policy", undefined, target())) as Record<string, unknown>)
+        .quietHours ?? null
+    );
+
+  expect((await pauseState()).paused, "任務開始前不該已經是暫停狀態").toBe(false);
+  const quietBefore = await quietHours();
+
+  // 「暫停主動互動」就在「現在」的快速操作裡：不必先去角色頁、也不必展開任何東西。
+  const home = page.locator(".home");
+  const group = home.getByRole("group", { name: "暫停或恢復主動互動" });
+  await expect(group).toBeVisible({ timeout: 20_000 });
+  const pauseButton = group.getByRole("button", { name: "暫停主動互動" });
+  await expect(pauseButton).toBeVisible({ timeout: 20_000 });
+  m.decide("暫停主動互動");
+  await pauseButton.click();
+
+  // 畫面說暫停了；後端也真的暫停了（畫面說了不算）。
+  await expect(page.getByText("主動互動已暫停").first()).toBeVisible({ timeout: 20_000 });
+  await expect.poll(async () => (await pauseState()).paused, { timeout: 20_000 }).toBe(true);
+  // 暫停 ≠ 安靜時段：policy 的安靜時段不得被順手改掉。
+  expect(await quietHours(), "「暫停主動互動」不得偷偷改到安靜時段").toBe(quietBefore);
+  // 暫停不是緊急停止：安全機制沒有被牽動。
+  expect(
+    ((await api(request, "GET", "/v1/status", undefined, target())) as {
+      emergencyStop?: boolean;
+    }).emergencyStop,
+    "暫停主動互動不得順便觸發緊急停止"
+  ).toBe(false);
+
+  // 恢復同樣是一個決策，而且後端要真的恢復（不是畫面上換一顆按鈕）。
+  const resume = group.getByRole("button", { name: "恢復主動互動" });
+  await expect(resume, "暫停之後同一個位置要變成「恢復主動互動」").toBeVisible({
+    timeout: 20_000,
+  });
+  m.decide("恢復主動互動");
+  await resume.click();
+  await expect.poll(async () => (await pauseState()).paused, { timeout: 20_000 }).toBe(false);
+  await expect(group.getByRole("button", { name: "暫停主動互動" })).toBeVisible({
+    timeout: 20_000,
+  });
+  expect(await quietHours(), "恢復也不得改到安靜時段").toBe(quietBefore);
+  await record(m, { actual: "completed" });
 });
 
 // ---------------------------------------------------------------------------
@@ -816,7 +1134,7 @@ test("任務 11：取消工作——按一次中斷，後端真的取消（不�
     await card.getByRole("button", { name: "關閉", exact: true }).click();
     await expect(page.getByText(/工作階段已關閉/)).toBeVisible({ timeout: 20_000 });
   }
-  await record(m);
+  await record(m, { actual: "completed" });
 });
 
 // ---------------------------------------------------------------------------
@@ -882,7 +1200,7 @@ test("任務 12（390px）：角色頁首屏、同步卡下一步、安靜時段
     });
   }
   await expectNoHorizontalOverflow(page);
-  await record(m);
+  await record(m, { actual: "completed" });
 
   // --- 390px 的安靜時段（同一個任務在窄視窗再做一次）。
   const quietTask = new TaskMetrics("390px：設定安靜時段", "narrow");
@@ -911,7 +1229,7 @@ test("任務 12（390px）：角色頁首屏、同步卡下一步、安靜時段
   await expectNoHorizontalOverflow(page);
   // 收尾。
   await fieldset.getByRole("checkbox").uncheck();
-  await record(quietTask);
+  await record(quietTask, { actual: "completed" });
 });
 
 // ---------------------------------------------------------------------------
@@ -1003,6 +1321,123 @@ test("可及性：對話框開著的時候，Escape 收得掉，而且停止的�
     emergencyStop?: boolean;
   };
   expect(status.emergencyStop, "只看了指令清單不得觸發緊急停止").toBe(false);
+});
+
+test("可及性：套用前確認對話框開著時 Escape 收得掉，而且什麼都還沒被套用", async ({
+  page,
+  request,
+}) => {
+  // 精靈的「套用前確認」是整個 App 裡**唯一**會擋住主畫面（含頂部列的緊急停止）的
+  // 對話框：精靈本身取代整個外殼，所以對話框開著時「停止的方式」不在畫面上。
+  // 這一支要釘住的就是那條逃生路徑真的存在而且是誠實的：
+  //   1. Escape 收得掉（不是只能用滑鼠點「取消」）；
+  //   2. 收掉之後**後端一個位元都沒動**（套用前確認的承諾）；
+  //   3. 從精靈按「略過」回到主畫面之後，緊急停止立刻是鍵盤可達的。
+  test.setTimeout(180_000);
+  await page.setViewportSize(DESKTOP);
+  await openHere(page);
+  const policyBefore = JSON.stringify(await api(request, "GET", "/v1/policy", undefined, target()));
+
+  // 重新執行首次設定（更多 → 外觀與語言）：不改任何東西，只是把精靈叫回來。
+  await navigateTo(page, PAGES[4], false);
+  await page.getByRole("tab", { name: "外觀與語言" }).click();
+  await page.getByRole("button", { name: "重新執行首次設定" }).click();
+  const wizard = page.getByRole("dialog", { name: "首次設定" });
+  await expect(wizard).toBeVisible({ timeout: 20_000 });
+  await wizard.getByRole("button", { name: "下一步" }).click();
+  await expect(wizard.getByRole("heading", { name: /幫忙工作嗎？/ })).toBeVisible({
+    timeout: 20_000,
+  });
+  await wizard.getByRole("button", { name: "下一步" }).click();
+  await expect(wizard.getByRole("heading", { name: "確認安全與權限預設" })).toBeVisible({
+    timeout: 20_000,
+  });
+  await wizard.getByRole("button", { name: "完成設定" }).click();
+
+  // 1. 真的是 modal（有名字、aria-modal），而且 Escape 收得掉。
+  const confirm = page.getByRole("dialog", { name: "套用前確認" });
+  await expect(confirm).toBeVisible({ timeout: 20_000 });
+  await expect(confirm).toHaveAttribute("aria-modal", "true");
+  await expect(confirm.getByRole("button", { name: "取消" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(confirm).toBeHidden({ timeout: 10_000 });
+
+  // 2. 取消＝什麼都沒套用（policy 與緊急停止狀態一個位元都沒動）。
+  expect(
+    JSON.stringify(await api(request, "GET", "/v1/policy", undefined, target())),
+    "按 Escape 取消套用之後不得改到任何設定"
+  ).toBe(policyBefore);
+  expect(
+    ((await api(request, "GET", "/v1/status", undefined, target())) as {
+      emergencyStop?: boolean;
+    }).emergencyStop
+  ).toBe(false);
+
+  // 3. 精靈還在（沒有把使用者關在半途），而且「略過」是鍵盤可達的逃生口；
+  //    回到主畫面之後緊急停止立刻可聚焦。
+  const skip = wizard.getByRole("button", { name: /略過/ });
+  await skip.focus();
+  await expect(skip).toBeFocused();
+  await skip.click();
+  const estop = page.locator(".topbar").getByRole("button", { name: "緊急停止", exact: true });
+  await expect(estop).toBeVisible({ timeout: 20_000 });
+  await estop.focus();
+  await expect(estop).toBeFocused();
+});
+
+test("可及性：暫停對話框與配對區開著時，Escape／緊急停止都沒有被關住", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize(DESKTOP);
+  await openHere(page);
+  const estop = page.locator(".topbar").getByRole("button", { name: "緊急停止", exact: true });
+
+  // --- A. 「暫停一段時間…」是真 modal：Escape 收得掉，而且開關對話框不改後端。
+  const pausedBefore = (
+    (await api(request, "GET", "/v1/pause", undefined, target())) as { paused?: boolean }
+  ).paused;
+  await page.locator(".home").getByRole("button", { name: "暫停一段時間…" }).click();
+  const pauseDialog = page.getByRole("dialog", { name: "暫停主動互動" });
+  await expect(pauseDialog).toBeVisible({ timeout: 20_000 });
+  await expect(pauseDialog).toHaveAttribute("aria-modal", "true");
+  await expect(pauseDialog.getByRole("button", { name: "關閉" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(pauseDialog).toBeHidden({ timeout: 10_000 });
+  expect(
+    ((await api(request, "GET", "/v1/pause", undefined, target())) as { paused?: boolean }).paused,
+    "只是打開又關掉暫停對話框，不得改到後端的暫停狀態"
+  ).toBe(pausedBefore);
+  // 收掉之後緊急停止立刻可聚焦（不必先找路）。
+  await estop.focus();
+  await expect(estop).toBeFocused();
+
+  // --- B. 配對區**不是** modal：配對進行中，緊急停止仍然在畫面上、仍然可聚焦。
+  //     （這一版的配對是「連接與權限」頁上的一塊通知區，不是對話框——所以沒有
+  //     「Escape 才收得掉」這回事；要釘住的是它不會把停止的路徑關起來。）
+  await navigateTo(page, CONNECT, false);
+  // 配對區住在「裝置與來源」那一格；預設落點不一定是它（深連結才會直接開）。
+  const providersTab = page.getByRole("tab", { name: "裝置與來源" });
+  if (await providersTab.isVisible().catch(() => false)) await providersTab.click();
+  const pairing = await beginPairingFromUi(page, request, target());
+  expect(pairing.code).toMatch(/^\d{6}$/);
+  const notice = page.locator(".notice-box", { hasText: "輸入配對碼" });
+  await expect(notice).toBeVisible();
+  const insideModal = await notice.evaluate((el) =>
+    Boolean(el.closest('[role="dialog"][aria-modal="true"]'))
+  );
+  expect(insideModal, "配對區若變成 modal，就必須同時提供 Escape 與停止的路徑").toBe(false);
+  await expect(estop).toBeVisible();
+  await estop.focus();
+  await expect(estop).toBeFocused();
+  // Escape 不會讓配對期無聲消失（使用者以為關掉了說明，其實碼作廢了）。
+  await page.keyboard.press("Escape");
+  await expect(notice).toBeVisible();
+  const status = (await api(request, "GET", "/v1/status", undefined, target())) as {
+    emergencyStop?: boolean;
+  };
+  expect(status.emergencyStop, "這一支只是看畫面，不得觸發緊急停止").toBe(false);
 });
 
 test("可及性：⌘K 面板焦點離開搜尋框之後，Escape 一樣收得掉、Tab 逃不出面板", async ({ page, request }) => {
@@ -1117,5 +1552,5 @@ test("任務 13：緊急停止——兩步按得完，後端真的停了，解�
     emergencyStop?: boolean;
   };
   expect(cleared.emergencyStop).toBe(false);
-  await record(m);
+  await record(m, { actual: "completed" });
 });
