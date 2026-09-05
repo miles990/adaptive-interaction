@@ -35,7 +35,15 @@ enum PairingStoreError: LocalizedError {
     }
 }
 
-final class PairingStore {
+/// 配對資料的儲存介面。正式路徑是 Keychain（`PairingStore`）；單元測試用記憶體版，
+/// 才不必為了測背景閘門去碰 Keychain（模擬器上還要 entitlements）。
+protocol PairingStorage: AnyObject {
+    func save(_ pairing: StoredPairing) throws
+    func load() -> StoredPairing?
+    func clear() throws
+}
+
+final class PairingStore: PairingStorage {
     private let service = "ai.adaptive-interaction.companion"
     private let account = "pairing.v1"
 

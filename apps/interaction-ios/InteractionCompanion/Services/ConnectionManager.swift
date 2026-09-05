@@ -306,18 +306,20 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     // MARK: 私有狀態
 
-    private let store: PairingStore
+    private let store: PairingStorage
     private let defaults: UserDefaults
-    private var session: URLSession?
-    private var wsDelegate: PinnedWebSocketDelegate?
-    private var task: URLSessionWebSocketTask?
+    /// 目前這條 socket（`nil` ＝ 沒有連線）。正式路徑是 `URLSessionSocket`。
+    private var socket: SocketTransport?
+    /// 每開一條 socket ＋1：AIP 決策表規則 0 用它丟掉舊連線的遲到訊息
+    /// （舊連線送出的 `session-reset` 宣告的 epoch 一定與本地不同，這是唯一防線）。
+    private var connectionGeneration: UInt64 = 0
 
     private var outbox: [String] = []
     private let outboxLimit = 64
     private var sending = false
 
-    private var statusTimer: Timer?
-    private var retryTimer: Timer?
+    private var statusWork: ScheduledWork?
+    private var retryWork: ScheduledWork?
     private var backoffSeconds: Double = 1
     private let backoffMaxSeconds: Double = 15
     /// 使用者是否希望保持連線(立即中斷後為 false,停止自動重連)
@@ -333,6 +335,14 @@ final class ConnectionManager: NSObject, ObservableObject {
     private var leftForegroundAt: TimeInterval?
     /// 單調時鐘(測試可替換;systemUptime 不受校時影響)
     var monotonicNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    /// 牆鐘(測試可替換)。AIP 的 `occurredAt`／`expiresAt`／resume 寬限窗用的是這一個。
+    var wallClockNow: () -> Date = { Date() }
+    /// 怎麼開一條 socket(測試可替換;正式路徑是 URLSession + TLS 指紋固定)。
+    var socketFactory: SocketFactory = { url, fingerprint, events in
+        URLSessionSocket(url: url, fingerprint: fingerprint, events: events)
+    }
+    /// 心跳與重連的排程(測試可替換;正式路徑是 main runloop 上的 Timer)。
+    var scheduler: WorkScheduler = RunLoopScheduler()
     /// 生命週期閘門讀到的階段。**唯一的 owner 仍是 `lifecyclePhaseChanged`**——
     /// 這裡只是把「讀」獨立成一個可注入的點,讓重連/心跳的閘門不必真的開一條 socket 才測得到。
     var lifecyclePhaseForGating: () -> AppLifecyclePhase = { .active }
@@ -340,7 +350,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     /// UserDefaults 內的「使用者上次是否想要連線」。冷啟動據此決定要不要自動重連。
     private static let autoConnectIntentKey = "ai.adaptive-interaction.companion.autoConnectIntent"
 
-    init(store: PairingStore, defaults: UserDefaults = .standard) {
+    init(store: PairingStorage, defaults: UserDefaults = .standard) {
         self.store = store
         self.defaults = defaults
         super.init()
@@ -444,7 +454,7 @@ final class ConnectionManager: NSObject, ObservableObject {
         default:
             allowed = false
         }
-        guard allowed, task != nil else {
+        guard allowed, socket != nil else {
             droppedFrames += 1
             return
         }
@@ -534,7 +544,7 @@ final class ConnectionManager: NSObject, ObservableObject {
         }
         if decision.resumeSession {
             // socket 還活著:只 reconcile 角色狀態,不重播任何事件(AIP §8)。
-            withSession { $0.foregroundDidResume() }
+            withSession { $0.foregroundDidResume(now: self.wallClockNow()) }
         }
         if decision.reconnect,
            LifecycleDecision.shouldReconnectImmediately(phase: phase,
@@ -568,46 +578,36 @@ final class ConnectionManager: NSObject, ObservableObject {
 
         phase = .connecting
         pinningRejected = false
+        // 新的一條連線 ＝ 新的世代:上一條連線的遲到訊息從這一刻起一律丟掉。
+        connectionGeneration &+= 1
         logLine("連線 \(hostPart):\(port)")
 
-        let delegate = PinnedWebSocketDelegate(fingerprint: fingerprint)
-        delegate.onOpen = { [weak self] in self?.handleSocketOpen() }
-        delegate.onFingerprintMismatch = { [weak self] in
+        var events = SocketEvents()
+        events.onOpen = { [weak self] in self?.handleSocketOpen() }
+        events.onFingerprintMismatch = { [weak self] in
             guard let self else { return }
             self.pinningRejected = true
             self.logLine("憑證指紋不符,已拒絕連線(不是位址變更)")
         }
-        delegate.onClose = { [weak self] reason in
+        events.onClose = { [weak self] reason in
             guard let self else { return }
             self.handleConnectionLost(reason: "連線關閉:\(reason)",
                                       kind: self.pinningRejected ? .tlsMismatch : .other)
         }
-        wsDelegate = delegate
 
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 10
-        configuration.waitsForConnectivity = false
-        let newSession = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-        session = newSession
-
-        let newTask = newSession.webSocketTask(with: url)
-        task = newTask
-        newTask.resume()
+        let newSocket = socketFactory(url, fingerprint, events)
+        socket = newSocket
+        newSocket.resume()
         receiveNext()
     }
 
     private func teardownSocket(notify: Bool) {
-        statusTimer?.invalidate()
-        statusTimer = nil
+        statusWork?.cancel()
+        statusWork = nil
         outbox.removeAll()
         sending = false
-        if let existing = task {
-            existing.cancel(with: .normalClosure, reason: nil)
-        }
-        task = nil
-        session?.invalidateAndCancel()
-        session = nil
-        wsDelegate = nil
+        socket?.cancel()
+        socket = nil
         if notify {
             // 不變量:斷線即停用高風險感測(mic/location/BLE gateway),不自動恢復
             onDisconnected?()
@@ -636,20 +636,19 @@ final class ConnectionManager: NSObject, ObservableObject {
     // MARK: 接收迴圈
 
     private func receiveNext() {
-        guard let currentTask = task else { return }
-        currentTask.receive { [weak self] result in
-            DispatchQueue.main.async {
+        guard let currentSocket = socket else { return }
+        let generation = connectionGeneration
+        currentSocket.receive { [weak self] result in
+            self?.onMain {
                 guard let self else { return }
                 switch result {
                 case .success(let frame):
                     switch frame {
-                    case .string(let text):
-                        self.handleIncoming(text)
-                    case .data:
-                        // 協議規定 text frame;binary 誠實記錄後忽略
-                        self.logLine("收到非預期的 binary frame,已忽略")
-                    @unknown default:
-                        self.logLine("收到未知 frame 型別,已忽略")
+                    case .text(let text):
+                        self.handleIncoming(text, generation: generation)
+                    case .nonText(let description):
+                        // 協議規定 text frame;其餘誠實記錄後忽略。
+                        self.logLine("收到\(description),已忽略")
                     }
                     self.receiveNext()
                 case .failure(let error):
@@ -659,7 +658,23 @@ final class ConnectionManager: NSObject, ObservableObject {
         }
     }
 
-    private func handleIncoming(_ text: String) {
+    /// 把 socket 回呼 funnel 到主執行緒。**已經在主執行緒時同步執行**:
+    /// state patch 的套用順序必須等於它們到達的順序,多排一次隊就不保證了
+    ///(也讓閘門測試不必等 runloop)。
+    private func onMain(_ body: @escaping () -> Void) {
+        if Thread.isMainThread {
+            body()
+        } else {
+            DispatchQueue.main.async(execute: body)
+        }
+    }
+
+    private func handleIncoming(_ text: String, generation: UInt64) {
+        // 舊連線的遲到訊息:socket 已經換過一條,這一則不代表現在的事實(**先於**一切)。
+        guard generation == connectionGeneration else {
+            logLine("忽略一則上一條連線的遲到訊息(世代 \(generation),現在是 \(connectionGeneration))")
+            return
+        }
         let message: ServerMessage
         do {
             message = try ServerMessage.decode(text)
@@ -744,7 +759,9 @@ final class ConnectionManager: NSObject, ObservableObject {
         case .aip(let envelope):
             // 原始 frame 文字要一起帶進去:角色狀態的 hash 必須對「桌面寫出來的文字」取,
             // 重新編碼過的 JSON 會讓數字字面走樣、hash 就對不上(見 CharacterSemantic.swift)。
-            withSession { $0.handleFrame(envelope, rawFrame: text) }
+            withSession {
+                $0.handleFrame(envelope, rawFrame: text, arrivedOnGeneration: generation)
+            }
 
         case .unknown(let type):
             logLine("未知訊息型別 \(type),已忽略(不假裝處理)")
@@ -776,7 +793,9 @@ final class ConnectionManager: NSObject, ObservableObject {
         // 角色同步:auth-ok 之後才(重新)協商。舊桌面收到 aip frame 只會忽略,
         // 所以這裡不需要先問「桌面支不支援」——沒有協商結果就一直是「尚未提供角色同步」。
         // 重連**不重播**任何互動事件或 intent,只 reconcile 狀態(AIP §8)。
-        withSession { $0.connectionDidConnect() }
+        withSession { [connectionGeneration] in
+            $0.connectionDidConnect(now: self.wallClockNow(), generation: connectionGeneration)
+        }
     }
 
     /// 每 `PresenceHeartbeatPolicy.statusIntervalSeconds` 秒:送 status + WebSocket ping
@@ -786,33 +805,29 @@ final class ConnectionManager: NSObject, ObservableObject {
     /// `character_session_touch_presence`。停掉這個 timer ＝ 放棄 presence,所以背景時
     /// 只停 timer 並誠實標成 background,不假裝還活著(見 `lifecyclePhaseChanged`)。
     private func startStatusTimer() {
-        statusTimer?.invalidate()
+        statusWork?.cancel()
+        statusWork = nil
         guard LifecycleDecision.shouldSendPresenceHeartbeat(phase: lifecyclePhaseForGating()) else {
-            // 背景中意外復活的連線不得把心跳 timer 重新叫起來(見 `lifecyclePhaseChanged`)。
-            statusTimer = nil
+            // 背景中意外復活的連線不得把心跳排程重新叫起來(見 `lifecyclePhaseChanged`)。
             return
         }
-        let timer = Timer(timeInterval: PresenceHeartbeatPolicy.statusIntervalSeconds,
-                          repeats: true) { [weak self] _ in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.sendStatusNow()
-                self.task?.sendPing { error in
-                    if let error {
-                        DispatchQueue.main.async {
-                            self.handleConnectionLost(error: error, prefix: "ping 失敗:")
-                        }
-                    }
+        statusWork = scheduler.schedule(
+            after: PresenceHeartbeatPolicy.statusIntervalSeconds, repeats: true
+        ) { [weak self] in
+            guard let self else { return }
+            self.sendStatusNow()
+            self.socket?.ping { error in
+                guard let error else { return }
+                self.onMain {
+                    self.handleConnectionLost(error: error, prefix: "ping 失敗:")
                 }
             }
         }
-        RunLoop.main.add(timer, forMode: .common)
-        statusTimer = timer
     }
 
     private func stopStatusTimer() {
-        statusTimer?.invalidate()
-        statusTimer = nil
+        statusWork?.cancel()
+        statusWork = nil
     }
 
     // MARK: 斷線與重連
@@ -824,7 +839,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     }
 
     private func handleConnectionLost(reason: String, kind: ConnectionFailureKind) {
-        guard task != nil else { return }  // 已拆除,避免重複處理
+        guard socket != nil else { return }  // 已拆除,避免重複處理
         logLine("連線中斷:\(reason)")
         lastError = reason
         recordFailure(kind)
@@ -864,27 +879,23 @@ final class ConnectionManager: NSObject, ObservableObject {
         let delay = backoffSeconds
         backoffSeconds = min(backoffSeconds * 2, backoffMaxSeconds)
         phase = .waitingRetry(inSeconds: Int(delay.rounded()))
-        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
-            DispatchQueue.main.async {
-                guard let self, self.userWantsConnection, let stored = self.pairing else { return }
-                guard LifecycleDecision.shouldScheduleReconnect(
-                        phase: self.lifecyclePhaseForGating()) else {
-                    // 排程時還在前景、觸發時已經進背景:不開新 socket。
-                    self.phase = .failed(reason: "背景中暫停重連,回到前景再試")
-                    self.logLine("背景中:不重連,回到前景再試")
-                    return
-                }
-                self.openSocket(host: stored.host, port: stored.port,
-                                fingerprint: stored.fingerprint)
+        retryWork = scheduler.schedule(after: delay, repeats: false) { [weak self] in
+            guard let self, self.userWantsConnection, let stored = self.pairing else { return }
+            guard LifecycleDecision.shouldScheduleReconnect(
+                    phase: self.lifecyclePhaseForGating()) else {
+                // 排程時還在前景、觸發時已經進背景:不開新 socket。
+                self.phase = .failed(reason: "背景中暫停重連,回到前景再試")
+                self.logLine("背景中:不重連,回到前景再試")
+                return
             }
+            self.openSocket(host: stored.host, port: stored.port,
+                            fingerprint: stored.fingerprint)
         }
-        RunLoop.main.add(timer, forMode: .common)
-        retryTimer = timer
     }
 
     private func cancelRetry() {
-        retryTimer?.invalidate()
-        retryTimer = nil
+        retryWork?.cancel()
+        retryWork = nil
     }
 
     // MARK: 失敗紀錄與診斷
@@ -921,11 +932,11 @@ final class ConnectionManager: NSObject, ObservableObject {
     }
 
     private func pump() {
-        guard !sending, let currentTask = task, !outbox.isEmpty else { return }
+        guard !sending, let currentSocket = socket, !outbox.isEmpty else { return }
         sending = true
         let text = outbox.removeFirst()
-        currentTask.send(.string(text)) { [weak self] error in
-            DispatchQueue.main.async {
+        currentSocket.send(text) { [weak self] error in
+            self?.onMain {
                 guard let self else { return }
                 self.sending = false
                 if let error {
@@ -983,7 +994,7 @@ extension ConnectionManager: SessionTransport {
 
     @discardableResult
     func sendAip(_ envelope: AIPEnvelope) -> Bool {
-        guard isConnected, task != nil else {
+        guard isConnected, socket != nil else {
             droppedFrames += 1
             return false
         }
