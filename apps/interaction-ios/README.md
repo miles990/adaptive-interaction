@@ -18,8 +18,9 @@
 >   mic/BLE/battery 全部 false、App 顯示「因桌面緊急停止而停用」)、
 >   Bonjour 以 `_interact-ai._tcp` 實際廣播成功(`dns-sd -B` 看得到)。
 >   證據截圖:`docs/assets/v05-evidence/ios-sim-*.png`(檔名前綴即標示模擬器)。
-> - ✅ 全部 **16** 個 App `.swift` 通過 iOS 模擬器目標的完整 `swiftc -typecheck`(0 錯誤、0 警告;
->   2026-09-04 v0.6.0 wave 2 重測。v0.5.1 當時是 12 個)
+> - ✅ 全部 **17** 個 App `.swift` 通過 iOS 模擬器目標的完整 `swiftc -typecheck`(0 錯誤、0 警告;
+>   2026-09-05 v0.6.x 可維護性分支重測,新增 `Services/AppLifecycle.swift`。
+>   2026-09-04 v0.6.0 wave 2 為 16 個、v0.5.1 當時是 12 個)
 > - ❌ **未經真機驗收**:haptic / torch / CoreMotion / 真實 BLE / 通知顯示 / QR 相機掃描
 >   在模擬器上不可用或未觸發,行為仍未驗證。
 >
@@ -34,9 +35,10 @@
 > - ✅ **裝置 SDK 建置通過(未簽章)**:`-sdk iphoneos -arch arm64 -configuration Release
 >   CODE_SIGNING_ALLOWED=NO` → `** BUILD SUCCEEDED **`;12 個 `.swift` 對
 >   `arm64-apple-ios17.0` + iphoneos26.5 SDK 的 `swiftc -typecheck` 也是 0 error / 0 warning。
-> - ✅ **XCTest 104/104 通過（2026-09-05 v0.6.x 可維護性分支，新增 StateHashConformance 3；同日稍早 v0.6.0
->   對抗審查修復後為 101/101；2026-09-04 wave 2 為 92/92、同日 v0.5.1 為 46/46、2026-09-03 為 25/25）**
->   (AIPConformance 17 + MotionClassifier 8 + Protocol 21 + ReconnectHint 21 + SessionClient 34 + StateHashConformance 3)
+> - ✅ **XCTest 120/120 通過（2026-09-05 v0.6.x 可維護性分支，新增 Lifecycle 16；同日稍早同分支為 104/104、
+>   v0.6.0 對抗審查修復後為 101/101；2026-09-04 wave 2 為 92/92、同日 v0.5.1 為 46/46、2026-09-03 為 25/25）**
+>   (AIPConformance 17 + Lifecycle 16 + MotionClassifier 8 + Protocol 21 + ReconnectHint 21 +
+>   SessionClient 34 + StateHashConformance 3)
 >   ——用 xcodebuild 產出的 app-hosted `.xctest`,注入 iPhone 17
 >   **模擬器**(iOS 26.2)以 `simctl` 執行(見下方「跑 XCTest:`simctl` 注入流程」)。
 >   **這是模擬器測試,與下面的真機驗收是兩件事**。
@@ -81,12 +83,14 @@ apps/interaction-ios/
 │   └── device-acceptance.sh           真機:對真 daemon 跑驗收矩陣(只印 daemon 原文)
 ├── InteractionCompanionTests/
 │   ├── AIPFixtures.swift              codegen 內嵌的 AIP conformance fixture(不要手改)
-│   ├── AIPConformanceTests.swift      AIP 1.0 跨語言 conformance(XCTest:14 個 test 方法,v0.6.0)
+│   ├── AIPConformanceTests.swift      AIP 1.0 跨語言 conformance(XCTest:17 個 test 方法,v0.6.0)
+│   ├── LifecycleTests.swift           前景/背景決策 + presence 心跳常數 + AIP heartbeat
+│   │                                   (XCTest:16 個 test 方法,v0.6.x)
 │   ├── MotionClassifierTests.swift    純分類器行為測試(XCTest:8 個 test 方法)
 │   ├── ProtocolTests.swift            Wire protocol 編解碼測試(XCTest:21 個 test 方法,含 4 個
 │   │                                   stop-all 緊急狀態誠實性 async 測試與 4 個 aip frame 測試)
 │   ├── ReconnectHintTests.swift       冷啟動自動重連決策＋位址變更診斷的純函式測試(XCTest:21 個,v0.5.1)
-│   └── SessionClientTests.swift       AIP Character Session 純決策測試(XCTest:28 個,v0.6.0)
+│   └── SessionClientTests.swift       AIP Character Session 純決策測試(XCTest:34 個,v0.6.0)
 └── InteractionCompanion/
     ├── InteractionCompanionApp.swift  App 進入點 + 元件接線(scenePhase → 前景觀察)
     ├── Info.plist.example             隱私描述的來源範本(內容已複製到上面的 Info.plist)
@@ -96,6 +100,7 @@ apps/interaction-ios/
     │   ├── AIPEnvelope.swift          AIP 1.0 驗證邏輯(手寫,與 Rust 權威實作同一組規則)
     │   └── CharacterSemantic.swift    語意狀態鏡射 + RFC 7396 merge patch + canonical hash
     ├── Services/
+    │   ├── AppLifecycle.swift         前景/背景純決策 + presence 心跳常數(唯一來源)
     │   ├── ConnectionManager.swift    WebSocket + TLS 指紋固定 + 配對/認證 + 重連 backoff
     │   ├── SessionClient.swift        AIP Character Session 手機端(remote-renderer)
     │   ├── PairingStore.swift         Keychain(deviceId/token/host/port/指紋;不存配對碼)
@@ -207,8 +212,44 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 > **2026-09-05（v0.6.x 可維護性分支，M1 hash 契約）重跑：Executed 104 tests, with 0 failures**
 >（上列 101＋StateHashConformance 3：三端共用 `stateHashes` fixtures 9/9 從原始文字逐字解析；iPhone 17 模擬器、
 > iOS 26.5 runtime、UDID B9A0E7F9…；修復者與獨立驗證者各跑一次）
+> **2026-09-05（v0.6.x 可維護性分支，M4 §5.4 生命週期）重跑：Executed 120 tests, with 0 failures**
+>（上列 104＋Lifecycle 16：前景/背景決策表、presence 心跳常數不變量、回前景 resume、AIP heartbeat 回應；
+> 同一台 iPhone 17 模擬器、iOS 26.5 runtime、UDID B9A0E7F9…；先看到 13 個測試紅燈／37 個斷言失敗再實作到全綠）
 > ——仍是 **iPhone 17 模擬器**（UDID 66067313…，跑完即 `simctl shutdown`），
 > 與真機驗收是兩件事。
+
+### 背景/前景與 presence 心跳(v0.6.x)
+
+**耦合明示**:手機在桌面 Character Session 裡的 presence **完全**靠 wire protocol v1 的
+`status` 訊息維持——桌面 `mobile.rs` 收到 `status` 才對已協商的手機呼叫
+`character_session_touch_presence`。本 App **不送** AIP `heartbeat`
+(`docs/aip/transport-bindings.md` §1.4 記為尚未實作)。因此:
+
+| 常數(`Services/AppLifecycle.swift`,唯一來源) | 值 | 為什麼 |
+|---|---|---|
+| `PresenceHeartbeatPolicy.statusIntervalSeconds` | **15 s** | v0.6.x 由 30 s 縮短。桌面逾時 45 s,30 s 間隔代表**漏送一次就離線**(零容錯);15 s 才容得下一次整包漏送。心跳只在前景跑,螢幕本來就亮著,電量代價小於「使用者正看著角色、桌面卻以為手機離線」。 |
+| `PresenceHeartbeatPolicy.presenceTimeoutSeconds` | 45 s | 對應 Rust `SessionConfig::presence_timeout_ms` 預設值(**跨端契約**,兩邊要一起改)。 |
+| `PresenceHeartbeatPolicy.missedBeatsTolerated` | 1 | 由上面兩個數字算出來,測試釘住 `間隔 < 逾時/2`。 |
+
+生命週期決策是純函式 `LifecycleDecision.on(phase:socketAlive:sinceForeground:)`,表格化測試:
+
+| scenePhase | socket | 離開前景多久 | 動作 |
+|---|---|---|---|
+| `background` | 任何 | — | 停 status 心跳、本地 presence 標成 `background`、記下離開前景時間。**不送、不重連**(沒有 Background Mode,送了也是假裝)。 |
+| `inactive` | 任何 | — | 什麼都不做(通知中心/App 切換器的過渡狀態)。 |
+| `active` | 活著 | < 1 s | 立刻補一則 `status`(不等 15 s)、重啟 timer。太短不值得一次 resume round-trip。 |
+| `active` | 活著 | ≥ 1 s | 立刻補一則 `status`、重啟 timer、`SessionClient.foregroundDidResume()` 走一次 §7 resume(帶 lastRevision/lastSequence/epoch)。**不重播**任何互動事件或 intent(AIP §8)。 |
+| `active` | 已斷 | 任何 | 不假裝送得出 status;若使用者仍想連線且有配對,**跳過退避**立刻重連。 |
+
+收到桌面的 AIP `heartbeat` 時(目前桌面不會主動送,但協定允許):記一行進階診斷
+「收到 AIP heartbeat,本版以 wire protocol v1 的 status 心跳回應」,並回一則 legacy `status`
+(5 秒節流);**不**回 AIP heartbeat——AIP §2.1 對 heartbeat 的回應是「選填 heartbeat」,
+而本 App 沒有宣稱這個能力,回了才是假裝。其餘仍然忽略的型別(`event`/`query`/`cancel`/
+`approval-request`/`approval-result`)維持不執行,但各自留一行說明,不再靜默吞掉。
+
+**誠實範圍**:以上全部只在 **iPhone 17 模擬器**以 XCTest 驗證狀態機與時序決策
+(`InteractionCompanionTests/LifecycleTests.swift`,16 個測試)。**沒有**在真機上驗過
+「長時間背景 → 前景 → resume」,也沒有量過真實電量差異。
 
 ### 跑 XCTest:`simctl` 注入流程(可重現;`-destination` 不可用時的等價做法)
 
@@ -248,7 +289,7 @@ SIMCTL_CHILD_XCInjectBundleInto="$APP/InteractionCompanion" \
 xcrun simctl launch --console-pty "$UDID" "$BID" -XCTest All "$APP/PlugIns/InteractionCompanionTests.xctest"
 ```
 
-輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 104。
+輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 120。
 
 ### DEBUG 限定啟動參數(自動化驗收,僅供模擬器/CI;release 不編入)
 
@@ -715,6 +756,10 @@ mobile wss `18790`),`.app` 依修改後的 Swift 原始碼重編、`Info.plist` 
   依平台不變量,**斷線後麥克風/位置/BLE 閘道不自動恢復**,需使用者重新開啟。**真機實測確認**
   (2026-09-03):App 切到背景後 daemon 於數秒內偵測斷線並強制停用高風險受器,這是 iOS 平台行為,
   不是本專案的缺陷,但**不得宣稱 App 能在背景永久保持連線**。
+  v0.6.x 起 App 不再對背景「裝作沒事」——見上方「背景/前景與 presence 心跳(v0.6.x)」一節。
+  **驗證等級**:那一節描述的狀態機與時序決策只在**模擬器**以 XCTest 驗證(`LifecycleTests`,
+  16 個純決策測試);真機的背景 socket 行為仍然只有上面 2026-09-03 那一筆觀察,
+  v0.6 的 AIP/Character Session 層「長時間背景 → 前景 → resume」在真機上**執行次數為零**。
 - **桌面 IP 變更仍需要重新配對,但 v0.5.1 起會明講**(限制由真機實測發現,2026-09-03;
   提示為 v0.5.1 新增,**只在模擬器驗證**):App 沒有 Bonjour 探索,host 位址釘在配對當下——
   桌面 Wi-Fi 位址變更後(例如多接一張網卡),App 仍會用 Keychain 內的舊位址重連,daemon 端

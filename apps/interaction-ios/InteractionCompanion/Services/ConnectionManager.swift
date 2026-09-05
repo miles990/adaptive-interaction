@@ -56,6 +56,26 @@ enum ConnectionPhase: Equatable {
     }
 }
 
+// MARK: - 本地 presence
+
+/// 本地對「桌面現在看不看得到這台手機」的誠實認知。
+///
+/// **不是**桌面那邊的權威 presence——那由桌面依 `status` 心跳決定。這裡只誠實記錄
+/// 「我在背景、心跳已經停了」,避免 UI 在背景還顯示得像連線好好的。
+enum LocalPresence: String, Equatable {
+    case foreground
+    case background
+
+    var displayText: String {
+        switch self {
+        case .foreground:
+            return "前景(status 心跳運作中)"
+        case .background:
+            return "背景(心跳已停;桌面最遲 45 秒後會把這台裝置標成離線)"
+        }
+    }
+}
+
 // MARK: - 失敗分類與重連診斷(純函式,可單獨測試)
 
 /// 一次連線失敗的成因分類。分類決定 UI 該說什麼——**不同成因不得共用文案**。
@@ -251,6 +271,10 @@ final class ConnectionManager: NSObject, ObservableObject {
     /// 有界佇列丟棄的訊息數(誠實計數,UI 可見)
     @Published private(set) var droppedFrames = 0
     @Published private(set) var lastError: String?
+    /// 目前的 App 生命週期階段(由 `InteractionCompanionApp` 的 `scenePhase` 注入)。
+    @Published private(set) var lifecyclePhase: AppLifecyclePhase = .active
+    /// 本地 presence:背景時誠實標成 background,不假裝連線還活著。
+    @Published private(set) var localPresence: LocalPresence = .foreground
     /// 重連診斷:連續連線層失敗達門檻時,UI 應主動提示「桌面位址可能已變更」。
     /// 只有 `ReconnectDiagnosis.evaluate` 能決定這個值。
     @Published private(set) var reconnectDiagnosis: ReconnectDiagnosis = .keepRetrying
@@ -305,6 +329,8 @@ final class ConnectionManager: NSObject, ObservableObject {
     private let failureHistoryLimit = 32
     /// 本次連線的憑證指紋比對是否失敗(每次 openSocket 重置)
     private var pinningRejected = false
+    /// 上次離開前景的單調時鐘秒數;`nil` ＝ 這次回到前景之前不曾進過背景。
+    private var leftForegroundAt: TimeInterval?
     /// 單調時鐘(測試可替換;systemUptime 不受校時影響)
     var monotonicNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
 
@@ -449,6 +475,67 @@ final class ConnectionManager: NSObject, ObservableObject {
         guard case .connected = phase, let provider = statusProvider else { return }
         let (sensors, permissions) = provider()
         send(.status(sensors: sensors, permissions: permissions))
+    }
+
+    // MARK: 生命週期(前景/背景)
+
+    /// `scenePhase` 變化。決策由 `LifecycleDecision`(純函式)負責,這裡只執行。
+    ///
+    /// 為什麼要管:presence 完全靠 legacy `status` 心跳維持(`PresenceHeartbeatPolicy`),
+    /// 而本 App **沒有 Background Mode**——背景時心跳送不出去也不該假裝送得出去。
+    /// 回前景時則要把「假離線」的窗口縮到最小:立刻補一則 status,不等下一次 timer。
+    func lifecyclePhaseChanged(to newPhase: AppLifecyclePhase) {
+        guard newPhase != lifecyclePhase else { return }
+        let sinceForeground = leftForegroundAt.map { max(0, monotonicNow() - $0) }
+        let decision = LifecycleDecision.on(phase: newPhase,
+                                            socketAlive: isConnected,
+                                            sinceForeground: sinceForeground)
+        lifecyclePhase = newPhase
+
+        switch newPhase {
+        case .background:
+            leftForegroundAt = monotonicNow()
+            localPresence = .background
+            logLine("進入背景:停止 status 心跳。本 App 沒有 Background Mode,"
+                + "不宣稱背景仍然保持連線")
+        case .active:
+            localPresence = .foreground
+        case .inactive:
+            break
+        }
+
+        if decision.stopTimer {
+            stopStatusTimer()
+        }
+        if decision.sendStatusNow {
+            // 不等 timer:縮小「桌面以為手機離線」的窗口。
+            sendStatusNow()
+            logLine("回到前景:立即送出一則 status 心跳(不等下一次 "
+                + "\(Int(PresenceHeartbeatPolicy.statusIntervalSeconds)) 秒)")
+        }
+        if decision.restartTimer {
+            startStatusTimer()
+        }
+        if decision.resumeSession {
+            // socket 還活著:只 reconcile 角色狀態,不重播任何事件(AIP §8)。
+            withSession { $0.foregroundDidResume() }
+        }
+        if decision.reconnect,
+           LifecycleDecision.shouldReconnectImmediately(phase: phase,
+                                                        userWantsConnection: userWantsConnection,
+                                                        hasPairing: pairing != nil),
+           let stored = pairing {
+            // 回前景是新的一輪嘗試:第一次不等退避(使用者正看著畫面)。
+            cancelRetry()
+            backoffSeconds = 1
+            logLine("回到前景:連線已不在,立即重連(不等退避)")
+            openSocket(host: stored.host, port: stored.port, fingerprint: stored.fingerprint)
+        }
+
+        if newPhase == .active {
+            // 這次背景往返已經處理完;之後的 .inactive 閃動不該再算成一次背景。
+            leftForegroundAt = nil
+        }
     }
 
     // MARK: 建立/拆除 socket
@@ -676,10 +763,16 @@ final class ConnectionManager: NSObject, ObservableObject {
         withSession { $0.connectionDidConnect() }
     }
 
-    /// 每 30 秒:送 status + WebSocket ping(watchdog,偵測殭屍連線)。
+    /// 每 `PresenceHeartbeatPolicy.statusIntervalSeconds` 秒:送 status + WebSocket ping
+    /// (watchdog,偵測殭屍連線)。
+    ///
+    /// **這則 `status` 就是 presence 心跳**:桌面 `mobile.rs` 收到後對已協商的手機呼叫
+    /// `character_session_touch_presence`。停掉這個 timer ＝ 放棄 presence,所以背景時
+    /// 只停 timer 並誠實標成 background,不假裝還活著(見 `lifecyclePhaseChanged`)。
     private func startStatusTimer() {
         statusTimer?.invalidate()
-        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: PresenceHeartbeatPolicy.statusIntervalSeconds,
+                          repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.sendStatusNow()
@@ -694,6 +787,11 @@ final class ConnectionManager: NSObject, ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         statusTimer = timer
+    }
+
+    private func stopStatusTimer() {
+        statusTimer?.invalidate()
+        statusTimer = nil
     }
 
     // MARK: 斷線與重連

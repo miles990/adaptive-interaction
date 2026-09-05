@@ -285,6 +285,9 @@ struct PairingView: View {
     private var diagnosticsSection: some View {
         Section("診斷") {
             LabeledContent("丟棄的訊息", value: "\(connection.droppedFrames)")
+            // presence 靠 status 心跳維持,而心跳只在前景跑:背景時誠實說出來,
+            // 不讓畫面看起來像「背景也一直連著」。
+            LabeledContent("本機 presence", value: connection.localPresence.displayText)
             characterSyncAdvanced
             DisclosureGroup("連線記錄(僅本機)") {
                 if connection.log.isEmpty {
@@ -320,6 +323,7 @@ struct PairingView: View {
             LabeledContent("回報不支援的動作", value: "\(session.advanced.intentsRejected)")
             LabeledContent("捨棄的角色動作", value: "\(session.advanced.intentsDropped)")
             LabeledContent("忽略的同步訊息", value: "\(session.advanced.framesIgnored)")
+            LabeledContent("收到的 AIP heartbeat", value: "\(session.advanced.heartbeatsReceived)")
             if !session.unsupportedIntents.isEmpty {
                 Text("不支援的動作:\(session.unsupportedIntents.joined(separator: "、"))")
                     .font(.footnote)

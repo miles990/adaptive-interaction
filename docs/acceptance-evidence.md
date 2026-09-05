@@ -461,6 +461,10 @@ revoked→available 被拒）、agent sessions（Created 狀態、訊息預算�
 
 ### iPhone Mobile Provider（**iOS 模擬器**，iPhone 17／iOS 26.2 runtime；非真機）
 
+> v0.6.x 分支（2026-09-05）：XCTest **120/120**（模擬器，iPhone 17／iOS 26.5 runtime；AIPConformance 17＋Lifecycle 16＋
+> MotionClassifier 8＋Protocol 21＋ReconnectHint 21＋SessionClient 34＋StateHashConformance 3），修復者與獨立驗證者各跑一次；
+> 真機仍為零執行。
+
 - 配對閉環：`POST /v1/mobile/pairing-session` → App `--pairing-payload` → wss＋TLS 指紋固定＋HMAC → `GET /v1/mobile/status`
   `connected:true`；Keychain 重連 auth→auth-ok；`iphone.character` 動器收據 `acknowledged`＋`deviceApplied`；
   BLE scan 誠實回 `err ble-gateway-disabled`；motion 顯示「不可用」。截圖 `docs/assets/v05-evidence/ios-sim-01..07.png`。
@@ -879,7 +883,7 @@ v0.5.0 的 iPhone 真機證據（`docs/releases/v0.5.0-iphone-device-evidence.md
 完整清單見 `docs/releases/v0.5.1-known-limitations.md`。摘要：v0.5.0 的 28 項重新分類為**已修 13／
 部分修 7／保留 9**（其中第 13 項單獨列在「保留」的補充表），加上本輪新增的 **14 項窄限制**——受器與 tool-operation 的
 consent 仍是 TTL；首次設定在「檔案已寫、SQLite 未提交」之間崩潰沒有 journal；受器讀取路徑拿不到
-`pairingUnverified`；`simulate` 已擋但 `transition_provider` 不同步 registry 旗標；Reduced Motion 未在
+`pairingUnverified`；`simulate` 已擋但 `transition_provider` 不同步 registry 旗標（**v0.6.x 分支已修**：停用時翻旗標、重新啟用不自動恢復）；Reduced Motion 未在
 真視窗驗收；快捷選單／玩具／使魔與 adapter 崩潰 fallback 未在真視窗驗收；iPhone 冷啟動與位址提示只有
 模擬器證據；heap 保留集合 +523 KB 為未定位的觀察項；角色視窗被主視窗遮蔽時 WebKit 暫停繪製造成週期性
 re-hello（macOS 行為，非缺陷）；故障注入接縫編進正式碼（inert、只會讓寫入失敗）；legacy agent token

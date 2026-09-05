@@ -37,6 +37,8 @@ protocol SessionTransport: AnyObject {
     func sendAip(_ envelope: AIPEnvelope) -> Bool
     /// 舊路徑：wire protocol v1 的觀察訊息（尚未協商的桌面才會走）。
     func sendObservation(receptor: String, facts: [String: JSONValue])
+    /// 立刻送一則 legacy `status`：這是本版**唯一**維持 presence 的心跳。
+    func sendStatusNow()
 }
 
 // MARK: - 名稱常數（與 Rust `interaction_session::types` 一致）
@@ -392,6 +394,22 @@ enum SessionDecisions {
     }
 }
 
+extension SessionDecisions {
+    /// 收到 host AIP `heartbeat` 時要不要回一則 legacy `status`（節流，避免灌爆有界佇列）。
+    ///
+    /// 時鐘往回跳（使用者改時間、NTP 校正）時**寧可多回一則**：漏回的代價是被誤判離線，
+    /// 多回一則的代價只是一則小 frame。
+    static func shouldAnswerHeartbeat(
+        lastAnswerAt: Date?,
+        now: Date,
+        minInterval: TimeInterval = PresenceHeartbeatPolicy.heartbeatReplyMinIntervalSeconds
+    ) -> Bool {
+        guard let lastAnswerAt else { return true }
+        let elapsed = now.timeIntervalSince(lastAnswerAt)
+        return elapsed < 0 || elapsed >= minInterval
+    }
+}
+
 // MARK: - JSONValue 小工具（envelope payload 走訪）
 
 extension JSONValue {
@@ -414,6 +432,8 @@ struct SessionAdvancedInfo: Equatable {
     var intentsRejected = 0
     var intentsDropped = 0
     var framesIgnored = 0
+    /// 收到桌面 AIP `heartbeat` 的次數（收到幾則就記幾則，與有沒有回覆無關）。
+    var heartbeatsReceived = 0
 }
 
 // MARK: - SessionClient
@@ -449,6 +469,8 @@ final class SessionClient: ObservableObject {
     private var resuming = false
     private var messageCounter: UInt64 = 0
     private var sessionId = SessionNames.sessionId
+    /// 上一次因為 host heartbeat 而回送 legacy status 的時間（節流用）。
+    private var lastHeartbeatAnswerAt: Date?
 
     nonisolated init() {}
 
@@ -497,6 +519,32 @@ final class SessionClient: ObservableObject {
         queue.removeAll()
         resuming = false
         advanced = SessionAdvancedInfo()
+        refreshStatus()
+    }
+
+    /// 回到前景（socket 仍在）：只 reconcile 狀態。
+    ///
+    /// §8 離線政策：重連／回前景**不重播**任何互動事件或 intent——背景期間使用者的觸碰
+    /// 早就過了 `expiresAt`，補送只會讓桌面收到一則遲到的假事實。這裡只做一件事：
+    /// 用 §7 的 resume 問桌面「我停在 revision／sequence／epoch，之後發生了什麼」。
+    ///
+    /// 送不出去的情況（未連線、尚未協商、本地還沒有權威狀態）一律誠實留一行說明，
+    /// **不**假裝已經對齊。
+    func foregroundDidResume(now: Date = Date()) {
+        guard let transport, transport.isConnected else { return }
+        guard negotiated else {
+            // 連線流程本身會重送 capability；這裡不搶跑，也不假裝已經是成員。
+            note("回到前景：角色同步尚未協商，等待桌面回覆能力協商結果")
+            refreshStatus()
+            return
+        }
+        guard local.revision > 0 else {
+            note("回到前景：本地還沒有權威角色狀態，等待桌面送出快照")
+            refreshStatus()
+            return
+        }
+        note("回到前景：向桌面要求對齊角色狀態（只對齊狀態，不重播任何事件）")
+        sendResume(now: now)
         refreshStatus()
     }
 
@@ -551,8 +599,27 @@ final class SessionClient: ObservableObject {
             handleHostResult(envelope, now: now)
         case .error:
             handleHostError(envelope)
-        case .event, .query, .cancel, .approvalRequest, .approvalResult, .heartbeat:
+        case .heartbeat:
+            handleHostHeartbeat(now: now)
+        case .event:
+            // host→device 的 event 在本 profile 沒有語意（角色狀態一律走 `state`）。
             advanced.framesIgnored += 1
+            note("忽略一則桌面送來的 event（本版只從 state 取角色狀態）")
+        case .query:
+            // 手機是 remote-renderer，不擁有任何共享狀態，回答不了 query。
+            advanced.framesIgnored += 1
+            note("忽略一則桌面送來的 query（手機不持有可被查詢的狀態）")
+        case .cancel:
+            // 角色動作的取消走 `command{character.behavior.cancel}`，不走 cancel 型別。
+            advanced.framesIgnored += 1
+            note("忽略一則 cancel 訊息（角色動作的取消走 character.behavior.cancel）")
+        case .approvalRequest:
+            // 人類決定只在桌面的可信介面上做；手機不是 approval surface，不代答。
+            advanced.framesIgnored += 1
+            note("忽略一則 approval-request（手機不是人類決定的介面，不代為回答）")
+        case .approvalResult:
+            advanced.framesIgnored += 1
+            note("忽略一則 approval-result（手機不參與人類決定流程）")
         case .unknown:
             advanced.framesIgnored += 1
             note("忽略一則本版不認得的角色同步訊息")
@@ -776,6 +843,26 @@ final class SessionClient: ObservableObject {
         if status == AIPOutcome.rejected.rawValue || status == AIPOutcome.expired.rawValue {
             note("桌面未採用剛才送出的角色事件（\(code ?? status)）")
         }
+    }
+
+    /// 桌面送來 AIP `heartbeat`。
+    ///
+    /// 本版**不送** AIP heartbeat（`docs/aip/transport-bindings.md` §1.4 記為尚未實作，
+    /// 能力宣告裡也沒有宣稱），而 AIP §2.1 對 heartbeat 的回應是「選填 heartbeat」——
+    /// 所以不回 AIP heartbeat 是合規的。真正維持這支手機 presence 的是 wire protocol v1 的
+    /// `status`（桌面收到就 `character_session_touch_presence`），因此這裡回的是**真的有效的
+    /// 那一則**：立刻送一次 legacy `status`，並在進階診斷留下一行誠實說明。
+    private func handleHostHeartbeat(now: Date) {
+        advanced.heartbeatsReceived += 1
+        note("收到 AIP heartbeat，本版以 wire protocol v1 的 status 心跳回應（尚未實作送出 AIP heartbeat）")
+        guard let transport, transport.isConnected else { return }
+        guard
+            SessionDecisions.shouldAnswerHeartbeat(lastAnswerAt: lastHeartbeatAnswerAt, now: now)
+        else {
+            return
+        }
+        lastHeartbeatAnswerAt = now
+        transport.sendStatusNow()
     }
 
     private func handleHostError(_ envelope: AIPEnvelope) {

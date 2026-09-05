@@ -749,6 +749,12 @@ final class SessionClientTests: XCTestCase {
             observations.append(receptor)
         }
 
+        private(set) var statusSends = 0
+
+        func sendStatusNow() {
+            statusSends += 1
+        }
+
         var resumes: [AIPEnvelope] { sent.filter { $0.name == SessionNames.resume } }
     }
 

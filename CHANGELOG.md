@@ -23,7 +23,15 @@
   v0.5.1 被 tag 的 commit 其 Tauri backend job 失敗、v0.6.0 的 Windows desktop job 失敗）／證據等級／文件指標；
   `scripts/tests/docs-claims.sh` 核對 tag→commit 與檔案存在，並擋下總覽文件把已發布版本寫成「候選／尚未 tag」。（81b89d1）
 
+### Added
+- 唯讀端點 `GET /v1/providers/declarations`（`{declarations:[{id, classLabel, presentationSurfaces:[{match,value}], receptors,
+  highRiskReceptors}]}`）與 CLI `interact-ai providers declarations`：維運看得到 provider 家族宣告了哪些呈現面／高風險受器；
+  沒有 HTTP 寫入入口（測試釘住 POST 同路徑非 2xx）。
+
 ### Fixed
+- **停用／撤銷 provider 現在真的關掉它的受器／動器旗標**（v0.5.1 known-limitations #4，先以測試重現再修）：`transition_provider`
+  到 Disabled／Revoked／Closed／Expired 時比照 `revoke_provider` 逐一 `set_*_enabled(false)` 並寫 `provider.capabilities-disabled`
+  稽核（只記真的從開變關的）；回到 Available **不**自動恢復任何能力（人類先前手動關掉的不會被推翻；高風險能力不自動恢復）。
 - **快照檔格式版本與遷移**：`Snapshot` 新增 `format`（`SNAPSHOT_FORMAT = 1`；缺鍵＝0＝v0.6.0 無版本格式，與 AIP wire version 分開，
   不進 `hash`）。載入有界（≤1 MiB）並區分五種結果：舊版本→遷移（原檔備份成 `character-session.json.pre-format-<n>`，
   session 不重建）；未來版本→**不隔離、不覆寫**、store parked、記憶體 session；暫時讀不到→原封不動、parked（過去只跳過開機
@@ -61,6 +69,17 @@
   `release-scripts.sh` 靜態核對這兩件事（48/0）。（d94abac）
 
 ### Changed
+- **iOS 前景 presence 依生命週期**（M4 §5.4；模擬器 XCTest 120/120，真機零執行）：進背景停 status 心跳並把本地 presence 標成
+  background（不假設 socket 活著、不在背景重連）；回前景立刻補一則 `status`、socket 還活著且背景 ≥ 1 秒就送一次
+  `character.session.resume`（只 reconcile，不重播），socket 已死且使用者仍想連線就跳過退避重連；`.inactive` 不動。決策為純函式
+  `LifecycleDecision.on`／`shouldReconnectImmediately`（`LifecycleTests` 16 支）。**行為變更**：前景 status 心跳由 30 秒改為
+  **15 秒**（30 秒對 45 秒 presence 逾時是零容錯），常數集中在 `PresenceHeartbeatPolicy` 並以測試釘住「間隔 < 逾時/2」；桌面對
+  presence 的投影節流仍是逾時/3，revision 產生率上限不變（未實測電量與桌面 revision 率）。收到 AIP `heartbeat` 不再靜默吞掉
+  （計數、note、5 秒節流回一則 legacy `status`）。
+- **Capability declaration 表的 owner 從 CharacterHub 搬到 RuntimeInner**（M2 §3.2；角色呈現層對能力語意沒有主權）：讀者只拿
+  `&dyn CapabilityDeclarationsView`，`declare`／`retract` 為 pub(crate)、只經 `Runtime::declare_provider_capabilities`／新的
+  `retract_provider_capabilities(id) -> bool`；同 id 再宣告＝整份覆寫；單台裝置的 disable／revoke **不**動家族宣告（撤銷最後一支
+  iPhone 後 `provider.mobile` 的高風險受器宣告仍在，測試釘住）。宣告表仍是純記憶體（重啟由 `init_providers` 重新宣告）。
 - **角色專屬設定的驗證邊界綁定 adapter**（M2 §3.4）：`companion/settingsTransfer.ts` 不再 import 小樞的配色表、也不再自帶
   persona 清單；匯入時先解出目標角色 → 由角色目錄給 entrypoint → 用**該 adapter 的 meta**（`variants`／`personas`／
   `hasPlayfield`）驗證使魔配色與說話風格：非該角色的值拒絕並給人話錯誤（ref-shape 帶 rig 配色、plain-text 帶 persona-shu），

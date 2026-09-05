@@ -3,8 +3,9 @@
 //  InteractionCompanion
 //
 //  App 進入點與元件接線。
-//  scenePhase → SensorCenter.setForeground(電池觀察含 foreground 欄位;
-//  screen.flash 僅前景可用)。
+//  scenePhase →
+//   - SensorCenter.setForeground(電池觀察含 foreground 欄位;screen.flash 僅前景可用)
+//   - ConnectionManager.lifecyclePhaseChanged(前景 presence 心跳、回前景 resume/重連)
 //
 
 import SwiftUI
@@ -150,6 +151,22 @@ enum DebugLaunchOptions {
 }
 #endif
 
+/// SwiftUI 的 `ScenePhase` → 服務層的 `AppLifecyclePhase`。
+///
+/// 服務層刻意不依賴 SwiftUI(才測得動),轉換只做這一次、只做在這裡。
+/// 未來 SwiftUI 若新增 case,`@unknown default` 一律當成「不是前景」——
+/// 寧可停心跳並誠實標成背景,也不要假裝連線還活著。
+extension ScenePhase {
+    var appLifecyclePhase: AppLifecyclePhase {
+        switch self {
+        case .active: return .active
+        case .inactive: return .inactive
+        case .background: return .background
+        @unknown default: return .inactive
+        }
+    }
+}
+
 @main
 struct InteractionCompanionApp: App {
     @Environment(\.scenePhase) private var scenePhase
@@ -165,6 +182,9 @@ struct InteractionCompanionApp: App {
                 .environmentObject(model.ble)
                 .onChange(of: scenePhase) { _, newPhase in
                     model.sensors.setForeground(newPhase == .active)
+                    // presence 靠 status 心跳維持,而心跳只在前景跑:
+                    // 連線層也必須知道生命週期(見 ConnectionManager.lifecyclePhaseChanged)。
+                    model.connection.lifecyclePhaseChanged(to: newPhase.appLifecyclePhase)
                 }
                 // 冷啟動自動重連(只重建連線,感測不隨之恢復)。
                 .task {

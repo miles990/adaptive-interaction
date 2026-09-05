@@ -100,7 +100,10 @@ AIP §11 的 payload 巢狀深度上限是 8，多包一層 envelope 就會超�
 
 ### 1.4 舊協定 frame 也是存活證明
 
-v1 的 `status` 心跳（iOS App 目前每次狀態變化與定期都會送）在 `mobile.rs` 收到時，
+v1 的 `status` 心跳（iOS App 每次狀態變化都送；定期心跳 v0.6.x 起為**前景每 15 秒**——30 秒對 45 秒逾時是零容錯，
+15 秒容得下一次漏送；進背景就停止心跳，回前景立即補一則、socket 還活著且真的進過背景時另送一次
+`query character.session.resume`；常數集中在 `Services/AppLifecycle.swift` 的 `PresenceHeartbeatPolicy`，測試釘住
+「間隔 < 逾時/2」與 45 秒＝Rust `SessionConfig::presence_timeout_ms`）在 `mobile.rs` 收到時，
 對**已經協商過**的手機呼叫 `Runtime::character_session_touch_presence`：
 `lastSeenAt` 前進（走投影格線，不會每則心跳都生一個 revision）、presence 若不是 online 就轉回 online。
 
@@ -113,7 +116,8 @@ v1 的 `status` 心跳（iOS App 目前每次狀態變化與定期都會送）�
 `a_phone_that_only_touches_is_never_timed_out_of_the_session`）。
 
 > App 端仍然建議之後補上每 15 秒一則 AIP `heartbeat`：那是協定內的存活證明，
-> 餘裕比依賴 transport 心跳大。目前**尚未**實作。
+> 餘裕比依賴 transport 心跳大。目前**尚未**實作送出；v0.6.x 起 App **收到** AIP `heartbeat` 時不再靜默吞掉
+> （計數、note、5 秒節流回一則 legacy `status`；§2.1 的回應是選填 heartbeat，所以不回 AIP heartbeat 合規）。
 
 ## 2. HTTP（human token；`127.0.0.1`）
 
