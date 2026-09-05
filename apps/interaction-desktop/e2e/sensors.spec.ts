@@ -24,7 +24,7 @@ import {
 
 test.describe.configure({ mode: "serial" });
 
-const OUT = path.resolve(process.cwd(), "../../docs/assets/v05-evidence");
+const OUT = path.resolve(process.cwd(), "../../docs/assets/v06-evidence");
 const MIC = "iphone.mic-level";
 let phone: FakeIphone | null = null;
 
