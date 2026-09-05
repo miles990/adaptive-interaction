@@ -11,6 +11,8 @@
 # 誠實：每一組印自己的 PASS／FAIL 與數字；**沒有跑到的組印 SKIP，不算通過**，
 # 而且只要有任何一組 SKIP 或 FAIL，收尾就不會寫 "all checks passed"。
 # `--rust` 需要編譯整個 workspace（磁碟／時間成本高），在磁碟吃緊的環境請單獨安排。
+# swift 那一組在這裡永遠是 SKIP（XCTest 要 iOS 模擬器），但腳本仍會確認它的測試檔與
+# 測試名還在——跑不到的東西被刪掉時，這張清單不得看起來一切如常。
 #
 # 契約：`docs/aip/architecture-boundaries.md`（§1 分層與依賴方向、§2 ports、§3 adapter lifecycle）。
 # 能力歸屬與各領域的必要測試：`docs/MAINTAINERS-MAP.md`。
@@ -20,6 +22,11 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 DESKTOP="apps/interaction-desktop"
+
+# swift 那一組本腳本跑不到（XCTest 需要 iOS 模擬器）。跑不到不表示不用檢查：
+# 至少要確認那份跨語言一致性測試還在，而且還在測我們宣稱它測的那件事。
+SWIFT_TEST="apps/interaction-ios/InteractionCompanionTests/ReceiveDecisionConformanceTests.swift"
+SWIFT_CASE="testEveryReceiveDecisionFixtureReachesTheDocumentedDecision"
 
 RUN_RUST=0; RUN_TS=0; RUN_DOCS=0; LIST_ONLY=0
 if [[ $# -eq 0 ]]; then
@@ -32,10 +39,10 @@ else
       --ts)   RUN_TS=1 ;;
       --docs) RUN_DOCS=1 ;;
       -h|--help)
-        sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
         exit 0 ;;
       *)
-        echo "未知參數：$arg（用 --list／--rust／--ts／--docs）" >&2
+        echo "未知參數：${arg}（用 --list／--rust／--ts／--docs）" >&2
         exit 2 ;;
     esac
   done
@@ -56,7 +63,7 @@ CHECKS=(
 "ts|safety-honesty|一般模式的安全狀態誠實投影：五入口、不外洩技術詞、誠實階梯不鬆動|$DESKTOP/src/test/general-mode-no-technical-terms.test.tsx ／ regressions-v06-general-mode.test.tsx ／ overlay.test.tsx"
 "docs|docs-claims|文件對程式碼現況的可驗證陳述必須與 repo 一致（含已發布版本的 canonical 事實）|scripts/tests/docs-claims.sh"
 "docs|release-scripts|發布腳本／workflow 自測（語法、關卡誠實、CI 必需 check 清單）|scripts/tests/release-scripts.sh"
-"swift|receive-decisions|接收端決策表的 Swift 端（**需要 iOS 模擬器，本腳本不跑**）|apps/interaction-ios/InteractionCompanionTests/ReceiveDecisionConformanceTests.swift::testEveryReceiveDecisionFixtureReachesTheDocumentedDecision（見 apps/interaction-ios/README.md）"
+"swift|receive-decisions|接收端決策表的 Swift 端（**需要 iOS 模擬器，本腳本只確認測試還在**）|${SWIFT_TEST}::${SWIFT_CASE}（見 apps/interaction-ios/README.md）"
 )
 
 print_list() {
@@ -186,20 +193,43 @@ else
   record rust SKIP "未指定 --rust"
 fi
 
+# ------------------------------------------------------------------ swift
+# 一律檢查（成本是兩次 grep），而且**不**併進 docs／ts／rust 的執行計數：
+# 它在這台機器上永遠跑不到，混進 SKIPPED 只會讓每一次完整執行都看起來像有東西
+# 沒跑完。它自己的失敗條件很窄，但很重要——測試檔或測試名不見了的話，一份跨
+# 語言一致性保證就這樣消失了，而在這張清單上看起來會跟一直以來一模一樣。
+echo "── swift ───────────────────────────────────────────────"
+SWIFT_STATE="SKIP"; SWIFT_NOTE=""
+if [[ ! -f "${SWIFT_TEST}" ]]; then
+  echo "  ✘ 找不到 ${SWIFT_TEST}（Swift 端的決策表一致性測試不見了）"
+  SWIFT_STATE="FAIL"; SWIFT_NOTE="missing:${SWIFT_TEST}"; FAILED=$((FAILED + 1))
+elif ! grep -q "func ${SWIFT_CASE}" "${SWIFT_TEST}"; then
+  echo "  ✘ ${SWIFT_TEST} 裡沒有 func ${SWIFT_CASE}（被改名或刪掉了）"
+  SWIFT_STATE="FAIL"; SWIFT_NOTE="missing-case:${SWIFT_CASE}"; FAILED=$((FAILED + 1))
+else
+  SWIFT_LINE="$(grep -n "func ${SWIFT_CASE}" "${SWIFT_TEST}" | head -1 | cut -d: -f1)"
+  echo "  · ${SWIFT_TEST}:${SWIFT_LINE} 的 ${SWIFT_CASE} 還在"
+  echo "    需要 iOS 模擬器才跑得到，本腳本沒有跑它（存在 ≠ 通過；見 apps/interaction-ios/README.md）"
+  SWIFT_NOTE="${SWIFT_TEST}:${SWIFT_LINE} 在；需要 iOS 模擬器，本腳本未執行"
+fi
+echo
+
 # ----------------------------------------------------------------- 收尾
 echo "── 摘要 ────────────────────────────────────────────────"
 for row in "${GROUP_RESULT[@]}"; do
   IFS='|' read -r g s n <<< "$row"
   printf '  %-5s %-4s %s\n' "$g" "$s" "$n"
 done
-echo "  swift  SKIP  ReceiveDecisionConformanceTests 需要 iOS 模擬器（見 apps/interaction-ios/README.md）"
+printf '  %-5s %-4s %s\n' swift "${SWIFT_STATE}" "${SWIFT_NOTE}"
 echo
+SWIFT_TAIL="swift 那一組本腳本跑不到（需要 iOS 模擬器）"
+[[ "${SWIFT_STATE}" == "SKIP" ]] && SWIFT_TAIL="${SWIFT_TAIL}；測試檔與測試名已確認還在"
 if [[ "$FAILED" -gt 0 ]]; then
-  echo "architecture-checks: $FAILED 組 FAIL、$SKIPPED 組未執行"
+  echo "architecture-checks: $FAILED 組 FAIL、$SKIPPED 組未執行；${SWIFT_TAIL}"
   exit 1
 fi
 if [[ "$SKIPPED" -gt 0 ]]; then
-  echo "architecture-checks: 已跑的組全數通過；$SKIPPED 組未執行（未執行 ≠ 通過）"
+  echo "architecture-checks: 已跑的組全數通過；$SKIPPED 組未執行（未執行 ≠ 通過）；${SWIFT_TAIL}"
   exit 0
 fi
-echo "architecture-checks: 全部三組通過"
+echo "architecture-checks: docs／ts／rust 三組全數通過；${SWIFT_TAIL}"
