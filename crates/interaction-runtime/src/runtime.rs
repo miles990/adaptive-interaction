@@ -121,9 +121,21 @@ pub struct RuntimeInner {
     /// 的協調器只認得這張表；有界（[`crate::sensor_source::MAX_SENSOR_SOURCES`]），
     /// 超過就拒絕並留稽核。
     pub(crate) sensor_sources: RwLock<crate::sensor_source::SensorSourceMap>,
-    /// 來源被移除、但移除當下還在擷取的「可能還在擷取」記錄（有界可見）。
-    /// 感測不靜默：移除一個來源不得讓它的擷取從 status 無聲消失。
-    pub(crate) orphan_captures: RwLock<BTreeMap<String, crate::sensor_source::OrphanedCaptures>>,
+    /// 每一次感測來源登記的世代（單調遞增）。同一個 `source_id` 重新登記時，
+    /// 舊那一次留下的「可能還在擷取」不會因此變成假的——世代讓兩者分得開。
+    pub(crate) sensor_source_seq: std::sync::atomic::AtomicU64,
+    /// 感測記錄用的可注入單調時鐘。production 就是 `Instant::now()`；
+    /// 測試把它往前推，TTL 行為才不必真的等 60 秒。
+    pub sensor_clock: crate::sensor_source::SensorClock,
+    /// 來源被移除、但移除當下還在擷取的「可能還在擷取」記錄（**即時**清單，
+    /// 有界可見）。感測不靜默：移除一個來源不得讓它的擷取從 status 無聲消失。
+    pub(crate) orphan_captures:
+        RwLock<BTreeMap<crate::sensor_source::SourceKey, crate::sensor_source::OrphanedCaptures>>,
+    /// 已經離開即時清單、但仍然**沒有結論**的停止（不隨時間過期）。
+    /// 「過期」只代表不再佔著即時清單，不代表停了——這張表是那句話的證據。
+    /// 有界（[`crate::sensor_source::MAX_UNRESOLVED_STOPS`]）。
+    pub(crate) unresolved_stops:
+        RwLock<BTreeMap<crate::sensor_source::SourceKey, crate::sensor_source::UnresolvedStop>>,
     /// Typed handle to the microphone receptor (None when not registered).
     pub mic_receptor: Option<Arc<adapters_media::MicListenReceptor>>,
     /// Presentation bridge: companion-window presence + pending command acks.
@@ -154,14 +166,16 @@ pub struct RuntimeInner {
     /// 讀取／命令必然通過 hello 身分＋pair-ok 握手，所以證據等級是
     /// handshake；HTTP 宣告式或內建能力只能記到 capability。
     pub(crate) device_link_providers: std::sync::Mutex<BTreeSet<String>>,
-    /// 哪些宣告式 provider 的綁定已經被拆掉（停用／撤銷時整筆能力宣告被
-    /// retract、SensorSource 解除登記），到**這一次執行結束**都不會回來。
+    /// 每一台宣告式 provider 的**顯式**綁定生命週期
+    /// （[`crate::declarative_lifecycle::DeclarativeLifecycle`]）＋它的 spec。
     ///
-    /// 為什麼要記：把 provider 轉回 `Available` 只翻得動 state 欄位，spec 的
-    /// 連線與能力宣告要等下一次啟動重新載入才回得來。不記下來，使用者會看到
-    /// 一個「可用」卻沒有任何能力的裝置——state 先於實際能力恢復＝不誠實。
-    /// 有界：鍵只可能是宣告式 provider 的 id，重新綁定時移除。
-    pub(crate) declarative_rebind_pending: std::sync::Mutex<BTreeSet<String>>,
+    /// 為什麼不是布林集合：布林說得出「綁定不在」，說不出「為什麼不在」，
+    /// 也說不出「正在回來的路上」。停用→啟用因此只能誠實地要求重新啟動
+    /// daemon。有了顯式狀態＋spec 副本，同一個行程就重新綁定得回來，而且
+    /// 撤銷／移除永遠不會被 rebind 復活。
+    /// 有界（[`crate::declarative_lifecycle::MAX_DECLARATIVE_BINDINGS`]）。
+    pub(crate) declarative_bindings:
+        std::sync::Mutex<BTreeMap<String, crate::declarative_lifecycle::DeclarativeBinding>>,
     /// 知識檢索的可替換向量候選介面。
     pub(crate) vector_index: Box<dyn crate::knowledge::VectorIndex>,
     /// 裝置 id → 那台裝置目前的 AIP 出站通道（**型別抹除**）。
@@ -418,7 +432,10 @@ impl Runtime {
                 executing_plans: std::sync::Mutex::new(BTreeSet::new()),
                 sensors: std::sync::Mutex::new(BTreeMap::new()),
                 sensor_sources: RwLock::new(BTreeMap::new()),
+                sensor_source_seq: std::sync::atomic::AtomicU64::new(0),
+                sensor_clock: crate::sensor_source::SensorClock::default(),
                 orphan_captures: RwLock::new(BTreeMap::new()),
+                unresolved_stops: RwLock::new(BTreeMap::new()),
                 mic_receptor: Some(mic_receptor),
                 presentation: presentation_bridge,
                 proactive_dialogue: RwLock::new(proactive_state),
@@ -426,7 +443,7 @@ impl Runtime {
                 gateway: crate::gateway::GatewayManager::new(),
                 provider_tested: std::sync::Mutex::new(BTreeMap::new()),
                 device_link_providers: std::sync::Mutex::new(BTreeSet::new()),
-                declarative_rebind_pending: std::sync::Mutex::new(BTreeSet::new()),
+                declarative_bindings: std::sync::Mutex::new(BTreeMap::new()),
                 vector_index: Box::new(crate::knowledge::LocalSubwordEmbeddingIndex::default()),
                 device_outbound: std::sync::RwLock::new(BTreeMap::new()),
             }),
@@ -553,7 +570,7 @@ impl Runtime {
             .ok()
             .map(|r| r.len())
             .unwrap_or(0);
-        json!({
+        let mut status = json!({
             "name": "adaptive-interaction",
             "version": env!("CARGO_PKG_VERSION"),
             "schemaVersion": interaction_core::SCHEMA_VERSION,
@@ -580,7 +597,19 @@ impl Runtime {
             "quietHours": quiet_hours,
             "onboardingCompleted": self.onboarding_state().await
                 .get("completed").and_then(Value::as_bool).unwrap_or(false),
-        })
+        });
+        // 「未解決停止」：已經離開即時清單、但沒有人確認停了的擷取。空的時候
+        // 不序列化——沒有未解決的事就不該在每一份 status 上留一個空欄位。
+        let unresolved = self.unresolved_stops().await;
+        if !unresolved.is_empty() {
+            if let Some(obj) = status.as_object_mut() {
+                obj.insert(
+                    "unresolvedStops".into(),
+                    serde_json::to_value(&unresolved).unwrap_or(Value::Null),
+                );
+            }
+        }
+        status
     }
 
     pub async fn capabilities(&self, ctx: &DiscoveryContext) -> CapabilitySnapshot {

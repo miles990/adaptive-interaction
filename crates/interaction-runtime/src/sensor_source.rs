@@ -32,10 +32,65 @@ pub const MAX_SENSOR_SOURCES: usize = 32;
 /// 來源不守自己的期限時，協調器最多再多等這麼久就當成「結果未知」。
 const SOURCE_GRACE: Duration = Duration::from_millis(500);
 
-/// 來源被移除、但移除當下它還在擷取：那一筆「可能還在擷取」要留在
-/// `activeSensors` 多久。永遠留著等於永久誤報（我們確實不知道它停了沒有），
-/// 一移除就消失則是靜默——取有界的中間值，並且一定留稽核。
+/// 來源被移除、但移除當下它還在擷取：那一筆「可能還在擷取」要留在**即時**
+/// 清單（`activeSensors`）多久。永遠留著等於永久誤報（我們確實不知道它停了
+/// 沒有），一移除就消失則是靜默——取有界的中間值。
+///
+/// 誠實：過了這個窗**不是**「已經停了」。到期的記錄會轉進不受 TTL 影響的
+/// [`UnresolvedStop`]（未解決停止摘要），只能被明確的確認或人為解除清掉。
 pub const ORPHAN_CAPTURE_VISIBLE: Duration = Duration::from_secs(60);
+
+/// 「未解決停止」摘要的上限。它不隨時間過期，所以必須自己有界；滿了丟最舊
+/// 的一筆並留稽核（被丟掉的那一筆從來沒有被說成已停止）。
+pub const MAX_UNRESOLVED_STOPS: usize = 32;
+
+/// 一個感測來源登記的識別：`source_id` 加上**這一次登記**的世代。
+///
+/// 為什麼要世代：同一個 `source_id` 可以被重新登記（裝置重連、adapter 重新
+/// 綁定）。舊那一次登記留下的「可能還在擷取」不會因為有了新來源就變成假的
+/// ——新來源不知道舊連線那一頭發生過什麼事。沒有世代的話，重新登記會把上一
+/// 次的未解決記錄無條件抹掉，而畫面上看起來「一切正常」。
+pub type SourceKey = (String, u64);
+
+/// 可注入的單調時鐘。
+///
+/// production 永遠是 `Instant::now()`；測試把它往前推，才不用真的等 60 秒
+/// 去驗 TTL 行為（真等 60 秒的測試不會有人跑）。
+#[derive(Default)]
+pub struct SensorClock {
+    /// 額外前進的毫秒數。production 永遠是 0。
+    skew_ms: std::sync::atomic::AtomicU64,
+}
+
+/// 時鐘最多能被推多遠（避免 `Instant` 溢位；也讓誤用有上限）。
+const MAX_CLOCK_SKEW: Duration = Duration::from_secs(365 * 24 * 3600);
+
+impl SensorClock {
+    pub fn now(&self) -> std::time::Instant {
+        let skew = self
+            .skew_ms
+            .load(std::sync::atomic::Ordering::SeqCst)
+            .min(MAX_CLOCK_SKEW.as_millis() as u64);
+        std::time::Instant::now() + Duration::from_millis(skew)
+    }
+
+    /// 把時鐘往前推（只給測試用；production code 不呼叫）。
+    #[doc(hidden)]
+    pub fn advance(&self, by: Duration) {
+        let by = by.min(MAX_CLOCK_SKEW).as_millis() as u64;
+        let _ = self.skew_ms.fetch_update(
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+            |current| {
+                Some(
+                    current
+                        .saturating_add(by)
+                        .min(MAX_CLOCK_SKEW.as_millis() as u64),
+                )
+            },
+        );
+    }
+}
 
 /// 一次停止請求的結果（明確枚舉，不用字串猜）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -210,19 +265,56 @@ pub trait SensorSource: Send + Sync {
     }
 }
 
-/// 被移除、但移除當下還在擷取的來源留下的「可能還在擷取」記錄（有界可見）。
+/// 被移除、但移除當下還在擷取的來源留下的「可能還在擷取」記錄。
+///
+/// 生命週期只有兩段，而且兩段都不是「消失」：
+/// 1. [`ORPHAN_CAPTURE_VISIBLE`] 之內在 `activeSensors` 上以 `stop-unknown` 現身；
+/// 2. 之後轉進 [`UnresolvedStop`]——不再佔著即時清單，但仍然是一筆沒有結論的
+///    停止，要由確認或人為解除才會消失。
 #[derive(Debug, Clone)]
 pub(crate) struct OrphanedCaptures {
     pub(crate) captures: Vec<SensorUse>,
     pub(crate) at: std::time::Instant,
+    /// 這一筆屬於哪一次登記（見 [`SourceKey`]）。
+    pub(crate) since: chrono::DateTime<chrono::Utc>,
+}
+
+/// 一筆「已經不在即時清單上、但仍然沒有結論」的停止。
+///
+/// 誠實：它**不是**歷史。歷史在稽核裡；這張表回答的是「現在還有哪些東西，
+/// 我們不知道它停了沒有」。所以它不隨時間過期，只能由
+/// 「同 id 的新來源對那個受器確認停止」或人類明確解除清掉。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnresolvedStop {
+    pub source_id: String,
+    /// 哪一次登記（同 id 的新來源不會蓋掉舊世代的這一筆）。
+    pub generation: u64,
+    /// 這一筆涵蓋哪些受器。
+    pub sensors: Vec<String>,
+    /// 來源被移除、這筆變成未解決的時間。
+    pub since: chrono::DateTime<chrono::Utc>,
+    /// 最後看到的擷取狀態（含 `state`／`purpose`）。不猜、不改寫。
+    pub last_known: Vec<SensorUse>,
+}
+
+/// 一次登記中的感測來源＋它的世代。
+#[derive(Clone)]
+pub(crate) struct RegisteredSource {
+    pub(crate) source: Arc<dyn SensorSource>,
+    pub(crate) generation: u64,
 }
 
 /// 來源登記表：有界、以 `source_id` 為鍵。
-pub(crate) type SensorSourceMap = BTreeMap<String, Arc<dyn SensorSource>>;
+pub(crate) type SensorSourceMap = BTreeMap<String, RegisteredSource>;
 
 impl Runtime {
     /// 登記一個感測來源。同一個 `source_id` 再登記一次＝取代（來源自己就是
     /// 那件事的完整事實）。超過 [`MAX_SENSOR_SOURCES`] 時誠實拒絕並留稽核。
+    ///
+    /// **不會**清掉上一次登記留下的「可能還在擷取」記錄：新來源不知道舊連線
+    /// 那一頭發生過什麼事，抹掉等於用一台新裝置替一台舊裝置作證。舊記錄只能
+    /// 由「這個新來源對那個受器確認停止」或人類明確解除清掉。
     pub async fn register_sensor_source(&self, source: Arc<dyn SensorSource>) -> DomainResult<()> {
         let id = source.source_id();
         if id.trim().is_empty() {
@@ -244,23 +336,33 @@ impl Runtime {
                 "sensor source registry is full ({MAX_SENSOR_SOURCES}); {id} was not registered"
             )));
         }
-        map.insert(id.clone(), source);
-        drop(map);
-        // 來源被取代／新登記時，舊的「可能還在擷取」記錄不再適用。
-        self.orphan_captures.write().await.remove(&id);
+        let generation = self
+            .sensor_source_seq
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            .saturating_add(1);
+        map.insert(id.clone(), RegisteredSource { source, generation });
         Ok(())
+    }
+
+    /// 這個來源目前這一次登記的世代（沒有登記＝None）。
+    pub async fn sensor_source_generation(&self, source_id: &str) -> Option<u64> {
+        self.sensor_sources
+            .read()
+            .await
+            .get(source_id)
+            .map(|entry| entry.generation)
     }
 
     /// 移除一個感測來源。移除當下它還在擷取的話，那一筆擷取**不得靜默消失**：
     /// 記成有界可見的「停止結果未知」、補發事件、並留永久稽核。
     pub async fn unregister_sensor_source(&self, source_id: &str) -> bool {
         let removed = self.sensor_sources.write().await.remove(source_id);
-        let Some(source) = removed else {
+        let Some(entry) = removed else {
             return false;
         };
-        let captures = source.active_captures().await;
+        let generation = entry.generation;
+        let captures = entry.source.active_captures().await;
         if captures.is_empty() {
-            self.orphan_captures.write().await.remove(source_id);
             return true;
         }
         let sensors: Vec<String> = captures.iter().map(|c| c.kind.clone()).collect();
@@ -272,37 +374,40 @@ impl Runtime {
                 c
             })
             .collect();
-        let now = std::time::Instant::now();
+        let now = self.sensor_clock.now();
         let mut orphans = self.orphan_captures.write().await;
-        // 有界：先清掉過期的；還是滿的話丟最舊的一筆（並留痕）。來源反覆
-        // 登記／移除不得讓這張表與 `activeSensors` 無界成長。
-        orphans.retain(|_, entry| now.duration_since(entry.at) < ORPHAN_CAPTURE_VISIBLE);
+        // 有界：先把過期的搬進「未解決停止」（不是丟掉），還是滿的話丟最舊的
+        // 一筆並留痕。來源反覆登記／移除不得讓這張表與 `activeSensors` 無界成長。
+        let expired = drain_expired(&mut orphans, now);
         let mut dropped = None;
-        if orphans.len() >= MAX_SENSOR_SOURCES && !orphans.contains_key(source_id) {
+        if orphans.len() >= MAX_SENSOR_SOURCES {
             if let Some(oldest) = orphans
                 .iter()
                 .min_by_key(|(_, entry)| entry.at)
-                .map(|(id, _)| id.clone())
+                .map(|(key, _)| key.clone())
             {
                 orphans.remove(&oldest);
                 dropped = Some(oldest);
             }
         }
         orphans.insert(
-            source_id.to_string(),
+            (source_id.to_string(), generation),
             OrphanedCaptures {
                 captures: stale,
                 at: now,
+                since: chrono::Utc::now(),
             },
         );
         drop(orphans);
-        if let Some(dropped) = dropped {
+        self.record_unresolved_stops(expired).await;
+        if let Some((dropped_id, dropped_generation)) = dropped {
             // 被丟掉的那一筆**從來沒有**被說成已停止：稽核是它最後的痕跡。
             let _ = self.store.audit(
                 "sensor.removed-capture-record-dropped",
                 "runtime",
                 &serde_json::json!({
-                    "sourceId": dropped,
+                    "sourceId": dropped_id,
+                    "generation": dropped_generation,
                     "limit": MAX_SENSOR_SOURCES,
                     "reason": "the removed-while-capturing record is bounded; the oldest entry was dropped without ever being confirmed stopped",
                 }),
@@ -323,7 +428,11 @@ impl Runtime {
         let _ = self.store.audit(
             "sensor.source-removed-while-capturing",
             "runtime",
-            &serde_json::json!({"sourceId": source_id, "sensors": sensors}),
+            &serde_json::json!({
+                "sourceId": source_id,
+                "generation": generation,
+                "sensors": sensors,
+            }),
         );
         true
     }
@@ -336,7 +445,12 @@ impl Runtime {
     /// 快照登記中的來源。停止掃描一律先快照再跑：掃描進行中有人移除來源，
     /// 那一份還在飛的停止結果仍然要回得來（不得被吞掉）。
     pub(crate) async fn sensor_sources_snapshot(&self) -> Vec<Arc<dyn SensorSource>> {
-        self.sensor_sources.read().await.values().cloned().collect()
+        self.sensor_sources
+            .read()
+            .await
+            .values()
+            .map(|entry| entry.source.clone())
+            .collect()
     }
 
     /// 哪一個來源涵蓋這個 provider？回傳（來源, 要指名的 target）。
@@ -348,33 +462,216 @@ impl Runtime {
         provider_id: &str,
     ) -> Option<(Arc<dyn SensorSource>, Option<String>)> {
         let sources = self.sensor_sources.read().await;
-        if let Some(source) = sources.get(provider_id) {
-            return Some((source.clone(), None));
+        if let Some(entry) = sources.get(provider_id) {
+            return Some((entry.source.clone(), None));
         }
-        for (id, source) in sources.iter() {
+        for (id, entry) in sources.iter() {
             if let Some(rest) = provider_id.strip_prefix(&format!("{id}.")) {
                 if !rest.is_empty() {
-                    return Some((source.clone(), Some(rest.to_string())));
+                    return Some((entry.source.clone(), Some(rest.to_string())));
                 }
             }
         }
         None
     }
 
-    /// 「來源被移除時還在擷取」的有界可見記錄（過期的順手清掉）。
+    /// 「來源被移除時還在擷取」的**即時**可見記錄。到期的不會消失，而是轉進
+    /// 「未解決停止」摘要——過期只代表「不再佔著即時清單」，不代表停了。
     pub(crate) async fn orphaned_captures(&self) -> Vec<SensorUse> {
-        let now = std::time::Instant::now();
-        let mut map = self.orphan_captures.write().await;
-        map.retain(|_, entry| now.duration_since(entry.at) < ORPHAN_CAPTURE_VISIBLE);
-        map.values()
+        self.settle_expired_orphans().await;
+        self.orphan_captures
+            .read()
+            .await
+            .values()
             .flat_map(|entry| entry.captures.iter().cloned())
             .collect()
     }
 
-    /// 這個來源之後確認停止了：清掉它的「可能還在擷取」記錄（誠實：已經知道
-    /// 停了就不該繼續嚇人）。
-    pub(crate) async fn clear_orphaned_captures(&self, source_id: &str) {
-        self.orphan_captures.write().await.remove(source_id);
+    /// 過了即時可見窗的孤兒記錄轉進「未解決停止」。
+    ///
+    /// 刻意是**惰性**的（讀的時候才結算），而不是一個背景計時器：多一個
+    /// 定時 task 就多一個要收掉的東西，而且沒有人在看的時候，這件事本來就
+    /// 不需要發生。兩個讀取面（即時清單與未解決摘要）都會先呼叫它，所以
+    /// 不管從哪一邊看，看到的都是同一份結算過的事實。
+    async fn settle_expired_orphans(&self) {
+        let now = self.sensor_clock.now();
+        let expired = {
+            let mut map = self.orphan_captures.write().await;
+            drain_expired(&mut map, now)
+        };
+        self.record_unresolved_stops(expired).await;
+    }
+
+    /// 把到期的孤兒記錄轉成「未解決停止」（有界；滿了丟最舊的一筆並留痕）。
+    async fn record_unresolved_stops(&self, expired: Vec<(SourceKey, OrphanedCaptures)>) {
+        if expired.is_empty() {
+            return;
+        }
+        let mut recorded = Vec::new();
+        let mut dropped = Vec::new();
+        {
+            let mut map = self.unresolved_stops.write().await;
+            for ((source_id, generation), entry) in expired {
+                if map.len() >= MAX_UNRESOLVED_STOPS
+                    && !map.contains_key(&(source_id.clone(), generation))
+                {
+                    if let Some(oldest) = map
+                        .iter()
+                        .min_by_key(|(_, value)| value.since)
+                        .map(|(key, _)| key.clone())
+                    {
+                        map.remove(&oldest);
+                        dropped.push(oldest);
+                    }
+                }
+                let record = UnresolvedStop {
+                    source_id: source_id.clone(),
+                    generation,
+                    sensors: entry.captures.iter().map(|c| c.kind.clone()).collect(),
+                    since: entry.since,
+                    last_known: entry.captures,
+                };
+                recorded.push(serde_json::json!({
+                    "sourceId": record.source_id,
+                    "generation": record.generation,
+                    "sensors": record.sensors,
+                    "since": record.since,
+                }));
+                map.insert((source_id, generation), record);
+            }
+        }
+        for (source_id, generation) in dropped {
+            let _ = self.store.audit(
+                "sensor.unresolved-stop-dropped",
+                "runtime",
+                &serde_json::json!({
+                    "sourceId": source_id,
+                    "generation": generation,
+                    "limit": MAX_UNRESOLVED_STOPS,
+                    "reason": "the unresolved-stop summary is bounded; the oldest entry was dropped without ever being confirmed stopped",
+                }),
+            );
+        }
+        let _ = self.store.audit(
+            "sensor.unresolved-stop-recorded",
+            "runtime",
+            &serde_json::json!({
+                "entries": recorded,
+                "visibleForSeconds": ORPHAN_CAPTURE_VISIBLE.as_secs(),
+                "reason": "the removed source never confirmed it stopped; it left the live list but the stop is still unresolved",
+            }),
+        );
+    }
+
+    /// 目前所有「未解決停止」（順序固定；空的話不序列化到 status）。
+    pub async fn unresolved_stops(&self) -> Vec<UnresolvedStop> {
+        self.settle_expired_orphans().await;
+        self.unresolved_stops
+            .read()
+            .await
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    /// 一個**登記中**的來源確認了某些受器已經停止：把同 id 舊世代留下來的
+    /// 未解決記錄清掉（即時清單與未解決摘要都清）。
+    ///
+    /// 誠實界線：只有 `stopped`／`already-stopped` 算確認，而且只有現在還登記
+    /// 著的來源說了才算——一台已經不在的裝置不能替自己作證。
+    pub(crate) async fn resolve_stops_for(&self, source_id: &str, confirmed: &[String]) {
+        if confirmed.is_empty() {
+            return;
+        }
+        let mut cleared: Vec<serde_json::Value> = Vec::new();
+        {
+            let mut map = self.orphan_captures.write().await;
+            let keys: Vec<SourceKey> = map
+                .keys()
+                .filter(|(id, _)| id == source_id)
+                .cloned()
+                .collect();
+            for key in keys {
+                if let Some(entry) = map.get_mut(&key) {
+                    entry.captures.retain(|c| !confirmed.contains(&c.kind));
+                    if entry.captures.is_empty() {
+                        map.remove(&key);
+                    }
+                }
+            }
+        }
+        {
+            let mut map = self.unresolved_stops.write().await;
+            let keys: Vec<SourceKey> = map
+                .keys()
+                .filter(|(id, _)| id == source_id)
+                .cloned()
+                .collect();
+            for key in keys {
+                let remove = match map.get_mut(&key) {
+                    Some(entry) => {
+                        entry.sensors.retain(|s| !confirmed.contains(s));
+                        entry.last_known.retain(|c| !confirmed.contains(&c.kind));
+                        entry.sensors.is_empty()
+                    }
+                    None => false,
+                };
+                if remove {
+                    map.remove(&key);
+                    cleared.push(serde_json::json!({"sourceId": key.0, "generation": key.1}));
+                }
+            }
+        }
+        if !cleared.is_empty() {
+            let _ = self.store.audit(
+                "sensor.unresolved-stop-resolved",
+                "runtime",
+                &serde_json::json!({
+                    "clearedBy": source_id,
+                    "sensors": confirmed,
+                    "entries": cleared,
+                }),
+            );
+        }
+    }
+
+    /// 人為解除一筆「未解決停止」。
+    ///
+    /// 誠實：這**不是**「它停了」，而是「人類看過了，不用再提醒」。所以它一定
+    /// 要指名世代（不會誤消掉別的一筆），一定要留稽核，而且只有人可以做——
+    /// AI 不得替使用者宣告一件沒有人確認過的事。
+    pub async fn dismiss_unresolved_stop(
+        &self,
+        source_id: &str,
+        generation: u64,
+        actor: &str,
+    ) -> DomainResult<serde_json::Value> {
+        let key = (source_id.to_string(), generation);
+        let removed = self.unresolved_stops.write().await.remove(&key);
+        let Some(record) = removed else {
+            return Err(DomainError::NotFound(format!(
+                "no unresolved stop for {source_id} (generation {generation})"
+            )));
+        };
+        let _ = self.store.audit(
+            "sensor.unresolved-stop-dismissed",
+            actor,
+            &serde_json::json!({
+                "sourceId": record.source_id,
+                "generation": record.generation,
+                "sensors": record.sensors,
+                "since": record.since,
+                "note": "dismissed by a human; this does NOT mean the source confirmed it stopped",
+            }),
+        );
+        Ok(serde_json::json!({
+            "dismissed": true,
+            "sourceId": record.source_id,
+            "generation": record.generation,
+            "sensors": record.sensors,
+            "since": record.since,
+            "confirmedStopped": false,
+        }))
     }
 
     /// 問一個來源停止，並在來源自己的期限外再包一層逾時：來源不守約也不得
@@ -440,9 +737,15 @@ impl Runtime {
             )
             .await;
         self.emit_stop_sensor_events(&reports);
-        if !reports.is_empty() && reports.iter().all(|r| r.confirmed()) {
-            self.clear_orphaned_captures(&source.source_id()).await;
-        }
+        // 只有明確確認的受器才清掉舊世代留下的未解決記錄——而且必須是這個
+        // **還登記著**的來源自己說的（誠實：新裝置不能替舊裝置作證）。
+        let confirmed: Vec<String> = reports
+            .iter()
+            .filter(|r| r.confirmed())
+            .flat_map(|r| r.sensors.clone())
+            .collect();
+        self.resolve_stops_for(&source.source_id(), &confirmed)
+            .await;
         let released = source.release(target.as_deref(), reason).await;
         Some(serde_json::json!({
             "sourceId": source.source_id(),
@@ -452,6 +755,23 @@ impl Runtime {
             "released": released,
         }))
     }
+}
+
+/// 把過期的孤兒記錄從即時表裡取出（**取出**，不是丟掉：呼叫端要把它們轉進
+/// 「未解決停止」摘要）。
+fn drain_expired(
+    map: &mut BTreeMap<SourceKey, OrphanedCaptures>,
+    now: std::time::Instant,
+) -> Vec<(SourceKey, OrphanedCaptures)> {
+    let expired: Vec<SourceKey> = map
+        .iter()
+        .filter(|(_, entry)| now.duration_since(entry.at) >= ORPHAN_CAPTURE_VISIBLE)
+        .map(|(key, _)| key.clone())
+        .collect();
+    expired
+        .into_iter()
+        .filter_map(|key| map.remove(&key).map(|entry| (key, entry)))
+        .collect()
 }
 
 /// `Weak<RuntimeInner>` → `Runtime`：來源是被 Runtime 持有的，反向只能持弱參考

@@ -492,6 +492,18 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                     .await?
             }
             crate::SensorsAction::Stop => client.post("/v1/sensors/stop", Some(json!({}))).await?,
+            crate::SensorsAction::Unresolved => client.get("/v1/sensors/unresolved").await?,
+            crate::SensorsAction::Dismiss {
+                source_id,
+                generation,
+            } => {
+                client
+                    .post(
+                        &format!("/v1/sensors/unresolved/{source_id}/dismiss"),
+                        Some(json!({"generation": generation})),
+                    )
+                    .await?
+            }
         },
         Command::Knowledge { action } => match action {
             crate::KnowledgeAction::DomainPacks => {

@@ -491,6 +491,15 @@ impl<L: RawLink> DeviceLink<L> {
         self.ready_generation.load(Ordering::SeqCst) == ready_marker(self.raw.generation())
     }
 
+    /// 這條 link 上「已送出、還在等回覆」的請求數（cmd／cancel／read／stop-all）。
+    ///
+    /// 誠實用途：拆掉一條連線之前要先知道還有沒有人在等——直接 `shutdown()`
+    /// 會把那些等待變成 `Reset`，呼叫端只知道「沒等到」，不知道命令到底做了
+    /// 沒有。重新綁定因此先看這個數字收斂（有界等待），再關線。
+    pub fn in_flight(&self) -> usize {
+        self.in_flight.load(Ordering::SeqCst)
+    }
+
     /// 被擋下來的 `aip` 行數（診斷／稽核用）。
     pub fn aip_refused_before_pairing(&self) -> u64 {
         self.aip_refused_before_pairing.load(Ordering::SeqCst)
@@ -1265,6 +1274,11 @@ pub trait DeviceAipChannel: Send + Sync {
     fn aip_refused_before_pairing(&self) -> u64;
     /// 配對碼從未被裝置比對過（[`DeviceLink::pairing_unverified`]）。
     fn pairing_unverified(&self) -> bool;
+    /// 目前「已送出、還在等回覆」的請求數（[`DeviceLink::in_flight`]）。
+    ///
+    /// 重新綁定時要先讓進行中的請求收斂再拆線：直接關掉會讓一個還在等 ack
+    /// 的命令變成「結果永遠未知」，而呼叫端只看得到一條被換掉的連線。
+    fn in_flight(&self) -> usize;
     async fn ensure_ready(&self) -> Result<(), LinkError>;
     async fn send_aip(&self, envelope: Value, timeout: Duration) -> Result<(), LinkError>;
     async fn stop_all(&self, timeout: Duration) -> Result<(), LinkError>;
@@ -1308,6 +1322,9 @@ impl<L: RawLink + 'static> DeviceAipChannel for AipChannel<L> {
     }
     fn pairing_unverified(&self) -> bool {
         self.link.pairing_unverified()
+    }
+    fn in_flight(&self) -> usize {
+        self.link.in_flight()
     }
     async fn ensure_ready(&self) -> Result<(), LinkError> {
         self.link.ensure_ready().await

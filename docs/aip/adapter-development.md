@@ -77,6 +77,10 @@ in-process builtin adapter；外部 transport 的等價驗收是
    `interaction-session`（不得繞過它自己實作一套安全檢查——安全管線只有一份，在
    `crates/interaction-session/src/session.rs::gate`）；斷線→`Presence::Reconnecting`（既有 tick 轉
    Offline／leave）；provider 撤銷→leave＋retract＋unregister。
+   **綁定不成立時要拒收入站 frame**（AIP 1.0 澄清／v0.7.0）：abort 一條 task 只在下一個 await 點
+   生效，一則已經在處理中的 frame 會照樣跑完，於是裝置會在 `character.session.leave` 之後又
+   join 回來。宣告式那一條線的做法是在 `on_aip` 開頭問一次綁定生命週期，不是 `Bound` 就拒收並
+   稽核 `aip.rejected{stage:"provider-binding"}`（`device-profile.md` §6.1 步驟 1）。
 3. 依 Device Profile 宣告 `capability`（`role`／`inputs`／`intents`／`features`），
    不新增協定層級的欄位（除非兩個裝置都需要，見 §1 的提升規則）。
 4. 補 fixture（`crates/interaction-runtime/examples/fake_iphone.rs` 或 `scripts/esp32-serial-sim.py`
@@ -100,6 +104,14 @@ in-process builtin adapter；外部 transport 的等價驗收是
   更新 `docs/aip/compatibility.md` §1「協定相容矩陣」如果新 Transport 引入了新的實作分佈。
 
 ## 5. 刪除／停用的 lifecycle 與 deprecation 週期
+
+- **宣告式裝置的停用不是終局**（AIP 1.0 澄清／v0.7.0）：`Disabled` 與「連線沒了」都是可以
+  重新綁定的原因，`Revoked`／`Removed` 不是。把 provider 轉回一個活著的狀態只代表「允許再試
+  一次」——它會啟動一條有界的背景重新綁定，期間 `ProviderState` 誠實地是 `Disconnected`，
+  握手成功之後才收斂成 `Available`。八個步驟與稽核事件見 `docs/aip/device-profile.md` §6.1。
+  寫 adapter 時要記得兩件事：(a) 重新綁定會**整份重新註冊 spec**，所以能力回到剛啟動時的預設
+  ——需要 consent 的受器仍然是關的；(b) 停用／撤銷的順序是「先問來源停止 → 再關連線 →
+  最後翻旗標」，先關連線就再也問不出「你停了嗎」。
 
 - **角色／Adapter 停用**：CPP `Removed` lifecycle 狀態（`docs/character-protocol/README.md` §7
   的 adapter lifecycle 圖：「另有 `crashed`／`reconnecting`」，`docs/aip/architecture-boundaries.md`

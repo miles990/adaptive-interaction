@@ -128,6 +128,10 @@ pub const SENSOR_STOP_REASON_EMERGENCY: &str = "emergency-stop";
 /// 停止感測的 audit reason：這個 provider 被撤銷／停用了（X2）。
 /// **不是**緊急停止：來源（例如手機）要顯示「由桌面停止」而不是緊急停止那一句。
 pub const SENSOR_STOP_REASON_PROVIDER_OFF: &str = "provider-stopped";
+/// 停止感測的 audit reason：這台宣告式裝置正在**重新綁定**（AIP 1.0 澄清／
+/// v0.7.0）。舊連線要被換掉，所以先請還在的來源停下來——不是使用者按的，
+/// 也不是緊急停止。
+pub const SENSOR_STOP_REASON_REBIND: &str = "provider-rebinding";
 
 /// 一次「停止所有感測」掃描的原始結果（還沒投影成 wire 形狀）。
 ///
@@ -529,10 +533,15 @@ impl Runtime {
                     }
                 }
             }
-            if source_reports.iter().all(|r| r.confirmed()) {
-                // 已經確認停了：不必再用「來源被移除時可能還在擷取」嚇人。
-                self.clear_orphaned_captures(&source.source_id()).await;
-            }
+            // 這個**還登記著**的來源明確確認停止的受器：把同 id 舊世代留下的
+            // 未解決記錄清掉（誠實：只清它確認過的那幾個受器，不整筆抹掉）。
+            let confirmed: Vec<String> = source_reports
+                .iter()
+                .filter(|r| r.confirmed())
+                .flat_map(|r| r.sensors.clone())
+                .collect();
+            self.resolve_stops_for(&source.source_id(), &confirmed)
+                .await;
             reports.extend(source_reports);
         }
         // 未確認的一律補「可能還在擷取」（requested ≠ stopped）。

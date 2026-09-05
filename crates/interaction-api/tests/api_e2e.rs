@@ -2825,3 +2825,129 @@ async fn character_session_routes_are_human_only() {
         .unwrap();
     assert_eq!(response.status(), 403);
 }
+
+/// 「未解決停止」有自己的讀取面與人為解除入口，而且解除是**人類層**動作：
+/// AI 不得替使用者宣告一件沒有人確認過的事。
+#[tokio::test]
+async fn unresolved_stops_are_listed_and_only_a_human_can_dismiss_one() {
+    let server = TestServer::spawn().await;
+
+    // 沒有未解決的事：清單是空的，status 也不多一個空欄位。
+    let (code, listed) = server.get("/v1/sensors/unresolved").await;
+    assert_eq!(code, 200);
+    assert_eq!(listed["unresolvedStops"], json!([]), "{listed}");
+    let (_, status) = server.get("/v1/status").await;
+    assert!(status.get("unresolvedStops").is_none(), "{status}");
+
+    // 造一筆：來源被移除時還在擷取，而且即時可見窗已經過去。
+    server
+        .runtime
+        .register_sensor_source(std::sync::Arc::new(ApiFakeSource))
+        .await
+        .expect("registers");
+    let generation = server
+        .runtime
+        .sensor_source_generation("api.fixture")
+        .await
+        .expect("generation");
+    assert!(server.runtime.unregister_sensor_source("api.fixture").await);
+    server.runtime.sensor_clock.advance(
+        interaction_runtime::sensor_source::ORPHAN_CAPTURE_VISIBLE
+            + std::time::Duration::from_secs(1),
+    );
+
+    let (code, listed) = server.get("/v1/sensors/unresolved").await;
+    assert_eq!(code, 200);
+    let entries = listed["unresolvedStops"].as_array().cloned().unwrap();
+    assert_eq!(entries.len(), 1, "{listed}");
+    assert_eq!(entries[0]["sourceId"], json!("api.fixture"), "{listed}");
+    assert_eq!(entries[0]["generation"], json!(generation), "{listed}");
+    let (_, status) = server.get("/v1/status").await;
+    assert!(status["unresolvedStops"].is_array(), "{status}");
+
+    // agent token 不得解除：這是人類的決定。
+    let response = server
+        .client
+        .post(format!(
+            "{}/v1/sensors/unresolved/api.fixture/dismiss",
+            server.base
+        ))
+        .bearer_auth(&server.agent_token)
+        .json(&json!({"generation": generation}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        403,
+        "AI 不得替使用者解除一筆沒有人確認過的停止"
+    );
+
+    // 世代是必填：不指名就可能誤消掉一筆更新的未解決記錄。
+    let (code, _) = server
+        .post("/v1/sensors/unresolved/api.fixture/dismiss", json!({}))
+        .await;
+    assert_eq!(code, 400);
+
+    let (code, out) = server
+        .post(
+            "/v1/sensors/unresolved/api.fixture/dismiss",
+            json!({"generation": generation}),
+        )
+        .await;
+    assert_eq!(code, 200, "{out}");
+    assert_eq!(
+        out["confirmedStopped"],
+        json!(false),
+        "解除不等於停了：{out}"
+    );
+    let (_, listed) = server.get("/v1/sensors/unresolved").await;
+    assert_eq!(listed["unresolvedStops"], json!([]), "{listed}");
+    assert!(
+        server
+            .runtime
+            .store
+            .audit_tail(100)
+            .unwrap()
+            .iter()
+            .any(|a| a["kind"] == json!("sensor.unresolved-stop-dismissed")),
+        "人為解除一定要留稽核"
+    );
+}
+
+/// 程序內假來源：登記時正在擷取，永遠不確認停止。
+struct ApiFakeSource;
+
+#[async_trait::async_trait]
+impl interaction_runtime::sensor_source::SensorSource for ApiFakeSource {
+    fn source_id(&self) -> String {
+        "api.fixture".into()
+    }
+    fn declaration_id(&self) -> String {
+        "declaration.api.fixture".into()
+    }
+    async fn active_captures(&self) -> Vec<interaction_runtime::sensors::SensorUse> {
+        vec![interaction_runtime::sensors::SensorUse {
+            kind: "api.fixture.mic-level".into(),
+            started_at: chrono::Utc::now(),
+            started_by: "fixture".into(),
+            purpose: "fixture capture".into(),
+            auto_stop_at: None,
+            state: interaction_runtime::sensors::SENSOR_STATE_ACTIVE.into(),
+        }]
+    }
+    async fn request_stop(
+        &self,
+        _target: Option<&str>,
+        _deadline: std::time::Duration,
+        _reason: &str,
+    ) -> Vec<interaction_runtime::sensor_source::SensorStopReport> {
+        vec![interaction_runtime::sensor_source::SensorStopReport::new(
+            "api.fixture",
+            "declaration.api.fixture",
+            vec!["api.fixture.mic-level".into()],
+            interaction_runtime::sensor_source::SensorStopStatus::Unknown,
+            0,
+        )]
+    }
+}

@@ -106,6 +106,7 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
   綁定收送迴圈（握手 500 ms→15 s 有上限退避、400 ms 輪詢窗、broadcast Lagged 稽核 `aip.inbound-lagged`）。
   撤銷／停用 provider → leave session＋retract 宣告＋unregister 來源＋abort 綁定 task；停用中的 spec
   不開綁定 task（重啟不得讓人類關掉的裝置在背景重新握手）。
+- **綁定生命週期與免重啟重新綁定（AIP 1.0 澄清／v0.7.0）**：見下面的 §6.1。
 - **身分強度**：`transport-hello+device-side-pairing`（§3）；稽核 `aip.device-channel-ready`／
   `aip.device-channel-lost`／`aip.device-retired` 帶 `identityStrength`／`transport`／`pairingUnverified`。
 - **證據等級**：`crates/interaction-runtime/tests/declarative_session_loop.rs`（13 測；D1 的 7 支加上 D2 的「其他成員的廣播真的經序列線到達／放不進 639 bytes 的 patch 留痕」「身分不符與 session-binding 稽核記 transport=serial」「diagnostics identityStrength 三來源」「撤銷後出站表清空」「無通道成員的 no-channel 稽核」）走 **production
@@ -130,3 +131,67 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
   不是 fake_iphone 子程序；(4) `crates/interaction-adapter-declarative` 的 `PROVIDER_LINKS` 是行程層 static
   （鍵＝provider id）：同一行程多個 Runtime 的測試必須用不同 provider id，否則會互相關掉對方的裝置線
   （這正是 D1 測試在預設並行下偶發失敗的根因，已修機具、產品時間預算未動）。
+
+### 6.1 綁定生命週期（AIP 1.0 澄清／v0.7.0）
+
+wire 版本不變（`proto` 仍為 1，`aip` 訊息形狀不變）：這一節說的是 **host 這一側**的狀態，
+裝置端不需要任何改動。
+
+每一台宣告式 provider 在 runtime 有一個**顯式**的綁定狀態
+（`crates/interaction-runtime/src/declarative_lifecycle.rs`）：
+
+| 狀態 | 意思 | `ProviderState` |
+| --- | --- | --- |
+| `Bound` | 連線＋能力宣告＋`SensorSource` 都在 | `Installed`／`Available`／… |
+| `Rebinding{generation}` | 正在重新綁定；帶世代 | `Disconnected`（誠實：尚未連上） |
+| `Unbound{disabled\|disconnected\|revoked\|removed}` | 綁定已拆掉，並說得出原因 | 由那個決定自己決定 |
+
+在此之前這只是一個布林集合（`declarative_rebind_pending`）：它說得出「綁定不在」，說不出
+「為什麼不在」，也說不出「正在回來的路上」。於是把 provider 轉回 `Available` 只能誠實地印一句
+`needs-restart-to-rebind`，使用者得重開 daemon 才拿得回一台自己剛剛停用又啟用的裝置。
+那句話與它的稽核（`provider.needs-restart-to-rebind`）**已經移除**——它不再是事實。
+
+**重新綁定的八個步驟**（`transition_provider` 只「允許再試一次」並啟動一條有界的背景任務；
+它自己不做這八步，人類按下「啟用」的回應不該被一條要等握手的連線拖住）：
+
+1. 停新請求：狀態進 `Rebinding{generation}`；舊裝置的出站通道從登記表移除。
+   同時 `DeviceBinding` 對**入站** `aip` 加一道確定性閘門——綁定不是 `Bound` 就拒收並稽核
+   `aip.rejected{stage:"provider-binding"}`。（只靠 `tasks.abort_all()` 不夠：abort 只在下一個
+   await 點生效，一則已經在處理中的 frame 會照樣跑完，實測過的後果是裝置在
+   `character.session.leave` 之後又 join 回來。）
+2. 收斂進行中：有界等待舊連線的 in-flight 請求歸零（`DeviceAipChannel::in_flight`，預算 3 秒）；
+   等不到就誠實記 `drained:false`，不假裝那些請求有結果。
+3. 請來源停止並記錄結果：走**同一條** `SensorSource::request_stop`（reason `provider-rebinding`），
+   結果原封不動進稽核。沒有登記來源就誠實地什麼都不報，不冒充「已停」。
+4. 清 reader／task／subscription／`PROVIDER_LINKS` 舊項（`shutdown_provider_links`）。
+5. 失效舊 connection generation：`DeviceLink::shutdown()` 把握手世代歸零，晚到的 ack／frame
+   一律因世代不符被拒（`same_generation`）；稽核記下每條舊通道的 `readiness`／`handshakeInvalidated`。
+6. 重新驗證設定與授權：`provider_off_reason` 仍是 `revoked`／provider 又回到停下來的狀態／
+   spec 不再通過 `validate_spec` → 一律中止。**撤銷與移除永遠不重新綁定**
+   （`UnboundReason::rebindable()` 為 false）。這一步與第 7 步共用 provider 的序列化鎖
+   （`ProviderRegistry::lock_provider`），驗證通過與新連線登記之間插不進另一個決定。
+7. 建新連線並握手協商：重新註冊整份 spec（能力回到**剛啟動時**的預設——需要 consent 的受器
+   仍然是關的，高風險能力不會因為重新綁定而自己打開），然後在鎖**外面**有界等待握手
+   （預算 20 秒；人類的停用不該被一台不回應的裝置擋住）。
+8. 握手 Ready 之後才把 `ProviderState` 收斂為 `Available`，並把「重新連線中」那一句從 detail 拿掉。
+
+整段有總預算（40 秒 watchdog）。任何一次未收斂的 rebind 被下一個決定接手時（又停用、又按一次
+啟用、被撤銷），它的結果一律丟棄並留 `provider.rebind-superseded`——世代守衛讓晚到的完成回呼
+改不動任何狀態。
+
+**稽核**：`provider.rebinding`（開始，帶 generation 與舊連線描述）／`provider.rebound`（成功，帶
+`drained`／`closedLinks`／`staleChannels`／`sensorStop`／`handshake`）／`provider.rebind-failed{reason}`
+（失敗；狀態留在 `Disconnected`，detail 換成 `rebind-failed: …`）／`provider.rebind-superseded`。
+純 HTTP 宣告式 adapter 沒有裝置線可握手，`handshake` 誠實記 `none`，不冒充「握手成功」。
+
+**順序修正**：停用／撤銷現在是「先問來源停止 → 再關連線 → 最後翻能力旗標」。先關連線等於親手
+拆掉唯一能問「你停了嗎」的那條線，然後永遠只能回答 `unknown`。
+
+**證據等級**：`declarative_session_loop.rs` 的 `reenable_rebinds_without_restart` 走 **pty 模擬器**
+（不是真板）：停用 → 離開 session → 啟用 → 同一行程重新握手 → 重新成為成員；
+`rebind_generation_rejects_late_callbacks`／`revoke_during_rebind_does_not_resurrect`／
+`rebind_timeout_is_bounded_and_honest` 用一份指向不存在序列埠的 spec。
+`providers_loop.rs` 的 `re_enabling_a_declarative_device_rebinds_without_a_restart`／
+`disable_a_does_not_affect_b`／`reentrant_transitions_do_not_double_retire` 走純 HTTP spec。
+**ESP32 真板驗收仍為零。**
+

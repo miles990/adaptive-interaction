@@ -28,6 +28,8 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# 測試用的程序內假感測來源（實作 runtime 的 SensorSource port）。
+async-trait = { workspace = true }
 reqwest = { workspace = true }
 # WebSocket fixture client for the /v1/character/ws acceptance tests.
 tokio-tungstenite = "0.24"

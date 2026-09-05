@@ -76,6 +76,40 @@ AIP／Session 層寫入的稽核種類（`crates/interaction-session/src/session
 但稽核 `detail` 本身是否逐欄位排除所有可控字串，本次未逐一核對每個 audit call site，
 標記為「部分核實」而非「已驗證」）。
 
+## 5.1 「未解決停止」：過期不等於停了（AIP 1.0 澄清／v0.7.0）
+
+一個感測來源被移除時它還在擷取的話，那一筆「可能還在擷取」會以 `stop-unknown` 留在
+`status.activeSensors` 上 60 秒（`sensor_source::ORPHAN_CAPTURE_VISIBLE`）。在此之前，
+60 秒一到那筆記錄就被 `retain` 丟掉——畫面因此從「可能還在錄」變成「一切正常」，
+而我們其實從頭到尾都不知道它停了沒有。那是一次靜默。
+
+現在到期的記錄**離開即時清單、但不消失**：它轉進一份不受 TTL 影響的
+「未解決停止」摘要（`status.unresolvedStops`，非空才序列化；`GET /v1/sensors/unresolved`；
+`interact-ai sensors unresolved`），每一筆帶 `sourceId`／`generation`／`sensors`／`since`／
+`lastKnown`。三個面向刻意分開：**即時清單**（現在正在擷取什麼）、**未解決摘要**（現在還有哪些
+事我們不知道結果）、**歷史**（稽核，永遠留著）。
+
+清除它只有兩條路：
+
+1. **同一個 `sourceId` 的新來源**對那個受器回報 `stopped`／`already-stopped`。只有還登記著的
+   來源說了才算——一台已經不在的裝置不能替自己作證。
+2. **人類明確解除**（`POST /v1/sensors/unresolved/{sourceId}/dismiss`，body 必填 `generation`；
+   `interact-ai sensors dismiss <id> --generation N`）。這是**人類層**動作：agent token 打不到
+   這條路徑。回應與稽核都寫死 `confirmedStopped: false`——解除的意思是「人類看過了」，
+   不是「它停了」。
+
+`generation` 是每一次來源登記的世代（單調遞增）。同一個 `sourceId` 重新登記時，舊那一次留下的
+未解決記錄**不會**被抹掉（在此之前 `register_sensor_source` 對同 id 無條件 `remove` 舊記錄，
+等於用一台新裝置替一台舊裝置作證）。未解決摘要自己有界（32 筆），滿了丟最舊的一筆並稽核
+`sensor.unresolved-stop-dropped`——被丟掉的那一筆從來沒有被說成已停止。
+
+稽核：`sensor.source-removed-while-capturing`／`sensor.unresolved-stop-recorded`／
+`sensor.unresolved-stop-resolved`／`sensor.unresolved-stop-dismissed`／
+`sensor.unresolved-stop-dropped`。
+
+**目前範圍**：Rust runtime＋HTTP API＋CLI。tray／桌面 UI 的投影尚未接上（`status` 已經帶著
+這個欄位，前端還沒讀它）——沒做的事就寫沒做。
+
 ## 6. 保存期限
 
 - **Memory Provider 分層**（`crates/interaction-core/src/memory.rs::default_retention`）的三態

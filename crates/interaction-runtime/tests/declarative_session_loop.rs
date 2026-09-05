@@ -1179,3 +1179,354 @@ async fn a_member_without_an_outbound_channel_is_audited_when_a_broadcast_cannot
         "查不到通道就沒有 transport 可說——不猜：{row:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 重新綁定（M3 §a）：停用 → 啟用不再需要重新啟動 daemon。
+// 誠實階梯：`Available` 不得先於實際連線；撤銷永遠不會被 rebind 復活。
+// ---------------------------------------------------------------------------
+
+use interaction_core::ProviderState;
+use interaction_runtime::declarative_lifecycle::{DeclarativeLifecycle, UnboundReason};
+
+async fn provider_state(rt: &Runtime, id: &ProviderId) -> Option<ProviderState> {
+    rt.list_providers()
+        .await
+        .into_iter()
+        .find(|p| &p.identity.id == id)
+        .map(|p| p.state)
+}
+
+fn audit_rows(rt: &Runtime, kind: &str) -> Vec<Value> {
+    rt.store
+        .audit_tail(400)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|row| row["kind"] == json!(kind))
+        .collect()
+}
+
+/// 一份指向**不存在**的序列埠的 spec：連線永遠握不上手，用來釘住
+/// 「rebind 有界、誠實、而且不會被別的決定弄壞」。
+fn dead_spec(spec_id: &str, device_id: &str) -> interaction_adapter_declarative::DeclarativeSpec {
+    let port = std::env::temp_dir()
+        .join(format!(
+            "decl-rebind-missing-{}-{spec_id}",
+            std::process::id()
+        ))
+        .to_string_lossy()
+        .to_string();
+    serde_json::from_value(spec_json(&port, spec_id, device_id)).expect("spec")
+}
+
+/// 停用一台**真的有裝置線**的宣告式裝置，再啟用：同一個行程裡它必須重新連上、
+/// 重新成為 session 成員，而且 `activeSensors` 不留下任何幽靈。
+#[tokio::test(flavor = "multi_thread")]
+async fn reenable_rebinds_without_restart() {
+    let Some(mut fx) = Fixture::spawn() else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec())
+        .await
+        .expect("register");
+    let pid = ProviderId::new(&fx.provider_id);
+    assert!(
+        join_session(&mut fx, &rt).await,
+        "先加入 session：{:?}\nsim log:\n{}",
+        fx.members(&rt),
+        fx.log_text()
+    );
+    rt.registry
+        .set_receptor_enabled(&ReceptorId::new(&fx.receptor_id), true)
+        .await
+        .expect("enable receptor");
+
+    // 停用：離開 session、宣告撤回、來源解除登記。
+    rt.transition_provider(&pid, ProviderState::Disabled)
+        .await
+        .expect("disable");
+    // 20 秒是**測試機具**的等待上限（整個 workspace 並行時模擬器與 ack 都會變慢），
+    // 不是產品時序：停用本身是同步完成的。
+    assert!(
+        wait_until(Duration::from_secs(20), || {
+            let rt = rt.clone();
+            let device_id = fx.device_id.clone();
+            async move { presence_of(&rt, &device_id).is_none() }
+        })
+        .await,
+        "停用之後必須離開 session：{:?}\naudits: {:?}\nsim log:\n{}",
+        fx.members(&rt),
+        rt.store
+            .audit_tail(400)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|r| r["kind"].as_str().map(str::to_string))
+            .collect::<Vec<_>>(),
+        fx.log_text()
+    );
+    assert_eq!(
+        rt.declarative_lifecycle(&fx.provider_id),
+        Some(DeclarativeLifecycle::Unbound {
+            reason: UnboundReason::Disabled
+        }),
+        "停用的原因必須說得出來"
+    );
+
+    // 啟用：狀態誠實地退到 disconnected，背景重新綁定。
+    let back = rt
+        .transition_provider(&pid, ProviderState::Available)
+        .await
+        .expect("re-enable");
+    assert_eq!(
+        back.state,
+        ProviderState::Disconnected,
+        "還沒握上手就不得說可用：{back:?}"
+    );
+
+    assert!(
+        wait_until(Duration::from_secs(25), || {
+            let rt = rt.clone();
+            let pid = pid.clone();
+            async move {
+                rt.declarative_lifecycle(pid.as_str()) == Some(DeclarativeLifecycle::Bound)
+                    && rt
+                        .list_providers()
+                        .await
+                        .into_iter()
+                        .any(|p| p.identity.id == pid && p.state == ProviderState::Available)
+            }
+        })
+        .await,
+        "同一個行程裡就要重新握上手並收斂成 available；sim log:\n{}",
+        fx.log_text()
+    );
+    let rebound = audit_rows(&rt, "provider.rebound");
+    assert_eq!(rebound.len(), 1, "{rebound:?}");
+    assert_eq!(rebound[0]["detail"]["handshake"], json!("ready"));
+
+    // 裝置重新宣告能力 → 又是成員（同一個行程，沒有重新啟動 daemon）。
+    assert!(
+        join_session(&mut fx, &rt).await,
+        "重新綁定之後必須能重新加入 session：{:?}\nsim log:\n{}",
+        fx.members(&rt),
+        fx.log_text()
+    );
+
+    // 高風險受器不得因為重新綁定而自己打開（重新綁定＝回到剛啟動的預設）。
+    assert!(
+        rt.registry
+            .receptor(&ReceptorId::new(&fx.receptor_id))
+            .await
+            .is_err(),
+        "需要 consent 的受器重新綁定後仍然是關的"
+    );
+    let active = rt.active_sensors_all().await;
+    assert!(
+        !active.iter().any(|s| s.kind == fx.receptor_id),
+        "重新綁定不得留下幽靈擷取：{active:?}"
+    );
+    assert!(
+        rt.unresolved_stops().await.is_empty(),
+        "停用時確認停止過，就不該留下未解決停止：{:?}",
+        rt.unresolved_stops().await
+    );
+}
+
+/// 一次還沒收斂的 rebind 被下一個決定接手時，它的結果必須被丟掉：
+/// 晚到的完成回呼不得改任何狀態（世代守衛）。
+#[tokio::test(flavor = "multi_thread")]
+async fn rebind_generation_rejects_late_callbacks() {
+    let seq = SPEC_SEQ.fetch_add(1, Ordering::SeqCst);
+    let spec = dead_spec(&format!("lategen{seq}"), &format!("late-gen{seq:02}"));
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&spec).await.expect("register");
+    let pid = ProviderId::new(format!("provider.adapter.lategen{seq}"));
+
+    rt.transition_provider(&pid, ProviderState::Disabled)
+        .await
+        .expect("disable");
+    rt.transition_provider(&pid, ProviderState::Available)
+        .await
+        .expect("re-enable #1");
+    // 第一輪還卡在「等握手」時，人類又改了主意。
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    rt.transition_provider(&pid, ProviderState::Disabled)
+        .await
+        .expect("disable again");
+    rt.transition_provider(&pid, ProviderState::Available)
+        .await
+        .expect("re-enable #2");
+
+    assert!(
+        wait_until(Duration::from_secs(20), || {
+            let rt = rt.clone();
+            async move {
+                audit_rows(&rt, "provider.rebind-superseded")
+                    .iter()
+                    .any(|row| row["detail"]["generation"] == json!(1))
+            }
+        })
+        .await,
+        "第一輪的結果必須被丟掉並留痕：{:?}",
+        rt.store.audit_tail(400).unwrap_or_default()
+    );
+    assert_ne!(
+        provider_state(&rt, &pid).await,
+        Some(ProviderState::Available),
+        "握不上手就不得變成可用"
+    );
+    assert!(
+        audit_rows(&rt, "provider.rebound").is_empty(),
+        "沒有握上手就不得留下 rebound"
+    );
+}
+
+/// 重新綁定進行中被撤銷：撤銷永遠贏，而且**不得**被 rebind 復活。
+#[tokio::test(flavor = "multi_thread")]
+async fn revoke_during_rebind_does_not_resurrect() {
+    let seq = SPEC_SEQ.fetch_add(1, Ordering::SeqCst);
+    let spec = dead_spec(&format!("revoking{seq}"), &format!("revoking{seq:02}"));
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&spec).await.expect("register");
+    let pid = ProviderId::new(format!("provider.adapter.revoking{seq}"));
+
+    rt.transition_provider(&pid, ProviderState::Disabled)
+        .await
+        .expect("disable");
+    rt.transition_provider(&pid, ProviderState::Available)
+        .await
+        .expect("re-enable");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    rt.revoke_provider(&pid).await.expect("revoke");
+
+    assert_eq!(
+        rt.declarative_lifecycle(pid.as_str()),
+        Some(DeclarativeLifecycle::Unbound {
+            reason: UnboundReason::Revoked
+        }),
+        "撤銷的原因必須寫死在生命週期裡"
+    );
+    // 撤銷之後再等一段時間：那一輪 rebind 不得把它拉回來。
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(
+        provider_state(&rt, &pid).await,
+        Some(ProviderState::Revoked)
+    );
+    assert!(
+        rt.capability_declarations()
+            .declaration(pid.as_str())
+            .is_none(),
+        "撤銷之後能力宣告必須撤回"
+    );
+    assert!(
+        !rt.sensor_source_ids()
+            .await
+            .contains(&pid.as_str().to_string()),
+        "撤銷之後 SensorSource 必須解除登記：{:?}",
+        rt.sensor_source_ids().await
+    );
+    assert!(
+        audit_rows(&rt, "provider.rebound").is_empty(),
+        "撤銷的裝置不得留下 rebound"
+    );
+    // 撤銷是終局：連再按一次「啟用」都不成立。
+    assert!(
+        rt.transition_provider(&pid, ProviderState::Available)
+            .await
+            .is_err(),
+        "撤銷之後不得回到可用"
+    );
+}
+
+/// 握不上手的重新綁定必須**有界**結束，而且誠實：狀態留在 disconnected，
+/// detail 說得出失敗，不冒充可用。
+#[tokio::test(flavor = "multi_thread")]
+async fn rebind_timeout_is_bounded_and_honest() {
+    let seq = SPEC_SEQ.fetch_add(1, Ordering::SeqCst);
+    let spec = dead_spec(&format!("nohands{seq}"), &format!("nohands{seq:02}"));
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&spec).await.expect("register");
+    let pid = ProviderId::new(format!("provider.adapter.nohands{seq}"));
+
+    rt.transition_provider(&pid, ProviderState::Disabled)
+        .await
+        .expect("disable");
+    let started = Instant::now();
+    rt.transition_provider(&pid, ProviderState::Available)
+        .await
+        .expect("re-enable");
+
+    assert!(
+        wait_until(Duration::from_secs(45), || {
+            let rt = rt.clone();
+            async move { !audit_rows(&rt, "provider.rebind-failed").is_empty() }
+        })
+        .await,
+        "重新綁定必須有界結束並誠實留痕：{:?}",
+        rt.store
+            .audit_tail(400)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|r| r["kind"].as_str().map(str::to_string))
+            .collect::<Vec<_>>()
+    );
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(45),
+        "等待必須有界：{elapsed:?}"
+    );
+    let failed = audit_rows(&rt, "provider.rebind-failed");
+    assert!(
+        failed[0]["detail"]["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("handshake"),
+        "失敗原因要說得出是握手沒完成：{:?}",
+        failed[0]
+    );
+    assert_eq!(
+        provider_state(&rt, &pid).await,
+        Some(ProviderState::Disconnected),
+        "沒連上就留在 disconnected"
+    );
+    let detail = rt
+        .list_providers()
+        .await
+        .into_iter()
+        .find(|p| p.identity.id == pid)
+        .and_then(|p| p.detail)
+        .unwrap_or_default();
+    assert!(detail.contains("rebind-failed"), "{detail}");
+    let note = serde_json::from_str::<Value>(&detail)
+        .ok()
+        .and_then(|v| v["note"].as_str().map(str::to_string))
+        .unwrap_or_default();
+    assert!(
+        note.contains("沒有重新連上"),
+        "一般模式那一句要誠實：{note}"
+    );
+    assert_eq!(
+        rt.declarative_lifecycle(pid.as_str()),
+        Some(DeclarativeLifecycle::Unbound {
+            reason: UnboundReason::Disconnected
+        }),
+        "失敗之後要退回「連不上」，人類還可以再試一次"
+    );
+
+    // 再試一次：上一次的失敗訊息屬於上一個狀態，不得一路帶著走。
+    let again = rt
+        .transition_provider(&pid, ProviderState::Available)
+        .await
+        .expect("retry");
+    let detail = again.detail.clone().unwrap_or_default();
+    assert!(
+        !detail.contains("rebind-failed"),
+        "舊的失敗訊息不得跟著新的嘗試走：{detail}"
+    );
+    assert!(detail.contains("rebinding"), "{detail}");
+}

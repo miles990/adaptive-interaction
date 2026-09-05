@@ -184,6 +184,15 @@ pub struct ProviderRegistry {
     providers: RwLock<BTreeMap<ProviderId, ProviderDescriptor>>,
     gate: Arc<ProviderGate>,
     events: EventBus,
+    /// 每個 provider id 一把序列化鎖。
+    ///
+    /// 為什麼需要它：[`ProviderRegistry::transition`] 這一步本身是原子的，
+    /// 但呼叫端做的是一整段**複合**動作（換狀態 → 關連線 → 請來源停止 →
+    /// 翻能力旗標 → 落地 → 重新綁定），中間有很多 await。兩個並行的決定
+    /// （例如「停用」與「重新綁定」）會在那些 await 點交錯，於是同一台裝置
+    /// 可能被下架兩次，或是剛建好的新連線被上一個決定漏掉而繼續活著。
+    /// 這把鎖讓「對同一台 provider 的一次完整決定」不可分割。
+    locks: std::sync::Mutex<BTreeMap<ProviderId, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl ProviderRegistry {
@@ -192,7 +201,26 @@ impl ProviderRegistry {
             providers: RwLock::new(BTreeMap::new()),
             gate: Arc::new(ProviderGate::default()),
             events,
+            locks: std::sync::Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// 取得這個 provider 的序列化鎖。同一個 id 的複合決定一次只跑一個。
+    ///
+    /// 有界：只有**還被持有或還在等待**的鎖留在表上（每次取用順手清掉沒人
+    /// 用的），所以這張表不會隨著歷史 provider 無界成長。
+    pub async fn lock_provider(&self, id: &ProviderId) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = {
+            let mut map = match self.locks.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            map.retain(|key, value| key == id || Arc::strong_count(value) > 1);
+            map.entry(id.clone())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        lock.lock_owned().await
     }
 
     /// 執行期閘門用的投影（capability → provider 狀態）。

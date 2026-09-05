@@ -808,4 +808,49 @@ pub enum SensorsAction {
     },
     /// Stop all sensors immediately.
     Stop,
+    /// List stops that were never confirmed (they left the live list, but
+    /// nobody ever said the source stopped).
+    Unresolved,
+    /// Dismiss one unresolved stop. This records a HUMAN decision — it does
+    /// NOT mean the source confirmed it stopped.
+    Dismiss {
+        /// Sensor source id (from `sensors unresolved`).
+        source_id: String,
+        /// Which registration (generation) of that source. Required so a
+        /// newer, still-unresolved record is never cleared by mistake.
+        #[arg(long)]
+        generation: u64,
+    },
+}
+
+#[cfg(test)]
+mod sensors_cli_tests {
+    use super::*;
+
+    /// 「解除一筆未解決停止」一定要指名世代：少了它就可能誤消掉一筆更新的
+    /// 記錄，而那一筆從來沒有人確認過。CLI 這一關由 clap 擋，不靠伺服器。
+    #[test]
+    fn dismissing_an_unresolved_stop_requires_a_generation() {
+        let ok = Cli::try_parse_from([
+            "interact-ai",
+            "sensors",
+            "dismiss",
+            "provider.adapter.desk-light",
+            "--generation",
+            "7",
+        ]);
+        assert!(ok.is_ok(), "{:?}", ok.err().map(|e| e.to_string()));
+        let missing = Cli::try_parse_from([
+            "interact-ai",
+            "sensors",
+            "dismiss",
+            "provider.adapter.desk-light",
+        ]);
+        assert!(missing.is_err(), "世代是必填");
+    }
+
+    #[test]
+    fn unresolved_stops_have_their_own_listing_command() {
+        assert!(Cli::try_parse_from(["interact-ai", "sensors", "unresolved"]).is_ok());
+    }
 }

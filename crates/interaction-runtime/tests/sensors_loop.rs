@@ -1118,3 +1118,297 @@ async fn the_removed_while_capturing_record_is_bounded() {
         .rfind(|a| a["kind"] == serde_json::json!("sensor.removed-capture-record-dropped"));
     assert!(dropped.is_some(), "丟掉最舊的一筆要留痕");
 }
+
+// ---------------------------------------------------------------------------
+// 未解決停止（M3 §b）：來源被移除時「可能還在擷取」的那一筆，在即時清單的
+// 60 秒可見窗過去之後**不得**變成「一切正常」。它離開即時清單，轉進一份
+// 不受 TTL 影響的「未解決停止」摘要，只能由同 id 的**新**來源確認停止、
+// 或人類明確解除來清掉。
+// ---------------------------------------------------------------------------
+
+use interaction_runtime::sensor_source::{MAX_UNRESOLVED_STOPS, ORPHAN_CAPTURE_VISIBLE};
+
+/// 把時鐘推過即時可見窗（測試不必真的等 60 秒）。
+fn expire_orphan_window(rt: &Runtime) {
+    rt.sensor_clock
+        .advance(ORPHAN_CAPTURE_VISIBLE + Duration::from_secs(1));
+}
+
+fn audit_kinds(rt: &Runtime) -> Vec<String> {
+    rt.store
+        .audit_tail(200)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|row| row["kind"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// 到期的孤兒記錄**不得**靜靜消失成「全部正常」：它轉進未解決停止摘要，
+/// 而且那份摘要不受 TTL 影響。
+#[tokio::test]
+async fn orphan_ttl_moves_unknown_to_unresolved_not_to_normal() {
+    let (_g, rt, _fake) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.gone", FakeMode::Timeout))
+        .await
+        .unwrap();
+    let generation = rt
+        .sensor_source_generation("fixture.gone")
+        .await
+        .expect("registered sources carry a generation");
+    assert!(rt.unregister_sensor_source("fixture.gone").await);
+
+    // 可見窗之內：留在即時清單上（感測不靜默）。
+    assert!(
+        rt.active_sensors_all()
+            .await
+            .iter()
+            .any(|s| s.kind == "fixture.gone.mic-level"),
+        "可見窗之內必須看得見"
+    );
+    assert!(
+        rt.unresolved_stops().await.is_empty(),
+        "還在即時清單上的不算未解決摘要"
+    );
+
+    expire_orphan_window(&rt);
+
+    let visible = rt.active_sensors_all().await;
+    assert!(
+        !visible.iter().any(|s| s.kind == "fixture.gone.mic-level"),
+        "過期之後不再佔著即時清單：{visible:?}"
+    );
+    let unresolved = rt.unresolved_stops().await;
+    let mine = unresolved
+        .iter()
+        .find(|u| u.source_id == "fixture.gone")
+        .unwrap_or_else(|| panic!("過期不等於停了，必須留成未解決停止：{unresolved:?}"));
+    assert_eq!(mine.generation, generation);
+    assert_eq!(mine.sensors, vec!["fixture.gone.mic-level".to_string()]);
+    assert!(
+        mine.last_known
+            .iter()
+            .all(|c| c.state == SENSOR_STATE_STOP_UNKNOWN),
+        "最後看到的狀態不得被改寫成別的東西：{mine:?}"
+    );
+    assert!(
+        audit_kinds(&rt)
+            .iter()
+            .any(|k| k == "sensor.unresolved-stop-recorded"),
+        "轉進未解決摘要要留稽核"
+    );
+
+    // 再過久也不會自己消失（它不是 TTL 快取，是一筆沒有結論的事）。
+    expire_orphan_window(&rt);
+    expire_orphan_window(&rt);
+    assert_eq!(
+        rt.unresolved_stops().await.len(),
+        1,
+        "未解決停止不隨時間過期"
+    );
+}
+
+/// 同一個 id 重新登記一個**新**來源，不得抹掉舊那一次登記留下的未解決記錄：
+/// 新來源不知道舊連線那一頭發生過什麼事。
+#[tokio::test]
+async fn same_id_new_source_does_not_clear_old_generation_unknown() {
+    let (_g, rt, _fake) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.churn", FakeMode::Timeout))
+        .await
+        .unwrap();
+    let first = rt
+        .sensor_source_generation("fixture.churn")
+        .await
+        .expect("generation");
+    assert!(rt.unregister_sensor_source("fixture.churn").await);
+
+    // 同一個 id 又回來了（裝置重連／adapter 重新綁定）。
+    rt.register_sensor_source(FakeSensorSource::new("fixture.churn", FakeMode::Timeout))
+        .await
+        .unwrap();
+    let second = rt
+        .sensor_source_generation("fixture.churn")
+        .await
+        .expect("generation");
+    assert!(second > first, "重新登記要是新的世代：{first} → {second}");
+
+    let visible = rt.active_sensors_all().await;
+    assert!(
+        visible
+            .iter()
+            .filter(|s| s.kind == "fixture.churn.mic-level")
+            .count()
+            >= 2,
+        "舊那一筆「可能還在擷取」與新來源的擷取要同時看得見：{visible:?}"
+    );
+
+    expire_orphan_window(&rt);
+    let unresolved = rt.unresolved_stops().await;
+    assert!(
+        unresolved
+            .iter()
+            .any(|u| u.source_id == "fixture.churn" && u.generation == first),
+        "同 id 的新來源不得替舊世代作證：{unresolved:?}"
+    );
+}
+
+/// 只有「同 id 的**新**來源對那個受器確認停止」才清得掉未解決停止。
+#[tokio::test]
+async fn confirmed_stop_from_new_source_clears_unresolved() {
+    let (_g, rt, _fake) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.back", FakeMode::Timeout))
+        .await
+        .unwrap();
+    assert!(rt.unregister_sensor_source("fixture.back").await);
+    expire_orphan_window(&rt);
+    assert_eq!(rt.unresolved_stops().await.len(), 1, "先有一筆未解決");
+
+    // 同一台裝置回來了，而且這次它明確確認停止。
+    rt.register_sensor_source(FakeSensorSource::new("fixture.back", FakeMode::Confirm))
+        .await
+        .unwrap();
+    let sweep = rt
+        .stop_all_sensor_sources("test", "stop-all-sensors", Duration::from_millis(200))
+        .await;
+    assert!(
+        sweep
+            .reports
+            .iter()
+            .any(|r| r.source_id == "fixture.back" && r.outcome == SensorStopStatus::Stopped),
+        "新來源要真的確認停止：{sweep:?}"
+    );
+
+    assert!(
+        rt.unresolved_stops().await.is_empty(),
+        "同 id 新來源確認停止之後才清得掉：{:?}",
+        rt.unresolved_stops().await
+    );
+    assert!(
+        audit_kinds(&rt)
+            .iter()
+            .any(|k| k == "sensor.unresolved-stop-resolved"),
+        "清除也要留稽核"
+    );
+}
+
+/// 人為解除必須是**明確**的：指名世代、留稽核，而且絕不宣稱「它停了」。
+#[tokio::test]
+async fn dismiss_unresolved_is_explicit_and_audited() {
+    let (_g, rt, _fake) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.dismiss", FakeMode::Timeout))
+        .await
+        .unwrap();
+    let generation = rt
+        .sensor_source_generation("fixture.dismiss")
+        .await
+        .expect("generation");
+    assert!(rt.unregister_sensor_source("fixture.dismiss").await);
+    expire_orphan_window(&rt);
+    assert_eq!(rt.unresolved_stops().await.len(), 1);
+
+    // 世代不對＝不同的一筆：不得誤消。
+    let wrong = rt
+        .dismiss_unresolved_stop("fixture.dismiss", generation + 99, "user")
+        .await;
+    assert!(matches!(wrong, Err(DomainError::NotFound(_))), "{wrong:?}");
+    assert_eq!(rt.unresolved_stops().await.len(), 1, "誤指的世代不得清掉");
+
+    let out = rt
+        .dismiss_unresolved_stop("fixture.dismiss", generation, "user")
+        .await
+        .expect("dismissed");
+    assert_eq!(out["confirmedStopped"], serde_json::json!(false), "{out}");
+    assert_eq!(out["generation"], serde_json::json!(generation), "{out}");
+    assert!(rt.unresolved_stops().await.is_empty());
+    let audit = rt
+        .store
+        .audit_tail(200)
+        .unwrap()
+        .into_iter()
+        .rfind(|a| a["kind"] == serde_json::json!("sensor.unresolved-stop-dismissed"))
+        .expect("人為解除必須留稽核");
+    assert_eq!(audit["actor"], serde_json::json!("user"), "{audit}");
+    assert_eq!(
+        audit["detail"]["sourceId"],
+        serde_json::json!("fixture.dismiss"),
+        "{audit}"
+    );
+}
+
+/// 三個面向是分開的：即時清單（activeSensors）、未解決摘要（現在還不知道
+/// 結果的事）、歷史（稽核）。過期只在前兩者之間搬動，歷史永遠留著。
+#[tokio::test]
+async fn live_unresolved_and_history_are_separate() {
+    let (_g, rt, _fake) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.split", FakeMode::Timeout))
+        .await
+        .unwrap();
+    assert!(rt.unregister_sensor_source("fixture.split").await);
+
+    // 1) 即時清單有、未解決摘要沒有。
+    assert!(rt
+        .active_sensors_all()
+        .await
+        .iter()
+        .any(|s| s.kind == "fixture.split.mic-level"));
+    assert!(rt.unresolved_stops().await.is_empty());
+    // status 這時不該多一個空欄位。
+    assert!(
+        rt.status().await.get("unresolvedStops").is_none(),
+        "沒有未解決的事就不該序列化這個欄位"
+    );
+
+    expire_orphan_window(&rt);
+
+    // 2) 即時清單沒有、未解決摘要有、status 看得到。
+    assert!(!rt
+        .active_sensors_all()
+        .await
+        .iter()
+        .any(|s| s.kind == "fixture.split.mic-level"));
+    assert_eq!(rt.unresolved_stops().await.len(), 1);
+    let status = rt.status().await;
+    let listed = status["unresolvedStops"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(listed.len(), 1, "{status}");
+    assert_eq!(
+        listed[0]["sourceId"],
+        serde_json::json!("fixture.split"),
+        "{status}"
+    );
+
+    // 3) 歷史（稽核）兩件事都在，而且移除當下那一則從頭到尾沒有被改寫。
+    let kinds = audit_kinds(&rt);
+    assert!(kinds
+        .iter()
+        .any(|k| k == "sensor.source-removed-while-capturing"));
+    assert!(kinds.iter().any(|k| k == "sensor.unresolved-stop-recorded"));
+}
+
+/// 未解決摘要自己也必須有界：它不隨時間過期，所以滿了要丟最舊的一筆並留痕。
+#[tokio::test]
+async fn the_unresolved_stop_summary_is_bounded() {
+    let (_g, rt, _fake) = runtime().await;
+    for i in 0..MAX_UNRESOLVED_STOPS + 4 {
+        let id = format!("fixture.flood-{i}");
+        rt.register_sensor_source(FakeSensorSource::new(&id, FakeMode::Timeout))
+            .await
+            .expect("registers");
+        assert!(rt.unregister_sensor_source(&id).await);
+        expire_orphan_window(&rt);
+        // 每一輪都讓過期的那些搬進未解決摘要。
+        let _ = rt.active_sensors_all().await;
+    }
+    assert!(
+        rt.unresolved_stops().await.len() <= MAX_UNRESOLVED_STOPS,
+        "有界：{} 筆",
+        rt.unresolved_stops().await.len()
+    );
+    assert!(
+        audit_kinds(&rt)
+            .iter()
+            .any(|k| k == "sensor.unresolved-stop-dropped"),
+        "丟掉最舊的一筆要留痕"
+    );
+}

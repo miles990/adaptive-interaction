@@ -376,7 +376,7 @@ async fn declared_device_is_not_tested_until_something_actually_succeeds() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn human_provider_test_reads_one_receptor_and_records_evidence() {
     let (_g, rt, device) = runtime_with_device_spec().await;
     let id = ProviderId::new("provider.adapter.desk-light");
@@ -423,7 +423,18 @@ async fn human_provider_test_reads_one_receptor_and_records_evidence() {
         .transition_provider(&id, ProviderState::Available)
         .await
         .unwrap();
-    assert_eq!(enabled.state, ProviderState::Available);
+    // 宣告式裝置重新啟用只代表「允許再試一次」：狀態先誠實地停在
+    // `Disconnected`，重新綁定成功之後才收斂成 `Available`。
+    assert_eq!(enabled.state, ProviderState::Disconnected);
+    assert!(
+        wait_until(std::time::Duration::from_secs(20), || {
+            let rt = rt.clone();
+            let id = id.clone();
+            async move { provider_state(&rt, &id).await == Some(ProviderState::Available) }
+        })
+        .await,
+        "重新綁定要自己回到 available"
+    );
     let after = tested_of(&provider_named(&rt, id.as_str()).await).expect("evidence kept");
     assert_eq!(after["how"], Value::from("human"));
     assert_eq!(after["ok"], Value::Bool(true));
@@ -1979,75 +1990,294 @@ async fn a_provider_without_a_sensor_source_reports_no_stop_at_all() {
     assert_eq!(audit["detail"]["sensorStop"], Value::Null, "{audit}");
 }
 
-/// 停用一台宣告式裝置會把它整筆能力宣告 retract 掉；把它轉回 Available 時，
-/// 綁定並不會自己回來（要重啟 daemon）。state 欄位不得先於實際能力恢復——
-/// 沒有重新綁定就必須在 provider detail 與稽核上誠實說出來。
-#[tokio::test]
-async fn re_enabling_a_declarative_device_says_it_needs_a_restart_to_rebind() {
+/// 有界輪詢：條件成立回 true，逾時回 false（絕不無限等待）。
+async fn wait_until<F, Fut>(timeout: std::time::Duration, mut probe: F) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if probe().await {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
+fn declared(rt: &Runtime, provider_id: &str) -> bool {
+    rt.capability_declarations_report()["declarations"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .any(|d| d["id"] == json!(provider_id))
+}
+
+async fn provider_state(rt: &Runtime, id: &ProviderId) -> Option<ProviderState> {
+    rt.list_providers()
+        .await
+        .into_iter()
+        .find(|p| &p.identity.id == id)
+        .map(|p| p.state)
+}
+
+async fn provider_detail(rt: &Runtime, id: &ProviderId) -> String {
+    rt.list_providers()
+        .await
+        .into_iter()
+        .find(|p| &p.identity.id == id)
+        .and_then(|p| p.detail)
+        .unwrap_or_default()
+}
+
+fn audit_rows(rt: &Runtime, kind: &str) -> Vec<Value> {
+    rt.store
+        .audit_tail(400)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|row| row["kind"] == json!(kind))
+        .collect()
+}
+
+/// 停用一台宣告式裝置會把它整筆能力宣告 retract 掉。把它轉回 Available 之後，
+/// 綁定必須在**同一個行程**裡自己回來——不再需要重新啟動 daemon。
+///
+/// 誠實階梯：`Available` 不得先於實際連線。人類按下啟用的那一刻，狀態誠實地
+/// 退到 `Disconnected`（尚未連上）並說得出正在重新連線；只有在重新綁定完成
+/// 之後才收斂成 `Available`。
+#[tokio::test(flavor = "multi_thread")]
+async fn re_enabling_a_declarative_device_rebinds_without_a_restart() {
     let (_g, rt, _device) = runtime_with_device_spec().await;
     let id = ProviderId::new("provider.adapter.desk-light");
-
-    let declared = |rt: &Runtime| -> bool {
-        rt.capability_declarations_report()["declarations"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-            .iter()
-            .any(|d| d["id"] == json!("provider.adapter.desk-light"))
-    };
-    assert!(declared(&rt), "啟動後這一族必須有能力宣告");
+    assert!(declared(&rt, id.as_str()), "啟動後這一族必須有能力宣告");
 
     rt.transition_provider(&id, ProviderState::Disabled)
         .await
         .expect("disable");
-    assert!(!declared(&rt), "停用會 retract 整筆宣告（現況）");
+    assert!(!declared(&rt, id.as_str()), "停用會 retract 整筆宣告");
 
     let back = rt
         .transition_provider(&id, ProviderState::Available)
         .await
         .expect("re-enable");
-    assert_eq!(back.state, ProviderState::Available);
+    // 還沒連上就不得說「可用」。
+    assert_eq!(
+        back.state,
+        ProviderState::Disconnected,
+        "重新綁定完成之前狀態必須誠實：{back:?}"
+    );
+    let detail = back.detail.clone().unwrap_or_default();
+    assert!(
+        detail.contains("rebinding"),
+        "detail 要說得出正在重新連線：{detail}"
+    );
+    let note = serde_json::from_str::<Value>(&detail)
+        .ok()
+        .and_then(|v| v["note"].as_str().map(str::to_string))
+        .unwrap_or_default();
+    assert!(
+        note.contains("重新連上"),
+        "一般模式那一句要講重新連線：{note}"
+    );
+    assert!(!note.contains("rebinding"), "一般模式不外洩技術詞：{note}");
 
-    // 宣告沒有回來就不得裝作恢復了：detail 要說得出「要重啟才會重新綁定」。
-    if !declared(&rt) {
-        let detail = rt
-            .list_providers()
+    assert!(
+        wait_until(std::time::Duration::from_secs(20), || {
+            let rt = rt.clone();
+            let id = id.clone();
+            async move {
+                declared(&rt, id.as_str())
+                    && provider_state(&rt, &id).await == Some(ProviderState::Available)
+            }
+        })
+        .await,
+        "同一個行程裡就要重新綁定回來：state={:?} declared={} detail={}",
+        provider_state(&rt, &id).await,
+        declared(&rt, id.as_str()),
+        provider_detail(&rt, &id).await
+    );
+
+    // 收斂之後不得留著「重新連線中」那一句。
+    let detail = provider_detail(&rt, &id).await;
+    assert!(!detail.contains("rebinding"), "{detail}");
+    assert!(
+        !detail.contains("needs-restart-to-rebind"),
+        "不得再宣稱要重新啟動：{detail}"
+    );
+    assert!(
+        audit_rows(&rt, "provider.needs-restart-to-rebind").is_empty(),
+        "「要重啟才回得來」不再是事實，稽核也不得再這樣說"
+    );
+    let rebound = audit_rows(&rt, "provider.rebound");
+    assert_eq!(rebound.len(), 1, "重新綁定成功要留一則稽核：{rebound:?}");
+    assert_eq!(
+        rebound[0]["detail"]["providerId"],
+        json!(id.as_str()),
+        "{:?}",
+        rebound[0]
+    );
+    // 純 HTTP adapter 沒有裝置線可握手：誠實說 none，不冒充「握手成功」。
+    assert_eq!(rebound[0]["detail"]["handshake"], json!("none"));
+    assert!(
+        !audit_rows(&rt, "provider.rebinding").is_empty(),
+        "開始重新綁定也要留稽核"
+    );
+    assert!(
+        rt.sensor_source_ids()
             .await
-            .into_iter()
-            .find(|p| p.identity.id == id)
-            .and_then(|p| p.detail)
-            .unwrap_or_default();
-        assert!(
-            detail.contains("needs-restart-to-rebind"),
-            "能力沒回來卻只把 state 翻成 available＝不誠實：{detail}"
-        );
-        // 一般模式那一句要講這件事，不得被「明文憑證」的罐頭摘要蓋掉。
-        let note = serde_json::from_str::<Value>(&detail)
-            .ok()
-            .and_then(|v| v["note"].as_str().map(str::to_string))
-            .unwrap_or_default();
-        assert!(
-            note.contains("重新啟動"),
-            "一般模式看到的那一句要說得出「要重新啟動」：{note}"
-        );
-        assert!(
-            !note.contains("明文"),
-            "沒有明文憑證問題時不得拿那句罐頭摘要充數：{note}"
-        );
-        assert!(
-            !note.contains("needs-restart-to-rebind"),
-            "一般模式不外洩技術詞：{note}"
-        );
-        assert!(
-            rt.store
-                .audit_tail(200)
-                .unwrap_or_default()
-                .iter()
-                .any(
-                    |row| row["kind"] == json!("provider.needs-restart-to-rebind")
-                        && row["detail"]["providerId"] == json!(id.as_str())
-                ),
-            "這件事必須留稽核"
-        );
+            .contains(&id.as_str().to_string()),
+        "重新綁定之後停止路徑必須重新認得它：{:?}",
+        rt.sensor_source_ids().await
+    );
+}
+
+/// 停用 A 不得動到 B：兩台宣告式裝置各自獨立，重新綁定 A 也一樣。
+#[tokio::test(flavor = "multi_thread")]
+async fn disable_a_does_not_affect_b() {
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, _device) = spawn_device().await;
+    let adapters = dir.path().join("config").join("adapters");
+    std::fs::create_dir_all(&adapters).unwrap();
+    for name in ["lamp-a", "lamp-b"] {
+        std::fs::write(
+            adapters.join(format!("{name}.yaml")),
+            format!(
+                r#"
+schemaVersion: "1.0"
+id: {name}
+displayName: {name}
+capabilities:
+  - kind: receptor
+    id: status
+    transport: http
+    request: {{ method: GET, url: "http://{addr}/status" }}
+    facts:
+      power: "/power"
+"#
+            ),
+        )
+        .unwrap();
     }
+    let rt = Runtime::start(RuntimeOptions {
+        home: Some(dir.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .unwrap();
+    let a = ProviderId::new("provider.adapter.lamp-a");
+    let b = ProviderId::new("provider.adapter.lamp-b");
+    assert!(declared(&rt, a.as_str()) && declared(&rt, b.as_str()));
+
+    rt.transition_provider(&a, ProviderState::Disabled)
+        .await
+        .expect("disable a");
+    assert!(!declared(&rt, a.as_str()), "A 的宣告被撤回");
+    assert!(declared(&rt, b.as_str()), "B 完全不受影響");
+    assert!(rt
+        .sensor_source_ids()
+        .await
+        .contains(&b.as_str().to_string()));
+    assert!(
+        rt.registry
+            .receptor(&ReceptorId::new("lamp-b.status"))
+            .await
+            .is_ok(),
+        "B 的受器不得被 A 的停用關掉"
+    );
+
+    rt.transition_provider(&a, ProviderState::Available)
+        .await
+        .expect("re-enable a");
+    assert!(
+        wait_until(std::time::Duration::from_secs(20), || {
+            let rt = rt.clone();
+            let a = a.clone();
+            async move { provider_state(&rt, &a).await == Some(ProviderState::Available) }
+        })
+        .await,
+        "A 要自己回來"
+    );
+    assert!(declared(&rt, b.as_str()), "重新綁定 A 不得動到 B");
+    assert_eq!(
+        provider_state(&rt, &b).await,
+        Some(ProviderState::Installed),
+        "B 的狀態不得被 A 的重新綁定改寫"
+    );
+}
+
+/// 同一台 provider 的兩個並行決定必須序列化：不得把同一台裝置下架兩次
+/// （重複 retire ＝重複稽核、重複翻旗標，而且第二次的「已經拆掉」會蓋掉第一次
+/// 記下的原因）。
+#[tokio::test(flavor = "multi_thread")]
+async fn reentrant_transitions_do_not_double_retire() {
+    let (_g, rt, _device) = runtime_with_device_spec().await;
+    let id = ProviderId::new("provider.adapter.desk-light");
+
+    let first = {
+        let rt = rt.clone();
+        let id = id.clone();
+        tokio::spawn(async move { rt.transition_provider(&id, ProviderState::Disabled).await })
+    };
+    let second = {
+        let rt = rt.clone();
+        let id = id.clone();
+        tokio::spawn(async move { rt.transition_provider(&id, ProviderState::Disabled).await })
+    };
+    first.await.expect("joins").expect("disabled");
+    second.await.expect("joins").expect("disabled again");
+
+    let retired = audit_rows(&rt, "aip.device-retired");
+    assert_eq!(retired.len(), 1, "同一台裝置只能被下架一次：{retired:?}");
+    assert_eq!(
+        provider_state(&rt, &id).await,
+        Some(ProviderState::Disabled)
+    );
+}
+
+/// 被移除的宣告式裝置留一個墓碑：`unbound:removed` 永遠不重新綁定，而且
+/// 「被移除」與「這道閘門對它一無所知」不得共用同一個表示。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_removed_declarative_binding_is_never_rebound() {
+    let (_g, rt, _device) = runtime_with_device_spec().await;
+    let id = ProviderId::new("provider.adapter.desk-light");
+    assert_eq!(
+        rt.declarative_lifecycle(id.as_str()).map(|l| l.label()),
+        Some("bound".to_string())
+    );
+    // 診斷投影說得出每一台裝置現在的綁定狀態。
+    let report = rt.declarative_bindings_report();
+    assert!(
+        report.iter().any(
+            |row| row["providerId"] == json!(id.as_str()) && row["lifecycle"] == json!("bound")
+        ),
+        "{report:?}"
+    );
+
+    rt.transition_provider(&id, ProviderState::Disabled)
+        .await
+        .expect("disable");
+    rt.note_declarative_removed(id.as_str());
+    assert_eq!(
+        rt.declarative_lifecycle(id.as_str()).map(|l| l.label()),
+        Some("unbound:removed".to_string())
+    );
+
+    let back = rt
+        .transition_provider(&id, ProviderState::Available)
+        .await
+        .expect("re-enable");
+    // 被移除的裝置不得因為「啟用」就重新開連線：state 直接是要求的那一個，
+    // 沒有任何重新綁定開始。
+    assert_eq!(back.state, ProviderState::Available);
+    assert!(
+        audit_rows(&rt, "provider.rebinding").is_empty(),
+        "被移除的裝置不得開始重新綁定"
+    );
+    assert!(!declared(&rt, id.as_str()), "它的能力宣告也不會回來");
 }

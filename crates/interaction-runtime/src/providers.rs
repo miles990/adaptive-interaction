@@ -811,13 +811,26 @@ impl Runtime {
         self.bind_declarative_device(
             provider_id.as_str(),
             spec.display_name.as_deref().unwrap_or(&spec.id),
-            aip_channels,
+            aip_channels.clone(),
             high_risk,
             kept_off.is_some(),
         )
         .await;
-        // 綁定回來了（宣告＋SensorSource 都重新登記）：清掉「要重啟才回得來」。
-        self.clear_declarative_rebind_pending(provider_id.as_str());
+        // 綁定成立：記住 spec 與這一次開出來的通道，之後「停用→啟用」才有
+        // 東西可以重新綁定（不必重新啟動 daemon）。
+        self.note_declarative_bound(provider_id.as_str(), spec, &aip_channels);
+        if let Some(reason) = &kept_off {
+            // 人類把它關掉了：綁定其實沒有成立（沒有連線 task）。誠實記成
+            // 已拆掉，並保留原因——撤銷永遠不會被 rebind 復活。
+            self.note_declarative_unbound(
+                provider_id.as_str(),
+                if reason == "revoked" {
+                    crate::declarative_lifecycle::UnboundReason::Revoked
+                } else {
+                    crate::declarative_lifecycle::UnboundReason::Disabled
+                },
+            );
+        }
 
         if let Some(reason) = &kept_off {
             // 能力重新註冊時 registry 會用 manifest 的預設值決定啟用與否
@@ -1243,6 +1256,10 @@ impl Runtime {
         id: &ProviderId,
         state: ProviderState,
     ) -> DomainResult<ProviderDescriptor> {
+        // 對同一台 provider 的一次完整決定不可分割：兩個並行的停用會在 await
+        // 點交錯，把同一台裝置下架兩次（重複稽核、重複翻旗標），而停用與重新
+        // 綁定交錯時，剛建好的新連線甚至會被上一個決定漏掉而繼續活著。
+        let _serialized = self.providers.lock_provider(id).await;
         // 狀態換了，設定檔警告還在：`transition` 會整個覆寫 detail，所以警告
         // 必須自己帶過去，否則按一次「啟用」就會把明文憑證的提醒洗掉。
         // 狀態註記（例如 re-arm 的說明）本來就只屬於前一個狀態，不帶。
@@ -1254,57 +1271,13 @@ impl Runtime {
                 .and_then(|d| d.detail)
                 .as_deref(),
         );
-        // 宣告式裝置被停用時整筆能力宣告會被 retract，spec 要等下一次啟動才
-        // 重新載入。把 state 翻回 Available **不會**讓能力回來——不說出來就是
-        // 讓使用者看到一個「可用」卻沒有任何能力的裝置（state 先於實際能力
-        // 恢復）。誠實：標記它、留稽核，不假裝已恢復。
-        let needs_rebind = !provider_stopped(state) && self.needs_declarative_rebind(id.as_str());
-        if needs_rebind && !warnings.iter().any(|w| w == REBIND_WARNING) {
-            warnings.push(REBIND_WARNING.to_string());
-        }
-        // 一般模式那一句必須自己講清楚：`warning_summary` 只會講「明文憑證」，
-        // 讓它替這一則作結論等於對使用者說一件沒發生的事。
-        let note = if needs_rebind {
-            let others: Vec<String> = warnings
-                .iter()
-                .filter(|w| *w != REBIND_WARNING)
-                .cloned()
-                .collect();
-            Some(if others.is_empty() {
-                REBIND_NOTE.to_string()
-            } else {
-                format!("{} {REBIND_NOTE}", warning_summary(&others))
-            })
-        } else {
-            None
-        };
+        // 上一次重新綁定留下的提醒（進行中／失敗）屬於「上一個狀態」：人類再按
+        // 一次啟用時不得把舊訊息一路帶著走——這一輪失敗時它會重新出現。
+        warnings.retain(|w| !is_rebind_note(w));
         let desc = self
             .providers
-            .transition(
-                id,
-                state,
-                merge_provider_detail(note.as_deref(), None, &warnings),
-            )
+            .transition(id, state, merge_provider_detail(None, None, &warnings))
             .await?;
-        if needs_rebind {
-            self.store
-                .audit(
-                    "provider.needs-restart-to-rebind",
-                    "runtime",
-                    &json!({
-                        "providerId": id.as_str(),
-                        "state": format!("{state:?}").to_lowercase(),
-                        "note": REBIND_WARNING,
-                    }),
-                )
-                .ok();
-        }
-        if matches!(
-            state,
-            ProviderState::Disabled | ProviderState::Closed | ProviderState::Expired
-        ) {
-            self.close_declarative_links(id, "disabled");
-        }
         // v0.5.1 已知限制 #4：停下來的 provider 底下的受器／動器，enabled 旗標
         // 必須真的翻掉，不能只靠 `ProviderGate` 攔派工。旗標是「這個能力現在
         // 開著嗎」的單一事實：狀態列、能力清單、`stop_all_sensors` 的「仍然
@@ -1319,9 +1292,19 @@ impl Runtime {
             // 只是「本機這一側收不收資料」；先翻掉旗標的話，來源會以為本來就沒有
             // 東西在擷取（回 already-stopped），於是既不會真的請裝置停下來，
             // 那一筆「可能還在擷取」也不會留下（＝感測靜默）。
+            // 綁定的生命週期先寫成「已拆掉，原因是人類停用」：`retire()` 之後
+            // 才寫的話，那條路徑只知道一個中性的 reason 字串，說不出是誰決定的。
+            self.note_declarative_unbound(
+                id.as_str(),
+                crate::declarative_lifecycle::unbound_reason_for_state(state),
+            );
             let sensor_stop = self
                 .stop_provider_sensing(id.as_str(), crate::sensors::SENSOR_STOP_REASON_PROVIDER_OFF)
                 .await;
+            // 連線在**問完之後**才關：先關就等於親手拆掉唯一能問「你停了嗎」
+            // 的那條線，然後永遠只能回答「未知」。停用仍然一定要真的把連線
+            // 關掉——停用的 provider 不得繼續佔著埠／broker 連線做無盡重連。
+            let closed_links = self.close_declarative_links(id, "disabled");
             self.disable_provider_capabilities(&desc, &format!("{state:?}").to_lowercase())
                 .await;
             let _ = self.store.audit(
@@ -1330,11 +1313,14 @@ impl Runtime {
                 &serde_json::json!({
                     "providerId": id.as_str(),
                     "state": format!("{state:?}").to_lowercase(),
+                    "closedLinks": closed_links,
                     "sensorStop": sensor_stop,
                 }),
             );
         }
         // 反方向刻意不做：回到 Available／Busy／… 時**不**自動把能力打開。
+        // （宣告式裝置的重新綁定是另一回事：那是把整份 spec 重新註冊一次，
+        //   能力回到「剛啟動時」的預設——需要 consent 的受器仍然是關的。）
         // registry 的旗標只有布林、沒有出處，runtime 分不出「是我剛才關的」還是
         // 「人類早就自己關掉的這一支」；自動打開會默默推翻人類的決定，對高風險
         // 受器更直接違反「高風險能力不自動恢復」的不變量（同
@@ -1357,7 +1343,134 @@ impl Runtime {
         self.persist_provider(id).await;
         // Character Protocol §11：available → greet、disconnected → notice。
         self.character_project_provider(id, state);
+        // 宣告式裝置：把 state 翻回一個「活著」的狀態只代表**允許再試一次**。
+        // 能力宣告與實體連線由一條有界的背景 rebind 任務重新建立；在它握手
+        // 成功之前，狀態誠實地留在 `Disconnected`（尚未連上），不是 Available。
+        if !provider_stopped(state) {
+            if let Some(generation) = self.begin_declarative_rebind(id.as_str()) {
+                return self.enter_declarative_rebinding(id, generation).await;
+            }
+        }
         Ok(desc)
+    }
+
+    /// 進入「重新綁定中」：狀態誠實地退到 `Disconnected`，detail 說得出正在
+    /// 做什麼，然後把八個步驟交給有界的背景任務。
+    async fn enter_declarative_rebinding(
+        &self,
+        id: &ProviderId,
+        generation: u64,
+    ) -> DomainResult<ProviderDescriptor> {
+        let mut warnings = provider_detail_warnings(
+            self.providers
+                .get(id)
+                .await
+                .ok()
+                .and_then(|d| d.detail)
+                .as_deref(),
+        );
+        if !warnings.iter().any(|w| w == REBINDING_WARNING) {
+            warnings.push(REBINDING_WARNING.to_string());
+        }
+        let others: Vec<String> = warnings
+            .iter()
+            .filter(|w| *w != REBINDING_WARNING)
+            .cloned()
+            .collect();
+        let note = if others.is_empty() {
+            REBINDING_NOTE.to_string()
+        } else {
+            format!("{} {REBINDING_NOTE}", warning_summary(&others))
+        };
+        let desc = match self
+            .providers
+            .transition(
+                id,
+                ProviderState::Disconnected,
+                merge_provider_detail(Some(&note), None, &warnings),
+            )
+            .await
+        {
+            Ok(desc) => desc,
+            Err(error) => {
+                // 這個狀態到 `Disconnected` 不合法（例如 provider 已經被別的決定
+                // 帶到別處）：那就**不要**開始重新綁定——留著一個 `Rebinding`
+                // 卻沒有人推進它，比誠實說「沒開始」更糟。
+                self.abandon_declarative_rebind(id.as_str(), generation, &error.to_string())
+                    .await;
+                return self.providers.get(id).await;
+            }
+        };
+        self.persist_provider(id).await;
+        self.character_project_provider(id, ProviderState::Disconnected);
+        self.spawn_declarative_rebind(id.as_str(), generation);
+        Ok(desc)
+    }
+
+    /// 握手成功：這時候（也只有這時候）才把狀態從 `Disconnected` 收斂成
+    /// `Available`，並把「重新連線中」那一句從 detail 拿掉。
+    ///
+    /// 只認 `Disconnected` 這一個入口狀態。宣告式裝置平常停在 `Installed`
+    /// （授權是逐能力的 enable，不是 provider 狀態），一條握手成功的連線
+    /// **不得**因此把它升成 `Available`——那會讓「連上了」冒充「人類啟用了」。
+    pub(crate) async fn converge_provider_after_rebind(&self, id: &ProviderId) {
+        let Ok(existing) = self.providers.get(id).await else {
+            return;
+        };
+        if existing.state != ProviderState::Disconnected {
+            return;
+        }
+        let warnings: Vec<String> = provider_detail_warnings(existing.detail.as_deref())
+            .into_iter()
+            .filter(|w| !is_rebind_note(w))
+            .collect();
+        if self
+            .providers
+            .transition(
+                id,
+                ProviderState::Available,
+                merge_provider_detail(None, None, &warnings),
+            )
+            .await
+            .is_ok()
+        {
+            self.persist_provider(id).await;
+            self.character_project_provider(id, ProviderState::Available);
+        }
+    }
+
+    /// rebind 沒有成功：狀態留在 `Disconnected`，detail 換成誠實的失敗說明。
+    pub(crate) async fn note_provider_rebind_failed(&self, id: &ProviderId, reason: &str) {
+        let Ok(existing) = self.providers.get(id).await else {
+            return;
+        };
+        let mut warnings: Vec<String> = provider_detail_warnings(existing.detail.as_deref())
+            .into_iter()
+            .filter(|w| !is_rebind_note(w))
+            .collect();
+        warnings.push(format!("{REBIND_FAILED_WARNING}: {reason}"));
+        let others: Vec<String> = warnings
+            .iter()
+            .filter(|w| !is_rebind_note(w))
+            .cloned()
+            .collect();
+        let note = if others.is_empty() {
+            REBIND_FAILED_NOTE.to_string()
+        } else {
+            format!("{} {REBIND_FAILED_NOTE}", warning_summary(&others))
+        };
+        if self
+            .providers
+            .transition(
+                id,
+                existing.state,
+                merge_provider_detail(Some(&note), None, &warnings),
+            )
+            .await
+            .is_ok()
+        {
+            self.persist_provider(id).await;
+        }
     }
 
     /// 把一個已停下來的 provider 底下的受器／動器旗標全部關掉，並留下可追查的
@@ -1439,7 +1552,10 @@ impl Runtime {
     /// 「仍在操作中」＝不是 [`provider_stopped`] 的狀態。registry 的 enabled 旗標
     /// 是全域單例（一個能力 id 一份），所以只要還有第二個持有者，這一份旗標就
     /// 不屬於被停用的這一台，通用路徑不得代它決定。
-    async fn shared_capability_holders(&self, desc: &ProviderDescriptor) -> SharedCapabilities {
+    pub(crate) async fn shared_capability_holders(
+        &self,
+        desc: &ProviderDescriptor,
+    ) -> SharedCapabilities {
         let mut shared = SharedCapabilities::default();
         if desc.receptors.is_empty() && desc.actuators.is_empty() {
             return shared;
@@ -1497,7 +1613,7 @@ impl Runtime {
     }
 
     /// 這個 provider 是否被人類停用／撤銷過（重啟後仍要遵守）。
-    fn provider_off_reason(&self, id: &ProviderId) -> Option<String> {
+    pub(crate) fn provider_off_reason(&self, id: &ProviderId) -> Option<String> {
         self.store
             .get_meta(&provider_off_key(id))
             .ok()
@@ -1505,30 +1621,8 @@ impl Runtime {
             .filter(|reason| !reason.is_empty())
     }
 
-    /// 記下「這個宣告式 provider 的綁定已經被拆掉」（見
-    /// [`crate::runtime::RuntimeInner::declarative_rebind_pending`]）。
-    pub(crate) fn note_declarative_rebind_pending(&self, provider_id: &str) {
-        if let Ok(mut set) = self.declarative_rebind_pending.lock() {
-            set.insert(provider_id.to_string());
-        }
-    }
-
-    /// 綁定回來了（下一次啟動重新載入 spec）：記號清掉。
-    pub(crate) fn clear_declarative_rebind_pending(&self, provider_id: &str) {
-        if let Ok(mut set) = self.declarative_rebind_pending.lock() {
-            set.remove(provider_id);
-        }
-    }
-
-    fn needs_declarative_rebind(&self, provider_id: &str) -> bool {
-        self.declarative_rebind_pending
-            .lock()
-            .map(|set| set.contains(provider_id))
-            .unwrap_or(false)
-    }
-
     /// 關閉某 provider 的宣告式 adapter 連線（若有）。回傳關掉的連線描述。
-    fn close_declarative_links(&self, id: &ProviderId, reason: &str) -> Vec<String> {
+    pub(crate) fn close_declarative_links(&self, id: &ProviderId, reason: &str) -> Vec<String> {
         let closed = interaction_adapter_declarative::shutdown_provider_links(id.as_str());
         if !closed.is_empty() {
             tracing::info!(
@@ -1543,19 +1637,27 @@ impl Runtime {
 
     /// Revoke: capabilities disabled immediately, state sticks at Revoked.
     pub async fn revoke_provider(&self, id: &ProviderId) -> DomainResult<ProviderDescriptor> {
+        // 與 `transition_provider` 同一把鎖：撤銷不得與停用／重新綁定交錯。
+        let _serialized = self.providers.lock_provider(id).await;
         let desc = self
             .providers
             .transition(id, ProviderState::Revoked, Some("revoked by user".into()))
             .await?;
-        // 撤銷＝連線也要斷（不只是停止派工），而且必須跨重啟：重啟後 spec 重新
-        // 載入時不得把連線開回來、也不得讓受器回到啟用。
-        let closed_links = self.close_declarative_links(id, "revoked");
+        // 撤銷永遠不重新綁定：先寫死這個原因，之後任何一條 rebind 路徑都拒絕。
+        self.note_declarative_unbound(
+            id.as_str(),
+            crate::declarative_lifecycle::UnboundReason::Revoked,
+        );
         // X2：有登記感測來源的 provider（例如已配對的行動裝置）走同一條
         // request_stop＋release——撤銷一台正在擷取的裝置不得只翻旗標。
-        // 順序同 `transition_provider`：先問來源、再翻旗標。
+        // 順序：先問來源、再關連線、最後才翻旗標。先關連線就等於親手拆掉
+        // 唯一能問「你停了嗎」的那條線，然後永遠只能回答「未知」。
         let sensor_stop = self
             .stop_provider_sensing(id.as_str(), crate::sensors::SENSOR_STOP_REASON_PROVIDER_OFF)
             .await;
+        // 撤銷＝連線也要斷（不只是停止派工），而且必須跨重啟：重啟後 spec 重新
+        // 載入時不得把連線開回來、也不得讓受器回到啟用。
+        let closed_links = self.close_declarative_links(id, "revoked");
         // 撤銷也走同一條「家族共用能力不由通用路徑關旗標」的判斷：撤銷 A
         // 不得順手關掉 B 還在用的同一份旗標（B 沒有被撤銷）。
         self.disable_provider_capabilities(&desc, "revoked").await;
@@ -1589,14 +1691,31 @@ impl Runtime {
     }
 }
 
-/// 宣告式裝置重新啟用時的固定警告文字（原文給進階模式與 CLI；一般模式看到的
-/// 是 `warning_summary` 那一句人話摘要）。
-const REBIND_WARNING: &str = "needs-restart-to-rebind: this device's capability declaration was \
-     retracted while it was turned off; restart the runtime to reconnect and declare it again";
+/// 重新綁定**進行中**的固定警告文字（原文給進階模式與 CLI；一般模式看到的
+/// 是下面那一句人話）。誠實：這台裝置此刻**沒有**連上。
+pub(crate) const REBINDING_WARNING: &str = "rebinding: this device's link and capability \
+     declaration are being rebuilt; it is NOT connected yet and its state stays disconnected \
+     until the handshake succeeds";
 
 /// 同一件事的**人話**（一般模式看到的那一句）：不含能力 id、不含技術詞。
-const REBIND_NOTE: &str =
-    "這台裝置停用時已經卸下它的能力；重新啟用只是允許它再連上，能力要等重新啟動後才會回來。";
+pub(crate) const REBINDING_NOTE: &str =
+    "正在重新連上這台裝置，它的能力還沒有回來；連上之後才會顯示為可用。";
+
+/// 重新綁定**失敗**的固定警告文字（後面會接上原因）。
+pub(crate) const REBIND_FAILED_WARNING: &str = "rebind-failed";
+
+/// 同一件事的人話。
+pub(crate) const REBIND_FAILED_NOTE: &str =
+    "這台裝置沒有重新連上，它的能力還沒有回來；請檢查裝置與接線後再啟用一次。";
+
+/// 這一則警告是「重新綁定」自己留下的（進行中或失敗）嗎？
+///
+/// 只有一個判準：失敗那一則後面會接原因（`rebind-failed: …`），所以不能用
+/// 相等比較——用相等比較的話，舊的失敗訊息會被人類的下一次啟用一路帶著走，
+/// 於是一台已經連上的裝置畫面上還掛著上一次的失敗。
+fn is_rebind_note(warning: &str) -> bool {
+    warning == REBINDING_WARNING || warning.starts_with(REBIND_FAILED_WARNING)
+}
 
 /// 稽核 `provider.capabilities-shared-kept` 的固定說明（不含路徑、不回顯輸入）。
 const SHARED_CAPABILITY_NOTE: &str = "these capability flags are shared with other operational \
@@ -1604,10 +1723,10 @@ const SHARED_CAPABILITY_NOTE: &str = "these capability flags are shared with oth
 
 /// 一次停用裡「因為還有別人宣告而沒有關掉」的能力，以及還有誰宣告它們。
 #[derive(Debug, Default)]
-struct SharedCapabilities {
-    receptors: Vec<String>,
-    actuators: Vec<String>,
-    holders: Vec<String>,
+pub(crate) struct SharedCapabilities {
+    pub(crate) receptors: Vec<String>,
+    pub(crate) actuators: Vec<String>,
+    pub(crate) holders: Vec<String>,
 }
 
 impl SharedCapabilities {

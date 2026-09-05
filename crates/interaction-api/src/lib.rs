@@ -85,6 +85,11 @@ pub fn router(state: ApiState) -> Router {
             post(routes::sensor_mic_listen),
         )
         .route("/v1/sensors/stop", post(routes::sensors_stop))
+        .route("/v1/sensors/unresolved", get(routes::sensors_unresolved))
+        .route(
+            "/v1/sensors/unresolved/{sourceId}/dismiss",
+            post(routes::sensors_unresolved_dismiss),
+        )
         .route("/v1/presentation", get(routes::presentation_status))
         .route(
             "/v1/presentation/commands/{action_id}",

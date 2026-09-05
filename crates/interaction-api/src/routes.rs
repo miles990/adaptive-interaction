@@ -1590,6 +1590,46 @@ pub async fn sensors_stop(
     ))
 }
 
+/// 目前所有「未解決停止」：已經離開 `activeSensors` 即時清單、但沒有任何人
+/// 確認它停了的擷取。空陣列＝沒有懸而未決的事（不是「都停了」的保證，而是
+/// 「沒有任何一筆是我們不知道結果的」）。
+pub async fn sensors_unresolved(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
+    let entries = state.runtime.unresolved_stops().await;
+    Ok(Json(json!({
+        "unresolvedStops": entries,
+        "note": "these stops were never confirmed; dismissing one records a human decision, \
+                 not a confirmation that the source stopped",
+    })))
+}
+
+/// 人為解除一筆「未解決停止」。
+///
+/// 誠實：這**不是**「它停了」，只是「人類看過了」。所以它是人類層動作
+/// （agent token 打不到這條路徑），一定要指名世代，而且一定留稽核。
+pub async fn sensors_unresolved_dismiss(
+    State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
+    Path(source_id): Path<String>,
+    Json(body): Json<Value>,
+) -> ApiResult<Json<Value>> {
+    let generation = body
+        .get("generation")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| {
+            interaction_core::DomainError::Validation(
+                "generation is required: dismissing an unresolved stop must name exactly one \
+                 registration, so a newer one is never cleared by mistake"
+                    .into(),
+            )
+        })?;
+    Ok(Json(
+        state
+            .runtime
+            .dismiss_unresolved_stop(&source_id, generation, &stop_actor(&auth))
+            .await?,
+    ))
+}
+
 /// 誰按下的停止：agent／session token 也能停感測，audit 必須看得出是誰。
 fn stop_actor(auth: &AuthContext) -> String {
     match &auth.principal {

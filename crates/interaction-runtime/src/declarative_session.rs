@@ -182,6 +182,11 @@ impl DeviceBinding {
             rt.character_session_presence(&party, Presence::Online)
                 .await;
         }
+        // 這條線真的握上手了：如果 provider 還停在「重新連線中」
+        // （`Disconnected`），現在才是把它收斂成 `Available` 的時刻。
+        // 只認 `Disconnected` 這一個入口——握手不得冒充人類的啟用決定。
+        rt.converge_provider_after_rebind(&interaction_core::ProviderId::new(&self.provider_id))
+            .await;
     }
 
     /// 連線／握手不再成立：成員保留，presence 誠實降級成 `reconnecting`。
@@ -213,6 +218,32 @@ impl DeviceBinding {
     /// 一則裝置送來的 `aip` 行。
     async fn on_aip(&self, rt: &Runtime, admission: AipAdmission) {
         let device_id = self.channel.expected_device_id();
+        // 綁定不成立時一律不收（「停新請求」）。
+        //
+        // 為什麼不能只靠 `tasks.abort_all()`：abort 只在下一個 await 點生效，
+        // 一則**已經在處理中**的 frame 會照樣跑完——實測過的後果是裝置在
+        // `character.session.leave` 之後又 join 回來，於是「停用了」與「還在
+        // session 裡」同時成立。這是一道確定性的閘門，不是時序運氣。
+        //
+        // 沒有生命週期記錄（例如綁定表滿了）＝這道閘門對它一無所知，維持原本
+        // 行為，不無中生有地拒絕。
+        if let Some(lifecycle) = rt.declarative_lifecycle(&self.provider_id) {
+            if lifecycle != crate::declarative_lifecycle::DeclarativeLifecycle::Bound {
+                let _ = rt.store.audit(
+                    "aip.rejected",
+                    "runtime",
+                    &json!({
+                        "transport": self.channel.transport_label(),
+                        "stage": "provider-binding",
+                        "reason": "this device's binding is not established",
+                        "lifecycle": lifecycle.label(),
+                        "providerId": self.provider_id,
+                        "deviceId": device_id,
+                    }),
+                );
+                return;
+            }
+        }
         let envelope = match admission {
             AipAdmission::Admitted(envelope) => envelope,
             AipAdmission::RefusedNotPaired => {
@@ -683,9 +714,13 @@ impl DeclarativeSensorSource {
             left.push(device_id);
         }
         let retracted = rt.retract_provider_capabilities(&self.provider_id);
-        // 宣告被撤回＝這一族的能力到下一次啟動重新載入 spec 之前都不會回來。
-        // 記下來，之後把 provider 轉回 Available 時才說得出「要重啟才會重新綁定」。
-        rt.note_declarative_rebind_pending(&self.provider_id);
+        // 綁定確實被拆掉了。這條路徑只知道一個中性的 reason，說不出是「人類
+        // 停用」還是「撤銷」——那兩者由 providers.rs 在呼叫這裡**之前**寫成
+        // 精確的原因，所以這裡只在還沒有人講過話時補一個誠實的預設。
+        rt.note_declarative_unbound_if_bound(
+            &self.provider_id,
+            crate::declarative_lifecycle::UnboundReason::Disconnected,
+        );
         let _ = rt.store.audit(
             "aip.device-retired",
             "runtime",
