@@ -16,7 +16,9 @@
 
 ### 本輪（v0.7.0 候選，2026-09-05／06）
 
-> 起點 `f5b8e2f`，28 個 commit。進度與差異矩陣：`docs/releases/v0.7.0-progress.md`；限制彙整：
+> 起點 `f5b8e2f`，**58 個 commit**（對抗審查 `713f8fe` 是第 28 個，其後是五路修復與文件收斂；
+> 最終數字由整合者回填）。
+> 進度與差異矩陣：`docs/releases/v0.7.0-progress.md`；限制彙整：
 > `docs/releases/v0.7.0-known-limitations.md`；遷移：`docs/releases/v0.7.0-migration.md`。
 > 每條附本分支的 commit SHA。整合全套測試數字尚未產生，不在這裡寫；見 progress §4／§5。
 
@@ -83,8 +85,9 @@
   重新啟用只代表「允許再試一次」，狀態不得先於實際連線。依賴「回傳狀態＝請求狀態」的呼叫端要一起看。
 - **宣告式裝置停用後重新啟用不再需要重新啟動 daemon**（`b32ba10`）：綁定生命週期改為顯式狀態機
   `crates/interaction-runtime/src/declarative_lifecycle.rs`（`Bound`／`Rebinding{generation}`／
-  `Unbound{disabled|disconnected|revoked|removed}`，有界 64），八步有界背景 rebind（3 s 收斂、20 s 握手、
-  40 s 總預算），握手 Ready 才收斂 `Available`；稽核 `provider.rebinding`／`provider.rebound`／
+  `Unbound{disabled|disconnected|revoked|removed}`，有界 64），八步有界背景 rebind（3 s 收斂、握手 25 s、
+  總預算 50 s；`b32ba10` 當時是 20 s／40 s，對抗審查 `async-bounds-unwrap-053` 之後改為涵蓋 binding
+  最壞的一輪重試），握手 Ready 才收斂 `Available`；稽核 `provider.rebinding`／`provider.rebound`／
   `provider.rebind-failed{reason}`／`provider.rebind-superseded`。撤銷／移除不得復活。
 - **停用／撤銷一台裝置的順序改為「先請來源停止 → 再關連線 → 最後翻能力旗標」**（`b32ba10`）：先關連線
   等於拆掉唯一能問「你停了嗎」的那條線，結果永遠只能是 `unknown`。
@@ -146,6 +149,70 @@
 - Runtime 把「成員領先」的 snapshot 改寫成 `session-reset` 的補救（實測無效，已由 `recovery` 取代）（`d941a9e`）。
 - `AGENTS.md` 指向 `CLAUDE.md` 的 symlink（改為獨立入口檔；不變量仍然只有 `CLAUDE.md` 一份）（`160d880`）。
 
+#### 對抗審查 `713f8fe-20260905T181800Z` 的修復（v0.7.0 候選）
+
+> 54 送審／**42 confirmed**（high 11／medium 18／low 13）／11 refuted／1 fixed-meanwhile；
+> 處置 **fixed 40／partial 2／deferred 0**。逐條處置表（含每一則的 commit 與回歸測試名）在
+> `docs/releases/v0.7.0-known-limitations.md` **§0**；報告全文
+> `docs/reviews/adversarial/713f8fe-20260905T181800Z.md`（`436ccd7`）。修復分五路並行，每一路
+> 先寫「舊行為下會紅」的回歸測試再修；下面的 SHA 是本分支 **rebase 之後**的值。
+
+- **runtime／api**（`33ad1ca`／`6fdd267`／`a1015a4`，13 則）：`/v1/status` 與 canonical tool
+  `interaction.status` 改為**依 principal 投影**；rebind 收斂改成「先建 binding 再翻狀態」並拿
+  provider 的序列化鎖；`AlreadyStopped` 沒有 `confirmed_via` 就不算裝置確認，不得清掉舊世代的
+  `UnresolvedStop`；宣告式來源即使本機沒有旗標也要問裝置一次；`retire()` 先排乾並稽核被取消的
+  入站分片再收掉接收迴圈；綁定表滿時收斂成 `Disconnected` 並把原因說出來。
+- **adapter-declarative**（`e924f4f`／`4b50d8c`，4 則）：`send_aip` 的分片迴圈改在**每條線一把**
+  `tokio::sync::Mutex` 下執行（以該次送出自己的 deadline 取鎖，等待有界；取到鎖後重新核對握手世代），
+  中途寫失敗改回報 **`LinkError::Uncertain`**（已經有位元組上線，說「什麼都沒送出」是謊）；入站閘門由
+  `advertises(FRAG_CAP) == Some(false)` 改為 `!= Some(true)`（完全沒宣告 caps 的舊韌體不再被默許）；
+  待送稽核由單一槽改成有界 FIFO（8 筆，溢位計數並記錄）。
+- **desktop TS**（`363c3d7`／`a99a70a`／`89904c6`／`e506ed1`／`073eac0`，9 則）：canonical JSON 的鍵
+  比較改走真正的 code point；同步卡的 SSE effect 帶游標、不再重播保留視窗；連接頁改用後端的
+  `providerId` 對應裝置條目；`applyCompanionPreset` 這個零呼叫端的第二入口刪除；e2e 任務 11 的
+  else 分支記成 `not-run`。
+- **iOS**（`3d3f136`，4 則）：AIP 出站也走生命週期閘門；`wallClockNow` 收斂成一個時鐘；
+  `decideResumeBatch`／`budget.observing` 變成出貨路徑真的走的那一份；`scheduleRetry` 的重複閘門刪除。
+  模擬器實跑 **153/0**（基線 146）。
+- **docs／lint**（`0b42ac2`／`ac30285`，14 則）：每一條過期宣稱都**先在 `docs-claims.sh` 加一個會紅的
+  把關**、跑一次確認紅，再改文件（111 → **154 checks**，本輪重跑 **154 passed / 0 failed**）。
+  新增的把關：CHANGELOG `[Unreleased]` Known limitations 對帳、「`<test>.rs` N 測」必須等於檔案實數、
+  `evidence-index.json` `candidates[]` 最小 schema、`AGENTS.md` §7 接續進度、過期措辭比對放寬。
+
+特別點名（對呼叫端可見，或曾經會產生錯誤結果）：
+
+- **桌面 canonical 的 f64 指數字面與 `serde_json` 不一致**（`5817777`）：`canonicalNumber` 是
+  `String(value).replace("e+", "e")`，但 ryu（Rust）在十進位指數 `[-5, 16)` 用定點、JS 在 `(-7, 21)`，
+  所以 `1e-6` 被寫成 `0.000001`、`1e16` 被寫成 `10000000000000000.0`、`1e21` 被寫成 `1e21`。
+  **`mood.intensity` 是可以到 `0.000001` 的 f64**，一旦落在這個區間，桌面算出來的 hash host 永遠不同意，
+  於是 `hash-mismatch → 要求快照 → 再算再不同意` **無限 realign**。改為 `formatDouble`（重現 ryu 的規則），
+  整數路徑也把 `-0` 攤平成 `0`。三端由新的 `canonicalVectors`（12 個向量，含非 ASCII／補充平面鍵、
+  code point vs UTF-16 序、位元組序 vs NFC 序、整數／小數／指數字面、空容器）逐筆對答案：
+  `crates/interaction-aip/tests/canonical_vectors.rs` 同時是產生器與漂移閘門，TS／Swift 讀同一份 manifest。
+  這是 `hash-numeric-contract-017`（TS 鍵序）修好之後，用向量把「fixtures 全是 ASCII 鍵、什麼都證明不了」
+  這個盲點一起關掉才找到的。
+- **`GET /v1/status` 與 `interaction.status` 對 agent／session／adapter token 不再含
+  `unresolvedStops` 與 `characterSessionSync`**（`33ad1ca`）：**行為變更**。人類層 token 拿到的是完整
+  記錄，不變；AI 那一側改成只留一個 **`unresolvedStopCount`**（沒有任何識別碼），所以它仍然可以據此
+  拒絕宣稱「所有感測都停了」。兩個入口共用同一支投影函式——路徑層的排除擋不住同樣的內容從另一條
+  被允許的路徑離開。
+- **`syncProfile` 新增第四個值 `pending-full-state`**（`a1015a4`）：`full-state` 的一半推導原本是
+  `aip.frag/1`，那是裝置在自己的 `hello` 裡塞的一句話。只**宣稱**會重組的裝置現在停在
+  `pending-full-state`，要 Runtime 真的把一份完整快照寫上那條線、每一片都寫出成功才升級；出站通道解除
+  登記時證據一併清掉（下一條線是新的重組器）。桌面對這一態說「**尚未確認能收到完整狀態**」而不是
+  「拿不到完整狀態」——把未知講成已知是反方向的謊；卡片層級照舊是 `partial-sync`（info，不是綠勾）。
+- **rebind 的時間預算 20 s／40 s → 25 s／50 s**（`a1015a4`）：舊的握手預算比 binding 自己最壞的一輪
+  重試（退避上限＋握手逾時）還短，「逾時」量的是我們自己的退避而不是裝置；現在由 const 斷言綁死
+  `REBIND_HANDSHAKE_BUDGET >= HANDSHAKE_BACKOFF_MAX + HANDSHAKE_TIMEOUT`。
+- **`send_aip` 中途寫失敗回 `Uncertain`**（`e924f4f`）：第一片就失敗才是「什麼都沒送出」；已經有片段
+  上線之後失敗只能說**不知道**（誠實階梯：結果未知要標 uncertain，不得說成 refused）。
+- **iOS 背景的 AIP 出站閘門**（`3d3f136`）：**行為變更**。以前只有 legacy `status` 心跳被生命週期閘住，
+  AIP frame 無條件送出，而桌面把任何通過身分綁定的入站 envelope 當成存活證明——一則從背景送出的
+  resume／snapshot query 就會讓桌面顯示「線上」，而手機自己的畫面寫著「背景，心跳已停」。現在
+  `sendAip` 也走 `LifecycleDecision.shouldSendCharacterSync(phase:)`：**背景收到 command 不回 result**
+  （被擋下的 frame 計入 `droppedFrames` 並記錄，不靜默吞掉）；在背景落地的 `auth-ok` 不再宣告能力，
+  回到前景時重新宣告一次。
+
 #### Known limitations（更新；完整彙整見 `docs/releases/v0.7.0-known-limitations.md`）
 
 已修掉、從清單移除的三條（原文與註記見 `docs/releases/v0.6.x-final-report.md` §11）：
@@ -166,8 +233,15 @@
   記在 `docs/aip/transport-bindings.md` §8.1。
 - 出站分片中途失敗不重送（重送可能重複外部副作用）：對端因缺片／逾時整筆丟棄並留稽核。
 - `syncProfile` 由 Runtime 依協商好的 `role` 推導而非逐項 intents，「宣告 remote-renderer 但 intents 為空」
-  仍算 `intent-only`；`docs/DESKTOP-GUIDE.md` 的同步狀態表尚未補上 `partial-sync` 那一列
-  （`PENDING_GUIDE_ROWS` 記著要補的整列文字）。
+  仍算 `intent-only`。`docs/DESKTOP-GUIDE.md` 的同步狀態表**已補上** `partial-sync` 那一列與三種裝置補充句
+  （`PENDING_GUIDE_ROWS` 現在是空的）；剩下的是把關本身只比對「狀態」層那一句，裝置層那三句沒有測試守著。
+- **`pending-full-state` 的殘留缺口**（對抗審查 `declarative-aip-binding-020` 的 partial 部分）：升級成
+  `full-state` 現在要「真的把一份完整快照寫上那條線且每一片都寫出成功」，但 `aip/1.0` 對 `state` 沒有
+  wire 層回執，所以「宣稱會重組、也收下了、卻沒組回來」偵測不到，那台裝置會停在 `full-state` 不會退回。
+- **AI 讀 `/v1/status` 只拿得到 `unresolvedStopCount`**（`33ad1ca` 之後 status 依 principal 投影）：它仍然
+  可以據此拒絕宣稱「所有感測都停了」，但拿不到是哪一個來源——那是人類層的收件匣。
+- 分片的待送稽核是**有界** FIFO（8 筆）：溢位仍會丟最舊的一筆，但會被計數並記錄
+  （`DeviceLink::fragment_audit_overflow`），不再是靜默覆蓋。
 - rebind 失敗後 supervisor 仍以退避重連（狀態留在 `disconnected`）；`unresolvedStops` 只在記憶體、不跨重啟；
   MQTT 有 rebind 測試（`b6d849c`）但 BLE 沒有，兩者的 AIP session 端到端也只有 serial 有 pty 模擬器可跑。
 - 桌面規則 0 的連線世代只擋得住飛行中的 GET／resume 回覆；SSE 事件流本身不帶世代。

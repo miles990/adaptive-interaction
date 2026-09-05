@@ -321,7 +321,7 @@ v0.7.0（裝置線 v1.2）再加兩項：
 * **出站**：與 iPhone 走同一張型別抹除的出站登記表（`character_session::DeviceOutbound`）；握手成立登記、
   撤銷／斷線移除。送不到（超過單行上限、線已關）→ `aip.outbound-undeliverable`；沒有通道 → 同一稽核
   `reason:"no-channel"`；表滿（64）→ `aip.outbound-rejected`。
-* **證據**：`declarative_session_loop.rs` 26 測（pty **模擬器**經 production serial adapter；含「廣播真的走
+* **證據**：`declarative_session_loop.rs` 30 測（pty **模擬器**經 production serial adapter；含「廣播真的走
   序列線」「snapshot／含 members 的 patch 經分片真的到達且成員是 `full-state`」「`--no-frag` 降級成
   `intent-only`」「被取消的分片傳輸留稽核」「實測行長度」「event-source 成員」）、`aip_fragment.rs` 17 測（純函式與重組器）、
   `aip_link.rs` 17 測（`MockRawLink`）、`esp32_sim_conformance.rs` 24 測（韌體／模擬器／README 三方一致）；

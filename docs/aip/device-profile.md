@@ -154,10 +154,14 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
 - **綁定生命週期與免重啟重新綁定（AIP 1.0 澄清／v0.7.0）**：見下面的 §6.1。
 - **身分強度**：`transport-hello+device-side-pairing`（§3）；稽核 `aip.device-channel-ready`／
   `aip.device-channel-lost`／`aip.device-retired` 帶 `identityStrength`／`transport`／`pairingUnverified`。
-- **證據等級**：`crates/interaction-runtime/tests/declarative_session_loop.rs`（**26 測**：D1 的 7 支加入／touch／declare＋SensorSource／
+- **證據等級**：`crates/interaction-runtime/tests/declarative_session_loop.rs`（**30 測**：D1 的 7 支加入／touch／declare＋SensorSource／
   stop-all 真 ack／靜默＝unknown／撤銷不影響其他成員／拔線 reconnecting→offline，D2 的「其他成員的廣播真的經序列線到達／放不進 639 bytes
   的 patch 留痕」「身分不符與 session-binding 稽核記 transport=serial」「diagnostics identityStrength 三來源」「撤銷後出站表清空」
-  「無通道成員的 no-channel 稽核」，v0.7.0 再加分片四支（§6.3）、免重啟 rebind（§6.1）、`syncProfile` 推導與 event-source 成員）
+  「無通道成員的 no-channel 稽核」，v0.7.0 再加分片四支（§6.3）、免重啟 rebind（§6.1）、`syncProfile` 推導與 event-source 成員，
+  以及對抗審查 `713f8fe` 修復後的四支（`an_idle_declarative_source_still_asks_the_device_and_says_where_the_answer_came_from`／
+  `a_failed_rebind_keeps_the_human_disabled_list_for_the_next_attempt`／
+  `a_frag_claiming_device_is_only_full_state_after_a_snapshot_really_went_out`／
+  `a_transfer_cancelled_by_disabling_the_provider_is_audited_before_the_loop_is_gone`）
   走 **production `DeviceLink`＋serial adapter**，對端是 `scripts/esp32-serial-sim.py`（**pty 模擬器**；stdin 控制通道
   `aip-capability`／`aip-touch`／`aip-resume`／`aip-raw`，未配對拒絕送出）；`aip_link.rs` **17 測**、
   `esp32_sim_conformance.rs` **24 測**（其中韌體／README／模擬器三方一致 2 支）。韌體只有 `compile.sh` 編譯檢查。
