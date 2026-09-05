@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "adapters-media"
-version = "0.2.0"
+version = "0.6.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2344,7 +2344,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-adapter-declarative"
-version = "0.2.0"
+version = "0.6.0"
 dependencies = [
  "async-trait",
  "btleplug",
