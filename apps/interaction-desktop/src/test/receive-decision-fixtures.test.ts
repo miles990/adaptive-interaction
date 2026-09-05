@@ -3,7 +3,7 @@
 // AIP 1.0 **接收端決策表**（`docs/aip/character-session.md` §7.2）的桌面端對答案。
 //
 // 讀的是 Rust crate 底下**同一份** fixture（`crates/interaction-aip/tests/fixtures/manifest.json`
-// 的 `receiveDecisions` 段，43 個具名案例），與 `canonical-hash.test.ts` 同一個讀法。
+// 的 `receiveDecisions` 段，45 個具名案例），與 `canonical-hash.test.ts` 同一個讀法。
 // Rust（`crates/interaction-session/tests/receive_decisions_from_json.rs`）與
 // Swift（`InteractionCompanionTests`）逐筆對同一個 `expect`；三端得到同一個決策這件事
 // 因此不是靠人對照註解維持的，而是三邊會同時紅。
@@ -71,6 +71,8 @@ interface FixtureExpect {
   reason?: string;
   revisionAfter: number;
   epochAfter: number;
+  /** 只在套用後記下的身分與 `local.sessionId` 不同時出現；缺席＝還是本地那一個。 */
+  sessionIdAfter?: string;
   budget: "ok" | "unrecoverable";
   budgetAfter: number;
   applied?: number;
@@ -242,6 +244,16 @@ function positionOf(machine: SessionMachine): { revision: number; epoch: number 
     : { revision: machine.local.revision, epoch: machine.local.epoch };
 }
 
+/** 套用後記下的身分（規則 1 只在本地身分已知時比對，未知的那一格由套用補齊）。 */
+function sessionIdOf(machine: SessionMachine): string | null {
+  return machine.local?.sessionId ?? null;
+}
+
+/** fixture 說的「套用後應該記著誰」：`sessionIdAfter` 缺席＝還是本地那一個。 */
+function expectedSessionIdAfter(entry: FixtureCase): string | null {
+  return entry.expect.sessionIdAfter ?? entry.local.sessionId ?? null;
+}
+
 function budgetOf(machine: SessionMachine): "ok" | "unrecoverable" {
   return machine.realignStreak >= REALIGN_STREAK_LIMIT ? "unrecoverable" : "ok";
 }
@@ -250,8 +262,8 @@ const SINGLE = CASES.filter((entry) => entry.incoming !== undefined);
 const BATCHES = CASES.filter((entry) => entry.incoming === undefined);
 
 describe("接收端決策表：跨語言 fixture（receiveDecisions）", () => {
-  it("索引裡的案例一個都不少（43 個具名案例）", () => {
-    expect(CASES.length).toBeGreaterThanOrEqual(43);
+  it("索引裡的案例一個都不少（45 個具名案例）", () => {
+    expect(CASES.length).toBeGreaterThanOrEqual(45);
     expect(SINGLE.length + BATCHES.length).toBe(CASES.length);
     expect(new Set(CASES.map((entry) => entry.id)).size).toBe(CASES.length);
   });
@@ -315,6 +327,9 @@ describe("接收端決策表：跨語言 fixture（receiveDecisions）", () => {
         revision: entry.expect.revisionAfter,
         epoch: entry.expect.epochAfter,
       });
+      expect(sessionIdOf(machine), `${entry.id}：套用後記下的 sessionId 不同`).toBe(
+        expectedSessionIdAfter(entry),
+      );
       expect(machine.realignStreak, `${entry.id}：realign 預算不同`).toBe(entry.expect.budgetAfter);
       expect(budgetOf(machine), `${entry.id}：realign 預算的結論不同`).toBe(entry.expect.budget);
       if (entry.expect.budget === "unrecoverable") {
@@ -357,6 +372,9 @@ describe("接收端決策表：跨語言 fixture（receiveDecisions）", () => {
         revision: entry.expect.revisionAfter,
         epoch: entry.expect.epochAfter,
       });
+      expect(sessionIdOf(machine), `${entry.id}：套用後記下的 sessionId 不同`).toBe(
+        expectedSessionIdAfter(entry),
+      );
       const applied =
         machine.counters.applied + machine.counters.reset + machine.counters.recovered;
       const skipped = machine.counters.ignoredStale + machine.counters.ignoredAlreadyApplied;

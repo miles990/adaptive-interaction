@@ -169,6 +169,11 @@ final class ReceiveDecisionConformanceTests: XCTestCase {
             XCTAssertEqual(
                 after.epoch, try requiredU64(expect, "epochAfter", id),
                 "\(id)：套用後的 epoch 不同")
+            // 身分：`sessionIdAfter` 缺席＝「還是本地那一個」；有寫＝套用時記下了 incoming 的
+            // sessionId（本地身分未知的那一格，規則 1 因此不宣稱不符）。
+            XCTAssertEqual(
+                after.sessionId, (expect["sessionIdAfter"] as? String) ?? local.sessionId,
+                "\(id)：套用後記下的 sessionId 不同")
             if let applied {
                 XCTAssertEqual(
                     UInt64(applied), try requiredU64(expect, "applied", id), "\(id)：套用筆數不同")
@@ -222,6 +227,50 @@ final class ReceiveDecisionConformanceTests: XCTestCase {
         XCTAssertEqual(AIPLimits.maxResumePatches, 512)
         XCTAssertEqual(AIPLimits.maxRealignAttempts, 3)
         XCTAssertEqual(SessionSyncLocal.resumeFailureLimit, AIPLimits.maxRealignAttempts)
+    }
+
+    // MARK: - 規則 1：身分只在本地知道自己是誰時才比對
+
+    private func localView(sessionId: String?) -> SessionReceiverView {
+        SessionReceiverView(
+            hasState: true, sessionId: sessionId, epoch: 5, revision: 30,
+            stateHash: "hash-a", connectionGeneration: 7)
+    }
+
+    private func incomingSnapshot(sessionId: String?, revision: UInt64) -> SessionIncomingState {
+        SessionIncomingState(
+            kind: .snapshot, sessionId: sessionId, epoch: 5, revision: revision,
+            baseRevision: nil, reason: nil, hash: "hash-b", computedHash: "hash-b",
+            statePresent: true, arrivedOnGeneration: 7, viaAuthoritativeReply: false)
+    }
+
+    /// 本地有狀態但身分未知（由不帶 `sessionId` 的 resume snapshot payload bootstrap）
+    /// **不算不符**：把「未知」當成不符是 fail-closed 的地雷——`rejectIdentity` 不 realign，
+    /// 之後每一則帶 sessionId 的訊息都會被擋掉，那台裝置永遠凍在舊狀態且沒有出路。
+    func testALocalCopyWhoseSessionIdIsUnknownIsNotAMismatch() {
+        let unknown = localView(sessionId: nil)
+        let incoming = incomingSnapshot(sessionId: "session.home", revision: 31)
+        let decision = SessionDecisions.decideReceive(view: unknown, incoming: incoming)
+        XCTAssertEqual(decision, .apply)
+
+        // 套用時把 incoming 的 sessionId 記下來，下一則就有身分可比。
+        let after = SessionDecisions.advance(
+            view: unknown, incoming: incoming, decision: decision)
+        XCTAssertEqual(after.sessionId, "session.home")
+        XCTAssertEqual(
+            SessionDecisions.decideReceive(
+                view: after, incoming: incomingSnapshot(sessionId: "session.elsewhere", revision: 32)),
+            .rejectIdentity, "記下身分之後，別的 session 立刻被規則 1 擋下")
+    }
+
+    /// 放寬只發生在「本地不知道」那一格：本地知道就照樣 reject——即使那則訊息本來就會被
+    /// 規則 7 忽略（身分先於 revision）。
+    func testAKnownLocalSessionIdStillRejectsAMismatch() {
+        XCTAssertEqual(
+            SessionDecisions.decideReceive(
+                view: localView(sessionId: "session.home"),
+                incoming: incomingSnapshot(sessionId: "session.elsewhere", revision: 9)),
+            .rejectIdentity)
     }
 
     // MARK: - 客戶端行為（同一張表，走真的收訊路徑）

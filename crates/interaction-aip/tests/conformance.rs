@@ -515,6 +515,12 @@ fn receive_decision_fixtures_have_the_documented_shape() {
                 "{id}: expect 缺 `{key}`"
             );
         }
+        if let Some(session_after) = expect.get("sessionIdAfter") {
+            assert!(
+                session_after.as_str().is_some_and(|s| !s.is_empty()),
+                "{id}: `sessionIdAfter` 有寫就必須是非空字串"
+            );
+        }
         let budget = str_of(expect, "budget");
         assert!(
             budget == "ok" || budget == "unrecoverable",

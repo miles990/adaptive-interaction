@@ -244,7 +244,7 @@ JSON Lines 控制指令：`aip-capability`／`aip-touch`／`aip-resume`／`aip-r
 * **接收端決策表（AIP 1.0 接收端澄清，v0.7.0）：Rust、TypeScript、Swift 三端都已接線，差異已消失。**
   對抗審查 427c806 指出的三處三端分歧（snapshot 的 epoch 不同但 reason 不是 `session-reset`、patch 不看 epoch、
   桌面端的「最新 HTTP 回覆比本地舊就接受」）契約層已裁決，答案一律是「不猜」那一邊——決策表在
-  `docs/aip/character-session.md` §7.2，跨語言 fixture 是 `manifest.json` 的 `receiveDecisions` 段（43 個具名案例）。
+  `docs/aip/character-session.md` §7.2，跨語言 fixture 是 `manifest.json` 的 `receiveDecisions` 段（45 個具名案例）。
   三端各自逐筆對同一份 fixture 交答案：Rust `crates/interaction-session/tests/receive_decisions_from_json.rs`、
   桌面 TypeScript `apps/interaction-desktop/src/test/receive-decision-fixtures.test.ts`（`sessionClient.ts` 的
   `allowRegression`／`hostRegressed` 已取消，同一個 incarnation 的回退改由 host 明說 `recovery`＝規則 6／7，並補上
@@ -256,6 +256,11 @@ JSON Lines 控制指令：`aip-capability`／`aip-touch`／`aip-resume`／`aip-r
   `MAX_RESUME_PATCHES = 1024`，比契約寬鬆），Swift 端改讀 `AIPLimits.maxResumePatches`／`maxRealignAttempts`
   （由 `ReceiveDecisionConformanceTests` 釘住不得手寫）。**超過上限整批不處理**——以前桌面端是截斷到上限再 realign，
   那會讓本地停在一個從來沒有完整存在過的中間狀態。
+* **規則 1（身分）只在本地的 `sessionId` 已知時比對**（v0.7.0，三端同步）：本地有狀態但身分未知
+  （由不帶 `sessionId` 的 resume snapshot payload bootstrap）不算不符，套用時把 incoming 的 `sessionId` 記下來。
+  原本的寫法是 fail-closed 的地雷——`reject-identity` 不 realign，那台裝置會被永久凍在舊狀態；
+  本地**知道**身分時的不符照舊 reject（fixture `identity-unknown-locally-adopts-incoming`／
+  `identity-known-mismatch-still-rejected`）。
 * **三端的 typed boundary 一樣不要求 snapshot 帶 `hash`**：缺 `hash` 的 snapshot 在三端都通得過 envelope 驗證，
   由決策表規則 2 記成 `reject-invalid`（永不套用）。boundary 多擋一分會讓同一則訊息在三端得到不同結論，
   正是 `conformance.md` §1 說不可以的事。

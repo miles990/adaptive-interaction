@@ -76,7 +76,8 @@ hash（snapshot ＝對收到的 `state`；patch ＝merge 之後的結果），`n
 不代表核對過了。`incomingBatch` 是一則 resume 回覆的逐則內容；`incomingBatchChain{kind, count}` 是「從
 `local.revision` 起連續 `count` 則 patch」的縮寫（用來釘住 `maxResumePatches` 的邊界，不必把幾百則訊息寫進檔案）。
 `expect` 一定帶 `revisionAfter`／`epochAfter`（套用後的本地副本；不採用的決策就是原值）與 `budgetAfter`／`budget`
-（有界 realign 的計數與結論）；批次案例另有 `applied`／`skipped`／`stoppedAt`。
+（有界 realign 的計數與結論）；批次案例另有 `applied`／`skipped`／`stoppedAt`。`sessionIdAfter` 只在套用後記下的身分
+與 `local.sessionId` **不同**時出現（規則 1 只在本地身分已知時比對，未知的那一格由套用補齊）；缺席就是「還是本地那一個」。
 **超大訊息與壞 JSON 不在這一段**：那是 typed boundary 的事，由 `envelopes`／`generated` 段涵蓋；
 boundary 擋下一則**權威回覆**時算一次 realign 失敗（案例 `boundary-rejected-authoritative-reply-costs-one-attempt`）。
 

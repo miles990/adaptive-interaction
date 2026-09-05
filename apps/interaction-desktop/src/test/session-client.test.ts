@@ -364,6 +364,46 @@ describe("(b2) 身分：別的 session 的狀態不相干（規則 1）", () => 
     expect(machine.counters.realign).toBe(0);
   });
 
+  it("本地身分未知（bootstrap 的 snapshot 沒帶 sessionId）不算不符，套用時才記下來", () => {
+    // 這是 fail-closed 的地雷：resume 回覆的 snapshot payload 不一定帶 sessionId，
+    // 用它 bootstrap 之後本地有狀態卻沒有身分。舊寫法會把「未知」當成不符，於是之後
+    // 每一則帶 sessionId 的 SSE 都 reject-identity——而 reject-identity 不 realign，
+    // 那扇門永遠打不開。
+    const { machine: bootstrapped } = run(initialSession(), [
+      { kind: "sse", arrivedOn: 0, envelope: snapshotEnvelope({ revision: 20, epoch: 3 }) },
+    ]);
+    expect(local(bootstrapped).sessionId).toBeNull();
+
+    const { machine, effects } = run(bootstrapped, [
+      { kind: "sse", arrivedOn: 0, envelope: identified("session.home", 21) },
+    ]);
+    expect(machine.counters.rejectedIdentity).toBe(0);
+    expect(local(machine).revision).toBe(21);
+    // 套用時把身分記下來，下一則就有得比。
+    expect(local(machine).sessionId).toBe("session.home");
+    expect(effects).toEqual([]);
+
+    // 記下之後，別的 session 立刻被規則 1 擋下來。
+    const { machine: guarded } = run(machine, [
+      { kind: "sse", arrivedOn: 0, envelope: identified("session.other-desktop", 22) },
+    ]);
+    expect(guarded.counters.rejectedIdentity).toBe(1);
+    expect(local(guarded).revision).toBe(21);
+  });
+
+  it("放寬只發生在「本地不知道」那一格：知道就照樣 reject（連比較舊的也是）", () => {
+    const { machine: bootstrapped } = run(initialSession(), [
+      { kind: "sse", arrivedOn: 0, envelope: identified("session.home", 20) },
+    ]);
+    const { machine } = run(bootstrapped, [
+      { kind: "sse", arrivedOn: 0, envelope: identified("session.other-desktop", 9) },
+    ]);
+    // 身分先於 revision：別的 session 的舊狀態不是 ignore-stale，是不相干。
+    expect(machine.counters.rejectedIdentity).toBe(1);
+    expect(machine.counters.ignoredStale).toBe(0);
+    expect(local(machine)).toEqual(local(bootstrapped));
+  });
+
   it("身分不符壓過 session-reset（不得讓別人的重建宣告接管本地）", () => {
     const { machine: bootstrapped } = run(initialSession(), [
       { kind: "sse", arrivedOn: 0, envelope: identified("session.home", 20) },

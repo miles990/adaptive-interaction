@@ -6,7 +6,7 @@
 //
 //  權威實作是 Rust 的 `crates/interaction-session/src/receive.rs::decide_receive`，
 //  跨語言 fixture 是 `crates/interaction-aip/tests/fixtures/manifest.json` 的
-//  `receiveDecisions` 段（43 個具名案例，由 codegen 內嵌成 `AIPFixtures.manifest`）。
+//  `receiveDecisions` 段（45 個具名案例，由 codegen 內嵌成 `AIPFixtures.manifest`）。
 //  **同一則訊息，Rust／TypeScript／Swift 必須得到同一個決策**——這張表就是拿來對答案的。
 //
 //  為什麼要一張表：同一則訊息，桌面回 realign、iPhone 直接套用、Rust 靜默改寫本地 epoch，
@@ -234,7 +234,14 @@ extension SessionDecisions {
             return .ignoreStaleConnection
         }
         // 1. 身分：別的 session 的狀態不是「比較舊」，是**不相干**——不套用也不 realign。
-        if view.hasState, let claimed = incoming.sessionId, claimed != view.sessionId {
+        //    只在本地**知道**自己的 sessionId 時才比對：本地有狀態但身分未知（例如由不帶
+        //    `sessionId` 的 resume snapshot payload bootstrap 出來的那一份）不算不符。
+        //    把「未知」當成不符是 fail-closed 的地雷：rejectIdentity 不 realign，之後每一則
+        //    帶 sessionId 的訊息都會被擋掉，那台裝置永遠凍在舊狀態且沒有任何出路。
+        //    未知的身分由 `advance` 在套用時記下 incoming 的 sessionId 補齊，下一則就有得比。
+        if view.hasState, let known = view.sessionId, let claimed = incoming.sessionId,
+            known != claimed
+        {
             return .rejectIdentity
         }
         switch incoming.kind {
@@ -309,6 +316,9 @@ extension SessionDecisions {
     }
 
     /// 決策套用之後，本地那份摘要會變成什麼（純函式；不採用狀態的決策原樣回傳）。
+    ///
+    /// 套用時**記下 incoming 的 sessionId**：本地身分未知（規則 1 因此不比對）的那一份，
+    /// 收下第一則帶 sessionId 的權威狀態之後就有身分可比，之後別的 session 立刻被規則 1 擋下。
     static func advance(
         view: SessionReceiverView,
         incoming: SessionIncomingState,

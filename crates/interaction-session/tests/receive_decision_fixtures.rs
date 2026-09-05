@@ -71,6 +71,15 @@ fn empty() -> ReceiverView {
     ReceiverView::empty(GEN)
 }
 
+/// 本地：**有狀態但不知道自己的 sessionId**（例如由不帶 `sessionId` 的 resume snapshot
+/// payload bootstrap 出來的那一份）。規則 1 對這一格不宣稱不符。
+fn local_without_identity() -> ReceiverView {
+    ReceiverView {
+        session_id: None,
+        ..local()
+    }
+}
+
 fn snapshot(revision: u64, epoch: u64, hash: &str) -> IncomingState {
     IncomingState {
         kind: IncomingKind::Snapshot,
@@ -236,6 +245,18 @@ fn cases() -> Vec<Case> {
         "本地還沒有狀態就沒有身分可比：不宣稱不符（規則 1 需要 local 有狀態）",
         empty(),
         snapshot(12, 5, &hash_b()),
+    ),
+    single(
+        "identity-unknown-locally-adopts-incoming",
+        "規則 1 只在本地**知道**自己的 sessionId 時比對：本地有狀態但身分未知（由不帶 sessionId 的 resume snapshot payload bootstrap）不算不符——把未知當成不符是 fail-closed 的地雷（reject-identity 不 realign，那台裝置永遠凍在舊狀態）。套用時把 incoming 的 sessionId 記下來，下一則就有身分可比",
+        local_without_identity(),
+        snapshot(31, 5, &hash_b()),
+    ),
+    single(
+        "identity-known-mismatch-still-rejected",
+        "放寬只發生在「本地不知道」那一格：本地知道就照樣 reject——即使那則訊息本來就會被規則 7 忽略（身分先於 revision，別的 session 的狀態不是「比較舊」，是不相干）",
+        local(),
+        from_session(snapshot(9, 5, &hash_b()), OTHER_SESSION),
     ),
 
     // -------------------------------------------------- 規則 2：形狀
@@ -595,6 +616,12 @@ fn expectation(case: &Case) -> Value {
     }
     map.insert("revisionAfter".into(), json!(view.revision));
     map.insert("epochAfter".into(), json!(view.epoch));
+    // 只在身分**變了**才寫（套用時記下 incoming 的 sessionId）：缺席就是「還是本地那一個」。
+    if view.session_id != case.local.session_id {
+        if let Some(id) = &view.session_id {
+            map.insert("sessionIdAfter".into(), json!(id));
+        }
+    }
     if let Some(batch) = extra {
         map.insert("applied".into(), json!(batch.applied));
         map.insert("skipped".into(), json!(batch.skipped));

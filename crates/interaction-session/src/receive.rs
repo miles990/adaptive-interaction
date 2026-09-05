@@ -22,7 +22,7 @@
 //! | # | 條件 | 決策 |
 //! |---|---|---|
 //! | 0 | `arrived_on_generation` 不是現行連線／請求世代 | [`ReceiveDecision::IgnoreStaleConnection`] |
-//! | 1 | incoming 有 sessionId、local 有狀態、且與 local 不同 | [`ReceiveDecision::RejectIdentity`] |
+//! | 1 | incoming 有 sessionId、local 有狀態且 sessionId **已知**、且兩者不同 | [`ReceiveDecision::RejectIdentity`] |
 //! | 2 | snapshot 缺 hash 或缺 state（patch 缺 baseRevision） | [`ReceiveDecision::RejectInvalid`] |
 //! | 3 | snapshot、`reason == "session-reset"`、epoch 不同（或 local 無狀態） | [`ReceiveDecision::Reset`] |
 //! | 4 | snapshot、local 無狀態 | [`ReceiveDecision::Apply`]（bootstrap） |
@@ -239,11 +239,19 @@ pub fn decide_receive(view: &ReceiverView, incoming: &IncomingState) -> ReceiveD
         return ReceiveDecision::IgnoreStaleConnection;
     }
     // 1. 身分：別的 session 的狀態不是「比較舊」，是**不相干**——不套用也不 realign。
-    if view.has_state
-        && incoming.session_id.is_some()
-        && incoming.session_id.as_deref() != view.session_id.as_deref()
-    {
-        return ReceiveDecision::RejectIdentity;
+    //    只在本地**知道**自己的 sessionId 時才比對：本地有狀態但身分未知（例如由不帶
+    //    `sessionId` 的 resume snapshot payload bootstrap 出來的那一份）不算不符。
+    //    把「未知」當成不符是 fail-closed 的地雷：reject-identity 不 realign，之後每一則
+    //    帶 sessionId 的訊息都會被擋掉，那台裝置永遠凍在舊狀態且沒有任何出路。
+    //    未知的身分由 [`advance`] 在套用時記下 incoming 的 sessionId 補齊，下一則就有得比。
+    if let (true, Some(known), Some(claimed)) = (
+        view.has_state,
+        view.session_id.as_deref(),
+        incoming.session_id.as_deref(),
+    ) {
+        if known != claimed {
+            return ReceiveDecision::RejectIdentity;
+        }
     }
     match incoming.kind {
         IncomingKind::Snapshot => decide_snapshot(view, incoming),
@@ -350,6 +358,9 @@ fn decide_patch(view: &ReceiverView, incoming: &IncomingState) -> ReceiveDecisio
 }
 
 /// 決策套用之後，本地那份摘要會變成什麼（純函式；不採用狀態的決策原樣回傳）。
+///
+/// 套用時**記下 incoming 的 sessionId**：本地身分未知（規則 1 因此不比對）的那一份，
+/// 收下第一則帶 sessionId 的權威狀態之後就有身分可比，之後別的 session 立刻被規則 1 擋下。
 pub fn advance(
     view: &ReceiverView,
     incoming: &IncomingState,
@@ -595,6 +606,63 @@ mod tests {
         assert_eq!(next.revision, 42);
         assert_eq!(next.epoch, 7);
         assert_eq!(next.connection_generation, 1);
+    }
+
+    /// 規則 1 只在**本地知道自己的 sessionId** 時比對。本地有狀態但身分未知
+    /// （例如由不帶 `sessionId` 的 resume snapshot payload bootstrap 出來的那一份）
+    /// 不算「不符」——否則之後每一則帶 sessionId 的 SSE 都會被 reject-identity
+    /// 永久凍結，而且 reject-identity 不 realign，沒有任何出路。
+    #[test]
+    fn a_local_copy_whose_session_id_is_unknown_is_not_a_mismatch() {
+        let mut unknown = view();
+        unknown.session_id = None;
+        let incoming = snapshot(11, 3);
+        assert_eq!(decide_receive(&unknown, &incoming), ReceiveDecision::Apply);
+    }
+
+    /// 套用時把 incoming 的 sessionId 記下來：下一則就有身分可比，凍結不會再長回來。
+    #[test]
+    fn applying_records_the_incoming_session_id_when_the_local_one_is_unknown() {
+        let mut unknown = view();
+        unknown.session_id = None;
+        let incoming = snapshot(11, 3);
+        let decision = decide_receive(&unknown, &incoming);
+        let next = advance(&unknown, &incoming, &decision);
+        assert_eq!(next.session_id.as_deref(), Some("session.home"));
+        // 記下之後，別的 session 立刻被擋下來。
+        let mut other = snapshot(12, 3);
+        other.session_id = Some("session.elsewhere".into());
+        assert_eq!(
+            decide_receive(&next, &other),
+            ReceiveDecision::RejectIdentity
+        );
+    }
+
+    /// patch 也一樣：resume snapshot bootstrap（沒有 sessionId）之後的第一則 SSE patch
+    /// 接得上就套用，不得因為身分未知而被凍結。
+    #[test]
+    fn a_patch_onto_a_local_copy_without_a_known_session_id_still_applies() {
+        let mut unknown = view();
+        unknown.session_id = None;
+        let mut incoming = snapshot(11, 3);
+        incoming.kind = IncomingKind::Patch;
+        incoming.base_revision = Some(10);
+        incoming.state_present = false;
+        assert_eq!(decide_receive(&unknown, &incoming), ReceiveDecision::Apply);
+        let next = advance(&unknown, &incoming, &decide_receive(&unknown, &incoming));
+        assert_eq!(next.session_id.as_deref(), Some("session.home"));
+    }
+
+    /// 放寬只發生在「本地不知道」那一格：本地知道就照樣 reject（即使那則訊息本來
+    /// 就會被規則 7 忽略——身分先於 revision）。
+    #[test]
+    fn a_known_local_session_id_still_rejects_a_mismatch() {
+        let mut older_from_elsewhere = snapshot(9, 3);
+        older_from_elsewhere.session_id = Some("session.elsewhere".into());
+        assert_eq!(
+            decide_receive(&view(), &older_from_elsewhere),
+            ReceiveDecision::RejectIdentity
+        );
     }
 
     #[test]

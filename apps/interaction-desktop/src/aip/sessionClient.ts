@@ -11,7 +11,7 @@
 // 三端現在讀同一張表，而且**同一份跨語言 fixture 逐筆對答案**：
 //
 //   * 來源：`crates/interaction-aip/tests/fixtures/manifest.json` 的 `receiveDecisions` 段
-//     （43 個具名案例，`docs/aip/conformance.md` §3 說明欄位與 `incomingBatchChain` 展開規則）
+//     （45 個具名案例，`docs/aip/conformance.md` §3 說明欄位與 `incomingBatchChain` 展開規則）
 //   * Rust：`crates/interaction-session/tests/receive_decisions_from_json.rs`
 //   * TypeScript（這一支）：`src/test/receive-decision-fixtures.test.ts`
 //   * Swift：`apps/interaction-ios/InteractionCompanionTests`（`AIPFixtures.swift` 已內嵌同一段；
@@ -24,7 +24,8 @@
 // # 表（第一個命中即決定）
 //
 //   0. 訊息來自已失效的連線／請求世代 → `ignore-stale-connection`（**先於一切 epoch 判斷**）
-//   1. incoming 有 sessionId、本地有狀態、且與本地不同 → `reject-identity`（不 realign）
+//   1. incoming 有 sessionId、本地有狀態且 sessionId **已知**、且兩者不同 → `reject-identity`（不 realign）
+//      （本地身分未知就不宣稱不符；套用時記下 incoming 的 sessionId，下一則才有得比）
 //   2. snapshot 缺 `hash` 或缺 `state`（patch 缺 `baseRevision`）→ `reject-invalid`
 //   3. snapshot、`reason == "session-reset"`、epoch 與本地不同（或本地無狀態）→ `reset`
 //   4. snapshot、本地無狀態 → `apply`（bootstrap）
@@ -371,7 +372,9 @@ function commit(
   hash: string,
 ): LocalSessionState {
   return {
-    // incoming 沒帶 sessionId 時留著本地記得的那一個（bootstrap 記下來的身分不會被沖掉）。
+    // 套用時記下 incoming 的 sessionId：本地身分未知（規則 1 因此不比對）的那一份，收下
+    // 第一則帶 sessionId 的權威狀態之後就有身分可比。incoming 沒帶就留著本地記得的那一個
+    // （bootstrap 記下來的身分不會被沖掉）。
     sessionId: message.sessionId ?? local?.sessionId ?? null,
     epoch: message.epoch,
     revision: message.revision,
@@ -393,8 +396,17 @@ export function alignState(
   message: StateMessage,
 ): SessionAlignment {
   // 1. 身分：別的 session 的狀態不是「比較舊」，是**不相干**——不套用也不 realign
-  //    （realign 只會再要一次別人的 session）。
-  if (local && message.sessionId !== null && message.sessionId !== local.sessionId) {
+  //    （realign 只會再要一次別人的 session）。只在本地**知道**自己的 sessionId 時比對：
+  //    本地有狀態但身分未知（例如由不帶 `sessionId` 的 resume snapshot payload bootstrap
+  //    出來的那一份）不算不符。把「未知」當成不符是 fail-closed 的地雷——reject-identity
+  //    不 realign，之後每一則帶 sessionId 的訊息都會被擋掉，那台裝置永遠凍在舊狀態。
+  //    未知的身分由 `commit()` 在套用時記下 incoming 的 sessionId 補齊，下一則就有得比。
+  if (
+    local &&
+    local.sessionId !== null &&
+    message.sessionId !== null &&
+    message.sessionId !== local.sessionId
+  ) {
     return { kind: "reject-identity" };
   }
   return message.kind === "snapshot" ? alignSnapshot(local, message) : alignPatch(local, message);

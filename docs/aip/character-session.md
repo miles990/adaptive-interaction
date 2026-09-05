@@ -172,7 +172,7 @@ persist 之前、每 N 個 revision 才落地，重啟後由 `resume`／`session
 ### 7.2 接收端決策表（AIP 1.0 接收端澄清（2026-09-05，v0.7.0）：wire 不變、新增 reason 值 `recovery`）
 
 權威實作是 `crates/interaction-session/src/receive.rs::decide_receive`（純函式），跨語言 fixture 是
-`crates/interaction-aip/tests/fixtures/manifest.json` 的 `receiveDecisions` 段（43 個具名案例）。
+`crates/interaction-aip/tests/fixtures/manifest.json` 的 `receiveDecisions` 段（45 個具名案例）。
 桌面（TypeScript）與 iPhone（Swift）讀同一段對答案：**同一則訊息，三端必須得到同一個決策**。
 
 前提：訊息已經通過 typed boundary（envelope 合法、`messageType == state`、`revision` 與 `sessionEpoch` 是非負整數、
@@ -183,7 +183,7 @@ persist 之前、每 N 個 revision 才落地，重啟後由 `resume`／`session
 | # | 條件 | 決策 |
 |---|---|---|
 | 0 | 訊息來自已失效的連線世代／請求世代 | `ignore-stale-connection`（計數）。**先於一切 epoch 判斷**——舊連線遲到的 `session-reset` 宣告的 epoch 一定與本地不同，任何 epoch 規則都會被它騙過去，這是唯一防線 |
-| 1 | incoming 有 `sessionId`、local 有狀態、且與 local 不同 | `reject-identity`（稽核 `aip.identity-mismatch`）。**不** realign——realign 只會再要一次別人的 session |
+| 1 | incoming 有 `sessionId`、local 有狀態、local 的 `sessionId` **已知**、且兩者不同 | `reject-identity`（稽核 `aip.identity-mismatch`）。**不** realign——realign 只會再要一次別人的 session。local 有狀態但 `sessionId` 未知（例如由不帶 `sessionId` 的 resume snapshot payload bootstrap 出來的那一份）**不算不符**：繼續往下判，並在套用時記下 incoming 的 `sessionId`（`advance`），下一則就有身分可比。把「未知」當成不符是 fail-closed 的地雷——`reject-identity` 不 realign，那台裝置會被永久凍在舊狀態且沒有出路 |
 | 2 | snapshot 缺 `hash` 或缺 `state`（patch 缺 `baseRevision`） | `reject-invalid`。AIP 1.0 的 snapshot 必帶 hash，**沒有 legacy profile** |
 | 3 | snapshot、`reason == "session-reset"`、epoch 與 local 不同（或 local 無狀態） | `reset`：丟棄本地狀態、採用新的 epoch／revision、清 realign 計數 |
 | 4 | snapshot、local 無狀態 | `apply`（bootstrap） |
@@ -214,6 +214,11 @@ persist 之前、每 N 個 revision 才落地，重啟後由 `resume`／`session
 2. patch 以前完全不看 epoch，只靠 `baseRevision` 恰巧不符去擋；現在 realign（規則 11）。
 3. 桌面端以前有 `allowRegression`／`hostRegressed`（「最新的 HTTP 回覆比本地舊就接受」）；現在取消——同一個
    incarnation 的回退要 host 明說 `recovery`（規則 6／7）。
+
+規則 1 的「已知才比對」在 v0.7.0 一併釘死（fixture `identity-unknown-locally-adopts-incoming`／
+`identity-known-mismatch-still-rejected`）：三端原本都是「local 有狀態＋incoming 有 `sessionId`＋不等於 local 的（可能是
+未知的）身分 → reject」，一旦 resume snapshot payload 負責 bootstrap 而它不帶 `sessionId`，之後每一則帶 `sessionId`
+的 SSE 都會被擋掉。放寬只發生在「本地不知道」那一格：本地知道就照樣 reject。
 
 ### 7.1 存活證明（`lastSeenAt` 從哪裡來）
 

@@ -193,6 +193,13 @@ fn every_receive_decision_fixture_reaches_the_documented_decision() {
             u64_at(expect, "epochAfter"),
             "{id}：套用後的 epoch 不同"
         );
+        // 身分：`sessionIdAfter` 缺席＝「還是本地那一個」；有寫＝套用時記下了 incoming 的
+        // sessionId（本地身分未知的那一格，規則 1 因此不宣稱不符）。
+        assert_eq!(
+            after.session_id,
+            opt_string(expect, "sessionIdAfter").or_else(|| view.session_id.clone()),
+            "{id}：套用後記下的 sessionId 不同"
+        );
         if let Some(applied) = applied {
             assert_eq!(
                 applied as u64,

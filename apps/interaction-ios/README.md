@@ -35,11 +35,11 @@
 > - ✅ **裝置 SDK 建置通過(未簽章)**:`-sdk iphoneos -arch arm64 -configuration Release
 >   CODE_SIGNING_ALLOWED=NO` → `** BUILD SUCCEEDED **`;12 個 `.swift` 對
 >   `arm64-apple-ios17.0` + iphoneos26.5 SDK 的 `swiftc -typecheck` 也是 0 error / 0 warning。
-> - ✅ **XCTest 144/144 通過（2026-09-06 v0.7.0 AIP 接收端決策表＋連線閘門可測性，
->   126 → 144；同分支稍早為 126/126、120/120、104/104，v0.6.0 對抗審查修復後為 101/101；
+> - ✅ **XCTest 146/146 通過（2026-09-06 v0.7.0 決策表規則 1「本地身分已知才比對」，
+>   144 → 146；同分支稍早為 144/144、126/126、120/120、104/104，v0.6.0 對抗審查修復後為 101/101；
 >   2026-09-04 wave 2 為 92/92、同日 v0.5.1 為 46/46、2026-09-03 為 25/25）**
 >   (AIPConformance 17 + ConnectionManagerGate 7 + Lifecycle 22 + MotionClassifier 8 + Protocol 21 +
->   ReceiveDecisionConformance 11 + ReconnectHint 21 + SessionClient 34 + StateHashConformance 3)
+>   ReceiveDecisionConformance 13 + ReconnectHint 21 + SessionClient 34 + StateHashConformance 3)
 >   ——用 xcodebuild 產出的 app-hosted `.xctest`,注入 iPhone 17
 >   **模擬器**(iOS 26.2)以 `simctl` 執行(見下方「跑 XCTest:`simctl` 注入流程」)。
 >   **這是模擬器測試,與下面的真機驗收是兩件事**。
@@ -88,7 +88,7 @@ apps/interaction-ios/
 │   ├── ConnectionManagerGateTests.swift 背景/前景閘門五個接線點的行為測試(可注入 socket 與排程;
 │   │                                   XCTest:7 個 test 方法,v0.7.0)
 │   ├── ReceiveDecisionConformanceTests.swift AIP 接收端決策表的跨語言 conformance
-│   │                                   (manifest.json 的 43 個案例逐筆對答案;XCTest:11 個,v0.7.0)
+│   │                                   (manifest.json 的 45 個案例逐筆對答案;XCTest:13 個,v0.7.0)
 │   ├── LifecycleTests.swift           前景/背景決策 + presence 心跳常數 + AIP heartbeat
 │   │                                   + 背景重連/心跳閘門 + 回前景 resume 防重入
 │   │                                   (XCTest:22 個 test 方法,v0.6.x)
@@ -146,7 +146,7 @@ apps/interaction-ios/
   [`docs/aip/character-session.md`](../../docs/aip/character-session.md) §7.2 的決策表
   (連線世代 → 身分 → 格式 → epoch → revision → hash),權威實作是 Rust
   `interaction_session::receive`,跨語言 fixture 是 `manifest.json` 的 `receiveDecisions` 段。
-  表在 `Services/SessionReceive.swift`,43 個案例由 `ReceiveDecisionConformanceTests` 逐筆對答案。
+  表在 `Services/SessionReceive.swift`,45 個案例由 `ReceiveDecisionConformanceTests` 逐筆對答案。
   **與 v0.6.0 的行為差異三處**,全部往「不猜」的方向:epoch 不同又沒有 `session-reset` 宣告 →
   realign(以前直接套用並靜默改寫本地 epoch);patch 也看 epoch(以前只靠 `baseRevision` 恰巧不符);
   落後的 snapshot 忽略即可(以前一律送 resume),真的倒退過的 host 會宣告 `recovery`,那才跟著退回。
@@ -239,8 +239,13 @@ xcodebuild test -project apps/interaction-ios/InteractionCompanion.xcodeproj \
 > 背景不排重連／不送心跳的閘門、`@unknown default` 的背景 fallback；同一台 iPhone 17 模擬器、
 > iOS 26.5 runtime、UDID B9A0E7F9…；先看到 4 個測試紅燈／12 個斷言失敗再實作到全綠）
 > **2026-09-06（v0.7.0：AIP 接收端決策表 ＋ 連線閘門可測性）重跑：Executed 144 tests, with 0 failures**
+>
+> **2026-09-06（v0.7.0：決策表規則 1「本地身分已知才比對」）重跑：Executed 146 tests, with 0 failures**
+>（上列 144＋`ReceiveDecisionConformance` 2：本地有狀態但 `sessionId` 未知不算不符、套用時記下 incoming 的
+> `sessionId`；本地知道身分時的不符照舊 reject。先看到 5 個紅燈（`identity-unknown-locally-adopts-incoming`
+> fixture ＋ 兩個新單元測試）再實作到全綠。）
 >（上列 126＋ReceiveDecisionConformance 11＋ConnectionManagerGate 7：`manifest.json` 的
-> `receiveDecisions` 43 個案例逐筆對答案（含 `incomingBatchChain` 展開，無跳過）、resume 中途失敗只保留前綴、
+> `receiveDecisions` 45 個案例逐筆對答案（含 `incomingBatchChain` 展開，無跳過）、resume 中途失敗只保留前綴、
 > 缺 hash 不套用、舊連線世代丟棄、身分不符不 realign、`recovery` 才允許退回；以及背景/前景閘門五個接線點的
 > 行為測試（可注入 socket 與排程）。同一台 iPhone 17 模擬器、iOS 26.2 runtime、UDID B9A0E7F9…）
 > ——仍是 **iPhone 17 模擬器**（跑完即 `simctl shutdown`），
@@ -338,7 +343,7 @@ SIMCTL_CHILD_XCInjectBundleInto="$APP/InteractionCompanion" \
 xcrun simctl launch --console-pty "$UDID" "$BID" -XCTest All "$APP/PlugIns/InteractionCompanionTests.xctest"
 ```
 
-輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 144。
+輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 146。
 
 ### DEBUG 限定啟動參數(自動化驗收,僅供模擬器/CI;release 不編入)
 

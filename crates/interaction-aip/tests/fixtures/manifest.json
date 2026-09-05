@@ -513,7 +513,8 @@
         "budgetAfter": 0,
         "decision": "apply",
         "epochAfter": 5,
-        "revisionAfter": 12
+        "revisionAfter": 12,
+        "sessionIdAfter": "session.home"
       },
       "id": "identity-unknown-locally-is-not-a-mismatch",
       "incoming": {
@@ -534,6 +535,66 @@
         "revision": 0
       },
       "note": "本地還沒有狀態就沒有身分可比：不宣稱不符（規則 1 需要 local 有狀態）"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "apply",
+        "epochAfter": 5,
+        "revisionAfter": 31,
+        "sessionIdAfter": "session.home"
+      },
+      "id": "identity-unknown-locally-adopts-incoming",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 31,
+        "sessionId": "session.home",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30
+      },
+      "note": "規則 1 只在本地**知道**自己的 sessionId 時比對：本地有狀態但身分未知（由不帶 sessionId 的 resume snapshot payload bootstrap）不算不符——把未知當成不符是 fail-closed 的地雷（reject-identity 不 realign，那台裝置永遠凍在舊狀態）。套用時把 incoming 的 sessionId 記下來，下一則就有身分可比"
+    },
+    {
+      "expect": {
+        "budget": "ok",
+        "budgetAfter": 0,
+        "decision": "reject-identity",
+        "epochAfter": 5,
+        "revisionAfter": 30
+      },
+      "id": "identity-known-mismatch-still-rejected",
+      "incoming": {
+        "arrivedOnGeneration": 7,
+        "computedHash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "epoch": 5,
+        "hash": "22a655459b837dae77f17743a2cd2fb0a77c27e67122a4e8ba3160d460dd37fd",
+        "kind": "snapshot",
+        "revision": 9,
+        "sessionId": "session.other-desktop",
+        "statePresent": true,
+        "viaAuthoritativeReply": false
+      },
+      "local": {
+        "connectionGeneration": 7,
+        "epoch": 5,
+        "hasState": true,
+        "hash": "9e40c8a6671935f9e44f92b8a94d0659f282121ce09e175177711751441305bf",
+        "revision": 30,
+        "sessionId": "session.home"
+      },
+      "note": "放寬只發生在「本地不知道」那一格：本地知道就照樣 reject——即使那則訊息本來就會被規則 7 忽略（身分先於 revision，別的 session 的狀態不是「比較舊」，是不相干）"
     },
     {
       "expect": {
@@ -751,7 +812,8 @@
         "budgetAfter": 0,
         "decision": "apply",
         "epochAfter": 5,
-        "revisionAfter": 12
+        "revisionAfter": 12,
+        "sessionIdAfter": "session.home"
       },
       "id": "bootstrap-snapshot",
       "incoming": {
@@ -779,7 +841,8 @@
         "budgetAfter": 0,
         "decision": "reset",
         "epochAfter": 6,
-        "revisionAfter": 1
+        "revisionAfter": 1,
+        "sessionIdAfter": "session.home"
       },
       "id": "bootstrap-session-reset",
       "incoming": {
