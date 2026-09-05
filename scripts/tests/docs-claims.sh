@@ -119,6 +119,39 @@ if "aarch64-unknown-linux-gnu" not in targets:
     need("aarch64-unknown-linux-gnu" in install,
          "release.yml 不建置 Linux aarch64，docs/INSTALL.md 必須寫明該平台需從原始碼編譯")
 
+
+# ---- evidence-index：已發布版本的 canonical 事實 -----------------------------
+import json, subprocess
+idx_path = "docs/releases/evidence-index.json"
+try:
+    idx = json.loads(read(idx_path))
+except Exception as e:  # noqa: BLE001
+    idx = None
+    need(False, "%s 不是合法 JSON：%s" % (idx_path, e))
+if idx:
+    need(idx.get("schemaVersion") == 1, "%s schemaVersion 必須是 1" % idx_path)
+    stale_docs = ["README.md", "docs/ARCHITECTURE.md", "docs/FEATURES.md", "CLAUDE.md"]
+    stale_text = {d: read(d) for d in stale_docs if os.path.exists(d)}
+    for rel in idx.get("releases", []):
+        tag = rel.get("tag", "")
+        commit = rel.get("commit", "")
+        try:
+            resolved = subprocess.run(["git", "rev-list", "-n1", tag], capture_output=True, text=True, check=False).stdout.strip()
+        except OSError:
+            resolved = ""
+        need(resolved != "", "evidence-index：tag %s 在這個 repo 裡不存在" % tag)
+        need(resolved == "" or resolved == commit,
+             "evidence-index：tag %s 指向 %s，索引寫 %s" % (tag, resolved[:12], commit[:12]))
+        for key, path in rel.get("docs", {}).items():
+            need(os.path.exists(path), "evidence-index：%s 的 docs.%s 指向不存在的 %s" % (tag, key, path))
+        # 已發布的版本不得在總覽文件裡仍寫成「尚未 tag／發布」「候選版本」。
+        ver = rel.get("version", "")
+        for d, text in stale_text.items():
+            for line in text.splitlines():
+                if ("v" + ver) in line or ("v%s" % ver) in line:
+                    need(not ("尚未 tag" in line or "尚未發布" in line or "候選版本" in line),
+                         "%s 仍把已發布的 v%s 寫成候選／尚未 tag：%s" % (d, ver, line.strip()[:80]))
+
 for f in fails:
     print("  ✘ " + f)
 print()

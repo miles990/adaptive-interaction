@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "note": "已發布版本與候選分支的 canonical 事實索引（版本／tag／commit／CI／Release 資產／證據等級／已知限制指標）。文件引用這裡，不各自重述；由 scripts/tests/docs-claims.sh 的 evidence-index 區塊核對 tag→commit 與檔案存在，並擋下「已發布卻寫成尚未 tag」的過期宣稱。證據等級用字：real-device（真機／真板）、simulator（iOS 模擬器）、fixture（fake_iphone／esp32-serial-sim／程序內 client）、browser（Playwright Chromium）、unit（vitest／cargo test／XCTest）、none。",
+  "releases": [
+    {
+      "version": "0.5.0",
+      "tag": "v0.5.0",
+      "commit": "8b713c7a8581da94729141384ab54ac508992bfe",
+      "publishedAt": "2026-09-03T15:10:14Z",
+      "releaseAssets": 18,
+      "ci": { "run": 33771059337, "conclusion": "success" },
+      "releaseWorkflow": { "run": 33771064257, "conclusion": "success" },
+      "docs": {
+        "finalReport": "docs/releases/v0.5.0-final-report.md",
+        "knownLimitations": "docs/releases/v0.5.0-known-limitations.md",
+        "testMatrix": "docs/releases/v0.5.0-test-matrix.md",
+        "deviceEvidence": "docs/releases/v0.5.0-iphone-device-evidence.md"
+      },
+      "evidence": {
+        "iphone": "real-device (iPhone 11, 舊 wire protocol v1 路徑；逐列見 deviceEvidence)",
+        "esp32": "none (只有 arduino-cli 編譯檢查與 pty 模擬器)",
+        "tauriWindow": "real-window (v0.5.x 真 Tauri 視窗驗收表見 testMatrix)"
+      },
+      "notes": []
+    },
+    {
+      "version": "0.5.1",
+      "tag": "v0.5.1",
+      "commit": "ccf3bfe18612a083519b7cbfbd4bab3429b3d021",
+      "publishedAt": "2026-09-03T21:36:29Z",
+      "releaseAssets": 18,
+      "ci": { "run": 33808844320, "conclusion": "failure", "failedJobs": ["Tauri backend (clippy + test)"] },
+      "releaseWorkflow": { "run": 33808841552, "conclusion": "success" },
+      "docs": {
+        "finalReport": "docs/releases/v0.5.1-final-report.md",
+        "knownLimitations": "docs/releases/v0.5.1-known-limitations.md",
+        "testMatrix": "docs/releases/v0.5.1-test-matrix.md",
+        "deviceEvidence": "docs/releases/v0.5.1-iphone-device-evidence.md"
+      },
+      "evidence": {
+        "iphone": "blocked (見 deviceEvidence)",
+        "esp32": "none",
+        "tauriWindow": "real-window (見 testMatrix)"
+      },
+      "notes": [
+        "被 tag 的 commit ccf3bfe 的 CI run 33808844320 中 Tauri backend job 失敗；當時 release.yml 尚無 ci-gate（v0.6.0 起才要求四個必需 job 全綠才建 tag，release-provenance-072/073/077）。後續 main 5f3df32／6e4a8a2／a94e3d5 的 CI 為 success。"
+      ]
+    },
+    {
+      "version": "0.6.0",
+      "tag": "v0.6.0",
+      "commit": "4bd55fe69915296ffe06f61cea989e5a0e160997",
+      "publishedAt": "2026-09-04T21:06:58Z",
+      "releaseAssets": 23,
+      "ci": { "run": 33917336584, "conclusion": "success", "prRun": 33916882852 },
+      "releaseWorkflow": { "run": 33918252926, "conclusion": "failure", "failedJobs": ["Desktop (windows-latest)"], "skippedJobs": ["Publish only when every asset is present"] },
+      "postReleaseMain": [
+        { "commit": "ea7de59", "ci": 33919774319, "conclusion": "failure", "why": "CHANGELOG claim-check（Tauri backend）；Windows checksum 上傳的 CRLF 修正本身正確" },
+        { "commit": "8826656", "ci": 33919829058, "conclusion": "success" },
+        { "commit": "8f52837", "ci": 33920312398, "conclusion": "success" }
+      ],
+      "docs": {
+        "finalReport": "docs/releases/v0.6.0-final-report.md",
+        "knownLimitations": "docs/releases/v0.6.0-known-limitations.md",
+        "testMatrix": "docs/releases/v0.6.0-test-matrix.md",
+        "readiness": "docs/releases/v0.6.0-release-readiness.md",
+        "migration": "docs/releases/v0.6.0-migration.md"
+      },
+      "evidence": {
+        "iphone": "simulator + fixture (AIP／Character Session 新協定層真機零執行；v0.5.x 的真機證據只涵蓋舊協定路徑)",
+        "esp32": "none",
+        "tauriWindow": "none (本輪未重跑真視窗走查；效能數字為 headless Chromium)",
+        "perf": "headless Chromium 60 s soak（與 v0.5.1 的 10 min soak 不直接可比）"
+      },
+      "notes": [
+        "Release run 33918252926 的 Desktop (windows-latest) job 因 sha256-files.txt 帶 CRLF 而失敗、finalize 被 skipped；Windows 兩個 .sha256 由整合者從已上傳資產計算並補上（final-report §34），修正在 main ea7de59（regression：scripts/tests/release-scripts.sh 末段）。"
+      ]
+    }
+  ],
+  "candidates": [
+    {
+      "branch": "feature/v0.6.x-maintainability",
+      "baseCommit": "8f528374fd0b1490eacb623f6e299339bfd565e0",
+      "status": "in-progress",
+      "versionPolicy": "M1/M3/M4 → patch 候選；M2（第二裝置 AIP profile、SensorSource port）→ minor 候選；未決定號碼、未打 tag",
+      "progress": "docs/releases/v0.6.x-maintainability-progress.md"
+    }
+  ]
+}
