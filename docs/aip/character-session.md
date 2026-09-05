@@ -74,6 +74,16 @@
 > （`SessionError::InvalidState` → `schema-invalid`），不修正。三端對同一份 state 的 canonical 文字與 SHA-256
 > 由 `crates/interaction-aip/tests/fixtures/manifest.json` 的 `stateHashes`（9 份 host 真實輸出）釘住；
 > f64 欄位清單 `stateHashDoublePaths` 由 schemars 推導（目前只有 `/mood/intensity`）。
+>
+> **新增欄位的規則（可執行，不是提醒）**：`SemanticState` **不在** `schemas/aip-1.0.schema.json` 裡
+> （那份 golden 只由 `crates/interaction-aip` 的型別產生），所以加一個 state 欄位不會讓 golden 紅、
+> `pnpm aip:codegen` 也是零 diff——TypeScript 與 Swift 沒有任何機制會注意到它
+> （`docs/releases/v0.7.0-drills.md` §7 F4 實測）。因此：**新增任何 `SemanticState` 欄位，必須同時有一份
+> 帶著該欄位的 `stateHashes` fixture**（`AIP_UPDATE_FIXTURES=1` 重生後跑 `pnpm aip:codegen`），
+> 而且值為「無」時一律省略該鍵——canonical 裡**不得出現 `null`**。兩條都由測試擋：
+> `crates/interaction-session/tests/state_hash_fixtures.rs::every_semantic_state_field_appears_in_at_least_one_state_hash_fixture`
+> 與 `::no_fixture_state_or_canonical_text_contains_null`，加上
+> `tests/state_semantics.rs::semantic_state_never_serializes_a_null`。
 
 ## 4. 語意事件目錄（1.0）
 

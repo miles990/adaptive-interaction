@@ -27,7 +27,7 @@
 | **入口** | CLI `interact-ai character adapters add --name X --manifest m.json`／`character status｜instances`；HTTP `GET /v1/character/instances｜adapters`；UI 角色頁（`src/pages/character/`） |
 | **狀態來源** | Runtime `crates/interaction-runtime/src/character.rs`（CharacterHub＋真相投影）。**truthState／verified 只由 Runtime 決定**，adapter 與 Character Pack 不能改寫安全文字、不能偽造 verified |
 | **公開契約** | `docs/character-protocol/README.md`（唯一契約）＋`adapter-authoring.md`；`docs/aip/character-package.md`、`docs/aip/reference-character.md` |
-| **擴充點** | 新角色＝一份 manifest＋（需要新畫法時）一個 adapter。內建白名單由 host 注入：Rust `interaction_runtime::character::character_host_registry()`、TS `src/character/adapterRegistry.ts` 的 `BUILTIN_ADAPTER_IDS`＋`adapters/index.ts` 的工廠。**核心 crate 與頁面不得認得任何角色 id** |
+| **擴充點** | **兩種，代價不同**（`docs/aip/adapter-development.md` §1a／§1b，實測 `docs/releases/v0.7.0-drills.md` §1）：**(a) 加角色（重用既有 adapter）**＝一份 manifest＋`public/characters/index.json` 一列＋一支角色專屬測試；**兩份 host 白名單都不動**——白名單的鍵是 entrypoint，不是角色 id（出貨數量只寫在 `character-manifests.test.ts` 的 `SHIPPED_CHARACTER_IDS`）。**(b) 加 adapter（新 entrypoint）**＝才要動兩份白名單：Rust `interaction_runtime::character::character_host_registry()` 的 `CHARACTER_BUILTIN_ENTRYPOINTS`、TS `src/character/adapterRegistry.ts` 的 `BUILTIN_ADAPTER_IDS`＋`adapters/index.ts` 的工廠，並在 `adapter-contract.test.ts` 加案例。**核心 crate 與頁面不得認得任何角色 id** |
 | **必要測試** | `tests/e2e/tests/builtin_whitelist_consistency.rs::the_rust_and_typescript_builtin_whitelists_are_the_same_set`；`crates/interaction-runtime/tests/character_host_registry.rs`；`apps/interaction-desktop/src/test/architecture-no-entrypoint-switch.test.ts`、`character-ref-shape.test.ts`、`character-manifests.test.ts` |
 | **已知限制** | `CharacterPreview.tsx`／`CharacterLibrary.tsx` 仍在守門測試的待收斂棘輪清單裡（`architecture-boundaries.md` §4） |
 
@@ -51,7 +51,7 @@
 | **入口** | HTTP `GET /v1/character-session`、`POST /v1/character-session/{resume,events}`、`GET /v1/character-session/diagnostics`；SSE `character.session.state`；CLI `interact-ai character session status｜diagnostics｜resume` |
 | **狀態來源** | Runtime 是**唯一** Session Host：`crates/interaction-runtime/src/character_session.rs`（真相唯一入口 `submit_runtime`）。成員（桌面／iPhone／宣告式裝置）不擁有共享狀態 |
 | **公開契約** | `docs/aip/character-session.md`（§7.2 接收端決策表）、`docs/aip/README.md`（AIP 1.0） |
-| **擴充點** | 新的 state reason 值／新 message name 依 `docs/aip/compatibility.md` §2 的 minor 規則；新增決策表分支要同時加跨語言 fixture（`crates/interaction-aip/tests/fixtures/manifest.json` 的 `receiveDecisions`） |
+| **擴充點** | 新的 state reason 值／新 message name 依 `docs/aip/compatibility.md` §2 的 minor 規則；新增決策表分支要同時加跨語言 fixture（`crates/interaction-aip/tests/fixtures/manifest.json` 的 `receiveDecisions`）。**新增任何 `SemanticState` 欄位，必須同時有一份帶著該欄位的 `stateHashes` fixture**——`SemanticState` 不在 golden schema 裡，fixture 是 TypeScript／Swift 唯一會被逼著看到新欄位的東西（`state_hash_fixtures.rs::every_semantic_state_field_appears_in_at_least_one_state_hash_fixture` 會擋） |
 | **必要測試** | `crates/interaction-session/tests/receive_decision_fixtures.rs::receive_decision_fixtures_match_the_decision_table`、`::the_decision_table_fixtures_cover_every_branch`；`receive_decisions_from_json.rs::every_receive_decision_fixture_reaches_the_documented_decision`；`security_matrix.rs::the_pipeline_order_is_fixed_identity_before_membership_before_scope`；三端鏡射 `apps/interaction-desktop/src/test/receive-decision-fixtures.test.ts`、`apps/interaction-ios/InteractionCompanionTests/ReceiveDecisionConformanceTests.swift`（需模擬器） |
 | **已知限制** | `ConsentVerifier` 刻意不接進 `gate`（fail-closed）；多裝置同時連線同一 session 未覆蓋；iPhone 真機閉環為零 |
 

@@ -86,6 +86,16 @@ boundary 擋下一則**權威回覆**時算一次 realign 失敗（案例 `bound
 `state-patch.json` 的 `hash` 與它鏈在一起，Rust `state_semantics.rs` 釘住這一對）。envelope conformance
 只驗結構；hash 的**計算**由 `stateHashes` 段的三端測試驗證，hash 的**接收端決策**屬於 `interaction-session`。
 
+**`stateHashes` 的兩條可執行規則**（`crates/interaction-session/tests/state_hash_fixtures.rs`）：
+
+1. **`SemanticState` 的每一個欄位都必須出現在至少一份 `stateHashes` fixture 裡**
+   （`every_semantic_state_field_appears_in_at_least_one_state_hash_fixture`，欄位清單由 schemars 推導）。
+   理由：`SemanticState` 住在 `interaction-session`，不在 golden schema 裡，加欄位不會讓 golden 或 codegen 紅——
+   fixture 是 TypeScript／Swift 唯一會被逼著看到新欄位的東西。缺席時**補 fixture**，不要放寬斷言。
+2. **任何 fixture 的 `state` 與 `canonical` 文字都不得含 `null`**
+   （`no_fixture_state_or_canonical_text_contains_null`）：值為「無」的選填鍵一律省略，因為 RFC 7396 的 `null`
+   是刪除鍵，host 寫 `null` 而接收端刪鍵，兩邊的 canonical hash 就會分岔。
+
 ## 4. 加一則 fixture
 
 1. 把 envelope JSON 放進 `crates/interaction-aip/tests/fixtures/`（超過 32 KiB 的請改用 `generated` 區段）。

@@ -546,3 +546,254 @@ fn negative_zero_intensity_has_a_deterministic_canonical_text() {
     map.insert("intensity".into(), json!(0.0));
     assert!(canonical_json(&Value::Object(map)).contains("\"intensity\":0.0"));
 }
+
+// ---------------------------------------------------------------- 不變量：canonical 沒有 null
+
+/// 遞迴找出第一個 `null` 的 JSON pointer（沒有就回 `None`）。
+///
+/// 為什麼要有這條：`state.rs` 開頭的實作註記規定「值為『無』的選填鍵一律省略，不寫 `null`」
+/// （RFC 7396 的 `null` 是**刪除鍵**，host 寫 `null` 而接收端刪鍵，兩邊 canonical hash 就分岔）。
+/// 這條規則在 v0.6.x 之前**只靠人記得**：拿掉一個欄位的 `skip_serializing_if` 之後，9 份 fixture
+/// 會一起紅，而 `AIP_UPDATE_FIXTURES=1` 會愉快地把它們全部重生成含 `null` 的樣子，重生之後
+/// 整個 workspace 又全綠（`docs/releases/v0.7.0-drills.md` §7 F5 實測）。
+fn first_null_pointer(value: &Value, pointer: &str) -> Option<String> {
+    match value {
+        Value::Null => Some(pointer.to_string()),
+        Value::Object(map) => map
+            .iter()
+            .find_map(|(k, v)| first_null_pointer(v, &format!("{pointer}/{k}"))),
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .find_map(|(i, v)| first_null_pointer(v, &format!("{pointer}/{i}"))),
+        _ => None,
+    }
+}
+
+/// 讀 manifest 的 `stateHashes` 索引，回傳 `(id, 檔案內容)`。
+fn manifest_state_hash_docs() -> Vec<(String, Value)> {
+    let dir = fixtures_dir();
+    let manifest: Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("manifest.json")).expect("manifest.json readable"),
+    )
+    .expect("manifest.json is JSON");
+    let entries = manifest
+        .get("stateHashes")
+        .and_then(Value::as_array)
+        .cloned()
+        .expect("manifest.json 有 stateHashes 段");
+    assert!(!entries.is_empty(), "stateHashes 不得是空清單");
+    entries
+        .iter()
+        .map(|entry| {
+            let id = entry["id"].as_str().expect("stateHashes[].id").to_string();
+            let file = entry["file"].as_str().expect("stateHashes[].file");
+            let doc: Value = serde_json::from_str(
+                &std::fs::read_to_string(dir.join(file))
+                    .unwrap_or_else(|e| panic!("{file} 讀不到（{e}）")),
+            )
+            .unwrap_or_else(|_| panic!("{file} 不是 JSON"));
+            (id, doc)
+        })
+        .collect()
+}
+
+/// 每一份 fixture 的 `state` 與 `canonical` 文字都不得含 `null`（見 `first_null_pointer` 的說明）。
+#[test]
+fn no_fixture_state_or_canonical_text_contains_null() {
+    for (id, doc) in manifest_state_hash_docs() {
+        let state = doc.get("state").cloned().expect("fixture 有 state");
+        assert_eq!(
+            first_null_pointer(&state, ""),
+            None,
+            "{id}：fixture 的 state 出現 null；選填鍵要省略而不是寫 null（state.rs 的實作註記）"
+        );
+        // canonical 是真的拿去做 SHA-256 的那一串文字：從文字面再確認一次
+        // （`state` 是解析後的值，文字面才是三端真正比對的東西）。
+        let canonical = doc["canonical"].as_str().expect("fixture 有 canonical");
+        let reparsed: Value = serde_json::from_str(canonical).expect("canonical 是 JSON");
+        assert_eq!(
+            first_null_pointer(&reparsed, ""),
+            None,
+            "{id}：canonical 文字裡出現 null"
+        );
+        assert!(
+            !canonical.contains("null"),
+            "{id}：canonical 文字含 `null` 字樣：{canonical}"
+        );
+    }
+
+    // 反例：這條斷言真的抓得到 null（不然它只是裝飾）。
+    assert_eq!(
+        first_null_pointer(&json!({"a": {"b": [1, null]}}), ""),
+        Some("/a/b/1".to_string())
+    );
+    assert_eq!(
+        first_null_pointer(&json!({"lastInteraction": null}), ""),
+        Some("/lastInteraction".to_string())
+    );
+}
+
+// ------------------------------------------------- 不變量：每個 state 欄位都有 fixture 覆蓋
+
+/// `SemanticState` 的所有欄位路徑（由 schemars 推導，不手寫）。陣列元素寫成 `*`。
+///
+/// 為什麼要有這條（`docs/releases/v0.7.0-drills.md` §7 F4）：`SemanticState` 住在
+/// `interaction-session`，而 `schemas/aip-1.0.schema.json` 只由 `interaction-aip` 的型別產生——
+/// 加一個 state 欄位不會讓 golden schema 紅、`pnpm aip:codegen` 零 diff，TypeScript 與 Swift
+/// **沒有任何機制**會注意到它。三端對 state 的唯一錨就是這幾份 fixture，所以規則是：
+/// **新增任何 `SemanticState` 欄位，必須同時有一份帶著該欄位的 state-hash fixture**。
+fn schema_field_paths() -> Vec<String> {
+    field_paths_of(serde_json::to_value(schemars::schema_for!(SemanticState)).expect("schema"))
+}
+
+/// 任一份 JSON Schema 的欄位路徑（抽出來是為了讓下面的反例能套用同一段推導）。
+fn field_paths_of(root: Value) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_field_paths(&root, &root, "", &mut out, 0);
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn collect_field_paths(
+    root: &Value,
+    node: &Value,
+    pointer: &str,
+    out: &mut Vec<String>,
+    depth: usize,
+) {
+    if depth > 16 {
+        return;
+    }
+    let Some(obj) = node.as_object() else {
+        return;
+    };
+    if let Some(reference) = obj.get("$ref").and_then(Value::as_str) {
+        if let Some(target) = reference
+            .strip_prefix("#/")
+            .and_then(|path| path.split('/').try_fold(root, |acc, key| acc.get(key)))
+        {
+            collect_field_paths(root, target, pointer, out, depth + 1);
+        }
+        return;
+    }
+    if let Some(props) = obj.get("properties").and_then(Value::as_object) {
+        for (key, child) in props {
+            let child_pointer = format!("{pointer}/{key}");
+            out.push(child_pointer.clone());
+            collect_field_paths(root, child, &child_pointer, out, depth + 1);
+        }
+    }
+    if let Some(items) = obj.get("items") {
+        collect_field_paths(root, items, &format!("{pointer}/*"), out, depth + 1);
+    }
+    for key in ["oneOf", "anyOf", "allOf"] {
+        if let Some(variants) = obj.get(key).and_then(Value::as_array) {
+            for variant in variants {
+                collect_field_paths(root, variant, pointer, out, depth + 1);
+            }
+        }
+    }
+}
+
+/// 一份 JSON 值裡實際出現的欄位路徑（陣列元素同樣寫成 `*`）。
+fn present_field_paths(value: &Value, pointer: &str, out: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            for (k, v) in map {
+                let child = format!("{pointer}/{k}");
+                out.push(child.clone());
+                present_field_paths(v, &child, out);
+            }
+        }
+        Value::Array(items) => {
+            for v in items {
+                present_field_paths(v, &format!("{pointer}/*"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `SemanticState` 的每一個欄位都必須出現在至少一份 `stateHashes` fixture 裡。
+///
+/// 缺席就是紅燈，修法是**補一份帶著該欄位的 fixture**（不是放寬這條斷言）：那份 fixture
+/// 是 TypeScript 與 Swift 唯一會被逼著看到新欄位的地方。
+/// 所有 fixture 的 `state` 加起來實際覆蓋到的欄位路徑。
+fn covered_field_paths() -> Vec<String> {
+    let mut covered: Vec<String> = Vec::new();
+    for (_, doc) in manifest_state_hash_docs() {
+        let state = doc.get("state").cloned().expect("fixture 有 state");
+        present_field_paths(&state, "", &mut covered);
+    }
+    covered.sort();
+    covered.dedup();
+    covered
+}
+
+/// `expected` 裡沒有被 `covered` 覆蓋到的欄位（下面的正例與反例共用同一段比對）。
+fn uncovered_fields(expected: &[String], covered: &[String]) -> Vec<String> {
+    expected
+        .iter()
+        .filter(|p| !covered.contains(p))
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn every_semantic_state_field_appears_in_at_least_one_state_hash_fixture() {
+    let covered = covered_field_paths();
+    let expected = schema_field_paths();
+    assert!(
+        expected.contains(&"/mood/intensity".to_string()),
+        "schemars 推導出的欄位清單看起來不對（連 /mood/intensity 都沒有）：{expected:?}"
+    );
+    let missing = uncovered_fields(&expected, &covered);
+    assert!(
+        missing.is_empty(),
+        "這些 SemanticState 欄位沒有出現在任何一份 state-hash fixture 裡：{missing:?}。\
+         請補一份帶著它的 fixture（AIP_UPDATE_FIXTURES=1 重生），不要放寬這條斷言——\
+         fixture 是 TypeScript／Swift 唯一會被逼著看到新欄位的地方。"
+    );
+
+    // 反向：fixture 裡不得出現 schema 沒有的欄位（改名／刪欄位之後 fixture 沒跟上）。
+    let stale = uncovered_fields(&covered, &expected);
+    assert!(
+        stale.is_empty(),
+        "這些欄位出現在 fixture 裡，但 SemanticState 的 schema 沒有：{stale:?}"
+    );
+}
+
+/// 反例：**新增一個欄位**真的會被上面那條斷言抓到（不然「每個欄位都有 fixture」只是好聽話）。
+///
+/// 這裡不動 `SemanticState`（那會讓 9 份 fixture 一起要重生），改用一個與它同形、只多一個
+/// 選填欄位的測試專用型別，跑同一段 schemars 推導與同一份 fixture 覆蓋集合：多出來的
+/// `/ambient` 必須被判為「沒有 fixture 覆蓋」。演練 3 加的就是這個形狀的欄位
+/// （`docs/releases/v0.7.0-drills.md` §3）。
+#[test]
+fn a_new_optional_state_field_would_be_reported_as_uncovered() {
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    #[serde(rename_all = "camelCase")]
+    struct SemanticStateWithANewField {
+        character_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ambient: Option<String>,
+    }
+
+    let paths = field_paths_of(
+        serde_json::to_value(schemars::schema_for!(SemanticStateWithANewField)).expect("schema"),
+    );
+    assert!(
+        paths.contains(&"/ambient".to_string()),
+        "schemars 推導看不到新欄位：{paths:?}"
+    );
+
+    // 同一段比對：`/characterId` 有 fixture 覆蓋，`/ambient` 沒有 → 正式那條斷言會紅。
+    let missing = uncovered_fields(&paths, &covered_field_paths());
+    assert_eq!(
+        missing,
+        vec!["/ambient".to_string()],
+        "新增的選填欄位必須被判為沒有 fixture 覆蓋"
+    );
+}

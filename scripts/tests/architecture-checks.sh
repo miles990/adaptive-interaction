@@ -6,7 +6,8 @@
 #   bash scripts/tests/architecture-checks.sh --docs     # 文件誠實度 lint ＋ 發布腳本自測
 #   bash scripts/tests/architecture-checks.sh --ts       # 桌面守門測試（vitest，指定檔）
 #   bash scripts/tests/architecture-checks.sh --rust     # 依賴邊界／schema 漂移／決策表／生命週期
-#   bash scripts/tests/architecture-checks.sh            # 三組都跑
+#   bash scripts/tests/architecture-checks.sh --drills   # 演練腳本不腐爛（語法＋引用到的檔案／端點還在）
+#   bash scripts/tests/architecture-checks.sh            # 四組都跑
 #
 # 誠實：每一組印自己的 PASS／FAIL 與數字；**沒有跑到的組印 SKIP，不算通過**，
 # 而且只要有任何一組 SKIP 或 FAIL，收尾就不會寫 "all checks passed"。
@@ -28,9 +29,9 @@ DESKTOP="apps/interaction-desktop"
 SWIFT_TEST="apps/interaction-ios/InteractionCompanionTests/ReceiveDecisionConformanceTests.swift"
 SWIFT_CASE="testEveryReceiveDecisionFixtureReachesTheDocumentedDecision"
 
-RUN_RUST=0; RUN_TS=0; RUN_DOCS=0; LIST_ONLY=0
+RUN_RUST=0; RUN_TS=0; RUN_DOCS=0; RUN_DRILLS=0; LIST_ONLY=0
 if [[ $# -eq 0 ]]; then
-  RUN_RUST=1; RUN_TS=1; RUN_DOCS=1
+  RUN_RUST=1; RUN_TS=1; RUN_DOCS=1; RUN_DRILLS=1
 else
   for arg in "$@"; do
     case "$arg" in
@@ -38,11 +39,12 @@ else
       --rust) RUN_RUST=1 ;;
       --ts)   RUN_TS=1 ;;
       --docs) RUN_DOCS=1 ;;
+      --drills) RUN_DRILLS=1 ;;
       -h|--help)
-        sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
         exit 0 ;;
       *)
-        echo "未知參數：${arg}（用 --list／--rust／--ts／--docs）" >&2
+        echo "未知參數：${arg}（用 --list／--rust／--ts／--docs／--drills）" >&2
         exit 2 ;;
     esac
   done
@@ -63,6 +65,7 @@ CHECKS=(
 "ts|safety-honesty|一般模式的安全狀態誠實投影：五入口、不外洩技術詞、誠實階梯不鬆動|$DESKTOP/src/test/general-mode-no-technical-terms.test.tsx ／ regressions-v06-general-mode.test.tsx ／ overlay.test.tsx"
 "docs|docs-claims|文件對程式碼現況的可驗證陳述必須與 repo 一致（含已發布版本的 canonical 事實）|scripts/tests/docs-claims.sh"
 "docs|release-scripts|發布腳本／workflow 自測（語法、關卡誠實、CI 必需 check 清單）|scripts/tests/release-scripts.sh"
+"drills|drill-scripts|可重跑的維護性演練腳本不得腐爛：bash -n 語法檢查 ＋ 它引用的 repo 檔案與 HTTP 端點還在|scripts/drills/*.sh（實跑要真 daemon＋pty 模擬器，本組只做靜態檢查）"
 "swift|receive-decisions|接收端決策表的 Swift 端（**需要 iOS 模擬器，本腳本只確認測試還在**）|${SWIFT_TEST}::${SWIFT_CASE}（見 apps/interaction-ios/README.md）"
 )
 
@@ -76,7 +79,7 @@ print_list() {
     printf '           └─ %s\n' "$how"
   done
   echo
-  echo "分組執行：--rust / --ts / --docs（swift 組需要 iOS 模擬器，不在本腳本內）"
+  echo "分組執行：--rust / --ts / --docs / --drills（swift 組需要 iOS 模擬器，不在本腳本內）"
 }
 
 if [[ "$LIST_ONLY" == "1" ]]; then
@@ -193,6 +196,59 @@ else
   record rust SKIP "未指定 --rust"
 fi
 
+# ------------------------------------------------------------------ drills
+# 演練腳本（`scripts/drills/*.sh`）不在 CI、也不會有人每天跑，最可能的死法是**安靜地腐爛**：
+# 它引用的 YAML／模擬器／manifest 被改名，腳本卻還躺在那裡看起來很正常。這一組只做便宜的
+# 靜態檢查（語法＋引用到的檔案與端點還在），**不實跑**——實跑要真 daemon 與 pty 模擬器。
+# 靜態通過**不代表**演練還走得完。
+if [[ "$RUN_DRILLS" == "1" ]]; then
+  echo "── drills ──────────────────────────────────────────────"
+  DRILL_FAIL=0; DRILL_NOTE=""
+  DRILL_ERR="$(mktemp)"
+  DRILLS=()
+  while IFS= read -r f; do DRILLS+=("$f"); done < <(ls scripts/drills/*.sh 2>/dev/null | sort)
+  if [[ "${#DRILLS[@]}" -eq 0 ]]; then
+    echo "  ✘ scripts/drills/ 下沒有任何 .sh（演練腳本不見了）"
+    record drills FAIL "no-drill-scripts"
+  else
+    for d in "${DRILLS[@]}"; do
+      if ! /bin/bash -n "$d" 2>"$DRILL_ERR"; then
+        echo "  ✘ bash -n $d — $(head -1 "$DRILL_ERR")"; DRILL_FAIL=1
+        DRILL_NOTE="$DRILL_NOTE ${d##*/}:syntax"; continue
+      fi
+      # 引用到的 repo 檔案：`$ROOT/<path>`（跳過 target/ 的建置產物）與腳本／註解裡寫死的 repo 路徑。
+      MISS=""
+      while IFS= read -r ref; do
+        [[ -z "$ref" ]] && continue
+        case "$ref" in target/*) continue ;; esac
+        [[ -e "$ref" ]] || MISS="$MISS $ref"
+      done < <({ grep -oE '\$ROOT/[A-Za-z0-9._/-]+' "$d" | sed 's#^\$ROOT/##'
+                 grep -oE '(apps|crates|scripts|examples|docs|firmware|schemas)/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+' "$d"; } | sort -u)
+      # 引用到的 HTTP 端點必須still在 API 的路由表裡。
+      while IFS= read -r ep; do
+        [[ -z "$ep" ]] && continue
+        grep -rq "\"$ep\"" crates/interaction-api/src || MISS="$MISS $ep(route)"
+      done < <(grep -oE '/v1/[a-z0-9-]+' "$d" | sort -u)
+      if [[ -n "$MISS" ]]; then
+        echo "  ✘ $d 引用的東西不存在：$MISS"; DRILL_FAIL=1
+        DRILL_NOTE="$DRILL_NOTE ${d##*/}:missing"
+      else
+        echo "  ✔ $d — bash -n 通過，引用的檔案與端點都在（未實跑）"
+        DRILL_NOTE="$DRILL_NOTE ${d##*/}:ok"
+      fi
+    done
+    if [[ "$DRILL_FAIL" == "0" ]]; then
+      record drills PASS "${#DRILLS[@]} 支腳本靜態檢查通過（未實跑）:$DRILL_NOTE"
+    else
+      record drills FAIL "$DRILL_NOTE"
+    fi
+  fi
+  rm -f "$DRILL_ERR"
+  echo
+else
+  record drills SKIP "未指定 --drills"
+fi
+
 # ------------------------------------------------------------------ swift
 # 一律檢查（成本是兩次 grep），而且**不**併進 docs／ts／rust 的執行計數：
 # 它在這台機器上永遠跑不到，混進 SKIPPED 只會讓每一次完整執行都看起來像有東西
@@ -232,4 +288,4 @@ if [[ "$SKIPPED" -gt 0 ]]; then
   echo "architecture-checks: 已跑的組全數通過；$SKIPPED 組未執行（未執行 ≠ 通過）；${SWIFT_TAIL}"
   exit 0
 fi
-echo "architecture-checks: docs／ts／rust 三組全數通過；${SWIFT_TAIL}"
+echo "architecture-checks: docs／ts／rust／drills 四組全數通過；${SWIFT_TAIL}"

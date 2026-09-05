@@ -187,3 +187,91 @@ fn state_patch_fixture_chains_from_the_snapshot_fixture() {
         canonical_json(&merged)
     );
 }
+
+/// `SemanticState` 的序列化**永遠不含 `null`**：值為「無」的選填鍵一律省略。
+///
+/// `state.rs` 開頭的實作註記已經寫下這條規則（RFC 7396 的 `null` 是**刪除鍵**：host 寫 `null`、
+/// 接收端刪鍵，兩邊的 canonical hash 就對不上），但在 v0.6.x 之前沒有任何測試擋得住它——
+/// 拿掉一個欄位的 `skip_serializing_if` 之後，fixtures 會一起紅，而 `AIP_UPDATE_FIXTURES=1`
+/// 會把它們全部重生成含 `null` 的樣子，重生之後又全綠（`docs/releases/v0.7.0-drills.md` §7 F5）。
+#[test]
+fn semantic_state_never_serializes_a_null() {
+    // (a) 選填鍵全部是「無」的狀態：lastInteraction 與 truth.correlationId 都不該出現。
+    let fresh = serde_json::to_value(SemanticState::new("ref-shape")).expect("state serializes");
+    assert_eq!(first_null(&fresh, ""), None, "全新狀態不得寫出 null");
+    assert!(fresh.get("lastInteraction").is_none());
+    assert!(fresh["truth"].get("correlationId").is_none());
+
+    // (b) 選填鍵全部有值的狀態（host 真的寫得出來的形狀，經 SemanticState round trip）。
+    let full: SemanticState = serde_json::from_value(serde_json::json!({
+        "characterId": "ref-shape",
+        "mood": {"kind": "happy", "intensity": 0.4},
+        "activity": "reacting",
+        "attention": {"kind": "member", "id": "device:iphone-87b42264"},
+        "truth": {"state": "claimed", "correlationId": "task_42"},
+        "lastInteraction": {
+            "name": "character.interaction.touch",
+            "kind": "tap",
+            "source": "device:iphone-87b42264",
+            "at": "2026-09-05T09:00:00.100Z"
+        },
+        "members": [{
+            "party": {"kind": "device", "id": "iphone-87b42264"},
+            "role": "remote-renderer",
+            "presence": "online",
+            "lastSeenAt": "2026-09-05T09:00:00Z",
+            "unsupportedIntents": []
+        }],
+        "reducedMotion": true
+    }))
+    .expect("host accepts the state shape");
+    let written = serde_json::to_value(&full).expect("state serializes");
+    assert_eq!(first_null(&written, ""), None, "有值的狀態也不得寫出 null");
+    assert!(!canonical_json(&written).contains("null"));
+
+    // (c) `null` 進來（RFC 7396 的刪除鍵）也不會被原樣寫回去：省略就是省略。
+    let from_null: SemanticState = serde_json::from_value(serde_json::json!({
+        "characterId": "ref-shape",
+        "mood": {"kind": "neutral", "intensity": 0.0},
+        "activity": "idle",
+        "attention": {"kind": "none"},
+        "truth": {"state": "none", "correlationId": null},
+        "lastInteraction": null,
+        "members": [],
+        "reducedMotion": false
+    }))
+    .expect("null 的選填鍵反序列化成 None");
+    let written = serde_json::to_value(&from_null).expect("state serializes");
+    assert_eq!(first_null(&written, ""), None);
+    assert_eq!(canonical_json(&written), canonical_json(&fresh));
+
+    // (d) 反例：同一個斷言套在「寫成 null」的變體上必須抓得到——不然這條只是裝飾。
+    let with_nulls = serde_json::json!({
+        "characterId": "ref-shape",
+        "lastInteraction": null,
+        "truth": {"state": "none", "correlationId": null}
+    });
+    assert_eq!(
+        first_null(&with_nulls, ""),
+        Some("/lastInteraction".to_string())
+    );
+    assert_eq!(
+        first_null(&serde_json::json!({"members": [{"party": null}]}), ""),
+        Some("/members/0/party".to_string())
+    );
+}
+
+/// 遞迴找出第一個 `null` 的 JSON pointer（沒有就回 `None`）。
+fn first_null(value: &Value, pointer: &str) -> Option<String> {
+    match value {
+        Value::Null => Some(pointer.to_string()),
+        Value::Object(map) => map
+            .iter()
+            .find_map(|(k, v)| first_null(v, &format!("{pointer}/{k}"))),
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .find_map(|(i, v)| first_null(v, &format!("{pointer}/{i}"))),
+        _ => None,
+    }
+}

@@ -3,14 +3,35 @@
 > 證據等級用字：本文件是操作導覽，多數規則引用既有契約與 `docs/aip/reference-character.md`
 > 已經走過一次的實例（`ref-shape`）；沒有測試支持的通用建議標「建議做法」，不寫成強制規則。
 
-## 1. 加一個新角色
+## 1. 加一個角色（1a）／加一個 adapter（1b）
 
-完整步驟與「沒改核心」的證明見 `docs/aip/reference-character.md`（`ref-shape` 是這條路徑唯一
-走完整趟的實例）。摘要三個擴充點：
+這是**兩件事**，代價差很多。它們過去寫成同一步，是因為 `ref-shape` 當初「新角色＋新 adapter」
+一起加（`docs/aip/reference-character.md` §5 的 8 項清單）。分界線只有一句話：
+**host 白名單的鍵是 entrypoint，不是角色 id**——重用既有 adapter 的角色不需要任何白名單成員。
+實測見 `docs/releases/v0.7.0-drills.md` §1（加一個重用 `shape` adapter 的角色，兩份白名單都不在 diff 裡）。
 
-1. **Manifest**：`apps/interaction-desktop/public/characters/<id>/manifest.json`＋在
-   `public/characters/index.json` 多一列。
-2. **Host 白名單**（兩處，不可能漂移地各自維護）：
+### 1a. 加一個角色（重用既有的 in-process adapter）
+
+三個檔，**兩份 host 白名單一個都不用動**：
+
+1. **Manifest**：`apps/interaction-desktop/public/characters/<id>/manifest.json`。
+   `entrypoint` 指向既有的 builtin id（`shu-rig`／`sprite`／`text`／`shape`）；能力集只能宣告
+   那個 adapter 真的做得到的事。
+2. **索引**：`public/characters/index.json` 多一列（沒有 sprite sheet 的角色不帶 `assetBase`）。
+3. **一支角色專屬測試**：manifest 通過 §2.1 驗證、能力集與 adapter 一致、CPP intent 逐一送、
+   輸入能力。順帶釘住「兩份白名單沒被動過」，讓「加角色不必動白名單」變成可執行的事實。
+
+不需要動的：`adapter-contract.test.ts`（它測的是 **adapter** 的生命週期契約，不是角色）、
+`character/adapters/index.ts`、`CompanionApp.tsx`、任何 Rust。角色身分由 adapter 從 ctx 取
+（manifest ＞ 清單摘要），所以新角色以自己的 `characterId` 上線，不會被同一個 adapter 的
+其他角色冒名。出貨角色的數量只寫在 `src/test/character-manifests.test.ts` 的
+`SHIPPED_CHARACTER_IDS` 一處。
+
+### 1b. 加一個新 adapter（新的 entrypoint）
+
+只有這一種才會動到 host 白名單：
+
+1. **Host 白名單**（兩處，不可能漂移地各自維護）：
    - Rust：`interaction_runtime::character::character_host_registry()` 的
      `CHARACTER_BUILTIN_ENTRYPOINTS` 多一個 id；若角色有專屬能力集／遷移邏輯，
      像小樞一樣獨立成一個 `interaction-character-*` crate（純資料＋純函式，不依賴 tokio／I/O，
@@ -18,20 +39,23 @@
    - TS：`character/adapterRegistry.ts` 的 `BUILTIN_ADAPTER_IDS` 多一個宣告；
      `registerBuiltinAdapter(id, factory, meta)` 在 `character/adapters/index.ts` 註冊工廠
      （宣告與工廠分離：宣告了卻沒註冊工廠由 `adapter-contract.test.ts` 擋，不是靜默失敗）。
-3. **只有兩個不同 Adapter 都需要相同新語意才改 Core** ——這是任務書要求的規則，來源是
-   `docs/aip/architecture-boundaries.md` §1 的依賴方向與 §4 的 strangler 精神：協定核心
-   （`interaction-character`／`interaction-aip`／`interaction-session`）不認識任何具名角色、
-   不含任何角色專屬字串（`rg -n -i 'shu|maid' crates/interaction-character/src` 必須是 0 命中，
-   `docs/aip/reference-character.md` §5 的驗收方式）。單一角色需要的新能力，一律先在
-   角色自己的 crate／adapter 模組實作；只有當**第二個**獨立角色也需要同一段語意（例如
-   一種新的 canonical capability id、一種新的 intent 詞彙）時，才提升進協定核心，且要走
-   `docs/aip/compatibility.md` §2 的 minor 演進規則（新增而非修改既有語意）。
+2. **Contract 案例**：`adapter-contract.test.ts` 加入這個新 id 的案例
+   （見 `docs/aip/renderer-adapter.md` §5）——四個內建 adapter 共用同一套生命週期與資源清理契約。
+3. 通常還會**順便**加一個用它的角色，那部分照 1a 走。
 
-測試清單（新角色至少要有）：`adapter-contract.test.ts` 加入這個新 id 的 contract 案例
-（見 `docs/aip/renderer-adapter.md` §5）；一份角色專屬測試（manifest 與 adapter 定義一致、
-CPP intent 逐一送、輸入能力）；`architecture-no-entrypoint-switch.test.ts` 之類的守門測試不需要
-為新角色新增案例——它讀的是「host 端有沒有字面分岔」，新角色如果照 registry 模式加入，
-不會觸發任何新的字面分岔。
+### 1a／1b 共同的核心規則
+
+**只有兩個不同 Adapter 都需要相同新語意才改 Core** ——這是任務書要求的規則，來源是
+`docs/aip/architecture-boundaries.md` §1 的依賴方向與 §4 的 strangler 精神：協定核心
+（`interaction-character`／`interaction-aip`／`interaction-session`）不認識任何具名角色、
+不含任何角色專屬字串（`rg -n -i 'shu|maid' crates/interaction-character/src` 必須是 0 命中，
+`docs/aip/reference-character.md` §5 的驗收方式）。單一角色需要的新能力，一律先在
+角色自己的 crate／adapter 模組實作；只有當**第二個**獨立角色也需要同一段語意（例如
+一種新的 canonical capability id、一種新的 intent 詞彙）時，才提升進協定核心，且要走
+`docs/aip/compatibility.md` §2 的 minor 演進規則（新增而非修改既有語意）。
+
+`architecture-no-entrypoint-switch.test.ts` 之類的守門測試兩種情況都不需要新增案例——它讀的是
+「host 端有沒有字面分岔」，照 registry 模式加入的角色或 adapter 不會觸發任何新的字面分岔。
 
 ## 2. 加一個新 Renderer（外部 adapter，非 in-process builtin）
 

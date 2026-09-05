@@ -4,7 +4,8 @@
 #   bash scripts/tests/release-scripts.sh
 #
 # 覆蓋：
-#   - 四支 release 腳本、get.sh 與 scripts/tests/*.sh（含 architecture-checks.sh）的 `bash -n` 語法檢查
+#   - 四支 release 腳本、get.sh、scripts/tests/*.sh（含 architecture-checks.sh）、
+#     scripts/tauri-ax-walkthrough.sh 與 scripts/drills/*.sh 的 `bash -n` 語法檢查
 #   - bash 3.2（macOS 預設 /bin/bash）對 `set -u` 下空陣列展開的相容性（release-provenance-071）
 #   - release-verify.sh 跳過關卡時必須誠實輸出「跳過」，且收尾不得寫 all gates passed（release-provenance-073）
 #   - CI 必需 check 清單：缺席的 job 必須讓關卡失敗（release-provenance-077）
@@ -27,10 +28,21 @@ trap 'rm -rf "$WORK"' EXIT
 echo "release-scripts tests @ $ROOT"
 
 # ---------------------------------------------------------------- 語法檢查
-for f in scripts/release.sh scripts/release-prepare.sh scripts/release-verify.sh \
-         scripts/release-tag.sh scripts/ci-required-checks.sh scripts/get.sh \
-         scripts/tests/release-scripts.sh scripts/tests/docs-claims.sh \
-         scripts/tests/architecture-checks.sh; do
+SYNTAX_FILES=(scripts/release.sh scripts/release-prepare.sh scripts/release-verify.sh
+              scripts/release-tag.sh scripts/ci-required-checks.sh scripts/get.sh
+              scripts/tests/release-scripts.sh scripts/tests/docs-claims.sh
+              scripts/tests/architecture-checks.sh scripts/tauri-ax-walkthrough.sh)
+# 演練腳本（scripts/drills/*.sh）沒有 CI，語法檢查是它們唯一的自動化把關；
+# 空目錄不是「沒東西要檢查」，是演練不見了。
+DRILL_SCRIPTS=()
+while IFS= read -r f; do DRILL_SCRIPTS+=("$f"); done < <(ls scripts/drills/*.sh 2>/dev/null | sort)
+if [[ "${#DRILL_SCRIPTS[@]}" -gt 0 ]]; then
+  ok "scripts/drills/ 有 ${#DRILL_SCRIPTS[@]} 支演練腳本"
+  SYNTAX_FILES+=("${DRILL_SCRIPTS[@]}")
+else
+  bad "scripts/drills/*.sh" "一支演練腳本都沒有"
+fi
+for f in "${SYNTAX_FILES[@]}"; do
   if [[ -f "$f" ]]; then
     /bin/bash -n "$f" 2>"$WORK/nerr"; check "bash -n $f" $? "$(head -1 "$WORK/nerr")"
   else

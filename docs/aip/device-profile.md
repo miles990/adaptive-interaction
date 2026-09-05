@@ -168,6 +168,14 @@ wire 版本不變（`proto` 仍為 1，`aip` 訊息形狀不變）：這一節�
 | `Rebinding{generation}` | 正在重新綁定；帶世代 | `Disconnected`（誠實：尚未連上） |
 | `Unbound{disabled\|disconnected\|revoked\|removed}` | 綁定已拆掉，並說得出原因 | 由那個決定自己決定 |
 
+> **`Bound` 不等於「連上了」**：`DeclarativeLifecycle::Bound` 在**綁定 task 啟動、通道登記進表**的當下就成立
+> （`note_declarative_bound`），它說的是「這台裝置的 spec 與通道在登記表裡」，**不代表握手成功、也不代表對面有東西**。
+> 唯一的例外是重新綁定進行中：那時狀態刻意留在 `Rebinding` 直到第 8 步握手 Ready。要判斷連線是不是真的活著，
+> 看**裝置端的證據**（裝置線 `who` 的 `hello` 回覆與 `read` 讀回來的實際值、`character-session/diagnostics` 的成員與 `presence`、稽核的
+> `handshake`），不要拿 `Bound` 當連線證明。這三個狀態本身也**沒有**經由 HTTP／CLI 直接曝光：人看得到的是
+> `ProviderState`＋`detail` 的人話＋稽核事件，要斷言 `Unbound{Disabled}` 只能靠 Rust 測試
+> （`crates/interaction-runtime/tests/declarative_session_loop.rs`）。
+
 在此之前這只是一個布林集合（`declarative_rebind_pending`）：它說得出「綁定不在」，說不出
 「為什麼不在」，也說不出「正在回來的路上」。於是把 provider 轉回 `Available` 只能誠實地印一句
 `needs-restart-to-rebind`，使用者得重開 daemon 才拿得回一台自己剛剛停用又啟用的裝置。

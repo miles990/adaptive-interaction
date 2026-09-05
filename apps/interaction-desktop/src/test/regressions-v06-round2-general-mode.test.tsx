@@ -210,22 +210,14 @@ describe("general-mode-ux-024：live 模式讀不到權威狀態時要自己退�
 
 describe("evidence-honesty-015：使用者指南的同步狀態表不得漏掉任何一態", () => {
   /**
-   * M3a 新增／改寫、**指南尚未補上**的狀態句。
+   * 指南裡沒有的狀態句＝使用者永遠看不到說明。這個清單是**文件債的暫存區**，不是豁免：
+   * 有值的時候要寫清楚是哪一波改動欠的、誰會補；補完就清回空陣列。
    *
-   * 這是一筆記在程式碼裡的文件債，不是豁免：清單只列這一次改動真的動到的兩態，
-   * 其餘每一態照舊逐句比對，任何人新增第三態而忘了寫指南仍然會紅。
-   * 指南補上這兩列（以及移除舊的「角色同步紀錄曾損毀，已重新開始」）之後，
-   * 這個清單要清空。
+   * v0.6.x 的 local-only／store-issue 與 v0.7.0（候選）的 `partial-sync`
+   * （「有裝置收不到完整狀態」）都已經寫進 `docs/DESKTOP-GUIDE.md` 的同步狀態表，
+   * 所以這裡是空的——每一態都逐句比對，新增一態而忘了寫指南就會紅。
    */
-  // docs/DESKTOP-GUIDE.md 已補上 local-only 與 store-issue 兩列（v0.6.x）。
-  //
-  // v0.7.0 新增的 `partial-sync`（這條線送不到完整狀態）**指南尚未補上**：這一波的
-  // 桌面工作範圍限定在 `apps/interaction-desktop/**` 與 `docs/aip/general-mode-ux.md`，
-  // 使用者指南由收尾的人統一寫。這是一筆記在程式碼裡的**文件債，不是豁免**——
-  // 指南補上這一列之後，這個清單要清空（其餘每一態照舊逐句比對，新增第四態而忘了
-  // 寫指南仍然會紅）。要補的那一列：
-  // | 有裝置收不到完整狀態 | 這台裝置的連線只送得進一部分內容；它看到的角色不一定和這台電腦一樣，不算已同步 |
-  const PENDING_GUIDE_ROWS: string[] = ["有裝置收不到完整狀態"];
+  const PENDING_GUIDE_ROWS: string[] = [];
 
   it("DESKTOP-GUIDE 的表格列出 CHARACTER_SYNC_PROJECTION 的每一句 headline", () => {
     const guide = readFileSync(join(__dirname, "../../../../docs/DESKTOP-GUIDE.md"), "utf8");

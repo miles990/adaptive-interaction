@@ -9,6 +9,7 @@
 #   - threat-model.md 不得用會漂移的硬編行號引用 session.rs::gate()（evidence-honesty-014）
 #   - AIP §10 的 EvidenceClass 措辭必須與「有沒有生產／消費端」一致（evidence-honesty-016）
 #   - 安裝文件對完整性驗證／簽章／平台覆蓋的宣稱必須與實作一致（release-provenance-074/075/080）
+#   - deprecation-ledger.md 表頭自報的條數／完整七欄表格數必須等於實際的節數（自我計數不得漂移）
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -131,6 +132,31 @@ if "aarch64-unknown-linux-gnu" not in targets:
     need("aarch64-unknown-linux-gnu" in install,
          "release.yml 不建置 Linux aarch64，docs/INSTALL.md 必須寫明該平台需從原始碼編譯")
 
+
+# ---- deprecation-ledger：自我計數不得漂移 ----------------------------------
+# 這份表的表頭自己報「本表登記 N 條、其中 M 條有完整七欄表格」。這種手抄數字加一條就會
+# 過期，而過期的方式很安靜：表看起來仍然完整，只是少算了一條沒有人再檢查的相容路徑。
+ledger_path = "docs/aip/deprecation-ledger.md"
+if os.path.exists(ledger_path):
+    ledger = read(ledger_path)
+    LEDGER_FIELDS = ["為什麼存在", "適用版本", "移除前需要的證據", "資料遷移", "回退方式", "下一檢查里程碑", "owner"]
+    sections = re.split(r"^### ", ledger, flags=re.M)[1:]
+    full = [
+        s for s in sections
+        if all(re.search(r"^\|\s*%s\s*\|" % re.escape(f), s, flags=re.M) for f in LEDGER_FIELDS)
+    ]
+    m_total = re.search(r"本表登記\s*\*\*(\d+)\s*條\*\*", ledger)
+    m_full = re.search(r"其中\s*(\d+)\s*條有完整七欄表格", ledger)
+    need(m_total is not None, "%s 的表頭找不到「本表登記 **N 條**」的自我計數" % ledger_path)
+    need(m_full is not None, "%s 的表頭找不到「其中 N 條有完整七欄表格」的自我計數" % ledger_path)
+    if m_total:
+        need(int(m_total.group(1)) == len(sections),
+             "%s 表頭寫「本表登記 %s 條」，實際有 %d 個 `### ` 節"
+             % (ledger_path, m_total.group(1), len(sections)))
+    if m_full:
+        need(int(m_full.group(1)) == len(full),
+             "%s 表頭寫「其中 %s 條有完整七欄表格」，實際有 %d 節帶著七個欄位齊全的表格"
+             % (ledger_path, m_full.group(1), len(full)))
 
 # ---- evidence-index：已發布版本的 canonical 事實 -----------------------------
 import json, subprocess

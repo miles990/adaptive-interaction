@@ -28,6 +28,27 @@ const MANIFEST_TEXTS = import.meta.glob("../../public/characters/*/manifest.json
 const PACKS = import.meta.glob("../../public/packs/*/manifest.json", { eager: true, import: "default" }) as Record<string, Record<string, unknown>>;
 import indexJson from "../../public/characters/index.json";
 
+/**
+ * **出貨角色的單一事實來源**：加／減一個內建角色只改這一行（`docs/releases/v0.7.0-drills.md` §7 F2）。
+ * 之前這個數字散在四個硬編碼處（`entries.length` 10、`toHaveLength(10)`、`toHaveLength(9)`、一份 id 陣列），
+ * 加一個角色會紅四個斷言、四個都要人手改。
+ */
+const SHIPPED_CHARACTER_IDS = [
+  "plain-text",
+  "ref-shape",
+  "shu-agile",
+  "shu-lazy",
+  "shu-lively",
+  "shu-maid",
+  "shu-maid-dusk",
+  "shu-maid-sakura",
+  "shu-minimal",
+  "shu-standard",
+] as const;
+
+/** 沒有 sprite sheet 的角色（rig／文字／幾何）不帶 `assetBase`。 */
+const SHEETLESS = (id: string) => id.startsWith("shu-maid") || id === "plain-text" || id === "ref-shape";
+
 interface IndexEntry {
   characterId: string;
   manifestPath: string;
@@ -50,8 +71,8 @@ function packFor(id: string): Record<string, unknown> {
 describe("bundled character manifests", () => {
   it("每一份都通過 validateCharacterManifest（含檔案大小），characterId 與資料夾一致", () => {
     const entries = Object.entries(MANIFESTS);
-    // 9 個小樞系列 ＋ plain-text ＋ ref-shape（第二個 Reference Character）。
-    expect(entries.length).toBe(10);
+    // 出貨清單就是磁碟上的資料夾：多一個少一個都要先改 SHIPPED_CHARACTER_IDS。
+    expect(entries.map(([p]) => p.split("/").slice(-2)[0]).sort()).toEqual([...SHIPPED_CHARACTER_IDS].sort());
     for (const [path, manifest] of entries) {
       const text = MANIFEST_TEXTS[path];
       expect(typeof text, path).toBe("string");
@@ -78,14 +99,11 @@ describe("bundled character manifests", () => {
       expect(c.manifestPath).toBe(`/characters/${c.characterId}/manifest.json`);
       expect(c.origin).toBe("builtin");
       expect(manifestFor(c.characterId).characterId).toBe(c.characterId);
-      // 沒有 sprite sheet 的角色（rig／文字／幾何）不帶 assetBase。
-      if (c.characterId.startsWith("shu-maid") || c.characterId === "plain-text" || c.characterId === "ref-shape") {
+      if (SHEETLESS(c.characterId)) {
         expect(c.assetBase).toBeUndefined();
       } else expect(c.assetBase).toBe(`/packs/${c.characterId}`);
     }
-    expect(ids.sort()).toEqual(
-      ["plain-text", "ref-shape", "shu-agile", "shu-lazy", "shu-lively", "shu-maid", "shu-maid-dusk", "shu-maid-sakura", "shu-minimal", "shu-standard"].sort()
-    );
+    expect(ids.sort()).toEqual([...SHIPPED_CHARACTER_IDS].sort());
   });
 
   it("sprite 角色的 manifest 等於由真實 pack 遷移的結果（能力只來自 sheet 真的有的動畫）", () => {
@@ -194,13 +212,13 @@ describe("registry", () => {
     return { fetchImpl, requested };
   }
 
-  it("loadCharacterIndex 載入 10 個內建角色，預設 shu-maid，只讀同源路徑", async () => {
+  it(`loadCharacterIndex 載入 ${SHIPPED_CHARACTER_IDS.length} 個內建角色，預設 shu-maid，只讀同源路徑`, async () => {
     const { fetchImpl, requested } = fakeFetch();
     const r = await loadCharacterIndex(fetchImpl);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.index.default).toBe("shu-maid");
-    expect(r.index.characters).toHaveLength(10);
+    expect(r.index.characters).toHaveLength(SHIPPED_CHARACTER_IDS.length);
     expect(r.index.errors).toEqual([]);
     expect(r.index.characters.every((c) => c.origin === "builtin")).toBe(true);
     expect(r.index.characters.find((c) => c.characterId === "shu-standard")?.assetBase).toBe("/packs/shu-standard");
@@ -212,7 +230,8 @@ describe("registry", () => {
     const r = await loadCharacterIndex(broken.fetchImpl);
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.index.characters).toHaveLength(9);
+      // 壞掉的那一個進 errors，其餘照常載入。
+      expect(r.index.characters).toHaveLength(SHIPPED_CHARACTER_IDS.length - 1);
       expect(r.index.errors).toHaveLength(1);
       expect(r.index.errors[0]).toMatch(/^shu-lazy: /);
     }
