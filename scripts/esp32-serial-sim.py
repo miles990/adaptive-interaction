@@ -33,6 +33,17 @@
   裝置→   參考韌體不送；模擬器用控制通道（見下）代打，讓 host 端的
           Character Session 綁定在沒有真板時也驗得到。
 
+線協定 v1.2 的 `aip-frag`（一則 envelope 的分片）：
+
+  能力宣告 hello.caps 含 "aip.frag/1"（`--no-frag` 關閉，用來驗降級路徑）。
+           **參考韌體不宣告它**——真板沒有重組緩衝，模擬器不得替它宣稱。
+  →裝置   依 host 的同一套規則重組（有界 8 KiB／≤64 片／自最後一片起 2 秒
+           逾時／crc32 核對／缺片重片亂序截斷一律整筆丟棄），組好之後與 `aip`
+           一樣忽略，並在 log 記一行 `>+ <完整 envelope 行>`（`>+` ＝重組出來
+           的，不是線上真的出現過的一行）。
+  裝置→   控制通道要送的 envelope 若超過單行上限（639 bytes）就切片送出；
+           `--no-frag` 時改為誠實拒絕送出（記 `## aip op refused`）。
+
 控制通道（stdin，一行一則 JSON；仿 crates/interaction-runtime/examples/
 fake_iphone.rs）：
 
@@ -42,6 +53,8 @@ fake_iphone.rs）：
   {"op":"aip-resume","lastRevision":n,       續傳查詢
    "lastSequence":n,"epoch":n}
   {"op":"aip-raw","envelope":{..}}           任意 envelope（測未知／超大）
+  {"op":"aip-partial","bytes":N}             只送一筆分片傳輸的**第一片**
+                                             （host 端的取消／逾時路徑要驗）
 
   未配對時一律拒絕送出（記 `## aip op refused`）：未配對的通道不得送出
   session 流量，方向與 host 端的准入閘門一致。
@@ -74,6 +87,7 @@ import sys
 import termios
 import time
 import tty
+import zlib
 
 # --- 韌體硬限制（對照 firmware/esp32-companion/esp32-companion.ino）-------
 VIBE_MAX_STRENGTH = 0.8
@@ -94,6 +108,16 @@ DEDUPE_RING = 16
 # 韌體 g_serialBuf[640]：一行最多 639 bytes，第 640 個位元組起整行丟棄。
 MAX_LINE_BYTES = 639
 
+# --- 線協定 v1.2 的分片（對照 crates/interaction-adapter-declarative/src/fragment.rs）
+FRAG_CAP = "aip.frag/1"
+# 重組後的 envelope 上限（host 的 MAX_REASSEMBLED_BYTES）。分片是為了穿過
+# 行上限，不是為了放寬 envelope 上限。
+MAX_REASSEMBLED_BYTES = 8 * 1024
+# 一筆傳輸最多幾片（host 的 MAX_FRAGMENTS）。
+MAX_FRAGMENTS = 64
+# 自最後一片起還能等多久（host 的 FRAGMENT_TIMEOUT）。
+FRAGMENT_TIMEOUT_MS = 2000
+
 # 配對暴力猜測防護（韌體 PAIR_MAX_FAILURES / PAIR_LOCKOUT_MS）。
 PAIR_MAX_FAILURES = 5
 PAIR_LOCKOUT_MS = 30000
@@ -113,6 +137,8 @@ parser.add_argument("--sensors-absent", action="store_true",
                     help="啟動即為感測器未接：distanceMm=-1、tempC=null")
 parser.add_argument("--pair-lockout-ms", type=int, default=PAIR_LOCKOUT_MS,
                     help="配對鎖定時間（預設 30000，與韌體相同；測試可縮短）")
+parser.add_argument("--no-frag", action="store_true",
+                    help="不宣告 aip.frag/1：驗證 host 端「對端不會重組就誠實拒絕」的降級路徑")
 args = parser.parse_args()
 
 master, slave = pty.openpty()
@@ -174,6 +200,10 @@ state = {
     "last_state_push_ms": 0,
     # 控制通道送出的 aip envelope 序號（messageId 用；有界遞增）
     "aip_seq": 0,
+    # 線協定 v1.2：出站分片的傳輸序號（有界遞增）。
+    "aip_xfer": 0,
+    # 進行中的入站分片傳輸（同時只有一筆——有界）。
+    "aip_rx": None,
 }
 
 # 感測面（韌體上是真實感測器；這裡由控制通道決定）。
@@ -550,7 +580,9 @@ def handle(msg):
         emit({
             "type": "hello", "deviceId": args.device_id, "fw": "sim-1.0",
             "proto": 1,
-            "caps": ["led.set", "buzzer.beep", "vibe.pulse", "servo.move", "sensors.read"],
+            # 線協定 v1.2：只有模擬器宣告 aip.frag/1（它真的有重組緩衝）。
+            # 參考韌體不宣告——真板沒有那塊記憶體，替它宣稱就是說謊。
+            "caps": HELLO_CAPS,
             "pairing": args.pairing_code != "" and not state["paired"],
             "pairingLocked": args.pairing_code != "" and pair_locked(now),
         })
@@ -573,6 +605,9 @@ def handle(msg):
         # 線協定 v1.1：這份參考裝置不參與角色 session——明確忽略，不回 err
         # （落到 unknown-type 會讓「不支援」長得像「壞掉」）。與韌體一致。
         note("ignored an inbound aip line (this reference device does not join sessions)")
+    elif t == "aip-frag":
+        # 線協定 v1.2：重組（規則與 host 相同）。組好之後與 `aip` 一樣忽略。
+        handle_aip_frag(msg, now)
     elif t == "cmd":
         cid = msg.get("id", "")
         if not cid:
@@ -673,6 +708,168 @@ def poll_button_toggle(now):
     push_state_now(now)
 
 
+# --- 線協定 v1.2 的分片（切片＋重組；規則對照 host 的 fragment.rs）---------
+
+HELLO_CAPS = ["led.set", "buzzer.beep", "vibe.pulse", "servo.move", "sensors.read"]
+if not args.no_frag:
+    HELLO_CAPS = HELLO_CAPS + [FRAG_CAP]
+
+
+def frag_overhead():
+    """一片表頭在**最壞情況**下佔幾個 byte（所有數字都取最大位數）。
+
+    與 host 同一個做法：`total` 要切完才知道，而切多少又取決於 `total` 的
+    位數；用最壞值一次算完，切出來的每一行保證 ≤ 上限。"""
+    return len(dumps_like_firmware({
+        "type": "aip-frag", "xfer": 4294967295, "seq": 65535,
+        "total": 65535, "bytes": 4294967295, "crc": "00000000", "data": "",
+    }))
+
+
+def escaped_len(ch):
+    """一個字元寫進 JSON 字串後佔幾個 byte（json.dumps 預設 ensure_ascii）。"""
+    if ch in '"\\':
+        return 2
+    if ch in "\b\f\n\r\t":
+        return 2
+    code = ord(ch)
+    if code < 0x20:
+        return 6
+    if code < 0x80:
+        return 1
+    # ensure_ascii：BMP 之外要用一對代理字（\uXXXX\uXXXX）。
+    return 12 if code > 0xFFFF else 6
+
+
+def fragment_envelope_line(text, limit, xfer):
+    """把一份 envelope 的 JSON 文字切成 aip-frag 訊息（切點只在字元邊界）。
+
+    回 None ＝切不出來（超過 8 KiB、片數超過上限、或上限小到放不下表頭）；
+    切不出來就不送——不製造注定被丟棄的位元組。"""
+    raw = text.encode("utf-8")
+    if len(raw) > MAX_REASSEMBLED_BYTES:
+        return None
+    overhead = frag_overhead()
+    if limit <= overhead:
+        return None
+    budget = limit - overhead
+    crc = "%08x" % (zlib.crc32(raw) & 0xFFFFFFFF)
+    chunks = []
+    current = []
+    used = 0
+    for ch in text:
+        cost = escaped_len(ch)
+        if cost > budget:
+            return None
+        if used + cost > budget and current:
+            chunks.append("".join(current))
+            current = []
+            used = 0
+        current.append(ch)
+        used += cost
+    if current:
+        chunks.append("".join(current))
+    if not chunks:
+        chunks = [""]
+    if len(chunks) > MAX_FRAGMENTS:
+        return None
+    total = len(chunks)
+    return [{
+        "type": "aip-frag", "xfer": xfer, "seq": i, "total": total,
+        "bytes": len(raw), "crc": crc, "data": data,
+    } for i, data in enumerate(chunks)]
+
+
+def drop_aip_rx(reason):
+    """整筆丟棄並留痕（靜默丟棄＝把「組不回來」講成「主機沒說話」）。"""
+    rx = state["aip_rx"]
+    if rx is None:
+        return
+    state["aip_rx"] = None
+    note("aip fragment dropped: reason=%s xfer=%s received=%d total=%d"
+         % (reason, rx["xfer"], rx["next_seq"], rx["total"]))
+
+
+def expire_aip_rx(now):
+    rx = state["aip_rx"]
+    if rx is not None and now - rx["last_ms"] >= FRAGMENT_TIMEOUT_MS:
+        drop_aip_rx("timeout")
+
+
+def handle_aip_frag(msg, now):
+    """一片入站分片。規則與 host 的 Reassembler 相同（有界、整筆丟棄）。"""
+    if args.no_frag:
+        # 沒有宣告 aip.frag/1 的裝置不該收到分片：忽略並留痕（不回 err——
+        # 舊韌體對未知型別的處置是丟棄，這裡保持同樣的方向）。
+        note("ignored an aip-frag line (this device did not advertise %s)" % FRAG_CAP)
+        return
+    expire_aip_rx(now)
+    xfer = msg.get("xfer")
+    seq = msg.get("seq")
+    total = msg.get("total")
+    bytes_total = msg.get("bytes")
+    crc = msg.get("crc")
+    data = msg.get("data")
+    if not isinstance(xfer, int) or not isinstance(seq, int) \
+            or not isinstance(total, int) or not isinstance(bytes_total, int) \
+            or not isinstance(crc, str) or not isinstance(data, str):
+        drop_aip_rx("bad-header")
+        note("aip fragment dropped: reason=bad-header")
+        return
+    rx = state["aip_rx"]
+    if rx is not None and rx["xfer"] != xfer:
+        drop_aip_rx("superseded")
+        rx = None
+    if rx is None:
+        if seq != 0:
+            note("aip fragment dropped: reason=unknown-xfer xfer=%s" % xfer)
+            return
+        if total <= 0 or total > MAX_FRAGMENTS:
+            note("aip fragment dropped: reason=bad-total xfer=%s" % xfer)
+            return
+        if bytes_total <= 0 or bytes_total > MAX_REASSEMBLED_BYTES:
+            note("aip fragment dropped: reason=bad-bytes xfer=%s" % xfer)
+            return
+        if len(crc) != 8 or any(c not in "0123456789abcdefABCDEF" for c in crc):
+            note("aip fragment dropped: reason=bad-crc xfer=%s" % xfer)
+            return
+        rx = {"xfer": xfer, "total": total, "bytes": bytes_total,
+              "crc": crc.lower(), "next_seq": 0, "buf": "", "last_ms": now}
+        state["aip_rx"] = rx
+    if total != rx["total"] or bytes_total != rx["bytes"] or crc.lower() != rx["crc"]:
+        drop_aip_rx("header-mismatch")
+        return
+    if seq != rx["next_seq"]:
+        drop_aip_rx("out-of-order")
+        return
+    if len((rx["buf"] + data).encode("utf-8")) > rx["bytes"]:
+        drop_aip_rx("over-declared-bytes")
+        return
+    rx["buf"] += data
+    rx["next_seq"] += 1
+    rx["last_ms"] = now
+    if rx["next_seq"] < rx["total"]:
+        return
+    state["aip_rx"] = None
+    raw = rx["buf"].encode("utf-8")
+    if len(raw) != rx["bytes"]:
+        note("aip fragment dropped: reason=truncated xfer=%s" % xfer)
+        return
+    if ("%08x" % (zlib.crc32(raw) & 0xFFFFFFFF)) != rx["crc"]:
+        note("aip fragment dropped: reason=crc-mismatch xfer=%s" % xfer)
+        return
+    try:
+        json.loads(rx["buf"])
+    except Exception:
+        note("aip fragment dropped: reason=bad-json xfer=%s" % xfer)
+        return
+    # `>+` ＝從分片重組出來的一則完整 envelope（線上從來沒有出現過這一行；
+    # 用不同的前綴，才不會被誤讀成「裝置真的收到了這麼長的一行」）。
+    log.write('>+ {"type":"aip","envelope":%s}\n' % rx["buf"])
+    log.flush()
+    note("aip reassembled: xfer=%s bytes=%d fragments=%d" % (xfer, rx["bytes"], rx["total"]))
+
+
 # --- AIP 控制通道（stdin）---------------------------------------------------
 
 def _aip_envelope(message_type, name, prefix):
@@ -732,10 +929,49 @@ def handle_aip_op(op):
         }
     elif name == "aip-raw":
         envelope = op.get("envelope", {})
+    elif name == "aip-partial":
+        # 只送第一片：host 端會把它收進重組緩衝，然後停在半路。用來驗
+        # 「取消（hello／stop-all／revoke）與逾時都留得下痕跡」——一筆停在
+        # 半路的傳輸靜默消失，會讓「裝置說了話但我們組不回來」與「裝置沒說話」
+        # 長得一模一樣。
+        pad = int(op.get("bytes", 1200))
+        pad = max(0, min(pad, MAX_REASSEMBLED_BYTES - 400))
+        partial = _aip_envelope("event", "character.interaction.touch", "partial")
+        partial["payload"] = {"kind": "tap", "pad": "p" * pad}
+        text = dumps_like_firmware(partial)
+        state["aip_xfer"] += 1
+        frames = fragment_envelope_line(text, MAX_LINE_BYTES, state["aip_xfer"])
+        if frames is None or len(frames) < 2:
+            note("aip-partial needs an envelope that splits into at least two fragments")
+            return
+        emit(frames[0])
+        note("aip-partial: sent fragment 1/%d of xfer=%s (the rest is never sent)"
+             % (len(frames), state["aip_xfer"]))
+        return
     else:
         note(f"unknown control op: {name}")
         return
-    emit({"type": "aip", "envelope": envelope})
+    emit_aip(envelope)
+
+
+def emit_aip(envelope):
+    """送一則 aip envelope；放不進單行上限時切片（`--no-frag` 則誠實不送）。"""
+    line = dumps_like_firmware({"type": "aip", "envelope": envelope})
+    if len(line.encode("utf-8")) <= MAX_LINE_BYTES:
+        emit({"type": "aip", "envelope": envelope})
+        return
+    if args.no_frag:
+        note("aip op refused: envelope is %d bytes, over the %d byte line limit and this device "
+             "did not advertise %s" % (len(line.encode("utf-8")), MAX_LINE_BYTES, FRAG_CAP))
+        return
+    text = dumps_like_firmware(envelope)
+    state["aip_xfer"] += 1
+    frames = fragment_envelope_line(text, MAX_LINE_BYTES, state["aip_xfer"])
+    if frames is None:
+        note("aip op refused: envelope cannot be fragmented (over 8 KiB or too many fragments)")
+        return
+    for frame in frames:
+        emit(frame)
 
 
 def tick():
@@ -747,6 +983,8 @@ def tick():
         stop_buzzer()
     poll_button_toggle(now)
     poll_facts_file(now)
+    # 停在半路的入站分片不得無限期佔著緩衝（有界；與 host 同一個窗）。
+    expire_aip_rx(now)
     if state["paired"] and (now - state["last_state_push_ms"]) >= STATE_PERIOD_MS:
         state["last_state_push_ms"] = now
         emit(build_state())

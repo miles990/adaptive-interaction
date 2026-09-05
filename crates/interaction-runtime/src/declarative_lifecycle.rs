@@ -113,6 +113,14 @@ pub(crate) struct DeclarativeBinding {
     pub(crate) channels: Vec<Weak<dyn DeviceAipChannel>>,
     /// 已經開始過幾次 rebind。晚到的完成回呼依世代拒絕。
     pub(crate) generation: u64,
+    /// 這台裝置被停用**之前**就已經關著的受器（＝人類自己關的）。
+    ///
+    /// 為什麼要記：重新綁定的第 7 步是「重新註冊整份 spec」，而 registry 對
+    /// 新註冊的受器一律套用 manifest 的預設值——不需 consent 的受器預設**啟用**。
+    /// 沒有這份紀錄的話，「停用裝置 → 再啟用」會順手打開一個人類先前手動關掉
+    /// 的受器，那是一次沒有人下過的決定，也違反既有保證「回到 Available 不會
+    /// 自動恢復任何能力」。有界：只可能是這份 spec 自己宣告的受器 id。
+    pub(crate) human_disabled_receptors: Vec<String>,
 }
 
 impl Runtime {
@@ -139,6 +147,7 @@ impl Runtime {
                             lifecycle: DeclarativeLifecycle::Bound,
                             channels: Vec::new(),
                             generation: 0,
+                            human_disabled_receptors: Vec::new(),
                         });
                 entry.spec = spec.clone();
                 entry.channels = weak;
@@ -254,6 +263,43 @@ impl Runtime {
                 Some(generation)
             }
             _ => None,
+        }
+    }
+
+    /// 記下「這台裝置被停用之前，人類已經關掉的受器」。停用路徑在**翻旗標
+    /// 之前**呼叫它——之後就分不出「人類關的」與「停用順手關的」了。
+    pub(crate) fn note_declarative_human_disabled(&self, provider_id: &str, ids: Vec<String>) {
+        if let Ok(mut map) = self.declarative_bindings.lock() {
+            if let Some(entry) = map.get_mut(provider_id) {
+                entry.human_disabled_receptors = ids;
+            }
+        }
+    }
+
+    /// 讀那份紀錄（**不**取走）。
+    ///
+    /// 為什麼不是 take：重新註冊 spec 有可能失敗，而失敗時受器已經被
+    /// unregister 掉了——紀錄先被取走的話，下一次重新綁定就會用預設值把它們
+    /// 全部打開。清除交給 [`Runtime::clear_declarative_human_disabled`]，
+    /// 只在真的套用成功之後做。
+    pub(crate) fn declarative_human_disabled(&self, provider_id: &str) -> Vec<String> {
+        self.declarative_bindings
+            .lock()
+            .ok()
+            .and_then(|map| {
+                map.get(provider_id)
+                    .map(|entry| entry.human_disabled_receptors.clone())
+            })
+            .unwrap_or_default()
+    }
+
+    /// 清掉那份紀錄（已經套用回 registry 了）。留著的話，之後一次由**斷線**
+    /// 觸發的重新綁定會拿一份過期的名單去關掉人類早就重新打開的受器。
+    pub(crate) fn clear_declarative_human_disabled(&self, provider_id: &str) {
+        if let Ok(mut map) = self.declarative_bindings.lock() {
+            if let Some(entry) = map.get_mut(provider_id) {
+                entry.human_disabled_receptors.clear();
+            }
         }
     }
 
@@ -542,12 +588,27 @@ async fn run_declarative_rebind(
         }
 
         // ---- 7) 建新連線（握手在鎖外面等） ---------------------------------
+        // 重新註冊會把能力帶回**剛啟動時**的預設：需要 consent 的受器仍然是
+        // 關的，但不需要 consent 的一律預設啟用。人類先前手動關掉的那些必須
+        // 在同一把鎖裡立刻關回去——否則「停用 → 啟用」等於替使用者按下了一個
+        // 他沒有按的開關（既有保證：回到 Available 不自動恢復任何能力）。
+        let human_disabled = rt.declarative_human_disabled(provider_id);
         rt.register_declarative_spec(&spec)
             .await
             .map_err(|e| RebindStop::Failed(format!("the device could not be rebuilt: {e}")))?;
-        rt.declarative_previous_channels(provider_id)
+        let mut kept_disabled = Vec::new();
+        for rid in &human_disabled {
+            let id = ReceptorId::new(rid);
+            if rt.registry.set_receptor_enabled(&id, false).await.is_ok() {
+                kept_disabled.push(rid.clone());
+            }
+        }
+        // 套用完才清：register 失敗時受器已經被 unregister 掉了，紀錄必須留給
+        // 下一次嘗試，否則預設值會把它們全部打開。
+        rt.clear_declarative_human_disabled(provider_id);
+        (rt.declarative_previous_channels(provider_id), kept_disabled)
     };
-    let channels = built;
+    let (channels, kept_disabled) = built;
     let handshake = if channels.is_empty() {
         // 沒有裝置線（純 HTTP adapter）：沒有握手可等。誠實：這不是「握手成功」。
         "none"
@@ -598,6 +659,9 @@ async fn run_declarative_rebind(
             "staleChannels": stale,
             "sensorStop": sensor_stop,
             "handshake": handshake,
+            // 人類先前手動關掉、這一輪刻意保持關閉的受器。空陣列＝沒有這種
+            // 受器，不是「不知道」。
+            "keptDisabledReceptors": kept_disabled,
         }),
     );
     Ok(())

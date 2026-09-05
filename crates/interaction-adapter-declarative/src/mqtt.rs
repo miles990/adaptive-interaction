@@ -290,6 +290,11 @@ impl RawLink for MqttRawLink {
         self.generation.load(Ordering::SeqCst)
     }
 
+    /// 參考韌體 `mqttCallback` 的單則上限（與 serial 相同的 639 bytes）。
+    fn max_line_bytes(&self) -> Option<usize> {
+        Some(MAX_MESSAGE_BYTES)
+    }
+
     fn connected(&self) -> bool {
         self.connected.load(Ordering::SeqCst) && !self.closed.load(Ordering::SeqCst)
     }

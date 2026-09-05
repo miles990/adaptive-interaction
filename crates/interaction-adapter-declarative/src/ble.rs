@@ -503,6 +503,11 @@ impl RawLink for BleRawLink {
         self.generation.load(Ordering::SeqCst)
     }
 
+    /// BLE 的單則上限（一則訊息一個 write／notification）。
+    fn max_line_bytes(&self) -> Option<usize> {
+        Some(MAX_WRITE_BYTES)
+    }
+
     fn connected(&self) -> bool {
         // GATT session 存在＝連線中。斷線有三個來源，都會把 state 翻掉：
         // CentralEvent::DeviceDisconnected 觀察者（事件驅動、最即時）、

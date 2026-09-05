@@ -1298,6 +1298,21 @@ impl Runtime {
                 id.as_str(),
                 crate::declarative_lifecycle::unbound_reason_for_state(state),
             );
+            // 在翻旗標**之前**記下「哪些受器人類已經自己關了」。之後
+            // `disable_provider_capabilities` 會把剩下的也關掉，那一刻起兩者
+            // 就分不出來了——而免重啟重新綁定（第 7 步重新註冊整份 spec）會把
+            // 不需 consent 的受器帶回預設的「開」。沒有這份紀錄，一次停用再
+            // 啟用就等於替使用者按下了一個他沒有按的開關。
+            // 只記「預設開著、但現在是關的」——需要 consent 的受器本來就是關的，
+            // 把它算成人類的決定是替使用者編造一個他沒下過的決定。
+            let mut human_disabled = Vec::new();
+            for rid in &desc.receptors {
+                if self.registry.receptor_flags(&ReceptorId::new(rid)).await == Some((false, true))
+                {
+                    human_disabled.push(rid.clone());
+                }
+            }
+            self.note_declarative_human_disabled(id.as_str(), human_disabled);
             let sensor_stop = self
                 .stop_provider_sensing(id.as_str(), crate::sensors::SENSOR_STOP_REASON_PROVIDER_OFF)
                 .await;

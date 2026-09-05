@@ -2883,6 +2883,32 @@ async fn unresolved_stops_are_listed_and_only_a_human_can_dismiss_one() {
         "AI 不得替使用者解除一筆沒有人確認過的停止"
     );
 
+    // 讀也不行：「哪些感測可能還在跑、沒人確認停了」是人類層的收件匣，
+    // 與 `/v1/mobile`（配對指紋）、`/v1/character`（角色 session）同一層。
+    // 解除是人類的決定，清單就不該是 AI 讀得到的東西——否則 AI 讀得到一份
+    // 「使用者還沒處理的隱私待辦」，只差不能按下按鈕。
+    let response = server
+        .client
+        .get(format!("{}/v1/sensors/unresolved", server.base))
+        .bearer_auth(&server.agent_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        403,
+        "未解決停止清單是人類層：agent token 不得讀"
+    );
+    // 這條排除只涵蓋 unresolved 這一支：agent 平面其餘的讀取不受影響。
+    let response = server
+        .client
+        .get(format!("{}/v1/status", server.base))
+        .bearer_auth(&server.agent_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200, "排除清單不得順手把 agent 讀取關掉");
+
     // 世代是必填：不指名就可能誤消掉一筆更新的未解決記錄。
     let (code, _) = server
         .post("/v1/sensors/unresolved/api.fixture/dismiss", json!({}))

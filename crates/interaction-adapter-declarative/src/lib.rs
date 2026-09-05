@@ -22,6 +22,7 @@
 //!   ble) parse but are HONESTLY refused at build time with a clear error —
 //!   nothing pretends to work.
 
+pub mod fragment;
 pub mod protocol;
 
 #[cfg(all(

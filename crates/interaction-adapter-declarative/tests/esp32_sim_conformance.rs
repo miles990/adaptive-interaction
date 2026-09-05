@@ -1099,3 +1099,166 @@ fn the_simulator_refuses_to_emit_aip_before_pairing() {
         sim.log_text()
     );
 }
+
+// ---------------------------------------------------------------------------
+// 裝置線 v1.2：`aip-frag` 的三方一致（韌體／模擬器／README）
+// ---------------------------------------------------------------------------
+
+/// 韌體必須明確處理 `aip-frag`（忽略），而且**不得**在 `hello.caps` 宣告
+/// `aip.frag/1`——真板沒有重組緩衝，替它宣稱就是說謊。README 要說同一件事。
+///
+/// 為什麼這條測試重要：能力宣告是主機決定「要不要切片送過去」的唯一依據。
+/// 韌體若宣告了一項它做不到的能力，主機會把一則 snapshot 切成好幾片送出去、
+/// 全部被丟掉，而收據上寫著「已送出」。
+#[test]
+fn the_firmware_ignores_aip_frag_and_never_claims_it_can_reassemble() {
+    let ino = read_repo_file("firmware/esp32-companion/esp32-companion.ino");
+    let handle = firmware_function_body(&ino, "static void handleMessage(");
+    assert!(
+        handle.contains("\"aip-frag\""),
+        "韌體 handleMessage() 必須明確處理 aip-frag（忽略），否則它會落到 unknown-type：\n{handle}"
+    );
+    let hello = firmware_function_body(&ino, "static void sendHello(");
+    assert!(
+        !hello.contains("aip.frag/1"),
+        "參考韌體不得宣告 aip.frag/1（它沒有重組緩衝）：\n{hello}"
+    );
+
+    let readme = read_repo_file("firmware/esp32-companion/README.md");
+    assert!(
+        readme.contains("aip-frag"),
+        "README 協定表必須有 aip-frag 這一列"
+    );
+    assert!(
+        readme.contains("aip.frag/1"),
+        "README 必須說明能力宣告的名字"
+    );
+}
+
+/// 模擬器**有**重組緩衝，所以它誠實地宣告 `aip.frag/1`；`--no-frag` 關掉之後
+/// 就不宣告（用來驗 host 端「對端不會重組就誠實拒絕」的降級路徑）。
+#[test]
+fn the_simulator_advertises_fragmentation_and_can_be_asked_not_to() {
+    let Some(sim) = Sim::spawn("9927", &[]) else {
+        return;
+    };
+    let mut client = RawClient::open(&sim.pty_path);
+    let hello = client.ask(json!({"type": "who"}));
+    let caps: Vec<String> = hello["caps"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|v| v.as_str().unwrap_or_default().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        caps.iter().any(|c| c == "aip.frag/1"),
+        "模擬器必須宣告 aip.frag/1：{caps:?}"
+    );
+
+    let Some(plain) = Sim::spawn("9927", &["--no-frag".to_string()]) else {
+        return;
+    };
+    let mut client = RawClient::open(&plain.pty_path);
+    let hello = client.ask(json!({"type": "who"}));
+    let caps: Vec<String> = hello["caps"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|v| v.as_str().unwrap_or_default().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        !caps.iter().any(|c| c == "aip.frag/1"),
+        "--no-frag 之後不得再宣告 aip.frag/1：{caps:?}"
+    );
+}
+
+/// host 切出來的每一片，模擬器都必須真的組得回來（而且線上每一行都 ≤ 639）。
+/// 這是兩端**同一套規則**的證明——不是各寫一份互相猜。
+#[test]
+fn the_simulator_reassembles_exactly_what_the_host_fragments() {
+    use interaction_adapter_declarative::fragment::fragment_envelope_line;
+    use interaction_adapter_declarative::protocol::encode_host_msg;
+    use interaction_adapter_declarative::serial::MAX_LINE_BYTES;
+
+    let Some(sim) = Sim::spawn("9927", &[]) else {
+        return;
+    };
+    let mut client = RawClient::open(&sim.pty_path);
+    client.pair("9927");
+
+    let envelope = json!({
+        "specVersion": "aip/1.0",
+        "messageType": "state",
+        "name": "character.session.snapshot",
+        "pad": "中文與 emoji 🙂 混在一起".repeat(40),
+    });
+    let text = serde_json::to_string(&envelope).expect("text");
+    let frames = fragment_envelope_line(&text, MAX_LINE_BYTES, 4242).expect("fragments");
+    assert!(frames.len() >= 3, "測資要真的切成多片：{}", frames.len());
+    for frame in &frames {
+        let line = encode_host_msg(frame);
+        assert!(line.len() <= MAX_LINE_BYTES, "{} bytes", line.len());
+        client.send_raw(&line);
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let log = sim.log_text();
+        if log.contains("aip reassembled: xfer=4242") {
+            let reassembled = log
+                .lines()
+                .find(|l| l.starts_with(">+ "))
+                .expect("the simulator logs the reassembled envelope");
+            let value: Value = serde_json::from_str(&reassembled[3..]).expect("json");
+            assert_eq!(value["envelope"], envelope, "重組出來的必須逐位元組相同");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "模擬器必須組回這一則 envelope\nsim log:\n{log}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// 缺片／亂序：模擬器（與 host 同一套規則）整筆丟棄並留痕，不得把半份
+/// envelope 當成一則訊息。
+#[test]
+fn the_simulator_drops_an_out_of_order_fragment_and_says_so() {
+    use interaction_adapter_declarative::fragment::fragment_envelope_line;
+    use interaction_adapter_declarative::protocol::encode_host_msg;
+    use interaction_adapter_declarative::serial::MAX_LINE_BYTES;
+
+    let Some(sim) = Sim::spawn("9927", &[]) else {
+        return;
+    };
+    let mut client = RawClient::open(&sim.pty_path);
+    client.pair("9927");
+
+    let text = serde_json::to_string(&json!({"specVersion": "aip/1.0", "pad": "z".repeat(1_400)}))
+        .expect("text");
+    let frames = fragment_envelope_line(&text, MAX_LINE_BYTES, 777).expect("fragments");
+    assert!(frames.len() >= 3);
+    client.send_raw(&encode_host_msg(&frames[0]));
+    client.send_raw(&encode_host_msg(&frames[2]));
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let log = sim.log_text();
+        if log.contains("aip fragment dropped: reason=out-of-order") {
+            assert!(
+                !log.contains(">+ "),
+                "亂序之後不得交出任何重組結果：\n{log}"
+            );
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "亂序必須整筆丟棄並留痕\nsim log:\n{log}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}

@@ -169,11 +169,19 @@ brew install arduino-cli                       # 或官方安裝方式
 | 裝置→ | `{"type":"ack","stopAll":true}` | |
 | →裝置 | `{"type":"aip","envelope":{..}}` | 線協定 v1.1：Character Session 的 AIP envelope。**這份參考韌體忽略它**（配對後不回任何東西，不當成 `unknown-type`）；配對前照舊回 `not-paired` |
 | 裝置→ | `{"type":"aip","envelope":{..}}` | 同上，反方向。要參與角色 session 的韌體才需要送；envelope 內容見 `docs/aip/README.md`，主機端一則上限 8 KiB（且仍受單行 640 bytes 限制） |
+| →裝置 | `{"type":"aip-frag","xfer":N,"seq":N,"total":N,"bytes":N,"crc":"8 hex","data":".."}` | 線協定 v1.2：一則 AIP envelope 的分片。**這份參考韌體同樣忽略它**，而且**不在 `hello.caps` 宣告 `aip.frag/1`**——重組需要一塊這台裝置沒有的緩衝，宣告了就是說謊。主機看到沒有這項能力就不會切片送過來 |
+| 裝置→ | `{"type":"aip-frag",..}` | 同上，反方向。只有真的做得到重組的韌體才該宣告 `aip.frag/1`；`scripts/esp32-serial-sim.py`【模擬器】有做（`--no-frag` 可關掉，用來驗降級路徑） |
 | 裝置→ | `{"type":"err","id":..,"reason":".."}` | `not-paired` / `bad-json` / `unknown-type` / `unknown-cmd` / `bad-params` / `rate-limited` / `not-found` / `busy`（僅 BLE：入站佇列滿）。`bad-json` 也用於**超長訊息**（Serial／MQTT 一則 ≥ 640 bytes、BLE ≥ 512 bytes）——此時整則丟棄且 err **沒有 id** |
 
 單則訊息上限（host→裝置；裝置端強制，host 端傳輸在送出前就以
 `message-too-large` 拒絕，不會把超長訊息寫上線）：Serial 一行 **639 bytes**、
 MQTT 一則 **639 bytes**、BLE 一次 write **511 bytes**（runtime 端 BLE 上限 480）。
+
+**這條上限沒有因為 v1.2 的分片而放寬**：`aip-frag` 的每一片編碼後整行仍然
+≤ 上限，只是一則 envelope 可以跨多片（重組後最多 8 KiB、最多 64 片、自最後一片
+起 2 秒逾時、crc32 核對；缺片／重片／亂序／截斷一律整筆丟棄並留稽核）。
+不宣告 `aip.frag/1` 的裝置（含**這份參考韌體**）行為完全不變：主機把放不進
+單行的 envelope 誠實記成沒送出（`over-line-limit-no-fragmentation`）。
 
 裝置→host 方向：Serial／MQTT 一則就是一行（換行界定，無額外上限）；**BLE 有**
 ——ATT notification 的可攜 payload 只有「協商後 MTU − 3」（預設 MTU 23 → 20 bytes），

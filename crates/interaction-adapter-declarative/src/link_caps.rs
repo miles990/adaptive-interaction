@@ -78,6 +78,8 @@ fn describe_reply(msg: &DeviceMsg) -> &'static str {
         // 線協定 v1.1 的 AIP envelope：它不是任何 cmd/cancel 的回覆，只是
         // 剛好在同一條線上經過（角色 session 的訊息流）。
         DeviceMsg::Aip { .. } => "an aip frame (not a reply to this request)",
+        // 線協定 v1.2：同上，只是分成好幾片走。
+        DeviceMsg::AipFrag { .. } => "an aip fragment (not a reply to this request)",
     }
 }
 

@@ -817,6 +817,17 @@ static void handleMessage(const char* line, Link link) {
     return;
   }
 
+  // 線協定 v1.2 的 `aip-frag`（一則 envelope 的分片）。同樣**明確忽略**。
+  //
+  // 這份參考韌體刻意**不**在 hello.caps 宣告 `aip.frag/1`：重組一則 8 KiB 的
+  // envelope 需要一塊這台裝置沒有的緩衝，宣告了就是說謊。主機看到沒有這項
+  // 能力就不會切片送過來（它會誠實回報「放不進單行上限、沒送出」）；萬一還是
+  // 收到了（韌體降版、別的主機），忽略是誠實的降級——落到 unknown-type 會讓
+  // 「不支援」在收據與 log 上長得像「這台裝置壞了」。
+  if (strcmp(type, "aip-frag") == 0) {
+    return;
+  }
+
   if (strcmp(type, "cancel") == 0) {
     const char* id = doc["id"] | "";
     if (id[0] == '\0') {

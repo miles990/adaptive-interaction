@@ -134,6 +134,14 @@ impl DeviceOutbound for DeclarativeOutbound {
     fn identity_strength(&self) -> &str {
         IDENTITY_STRENGTH_DEVICE_LINK
     }
+
+    fn max_line_bytes(&self) -> Option<usize> {
+        self.channel.max_line_bytes()
+    }
+
+    fn supports_fragmentation(&self) -> bool {
+        self.channel.supports_fragmentation()
+    }
 }
 
 /// 一台宣告式裝置的 session 綁定：一條 AIP 通道 ↔ 一個 `Party::device(...)`。
@@ -215,6 +223,27 @@ impl DeviceBinding {
         );
     }
 
+    /// 一筆被丟棄的分片傳輸：留稽核（原因是固定字串，不回顯裝置輸入）。
+    fn audit_fragment_drop(
+        &self,
+        rt: &Runtime,
+        drop: interaction_adapter_declarative::fragment::FragmentDrop,
+    ) {
+        let _ = rt.store.audit(
+            "aip.fragment-dropped",
+            "runtime",
+            &json!({
+                "transport": self.channel.transport_label(),
+                "deviceId": self.channel.expected_device_id(),
+                "providerId": self.provider_id,
+                "xfer": drop.xfer,
+                "reason": drop.reason,
+                "received": drop.received,
+                "total": drop.total,
+            }),
+        );
+    }
+
     /// 一則裝置送來的 `aip` 行。
     async fn on_aip(&self, rt: &Runtime, admission: AipAdmission) {
         let device_id = self.channel.expected_device_id();
@@ -272,6 +301,15 @@ impl DeviceBinding {
                         "deviceId": device_id,
                     }),
                 );
+                return;
+            }
+            // 線協定 v1.2：這一片已經進了傳輸層的重組緩衝。核心不認得「被
+            // 分片」——它只會在整份組好之後看到一則 `Admitted`。
+            AipAdmission::FragmentBuffered => return,
+            AipAdmission::FragmentDropped(drop) => {
+                // 整筆丟棄不得靜默：「裝置說了話但我們組不回來」與「裝置沒說話」
+                // 在畫面上長得一模一樣。
+                self.audit_fragment_drop(rt, drop);
                 return;
             }
         };
@@ -381,6 +419,13 @@ impl DeviceBinding {
                     }
                     Ok(Err(tokio::sync::broadcast::error::RecvError::Closed)) => break,
                     Err(_) => {}
+                }
+                // 逾時／重連守衛：一筆停在半路的分片傳輸不得無限期佔著緩衝，
+                // 也不得靜默消失。
+                if let Some(drop) = self.channel.expire_fragments() {
+                    if let Some(rt) = upgrade(&self.runtime) {
+                        self.audit_fragment_drop(&rt, drop);
+                    }
                 }
                 match self.channel.readiness() {
                     LinkReadiness::Closed => return,

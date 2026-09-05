@@ -174,6 +174,21 @@ impl CapabilityRegistry {
         Ok(())
     }
 
+    /// 這個受器的能力層旗標 ＋ 它註冊時的預設值（有註冊才有答案）。
+    ///
+    /// 為什麼不能用 `receptor().is_err()` 代替：那個回傳把「沒註冊」與「註冊
+    /// 了但關著」混成同一個 `Err`。而只看 `enabled` 也不夠——需要 consent 的
+    /// 受器**本來就是關的**，把它記成「人類關掉的」是替使用者編造一個決定。
+    /// 回傳 `(enabled, default_enabled)`：只有 `(false, true)` 才是「有人把一個
+    /// 預設開著的能力關掉了」。
+    pub async fn receptor_flags(&self, id: &ReceptorId) -> Option<(bool, bool)> {
+        self.receptors
+            .read()
+            .await
+            .get(id)
+            .map(|e| (e.enabled, !e.instance.manifest().requires_consent))
+    }
+
     pub async fn receptor(&self, id: &ReceptorId) -> DomainResult<Arc<dyn Receptor>> {
         let map = self.receptors.read().await;
         let entry = map

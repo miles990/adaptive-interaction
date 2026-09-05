@@ -230,6 +230,17 @@ JSON Lines 控制指令：`aip-capability`／`aip-touch`／`aip-resume`／`aip-r
 拒絕送出並在 log 留痕；收到的每則 aip 行印成 `>> aip …`／`<< aip …`。EOF 後不再監看 stdin，
 既有以 `Stdio::null()` 啟動它的呼叫端不受影響。
 
+v0.7.0（裝置線 v1.2）再加兩項：
+
+```jsonc
+{"op":"aip-partial","bytes":1200}   // 只送一筆分片傳輸的第一片（驗 host 的取消／逾時路徑）
+```
+
+* 命令列旗標 `--no-frag`：不在 `hello.caps` 宣告 `aip.frag/1`，用來驗證 host 端「對端不會重組就
+  誠實拒絕」的降級路徑（＝參考韌體本身的行為）。
+* log 前綴 `>+` ＝**從分片重組出來**的一則完整 envelope。它與 `>>`（線上真的出現過的一行）刻意
+  不同：用同一個前綴會讓「裝置收到了一行 1019 bytes」看起來像事實。
+
 ## 7. 1.0 的邊界（誠實記錄）
 
 * **`consentGrantId` 不會出現在 1.0 的 session 訊息裡**：帶 grant 的訊息只可能是 `command`，
@@ -265,17 +276,29 @@ JSON Lines 控制指令：`aip-capability`／`aip-touch`／`aip-resume`／`aip-r
   由決策表規則 2 記成 `reject-invalid`（永不套用）。boundary 多擋一分會讓同一則訊息在三端得到不同結論，
   正是 `conformance.md` §1 說不可以的事。
 
-## 8. 宣告式裝置線 v1.1（Serial／MQTT／BLE）：同一行 `{"type":"aip","envelope":{…}}`
+## 8. 宣告式裝置線 v1.1／v1.2（Serial／MQTT／BLE）：同一行 `{"type":"aip","envelope":{…}}`
 
-`crates/interaction-adapter-declarative/src/protocol.rs` 裝置線協定的 v1.1 追加訊息（`proto` 仍為 1）；
+`crates/interaction-adapter-declarative/src/protocol.rs` 裝置線協定的追加訊息（`proto` 仍為 1）；
 規則與 §1 對稱，差異只在 Transport 自己的事：
 
 * **准入**：只在 hello 身分驗證＋配對握手完成、且連線世代未變之後接受（`DeviceLink::admit_aip`）；
   之前一律拒絕、計數並稽核 `aip.rejected{stage:"transport-admission"}`。重連（世代更替）後舊准入立即失效。
 * **大小**：AIP 64 KiB → `MAX_AIP_ENVELOPE_BYTES` 8 KiB（入站 `RefusedTooLarge`；出站超限一個位元組都不寫）
-  → 傳輸自己（serial／參考韌體單行 639 bytes、BLE 512 bytes、整行解析 16 KiB）。送不出去的回覆稽核
-  `aip.outbound-undeliverable{bytes,reason}`。**目前協商的 snapshot 回覆放不進 639 bytes**（§7 之外的
-  v0.6.x 已知限制，見 `device-profile.md` §6）。
+  → 傳輸自己（serial／參考韌體單行 **639 bytes**、MQTT 一則 **639 bytes**、BLE 一則 **480 bytes**
+  （`ble.rs::MAX_WRITE_BYTES`；本文件先前寫 512 是錯的——512 是**韌體端**的入站門檻，host 端一直是 480）、
+  整行解析 16 KiB）。送不出去的回覆稽核 `aip.outbound-undeliverable{bytes,reason}`。
+* **分片（裝置線 v1.2，v0.7.0）**：`{"type":"aip-frag","xfer":u32,"seq":u16,"total":u16,"bytes":u32,
+  "crc":"8 hex","data":"…"}`。`proto` 仍為 1（追加訊息型別：舊韌體忽略、舊 host 丟棄）。
+  只有在 `hello.caps` 含 `"aip.frag/1"` 時才使用；**參考韌體不宣告它**（沒有重組緩衝）。
+  切點只在 UTF-8 字元邊界，每一片編碼後整行仍然 ≤ 行上限——**分片沒有放寬任何上限**。
+  重組完全在傳輸層內部（`AipChannel`／`DeviceLink`）：核心仍然只送出一次 `send_aip`、只收到一則
+  完整的入站 envelope，`character_session.rs` 不認得「被分片」這件事。
+  規則：每裝置 1 筆進行中（新 `xfer` 到達＝取消前一筆並稽核）、重組上限 8 KiB、片數上限 64、
+  自最後一片起 2 秒逾時、hello／斷線／revoke／stop-all／rebind 一律取消、
+  缺片／重片／亂序／截斷／`total`／`bytes` 不合法／crc32 不符／組回來不是 JSON → **整筆丟棄**
+  ＋稽核 `aip.fragment-dropped{xfer,reason,received,total}`。
+  對端沒宣告 `aip.frag/1` 而 envelope 又放不進行上限 → 維持既有行為：一個位元組都不寫，
+  稽核原因 `over-line-limit-no-fragmentation`。
 * **身分**：`Party::device(<spec 的 deviceId>)` 由 Runtime 依 `DeviceLink` 的期望身分綁定；
   強度 `transport-hello+device-side-pairing`（§0）。
 * **存活**：既有 who／pair／ack／event 行也是存活證明（同 §1.4）；斷線＝`Presence::Reconnecting`，
@@ -284,5 +307,25 @@ JSON Lines 控制指令：`aip-capability`／`aip-touch`／`aip-resume`／`aip-r
 * **出站**：與 iPhone 走同一張型別抹除的出站登記表（`character_session::DeviceOutbound`）；握手成立登記、
   撤銷／斷線移除。送不到（超過單行上限、線已關）→ `aip.outbound-undeliverable`；沒有通道 → 同一稽核
   `reason:"no-channel"`；表滿（64）→ `aip.outbound-rejected`。
-* **證據**：`declarative_session_loop.rs` 13 測（pty 模擬器經 production serial adapter；含「廣播真的走序列線」
-  與「放不進 639 bytes 的 patch 留痕」兩半）；MQTT／BLE 共用程式碼但未測；真板零。
+* **證據**：`declarative_session_loop.rs` 25 測（pty **模擬器**經 production serial adapter；含「廣播真的走
+  序列線」「snapshot／含 members 的 patch 經分片真的到達且成員是 `full-state`」「`--no-frag` 降級成
+  `intent-only`」「被取消的分片傳輸留稽核」「實測行長度」）、`aip_fragment.rs` 17 測（純函式與重組器）、
+  `aip_link.rs` 14 測（`MockRawLink`）、`esp32_sim_conformance.rs` 24 測（韌體／模擬器／README 三方一致）；
+  MQTT／BLE 共用同一段 `AipChannel<L>` 程式碼但沒有 AIP session 測試；**ESP32 真板驗收仍為零**。
+
+### 8.1 局部投影（scope／revision／hash）：**未做**的設計方向
+
+分片解決的是「一則大訊息送不過去」。它**沒有**解決另一件事：一則 `state{kind:"patch"}` 只要
+`members[]` 動一下就整段重送（實測 686–810 bytes），而一台只在乎 `mood`／`truth` 的裝置根本不需要
+成員名單。真正的答案是**局部投影**——讓成員宣告自己要哪個 scope，host 只送那個 scope 的差異。
+
+它目前**沒有實作**，這裡只記下它必須長什麼樣，免得將來用一個看似省事、其實會說謊的做法：
+
+* 每個 scope 有**自己的** `scopeRevision`，不得沿用 session 的 `revision`。共用一個號碼的話，
+  「我在第 12 版」對只訂 `truth` 的裝置與訂全部的裝置意思不同，resume 會對不齊。
+* 每個 scope 有**自己的** hash（scope-only hash），不得沿用 session 的 snapshot hash。
+  拿整份的 hash 去比一份局部投影，永遠不相等——那會讓每一次比對都變成「不同步」而觸發重送。
+* scope 的集合必須進契約與 golden schema（三端讀同一個列表），不是各端各自約定。
+
+在它做出來之前，`intent-only`／`event-source` 是誠實的描述，不是暫時的缺陷說詞：那些裝置**確實**
+沒有拿到完整狀態，介面不得顯示「已同步」。

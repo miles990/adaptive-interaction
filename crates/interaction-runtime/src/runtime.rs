@@ -598,6 +598,15 @@ impl Runtime {
             "onboardingCompleted": self.onboarding_state().await
                 .get("completed").and_then(Value::as_bool).unwrap_or(false),
         });
+        // 裝置成員**實際上**拿得到多少共享狀態（full-state／intent-only／
+        // event-source）。非空才序列化——沒有裝置成員就不該在每一份 status 上
+        // 留一個空欄位。介面靠它決定可不可以說「已同步」：只有 full-state 可以。
+        let sync_profiles = self.character_session_sync_profiles();
+        if !sync_profiles.is_empty() {
+            if let Some(obj) = status.as_object_mut() {
+                obj.insert("characterSessionSync".into(), Value::Array(sync_profiles));
+            }
+        }
         // 「未解決停止」：已經離開即時清單、但沒有人確認停了的擷取。空的時候
         // 不序列化——沒有未解決的事就不該在每一份 status 上留一個空欄位。
         let unresolved = self.unresolved_stops().await;

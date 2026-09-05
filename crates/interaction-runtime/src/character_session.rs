@@ -151,6 +151,56 @@ pub trait DeviceOutbound: Send + Sync {
     /// 這條線的身分是**怎麼來的**（見上面三個 `IDENTITY_STRENGTH_*`）。
     /// 不同傳輸的身分強度不同，diagnostics 必須說得出差別。
     fn identity_strength(&self) -> &str;
+    /// 這條線一則訊息的位元組上限（`None` ＝沒有上限，例如 iPhone 的 wss）。
+    ///
+    /// 核心用它回答**一個**問題：這條線載得動一份完整快照嗎？它不認得（也不
+    /// 需要認得）serial／mqtt／ble——「有沒有上限」與「會不會分片」是通道自己
+    /// 說得出來的兩個事實，核心只做推導。
+    fn max_line_bytes(&self) -> Option<usize> {
+        None
+    }
+    /// 對端會不會把一則超過上限的 envelope 重組回來（裝置線 v1.2 的
+    /// `aip.frag/1`）。預設 false——沒有證據就不得假設對方做得到。
+    fn supports_fragmentation(&self) -> bool {
+        false
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 成員同步模式（syncProfile）
+// ---------------------------------------------------------------------------
+
+/// 這個成員**真的**拿得到完整的共享狀態（無上限，或超限時會被分片重組）。
+/// UI 只有在這個模式下才可以說「已同步」。
+pub const SYNC_PROFILE_FULL_STATE: &str = "full-state";
+/// 這個成員載不動完整快照，但它宣告自己會呈現 Behavior Intent：送得到的只有
+/// 那些放得進單則上限的意圖訊息。**不得**顯示「已同步」。
+pub const SYNC_PROFILE_INTENT_ONLY: &str = "intent-only";
+/// 這個成員載不動完整快照，也沒有宣告要呈現任何意圖：它只是一個事件來源
+/// （送得進來、收不回去）。**不得**顯示「已同步」。
+pub const SYNC_PROFILE_EVENT_SOURCE: &str = "event-source";
+
+/// 從「出站通道載不載得動快照」＋「這個成員宣告的角色」推導出同步模式。
+///
+/// 為什麼是推導而不是新的 AIP 宣告欄位：`aip/1.0` 的 wire 不變。裝置沒有辦法
+/// （也不該）自己宣稱「我拿得到完整狀態」——那是**這條線**的事實，不是它的
+/// 意見。核心因此只問通道兩件事（有沒有上限、會不會重組），再配上已經協商好
+/// 的 `role`。
+///
+/// 誠實：`intent-only`／`event-source` 是**降級**，不是另一種正常。它們存在
+/// 是為了讓介面說得出「這台裝置沒有拿到完整狀態」——把三種混成「已連線」就是
+/// 把「什麼都沒收到」演成「已同步」。
+pub fn derive_sync_profile(role: MemberRole, channel: &dyn DeviceOutbound) -> &'static str {
+    let carries_snapshot = channel.max_line_bytes().is_none() || channel.supports_fragmentation();
+    if carries_snapshot {
+        return SYNC_PROFILE_FULL_STATE;
+    }
+    match role {
+        // 宣告自己會呈現 Behavior Intent（`intents`）：送得到的只有意圖。
+        MemberRole::RemoteRenderer | MemberRole::HostRenderer => SYNC_PROFILE_INTENT_ONLY,
+        // 只送事件（input-device／observer）：收不回完整狀態。
+        MemberRole::InputDevice | MemberRole::Observer => SYNC_PROFILE_EVENT_SOURCE,
+    }
 }
 
 /// 一則裝置 frame 的來源事實（稽核用）。
@@ -933,6 +983,41 @@ impl Runtime {
         }
     }
 
+    /// 這個成員的同步模式（[`derive_sync_profile`]）。查不到出站通道就回
+    /// `None`——省略欄位，不猜（沒有通道的成員連 `event-source` 都算不上）。
+    fn member_sync_profile(&self, party: &Party, role: MemberRole) -> Option<&'static str> {
+        if party.kind != PartyKind::Device {
+            return None;
+        }
+        self.device_outbound(&party.id)
+            .map(|channel| derive_sync_profile(role, channel.as_ref()))
+    }
+
+    /// 目前每一個裝置成員的同步模式（status 用；沒有裝置成員就是空的）。
+    ///
+    /// 誠實：這是介面用來決定「可不可以說已同步」的唯一來源。只有
+    /// [`SYNC_PROFILE_FULL_STATE`] 才代表這台裝置真的拿得到完整狀態。
+    pub fn character_session_sync_profiles(&self) -> Vec<Value> {
+        let Some(host) = self.character_session.as_ref() else {
+            return Vec::new();
+        };
+        let members = host.session().diagnostics().members;
+        members
+            .into_iter()
+            .filter(|m| m.party.kind == PartyKind::Device)
+            .filter_map(|m| {
+                let profile = self.member_sync_profile(&m.party, m.role)?;
+                let channel = self.device_outbound(&m.party.id)?;
+                Some(json!({
+                    "deviceId": m.party.id,
+                    "transport": channel.transport_label(),
+                    "syncProfile": profile,
+                    "presence": m.presence.as_str(),
+                }))
+            })
+            .collect()
+    }
+
     /// §10 diagnostics（不含 token、路徑、原始 payload）。
     pub fn character_session_diagnostics_value(&self) -> DomainResult<Value> {
         let host = self.session_host()?;
@@ -958,6 +1043,12 @@ impl Runtime {
                 // 查不到就**省略**這個欄位，不猜。
                 if let Some(strength) = self.member_identity_strength(&member.party) {
                     item["identityStrength"] = Value::String(strength.to_string());
+                }
+                // 這個成員**實際上**拿得到多少共享狀態（full-state／intent-only／
+                // event-source）。查不到出站通道就省略——「不知道」不得被畫成
+                // 「已同步」。
+                if let Some(profile) = self.member_sync_profile(&member.party, member.role) {
+                    item["syncProfile"] = Value::String(profile.to_string());
                 }
                 item
             })
@@ -1035,8 +1126,46 @@ impl Runtime {
         if party == desktop_party() {
             *host.desktop_presence() = Some(Presence::Online);
         }
+        // 協商完成才知道這個成員的角色，而「這條線載不載得動快照」是通道的
+        // 事實：兩件事湊起來才是它**實際上**拿得到多少共享狀態。留稽核，
+        // 否則「已加入」與「其實只收得到意圖」在事後完全分不出來。
+        self.audit_member_sync_profile(&party).await;
         self.character_session_apply(joined.outputs).await;
         Ok((joined.capability_envelope, joined.snapshot_envelope))
+    }
+
+    /// 留一次「這個成員的同步模式」稽核（協商完成後）。不是裝置、或還沒有
+    /// 出站通道就什麼都不做——不猜。
+    async fn audit_member_sync_profile(&self, party: &Party) {
+        if party.kind != PartyKind::Device {
+            return;
+        }
+        let Some(host) = self.character_session.as_ref() else {
+            return;
+        };
+        let role = host
+            .session()
+            .diagnostics()
+            .members
+            .into_iter()
+            .find(|m| &m.party == party)
+            .map(|m| m.role);
+        let (Some(role), Some(channel)) = (role, self.device_outbound(&party.id)) else {
+            return;
+        };
+        let profile = derive_sync_profile(role, channel.as_ref());
+        let _ = self.store.audit(
+            "aip.member-sync-profile",
+            "runtime",
+            &json!({
+                "deviceId": audit_snippet(&party.id),
+                "transport": channel.transport_label(),
+                "role": role,
+                "syncProfile": profile,
+                "maxLineBytes": channel.max_line_bytes(),
+                "supportsFragmentation": channel.supports_fragmentation(),
+            }),
+        );
     }
 
     /// 離開（撤銷、關閉視窗）。冪等。
@@ -1845,6 +1974,12 @@ impl Runtime {
                 };
                 if let Err(error) = channel.send_aip(envelope).await {
                     // 送不到不等於送到了：不重送、不假裝成功——但也不靜默。
+                    //
+                    // `envelopeBytes` 是**這一則有多大**：最常見的送不到原因就是
+                    // 它放不進那條線的單則上限（`reason` 會說出上限與整行長度，
+                    // 但那段文字是夾住的，所以大小另外記成一個結構化欄位——
+                    // 事後查「為什麼這台裝置沒收到」時，那個數字才是關鍵）。
+                    let bytes = serde_json::to_vec(envelope).map(|b| b.len()).ok();
                     let _ = self.store.audit(
                         "aip.outbound-undeliverable",
                         "runtime",
@@ -1853,6 +1988,7 @@ impl Runtime {
                             "deviceId": audit_snippet(&to.id),
                             "reason": audit_snippet(&error.to_string()),
                             "name": audit_snippet(&envelope.name),
+                            "envelopeBytes": bytes,
                         }),
                     );
                 }

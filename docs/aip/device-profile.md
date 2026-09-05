@@ -56,7 +56,25 @@ iPhone 的 `source` 必須等於配對出來的 `{kind:"device", id:<deviceId>}`
 | Transport | `identityStrength` | 意思 |
 |---|---|---|
 | iPhone wss v1 | `paired-token` | host 端逐次驗 sha256(token) |
-| 宣告式裝置線 v1.1（Serial／MQTT／BLE） | `transport-hello+device-side-pairing` | `hello.deviceId` 是**裝置自報的明文比對**；配對碼由**裝置端**比對（host 只送碼等 pair-ok）。`DeviceLink::pairing_unverified()` 為 true 時連配對碼是否被比對過都無法證明 |
+| 宣告式裝置線 v1.1／v1.2（Serial／MQTT／BLE） | `transport-hello+device-side-pairing` | `hello.deviceId` 是**裝置自報的明文比對**；配對碼由**裝置端**比對（host 只送碼等 pair-ok）。`DeviceLink::pairing_unverified()` 為 true 時連配對碼是否被比對過都無法證明 |
+
+### 3.1 成員同步模式（`syncProfile`；v0.7.0）
+
+身分之外還有第二件不能含糊的事：**這個成員實際上拿得到多少共享狀態**。三種值
+（`crates/interaction-runtime/src/character_session.rs::derive_sync_profile`）：
+
+| `syncProfile` | 什麼時候 | UI 語意 |
+|---|---|---|
+| `full-state` | 出站通道沒有單則上限（iPhone wss），或它有上限但對端宣告 `aip.frag/1` 會重組 | **只有這個**可以顯示「已同步」 |
+| `intent-only` | 有上限、不會重組，但成員宣告自己是 renderer（`role` 為 `remote-renderer`／`host-renderer`） | 只收得到放得進單則上限的意圖訊息；**不得**顯示「已同步」 |
+| `event-source` | 有上限、不會重組，而且成員只送事件（`input-device`／`observer`） | 送得進來、收不回去；**不得**顯示「已同步」 |
+
+它是 **Runtime 推導**出來的，不是新的 AIP 宣告欄位——`aip/1.0` 的 wire 沒有改。裝置不該（也不能）
+自己宣稱「我拿得到完整狀態」：那是**那條線**的事實（有沒有上限、會不會重組），不是它的意見。
+Runtime 只問通道兩件事（`DeviceOutbound::max_line_bytes`／`supports_fragmentation`）再配上已經協商好的
+`role`。投影到 `GET /v1/character-session/diagnostics` 的 `members[].syncProfile`（查不到出站通道就
+**省略**該欄位，不猜）與 `GET /v1/status` 的 `characterSessionSync`（非空才序列化），
+並在協商完成時稽核 `aip.member-sync-profile{deviceId,transport,role,syncProfile,maxLineBytes,supportsFragmentation}`。
 
 ## 4. Presence／Heartbeat／Offline policy
 
@@ -97,8 +115,11 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
   （`DeviceLink::admit_aip`，比照 iPhone 的 auth-ok）。之前一律拒絕、計數並稽核
   `aip.rejected{stage:"transport-admission"}`，不靜默丟棄。
 - **大小三層**：AIP profile 64 KiB → 這條線 `protocol::MAX_AIP_ENVELOPE_BYTES` 8 KiB（入站超限
-  `RefusedTooLarge`；出站超限一個位元組都不寫）→ 傳輸自己（serial／參考韌體單行 639 bytes、BLE 512 bytes、
+  `RefusedTooLarge`；出站超限一個位元組都不寫）→ 傳輸自己（serial 單行 **639 bytes**＝參考韌體
+  `g_serialBuf[640]`、MQTT 一則 **639 bytes**、BLE 一則 **480 bytes**＝`ble.rs::MAX_WRITE_BYTES`
+  ——本文件先前寫 512 是錯的，512 是**韌體端**的入站門檻、host 端一直是 480；
   `parse_device_msg` 整行 16 KiB）。
+- **分片（裝置線 v1.2，v0.7.0）**：見下面的 §6.2。
 - **Runtime 接線** `crates/interaction-runtime/src/declarative_session.rs`：Runtime 只認得型別抹除的
   `DeviceAipChannel`（沒有 serial／mqtt／ble 分支）。`register_declarative_spec` 同時宣告能力（受器；
   spec 標 `requiresConsent` 的＝高風險，id 只有 `receptor_consent_map` 一個產生點）、登記 `SensorSource`
@@ -122,11 +143,12 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
   `identityStrength` 由來源（`DeviceOrigin`）提供，不再寫死 `iphone`。diagnostics `members[]` 新增選填
   `identityStrength`（`paired-token`／`transport-hello+device-side-pairing`／`host-surface`；查不到出站通道
   就**省略**該欄位，不猜）。
-- **已知限制**：(1) 參考韌體單行上限 639 bytes：協商的第二則回覆（`state{kind:"snapshot"}`，實測 1019 bytes）
-  與任何含 `members` 的 `state{kind:"patch"}`（成員 presence／lastSeenAt 變動會整段重送，實測 660–784 bytes）
-  都在寫上線前被拒絕並稽核 `aip.outbound-undeliverable{bytes,reason}`——Serial 成員拿不到初始快照，也收不到
-  成員／互動類 patch；只有不含 members 的小 patch（例如緊急停止的真相變更，實測 450 bytes）送得到。分段／
-  per-member diff／縮減 profile 是協定層決定，未做；(2) 宣告式裝置沒有 recipe 相容的 touch observation id
+- **已知限制**：(1) ~~參考韌體單行上限 639 bytes 讓 snapshot 與含 members 的 patch 完全送不到~~
+  **v0.7.0 已修（裝置線 v1.2 分片，見 §6.2）**——但只對**宣告了 `aip.frag/1` 的裝置**。參考韌體
+  本身仍然不宣告（沒有重組緩衝），所以它的行為完全不變：那些訊息仍然在寫上線前被拒絕並稽核
+  `aip.outbound-undeliverable{envelopeBytes,reason:"over-line-limit-no-fragmentation"}`，
+  而它的成員模式誠實降級成 `intent-only`（§3.1），介面不得說「已同步」；
+  (2) 宣告式裝置沒有 recipe 相容的 touch observation id
   （iPhone 有 `iphone.touch`），沒有憑空發明一個；(3) 隔離測試的第二個成員是程序內 device fixture，
   不是 fake_iphone 子程序；(4) `crates/interaction-adapter-declarative` 的 `PROVIDER_LINKS` 是行程層 static
   （鍵＝provider id）：同一行程多個 Runtime 的測試必須用不同 provider id，否則會互相關掉對方的裝置線
@@ -195,3 +217,58 @@ wire 版本不變（`proto` 仍為 1，`aip` 訊息形狀不變）：這一節�
 `disable_a_does_not_affect_b`／`reentrant_transitions_do_not_double_retire` 走純 HTTP spec。
 **ESP32 真板驗收仍為零。**
 
+### 6.2 這條線上實際的位元組數（實測）
+
+先有數字才有討論。下表全部由
+`crates/interaction-runtime/tests/declarative_session_loop.rs::the_measured_wire_sizes_of_the_session_replies_are_over_the_line_limit`
+**實跑量出來**（pty 模擬器經 production serial adapter；`cargo test … -- --nocapture` 會把
+`MEASURED wire line bytes:` 逐行印出來），量的是**整行**
+`{"type":"aip","envelope":…}` 編碼後的 UTF-8 bytes（不含換行）——不是 envelope 本身，也不是估算。
+
+| 訊息 | 實測整行 bytes | 放得進 639 bytes？ |
+|---|---|---|
+| `capability` 回覆（協商第一則） | 318 | ✅ |
+| `state{kind:"snapshot"}` 回覆（協商第二則，成員少時） | **814** | ❌ |
+| `state{kind:"snapshot"}`（成員較多／resume 時） | **1019** | ❌ |
+| `state{kind:"patch"}`**含** `members`（成員 presence／lastSeenAt 一動就整段重送） | **686 / 810** | ❌ |
+| `state{kind:"patch"}` 不含 `members`（例如緊急停止的真相變更） | 515 | ✅ |
+| `character.behavior.request`（行為意圖） | 442 / 548 | ✅ |
+
+行上限本身：**serial 639**、**MQTT 639**（兩者都對齊參考韌體的 `g_serialBuf[640]`）、
+**BLE 480**（`ble.rs::MAX_WRITE_BYTES`）。本文件先前把 BLE 寫成 512 是錯的——512 是**韌體端**
+BLE 入站的門檻，host 端一直是 480。
+
+### 6.3 分片（裝置線 v1.2，v0.7.0）
+
+上表就是動機：一台「已加入」的 serial 裝置，在此之前連初始快照都拿不到。
+
+wire 形狀（`proto` 仍為 1；`aip-frag` 與 `aip` 一樣是**追加**的訊息型別，舊韌體不認得就忽略、
+舊 host 當未知訊息丟棄）：
+
+```jsonc
+{"type":"aip-frag","xfer":42,"seq":0,"total":3,"bytes":1019,"crc":"a1b2c3d4","data":"{\"specVersion\":…"}
+```
+
+* **能力宣告驅動**：只有 `hello.caps` 含 `"aip.frag/1"` 才使用。**參考韌體不宣告它**——真板沒有
+  重組緩衝，替它宣稱就會讓 host 把一則 snapshot 切成好幾片送出去、全部被丟掉，而收據寫著「已送出」。
+  模擬器有做（`--no-frag` 可關掉，用來驗降級路徑）。
+* **不放寬任何上限**：每一片編碼後的整行仍然 ≤ 行上限；重組後仍受 8 KiB
+  （`MAX_AIP_ENVELOPE_BYTES`＝`fragment::MAX_REASSEMBLED_BYTES`）限制。切點只落在 UTF-8 字元邊界。
+* **核心零變更**：組裝／重組完全在 `crates/interaction-adapter-declarative` 的
+  `AipChannel`／`DeviceLink` 內部。對呼叫端仍然是**一次** `send_aip`、**一則**完整的入站 envelope；
+  `character_session.rs` 不認得 serial／mqtt／ble，也不認得「被分片」。
+* **有界**：每台裝置同時 1 筆進行中（新 `xfer` 到達＝取消前一筆並稽核）、片數 ≤ 64、
+  自最後一片起 2 秒逾時；hello／斷線／revoke／stop-all／rebind 一律取消。
+* **整筆丟棄**：缺片／重片／亂序／截斷／惡意 `total`／`bytes`／crc32 不符／組回來不是 JSON →
+  整筆丟掉並稽核 `aip.fragment-dropped{xfer,reason,received,total}`。半份 envelope 絕不交給上層——
+  那會把「傳輸壞了」演成「裝置說了一句沒有意義的話」。
+* **不支援時的行為完全不變**：對端沒宣告 `aip.frag/1` 而 envelope 又放不進行上限 → 一個位元組都不寫，
+  稽核原因 `over-line-limit-no-fragmentation`，成員模式降級成 `intent-only`／`event-source`（§3.1）。
+
+**證據等級**：`aip_fragment.rs` 17 測（切片邊界、UTF-8 不切壞、缺片／重片／亂序／截斷／惡意表頭／
+crc／逾時／取消、crc32 標準向量）、`aip_link.rs` 14 測（`MockRawLink`：切片、降級拒絕、入站重組、
+未握手拒絕、重連取消）、`esp32_sim_conformance.rs`（韌體忽略 `aip-frag` 且**不**宣告 `aip.frag/1`、
+模擬器宣告且 `--no-frag` 可關、host 切的每一片模擬器都組得回來、亂序整筆丟棄）、
+`declarative_session_loop.rs`（snapshot 與含 members 的 patch 經分片**真的到達** pty 模擬器並成為
+`full-state` 成員、`--no-frag` 降級成 `intent-only`、重連 resume、被取消的傳輸留稽核、實測行長度）。
+**ESP32 真板驗收仍為零**；MQTT／BLE 共用同一段 `AipChannel<L>` 程式碼，但沒有 AIP session 測試。

@@ -55,8 +55,8 @@ in-process builtin adapter；外部 transport 的等價驗收是
 
 ## 3. 加一個新裝置（Device Profile）
 
-見 `docs/aip/device-profile.md` §5–§6：現在有兩條裝置 binding——iPhone wss v1 與宣告式裝置線 v1.1
-（Serial／MQTT／BLE；Serial 經 pty 模擬器驗證，真板為零）。
+見 `docs/aip/device-profile.md` §5–§6：現在有兩條裝置 binding——iPhone wss v1 與宣告式裝置線
+v1.1／v1.2（Serial／MQTT／BLE；Serial 經 pty 模擬器驗證，真板為零）。
 
 **如果你的裝置走宣告式 adapter**（YAML spec，transport 是 serial／mqtt／ble）：什麼都不用寫。
 `crates/interaction-adapter-declarative` 對每個 `DeviceLink<L>` 自動建一個 `AipChannel<L>`
@@ -66,13 +66,32 @@ in-process builtin adapter；外部 transport 的等價驗收是
 要真的成為成員得自己實作 capability／touch）。它的身分強度是 `transport-hello+device-side-pairing`
 （`device-profile.md` §3）——寫文件、稽核、UI 時用這個字串，不要寫成「已驗證身分」。
 
+**大訊息（裝置線 v1.2 的分片）**：一則 `state{kind:"snapshot"}` 實測 814–1019 bytes，放不進 serial／
+MQTT 的 639 bytes、更放不進 BLE 的 480 bytes（`device-profile.md` §6.2 的實測表）。裝置若**真的**做得到
+重組，就在 `hello.caps` 加一項 `"aip.frag/1"`，host 會自動把超長的 envelope 切成 `aip-frag` 送過去
+（`device-profile.md` §6.3）。
+
+誠實地不宣告它是完全可以的——**參考韌體就沒有宣告**（它沒有那塊緩衝）。此時 host 的行為與 v1.1
+完全相同：放不進行上限的 envelope 一個位元組都不寫，稽核 `over-line-limit-no-fragmentation`，
+而這個成員在 diagnostics／status 上是 `intent-only`（或 `event-source`），**介面不得顯示「已同步」**。
+反過來，宣告一項自己做不到的能力是最糟的選擇：host 會把訊息切好送出去、對端全部丟掉，
+而收據上寫著「已送出」。
+
+重組必須跟 host 同一套規則（`crates/interaction-adapter-declarative/src/fragment.rs`；
+`scripts/esp32-serial-sim.py` 是一份可以照抄的參考實作）：每條線 1 筆進行中、重組上限 8 KiB、
+片數上限 64、自最後一片起 2 秒逾時、crc32 核對，缺片／重片／亂序／截斷一律**整筆丟棄並留痕**——
+半份 envelope 交給上層，會把「傳輸壞了」演成「對方說了一句沒有意義的話」。
+
 **如果是第三種 Transport**：
 
 1. 實作 `interaction_adapter_declarative::protocol::DeviceAipChannel`（或仿照
    `crates/interaction-runtime/src/mobile.rs` 的 `Some("aip") if authed.is_some()` 分支）：**只在該
    Transport 自己的認證完成後才放行** aip，身分綁定用它自己的配對／認證機制；被擋下的要計數＋稽核。
    出站 envelope 也要過 AIP profile 驗證與大小上限（`MAX_AIP_ENVELOPE_BYTES` 之下再守傳輸自己的上限），
-   送不出去要稽核 `aip.outbound-undeliverable`，不能只落 log。
+   送不出去要稽核 `aip.outbound-undeliverable`，不能只落 log。若這個 Transport 有單則上限，
+   實作 `DeviceOutbound::max_line_bytes()`／`supports_fragmentation()`（預設是「沒有上限、不會重組」）——
+   Runtime 用它們推導成員的 `syncProfile`（`device-profile.md` §3.1）。回錯了不會壞掉，
+   但介面會替一台其實什麼都沒收到的裝置顯示「已同步」。
 2. 呼叫 `Runtime::character_session_device_frame` 把已綁定的身分與 envelope 交給
    `interaction-session`（不得繞過它自己實作一套安全檢查——安全管線只有一份，在
    `crates/interaction-session/src/session.rs::gate`）；斷線→`Presence::Reconnecting`（既有 tick 轉

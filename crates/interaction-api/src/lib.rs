@@ -500,7 +500,13 @@ fn agent_request_allowed(method: &axum::http::Method, path: &str) -> bool {
             && !path.starts_with("/v1/mobile")
             // 角色 instance／adapter 登記與 Character Session 屬可信 host 層：
             // agent token 不可讀（`/v1/character-session*` 也在這個前綴內）。
-            && !path.starts_with("/v1/character");
+            && !path.starts_with("/v1/character")
+            // 「未解決停止」＝哪些感測可能還在擷取、但沒有人確認停了。解除
+            // （`POST .../dismiss`）本來就只有人類做得到；讀取面也必須同一層，
+            // 否則 AI 讀得到一份使用者還沒處理的隱私待辦，只差不能按下按鈕。
+            // 只排除這一支：`/v1/sensors`（狀態）與 `/v1/sensors/stop`（安全
+            // 遞減）不受影響。
+            && !path.starts_with("/v1/sensors/unresolved");
     }
     if matches!(
         path,
@@ -623,6 +629,25 @@ mod auth_scope_tests {
             &Method::POST,
             "/v1/character/intent"
         ));
+    }
+
+    /// 「未解決停止」是人類層的收件匣：解除只有人類做得到，清單也不該讓 AI
+    /// 讀（讀得到就等於拿到一份使用者還沒處理的隱私待辦）。但這條排除必須
+    /// **只**涵蓋這一支——`/v1/sensors/stop` 是安全遞減操作，不得被關掉。
+    #[test]
+    fn agent_token_cannot_read_the_unresolved_stops_inbox() {
+        assert!(!agent_request_allowed(
+            &Method::GET,
+            "/v1/sensors/unresolved"
+        ));
+        assert!(!agent_request_allowed(
+            &Method::POST,
+            "/v1/sensors/unresolved/api.fixture/dismiss"
+        ));
+        // 安全遞減的停止仍然放行（agent 一定要停得下感測）。
+        assert!(agent_request_allowed(&Method::POST, "/v1/sensors/stop"));
+        // 其餘 GET 不受影響。
+        assert!(agent_request_allowed(&Method::GET, "/v1/status"));
     }
 
     /// safety-invariants-078：`POST /v1/agent-sessions/{id}/interrupt` 指名單一

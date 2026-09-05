@@ -61,7 +61,9 @@ struct Sim {
 }
 
 impl Sim {
-    fn spawn(device_id: &str) -> Option<Sim> {
+    /// `extra` 追加到模擬器命令列（例如 `--no-frag`：不宣告 `aip.frag/1`，
+    /// 用來驗證「對端不會重組時誠實拒絕」的降級路徑）。
+    fn spawn_with(device_id: &str, extra: &[&str]) -> Option<Sim> {
         if !python3_available() {
             eprintln!("python3 unavailable; skipping declarative session loop test");
             return None;
@@ -80,6 +82,7 @@ impl Sim {
             .arg(&pty_file)
             .arg("--log")
             .arg(dir.join("sim.log"))
+            .args(extra)
             .stdin(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
@@ -147,10 +150,15 @@ struct Fixture {
 
 impl Fixture {
     fn spawn() -> Option<Fixture> {
+        Fixture::spawn_with(&[])
+    }
+
+    /// 帶額外命令列旗標的模擬器（見 [`Sim::spawn_with`]）。
+    fn spawn_with(extra: &[&str]) -> Option<Fixture> {
         let seq = SPEC_SEQ.fetch_add(1, Ordering::SeqCst);
         let spec_id = format!("esp32sim{seq}");
         let device_id = format!("esp32-sim{seq:02}");
-        let sim = Sim::spawn(&device_id)?;
+        let sim = Sim::spawn_with(&device_id, extra)?;
         Some(Fixture {
             provider_id: format!("provider.adapter.{spec_id}"),
             receptor_id: format!("{spec_id}.presence"),
@@ -698,16 +706,19 @@ async fn unplugging_the_device_marks_it_reconnecting_then_offline() {
 // 誠實：送不出去的 session 回覆不得靜默消失
 // ---------------------------------------------------------------------------
 
-/// 協商會產生兩則回覆（capability＋snapshot）。snapshot envelope 目前**超過**
-/// 參考韌體的單行上限（`serial::MAX_LINE_BYTES` = 639 bytes），所以 serial 傳輸
-/// 在寫上線之前就誠實拒絕它。
+/// 協商會產生兩則回覆（capability＋snapshot）。snapshot envelope 超過參考韌體的
+/// 單行上限（`serial::MAX_LINE_BYTES` = 639 bytes）——**而且這台裝置沒有宣告
+/// `aip.frag/1`**（`--no-frag`），所以 serial 傳輸在寫上線之前就誠實拒絕它。
 ///
 /// 這條測試釘住的是「拒絕不得靜默」：送不出去的 envelope 必須留稽核（帶原因），
 /// 否則桌面會看到一個已經加入的成員，而那台裝置其實從來沒有收到任何狀態——
 /// 「已同步」與「什麼都沒收到」在畫面上長得一模一樣。
+///
+/// v1.2 之後這條路徑仍然存在：分片是**能力宣告**驅動的，沒有宣告的裝置
+/// （包括參考韌體本身）行為完全不變。
 #[tokio::test(flavor = "multi_thread")]
 async fn a_session_reply_that_does_not_fit_the_wire_is_audited_not_silently_dropped() {
-    let Some(mut fx) = Fixture::spawn() else {
+    let Some(mut fx) = Fixture::spawn_with(&["--no-frag"]) else {
         return;
     };
     let home = tempfile::tempdir().unwrap();
@@ -749,6 +760,139 @@ async fn a_session_reply_that_does_not_fit_the_wire_is_audited_not_silently_drop
             .map(|r| r["kind"].clone())
             .collect::<Vec<_>>()
     );
+    // 原因必須說得出「超過行上限、而且對端不會重組」——與「配對被拒」是完全
+    // 不同的兩件事，混在一起會叫人去改一個其實正確的配對碼。
+    let row = rt
+        .store
+        .audit_tail(200)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|row| {
+            row.get("kind").and_then(Value::as_str) == Some("aip.outbound-undeliverable")
+                && row["detail"]["deviceId"] == fx.device_id
+        })
+        .expect("undeliverable audit");
+    let reason = row["detail"]["reason"].as_str().unwrap_or_default();
+    assert!(
+        reason.contains("over-line-limit-no-fragmentation"),
+        "拒絕原因必須點名是「超過行上限而對端不會重組」：{row}"
+    );
+}
+
+/// 這條線上實際的位元組數（文件 `docs/aip/device-profile.md` §6 的表就是它
+/// 印出來的）。用 `--no-frag` 跑：那條路徑會把**整行**的長度寫進拒絕原因，
+/// 所以量到的是真的寫上線會有多長，不是估算。
+#[tokio::test(flavor = "multi_thread")]
+async fn the_measured_wire_sizes_of_the_session_replies_are_over_the_line_limit() {
+    let Some(mut fx) = Fixture::spawn_with(&["--no-frag"]) else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec())
+        .await
+        .expect("register");
+    assert!(
+        join_session(&mut fx, &rt).await,
+        "先要成為成員：{:?}\nsim log:\n{}",
+        fx.members(&rt),
+        fx.log_text()
+    );
+    // 桌面加入並觸碰：成員名單與互動都會造成含 members 的 patch。
+    rt.character_session_join(
+        interaction_runtime::character_session::desktop_party(),
+        &host_surface_announcement(),
+    )
+    .await
+    .expect("desktop joins");
+    rt.character_session_submit(
+        desktop_touch_envelope("fx-measure-touch"),
+        &interaction_runtime::character_session::desktop_party(),
+    )
+    .await
+    .expect("submit");
+    // 緊急停止：不含 members 的小 patch（既有已知限制說它送得進 639 bytes）。
+    rt.emergency_stop("measure", None).await.expect("estop");
+    assert!(
+        wait_until(Duration::from_secs(5), || {
+            let rt = rt.clone();
+            async move { undeliverable_patch(&rt).is_some() }
+        })
+        .await,
+        "需要至少一則放不進去的 patch 才量得到"
+    );
+
+    let mut measured: Vec<(String, usize)> = Vec::new();
+    for row in rt.store.audit_tail(400).unwrap_or_default() {
+        if row.get("kind").and_then(Value::as_str) != Some("aip.outbound-undeliverable") {
+            continue;
+        }
+        let detail = &row["detail"];
+        let name = detail["name"].as_str().unwrap_or("(reply)").to_string();
+        // 兩條路徑記的東西不同（傳輸層的拒絕帶整行長度；核心的廣播稽核帶
+        // envelope 長度）。整行 ＝ envelope ＋ `{"type":"aip","envelope":}`。
+        let from_reason = wire_bytes_from_reason(detail["reason"].as_str().unwrap_or_default());
+        let from_envelope = detail["envelopeBytes"]
+            .as_u64()
+            .or_else(|| detail["bytes"].as_u64())
+            .map(|b| b as usize + AIP_LINE_OVERHEAD);
+        if let (Some(a), Some(b)) = (from_reason, from_envelope) {
+            assert_eq!(a, b, "整行長度必須等於 envelope 長度加上固定表頭：{detail}");
+        }
+        let Some(bytes) = from_reason.or(from_envelope) else {
+            continue;
+        };
+        measured.push((name, bytes));
+    }
+    assert!(!measured.is_empty(), "沒有量到任何一則被拒的行長度");
+    // 送得到的那些也要量：文件的表要說得出「哪些放得進 639 bytes」。
+    for line in fx.log_text().lines() {
+        if let Some(body) = line.strip_prefix(">> ") {
+            if body.contains("\"type\":\"aip\"") {
+                let name = if body.contains("character.behavior") {
+                    "character.behavior.request (delivered)"
+                } else if body.contains("\"kind\":\"patch\"") {
+                    "character.session.patch (delivered)"
+                } else {
+                    "aip line (delivered)"
+                };
+                measured.push((name.to_string(), body.trim_end().len()));
+            }
+        }
+    }
+    measured.sort();
+    measured.dedup();
+    // 印出來給文件用（`cargo test -- --nocapture`）。
+    for (name, bytes) in &measured {
+        println!("MEASURED wire line bytes: {name} = {bytes}");
+    }
+    for (name, bytes) in &measured {
+        if name.ends_with("(delivered)") {
+            assert!(*bytes <= 639, "送得出去的行必須 ≤ 639：{name} = {bytes}");
+        }
+    }
+    measured.retain(|(name, _)| !name.ends_with("(delivered)"));
+    for (name, bytes) in &measured {
+        assert!(
+            *bytes > 639,
+            "只有超過行上限的才會被拒；{name} 量到 {bytes} bytes"
+        );
+        assert!(
+            *bytes <= 8 * 1024,
+            "超過 8 KiB 的 envelope 走的是另一條拒絕路徑；{name} 量到 {bytes} bytes"
+        );
+    }
+}
+
+/// `{"type":"aip","envelope":…}` 這層外殼的固定位元組數（不含換行）。
+const AIP_LINE_OVERHEAD: usize = 26;
+
+/// 從拒絕原因裡取出「這一行有多少 bytes」（`message too large (N bytes > 639`）。
+fn wire_bytes_from_reason(reason: &str) -> Option<usize> {
+    let start = reason.find("message too large (")? + "message too large (".len();
+    let rest = &reason[start..];
+    let end = rest.find(" bytes")?;
+    rest[..end].parse().ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -791,6 +935,38 @@ fn received_lines(log: &str, needle: &str) -> usize {
         .count()
 }
 
+/// 模擬器**從分片重組出來**（`>+`）且含有 `needle` 的 envelope 數。
+///
+/// 前綴刻意與 `>>` 不同：這一行在線上從來沒有真的出現過，它是好幾片組回來的。
+/// 用同一個前綴會讓「裝置收到了一行 1019 bytes」看起來像事實。
+fn reassembled_lines(log: &str, needle: &str) -> usize {
+    log.lines()
+        .filter(|line| line.starts_with(">+ ") && line.contains(needle))
+        .count()
+}
+
+/// 這個裝置成員在 diagnostics 上的 `syncProfile`（沒有就是 None）。
+fn sync_profile_of(rt: &Runtime, device_id: &str) -> Option<String> {
+    members(rt)
+        .iter()
+        .find(|m| m["party"]["id"] == device_id)
+        .and_then(|m| m["syncProfile"].as_str().map(String::from))
+}
+
+/// `aip.fragment-dropped` 稽核裡的原因（最近一筆）。
+fn fragment_drop_reason(rt: &Runtime, device_id: &str) -> Option<String> {
+    rt.store
+        .audit_tail(300)
+        .unwrap_or_default()
+        .into_iter()
+        .rev()
+        .find(|row| {
+            row.get("kind").and_then(Value::as_str) == Some("aip.fragment-dropped")
+                && row["detail"]["deviceId"] == device_id
+        })
+        .and_then(|row| row["detail"]["reason"].as_str().map(String::from))
+}
+
 /// 最近一則「state patch 送不出去」的稽核。
 fn undeliverable_patch(rt: &Runtime) -> Option<Value> {
     rt.store
@@ -829,16 +1005,16 @@ async fn shared_state_changes_from_other_members_reach_the_serial_device() {
         fx.log_text()
     );
 
-    // 誠實：協商的 snapshot 超過單行上限，必須留稽核。
-    let device_id = fx.device_id.clone();
+    // 誠實：協商的 snapshot 超過單行上限，但這台模擬器宣告了 `aip.frag/1`，
+    // 所以它是**切片送到**的（不是被拒）。裝置端重組出完整的那一則。
     assert!(
         wait_until(Duration::from_secs(5), || {
-            let rt = rt.clone();
-            let device_id = device_id.clone();
-            async move { has_undeliverable_audit(&rt, &device_id) }
+            let log = fx.log_text();
+            async move { reassembled_lines(&log, "\"kind\":\"snapshot\"") > 0 }
         })
         .await,
-        "送不出去的 snapshot 仍然必須留稽核"
+        "協商的 snapshot 必須經分片真的到達裝置\nsim log:\n{}",
+        fx.log_text()
     );
 
     // 1) 桌面（可信 host surface）加入並觸碰：它造成的行為意圖必須真的走回
@@ -864,20 +1040,21 @@ async fn shared_state_changes_from_other_members_reach_the_serial_device() {
         "桌面觸碰造成的行為意圖必須真的經序列線到達這台裝置\nsim log:\n{}",
         fx.log_text()
     );
-    // 同一次觸碰造成的 state patch 放不進 639 bytes：誠實留痕，不放寬上限。
+    // 同一次觸碰造成的 state patch 放不進 639 bytes（實測 686–810 bytes），
+    // 但這台裝置會重組：它必須**真的到達**，而不是被拒。
     assert!(
         wait_until(Duration::from_secs(5), || {
-            let rt = rt.clone();
-            async move { undeliverable_patch(&rt).is_some() }
+            let log = fx.log_text();
+            async move { reassembled_lines(&log, "\"kind\":\"patch\"") > 0 }
         })
         .await,
-        "放不進單行上限的 state patch 必須留稽核（不得靜默丟棄）：{:?}",
-        rt.store.audit_tail(50).unwrap_or_default()
+        "含 members 的 state patch 必須經分片真的到達\nsim log:\n{}",
+        fx.log_text()
     );
-    let refused = undeliverable_patch(&rt).expect("patch audit");
-    assert_eq!(
-        refused["detail"]["transport"], "serial",
-        "稽核必須說得出是哪一條線送不出去：{refused}"
+    assert!(
+        undeliverable_patch(&rt).is_none(),
+        "宣告了 aip.frag/1 的裝置不該再有送不出去的 patch：{:?}",
+        undeliverable_patch(&rt)
     );
 
     // 2) 放得進單行上限的 shared state 廣播必須**真的**到達：緊急停止造成的
@@ -1529,4 +1706,327 @@ async fn rebind_timeout_is_bounded_and_honest() {
         "舊的失敗訊息不得跟著新的嘗試走：{detail}"
     );
     assert!(detail.contains("rebinding"), "{detail}");
+}
+
+// ---------------------------------------------------------------------------
+// 裝置線 v1.2：分片（`aip-frag`）走 production serial adapter＋pty 模擬器
+// ---------------------------------------------------------------------------
+
+/// 宣告了 `aip.frag/1` 的裝置：協商的 snapshot（實測 814–1019 bytes 一行）
+/// 真的**到達**，而且這個成員在 diagnostics 上是 `full-state`。
+///
+/// 在此之前它是被拒的——桌面顯示「已加入」，那台裝置一則狀態都沒有。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fragmenting_device_receives_the_snapshot_and_is_a_full_state_member() {
+    let Some(mut fx) = Fixture::spawn() else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec())
+        .await
+        .expect("register");
+    assert!(
+        join_session(&mut fx, &rt).await,
+        "先要成為成員：{:?}\nsim log:\n{}",
+        fx.members(&rt),
+        fx.log_text()
+    );
+
+    assert!(
+        wait_until(Duration::from_secs(10), || {
+            let log = fx.log_text();
+            async move { reassembled_lines(&log, "\"kind\":\"snapshot\"") > 0 }
+        })
+        .await,
+        "snapshot 必須經分片真的到達（>+ ＝重組出來的完整 envelope）\nsim log:\n{}",
+        fx.log_text()
+    );
+    // 每一片在線上都必須放得進 639 bytes：分片不是放寬上限。
+    for line in fx.log_text().lines() {
+        if let Some(body) = line.strip_prefix(">> ") {
+            assert!(
+                body.trim_end().len() <= 639,
+                "線上的每一行都必須 ≤ 639 bytes，實際 {}：{body}",
+                body.trim_end().len()
+            );
+        }
+    }
+    assert_eq!(
+        sync_profile_of(&rt, &fx.device_id).as_deref(),
+        Some("full-state"),
+        "載得動完整快照的成員必須標成 full-state：{:?}",
+        fx.members(&rt)
+    );
+    // 稽核要說得出這個推導是怎麼來的（線上限＋會不會重組）。
+    let row = rt
+        .store
+        .audit_tail(300)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|row| row.get("kind").and_then(Value::as_str) == Some("aip.member-sync-profile"))
+        .expect("sync profile audit");
+    assert_eq!(row["detail"]["syncProfile"], "full-state", "{row}");
+    assert_eq!(row["detail"]["supportsFragmentation"], true, "{row}");
+    assert_eq!(row["detail"]["maxLineBytes"], 639, "{row}");
+    assert_eq!(row["detail"]["transport"], "serial", "{row}");
+}
+
+/// **沒有**宣告 `aip.frag/1` 的裝置（`--no-frag`，與參考韌體同一種）：
+/// 快照仍然送不到，成員誠實降級成 `intent-only`——介面不得說它「已同步」。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_without_fragmentation_degrades_to_intent_only() {
+    let Some(mut fx) = Fixture::spawn_with(&["--no-frag"]) else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec())
+        .await
+        .expect("register");
+    assert!(
+        join_session(&mut fx, &rt).await,
+        "先要成為成員：{:?}\nsim log:\n{}",
+        fx.members(&rt),
+        fx.log_text()
+    );
+    assert_eq!(
+        sync_profile_of(&rt, &fx.device_id).as_deref(),
+        Some("intent-only"),
+        "載不動快照、但宣告了 intents 的成員是 intent-only：{:?}",
+        fx.members(&rt)
+    );
+    // status 也要說得出來（介面靠它決定可不可以顯示「已同步」）。
+    let status = rt.status().await;
+    let sync = status["characterSessionSync"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let row = sync
+        .iter()
+        .find(|row| row["deviceId"] == fx.device_id)
+        .unwrap_or_else(|| panic!("status 必須列出這台裝置的同步模式：{status}"));
+    assert_eq!(row["syncProfile"], "intent-only", "{row}");
+    assert_eq!(row["transport"], "serial", "{row}");
+    // 而且 snapshot 真的沒送出去（誠實留痕）。
+    let device_id = fx.device_id.clone();
+    assert!(
+        wait_until(Duration::from_secs(5), || {
+            let rt = rt.clone();
+            let device_id = device_id.clone();
+            async move { has_undeliverable_audit(&rt, &device_id) }
+        })
+        .await,
+        "送不出去的 snapshot 必須留稽核"
+    );
+}
+
+/// 斷線重連之後 resume：裝置拿得回它錯過的狀態（patches 或 snapshot），
+/// 而且是經分片到達的。
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reconnected_device_resumes_and_gets_the_state_it_missed() {
+    let Some(mut fx) = Fixture::spawn() else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec())
+        .await
+        .expect("register");
+    assert!(
+        join_session(&mut fx, &rt).await,
+        "先要成為成員：{:?}\nsim log:\n{}",
+        fx.members(&rt),
+        fx.log_text()
+    );
+    assert!(
+        wait_until(Duration::from_secs(10), || {
+            let log = fx.log_text();
+            async move { reassembled_lines(&log, "\"kind\":\"snapshot\"") > 0 }
+        })
+        .await,
+        "先要收到第一份 snapshot\nsim log:\n{}",
+        fx.log_text()
+    );
+    let before = reassembled_lines(&fx.log_text(), "character.session");
+
+    // 桌面觸碰：裝置「錯過」的一次狀態變更。
+    rt.character_session_join(
+        interaction_runtime::character_session::desktop_party(),
+        &host_surface_announcement(),
+    )
+    .await
+    .expect("desktop joins");
+    rt.character_session_submit(
+        desktop_touch_envelope("fx-resume-touch"),
+        &interaction_runtime::character_session::desktop_party(),
+    )
+    .await
+    .expect("submit");
+
+    // 重連後 resume：從第 0 版要回來（host 會回 patches 或整份 snapshot）。
+    fx.control(json!({"op": "aip-resume", "lastRevision": 0, "lastSequence": 0, "epoch": 0}));
+    assert!(
+        wait_until(Duration::from_secs(10), || {
+            let log = fx.log_text();
+            async move { reassembled_lines(&log, "character.session") > before }
+        })
+        .await,
+        "resume 之後必須有新的（重組出來的）狀態到達\nsim log:\n{}",
+        fx.log_text()
+    );
+}
+
+/// 一筆停在半路的入站傳輸被緊急停止取消：**留得下痕跡**。
+///
+/// 靜默丟棄會讓「裝置說了話但我們組不回來」與「裝置沒說話」長得一模一樣，
+/// 而且那正好發生在最不該有空白的路徑上。
+#[tokio::test(flavor = "multi_thread")]
+async fn an_interrupted_inbound_transfer_is_audited_not_silently_dropped() {
+    let Some(mut fx) = Fixture::spawn() else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec())
+        .await
+        .expect("register");
+    assert!(
+        join_session(&mut fx, &rt).await,
+        "先要成為成員：{:?}\nsim log:\n{}",
+        fx.members(&rt),
+        fx.log_text()
+    );
+
+    // 只送第一片，然後緊急停止：進行中的傳輸必須被取消並留稽核。
+    fx.control(json!({"op": "aip-partial", "bytes": 1200}));
+    assert!(
+        wait_until(Duration::from_secs(5), || {
+            let log = fx.log_text();
+            async move { log.contains("aip-partial: sent fragment 1/") }
+        })
+        .await,
+        "模擬器必須真的送出第一片\nsim log:\n{}",
+        fx.log_text()
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    rt.emergency_stop("fragment-cancel", None)
+        .await
+        .expect("estop");
+
+    let device_id = fx.device_id.clone();
+    assert!(
+        wait_until(Duration::from_secs(10), || {
+            let rt = rt.clone();
+            let device_id = device_id.clone();
+            async move { fragment_drop_reason(&rt, &device_id).is_some() }
+        })
+        .await,
+        "被取消的分片傳輸必須留稽核 aip.fragment-dropped；audit={:?}",
+        rt.store
+            .audit_tail(40)
+            .unwrap_or_default()
+            .iter()
+            .map(|r| r["kind"].clone())
+            .collect::<Vec<_>>()
+    );
+    let reason = fragment_drop_reason(&rt, &fx.device_id).expect("reason");
+    assert!(
+        reason == "stop-all" || reason == "timeout",
+        "原因必須說得出是被取消還是逾時，得到 {reason}"
+    );
+}
+
+/// 重新綁定不得把人類**手動關掉**的受器重新打開。
+///
+/// 第 7 步是「重新註冊整份 spec」，而 registry 對新註冊的受器一律套用 manifest
+/// 的預設值（不需 consent 的受器預設啟用）。於是「停用裝置 → 再啟用」會順手
+/// 把一個人類先前關掉的非 consent 受器打開——那是一次沒有人下過的決定，而且
+/// 違反既有保證「回到 Available 不會自動恢復任何能力」。
+///
+/// （需要 consent 的受器本來就是關的，不受影響；這條測試釘的是**非** consent
+/// 的那一種——只有它會被預設值打開。）
+#[tokio::test(flavor = "multi_thread")]
+async fn rebind_keeps_human_disabled_receptors_off() {
+    let Some(mut fx) = Fixture::spawn() else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    // 這份 spec 多一個**不需要 consent** 的受器：預設是開著的。
+    let mut spec_value = spec_json(&fx.sim.pty_path, &fx.spec_id, &fx.device_id);
+    let ambient = json!({
+        "kind": "receptor",
+        "id": "ambient",
+        "name": "環境亮度",
+        "category": "environment",
+        "transport": "serial",
+        "serial": {
+            "port": fx.sim.pty_path,
+            "baud": 115200,
+            "expectedDeviceId": fx.device_id,
+            "pairingCode": PAIRING_CODE,
+        },
+        "pollIntervalMs": 3_600_000,
+        "facts": {"lux": "/facts/lux"},
+    });
+    spec_value["capabilities"]
+        .as_array_mut()
+        .expect("capabilities")
+        .push(ambient);
+    let spec: interaction_adapter_declarative::DeclarativeSpec =
+        serde_json::from_value(spec_value).expect("spec");
+    rt.register_declarative_spec(&spec).await.expect("register");
+
+    let pid = ProviderId::new(&fx.provider_id);
+    let ambient_id = ReceptorId::new(format!("{}.ambient", fx.spec_id));
+    assert!(
+        join_session(&mut fx, &rt).await,
+        "先加入 session：{:?}\nsim log:\n{}",
+        fx.members(&rt),
+        fx.log_text()
+    );
+    assert!(
+        rt.registry.receptor(&ambient_id).await.is_ok(),
+        "非 consent 受器一開始是啟用的（這是這條測試的前提）"
+    );
+
+    // 人類手動關掉它（控制中心／CLI／API 都走這條）。
+    rt.registry
+        .set_receptor_enabled(&ambient_id, false)
+        .await
+        .expect("human disables the receptor");
+    assert!(rt.registry.receptor(&ambient_id).await.is_err());
+
+    // 停用整台裝置，再啟用（＝觸發免重啟重新綁定）。
+    rt.transition_provider(&pid, ProviderState::Disabled)
+        .await
+        .expect("disable");
+    rt.transition_provider(&pid, ProviderState::Available)
+        .await
+        .expect("re-enable");
+    assert!(
+        wait_until(Duration::from_secs(30), || {
+            let rt = rt.clone();
+            let pid = pid.clone();
+            async move { provider_state(&rt, &pid).await == Some(ProviderState::Available) }
+        })
+        .await,
+        "重新綁定要先收斂成 Available：{:?}",
+        provider_state(&rt, &pid).await
+    );
+
+    assert!(
+        rt.registry.receptor(&ambient_id).await.is_err(),
+        "重新綁定不得把人類手動關掉的受器打開；audit={:?}",
+        audit_rows(&rt, "provider.rebound")
+    );
+    // 而且說得出來：重新綁定的稽核要列出被保留為關閉的受器。
+    let rebound = audit_rows(&rt, "provider.rebound");
+    let row = rebound.last().expect("provider.rebound audit");
+    assert_eq!(
+        row["detail"]["keptDisabledReceptors"],
+        json!([ambient_id.as_str()]),
+        "稽核必須說得出哪些受器被保留為關閉：{row}"
+    );
 }

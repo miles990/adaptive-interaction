@@ -15,10 +15,13 @@
 //!   絕不自動重送 cmd（重送可能重複實體效果）——逾時＝結果未知。
 //! - ack ≠ observed：ack 只代表裝置說「已套用」，獨立驗證靠 state 觀察。
 
+use crate::fragment::{
+    fragment_envelope_line, FragmentDrop, Reassembler, ReassemblyStep, FRAG_CAP,
+};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -33,6 +36,11 @@ pub const PROTO_VERSION: u32 = 1;
 /// 在真板上根本不會被讀進去。這裡取一個兩邊都守得住的值，並且**在寫出之前**
 /// 就拒絕：寧可誠實回「沒送出」，也不要送出一則注定被裝置整行丟棄的訊息。
 pub const MAX_AIP_ENVELOPE_BYTES: usize = 8 * 1024;
+
+/// 出站被拒的原因字串：envelope 超過這條線的單則上限，而對端**沒有**宣告
+/// [`FRAG_CAP`]（所以分片也不是選項）。稽核與收據靠它把這一類與「身分／配對
+/// 被拒」分開——兩者都「確定沒送出」，但要查的東西完全不同。
+pub const REASON_OVER_LINE_LIMIT_NO_FRAGMENTATION: &str = "over-line-limit-no-fragmentation";
 
 /// 裝置送來的一則 `aip` 行的准入結果（[`DeviceLink::admit_aip`]）。
 ///
@@ -49,6 +57,13 @@ pub enum AipAdmission {
     RefusedTooLarge {
         bytes: usize,
     },
+    /// 線協定 v1.2：這是一片 `aip-frag`，已經收進重組緩衝，整份還沒完成。
+    /// 呼叫端什麼都不用做——組裝完全在傳輸層內部，上層仍然只會看到**一則**
+    /// 完整的 envelope（`Admitted`）。
+    FragmentBuffered,
+    /// 線協定 v1.2：一筆分片傳輸整個被丟掉（缺片／重片／亂序／截斷／crc 不符／
+    /// 逾時／重連）。呼叫端必須留稽核——靜默丟棄等於裝置沒說過話。
+    FragmentDropped(FragmentDrop),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -108,6 +123,25 @@ pub enum DeviceMsg {
     Aip {
         envelope: Value,
     },
+    /// 線協定 v1.2：一則 AIP envelope 的**分片**（`crate::fragment`）。
+    ///
+    /// `proto` 仍是 1——這是追加的訊息型別：舊韌體不認得就忽略、舊 host 當
+    /// 未知訊息丟棄，兩端都不壞。只有在 `hello.caps` 宣告
+    /// [`crate::fragment::FRAG_CAP`] 的裝置身上才會使用它。
+    AipFrag {
+        /// 這一筆傳輸的識別碼（同一筆的每一片相同）。
+        xfer: u32,
+        /// 片序（自 0 起，必須連續）。
+        seq: u16,
+        /// 總片數。
+        total: u16,
+        /// 重組後的 envelope 總位元組數。
+        bytes: u32,
+        /// 重組後 envelope 的 crc32（8 位小寫十六進位）。
+        crc: String,
+        /// 原 envelope JSON 的一段（切點只在 UTF-8 字元邊界）。
+        data: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -131,6 +165,16 @@ pub enum HostMsg {
     /// 線協定 v1.1：host 往裝置送的一則 AIP envelope。
     Aip {
         envelope: Value,
+    },
+    /// 線協定 v1.2：一則 AIP envelope 的分片（欄位語意見
+    /// [`DeviceMsg::AipFrag`]）。
+    AipFrag {
+        xfer: u32,
+        seq: u16,
+        total: u16,
+        bytes: u32,
+        crc: String,
+        data: String,
     },
 }
 
@@ -228,6 +272,15 @@ pub trait RawLink: Send + Sync {
     fn generation(&self) -> u64 {
         0
     }
+    /// 這條線一則訊息的位元組上限（不含換行）。`None` ＝沒有上限
+    /// （例如 iPhone 的 wss）。
+    ///
+    /// 為什麼要在 trait 上：分片（[`crate::fragment`]）要知道「一行最多能裝
+    /// 多少」才切得出合法的片，而 `DeviceLink` 不認得自己底下是哪一種傳輸。
+    /// serial／MQTT 是參考韌體的 639 bytes、BLE 是 480 bytes。
+    fn max_line_bytes(&self) -> Option<usize> {
+        None
+    }
     /// 目前是否確定連線中。健康度不得硬編 healthy：實作必須真的知道
     /// （serial＝supervisor 的 connected 旗標、mqtt＝ConnAck 後為真、
     /// ble＝GATT session 存在）。
@@ -291,6 +344,9 @@ impl<T: RawLink + ?Sized> RawLink for Arc<T> {
     }
     fn generation(&self) -> u64 {
         (**self).generation()
+    }
+    fn max_line_bytes(&self) -> Option<usize> {
+        (**self).max_line_bytes()
     }
     fn connected(&self) -> bool {
         (**self).connected()
@@ -410,6 +466,20 @@ pub struct DeviceLink<L: RawLink> {
     /// 在「這條 link 沒有有效握手」時被擋下來的 `aip` 行數。靜默丟棄會把
     /// 「裝置說了話但我們不接受」講成「裝置沒說話」——這個計數是它的痕跡。
     aip_refused_before_pairing: AtomicU64,
+    /// 線協定 v1.2 的入站重組器（每條 link 同時只有一筆進行中的傳輸）。
+    ///
+    /// 為什麼在這裡而不是在 Runtime：核心不得認得「被分片」這件事。組裝在
+    /// 傳輸層裡完成，呼叫端仍然只看到一則完整的入站 envelope。
+    reassembly: std::sync::Mutex<Reassembler>,
+    /// 「被取消掉的那一筆」等著被回報（單一槽，有界）。
+    ///
+    /// 為什麼需要它：hello／stop-all／shutdown 這些取消點都在**別的**呼叫路徑
+    /// 上（沒有人在那裡留稽核）。不留下來的話，一筆進行中的傳輸會在緊急停止
+    /// 的瞬間靜默消失——那正好是最不該有空白的時刻。收訊迴圈下一輪呼叫
+    /// [`DeviceLink::expire_fragments`] 就會把它取走並留稽核。
+    pending_fragment_drop: std::sync::Mutex<Option<FragmentDrop>>,
+    /// 出站傳輸序號（每切一筆 +1）。
+    outbound_xfer: AtomicU32,
 }
 
 /// 進入等待前 +1、離開時 -1（不論成功、失敗或提早 return）。
@@ -453,6 +523,9 @@ impl<L: RawLink> DeviceLink<L> {
             pairing_ever_compared: std::sync::atomic::AtomicBool::new(false),
             pairing_not_recompared: std::sync::atomic::AtomicBool::new(false),
             aip_refused_before_pairing: AtomicU64::new(0),
+            reassembly: std::sync::Mutex::new(Reassembler::new()),
+            pending_fragment_drop: std::sync::Mutex::new(None),
+            outbound_xfer: AtomicU32::new(0),
         }
     }
 
@@ -514,19 +587,30 @@ impl<L: RawLink> DeviceLink<L> {
     /// 埠／topic 的人說的話」。Runtime 的身分綁定用的是 spec 的
     /// expectedDeviceId，如果傳輸層先放行，那個綁定就等於把埠當成身分。
     pub fn admit_aip(&self, msg: &DeviceMsg) -> Option<AipAdmission> {
-        let DeviceMsg::Aip { envelope } = msg else {
+        if !matches!(msg, DeviceMsg::Aip { .. } | DeviceMsg::AipFrag { .. }) {
             return None;
-        };
+        }
         if !self.handshake_ready() {
             self.aip_refused_before_pairing
                 .fetch_add(1, Ordering::SeqCst);
+            // 未握手的連線上不得留下任何半份傳輸。
+            self.cancel_reassembly("not-paired");
             tracing::warn!(
                 device = %self.expected_device_id,
                 "an aip line arrived on a link with no valid hello+pairing handshake; ignored"
             );
             return Some(AipAdmission::RefusedNotPaired);
         }
-        let bytes = serde_json::to_vec(envelope).map(|b| b.len()).unwrap_or(0);
+        let envelope = match msg {
+            DeviceMsg::Aip { envelope } => envelope.clone(),
+            DeviceMsg::AipFrag { .. } => match self.accept_fragment(msg) {
+                Ok(Some(value)) => value,
+                Ok(None) => return Some(AipAdmission::FragmentBuffered),
+                Err(drop) => return Some(AipAdmission::FragmentDropped(drop)),
+            },
+            _ => return None,
+        };
+        let bytes = serde_json::to_vec(&envelope).map(|b| b.len()).unwrap_or(0);
         if bytes > MAX_AIP_ENVELOPE_BYTES {
             tracing::warn!(
                 device = %self.expected_device_id,
@@ -536,7 +620,109 @@ impl<L: RawLink> DeviceLink<L> {
             );
             return Some(AipAdmission::RefusedTooLarge { bytes });
         }
-        Some(AipAdmission::Admitted(envelope.clone()))
+        Some(AipAdmission::Admitted(envelope))
+    }
+
+    /// 重組器（poison 過也要能收尾：一份丟不掉的緩衝比 panic 更糟）。
+    fn reassembly_guard(&self) -> std::sync::MutexGuard<'_, Reassembler> {
+        lock_ignoring_poison(&self.reassembly)
+    }
+
+    /// 餵一片進重組器。`Ok(None)` ＝還沒完成；`Err` ＝整筆丟棄（帶原因）。
+    ///
+    /// 分片來自**沒有宣告** [`FRAG_CAP`] 的裝置時一律拒絕：它沒說自己會分片，
+    /// 我們就不替它猜（能力宣告是這條線唯一的能力事實）。
+    fn accept_fragment(&self, msg: &DeviceMsg) -> Result<Option<Value>, FragmentDrop> {
+        if self.advertises(FRAG_CAP) == Some(false) {
+            let xfer = match msg {
+                DeviceMsg::AipFrag { xfer, .. } => *xfer,
+                _ => 0,
+            };
+            tracing::warn!(
+                device = %self.expected_device_id,
+                "an aip fragment arrived from a device that did not advertise {FRAG_CAP}; dropped"
+            );
+            return Err(FragmentDrop {
+                xfer,
+                reason: "not-advertised",
+                received: 0,
+                total: 0,
+            });
+        }
+        let generation = self.raw.generation();
+        let now = std::time::Instant::now();
+        let step = self.reassembly_guard().accept(msg, generation, now);
+        // 被新傳輸取代的舊傳輸也要留痕：它的內容永遠不會到達。
+        let (report, step) = match step {
+            ReassemblyStep::Superseded { dropped, step } => (Some(dropped), *step),
+            other => (None, other),
+        };
+        if let Some(dropped) = report {
+            tracing::warn!(
+                device = %self.expected_device_id,
+                xfer = dropped.xfer,
+                reason = dropped.reason,
+                "an in-flight aip transfer was superseded by a new one"
+            );
+            // 被取代的那一筆永遠不會到達：留給收訊迴圈稽核，不靜默。
+            *lock_ignoring_poison(&self.pending_fragment_drop) = Some(dropped);
+        }
+        match step {
+            ReassemblyStep::Buffered => Ok(None),
+            ReassemblyStep::Completed(value) => Ok(Some(value)),
+            ReassemblyStep::Dropped(drop) => Err(drop),
+            // `accept` 只會回傳一層 Superseded，這裡已經拆過。
+            ReassemblyStep::Superseded { dropped, .. } => Err(dropped),
+        }
+    }
+
+    /// 取消進行中的入站傳輸（hello 重新握手／斷線／revoke／stop-all／rebind）。
+    /// 有東西被丟掉才回報。
+    fn cancel_reassembly(&self, reason: &'static str) -> Option<FragmentDrop> {
+        let dropped = self.reassembly_guard().cancel(reason);
+        if let Some(drop) = &dropped {
+            tracing::warn!(
+                device = %self.expected_device_id,
+                xfer = drop.xfer,
+                reason = drop.reason,
+                "an in-flight aip transfer was cancelled"
+            );
+            // 這些取消點（hello／stop-all／shutdown）沒有人在旁邊留稽核：
+            // 先放進待回報槽，收訊迴圈下一輪就會取走。
+            *lock_ignoring_poison(&self.pending_fragment_drop) = Some(*drop);
+        }
+        dropped
+    }
+
+    /// 逾時／世代守衛：收訊迴圈每一輪呼叫一次。回傳非 `None` ＝有一筆傳輸被
+    /// 丟掉了，呼叫端必須留稽核（`aip.fragment-dropped`）。
+    pub fn expire_fragments(&self) -> Option<FragmentDrop> {
+        // 先把別的路徑取消掉的那一筆交出去（不然它會在緊急停止的瞬間靜默消失）。
+        if let Some(pending) = lock_ignoring_poison(&self.pending_fragment_drop).take() {
+            return Some(pending);
+        }
+        let generation = self.raw.generation();
+        let now = std::time::Instant::now();
+        let dropped = self.reassembly_guard().expire(generation, now);
+        if let Some(drop) = &dropped {
+            tracing::warn!(
+                device = %self.expected_device_id,
+                xfer = drop.xfer,
+                reason = drop.reason,
+                "an in-flight aip transfer was dropped"
+            );
+        }
+        dropped
+    }
+
+    /// 對端有沒有宣告 `aip.frag/1`（＝這條線送得出超過行上限的 envelope）。
+    pub fn supports_fragmentation(&self) -> bool {
+        self.advertises(FRAG_CAP) == Some(true)
+    }
+
+    /// 這條線的單則上限（`None` ＝沒有上限）。
+    pub fn max_line_bytes(&self) -> Option<usize> {
+        self.raw.max_line_bytes()
     }
 
     /// 送一則 AIP envelope 給裝置。
@@ -560,14 +746,50 @@ impl<L: RawLink> DeviceLink<L> {
         let generation = self.ensure_ready_generation().await?;
         self.same_generation(generation, "the aip frame to be sent")?;
         let deadline = std::time::Instant::now() + timeout;
-        self.raw
-            .send_before(
-                encode_host_msg(&HostMsg::Aip {
-                    envelope: envelope.clone(),
-                }),
-                deadline,
-            )
-            .await
+        let line = encode_host_msg(&HostMsg::Aip {
+            envelope: envelope.clone(),
+        });
+        let limit = match self.raw.max_line_bytes() {
+            // 沒有行上限（例如 iPhone 的 wss）：照舊一行送完。
+            None => return self.raw.send_before(line, deadline).await,
+            Some(limit) => limit,
+        };
+        if line.len() <= limit {
+            // 放得進去就不切：多切一刀就是多一次可能丟片的機會。
+            return self.raw.send_before(line, deadline).await;
+        }
+        // 超過行上限。裝置沒有宣告 `aip.frag/1` ＝它不會重組——寫出去只會被
+        // 整行丟棄。誠實回「沒送出」並說得出原因，不製造未知。
+        if !self.supports_fragmentation() {
+            return Err(LinkError::Refused(format!(
+                "{REASON_OVER_LINE_LIMIT_NO_FRAGMENTATION}: message too large ({} bytes > {limit}, \
+                 the device's per-line limit) and the device did not advertise {FRAG_CAP}; \
+                 nothing was sent",
+                line.len()
+            )));
+        }
+        let envelope_text = serde_json::to_string(envelope)
+            .map_err(|e| LinkError::Refused(format!("envelope is not serialisable: {e}")))?;
+        let xfer = self.outbound_xfer.fetch_add(1, Ordering::SeqCst);
+        let frames = fragment_envelope_line(&envelope_text, limit, xfer).map_err(|e| {
+            LinkError::Refused(format!("message too large and not fragmentable: {e}"))
+        })?;
+        // 依序送出。中途失敗就停下來——對端的重組器會因為缺片／逾時把整筆
+        // 丟掉並留痕，我們這邊也誠實回報這一則沒有完整送出。
+        for (i, frame) in frames.iter().enumerate() {
+            self.raw
+                .send_before(encode_host_msg(frame), deadline)
+                .await
+                .map_err(|e| match e {
+                    LinkError::Refused(detail) => LinkError::Refused(format!(
+                        "fragment {}/{} of aip transfer {xfer} was refused: {detail}",
+                        i + 1,
+                        frames.len()
+                    )),
+                    other => other,
+                })?;
+        }
+        Ok(())
     }
 
     /// 目前的誠實可用狀態（health/status 用；不做任何 I/O、不阻塞）。
@@ -655,6 +877,8 @@ impl<L: RawLink> DeviceLink<L> {
         }
         done.0 = false;
         self.ready_generation.store(0, Ordering::SeqCst);
+        // 重新 hello ＝上一條連線的半份傳輸永遠不會完成。
+        self.cancel_reassembly("hello");
         self.pairing_unverified.store(false, Ordering::SeqCst);
         self.pairing_not_recompared.store(false, Ordering::SeqCst);
         let mut rx = self.raw.subscribe();
@@ -790,6 +1014,8 @@ impl<L: RawLink> DeviceLink<L> {
             "device reports it is no longer paired; handshake invalidated (re-hello before the next request)"
         );
         self.ready_generation.store(0, Ordering::SeqCst);
+        // 握手作廢＝進行中的入站傳輸不再屬於任何一條成立的連線。
+        self.cancel_reassembly("handshake-invalidated");
         let mut done = self.handshaken.lock().await;
         done.0 = false;
     }
@@ -1158,6 +1384,8 @@ impl<L: RawLink> DeviceLink<L> {
                 )))
             }
         }
+        // 緊急停止：進行中的入站傳輸一律作廢（安全路徑不等半份訊息）。
+        self.cancel_reassembly("stop-all");
         let mut rx = self.raw.subscribe();
         let generation = self.raw.generation();
         let deadline = std::time::Instant::now() + timeout;
@@ -1272,6 +1500,13 @@ pub trait DeviceAipChannel: Send + Sync {
     fn subscribe(&self) -> broadcast::Receiver<DeviceMsg>;
     fn admit_aip(&self, msg: &DeviceMsg) -> Option<AipAdmission>;
     fn aip_refused_before_pairing(&self) -> u64;
+    /// 這條線的單則上限（`None` ＝沒有上限，例如 iPhone 的 wss）。
+    fn max_line_bytes(&self) -> Option<usize>;
+    /// 對端有沒有宣告 `aip.frag/1`（＝送得出超過行上限的 envelope）。
+    fn supports_fragmentation(&self) -> bool;
+    /// 逾時／重連守衛：收訊迴圈每一輪呼叫一次。回傳非 `None` ＝有一筆進行中的
+    /// 分片傳輸被整筆丟掉，呼叫端必須留稽核（`aip.fragment-dropped`）。
+    fn expire_fragments(&self) -> Option<FragmentDrop>;
     /// 配對碼從未被裝置比對過（[`DeviceLink::pairing_unverified`]）。
     fn pairing_unverified(&self) -> bool;
     /// 目前「已送出、還在等回覆」的請求數（[`DeviceLink::in_flight`]）。
@@ -1320,6 +1555,15 @@ impl<L: RawLink + 'static> DeviceAipChannel for AipChannel<L> {
     fn aip_refused_before_pairing(&self) -> u64 {
         self.link.aip_refused_before_pairing()
     }
+    fn max_line_bytes(&self) -> Option<usize> {
+        self.link.max_line_bytes()
+    }
+    fn supports_fragmentation(&self) -> bool {
+        self.link.supports_fragmentation()
+    }
+    fn expire_fragments(&self) -> Option<FragmentDrop> {
+        self.link.expire_fragments()
+    }
     fn pairing_unverified(&self) -> bool {
         self.link.pairing_unverified()
     }
@@ -1341,6 +1585,9 @@ impl<L: RawLink> LinkShutdown for DeviceLink<L> {
     fn shutdown(&self) {
         self.raw.shutdown();
         self.ready_generation.store(0, Ordering::SeqCst);
+        // provider 被 disable／revoke／rebind：半份傳輸不得留在記憶體裡等一個
+        // 永遠不會來的下一片。
+        self.cancel_reassembly("link-closed");
     }
     fn describe(&self) -> String {
         self.raw.describe()

@@ -795,6 +795,12 @@ impl RawLink for SerialRawLink {
         self.generation.load(Ordering::SeqCst)
     }
 
+    /// 參考韌體的單行上限（`g_serialBuf[640]`）。分片（`crate::fragment`）用它
+    /// 決定切點——不是用它放寬上限。
+    fn max_line_bytes(&self) -> Option<usize> {
+        Some(MAX_LINE_BYTES)
+    }
+
     fn connected(&self) -> bool {
         self.connected.load(Ordering::SeqCst) && !self.shutdown.load(Ordering::SeqCst)
     }
