@@ -140,9 +140,21 @@ test("角色頁：一般模式（目前角色／外觀／陪伴／更換）與�
   await open(page);
   // 導覽第二項是目前角色的名字（bundled 索引的 default；載入失敗時是中立的「角色」）。
   await page.getByRole("navigation", { name: "主要導覽" }).getByText(/^(小樞|角色)$/).click();
-  // 一般模式的五個區塊（技術資料只在進階模式）。
-  for (const heading of ["目前角色", "外觀與名字", "平常如何陪伴", "安靜與勿擾", "更換或加入角色"]) {
+  // M3 §4.1 之後的一般模式 IA：首屏三格（目前角色／陪伴方式／同步），其餘是按需展開的
+  // 收合區塊。收合 ≠ 刪功能：每一個區塊都還在，只是預設收起來。
+  for (const heading of ["目前角色", "陪伴方式", "同步"]) {
     await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+  }
+  for (const [id, title] of [
+    ["appearance", "外觀與名字"],
+    ["behavior", "調整陪伴方式"],
+    ["quiet", "安靜與勿擾"],
+    ["proactive", "主動式對話"],
+    ["library", "更換或加入角色"],
+  ] as const) {
+    const disclosure = page.locator(`details[data-disclosure="${id}"]`);
+    await expect(disclosure, `缺少收合區塊「${title}」`).toBeVisible();
+    await expect(disclosure.locator("summary")).toContainText(title);
   }
   // 目前角色：能力摘要來自 manifest／registry 的轉述；瀏覽器 e2e 沒有角色視窗，必須誠實說未連線。
   await expect(page.getByRole("list", { name: "角色能力摘要" })).toBeVisible();
@@ -154,9 +166,15 @@ test("角色頁：一般模式（目前角色／外觀／陪伴／更換）與�
   // 不得用預設值冒充角色視窗的回報。
   await expect(page.getByText(/桌面角色設定需要桌面版控制中心/).first()).toBeVisible();
   await expect(page.getByText("現在大家在做什麼")).toHaveCount(0);
-  // v0.5 單一主人：主動對話與主動程度／安靜時段住在小樞頁。
-  await expect(page.getByText("主動式對話")).toBeVisible();
-  await expect(page.getByText("主動程度與安靜時段")).toBeVisible();
+  // v0.5 單一主人：主動對話與主動程度／安靜時段住在小樞頁（M3 之後在收合區塊裡，
+  // 展開就在——而且收合摘要本來就帶著有效值，不必展開也看得到費用與次數上限）。
+  await expect(page.locator('details[data-disclosure="proactive"] summary')).toContainText(
+    /每日最多 \d+ 則・費用上限 USD/
+  );
+  await page.locator('details[data-disclosure="quiet"] summary').click();
+  await expect(
+    page.getByRole("heading", { name: "主動程度與安靜時段", exact: true })
+  ).toBeVisible();
   // 技術細節（Pack 詳情／Behavior State／rig 分層）不在一般模式外洩。
   await expect(page.getByText("Character Pack 詳情")).toHaveCount(0);
   await expect(page.getByText("現在的 Behavior State")).toHaveCount(0);
@@ -166,7 +184,8 @@ test("角色頁：一般模式（目前角色／外觀／陪伴／更換）與�
   expect(pageText).not.toContain("adapter");
   expect(pageText).not.toContain("schemaversion");
   expect(pageText).not.toContain("事件合併窗");
-  // 匯入角色：一般模式只有選檔，沒有貼上角色描述檔原文的輸入框。
+  // 匯入角色：一般模式只有選檔，沒有貼上角色描述檔原文的輸入框（在「更換或加入角色」裡）。
+  await page.locator('details[data-disclosure="library"] summary').click();
   await page.getByRole("button", { name: "匯入角色…" }).click();
   const importDialog = page.getByRole("dialog", { name: "匯入角色" });
   await expect(importDialog).toBeVisible();

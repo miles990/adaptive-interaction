@@ -29,6 +29,10 @@
   沒有 HTTP 寫入入口（測試釘住 POST 同路徑非 2xx）。
 
 ### Fixed
+- **⌘K 指令面板是真的 modal 了**（M3c 任務驗收發現）：Escape 以前只掛在搜尋框上，Tab 一下（焦點落到第一個選項＝「緊急停止」）
+  之後就關不掉，面板底下卻寫著「Esc 關閉」，overlay 也沒有焦點陷阱。現在 overlay 容器沿用 `useFocusTrap`（`aria-modal`、
+  Escape 在面板內任何地方都收得掉、Tab 只在面板內循環、關掉後焦點回到開啟前的元素；IME 組字中的 Escape 仍是取消選字）。
+  `src/test/global-search-a11y.test.tsx` 4 支＋`general-mode-tasks.spec.ts` 一支 e2e 釘住。
 - **停用／撤銷 provider 現在真的關掉它的受器／動器旗標**（v0.5.1 known-limitations #4，先以測試重現再修）：`transition_provider`
   到 Disabled／Revoked／Closed／Expired 時比照 `revoke_provider` 逐一 `set_*_enabled(false)` 並寫 `provider.capabilities-disabled`
   稽核（只記真的從開變關的）；回到 Available **不**自動恢復任何能力（人類先前手動關掉的不會被推翻；高風險能力不自動恢復）。
@@ -67,6 +71,16 @@
 - `scripts/release-verify.sh --run-tests` 現在也跑 src-tauri 的 clippy＋test（CHANGELOG claim-check 住在那裡，
   `cargo test --workspace` 跑不到這個 workspace-exclude 的 leaf crate）與 `pnpm aip:check`；每段直接取 `$?`、不經管線。
   `release-scripts.sh` 靜態核對這兩件事（48/0）。（d94abac）
+
+### Added
+- **一般模式任務驗收 e2e**（M3 §4.4；`apps/interaction-desktop/e2e/general-mode-tasks.spec.ts`，13 個必測任務＋4 支可及性測試，
+  瀏覽器模式對真 daemon＋模擬 iPhone（fixture））：首次使用（安全確認不可省）、稍後連手機（同步卡一鍵到配對區）、手機互動、暫時離線
+  →重連、**45 秒 presence 逾時的完整離線路徑首次以 e2e 覆蓋**（實跑 46.5 s）、主動移除手機＝`local-only` 終態、撤銷後重新連線、
+  換角色／調陪伴程度（瀏覽器模式誠實拒絕／降級）、設定安靜時段（`status.quietHours` 真的變）、取消工作、緊急停止（觸發與解除各二段
+  確認）、390px（無橫向溢出、可見控制項 7）、鍵盤走得到同步卡下一步、收合區塊 Enter／Space、對話框開著時 Escape 與緊急停止可達、
+  Reduced Motion 可讀。純函式量測器 `e2e/taskMetrics.ts`（決策／點擊／回頭／安全步驟；安全步驟算點擊不算決策），每個任務主要決策
+  ≤ 5 由 spec 斷言。`docs/releases/v0.6.x-general-mode-tasks.md`：任務前後對照＋5 份非開發者測試腳本（**尚未有受測者、未執行**）。
+  同時把第二波 IA 變更弄壞的 `app.spec.ts`／`character-session.spec.ts` 修回綠燈。
 
 ### Changed
 - **停止感測只剩一個協調器＋`SensorSource` port**（M2 §3.1；`crates/interaction-runtime/src/sensor_source.rs`）：本機麥克風

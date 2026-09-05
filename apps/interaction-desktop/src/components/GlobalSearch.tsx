@@ -8,6 +8,7 @@ import React from "react";
 import { api } from "../api";
 import { actionStatusLabel, useAppState } from "../appstate";
 import { Icon } from "../icons";
+import { useFocusTrap } from "./Dialog";
 import { K_STATUS_LABEL, memoryLayerLabel } from "../pages/MemoryKnowledgePage";
 import {
   capabilityKindLabel,
@@ -359,7 +360,7 @@ export function GlobalSearch({
 
   if (!open) return null;
   return (
-    <div className="search-overlay" role="dialog" aria-label="全域搜尋" onClick={onClose}>
+    <SearchOverlay onClose={onClose}>
       <div className="search-panel" onClick={(e) => e.stopPropagation()}>
         <div className="search-input-row">
           <Icon name="search" size={16} />
@@ -377,7 +378,7 @@ export function GlobalSearch({
               // IME 組字（選字）的 Enter 不是執行指令；keyCode 229 涵蓋
               // WebKit 在 compositionend 後才送出的 commit-Enter。
               if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
-              if (e.key === "Escape") onClose();
+              // Escape 由對話框容器統一處理（焦點在選項上也收得掉）。
               if (e.key === "ArrowDown") {
                 e.preventDefault();
                 setActive((a) => Math.min(a + 1, filtered.length - 1));
@@ -412,6 +413,35 @@ export function GlobalSearch({
         </ul>
         <div className="muted small search-hint">↑↓ 選擇・Enter 執行・Esc 關閉</div>
       </div>
+    </SearchOverlay>
+  );
+}
+
+/**
+ * 面板的對話框容器：真正的 modal（焦點陷阱＋Escape 掛在容器上）。
+ * 只在 open 時掛載，所以 useFocusTrap 的「掛載時聚焦容器、卸載時把焦點還回去」
+ * 正好對應開／關；Escape 在面板內任何地方（選項、搜尋框）都收得掉，
+ * Tab 只在面板內循環——以前 Escape 只掛在搜尋框上，焦點一離開就關不掉，
+ * 面板底下卻寫著「Esc 關閉」（M3c 任務驗收發現）。
+ */
+function SearchOverlay({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  const { ref, onKeyDown } = useFocusTrap(onClose);
+  return (
+    <div
+      className="search-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="全域搜尋"
+      tabIndex={-1}
+      ref={ref}
+      onClick={onClose}
+      onKeyDown={(e) => {
+        // IME 組字中的 Escape 是取消選字，不是關面板（與搜尋框的 Enter 守則一致）。
+        if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+        onKeyDown(e);
+      }}
+    >
+      {children}
     </div>
   );
 }

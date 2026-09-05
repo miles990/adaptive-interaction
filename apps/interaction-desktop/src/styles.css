@@ -564,6 +564,7 @@ html.companion-window, html.companion-window body, html.companion-window #root {
 .now-title { font-size: 12px; opacity: 0.75; }
 .search-trigger { margin-left: auto; margin-right: 10px; display: inline-flex; align-items: center; gap: 5px; }
 .search-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 90; display: flex; justify-content: center; padding-top: 10vh; }
+.search-overlay:focus { outline: none; }
 .search-panel { width: min(560px, 92vw); max-height: 70vh; background: var(--panel); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
 .search-input-row { display: flex; align-items: center; gap: 8px; }
 .search-input-row input { flex: 1; }

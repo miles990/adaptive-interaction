@@ -133,15 +133,16 @@ async function runJourney(
   await page.setViewportSize(narrow ? NARROW : DESKTOP);
   await openApp(page, appUrl(daemon!.api, daemon!.token));
 
-  // 1. 開始之前一定不是「已同步」。第一輪的 daemon 還沒配對過任何裝置，
-  //    所以空狀態要中性；第二輪跑在同一支 daemon 上（第一輪撤銷過一台手機），
-  //    那時的正確狀態是「需要重新確認裝置」——兩種都不是成功。
+  // 1. 開始之前一定不是「已同步」。第一輪的 daemon 還沒配對過任何裝置，所以空狀態要中性；
+  //    第二輪跑在同一支 daemon 上（第一輪**移除**過一台手機、那台已經斷線），
+  //    M3 §4.3 之後那是中性的終態「目前只在這台電腦使用」，不是還在等人做事的
+  //    「需要重新確認裝置」（後者只在裝置真的又連上來、卻還不是成員時才對）。
+  //    兩種都不是成功。
   let card = await openSyncCard(page, narrow);
-  if (options.freshDaemon) {
-    await expect(card.getByText("尚未連接 iPhone")).toBeVisible({ timeout: 20_000 });
-  } else {
-    await expect(card.getByText("需要重新確認裝置")).toBeVisible({ timeout: 20_000 });
-  }
+  const idleHeadline = options.freshDaemon
+    ? CHARACTER_SYNC_PROJECTION["no-device"].headline
+    : CHARACTER_SYNC_PROJECTION["local-only"].headline;
+  await expect(card.getByText(idleHeadline)).toBeVisible({ timeout: 20_000 });
   await expect(card.locator(".badge-ok")).toHaveCount(0);
 
   // 2. 配對模擬 iPhone（fixture）並送 capability（＝加入 session）。
@@ -255,11 +256,21 @@ async function runJourney(
   );
   expect(memberPresence(afterRevoke, phone.deviceId)).toBeNull();
 
-  // 9. 角色頁：「需要重新確認裝置」——不是回到空狀態，也不是已同步。
+  // 9. 角色頁：使用者自己移除的手機是**終態**——「目前只在這台電腦使用」，而且下一步是
+  //    「連接手機」。安全效果完全不變：那台手機不會自己回來，要用就重新配對＋重新確認
+  //    （M3 §4.3）。這裡既不是空狀態的假象，也不是綠色的已同步，更不是一個使用者
+  //    做不了任何事的長期警告。
   card = await openSyncCard(page, narrow);
-  await expect(card.getByText("需要重新確認裝置")).toBeVisible({ timeout: 30_000 });
+  await expect(card.getByText(CHARACTER_SYNC_PROJECTION["local-only"].headline)).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(card.getByText(/不會自動回來/)).toBeVisible();
+  await expect(card.getByTestId("character-sync-action")).toHaveAttribute(
+    "data-action",
+    "connect-phone"
+  );
   await expect(card.locator(".badge-ok")).toHaveCount(0);
-  await page.screenshot({ path: path.join(OUT, `${options.shot}-needs-reconfirmation.png`) });
+  await page.screenshot({ path: path.join(OUT, `${options.shot}-local-only.png`) });
 }
 
 test("角色同步（模擬 iPhone（fixture））：配對 → 已同步 → 摸一下 → 離線 → 重連 → 撤銷（桌面寬度）", async ({
