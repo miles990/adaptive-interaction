@@ -52,11 +52,13 @@ offline → 需要重新確認 → 沒有裝置。
 
 `partial-capability` 與 `capability-unknown` 的判定來源是**協商結果**，不是成員自報的 `role`：
 `role` 是裝置在 capability 宣告裡自己填的，拿它當能力結論等於讓 renderer capability spoofing
-影響人類看到的答案（§8 必測清單要防的正是這件事）。Runtime 目前還沒有把協商結果投影到
-`GET /v1/character-session`／`/diagnostics`（`MemberView` 只有 party／role／presence／lastSeenAt），
-所以實務上多數情況會落在 `capability-unknown`——**不猜**：既不給綠勾，也不誣賴裝置做不到。
-桌面認得 `members[].unsupportedIntents`（數字或陣列）與 `members[].negotiated.intents`
-（intent → `exact`／`unsupported`）兩種形狀，Runtime 補上任一種就會自動生效。
+影響人類看到的答案（§8 必測清單要防的正是這件事）。Runtime（v0.6.0 起）已把協商結果投影進
+`GET /v1/character-session` 的 `members[].unsupportedIntents`（永遠是陣列；全支援＝空陣列）與
+`/diagnostics`（`crates/interaction-session/src/state.rs` `MemberView`；測試
+`crates/interaction-session/tests/session.rs::negotiated_unsupported_intents_are_projected_into_members`）。
+只有在拿不到協商結果（例如 restore 之後成員尚未重新協商）時才落在 `capability-unknown`——**不猜**：
+既不給綠勾，也不誣賴裝置做不到。桌面另外仍認得 `members[].negotiated.intents`
+（intent → `exact`／`unsupported`）這種形狀。
 
 `store-reset` 的判定來源是 Runtime 診斷的 `storeNote` 不是 null（持久化檔讀不回來、已隔離、
 epoch 已 +1）。**不靜默**：它排在「已同步」之前，因為那一刻技術上也許真的同步著，但綠色徽章

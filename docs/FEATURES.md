@@ -184,7 +184,7 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 - 測試：以 `docs/acceptance-evidence.md` v0.5 最新章節（Phase 9）與 `docs/releases/v0.5.0-test-matrix.md`
   的實跑數字為準；詳見 `docs/acceptance-evidence.md` v0.5 章節與 `docs/v05-recovery-matrix.md`。
 
-## v0.6.0 Foundation（候選版本；分支 `feature/v0.6.0-foundation`，尚未 tag／發布）
+## v0.6.0 Foundation（已於 2026-09-05 發布，tag `v0.6.0` → `4bd55fe`）
 
 > 保守、可回退的架構升級：先建立修改前基線與恢復矩陣，再以 Strangler／feature flag 逐條路徑替換，
 > 不重寫既有功能。本節只記錄**已提交並經回歸**的事實，逐項標「證據等級」（單元／integration／fixture／

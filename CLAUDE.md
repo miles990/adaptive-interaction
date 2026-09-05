@@ -4,8 +4,8 @@
 （127.0.0.1:8787，Bearer token）＋SSE＋Canonical Tool Manifest（OpenAI／Anthropic／
 Gemini／OpenAPI／JSON-Schema 產生器）＋跨 AI Skill（`skills/orchestrate-adaptive-interaction`）
 ＋Tauri 2 控制中心（狀態列常駐＋桌面角色「小樞」）＋v0.5 的真硬體 adapter
-（Serial／MQTT／BLE＋ESP32 參考韌體）與 iPhone Mobile Provider。已發布版本 v0.5.1（2026-09-04，tag `v0.5.1`，修補版本；
-前一版 v0.5.0 於 2026-09-03）。
+（Serial／MQTT／BLE＋ESP32 參考韌體）與 iPhone Mobile Provider，以及 v0.6.0 的 AIP 1.0＋權威 Character Session。
+已發布版本 v0.6.0（2026-09-05，tag `v0.6.0`；前兩版 v0.5.1 於 2026-09-04、v0.5.0 於 2026-09-03）。
 架構細節見 `docs/ARCHITECTURE.md`，功能總覽見 `docs/FEATURES.md`。
 
 ## 不可違反的不變量

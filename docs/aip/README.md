@@ -184,7 +184,9 @@ inputs:[…accepted…], limits }`。協商是確定性的：交集＋min。rend
   日誌是有界環（預設 512 筆），超出即 snapshot fallback，不是錯誤。
 - **hash 驗證**：套用 patch 後本地 hash 必須等於 `hash`，否則丟棄本地狀態並要 snapshot。
 - **rollback 防護**：`state.revision` 小於或等於本地已套用 revision 的訊息一律忽略（稽核 `aip.state-rollback-ignored`），
-  除非是 host 明確標 `payload.reason:"session-reset"` 且 `sessionEpoch` 大於本地（session 被重建）。
+  除非是 host 明確標 `payload.reason:"session-reset"` 且 `sessionEpoch` **與本地不同**（session 被重建；
+  host 重灌後 epoch 可能從 1 重新起跳，所以是「不同」而不是「大於」——與 `docs/aip/character-session.md` §7 第 4 步及
+  Rust／iOS 實作一致）。
 
 ## 7. Deadline、Cancel、Idempotency
 

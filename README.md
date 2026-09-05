@@ -104,11 +104,11 @@ v0.4 的 Capability Matrix（**25/25 complete**）衡量的是治理平台的完
 [`docs/capability-completion-matrix.md`](docs/capability-completion-matrix.md) 與
 [`docs/v04-final-machine-evidence.md`](docs/v04-final-machine-evidence.md)。
 
-## v0.5（角色・硬體・AI 三核心重定位）——**v0.5.1 已發布；v0.6.0 Foundation 為候選版本（尚未 tag／發布）**
+## v0.5（角色・硬體・AI 三核心重定位）——**v0.5.1 已發布；v0.6.0 Foundation 已於 2026-09-05 發布（tag `v0.6.0`）**
 
 **v0.5.0 已於 2026-09-03 發布**（tag `v0.5.0`）；`main`／`release/v0.5.1-product-hardening` 上的
-**v0.5.1 修補版本已於 2026-09-04 發布（tag `v0.5.1`）**。**v0.6.0 Foundation 目前在
-`feature/v0.6.0-foundation` 分支上的候選版本、尚未 tag／發布**：AIP 1.0 最小協定、權威 Character Session、
+**v0.5.1 修補版本已於 2026-09-04 發布（tag `v0.5.1`）**。**v0.6.0 Foundation 已於 2026-09-05 發布
+（tag `v0.6.0` → commit `4bd55fe`；Release 資產 23 個；發布後 `main` 的修補 `ea7de59`／`8826656`／`8f52837`）**：AIP 1.0 最小協定、權威 Character Session、
 小樞脫離協定核心，見下方「AIP 1.0 與 Character Session」小節與
 [`docs/releases/v0.6.0-test-matrix.md`](docs/releases/v0.6.0-test-matrix.md)。v0.5 **不沿用** 25/25 的完成度敘述；它的誠實基線與收尾狀態在
 [`docs/v05-capability-gap-matrix.md`](docs/v05-capability-gap-matrix.md)（v0.5.1 修補見 §13），
@@ -143,7 +143,7 @@ Phase 7 的逐條恢復矩陣在 [`docs/v05-recovery-matrix.md`](docs/v05-recove
   [`v0.5.1-final-report.md`](docs/releases/v0.5.1-final-report.md)、
   [`v0.5.1-iphone-device-evidence.md`](docs/releases/v0.5.1-iphone-device-evidence.md)。
 
-## AIP 1.0 與 Character Session（v0.6.0 Foundation，候選版本）
+## AIP 1.0 與 Character Session（v0.6.0 Foundation，已發布）
 
 **Adaptive Interaction Protocol（AIP）1.0** 是唯一的跨裝置語意訊息契約：新 crate
 `crates/interaction-aip`（純函式、無 tokio／I/O）定義 versioned envelope、十二種 message type、
@@ -233,7 +233,7 @@ interact-ai self uninstall --yes     # 移除（--purge 連設定資料一起刪
 | **[v0.5.0 發布就緒](docs/releases/v0.5.0-release-readiness.md)** | 發布關卡清單、測試矩陣、已知限制、iPhone 真機證據、遷移指南（`docs/releases/`） |
 | **[v0.5.1 發布文件](docs/releases/v0.5.1-release-readiness.md)** | v0.5.1 的 20 道發布關卡（發布後全數 met，關卡 20 附範圍備註）；同一資料夾另有 [測試矩陣](docs/releases/v0.5.1-test-matrix.md)（含真 Tauri 視窗驗收表）、[已知限制](docs/releases/v0.5.1-known-limitations.md)、[遷移指南](docs/releases/v0.5.1-migration.md)、[最終交付報告](docs/releases/v0.5.1-final-report.md)、[iPhone 真機證據（blocked）](docs/releases/v0.5.1-iphone-device-evidence.md) |
 | **[AIP 1.0（Adaptive Interaction Protocol）](docs/aip/README.md)** | v0.6.0 唯一的跨裝置語意契約：envelope／message type／Outcome 誠實階梯／版本與能力協商／離線政策／錯誤碼；同一資料夾另有 [Character Session 協定](docs/aip/character-session.md)、[iPhone Companion 手機端](docs/aip/iphone-companion.md)、[一般模式同步 UX](docs/aip/general-mode-ux.md)、[Transport bindings](docs/aip/transport-bindings.md)、[配對安全](docs/aip/pairing-security.md)、[隱私](docs/aip/privacy.md)、[威脅模型](docs/aip/threat-model.md)、[架構邊界](docs/aip/architecture-boundaries.md)、[Reference Character（`ref-shape`）](docs/aip/reference-character.md)、[相容矩陣](docs/aip/compatibility.md)、[Conformance](docs/aip/conformance.md) |
-| **[v0.6.0 Foundation 文件（候選版本）](docs/releases/v0.6.0-test-matrix.md)** | 測試矩陣（四個 wave 逐輪數字＋新增測試清單＋效能前後對照＋未執行清單）；同一資料夾另有 [修改前基線](docs/releases/v0.6.0-baseline.md)、[Phase 0 恢復矩陣](docs/releases/v0.6.0-recovery-matrix.md)、[遷移指南](docs/releases/v0.6.0-migration.md) |
+| **[v0.6.0 Foundation 文件（已發布，tag `v0.6.0`）](docs/releases/v0.6.0-test-matrix.md)** | 測試矩陣（四個 wave 逐輪數字＋新增測試清單＋效能前後對照＋未執行清單）；同一資料夾另有 [修改前基線](docs/releases/v0.6.0-baseline.md)、[Phase 0 恢復矩陣](docs/releases/v0.6.0-recovery-matrix.md)、[遷移指南](docs/releases/v0.6.0-migration.md) |
 | **[更新日誌](CHANGELOG.md)** | 版本歷史（語意化版本） |
 
 ## 核心設計理念
