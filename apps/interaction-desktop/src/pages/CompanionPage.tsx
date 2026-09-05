@@ -33,13 +33,20 @@ import { CharacterSyncCard } from "../components/CharacterSyncCard";
 import { PRIMARY_INSTANCE_ID } from "../companion/gatewayWiring";
 import { noteReactionDisabled, sanitizeMemory } from "../companion/interactionMemory";
 import {
-  applyCompanionPreset,
   describeCompanionState,
   expressivenessLabel,
   presetFor,
   proactiveModeLabel,
   type CompanionPresetId,
 } from "../companion/presets";
+import {
+  beginPresetOp,
+  markerOf,
+  projectPresetStatus,
+  readPendingPresetOp,
+  shouldResumePendingOp,
+  type PresetOpMarker,
+} from "../companion/applyPresetPlan";
 // 註冊 builtin adapter 工廠與 meta（副作用）：這一頁的角色專屬區塊全部靠 meta 決定。
 import "../character/adapters";
 import { builtinAdapterMeta } from "../character/adapterRegistry";
@@ -119,6 +126,11 @@ function useProactiveDialogue() {
   const [status, setStatus] = React.useState<Record<string, unknown> | null>(null);
   const [agents, setAgents] = React.useState<Record<string, unknown>[]>([]);
   const [error, setError] = React.useState<string | null>(null);
+  /**
+   * 有效值讀不回來（GET 失敗）。這與「寫入失敗」不同：寫入失敗至少還知道現在生效的是什麼，
+   * 讀不回來就是**不知道**——畫面不得顯示任何檔位結論（`unverified`）。
+   */
+  const [readbackFailed, setReadbackFailed] = React.useState(false);
 
   /**
    * 寫入的世代計數器（對抗審查 general-mode-ux-013）。
@@ -141,8 +153,13 @@ function useProactiveDialogue() {
         if (!current()) return;
         setStatus(r);
         setError(null);
+        setReadbackFailed(false);
       })
-      .catch((e) => current() && setError(sanitizeErrorText(e)));
+      .catch((e) => {
+        if (!current()) return;
+        setError(sanitizeErrorText(e));
+        setReadbackFailed(true);
+      });
     void api
       .agentsDiscoveries()
       .then((result) => alive && setAgents((result.agents as Record<string, unknown>[] | undefined) ?? []))
@@ -166,6 +183,8 @@ function useProactiveDialogue() {
         if (generation.current !== issued) return false;
         setStatus(next);
         setError(null);
+        // 寫入成功回來的就是權威狀態：先前讀不回來的疑慮到此解除。
+        setReadbackFailed(false);
         return true;
       } catch (e) {
         if (generation.current !== issued) return false;
@@ -186,7 +205,29 @@ function useProactiveDialogue() {
     [write]
   );
 
-  return { status, agents, error, patch, quiet };
+  /**
+   * 讀回目前的有效設定。**不**開新世代（這是讀，不是寫），但一樣受世代保護：
+   * 中途有人寫入過就不用這份讀數覆蓋。
+   *
+   * 也**不**清除 `error`：那一則講的是剛剛那次寫入失敗，讀回不替它背書——
+   * 「後端其實收到了」與「這次寫入回報失敗」兩件事可以同時為真，兩件都要說。
+   */
+  const readback = React.useCallback(async (): Promise<Record<string, unknown> | null> => {
+    const issued = generation.current;
+    try {
+      const next = await api.proactiveDialogueGet();
+      if (generation.current !== issued) return null;
+      setStatus(next);
+      setReadbackFailed(false);
+      return next;
+    } catch {
+      if (generation.current !== issued) return null;
+      setReadbackFailed(true);
+      return null;
+    }
+  }, []);
+
+  return { status, agents, error, readbackFailed, patch, quiet, readback };
 }
 
 // ---------------------------------------------------------------------------
@@ -222,10 +263,14 @@ export function CompanionPage({
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  /** 桌面偏好**讀取**失敗（Tauri host 在，但讀不到）。與「這是瀏覽器檢視」是兩回事。 */
+  const [prefsError, setPrefsError] = React.useState<string | null>(null);
   const [prefSource, setPrefSource] = React.useState<PreferenceSource | null>(null);
   const [showAllCharacters, setShowAllCharacters] = React.useState(false);
   const catalog = useCharacterCatalog(refreshKey);
   const proactive = useProactiveDialogue();
+  /** 桌面偏好的寫入世代（見 `patch()`／`load()`）。 */
+  const prefsGeneration = React.useRef(0);
 
   const load = React.useCallback(async () => {
     try {
@@ -241,10 +286,19 @@ export function CompanionPage({
       setInstance(null);
     }
     if (isTauri) {
+      // 讀取也受寫入世代保護：五秒一次的輪詢不得用一份出發得比較早的讀數
+      // 覆蓋掉剛剛寫進去的偏好（與 `patch()` 對稱）。
+      const issued = prefsGeneration.current;
       try {
-        setPrefs(await desktop.prefsGet());
-      } catch {
-        /* 桌面 prefs 只在 Tauri 存在 */
+        const next = await desktop.prefsGet();
+        if (prefsGeneration.current !== issued) return;
+        setPrefs(next);
+        setPrefsError(null);
+      } catch (e) {
+        // 桌面版讀不到偏好是**失敗**，不是「這是瀏覽器檢視」：說出原因，
+        // 並讓相關區塊顯示「無法確認生效值」而不是假裝在瀏覽器裡。
+        if (prefsGeneration.current !== issued) return;
+        setPrefsError(sanitizeErrorText(e));
       }
     }
   }, []);
@@ -263,22 +317,32 @@ export function CompanionPage({
    * 每一次都同時顯示兩種互相矛盾的說法。失敗就只留錯誤，成功才有成功文案。
    */
   const patch = React.useCallback(async (p: Partial<DesktopPrefs>): Promise<boolean> => {
+    // 寫入世代（與 `useProactiveDialogue.write()` 對稱）：偏好也是一份共享狀態，
+    // 回應不保證照送出順序回來。舊回應寫回 state 就會把使用者剛選的值蓋掉，
+    // 畫面顯示的與 host 真正保存的從此不一致。比目前世代舊的回應一律不寫。
+    prefsGeneration.current += 1;
+    const issued = prefsGeneration.current;
+    const current = () => prefsGeneration.current === issued;
     setBusy(true);
     try {
-      setPrefs(await desktop.prefsPatch(p));
+      const next = await desktop.prefsPatch(p);
       await desktop.companionApplyPrefs();
+      if (!current()) return false;
+      setPrefs(next);
       setError(null);
       if (p.companionPack !== undefined || p.companionName !== undefined) {
         void refreshCharacterName({ force: true });
       }
       return true;
     } catch (e) {
+      if (!current()) return false;
       setError(sanitizeErrorText(e));
       // 上一次成功留下的提示不得替這一次失敗背書。
       setNotice(null);
       return false;
     } finally {
-      setBusy(false);
+      // 還有比較新的請求在飛時不解鎖：忙碌要涵蓋到最後一次請求結束。
+      if (current()) setBusy(false);
     }
   }, []);
 
@@ -406,21 +470,110 @@ export function CompanionPage({
    *（對抗審查 general-mode-ux-013）。這個旗標涵蓋整個 applyPreset。
    */
   const [presetBusy, setPresetBusy] = React.useState(false);
+  /** 正在補送上一次沒完成的第二段（mount 恢復）。 */
+  const [recovering, setRecovering] = React.useState(false);
+  /** 交易期間：檔位按鈕與同一組欄位的個別控制項都不得同時被改。 */
+  const presetTransaction = presetBusy || recovering;
+  /** 桌面偏好裡那筆「還有一段沒確認完成」的標記（驗過才用）。 */
+  const pendingOp = React.useMemo(
+    () => readPendingPresetOp(prefs?.companionPendingPresetOp),
+    [prefs?.companionPendingPresetOp]
+  );
+  const presetStatus = projectPresetStatus({
+    presetChoice,
+    pendingOp,
+    busy: presetBusy,
+    recovering,
+    readbackFailed: proactive.readbackFailed,
+  });
+
+  /**
+   * 第二段：把 marker 記下來的 mode 送出去，然後**確認**。
+   *
+   * 送出失敗不等於沒送到（回應可能只是遺失），所以失敗後先讀回：讀回等於目標就是
+   * 完成，清掉 marker；讀不回、或讀回還不是目標，就把 marker 留著——畫面會說
+   * 「半套用」並給補送。清 marker 是**第三次**寫入，它自己失敗只會讓狀態多留一輪
+   *（下次補送是冪等的），不會讓使用者以為套用成功。
+   */
+  const runSecondStage = React.useCallback(
+    async (marker: PresetOpMarker): Promise<boolean> => {
+      if (!(await proactive.patch(marker.proactivePatch))) {
+        // 讀回**明說**的模式才算數：回應裡沒有 mode 就是不知道（不用預設值頂替，
+        // 那會讓「後端沒說」被當成「已經是自然」而誤判成完成）。
+        const readback = await proactive.readback();
+        const config = (readback?.config as Record<string, unknown> | undefined) ?? {};
+        const landed = typeof config.mode === "string" && config.mode === marker.proactivePatch.mode;
+        if (!landed) return false;
+      }
+      await patch({ companionPendingPresetOp: null });
+      return true;
+    },
+    [patch, proactive.patch, proactive.readback]
+  );
+
   const applyPreset = React.useCallback(
     async (id: CompanionPresetId) => {
-      const next = applyCompanionPreset(id);
-      if (!next) return;
+      const plan = beginPresetOp(id, Date.now());
+      if (!plan) return;
+      const marker = markerOf(plan);
       setPresetBusy(true);
       try {
-        // 送出 ≠ 完成：桌面偏好沒寫成功就不要再去動後端的主動對話模式。
-        if (!(await patch(next.prefs))) return;
-        await proactive.patch(next.proactive);
+        // 第一段與 marker 是**同一次**寫入：偏好寫進去了，marker 就一定也在
+        //（不可能出現「偏好改了但沒人記得第二段還沒送」的空窗）。
+        // 送出 ≠ 完成：第一段沒寫成功就不要再去動後端的主動對話模式。
+        if (!(await patch({ ...plan.prefs, companionPendingPresetOp: marker }))) return;
+        await runSecondStage(marker);
       } finally {
         setPresetBusy(false);
       }
     },
-    [patch, proactive.patch]
+    [patch, runSecondStage]
   );
+
+  /** 補送：重送同一段（只有 mode，冪等）。 */
+  const retryPendingPreset = React.useCallback(async () => {
+    if (!pendingOp) return;
+    setPresetBusy(true);
+    try {
+      await runSecondStage(pendingOp);
+    } finally {
+      setPresetBusy(false);
+    }
+  }, [pendingOp, runSecondStage]);
+
+  /**
+   * 重開之後的恢復（每次 mount 最多一次，有界）：第一次讀到桌面偏好時就決定。
+   *
+   * 只有 marker 鎖定的偏好欄位**仍等於**目前值才補送——使用者事後改過就只把 marker
+   * 清掉，不用一份過時的意圖覆蓋他剛選的設定。marker 壞掉（被手改／舊版本）同樣清掉。
+   * 兩個視窗同時開已由 single-instance 擋住，所以這裡不必再處理跨視窗的競爭。
+   */
+  const resumeChecked = React.useRef(false);
+  React.useEffect(() => {
+    if (!prefs || resumeChecked.current) return;
+    resumeChecked.current = true;
+    const marker = readPendingPresetOp(prefs.companionPendingPresetOp);
+    if (!marker) {
+      if (prefs.companionPendingPresetOp) void patch({ companionPendingPresetOp: null });
+      return;
+    }
+    const resumable = shouldResumePendingOp(marker, {
+      expressiveness: prefs.companionExpressiveness,
+      doNotDisturb: prefs.companionDoNotDisturb === true,
+    });
+    if (!resumable) {
+      void patch({ companionPendingPresetOp: null });
+      return;
+    }
+    setRecovering(true);
+    void (async () => {
+      try {
+        await runSecondStage(marker);
+      } finally {
+        setRecovering(false);
+      }
+    })();
+  }, [prefs, patch, runSecondStage]);
 
   // ---- 安靜與勿擾：六組語意各自的底層設定與有效狀態 ----
   const [policy, reloadPolicy] = useAsync(() => api.policyGet(), [refreshKey]);
@@ -446,7 +599,13 @@ export function CompanionPage({
   const localQuietActive = localQuietUntil > Date.now();
   const proactiveQuietUntil = proactive.status?.quietUntil ? new Date(String(proactive.status.quietUntil)) : null;
   const proactiveQuietActive = proactiveQuietUntil !== null && proactiveQuietUntil.getTime() > Date.now();
-  const dndLabel = prefs ? (prefs.companionDoNotDisturb === true ? "開啟" : "關閉") : "不明（需要桌面版控制中心）";
+  const dndLabel = prefs
+    ? prefs.companionDoNotDisturb === true
+      ? "開啟"
+      : "關閉"
+    : isTauri
+      ? "不明（讀不到桌面角色設定）"
+      : "不明（需要桌面版控制中心）";
   const quietHoursLabel = policy.loading
     ? "讀取中…"
     : quietHours
@@ -473,7 +632,9 @@ export function CompanionPage({
         ? prefs.companionDoNotDisturb === true
           ? "勿擾中：不主動靠近、不主動說話"
           : "照常陪伴"
-        : "不明（桌面角色設定需要桌面版控制中心）",
+        : isTauri
+          ? "不明（讀不到桌面角色設定）"
+          : "不明（桌面角色設定需要桌面版控制中心）",
       notes: localQuietActive
         ? [
             `另外還有一段本機安靜期，至 ${formatClock(localQuietUntil)}（由桌面角色自己的選單設定，這一頁只顯示）。`,
@@ -553,14 +714,17 @@ export function CompanionPage({
         {/* 2. 陪伴方式：一句話摘要＋三個檔位；細部行為收在「調整」。 */}
         <Section title="陪伴方式">
           {!prefs ? (
-            <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
+            <PrefsUnavailable error={prefsError} primary />
           ) : (
             <CompanionPresetRow
               choice={presetChoice}
               effectiveLines={describeCompanionState(presetInputs)}
-              // 兩段寫入都算忙碌：後端那一段還在飛時不得再按下一個檔位。
-              busy={busy || presetBusy}
+              // 兩段寫入都算忙碌：後端那一段還在飛（或正在補送）時不得再按下一個檔位。
+              busy={busy || presetTransaction}
+              status={presetStatus}
+              pendingPresetId={pendingOp?.presetId ?? null}
               onApply={(id) => void applyPreset(id)}
+              onRetry={() => void retryPendingPreset()}
             />
           )}
           {/* 主動說話的設定失敗只有這一個家，而且在首屏：從收合區塊裡按下去失敗時
@@ -576,11 +740,13 @@ export function CompanionPage({
             summary={
               prefs
                 ? `表現程度：${expressivenessLabel(prefs.companionExpressiveness)}・說話風格與細部行為`
-                : "需要桌面版控制中心"
+                : isTauri
+                  ? "讀不到桌面角色設定"
+                  : "需要桌面版控制中心"
             }
           >
             {!prefs ? (
-              <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
+              <PrefsUnavailable error={prefsError} />
             ) : (
               <>
                 <div className="settings-grid">
@@ -588,6 +754,9 @@ export function CompanionPage({
                     表現程度（只影響表演與說話頻率，不影響任何權限）
                     <select
                       value={prefs.companionExpressiveness}
+                      // 檔位交易正在寫同一個欄位：中途改成別的值會讓補送的判斷失真
+                      //（`shouldResumePendingOp` 靠「使用者沒改過」）。
+                      disabled={presetTransaction}
                       onChange={(e) => void patch({ companionExpressiveness: e.target.value })}
                     >
                       <option value="quiet">安靜</option>
@@ -658,7 +827,7 @@ export function CompanionPage({
       {/* 以下按需展開。收合摘要一律帶著有效值，收起來不等於看不到。 */}
       <Disclosure id="appearance" title="外觀與名字" summary="名字、外觀、大小、透明度、位置">
         {!prefs ? (
-          <div className="state-box">桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。</div>
+          <PrefsUnavailable error={prefsError} />
         ) : (
           <AppearanceControls
             prefs={prefs}
@@ -688,6 +857,8 @@ export function CompanionPage({
             <Toggle
               checked={prefs.companionDoNotDisturb === true}
               onChange={(on) => void patch({ companionDoNotDisturb: on })}
+              // 勿擾也是檔位交易寫的欄位之一：交易期間不得同時被改。
+              disabled={presetTransaction}
               label="勿擾（安靜陪伴：不主動靠近、不主動說話）"
             />
             {localQuietActive && (
@@ -702,7 +873,10 @@ export function CompanionPage({
             )}
           </>
         ) : (
-          <div className="state-box">勿擾開關需要桌面版控制中心；下方的主動程度與安靜時段在瀏覽器也能設定。</div>
+          <PrefsUnavailable
+            error={prefsError}
+            browserText="勿擾開關需要桌面版控制中心；下方的主動程度與安靜時段在瀏覽器也能設定。"
+          />
         )}
         <div className="row-gap">
           <button onClick={() => void proactive.quiet(60)}>一小時內不要主動說話</button>
@@ -771,6 +945,37 @@ export function CompanionPage({
       </Disclosure>
 
       {advanced && <TechnicalDetails card={active} instance={instance} presence={presence} />}
+    </div>
+  );
+}
+
+/**
+ * 讀不到桌面偏好時的說明。
+ *
+ * 兩件完全不同的事以前共用同一句話：**瀏覽器檢視**（本來就沒有 Tauri host，正常）與
+ * **桌面版讀取失敗**（host 在，但 `desktop_prefs_get` 失敗）。後者被寫成前者是誤報：
+ * 使用者在桌面程式裡看到「此為瀏覽器檢視」，會以為設定沒問題、只是這個視窗不管事，
+ * 而實際上是讀不到設定、畫面上的任何值都不能當成生效值（誠實階梯：不知道就說不知道）。
+ */
+function PrefsUnavailable({
+  error,
+  primary,
+  browserText = "桌面角色設定需要桌面版控制中心（此為瀏覽器檢視）。",
+}: {
+  error: string | null;
+  /** 首屏那一份：真的失敗時要讓螢幕閱讀器聽得到（其餘幾份不重複播報）。 */
+  primary?: boolean;
+  browserText?: string;
+}) {
+  if (!isTauri) return <div className="state-box">{browserText}</div>;
+  return (
+    <div
+      className="state-box"
+      data-testid={primary ? "companion-prefs-unavailable" : undefined}
+      role={primary ? "alert" : undefined}
+    >
+      讀不到桌面角色設定{error ? `：${error}` : "（原因不明）"}
+      。目前無法確認這些設定的生效值。
     </div>
   );
 }

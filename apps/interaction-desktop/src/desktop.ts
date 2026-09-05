@@ -60,6 +60,18 @@ export interface DesktopPrefs {
   companionProactiveQuietUntil: number;
   /** 角色互動記憶（有界；純呈現，不會升級成正式知識）。 */
   companionInteractionMemory?: InteractionMemory;
+  /**
+   * 陪伴預設「兩段寫入」的恢復標記（M4；`src/companion/applyPresetPlan.ts`）。
+   * 與第一段（表現程度＋勿擾）在**同一次** patch 原子寫入；第二段（後端主動說話模式）
+   * 確認送到之後才清成 `null`。它不是新的設定層：有效值仍然只看那三個既有欄位，
+   * 這裡只記「還有一段沒確認完成」，好讓重開之後補得回來、也說得出半套用。
+   */
+  companionPendingPresetOp?: {
+    opId: string;
+    presetId: string;
+    proactivePatch: { mode: string };
+    issuedAtMs: number;
+  } | null;
   /** 各角色由 manifest.preferencesSchema 宣告的偏好值（characterId → 值表；純呈現）。
    *  host 尚未保存這個欄位時 patch 會被丟棄——角色頁會偵測回傳值並誠實告知。 */
   companionPreferences?: Record<string, Record<string, boolean | number | string>>;

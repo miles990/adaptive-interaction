@@ -141,14 +141,22 @@ export function Toggle({
   checked,
   onChange,
   label,
+  disabled,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   label?: string;
+  /** 停用（例如同一個欄位正在被一筆交易寫入，避免中途被改成別的值）。 */
+  disabled?: boolean;
 }) {
   return (
     <label className="toggle">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
       <span>{label ?? (checked ? "啟用" : "停用")}</span>
     </label>
   );

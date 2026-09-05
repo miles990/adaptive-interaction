@@ -342,10 +342,17 @@ describe("角色頁：陪伴方式摘要與預設", () => {
     renderPage();
     await ready();
     await userEvent.click(screen.getByRole("button", { name: "安靜" }));
+    // M4：第一段與「還有一段沒送到」的恢復 marker 是**同一次**原子寫入
+    //（交易語意見 `companion-preset-recovery.test.tsx`）。守的仍是同一件事——
+    // 這一次寫入只有那兩個既有的偏好欄位，其餘一律不得出現。
     await waitFor(() =>
       expect(mockDesktop.prefsPatch).toHaveBeenCalledWith({
         companionExpressiveness: "quiet",
         companionDoNotDisturb: true,
+        companionPendingPresetOp: expect.objectContaining({
+          presetId: "quiet",
+          proactivePatch: { mode: "necessary" },
+        }),
       })
     );
     await waitFor(() => expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledWith({ mode: "necessary" }));

@@ -1863,15 +1863,12 @@ async fn desktop_prefs_get(state: State<'_, AppState>) -> Result<Value, String> 
     serde_json::to_value(prefs).map_err(err_s)
 }
 
-#[tauri::command]
-async fn desktop_prefs_patch(
-    app: tauri::AppHandle,
-    state: State<'_, AppState>,
-    patch: Value,
-) -> Result<Value, String> {
-    let updated = {
-        let mut prefs = state.prefs.lock().expect("prefs mutex");
-        let mut v = serde_json::to_value(&*prefs).map_err(err_s)?;
+/// 把 patch 疊上目前的偏好，驗證並有界化，回傳**候選值**（不碰記憶體、不寫檔）。
+///
+/// 任何不合規的內容整筆拒絕，不靜默丟棄：呼叫端要知道 host 沒有保存它。
+fn prefs_candidate(current: &DesktopPrefs, patch: &Value) -> Result<DesktopPrefs, String> {
+    let candidate = {
+        let mut v = serde_json::to_value(current).map_err(err_s)?;
         if let (Some(obj), Some(p)) = (v.as_object_mut(), patch.as_object()) {
             for (k, val) in p {
                 obj.insert(k.clone(), val.clone());
@@ -1937,13 +1934,75 @@ async fn desktop_prefs_patch(
         // 角色偏好（manifest.preferencesSchema 的值）：有界、只收純量；
         // 任何不合規的內容整筆拒絕，不靜默丟棄。
         validate_companion_preferences(&candidate.companion_preferences)?;
+        // 陪伴預設的恢復標記：有界、只認得的檔位（see `applyPresetPlan.ts`）。
+        if let Some(op) = candidate.companion_pending_preset_op.as_ref() {
+            validate_pending_preset_op(op)?;
+        }
         // 角色互動記憶：有界（≤8 玩具/反應、≤20 事件），不做任何推論。
         let mut candidate = candidate;
         candidate.companion_interaction_memory = candidate.companion_interaction_memory.bounded();
-        *prefs = candidate;
-        prefs.clone()
+        candidate
     };
-    supervisor::save_prefs(&updated)?;
+    Ok(candidate)
+}
+
+/// 提交一次 patch：先算候選值、**先持久化**、存成功了才寫回記憶體。
+///
+/// 誠實階梯：存不下來就不算改成功（比照 `proactive_dialogue_configure`）。以前是先寫
+/// 記憶體再存檔，persist 失敗時指令回報錯誤，但記憶體已經是新值——`desktop_prefs_get`
+/// 從此讀到一個「重開就會消失」的設定，陪伴預設的恢復標記也只活在記憶體裡，
+/// 重開之後補送不回來。
+fn commit_prefs_patch(
+    prefs: &mut DesktopPrefs,
+    patch: &Value,
+    persist: impl FnOnce(&DesktopPrefs) -> Result<(), String>,
+) -> Result<DesktopPrefs, String> {
+    let candidate = prefs_candidate(prefs, patch)?;
+    persist(&candidate)?;
+    *prefs = candidate;
+    Ok(prefs.clone())
+}
+
+/// 恢復標記的上限（與前端 `applyPresetPlan.ts` 的常數一致）。
+pub(crate) const PRESET_OP_ID_MAX_CHARS: usize = 64;
+pub(crate) const PRESET_OP_MODE_MAX_CHARS: usize = 32;
+
+fn validate_pending_preset_op(op: &supervisor::PendingPresetOp) -> Result<(), String> {
+    if op.op_id.is_empty() || op.op_id.chars().count() > PRESET_OP_ID_MAX_CHARS {
+        return Err(format!(
+            "companionPendingPresetOp.opId must be 1..{PRESET_OP_ID_MAX_CHARS} characters"
+        ));
+    }
+    if !matches!(op.preset_id.as_str(), "quiet" | "natural" | "lively") {
+        return Err("companionPendingPresetOp.presetId must be one of quiet/natural/lively".into());
+    }
+    let mode = op.proactive_patch.mode.as_str();
+    if mode.is_empty() || mode.chars().count() > PRESET_OP_MODE_MAX_CHARS {
+        return Err(format!(
+            "companionPendingPresetOp.proactivePatch.mode must be 1..{PRESET_OP_MODE_MAX_CHARS} characters"
+        ));
+    }
+    if !op.issued_at_ms.is_finite() || op.issued_at_ms < 0.0 || op.issued_at_ms > MAX_QUIET_UNTIL_MS
+    {
+        return Err(
+            "companionPendingPresetOp.issuedAtMs must be a bounded epoch millisecond".into(),
+        );
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn desktop_prefs_patch(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    patch: Value,
+) -> Result<Value, String> {
+    let updated = {
+        let mut prefs = state.prefs.lock().expect("prefs mutex");
+        // 鎖住整段（算候選 → 存檔 → 寫回記憶體）：存檔與記憶體之間沒有空窗，
+        // 記憶體裡的值永遠是「已經存下去的那一份」。
+        commit_prefs_patch(&mut prefs, &patch, supervisor::save_prefs)?
+    };
     // Keep the OS autostart entry in sync with the pref (default off).
     #[allow(unused_variables)]
     {
@@ -4263,5 +4322,165 @@ mod tests {
         assert_eq!(obj["instanceId"], json!("desktop-companion"));
         assert_eq!(obj["visible"], json!(false));
         assert_eq!(obj["behaviorState"]["mode"], json!("idle"));
+    }
+}
+
+#[cfg(test)]
+mod prefs_transaction_tests {
+    use super::*;
+    use crate::supervisor::{DesktopPrefs, PendingPresetOp, PendingProactivePatch};
+
+    fn marker() -> serde_json::Value {
+        json!({
+            "opId": "quiet-abc",
+            "presetId": "quiet",
+            "proactivePatch": { "mode": "necessary" },
+            "issuedAtMs": 1_700_000_000_000.0_f64,
+        })
+    }
+
+    /// 誠實階梯：存不下來就不算改成功。以前 `desktop_prefs_patch` 先把候選值寫進
+    /// 記憶體、才去 `save_prefs`——persist 失敗時指令回報錯誤，但**記憶體已經是新值**：
+    /// UI 之後每次 `desktop_prefs_get` 都讀到一個重開就會消失的設定（而且陪伴預設的
+    /// 恢復 marker 也會跟著只活在記憶體裡，重開之後補送不回來）。
+    #[test]
+    fn desktop_prefs_patch_rolls_back_memory_when_persist_fails() {
+        let mut prefs = DesktopPrefs::default();
+        let before = prefs.clone();
+
+        let err = commit_prefs_patch(
+            &mut prefs,
+            &json!({ "companionExpressiveness": "lively", "companionPendingPresetOp": marker() }),
+            |_| Err("disk full".to_string()),
+        )
+        .unwrap_err();
+        assert!(err.contains("disk full"), "{err}");
+        assert_eq!(
+            prefs.companion_expressiveness,
+            before.companion_expressiveness
+        );
+        assert!(
+            prefs.companion_pending_preset_op.is_none(),
+            "persist 失敗不得在記憶體留下 marker"
+        );
+
+        // persist 成功才寫回記憶體，而且存下去的就是回傳的那一份。
+        let mut saved: Option<DesktopPrefs> = None;
+        let out = commit_prefs_patch(
+            &mut prefs,
+            &json!({ "companionExpressiveness": "lively", "companionPendingPresetOp": marker() }),
+            |p| {
+                saved = Some(p.clone());
+                Ok(())
+            },
+        )
+        .expect("patch applies");
+        assert_eq!(out.companion_expressiveness, "lively");
+        assert_eq!(prefs.companion_expressiveness, "lively");
+        assert_eq!(
+            saved.expect("persisted").companion_pending_preset_op,
+            prefs.companion_pending_preset_op
+        );
+
+        // 驗證失敗的候選值連 persist 都不該被呼叫，記憶體同樣不動。
+        let err = commit_prefs_patch(&mut prefs, &json!({ "companionOpacity": 5.0 }), |_| {
+            panic!("must not persist an invalid candidate")
+        })
+        .unwrap_err();
+        assert!(err.contains("companionOpacity"), "{err}");
+        assert_eq!(prefs.companion_opacity, before.companion_opacity);
+    }
+
+    /// 恢復 marker 是 WebView 送進來的資料：有界、只認得的檔位，壞掉整筆拒絕
+    /// （不靜默丟棄——前端要能知道 host 沒有保存它）。
+    #[test]
+    fn pending_preset_op_marker_is_bounded() {
+        let mut prefs = DesktopPrefs::default();
+        let ok = commit_prefs_patch(
+            &mut prefs,
+            &json!({ "companionPendingPresetOp": marker() }),
+            |_| Ok(()),
+        )
+        .expect("valid marker");
+        let stored = ok.companion_pending_preset_op.clone().expect("marker kept");
+        assert_eq!(
+            stored,
+            PendingPresetOp {
+                op_id: "quiet-abc".into(),
+                preset_id: "quiet".into(),
+                proactive_patch: PendingProactivePatch {
+                    mode: "necessary".into()
+                },
+                issued_at_ms: 1_700_000_000_000.0,
+            }
+        );
+        // camelCase 才回得去前端。
+        let out = serde_json::to_value(&ok).expect("serialize");
+        assert_eq!(out["companionPendingPresetOp"]["presetId"], "quiet");
+        assert_eq!(
+            out["companionPendingPresetOp"]["proactivePatch"]["mode"],
+            "necessary"
+        );
+
+        for (bad, needle) in [
+            (
+                json!({"opId":"","presetId":"quiet","proactivePatch":{"mode":"necessary"},"issuedAtMs":1.0}),
+                "opId",
+            ),
+            (
+                json!({"opId":"x".repeat(65),"presetId":"quiet","proactivePatch":{"mode":"necessary"},"issuedAtMs":1.0}),
+                "opId",
+            ),
+            (
+                json!({"opId":"a","presetId":"custom","proactivePatch":{"mode":"necessary"},"issuedAtMs":1.0}),
+                "presetId",
+            ),
+            (
+                json!({"opId":"a","presetId":"quiet","proactivePatch":{"mode":""},"issuedAtMs":1.0}),
+                "mode",
+            ),
+            (
+                json!({"opId":"a","presetId":"quiet","proactivePatch":{"mode":"m".repeat(33)},"issuedAtMs":1.0}),
+                "mode",
+            ),
+            (
+                json!({"opId":"a","presetId":"quiet","proactivePatch":{"mode":"necessary"},"issuedAtMs":-1.0}),
+                "issuedAtMs",
+            ),
+        ] {
+            let mut prefs = DesktopPrefs::default();
+            let err = commit_prefs_patch(
+                &mut prefs,
+                &json!({ "companionPendingPresetOp": bad }),
+                |_| panic!("must not persist an invalid marker"),
+            )
+            .unwrap_err();
+            assert!(err.contains(needle), "{needle}: {err}");
+            assert!(prefs.companion_pending_preset_op.is_none());
+        }
+
+        // 清成 null＝第二段確認完成（一定要收得下來，否則 marker 永遠留著）。
+        let mut prefs = DesktopPrefs::default();
+        commit_prefs_patch(
+            &mut prefs,
+            &json!({ "companionPendingPresetOp": marker() }),
+            |_| Ok(()),
+        )
+        .expect("set");
+        let cleared = commit_prefs_patch(
+            &mut prefs,
+            &json!({ "companionPendingPresetOp": serde_json::Value::Null }),
+            |_| Ok(()),
+        )
+        .expect("clear");
+        assert!(cleared.companion_pending_preset_op.is_none());
+    }
+
+    /// 舊的設定檔沒有這個欄位：預設就是「沒有未完成的交易」，不是錯誤。
+    #[test]
+    fn missing_pending_preset_op_defaults_to_none() {
+        let p: DesktopPrefs =
+            serde_json::from_str(r#"{"companionExpressiveness":"quiet"}"#).expect("parse");
+        assert!(p.companion_pending_preset_op.is_none());
     }
 }

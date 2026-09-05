@@ -139,7 +139,32 @@ pub struct DesktopPrefs {
     /// 這個欄位就整張表取代（前端一律送完整的表）。
     pub companion_preferences:
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, serde_json::Value>>,
+    /// 陪伴預設「兩段寫入」的恢復標記（前端 `src/companion/applyPresetPlan.ts`）。
+    /// 與第一段（表現程度＋勿擾）在**同一次** patch 原子寫入；第二段（後端主動說話
+    /// 模式）確認送到之後才清成 `None`。純流程資料、沒有任何權限語意，也不是新的
+    /// 設定層——有效值仍然只看那三個既有欄位。上限由 `desktop_prefs_patch` 強制。
+    pub companion_pending_preset_op: Option<PendingPresetOp>,
     pub schema_version: u32,
+}
+
+/// 還沒確認完成的那一次「套用陪伴預設」。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PendingPresetOp {
+    /// 這次交易的識別（≤64 字元；只用來分辨是不是同一次）。
+    pub op_id: String,
+    /// 檔位 id（只認得 `quiet`／`natural`／`lively`）。
+    pub preset_id: String,
+    /// 還沒確認送到的第二段（只有 `mode`）。
+    pub proactive_patch: PendingProactivePatch,
+    /// 發起時間（epoch ms）。
+    pub issued_at_ms: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PendingProactivePatch {
+    pub mode: String,
 }
 
 /// 角色互動記憶（spec §11 第一類）。欄位與前端 interactionMemory.ts 對應；
@@ -247,6 +272,7 @@ impl Default for DesktopPrefs {
             companion_proactive_quiet_until: 0.0,
             companion_interaction_memory: CompanionInteractionMemory::default(),
             companion_preferences: std::collections::BTreeMap::new(),
+            companion_pending_preset_op: None,
             schema_version: 1,
         }
     }
