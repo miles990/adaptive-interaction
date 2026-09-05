@@ -12,6 +12,7 @@ use axum::middleware;
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use interaction_runtime::Runtime;
+use serde_json::Value;
 use std::net::SocketAddr;
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -540,6 +541,50 @@ fn agent_request_allowed(method: &axum::http::Method, path: &str) -> bool {
         || path == "/v1/knowledge/update-check"
 }
 
+/// `/v1/status` 裡屬於**人類層**的欄位。
+///
+/// 為什麼要有這張表：路徑層的排除（`agent_request_allowed` 擋掉
+/// `/v1/sensors/unresolved`、`/v1/character*`）只擋得住那一支路由；同一份紀錄
+/// 一旦被塞進 `/v1/status`（agent 白名單內的 GET）或 canonical tool
+/// `interaction.status` 的回覆，那條界線就只是寫在測試裡、實際上不成立。
+///
+/// * `unresolvedStops`——「哪些感測可能還在擷取、沒人確認停了」。解除只有人類
+///   做得到，讀取面必須同一層，否則 AI 讀得到一份使用者還沒處理的隱私待辦
+///   （連 `sourceId`／`generation`／`lastKnown` 都一起拿到）。
+/// * `characterSessionSync`——Character Session 的裝置成員清單（`deviceId` 與
+///   它實際拿得到多少共享狀態）。`/v1/character*` 對 agent token 一律 403，
+///   同一份事實不得從 status 漏出去。
+const HUMAN_LAYER_STATUS_FIELDS: [&str; 2] = ["unresolvedStops", "characterSessionSync"];
+
+/// 依 principal 投影一份 status。
+///
+/// 誠實：這不是「把事情藏起來」——被拿掉的欄位換成一個**不含任何識別碼**的
+/// 計數（`unresolvedStopCount`），AI 因此仍然說得出「有幾筆停止沒有結論」，
+/// 只是拿不到那是哪一台裝置、哪一次登記、上一次看到它在做什麼。
+pub(crate) fn project_status_for_principal(principal: &AuthPrincipal, mut status: Value) -> Value {
+    if matches!(principal, AuthPrincipal::Human) {
+        return status;
+    }
+    let Some(obj) = status.as_object_mut() else {
+        return status;
+    };
+    let unresolved = obj
+        .get("unresolvedStops")
+        .and_then(Value::as_array)
+        .map(|entries| entries.len())
+        .unwrap_or(0);
+    for field in HUMAN_LAYER_STATUS_FIELDS {
+        obj.remove(field);
+    }
+    if unresolved > 0 {
+        obj.insert(
+            "unresolvedStopCount".into(),
+            Value::Number(unresolved.into()),
+        );
+    }
+    status
+}
+
 pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -585,6 +630,40 @@ pub async fn serve(
 mod auth_scope_tests {
     use super::*;
     use axum::http::Method;
+
+    /// 路徑層的排除擋不住「同一份內容從另一支被放行的路徑出去」：投影本身
+    /// 要有自己的測試，否則 `/v1/status` 一加欄位就悄悄繞過那條界線。
+    #[test]
+    fn the_status_projection_keeps_human_layer_records_off_the_agent_plane() {
+        let status = serde_json::json!({
+            "name": "adaptive-interaction",
+            "unresolvedStops": [
+                {"sourceId": "provider.mobile.abc", "generation": 3, "sensors": ["mic"]}
+            ],
+            "characterSessionSync": [{"deviceId": "esp32-01", "syncProfile": "full-state"}],
+        });
+        let human = project_status_for_principal(&AuthPrincipal::Human, status.clone());
+        assert!(human["unresolvedStops"].is_array(), "{human}");
+        assert!(human["characterSessionSync"].is_array(), "{human}");
+        assert!(human.get("unresolvedStopCount").is_none(), "{human}");
+
+        for principal in [
+            AuthPrincipal::LegacyAgent,
+            AuthPrincipal::CharacterAdapter {
+                adapter_id: "a".into(),
+            },
+        ] {
+            let projected = project_status_for_principal(&principal, status.clone());
+            assert!(projected.get("unresolvedStops").is_none(), "{projected}");
+            assert!(
+                projected.get("characterSessionSync").is_none(),
+                "{projected}"
+            );
+            // 誠實：不是「沒有這件事」，只是不帶識別碼。
+            assert_eq!(projected["unresolvedStopCount"], serde_json::json!(1));
+            assert_eq!(projected["name"], serde_json::json!("adaptive-interaction"));
+        }
+    }
 
     #[test]
     fn adapter_tokens_only_reach_receipts_and_events() {

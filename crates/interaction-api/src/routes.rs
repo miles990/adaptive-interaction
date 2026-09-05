@@ -25,8 +25,17 @@ pub async fn ready(State(state): State<ApiState>) -> Json<Value> {
     Json(json!({"status": "ok", "emergencyStop": state.runtime.is_estopped()}))
 }
 
-pub async fn status(State(state): State<ApiState>) -> Json<Value> {
-    Json(state.runtime.status().await)
+/// 狀態。**依 principal 投影**：人類層的欄位（未解決停止、Character Session
+/// 的裝置成員）不得從這一支漏給 agent／session token——那條界線在
+/// `agent_request_allowed` 已經寫過一次，兩個入口必須是同一條規則。
+pub async fn status(
+    State(state): State<ApiState>,
+    Extension(auth): Extension<AuthContext>,
+) -> Json<Value> {
+    Json(crate::project_status_for_principal(
+        &auth.principal,
+        state.runtime.status().await,
+    ))
 }
 
 pub async fn activity_inbox(
@@ -654,7 +663,12 @@ async fn dispatch_tool(
         })
     };
     match name {
-        "interaction.status" => Ok(rt.status().await),
+        // 與 `GET /v1/status` 同一條投影：同一份事實不得因為入口不同而說出
+        // 不同的話（工具面漏出去等於路徑層的排除從來沒有生效）。
+        "interaction.status" => Ok(crate::project_status_for_principal(
+            &auth.principal,
+            rt.status().await,
+        )),
         "interaction.capabilities" => {
             let include = input
                 .get("includeUnavailable")

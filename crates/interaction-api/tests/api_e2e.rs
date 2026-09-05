@@ -2996,3 +2996,72 @@ impl interaction_runtime::sensor_source::SensorSource for ApiFakeSource {
         )]
     }
 }
+
+/// 人類層的欄位不得從**別的**入口漏給 AI。
+///
+/// `/v1/sensors/unresolved` 對 agent token 是 403，理由寫在 `agent_request_allowed`：
+/// 「哪些感測可能還在擷取、沒人確認停了」是使用者還沒處理的隱私待辦。同一份
+/// 紀錄若原封不動出現在 `/v1/status`（agent 白名單內的 GET）與 canonical tool
+/// `interaction.status` 的回覆裡，那條界線就只是寫在測試裡、實際上不成立。
+///
+/// 誠實界線：這裡驗的是**投影**，不是「AI 不知道有這件事」——status 仍然可以
+/// 說得出「有幾筆」，只是不得帶 sourceId／generation／sensors／lastKnown。
+#[tokio::test]
+async fn the_status_an_agent_reads_carries_no_human_layer_records() {
+    let server = TestServer::spawn().await;
+    server.runtime.declare_provider_capabilities(
+        interaction_runtime::providers::ProviderCapabilityDeclaration::new(
+            "declaration.api.fixture",
+        )
+        .with_class_label("測試裝置"),
+    );
+    server
+        .runtime
+        .register_sensor_source(std::sync::Arc::new(ApiFakeSource))
+        .await
+        .expect("registers");
+    assert!(server.runtime.unregister_sensor_source("api.fixture").await);
+    server.runtime.sensor_clock.advance(
+        interaction_runtime::sensor_source::ORPHAN_CAPTURE_VISIBLE
+            + std::time::Duration::from_secs(1),
+    );
+
+    // 人類讀得到完整紀錄（既有行為，不得被這條投影弄壞）。
+    let (code, human_status) = server.get("/v1/status").await;
+    assert_eq!(code, 200);
+    assert!(
+        human_status["unresolvedStops"].is_array(),
+        "人類層讀得到完整紀錄：{human_status}"
+    );
+
+    // agent token 走 `/v1/status`：整份紀錄不得出現。
+    let response = server
+        .client
+        .get(format!("{}/v1/status", server.base))
+        .bearer_auth(&server.agent_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let agent_status: Value = response.json().await.unwrap();
+    assert!(
+        agent_status.get("unresolvedStops").is_none(),
+        "agent token 不得從 /v1/status 讀到未解決停止的完整紀錄：{agent_status}"
+    );
+
+    // 同一份東西的第二個入口：canonical tool `interaction.status`。
+    let response = server
+        .client
+        .post(format!("{}/v1/tools/interaction.status/call", server.base))
+        .bearer_auth(&server.agent_token)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let tool_status: Value = response.json().await.unwrap();
+    assert!(
+        tool_status.get("unresolvedStops").is_none(),
+        "interaction.status 必須走同一條投影：{tool_status}"
+    );
+}
