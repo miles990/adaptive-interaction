@@ -991,7 +991,8 @@ wave3／hardening 的落地事實尚未回填。
   `SensorStopUncertain{no-stop-path}`），沒有做 `SensorSource` port；非 mobile provider 的高風險受器
   仍收不到真正的停止請求。
 - `crates/interaction-adapter-declarative`（`0.2.0`）與 `adapters/media`（`0.2.0`）版本仍脫離
-  workspace，`release-verify.sh` 以 `⚠ 已知版本漂移` 明列，不當成通過。
+  workspace，`release-verify.sh` 以 `⚠ 已知版本漂移` 明列，不當成通過。**v0.6.x 已修**：兩者
+  `version.workspace = true`，白名單移除並加回歸（release_provenance.rs＋release-scripts.sh）。
 - Linux aarch64 已從支援宣告移除（不再給 404），需從原始碼建置。
 - 沒有程式碼簽章／公證／SBOM／build provenance；Release 只有 `.sha256`。
 - `release.yml` 的 `ci-gate`／`finalize` 兩個 job **未經真實 tag push 驗證**（證據等級：unit）。

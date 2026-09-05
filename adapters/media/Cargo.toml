@@ -1,6 +1,6 @@
 [package]
 name = "adapters-media"
-version = "0.2.0"
+version.workspace = true
 edition = "2021"
 license = "MIT"
 description = "High-sensitivity media receptors (microphone level; camera interface) — default OFF, consent-gated, memory-only"

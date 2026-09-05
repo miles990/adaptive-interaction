@@ -52,6 +52,11 @@
   沒有 HTTP 寫入入口（測試釘住 POST 同路徑非 2xx）。
 
 ### Fixed
+- **crate 版本政策沒有白名單了**（v0.6.0 known-limitations #13、`release-provenance-078` 收尾）：`crates/interaction-adapter-declarative`
+  與 `adapters/media` 從寫死的 `0.2.0` 改為 `version.workspace = true`（Cargo.lock 隨之為 0.6.0）；`release-verify.sh` 的
+  「every crate version follows the workspace」關卡移除 ⚠ 白名單——任何寫死自有版本的 crate 直接紅燈。回歸：
+  `release_provenance.rs::every_crate_version_follows_the_workspace`、`scripts/tests/release-scripts.sh` 078 段（假 repo 放一個
+  寫死版本的 crate 必須 exit 非 0 並被指名）。
 - **桌面把非手機來源的停止結果說出來了**（S1 交接）：`/v1/sensors/stop` 的 `sources[]`（M2 §3.1 起非手機來源、例如宣告式 Serial 裝置的逐筆結果）
   以前桌面完全不看——狀態列的「結果不確定」指不出是誰，「連接與權限」的逐項回報少一行。現在 `projectSensorStop` 把沒確認的來源
   （只有 `stopped`／`already-stopped` 算確認）算進不確定並指名（人話 `sourceLabel`，沒有就「某個裝置」，`sourceId` 不外洩），

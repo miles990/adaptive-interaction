@@ -1,6 +1,6 @@
 [package]
 name = "interaction-adapter-declarative"
-version = "0.2.0"
+version.workspace = true
 edition = "2021"
 license = "MIT"
 description = "Declarative adapter engine: connect HTTP/SSE devices and services from a validated YAML spec, no Rust required"

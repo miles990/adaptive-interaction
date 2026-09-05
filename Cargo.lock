@@ -1554,7 +1554,7 @@ dependencies = [
 
 [[package]]
 name = "interaction-adapter-declarative"
-version = "0.2.0"
+version = "0.6.0"
 dependencies = [
  "async-trait",
  "axum 0.8.9",

@@ -100,6 +100,39 @@ fn agent_gateway_version_follows_the_workspace() {
     );
 }
 
+/// release-provenance-078（v0.6.x 收尾）：crates/ 與 adapters/ 底下**每一個** crate 都必須
+/// `version.workspace = true`。v0.6.0 時 interaction-adapter-declarative／adapters-media 寫死
+/// 0.2.0、release-verify 以白名單放行；白名單已移除，這裡守住不再有人寫死自有版本。
+#[test]
+fn every_crate_version_follows_the_workspace() {
+    let root = repo_root();
+    let mut offenders = Vec::new();
+    for base in ["crates", "adapters"] {
+        let Ok(entries) = std::fs::read_dir(root.join(base)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let manifest = entry.path().join("Cargo.toml");
+            let Ok(src) = std::fs::read_to_string(&manifest) else {
+                continue;
+            };
+            let package = src.split("[package]").nth(1).unwrap_or("");
+            let package = package.split("\n[").next().unwrap_or("");
+            let follows = package
+                .lines()
+                .any(|line| line.trim_start().starts_with("version.workspace") && line.contains("true"));
+            if !follows {
+                offenders.push(format!("{base}/{}", entry.file_name().to_string_lossy()));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "這些 crate 沒有 `version.workspace = true`（release-prepare.sh 只改 workspace 版本，\
+         它們會永遠停在舊值）：{offenders:?}"
+    );
+}
+
 /// release-provenance-074：缺少 `<asset>.sha256` 必須讓更新失敗，而不是印一行 warning 照裝。
 ///
 /// 政策本身的行為由 `selfmgmt::tests::missing_checksum_is_fail_closed_unless_explicitly_allowed`

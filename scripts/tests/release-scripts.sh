@@ -357,6 +357,27 @@ else
   [[ "$(grep -c '^uploaded ' "$WORK/crlf.out")" == "2" ]]; check "CRLF 清單的兩個 .sha256 都被上傳" $?
 fi
 
+# --------------------------------------- 078：crate 版本政策沒有白名單
+# v0.6.0 時 interaction-adapter-declarative／adapters-media 寫死 0.2.0，release-verify 以 ⚠ 白名單放行；
+# v0.6.x 起兩者都 `version.workspace = true`，白名單移除：任何寫死自有版本的 crate 都要讓關卡紅燈。
+DDIR="$WORK/verifyrepo-drift"
+rm -rf "$DDIR"; cp -R "$VDIR" "$DDIR"
+mkdir -p "$DDIR/crates/stray-crate" "$DDIR/adapters/good-adapter"
+printf '[package]\nname = "stray-crate"\nversion = "0.2.0"\nedition = "2021"\n' > "$DDIR/crates/stray-crate/Cargo.toml"
+printf '[package]\nname = "good-adapter"\nversion.workspace = true\nedition = "2021"\n' > "$DDIR/adapters/good-adapter/Cargo.toml"
+( cd "$DDIR" && PATH="$DDIR/bin:$PATH" /bin/bash scripts/release-verify.sh 9.9.9 --skip-ci ) > "$WORK/verify-drift.out" 2>&1
+DRC=$?
+check "release-verify.sh：寫死自有版本的 crate 讓關卡 exit 非 0（沒有白名單）" "$([[ "$DRC" != 0 ]] && echo 0 || echo 1)" "rc=$DRC"
+grep -q "crates/stray-crate/Cargo.toml=0.2.0" "$WORK/verify-drift.out"
+check "release-verify.sh 指名漂移的 crate 與它的版本" $? "$(grep -i 'workspace' "$WORK/verify-drift.out" | tr '\n' '|')"
+! grep -q "good-adapter" "$WORK/verify-drift.out"
+check "release-verify.sh 不把 version.workspace = true 的 crate 列成漂移" $?
+! grep -qiE '已知版本漂移|KNOWN' "$WORK/verify-drift.out"
+check "release-verify.sh 不再輸出任何『已知版本漂移』白名單字樣" $?
+grep -q '^version\.workspace = true' crates/interaction-adapter-declarative/Cargo.toml \
+  && grep -q '^version\.workspace = true' adapters/media/Cargo.toml
+check "repo 內 interaction-adapter-declarative／adapters-media 都跟著 workspace 版本" $?
+
 echo
 echo "release-scripts: ${PASS} passed / ${FAIL} failed"
 [[ "$FAIL" == "0" ]]

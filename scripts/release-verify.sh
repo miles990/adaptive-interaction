@@ -38,13 +38,13 @@ gate "versions in sync" $? "Cargo=$V_CARGO tauri=$V_TAURI conf=$V_CONF pkg=$V_PK
 
 # release-provenance-078：release-prepare.sh 只改 [workspace.package] 的版本。任何寫死自有
 # 版本的 crate 都會永遠停在舊值，而 interaction-agent-gateway 的版本會經由 clientInfo.version
-# 送給外部 agent。白名單是「已知漂移」，以 ⚠ 明列——它不是通過，只是還沒修。
+# 送給外部 agent。政策：crates/ 與 adapters/ 底下每個 crate 都必須 `version.workspace = true`；
+# 沒有白名單（v0.6.0 的兩個已知漂移已在 v0.6.x 修掉，回歸由 release_provenance.rs 與
+# scripts/tests/release-scripts.sh 守）。
 VERSION_DRIFT=$(python3 - "$VERSION" <<'PY'
 import os, re, sys
 version = sys.argv[1]
-# 已知漂移：這兩個 crate 目前刻意保留自有版本號（記於 CHANGELOG 已知限制）。
-known = {"interaction-adapter-declarative", "adapters-media"}
-drift, known_drift = [], []
+drift = []
 roots = []
 for base in ("crates", "adapters"):
     if os.path.isdir(base):
@@ -61,21 +61,13 @@ for root in roots:
     literal = m.group(1) if m else "<none>"
     if literal == version:
         continue
-    name = os.path.basename(root) if root.startswith("crates") else root.replace("/", "-")
-    (known_drift if name in known else drift).append("%s=%s" % (manifest, literal))
-if known_drift:
-    print("KNOWN " + " ".join(known_drift))
+    drift.append("%s=%s" % (manifest, literal))
 if drift:
     print("DRIFT " + " ".join(drift))
 sys.exit(1 if drift else 0)
 PY
 ); DRIFT_RC=$?
 gate "every crate version follows the workspace" $DRIFT_RC "$(printf '%s' "$VERSION_DRIFT" | grep '^DRIFT' | tr '\n' ' ')"
-KNOWN_DRIFT=$(printf '%s' "$VERSION_DRIFT" | grep '^KNOWN' || true)
-if [[ -n "$KNOWN_DRIFT" ]]; then
-  # 已知限制，明說而不是靜默通過（CLAUDE.md：已知限制記在 CHANGELOG／acceptance-evidence）。
-  echo "  ⚠ 已知版本漂移（尚未修，記於 CHANGELOG 已知限制）：${KNOWN_DRIFT#KNOWN }"
-fi
 
 python3 - "$VERSION" <<'PY'; gate "CHANGELOG has a non-empty [$VERSION] section" $?
 import re, sys
