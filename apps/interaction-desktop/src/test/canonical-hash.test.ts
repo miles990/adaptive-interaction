@@ -14,7 +14,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { canonicalJson, sha256Hex, stateHash } from "../aip/canonical";
+import { canonicalJson, compareCodePoints, sha256Hex, stateHash } from "../aip/canonical";
 import { SEMANTIC_STATE_DOUBLE_PATHS } from "../aip/generated";
 
 const FIXTURES = decodeURIComponent(
@@ -118,5 +118,59 @@ describe("SHA-256：已知向量", () => {
   it("非 ASCII 以 UTF-8 位元組計算", () => {
     // echo -n "角色" | shasum -a 256
     expect(sha256Hex("角色")).toBe(sha256Hex(new TextEncoder().encode("角色")));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 鍵序：code point 序（＝ UTF-8 位元組序），不是 UTF-16 code unit 序
+// ---------------------------------------------------------------------------
+
+/** 權威端的鍵序：Rust `keys.sort()`（`String` 的 Ord）＝ Swift `Array(key.utf8)` 的字典序。 */
+function utf8Order(a: string, b: string): number {
+  const left = new TextEncoder().encode(a);
+  const right = new TextEncoder().encode(b);
+  const length = Math.min(left.length, right.length);
+  for (let i = 0; i < length; i += 1) {
+    const x = left[i] ?? 0;
+    const y = right[i] ?? 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  if (left.length === right.length) return 0;
+  return left.length < right.length ? -1 : 1;
+}
+
+describe("canonical JSON：鍵序與 UTF-8 位元組序一致（跨語言）", () => {
+  // U+F801..U+FFFF 這一段是唯一會出錯的區間：代理對開頭（0xD800..0xDBFF）如果只被
+  // 抬高 0x2000 就停在 0xFBFF，會排在這些 BMP 鍵**之前**，與 Rust／Swift 相反。
+  const PAIRS: readonly (readonly [string, string])[] = [
+    ["\u{10000}", "�"],
+    ["\u{1F600}", "�"],
+    ["\u{10FFFF}", "￿"],
+    ["\u{10000}", ""],
+    ["\u{10000}", "A"],
+    ["", "퟿"],
+    ["a", "ab"],
+  ];
+
+  it("compareCodePoints 對每一組鍵都與 UTF-8 位元組序同號", () => {
+    for (const [a, b] of PAIRS) {
+      expect(Math.sign(compareCodePoints(a, b)), `${JSON.stringify(a)} vs ${JSON.stringify(b)}`).toBe(
+        Math.sign(utf8Order(a, b)),
+      );
+      expect(Math.sign(compareCodePoints(b, a)), `${JSON.stringify(b)} vs ${JSON.stringify(a)}`).toBe(
+        Math.sign(utf8Order(b, a)),
+      );
+    }
+  });
+
+  it("補充平面的鍵排在所有 BMP 鍵之後（U+FFFD 之前是錯的）", () => {
+    expect(canonicalJson({ "\u{10000}": 2, "�": 1 })).toBe('{"�":1,"\u{10000}":2}');
+  });
+
+  it("已知向量：補充平面鍵的 state hash（Rust／Swift 同一份文字的 SHA-256）", () => {
+    // canonical 文字 `{"\u{FFFD}":1,"\u{10000}":2}` 的 UTF-8 位元組 SHA-256。
+    expect(stateHash({ "\u{10000}": 2, "�": 1 })).toBe(
+      "f0516938af0496fd78add6d50dedd04c35489a25bf4a03160eadd54051ed8b86",
+    );
   });
 });

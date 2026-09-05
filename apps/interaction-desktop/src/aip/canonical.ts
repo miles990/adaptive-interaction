@@ -94,20 +94,26 @@ function isDouble(nodes: readonly PathNode[] | null): boolean {
  * JS 內建的字串比較是 UTF-16 code unit 序：`"\u{10000}" < "�"` 在 code unit
  * 序是 true（代理對開頭是 0xD800），在 code point 序是 false。鍵順序一旦不同，
  * canonical 文字就不同，hash 就永遠對不上。
+ *
+ * 所以這裡**逐 code point** 比（`Array.from` 會把代理對併成一個字元）：曾經用過的
+ * 「把代理對開頭 +0x2000」只做了半個轉換（0xD800..0xDBFF → 0xF800..0xFBFF），補充
+ * 平面的鍵會排在 U+F801..U+FFFF 的 BMP 鍵**之前**，與 Rust（`keys.sort()`）／Swift
+ * （`Array(key.utf8).lexicographicallyPrecedes`）相反——同一份 state 兩個 hash
+ * （對抗審查 hash-numeric-contract-017）。
  */
 export function compareCodePoints(a: string, b: string): number {
   if (a === b) return 0;
-  const length = Math.min(a.length, b.length);
+  const left = Array.from(a);
+  const right = Array.from(b);
+  const length = Math.min(left.length, right.length);
   for (let i = 0; i < length; i += 1) {
-    const ca = a.charCodeAt(i);
-    const cb = b.charCodeAt(i);
-    if (ca === cb) continue;
-    // 代理對開頭（0xD800..0xDBFF）代表的 code point >= U+10000，排在所有 BMP 之後。
-    const ka = ca >= 0xd800 && ca <= 0xdbff ? ca + 0x2000 : ca;
-    const kb = cb >= 0xd800 && cb <= 0xdbff ? cb + 0x2000 : cb;
+    // `Array.from` 的每一項都至少一個 code unit，`?? 0` 只是不用非空斷言的寫法。
+    const ka = left[i]?.codePointAt(0) ?? 0;
+    const kb = right[i]?.codePointAt(0) ?? 0;
+    if (ka === kb) continue;
     return ka < kb ? -1 : 1;
   }
-  return a.length < b.length ? -1 : 1;
+  return left.length < right.length ? -1 : 1;
 }
 
 const SHORT_ESCAPES: Record<number, string> = {
