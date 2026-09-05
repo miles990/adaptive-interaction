@@ -320,13 +320,50 @@ fn manifest_section_text(list: &[Fixture]) -> String {
 /// manifest（`stateHashDoublePaths`），TS 讀它；Rust 這邊每次跑測試都重新推導比對——
 /// 未來 `SemanticState` 多一個 f64 欄位而 manifest 沒更新，這裡就紅燈（漂移 gate）。
 fn double_paths() -> Vec<String> {
-    let schema = schemars::schema_for!(SemanticState);
-    let root: Value = serde_json::to_value(&schema).expect("schema serializes");
+    double_paths_of(serde_json::to_value(schemars::schema_for!(SemanticState)).expect("schema"))
+}
+
+/// 任一份 JSON Schema 的 f64 路徑（抽出來是為了讓反例能套用**同一段**推導）。
+fn double_paths_of(root: Value) -> Vec<String> {
     let mut out = Vec::new();
     collect_double_paths(&root, &root, "", &mut out, 0);
     out.sort();
     out.dedup();
     out
+}
+
+/// 遞迴深度上限。超過就 **panic**：靜默跳過會讓漂移 gate 在最需要它的時候變成裝飾
+/// （深巢狀的新 f64 欄位照樣漏掉、清單與現在一模一樣、兩條斷言照樣綠）。
+const MAX_SCHEMA_DEPTH: usize = 16;
+
+fn check_depth(depth: usize, pointer: &str) {
+    assert!(
+        depth <= MAX_SCHEMA_DEPTH,
+        "schema 巢狀太深（>{MAX_SCHEMA_DEPTH}，在 {pointer}）：推導不得靜默跳過，\
+         請調高上限或把 schema 攤平"
+    );
+}
+
+/// tuple（schemars 1.x 的 `prefixItems`，舊 draft 的陣列型 `items`）的每一個位置。
+fn tuple_positions(obj: &serde_json::Map<String, Value>) -> Option<&Vec<Value>> {
+    obj.get("prefixItems")
+        .and_then(Value::as_array)
+        .or_else(|| obj.get("items").and_then(Value::as_array))
+}
+
+/// 解析一個本地 `$ref`。解不開就 **panic**：解不開的 `$ref` 等於整棵子樹被靜默跳過
+/// （schemars 對遞迴型別產的是 `"$ref": "#"`＝整份文件，`strip_prefix("#/")` 對它是 None，
+/// 於是原本會一聲不響地把整個子樹丟掉）。
+fn resolve_ref<'a>(root: &'a Value, reference: &str) -> &'a Value {
+    if reference == "#" {
+        return root;
+    }
+    let path = reference
+        .strip_prefix("#/")
+        .unwrap_or_else(|| panic!("推導只認得本地 `$ref`，遇到 {reference}：不得靜默跳過整棵子樹"));
+    path.split('/')
+        .try_fold(root, |acc, key| acc.get(key))
+        .unwrap_or_else(|| panic!("`$ref` {reference} 解不開：不得靜默跳過整棵子樹"))
 }
 
 fn collect_double_paths(
@@ -336,19 +373,12 @@ fn collect_double_paths(
     out: &mut Vec<String>,
     depth: usize,
 ) {
-    if depth > 16 {
-        return;
-    }
+    check_depth(depth, pointer);
     let Some(obj) = node.as_object() else {
         return;
     };
     if let Some(reference) = obj.get("$ref").and_then(Value::as_str) {
-        if let Some(target) = reference
-            .strip_prefix("#/")
-            .and_then(|path| path.split('/').try_fold(root, |acc, key| acc.get(key)))
-        {
-            collect_double_paths(root, target, pointer, out, depth + 1);
-        }
+        collect_double_paths(root, resolve_ref(root, reference), pointer, out, depth + 1);
         return;
     }
     let is_number = match obj.get("type") {
@@ -364,7 +394,17 @@ fn collect_double_paths(
             collect_double_paths(root, child, &format!("{pointer}/{key}"), out, depth + 1);
         }
     }
-    if let Some(items) = obj.get("items") {
+    // map（`BTreeMap<String, f64>` → `additionalProperties`）：值路徑是萬用段。
+    // TS 端的 `buildPathTrie` 本來就支援 `*`（陣列索引與任意鍵共用同一段）。
+    if let Some(extra) = obj.get("additionalProperties") {
+        collect_double_paths(root, extra, &format!("{pointer}/*"), out, depth + 1);
+    }
+    // tuple（`(f64, f64)`）：每個位置是自己的路徑。
+    if let Some(positions) = tuple_positions(obj) {
+        for (i, item) in positions.iter().enumerate() {
+            collect_double_paths(root, item, &format!("{pointer}/{i}"), out, depth + 1);
+        }
+    } else if let Some(items) = obj.get("items") {
         collect_double_paths(root, items, &format!("{pointer}/*"), out, depth + 1);
     }
     for key in ["oneOf", "anyOf", "allOf"] {
@@ -663,19 +703,12 @@ fn collect_field_paths(
     out: &mut Vec<String>,
     depth: usize,
 ) {
-    if depth > 16 {
-        return;
-    }
+    check_depth(depth, pointer);
     let Some(obj) = node.as_object() else {
         return;
     };
     if let Some(reference) = obj.get("$ref").and_then(Value::as_str) {
-        if let Some(target) = reference
-            .strip_prefix("#/")
-            .and_then(|path| path.split('/').try_fold(root, |acc, key| acc.get(key)))
-        {
-            collect_field_paths(root, target, pointer, out, depth + 1);
-        }
+        collect_field_paths(root, resolve_ref(root, reference), pointer, out, depth + 1);
         return;
     }
     if let Some(props) = obj.get("properties").and_then(Value::as_object) {
@@ -685,7 +718,17 @@ fn collect_field_paths(
             collect_field_paths(root, child, &child_pointer, out, depth + 1);
         }
     }
-    if let Some(items) = obj.get("items") {
+    // 與 `collect_double_paths` 同一套規則：map 的值走萬用段、tuple 走位置。
+    if let Some(extra) = obj.get("additionalProperties") {
+        let child_pointer = format!("{pointer}/*");
+        out.push(child_pointer.clone());
+        collect_field_paths(root, extra, &child_pointer, out, depth + 1);
+    }
+    if let Some(positions) = tuple_positions(obj) {
+        for (i, item) in positions.iter().enumerate() {
+            collect_field_paths(root, item, &format!("{pointer}/{i}"), out, depth + 1);
+        }
+    } else if let Some(items) = obj.get("items") {
         collect_field_paths(root, items, &format!("{pointer}/*"), out, depth + 1);
     }
     for key in ["oneOf", "anyOf", "allOf"] {
@@ -732,11 +775,27 @@ fn covered_field_paths() -> Vec<String> {
     covered
 }
 
+/// 一條 schema 路徑（可含萬用段 `*`）是否對上一條實際出現的路徑。
+///
+/// 為什麼需要萬用比對：map 形狀的欄位在 schema 是 `/weights/*`，但 fixture 裡實際
+/// 出現的是 `/weights/a`。用字面 `contains` 比的話，補了 fixture 也永遠是紅的。
+/// 反方向（fixture 有而 schema 沒有）用同一段比對，所以 `*` 不會變成「什麼都算數」：
+/// 段數必須一樣，只有標成萬用的那一段可以自由對應。
+fn path_matches(pattern: &str, concrete: &str) -> bool {
+    let pattern: Vec<&str> = pattern.split('/').collect();
+    let concrete: Vec<&str> = concrete.split('/').collect();
+    pattern.len() == concrete.len()
+        && pattern
+            .iter()
+            .zip(concrete.iter())
+            .all(|(p, c)| *p == "*" || p == c)
+}
+
 /// `expected` 裡沒有被 `covered` 覆蓋到的欄位（下面的正例與反例共用同一段比對）。
 fn uncovered_fields(expected: &[String], covered: &[String]) -> Vec<String> {
     expected
         .iter()
-        .filter(|p| !covered.contains(p))
+        .filter(|p| !covered.iter().any(|c| path_matches(p, c)))
         .cloned()
         .collect()
 }
@@ -796,4 +855,95 @@ fn a_new_optional_state_field_would_be_reported_as_uncovered() {
         vec!["/ambient".to_string()],
         "新增的選填欄位必須被判為沒有 fixture 覆蓋"
     );
+}
+
+// ------------------------------------------ 反例：漂移 gate 的推導有沒有死角
+
+/// map（`BTreeMap<String, f64>`）與 tuple（`(f64, f64)`）形狀的 f64 欄位也必須被推導出來。
+///
+/// 為什麼要有這條：`stateHashDoublePaths` 是 TypeScript 端唯一的 schema 知識，而
+/// `docs/aip/conformance.md` 宣稱「新增 f64 欄位卻沒重跑 codegen 會被 `pnpm aip:check` 擋下」。
+/// 推導若只走 `properties`／`items`，那句話就只對「物件屬性形狀的 f64」成立：schemars 對 map 產
+/// `additionalProperties`、對 tuple 產 `prefixItems`，兩者都會被跳過 → 清單與現在一模一樣、
+/// 兩條斷言照樣綠、`pnpm aip:check` 零 diff，但 Rust 寫 `0.0`、TS 寫 `0`，桌面端每次核對都是
+/// `realign(hash-mismatch)`。
+#[test]
+fn double_paths_are_derived_through_maps_and_tuples() {
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    #[serde(rename_all = "camelCase")]
+    struct StateWithAMapAndATuple {
+        character_id: String,
+        weights: std::collections::BTreeMap<String, f64>,
+        span: (f64, f64),
+    }
+
+    let paths = double_paths_of(
+        serde_json::to_value(schemars::schema_for!(StateWithAMapAndATuple)).expect("schema"),
+    );
+    assert!(
+        paths.contains(&"/weights/*".to_string()),
+        "map 形狀的 f64 欄位沒有被推導出來：{paths:?}"
+    );
+    assert!(
+        paths.contains(&"/span/0".to_string()) && paths.contains(&"/span/1".to_string()),
+        "tuple 形狀的 f64 欄位沒有被推導出來：{paths:?}"
+    );
+    assert!(
+        !paths.contains(&"/characterId".to_string()),
+        "字串欄位不得被當成 f64：{paths:?}"
+    );
+}
+
+/// 欄位覆蓋 gate 也要走得進 map：`/weights/*` 這個萬用路徑必須被實際出現的鍵
+/// （`/weights/a`）算成「有 fixture 覆蓋」，否則補了 fixture 也永遠是紅的。
+#[test]
+fn map_shaped_fields_are_covered_by_the_keys_that_actually_appear() {
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    #[serde(rename_all = "camelCase")]
+    struct StateWithAMap {
+        character_id: String,
+        weights: std::collections::BTreeMap<String, f64>,
+    }
+
+    let expected =
+        field_paths_of(serde_json::to_value(schemars::schema_for!(StateWithAMap)).expect("schema"));
+    assert!(
+        expected.contains(&"/weights/*".to_string()),
+        "map 的值路徑沒有被推導出來：{expected:?}"
+    );
+
+    let mut covered = Vec::new();
+    present_field_paths(
+        &json!({"characterId": "shu", "weights": {"a": 1.0, "b": 2.0}}),
+        "",
+        &mut covered,
+    );
+    assert!(
+        uncovered_fields(&expected, &covered).is_empty(),
+        "map 的實際鍵必須算成覆蓋：{:?}",
+        uncovered_fields(&expected, &covered)
+    );
+    // 反向：schema 沒有的欄位仍然要抓得出來（萬用段不得變成「什麼都算數」）。
+    let mut stray = Vec::new();
+    present_field_paths(
+        &json!({"characterId": "shu", "ambient": "rain"}),
+        "",
+        &mut stray,
+    );
+    assert_eq!(
+        uncovered_fields(&stray, &expected),
+        vec!["/ambient".to_string()],
+        "萬用段不得把 schema 沒有的欄位也算成合法"
+    );
+}
+
+/// 巢狀太深時不得**靜默**跳過：那會讓漂移 gate 在最需要它的時候變成裝飾。
+#[test]
+#[should_panic(expected = "巢狀太深")]
+fn a_schema_too_deep_to_walk_panics_instead_of_skipping_silently() {
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    struct Deep {
+        next: Option<Box<Deep>>,
+    }
+    let _ = field_paths_of(serde_json::to_value(schemars::schema_for!(Deep)).expect("schema"));
 }
