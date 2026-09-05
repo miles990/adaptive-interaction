@@ -52,6 +52,11 @@
   沒有 HTTP 寫入入口（測試釘住 POST 同路徑非 2xx）。
 
 ### Fixed
+- **對抗審查 `427c806-20260905T081751Z`（`adversarial-review-v06x.js`，12 維度；21 reviewed／20 confirmed／1 refuted）— 文件與 lint 部分**：
+  `docs-claims.sh` 的過期宣稱檢查從三個固定片語改成一組同義詞（尚未 tag／尚未發布／尚未落地／候選／進行中／開發中／未發布）與已發布
+  版本字串同行即擋（先紅：`ARCHITECTURE.md` 三列「v0.6.0 進行中」被抓到，再修成已發布措辭）；`device-profile.md` §6 的
+  `declarative_session_loop.rs` 計數 7→13 並列出 D2 案例；`v0.6.x-maintainability-progress.md` §1 加「矩陣列號 vs 任務章節號」對照
+  （兩套編號差 1 個里程碑位移）。程式碼部分的修復另列。
 - **角色資料載入失敗的原因回到首屏**：M3 §4.1 之後「內建角色索引無法載入：…」被收在「更換或加入角色」收合區塊裡，首屏只剩
   「找不到目前設定的角色資料」而沒有原因——收合區塊不得把失敗藏起來。現在錯誤（`role=alert`）在「目前角色」區，角色庫不再重複顯示。
   `characterPage-first-screen.test.tsx` 釘住「未展開也看得到、只出現一次」。同時把第二波 IA 變更弄壞、M3c 未涵蓋的

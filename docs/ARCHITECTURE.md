@@ -37,9 +37,9 @@ Rust Adaptive Interaction Runtime
 | `interaction-adapter-sdk` | Receptor/Actuator manifest builder、DriverReceipt 協定、human meta helper |
 | `interaction-adapter-declarative` | **宣告式 adapter**：YAML spec → 真 HTTP/SSE receptor/actuator（policy-bounded、secret://、SSRF 防護） |
 | `interaction-character` | **Character Presentation Protocol 1.0**（純函式）：manifest 驗證／migration、能力協商、intent／truthState／priority floor、input 正規化、回執狀態機、wire messages、`Gateway`；JSON Schema 來源。v0.6.0：不再含任何小樞字串，`builtin_whitelist` 改為空、由 host 注入 |
-| `interaction-aip` | **v0.6.0 進行中** — Adaptive Interaction Protocol 1.0（純函式，無 tokio／I/O）：跨裝置語意訊息 envelope、12 種 message type、12 值 Outcome 誠實階梯、19 個穩定錯誤碼、版本協商、確定性能力協商、身分綁定決策、離線事件政策、證據分類、canonical JSON hash；JSON Schema 來源（`schemas/aip-1.0.schema.json`）。契約：`docs/aip/README.md` |
-| `interaction-session` | **v0.6.0 進行中** — 權威 Character Session（純函式）：語意狀態（mood／activity／attention／truth／members）唯一 owner、確定性 Director、revision／sequence／snapshot／patch／delta replay、有界安全管線、ports（Clock／SessionStore／IdentityVerifier／ConsentVerifier／RendererPort／DevicePort）。契約：`docs/aip/character-session.md` |
-| `interaction-character-shu` | **v0.6.0 進行中** — 小樞（`shu-rig`）專屬內容從 `interaction-character` 核心抽出：variants、能力集、`character-rig` 2.0 遷移（`ShuRigPack`）。核心 crate 不再含任何小樞字串 |
+| `interaction-aip` | **v0.6.0** — Adaptive Interaction Protocol 1.0（純函式，無 tokio／I/O）：跨裝置語意訊息 envelope、12 種 message type、12 值 Outcome 誠實階梯、19 個穩定錯誤碼、版本協商、確定性能力協商、身分綁定決策、離線事件政策、證據分類、canonical JSON hash；JSON Schema 來源（`schemas/aip-1.0.schema.json`）。契約：`docs/aip/README.md` |
+| `interaction-session` | **v0.6.0** — 權威 Character Session（純函式）：語意狀態（mood／activity／attention／truth／members）唯一 owner、確定性 Director、revision／sequence／snapshot／patch／delta replay、有界安全管線、ports（Clock／SessionStore／IdentityVerifier／ConsentVerifier／RendererPort／DevicePort）。契約：`docs/aip/character-session.md` |
+| `interaction-character-shu` | **v0.6.0** — 小樞（`shu-rig`）專屬內容從 `interaction-character` 核心抽出：variants、能力集、`character-rig` 2.0 遷移（`ShuRigPack`）。核心 crate 不再含任何小樞字串 |
 | `adapters-builtin` | 內建 receptor/actuator（conversation/web-ui/log/notification/webhook/mock/companion/agent…） |
 | `adapters-media` | **高敏感媒體 receptor**：麥克風 listen（feature-gated cpal；預設關；記憶體內只留 level 事實） |
 | `interaction-desktop` | Tauri 2：狀態列 runtime、RuntimeSupervisor、可信 host overlay、角色視窗（TS `CharacterGateway`＋小樞／sprite／text adapters）、角色匯入、控制中心 |
@@ -199,7 +199,7 @@ receipt 誠實結算（AI presentation command：completed→Completed Acknowled
 Presentation / UI / Renderer     apps/interaction-desktop/src（React、companion 視窗、character/adapters/*；
                                  aip/envelope.ts 鏡射 envelope 規則、aip/canonical.ts canonical JSON＋state hash、
                                  aip/sessionClient.ts 接收端 reducer——協定判斷不在 React 元件裡）
-                                  apps/interaction-ios（SwiftUI；AIP 型別已鏡射，Session client 進行中）
+                                  apps/interaction-ios（SwiftUI；AIP 型別已鏡射，Session client v0.6.0 落地、v0.6.x 加生命週期／heartbeat）
             ↓
 Application Use Cases            crates/interaction-runtime/src/character_session.rs（Session Host：
                                   join／leave／presence／submit／resume／snapshot／diagnostics／tick）

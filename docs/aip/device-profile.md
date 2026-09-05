@@ -108,7 +108,7 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
   不開綁定 task（重啟不得讓人類關掉的裝置在背景重新握手）。
 - **身分強度**：`transport-hello+device-side-pairing`（§3）；稽核 `aip.device-channel-ready`／
   `aip.device-channel-lost`／`aip.device-retired` 帶 `identityStrength`／`transport`／`pairingUnverified`。
-- **證據等級**：`crates/interaction-runtime/tests/declarative_session_loop.rs`（7 測）走 **production
+- **證據等級**：`crates/interaction-runtime/tests/declarative_session_loop.rs`（13 測；D1 的 7 支加上 D2 的「其他成員的廣播真的經序列線到達／放不進 639 bytes 的 patch 留痕」「身分不符與 session-binding 稽核記 transport=serial」「diagnostics identityStrength 三來源」「撤銷後出站表清空」「無通道成員的 no-channel 稽核」）走 **production
   `DeviceLink`＋serial adapter**，對端是 `scripts/esp32-serial-sim.py`（**pty 模擬器**；stdin 控制通道
   `aip-capability`／`aip-touch`／`aip-resume`／`aip-raw`，未配對拒絕送出）；`aip_link.rs` 6 測、
   `esp32_sim_conformance.rs` 的韌體／README／模擬器三方一致 2 測。韌體只有 `compile.sh` 編譯檢查。

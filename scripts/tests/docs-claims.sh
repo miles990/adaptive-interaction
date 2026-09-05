@@ -156,13 +156,17 @@ if idx:
              "evidence-index：tag %s 指向 %s，索引寫 %s" % (tag, resolved[:12], commit[:12]))
         for key, path in rel.get("docs", {}).items():
             need(os.path.exists(path), "evidence-index：%s 的 docs.%s 指向不存在的 %s" % (tag, key, path))
-        # 已發布的版本不得在總覽文件裡仍寫成「尚未 tag／發布」「候選版本」。
+        # 已發布的版本不得在總覽文件裡仍寫成「尚未 tag／發布」「候選」「進行中／開發中」。
+        # 對抗審查 427c806 指出只比對三個固定片語會被同義措辭繞過（ARCHITECTURE.md 仍有
+        # 「v0.6.0 進行中」）：改成一組同義詞，任何一個與已發布版本字串同行就擋。
         ver = rel.get("version", "")
+        stale_words = ("尚未 tag", "尚未發布", "尚未落地", "候選版本", "候選", "進行中", "開發中", "未發布")
         for d, text in stale_text.items():
             for line in text.splitlines():
-                if ("v" + ver) in line or ("v%s" % ver) in line:
-                    need(not ("尚未 tag" in line or "尚未發布" in line or "候選版本" in line),
-                         "%s 仍把已發布的 v%s 寫成候選／尚未 tag：%s" % (d, ver, line.strip()[:80]))
+                if ("v" + ver) in line:
+                    hit = [w for w in stale_words if w in line]
+                    need(not hit,
+                         "%s 仍把已發布的 v%s 寫成%s：%s" % (d, ver, "／".join(hit), line.strip()[:80]))
 
 for f in fails:
     print("  ✘ " + f)
