@@ -88,6 +88,12 @@ const ONLINE_HONEST = [
 
 /** 一個任務在這一輪可能的結果分類（斷言只會產生前兩種；紅了就是 `failed`）。 */
 type TaskClassification = "completed" | "correctly-blocked";
+/**
+ * 摘要 JSON 會出現的分類。`not-run` 有兩種來源，都不是「通過」：
+ * 這一輪根本沒跑到那一支測試，或者跑到了、但**這一輪沒有可做的事**
+ * （例如 fixture agent 已經自己收尾，畫面上沒有可取消的工作）。
+ */
+type RecordedClassification = TaskClassification | "not-run";
 
 interface TaskDeclaration {
   /** 事先宣告的分類。 */
@@ -96,6 +102,14 @@ interface TaskDeclaration {
   evidence: string;
   /** 限制（文件表格的第四欄）。 */
   limits: string;
+  /**
+   * 這個任務宣告 `completed` 時**一定**要附上的證據標籤。
+   *
+   * 任務的定義就是那件事本身（「取消」＝後端真的變成 cancelled）：沒有證據就不得
+   * 掛 completed，也不准用「反正它就是沒得取消」帶過——那一條路是 `not-run`
+   *（對抗審查 general-mode-ux-029）。
+   */
+  completionEvidence?: string;
 }
 
 /** 瀏覽器模式的證據等級（這一支唯一會產出的那一種）。 */
@@ -122,7 +136,12 @@ const TASK_MANIFEST: Record<string, TaskDeclaration> = {
   調整陪伴程度: { expected: "correctly-blocked", evidence: BROWSER_EVIDENCE, limits: TAURI_ONLY },
   設定安靜時段: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: "—" },
   暫停主動對話: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: "—" },
-  取消進行中的工作: { expected: "completed", evidence: BROWSER_EVIDENCE, limits: FIXTURE_AGENT },
+  取消進行中的工作: {
+    expected: "completed",
+    evidence: BROWSER_EVIDENCE,
+    limits: FIXTURE_AGENT,
+    completionEvidence: "後端 cancelled",
+  },
   "390px：看角色頁並連手機": {
     expected: "completed",
     evidence: BROWSER_EVIDENCE,
@@ -137,11 +156,15 @@ interface TaskOutcome {
   task: string;
   viewport: string;
   expected: TaskClassification;
-  actual: TaskClassification;
+  actual: RecordedClassification;
   evidence: string;
   limits: string;
   /** `correctly-blocked` 才有：後端零變動與畫面誠實文案的證據。 */
   blocked?: { backendUnchanged: boolean; honestText: string };
+  /** 宣告 `completed` 時做到的那件事（`completionEvidence` 要求時必填）。 */
+  completedVia?: string;
+  /** `not-run` 才有：這一輪為什麼沒有可做的事（不是「通過」，也不是「失敗」）。 */
+  notRun?: { reason: string };
   metrics: TaskMetricSnapshot;
 }
 
@@ -218,7 +241,9 @@ function writeOutcomeSummary(): void {
       agent: FIXTURE_AGENT,
       desktopPrefs:
         "桌面角色偏好（換角色、陪伴程度、勿擾、顯示／隱藏）住在 Tauri host；瀏覽器模式只驗得到誠實降級",
-      classifications: "completed／correctly-blocked／failed（測試紅）／not-run（本輪沒跑到）",
+      classifications:
+        "completed／correctly-blocked／failed（測試紅）／not-run（本輪沒跑到，" +
+        "或跑到了但這一輪沒有可做的事——後者會附 `notRun.reason`）",
     },
     tasks: [...outcomes, ...missing],
   };
@@ -239,7 +264,12 @@ function writeOutcomeSummary(): void {
         for (const row of summary.tasks) {
           const earlier = byTask.get(row.task) as { actual?: string } | undefined;
           // 這一輪沒跑到、但上一個 worker 跑過 → 保留上一個 worker 的結果。
-          if (row.actual === "not-run" && earlier && earlier.actual !== "not-run") continue;
+          // 帶著 `notRun.reason` 的那一種是**跑到了、但沒有可做的事**，是這一輪的實際觀察，
+          // 不得被舊結果蓋掉。
+          const observed = "notRun" in row;
+          if (row.actual === "not-run" && !observed && earlier && earlier.actual !== "not-run") {
+            continue;
+          }
           byTask.set(row.task, row);
         }
         merged = [...byTask.values()];
@@ -276,8 +306,12 @@ function openHere(page: Page) {
 async function record(
   m: TaskMetrics,
   outcome: {
-    actual: TaskClassification;
+    actual: RecordedClassification;
     maxDecisions?: number;
+    /** 宣告 `completed` 時做到的那件事（宣告 `completionEvidence` 的任務必填）。 */
+    completedVia?: string;
+    /** `actual: "not-run"` 必填：這一輪為什麼沒有可做的事。 */
+    notRun?: { reason: string };
     blocked?: {
       /** 動作之前的後端狀態（JSON 字串）。 */
       backendBefore: string;
@@ -302,10 +336,45 @@ async function record(
     declared,
     `任務「${snapshot.task}」沒有在 TASK_MANIFEST 宣告分類與證據等級`
   ).toBeTruthy();
+  // `not-run` 不是漂移：它說的是「這一輪沒有可做的事」，所以不拿它跟宣告的分類對照，
+  // 但一定要說出原因，而且不會被算成做完（摘要與量測表都分得出來）。
+  if (outcome.actual === "not-run") {
+    const reason = outcome.notRun?.reason.trim() ?? "";
+    expect(reason.length, `「${snapshot.task}」記成 not-run 卻沒有說原因`).toBeGreaterThan(0);
+    expect(
+      outcome.blocked,
+      `「${snapshot.task}」是 not-run，不該附「被擋下」的證據`
+    ).toBeUndefined();
+    outcomes.push({
+      task: snapshot.task,
+      viewport: snapshot.viewport,
+      expected: declared.expected,
+      actual: "not-run",
+      evidence: declared.evidence,
+      limits: declared.limits,
+      notRun: { reason },
+      metrics: snapshot,
+    });
+    const notRunLine = `${formatTaskMetrics(snapshot)}｜分類 not-run（${reason}）`;
+    console.log(notRunLine);
+    await test.info().attach(`task-metrics-${snapshot.task}`, {
+      body: JSON.stringify(outcomes[outcomes.length - 1], null, 2),
+      contentType: "application/json",
+    });
+    return;
+  }
+
   expect(
     outcome.actual,
     `任務「${snapshot.task}」的分類漂移了：宣告 ${declared.expected}，這一輪是 ${outcome.actual}`
   ).toBe(declared.expected);
+
+  if (outcome.actual === "completed" && declared.completionEvidence) {
+    expect(
+      outcome.completedVia,
+      `「${snapshot.task}」宣告 completed 就要附上「${declared.completionEvidence}」的證據`
+    ).toBe(declared.completionEvidence);
+  }
 
   let blocked: TaskOutcome["blocked"];
   if (outcome.actual === "correctly-blocked") {
@@ -340,6 +409,7 @@ async function record(
     evidence: declared.evidence,
     limits: declared.limits,
     ...(blocked ? { blocked } : {}),
+    ...(outcome.completedVia ? { completedVia: outcome.completedVia } : {}),
     metrics: snapshot,
   });
 
@@ -1128,13 +1198,19 @@ test("任務 11：取消工作——按一次中斷，後端真的取消（不�
     await waitSessionState(request, sessionId, ["cancelled"], 60_000, target());
     // 使用者不重新載入也要看到它停了。
     await expect(card.getByText("已取消", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await record(m, { actual: "completed", completedVia: "後端 cancelled" });
   } else {
     // fixture agent 已經自己收尾：這時候該有的是「關閉」，不是假的中斷鈕。
+    // 這一條路**沒有取消任何東西**，後端也不會出現 `cancelled`：這個任務的定義就是
+    // 「取消」，沒取消到就不是 completed，誠實記成 not-run（對抗審查 general-mode-ux-029）。
     m.decide("關閉這個工作階段");
     await card.getByRole("button", { name: "關閉", exact: true }).click();
     await expect(page.getByText(/工作階段已關閉/)).toBeVisible({ timeout: 20_000 });
+    await record(m, {
+      actual: "not-run",
+      notRun: { reason: "fixture agent 已經自己收尾，這一輪沒有可取消的工作（沒有中斷鈕）" },
+    });
   }
-  await record(m, { actual: "completed" });
 });
 
 // ---------------------------------------------------------------------------

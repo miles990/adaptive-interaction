@@ -10,6 +10,8 @@
 //   - 回頭 = 導覽回到先前造訪過的頁面（連續停在同一頁不算）。
 //   - 目標區間 3–5 個主要決策；超出時 `withinDecisionTarget` 必須回 false（不四捨五入）。
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   TaskMetrics,
@@ -201,5 +203,44 @@ describe("任務量測：耗時、求助與失敗後恢復", () => {
     // | 任務 | 視窗 | 決策 | 點擊 | 回頭 | 安全步驟 | 求助 | 失敗後恢復 | 耗時 |
     expect(row.split("|").length).toBe(11);
     expect(row).toContain("| 1 | 是 | 3.4 |");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 任務 spec 的分類誠實（來源層棘輪）
+// ---------------------------------------------------------------------------
+//
+// e2e 只有在真的跑到某一條分支時才驗得到那條分支。「取消進行中的工作」的 else 分支
+// （fixture agent 已經自己收尾，畫面上根本沒有中斷鈕）不會取消任何東西，卻曾經照樣以
+// `completed` 收尾——文件 §1 的第 12 列宣稱「按『暫停／中斷目前工作』→ 後端 cancelled」，
+// 兩條路徑卻收斂成同一個分類，一個沒做到的任務可以合法地拿到 completed
+//（對抗審查 general-mode-ux-029）。這一支從原始碼把那條分支釘住。
+
+describe("任務 spec：沒做到就不得記成 completed", () => {
+  const source = readFileSync(resolve("e2e/general-mode-tasks.spec.ts"), "utf8");
+
+  /** 取出「取消進行中的工作」那一支測試的內文。 */
+  function cancelTaskBody(): string {
+    const start = source.indexOf('new TaskMetrics("取消進行中的工作"');
+    expect(start, "找不到「取消進行中的工作」這一支測試").toBeGreaterThan(0);
+    const end = source.indexOf("\ntest(", start);
+    return source.slice(start, end === -1 ? undefined : end);
+  }
+
+  it("找不到中斷鈕（沒有可取消的工作）的那一條路記成 not-run", () => {
+    const body = cancelTaskBody();
+    const split = body.indexOf("} else {");
+    expect(split, "任務 11 應該還有「沒有中斷鈕」的那一條路").toBeGreaterThan(0);
+    const withInterrupt = body.slice(0, split);
+    const withoutInterrupt = body.slice(split);
+    expect(withInterrupt).toContain('actual: "completed"');
+    expect(withoutInterrupt).toContain('actual: "not-run"');
+    expect(withoutInterrupt).not.toContain('actual: "completed"');
+  });
+
+  it("宣告 completed 的那一條路要附上「真的取消到了」的證據", () => {
+    const body = cancelTaskBody();
+    expect(body).toContain('waitSessionState(request, sessionId, ["cancelled"]');
+    expect(body).toMatch(/completedVia:\s*"/);
   });
 });
