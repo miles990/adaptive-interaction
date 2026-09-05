@@ -9,9 +9,190 @@
 
 ## [Unreleased]
 
-> 進度與需求矩陣：`docs/releases/v0.6.x-maintainability-progress.md`；已發布版本的 canonical 事實：
+> 進度與需求矩陣：本輪見 `docs/releases/v0.7.0-progress.md`，第一輪見
+> `docs/releases/v0.6.x-maintainability-progress.md`；已發布版本的 canonical 事實：
 > `docs/releases/evidence-index.json`。本段只記本分支（`feature/v0.6.x-maintainability`）已提交的變更，
 > 每條附 commit；行為保護由 executable tests 保證，不在這裡反覆重述。
+
+### 本輪（v0.7.0 候選，2026-09-05／06）
+
+> 起點 `f5b8e2f`，28 個 commit。進度與差異矩陣：`docs/releases/v0.7.0-progress.md`；限制彙整：
+> `docs/releases/v0.7.0-known-limitations.md`；遷移：`docs/releases/v0.7.0-migration.md`。
+> 每條附本分支的 commit SHA。整合全套測試數字尚未產生，不在這裡寫；見 progress §4／§5。
+
+#### Added
+
+- **AIP 1.0 接收端決策表（三端共用、可執行）**：新純函式模組 `crates/interaction-session/src/receive.rs`
+  把「收到一則 `state` 之後要做什麼」寫成一張表——連線／請求世代 → 身分 → 形狀 → `session-reset`／
+  bootstrap → epoch → `recovery` → revision → patch 續接 → hash，第一個命中即決定（`d941a9e`）。
+  附 resume 回覆逐則規則（良性舊項跳過不中止、第一個帶 effect 的決策中止整批、超過上限整批不處理）
+  與有界 `RealignBudget`。桌面 `apps/interaction-desktop/src/aip/sessionClient.ts`（`e2179d5`）與
+  iPhone `apps/interaction-ios/InteractionCompanion/Services/SessionReceive.swift`（`050bac7`）改讀同一張表。
+- **新 `payload.reason` 值 `recovery`**（wire 形狀與 `specVersion` 不變）：host 在「同一個 session、
+  epoch 不變、權威狀態真的比成員記得的舊」時送它，成員採納並退回 host 的 revision；只認得舊值的
+  接收端把它當成沒有 reason 的 snapshot（＝ v0.6.0 行為）。（`d941a9e`）
+- `interaction_aip::limits` 新增 `MAX_RESUME_PATCHES`（512，const assert 綁死 ＝ `EVENT_LOG_RING`）與
+  `MAX_REALIGN_ATTEMPTS`（3），發布進 `schemas/aip-1.0.schema.json` 的 `limits` 表，TS／Swift 由 codegen
+  讀同一個數字。（`d941a9e`）
+- **跨語言 `receiveDecisions` fixtures**：`crates/interaction-aip/tests/fixtures/manifest.json` 第 11 段
+  45 個具名案例（`d941a9e` 43 案例；`dbeed51` 加身分兩案例與選填 `expect.sessionIdAfter`），三個獨立
+  消費者逐筆對答案——Rust `receive_decisions_from_json.rs`、TS `receive-decision-fixtures.test.ts`、
+  Swift `ReceiveDecisionConformanceTests`。
+- **裝置線 v1.2：AIP envelope 分片 `aip-frag`**（`9799b1e`）：`proto` 仍為 1，新訊息型別（舊韌體忽略、
+  舊 host 丟棄），只對 hello `caps` 宣告 `aip.frag/1` 的裝置使用；`crates/interaction-adapter-declarative/src/fragment.rs`
+  切片／重組／crc32（每裝置 1 筆 in-flight、8 KiB、片數 64、2 s 逾時、cancel；重複／亂序／缺片／截斷／
+  惡意 total 一律整筆丟棄＋稽核 `aip.fragment-dropped{reason}`）。核心零變更（`interaction-session`／
+  `interaction-aip` diff 為空）。`scripts/esp32-serial-sim.py` 支援雙向分片（`--no-frag` 關閉）；參考韌體
+  刻意不宣告 `aip.frag/1`。
+- **實測 wire bytes 表**（不是估算，`docs/aip/device-profile.md` §6.2）：capability 318／snapshot 814–1019／
+  含 members 的 patch 686–810／不含 members 的 patch 515 bytes；單行上限 serial 639、MQTT 639、
+  **BLE 480**（文件原寫 512，本輪更正）。（`9799b1e`）
+- **成員同步模式 `syncProfile`**（`9799b1e`）：Runtime 依出站通道能力（單行上限＋是否支援分片）＋協商好的
+  `role` 推導 `full-state`／`intent-only`／`event-source`，投影到 diagnostics `members[].syncProfile` 與
+  `status.characterSessionSync`（非空才序列化）＋稽核 `aip.member-sync-profile`；不新增任何宣告欄位。
+  桌面接線（`bc6d834`）：非 `full-state` 的成員在同步卡／手機卡／裝置條目說「只接收指令」／「只回報事件」，
+  同步卡進新的 `partial-sync` 態（info，不是綠勾）；欄位缺席時維持既有語意，不憑空升降級。
+- **「未解決停止」三層分離**（`b32ba10`）：即時 `activeSensors`（60 s）／不受 TTL 影響的有界（32）
+  `unresolvedStops`／稽核歷史；`status.unresolvedStops`、`GET /v1/sensors/unresolved`、
+  `POST /v1/sensors/unresolved/{sourceId}/dismiss`、`interact-ai sensors unresolved`／`sensors dismiss`。
+  桌面三處呈現＋二段人為確認（`d7199a8`）：狀態列一行、連接頁逐筆、tray「感測停止待確認 N」，文案完全
+  沒有「已停止」字樣；解除的回應與稽核都寫死 `confirmedStopped:false`。人話裝置名 `sourceLabel`
+  （provider 顯示名 → 能力宣告的 class label；都查不到就省略，`sourceId` 永不冒充人話名稱，`4329c1e`）。
+- **桌面「重新啟用這台裝置」按鈕**（`bc6d834`）：`api.providerTransition` 兩路（Tauri IPC ＋
+  `POST /v1/providers/{id}/transition`，人類層），對 `disabled` 的裝置條目給二段確認；成功只說
+  「已允許重新連線，正在重新綁定」，撤銷／已關閉不給這顆按鈕。
+- **一般模式任務驗收擴充**（`e7348a8`／`2010852`）：第 14 個任務「暫停主動對話」（真 e2e，`/v1/pause`）；
+  `TASK_MANIFEST` 事先宣告每個任務的 `completed`｜`correctly-blocked` 並與實跑結果對照（不一致直接紅）；
+  結果摘要 `test-results/general-mode-task-outcomes.json`；`taskMetrics` 新增 `durationMs`／
+  `helpRequested`／`recoveredFromFailure`；`scripts/tauri-ax-walkthrough.sh` 真 Tauri 視窗 AX 走查
+  （9 步，非互動、可重跑）。
+- **可維護性入口**（M6）：獨立的 `AGENTS.md`（107 行，任何 AI 通用的入口地圖，`160d880`）、
+  `docs/MAINTAINERS-MAP.md` 十個能力的歸屬表（`2b5c640`）、`docs/aip/deprecation-ledger.md` 相容路徑
+  登記簿（`ea2aef9`；條目結構與計數說明 `b3a49f7`；v1.2 分片的相容承諾補完 `8159d20`）、
+  `scripts/tests/architecture-checks.sh` 可執行架構檢查單一入口（`3c0fda3`；錯誤路徑修復與 swift 列
+  不再橡皮圖章 `5c82671`）。
+- **可維護性演練與腳本**：`docs/releases/v0.7.0-drills.md`（五個演練各實跑一次，`713f8fe`）、
+  `examples/adapters/event-source-button.yaml` 與 event-source 裝置的 production 迴路測試（`d391f38`）、
+  `scripts/drills/provider-disable-reenable.sh`（`3b0af66`）、`scripts/drills/remove-package-keep-user-data.sh`（`75a6f27`）。
+- iOS `SocketTransport`／可注入排程與配對儲存，五個背景閘門的行為測試（`a0d3309`）。
+- MQTT 上的 rebind 閉環測試（in-process broker ＋ fake device **模擬器**），證明重新綁定不是 serial 專屬路徑（`b6d849c`）。
+
+#### Changed
+
+- **`transition_provider(id, Available)` 對宣告式裝置回傳 `Disconnected` 而不是 `Available`**（`b32ba10`）：
+  重新啟用只代表「允許再試一次」，狀態不得先於實際連線。依賴「回傳狀態＝請求狀態」的呼叫端要一起看。
+- **宣告式裝置停用後重新啟用不再需要重新啟動 daemon**（`b32ba10`）：綁定生命週期改為顯式狀態機
+  `crates/interaction-runtime/src/declarative_lifecycle.rs`（`Bound`／`Rebinding{generation}`／
+  `Unbound{disabled|disconnected|revoked|removed}`，有界 64），八步有界背景 rebind（3 s 收斂、20 s 握手、
+  40 s 總預算），握手 Ready 才收斂 `Available`；稽核 `provider.rebinding`／`provider.rebound`／
+  `provider.rebind-failed{reason}`／`provider.rebind-superseded`。撤銷／移除不得復活。
+- **停用／撤銷一台裝置的順序改為「先請來源停止 → 再關連線 → 最後翻能力旗標」**（`b32ba10`）：先關連線
+  等於拆掉唯一能問「你停了嗎」的那條線，結果永遠只能是 `unknown`。
+- 對同一台 provider 的複合決定（停用／撤銷／重新綁定）在 registry 層以每 id 一把鎖序列化（`b32ba10`）。
+- **rebind 不得打開人類手動關掉的受器**（`9799b1e`）：rebind 等同重新註冊 spec，會把能力旗標帶回預設；
+  現在先記下「預設開著但現在被關掉的非 consent 受器」，套用成功才清紀錄，`provider.rebound` 多一個
+  `keptDisabledReceptors`。
+- `MAX_RESUME_PATCHES` 由桌面自寫的 1024 改為契約的 **512**，且超過上限從「截斷後 realign」改為
+  **整批不處理**＋`realign(resume-too-long)`（`d941a9e`／`e2179d5`／`050bac7`）。
+- realign 有界預算的語意由「第 4 次才 unrecoverable」修正為 **第 3 次**（契約 `maxRealignAttempts=3`），
+  三端改讀生成常數（`d941a9e`／`e2179d5`／`050bac7`）。
+- 桌面進階模式「連接診斷」的 alignment 計數**改名並與決策 1:1**（`stale`→`staleConnection`、
+  `invalid`→`rejectedInvalid`、`ignoredRollback`→`ignoredStale`，移除 `hostRegressed`，新增 `recovered`／
+  `rejectedIdentity`）（`e2179d5`）。舊截圖若印過這些標籤會過時。
+- `GET /v1/sensors/unresolved` 收進 agent token 的 GET 排除清單（人類層；`/v1/sensors/stop` 仍放行）（`9799b1e`）。
+- `UnresolvedStop` 與 `status.unresolvedStops`／`GET /v1/sensors/unresolved` 兩份清單欄位逐欄相同，
+  由 API 測試釘住（`4329c1e`）。
+- 通用停用不再關掉家族共用的能力旗標，這是**既有**行為（本分支較早的 `f250acf`，見上方 v0.6.x 段），
+  本輪未改；rebind 路徑沿用同一語意。
+
+#### Fixed
+
+- **落後的權威 snapshot 不再被成員當成重播丟掉**（`d941a9e`）：host 從較舊快照還原、成員領先時，v0.6.0
+  回一則沒有 reason 的 snapshot（被 rollback 防護忽略）；中途在 Runtime 把它改寫成 `session-reset` 的補救
+  **其實無效**（同 epoch 的 `session-reset` 一樣被忽略，已先以測試重現該無效性再移除）。現在由 session 層
+  標 `reason:"recovery"`，接收端依規則 6 採納。
+- 三端對「snapshot 的 epoch 不同但沒有 `session-reset` 宣告」的結論統一為 **realign**（以前 Rust／Swift
+  直接套用並靜默改寫本地 epoch）；patch 也開始檢查 epoch（`d941a9e`／`e2179d5`／`050bac7`）。
+- 缺 `hash` 或缺 `state` 的 snapshot 三端一律 `reject-invalid`（以前 TS／Swift 是「不核對就套用」）（同上）。
+- **身分規則的 fail-closed 地雷**（`dbeed51`）：規則 1 改為「local 有狀態**且 sessionId 已知**且 incoming
+  宣稱不同 → `reject-identity`」；否則採納 incoming 的身分。原本的嚴格解會讓「以不帶 sessionId 的 resume
+  snapshot bootstrap」之後的所有訊息被永久拒絕，而 `reject-identity` 不 realign、沒有出路。
+- **iPhone 的 resume-with-patches 路徑從來沒有成功過**（`050bac7`）：resume 回覆裡的 patch 是攤平形狀
+  （沒有 `kind`），舊解析器一律回 nil，於是每一次帶補丁的 resume 都被記成「讀不出來」並累計失敗，連續三次
+  就顯示「無法恢復」。新增 `resumePatchMessage`（比照 TS `readResumePatch`）。
+- **陪伴預設的兩段寫入變成可恢復的交易**（`49eee6c`）：第一段（桌面偏好）與恢復標記
+  `companionPendingPresetOp` 同一次原子寫入；第二段沒送到時明確顯示「半套用」並提供「補送」；回應遺失時
+  先讀回，讀回等於目標即視為完成；重新開啟後若使用者沒有改過相關設定就自動補送一次，改過就只清標記，
+  絕不覆蓋使用者的修改；交易期間「表現程度」select 與勿擾 Toggle 停用，進階主動對話區也停用（`d7199a8`）。
+- `desktop_prefs_patch` 改為先持久化、存檔成功才寫回記憶體，存不下來時記憶體回滾（以前會留下一個重開就
+  消失的設定）；`patch()`／`load()` 補上請求世代守衛（`49eee6c`）。
+- 桌面讀不到設定時的誠實文案（`49eee6c`）：主動說話設定讀不回來 → 不高亮任何檔位、說「無法確認目前
+  生效值」；Tauri 下 `prefsGet` 失敗不再誤報成「此為瀏覽器檢視」，改說出讀取失敗與原因。
+- **停用之後裝置仍可能重新加入 Character Session**（`character.session.leave` 之後又 `join`）：入站 `aip`
+  現在有確定性的綁定閘門，被擋下的留 `aip.rejected{stage:"provider-binding"}`（`b32ba10`）。
+- 同一個感測來源 id 重新登記時不再無條件抹掉舊那一次留下的孤兒記錄（記錄帶單調世代）（`b32ba10`）。
+- `scripts/tests/architecture-checks.sh` 自己的錯誤路徑在 `set -u` 下會死掉（`$VAR` 後接全形括號被 bash
+  讀成識別字的一部分），且 swift 那一列是寫死的 SKIP——刪掉測試也看不出來；現在逐一加大括號，swift 列
+  改為驗證檔案與測試函式存在（仍不在本機執行，維持 SKIP，缺席則 FAIL）（`5c82671`）。
+- 三份文件把已合併的 v1.2 分片寫成「在另一個 worktree 進行中、file:line 待補」（`8159d20`）：
+  deprecation-ledger §3.2 補成完整七欄、device-profile §6.3 每條宣稱附符號名與四支回歸測試名、
+  MAINTAINERS-MAP 的已知限制欄更新。
+
+#### Removed
+
+- 桌面接收機的 `allowRegression`／`hostRegressed`（`e2179d5`）：同 incarnation 的回退不因「HTTP 回覆最新」
+  而合法；真正合法的回退只有 host 明說的 `reason:"recovery"`。
+- `needs-restart-to-rebind` 的 provider detail 文字與 `provider.needs-restart-to-rebind` 稽核（不再是事實）（`b32ba10`）。
+- Runtime 把「成員領先」的 snapshot 改寫成 `session-reset` 的補救（實測無效，已由 `recovery` 取代）（`d941a9e`）。
+- `AGENTS.md` 指向 `CLAUDE.md` 的 symlink（改為獨立入口檔；不變量仍然只有 `CLAUDE.md` 一份）（`160d880`）。
+
+#### Known limitations（更新；完整彙整見 `docs/releases/v0.7.0-known-limitations.md`）
+
+已修掉、從清單移除的三條（原文與註記見 `docs/releases/v0.6.x-final-report.md` §11）：
+
+- ~~宣告式裝置 Disabled→Available 需重啟才重新綁定~~ → 已由有界背景 rebind 取代（`b32ba10`）。
+  同一行的後半「純 HTTP 宣告式來源的高風險受器停止後持續 stop-unknown」**仍然成立**。
+- ~~三端對「snapshot epoch 不同但非 session-reset」不一致~~ → 三端統一 realign 並由 45 個 fixtures 逐筆
+  釘住（`d941a9e`／`e2179d5`／`050bac7`／`dbeed51`）。
+- ~~Serial 成員完全拿不到 snapshot 與含 members 的 patch~~ → 改寫為：**只對不宣告 `aip.frag/1` 的裝置
+  （含目前的參考韌體）仍然送不到**；宣告的裝置由 v1.2 分片送達（`9799b1e`）。
+
+本輪新增／更新的限制（節錄）：
+
+- **真機／真板零執行**：ESP32 真板驗收仍為零（只有 `arduino-cli` 編譯檢查與 `scripts/esp32-serial-sim.py`
+  pty 模擬器）；iPhone 全部證據來自 iPhone 17 **模擬器**與 fixture。參考韌體刻意不宣告 `aip.frag/1`，
+  所以分片路徑在真板上一次都沒有執行過。
+- 局部投影（scope／`scopeRevision`／scope-only hash）**未實作**，含 members 的 patch 仍整段重送；設計方向
+  記在 `docs/aip/transport-bindings.md` §8.1。
+- 出站分片中途失敗不重送（重送可能重複外部副作用）：對端因缺片／逾時整筆丟棄並留稽核。
+- `syncProfile` 由 Runtime 依協商好的 `role` 推導而非逐項 intents，「宣告 remote-renderer 但 intents 為空」
+  仍算 `intent-only`；`docs/DESKTOP-GUIDE.md` 的同步狀態表尚未補上 `partial-sync` 那一列
+  （`PENDING_GUIDE_ROWS` 記著要補的整列文字）。
+- rebind 失敗後 supervisor 仍以退避重連（狀態留在 `disconnected`）；`unresolvedStops` 只在記憶體、不跨重啟；
+  MQTT 有 rebind 測試（`b6d849c`）但 BLE 沒有，兩者的 AIP session 端到端也只有 serial 有 pty 模擬器可跑。
+- 桌面規則 0 的連線世代只擋得住飛行中的 GET／resume 回覆；SSE 事件流本身不帶世代。
+- 陪伴預設的恢復流程只有 vitest（mock Tauri host）＋ src-tauri 單元證據，沒有真桌面「套用→關掉→重開→
+  補送」的實跑；清標記是第三次寫入，失敗時標記會留到下一次 mount。
+- 真 Tauri AX 走查不在 CI（需要 macOS 桌面工作階段與輔助使用權限），且不涵蓋手機相關任務；五份非開發者
+  受測者腳本仍是 **not-run**（沒有受測者）。
+- 演練 §7 的三個缺口未修：`SemanticState` 不在任何跨語言 schema（加欄位對 TS／Swift 零機械傳播）、沒有測試
+  擋得住「選填欄位寫成 `null` 進 canonical」、`docs/aip/adapter-development.md` §1 把「加角色」與「加 adapter」
+  混成一步。演練文件 §7 F3（`syncProfile` 零消費端）已由 `bc6d834` 修掉，該節記的是演練當下的事實。
+
+#### Docs
+
+- README 分層表／`docs/ARCHITECTURE.md` crate 責任表／`docs/FEATURES.md` 補上本輪五個新模組與三份新文件（`2da6ebc`）。
+- `docs-claims.sh` 的過期宣稱 lint 加入 `AGENTS.md`（它從 symlink 變成真檔案時靜默掉出清單），本輪版本一律
+  寫成「v0.7.0（候選）」（`248e120`）。
+- `docs/aip/character-session.md` §6／§7.2（決策表全文與與 v0.6.0 的差異）、`docs/aip/README.md` §6／§11／§14、
+  `docs/aip/conformance.md` §2／§3、`docs/aip/transport-bindings.md` §6／§7／§8／§8.1、
+  `docs/aip/device-profile.md` §3.1／§6.1／§6.2／§6.3、`docs/aip/privacy.md` §5.1、
+  `docs/aip/general-mode-ux.md` §5.5／§5.6／§5.6b／§5.7、`docs/aip/adapter-development.md`、
+  `apps/interaction-ios/README.md`、`firmware/esp32-companion/README.md` 隨對應的程式碼 commit 更新。
+- 發布文件：`docs/releases/v0.7.0-progress.md`、`v0.7.0-known-limitations.md`、`v0.7.0-migration.md`、
+  `v0.7.0-final-report.md`（草稿）、`docs/releases/evidence-index.json` 的 candidate 條目、
+  `docs/acceptance-evidence.md` 的本輪證據等級表（本文件收斂 commit 群）。
+
 
 ### Added
 - 三端共用的 **state-hash fixtures**（`crates/interaction-aip/tests/fixtures/state-hash-*.json`，manifest 新增
