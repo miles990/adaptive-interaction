@@ -4,7 +4,7 @@
 
 | Adapter | 型態 | 程式 | 能力宣告 | 證明什麼 |
 |---|---|---|---|---|
-| 小樞 `shu-rig` | in-process、參數化 2D rig＋遊玩場 | `apps/interaction-desktop/src/character/adapters/shu.ts`＋`shuTables.ts` | 全部 `visual.*`、`audio.speech`／`effect`、7 個 `input.*`、`multiCharacter`、`scene`、`rollCall`、`gameplay.*`；36 正式表情為 variants | 完整 Reference Implementation；Runtime 不再引用耳朵／尾巴／表情名 |
+| 小樞 `shu-rig` | in-process、參數化 2D rig＋遊玩場 | `apps/interaction-desktop/src/character/adapters/shu.ts`＋`shuTables.ts`＋`shuPlayControls.tsx`（遊玩場設定 UI：場景、玩耍開關、使魔；由 `SHU_META.playfieldControls` 宣告，頁面不認得小樞） | 全部 `visual.*`、`audio.speech`／`effect`、7 個 `input.*`、`multiCharacter`、`scene`、`rollCall`、`gameplay.*`；36 正式表情為 variants | 完整 Reference Implementation；Runtime 不再引用耳朵／尾巴／表情名 |
 | `sprite` | in-process、sprite sheet（舊 v1／v2 pack 相容層） | `src/character/adapters/sprite.ts`＋`spriteIntents.ts` | `visual.presence`／`visual.expression(variants=animations)`／（有 anchors 時）`visual.gaze`、5 個 `input.*` | 舊 Character Pack 零設定遷移；沒有的動畫誠實 `substituted`，`failed`→`blocked` 永不落到 success |
 | `text` | in-process、DOM 文字 | `src/character/adapters/text.ts`＋`lines.ts` | `visual.presence`、`visual.textBubble`、`input.click`、`input.text` | 最小文字角色；協定不依賴 rig；也是小樞停用／崩潰時的可信 fallback |
 | WebSocket 外部 fixture | external-process、Node ≥ 22、零依賴 | `examples/character-adapters/text-adapter.mjs`＋`text-adapter.manifest.json` | `visual.presence`、`visual.textBubble`、`input.text` | 外部 transport 閉環（hello→negotiate→intent→receipt）；CLI E2E 使用，標示為**模擬 adapter（fixture）** |

@@ -990,8 +990,9 @@ wave3／hardening 的落地事實尚未回填。
 - Linux aarch64 已從支援宣告移除（不再給 404），需從原始碼建置。
 - 沒有程式碼簽章／公證／SBOM／build provenance；Release 只有 `.sha256`。
 - `release.yml` 的 `ci-gate`／`finalize` 兩個 job **未經真實 tag push 驗證**（證據等級：unit）。
-- `apps/desktop` 的 `settingsTransfer.ts` 仍以 `SHU_RIG_PALETTES` 驗證使魔配色——「Runtime／頁面
-  不得再引用小樞」這條不變量在前端的最後一個例外。
+- `apps/desktop` 的 `settingsTransfer.ts` 曾以 `SHU_RIG_PALETTES` 驗證使魔配色——「Runtime／頁面
+  不得再引用小樞」這條不變量在前端的最後一個例外；**v0.6.x 分支已修**（驗證綁目標角色的 adapter meta；守門測試
+  `architecture-no-entrypoint-switch.test.ts` 擴大到頁面層，`CharacterPreview.tsx`／`CharacterLibrary.tsx` 暫列待收斂棘輪）。
 - iPhone 真機仍是 **implemented-unverified**（本輪 iOS 證據全部是 iOS Simulator 與程序內 fixture）。
 - AIP frame 共用 iPhone 線協定 v1 的速率窗：burst > 30 msg/s 會觸發**既有 v1 的連線關閉**
   （不是只丟那一則）；session 端每成員 30/s 的 token bucket 在那之前會先回 `rejected{rate-limited}`。

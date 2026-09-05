@@ -39,7 +39,8 @@ Gemini／OpenAPI／JSON-Schema 產生器）＋跨 AI Skill（`skills/orchestrate
 - `crates/interaction-runtime/src/mobile.rs` iPhone Mobile Provider（TLS wss、配對、每機 token）
 - `crates/interaction-character` Character Presentation Protocol 1.0（純函式；schema golden `schemas/character-protocol.schema.json`）；
   `crates/interaction-runtime/src/character.rs` CharacterHub＋真相投影；`crates/interaction-api/src/character_ws.rs` 外部 adapter WebSocket
-- `apps/interaction-desktop/src/character/` TS 鏡射＋in-process gateway＋adapters（`shu`／`sprite`／`text`）；
+- `apps/interaction-desktop/src/character/` TS 鏡射＋in-process gateway＋adapters（`shu`（含 `shuPlayControls.tsx` 遊玩場設定 UI，由 adapter meta 宣告）／`sprite`／`text`／`shape`）；
+  角色專屬設定值（配色／說話風格）只由 adapter meta 宣告，`companion/settingsTransfer.ts` 與頁面不得認得任何角色 id；
   `public/characters/` 內建 manifest；`src-tauri/src/{host_safety,character_store,character_bridge}.rs` 可信 overlay／匯入／IPC；
   `docs/character-protocol/` 契約、adapter 撰寫指南、reference adapter 導覽；`examples/character-adapters/` 外部 WebSocket fixture
 - `adapters/{builtin,media}` 內建受器動器＋麥克風感測（feature-gated cpal）

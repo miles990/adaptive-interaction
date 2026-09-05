@@ -68,6 +68,19 @@ export class MyTextAdapter implements CharacterAdapter {
 把 manifest 放到 `apps/interaction-desktop/public/characters/<characterId>/manifest.json` 並加進
 `public/characters/index.json`，角色頁就會列出它。**沒有任何角色需要臉、手、尾巴或聲音。**
 
+## 1.1 in-process adapter 的 host meta（`BuiltinAdapterMeta`，v0.6.x）
+
+除了 manifest，in-process 的 builtin adapter 在 `character/adapters/index.ts` 註冊時還會宣告一份 **host meta**：
+`hasPlayfield`、`variants`（外觀／配色 id）、`personas`（說話風格 id＋顯示名；上限 16）與 `playfieldControls`
+（遊玩場設定 UI 的 React 元件）。這是 host 唯一知道「這個角色有哪些角色專屬設定值」的地方：
+
+- 角色設定的匯入／匯出（`companion/settingsTransfer.ts`）以 **目標角色的 adapter meta** 驗證 `companionFamiliars.palette`
+  ∈ `variants`、`companionPersona` ∈ `personas`；沒有宣告就拒絕（不會拿別的角色的允許值頂替）。
+- 角色頁不再依 entrypoint 字面分岔：有 `hasPlayfield` 才掛 `playfieldControls`；`personas` 非空才顯示說話風格。
+- 註冊期不變量：宣告 `playfieldControls` 卻沒有 `hasPlayfield` → 註冊當下 throw。
+- 守門測試 `architecture-no-entrypoint-switch.test.ts` 掃 `companion/*`、`character/gateway.ts`／`negotiate.ts`
+  **與頁面層**（`pages/CompanionPage.tsx`、`pages/character/**`），不得出現 `"shu-rig"`／pack id／部位名字面。
+
 ## 2. 如何宣告能力
 
 `capabilities` 只宣告你真的做得到的事（§3.1 的 canonical id 或 namespaced custom id）。每個能力可以附帶

@@ -52,6 +52,7 @@ Adapters / Transport / Platform  mobile.rs（iPhone wss）、character.rs＋char
 | TS `protocol.ts BUILTIN_ENTRYPOINT_IDS`、`CompanionApp.tsx` 依 entrypoint 三向 if | `character/adapterRegistry.ts`：`registerBuiltinAdapter(id, factory)`；shu／sprite／text／shape 各自在自己的模組註冊；CompanionApp 只呼叫 `createAdapter(entrypoint)`；白名單＝registry keys |
 | Tauri `BUNDLED_CHARACTER_IDS` 硬編 9 個 | 從 `public/characters/index.json` 產生的常數（build script 或測試釘住一致），新增 `ref-shape` |
 | 桌面主入口第二項標籤 | 已是「目前角色」動態名（`useCharacterName`），保留；預設仍顯示「小樞」 |
+| （v0.6.x）`companion/settingsTransfer.ts` 以 `SHU_RIG_PALETTES`＋硬編 persona 清單做全域驗證；`CompanionPage.tsx` 以 `isShuRig` 字面分岔掛小樞遊玩場 UI | 驗證綁定**目標角色的 adapter meta**（`personas`／`variants`／`hasPlayfield`）；小樞遊玩場 UI 搬進 `character/adapters/shuPlayControls.tsx` 並由 `SHU_META.playfieldControls` 宣告；守門測試擴大到頁面層（`pages/CompanionPage.tsx`、`pages/character/**`，`CharacterPreview.tsx`／`CharacterLibrary.tsx` 暫列待收斂棘輪） |
 
 新增第二 Reference Character：`ref-shape`（幾何形，`entrypoint builtin:shape`，只宣告 `visual.presence`／`visual.expression`（variants=四個 intent）／`input.click`，
 無耳尾、無玩具）。驗收：加入它**不改** `interaction-character`、`character.rs`、`CompanionApp.tsx` 任何 switch-case（用 `git diff --stat` 證明）。
