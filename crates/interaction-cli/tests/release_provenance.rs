@@ -118,9 +118,9 @@ fn every_crate_version_follows_the_workspace() {
             };
             let package = src.split("[package]").nth(1).unwrap_or("");
             let package = package.split("\n[").next().unwrap_or("");
-            let follows = package
-                .lines()
-                .any(|line| line.trim_start().starts_with("version.workspace") && line.contains("true"));
+            let follows = package.lines().any(|line| {
+                line.trim_start().starts_with("version.workspace") && line.contains("true")
+            });
             if !follows {
                 offenders.push(format!("{base}/{}", entry.file_name().to_string_lossy()));
             }
