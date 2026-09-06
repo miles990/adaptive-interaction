@@ -1,0 +1,61 @@
+{
+  "scope": "Pure Python in-memory execution of extracted unmodified production validation blocks; no native UI, filesystem deletion, simulator or perf execution",
+  "passed": 8,
+  "failed": 0,
+  "observations": [
+    {
+      "kind": "perf_quality",
+      "flag": "evidenceGrade",
+      "value": false,
+      "investigate": [
+        "synthetic-input.json: memory sample is not evidence-grade (GC missing or quantized)"
+      ]
+    },
+    {
+      "kind": "perf_quality",
+      "flag": "gcAvailable",
+      "value": false,
+      "investigate": [
+        "synthetic-input.json: memory sample is not evidence-grade (GC missing or quantized)"
+      ]
+    },
+    {
+      "kind": "perf_quality",
+      "flag": "looksQuantized",
+      "value": true,
+      "investigate": [
+        "synthetic-input.json: memory sample is not evidence-grade (GC missing or quantized)"
+      ]
+    },
+    {
+      "kind": "perf_quality",
+      "flag": "good",
+      "value": null,
+      "investigate": []
+    },
+    {
+      "kind": "binary_provenance",
+      "file": "tauri-settings-walkthrough.py",
+      "changed": false,
+      "blocked": false
+    },
+    {
+      "kind": "binary_provenance",
+      "file": "tauri-settings-walkthrough.py",
+      "changed": true,
+      "blocked": true
+    },
+    {
+      "kind": "binary_provenance",
+      "file": "tauri-preset-recovery.py",
+      "changed": false,
+      "blocked": false
+    },
+    {
+      "kind": "binary_provenance",
+      "file": "tauri-preset-recovery.py",
+      "changed": true,
+      "blocked": true
+    }
+  ]
+}

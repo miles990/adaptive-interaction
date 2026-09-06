@@ -1,0 +1,44 @@
+[
+  {
+    "emergencyUnlockStatus": "completed",
+    "expectedExit": 0,
+    "actualExit": 0,
+    "matchesExpected": true
+  },
+  {
+    "emergencyUnlockStatus": "needs-environment",
+    "expectedExit": 0,
+    "actualExit": 0,
+    "matchesExpected": true
+  },
+  {
+    "emergencyUnlockStatus": "failed",
+    "expectedExit": 1,
+    "actualExit": 0,
+    "matchesExpected": false
+  },
+  {
+    "emergencyUnlockStatus": "not-run",
+    "expectedExit": 1,
+    "actualExit": 0,
+    "matchesExpected": false
+  },
+  {
+    "engineeringStatus": "failed",
+    "expectedExit": 1,
+    "actualExit": 1,
+    "matchesExpected": true
+  },
+  {
+    "engineeringStatus": "needs-environment",
+    "expectedExit": 1,
+    "actualExit": 1,
+    "matchesExpected": true
+  },
+  {
+    "engineeringStatus": "not-run",
+    "expectedExit": 1,
+    "actualExit": 1,
+    "matchesExpected": true
+  }
+]

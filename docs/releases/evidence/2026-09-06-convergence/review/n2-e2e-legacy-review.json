@@ -1,0 +1,48 @@
+{
+  "id": "N2-E2E-LEGACY-01",
+  "classification": "outdated test contract, not a production regression",
+  "finder": "/root (integration run)",
+  "independentVerifier": "/root/state_receipts",
+  "testFixAuthor": "/root/state_receipts",
+  "productionChanged": false,
+  "oldFailureLog": "docs/releases/evidence/2026-09-06-convergence/review/908abfc8f7-checkpoint-playwright.txt",
+  "oldAffectedCases": [
+    "character-session.spec.ts:276",
+    "general-mode-tasks.spec.ts:640",
+    "general-mode-tasks.spec.ts:696",
+    "general-mode-tasks.spec.ts:856"
+  ],
+  "cause": "Committed fake_iphone capability declares haptic/reducedMotion but not stateApplied, and implements no validated application receipt. Old headline allowlists excluded syncing; general-mode even allowed synced. Exact syncing is the correct negotiated-contract result.",
+  "changedFiles": [
+    "apps/interaction-desktop/e2e/character-session.spec.ts",
+    "apps/interaction-desktop/e2e/general-mode-tasks.spec.ts",
+    "apps/interaction-desktop/e2e/helpers.ts"
+  ],
+  "strongerAssertions": [
+    "Real GET /v1/character-session/diagnostics must show online + syncCapability full-state + stateDelivery negotiated false/progress unconfirmed/outstanding 0 + stateAppliedCurrent false + no applied receipt",
+    "UI exactly syncing, no badge-ok after initial capability, touch update, reconnect and re-pair",
+    "Existing touch result applied, authority revision advance, SSE visible interaction, disconnect/reconnect/resume, revoke, neutral local-only, narrow viewport, estop denial and keyboard checks preserved"
+  ],
+  "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 E2E_API_PORT=18890 INTERACT_AI_E2E_EVIDENCE_DIR=/tmp/n2-e2e-legacy-evidence pnpm exec playwright test e2e/character-session.spec.ts e2e/general-mode-tasks.spec.ts --project=main --no-deps --grep '角色同步|任務 2＋3|任務 4：|任務 6：|任務 7：'",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+  "passed": 8,
+  "failed": 0,
+  "skipped": 0,
+  "wallSeconds": 41.5,
+  "cargoBuildSeconds": {
+    "cli": 0.21,
+    "fakeIphone": 0.26
+  },
+  "logs": [
+    "docs/releases/evidence/2026-09-06-convergence/review/8085bf57b3-n2-e2e-legacy-green.txt",
+    "docs/releases/evidence/2026-09-06-convergence/review/1899c4695b-n2-e2e-legacy-typecheck.txt",
+    "docs/releases/evidence/2026-09-06-convergence/review/7f09f3c1f2-n2-e2e-legacy-list.txt"
+  ],
+  "evidenceDirectory": "/tmp/n2-e2e-legacy-evidence",
+  "evidenceLevel": "Chromium browser UI + production daemon + external fake_iphone simulator, not native Tauri or real phone",
+  "binaryHashesBeforeAndAfter": {
+    "target/debug/interact-ai": "0b11005e9197c79ffe53da0e89aa4364e3fbcd21111b375fa56de40980a8b2f8",
+    "target/debug/examples/fake_iphone": "ae1924d914c1903bc952a4c7088954856f63aa98e6913e84ca4853f7f0dc4d09"
+  },
+  "note": "General task6 removal included as actual predecessor for task7; all four character cases included to run the three earlier serial skips. No native UI operated. Old four failures were observed in parent full-suite log; no new production defect inferred."
+}

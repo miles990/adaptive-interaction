@@ -1,0 +1,18 @@
+[WebServer] (node:82452) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:82454) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] 
+[WebServer]   VITE v5.4.21  ready in 161 ms
+[WebServer] 
+[WebServer]   ➜  Local:   http://127.0.0.1:5199/
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.65s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.28s
+
+Running 1 test using 1 worker
+
+(node:82489) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [main] › e2e/sensors.spec.ts:84:1 › 感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」 (2.0s)
+
+  1 passed (7.5s)

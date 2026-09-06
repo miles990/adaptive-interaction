@@ -1,0 +1,175 @@
+{
+  "date": "2026-09-06",
+  "reviewer": "semantic_contract",
+  "review_base_commit": "a32258ea161df537f2ad6c1f25cd70d86910d0da",
+  "mode": "Read-only source review plus pure in-memory probes. Parent later explicitly authorized changes only to XCTest parser/runner, its deterministic test and README command.",
+  "source_sha256": {
+    "scripts/tests/convergence-perf.py": "7957b081b8abaee61c064c9642944e4241eed1759913368c0ba7959b39349877",
+    "scripts/tests/ios-simulator.sh": "c8bf6fece99e83c9e6790b29d9c8c41cb924f533717b7d5ee5a49da230f01396",
+    "scripts/tests/xctest-result.py": "cc7e47c52da2217abe4591b70f54f793da49bc624e57a2a6e9d50a7ec1c5a9a1",
+    "scripts/tests/tauri-settings-walkthrough.py": "65ce58d5611823e70560bd2002d0f8edd2358cc1558c7fa4ebe725a00d27a0db",
+    "scripts/tests/tauri-preset-recovery.py": "398ed57dd25083cae817063d06c2c7d32dae2c02f8b32eac4429dc353cd95558",
+    "docs/MAINTAINERS-MAP.md": "21db3ed9bb9fc6dd783e7c5a74fda88dfa23246ad060350625a3f2882286585c",
+    "docs/ARCHITECTURE.md": "bbcc2f72beb2ddaea297f1df00058812fb7e5e53bcad037c95dbee8fa399698f"
+  },
+  "findings": [
+    {
+      "id": "SCRIPT-01",
+      "priority": "P2",
+      "title": "XCTest accepted fewer tests and reused an earlier pass after incomplete output",
+      "trigger": "All tests passed / Executed1 test returned exit0 despite this round expecting163; a subsequent Alltests started without completion also reused old success.",
+      "source": [
+        "scripts/tests/xctest-result.py",
+        "scripts/tests/ios-simulator.sh"
+      ],
+      "found_by": "semantic_contract",
+      "independent_red_verifier": "root",
+      "author": "semantic_contract after explicit parent authorization",
+      "red": {
+        "log": "docs/releases/evidence/2026-09-06-convergence/review/826cc1dad0-xctest-result-gate-red.txt",
+        "tests": 14,
+        "passed": 10,
+        "failed": 4,
+        "parent_probe": "docs/releases/evidence/2026-09-06-convergence/review/a1cecd8f12-xctest-independent-red.txt"
+      },
+      "fix": "Explicit --expected-count default163 in parser/runner; exact cohort, latest complete Alltests suite, no failures/skips or trailing incomplete output. Failure assertions and failed method counts are distinguished.",
+      "postfix": {
+        "log": "docs/releases/evidence/2026-09-06-convergence/review/9ca6a0d581-xctest-result-gate-green.txt",
+        "passed": 14,
+        "failed": 0,
+        "actual_failure_log_check": "docs/releases/evidence/2026-09-06-convergence/review/834a2ff9a0-xctest-result-actual-failure-check.json",
+        "actual_success_log_check": "docs/releases/evidence/2026-09-06-convergence/review/8f9c8b5bdc-xctest-result-actual-success-check.json"
+      },
+      "status": "fixed; scoped author tests pass; parent owns independent post-fix Verify",
+      "integrationCommit": "87b0d03"
+    },
+    {
+      "id": "SCRIPT-02",
+      "priority": "P2",
+      "title": "Native binary identity was recorded at the end rather than pinned before execution",
+      "trigger": "Run executableA, rebuild/replace path withB during long walkthrough; old final-only hashing attributed the earlyA steps toB. This was a source-proven conditional risk, not an observed change during the frozen integration run.",
+      "source": [
+        "scripts/tests/tauri-settings-walkthrough.py",
+        "scripts/tests/tauri-preset-recovery.py"
+      ],
+      "found_by": "semantic_contract",
+      "author": "root",
+      "fix": "Capture source/dirty/binary/CLI/driver identity before launch and reject changed binary/CLI hashes on completion.",
+      "postfix": {
+        "probes": 4,
+        "passed": 4,
+        "failed": 0,
+        "artifact": "docs/releases/evidence/2026-09-06-convergence/review/6ea043959d-validation-script-review-probes.json",
+        "level": "Pure in-memory execution of each unchanged production provenance guard; no native app execution"
+      },
+      "status": "fixed; independent guard Verify passed",
+      "integrationCommit": "87b0d03"
+    },
+    {
+      "id": "SCRIPT-03",
+      "priority": "P2",
+      "title": "Download selection could claim and delete another concurrent matching backup",
+      "trigger": "After prior snapshot, another process creates companion-settings*.json with fixed companionName=備份走查 while this app creates no download. Extracted production selector chose that file and cleanup unlinked it in a pure in-memory fake-path reproduction.",
+      "source": [
+        "scripts/tests/tauri-settings-walkthrough.py"
+      ],
+      "found_by": "semantic_contract",
+      "author": "root",
+      "fix": "Random per-run companion name and record device/inode/content digest; delete only the unchanged selected file.",
+      "postfix": {
+        "probes": 3,
+        "passed": 3,
+        "failed": 0,
+        "observations": [
+          {
+            "case": "foreign concurrent file",
+            "selected": false,
+            "deleted": false
+          },
+          {
+            "case": "owned path with replaced content",
+            "selected": true,
+            "deleted": false
+          },
+          {
+            "case": "owned unchanged file",
+            "selected": true,
+            "deleted": true
+          }
+        ],
+        "level": "Pure in-memory invocation of the production exported() function and cleanup loop; actual Downloads untouched"
+      },
+      "status": "fixed; independent selector/cleanup Verify passed",
+      "integrationCommit": "87b0d03"
+    },
+    {
+      "id": "SCRIPT-04",
+      "priority": "P2",
+      "title": "Performance wrapper ignored explicit evidence-quality failure flags",
+      "trigger": "memorySoak.evidenceGrade=false, gcAvailable=false or looksQuantized=true with otherwise good metrics/delta0 left investigate empty. Underlying soak implementation explicitly says quantized values cannot count as memory evidence.",
+      "source": [
+        "scripts/tests/convergence-perf.py"
+      ],
+      "found_by": "semantic_contract",
+      "author": "root",
+      "fix": "Non-evidence-grade, unavailableGC or quantized readings enter investigate and prevent a success exit.",
+      "postfix": {
+        "probes": 4,
+        "passed": 4,
+        "failed": 0,
+        "artifact": "docs/releases/evidence/2026-09-06-convergence/review/6ea043959d-validation-script-review-probes.json",
+        "level": "Production artifact-guard loop extracted unchanged and executed over pure in-memory JSON; three bad cases plus good control, no perf run"
+      },
+      "status": "fixed; independent quality-gate Verify passed",
+      "integrationCommit": "87b0d03"
+    },
+    {
+      "id": "DOC-01",
+      "priority": "P2",
+      "title": "Architecture diagram still placed preset recovery ownership in presentation",
+      "trigger": "docs/ARCHITECTURE.md called applyPresetPlan a recoverable two-stage transaction in presentation and omitted preset_service from application usecases.",
+      "source": [
+        "docs/ARCHITECTURE.md"
+      ],
+      "found_by": "semantic_contract",
+      "author": "root",
+      "fix": "Presentation keeps pure planning/result projection; host preset_service owns conditional writes/readback/restart recovery.",
+      "postfix": "Independent current-file read confirms docs/ARCHITECTURE.md:202 and208; MAINTAINERS-MAP.md §8 was already correct.",
+      "status": "fixed; independent document Verify passed",
+      "integrationCommit": "87b0d03"
+    },
+    {
+      "id": "DRIVER-01",
+      "priority": "P3",
+      "title": "New random backup marker exceeded the existing24-character name limit",
+      "trigger": "Initial fix used 備份走查- plus32hex=37characters; valid restore overrides name, but missing-character case keeps overlong backup name and would fail at name validation before the intended package-missing error.",
+      "source": [
+        "scripts/tests/tauri-settings-walkthrough.py"
+      ],
+      "found_by": "semantic_contract",
+      "author": "root",
+      "fix": "UUID suffix shortened to16hex, total21characters.",
+      "postfix": "Current source has uuid.uuid4().hex[:16]; within existing import limit. No native UI run claimed.",
+      "status": "fixed; independent static Verify passed",
+      "integrationCommit": "87b0d03"
+    }
+  ],
+  "open_findings": [],
+  "no_additional_findings": [
+    "No confirmed credential value leakage in the reviewed output paths: native API tokens remain in request headers; proxy traces omit headers/bodies; task-token files are removed, settings process log redacts its token. This is source review, not a credential audit of unrelated directories.",
+    "Simulator runner creates a fresh task simulator and only shuts down/deletes that returned UDID; it does not target a booted user simulator. Native drivers stop their own Popen handles and use isolated runtime homes.",
+    "Performance comparisons archive explicit resolved local commit IDs and hash archives/input files; shared node_modules is deliberate. Warmups are excluded and three alternating measured runs are reported. Scope correctly says headless Chromium rig/stage, not WKWebView/end-to-end; 60second soak is not a long-term leak conclusion.",
+    "MAINTAINERS-MAP.md settings ownership is host preset_service/runtime; corrected ARCHITECTURE now agrees."
+  ],
+  "limits": [
+    "No native UI, no simulator launch, no new full XCTest run and no performance measurement occurred in this review. Existing actual XCTest logs were parsed read-only.",
+    "The native preset script still verifies final host/preset state rather than every failure/retry sentence; newer-choice lacks a final selected-preset UI assertion. Do not claim this exceeds its stated backend-recovery evidence scope.",
+    "sourceSha with dirtyTree=true identifies the base checkout plus a declared dirty worktree, not a clean release commit. Parent evidence-index/release gates must keep build/test/release identities distinct."
+  ],
+  "artifacts": {
+    "prior_N1_N4_N6_json": "docs/releases/evidence/2026-09-06-convergence/review/6db0ab7b0a-n1-n4-n6-findings-handoff.json",
+    "prior_N1_N4_N6_markdown": "docs/releases/evidence/2026-09-06-convergence/review/9d3b83af4d-n1-n4-n6-findings-handoff.md",
+    "pure_guard_probes": "docs/releases/evidence/2026-09-06-convergence/review/6ea043959d-validation-script-review-probes.json",
+    "xctest_regressions": "scripts/tests/test_xctest_result.py"
+  }
+}

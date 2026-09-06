@@ -1,0 +1,6 @@
+Listing tests:
+  [main] › character-session.spec.ts:263:1 › 角色同步（舊版模擬 iPhone（fixture））：配對 → 套用未確認 → 摸一下 → 離線 → 重連 → 撤銷（桌面寬度）
+  [main] › general-mode-tasks.spec.ts:637:1 › 任務 2＋3：稍後連手機（同步卡 → 配對區 → 模擬 iPhone（fixture））、然後在手機上摸一下角色
+  [main] › general-mode-tasks.spec.ts:694:1 › 任務 4：暫時離線 → 重新連線——畫面誠實說「正在重新連線」，接回來就恢復
+  [main] › general-mode-tasks.spec.ts:856:1 › 任務 7：移除之後又想用手機——重新配對，重新確認之後才回到同步
+Total: 4 tests in 2 files

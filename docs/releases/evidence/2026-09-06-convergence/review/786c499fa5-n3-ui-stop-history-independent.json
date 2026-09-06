@@ -1,0 +1,22 @@
+{
+  "name": "n3-ui-stop-history-independent",
+  "sha": "a32258ea161df537f2ad6c1f25cd70d86910d0da",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+  "command": [
+    "pnpm",
+    "exec",
+    "vitest",
+    "run",
+    "src/test/sensorStop.test.ts",
+    "src/test/sensor-stop-history.test.tsx",
+    "src/test/homePage.test.tsx",
+    "src/test/regressions-v04.test.tsx",
+    "-t",
+    "N3-UI-STOP-HISTORY"
+  ],
+  "exit": 0,
+  "durationSeconds": 2.49,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "/tmp/adaptive-convergence-20260906/n3-ui-stop-history-independent.log"
+}

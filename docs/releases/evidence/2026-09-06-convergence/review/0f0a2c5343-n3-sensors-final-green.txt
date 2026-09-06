@@ -1,0 +1,20 @@
+[WebServer] (node:84859) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:84860) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] 
+[WebServer]   VITE v5.4.21  ready in 162 ms
+[WebServer] 
+[WebServer]   ➜  Local:   http://127.0.0.1:5199/
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.64s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.30s
+
+Running 3 tests using 1 worker
+
+(node:84992) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [main] › e2e/sensors.spec.ts:81:1 › 感測：模擬 iPhone 在串流麥克風音量時，狀態列與首頁同時說得出來 (2.2s)
+  ✓  2 [main] › e2e/sensors.spec.ts:102:1 › 感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」 (1.1s)
+  ✓  3 [main] › e2e/sensors.spec.ts:134:1 › 感測：手機沒回覆時，畫面絕不說「已停止」——只說還不確定，而且感測不會從畫面消失 (3.2s)
+
+  3 passed (12.0s)

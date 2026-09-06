@@ -1,0 +1,41 @@
+[WebServer] (node:83059) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:83060) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] 
+[WebServer]   VITE v5.4.21  ready in 122 ms
+[WebServer] 
+[WebServer]   ➜  Local:   http://127.0.0.1:5199/
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.21s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.26s
+
+Running 8 tests using 1 worker
+
+(node:83226) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [main] › e2e/character-session.spec.ts:263:1 › 角色同步（舊版模擬 iPhone（fixture））：配對 → 套用未確認 → 摸一下 → 離線 → 重連 → 撤銷（桌面寬度） (8.1s)
+  ✓  2 [main] › e2e/character-session.spec.ts:275:1 › 角色同步（模擬 iPhone（fixture））：同一條路在 390px 上也走得完 (9.2s)
+  ✓  3 [main] › e2e/character-session.spec.ts:289:1 › 角色同步：緊急停止中，模擬 iPhone（fixture）的觸摸被拒，畫面顯示緊急狀態 (3.9s)
+  ✓  4 [main] › e2e/character-session.spec.ts:351:1 › 角色同步：鍵盤到得了五個主入口與同步卡；減少動態時卡片仍讀得到 (1.9s)
+[任務量測] 稍後連手機（桌面寬度）｜決策 2｜點擊 2｜回頭 1｜安全步驟 0｜求助 0｜失敗後恢復 否｜耗時 2.9 s｜分類 completed
+[任務量測] 手機與桌面互動（桌面寬度）｜決策 0｜點擊 0｜回頭 0｜安全步驟 0｜求助 0｜失敗後恢復 否｜耗時 0.1 s｜分類 completed
+  ✓  5 [main] › e2e/general-mode-tasks.spec.ts:637:1 › 任務 2＋3：稍後連手機（同步卡 → 配對區 → 模擬 iPhone（fixture））、然後在手機上摸一下角色 (4.3s)
+[任務量測] 暫時離線後恢復（桌面寬度）｜決策 0｜點擊 0｜回頭 0｜安全步驟 0｜求助 0｜失敗後恢復 否｜耗時 1.3 s｜分類 completed
+  ✓  6 [main] › e2e/general-mode-tasks.spec.ts:694:1 › 任務 4：暫時離線 → 重新連線——畫面誠實說「正在重新連線」，接回來就恢復 (1.3s)
+[任務量測] 主動移除手機（桌面寬度）｜決策 1｜點擊 2｜回頭 0｜安全步驟 1｜求助 0｜失敗後恢復 否｜耗時 4.0 s｜分類 completed
+  ✓  7 [main] › e2e/general-mode-tasks.spec.ts:804:1 › 任務 6：主動移除手機——移除是正常終態「目前只在這台電腦使用」，不是永遠要求重配 (4.1s)
+[任務量測] 撤銷後重新連線（桌面寬度）｜決策 2｜點擊 2｜回頭 1｜安全步驟 0｜求助 0｜失敗後恢復 否｜耗時 4.2 s｜分類 completed
+
+=== 一般模式任務量測（本輪實跑；模擬 iPhone（fixture）／瀏覽器模式控制中心）===
+| 任務 | 視窗 | 主要決策 | 點擊 | 回頭 | 安全步驟 | 求助 | 失敗後恢復 | 耗時（秒） |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 稍後連手機 | 桌面寬度 | 2 | 2 | 1 | 0 | 0 | 否 | 2.9 |
+| 手機與桌面互動 | 桌面寬度 | 0 | 0 | 0 | 0 | 0 | 否 | 0.1 |
+| 暫時離線後恢復 | 桌面寬度 | 0 | 0 | 0 | 0 | 0 | 否 | 1.3 |
+| 主動移除手機 | 桌面寬度 | 1 | 2 | 0 | 1 | 0 | 否 | 4.0 |
+| 撤銷後重新連線 | 桌面寬度 | 2 | 2 | 1 | 0 | 0 | 否 | 4.2 |
+
+[任務分類摘要] /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/test-results/general-mode-task-outcomes.json
+  ✓  8 [main] › e2e/general-mode-tasks.spec.ts:856:1 › 任務 7：移除之後又想用手機——重新配對，重新確認之後才回到同步 (4.3s)
+
+  8 passed (41.5s)

@@ -1,0 +1,19 @@
+{
+  "source": "archive a32258e with current tests and reversed production fix patch",
+  "independentVerifier": "root",
+  "command": [
+    "pnpm",
+    "exec",
+    "vitest",
+    "run",
+    "src/test/sensorStop.test.ts",
+    "src/test/sensor-stop-history.test.tsx",
+    "src/test/homePage.test.tsx",
+    "src/test/regressions-v04.test.tsx",
+    "-t",
+    "N3-UI-STOP-HISTORY"
+  ],
+  "exit": 1,
+  "seconds": 4.817,
+  "evidenceLevel": "isolated source / jsdom regression"
+}

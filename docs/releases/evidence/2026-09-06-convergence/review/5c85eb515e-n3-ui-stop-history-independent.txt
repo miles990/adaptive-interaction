@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+
+ ✓ src/test/sensorStop.test.ts (22 tests | 17 skipped) 2ms
+ ✓ src/test/homePage.test.tsx (33 tests | 32 skipped) 114ms
+ ✓ src/test/regressions-v04.test.tsx (33 tests | 32 skipped) 87ms
+ ✓ src/test/sensor-stop-history.test.tsx (2 tests) 205ms
+
+ Test Files  4 passed (4)
+      Tests  9 passed | 81 skipped (90)
+   Start at  13:48:59
+   Duration  2.04s (transform 931ms, setup 684ms, collect 1.91s, tests 408ms, environment 2.71s, prepare 178ms)
+

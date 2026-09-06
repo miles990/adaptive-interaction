@@ -1,0 +1,326 @@
+
+> interaction-desktop@0.7.0 test:e2e /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+> playwright test
+
+[WebServer] (node:77574) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:77575) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] 
+[WebServer]   VITE v5.4.21  ready in 163 ms
+[WebServer] 
+[WebServer]   ➜  Local:   http://127.0.0.1:5199/
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.59s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s
+
+Running 92 tests using 1 worker
+
+(node:77660) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [first-run] › e2e/app.spec.ts:16:1 › 首次設定精靈：3 步完成並套用 (933ms)
+  ✓   2 [first-run] › e2e/app.spec.ts:62:1 › 現在：第一屏只回答三件事＋快速操作；系統狀態收在詳細狀態 (415ms)
+  ✓   3 [first-run] › e2e/app.spec.ts:89:1 › 暫停主動互動：暫停與恢復都反映後端真實狀態 (397ms)
+  ✓   4 [first-run] › e2e/app.spec.ts:97:1 › 連接與權限：裝置與能力誠實掃描；同意與安全含權限地圖 (1.3s)
+  ✓   5 [first-run] › e2e/app.spec.ts:122:1 › 新 IA：5 個一級入口全部可達 (622ms)
+  ✓   6 [first-run] › e2e/app.spec.ts:139:1 › 角色頁：一般模式（目前角色／外觀／陪伴／更換）與誠實對照（單一主人） (591ms)
+  ✓   7 [first-run] › e2e/app.spec.ts:198:1 › 工作：task-first 交代一件工作；開始前預覽有授權語意；agent 發現誠實顯示 (439ms)
+  ✓   8 [first-run] › e2e/app.spec.ts:230:1 › 更多：五個入口；備份與還原是匯出／還原唯一的家 (411ms)
+  ✓   9 [first-run] › e2e/app.spec.ts:245:1 › 更多：記憶與知識一般模式只有三區；技術細節不外洩 (389ms)
+  ✓  10 [first-run] › e2e/app.spec.ts:260:1 › 全域搜尋：Ctrl+K 開啟、能導頁、指令列出 (397ms)
+  ✓  11 [first-run] › e2e/app.spec.ts:272:1 › 工作 → 自動互動：句子式建立 → 摘要 → 模擬（零副作用） (521ms)
+  ✓  12 [first-run] › e2e/app.spec.ts:288:1 › 右上 Inbox：待決定入口與完整歷史 (387ms)
+  ✓  13 [first-run] › e2e/app.spec.ts:301:1 › 進階模式：更多 → 進階模式切換後顯示技術頁面 (975ms)
+  ✓  14 [first-run] › e2e/app.spec.ts:324:1 › 緊急停止：二段確認觸發 → 誠實顯示 → 安全解除流程 (540ms)
+  ✓  15 [first-run] › e2e/app.spec.ts:350:1 › 現在：交代一件事會把描述帶到工作頁 (405ms)
+(node:77705) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  16 [main] › e2e/a11y.spec.ts:27:1 › 鍵盤：第一個 Tab 是「跳到主要內容」，而且真的把焦點送進主要內容 (971ms)
+  ✓  17 [main] › e2e/a11y.spec.ts:46:1 › 鍵盤：從頁首一路 Tab 一定按得到「緊急停止」 (974ms)
+  ✓  18 [main] › e2e/a11y.spec.ts:63:1 › 螢幕閱讀器：390px 的導覽、通知中心與快速操作都有名字 (323ms)
+  ✓  19 [main] › e2e/a11y.spec.ts:92:1 › 減少動態：偏好打開後，html 真的帶 reduce-motion，而且樣式真的生效 (982ms)
+  ✓  20 [main] › e2e/a11y.spec.ts:130:1 › 外觀：淺色／深色／跟隨系統在五個一級入口、兩種視窗尺寸下都一致 (3.6s)
+  ✓  21 [main] › e2e/a11y.spec.ts:185:1 › 螢幕閱讀器：角色頁每個可按的東西都有名字，「同步」卡是一個有名字的區域 (947ms)
+  ✓  22 [main] › e2e/agent-not-installed.spec.ts:32:1 › 工作：Agent 未安裝時「開始」按不下去，而且說得出原因 (1.4s)
+  ✓  23 [main] › e2e/agent-not-installed.spec.ts:68:1 › 工作：未安裝時後端也不會偷偷建立工作階段 (4ms)
+  ✘  24 [main] › e2e/character-session.spec.ts:276:1 › 角色同步（模擬 iPhone（fixture））：配對 → 已同步 → 摸一下 → 離線 → 重連 → 撤銷（桌面寬度） (2.2s)
+  -  25 [main] › e2e/character-session.spec.ts:288:1 › 角色同步（模擬 iPhone（fixture））：同一條路在 390px 上也走得完
+  -  26 [main] › e2e/character-session.spec.ts:302:1 › 角色同步：緊急停止中，模擬 iPhone（fixture）的觸摸被拒，畫面顯示緊急狀態
+  -  27 [main] › e2e/character-session.spec.ts:364:1 › 角色同步：鍵盤到得了五個主入口與同步卡；減少動態時卡片仍讀得到
+(node:77916) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  28 [main] › e2e/character.spec.ts:35:1 › 角色：瀏覽器檢視不提供假的開關，也不會真的改到後端角色狀態 (1.0s)
+  ✓  29 [main] › e2e/character.spec.ts:73:1 › 角色：停用失敗時不得出現成功文案（只留誠實錯誤） (960ms)
+  ✓  30 [main] › e2e/character.spec.ts:87:1 › 角色：按其他角色的「選用」同樣不會偷偷換掉使用中的角色 (981ms)
+  ✓  31 [main] › e2e/evidence.spec.ts:83:1 › 擷取：每個一級頁（桌面 1200px；現在三個回答、角色頁五區、工作空狀態、連接與權限五區） (4.3s)
+  ✓  32 [main] › e2e/evidence.spec.ts:165:1 › 擷取：每個一級頁（390px 窄視窗） (3.6s)
+  ✓  33 [main] › e2e/evidence.spec.ts:189:1 › 擷取：全域搜尋（⌘K） (851ms)
+  ✓  34 [main] › e2e/evidence.spec.ts:199:1 › 擷取：角色頁細節（能力摘要／外觀與名字／陪伴方式／更換或加入角色／匯入對話框；桌面＋390px） (3.2s)
+  ✓  35 [main] › e2e/evidence.spec.ts:266:1 › 擷取：角色載入失敗 → 中立「角色」＋改用文字（真實中斷內建索引請求） (1.2s)
+  ✓  36 [main] › e2e/evidence.spec.ts:290:1 › 擷取：工作 composer 填寫後的開始前預覽（桌面＋390px） (1.9s)
+  ✓  37 [main] › e2e/evidence.spec.ts:318:1 › 擷取：工作四種誠實狀態（fixture agent：處理中／等你允許／對方說已完成／已由你確認） (3.8s)
+  ✓  38 [main] › e2e/evidence.spec.ts:432:1 › 擷取：連接與權限五區＋角色 adapter 詳細資料（模擬 adapter，fixture，真 WebSocket 連線） (2.4s)
+  ✓  39 [main] › e2e/evidence.spec.ts:513:1 › 擷取：每個一級頁的真實待確認狀態＋通知中心（桌面／390px） (2.9s)
+  ✓  40 [main] › e2e/evidence.spec.ts:555:1 › 擷取：每個一級頁的實際載入狀態 (10.1s)
+  ✓  41 [main] › e2e/evidence.spec.ts:594:1 › 擷取：每個一級頁的傳輸錯誤／未知狀態 (1.9s)
+  ✓  42 [main] › e2e/evidence.spec.ts:632:1 › 擷取：外觀主題（淺色／深色；Runtime UI 偏好 appearance，presentation only） (2.2s)
+  ✓  43 [main] › e2e/evidence.spec.ts:656:1 › 擷取：首次成功體驗（設定 → 重新執行首次設定 → 精靈套用 → FirstSuccess；桌面＋390px） (1.6s)
+  ✓  44 [main] › e2e/evidence.spec.ts:704:1 › 擷取：Runtime 離線（誠實錯誤畫面） (1.6s)
+  ✓  45 [main] › e2e/evidence.spec.ts:714:1 › 擷取：緊急停止狀態（放最後；真實觸發 → 擷取 → 安全流程解除 → 收尾關閉 fixture session） (2.9s)
+[任務量測] 第一次使用桌面角色（桌面寬度）｜決策 3｜點擊 5｜回頭 0｜安全步驟 1｜求助 0｜失敗後恢復 否｜耗時 0.6 s｜分類 completed
+  ✓  46 [main] › e2e/general-mode-tasks.spec.ts:577:1 › 任務 1：第一次使用——走完首次設定精靈，安全確認一步都不能少 (631ms)
+
+=== 一般模式任務量測（本輪實跑；模擬 iPhone（fixture）／瀏覽器模式控制中心）===
+| 任務 | 視窗 | 主要決策 | 點擊 | 回頭 | 安全步驟 | 求助 | 失敗後恢復 | 耗時（秒） |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 第一次使用桌面角色 | 桌面寬度 | 3 | 5 | 0 | 1 | 0 | 否 | 0.6 |
+
+[任務分類摘要] /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/test-results/general-mode-task-outcomes.json
+  ✘  47 [main] › e2e/general-mode-tasks.spec.ts:640:1 › 任務 2＋3：稍後連手機（同步卡 → 配對區 → 模擬 iPhone（fixture））、然後在手機上摸一下角色 (1.4s)
+(node:78514) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[任務分類摘要] /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/test-results/general-mode-task-outcomes.json
+  ✘  48 [main] › e2e/general-mode-tasks.spec.ts:696:1 › 任務 4：暫時離線 → 重新連線——畫面誠實說「正在重新連線」，接回來就恢復 (2.4s)
+(node:78572) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[任務量測] 等待離線逾時（桌面寬度）｜決策 2｜點擊 2｜回頭 1｜安全步驟 0｜求助 0｜失敗後恢復 否｜耗時 48.1 s｜分類 completed
+  ✓  49 [main] › e2e/general-mode-tasks.spec.ts:750:1 › 任務 5：手機一直沒回來——45 秒 presence 逾時之後畫面從「重新連線中」轉成「暫時離線」 (48.1s)
+[任務量測] 主動移除手機（桌面寬度）｜決策 1｜點擊 2｜回頭 0｜安全步驟 1｜求助 0｜失敗後恢復 否｜耗時 4.0 s｜分類 completed
+  ✓  50 [main] › e2e/general-mode-tasks.spec.ts:804:1 › 任務 6：主動移除手機——移除是正常終態「目前只在這台電腦使用」，不是永遠要求重配 (4.0s)
+
+=== 一般模式任務量測（本輪實跑；模擬 iPhone（fixture）／瀏覽器模式控制中心）===
+| 任務 | 視窗 | 主要決策 | 點擊 | 回頭 | 安全步驟 | 求助 | 失敗後恢復 | 耗時（秒） |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 等待離線逾時 | 桌面寬度 | 2 | 2 | 1 | 0 | 0 | 否 | 48.1 |
+| 主動移除手機 | 桌面寬度 | 1 | 2 | 0 | 1 | 0 | 否 | 4.0 |
+
+[任務分類摘要] /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/test-results/general-mode-task-outcomes.json
+  ✘  51 [main] › e2e/general-mode-tasks.spec.ts:856:1 › 任務 7：移除之後又想用手機——重新配對，重新確認之後才回到同步 (4.3s)
+(node:78714) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[任務量測] 更換角色（桌面寬度）｜決策 1｜點擊 2｜回頭 0｜安全步驟 0｜求助 0｜失敗後恢復 否｜耗時 1.4 s｜分類 correctly-blocked
+  ✓  52 [main] › e2e/general-mode-tasks.spec.ts:897:1 › 任務 8：更換角色——瀏覽器模式誠實拒絕，不假裝換成功（正向效果由真 Tauri 走查驗） (1.4s)
+[任務量測] 調整陪伴程度（桌面寬度）｜決策 0｜點擊 0｜回頭 0｜安全步驟 0｜求助 0｜失敗後恢復 否｜耗時 0.8 s｜分類 correctly-blocked
+  ✓  53 [main] › e2e/general-mode-tasks.spec.ts:959:1 › 任務 9：調整陪伴程度——瀏覽器模式照實說需要桌面版，不給按了沒用的檔位 (900ms)
+[任務量測] 設定安靜時段（桌面寬度）｜決策 2｜點擊 3｜回頭 0｜安全步驟 0｜求助 0｜失敗後恢復 否｜耗時 1.1 s｜分類 completed
+  ✓  54 [main] › e2e/general-mode-tasks.spec.ts:1006:1 › 任務 10：設定安靜時段——存進 policy，而且 status 的安靜時段真的變成生效中 (1.1s)
+[任務量測] 暫停主動對話（桌面寬度）｜決策 2｜點擊 2｜回頭 0｜安全步驟 0｜求助 0｜失敗後恢復 否｜耗時 0.1 s｜分類 completed
+  ✓  55 [main] › e2e/general-mode-tasks.spec.ts:1088:1 › 任務 14：暫停主動對話——一鍵暫停，/v1/pause 真的是暫停，恢復也是真的 (883ms)
+[任務量測] 取消進行中的工作（桌面寬度）｜決策 5｜點擊 5｜回頭 0｜安全步驟 0｜求助 0｜失敗後恢復 否｜耗時 1.2 s｜分類 completed
+  ✓  56 [main] › e2e/general-mode-tasks.spec.ts:1152:1 › 任務 11：取消工作——按一次中斷，後端真的取消（不是畫面上停了） (1.3s)
+[任務量測] 390px：看角色頁並連手機（390px）｜決策 1｜點擊 1｜回頭 0｜安全步驟 0｜求助 0｜失敗後恢復 否｜耗時 1.0 s｜分類 completed
+[任務量測] 390px：設定安靜時段（390px）｜決策 1｜點擊 2｜回頭 0｜安全步驟 0｜求助 0｜失敗後恢復 否｜耗時 0.2 s｜分類 completed
+  ✓  57 [main] › e2e/general-mode-tasks.spec.ts:1220:1 › 任務 12（390px）：角色頁首屏、同步卡下一步、安靜時段都做得完，且無橫向溢出 (1.2s)
+  ✓  58 [main] › e2e/general-mode-tasks.spec.ts:1315:1 › 可及性：鍵盤走得到同步卡的「下一步」，而且按 Enter 真的到得了配對區 (1.0s)
+  ✓  59 [main] › e2e/general-mode-tasks.spec.ts:1334:1 › 可及性：角色頁的收合區塊用 Enter／Space 展開得了，而且焦點不會掉 (960ms)
+  ✓  60 [main] › e2e/general-mode-tasks.spec.ts:1368:1 › 可及性：對話框開著的時候，Escape 收得掉，而且停止的方式一直在 (901ms)
+  ✓  61 [main] › e2e/general-mode-tasks.spec.ts:1408:1 › 可及性：套用前確認對話框開著時 Escape 收得掉，而且什麼都還沒被套用 (1.1s)
+  ✓  62 [main] › e2e/general-mode-tasks.spec.ts:1470:1 › 可及性：暫停對話框與配對區開著時，Escape／緊急停止都沒有被關住 (1.0s)
+  ✓  63 [main] › e2e/general-mode-tasks.spec.ts:1525:1 › 可及性：⌘K 面板焦點離開搜尋框之後，Escape 一樣收得掉、Tab 逃不出面板 (845ms)
+  ✓  64 [main] › e2e/general-mode-tasks.spec.ts:1565:1 › 可及性：Reduced Motion 下，角色頁首屏與同步卡說的話一字不變、也讀得到 (1.2s)
+[任務量測] 緊急停止（桌面寬度）｜決策 2｜點擊 5｜回頭 0｜安全步驟 2｜求助 0｜失敗後恢復 否｜耗時 1.0 s｜分類 completed
+
+=== 一般模式任務量測（本輪實跑；模擬 iPhone（fixture）／瀏覽器模式控制中心）===
+| 任務 | 視窗 | 主要決策 | 點擊 | 回頭 | 安全步驟 | 求助 | 失敗後恢復 | 耗時（秒） |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 更換角色 | 桌面寬度 | 1 | 2 | 0 | 0 | 0 | 否 | 1.4 |
+| 調整陪伴程度 | 桌面寬度 | 0 | 0 | 0 | 0 | 0 | 否 | 0.8 |
+| 設定安靜時段 | 桌面寬度 | 2 | 3 | 0 | 0 | 0 | 否 | 1.1 |
+| 暫停主動對話 | 桌面寬度 | 2 | 2 | 0 | 0 | 0 | 否 | 0.1 |
+| 取消進行中的工作 | 桌面寬度 | 5 | 5 | 0 | 0 | 0 | 否 | 1.2 |
+| 390px：看角色頁並連手機 | 390px | 1 | 1 | 0 | 0 | 0 | 否 | 1.0 |
+| 390px：設定安靜時段 | 390px | 1 | 2 | 0 | 0 | 0 | 否 | 0.2 |
+| 緊急停止 | 桌面寬度 | 2 | 5 | 0 | 2 | 0 | 否 | 1.0 |
+
+[任務分類摘要] /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/test-results/general-mode-task-outcomes.json
+  ✓  65 [main] › e2e/general-mode-tasks.spec.ts:1595:1 › 任務 13：緊急停止——兩步按得完，後端真的停了，解除必須走安全流程 (1.1s)
+  ✓  66 [main] › e2e/home-state.spec.ts:76:1 › 現在：沒有工作時，三個回答誠實說「沒有進行中」 (818ms)
+  ✓  67 [main] › e2e/home-state.spec.ts:94:1 › 現在：處理中／等你允許／對方說已完成各自用人話出現，驗證過也不會在首頁變綠勾 (1.2s)
+  ✓  68 [main] › e2e/home-state.spec.ts:157:1 › 現在：結果不確定與已取消都是終局——不算進行中，也不會被講成完成 (1.6s)
+  ✓  69 [main] › e2e/home-state.spec.ts:203:1 › 現在：緊急停止中，角色那一句換成固定的安全文字（解除要走安全流程） (1.0s)
+  ✓  70 [main] › e2e/iphone.spec.ts:77:1 › iPhone（模擬 fixture）：用畫面上的配對碼配對 → 卡片說「已連線」，並列出可以提供／可以執行 (1.5s)
+  ✓  71 [main] › e2e/iphone.spec.ts:135:1 › iPhone（模擬 fixture）：手機上沒給麥克風權限，桌面照實顯示「已拒絕」並列進需要確認 (921ms)
+  ✓  72 [main] › e2e/iphone.spec.ts:162:1 › iPhone（模擬 fixture）：斷線＝能力不可用，重新連上才恢復 (1.4s)
+  ✓  73 [main] › e2e/iphone.spec.ts:187:1 › iPhone（模擬 fixture）：移除這台手機＝立刻斷線，而且再也認證不過 (1.4s)
+  ✓  74 [main] › e2e/narrow.spec.ts:9:1 › 390px：底部導覽可抵達所有頁面，緊急停止保持可見 (465ms)
+  ✓  75 [main] › e2e/narrow.spec.ts:43:1 › 390px：鍵盤可操作底部導覽與更多選單 (336ms)
+  ✓  76 [main] › e2e/narrow.spec.ts:58:1 › 390px：頁面主體不產生水平捲動 (292ms)
+  ✓  77 [main] › e2e/narrow.spec.ts:69:1 › 390px：「現在」第一屏的三個回答與快速操作都看得到、按得到 (536ms)
+  ✓  78 [main] › e2e/narrow.spec.ts:95:1 › 390px：角色頁的「同步」卡看得到、不溢出，而且空狀態是中性的 (449ms)
+  ✓  79 [main] › e2e/offline.spec.ts:6:1 › Runtime 離線：誠實顯示無法啟動，不假裝正常 (1.6s)
+  ✓  80 [main] › e2e/sensors.spec.ts:62:1 › 感測：模擬 iPhone 在串流麥克風音量時，狀態列與首頁同時說得出來 (990ms)
+  ✘  81 [main] › e2e/sensors.spec.ts:83:1 › 感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」 (21.1s)
+  -  82 [main] › e2e/sensors.spec.ts:115:1 › 感測：手機沒回覆時，畫面絕不說「已停止」——只說還不確定，而且感測不會從畫面消失
+(node:79082) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  83 [main] › e2e/work-delegate.spec.ts:110:1 › 工作：在 composer 交代一件唯讀工作 → 真的建立成唯讀 session，卡片說「處理中」 (1.3s)
+  ✓  84 [main] › e2e/work-delegate.spec.ts:159:1 › 工作：暫停／中斷會真的停下來（後端 cancelled → 回到工作頁看到「已取消」，首頁不再算它進行中） (1.7s)
+  ✓  85 [main] › e2e/work-delegate.spec.ts:201:1 › 工作：中斷之後畫面自己更新（不重新載入也要從「處理中」變成「已取消」） (1.8s)
+  ✓  86 [main] › e2e/work-delegate.spec.ts:226:1 › 工作：關閉一個工作階段只敢說「已要求終止子程序」 (1.6s)
+  ✓  87 [main] › e2e/work-delegate.spec.ts:252:1 › 工作：對方說完成 ≠ 已由你確認——綠勾只有按下「標記為已驗證」才會出現 (1.8s)
+  ✓  88 [main] › e2e/work-delegate.spec.ts:298:1 › 工作：agent 沒說結果就結束＝結果不確定（不是成功也不是失敗，也沒有驗證鈕） (1.5s)
+  ✓  89 [main] › e2e/work-delegate.spec.ts:327:1 › 工作：等你允許時按「拒絕」——畫面說「你已拒絕」，而且裁決真的送到 agent (6.9s)
+
+
+  1) [main] › e2e/character-session.spec.ts:276:1 › 角色同步（模擬 iPhone（fixture））：配對 → 已同步 → 摸一下 → 離線 → 重連 → 撤銷（桌面寬度） 
+
+    Error: 協商不完整的裝置不得拿到綠色「已同步」
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected value: "同步尚未完成"
+    Received array: ["iPhone 已連接，能力核對中", "部分能力目前不可用"]
+
+      166 |     .poll(async () => syncHeadline(card), { timeout: 20_000 })
+      167 |     .not.toBe(CHARACTER_SYNC_PROJECTION.synced.headline);
+    > 168 |   expect(SYNC_HEADLINES_ONLINE_HONEST, "協商不完整的裝置不得拿到綠色「已同步」").toContain(
+          |                                                               ^
+      169 |     await syncHeadline(card)
+      170 |   );
+      171 |   await expect(card.locator(".badge-ok"), "協商不完整就不得給綠勾").toHaveCount(0);
+        at runJourney (/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/e2e/character-session.spec.ts:168:63)
+        at /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/e2e/character-session.spec.ts:281:3
+
+    Error Context: test-results/character-session-角色同步（模擬--e62fa--→-摸一下-→-離線-→-重連-→-撤銷（桌面寬度）-main/error-context.md
+
+    Error Context: test-results/character-session-角色同步（模擬--e62fa--→-摸一下-→-離線-→-重連-→-撤銷（桌面寬度）-main/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/character-session-角色同步（模擬--e62fa--→-摸一下-→-離線-→-重連-→-撤銷（桌面寬度）-main/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/character-session-角色同步（模擬--e62fa--→-摸一下-→-離線-→-重連-→-撤銷（桌面寬度）-main/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [main] › e2e/general-mode-tasks.spec.ts:640:1 › 任務 2＋3：稍後連手機（同步卡 → 配對區 → 模擬 iPhone（fixture））、然後在手機上摸一下角色 
+
+    Error: 手機連上之後同步卡必須說得出它連上了
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected value: "同步尚未完成"
+    Received array: ["iPhone 已連接，能力核對中", "部分能力目前不可用", "iPhone 已連接，角色狀態已同步"]
+
+      663 |     .poll(async () => syncHeadline(card), { timeout: 30_000 })
+      664 |     .not.toBe(CHARACTER_SYNC_PROJECTION["no-device"].headline);
+    > 665 |   expect(ONLINE_HONEST, "手機連上之後同步卡必須說得出它連上了").toContain(
+          |                                               ^
+      666 |     await syncHeadline(card)
+      667 |   );
+      668 |   const members = card.getByRole("list", { name: "同步中的裝置" });
+        at /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/e2e/general-mode-tasks.spec.ts:665:47
+
+    Error Context: test-results/general-mode-tasks-任務-2＋3：-4ecf4-Phone（fixture））、然後在手機上摸一下角色-main/error-context.md
+
+    Error Context: test-results/general-mode-tasks-任務-2＋3：-4ecf4-Phone（fixture））、然後在手機上摸一下角色-main/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/general-mode-tasks-任務-2＋3：-4ecf4-Phone（fixture））、然後在手機上摸一下角色-main/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/general-mode-tasks-任務-2＋3：-4ecf4-Phone（fixture））、然後在手機上摸一下角色-main/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [main] › e2e/general-mode-tasks.spec.ts:696:1 › 任務 4：暫時離線 → 重新連線——畫面誠實說「正在重新連線」，接回來就恢復 ────────
+
+    Error: 接回來之後同步卡必須說得出它回來了
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected value: "同步尚未完成"
+    Received array: ["iPhone 已連接，能力核對中", "部分能力目前不可用", "iPhone 已連接，角色狀態已同步"]
+
+      740 |     .poll(async () => syncHeadline(card), { timeout: 30_000 })
+      741 |     .not.toBe(CHARACTER_SYNC_PROJECTION.reconnecting.headline);
+    > 742 |   expect(ONLINE_HONEST, "接回來之後同步卡必須說得出它回來了").toContain(await syncHeadline(card));
+          |                                              ^
+      743 |   await record(m, { actual: "completed" });
+      744 | });
+      745 |
+        at /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/e2e/general-mode-tasks.spec.ts:742:46
+
+    Error Context: test-results/general-mode-tasks-任務-4：暫時離線-→-重新連線——畫面誠實說「正在重新連線」，接回來就恢復-main/error-context.md
+
+    Error Context: test-results/general-mode-tasks-任務-4：暫時離線-→-重新連線——畫面誠實說「正在重新連線」，接回來就恢復-main/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/general-mode-tasks-任務-4：暫時離線-→-重新連線——畫面誠實說「正在重新連線」，接回來就恢復-main/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/general-mode-tasks-任務-4：暫時離線-→-重新連線——畫面誠實說「正在重新連線」，接回來就恢復-main/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [main] › e2e/general-mode-tasks.spec.ts:856:1 › 任務 7：移除之後又想用手機——重新配對，重新確認之後才回到同步 ──────────────
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected value: "同步尚未完成"
+    Received array: ["iPhone 已連接，能力核對中", "部分能力目前不可用", "iPhone 已連接，角色狀態已同步"]
+
+      887 |     .poll(async () => syncHeadline(card), { timeout: 30_000 })
+      888 |     .not.toBe(CHARACTER_SYNC_PROJECTION["needs-reconfirmation"].headline);
+    > 889 |   expect(ONLINE_HONEST).toContain(await syncHeadline(card));
+          |                         ^
+      890 |   await record(m, { actual: "completed" });
+      891 | });
+      892 |
+        at /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/e2e/general-mode-tasks.spec.ts:889:25
+
+    Error Context: test-results/general-mode-tasks-任務-7：移除之後又想用手機——重新配對，重新確認之後才回到同步-main/error-context.md
+
+    Error Context: test-results/general-mode-tasks-任務-7：移除之後又想用手機——重新配對，重新確認之後才回到同步-main/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/general-mode-tasks-任務-7：移除之後又想用手機——重新配對，重新確認之後才回到同步-main/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/general-mode-tasks-任務-7：移除之後又想用手機——重新配對，重新確認之後才回到同步-main/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) [main] › e2e/sensors.spec.ts:83:1 › 感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」 ────────────────────────────
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('.sensor-banner')
+    Expected: 0
+    Received: 1
+    Timeout:  20000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 20000ms
+      - waiting for locator('.sensor-banner')
+        44 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      110 |   // 畫面：確認之後才可以說「已停止感測」，而且橫幅要消失。
+      111 |   await expect(page.locator(".home").getByText("已停止感測。")).toBeVisible({ timeout: 20_000 });
+    > 112 |   await expect(page.locator(".sensor-banner")).toHaveCount(0, { timeout: 20_000 });
+          |                                                ^
+      113 | });
+      114 |
+      115 | test("感測：手機沒回覆時，畫面絕不說「已停止」——只說還不確定，而且感測不會從畫面消失", async ({
+        at /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/e2e/sensors.spec.ts:112:48
+
+    Error Context: test-results/sensors-感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」-main/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/sensors-感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」-main/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/sensors-感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」-main/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5 failed
+    [main] › e2e/character-session.spec.ts:276:1 › 角色同步（模擬 iPhone（fixture））：配對 → 已同步 → 摸一下 → 離線 → 重連 → 撤銷（桌面寬度） 
+    [main] › e2e/general-mode-tasks.spec.ts:640:1 › 任務 2＋3：稍後連手機（同步卡 → 配對區 → 模擬 iPhone（fixture））、然後在手機上摸一下角色 
+    [main] › e2e/general-mode-tasks.spec.ts:696:1 › 任務 4：暫時離線 → 重新連線——畫面誠實說「正在重新連線」，接回來就恢復 ─────────
+    [main] › e2e/general-mode-tasks.spec.ts:856:1 › 任務 7：移除之後又想用手機——重新配對，重新確認之後才回到同步 ───────────────
+    [main] › e2e/sensors.spec.ts:83:1 › 感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」 ─────────────────────────────
+  7 did not run
+  80 passed (3.5m)
+ ELIFECYCLE  Command failed with exit code 1.

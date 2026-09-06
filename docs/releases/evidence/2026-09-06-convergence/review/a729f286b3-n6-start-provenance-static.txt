@@ -1,0 +1,2 @@
+scripts/tests/tauri-mobile-sensor-walkthrough.py: AST/help + unchanged/replaced/deleted pinned artifact checks PASS (no native UI)
+scripts/tests/tauri-work-cancel.py: AST/help + unchanged/replaced/deleted pinned artifact checks PASS (no native UI)

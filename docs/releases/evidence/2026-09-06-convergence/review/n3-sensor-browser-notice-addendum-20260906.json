@@ -1,0 +1,287 @@
+{
+  "format": 1,
+  "area": "N3 sensor Browser diagnosis and stop-notice correction",
+  "createdAt": "2026-09-06T05:51:44.692958+00:00",
+  "previousHandoff": "docs/releases/evidence/2026-09-06-convergence/review/fc8d289361-n3-convergence-handoff-20260906.json",
+  "previousHandoffModified": false,
+  "freeze": "Production committed at 87b0d03173cdefce68bad2403b7f76be59b738e1 and frozen. Parent completed independent isolated reverse-patch red and fixed-source green; parent owns remaining clean-checkpoint full Browser/native rebuild/performance/release gates.",
+  "findings": [
+    {
+      "id": "N3-E2E-SENSOR-TEARDOWN",
+      "classification": "test fixture isolation defect, not lost device confirmation or journal overwrite",
+      "status": "fixed; original expectations unchanged",
+      "finder": "/root/restart_lifecycle",
+      "author": "/root/restart_lifecycle",
+      "verifier": "differential live-daemon Browser evidence; parent full-suite followup pending",
+      "callpath": "sensors.spec first test sets phone mic true -> afterEach FakeIphone.kill SIGTERM -> revokePairedPhones DELETE -> raw capture journal remains unknown -> second test own phone acknowledges -> historical UnresolvedStopsBanner remains .sensor-banner",
+      "originalFailure": "checkpoint Playwright sensors.spec.ts:112 expected .sensor-banner count 0, actual 1; success message assertion at 111 already passed",
+      "traceEvidence": "first active phone iphone-eaddc4f0; existing historical capture started by iphone:iphone-5919802c since 2026-09-06T05:33:01.704252Z; final activeSensors=[] and old record remains",
+      "differential": {
+        "freshAckOnly": {
+          "passed": 1,
+          "failed": 0,
+          "durationSeconds": 7.5,
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/859ca850b0-n3-sensors-isolated-18890.txt"
+        },
+        "originalSequence": {
+          "passed": 1,
+          "failed": 1,
+          "notRun": 1,
+          "durationSeconds": 27.1,
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/93dd1dbde9-n3-sensors-sequence-red.txt"
+        },
+        "teardownOnlyFixSequence": {
+          "passed": 3,
+          "failed": 0,
+          "durationSeconds": 11.8,
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/2fa1a0647c-n3-sensors-sequence-green.txt"
+        }
+      },
+      "fix": "Before ending each still-live fixture, send its genuine same-connection status micLevel=false and poll activeSensors and unresolvedStops empty. Always kill/revoke in finally. Do not dismiss, delete or suppress unknowns. If cleanup cannot confirm, teardown fails.",
+      "expectationsPreserved": [
+        "exact 已停止感測。 on a clean acknowledged stop",
+        ".sensor-banner count=0 after clean confirmation",
+        "unknown/no-ack remains warning and visible",
+        "late same-device confirmation clears the live state"
+      ],
+      "scope": "process-outside simulated iPhone fixture against real daemon + real browser UI; not physical iPhone acceptance"
+    },
+    {
+      "id": "N3-UI-STOP-HISTORY",
+      "classification": "reachable product presentation defect",
+      "severity": "P2",
+      "status": "fixed; independently reproduced red and reverified green by parent",
+      "finder": "/root/restart_lifecycle (candidate from failing Browser trace)",
+      "verifier": "/root (independent App trace and recorded real Browser/network evidence before authorization)",
+      "author": "/root/restart_lifecycle",
+      "callpaths": [
+        "App.tsx Shell.stopAllSensors -> api.sensorsStop -> api.status -> projectSensorStop(report,remaining), omitting already-read unresolved summary",
+        "HomePage.stopSensors -> api.sensorsStop -> api.status.activeSensors only -> shared projection",
+        "GlobalSearch stop command -> api.sensorsStop -> api.status.activeSensors only -> shared projection"
+      ],
+      "reachableTrigger": "Old mobile capture disconnects without confirmation; a new current capture stops successfully. Current reports are all confirmed and activeSensors empty, but historical unresolvedStops or journal recovery health remains. UI previously emitted the general successful 已停止感測。 notice alongside the unresolved reminder.",
+      "red": {
+        "command": "pnpm exec vitest run src/test/sensorStop.test.ts src/test/sensor-stop-history.test.tsx src/test/homePage.test.tsx src/test/regressions-v04.test.tsx -t N3-UI-STOP-HISTORY",
+        "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+        "passed": 0,
+        "failed": 9,
+        "skipped": 81,
+        "durationSeconds": 3.77,
+        "log": "docs/releases/evidence/2026-09-06-convergence/review/af92dc3736-n3-ui-stop-history-final-red.txt",
+        "caseBreakdown": {
+          "sharedProjection": 5,
+          "actualAppShellBanner": 2,
+          "actualHomePage": 1,
+          "actualGlobalSearch": 1
+        }
+      },
+      "green": {
+        "passed": 111,
+        "failed": 0,
+        "files": 6,
+        "durationSeconds": 2.9,
+        "log": "docs/releases/evidence/2026-09-06-convergence/review/abc5d3b154-n3-ui-stop-history-green.txt",
+        "includesUnchangedAdjacentTests": true
+      },
+      "typecheck": {
+        "exitCode": 0,
+        "log": "docs/releases/evidence/2026-09-06-convergence/review/c21bfdb776-n3-ui-stop-history-typecheck.txt"
+      },
+      "fix": "All three production callers pass projectUnresolvedStops(freshStatus).summary to the shared projectSensorStop. A non-null reminder, including overflow/recovery/parked/write-failure health, returns ok=false and a plain warning. Existing live-capture, uncertain-report and status-fetch-failure branches retain their earlier more specific warnings. Journal data remains unchanged.",
+      "message": "已要求停止；另有感測停止狀態尚未確認，請到「連接與權限」查看提醒。",
+      "regressionCoverage": [
+        "historical capture with no active captures",
+        "unitemized overflow",
+        "unclean restart/recovery unknown",
+        "parked journal",
+        "write failed journal",
+        "fresh status acquired after stop, not initial status, on App, Home and Search",
+        "old daemon absent new fields and clear fresh active list still retains existing behavior"
+      ],
+      "isolatedReproduce": {
+        "patch": "docs/releases/evidence/2026-09-06-convergence/review/6b68c8eb19-n3-ui-stop-history-production-fix.txt",
+        "instruction": "In an isolated copy only, git apply --reverse the patch; keep regression test files; run red command. Do not restore the shared working tree. Reverse check succeeded when generated.",
+        "patchDirection": "old product -> fixed product"
+      },
+      "scope": "Vitest tests mock API/desktop transport but execute actual shared projection and UI handlers. Full initial Browser/network trace independently establishes reachability. Does not claim physical/native acceptance of the updated notice.",
+      "independentVerification": {
+        "verifier": "/root",
+        "red": {
+          "passed": 0,
+          "failed": 9,
+          "skipped": 81,
+          "exitCode": 1,
+          "durationSeconds": 4.817,
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/7702cece80-n3-ui-stop-history-independent-red.txt",
+          "result": "docs/releases/evidence/2026-09-06-convergence/review/52cb74ad6c-n3-ui-stop-history-independent-red.json",
+          "scope": "archive a32258e with current regression tests and reversed production-fix patch; isolated jsdom regression"
+        },
+        "green": {
+          "passed": 9,
+          "failed": 0,
+          "skipped": 81,
+          "exitCode": 0,
+          "durationSeconds": 2.49,
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/5c85eb515e-n3-ui-stop-history-independent.txt",
+          "result": "docs/releases/evidence/2026-09-06-convergence/review/786c499fa5-n3-ui-stop-history-independent.json",
+          "scope": "current fixed shared source before committing final fix; runner metadata SHA a32258ea161df537f2ad6c1f25cd70d86910d0da identifies then-base, not immutable fixed-source commit"
+        },
+        "subsequentFixCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1"
+      }
+    }
+  ],
+  "finalBrowser": {
+    "command": "E2E_API_PORT=18890 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 pnpm exec playwright test e2e/sensors.spec.ts --project=main --no-deps --output /tmp/n3-sensors-final-artifacts",
+    "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+    "passed": 3,
+    "failed": 0,
+    "durationSeconds": 12.0,
+    "log": "docs/releases/evidence/2026-09-06-convergence/review/0f0a2c5343-n3-sensors-final-green.txt",
+    "artifacts": "/tmp/n3-sensors-final-artifacts",
+    "meaning": "Original three sensor UI cases pass after both fixture cleanup and product notice fixes; no historical-unknown Browser case added here."
+  },
+  "excludedAttempts": [
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/da664efb9c-n3-sensors-isolated.txt",
+      "reason": "No test executed. HTTP 18790 ready timed out because concurrent native walkthrough legitimately used 18790 for mobile WSS and its separate HTTP port. Initial inference that native CLI port was ignored was refuted by parent. Parent added configurable E2E_API_PORT; subsequent diagnosis used 18890."
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/4b54cd2c52-n3-ui-stop-history-red.txt",
+      "reason": "First attempt has 7 valid product failures and 2 invalid App fixture selector failures: actual banner button is 立即停止, not 停止所有感測. Corrected test selector without changing product, then reran all 9 valid red cases in final-red log."
+    }
+  ],
+  "limitations": [
+    "No runtime/journal changes in this followup. No reminder dismissed to satisfy a success assertion.",
+    "No enable/consent restoration; normal fixture mic enablement is the pre-existing sensor Browser test setup only.",
+    "Human dismissal remains review, not source stopped evidence.",
+    "All reachable production projectSensorStop callers pass the new third argument. Existing two-argument unit cases retain compatibility assumptions for old daemon reports with no unknown summary.",
+    "111 unit tests and 3 Browser cases are different suites; repeated runs of the same cases must not be counted as additional unique acceptance coverage.",
+    "All nine source capture hashes match checkpoint commit 87b0d03173cdefce68bad2403b7f76be59b738e1. Author and independent runs occurred before that commit, against its captured fixed source; parent must complete clean-checkpoint release gates and anchor final release evidence."
+  ],
+  "contractNoteForIntegrator": "停止所有感測的整體成功通知，除了本次停止回報及重新查到的 activeSensors，也須確認同次狀態的未解決停止摘要與保存健康均無未知。歷史提醒保留，不能用新來源確認或人類解除提醒宣稱來源已停止。",
+  "artifacts": [
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/da664efb9c-n3-sensors-isolated.txt",
+      "sha256": "ac6c1e008a43c816fa2eb9b937c6c98f9d7c0911daad4a2806cb25e25888d542",
+      "bytes": 1225
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/859ca850b0-n3-sensors-isolated-18890.txt",
+      "sha256": "d08f2949a6c44d0a92bbb9873e1a1af516b291145165827c78800104ca4f5a46",
+      "bytes": 1003
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/93dd1dbde9-n3-sensors-sequence-red.txt",
+      "sha256": "3c1416170779d6350389f9d7e72f821c3ed69b172e31fd8bf70bde9e98552e3d",
+      "bytes": 3916
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/2fa1a0647c-n3-sensors-sequence-green.txt",
+      "sha256": "e6ca494d2146fdaa2f1aaf0d2583b082a68b70d914569a1a73d32796a1abb5ce",
+      "bytes": 1330
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/0f0a2c5343-n3-sensors-final-green.txt",
+      "sha256": "020c5a28129299debb98efd7ca6dd7c1955276cae2e77340587b8be490b1f49d",
+      "bytes": 1330
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/360b033bb6-n3-sensors-checkpoint-status-probe.json",
+      "sha256": "c193fc0e12a72efb916252aa36a4b3c3e396b59ca86ae9e1851b02f6ff600fc4",
+      "bytes": 23378
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/4b54cd2c52-n3-ui-stop-history-red.txt",
+      "sha256": "1cb7929048ad32b41c20d42de1fa00e5cd2b8e4369842d21ac2ec5a45a66d606",
+      "bytes": 202347
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/af92dc3736-n3-ui-stop-history-final-red.txt",
+      "sha256": "ea7ad59a1f2a8ca2f5c038ff329ff23ba82b4ef6e5eabc8fc430db2755dcfe8c",
+      "bytes": 202967
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/abc5d3b154-n3-ui-stop-history-green.txt",
+      "sha256": "3b58623da5dda5b7dd93e435cd79dbedc2b9b0855e39b20ed5e4a4e23f2df0a2",
+      "bytes": 612
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/c21bfdb776-n3-ui-stop-history-typecheck.txt",
+      "sha256": "d58ca9e9d5a936260dd41fc1c929722aa09f988a0be6a0940f8265fd75539159",
+      "bytes": 134
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/6b68c8eb19-n3-ui-stop-history-production-fix.txt",
+      "sha256": "7867a7da41cf99d08fcba8c072195fa081a28eb2b71d6e54697a1fb105547a73",
+      "bytes": 4694
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/7702cece80-n3-ui-stop-history-independent-red.txt",
+      "sha256": "f24df81717f761ca7830533df6863420d1c99d8e0c77a2a705eebda96f3290f3",
+      "bytes": 203634
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/52cb74ad6c-n3-ui-stop-history-independent-red.json",
+      "sha256": "4ae0c3cf33a655c7128ab7761cfc1d26b286827cb52d6e83b822133a03212ad2",
+      "bytes": 468
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/5c85eb515e-n3-ui-stop-history-independent.txt",
+      "sha256": "ad4c38968130cb0b00f763235e837dcdcf2e69e8279cd7fc9fdd176b7b8c0754",
+      "bytes": 546
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/786c499fa5-n3-ui-stop-history-independent.json",
+      "sha256": "ff01cc50a2563561f39b58c708ce6e7e62941a3cecc2ec02277fe4415ca7a3b2",
+      "bytes": 615
+    }
+  ],
+  "sourceCapture": [
+    {
+      "path": "apps/interaction-desktop/e2e/sensors.spec.ts",
+      "sha256": "2980dcdaf4dd3695bc3a857fad738b64fc7db53a274915740f01080f7f232d80",
+      "matchesCheckpointCommit": true
+    },
+    {
+      "path": "apps/interaction-desktop/src/statusProjection/provider.ts",
+      "sha256": "d0c03c3f015e8a370d96419ee5a7af1ca373d19902d5ca340493bd7f707dfc69",
+      "matchesCheckpointCommit": true
+    },
+    {
+      "path": "apps/interaction-desktop/src/App.tsx",
+      "sha256": "2b48f6d3883f6b272050bcd8b001bb63a42cb8f23c6d805a3d3775ea5d2a8a79",
+      "matchesCheckpointCommit": true
+    },
+    {
+      "path": "apps/interaction-desktop/src/pages/HomePage.tsx",
+      "sha256": "6ba2ebf0bb9c079518c09be8503794ecd301bd4b94ddd98b552e19ee525ac914",
+      "matchesCheckpointCommit": true
+    },
+    {
+      "path": "apps/interaction-desktop/src/components/GlobalSearch.tsx",
+      "sha256": "9412089ac2ef9ba5a5a4da2101bedc7596b1ed26712d919f7f9acedbdd92eadf",
+      "matchesCheckpointCommit": true
+    },
+    {
+      "path": "apps/interaction-desktop/src/test/sensorStop.test.ts",
+      "sha256": "031d43ecbbc6cfbda054c1460546f4180b7812b7f308dd45752691485da99886",
+      "matchesCheckpointCommit": true
+    },
+    {
+      "path": "apps/interaction-desktop/src/test/sensor-stop-history.test.tsx",
+      "sha256": "da23206fd153acef1cc712fedc2e4332604d2ad12e94513fde5e09635a118532",
+      "matchesCheckpointCommit": true
+    },
+    {
+      "path": "apps/interaction-desktop/src/test/homePage.test.tsx",
+      "sha256": "9e50bd4767f22de154b812c48238b7c0676439787308ad2d33eb905ba90be432",
+      "matchesCheckpointCommit": true
+    },
+    {
+      "path": "apps/interaction-desktop/src/test/regressions-v04.test.tsx",
+      "sha256": "a8edeec1e290be3b8c721567812e592481e73c9a0f96705e194555b538c7af56",
+      "matchesCheckpointCommit": true
+    }
+  ],
+  "checkpointCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1"
+}

@@ -1,0 +1,116 @@
+--- a/apps/interaction-desktop/src/statusProjection/provider.ts
++++ b/apps/interaction-desktop/src/statusProjection/provider.ts
+@@ -195,10 +195,12 @@
+  *
+  * @param report `/v1/sensors/stop` 的回報（形狀不可信，任何值都要能吃）。
+  * @param remaining 停止後重新讀到的 activeSensors；`null` ＝ 讀不到（查詢失敗）。
++ * @param unresolvedSummary 同次重讀的未確認停止／保存健康摘要；有提醒就不能宣稱全部已停止。
+  */
+ export function projectSensorStop(
+   report: unknown,
+-  remaining: readonly { kind?: unknown; state?: unknown }[] | null
++  remaining: readonly { kind?: unknown; state?: unknown }[] | null,
++  unresolvedSummary: string | null = null
+ ): SensorStopProjection {
+   const raw = (report && typeof report === "object" ? report : {}) as Record<string, unknown>;
+   const devices = Array.isArray(raw.devices) ? (raw.devices as Record<string, unknown>[]) : [];
+@@ -243,6 +245,12 @@
+       message: `已要求停止，結果不確定（${who.length > 0 ? who.join("、") : "有來源"}未回覆）。`,
+     };
+   }
++  if (unresolvedSummary !== null) {
++    return {
++      ok: false,
++      message: "已要求停止；另有感測停止狀態尚未確認，請到「連接與權限」查看提醒。",
++    };
++  }
+   return { ok: true, message: "已停止感測。" };
+ }
+ 
+--- a/apps/interaction-desktop/src/App.tsx
++++ b/apps/interaction-desktop/src/App.tsx
+@@ -310,16 +310,18 @@
+       return;
+     }
+     let remaining: import("./api").SensorUse[] | null = null;
++    let stopUnresolvedSummary: string | null = null;
+     try {
+       const s = await api.status();
+       remaining = (s["activeSensors"] as import("./api").SensorUse[] | undefined) ?? [];
+       setSensors(remaining);
+-      setUnresolvedSummary(projectUnresolvedStops(s).summary);
++      stopUnresolvedSummary = projectUnresolvedStops(s).summary;
++      setUnresolvedSummary(stopUnresolvedSummary);
+       setEstop(Boolean(s["emergencyStop"]));
+     } catch {
+       remaining = null;
+     }
+-    setCommandNotice(projectSensorStop(report, remaining));
++    setCommandNotice(projectSensorStop(report, remaining, stopUnresolvedSummary));
+     bumpRefresh();
+   }
+ 
+--- a/apps/interaction-desktop/src/pages/HomePage.tsx
++++ b/apps/interaction-desktop/src/pages/HomePage.tsx
+@@ -24,6 +24,7 @@
+   pendingCountLabel,
+   projectInboxStatus,
+   projectSensorStop,
++  projectUnresolvedStops,
+   projectWorkState,
+   receiptIntentLabel,
+   sensorKindLabel,
+@@ -74,7 +75,7 @@
+   };
+ 
+   // 誠實階梯：送出停止請求 ≠ 已停止。送出後一定重讀 status，只有 activeSensors 真的空了
+-  // 而且回報沒有「不確定」時才敢說「已停止感測」；讀不到狀態就說讀不到，不猜。
++  // 且沒有不確定的回報、歷史紀錄或保存狀態，才敢說「已停止感測」；讀不到就不猜。
+   const stopSensors = async () => {
+     setSensorNotice(null);
+     let report: unknown;
+@@ -85,12 +86,15 @@
+       return;
+     }
+     let remaining: SensorUse[] | null = null;
++    let unresolvedSummary: string | null = null;
+     try {
+-      remaining = ((await api.status())["activeSensors"] as SensorUse[] | undefined) ?? [];
++      const freshStatus = await api.status();
++      remaining = (freshStatus["activeSensors"] as SensorUse[] | undefined) ?? [];
++      unresolvedSummary = projectUnresolvedStops(freshStatus).summary;
+     } catch {
+       remaining = null;
+     }
+-    setSensorNotice(projectSensorStop(report, remaining));
++    setSensorNotice(projectSensorStop(report, remaining, unresolvedSummary));
+   };
+ 
+   const delegate = (event: React.FormEvent) => {
+--- a/apps/interaction-desktop/src/components/GlobalSearch.tsx
++++ b/apps/interaction-desktop/src/components/GlobalSearch.tsx
+@@ -15,6 +15,7 @@
+   knowledgeTriggerLabel,
+   projectProviderState,
+   projectSensorStop,
++  projectUnresolvedStops,
+   projectWorkState,
+   receiptIntentLabel,
+ } from "../statusProjection";
+@@ -292,13 +293,15 @@
+         action: async (): Promise<CommandOutcome> => {
+           const report = await api.sensorsStop();
+           let remaining: import("../api").SensorUse[] | null = null;
++          let unresolvedSummary: string | null = null;
+           try {
+             const s = await api.status();
+             remaining = (s["activeSensors"] as import("../api").SensorUse[] | undefined) ?? [];
++            unresolvedSummary = projectUnresolvedStops(s).summary;
+           } catch {
+             remaining = null;
+           }
+-          return projectSensorStop(report, remaining);
++          return projectSensorStop(report, remaining, unresolvedSummary);
+         },
+       },
+       {

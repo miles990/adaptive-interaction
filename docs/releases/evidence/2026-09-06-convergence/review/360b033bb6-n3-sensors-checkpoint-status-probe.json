@@ -1,0 +1,742 @@
+{
+  "origin": "apps/interaction-desktop/test-results/sensors-感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」-main/trace.zip",
+  "rows": [
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [
+          {
+            "kind": "iphone.mic-level",
+            "purpose": "iPhone 麥克風音量（僅音量值）",
+            "startedAt": "2026-09-06T05:33:02.688323Z",
+            "startedBy": "iphone:iphone-eaddc4f0",
+            "state": "active"
+          }
+        ],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "capture-observed",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [
+          {
+            "kind": "iphone.mic-level",
+            "purpose": "iPhone 麥克風音量（僅音量值）",
+            "startedAt": "2026-09-06T05:33:02.688323Z",
+            "startedBy": "iphone:iphone-eaddc4f0",
+            "state": "active"
+          }
+        ],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "capture-observed",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [
+          {
+            "kind": "iphone.mic-level",
+            "purpose": "iPhone 麥克風音量（僅音量值）",
+            "startedAt": "2026-09-06T05:33:02.688323Z",
+            "startedBy": "iphone:iphone-eaddc4f0",
+            "state": "active"
+          }
+        ],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "capture-observed",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [
+          {
+            "kind": "iphone.mic-level",
+            "purpose": "iPhone 麥克風音量（僅音量值）",
+            "startedAt": "2026-09-06T05:33:02.688323Z",
+            "startedBy": "iphone:iphone-eaddc4f0",
+            "state": "active"
+          }
+        ],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "capture-observed",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [
+          {
+            "kind": "iphone.mic-level",
+            "purpose": "iPhone 麥克風音量（僅音量值）",
+            "startedAt": "2026-09-06T05:33:02.688323Z",
+            "startedBy": "iphone:iphone-eaddc4f0",
+            "state": "active"
+          }
+        ],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "capture-observed",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [
+          {
+            "kind": "iphone.mic-level",
+            "purpose": "iPhone 麥克風音量（僅音量值）",
+            "startedAt": "2026-09-06T05:33:02.688323Z",
+            "startedBy": "iphone:iphone-eaddc4f0",
+            "state": "active"
+          }
+        ],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "capture-observed",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "sensors/stop",
+      "method": "POST",
+      "response": {
+        "devices": [
+          {
+            "deviceId": "iphone-eaddc4f0",
+            "name": "模擬 iPhone（fixture）",
+            "outcome": "stopped",
+            "via": "ack",
+            "waitedMs": 0
+          }
+        ],
+        "local": {
+          "microphone": "idle"
+        },
+        "stopped": true,
+        "uncertain": false
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "stop-all-sensors",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "stop-all-sensors",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "stop-all-sensors",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "stop-all-sensors",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "stop-all-sensors",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "stop-all-sensors",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "1-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "stop-all-sensors",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "0-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [
+          {
+            "kind": "iphone.mic-level",
+            "purpose": "iPhone 麥克風音量（僅音量值）",
+            "startedAt": "2026-09-06T05:33:02.688323Z",
+            "startedBy": "iphone:iphone-eaddc4f0",
+            "state": "active"
+          }
+        ],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "capture-observed",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    },
+    {
+      "trace": "0-trace.network",
+      "route": "status",
+      "method": "GET",
+      "response": {
+        "activeSensors": [],
+        "unresolvedStops": [
+          {
+            "confirmedStopped": false,
+            "generation": 2,
+            "lastKnown": [
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:01.704241Z",
+                "startedBy": "iphone:iphone-5919802c",
+                "state": "stop-unknown"
+              },
+              {
+                "kind": "iphone.mic-level",
+                "purpose": "mobile capture reported",
+                "startedAt": "2026-09-06T05:33:02.688323Z",
+                "startedBy": "iphone:iphone-eaddc4f0",
+                "state": "stop-unknown"
+              }
+            ],
+            "processIncarnation": "080ef506-b509-4a50-b01b-0fd1ade12572",
+            "reason": "stop-all-sensors",
+            "sensors": [
+              "iphone.mic-level"
+            ],
+            "since": "2026-09-06T05:33:01.704252Z",
+            "sourceId": "provider.mobile",
+            "sourceLabel": "iPhone"
+          }
+        ],
+        "unresolvedStopHealth": {
+          "overflowCount": 0,
+          "parked": false,
+          "recoveryUnknown": false,
+          "storage": "durable"
+        }
+      }
+    }
+  ]
+}

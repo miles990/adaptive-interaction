@@ -1,0 +1,55 @@
+{
+  "reviewer": "semantic_contract (independent verifier)",
+  "checkpoint": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+  "workingTreePatch": "precise emergency-unlock needs-environment exemption",
+  "sourcePath": "scripts/tauri-ax-walkthrough.sh",
+  "sourceSha256": "e8ee496d917c2b88dd5eea63a5c771a5363f006a6b63da83377b673dce8534b8",
+  "executedExpression": "raise SystemExit(1 if any(t[\"status\"] != \"completed\" and not (t[\"id\"] == \"emergency-unlock\" and t[\"status\"] == \"needs-environment\") for t in tasks) or listeners != \"0\" else 0)",
+  "cases": [
+    {
+      "emergencyUnlockStatus": "completed",
+      "expectedExit": 0,
+      "actualExit": 0,
+      "matchesExpected": true
+    },
+    {
+      "emergencyUnlockStatus": "needs-environment",
+      "expectedExit": 0,
+      "actualExit": 0,
+      "matchesExpected": true
+    },
+    {
+      "emergencyUnlockStatus": "failed",
+      "expectedExit": 1,
+      "actualExit": 1,
+      "matchesExpected": true
+    },
+    {
+      "emergencyUnlockStatus": "not-run",
+      "expectedExit": 1,
+      "actualExit": 1,
+      "matchesExpected": true
+    },
+    {
+      "engineeringStatus": "failed",
+      "expectedExit": 1,
+      "actualExit": 1,
+      "matchesExpected": true
+    },
+    {
+      "engineeringStatus": "needs-environment",
+      "expectedExit": 1,
+      "actualExit": 1,
+      "matchesExpected": true
+    },
+    {
+      "engineeringStatus": "not-run",
+      "expectedExit": 1,
+      "actualExit": 1,
+      "matchesExpected": true
+    }
+  ],
+  "passed": 7,
+  "failed": 0,
+  "nativeUiOperated": false
+}
