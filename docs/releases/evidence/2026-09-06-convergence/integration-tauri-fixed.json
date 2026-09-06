@@ -1,0 +1,19 @@
+{
+  "name": "integration-tauri-fixed",
+  "sha": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "-c",
+    "cargo fmt --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml --check && cargo clippy --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml --all-targets -- -D warnings && cargo test --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml"
+  ],
+  "exit": 0,
+  "durationSeconds": 22.28,
+  "rustCounts": [
+    78,
+    0,
+    0
+  ],
+  "testBinaries": 3,
+  "log": "/tmp/adaptive-convergence-20260906/integration-tauri-fixed.log"
+}

@@ -341,7 +341,7 @@ final class SessionClientTests: XCTestCase {
         XCTAssertEqual(
             text,
             """
-            {"features":{"haptic":false,"reducedMotion":false},\
+            {"features":{"haptic":false,"reducedMotion":false,"stateApplied":"aip.applied/1"},\
             "inputs":["character.interaction.touch","character.interaction.dismiss"],\
             "intents":["react-happily-to-touch","celebrate","settle","idle"],\
             "limits":{"maxMessageBytes":65536},\
@@ -355,6 +355,7 @@ final class SessionClientTests: XCTestCase {
         let reduced = SessionDecisions.capabilityAnnouncement(reducedMotion: true)
         XCTAssertEqual(reduced.features?["reducedMotion"], .bool(true))
         XCTAssertEqual(reduced.features?["haptic"], .bool(false))
+        XCTAssertEqual(reduced.features?["stateApplied"], .string("aip.applied/1"))
     }
 
     func testCapabilityEnvelopePassesAipValidation() throws {
@@ -510,7 +511,7 @@ final class SessionClientTests: XCTestCase {
                     SemanticJSON.parse(
                         """
                         {"characterId":"ref-shape","mood":{"kind":"sparkly","intensity":0.5},
-                         "activity":"orbiting","truth":{"state":"teleporting"},
+                         "activity":"orbiting","attention":{"kind":"none"},"truth":{"state":"teleporting"},
                          "members":[],"reducedMotion":false}
                         """))))
         XCTAssertEqual(state.mood, .unknown("sparkly"))
@@ -534,7 +535,7 @@ final class SessionClientTests: XCTestCase {
             SemanticJSON.parse(
                 """
                 {"characterId":"ref-shape","mood":{"kind":"neutral","intensity":0.0},
-                 "activity":"idle","truth":{"state":"none"},"members":[\(members)],
+                 "activity":"idle","attention":{"kind":"none"},"truth":{"state":"none"},"members":[\(members)],
                  "reducedMotion":false}
                 """))
         XCTAssertNil(CharacterSemanticState.project(state), "超過成員上限就整份拒絕，不截斷")
@@ -750,6 +751,62 @@ final class SessionClientTests: XCTestCase {
             tone: tone, showsVerifiedCheck: false, isEmergency: isEmergency, fromSession: true)
     }
 
+    @MainActor
+    func testStateAppliedReceiptIsSentOnlyAfterValidatedAdoptionAndForItsMessage() throws {
+        let transport = RecordingTransport()
+        let client = SessionClient()
+        client.transport = transport
+        try negotiate(client)
+        var document = try XCTUnwrap(fixture("state-snapshot.json").objectValue)
+        let payload = try XCTUnwrap(document["payload"]?.objectValue)
+        var context: [String: SemanticJSON] = [
+            "profile": .string("aip.applied/1"), "token": .string(String(repeating: "a", count: 32)),
+            "generation": .number(raw: "1"), "sessionId": .string("session.home"),
+            "epoch": try XCTUnwrap(payload["sessionEpoch"]), "revision": try XCTUnwrap(payload["revision"]),
+            "hash": try XCTUnwrap(payload["hash"]), "messageId": try XCTUnwrap(document["messageId"])
+        ]
+        document["stateApplied"] = .object(context)
+        try feed(client, SemanticJSON.object(document).canonicalJSON)
+        XCTAssertEqual(client.advanced.revision, 204)
+        XCTAssertEqual(transport.stateApplied.count, 1)
+        for (key, wrong) in [("messageId", "other-message"), ("sessionId", "other-session"), ("hash", String(repeating: "0", count: 64))] {
+            var changed = context
+            changed[key] = .string(wrong)
+            document["stateApplied"] = .object(changed)
+            try feed(client, SemanticJSON.object(document).canonicalJSON)
+        }
+        XCTAssertEqual(transport.stateApplied.count, 1, "the old state or another message cannot justify the context")
+        context["token"] = .string("malformed")
+        document["stateApplied"] = .object(context)
+        try feed(client, SemanticJSON.object(document).canonicalJSON)
+        XCTAssertEqual(transport.stateApplied.count, 1)
+    }
+
+    @MainActor
+    func testAnInvalidStateNeverEmitsAnAppliedReceiptEvenWithAConsistentHash() throws {
+        let transport = RecordingTransport()
+        let client = SessionClient()
+        client.transport = transport
+        try negotiate(client)
+        var document = try XCTUnwrap(fixture("state-snapshot.json").objectValue)
+        var payload = try XCTUnwrap(document["payload"]?.objectValue)
+        var state = try XCTUnwrap(payload["state"]?.objectValue)
+        state.removeValue(forKey: "attention")
+        let raw = SemanticJSON.object(state)
+        payload["state"] = raw
+        payload["hash"] = .string(raw.canonicalSHA256)
+        document["payload"] = .object(payload)
+        document["stateApplied"] = .object([
+            "profile": .string("aip.applied/1"), "token": .string(String(repeating: "a", count: 32)),
+            "generation": .number(raw: "1"), "sessionId": .string("session.home"),
+            "epoch": try XCTUnwrap(payload["sessionEpoch"]), "revision": try XCTUnwrap(payload["revision"]),
+            "hash": .string(raw.canonicalSHA256), "messageId": try XCTUnwrap(document["messageId"])
+        ])
+        try feed(client, SemanticJSON.object(document).canonicalJSON)
+        XCTAssertTrue(transport.stateApplied.isEmpty)
+        XCTAssertEqual(client.advanced.revision, 0)
+    }
+
     /// 記錄每一則送出訊息的 mock transport。
     private final class RecordingTransport: SessionTransport {
         var isConnected = true
@@ -758,6 +815,13 @@ final class SessionClientTests: XCTestCase {
         var accepts = true
         private(set) var sent: [AIPEnvelope] = []
         private(set) var observations: [String] = []
+        private(set) var stateApplied: [JSONValue] = []
+
+        func sendStateApplied(_ receipt: JSONValue) -> Bool {
+            guard accepts else { return false }
+            stateApplied.append(receipt)
+            return true
+        }
 
         @discardableResult
         func sendAip(_ envelope: AIPEnvelope) -> Bool {
@@ -872,7 +936,7 @@ final class SessionClientTests: XCTestCase {
                     SemanticJSON.parse(
                         """
                         {"characterId":"ref-shape","mood":{"kind":"happy","intensity":0.45},
-                         "activity":"idle","truth":{"state":"\(truth)"},
+                         "activity":"idle","attention":{"kind":"none"},"truth":{"state":"\(truth)"},
                          "members":[],"reducedMotion":false}
                         """))))
     }

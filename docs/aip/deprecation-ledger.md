@@ -23,7 +23,7 @@
 | 下一檢查里程碑 | 什麼時候再來看這一列 |
 | owner | 哪個 crate／模組是這條路徑的權威實作 |
 
-本表登記 **12 條**相容路徑，其中 11 條有完整七欄表格。只有 §2.2（未來格式不隔離、不覆寫）刻意
+本表登記 **18 條**相容路徑，其中 17 條有完整七欄表格。只有 §2.2（未來格式不隔離、不覆寫）刻意
 用敘述登記：它不是「將被移除的相容路徑」，而是一條要一直留著的防呆規則，七欄裡的「移除前需要的
 證據」對它沒有意義。§3.2（裝置線 v1.2 `aip-frag`）的實作已經合併，欄位與 file:line 已補齊。
 
@@ -179,6 +179,23 @@ snapshot 回覆與含 `members` 的 patch 送不出去，只能稽核 `aip.outbo
 | 下一檢查里程碑 | 不需要（登記用，供讀舊截圖的人對照） |
 | owner | `apps/interaction-desktop/src/aip/sessionClient.ts`（`SessionCounters`）；呈現在 `src/components/CharacterSyncCard.tsx` 的 `alignment.*` |
 
+### 4.3 Sensor stop journal format 1 與來源停止證據範圍
+
+| 欄位 | 內容 |
+|---|---|
+| 為什麼存在 | v0.7.0 未解決摘要只在記憶體，重啟消失；同 ID 新來源也能替舊世代解除。N3 將 unknown 保存，並要求同 process／同 generation／同 capture scope 的停止證據；HTTP 人類解除仍是解除提醒，不是已停止 |
+| 適用版本 | v0.7.0 為舊行為；本輪候選新增 SQLite meta `sensor_stop_journal` format 1 及 `sensor_source_generation_high_water`。AIP wire、device wire、SemanticState 與 Session snapshot format 不因此變更 |
+| 移除前需要的證據 | 若要恢復跨連線自動解除，必須有真實 production consumer 提供並驗證硬體 incarnation／受器 ownership，測試偽造 ID、舊回覆、重新配對與撤銷；目前不能只用相同 source ID 替代。format 1 須保留舊候選 fixture 與 migration，不能刪資料充當退場 |
+| 資料遷移 | 第一次啟動建立 format 1 與單調 generation 預留；既有 v0.7.0 memory-only 摘要沒有可讀來源，不能補造。只存有界 sensor+connection scope，不保存完整個人觀測內容。future/corrupt metadata parked、原文不覆寫；generation metadata 不可信則拒絕啟動 |
+| 回退方式 | 保留 SQLite metadata 原樣再回退舊程式；舊版不讀 journal，會再次缺少重啟後 unknown 顯示，必須明示這項損失；禁止清空 journal、高風險 enabled 或 consent 來完成回退 |
+| 下一檢查里程碑 | 本輪獨立 Find→Verify 與首個提供可信 hardware incarnation 的 adapter；overflow 的人工維護流程須實際查 audit／裝置，不以一鍵假確認清除 |
+| owner | `interaction-runtime/src/sensor_journal.rs`／`sensor_source.rs`／`sensors.rs`；契約 `privacy.md` §5.1；投影 `statusProjection/unresolvedStops.ts`、Tauri `host_safety.rs` |
+
+Mobile capture 的 write-ahead 從原始 false→true 開始，source owner 綁 connection；
+不再只依賴 stop-all 或已啟用受器的 active 投影。disabled 但自報擷取的手機也會保留提醒，
+同連線 false 自報可清自己的 scope；新連線與斷線不能替舊連線背書。這是 N3 證據保存收斂，
+不新增 wire profile、consent 或 enabled 恢復路徑。
+
 ## 5. 加一條新的相容路徑時
 
 1. 先問：能不能不加？（新增選填欄位／新 name／新 capability 鍵通常可以，見 `compatibility.md` §2）
@@ -187,3 +204,70 @@ snapshot 回覆與含 `members` 的 patch 送不出去，只能稽核 `aip.outbo
    `compatibility.md` §1 矩陣。
 4. 有資料要遷移的，遷移前先備份原檔，並在測試裡放一份**真實舊版本寫出來的** fixture
    （範例：`crates/interaction-runtime/tests/fixtures/character-session/`）。
+
+## 6. 本輪新增的 consumer 與設定相容路徑
+
+### 6.1 Legacy syncProfile
+
+| 欄位 | 內容 |
+|---|---|
+| 為什麼存在 | 保護 v0.7.0 診斷 consumer；pending-full-state→full-state 只描述歷史傳送能力，不再用它判同步 |
+| 適用版本 | v0.7.0 舊欄位保留，本輪新增 syncCapability／stateDelivery／stateAppliedCurrent |
+| 移除前需要的證據 | 盤點所有 consumer 已改讀新欄位，major 版本再移除舊欄位 |
+| 資料遷移 | 無磁碟資料遷移，UI 以 capability／傳送／套用自報各自投影 |
+| 回退方式 | 保留舊欄位原意；回退 UI 不具備新回執的準確同步投影，須揭露 |
+| 下一檢查里程碑 | 下一個 minor 盤點 consumer |
+| owner | Runtime CharacterSession／desktop statusProjection；device-profile.md §3.1／3.2 |
+
+### 6.2 未協商 applied profile 的 peer
+
+| 欄位 | 內容 |
+|---|---|
+| 為什麼存在 | 已發布韌體／iPhone App 未宣告 aip.applied/1 仍可啟動與互動，不強加新必填回執 |
+| 適用版本 | device v1.0–1.2、mobile v1.0 的 legacy peer；新版只對協商者要求 applied challenge |
+| 移除前需要的證據 | 必須保留合法 legacy fixture；無真機升級證據前不可移除 |
+| 資料遷移 | 無；連線重新協商能力，未確認者維持 unconfirmed，不假造回執 |
+| 回退方式 | 停止宣告 aip.applied/1，保留原互動能力；同步證據降為傳送／未確認 |
+| 下一檢查里程碑 | 下一 minor 依真 iPhone／真板證據復核 |
+| owner | DeviceLink／MobileBridge；transport-bindings.md §9 |
+
+### 6.3 JSON value IPC 與 raw JSON text IPC
+
+| 欄位 | JSON value IPC → raw JSON text IPC |
+|---|---|
+| 為什麼存在 | WebView 的一般 JSON 解碼會遺失未知 optional number 的 f64 字面與大整數精度；新版桌面用 `_raw` 指令及 `runtime-event-raw` 保留 hash 原始資料，舊指令與 channel 仍讓已發布 caller 啟動 |
+| 適用版本 | v0.7.0 使用 value IPC；本輪候選開始使用 raw IPC。AIP 仍為 aip/1.0；semantic-state/1.0 與 snapshot format 1 各自獨立 |
+| 移除前需要的證據 | 清點所有桌面 consumer，確認沒有舊 command/channel 使用者，並以跨版本 fixture 及 native/HTTP 兩路 hash regression 證明升級；未取得前保留舊入口 |
+| 資料遷移 | 無磁碟格式遷移；新 TS consumer 以原始文字解析及 per-container metadata 保存 number，merge patch 同步轉移 metadata |
+| 回退方式 | 舊版仍可呼叫舊 IPC；未知新 optional number 的精確 hash 不受舊 value IPC 保證，回退時需明示限制，不能把 hash 不符当成同步成功 |
+| 下一檢查里程碑 | 下一個桌面 consumer 或 SemanticState optional 欄位發布前 |
+| owner | `src-tauri/src/lib.rs` raw commands/events；TS `transport.ts`、`aip/json-source.ts`、`aip/canonical.ts`；契約 `semantic-state.md` |
+
+### 6.4 Authoritative restore 與 forward-compatible consumer
+
+| 欄位 | 內容 |
+|---|---|
+| 為什麼存在 | Renderer保留未知欄位／詞彙而不執行；權威 host不重新發布未知snapshot欄位。兩種角色不能互換。舊snapshot缺unsupportedIntents仍依既有規則補空陣列 |
+| 適用版本 | 舊資料相容fixture取自已發布v0.7.0的原始bytes（含format0與pre-unsupportedIntents）；本輪新增明示consumer schema。現存欄位必填與型別不變 |
+| 移除前需要的證據 | 任何新必填欄位、不同null語意或未知詞彙執行行為必須先明示profile/version，再新增原始舊版fixture；不可只重生current golden |
+| 資料遷移 | 保留既有format0／缺unsupportedIntents遷移。額外修正raw snapshot explicit null之前會被serde靜默丟棄：現在先拒絕，既有store隔離／恢復流程處理壞資料；字串中的null不受影響 |
+| 回退方式 | 保留原始snapshot備份及frozen corpus；回退舊程式會重新容忍null丟失缺陷，不能宣稱資料完整性等價 |
+| 下一檢查里程碑 | 第一次新增正式SemanticState optional欄位或snapshot format變更 |
+| owner | `interaction-session::{semantic_contract,session,state}`；TS/Swift generated DTO與validator；`scripts/drills/optional-state.mjs` |
+
+
+### 6.5 陪伴預設 marker 與設定 revision
+
+| 欄位 | 內容 |
+|---|---|
+| 為什麼存在 | v0.7.0 marker 由 React 協調且沒有 Runtime revision；本輪把恢復 owner 移到 Tauri，避免重啟覆蓋較新選擇，保留舊 marker 的可讀性 |
+| 適用版本 | v0.7.0 format 0（無 format 鍵）→本輪 format 1；DesktopPrefs schema 保持既有值，缺省 `companionPresetRevision="0"`；Runtime config revision 缺省 0。與 AIP、device、SemanticState、Session snapshot 各自獨立 |
+| 移除前需要的證據 | 真實舊版 pending marker 的恢復／不覆寫／重新選用證據及現場升級盤點；future/malformed raw marker 必須仍保留，不得以重設偏好清除 |
+| 資料遷移 | 舊 marker 沒有 expected Runtime revision 時只可確認已一致值，不自動覆寫不同值；明確重選建立新 UUID。新 marker／last operation／revision 不匯出成使用者備份，不含 consent |
+| 回退方式 | 備份 desktop.json 與 SQLite 後再回退；v0.7.0 不理解新 revision，缺少本輪競態保護，須揭露。不得把 journal 或 Session future-format 資料刪掉來啟動 |
+| 下一檢查里程碑 | 下一個桌面設定 consumer／預設新增時，以真 Tauri recovery script 和舊資料 fixture 再驗 |
+| owner | `src-tauri/src/preset_service.rs`、`supervisor.rs`、Runtime `proactive.rs`；權威契約 `docs/aip/settings-recovery.md` |
+
+設定匯入的明確空名字現在可清除自訂名字，present-but-wrong-type 的已知欄位整份拒絕；
+missing optional 仍保留現值。這是還原行為收斂，不另建相容開關。Unix 偏好檔原子保存新檔／替換檔只保留 owner
+讀寫位元（最多 0600），不再因預設 umask 擴大可讀範圍；不改 API token 與 consent 檔案。

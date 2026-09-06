@@ -159,10 +159,10 @@
         "mqtt": "simulator (in-process rumqttd broker＋rumqttc fake device；BLE 無對應測試)",
         "tauriWindow": "real-window (scripts/tauri-ax-walkthrough.sh 9/9，連跑兩次；debug .app，不在 CI)",
         "humanSubjects": "not-run (五份非開發者腳本沒有受測者)",
-        "integrationSuite": "not-run (整合全套尚未執行；見 progress §5)",
-        "adversarialReview": "not-run (adversarial-review-v06x 尚未執行)"
+        "integrationSuite": "historical-run (a1015a4: Rust1245/0, Tauri63/0; final frontend1816/0; release-verify --run-tests at630b429; see integration)",
+        "adversarialReview": "historical-run (54 reviewed /42 confirmed /11 refuted /1 fixed-meanwhile; see adversarialReview)"
       },
-      "versionPolicy": "0.7.0（minor）：本輪新增向後相容的對外能力——兩條人類層 HTTP 路由（GET /v1/sensors/unresolved、POST /v1/sensors/unresolved/{sourceId}/dismiss）與對應 CLI 子指令、status 與 diagnostics 的選填新欄位（unresolvedStops、characterSessionSync、members[].syncProfile）、裝置線 v1.1→v1.2 的追加訊息 aip-frag（proto 仍為 1，只對宣告 hello caps aip.frag/1 的裝置使用）、AIP payload.reason 新值 recovery（specVersion 與 wire 形狀不變），以及 provider 重新啟用的語意變更（transition(Available) 對宣告式裝置回 Disconnected，握手成功才收斂）。快照容器 format 仍是 1、無資料遷移、對既有呼叫端無 breaking，所以不是 major；新增對外能力多於修補，所以不是 patch。尚未打 tag。",
+      "versionPolicy": "0.7.0（minor）：本輪新增向後相容的對外能力——兩條人類層 HTTP 路由（GET /v1/sensors/unresolved、POST /v1/sensors/unresolved/{sourceId}/dismiss）與對應 CLI 子指令、status 與 diagnostics 的選填新欄位（unresolvedStops、characterSessionSync、members[].syncProfile）、裝置線 v1.1→v1.2 的追加訊息 aip-frag（proto 仍為 1，只對宣告 hello caps aip.frag/1 的裝置使用）、AIP payload.reason 新值 recovery（specVersion 與 wire 形狀不變），以及 provider 重新啟用的語意變更（transition(Available) 對宣告式裝置回 Disconnected，握手成功才收斂）。快照容器 format 仍是 1、無資料遷移、對既有呼叫端無 breaking，所以不是 major；新增對外能力多於修補，所以不是 patch。已發布；tag與CI來源見本條目。",
       "adversarialReview": "docs/reviews/adversarial/713f8fe-20260905T181800Z.md（54 reviewed／42 confirmed／11 refuted／1 fixed-meanwhile；confirmed 全部處置，見 v0.7.0-known-limitations.md §0）",
       "integration": "docs/releases/v0.7.0-final-report.md §7（a1015a4：Rust 1245/0、Tauri 63/0、vitest 1815/0→1816/0、CLI 96/0、Playwright 91/0、iOS 模擬器 158/0、韌體兩組態 EXIT=0）；release-verify --run-tests 於 630b429 全過",
       "notes": [
@@ -178,5 +178,22 @@
       ]
     }
   ],
-  "candidates": []
+  "candidates": [
+    {
+      "id": "semantic-recovery-convergence",
+      "branch": "feature/semantic-recovery-convergence",
+      "baseCommit": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+      "status": "implementation-and-verification-in-progress",
+      "implementationCommit": null,
+      "docs": {
+        "progress": "docs/releases/next-convergence-progress.md",
+        "performancePlan": "docs/releases/next-convergence-performance.md",
+        "settingsContract": "docs/aip/settings-recovery.md",
+        "semanticContract": "docs/aip/semantic-state.md"
+      },
+      "note": "Midpoint logs are from an uncommitted worktree; baseCommit is not a claim that the changes existed at that commit. Final clean candidate validation and release facts remain pending.",
+      "versionPolicy": "0.8.0 minor：新增向後相容的協商 applied profile、SemanticState consumer 契約、持久化停止／設定恢復能力；AIP1.0與snapshot1不變。尚未release-prepare或tag。",
+      "progress": "docs/releases/next-convergence-progress.md"
+    }
+  ]
 }

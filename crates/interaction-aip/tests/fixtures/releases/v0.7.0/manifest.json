@@ -1,0 +1,31 @@
+{
+  "release": "v0.7.0",
+  "sourceSha": "630b4291f6a59444cfb1d8185f757f9dcda9ecc4",
+  "files": [
+    {
+      "file": "state-snapshot.json",
+      "sourcePath": "crates/interaction-aip/tests/fixtures/state-snapshot.json",
+      "sha256": "3459f3a95f8a4c9a22ccad8909aa2a45ea79974fa3c45819c81184f44336cf53"
+    },
+    {
+      "file": "state-patch.json",
+      "sourcePath": "crates/interaction-aip/tests/fixtures/state-patch.json",
+      "sha256": "e0c32b8a6107a0d97e60f104c1788e00677083ae4ff9c1f12b0743b97a13675c"
+    },
+    {
+      "file": "state-hash-fresh.json",
+      "sourcePath": "crates/interaction-aip/tests/fixtures/state-hash-fresh.json",
+      "sha256": "3465d6626638f484ae2699b312b400f221c59e9110e82e1324925eeb0a031f2b"
+    },
+    {
+      "file": "v0.6.0-format0.json",
+      "sourcePath": "crates/interaction-runtime/tests/fixtures/character-session/v0.6.0-format0.json",
+      "sha256": "66d7394b183292d60cd50c359693a301305b948e6da24f886199e7474855a805"
+    },
+    {
+      "file": "v0.6.0-dev-pre-unsupported-intents.json",
+      "sourcePath": "crates/interaction-runtime/tests/fixtures/character-session/v0.6.0-dev-pre-unsupported-intents.json",
+      "sha256": "654eca9b89ac02244689782697a89bb8cfdbaf2a440106d70463a83110b3e2f4"
+    }
+  ]
+}

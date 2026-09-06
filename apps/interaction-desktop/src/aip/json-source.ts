@@ -159,3 +159,46 @@ export function scanNumberLiterals(text: string): Map<string, NumberLiteral> {
   }
   return literals;
 }
+
+// Metadata follows each container instead of a root JSON pointer, so selecting a
+// nested state does not lose its literals. A WeakMap cannot leak into wire JSON.
+const NUMBER_SOURCES = new WeakMap<object, Map<string, { raw: string; value: number }>>();
+
+/** Decode ordinary JS values while retaining the host's number representation. */
+export function parseJsonWithNumberSources(text: string): unknown {
+  const value: unknown = JSON.parse(text);
+  for (const literal of scanNumberLiterals(text).values()) {
+    const segments = literal.pointer.split("/").slice(1).map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"));
+    const key = segments.pop();
+    if (key === undefined) continue;
+    let container: unknown = value;
+    for (const segment of segments) {
+      if (container === null || typeof container !== "object") break;
+      container = (container as Record<string, unknown>)[segment];
+    }
+    if (container === null || typeof container !== "object") continue;
+    const number = (container as Record<string, unknown>)[key];
+    if (typeof number !== "number") continue;
+    const sources = NUMBER_SOURCES.get(container) ?? new Map();
+    sources.set(key, { raw: literal.raw, value: number });
+    NUMBER_SOURCES.set(container, sources);
+  }
+  return value;
+}
+
+/** Ignore stale metadata if an ordinary caller has subsequently changed a value. */
+export function numberSource(container: object, key: string): string | undefined {
+  const source = NUMBER_SOURCES.get(container)?.get(key);
+  return source && Object.is((container as Record<string, unknown>)[key], source.value) ? source.raw : undefined;
+}
+
+/** Explicit copy/delete at a merge boundary, including same-valued new literals. */
+export function copyNumberSource(target: object, key: string, source?: object): void {
+  const map = NUMBER_SOURCES.get(target) ?? new Map();
+  const raw = source ? numberSource(source, key) : undefined;
+  const value = (target as Record<string, unknown>)[key];
+  if (raw !== undefined && typeof value === "number") map.set(key, { raw, value });
+  else map.delete(key);
+  if (map.size > 0) NUMBER_SOURCES.set(target, map);
+  else NUMBER_SOURCES.delete(target);
+}

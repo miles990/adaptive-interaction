@@ -75,6 +75,7 @@ export interface DesktopPrefs {
   /** 各角色由 manifest.preferencesSchema 宣告的偏好值（characterId → 值表；純呈現）。
    *  host 尚未保存這個欄位時 patch 會被丟棄——角色頁會偵測回傳值並誠實告知。 */
   companionPreferences?: Record<string, Record<string, boolean | number | string>>;
+  companionPresetRevision?: string;
   schemaVersion: number;
 }
 
@@ -114,7 +115,17 @@ export interface ImportedCharacterEntry {
 const CHARACTER_IMPORT_NEEDS_DESKTOP =
   "角色匯入與管理需要桌面版控制中心（此為瀏覽器檢視，沒有本機角色資料夾）";
 
+export interface PresetResult {
+  prefs: DesktopPrefs;
+  proactive: Record<string, unknown> | null;
+  status: import("./companion/applyPresetPlan").CompanionPresetStatus;
+  error: string | null;
+  cleanupPending: boolean;
+}
+
 export const desktop = {
+  presetApply: (request: { presetId: string; operationId: string; expectedPrefsRevision: string } | null = null) =>
+    invoke<PresetResult>("companion_preset_apply", { request }),
   /** 匯入第三方角色（只寫入本機角色資料夾；不執行任何 entrypoint）。瀏覽器模式下明確拒絕。 */
   characterImport: (input: CharacterImportInput) =>
     isTauri
@@ -202,3 +213,8 @@ export function onTrayActionError(handler: (message: string) => void): Promise<U
 }
 
 export { isTauri };
+
+/** Host recovery results invalidate the view; consumers read current values again. */
+export function onCompanionPresetResult(handler: () => void): Promise<UnlistenFn> {
+  return listen("companion-preset-result", () => handler());
+}

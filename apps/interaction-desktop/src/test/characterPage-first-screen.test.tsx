@@ -152,6 +152,7 @@ const mockDesktop = vi.hoisted(() => {
     applyPrefsPatch,
     prefsGet: vi.fn(async () => ({ ...state.prefs })),
     prefsPatch: vi.fn(applyPrefsPatch),
+    presetApply: vi.fn<(request?: { presetId: string }) => Promise<Record<string, unknown>>>(),
     companionApplyPrefs: vi.fn(async () => null),
     companionResetPosition: vi.fn(async () => null),
     characterListImported: vi.fn(async () => [] as Record<string, unknown>[]),
@@ -219,6 +220,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   mockDesktop.state.prefs = { ...BASE_PREFS };
+  mockDesktop.presetApply.mockImplementation(async (request) => presetResult(request?.presetId ?? "quiet"));
   mockName.current = { name: "小樞", pronoun: "她", characterId: "shu-maid", loaded: true, icon: "cat" };
   mockDesktop.prefsPatch.mockImplementation(mockDesktop.applyPrefsPatch);
   // 主動對話的兩個 mock 每一則測試都回到預設實作：`mockRejectedValue`／`mockImplementation`
@@ -321,6 +323,14 @@ describe("角色頁：首屏只回答三件事", () => {
   });
 });
 
+function presetResult(id: string) {
+  return {
+    prefs: { ...mockDesktop.state.prefs, companionExpressiveness: id, companionDoNotDisturb: id === "quiet", companionPendingPresetOp: null, companionPresetRevision: "1" },
+    proactive: { config: { ...PROACTIVE_CONFIG, mode: id === "quiet" ? "necessary" : id }, sentThisHour: 0 },
+    status: "applied", error: null, cleanupPending: false,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 2. 陪伴預設
 // ---------------------------------------------------------------------------
@@ -342,23 +352,10 @@ describe("角色頁：陪伴方式摘要與預設", () => {
     renderPage();
     await ready();
     await userEvent.click(screen.getByRole("button", { name: "安靜" }));
-    // M4：第一段與「還有一段沒送到」的恢復 marker 是**同一次**原子寫入
-    //（交易語意見 `companion-preset-recovery.test.tsx`）。守的仍是同一件事——
-    // 這一次寫入只有那兩個既有的偏好欄位，其餘一律不得出現。
-    await waitFor(() =>
-      expect(mockDesktop.prefsPatch).toHaveBeenCalledWith({
-        companionExpressiveness: "quiet",
-        companionDoNotDisturb: true,
-        companionPendingPresetOp: expect.objectContaining({
-          presetId: "quiet",
-          proactivePatch: { mode: "necessary" },
-        }),
-      })
-    );
-    await waitFor(() => expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledWith({ mode: "necessary" }));
-    for (const call of mockApi.proactiveDialoguePatch.mock.calls as unknown as Record<string, unknown>[][]) {
-      expect(Object.keys(call[0])).toEqual(["mode"]);
-    }
+    await waitFor(() => expect(mockDesktop.presetApply).toHaveBeenCalledWith({ presetId: "quiet", operationId: expect.any(String), expectedPrefsRevision: "0" }));
+    expect(mockDesktop.prefsPatch).not.toHaveBeenCalled();
+    expect(mockApi.proactiveDialoguePatch).not.toHaveBeenCalled();
+    // Runtime integration assertions in preset_service.rs verify costs/agent remain unchanged.
     // 其它自訂值原封不動。
     expect(mockDesktop.state.prefs.companionPersona).toBe("persona-shu");
     expect(mockDesktop.state.prefs.companionSound).toBe(false);
@@ -367,7 +364,7 @@ describe("角色頁：陪伴方式摘要與預設", () => {
 
   // 送出 ≠ 完成：預設是從首屏按下去的，失敗訊息不得被收進任何收合區塊。
   it("後端拒絕主動說話的設定時，錯誤留在首屏（不是藏在收合區塊裡）", async () => {
-    mockApi.proactiveDialoguePatch.mockRejectedValue(new Error("後端拒絕"));
+    mockDesktop.presetApply.mockResolvedValueOnce({ ...presetResult("quiet"), status: "partially-applied", error: "主動說話的設定沒有寫入成功：後端拒絕", proactive: { config: { ...PROACTIVE_CONFIG }, sentThisHour: 0 } });
     const { container } = renderPage();
     await ready();
     await userEvent.click(screen.getByRole("button", { name: "安靜" }));
@@ -418,19 +415,19 @@ describe("角色頁：陪伴方式摘要與預設", () => {
   }
 
   it("兩段寫入都在忙碌鎖內：後端那一段還沒回來時，檔位按鈕不得再按", async () => {
-    const gate = deferred<{ config: typeof PROACTIVE_CONFIG; sentThisHour: number }>();
-    mockApi.proactiveDialoguePatch.mockImplementationOnce(async () => await gate.promise);
+    const gate = deferred<Record<string, unknown>>();
+    mockDesktop.presetApply.mockImplementationOnce(async () => await gate.promise);
     renderPage();
     await ready();
     await userEvent.click(screen.getByRole("button", { name: "安靜" }));
     // 第一段（桌面偏好）已經寫完，第二段（後端主動對話模式）還在飛。
-    await waitFor(() => expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockDesktop.presetApply).toHaveBeenCalledTimes(1));
     const group = screen.getByRole("group", { name: "陪伴方式" });
     for (const button of within(group).getAllByRole("button")) {
       expect(button, `第二段寫入期間「${button.textContent}」不得可按`).toBeDisabled();
     }
     await act(async () => {
-      gate.resolve({ config: { ...PROACTIVE_CONFIG, mode: "necessary" }, sentThisHour: 0 });
+      gate.resolve(presetResult("quiet"));
       await Promise.resolve();
     });
     await waitFor(() => expect(within(group).getByRole("button", { name: "安靜" })).toBeEnabled());

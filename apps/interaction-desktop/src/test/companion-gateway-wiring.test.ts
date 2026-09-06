@@ -423,7 +423,7 @@ describe("設定匯出／匯入：characterId 別名與可匯入判定", () => {
     expect(parseCompanionSettingsImport({ kind: "companion-settings", schemaVersion: 1, characterId: "shu-agile" }).companionPack).toBe("shu-agile");
     expect(() => parseCompanionSettingsImport({ kind: "companion-settings", schemaVersion: 1, characterId: "nope" })).toThrow();
     // 空名字不覆蓋使用者已有的名字。
-    expect("companionName" in parseCompanionSettingsImport({ kind: "companion-settings", schemaVersion: 1, companionName: "" })).toBe(false);
+    expect(parseCompanionSettingsImport({ kind: "companion-settings", schemaVersion: 1, companionName: "" }).companionName).toBe("");
   });
 });
 

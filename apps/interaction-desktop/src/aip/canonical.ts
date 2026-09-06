@@ -24,6 +24,7 @@
 // 「一半套用了、一半還沒」的中間狀態）。實作在檔案下半部，附已知向量測試。
 
 import { SEMANTIC_STATE_DOUBLE_PATHS } from "./generated";
+import { numberSource } from "./json-source";
 
 /** RFC 6901 pointer 的段落還原（`~1` → `/`、`~0` → `~`；順序不可反）。 */
 function unescapePointerSegment(segment: string): string {
@@ -244,7 +245,9 @@ function write(value: unknown, nodes: readonly PathNode[] | null, out: string[])
     out.push("[");
     for (let i = 0; i < value.length; i += 1) {
       if (i > 0) out.push(",");
-      write(value[i], descend(nodes, String(i)), out);
+      const raw = numberSource(value, String(i));
+      if (raw !== undefined) out.push(raw);
+      else write(value[i], descend(nodes, String(i)), out);
     }
     out.push("]");
     return;
@@ -258,7 +261,9 @@ function write(value: unknown, nodes: readonly PathNode[] | null, out: string[])
       if (i > 0) out.push(",");
       out.push(canonicalString(key));
       out.push(":");
-      write(record[key], descend(nodes, key), out);
+      const raw = numberSource(record, key);
+      if (raw !== undefined) out.push(raw);
+      else write(record[key], descend(nodes, key), out);
     }
     out.push("}");
     return;

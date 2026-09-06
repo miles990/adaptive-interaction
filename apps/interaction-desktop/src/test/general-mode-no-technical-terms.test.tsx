@@ -53,6 +53,7 @@ function snapshot(members: Record<string, unknown>[]): Record<string, unknown> {
   // AIP 1.0 的 snapshot 必帶 hash（決策表規則 2），而且桌面端會自己重算來核對。
   const state = {
     characterId: "character",
+    attention: { kind: "none" },
     mood: { kind: "neutral", intensity: 0 },
     activity: "idle",
     truth: { state: "none" },
@@ -62,11 +63,13 @@ function snapshot(members: Record<string, unknown>[]): Record<string, unknown> {
       name: "character.interaction.touch",
       kind: "tap",
       source: `device:${DEVICE_ID}`,
+      at: "2026-09-05T12:30:00.000Z",
     },
   };
   return {
     specVersion: "aip/1.0",
     messageId: `msg-${DEVICE_ID}`,
+    sessionId: `session.${DEVICE_ID}`,
     messageType: "state",
     name: "character.session.snapshot",
     payload: { kind: "snapshot", revision: 12, sessionEpoch: 3, state, hash: stateHash(state) },
@@ -107,7 +110,13 @@ function setup(options: {
   mockApi.characterSessionResume.mockResolvedValue(envelope["payload"]);
   mockApi.mobileStatus.mockResolvedValue({ devices: options.devices ?? [] });
   mockApi.providersList.mockResolvedValue(options.providers ?? []);
-  mockApi.characterSessionDiagnostics.mockResolvedValue(options.diagnostics ?? diagnostics());
+  // These DOM fixtures explicitly model a peer-applied snapshot; write-only devices are covered separately.
+  const payload = envelope["payload"] as Record<string, unknown>;
+  const diag = options.diagnostics ?? diagnostics();
+  mockApi.characterSessionDiagnostics.mockResolvedValue({ ...diag, members: (options.members ?? []).map((member) => ({
+    party: member["party"], syncProfile: "full-state", stateAppliedCurrent: true,
+    stateDelivery: { negotiated: true, applied: { profile: "aip.applied/1", sessionId: envelope["sessionId"], epoch: payload["sessionEpoch"], revision: payload["revision"], hash: payload["hash"] } },
+  })) });
 }
 
 /** 渲染同步卡，等它離開「正在讀取」，回傳整張卡的文字。 */

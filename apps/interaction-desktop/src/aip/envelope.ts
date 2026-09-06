@@ -25,7 +25,7 @@ import {
   type Party,
   type SyncClass,
 } from "./generated";
-import { isUint64Literal, scanNumberLiterals, type NumberLiteral } from "./json-source";
+import { copyNumberSource, isUint64Literal, scanNumberLiterals, type NumberLiteral } from "./json-source";
 
 // ------------------------------------------------------------------ 結果型別
 
@@ -327,10 +327,8 @@ export function checkPayload(payload: unknown): AipOutcome<void> {
  * 兩邊都是物件就遞迴合併。**陣列整個換掉**（成員清單因此永遠是完整的一份，
  * 不會半新半舊）。純函式：不改動傳進來的任何值，回傳新的物件。
  *
- * 桌面端只用它把權威狀態的變更套到本地副本上；**不做**接收端 hash 核對，
- * 理由見 `CharacterSyncCard`（JS 的 number 留不住 `0.0` 這種字面，重算出來的
- * canonical JSON 與 Rust 端不會逐位元組相同）。對不上的時候以重新 GET snapshot
- * 對齊，不是靠 hash 判定。
+ * 一併轉移 raw number 字面來源；sessionClient 對完整合併結果先驗證型別、
+ * 再核對 canonical hash，通過才原子套用。hash 不符保留先前狀態並要求重新對齊。
  */
 export function applyMergePatch(target: unknown, patch: unknown): unknown {
   if (typeof patch !== "object" || patch === null || Array.isArray(patch)) return patch;
@@ -338,12 +336,17 @@ export function applyMergePatch(target: unknown, patch: unknown): unknown {
     typeof target === "object" && target !== null && !Array.isArray(target)
       ? { ...(target as Record<string, unknown>) }
       : {};
+  if (typeof target === "object" && target !== null) {
+    for (const key of Object.keys(base)) copyNumberSource(base, key, target);
+  }
   for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
     if (value === null) {
       delete base[key];
+      copyNumberSource(base, key);
       continue;
     }
-    base[key] = applyMergePatch(base[key], value);
+    Object.defineProperty(base, key, { value: applyMergePatch(base[key], value), writable: true, enumerable: true, configurable: true });
+    copyNumberSource(base, key, patch);
   }
   return base;
 }

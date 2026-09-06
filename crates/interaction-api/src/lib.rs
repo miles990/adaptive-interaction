@@ -836,4 +836,16 @@ mod auth_scope_tests {
             "sess-a"
         ));
     }
+    #[test]
+    fn sensor_recovery_health_is_public_but_incarnations_are_human_only() {
+        let status = serde_json::json!({"unresolvedStops": [{"sourceId": "private-device",
+            "processIncarnation": "private-process", "generation": 55}],
+            "unresolvedStopHealth": {"storage": "future-format", "parked": true,
+                "recoveryUnknown": true, "overflowCount": 1}});
+        let agent = project_status_for_principal(&AuthPrincipal::LegacyAgent, status);
+        assert!(agent.get("unresolvedStops").is_none());
+        assert_eq!(agent["unresolvedStopCount"], 1);
+        assert_eq!(agent["unresolvedStopHealth"]["recoveryUnknown"], true);
+        assert!(!agent.to_string().contains("private-"));
+    }
 }

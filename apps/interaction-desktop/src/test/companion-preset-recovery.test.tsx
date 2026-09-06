@@ -1,4 +1,5 @@
-// 陪伴預設的兩段寫入：交易化與恢復（M4）。
+// N4：React 只呈現 Tauri application use case 的結果。
+// 真正兩儲存寫入/故障/restart測試在 src-tauri/src/preset_service.rs。
 //
 // 套用一個檔位＝兩段寫入（桌面偏好 → 後端主動說話模式）。中間任何一段失敗、
 // 回應遺失、或程式被關掉，畫面都不得只留下一個「自訂」讓使用者自己猜：
@@ -69,6 +70,7 @@ const BASE_PREFS: Record<string, unknown> = {
   companionDragEnabled: true,
   companionProactiveQuietUntil: 0,
   companionPendingPresetOp: null,
+  companionPresetRevision: "0",
   schemaVersion: 3,
 };
 
@@ -126,6 +128,7 @@ const mockDesktop = vi.hoisted(() => {
     applyPrefsPatch,
     prefsGet: vi.fn(async () => ({ ...state.prefs })),
     prefsPatch: vi.fn(applyPrefsPatch),
+    presetApply: vi.fn<(request?: unknown) => Promise<Record<string, unknown>>>(),
     companionApplyPrefs: vi.fn(async () => null),
     companionResetPosition: vi.fn(async () => null),
     characterListImported: vi.fn(async () => [] as Record<string, unknown>[]),
@@ -152,7 +155,7 @@ vi.mock("../characterName", () => ({
 
 import { AppStateProvider } from "../appstate";
 import { CompanionPage } from "../pages/CompanionPage";
-import { beginPresetOp, markerOf } from "../companion/applyPresetPlan";
+
 
 function renderPage() {
   return render(
@@ -180,9 +183,6 @@ function summaryText(): string {
   return screen.getByTestId("companion-preset-summary").textContent ?? "";
 }
 
-function markerInPrefs(): Record<string, unknown> | null {
-  return (mockDesktop.state.prefs.companionPendingPresetOp as Record<string, unknown> | null) ?? null;
-}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -201,6 +201,7 @@ beforeEach(() => {
   mockName.current = { name: "小樞", pronoun: "她", characterId: "shu-maid", loaded: true, icon: "cat" };
   mockDesktop.prefsPatch.mockImplementation(mockDesktop.applyPrefsPatch);
   mockDesktop.prefsGet.mockImplementation(async () => ({ ...mockDesktop.state.prefs }));
+  mockDesktop.presetApply.mockImplementation(async () => hostResult("applied"));
   mockApi.proactiveDialogueGet.mockImplementation(async () => ({
     config: { ...PROACTIVE_CONFIG },
     sentThisHour: 0,
@@ -223,232 +224,136 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-// ---------------------------------------------------------------------------
-// 1. 第一段成功、第二段失敗
-// ---------------------------------------------------------------------------
+const PENDING = { opId: "saved-op", presetId: "quiet", proactivePatch: { mode: "necessary" }, issuedAtMs: 1 };
+function hostResult(status: string, extra: Record<string, unknown> = {}) {
+  const pending = status === "partially-applied" || status === "unverified";
+  return {
+    status,
+    prefs: { ...BASE_PREFS, companionExpressiveness: "quiet", companionDoNotDisturb: true, companionPendingPresetOp: pending ? PENDING : null, companionPresetRevision: "1" },
+    proactive: { config: { ...PROACTIVE_CONFIG, mode: pending ? "natural" : "necessary" }, sentThisHour: 0 },
+    error: pending ? "桌面設定已保存，主動對話尚未完成套用。" : null,
+    cleanupPending: pending,
+    ...extra,
+  };
+}
 
-describe("兩段寫入：第二段沒送到", () => {
-  it("marker 與第一段是同一次原子寫入（不是先寫偏好再另外記一筆）", async () => {
-    renderPage();
-    await ready();
+describe("Tauri use case 的狀態投影", () => {
+  it("只送預設ID、唯一operation ID及已讀取的偏好版本；React不再寫兩份store", async () => {
+    renderPage(); await ready();
     await userEvent.click(screen.getByRole("button", { name: "安靜" }));
-    await waitFor(() => expect(mockDesktop.prefsPatch).toHaveBeenCalled());
-    const first = mockDesktop.prefsPatch.mock.calls[0][0] as Record<string, unknown>;
-    expect(Object.keys(first).sort()).toEqual([
-      "companionDoNotDisturb",
-      "companionExpressiveness",
-      "companionPendingPresetOp",
-    ]);
-    expect(first.companionExpressiveness).toBe("quiet");
-    expect(first.companionDoNotDisturb).toBe(true);
-    expect(first.companionPendingPresetOp).toMatchObject({
-      presetId: "quiet",
-      proactivePatch: { mode: "necessary" },
-    });
-  });
-
-  it("第二段被拒絕：狀態是半套用、marker 留著、不高亮任何檔位、可以補送", async () => {
-    mockApi.proactiveDialoguePatch.mockRejectedValue(new Error("後端拒絕"));
-    renderPage();
-    await ready();
-    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
-
-    const partial = await screen.findByTestId("companion-preset-partial");
-    expect(partial.textContent).toContain("安靜");
-    expect(partial.textContent).toContain("補送");
-    // 半套用不得高亮任何檔位（第一段寫進去了，但整組還沒生效）。
-    expect(highlighted()).toBeNull();
-    // 有效值仍然逐項說得出來（收合 ≠ 隱藏事實）。
-    expect(summaryText()).toContain("自訂");
-    expect(summaryText()).toContain("主動說話：自然");
-    // marker 留在偏好裡，重開之後還補得回來。
-    expect(markerInPrefs()).toMatchObject({ presetId: "quiet" });
-  });
-
-  it("補送鈕重送同一段（冪等：只有 mode），成功後清掉 marker 並回到已套用", async () => {
-    mockApi.proactiveDialoguePatch.mockRejectedValueOnce(new Error("後端拒絕"));
-    renderPage();
-    await ready();
-    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
-    const partial = await screen.findByTestId("companion-preset-partial");
-
-    await userEvent.click(within(partial).getByRole("button", { name: "補送" }));
-    await waitFor(() => expect(markerInPrefs()).toBeNull());
-    for (const call of mockApi.proactiveDialoguePatch.mock.calls as unknown as Record<string, unknown>[][]) {
-      expect(Object.keys(call[0])).toEqual(["mode"]);
-      expect(call[0].mode).toBe("necessary");
-    }
-    expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledTimes(2);
-    await waitFor(() => expect(highlighted()).toBe("安靜"));
-    expect(screen.queryByTestId("companion-preset-partial")).toBeNull();
-  });
-
-  it("讀回沒有明說模式：不算完成（marker 留著，不用預設值頂替）", async () => {
-    mockApi.proactiveDialoguePatch.mockRejectedValue(new Error("timeout"));
-    // 後端回了，但沒說 mode——這是「不知道」，不是「已經是預設值」。
-    mockApi.proactiveDialogueGet.mockImplementation(
-      async () => ({ sentThisHour: 0 }) as unknown as { config: typeof PROACTIVE_CONFIG; sentThisHour: number }
-    );
-    renderPage();
-    await ready();
-    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
-    await screen.findByTestId("companion-preset-partial");
-    expect(markerInPrefs()).toMatchObject({ presetId: "quiet" });
-  });
-
-  it("回應遺失但其實已經生效：讀回等於目標就視為完成，不重送、不謊報失敗", async () => {
-    mockApi.proactiveDialoguePatch.mockRejectedValue(new Error("connection reset"));
-    // 讀回顯示後端其實收到了（模式已經是 necessary）。
-    mockApi.proactiveDialogueGet.mockImplementation(async () => ({
-      config: { ...PROACTIVE_CONFIG, mode: "necessary" },
-      sentThisHour: 0,
-    }));
-    renderPage();
-    await ready();
-    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
-
-    await waitFor(() => expect(markerInPrefs()).toBeNull());
-    await waitFor(() => expect(highlighted()).toBe("安靜"));
-    expect(screen.queryByTestId("companion-preset-partial")).toBeNull();
-    // 只送過一次：讀回確認過就不再重送。
-    expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledTimes(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 2. 重開之後的恢復
-// ---------------------------------------------------------------------------
-
-describe("重開之後：marker 的恢復", () => {
-  function prefsWithMarker(id: "quiet" | "lively", extra: Record<string, unknown> = {}) {
-    const plan = beginPresetOp(id, 1_700_000_000_000)!;
-    return {
-      ...BASE_PREFS,
-      ...plan.prefs,
-      companionPendingPresetOp: markerOf(plan),
-      ...extra,
-    };
-  }
-
-  it("marker 還在且使用者沒改過：自動補送一次（只有一次），完成後清掉 marker", async () => {
-    mockDesktop.state.prefs = prefsWithMarker("quiet");
-    renderPage();
-    await ready();
-    await waitFor(() => expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledWith({ mode: "necessary" }));
-    await waitFor(() => expect(markerInPrefs()).toBeNull());
-    await waitFor(() => expect(highlighted()).toBe("安靜"));
-    // 有界：每次 mount 只補送一次，不會因為重新 render 或輪詢又送一次。
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledTimes(1);
-  });
-
-  it("使用者事後改過目標欄位：不補送，只把 marker 清掉（不覆蓋使用者的修改）", async () => {
-    // marker 說要套「安靜」，但目前的表現程度已經被使用者改成活潑。
-    mockDesktop.state.prefs = prefsWithMarker("quiet", { companionExpressiveness: "lively" });
-    renderPage();
-    await ready();
-    await waitFor(() => expect(markerInPrefs()).toBeNull());
+    await waitFor(() => expect(mockDesktop.presetApply).toHaveBeenCalledTimes(1));
+    expect(mockDesktop.presetApply.mock.calls[0][0]).toEqual({ presetId: "quiet", operationId: expect.any(String), expectedPrefsRevision: "0" });
+    expect(mockDesktop.prefsPatch).not.toHaveBeenCalled();
     expect(mockApi.proactiveDialoguePatch).not.toHaveBeenCalled();
-    // 使用者的修改原封不動。
-    expect(mockDesktop.state.prefs.companionExpressiveness).toBe("lively");
-    expect(highlighted()).toBeNull();
-    expect(summaryText()).toContain("自訂");
+    await waitFor(() => expect(highlighted()).toBe("安靜"));
   });
 
-  it("補送期間畫面說「正在補送」，而且不高亮任何檔位", async () => {
-    const gate = deferred<{ config: typeof PROACTIVE_CONFIG; sentThisHour: number }>();
-    mockApi.proactiveDialoguePatch.mockImplementationOnce(async () => await gate.promise);
-    mockDesktop.state.prefs = prefsWithMarker("quiet");
-    renderPage();
-    await ready();
-    const recovering = await screen.findByTestId("companion-preset-recovering");
-    expect(recovering.textContent).toContain("補送");
+  it("第二段失敗顯示半套用與有效值，不高亮；補送交同一host use case", async () => {
+    mockDesktop.presetApply.mockResolvedValueOnce(hostResult("partially-applied"));
+    renderPage(); await ready();
+    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
+    const partial = await screen.findByTestId("companion-preset-partial");
+    expect(highlighted()).toBeNull();
+    expect(summaryText()).toContain("主動說話：自然");
+    await userEvent.click(within(partial).getByRole("button", { name: "補送" }));
+    await waitFor(() => expect(highlighted()).toBe("安靜"));
+    expect(mockDesktop.presetApply.mock.calls[1][0]).toBeNull();
+    expect(mockApi.proactiveDialoguePatch).not.toHaveBeenCalled();
+  });
+
+  it("讀回失敗即使舊畫面吻合也不高亮", async () => {
+    mockDesktop.presetApply.mockResolvedValueOnce(hostResult("unverified", { proactive: null, error: "無法確認生效值" }));
+    renderPage(); await ready();
+    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
+    await waitFor(() => expect(summaryText()).toContain("無法確認"));
+    expect(highlighted()).toBeNull();
+  });
+
+  it("清marker失敗但有效值已確認：完整套用與清理提示同時保留", async () => {
+    mockDesktop.presetApply.mockResolvedValueOnce(hostResult("applied", { error: "有效值已確認，恢復標記將在下次啟動時再清理。", cleanupPending: true }));
+    renderPage(); await ready();
+    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
+    await waitFor(() => expect(highlighted()).toBe("安靜"));
+    expect(screen.getByText(/下次啟動時再清理/)).toBeInTheDocument();
+  });
+
+  it("舊marker在mount只要求host恢復一次，UI不自行重建patch", async () => {
+    mockDesktop.state.prefs = { ...BASE_PREFS, companionPendingPresetOp: PENDING };
+    renderPage(); await ready();
+    await waitFor(() => expect(mockDesktop.presetApply).toHaveBeenCalledWith(null));
+    await waitFor(() => expect(highlighted()).toBe("安靜"));
+    expect(mockDesktop.presetApply).toHaveBeenCalledTimes(1);
+    expect(mockApi.proactiveDialoguePatch).not.toHaveBeenCalled();
+  });
+
+  it("舊/損壞marker無法安全恢復時，呈現unverified而不猜模式", async () => {
+    mockDesktop.state.prefs = { ...BASE_PREFS, companionPendingPresetOp: PENDING };
+    mockDesktop.presetApply.mockResolvedValueOnce(hostResult("unverified", { error: "舊版恢復標記無法確認設定是否曾變更，請重新選擇陪伴方式。" }));
+    renderPage(); await ready();
+    await screen.findByText(/請重新選擇陪伴方式/);
+    expect(highlighted()).toBeNull();
+    expect(mockDesktop.presetApply).toHaveBeenCalledTimes(1);
+  });
+
+  it("恢復期間禁止競爭修改且顯示進度", async () => {
+    const gate = deferred<Record<string, unknown>>();
+    mockDesktop.state.prefs = { ...BASE_PREFS, companionPendingPresetOp: PENDING };
+    mockDesktop.presetApply.mockReturnValueOnce(gate.promise);
+    renderPage(); await ready();
+    await screen.findByTestId("companion-preset-recovering");
     expect(highlighted()).toBeNull();
     for (const button of presetButtons()) expect(button).toBeDisabled();
-    await act(async () => {
-      gate.resolve({ config: { ...PROACTIVE_CONFIG, mode: "necessary" }, sentThisHour: 0 });
-      await Promise.resolve();
-    });
-    await waitFor(() => expect(screen.queryByTestId("companion-preset-recovering")).toBeNull());
+    await act(async () => gate.resolve(hostResult("applied")));
     await waitFor(() => expect(highlighted()).toBe("安靜"));
   });
-});
 
-// ---------------------------------------------------------------------------
-// 3. 讀不回有效值／讀不到桌面偏好
-// ---------------------------------------------------------------------------
+  it("host忙碌或連線錯誤時不把舊值當本次完成", async () => {
+    mockDesktop.presetApply.mockRejectedValueOnce(new Error("陪伴設定正在套用，請稍後再試。"));
+    renderPage(); await ready();
+    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
+    await screen.findByText(/請稍後再試/);
+    expect(highlighted()).toBeNull();
+  });
 
-describe("讀不回有效值時不假裝知道", () => {
-  it("主動說話的設定讀不回來：狀態 unverified，不高亮任何檔位", async () => {
-    mockApi.proactiveDialogueGet.mockRejectedValue(new Error("daemon unreachable"));
+  it("保留較新自訂設定時，畫面呈現host返回的有效值", async () => {
+    mockDesktop.presetApply.mockResolvedValueOnce(hostResult("custom-effective", { prefs: { ...BASE_PREFS, companionExpressiveness: "lively" }, proactive: { config: { ...PROACTIVE_CONFIG, mode: "off" } } }));
+    renderPage(); await ready();
+    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
+    await waitFor(() => expect(summaryText()).toContain("主動說話：關閉"));
+    expect(summaryText()).toContain("表現程度：活潑");
+    expect(highlighted()).toBeNull();
+  });
+
+  it("讀不到桌面偏好會顯示真實錯誤", async () => {
+    mockDesktop.prefsGet.mockRejectedValue(new Error("prefs file unreadable"));
     renderPage();
-    await ready();
+    const box = await screen.findByTestId("companion-prefs-unavailable");
+    expect(box.textContent).toContain("prefs file unreadable");
+    expect(box.textContent).not.toContain("瀏覽器檢視");
+  });
+
+  it("主動對話初次讀取失敗不高亮", async () => {
+    mockApi.proactiveDialogueGet.mockRejectedValue(new Error("daemon unreachable"));
+    renderPage(); await ready();
     await waitFor(() => expect(summaryText()).toContain("無法確認目前生效值"));
     expect(highlighted()).toBeNull();
   });
 
-  it("桌面版讀不到偏好：說出讀取失敗的原因，不得誤報成「瀏覽器檢視」", async () => {
-    mockDesktop.prefsGet.mockRejectedValue(new Error("prefs file unreadable"));
-    renderPage();
-    // 陪伴方式區塊仍在，但裡面是錯誤而不是「這是瀏覽器檢視」。
-    const box = await screen.findByTestId("companion-prefs-unavailable");
-    expect(box.textContent).toContain("prefs file unreadable");
-    expect(box.textContent).not.toContain("瀏覽器檢視");
-    expect(screen.queryByText(/此為瀏覽器檢視/)).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 4. 交易期間的併發
-// ---------------------------------------------------------------------------
-
-describe("交易期間的併發", () => {
-  it("交易期間「調整陪伴方式」的表現程度不得同時被改（select 停用）", async () => {
-    const gate = deferred<{ config: typeof PROACTIVE_CONFIG; sentThisHour: number }>();
-    mockApi.proactiveDialoguePatch.mockImplementationOnce(async () => await gate.promise);
-    const { container } = renderPage();
-    await ready();
-    const details = container.querySelector<HTMLDetailsElement>('details[data-disclosure="behavior"]')!;
-    fireEvent.click(details.querySelector("summary")!);
-    const select = screen.getByRole("combobox", { name: /表現程度/ });
-    expect(select).toBeEnabled();
-
+  it("套用期間主動對話和表現程度控制項停用", async () => {
+    const gate = deferred<Record<string, unknown>>();
+    mockDesktop.presetApply.mockReturnValueOnce(gate.promise);
+    const { container } = renderPage(); await ready();
+    for (const key of ["proactive", "behavior"]) {
+      const details = container.querySelector<HTMLDetailsElement>(`details[data-disclosure="${key}"]`)!;
+      fireEvent.click(details.querySelector("summary")!);
+    }
     await userEvent.click(screen.getByRole("button", { name: "安靜" }));
-    await waitFor(() => expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockDesktop.presetApply).toHaveBeenCalledTimes(1));
     expect(screen.getByRole("combobox", { name: /表現程度/ })).toBeDisabled();
-
-    await act(async () => {
-      gate.resolve({ config: { ...PROACTIVE_CONFIG, mode: "necessary" }, sentThisHour: 0 });
-      await Promise.resolve();
-    });
-    await waitFor(() => expect(screen.getByRole("combobox", { name: /表現程度/ })).toBeEnabled());
-  });
-
-  it("交易期間「主動式對話」整區停用（第二段寫的就是這一區的模式）", async () => {
-    const gate = deferred<{ config: typeof PROACTIVE_CONFIG; sentThisHour: number }>();
-    mockApi.proactiveDialoguePatch.mockImplementationOnce(async () => await gate.promise);
-    const { container } = renderPage();
-    await ready();
-    const details = container.querySelector<HTMLDetailsElement>('details[data-disclosure="proactive"]')!;
-    fireEvent.click(details.querySelector("summary")!);
-    const mode = () => within(details).getByRole("combobox", { name: /^模式$/ });
-    expect(mode()).toBeEnabled();
-
-    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
-    await waitFor(() => expect(mockApi.proactiveDialoguePatch).toHaveBeenCalledTimes(1));
-    // 模式、頻率上限與費用上限：交易期間一個都不得被改。
-    expect(mode()).toBeDisabled();
-    expect(within(details).getByRole("spinbutton", { name: /每小時最多則數/ })).toBeDisabled();
-    expect(within(details).getByRole("spinbutton", { name: /每日費用上限/ })).toBeDisabled();
-    expect(within(details).getByText(/正在套用陪伴預設/)).toBeInTheDocument();
-
-    await act(async () => {
-      gate.resolve({ config: { ...PROACTIVE_CONFIG, mode: "necessary" }, sentThisHour: 0 });
-      await Promise.resolve();
-    });
-    await waitFor(() => expect(mode()).toBeEnabled());
+    expect(screen.getByRole("combobox", { name: /^模式$/ })).toBeDisabled();
+    expect(screen.getByRole("spinbutton", { name: /每日費用上限/ })).toBeDisabled();
+    await act(async () => gate.resolve(hostResult("applied")));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: /^模式$/ })).toBeEnabled());
   });
 
   it("兩次偏好寫入反序回來：先送出的舊回應不得蓋掉後送出的新設定", async () => {
@@ -479,4 +384,62 @@ describe("交易期間的併發", () => {
       expect(screen.getByRole("combobox", { name: /表現程度/ })).toHaveValue("quiet")
     );
   });
+});
+
+// Independent Verify of N4-UI-01/02: exercise the real page, not its presenter.
+describe("N4 independent review: completed host results remain current", () => {
+  it("a pre-operation prefs read cannot overwrite a successfully applied host preset", async () => {
+    const page = renderPage();
+    await ready();
+    await waitFor(() => expect(highlighted()).toBe("自然"));
+    const prior = { ...BASE_PREFS };
+    const delayed = deferred<Record<string, unknown>>();
+    const calls = mockDesktop.prefsGet.mock.calls.length;
+    mockDesktop.prefsGet.mockImplementationOnce(() => delayed.promise);
+    page.rerender(<AppStateProvider ready={true} refreshKey={1}><CompanionPage refreshKey={1} /></AppStateProvider>);
+    await waitFor(() => expect(mockDesktop.prefsGet.mock.calls.length).toBeGreaterThan(calls));
+    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
+    await waitFor(() => expect(highlighted()).toBe("安靜"));
+    await act(async () => { delayed.resolve(prior); await Promise.resolve(); });
+    expect(highlighted()).toBe("安靜");
+    await userEvent.click(screen.getByRole("button", { name: "活潑" }));
+    expect(mockDesktop.presetApply.mock.calls[mockDesktop.presetApply.mock.calls.length - 1]?.[0]).toMatchObject({ expectedPrefsRevision: "1" });
+  });
+
+  it("reconnection reconciles a host recovery completed after an unverified response", async () => {
+    mockDesktop.presetApply.mockResolvedValueOnce(hostResult("unverified"));
+    const page = renderPage();
+    await ready();
+    await waitFor(() => expect(highlighted()).toBe("自然"));
+    await userEvent.click(screen.getByRole("button", { name: "安靜" }));
+    await waitFor(() => expect(highlighted()).toBeNull());
+    expect(summaryText()).toContain("無法確認");
+    // Daemon recovery has now finished both stores and cleared its marker.
+    mockDesktop.state.prefs = hostResult("applied").prefs;
+    mockApi.proactiveDialogueGet.mockResolvedValue({ config: { ...PROACTIVE_CONFIG, mode: "necessary" }, sentThisHour: 0 });
+    const calls = mockDesktop.prefsGet.mock.calls.length;
+    page.rerender(<AppStateProvider ready={true} refreshKey={1}><CompanionPage refreshKey={1} connectionKey={1} /></AppStateProvider>);
+    await waitFor(() => expect(mockDesktop.prefsGet.mock.calls.length).toBeGreaterThan(calls));
+    await waitFor(() => expect(highlighted()).toBe("安靜"));
+    expect(summaryText()).not.toContain("無法確認");
+  });
+});
+
+it("a prefs read issued during a host operation cannot overwrite its later completion", async () => {
+  const page = renderPage();
+  await ready();
+  await waitFor(() => expect(highlighted()).toBe("自然"));
+  const operation = deferred<Record<string, unknown>>();
+  mockDesktop.presetApply.mockReturnValueOnce(operation.promise);
+  await userEvent.click(screen.getByRole("button", { name: "安靜" }));
+  await waitFor(() => expect(mockDesktop.presetApply).toHaveBeenCalledTimes(1));
+  const delayed = deferred<Record<string, unknown>>();
+  const calls = mockDesktop.prefsGet.mock.calls.length;
+  mockDesktop.prefsGet.mockImplementationOnce(() => delayed.promise);
+  page.rerender(<AppStateProvider ready={true} refreshKey={1}><CompanionPage refreshKey={1} /></AppStateProvider>);
+  await waitFor(() => expect(mockDesktop.prefsGet.mock.calls.length).toBeGreaterThan(calls));
+  await act(async () => { operation.resolve(hostResult("applied")); await Promise.resolve(); });
+  await waitFor(() => expect(highlighted()).toBe("安靜"));
+  await act(async () => { delayed.resolve({ ...BASE_PREFS }); await Promise.resolve(); });
+  expect(highlighted()).toBe("安靜");
 });

@@ -26,7 +26,7 @@ export const UNRESOLVED_STOPS_NOTE =
   "它既不代表現在還在感測，也不代表它停了。";
 
 /** 人為解除按鈕的固定文案（二段確認的第二段一定要說清楚這是誰的確認）。 */
-export const UNRESOLVED_DISMISS_LABEL = "我確認它已經停了";
+export const UNRESOLVED_DISMISS_LABEL = "我已檢查，解除提醒";
 export const UNRESOLVED_DISMISS_CONFIRM =
   "確定：這是你的確認，系統沒有收到裝置的回覆";
 export const UNRESOLVED_DISMISSED_MESSAGE =
@@ -58,6 +58,8 @@ export interface UnresolvedStopsProjection {
   /** 沒有列出來的筆數（`count - items.length`）。 */
   notShown: number;
   note: string;
+  recoveryUnknown: boolean;
+  overflow: boolean;
 }
 
 /** `status.unresolvedStops` 空／缺席時的固定結果（沒有未解決的事）。 */
@@ -67,6 +69,8 @@ const EMPTY: UnresolvedStopsProjection = {
   items: [],
   notShown: 0,
   note: UNRESOLVED_STOPS_NOTE,
+  recoveryUnknown: false,
+  overflow: false,
 };
 
 function textOf(value: unknown): string {
@@ -118,7 +122,12 @@ export function projectUnresolvedStops(
   const records = list.filter(
     (entry): entry is Record<string, unknown> => !!entry && typeof entry === "object"
   );
-  if (records.length === 0) return EMPTY;
+  const health = root?.unresolvedStopHealth && typeof root.unresolvedStopHealth === "object"
+    ? root.unresolvedStopHealth as Record<string, unknown> : null;
+  const overflow = typeof health?.overflowCount === "number" && health.overflowCount > 0;
+  const recoveryUnknown = health?.recoveryUnknown === true || health?.parked === true
+    || (typeof health?.storage === "string" && health.storage !== "durable");
+  if (records.length === 0 && !overflow && !recoveryUnknown) return EMPTY;
   const items: UnresolvedStopLine[] = records.slice(0, MAX_UNRESOLVED_LINES).map((record) => {
     const label = textOf(record.sourceLabel) || UNKNOWN_SOURCE;
     const sensorsText = sensorsTextOf(record);
@@ -134,9 +143,15 @@ export function projectUnresolvedStops(
   });
   return {
     count: records.length,
-    summary: `有 ${records.length} 筆感測停止沒有人確認`,
+    summary: records.length > 0
+      ? `有 ${records.length} 筆感測停止沒有人確認${overflow ? "，另有未逐筆保存的紀錄" : ""}${recoveryUnknown ? "，保存狀態也需要檢查" : ""}`
+      : overflow ? "仍有感測停止未逐筆保存，結果無法確認"
+      : "感測停止記錄無法完整確認，請檢查裝置",
     items,
     notShown: records.length - items.length,
-    note: UNRESOLVED_STOPS_NOTE,
+    note: UNRESOLVED_STOPS_NOTE + (recoveryUnknown
+      ? " 上次結束或保存時的記錄無法完整確認；畫面沒有列出紀錄，也不代表感測已停止。" : ""),
+    recoveryUnknown,
+    overflow,
   };
 }

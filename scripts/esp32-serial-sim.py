@@ -88,6 +88,7 @@ import termios
 import time
 import tty
 import zlib
+from aip_applied_receiver import Receiver, WireFloat, WireInt, PROFILE as APPLIED_PROFILE
 
 # --- 韌體硬限制（對照 firmware/esp32-companion/esp32-companion.ino）-------
 VIBE_MAX_STRENGTH = 0.8
@@ -139,7 +140,11 @@ parser.add_argument("--pair-lockout-ms", type=int, default=PAIR_LOCKOUT_MS,
                     help="配對鎖定時間（預設 30000，與韌體相同；測試可縮短）")
 parser.add_argument("--no-frag", action="store_true",
                     help="不宣告 aip.frag/1：驗證 host 端「對端不會重組就誠實拒絕」的降級路徑")
+parser.add_argument("--state-applied", action="store_true", help="模擬器的協商/語意驗證/原子套用回執；參考韌體不宣告")
 args = parser.parse_args()
+applied_receiver = Receiver() if args.state_applied else None
+applied_paused = False
+last_applied_receipt = None
 
 master, slave = pty.openpty()
 # raw 模式：關掉 echo/canonical，host 端才能把 pty 當乾淨的位元組管道。
@@ -604,7 +609,7 @@ def handle(msg):
     elif t == "aip":
         # 線協定 v1.1：這份參考裝置不參與角色 session——明確忽略，不回 err
         # （落到 unknown-type 會讓「不支援」長得像「壞掉」）。與韌體一致。
-        note("ignored an inbound aip line (this reference device does not join sessions)")
+        apply_aip_state(msg.get("envelope", {}))
     elif t == "aip-frag":
         # 線協定 v1.2：重組（規則與 host 相同）。組好之後與 `aip` 一樣忽略。
         handle_aip_frag(msg, now)
@@ -711,6 +716,8 @@ def poll_button_toggle(now):
 # --- 線協定 v1.2 的分片（切片＋重組；規則對照 host 的 fragment.rs）---------
 
 HELLO_CAPS = ["led.set", "buzzer.beep", "vibe.pulse", "servo.move", "sensors.read"]
+if args.state_applied:
+    HELLO_CAPS.append(APPLIED_PROFILE)
 if not args.no_frag:
     HELLO_CAPS = HELLO_CAPS + [FRAG_CAP]
 
@@ -859,7 +866,7 @@ def handle_aip_frag(msg, now):
         note("aip fragment dropped: reason=crc-mismatch xfer=%s" % xfer)
         return
     try:
-        json.loads(rx["buf"])
+        envelope = json.loads(rx["buf"], parse_float=WireFloat, parse_int=WireInt)
     except Exception:
         note("aip fragment dropped: reason=bad-json xfer=%s" % xfer)
         return
@@ -868,6 +875,24 @@ def handle_aip_frag(msg, now):
     log.write('>+ {"type":"aip","envelope":%s}\n' % rx["buf"])
     log.flush()
     note("aip reassembled: xfer=%s bytes=%d fragments=%d" % (xfer, rx["bytes"], rx["total"]))
+    apply_aip_state(envelope)
+
+
+def apply_aip_state(envelope):
+    global last_applied_receipt
+    if applied_receiver is None:
+        note("ignored an inbound aip line (this reference device does not join sessions)")
+        return
+    if applied_paused:
+        note("aip apply paused (no receipt)")
+        return
+    receipt = applied_receiver.apply(envelope)
+    if receipt:
+        last_applied_receipt = receipt
+        emit({"type": "aip-applied", "receipt": receipt})
+        note("aip state atomically applied revision=%s" % receipt["revision"])
+    elif envelope.get("stateApplied"):
+        note("aip semantic state rejected (no receipt)")
 
 
 # --- AIP 控制通道（stdin）---------------------------------------------------
@@ -894,6 +919,19 @@ def handle_aip_op(op):
     name = op.get("op")
     if not state["paired"]:
         note(f"aip op refused: {name} (this channel is not paired)")
+        return
+    global applied_paused, last_applied_receipt
+    if name == "aip-applied-pause":
+        applied_paused = op.get("paused", True)
+        return
+    if name == "aip-applied-replay":
+        if last_applied_receipt:
+            receipt = dict(last_applied_receipt)
+            receipt.update(op.get("override", {}))
+            emit({"type": "aip-applied", "receipt": receipt})
+        return
+    if name == "aip-applied-raw":
+        emit({"type": "aip-applied", "receipt": op.get("receipt", {})})
         return
     if name == "aip-capability":
         envelope = _aip_envelope("capability", "character.session.capability", "cap")
@@ -1057,7 +1095,7 @@ while True:
                 try:
                     # parse_constant：ArduinoJson 不接受 NaN／Infinity 字面值，
                     # Python 的 json 預設會接受——這裡拒掉，兩端才一致。
-                    msg = json.loads(text, parse_constant=_reject_constant)
+                    msg = json.loads(text, parse_constant=_reject_constant, parse_float=WireFloat if args.state_applied else float, parse_int=WireInt if args.state_applied else int)
                 except Exception:
                     emit({"type": "err", "reason": "bad-json"})   # 韌體同樣回這個
                     continue

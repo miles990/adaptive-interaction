@@ -85,3 +85,9 @@ pub use types::{
 
 /// 本 crate 實作的 AIP profile 名稱（`capability.profiles`）。
 pub const PROFILE: &str = "character-session";
+
+/// Generated consumer schema and lossless validation boundary.
+pub mod semantic_contract;
+pub use semantic_contract::{
+    semantic_state_schema, validate_semantic_state, ValidatedSemanticState, SEMANTIC_STATE_PROFILE,
+};

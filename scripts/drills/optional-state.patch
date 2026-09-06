@@ -1,0 +1,19 @@
+--- a/crates/interaction-session/src/state.rs
++++ b/crates/interaction-session/src/state.rs
+@@ -285,6 +285,8 @@
+     pub(crate) last_interaction: Option<LastInteraction>,
+     pub(crate) members: Vec<MemberView>,
+     pub(crate) reduced_motion: bool,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub(crate) drill_optional: Option<String>,
+ }
+ 
+ impl SemanticState {
+@@ -299,6 +301,7 @@
+             last_interaction: None,
+             members: Vec::new(),
+             reduced_motion: false,
++            drill_optional: None,
+         }
+     }
+ 

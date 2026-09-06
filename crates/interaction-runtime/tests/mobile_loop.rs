@@ -3836,6 +3836,7 @@ fn a_mobile_stop_outcome_names_the_receptors_its_provider_declared() {
     use interaction_runtime::mobile::{MobileStopOutcome, StopOutcome};
     use interaction_runtime::sensors::SensorStopOutcome;
     let unknown = MobileStopOutcome {
+        capture_scope: None,
         device_id: "iphone-a1b2c3d4".into(),
         name: "測試 iPhone".into(),
         outcome: StopOutcome::Unknown,
@@ -4354,4 +4355,224 @@ async fn generic_disable_of_one_phone_keeps_the_shared_capabilities_of_the_other
         "沒有關旗標這件事必須留稽核"
     );
     phone_a.abort();
+}
+
+/// Independent N3 production-path review: the phone card's per-device stop and
+/// direct removal must not need a second global stop to preserve the unknown.
+/// A real TLS fixture self-reports micLevel; no receptor is enabled or consent
+/// granted, and the peer never acknowledges either stop request.
+#[tokio::test(flavor = "multi_thread")]
+async fn per_device_unknown_stop_survives_direct_mobile_revoke_and_restart() {
+    let (home, rt) = runtime().await;
+    let (device_id, _token, mut ws) = pair(&rt).await;
+    send_phone_status(&mut ws, true).await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let status = rt.mobile_status().await.unwrap();
+        if status["devices"].as_array().unwrap().iter().any(|device| {
+            device["deviceId"] == json!(device_id) && device["sensors"]["micLevel"] == json!(true)
+        }) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "fixture status was not received"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let report = rt.mobile_sensors_stop(&device_id).await.unwrap();
+    assert_eq!(report["outcome"], json!("unknown"), "{report}");
+    assert!(
+        rt.status().await["activeSensors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|sensor| {
+                sensor["startedBy"] == json!(format!("iphone:{device_id}"))
+                    && sensor["state"] == json!("stop-unknown")
+            }),
+        "the per-device stop must first produce an observable unknown"
+    );
+
+    // This is the PhoneDeviceCard -> mobile_revoke path, not the generic
+    // provider revoke and not stop_all_sensors (which would mask the gap).
+    rt.mobile_revoke(&device_id).await.unwrap();
+    assert!(rt.status().await["activeSensors"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let before_restart = serde_json::to_value(rt.unresolved_stops().await).unwrap();
+    rt.shutdown().await;
+    drop(ws);
+    drop(rt);
+    let restarted = runtime_at(home.path()).await;
+    let after_restart = serde_json::to_value(restarted.unresolved_stops().await).unwrap();
+    restarted.shutdown().await;
+    let has_unknown = |status: &Value| {
+        status.as_array().unwrap().iter().any(|entry| {
+            entry["sensors"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("iphone.mic-level"))
+        })
+    };
+    assert!(
+        has_unknown(&before_restart) && has_unknown(&after_restart),
+        "direct phone removal must retain the unconfirmed stop before and after runtime restart; before={}, after={}",
+        before_restart, after_restart,
+    );
+}
+
+async fn wait_raw_mobile_mic(rt: &Runtime, device_id: &str, want: bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let status = rt.mobile_status().await.unwrap();
+        if status["devices"].as_array().unwrap().iter().any(|device| {
+            device["deviceId"] == json!(device_id) && device["sensors"]["micLevel"] == json!(want)
+        }) {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "raw phone capture report missing: {status}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+async fn wait_mobile_unknown(rt: &Runtime, want: bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let entries = rt.unresolved_stops().await;
+        let found = entries.iter().any(|entry| {
+            entry
+                .sensors
+                .iter()
+                .any(|sensor| sensor == "iphone.mic-level")
+        });
+        if found == want {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "mobile unknown mismatch: {entries:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn disabled_raw_mobile_capture_survives_disconnect_and_restart_without_a_stop_request() {
+    let (home, rt) = runtime().await;
+    let (id, _token, mut ws) = pair(&rt).await;
+    send_phone_status(&mut ws, true).await;
+    wait_raw_mobile_mic(&rt, &id, true).await;
+    // No enable or consent: raw evidence must still be durable and visible.
+    wait_mobile_unknown(&rt, true).await;
+    let persisted: Value =
+        serde_json::from_str(&rt.store.get_meta("sensor_stop_journal").unwrap().unwrap()).unwrap();
+    assert!(
+        persisted["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["sensors"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("iphone.mic-level"))
+            }),
+        "write-ahead must reach storage before any stop or shutdown: {persisted}"
+    );
+    drop(ws);
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        if rt.mobile_status().await.unwrap()["devices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|d| d["deviceId"] != json!(id) || d["connected"] == false)
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "phone did not disconnect"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    wait_mobile_unknown(&rt, true).await;
+    rt.shutdown().await;
+    drop(rt);
+    let restarted = runtime_at(home.path()).await;
+    wait_mobile_unknown(&restarted, true).await;
+    assert!(restarted
+        .registry
+        .receptor(&interaction_core::ReceptorId::new("iphone.mic-level"))
+        .await
+        .is_err());
+    restarted.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn same_mobile_connection_false_report_settles_capture_before_restart() {
+    let (home, rt) = runtime().await;
+    let (id, _token, mut ws) = pair(&rt).await;
+    send_phone_status(&mut ws, true).await;
+    wait_raw_mobile_mic(&rt, &id, true).await;
+    wait_mobile_unknown(&rt, true).await;
+    send_phone_status(&mut ws, false).await;
+    wait_raw_mobile_mic(&rt, &id, false).await;
+    wait_mobile_unknown(&rt, false).await;
+    rt.mobile_revoke(&id).await.unwrap();
+    rt.shutdown().await;
+    drop(ws);
+    drop(rt);
+    let restarted = runtime_at(home.path()).await;
+    wait_mobile_unknown(&restarted, false).await;
+    restarted.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn superseding_mobile_connection_cannot_confirm_the_old_capture() {
+    let (home, rt) = runtime().await;
+    let (id, token, mut old) = pair(&rt).await;
+    send_phone_status(&mut old, true).await;
+    wait_raw_mobile_mic(&rt, &id, true).await;
+    wait_mobile_unknown(&rt, true).await;
+    let mut new = reconnect_same_device(&rt, &id, &token).await;
+    // New connection's true -> false settles only its own scope.
+    send_phone_status(&mut new, true).await;
+    wait_raw_mobile_mic(&rt, &id, true).await;
+    send_phone_status(&mut new, false).await;
+    wait_raw_mobile_mic(&rt, &id, false).await;
+    rt.mobile_revoke(&id).await.unwrap();
+    wait_mobile_unknown(&rt, true).await;
+    rt.shutdown().await;
+    drop(old);
+    drop(new);
+    drop(rt);
+    let restarted = runtime_at(home.path()).await;
+    wait_mobile_unknown(&restarted, true).await;
+    restarted.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn late_mobile_false_from_an_unregistered_source_generation_preserves_unknown() {
+    let (home, rt) = runtime().await;
+    let (id, _token, mut ws) = pair(&rt).await;
+    send_phone_status(&mut ws, true).await;
+    wait_raw_mobile_mic(&rt, &id, true).await;
+    wait_mobile_unknown(&rt, true).await;
+    assert!(rt.unregister_sensor_source("provider.mobile").await);
+    send_phone_status(&mut ws, false).await;
+    wait_raw_mobile_mic(&rt, &id, false).await;
+    rt.mobile_revoke(&id).await.unwrap();
+    wait_mobile_unknown(&rt, true).await;
+    rt.shutdown().await;
+    drop(ws);
+    drop(rt);
+    let restarted = runtime_at(home.path()).await;
+    wait_mobile_unknown(&restarted, true).await;
+    restarted.shutdown().await;
 }

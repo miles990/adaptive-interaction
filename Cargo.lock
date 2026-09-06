@@ -1718,6 +1718,7 @@ dependencies = [
  "interaction-aip",
  "interaction-character",
  "interaction-recipe",
+ "interaction-session",
  "interaction-tool-schema",
  "serde_json",
 ]

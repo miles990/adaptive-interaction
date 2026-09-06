@@ -61,6 +61,8 @@ pub struct HostSafetyView {
     /// 但它是一件沒有結論的事，狀態列一定要說得出來。
     #[serde(default)]
     pub unresolved_stops: usize,
+    #[serde(default)]
+    pub unresolved_stop_recovery_unknown: bool,
     /// overlay 是否應顯示：estop ∨ 有感測 ∨（不可達 ∧ 非啟動寬限）。
     /// 由 Rust 算好帶過去，TS 端不必重複規則。
     pub active: bool,
@@ -91,6 +93,7 @@ impl HostSafetyView {
         let (mut estop, mut paused) = (false, false);
         let mut sensors = Vec::new();
         let mut unresolved_stops = 0usize;
+        let mut unresolved_stop_recovery_unknown = false;
         if let Some(s) = status {
             estop = s
                 .get("emergencyStop")
@@ -105,6 +108,11 @@ impl HostSafetyView {
                 .and_then(Value::as_array)
                 .map(Vec::len)
                 .unwrap_or(0);
+            let health = &s["unresolvedStopHealth"];
+            unresolved_stop_recovery_unknown = health["recoveryUnknown"] == true
+                || health["parked"] == true
+                || health["overflowCount"].as_u64().is_some_and(|n| n > 0)
+                || health["storage"].as_str().is_some_and(|s| s != "durable");
             if let Some(list) = s.get("activeSensors").and_then(Value::as_array) {
                 for item in list {
                     let Some(kind) = item.get("kind").and_then(Value::as_str) else {
@@ -142,6 +150,7 @@ impl HostSafetyView {
             camera_active,
             sensors,
             unresolved_stops,
+            unresolved_stop_recovery_unknown,
             active,
             at: at.to_rfc3339(),
         }
@@ -152,10 +161,14 @@ impl HostSafetyView {
     /// 誠實：這一句只說「沒有人確認」，不說它停了、也不說它還在跑——
     /// 逐筆內容在控制中心的「連接與權限」。
     pub fn unresolved_text(&self) -> Option<String> {
-        if self.unresolved_stops == 0 {
-            return None;
+        if self.unresolved_stop_recovery_unknown {
+            return Some(if self.unresolved_stops == 0 {
+                "感測停止記錄待檢查".into()
+            } else {
+                format!("感測停止待確認 {}，記錄待檢查", self.unresolved_stops)
+            });
         }
-        Some(format!("感測停止待確認 {}", self.unresolved_stops))
+        (self.unresolved_stops > 0).then(|| format!("感測停止待確認 {}", self.unresolved_stops))
     }
 
     /// 感測文字（tray／overlay 共用；`None` = 沒有感測在用）。永遠是文字，
@@ -383,5 +396,24 @@ mod tests {
         }
         assert_eq!(json["sensors"][0]["startedBy"], "user");
         assert_eq!(json["sensors"][0]["autoStopAt"], "x");
+    }
+    #[test]
+    fn unresolved_storage_and_overflow_are_visible_without_active_capture() {
+        for health in [
+            json!({"storage": "future-format", "parked": true}),
+            json!({"storage": "write-failed"}),
+            json!({"overflowCount": 1}),
+            json!({"recoveryUnknown": true}),
+        ] {
+            let status =
+                json!({"unresolvedStops": [], "activeSensors": [], "unresolvedStopHealth": health});
+            let view = HostSafetyView::derive(true, false, Some(&status), now());
+            assert!(view.unresolved_text().is_some());
+            assert!(
+                !view.active,
+                "a historical unknown must not impersonate active sensing"
+            );
+            assert!(!view.mic_active && !view.camera_active);
+        }
     }
 }

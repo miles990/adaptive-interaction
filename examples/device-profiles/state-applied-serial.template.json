@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1",
+  "id": "state-applied-drill",
+  "displayName": "受限裝置套用確認演練（pty 模擬器）",
+  "capabilities": [
+    {
+      "kind": "receptor", "id": "presence", "name": "距離感測",
+      "category": "environment", "transport": "serial",
+      "serial": { "port": "REPLACE_WITH_OWN_PTY", "baud": 115200, "expectedDeviceId": "REPLACE_WITH_DEVICE_ID", "pairingCode": "9927" },
+      "pollIntervalMs": 3600000, "facts": { "distanceMm": "/facts/distanceMm" },
+      "requiresConsent": true
+    }
+  ]
+}

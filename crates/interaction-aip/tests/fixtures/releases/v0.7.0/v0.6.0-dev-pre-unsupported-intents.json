@@ -1,0 +1,50 @@
+{
+  "at": "2026-09-04T12:30:00Z",
+  "epoch": 4,
+  "hash": "93cf6a795ff9b4208add1353d8ea067790256b50033671cc18f82fd7413788ea",
+  "revision": 4,
+  "sequence": 6,
+  "sessionId": "session.home",
+  "state": {
+    "activity": "reacting",
+    "attention": {
+      "id": "device:iphone-fixture",
+      "kind": "member"
+    },
+    "characterId": "character",
+    "lastInteraction": {
+      "at": "2026-09-04T12:30:00Z",
+      "kind": "tap",
+      "name": "character.interaction.touch",
+      "source": "device:iphone-fixture"
+    },
+    "members": [
+      {
+        "lastSeenAt": "2026-09-04T12:30:00Z",
+        "party": {
+          "id": "desktop",
+          "kind": "human-surface"
+        },
+        "presence": "online",
+        "role": "host-renderer"
+      },
+      {
+        "lastSeenAt": "2026-09-04T12:30:00Z",
+        "party": {
+          "id": "iphone-fixture",
+          "kind": "device"
+        },
+        "presence": "online",
+        "role": "remote-renderer"
+      }
+    ],
+    "mood": {
+      "intensity": 0.0,
+      "kind": "happy"
+    },
+    "reducedMotion": false,
+    "truth": {
+      "state": "none"
+    }
+  }
+}

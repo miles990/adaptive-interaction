@@ -321,7 +321,7 @@ v0.7.0（裝置線 v1.2）再加兩項：
 * **出站**：與 iPhone 走同一張型別抹除的出站登記表（`character_session::DeviceOutbound`）；握手成立登記、
   撤銷／斷線移除。送不到（超過單行上限、線已關）→ `aip.outbound-undeliverable`；沒有通道 → 同一稽核
   `reason:"no-channel"`；表滿（64）→ `aip.outbound-rejected`。
-* **證據**：`declarative_session_loop.rs` 30 測（pty **模擬器**經 production serial adapter；含「廣播真的走
+* **證據**：`declarative_session_loop.rs` 33 測（pty **模擬器**經 production serial adapter；含「廣播真的走
   序列線」「snapshot／含 members 的 patch 經分片真的到達且成員是 `full-state`」「`--no-frag` 降級成
   `intent-only`」「被取消的分片傳輸留稽核」「實測行長度」「event-source 成員」）、`aip_fragment.rs` 17 測（純函式與重組器）、
   `aip_link.rs` 17 測（`MockRawLink`）、`esp32_sim_conformance.rs` 24 測（韌體／模擬器／README 三方一致）；
@@ -345,3 +345,22 @@ v0.7.0（裝置線 v1.2）再加兩項：
 
 在它做出來之前，`intent-only`／`event-source` 是誠實的描述，不是暫時的缺陷說詞：那些裝置**確實**
 沒有拿到完整狀態，介面不得顯示「已同步」。
+
+## 9. State-applied Transport profile（device v1.3 / mobile v1.1）
+
+完整契約與回執tuple見 [device-profile.md §3.2](device-profile.md#32-可協商的-state-applied-profile-aipapplied1)。
+AIP保持1.0；新Transport profile只在雙方選用時追加envelope extension與`aip-applied`外層frame。
+
+Production呼叫鏈：
+
+* Serial/MQTT/BLE：`DeviceLink::send_aip` → `StateAppliedTracker::prepare` → 最终wire byte檢查/
+  分片 → `note_sent(written)`；`DeviceBinding::on_aip` 先查lifecycle/member → `acknowledge_state`。
+* iPhone：`MobileBridge::send_aip_on_connection` → 同tracker → 有界queue (`queued`)；
+  `SessionClient`驗證與原子套用後 → `sendStateApplied` → authenticated mobile loop 查current conn/member → tracker。
+* 人類可見狀態：`Runtime::project_state_delivery` 比host當下tuple → diagnostics/status；
+  `characterSyncAppliedCurrent` 再比最新SSE tuple → `CharacterSyncCard`；`ConnectPage` 使用同一規則投影手機卡。
+
+每條pending紀錄只存在目前process/connection，不持久化；重啟後需要新傳輸再確認。
+`sent`保留排入queue或寫出層級；`applied`只代表對端自報，沒有任何新路徑能賦予`verified`。
+
+受限裝置的乾淨 checkout 演練入口：[spec template 與執行方式](../../examples/device-profiles/state-applied-serial.md)。

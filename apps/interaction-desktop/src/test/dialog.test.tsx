@@ -3,9 +3,37 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ConfirmButton, Dialog } from "../components/Dialog";
+import { ConfirmButton, Dialog, useFocusTrap } from "../components/Dialog";
 
 describe("Dialog", () => {
+  it.each([true, false])("keeps the first Tab inside the dialog (shift=%s)", async (shift) => {
+    render(<>
+      <button>背景入口</button>
+      <Dialog title="鍵盤對話框" onClose={() => {}}>
+        <button>內容最後按鈕</button>
+      </Dialog>
+    </>);
+    expect(screen.getByRole("dialog", { name: "鍵盤對話框" })).toHaveFocus();
+    await userEvent.tab({ shift });
+    expect(screen.getByRole("button", { name: shift ? "內容最後按鈕" : "關閉" })).toHaveFocus();
+  });
+
+  it("retains focus in an empty loading overlay until it can be closed", async () => {
+    const onClose = vi.fn();
+    function LoadingOverlay() {
+      const trap = useFocusTrap(onClose);
+      return <div {...trap} role="dialog" aria-label="載入中" tabIndex={-1}>請稍候</div>;
+    }
+    render(<><button>背景入口</button><LoadingOverlay /></>);
+    const overlay = screen.getByRole("dialog", { name: "載入中" });
+    await userEvent.tab({ shift: true });
+    expect(overlay).toHaveFocus();
+    await userEvent.tab();
+    expect(overlay).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("closes on Escape", async () => {
     const onClose = vi.fn();
     render(

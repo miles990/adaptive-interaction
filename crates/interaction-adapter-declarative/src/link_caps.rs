@@ -79,6 +79,7 @@ fn describe_reply(msg: &DeviceMsg) -> &'static str {
         // 剛好在同一條線上經過（角色 session 的訊息流）。
         DeviceMsg::Aip { .. } => "an aip frame (not a reply to this request)",
         // 線協定 v1.2：同上，只是分成好幾片走。
+        DeviceMsg::AipApplied { .. } => "a state-applied receipt (not a reply to this request)",
         DeviceMsg::AipFrag { .. } => "an aip fragment (not a reply to this request)",
     }
 }

@@ -26,6 +26,9 @@ use crate::runtime::Runtime;
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use hmac::{Hmac, Mac};
+use interaction_adapter_declarative::state_applied::{
+    monotonic_ms, StateAppliedReceipt, StateAppliedTracker, StateDelivery, APPLIED_PROFILE,
+};
 use interaction_adapter_sdk::{ActuatorManifestBuilder, DriverReceipt, ReceptorManifestBuilder};
 use interaction_core::{
     ActionId, ActionParameters, ActionReceipt, Actuator, ActuatorError, BoundedAction,
@@ -101,6 +104,9 @@ pub const CHARACTER_PROJECT_WAIT: Duration = Duration::from_millis(1_500);
 
 /// 一台已配對 iPhone 的 AIP 出站通道。
 struct MobileOutbound {
+    state_applied: Arc<std::sync::Mutex<StateAppliedTracker>>,
+    conn_id: u64,
+    close: CancellationToken,
     bridge: Arc<MobileBridge>,
     device_id: String,
     /// 這台手機對應的 provider 條目（`provider.mobile.<裝置>`）。桌面的裝置
@@ -115,6 +121,14 @@ impl DeviceOutbound for MobileOutbound {
             .send_aip(&self.device_id, envelope)
             .await
             .map_err(DomainError::Unavailable)
+    }
+
+    fn state_delivery(&self) -> Option<StateDelivery> {
+        let mut tracker = self.state_applied.lock().unwrap_or_else(|p| p.into_inner());
+        if self.close.is_cancelled() {
+            tracker.invalidate();
+        }
+        Some(tracker.status(self.conn_id, monotonic_ms()))
     }
 
     fn transport_label(&self) -> &str {
@@ -705,6 +719,8 @@ struct PairingSession {
 }
 
 struct ConnState {
+    state_applied: Arc<std::sync::Mutex<StateAppliedTracker>>,
+    sensor_capture_owner: Option<crate::sensor_source::SensorCaptureOwner>,
     /// 每條連線唯一序號：收尾時只移除自己的表項（重連後的新連線不受影響）。
     conn_id: u64,
     outbound: mpsc::Sender<Message>,
@@ -801,6 +817,8 @@ impl StopSensorsTracker {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MobileStopOutcome {
+    #[serde(skip)]
+    pub capture_scope: Option<String>,
     pub device_id: String,
     pub name: String,
     pub outcome: StopOutcome,
@@ -868,7 +886,7 @@ fn mobile_stop_report(outcome: &MobileStopOutcome) -> crate::sensor_source::Sens
         StopOutcome::Unknown => SensorStopStatus::Unknown,
         StopOutcome::Unreachable => SensorStopStatus::Unreachable,
     };
-    crate::sensor_source::SensorStopReport::new(
+    let mut report = crate::sensor_source::SensorStopReport::new(
         outcome.device_id.clone(),
         MOBILE_PROVIDER_DECLARATION_ID,
         mobile_high_risk_receptors()
@@ -879,7 +897,9 @@ fn mobile_stop_report(outcome: &MobileStopOutcome) -> crate::sensor_source::Sens
         outcome.waited_ms,
     )
     .with_label(outcome.name.clone())
-    .with_via(outcome.via.clone())
+    .with_via(outcome.via.clone());
+    report.capture_scope = outcome.capture_scope.clone();
+    report
 }
 
 /// 通用停止報告 → 既有的 `devices` wire 形狀（HTTP／CLI／桌面逐欄位讀）。
@@ -895,6 +915,7 @@ pub(crate) fn mobile_wire_outcomes(
         .iter()
         .filter(|r| r.declaration_id == MOBILE_PROVIDER_DECLARATION_ID)
         .map(|r| MobileStopOutcome {
+            capture_scope: r.capture_scope.clone(),
             device_id: r.source_id.clone(),
             name: r
                 .source_label
@@ -947,6 +968,13 @@ impl crate::sensor_source::SensorSource for MobileSensorSource {
     async fn active_captures(&self) -> Vec<crate::sensors::SensorUse> {
         match crate::sensor_source::upgrade(&self.runtime) {
             Some(rt) => rt.mobile_active_sensors().await,
+            None => vec![],
+        }
+    }
+
+    async fn scoped_captures(&self) -> Vec<(crate::sensors::SensorUse, String)> {
+        match crate::sensor_source::upgrade(&self.runtime) {
+            Some(rt) => rt.mobile_scoped_captures().await,
             None => vec![],
         }
     }
@@ -1361,28 +1389,83 @@ impl MobileBridge {
         device_id: &str,
         envelope: &interaction_aip::Envelope,
     ) -> Result<(), String> {
-        let bytes = envelope
+        self.send_aip_on_connection(device_id, envelope, None).await
+    }
+
+    async fn send_aip_on_connection(
+        &self,
+        device_id: &str,
+        envelope: &interaction_aip::Envelope,
+        expected: Option<u64>,
+    ) -> Result<(), String> {
+        envelope
             .encode()
-            .map_err(|_| format!("envelope for `{device_id}` exceeds the AIP message limit"))?;
-        if bytes.len() > MOBILE_WS_MAX_MESSAGE_BYTES {
-            return Err(format!("envelope for `{device_id}` exceeds the wire limit"));
+            .map_err(|_| "invalid AIP envelope".to_string())?;
+        let (outbound, tracker, generation, close) = {
+            let conns = self.conns.read().await;
+            let conn = conns
+                .get(device_id)
+                .ok_or_else(|| "iPhone disconnected".to_string())?;
+            if expected.is_some_and(|id| id != conn.conn_id) || conn.close.is_cancelled() {
+                return Err("iPhone connection superseded".into());
+            }
+            (
+                conn.outbound.clone(),
+                conn.state_applied.clone(),
+                conn.conn_id,
+                conn.close.clone(),
+            )
+        };
+        let mut value =
+            serde_json::to_value(envelope).map_err(|_| "invalid envelope".to_string())?;
+        let token = tracker.lock().unwrap_or_else(|p| p.into_inner()).prepare(
+            &mut value,
+            generation,
+            monotonic_ms(),
+        );
+        let encoded = value.to_string();
+        if encoded.len() > interaction_aip::limits::MAX_MESSAGE_BYTES {
+            if let Some(token) = &token {
+                tracker
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .failed(token);
+            }
+            return Err("AIP envelope including receipt context exceeds wire limit".into());
         }
-        let (device_id, outbound) = self.pick_conn(Some(device_id)).await?;
-        let value = serde_json::to_value(envelope)
-            .map_err(|_| format!("envelope for `{device_id}` could not be encoded"))?;
-        let frame = json!({"type": "aip", "envelope": value}).to_string();
-        outbound
-            .send_timeout(Message::Text(frame), Duration::from_millis(500))
-            .await
-            .map_err(|_| format!("iPhone `{device_id}` outbound queue full or closed"))
+        let frame = json!({"type":"aip","envelope":value}).to_string();
+        let result = tokio::select! {
+            biased;
+            _ = close.cancelled() => Err("iPhone connection closed".to_string()),
+            result = outbound.send_timeout(Message::Text(frame), Duration::from_millis(500)) =>
+                result.map_err(|_| "iPhone outbound queue full or closed".to_string()),
+        };
+        if let Some(token) = token {
+            let mut tracker = tracker.lock().unwrap_or_else(|p| p.into_inner());
+            if result.is_ok() {
+                tracker.note_sent(&token, "queued");
+            } else {
+                tracker.failed(&token);
+            }
+        }
+        result
     }
 
     /// 這座橋作為一台已配對 iPhone 的 AIP 出站通道（**型別抹除**）。
     ///
     /// 綁的是 deviceId 而不是某一條連線：重連／被取代之後，同一台手機的廣播
     /// 仍然送得到現在那條有效連線（`pick_conn` 自己找）。
-    fn outbound_for(self: &Arc<Self>, device_id: &str) -> Arc<dyn DeviceOutbound> {
+    fn outbound_for(
+        self: &Arc<Self>,
+        device_id: &str,
+        conn_id: u64,
+        state_applied: Arc<std::sync::Mutex<StateAppliedTracker>>,
+        close: CancellationToken,
+    ) -> Arc<dyn DeviceOutbound> {
         Arc::new(MobileOutbound {
+            state_applied,
+            conn_id,
+            close,
             bridge: self.clone(),
             device_id: device_id.to_string(),
             provider_id: mobile_provider_id(device_id).as_str().to_string(),
@@ -1541,6 +1624,12 @@ impl MobileBridge {
     }
 
     async fn stop_all_inner(&self, sensors: bool) -> Result<(), ActuatorError> {
+        for conn in self.conns.read().await.values() {
+            conn.state_applied
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .cancel();
+        }
         self.fail_inflight_stopped();
         if !self.any_connected().await {
             return Err(ActuatorError::Unavailable(
@@ -1579,13 +1668,23 @@ impl MobileBridge {
     /// 手機自報「麥克風音量串流中」的連線
     /// （deviceId, 起算時間, 尚未確認的停止請求時間）。
     async fn mic_streaming_devices(&self) -> Vec<(String, chrono::DateTime<Utc>, Option<Instant>)> {
+        self.mic_streaming_scopes()
+            .await
+            .into_iter()
+            .map(|(id, since, pending, _)| (id, since, pending))
+            .collect()
+    }
+
+    async fn mic_streaming_scopes(
+        &self,
+    ) -> Vec<(String, chrono::DateTime<Utc>, Option<Instant>, u64)> {
         self.conns
             .read()
             .await
             .iter()
             .filter_map(|(id, c)| {
                 c.mic_since
-                    .map(|since| (id.clone(), since, c.stop_sensors.pending_since()))
+                    .map(|since| (id.clone(), since, c.stop_sensors.pending_since(), c.conn_id))
             })
             .collect()
     }
@@ -1616,12 +1715,19 @@ impl MobileBridge {
     ) -> Vec<MobileStopOutcome> {
         let text = json!({"type":"stop-all","sensors":true,"reason":reason}).to_string();
         // 快照要送的連線（不在讀鎖裡 await）。
-        let targets: Vec<(String, mpsc::Sender<Message>, Arc<StopSensorsTracker>)> = {
+        let targets: Vec<(String, mpsc::Sender<Message>, Arc<StopSensorsTracker>, u64)> = {
             let conns = self.conns.read().await;
             conns
                 .iter()
                 .filter(|(id, _)| target.is_none_or(|want| want == id.as_str()))
-                .map(|(id, c)| (id.clone(), c.outbound.clone(), c.stop_sensors.clone()))
+                .map(|(id, c)| {
+                    (
+                        id.clone(),
+                        c.outbound.clone(),
+                        c.stop_sensors.clone(),
+                        c.conn_id,
+                    )
+                })
                 .collect()
         };
         let names = self.devices.read().await;
@@ -1634,15 +1740,16 @@ impl MobileBridge {
         let started = Instant::now();
         let mut waiting = Vec::new();
         let mut outcomes = Vec::new();
-        for (device_id, outbound, tracker) in targets {
+        for (device_id, outbound, tracker, conn_id) in targets {
             tracker.request();
             if self
                 .send_outbound(&outbound, Message::Text(text.clone()))
                 .await
             {
-                waiting.push((device_id, tracker));
+                waiting.push((device_id, tracker, conn_id));
             } else {
                 outcomes.push(MobileStopOutcome {
+                    capture_scope: Some(format!("mobile-connection:{conn_id}")),
                     name: name_of(&device_id),
                     device_id,
                     outcome: StopOutcome::Unreachable,
@@ -1654,7 +1761,7 @@ impl MobileBridge {
         drop(names);
         // 共用一個截止時間：整批等待仍然有界（不是每台各等 timeout）。
         let deadline = tokio::time::Instant::now() + timeout;
-        for (device_id, tracker) in waiting {
+        for (device_id, tracker, conn_id) in waiting {
             let outcome = wait_for_stop_confirmation(&tracker, deadline).await;
             let names = self.devices.read().await;
             let name = names
@@ -1663,6 +1770,7 @@ impl MobileBridge {
                 .unwrap_or_else(|| device_id.clone());
             drop(names);
             outcomes.push(MobileStopOutcome {
+                capture_scope: Some(format!("mobile-connection:{conn_id}")),
                 device_id,
                 name,
                 outcome: outcome.0,
@@ -2973,6 +3081,14 @@ impl Runtime {
     /// （tray／首頁／角色視窗都吃這個欄位）。條件三者皆須成立：
     /// receptor 啟用中 ∧ 手機連線中 ∧ 手機自報 `sensors.micLevel == true`。
     pub(crate) async fn mobile_active_sensors(&self) -> Vec<crate::sensors::SensorUse> {
+        self.mobile_scoped_captures()
+            .await
+            .into_iter()
+            .map(|(capture, _)| capture)
+            .collect()
+    }
+
+    async fn mobile_scoped_captures(&self) -> Vec<(crate::sensors::SensorUse, String)> {
         // registry 對 disabled／未註冊的 receptor 回 Err —— 這就是「啟用中」。
         let enabled = self
             .registry
@@ -2980,10 +3096,10 @@ impl Runtime {
             .await
             .is_ok();
         self.mobile
-            .mic_streaming_devices()
+            .mic_streaming_scopes()
             .await
             .into_iter()
-            .filter_map(|(device_id, since, stop_pending)| {
+            .filter_map(|(device_id, since, stop_pending, conn_id)| {
                 // 已要求停止但手機還沒確認：不得從畫面上消失（消失＝宣稱已停）。
                 let (state, purpose) = match stop_pending {
                     Some(at) if at.elapsed() < STOP_SENSORS_WAIT => (
@@ -3005,14 +3121,17 @@ impl Runtime {
                 if !enabled && state == crate::sensors::SENSOR_STATE_ACTIVE {
                     return None;
                 }
-                Some(crate::sensors::SensorUse {
-                    kind: "iphone.mic-level".into(),
-                    started_at: since,
-                    started_by: format!("iphone:{device_id}"),
-                    purpose,
-                    auto_stop_at: None,
-                    state: state.to_string(),
-                })
+                Some((
+                    crate::sensors::SensorUse {
+                        kind: "iphone.mic-level".into(),
+                        started_at: since,
+                        started_by: format!("iphone:{device_id}"),
+                        purpose,
+                        auto_stop_at: None,
+                        state: state.to_string(),
+                    },
+                    format!("mobile-connection:{conn_id}"),
+                ))
             })
             .collect()
     }
@@ -3192,10 +3311,26 @@ impl Runtime {
         }
         // 連接頁的每機動作一律是使用者發起的：手機要顯示「由桌面停止全部感測」，
         // 不是「因桌面緊急停止而停用」。
-        let outcomes = self
-            .mobile
-            .stop_sensors_for(Some(device_id), STOP_SENSORS_WAIT, STOP_REASON_USER)
-            .await;
+        let outcomes = if let Some((source, target)) = self
+            .sensor_source_for_provider(mobile_provider_id(device_id).as_str())
+            .await
+        {
+            let reports = self
+                .request_source_stop(
+                    &source,
+                    target.as_deref(),
+                    STOP_SENSORS_WAIT,
+                    crate::sensors::SENSOR_STOP_REASON_USER,
+                )
+                .await;
+            mobile_wire_outcomes(&reports)
+        } else {
+            // An explicitly removed source must not disable the safety-decreasing
+            // wire stop. Capture observation already retained its original owner.
+            self.mobile
+                .stop_sensors_for(Some(device_id), STOP_SENSORS_WAIT, STOP_REASON_USER)
+                .await
+        };
         let outcome = outcomes.into_iter().next();
         let (result, waited_ms, via) = match &outcome {
             Some(o) => (o.outcome, o.waited_ms, o.via.clone()),
@@ -3341,13 +3476,23 @@ impl Runtime {
     ) {
         // 出站登記：這台手機從現在起收得到 session 廣播（別的成員造成的
         // shared state 變更）。綁 deviceId，重連／被取代之後仍然有效。
-        self.register_device_outbound(device_id, self.mobile.outbound_for(device_id));
+        let state_applied = Arc::new(std::sync::Mutex::new(StateAppliedTracker::default()));
+        let sensor_capture_owner = self
+            .sensor_capture_owner(MOBILE_PROVIDER_DECLARATION_ID)
+            .await;
+        self.register_device_outbound(
+            device_id,
+            self.mobile
+                .outbound_for(device_id, conn_id, state_applied.clone(), close.clone()),
+        );
         let superseded = {
             let mut conns = self.mobile.conns.write().await;
             conns
                 .insert(
                     device_id.to_string(),
                     ConnState {
+                        state_applied,
+                        sensor_capture_owner,
                         conn_id,
                         outbound: out_tx.clone(),
                         status: Value::Null,
@@ -3359,6 +3504,10 @@ impl Runtime {
                 )
                 .map(|old| {
                     // 舊連線的等待者不能永遠掛著：標記斷線讓它們立刻收斂成 unreachable。
+                    old.state_applied
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .invalidate();
                     old.stop_sensors.mark_disconnected();
                     old.close.cancel();
                     old.mic_since.is_some()
@@ -3412,9 +3561,34 @@ impl Runtime {
             match conns.get_mut(device_id) {
                 Some(conn) if conn.conn_id == conn_id => {
                     let was = conn.mic_since.is_some();
+                    let since = conn.mic_since.unwrap_or_else(Utc::now);
+                    let scope = format!("mobile-connection:{conn_id}");
+                    if on && !was {
+                        // Persist raw evidence before exposing it. Enabled flags
+                        // affect observation admission, never whether the phone
+                        // might still be capturing after a disconnect or crash.
+                        self.note_sensor_capture(
+                            conn.sensor_capture_owner.as_ref(),
+                            crate::sensors::SensorUse {
+                                kind: "iphone.mic-level".into(),
+                                started_at: since,
+                                started_by: format!("iphone:{device_id}"),
+                                purpose: "mobile capture reported".into(),
+                                auto_stop_at: None,
+                                state: crate::sensors::SENSOR_STATE_ACTIVE.into(),
+                            },
+                            scope,
+                        );
+                    } else if !on {
+                        self.confirm_sensor_capture_stopped(
+                            conn.sensor_capture_owner.as_ref(),
+                            "iphone.mic-level",
+                            scope,
+                        );
+                    }
                     conn.mic_since = match (on, conn.mic_since) {
                         (true, Some(since)) => Some(since),
-                        (true, None) => Some(Utc::now()),
+                        (true, None) => Some(since),
                         (false, _) => None,
                     };
                     (was != on, conn.stop_sensors.was_requested())
@@ -3807,8 +3981,46 @@ impl Runtime {
                 }
                 // AIP Character Session（`docs/aip/README.md` §9.1）：只在 auth-ok 之後
                 // 接受；身分＝配對出來的 deviceId，宣稱不符一律拒絕。
+                Some("aip-applied") if authed.is_some() => {
+                    if let Some(device_id) = authed.as_ref() {
+                        let accepted = if self
+                            .character_session_is_member(&interaction_aip::Party::device(device_id))
+                        {
+                            let conns = self.mobile.conns.read().await;
+                            conns
+                                .get(device_id)
+                                .filter(|c| c.conn_id == conn_id && !c.close.is_cancelled())
+                                .is_some_and(|conn| {
+                                    serde_json::from_value::<StateAppliedReceipt>(
+                                        v["receipt"].clone(),
+                                    )
+                                    .ok()
+                                    .is_some_and(|receipt| {
+                                        conn.state_applied
+                                            .lock()
+                                            .unwrap_or_else(|p| p.into_inner())
+                                            .acknowledge(&receipt, conn_id, monotonic_ms())
+                                    })
+                                })
+                        } else {
+                            false
+                        };
+                        let _ = self.store.audit("aip.state-applied", "runtime", &json!({
+                            "deviceId":device_id,"transport":MOBILE_TRANSPORT,"accepted":accepted,"evidence":"peer-report"}));
+                    }
+                }
                 Some("aip") if authed.is_some() => {
                     if let Some(device_id) = authed.clone() {
+                        if !self
+                            .mobile
+                            .conns
+                            .read()
+                            .await
+                            .get(&device_id)
+                            .is_some_and(|c| c.conn_id == conn_id && !c.close.is_cancelled())
+                        {
+                            break;
+                        }
                         let outcome = self
                             .character_session_device_frame(
                                 &device_id,
@@ -3819,12 +4031,68 @@ impl Runtime {
                                 &v,
                             )
                             .await;
+                        if v["envelope"]["messageType"] == "capability"
+                            && outcome.replies.iter().any(|reply| {
+                                reply["messageType"] == "capability"
+                                    || (matches!(
+                                        reply["payload"]["status"].as_str(),
+                                        Some("applied" | "accepted")
+                                    ) && reply["payload"].get("code").is_none()
+                                        && reply["payload"]["duplicate"] != true)
+                            })
+                        {
+                            if let Some(conn) = self
+                                .mobile
+                                .conns
+                                .read()
+                                .await
+                                .get(&device_id)
+                                .filter(|c| c.conn_id == conn_id)
+                            {
+                                conn.state_applied
+                                    .lock()
+                                    .unwrap_or_else(|p| p.into_inner())
+                                    .negotiate(
+                                        conn_id,
+                                        v["envelope"]["payload"]["features"]["stateApplied"]
+                                            == APPLIED_PROFILE,
+                                    );
+                            }
+                        }
                         for reply in outcome.replies {
                             // 出站邊界：我們自己送出去的 envelope 也必須符合 AIP
                             // （§1 id／name 語法、§11 上限）。不合格就誠實丟棄並稽核，
                             // 不把違反契約的東西丟給手機（收端會直接拒絕）。
                             match mobile_aip_reply_frame(&reply) {
-                                Some(frame) => send(&out_tx, frame).await,
+                                Some(_) => {
+                                    if let Ok(envelope) =
+                                        serde_json::from_value::<interaction_aip::Envelope>(
+                                            reply.clone(),
+                                        )
+                                    {
+                                        if let Err(reason) = self
+                                            .mobile
+                                            .send_aip_on_connection(
+                                                &device_id,
+                                                &envelope,
+                                                Some(conn_id),
+                                            )
+                                            .await
+                                        {
+                                            self.store
+                                                .audit(
+                                                    "aip.outbound-undelivered",
+                                                    "runtime",
+                                                    &json!({
+                                                        "transport": MOBILE_TRANSPORT,
+                                                        "deviceId": device_id,
+                                                        "reason": reason,
+                                                    }),
+                                                )
+                                                .ok();
+                                        }
+                                    }
+                                }
                                 None => {
                                     self.store
                                         .audit(

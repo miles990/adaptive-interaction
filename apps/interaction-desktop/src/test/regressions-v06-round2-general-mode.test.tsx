@@ -42,6 +42,7 @@ function snapshot(members: Record<string, unknown>[]): Record<string, unknown> {
       kind: "snapshot",
       state: {
         characterId: "character",
+        attention: { kind: "none" },
         mood: { kind: "neutral", intensity: 0 },
         activity: "idle",
         truth: { state: "none" },
@@ -65,7 +66,7 @@ function remoteMember(over: Record<string, unknown> = {}): Record<string, unknow
 describe("capability-consent-052／general-mode-ux-022：綠勾只給真的", () => {
   it("拿不到協商結果時不得顯示綠色「已同步」", () => {
     const snap = snapshot([remoteMember()]);
-    const members = characterSyncMembers(snap, { [DEVICE_ID]: FIXTURE_PHONE });
+    const members = characterSyncMembers(snap, { [DEVICE_ID]: FIXTURE_PHONE }, {}, { [DEVICE_ID]: true });
     const p = projectCharacterSession(snap, members, signals());
     expect(p.state).not.toBe("synced");
     expect(p.tone).not.toBe("ok");
@@ -76,18 +77,18 @@ describe("capability-consent-052／general-mode-ux-022：綠勾只給真的", ()
     const snap = snapshot([
       remoteMember({ negotiated: { intents: { celebrate: "exact", settle: "unsupported" } } }),
     ]);
-    const members = characterSyncMembers(snap, { [DEVICE_ID]: FIXTURE_PHONE });
+    const members = characterSyncMembers(snap, { [DEVICE_ID]: FIXTURE_PHONE }, {}, { [DEVICE_ID]: true });
     expect(members[0]?.degraded).toBe(true);
     const p = projectCharacterSession(snap, members, signals());
     expect(p.state).toBe("partial-capability");
     expect(p.headline).toBe("部分能力目前不可用");
   });
 
-  it("協商結果說每個 intent 都做得到 → 才給綠色「已同步」", () => {
+  it("回執已確認目前狀態，且每個 intent 都做得到 → 才給綠色「已同步」", () => {
     const snap = snapshot([
       remoteMember({ negotiated: { intents: { celebrate: "exact", settle: "exact" } } }),
     ]);
-    const members = characterSyncMembers(snap, { [DEVICE_ID]: FIXTURE_PHONE });
+    const members = characterSyncMembers(snap, { [DEVICE_ID]: FIXTURE_PHONE }, {}, { [DEVICE_ID]: true });
     expect(members[0]?.degraded).toBe(false);
     const p = projectCharacterSession(snap, members, signals());
     expect(p.state).toBe("synced");
@@ -96,11 +97,11 @@ describe("capability-consent-052／general-mode-ux-022：綠勾只給真的", ()
 
   it("runtime 換成 unsupportedIntents 計數欄位也認得（同一條資料路徑的兩種寫法）", () => {
     const snap = snapshot([remoteMember({ unsupportedIntents: 0 })]);
-    const members = characterSyncMembers(snap, { [DEVICE_ID]: FIXTURE_PHONE });
+    const members = characterSyncMembers(snap, { [DEVICE_ID]: FIXTURE_PHONE }, {}, { [DEVICE_ID]: true });
     expect(members[0]?.degraded).toBe(false);
     expect(projectCharacterSession(snap, members, signals()).state).toBe("synced");
     const snap2 = snapshot([remoteMember({ unsupportedIntents: 2 })]);
-    const members2 = characterSyncMembers(snap2, { [DEVICE_ID]: FIXTURE_PHONE });
+    const members2 = characterSyncMembers(snap2, { [DEVICE_ID]: FIXTURE_PHONE }, {}, { [DEVICE_ID]: true });
     expect(members2[0]?.degraded).toBe(true);
     expect(projectCharacterSession(snap2, members2, signals()).state).toBe("partial-capability");
   });
@@ -115,6 +116,7 @@ describe("general-mode-ux-026：另一台裝置尚未同步／已撤銷時不得
     canPresent: true,
     degraded: false,
     syncProfile: null,
+    stateAppliedCurrent: true,
     ...o,
   });
 
@@ -148,22 +150,22 @@ describe("general-mode-ux-026：另一台裝置尚未同步／已撤銷時不得
 describe("general-mode-ux-025：連接頁手機卡與角色頁不得互相矛盾", () => {
   it("role 不是呈現者的裝置：手機卡不得寫「已同步」", () => {
     const snap = snapshot([remoteMember({ role: "input-device" })]);
-    const members = characterSyncMembers(snap, { [DEVICE_ID]: FIXTURE_PHONE });
+    const members = characterSyncMembers(snap, { [DEVICE_ID]: FIXTURE_PHONE }, {}, { [DEVICE_ID]: true });
     const p = projectCharacterSession(snap, members, signals());
     expect(p.state).toBe("partial-capability");
-    const line = characterSyncDeviceLine(snap, DEVICE_ID);
+    const line = characterSyncDeviceLine(snap, DEVICE_ID, "full-state", true);
     expect(line).not.toBe("角色同步：已同步");
     expect(line).toContain("部分能力目前不可用");
   });
 
   it("拿不到協商結果的呈現者：手機卡也說「能力核對中」，和角色頁一致", () => {
     const snap = snapshot([remoteMember()]);
-    expect(characterSyncDeviceLine(snap, DEVICE_ID)).toBe("角色同步：已連接，能力核對中");
+    expect(characterSyncDeviceLine(snap, DEVICE_ID, "full-state", true)).toBe("角色同步：已連接，能力核對中");
   });
 
   it("協商結果齊全才寫「已同步」", () => {
     const snap = snapshot([remoteMember({ negotiated: { intents: { settle: "exact" } } })]);
-    expect(characterSyncDeviceLine(snap, DEVICE_ID)).toBe("角色同步：已同步");
+    expect(characterSyncDeviceLine(snap, DEVICE_ID, "full-state", true)).toBe("角色同步：已同步");
   });
 });
 

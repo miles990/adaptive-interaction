@@ -1,0 +1,110 @@
+{
+  "profile": "semantic-state/1.0",
+  "note": "Every schema field needs a conscious consumer disposition. Retained means preserved in the raw hash state, with no renderer action.",
+  "fields": {
+    "/activity": {
+      "typescript": "projected",
+      "swift": "projected"
+    },
+    "/attention": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/attention/correlationId": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/attention/id": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/attention/kind": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/characterId": {
+      "typescript": "projected",
+      "swift": "projected"
+    },
+    "/lastInteraction": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/lastInteraction/at": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/lastInteraction/kind": {
+      "typescript": "projected",
+      "swift": "projected"
+    },
+    "/lastInteraction/name": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/lastInteraction/source": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/members": {
+      "typescript": "projected",
+      "swift": "projected"
+    },
+    "/members/*/lastSeenAt": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/members/*/party": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/members/*/party/id": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/members/*/party/kind": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/members/*/presence": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/members/*/role": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/members/*/unsupportedIntents": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/mood": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/mood/intensity": {
+      "typescript": "projected",
+      "swift": "projected"
+    },
+    "/mood/kind": {
+      "typescript": "projected",
+      "swift": "projected"
+    },
+    "/reducedMotion": {
+      "typescript": "projected",
+      "swift": "projected"
+    },
+    "/truth": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/truth/correlationId": {
+      "typescript": "retained",
+      "swift": "retained"
+    },
+    "/truth/state": {
+      "typescript": "projected",
+      "swift": "projected"
+    }
+  }
+}

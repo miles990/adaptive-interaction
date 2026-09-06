@@ -364,6 +364,9 @@ impl CharacterSession {
         }
         // `attention` 的補洞檢查（見上面取捨 1）：要在反序列化之前做，因為 serde 會把
         // 未知鍵吃掉，之後就看不出來了。
+        if crate::semantic_contract::contains_null(&snapshot.state) {
+            return Err(SessionError::InvalidState);
+        }
         if !attention_keys_are_known(&snapshot.state) {
             return Err(SessionError::InvalidState);
         }

@@ -26,6 +26,7 @@ import { Icon } from "../icons";
 import { RISK_TIERS } from "../riskTier";
 import {
   characterSyncDeviceLine,
+  characterSyncAppliedCurrent,
   characterSyncProfileNote,
   characterSyncProfiles,
   characterSyncProfilesByProvider,
@@ -370,6 +371,7 @@ function ConnectOverview({
   // 每一台裝置成員那條線送得到多少狀態（`docs/aip/device-profile.md` §3.1）。
   // 沒有裝置成員時後端不序列化這個鍵——空的就是空的，不猜成「都已同步」。
   const syncProfiles = characterSyncProfiles(status.data);
+  const appliedCurrent = characterSyncAppliedCurrent(status.data, characterSession.data);
   /** provider id → 同步模式（後端有回報 `providerId` 時才有；沒有就是空的，不猜）。 */
   const syncProfilesByProvider = characterSyncProfilesByProvider(status.data);
   const phones = ((mobile.data?.devices as Record<string, unknown>[] | undefined) ?? []).filter(
@@ -533,7 +535,8 @@ function ConnectOverview({
                 syncLine={characterSyncDeviceLine(
                   characterSession.data ?? null,
                   m.deviceId,
-                  syncProfiles[m.deviceId]
+                  syncProfiles[m.deviceId],
+                  appliedCurrent[m.deviceId] === true
                 )}
                 onChanged={reloadMobile}
                 onManagePermissions={onSafety}

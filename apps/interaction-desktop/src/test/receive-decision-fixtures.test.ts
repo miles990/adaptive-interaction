@@ -27,6 +27,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { stateHash } from "../aip/canonical";
+import { validateSemanticState } from "../aip/semanticState";
 import {
   MAX_RESUME_PATCHES,
   REALIGN_STREAK_LIMIT,
@@ -108,6 +109,7 @@ function stateFor(key: string): Record<string, unknown> {
   // 不同 iff 對應的 fixture hash 字串不同。
   const state: Record<string, unknown> = {
     characterId: "character",
+    attention: { kind: "none" },
     mood: { kind: "neutral", intensity: 0 },
     activity: `state-${STATES.size}`,
     truth: { state: "none" },
@@ -126,7 +128,7 @@ function localFrom(fixture: FixtureLocal): LocalSessionState | null {
     epoch: fixture.epoch,
     revision: fixture.revision,
     sequence: null,
-    state,
+    state: validateSemanticState(state)!,
     hash: stateHash(state),
   };
 }

@@ -530,33 +530,21 @@ struct CharacterSemanticState: Equatable {
     static let maxMembers = AIPLimits.maxMembers
 
     static func project(_ json: SemanticJSON) -> CharacterSemanticState? {
-        guard let characterId = json["characterId"]?.stringValue,
-            let moodKind = json["mood"]?["kind"]?.stringValue,
-            let activity = json["activity"]?.stringValue,
-            let truth = json["truth"]?["state"]?.stringValue
-        else { return nil }
-        let rawMembers = json["members"]?.arrayValue ?? []
-        guard rawMembers.count <= maxMembers else { return nil }
-        var members: [CharacterMember] = []
-        members.reserveCapacity(rawMembers.count)
-        for entry in rawMembers {
-            guard let kind = entry["party"]?["kind"]?.stringValue,
-                let id = entry["party"]?["id"]?.stringValue,
-                let role = entry["role"]?.stringValue,
-                let presence = entry["presence"]?.stringValue
-            else { return nil }
-            members.append(
-                CharacterMember(partyKind: kind, partyId: id, role: role, presence: presence))
-        }
+        guard let validated = ValidatedSemanticState.validate(json) else { return nil }
+        return project(validated)
+    }
+
+    static func project(_ validated: ValidatedSemanticState) -> CharacterSemanticState {
+        let wire = validated.wire
         return CharacterSemanticState(
-            characterId: characterId,
-            mood: CharacterMood(wire: moodKind),
-            moodIntensity: json["mood"]?["intensity"]?.doubleValue ?? 0,
-            activity: CharacterActivity(wire: activity),
-            truth: CharacterTruth(wire: truth),
-            reducedMotion: json["reducedMotion"]?.boolValue ?? false,
-            members: members,
-            lastInteractionKind: json["lastInteraction"]?["kind"]?.stringValue)
+            characterId: wire.characterId,
+            mood: CharacterMood(wire: wire.mood.kind),
+            moodIntensity: wire.mood.intensity,
+            activity: CharacterActivity(wire: wire.activity),
+            truth: CharacterTruth(wire: wire.truth.state),
+            reducedMotion: wire.reducedMotion,
+            members: wire.members.map { CharacterMember(partyKind: $0.party.kind, partyId: $0.party.id, role: $0.role, presence: $0.presence) },
+            lastInteractionKind: wire.lastInteraction?.kind)
     }
 }
 

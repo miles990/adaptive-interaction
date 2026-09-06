@@ -32,7 +32,7 @@ SYNTAX_FILES=(scripts/release.sh scripts/release-prepare.sh scripts/release-veri
               scripts/release-tag.sh scripts/ci-required-checks.sh scripts/get.sh
               scripts/tests/release-scripts.sh scripts/tests/docs-claims.sh
               scripts/tests/architecture-checks.sh scripts/tauri-ax-walkthrough.sh)
-# 演練腳本（scripts/drills/*.sh）沒有 CI，語法檢查是它們唯一的自動化把關；
+# 演練腳本的靜態語法守門；實際行為由 architecture-checks.sh --drills 執行。
 # 空目錄不是「沒東西要檢查」，是演練不見了。
 DRILL_SCRIPTS=()
 while IFS= read -r f; do DRILL_SCRIPTS+=("$f"); done < <(ls scripts/drills/*.sh 2>/dev/null | sort)

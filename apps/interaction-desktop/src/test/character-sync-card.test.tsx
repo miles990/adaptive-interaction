@@ -46,7 +46,8 @@ function snapshotPayload(
   revision: number,
   sessionEpoch = 1
 ): Record<string, unknown> {
-  return { kind: "snapshot", revision, sessionEpoch, state, hash: stateHash(state) };
+  const complete = { mood: { kind: "neutral", intensity: 0 }, activity: "idle", attention: { kind: "none" }, reducedMotion: false, ...state };
+  return { kind: "snapshot", revision, sessionEpoch, state: complete, hash: stateHash(complete) };
 }
 
 function snapshot(
@@ -57,12 +58,14 @@ function snapshot(
     specVersion: "aip/1.0",
     messageId: `msg-snapshot-${revision}`,
     messageType: "state",
+    sessionId: "session.home",
     name: "character.session.snapshot",
     payload: snapshotPayload(
       {
         characterId: "character",
         mood: { kind: "neutral", intensity: 0 },
         activity: "idle",
+        attention: { kind: "none" },
         truth: { state: "none" },
         members: [],
         reducedMotion: false,
@@ -116,8 +119,16 @@ function setup(options: {
   });
   mockApi.mobileStatus.mockResolvedValue({ devices: options.devices ?? [] });
   mockApi.providersList.mockResolvedValue(options.providers ?? []);
-  mockApi.characterSessionDiagnostics.mockResolvedValue(
-    options.diagnostics ?? {
+  // This UI fixture includes an explicit peer-applied receipt for its initial
+  // state; newer SSE states need a new receipt (tested separately).
+  const initial = (options.snapshot instanceof Error ? snapshot() : options.snapshot ?? snapshot()) as { payload: { state: { members: Array<{party: {kind: string; id: string}}> }; sessionEpoch: number; revision: number; hash: string } };
+  const evidence = initial.payload.state.members.filter((m) => m.party.kind === "device").map((m) => ({
+    party: m.party, stateAppliedCurrent: true, stateDelivery: { negotiated: true, applied: {
+      profile: "aip.applied/1", sessionId: "session.home", epoch: initial.payload.sessionEpoch,
+      revision: initial.payload.revision, hash: initial.payload.hash,
+    } },
+  }));
+  const diagnostic = options.diagnostics ?? {
       sessionId: "session.home",
       sessionEpoch: 1,
       revision: 11,
@@ -126,8 +137,10 @@ function setup(options: {
       counters: { accepted: 3, applied: 3 },
       eventLog: { len: 9, cap: 512 },
       storeNote: null,
-    }
-  );
+    };
+  const rows = (diagnostic.members as Array<{party?: {id?: string}}> | undefined) ?? [];
+  mockApi.characterSessionDiagnostics.mockResolvedValue({ ...diagnostic, members: rows.length > 0
+    ? rows.map((m) => ({ ...evidence.find((e) => e.party.id === m.party?.id), ...m })) : evidence });
 }
 
 /** SSE `character.session.state` 事件（payload 是完整 AIP envelope）。 */
@@ -145,6 +158,7 @@ function stateEvent(
       specVersion: "aip/1.0",
       messageType: "state",
       name: "character.session.patch",
+      sessionId: "session.home",
       ...(baseRevision === undefined ? {} : { baseRevision }),
       payload,
     },

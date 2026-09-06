@@ -175,3 +175,11 @@ fn golden_aip_schema() {
     let schema = interaction_aip::schema::protocol_schema();
     check_golden("aip-1.0.schema.json", &pretty(&schema));
 }
+
+#[test]
+fn golden_semantic_state_schema() {
+    check_golden(
+        "semantic-state-1.0.schema.json",
+        &pretty(&interaction_session::semantic_state_schema()),
+    );
+}

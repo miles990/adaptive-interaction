@@ -1,0 +1,20 @@
+{
+  "name": "baseline-tauri",
+  "sha": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "cargo",
+    "test",
+    "--manifest-path",
+    "apps/interaction-desktop/src-tauri/Cargo.toml"
+  ],
+  "exit": 0,
+  "durationSeconds": 57.41,
+  "rustCounts": [
+    63,
+    0,
+    0
+  ],
+  "testBinaries": 3,
+  "log": "/tmp/adaptive-convergence-20260906/baseline-tauri.log"
+}

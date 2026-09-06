@@ -90,7 +90,7 @@ const NO_ACTION: CharacterSyncAction = { id: null, label: null };
 export const CHARACTER_SYNC_PROJECTION = {
   synced: {
     headline: "iPhone 已連接，角色狀態已同步",
-    detail: "手機上的角色和這台電腦看到的是同一個狀態。",
+    detail: "裝置回報已套用目前的角色狀態；這不代表已驗證畫面或實體效果。",
     tone: "ok",
     action: NO_ACTION,
   },
@@ -226,24 +226,18 @@ export interface CharacterSyncMember {
    * [`characterSyncProfileLabel`]／[`characterSyncProfileNote`]。
    */
   syncProfile: string | null;
+  /** 當下 host 狀態與有效連線的已套用回執一致；缺席一律未確認。 */
+  stateAppliedCurrent?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // 成員同步模式（syncProfile；`docs/aip/device-profile.md` §3.1）
 // ---------------------------------------------------------------------------
 //
-// 這個成員**實際上**拿得到多少共享狀態，由 Runtime 依「那條線的事實」
-//（`DeviceOutbound::max_line_bytes`／`supports_fragmentation`）＋已協商的 role 推導
-//（`crates/interaction-runtime/src/character_session.rs::derive_sync_profile`）。
-//
-// **「不是裝置自己宣稱的」只對 `full-state` 成立**（對抗審查 `713f8fe` 的
-// `declarative-aip-binding-020`）：升級成 `full-state` 的條件是觀察到的事實——Runtime 真的
-// 把一份完整快照寫上那條線、每一片都寫出成功。至於「我會重組分片」（`hello.caps` 的
-// `aip.frag/1`）是裝置在握手時**自己說的一句話**，host 沒有辦法驗證，所以它只夠讓那台裝置
-// 停在 `pending-full-state`——「說得出、還沒證明」，一樣**不得**顯示「已同步」。
-// 只有 `full-state` 拿得到完整狀態，也只有它可以說「已同步」。
+// syncProfile保留舊Runtime的傳送能力資訊；full-state只證明可承載完整狀態。
+// 目前同步必須另外由stateAppliedCurrent與當下host tuple核對，不以寫出成功冒充套用。
 
-/** 唯一可以說「已同步」的模式。 */
+/** 承載完整狀態的能力；尚需目前狀態的套用確認。 */
 export const CHARACTER_SYNC_PROFILE_FULL_STATE = "full-state";
 
 /**
@@ -285,7 +279,7 @@ export function characterSyncProfileLabel(profile: unknown): string | null {
  */
 const CHARACTER_SYNC_PROFILE_NOTE: Record<string, string> = {
   "pending-full-state":
-    "這台裝置說它收得下完整的角色狀態，但還沒有任何一份真的送達過，所以還不算已同步。",
+    "這台裝置說它收得下完整的角色狀態，但還沒有完整寫出紀錄，也沒有套用確認。",
 };
 
 const CHARACTER_SYNC_PROFILE_NOTE_DEFAULT = "這台裝置收不到完整的角色狀態，不算已同步。";
@@ -324,7 +318,7 @@ export function characterSyncProfiles(source: unknown): Record<string, string> {
   if (Array.isArray(status)) {
     for (const entry of status) {
       const item = record(entry);
-      if (item) put(item["deviceId"], item["syncProfile"]);
+      if (item) put(item["deviceId"], item["syncCapability"] ?? item["syncProfile"]);
     }
   }
   const members = root["members"];
@@ -333,8 +327,34 @@ export function characterSyncProfiles(source: unknown): Record<string, string> {
       const item = record(entry);
       const party = record(item?.["party"]);
       if (!item || party?.["kind"] !== "device") continue;
-      put(party["id"], item["syncProfile"]);
+      put(party["id"], item["syncCapability"] ?? item["syncProfile"]);
     }
+  }
+  return out;
+}
+
+/** A cached diagnostic must never confirm a newer SSE state. */
+export function characterSyncAppliedCurrent(source: unknown, snapshot: unknown): Record<string, boolean> {
+  const root = record(source);
+  const frame = record(snapshot);
+  const payload = record(frame?.["payload"]);
+  const rows = root?.["members"] ?? root?.["characterSessionSync"];
+  if (!Array.isArray(rows) || !payload) return {};
+  const out: Record<string, boolean> = {};
+  for (const row of rows.slice(0, MAX_SYNC_PROFILES)) {
+    const item = record(row);
+    const party = record(item?.["party"]);
+    const deviceId = party?.["kind"] === "device" ? party["id"] : item?.["deviceId"];
+    if (typeof deviceId !== "string") continue;
+    const delivery = record(item?.["stateDelivery"]);
+    const applied = record(delivery?.["applied"]);
+    out[deviceId] = item?.["stateAppliedCurrent"] === true && delivery?.["negotiated"] === true
+      && applied?.["profile"] === "aip.applied/1"
+      && typeof applied["hash"] === "string" && applied["hash"].length === 64
+      && typeof frame?.["sessionId"] === "string" && applied["sessionId"] === frame["sessionId"]
+      && Number.isSafeInteger(payload["sessionEpoch"]) && applied["epoch"] === payload["sessionEpoch"]
+      && Number.isSafeInteger(payload["revision"]) && applied["revision"] === payload["revision"]
+      && applied["hash"] === payload["hash"];
   }
   return out;
 }
@@ -358,7 +378,8 @@ export function characterSyncProfilesByProvider(source: unknown): Record<string,
     if (Object.keys(out).length >= MAX_SYNC_PROFILES) break;
     const item = record(entry);
     const key = typeof item?.["providerId"] === "string" ? String(item["providerId"]).trim() : "";
-    const value = typeof item?.["syncProfile"] === "string" ? String(item["syncProfile"]).trim() : "";
+    const reported = item?.["syncCapability"] ?? item?.["syncProfile"];
+    const value = typeof reported === "string" ? reported.trim() : "";
     if (key.length === 0 || value.length === 0 || key in out) continue;
     out[key] = value;
   }
@@ -526,7 +547,8 @@ export function characterSyncMembers(
   snapshot: unknown,
   names: Record<string, string>,
   /** 「裝置識別碼 → 同步模式」（[`characterSyncProfiles`]）；查不到就是不知道。 */
-  profiles: Record<string, string> = {}
+  profiles: Record<string, string> = {},
+  applied: Record<string, boolean> = {}
 ): CharacterSyncMember[] {
   const raw = sessionState(snapshot)?.["members"];
   if (!Array.isArray(raw)) return [];
@@ -547,6 +569,7 @@ export function characterSyncMembers(
       degraded: memberDegraded(item),
       // 這台裝置那條線送得到多少狀態（Runtime 推導；查不到就是不知道，不猜）。
       syncProfile: remote ? (profiles[id] ?? null) : null,
+      stateAppliedCurrent: remote ? applied[id] === true : false,
     });
   }
   return members;
@@ -702,6 +725,13 @@ export function projectCharacterSession(
     if (online.some((m) => characterSyncProfileLabel(m.syncProfile) !== null)) {
       return project("partial-sync");
     }
+    if (online.some((m) => m.stateAppliedCurrent !== true)) {
+      return {
+        ...project("syncing"),
+        detail: "裝置尚未確認套用目前的角色狀態；連線或傳送成功都不代表已同步。",
+        action: { id: "open-devices", label: "查看裝置", target: { tab: "connect", hub: "devices" } },
+      };
+    }
     // 已知做不到（role 根本不呈現角色，或協商出 unsupported intent）→ 部分能力不可用。
     if (online.some((m) => !m.canPresent || m.degraded === true)) {
       return project("partial-capability");
@@ -758,7 +788,8 @@ export function characterSyncDeviceLine(
   snapshot: unknown,
   deviceId: string,
   /** 這台裝置的同步模式（[`characterSyncProfiles`]）；沒有就是沒有回報，不猜。 */
-  syncProfile?: unknown
+  syncProfile?: unknown,
+  stateAppliedCurrent = false
 ): string {
   const state = sessionState(snapshot);
   if (state === null) return "角色同步：目前讀不到狀態";
@@ -774,6 +805,7 @@ export function characterSyncDeviceLine(
       // 互相矛盾的結論（對抗審查 general-mode-ux-025）。同步模式一樣排在最前面。
       const profile = characterSyncProfileLabel(syncProfile);
       if (profile !== null) return `角色同步：${profile}（不是完整同步）`;
+      if (!stateAppliedCurrent) return "角色同步：尚未確認套用目前狀態";
       const canPresent = item?.["role"] === "remote-renderer" || item?.["role"] === "host-renderer";
       const degraded = item ? memberDegraded(item) : null;
       if (!canPresent || degraded === true) {

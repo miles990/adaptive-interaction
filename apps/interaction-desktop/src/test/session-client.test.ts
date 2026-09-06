@@ -35,6 +35,7 @@ import {
 
 const BASE_STATE = {
   characterId: "ref-shape",
+  attention: { kind: "none" },
   mood: { kind: "neutral", intensity: 0 },
   activity: "idle",
   truth: { state: "none" },

@@ -4,7 +4,7 @@
 //   - 不得說「已停止」（那是它**沒有**回答的問題）；
 //   - 逐筆一定看得到是哪一種感測、多久以前的事；
 //   - `sourceId`／`generation` 只能拿去呼叫 API，不得進畫面文字；
-//   - 「我確認它已經停了」是二段確認，第二段一定要說出「系統沒有收到裝置的回覆」；
+//   - 「我已檢查，解除提醒」是二段確認，第二段一定要說出「系統沒有收到裝置的回覆」；
 //   - 解除失敗不得靜默，也不得說成已經處理掉。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -243,4 +243,26 @@ describe("HTTP 模式的兩條路由", () => {
     );
     expect(JSON.parse(calls[1].body ?? "{}")).toEqual({ generation: 9 });
   });
+});
+
+it("restart/overflow/storage uncertainty remains visible with zero itemized records", () => {
+  for (const health of [
+    { recoveryUnknown: true, storage: "durable" },
+    { overflowCount: 1, storage: "durable" },
+    { parked: true, storage: "future-format" },
+    { storage: "write-failed" },
+  ]) {
+    const view = projectUnresolvedStops({ unresolvedStops: [], unresolvedStopHealth: health }, NOW);
+    expect(view.summary).not.toBeNull();
+    expect(view.items).toEqual([]);
+    expect(view.summary).not.toContain("已停止");
+  }
+});
+
+it("shows a recovery warning instead of claiming no records when the journal is parked", async () => {
+  vi.spyOn(api, "sensorsUnresolved").mockResolvedValue({ unresolvedStops: [],
+    unresolvedStopHealth: { parked: true, storage: "future-format", recoveryUnknown: true } });
+  render(<UnresolvedStopsSection refreshKey={0} />);
+  await screen.findByText(/感測停止記錄無法完整確認/);
+  expect(screen.queryByText("目前沒有這一類紀錄。")).toBeNull();
 });

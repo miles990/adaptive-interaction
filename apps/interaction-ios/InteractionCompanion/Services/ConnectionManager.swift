@@ -1030,6 +1030,19 @@ extension ConnectionManager: SessionTransport {
         }
     }
 
+    func sendStateApplied(_ receipt: JSONValue) -> Bool {
+        guard LifecycleDecision.shouldSendCharacterSync(phase: lifecyclePhaseForGating()),
+            isConnected, socket != nil else { return false }
+        do {
+            enqueue(try ClientMessage.aipApplied(receipt).encodeToJSONString())
+            return true
+        } catch {
+            droppedFrames += 1
+            logLine("角色狀態確認未送出")
+            return false
+        }
+    }
+
     func sendObservation(receptor: String, facts: [String: JSONValue]) {
         send(.observation(receptor: receptor, facts: facts, at: nil))
     }

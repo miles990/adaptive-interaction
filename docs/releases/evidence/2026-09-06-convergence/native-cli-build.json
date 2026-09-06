@@ -1,0 +1,15 @@
+{
+  "name": "native-cli-build",
+  "sha": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "-c",
+    "cargo build -p interaction-cli && cargo build -p interaction-runtime --example fake_iphone"
+  ],
+  "exit": 0,
+  "durationSeconds": 19.55,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "/tmp/adaptive-convergence-20260906/native-cli-build.log"
+}

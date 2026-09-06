@@ -180,20 +180,22 @@ export function CharacterLibrarySection({
   };
 
   const doImportSettings = async (file: File) => {
+    let submitted = false;
     try {
       const parsed = parseCompanionSettingsImport(JSON.parse(await file.text()), {
         knownCharacterIds: catalog.knownIds,
         entrypointFor,
       });
       // 送出 ≠ 套用：host 拒絕（例如瀏覽器檢視沒有桌面 host）時不得說已套用。
+      submitted = true;
       if (!(await onPatch(parsed))) {
-        setError("匯入設定失敗：桌面角色設定沒有寫入成功（設定未變更）。");
+        setError("匯入設定失敗：無法確認設定已完整套用，請查看上方狀態。已儲存的變更不會自動還原。");
         return;
       }
       setNotice("已匯入角色設定並套用。");
       setError(null);
     } catch (e) {
-      setError(`匯入設定失敗：${sanitizeErrorText(e)}（設定未變更）`);
+      setError(`匯入設定失敗：${sanitizeErrorText(e)}${submitted ? "（無法確認是否已儲存）" : "（設定未變更）"}`);
     }
   };
 

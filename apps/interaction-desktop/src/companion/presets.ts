@@ -1,3 +1,4 @@
+import definitions from "./presetDefinitions.json";
 // 陪伴預設（M3 §4.1）：把「平常如何陪伴」收斂成四個可解釋的檔位——安靜／自然／活潑／自訂。
 //
 // 預設**不是**新的設定層，只是**既有欄位**的一組值：
@@ -41,26 +42,7 @@ export interface CompanionPresetDefinition {
   state: CompanionPresetState;
 }
 
-export const COMPANION_PRESETS: readonly CompanionPresetDefinition[] = [
-  {
-    id: "quiet",
-    label: "安靜",
-    summary: "少說話、不主動靠近；只在等待確認、失敗或結果不確定時提醒。",
-    state: { expressiveness: "quiet", doNotDisturb: true, proactiveMode: "necessary" },
-  },
-  {
-    id: "natural",
-    label: "自然",
-    summary: "一般的表現與說話頻率；重要的事會主動說，其餘安靜等你。",
-    state: { expressiveness: "natural", doNotDisturb: false, proactiveMode: "natural" },
-  },
-  {
-    id: "lively",
-    label: "活潑",
-    summary: "表現多一些，也會問候與輕量陪伴；頻率上限仍由系統強制。",
-    state: { expressiveness: "lively", doNotDisturb: false, proactiveMode: "lively" },
-  },
-];
+export const COMPANION_PRESETS: readonly CompanionPresetDefinition[] = definitions as CompanionPresetDefinition[];
 
 /** 套用預設時**唯一**會寫到桌面偏好的兩個鍵。 */
 export const COMPANION_PRESET_PREFS_KEYS = ["companionExpressiveness", "companionDoNotDisturb"] as const;
