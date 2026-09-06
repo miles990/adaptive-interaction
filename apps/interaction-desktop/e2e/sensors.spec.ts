@@ -24,14 +24,33 @@ import {
 
 test.describe.configure({ mode: "serial" });
 
-const OUT = path.resolve(process.cwd(), "../../docs/assets/v06-evidence");
+// Runtime evidence belongs to this run; never overwrite published screenshots.
+const OUT = path.resolve(process.cwd(), process.env.INTERACT_AI_E2E_EVIDENCE_DIR ?? "test-results/evidence");
 const MIC = "iphone.mic-level";
 let phone: FakeIphone | null = null;
 
-test.afterEach(async () => {
-  phone?.kill();
-  phone = null;
-  await revokePairedPhones();
+test.afterEach(async ({ request }) => {
+  try {
+    if (phone) {
+      // Confirm on the same live connection before ending this fixture. Killing
+      // an active phone correctly leaves a durable unknown for the next test.
+      phone.send({ op: "status", micLevel: false });
+      await expect.poll(async () => {
+        const status = (await api(request, "GET", "/v1/status")) as {
+          activeSensors?: unknown[];
+          unresolvedStops?: unknown[];
+        };
+        return {
+          active: status.activeSensors ?? [],
+          unresolved: status.unresolvedStops ?? [],
+        };
+      }).toEqual({ active: [], unresolved: [] });
+    }
+  } finally {
+    phone?.kill();
+    phone = null;
+    await revokePairedPhones();
+  }
 });
 
 /** 配一台模擬手機並讓它回報「麥克風音量串流中」。 */
@@ -41,7 +60,7 @@ async function startFixtureSensing(
 ): Promise<FakeIphone> {
   const pairing = await beginPairing(request);
   const fixture = await spawnFakeIphone({ ...pairing, autoAckStopAll: options.autoAckStopAll });
-  // 受器是人類開的：手機自己說在串流不算數（沒授權就不算感測）。
+  // 受器由人類開啟；手機自己回報擷取不會替人類授予使用權限。
   await api(request, "PATCH", `/v1/receptors/${MIC}`, { enabled: true });
   fixture.send({ op: "status", micLevel: true });
   await waitActiveSensors(request, (list) => list.some((s) => s.kind === MIC));

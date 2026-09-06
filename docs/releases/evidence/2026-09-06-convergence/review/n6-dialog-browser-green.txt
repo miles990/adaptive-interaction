@@ -1,0 +1,18 @@
+[WebServer] (node:62821) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:62823) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] 
+[WebServer]   VITE v5.4.21  ready in 119 ms
+[WebServer] 
+[WebServer]   ➜  Local:   http://127.0.0.1:5199/
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.51s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.26s
+
+Running 1 test using 1 worker
+
+(node:62923) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [estop-last] › e2e/estop.spec.ts:37:1 › 緊急停止：解除對話框初始 Shift+Tab 不逃到背景，Escape 保留停止並返回原入口 (1.7s)
+
+  1 passed (5.9s)

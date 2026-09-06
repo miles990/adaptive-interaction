@@ -5,7 +5,7 @@
 // 才可以說「已停止感測」。認不得的感測種類不外洩原始 id。
 
 import { describe, expect, it } from "vitest";
-import { projectSensorStop, sensorKindLabel, sensorStartedByLabel } from "../statusProjection";
+import { projectSensorStop, projectUnresolvedStops, sensorKindLabel, sensorStartedByLabel } from "../statusProjection";
 
 describe("sensorKindLabel", () => {
   it("認得的種類翻成人話", () => {
@@ -52,6 +52,21 @@ describe("sensorStartedByLabel", () => {
 });
 
 describe("projectSensorStop", () => {
+  it.each([
+    ["historical capture", { unresolvedStops: [{ sourceId: "old", generation: 1, sensors: ["microphone"] }] }],
+    ["unitemized overflow", { unresolvedStopHealth: { overflowCount: 1 } }],
+    ["unclean recovery", { unresolvedStopHealth: { recoveryUnknown: true } }],
+    ["parked journal", { unresolvedStopHealth: { parked: true } }],
+    ["failed journal write", { unresolvedStopHealth: { storage: "write-failed" } }],
+  ])("N3-UI-STOP-HISTORY: %s prevents overall stop success", (_name, status) => {
+    const summary = projectUnresolvedStops(status).summary;
+    expect(summary).not.toBeNull();
+    const result = projectSensorStop({ stopped: true, uncertain: false, devices: [] }, [], summary);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("尚未確認");
+    expect(result.message).not.toContain("已停止感測。");
+  });
+
   it("全部停了才算成功", () => {
     expect(projectSensorStop({ stopped: true, uncertain: false, devices: [] }, [])).toEqual({
       ok: true,

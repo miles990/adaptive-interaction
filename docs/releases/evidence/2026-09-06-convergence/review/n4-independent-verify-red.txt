@@ -1,0 +1,489 @@
+
+ RUN  v2.1.9 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+
+stderr | src/test/companion-preset-recovery.test.tsx > N4 independent review: completed host results remain current > a pre-operation prefs read cannot overwrite a successfully applied host preset
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+stderr | src/test/companion-preset-recovery.test.tsx > N4 independent review: completed host results remain current > reconnection reconciles a host recovery completed after an unverified response
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+ ❯ src/test/companion-preset-recovery.test.tsx (15 tests | 2 failed | 13 skipped) 1318ms
+   × N4 independent review: completed host results remain current > a pre-operation prefs read cannot overwrite a successfully applied host preset 207ms
+     → expected null to be '安靜' // Object.is equality
+   × N4 independent review: completed host results remain current > reconnection reconciles a host recovery completed after an unverified response 1110ms
+     → expected null to be '安靜' // Object.is equality
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"character-page"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"character-first-screen"[39m
+        [36m>[39m
+          [36m<section[39m
+            [33mclass[39m=[32m"section"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"section-head"[39m
+            [36m>[39m
+              [36m<h2>[39m
+                [0m目前角色[0m
+              [36m</h2>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"section-actions"[39m
+              [36m/>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"character-current"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"character-current-head"[39m
+              [36m>[39m
+                [36m<h3[39m
+                  [33mclass[39m=[32m"character-current-name"[39m
+                [36m>[39m
+                  [0m小樞[0m
+                [36m</h3>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"badge badge-info"[39m
+                [36m>[39m
+                  [0m內建[0m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"badge badge-bad"[39m
+                [36m>[39m
+                  [0m角色視窗未連線[0m
+                [36m</span>[39m
+              [36m</div>[39m
+              [36m<p[39m
+                [33mclass[39m=[32m"muted small"[39m
+              [36m>[39m
+                [0m桌面角色視窗沒有連上（瀏覽器檢視沒有角色視窗）。安全訊息仍會以固定文字顯示在控制中心。[0m
+              [36m</p>[39m
+              [36m<ul[39m
+                [33maria-label[39m=[32m"角色能力摘要"[39m
+                [33mclass[39m=[32m"plain-list small character-summary"[39m
+              [36m>[39m
+                [36m<li>[39m
+                  [0m小樞：內建角色（作者 adaptive-interaction，版本 3.0.0）[0m
+                [36m</li>[39m
+                [36m<li>[39m
+                  [0m可以接收：點擊、游標懸停（節流）、拖曳（量化座標）、放下、游標靠近（低頻）、文字輸入、檔案拖放（只有檔名／類型／大小＋短效授權）[0m
+                [36m</li>[39m
+                [36m<li>[39m
+                  [0m需要的裝置：音訊輸出（感測器預設關閉，啟用時會顯示指示）[0m
+                [36m</li>[39m
+                [36m<li>[39m
+                  [0m已測試：是（隨 App 自動化測試）[0m
+                [36m</li>[39m
+              [36m</ul>[39m
+              [36m<label[39m
+                [33mclass[39m=[32m"toggle"[39m
+              [36m>[39m
+                [36m<input[39m
+                  [33mchecked[39m=[32m""[39m
+                  [33mtype[39m=[32m"checkbox"[39m
+                [36m/>[39m
+                [36m<span>[39m
+                  [0m顯示桌面角色[0m
+                [36m</span>[39m
+              [36m</label>[39m
+              [36m<p[39m
+                [33mclass[39m=[32m"muted small"[39m
+              [36m>[39m
+                [0m隱藏角色只會停止角色視窗內的感知與呈現；系統、狀態列與進行中的工作都會繼續。隱藏不等於緊急停止。[0m
+              [36m</p>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"character-preview"[39m
+                [33mdata-preview[39m=[32m"rig"[39m
+              [36m>[39m
+                [36m<h3>[39m
+                  [0m36 表情預覽[0m
+                [36m</h3>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"muted small"[39m
+                [36m>[39m
+                  [0m每一格由與桌面角色相同的程式即時繪出，不是靜態圖片。誠實對照：「聲稱完成」只點頭、 沒有綠勾；綠勾與慶祝只出現在「驗證成功」。[0m
+                [36m</p>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"preview-grid"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"preview-cell"[39m
+                  [36m>[39m
+                    [36m<canvas[39m
+                      [33maria-label[39m=[32m"疑問"[39m
+                      [33mheight[39m=[32m"96"[39m
+                      [33mwidth[39m=[32m"96"[39m
+                    [36m/>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"small"[39m
+                    [36m>[39m
+                      [0m疑問[0m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"preview-cell"[39m
+                  [36m>[39m
+                    [36m<canvas[39m
+                      [33maria-label[39m=[32m"偷看"[39m
+                      [33mheight[39m=[32m"96"[39m
+                      [33mwidth[39m=[32m"96"[39m
+                    [36m/>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"small"[39m
+                    [36m>[39m
+                      [0m偷看[0m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"preview-cell"[39m
+                  [36m>[39m
+                    [36m<canvas[39m
+                      [33maria-label[39m=[32m"歪頭好奇"[39m
+                      [33mheight[39m=[32m"96"[39m
+                      [33mwidth[39m=[32m"96"[39m
+                    [36m/>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"small"[39m
+                    [36m>[39m
+                      [0m歪頭好奇[0m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"preview-cell"[39m
+                  [36m>[39m
+                    [36m<canvas[39m
+                      [33maria-label[39m=[32m"探頭"[39m
+                      [33mheight[39m=[32m"96"[39m
+                      [33mwidth[39m=[32m"96"[39m
+                    [36m/>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"small"[39m
+                    [36m>[39m
+                      [0m探頭[0m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"preview-cell"[39m
+                  [36m>[39m
+                    [36m<canvas[39m
+                      [33maria-label[39m=[32m"無語"[39m
+                      [33mheight[39m=[32m"96"[39m
+                      [33mwidth[39m=[32m"96"[39m
+                    [36m/>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"small"[39m
+                    [36m>[39m
+                      [0m無語[0m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"preview-cell"[39m
+                  [36m>[39m
+                    [36m<canvas[39m
+                      [33maria-label[39m=[32m"放空"[39m
+                      [33mheight[39m=[32m"96"[39m
+                      [33mwidth[39m=[32m"96"[39m
+                ...
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/test/companion-preset-recovery.test.tsx > N4 independent review: completed host results remain current > a pre-operation prefs read cannot overwrite a successfully applied host preset
+AssertionError: expected null to be '安靜' // Object.is equality
+
+- Expected: 
+"安靜"
+
++ Received: 
+null
+
+ ❯ src/test/companion-preset-recovery.test.tsx:404:27
+    402|     await waitFor(() => expect(highlighted()).toBe("安靜"));
+    403|     await act(async () => { delayed.resolve(prior); await Promise.reso…
+    404|     expect(highlighted()).toBe("安靜");
+       |                           ^
+    405|     await userEvent.click(screen.getByRole("button", { name: "活潑" })…
+    406|     expect(mockDesktop.presetApply.mock.calls.at(-1)?.[0]).toMatchObje…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/test/companion-preset-recovery.test.tsx > N4 independent review: completed host results remain current > reconnection reconciles a host recovery completed after an unverified response
+AssertionError: expected null to be '安靜' // Object.is equality
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"character-page"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"character-first-screen"[39m
+        [36m>[39m
+          [36m<section[39m
+            [33mclass[39m=[32m"section"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"section-head"[39m
+            [36m>[39m
+              [36m<h2>[39m
+                [0m目前角色[0m
+              [36m</h2>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"section-actions"[39m
+              [36m/>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"character-current"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"character-current-head"[39m
+              [36m>[39m
+                [36m<h3[39m
+                  [33mclass[39m=[32m"character-current-name"[39m
+                [36m>[39m
+                  [0m小樞[0m
+                [36m</h3>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"badge badge-info"[39m
+                [36m>[39m
+                  [0m內建[0m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"badge badge-bad"[39m
+                [36m>[39m
+                  [0m角色視窗未連線[0m
+                [36m</span>[39m
+              [36m</div>[39m
+              [36m<p[39m
+                [33mclass[39m=[32m"muted small"[39m
+              [36m>[39m
+                [0m桌面角色視窗沒有連上（瀏覽器檢視沒有角色視窗）。安全訊息仍會以固定文字顯示在控制中心。[0m
+              [36m</p>[39m
+              [36m<ul[39m
+                [33maria-label[39m=[32m"角色能力摘要"[39m
+                [33mclass[39m=[32m"plain-list small character-summary"[39m
+              [36m>[39m
+                [36m<li>[39m
+                  [0m小樞：內建角色（作者 adaptive-interaction，版本 3.0.0）[0m
+                [36m</li>[39m
+                [36m<li>[39m
+                  [0m可以接收：點擊、游標懸停（節流）、拖曳（量化座標）、放下、游標靠近（低頻）、文字輸入、檔案拖放（只有檔名／類型／大小＋短效授權）[0m
+                [36m</li>[39m
+                [36m<li>[39m
+                  [0m需要的裝置：音訊輸出（感測器預設關閉，啟用時會顯示指示）[0m
+                [36m</li>[39m
+                [36m<li>[39m
+                  [0m已測試：是（隨 App 自動化測試）[0m
+                [36m</li>[39m
+              [36m</ul>[39m
+              [36m<label[39m
+                [33mclass[39m=[32m"toggle"[39m
+              [36m>[39m
+                [36m<input[39m
+                  [33mchecked[39m=[32m""[39m
+                  [33mtype[39m=[32m"checkbox"[39m
+                [36m/>[39m
+                [36m<span>[39m
+                  [0m顯示桌面角色[0m
+                [36m</span>[39m
+              [36m</label>[39m
+              [36m<p[39m
+                [33mclass[39m=[32m"muted small"[39m
+              [36m>[39m
+                [0m隱藏角色只會停止角色視窗內的感知與呈現；系統、狀態列與進行中的工作都會繼續。隱藏不等於緊急停止。[0m
+              [36m</p>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"character-preview"[39m
+                [33mdata-preview[39m=[32m"rig"[39m
+              [36m>[39m
+                [36m<h3>[39m
+                  [0m36 表情預覽[0m
+                [36m</h3>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"muted small"[39m
+                [36m>[39m
+                  [0m每一格由與桌面角色相同的程式即時繪出，不是靜態圖片。誠實對照：「聲稱完成」只點頭、 沒有綠勾；綠勾與慶祝只出現在「驗證成功」。[0m
+                [36m</p>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"preview-grid"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"preview-cell"[39m
+                  [36m>[39m
+                    [36m<canvas[39m
+                      [33maria-label[39m=[32m"疑問"[39m
+                      [33mheight[39m=[32m"96"[39m
+                      [33mwidth[39m=[32m"96"[39m
+                    [36m/>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"small"[39m
+                    [36m>[39m
+                      [0m疑問[0m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"preview-cell"[39m
+                  [36m>[39m
+                    [36m<canvas[39m
+                      [33maria-label[39m=[32m"偷看"[39m
+                      [33mheight[39m=[32m"96"[39m
+                      [33mwidth[39m=[32m"96"[39m
+                    [36m/>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"small"[39m
+                    [36m>[39m
+                      [0m偷看[0m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"preview-cell"[39m
+                  [36m>[39m
+                    [36m<canvas[39m
+                      [33maria-label[39m=[32m"歪頭好奇"[39m
+                      [33mheight[39m=[32m"96"[39m
+                      [33mwidth[39m=[32m"96"[39m
+                    [36m/>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"small"[39m
+                    [36m>[39m
+                      [0m歪頭好奇[0m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"preview-cell"[39m
+                  [36m>[39m
+                    [36m<canvas[39m
+                      [33maria-label[39m=[32m"探頭"[39m
+                      [33mheight[39m=[32m"96"[39m
+                      [33mwidth[39m=[32m"96"[39m
+                    [36m/>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"small"[39m
+                    [36m>[39m
+                      [0m探頭[0m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"preview-cell"[39m
+                  [36m>[39m
+                    [36m<canvas[39m
+                      [33maria-label[39m=[32m"無語"[39m
+                      [33mheight[39m=[32m"96"[39m
+                      [33mwidth[39m=[32m"96"[39m
+                    [36m/>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"small"[39m
+                    [36m>[39m
+                      [0m無語[0m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"preview-cell"[39m
+                  [36m>[39m
+                    [36m<canvas[39m
+                      [33maria-label[39m=[32m"放空"[39m
+                      [33mheight[39m=[32m"96"[39m
+                      [33mwidth[39m=[32m"96"[39m
+                ...
+
+- Expected: 
+"安靜"
+
++ Received: 
+null
+
+ ❯ src/test/companion-preset-recovery.test.tsx:423:47
+    421|     page.rerender(<AppStateProvider ready={true} refreshKey={1}><Compa…
+    422|     await waitFor(() => expect(mockDesktop.prefsGet.mock.calls.length)…
+    423|     await waitFor(() => expect(highlighted()).toBe("安靜"));
+       |                                               ^
+    424|     expect(summaryText()).not.toContain("無法確認");
+    425|   });
+ ❯ runWithExpensiveErrorDiagnosticsDisabled node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:47:12
+ ❯ checkCallback node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:124:77
+ ❯ Timeout.checkRealTimersCallback node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:118:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 13 skipped (15)
+   Start at  12:27:19
+   Duration  2.78s (transform 392ms, setup 128ms, collect 538ms, tests 1.32s, environment 575ms, prepare 44ms)
+

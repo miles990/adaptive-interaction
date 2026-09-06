@@ -24,6 +24,7 @@ import {
   pendingCountLabel,
   projectInboxStatus,
   projectSensorStop,
+  projectUnresolvedStops,
   projectWorkState,
   receiptIntentLabel,
   sensorKindLabel,
@@ -74,7 +75,7 @@ export function HomePage({
   };
 
   // 誠實階梯：送出停止請求 ≠ 已停止。送出後一定重讀 status，只有 activeSensors 真的空了
-  // 而且回報沒有「不確定」時才敢說「已停止感測」；讀不到狀態就說讀不到，不猜。
+  // 且沒有不確定的回報、歷史紀錄或保存狀態，才敢說「已停止感測」；讀不到就不猜。
   const stopSensors = async () => {
     setSensorNotice(null);
     let report: unknown;
@@ -85,12 +86,15 @@ export function HomePage({
       return;
     }
     let remaining: SensorUse[] | null = null;
+    let unresolvedSummary: string | null = null;
     try {
-      remaining = ((await api.status())["activeSensors"] as SensorUse[] | undefined) ?? [];
+      const freshStatus = await api.status();
+      remaining = (freshStatus["activeSensors"] as SensorUse[] | undefined) ?? [];
+      unresolvedSummary = projectUnresolvedStops(freshStatus).summary;
     } catch {
       remaining = null;
     }
-    setSensorNotice(projectSensorStop(report, remaining));
+    setSensorNotice(projectSensorStop(report, remaining, unresolvedSummary));
   };
 
   const delegate = (event: React.FormEvent) => {

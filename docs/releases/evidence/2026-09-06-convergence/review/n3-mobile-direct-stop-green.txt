@@ -1,0 +1,9 @@
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.33s
+     Running tests/mobile_loop.rs (target/debug/deps/mobile_loop-92c7ec1aeecd6904)
+
+running 1 test
+test per_device_unknown_stop_survives_direct_mobile_revoke_and_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 2.30s
+

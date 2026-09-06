@@ -199,13 +199,14 @@ receipt 誠實結算（AI presentation command：completed→Completed Acknowled
 Presentation / UI / Renderer     apps/interaction-desktop/src（React、companion 視窗、character/adapters/*；
                                  aip/envelope.ts 鏡射 envelope 規則、aip/canonical.ts canonical JSON＋state hash、
                                  aip/sessionClient.ts 接收端 reducer——協定判斷不在 React 元件裡；
-                                 companion/applyPresetPlan.ts 把「套用一個陪伴檔位」寫成可恢復的兩段交易，
-                                 純函式、不 import api／desktop／React、不認得任何角色）
+                                 companion/applyPresetPlan.ts 保留純規劃與結果投影；恢復狀態機由下方 host use case 擁有，
+                                 不 import api／desktop／React、不認得任何角色）
                                   apps/interaction-ios（SwiftUI；AIP 型別已鏡射，Session client v0.6.0 落地、
                                  v0.6.x 加生命週期／heartbeat；Services/SessionReceive.swift 是接收端決策表的
                                  Swift 端，Services/SocketTransport.swift 讓連線的 socket 與排程可注入）
             ↓
-Application Use Cases            crates/interaction-runtime/src/character_session.rs（Session Host：
+Application Use Cases            apps/interaction-desktop/src-tauri/src/preset_service.rs（陪伴預設條件寫入、讀回、重啟恢復；非 ACID）
+                                 crates/interaction-runtime/src/character_session.rs（Session Host：
                                   join／leave／presence／submit／resume／snapshot／diagnostics／tick）
             ↓                    crates/interaction-runtime/src/{character,mobile,agents,executor}.rs（既有真相來源）
 Domain Core / Character Session  crates/interaction-session（純函式；src/receive.rs 接收端決策表是三端

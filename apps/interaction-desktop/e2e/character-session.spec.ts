@@ -26,6 +26,7 @@ import {
   beginPairingFromUi,
   characterSessionSnapshot,
   DESKTOP,
+  expectLegacyPhoneStateUnconfirmed,
   FAKE_IPHONE_LABEL,
   memberPresence,
   NARROW,
@@ -43,23 +44,12 @@ import {
 test.describe.configure({ mode: "serial" });
 
 /** v0.6 的證據目錄（不覆寫 v0.5 的截圖）。 */
-const OUT = path.resolve(process.cwd(), "../../docs/assets/v06-evidence");
+// Runtime evidence belongs to this run; never overwrite published screenshots.
+const OUT = path.resolve(process.cwd(), process.env.INTERACT_AI_E2E_EVIDENCE_DIR ?? "test-results/evidence");
 const PORT = 18794;
 const COMPANION = PAGES[1];
-/**
- * 有 online 遠端成員時同步卡可以說的那幾句——但**不含**綠色的「已同步」。
- *
- * 【模擬 iPhone（fixture）】只宣告三個 intent，host 有四個（`settle` 會被協商成
- * unsupported），所以這台手機無論如何都不該拿到唯一的綠勾：
- *   - Runtime 還沒把協商結果投影給桌面 → 桌面不知道 → `capability-unknown`（pending）；
- *   - Runtime 補上 `members[].unsupportedIntents` 之後 → `partial-capability`（warn）。
- * 兩種都是誠實的答案，綠色不是（對抗審查 capability-consent-052／general-mode-ux-022）。
- * 句子從投影表導出而不是手抄，文案改了這裡自動跟上（對抗審查 evidence-honesty-015）。
- */
-const SYNC_HEADLINES_ONLINE_HONEST = [
-  CHARACTER_SYNC_PROJECTION["capability-unknown"].headline,
-  CHARACTER_SYNC_PROJECTION["partial-capability"].headline,
-];
+// Legacy fake_iphone has full-state capability but no aip.applied/1 receipt.
+// It remains usable while every connection/resume stays explicitly unconfirmed.
 
 /** 同步卡目前顯示的那一句（badge 文字）。 */
 async function syncHeadline(card: Locator): Promise<string> {
@@ -122,7 +112,7 @@ async function pairFixturePhone(
 /**
  * 一輪完整 journey（桌面寬度與 390px 各跑一次）。
  *
- * 配對 → 協商 → 已同步 → 摸一下 → 離線 → 重連 → 回到已同步 → 撤銷 → 需要重新確認。
+ * 配對 → 協商但未確認套用 → 摸一下 → 離線 → 重連仍未確認 → 撤銷 → 本機使用。
  */
 async function runJourney(
   page: Page,
@@ -156,26 +146,21 @@ async function runJourney(
     target()
   );
 
-  // 3. 角色頁：手機成了 session 成員，成員清單用手機的名字。
-  //    句子是「iPhone 已連接，能力核對中」而不是綠色的「角色狀態已同步」——Runtime 還沒把
-  //    協商結果（哪些 intent 是 unsupported）投影到 /v1/character-session，桌面拿不到就不猜。
-  //    這台 fixture 手機只宣告三個 intent，host 有四個（settle 會被協商成 unsupported），
-  //    所以舊的綠勾本來就是假的（對抗審查 capability-consent-052／general-mode-ux-022）。
+  // 3. Full-state transport capability does not prove peer application. Keep the
+  // legacy phone usable, but require matching backend and UI unconfirmed facts.
+  await expectLegacyPhoneStateUnconfirmed(request, phone, target());
   card = await openSyncCard(page, narrow);
   await expect
     .poll(async () => syncHeadline(card), { timeout: 20_000 })
-    .not.toBe(CHARACTER_SYNC_PROJECTION.synced.headline);
-  expect(SYNC_HEADLINES_ONLINE_HONEST, "協商不完整的裝置不得拿到綠色「已同步」").toContain(
-    await syncHeadline(card)
-  );
-  await expect(card.locator(".badge-ok"), "協商不完整就不得給綠勾").toHaveCount(0);
+    .toBe(CHARACTER_SYNC_PROJECTION.syncing.headline);
+  await expect(card.locator(".badge-ok"), "未確認套用就不得給綠勾").toHaveCount(0);
   const members = card.getByRole("list", { name: "同步中的裝置" });
   await expect(members.getByText(FAKE_IPHONE_LABEL)).toBeVisible();
   await expect(members.getByText("已連接")).toBeVisible();
   // 一般模式不外洩技術詞。
   const generalText = (await card.innerText()).toLowerCase();
   expect(generalText).not.toMatch(/revision|sequence|epoch|schema|token/);
-  await page.screenshot({ path: path.join(OUT, `${options.shot}-synced.png`) });
+  await page.screenshot({ path: path.join(OUT, `${options.shot}-legacy-unconfirmed.png`) });
 
   // 4. 摸一下角色：後端 revision 前進，畫面出現人話的「最近互動」。
   const beforeRevision = Number(joined.revision ?? 0);
@@ -193,6 +178,8 @@ async function runJourney(
   );
   // SSE（character.session.state）會把卡片推到最新；不必重新整理頁面。
   await expect(card.getByText(/摸了摸角色/)).toBeVisible({ timeout: 30_000 });
+  await expectLegacyPhoneStateUnconfirmed(request, phone, target());
+  await expect(card.locator(".badge-ok")).toHaveCount(0);
 
   // 5. 斷線：Transport 在重連退避窗內先誠實說「iPhone 正在重新連線」（presence reconnecting，
   //    成員保留），session 逾時（45 s）後才轉 offline／「iPhone 暫時離線」——契約 character-session.md
@@ -230,9 +217,9 @@ async function runJourney(
   await expect
     .poll(async () => syncHeadline(card), { timeout: 30_000 })
     .not.toBe(CHARACTER_SYNC_PROJECTION["no-device"].headline);
-  expect(SYNC_HEADLINES_ONLINE_HONEST, "重連之後仍然不得謊稱完全同步").toContain(
-    await syncHeadline(card)
-  );
+  await expectLegacyPhoneStateUnconfirmed(request, phone, target());
+  await expect.poll(async () => syncHeadline(card)).toBe(CHARACTER_SYNC_PROJECTION.syncing.headline);
+  await expect(card.locator(".badge-ok"), "重連不能代替套用回執").toHaveCount(0);
 
   // 7. 撤銷這台手機（既有 UI 流程）→ 連線關閉、不再是成員。
   await navigateTo(page, CONNECT, narrow);
@@ -273,7 +260,7 @@ async function runJourney(
   await page.screenshot({ path: path.join(OUT, `${options.shot}-local-only.png`) });
 }
 
-test("角色同步（模擬 iPhone（fixture））：配對 → 已同步 → 摸一下 → 離線 → 重連 → 撤銷（桌面寬度）", async ({
+test("角色同步（舊版模擬 iPhone（fixture））：配對 → 套用未確認 → 摸一下 → 離線 → 重連 → 撤銷（桌面寬度）", async ({
   page,
   request,
 }) => {

@@ -40,13 +40,13 @@ Rust 1.94.0、Cargo 1.94.0、Node 24.5.0、pnpm 10.27.0、Xcode 26.6。建置設
 
 ## 5. 下一動作
 
-仍在 `feature/semantic-recovery-convergence`、HEAD `622c8bf70963e343e51f92f5ecdf7fce4b37f516`；全部本輪變更尚未提交，沒有使用者無關修改被移除。
+目前checkpoint `a32258ea161df537f2ad6c1f25cd70d86910d0da`，主要產品實作在`30ff852f5d893215c019d982774c8b59ab010659`；後續review/harness/Browser修正尚未提交。沒有使用者無關工作被移除。
 
-1. N3最後一條獨立確認缺陷已修：raw capture開始即write-ahead、只有同connection scope與目前source generation的停止證據才清除。整合Rust fmt/clippy與workspace 1278/0通過；獨立Verifier正重跑直接移除回歸。
-2. TS全套1907/0、typecheck/build/codegen check已通過；Tauri78/0＋clippy/fmt已通過。iOS更新舊capability期望後163/0通過；新的Repository runner讀取XCTest最終summary，已用實際失敗log確認不會把simctl exit0誤算通過。
-3. 真Tauri preset recovery10情境已以中途releasebuild跑過；最新nativebuild已完成，尚待同版走查。9項基本AX的v0.7.0 baseline clean/legacy各通過一次（93.89s/95.79s），人類解除estop各not-run；native手機/sensor、backup、取消工作新增driver待最新binary實跑。
-4. N1 Attention/date、N3原3條、N4三種prefs race/匯入錯誤結果/偏好權限及tmp碰撞/nested型別、N6初始Shift+Tab均已獨立Find→Verify後修正，紅與綠log保存。整合者需彙整到Repository evidence與review report。
-5. 基線效能採樣計畫已固定於`next-convergence-performance.md`，尚未產出數字。N3完成後建立乾淨checkpoint，跑五種clean HEAD drill、隔離source的交錯多樣本perf；所有必要驗證完成後再version prepare、PR/rebase merge、實際mainCI、verify、annotated tag及Release資產驗證。
+1. N3 raw-capture write-ahead回歸已獨立1/0＋scope5/0。最新原生手機10步completed，含per-device unknown直接移除及程序重啟保留；UI成功通知漏看historical unknown的獨立finding已修，sharedprojection/三入口已統一；作者111/0、root獨立9/0，Browser sensors3/0。待重新nativebuild。
+2. 整合Rust1278/0、Tauri78/0、TS1907/0、iOS163/0；CLI96/0。XCTest gate新增精確163計數與最後套件檢查，14/0独立回驗。architecture Rust233/0、TS230/0、Swift58/0；彙整變數界線bug已修，需整套runner再跑。
+3. FullBrowser first attempt80pass5fail7notrun；4個legacy手機期望已改成更嚴格的未協商/未確認/無綠勾＋實際diagnostics，8支targeted全過（41.5s）。sensor fresh1/0、舊sequence1pass1fail1notrun，修teardown使同連線先回false再離開，原期待不改sequence3/0。尚待全套重跑。
+4. 最新原生preset10/0（108.17s）、backup8步（4completed/4correctly-blocked；追加唯一下載nonce與來源pin後仍需最終重跑）、mobile10/0（334.907s）、work4/0已走通。所有手機/AI為fixture，非真機/真AI；無consent授予/人工解除。現在以相同新版AX driver重跑v0.7 baseline clean/legacy，之後candidate clean/legacy及後三native tasks各兩種設定。
+5. 中途證據與Find/Verify原始logs已部分封存`docs/releases/evidence/2026-09-06-convergence/`；正式草稿`v0.8.0-final-report.md`、`v0.8.0-drills.md`未標完成。五項clean HEAD drills、暖機＋交錯3次perf、版本prepare、exactcandidate/main CI、verify/tag/Release資產安裝仍為下一階段。
 
 ## 6. Blockers
 

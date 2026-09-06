@@ -620,6 +620,23 @@ export async function aipCapability(
   return aipPayload(snapshot);
 }
 
+/** The committed fake_iphone is a legacy peer: it never negotiates applied receipts. */
+export async function expectLegacyPhoneStateUnconfirmed(
+  request: APIRequestContext,
+  phone: FakeIphone,
+  options?: { base?: string; token?: string }
+): Promise<void> {
+  const diagnostics = (await api(request, "GET", "/v1/character-session/diagnostics", undefined, options)) as {
+    members: { party: { kind: string; id: string }; stateDelivery?: { applied?: unknown } }[];
+  };
+  const member = diagnostics.members.find((entry) => entry.party.kind === "device" && entry.party.id === phone.deviceId);
+  expect(member, "legacy peer remains an online member with full-state transport capability").toMatchObject({
+    presence: "online", syncCapability: "full-state", stateAppliedCurrent: false,
+    stateDelivery: { negotiated: false, progress: "unconfirmed", outstanding: 0 },
+  });
+  expect(member?.stateDelivery?.applied, "successful writes must not manufacture a peer-applied receipt").toBeUndefined();
+}
+
 /** 模擬 iPhone（fixture）摸一下角色；回傳 host 回的 `result` payload（不預設成功）。 */
 export async function aipTouch(
   phone: FakeIphone,

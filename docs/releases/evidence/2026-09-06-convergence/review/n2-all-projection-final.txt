@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+
+ ✓ src/test/state-applied-projection.test.ts (4 tests) 3ms
+ ✓ src/test/statusProjection-session.test.ts (48 tests) 8ms
+ ✓ src/test/character-sync-card.test.tsx (34 tests) 364ms
+ ✓ src/test/connectPage.test.tsx (52 tests) 1149ms
+
+ Test Files  4 passed (4)
+      Tests  138 passed (138)
+   Start at  12:31:36
+   Duration  2.75s (transform 576ms, setup 708ms, collect 947ms, tests 1.52s, environment 2.83s, prepare 289ms)
+

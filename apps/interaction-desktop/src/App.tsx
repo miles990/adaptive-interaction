@@ -310,16 +310,18 @@ function Shell({
       return;
     }
     let remaining: import("./api").SensorUse[] | null = null;
+    let stopUnresolvedSummary: string | null = null;
     try {
       const s = await api.status();
       remaining = (s["activeSensors"] as import("./api").SensorUse[] | undefined) ?? [];
       setSensors(remaining);
-      setUnresolvedSummary(projectUnresolvedStops(s).summary);
+      stopUnresolvedSummary = projectUnresolvedStops(s).summary;
+      setUnresolvedSummary(stopUnresolvedSummary);
       setEstop(Boolean(s["emergencyStop"]));
     } catch {
       remaining = null;
     }
-    setCommandNotice(projectSensorStop(report, remaining));
+    setCommandNotice(projectSensorStop(report, remaining, stopUnresolvedSummary));
     bumpRefresh();
   }
 

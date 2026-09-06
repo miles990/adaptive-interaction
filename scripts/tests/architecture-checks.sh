@@ -303,7 +303,7 @@ if [[ "$RUN_SWIFT" == "1" ]]; then
   if run_logged swift-native bash scripts/tests/semantic-state-swift.sh; then
     SWIFT_NOTE="$(tail -1 "$EVIDENCE_DIR/swift-native.log")"
     echo "  $SWIFT_NOTE"
-    record swift PASS "$SWIFT_NOTE；native macOS 純模型，iOS XCTest 不在本組"
+    record swift PASS "${SWIFT_NOTE}；native macOS 純模型，iOS XCTest 不在本組"
   else
     record swift FAIL "native Swift runner 未通過；環境與錯誤見 $EVIDENCE_DIR/swift-native.log"
   fi

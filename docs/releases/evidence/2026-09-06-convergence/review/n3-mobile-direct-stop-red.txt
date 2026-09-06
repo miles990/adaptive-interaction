@@ -1,0 +1,19 @@
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.98s
+     Running tests/mobile_loop.rs (target/debug/deps/mobile_loop-92c7ec1aeecd6904)
+
+running 1 test
+
+thread 'per_device_unknown_stop_survives_direct_mobile_revoke_and_restart' (6029878) panicked at crates/interaction-runtime/tests/mobile_loop.rs:4419:5:
+direct phone removal must retain the unconfirmed stop before and after runtime restart; before=[], after=[]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test per_device_unknown_stop_survives_direct_mobile_revoke_and_restart ... FAILED
+
+failures:
+
+failures:
+    per_device_unknown_stop_survives_direct_mobile_revoke_and_restart
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 76 filtered out; finished in 2.18s
+
+error: test failed, to rerun pass `-p interaction-runtime --test mobile_loop`

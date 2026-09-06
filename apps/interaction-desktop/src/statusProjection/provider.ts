@@ -195,10 +195,12 @@ function uniqueLabels(values: string[]): string[] {
  *
  * @param report `/v1/sensors/stop` 的回報（形狀不可信，任何值都要能吃）。
  * @param remaining 停止後重新讀到的 activeSensors；`null` ＝ 讀不到（查詢失敗）。
+ * @param unresolvedSummary 同次重讀的未確認停止／保存健康摘要；有提醒就不能宣稱全部已停止。
  */
 export function projectSensorStop(
   report: unknown,
-  remaining: readonly { kind?: unknown; state?: unknown }[] | null
+  remaining: readonly { kind?: unknown; state?: unknown }[] | null,
+  unresolvedSummary: string | null = null
 ): SensorStopProjection {
   const raw = (report && typeof report === "object" ? report : {}) as Record<string, unknown>;
   const devices = Array.isArray(raw.devices) ? (raw.devices as Record<string, unknown>[]) : [];
@@ -241,6 +243,12 @@ export function projectSensorStop(
     return {
       ok: false,
       message: `已要求停止，結果不確定（${who.length > 0 ? who.join("、") : "有來源"}未回覆）。`,
+    };
+  }
+  if (unresolvedSummary !== null) {
+    return {
+      ok: false,
+      message: "已要求停止；另有感測停止狀態尚未確認，請到「連接與權限」查看提醒。",
     };
   }
   return { ok: true, message: "已停止感測。" };

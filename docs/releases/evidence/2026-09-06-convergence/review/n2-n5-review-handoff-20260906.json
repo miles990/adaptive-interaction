@@ -1,0 +1,1169 @@
+{
+  "format": "adaptive-interaction-agent-handoff/1",
+  "agent": "/root/state_receipts",
+  "generatedAt": "2026-09-06T05:35:31.475914+00:00",
+  "repository": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "observedHeadAfterLatestIndependentTests": "a32258ea161df537f2ad6c1f25cd70d86910d0da",
+  "headCaveat": "Earlier logs were produced on an evolving shared worktree. Only restricted-device.json captured its source SHA at execution. The observed HEAD is not retroactively assigned to earlier runs.",
+  "constraints": {
+    "productionFrozen": true,
+    "noNativeUIOperations": true,
+    "noCommitOrPushByThisAgent": true,
+    "centralDocsOwnedByParent": true
+  },
+  "scope": {
+    "N2": [
+      "Device wire v1.3 optional aip.applied/1, mobile wire v1.1 optional stateApplied capability; AIP 1.0 unchanged. Legacy peers keep honest unconfirmed delivery.",
+      "StateAppliedTracker: 32 pending receipts, 5 second monotonic TTL, random 128-bit token; exact profile/token/generation/session/epoch/revision/hash/messageId binding. Lagging valid acknowledgements can progress without rolling back newer claims.",
+      "Production DeviceLink/DeviceBinding/SerialLink and MobileBridge wiring, including generation/reconnect/revoke/stop invalidation. Queued/written/applied and current-state agreement remain separate.",
+      "Swift wire sender in Protocol/ConnectionManager; N1 author supplied SessionClient validated/adopted-state and full-resume acknowledgement hook. No receipt is emitted before validated adoption.",
+      "TS CharacterSyncCard, ConnectPage and shared projection require exact current host tuple before a confirmed label. Existing unrelated UX fixtures explicitly declare peer-applied metadata.",
+      "Reusable Python schema/hash/atomic receiver plus opt-in serial simulator; pty test covers snapshot, patch, lost/wrong/stale/replayed receipt, actual simulator termination/replacement and rebind. Every emitted serial UTF-8 frame is bounded to 639 bytes.",
+      "Canonical device-profile/transport-bindings/compatibility/deprecation/general-mode-ux docs explain negotiation, fallback and evidence boundaries."
+    ],
+    "N5": [
+      "Reusable state-applied serial spec/template and restricted-device.py drill execute production adapter to pty receiver and back to session diagnostics.",
+      "architecture-checks --swift executes the native Swift fixture runner; selected missing tools fail explicitly. --drills invokes actual character-package, restricted-device, provider-disable-reenable and optional-state runners, covering five extension/removal scenarios.",
+      "Provider lifecycle uses the executable from cargo JSON build output; optional-state defaults to isolated committed HEAD. --drill-lint is explicitly static. Per-command logs/source metadata/summary are retained.",
+      "AGENTS entrypoint command examples and release-script static-check description updated; no central release/evidence documents owned by this agent."
+    ],
+    "N6ScriptsOnly": [
+      "tauri-mobile-sensor-walkthrough.py: isolated production daemon plus real desktop AX and committed fake_iphone. Pairing, semantic bidirectional flow, disconnect/reconnect, revoke old-token denial, re-pair, mic self-report and per-device unknown stop -> direct remove -> whole daemon restart retains unknown. Separate fresh-phone global-stop check, never used to mask direct-stop persistence.",
+      "tauri-work-cancel.py: explicitly forces existing fake_codex.sh/fake_claude.sh binaries, verifies production agent discovery, starts via desktop AX and uses UI interruption/close. Codex fixture cancellation and Claude fixture process-group termination are separate expectations; a remaining Codex app-server is not claimed stopped.",
+      "AX helper gains bounded fill/selectindex operations; syntax/AST/help/osacompile checked. Neither native driver has been executed by this agent. Parent owns final native execution against final App build; no human consent or unlock is automated.",
+      "Both drivers accept --prefs-fixture Path. The isolated seed preserves the fixture schemaVersion and unrelated/unknown fields, then applies only existing case prerequisites; result.json records fixture path/SHA-256, startingPreferences and casePreferenceOverrides. Defaults remain unchanged. Parent reported its initial mobile native attempt hit an AX read timeout; that is a parent harness run, not a completed product walkthrough."
+    ]
+  },
+  "limitations": [
+    "No real iPhone, real microphone, ESP32 board, BLE radio or MQTT state-applied closed-loop acceptance. Firmware compilation is compilation only; optional receipt capability is not falsely enabled on reference firmware.",
+    "Serial applied evidence is production adapter + pty simulator. Mobile Rust evidence uses authenticated TLS process-local fixture peers. Swift --swift is native macOS pure-model conformance, not iOS XCTest or real-device acceptance.",
+    "Aggregate architecture --drills was integrated but not run by this agent; restricted-device subdrill was run. Parent must attach final aggregate drill evidence separately.",
+    "Earlier full TypeScript 1863/0 and character session 36/0 are checkpoint results, not final-HEAD acceptance. Parent reported latest workspace 1278/0 separately; no totals here are summed across overlapping suites.",
+    "Original commands are recorded where retained. Reproduction commands are marked where exact original argv was not archived. Test-body/build/overall wall durations are distinguished; absent exact durations remain null."
+  ],
+  "evidence": [
+    {
+      "id": "n2-adapter-regression",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test -p interaction-adapter-declarative --test aip_link --test aip_fragment --test esp32_sim_conformance",
+      "commandBasis": "reproduction command from exact logged targets; original target order not retained",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-adapter-regression.txt"
+      ],
+      "evidenceLevel": "Rust adapter + simulator",
+      "passed": 58,
+      "failed": 0,
+      "skipped": null,
+      "durationSeconds": {
+        "aipFragment": 0.01,
+        "aipLink": 0.0,
+        "esp32Simulator": 2.63
+      },
+      "buildSeconds": 4.85,
+      "executor": "/root/state_receipts",
+      "cargoEnvironment": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4"
+      }
+    },
+    {
+      "id": "n2-state-applied-bounds",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test -p interaction-adapter-declarative state_applied",
+      "commandBasis": "architecture runner command",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/rust-state-applied-bounds.txt"
+      ],
+      "evidenceLevel": "Rust pure tracker",
+      "passed": 4,
+      "failed": 0,
+      "skipped": 46,
+      "durationSeconds": 0.0,
+      "buildSeconds": 3.79,
+      "executor": "/root",
+      "cargoEnvironment": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4"
+      }
+    },
+    {
+      "id": "n2-session-checkpoint",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test -p interaction-runtime --test character_session_loop --test declarative_session_loop",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-session-final.txt"
+      ],
+      "evidenceLevel": "Rust production ports with simulator peers",
+      "passed": 68,
+      "failed": 1,
+      "skipped": null,
+      "durationSeconds": {
+        "characterSessionBody": 21.26,
+        "declarativeBody": 28.25
+      },
+      "buildSeconds": 3.26,
+      "executor": "/root/state_receipts",
+      "cargoEnvironment": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4"
+      },
+      "note": "Mixed result: character_session_loop 36/0; declarative_session_loop 32/1. The latter failed a new replug fixture pairing race. It is not a full-green log; the corrected exact test is green in n5-restricted-2. Parent later architecture run has serial 33/0."
+    },
+    {
+      "id": "n2-ts-checkpoint",
+      "command": "pnpm test",
+      "commandBasis": "reproduction command; original pnpm trailing argv not archived",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-ts-full-final.txt"
+      ],
+      "evidenceLevel": "TypeScript unit/component fixtures",
+      "passed": 1863,
+      "failed": 0,
+      "skipped": null,
+      "durationSeconds": 18.07,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "88 files; before later review tests. Total wall duration, not sum of concurrent test bodies."
+    },
+    {
+      "id": "n2-projection-targeted",
+      "command": "pnpm exec vitest run src/test/state-applied-projection.test.ts src/test/statusProjection-session.test.ts src/test/character-sync-card.test.tsx src/test/connectPage.test.tsx",
+      "commandBasis": "reproduction command from logged four targets",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-all-projection-final.txt"
+      ],
+      "evidenceLevel": "TypeScript unit/component fixtures",
+      "passed": 138,
+      "failed": 0,
+      "skipped": null,
+      "durationSeconds": 2.75,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts"
+    },
+    {
+      "id": "n2-typecheck",
+      "command": "pnpm typecheck",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-typecheck-final.txt"
+      ],
+      "evidenceLevel": "TypeScript compile",
+      "passed": null,
+      "failed": 0,
+      "skipped": null,
+      "durationSeconds": null,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "Exit 0; no test count and exact wall time not recorded."
+    },
+    {
+      "id": "n2-firmware-default",
+      "command": "bash firmware/esp32-companion/compile.sh",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-firmware-default.txt"
+      ],
+      "evidenceLevel": "ESP32 firmware compile only",
+      "passed": null,
+      "failed": null,
+      "skipped": null,
+      "durationSeconds": null,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "ENABLE_BLE=0; fqbn esp32:esp32:esp32. Program 939403/1310720 bytes (71%); globals 49924/327680 (15%). Existing ESP32Servo unused-variable warnings. ctags shim used. Exit 0; no precise wall duration retained."
+    },
+    {
+      "id": "n2-firmware-ble",
+      "command": "bash firmware/esp32-companion/compile.sh --ble",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-firmware-ble.txt"
+      ],
+      "evidenceLevel": "ESP32 firmware compile only",
+      "passed": null,
+      "failed": null,
+      "skipped": null,
+      "durationSeconds": null,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "ENABLE_BLE=1; program 1190255/1310720 bytes (90%); globals 61064/327680 (18%). Same existing library warnings and ctags shim. Exit 0; no precise wall duration retained."
+    },
+    {
+      "id": "n5-restricted-1",
+      "command": "python3 scripts/tests/aip-applied-receiver.py",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/1.txt"
+      ],
+      "evidenceLevel": "Python validated receiver fixture",
+      "passed": 4,
+      "failed": 0,
+      "skipped": null,
+      "durationSeconds": 0.057,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "Runner wall time, including command startup/compilation. Cargo env CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4. Root runner: python3 scripts/drills/restricted-device.py --evidence-dir /tmp/n2-restricted-device-final"
+    },
+    {
+      "id": "n5-restricted-2",
+      "command": "cargo test -p interaction-runtime --test declarative_session_loop negotiated_state_applied_tracks_snapshot_patch_loss_rebind_and_stale_receipts -- --exact",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/2.txt"
+      ],
+      "evidenceLevel": "production adapter + pty simulator",
+      "passed": 1,
+      "failed": 0,
+      "skipped": null,
+      "durationSeconds": 18.903,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "Runner wall time, including command startup/compilation. Cargo env CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4. Root runner: python3 scripts/drills/restricted-device.py --evidence-dir /tmp/n2-restricted-device-final"
+    },
+    {
+      "id": "n5-restricted-3",
+      "command": "cargo test -p interaction-runtime --test declarative_session_loop legacy_fragmenting_devices_remain_unconfirmed_after_all_writes_succeed -- --exact",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/3.txt"
+      ],
+      "evidenceLevel": "production adapter + pty simulator",
+      "passed": 1,
+      "failed": 0,
+      "skipped": null,
+      "durationSeconds": 0.854,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "Runner wall time, including command startup/compilation. Cargo env CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4. Root runner: python3 scripts/drills/restricted-device.py --evidence-dir /tmp/n2-restricted-device-final"
+    },
+    {
+      "id": "n5-restricted-4",
+      "command": "cargo test -p interaction-runtime --test declarative_session_loop a_device_without_fragmentation_degrades_to_intent_only -- --exact",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/4.txt"
+      ],
+      "evidenceLevel": "production adapter + pty simulator",
+      "passed": 1,
+      "failed": 0,
+      "skipped": null,
+      "durationSeconds": 0.548,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "Runner wall time, including command startup/compilation. Cargo env CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4. Root runner: python3 scripts/drills/restricted-device.py --evidence-dir /tmp/n2-restricted-device-final"
+    },
+    {
+      "id": "n5-restricted-5",
+      "command": "cargo test -p interaction-runtime --test declarative_session_loop an_event_only_device_is_an_event_source_member -- --exact",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/5.txt"
+      ],
+      "evidenceLevel": "production adapter + pty simulator",
+      "passed": 1,
+      "failed": 0,
+      "skipped": null,
+      "durationSeconds": 0.604,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "Runner wall time, including command startup/compilation. Cargo env CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4. Root runner: python3 scripts/drills/restricted-device.py --evidence-dir /tmp/n2-restricted-device-final"
+    },
+    {
+      "id": "architecture-native-initial",
+      "command": "bash scripts/tests/architecture-checks.sh --swift --drill-lint --evidence-dir /tmp/architecture-native-drill-lint-n2",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/architecture-native-drill-lint-n2.txt",
+        "/tmp/architecture-native-drill-lint-n2/summary.tsv",
+        "docs/releases/evidence/2026-09-06-convergence/review/swift-native.txt"
+      ],
+      "evidenceLevel": "native macOS Swift pure-model runner",
+      "passed": 58,
+      "failed": 0,
+      "skipped": null,
+      "durationSeconds": null,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "Apple Swift 6.2.3 arm64-apple-macosx26.0. Earlier lint summary printed only 2 shell-script count; corrected later to all 6 static scripts. Native fixture count is 58."
+    },
+    {
+      "id": "architecture-ts-lint",
+      "command": "bash scripts/tests/architecture-checks.sh --ts --drill-lint --evidence-dir /tmp/architecture-ts-lint-n2",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/architecture-ts-lint-n2.txt",
+        "/tmp/architecture-ts-lint-n2/summary.tsv",
+        "docs/releases/evidence/2026-09-06-convergence/review/typescript.txt"
+      ],
+      "evidenceLevel": "TypeScript fixtures + static drill lint",
+      "passed": 230,
+      "failed": 0,
+      "skipped": null,
+      "durationSeconds": 2.04,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "10 Vitest files; all 6 drill scripts static checks passed. 2.04s is Vitest total wall duration, not entire architecture invocation."
+    },
+    {
+      "id": "n3-scope-red",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test -p interaction-runtime --test sensor_journal_review -- --nocapture",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-verify-red.txt"
+      ],
+      "evidenceLevel": "production SensorSource port fixture",
+      "passed": 0,
+      "failed": 3,
+      "skipped": 0,
+      "durationSeconds": 0.13,
+      "buildSeconds": 0.21,
+      "executor": "/root/state_receipts",
+      "cargoEnvironment": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4"
+      }
+    },
+    {
+      "id": "n3-scope-first-green",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test -p interaction-runtime --test sensor_journal_review",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-final-green.txt"
+      ],
+      "evidenceLevel": "production SensorSource port fixture",
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "durationSeconds": 0.21,
+      "buildSeconds": 0.47,
+      "executor": "/root/state_receipts",
+      "cargoEnvironment": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4"
+      }
+    },
+    {
+      "id": "n3-direct-mobile-red",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test -p interaction-runtime --test mobile_loop per_device_unknown_stop_survives_direct_mobile_revoke_and_restart -- --nocapture",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-direct-stop-red.txt"
+      ],
+      "evidenceLevel": "production TLS mobile port + fixture peer + persisted Runtime restart",
+      "passed": 0,
+      "failed": 1,
+      "skipped": 76,
+      "durationSeconds": 2.18,
+      "buildSeconds": 3.98,
+      "executor": "/root/state_receipts",
+      "cargoEnvironment": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4"
+      },
+      "note": "Actual assertion red: before=[], after=[] after direct stop/revoke/restart. An earlier test-harness Option unwrap was corrected before this meaningful red and is excluded."
+    },
+    {
+      "id": "n3-direct-mobile-parent-verify",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test -p interaction-runtime --test mobile_loop per_device_unknown_stop_survives_direct_mobile_revoke_and_restart -- --nocapture",
+      "commandBasis": "reproduction command; parent independently confirmed finding before author changed production",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-independent-red.txt"
+      ],
+      "evidenceLevel": "independent production-port regression",
+      "passed": 0,
+      "failed": 1,
+      "skipped": null,
+      "durationSeconds": null,
+      "buildSeconds": null,
+      "executor": "/root",
+      "cargoEnvironment": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4"
+      }
+    },
+    {
+      "id": "n3-direct-mobile-latest-green",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test -p interaction-runtime --test mobile_loop per_device_unknown_stop_survives_direct_mobile_revoke_and_restart -- --nocapture",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-direct-stop-independent-green.txt"
+      ],
+      "evidenceLevel": "independent production TLS mobile port + persisted Runtime restart",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 80,
+      "durationSeconds": 2.32,
+      "buildSeconds": 0.32,
+      "executor": "/root/state_receipts",
+      "cargoEnvironment": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4"
+      },
+      "note": "Latest raw write-ahead fix. No receptor enable, human consent, global-stop journal masking, or native UI."
+    },
+    {
+      "id": "n3-scope-latest-green",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test -p interaction-runtime --test sensor_journal_review",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-journal-latest-independent-green.txt"
+      ],
+      "evidenceLevel": "independent production SensorSource port fixture",
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "durationSeconds": 0.19,
+      "buildSeconds": 0.2,
+      "executor": "/root/state_receipts",
+      "cargoEnvironment": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4"
+      }
+    },
+    {
+      "id": "n4-ui-01-02-red",
+      "command": "pnpm exec vitest run src/test/companion-preset-recovery.test.tsx -t \"a pre-operation prefs read|reconnection reconciles\"",
+      "commandBasis": "reproduction command from two exact logged test names",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n4-independent-verify-red.txt"
+      ],
+      "evidenceLevel": "actual React component with controlled desktop-port promises",
+      "passed": 0,
+      "failed": 2,
+      "skipped": 13,
+      "durationSeconds": 2.78,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts"
+    },
+    {
+      "id": "n4-ui-01-02-green",
+      "command": "pnpm exec vitest run src/test/companion-preset-recovery.test.tsx -t \"a pre-operation prefs read|reconnection reconciles\"",
+      "commandBasis": "reproduction command from two exact logged test names",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n4-independent-reverify-green.txt"
+      ],
+      "evidenceLevel": "actual React component with controlled desktop-port promises",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 13,
+      "durationSeconds": 1.79,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts"
+    },
+    {
+      "id": "n4-ui-03-red",
+      "command": "pnpm exec vitest run src/test/companion-preset-recovery.test.tsx -t \"a prefs read issued during a host operation\"",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n4-overlapping-read-verify.txt"
+      ],
+      "evidenceLevel": "actual React component with controlled desktop-port promises",
+      "passed": 0,
+      "failed": 1,
+      "skipped": 15,
+      "durationSeconds": 1.69,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts"
+    },
+    {
+      "id": "n4-ui-final-green",
+      "command": "pnpm exec vitest run src/test/companion-preset-recovery.test.tsx",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n4-independent-final-green.txt"
+      ],
+      "evidenceLevel": "actual React component with controlled desktop-port promises",
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "durationSeconds": 2.71,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts"
+    },
+    {
+      "id": "n4-writer-red-finder",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml settings_recovery_review -- --nocapture",
+      "commandBasis": "reproduction command for the final two-case target; dedicated collision was a cached test-binary invocation",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n4-prefs-writer-review-red.txt",
+        "docs/releases/evidence/2026-09-06-convergence/review/n4-prefs-collision-review-red.txt"
+      ],
+      "evidenceLevel": "production preferences writer + temporary filesystem fixture",
+      "passed": 0,
+      "failed": 2,
+      "skipped": null,
+      "durationSeconds": 0.04,
+      "buildSeconds": null,
+      "executor": "/root/semantic_contract",
+      "cargoEnvironment": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4"
+      },
+      "note": "Combined finder log includes an earlier collision-harness assertion and later meaningful two-case failure. Dedicated collision log demonstrates create_new ownership loss. Not independently executed red by this agent."
+    },
+    {
+      "id": "n4-writer-independent-green",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml settings_recovery_review -- --nocapture",
+      "commandBasis": "recorded task execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n4-writer-independent-green.txt"
+      ],
+      "evidenceLevel": "production preferences writer + temporary filesystem fixture",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 76,
+      "durationSeconds": 0.04,
+      "buildSeconds": 14.3,
+      "executor": "/root/state_receipts",
+      "cargoEnvironment": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4"
+      }
+    },
+    {
+      "id": "n4-writer-later-cached-green",
+      "command": "apps/interaction-desktop/src-tauri/target/debug/deps/interaction_desktop_lib-49a672dc83c5b0e1 settings_recovery_review --nocapture",
+      "commandBasis": "reproduction invocation of the cached binary target",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n4-writer-review-final-independent-green.txt"
+      ],
+      "evidenceLevel": "cached production preferences writer test binary",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 76,
+      "durationSeconds": 0.03,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "Cached binary exact filename comes from earlier cargo log; no compile duration in this later invocation."
+    },
+    {
+      "id": "n4-import-additional-green",
+      "command": "pnpm exec vitest run src/test/settings-import-review.test.ts src/test/settings-transfer-validation.test.ts src/test/characterPage.test.tsx",
+      "commandBasis": "reproduction command from three logged test targets",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n4-review-final-independent-green.txt"
+      ],
+      "evidenceLevel": "TypeScript settings validation + actual CharacterPage component",
+      "passed": 41,
+      "failed": 0,
+      "skipped": null,
+      "durationSeconds": 2.87,
+      "buildSeconds": null,
+      "executor": "/root/state_receipts",
+      "note": "Additional independent regression rerun for N1/root import-review changes. Finder/author roles remain with their own handoffs. jsdom canvas getContext warnings appear; assertions passed."
+    },
+    {
+      "id": "architecture-swift-boundary-green",
+      "command": "bash scripts/tests/architecture-checks.sh --swift --evidence-dir /tmp/architecture-swift-boundary-independent",
+      "commandBasis": "exact recorded execution",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/architecture-swift-boundary-independent.txt",
+        "/tmp/architecture-swift-boundary-independent/summary.tsv",
+        "docs/releases/evidence/2026-09-06-convergence/review/swift-native.txt"
+      ],
+      "evidenceLevel": "native macOS Swift pure-model runner + aggregate summary",
+      "passed": 58,
+      "failed": 0,
+      "runnerElapsedSeconds": 28,
+      "exitCode": 0,
+      "executor": "/root/state_receipts",
+      "note": "Five unselected groups explicitly SKIP; Swift test body and aggregate script both pass after only variable-brace fix."
+    },
+    {
+      "id": "n6-fixture-option-static",
+      "command": "python3 inline validation of starting_preferences in both native drivers; python3 <each-driver> --help; bash -n scripts/tests/architecture-checks.sh; git diff --check",
+      "commandBasis": "exact validation script retained in task tool execution; no native App started",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "logs": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n6-preferences-fixture-static.txt"
+      ],
+      "evidenceLevel": "static syntax + isolated pure seed helper checks",
+      "passed": null,
+      "failed": 0,
+      "executor": "/root/state_receipts",
+      "note": "Both scripts: AST/help, unchanged default, legacy schema preserved, unknown fields preserved, case prerequisites imposed, fixture path/hash recorded, source bytes unchanged and non-object fixture rejected."
+    }
+  ],
+  "findings": [
+    {
+      "id": "N3-SCOPE-01",
+      "title": "A later capture list erased an earlier unresolved capture",
+      "finder": "/root/semantic_contract",
+      "independentVerifier": "/root/state_receipts",
+      "implementationAuthor": "/root/restart_lifecycle",
+      "regressionVerifier": "/root/state_receipts",
+      "redEvidence": [
+        "n3-scope-red"
+      ],
+      "greenEvidence": [
+        "n3-scope-first-green",
+        "n3-scope-latest-green"
+      ],
+      "verifiedReasoning": "One registered source generation represented a family. Replacing a SourceKey journal entry lost absent member A when B became the active capture list. The journal now unions bounded scoped evidence.",
+      "limits": "Production SensorSource port with in-process fixture family, not physical sensor evidence.",
+      "status": "fixed; independent green",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N3-SCOPE-02",
+      "title": "A member could confirm another absent member of the same sensor kind",
+      "finder": "/root/semantic_contract",
+      "independentVerifier": "/root/state_receipts",
+      "implementationAuthor": "/root/restart_lifecycle",
+      "regressionVerifier": "/root/state_receipts",
+      "redEvidence": [
+        "n3-scope-red"
+      ],
+      "greenEvidence": [
+        "n3-scope-first-green",
+        "n3-scope-latest-green"
+      ],
+      "verifiedReasoning": "A kind-only successful stop report for B cleared A. Confirmation now intersects exact source generation, sensor and capture scope, including connection identity.",
+      "limits": "Production SensorSource port with in-process fixture family, not physical sensor evidence.",
+      "status": "fixed; independent green",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N3-SCOPE-03",
+      "title": "A registered family hid unresolved stops when its live capture disappeared",
+      "finder": "/root/restart_lifecycle",
+      "independentVerifier": "/root/state_receipts",
+      "implementationAuthor": "/root/restart_lifecycle",
+      "regressionVerifier": "/root/state_receipts",
+      "redEvidence": [
+        "n3-scope-red"
+      ],
+      "greenEvidence": [
+        "n3-scope-first-green",
+        "n3-scope-latest-green"
+      ],
+      "verifiedReasoning": "unresolved_stops excluded an entire registered generation. It now hides only matching currently visible capture scopes; absent captures remain visible.",
+      "limits": "Production SensorSource port with in-process fixture family, not physical sensor evidence.",
+      "status": "fixed; independent green",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N3-MOBILE-01",
+      "title": "Direct phone stop/removal lost unresolved capture across restart",
+      "finder": "/root/state_receipts",
+      "independentVerifier": "/root",
+      "implementationAuthor": "/root/restart_lifecycle",
+      "regressionVerifier": "/root/state_receipts",
+      "redEvidence": [
+        "n3-direct-mobile-red",
+        "n3-direct-mobile-parent-verify"
+      ],
+      "greenEvidence": [
+        "n3-direct-mobile-latest-green",
+        "n3-scope-latest-green"
+      ],
+      "verifiedReasoning": "Per-device mobile_sensors_stop bypassed canonical journal; teardown removed ConnState before the generic source could see capture. Latest fix snapshots a private source-generation owner at attachment; mobile_note_mic_state writes raw evidence before mic_since is exposed, irrespective of enabled projection. Same valid connection false can confirm only exact scope. try_read source registration rejects removed/replaced generations and avoids await under the connection lock; unowned captures retain a sticky overflow warning. Direct stop also routes the canonical stop path. Read-only review confirmed these call paths.",
+      "limits": "Real production mobile TLS and persistent Runtime ports with simulated phone. Restart here reconstructs Runtime from the same disk home; whole native daemon-process restart is a separate unexecuted N6 driver for the parent.",
+      "status": "fixed; independent green",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N4-UI-01",
+      "title": "A pre-operation poll overwrote a successfully completed preset",
+      "finder": "/root/restart_lifecycle",
+      "independentVerifier": "/root/state_receipts",
+      "implementationAuthor": "/root",
+      "regressionVerifier": "/root/state_receipts",
+      "redEvidence": [
+        "n4-ui-01-02-red"
+      ],
+      "greenEvidence": [
+        "n4-ui-final-green"
+      ],
+      "verifiedReasoning": "runHostPreset now invalidates earlier preferences reads when the operation starts.",
+      "limits": "React component plus controlled desktop promises/events. Native host crash/reconnect walkthrough evidence belongs to parent.",
+      "status": "fixed; independent green",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N4-UI-02",
+      "title": "Reconnect recovery left preset/proactive readback stale",
+      "finder": "/root/restart_lifecycle",
+      "independentVerifier": "/root/state_receipts",
+      "implementationAuthor": "/root",
+      "regressionVerifier": "/root/state_receipts",
+      "redEvidence": [
+        "n4-ui-01-02-red"
+      ],
+      "greenEvidence": [
+        "n4-ui-final-green"
+      ],
+      "verifiedReasoning": "Host result events and connection/refresh invalidations now reload preferences and proactive state; the actual component reconciles an unverified operation after reconnect.",
+      "limits": "React component plus controlled desktop promises/events. Native host crash/reconnect walkthrough evidence belongs to parent.",
+      "status": "fixed; independent green",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N4-UI-03",
+      "title": "A poll issued during a host operation overwrote its later completion",
+      "finder": "/root/state_receipts",
+      "independentVerifier": "/root",
+      "implementationAuthor": "/root",
+      "regressionVerifier": "/root/state_receipts",
+      "redEvidence": [
+        "n4-ui-03-red"
+      ],
+      "greenEvidence": [
+        "n4-ui-final-green"
+      ],
+      "verifiedReasoning": "Start-only generation invalidation did not cover a prefsGet issued after start. Completion now advances the generation before exposing the final preset response; a late read cannot replace it.",
+      "limits": "Independent added delayed-promise regression; parent implements fix and broader suite. Not an OS-scheduler race stress test.",
+      "status": "fixed; independent green",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N4-WRITER-01",
+      "title": "Atomic replacement widened private preference-file permissions",
+      "finder": "/root/semantic_contract",
+      "independentVerifier": "/root; additional source review by /root/state_receipts",
+      "implementationAuthor": "/root",
+      "regressionVerifier": "/root/state_receipts",
+      "redEvidence": [
+        "n4-writer-red-finder"
+      ],
+      "greenEvidence": [
+        "n4-writer-independent-green",
+        "n4-writer-later-cached-green"
+      ],
+      "verifiedReasoning": "save_prefs_at applies existing file mode intersected with 0600 (default 0600) before create_new. Independent reread verified write/sync/rename ordering and post-commit directory sync behavior.",
+      "limits": "Temporary filesystem permission test on macOS; no permissions on user files were changed.",
+      "status": "fixed; independent green",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N4-WRITER-02",
+      "title": "Failed create_new cleanup deleted a pre-existing temporary path",
+      "finder": "/root/semantic_contract",
+      "independentVerifier": "/root; additional source review by /root/state_receipts",
+      "implementationAuthor": "/root",
+      "regressionVerifier": "/root/state_receipts",
+      "redEvidence": [
+        "n4-writer-red-finder"
+      ],
+      "greenEvidence": [
+        "n4-writer-independent-green",
+        "n4-writer-later-cached-green"
+      ],
+      "verifiedReasoning": "Cleanup ownership is acquired only after successful create_new. A collision leaves the existing unrelated path untouched; cleanup is conditional on the created flag.",
+      "limits": "Deterministic owned test directory collision, not a claim to exhaustive concurrent filesystem fault coverage.",
+      "status": "fixed; independent green",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    }
+  ],
+  "restrictedDeviceManifest": {
+    "evidenceLevel": "production-adapter+pty-simulator",
+    "sourceSha": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirty": true,
+    "contract": "device wire v1.3 optional aip.applied/1; legacy v1.x preserved; AIP 1.0 unchanged",
+    "changeReason": "Reusable spec templates and production paths replace unpublished scratch branches; no core transport/device special case is added.",
+    "productionPath": "Runtime.register_declarative_spec -> DeviceBinding -> DeviceLink -> SerialLink -> pty receiver -> bound receipt -> CharacterSession diagnostics",
+    "dataRetention": "Each run uses only its own temporary Runtime and provider IDs; no user preference, consent or package directory is loaded or rewritten.",
+    "modules": [
+      "examples/device-profiles/state-applied-serial.template.json",
+      "DeviceLink",
+      "DeviceBinding",
+      "StateAppliedTracker"
+    ],
+    "humanDecisions": [
+      "Use a simulator, not a board",
+      "Simulator explicitly opts into receipt support; firmware does not"
+    ],
+    "background": [
+      "AIP capability versus progress",
+      "Semantic schema/hash and receipt context",
+      "639-byte UTF-8 serial frame bound"
+    ],
+    "recovery": "Each fixture owns its Runtime tempdir/provider ID/pty process; disable/rebind preserves user choices and uses a new transfer context.",
+    "results": [
+      {
+        "command": [
+          "python3",
+          "scripts/tests/aip-applied-receiver.py"
+        ],
+        "seconds": 0.057,
+        "exitCode": 0,
+        "log": "docs/releases/evidence/2026-09-06-convergence/review/1.txt"
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "interaction-runtime",
+          "--test",
+          "declarative_session_loop",
+          "negotiated_state_applied_tracks_snapshot_patch_loss_rebind_and_stale_receipts",
+          "--",
+          "--exact"
+        ],
+        "seconds": 18.903,
+        "exitCode": 0,
+        "log": "docs/releases/evidence/2026-09-06-convergence/review/2.txt"
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "interaction-runtime",
+          "--test",
+          "declarative_session_loop",
+          "legacy_fragmenting_devices_remain_unconfirmed_after_all_writes_succeed",
+          "--",
+          "--exact"
+        ],
+        "seconds": 0.854,
+        "exitCode": 0,
+        "log": "docs/releases/evidence/2026-09-06-convergence/review/3.txt"
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "interaction-runtime",
+          "--test",
+          "declarative_session_loop",
+          "a_device_without_fragmentation_degrades_to_intent_only",
+          "--",
+          "--exact"
+        ],
+        "seconds": 0.548,
+        "exitCode": 0,
+        "log": "docs/releases/evidence/2026-09-06-convergence/review/4.txt"
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "interaction-runtime",
+          "--test",
+          "declarative_session_loop",
+          "an_event_only_device_is_an_event_source_member",
+          "--",
+          "--exact"
+        ],
+        "seconds": 0.604,
+        "exitCode": 0,
+        "log": "docs/releases/evidence/2026-09-06-convergence/review/5.txt"
+      }
+    ]
+  },
+  "latestN3SourceReview": {
+    "files": [
+      "crates/interaction-runtime/src/mobile.rs:3468",
+      "crates/interaction-runtime/src/mobile.rs:3558",
+      "crates/interaction-runtime/src/sensor_source.rs:365",
+      "crates/interaction-runtime/src/sensor_source.rs:388",
+      "crates/interaction-runtime/src/sensor_source.rs:416"
+    ],
+    "conclusion": "No new reachable unresolved finding identified in scoped raw write-ahead path. Evidence is conservative when owner missing, registry busy or generation stale; it does not infer physical microphone stopped."
+  },
+  "pendingHarnessVerification": {
+    "issue": "At architecture-checks.sh:306, unbraced $SWIFT_NOTE adjacent to full-width punctuation was parsed as a longer variable under nounset. Native Swift body had passed 58/0 but aggregate runner failed.",
+    "finder": "/root",
+    "fixer": "/root/state_receipts",
+    "change": "Only ${SWIFT_NOTE} explicit variable boundary.",
+    "redLog": "docs/releases/evidence/2026-09-06-convergence/review/checkpoint-architecture.txt",
+    "greenLog": "docs/releases/evidence/2026-09-06-convergence/review/architecture-swift-boundary-independent.txt",
+    "status": "fixed; independent runner exit 0",
+    "passed": 58,
+    "failed": 0,
+    "runnerElapsedSeconds": 28,
+    "greenLogs": [
+      "docs/releases/evidence/2026-09-06-convergence/review/architecture-swift-boundary-independent.txt",
+      "/tmp/architecture-swift-boundary-independent/summary.tsv",
+      "docs/releases/evidence/2026-09-06-convergence/review/swift-native.txt"
+    ]
+  },
+  "artifactManifest": [
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/rust-state-applied-bounds.txt",
+      "exists": true,
+      "sizeBytes": 838,
+      "sha256": "4b08e34c587b37ac70a2adf1e993422782b2a077b893345c576eef218560ebf1"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/checkpoint-architecture.txt",
+      "exists": true,
+      "sizeBytes": 3863,
+      "sha256": "02aec67ce7b0ae47132e9966f3728921fe2a3ef61a968aa69cd31e8864238810"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-independent-red.txt",
+      "exists": true,
+      "sizeBytes": 865,
+      "sha256": "d75ba3752d8386a999d07abe91112d4d23761814052a7925630596e23c10de99"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/architecture-native-drill-lint-n2.txt",
+      "exists": true,
+      "sizeBytes": 1755,
+      "sha256": "ede531beedfb34f9915f144e64780f664df4dd5a665cce54e5372a52fa4398c8"
+    },
+    {
+      "path": "/tmp/architecture-native-drill-lint-n2/summary.tsv",
+      "exists": true,
+      "sizeBytes": 438,
+      "sha256": "fc40be348fc6404020de37df596e706be3aa65162a12dfbd8e304743a036c290"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/swift-native.txt",
+      "exists": true,
+      "sizeBytes": 285,
+      "sha256": "36390a93331ab2f562fb169f1f737218a150d41d6637a3ec47aa9d4e9cfb5021"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/architecture-swift-boundary-independent.txt",
+      "exists": true,
+      "sizeBytes": 1032,
+      "sha256": "ad6e57d2258a100863773f29725f98a6c54be8e7f61605439cb3a4472b54573d"
+    },
+    {
+      "path": "/tmp/architecture-swift-boundary-independent/summary.tsv",
+      "exists": true,
+      "sizeBytes": 318,
+      "sha256": "72eaa5afebbbb3d5068682b83320ade09c9569dcbb330e8fcd4d2aad4b7197f8"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/swift-native.txt",
+      "exists": true,
+      "sizeBytes": 285,
+      "sha256": "36390a93331ab2f562fb169f1f737218a150d41d6637a3ec47aa9d4e9cfb5021"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/architecture-ts-lint-n2.txt",
+      "exists": true,
+      "sizeBytes": 1747,
+      "sha256": "729f0d15a85a474f1940782ccce658b4c9223316339e8d37c4d676b4bdeb634b"
+    },
+    {
+      "path": "/tmp/architecture-ts-lint-n2/summary.tsv",
+      "exists": true,
+      "sizeBytes": 401,
+      "sha256": "03f2f25382254d329ac99244ea121a0f23b4aa444fea96814fe5d17f38c9645d"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/typescript.txt",
+      "exists": true,
+      "sizeBytes": 897,
+      "sha256": "e1b368ac4cf653d3e6d2d49557e9302720037cc800bf376b3a1a5ea7689980bf"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n2-adapter-regression.txt",
+      "exists": true,
+      "sizeBytes": 4775,
+      "sha256": "488e9b0ceedf35973905ad846de8639783026a970283804c6d1e3541753a1264"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n2-all-projection-final.txt",
+      "exists": true,
+      "sizeBytes": 522,
+      "sha256": "ed5a260238df8943f798f26779d9e53751b42b1361034093205903d7a3cef62a"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n2-drill-final.txt",
+      "exists": true,
+      "sizeBytes": 131,
+      "sha256": "3fb3a14d16bf3b0b96e8d4e4871bce36213a505fb7ef2a950defaf239a92c7c5"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n2-firmware-ble.txt",
+      "exists": true,
+      "sizeBytes": 2476,
+      "sha256": "6394d0481244f570f9575ab21c639af2544411ea8388b49f747afa6acd712bc8"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n2-firmware-default.txt",
+      "exists": true,
+      "sizeBytes": 2475,
+      "sha256": "d2739dcefa733c8458d2d320afc06fa2f26c2ee2d3b8902327a0f075694731e0"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/1.txt",
+      "exists": true,
+      "sizeBytes": 102,
+      "sha256": "feabb4add9e2ca3374e538560634d1ec97dc4f4ce89aab12f3d726e36ea9b2f6"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/2.txt",
+      "exists": true,
+      "sizeBytes": 632,
+      "sha256": "e29f31cf22ebfe8d2cee7ebaa6faa1482fa2c0402a4c7ad7f55bcd14f5b6faa4"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/3.txt",
+      "exists": true,
+      "sizeBytes": 378,
+      "sha256": "4e2e26b2a2d7e9a0a5fbb932e4dd0269fd971968d67dfaf23af875ea8237aa94"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/4.txt",
+      "exists": true,
+      "sizeBytes": 362,
+      "sha256": "84364924f4647b1d641c045538a15d1c1d9640134a0ba5e904bc630def046e9a"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/5.txt",
+      "exists": true,
+      "sizeBytes": 354,
+      "sha256": "345660274b3269d7437693236dce6ce491420a3360d1c65fc08615c893edfeec"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/restricted-device.json",
+      "exists": true,
+      "sizeBytes": 3030,
+      "sha256": "d239f1d154f102e1de56fe2833a8a225f38be01561c99c7362d73d7f3dcd0cf5"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n2-session-final.txt",
+      "exists": true,
+      "sizeBytes": 9331,
+      "sha256": "467ccbed3e4c13816d8cbfd03be51838254ffd70f6df33a0f1d0b83ef993e411"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n2-ts-full-final.txt",
+      "exists": true,
+      "sizeBytes": 203765,
+      "sha256": "7b5ec916137f5eab985bce02590b03c195cb4a9e720fc90b4cbbc13f17b1465c"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n2-typecheck-final.txt",
+      "exists": true,
+      "sizeBytes": 134,
+      "sha256": "d58ca9e9d5a936260dd41fc1c929722aa09f988a0be6a0940f8265fd75539159"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-final-green.txt",
+      "exists": true,
+      "sizeBytes": 706,
+      "sha256": "d2a34536f1a99b1cc84837cf19a440daf80e3a62c5f9b8c55d750e8175e07bce"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-verify-red.txt",
+      "exists": true,
+      "sizeBytes": 1989,
+      "sha256": "717caf86c06b8c5a220b59587c2a53389226a35d057cffd0b2a6e8b6e6beb439"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-journal-latest-independent-green.txt",
+      "exists": true,
+      "sizeBytes": 706,
+      "sha256": "72943d4c314e8e83e21a5f0f37b6264a64401b9c42261c899e0f3256090e86de"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-direct-stop-independent-green.txt",
+      "exists": true,
+      "sizeBytes": 347,
+      "sha256": "9db940c0b5a7137b953dda35900a9e937b9d64bf3c3421f20a257a58964d682c"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-direct-stop-red.txt",
+      "exists": true,
+      "sizeBytes": 988,
+      "sha256": "b3ad58f20b7d753ec0904f4d589fc740b664bbfa7fb738e8ec722b1d145d203e"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n4-independent-final-green.txt",
+      "exists": true,
+      "sizeBytes": 60476,
+      "sha256": "ccbfb11d23919f68722d7c12a77bee145477fb1b307f1c7509bb8314a7825a5e"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n4-independent-reverify-green.txt",
+      "exists": true,
+      "sizeBytes": 7970,
+      "sha256": "9e15600f36b9d8972e6ef3ccaefa6b9caa60a406e801677a90f97acf3922d184"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n4-independent-verify-red.txt",
+      "exists": true,
+      "sizeBytes": 25964,
+      "sha256": "63beacfaf1a46a0015b0d46721af59a22ca0aa81ba52f7b09ed60f6fa834ae35"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n4-overlapping-read-verify.txt",
+      "exists": true,
+      "sizeBytes": 4981,
+      "sha256": "16f07642dc6833f3138611b54b4f41986c16b0c0b049e1619270b9d7bc898cd2"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n4-prefs-collision-review-red.txt",
+      "exists": true,
+      "sizeBytes": 878,
+      "sha256": "193751bbf1513d7b5a568f317fd52c4ad6b733646ad6fa95f86c8b4b8f233325"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n4-prefs-writer-review-red.txt",
+      "exists": true,
+      "sizeBytes": 2181,
+      "sha256": "bd97fcbfc18f90323eb995675bee658cb23712b9d0b3da14145e97e11da3e3e1"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n4-review-final-independent-green.txt",
+      "exists": true,
+      "sizeBytes": 68363,
+      "sha256": "6115e926cf81f25fbc6402cfd5257ede8ea70861ddb00aad82093d1a643143fc"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n4-writer-independent-green.txt",
+      "exists": true,
+      "sizeBytes": 903,
+      "sha256": "214d268c927a136f8a06b8edebaa7974be076f5feda2ba4846066c95383336d8"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n4-writer-review-final-independent-green.txt",
+      "exists": true,
+      "sizeBytes": 328,
+      "sha256": "1c084b84ea0c7e98e5dbb242b0dc7402b1bc7be34a25a60a4fe366e3c78a70c6"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n6-preferences-fixture-static.txt",
+      "exists": true,
+      "sizeBytes": 360,
+      "sha256": "673fd06ff0012df0e7731a18df516d46bc90c9911008b6a7a35b0534fc217f92"
+    }
+  ],
+  "followupAssigned": "Parent subsequently assigned four Playwright legacy/receipt UX failures for diagnosis. That investigation is not included in these completed N2/N5/review evidence records.",
+  "ownershipReleased": [
+    "N2 production files (frozen)",
+    "N3/N4 review tests (frozen)",
+    "scripts/tests/architecture-checks.sh",
+    "scripts/tests/tauri-mobile-sensor-walkthrough.py",
+    "scripts/tests/tauri-work-cancel.py"
+  ]
+}

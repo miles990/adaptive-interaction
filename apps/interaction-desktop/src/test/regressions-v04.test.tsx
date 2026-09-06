@@ -103,6 +103,22 @@ describe("GlobalSearch 緊急停止二段確認（不可單鍵誤觸）", () => 
 });
 
 describe("GlobalSearch 指令結果回報（失敗不得靜默）", () => {
+  it("N3-UI-STOP-HISTORY: journal health prevents search from claiming overall success", async () => {
+    stubPaletteData();
+    vi.spyOn(api, "sensorsStop").mockResolvedValue({ stopped: true, uncertain: false, devices: [] });
+    vi.spyOn(api, "status").mockResolvedValue({
+      activeSensors: [], unresolvedStopHealth: { recoveryUnknown: true },
+    });
+    const { onCommandFeedback } = renderPalette();
+    const input = screen.getByPlaceholderText(/搜尋設定/);
+    fireEvent.change(input, { target: { value: "停止所有感測" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onCommandFeedback).toHaveBeenCalled());
+    const [message, ok] = vi.mocked(onCommandFeedback).mock.calls[0];
+    expect(ok).toBe(false);
+    expect(String(message)).toContain("尚未確認");
+  });
+
   it("停止所有感測失敗時回報錯誤訊息", async () => {
     stubPaletteData();
     vi.spyOn(api, "sensorsStop").mockRejectedValue(new Error("daemon offline"));

@@ -1,0 +1,56 @@
+[WebServer] (node:62056) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:62057) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] 
+[WebServer]   VITE v5.4.21  ready in 122 ms
+[WebServer] 
+[WebServer]   ➜  Local:   http://127.0.0.1:5199/
+   Compiling interaction-session v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-session)
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+   Compiling interaction-api v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-api)
+   Compiling interaction-cli v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.55s
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.40s
+
+Running 1 test using 1 worker
+
+(node:62233) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [estop-last] › e2e/estop.spec.ts:37:1 › 緊急停止：解除對話框初始 Shift+Tab 不逃到背景，Escape 保留停止並返回原入口 (6.6s)
+
+
+  1) [estop-last] › e2e/estop.spec.ts:37:1 › 緊急停止：解除對話框初始 Shift+Tab 不逃到背景，Escape 保留停止並返回原入口 ────────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+    Call Log:
+    - Timeout 5000ms exceeded while waiting on the predicate
+
+      48 |     await expect(dialog).toBeFocused();
+      49 |     await page.keyboard.press("Shift+Tab");
+    > 50 |     await expect.poll(() => dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+         |                                                                                           ^
+      51 |     await page.keyboard.press("Tab");
+      52 |     await expect.poll(() => dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+      53 |     await page.keyboard.press("Escape");
+        at /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/e2e/estop.spec.ts:50:91
+
+    Error Context: test-results/estop-緊急停止：解除對話框初始-Shift-Tab-不逃到背景，Escape-保留停止並返回原入口-estop-last/error-context.md
+
+    Error Context: test-results/estop-緊急停止：解除對話框初始-Shift-Tab-不逃到背景，Escape-保留停止並返回原入口-estop-last/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/estop-緊急停止：解除對話框初始-Shift-Tab-不逃到背景，Escape-保留停止並返回原入口-estop-last/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/estop-緊急停止：解除對話框初始-Shift-Tab-不逃到背景，Escape-保留停止並返回原入口-estop-last/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [estop-last] › e2e/estop.spec.ts:37:1 › 緊急停止：解除對話框初始 Shift+Tab 不逃到背景，Escape 保留停止並返回原入口 ─────────

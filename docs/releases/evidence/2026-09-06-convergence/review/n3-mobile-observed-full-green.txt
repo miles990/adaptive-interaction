@@ -1,0 +1,103 @@
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.61s
+     Running tests/mobile_loop.rs (target/debug/deps/mobile_loop-92c7ec1aeecd6904)
+
+running 80 tests
+test a_mobile_stop_outcome_names_the_receptors_its_provider_declared ... ok
+test accept_errors_are_retried_until_they_are_clearly_hopeless ... ok
+test an_accept_loop_that_stops_is_reported_as_stopped ... ok
+test a_failed_auth_is_audited_and_counted ... ok
+test a_superseded_connection_still_forces_the_high_risk_receptor_off ... ok
+test a_flooding_connection_is_rate_limited_and_audited ... ok
+test a_peer_that_burns_the_pairing_window_is_visible_to_the_user ... ok
+test a_corrupt_paired_device_list_is_reported_as_unknown_not_as_none ... ok
+test a_top_level_at_on_a_motion_observation_reaches_the_facts ... ok
+test character_present_never_infers_verified_success ... ok
+test an_oversized_message_closes_the_connection ... ok
+test a_transient_accept_error_does_not_kill_the_mobile_server ... ok
+test ble_scan_timeout_is_honest_and_clears_pending ... ok
+test clearing_the_emergency_stop_tells_the_phone_it_is_over ... ok
+test a_paired_iphone_registers_an_outbound_channel_with_its_identity_strength ... ok
+test disabled_raw_mobile_capture_survives_disconnect_and_restart_without_a_stop_request ... ok
+test a_revoke_that_cannot_be_persisted_fails_honestly ... ok
+test a_legacy_app_that_never_negotiated_creates_no_session_member_on_disconnect ... ok
+test estop_projects_emergency_to_connected_phone ... ok
+test extra_parameters_can_never_widen_the_policy_bounds ... ok
+test filter_mobile_facts_keeps_only_manifest_provides ... ok
+test generic_disable_of_one_phone_keeps_the_shared_capabilities_of_the_other ... ok
+test generic_provider_revoke_stops_a_streaming_phone_and_drops_its_connection ... ok
+test an_unauthenticated_peer_is_closed_when_its_deadline_passes ... ok
+test generic_revoke_of_one_phone_keeps_the_shared_capabilities_of_the_other ... ok
+test dropping_the_waiting_future_clears_the_pending_act ... ok
+test ingested_mic_observations_alone_make_the_sensor_visible ... ok
+test iphone_character_uncertain_is_still_a_pending_decision ... ok
+test ble_scan_can_name_its_target_phone ... ok
+test autostart_is_skipped_after_the_last_device_is_revoked ... ok
+test map_wire_params_defaults_are_accepted_by_the_app_rules ... ok
+test map_wire_params_refuses_what_the_app_would_refuse ... ok
+test mdns_service_label_fits_rfc6763_limit ... ok
+test high_risk_receptor_forced_off_on_disconnect_and_stays_off ... ok
+test mobile_present_verified_fails_when_the_phone_refuses ... ok
+test idle_connection_times_out_and_capabilities_go_offline ... ok
+test iphone_microphone_shows_up_in_active_sensors ... ok
+test iphone_mic_status_changes_emit_sensor_events ... ok
+test emergency_stop_tells_the_phone_it_is_an_emergency ... ok
+test mobile_sensors_stop_targets_one_phone_and_is_honest_when_unreachable ... ok
+test pending_acts_end_when_the_phone_disconnects ... ok
+test estop_never_counts_mobile_actuators_when_no_phone_received_stop_all ... ok
+test per_device_sensors_stop_tells_the_phone_the_user_asked ... FAILED
+test pairing_observation_act_and_estop_loop ... ok
+test observations_are_filtered_and_drops_are_counted ... ok
+test revoking_a_device_never_retracts_the_provider_family_declaration ... ok
+test emergency_stop_also_stops_iphone_sensing ... ok
+test revoking_a_streaming_phone_ends_its_sensing_and_inflight_acts_at_once ... ok
+test disabling_the_shared_mic_receptor_stops_the_phone_and_keeps_it_visible ... ok
+test a_legacy_phone_that_never_negotiates_receives_no_aip_frames ... ok
+test serve_mode_can_disable_bonjour_via_env ... ok
+test six_actuators_pass_app_grade_parameter_validation ... ok
+test same_mobile_connection_false_report_settles_capture_before_restart ... ok
+test stop_all_wire_reason_only_calls_the_estop_path_emergency ... ok
+test stop_all_sensors_reaches_iphone_and_waits_for_confirmation ... ok
+test stop_all_sensors_tells_the_phone_the_user_asked ... ok
+test superseding_mobile_connection_cannot_confirm_the_old_capture ... ok
+test test_mode_never_advertises_bonjour_on_the_lan ... ok
+test revoke_disconnects_live_connection_immediately ... ok
+test mic_level_observations_need_an_explicit_session_consent ... ok
+test the_mobile_provider_declares_its_own_presentation_surface_and_high_risk_receptors ... ok
+test the_mobile_declaration_is_wired_into_the_runtime_at_startup ... ok
+test tested_evidence_lands_on_the_phone_that_actually_ran_the_action ... ok
+test the_tls_private_key_is_owner_only_and_loose_permissions_are_repaired ... ok
+test the_public_device_fingerprint_is_not_the_token_verifier ... ok
+test too_many_connections_are_refused_at_accept_and_the_slots_come_back ... ok
+test superseding_a_live_connection_is_silent_and_keeps_the_provider_available ... ok
+test verified_success_is_reachable_only_through_human_verification ... ok
+test wrong_pairing_code_is_refused_and_session_burned ... ok
+test ble_scan_is_refused_while_the_emergency_stop_is_engaged ... ok
+test estop_broadcasts_one_stop_all_and_ends_inflight_acts ... ok
+test token_reconnect_works_until_revoked ... ok
+test mobile_test_pings_the_phone_and_never_claims_more_than_a_pong ... ok
+test per_device_unknown_stop_survives_direct_mobile_revoke_and_restart ... ok
+test phone_connecting_during_estop_receives_emergency ... ok
+test with_two_phones_an_act_must_name_its_target_and_the_receipt_records_it ... ok
+test stop_uncertain_is_a_pending_decision_in_the_inbox ... ok
+test stop_all_sensors_reports_unknown_when_iphone_does_not_reply ... ok
+test one_phone_disconnecting_never_silently_hides_another_streaming_phone ... ok
+test unauthenticated_peer_cannot_resolve_pending_act ... ok
+
+failures:
+
+---- per_device_sensors_stop_tells_the_phone_the_user_asked stdout ----
+
+thread 'per_device_sensors_stop_tells_the_phone_the_user_asked' (6044996) panicked at crates/interaction-runtime/tests/mobile_loop.rs:3030:5:
+assertion `left == right` failed: {"reason":"emergency","sensors":true,"type":"stop-all"}
+  left: String("emergency")
+ right: String("user")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    per_device_sensors_stop_tells_the_phone_the_user_asked
+
+test result: FAILED. 79 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.12s
+
+error: test failed, to rerun pass `-p interaction-runtime --test mobile_loop`

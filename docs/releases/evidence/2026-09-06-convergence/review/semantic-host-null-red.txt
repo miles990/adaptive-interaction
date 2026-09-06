@@ -1,0 +1,37 @@
+   Compiling syn v3.0.4
+   Compiling memchr v2.8.3
+   Compiling serde_json v1.0.151
+   Compiling serde_derive_internals v0.30.0
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling thiserror-impl v2.0.20
+   Compiling ref-cast v1.0.27
+   Compiling schemars_derive v1.2.2
+   Compiling thiserror v2.0.20
+   Compiling serde v1.0.229
+   Compiling chrono v0.4.45
+   Compiling schemars v1.2.2
+   Compiling interaction-aip v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-aip)
+   Compiling interaction-character v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-character)
+   Compiling interaction-session v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-session)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.54s
+     Running tests/semantic_contract.rs (target/debug/deps/semantic_contract-736d169a6b103e97)
+
+running 1 test
+test authoritative_restore_rejects_explicit_null_before_it_can_be_discarded ... FAILED
+
+failures:
+
+---- authoritative_restore_rejects_explicit_null_before_it_can_be_discarded stdout ----
+
+thread 'authoritative_restore_rejects_explicit_null_before_it_can_be_discarded' (5848678) panicked at crates/interaction-session/tests/semantic_contract.rs:81:5:
+a self-consistent hash does not authorize deleting a state null on restore
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    authoritative_restore_rejects_explicit_null_before_it_can_be_discarded
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p interaction-session --test semantic_contract`

@@ -402,6 +402,23 @@ describe("快速操作：緊急停止（只能觸發、不能解除）", () => {
 });
 
 describe("快速操作：停止所有感測（誠實階梯）", () => {
+  it("N3-UI-STOP-HISTORY: fresh historical unknown prevents the home success notice", async () => {
+    stubHome();
+    let stopped = false;
+    vi.spyOn(api, "status").mockImplementation(async () => status(stopped ? {
+      unresolvedStops: [{ sourceId: "old-phone", generation: 1, sensors: ["iphone.mic-level"] }],
+    } : {}));
+    vi.spyOn(api, "sensorsStop").mockImplementation(async () => {
+      stopped = true;
+      return { stopped: true, uncertain: false, devices: [] };
+    });
+    renderHome();
+    await screen.findByText("小樞在桌面上，一切正常。");
+    await userEvent.click(screen.getByRole("button", { name: "停止所有感測" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("尚未確認");
+    expect(screen.queryByText("已停止感測。")).not.toBeInTheDocument();
+  });
+
   it("重讀後仍有感測在用：說仍在使用中，不得說已停止", async () => {
     stubHome();
     // 停止之後手機仍在感測：用可變的後端狀態，避免依賴呼叫順序。

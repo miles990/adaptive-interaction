@@ -1,0 +1,35 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/sensor_journal_review.rs (target/debug/deps/sensor_journal_review-c1726a115c84f492)
+
+running 3 tests
+test a_registered_family_does_not_hide_unknowns_after_the_live_capture_disappears ... FAILED
+test a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind ... FAILED
+test changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors ... FAILED
+
+failures:
+
+---- a_registered_family_does_not_hide_unknowns_after_the_live_capture_disappears stdout ----
+
+thread 'a_registered_family_does_not_hide_unknowns_after_the_live_capture_disappears' (5960622) panicked at crates/interaction-runtime/tests/sensor_journal_review.rs:137:5:
+registration alone is not a visible capture or stop confirmation
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind stdout ----
+
+thread 'a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind' (5960621) panicked at crates/interaction-runtime/tests/sensor_journal_review.rs:118:5:
+device-b's acknowledgment cannot resolve absent device-a's camera
+
+---- changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors stdout ----
+
+thread 'changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors' (5960623) panicked at crates/interaction-runtime/tests/sensor_journal_review.rs:95:5:
+a newer live capture list is not evidence that prior camera-a stopped: ["microphone-b"]
+
+
+failures:
+    a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind
+    a_registered_family_does_not_hide_unknowns_after_the_live_capture_disappears
+    changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+error: test failed, to rerun pass `-p interaction-runtime --test sensor_journal_review`

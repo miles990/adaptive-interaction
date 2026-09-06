@@ -1,0 +1,72 @@
+
+ RUN  v2.1.9 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+
+ ❯ src/test/semantic-state-contract.test.ts (5 tests | 5 failed) 8ms
+   × semantic state production receive boundary > rejects missing required attention before adoption 5ms
+     → expected 'apply' to be 'reject-invalid' // Object.is equality
+   × semantic state production receive boundary > rejects missing required members before adoption 1ms
+     → expected 'apply' to be 'reject-invalid' // Object.is equality
+   × semantic state production receive boundary > rejects missing required reducedMotion before adoption 0ms
+     → expected 'apply' to be 'reject-invalid' // Object.is equality
+   × semantic state production receive boundary > rejects null optional state values while permitting null in a merge patch 0ms
+     → expected 'apply' to be 'reject-invalid' // Object.is equality
+   × semantic state production receive boundary > rejects a hash-consistent merge that deletes a required field atomically 1ms
+     → expected 'apply' to be 'reject-invalid' // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/test/semantic-state-contract.test.ts > semantic state production receive boundary > rejects missing required attention before adoption
+ FAIL  src/test/semantic-state-contract.test.ts > semantic state production receive boundary > rejects missing required members before adoption
+ FAIL  src/test/semantic-state-contract.test.ts > semantic state production receive boundary > rejects missing required reducedMotion before adoption
+AssertionError: expected 'apply' to be 'reject-invalid' // Object.is equality
+
+Expected: "reject-invalid"
+Received: "apply"
+
+ ❯ src/test/semantic-state-contract.test.ts:15:48
+     13|     delete state[key];
+     14|     const result = reduce(initialSession(), { kind: "sse", arrivedOn: …
+     15|     expect(result.next.lastDecision?.decision).toBe("reject-invalid");
+       |                                                ^
+     16|     expect(result.next.local).toBeNull();
+     17|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  src/test/semantic-state-contract.test.ts > semantic state production receive boundary > rejects null optional state values while permitting null in a merge patch
+AssertionError: expected 'apply' to be 'reject-invalid' // Object.is equality
+
+Expected: "reject-invalid"
+Received: "apply"
+
+ ❯ src/test/semantic-state-contract.test.ts:20:48
+     18|   it("rejects null optional state values while permitting null in a me…
+     19|     const result = reduce(initialSession(), { kind: "sse", arrivedOn: …
+     20|     expect(result.next.lastDecision?.decision).toBe("reject-invalid");
+       |                                                ^
+     21|   });
+     22|   it("rejects a hash-consistent merge that deletes a required field at…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  src/test/semantic-state-contract.test.ts > semantic state production receive boundary > rejects a hash-consistent merge that deletes a required field atomically
+AssertionError: expected 'apply' to be 'reject-invalid' // Object.is equality
+
+Expected: "reject-invalid"
+Received: "apply"
+
+ ❯ src/test/semantic-state-contract.test.ts:28:48
+     26|     const envelope = { messageType: "state", sessionId: "session.home"…
+     27|     const result = reduce(initial, { kind: "sse", arrivedOn: 0, envelo…
+     28|     expect(result.next.lastDecision?.decision).toBe("reject-invalid");
+       |                                                ^
+     29|     expect(result.next.local).toBe(initial.local);
+     30|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  11:53:05
+   Duration  459ms (transform 68ms, setup 159ms, collect 58ms, tests 8ms, environment 0ms, prepare 47ms)
+

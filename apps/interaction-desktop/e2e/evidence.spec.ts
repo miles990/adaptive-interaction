@@ -35,9 +35,11 @@ import {
   waitSessionState,
 } from "./helpers";
 
-// v0.6.x 起截圖寫到 v06-evidence：v05-evidence 是 v0.5.x 當時 UI 的證據（tag v0.5.1），
+// 已發布版本的 docs/assets 截圖保留原始內容；新實跑使用獨立輸出目錄。
+// v05-evidence 是 v0.5.x 當時 UI 的證據（tag v0.5.1），
 // M3 之後角色頁的 IA 已經不同，再往那裡寫等於改寫歷史證據。
-const OUT = path.resolve(process.cwd(), "../../docs/assets/v06-evidence");
+// Runtime evidence belongs to this run; never overwrite published screenshots.
+const OUT = path.resolve(process.cwd(), process.env.INTERACT_AI_E2E_EVIDENCE_DIR ?? "test-results/evidence");
 const REPO_ROOT = process.env.E2E_REPO_ROOT ?? path.resolve(process.cwd(), "../..");
 
 async function shot(page: Page, name: string) {

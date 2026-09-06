@@ -1,0 +1,7 @@
+
+running 2 tests
+test settings_recovery_review::failed_temporary_creation_does_not_delete_a_file_the_writer_did_not_create ... ok
+test settings_recovery_review::atomic_preferences_save_preserves_existing_private_permissions ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 0.03s
+

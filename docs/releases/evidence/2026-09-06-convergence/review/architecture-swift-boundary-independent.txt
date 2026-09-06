@@ -1,0 +1,15 @@
+architecture-checks @ /Users/user/Workspace/claude-lab/adaptive-interaction
+完整輸出：/tmp/architecture-swift-boundary-independent
+
+── swift（native 純模型；不是 iOS simulator 或真機）──────
+  RUN swift-native — /tmp/architecture-swift-boundary-independent/swift-native.log
+  swift-native: exit=0 elapsed=28s
+  Swift native semantic conformance: 58 passed, 0 failed
+── 摘要 ────────────────────────────────────────────────
+  docs       SKIP 未指定 --docs
+  ts         SKIP 未指定 --ts
+  rust       SKIP 未指定 --rust
+  drill-lint SKIP 未指定 --drill-lint
+  swift      PASS Swift native semantic conformance: 58 passed, 0 failed；native macOS 純模型，iOS XCTest 不在本組
+  drills     SKIP 未指定 --drills；靜態 lint 不代表演練通過
+architecture-checks: 所選組全部通過；5 組未選取（不是通過）；證據 /tmp/architecture-swift-boundary-independent

@@ -1,0 +1,5 @@
+future-gaze: true
+none: true
+2026-02-30T00:00:00Z: false
+2026-09-06T24:00:00Z: false
+2016-12-31T23:59:60Z: true

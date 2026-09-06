@@ -1,0 +1,2 @@
+scripts/tests/tauri-mobile-sensor-walkthrough.py: AST/help/default/legacy-schema/unknown-retention/required-overrides/provenance/source-unchanged/non-object-rejection PASS (no native UI)
+scripts/tests/tauri-work-cancel.py: AST/help/default/legacy-schema/unknown-retention/required-overrides/provenance/source-unchanged/non-object-rejection PASS (no native UI)

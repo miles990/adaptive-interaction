@@ -1,0 +1,463 @@
+{
+  "date": "2026-09-06",
+  "repository": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "base_commit_during_review": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+  "worktree": "Shared uncommitted integration worktree; no commit/push by semantic_contract",
+  "scope": "Findings handled by semantic_contract; does not replace parent full N1-N6 evidence index",
+  "findings": [
+    {
+      "id": "N1-CONTRACT-01",
+      "priority": "P2",
+      "title": "State receive accepted missing required fields and destructive required-field merge",
+      "origin": "Existing implementation accepted states invalid under the canonical contract",
+      "sources": [
+        "apps/interaction-desktop/src/aip/sessionClient.ts",
+        "apps/interaction-desktop/src/aip/semanticState.ts",
+        "crates/interaction-session/src/semantic_contract.rs"
+      ],
+      "tests": [
+        "apps/interaction-desktop/src/test/semantic-state-contract.test.ts",
+        "crates/interaction-session/tests/semantic_contract.rs"
+      ],
+      "trigger": "Remove attention, members or reducedMotion from a hash-consistent snapshot, or delete required members with merge-patch null. Explicit state null is also invalid.",
+      "before": "Receiver returned apply and adopted an invalid state.",
+      "after": "Validate complete state before atomic adoption; merge-patch null retains deletion semantics and the merged result must satisfy the state contract.",
+      "roles": {
+        "finder": "semantic_contract",
+        "red_reproducer": "semantic_contract",
+        "author": "semantic_contract",
+        "independent_verify": "No separate reproduction of the original five cases is claimed here; integration corpus/gates are parent-owned."
+      },
+      "red": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/semantic-contract-red.txt",
+          "passed": 0,
+          "failed": 5
+        }
+      ],
+      "green": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/semantic-review-fix-ts.txt",
+          "passed": 59,
+          "failed": 0
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/semantic-review-fix-rust.txt",
+          "passed": 5,
+          "failed": 0
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/semantic-review-fix-swift.txt",
+          "passed": 58,
+          "failed": 0
+        }
+      ],
+      "status": "fixed; scoped contract, production receive and native Swift model tests pass",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N1-RESTORE-02",
+      "priority": "P2",
+      "title": "Authoritative snapshot restore silently discarded explicit null before validation",
+      "origin": "Existing invalid-input acceptance; this round adds enforcement, not a claim that the old guard covered it",
+      "sources": [
+        "crates/interaction-session/src/session.rs",
+        "crates/interaction-session/src/semantic_contract.rs"
+      ],
+      "tests": [
+        "crates/interaction-session/tests/semantic_contract.rs"
+      ],
+      "trigger": "Restore a raw state snapshot with explicit null and a matching canonical hash. Serde Option accepts null and subsequent serialization omits it.",
+      "before": "Restore accepted the snapshot while changing canonical data.",
+      "after": "Validate the raw state before deserializing, reject null atomically, retain authoritative deny-unknown policy.",
+      "roles": {
+        "finder": "semantic_contract",
+        "contract_review": "root",
+        "red_reproducer": "semantic_contract",
+        "author": "semantic_contract",
+        "independent_verify": "Parent integration gate; no separate original-null probe log is claimed."
+      },
+      "red": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/semantic-host-null-red.txt",
+          "passed": 0,
+          "failed": 1
+        }
+      ],
+      "green": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/semantic-review-fix-rust.txt",
+          "passed": 5,
+          "failed": 0
+        }
+      ],
+      "status": "fixed; production restore regression passes",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N1-REVIEW-03",
+      "priority": "P2",
+      "title": "Swift flattened Attention DTO rejected a valid unknown-variant field",
+      "origin": "Introduced by this round generated DTO validation; found during independent review",
+      "sources": [
+        "scripts/semantic-state-codegen.mjs",
+        "apps/interaction-ios/InteractionCompanion/Models/SemanticStateGenerated.swift",
+        "apps/interaction-desktop/src/aip/semanticStateGenerated.ts"
+      ],
+      "tests": [
+        "crates/interaction-aip/tests/fixtures/semantic-state-cases.json",
+        "scripts/tests/semantic-state-conformance.swift"
+      ],
+      "trigger": "attention.kind=future-gaze or none with unknown optional id=42.",
+      "before": "Rust/TS accepted both; Swift rejected both through a flattened known id string member.",
+      "after": "Generated DTO reader validates only the selected known variant and preserves raw unknown fields for hashing.",
+      "roles": {
+        "finder": "root",
+        "independent_red_reproducer": "root",
+        "author": "semantic_contract",
+        "independent_postfix_verifier": "root"
+      },
+      "red": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n1-ts-verify.txt",
+          "description": "Both attention probes accepted"
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n1-swift-verify.txt",
+          "description": "Both attention probes incorrectly rejected"
+        }
+      ],
+      "green": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n1-rust-verify.txt",
+          "cases": 5
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n1-ts-verify-fixed.txt",
+          "cases": 5
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n1-swift-verify-fixed.txt",
+          "cases": 5
+        }
+      ],
+      "status": "fixed; all three validators agree on the five independent attention/date probes",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N1-REVIEW-04",
+      "priority": "P2",
+      "title": "Consumer date validation normalized invalid dates and rejected valid leap seconds",
+      "origin": "Introduced/left uncovered by this round consumer validation; found during independent review",
+      "sources": [
+        "apps/interaction-desktop/src/aip/semanticState.ts",
+        "apps/interaction-ios/InteractionCompanion/Models/SemanticStateValidation.swift"
+      ],
+      "tests": [
+        "crates/interaction-aip/tests/fixtures/semantic-state-cases.json"
+      ],
+      "trigger": "2026-02-30T00:00:00Z, 2026-09-06T24:00:00Z, and 2016-12-31T23:59:60Z.",
+      "before": "TS/Swift accepted the first two and rejected the third; authoritative chrono did the opposite.",
+      "after": "Explicit component validation follows existing chrono structural RFC3339 behavior, without Date.parse normalization or leap-table inference; raw/hash inputs unchanged.",
+      "roles": {
+        "finder": "root",
+        "independent_red_reproducer": "root",
+        "author": "semantic_contract",
+        "independent_postfix_verifier": "root"
+      },
+      "red": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n1-rust-verify.txt",
+          "description": "Authoritative expected false,false,true"
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n1-ts-verify.txt",
+          "description": "Consumers true,true,false"
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n1-swift-verify.txt",
+          "description": "Consumers true,true,false"
+        }
+      ],
+      "green": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n1-ts-verify-fixed.txt",
+          "cases": 5
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n1-swift-verify-fixed.txt",
+          "cases": 5
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/semantic-review-fix-ts.txt",
+          "passed": 59,
+          "failed": 0
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/semantic-review-fix-swift.txt",
+          "passed": 58,
+          "failed": 0
+        }
+      ],
+      "status": "fixed; 18 additional shared state cases pin the reviewed edges",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N4-REVIEW-01",
+      "priority": "P2",
+      "title": "Import reported settings unchanged after prefs had already committed",
+      "origin": "Existing two-command outcome conflation",
+      "sources": [
+        "apps/interaction-desktop/src/pages/CompanionPage.tsx",
+        "apps/interaction-desktop/src/pages/character/CharacterLibrary.tsx"
+      ],
+      "tests": [
+        "apps/interaction-desktop/src/test/characterPage.test.tsx"
+      ],
+      "trigger": "prefsPatch resolves after saving companionName, then companionApplyPrefs rejects with a lost apply response.",
+      "before": "The saved preference changes, but onPatch=false causes the library to say no write succeeded and settings are unchanged.",
+      "after": "Parent separates persisted/apply outcome handling and uses conservative import failure wording.",
+      "roles": {
+        "finder": "semantic_contract",
+        "independent_red_verifier": "root",
+        "author": "root",
+        "independent_postfix_verifier": "semantic_contract"
+      },
+      "red": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-import-review-red.txt",
+          "passed": 0,
+          "failed": 1,
+          "skipped": 24
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-import-independent-red.txt",
+          "failed": 1
+        }
+      ],
+      "green": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-review-final-independent-green.txt",
+          "passed": 41,
+          "failed": 0
+        }
+      ],
+      "status": "fixed; production page with modeled two-IPC boundary passes",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N4-REVIEW-02",
+      "priority": "P2",
+      "title": "Atomic preference replacement widened an existing private file mode",
+      "origin": "Existing temp-and-rename implementation defect, not newly introduced this round",
+      "sources": [
+        "apps/interaction-desktop/src-tauri/src/supervisor.rs"
+      ],
+      "tests": [
+        "apps/interaction-desktop/src-tauri/src/settings_recovery_review.rs"
+      ],
+      "trigger": "Create desktop.json with mode0600, call production save_prefs_at under the observed022 umask.",
+      "before": "The replacement file becomes0644.",
+      "after": "Parent preserves the existing permissions and creates private temporary files.",
+      "roles": {
+        "finder": "semantic_contract",
+        "independent_red_verifier": "root",
+        "author": "root",
+        "independent_postfix_verifier": "semantic_contract"
+      },
+      "red": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-prefs-writer-review-red.txt",
+          "passed": 0,
+          "failed": 2
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-writer-independent-red.txt",
+          "failed": 2
+        }
+      ],
+      "green": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-writer-review-final-independent-green.txt",
+          "passed": 2,
+          "failed": 0
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-writer-green.txt",
+          "passed": 2,
+          "failed": 0
+        }
+      ],
+      "status": "fixed; production writer on isolated real filesystem passes",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N4-REVIEW-03",
+      "priority": "P2",
+      "title": "Failed temporary create removed a pre-existing file the writer did not own",
+      "origin": "This round new unconditional error cleanup",
+      "sources": [
+        "apps/interaction-desktop/src-tauri/src/supervisor.rs"
+      ],
+      "tests": [
+        "apps/interaction-desktop/src-tauri/src/settings_recovery_review.rs"
+      ],
+      "trigger": "In a fresh test subprocess precreate the expected PID/sequence temporary path, then invoke save_prefs_at.",
+      "before": "create_new rejects the collision and leaves desktop.json intact, but unconditional cleanup deletes the colliding file.",
+      "after": "Cleanup runs only for the temporary file successfully created by this invocation.",
+      "roles": {
+        "finder": "root raised suspicion; semantic_contract reproduced",
+        "independent_red_verifier": "root",
+        "author": "root",
+        "independent_postfix_verifier": "semantic_contract"
+      },
+      "red": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-prefs-writer-review-red.txt",
+          "passed": 0,
+          "failed": 2
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-prefs-collision-review-red.txt",
+          "passed": 0,
+          "failed": 1
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-writer-independent-red.txt",
+          "failed": 2
+        }
+      ],
+      "green": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-writer-review-final-independent-green.txt",
+          "passed": 2,
+          "failed": 0
+        }
+      ],
+      "risk_bound": "Low-frequency collision requires a pre-existing PID/sequence path; no claim of remotely exploitable behavior.",
+      "status": "fixed; failed production create preserves both original and foreign temporary data",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N4-REVIEW-04",
+      "priority": "P2",
+      "title": "Nested malformed backup fields were coerced into persisted strings",
+      "origin": "Existing malformed-input acceptance missed by new top-level guards",
+      "sources": [
+        "apps/interaction-desktop/src/companion/settingsTransfer.ts"
+      ],
+      "tests": [
+        "apps/interaction-desktop/src/test/settings-import-review.test.ts"
+      ],
+      "trigger": "companionFamiliars id=42, name=42, name={}, or palette=[maid-classic].",
+      "before": "String(...) silently accepts all four and returns a valid settings patch, including the name [object Object].",
+      "after": "Parent requires string id/name/palette before returning a patch; valid schema1 backups retain their behavior.",
+      "roles": {
+        "finder": "semantic_contract",
+        "independent_red_verifier": "root",
+        "author": "root",
+        "independent_postfix_verifier": "semantic_contract"
+      },
+      "red": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-nested-backup-review-red.txt",
+          "passed": 0,
+          "failed": 4
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-nested-independent-red.txt",
+          "failed": 4
+        }
+      ],
+      "green": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n4-review-final-independent-green.txt",
+          "passed": 41,
+          "failed": 0
+        }
+      ],
+      "status": "fixed; four nested cases plus existing page/top-level cases pass",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N6-REVIEW-01",
+      "priority": "P2",
+      "title": "Initial Shift+Tab escaped a newly opened modal and lost its Escape handler",
+      "origin": "Existing focus trap only guarded first/last children, not initial container focus",
+      "sources": [
+        "apps/interaction-desktop/src/components/Dialog.tsx"
+      ],
+      "tests": [
+        "apps/interaction-desktop/e2e/estop.spec.ts",
+        "apps/interaction-desktop/src/test/dialog.test.tsx"
+      ],
+      "trigger": "Open the emergency-stop recovery dialog via Enter; container initially has focus; press Shift+Tab before entering any child.",
+      "before": "Browser focus leaves the dialog. An independently added unit case identifies the focused node as the background opener.",
+      "after": "Initial Tab/Shift+Tab target first/last child; an empty loading overlay prevents Tab escape. Existing close and focus restoration remain.",
+      "roles": {
+        "finder": "restart_lifecycle",
+        "independent_red_verifier": "semantic_contract (CodeGraph refutation attempt, independent unit plus real Browser)",
+        "author": "semantic_contract (parent explicitly assigned after independent Verify)",
+        "postfix_verifier": "semantic_contract scoped tests; parent owns independent full regression"
+      },
+      "red": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n6-dialog-browser-independent-red.txt",
+          "passed": 0,
+          "failed": 1
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n6-dialog-independent-unit-red.txt",
+          "passed": 6,
+          "failed": 1
+        }
+      ],
+      "green": [
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n6-dialog-browser-green.txt",
+          "passed": 1,
+          "failed": 0,
+          "seconds": 5.9
+        },
+        {
+          "log": "docs/releases/evidence/2026-09-06-convergence/review/n6-dialog-shared-unit-green.txt",
+          "passed": 71,
+          "failed": 0
+        }
+      ],
+      "trace_directory": "/tmp/n6-dialog-independent-red-artifacts",
+      "browser_command": "env CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 pnpm exec playwright test --project=estop-last --no-deps -g '初始 Shift'",
+      "browser_cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+      "status": "fixed; Browser verifies Tab containment, Escape closes, opener focused/in viewport, emergencyStop still true",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    }
+  ],
+  "additional_contract_work": {
+    "sources": [
+      "schemas/semantic-state-1.0.schema.json",
+      "schemas/semantic-state-consumers.json",
+      "scripts/semantic-state-codegen.mjs",
+      "apps/interaction-desktop/src/aip/json-source.ts",
+      "apps/interaction-desktop/src/api.ts",
+      "apps/interaction-desktop/src/transport.ts",
+      "apps/interaction-desktop/src-tauri/src/lib.rs"
+    ],
+    "summary": "Single state contract with explicit authoritative/forward-consumer roles, raw HTTP/SSE/Tauri text ingress and numeric metadata preserved across merge, frozen v0.7.0 corpus 5files from630b429 with independently pinned checksum. Generated DTOs never become hash input.",
+    "evidence": "docs/releases/evidence/2026-09-06-convergence/review/semantic-contract-handoff.md"
+  },
+  "n5_handoff": {
+    "optional_state": "docs/releases/evidence/2026-09-06-convergence/review/semantic-optional-drill.txt (21 steps, --working-tree; clean HEAD postcommit drill is a separate parent gate)",
+    "character_package": "docs/releases/evidence/2026-09-06-convergence/review/semantic-package-drill.txt (production native ports1 + TS renderer/page2; modeled boundaries, not native UI E2E)"
+  },
+  "native_script_review": {
+    "source": "scripts/tests/tauri-preset-recovery.py",
+    "reviewer": "semantic_contract",
+    "assessment": "Native Tauri + production daemon + AX + isolated fault proxy evidence label is accurate; no stub masquerading as production found.",
+    "coverage_limits": [
+      "Line164 verifies durable marker, not every partial/error/retry UI sentence.",
+      "Line184 skips final selected-preset UI assertion for newer-choice; its host preservation assertion does not prove that UI projection.",
+      "No export/import or downloaded-file checks exist in this script; parent separately performed native backup pilot."
+    ],
+    "not_claimed": "No iPhone/ESP32 hardware, human approval, native emergency unlock, release completion or full suite pass is claimed by these scoped results."
+  }
+}
