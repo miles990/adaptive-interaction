@@ -1,0 +1,349 @@
+{
+  "review": "Bounded independent Find review of rebind CI follow-up documents and archived evidence",
+  "reviewer": "semantic_contract",
+  "status": "passed",
+  "findings": [],
+  "openFindings": 0,
+  "baseMain": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+  "testOnlyFix": "857f009acf0b2c217f12ec041766ad7de2a2c7cf",
+  "reviewedHead": "857f009acf0b2c217f12ec041766ad7de2a2c7cf",
+  "workingTree": "Documentation backfill; per-file hashes pin reviewed contents.",
+  "facts": {
+    "failedMainCI": {
+      "run": 34020702196,
+      "source": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "rust": [
+        1263,
+        1,
+        0
+      ],
+      "testBinaries": 98,
+      "conclusion": "failure",
+      "otherThreeJobs": "success"
+    },
+    "localWorkspace": {
+      "source": "857f009acf0b2c217f12ec041766ad7de2a2c7cf",
+      "rust": [
+        1278,
+        0,
+        0
+      ],
+      "testBinaries": 98,
+      "outerWallSeconds": null
+    },
+    "countMethod": "Independently summed98 test result lines in each archived CI/local workspace log; no reruns or inferred outer time.",
+    "baselineRepeat": {
+      "passed": 20,
+      "failed": 0,
+      "secondsSum": 11.596
+    },
+    "independentControlled": {
+      "oldWaitExpectedFailures": 3,
+      "fixedWaitPasses": 3,
+      "unexpectedResults": 0,
+      "finder": "restart_lifecycle",
+      "author": "root",
+      "verifier": "state_receipts",
+      "scope": "Verifier executed and hashed supplied prebuilt controlled binaries; not rebuilt independently, not release binaries."
+    }
+  },
+  "archive": {
+    "rawArtifactCount": 47,
+    "archivedHashesMatched": 47,
+    "originalHashesMatched": 47,
+    "wrappedPatchPayloadsMatchOriginalHash": true,
+    "missing": 0,
+    "unindexedRawArtifacts": 0,
+    "extraDocumentation": "README.md and manifest itself are not counted as raw artifacts.",
+    "details": "/tmp/rebind-ci-docs-hash-check.json"
+  },
+  "testScopeChecks": {
+    "testCommitChangedOnly": [
+      "crates/interaction-runtime/tests/declarative_session_loop.rs"
+    ],
+    "remainingAssertionsByteEqual": true,
+    "deadline25secPreserved": true,
+    "productionProbeAbsent": true,
+    "independentControlled": {
+      "redFailures": 3,
+      "greenPasses": 3
+    },
+    "localLinksChecked": 63,
+    "missingLinks": []
+  },
+  "documentationConclusions": [
+    "Current docs correctly distinguish the source/probe-supported reachable schedule from the exact unrecorded CI interleaving.",
+    "Earlier release-verify failure remains cause-unknown/not-reproduced; this named CI failure does not retroactively explain it.",
+    "The same25-second wait and100ms poll remain; assertions from let rebound through test end are byte-identical, including exact1/ready, session rejoin, high-risk disabled and sensor/unresolved-stop checks. Audit reads now explicitly fail.",
+    "857f009 changes only the test file. Runtime lifecycle/session/providers/storage bytes match baseline and current disk;750ms probe absent.",
+    "Integration follows the fixed857f009 commit association/PR/checks link. No invented final merge SHA/run and no repeated latest-doc-HEAD self-reference.",
+    "Unreleased Known limitations retains pty/synthetic scope, no new human/hardware evidence and the earlier unknown failure. Central docs and four release appendices agree.",
+    "63 local Markdown links resolve; archive README explicitly states JSON artifact paths are manifest-relative."
+  ],
+  "immutableRelease": {
+    "tagObject": "5bca3660afa1d74d7f0844eeb7832e1e25ff9375",
+    "peeledSource": "1fa69b8fafed54687119747c652a0869cb991f89",
+    "unchanged": true,
+    "productDependenciesProtocolChange": false,
+    "assetsReverifiedByThisReview": false
+  },
+  "reviewedFilePins": [
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "7e2376eaae8636141a290c1729fcce8bc98633a09da5a81bef282b1ec4d9c375"
+    },
+    {
+      "path": "crates/interaction-runtime/tests/declarative_session_loop.rs",
+      "sha256": "e10a684a5e57b3ad7e8d9e0f0cd81f91a9a190095d7d5041bfcb012bdf8aa8ff"
+    },
+    {
+      "path": "docs/acceptance-evidence.md",
+      "sha256": "9486bc9f079e26b310a0977931b9008ce928565cadccfe4a54e80729e2e49128"
+    },
+    {
+      "path": "docs/releases/evidence-index.json",
+      "sha256": "f0aa55e3180f44fc0a55433594ac6c5e6d6eb15a0e09fb2abb90b93281eb0979"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/README.md",
+      "sha256": "9db0e325a02bae5e28a1c85e69b4a5eab4d14344a2e76fa030811356e78b46b2"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/artifact-manifest.json",
+      "sha256": "c30207b3f8f5d18662da8fed8ab27bbedd02d2aa202c245053f9c8800117afb3"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/result.json",
+      "sha256": "662cc28807ef60e66c4842ebb5ea2b2dc397e07e87cf315d41df1b4d21aa80d7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-01.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-02.txt",
+      "sha256": "646c45048d419f8f02491e807885aae1b84a3488f204d58267f158b360ce1df8"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-03.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-04.txt",
+      "sha256": "4907602fe7aae9f88f67f0466afcd10b55ef511abc45d86c4c2be731e489d78a"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-05.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-06.txt",
+      "sha256": "99b15aef002911f899d0aeb4d7d85c0ff8eed2916a45453d5cabf7f388622fe5"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-07.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-08.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-09.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-10.txt",
+      "sha256": "1581fa475c2959b9553396ecd63ba94cd3c1460044baf4ba6820caed34a529a1"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-11.txt",
+      "sha256": "0b214b5888fb762bb18a6ac1f600373f6e72970a55a16fbb1f7fa93e3e57b336"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-12.txt",
+      "sha256": "646c45048d419f8f02491e807885aae1b84a3488f204d58267f158b360ce1df8"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-13.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-14.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-15.txt",
+      "sha256": "1581fa475c2959b9553396ecd63ba94cd3c1460044baf4ba6820caed34a529a1"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-16.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-17.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-18.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-19.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/baseline-repeat/run-20.txt",
+      "sha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/controlled/fixed-controlled-green.txt",
+      "sha256": "b7642d439455adb192a84cb1fdc6a3d9e3035a4b22221aaa74fa1014f1b097e8"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/controlled/green-run.json",
+      "sha256": "68a924c91dcbeda420a2700bd6027b0bb4f311e6bd1332c26f65da25bb5e5e76"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/controlled/instrumentation.diff.json",
+      "sha256": "bc2a14a0caf7f3a707fa2f895a182e4ec7dd79cd2592720315b3202ba4c4d026"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/controlled/original-red.txt",
+      "sha256": "650bd323c1645211f3b60d6a8cc26dcb3329931b2adeaba23322ac9c526288f8"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/controlled/read-checked-red.txt",
+      "sha256": "5c442204c2ba5126c5a349e14165f5ec3d0318eb8cb72b191c34ef9158a336d4"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/controlled/source.json",
+      "sha256": "96b3a87d0b045e71a59c4e34dc01add6b1b5d1ae888b2bf6d8ae0c424e43c37b"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/docs-main-ci-first-failed.json",
+      "sha256": "e662770ed5950b86ca2a906e87b92f07a42da931179b236e7356b1bcf3415aa8"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/docs-main-ci-first-failed.txt",
+      "sha256": "6d542e816363371963fce2b3cf074e4f60fcabf674131266ca252777285bb10a"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/docs-pr-ci-final.json",
+      "sha256": "bd2fefb5c9d20ab1f8601d4e3fc8575846ce6883a0c7743662bdfa33c042b43d"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/docs-pr-merged.json",
+      "sha256": "6128e0958b3837d425113a6e0eec7ce0a779c919ee2ab5bacb9336ef74531066"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/rebind-ci-baseline-local.txt",
+      "sha256": "19bd4ededa4cac405fef1845019c84d1f1c7beddf67ad336b022d13029ed3f74"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/rebind-ci-fix-clippy-captured.txt",
+      "sha256": "29162d76fb109d9c6005d8544d63a4a438d15235d4f9b8e73d51adc9ba6e95d7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/rebind-ci-fix-fmt-captured.txt",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/rebind-ci-fix-static.json",
+      "sha256": "bc2ec46aa9c9b2c89e084b7a02ba791862a22b9bd9223e7caa9594788995c427"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/rebind-ci-fix-workspace.json",
+      "sha256": "57ca9764305a45a6516cca0b103bd5279b2009ef5e2f5b015b178ad5daf563fd"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/rebind-ci-fix-workspace.txt",
+      "sha256": "d9e6296abeb28aaad1d9f4afda1db860b6fc375b10992953d23d2c0265a79f0a"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/review/rebind-ci-independent-find.json",
+      "sha256": "0a01760874e47460c4d1c8aeaf0d3799a1391042cba8bf72d7db481a28a55515"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/review/rebind-ci-independent-verify.json",
+      "sha256": "8c806c7af8800534f4b3f754d3300d9e85c34ed6a97b11f639942a35e933392b"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/review/verify-runs/fixed-controlled-test-1.txt",
+      "sha256": "03f03da29863b225984b78a8fb26a2e3ebfdd87442a7c17986cd07700f513d2e"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/review/verify-runs/fixed-controlled-test-2.txt",
+      "sha256": "c77d43982628becc850d547bc99f78c0dd55d8d78e91cbfba301166b81449927"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/review/verify-runs/fixed-controlled-test-3.txt",
+      "sha256": "b610d3baaab025ad391700f4aa709086aed4434483d93239295dbf3d4cda92e9"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/review/verify-runs/read-checked-red-test-1.txt",
+      "sha256": "d218c4d272393589ce940282320c7c8118f01e93f2e2ccb7b9202fc7894c698e"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/review/verify-runs/read-checked-red-test-2.txt",
+      "sha256": "ba0f3fcef3287c5e33a3e36c0f761c95db937ded6d0c3b1b68082accb5793a15"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/review/verify-runs/read-checked-red-test-3.txt",
+      "sha256": "a34cabe8f8188b4fa6f25167fa981bbc2d4494991739f15d656e204ccbbc879a"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/review/verify-runs/reviewed-test.diff.json",
+      "sha256": "00d0d23f4aa140c368c7e84d7dad3948c00f949e7188ac28d4431f35430ab1f7"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/review/verify-runs/runs.json",
+      "sha256": "a1417d6ff9040e2561ecb268fda016993c4e14af4ce5fe705b27c1f09b3bb24c"
+    },
+    {
+      "path": "docs/releases/next-convergence-progress.md",
+      "sha256": "6a9ecd86c01a82ca01e2f9e0c66630c44edb78abc92658d048743b7219d91bf0"
+    },
+    {
+      "path": "docs/releases/v0.8.0-ci-followup.md",
+      "sha256": "abedf136420af4c9413058ab3a003aa35ca2578d10a988021425220c061cf823"
+    },
+    {
+      "path": "docs/releases/v0.8.0-final-report.md",
+      "sha256": "f4d3e38797b609b1de2f6c46654c9accf3dfa6979d7bcca847d2f12642ea3af7"
+    },
+    {
+      "path": "docs/releases/v0.8.0-known-limitations.md",
+      "sha256": "3fb92485828632765bd9427194dc1b2963a18e7d2623257b8ecf7d41c1cba08a"
+    },
+    {
+      "path": "docs/releases/v0.8.0-publication.md",
+      "sha256": "f1a8e8dcf950358f4994b4e780db646afcfedfb5cd20b272512046aff7babd16"
+    },
+    {
+      "path": "docs/releases/v0.8.0-test-matrix.md",
+      "sha256": "fc238c34295b9c7f5139b98e9ce5de9ba1a0f0473baa2b102398ea7f5d49a6e1"
+    },
+    {
+      "path": "docs/releases/v0.8.0-ci-followup.md",
+      "sha256": "abedf136420af4c9413058ab3a003aa35ca2578d10a988021425220c061cf823"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/artifact-manifest.json",
+      "sha256": "c30207b3f8f5d18662da8fed8ab27bbedd02d2aa202c245053f9c8800117afb3"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/README.md",
+      "sha256": "9db0e325a02bae5e28a1c85e69b4a5eab4d14344a2e76fa030811356e78b46b2"
+    }
+  ],
+  "reviewerActions": {
+    "repoWrites": 0,
+    "builds": 0,
+    "productTests": 0,
+    "guiActions": 0,
+    "networkRefresh": 0,
+    "readOnlyBlobHashAndConsistencyChecks": true
+  },
+  "limits": "This is documentation/evidence review. Root owns new PR/main CI and docs gates; their outcomes are not predicted."
+}

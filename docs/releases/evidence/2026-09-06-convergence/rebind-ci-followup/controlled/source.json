@@ -1,0 +1,6 @@
+{
+  "baseCommit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+  "originalSha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6",
+  "probeSha256": "39e19d9cc9b629817542b1260c711db6f4e7c8525111877152a4b2712f8fbace",
+  "scope": "temporary 750ms async delay immediately before provider.rebound audit; product and test assertions otherwise unchanged"
+}

@@ -299,5 +299,30 @@
       },
       "publicationFacts": "docs/releases/evidence/2026-09-06-convergence/publication/publication-facts.json"
     }
+  ],
+  "postReleaseTestCorrections": [
+    {
+      "id": "rebind-completion-audit-wait",
+      "release": "0.8.0",
+      "sourceCommit": "857f009acf0b2c217f12ec041766ad7de2a2c7cf",
+      "failedMainCommit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "failedMainCi": 34020702196,
+      "classification": "test-only timing race; product source unchanged",
+      "status": "fixed-and-independently-verified",
+      "workspace": {
+        "passed": 1278,
+        "failed": 0,
+        "ignored": 0,
+        "testBinaries": 98
+      },
+      "independentControlledRuns": {
+        "oldWaitFailed": 3,
+        "fixedWaitPassed": 3
+      },
+      "integrationReference": "https://github.com/miles990/adaptive-interaction/commit/857f009acf0b2c217f12ec041766ad7de2a2c7cf",
+      "report": "docs/releases/v0.8.0-ci-followup.md",
+      "artifacts": "docs/releases/evidence/2026-09-06-convergence/rebind-ci-followup/artifact-manifest.json",
+      "tagUnchanged": true
+    }
   ]
 }

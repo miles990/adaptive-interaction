@@ -1,0 +1,356 @@
+{
+  "sourceCommit": "857f009acf0b2c217f12ec041766ad7de2a2c7cf",
+  "count": 50,
+  "files": [
+    {
+      "source": "/tmp/adaptive-convergence-20260906/docs-main-ci-first-failed.log",
+      "path": "docs-main-ci-first-failed.txt",
+      "originalSha256": "04cc175187d499f5604e00ad008119ebc3d1a356feb69ba077dd52f115fd144d",
+      "archivedSha256": "6d542e816363371963fce2b3cf074e4f60fcabf674131266ca252777285bb10a",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/docs-main-ci-first-failed.json",
+      "path": "docs-main-ci-first-failed.json",
+      "originalSha256": "e662770ed5950b86ca2a906e87b92f07a42da931179b236e7356b1bcf3415aa8",
+      "archivedSha256": "e662770ed5950b86ca2a906e87b92f07a42da931179b236e7356b1bcf3415aa8",
+      "transformation": "Known archived artifact paths are manifest-relative; original hash retained."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/docs-pr-ci-final.json",
+      "path": "docs-pr-ci-final.json",
+      "originalSha256": "bd2fefb5c9d20ab1f8601d4e3fc8575846ce6883a0c7743662bdfa33c042b43d",
+      "archivedSha256": "bd2fefb5c9d20ab1f8601d4e3fc8575846ce6883a0c7743662bdfa33c042b43d",
+      "transformation": "Known archived artifact paths are manifest-relative; original hash retained."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/docs-pr-merged.json",
+      "path": "docs-pr-merged.json",
+      "originalSha256": "6128e0958b3837d425113a6e0eec7ce0a779c919ee2ab5bacb9336ef74531066",
+      "archivedSha256": "6128e0958b3837d425113a6e0eec7ce0a779c919ee2ab5bacb9336ef74531066",
+      "transformation": "Known archived artifact paths are manifest-relative; original hash retained."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-local.log",
+      "path": "rebind-ci-baseline-local.txt",
+      "originalSha256": "5ce7a25fe47a78c378ecabcd714457b3d10b78ac27cdcd89da7ea9b13c577f72",
+      "archivedSha256": "19bd4ededa4cac405fef1845019c84d1f1c7beddf67ad336b022d13029ed3f74",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-fix-workspace.log",
+      "path": "rebind-ci-fix-workspace.txt",
+      "originalSha256": "b197a0e5ae3750aa030ea40993db5b8e2d346a97b121e50bd265d7aa060669ab",
+      "archivedSha256": "d9e6296abeb28aaad1d9f4afda1db860b6fc375b10992953d23d2c0265a79f0a",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-fix-workspace.json",
+      "path": "rebind-ci-fix-workspace.json",
+      "originalSha256": "57ca9764305a45a6516cca0b103bd5279b2009ef5e2f5b015b178ad5daf563fd",
+      "archivedSha256": "57ca9764305a45a6516cca0b103bd5279b2009ef5e2f5b015b178ad5daf563fd",
+      "transformation": "Known archived artifact paths are manifest-relative; original hash retained."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-fix-static.json",
+      "path": "rebind-ci-fix-static.json",
+      "originalSha256": "bc2ec46aa9c9b2c89e084b7a02ba791862a22b9bd9223e7caa9594788995c427",
+      "archivedSha256": "bc2ec46aa9c9b2c89e084b7a02ba791862a22b9bd9223e7caa9594788995c427",
+      "transformation": "Known archived artifact paths are manifest-relative; original hash retained."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-fix-fmt-captured.log",
+      "path": "rebind-ci-fix-fmt-captured.txt",
+      "originalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archivedSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-fix-clippy-captured.log",
+      "path": "rebind-ci-fix-clippy-captured.txt",
+      "originalSha256": "29162d76fb109d9c6005d8544d63a4a438d15235d4f9b8e73d51adc9ba6e95d7",
+      "archivedSha256": "29162d76fb109d9c6005d8544d63a4a438d15235d4f9b8e73d51adc9ba6e95d7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/result.json",
+      "path": "baseline-repeat/result.json",
+      "originalSha256": "662cc28807ef60e66c4842ebb5ea2b2dc397e07e87cf315d41df1b4d21aa80d7",
+      "archivedSha256": "662cc28807ef60e66c4842ebb5ea2b2dc397e07e87cf315d41df1b4d21aa80d7",
+      "transformation": "Known archived artifact paths are manifest-relative; original hash retained."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-20.log",
+      "path": "baseline-repeat/run-20.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-08.log",
+      "path": "baseline-repeat/run-08.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-09.log",
+      "path": "baseline-repeat/run-09.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-19.log",
+      "path": "baseline-repeat/run-19.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-18.log",
+      "path": "baseline-repeat/run-18.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-01.log",
+      "path": "baseline-repeat/run-01.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-15.log",
+      "path": "baseline-repeat/run-15.txt",
+      "originalSha256": "7be20fbfa74e9d463da436631b52dddcd603fc77a6aac4f12d7f48a454208d4f",
+      "archivedSha256": "1581fa475c2959b9553396ecd63ba94cd3c1460044baf4ba6820caed34a529a1",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-14.log",
+      "path": "baseline-repeat/run-14.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-16.log",
+      "path": "baseline-repeat/run-16.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-02.log",
+      "path": "baseline-repeat/run-02.txt",
+      "originalSha256": "1f9c87004d5008d986c727ecc0248577dcd516ea0e6fb01b38a7753f44db9551",
+      "archivedSha256": "646c45048d419f8f02491e807885aae1b84a3488f204d58267f158b360ce1df8",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-03.log",
+      "path": "baseline-repeat/run-03.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-17.log",
+      "path": "baseline-repeat/run-17.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-13.log",
+      "path": "baseline-repeat/run-13.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-07.log",
+      "path": "baseline-repeat/run-07.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-06.log",
+      "path": "baseline-repeat/run-06.txt",
+      "originalSha256": "ae54d7e84aea113738167ba0854c4ccb036346f095b61a546903a220ed8cd877",
+      "archivedSha256": "99b15aef002911f899d0aeb4d7d85c0ff8eed2916a45453d5cabf7f388622fe5",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-12.log",
+      "path": "baseline-repeat/run-12.txt",
+      "originalSha256": "1f9c87004d5008d986c727ecc0248577dcd516ea0e6fb01b38a7753f44db9551",
+      "archivedSha256": "646c45048d419f8f02491e807885aae1b84a3488f204d58267f158b360ce1df8",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-04.log",
+      "path": "baseline-repeat/run-04.txt",
+      "originalSha256": "cb16ba82c5910e7c41f0d658e31ca7aefcacea060ef6c4e3d98d0582fdb2975d",
+      "archivedSha256": "4907602fe7aae9f88f67f0466afcd10b55ef511abc45d86c4c2be731e489d78a",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-10.log",
+      "path": "baseline-repeat/run-10.txt",
+      "originalSha256": "7be20fbfa74e9d463da436631b52dddcd603fc77a6aac4f12d7f48a454208d4f",
+      "archivedSha256": "1581fa475c2959b9553396ecd63ba94cd3c1460044baf4ba6820caed34a529a1",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-11.log",
+      "path": "baseline-repeat/run-11.txt",
+      "originalSha256": "9eb3d351ce8d7f18d1eef57a5fdca430adabe9c6d6ae0858257dbda3c22716d7",
+      "archivedSha256": "0b214b5888fb762bb18a6ac1f600373f6e72970a55a16fbb1f7fa93e3e57b336",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-baseline-repeat/run-05.log",
+      "path": "baseline-repeat/run-05.txt",
+      "originalSha256": "318649b38d16ec1842083717a63026e0a91044109a141a97e3076b686e9ad142",
+      "archivedSha256": "c00b0406bbca2319f12fe42d8b69b7048c9eef25c375b1309e634415df3153f7",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/source.json",
+      "path": "controlled/source.json",
+      "originalSha256": "96b3a87d0b045e71a59c4e34dc01add6b1b5d1ae888b2bf6d8ae0c424e43c37b",
+      "archivedSha256": "96b3a87d0b045e71a59c4e34dc01add6b1b5d1ae888b2bf6d8ae0c424e43c37b",
+      "transformation": "Known archived artifact paths are manifest-relative; original hash retained."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/instrumentation.diff",
+      "path": "controlled/instrumentation.diff.json",
+      "originalSha256": "dad01b16355b4ccaa18873cd09579ea8eff4279537839fe769755073b7d0b1d7",
+      "archivedSha256": "bc2a14a0caf7f3a707fa2f895a182e4ec7dd79cd2592720315b3202ba4c4d026",
+      "transformation": "Raw patch wrapped in JSON to preserve context whitespace; decode patch before applying."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/original-red.log",
+      "path": "controlled/original-red.txt",
+      "originalSha256": "650bd323c1645211f3b60d6a8cc26dcb3329931b2adeaba23322ac9c526288f8",
+      "archivedSha256": "650bd323c1645211f3b60d6a8cc26dcb3329931b2adeaba23322ac9c526288f8",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red.log",
+      "path": "controlled/read-checked-red.txt",
+      "originalSha256": "5c442204c2ba5126c5a349e14165f5ec3d0318eb8cb72b191c34ef9158a336d4",
+      "archivedSha256": "5c442204c2ba5126c5a349e14165f5ec3d0318eb8cb72b191c34ef9158a336d4",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-green.log",
+      "path": "controlled/fixed-controlled-green.txt",
+      "originalSha256": "1f57e039d51bc131b6e9ce1ae3ffa86201198e8459f3844bff55b857c2f600a2",
+      "archivedSha256": "b7642d439455adb192a84cb1fdc6a3d9e3035a4b22221aaa74fa1014f1b097e8",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/green-run.json",
+      "path": "controlled/green-run.json",
+      "originalSha256": "68a924c91dcbeda420a2700bd6027b0bb4f311e6bd1332c26f65da25bb5e5e76",
+      "archivedSha256": "68a924c91dcbeda420a2700bd6027b0bb4f311e6bd1332c26f65da25bb5e5e76",
+      "transformation": "Known archived artifact paths are manifest-relative; original hash retained."
+    },
+    {
+      "source": "/tmp/rebind-ci-independent-find.json",
+      "path": "review/rebind-ci-independent-find.json",
+      "originalSha256": "59a7d83e1e3434052cc12ace2bd351768c2be2459db510373a17eafbfed3aa5d",
+      "archivedSha256": "0a01760874e47460c4d1c8aeaf0d3799a1391042cba8bf72d7db481a28a55515",
+      "transformation": "Known archived artifact paths are manifest-relative; original hash retained."
+    },
+    {
+      "source": "/tmp/rebind-ci-independent-verify.json",
+      "path": "review/rebind-ci-independent-verify.json",
+      "originalSha256": "f8b46de7e1c2951c3454752a37003cc41320f6bc53843ba137e297028550245e",
+      "archivedSha256": "8c806c7af8800534f4b3f754d3300d9e85c34ed6a97b11f639942a35e933392b",
+      "transformation": "Known archived artifact paths are manifest-relative; original hash retained."
+    },
+    {
+      "source": "/tmp/rebind-ci-independent-verify-runs/reviewed-test.diff",
+      "path": "review/verify-runs/reviewed-test.diff.json",
+      "originalSha256": "8ee680bd3d9fd381e57cf085522dc2c73fb51e8592edd197c20beb4686ea808a",
+      "archivedSha256": "00d0d23f4aa140c368c7e84d7dad3948c00f949e7188ac28d4431f35430ab1f7",
+      "transformation": "Raw patch wrapped in JSON to preserve context whitespace; decode patch before applying."
+    },
+    {
+      "source": "/tmp/rebind-ci-independent-verify-runs/read-checked-red-test-3.log",
+      "path": "review/verify-runs/read-checked-red-test-3.txt",
+      "originalSha256": "5607e2d452e77049eb9c9fb963c0f488add307180b1c287de435d05bdd16b4f8",
+      "archivedSha256": "a34cabe8f8188b4fa6f25167fa981bbc2d4494991739f15d656e204ccbbc879a",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/rebind-ci-independent-verify-runs/read-checked-red-test-2.log",
+      "path": "review/verify-runs/read-checked-red-test-2.txt",
+      "originalSha256": "01b678446fe530f2742ce0b8b003a9950b6151484dde066d136e21e49364dab1",
+      "archivedSha256": "ba0f3fcef3287c5e33a3e36c0f761c95db937ded6d0c3b1b68082accb5793a15",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/rebind-ci-independent-verify-runs/read-checked-red-test-1.log",
+      "path": "review/verify-runs/read-checked-red-test-1.txt",
+      "originalSha256": "152046a0d7d6ceaddcc43c58e217ae972e30f0237a284daf79e2a8272b98b11d",
+      "archivedSha256": "d218c4d272393589ce940282320c7c8118f01e93f2e2ccb7b9202fc7894c698e",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/rebind-ci-independent-verify-runs/fixed-controlled-test-1.log",
+      "path": "review/verify-runs/fixed-controlled-test-1.txt",
+      "originalSha256": "a815f35c19f6d385262bdb655bb61b1f3ac9aed73b7d18294899be0012532fcc",
+      "archivedSha256": "03f03da29863b225984b78a8fb26a2e3ebfdd87442a7c17986cd07700f513d2e",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/rebind-ci-independent-verify-runs/fixed-controlled-test-3.log",
+      "path": "review/verify-runs/fixed-controlled-test-3.txt",
+      "originalSha256": "3f5aed3f74c661cba06d8f777fdeaa059a674d6b9d8308e6199c15a7f68d2b09",
+      "archivedSha256": "b610d3baaab025ad391700f4aa709086aed4434483d93239295dbf3d4cda92e9",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/rebind-ci-independent-verify-runs/fixed-controlled-test-2.log",
+      "path": "review/verify-runs/fixed-controlled-test-2.txt",
+      "originalSha256": "8704e7ebc23833556aa022c692cf461a829f75bbd216e515dee9f617c65db0d6",
+      "archivedSha256": "c77d43982628becc850d547bc99f78c0dd55d8d78e91cbfba301166b81449927",
+      "transformation": "Trailing whitespace normalized; log extension .txt."
+    },
+    {
+      "source": "/tmp/rebind-ci-independent-verify-runs/runs.json",
+      "path": "review/verify-runs/runs.json",
+      "originalSha256": "08cfff151778f138e114b67b003c80aed9efaa9c887e3ad53fc2295e90dad4af",
+      "archivedSha256": "a1417d6ff9040e2561ecb268fda016993c4e14af4ce5fe705b27c1f09b3bb24c",
+      "transformation": "Known archived artifact paths are manifest-relative; original hash retained."
+    },
+    {
+      "source": "/tmp/rebind-ci-docs-review.json",
+      "path": "closeout/docs-independent-review.json",
+      "originalSha256": "61ce4a43f1898120b709b92f5045b166c404e57f491d2129f4d9334211d08897",
+      "archivedSha256": "61ce4a43f1898120b709b92f5045b166c404e57f491d2129f4d9334211d08897",
+      "transformation": "Trailing whitespace normalized; original hash retained."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-docs-check.log",
+      "path": "closeout/docs-first-check.txt",
+      "originalSha256": "09526294895c76f46d9cc6eb4ec5889ddd3f49f053499fcd6fc60199388e142a",
+      "archivedSha256": "f1045d0d007f903e80e49f29526af1055f564fc532fa26e01c9e75b0e303ca19",
+      "transformation": "Trailing whitespace normalized; original hash retained."
+    },
+    {
+      "source": "/tmp/adaptive-convergence-20260906/rebind-ci-docs-check-fixed.log",
+      "path": "closeout/docs-fixed-check.txt",
+      "originalSha256": "c3f48672dbde315a7d6bb8aaff63431c417db62a32bf2d4ffa69fb8dbf0b93ad",
+      "archivedSha256": "c3f48672dbde315a7d6bb8aaff63431c417db62a32bf2d4ffa69fb8dbf0b93ad",
+      "transformation": "Trailing whitespace normalized; original hash retained."
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "sourceCommit": "857f009acf0b2c217f12ec041766ad7de2a2c7cf",
+  "command": [
+    "cargo",
+    "test",
+    "--workspace",
+    "--no-fail-fast"
+  ],
+  "exitCode": 0,
+  "testBinaries": 98,
+  "passed": 1278,
+  "failed": 0,
+  "ignored": 0,
+  "outerWallSeconds": null,
+  "timingNote": "Full cargo wrapper wall clock was not separately captured; per-binary durations and compilation duration remain in the original log. No estimate is claimed.",
+  "logSha256": "b197a0e5ae3750aa030ea40993db5b8e2d346a97b121e50bd265d7aa060669ab",
+  "productionProbeRemoved": true
+}

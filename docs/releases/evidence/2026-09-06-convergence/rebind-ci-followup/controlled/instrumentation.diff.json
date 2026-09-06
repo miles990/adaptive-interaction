@@ -1,0 +1,4 @@
+{
+  "format": "historical-git-diff-text",
+  "patch": "diff --git a/crates/interaction-runtime/src/declarative_lifecycle.rs b/crates/interaction-runtime/src/declarative_lifecycle.rs\nindex 091e0c1..a7616ea 100644\n--- a/crates/interaction-runtime/src/declarative_lifecycle.rs\n+++ b/crates/interaction-runtime/src/declarative_lifecycle.rs\n@@ -849,6 +849,8 @@ async fn run_declarative_rebind(\n     // 套用完、而且真的收斂成功了才清：register 失敗或握手沒成立時，受器已經\n     // 被 unregister 過，紀錄必須留給下一次嘗試，否則預設值會把它們全部打開。\n     rt.clear_declarative_human_disabled(provider_id);\n+    // TEST PROBE rebind-ci: separate Ready publication from completion audit.\n+    tokio::time::sleep(Duration::from_millis(750)).await;\n     let _ = rt.store.audit(\n         \"provider.rebound\",\n         \"runtime\",\n"
+}

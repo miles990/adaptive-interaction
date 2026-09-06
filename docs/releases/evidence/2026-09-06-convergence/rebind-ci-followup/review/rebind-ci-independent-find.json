@@ -1,0 +1,294 @@
+{
+  "format": "independent-find/1",
+  "id": "CI-REBIND-AUDIT-WAIT-01",
+  "auditor": "/root/restart_lifecycle",
+  "createdAtUtc": "2026-09-06T08:13:57.869410+00:00",
+  "reviewCommit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+  "scope": "Independent Find/refutation of docs-main CI failure; shared repository read only, existing test binary executed once, no build or production modification. Parent owns controlled scheduling reproduction and test-only fix.",
+  "classification": "reachable test completion-wait race; no production regression established",
+  "status": "source reachability confirmed; actual failing CI interleaving is inferred, not directly instrumented",
+  "priority": "P2",
+  "finding": {
+    "title": "Wait for the rebound audit before asserting on its count",
+    "path": "crates/interaction-runtime/tests/declarative_session_loop.rs",
+    "startLine": 1613,
+    "endLine": 1632,
+    "problem": "The bounded wait observes only Bound and Available, then immediately assumes provider.rebound is already committed. Those are published by the independent handshake callback before the rebind coordinator necessarily wakes and emits its terminal audit. A valid production schedule therefore fails the immediate count assertion.",
+    "minimumFix": "Add presence of provider.rebound to the same bounded wait predicate, retaining the following exact len==1 and handshake==ready checks and all rejoin/high-risk/sensor assertions. Do not add unconditional sleep, swallow audit/assert errors, loosen len to>=1, or change production ordering.",
+    "whyProductOrderingIsValid": "Bound must precede Available so incoming session messages are not permanently gated. Provider availability is a transport/lifecycle fact, while provider.rebound records completion of the background lifecycle operation. No observed contract makes these publications one atomic transaction."
+  },
+  "confirmedFacts": [
+    {
+      "fact": "Original GitHub Rust suite failure is exactly audit count0 versus1 at1631; the earlier Bound+Available wait did not fail. Suite result32passed/1failed,29.85s.",
+      "evidence": "docs-main-ci-first-failed.txt",
+      "anchors": [
+        {
+          "line": 1113,
+          "excerpt": [
+            "Rust (fmt + clippy + test + build)\ttest\t2026-09-06T08:05:56.9186909Z ---- reenable_rebinds_without_restart stdout ----",
+            "Rust (fmt + clippy + test + build)\ttest\t2026-09-06T08:05:56.9187335Z ",
+            "Rust (fmt + clippy + test + build)\ttest\t2026-09-06T08:05:56.9188319Z thread 'reenable_rebinds_without_restart' (7238) panicked at crates/interaction-runtime/tests/declarative_session_loop.rs:1631:5:",
+            "Rust (fmt + clippy + test + build)\ttest\t2026-09-06T08:05:56.9189498Z assertion `left == right` failed: []",
+            "Rust (fmt + clippy + test + build)\ttest\t2026-09-06T08:05:56.9189934Z   left: 0",
+            "Rust (fmt + clippy + test + build)\ttest\t2026-09-06T08:05:56.9190231Z  right: 1",
+            "Rust (fmt + clippy + test + build)\ttest\t2026-09-06T08:05:56.9190754Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+            "Rust (fmt + clippy + test + build)\ttest\t2026-09-06T08:05:56.9191272Z "
+          ]
+        }
+      ]
+    },
+    {
+      "fact": "note_ready invokes converge_provider_after_link_ready, which commits Rebinding→Bound then Disconnected→Available under the provider serialization lock.",
+      "sources": [
+        "declarative_session.rs:179-217",
+        "providers.rs:1500-1591",
+        "declarative_lifecycle.rs:357-375"
+      ]
+    },
+    {
+      "fact": "run_declarative_rebind polls handshake readiness with a50ms sleep, later rechecks same-generation completion under the provider lock, then clears preserved choices and writes provider.rebound outside that block.",
+      "sources": [
+        "declarative_lifecycle.rs:47",
+        "declarative_lifecycle.rs:800-868"
+      ]
+    },
+    {
+      "fact": "list_providers reads the provider list; it does not await completion of the background rebind operation or its audit.",
+      "sources": [
+        "providers.rs:900-907"
+      ]
+    },
+    {
+      "fact": "audit_rows immediately queries audit_tail400 and converts query errors to an empty list with unwrap_or_default; no retry or error distinction exists in this helper.",
+      "sources": [
+        "declarative_session_loop.rs:1431-1439"
+      ]
+    },
+    {
+      "fact": "Store audit insertion and audit_tail query use the same connection mutex, but the provider-ready publication does not retain that mutex until terminal audit insertion. SQLite provides ordered individual calls, not a cross-task readiness→audit barrier.",
+      "sources": [
+        "interaction-storage/src/lib.rs:969-1004"
+      ]
+    },
+    {
+      "fact": "Independent single run of the existing original binary passed1/0 in0.47s; binary SHA256 remained unchanged. No natural failure reproduced locally by this auditor.",
+      "evidence": {
+        "command": [
+          "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/deps/declarative_session_loop-8de8c65a2448b923",
+          "reenable_rebinds_without_restart",
+          "--exact",
+          "--nocapture"
+        ],
+        "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+        "exit": 0,
+        "seconds": 0.526,
+        "binarySha256Before": "249c4f48628e4dac02708b1758fec988687b7114c37bb5738a8e6f8e345a49da",
+        "binarySha256After": "249c4f48628e4dac02708b1758fec988687b7114c37bb5738a8e6f8e345a49da",
+        "sourceNote": "Parent-built existing binary, executed read-only; no Cargo build by verifier",
+        "log": "/tmp/rebind-ci-independent-original.log"
+      }
+    },
+    {
+      "fact": "All paths changed between taggedmain1fa69b8 and faileddocs-mainb55 are under docs; product/test/driver changes count0.",
+      "changedPathCount": 222,
+      "nonDocsPaths": [
+        "AGENTS.md",
+        "CHANGELOG.md",
+        "CLAUDE.md",
+        "README.md"
+      ]
+    }
+  ],
+  "rankedHypotheses": [
+    {
+      "rank": 1,
+      "hypothesis": "Ready/Bound/Available is visible before coordinator emits provider.rebound.",
+      "prediction": "Delaying only coordinator completion after ready publication makes the old immediate audit assertion fail, while waiting for the audit preserves exact assertions and passes once the coordinator is released.",
+      "refutationAttempt": "Check whether both readiness paths hold a lock that list_providers/audit_tail also require until audit commit. They do not: list reads do not await provider serialization, and note_ready emits no provider.rebound. The coordinator may still be in50ms polling sleep.",
+      "disposition": "Not refuted; concrete valid schedule identified. Most specific explanation of reported symptom."
+    },
+    {
+      "rank": 2,
+      "hypothesis": "Rebind is superseded/revoked or genuinely never completes.",
+      "prediction": "The audit stays absent even after a generous completion wait and a same-generation completion audit cannot eventually appear; fail/superseded evidence or off state appears.",
+      "refutationAttempt": "Test performs no competing revoke/off operation between re-enable and audit assertion; fixture has its own tempfile Runtime and unique spec/device IDs. Production accepts same-generation already-Bound success rather than treating note_ready as supersession.",
+      "disposition": "No code-path evidence for this failure under the test actions. Cannot categorically rule out an unrecorded runtime failure from CI output alone; controlled eventual exact1/ready should distinguish it."
+    },
+    {
+      "rank": 3,
+      "hypothesis": "Storage failure, audit query error, or400-row truncation explains[].",
+      "prediction": "Direct audit_tail(...).expect fails, or the event remains absent after coordinator completion; a full audit snapshot is needed to distinguish query failure/eviction.",
+      "refutationAttempt": "Store calls are serialized and fixture database is isolated; ordinary write/read visibility is synchronous. However insertion error is ignored and helper hides read errors, so the failure excerpt alone cannot exclude a storage fault.",
+      "disposition": "Not established. Controlled reproduction must use successful direct audit_tail query and observe eventual exact1/ready; do not falsely label this hypothesis ruled out solely from[]."
+    }
+  ],
+  "reachableSchedule": [
+    "Coordinator polls readiness=false, enters REBIND_POLL50ms sleep.",
+    "Device binding completes handshake and calls note_ready.",
+    "note_declarative_link_ready commits same generation toBound; provider convergence publishesAvailable.",
+    "Test100ms poll happens in this interval, observesBound+Available, exits its wait.",
+    "Test audit_tail query succeeds before coordinator terminal audit insert; provider.rebound list is[].",
+    "Coordinator later wakes, accepts same generation alreadycommitted, and inserts one provider.rebound with handshake=ready."
+  ],
+  "independentExecution": {
+    "performed": true,
+    "kind": "existing unmodified binary single original-test run",
+    "record": {
+      "command": [
+        "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/deps/declarative_session_loop-8de8c65a2448b923",
+        "reenable_rebinds_without_restart",
+        "--exact",
+        "--nocapture"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "exit": 0,
+      "seconds": 0.526,
+      "binarySha256Before": "249c4f48628e4dac02708b1758fec988687b7114c37bb5738a8e6f8e345a49da",
+      "binarySha256After": "249c4f48628e4dac02708b1758fec988687b7114c37bb5738a8e6f8e345a49da",
+      "sourceNote": "Parent-built existing binary, executed read-only; no Cargo build by verifier",
+      "log": "/tmp/rebind-ci-independent-original.log"
+    },
+    "controlledDelayInjectionPerformedByThisAuditor": false,
+    "sharedCargoBuild": false,
+    "sharedRepositoryModified": false,
+    "testResultScope": "Does not establish absence of flaky failure or correctness of proposed patch."
+  },
+  "parentControlledProbeHandoff": {
+    "status": "parent controlled original assertion reproduced0pass/1fail; strict audit read and fixed predicate follow-up pending",
+    "recommendation": "Use isolated source copy to gate or delay coordinator before terminal audit without altering state/audit semantics; assert original same symptom then final direct successful audit read exact1/ready. Repeat same schedule with only predicate strengthened to wait for audit. Preserve patch and binary/source provenance.",
+    "actors": "parent root executes controlled red/green; restart_lifecycle independent Finder reviews reported artifacts separately when available.",
+    "observedOriginalRed": {
+      "executor": "/root",
+      "log": "controlled/original-red.txt",
+      "result": "same audit[] len0vs1 atoriginal1631",
+      "passed": 0,
+      "failed": 1,
+      "testSeconds": 0.56,
+      "injection": "750ms delay after clear_declarative_human_disabled and before provider.rebound audit; changes scheduling only",
+      "independentAuditorAction": "Read source identity, exact instrumentation diff and raw parent output; did not execute this controlled binary."
+    }
+  },
+  "inferences": [
+    "CI failure is consistent with the proven reachable scheduling window, but CI did not retain per-task ordering. This report does not claim to reconstruct its exact schedule.",
+    "The proposed test-only wait is a completion barrier, not a relaxation: missing audit still fails by deadline; duplicate audit and wrong handshake still fail exact assertions."
+  ],
+  "notExecuted": [
+    "No new Cargo build, instrumented production copy, controlled-delay test or fixed-predicate test was executed by this auditor.",
+    "No full suite, Linux CI rerun, native/physical device acceptance or tag mutation.",
+    "No claim that the earlier uninstrumented main release-verify workspace failure had this cause."
+  ],
+  "sources": [
+    {
+      "path": "crates/interaction-runtime/tests/declarative_session_loop.rs",
+      "commit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "sha256": "da67df39a54cb1cfb1462fbe160d58e9ff8180eaa5bdd63eab5066b55679038a",
+      "startLine": 1536,
+      "endLine": 1633,
+      "excerpt": "1536: fn dead_spec(spec_id: &str, device_id: &str) -> interaction_adapter_declarative::DeclarativeSpec {\n1537:     let port = std::env::temp_dir()\n1538:         .join(format!(\n1539:             \"decl-rebind-missing-{}-{spec_id}\",\n1540:             std::process::id()\n1541:         ))\n1542:         .to_string_lossy()\n1543:         .to_string();\n1544:     serde_json::from_value(spec_json(&port, spec_id, device_id)).expect(\"spec\")\n1545: }\n1546: \n1547: /// 停用一台**真的有裝置線**的宣告式裝置，再啟用：同一個行程裡它必須重新連上、\n1548: /// 重新成為 session 成員，而且 `activeSensors` 不留下任何幽靈。\n1549: #[tokio::test(flavor = \"multi_thread\")]\n1550: async fn reenable_rebinds_without_restart() {\n1551:     let Some(mut fx) = Fixture::spawn() else {\n1552:         return;\n1553:     };\n1554:     let home = tempfile::tempdir().unwrap();\n1555:     let rt = start_runtime(&home).await;\n1556:     rt.register_declarative_spec(&fx.spec())\n1557:         .await\n1558:         .expect(\"register\");\n1559:     let pid = ProviderId::new(&fx.provider_id);\n1560:     assert!(\n1561:         join_session(&mut fx, &rt).await,\n1562:         \"先加入 session：{:?}\\nsim log:\\n{}\",\n1563:         fx.members(&rt),\n1564:         fx.log_text()\n1565:     );\n1566:     rt.registry\n1567:         .set_receptor_enabled(&ReceptorId::new(&fx.receptor_id), true)\n1568:         .await\n1569:         .expect(\"enable receptor\");\n1570: \n1571:     // 停用：離開 session、宣告撤回、來源解除登記。\n1572:     rt.transition_provider(&pid, ProviderState::Disabled)\n1573:         .await\n1574:         .expect(\"disable\");\n1575:     // 20 秒是**測試機具**的等待上限（整個 workspace 並行時模擬器與 ack 都會變慢），\n1576:     // 不是產品時序：停用本身是同步完成的。\n1577:     assert!(\n1578:         wait_until(Duration::from_secs(20), || {\n1579:             let rt = rt.clone();\n1580:             let device_id = fx.device_id.clone();\n1581:             async move { presence_of(&rt, &device_id).is_none() }\n1582:         })\n1583:         .await,\n1584:         \"停用之後必須離開 session：{:?}\\naudits: {:?}\\nsim log:\\n{}\",\n1585:         fx.members(&rt),\n1586:         rt.store\n1587:             .audit_tail(400)\n1588:             .unwrap_or_default()\n1589:             .iter()\n1590:             .filter_map(|r| r[\"kind\"].as_str().map(str::to_string))\n1591:             .collect::<Vec<_>>(),\n1592:         fx.log_text()\n1593:     );\n1594:     assert_eq!(\n1595:         rt.declarative_lifecycle(&fx.provider_id),\n1596:         Some(DeclarativeLifecycle::Unbound {\n1597:             reason: UnboundReason::Disabled\n1598:         }),\n1599:         \"停用的原因必須說得出來\"\n1600:     );\n1601: \n1602:     // 啟用：狀態誠實地退到 disconnected，背景重新綁定。\n1603:     let back = rt\n1604:         .transition_provider(&pid, ProviderState::Available)\n1605:         .await\n1606:         .expect(\"re-enable\");\n1607:     assert_eq!(\n1608:         back.state,\n1609:         ProviderState::Disconnected,\n1610:         \"還沒握上手就不得說可用：{back:?}\"\n1611:     );\n1612: \n1613:     assert!(\n1614:         wait_until(Duration::from_secs(25), || {\n1615:             let rt = rt.clone();\n1616:             let pid = pid.clone();\n1617:             async move {\n1618:                 rt.declarative_lifecycle(pid.as_str()) == Some(DeclarativeLifecycle::Bound)\n1619:                     && rt\n1620:                         .list_providers()\n1621:                         .await\n1622:                         .into_iter()\n1623:                         .any(|p| p.identity.id == pid && p.state == ProviderState::Available)\n1624:             }\n1625:         })\n1626:         .await,\n1627:         \"同一個行程裡就要重新握上手並收斂成 available；sim log:\\n{}\",\n1628:         fx.log_text()\n1629:     );\n1630:     let rebound = audit_rows(&rt, \"provider.rebound\");\n1631:     assert_eq!(rebound.len(), 1, \"{rebound:?}\");\n1632:     assert_eq!(rebound[0][\"detail\"][\"handshake\"], json!(\"ready\"));\n1633: "
+    },
+    {
+      "path": "crates/interaction-runtime/tests/declarative_session_loop.rs",
+      "commit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "sha256": "da67df39a54cb1cfb1462fbe160d58e9ff8180eaa5bdd63eab5066b55679038a",
+      "startLine": 267,
+      "endLine": 282,
+      "excerpt": "267: async fn wait_until<F, Fut>(timeout: Duration, mut probe: F) -> bool\n268: where\n269:     F: FnMut() -> Fut,\n270:     Fut: std::future::Future<Output = bool>,\n271: {\n272:     let deadline = Instant::now() + timeout;\n273:     loop {\n274:         if probe().await {\n275:             return true;\n276:         }\n277:         if Instant::now() >= deadline {\n278:             return false;\n279:         }\n280:         tokio::time::sleep(Duration::from_millis(100)).await;\n281:     }\n282: }"
+    },
+    {
+      "path": "crates/interaction-runtime/tests/declarative_session_loop.rs",
+      "commit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "sha256": "da67df39a54cb1cfb1462fbe160d58e9ff8180eaa5bdd63eab5066b55679038a",
+      "startLine": 1431,
+      "endLine": 1439,
+      "excerpt": "1431: fn audit_rows(rt: &Runtime, kind: &str) -> Vec<Value> {\n1432:     rt.store\n1433:         .audit_tail(400)\n1434:         .unwrap_or_default()\n1435:         .into_iter()\n1436:         .filter(|row| row[\"kind\"] == json!(kind))\n1437:         .collect()\n1438: }\n1439: "
+    },
+    {
+      "path": "crates/interaction-runtime/src/declarative_lifecycle.rs",
+      "commit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "sha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6",
+      "startLine": 47,
+      "endLine": 47,
+      "excerpt": "47: const REBIND_POLL: Duration = Duration::from_millis(50);"
+    },
+    {
+      "path": "crates/interaction-runtime/src/declarative_lifecycle.rs",
+      "commit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "sha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6",
+      "startLine": 357,
+      "endLine": 375,
+      "excerpt": "357:     /// 這是**唯一**在握手成立時改寫生命週期的地方，而且只往「綁定成立」的\n358:     /// 方向走。呼叫端必須已經持有這台 provider 的序列化鎖：生命週期與\n359:     /// `ProviderState` 要一起動，中間插進一次停用就會讓兩者說出不同的話。\n360:     pub(crate) fn note_declarative_link_ready(&self, provider_id: &str) -> LinkReadyOutcome {\n361:         let Ok(mut map) = self.declarative_bindings.lock() else {\n362:             return LinkReadyOutcome::NotTracked;\n363:         };\n364:         let Some(entry) = map.get_mut(provider_id) else {\n365:             return LinkReadyOutcome::NotTracked;\n366:         };\n367:         match entry.lifecycle {\n368:             DeclarativeLifecycle::Bound => LinkReadyOutcome::AlreadyBound,\n369:             DeclarativeLifecycle::Rebinding { generation } => {\n370:                 entry.lifecycle = DeclarativeLifecycle::Bound;\n371:                 LinkReadyOutcome::Committed { generation }\n372:             }\n373:             // 「連線沒了」是唯一可以由一條晚到的握手自己收回來的原因：人類的\n374:             // 停用／撤銷／移除都是**決定**，不是連線狀態，不得被背景 task 推翻。\n375:             DeclarativeLifecycle::Unbound {"
+    },
+    {
+      "path": "crates/interaction-runtime/src/declarative_lifecycle.rs",
+      "commit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "sha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6",
+      "startLine": 800,
+      "endLine": 868,
+      "excerpt": "800:     let handshake = if channels.is_empty() {\n801:         // 沒有裝置線（純 HTTP adapter）：沒有握手可等。誠實：這不是「握手成功」。\n802:         \"none\"\n803:     } else {\n804:         let deadline = tokio::time::Instant::now() + REBIND_HANDSHAKE_BUDGET;\n805:         loop {\n806:             if channels.iter().all(|c| c.handshake_ready()) {\n807:                 break \"ready\";\n808:             }\n809:             if channels\n810:                 .iter()\n811:                 .any(|c| matches!(c.readiness(), LinkReadiness::Closed))\n812:             {\n813:                 return Err(RebindStop::Failed(\n814:                     \"a device link was closed while the rebind was waiting for its handshake\"\n815:                         .into(),\n816:                 ));\n817:             }\n818:             if tokio::time::Instant::now() >= deadline {\n819:                 return Err(RebindStop::Failed(format!(\n820:                     \"the device did not complete its hello/pairing handshake within {} s; it is \\\n821:                      NOT connected\",\n822:                     REBIND_HANDSHAKE_BUDGET.as_secs()\n823:                 )));\n824:             }\n825:             tokio::time::sleep(REBIND_POLL).await;\n826:         }\n827:     };\n828: \n829:     // ---- 8) 收斂 ProviderState ---------------------------------------------\n830:     let Some(rt) = upgrade(weak) else {\n831:         return Err(RebindStop::Superseded(\"the runtime is gone\".into()));\n832:     };\n833:     {\n834:         // 綁定先成立、狀態才敢說可用，而且**在同一把鎖裡**：兩者之間插進一次\n835:         // 停用，就會讓「已停用」與「可用」同時成立。\n836:         let _serialized = rt.providers.lock_provider(&id).await;\n837:         // 這條線的握手可能已經先把這一輪收斂成 `Bound` 了（`note_ready` →\n838:         // `note_declarative_link_ready`）。那不是「被別的決定接手」，是「這一輪\n839:         // 已經成功」——兩者不得記成同一件事。\n840:         if !rt.settle_declarative_rebind(provider_id, generation, true)\n841:             && !rt.declarative_rebind_committed(provider_id, generation)\n842:         {\n843:             return Err(RebindStop::Superseded(\n844:                 \"another decision took over before the rebind could be committed\".into(),\n845:             ));\n846:         }\n847:         rt.converge_provider_state_locked(&id, true, false).await;\n848:     }\n849:     // 套用完、而且真的收斂成功了才清：register 失敗或握手沒成立時，受器已經\n850:     // 被 unregister 過，紀錄必須留給下一次嘗試，否則預設值會把它們全部打開。\n851:     rt.clear_declarative_human_disabled(provider_id);\n852:     let _ = rt.store.audit(\n853:         \"provider.rebound\",\n854:         \"runtime\",\n855:         &json!({\n856:             \"providerId\": provider_id,\n857:             \"generation\": generation,\n858:             \"drained\": drained,\n859:             \"closedLinks\": closed_links,\n860:             \"staleChannels\": stale,\n861:             \"sensorStop\": sensor_stop,\n862:             \"handshake\": handshake,\n863:             // 人類先前手動關掉、這一輪刻意保持關閉的受器。空陣列＝沒有這種\n864:             // 受器，不是「不知道」。\n865:             \"keptDisabledReceptors\": kept_disabled,\n866:         }),\n867:     );\n868:     Ok(())"
+    },
+    {
+      "path": "crates/interaction-runtime/src/declarative_session.rs",
+      "commit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "sha256": "d81a4f3ce5642b66edde5766551919d3234bee54e27bfc0847c6837318c08246",
+      "startLine": 179,
+      "endLine": 217,
+      "excerpt": "179:     /// 握手成立：留一次身分強度稽核，並讓已經是成員的裝置回到 online。\n180:     async fn note_ready(&self, rt: &Runtime) {\n181:         if !self.announced_identity.swap(true, Ordering::SeqCst) {\n182:             let _ = rt.store.audit(\n183:                 \"aip.device-channel-ready\",\n184:                 \"runtime\",\n185:                 &json!({\n186:                     \"providerId\": self.provider_id,\n187:                     \"deviceId\": self.channel.expected_device_id(),\n188:                     \"transport\": self.channel.transport_label(),\n189:                     // 誠實：這條線的身分比已配對 iPhone 弱，稽核必須說得出來。\n190:                     \"identityStrength\": IDENTITY_STRENGTH_DEVICE_LINK,\n191:                     \"pairingUnverified\": self.channel.pairing_unverified(),\n192:                 }),\n193:             );\n194:         }\n195:         self.announced_reconnecting.store(false, Ordering::SeqCst);\n196:         // 出站登記：從這一刻起，別的成員造成的 shared state 變更才送得到這台\n197:         // 裝置。冪等（同一台裝置重複握手只是覆蓋同一個鍵）。\n198:         rt.register_device_outbound(\n199:             &self.channel.expected_device_id(),\n200:             Arc::new(DeclarativeOutbound {\n201:                 channel: self.channel.clone(),\n202:                 provider_id: self.provider_id.clone(),\n203:             }),\n204:         );\n205:         let party = self.party();\n206:         if rt.character_session_is_member(&party) {\n207:             rt.character_session_presence(&party, Presence::Online)\n208:                 .await;\n209:         }\n210:         // 這條線真的握上手了：如果 provider 還停在「重新連線中」\n211:         // （`Disconnected`），現在才是把它收斂成 `Available` 的時刻。\n212:         // 只認 `Disconnected` 這一個入口——握手不得冒充人類的啟用決定。\n213:         rt.converge_provider_after_link_ready(&interaction_core::ProviderId::new(\n214:             &self.provider_id,\n215:         ))\n216:         .await;\n217:     }"
+    },
+    {
+      "path": "crates/interaction-runtime/src/providers.rs",
+      "commit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "sha256": "49370a9be97ef0c0244618a07920f31ba1adfc1d864bd95abed94fcc47383c73",
+      "startLine": 1500,
+      "endLine": 1591,
+      "excerpt": "1500:     pub(crate) async fn converge_provider_after_link_ready(&self, id: &ProviderId) {\n1501:         use crate::declarative_lifecycle::LinkReadyOutcome;\n1502:         let _serialized = self.providers.lock_provider(id).await;\n1503:         // 撤銷／停用的決定跨重啟有效：store 說它是關的，就沒有任何背景握手\n1504:         // 可以把它打開。\n1505:         if let Some(reason) = self.provider_off_reason(id) {\n1506:             let _ = self.store.audit(\n1507:                 \"provider.link-ready-refused\",\n1508:                 \"runtime\",\n1509:                 &serde_json::json!({\n1510:                     \"providerId\": id.as_str(),\n1511:                     \"reason\": format!(\"this device is still marked off ({reason})\"),\n1512:                 }),\n1513:             );\n1514:             return;\n1515:         }\n1516:         let outcome = self.note_declarative_link_ready(id.as_str());\n1517:         let (established, recovered) = match &outcome {\n1518:             LinkReadyOutcome::Refused { lifecycle } => {\n1519:                 let _ = self.store.audit(\n1520:                     \"provider.link-ready-refused\",\n1521:                     \"runtime\",\n1522:                     &serde_json::json!({\n1523:                         \"providerId\": id.as_str(),\n1524:                         \"lifecycle\": lifecycle,\n1525:                         \"reason\": \"a late handshake never revives a binding the human took down\",\n1526:                     }),\n1527:                 );\n1528:                 return;\n1529:             }\n1530:             // 綁定表對它一無所知：維持既有行為（只收斂狀態），但也不假裝\n1531:             // 「綁定成立了」——失敗說明不得在這條路徑上被抹掉。\n1532:             LinkReadyOutcome::NotTracked => (false, false),\n1533:             LinkReadyOutcome::AlreadyBound | LinkReadyOutcome::Committed { .. } => (true, false),\n1534:             LinkReadyOutcome::RecoveredAfterFailure => (true, true),\n1535:         };\n1536:         self.converge_provider_state_locked(id, established, recovered)\n1537:             .await;\n1538:         if recovered {\n1539:             // 這一輪 rebind 的第 7 步已經把「人類先前手動關掉的受器」套用回去\n1540:             // 了（只是握手晚了一步）；紀錄留著的話，之後一次由**斷線**觸發的\n1541:             // 重新綁定會拿一份過期的名單去關掉人類早就重新打開的受器。\n1542:             self.clear_declarative_human_disabled(id.as_str());\n1543:         }\n1544:     }\n1545: \n1546:     /// 把狀態從 `Disconnected` 收斂成 `Available`（**呼叫端必須持有這台\n1547:     /// provider 的序列化鎖**）。\n1548:     ///\n1549:     /// `established` ＝這一次收斂真的讓綁定成立了嗎。只有它為真時才可以把\n1550:     /// `rebind-failed: …` 那一句從 detail 拿掉——否則一條晚到的握手會把失敗\n1551:     /// 說明抹掉，畫面上看不出這台裝置其實一句話都送不進來。\n1552:     pub(crate) async fn converge_provider_state_locked(\n1553:         &self,\n1554:         id: &ProviderId,\n1555:         established: bool,\n1556:         recovered: bool,\n1557:     ) {\n1558:         let Ok(existing) = self.providers.get(id).await else {\n1559:             return;\n1560:         };\n1561:         if existing.state != ProviderState::Disconnected {\n1562:             return;\n1563:         }\n1564:         let previous = provider_detail_warnings(existing.detail.as_deref());\n1565:         let failure_note: Option<String> = previous\n1566:             .iter()\n1567:             .find(|w| w.starts_with(REBIND_FAILED_WARNING))\n1568:             .cloned();\n1569:         let warnings: Vec<String> = previous\n1570:             .into_iter()\n1571:             .filter(|w| {\n1572:                 if w == REBINDING_WARNING {\n1573:                     // 「重新連線中」屬於上一個狀態，收斂完就不再成立。\n1574:                     return false;\n1575:                 }\n1576:                 if w.starts_with(REBIND_FAILED_WARNING) {\n1577:                     return !established;\n1578:                 }\n1579:                 true\n1580:             })\n1581:             .collect();\n1582:         if self\n1583:             .providers\n1584:             .transition(\n1585:                 id,\n1586:                 ProviderState::Available,\n1587:                 merge_provider_detail(None, None, &warnings),\n1588:             )\n1589:             .await\n1590:             .is_ok()\n1591:         {"
+    },
+    {
+      "path": "crates/interaction-runtime/src/providers.rs",
+      "commit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "sha256": "49370a9be97ef0c0244618a07920f31ba1adfc1d864bd95abed94fcc47383c73",
+      "startLine": 900,
+      "endLine": 907,
+      "excerpt": "900:     pub async fn list_providers(&self) -> Vec<ProviderDescriptor> {\n901:         self.providers\n902:             .list()\n903:             .await\n904:             .into_iter()\n905:             .map(|desc| self.with_character_label(self.with_tested(desc)))\n906:             .collect()\n907:     }"
+    },
+    {
+      "path": "crates/interaction-storage/src/lib.rs",
+      "commit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "sha256": "b433781454095bc1f70f5751dee4752751c03709f4d8aba7fd8383c0bcfd140c",
+      "startLine": 969,
+      "endLine": 1004,
+      "excerpt": "969:     pub fn audit(&self, kind: &str, actor: &str, detail: &serde_json::Value) -> DomainResult<()> {\n970:         let conn = self.conn.lock().expect(\"store lock\");\n971:         conn.execute(\n972:             \"INSERT INTO audit(at, kind, actor, detail) VALUES (?1,?2,?3,?4)\",\n973:             params![ts_to_str(Utc::now()), kind, actor, detail.to_string()],\n974:         )\n975:         .map_err(map_err)?;\n976:         Ok(())\n977:     }\n978: \n979:     pub fn audit_tail(&self, limit: u32) -> DomainResult<Vec<serde_json::Value>> {\n980:         let conn = self.conn.lock().expect(\"store lock\");\n981:         let mut stmt = conn\n982:             .prepare(\"SELECT at, kind, actor, detail FROM audit ORDER BY id DESC LIMIT ?1\")\n983:             .map_err(map_err)?;\n984:         let rows = stmt\n985:             .query_map(params![limit], |r| {\n986:                 Ok((\n987:                     r.get::<_, String>(0)?,\n988:                     r.get::<_, String>(1)?,\n989:                     r.get::<_, String>(2)?,\n990:                     r.get::<_, String>(3)?,\n991:                 ))\n992:             })\n993:             .map_err(map_err)?;\n994:         let mut out = Vec::new();\n995:         for row in rows {\n996:             let (at, kind, actor, detail) = row.map_err(map_err)?;\n997:             out.push(serde_json::json!({\n998:                 \"at\": at,\n999:                 \"kind\": kind,\n1000:                 \"actor\": actor,\n1001:                 \"detail\": serde_json::from_str::<serde_json::Value>(&detail).unwrap_or(serde_json::Value::String(detail)),\n1002:             }));\n1003:         }\n1004:         Ok(out)"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "docs-main-ci-first-failed.txt",
+      "bytes": 239680,
+      "sha256": "04cc175187d499f5604e00ad008119ebc3d1a356feb69ba077dd52f115fd144d"
+    },
+    {
+      "path": "/tmp/rebind-ci-independent-original.json",
+      "bytes": 647,
+      "sha256": "ed4eb78f49e3543de3f78bfff7a075bcf4fce936eec6be0224cdea8cba448680"
+    },
+    {
+      "path": "/tmp/rebind-ci-independent-original.log",
+      "bytes": 158,
+      "sha256": "7be20fbfa74e9d463da436631b52dddcd603fc77a6aac4f12d7f48a454208d4f"
+    },
+    {
+      "path": "controlled/source.json",
+      "bytes": 369,
+      "sha256": "96b3a87d0b045e71a59c4e34dc01add6b1b5d1ae888b2bf6d8ae0c424e43c37b"
+    },
+    {
+      "path": "controlled/instrumentation.diff.json",
+      "bytes": 822,
+      "sha256": "dad01b16355b4ccaa18873cd09579ea8eff4279537839fe769755073b7d0b1d7"
+    },
+    {
+      "path": "controlled/original-red.txt",
+      "bytes": 891,
+      "sha256": "650bd323c1645211f3b60d6a8cc26dcb3329931b2adeaba23322ac9c526288f8"
+    }
+  ]
+}
