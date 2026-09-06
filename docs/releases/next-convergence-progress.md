@@ -38,7 +38,9 @@ Rust 1.94.0、Cargo 1.94.0、Node 24.5.0、pnpm 10.27.0、Xcode 26.6。建置設
 2. 同一release App SHA-256 `1103cda7f8491ece2adbaab478056d14a174da47ab8536a2d652c734a0765f19`：settings clean/legacy各8步（4completed/4correctly-blocked）；work各4completed；mobile各10completed；preset10completed；basic各9completed＋1人工解除needs-environment，全部9runs exit0。CLI/fixture/driver hash固定，埠已清理。詳見[一般模式](v0.8.0-general-mode-tasks.md)。
 3. N1兩個原始缺陷已由非作者在未修改baseline622c8bf獨立反駁重現並回綠：TS2controls/5fail→7/0，Rust2controls/1fail→3/0。完整Find/Verify整理保留角色與歷史紅燈，不拿作者執行冒充獨立執行。
 4. [效能比較](v0.8.0-performance.md)完成：source622c8bf vs3b375bd，每版一暖機＋交錯三次sample，8runs全部成功；未越過事前p95/有界性/GC成長調查預算。不是全產品無退步或長期無leak宣稱。原始數據、完整source/輸入digest已封存repo。
-5. 工程與效能gate已完成；`release-prepare.sh 0.8.0`已成功（40.51s），四份manifest/兩鎖檔/OpenAPI版本已核對，frozen corpus與TS/Swift生成內容沒有被改動。現在提交正式release candidate並跑完整驗證，再建立PR；minor0.8.0理由已依實際變更寫在migration。後續為正式candidate完整驗證→push/PR/必要CI→rebase merge→實際main必要CI→同SHA完整release-verify→annotatedtag→Release資產下載/checksum/可用macOS安裝smoke。尚未執行的步驟不填預測SHA或run ID。
+5. 正式候選 `c15873acbaaed870d2c90fa95c12255f532ce782` 本機完整 Rust1278/0、Tauri78/0、TS1916/0、iOS模擬器163/0、CLI96/0、Browser92/0 通過。[PR #5](https://github.com/miles990/adaptive-interaction/pull/5) 的四項CI成功後已rebase合併；實際main `1fa69b8fafed54687119747c652a0869cb991f89` 與候選tree完全一致，[main CI](https://github.com/miles990/adaptive-interaction/actions/runs/34017910631) 四項成功。此SHA完整release-verify第二次0skip成功（165.78s）；第一次workspace非0但原腳本丟掉细項輸出，捕獲診斷重跑1278/0與完整第二次均成功，原因未定位，不宣稱已修復。
+6. annotated `v0.8.0` 已推送；object `5bca3660afa1d74d7f0844eeb7832e1e25ff9375`，遠端解參照 `1fa69b8fafed54687119747c652a0869cb991f89`，沒有移動舊tag。tag helper的靜態重查本身跳過full matrix，完整矩陣證據來自其前同SHA的165.78s驗證，二者分列。現在等待[Release workflow](https://github.com/miles990/adaptive-interaction/actions/runs/34018696536)，接著下載全部資產、checksum/source檢查、macOS CLI安裝及發布App原生smoke，再以文件PR回填。未完成資產驗證前不把發布標成完成。
+
 
 ## 6. Blockers
 
