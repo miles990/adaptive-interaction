@@ -1431,7 +1431,7 @@ async fn provider_state(rt: &Runtime, id: &ProviderId) -> Option<ProviderState> 
 fn audit_rows(rt: &Runtime, kind: &str) -> Vec<Value> {
     rt.store
         .audit_tail(400)
-        .unwrap_or_default()
+        .expect("read rebind audit rows")
         .into_iter()
         .filter(|row| row["kind"] == json!(kind))
         .collect()
@@ -1621,10 +1621,14 @@ async fn reenable_rebinds_without_restart() {
                         .await
                         .into_iter()
                         .any(|p| p.identity.id == pid && p.state == ProviderState::Available)
+                    // Ready can publish Bound/Available before the background rebind
+                    // task records completion. This test also verifies that audit, so
+                    // wait for it within the same bounded window before reading it.
+                    && !audit_rows(&rt, "provider.rebound").is_empty()
             }
         })
         .await,
-        "同一個行程裡就要重新握上手並收斂成 available；sim log:\n{}",
+        "同一個行程裡就要重新握上手、收斂成 available 並寫入完成稽核；sim log:\n{}",
         fx.log_text()
     );
     let rebound = audit_rows(&rt, "provider.rebound");
