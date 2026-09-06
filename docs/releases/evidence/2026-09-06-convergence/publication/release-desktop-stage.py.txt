@@ -1,0 +1,17 @@
+import hashlib,json,plistlib,subprocess,time
+from pathlib import Path
+b=Path('/tmp/adaptive-convergence-20260906');assets=b/'release-assets';verification=json.loads((b/'release-asset-verification.json').read_text());assert verification['status']=='passed' and verification['tag']=='v0.8.0'
+sha=subprocess.check_output(['git','rev-parse','v0.8.0^{}'],text=True).strip();assert verification['commit']==sha
+rows=[a for a in verification['assets'] if a['name'].endswith('.dmg')];assert len(rows)==1;row=rows[0];dmg=assets/row['name'];assert hashlib.sha256(dmg.read_bytes()).hexdigest()==row['sha256']
+assert any(c['asset']==row['name'] and c['sidecar']==row['name']+'.sha256' and c['matched'] for c in verification['checksumSidecars'])
+root=b/'release-desktop-install-v2';root.mkdir(exist_ok=False);mount=root/'mount';mount.mkdir();commands=[];start=time.monotonic();attached=False
+try:
+ cmd=['hdiutil','attach',str(dmg),'-readonly','-nobrowse','-mountpoint',str(mount),'-plist'];r=subprocess.run(cmd,capture_output=True,timeout=60);commands.append({'command':cmd,'exit':r.returncode});assert r.returncode==0,r.stderr.decode();attached=True
+ plist=plistlib.loads(r.stdout);assert any(e.get('mount-point') and Path(e['mount-point']).resolve()==mount.resolve() for e in plist['system-entities'])
+ apps=list(mount.glob('*.app'));assert len(apps)==1;dest=root/apps[0].name;cmd=['ditto',str(apps[0]),str(dest)];subprocess.run(cmd,check=True,timeout=60);commands.append({'command':cmd,'exit':0})
+ info=plistlib.loads((dest/'Contents/Info.plist').read_bytes());assert info['CFBundleShortVersionString']=='0.8.0',info['CFBundleShortVersionString'];binary=dest/'Contents/MacOS'/info['CFBundleExecutable'];assert binary.is_file()
+finally:
+ if attached:
+  cmd=['hdiutil','detach',str(mount)];r=subprocess.run(cmd,capture_output=True,text=True,timeout=60);commands.append({'command':cmd,'exit':r.returncode});assert r.returncode==0,r.stderr
+result={'status':'staged-and-version-checked','tag':'v0.8.0','sourceCommit':sha,'asset':row,'appPath':str(dest),'binarySha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'bundleVersion':info['CFBundleShortVersionString'],'bundleBuild':info.get('CFBundleVersion'),'commands':commands,'seconds':round(time.monotonic()-start,3),'mountDetached':True,'launch':'not-run here; separate native AX result','scope':'Read-only DMG mounted and App copied via ditto into task-owned temporary installation directory. No system Applications overwrite. Subsequent direct executable launch does not test Finder quarantine/Gatekeeper approval.'}
+(b/'release-install-desktop.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n');print(json.dumps(result,ensure_ascii=False,indent=2))

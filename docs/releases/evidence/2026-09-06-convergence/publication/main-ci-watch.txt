@@ -1,0 +1,492 @@
+Refreshing run status every 30 seconds. Press Ctrl+C to quit.
+
+* main CI · 34017910631
+Triggered via push about 2 minutes ago
+
+JOBS
+* Tauri backend (clippy + test) (ID 101444932302)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (webkit + tray + alsa)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ clippy
+  * test (host_safety / character_store / tray / click-through / supervisor units)
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+✓ Frontend (typecheck + component tests + build) in 1m24s (ID 101444932440)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Run pnpm install --frozen-lockfile
+  ✓ AIP codegen drift (TS/Swift types are generated, never hand-edited)
+  ✓ Run pnpm typecheck
+  ✓ component tests (honesty invariants, cards, wizard, dialogs, packs)
+  ✓ Run pnpm build
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Rust (fmt + clippy + test + build) (ID 101444932443)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the media adapter's cpal backend)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ fmt
+  ✓ clippy
+  * test
+  * build
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* Browser E2E (Playwright against a real daemon) (ID 101444932445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the embedded runtime)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ build the interact-ai daemon the E2E suite boots
+  ✓ build the simulated-iPhone fixture the E2E suite pairs with
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ install frontend deps
+  ✓ build frontend (served by vite preview in E2E)
+  ✓ install Playwright chromium
+  * browser E2E (onboarding, work delegation, simulated iPhone, sensors, a11y, estop)
+  * upload traces on failure
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Frontend (typecheck + component tests + build): .github#2
+
+Refreshing run status every 30 seconds. Press Ctrl+C to quit.
+
+* main CI · 34017910631
+Triggered via push about 3 minutes ago
+
+JOBS
+* Tauri backend (clippy + test) (ID 101444932302)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (webkit + tray + alsa)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ clippy
+  * test (host_safety / character_store / tray / click-through / supervisor units)
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+✓ Frontend (typecheck + component tests + build) in 1m24s (ID 101444932440)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Run pnpm install --frozen-lockfile
+  ✓ AIP codegen drift (TS/Swift types are generated, never hand-edited)
+  ✓ Run pnpm typecheck
+  ✓ component tests (honesty invariants, cards, wizard, dialogs, packs)
+  ✓ Run pnpm build
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Rust (fmt + clippy + test + build) (ID 101444932443)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the media adapter's cpal backend)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ fmt
+  ✓ clippy
+  * test
+  * build
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* Browser E2E (Playwright against a real daemon) (ID 101444932445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the embedded runtime)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ build the interact-ai daemon the E2E suite boots
+  ✓ build the simulated-iPhone fixture the E2E suite pairs with
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ install frontend deps
+  ✓ build frontend (served by vite preview in E2E)
+  ✓ install Playwright chromium
+  * browser E2E (onboarding, work delegation, simulated iPhone, sensors, a11y, estop)
+  * upload traces on failure
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Frontend (typecheck + component tests + build): .github#2
+
+Refreshing run status every 30 seconds. Press Ctrl+C to quit.
+
+* main CI · 34017910631
+Triggered via push about 3 minutes ago
+
+JOBS
+* Tauri backend (clippy + test) (ID 101444932302)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (webkit + tray + alsa)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ clippy
+  * test (host_safety / character_store / tray / click-through / supervisor units)
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+✓ Frontend (typecheck + component tests + build) in 1m24s (ID 101444932440)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Run pnpm install --frozen-lockfile
+  ✓ AIP codegen drift (TS/Swift types are generated, never hand-edited)
+  ✓ Run pnpm typecheck
+  ✓ component tests (honesty invariants, cards, wizard, dialogs, packs)
+  ✓ Run pnpm build
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Rust (fmt + clippy + test + build) (ID 101444932443)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the media adapter's cpal backend)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ fmt
+  ✓ clippy
+  * test
+  * build
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* Browser E2E (Playwright against a real daemon) (ID 101444932445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the embedded runtime)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ build the interact-ai daemon the E2E suite boots
+  ✓ build the simulated-iPhone fixture the E2E suite pairs with
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ install frontend deps
+  ✓ build frontend (served by vite preview in E2E)
+  ✓ install Playwright chromium
+  * browser E2E (onboarding, work delegation, simulated iPhone, sensors, a11y, estop)
+  * upload traces on failure
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Frontend (typecheck + component tests + build): .github#2
+
+Refreshing run status every 30 seconds. Press Ctrl+C to quit.
+
+* main CI · 34017910631
+Triggered via push about 4 minutes ago
+
+JOBS
+✓ Tauri backend (clippy + test) in 4m11s (ID 101444932302)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (webkit + tray + alsa)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ clippy
+  ✓ test (host_safety / character_store / tray / click-through / supervisor units)
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Frontend (typecheck + component tests + build) in 1m24s (ID 101444932440)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Run pnpm install --frozen-lockfile
+  ✓ AIP codegen drift (TS/Swift types are generated, never hand-edited)
+  ✓ Run pnpm typecheck
+  ✓ component tests (honesty invariants, cards, wizard, dialogs, packs)
+  ✓ Run pnpm build
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Rust (fmt + clippy + test + build) (ID 101444932443)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the media adapter's cpal backend)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ fmt
+  ✓ clippy
+  * test
+  * build
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* Browser E2E (Playwright against a real daemon) (ID 101444932445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the embedded runtime)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ build the interact-ai daemon the E2E suite boots
+  ✓ build the simulated-iPhone fixture the E2E suite pairs with
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ install frontend deps
+  ✓ build frontend (served by vite preview in E2E)
+  ✓ install Playwright chromium
+  * browser E2E (onboarding, work delegation, simulated iPhone, sensors, a11y, estop)
+  * upload traces on failure
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Frontend (typecheck + component tests + build): .github#2
+
+Refreshing run status every 30 seconds. Press Ctrl+C to quit.
+
+* main CI · 34017910631
+Triggered via push about 5 minutes ago
+
+JOBS
+✓ Tauri backend (clippy + test) in 4m11s (ID 101444932302)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (webkit + tray + alsa)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ clippy
+  ✓ test (host_safety / character_store / tray / click-through / supervisor units)
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Frontend (typecheck + component tests + build) in 1m24s (ID 101444932440)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Run pnpm install --frozen-lockfile
+  ✓ AIP codegen drift (TS/Swift types are generated, never hand-edited)
+  ✓ Run pnpm typecheck
+  ✓ component tests (honesty invariants, cards, wizard, dialogs, packs)
+  ✓ Run pnpm build
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Rust (fmt + clippy + test + build) (ID 101444932443)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the media adapter's cpal backend)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ fmt
+  ✓ clippy
+  ✓ test
+  * build
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* Browser E2E (Playwright against a real daemon) (ID 101444932445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the embedded runtime)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ build the interact-ai daemon the E2E suite boots
+  ✓ build the simulated-iPhone fixture the E2E suite pairs with
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ install frontend deps
+  ✓ build frontend (served by vite preview in E2E)
+  ✓ install Playwright chromium
+  * browser E2E (onboarding, work delegation, simulated iPhone, sensors, a11y, estop)
+  * upload traces on failure
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Frontend (typecheck + component tests + build): .github#2
+
+Refreshing run status every 30 seconds. Press Ctrl+C to quit.
+
+* main CI · 34017910631
+Triggered via push about 5 minutes ago
+
+JOBS
+✓ Tauri backend (clippy + test) in 4m11s (ID 101444932302)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (webkit + tray + alsa)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ clippy
+  ✓ test (host_safety / character_store / tray / click-through / supervisor units)
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Frontend (typecheck + component tests + build) in 1m24s (ID 101444932440)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Run pnpm install --frozen-lockfile
+  ✓ AIP codegen drift (TS/Swift types are generated, never hand-edited)
+  ✓ Run pnpm typecheck
+  ✓ component tests (honesty invariants, cards, wizard, dialogs, packs)
+  ✓ Run pnpm build
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Rust (fmt + clippy + test + build) (ID 101444932443)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the media adapter's cpal backend)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ fmt
+  ✓ clippy
+  ✓ test
+  ✓ build
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* Browser E2E (Playwright against a real daemon) (ID 101444932445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the embedded runtime)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ build the interact-ai daemon the E2E suite boots
+  ✓ build the simulated-iPhone fixture the E2E suite pairs with
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ install frontend deps
+  ✓ build frontend (served by vite preview in E2E)
+  ✓ install Playwright chromium
+  * browser E2E (onboarding, work delegation, simulated iPhone, sensors, a11y, estop)
+  * upload traces on failure
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Frontend (typecheck + component tests + build): .github#2
+
+✓ main CI · 34017910631
+Triggered via push about 6 minutes ago
+
+JOBS
+✓ Tauri backend (clippy + test) in 4m11s (ID 101444932302)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (webkit + tray + alsa)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ clippy
+  ✓ test (host_safety / character_store / tray / click-through / supervisor units)
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Frontend (typecheck + component tests + build) in 1m24s (ID 101444932440)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Run pnpm install --frozen-lockfile
+  ✓ AIP codegen drift (TS/Swift types are generated, never hand-edited)
+  ✓ Run pnpm typecheck
+  ✓ component tests (honesty invariants, cards, wizard, dialogs, packs)
+  ✓ Run pnpm build
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Rust (fmt + clippy + test + build) in 5m39s (ID 101444932443)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the media adapter's cpal backend)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ fmt
+  ✓ clippy
+  ✓ test
+  ✓ build
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Browser E2E (Playwright against a real daemon) in 5m49s (ID 101444932445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ system deps (alsa for the embedded runtime)
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ build the interact-ai daemon the E2E suite boots
+  ✓ build the simulated-iPhone fixture the E2E suite pairs with
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ install frontend deps
+  ✓ build frontend (served by vite preview in E2E)
+  ✓ install Playwright chromium
+  ✓ browser E2E (onboarding, work delegation, simulated iPhone, sensors, a11y, estop)
+  - upload traces on failure
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Frontend (typecheck + component tests + build): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Rust (fmt + clippy + test + build): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Browser E2E (Playwright against a real daemon): .github#2

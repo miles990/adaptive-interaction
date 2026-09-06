@@ -1,0 +1,11 @@
+{
+  "command": [
+    "fmt",
+    "--all",
+    "--check"
+  ],
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "exit": 0,
+  "seconds": 1.169,
+  "log": "1788678772064106000-23078-fmt.txt"
+}

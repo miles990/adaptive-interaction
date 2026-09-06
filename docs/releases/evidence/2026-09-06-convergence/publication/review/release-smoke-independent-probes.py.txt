@@ -1,0 +1,103 @@
+from pathlib import Path
+import ast,copy,datetime,hashlib,json,re,subprocess,tempfile
+base=Path('/tmp/adaptive-convergence-20260906')
+asset_file=base/'verify-release-assets.py';smoke_file=base/'release-install-smoke.py'
+asset_tree=ast.parse(asset_file.read_text());smoke_tree=ast.parse(smoke_file.read_text());results=[]
+def compiled(nodes,name):return compile(ast.Module(body=nodes,type_ignores=[]),name,'exec')
+def probe(name,fn,reject=False):
+ try:fn()
+ except (AssertionError,KeyError,FileNotFoundError,subprocess.TimeoutExpired) as e:
+  if not reject:raise
+  result={'id':name,'passed':True,'expected':'reject before execution','observed':type(e).__name__,'detail':str(e)}
+ else:
+  assert not reject,name+' unexpectedly accepted'
+  result={'id':name,'passed':True,'expected':'accept positive control','observed':'accepted'}
+ results.append(result);print(json.dumps(result),flush=True)
+# Exact original checksum block, confined to synthetic in-memory file objects.
+start=next(n.lineno for n in asset_tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='checksums' for t in n.targets))
+end=next(n.lineno for n in asset_tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='source_checks' for t in n.targets))
+checksum_code=compiled([n for n in asset_tree.body if start<=n.lineno<end],str(asset_file)+'[checksum block]')
+class Item:
+ def __init__(self,name,body):self.name=name;self.body=body
+ def read_text(self):return self.body
+ def read_bytes(self):return self.body.encode()
+ def __lt__(self,other):return self.name<other.name
+class MemoryAssets:
+ def __init__(self,items):self.items=items
+ def glob(self,_):return [v for k,v in self.items.items() if k.endswith('.sha256')]
+ def __truediv__(self,name):return self.items[name]
+def checksum_case(wrong):
+ items={'QUICKSTART.md':Item('QUICKSTART.md','known documentation bytes')}
+ for i in range(9):
+  name=f'binary-{i}.tar.gz';items[name]=Item(name,f'binary fixture {i}')
+  target='QUICKSTART.md' if wrong else name
+  digest=hashlib.sha256(items[target].read_bytes()).hexdigest()
+  items[name+'.sha256']=Item(name+'.sha256',digest+'  '+target)
+ namespace={'assets':MemoryAssets(items),'names':set(items),'Path':Path,'hashlib':hashlib,'re':re}
+ exec(checksum_code,namespace)
+ assert len(namespace['checksums'])==9
+probe('original-nine-sidecars-all-cover-QUICKSTART',lambda:checksum_case(True),True)
+probe('nine-correctly-named-sidecars-control',lambda:checksum_case(False))
+# Metadata name safety assertions, exactly as currently authored.
+meta_nodes=[n for n in asset_tree.body if n.lineno==4]
+meta_code=compiled(meta_nodes,str(asset_file)+'[metadata name guards]')
+def metadata(names):
+ ns={'Path':Path,'tag':'v0.8.0','meta':{'tag_name':'v0.8.0','draft':False,'prerelease':False,'assets':[{'name':n} for n in names]}}
+ exec(meta_code,ns)
+probe('metadata-unique-basename-control',lambda:metadata(['one.tar.gz','two.zip']))
+probe('metadata-duplicate-name',lambda:metadata(['one.tar.gz','one.tar.gz']),True)
+probe('metadata-parent-path',lambda:metadata(['../outside']),True)
+probe('metadata-absolute-path',lambda:metadata(['/tmp/outside']),True)
+# Extract ONLY preflight, ending before destination creation/installer invocation.
+preflight_end=next(n.lineno for n in smoke_tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='dest' for t in n.targets))
+preflight_nodes=[n for n in smoke_tree.body if 4<=n.lineno<preflight_end]
+assert not any(isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr in ('run','Popen','mkdir') for root in preflight_nodes for n in ast.walk(root))
+preflight=compiled(preflight_nodes,str(smoke_file)+'[pre-install verification only]')
+expected_commit='1234567890abcdef1234567890abcdef12345678'
+class GitReference:
+ def check_output(self,cmd,**kwargs):
+  assert cmd==['git','rev-parse','v0.8.0^{}']
+  return expected_commit+'\n'
+arm='interact-ai-v0.8.0-aarch64-apple-darwin.tar.gz';intel='interact-ai-v0.8.0-x86_64-apple-darwin.tar.gz'
+contents={'install.sh':b'fixture installer is never executed',arm:b'fixture arm archive is never extracted',arm+'.sha256':b'fixture arm sidecar',intel:b'fixture intel archive is never executed'}
+rows=[{'name':n,'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()} for n,data in contents.items()]
+reference={'status':'passed','tag':'v0.8.0','commit':expected_commit,'assets':rows,'assetCount':len(rows),'checksumSidecars':[{'asset':n,'sidecar':n+'.sha256','matched':True,'sha256':hashlib.sha256(contents[n]).hexdigest()} for n in [arm,intel]]}
+def preflight_case(change=lambda report,root:None):
+ with tempfile.TemporaryDirectory(prefix='release-preflight-negative-') as folder:
+  root=Path(folder);assets=root/'release-assets';assets.mkdir()
+  for n,b in contents.items():(assets/n).write_bytes(b)
+  report=copy.deepcopy(reference);change(report,root)
+  if report is not None:(root/'release-asset-verification.json').write_text(json.dumps(report))
+  exec(preflight,{'b':root,'assets':assets,'json':json,'hashlib':hashlib,'subprocess':GitReference()})
+  assert not (root/'release-install').exists()
+probe('verified-report-and-pinned-bytes-control',lambda:preflight_case())
+# Missing report uses a separate exact preflight namespace with no file.
+def absent_report():
+ with tempfile.TemporaryDirectory(prefix='release-preflight-missing-') as f:
+  exec(preflight,{'b':Path(f),'assets':Path(f)/'release-assets','json':json,'hashlib':hashlib,'subprocess':GitReference()})
+probe('missing-verification-report',absent_report,True)
+probe('failed-verification-status',lambda:preflight_case(lambda x,r:x.update(status='failed')),True)
+probe('wrong-report-version',lambda:preflight_case(lambda x,r:x.update(tag='v0.7.0')),True)
+probe('wrong-report-commit',lambda:preflight_case(lambda x,r:x.update(commit='f'*40)),True)
+probe('duplicate-verified-asset-name',lambda:preflight_case(lambda x,r:x['assets'].append(copy.deepcopy(x['assets'][0]))),True)
+probe('wrong-verified-asset-count',lambda:preflight_case(lambda x,r:x.update(assetCount=99)),True)
+probe('missing-installer-file',lambda:preflight_case(lambda x,r:(r/'release-assets/install.sh').unlink()),True)
+probe('changed-installer-bytes',lambda:preflight_case(lambda x,r:(r/'release-assets/install.sh').write_bytes(b'changed')),True)
+probe('changed-arm-archive-bytes',lambda:preflight_case(lambda x,r:(r/'release-assets'/arm).write_bytes(b'changed')),True)
+probe('wrong-report-byte-size',lambda:preflight_case(lambda x,r:x['assets'][0].update(bytes=1)),True)
+probe('missing-archive-sidecar-proof',lambda:preflight_case(lambda x,r:x.update(checksumSidecars=[])),True)
+probe('mismatched-sidecar-proof-hash',lambda:preflight_case(lambda x,r:x['checksumSidecars'][0].update(sha256='f'*64)),True)
+# Invoke only the --version AST expression using a spy that requires timeout20.
+version_node=next(n for n in smoke_tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='version' for t in n.targets))
+version_calls=[]
+class HangingVersion:
+ def check_output(self,cmd,**kwargs):
+  version_calls.append({"command":cmd,"kwargs":kwargs})
+  assert cmd==['/never-executed/interact-ai','--version']
+  assert kwargs.get('timeout')==20
+  raise subprocess.TimeoutExpired(cmd,kwargs['timeout'])
+probe('initial-version-hang-has-timeout20',lambda:exec(compiled([version_node],str(smoke_file)+'[version timeout probe]'),{'subprocess':HangingVersion(),'cli':Path('/never-executed/interact-ai')}),True)
+assert len(version_calls)==1 and version_calls[0]['kwargs'].get('timeout')==20, 'timeout keyword must independently be 20, not merely any caught assertion'
+report={'reviewer':'/root/state_receipts','fixAuthor':'/root','completedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'status':'all original findings independently verified fixed at reviewed source hashes','executedReleaseScripts':False,'downloadedInstalledOrLaunched':False,'repositoryModified':False,'buildsRun':False,'method':'Extract current production-script AST for checksum validation, asset-name assertions, and pre-install verification. Use in-memory files or fresh temporary fixture directories; subprocess Git reference and version call are stubs for known inputs/timeouts. No installer/archive/runtime is executed.','counts':{'passed':len(results),'failed':0,'negativeRejectionProbes':sum(x['expected']=='reject before execution' for x in results),'positiveControls':sum(x['expected']=='accept positive control' for x in results)},'results':results,'findings':[{'id':'RELEASE-ASSETS-01','status':'fixed','evidence':'Original nine sidecars all targeting QUICKSTART now fail Sidecar filename and target differ; nine proper sidecars pass. Duplicate and unsafe asset names reject.'},{'id':'RELEASE-SMOKE-02','status':'fixed','evidence':'Preflight rejects missing/failed/wrong-version/wrong-commit report, duplicate/count mismatch, missing/changed installer, changed arm archive, wrong byte size and missing/mismatched sidecar proof before dest creation or installer invocation. Correct report and matching bytes pass.'},{'id':'RELEASE-SMOKE-03','status':'fixed','evidence':'Initial version subprocess now receives timeout=20; injected TimeoutExpired propagates as failure without executing a binary.'}],'sourceHashes':[{'path':str(f),'sha256':hashlib.sha256(f.read_bytes()).hexdigest()} for f in [asset_file,smoke_file]],'probeSource':'/tmp/release-smoke-independent-probes.py','probeSourceSha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'limits':['This is negative/preflight harness verification, not release download, checksum validation of actual published assets, installation, daemon readiness/shutdown or native GUI acceptance.','Git tag resolution is represented by a fixed reference value for preflight branch tests; actual v0.8.0 peeled tag must be resolved by the real release run.','The inherited installer unverified-download escape hatch was not cleared, but successful smoke is now gated by a previously verified local archive plus installed-byte equality. It cannot independently bypass the fixed verified-byte checks.','Normal non-optimized Python execution is assumed, consistent with planned python3 invocation; no claim is made for assert-stripped -O execution.']}
+Path('/tmp/release-smoke-independent-verify.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
+print(json.dumps({'report':'/tmp/release-smoke-independent-verify.json',**report['counts']}))

@@ -1,0 +1,20 @@
+#!/opt/homebrew/bin/python3
+import json,os,subprocess,sys,threading,time
+from pathlib import Path
+base=Path('/tmp/adaptive-convergence-20260906/main-verify-cargo-logs');base.mkdir(exist_ok=True)
+path=base/(str(time.time_ns())+'-'+str(os.getpid())+'-'+(sys.argv[1] if len(sys.argv)>1 else 'cargo')+'.log')
+lock=threading.Lock();started=time.monotonic()
+with path.open('wb') as log:
+ child=subprocess.Popen(['/opt/homebrew/bin/cargo',*sys.argv[1:]],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+ def forward(source,destination):
+  while True:
+   chunk=source.read(16384)
+   if not chunk:break
+   with lock:log.write(chunk);log.flush()
+   destination.buffer.write(chunk);destination.buffer.flush()
+ threads=[threading.Thread(target=forward,args=(child.stdout,sys.stdout)),threading.Thread(target=forward,args=(child.stderr,sys.stderr))]
+ for t in threads:t.start()
+ rc=child.wait()
+ for t in threads:t.join()
+path.with_suffix('.json').write_text(json.dumps({'command':sys.argv[1:],'cwd':os.getcwd(),'exit':rc,'seconds':round(time.monotonic()-started,3),'log':str(path)},indent=2)+'\n')
+sys.exit(rc if rc>=0 else 128-rc)

@@ -1,0 +1,276 @@
+{
+  "status": "passed",
+  "validatorSha256": "9d66dea796b8db088d365b336fe684872ac19b1aa3e777862742e26af886193d",
+  "tag": "v0.8.0",
+  "commit": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "releaseId": 383497697,
+  "publishedAt": "2026-09-06T07:35:55Z",
+  "url": "https://github.com/miles990/adaptive-interaction/releases/tag/v0.8.0",
+  "assetCount": 23,
+  "assets": [
+    {
+      "name": "CHANGELOG.md",
+      "bytes": 207791,
+      "sha256": "45266426921bbba131627c11dfde42cf0661309cf58cbf10225a3f8ae8257175",
+      "githubDigest": "sha256:45266426921bbba131627c11dfde42cf0661309cf58cbf10225a3f8ae8257175",
+      "githubDigestMatched": true,
+      "assetId": 546869291
+    },
+    {
+      "name": "install.sh",
+      "bytes": 8348,
+      "sha256": "306091e3c6f2b9bed3ee60f1e5843a1ee0063fb41924d4d61e98ad5a46ee6ae1",
+      "githubDigest": "sha256:306091e3c6f2b9bed3ee60f1e5843a1ee0063fb41924d4d61e98ad5a46ee6ae1",
+      "githubDigestMatched": true,
+      "assetId": 546869295
+    },
+    {
+      "name": "interact-ai-v0.8.0-aarch64-apple-darwin.tar.gz",
+      "bytes": 14304721,
+      "sha256": "feff5f5af4e36c138f34fe6345029e4545ac259071449f0941d28ee17bf23896",
+      "githubDigest": "sha256:feff5f5af4e36c138f34fe6345029e4545ac259071449f0941d28ee17bf23896",
+      "githubDigestMatched": true,
+      "assetId": 546875119
+    },
+    {
+      "name": "interact-ai-v0.8.0-aarch64-apple-darwin.tar.gz.sha256",
+      "bytes": 113,
+      "sha256": "0dd81f6894604b524d52f14da87947059c4d00621c4b34f21524292eea2caa0c",
+      "githubDigest": "sha256:0dd81f6894604b524d52f14da87947059c4d00621c4b34f21524292eea2caa0c",
+      "githubDigestMatched": true,
+      "assetId": 546875117
+    },
+    {
+      "name": "interact-ai-v0.8.0-x86_64-apple-darwin.tar.gz",
+      "bytes": 15250471,
+      "sha256": "b7756a542e0657e6ee12214461f47bb24dea07d9fe867dadcb244ff627d5ab1e",
+      "githubDigest": "sha256:b7756a542e0657e6ee12214461f47bb24dea07d9fe867dadcb244ff627d5ab1e",
+      "githubDigestMatched": true,
+      "assetId": 546875375
+    },
+    {
+      "name": "interact-ai-v0.8.0-x86_64-apple-darwin.tar.gz.sha256",
+      "bytes": 112,
+      "sha256": "86d92db3009186536ef16aa2a1a977dd07bc826553d332e544ef643e0a2ec8a6",
+      "githubDigest": "sha256:86d92db3009186536ef16aa2a1a977dd07bc826553d332e544ef643e0a2ec8a6",
+      "githubDigestMatched": true,
+      "assetId": 546875376
+    },
+    {
+      "name": "interact-ai-v0.8.0-x86_64-pc-windows-msvc.zip",
+      "bytes": 39321600,
+      "sha256": "88dc050c35b2298978a4df59fb3a1bbaa63984662aa0ff28138fa8bb27f38be2",
+      "githubDigest": "sha256:88dc050c35b2298978a4df59fb3a1bbaa63984662aa0ff28138fa8bb27f38be2",
+      "githubDigestMatched": true,
+      "assetId": 546879107
+    },
+    {
+      "name": "interact-ai-v0.8.0-x86_64-pc-windows-msvc.zip.sha256",
+      "bytes": 113,
+      "sha256": "7162fd679eabc3bbd87fa4399855ff47d89758118ef2a467977d05f46df6823e",
+      "githubDigest": "sha256:7162fd679eabc3bbd87fa4399855ff47d89758118ef2a467977d05f46df6823e",
+      "githubDigestMatched": true,
+      "assetId": 546879106
+    },
+    {
+      "name": "interact-ai-v0.8.0-x86_64-unknown-linux-gnu.tar.gz",
+      "bytes": 15349664,
+      "sha256": "5ba4d607e703ec7d48ea48717c7340a3a4f19afbea72c63c93f81cce387ce16b",
+      "githubDigest": "sha256:5ba4d607e703ec7d48ea48717c7340a3a4f19afbea72c63c93f81cce387ce16b",
+      "githubDigestMatched": true,
+      "assetId": 546874416
+    },
+    {
+      "name": "interact-ai-v0.8.0-x86_64-unknown-linux-gnu.tar.gz.sha256",
+      "bytes": 117,
+      "sha256": "a179eb981a563d441a8ca435694b2d71e81e2f1941b64a2cdcef345301b102ec",
+      "githubDigest": "sha256:a179eb981a563d441a8ca435694b2d71e81e2f1941b64a2cdcef345301b102ec",
+      "githubDigestMatched": true,
+      "assetId": 546874417
+    },
+    {
+      "name": "interaction-control-center_0.8.0_aarch64.dmg",
+      "bytes": 22514522,
+      "sha256": "23882c5f70049a299501f8a16809016bed64634ec8a41e3cfabbd25e46eafe8a",
+      "githubDigest": "sha256:23882c5f70049a299501f8a16809016bed64634ec8a41e3cfabbd25e46eafe8a",
+      "githubDigestMatched": true,
+      "assetId": 546879182
+    },
+    {
+      "name": "interaction-control-center_0.8.0_aarch64.dmg.sha256",
+      "bytes": 111,
+      "sha256": "65e7ad1e560e203f150ff559120025e96149aca8fd92a13101241dcc4e3de262",
+      "githubDigest": "sha256:65e7ad1e560e203f150ff559120025e96149aca8fd92a13101241dcc4e3de262",
+      "githubDigestMatched": true,
+      "assetId": 546879245
+    },
+    {
+      "name": "interaction-control-center_0.8.0_amd64.AppImage",
+      "bytes": 93948408,
+      "sha256": "bb0328e489cbf221fd88edad4758dd0a98e5783fe1d0fdec660e9ed54bb1c52a",
+      "githubDigest": "sha256:bb0328e489cbf221fd88edad4758dd0a98e5783fe1d0fdec660e9ed54bb1c52a",
+      "githubDigestMatched": true,
+      "assetId": 546878878
+    },
+    {
+      "name": "interaction-control-center_0.8.0_amd64.AppImage.sha256",
+      "bytes": 114,
+      "sha256": "6f8930020c670ca01154104b6bdf777429bf09aa37d4c0c5d74c2841a29132d6",
+      "githubDigest": "sha256:6f8930020c670ca01154104b6bdf777429bf09aa37d4c0c5d74c2841a29132d6",
+      "githubDigestMatched": true,
+      "assetId": 546878904
+    },
+    {
+      "name": "interaction-control-center_0.8.0_amd64.deb",
+      "bytes": 20745926,
+      "sha256": "4767a94a5e80a8848591073cc9cbe399e37aa89022ba2179a8d93de84d52c5b0",
+      "githubDigest": "sha256:4767a94a5e80a8848591073cc9cbe399e37aa89022ba2179a8d93de84d52c5b0",
+      "githubDigestMatched": true,
+      "assetId": 546878862
+    },
+    {
+      "name": "interaction-control-center_0.8.0_amd64.deb.sha256",
+      "bytes": 109,
+      "sha256": "f283bdce2caaf35ee0467293c4622576cce635fb34671ae5ed5467fe5b1caf41",
+      "githubDigest": "sha256:f283bdce2caaf35ee0467293c4622576cce635fb34671ae5ed5467fe5b1caf41",
+      "githubDigestMatched": true,
+      "assetId": 546878898
+    },
+    {
+      "name": "interaction-control-center_0.8.0_x64-setup.exe",
+      "bytes": 14243204,
+      "sha256": "517e8364012b6dfe410efd2571b18735e806f0683257c8b2063fc9611204366b",
+      "githubDigest": "sha256:517e8364012b6dfe410efd2571b18735e806f0683257c8b2063fc9611204366b",
+      "githubDigestMatched": true,
+      "assetId": 546885705
+    },
+    {
+      "name": "interaction-control-center_0.8.0_x64-setup.exe.sha256",
+      "bytes": 113,
+      "sha256": "ea568edabf3089f08d0139fae3e7e96971673162d57f737276f06fed5acbdbb0",
+      "githubDigest": "sha256:ea568edabf3089f08d0139fae3e7e96971673162d57f737276f06fed5acbdbb0",
+      "githubDigestMatched": true,
+      "assetId": 546885863
+    },
+    {
+      "name": "interaction-control-center_0.8.0_x64_en-US.msi",
+      "bytes": 21217280,
+      "sha256": "e681587dc747bd7455d6160ecfad4762ec65668dd84fee1b37551ddc472bcfc1",
+      "githubDigest": "sha256:e681587dc747bd7455d6160ecfad4762ec65668dd84fee1b37551ddc472bcfc1",
+      "githubDigestMatched": true,
+      "assetId": 546885700
+    },
+    {
+      "name": "interaction-control-center_0.8.0_x64_en-US.msi.sha256",
+      "bytes": 113,
+      "sha256": "cd9317b30d9767958c036d6f9d52d0a81824c5c6e2601f74610a4b5aa09c804f",
+      "githubDigest": "sha256:cd9317b30d9767958c036d6f9d52d0a81824c5c6e2601f74610a4b5aa09c804f",
+      "githubDigestMatched": true,
+      "assetId": 546885849
+    },
+    {
+      "name": "interaction-control-center_aarch64.app.tar.gz",
+      "bytes": 20430700,
+      "sha256": "eaf446d514ebd13dada614fe2dd3cb76c54539bc66d5a22d87108d8d5920cc26",
+      "githubDigest": "sha256:eaf446d514ebd13dada614fe2dd3cb76c54539bc66d5a22d87108d8d5920cc26",
+      "githubDigestMatched": true,
+      "assetId": 546879199
+    },
+    {
+      "name": "orchestrate-adaptive-interaction-skill-v0.8.0.zip",
+      "bytes": 24664,
+      "sha256": "a49e9408ea2a4c81312428956a985e9eb7e1d1590fb5937d6b89da13549adeaa",
+      "githubDigest": "sha256:a49e9408ea2a4c81312428956a985e9eb7e1d1590fb5937d6b89da13549adeaa",
+      "githubDigestMatched": true,
+      "assetId": 546869297
+    },
+    {
+      "name": "QUICKSTART.md",
+      "bytes": 2890,
+      "sha256": "3a5a053f823a116dfe2e3fe51741b794a12369a9a214794c9fe8b4e62364ef1b",
+      "githubDigest": "sha256:3a5a053f823a116dfe2e3fe51741b794a12369a9a214794c9fe8b4e62364ef1b",
+      "githubDigestMatched": true,
+      "assetId": 546869298
+    }
+  ],
+  "checksumSidecars": [
+    {
+      "sidecar": "interact-ai-v0.8.0-aarch64-apple-darwin.tar.gz.sha256",
+      "asset": "interact-ai-v0.8.0-aarch64-apple-darwin.tar.gz",
+      "matched": true,
+      "sha256": "feff5f5af4e36c138f34fe6345029e4545ac259071449f0941d28ee17bf23896"
+    },
+    {
+      "sidecar": "interact-ai-v0.8.0-x86_64-apple-darwin.tar.gz.sha256",
+      "asset": "interact-ai-v0.8.0-x86_64-apple-darwin.tar.gz",
+      "matched": true,
+      "sha256": "b7756a542e0657e6ee12214461f47bb24dea07d9fe867dadcb244ff627d5ab1e"
+    },
+    {
+      "sidecar": "interact-ai-v0.8.0-x86_64-pc-windows-msvc.zip.sha256",
+      "asset": "interact-ai-v0.8.0-x86_64-pc-windows-msvc.zip",
+      "matched": true,
+      "sha256": "88dc050c35b2298978a4df59fb3a1bbaa63984662aa0ff28138fa8bb27f38be2"
+    },
+    {
+      "sidecar": "interact-ai-v0.8.0-x86_64-unknown-linux-gnu.tar.gz.sha256",
+      "asset": "interact-ai-v0.8.0-x86_64-unknown-linux-gnu.tar.gz",
+      "matched": true,
+      "sha256": "5ba4d607e703ec7d48ea48717c7340a3a4f19afbea72c63c93f81cce387ce16b"
+    },
+    {
+      "sidecar": "interaction-control-center_0.8.0_aarch64.dmg.sha256",
+      "asset": "interaction-control-center_0.8.0_aarch64.dmg",
+      "matched": true,
+      "sha256": "23882c5f70049a299501f8a16809016bed64634ec8a41e3cfabbd25e46eafe8a"
+    },
+    {
+      "sidecar": "interaction-control-center_0.8.0_amd64.AppImage.sha256",
+      "asset": "interaction-control-center_0.8.0_amd64.AppImage",
+      "matched": true,
+      "sha256": "bb0328e489cbf221fd88edad4758dd0a98e5783fe1d0fdec660e9ed54bb1c52a"
+    },
+    {
+      "sidecar": "interaction-control-center_0.8.0_amd64.deb.sha256",
+      "asset": "interaction-control-center_0.8.0_amd64.deb",
+      "matched": true,
+      "sha256": "4767a94a5e80a8848591073cc9cbe399e37aa89022ba2179a8d93de84d52c5b0"
+    },
+    {
+      "sidecar": "interaction-control-center_0.8.0_x64-setup.exe.sha256",
+      "asset": "interaction-control-center_0.8.0_x64-setup.exe",
+      "matched": true,
+      "sha256": "517e8364012b6dfe410efd2571b18735e806f0683257c8b2063fc9611204366b"
+    },
+    {
+      "sidecar": "interaction-control-center_0.8.0_x64_en-US.msi.sha256",
+      "asset": "interaction-control-center_0.8.0_x64_en-US.msi",
+      "matched": true,
+      "sha256": "e681587dc747bd7455d6160ecfad4762ec65668dd84fee1b37551ddc472bcfc1"
+    }
+  ],
+  "sourceChecks": [
+    {
+      "asset": "QUICKSTART.md",
+      "source": "docs/QUICKSTART.md",
+      "equal": true
+    },
+    {
+      "asset": "install.sh",
+      "source": "scripts/get.sh",
+      "equal": true
+    },
+    {
+      "asset": "CHANGELOG.md",
+      "source": "CHANGELOG.md",
+      "equal": true
+    },
+    {
+      "asset": "orchestrate-adaptive-interaction-skill-v0.8.0.zip",
+      "files": 12,
+      "allSourceBytesEqual": true
+    }
+  ],
+  "installSmoke": "separate results; checksum is not installation or signed provenance",
+  "limits": "Unsigned/not notarized; no SBOM or build attestation. Asset digest checks establish matching release bytes, not independent source reproducibility."
+}

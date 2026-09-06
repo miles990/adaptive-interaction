@@ -1,0 +1,30 @@
+from pathlib import Path
+import hashlib,json,re,subprocess,zipfile,tarfile
+b=Path('/tmp/adaptive-convergence-20260906');tag='v0.8.0';assets=b/'release-assets';meta=json.loads((b/'release-metadata.json').read_text());rows=[]
+assert meta['tag_name']==tag and not meta['draft'] and not meta['prerelease'];names={a['name'] for a in meta['assets']};assert len(names)==len(meta['assets']), 'Duplicate asset name';assert all(Path(n).name==n and n not in ('','.', '..') for n in names), 'Unsafe asset name'
+for target in ['x86_64-unknown-linux-gnu','aarch64-apple-darwin','x86_64-apple-darwin','x86_64-pc-windows-msvc']:
+ ext='zip' if 'windows' in target else 'tar.gz';name=f'interact-ai-{tag}-{target}.{ext}';assert {name,name+'.sha256'}<=names
+for ext in ['dmg','deb','AppImage','exe','msi']:
+ hits=[n for n in names if n.startswith('interaction-control-center_0.8.0_') and n.endswith('.'+ext)];assert hits,(ext,names)
+ for h in hits:assert h+'.sha256' in names
+assert {'QUICKSTART.md','install.sh','CHANGELOG.md',f'orchestrate-adaptive-interaction-skill-{tag}.zip'}<=names
+for a in meta['assets']:
+ p=assets/a['name'];assert p.is_file(),p;data=p.read_bytes();h=hashlib.sha256(data).hexdigest();assert len(data)==a['size'];digest=a.get('digest');assert not digest or digest=='sha256:'+h,(a['name'],'GitHub digest mismatch')
+ rows.append({'name':a['name'],'bytes':len(data),'sha256':h,'githubDigest':digest,'githubDigestMatched':digest=='sha256:'+h,'assetId':a['id']})
+checksums=[]
+for p in sorted(assets.glob('*.sha256')):
+ text=p.read_text().strip();m=re.fullmatch(r'([0-9a-fA-F]{64})\s+\*?([^\r\n]+)',text);assert m,p;name=m[2].strip();assert name==p.name.removesuffix('.sha256'), 'Sidecar filename and target differ';assert Path(name).name==name and name in names;actual=hashlib.sha256((assets/name).read_bytes()).hexdigest();assert actual==m[1].lower();checksums.append({'sidecar':p.name,'asset':name,'matched':True,'sha256':actual})
+assert len(checksums)>=9,len(checksums)
+source_checks=[]
+for name,source in [('QUICKSTART.md','docs/QUICKSTART.md'),('install.sh','scripts/get.sh'),('CHANGELOG.md','CHANGELOG.md')]:
+ expected=subprocess.check_output(['git','show',tag+':'+source]);assert (assets/name).read_bytes()==expected;source_checks.append({'asset':name,'source':source,'equal':True})
+skill=f'orchestrate-adaptive-interaction-skill-{tag}.zip';expected_names=set(subprocess.check_output(['git','ls-tree','-r','--name-only',tag,'skills/orchestrate-adaptive-interaction'],text=True).splitlines());seen=set()
+with zipfile.ZipFile(assets/skill) as z:
+ for item in z.infolist():
+  assert not item.filename.startswith('/') and '..' not in Path(item.filename).parts
+  if item.is_dir():continue
+  src='skills/'+item.filename;assert src in expected_names,src;assert z.read(item)==subprocess.check_output(['git','show',tag+':'+src]);seen.add(src)
+assert seen==expected_names
+source_checks.append({'asset':skill,'files':len(seen),'allSourceBytesEqual':True})
+result={'status':'passed','validatorSha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'tag':tag,'commit':subprocess.check_output(['git','rev-parse',tag+'^{}'],text=True).strip(),'releaseId':meta['id'],'publishedAt':meta['published_at'],'url':meta['html_url'],'assetCount':len(rows),'assets':rows,'checksumSidecars':checksums,'sourceChecks':source_checks,'installSmoke':'separate results; checksum is not installation or signed provenance','limits':'Unsigned/not notarized; no SBOM or build attestation. Asset digest checks establish matching release bytes, not independent source reproducibility.'}
+(b/'release-asset-verification.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n');print(json.dumps({'assets':len(rows),'sidecarsMatched':len(checksums),'githubDigestsMatched':sum(r['githubDigestMatched'] for r in rows),'sourceExtrasMatched':len(source_checks)}))

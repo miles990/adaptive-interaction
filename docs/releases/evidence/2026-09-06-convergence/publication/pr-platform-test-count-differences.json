@@ -1,0 +1,36 @@
+[
+  {
+    "mac": {
+      "binary": "Running unittests src/lib.rs (target/debug/deps/interaction_adapter_declarative-a4a71bb7b29fbc15)",
+      "counts": [
+        50,
+        0,
+        0
+      ]
+    },
+    "linux": {
+      "binary": "Running unittests src/lib.rs (target/debug/deps/interaction_adapter_declarative-ef34bb638ed42420)",
+      "counts": [
+        36,
+        0,
+        0
+      ]
+    },
+    "macOnlyTests": [
+      "ble::tests::a_cancelled_scan_is_still_stopped",
+      "ble::tests::a_chunked_notification_is_reassembled_into_one_message",
+      "ble::tests::a_closed_link_is_never_downgraded_by_a_late_event",
+      "ble::tests::a_disconnect_event_for_our_device_flips_the_state",
+      "ble::tests::a_foreign_service_without_a_name_is_ignored",
+      "ble::tests::a_service_match_with_a_different_name_is_not_a_candidate",
+      "ble::tests::a_service_match_with_the_same_name_is_a_candidate",
+      "ble::tests::a_service_match_without_a_local_name_is_a_candidate",
+      "ble::tests::a_truncated_notification_is_counted_and_never_silently_dropped",
+      "ble::tests::a_whole_message_without_a_newline_still_works",
+      "ble::tests::an_empty_device_name_disables_the_name_filter",
+      "ble::tests::another_devices_disconnect_leaves_us_connected",
+      "ble::tests::unterminated_notification_data_is_bounded",
+      "ble::tests::without_the_service_only_an_exact_name_matches"
+    ]
+  }
+]

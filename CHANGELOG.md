@@ -40,6 +40,8 @@
 
 ### Known limitations
 
+- 發布驗證追記：main1fa69b8首輪workspace非0但原腳本未保留細項；同SHA捕獲診斷及完整verify重跑通過。原因未定位、not-reproduced，不宣稱已修復；原始失敗及逐平台安裝證據見 `docs/releases/v0.8.0-publication.md`。
+
 - 真 iPhone 的本輪 AIP／state-applied、ESP32 真板、真人可用性仍未取得；保留既有發布政策的明示環境限制。
   MQTT 有既有 broker 模擬器 rebind；MQTT／BLE 專屬 applied 閉環尚未驗。參考韌體不宣告未實作的 fragmentation/applied。
 - 偏好與 Runtime 是可恢復的兩個 store，不是跨程序 ACID。純模型、mock、pty、真 Tauri 與真人證據分列。

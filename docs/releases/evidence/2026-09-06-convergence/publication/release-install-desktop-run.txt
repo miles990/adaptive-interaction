@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/tmp/adaptive-convergence-20260906/release-desktop-stage.py", line 10, in <module>
+    plist=plistlib.loads(r.stdout);assert any(e.get('mount-point')==str(mount) for e in plist['system-entities'])
+                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

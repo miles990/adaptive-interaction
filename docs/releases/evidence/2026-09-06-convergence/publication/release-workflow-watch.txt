@@ -1,0 +1,3003 @@
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 4 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (macos-latest) (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+* CLI (x86_64-pc-windows-msvc) (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* CLI (x86_64-apple-darwin) (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* CLI (x86_64-unknown-linux-gnu) (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* CLI (aarch64-apple-darwin) (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* Desktop (ubuntu-latest) (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 4 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (macos-latest) (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+* CLI (x86_64-pc-windows-msvc) (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* CLI (x86_64-apple-darwin) (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* CLI (x86_64-unknown-linux-gnu) (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* CLI (aarch64-apple-darwin) (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* Desktop (ubuntu-latest) (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 5 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (macos-latest) (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+* CLI (x86_64-pc-windows-msvc) (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* CLI (x86_64-apple-darwin) (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* CLI (x86_64-unknown-linux-gnu) (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* CLI (aarch64-apple-darwin) (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* Desktop (ubuntu-latest) (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 6 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (macos-latest) (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+* CLI (x86_64-pc-windows-msvc) (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* CLI (x86_64-apple-darwin) (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* CLI (aarch64-apple-darwin) (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* Desktop (ubuntu-latest) (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 7 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (macos-latest) (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+* CLI (x86_64-pc-windows-msvc) (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+* CLI (x86_64-apple-darwin) (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (ubuntu-latest) (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 8 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (macos-latest) (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+* CLI (x86_64-pc-windows-msvc) (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (ubuntu-latest) (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 8 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (macos-latest) (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+* CLI (x86_64-pc-windows-msvc) (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (ubuntu-latest) (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 9 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (macos-latest) (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+* CLI (x86_64-pc-windows-msvc) (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (ubuntu-latest) (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 10 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (macos-latest) (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+* CLI (x86_64-pc-windows-msvc) (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  * Build
+  * Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (ubuntu-latest) (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 11 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (macos-latest) (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+* CLI (x86_64-pc-windows-msvc) (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  * Upload
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (ubuntu-latest) (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Desktop (ubuntu-latest): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 12 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (macos-latest) (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-pc-windows-msvc) in 11m29s (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (ubuntu-latest) in 10m45s (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Desktop (ubuntu-latest): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 12 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (macos-latest) in 11m43s (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-pc-windows-msvc) in 11m29s (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (ubuntu-latest) in 10m45s (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Desktop (ubuntu-latest): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 13 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (macos-latest) in 11m43s (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-pc-windows-msvc) in 11m29s (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (ubuntu-latest) in 10m45s (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Desktop (ubuntu-latest): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 14 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (macos-latest) in 11m43s (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-pc-windows-msvc) in 11m29s (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (ubuntu-latest) in 10m45s (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Desktop (ubuntu-latest): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 15 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (macos-latest) in 11m43s (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-pc-windows-msvc) in 11m29s (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (ubuntu-latest) in 10m45s (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Desktop (ubuntu-latest): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 15 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (macos-latest) in 11m43s (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-pc-windows-msvc) in 11m29s (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (ubuntu-latest) in 10m45s (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Desktop (ubuntu-latest): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 16 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (macos-latest) in 11m43s (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-pc-windows-msvc) in 11m29s (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (ubuntu-latest) in 10m45s (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Desktop (ubuntu-latest): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 17 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (macos-latest) in 11m43s (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  * Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-pc-windows-msvc) in 11m29s (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (ubuntu-latest) in 10m45s (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Desktop (ubuntu-latest): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 18 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (macos-latest) in 11m43s (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  * Checksum + upload .sha256 for every bundle
+  * Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-pc-windows-msvc) in 11m29s (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (ubuntu-latest) in 10m45s (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Desktop (ubuntu-latest): .github#2
+
+Refreshing run status every 45 seconds. Press Ctrl+C to quit.
+
+* v0.8.0 Release · 34018696536
+Triggered via push about 19 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (macos-latest) in 11m43s (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Desktop (windows-latest) (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  * Post Run actions/setup-node@v4
+  * Post Run pnpm/action-setup@v4
+  * Post Run actions/checkout@v4
+✓ CLI (x86_64-pc-windows-msvc) in 11m29s (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (ubuntu-latest) in 10m45s (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Desktop (ubuntu-latest): .github#2
+
+✓ v0.8.0 Release · 34018696536
+Triggered via push about 19 minutes ago
+
+JOBS
+✓ CI gate (required checks on the tagged commit) in 11s (ID 101447151763)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Every job ci.yml defines must exist and be success on 1fa69b8fafed54687119747c652a0869cb991f89
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Create draft release in 10s (ID 101447181247)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Create GitHub release as a DRAFT (idempotent)
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (macos-latest) in 11m43s (ID 101447206406)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Skill package + docs + installer in 10s (ID 101447206408)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Package assets
+  ✓ Upload
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (windows-latest) in 18m55s (ID 101447206412)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  - Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-pc-windows-msvc) in 11m29s (ID 101447206431)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-apple-darwin) in 6m53s (ID 101447206445)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (x86_64-unknown-linux-gnu) in 5m34s (ID 101447206457)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ CLI (aarch64-apple-darwin) in 6m38s (ID 101447206466)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Run Swatinem/rust-cache@v2
+  - Linux system deps (alsa for the media adapter)
+  ✓ Build
+  ✓ Package + checksum
+  ✓ Upload
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Desktop (ubuntu-latest) in 10m45s (ID 101447206539)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ read pinned Rust toolchain (rust-toolchain.toml is the single source of truth)
+  ✓ Run dtolnay/rust-toolchain@master
+  ✓ Linux system deps
+  ✓ Run pnpm/action-setup@v4
+  ✓ Run actions/setup-node@v4
+  ✓ Install frontend deps
+  ✓ Run Swatinem/rust-cache@v2
+  ✓ Build + upload bundles
+  ✓ Checksum + upload .sha256 for every bundle
+  ✓ Post Run Swatinem/rust-cache@v2
+  ✓ Post Run actions/setup-node@v4
+  ✓ Post Run pnpm/action-setup@v4
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+✓ Publish only when every asset is present in 12s (ID 101449527160)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Assert the asset inventory, then publish
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CI gate (required checks on the tagged commit): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Create draft release: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Skill package + docs + installer: .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (x86_64-unknown-linux-gnu): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+CLI (aarch64-apple-darwin): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Desktop (ubuntu-latest): .github#2
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Publish only when every asset is present: .github#2

@@ -39,7 +39,8 @@ Rust 1.94.0、Cargo 1.94.0、Node 24.5.0、pnpm 10.27.0、Xcode 26.6。建置設
 3. N1兩個原始缺陷已由非作者在未修改baseline622c8bf獨立反駁重現並回綠：TS2controls/5fail→7/0，Rust2controls/1fail→3/0。完整Find/Verify整理保留角色與歷史紅燈，不拿作者執行冒充獨立執行。
 4. [效能比較](v0.8.0-performance.md)完成：source622c8bf vs3b375bd，每版一暖機＋交錯三次sample，8runs全部成功；未越過事前p95/有界性/GC成長調查預算。不是全產品無退步或長期無leak宣稱。原始數據、完整source/輸入digest已封存repo。
 5. 正式候選 `c15873acbaaed870d2c90fa95c12255f532ce782` 本機完整 Rust1278/0、Tauri78/0、TS1916/0、iOS模擬器163/0、CLI96/0、Browser92/0 通過。[PR #5](https://github.com/miles990/adaptive-interaction/pull/5) 的四項CI成功後已rebase合併；實際main `1fa69b8fafed54687119747c652a0869cb991f89` 與候選tree完全一致，[main CI](https://github.com/miles990/adaptive-interaction/actions/runs/34017910631) 四項成功。此SHA完整release-verify第二次0skip成功（165.78s）；第一次workspace非0但原腳本丟掉细項輸出，捕獲診斷重跑1278/0與完整第二次均成功，原因未定位，不宣稱已修復。
-6. annotated `v0.8.0` 已推送；object `5bca3660afa1d74d7f0844eeb7832e1e25ff9375`，遠端解參照 `1fa69b8fafed54687119747c652a0869cb991f89`，沒有移動舊tag。tag helper的靜態重查本身跳過full matrix，完整矩陣證據來自其前同SHA的165.78s驗證，二者分列。現在等待[Release workflow](https://github.com/miles990/adaptive-interaction/actions/runs/34018696536)，接著下載全部資產、checksum/source檢查、macOS CLI安裝及發布App原生smoke，再以文件PR回填。未完成資產驗證前不把發布標成完成。
+6. annotated `v0.8.0` 已推送；object `5bca3660afa1d74d7f0844eeb7832e1e25ff9375`，遠端解參照 `1fa69b8fafed54687119747c652a0869cb991f89`。[Release workflow](https://github.com/miles990/adaptive-interaction/actions/runs/34018696536) 全部success，[Release](https://github.com/miles990/adaptive-interaction/releases/tag/v0.8.0)正式發布；23資產與9sidecars全部下載核對。macOS官方installer CLI smoke與下載DMG App真Tauri9項completed／人工解除needs-environment完成。完整原始證據、平台範圍與第一次失敗保留見[publication](v0.8.0-publication.md)。
+7. 本輪實作／工程驗收／發布已完成；此後合併的文件回填不移動tag、不重述最新文件HEAD，發行來源固定於上列SHA。下一個產品動作是依§6取得真機/真人環境，執行known-limitations所列腳本；不要重做本輪或重新打v0.8.0。
 
 
 ## 6. Blockers

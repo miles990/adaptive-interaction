@@ -1,0 +1,20 @@
+{
+  "name": "main-rust-diagnostic",
+  "sha": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "cargo",
+    "test",
+    "--workspace",
+    "--no-fail-fast"
+  ],
+  "exit": 0,
+  "durationSeconds": 126.72,
+  "rustCounts": [
+    1278,
+    0,
+    0
+  ],
+  "testBinaries": 98,
+  "log": "main-rust-diagnostic.txt"
+}

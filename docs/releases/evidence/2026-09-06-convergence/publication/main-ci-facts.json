@@ -1,0 +1,61 @@
+{
+  "run": 34017910631,
+  "url": "https://github.com/miles990/adaptive-interaction/actions/runs/34017910631",
+  "headSha": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "event": "push",
+  "status": "completed",
+  "conclusion": "success",
+  "environment": "GitHub ubuntu-latest; exact image and compiler/runtime versions in archived job log",
+  "rawLogSha256": "b0da65bdd7eba96f9275ce4f89b0f1b4979166a121a4ed8c7bd2740ace9c5a7f",
+  "jobs": [
+    {
+      "name": "Tauri backend (clippy + test)",
+      "conclusion": "success",
+      "startedAt": "2026-09-06T06:58:54Z",
+      "completedAt": "2026-09-06T07:03:05Z",
+      "seconds": 251.0,
+      "rustTests": [
+        78,
+        0,
+        0
+      ],
+      "binaries": 3,
+      "counting": "Sum once per test result line, including doc-test binaries; not added to local totals"
+    },
+    {
+      "name": "Frontend (typecheck + component tests + build)",
+      "conclusion": "success",
+      "startedAt": "2026-09-06T06:58:54Z",
+      "completedAt": "2026-09-06T07:00:18Z",
+      "seconds": 84.0,
+      "testSummary": [
+        "Test Files  92 passed (92)",
+        "Tests  1916 passed (1916)"
+      ]
+    },
+    {
+      "name": "Rust (fmt + clippy + test + build)",
+      "conclusion": "success",
+      "startedAt": "2026-09-06T06:58:54Z",
+      "completedAt": "2026-09-06T07:04:33Z",
+      "seconds": 339.0,
+      "rustTests": [
+        1264,
+        0,
+        0
+      ],
+      "binaries": 98,
+      "counting": "Sum once per test result line, including doc-test binaries; not added to local totals"
+    },
+    {
+      "name": "Browser E2E (Playwright against a real daemon)",
+      "conclusion": "success",
+      "startedAt": "2026-09-06T06:58:54Z",
+      "completedAt": "2026-09-06T07:04:43Z",
+      "seconds": 349.0,
+      "testSummary": [
+        "92 passed (3.5m)"
+      ]
+    }
+  ]
+}

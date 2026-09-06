@@ -1,0 +1,28 @@
+{
+  "driverSource": "4f5992933cde634a242f114f39575b278e9bb834",
+  "tagSource": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "dirty": false,
+  "artifacts": [
+    {
+      "path": "scripts/tauri-ax-walkthrough.sh",
+      "sha256": "e8ee496d917c2b88dd5eea63a5c771a5363f006a6b63da83377b673dce8534b8",
+      "byteEqualToTag": true
+    },
+    {
+      "path": "scripts/lib/tauri-ax.applescript",
+      "sha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+      "byteEqualToTag": true
+    },
+    {
+      "path": "crates/interaction-runtime/tests/fixtures/fake_codex.sh",
+      "sha256": "b51ad9be5e1c90500ae2430b1d9af8104bf2734db83003fac15eb505443fe295",
+      "byteEqualToTag": true
+    },
+    {
+      "path": "crates/interaction-runtime/tests/fixtures/fake_claude.sh",
+      "sha256": "84816fd16d87229440db59c6d22fb6e6584ece65b41bcee9c585dbd1a40f9031",
+      "byteEqualToTag": true
+    }
+  ],
+  "scope": "Clean documentation-only progress commit used to drive released App; all executable driver/helper/agent-fixture inputs unchanged from the tag"
+}

@@ -1,0 +1,9 @@
+{
+  "failure": "Initial DMG staging assertion compared raw /tmp to canonical /private/tmp mount path and failed before copying or launch; its finally block detached the mount.",
+  "observedProbe": "release-install-mount-probe.plist",
+  "fix": "Compare resolved directory paths; an unrelated mount path still fails. New task-owned v2 directory preserves the original attempt.",
+  "originalScriptSha256": "b0489982ea88ee2f2d515516e9514992853cee757b08238fb096480f7689e247",
+  "fixedScriptSha256": "655c3a7326ee2b5a936a8b104e9a758cbd7effb7caeebe9ed706b781880f41c2",
+  "firstAttempt": "release-install-desktop-run.json",
+  "productChanged": false
+}

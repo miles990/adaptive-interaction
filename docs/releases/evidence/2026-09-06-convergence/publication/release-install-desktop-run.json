@@ -1,0 +1,14 @@
+{
+  "name": "release-install-desktop-run",
+  "sha": "4f5992933cde634a242f114f39575b278e9bb834",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "python3",
+    "release-desktop-stage.py.txt"
+  ],
+  "exit": 1,
+  "durationSeconds": 14.71,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "release-install-desktop-run.txt"
+}

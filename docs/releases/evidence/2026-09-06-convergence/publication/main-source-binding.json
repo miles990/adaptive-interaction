@@ -1,0 +1,10 @@
+{
+  "candidate": "c15873acbaaed870d2c90fa95c12255f532ce782",
+  "main": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "candidateTree": "22f1ebcb2a1fac9cb1744444589c7028709ce036",
+  "mainTree": "22f1ebcb2a1fac9cb1744444589c7028709ce036",
+  "treeEqual": true,
+  "worktreeClean": true,
+  "mergeMethod": "GitHub rebase merge --match-head-commit; no admin or bypass",
+  "pr": 5
+}

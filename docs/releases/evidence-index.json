@@ -176,6 +176,60 @@
           "why": "發布事實回填（evidence-index 0.7.0 條目、候選字樣清理、入口文件最新版本）"
         }
       ]
+    },
+    {
+      "version": "0.8.0",
+      "tag": "v0.8.0",
+      "commit": "1fa69b8fafed54687119747c652a0869cb991f89",
+      "tagObject": "5bca3660afa1d74d7f0844eeb7832e1e25ff9375",
+      "publishedAt": "2026-09-06T07:35:55Z",
+      "releaseAssets": 23,
+      "ci": {
+        "run": 34017910631,
+        "conclusion": "success",
+        "prRun": 34017584720,
+        "note": "Exact rebased main push event; candidate tree equal, SHA differs"
+      },
+      "releaseWorkflow": {
+        "run": 34018696536,
+        "conclusion": "success"
+      },
+      "merge": {
+        "pr": 5,
+        "method": "GitHub rebase merge with exact head guard",
+        "mergeCommit": "1fa69b8fafed54687119747c652a0869cb991f89"
+      },
+      "docs": {
+        "progress": "docs/releases/next-convergence-progress.md",
+        "finalReport": "docs/releases/v0.8.0-final-report.md",
+        "drills": "docs/releases/v0.8.0-drills.md",
+        "testMatrix": "docs/releases/v0.8.0-test-matrix.md",
+        "generalModeTasks": "docs/releases/v0.8.0-general-mode-tasks.md",
+        "review": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/convergence-find-verify-final-map.md",
+        "performance": "docs/releases/v0.8.0-performance.md",
+        "publication": "docs/releases/v0.8.0-publication.md",
+        "artifactManifest": "docs/releases/evidence/2026-09-06-convergence/publication/artifact-manifest.json"
+      },
+      "evidence": {
+        "iphone": "simulator/fixture; no real iPhone for this release",
+        "esp32": "compile default/BLE and Serial pty; no board",
+        "tauriWindow": "real-window; engineering clean/legacy runs and downloaded release App9completed; human unlock not-run",
+        "humanSubjects": "not-run",
+        "installation": "Downloaded release installer macOS arm64 CLI + temporary DMG App installation/direct native launch; Linux/Windows not-run",
+        "performance": "3 measured runs/version plus warmups; scoped Chromium only"
+      },
+      "assetVerification": {
+        "checksums": 9,
+        "assets": 23,
+        "report": "docs/releases/evidence/2026-09-06-convergence/publication/release-asset-verification.json",
+        "smoke": "docs/releases/v0.8.0-publication.md"
+      },
+      "versionPolicy": "Compatible minor: negotiated applied profile, cross-language SemanticState consumer contract, persistent stop/settings recovery; AIP1.0 and snapshot1 unchanged.",
+      "notes": [
+        "First local full main verify workspace failure has no inner log; captured diagnostic and full same-SHA rerun succeeded. Cause unknown, not-reproduced, not claimed fixed.",
+        "The tag helper static recheck skipped its own full matrix; the preceding exact-main full verification passed with zero skips.",
+        "Post-release documentation is backfilled on a separate branch/PR and may advance main; immutable tag source remains this commit."
+      ]
     }
   ],
   "candidates": [
@@ -183,7 +237,7 @@
       "id": "semantic-recovery-convergence",
       "branch": "feature/semantic-recovery-convergence",
       "baseCommit": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
-      "status": "tagged-release-assets-pending",
+      "status": "published",
       "implementationCommit": "30ff852f5d893215c019d982774c8b59ab010659",
       "docs": {
         "progress": "docs/releases/next-convergence-progress.md",
@@ -195,10 +249,12 @@
         "testMatrix": "docs/releases/v0.8.0-test-matrix.md",
         "generalModeTasks": "docs/releases/v0.8.0-general-mode-tasks.md",
         "review": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/convergence-find-verify-final-map.md",
-        "performance": "docs/releases/v0.8.0-performance.md"
+        "performance": "docs/releases/v0.8.0-performance.md",
+        "publication": "docs/releases/v0.8.0-publication.md",
+        "artifactManifest": "docs/releases/evidence/2026-09-06-convergence/publication/artifact-manifest.json"
       },
-      "note": "Candidate and exact rebased main validated; first main workspace failure is retained as not-reproduced, followed by captured1278/0 and complete release-verify success. Release asset and installation evidence pending.",
-      "versionPolicy": "0.8.0 minor：新增向後相容的協商 applied profile、SemanticState consumer 契約、持久化停止／設定恢復能力；AIP1.0與snapshot1不變。release-prepare已完成，已tag，Release資產與安裝驗證待完成。",
+      "note": "Exact candidate/main gates, immutable annotated tag, all release assets and available macOS installation smoke completed. Original first workspace failure remains not-reproduced, not claimed fixed.",
+      "versionPolicy": "0.8.0 minor：新增向後相容的協商 applied profile、SemanticState consumer 契約、持久化停止／設定恢復能力；AIP1.0與snapshot1不變。release-prepare已完成，已發布，資產與可用macOS安裝驗證完成。",
       "progress": "docs/releases/next-convergence-progress.md",
       "latestCheckpoint": "3b375bde4188e4a039852881d48d82ea9b619ce1",
       "notes": [
@@ -239,8 +295,9 @@
       },
       "releaseWorkflow": {
         "run": 34018696536,
-        "conclusion": "pending"
-      }
+        "conclusion": "success"
+      },
+      "publicationFacts": "docs/releases/evidence/2026-09-06-convergence/publication/publication-facts.json"
     }
   ]
 }

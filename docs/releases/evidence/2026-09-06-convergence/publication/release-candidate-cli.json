@@ -1,0 +1,15 @@
+{
+  "name": "release-candidate-cli",
+  "sha": "c15873acbaaed870d2c90fa95c12255f532ce782",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "-c",
+    "cargo build -p interaction-cli && cargo build -p interaction-runtime --example fake_iphone && bash scripts/v03-cli-e2e.sh"
+  ],
+  "exit": 0,
+  "durationSeconds": 50.22,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "release-candidate-cli.txt"
+}

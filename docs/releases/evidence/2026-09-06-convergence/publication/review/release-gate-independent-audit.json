@@ -1,0 +1,713 @@
+{
+  "format": "release-gate-independent-audit/1",
+  "auditor": "/root/restart_lifecycle",
+  "createdAtUtc": "2026-09-06T07:25:14.170981+00:00",
+  "mode": "bounded read-only JSON/raw-log/source/git audit; no build/test/GUI/workflow waiting and no repository mutation",
+  "result": "consistent within recorded evidence",
+  "checks": [
+    {
+      "id": "SOURCE-01",
+      "status": "pass",
+      "detail": "Exact entire tree equality covers production, schemas, tests, validation/native drivers and docs; rebase changed commit identities without changing bytes.",
+      "evidence": [
+        "main-source-binding.json",
+        "git rev-parse candidate/main trees"
+      ]
+    },
+    {
+      "id": "MERGE-01",
+      "status": "pass",
+      "detail": "PR5 record and seven corresponding single-parent commits with identical trees/subjects substantiate rebase merge. The record says --match-head-commit/no bypass; exact original gh argv is not separately retained in this audit input.",
+      "evidence": [
+        "pr-merged.json",
+        "main-source-binding.json",
+        "git rev-list/show/rev-parse"
+      ]
+    },
+    {
+      "id": "PR-CI",
+      "status": "pass",
+      "detail": "Four required CI jobs present and successful at exact SHA; facts independently recounted from original hash-matching raw CI logs. Only failure-trace upload is skipped, not a validation job.",
+      "evidence": [
+        "pr-ci-final.json",
+        "pr-ci-facts.json",
+        "pr-ci.log",
+        ".github/workflows/ci.yml"
+      ]
+    },
+    {
+      "id": "MAIN-CI",
+      "status": "pass",
+      "detail": "Four required CI jobs present and successful at exact SHA; facts independently recounted from original hash-matching raw CI logs. Only failure-trace upload is skipped, not a validation job.",
+      "evidence": [
+        "main-ci-final.json",
+        "main-ci-facts.json",
+        "main-ci.log",
+        ".github/workflows/ci.yml"
+      ]
+    },
+    {
+      "id": "FAILURE-HONESTY-01",
+      "status": "pass",
+      "detail": "Initial full verify remains an actual failure with unknown root cause. Same-SHA standalone rerun passing does not diagnose or fix it; original failure is retained.",
+      "evidence": [
+        "main-release-verify.json",
+        "main-release-verify.log",
+        "main-verification-summary.json"
+      ]
+    },
+    {
+      "id": "DIAGNOSTIC-01",
+      "status": "pass",
+      "detail": "Standalone Rust diagnostic is separately labeled 1278/0, not substituted for the subsequent complete release verify.",
+      "evidence": [
+        "main-rust-diagnostic.json",
+        "main-rust-diagnostic.log"
+      ]
+    },
+    {
+      "id": "WRAPPER-01",
+      "status": "pass",
+      "detail": "Read-only AST/source review: forwards exact sys.argv[1:] to fixed /opt/homebrew/bin/cargo without shell, inherits cwd/environment/stdin, tees stdout and stderr to their original channels, waits/joins, propagates positive exit codes unchanged and signals as conventional128+signal. No retry, skip, argument filter or forced-success branch. Seven actual records comprise five release cargo gates plus two nested cargo metadata calls; all exits0. This is source/log inspection, not a new synthetic wrapper execution.",
+      "evidence": [
+        "verify-instrumentation/cargo",
+        "main-verify-instrumentation.json",
+        "main-verify-cargo-logs/*.json/log"
+      ]
+    },
+    {
+      "id": "FULL-VERIFY-01",
+      "status": "pass",
+      "detail": "Exact main1fa69b8 complete release-verify --run-tests passed165.78s with zero skipped gates: source/static/docs/CI checks, fmt, root+Tauri clippy/tests, AIP check, TS typecheck/tests/build. Cargo raw logs independently recount workspace1278/0 and Tauri78/0. Local TS stdout is intentionally suppressed by unchanged script, so no new local TS numerical count is inferred. Browser execution is separately proved by exact-main CI92/0.",
+      "evidence": [
+        "main-release-verify-instrumented.json",
+        "main-release-verify-instrumented.log",
+        "main-verification-summary.json",
+        "main-verify-cargo-logs/*.json/log"
+      ]
+    },
+    {
+      "id": "TAG-HELPER-01",
+      "status": "pass",
+      "detail": "Tag helper rechecked clean tree/version/docs/required exact-HEAD CI and intentionally skipped its local full matrix; log openly says passed-with-skips. It is not counted as a second full validation. A preceding same-SHA zero-skip full run supplies that evidence.",
+      "evidence": [
+        "tag-push.json",
+        "tag-push.log",
+        "scripts/release-tag.sh",
+        "main-release-verify-instrumented.json"
+      ]
+    },
+    {
+      "id": "TAG-IDENTITY-01",
+      "status": "pass",
+      "detail": "Independent local git object and live read-only origin refs agree: annotatedtag5bca3660 peels to verifiedmain1fa69b8; remote main matched at audit time. Annotated does not imply cryptographically signed.",
+      "evidence": [
+        "tag-verification.json",
+        "git cat-file/rev-parse/ls-remote"
+      ]
+    },
+    {
+      "id": "POSTTAG-SOURCE-01",
+      "status": "pass",
+      "detail": "Current local HEAD may be parent post-tag documentation follow-up. All changes relative to immutabletagmain are listed; no product/driver/schema/Cargo changes are present. Do not relabel tag verification as verification of this later documentation HEAD.",
+      "evidence": [
+        "git diff main HEAD --name-only"
+      ]
+    }
+  ],
+  "sourceChain": {
+    "base": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "candidate": "c15873acbaaed870d2c90fa95c12255f532ce782",
+    "main": "1fa69b8fafed54687119747c652a0869cb991f89",
+    "candidateTree": "22f1ebcb2a1fac9cb1744444589c7028709ce036",
+    "mainTree": "22f1ebcb2a1fac9cb1744444589c7028709ce036",
+    "pr": {
+      "headRefOid": "c15873acbaaed870d2c90fa95c12255f532ce782",
+      "mergeCommit": {
+        "oid": "1fa69b8fafed54687119747c652a0869cb991f89"
+      },
+      "mergedAt": "2026-09-06T06:58:49Z",
+      "number": 5,
+      "state": "MERGED",
+      "url": "https://github.com/miles990/adaptive-interaction/pull/5"
+    },
+    "rebasedCommitMapping": [
+      {
+        "candidate": "30ff852f5d893215c019d982774c8b59ab010659",
+        "rebasedMain": "52509e718e58db31b349a4cd70cee96aadc14583",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "treeEqual": true,
+        "subjectEqual": true,
+        "mainParents": [
+          "622c8bf70963e343e51f92f5ecdf7fce4b37f516"
+        ]
+      },
+      {
+        "candidate": "a32258ea161df537f2ad6c1f25cd70d86910d0da",
+        "rebasedMain": "365a4a221fd6172c6d4366a8f8525a845e68f499",
+        "subject": "test: preserve integration logs and clean drill patch context",
+        "treeEqual": true,
+        "subjectEqual": true,
+        "mainParents": [
+          "52509e718e58db31b349a4cd70cee96aadc14583"
+        ]
+      },
+      {
+        "candidate": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+        "rebasedMain": "92cd28ee02c35ca996bac70dfda4b4f9bf47387f",
+        "subject": "fix: preserve unresolved stop warnings and harden acceptance evidence",
+        "treeEqual": true,
+        "subjectEqual": true,
+        "mainParents": [
+          "365a4a221fd6172c6d4366a8f8525a845e68f499"
+        ]
+      },
+      {
+        "candidate": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+        "rebasedMain": "f98b7a6ac64a108a47cc6c3cb5a6922d97526a4c",
+        "subject": "test: freeze reproducible convergence acceptance checkpoint",
+        "treeEqual": true,
+        "subjectEqual": true,
+        "mainParents": [
+          "92cd28ee02c35ca996bac70dfda4b4f9bf47387f"
+        ]
+      },
+      {
+        "candidate": "7a056d033aa91c0690aebb0e823ee79a0effbbb0",
+        "rebasedMain": "6f5dee21e3c05106ef7aa77fbd8ca08624db28b0",
+        "subject": "docs: archive native acceptance and independent review evidence",
+        "treeEqual": true,
+        "subjectEqual": true,
+        "mainParents": [
+          "f98b7a6ac64a108a47cc6c3cb5a6922d97526a4c"
+        ]
+      },
+      {
+        "candidate": "3616c241fee8bb9b48717b21a31a1ad3e84fd014",
+        "rebasedMain": "aae7942855b554f6f5c9fcb1de47fc1541227e03",
+        "subject": "docs: record bounded multi-run performance comparison",
+        "treeEqual": true,
+        "subjectEqual": true,
+        "mainParents": [
+          "6f5dee21e3c05106ef7aa77fbd8ca08624db28b0"
+        ]
+      },
+      {
+        "candidate": "c15873acbaaed870d2c90fa95c12255f532ce782",
+        "rebasedMain": "1fa69b8fafed54687119747c652a0869cb991f89",
+        "subject": "release: prepare v0.8.0",
+        "treeEqual": true,
+        "subjectEqual": true,
+        "mainParents": [
+          "aae7942855b554f6f5c9fcb1de47fc1541227e03"
+        ]
+      }
+    ],
+    "currentLocalHead": "4f5992933cde634a242f114f39575b278e9bb834",
+    "currentLocalChangesFromTaggedMain": [
+      "docs/releases/evidence-index.json",
+      "docs/releases/next-convergence-progress.md",
+      "docs/releases/v0.8.0-final-report.md",
+      "docs/releases/v0.8.0-known-limitations.md",
+      "docs/releases/v0.8.0-test-matrix.md"
+    ],
+    "currentProductDriverChangesFromTaggedMain": []
+  },
+  "ci": [
+    {
+      "stage": "pr-ci",
+      "sha": "c15873acbaaed870d2c90fa95c12255f532ce782",
+      "event": "pull_request",
+      "run": 34017584720,
+      "url": "https://github.com/miles990/adaptive-interaction/actions/runs/34017584720",
+      "jobs": [
+        {
+          "name": "Frontend (typecheck + component tests + build)",
+          "conclusion": "success",
+          "countReparse": {
+            "counts": null,
+            "testBinaries": 0
+          },
+          "factsMatchRaw": true,
+          "nonSuccessSteps": []
+        },
+        {
+          "name": "Tauri backend (clippy + test)",
+          "conclusion": "success",
+          "countReparse": {
+            "counts": [
+              78,
+              0,
+              0
+            ],
+            "testBinaries": 3
+          },
+          "factsMatchRaw": true,
+          "nonSuccessSteps": []
+        },
+        {
+          "name": "Rust (fmt + clippy + test + build)",
+          "conclusion": "success",
+          "countReparse": {
+            "counts": [
+              1264,
+              0,
+              0
+            ],
+            "testBinaries": 98
+          },
+          "factsMatchRaw": true,
+          "nonSuccessSteps": []
+        },
+        {
+          "name": "Browser E2E (Playwright against a real daemon)",
+          "conclusion": "success",
+          "countReparse": {
+            "counts": null,
+            "testBinaries": 0
+          },
+          "factsMatchRaw": true,
+          "nonSuccessSteps": [
+            "upload traces on failure:skipped"
+          ]
+        }
+      ],
+      "rawLogSha256Matches": true
+    },
+    {
+      "stage": "main-ci",
+      "sha": "1fa69b8fafed54687119747c652a0869cb991f89",
+      "event": "push",
+      "run": 34017910631,
+      "url": "https://github.com/miles990/adaptive-interaction/actions/runs/34017910631",
+      "jobs": [
+        {
+          "name": "Tauri backend (clippy + test)",
+          "conclusion": "success",
+          "countReparse": {
+            "counts": [
+              78,
+              0,
+              0
+            ],
+            "testBinaries": 3
+          },
+          "factsMatchRaw": true,
+          "nonSuccessSteps": []
+        },
+        {
+          "name": "Frontend (typecheck + component tests + build)",
+          "conclusion": "success",
+          "countReparse": {
+            "counts": null,
+            "testBinaries": 0
+          },
+          "factsMatchRaw": true,
+          "nonSuccessSteps": []
+        },
+        {
+          "name": "Rust (fmt + clippy + test + build)",
+          "conclusion": "success",
+          "countReparse": {
+            "counts": [
+              1264,
+              0,
+              0
+            ],
+            "testBinaries": 98
+          },
+          "factsMatchRaw": true,
+          "nonSuccessSteps": []
+        },
+        {
+          "name": "Browser E2E (Playwright against a real daemon)",
+          "conclusion": "success",
+          "countReparse": {
+            "counts": null,
+            "testBinaries": 0
+          },
+          "factsMatchRaw": true,
+          "nonSuccessSteps": [
+            "upload traces on failure:skipped"
+          ]
+        }
+      ],
+      "rawLogSha256Matches": true
+    }
+  ],
+  "fullVerify": {
+    "name": "main-release-verify-instrumented",
+    "sha": "1fa69b8fafed54687119747c652a0869cb991f89",
+    "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+    "command": [
+      "bash",
+      "scripts/release-verify.sh",
+      "0.8.0",
+      "--run-tests"
+    ],
+    "exit": 0,
+    "durationSeconds": 165.78,
+    "rustCounts": null,
+    "testBinaries": 0,
+    "log": "../main-release-verify-instrumented.txt"
+  },
+  "independentlyRecountedCargoRuns": [
+    {
+      "command": [
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "exit": 0,
+      "seconds": 1.169,
+      "log": "../main-verify-cargo-logs/1788678772064106000-23078-fmt.txt",
+      "independentlyParsed": {
+        "counts": null,
+        "testBinaries": 0
+      }
+    },
+    {
+      "command": [
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "exit": 0,
+      "seconds": 0.685,
+      "log": "../main-verify-cargo-logs/1788678773267154000-23093-clippy.txt",
+      "independentlyParsed": {
+        "counts": null,
+        "testBinaries": 0
+      }
+    },
+    {
+      "command": [
+        "test",
+        "--workspace",
+        "--no-fail-fast"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "exit": 0,
+      "seconds": 125.556,
+      "log": "../main-verify-cargo-logs/1788678773983689000-23103-test.txt",
+      "independentlyParsed": {
+        "counts": [
+          1278,
+          0,
+          0
+        ],
+        "testBinaries": 98
+      }
+    },
+    {
+      "command": [
+        "metadata",
+        "--format-version",
+        "1",
+        "--locked"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "exit": 0,
+      "seconds": 0.284,
+      "log": "../main-verify-cargo-logs/1788678804952213000-26246-metadata.txt",
+      "independentlyParsed": {
+        "counts": null,
+        "testBinaries": 0
+      }
+    },
+    {
+      "command": [
+        "metadata",
+        "--format-version",
+        "1",
+        "--locked"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "exit": 0,
+      "seconds": 0.355,
+      "log": "../main-verify-cargo-logs/1788678804952496000-26247-metadata.txt",
+      "independentlyParsed": {
+        "counts": null,
+        "testBinaries": 0
+      }
+    },
+    {
+      "command": [
+        "clippy",
+        "--manifest-path",
+        "apps/interaction-desktop/src-tauri/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "exit": 0,
+      "seconds": 0.69,
+      "log": "../main-verify-cargo-logs/1788678899573368000-28287-clippy.txt",
+      "independentlyParsed": {
+        "counts": null,
+        "testBinaries": 0
+      }
+    },
+    {
+      "command": [
+        "test",
+        "--manifest-path",
+        "apps/interaction-desktop/src-tauri/Cargo.toml"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "exit": 0,
+      "seconds": 1.755,
+      "log": "../main-verify-cargo-logs/1788678900296501000-28299-test.txt",
+      "independentlyParsed": {
+        "counts": [
+          78,
+          0,
+          0
+        ],
+        "testBinaries": 3
+      }
+    }
+  ],
+  "tag": {
+    "localObject": "5bca3660afa1d74d7f0844eeb7832e1e25ff9375",
+    "localType": "tag",
+    "peeledCommit": "1fa69b8fafed54687119747c652a0869cb991f89",
+    "objectBody": "object 1fa69b8fafed54687119747c652a0869cb991f89\ntype commit\ntag v0.8.0\ntagger miles990 <alexlee7171@gmail.com> 1788678973 +0800\n\nadaptive-interaction v0.8.0",
+    "remoteRefsObserved": {
+      "refs/heads/main": "1fa69b8fafed54687119747c652a0869cb991f89",
+      "refs/tags/v0.8.0": "5bca3660afa1d74d7f0844eeb7832e1e25ff9375",
+      "refs/tags/v0.8.0^{}": "1fa69b8fafed54687119747c652a0869cb991f89"
+    },
+    "publishedTagRun": {
+      "name": "tag-push",
+      "sha": "1fa69b8fafed54687119747c652a0869cb991f89",
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "command": [
+        "bash",
+        "scripts/release-tag.sh",
+        "0.8.0",
+        "--push"
+      ],
+      "exit": 0,
+      "durationSeconds": 15.81,
+      "rustCounts": null,
+      "testBinaries": 0,
+      "log": "../tag-push.txt"
+    }
+  },
+  "knownUnresolvedCause": {
+    "initialWorkspaceFailure": true,
+    "cause": "unknown; not reproduced",
+    "claimedFixed": false,
+    "originalRecord": "../main-release-verify.json",
+    "followupEvidence": "same-SHA standalone diagnostic1278/0 and subsequent full zero-skip verify1278/0+78/0 plus frontend gates; no source change attributed as a fix"
+  },
+  "limits": [
+    "This is independent evidence verification by a non-release-author AI agent, not an independent rerun or human/hardware acceptance.",
+    "Release workflow34018696536 and installer/assets acceptance are outside this audit; it does not claim they completed.",
+    "Wrapper stderr/stdout remain separate when forwarded; the single evidence log interleaves captured chunks and does not preserve a total cross-stream timestamp ordering.",
+    "No wrapper synthetic failure test was run due to the read-only/no-test constraint; exit propagation is verified from exact source and actual command/exit records.",
+    "The first uninstrumented failure discarded underlying cargo stdout/stderr; root cause cannot be recovered from this evidence and remains explicitly unknown.",
+    "The helper local full-matrix skip is real. Full validation is established only by the preceding same-SHA --run-tests run plus exact-main CI; helper success alone would be insufficient.",
+    "CI Ubuntu Rust1264 and local macOS Rust1278 are environment-specific counts and are never summed or silently equated."
+  ],
+  "artifacts": [
+    {
+      "path": "../pr-merged.json",
+      "bytes": 249,
+      "sha256": "737b46e7a135cb5d56e1a2632878fd868ac358d1457e998dabc2ef216b7c2ce2"
+    },
+    {
+      "path": "../main-source-binding.json",
+      "bytes": 374,
+      "sha256": "c5b8dde47dc84440c673ebc4281c92e31576781cda6513ec7089eb2455849bcb"
+    },
+    {
+      "path": "../main-verification-summary.json",
+      "bytes": 1977,
+      "sha256": "6cec8297e6bdb9df2ed99bd7b82975f3b8592484149067e518613435d8af3e5b"
+    },
+    {
+      "path": "../tag-verification.json",
+      "bytes": 458,
+      "sha256": "fafd1f915a178c1336a005244a4963add991723e9454fcceba5b1bde925fb5bc"
+    },
+    {
+      "path": "../pr-ci-final.json",
+      "bytes": 11142,
+      "sha256": "20bf86ca8afb334185b9c39a12d41bf7787c1ab882358a1d97dbe4a8c170e71e"
+    },
+    {
+      "path": "../pr-ci-facts.json",
+      "bytes": 1850,
+      "sha256": "eeea2ca9b04e1b533b7bb1e9eb9e30ae7cc0f74e5123df78553978c4c2bebf25"
+    },
+    {
+      "path": "../pr-ci.txt",
+      "bytes": 1532781,
+      "sha256": "df716e46deb6474b6e5ee449d4deda842cdc760cf344970c4cb636957417c492"
+    },
+    {
+      "path": "../main-ci-final.json",
+      "bytes": 11134,
+      "sha256": "9ae90342b022919611daf8ffe3cee957fd63116e86b68750964d9b1545baf45c"
+    },
+    {
+      "path": "../main-ci-facts.json",
+      "bytes": 1841,
+      "sha256": "71056128684d69fc06fdad50d36930e0da7e42dcae51335bc7ac29b76f0250ac"
+    },
+    {
+      "path": "../main-ci.txt",
+      "bytes": 1517208,
+      "sha256": "b0da65bdd7eba96f9275ce4f89b0f1b4979166a121a4ed8c7bd2740ace9c5a7f"
+    },
+    {
+      "path": "../main-release-verify.json",
+      "bytes": 407,
+      "sha256": "555f6f4a0a27c2569ffdc464b14627950d2961460cd48aee32ff4ae2b50288a1"
+    },
+    {
+      "path": "../main-release-verify.txt",
+      "bytes": 1122,
+      "sha256": "b889293a7dafbe903fa9899e190a38ad686e9246e29622c8ef844ad16e4d999c"
+    },
+    {
+      "path": "../main-rust-diagnostic.json",
+      "bytes": 423,
+      "sha256": "760027e712a055ebe7920745eb52c469481d0d323a1d4cea9d31ee2b51a7cbca"
+    },
+    {
+      "path": "../main-rust-diagnostic.txt",
+      "bytes": 104594,
+      "sha256": "8c845e6d4da29df8ed100d20cdf7c6972124c246cdd64b7f79832754ab120188"
+    },
+    {
+      "path": "../main-release-verify-instrumented.json",
+      "bytes": 433,
+      "sha256": "d755278c3d81c3b2cadb7aace3caa5933eb6c0d8815aa730e1346a32673e3ef4"
+    },
+    {
+      "path": "../main-release-verify-instrumented.txt",
+      "bytes": 1114,
+      "sha256": "38313d310f31068b2246a5d91f1ee563858f5aa9c5aa3765fa6afd224b239ee2"
+    },
+    {
+      "path": "../drivers/cargo.py.txt",
+      "bytes": 1118,
+      "sha256": "52aab70e28864b40d24f0a8cc0e9b1f90d0449db6dd5acc828d8324bfb079332"
+    },
+    {
+      "path": "../main-verify-instrumentation.json",
+      "bytes": 396,
+      "sha256": "5741330beef45d7835ee9fbbf209dcdfa5856ff3f031cf789a2bc6210687e508"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678772064106000-23078-fmt.json",
+      "bytes": 264,
+      "sha256": "951f180c70db72bfadd84123bc2a795a23dd6da64febcf056f19c9a7272623d0"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678772064106000-23078-fmt.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678773267154000-23093-clippy.json",
+      "bytes": 318,
+      "sha256": "4c3bf33a71ab2afbb91ea0dd910a1a59f44eb01f064e7f7a0af8c11b3a1c3f23"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678773267154000-23093-clippy.txt",
+      "bytes": 72,
+      "sha256": "641fe5d2ad741df34d8903dd2597043918c03e6a9944f14a2f3a33a0eddbd6e6"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678773983689000-23103-test.json",
+      "bytes": 281,
+      "sha256": "d4e9571767e43cc46bc6f4a06d6a6485a56cb204ff50c71fc9bd0ae984c82526"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678773983689000-23103-test.txt",
+      "bytes": 104594,
+      "sha256": "c9a18bfde29a01f3ceb9c141e5cb945792cfa0aa4ca29e2a95d31e4f60547aa7"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678804952213000-26246-metadata.json",
+      "bytes": 295,
+      "sha256": "ef58ec9563fcb90d2c120b4264655a9026f3be1a2ada85cf7b1893164c361867"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678804952213000-26246-metadata.txt",
+      "bytes": 2416396,
+      "sha256": "3777ba4b7c0bc6dcc239681d0e4b64fd8c8cbcdcb9edc2832545c68cabdab877"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678804952496000-26247-metadata.json",
+      "bytes": 295,
+      "sha256": "daad5d9688bc6d014215d73b800b732fd0965c5d8d1b935d8cdf70eaa52c7ccf"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678804952496000-26247-metadata.txt",
+      "bytes": 2416448,
+      "sha256": "75909421c90b96f11ab4443ba5950ec7872ff8ac8e0a0f0298f07c89e20e160d"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678899573368000-28287-clippy.json",
+      "bytes": 374,
+      "sha256": "c8a4566310c4c11e4cf5699f6ecfe03e83476674c2438fea87dd3f994d855efa"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678899573368000-28287-clippy.txt",
+      "bytes": 72,
+      "sha256": "8ff208724cf0c04081c037b021a39dac4e914bed652a41bbea2f278fdd6433e0"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678900296501000-28299-test.json",
+      "bytes": 314,
+      "sha256": "e01e90a5f7fd2fa67b6b92b90169f3a6aaa7e6bd298b33d8379a5e2fbeb16863"
+    },
+    {
+      "path": "../main-verify-cargo-logs/1788678900296501000-28299-test.txt",
+      "bytes": 6914,
+      "sha256": "958792dce1a74882ccc37227818d5ffd2a8cce1eab745997190f9748319400e0"
+    },
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/scripts/release-verify.sh",
+      "bytes": 8742,
+      "sha256": "aa358b16d8034218c816ae15e1022866ca601bf4d5047c6c2bc1c92fbf0b1128"
+    },
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/scripts/release-tag.sh",
+      "bytes": 1878,
+      "sha256": "9c4ba0cb6bd839e3c34af8e54ffa8d99880e3ab88a226f6479795c0bae30d9b9"
+    },
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/scripts/ci-required-checks.sh",
+      "bytes": 3046,
+      "sha256": "4430d0b463ee36f9d6de299a33d3d27828f5d492657b96cba2e2dba497e4b565"
+    },
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/.github/workflows/ci.yml",
+      "bytes": 5539,
+      "sha256": "181f4491b3dafe48ed436e818b7f2a5db435899400c798c3f08bd3952f885dc9"
+    },
+    {
+      "path": "../tag-push.json",
+      "bytes": 376,
+      "sha256": "932d3ad7ae2d84e295bc474b711bb2ea676f9369256badbe532b038618c1072b"
+    },
+    {
+      "path": "../tag-push.txt",
+      "bytes": 1363,
+      "sha256": "72d3038f8ddfac88f4dab0767cc8a78a8fb4fe0ecd82e4dc01a83ca56e9c25ba"
+    }
+  ]
+}

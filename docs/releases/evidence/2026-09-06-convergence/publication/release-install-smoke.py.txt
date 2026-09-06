@@ -1,0 +1,62 @@
+import hashlib,json,os,signal,socket,subprocess,tarfile,time,urllib.request
+from pathlib import Path
+b=Path('/tmp/adaptive-convergence-20260906'); assets=b/'release-assets'
+verification_path=b/'release-asset-verification.json';verification=json.loads(verification_path.read_text())
+assert verification['status']=='passed' and verification['tag']=='v0.8.0'
+assert verification['commit']==subprocess.check_output(['git','rev-parse','v0.8.0^{}'],text=True).strip()
+verified_assets={a['name']:a for a in verification['assets']}
+assert len(verified_assets)==verification['assetCount']==len(verification['assets'])
+for name in ['install.sh','interact-ai-v0.8.0-aarch64-apple-darwin.tar.gz','interact-ai-v0.8.0-aarch64-apple-darwin.tar.gz.sha256','interact-ai-v0.8.0-x86_64-apple-darwin.tar.gz']:
+ data=(assets/name).read_bytes();assert hashlib.sha256(data).hexdigest()==verified_assets[name]['sha256'] and len(data)==verified_assets[name]['bytes'], 'Changed verified asset: '+name
+for name in ['interact-ai-v0.8.0-aarch64-apple-darwin.tar.gz','interact-ai-v0.8.0-x86_64-apple-darwin.tar.gz']:
+ assert any(c['asset']==name and c['sidecar']==name+'.sha256' and c['matched'] and c['sha256']==verified_assets[name]['sha256'] for c in verification['checksumSidecars'])
+dest=b/'release-install';dest.mkdir(exist_ok=False)
+started=time.monotonic();rows=[]
+installer=assets/'install.sh'
+cmd=['bash',str(installer),'--version','v0.8.0','--cli-only','--bin-dir',str(dest/'bin')]
+r=subprocess.run(cmd,capture_output=True,text=True,timeout=180)
+(b/'release-install-cli-installer.log').write_text(r.stdout+r.stderr);assert r.returncode==0,r.returncode
+cli=dest/'bin/interact-ai';arm=assets/'interact-ai-v0.8.0-aarch64-apple-darwin.tar.gz'
+with tarfile.open(arm) as tf:
+ member=tf.getmember('interact-ai');expected=tf.extractfile(member).read()
+assert cli.read_bytes()==expected
+version=subprocess.check_output([str(cli),'--version'],text=True,timeout=20).strip();assert version=='interact-ai 0.8.0',version
+home=dest/'runtime-home';port=18926
+with socket.socket() as probe:probe.bind(('127.0.0.1',port))
+env={**os.environ,'INTERACT_AI_HOME':str(home),'INTERACT_AI_MOBILE_ADVERTISE':'0'}
+for k in ['INTERACT_AI_TOKEN','INTERACT_AI_API']:env.pop(k,None)
+log=(b/'release-cli-daemon.log').open('w');p=subprocess.Popen([str(cli),'--config',str(home),'serve','--host','127.0.0.1','--port',str(port)],stdout=log,stderr=subprocess.STDOUT,env=env,start_new_session=True)
+try:
+ deadline=time.monotonic()+40
+ while True:
+  assert p.poll() is None,'daemon exited before ready'
+  try:
+   with urllib.request.urlopen(f'http://127.0.0.1:{port}/ready',timeout=2) as response:ready=json.load(response)
+   assert ready.get('status')=='ok',ready
+   break
+  except Exception:
+   if time.monotonic()>=deadline:raise
+   time.sleep(.25)
+ status=json.loads(subprocess.check_output([str(cli),'--config',str(home),'--api',f'http://127.0.0.1:{port}','--json','status'],env=env,text=True,timeout=15))
+ assert isinstance(status,dict) and status,'empty status'
+ rows.append({'platform':'macOS arm64','installerCommand':cmd,'installerExit':r.returncode,'installedBinaryMatchesVerifiedArchive':True,'binarySha256':hashlib.sha256(expected).hexdigest(),'version':version,'ready':ready,'authenticatedStatusExit':0,'statusFieldNames':sorted(status),'scope':'Downloaded release installer to isolated custom bin; loopback daemon ready and authenticated read-only status; no consent or emergency unlock action'})
+finally:
+ if p.poll() is None:
+  p.send_signal(signal.SIGINT)
+  try:p.wait(timeout=15)
+  except subprocess.TimeoutExpired:p.kill();p.wait();raise RuntimeError('daemon required force kill')
+ log.close()
+assert p.returncode==0,p.returncode
+with socket.socket() as s:
+ assert s.connect_ex(('127.0.0.1',port))!=0,'daemon port leaked'
+rows[0]['shutdownExit']=p.returncode;rows[0]['portClosed']=True
+# An available Rosetta runtime is used as-is; never install it or change system settings.
+rosetta=subprocess.run(['arch','-x86_64','/usr/bin/true'],capture_output=True)
+if rosetta.returncode==0:
+ archive=assets/'interact-ai-v0.8.0-x86_64-apple-darwin.tar.gz';x=dest/'x86_64-interact-ai'
+ with tarfile.open(archive) as tf:x.write_bytes(tf.extractfile(tf.getmember('interact-ai')).read())
+ x.chmod(0o755);v=subprocess.check_output(['arch','-x86_64',str(x),'--version'],text=True,timeout=20).strip();assert v=='interact-ai 0.8.0'
+ rows.append({'platform':'macOS x86_64 under existing Rosetta','version':v,'binarySha256':hashlib.sha256(x.read_bytes()).hexdigest(),'scope':'Actual downloaded CLI launch only; not native Intel hardware or desktop installation'})
+else:rows.append({'platform':'macOS x86_64','status':'needs-environment','reason':'Rosetta unavailable; not installed by this task'})
+result={'status':'passed','verificationReportSha256':hashlib.sha256(verification_path.read_bytes()).hexdigest(),'scriptSha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'tag':'v0.8.0','sha':subprocess.check_output(['git','rev-parse','v0.8.0^{}'],text=True).strip(),'seconds':round(time.monotonic()-started,3),'results':rows,'linuxWindows':'Build workflow and asset checksums only; installation not-run on this macOS host','desktop':'separate native result','installerSha256':hashlib.sha256(installer.read_bytes()).hexdigest()}
+(b/'release-install-cli.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n');print(json.dumps(result,ensure_ascii=False,indent=2))

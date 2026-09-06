@@ -1,0 +1,15 @@
+{
+  "name": "publication-docs-final",
+  "sha": "4f5992933cde634a242f114f39575b278e9bb834",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "scripts/tests/architecture-checks.sh",
+    "--docs"
+  ],
+  "exit": 0,
+  "durationSeconds": 2.74,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "publication-docs-final.txt"
+}

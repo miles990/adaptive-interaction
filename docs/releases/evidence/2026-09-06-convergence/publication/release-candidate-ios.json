@@ -1,0 +1,18 @@
+{
+  "name": "release-candidate-ios",
+  "sha": "c15873acbaaed870d2c90fa95c12255f532ce782",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "scripts/tests/ios-simulator.sh",
+    "--out",
+    "/tmp/adaptive-convergence-20260906/release-candidate-ios",
+    "--build-dir",
+    "/tmp/adaptive-convergence-20260906/ios-baseline"
+  ],
+  "exit": 0,
+  "durationSeconds": 52.87,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "release-candidate-ios.txt"
+}

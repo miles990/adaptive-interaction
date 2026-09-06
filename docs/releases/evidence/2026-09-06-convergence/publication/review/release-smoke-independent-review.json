@@ -1,0 +1,115 @@
+{
+  "reviewer": "/root/state_receipts",
+  "completedAt": "2026-09-06T07:08:23.289270+00:00",
+  "scope": [
+    "../verify-release-assets.py.txt",
+    "../release-install-smoke.py.txt"
+  ],
+  "method": "Bounded read-only source review; CodeGraph attempted first, then exact scripts read. Only checksum AST lines14-17 evaluated against in-memory file objects. Neither full script/installer/release binary/daemon/GUI was executed. No repository files changed.",
+  "sourceHashes": [
+    {
+      "path": "../verify-release-assets.py.txt",
+      "sha256": "edc7da1e0d9d378b06035ce9bbb050bcf09293e75aa99497e3dcdb541917fd1c"
+    },
+    {
+      "path": "../release-install-smoke.py.txt",
+      "sha256": "c01087f2f63406c845e4084bd077ab387075ec72204bb9b9f47df5a1f6d1e6ab"
+    }
+  ],
+  "findings": [
+    {
+      "id": "RELEASE-ASSETS-01",
+      "priority": "P2",
+      "file": "../verify-release-assets.py.txt",
+      "lines": [
+        15,
+        17
+      ],
+      "title": "Checksum sidecar coverage is counted without binding each sidecar to its named asset",
+      "trigger": "A required binary.tar.gz.sha256 exists in metadata/files but its content names QUICKSTART.md and contains that document hash. Do this for all nine required sidecars.",
+      "actual": "The loop requires only content filename membership in names and a matching hash for that content filename. It never requires p.name == name + .sha256, and len(checksums)>=9 counts duplicate coverage. All nine sidecars can validate the same document while no CLI/desktop archive has its own sidecar verified.",
+      "counterexample": {
+        "executionLevel": "original checksum AST block with in-memory file objects; not full script/Release execution",
+        "acceptedSidecars": 9,
+        "uniqueCoveredAssets": [
+          "QUICKSTART.md"
+        ],
+        "passedCoverageAssertion": true
+      },
+      "refutation": "Presence checks at lines6/9 ensure sidecar filenames exist, but do not bind their content to those assets. Present GitHub digests add an independent check, but line12 intentionally permits digest absence and the sidecarMatched count is still misleading even when digests exist.",
+      "recommendation": "Require each sidecar basename to equal its referenced asset plus .sha256; reject sidecars outside metadata; collect unique covered asset names and require every expected CLI/desktop archive to be covered. Replace the minimum count as the coverage criterion."
+    },
+    {
+      "id": "RELEASE-SMOKE-02",
+      "priority": "P2",
+      "file": "../release-install-smoke.py.txt",
+      "lines": [
+        5,
+        12,
+        32
+      ],
+      "title": "Smoke executes assets and calls the archive verified without consuming a successful asset-verification record",
+      "trigger": "Invoke this script with local install.sh/archive files after the asset verifier was skipped/failed, or replace those files after a prior verification. A matching installed/archive binary with the expected --version can still yield installedBinaryMatchesVerifiedArchive:true.",
+      "actual": "The script never reads release-asset-verification.json or checks that installer/arm archive/x86 archive hashes and commit match its successful run. It executes install.sh at line7 before any source/checksum gate in this script; equality at line12 proves only equality to the current local archive, not prior verification.",
+      "refutation": "A caller that first checks verifier exit0 and keeps the assets immutable can uphold this precondition externally. That is not enforced or recorded here. The installed-binary equality and version checks are useful but cannot prove installer/source/sidecar verification; inherited INTERACT_AI_ALLOW_UNVERIFIED_DOWNLOAD can also weaken the child installer own sidecar requirement.",
+      "recommendation": "Before executing installer or any binary, require the successful verification result for v0.8.0 at the expected peeled commit and compare current installer + relevant archive SHA-256 to that record. Record the verification report digest/run identity; clear the installer unverified-download escape hatch for this strict smoke run, or explicitly mark such a run unverified."
+    },
+    {
+      "id": "RELEASE-SMOKE-03",
+      "priority": "P3",
+      "file": "../release-install-smoke.py.txt",
+      "lines": [
+        13
+      ],
+      "title": "Initial installed CLI --version probe has no timeout",
+      "trigger": "An installed release CLI hangs on the standalone --version invocation after the installer returns.",
+      "actual": "subprocess.check_output at line13 can block indefinitely. The daemon try/finally has not started yet; no success is written, but the intended bounded smoke workflow never completes. Later status/x86 probes already specify timeouts.",
+      "refutation": "The downloaded installer has an outer180s timeout and invokes --version internally, so many broken binaries will fail there first. That does not bound the separate second invocation at line13 or a per-invocation/environment-dependent hang.",
+      "recommendation": "Give this check_output an explicit short timeout and retain its timeout as a failed smoke outcome. This is a boundedness issue, not an observed false-success or existing-home mutation."
+    }
+  ],
+  "checkedAndNotFlagged": [
+    {
+      "property": "Required files missing",
+      "assessment": "Normal unoptimized execution fails on required metadata set checks and every metadata asset p.is_file/read_bytes; missing CLI/archive/installer also raises. No explicit success JSON is written by the failed invocation."
+    },
+    {
+      "property": "Raw checksum mismatch / GitHub digest mismatch",
+      "assessment": "The specified checksum content mismatch raises. If GitHub supplies a digest it must equal actual SHA-256; absent digest is honestly recorded as githubDigestMatched:false. Coverage naming defect is separately flagged above."
+    },
+    {
+      "property": "Source extras / skill ZIP bytes",
+      "assessment": "QUICKSTART/install.sh/CHANGELOG compare exact bytes to local v0.8.0 Git sources. Skill ZIP rejects absolute/.. paths and unknown files and compares every entry, then checks full source-file coverage. Compiled-source reproducibility is explicitly not claimed; no missing attestation finding is invented."
+    },
+    {
+      "property": "Wrong release/version",
+      "assessment": "Asset verifier checks tag v0.8.0 and draft/prerelease false; archive/desktop filenames include0.8.0. Smoke installed arm and optional Rosetta x86 version must exactly equal interact-ai 0.8.0. Build provenance remains separately limited, as stated by the scripts."
+    },
+    {
+      "property": "Daemon never ready / exits early",
+      "assessment": "Owned Popen must remain live on each readiness iteration; readiness status must be ok; a40s deadline bounds repeated connection/JSON/readiness failures. Status subprocess must exit0 within15s and return a nonempty JSON object. No ready/status failure path writes success."
+    },
+    {
+      "property": "Daemon not closed / API port retained",
+      "assessment": "finally sends SIGINT, waits15s, force-kills and raises if graceful shutdown failed. Success additionally requires owned process exit0 and inability to connect to its API port. The script proves parent daemon exit and API port closure, not all possible descendant process cleanup; it does not claim the latter."
+    },
+    {
+      "property": "Existing user interaction home / consent / emergency unlock",
+      "assessment": "Destination directory creation refuses an existing dest. Runtime receives both explicit --config dest/runtime-home and INTERACT_AI_HOME pointing there; API/token environment overrides are removed; loopback host and advertise0 are explicit. Only serve, ready and read-only status are used; there is no consent or emergency unlock command."
+    },
+    {
+      "property": "Installer effects on existing user home",
+      "assessment": "Read-only check of current repository scripts/get.sh confirms --cli-only disables skill/desktop/completion installs and --bin-dir overrides the normal HOME/.local/bin output. It may read existing gh authentication to fetch release bytes, but this path does not write user shell rc, skills, existing interaction state or consent. This conclusion assumes the downloaded installer matches the verified tag source; the missing enforcement is RELEASE-SMOKE-02."
+    },
+    {
+      "property": "Rosetta/system changes",
+      "assessment": "The script only probes an existing Rosetta runtime and launches an isolated extracted x86 CLI; it never installs Rosetta or changes system settings. Unavailable Rosetta yields needs-environment rather than installation acceptance."
+    }
+  ],
+  "limits": [
+    "No full script, installer, binary, daemon, network download or GUI execution occurred. These findings are source-level and the one counterexample is in-memory checksum logic only.",
+    "No claim that v0.8.0 release assets currently exist or pass verification; scripts were reviewed before their planned release run.",
+    "Final success reporting must check process exit status, not merely find an older result JSON at the hardcoded path. Both scripts write success only at the end but leave any prior success file untouched on a later failing invocation. This is an operational precondition, not separately counted as a script exit0 false-success finding.",
+    "Only the two requested scripts and the referenced installer flag behavior/CLI config contract were reviewed; no broader release pipeline or product audit."
+  ]
+}

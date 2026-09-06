@@ -1,0 +1,12 @@
+{
+  "command": [
+    "metadata",
+    "--format-version",
+    "1",
+    "--locked"
+  ],
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "exit": 0,
+  "seconds": 0.355,
+  "log": "1788678804952496000-26247-metadata.txt"
+}

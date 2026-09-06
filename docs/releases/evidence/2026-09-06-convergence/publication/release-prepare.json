@@ -1,0 +1,15 @@
+{
+  "name": "release-prepare",
+  "sha": "3616c241fee8bb9b48717b21a31a1ad3e84fd014",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "scripts/release-prepare.sh",
+    "0.8.0"
+  ],
+  "exit": 0,
+  "durationSeconds": 40.51,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "release-prepare.txt"
+}

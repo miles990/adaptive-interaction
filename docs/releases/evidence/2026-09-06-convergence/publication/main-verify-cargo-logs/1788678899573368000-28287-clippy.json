@@ -1,0 +1,15 @@
+{
+  "command": [
+    "clippy",
+    "--manifest-path",
+    "apps/interaction-desktop/src-tauri/Cargo.toml",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "exit": 0,
+  "seconds": 0.69,
+  "log": "1788678899573368000-28287-clippy.txt"
+}

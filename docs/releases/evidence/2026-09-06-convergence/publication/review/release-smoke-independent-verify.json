@@ -1,0 +1,195 @@
+{
+  "reviewer": "/root/state_receipts",
+  "fixAuthor": "/root",
+  "completedAt": "2026-09-06T07:13:16.762247+00:00",
+  "status": "all original findings independently verified fixed at reviewed source hashes",
+  "executedReleaseScripts": false,
+  "downloadedInstalledOrLaunched": false,
+  "repositoryModified": false,
+  "buildsRun": false,
+  "method": "Extract current production-script AST for checksum validation, asset-name assertions, and pre-install verification. Use in-memory files or fresh temporary fixture directories; subprocess Git reference and version call are stubs for known inputs/timeouts. No installer/archive/runtime is executed.",
+  "counts": {
+    "passed": 20,
+    "failed": 0,
+    "negativeRejectionProbes": 17,
+    "positiveControls": 3
+  },
+  "results": [
+    {
+      "id": "original-nine-sidecars-all-cover-QUICKSTART",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": "Sidecar filename and target differ"
+    },
+    {
+      "id": "nine-correctly-named-sidecars-control",
+      "passed": true,
+      "expected": "accept positive control",
+      "observed": "accepted"
+    },
+    {
+      "id": "metadata-unique-basename-control",
+      "passed": true,
+      "expected": "accept positive control",
+      "observed": "accepted"
+    },
+    {
+      "id": "metadata-duplicate-name",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": "Duplicate asset name"
+    },
+    {
+      "id": "metadata-parent-path",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": "Unsafe asset name"
+    },
+    {
+      "id": "metadata-absolute-path",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": "Unsafe asset name"
+    },
+    {
+      "id": "verified-report-and-pinned-bytes-control",
+      "passed": true,
+      "expected": "accept positive control",
+      "observed": "accepted"
+    },
+    {
+      "id": "missing-verification-report",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "FileNotFoundError",
+      "detail": "[Errno 2] No such file or directory: '/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/release-preflight-missing-e2pe8wui/release-asset-verification.json'"
+    },
+    {
+      "id": "failed-verification-status",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": ""
+    },
+    {
+      "id": "wrong-report-version",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": ""
+    },
+    {
+      "id": "wrong-report-commit",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": ""
+    },
+    {
+      "id": "duplicate-verified-asset-name",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": ""
+    },
+    {
+      "id": "wrong-verified-asset-count",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": ""
+    },
+    {
+      "id": "missing-installer-file",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "FileNotFoundError",
+      "detail": "[Errno 2] No such file or directory: '/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/release-preflight-negative-75rcgnum/release-assets/install.sh'"
+    },
+    {
+      "id": "changed-installer-bytes",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": "Changed verified asset: install.sh"
+    },
+    {
+      "id": "changed-arm-archive-bytes",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": "Changed verified asset: interact-ai-v0.8.0-aarch64-apple-darwin.tar.gz"
+    },
+    {
+      "id": "wrong-report-byte-size",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": "Changed verified asset: install.sh"
+    },
+    {
+      "id": "missing-archive-sidecar-proof",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": ""
+    },
+    {
+      "id": "mismatched-sidecar-proof-hash",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "AssertionError",
+      "detail": ""
+    },
+    {
+      "id": "initial-version-hang-has-timeout20",
+      "passed": true,
+      "expected": "reject before execution",
+      "observed": "TimeoutExpired",
+      "detail": "Command '['/never-executed/interact-ai', '--version']' timed out after 20 seconds"
+    }
+  ],
+  "findings": [
+    {
+      "id": "RELEASE-ASSETS-01",
+      "status": "fixed",
+      "evidence": "Original nine sidecars all targeting QUICKSTART now fail Sidecar filename and target differ; nine proper sidecars pass. Duplicate and unsafe asset names reject."
+    },
+    {
+      "id": "RELEASE-SMOKE-02",
+      "status": "fixed",
+      "evidence": "Preflight rejects missing/failed/wrong-version/wrong-commit report, duplicate/count mismatch, missing/changed installer, changed arm archive, wrong byte size and missing/mismatched sidecar proof before dest creation or installer invocation. Correct report and matching bytes pass."
+    },
+    {
+      "id": "RELEASE-SMOKE-03",
+      "status": "fixed",
+      "evidence": "Initial version subprocess now receives timeout=20; injected TimeoutExpired propagates as failure without executing a binary."
+    }
+  ],
+  "sourceHashes": [
+    {
+      "path": "../verify-release-assets.py.txt",
+      "sha256": "9d66dea796b8db088d365b336fe684872ac19b1aa3e777862742e26af886193d"
+    },
+    {
+      "path": "../release-install-smoke.py.txt",
+      "sha256": "9cebc66edec1d91ec4f28b53246cc9a0401a18643d619ca6b33869bf322bc0f6"
+    }
+  ],
+  "probeSource": "release-smoke-independent-probes.py.txt",
+  "probeSourceSha256": "af3f30fe7c8fff232d0be9d8aad7814cd4f7dc28dd85aa9c5020c0bec5acabba",
+  "limits": [
+    "This is negative/preflight harness verification, not release download, checksum validation of actual published assets, installation, daemon readiness/shutdown or native GUI acceptance.",
+    "Git tag resolution is represented by a fixed reference value for preflight branch tests; actual v0.8.0 peeled tag must be resolved by the real release run.",
+    "The inherited installer unverified-download escape hatch was not cleared, but successful smoke is now gated by a previously verified local archive plus installed-byte equality. It cannot independently bypass the fixed verified-byte checks.",
+    "Normal non-optimized Python execution is assumed, consistent with planned python3 invocation; no claim is made for assert-stripped -O execution."
+  ],
+  "probeLog": {
+    "path": "release-smoke-independent-probes.txt",
+    "sha256": "b4dcd29eea8bdd40db1eab94882f33c723b0296331b3af74eef56d9693e05935"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "purpose": "Preserve stdout/stderr of Cargo commands without changing repository or command arguments. Stdout and stderr forwarded separately; original executable and exit status retained.",
+  "realCargo": "/opt/homebrew/bin/cargo",
+  "wrapper": "drivers/cargo.py.txt",
+  "evidenceDir": "/tmp/adaptive-convergence-20260906/main-verify-cargo-logs"
+}

@@ -1,0 +1,9 @@
+versions -> 0.8.0
+CHANGELOG: renamed Unreleased -> 0.8.0 (2026-09-06) and kept an empty Unreleased heading
+
+✔ prepared v0.8.0（未 commit、未 tag）。接下來：
+    git diff --stat                      # 審閱
+    git commit -am "release: v0.8.0" && git push
+    # PR → CI 綠 → merge → main CI 綠，然後：
+    scripts/release-verify.sh 0.8.0
+    scripts/release-tag.sh 0.8.0 [--push]

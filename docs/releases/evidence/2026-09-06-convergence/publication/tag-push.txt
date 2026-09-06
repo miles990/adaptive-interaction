@@ -1,0 +1,20 @@
+release-verify v0.8.0 @ 1fa69b8
+  ✔ worktree clean — 0 dirty paths
+  ✔ git diff --check
+  ✔ versions in sync — Cargo=0.8.0 tauri=0.8.0 conf=0.8.0 pkg=0.8.0
+  ✔ every crate version follows the workspace
+  ✔ CHANGELOG has a non-empty [0.8.0] section
+  ✔ tag v0.8.0 does not exist yet
+  ✔ openapi.json info.version == 0.8.0
+  ✔ no secrets in tracked files
+  ✔ AIP generated types not drifted
+  ✔ docs claims match the code — docs-claims: 176 passed / 0 failed
+  ✔ release scripts + workflow self-tests — release-scripts: 58 passed / 0 failed
+  ✔ CI required checks for HEAD all success — 4 required checks success: Rust (fmt + clippy + test + build), Tauri backend (clippy + test), Frontend (typecheck + component tests + build), Browser E2E (Playwright against a real daemon)
+  ⊘ full test matrix (fmt/clippy/cargo test/src-tauri clippy+test/aip:check/typecheck/pnpm test/build) — SKIPPED（跳過：沒有 --run-tests；本機測試未跑）
+✔ passed-with-skips for v0.8.0：已執行的關卡全過，但有 1 個關卡被跳過（未驗證）
+    這不是完整驗證；要完整關卡請重跑不帶 --skip-ci 並加 --run-tests。
+✔ tagged v0.8.0 -> 1fa69b8
+To github.com:miles990/adaptive-interaction.git
+ * [new tag]         v0.8.0 -> v0.8.0
+✔ pushed v0.8.0（Release workflow 會從這個 tag 建置並發布）

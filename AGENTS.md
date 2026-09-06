@@ -2,7 +2,7 @@
 
 跨 AI「能力感知型自適應互動平台」：Rust runtime＋`interact-ai` CLI＋HTTP API（127.0.0.1:8787，Bearer token）
 ＋SSE＋Canonical Tool Manifest＋跨 AI Skill＋Tauri 2 控制中心＋真硬體 adapter（Serial／MQTT／BLE）
-＋iPhone Mobile Provider＋AIP 1.0 與權威 Character Session。最新已發布版本 v0.7.0（tag `v0.7.0` → `630b429`，2026-09-06；前一版 v0.6.0）。
+＋iPhone Mobile Provider＋AIP 1.0 與權威 Character Session。最新已發布版本 v0.8.0（tag `v0.8.0` → `1fa69b8`，2026-09-06；前一版 v0.7.0）。
 
 這份檔案只回答「我該從哪裡開始、不能踩什麼」。**不可違反的不變量**（嚴禁 MCP、Policy Governor
 確定性強制、誠實階梯、感測不靜默、角色呈現層沒有權限主權…）在 `CLAUDE.md`「不可違反的不變量」段，
