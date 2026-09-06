@@ -1,0 +1,1874 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.23s
+   Compiling interaction-adapter-declarative v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-declarative)
+   Compiling interaction-e2e v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/tests/e2e)
+   Compiling interaction-session v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-session)
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+   Compiling interaction-api v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-api)
+   Compiling interaction-cli v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 51.50s
+     Running unittests src/lib.rs (target/debug/deps/adapters_builtin-18440777476c478a)
+
+running 1 test
+test actuators::mock_bounds_tests::mock_bookkeeping_and_device_events_are_bounded ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/adapters_media-c4108872945b2536)
+
+running 5 tests
+test tests::manifest_is_consent_gated_high_sensitivity_local_only ... ok
+test tests::double_listen_is_refused ... ok
+test tests::stop_releases_device_immediately ... ok
+test tests::enabling_never_opens_the_microphone ... ok
+test tests::listen_window_produces_level_facts_only_and_stops_on_deadline ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_adapter_declarative-3848353b1db24a5f)
+
+running 50 tests
+test ble::tests::a_cancelled_scan_is_still_stopped ... ok
+test ble::tests::a_foreign_service_without_a_name_is_ignored ... ok
+test ble::tests::a_service_match_without_a_local_name_is_a_candidate ... ok
+test ble::tests::a_service_match_with_the_same_name_is_a_candidate ... ok
+test ble::tests::an_empty_device_name_disables_the_name_filter ... ok
+test ble::tests::a_service_match_with_a_different_name_is_not_a_candidate ... ok
+test ble::tests::without_the_service_only_an_exact_name_matches ... ok
+test fragment::tests::quotes_cost_two_bytes_each_when_budgeting ... ok
+test ble::tests::a_closed_link_is_never_downgraded_by_a_late_event ... ok
+test ble::tests::a_disconnect_event_for_our_device_flips_the_state ... ok
+test ble::tests::another_devices_disconnect_leaves_us_connected ... ok
+test link_caps::tests::stop_all_window_covers_the_firmware_reconnect_block ... ok
+test link_caps::tests::refusal_reasons_distinguish_oversize_from_identity ... ok
+test fragment::tests::the_worst_case_overhead_covers_every_real_header ... ok
+test ble::tests::a_truncated_notification_is_counted_and_never_silently_dropped ... ok
+test ble::tests::a_whole_message_without_a_newline_still_works ... ok
+test ble::tests::unterminated_notification_data_is_bounded ... ok
+test protocol::wait_for_tests::handshake_errors_map_honestly ... ok
+test protocol::wait_for_tests::closed_channel_is_reported_as_closed_not_timeout ... ok
+test ble::tests::a_chunked_notification_is_reassembled_into_one_message ... ok
+test protocol::wait_for_tests::lag_policy_fail_stops_immediately_with_lagged ... ok
+test protocol::wait_for_tests::lag_tolerant_wait_still_finds_a_later_reply ... ok
+test serial::tests::a_reconnect_drops_commands_queued_on_the_previous_link ... ok
+test serial::tests::an_expired_queue_entry_is_not_written ... ok
+test serial::tests::a_regular_file_reports_enotty_and_takes_the_file_fallback ... ok
+test serial::tests::a_read_timeout_keeps_the_partial_line ... ok
+test serial::tests::an_unterminated_line_is_bounded_and_recovers ... ok
+test serial::tests::complete_lines_are_not_concatenated ... ok
+test serial::tests::an_oversize_line_is_refused_before_it_reaches_the_queue ... ok
+test serial::tests::enotty_fallback_is_narrow ... ok
+test mqtt::tests::an_oversize_message_is_refused_before_publish ... ok
+test mqtt::tests::the_liveness_window_is_bounded ... ok
+test mqtt::tests::silence_beyond_the_liveness_window_is_reported ... ok
+test state_applied::tests::writes_are_not_applied_and_legacy_peers_receive_no_extension ... ok
+test state_applied::tests::every_binding_field_must_match_an_outstanding_sent_state ... ok
+test state_applied::tests::delayed_valid_receipts_make_progress_without_rolling_back_newer_claims ... ok
+test tests::substitution_uses_only_bounded_effective_values ... ok
+test tests::secret_references_resolve_from_env_and_never_echo ... ok
+test tests::unsupported_transports_are_honestly_refused ... ok
+test state_applied::tests::timeout_capacity_generation_and_stop_are_bounded_and_invalidate_old_receipts ... ok
+test tests::url_guard_blocks_metadata_and_odd_schemes ... ok
+test tests::spec_parses_full_example ... ok
+test tests::link_transports_validate_identity_command_and_facts ... ok
+test protocol::wait_for_tests::lag_is_tolerated_by_default_and_counted_on_timeout ... ok
+test protocol::wait_for_tests::times_out_without_lag_is_a_plain_timeout ... ok
+test serial::tests::the_fallback_reader_sleeps_in_poll_and_wakes_on_the_shutdown_signal ... ok
+test serial::tests::pty_link_opens_and_shutdown_stops_the_supervisor ... ok
+test serial::tests::a_silent_fallback_reader_is_reclaimed_not_detached ... ok
+test serial::tests::a_port_that_dies_immediately_backs_off_and_is_reported_offline ... ok
+test serial::tests::repeated_open_shutdown_cycles_do_not_accumulate_detached_readers ... ok
+
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.45s
+
+     Running tests/aip_fragment.rs (target/debug/deps/aip_fragment-665bf9140016b882)
+
+running 17 tests
+test a_fragment_that_overruns_the_declared_length_is_dropped ... ok
+test a_malicious_total_or_byte_count_is_refused_on_the_first_fragment ... ok
+test a_complete_but_unparseable_payload_is_dropped ... ok
+test a_missing_fragment_drops_the_whole_transfer ... ok
+test a_new_transfer_cancels_the_previous_one_and_says_so ... ok
+test an_envelope_over_the_reassembly_cap_is_not_fragmented ... ok
+test a_stalled_transfer_times_out_and_is_dropped ... ok
+test a_truncated_transfer_is_dropped_by_the_declared_byte_count ... ok
+test a_reconnect_cancels_the_in_flight_transfer ... ok
+test crc32_matches_the_standard_ieee_vectors ... ok
+test an_explicit_cancel_reports_what_it_threw_away ... ok
+test a_complete_transfer_reassembles_to_the_original_envelope ... ok
+test a_repeated_fragment_drops_the_whole_transfer ... ok
+test multibyte_characters_are_never_split_in_the_middle ... ok
+test a_wrong_crc_drops_the_whole_transfer ... ok
+test the_fragment_count_stays_bounded ... ok
+test the_line_limit_boundary_is_exact ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/aip_link.rs (target/debug/deps/aip_link-26754f9bc8f58284)
+
+running 17 tests
+test device_aip_is_refused_until_the_handshake_and_pairing_completed ... ok
+test a_small_envelope_still_goes_out_as_one_aip_line ... ok
+test aip_lines_round_trip_in_both_directions ... ok
+test inbound_fragments_from_a_device_that_declared_no_caps_are_dropped ... ok
+test fragmentation_never_raises_the_envelope_cap ... ok
+test inbound_fragments_are_refused_before_the_handshake ... ok
+test an_out_of_order_inbound_fragment_is_dropped_with_a_reason ... ok
+test an_oversized_envelope_is_refused_when_the_device_cannot_reassemble ... ok
+test inbound_fragments_reassemble_into_one_admitted_envelope ... ok
+test oversized_device_aip_is_refused_without_being_admitted ... ok
+test a_reconnect_cancels_an_in_flight_inbound_transfer ... ok
+test the_pending_audit_queue_is_bounded_and_counts_what_it_had_to_drop ... ok
+test an_oversized_envelope_is_fragmented_when_the_device_advertises_it ... ok
+test send_aip_writes_nothing_when_the_device_identity_does_not_match ... ok
+test send_aip_writes_one_line_after_the_handshake ... ok
+test two_supersedes_before_a_drain_keep_both_audits_in_order ... ok
+test send_aip_refuses_an_oversized_envelope_without_writing ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/aip_outbound_atomicity.rs (target/debug/deps/aip_outbound_atomicity-80114989d6376113)
+
+running 4 tests
+test fragment_drop_is_a_plain_value ... ok
+test a_failure_on_the_first_fragment_still_says_nothing_was_written ... ok
+test a_mid_transfer_write_failure_is_reported_as_uncertain_not_ok ... ok
+test two_concurrent_fragmented_sends_do_not_interleave_on_the_wire ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/esp32_sim_conformance.rs (target/debug/deps/esp32_sim_conformance-0cb04bac6919bf72)
+
+running 24 tests
+test the_firmware_gives_ble_notifications_a_length_discipline ... ok
+test the_firmware_advertises_its_name_in_the_scan_response ... ok
+test the_firmware_ignores_aip_frag_and_never_claims_it_can_reassemble ... ok
+test the_firmware_implements_the_same_pairing_lockout ... ok
+test the_host_parses_the_locked_pair_fail_and_the_pairing_locked_hello ... ok
+test the_readme_command_parameter_ranges_match_the_hard_limits ... ok
+test state_facts_are_identical_across_firmware_simulator_and_readme ... ok
+test sensors_absent_mode_reports_the_firmware_honest_values ... ok
+test json_constants_the_firmware_parser_rejects_are_bad_json_in_the_simulator_too ... ok
+test hello_fields_are_identical_across_firmware_simulator_and_readme ... ok
+test a_negative_out_of_range_number_clamps_to_the_low_bound ... ok
+test a_replayed_nonce_is_deduplicated_on_the_device_and_the_readme_says_so ... ok
+test top_level_key_scanner_ignores_nested_objects ... ok
+test aip_messages_are_handled_identically_by_firmware_simulator_and_readme ... ok
+test the_simulator_drops_an_out_of_order_fragment_and_says_so ... ok
+test the_host_serial_transport_refuses_an_oversize_cmd_before_the_wire ... ok
+test the_simulator_reassembles_exactly_what_the_host_fragments ... ok
+test the_simulator_advertises_fragmentation_and_can_be_asked_not_to ... ok
+test the_simulator_drops_an_oversize_line_with_an_id_less_bad_json_like_the_firmware ... ok
+test the_sensor_face_is_controllable_and_absent_values_pass_through ... ok
+test the_simulator_refuses_to_emit_aip_before_pairing ... ok
+test five_wrong_pairing_codes_lock_pairing_until_the_window_passes ... ok
+test out_of_range_numbers_are_clamped_like_the_firmware_and_never_kill_the_simulator ... ok
+test the_simulator_serialises_the_vibe_strength_like_the_firmware_float ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.64s
+
+     Running tests/http_loop.rs (target/debug/deps/http_loop-0232600910c124b3)
+
+running 13 tests
+test an_actuator_without_a_stop_endpoint_never_claims_a_confirmed_stop ... ok
+test expired_action_is_rejected_before_any_network_io ... ok
+test a_stop_request_that_never_reaches_the_device_is_not_a_confirmed_stop ... ok
+test a_stop_request_the_device_refuses_is_not_a_confirmed_stop ... ok
+test receptor_reads_real_device_facts ... ok
+test a_stop_request_the_device_accepts_is_a_confirmed_stop ... ok
+test a_reply_that_resolves_no_declared_fact_is_not_an_observation ... ok
+test actuator_sends_bounded_values_and_reports_acknowledged_only ... ok
+test http_health_is_not_hard_coded_healthy ... ok
+test unreachable_device_yields_failed_receipt_not_fake_success ... ok
+test a_connect_failure_is_definitely_not_sent_so_it_may_be_retried ... ok
+test transient_device_failure_is_retried_then_succeeds ... ok
+test a_timeout_after_the_request_was_sent_is_uncertain_and_never_resent ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running tests/mqtt_loop.rs (target/debug/deps/mqtt_loop-ac4eb14c58f75c2f)
+
+running 7 tests
+test mqtt_identity_mismatch_is_refused ... ok
+test mqtt_duplicate_delivery_is_deduplicated_by_the_device ... ok
+test mqtt_simulated_device_closed_loop ... ok
+test mqtt_device_silence_degrades_health_even_while_the_broker_is_connected ... ok
+test mqtt_a_command_waiting_across_a_reconnect_is_uncertain_not_failed ... ok
+test mqtt_reconnect_forces_a_fresh_handshake_before_any_command ... ok
+test mqtt_a_reconnect_never_replays_the_inflight_command ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.93s
+
+     Running tests/protocol_honesty.rs (target/debug/deps/protocol_honesty-383917c4e1acf33e)
+
+running 36 tests
+test a_reconnect_during_the_pairing_wait_invalidates_the_handshake ... ok
+test a_reconnect_during_the_hello_wait_invalidates_the_handshake ... ok
+test a_pairing_lockout_is_not_reported_as_a_wrong_pairing_code ... ok
+test a_device_that_advertises_nothing_is_not_blocked ... ok
+test a_mid_send_failure_is_uncertain_and_never_retried ... ok
+test a_device_that_never_asked_for_pairing_leaves_the_code_unverified ... ok
+test a_capability_the_device_never_advertised_is_refused_before_the_wire ... ok
+test a_device_pairing_reset_re_handshakes_before_the_next_command ... ok
+test a_state_that_resolves_no_declared_fact_is_not_an_observation ... ok
+test an_expired_command_is_never_written_to_the_wire ... ok
+test actuator_status_follows_the_link_and_shutdown_is_offline ... ok
+test an_already_paired_channel_is_not_reported_as_a_never_compared_code ... ok
+test an_id_less_device_error_ends_the_request_as_a_refusal ... ok
+test host_msgs_serialize_to_the_wire_protocol ... ok
+test identity_mismatch_is_refused_before_any_command ... ok
+test hello_pairing_and_proto_declarations_are_honoured ... ok
+test provider_disable_closes_the_registered_links ... ok
+test pairing_gate_wrong_code_refused_right_code_passes ... ok
+test read_state_returns_pointerable_facts_and_cancel_acks ... ok
+test only_a_not_found_error_means_the_device_has_no_cancellable_effect ... ok
+test receptor_health_follows_the_real_link_state_not_a_hard_coded_healthy ... ok
+test reconnect_forces_a_fresh_handshake ... ok
+test stop_all_on_a_disconnected_link_fails_fast_without_reopening ... ok
+test stop_all_still_reaches_a_connected_link ... ok
+test task_slot_aborts_the_previous_task ... ok
+test ack_timeout_is_unknown_and_never_resent ... ok
+test state_from_a_foreign_device_id_is_discarded ... ok
+test a_reconnect_ends_the_waiting_command_as_link_reset ... ok
+test a_timeout_after_undecodable_replies_does_not_claim_the_device_was_silent ... ok
+test a_concurrent_read_makes_an_id_less_error_unattributable_to_the_cmd ... ok
+test a_concurrent_cmd_makes_an_id_less_error_unattributable_to_the_cancel ... ok
+test an_id_less_error_is_not_attributed_while_another_request_is_in_flight ... ok
+test a_stop_all_ack_delayed_by_a_firmware_reconnect_block_still_counts ... ok
+test a_stop_all_ack_after_the_window_is_still_unconfirmed ... ok
+test stop_all_without_a_device_ack_is_reported_as_unconfirmed ... ok
+test a_handshake_timeout_is_not_reported_as_dispatched ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.51s
+
+     Running tests/spec_safety.rs (target/debug/deps/spec_safety-659d1c2beeea8176)
+
+running 6 tests
+test secret_references_produce_no_warning ... ok
+test nonsensical_limits_are_refused_at_parse_time ... ok
+test a_spec_without_limits_declares_no_ceiling ... ok
+test declared_device_limits_reach_the_actuator_manifest ... ok
+test link_actuators_carry_device_limits_too ... ok
+test plaintext_credentials_are_warned_and_never_echoed ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_adapter_sdk-ff51dce0f0dadd49)
+
+running 4 tests
+test tests::merge_does_not_trust_a_complete_driver_status_chain ... ok
+test tests::merge_does_not_trust_driver_completed_claim ... ok
+test tests::merge_applies_forward_progress_only ... ok
+test tests::driver_receipt_protocol ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_agent_gateway-c6339ffb3df0712d)
+
+running 22 tests
+test claude::tests::error_results_map_to_failed_not_completed ... ok
+test claude::tests::tool_use_maps_to_tool_started ... ok
+test claude::tests::init_never_reports_work_before_the_first_assistant_or_tool_event ... ok
+test claude::tests::session_args_keep_read_and_write_scopes_bounded ... ok
+test claude::tests::parses_the_recorded_live_sample_shape ... ok
+test claude::tests::claude_never_fabricates_an_approval_request ... ok
+test claude::tests::malformed_and_hostile_lines_never_panic ... ok
+test codex::tests::token_usage_notifications_normalize_without_pretending_usd ... ok
+test codex::tests::notifications_normalize_honestly ... ok
+test codex::tests::approval_summary_is_bounded_and_never_panics ... ok
+test codex::tests::turn_completed_reads_turn_status_instead_of_assuming_a_claim ... ok
+test codex_exec::tests::args_are_bounded_and_never_bypass_safety ... ok
+test codex_exec::tests::exit_without_terminal_event_is_unknown_unless_exit_code_says_otherwise ... ok
+test codex_exec::tests::malformed_lines_are_bounded_and_never_claim_success ... ok
+test codex_exec::tests::recorded_jsonl_shapes_normalize_honestly ... ok
+test codex_exec::tests::intent_only_specs_are_refused_instead_of_silently_ignored ... ok
+test codex::tests::a_failed_approval_write_keeps_the_request_so_it_can_be_retried ... ok
+test process::tests::delegated_process_never_inherits_runtime_capability_tokens ... ok
+test process::tests::kill_tree_signals_group_even_after_leader_reaped ... ok
+test process::tests::kill_tree_escalates_to_group_even_when_leader_exits_in_grace ... ok
+test codex::tests::connector_uses_exec_fallback_and_resumes_the_same_thread ... ok
+test process::tests::process_group_terminate_kills_sigterm_ignoring_members ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_aip-ef7ed028d197e9aa)
+
+running 19 tests
+test offline::tests::approval_names_need_a_fresh_human_decision ... ok
+test offline::tests::table ... ok
+test message::tests::name_grammar ... ok
+test capability::tests::unknown_keys_round_trip ... ok
+test message::tests::unknown_message_type_round_trips_and_is_never_known ... ok
+test capability::tests::negotiation_is_intersection_and_min ... ok
+test envelope::tests::unknown_message_type_is_rejected_not_executed ... ok
+test envelope::tests::profiles_enforce_required_fields ... ok
+test envelope::tests::deadline_identity_and_dedupe ... ok
+test outcome::tests::ladder_is_honest ... ok
+test envelope::tests::valid_event_round_trips_with_unknown_optional_fields ... ok
+test tests::canonical_json_sorts_keys_recursively_and_is_stable ... ok
+test capability::tests::unsupported_inputs_are_bounded_and_truncation_is_recorded ... ok
+test version::tests::parse_and_negotiate ... ok
+test version::tests::version_syntax_has_no_fuzzy_edges ... ok
+test schema::tests::every_limit_constant_is_published_in_the_schema ... ok
+test schema::tests::max_unsupported_inputs_is_published_with_the_authoritative_value ... ok
+test envelope::tests::version_major_mismatch_and_sizes ... ok
+test schema::tests::schema_has_all_roots_and_is_stable ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/canonical_vectors.rs (target/debug/deps/canonical_vectors-64d268fc4832b61b)
+
+running 6 tests
+test the_combining_mark_vector_separates_byte_order_from_normalized_order ... ok
+test the_ordering_vector_actually_separates_code_point_from_utf16_order ... ok
+test passthrough_characters_are_not_escaped ... ok
+test the_exponent_vector_straddles_the_fixed_to_scientific_boundary ... ok
+test the_vector_set_covers_every_divergence_it_claims_to ... ok
+test canonical_vectors_match_the_authoritative_implementation ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-a3c5edf7e1b0de12)
+
+running 12 tests
+test offline_policy_table ... ok
+test outcome_migration_table ... ok
+test receive_decision_fixtures_have_the_documented_shape ... ok
+test error_codes_in_the_index_are_all_known ... ok
+test identity_decision_table ... ok
+test name_scope_table ... ok
+test negotiation_fixtures_are_deterministic ... ok
+test state_hash_fixtures_agree_with_canonical_json_and_hash ... ok
+test every_message_type_has_at_least_one_valid_fixture ... ok
+test accepted_fixtures_round_trip_without_losing_unknown_fields ... ok
+test generated_fixtures_cover_the_oversized_and_malformed_cases ... ok
+test envelope_fixtures_agree_with_the_index ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_api-ee52033d870b315a)
+
+running 13 tests
+test auth_scope_tests::agent_token_cannot_read_the_unresolved_stops_inbox ... ok
+test auth_scope_tests::adapter_tokens_only_reach_receipts_and_events ... ok
+test auth_scope_tests::legacy_agent_token_cannot_interrupt_any_agent_session ... ok
+test auth_scope_tests::interrupt_principal_check_is_ownership_scoped ... ok
+test auth_scope_tests::session_scoped_token_interrupts_only_its_own_session ... ok
+test routes::character_session_tests::a_disabled_session_answers_503_with_the_stable_code ... ok
+test routes::character_session_tests::the_http_surface_is_always_the_desktop_human_surface ... ok
+test auth_scope_tests::sensor_recovery_health_is_public_but_incarnations_are_human_only ... ok
+test auth_scope_tests::the_status_projection_keeps_human_layer_records_off_the_agent_plane ... ok
+test sse::tests::agent_session_state_is_human_only_on_sse_like_rest ... ok
+test sse::tests::character_events_are_human_only_on_sse ... ok
+test sse::tests::legacy_agent_sse_cannot_read_knowledge_or_sensor_payloads ... ok
+test character_ws::tests::a_peer_that_stops_reading_cannot_wedge_the_ws_loop_forever ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.00s
+
+     Running tests/api_e2e.rs (target/debug/deps/api_e2e-5e891216232917d6)
+
+running 33 tests
+test an_unknown_outcome_is_reportable_and_can_never_be_verified ... ok
+test agent_token_never_sees_a_device_identity_fingerprint ... ok
+test builtin_domain_packs_have_api_install_uninstall_and_context_scope ... ok
+test emergency_stop_via_api ... ok
+test cancelling_an_action_records_the_real_principal_in_the_audit_trail ... ok
+test agent_token_cannot_grant_consent_clear_estop_or_mutate_human_state ... ok
+test character_hello_route_negotiates_and_manual_intent_refuses_safety ... ok
+test character_session_routes_are_human_only ... ok
+test an_agent_session_can_fetch_its_own_mailbox_and_that_is_what_marks_delivery ... ok
+test health_is_public_but_api_requires_token ... ok
+test oversized_payload_is_rejected ... ok
+test character_ws_fixture_negotiates_receives_intents_and_answers_receipts ... ok
+test adapter_token_http_routes_share_the_websocket_rate_limit ... ok
+test only_a_human_token_can_verify_a_claim_and_no_agent_can_self_upgrade ... ok
+test provider_declarations_are_visible_read_only ... ok
+test presentation_behavior_telemetry_is_sanitized_and_visible ... ok
+test knowledge_tools_require_a_live_session_token_and_enforce_tool_and_domain_scopes ... ok
+test interrupt_requires_session_ownership_or_a_human_token ... ok
+test mobile_routes_are_human_only_for_agent_and_session_tokens ... ok
+test provider_test_is_human_only_and_never_fakes_evidence ... ok
+test the_status_an_agent_reads_carries_no_human_layer_records ... ok
+test sse_stream_replays_with_last_event_id ... ok
+test recipe_crud_and_validation ... ok
+test stop_operations_record_the_real_principal_in_the_audit_trail ... ok
+test sensors_stop_is_available_to_every_token_and_reports_honestly ... ok
+test unified_activity_inbox_applies_compound_runtime_filters ... ok
+test tool_calls_work_without_mcp ... ok
+test unresolved_stops_are_listed_and_only_a_human_can_dismiss_one ... ok
+test scenario_i_http_host_full_loop ... ok
+test tool_exports_all_formats ... ok
+test human_layer_endpoints_roundtrip ... ok
+test multimodal_derivation_and_bounded_source_preview_are_real_api_operations ... ok
+test hardware_scan_is_authed_metadata_only_and_preserves_sensor_truth ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.72s
+
+     Running tests/consent_e2e.rs (target/debug/deps/consent_e2e-6560b76d85cfa3cb)
+
+running 4 tests
+test consent_max_uses_is_rejected_for_scopes_that_never_spend_it ... ok
+test consent_with_max_uses_zero_is_rejected ... ok
+test consent_with_max_uses_one_is_spent_by_the_first_dispatch ... ok
+test consent_without_max_uses_keeps_the_unlimited_behaviour ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/providers_e2e.rs (target/debug/deps/providers_e2e-aeeafc01bae5ddab)
+
+running 2 tests
+test a_verified_record_never_grows_a_pairing_warning_out_of_nowhere ... ok
+test provider_detail_tells_the_api_that_the_pairing_code_was_never_verified ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_character-a52338726041eb48)
+
+running 45 tests
+test capability::tests::every_intent_has_a_primary_capability_and_channels_are_canonical ... ok
+test capability::tests::classification_rules ... ok
+test capability::tests::namespaced_custom_regex ... ok
+test capability::tests::channel_classification ... ok
+test input::tests::action_requested_becomes_quick_action_request ... ok
+test input::tests::hover_throttled_to_4_per_second ... ok
+test input::tests::kinds_serialize_with_prefix ... ok
+test input::tests::dragged_is_merged_and_quantized ... ok
+test capability::tests::canonical_list_has_26_unique_ids ... ok
+test input::tests::absolute_coordinates_and_raw_paths_rejected ... ok
+test input::tests::file_drop_accepts_ts_gateway_files_shape ... ok
+test input::tests::file_drop_is_metadata_only_with_short_grant ... ok
+test input::tests::observer_and_notification_only_never_forward ... ok
+test input::tests::proximity_throttled_to_one_per_30s ... ok
+test input::tests::text_limit_and_privacy ... ok
+test intent::tests::floors_match_spec_table ... ok
+test intent::tests::ai_requests_are_capped_and_truth_none ... ok
+test intent::tests::long_strings_rejected ... ok
+test intent::tests::priority_is_clamped_to_floor ... ok
+test intent::tests::expires_at_must_follow_timestamp ... ok
+test intent::tests::parameters_over_4kb_rejected ... ok
+test input::tests::queue_cap_drops_oldest_non_safety ... ok
+test lifecycle::tests::crash_and_reconnect_paths ... ok
+test intent::tests::wire_names_round_trip ... ok
+test lifecycle::tests::disposed_is_frozen_and_no_skips ... ok
+test input::tests::file_drop_files_shape_keeps_metadata_only_rules ... ok
+test lifecycle::tests::main_line_is_legal ... ok
+test lifecycle::tests::roles_input_filter ... ok
+test manifest::tests::character_id_regex ... ok
+test manifest::tests::magic_bytes ... ok
+test manifest::tests::relative_path_rules ... ok
+test receipt::tests::accepted_is_not_completed ... ok
+test receipt::tests::acknowledged_never_becomes_completed ... ok
+test receipt::tests::detail_is_truncated ... ok
+test receipt::tests::happy_path_is_legal ... ok
+test receipt::tests::terminal_states_are_frozen ... ok
+test tests::echo_is_truncated_to_200_chars ... ok
+test tests::parses_major_minor_only ... ok
+test wire::tests::direction_tables ... ok
+test wire::tests::rate_limiter_is_deterministic ... ok
+test receipt::tests::receipt_type_cannot_carry_truth_state ... ok
+test wire::tests::malformed_and_unknown_type ... ok
+test wire::tests::tag_is_kebab_case_and_flat_for_handshake ... ok
+test wire::tests::oversized_message_rejected ... ok
+test schema::tests::schema_has_all_roots_and_is_stable ... ok
+
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-c32fcfe25ff40fba)
+
+running 3 tests
+test conformance_covers_the_reference_adapters ... ok
+test safety_intents_cannot_be_presented_as_non_safety_intents ... ok
+test every_bundled_and_third_party_manifest_conforms ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/gateway.rs (target/debug/deps/gateway-ff580730a28eb0d1)
+
+running 37 tests
+test cancel_is_idempotent ... ok
+test emergency_preempts_non_interruptible_non_safety ... ok
+test dispatch_sends_intent_and_accepted_receipt ... ok
+test completed_safety_intent_and_non_safety_intents_do_not_get_system_text ... ok
+test command_lifecycle_legal_and_illegal_transitions ... ok
+test acknowledged_never_becomes_completed_and_sweeps_to_uncertain ... ok
+test adapter_reported_unsupported_resolution_is_adopted_not_discarded ... ok
+test disconnect_hands_in_flight_safety_intent_to_system_text ... ok
+test adapter_crash_marks_all_pending_uncertain ... ok
+test expired_message_is_not_sent ... ok
+test failed_safety_intent_falls_back_to_system_text ... ok
+test hello_is_built_from_instance_and_limits ... ok
+test heartbeat_timeout_disconnects_after_45s ... ok
+test malformed_frames_are_charged_first_and_audited_at_most_once_per_window ... ok
+test forged_verified_from_adapter_is_ignored ... ok
+test merge_and_drop_if_busy_policies ... ok
+test merged_cancel_receipt_from_the_desktop_settles_without_waiting_for_expiry ... ok
+test rate_budget_is_shared_by_every_entry_point ... ok
+test rate_limit_and_wrong_direction_are_enforced ... ok
+test bounded_pending_queue_never_drops_safety ... ok
+test duplicate_message_id_is_deduplicated_without_resend ... ok
+test every_non_completed_terminal_receipt_of_a_safety_intent_falls_back_to_system_text ... ok
+test reconnect_generation_rejects_stale_receipts ... ok
+test outbound_cap_drops_oldest_unacknowledged_non_safety ... ok
+test remove_instance_marks_pending_uncertain_and_forgets_instance ... ok
+test receipt_resolution_may_degrade_but_never_upgrade ... ok
+test started_watchdog_marks_uncertain_not_completed ... ok
+test multi_instance_safety_dedupe_per_role_class_plus_notification_only ... ok
+test re_negotiation_resends_in_flight_safety_intents_as_system_text ... ok
+test role_filtering_and_input_flow_through_gateway ... ok
+test zero_capability_instance_uses_system_text_for_safety_only ... ok
+test swept_safety_intent_falls_back_to_system_text_without_recursing ... ok
+test reduced_motion_is_per_instance_and_drives_negotiation ... ok
+test wire_round_trip_of_gateway_outputs ... ok
+test undeclared_input_capabilities_are_dropped_before_the_input_queue ... ok
+test resume_previous_after_safety_presentation ... ok
+test payload_size_limits ... ok
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/intent_capabilities_golden.rs (target/debug/deps/intent_capabilities_golden-182e353c86747c44)
+
+running 1 test
+test intent_capability_table_matches_the_cross_language_golden ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/manifest.rs (target/debug/deps/manifest-11bad4c798ce3f69)
+
+running 18 tests
+test magic_bytes_reject_spoofed_extension ... ok
+test legacy_unknown_formats_are_refused ... ok
+test parse_manifest_from_bytes_enforces_size_and_json ... ok
+test legacy_pack_v1_migrates_to_sprite_manifest ... ok
+test error_messages_never_echo_more_than_200_chars ... ok
+test legacy_pack_v1_1_with_anchors_gains_gaze_and_failed ... ok
+test compatibility_and_fallbacks_are_checked ... ok
+test rig_packs_are_not_migrated_by_the_core_registry ... ok
+test character_id_and_localized_text_bounds ... ok
+test capability_id_rules ... ok
+test sprite_and_text_manifests_are_valid ... ok
+test valid_shu_maid_style_manifest_passes_with_report ... ok
+test schema_version_major_and_newer_minor ... ok
+test oversize_limits ... ok
+test process_and_url_entrypoints_are_recorded_not_executed ... ok
+test malicious_asset_paths_are_rejected_without_echo ... ok
+test safety_intent_fallbacks_must_target_another_safety_intent ... ok
+test preferences_schema_subset_rules ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/migration_registry.rs (target/debug/deps/migration_registry-83b5090025b8e6cc)
+
+running 10 tests
+test default_validation_limits_carry_an_empty_builtin_whitelist ... ok
+test registry_is_bounded ... ok
+test unknown_pack_kind_is_refused_without_echoing_long_input ... ok
+test registry_refuses_duplicate_kind_and_version ... ok
+test empty_registry_migrates_nothing ... ok
+test legacy_helpers_are_public_for_third_party_migrators ... ok
+test core_registry_knows_sprite_only ... ok
+test registry_dispatches_by_kind_and_schema_version ... ok
+test builtin_entrypoint_is_rejected_when_the_host_injects_nothing ... ok
+test injected_whitelist_decides_which_builtin_ids_pass ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/negotiation.rs (target/debug/deps/negotiation-3f04a461d70bdb70)
+
+running 16 tests
+test newer_minor_is_accepted ... ok
+test intent_fallback_is_applied_once_only ... ok
+test no_expression_character_gets_exact_substituted_reduced_unsupported ... ok
+test safety_intent_never_falls_back_to_a_non_safety_intent ... ok
+test reduced_motion_static_reduced_disabled_paths ... ok
+test pure_audio_character_still_resolves_all_safety_intents ... ok
+test protocol_major_mismatch_is_refused_not_guessed ... ok
+test full_reference_adapter_resolves_everything_exact ... ok
+test pure_audio_character_expresses_work_wait_unknown_when_it_offers_them ... ok
+test text_adapter_resolves_every_intent_via_bubble_or_presence ... ok
+test negotiated_wire_shape_matches_spec ... ok
+test sprite_pack_negotiation_uses_animation_variants_and_intent_fallbacks ... ok
+test fallback_selection_is_deterministic_and_ordered ... ok
+test zero_capability_character_routes_safety_to_system_text_only ... ok
+test unsupported_offer_entries_are_dropped_by_gateway_intersection ... ok
+test unknown_capability_and_custom_channel_handling ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_character_shu-374cf3cb8a882d2c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-0ade1958ca480943)
+
+running 1 test
+test bundled_rig_characters_conform ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rig_pack.rs (target/debug/deps/rig_pack-a1202195e59c377a)
+
+running 6 tests
+test rig_pack_without_id_or_name_is_refused ... ok
+test entrypoint_id_and_variants_are_stable ... ok
+test unknown_palette_is_refused_without_echoing_input ... ok
+test capabilities_cover_the_full_rig_surface ... ok
+test migrator_registers_alongside_the_core_sprite_migrator ... ok
+test legacy_rig_2_0_migrates_to_shu_rig_manifest ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/interact_ai-9f4050795a75da3d)
+
+running 13 tests
+test selfmgmt::tests::asset_names_are_deterministic ... ok
+test selfmgmt::tests::missing_checksum_is_fail_closed_unless_explicitly_allowed ... ok
+test commands::resume_defaults_tests::explicit_flags_win_over_the_previous_limits ... ok
+test commands::resume_defaults_tests::omitted_flags_reuse_the_previous_limits ... ok
+test selfmgmt::tests::semver_parsing_and_ordering ... ok
+test commands::resume_defaults_tests::ttl_falls_back_to_the_lease_span_then_to_the_narrowest_value ... ok
+test commands::resume_defaults_tests::workdir_prefers_the_recorded_directory_over_the_scope_label ... ok
+test selfmgmt::tests::this_platform_has_a_triple ... ok
+test selfmgmt::tests::embedded_skill_is_complete ... ok
+test selfmgmt::tests::unbuilt_platforms_are_refused_instead_of_404ing ... ok
+test selfmgmt::tests::skill_targets_detect_present_agents_only ... ok
+test sensors_cli_tests::unresolved_stops_have_their_own_listing_command ... ok
+test sensors_cli_tests::dismissing_an_unresolved_stop_requires_a_generation ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/cli_e2e.rs (target/debug/deps/cli_e2e-6703ce3d06edf8da)
+
+running 8 tests
+test daemon_offline_exit_code_is_3 ... ok
+test duplicate_daemon_is_refused_by_instance_lock ... ok
+test emergency_stop_from_cli_and_stable_exit_codes ... ok
+test agents_resume_requires_a_real_provider_thread_and_never_inherits_write_access ... ok
+test tools_export_writes_all_formats ... ok
+test scenario_h_skill_plus_cli_agent_loop ... ok
+test character_subcommands_manage_adapters_and_refuse_safety_intents ... ok
+test agents_resume_auto_fills_the_previous_limits_and_workdir ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.58s
+
+     Running tests/release_provenance.rs (target/debug/deps/release_provenance-f75ffc67b106bbe8)
+
+running 10 tests
+test agent_gateway_version_follows_the_workspace ... ok
+test the_ci_gate_requires_every_job_ci_yml_defines ... ok
+test release_verify_never_calls_a_skipped_gate_passed ... ok
+test install_desktop_does_not_promise_a_bundle_for_unbuilt_linux_arches ... ok
+test missing_checksum_aborts_the_update_instead_of_installing_unverified_bytes ... ok
+test desktop_bundles_are_verified_and_have_published_checksums ... ok
+test release_is_gated_on_ci_and_published_only_after_every_build_succeeds ... ok
+test release_scripts_guard_empty_array_expansion_for_bash_3_2 ... ok
+test every_triple_the_installer_claims_is_actually_built_by_release_yml ... ok
+test every_crate_version_follows_the_workspace ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_core-2bf072c7ad467e83)
+
+running 41 tests
+test agent::tests::claimed_completed_is_open_not_terminal ... ok
+test knowledge::tests::agents_only_ever_create_candidates ... ok
+test knowledge::tests::analogies_can_never_claim_causality ... ok
+test agent::tests::handoff_refuses_transcript_sized_payloads ... ok
+test domain_pack::tests::validation_requires_every_knowledge_and_know_how_section ... ok
+test knowledge::tests::claims_require_evidence ... ok
+test agent::tests::delegation_depth_cycle_and_budget_are_enforced ... ok
+test knowledge::tests::empty_or_note_only_source_refs_never_satisfy_the_evidence_gate ... ok
+test agent::tests::unknown_is_a_terminal_state_of_its_own_and_never_a_failure ... ok
+test human::tests::localized_text_fallback_chain ... ok
+test knowledge::tests::review_transitions_respect_the_state_machine ... ok
+test knowledge::tests::superseded_is_not_usable_in_answers ... ok
+test human::tests::tristate_default_is_unknown_not_no ... ok
+test human::tests::tristate_serializes_as_bool_or_unknown ... ok
+test memory::tests::agent_horizons_clamped_to_layer_defaults ... ok
+test memory::tests::defaults_follow_the_spec_table ... ok
+test memory::tests::agent_rules_demote_claims_and_long_term_user_memory ... ok
+test agent::tests::resolved_workdir_is_additive_and_round_trips_old_records ... ok
+test memory::tests::retention_three_states_derive_status ... ok
+test memory::tests::far_future_horizon_counts_as_long_term ... ok
+test memory::tests::visibility_denylist_wins_and_sensitive_layers_default_hidden ... ok
+test memory::tests::secrets_in_tags_and_provenance_rejected ... ok
+test memory::tests::secrets_never_enter_memory ... ok
+test observation::tests::facts_and_inferences_are_separate ... ok
+test observation::tests::staleness ... ok
+test provider::tests::identity_roundtrips_and_defaults_conservatively ... ok
+test provider::tests::lifecycle_refuses_shortcuts ... ok
+test provider::tests::only_operational_states_execute ... ok
+test receipt::tests::emergency_stop_wins_from_anywhere_non_terminal ... ok
+test receipt::tests::happy_path_is_legal ... ok
+test receipt::tests::queued_is_not_completed ... ok
+test receipt::tests::terminal_states_are_frozen ... ok
+test session::tests::consent_expiry ... ok
+test session::tests::consent_consume_prefers_the_actuator_scope_over_the_channel_scope ... ok
+test session::tests::consent_grant_and_revoke ... ok
+test session::tests::consent_max_uses_exhausts_after_first_consume ... ok
+test session::tests::consent_deserializes_old_json_without_the_use_counters ... ok
+test session::tests::consent_max_uses_none_keeps_unlimited_behaviour ... ok
+test session::tests::revoked_one_shot_consent_is_not_still_granted ... ok
+test session::tests::stopped_session_inactive ... ok
+test human::tests::human_meta_roundtrips_yaml_and_json ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_e2e-8a36e77d52305810)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/builtin_whitelist_consistency.rs (target/debug/deps/builtin_whitelist_consistency-5417260cc74aeaaf)
+
+running 2 tests
+test the_architecture_guard_test_scans_the_same_ids ... ok
+test the_rust_and_typescript_builtin_whitelists_are_the_same_set ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dependency_boundaries.rs (target/debug/deps/dependency_boundaries-06620e296cede74b)
+
+running 3 tests
+test pure_crates_declare_no_transport_or_runtime_dependencies ... ok
+test the_transitive_check_actually_detects_a_banned_crate ... ok
+test pure_crates_do_not_pull_transport_or_runtime_crates_transitively ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+     Running tests/golden.rs (target/debug/deps/golden-5dfa8fbc9edcf805)
+
+running 8 tests
+test scenario_k_no_mcp_dependency ... ok
+test versions_are_in_sync ... ok
+test golden_semantic_state_schema ... ok
+test golden_aip_schema ... ok
+test golden_recipe_schema ... ok
+test golden_character_protocol_schema ... ok
+test scenario_j_cross_platform_consistency ... ok
+test golden_tool_exports ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_events-bab177929f850874)
+
+running 2 tests
+test tests::ring_buffer_is_bounded_and_replays ... ok
+test tests::publish_and_subscribe ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_policy-f5dbc37a50881fe0)
+
+running 10 tests
+test tests::effective_limit_is_min_of_all_caps ... ok
+test tests::autonomous_respects_initiative ... ok
+test tests::high_risk_requires_approval_then_passes_with_consent ... ok
+test tests::emergency_stop_blocks_everything ... ok
+test tests::unlisted_actuator_is_blocked ... ok
+test tests::pattern_bounding_clamps_steps_and_magnitude ... ok
+test tests::session_budget_clamps_then_blocks ... ok
+test tests::quiet_hours_block_audio_but_not_conversation ... ok
+test tests::exhausted_one_shot_consent_blocks_even_without_revocation_or_expiry ... ok
+test tests::cooldown_and_hourly_limits ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_recipe-04bfa45efc82be37)
+
+running 30 tests
+test model::duration_tests::rejects_duration_that_could_overflow_runtime_time_arithmetic ... ok
+test condition::tests::validation_rejects_garbage ... ok
+test condition::tests::facts_do_not_leak_inferences ... ok
+test condition::tests::map_condition ... ok
+test condition::tests::low_confidence_inference_does_not_match ... ok
+test condition::tests::expression_conditions ... ok
+test fusion::tests::low_confidence_inferences_are_dropped ... ok
+test fusion::tests::latest_per_receptor_wins ... ok
+test fusion::tests::explicit_input_overrides_inference_and_facts ... ok
+test fusion::tests::newer_equal_quality_fact_wins_across_receptors ... ok
+test fusion::tests::stale_observations_are_dropped ... ok
+test trigger::tests::disabled_recipe_never_fires ... ok
+test trigger::tests::all_mode_needs_every_step ... ok
+test trigger::tests::latest_match_is_reported_for_high_water_marking ... ok
+test summarize::tests::english_summary_available ... ok
+test trigger::tests::any_mode_fires_on_one ... ok
+test summarize::tests::summary_reflects_structure_not_free_text ... ok
+test trigger::tests::quorum_mode ... ok
+test trigger::tests::sequence_steps_must_bind_distinct_observations ... ok
+test trigger::tests::sequence_requires_order_within_window ... ok
+test trigger::tests::weighted_mode ... ok
+test validate::tests::syntax_error_does_not_panic ... ok
+test validate::tests::invalid_recipe_reports_field_paths ... ok
+test validate::tests::recipe_without_ai_field_defaults_to_never ... ok
+test validate::tests::good_recipe_parses ... ok
+test validate::tests::json_and_yaml_share_the_model ... ok
+test validate::tests::ai_spec_parses_and_validates ... ok
+test validate::tests::unknown_fields_survive_inside_message_and_ai_blocks ... ok
+test validate::tests::unknown_fields_survive_yaml_roundtrip ... ok
+test validate::tests::schema_is_generated ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_registry-8312af8c1b0a26d2)
+
+running 23 tests
+test human_view::tests::fallback_name_tokenizes_technical_ids ... ok
+test catalog::catalog_tests::glob_semantics ... ok
+test human_view::tests::manifest_hash_changes_with_content ... ok
+test human_view::tests::user_override_beats_adapter_and_catalog_for_name_only ... ok
+test human_view::tests::english_only_adapter_does_not_shadow_catalog_chinese ... ok
+test catalog::catalog_tests::builtin_catalog_parses_and_is_nonempty ... ok
+test human_view::tests::adapter_chinese_still_beats_catalog_chinese ... ok
+test human_view::tests::catalog_name_used_for_known_capability ... ok
+test human_view::tests::ai_description_supplements_but_never_changes_facts ... ok
+test human_view::tests::technical_description_slots_after_catalog_current_language ... ok
+test human_view::tests::formal_sensitivity_beats_human_declaration ... ok
+test catalog::catalog_tests::lookup_priority_exact_then_driver_then_glob ... ok
+test catalog::catalog_tests::camera_is_marked_sensitive_in_catalog ... ok
+test human_view::tests::schema_description_is_deterministic_fallback ... ok
+test human_view::tests::undescribed_third_party_gets_conservative_notice ... ok
+test providers::tests::only_stopped_states_close_the_gate ... ok
+test providers::tests::duplicate_registration_conflicts ... ok
+test providers::tests::attaching_capabilities_replaces_the_reverse_index ... ok
+test tests::availability_follows_the_owning_provider_state ... ok
+test tests::register_discover_disable ... ok
+test providers::tests::full_lifecycle_and_shortcut_refusal ... ok
+test providers::tests::gate_blocks_only_when_every_owner_is_stopped ... ok
+test tests::set_enabled_is_reentrant_and_fault_seam_is_one_shot ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_runtime-6c253d6fee3bab2d)
+
+running 76 tests
+test character::tests::projection_tables_follow_readme_section_11 ... ok
+test character::tests::settlement_outcomes_are_honest ... ok
+test character_session::tests::a_device_that_only_claims_fragmentation_is_not_full_state_until_a_snapshot_went_out ... ok
+test character::tests::ai_substitution_never_yields_a_safety_intent ... ok
+test agents::resume_workdir_tests::a_gateway_session_without_a_recorded_workdir_is_refused_not_assumed ... ok
+test character::tests::presentation_surfaces_come_from_provider_declarations_only ... ok
+test character::tests::input_capabilities_and_security_flags_come_from_the_manifest ... ok
+test character::tests::adapter_token_is_hashed_and_compared_in_constant_time ... ok
+test character_session::tests::a_truncated_session_file_still_gives_up_its_epoch ... ok
+test agents::resume_workdir_tests::resume_must_use_the_same_recorded_workdir ... ok
+test character_session::tests::a_file_that_could_not_be_read_is_never_overwritten_by_a_later_persist ... ok
+test character_session::tests::a_migration_that_cannot_back_up_leaves_the_original_alone ... ok
+test character_session::tests::a_transient_read_failure_never_throws_away_the_stored_snapshot ... ok
+test character_session::tests::the_unreadable_note_does_not_claim_the_file_was_quarantined ... ok
+test character_session::tests::an_oversized_session_file_is_corrupt_and_never_read_into_memory ... ok
+test character_session::tests::a_newer_format_is_preserved_parked_and_never_overwritten ... ok
+test config::tests::defaults_when_missing ... ok
+test config::tests::recipe_id_path_traversal_rejected ... ok
+test character_session::tests::a_migration_that_cannot_write_says_so_instead_of_blaming_the_backup ... ok
+test curator::tests::deterministic_updates_never_need_ai ... ok
+test config::tests::invalid_config_is_error_not_panic ... ok
+test curator::tests::publish_policy_matches_the_spec_table ... ok
+test curator::tests::semantic_work_needs_ai_and_external_research_needs_consent ... ok
+test config::tests::roundtrip_and_atomicity ... ok
+test character_session::tests::persist_failures_are_counted_and_reported_without_paths ... ok
+test character_session::tests::store_note_never_carries_error_details_or_paths ... ok
+test character_session::tests::an_older_format_file_is_migrated_and_the_original_is_backed_up ... ok
+test character_session::tests::the_next_epoch_continues_from_whichever_source_is_further_ahead ... ok
+test config::tests::invalid_recipe_reported_not_fatal ... ok
+test character_session::tests::a_stale_snapshot_never_overwrites_a_newer_one_on_disk ... ok
+test declarative_lifecycle::tests::the_handshake_budget_covers_one_worst_case_retry_round ... ok
+test character_session::tests::a_rebuilt_session_never_reuses_the_epoch_members_remember ... ok
+test config::tests::token_created_and_stable ... ok
+test hardware::tests::scan_is_metadata_only_and_reports_every_requested_class ... ok
+test domain_packs::tests::all_ten_builtin_packs_are_complete_and_versioned ... ok
+test hardware::tests::macos_profiler_metadata_becomes_stable_capability_rows_without_sensor_use ... ok
+test hardware::tests::volatile_paths_never_become_stable_identity ... ok
+test orchestrator::tests::min_channels_unmet_blocks_when_no_action_disallowed ... ok
+test orchestrator::tests::fatigue_pushes_repeated_actuator_below_floor ... ok
+test orchestrator::tests::no_action_when_nothing_viable ... ok
+test orchestrator::tests::unavailable_actuators_are_rejected_with_reason ... ok
+test lock::tests::acquire_and_conflict ... ok
+test orchestrator::tests::picks_minimal_effective_set_with_distinct_channels ... ok
+test presentation::tests::animation_whitelist_excludes_truth_states ... ok
+test presentation::tests::behavior_intent_whitelist_refuses_unknown ... ok
+test presentation::tests::behavior_telemetry_is_bounded_and_explained_by_runtime ... ok
+test presentation::tests::bridge_presence_is_honest ... ok
+test proactive::tests::dnd_defer_disabled_delivers_during_quiet_window ... ok
+test presentation::tests::open_selection_requirements_match_validators ... ok
+test lock::tests::stale_lock_is_reclaimed ... ok
+test proactive::tests::dnd_defers_non_essential_but_never_safety ... ok
+test presentation::tests::sweep_returns_only_expired ... ok
+test hardware::tests::approved_local_declaration_is_discovered_without_mdns_browse_or_endpoint_leak ... ok
+test proactive::tests::hourly_cap_and_min_interval_are_hard ... ok
+test proactive::tests::merge_window_and_no_follow_up ... ok
+test proactive::tests::natural_mode_excludes_greetings_lively_includes ... ok
+test proactive::tests::off_mode_allows_only_safety ... ok
+test proactive::tests::quiet_until_defers_non_essential_only ... ok
+test proactive::tests::safety_dedups_but_is_never_rate_limited ... ok
+test providers::tests::tested_note_for_actuators_never_claims_completion ... ok
+test providers::tests::tested_note_never_claims_a_pairing_that_was_never_compared ... ok
+test providers::tests::tested_note_speaks_human_and_keeps_the_capability_id ... ok
+test text::tests::adaptive_avoids_repetition ... ok
+test text::tests::ai_generated_uses_ai_text ... ok
+test providers::tests::the_companion_prefix_has_exactly_one_literal_in_this_file ... ok
+test runtime::recipe_limit_tests::hourly_recipe_limit_is_a_rolling_window ... ok
+test providers::tests::a_poisoned_registry_still_serves_and_accepts_declarations ... ok
+test text::tests::catalog_covers_all_default_intents ... ok
+test text::tests::none_mode_is_silent ... ok
+test declarative_lifecycle::tests::the_state_never_says_available_before_the_binding_is_established ... ok
+test declarative_lifecycle::tests::a_device_the_binding_table_could_not_track_never_comes_back_as_a_clean_available ... ok
+test declarative_lifecycle::tests::a_late_handshake_after_a_failed_rebind_re_establishes_the_binding_too ... ok
+test declarative_lifecycle::tests::a_cancelled_critical_section_re_closes_the_human_disabled_receptors ... ok
+test declarative_lifecycle::tests::a_revoked_binding_is_never_resurrected_by_a_late_handshake ... ok
+test declarative_lifecycle::tests::a_link_ready_convergence_waits_for_the_provider_lock ... ok
+test character_session::tests::concurrent_persists_never_publish_a_spliced_snapshot ... ok
+
+test result: ok. 76 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.42s
+
+     Running tests/agents_loop.rs (target/debug/deps/agents_loop-51db18de9b4d7529)
+
+running 23 tests
+test close_is_terminal_and_keeps_prior_state_detail ... ok
+test close_with_handoff_keeps_only_bounded_summary ... ok
+test a_real_agent_fetch_emits_fetched_and_send_never_fakes_delivery ... ok
+test delegation_tree_is_bounded_by_max_parallel_regardless_of_hop_count ... ok
+test a_claim_never_auto_upgrades_itself_to_verified ... ok
+test delegation_limits_depth_cycle_and_count ... ok
+test a_human_reading_the_mailbox_is_watching_not_delivering ... ok
+test estop_cancels_all_open_sessions_and_blocks_new_ones ... ok
+test delegation_honesty_ladder_dispatched_acknowledged_claimed ... ok
+test agent_session_state_taxonomy_is_emitted_for_every_rung_of_the_ladder ... ok
+test close_keeps_a_terminal_outcome_instead_of_rewriting_it_to_closed ... ok
+test lease_expiry_kills_capabilities_and_refuses_renewal ... ok
+test max_messages_zero_does_not_mean_unlimited ... ok
+test message_budget_is_a_hard_ceiling ... ok
+test estop_leaves_a_runtime_note_instead_of_a_cancel_task ... ok
+test lease_expiry_emits_timed_out_and_revokes_the_session_capability ... ok
+test human_verify_is_the_only_path_from_claim_to_verified ... ok
+test human_verification_binds_to_one_claim_and_a_new_round_needs_a_new_one ... ok
+test open_sessions_do_not_survive_restart ... ok
+test every_task_receives_and_persists_the_exact_session_scoped_context_bundle ... ok
+test restart_reports_unknown_for_work_that_was_still_open ... ok
+test closed_agent_session_history_is_bounded_and_pruned_from_storage ... ok
+test retention_never_prunes_a_live_session ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+
+     Running tests/character_host_registry.rs (target/debug/deps/character_host_registry-85c4989261049267)
+
+running 4 tests
+test builtin_ids_outside_the_host_registry_are_rejected ... ok
+test the_core_default_still_grants_nothing ... ok
+test host_whitelist_covers_every_builtin_adapter_the_desktop_ships ... ok
+test host_migration_registry_carries_sprite_and_the_shu_rig_migrator ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/character_loop.rs (target/debug/deps/character_loop-feb92d0abeb689fb)
+
+running 23 tests
+test external_adapter_transport_attaches_negotiates_and_times_out ... ok
+test attaching_while_a_connection_is_live_supersedes_it_with_a_goodbye ... ok
+test external_adapter_cannot_forge_human_interaction_observations ... ok
+test desktop_presence_expiry_disconnects_the_desktop_instance ... ok
+test a_declared_remote_presentation_surface_is_never_projected_as_an_action ... ok
+test hello_carries_reduced_motion_and_receipts_report_reduced_not_exact ... ok
+test adapter_tokens_are_hashed_persisted_and_revocable ... ok
+test adapter_rate_limit_covers_http_receipts_events_and_malformed_ws_frames ... ok
+test ai_state_present_substitutes_safety_intents_and_caps_priority ... ok
+test hello_refuses_external_manifests_and_reserved_instance_ids ... ok
+test hello_negotiates_the_desktop_instance_and_rehello_bumps_generation ... ok
+test provider_identity_follows_the_active_character ... ok
+test input_events_become_normalized_receptor_observations ... ok
+test safety_intents_fall_back_to_system_text_without_any_instance ... ok
+test only_the_desktop_instance_settles_an_ai_presentation_command ... ok
+test playable_animations_follow_negotiation_and_deny_truth_states ... ok
+test stale_generation_receipts_are_rejected ... ok
+test every_readme_section_11_row_projects_the_expected_intent ... ok
+test a_stalled_external_adapter_cannot_park_unbounded_safety_messages ... ok
+test receipts_settle_the_presentation_receipt_honestly_never_verified ... ok
+test undeclared_input_capabilities_never_become_companion_observations ... ok
+test ws_adapter_dropping_mid_safety_intent_yields_uncertain_and_system_text ... ok
+test external_adapter_connecting_during_emergency_stop_gets_the_emergency_projection ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+
+     Running tests/character_session_loop.rs (target/debug/deps/character_session_loop-12fb67964f39bf6c)
+
+running 36 tests
+test a_future_format_snapshot_is_kept_untouched ... ok
+test a_snapshot_from_before_unsupported_intents_is_migrated_instead_of_quarantined ... ok
+test a_truncated_snapshot_is_quarantined_with_a_new_epoch ... ok
+test a_v0_6_0_snapshot_is_restored_and_migrated_to_the_current_format ... ok
+test a_snapshot_that_moves_a_member_backwards_says_it_is_a_recovery ... ok
+test a_phone_that_only_touches_is_never_timed_out_of_the_session ... ok
+test a_disconnected_member_is_reconnecting_before_it_is_offline ... ok
+test a_restart_resumes_the_same_session_and_asks_members_to_renegotiate ... ok
+test character_session_fixtures_are_what_this_version_writes ... ok
+test concurrent_persists_leave_the_highest_revision_on_disk ... ok
+test a_negotiated_phone_that_only_sends_legacy_status_stays_a_member ... ok
+test a_superseded_transport_does_not_mark_the_session_member_offline ... ok
+test a_first_capability_frame_for_another_session_cannot_join ... ok
+test a_replayed_resume_query_is_deduped_instead_of_re_executed ... ok
+test a_capability_announcement_cannot_declare_unbounded_names ... ok
+test a_forged_frame_never_echoes_unbounded_attacker_text ... ok
+test a_timed_out_member_is_offline_before_it_is_evicted ... ok
+test an_engaged_emergency_stop_is_replayed_into_the_session_on_startup ... ok
+test an_observed_report_settles_the_intent_instead_of_expiring_it ... ok
+test an_oversized_first_capability_frame_is_refused_before_it_can_join ... ok
+test an_unreadable_session_file_is_quarantined_and_never_silently_reused ... ok
+test diagnostics_report_the_persistence_store_and_never_hide_failures ... ok
+test disabled_flag_falls_back_to_the_v051_behaviour ... ok
+test duplicate_touch_is_accepted_once_and_never_reapplied ... ok
+test emergency_stop_freezes_the_character_and_refuses_interaction ... ok
+test expired_touch_is_never_applied ... ok
+test fixture_iphone_touch_updates_state_and_reaches_both_renderers ... ok
+test flooding_the_session_is_rate_limited ... ok
+test forged_identity_and_out_of_scope_frames_are_refused ... ok
+test human_verified_celebrates_on_the_phone_without_double_playing_on_the_desktop ... ok
+test negotiated_mobile_state_applied_requires_valid_current_connection_and_exact_sent_state ... ok
+test negotiated_unsupported_intents_reach_the_shared_state_and_diagnostics ... ok
+test reconnecting_fixture_iphone_resumes_with_patches ... ok
+test resume_falls_back_to_a_snapshot_when_the_log_no_longer_covers_it ... ok
+test stale_epoch_resume_gets_a_session_reset_snapshot ... ok
+test unauthenticated_and_revoked_devices_never_reach_the_session ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.33s
+
+     Running tests/consent_one_shot_loop.rs (target/debug/deps/consent_one_shot_loop-c24868fe0ec8032e)
+
+running 10 tests
+test max_uses_zero_is_refused_instead_of_creating_a_dead_consent ... ok
+test simulate_plan_blocks_when_the_owning_provider_is_not_operational ... ok
+test max_uses_is_refused_for_scopes_where_nothing_ever_spends_it ... ok
+test a_genuine_revocation_between_authorize_and_dispatch_still_blocks ... ok
+test one_shot_consent_used_as_high_risk_approval_is_also_spent ... ok
+test a_failed_dispatch_does_not_refund_the_one_shot_use ... ok
+test one_shot_consent_is_spent_by_the_first_dispatch_and_blocks_the_next_plan ... ok
+test a_consent_without_max_uses_is_still_unlimited_within_its_ttl ... ok
+test concurrent_plans_racing_one_shot_consent_only_let_one_through ... ok
+test a_spent_one_shot_consent_stays_spent_across_a_restart ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/curator_loop.rs (target/debug/deps/curator_loop-c99aa7202efe751d)
+
+running 7 tests
+test update_decisions_are_deterministic_and_receipts_flow ... ok
+test freshness_sweep_marks_overdue_active_as_stale ... ok
+test candidate_edges_never_demote_active_knowledge ... ok
+test user_correction_is_deletable_memory_and_unpublished_candidate ... ok
+test active_contradiction_disputes_both_sides ... ok
+test experience_candidates_cannot_promote_without_counterexamples ... ok
+test freshness_sweep_scans_beyond_a_single_page ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+     Running tests/declarative_session_loop.rs (target/debug/deps/declarative_session_loop-ba17e8917b898eda)
+
+running 33 tests
+test a_member_without_an_outbound_channel_is_audited_when_a_broadcast_cannot_reach_it ... ok
+test a_frag_claiming_device_is_only_full_state_after_a_snapshot_really_went_out ... ok
+test a_reconnected_device_resumes_and_gets_the_state_it_missed ... ok
+test a_fragmenting_device_receives_the_snapshot_and_is_a_full_state_member ... ok
+test an_idle_declarative_source_still_asks_the_device_and_says_where_the_answer_came_from ... ok
+test a_session_reply_that_does_not_fit_the_wire_is_audited_not_silently_dropped ... ok
+test a_device_without_fragmentation_degrades_to_intent_only ... ok
+test a_serial_device_joins_the_session_and_its_touch_changes_the_shared_state ... ok
+test a_capability_from_another_session_on_the_serial_line_is_audited_as_serial ... ok
+test an_event_only_device_is_an_event_source_member ... ok
+test an_identity_mismatch_on_the_serial_line_is_audited_as_serial ... ok
+test a_transfer_cancelled_by_disabling_the_provider_is_audited_before_the_loop_is_gone ... ok
+test diagnostics_report_where_each_member_identity_came_from ... ok
+test legacy_fragmenting_devices_remain_unconfirmed_after_all_writes_succeed ... ok
+test rebind_generation_rejects_late_callbacks ... ok
+test rebind_keeps_human_disabled_receptors_off ... ok
+test rebind_never_restores_external_actuator_enabled_true ... ok
+test reenable_rebinds_without_restart ... ok
+test revoking_the_spec_leaves_the_session_without_touching_other_members ... ok
+test stop_all_sensors_gets_a_real_ack_from_the_serial_simulator ... ok
+test shared_state_changes_from_other_members_reach_the_serial_device ... ok
+test a_silent_device_stays_visible_as_stop_unknown ... ok
+test the_spec_declares_its_capabilities_and_registers_a_stop_path ... ok
+test revoking_the_spec_removes_its_outbound_channel ... ok
+test the_measured_wire_sizes_of_the_session_replies_are_over_the_line_limit ... ok
+test an_interrupted_inbound_transfer_is_audited_not_silently_dropped ... ok
+test revoke_during_rebind_does_not_resurrect ... ok
+test unplugging_the_device_marks_it_reconnecting_then_offline ... ok
+test a_silent_device_makes_the_stop_uncertain_not_stopped ... ok
+test revoking_a_silent_device_leaves_an_orphaned_capture_record ... ok
+test negotiated_state_applied_tracks_snapshot_patch_loss_rebind_and_stale_receipts ... ok
+test rebind_timeout_is_bounded_and_honest ... ok
+test a_failed_rebind_keeps_the_human_disabled_list_for_the_next_attempt ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.28s
+
+     Running tests/estop_parallel.rs (target/debug/deps/estop_parallel-430d6a6ad3803b3f)
+
+running 4 tests
+test an_emergency_stop_that_every_actuator_confirmed_still_says_so_plainly ... ok
+test the_actuator_phase_of_an_emergency_stop_is_bounded_and_parallel ... ok
+test an_emergency_stop_with_unconfirmed_actuators_never_claims_every_output_halted ... ok
+test the_sensor_phase_of_an_emergency_stop_is_bounded_and_honest ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.14s
+
+     Running tests/gateway_loop.rs (target/debug/deps/gateway_loop-0017a32c22f70499)
+
+running 28 tests
+test a_symlink_cannot_smuggle_the_runtime_state_dir_in_as_a_workdir ... ok
+test an_undelivered_message_during_a_running_exec_turn_is_not_an_agent_failure ... ok
+test a_write_that_fails_is_never_reported_as_delivered_or_fetched ... ok
+test a_watchdog_auto_deny_is_written_back_to_the_mailbox ... ok
+test an_interrupted_codex_turn_is_cancelled_not_claimed_completed ... ok
+test a_watchdog_deny_that_cannot_reach_the_agent_keeps_the_request_pending ... ok
+test a_workdir_inside_the_runtime_state_dir_is_refused ... ok
+test after_the_process_exits_a_new_task_is_refused_instead_of_silently_queued ... ok
+test a_human_decision_is_written_back_to_the_mailbox_as_human ... ok
+test a_second_turn_that_dies_is_not_covered_by_the_first_turns_claim ... ok
+test an_unanswered_approval_is_denied_by_the_watchdog_and_the_deny_reaches_the_agent ... ok
+test a_cancelled_session_still_emits_its_state_event_when_ingest_is_unavailable ... ok
+test claude_sessions_never_show_a_consent_prompt_nobody_can_answer ... ok
+test codex_refuses_intent_only_sessions_it_cannot_enforce ... ok
+test codex_resume_resends_cwd_and_sandbox_instead_of_inheriting_them ... ok
+test delegated_gateway_receipt_reaches_acknowledged ... ok
+test estop_does_not_send_a_user_turn ... ok
+test estop_terminates_sessions_concurrently ... ok
+test gateway_full_loop_with_fake_agent ... ok
+test process_that_ends_without_a_claim_is_unknown_and_only_a_real_error_is_failed ... ok
+test resume_cannot_widen_scope ... ok
+test resume_cannot_widen_time_or_cost_limits ... ok
+test resume_must_stay_in_the_recorded_workdir ... ok
+test resume_passes_the_provider_thread_and_relocks_permission_flags ... ok
+test resume_without_a_recorded_grant_is_refused ... ok
+test resuming_an_intent_only_session_may_not_widen_the_real_tool_set ... ok
+test workdir_never_exposes_the_runtime_state_dir ... ok
+test working_never_precedes_the_task_actually_reaching_the_agent ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.23s
+
+     Running tests/hardware_loop.rs (target/debug/deps/hardware_loop-0cfc1f21b2d45954)
+
+running 1 test
+test hardware_scan_never_activates_sensors_and_reports_every_class ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+
+     Running tests/human_layer.rs (target/debug/deps/human_layer-74e6da8539ec1780)
+
+running 27 tests
+test first_success_seen_persists_through_ui_preferences ... ok
+test onboarding_commit_refuses_consent_gated_components ... ok
+test assist_requires_human_confirmation_gates_api_resolution ... ok
+test deterministic_events_never_call_ai ... ok
+test builtin_manifests_declare_honest_semantics ... ok
+test onboarding_commit_skips_unchanged_components ... ok
+test onboarding_commit_policy_write_failure_leaves_sqlite_and_registry_untouched ... ok
+test ai_description_bound_to_manifest_hash ... ok
+test onboarding_commit_validation_failure_applies_nothing ... ok
+test onboarding_commit_component_failure_leaves_registry_unchanged ... ok
+test onboarding_commit_success_uses_exactly_one_sqlite_transaction ... ok
+test onboarding_draft_and_commit ... ok
+test onboarding_rerun_keeps_edited_starter_recipe ... ok
+test onboarding_commit_sqlite_txn_failure_restores_policy_yaml_bytes ... ok
+test onboarding_preview_reports_changes_without_touching_anything ... ok
+test pause_blocks_recipes_but_not_explicit_requests ... ok
+test projection_uses_catalog_and_conservative_fallback ... ok
+test resolving_assist_proceed_fires_once ... ok
+test recipe_summary_derives_from_structure ... ok
+test recipe_files_follow_the_id_not_the_filename ... ok
+test scenario_simulation_reports_without_side_effects ... ok
+test ui_preferences_persist_and_validate ... ok
+test pause_expires_lazily_and_persists_restart ... ok
+test ai_unavailable_fallback_fires_deterministic_plan ... ok
+test assist_fallback_respects_recipe_disabled_during_wait ... ok
+test uncertain_evidence_defers_to_ai_no_action_fallback ... ok
+test assist_requiring_human_confirmation_never_autofires_on_timeout ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+
+     Running tests/knowledge_loop.rs (target/debug/deps/knowledge_loop-83a362d5a7652615)
+
+running 14 tests
+test empty_or_note_only_source_refs_cannot_pass_the_evidence_gate ... ok
+test local_subword_embedding_retrieves_cross_language_domain_concepts_as_candidates ... ok
+test asset_audit_never_asserts_unverified_human_agency ... ok
+test assets_are_content_addressed_and_write_once ... ok
+test claims_need_evidence_and_analogies_cannot_be_causal ... ok
+test agent_proposals_are_candidates_until_a_human_approves ... ok
+test deleting_an_asset_disputes_knowledge_and_cascades_derivatives ... ok
+test dangling_evidence_is_annotated_and_blocks_approval ... ok
+test review_cannot_resurrect_superseded_or_archived_versions ... ok
+test search_finds_via_fts_and_vector_candidates ... ok
+test image_and_audio_derivatives_are_content_addressed_and_precisely_linked_to_sources ... ok
+test supersede_archives_the_old_version ... ok
+test deleting_source_previews_and_removes_derived_assets_without_silent_orphans ... ok
+test asset_delete_cascade_and_dispute_are_not_truncated_by_caps ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+     Running tests/memory_loop.rs (target/debug/deps/memory_loop-4ded4aaac2b2e9a6)
+
+running 15 tests
+test handoff_lands_in_memory_with_30d_retention ... ok
+test expired_memories_are_pruned_by_sweep ... ok
+test expired_memories_are_refused_before_sweep ... ok
+test crud_layers_and_status ... ok
+test agent_writes_are_demoted_and_secrets_rejected ... ok
+test agent_user_memory_cannot_be_extended_beyond_thirty_days ... ok
+test context_bundle_is_deterministic_and_honest ... ok
+test far_future_horizon_cannot_escape_candidate_demotion ... ok
+test builtin_domain_packs_are_complete_scoped_removable_and_persisted ... ok
+test context_bundle_reports_capacity_truncation ... ok
+test secrets_in_tags_and_provenance_are_rejected ... ok
+test memory_export_declares_scope_and_reports_its_limit ... ok
+test memory_export_exact_limit_is_not_falsely_reported ... ok
+test memory_export_one_over_limit_reports_truncation ... ok
+test clear_session_context_clears_beyond_storage_page_limit ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s
+
+     Running tests/mobile_loop.rs (target/debug/deps/mobile_loop-fe8c95d140b93ca2)
+
+running 81 tests
+test a_mobile_stop_outcome_names_the_receptors_its_provider_declared ... ok
+test accept_errors_are_retried_until_they_are_clearly_hopeless ... ok
+test an_accept_loop_that_stops_is_reported_as_stopped ... ok
+test a_peer_that_burns_the_pairing_window_is_visible_to_the_user ... ok
+test a_failed_auth_is_audited_and_counted ... ok
+test a_superseded_connection_still_forces_the_high_risk_receptor_off ... ok
+test a_corrupt_paired_device_list_is_reported_as_unknown_not_as_none ... ok
+test a_top_level_at_on_a_motion_observation_reaches_the_facts ... ok
+test a_flooding_connection_is_rate_limited_and_audited ... ok
+test character_present_never_infers_verified_success ... ok
+test an_oversized_message_closes_the_connection ... ok
+test ble_scan_timeout_is_honest_and_clears_pending ... ok
+test a_transient_accept_error_does_not_kill_the_mobile_server ... ok
+test clearing_the_emergency_stop_tells_the_phone_it_is_over ... ok
+test a_paired_iphone_registers_an_outbound_channel_with_its_identity_strength ... ok
+test disabled_raw_mobile_capture_survives_disconnect_and_restart_without_a_stop_request ... ok
+test a_revoke_that_cannot_be_persisted_fails_honestly ... ok
+test a_legacy_app_that_never_negotiated_creates_no_session_member_on_disconnect ... ok
+test estop_projects_emergency_to_connected_phone ... ok
+test extra_parameters_can_never_widen_the_policy_bounds ... ok
+test filter_mobile_facts_keeps_only_manifest_provides ... ok
+test generic_disable_of_one_phone_keeps_the_shared_capabilities_of_the_other ... ok
+test an_unauthenticated_peer_is_closed_when_its_deadline_passes ... ok
+test generic_provider_revoke_stops_a_streaming_phone_and_drops_its_connection ... ok
+test generic_revoke_of_one_phone_keeps_the_shared_capabilities_of_the_other ... ok
+test dropping_the_waiting_future_clears_the_pending_act ... ok
+test ingested_mic_observations_alone_make_the_sensor_visible ... ok
+test iphone_character_uncertain_is_still_a_pending_decision ... ok
+test autostart_is_skipped_after_the_last_device_is_revoked ... ok
+test ble_scan_can_name_its_target_phone ... ok
+test late_mobile_false_from_an_unregistered_source_generation_preserves_unknown ... ok
+test map_wire_params_defaults_are_accepted_by_the_app_rules ... ok
+test map_wire_params_refuses_what_the_app_would_refuse ... ok
+test mdns_service_label_fits_rfc6763_limit ... ok
+test high_risk_receptor_forced_off_on_disconnect_and_stays_off ... ok
+test mobile_present_verified_fails_when_the_phone_refuses ... ok
+test iphone_microphone_shows_up_in_active_sensors ... ok
+test idle_connection_times_out_and_capabilities_go_offline ... ok
+test iphone_mic_status_changes_emit_sensor_events ... ok
+test emergency_stop_tells_the_phone_it_is_an_emergency ... ok
+test mobile_sensors_stop_targets_one_phone_and_is_honest_when_unreachable ... ok
+test pending_acts_end_when_the_phone_disconnects ... ok
+test estop_never_counts_mobile_actuators_when_no_phone_received_stop_all ... ok
+test per_device_sensors_stop_tells_the_phone_the_user_asked ... ok
+test observations_are_filtered_and_drops_are_counted ... ok
+test pairing_observation_act_and_estop_loop ... ok
+test revoking_a_device_never_retracts_the_provider_family_declaration ... ok
+test emergency_stop_also_stops_iphone_sensing ... ok
+test disabling_the_shared_mic_receptor_stops_the_phone_and_keeps_it_visible ... ok
+test revoking_a_streaming_phone_ends_its_sensing_and_inflight_acts_at_once ... ok
+test a_legacy_phone_that_never_negotiates_receives_no_aip_frames ... ok
+test serve_mode_can_disable_bonjour_via_env ... ok
+test six_actuators_pass_app_grade_parameter_validation ... ok
+test same_mobile_connection_false_report_settles_capture_before_restart ... ok
+test stop_all_wire_reason_only_calls_the_estop_path_emergency ... ok
+test stop_all_sensors_reaches_iphone_and_waits_for_confirmation ... ok
+test stop_all_sensors_tells_the_phone_the_user_asked ... ok
+test superseding_mobile_connection_cannot_confirm_the_old_capture ... ok
+test test_mode_never_advertises_bonjour_on_the_lan ... ok
+test revoke_disconnects_live_connection_immediately ... ok
+test the_mobile_declaration_is_wired_into_the_runtime_at_startup ... ok
+test the_mobile_provider_declares_its_own_presentation_surface_and_high_risk_receptors ... ok
+test tested_evidence_lands_on_the_phone_that_actually_ran_the_action ... ok
+test mic_level_observations_need_an_explicit_session_consent ... ok
+test the_tls_private_key_is_owner_only_and_loose_permissions_are_repaired ... ok
+test the_public_device_fingerprint_is_not_the_token_verifier ... ok
+test too_many_connections_are_refused_at_accept_and_the_slots_come_back ... ok
+test superseding_a_live_connection_is_silent_and_keeps_the_provider_available ... ok
+test verified_success_is_reachable_only_through_human_verification ... ok
+test ble_scan_is_refused_while_the_emergency_stop_is_engaged ... ok
+test wrong_pairing_code_is_refused_and_session_burned ... ok
+test estop_broadcasts_one_stop_all_and_ends_inflight_acts ... ok
+test token_reconnect_works_until_revoked ... ok
+test mobile_test_pings_the_phone_and_never_claims_more_than_a_pong ... ok
+test per_device_unknown_stop_survives_direct_mobile_revoke_and_restart ... ok
+test phone_connecting_during_estop_receives_emergency ... ok
+test with_two_phones_an_act_must_name_its_target_and_the_receipt_records_it ... ok
+test stop_uncertain_is_a_pending_decision_in_the_inbox ... ok
+test stop_all_sensors_reports_unknown_when_iphone_does_not_reply ... ok
+test one_phone_disconnecting_never_silently_hides_another_streaming_phone ... ok
+test unauthenticated_peer_cannot_resolve_pending_act ... ok
+
+test result: ok. 81 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.08s
+
+     Running tests/mqtt_rebind_loop.rs (target/debug/deps/mqtt_rebind_loop-2c8bfd5068629e5a)
+
+running 1 test
+test mqtt_reenable_rebinds_without_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+
+     Running tests/planner_presentation.rs (target/debug/deps/planner_presentation-e016156c7a499935)
+
+running 5 tests
+test open_selection_without_message_skips_bubble ... ok
+test hidden_companion_not_planned_but_still_visible_in_status ... ok
+test headless_startup_lists_companion_actuators_offline ... ok
+test explicitly_named_candidate_keeps_execute_time_rejection ... ok
+test open_selection_picks_message_capable_companion_step ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/presentation_loop.rs (target/debug/deps/presentation_loop-c40f1a816a9d4194)
+
+running 16 tests
+test disconnected_surface_reports_offline_health ... ok
+test legacy_interaction_receptor_gated_by_companion_presence ... ok
+test consent_gated_capabilities_start_disabled ... ok
+test estop_clears_pending_and_blocks_late_ack ... ok
+test full_loop_bubble_dispatch_ack_completed ... ok
+test ack_after_terminal_sweep_emits_no_lifecycle_events ... ok
+test estop_always_orders_a_clear_all_even_with_nothing_pending ... ok
+test desktop_pet_uncertain_is_not_a_pending_decision_but_haptic_is ... ok
+test ack_in_accepted_window_walks_chain_to_completed ... ok
+test explicit_quiet_hours_list_without_desktop_pet_does_not_silence_the_character ... ok
+test hidden_companion_stops_surface_receptors_and_actuators ... ok
+test behavior_intent_whitelist_enforced_through_full_loop ... ok
+test provider_is_itemized_not_a_blob ... ok
+test no_ack_goes_uncertain_never_completed ... ok
+test quiet_hours_blocked_desktop_pet_is_not_a_pending_decision ... ok
+test sensitive_presentation_effects_are_consent_gated_and_keep_authoritative_params ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/proactive_loop.rs (target/debug/deps/proactive_loop-979bff8244450a10)
+
+running 8 tests
+test proactive_configuration_has_hard_limits_explicit_agent_and_deep_custom_merge ... ok
+test quiet_request_and_user_reply_change_the_gate ... ok
+test off_mode_still_lets_safety_class_through ... ok
+test governor_quiet_hours_defer_dialogue_even_on_conversation_channel ... ok
+test autonomous_dialogue_hits_the_hard_hourly_cap ... ok
+test rate_state_survives_restart ... ok
+test gate_persists_rate_state_eagerly_and_survives_crash_restart ... ok
+test ai_generated_recipe_creates_a_bounded_agent_session_and_only_renders_validated_candidate ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/providers_loop.rs (target/debug/deps/providers_loop-37e37baa5e7b2cd5)
+
+running 36 tests
+test a_spec_without_plaintext_credentials_gets_no_warnings ... ok
+test a_provider_without_a_sensor_source_reports_no_stop_at_all ... ok
+test a_removed_declarative_binding_is_never_rebound ... ok
+test a_device_that_really_verified_the_pairing_code_keeps_a_clean_record ... ok
+test a_disabled_provider_blocks_observe_even_when_the_receptor_stays_enabled ... ok
+test a_revoked_provider_stays_blocked_even_if_a_capability_is_re_enabled ... ok
+test a_disabled_provider_blocks_execution_with_a_blocked_receipt ... ok
+test a_device_that_never_verified_the_pairing_code_downgrades_the_provider_evidence ... ok
+test acknowledged_device_command_records_evidence_for_its_provider ... ok
+test a_revoked_declarative_device_stays_off_across_a_restart ... ok
+test a_legacy_disabled_provider_without_the_off_marker_stays_locked_after_restart ... ok
+test declarative_device_registers_installed_and_disabled ... ok
+test a_disabled_declarative_device_stays_off_until_a_human_enables_it_again ... ok
+test capability_availability_reports_disabled_while_the_provider_is_off ... ok
+test declared_device_is_not_tested_until_something_actually_succeeds ... ok
+test disabling_one_device_never_retracts_the_family_declaration ... ok
+test inbox_sensor_titles_use_the_provider_declared_class_label ... ok
+test disabling_a_provider_stops_the_sensor_source_registered_under_it ... ok
+test governor_bounds_device_output_and_receipt_stays_acknowledged ... ok
+test pairing_ceremony_and_revocation_disable_capabilities ... ok
+test operational_provider_does_not_auto_recover_after_restart ... ok
+test disable_a_does_not_affect_b ... ok
+test human_provider_test_reads_one_receptor_and_records_evidence ... ok
+test provider_declarations_drive_presentation_and_sensor_semantics ... ok
+test provider_records_survive_restart ... ok
+test redeclaring_a_provider_replaces_the_whole_declaration ... ok
+test re_enabling_a_provider_never_re_arms_its_capabilities ... ok
+test provider_test_reports_the_reason_when_it_cannot_read ... ok
+test retracting_a_declaration_removes_its_capability_semantics ... ok
+test reentrant_transitions_do_not_double_retire ... ok
+test transitioning_a_provider_to_disabled_turns_off_its_capability_flags ... ok
+test the_declaration_table_has_a_read_only_projection ... ok
+test successful_receptor_read_records_capability_evidence ... ok
+test re_enabling_a_declarative_device_rebinds_without_a_restart ... ok
+test tested_evidence_survives_restart_but_never_re_arms_the_device ... ok
+test plaintext_credential_warnings_reach_the_provider_record ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+
+     Running tests/receipt_watchdog.rs (target/debug/deps/receipt_watchdog-de8098aaf80e83c9)
+
+running 5 tests
+test uncertain_wins_over_expired_when_both_deadlines_have_passed ... ok
+test every_outcome_unknown_note_is_swept_the_same_way ... ok
+test a_fresh_dispatch_is_left_alone_until_the_ack_window_passes ... ok
+test a_dispatched_receipt_without_an_ack_becomes_uncertain ... ok
+test receipts_without_the_note_still_expire_on_ttl ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/runtime_loop.rs (target/debug/deps/runtime_loop-255be64c01e90665)
+
+running 29 tests
+test disabled_recipe_cannot_be_run_directly ... ok
+test concurrent_execute_of_one_plan_dispatches_only_once ... ok
+test cancel_action_is_cancelled_only_when_the_driver_confirms ... ok
+test dynamic_mock_device_has_observability_pairing ... ok
+test emergency_clear_rearms_latched_devices ... ok
+test cancel_action_is_uncertain_when_the_driver_does_not_confirm ... ok
+test consent_required_blocks_then_grant_allows ... ok
+test concurrent_authorizations_respect_hourly_limit ... ok
+test inbox_needs_decision_filter_returns_pending_items_beyond_the_first_page ... ok
+test crash_recovery_marks_open_actions_uncertain ... ok
+test inbox_pending_count_is_computed_before_page_truncation ... ok
+test inbox_safety_events_distinguish_emergency_clear_and_use_human_titles ... ok
+test inbox_sensor_titles_never_leak_the_raw_device_id ... ok
+test no_action_is_a_legitimate_outcome ... ok
+test monetary_spend_accumulates_and_blocks ... ok
+test pushed_observation_cannot_forge_action_verification ... ok
+test provider_gate_does_not_block_builtin_or_unowned_capabilities ... ok
+test recipe_autonomous_loop_fires_on_observations ... ok
+test scenario_a_single_receptor_single_actuator ... ok
+test recipe_events_are_consumed_no_refire_on_unrelated_observation ... ok
+test recipe_state_survives_restart ... ok
+test scenario_e_consent_revocation_cancels_and_emergency_stop ... ok
+test simulate_has_no_side_effects ... ok
+test status_reports_active_quiet_hours ... ok
+test scenario_d_offline_actuator_falls_back ... ok
+test scenario_g_mock_device_full_state_machine ... ok
+test concurrent_authorizations_reserve_monetary_budget ... ok
+test stop_all_records_the_calling_principal_on_every_cancelled_action ... ok
+test inbox_pending_items_survive_the_history_window_overflow ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+     Running tests/sensor_journal_review.rs (target/debug/deps/sensor_journal_review-b95bb1674852b2b3)
+
+running 5 tests
+test a_registered_family_does_not_hide_unknowns_after_the_live_capture_disappears ... ok
+test scoped_confirmation_resolves_only_its_connection_and_dismissal_keeps_a_live_sibling ... ok
+test a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind ... ok
+test changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors ... ok
+test a_scoped_successful_stop_leaves_no_restart_reminder ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/sensors_loop.rs (target/debug/deps/sensors_loop-9e2d139fc1ece0b4)
+
+running 38 tests
+test emergency_stop_halts_capture_immediately ... ok
+test an_already_stopped_without_device_contact_does_not_clear_an_old_generation ... ok
+test estop_while_capturing_leaves_no_silent_path ... ok
+test estop_during_start_aborts_the_window ... ok
+test dismiss_unresolved_is_explicit_and_audited ... ok
+test confirmed_stop_from_new_source_keeps_previous_incarnation_unresolved ... ok
+test journal_dismissal_commit_failure_preserves_reminder_and_audit ... ok
+test emergency_stop_and_stop_all_sensors_agree_about_an_unstoppable_receptor ... ok
+test live_unresolved_and_history_are_separate ... ok
+test new_generation_confirmed_stop_cannot_vouch_for_previous_source ... ok
+test orphan_ttl_moves_unknown_to_unresolved_not_to_normal ... ok
+test microphone_is_off_by_default_and_consent_gated ... ok
+test mic_facts_are_not_persisted_retention_none ... ok
+test restart_before_orphan_ttl_retains_unknown ... ok
+test restart_human_dismissal_stays_dismissed_without_claiming_stopped ... ok
+test same_id_new_source_does_not_clear_old_generation_unknown ... ok
+test revoking_a_provider_stops_its_sensor_source_with_a_target ... ok
+test revoking_receptor_consent_stops_capture_immediately ... ok
+test stop_uncertain_payloads_name_the_receptors_the_provider_declared ... ok
+test restart_retains_unresolved_without_claiming_active_capture ... ok
+test restart_corrupt_and_future_journals_are_parked_and_visible ... ok
+test status_active_sensors_covers_local_capture_and_invents_nothing_remote ... ok
+test stop_all_sensors_is_honest_about_high_risk_receptors_it_never_asked ... ok
+test stopping_a_source_twice_is_idempotent ... ok
+test stop_all_sensors_reports_and_audits_what_it_actually_stopped ... ok
+test the_sensor_source_registry_is_bounded ... ok
+test the_stop_all_report_keeps_devices_and_adds_sources ... ok
+test unresolved_stop_carries_the_human_label_when_known ... ok
+test unresolved_stop_omits_the_human_label_when_unknown ... ok
+test restart_overflow_never_becomes_zero_problems_after_itemized_dismissals ... ok
+test every_stop_outcome_of_a_source_is_reported_and_evented_honestly ... ok
+test the_removed_while_capturing_record_is_bounded ... ok
+test the_unresolved_stop_summary_is_bounded ... ok
+test a_source_removed_while_stopping_still_reports_and_stays_visible ... ok
+test the_stop_sweep_is_bounded_by_the_deadline ... ok
+test deleting_a_high_risk_receptor_asks_its_source_to_stop_first ... ok
+test a_revoke_racing_a_stop_sweep_stays_bounded_and_honest ... ok
+test shutdown_persists_unknown_before_marking_the_process_clean ... ok
+
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.40s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_session-56851701a077e28a)
+
+running 27 tests
+test director::tests::touch_kind_vocabulary_is_closed ... ok
+test director::tests::activity_mapping_is_not_a_guess ... ok
+test ports::tests::fixed_clock_advances ... ok
+test ports::tests::strict_identity_verifier_rejects_mismatches ... ok
+test cpp::tests::projection_never_emits_a_safety_intent ... ok
+test patch::tests::nested_diff_is_minimal ... ok
+test patch::tests::hash_changes_with_content ... ok
+test ports::tests::a_stale_snapshot_never_overwrites_a_newer_one ... ok
+test ports::tests::memory_store_is_bounded ... ok
+test receive::tests::a_bootstrap_snapshot_is_applied_and_advances_the_view ... ok
+test receive::tests::a_known_local_session_id_still_rejects_a_mismatch ... ok
+test receive::tests::a_local_copy_whose_session_id_is_unknown_is_not_a_mismatch ... ok
+test receive::tests::a_patch_onto_a_local_copy_without_a_known_session_id_still_applies ... ok
+test receive::tests::a_rejected_authoritative_reply_counts_as_one_failed_realign ... ok
+test receive::tests::a_snapshot_whose_hash_does_not_match_its_state_is_never_adopted ... ok
+test receive::tests::applying_records_the_incoming_session_id_when_the_local_one_is_unknown ... ok
+test receive::tests::identity_comes_before_format ... ok
+test receive::tests::the_generation_check_comes_before_everything_else ... ok
+test state::tests::attention_variants_serialize_as_documented ... ok
+test receive::tests::an_oversized_resume_reply_realigns_instead_of_truncating ... ok
+test state::tests::clamp_unit_never_returns_a_sign_negative_zero ... ok
+test state::tests::party_reference_round_trips ... ok
+test state::tests::intensity_is_clamped_and_stable ... ok
+test state::tests::violates_limits_rejects_a_sign_negative_zero_intensity ... ok
+test types::tests::config_is_clamped_to_bounded_values ... ok
+test types::tests::defaults_match_the_aip_limits ... ok
+test state::tests::state_json_matches_the_documented_shape ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pure_functions.rs (target/debug/deps/pure_functions-d7204cb688be033a)
+
+running 15 tests
+test a_recovery_snapshot_is_adopted_even_though_it_moves_the_revision_back ... ok
+test cpp_projection_golden ... ok
+test cpp_projection_never_drops_below_the_priority_floor ... ok
+test director_on_fact_table ... ok
+test accept_state_applies_only_contiguous_patches ... ok
+test a_snapshot_without_a_hash_or_a_state_is_invalid ... ok
+test apply_patch_follows_rfc_7396 ... ok
+test director_dismiss_settles_and_unknown_names_are_not_handled ... ok
+test accept_state_handles_snapshots_and_session_reset ... ok
+test director_clamps_intensity_and_defaults_to_half ... ok
+test director_touch_table ... ok
+test director_patches_are_applicable_to_the_serialized_state ... ok
+test director_verified_celebrates_and_emergency_freezes ... ok
+test merge_diff_round_trips_through_apply_patch ... ok
+test state_hash_is_canonical_and_order_independent ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/receive_decision_fixtures.rs (target/debug/deps/receive_decision_fixtures-eed12c0082a50624)
+
+running 3 tests
+test the_hashes_in_the_fixtures_are_real ... ok
+test receive_decision_fixtures_match_the_decision_table ... ok
+test the_decision_table_fixtures_cover_every_branch ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/receive_decisions.rs (target/debug/deps/receive_decisions-eab5ee0c0e4fbc10)
+
+running 8 tests
+test a_patch_from_another_epoch_realigns ... ok
+test a_resume_reply_skips_benign_items_and_stops_at_the_first_realign ... ok
+test a_reset_that_arrives_on_a_dead_connection_generation_is_ignored_first ... ok
+test a_message_from_another_session_is_rejected_not_realigned ... ok
+test the_realign_budget_is_bounded_and_reset_by_a_successful_apply ... ok
+test a_recovery_snapshot_moves_the_receiver_back_but_a_plain_one_does_not ... ok
+test a_snapshot_without_a_hash_or_state_is_invalid ... ok
+test a_different_epoch_needs_an_explicit_reset_otherwise_realign ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/receive_decisions_from_json.rs (target/debug/deps/receive_decisions_from_json-74dbedd61a86b60e)
+
+running 2 tests
+test the_hashes_in_the_fixtures_look_like_sha256 ... ok
+test every_receive_decision_fixture_reaches_the_documented_decision ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/security_matrix.rs (target/debug/deps/security_matrix-f9531417257a1f2b)
+
+running 7 tests
+test an_unpaired_device_is_never_a_member ... ok
+test the_pipeline_order_is_fixed_identity_before_membership_before_scope ... ok
+test unknown_message_types_and_versions_are_not_executed ... ok
+test every_result_envelope_validates_and_never_claims_verified ... ok
+test dismiss_settles_the_character ... ok
+test renderer_capability_spoofing_only_earns_unsupported ... ok
+test oversized_payloads_are_rejected_before_anything_is_applied ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/semantic_contract.rs (target/debug/deps/semantic_contract-a843a695ecc3d91c)
+
+running 5 tests
+test authoritative_restore_rejects_explicit_null_before_it_can_be_discarded ... ok
+test schema_never_turns_an_absent_optional_into_a_present_null ... ok
+test published_v070_corpus_is_immutable_and_still_compatible ... ok
+test shared_merge_results_validate_before_atomic_adoption ... ok
+test shared_consumer_states_and_authoritative_restore_policies ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/session.rs (target/debug/deps/session-e38aac33b2c06390)
+
+running 49 tests
+test a_snapshot_declares_the_current_format_and_missing_means_zero ... ok
+test cross_session_injection_is_not_a_member ... ok
+test a_format_1_snapshot_is_still_readable_by_the_v0_6_0_snapshot_shape ... ok
+test a_rejected_message_still_proves_the_member_is_alive ... ok
+test an_acknowledged_result_does_not_settle_the_intent ... ok
+test an_unanswered_intent_still_expires_and_is_audited ... ok
+test an_offline_member_returns_online_with_a_single_presence_patch ... ok
+test devices_may_not_produce_runtime_truth_or_verified ... ok
+test cancel_is_idempotent ... ok
+test a_member_result_settles_the_pending_intent_before_its_ttl ... ok
+test diagnostics_counts_without_leaking ... ok
+test initial_snapshot_is_empty_and_hashed ... ok
+test duplicate_message_id_is_accepted_once_and_never_reapplied ... ok
+test identity_mismatch_is_rejected_and_audited ... ok
+test a_snapshot_written_before_the_field_existed_is_migrated_not_rejected ... ok
+test capability_degradation_skips_renderers_that_did_not_declare_the_intent ... ok
+test join_negotiates_broadcasts_and_snapshots ... ok
+test heartbeats_do_not_flood_revisions ... ok
+test leave_is_idempotent_and_revokes_membership ... ok
+test emergency_freezes_the_character_and_refuses_interaction ... ok
+test reduced_motion_is_shared_state ... ok
+test broadcast_patch_reproduces_the_authoritative_state ... ok
+test negotiated_unsupported_intents_are_projected_into_members ... ok
+test out_of_order_delivery_cannot_replay_an_old_touch ... ok
+test presence_times_out_and_expired_intents_are_dropped ... ok
+test rejoin_renegotiates_instead_of_duplicating_the_member ... ok
+test renderer_unavailable_still_produces_a_host_renderer_intent ... ok
+test rate_limit_is_a_token_bucket_on_injected_time ... ok
+test member_cap_is_enforced ... ok
+test persist_is_suggested_on_a_bounded_cadence ... ok
+test repeating_a_terminal_result_never_counts_twice ... ok
+test reacting_returns_to_idle_after_the_reaction_window ... ok
+test restore_rejects_tampered_snapshots ... ok
+test resume_at_the_current_revision_needs_no_patches ... ok
+test offline_renderers_do_not_receive_intents ... ok
+test task_state_only_transcribes_truth ... ok
+test restore_continues_the_revision_and_survives_a_round_trip ... ok
+test task_verified_celebrates_without_a_cpp_projection ... ok
+test restored_members_must_renegotiate_before_sending_events ... ok
+test undeclared_inputs_are_scope_denied ... ok
+test resume_with_a_different_epoch_returns_a_session_reset ... ok
+test restore_rejects_unknown_keys_inside_attention ... ok
+test restore_report_only_flags_snapshots_that_are_not_canonical ... ok
+test touch_applies_state_intent_and_a_single_result ... ok
+test unknown_touch_kind_is_schema_invalid_and_never_echoed ... ok
+test resume_falls_back_to_a_snapshot_when_the_log_ring_wrapped ... ok
+test resume_replays_the_delta_log ... ok
+test sequence_is_monotonic_without_holes ... ok
+test events_alone_keep_a_member_online_across_the_presence_timeout ... ok
+
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/session_hardening.rs (target/debug/deps/session_hardening-11d257a2e40dbd99)
+
+running 17 tests
+test member_messages_may_not_carry_a_consent_grant ... ok
+test a_member_ahead_of_the_host_in_the_same_epoch_gets_a_recovery_snapshot_and_adopts_it ... ok
+test a_capability_reply_never_exceeds_the_payload_limit ... ok
+test projected_unsupported_inputs_cap_is_at_most_the_aip_cap ... ok
+test emergency_cancels_the_intents_already_sent_to_renderers ... ok
+test a_self_reported_deadline_cannot_outlive_the_interaction_ttl ... ok
+test a_device_may_not_claim_the_host_renderer_role ... ok
+test a_rejected_message_does_not_consume_its_dedupe_slot ... ok
+test an_intent_with_no_target_is_dropped_not_expired ... ok
+test capability_reannounce_does_not_refill_the_rate_bucket ... ok
+test reconnecting_is_a_transport_fact_the_session_projects_faithfully ... ok
+test a_non_target_member_cannot_settle_or_count_an_intent ... ok
+test task_truth_cannot_clear_an_emergency ... ok
+test a_target_that_already_reported_cannot_count_twice ... ok
+test restore_rejects_a_poisoned_snapshot_even_with_a_matching_hash ... ok
+test capability_reannounce_does_not_flood_revisions ... ok
+test restore_never_moves_the_revision_backwards ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/state_hash_fixtures.rs (target/debug/deps/state_hash_fixtures-9bea97a69c9455c3)
+
+running 8 tests
+test negative_zero_intensity_has_a_deterministic_canonical_text ... ok
+test double_paths_are_derived_through_maps_and_tuples ... ok
+test map_shaped_fields_are_covered_by_the_keys_that_actually_appear ... ok
+test a_schema_too_deep_to_walk_panics_instead_of_skipping_silently - should panic ... ok
+test a_new_optional_state_field_would_be_reported_as_uncovered ... ok
+test no_fixture_state_or_canonical_text_contains_null ... ok
+test every_semantic_state_field_appears_in_at_least_one_state_hash_fixture ... ok
+test state_hash_fixtures_are_what_the_host_writes ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/state_semantics.rs (target/debug/deps/state_semantics-1fb1df266f8a54e9)
+
+running 7 tests
+test mood_normalizes_negative_zero_to_positive_zero ... ok
+test fresh_state_writes_intensity_as_zero_point_zero ... ok
+test restore_accepts_the_same_snapshot_with_positive_zero ... ok
+test restore_rejects_a_sign_negative_zero_intensity ... ok
+test state_snapshot_fixture_is_what_the_host_writes ... ok
+test semantic_state_never_serializes_a_null ... ok
+test state_patch_fixture_chains_from_the_snapshot_fixture ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_storage-128e3147a751e728)
+
+running 15 tests
+test tests::observation_query_filters ... ok
+test tests::session_roundtrip ... ok
+test tests::receipt_roundtrip_and_usage ... ok
+test tests::late_driver_evidence_is_kept_without_resurrecting_terminal_status ... ok
+test tests::audit_trail ... ok
+test tests::forced_transaction_error_rolls_back ... ok
+test tests::receipts_with_status_finds_pending_rows_outside_the_recency_window ... ok
+test tests::persists_across_reopen ... ok
+test tests::session_roundtrip_preserves_one_shot_use_counters ... ok
+test tests::terminal_receipts_are_sticky ... ok
+test tests::transaction_commits_together_or_not_at_all ... ok
+test tests::asset_reference_matching_is_exact_and_unbounded ... ok
+test tests::delete_parent_lookup_scans_all_rows ... ok
+test tests::count_memory_matches_actual_row_count ... ok
+test tests::knowledge_node_pages_cover_all_rows ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running unittests src/lib.rs (target/debug/deps/interaction_tool_schema-83578a6626357829)
+
+running 8 tests
+test tests::supersede_schema_requires_provenance_and_domain_scope ... ok
+test tests::no_validation_warnings_on_canonical_set ... ok
+test tests::canonical_set_is_complete ... ok
+test tests::gemini_schema_is_sanitized ... ok
+test tests::risk_metadata_survives_in_companion_policy ... ok
+test tests::names_are_consistent_across_formats ... ok
+test tests::openapi_covers_every_tool ... ok
+test tests::generators_are_deterministic ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+   Doc-tests adapters_builtin
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests adapters_media
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_adapter_declarative
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_adapter_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_agent_gateway
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_aip
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_api
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_character
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_character_shu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_e2e
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_events
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_policy
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_recipe
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_registry
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_runtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_session
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_storage
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_tool_schema
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

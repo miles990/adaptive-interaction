@@ -1,0 +1,1145 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project apps/interaction-ios/InteractionCompanion.xcodeproj -target InteractionCompanionTests -configuration Debug -sdk iphonesimulator -arch arm64 CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR=/tmp/adaptive-convergence-20260906/ios-baseline/out OBJROOT=/tmp/adaptive-convergence-20260906/ios-baseline/obj SYMROOT=/tmp/adaptive-convergence-20260906/ios-baseline/sym build
+
+Build settings from command line:
+    ARCHS = arm64
+    CODE_SIGNING_ALLOWED = NO
+    CONFIGURATION_BUILD_DIR = /tmp/adaptive-convergence-20260906/ios-baseline/out
+    OBJROOT = /tmp/adaptive-convergence-20260906/ios-baseline/obj
+    SDKROOT = iphonesimulator26.5
+    SYMROOT = /tmp/adaptive-convergence-20260906/ios-baseline/sym
+
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (2 targets)
+    Target 'InteractionCompanionTests' in project 'InteractionCompanion'
+        ➜ Explicit dependency on target 'InteractionCompanion' in project 'InteractionCompanion'
+    Target 'InteractionCompanion' in project 'InteractionCompanion' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+Build description signature: cb284dee520f36480889fffc5c395ce5
+Build description path: /tmp/adaptive-convergence-20260906/ios-baseline/obj/XCBuildData/cb284dee520f36480889fffc5c395ce5.xcbuilddata
+CreateBuildDirectory /tmp/adaptive-convergence-20260906/ios-baseline/sym
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion.xcodeproj
+    builtin-create-build-directory /tmp/adaptive-convergence-20260906/ios-baseline/sym
+
+ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/com.apple.DeveloperTools/26.6-17F113/Xcode/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion.xcodeproj
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -o /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/com.apple.DeveloperTools/26.6-17F113/Xcode/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache
+
+CreateBuildDirectory /tmp/adaptive-convergence-20260906/ios-baseline/out
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion.xcodeproj
+    builtin-create-build-directory /tmp/adaptive-convergence-20260906/ios-baseline/out
+
+CreateBuildDirectory /tmp/adaptive-convergence-20260906/ios-baseline/obj
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion.xcodeproj
+    builtin-create-build-directory /tmp/adaptive-convergence-20260906/ios-baseline/obj
+
+CreateBuildDirectory /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion.xcodeproj
+    builtin-create-build-directory /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules
+
+CreateBuildDirectory /tmp/adaptive-convergence-20260906/ios-baseline/obj/ExplicitPrecompiledModules
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion.xcodeproj
+    builtin-create-build-directory /tmp/adaptive-convergence-20260906/ios-baseline/obj/ExplicitPrecompiledModules
+
+CreateBuildDirectory /tmp/adaptive-convergence-20260906/ios-baseline/obj/EagerLinkingTBDs/Debug-iphonesimulator
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion.xcodeproj
+    builtin-create-build-directory /tmp/adaptive-convergence-20260906/ios-baseline/obj/EagerLinkingTBDs/Debug-iphonesimulator
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion-9b6f306b8ae57d646b46ed8961bbfa5e-VFS-iphonesimulator/all-product-headers.yaml
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion.xcodeproj
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion-9b6f306b8ae57d646b46ed8961bbfa5e-VFS-iphonesimulator/all-product-headers.yaml
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-project-headers.hmap (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-project-headers.hmap
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion.hmap (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion.hmap
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests.hmap (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests.hmap
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/empty-InteractionCompanionTests.plist (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/empty-InteractionCompanionTests.plist
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion_const_extract_protocols.json (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion_const_extract_protocols.json
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion-OutputFileMap.json (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion-OutputFileMap.json
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.SwiftFileList (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.SwiftFileList
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.LinkFileList (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.LinkFileList
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests-OutputFileMap.json (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests-OutputFileMap.json
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.SwiftConstValuesFileList (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.SwiftConstValuesFileList
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests_const_extract_protocols.json (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests_const_extract_protocols.json
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests.DependencyStaticMetadataFileList (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests.DependencyStaticMetadataFileList
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests.DependencyMetadataFileList (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests.DependencyMetadataFileList
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-project-headers.hmap (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-project-headers.hmap
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-own-target-headers.hmap (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-own-target-headers.hmap
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-generated-files.hmap (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-generated-files.hmap
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-all-target-headers.hmap (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-all-target-headers.hmap
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-all-non-framework-target-headers.hmap (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-all-non-framework-target-headers.hmap
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.SwiftFileList (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.SwiftFileList
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.LinkFileList (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.LinkFileList
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion.DependencyStaticMetadataFileList (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion.DependencyStaticMetadataFileList
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.SwiftConstValuesFileList (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.SwiftConstValuesFileList
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion.DependencyMetadataFileList (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion.DependencyMetadataFileList
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-own-target-headers.hmap (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-own-target-headers.hmap
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-generated-files.hmap (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-generated-files.hmap
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-all-target-headers.hmap (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-all-target-headers.hmap
+
+WriteAuxiliaryFile /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-all-non-framework-target-headers.hmap (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    write-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-all-non-framework-target-headers.hmap
+
+MkDir /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    /bin/mkdir -p /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns
+
+MkDir /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    /bin/mkdir -p /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks
+
+MkDir /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    /bin/mkdir -p /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest
+
+MkDir /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    /bin/mkdir -p /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app
+
+ProcessInfoPlistFile /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Info.plist /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/Info.plist (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-infoPlistUtility /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/Info.plist -producttype com.apple.product-type.application -genpkginfo /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PkgInfo -expandbuildsettings -format binary -platform iphonesimulator -o /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Info.plist
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks/libXCTestBundleInject.dylib /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestBundleInject.dylib (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestBundleInject.dylib /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks/libXCTestSwiftSupport.dylib /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks/XCUnit.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks/XCUIAutomation.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks/XCTestSupport.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks/XCTestCore.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks/XCTest.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCTest.framework (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCTest.framework /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks/XCTAutomationSupport.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks/Testing.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/Testing.framework (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/Testing.framework /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks
+
+SwiftDriver InteractionCompanion normal arm64 com.apple.xcode.tools.swift.compiler (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name InteractionCompanion -Onone @/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -target arm64-apple-ios17.0-simulator -g -Xfrontend -serialize-debugging-options -enable-testing -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /tmp/adaptive-convergence-20260906/ios-baseline/out -F /tmp/adaptive-convergence-20260906/ios-baseline/out -emit-localized-strings -emit-localized-strings-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64 -c -j12 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/com.apple.DeveloperTools/26.6-17F113/Xcode/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache -output-file-map /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.swiftmodule -validate-clang-modules-once -clang-build-session-file /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/org.llvm.clang/ModuleCache.noindex/Session.modulevalidation -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion_const_extract_protocols.json -Xcc -iquote -Xcc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-generated-files.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-own-target-headers.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-all-target-headers.hmap -Xcc -iquote -Xcc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-project-headers.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/out/include -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/DerivedSources-normal/arm64 -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/DerivedSources/arm64 -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion-Swift.h -working-directory /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios -experimental-emit-module-separately -disable-cmo
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_Builtin_stdarg-CN71A8H750E8NHBRJWXAG56OH.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_Builtin_float-8SC3VFML0BTQZ67Q6AMT6RLAG.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/ptrcheck-F5PEBH0Y8OAV32Q6027ADKNN.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/SwiftShims-C1GDNANZAL4RLVTYDOAPTKY7I.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_Builtin_stdbool-DA0R0ZCL1VOBJ09TWV4WQS0DN.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/ptrauth-3624SP95KWJFALZ6RV792W1G6.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_Builtin_stddef-29W1UDQLBAAMA5E21O4KF4O4U.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_SwiftConcurrencyShims-DBLL6VWILEVGCBUX3WT2KYZT.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/DeveloperToolsSupport-CQPM37WCNVCJE75ASIY6DNRW5.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_AvailabilityInternal-8JIA1L6CRXIWJLB8XE9FVY98G.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_DarwinFoundation1-BK345LVMZJFTHBWNWXN6DU3Y2.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_Builtin_limits-9R7SYFU565EK3Y1WLAZOLHEZ4.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_DarwinFoundation2-ADOXS5103E23RBX7T3W7VTGX7.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/sys_types-81LZ597UWIO71RB1OXTVZ8DXX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_Builtin_tgmath-CCC0Z0LJW7P2Z3Z32OXEW1Q3R.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_Builtin_stdint-3ZBYAPMM03OSILVFTGD6C9Q1K.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_Builtin_intrinsics-9JJTPJJFXVGH135PYW3OAC697.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_Builtin_stdatomic-4OP31NW2NJH8SB4ZSVONK338Y.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_DarwinFoundation3-7TO8TXZHPYDSB1K0FQKVG175I.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_Builtin_inttypes-7XE8U8C6FRC5L8EBGA9ZI2T8T.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/Darwin-ERGAZPL7APJ9KSDGHMT85RT83.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/simd-57DDAKZMJKWNCUO7OHODJ5NOC.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/MachO-4IXA2EIZYIB2CQIMMZJUZ8FT9.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/ObjectiveC-9KGNVPN337CDVNFEK8Q99Y8WK.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/os_object-AA0TFF02H0I54041RN8SM3RM1.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/os_workgroup-EGRV60R1JUZCHNCAVX0AYAL5D.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/Spatial-2CVIU75W5RFUMPDDQVH6QUTYB.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/Dispatch-DWSXDW5STVJFKHL3AHSF8A25V.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/XPC-DWOJGC47U3FIIRYI0LKRAYX8M.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreFoundation-DTD1VUAUW7XJ6FHMRQF4GAKOL.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/dnssd-AKG2IRR62DVF87VVIG5FN1ESX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/os-ERSTCG1TP1T34WG27QB6DF52J.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/Security-CU9GXFV8E5LBY76KRCOX5I84I.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreGraphics-6D2DTDYVXFCE4SS42L3F1MQ6B.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CFNetwork-444E3Q00IT7F5RSJNGRC8UTU8.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreAudioTypes-7SYD6JVTONWNVV32HKQYQWJ70.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreAudio-WZ1ZKOD1T0HJUIG9M26UNQCY.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/Foundation-7BJ3R8Q1NQGJW7EY7JWTG6OD0.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreText-65R2HIE36LQ3NWCGY6RBFE0A7.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/ImageIO-1ZXWGSOY1OLBBQZ05CLORBHRN.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreTransferable-3M39D2W1FQTEL18Y21TSHPGL4.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/FileProvider-8KLS0MUAW5E60KHDLTSCQ584R.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/_LocationEssentials-4ISPB2R8LZTVG5R5YS07FDIP9.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/DataDetection-9PWCJW8P8T8V29QVZY0JUQNWG.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreData-BPHKQAWQA9A7C8DJJGMPH0SBF.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/LocalAuthentication-AY3HVL6D2NGHR3O6OUM0ZDW92.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/OpenGLES-8BRFZNZIYJWXFJKF0ZKW3OUPS.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/IOSurface-A0Y1FXV9SD1QMGWPAG8GBGGD5.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreMIDI-C5QNA7WR5ZLJ44RM21NEWSR6J.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/Accessibility-BTDI3ZZR9VILSGHJJ3W1ZL9ER.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/UserNotifications-9XTU9FJHGRGCUN1OFA4NGVU3W.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreHaptics-1Z7IWGAQH766EAZEXOK33BQ36.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreBluetooth-D47B0Z7FZQIQ1Q08XGIVQ0JJY.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/Symbols-CPZJRZLKTXNZRCBZTJJBY62W0.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/Network-BYC2B1WXHGRYOSZMR8B0787P3.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreLocation-69UPHUKWYG2ITS53DWSLKJEQX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/OSLog-ABKDW1B7YNTGQAUH9KCBK721.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/UniformTypeIdentifiers-7VTZJ7BGGM8Y5WKT49796W3KT.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/UIUtilities-58ZHBO16SJ0K8Z3TY4HBTJDPC.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/Metal-8O13JOBNS4XJWQ1RO7A1OYO46.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/AudioToolbox-CGW1PYI3MW5QZBNVJ7MGFRHIB.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreMotion-4HYTUX1WUMLHIEMUSWQZ2D05Z.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/AVRouting-T2CH9KRW3QVAINJOMRZTBWJP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreVideo-5WJ91TZAI2L2D79QXGC5C8EFE.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreML-1AEEEXZ8JV7ECQC6EGEV4V27I.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreImage-7WTOS7PJ7OH9EX55BQSHEXL8X.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/Accelerate-77BHUADT2FSTXXQQH5K1JU7GK.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/CoreMedia-70CJRCL7QCJ8KSGAYOKFLUC8Z.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/QuartzCore-3I6WVZS4JD06VGFL4JCDDZRT1.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/SwiftUICore-BLLZDYXMH6IZWYHLKUYP45L0Y.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/AVFAudio-B5A2OX6W1HCYA3QTLJHBE7UFZ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/MediaToolbox-DBJQM2S7EQE5BVB62UNZTHCPV.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/Vision-E5A9SVO24M4SA4MK272FIOPD6.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/UIKit-6P86VBUZT1ARXZH968PVCQK5T.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/AVFoundation-1H7D387WW8HU7P1BCEL7483P1.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/VisionKit-9ZMGHWP1P7DL39HHI7Y3IBCHP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/SwiftUI-3BLUPUBJA7PFJ4IL8YKGK0WNA.pcm
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ InteractionCompanion (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+EmitSwiftModule normal arm64 (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ MotionSemantics.swift,\ PairingStore.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/MotionSemantics.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/PairingStore.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/MotionSemantics.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/PairingStore.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ ContentView.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Views/ContentView.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Views/ContentView.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ ActuatorCenter.swift,\ AppLifecycle.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/ActuatorCenter.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/AppLifecycle.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/ActuatorCenter.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/AppLifecycle.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ PairingView.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Views/PairingView.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Views/PairingView.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ BleGateway.swift,\ ConnectionManager.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/BleGateway.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/ConnectionManager.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/BleGateway.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/ConnectionManager.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ CharacterSemantic.swift,\ Protocol.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Models/CharacterSemantic.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Models/Protocol.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Models/CharacterSemantic.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Models/Protocol.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ AIPEnvelope.swift,\ AIPGenerated.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Models/AIPEnvelope.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Models/AIPGenerated.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Models/AIPEnvelope.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Models/AIPGenerated.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ SensorsView.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Views/SensorsView.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Views/SensorsView.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ SessionReceive.swift,\ SocketTransport.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/SessionReceive.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/SocketTransport.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/SessionReceive.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/SocketTransport.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ SensorCenter.swift,\ SessionClient.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/SensorCenter.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/SessionClient.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/SensorCenter.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Services/SessionClient.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ InteractionCompanionApp.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/InteractionCompanionApp.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/InteractionCompanionApp.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ CharacterView.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Views/CharacterView.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanion/Views/CharacterView.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling ContentView.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling InteractionCompanionApp.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SensorsView.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SessionReceive.swift, SocketTransport.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling MotionSemantics.swift, PairingStore.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for InteractionCompanion (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftDriver\ Compilation\ Requirements InteractionCompanion normal arm64 com.apple.xcode.tools.swift.compiler (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name InteractionCompanion -Onone @/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -target arm64-apple-ios17.0-simulator -g -Xfrontend -serialize-debugging-options -enable-testing -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /tmp/adaptive-convergence-20260906/ios-baseline/out -F /tmp/adaptive-convergence-20260906/ios-baseline/out -emit-localized-strings -emit-localized-strings-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64 -c -j12 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/com.apple.DeveloperTools/26.6-17F113/Xcode/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache -output-file-map /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.swiftmodule -validate-clang-modules-once -clang-build-session-file /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/org.llvm.clang/ModuleCache.noindex/Session.modulevalidation -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion_const_extract_protocols.json -Xcc -iquote -Xcc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-generated-files.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-own-target-headers.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-all-target-headers.hmap -Xcc -iquote -Xcc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-project-headers.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/out/include -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/DerivedSources-normal/arm64 -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/DerivedSources/arm64 -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion-Swift.h -working-directory /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios -experimental-emit-module-separately -disable-cmo
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.swiftmodule/arm64-apple-ios-simulator.swiftdoc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.swiftdoc (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.swiftdoc /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.swiftmodule/arm64-apple-ios-simulator.swiftdoc
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.swiftmodule/arm64-apple-ios-simulator.swiftmodule /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.swiftmodule (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.swiftmodule /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.swiftmodule/arm64-apple-ios-simulator.swiftmodule
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.swiftmodule/arm64-apple-ios-simulator.abi.json /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.abi.json (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.abi.json /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.swiftmodule/arm64-apple-ios-simulator.abi.json
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.swiftsourceinfo (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.swiftsourceinfo /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo
+
+SwiftMergeGeneratedHeaders /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/DerivedSources/InteractionCompanion-Swift.h /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion-Swift.h (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-swiftHeaderTool -arch arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion-Swift.h -o /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/DerivedSources/InteractionCompanion-Swift.h
+
+SwiftDriver InteractionCompanionTests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name InteractionCompanionTests -Onone @/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.SwiftFileList -DDEBUG -plugin-path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -target arm64-apple-ios17.0-simulator -g -Xfrontend -serialize-debugging-options -enable-testing -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /tmp/adaptive-convergence-20260906/ios-baseline/out -Isystem /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F /tmp/adaptive-convergence-20260906/ios-baseline/out -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk/Developer/Library/Frameworks -c -j12 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/com.apple.DeveloperTools/26.6-17F113/Xcode/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache -output-file-map /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.swiftmodule -validate-clang-modules-once -clang-build-session-file /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/org.llvm.clang/ModuleCache.noindex/Session.modulevalidation -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests_const_extract_protocols.json -Xcc -iquote -Xcc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-generated-files.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-own-target-headers.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-all-target-headers.hmap -Xcc -iquote -Xcc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-project-headers.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/out/include -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/DerivedSources-normal/arm64 -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/DerivedSources/arm64 -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests-Swift.h -working-directory /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios -experimental-emit-module-separately -disable-cmo
+
+SwiftDriverJobDiscovery normal arm64 Compiling ActuatorCenter.swift, AppLifecycle.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling PairingView.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling AIPEnvelope.swift, AIPGenerated.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SensorCenter.swift, SessionClient.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling CharacterView.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling BleGateway.swift, ConnectionManager.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/XCUIAutomation-5H6W3H65NF8SIR571G7GGMTYW.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/XCTest-CJVQM131TJV5RYWYZTX1PSU2.pcm
+
+SwiftExplicitDependencyCompileModuleFromInterface arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/XCUIAutomation-3UXB76T7OU56C.swiftmodule
+
+SwiftDriverJobDiscovery normal arm64 Compiling CharacterSemantic.swift, Protocol.swift (in target 'InteractionCompanion' from project 'InteractionCompanion')
+
+SwiftDriver\ Compilation InteractionCompanion normal arm64 com.apple.xcode.tools.swift.compiler (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-Swift-Compilation -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name InteractionCompanion -Onone @/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -target arm64-apple-ios17.0-simulator -g -Xfrontend -serialize-debugging-options -enable-testing -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /tmp/adaptive-convergence-20260906/ios-baseline/out -F /tmp/adaptive-convergence-20260906/ios-baseline/out -emit-localized-strings -emit-localized-strings-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64 -c -j12 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/com.apple.DeveloperTools/26.6-17F113/Xcode/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache -output-file-map /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.swiftmodule -validate-clang-modules-once -clang-build-session-file /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/org.llvm.clang/ModuleCache.noindex/Session.modulevalidation -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion_const_extract_protocols.json -Xcc -iquote -Xcc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-generated-files.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-own-target-headers.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-all-target-headers.hmap -Xcc -iquote -Xcc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion-project-headers.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/out/include -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/DerivedSources-normal/arm64 -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/DerivedSources/arm64 -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion-Swift.h -working-directory /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios -experimental-emit-module-separately -disable-cmo
+
+Ld /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/InteractionCompanion normal (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -O0 -L/tmp/adaptive-convergence-20260906/ios-baseline/obj/EagerLinkingTBDs/Debug-iphonesimulator -L/tmp/adaptive-convergence-20260906/ios-baseline/out -F/tmp/adaptive-convergence-20260906/ios-baseline/obj/EagerLinkingTBDs/Debug-iphonesimulator -F/tmp/adaptive-convergence-20260906/ios-baseline/out -filelist /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -dead_strip -Xlinker -object_path_lto -Xlinker /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.swiftmodule @/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion-linker-args.resp -o /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/InteractionCompanion
+
+SwiftExplicitDependencyCompileModuleFromInterface arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules/XCTest-KMF1XDH3PJ99.swiftmodule
+
+SwiftCompile normal arm64 Compiling\ ReconnectHintTests.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/ReconnectHintTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/ReconnectHintTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ StateHashConformanceTests.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/StateHashConformanceTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/StateHashConformanceTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ InteractionCompanionTests (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+EmitSwiftModule normal arm64 (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ MotionClassifierTests.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/MotionClassifierTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/MotionClassifierTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ SessionClientTests.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/SessionClientTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/SessionClientTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ AIPFixtures.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/AIPFixtures.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/AIPFixtures.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ ProtocolTests.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/ProtocolTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/ProtocolTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ LifecycleTests.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/LifecycleTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/LifecycleTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ ReceiveDecisionConformanceTests.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/ReceiveDecisionConformanceTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/ReceiveDecisionConformanceTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ ConnectionManagerGateTests.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/ConnectionManagerGateTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/ConnectionManagerGateTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ AIPConformanceTests.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/AIPConformanceTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/AIPConformanceTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftCompile normal arm64 Compiling\ CanonicalVectorsTests.swift /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/CanonicalVectorsTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftCompile normal arm64 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios/InteractionCompanionTests/CanonicalVectorsTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling AIPFixtures.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+ExtractAppIntentsMetadata (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name InteractionCompanion --sdk-root /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk --xcode-version 17F113 --platform-family iOS --deployment-target 17.0 --bundle-identifier dev.interact-ai.companion --output /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app --target-triple arm64-apple-ios17.0-simulator --binary-file /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/InteractionCompanion --dependency-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion_dependency_info.dat --stringsdata-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.SwiftFileList --metadata-file-list /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion.DependencyMetadataFileList --static-metadata-file-list /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion.DependencyStaticMetadataFileList --swift-const-vals-list /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/Objects-normal/arm64/InteractionCompanion.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-09-06 11:49:49.214 appintentsmetadataprocessor[20633:5796159] Starting appintentsmetadataprocessor export
+2026-09-06 11:49:49.222 appintentsmetadataprocessor[20633:5796159] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+CopySwiftLibs /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/InteractionCompanion --scan-folder /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks --scan-folder /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns --scan-folder /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/SystemExtensions --scan-folder /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Extensions --platform iphonesimulator --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
+Ignoring --strip-bitcode because --sign was not passed
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for InteractionCompanionTests (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling StateHashConformanceTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftDriver\ Compilation\ Requirements InteractionCompanionTests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name InteractionCompanionTests -Onone @/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.SwiftFileList -DDEBUG -plugin-path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -target arm64-apple-ios17.0-simulator -g -Xfrontend -serialize-debugging-options -enable-testing -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /tmp/adaptive-convergence-20260906/ios-baseline/out -Isystem /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F /tmp/adaptive-convergence-20260906/ios-baseline/out -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk/Developer/Library/Frameworks -c -j12 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/com.apple.DeveloperTools/26.6-17F113/Xcode/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache -output-file-map /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.swiftmodule -validate-clang-modules-once -clang-build-session-file /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/org.llvm.clang/ModuleCache.noindex/Session.modulevalidation -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests_const_extract_protocols.json -Xcc -iquote -Xcc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-generated-files.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-own-target-headers.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-all-target-headers.hmap -Xcc -iquote -Xcc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-project-headers.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/out/include -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/DerivedSources-normal/arm64 -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/DerivedSources/arm64 -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests-Swift.h -working-directory /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios -experimental-emit-module-separately -disable-cmo
+
+SwiftMergeGeneratedHeaders /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/DerivedSources/InteractionCompanionTests-Swift.h /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests-Swift.h (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-swiftHeaderTool -arch arm64 /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests-Swift.h -o /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/DerivedSources/InteractionCompanionTests-Swift.h
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanionTests.swiftmodule/arm64-apple-ios-simulator.swiftmodule /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.swiftmodule (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.swiftmodule /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanionTests.swiftmodule/arm64-apple-ios-simulator.swiftmodule
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanionTests.swiftmodule/arm64-apple-ios-simulator.swiftdoc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.swiftdoc (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.swiftdoc /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanionTests.swiftmodule/arm64-apple-ios-simulator.swiftdoc
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanionTests.swiftmodule/arm64-apple-ios-simulator.abi.json /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.abi.json (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.abi.json /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanionTests.swiftmodule/arm64-apple-ios-simulator.abi.json
+
+Copy /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanionTests.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.swiftsourceinfo (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.swiftsourceinfo /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanionTests.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo
+
+AppIntentsSSUTraining (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Info.plist --temp-dir-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/ssu --bundle-id dev.interact-ai.companion --product-path /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app --extracted-metadata-path /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Metadata.appintents --metadata-file-list /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanion.build/InteractionCompanion.DependencyMetadataFileList --source-file /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/Info.plist --archive-ssu-assets
+2026-09-06 11:49:49.254 appintentsnltrainingprocessor[20634:5796164] Parsing options for appintentsnltrainingprocessor
+2026-09-06 11:49:49.255 appintentsnltrainingprocessor[20634:5796164] Starting AppIntents SSU YAML Generation
+2026-09-06 11:49:49.257 appintentsnltrainingprocessor[20634:5796164] No AppShortcuts found - Skipping.
+
+ProcessInfoPlistFile /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/Info.plist /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/empty-InteractionCompanionTests.plist (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-infoPlistUtility /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/empty-InteractionCompanionTests.plist -producttype com.apple.product-type.bundle.unit-test -expandbuildsettings -format binary -platform iphonesimulator -o /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/Info.plist
+
+SwiftDriverJobDiscovery normal arm64 Compiling MotionClassifierTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling CanonicalVectorsTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling ReconnectHintTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling ConnectionManagerGateTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling LifecycleTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling ProtocolTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling AIPConformanceTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling ReceiveDecisionConformanceTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SessionClientTests.swift (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+
+SwiftDriver\ Compilation InteractionCompanionTests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-Swift-Compilation -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name InteractionCompanionTests -Onone @/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.SwiftFileList -DDEBUG -plugin-path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -target arm64-apple-ios17.0-simulator -g -Xfrontend -serialize-debugging-options -enable-testing -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /tmp/adaptive-convergence-20260906/ios-baseline/out -Isystem /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F /tmp/adaptive-convergence-20260906/ios-baseline/out -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk/Developer/Library/Frameworks -c -j12 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/com.apple.DeveloperTools/26.6-17F113/Xcode/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache -output-file-map /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/SwiftExplicitPrecompiledModules -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.swiftmodule -validate-clang-modules-once -clang-build-session-file /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/C/org.llvm.clang/ModuleCache.noindex/Session.modulevalidation -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests_const_extract_protocols.json -Xcc -iquote -Xcc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-generated-files.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-own-target-headers.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-all-target-headers.hmap -Xcc -iquote -Xcc /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests-project-headers.hmap -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/out/include -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/DerivedSources-normal/arm64 -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/DerivedSources/arm64 -Xcc -I/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests-Swift.h -working-directory /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios -experimental-emit-module-separately -disable-cmo
+
+Ld /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/InteractionCompanionTests normal (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -bundle -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -O0 -L/tmp/adaptive-convergence-20260906/ios-baseline/obj/EagerLinkingTBDs/Debug-iphonesimulator -L/tmp/adaptive-convergence-20260906/ios-baseline/out -L/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F/tmp/adaptive-convergence-20260906/ios-baseline/obj/EagerLinkingTBDs/Debug-iphonesimulator -F/tmp/adaptive-convergence-20260906/ios-baseline/out -iframework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -iframework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk/Developer/Library/Frameworks -filelist /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @loader_path/Frameworks -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -dead_strip -bundle_loader /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/InteractionCompanion -Xlinker -object_path_lto -Xlinker /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.swiftmodule @/tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests-linker-args.resp -Xlinker -needed_framework -Xlinker XCTest -framework XCTest -Xlinker -needed-lXCTestSwiftSupport -lXCTestSwiftSupport -o /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/InteractionCompanionTests
+
+CopySwiftLibs /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/InteractionCompanionTests --scan-folder /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/Frameworks --scan-folder /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/PlugIns --scan-folder /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/SystemExtensions --scan-folder /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/Extensions --platform iphonesimulator --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/Frameworks --strip-bitcode --scan-executable /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
+Ignoring --strip-bitcode because --sign was not passed
+
+ExtractAppIntentsMetadata (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name InteractionCompanionTests --sdk-root /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk --xcode-version 17F113 --platform-family iOS --deployment-target 17.0 --bundle-identifier dev.interact-ai.companionTests --output /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest --target-triple arm64-apple-ios17.0-simulator --binary-file /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/InteractionCompanionTests --dependency-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests_dependency_info.dat --stringsdata-file /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.SwiftFileList --metadata-file-list /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests.DependencyMetadataFileList --static-metadata-file-list /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests.DependencyStaticMetadataFileList --swift-const-vals-list /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/Objects-normal/arm64/InteractionCompanionTests.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-09-06 11:49:49.861 appintentsmetadataprocessor[20644:5796241] Starting appintentsmetadataprocessor export
+2026-09-06 11:49:49.863 appintentsmetadataprocessor[20644:5796241] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+AppIntentsSSUTraining (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/Info.plist --temp-dir-path /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/ssu --bundle-id dev.interact-ai.companionTests --product-path /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest --extracted-metadata-path /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/Metadata.appintents --metadata-file-list /tmp/adaptive-convergence-20260906/ios-baseline/obj/InteractionCompanion.build/Debug-iphonesimulator/InteractionCompanionTests.build/InteractionCompanionTests.DependencyMetadataFileList --source-file /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest/Info.plist --archive-ssu-assets
+2026-09-06 11:49:49.878 appintentsnltrainingprocessor[20645:5796242] Parsing options for appintentsnltrainingprocessor
+2026-09-06 11:49:49.879 appintentsnltrainingprocessor[20645:5796242] Starting AppIntents SSU YAML Generation
+2026-09-06 11:49:49.879 appintentsnltrainingprocessor[20645:5796242] No AppShortcuts found - Skipping.
+
+RegisterExecutionPolicyException /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-RegisterExecutionPolicyException /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest
+
+Touch /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest (in target 'InteractionCompanionTests' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    /usr/bin/touch -c /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app/PlugIns/InteractionCompanionTests.xctest
+
+RegisterExecutionPolicyException /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-RegisterExecutionPolicyException /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app
+
+Validate /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    builtin-validationUtility /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app -shallow-bundle -infoplist-subpath Info.plist
+
+Touch /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app (in target 'InteractionCompanion' from project 'InteractionCompanion')
+    cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-ios
+    /usr/bin/touch -c /tmp/adaptive-convergence-20260906/ios-baseline/out/InteractionCompanion.app
+
+** BUILD SUCCEEDED **
+
+Monitoring boot status for Codex convergence baseline (029BFBF3-4EFA-4704-955C-30D23D9C2E26).
+[2026-09-06 03:49:52 +0000] Status=1, isTerminal=NO, Elapsed=00:02.
+	Waiting on BackBoard
+
+[2026-09-06 03:50:14 +0000] Status=2, isTerminal=NO, Elapsed=00:24.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.managedconfiguration.migrator (MCProfile.migrator, user-agnostic)
+		Migration Elapsed:00:00 seconds
+
+[2026-09-06 03:50:14 +0000] Status=2, isTerminal=NO, Elapsed=00:24.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.MobileSafari.migrator (MobileSafari.migrator)
+		Migration Elapsed:00:01 seconds
+
+[2026-09-06 03:50:15 +0000] Status=2, isTerminal=NO, Elapsed=00:25.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.PreferencesMigrator (PreferencesMigrator.migrator)
+		Migration Elapsed:00:01 seconds
+
+[2026-09-06 03:50:16 +0000] Status=4, isTerminal=NO, Elapsed=00:25.
+	Waiting on System App
+
+[2026-09-06 03:50:17 +0000] Status=4, isTerminal=NO, Elapsed=00:26.
+	Waiting on System App
+
+[2026-09-06 03:50:18 +0000] Status=4, isTerminal=NO, Elapsed=00:27.
+	Waiting on System App
+
+[2026-09-06 03:50:19 +0000] Status=4, isTerminal=NO, Elapsed=00:29.
+	Waiting on System App
+
+[2026-09-06 03:50:20 +0000] Status=4, isTerminal=NO, Elapsed=00:29.
+	Waiting on System App
+
+[2026-09-06 03:50:21 +0000] Status=4294967295, isTerminal=YES, Elapsed=00:30.
+	Finished
+
+Test Suite 'All tests' started at 2026-09-06 11:50:36.535.
+Test Suite 'InteractionCompanionTests.xctest' started at 2026-09-06 11:50:36.536.
+Test Suite 'AIPConformanceTests' started at 2026-09-06 11:50:36.536.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testAcceptedFixturesRoundTripWithoutLosingUnknownFields]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testAcceptedFixturesRoundTripWithoutLosingUnknownFields]' passed (0.029 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testAStateEnvelopeWithAnOutOfRangeRevisionIsRejectedInsteadOfTrapping]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testAStateEnvelopeWithAnOutOfRangeRevisionIsRejectedInsteadOfTrapping]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testDeadlineTreatsTheDeadlineItselfAsExpired]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testDeadlineTreatsTheDeadlineItselfAsExpired]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testDedupeRingIsBoundedAndEvictsTheOldest]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testDedupeRingIsBoundedAndEvictsTheOldest]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testEnvelopeFixturesAgreeWithTheIndex]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testEnvelopeFixturesAgreeWithTheIndex]' passed (0.013 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testErrorCodesInTheIndexAreAllKnown]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testErrorCodesInTheIndexAreAllKnown]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testEveryMessageTypeHasAtLeastOneAcceptedFixture]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testEveryMessageTypeHasAtLeastOneAcceptedFixture]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testGeneratedFixturesCoverTheOversizedAndMalformedCases]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testGeneratedFixturesCoverTheOversizedAndMalformedCases]' passed (0.006 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testIdentifierAndStringLimitsAreCountedInUnicodeScalarsLikeRustAndTypeScript]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testIdentifierAndStringLimitsAreCountedInUnicodeScalarsLikeRustAndTypeScript]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testIdentityDecisionTable]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testIdentityDecisionTable]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testLargeIntegersInUnknownTopLevelFieldsSurviveTheRoundTripByteForByte]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testLargeIntegersInUnknownTopLevelFieldsSurviveTheRoundTripByteForByte]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testNameScopeTable]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testNameScopeTable]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testOfflinePolicyTable]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testOfflinePolicyTable]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testOutcomeMigrationTable]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testOutcomeMigrationTable]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testReadsTheSameIndexTheRustAndTypeScriptSuitesRead]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testReadsTheSameIndexTheRustAndTypeScriptSuitesRead]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testUnknownEnumValuesDoNotCrashAndAreNeverTreatedAsKnown]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testUnknownEnumValuesDoNotCrashAndAreNeverTreatedAsKnown]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testVersionNegotiationRefusesADifferentMajorAndAcceptsANewerMinor]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testVersionNegotiationRefusesADifferentMajorAndAcceptsANewerMinor]' passed (0.000 seconds).
+Test Suite 'AIPConformanceTests' passed at 2026-09-06 11:50:36.600.
+	 Executed 17 tests, with 0 failures (0 unexpected) in 0.061 (0.064) seconds
+Test Suite 'CanonicalVectorsTests' started at 2026-09-06 11:50:36.600.
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testControlCharactersUseSerdeJsonEscapes]' started.
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testControlCharactersUseSerdeJsonEscapes]' passed (0.006 seconds).
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testEveryCanonicalVectorMatchesTheRustOutput]' started.
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testEveryCanonicalVectorMatchesTheRustOutput]' passed (0.007 seconds).
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testKeyOrderIsCodePointOrderNotUTF16Order]' started.
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testKeyOrderIsCodePointOrderNotUTF16Order]' passed (0.006 seconds).
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testNumberLiteralsArePreservedVerbatim]' started.
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testNumberLiteralsArePreservedVerbatim]' passed (0.006 seconds).
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testPassthroughCharactersAreNotEscaped]' started.
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testPassthroughCharactersAreNotEscaped]' passed (0.006 seconds).
+Test Suite 'CanonicalVectorsTests' passed at 2026-09-06 11:50:36.632.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.031 (0.032) seconds
+Test Suite 'ConnectionManagerGateTests' started at 2026-09-06 11:50:36.632.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testALostConnectionInTheBackgroundDoesNotScheduleAReconnect]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testALostConnectionInTheBackgroundDoesNotScheduleAReconnect]' passed (0.015 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testAnAuthOkThatLandedInTheBackgroundIsRenegotiatedOnForeground]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testAnAuthOkThatLandedInTheBackgroundIsRenegotiatedOnForeground]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testAReconnectThatFiresAfterEnteringTheBackgroundDoesNotOpenASocket]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testAReconnectThatFiresAfterEnteringTheBackgroundDoesNotOpenASocket]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testBackgroundDoesNotLetAnAipFrameProveTheDeviceIsAlive]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testBackgroundDoesNotLetAnAipFrameProveTheDeviceIsAlive]' passed (0.008 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testBackgroundNeitherSendsNorSchedulesThePresenceHeartbeat]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testBackgroundNeitherSendsNorSchedulesThePresenceHeartbeat]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testEachSocketGetsItsOwnGenerationAndLateFramesAreDropped]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testEachSocketGetsItsOwnGenerationAndLateFramesAreDropped]' passed (0.004 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testForegroundSendsStatusImmediatelyAndRealignsTheSession]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testForegroundSendsStatusImmediatelyAndRealignsTheSession]' passed (0.004 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testRapidForegroundCyclesSendOneResumeUntilTheGraceWindowPasses]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testRapidForegroundCyclesSendOneResumeUntilTheGraceWindowPasses]' passed (0.004 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheInjectedSocketCarriesTheRealHandshake]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheInjectedSocketCarriesTheRealHandshake]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheReconnectGateIsAskedExactlyOncePerDisconnect]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheReconnectGateIsAskedExactlyOncePerDisconnect]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheSameStateFrameInTheForegroundStillAsksForRealignment]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheSameStateFrameInTheForegroundStillAsksForRealignment]' passed (0.004 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheSessionReadsTheSameInjectedClockAsTheLifecycleGates]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheSessionReadsTheSameInjectedClockAsTheLifecycleGates]' passed (0.004 seconds).
+Test Suite 'ConnectionManagerGateTests' passed at 2026-09-06 11:50:36.691.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.058 (0.059) seconds
+Test Suite 'LifecycleTests' started at 2026-09-06 11:50:36.691.
+Test Case '-[InteractionCompanionTests.LifecycleTests testADeadSocketNeverSendsStatusOrResumes]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testADeadSocketNeverSendsStatusOrResumes]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testAForegroundResumeIsRetriedOnceTheGraceWindowHasPassed]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testAForegroundResumeIsRetriedOnceTheGraceWindowHasPassed]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testAipHeartbeatIsNotCountedAsAnIgnoredFrame]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testAipHeartbeatIsNotCountedAsAnIgnoredFrame]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testAipHeartbeatIsNotedAndAnsweredWithALegacyStatus]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testAipHeartbeatIsNotedAndAnsweredWithALegacyStatus]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testAnOutstandingResumeIsNotResentUntilTheGraceWindowPasses]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testAnOutstandingResumeIsNotResentUntilTheGraceWindowPasses]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testBackgroundNeverSchedulesAReconnectOrSendsAHeartbeat]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testBackgroundNeverSchedulesAReconnectOrSendsAHeartbeat]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testBackgroundNeverSendsReconnectsOrResumes]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testBackgroundNeverSendsReconnectsOrResumes]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testEveryOtherIgnoredMessageTypeLeavesItsOwnNote]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testEveryOtherIgnoredMessageTypeLeavesItsOwnNote]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundReconnectOnlyHappensWhenTheUserStillWantsTheConnection]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundReconnectOnlyHappensWhenTheUserStillWantsTheConnection]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeAsksTheHostToRealignWithRevisionSequenceAndEpoch]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeAsksTheHostToRealignWithRevisionSequenceAndEpoch]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeNeverReplaysInteractionEvents]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeNeverReplaysInteractionEvents]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeSendsNothingBeforeNegotiation]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeSendsNothingBeforeNegotiation]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeSendsNothingWhenOffline]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeSendsNothingWhenOffline]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeSendsNothingWithoutAuthoritativeState]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeSendsNothingWithoutAuthoritativeState]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testHeartbeatRepliesAreThrottled]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testHeartbeatRepliesAreThrottled]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testHeartbeatReplyDecisionSurvivesABackwardClock]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testHeartbeatReplyDecisionSurvivesABackwardClock]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testLifecycleDecisionTable]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testLifecycleDecisionTable]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testPresenceTimeoutMatchesTheHostConstant]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testPresenceTimeoutMatchesTheHostConstant]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testRapidForegroundCyclesSendOneResumeAndNeverFakeUnrecoverable]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testRapidForegroundCyclesSendOneResumeAndNeverFakeUnrecoverable]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testScenePhaseMapsOntoTheServiceLayerPhase]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testScenePhaseMapsOntoTheServiceLayerPhase]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testStatusIntervalLeavesRoomForAMissedBeat]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testStatusIntervalLeavesRoomForAMissedBeat]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testUnknownScenePhaseFallsBackToBackground]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testUnknownScenePhaseFallsBackToBackground]' passed (0.000 seconds).
+Test Suite 'LifecycleTests' passed at 2026-09-06 11:50:36.709.
+	 Executed 22 tests, with 0 failures (0 unexpected) in 0.016 (0.018) seconds
+Test Suite 'MotionClassifierTests' started at 2026-09-06 11:50:36.709.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testLiftedFiresOnSustainedUpwardAccelWithAttitudeChange]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testLiftedFiresOnSustainedUpwardAccelWithAttitudeChange]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testPlacedFiresOnStillnessAfterMotion]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testPlacedFiresOnStillnessAfterMotion]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testPureStillnessProducesNoEvents]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testPureStillnessProducesNoEvents]' passed (0.004 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testRotatedFiresOnYawSweepPast60Degrees]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testRotatedFiresOnYawSweepPast60Degrees]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testRotatedHandlesYawWrapAround]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testRotatedHandlesYawWrapAround]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testShakenDebounceIsAtLeastOnePointFiveSeconds]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testShakenDebounceIsAtLeastOnePointFiveSeconds]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testShakenFiresOnHighFrequencyBursts]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testShakenFiresOnHighFrequencyBursts]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testSlidingWindowNeverExceedsThreeSeconds]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testSlidingWindowNeverExceedsThreeSeconds]' passed (0.017 seconds).
+Test Suite 'MotionClassifierTests' passed at 2026-09-06 11:50:36.738.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.029 (0.030) seconds
+Test Suite 'ProtocolTests' started at 2026-09-06 11:50:36.738.
+Test Case '-[InteractionCompanionTests.ProtocolTests testABrokenAipFrameFailsWithoutEchoingTheInput]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testABrokenAipFrameFailsWithoutEchoingTheInput]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testAckStopAllEchoesSensorsFlag]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testAckStopAllEchoesSensorsFlag]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testActuatorOnlyStopAllTouchesNeitherSensorsNorCharacterState]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testActuatorOnlyStopAllTouchesNeitherSensorsNorCharacterState]' passed (0.061 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testAipFrameDecodesBackToTheSameEnvelopeAndKeepsUnknownFields]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testAipFrameDecodesBackToTheSameEnvelopeAndKeepsUnknownFields]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testAipFrameEncodesTheEnvelopeVerbatim]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testAipFrameEncodesTheEnvelopeVerbatim]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testAppliedIntegersSerializeWithoutDecimalPoint]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testAppliedIntegersSerializeWithoutDecimalPoint]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testBleResultUnknownNameIsNull]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testBleResultUnknownNameIsNull]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testEmergencyStopAllSetsTheCharacterStateEvenIfCharacterPresentIsLost]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testEmergencyStopAllSetsTheCharacterStateEvenIfCharacterPresentIsLost]' passed (0.009 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testHexRoundTrip]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testHexRoundTrip]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testObservationMotionCarriesAtButBatteryDoesNot]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testObservationMotionCarriesAtButBatteryDoesNot]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testOnlyTheRuntimeClearsTheEmergencyCharacterState]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testOnlyTheRuntimeClearsTheEmergencyCharacterState]' passed (0.013 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testPairingHmacMatchesOpensslReference]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testPairingHmacMatchesOpensslReference]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testPairingPayloadValidation]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testPairingPayloadValidation]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testPairRequestShape]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testPairRequestShape]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testServerMessageDecoding]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testServerMessageDecoding]' passed (0.005 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testStatusShapeHasExactSensorAndPermissionKeys]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testStatusShapeHasExactSensorAndPermissionKeys]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testStopAllReasonDefaultsToEmergency]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testStopAllReasonDefaultsToEmergency]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testStopAllUserReasonIsDecoded]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testStopAllUserReasonIsDecoded]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testUnknownBatteryLevelIsNullNotFabricated]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testUnknownBatteryLevelIsNullNotFabricated]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testUnknownServerMessageTypeIsStillUnknown]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testUnknownServerMessageTypeIsStillUnknown]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testUserStopAllDoesNotFakeAnEmergencyCharacterState]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testUserStopAllDoesNotFakeAnEmergencyCharacterState]' passed (0.000 seconds).
+Test Suite 'ProtocolTests' passed at 2026-09-06 11:50:36.834.
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.094 (0.096) seconds
+Test Suite 'ReceiveDecisionConformanceTests' started at 2026-09-06 11:50:36.834.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testABoundaryRejectedAuthoritativeReplyCostsOneRealignAttempt]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testABoundaryRejectedAuthoritativeReplyCostsOneRealignAttempt]' passed (0.004 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAFlatResumePatchItemWithoutAKindIsUnderstood]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAFlatResumePatchItemWithoutAKindIsUnderstood]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAKnownLocalSessionIdStillRejectsAMismatch]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAKnownLocalSessionIdStillRejectsAMismatch]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testALocalCopyWhoseSessionIdIsUnknownIsNotAMismatch]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testALocalCopyWhoseSessionIdIsUnknownIsNotAMismatch]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testARealignRequestThatNeverLeftTheDeviceIsNotCountedAsAnAttempt]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testARealignRequestThatNeverLeftTheDeviceIsNotCountedAsAnAttempt]' passed (0.004 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAResumeReplyBeyondTheBoundIsNotSilentlyTruncated]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAResumeReplyBeyondTheBoundIsNotSilentlyTruncated]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAResumeReplyThatFailsHalfwayKeepsThePrefixAndAsksAgain]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAResumeReplyThatFailsHalfwayKeepsThePrefixAndAsksAgain]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testASnapshotFromADifferentEpochRealignsInsteadOfBeingApplied]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testASnapshotFromADifferentEpochRealignsInsteadOfBeingApplied]' passed (0.004 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testASnapshotWithoutAHashIsNeverApplied]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testASnapshotWithoutAHashIsNeverApplied]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAStateFromAnotherSessionIsRejectedWithoutAskingForResume]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAStateFromAnotherSessionIsRejectedWithoutAskingForResume]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAStateFromAPreviousConnectionGenerationIsIgnored]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAStateFromAPreviousConnectionGenerationIsIgnored]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testEveryReceiveDecisionFixtureReachesTheDocumentedDecision]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testEveryReceiveDecisionFixtureReachesTheDocumentedDecision]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testTheBoundsComeFromTheGeneratedLimits]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testTheBoundsComeFromTheGeneratedLimits]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testTheClientAndTheDecisionTableAgreeOnOneResumeBatch]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testTheClientAndTheDecisionTableAgreeOnOneResumeBatch]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testTheHashesInTheFixturesLookLikeSha256]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testTheHashesInTheFixturesLookLikeSha256]' passed (0.003 seconds).
+Test Suite 'ReceiveDecisionConformanceTests' passed at 2026-09-06 11:50:36.868.
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.032 (0.034) seconds
+Test Suite 'ReconnectHintTests' started at 2026-09-06 11:50:36.868.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testAuthFailAfterManyTimeoutsIsAuthoritative]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testAuthFailAfterManyTimeoutsIsAuthoritative]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testAuthFailInTheMiddleBreaksTheRunSoNoRepairSuggestion]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testAuthFailInTheMiddleBreaksTheRunSoNoRepairSuggestion]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testCancelledWithoutPinningRejectionIsOther]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testCancelledWithoutPinningRejectionIsOther]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testCancelledWithPinningRejectedIsTlsMismatchNotConnectivity]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testCancelledWithPinningRejectedIsTlsMismatchNotConnectivity]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testCertificateErrorsAreTlsMismatchNotConnectivity]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testCertificateErrorsAreTlsMismatchNotConnectivity]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartAutoConnectNeverResumesAnySensor]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartAutoConnectNeverResumesAnySensor]' passed (0.011 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartConnectsWhenPairedAndUserLastWantedConnection]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartConnectsWhenPairedAndUserLastWantedConnection]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartDoesNotConnectWithoutPairing]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartDoesNotConnectWithoutPairing]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartRespectsExplicitUserDisconnect]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartRespectsExplicitUserDisconnect]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartTreatsMissingIntentAsWantingConnection]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartTreatsMissingIntentAsWantingConnection]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testEmptyHistoryKeepsRetrying]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testEmptyHistoryKeepsRetrying]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testFourConsecutiveConnectivityFailuresSuggestRepair]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testFourConsecutiveConnectivityFailuresSuggestRepair]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testOtherFailuresNeverSuggestRepair]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testOtherFailuresNeverSuggestRepair]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testPosixConnectionRefusedAndHostUnreachableAreConnectivity]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testPosixConnectionRefusedAndHostUnreachableAreConnectivity]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testRepairMessageIsTheFixedHonestCopy]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testRepairMessageIsTheFixedHonestCopy]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testSustainedConnectivityFailuresOverSixtySecondsSuggestRepair]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testSustainedConnectivityFailuresOverSixtySecondsSuggestRepair]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testThreeConnectivityFailuresKeepRetrying]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testThreeConnectivityFailuresKeepRetrying]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testTimeoutSequenceClassifiedThenDiagnosedSuggestsRepair]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testTimeoutSequenceClassifiedThenDiagnosedSuggestsRepair]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testTlsMismatchIsNeverReportedAsAddressChange]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testTlsMismatchIsNeverReportedAsAddressChange]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testTwoConnectivityFailuresWithinSixtySecondsKeepRetrying]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testTwoConnectivityFailuresWithinSixtySecondsKeepRetrying]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testUrlErrorsThatMeanCannotReachTheDesktopAreConnectivity]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testUrlErrorsThatMeanCannotReachTheDesktopAreConnectivity]' passed (0.000 seconds).
+Test Suite 'ReconnectHintTests' passed at 2026-09-06 11:50:36.883.
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.013 (0.015) seconds
+Test Suite 'SessionClientTests' started at 2026-09-06 11:50:36.883.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnExpiredIntentIsNotPlayed]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnExpiredIntentIsNotPlayed]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnIntentThatArrivesBeforeNegotiationIsNotPlayed]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnIntentThatArrivesBeforeNegotiationIsNotPlayed]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnOlderSnapshotIsIgnoredUnlessTheHostDeclaresRecovery]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnOlderSnapshotIsIgnoredUnlessTheHostDeclaresRecovery]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnUnsupportedIntentIsRejectedAndNeverReportedAsObserved]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnUnsupportedIntentIsRejectedAndNeverReportedAsObserved]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAPatchAppliedOntoTheWrongContentIsRejectedByTheHash]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAPatchAppliedOntoTheWrongContentIsRejectedByTheHash]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAResumeThatWasNeverSentIsNotCountedAsAnAttempt]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAResumeThatWasNeverSentIsNotCountedAsAnAttempt]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testASessionResetIsAppliedWheneverTheEpochDiffersEvenIfItWentBackwards]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testASessionResetIsAppliedWheneverTheEpochDiffersEvenIfItWentBackwards]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAStateWithTooManyMembersIsRejectedRatherThanTruncated]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAStateWithTooManyMembersIsRejectedRatherThanTruncated]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testASupportedIntentIsPlayedWithTheRequestedIntensity]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testASupportedIntentIsPlayedWithTheRequestedIntensity]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testCanonicalJsonSortsKeysByUtf8AndOmitsWhitespace]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testCanonicalJsonSortsKeysByUtf8AndOmitsWhitespace]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testCapabilityAnnouncementIsExactlyThisShape]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testCapabilityAnnouncementIsExactlyThisShape]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testCapabilityEnvelopePassesAipValidation]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testCapabilityEnvelopePassesAipValidation]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testDismissEventIsAlsoAValidInteractionEvent]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testDismissEventIsAlsoAValidInteractionEvent]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testEmergencyIsTheUnionOfBothPathsAndKeepsTheFixedCopy]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testEmergencyIsTheUnionOfBothPathsAndKeepsTheFixedCopy]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testEveryCountedResumeAttemptIsActuallySentAndReconnectingRestoresTheBudget]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testEveryCountedResumeAttemptIsActuallySentAndReconnectingRestoresTheBudget]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testGreenCheckOnlyAppearsForVerifiedTruth]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testGreenCheckOnlyAppearsForVerifiedTruth]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testNumberLiteralsAreKeptVerbatimSoHashesMatchTheHost]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testNumberLiteralsAreKeptVerbatimSoHashesMatchTheHost]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testPatchWithAWrongBaseRevisionIsNotAppliedAndAsksForResume]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testPatchWithAWrongBaseRevisionIsNotAppliedAndAsksForResume]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testPatchWithMatchingBaseRevisionIsAppliedAndHashChainsFromTheSnapshot]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testPatchWithMatchingBaseRevisionIsAppliedAndHashChainsFromTheSnapshot]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testPendingIntentQueueAndDedupeRingAreBounded]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testPendingIntentQueueAndDedupeRingAreBounded]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testReducedMotionStillHasSomethingToShowForReactHappilyToTouch]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testReducedMotionStillHasSomethingToShowForReactHappilyToTouch]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testRepairingToAnotherDesktopForgetsTheOldAuthoritativeState]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testRepairingToAnotherDesktopForgetsTheOldAuthoritativeState]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testResumeQueryCarriesTheKeysTheHostReads]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testResumeQueryCarriesTheKeysTheHostReads]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testSessionResetWithANewerEpochIsAcceptedEvenThoughTheRevisionGoesBackwards]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testSessionResetWithANewerEpochIsAcceptedEvenThoughTheRevisionGoesBackwards]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testSnapshotIsAppliedWholeAndBecomesTheLocalState]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testSnapshotIsAppliedWholeAndBecomesTheLocalState]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testSnapshotStateHashMatchesTheRustFixture]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testSnapshotStateHashMatchesTheRustFixture]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testStateOlderThanOrEqualToTheLocalOneIsIgnored]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testStateOlderThanOrEqualToTheLocalOneIsIgnored]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testSyncStatusCopyIsTheHumanWordingWithNoTechnicalTerms]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testSyncStatusCopyIsTheHumanWordingWithNoTechnicalTerms]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testTheAppCanNeverBuildAVerifiedResult]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testTheAppCanNeverBuildAVerifiedResult]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testTheSameIntentMessageIsNeverPlayedTwice]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testTheSameIntentMessageIsNeverPlayedTwice]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testThreeResumeAttemptsWithoutSyncingBecomeUnrecoverable]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testThreeResumeAttemptsWithoutSyncingBecomeUnrecoverable]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testTouchEventCarriesSessionDeadlineAndClaimedDeviceSource]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testTouchEventCarriesSessionDeadlineAndClaimedDeviceSource]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testUnknownVocabularyIsShownAsUnknownRatherThanGuessed]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testUnknownVocabularyIsShownAsUnknownRatherThanGuessed]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testWithoutNegotiationThePresentationFallsBackToTheLegacyPath]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testWithoutNegotiationThePresentationFallsBackToTheLegacyPath]' passed (0.000 seconds).
+Test Suite 'SessionClientTests' passed at 2026-09-06 11:50:36.907.
+	 Executed 34 tests, with 0 failures (0 unexpected) in 0.022 (0.025) seconds
+Test Suite 'StateHashConformanceTests' started at 2026-09-06 11:50:36.907.
+Test Case '-[InteractionCompanionTests.StateHashConformanceTests testEveryStateHashFixtureMatchesTheRustCanonicalHash]' started.
+Test Case '-[InteractionCompanionTests.StateHashConformanceTests testEveryStateHashFixtureMatchesTheRustCanonicalHash]' passed (0.007 seconds).
+Test Case '-[InteractionCompanionTests.StateHashConformanceTests testNegativeZeroIntensityHashesDifferentlyFromPositiveZero]' started.
+Test Case '-[InteractionCompanionTests.StateHashConformanceTests testNegativeZeroIntensityHashesDifferentlyFromPositiveZero]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.StateHashConformanceTests testOnlyTheNegativeZeroFixtureIsMarkedSemanticallyInvalid]' started.
+Test Case '-[InteractionCompanionTests.StateHashConformanceTests testOnlyTheNegativeZeroFixtureIsMarkedSemanticallyInvalid]' passed (0.006 seconds).
+Test Suite 'StateHashConformanceTests' passed at 2026-09-06 11:50:36.921.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.013 (0.014) seconds
+Test Suite 'InteractionCompanionTests.xctest' passed at 2026-09-06 11:50:36.921.
+	 Executed 158 tests, with 0 failures (0 unexpected) in 0.370 (0.385) seconds
+Test Suite 'All tests' passed at 2026-09-06 11:50:36.921.
+	 Executed 158 tests, with 0 failures (0 unexpected) in 0.370 (0.386) seconds
+dev.interact-ai.companion: 21579

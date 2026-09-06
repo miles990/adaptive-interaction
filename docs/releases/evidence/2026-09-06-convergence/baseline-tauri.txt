@@ -1,0 +1,101 @@
+   Compiling interaction-core v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-core)
+   Compiling interaction-character v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-character)
+   Compiling interaction-aip v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-aip)
+   Compiling interaction-agent-gateway v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-agent-gateway)
+   Compiling interaction-desktop v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri)
+   Compiling interaction-character-shu v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-character-shu)
+   Compiling interaction-session v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-session)
+   Compiling interaction-adapter-sdk v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-sdk)
+   Compiling interaction-events v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-events)
+   Compiling interaction-recipe v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-recipe)
+   Compiling adapters-media v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/adapters/media)
+   Compiling interaction-registry v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-registry)
+   Compiling adapters-builtin v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/adapters/builtin)
+   Compiling interaction-adapter-declarative v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-declarative)
+   Compiling interaction-policy v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-policy)
+   Compiling interaction-storage v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-storage)
+   Compiling interaction-tool-schema v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-tool-schema)
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+   Compiling interaction-api v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-api)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 54.10s
+     Running unittests src/lib.rs (apps/interaction-desktop/src-tauri/target/debug/deps/interaction_desktop_lib-49a672dc83c5b0e1)
+
+running 63 tests
+test character_store::tests::bundled_character_index_parses_and_matches_the_frontend_index ... ok
+test character_store::tests::a_broken_or_oversized_index_degrades_to_a_bounded_list ... ok
+test character_store::tests::importing_a_bundled_reference_character_id_is_refused ... ok
+test character_store::tests::declared_and_provided_assets_must_match_exactly ... ok
+test character_store::tests::rejects_external_kinds_non_whitelisted_builtins_and_bundled_ids ... ok
+test character_store::tests::rejects_traversal_in_asset_ids_and_paths ... ok
+test character_store::tests::resolve_inside_never_escapes ... ok
+test character_store::tests::list_reports_corrupt_folders_honestly ... ok
+test host_safety::tests::a_sensor_being_stopped_is_never_hidden_and_says_so ... ok
+test host_safety::tests::camera_and_other_sensor_kinds_are_never_silent ... ok
+test host_safety::tests::offline_shows_unless_within_starting_grace ... ok
+test host_safety::tests::derives_from_status_including_mobile_microphone ... ok
+test host_safety::tests::estop_shows_even_with_nothing_else ... ok
+test host_safety::tests::paused_alone_is_informational_not_an_alert ... ok
+test host_safety::tests::unresolved_stops_are_counted_but_do_not_pop_the_overlay ... ok
+test character_store::tests::rejects_spoofed_magic_bytes_and_wrong_hashes ... ok
+test host_safety::tests::serializes_camel_case_for_the_overlay ... ok
+test character_store::tests::remove_only_touches_imported_characters ... ok
+test supervisor::tests::api_base_parses_flat_yaml_keys ... ok
+test character_store::tests::imports_a_valid_sprite_character_and_lists_it ... ok
+test supervisor::tests::desktop_prefs_default_is_conservative ... ok
+test prefs_transaction_tests::missing_pending_preset_op_defaults_to_none ... ok
+test supervisor::tests::desktop_prefs_roundtrip_and_unknown_fields_tolerated ... ok
+test supervisor::tests::companion_preferences_roundtrip_with_camel_case_key ... ok
+test supervisor::tests::interaction_memory_truncates_detail_on_char_boundaries ... ok
+test supervisor::tests::interaction_memory_is_bounded ... ok
+test prefs_transaction_tests::desktop_prefs_patch_rolls_back_memory_when_persist_fails ... ok
+test tests::changelog_click_through_check_does_not_force_repetition ... ok
+test prefs_transaction_tests::pending_preset_op_marker_is_bounded ... ok
+test tests::character_hello_body_matches_the_http_contract ... ok
+test tests::character_session_503_carries_the_stable_disabled_code ... ok
+test tests::character_session_other_failures_stay_unknown ... ok
+test tests::clickthrough_decision_ignores_padding_and_accepts_character ... ok
+test tests::clickthrough_handles_many_regions_and_their_gaps ... ok
+test tests::clickthrough_ignores_gaps_between_objects ... ok
+test tests::changelog_unreleased_click_through_claims_match_code ... ok
+test tests::close_behavior_never_hides_the_trusted_overlay ... ok
+test tests::clickthrough_poll_keeps_up_with_hit_rect_reports ... ok
+test tests::changelog_topmost_section_follows_a_renamed_heading ... ok
+test tests::companion_preferences_reject_too_many_characters_or_keys ... ok
+test tests::companion_title_uses_the_configured_name ... ok
+test tests::companion_preferences_reject_bad_ids_keys_and_values ... ok
+test tests::hit_rect_clamps_into_the_window ... ok
+test tests::hit_rect_rejects_nan_and_non_positive_sizes ... ok
+test tests::hit_rect_update_reevaluates_without_waiting_for_poll ... ok
+test tests::hit_region_reports_are_rate_limited_on_the_host ... ok
+test tests::hit_regions_are_bounded_clamped_and_fail_closed ... ok
+test tests::companion_preferences_accept_bounded_scalars ... ok
+test tests::host_refresh_triggers_on_safety_events_only ... ok
+test tests::overlay_anchors_to_the_top_right_of_the_work_area ... ok
+test tests::provider_state_strings_are_parsed_exactly_or_refused ... ok
+test tests::set_visible_result_is_the_actual_window_state ... ok
+test tests::window_adjust_applies_the_playfield_multiplier ... ok
+test tray::tests::sensor_use_is_text_in_status_on_every_platform ... ok
+test tray::tests::starting_grace_is_not_reported_as_offline ... ok
+test tray::tests::stop_sensors_reports_unconfirmed_devices ... ok
+test tray::tests::tray_states_always_carry_text_not_only_color ... ok
+test tray::tests::unresolved_stops_are_text_in_the_status_line ... ok
+test character_store::tests::rejects_oversize_assets_per_manifest_limit_and_total ... ok
+test character_store::tests::import_never_accepts_an_asset_it_can_never_read_back ... ok
+test character_store::tests::asset_data_url_rechecks_path_size_and_magic ... ok
+test tests::announce_companion_presence_marks_runtime_hidden_without_webview_hello ... ok
+test character_store::tests::ipc_asset_decoding_is_bounded_by_the_host_not_the_caller ... ok
+
+test result: ok. 63 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+     Running unittests src/main.rs (apps/interaction-desktop/src-tauri/target/debug/deps/interaction_desktop-e672be87366f4dd5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interaction_desktop_lib
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
