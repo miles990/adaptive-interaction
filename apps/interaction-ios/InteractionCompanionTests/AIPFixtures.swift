@@ -2533,7 +2533,8 @@ enum AIPFixtures {
       "note": "空物件與空陣列（含空字串鍵、陣列裡的空容器）：`{}`／`[]` 不得消失、不得變成 null",
       "sha256": "63cc9f2f5e02759c16348fe79b73e8a71da4c8aa367d3dd89e5c157f57f002f4"
     }
-  ]
+  ],
+  "semanticStates": {"file": "semantic-state-cases.json", "profile": "semantic-state/1.0"}
 }
 """#,
         "query-session-resume.json": #"""
@@ -2621,6 +2622,537 @@ enum AIPFixtures {
   "payload": { "kind": "pat", "intensity": 0.8 },
   "futureField": { "keep": true, "nested": ["a", 1, null] },
   "anotherFutureField": "kept verbatim"
+}
+"""#,
+        "semantic-state-cases.json": #"""
+{
+  "profile": "semantic-state/1.0",
+  "consumerRole": "forward-compatible-renderer",
+  "restoreRole": "authoritative-host",
+  "states": [
+    {
+      "id": "fresh",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "8349d285021b52c83ee9aa87920158007f325946a29c851681c9798d1f3eef55",
+      "authoritativeRestore": true,
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": null
+      }
+    },
+    {
+      "id": "missing-activity",
+      "wire": "{\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "27afa83ad281b1e785589285d3089d53ed7bb6a1c395ce971d3f22949138daf0",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "missing-attention",
+      "wire": "{\"activity\":\"idle\",\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "dce3ad411ee81a69e6887ec6745941f8c7e411c3485df68af4f2c26f1a5712a3",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "missing-characterId",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "d7205a1df2f1b7474477e4b34288f359d4de7b0cb544dfaadaba79860887e192",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "missing-members",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "381140aa333a13b7200a1676ccba1c00d92a6bd8ad4341823ba7d51c186f3c14",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "missing-mood",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "aa8df57ba0a36f0a29751669c1d809b412a0ac11f7c0a4d340f3dccc7741818c",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "missing-reducedMotion",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"truth\":{\"state\":\"none\"}}",
+      "hash": "ce7a7879d55ce0951784f423477da10bff106ea1429304e9b3eaf3060ee240a5",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "missing-truth",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false}",
+      "hash": "07e3ef60a2ac879e5b0e0dcd4b6a28d1a4b46cea75f1de6441171e9a2ea0760b",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "null-members",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":null,\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":null,\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "32ed76ffcb0d0e4910099d97783516e84f1e4226b9382891d5a372fa9ae9a6b1",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "null-reducedMotion",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":null,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":null,\"truth\":{\"state\":\"none\"}}",
+      "hash": "0dcd8f30c6a56578ab10a94c89acb2032817ddd0431d823cb43b1f5f837a7e8d",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "null-lastInteraction",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":null,\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":null,\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "57e467d4afeef7335899ed6eee732571c0346cb1872f864d0466f749d0d12442",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "wrong-type-reducedMotion",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":\"false\",\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":\"false\",\"truth\":{\"state\":\"none\"}}",
+      "hash": "e7a45149bb9c1854364f6f1a724a02db5c681076658694ead1657fc5183c856a",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "wrong-type-members",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":{},\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":{},\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "0631f81596cb32b64f9a243f6bf2fb7ee90f381abfe164259163b086001fe0ae",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "wrong-type-characterId",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":17,\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":17,\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "aed5f81a7aebf6d1a55b89942f89419610e50d7f680c77a9a524e4c85e50f4a7",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "bad-negative-zero",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":-0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":-0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "7df350082806857aabefdeea09c07352f83f4b5221f5c6a6a1b1806d5cd768ac",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "bad-range",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":1.1,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":1.1,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "a37abe8fc06de49be76b6375a40bf3d4987b4fff3f831c4475103b335aa9a00f",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "bad-type",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":\"0.5\",\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":\"0.5\",\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "041fb340198953ed1d84bba64bb91f762a3bda3e1c0ba144ecc1db353e229003",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "future-optional-lossless",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"futureOptional\":{\"counter\":9007199254740993,\"float\":1.0,\"label\":\"保留 null 字串 🦊\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"futureOptional\":{\"counter\":9007199254740993,\"float\":1.0,\"label\":\"保留 null 字串 🦊\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "44484a7f686c8dddb51c6a6bb9bb530718a1871684361205065edce277566139",
+      "authoritativeRestore": false,
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": null
+      }
+    },
+    {
+      "id": "unknown-vocabulary",
+      "wire": "{\"activity\":\"orbiting\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"sparkly\"},\"reducedMotion\":false,\"truth\":{\"state\":\"teleporting\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"orbiting\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"sparkly\"},\"reducedMotion\":false,\"truth\":{\"state\":\"teleporting\"}}",
+      "hash": "d2074a3bb916e30544b8e532cb50d9b767030db6d3786f657f57a73153d4a669",
+      "authoritativeRestore": false,
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "sparkly",
+        "moodIntensity": 0.0,
+        "activity": "orbiting",
+        "truth": "teleporting",
+        "reducedMotion": false,
+        "lastInteractionKind": null
+      }
+    },
+    {
+      "id": "unknown-attention",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"future-focus\",\"label\":\"hello\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"future-focus\",\"label\":\"hello\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "af852113c3e92874d305a3b10304409cad7d50c4aba3fe79a8c3cefcef0680de",
+      "authoritativeRestore": false,
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": null
+      }
+    },
+    {
+      "id": "attention-member-missing-id",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"member\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"member\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "84150bc83ffa40fa825737dc0fa9af0b2fb0eaf88990e182875072030434b55d",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "unicode-and-null-string",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"角色 null ／測試 🦊 \\\"quote\\\"\\nline\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"角色 null ／測試 🦊 \\\"quote\\\"\\nline\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "75b65975bef6455dca700ac5efacbba674fc4c2cc1c3aaa09cc3529786f117d4",
+      "authoritativeRestore": true,
+      "projection": {
+        "characterId": "角色 null ／測試 🦊 \"quote\"\nline",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": null
+      }
+    },
+    {
+      "id": "string-limit",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "5892bf3ed8ed7cffa8098a77216387305ad6e28a5dc5e08fd0b063b7ac0cda66"
+    },
+    {
+      "id": "members-at-limit",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]}],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]}],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "58dd1d8c8b898b4b182d16417de42bdd0f52ffff8287e1fe8a1492776dd725b3",
+      "authoritativeRestore": true,
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": null
+      }
+    },
+    {
+      "id": "members-over-limit",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]}],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]},{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\",\"unsupportedIntents\":[]}],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "b0e0649b9dc73d415658866d18beb321d81e79c7499fff519b740d96bec56607",
+      "authoritativeRestore": false
+    },
+    {
+      "id": "legacy-optional-member-field",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\"}],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[{\"lastSeenAt\":\"2026-09-06T00:00:00Z\",\"party\":{\"id\":\"d\",\"kind\":\"device\"},\"presence\":\"online\",\"role\":\"remote-renderer\"}],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "04bebaf3fce7f12e5a66208c63bca103e87a080f42f747adc70b95636144b00e",
+      "authoritativeRestore": true,
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": null
+      }
+    },
+    {
+      "id": "attention-opaque-future-gaze",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"correlationId\":{\"new\":true},\"id\":42,\"kind\":\"future-gaze\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"correlationId\":{\"new\":true},\"id\":42,\"kind\":\"future-gaze\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "9545d45862315a9700444b8db1be9f14bef4c12ab85b237e6a38c05a6e5a67d0",
+      "authoritativeRestore": false,
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": null
+      }
+    },
+    {
+      "id": "attention-opaque-none",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"correlationId\":{\"new\":true},\"id\":42,\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"correlationId\":{\"new\":true},\"id\":42,\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "91f452f6f2421141b61932d1e085b3f22d2d57d59863e03f7ce84b87f40a87d9",
+      "authoritativeRestore": false,
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": null
+      }
+    },
+    {
+      "id": "timestamp-invalid-calendar",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-02-30T00:00:00Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-02-30T00:00:00Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "a48a3613f5b4eb5aa7e89b476f1e9372aeaa0008c77b7d7f6bbe4260f2861122"
+    },
+    {
+      "id": "timestamp-hour24",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T24:00:00Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T24:00:00Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "ad21386eef7da8d0bd87dbdac8c9a1cbdc7217ab8c7807fbaa1a9f0922c1316e"
+    },
+    {
+      "id": "timestamp-leap-second",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2016-12-31T23:59:60Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2016-12-31T23:59:60Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "4f719d8ca524a00ee1910293546dc19bd24883958cab88a2fb61188417ff8b94",
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": "tap"
+      }
+    },
+    {
+      "id": "timestamp-leap-second-fraction",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2016-12-31T23:59:60.123456789123+08:00\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2016-12-31T23:59:60.123456789123+08:00\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "9a8651c815bf21052e3b6ec84311471358a1c57d0088b70edfa2e1c5c0160f65",
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": "tap"
+      }
+    },
+    {
+      "id": "timestamp-century-not-leap",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"1900-02-29T00:00:00Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"1900-02-29T00:00:00Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "7137c5da7dc8859ada4e41cb820985e95e2439a8e4ebf943d9ec673746e76fee"
+    },
+    {
+      "id": "timestamp-century-leap",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2000-02-29T00:00:00Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2000-02-29T00:00:00Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "e43f76916d6197ad2a15a802f233a736c607faa45ff2453ba6e7d39501f43fdb",
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": "tap"
+      }
+    },
+    {
+      "id": "timestamp-year-zero",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"0000-02-29T00:00:00Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"0000-02-29T00:00:00Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "3a12910c80ff951d5892a1cbd028810f700b29e6dc3d7dc2538745a13f659d7a",
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": "tap"
+      }
+    },
+    {
+      "id": "timestamp-space-separator",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06 12:34:56Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06 12:34:56Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "e095dc41dab9fe4ddf6d99109b9fec26c0db7c28343bc54f559794641c492a8d",
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": "tap"
+      }
+    },
+    {
+      "id": "timestamp-lowercase",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06t12:34:56z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06t12:34:56z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "f5f6f5174c3efae79ae66139353642ab903240473869a054240b9c64201187c1",
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": "tap"
+      }
+    },
+    {
+      "id": "timestamp-offset-limit",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:34:56+23:59\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:34:56+23:59\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "5448a9219a29a7da24ed4ac2c95a92206c4591d08d73ec54bb4f9cb5dfea9bbf",
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": "tap"
+      }
+    },
+    {
+      "id": "timestamp-offset24",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:34:56+24:00\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:34:56+24:00\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "768b711f997b33213ed0faabe594acdcdcbc733576073d19323f3c97c6b3a586"
+    },
+    {
+      "id": "timestamp-offset-minute60",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:34:56+00:60\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:34:56+00:60\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "18ac8de53b5c4f6aa8b1a540ab56b91c968cb8c1ea99fcad6bb33ffccce7d8a7"
+    },
+    {
+      "id": "timestamp-offset-unicode-minus",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:34:56−08:00\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:34:56−08:00\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "c248775e7ea58022021611778bef4508e64baec2ddf8178d0401a366f9a32b48",
+      "projection": {
+        "characterId": "ref-shape",
+        "mood": "neutral",
+        "moodIntensity": 0.0,
+        "activity": "idle",
+        "truth": "none",
+        "reducedMotion": false,
+        "lastInteractionKind": "tap"
+      }
+    },
+    {
+      "id": "timestamp-trailing-newline",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:34:56Z\\n\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:34:56Z\\n\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "220a915ffcd1707981ad718dad5f018d5c0e3ebfad41f77fe9ca47e54be1ead3"
+    },
+    {
+      "id": "timestamp-seconds61",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:34:61Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:34:61Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "668b2c46d1b4f3a91b1a41d40fd5e208be3d32c1e72c16887dfdd43c75663f95"
+    },
+    {
+      "id": "timestamp-minute60",
+      "wire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:60:00Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"lastInteraction\":{\"at\":\"2026-09-06T12:60:00Z\",\"kind\":\"tap\",\"name\":\"character.interaction.touch\",\"source\":\"device:example\"},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "8843b8f6172af92c5e20d5214c9bd9401129b2a96e631cc26e808f998a8f1265"
+    }
+  ],
+  "patches": [
+    {
+      "id": "delete-optional",
+      "baseWire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"futureOptional\":{\"counter\":9007199254740993,\"float\":1.0},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "patchWire": "{\"futureOptional\":null}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "8349d285021b52c83ee9aa87920158007f325946a29c851681c9798d1f3eef55"
+    },
+    {
+      "id": "delete-required",
+      "baseWire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"futureOptional\":{\"counter\":9007199254740993,\"float\":1.0},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "patchWire": "{\"mood\":null}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"futureOptional\":{\"counter\":9007199254740993,\"float\":1.0},\"members\":[],\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "40e73abf3f0974a2d1aef76b048b0f3acbb725faf812b431a4bcf7383dbecad1"
+    },
+    {
+      "id": "invalid-range",
+      "baseWire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"futureOptional\":{\"counter\":9007199254740993,\"float\":1.0},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "patchWire": "{\"mood\":{\"intensity\":2.0}}",
+      "accept": false,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"futureOptional\":{\"counter\":9007199254740993,\"float\":1.0},\"members\":[],\"mood\":{\"intensity\":2.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "1a125ab7419c8a8c83e0f474fcc92cdedbab30e679cc0fa4d21495c2a3ecfef3"
+    },
+    {
+      "id": "same-number-new-literal",
+      "baseWire": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"futureOptional\":{\"counter\":9007199254740993,\"float\":1.0},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "patchWire": "{\"futureOptional\":{\"float\":1}}",
+      "accept": true,
+      "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"futureOptional\":{\"counter\":9007199254740993,\"float\":1},\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+      "hash": "0070624038e73f5134da44937fcd611d8a14c65e800074a8bcc3ab127680d39f"
+    }
+  ]
 }
 """#,
         "state-hash-after-touch.json": #"""
@@ -2807,6 +3339,221 @@ enum AIPFixtures {
   "expiresAt": "2026-09-04T12:30:05Z",
   "payload": { "kind": "tap" },
   "traceContext": { "traceparent": "00-abc-def-01" }
+}
+"""#,
+        "releases/v0.7.0/manifest.json": #"""
+{
+  "release": "v0.7.0",
+  "sourceSha": "630b4291f6a59444cfb1d8185f757f9dcda9ecc4",
+  "files": [
+    {
+      "file": "state-snapshot.json",
+      "sourcePath": "crates/interaction-aip/tests/fixtures/state-snapshot.json",
+      "sha256": "3459f3a95f8a4c9a22ccad8909aa2a45ea79974fa3c45819c81184f44336cf53"
+    },
+    {
+      "file": "state-patch.json",
+      "sourcePath": "crates/interaction-aip/tests/fixtures/state-patch.json",
+      "sha256": "e0c32b8a6107a0d97e60f104c1788e00677083ae4ff9c1f12b0743b97a13675c"
+    },
+    {
+      "file": "state-hash-fresh.json",
+      "sourcePath": "crates/interaction-aip/tests/fixtures/state-hash-fresh.json",
+      "sha256": "3465d6626638f484ae2699b312b400f221c59e9110e82e1324925eeb0a031f2b"
+    },
+    {
+      "file": "v0.6.0-format0.json",
+      "sourcePath": "crates/interaction-runtime/tests/fixtures/character-session/v0.6.0-format0.json",
+      "sha256": "66d7394b183292d60cd50c359693a301305b948e6da24f886199e7474855a805"
+    },
+    {
+      "file": "v0.6.0-dev-pre-unsupported-intents.json",
+      "sourcePath": "crates/interaction-runtime/tests/fixtures/character-session/v0.6.0-dev-pre-unsupported-intents.json",
+      "sha256": "654eca9b89ac02244689782697a89bb8cfdbaf2a440106d70463a83110b3e2f4"
+    }
+  ]
+}
+"""#,
+        "releases/v0.7.0/state-hash-fresh.json": #"""
+{
+  "id": "fresh",
+  "note": "全新 session：mood.intensity 0.0 必須寫成 `0.0`（serde_json f64），不是 `0`",
+  "semanticValid": true,
+  "hash": "8349d285021b52c83ee9aa87920158007f325946a29c851681c9798d1f3eef55",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"ref-shape","members":[],"mood":{"intensity":0.0,"kind":"neutral"},"reducedMotion":false,"truth":{"state":"none"}}
+}
+"""#,
+        "releases/v0.7.0/state-patch.json": #"""
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_state_2",
+  "messageType": "state",
+  "name": "character.session.patch",
+  "source": { "kind": "session", "id": "session.home" },
+  "target": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:03Z",
+  "sequence": 206,
+  "baseRevision": 204,
+  "payload": {
+    "kind": "patch",
+    "revision": 205,
+    "sessionEpoch": 3,
+    "hash": "cf4ae10ae4f20e1de0f4682e398f6de1467a057df04363af0356ee612e8e1583",
+    "patch": {
+      "mood": { "kind": "happy", "intensity": 0.45 },
+      "activity": "reacting",
+      "lastInteraction": {
+        "name": "character.interaction.touch",
+        "kind": "tap",
+        "source": "device:iphone-87b42264",
+        "at": "2026-09-04T12:30:00Z"
+      }
+    }
+  }
+}
+"""#,
+        "releases/v0.7.0/state-snapshot.json": #"""
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_state_1",
+  "messageType": "state",
+  "name": "character.session.snapshot",
+  "source": { "kind": "session", "id": "session.home" },
+  "target": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:02Z",
+  "sequence": 205,
+  "payload": {
+    "kind": "snapshot",
+    "revision": 204,
+    "sessionEpoch": 3,
+    "hash": "7c0a267fbf11bc9479e1c6e0913938349444637f6cfd116962cf896c2f36641e",
+    "state": {
+      "characterId": "ref-shape",
+      "mood": { "kind": "neutral", "intensity": 0.0 },
+      "activity": "idle",
+      "attention": { "kind": "none" },
+      "truth": { "state": "none" },
+      "members": [
+        {
+          "party": { "kind": "device", "id": "iphone-87b42264" },
+          "role": "remote-renderer",
+          "presence": "online",
+          "lastSeenAt": "2026-09-04T12:30:02Z",
+          "unsupportedIntents": []
+        }
+      ],
+      "reducedMotion": false
+    }
+  }
+}
+"""#,
+        "releases/v0.7.0/v0.6.0-dev-pre-unsupported-intents.json": #"""
+{
+  "at": "2026-09-04T12:30:00Z",
+  "epoch": 4,
+  "hash": "93cf6a795ff9b4208add1353d8ea067790256b50033671cc18f82fd7413788ea",
+  "revision": 4,
+  "sequence": 6,
+  "sessionId": "session.home",
+  "state": {
+    "activity": "reacting",
+    "attention": {
+      "id": "device:iphone-fixture",
+      "kind": "member"
+    },
+    "characterId": "character",
+    "lastInteraction": {
+      "at": "2026-09-04T12:30:00Z",
+      "kind": "tap",
+      "name": "character.interaction.touch",
+      "source": "device:iphone-fixture"
+    },
+    "members": [
+      {
+        "lastSeenAt": "2026-09-04T12:30:00Z",
+        "party": {
+          "id": "desktop",
+          "kind": "human-surface"
+        },
+        "presence": "online",
+        "role": "host-renderer"
+      },
+      {
+        "lastSeenAt": "2026-09-04T12:30:00Z",
+        "party": {
+          "id": "iphone-fixture",
+          "kind": "device"
+        },
+        "presence": "online",
+        "role": "remote-renderer"
+      }
+    ],
+    "mood": {
+      "intensity": 0.0,
+      "kind": "happy"
+    },
+    "reducedMotion": false,
+    "truth": {
+      "state": "none"
+    }
+  }
+}
+"""#,
+        "releases/v0.7.0/v0.6.0-format0.json": #"""
+{
+  "at": "2026-09-04T12:30:00Z",
+  "epoch": 4,
+  "hash": "79058d1128d7bfc791978f4908dd9fbf42fb4c7ffd5feb41d3fc3ad2b3ded3c6",
+  "revision": 4,
+  "sequence": 6,
+  "sessionId": "session.home",
+  "state": {
+    "activity": "reacting",
+    "attention": {
+      "id": "device:iphone-fixture",
+      "kind": "member"
+    },
+    "characterId": "character",
+    "lastInteraction": {
+      "at": "2026-09-04T12:30:00Z",
+      "kind": "tap",
+      "name": "character.interaction.touch",
+      "source": "device:iphone-fixture"
+    },
+    "members": [
+      {
+        "lastSeenAt": "2026-09-04T12:30:00Z",
+        "party": {
+          "id": "desktop",
+          "kind": "human-surface"
+        },
+        "presence": "online",
+        "role": "host-renderer",
+        "unsupportedIntents": []
+      },
+      {
+        "lastSeenAt": "2026-09-04T12:30:00Z",
+        "party": {
+          "id": "iphone-fixture",
+          "kind": "device"
+        },
+        "presence": "online",
+        "role": "remote-renderer",
+        "unsupportedIntents": []
+      }
+    ],
+    "mood": {
+      "intensity": 0.0,
+      "kind": "happy"
+    },
+    "reducedMotion": false,
+    "truth": {
+      "state": "none"
+    }
+  }
 }
 """#,
     ]

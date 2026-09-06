@@ -34,6 +34,34 @@ const workRoot = makeWorkRoot("interaction-e2e-estop-");
 let phone: FakeIphone | null = null;
 const sessions: string[] = [];
 
+test("緊急停止：解除對話框初始 Shift+Tab 不逃到背景，Escape 保留停止並返回原入口", async ({ page, request }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize(DESKTOP);
+  await openApp(page);
+  await api(request, "POST", "/v1/emergency-stop", { reason: "keyboard recovery acceptance" });
+  try {
+    await page.locator(".topbar").getByRole("button", { name: /緊急停止中 — 前往解除/ }).click();
+    const opener = page.getByRole("button", { name: /開始安全解除流程/ });
+    await expect(opener).toBeFocused();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "解除緊急停止" });
+    await expect(dialog).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect.poll(() => dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press("Tab");
+    await expect.poll(() => dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(opener).toBeFocused();
+    await expect(opener).toBeInViewport();
+    const status = await api(request, "GET", "/v1/status") as { emergencyStop: boolean };
+    expect(status.emergencyStop, "關閉說明對話框不能解除緊急停止").toBe(true);
+  } finally {
+    // Test cleanup is separate from the assertion: Escape itself must not clear.
+    await api(request, "POST", "/v1/emergency-stop/clear");
+  }
+});
+
 test.beforeEach(() => {
   test.skip(
     process.env.E2E_FAKE_AGENTS !== "1",

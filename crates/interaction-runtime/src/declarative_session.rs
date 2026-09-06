@@ -153,6 +153,11 @@ impl DeviceOutbound for DeclarativeOutbound {
     fn provider_id(&self) -> Option<&str> {
         Some(&self.provider_id)
     }
+    fn state_delivery(
+        &self,
+    ) -> Option<interaction_adapter_declarative::state_applied::StateDelivery> {
+        Some(self.channel.state_delivery())
+    }
 }
 
 /// 一台宣告式裝置的 session 綁定：一條 AIP 通道 ↔ 一個 `Party::device(...)`。
@@ -288,6 +293,19 @@ impl DeviceBinding {
             }
         }
         let envelope = match admission {
+            AipAdmission::StateApplied(receipt) => {
+                let accepted = rt.character_session_is_member(&self.party())
+                    && self.channel.acknowledge_state(&receipt);
+                let _ = rt.store.audit(
+                    "aip.state-applied",
+                    "runtime",
+                    &json!({
+                        "deviceId": device_id, "transport": self.channel.transport_label(),
+                        "accepted": accepted, "evidence": "peer-report",
+                    }),
+                );
+                return;
+            }
             AipAdmission::Admitted(envelope) => envelope,
             AipAdmission::RefusedNotPaired => {
                 // 靜默丟棄會把「裝置說了話但我們不接受」講成「裝置沒說話」。

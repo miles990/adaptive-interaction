@@ -68,8 +68,11 @@ impl Sim {
             eprintln!("python3 unavailable; skipping declarative session loop test");
             return None;
         }
-        let dir =
-            std::env::temp_dir().join(format!("decl-session-{}-{device_id}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "decl-session-{}-{device_id}-{}",
+            std::process::id(),
+            SPEC_SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let pty_file = dir.join("pty");
         let child = Command::new("python3")
@@ -175,6 +178,19 @@ impl Fixture {
             &self.device_id,
         ))
         .expect("spec")
+    }
+
+    fn applied_drill_spec(&self) -> interaction_adapter_declarative::DeclarativeSpec {
+        let mut value: Value = serde_json::from_str(include_str!(
+            "../../../examples/device-profiles/state-applied-serial.template.json"
+        ))
+        .expect("committed drill template");
+        value["id"] = json!(self.spec_id);
+        for cap in value["capabilities"].as_array_mut().unwrap() {
+            cap["serial"]["port"] = json!(self.sim.pty_path);
+            cap["serial"]["expectedDeviceId"] = json!(self.device_id);
+        }
+        serde_json::from_value(value).expect("production spec")
     }
 
     fn log_text(&self) -> String {
@@ -1924,7 +1940,7 @@ async fn a_device_without_fragmentation_degrades_to_intent_only() {
     };
     let home = tempfile::tempdir().unwrap();
     let rt = start_runtime(&home).await;
-    rt.register_declarative_spec(&fx.spec())
+    rt.register_declarative_spec(&fx.applied_drill_spec())
         .await
         .expect("register");
     assert!(
@@ -2080,8 +2096,8 @@ async fn an_interrupted_inbound_transfer_is_audited_not_silently_dropped() {
     );
 }
 
-/// `full-state`（唯一可以說「已同步」的值）不得只建立在裝置**自己宣稱**的
-/// `aip.frag/1` 上。
+/// Legacy `syncProfile=full-state` means a complete write was observed; N2 requires
+/// a matching peer receipt in addition before the UI can call the state synchronized.
 ///
 /// `hello.caps` 是裝置自報的能力清單，host 端沒有任何驗證：一台只要在 caps
 /// 裡塞入 `aip.frag/1`、實際上不重組的裝置，會在協商完成的那一刻就被畫成綠勾
@@ -2434,4 +2450,243 @@ async fn an_event_only_device_is_an_event_source_member() {
     assert_eq!(audit["detail"]["supportsFragmentation"], false, "{audit}");
     assert_eq!(audit["detail"]["maxLineBytes"], 639, "{audit}");
     assert_eq!(audit["detail"]["transport"], "serial", "{audit}");
+}
+
+/// N3.2 product acceptance: rebind recomputes external actuator safety defaults.
+/// Production adapter plus pty simulator; no external device is actuated.
+#[tokio::test(flavor = "multi_thread")]
+async fn rebind_never_restores_external_actuator_enabled_true() {
+    let Some(mut fx) = Fixture::spawn() else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec()).await.unwrap();
+    assert!(join_session(&mut fx, &rt).await);
+    let aid = interaction_core::ActuatorId::new(format!("{}.led", fx.spec_id));
+    assert!(rt.registry.actuator(&aid).await.is_err());
+    rt.registry.set_actuator_enabled(&aid, true).await.unwrap();
+    assert!(rt.registry.actuator(&aid).await.is_ok());
+    let pid = ProviderId::new(&fx.provider_id);
+    rt.transition_provider(&pid, ProviderState::Disabled)
+        .await
+        .unwrap();
+    rt.transition_provider(&pid, ProviderState::Available)
+        .await
+        .unwrap();
+    assert!(
+        wait_until(Duration::from_secs(30), || {
+            let rt = rt.clone();
+            let pid = pid.clone();
+            async move {
+                provider_state(&rt, &pid).await == Some(ProviderState::Available)
+                    && !audit_rows(&rt, "provider.rebound").is_empty()
+            }
+        })
+        .await
+    );
+    assert!(
+        rt.registry.actuator(&aid).await.is_err(),
+        "rebind must not restore an external actuator's old enabled=true"
+    );
+    assert!(
+        rt.registry
+            .actuator_any(&aid)
+            .await
+            .unwrap()
+            .manifest()
+            .requires_consent
+    );
+    rt.revoke_provider(&pid).await.unwrap();
+    assert!(rt.registry.actuator(&aid).await.is_err());
+}
+
+fn applied_member(rt: &Runtime, id: &str) -> Value {
+    members(rt)
+        .into_iter()
+        .find(|m| m["party"]["id"] == id)
+        .unwrap_or(Value::Null)
+}
+
+/// Production DeviceLink + Serial pty simulator; peer report is not a real display/board check.
+#[tokio::test(flavor = "multi_thread")]
+async fn negotiated_state_applied_tracks_snapshot_patch_loss_rebind_and_stale_receipts() {
+    use interaction_core::ProviderState;
+    use interaction_session::RuntimeFact;
+    let Some(mut fx) = Fixture::spawn_with(&["--state-applied"]) else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    // Stable device pathname models unplug/replug while preserving the same production channel.
+    let port = home.path().join("device-serial");
+    std::os::unix::fs::symlink(&fx.sim.pty_path, &port).unwrap();
+    let mut spec = serde_json::to_value(fx.applied_drill_spec()).unwrap();
+    spec["capabilities"][0]["serial"]["port"] = json!(port);
+    rt.register_declarative_spec(&serde_json::from_value(spec).unwrap())
+        .await
+        .unwrap();
+    assert!(join_session(&mut fx, &rt).await, "{}", fx.log_text());
+    assert!(
+        wait_until(Duration::from_secs(10), || async {
+            applied_member(&rt, &fx.device_id)["stateAppliedCurrent"] == true
+        })
+        .await,
+        "snapshot applied: {:?}\n{}",
+        applied_member(&rt, &fx.device_id),
+        fx.log_text()
+    );
+    let before = applied_member(&rt, &fx.device_id)["stateDelivery"]["applied"].clone();
+    fx.control(json!({"op":"aip-applied-pause","paused":true}));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    rt.character_session_submit_runtime(RuntimeFact::ReducedMotion(true), None);
+    assert!(
+        wait_until(Duration::from_secs(5), || async {
+            applied_member(&rt, &fx.device_id)["stateAppliedCurrent"] == false
+        })
+        .await
+    );
+    fx.control(json!({"op":"aip-applied-replay","override":{"hash":"0".repeat(64)}}));
+    fx.control(json!({"op":"aip-applied-replay"}));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        applied_member(&rt, &fx.device_id)["stateAppliedCurrent"],
+        false
+    );
+    fx.control(json!({"op":"aip-applied-pause","paused":false}));
+    fx.control(json!({"op":"aip-resume","lastRevision":before["revision"],"epoch":before["epoch"],"lastSequence":0}));
+    assert!(
+        wait_until(Duration::from_secs(10), || async {
+            applied_member(&rt, &fx.device_id)["stateAppliedCurrent"] == true
+        })
+        .await,
+        "resume applied: {}",
+        fx.log_text()
+    );
+    let prior_log = fx.log_text();
+    let old_receipt: Value = prior_log
+        .lines()
+        .filter_map(|line| line.strip_prefix("<< "))
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .rfind(|frame| frame["type"] == "aip-applied")
+        .unwrap()["receipt"]
+        .clone();
+    let old_generation =
+        applied_member(&rt, &fx.device_id)["stateDelivery"]["applied"]["generation"].clone();
+    fx.unplug();
+    assert!(
+        wait_until(Duration::from_secs(10), || async {
+            applied_member(&rt, &fx.device_id)["stateAppliedCurrent"] != true
+        })
+        .await,
+        "unplug must invalidate confirmation"
+    );
+    fx.sim = Sim::spawn_with(&fx.device_id, &["--state-applied"]).unwrap();
+    std::fs::remove_file(&port).unwrap();
+    std::os::unix::fs::symlink(&fx.sim.pty_path, &port).unwrap();
+    assert!(
+        wait_until(Duration::from_secs(10), || async {
+            fx.log_text().contains("pair-ok")
+        })
+        .await,
+        "replug must finish production pairing before simulator controls"
+    );
+    fx.control(json!({"op":"aip-applied-pause","paused":true}));
+    assert!(
+        join_session(&mut fx, &rt).await,
+        "replug: {}",
+        fx.log_text()
+    );
+    fx.control(json!({"op":"aip-applied-raw","receipt":old_receipt}));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_ne!(
+        applied_member(&rt, &fx.device_id)["stateAppliedCurrent"],
+        true,
+        "old connection receipt cannot confirm a replugged device"
+    );
+    fx.control(json!({"op":"aip-applied-pause","paused":false}));
+    fx.control(json!({"op":"aip-resume","lastRevision":0,"epoch":0,"lastSequence":0}));
+    assert!(
+        wait_until(Duration::from_secs(10), || async {
+            applied_member(&rt, &fx.device_id)["stateAppliedCurrent"] == true
+        })
+        .await,
+        "replug resume must apply: {}",
+        fx.log_text()
+    );
+    assert_ne!(
+        old_generation,
+        applied_member(&rt, &fx.device_id)["stateDelivery"]["applied"]["generation"]
+    );
+    let pid = ProviderId::new(&fx.provider_id);
+    rt.transition_provider(&pid, ProviderState::Disabled)
+        .await
+        .unwrap();
+    fx.control(json!({"op":"aip-applied-replay"}));
+    assert!(!rt.device_outbound_ids().contains(&fx.device_id));
+    rt.transition_provider(&pid, ProviderState::Available)
+        .await
+        .unwrap();
+    assert!(
+        join_session(&mut fx, &rt).await,
+        "rejoin: {}",
+        fx.log_text()
+    );
+    assert!(
+        wait_until(Duration::from_secs(10), || async {
+            applied_member(&rt, &fx.device_id)["stateAppliedCurrent"] == true
+        })
+        .await,
+        "new connection applied: {}",
+        fx.log_text()
+    );
+    let after = applied_member(&rt, &fx.device_id)["stateDelivery"]["applied"].clone();
+    assert_ne!(
+        before["messageId"], after["messageId"],
+        "new state transfer"
+    );
+    assert!(
+        after.get("token").is_none(),
+        "transfer challenge is not diagnostic data"
+    );
+    let all_logs = format!("{prior_log}\n{}", fx.log_text());
+    assert!(
+        !all_logs.contains("bytes dropped: over"),
+        "no frame may be silently truncated by the fixture"
+    );
+    for line in all_logs.lines() {
+        if let Some(wire) = line
+            .strip_prefix(">> ")
+            .or_else(|| line.strip_prefix("<< "))
+        {
+            assert!(
+                wire.trim_end().len() <= 639,
+                "UTF-8 wire including receipt context: {wire}"
+            );
+        }
+    }
+    rt.revoke_provider(&pid).await.unwrap();
+    assert!(!rt.device_outbound_ids().contains(&fx.device_id));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn legacy_fragmenting_devices_remain_unconfirmed_after_all_writes_succeed() {
+    let Some(mut fx) = Fixture::spawn() else {
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_runtime(&home).await;
+    rt.register_declarative_spec(&fx.spec()).await.unwrap();
+    assert!(join_session(&mut fx, &rt).await);
+    assert!(
+        wait_until(Duration::from_secs(10), || async {
+            applied_member(&rt, &fx.device_id)["syncProfile"] == "full-state"
+        })
+        .await
+    );
+    let member = applied_member(&rt, &fx.device_id);
+    assert_eq!(member["syncCapability"], "full-state");
+    assert_eq!(member["stateDelivery"]["negotiated"], false);
+    assert_eq!(member["stateAppliedCurrent"], false);
+    assert!(!fx.log_text().contains("stateApplied"));
 }

@@ -1,0 +1,28 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_state_2",
+  "messageType": "state",
+  "name": "character.session.patch",
+  "source": { "kind": "session", "id": "session.home" },
+  "target": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:03Z",
+  "sequence": 206,
+  "baseRevision": 204,
+  "payload": {
+    "kind": "patch",
+    "revision": 205,
+    "sessionEpoch": 3,
+    "hash": "cf4ae10ae4f20e1de0f4682e398f6de1467a057df04363af0356ee612e8e1583",
+    "patch": {
+      "mood": { "kind": "happy", "intensity": 0.45 },
+      "activity": "reacting",
+      "lastInteraction": {
+        "name": "character.interaction.touch",
+        "kind": "tap",
+        "source": "device:iphone-87b42264",
+        "at": "2026-09-04T12:30:00Z"
+      }
+    }
+  }
+}

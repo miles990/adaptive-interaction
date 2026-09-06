@@ -50,6 +50,7 @@
 // 逐位元組核對過——`src/test/canonical-hash.test.ts`），算出來與宣告的不同就**不套用**。
 
 import { stateHash } from "./canonical";
+import { validateSemanticState, type ValidatedSemanticState } from "./semanticState";
 import { applyMergePatch } from "./envelope";
 import { AIP_LIMITS } from "./generated";
 
@@ -87,7 +88,7 @@ export interface LocalSessionState {
   revision: number;
   /** host 的 session sequence（診斷與 resume 用；沒給就是 null）。 */
   sequence: number | null;
-  state: Record<string, unknown>;
+  state: ValidatedSemanticState;
   /** 這份 state 的 canonical hash（本地重算的，不是照抄 payload）。 */
   hash: string | null;
 }
@@ -380,7 +381,7 @@ export function readResumePatch(item: unknown): StateMessage | null {
 function commit(
   local: LocalSessionState | null,
   message: StateMessage,
-  state: Record<string, unknown>,
+  state: ValidatedSemanticState,
   hash: string,
 ): LocalSessionState {
   return {
@@ -429,11 +430,14 @@ function alignSnapshot(local: LocalSessionState | null, message: StateMessage): 
   // 2. AIP 1.0 的 snapshot 必帶 hash 與 state；沒有 legacy profile。
   if (message.hash === null || state === null) return { kind: "reject-invalid" };
   // 套用之前一律核對（reset／bootstrap 也一樣）：算出來的與宣告的不同就不採用。
-  const computed = stateHash(state);
-  const adopt = (kind: "apply" | "reset" | "recover"): SessionAlignment =>
-    computed === message.hash
-      ? { kind, session: commit(local, message, state, computed) }
+  const adopt = (kind: "apply" | "reset" | "recover"): SessionAlignment => {
+    const validated = validateSemanticState(state);
+    if (!validated) return { kind: "reject-invalid" };
+    const computed = stateHash(validated);
+    return computed === message.hash
+      ? { kind, session: commit(local, message, validated, computed) }
       : { kind: "realign", reason: "hash-mismatch" };
+  };
   // 3. host 明說重建了 session。epoch 相同的 `session-reset` **不算**：host 重灌後 epoch
   //    可能比本地記得的小，所以判定是「不同」不是「更大」。
   if (message.reason === REASON_SESSION_RESET && (!local || message.epoch !== local.epoch)) {
@@ -477,14 +481,15 @@ function alignPatch(local: LocalSessionState | null, message: StateMessage): Ses
   if (message.baseRevision !== local.revision) return { kind: "realign", reason: "base-mismatch" };
   const merged = record(applyMergePatch(local.state, message.patch));
   // 表之外的一條（呼叫端責任）：merge 產不出一個物件，這則訊息就不是一份能用的狀態。
-  if (merged === null) return { kind: "reject-invalid" };
+  const validated = validateSemanticState(merged);
+  if (validated === null) return { kind: "reject-invalid" };
   const computed = stateHash(merged);
   // 14. merge 之後的 hash 與宣告的不同。（沒宣告 hash 就沒得核對，誠實地不核對。）
   if (message.hash !== null && computed !== message.hash) {
     return { kind: "realign", reason: "hash-mismatch" };
   }
   // 15. 其餘：套用。
-  return { kind: "apply", session: commit(local, message, merged, computed) };
+  return { kind: "apply", session: commit(local, message, validated, computed) };
 }
 
 // ------------------------------------------------------------------ reducer

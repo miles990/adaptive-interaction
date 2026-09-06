@@ -76,39 +76,77 @@ AIP／Session 層寫入的稽核種類（`crates/interaction-session/src/session
 但稽核 `detail` 本身是否逐欄位排除所有可控字串，本次未逐一核對每個 audit call site，
 標記為「部分核實」而非「已驗證」）。
 
-## 5.1 「未解決停止」：過期不等於停了（AIP 1.0 澄清／v0.7.0）
+## 5.1 未解決停止：跨重啟仍然未知（本輪 N3）
 
-一個感測來源被移除時它還在擷取的話，那一筆「可能還在擷取」會以 `stop-unknown` 留在
-`status.activeSensors` 上 60 秒（`sensor_source::ORPHAN_CAPTURE_VISIBLE`）。在此之前，
-60 秒一到那筆記錄就被 `retain` 丟掉——畫面因此從「可能還在錄」變成「一切正常」，
-而我們其實從頭到尾都不知道它停了沒有。那是一次靜默。
+Canonical owner 是 Runtime `sensor_journal.rs::SensorJournal`，停止協調仍在
+`sensors.rs::Runtime::stop_all_sensor_sources`。即時 `activeSensors`、未解決摘要
+`unresolvedStops`、SQLite 歷史 audit 是三個不同面向。來源移除後的 60 秒即時窗口
+只影響投影；跨 process 恢復的記錄直接進未解決摘要，**不冒充當下擷取**。
 
-現在到期的記錄**離開即時清單、但不消失**：它轉進一份不受 TTL 影響的
-「未解決停止」摘要（`status.unresolvedStops`，非空才序列化；`GET /v1/sensors/unresolved`；
-`interact-ai sensors unresolved`），每一筆帶 `sourceId`／`generation`／`sensors`／`since`／
-`lastKnown`。三個面向刻意分開：**即時清單**（現在正在擷取什麼）、**未解決摘要**（現在還有哪些
-事我們不知道結果）、**歷史**（稽核，永遠留著）。
+儲存使用現有 SQLite `meta.sensor_stop_journal`，獨立 `format: 1`，不是 AIP wire、
+SemanticState profile 或 Character Session snapshot format。每筆只持久化 source ID、
+process incarnation、來源 generation、感測種類與 adapter 提供的連線 scope、時間、原因、人話名稱及
+`confirmedStopped: false`；不保存音訊、觀測內容、`startedBy`、`purpose` 或完整 `lastKnown`。
+因此恢復後 `lastKnown` 為空陣列，不能把它當成重新取得的裝置觀測。
 
-清除它只有兩條路：
+- Runtime 啟動時先在 `sensor_source_generation_high_water` 原子預留一段 generation，
+  來源登記使用該段、不重用上一個 process 的 ID。預留值與 JSON generation 都有 2^53−1 上限；
+  預留失敗或序號 metadata 損壞時拒絕啟動，不以不可信世代啟用感測。
+- 停止遠端來源前、移除或覆蓋來源登記前，先保存最少必要的 unknown。
+  `scoped_captures` 有 500 ms 上限；來源不回覆時以既有高風險能力宣告形成 unknown。
+  摘要的來源查詢並行、有界；只排除目前 live 清單仍表示的同 scope 與感測種類，
+  或仍在 60 秒孤兒窗口的紀錄。家族來源常駐不代表已離線的成員仍可見。
+- Mobile 在原始 `micLevel` 從 false 變 true 時，先經 canonical capture port 保存，
+  再發布該 connection 的擷取狀態；不依賴 receptor enabled、consent 或先按全域停止。
+  connection 攜帶登記時取得的 source owner；重複 true 心跳不重寫，只有同 connection
+  scope 且來源登記世代仍有效的明確 false 才確認解除。來源正被替換時保守保留，等後續有效證據。
+  斷線、撤銷、被新 socket 取代與程序重啟都不確認停止。
+  disabled 手機自報仍在擷取時，未解決摘要可見；這不會啟用受器或授予 consent。
+  若來源 owner 不存在，保存有界 overflow 提醒，不能靜默遺失未知。
+- 摘要最多 32 筆，每筆 `(scope, sensor)` 證據最多 64 組，整份 JSON 最多 256 KiB。
+  滿載或資料無法逐筆保存時，保留既有明細與持久化 overflow 標記，另寫 audit；
+  `overflowCount = 1` 表示**至少一組無法逐筆列出的 unknown**，不是準確的漏列筆數。
+  解除所有可見明細也不能使 overflow 消失；查 audit 與實際裝置後才能制定復原操作。
+- 同一個 SQLite transaction 保存提醒增刪與解除 audit；失敗回滾解除，保留記憶體提醒，
+  回應失敗而非假成功。一般摘要寫入失敗仍繼續必要的實體停止／來源清理，
+  `unresolvedStopHealth.storage = write-failed` 與 `recoveryUnknown` 保持可見。
+- 停止回覆只可解除**送出請求時捕獲、且收到回覆時仍有效**的同 source generation，
+  並且 process incarnation、capture scope 與 sensor 相同。Mobile 的 scope 取自既有
+  connection ID，在擷取與停止出站快照中分別捕獲；同 device ID 重連也不能背書舊連線。
+  來源預設 scope 是 source ID，多裝置 adapter 沒有提供成員證據時採保守保留。
+  新的擷取清單只追加未知集合，不會抹掉舊未知。`stopped`、有 `confirmedVia` 的 `already-stopped`
+  才有停止證據；Mobile 同一條有效連線的明確停止自報也可解除自己的 scope。
+  transport write、空本機旗標、新來源相同 ID、晚到已失效連線的回覆都不能替舊記錄作證。
+- 人類 `dismiss` 只表示已檢查並解除提醒，回應和同交易 audit 永遠
+  `confirmedStopped: false`。同一家族仍有 live 成員時，只解除畫面列出的歷史 scope，
+  不刪掉 live 成員的預先保存提醒。AI token 無法呼叫解除路徑；跨重啟也不變成裝置確認。
+- 格式損壞、過大、future format 會 parked，原始 metadata 不改名、不隔離、不覆寫；
+  新來源仍保留停止通道，記憶體 unknown 與 health 對外可見。序號預留 metadata 是
+  獨立欄位，因此不必改寫 future document 也能避免 process 間世代復用。
+  此機制不讀寫 Character Session snapshot／epoch，也不更動其 future-format 保護。
+- 非乾淨重啟無法證明最後一次寫入成功，因此即使 itemized list 為空，仍顯示
+  `recoveryUnknown`；這是保存完整性未知，不是「現在還在感測」。正常 shutdown 先走
+  既有有界 sensor stop，再取消 transport，journal flush 成功才標記 clean。
+  遠端等待上限沿用 `STOP_SENSORS_WAIT` + 500 ms source grace，加至多 500 ms capture 查詢；
+  來源並行，本機麥克風先停止。SQLite/OS I/O 延遲不計入 transport deadline。
 
-1. **同一個 `sourceId` 的新來源**對那個受器回報 `stopped`／`already-stopped`。只有還登記著的
-   來源說了才算——一台已經不在的裝置不能替自己作證。
-2. **人類明確解除**（`POST /v1/sensors/unresolved/{sourceId}/dismiss`，body 必填 `generation`；
-   `interact-ai sensors dismiss <id> --generation N`）。這是**人類層**動作：agent token 打不到
-   這條路徑。回應與稽核都寫死 `confirmedStopped: false`——解除的意思是「人類看過了」，
-   不是「它停了」。
+`status`、HTTP `GET /v1/sensors/unresolved`、CLI `sensors unresolved`、內嵌 Tauri 都讀
+同一 application projection；一般模式、tray 同時處理 itemized unknown 與保存／overflow
+警示，不能在陣列空時說「沒有問題」。Agent status 只拿原有無識別碼計數與 health，
+不會拿到 source ID、incarnation、generation、lastKnown。
 
-`generation` 是每一次來源登記的世代（單調遞增）。同一個 `sourceId` 重新登記時，舊那一次留下的
-未解決記錄**不會**被抹掉（在此之前 `register_sensor_source` 對同 id 無條件 `remove` 舊記錄，
-等於用一台新裝置替一台舊裝置作證）。未解決摘要自己有界（32 筆），滿了丟最舊的一筆並稽核
-`sensor.unresolved-stop-dropped`——被丟掉的那一筆從來沒有被說成已停止。
+相容行為差異：v0.7.0 允許同 ID 新來源確認來清舊世代；本輪因為 port 沒有可驗證的
+跨連線硬體 incarnation 證明，收緊為同登記／同 process。舊版已遺失的 memory-only
+摘要不能補造；不從 audit 自動推測或重播一份 unknown。範圍與回退見 deprecation ledger §4.3。
 
-稽核：`sensor.source-removed-while-capturing`／`sensor.unresolved-stop-recorded`／
-`sensor.unresolved-stop-resolved`／`sensor.unresolved-stop-dismissed`／
-`sensor.unresolved-stop-dropped`。
-
-**目前範圍**：Rust runtime＋HTTP API＋CLI。tray／桌面 UI 的投影尚未接上（`status` 已經帶著
-這個欄位，前端還沒讀它）——沒做的事就寫沒做。
+回歸入口：`sensors_loop.rs` 的 `restart_*`、`new_generation_confirmed_*`、
+`journal_dismissal_commit_failure_*`、`shutdown_persists_unknown_*`；
+`tests/sensor_journal_review.rs` 的集合保留、同 kind 成員／同 ID 新連線證據隔離與 live family 可見性；
+`mobile_loop.rs` 的單機 stop／direct revoke、disabled raw capture、natural disconnect、
+supersede 與同連線 false-confirm 跨重啟回歸（TLS 模擬器）；
+API `sensor_recovery_health_is_public_but_incarnations_are_human_only`；TS
+`unresolvedStops.test.tsx`；Tauri `unresolved_storage_and_overflow_are_visible_without_active_capture`。
+以上是測試入口，不代表真機驗收；本輪命令、數量與證據 SHA 由 progress/evidence index 記錄。
 
 ## 6. 保存期限
 

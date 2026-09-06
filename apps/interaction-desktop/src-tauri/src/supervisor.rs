@@ -143,7 +143,14 @@ pub struct DesktopPrefs {
     /// 與第一段（表現程度＋勿擾）在**同一次** patch 原子寫入；第二段（後端主動說話
     /// 模式）確認送到之後才清成 `None`。純流程資料、沒有任何權限語意，也不是新的
     /// 設定層——有效值仍然只看那三個既有欄位。上限由 `desktop_prefs_patch` 強制。
+    #[serde(
+        deserialize_with = "read_pending_marker",
+        serialize_with = "write_pending_marker"
+    )]
     pub companion_pending_preset_op: Option<PendingPresetOp>,
+    /// Application-owned version and last operation receipt; not a user preference.
+    pub companion_preset_revision: String,
+    pub companion_last_preset_op: Option<CompletedPresetOp>,
     pub schema_version: u32,
 }
 
@@ -151,6 +158,14 @@ pub struct DesktopPrefs {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PendingPresetOp {
+    #[serde(skip_serializing_if = "is_zero")]
+    pub format: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_runtime_revision: Option<String>,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+    #[serde(skip)]
+    pub malformed: Option<serde_json::Value>,
     /// 這次交易的識別（≤64 字元；只用來分辨是不是同一次）。
     pub op_id: String,
     /// 檔位 id（只認得 `quiet`／`natural`／`lively`）。
@@ -159,6 +174,43 @@ pub struct PendingPresetOp {
     pub proactive_patch: PendingProactivePatch,
     /// 發起時間（epoch ms）。
     pub issued_at_ms: f64,
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
+}
+
+fn read_pending_marker<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<PendingPresetOp>, D::Error> {
+    let value = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(value.map(
+        |value| match serde_json::from_value::<PendingPresetOp>(value.clone()) {
+            Ok(marker) if marker.format <= 1 => marker,
+            _ => PendingPresetOp {
+                format: u32::MAX,
+                malformed: Some(value),
+                ..Default::default()
+            },
+        },
+    ))
+}
+
+fn write_pending_marker<S: serde::Serializer>(
+    marker: &Option<PendingPresetOp>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    match marker {
+        Some(marker) if marker.malformed.is_some() => marker.malformed.serialize(s),
+        _ => marker.serialize(s),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletedPresetOp {
+    pub op_id: String,
+    pub preset_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -273,6 +325,8 @@ impl Default for DesktopPrefs {
             companion_interaction_memory: CompanionInteractionMemory::default(),
             companion_preferences: std::collections::BTreeMap::new(),
             companion_pending_preset_op: None,
+            companion_preset_revision: "0".into(),
+            companion_last_preset_op: None,
             schema_version: 1,
         }
     }
@@ -305,17 +359,55 @@ pub fn load_prefs() -> DesktopPrefs {
 }
 
 pub fn save_prefs(prefs: &DesktopPrefs) -> Result<(), String> {
-    let path = prefs_path();
+    save_prefs_at(&prefs_path(), prefs)
+}
+
+pub(crate) fn save_prefs_at(path: &std::path::Path, prefs: &DesktopPrefs) -> Result<(), String> {
+    use std::io::Write;
+    static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    // Atomic write: unique temp file + rename, so two concurrent savers never
-    // clobber each other's half-written temp (each renames its own).
-    let tmp = path.with_extension(format!("json.tmp.{}", std::process::id()));
-    let body = serde_json::to_string_pretty(prefs).map_err(|e| e.to_string())?;
-    std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-    Ok(())
+    // All production callers hold the prefs mutex. Unique temporary files also
+    // avoid collisions with a previous crashed process; sync before rename.
+    let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("json.tmp.{}.{sequence}", std::process::id()));
+    let mut created = false;
+    let result = (|| {
+        let body = serde_json::to_vec_pretty(prefs).map_err(|e| e.to_string())?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        // Preferences contain names and local history. Do not widen access when
+        // replacing an existing private file; new files start private as well.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            let mode = match std::fs::metadata(path) {
+                Ok(metadata) => metadata.permissions().mode() & 0o600,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0o600,
+                Err(error) => return Err(error.to_string()),
+            };
+            options.mode(mode);
+        }
+        let mut file = options.open(&tmp).map_err(|e| e.to_string())?;
+        created = true;
+        file.write_all(&body).map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+        // Atomic rename is the commit point. Directory fsync is best effort:
+        // an error after rename must not report rollback of committed data.
+        #[cfg(unix)]
+        if let Some(parent) = path.parent() {
+            if let Err(error) = std::fs::File::open(parent).and_then(|dir| dir.sync_all()) {
+                tracing::warn!(%error, "desktop preferences directory sync failed after commit");
+            }
+        }
+        Ok(())
+    })();
+    if result.is_err() && created {
+        let _ = std::fs::remove_file(tmp);
+    }
+    result
 }
 
 /// Read the daemon's configured API address from the shared home config.

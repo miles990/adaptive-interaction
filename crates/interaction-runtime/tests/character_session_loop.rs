@@ -2388,3 +2388,137 @@ async fn concurrent_persists_leave_the_highest_revision_on_disk() {
         base.revision + 9
     );
 }
+
+fn mobile_applied_member(rt: &Runtime, id: &str) -> Value {
+    rt.character_session_diagnostics_value().unwrap()["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["party"]["id"] == id)
+        .cloned()
+        .unwrap_or(Value::Null)
+}
+
+async fn wait_mobile_applied(rt: &Runtime, id: &str, expected: bool) {
+    for _ in 0..100 {
+        if mobile_applied_member(rt, id)["stateAppliedCurrent"] == expected {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!(
+        "state application evidence did not reach {expected}: {}",
+        mobile_applied_member(rt, id)
+    );
+}
+
+/// Real TLS transport with an in-process iPhone simulator, never real iPhone evidence.
+#[tokio::test]
+async fn negotiated_mobile_state_applied_requires_valid_current_connection_and_exact_sent_state() {
+    let _guard = env_lock().await;
+    let (_dir, rt) = runtime().await;
+    hello(&rt).await;
+    let (device_id, token, mut ws) = pair(&rt).await;
+    let mut cap = capability_envelope(&device_id);
+    cap["payload"]["features"]["stateApplied"] = json!("aip.applied/1");
+    send_json(&mut ws, aip(cap)).await;
+    let frames = collect_aip(&mut ws, 2, Duration::from_secs(5)).await;
+    let snapshot = frames
+        .iter()
+        .find(|e| e["payload"]["kind"] == "snapshot")
+        .expect("snapshot");
+    let receipt = snapshot["stateApplied"].clone();
+    assert!(receipt.is_object(), "{snapshot}");
+    let state = snapshot["payload"]["state"].clone();
+    assert!(interaction_session::validate_semantic_state(&state).is_some());
+    assert_eq!(
+        interaction_session::state_hash(&state),
+        snapshot["payload"]["hash"]
+    );
+    assert_eq!(
+        mobile_applied_member(&rt, &device_id)["stateAppliedCurrent"],
+        false
+    );
+    let mut wrong = receipt.clone();
+    wrong["hash"] = json!("0".repeat(64));
+    send_json(&mut ws, json!({"type":"aip-applied","receipt":wrong})).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        mobile_applied_member(&rt, &device_id)["stateAppliedCurrent"],
+        false
+    );
+    send_json(&mut ws, json!({"type":"aip-applied","receipt":receipt})).await;
+    wait_mobile_applied(&rt, &device_id, true).await;
+    rt.character_session_submit_runtime(
+        interaction_session::RuntimeFact::ReducedMotion(true),
+        None,
+    );
+    wait_mobile_applied(&rt, &device_id, false).await;
+    let frames = collect_aip(&mut ws, 1, Duration::from_secs(5)).await;
+    let patch = frames
+        .iter()
+        .find(|e| e["payload"]["kind"] == "patch")
+        .expect("patch");
+    let mut applied_state = state;
+    applied_state["reducedMotion"] = json!(true);
+    assert!(interaction_session::validate_semantic_state(&applied_state).is_some());
+    assert_eq!(
+        interaction_session::state_hash(&applied_state),
+        patch["payload"]["hash"]
+    );
+    send_json(
+        &mut ws,
+        json!({"type":"aip-applied","receipt":patch["stateApplied"]}),
+    )
+    .await;
+    wait_mobile_applied(&rt, &device_id, true).await;
+    // A replacement authenticated connection invalidates the old claim immediately.
+    let mut replacement = reconnect(&rt, &device_id, &token).await.unwrap();
+    wait_mobile_applied(&rt, &device_id, false).await;
+    send_json(
+        &mut replacement,
+        json!({"type":"aip-applied","receipt":receipt}),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        mobile_applied_member(&rt, &device_id)["stateAppliedCurrent"],
+        false
+    );
+    let mut cap = capability_envelope(&device_id);
+    cap["messageId"] = json!("applied-new-connection-capability");
+    cap["payload"]["features"]["stateApplied"] = json!("aip.applied/1");
+    send_json(&mut replacement, aip(cap)).await;
+    let _ = collect_aip(&mut replacement, 2, Duration::from_millis(300)).await;
+    let mut query = base_envelope(
+        "query",
+        "character.session.resume",
+        &device_id,
+        "applied-new-snapshot",
+    );
+    let current = rt.character_session_peek().unwrap();
+    query["payload"] =
+        json!({"lastRevision":current.revision,"lastSequence":0,"sessionEpoch":current.epoch});
+    query["target"] = json!({"kind":"session","id":"session.home"});
+    send_json(&mut replacement, aip(query)).await;
+    let frames = collect_aip(&mut replacement, 10, Duration::from_secs(1)).await;
+    let new_snapshot = frames
+        .iter()
+        .find(|e| e["payload"]["kind"] == "snapshot")
+        .unwrap_or_else(|| panic!("new snapshot: {frames:?}"));
+    assert_ne!(
+        new_snapshot["stateApplied"]["generation"],
+        receipt["generation"]
+    );
+    assert!(
+        interaction_session::validate_semantic_state(&new_snapshot["payload"]["state"]).is_some()
+    );
+    send_json(
+        &mut replacement,
+        json!({"type":"aip-applied","receipt":new_snapshot["stateApplied"]}),
+    )
+    .await;
+    wait_mobile_applied(&rt, &device_id, true).await;
+    rt.mobile.stop_all().await.unwrap();
+    wait_mobile_applied(&rt, &device_id, false).await;
+}

@@ -82,12 +82,15 @@ describe("守門：一般模式沒有技術詞", () => {
     // AIP 1.0 的 snapshot 必帶 hash（決策表規則 2：缺 hash ＝ reject-invalid），
     // 而且桌面端會自己重算來核對——fixture 要長得像 Runtime 真的送的。
     const state = {
+      characterId: "character", mood: { kind: "neutral", intensity: 0 }, activity: "idle",
+      attention: { kind: "none" }, reducedMotion: false,
       truth: { state: "none" },
       members: [
         {
           party: { kind: "device", id: "iphone-87b42264" },
           role: "remote-renderer",
           presence: "online",
+          lastSeenAt: "2026-09-05T12:30:00.000Z",
           // 協商結果齊全（每個 host intent 都演得出來）才有資格給綠色「已同步」；
           // 沒有這個欄位時卡片只會說「已連接，能力核對中」
           //（對抗審查 capability-consent-052／general-mode-ux-022）。
@@ -98,6 +101,7 @@ describe("守門：一般模式沒有技術詞", () => {
         name: "character.interaction.touch",
         kind: "tap",
         source: "device:iphone-87b42264",
+        at: "2026-09-05T12:30:00.000Z",
       },
     };
     mockApi.characterSessionSnapshot.mockResolvedValue({
@@ -106,6 +110,10 @@ describe("守門：一般模式沒有技術詞", () => {
       sessionId: "session.home",
       payload: { kind: "snapshot", revision: 12, sessionEpoch: 1, state, hash: stateHash(state) },
     });
+    mockApi.characterSessionDiagnostics.mockResolvedValue({ members: [{
+      party: { kind: "device", id: "iphone-87b42264" }, syncProfile: "full-state", stateAppliedCurrent: true,
+      stateDelivery: { negotiated: true, applied: { profile: "aip.applied/1", sessionId: "session.home", epoch: 1, revision: 12, hash: stateHash(state) } },
+    }] });
     mockApi.mobileStatus.mockResolvedValue({
       devices: [{ deviceId: "iphone-87b42264", name: FIXTURE_PHONE, connected: true }],
     });

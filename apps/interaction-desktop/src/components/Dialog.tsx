@@ -33,10 +33,19 @@ export function useFocusTrap(onClose: () => void) {
         const focusables = Array.from(all).filter(
           (el) => !el.closest("details:not([open]) > :not(summary)")
         );
-        if (focusables.length === 0) return;
+        if (focusables.length === 0) {
+          // Empty/loading overlays still own keyboard focus.
+          e.preventDefault();
+          return;
+        }
         const first = focusables[0];
         const last = focusables[focusables.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
+        // On mount the container has focus, before the first tabbable child.
+        // Native Shift+Tab would therefore move to the page behind the modal.
+        if (document.activeElement === ref.current) {
+          e.preventDefault();
+          (e.shiftKey ? last : first).focus();
+        } else if (e.shiftKey && document.activeElement === first) {
           e.preventDefault();
           last.focus();
         } else if (!e.shiftKey && document.activeElement === last) {

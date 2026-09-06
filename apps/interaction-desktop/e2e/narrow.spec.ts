@@ -52,6 +52,7 @@ test("390px：鍵盤可操作底部導覽與更多選單", async ({ page }) => {
   // Escape closes; focus does not fall off-screen (returns to the page).
   await page.keyboard.press("Escape");
   await expect(sheet).not.toBeVisible();
+  await expect(bottomNav.getByRole("button", { name: "更多" })).toBeFocused();
 });
 
 test("390px：頁面主體不產生水平捲動", async ({ page }) => {

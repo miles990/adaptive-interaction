@@ -56,6 +56,7 @@ import {
   characterSyncLastInteraction,
   characterSyncMemberDeviceIds,
   characterSyncMembers,
+  characterSyncAppliedCurrent,
   characterSyncPresenceLabel,
   characterSyncProfileLabel,
   characterSyncProfiles,
@@ -438,7 +439,8 @@ export function CharacterSyncCard({
 
   // --- 投影（純函式；所有句子都來自上面這些真實回應）。
   const snapshotView = React.useMemo(
-    () => (session ? { payload: { kind: "snapshot", state: session.state } } : null),
+    () => (session ? { sessionId: session.sessionId, payload: { kind: "snapshot", state: session.state,
+      sessionEpoch: session.epoch, revision: session.revision, hash: session.hash } } : null),
     [session]
   );
   /**
@@ -447,9 +449,10 @@ export function CharacterSyncCard({
    * 讀不到診斷就是空的：不知道就不知道，既不降級也不升級。
    */
   const profiles = React.useMemo(() => characterSyncProfiles(diagnostics), [diagnostics]);
+  const applied = React.useMemo(() => characterSyncAppliedCurrent(diagnostics, snapshotView), [diagnostics, snapshotView]);
   const members = React.useMemo(
-    () => characterSyncMembers(snapshotView, names, profiles),
-    [snapshotView, names, profiles]
+    () => characterSyncMembers(snapshotView, names, profiles, applied),
+    [snapshotView, names, profiles, applied]
   );
   /** 連著、但不在成員名單裡的手機＝還沒重新確認過（送不出互動，也收不到狀態）。 */
   const pending = React.useMemo(() => {

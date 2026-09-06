@@ -1,0 +1,15 @@
+{
+  "name": "integration-ts",
+  "sha": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+  "command": [
+    "bash",
+    "-c",
+    "pnpm aip:check && pnpm typecheck && pnpm test && pnpm build"
+  ],
+  "exit": 0,
+  "durationSeconds": 28.65,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "/tmp/adaptive-convergence-20260906/integration-ts.log"
+}

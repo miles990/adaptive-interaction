@@ -173,6 +173,12 @@ pub trait DeviceOutbound: Send + Sync {
     fn provider_id(&self) -> Option<&str> {
         None
     }
+    /// Transport progress and peer report; independent of rendering capability.
+    fn state_delivery(
+        &self,
+    ) -> Option<interaction_adapter_declarative::state_applied::StateDelivery> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +186,7 @@ pub trait DeviceOutbound: Send + Sync {
 // ---------------------------------------------------------------------------
 
 /// 這個成員**真的**拿得到完整的共享狀態（無上限，或超限時會被分片重組）。
-/// UI 只有在這個模式下才可以說「已同步」。
+/// 這是能力/歷史傳送資訊；UI 還必須比對 stateAppliedCurrent，不能只看此值。
 pub const SYNC_PROFILE_FULL_STATE: &str = "full-state";
 /// 這個成員載不動完整快照，但它宣告自己會呈現 Behavior Intent：送得到的只有
 /// 那些放得進單則上限的意圖訊息。**不得**顯示「已同步」。
@@ -1101,9 +1107,46 @@ impl Runtime {
                 if let Some(provider_id) = channel.provider_id() {
                     item["providerId"] = Value::String(provider_id.to_string());
                 }
+                self.project_state_delivery(&mut item, channel.as_ref());
                 Some(item)
             })
             .collect()
+    }
+
+    fn project_state_delivery(&self, item: &mut Value, channel: &dyn DeviceOutbound) {
+        let delivery = channel.state_delivery().unwrap_or_else(|| {
+            interaction_adapter_declarative::state_applied::StateDelivery {
+                progress: "unconfirmed",
+                ..Default::default()
+            }
+        });
+        let current = self.character_session_peek().ok().is_some_and(|snapshot| {
+            delivery.negotiated
+                && delivery.applied.as_ref().is_some_and(|applied| {
+                    applied.session_id == SESSION_ID
+                        && applied.epoch == snapshot.epoch
+                        && applied.revision == snapshot.revision
+                        && applied.hash == snapshot.hash
+                })
+        });
+        // Compatibility syncProfile still reports historical transport progress.
+        // This independent field reports capability, never a synchronization claim.
+        if let Some(profile) = item.get("syncProfile").and_then(Value::as_str) {
+            item["syncCapability"] = json!(if profile == SYNC_PROFILE_PENDING_FULL_STATE {
+                SYNC_PROFILE_FULL_STATE
+            } else {
+                profile
+            });
+        }
+        let mut projected = serde_json::to_value(delivery).unwrap_or(Value::Null);
+        // Transfer challenges are needed only on the authenticated wire, not in status.
+        for key in ["sent", "applied"] {
+            if let Some(record) = projected.get_mut(key).and_then(Value::as_object_mut) {
+                record.remove("token");
+            }
+        }
+        item["stateDelivery"] = projected;
+        item["stateAppliedCurrent"] = json!(current);
     }
 
     /// §10 diagnostics（不含 token、路徑、原始 payload）。
@@ -1144,6 +1187,9 @@ impl Runtime {
                     .and_then(|channel| channel.provider_id().map(str::to_string))
                 {
                     item["providerId"] = Value::String(provider_id);
+                }
+                if let Some(channel) = self.device_outbound(&member.party.id) {
+                    self.project_state_delivery(&mut item, channel.as_ref());
                 }
                 item
             })
@@ -1891,7 +1937,21 @@ impl Runtime {
         resume: Resume,
         now: Timestamp,
     ) -> Envelope {
-        let payload = self.character_session_resume_value(party, resume).await;
+        let empty_replay = matches!(&resume, Resume::Patches { envelopes } if envelopes.is_empty());
+        let needs_confirmation = self
+            .device_outbound(&party.id)
+            .and_then(|channel| channel.state_delivery())
+            .is_some_and(|delivery| delivery.negotiated);
+        let payload = if empty_replay && needs_confirmation {
+            // Resume already permits a snapshot fallback. Include a concrete state
+            // when a new connection needs application evidence despite zero patches.
+            match self.character_session_snapshot_envelope(party).await {
+                Ok(snapshot) => snapshot.payload,
+                Err(_) => self.character_session_resume_value(party, resume).await,
+            }
+        } else {
+            self.character_session_resume_value(party, resume).await
+        };
         self.character_session_response(party, causation, payload, now)
     }
 

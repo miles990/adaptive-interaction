@@ -1,3 +1,4 @@
+import { parseJsonWithNumberSources } from "./aip/json-source";
 // Transport layer: the SAME typed api surface works over two backends.
 //
 // 1. Tauri IPC (embedded runtime; the desktop app owns the runtime).
@@ -68,7 +69,7 @@ async function http(method: string, path: string, body?: unknown): Promise<unkno
   const text = await res.text();
   let json: unknown = null;
   try {
-    json = text ? JSON.parse(text) : null;
+    json = text ? parseJsonWithNumberSources(text) : null;
   } catch {
     json = text;
   }
@@ -330,6 +331,10 @@ const ROUTES: Record<string, Route> = {
 /** Invoke a backend command through whichever transport is active. */
 export async function call<T>(cmd: string, args?: Args): Promise<T> {
   if (!httpMode) {
+    if (["character_session_snapshot", "character_session_resume", "events_recent"].includes(cmd)) {
+      const raw = await invoke<string>(`${cmd}_raw`, args);
+      return parseJsonWithNumberSources(raw) as T;
+    }
     return invoke<T>(cmd, args);
   }
   const route = ROUTES[cmd];
@@ -463,7 +468,7 @@ async function runStream() {
           }
           if (!data || data === "keep-alive") continue;
           try {
-            const event = JSON.parse(data);
+            const event = parseJsonWithNumberSources(data);
             stream.buffer.push(event);
             if (stream.buffer.length > EVENT_BUFFER_MAX) stream.buffer.shift();
             stream.handlers.forEach((h) => h(event));
@@ -509,7 +514,10 @@ async function eventsRecentHttp(limit: number): Promise<unknown[]> {
 
 export function onEvent<T>(handler: (event: T) => void): Promise<UnlistenFn> {
   if (!httpMode) {
-    return listen<T>("runtime-event", (e) => handler(e.payload));
+    return listen<string>("runtime-event-raw", (e) => {
+      try { handler(parseJsonWithNumberSources(e.payload) as T); }
+      catch { /* Malformed transport input is never adopted as state. */ }
+    });
   }
   ensureStream();
   const h = handler as (e: unknown) => void;

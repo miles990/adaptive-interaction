@@ -112,6 +112,13 @@ export function parseCompanionSettingsImport(raw: unknown, opts: ImportOptions =
   if (!obj || typeof obj !== "object") throw new Error("不是有效的設定檔");
   if (obj.kind !== "companion-settings") throw new Error("不是角色設定檔（kind 不符）");
   if (obj.schemaVersion !== 1) throw new Error(`不支援的版本：${String(obj.schemaVersion)}`);
+  // A missing optional field keeps the current choice; a present malformed
+  // field invalidates the entire proposed patch before either store is touched.
+  const strings = ["companionName", "companionPack", "characterId", "companionPersona", "companionExpressiveness", "companionScene"];
+  const booleans = ["companionPlay", "companionCursorPlay", "companionApproach", "companionDeskMove"];
+  for (const key of strings) if (key in obj && typeof obj[key] !== "string") throw new Error(`${key} 必須是文字`);
+  for (const key of booleans) if (key in obj && typeof obj[key] !== "boolean") throw new Error(`${key} 必須是開關值`);
+  if ("companionFamiliars" in obj && !Array.isArray(obj.companionFamiliars)) throw new Error("companionFamiliars 必須是清單");
   const out: Partial<DesktopPrefs> = {};
   const str = (key: string, allowed: string[] | null, maxLen: number): string | null => {
     const v = obj[key];
@@ -121,7 +128,8 @@ export function parseCompanionSettingsImport(raw: unknown, opts: ImportOptions =
     return v;
   };
   const name = str("companionName", null, 24);
-  if (name !== null && name.length > 0) out.companionName = name;
+  // Blank is an explicit restored name; omission alone means keep current.
+  if (name !== null) out.companionName = name;
   // companionPack 優先；沒有時接受 CPP 別名 characterId。
   const packKey = typeof obj.companionPack === "string" ? "companionPack" : "characterId";
   const pack = str(packKey, null, 64);
@@ -191,10 +199,14 @@ export function parseCompanionSettingsImport(raw: unknown, opts: ImportOptions =
       const palettes = meta?.variants ?? [];
       const familiars: { id: string; name: string; palette: string }[] = [];
       for (const f of obj.companionFamiliars) {
+        if (!f || typeof f !== "object" || Array.isArray(f)) throw new Error("使魔設定必須是物件");
         const fo = f as Record<string, unknown>;
-        const id = String(fo.id ?? "");
-        const fname = String(fo.name ?? "");
-        const palette = String(fo.palette ?? "");
+        if (typeof fo.id !== "string" || typeof fo.name !== "string" || typeof fo.palette !== "string") {
+          throw new Error("使魔 id、名字與配色必須是文字");
+        }
+        const id = fo.id;
+        const fname = fo.name;
+        const palette = fo.palette;
         if (!/^[a-zA-Z0-9-]{1,32}$/.test(id)) throw new Error("使魔 id 非法");
         if (fname.length === 0 || fname.length > 24) throw new Error("使魔名字長度非法");
         if (!palettes.includes(palette)) {

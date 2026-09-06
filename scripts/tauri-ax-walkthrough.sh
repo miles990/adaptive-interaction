@@ -30,6 +30,7 @@
 #
 #   --app     用現成的 .app（預設找 src-tauri/target/debug/bundle/macos/…，沒有就 build）
 #   --build   強制重新 `pnpm tauri build --debug --bundles app`
+#   --prefs-fixture  將已提交的舊版偏好樣本放進自己的隔離 home
 #   --port    隔離 daemon 的 API 埠號（預設 18922）
 #   --out     結果 JSON 與截圖的輸出目錄（預設 ./tauri-ax-walkthrough）
 #
@@ -44,6 +45,7 @@ DEFAULT_APP="$DESKTOP_DIR/src-tauri/target/debug/bundle/macos/interaction-contro
 
 APP_PATH=""
 FORCE_BUILD=0
+PREFS_FIXTURE=""
 PORT=18922
 OUT_DIR="$PWD/tauri-ax-walkthrough"
 
@@ -51,6 +53,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --app) APP_PATH="${2:-}"; shift 2 ;;
     --build) FORCE_BUILD=1; shift ;;
+    --prefs-fixture) PREFS_FIXTURE="${2:-}"; shift 2 ;;
     --port) PORT="${2:-}"; shift 2 ;;
     --out) OUT_DIR="${2:-}"; shift 2 ;;
     -h|--help) sed -n '1,40p' "$0"; exit 0 ;;
@@ -65,6 +68,8 @@ fi
 
 mkdir -p "$OUT_DIR"
 STEPS_FILE="$OUT_DIR/steps.jsonl"
+AX_METRICS="$OUT_DIR/ax-metrics.jsonl"
+: >"$AX_METRICS"
 RESULT_FILE="$OUT_DIR/tauri-ax-walkthrough.json"
 LOG_FILE="$OUT_DIR/walkthrough.log"
 : >"$STEPS_FILE"
@@ -87,9 +92,17 @@ log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$LOG_FILE"; }
 record() {
   local id="$1" title="$2" status="$3" evidence="$4" shot="${5:-}"
   python3 - "$STEPS_FILE" "$id" "$title" "$status" "$evidence" "$shot" <<'PY'
-import json, sys
+import json, sys, time, pathlib
 path, sid, title, status, evidence, shot = sys.argv[1:7]
-row = {"id": sid, "title": title, "status": status, "evidence": evidence}
+now = time.time()
+previous = [json.loads(x) for x in pathlib.Path(path).read_text().splitlines()] if pathlib.Path(path).exists() else []
+metrics_file = pathlib.Path(path).parent/"ax-metrics.jsonl"
+metrics = [json.loads(x) for x in metrics_file.read_text().splitlines()] if metrics_file.exists() else []
+start = previous[-1].get("finishedAtEpoch", now) if previous else (metrics[0]["at"] if metrics else now)
+commands = [m for m in metrics if start <= m["at"] <= now]
+row = {"id": sid, "title": title, "status": status, "evidence": evidence,
+       "startedAtEpoch":start,"finishedAtEpoch":now,"scriptStepSeconds":round(now-start,3),
+       "successfulClicks":sum(m["clicked"] for m in commands),"humanHelp":"not measured"}
 if shot:
     row["screenshot"] = shot
 with open(path, "a", encoding="utf-8") as f:
@@ -130,176 +143,19 @@ PY
 # 一個 osascript 檔負責所有 AX 操作：走訪 WebView 的 AX 樹靠 `entire contents`
 # 一次抓平，再在 AppleScript 本地比對名字（每個元素都往回問一次會慢到不能用）。
 AX_SCRIPT="$OUT_DIR/ax.applescript"
-cat >"$AX_SCRIPT" <<'APPLESCRIPT'
--- AX 驅動工具。argv：<procName> <command> [args…]
---
--- 兩個踩過的坑，改動時不要退回去：
---   1. 主視窗一律用**名字**找（"Interaction Control Center"），不能用 window 1：
---      隱藏／顯示桌面角色之後視窗順序會變，window 1 可能是角色視窗，後面每一步
---      就會安靜地對錯的視窗操作（而且看起來只是「找不到按鈕」）。
---   2. `entire contents of X` 一定要先 `set flat to …` 存成變數再 repeat。直接
---      `repeat with e in (entire contents of X)` 在 System Events 上會拿到空清單。
---
--- 指令：
---   windows                          列出視窗標題（每行一個）
---   click <role> <text>              點第一個 role 且名字含 text 的元素（role=AXAny 表示不限）
---   exists <role> <text>             回 yes/no
---   value <role> <text>              回該元素的 value（aria-pressed 的按鈕在 macOS 上是 AXCheckBox）
---   navclick <index>                 點「主要導覽」的第 index 顆按鈕（1-based）
---   tray <text>                      點狀態列選單中名字含 text 的項目
---   bounds                           回 x,y,w,h（主視窗）
---   resize <w> <h>                   設定主視窗大小
---   hscroll                          回 yes/no：主視窗裡有沒有水平捲軸
-on labelOf(e)
-	tell application "System Events"
-		set lbl to ""
-		try
-			set lbl to (name of e) as text
-		end try
-		if lbl is "missing value" or lbl is "" then
-			try
-				set lbl to (description of e) as text
-			end try
-		end if
-		if lbl is "missing value" then set lbl to ""
-		return lbl
-	end tell
-end labelOf
-
-on run argv
-	set procName to item 1 of argv
-	set cmd to item 2 of argv
-	tell application "System Events"
-		if not (exists process procName) then error "process not running: " & procName
-		tell process procName
-			if cmd is "windows" then
-				set out to ""
-				repeat with w in windows
-					set out to out & (name of w) & linefeed
-				end repeat
-				return out
-			end if
-			if cmd is "tray" then
-				set wanted to item 3 of argv
-				-- 狀態列：menu bar 2 是這個 App 自己的 status item。
-				tell menu bar 2
-					click menu bar item 1
-					delay 0.6
-					tell menu 1 of menu bar item 1
-						repeat with mi in menu items
-							set t to ""
-							try
-								set t to name of mi
-							end try
-							if t contains wanted then
-								click mi
-								return "clicked:" & t
-							end if
-						end repeat
-						key code 53 -- Escape：不要把選單留在畫面上
-					end tell
-				end tell
-				error "tray item not found: " & wanted
-			end if
-			-- 主視窗以名字定位（見檔頭第 1 點）。
-			set target to missing value
-			repeat with w in windows
-				if (name of w) is "Interaction Control Center" then set target to w
-			end repeat
-			if target is missing value then
-				if (count of windows) is 0 then error "no window"
-				set target to window 1
-			end if
-			if cmd is "bounds" then
-				set p to position of target
-				set s to size of target
-				return ((item 1 of p) as text) & "," & ((item 2 of p) as text) & "," & ((item 1 of s) as text) & "," & ((item 2 of s) as text)
-			end if
-			if cmd is "resize" then
-				set w to (item 3 of argv) as integer
-				set h to (item 4 of argv) as integer
-				set size of target to {w, h}
-				return "resized"
-			end if
-			-- 以下都要走 AX 樹（見檔頭第 2 點：先存成變數）。
-			set flat to entire contents of target
-			if cmd is "hscroll" then
-				repeat with e in flat
-					try
-						if (role of e) is "AXScrollBar" then
-							if (value of attribute "AXOrientation" of e) contains "Horizontal" then return "yes"
-						end if
-					end try
-				end repeat
-				return "no"
-			end if
-			if cmd is "navclick" then
-				set wantIdx to (item 3 of argv) as integer
-				set navIdx to 0
-				set i to 0
-				repeat with e in flat
-					set i to i + 1
-					try
-						if (description of e) is "主要導覽" then
-							set navIdx to i
-							exit repeat
-						end if
-					end try
-				end repeat
-				if navIdx is 0 then error "nav not found"
-				-- 導覽群組後面緊接著就是它的按鈕：往後掃到第一個非按鈕為止。
-				set btns to {}
-				set j to navIdx + 1
-				repeat while j ≤ (count of flat)
-					set r to ""
-					try
-						set r to (role of (item j of flat)) as text
-					end try
-					if r is not "AXButton" then exit repeat
-					set end of btns to (item j of flat)
-					set j to j + 1
-				end repeat
-				if (count of btns) < wantIdx then error "nav has only " & (count of btns) & " items"
-				click item wantIdx of btns
-				return "clicked nav " & wantIdx & " (" & my labelOf(item wantIdx of btns) & ")"
-			end if
-			set wantRole to item 3 of argv
-			set wantText to item 4 of argv
-			set hits to {}
-			repeat with e in flat
-				try
-					set r to (role of e) as text
-					if wantRole is "AXAny" or r is wantRole then
-						set lbl to my labelOf(e)
-						if lbl is not "" and lbl contains wantText then set end of hits to e
-					end if
-				end try
-			end repeat
-			if cmd is "exists" then
-				if (count of hits) > 0 then
-					return "yes"
-				else
-					return "no"
-				end if
-			end if
-			if (count of hits) < 1 then error "not found (" & wantRole & "/" & wantText & ")"
-			set target2 to item 1 of hits
-			if cmd is "value" then
-				set v to ""
-				try
-					set v to (value of target2) as text
-				end try
-				return v
-			end if
-			click target2
-			return "clicked " & my labelOf(target2)
-		end tell
-	end tell
-end run
-APPLESCRIPT
+cp "$REPO_ROOT/scripts/lib/tauri-ax.applescript" "$AX_SCRIPT"
 
 ax() { # ax <command> [args…] → stdout；失敗時 stderr 有原因、回非 0
-  osascript "$AX_SCRIPT" "$PROC_NAME" "$@" 2>>"$LOG_FILE"
+  python3 - "$AX_METRICS" "$AX_SCRIPT" "pid:$APP_PID" "$@" 2>>"$LOG_FILE" <<'AXPY'
+import json, subprocess, sys, time
+path, script, proc, *args = sys.argv[1:]
+start = time.time()
+r = subprocess.run(["osascript", script, proc, *args], capture_output=True, text=True)
+with open(path, "a") as f:
+    f.write(json.dumps({"at": start, "seconds": time.time()-start, "command": args, "exit":r.returncode, "clicked":r.returncode==0 and args[0] in ("click","navclick","tray")})+"\n")
+sys.stdout.write(r.stdout); sys.stderr.write(r.stderr)
+sys.exit(r.returncode)
+AXPY
 }
 
 # 畫面是非同步長出來的（角色庫要讀十份 manifest、對話框有掛載延遲）。固定 sleep
@@ -349,7 +205,7 @@ cleanup() {
 assemble() {
   local listeners="${1:-unknown}"
   python3 - "$STEPS_FILE" "$RESULT_FILE" "$RUN_STARTED_AT" "$BUILD_SECONDS" "$APP_PATH" "$HOME_DIR" "$API" "$listeners" "$AX_OK" <<'PY'
-import json, sys, datetime
+import json, sys, datetime, pathlib, hashlib
 steps_file, out, started, build_s, app, home, api, listeners, ax_ok = sys.argv[1:10]
 # 這一輪應該走到的每一步；沒有出現在 steps.jsonl 裡的就是 not-run（誠實：不是通過）。
 PLAN = [
@@ -360,7 +216,8 @@ PLAN = [
     ("pause-proactive", "暫停主動對話並恢復（/v1/pause）"),
     ("do-not-disturb", "勿擾開關（讀回偏好）"),
     ("companion-visibility", "顯示／隱藏桌面角色（視窗清單＋presentation.visible）"),
-    ("emergency-stop", "緊急停止與安全解除（二段確認）"),
+    ("emergency-stop", "緊急停止（二段確認）"),
+    ("emergency-unlock", "人類走安全流程解除緊急停止"),
     ("narrow-390", "視窗縮到 390px 寬並檢查橫向捲動"),
 ]
 rows = []
@@ -376,10 +233,14 @@ for sid, title in PLAN:
         tasks.append(r)
     else:
         tasks.append({"id": sid, "title": title, "status": "not-run", "evidence": "本輪沒有走到這一步"})
+metrics_path = pathlib.Path(out).parent / "ax-metrics.jsonl"
+metrics = [json.loads(x) for x in metrics_path.read_text().splitlines()] if metrics_path.exists() else []
 summary = {}
 for t in tasks:
     summary[t["status"]] = summary.get(t["status"], 0) + 1
 doc = {
+    "metrics": {"kind": "AX script (not human)", "successfulClicks": sum(x["clicked"] for x in metrics), "commandSeconds": round(sum(x["seconds"] for x in metrics),3), "commandCount": len(metrics), "humanHelp": "not measured", "humanDecisions": "not measured", "humanTaskTimes": "not measured"},
+    "binarySha256": hashlib.sha256((pathlib.Path(app)/"Contents/MacOS/interaction-desktop").read_bytes()).hexdigest(),
     "startedAt": started,
     "finishedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "evidenceLevel": "真 Tauri 視窗（debug build，AX 驅動，fixture agent，隔離 home）",
@@ -435,6 +296,10 @@ fi
 # --- 2. 隔離的家 -------------------------------------------------------------
 HOME_DIR="$(mktemp -d /tmp/interaction-ax-home.XXXXXX)"
 mkdir -p "$HOME_DIR/config"
+if [ -n "$PREFS_FIXTURE" ]; then
+  mkdir -p "$HOME_DIR/state"
+  cp "$PREFS_FIXTURE" "$HOME_DIR/state/desktop.json"
+fi
 printf 'apiHost: 127.0.0.1\napiPort: %s\n' "$PORT" >"$HOME_DIR/config/interaction.yaml"
 log "隔離的家：${HOME_DIR}（API 埠號 ${PORT}）"
 
@@ -684,26 +549,14 @@ step_estop() {
   sleep 2
   e1="$(jq_path "$(hget /v1/status)" 'd.get("emergencyStop")')"
   local s; s="$(shot 08-estop || true)"
-  # 解除：不是一顆按鈕，要走安全流程（前往解除 → 開始安全解除流程 → 兩段確認）。
-  ax_click_wait AXAny "前往解除" 15
-  sleep 1
-  ax_click_wait AXAny "開始安全解除流程" 15
-  sleep 1
-  ax_click_wait AXAny "我了解，解除緊急停止" 15
-  sleep 1
-  ax_click_wait AXAny "確定解除" 15
-  sleep 2
-  e2="$(jq_path "$(hget /v1/status)" 'd.get("emergencyStop")')"
-  if [ "$armed" = "False" ] && [ "$e1" = "True" ] && [ "$e2" = "False" ]; then
-    record emergency-stop "緊急停止與安全解除（二段確認）" completed \
-      "emergencyStop：$e0 →（按第一下之後仍是 ${armed}，二段確認不可略過）→ $e1 → 走完安全解除流程後 $e2" "$s"
-  elif [ "$e1" = "True" ]; then
-    record emergency-stop "緊急停止與安全解除（二段確認）" failed \
-      "停得下來但解除流程沒走完：emergencyStop $e0 → 第一下 $armed → $e1 → ${e2}（系統可能仍在緊急停止中）" "$s"
+  if [ "$armed" = "False" ] && [ "$e1" = "True" ]; then
+    record emergency-stop "緊急停止（二段確認）" completed \
+      "emergencyStop：${e0} → 第一下 ${armed} → 確認後 ${e1}；保持緊急停止，未代替人類解除。" "$s"
   else
-    record emergency-stop "緊急停止與安全解除（二段確認）" failed \
-      "emergencyStop：$e0 → 第一下 $armed → $e1 → ${e2}（期望 False→False→True→False）" "$s"
+    record emergency-stop "緊急停止（二段確認）" failed "預期 False→False→True，實際 ${e0}→${armed}→${e1}" "$s"
   fi
+  record emergency-unlock "人類走安全流程解除緊急停止" needs-environment "需要人類親自完成既有安全確認；自動走查不代為解除。"
+
 }
 step_estop
 

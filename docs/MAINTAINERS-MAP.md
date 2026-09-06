@@ -51,7 +51,7 @@
 | **入口** | HTTP `GET /v1/character-session`、`POST /v1/character-session/{resume,events}`、`GET /v1/character-session/diagnostics`；SSE `character.session.state`；CLI `interact-ai character session status｜diagnostics｜resume` |
 | **狀態來源** | Runtime 是**唯一** Session Host：`crates/interaction-runtime/src/character_session.rs`（真相唯一入口 `submit_runtime`）。成員（桌面／iPhone／宣告式裝置）不擁有共享狀態 |
 | **公開契約** | `docs/aip/character-session.md`（§7.2 接收端決策表）、`docs/aip/README.md`（AIP 1.0） |
-| **擴充點** | 新的 state reason 值／新 message name 依 `docs/aip/compatibility.md` §2 的 minor 規則；新增決策表分支要同時加跨語言 fixture（`crates/interaction-aip/tests/fixtures/manifest.json` 的 `receiveDecisions`）。**新增任何 `SemanticState` 欄位，必須同時有一份帶著該欄位的 `stateHashes` fixture**——`SemanticState` 不在 golden schema 裡，fixture 是 TypeScript／Swift 唯一會被逼著看到新欄位的東西（`state_hash_fixtures.rs::every_semantic_state_field_appears_in_at_least_one_state_hash_fixture` 會擋） |
+| **擴充點** | 新的 state reason 值／新 message name 依 `docs/aip/compatibility.md` §2 的 minor 規則；新增決策表分支要同時加跨語言 fixture（`crates/interaction-aip/tests/fixtures/manifest.json` 的 `receiveDecisions`）。**新增任何 `SemanticState` 欄位，必須同步產生 semantic-state schema、TS／Swift DTO 與 consumer coverage**，並加入帶該欄位的 `stateHashes` fixture；`semantic_contract`、`semantic-state-contract.test.ts`、Swift native conformance 與 `scripts/drills/optional-state.mjs` 共同守門。權威契約 `docs/aip/semantic-state.md`；frozen release corpus 不隨 current golden 更新 |
 | **必要測試** | `crates/interaction-session/tests/receive_decision_fixtures.rs::receive_decision_fixtures_match_the_decision_table`、`::the_decision_table_fixtures_cover_every_branch`；`receive_decisions_from_json.rs::every_receive_decision_fixture_reaches_the_documented_decision`；`security_matrix.rs::the_pipeline_order_is_fixed_identity_before_membership_before_scope`；三端鏡射 `apps/interaction-desktop/src/test/receive-decision-fixtures.test.ts`、`apps/interaction-ios/InteractionCompanionTests/ReceiveDecisionConformanceTests.swift`（需模擬器） |
 | **已知限制** | `ConsentVerifier` 刻意不接進 `gate`（fail-closed）；多裝置同時連線同一 session 未覆蓋；iPhone 真機閉環為零 |
 
@@ -65,7 +65,7 @@
 | **公開契約** | `docs/aip/device-profile.md`（§3 身分強度、§6 裝置線 v1.1）、`docs/aip/adapter-development.md`、`docs/aip/pairing-security.md` |
 | **擴充點** | 新裝置＝一份 YAML spec（不改 Rust）。新傳輸＝實作 `RawLink` 並用同一個 `AipChannel<L>`——Runtime 只認得型別抹除的 `DeviceAipChannel`，**沒有** serial／mqtt／ble 分支 |
 | **必要測試** | `crates/interaction-runtime/tests/declarative_session_loop.rs::reenable_rebinds_without_restart`、`::rebind_generation_rejects_late_callbacks`、`::revoke_during_rebind_does_not_resurrect`、`::rebind_timeout_is_bounded_and_honest`；`crates/interaction-adapter-declarative/tests/{aip_link,esp32_sim_conformance}.rs` |
-| **已知限制** | ESP32 真板驗收為零（只有 `compile.sh` 編譯檢查與 pty 模擬器）；MQTT／BLE 共用程式碼但沒有 AIP session 測試；參考韌體 639 bytes 單行上限讓部分回覆送不出去（稽核 `aip.outbound-undeliverable`）。成員 `syncProfile`（`crates/interaction-runtime/src/character_session.rs:193`＝`derive_sync_profile`）與裝置線 v1.2 分片（`crates/interaction-adapter-declarative/src/fragment.rs`＋`protocol.rs:769`＝`supports_fragmentation`）已合併於 `9799b1e`，契約見 `docs/aip/device-profile.md` §3.1／§6.3 |
+| **已知限制** | Removed 目前是 experimental host/test hook，沒有 production 移除入口；ESP32 真板驗收為零（只有 `compile.sh` 編譯檢查與 pty 模擬器）；MQTT／BLE 共用程式碼但沒有 AIP session 測試；參考韌體 639 bytes 單行上限讓部分回覆送不出去（稽核 `aip.outbound-undeliverable`）。成員 `syncProfile`（`crates/interaction-runtime/src/character_session.rs:193`＝`derive_sync_profile`）與裝置線 v1.2 分片（`crates/interaction-adapter-declarative/src/fragment.rs`＋`protocol.rs:769`＝`supports_fragmentation`）已合併於 `9799b1e`，契約見 `docs/aip/device-profile.md` §3.1／§6.3 |
 
 ## 5. Transport（wss／HTTP／SSE／IPC／裝置線）
 
@@ -83,12 +83,12 @@
 
 | | |
 |---|---|
-| **owner** | `crates/interaction-runtime/src/sensor_source.rs`：`SensorSource` port（`source_id`／`declaration_id`／`active_captures`／`request_stop(target, deadline, reason)`／`release`）＋有界登記表（`MAX_SENSOR_SOURCES = 32`）＋未解決停止摘要（`UnresolvedStop`）。唯一的停止協調器 `Runtime::stop_all_sensor_sources` 在 `crates/interaction-runtime/src/sensors.rs` |
+| **owner** | `crates/interaction-runtime/src/sensor_source.rs`：`SensorSource` port（`source_id`／`declaration_id`／`active_captures`／`request_stop(target, deadline, reason)`／`release`）＋有界登記表（`MAX_SENSOR_SOURCES = 32`）＋未解決停止摘要（`sensor_journal.rs::SensorJournal`，SQLite meta format 1、generation 預留、overflow/parked health）。唯一的停止協調器 `Runtime::stop_all_sensor_sources` 在 `crates/interaction-runtime/src/sensors.rs` |
 | **入口** | `POST /v1/sensors/stop`；緊急停止；UI 停止按鈕；`interact-ai` 對應子指令。四條路徑走**同一個**協調器 |
-| **狀態來源** | 即時擷取 → `status.activeSensors`（tray／首頁／角色視窗都吃它）；未確認的停止 → `UnresolvedStop` 摘要（不隨 TTL 過期，`MAX_UNRESOLVED_STOPS = 32`，只能被明確確認或人為解除清掉） |
+| **狀態來源** | 即時擷取 → `status.activeSensors`（tray／首頁／角色視窗都吃它）；未確認的停止 → `UnresolvedStop` 摘要（不隨 TTL 過期，`MAX_UNRESOLVED_STOPS = 32`，只能被同 generation/process 有效確認或人為解除提醒清掉）；`unresolvedStopHealth` 即使明細空也必須投影，恢復的 unknown 不進 activeSensors） |
 | **公開契約** | `docs/aip/architecture-boundaries.md` §4.1 實作註記 2；`docs/aip/privacy.md` |
 | **擴充點** | 新的會擷取的來源＝實作 `SensorSource` 並登記（本機麥克風 `LocalMicSensorSource`、iPhone `MobileSensorSource`、宣告式裝置各是一般來源，核心沒有裝置特例分支） |
-| **必要測試** | `crates/interaction-runtime/tests/sensors_loop.rs::emergency_stop_and_stop_all_sensors_agree_about_an_unstoppable_receptor`、`::revoking_a_provider_stops_its_sensor_source_with_a_target`、`::deleting_a_high_risk_receptor_asks_its_source_to_stop_first`、`::orphan_ttl_moves_unknown_to_unresolved_not_to_normal`、`::the_sensor_source_registry_is_bounded`；桌面投影 `apps/interaction-desktop/src/test/sensorStop.test.ts` |
+| **必要測試** | `crates/interaction-runtime/tests/sensors_loop.rs::emergency_stop_and_stop_all_sensors_agree_about_an_unstoppable_receptor`、`::revoking_a_provider_stops_its_sensor_source_with_a_target`、`::deleting_a_high_risk_receptor_asks_its_source_to_stop_first`、`::orphan_ttl_moves_unknown_to_unresolved_not_to_normal`、`::the_sensor_source_registry_is_bounded`、`::restart_retains_unresolved_without_claiming_active_capture`、`::shutdown_persists_unknown_before_marking_the_process_clean`、`::journal_dismissal_commit_failure_preserves_reminder_and_audit`；桌面投影 `apps/interaction-desktop/src/test/sensorStop.test.ts` |
 | **已知限制** | 結果五態（`stopped`／`already-stopped`／`unknown`／`unreachable`／`refused`）只有前兩者算確認；「來源被移除但還在擷取」只能以有界可見的 stop-unknown 呈現——**過了孤兒窗不等於已經停了** |
 
 ## 7. Agent（gateway／session lease／預算）
@@ -107,13 +107,13 @@
 
 | | |
 |---|---|
-| **owner** | `apps/interaction-desktop/src/desktop.ts`（`DesktopPrefs` 型別）＋`src-tauri/src/lib.rs`（`desktop_prefs_get`／`desktop_prefs_patch`／`prefs_candidate`／`commit_prefs_patch`，檔案是真相）；陪伴預設交易 `src/companion/applyPresetPlan.ts`；匯入匯出 `src/companion/settingsTransfer.ts` |
+| **owner** | `apps/interaction-desktop/src/desktop.ts`（`DesktopPrefs` 型別）＋`src-tauri/src/lib.rs`（`desktop_prefs_get`／`desktop_prefs_patch`／`prefs_candidate`／`commit_prefs_patch`，檔案是真相）；陪伴預設應用服務 `src-tauri/src/preset_service.rs`；Runtime 條件設定 `crates/interaction-runtime/src/proactive.rs`；匯入匯出 `src/companion/settingsTransfer.ts` |
 | **入口** | UI 設定頁與角色頁；Tauri IPC；主動說話模式的第二段寫到後端（由 Rust `proactive.rs` 確定性強制） |
-| **狀態來源** | 偏好檔（Tauri host）＋後端 `mode`。兩段之間可能斷，所以「套用一個檔位」是一筆**可恢復的交易**：recovery marker 與第一段偏好原子寫入，重開後只有 marker 鎖定的欄位仍等於目前值才補送 |
-| **公開契約** | `docs/DESKTOP-GUIDE.md`、`docs/aip/general-mode-ux.md` |
-| **擴充點** | 角色專屬設定值（配色／說話風格／場景／使魔）**只**由 adapter meta 宣告——`settingsTransfer.ts` 與頁面不得認得任何角色 id。新增一個檔位＝改 `companion/presets.ts` 的定義，交易層不動 |
-| **必要測試** | `apps/interaction-desktop/src/test/apply-preset-plan.test.ts`（四個 describe：計畫／marker 驗證／只有沒改過才補送／五種狀態都不冒充「已完成」）；`companion-preset-recovery.test.tsx`；`playfield.test.ts` 的「角色設定匯出／匯入」describe |
-| **已知限制** | 舊小樞家族 8 個 id 的匯入寬容路徑仍在（`deprecation-ledger.md` §2.3）；真 Tauri 視窗走查為 needs-environment |
+| **狀態來源** | 偏好檔（Tauri host）＋後端 `mode`。兩段之間可能斷；pending marker 與第一段偏好原子保存，host 以 operation ID＋兩側 revision 協調恢復，讀回所有受控值才判 applied；較新的選擇保留為 custom。不是跨儲存 ACID |
+| **公開契約** | `docs/aip/settings-recovery.md`（owner／revision／恢復／備份）；`docs/DESKTOP-GUIDE.md`、`docs/aip/general-mode-ux.md` |
+| **擴充點** | 角色專屬設定值（配色／說話風格／場景／使魔）**只**由 adapter meta 宣告——`settingsTransfer.ts` 與頁面不得認得任何角色 id。新增一個檔位＝改 `companion/presetDefinitions.json` 的共用定義，應用服務協調流程不動 |
+| **必要測試** | `apps/interaction-desktop/src/test/apply-preset-plan.test.ts`（四個 describe：計畫／marker 驗證／只有沒改過才補送／五種狀態都不冒充「已完成」）；`companion-preset-recovery.test.tsx`；Tauri `preset_service` 與 `scripts/tests/tauri-preset-recovery.py`；`settings-transfer-validation.test.ts`、`playfield.test.ts` 的「角色設定匯出／匯入」describe |
+| **已知限制** | 舊小樞家族 8 個 id 的匯入寬容路徑仍在（`deprecation-ledger.md` §2.3）；真 Tauri 失敗／重啟走查本輪有實跑，故障由隔離 proxy 產生；真人可用性仍 needs-environment，見本輪 evidence index |
 
 ## 9. 儲存（快照 format／migration／backup／parked）
 

@@ -12,6 +12,7 @@
 mod character_bridge;
 mod character_store;
 mod host_safety;
+mod preset_service;
 mod supervisor;
 mod tray;
 
@@ -35,6 +36,7 @@ pub struct AppState {
     startup_error: Mutex<Option<String>>,
     supervisor: Mutex<SupervisorInfo>,
     prefs: Mutex<DesktopPrefs>,
+    preset_service: preset_service::PresetService,
     quitting: AtomicBool,
     tray: Mutex<Option<tray::TrayHandles>>,
     /// Bounded hit REGIONS (logical px) inside the companion window: the
@@ -173,13 +175,7 @@ impl Backend {
     /// 兩種模式共用同一份事實（內嵌直呼、外部打 HTTP）。
     pub async fn sensors_unresolved(&self) -> Result<Value, String> {
         match self {
-            Backend::Embedded(rt) => {
-                let entries = rt.unresolved_stops().await;
-                Ok(json!({
-                    "unresolvedStops": serde_json::to_value(&entries)
-                        .unwrap_or(Value::Array(vec![])),
-                }))
-            }
+            Backend::Embedded(rt) => Ok(rt.unresolved_stops_value().await),
             Backend::External { base, token } => {
                 supervisor::daemon_get(base, token, "/v1/sensors/unresolved").await
             }
@@ -1798,6 +1794,37 @@ async fn character_instances(state: State<'_, AppState>) -> Result<Value, String
     backend.character_instances().await
 }
 
+/// JSON text IPC preserves f64/unknown number literals across WebView decoding.
+/// The existing value commands remain for callers from the previous release.
+#[tauri::command]
+async fn character_session_snapshot_raw(state: State<'_, AppState>) -> Result<String, String> {
+    let value = backend_or_err(&state)?.character_session_snapshot().await?;
+    serde_json::to_string(&value).map_err(err_s)
+}
+
+#[tauri::command]
+async fn character_session_resume_raw(
+    state: State<'_, AppState>,
+    last_revision: u64,
+    last_sequence: Option<u64>,
+    epoch: Option<u64>,
+) -> Result<String, String> {
+    let value = backend_or_err(&state)?
+        .character_session_resume(
+            last_revision,
+            last_sequence.unwrap_or(0),
+            epoch.unwrap_or(0),
+        )
+        .await?;
+    serde_json::to_string(&value).map_err(err_s)
+}
+
+#[tauri::command]
+async fn events_recent_raw(state: State<'_, AppState>, limit: u32) -> Result<String, String> {
+    let runtime = rt(&state)?;
+    serde_json::to_string(&runtime.events.recent(limit.min(500) as usize)).map_err(err_s)
+}
+
 // ---- AIP Character Session 的四個 IPC 指令（與 HTTP 同語意、同形狀） ----
 
 /// 權威快照。讀不到就是 Err：介面照實說「同步尚未完成」，不用上一次冒充現在。
@@ -2037,8 +2064,10 @@ fn prefs_candidate(current: &DesktopPrefs, patch: &Value) -> Result<DesktopPrefs
         // 任何不合規的內容整筆拒絕，不靜默丟棄。
         validate_companion_preferences(&candidate.companion_preferences)?;
         // 陪伴預設的恢復標記：有界、只認得的檔位（see `applyPresetPlan.ts`）。
-        if let Some(op) = candidate.companion_pending_preset_op.as_ref() {
-            validate_pending_preset_op(op)?;
+        if patch.get("companionPendingPresetOp").is_some() {
+            if let Some(op) = candidate.companion_pending_preset_op.as_ref() {
+                validate_pending_preset_op(op)?;
+            }
         }
         // 角色互動記憶：有界（≤8 玩具/反應、≤20 事件），不做任何推論。
         let mut candidate = candidate;
@@ -2059,7 +2088,25 @@ fn commit_prefs_patch(
     patch: &Value,
     persist: impl FnOnce(&DesktopPrefs) -> Result<(), String>,
 ) -> Result<DesktopPrefs, String> {
-    let candidate = prefs_candidate(prefs, patch)?;
+    let mut candidate = prefs_candidate(prefs, patch)?;
+    if patch.get("companionPresetRevision").is_some()
+        || patch.get("companionLastPresetOp").is_some()
+    {
+        return Err("preset version and receipts are application-owned".into());
+    }
+    let revision = prefs
+        .companion_preset_revision
+        .parse::<u64>()
+        .map_err(|_| "invalid desktop preset revision")?
+        .checked_add(1)
+        .ok_or("desktop preset revision exhausted")?;
+    candidate.companion_preset_revision = revision.to_string();
+    if patch.get("companionPendingPresetOp").is_none()
+        && (patch.get("companionExpressiveness").is_some()
+            || patch.get("companionDoNotDisturb").is_some())
+    {
+        candidate.companion_pending_preset_op = None;
+    }
     persist(&candidate)?;
     *prefs = candidate;
     Ok(prefs.clone())
@@ -2070,6 +2117,9 @@ pub(crate) const PRESET_OP_ID_MAX_CHARS: usize = 64;
 pub(crate) const PRESET_OP_MODE_MAX_CHARS: usize = 32;
 
 fn validate_pending_preset_op(op: &supervisor::PendingPresetOp) -> Result<(), String> {
+    if op.malformed.is_some() || op.format > 1 {
+        return Err("unsupported preset recovery marker".into());
+    }
     if op.op_id.is_empty() || op.op_id.chars().count() > PRESET_OP_ID_MAX_CHARS {
         return Err(format!(
             "companionPendingPresetOp.opId must be 1..{PRESET_OP_ID_MAX_CHARS} characters"
@@ -2099,6 +2149,7 @@ async fn desktop_prefs_patch(
     state: State<'_, AppState>,
     patch: Value,
 ) -> Result<Value, String> {
+    let _operation = state.preset_service.guard()?;
     let updated = {
         let mut prefs = state.prefs.lock().expect("prefs mutex");
         // 鎖住整段（算候選 → 存檔 → 寫回記憶體）：存檔與記憶體之間沒有空窗，
@@ -2117,6 +2168,22 @@ async fn desktop_prefs_patch(
         };
     }
     serde_json::to_value(updated).map_err(err_s)
+}
+
+/// One host application service handles new requests and bounded recovery.
+#[tauri::command]
+async fn companion_preset_apply(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    request: Option<preset_service::NewPreset>,
+) -> Result<Value, String> {
+    let backend = backend_of(&state)?;
+    let result = state
+        .preset_service
+        .run(&state.prefs, &backend, request, &supervisor::save_prefs)
+        .await?;
+    let _ = app.emit("companion-reload", ());
+    serde_json::to_value(result).map_err(err_s)
 }
 
 /// The user's decision from the first-close dialog.
@@ -3236,6 +3303,35 @@ pub(crate) async fn refresh_tray(app: &tauri::AppHandle) {
     sync_overlay_window(app, &view);
 }
 
+/// Resume once at startup or a disconnected-to-connected transition. A failed
+/// read/write keeps the durable marker visible; there is no background retry loop.
+async fn recover_pending_preset(app: &tauri::AppHandle) {
+    let state: State<'_, AppState> = app.state();
+    if state
+        .prefs
+        .lock()
+        .expect("prefs mutex")
+        .companion_pending_preset_op
+        .is_none()
+    {
+        return;
+    }
+    let Ok(backend) = backend_of(&state) else {
+        return;
+    };
+    match state
+        .preset_service
+        .run(&state.prefs, &backend, None, &supervisor::save_prefs)
+        .await
+    {
+        Ok(result) => {
+            let _ = app.emit("companion-preset-result", &result);
+            let _ = app.emit("companion-reload", true);
+        }
+        Err(error) => tracing::warn!(%error, "companion preset recovery deferred"),
+    }
+}
+
 /// Decide embedded vs external and bring the backend up (spec §6).
 async fn start_supervised(handle: tauri::AppHandle) {
     let api_base = supervisor::configured_api_base();
@@ -3292,10 +3388,14 @@ async fn start_supervised(handle: tauri::AppHandle) {
                             "disconnected"
                         },
                     );
+                    if ok {
+                        recover_pending_preset(&health_handle).await;
+                    }
                     refresh_tray(&health_handle).await;
                 }
             }
         });
+        recover_pending_preset(&handle).await;
         return;
     }
 
@@ -3318,6 +3418,9 @@ async fn start_supervised(handle: tauri::AppHandle) {
                     match rx.recv().await {
                         Ok(event) => {
                             let _ = event_handle.emit("runtime-event", &event);
+                            if let Ok(raw) = serde_json::to_string(&event) {
+                                let _ = event_handle.emit("runtime-event-raw", raw);
+                            }
                             if host_safety_relevant(&event.event_type) {
                                 request_host_refresh(&event_handle);
                             }
@@ -3386,6 +3489,7 @@ async fn start_supervised(handle: tauri::AppHandle) {
             }
             // The embedded UI itself talks over Tauri IPC, so the control
             // center is usable even when the HTTP API is degraded.
+            recover_pending_preset(&handle).await;
             let _ = handle.emit("runtime-ready", true);
             refresh_tray(&handle).await;
         }
@@ -3422,6 +3526,7 @@ pub fn run() {
             startup_error: Mutex::new(None),
             supervisor: Mutex::new(SupervisorInfo::starting()),
             prefs: Mutex::new(supervisor::load_prefs()),
+            preset_service: preset_service::PresetService::default(),
             quitting: AtomicBool::new(false),
             tray: Mutex::new(None),
             // Default region ≈ the sprite's body area at scale 1.1.
@@ -3510,6 +3615,7 @@ pub fn run() {
             outbox_recent,
             audit_tail,
             events_recent,
+            events_recent_raw,
             set_receptor_enabled,
             set_actuator_enabled,
             test_receptor,
@@ -3554,6 +3660,7 @@ pub fn run() {
             supervisor_info,
             desktop_prefs_get,
             desktop_prefs_patch,
+            companion_preset_apply,
             close_decision,
             full_quit,
             companion_hit_rect,
@@ -3626,7 +3733,9 @@ pub fn run() {
             character_event,
             character_instances,
             character_session_snapshot,
+            character_session_snapshot_raw,
             character_session_resume,
+            character_session_resume_raw,
             character_session_events,
             character_session_diagnostics,
             character_manifest,
@@ -4534,6 +4643,7 @@ mod prefs_transaction_tests {
                     mode: "necessary".into()
                 },
                 issued_at_ms: 1_700_000_000_000.0,
+                ..Default::default()
             }
         );
         // camelCase 才回得去前端。
@@ -4606,3 +4716,9 @@ mod prefs_transaction_tests {
         assert!(p.companion_pending_preset_op.is_none());
     }
 }
+
+#[cfg(test)]
+mod character_package_drill;
+
+#[cfg(test)]
+mod settings_recovery_review;

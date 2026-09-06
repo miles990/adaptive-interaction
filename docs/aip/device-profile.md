@@ -58,47 +58,62 @@ iPhone 的 `source` 必須等於配對出來的 `{kind:"device", id:<deviceId>}`
 | iPhone wss v1 | `paired-token` | host 端逐次驗 sha256(token) |
 | 宣告式裝置線 v1.1／v1.2（Serial／MQTT／BLE） | `transport-hello+device-side-pairing` | `hello.deviceId` 是**裝置自報的明文比對**；配對碼由**裝置端**比對（host 只送碼等 pair-ok）。`DeviceLink::pairing_unverified()` 為 true 時連配對碼是否被比對過都無法證明 |
 
-### 3.1 成員同步模式（`syncProfile`；v0.7.0）
+### 3.1 能力、傳送與套用確認分開（本輪 N2）
 
-身分之外還有第二件不能含糊的事：**這個成員實際上拿得到多少共享狀態**。三種值
-（`crates/interaction-runtime/src/character_session.rs::derive_sync_profile`）：
+`syncCapability` 是 Runtime 根據通道限制和 renderer role 推導的能力：`full-state`、
+`intent-only` 或 `event-source`。宣告分片能力只足以表達「願意接完整狀態」，不證明套用。
+相容欄位 `syncProfile` 保留 v0.7.0 的 `pending-full-state` → 寫完快照 → `full-state`
+轉移，**不再是一般模式判定已同步的證據**（退場見 deprecation ledger N2）。
 
-| `syncProfile` | 什麼時候 | UI 語意 |
-|---|---|---|
-| `full-state` | 出站通道沒有單則上限（iPhone wss），或它有上限、對端宣告 `aip.frag/1`，**而且**我們已經真的把一份完整快照寫上這條線 | **只有這個**可以顯示「已同步」 |
-| `pending-full-state` | 有上限、對端宣告 `aip.frag/1`，但還沒有任何一份完整快照真的寫出去過 | 只有裝置的**宣稱**，還沒有證據；**不得**顯示「已同步」 |
-| `intent-only` | 有上限、不會重組，但成員宣告自己是 renderer（`role` 為 `remote-renderer`／`host-renderer`） | 只收得到放得進單則上限的意圖訊息；**不得**顯示「已同步」 |
-| `event-source` | 有上限、不會重組，而且成員只送事件（`input-device`／`observer`） | 送得進來、收不回去；**不得**顯示「已同步」 |
+`members[]` diagnostics 與 human `status.characterSessionSync[]` 同時提供：
 
-它是 **Runtime 推導**出來的，不是新的 AIP 宣告欄位——`aip/1.0` 的 wire 沒有改。裝置不該（也不能）
-自己宣稱「我拿得到完整狀態」。但推導用的兩個事實**強度不同**，不得混為一談：
+| 欄位 | 事實及限制 |
+|---|---|
+| `syncCapability` | 協商/transport 可承載的能力；與當下進度獨立 |
+| `stateDelivery.negotiated` | 雙方已選用 `aip.applied/1`；舊裝置為 false |
+| `stateDelivery.progress` | `sending`、`queued`（mobile）、`written`（Serial/MQTT/BLE）、`peer-applied`、`timed-out`、`send-failed`、`cancelled` 或 `unconfirmed` |
+| `stateDelivery.sent` | 最近排入 queue/寫出之狀態 tuple；不是接收端套用 |
+| `stateDelivery.applied` | 有效連線的對端自報已套用 tuple；不是畫面/真人/物理效果驗證 |
+| `stateAppliedCurrent` | 上述 applied 的 sessionId/epoch/revision/hash **都**與當下 host 相同 |
+| `outstanding/expired/overflow/rejected/cancelled` | `stateDelivery` 內的有界待確認數與累計計數 |
 
-* **沒有單則上限**（iPhone wss）是那條線的事實，一行就送得完，不需要裝置同意任何事；
-* **會重組分片**（`aip.frag/1`）是裝置在 `hello.caps` 裡**自己宣稱**的一句話
-  （`protocol.rs` 的握手註解就是這樣寫的：`hello.caps 是裝置自報的能力清單`），host 端沒有驗證。
+舊裝置和未協商的 iPhone 保持原有流量，但 `stateAppliedCurrent=false`，一般模式顯示尚未確認。
+已確認 snapshot 之後 host 產生任何未确认 patch，`stateAppliedCurrent` 立即為 false；不保留永久綠勾。
+桌面同步卡還會把 applied tuple 與本地最新 SSE 狀態再次比對，舊 diagnostics 不得替新 revision 作證。
+一般模式說「裝置回報已套用」，不宣稱手機螢幕呈現或使用者已看見。
 
-所以第二種只夠讓成員停在 `pending-full-state`：一台只要在 caps 塞入 `aip.frag/1`、實際上不重組的
-裝置，不會因為那句話就拿到綠勾。升級成 `full-state` 的條件是**觀察到的事實**——Runtime 真的把一份
-完整快照（`messageType=state`、`payload.kind=snapshot`）寫上這條線並且**每一片都寫出成功**
-（`crates/interaction-runtime/src/character_session.rs::note_full_state_delivered`）。出站通道解除登記
-（斷線／撤銷／重新綁定）時證據一併清掉：下一條線是新的重組器，上一條線不能替它作證。
+兩份投影保留選填 `providerId`（通道提供，不由字串猜）。人類層資料仍不投影給 agent/session
+principal。Transfer challenge 只在 wire 使用，不出現在 diagnostics/status；持久化憑證從未包含於回執。
 
-**已知限制（誠實界線）**：寫出成功只代表「已寫上線」，不代表對端重組成功、更不代表它套用了——
-`aip/1.0` 對 `state` 沒有 wire 層回執，所以「宣稱會重組、也收下了、卻沒組回來」這一種目前偵測不到。
-這與 `identityStrength` 的 `transport-hello+device-side-pairing` 是同一類保留：說得出界線，不假裝沒有。
+### 3.2 可協商的 state-applied profile（`aip.applied/1`）
 
-投影到 `GET /v1/character-session/diagnostics` 的 `members[].syncProfile`（查不到出站通道就
-**省略**該欄位，不猜）與 `GET /v1/status` 的 `characterSessionSync`（非空才序列化），
-並在協商完成時稽核 `aip.member-sync-profile{deviceId,transport,role,syncProfile,maxLineBytes,supportsFragmentation}`
-（協商當下快照都還沒送出去，所以裝置線那一族在這則稽核裡通常是 `pending-full-state`）。
+新增 **device wire v1.3** 與 **mobile wire v1.1** 的選填 Transport profile；`proto=1`、AIP `aip/1.0`、
+CPP 1.0、snapshot format 均不因本 profile 改變。沒有新增 AIP message type/name，也沒有改既有 state
+payload。分片規則與上限仍是 device v1.2。
 
-兩份投影都另外帶一個**選填**的 `providerId`（由出站通道自己說出來，`DeviceOutbound::provider_id`；
-說不出來就省略）：桌面的裝置清單以 provider 為單位，沒有它就只能用字串前綴猜，而猜錯就是把一台
-裝置的同步狀態掛到另一台身上。
+* 宣告式裝置在已驗 hello 的 `caps` 加 `aip.applied/1`；iPhone 在成功 AIP capability 協商的
+  `features.stateApplied` 提供同字串。Host 只在接受後送出 `stateApplied` context，作為明確選用訊號。
+* Host 對 state snapshot/patch 或非空 resume batch 的最終狀態，追加選填 envelope extension：
+  `stateApplied={profile,token,generation,sessionId,epoch,revision,hash,messageId}`。
+  `token` 是每次傳送新產生的 128-bit challenge；每片仍按包含此 extension 的最終 UTF-8 JSON 計長。
+* 對端完成有界重組、完整性檢查、semantic-state schema 驗證、hash 核對及原子套用後，才回
+  `{"type":"aip-applied","receipt":<原 context>}`。fragment ACK、transport write 或收包 ACK 都不能替代它。
+  Swift production `SessionClient` 比對已驗 local tuple後經 `ConnectionManager` 發出；Serial pty
+  simulator 使用 `scripts/aip_applied_receiver.py`（讀同份 consumer schema且保留數值字面）。
+* 可信對端身分、配對與目前成員由 transport/runtime context 綁定（身分強度仍見 §3）。Wire 不讓對端
+  自選另一個 deviceId。Mobile connection id 每次替換會變；DeviceLink 的 raw generation 僅在該 link
+  incarnation 內有效，新 DeviceLink 有獨立 tracker與challenge，即使 raw generation從頭計數也不接舊回執。
+* Runtime先檢查仍是成員及 provider lifecycle，通道再檢查握手/目前generation及完整原context對應pending。
+  舊世代、跨session、錯hash、超前revision、未知transfer與已消耗的重播全拒絕。晚到但仍在窗內的合法回執
+  可前進較舊applied進度，不會把已確認的新revision倒退，也不會被當成追上目前host。
+* 每線最多32筆pending、每筆5秒monotonic TTL；滿載淘汰最舊並計overflow。沒有自動重送副作用，
+  狀態恢復重用有界resume/reset；可接受的晚到回執保留在32筆窗內，避免只保最後一筆造成高頻patch飢餓。
+  斷線、替換、revoke、remove、disable、stop-all取消舊pending與applied。計數不擴張成無界queue。
 
-> 人類層／AI 層：`characterSessionSync` 與未解決停止一樣屬於**人類層**，`GET /v1/status` 與
-> canonical tool `interaction.status` 對 agent／session token 一律不投影這些欄位
-> （`crates/interaction-api/src/lib.rs::project_status_for_principal`）。
+參考ESP32韌體**沒有**宣告 `aip.frag/1` 或 `aip.applied/1`，也沒有被本輪冒充加入重組/套用能力。
+Serial pty與mobile TLS fixture是模擬器證據；MQTT/BLE共用DeviceLink/同契約，但尚無專屬state-applied
+session閉環，不得把共用helper測試寫成MQTT/BLE實體裝置驗收。新profile的空resume batch沿用既有
+snapshot fallback，送一份可核對hash的實際狀態，讓重連即使沒有差量也能重新確認。
 
 ## 4. Presence／Heartbeat／Offline policy
 
@@ -154,7 +169,7 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
 - **綁定生命週期與免重啟重新綁定（AIP 1.0 澄清／v0.7.0）**：見下面的 §6.1。
 - **身分強度**：`transport-hello+device-side-pairing`（§3）；稽核 `aip.device-channel-ready`／
   `aip.device-channel-lost`／`aip.device-retired` 帶 `identityStrength`／`transport`／`pairingUnverified`。
-- **證據等級**：`crates/interaction-runtime/tests/declarative_session_loop.rs`（**30 測**：D1 的 7 支加入／touch／declare＋SensorSource／
+- **證據等級**：`crates/interaction-runtime/tests/declarative_session_loop.rs`（**33 測**：D1 的 7 支加入／touch／declare＋SensorSource／
   stop-all 真 ack／靜默＝unknown／撤銷不影響其他成員／拔線 reconnecting→offline，D2 的「其他成員的廣播真的經序列線到達／放不進 639 bytes
   的 patch 留痕」「身分不符與 session-binding 稽核記 transport=serial」「diagnostics identityStrength 三來源」「撤銷後出站表清空」
   「無通道成員的 no-channel 稽核」，v0.7.0 再加分片四支（§6.3）、免重啟 rebind（§6.1）、`syncProfile` 推導與 event-source 成員，
@@ -188,6 +203,15 @@ v0.6.0 時 `rg -n "aip|AIP" crates/interaction-adapter-declarative` 是零命中
   （這正是 D1 測試在預設並行下偶發失敗的根因，已修機具、產品時間預算未動）。
 
 ### 6.1 綁定生命週期（AIP 1.0 澄清／v0.7.0）
+
+**Removed 範圍（N3 核對）**：`Runtime::note_declarative_removed` 目前只有測試呼叫，
+是 experimental host/test hook；沒有 production adapter/package 移除 application use case。
+直接刪 spec 要等下次啟動才不再載入，不能拿 Removed enum 宣稱 UI 移除流程已完成。
+`Disabled` 與 `Revoked` 走 production provider application service；一般 serial 拔線則保留
+binding 讓 transport 有界重連，並不保證立刻進 `Unbound(Disconnected)`。
+所有 production 宣告式動器都由 manifest 強制 requires-consent，rebind 後預設 OFF。
+這是既有安全規則，本輪不把「不恢复 enabled=true」包裝成新缺陷修復。
+
 
 wire 版本不變（`proto` 仍為 1，`aip` 訊息形狀不變）：這一節說的是 **host 這一側**的狀態，
 裝置端不需要任何改動。

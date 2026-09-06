@@ -6,7 +6,7 @@
 //
 // 誠實：
 // - 不說「已經停了」，也不說「還在感測」——不知道就說不知道；
-// - 「我確認它已經停了」是**人類的**確認，二段確認的第二段一定要說出後端沒有
+// - 「我已檢查，解除提醒」是**人類的**確認，二段確認的第二段一定要說出後端沒有
 //   收到裝置的回覆；解除之後的回報也照樣說一次；
 // - `sourceId`／`generation` 只拿去呼叫 API，不進畫面文字（X5）。
 
@@ -65,7 +65,7 @@ export function UnresolvedStopsSection({
         <div className="state-box">載入中…</div>
       ) : unresolved.error && !unresolved.data ? (
         <p className="muted small">讀不到「沒有人確認的感測停止」（稍後再試）。</p>
-      ) : view.count === 0 ? (
+      ) : view.summary === null ? (
         <p className="muted small">目前沒有這一類紀錄。</p>
       ) : (
         <>

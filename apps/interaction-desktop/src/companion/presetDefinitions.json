@@ -1,0 +1,32 @@
+[
+  {
+    "id": "quiet",
+    "label": "安靜",
+    "summary": "少說話、不主動靠近；只在等待確認、失敗或結果不確定時提醒。",
+    "state": {
+      "expressiveness": "quiet",
+      "doNotDisturb": true,
+      "proactiveMode": "necessary"
+    }
+  },
+  {
+    "id": "natural",
+    "label": "自然",
+    "summary": "一般的表現與說話頻率；重要的事會主動說，其餘安靜等你。",
+    "state": {
+      "expressiveness": "natural",
+      "doNotDisturb": false,
+      "proactiveMode": "natural"
+    }
+  },
+  {
+    "id": "lively",
+    "label": "活潑",
+    "summary": "表現多一些，也會問候與輕量陪伴；頻率上限仍由系統強制。",
+    "state": {
+      "expressiveness": "lively",
+      "doNotDisturb": false,
+      "proactiveMode": "lively"
+    }
+  }
+]

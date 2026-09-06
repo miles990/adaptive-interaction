@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 3,
+  "closeBehavior": "keep-running",
+  "askOnClose": true,
+  "launchAtLogin": false,
+  "showCompanionOnStart": true,
+  "openControlCenterOnStart": true,
+  "companionVisible": true,
+  "companionPack": "plain-text",
+  "companionName": "",
+  "companionExpressiveness": "natural",
+  "companionDoNotDisturb": false,
+  "companionOpacity": 0.85,
+  "companionPendingPresetOp": null
+}

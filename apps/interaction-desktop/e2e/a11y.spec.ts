@@ -103,7 +103,11 @@ test("減少動態：偏好打開後，html 真的帶 reduce-motion，而且樣�
     const duration = await page
       .locator(".app")
       .evaluate((el) => getComputedStyle(el).transitionDuration);
-    expect(duration).not.toBe("0s");
+    const durations = duration.split(",").map((value) => {
+      const trimmed = value.trim();
+      return Number.parseFloat(trimmed) * (trimmed.endsWith("ms") ? 1 : 1000);
+    });
+    expect(durations.every((ms) => Number.isFinite(ms) && ms <= 0.001)).toBe(true);
   } finally {
     await api(request, "PATCH", "/v1/ui/preferences", { reduceMotion: false });
   }
@@ -115,6 +119,11 @@ test("減少動態：偏好打開後，html 真的帶 reduce-motion，而且樣�
   expect(
     await page.evaluate(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches)
   ).toBe(true);
+  const systemMotion = await page.locator(".app").evaluate((el) => {
+    const style = getComputedStyle(el);
+    return { transition: style.transitionDuration, animation: style.animationName };
+  });
+  expect(systemMotion).toEqual({ transition: "0s", animation: "none" });
   await page.emulateMedia({ reducedMotion: null });
 });
 

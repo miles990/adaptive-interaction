@@ -26,7 +26,7 @@ import React from "react";
 import { api, type CharacterInstanceView, type RuntimeEvent } from "../api";
 import { useAppState } from "../appstate";
 import { refreshCharacterName, useCharacterName } from "../characterName";
-import { desktop, DesktopPrefs, isTauri } from "../desktop";
+import { onCompanionPresetResult, desktop, DesktopPrefs, isTauri } from "../desktop";
 import { projectCharacterLifecycle } from "../statusProjection";
 import { Section, Toggle, useAsync } from "../ui";
 import { CharacterSyncCard } from "../components/CharacterSyncCard";
@@ -41,11 +41,8 @@ import {
 } from "../companion/presets";
 import {
   beginPresetOp,
-  markerOf,
   projectPresetStatus,
   readPendingPresetOp,
-  shouldResumePendingOp,
-  type PresetOpMarker,
 } from "../companion/applyPresetPlan";
 // 註冊 builtin adapter 工廠與 meta（副作用）：這一頁的角色專屬區塊全部靠 meta 決定。
 import "../character/adapters";
@@ -122,7 +119,7 @@ function proactiveConfigOf(status: Record<string, unknown> | null): ProactiveCon
   };
 }
 
-function useProactiveDialogue() {
+function useProactiveDialogue(refreshKey: number, connectionKey: number, invalidation: number) {
   const [status, setStatus] = React.useState<Record<string, unknown> | null>(null);
   const [agents, setAgents] = React.useState<Record<string, unknown>[]>([]);
   const [error, setError] = React.useState<string | null>(null);
@@ -147,6 +144,7 @@ function useProactiveDialogue() {
     const issued = generation.current;
     /** 這次讀取還算不算數：中途有人寫入過就不算（不用舊讀數覆蓋新寫入）。 */
     const current = () => alive && generation.current === issued;
+    setReadbackFailed(true);
     void api
       .proactiveDialogueGet()
       .then((r) => {
@@ -167,7 +165,7 @@ function useProactiveDialogue() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [refreshKey, connectionKey, invalidation]);
 
   /**
    * 一次寫入：開新世代 → 送出 → **只有**這次仍是最新的世代時才寫回 status／error。
@@ -227,7 +225,12 @@ function useProactiveDialogue() {
     }
   }, []);
 
-  return { status, agents, error, readbackFailed, patch, quiet, readback };
+  const accept = React.useCallback((snapshot: Record<string, unknown> | null, unverified: boolean) => {
+    generation.current += 1;
+    if (snapshot) setStatus(snapshot);
+    setReadbackFailed(unverified);
+  }, []);
+  return { status, agents, error, readbackFailed, patch, quiet, readback, accept };
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +261,7 @@ export function CompanionPage({
   const advanced = advancedProp ?? uiPrefs.mode === "advanced";
   const { name, pronoun } = useCharacterName({ refreshKey });
   const [prefs, setPrefs] = React.useState<DesktopPrefs | null>(null);
+  const [presetHostStatus, setPresetHostStatus] = React.useState<import("../companion/applyPresetPlan").CompanionPresetStatus | null>(null);
   const [presence, setPresence] = React.useState<Record<string, unknown> | null>(null);
   const [instance, setInstance] = React.useState<CharacterInstanceView | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -268,7 +272,20 @@ export function CompanionPage({
   const [prefSource, setPrefSource] = React.useState<PreferenceSource | null>(null);
   const [showAllCharacters, setShowAllCharacters] = React.useState(false);
   const catalog = useCharacterCatalog(refreshKey);
-  const proactive = useProactiveDialogue();
+  const [settingsInvalidation, invalidateSettings] = React.useState(0);
+  const proactive = useProactiveDialogue(refreshKey, connectionKey, settingsInvalidation);
+  React.useEffect(() => {
+    setPresetHostStatus(null);
+  }, [refreshKey, connectionKey, settingsInvalidation]);
+  React.useEffect(() => {
+    if (!isTauri) return;
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    void onCompanionPresetResult(() => { if (alive) invalidateSettings((value) => value + 1); })
+      .then((stop) => { if (alive) unlisten = stop; else stop(); })
+      .catch(() => { if (alive) setPresetHostStatus("unverified"); });
+    return () => { alive = false; unlisten?.(); };
+  }, []);
   /** 桌面偏好的寫入世代（見 `patch()`／`load()`）。 */
   const prefsGeneration = React.useRef(0);
 
@@ -306,7 +323,7 @@ export function CompanionPage({
     void load();
     const timer = window.setInterval(() => void load(), 5000);
     return () => window.clearInterval(timer);
-  }, [load, refreshKey]);
+  }, [load, refreshKey, connectionKey, settingsInvalidation]);
 
   /**
    * 寫入桌面角色偏好。回傳 `true` **只**代表 host 真的接受了這次寫入。
@@ -324,25 +341,33 @@ export function CompanionPage({
     const issued = prefsGeneration.current;
     const current = () => prefsGeneration.current === issued;
     setBusy(true);
+    let saved = false;
     try {
+      setPresetHostStatus(null);
       const next = await desktop.prefsPatch(p);
-      await desktop.companionApplyPrefs();
       if (!current()) return false;
+      saved = true;
       setPrefs(next);
-      setError(null);
       if (p.companionPack !== undefined || p.companionName !== undefined) {
         void refreshCharacterName({ force: true });
       }
+      await desktop.companionApplyPrefs();
+      if (!current()) return false;
+      setError(null);
       return true;
     } catch (e) {
       if (!current()) return false;
-      setError(sanitizeErrorText(e));
+      setError(`${saved ? "設定已儲存，但無法確認角色已套用" : "無法確認設定是否已儲存"}：${sanitizeErrorText(e)}`);
       // 上一次成功留下的提示不得替這一次失敗背書。
       setNotice(null);
       return false;
     } finally {
       // 還有比較新的請求在飛時不解鎖：忙碌要涵蓋到最後一次請求結束。
-      if (current()) setBusy(false);
+      if (current()) {
+        // Invalidate reads started during the write, including failed apply.
+        prefsGeneration.current += 1;
+        setBusy(false);
+      }
     }
   }, []);
 
@@ -479,101 +504,57 @@ export function CompanionPage({
     () => readPendingPresetOp(prefs?.companionPendingPresetOp),
     [prefs?.companionPendingPresetOp]
   );
-  const presetStatus = projectPresetStatus({
+  const presetStatus = presetHostStatus && !proactive.readbackFailed && !prefsError ? presetHostStatus : projectPresetStatus({
     presetChoice,
     pendingOp,
     busy: presetBusy,
     recovering,
-    readbackFailed: proactive.readbackFailed,
+    readbackFailed: proactive.readbackFailed || prefsError !== null,
   });
 
-  /**
-   * 第二段：把 marker 記下來的 mode 送出去，然後**確認**。
-   *
-   * 送出失敗不等於沒送到（回應可能只是遺失），所以失敗後先讀回：讀回等於目標就是
-   * 完成，清掉 marker；讀不回、或讀回還不是目標，就把 marker 留著——畫面會說
-   * 「半套用」並給補送。清 marker 是**第三次**寫入，它自己失敗只會讓狀態多留一輪
-   *（下次補送是冪等的），不會讓使用者以為套用成功。
-   */
-  const runSecondStage = React.useCallback(
-    async (marker: PresetOpMarker): Promise<boolean> => {
-      if (!(await proactive.patch(marker.proactivePatch))) {
-        // 讀回**明說**的模式才算數：回應裡沒有 mode 就是不知道（不用預設值頂替，
-        // 那會讓「後端沒說」被當成「已經是自然」而誤判成完成）。
-        const readback = await proactive.readback();
-        const config = (readback?.config as Record<string, unknown> | undefined) ?? {};
-        const landed = typeof config.mode === "string" && config.mode === marker.proactivePatch.mode;
-        if (!landed) return false;
-      }
-      await patch({ companionPendingPresetOp: null });
-      return true;
-    },
-    [patch, proactive.patch, proactive.readback]
-  );
-
-  const applyPreset = React.useCallback(
-    async (id: CompanionPresetId) => {
-      const plan = beginPresetOp(id, Date.now());
-      if (!plan) return;
-      const marker = markerOf(plan);
-      setPresetBusy(true);
-      try {
-        // 第一段與 marker 是**同一次**寫入：偏好寫進去了，marker 就一定也在
-        //（不可能出現「偏好改了但沒人記得第二段還沒送」的空窗）。
-        // 送出 ≠ 完成：第一段沒寫成功就不要再去動後端的主動對話模式。
-        if (!(await patch({ ...plan.prefs, companionPendingPresetOp: marker }))) return;
-        await runSecondStage(marker);
-      } finally {
-        setPresetBusy(false);
-      }
-    },
-    [patch, runSecondStage]
-  );
-
-  /** 補送：重送同一段（只有 mode，冪等）。 */
-  const retryPendingPreset = React.useCallback(async () => {
-    if (!pendingOp) return;
+  // The host owns the operation and crash recovery. React only projects its result.
+  const runHostPreset = React.useCallback(async (request: Parameters<typeof desktop.presetApply>[0] = null) => {
+    prefsGeneration.current += 1;
+    const issued = prefsGeneration.current;
+    setPresetHostStatus(null);
     setPresetBusy(true);
     try {
-      await runSecondStage(pendingOp);
+      const result = await desktop.presetApply(request);
+      if (prefsGeneration.current !== issued) return;
+      // Reads issued while the operation was in flight are stale too.
+      prefsGeneration.current += 1;
+      setPrefs(result.prefs);
+      setPrefsError(null);
+      proactive.accept(result.proactive, result.status === "unverified");
+      setPresetHostStatus(result.status);
+      setError(result.error);
+    } catch (e) {
+      setError(sanitizeErrorText(e));
+      setPresetHostStatus("unverified");
     } finally {
       setPresetBusy(false);
     }
-  }, [pendingOp, runSecondStage]);
+  }, [proactive.accept]);
 
-  /**
-   * 重開之後的恢復（每次 mount 最多一次，有界）：第一次讀到桌面偏好時就決定。
-   *
-   * 只有 marker 鎖定的偏好欄位**仍等於**目前值才補送——使用者事後改過就只把 marker
-   * 清掉，不用一份過時的意圖覆蓋他剛選的設定。marker 壞掉（被手改／舊版本）同樣清掉。
-   * 兩個視窗同時開已由 single-instance 擋住，所以這裡不必再處理跨視窗的競爭。
-   */
+  const applyPreset = React.useCallback(async (id: CompanionPresetId) => {
+    if (!prefs) return;
+    const plan = beginPresetOp(id, Date.now());
+    if (!plan) return;
+    await runHostPreset({ presetId: id, operationId: plan.opId, expectedPrefsRevision: prefs.companionPresetRevision ?? "0" });
+  }, [prefs, runHostPreset]);
+
+  const retryPendingPreset = React.useCallback(async () => {
+    if (pendingOp) await runHostPreset();
+  }, [pendingOp, runHostPreset]);
+
   const resumeChecked = React.useRef(false);
   React.useEffect(() => {
     if (!prefs || resumeChecked.current) return;
     resumeChecked.current = true;
-    const marker = readPendingPresetOp(prefs.companionPendingPresetOp);
-    if (!marker) {
-      if (prefs.companionPendingPresetOp) void patch({ companionPendingPresetOp: null });
-      return;
-    }
-    const resumable = shouldResumePendingOp(marker, {
-      expressiveness: prefs.companionExpressiveness,
-      doNotDisturb: prefs.companionDoNotDisturb === true,
-    });
-    if (!resumable) {
-      void patch({ companionPendingPresetOp: null });
-      return;
-    }
+    if (!prefs.companionPendingPresetOp) return;
     setRecovering(true);
-    void (async () => {
-      try {
-        await runSecondStage(marker);
-      } finally {
-        setRecovering(false);
-      }
-    })();
-  }, [prefs, patch, runSecondStage]);
+    void runHostPreset().finally(() => setRecovering(false));
+  }, [prefs, runHostPreset]);
 
   // ---- 安靜與勿擾：六組語意各自的底層設定與有效狀態 ----
   const [policy, reloadPolicy] = useAsync(() => api.policyGet(), [refreshKey]);
@@ -914,7 +895,7 @@ export function CompanionPage({
             sessions: Number((proactive.status?.generativeToday as Record<string, unknown> | undefined)?.sessions ?? 0),
             costUsd: Number((proactive.status?.generativeToday as Record<string, unknown> | undefined)?.costUsd ?? 0),
           }}
-          onPatch={(value) => void proactive.patch(value)}
+          onPatch={(value) => { setPresetHostStatus(null); void proactive.patch(value); }}
           // 檔位交易寫的就是這一區的「模式」：交易期間整區鎖住（M4）。
           disabled={presetTransaction}
         />

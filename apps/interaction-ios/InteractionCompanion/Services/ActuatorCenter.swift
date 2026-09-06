@@ -23,15 +23,6 @@ import UIKit
 
 // MARK: - 角色狀態(character.present)
 
-enum CharacterPresentState: String, CaseIterable {
-    case idle
-    case working
-    case waiting
-    case verifiedSuccess = "verified-success"
-    case failed
-    case unknown
-    case emergency
-}
 
 /// 角色顯示狀態。綠色勾號只允許在 verifiedSuccess 出現(CharacterView 強制)。
 @MainActor

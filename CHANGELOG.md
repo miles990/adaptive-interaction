@@ -5,9 +5,43 @@
 
 版本一致性：workspace `Cargo.toml`、`apps/interaction-desktop/src-tauri/Cargo.toml`、
 `apps/interaction-desktop/src-tauri/tauri.conf.json`、`apps/interaction-desktop/package.json`
-四處版本必須相同——用 `scripts/release.sh <version>` 一次搞定。
+四處版本必須相同——依 `release-prepare.sh` → `release-verify.sh` → `release-tag.sh` 分步執行。
 
 ## [Unreleased]
+
+### Added
+
+- SemanticState 由純核心匯出獨立 schema，現有 codegen 產生 TS／Swift DTO；production consumer
+  在原子套用前驗證完整 state，raw JSON 與 renderer projection 分離。未知選填欄位與數值字面保留於 hash 路徑。
+  新增三端共享 accept/reject／patch／projection corpus、不可覆寫的 v0.7.0 發布樣本及 optional-field 突變演練。
+- 可協商 `aip.applied/1`：Serial 與 Mobile production binding 使用有界回執 tracker，綁定當前連線、成員、
+  session/epoch/revision/hash/message 與一次性 challenge。同步卡分別呈現能力、傳送與對端套用自報；後續未確認 patch
+  會再次呈現未追上。回執不代表真螢幕／物理效果已驗證，legacy peer 保持未確認相容模式。
+- Runtime SQLite sensor journal 跨程序保留未知停止摘要、來源世代與連線 scope；bounded overflow、future/corrupt
+  parked 與寫入失敗都有可見狀態。人類解除提醒不當成已停止，agent principal 仍只讀適當摘要。
+- 陪伴預設恢復由 Tauri application service 擁有；UUID、兩側獨立 revision、條件重送與持久化 marker 保留較新選擇。
+  三個受控值定義由 Rust／TS 共用，未擴大費用、Agent、consent 或安全上限。
+- Repository 內五種 production 擴充演練、native Swift runner、真 Tauri 設定／手機模擬器／工作取消走查、
+  多樣本效能比較 driver。Architecture 的 `--drills`／`--swift` 執行真檢查；靜態 lint 分開，缺環境不計 pass。
+
+### Fixed
+
+- 原始 snapshot 中 explicit null 被 serde 靜默省略；現在還原前拒絕，沿用既有損壞快照處理，合法字串不誤判。
+- 生成 Swift Attention 分支解碼與 TS／Swift 日期驗證的跨語言差異，包含未知 enum 額外欄位、非法日期與合法閏秒表示。
+- 同來源下一次 capture／同家族另一裝置／新連線不得抹去舊 unknown；手機 raw capture 的停止、移除與重啟也走同一持久化責任。
+- 陪伴預設進行前、進行中及 host 重連恢復的舊讀回不再覆蓋有效值。
+- 設定已儲存但呈現套用未確認時，不再謊稱「設定未變更」；拒絕已知欄位及使魔子欄位的錯誤型別，明確空名字能還原。
+- Unix 偏好檔原子替換不擴大私有讀寫權限；暫存檔建立碰撞時只清理自己成功建立的檔案。
+- 對話框初始焦點與空內容期間的雙向 Tab 留在對話框；iOS runner 根據 XCTest 最終結果判斷，不信任 simctl 的零 exit code。
+
+### Known limitations
+
+- 真 iPhone 的本輪 AIP／state-applied、ESP32 真板、真人可用性仍未取得；保留既有發布政策的明示環境限制。
+  MQTT 有既有 broker 模擬器 rebind；MQTT／BLE 專屬 applied 閉環尚未驗。參考韌體不宣告未實作的 fragmentation/applied。
+- 偏好與 Runtime 是可恢復的兩個 store，不是跨程序 ACID。純模型、mock、pty、真 Tauri 與真人證據分列。
+- 新 journal 不能復原 v0.7.0 退出前未持久化的未知摘要；capacity overflow 保守可見，不能自動視為零問題。
+- 本輪進度／逐項證據見 `docs/releases/next-convergence-progress.md` 與 `docs/releases/evidence-index.json`；
+  遷移與完整剩餘範圍見 `docs/releases/v0.8.0-migration.md`、`v0.8.0-known-limitations.md`。
 
 ## [0.7.0] - 2026-09-06
 

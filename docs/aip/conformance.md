@@ -205,3 +205,7 @@ CI 的 frontend job 會跑 `pnpm aip:check`：手改 `generated.ts`／`AIPGenera
 tokio／axum／tauri／tungstenite／rumqttc／serialport／btleplug／reqwest／hyper，
 **遞移**依賴（走 `cargo metadata` 的 normal 依賴圖）也不得含 tokio。
 找不到 `cargo` 時遞移那一項會 skip 並印出原因，直接依賴那一項仍然會跑。
+
+## SemanticState consumer conformance
+
+共用索引的 `semanticStates` 指向 `semantic-state-cases.json`，三端用同一批輸入核對 consumer accept/reject、canonical JSON、hash 與原子套用。`releases/v0.7.0/` 是來源 SHA 明確、獨立 corpus hash 釘住的發布基準，current golden/fixture 重生不覆寫它。完整命令與 owner 見 [semantic-state.md](semantic-state.md)。Swift 原生純模型 runner 與 iOS XCTest、真 iPhone 為不同證據等級。

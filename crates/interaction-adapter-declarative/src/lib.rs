@@ -24,6 +24,7 @@
 
 pub mod fragment;
 pub mod protocol;
+pub mod state_applied;
 
 #[cfg(all(
     feature = "transport-ble",

@@ -4,6 +4,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import drillManifest from "../../../../examples/characters/drill-text/manifest.json";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -240,6 +241,52 @@ afterEach(() => {
 });
 
 describe("角色頁：更換或加入角色", () => {
+  it("N4 review：備份已寫入但套用回應失敗時，不宣稱設定未變更", async () => {
+    mockDesktop.companionApplyPrefs.mockRejectedValueOnce(new Error("套用回應中斷"));
+    renderPage();
+    await screen.findByRole("article", { name: "角色 小樞" });
+    const file = new File([], "saved-settings.json", { type: "application/json" });
+    Object.defineProperty(file, "text", { value: async () => JSON.stringify({
+      kind: "companion-settings", schemaVersion: 1,
+      companionPack: "shu-maid", companionName: "已恢復的名字",
+    }) });
+    await userEvent.upload(screen.getByLabelText("選擇角色設定檔"), file);
+    // This mock models the real two-command boundary: prefs_patch has already
+    // durably committed before companion_apply_prefs loses its response.
+    await waitFor(() => expect(mockDesktop.state.prefs.companionName).toBe("已恢復的名字"));
+    await waitFor(() => expect(screen.getByLabelText("選擇角色設定檔")).not.toBeDisabled());
+    await screen.findByText(/匯入設定失敗/);
+    expect(screen.queryByText(/設定未變更/)).not.toBeInTheDocument();
+  });
+
+  it("N5 模擬 host：移除使用中的新文字包後保存 fallback，重掛頁面保留其他角色偏好", async () => {
+    const imported = { characterId: "drill-text", displayName: drillManifest.displayName,
+      valid: true, origin: "imported", entrypoint: "text", manifest: drillManifest,
+      assets: [], executable: false, network: false, external: false };
+    const preferences = { "drill-text": { motto: "保留我的偏好" }, "plain-text": { motto: "另一個角色" } };
+    mockDesktop.state.prefs = { ...BASE_PREFS, companionPack: "drill-text", companionPreferences: preferences };
+    mockName.current = { name: "演練夥伴", pronoun: "它", characterId: "drill-text", loaded: true, icon: "text" };
+    mockDesktop.characterListImported.mockResolvedValue([imported]);
+    mockDesktop.characterRemove.mockImplementationOnce(async (characterId: string) => {
+      mockDesktop.characterListImported.mockResolvedValue([]);
+      return { removed: characterId };
+    });
+    const mounted = renderPage();
+    const card = await screen.findByRole("article", { name: "角色 演練夥伴" });
+    await userEvent.click(within(card).getByRole("button", { name: /移除/ }));
+    await userEvent.click(within(card).getByRole("button", { name: "確定移除這個角色？" }));
+    await waitFor(() => expect(mockDesktop.characterRemove).toHaveBeenCalledWith("drill-text"));
+    await waitFor(() => expect(mockDesktop.prefsPatch).toHaveBeenCalledWith({ companionPack: INDEX.default }));
+    expect(mockDesktop.companionApplyPrefs).toHaveBeenCalled();
+    expect(mockDesktop.state.prefs.companionPreferences).toEqual(preferences);
+    mounted.unmount();
+    renderPage();
+    await screen.findByRole("article", { name: "角色 小樞" });
+    expect(screen.queryByRole("article", { name: "角色 演練夥伴" })).not.toBeInTheDocument();
+    expect(mockDesktop.state.prefs.companionPack).toBe(INDEX.default);
+    expect(mockDesktop.state.prefs.companionPreferences).toEqual(preferences);
+  });
+
   it("一般模式：只標示內建／第三方、可接收、已測試；額外授權只給一句人話（無執行位置／可執行程式／網路欄位）", async () => {
     mockDesktop.characterListImported.mockResolvedValue([IMPORTED_SPRITE]);
     renderPage();

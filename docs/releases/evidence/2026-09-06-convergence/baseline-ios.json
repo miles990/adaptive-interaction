@@ -1,0 +1,14 @@
+{
+  "name": "baseline-ios",
+  "sha": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "/tmp/adaptive-convergence-20260906/ios-tests.sh"
+  ],
+  "exit": 0,
+  "durationSeconds": 60.86,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "/tmp/adaptive-convergence-20260906/baseline-ios.log"
+}

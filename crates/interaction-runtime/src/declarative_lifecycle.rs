@@ -285,6 +285,7 @@ impl Runtime {
     /// 誠實範圍：今天沒有任何 production 路徑呼叫它——spec 檔被刪掉只會在下一次
     /// 啟動時「沒有被載入」（那時整張表本來就是空的）。runtime 沒有偵測檔案刪除
     /// 的能力，沒有的東西不假裝有；這個入口是給主機（與測試）明確表態用的。
+    /// **Experimental host/test hook**: not a production package-removal use case.
     pub fn note_declarative_removed(&self, provider_id: &str) {
         if let Ok(mut map) = self.declarative_bindings.lock() {
             if let Some(entry) = map.get_mut(provider_id) {

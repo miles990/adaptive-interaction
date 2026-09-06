@@ -1,0 +1,8 @@
+{
+  "id": "fresh",
+  "note": "全新 session：mood.intensity 0.0 必須寫成 `0.0`（serde_json f64），不是 `0`",
+  "semanticValid": true,
+  "hash": "8349d285021b52c83ee9aa87920158007f325946a29c851681c9798d1f3eef55",
+  "canonical": "{\"activity\":\"idle\",\"attention\":{\"kind\":\"none\"},\"characterId\":\"ref-shape\",\"members\":[],\"mood\":{\"intensity\":0.0,\"kind\":\"neutral\"},\"reducedMotion\":false,\"truth\":{\"state\":\"none\"}}",
+  "state": {"activity":"idle","attention":{"kind":"none"},"characterId":"ref-shape","members":[],"mood":{"intensity":0.0,"kind":"neutral"},"reducedMotion":false,"truth":{"state":"none"}}
+}

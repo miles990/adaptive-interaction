@@ -540,19 +540,6 @@ impl Runtime {
                     }
                 }
             }
-            // 這個**還登記著**的來源明確確認停止的受器：把同 id 舊世代留下的
-            // 未解決記錄清掉（誠實：只清它確認過的那幾個受器，不整筆抹掉）。
-            //
-            // 「確認」要帶得出證據：一份沒有跟裝置往返過的 `already-stopped`
-            // （只是本機旗標說沒東西在擷取）不得替舊世代作證
-            // （見 `SensorStopReport::resolves_unresolved_stops`）。
-            let confirmed: Vec<String> = source_reports
-                .iter()
-                .filter(|r| r.resolves_unresolved_stops())
-                .flat_map(|r| r.sensors.clone())
-                .collect();
-            self.resolve_stops_for(&source.source_id(), &confirmed)
-                .await;
             reports.extend(source_reports);
         }
         // 未確認的一律補「可能還在擷取」（requested ≠ stopped）。

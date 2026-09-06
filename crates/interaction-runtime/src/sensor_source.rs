@@ -40,8 +40,7 @@ const SOURCE_GRACE: Duration = Duration::from_millis(500);
 /// [`UnresolvedStop`]（未解決停止摘要），只能被明確的確認或人為解除清掉。
 pub const ORPHAN_CAPTURE_VISIBLE: Duration = Duration::from_secs(60);
 
-/// 「未解決停止」摘要的上限。它不隨時間過期，所以必須自己有界；滿了丟最舊
-/// 的一筆並留稽核（被丟掉的那一筆從來沒有被說成已停止）。
+/// 「未解決停止」明細上限；更多 unknown 進持久 overflow 摘要，不會顯示零問題。
 pub const MAX_UNRESOLVED_STOPS: usize = 32;
 
 /// 一個感測來源登記的識別：`source_id` 加上**這一次登記**的世代。
@@ -137,6 +136,9 @@ impl SensorStopStatus {
 pub struct SensorStopReport {
     /// 誰回報的（裝置 id／連線 id／來源 id）。只進 payload，不進人話標題。
     pub source_id: String,
+    /// Internal connection identity; never a consent token or a wire claim.
+    #[serde(skip)]
+    pub capture_scope: Option<String>,
     /// 對應哪一筆能力宣告（`ProviderCapabilityDeclaration::declaration_id`）。
     pub declaration_id: String,
     /// 這台來源的人話名稱（有就給，沒有時介面退回 `source_id`）。
@@ -165,6 +167,7 @@ impl SensorStopReport {
     ) -> Self {
         SensorStopReport {
             source_id: source_id.into(),
+            capture_scope: None,
             declaration_id: declaration_id.into(),
             source_label: None,
             sensors,
@@ -265,6 +268,18 @@ pub trait SensorSource: Send + Sync {
     /// `stopping`／`stop-unknown`——消失等於宣稱它停了。
     async fn active_captures(&self) -> Vec<SensorUse>;
 
+    /// A family adapter supplies an identity unique to the capture connection.
+    /// The default is sufficient for a single-owner source registration. Family
+    /// reports naming a different owner cannot confirm this default scope.
+    async fn scoped_captures(&self) -> Vec<(SensorUse, String)> {
+        let scope = self.source_id();
+        self.active_captures()
+            .await
+            .into_iter()
+            .map(|capture| (capture, scope.clone()))
+            .collect()
+    }
+
     /// 請這個來源停止感測。`target=Some(id)` 只針對它底下的一台（撤銷單一裝置
     /// 走這條），`None` ＝整個來源。`deadline` 是這次的等待預算。
     ///
@@ -295,27 +310,27 @@ pub(crate) struct OrphanedCaptures {
     pub(crate) at: std::time::Instant,
     /// 這一筆屬於哪一次登記（見 [`SourceKey`]）。
     pub(crate) since: chrono::DateTime<chrono::Utc>,
-    /// 移除**當下**問到的人話名稱（見 [`Runtime::sensor_source_label`]）。
-    ///
-    /// 為什麼在這裡定格、而不是讀取時再查：來源已經被移除了，它的 provider
-    /// 記錄與能力宣告隨時可能跟著被撤掉——之後再查只會查到空的，畫面上那一筆
-    /// 就會從「客廳的 ESP32」退化成「某個裝置」。名字是移除那一刻的事實。
-    pub(crate) label: Option<String>,
 }
 
 /// 一筆「已經不在即時清單上、但仍然沒有結論」的停止。
 ///
 /// 誠實：它**不是**歷史。歷史在稽核裡；這張表回答的是「現在還有哪些東西，
 /// 我們不知道它停了沒有」。所以它不隨時間過期，只能由
-/// 「同 id 的新來源對那個受器確認停止」或人類明確解除清掉。
+/// 同 process、同 generation 的來源有效確認，或人類明確解除提醒來清掉。
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UnresolvedStop {
     pub source_id: String,
     /// 哪一次登記（同 id 的新來源不會蓋掉舊世代的這一筆）。
     pub generation: u64,
+    /// Runtime process that observed this source; IDs alone never prove identity.
+    pub process_incarnation: String,
+    pub reason: String,
+    pub confirmed_stopped: bool,
     /// 這一筆涵蓋哪些受器。
     pub sensors: Vec<String>,
+    #[serde(skip)]
+    pub(crate) evidence: Vec<CaptureEvidence>,
     /// 來源被移除、這筆變成未解決的時間。
     pub since: chrono::DateTime<chrono::Utc>,
     /// 最後看到的擷取狀態（含 `state`／`purpose`）。不猜、不改寫。
@@ -327,6 +342,15 @@ pub struct UnresolvedStop {
     pub source_label: Option<String>,
 }
 
+/// Minimal evidence retained with a reminder. Scope is supplied by the adapter,
+/// not inferred from a display label, actor text or a device-name convention.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CaptureEvidence {
+    pub sensor: String,
+    pub scope: String,
+}
+
 /// 一次登記中的感測來源＋它的世代。
 #[derive(Clone)]
 pub(crate) struct RegisteredSource {
@@ -334,19 +358,104 @@ pub(crate) struct RegisteredSource {
     pub(crate) generation: u64,
 }
 
+/// An adapter connection keeps the source incarnation that observed its capture.
+/// Replacing a family registration cannot lend the new generation's authority
+/// to an older connection. Fields stay owned by the canonical journal port.
+#[derive(Clone)]
+pub(crate) struct SensorCaptureOwner {
+    key: SourceKey,
+    label: Option<String>,
+}
+
 /// 來源登記表：有界、以 `source_id` 為鍵。
 pub(crate) type SensorSourceMap = BTreeMap<String, RegisteredSource>;
 
 impl Runtime {
+    pub(crate) async fn sensor_capture_owner(&self, source_id: &str) -> Option<SensorCaptureOwner> {
+        let registered = self.sensor_sources.read().await.get(source_id).cloned()?;
+        Some(SensorCaptureOwner {
+            key: (source_id.to_owned(), registered.generation),
+            label: self
+                .sensor_source_label(source_id, &registered.source.declaration_id())
+                .await,
+        })
+    }
+
+    /// Write before the adapter exposes an observed capture. This port accepts
+    /// raw capture evidence, independently of enabled/consent UI projections.
+    /// It performs no await, so an adapter may keep its connection stable until
+    /// the write is attempted. A failed/parked journal remains visible in health.
+    pub(crate) fn note_sensor_capture(
+        &self,
+        owner: Option<&SensorCaptureOwner>,
+        capture: SensorUse,
+        scope: String,
+    ) {
+        let Some(owner) = owner else {
+            if let Ok(mut journal) = self.sensor_journal.lock() {
+                journal.record_unattributed_capture(&self.store);
+            }
+            return;
+        };
+        let evidence = vec![CaptureEvidence {
+            sensor: capture.kind.clone(),
+            scope,
+        }];
+        self.journal_unknown(
+            &owner.key.0,
+            owner.key.1,
+            &[capture],
+            evidence,
+            owner.label.clone(),
+            "capture-observed",
+        );
+    }
+
+    /// A connection's explicit stop report can settle only the capture scope
+    /// it owned, including a late report after a bounded stop request timed out.
+    pub(crate) fn confirm_sensor_capture_stopped(
+        &self,
+        owner: Option<&SensorCaptureOwner>,
+        sensor: &str,
+        scope: String,
+    ) {
+        let Some(owner) = owner else {
+            return;
+        };
+        // Called while the adapter pins its connection. Never await the source
+        // registry here: a concurrent replacement may itself be reading that
+        // connection. When registration is changing, retain the unknown until
+        // fresh evidence arrives instead of granting an old generation credit.
+        let Ok(sources) = self.sensor_sources.try_read() else {
+            return;
+        };
+        if sources
+            .get(&owner.key.0)
+            .is_none_or(|entry| entry.generation != owner.key.1)
+        {
+            return;
+        }
+        if let Ok(mut journal) = self.sensor_journal.lock() {
+            journal.resolve(
+                &self.store,
+                &owner.key,
+                &[CaptureEvidence {
+                    sensor: sensor.to_owned(),
+                    scope,
+                }],
+            );
+        }
+    }
+
     /// 登記一個感測來源。同一個 `source_id` 再登記一次＝取代（來源自己就是
     /// 那件事的完整事實）。超過 [`MAX_SENSOR_SOURCES`] 時誠實拒絕並留稽核。
     ///
     /// **不會**清掉上一次登記留下的「可能還在擷取」記錄：新來源不知道舊連線
     /// 那一頭發生過什麼事，抹掉等於用一台新裝置替一台舊裝置作證。舊記錄只能
-    /// 由「這個新來源對那個受器確認停止」或人類明確解除清掉。
+    /// 由同 generation 的有效停止證據或人類明確解除提醒清掉。
     pub async fn register_sensor_source(&self, source: Arc<dyn SensorSource>) -> DomainResult<()> {
         let id = source.source_id();
-        if id.trim().is_empty() {
+        if id.trim().is_empty() || id.len() > 512 {
             return Err(DomainError::Validation("sensor source id is empty".into()));
         }
         let mut map = self.sensor_sources.write().await;
@@ -365,10 +474,28 @@ impl Runtime {
                 "sensor source registry is full ({MAX_SENSOR_SOURCES}); {id} was not registered"
             )));
         }
+        // Replacing an ID must preserve the previous incarnation's unknowns.
+        if let Some(previous) = map.get(&id).cloned() {
+            let scoped = self.bounded_scoped_captures(&previous.source).await;
+            let captures: Vec<_> = scoped.iter().map(|(capture, _)| capture.clone()).collect();
+            let label = self
+                .sensor_source_label(&id, &previous.source.declaration_id())
+                .await;
+            self.journal_unknown(
+                &id,
+                previous.generation,
+                &captures,
+                capture_evidence(&scoped),
+                label,
+                "source-replaced",
+            );
+        }
+        // Durable high-water is committed before the source becomes visible.
         let generation = self
-            .sensor_source_seq
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-            .saturating_add(1);
+            .sensor_journal
+            .lock()
+            .map_err(|_| DomainError::Storage("sensor journal unavailable".into()))?
+            .next_generation(&self.store)?;
         map.insert(id.clone(), RegisteredSource { source, generation });
         Ok(())
     }
@@ -423,12 +550,27 @@ impl Runtime {
     /// 移除一個感測來源。移除當下它還在擷取的話，那一筆擷取**不得靜默消失**：
     /// 記成有界可見的「停止結果未知」、補發事件、並留永久稽核。
     pub async fn unregister_sensor_source(&self, source_id: &str) -> bool {
-        let removed = self.sensor_sources.write().await.remove(source_id);
-        let Some(entry) = removed else {
+        let mut sources = self.sensor_sources.write().await;
+        let Some(entry) = sources.get(source_id).cloned() else {
             return false;
         };
         let generation = entry.generation;
-        let captures = entry.source.active_captures().await;
+        let scoped = self.bounded_scoped_captures(&entry.source).await;
+        let captures: Vec<_> = scoped.iter().map(|(capture, _)| capture.clone()).collect();
+        let label = self
+            .sensor_source_label(source_id, &entry.source.declaration_id())
+            .await;
+        // Write ahead of removal and ahead of the 60-second in-memory TTL.
+        self.journal_unknown(
+            source_id,
+            generation,
+            &captures,
+            capture_evidence(&scoped),
+            label.clone(),
+            "source-removed",
+        );
+        sources.remove(source_id);
+        drop(sources);
         if captures.is_empty() {
             return true;
         }
@@ -441,9 +583,6 @@ impl Runtime {
                 c
             })
             .collect();
-        let label = self
-            .sensor_source_label(source_id, &entry.source.declaration_id())
-            .await;
         let now = self.sensor_clock.now();
         let mut orphans = self.orphan_captures.write().await;
         // 有界：先把過期的搬進「未解決停止」（不是丟掉），還是滿的話丟最舊的
@@ -466,7 +605,6 @@ impl Runtime {
                 captures: stale,
                 at: now,
                 since: chrono::Utc::now(),
-                label,
             },
         );
         drop(orphans);
@@ -573,148 +711,184 @@ impl Runtime {
         self.record_unresolved_stops(expired).await;
     }
 
-    /// 把到期的孤兒記錄轉成「未解決停止」（有界；滿了丟最舊的一筆並留痕）。
+    /// The journal already owns these records; TTL only changes their projection.
     async fn record_unresolved_stops(&self, expired: Vec<(SourceKey, OrphanedCaptures)>) {
         if expired.is_empty() {
             return;
         }
-        let mut recorded = Vec::new();
-        let mut dropped = Vec::new();
-        {
-            let mut map = self.unresolved_stops.write().await;
-            for ((source_id, generation), entry) in expired {
-                if map.len() >= MAX_UNRESOLVED_STOPS
-                    && !map.contains_key(&(source_id.clone(), generation))
-                {
-                    if let Some(oldest) = map
-                        .iter()
-                        .min_by_key(|(_, value)| value.since)
-                        .map(|(key, _)| key.clone())
-                    {
-                        map.remove(&oldest);
-                        dropped.push(oldest);
-                    }
-                }
-                let record = UnresolvedStop {
-                    source_id: source_id.clone(),
-                    generation,
-                    sensors: entry.captures.iter().map(|c| c.kind.clone()).collect(),
-                    since: entry.since,
-                    last_known: entry.captures,
-                    source_label: entry.label,
-                };
-                recorded.push(serde_json::json!({
-                    "sourceId": record.source_id,
-                    "generation": record.generation,
-                    "sourceLabel": record.source_label,
-                    "sensors": record.sensors,
-                    "since": record.since,
-                }));
-                map.insert((source_id, generation), record);
-            }
-        }
-        for (source_id, generation) in dropped {
-            let _ = self.store.audit(
-                "sensor.unresolved-stop-dropped",
-                "runtime",
-                &serde_json::json!({
-                    "sourceId": source_id,
-                    "generation": generation,
-                    "limit": MAX_UNRESOLVED_STOPS,
-                    "reason": "the unresolved-stop summary is bounded; the oldest entry was dropped without ever being confirmed stopped",
-                }),
-            );
-        }
+        let entries: Vec<_> = expired
+            .iter()
+            .map(|(key, entry)| {
+                serde_json::json!({
+                    "sourceId": key.0, "generation": key.1, "since": entry.since,
+                })
+            })
+            .collect();
         let _ = self.store.audit(
             "sensor.unresolved-stop-recorded",
             "runtime",
             &serde_json::json!({
-                "entries": recorded,
-                "visibleForSeconds": ORPHAN_CAPTURE_VISIBLE.as_secs(),
-                "reason": "the removed source never confirmed it stopped; it left the live list but the stop is still unresolved",
+                "entries": entries, "reason": "live visibility expired; stop remains unknown",
             }),
         );
     }
 
-    /// 目前所有「未解決停止」（順序固定；空的話不序列化到 status）。
-    pub async fn unresolved_stops(&self) -> Vec<UnresolvedStop> {
-        self.settle_expired_orphans().await;
-        self.unresolved_stops
-            .read()
-            .await
-            .values()
-            .cloned()
-            .collect()
+    pub fn unresolved_stop_health(&self) -> serde_json::Value {
+        self.sensor_journal.lock().map(|journal| journal.health()).unwrap_or_else(|_| {
+            serde_json::json!({"storage": "unreadable", "parked": true, "recoveryUnknown": true, "overflowCount": 0})
+        })
     }
 
-    /// 一個**登記中**的來源確認了某些受器已經停止：把同 id 舊世代留下來的
-    /// 未解決記錄清掉（即時清單與未解決摘要都清）。
-    ///
-    /// 誠實界線：只有**帶得出證據**的確認算數
-    /// （[`SensorStopReport::resolves_unresolved_stops`]：主動停下來，或
-    /// already-stopped 而且說得出 `confirmed_via`），而且只有現在還登記著的
-    /// 來源說了才算——一台已經不在的裝置不能替自己作證。
-    pub(crate) async fn resolve_stops_for(&self, source_id: &str, confirmed: &[String]) {
+    /// Common application projection for HTTP, CLI and embedded Tauri.
+    pub async fn unresolved_stops_value(&self) -> serde_json::Value {
+        serde_json::json!({"unresolvedStops": self.unresolved_stops().await,
+            "unresolvedStopHealth": self.unresolved_stop_health(),
+            "note": "dismissing a reminder records human review, not a source stop confirmation"})
+    }
+
+    /// Historical unknowns are visible once that exact capture scope leaves the
+    /// live list, even when its family source remains registered indefinitely.
+    pub async fn unresolved_stops(&self) -> Vec<UnresolvedStop> {
+        self.settle_expired_orphans().await;
+        let sources = self.sensor_sources.read().await.clone();
+        let live: BTreeMap<_, _> = futures_util::future::join_all(sources.into_iter().map(
+            |(id, registered)| async move {
+                let captures = self.bounded_scoped_captures(&registered.source).await;
+                ((id, registered.generation), capture_evidence(&captures))
+            },
+        ))
+        .await
+        .into_iter()
+        .collect();
+        let orphans = self.orphan_captures.read().await;
+        self.sensor_journal
+            .lock()
+            .map(|journal| {
+                journal
+                    .entries
+                    .iter()
+                    .filter_map(|(key, entry)| {
+                        if orphans.contains_key(key) {
+                            return None;
+                        }
+                        let mut visible = entry.clone();
+                        if let Some(represented) = live.get(key) {
+                            visible
+                                .evidence
+                                .retain(|scope| !represented.contains(scope));
+                        }
+                        visible.sensors = visible
+                            .evidence
+                            .iter()
+                            .map(|scope| scope.sensor.clone())
+                            .collect();
+                        visible.sensors.sort();
+                        visible.sensors.dedup();
+                        visible
+                            .last_known
+                            .retain(|capture| visible.sensors.contains(&capture.kind));
+                        (!visible.evidence.is_empty()).then_some(visible)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn journal_unknown(
+        &self,
+        source_id: &str,
+        generation: u64,
+        captures: &[SensorUse],
+        evidence: Vec<CaptureEvidence>,
+        label: Option<String>,
+        reason: &str,
+    ) {
+        if captures.is_empty() {
+            return;
+        }
+        if let Ok(mut journal) = self.sensor_journal.lock() {
+            let entry = UnresolvedStop {
+                source_id: source_id.to_string(),
+                generation,
+                process_incarnation: journal.incarnation.clone(),
+                reason: reason.chars().take(64).collect(),
+                confirmed_stopped: false,
+                sensors: captures.iter().map(|c| c.kind.clone()).collect(),
+                evidence,
+                since: chrono::Utc::now(),
+                last_known: captures
+                    .iter()
+                    .cloned()
+                    .map(|mut capture| {
+                        capture.state = crate::sensors::SENSOR_STATE_STOP_UNKNOWN.into();
+                        capture
+                    })
+                    .collect(),
+                source_label: label.map(|s| s.chars().take(128).collect()),
+            };
+            journal.record(&self.store, entry);
+        }
+    }
+
+    async fn bounded_scoped_captures(
+        &self,
+        source: &Arc<dyn SensorSource>,
+    ) -> Vec<(SensorUse, String)> {
+        match tokio::time::timeout(SOURCE_GRACE, source.scoped_captures()).await {
+            Ok(captures) => captures,
+            Err(_) => self
+                .capability_declarations()
+                .declaration(&source.declaration_id())
+                .map(|d| d.high_risk_receptors)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|kind| {
+                    (
+                        SensorUse {
+                            kind,
+                            started_at: chrono::Utc::now(),
+                            started_by: String::new(),
+                            purpose: "capture status unavailable".into(),
+                            auto_stop_at: None,
+                            state: crate::sensors::SENSOR_STATE_STOP_UNKNOWN.into(),
+                        },
+                        source.source_id(),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// Captured before sending stop; pointer identity prevents an old callback
+    /// from borrowing a new registration's generation.
+    async fn source_key(&self, source: &Arc<dyn SensorSource>) -> Option<SourceKey> {
+        self.sensor_sources
+            .read()
+            .await
+            .iter()
+            .find(|(_, entry)| Arc::ptr_eq(&entry.source, source))
+            .map(|(id, entry)| (id.clone(), entry.generation))
+    }
+
+    async fn resolve_stops_for(&self, key: &SourceKey, confirmed: &[CaptureEvidence]) {
         if confirmed.is_empty() {
             return;
         }
-        let mut cleared: Vec<serde_json::Value> = Vec::new();
+        let sources = self.sensor_sources.read().await;
+        if sources
+            .get(&key.0)
+            .is_none_or(|entry| entry.generation != key.1)
         {
-            let mut map = self.orphan_captures.write().await;
-            let keys: Vec<SourceKey> = map
-                .keys()
-                .filter(|(id, _)| id == source_id)
-                .cloned()
-                .collect();
-            for key in keys {
-                if let Some(entry) = map.get_mut(&key) {
-                    entry.captures.retain(|c| !confirmed.contains(&c.kind));
-                    if entry.captures.is_empty() {
-                        map.remove(&key);
-                    }
-                }
-            }
+            return;
         }
-        {
-            let mut map = self.unresolved_stops.write().await;
-            let keys: Vec<SourceKey> = map
-                .keys()
-                .filter(|(id, _)| id == source_id)
-                .cloned()
-                .collect();
-            for key in keys {
-                let remove = match map.get_mut(&key) {
-                    Some(entry) => {
-                        entry.sensors.retain(|s| !confirmed.contains(s));
-                        entry.last_known.retain(|c| !confirmed.contains(&c.kind));
-                        entry.sensors.is_empty()
-                    }
-                    None => false,
-                };
-                if remove {
-                    map.remove(&key);
-                    cleared.push(serde_json::json!({"sourceId": key.0, "generation": key.1}));
-                }
-            }
-        }
-        if !cleared.is_empty() {
-            let _ = self.store.audit(
-                "sensor.unresolved-stop-resolved",
-                "runtime",
-                &serde_json::json!({
-                    "clearedBy": source_id,
-                    "sensors": confirmed,
-                    "entries": cleared,
-                }),
-            );
+        // Keep registration stable until this exact generation's commit finishes.
+        if let Ok(mut journal) = self.sensor_journal.lock() {
+            journal.resolve(&self.store, key, confirmed);
         }
     }
 
-    /// 人為解除一筆「未解決停止」。
-    ///
-    /// 誠實：這**不是**「它停了」，而是「人類看過了，不用再提醒」。所以它一定
-    /// 要指名世代（不會誤消掉別的一筆），一定要留稽核，而且只有人可以做——
-    /// AI 不得替使用者宣告一件沒有人確認過的事。
+    /// Only dismiss the reminder. Atomic audit explicitly says no source stop
+    /// was confirmed. A failed write retains both memory and durable reminder.
     pub async fn dismiss_unresolved_stop(
         &self,
         source_id: &str,
@@ -722,31 +896,31 @@ impl Runtime {
         actor: &str,
     ) -> DomainResult<serde_json::Value> {
         let key = (source_id.to_string(), generation);
-        let removed = self.unresolved_stops.write().await.remove(&key);
-        let Some(record) = removed else {
+        if !self
+            .sensor_journal
+            .lock()
+            .map_err(|_| DomainError::Storage("sensor journal unavailable".into()))?
+            .entries
+            .contains_key(&key)
+        {
             return Err(DomainError::NotFound(format!(
                 "no unresolved stop for {source_id} (generation {generation})"
             )));
-        };
-        let _ = self.store.audit(
-            "sensor.unresolved-stop-dismissed",
-            actor,
-            &serde_json::json!({
-                "sourceId": record.source_id,
-                "generation": record.generation,
-                "sensors": record.sensors,
-                "since": record.since,
-                "note": "dismissed by a human; this does NOT mean the source confirmed it stopped",
-            }),
-        );
-        Ok(serde_json::json!({
-            "dismissed": true,
-            "sourceId": record.source_id,
-            "generation": record.generation,
-            "sensors": record.sensors,
-            "since": record.since,
-            "confirmedStopped": false,
-        }))
+        }
+        // Dismiss only the historical scopes currently shown to the human. An
+        // active sibling's hidden write-ahead reminder remains protected.
+        let visible = self
+            .unresolved_stops()
+            .await
+            .into_iter()
+            .find(|entry| entry.source_id == source_id && entry.generation == generation)
+            .ok_or_else(|| {
+                DomainError::Conflict("no historical reminder is currently dismissible".into())
+            })?;
+        self.sensor_journal
+            .lock()
+            .map_err(|_| DomainError::Storage("sensor journal unavailable".into()))?
+            .dismiss(&self.store, &key, &visible.evidence, actor)
     }
 
     /// 問一個來源停止，並在來源自己的期限外再包一層逾時：來源不守約也不得
@@ -760,7 +934,23 @@ impl Runtime {
         reason: &str,
     ) -> Vec<SensorStopReport> {
         let started = std::time::Instant::now();
-        match tokio::time::timeout(
+        let key = self.source_key(source).await;
+        if !source.stops_immediately() {
+            if let Some((id, generation)) = &key {
+                let scoped = self.bounded_scoped_captures(source).await;
+                let captures: Vec<_> = scoped.iter().map(|(capture, _)| capture.clone()).collect();
+                let label = self.sensor_source_label(id, &source.declaration_id()).await;
+                self.journal_unknown(
+                    id,
+                    *generation,
+                    &captures,
+                    capture_evidence(&scoped),
+                    label,
+                    reason,
+                );
+            }
+        }
+        let reports = match tokio::time::timeout(
             deadline + SOURCE_GRACE,
             source.request_stop(target, deadline, reason),
         )
@@ -783,7 +973,39 @@ impl Runtime {
                 )
                 .with_detail("the source did not answer the stop request within its deadline")]
             }
+        };
+        if let Some(key) = key {
+            // Positive evidence belongs to a connection and sensor together.
+            // A report for B, or a new connection for A, cannot clear old A.
+            let report_evidence = |report: &SensorStopReport| {
+                let scope = report
+                    .capture_scope
+                    .as_ref()
+                    .unwrap_or(&report.source_id)
+                    .clone();
+                report
+                    .sensors
+                    .iter()
+                    .map(move |sensor| CaptureEvidence {
+                        sensor: sensor.clone(),
+                        scope: scope.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let unconfirmed: Vec<_> = reports
+                .iter()
+                .filter(|r| !r.resolves_unresolved_stops())
+                .flat_map(report_evidence)
+                .collect();
+            let confirmed: Vec<_> = reports
+                .iter()
+                .filter(|r| r.resolves_unresolved_stops())
+                .flat_map(report_evidence)
+                .filter(|scope| !unconfirmed.contains(scope))
+                .collect();
+            self.resolve_stops_for(&key, &confirmed).await;
         }
+        reports
     }
 }
 
@@ -812,15 +1034,6 @@ impl Runtime {
             )
             .await;
         self.emit_stop_sensor_events(&reports);
-        // 只有明確確認的受器才清掉舊世代留下的未解決記錄——而且必須是這個
-        // **還登記著**的來源自己說的（誠實：新裝置不能替舊裝置作證）。
-        let confirmed: Vec<String> = reports
-            .iter()
-            .filter(|r| r.resolves_unresolved_stops())
-            .flat_map(|r| r.sensors.clone())
-            .collect();
-        self.resolve_stops_for(&source.source_id(), &confirmed)
-            .await;
         let released = source.release(target.as_deref(), reason).await;
         Some(serde_json::json!({
             "sourceId": source.source_id(),
@@ -853,4 +1066,14 @@ fn drain_expired(
 /// （否則 Runtime 永遠不會被釋放）。
 pub(crate) fn upgrade(weak: &Weak<RuntimeInner>) -> Option<Runtime> {
     weak.upgrade().map(Runtime::from_inner)
+}
+
+fn capture_evidence(captures: &[(SensorUse, String)]) -> Vec<CaptureEvidence> {
+    captures
+        .iter()
+        .map(|(capture, scope)| CaptureEvidence {
+            sensor: capture.kind.clone(),
+            scope: scope.clone(),
+        })
+        .collect()
 }

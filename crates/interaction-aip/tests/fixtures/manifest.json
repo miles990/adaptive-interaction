@@ -1992,5 +1992,6 @@
       "note": "空物件與空陣列（含空字串鍵、陣列裡的空容器）：`{}`／`[]` 不得消失、不得變成 null",
       "sha256": "63cc9f2f5e02759c16348fe79b73e8a71da4c8aa367d3dd89e5c157f57f002f4"
     }
-  ]
+  ],
+  "semanticStates": {"file": "semantic-state-cases.json", "profile": "semantic-state/1.0"}
 }

@@ -26,6 +26,16 @@
 型別**只能**由 `scripts/aip-codegen.mjs` 產生；CI 的 `pnpm aip:check` 會擋下手改與忘記重生。
 行為是手寫的，一致性靠三個語言讀**同一份** fixture index 保證（`docs/aip/conformance.md`）。
 
+### 1.2 State-applied Transport profile 版本矩陣
+
+| Host / 對端 | 舊裝置或舊 App（未宣告） | device v1.3 / mobile v1.1（宣告 `aip.applied/1`） |
+|---|---|---|
+| 舊 Host | 沿用既有 AIP flow | 未回傳 context，對端不發新回執；沿用既有 flow |
+| 本輪 Host | 不加 context，不要求回執；顯示套用未確認 | 加入可選 context，逐筆驗證對端回執，另比對是否追上 Host |
+
+只有 Transport profile 升版；AIP `aip/1.0` message type/name 與 state payload 不變。
+完整綁定與有界性在 [device profile §3.2](device-profile.md#32-可協商的-state-applied-profile-aipapplied1)。
+
 ## 2. minor 演進規則（§4.1 的可操作版本）
 
 一個 `aip/1.x` → `aip/1.(x+1)` 只能做這些事：
@@ -94,3 +104,11 @@ feature flag 關閉時回 `503 session-disabled`。權威實作 `interaction_aip
 envelope 欄位限制的資料，因此三個實作的 `unsupported-message-type` 訊息一律是固定文字
 （"messageType is not one of the 12 known AIP message types"），原字串只保留在
 `MessageType::Unknown` 供本地稽核，不回到 wire 上。
+
+## 本輪 N2 Transport profile 相容性
+
+Device wire v1.3 / mobile wire v1.1新增可選`aip.applied/1`，細節在device-profile §3.2。
+AIP wire仍為1.0：沿用unknown optional envelope保留規則，`stateApplied`只在新Transport profile使用；
+外層`aip-applied`不是新增AIP type/name。舊裝置不宣告便不收到challenge，不必回覆；舊host忽略未支援feature，
+新App未收到challenge便不送回執。新Runtime對舊裝置顯示未確認，傳送和互動仍可用。
+產品SemVer由整合發布決定；semantic-state profile與snapshot format由各自owner管理，本Transport擴充不挪用它們。

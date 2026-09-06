@@ -53,7 +53,7 @@ tokio／axum／tauri／tungstenite／rumqttc／serialport／btleplug／reqwest�
 - **儲存（快照／遷移）**：`docs/aip/character-session.md` §6；`crates/interaction-session/src/types.rs`
   的 `SNAPSHOT_FORMAT`、`ports.rs` 的 `SaveOutcome`／`PortError::FutureFormat`。
 - **設定（桌面偏好／匯入匯出）**：`apps/interaction-desktop/src/desktop.ts`、
-  `src/companion/settingsTransfer.ts`（角色專屬欄位只由 adapter meta 宣告）。
+  `src/companion/settingsTransfer.ts`、`docs/aip/settings-recovery.md`（host 擁有恢復；角色專屬欄位只由 adapter meta 宣告）。
 - **一般模式 UI**：`docs/aip/general-mode-ux.md`；主入口恰好五個、不外洩技術詞（守門測試見 §4）。
 - **威脅面**：`docs/aip/threat-model.md`、`docs/aip/privacy.md`。
 
@@ -72,6 +72,9 @@ bash scripts/tests/architecture-checks.sh --list        # 只列出檢查項目�
 bash scripts/tests/architecture-checks.sh --docs        # 文件誠實度／發布腳本自測
 bash scripts/tests/architecture-checks.sh --ts          # 桌面守門測試（指定檔）
 bash scripts/tests/architecture-checks.sh --rust        # 依賴邊界、schema 漂移、決策表、生命週期
+bash scripts/tests/architecture-checks.sh --swift       # 實跑 native Swift 共用模型；不是 iOS simulator
+bash scripts/tests/architecture-checks.sh --drills      # 實跑五项 N5 演練；optional-state 使用 committed HEAD
+bash scripts/tests/architecture-checks.sh --drill-lint  # 僅靜態語法／引用檢查，不代表演練已通過
 ```
 
 協定型別**只能**由 `scripts/aip-codegen.mjs` 產生（`pnpm aip:check` 擋手改與忘記重生）；
@@ -102,7 +105,8 @@ golden schema 由 `GOLDEN_UPDATE=1 cargo test -p interaction-e2e --test golden` 
 （章節號會隨文件長大而改，所以這裡逐份寫明；`scripts/tests/docs-claims.sh` 會核對這兩件事：
 檔案存在，且下面標的 Blockers 節號與檔案裡的真實節號一致）：
 
-- 本輪 v0.7.0：`docs/releases/v0.7.0-progress.md`——下一動作在 §5，Blockers 在 §6。
+- 最新工程收斂：`docs/releases/next-convergence-progress.md`——下一動作在 §5，Blockers 在 §6。
+- 已發布 v0.7.0：`docs/releases/v0.7.0-progress.md`——下一動作在 §5，Blockers 在 §6。
 - 上一輪（可維護性收斂，已收尾）：`docs/releases/v0.6.x-maintainability-progress.md`——下一動作在 §3，
   Blockers 在 §4。它只涵蓋第一輪；第二輪落地了什麼要看上面那一份與 `CHANGELOG.md` 的 `[Unreleased]`。
 

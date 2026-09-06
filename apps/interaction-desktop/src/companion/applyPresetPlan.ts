@@ -68,15 +68,14 @@ function safeMillis(value: number): number {
 /**
  * 開始一次套用。未知的檔位回 `null`（不猜）。
  *
- * `opId` 只用來分辨「這是我這次的交易」與「上一次留下來的」，所以由檔位＋發起時間
- * 決定就夠了：純函式、可重現、有界。
+ * 每次新操作使用 UUID；重送保留同一個 ID。測試可注入 ID，時間只供顯示，不能充當身份。
  */
-export function beginPresetOp(id: string, nowMs: number): PresetOpPlan | null {
+export function beginPresetOp(id: string, nowMs: number, operationId = crypto.randomUUID()): PresetOpPlan | null {
   const def = presetDefinition(id);
-  if (!def) return null;
+  if (!def || operationId.length < 1 || operationId.length > PRESET_OP_ID_MAX_CHARS) return null;
   const issuedAtMs = safeMillis(nowMs);
   return {
-    opId: `${def.id}-${issuedAtMs.toString(36)}`,
+    opId: operationId,
     presetId: def.id,
     prefs: {
       companionExpressiveness: def.state.expressiveness,

@@ -644,9 +644,15 @@ export interface UnresolvedStop {
   sourceLabel?: string;
 }
 
-/** `GET /v1/sensors/unresolved`。空陣列＝沒有任何一筆是結果不確定的。 */
+/** `GET /v1/sensors/unresolved`。空陣列仍須查看保存/overflow狀態。 */
 export interface UnresolvedStopsReport {
   unresolvedStops?: UnresolvedStop[];
+  unresolvedStopHealth?: {
+    overflowCount?: number;
+    storage?: string;
+    recoveryUnknown?: boolean;
+    parked?: boolean;
+  };
   note?: string;
 }
 

@@ -1608,12 +1608,7 @@ pub async fn sensors_stop(
 /// 確認它停了的擷取。空陣列＝沒有懸而未決的事（不是「都停了」的保證，而是
 /// 「沒有任何一筆是我們不知道結果的」）。
 pub async fn sensors_unresolved(State(state): State<ApiState>) -> ApiResult<Json<Value>> {
-    let entries = state.runtime.unresolved_stops().await;
-    Ok(Json(json!({
-        "unresolvedStops": entries,
-        "note": "these stops were never confirmed; dismissing one records a human decision, \
-                 not a confirmation that the source stopped",
-    })))
+    Ok(Json(state.runtime.unresolved_stops_value().await))
 }
 
 /// 人為解除一筆「未解決停止」。

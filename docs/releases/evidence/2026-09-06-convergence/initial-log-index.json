@@ -1,0 +1,142 @@
+[
+  {
+    "path": "baseline-rust.json",
+    "sha256": "9cc9b785291b089298d5d262476184648ce32a94a7ee1f2bbe70fd02a1ab3b00",
+    "phase": "baseline",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": false
+  },
+  {
+    "path": "baseline-rust.log",
+    "sha256": "affa406ddf0b197e2c93637a2e597e1ba6f4d8b87b1f7c341330b6924bcb39c0",
+    "phase": "baseline",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": false
+  },
+  {
+    "path": "baseline-tauri.json",
+    "sha256": "7e00a6144f614f72149033a572b4b021ffeb28afc31c9b59f1f5f498cd9e5663",
+    "phase": "baseline",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": false
+  },
+  {
+    "path": "baseline-tauri.log",
+    "sha256": "660bdf998612a84498a42ed7bff8ad8977ac39fc247c0eefda5e0a4b59e323d4",
+    "phase": "baseline",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": false
+  },
+  {
+    "path": "baseline-frontend.json",
+    "sha256": "61ab6c5520b80763ded1009b82d529341e5597197923438944f52ebaeda1c549",
+    "phase": "baseline",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": false
+  },
+  {
+    "path": "baseline-frontend.log",
+    "sha256": "23a8e8e9139f448861207d8b76987ced2ee84aa8eb645bec9b4aedd696831510",
+    "phase": "baseline",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": false
+  },
+  {
+    "path": "baseline-frontend-build.json",
+    "sha256": "986865091333930eecb8a002280f4bb2aadcfe91acecf8f781c431ac83ab4e89",
+    "phase": "baseline",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": false
+  },
+  {
+    "path": "baseline-frontend-build.log",
+    "sha256": "7c95f3bfc04a3d4b2943781082630c449608f200985900ba25d406823a204456",
+    "phase": "baseline",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": false
+  },
+  {
+    "path": "baseline-ios.json",
+    "sha256": "a7396069e9507dec121fb2b48cccf7a0a2284bceec2a9015845790ba749e416b",
+    "phase": "baseline",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": false
+  },
+  {
+    "path": "baseline-ios.log",
+    "sha256": "44c664a3e46b5c853293ad6794969bd9fe4400b0e8ee78c33d95cec30fa85f6d",
+    "phase": "baseline",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": false
+  },
+  {
+    "path": "integrated-rust-workspace.json",
+    "sha256": "d0e8b04838a76d86c6b4efac8af1f585e3e32e3284c081eb86c49039bcd3aaea",
+    "phase": "uncommitted-integration",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": true
+  },
+  {
+    "path": "integrated-rust-workspace.log",
+    "sha256": "2cb23241a5e5c27db7ae67d401999cdaac8afca7cffe06924f312f73245ab65a",
+    "phase": "uncommitted-integration",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": true
+  },
+  {
+    "path": "integration-ts.json",
+    "sha256": "0b2308f1cc79ae567218c4fe825924fdc2e1e385b74cecd10e9c17c0bcc87c4b",
+    "phase": "uncommitted-integration",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": true
+  },
+  {
+    "path": "integration-ts.log",
+    "sha256": "d2bb123ec076b7d91f28e7cf8cf6611d1dea0d0e9df032c6aa2e58e059783cc9",
+    "phase": "uncommitted-integration",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": true
+  },
+  {
+    "path": "integration-tauri-fixed.json",
+    "sha256": "93e427d8a892044e8434193574bab69cca353e512da0a798e88982e4fe92b744",
+    "phase": "uncommitted-integration",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": true
+  },
+  {
+    "path": "integration-tauri-fixed.log",
+    "sha256": "a3179675cfbd6dbbb594722f3669c973517500e9ebd2d89671688167ea38ccb8",
+    "phase": "uncommitted-integration",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": true
+  },
+  {
+    "path": "native-candidate-build.json",
+    "sha256": "8cc3175251810fde264d9d07189323bb2a657e8ab6ccc200a944e3889cc1f284",
+    "phase": "uncommitted-integration",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": true
+  },
+  {
+    "path": "native-candidate-build.log",
+    "sha256": "c049e693c9d4062a468dcbd026c1b0b517f7caf6cd7806c5754ee56e602cc594",
+    "phase": "uncommitted-integration",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": true
+  },
+  {
+    "path": "native-cli-build.json",
+    "sha256": "299c4da62ed41811ea1d52bee22a4d71b84852bb4f4cc0d68a263b78ac0e3520",
+    "phase": "uncommitted-integration",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": true
+  },
+  {
+    "path": "native-cli-build.log",
+    "sha256": "ac317ac08af89395a75c77f44320ce3b3a46bd7347e0c74d2464e08090546be4",
+    "phase": "uncommitted-integration",
+    "sourceRef": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "dirtyTree": true
+  }
+]

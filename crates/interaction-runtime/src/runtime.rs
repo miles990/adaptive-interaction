@@ -121,9 +121,6 @@ pub struct RuntimeInner {
     /// 的協調器只認得這張表；有界（[`crate::sensor_source::MAX_SENSOR_SOURCES`]），
     /// 超過就拒絕並留稽核。
     pub(crate) sensor_sources: RwLock<crate::sensor_source::SensorSourceMap>,
-    /// 每一次感測來源登記的世代（單調遞增）。同一個 `source_id` 重新登記時，
-    /// 舊那一次留下的「可能還在擷取」不會因此變成假的——世代讓兩者分得開。
-    pub(crate) sensor_source_seq: std::sync::atomic::AtomicU64,
     /// 感測記錄用的可注入單調時鐘。production 就是 `Instant::now()`；
     /// 測試把它往前推，TTL 行為才不必真的等 60 秒。
     pub sensor_clock: crate::sensor_source::SensorClock,
@@ -131,11 +128,8 @@ pub struct RuntimeInner {
     /// 有界可見）。感測不靜默：移除一個來源不得讓它的擷取從 status 無聲消失。
     pub(crate) orphan_captures:
         RwLock<BTreeMap<crate::sensor_source::SourceKey, crate::sensor_source::OrphanedCaptures>>,
-    /// 已經離開即時清單、但仍然**沒有結論**的停止（不隨時間過期）。
-    /// 「過期」只代表不再佔著即時清單，不代表停了——這張表是那句話的證據。
-    /// 有界（[`crate::sensor_source::MAX_UNRESOLVED_STOPS`]）。
-    pub(crate) unresolved_stops:
-        RwLock<BTreeMap<crate::sensor_source::SourceKey, crate::sensor_source::UnresolvedStop>>,
+    /// Canonical durable unknown-stop owner; separate from Session snapshots.
+    pub(crate) sensor_journal: std::sync::Mutex<crate::sensor_journal::SensorJournal>,
     /// Typed handle to the microphone receptor (None when not registered).
     pub mic_receptor: Option<Arc<adapters_media::MicListenReceptor>>,
     /// Presentation bridge: companion-window presence + pending command acks.
@@ -302,6 +296,7 @@ impl Runtime {
         }
         store.set_meta("clean_shutdown", "false")?;
         let estop_engaged = store.get_meta("estop_engaged")?.as_deref() == Some("true");
+        let sensor_journal = crate::sensor_journal::SensorJournal::open(&store, clean)?;
 
         let events = EventBus::default();
         let registry = CapabilityRegistry::new(events.clone());
@@ -458,10 +453,9 @@ impl Runtime {
                 executing_plans: std::sync::Mutex::new(BTreeSet::new()),
                 sensors: std::sync::Mutex::new(BTreeMap::new()),
                 sensor_sources: RwLock::new(BTreeMap::new()),
-                sensor_source_seq: std::sync::atomic::AtomicU64::new(0),
                 sensor_clock: crate::sensor_source::SensorClock::default(),
                 orphan_captures: RwLock::new(BTreeMap::new()),
-                unresolved_stops: RwLock::new(BTreeMap::new()),
+                sensor_journal: std::sync::Mutex::new(sensor_journal),
                 mic_receptor: Some(mic_receptor),
                 presentation: presentation_bridge,
                 proactive_dialogue: RwLock::new(proactive_state),
@@ -540,6 +534,15 @@ impl Runtime {
 
     /// Graceful shutdown: cancel open actions, stop drivers, mark clean.
     pub async fn shutdown(&self) {
+        // Keep transport alive until the same bounded sensor coordinator has
+        // asked every source. A clean process exit is not evidence of a stop.
+        let _ = self
+            .stop_all_sensor_sources(
+                "runtime",
+                "runtime-shutdown",
+                crate::mobile::STOP_SENSORS_WAIT,
+            )
+            .await;
         self.shutdown_token.cancel();
         self.character_shutdown();
         // 最後一份快照落地：重啟後 revision／epoch 才續接得到（不歸零）。
@@ -565,7 +568,14 @@ impl Runtime {
         // 絕不跨 runtime 重啟存活」）。必須 inline await——serve 返回後緊接
         // process::exit，spawn 出去的 kill task 沒有機會跑完。
         let _ = self.reap_recorded_gateway_pgids("shutdown").await;
-        let _ = self.store.set_meta("clean_shutdown", "true");
+        let journal_saved = self
+            .sensor_journal
+            .lock()
+            .map(|mut journal| journal.flush(&self.store).is_ok())
+            .unwrap_or(false);
+        if journal_saved {
+            let _ = self.store.set_meta("clean_shutdown", "true");
+        }
         let mut lock = self.lock.lock().expect("lock mutex");
         lock.take(); // drop → releases pid file
     }
@@ -646,6 +656,7 @@ impl Runtime {
                 );
             }
         }
+        status["unresolvedStopHealth"] = self.unresolved_stop_health();
         status
     }
 

@@ -49,6 +49,13 @@ protocol SessionTransport: AnyObject {
     func sendObservation(receptor: String, facts: [String: JSONValue])
     /// 立刻送一則 legacy `status`：這是本版**唯一**維持 presence 的心跳。
     func sendStatusNow()
+    @discardableResult
+    func sendStateApplied(_ receipt: JSONValue) -> Bool
+}
+
+extension SessionTransport {
+    @discardableResult
+    func sendStateApplied(_ receipt: JSONValue) -> Bool { false }
 }
 
 // MARK: - 名稱常數（與 Rust `interaction_session::types` 一致）
@@ -162,6 +169,7 @@ struct SessionStateOutcome: Equatable {
     var decision: SessionReceiveDecision
     /// 採用時套用後的**完整**權威狀態；不採用時 `nil`。
     var state: SemanticJSON?
+    var validatedState: ValidatedSemanticState? = nil
     /// 採用後的本地摘要（不採用時就是原值）。
     var view: SessionReceiverView
 
@@ -194,6 +202,7 @@ enum SessionDecisions {
                 // haptic 由受 governor 管的 `haptic.pulse` 動器負責，
                 // 角色 intent **不得**自己震動 → 這裡誠實宣告 false。
                 "haptic": .bool(false),
+                "stateApplied": .string("aip.applied/1"),
                 "reducedMotion": .bool(reducedMotion),
             ],
             inputs: [SessionNames.touch, SessionNames.dismiss],
@@ -203,6 +212,25 @@ enum SessionDecisions {
             role: .remoteRenderer,
             specVersions: [AIPConstants.specVersion],
             syncClasses: [.semantic])
+    }
+
+    static func receiptMatchesValidatedState(_ context: JSONValue, local: SessionSyncLocal) -> Bool {
+        guard let raw = local.state, ValidatedSemanticState.validate(raw) != nil,
+            case .object(let fields) = context,
+            fields["profile"] == .string("aip.applied/1"),
+            let sessionId = local.sessionId, fields["sessionId"] == .string(sessionId),
+            let hash = local.stateHash, hash == raw.canonicalSHA256,
+            fields["hash"] == .string(hash),
+            case .string(let token) = fields["token"], token.count == 32,
+            token.allSatisfy({ $0.isHexDigit && !$0.isUppercase }),
+            case .string(let messageId) = fields["messageId"], !messageId.isEmpty,
+            let data = try? JSONEncoder().encode(context),
+            let text = String(data: data, encoding: .utf8), let json = SemanticJSON.parse(text),
+            let generation = json["generation"]?.uintValue, generation <= 9_007_199_254_740_991,
+            json["epoch"]?.uintValue == local.epoch,
+            json["revision"]?.uintValue == local.revision
+        else { return false }
+        return true
     }
 
     /// 任一 `Encodable` → `JSONValue`（envelope payload 用）。失敗回 `nil`，不塞假資料。
@@ -411,10 +439,13 @@ enum SessionDecisions {
             arrivedOnGeneration: arrivedOnGeneration ?? local.connectionGeneration,
             viaAuthoritativeReply: viaAuthoritativeReply)
         let view = local.view
-        let decision = decideReceive(view: view, incoming: incoming)
+        var decision = decideReceive(view: view, incoming: incoming)
+        let validated = decision.adoptsState ? candidate.flatMap(ValidatedSemanticState.validate) : nil
+        if decision.adoptsState && validated == nil { decision = .rejectInvalid }
         return SessionStateOutcome(
             decision: decision,
             state: decision.adoptsState ? candidate : nil,
+            validatedState: validated,
             view: advance(view: view, incoming: incoming, decision: decision))
     }
 
@@ -872,7 +903,8 @@ final class SessionClient: ObservableObject {
             return
         }
         // 推播（不是我們要來的權威回覆）：被擋下來不算一次對齊失敗。
-        consume(message, now: now, viaAuthoritativeReply: false)
+        let decision = consume(message, now: now, viaAuthoritativeReply: false)
+        if decision.adoptsState || decision == .alreadyApplied { confirmApplied(envelope) }
     }
 
     private func handleResponse(_ envelope: AIPEnvelope, rawFrame: String, now: Date) {
@@ -891,6 +923,7 @@ final class SessionClient: ObservableObject {
             if items.isEmpty {
                 // 已經對齊了（sequence 落後不是狀態錯誤）：沒有東西要補。
                 SessionDecisions.noteSyncSucceeded(&local)
+                confirmApplied(envelope)
                 return
             }
             // 批次規則（上限／良性跳過／第一個帶 effect 的決策中止整批）只有一份實作，
@@ -914,6 +947,7 @@ final class SessionClient: ObservableObject {
                 failedToSync()
                 return
             }
+            if batch.halted == nil { confirmApplied(envelope) }
             if batch.halted == .realign(reason: .resumeTooLong) {
                 // 超過上限**不**靜默截斷成「我以為我追上了」：整批不處理，改要一份完整快照。
                 // 權威 host 在補丁塞不下時本來就會改回 snapshot，所以這是縱深防禦。
@@ -931,10 +965,21 @@ final class SessionClient: ObservableObject {
                 failedToSync()
                 return
             }
-            _ = consume(message, now: now, viaAuthoritativeReply: true)
+            let decision = consume(message, now: now, viaAuthoritativeReply: true)
+            if decision.adoptsState || decision == .alreadyApplied { confirmApplied(envelope) }
         default:
             failedToSync()
         }
+    }
+
+    /// Peer-reported application only: never a claim about display or physical effects.
+    private func confirmApplied(_ envelope: AIPEnvelope) {
+        guard let context = envelope.extra["stateApplied"],
+            case .object(let fields) = context,
+            fields["messageId"] == .string(envelope.messageId),
+            let sessionId = envelope.sessionId, fields["sessionId"] == .string(sessionId),
+            SessionDecisions.receiptMatchesValidatedState(context, local: local) else { return }
+        _ = transport?.sendStateApplied(context)
     }
 
     /// 走一遍決策表並執行結論；回傳**這一則的決策**。
@@ -1005,7 +1050,8 @@ final class SessionClient: ObservableObject {
 
     /// 採用一份權威狀態（apply／reset／recover 共用）。
     private func adopt(_ outcome: SessionStateOutcome, message: SessionStateMessage) {
-        guard let state = outcome.state else { return }
+        guard let validated = outcome.validatedState else { return }
+        let state = validated.raw
         local.revision = outcome.revision
         local.epoch = outcome.epoch
         local.state = state
@@ -1024,10 +1070,7 @@ final class SessionClient: ObservableObject {
         markResumeSettled()
         // 失敗計數的歸零由 `consume` 的 `observing(.apply/.reset/.recover)` 負責，
         // 這裡不再另外記一次（同一件事只有一個地方記帳）。
-        presentation = CharacterSemanticState.project(state)
-        if presentation == nil {
-            note("收到的角色狀態不符合本版認得的形狀，未套用到畫面")
-        }
+        presentation = CharacterSemanticState.project(validated)
         advanced.appliedStates += 1
         advanced.revision = local.revision
         advanced.sequence = local.sequence

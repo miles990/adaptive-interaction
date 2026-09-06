@@ -412,3 +412,7 @@ skippedStale, parked, lastPersistError, note }`——遷移寫在 `migratedFrom`
     command messageId」（成員的 `result{causationId}` 靠它對回來）。這些都不進 `SemanticState`，
     也不出現在任何 patch 裡。稽核 `character.session.intent-settled` 只寫 intent 名稱、status、
     對方的 `<kind>:<id>` 與是否已結清，不回顯 payload。
+
+## 語意狀態生成與接收邊界
+
+`SemanticState` 的衍生 schema、三端驗證型別、原始數字字面保留、已發布相容樣本及 optional 欄位演練，見 [semantic-state.md](semantic-state.md)。權威 restore 與 forward-compatible renderer 的責任分開；完整 state 不含 null，merge-patch 的 null 刪鍵後再驗完整結果。

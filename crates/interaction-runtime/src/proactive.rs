@@ -120,6 +120,10 @@ impl Default for ProactiveDialogueConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProactiveDialogueState {
+    /// Durable configuration revision, independent of dialogue counters. Exposed as a string.
+    pub config_revision: u64,
+    /// The last conditional write survives a lost response / process restart.
+    pub last_config_operation: Option<ConfigOperation>,
     pub config: ProactiveDialogueConfig,
     /// 最近非安全發話時間（bounded，用於每小時上限與最短間隔）。
     pub recent_sends: Vec<Timestamp>,
@@ -131,6 +135,14 @@ pub struct ProactiveDialogueState {
     pub quiet_until: Option<Timestamp>,
     /// 今日生成式對話用量（日期字串, 次數, 費用）。
     pub generative_today: Option<(String, u32, f64)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigOperation {
+    pub id: String,
+    pub revision: u64,
+    pub patch: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, schemars::JsonSchema)]
@@ -288,6 +300,8 @@ impl ProactiveDialogueState {
             .unwrap_or((0, 0.0));
         json!({
             "config": self.config,
+            "configRevision": self.config_revision.to_string(),
+            "lastConfigOperationId": self.last_config_operation.as_ref().filter(|op| op.revision == self.config_revision).map(|op| &op.id),
             "sentThisHour": self.recent_sends.iter().filter(|t| **t > hour_ago).count(),
             "quietUntil": self.quiet_until,
             "lastAnswered": self.last_answered,
@@ -409,9 +423,50 @@ impl Runtime {
     /// 更新設定（部分欄位 merge）。
     pub async fn proactive_dialogue_configure(
         &self,
-        patch: serde_json::Value,
+        mut patch: serde_json::Value,
     ) -> interaction_core::DomainResult<serde_json::Value> {
+        use interaction_core::DomainError;
+        let body = patch
+            .as_object_mut()
+            .ok_or_else(|| DomainError::Validation("config patch must be an object".into()))?;
+        let expected = body.remove("expectedConfigRevision");
+        let operation = body.remove("operationId");
+        let conditional = match (expected, operation) {
+            (None, None) => None,
+            (Some(serde_json::Value::String(revision)), Some(serde_json::Value::String(id)))
+                if !id.is_empty()
+                    && id.len() <= 64
+                    && revision.len() <= 20
+                    && revision.parse::<u64>().is_ok() =>
+            {
+                Some((revision, id))
+            }
+            _ => {
+                return Err(DomainError::Validation(
+                    "conditional config requires expectedConfigRevision and a bounded operationId"
+                        .into(),
+                ))
+            }
+        };
         let mut guard = self.proactive_dialogue.write().await;
+        if let Some((expected, id)) = &conditional {
+            if let Some(op) = &guard.last_config_operation {
+                if &op.id == id {
+                    if op.patch == patch && op.revision == guard.config_revision {
+                        return Ok(guard.status(chrono::Utc::now()));
+                    }
+                    return Err(DomainError::Conflict(
+                        "preset operation was superseded or reused with a different patch".into(),
+                    ));
+                }
+            }
+            if expected != &guard.config_revision.to_string() {
+                return Err(DomainError::Conflict(
+                    "proactive configuration changed; read effective settings before retrying"
+                        .into(),
+                ));
+            }
+        }
         let mut cfg = serde_json::to_value(&guard.config).unwrap_or_default();
         merge_config_patch(&mut cfg, &patch);
         let parsed: ProactiveDialogueConfig = serde_json::from_value(cfg).map_err(|e| {
@@ -459,10 +514,21 @@ impl Runtime {
                 ));
             }
         }
-        let prior = std::mem::replace(&mut guard.config, parsed);
+        let revision = guard
+            .config_revision
+            .checked_add(1)
+            .ok_or_else(|| DomainError::Conflict("configuration revision exhausted".into()))?;
+        let prior = guard.clone();
+        guard.config = parsed;
+        guard.config_revision = revision;
+        guard.last_config_operation = conditional.map(|(_, id)| ConfigOperation {
+            id,
+            revision,
+            patch,
+        });
         if let Err(e) = self.persist_proactive(&guard) {
-            // 存檔失敗不得謊稱已儲存（誠實階梯）：還原記憶體設定並回報錯誤。
-            guard.config = prior;
+            // Config, revision and operation receipt are one durable meta value.
+            *guard = prior;
             return Err(e);
         }
         let snapshot = guard.status(chrono::Utc::now());

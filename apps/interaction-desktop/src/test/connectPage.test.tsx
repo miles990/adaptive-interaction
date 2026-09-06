@@ -1257,7 +1257,7 @@ describe("連接與權限：沒有人確認的感測停止就在「立即停止�
     renderConnect();
     const stop = await screen.findByTestId("connect-area-stop");
     await within(stop).findByText(/有 1 筆感測停止沒有人確認/);
-    expect(within(stop).getByRole("button", { name: "我確認它已經停了" })).toBeInTheDocument();
+    expect(within(stop).getByRole("button", { name: "我已檢查，解除提醒" })).toBeInTheDocument();
     expect(stop.textContent ?? "").not.toContain("declarative.desk-esp32");
     expect(stop.textContent ?? "").not.toMatch(/generation|sourceId/i);
   });

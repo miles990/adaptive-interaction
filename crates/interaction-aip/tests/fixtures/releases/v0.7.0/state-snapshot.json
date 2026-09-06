@@ -1,0 +1,34 @@
+{
+  "specVersion": "aip/1.0",
+  "messageId": "msg_state_1",
+  "messageType": "state",
+  "name": "character.session.snapshot",
+  "source": { "kind": "session", "id": "session.home" },
+  "target": { "kind": "device", "id": "iphone-87b42264" },
+  "sessionId": "session.home",
+  "occurredAt": "2026-09-04T12:30:02Z",
+  "sequence": 205,
+  "payload": {
+    "kind": "snapshot",
+    "revision": 204,
+    "sessionEpoch": 3,
+    "hash": "7c0a267fbf11bc9479e1c6e0913938349444637f6cfd116962cf896c2f36641e",
+    "state": {
+      "characterId": "ref-shape",
+      "mood": { "kind": "neutral", "intensity": 0.0 },
+      "activity": "idle",
+      "attention": { "kind": "none" },
+      "truth": { "state": "none" },
+      "members": [
+        {
+          "party": { "kind": "device", "id": "iphone-87b42264" },
+          "role": "remote-renderer",
+          "presence": "online",
+          "lastSeenAt": "2026-09-04T12:30:02Z",
+          "unsupportedIntents": []
+        }
+      ],
+      "reducedMotion": false
+    }
+  }
+}

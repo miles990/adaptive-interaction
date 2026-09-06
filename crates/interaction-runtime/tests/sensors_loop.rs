@@ -1260,9 +1260,9 @@ async fn same_id_new_source_does_not_clear_old_generation_unknown() {
     );
 }
 
-/// 只有「同 id 的**新**來源對那個受器確認停止」才清得掉未解決停止。
+/// N3 strengthens the v0.7.0 rule: same source ID is not identity/incarnation proof.
 #[tokio::test]
-async fn confirmed_stop_from_new_source_clears_unresolved() {
+async fn confirmed_stop_from_new_source_keeps_previous_incarnation_unresolved() {
     let (_g, rt, _fake) = runtime().await;
     rt.register_sensor_source(FakeSensorSource::new("fixture.back", FakeMode::Timeout))
         .await
@@ -1286,16 +1286,10 @@ async fn confirmed_stop_from_new_source_clears_unresolved() {
         "新來源要真的確認停止：{sweep:?}"
     );
 
-    assert!(
-        rt.unresolved_stops().await.is_empty(),
-        "同 id 新來源確認停止之後才清得掉：{:?}",
-        rt.unresolved_stops().await
-    );
-    assert!(
-        audit_kinds(&rt)
-            .iter()
-            .any(|k| k == "sensor.unresolved-stop-resolved"),
-        "清除也要留稽核"
+    assert_eq!(
+        rt.unresolved_stops().await.len(),
+        1,
+        "new source's confirmation applies only to its own generation"
     );
 }
 
@@ -1471,7 +1465,7 @@ async fn the_unresolved_stop_summary_is_bounded() {
     assert!(
         audit_kinds(&rt)
             .iter()
-            .any(|k| k == "sensor.unresolved-stop-dropped"),
+            .any(|k| k == "sensor.unresolved-stop-overflow"),
         "丟掉最舊的一筆要留痕"
     );
 }
@@ -1590,4 +1584,237 @@ async fn unresolved_stop_omits_the_human_label_when_unknown() {
         "不知道就整個欄位省略（缺席 ≠ 空字串）：{row}"
     );
     assert_eq!(row["sourceId"], serde_json::json!("fixture.anon"), "{row}");
+}
+
+// N3 regression: restart is not evidence that a disconnected capture stopped.
+async fn restart_sensor_runtime(home: &tempfile::TempDir) -> Runtime {
+    Runtime::start(RuntimeOptions {
+        home: Some(home.path().to_path_buf()),
+        acquire_lock: false,
+        in_memory_db: false,
+        spawn_watchdog: false,
+    })
+    .await
+    .expect("restart runtime")
+}
+
+#[tokio::test]
+async fn restart_retains_unresolved_without_claiming_active_capture() {
+    let (home, rt, _) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.restart", FakeMode::Timeout))
+        .await
+        .unwrap();
+    let generation = rt
+        .sensor_source_generation("fixture.restart")
+        .await
+        .unwrap();
+    rt.unregister_sensor_source("fixture.restart").await;
+    expire_orphan_window(&rt);
+    assert_eq!(rt.unresolved_stops().await.len(), 1);
+    drop(rt); // process loss: deliberately no graceful shutdown.
+    let restored = restart_sensor_runtime(&home).await;
+    let entries = restored.unresolved_stops().await;
+    assert_eq!(
+        entries.len(),
+        1,
+        "restart must preserve unknown: {entries:?}"
+    );
+    assert_eq!(entries[0].generation, generation);
+    assert!(
+        restored.active_sensors_all().await.is_empty(),
+        "historical unknown is not live capture"
+    );
+    restored
+        .register_sensor_source(FakeSensorSource::new("fixture.restart", FakeMode::Confirm))
+        .await
+        .unwrap();
+    assert!(
+        restored
+            .sensor_source_generation("fixture.restart")
+            .await
+            .unwrap()
+            > generation
+    );
+    restored
+        .stop_all_sensor_sources("test", "restart", Duration::from_millis(200))
+        .await;
+    assert_eq!(
+        restored.unresolved_stops().await.len(),
+        1,
+        "new process cannot confirm an old incarnation"
+    );
+}
+
+#[tokio::test]
+async fn restart_before_orphan_ttl_retains_unknown() {
+    let (home, rt, _) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.prettl", FakeMode::Timeout))
+        .await
+        .unwrap();
+    rt.unregister_sensor_source("fixture.prettl").await;
+    assert!(rt.unresolved_stops().await.is_empty());
+    drop(rt);
+    let restored = restart_sensor_runtime(&home).await;
+    assert_eq!(
+        restored.unresolved_stops().await.len(),
+        1,
+        "the TTL window must already be durable"
+    );
+    assert!(restored.active_sensors_all().await.is_empty());
+}
+
+#[tokio::test]
+async fn restart_human_dismissal_stays_dismissed_without_claiming_stopped() {
+    let (home, rt, _) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new(
+        "fixture.dismiss-restart",
+        FakeMode::Timeout,
+    ))
+    .await
+    .unwrap();
+    let generation = rt
+        .sensor_source_generation("fixture.dismiss-restart")
+        .await
+        .unwrap();
+    rt.unregister_sensor_source("fixture.dismiss-restart").await;
+    expire_orphan_window(&rt);
+    assert_eq!(rt.unresolved_stops().await.len(), 1);
+    let out = rt
+        .dismiss_unresolved_stop("fixture.dismiss-restart", generation, "human")
+        .await
+        .unwrap();
+    assert_eq!(out["confirmedStopped"], false);
+    drop(rt);
+    let restored = restart_sensor_runtime(&home).await;
+    assert!(restored.unresolved_stops().await.is_empty());
+    assert!(audit_kinds(&restored).contains(&"sensor.unresolved-stop-dismissed".to_string()));
+}
+
+#[tokio::test]
+async fn new_generation_confirmed_stop_cannot_vouch_for_previous_source() {
+    let (_home, rt, _) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.identity", FakeMode::Timeout))
+        .await
+        .unwrap();
+    rt.unregister_sensor_source("fixture.identity").await;
+    expire_orphan_window(&rt);
+    rt.register_sensor_source(FakeSensorSource::new("fixture.identity", FakeMode::Confirm))
+        .await
+        .unwrap();
+    rt.stop_all_sensor_sources("test", "new-contract", Duration::from_millis(200))
+        .await;
+    assert_eq!(
+        rt.unresolved_stops().await.len(),
+        1,
+        "equal source IDs are not incarnation evidence"
+    );
+}
+
+#[tokio::test]
+async fn restart_corrupt_and_future_journals_are_parked_and_visible() {
+    for (raw, expected) in [
+        ("not json", "corrupt"),
+        ("{\"format\":999,\"secret\":\"must-stay\"}", "future-format"),
+    ] {
+        let (home, rt, _) = runtime().await;
+        rt.store.set_meta("sensor_stop_journal", raw).unwrap();
+        drop(rt);
+        let restored = restart_sensor_runtime(&home).await;
+        let view = restored.unresolved_stops_value().await;
+        assert_eq!(view["unresolvedStopHealth"]["storage"], expected);
+        assert_eq!(view["unresolvedStopHealth"]["parked"], true);
+        assert_eq!(view["unresolvedStopHealth"]["recoveryUnknown"], true);
+        assert!(!view.to_string().contains("must-stay"));
+        assert_eq!(
+            restored
+                .store
+                .get_meta("sensor_stop_journal")
+                .unwrap()
+                .as_deref(),
+            Some(raw)
+        );
+        assert!(
+            restored.sensor_source_ids().await.len() >= 2,
+            "parked persistence must retain local/mobile stop paths"
+        );
+        assert!(restored.active_sensors_all().await.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn journal_dismissal_commit_failure_preserves_reminder_and_audit() {
+    let (home, rt, _) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.commit", FakeMode::Timeout))
+        .await
+        .unwrap();
+    let generation = rt.sensor_source_generation("fixture.commit").await.unwrap();
+    rt.unregister_sensor_source("fixture.commit").await;
+    expire_orphan_window(&rt);
+    assert_eq!(rt.unresolved_stops().await.len(), 1);
+    rt.store
+        .force_next_transaction_error("injected journal commit failure");
+    assert!(rt
+        .dismiss_unresolved_stop("fixture.commit", generation, "human")
+        .await
+        .is_err());
+    assert_eq!(rt.unresolved_stops().await.len(), 1);
+    assert_eq!(rt.unresolved_stop_health()["storage"], "write-failed");
+    assert!(!audit_kinds(&rt).contains(&"sensor.unresolved-stop-dismissed".to_string()));
+    drop(rt);
+    let restored = restart_sensor_runtime(&home).await;
+    assert_eq!(restored.unresolved_stops().await.len(), 1);
+}
+
+#[tokio::test]
+async fn restart_overflow_never_becomes_zero_problems_after_itemized_dismissals() {
+    let (home, rt, _) = runtime().await;
+    for i in 0..MAX_UNRESOLVED_STOPS + 3 {
+        let id = format!("fixture.overflow-{i}");
+        rt.register_sensor_source(FakeSensorSource::new(&id, FakeMode::Timeout))
+            .await
+            .unwrap();
+        rt.unregister_sensor_source(&id).await;
+        expire_orphan_window(&rt);
+    }
+    for entry in rt.unresolved_stops().await {
+        rt.dismiss_unresolved_stop(&entry.source_id, entry.generation, "human")
+            .await
+            .unwrap();
+    }
+    assert!(rt.unresolved_stops().await.is_empty());
+    assert!(
+        rt.unresolved_stop_health()["overflowCount"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    drop(rt);
+    let restored = restart_sensor_runtime(&home).await;
+    assert!(
+        restored.unresolved_stop_health()["overflowCount"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert!(restored.active_sensors_all().await.is_empty());
+}
+
+#[tokio::test]
+async fn shutdown_persists_unknown_before_marking_the_process_clean() {
+    let (home, rt, _) = runtime().await;
+    rt.register_sensor_source(FakeSensorSource::new("fixture.shutdown", FakeMode::Timeout))
+        .await
+        .unwrap();
+    rt.shutdown().await;
+    drop(rt);
+    let restored = restart_sensor_runtime(&home).await;
+    assert!(
+        restored
+            .unresolved_stops()
+            .await
+            .iter()
+            .any(|entry| entry.source_id == "fixture.shutdown"),
+        "orderly shutdown cannot classify an unanswered source as stopped"
+    );
+    assert!(restored.active_sensors_all().await.is_empty());
 }

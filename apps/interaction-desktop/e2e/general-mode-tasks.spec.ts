@@ -1347,6 +1347,8 @@ test("可及性：角色頁的收合區塊用 Enter／Space 展開得了，而�
 
   await summary.focus();
   await expect(summary).toBeFocused();
+  const positionBefore = await summary.boundingBox();
+  expect(positionBefore).not.toBeNull();
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => quiet.evaluate((el) => (el as HTMLDetailsElement).open), { timeout: 5_000 })
@@ -1357,6 +1359,10 @@ test("可及性：角色頁的收合區塊用 Enter／Space 展開得了，而�
     .poll(async () => quiet.evaluate((el) => (el as HTMLDetailsElement).open), { timeout: 5_000 })
     .toBe(false);
   await expect(summary).toBeFocused();
+  await expect(summary).toBeInViewport();
+  const positionAfter = await summary.boundingBox();
+  expect(positionAfter).not.toBeNull();
+  expect(Math.abs(positionAfter!.y - positionBefore!.y), "收回細節後要回到原摘要位置").toBeLessThanOrEqual(2);
 });
 
 test("可及性：對話框開著的時候，Escape 收得掉，而且停止的方式一直在", async ({ page, request }) => {

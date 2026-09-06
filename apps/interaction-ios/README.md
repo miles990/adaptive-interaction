@@ -4,6 +4,14 @@
 **wss(TLS + 憑證指紋固定)** 連線,提供動作/電池/麥克風音量感測、
 觸覺/通知/朗讀/閃光/手電筒動器、簡化陪伴角色,以及 BLE 閘道。
 
+本輪工程收斂（2026-09-06，v0.7.0 發布後）的 XCTest 方法數期望為 **163**：
+修改前基線 **158/158 通過**，新增 SemanticStateConformance 3 與 SessionClient 回執 2。
+方法數期望不代表通過；必須核對同一次執行的完整結尾與失敗數。
+下方 19、21、46、146、153 等數字保留為各日期的歷史驗證紀錄，不是本輪總數。
+
+可重現入口（Repository 根目錄）：`bash scripts/tests/ios-simulator.sh --out /tmp/ios-evidence-new`。
+腳本建立並只刪除自己的模擬器，`xctest-result.py` 將缺少完整結果、失敗與skip轉為非零退出；不是只檢查App啟動。
+
 > **誠實聲明(先讀這段)**
 > 本目錄是**完整的 SwiftUI 原始碼交付**。驗收等級(2026-08-28 更新):
 > - ✅ **iOS 模擬器驗收**(iPhone 17 模擬器、iOS 26.2 runtime、Xcode 26.6 / iOS 26.5 SDK):
@@ -11,7 +19,7 @@
 >   `interact-ai` daemon** 完成 wss+TLS 指紋固定+HMAC 配對、Keychain 重連(`auth → auth-ok`)、
 >   `character.present` 動器閉環(收據 `acknowledged` + `deviceApplied`)、撤銷後重連
 >   `auth-fail` 顯示;XCTest 兩個測試檔在模擬器內執行 **19/19 通過**
->   (當時的測試方法數;之後補了 stop-all 的測試,現為 21,見下方 2026-09-03 更新)。
+>   (當時的測試方法數;之後補了 stop-all 的測試,該次增為 21,見下方 2026-09-03 更新)。
 >   **第二輪(2026-08-28 晚)復測**:撤銷**即時斷線**(socket 於 DELETE 後
 >   ≤0.035s 消失、App 立刻顯示「配對已被撤銷或過期」)、桌面 `emergency-stop`
 >   **停掉 iPhone 感測**(`activeSensors` 立刻清空、手機 0.499s 內回報
@@ -35,7 +43,7 @@
 > - ✅ **裝置 SDK 建置通過(未簽章)**:`-sdk iphoneos -arch arm64 -configuration Release
 >   CODE_SIGNING_ALLOWED=NO` → `** BUILD SUCCEEDED **`;12 個 `.swift` 對
 >   `arm64-apple-ios17.0` + iphoneos26.5 SDK 的 `swiftc -typecheck` 也是 0 error / 0 warning。
-> - ✅ **XCTest 146/146 通過（2026-09-06 v0.7.0 決策表規則 1「本地身分已知才比對」，
+> - ✅ **歷史紀錄：XCTest 146/146 通過（2026-09-06 v0.7.0 決策表規則 1「本地身分已知才比對」，
 >   144 → 146；同分支稍早為 144/144、126/126、120/120、104/104，v0.6.0 對抗審查修復後為 101/101；
 >   2026-09-04 wave 2 為 92/92、同日 v0.5.1 為 46/46、2026-09-03 為 25/25）**
 >   (AIPConformance 17 + ConnectionManagerGate 7 + Lifecycle 22 + MotionClassifier 8 + Protocol 21 +
@@ -363,7 +371,10 @@ SIMCTL_CHILD_XCInjectBundleInto="$APP/InteractionCompanion" \
 xcrun simctl launch --console-pty "$UDID" "$BID" -XCTest All "$APP/PlugIns/InteractionCompanionTests.xctest"
 ```
 
-輸出結尾必須看到 `Executed <n> tests`——**`n` 不可以是 0**。目前的期望值是 146。
+輸出結尾必須看到 `All tests` 的完整結果與 `Executed <n> tests`——**`n` 不可以是 0**。
+本輪期望值為 **163**，且必須同時是 **0 failures** 與 `All tests` 通過。
+`simctl launch` 的程序退出碼可能在 XCTest 失敗時仍為 0，不能單憑退出碼宣稱通過。
+上方歷史紀錄中的 146、153 不可用來接受本輪少執行測試的結果。
 
 ### DEBUG 限定啟動參數(自動化驗收,僅供模擬器/CI;release 不編入)
 
@@ -642,7 +653,7 @@ status 訊息(`sensors` 五旗標 + `microphone/location/bluetooth` 權限)於
    `testActuatorOnlyStopAllTouchesNeitherSensorsNorCharacterState`／
    `testOnlyTheRuntimeClearsTheEmergencyCharacterState`),但先前的執行紀錄一直停在 21/21,沒有人
    重跑過完整的 25 個。用同一套 `simctl` 注入流程重新執行:**Executed 25 tests, with 0 failures**
-   (MotionClassifier 8 + Protocol 17)。**2026-09-04（v0.5.1）加入 `ReconnectHintTests.swift` 21 個測試後，同一套注入流程重跑為 Executed 46 tests, 0 failures——這才是目前 XCTest 的權威數字。**
+   (MotionClassifier 8 + Protocol 17)。**2026-09-04（v0.5.1）加入 `ReconnectHintTests.swift` 21 個測試後，同一套注入流程重跑為 Executed 46 tests, 0 failures——這是該次 v0.5.1 XCTest 的權威數字。**
 
 > ⚠️ 這一輪**全部在模擬器**,而且 `xcodebuild test -destination …` 在本機無法執行
 > (Xcode 未安裝 iOS 26.5 平台元件,見上方 Xcode 專案章節的警告框)。**模擬器 XCTest 與真機驗收

@@ -1,0 +1,20 @@
+{
+  "name": "baseline-rust",
+  "sha": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "cargo",
+    "test",
+    "--workspace",
+    "--no-fail-fast"
+  ],
+  "exit": 0,
+  "durationSeconds": 308.04,
+  "rustCounts": [
+    1245,
+    0,
+    0
+  ],
+  "testBinaries": 96,
+  "log": "/tmp/adaptive-convergence-20260906/baseline-rust.log"
+}

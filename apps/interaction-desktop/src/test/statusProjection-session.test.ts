@@ -74,6 +74,7 @@ function member(overrides: Partial<CharacterSyncMember> = {}): CharacterSyncMemb
     degraded: false,
     // 同步模式沒有回報（舊 Runtime／查不到出站通道）：維持既有語意，不憑空降級。
     syncProfile: null,
+    stateAppliedCurrent: true,
     ...overrides,
   };
 }
@@ -540,6 +541,7 @@ describe("角色同步投影：成員清單與最近互動", () => {
         degraded: null,
         // 沒有給 profiles：同步模式就是不知道（不猜成 full-state）。
         syncProfile: null,
+        stateAppliedCurrent: false,
       },
       {
         name: "這台電腦",
@@ -548,6 +550,7 @@ describe("角色同步投影：成員清單與最近互動", () => {
         canPresent: true,
         degraded: null,
         syncProfile: null,
+        stateAppliedCurrent: false,
       },
     ]);
   });
@@ -703,7 +706,7 @@ describe("成員同步模式：只有 full-state 可以說「已同步」", () =
 
     const note = characterSyncProfileNote("pending-full-state");
     expect(note).toBe(
-      "尚未確認能收到完整狀態：這台裝置說它收得下完整的角色狀態，但還沒有任何一份真的送達過，所以還不算已同步。"
+      "尚未確認能收到完整狀態：這台裝置說它收得下完整的角色狀態，但還沒有完整寫出紀錄，也沒有套用確認。"
     );
     expect(note ?? "").not.toContain("收不到完整的角色狀態");
     // 一般模式的兩條硬規則照舊：不外洩原始值、不外洩技術詞。
@@ -745,11 +748,11 @@ describe("成員同步模式：只有 full-state 可以說「已同步」", () =
     }
   });
 
-  it("full-state 與沒有回報維持既有語意（綠勾照舊）", () => {
+  it("full-state 或沒有回報都不能代替目前狀態套用確認", () => {
     const cases: Record<string, string>[] = [{ [DEVICE]: "full-state" }, {}];
     for (const profiles of cases) {
       const members = characterSyncMembers(onlineSnapshot(), { [DEVICE]: FIXTURE_PHONE }, profiles);
-      expect(projectCharacterSession(onlineSnapshot(), members, signals()).state).toBe("synced");
+      expect(projectCharacterSession(onlineSnapshot(), members, signals()).state).toBe("syncing");
     }
   });
 
@@ -799,8 +802,9 @@ describe("成員同步模式：只有 full-state 可以說「已同步」", () =
 
   it("連接頁的裝置一行：非 full-state 不得寫成「已同步」", () => {
     const snap = onlineSnapshot();
-    expect(characterSyncDeviceLine(snap, DEVICE)).toBe("角色同步：已同步");
-    expect(characterSyncDeviceLine(snap, DEVICE, "full-state")).toBe("角色同步：已同步");
+    expect(characterSyncDeviceLine(snap, DEVICE)).toBe("角色同步：尚未確認套用目前狀態");
+    expect(characterSyncDeviceLine(snap, DEVICE, "full-state")).toBe("角色同步：尚未確認套用目前狀態");
+    expect(characterSyncDeviceLine(snap, DEVICE, "full-state", true)).toBe("角色同步：已同步");
     const line = characterSyncDeviceLine(snap, DEVICE, "intent-only");
     expect(line).toContain("只接收指令");
     expect(line).not.toContain("已同步");

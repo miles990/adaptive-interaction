@@ -325,9 +325,13 @@ enum ClientMessage {
     /// {"type":"aip","envelope":{…}} — AIP Character Session(`docs/aip/README.md` §9.1)。
     /// 只在 auth-ok 之後送;信封本身由 `AIPEnvelope.encode()` 輸出並套用 AIP 大小上限。
     case aip(AIPEnvelope)
+    /// Negotiated mobile transport v1.1: peer-applied state, never physical verification.
+    case aipApplied(JSONValue)
 
     private var jsonObject: [String: JSONValue] {
         switch self {
+        case .aipApplied(let receipt):
+            return ["type": .string("aip-applied"), "receipt": receipt]
         case .pairRequest(let deviceName, let model):
             return [
                 "type": .string("pair-request"),

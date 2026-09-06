@@ -28,7 +28,7 @@
 
 | 狀態 | 主要句子 | 補充 | 顏色 |
 |---|---|---|---|
-| `synced` | iPhone 已連接，角色狀態已同步 | 手機上的角色和這台電腦看到的是同一個狀態。 | ok（唯一的綠） |
+| `synced` | iPhone 已連接，角色狀態已同步 | 裝置回報已套用目前的角色狀態；這不代表已驗證畫面或實體效果。 | ok（唯一的綠） |
 | `partial-sync`（v0.7.0） | 有裝置收不到完整狀態 | 這台裝置的連線只送得進一部分內容；它看到的角色不一定和這台電腦一樣，不算已同步。（§5.7） | info |
 | `reconnecting` | iPhone 正在重新連線 | 連線斷了一下，正在接回來；這段時間的互動不會補播。 | pending |
 | `offline` | iPhone 暫時離線 | 手機現在收不到角色狀態，也送不出互動；接回來之後才會重新對齊。 | warn |
@@ -46,7 +46,7 @@
 判定順序（先擋住「不能相信」的情況，最後才談成功）：
 關閉 → 連續讀不到 → 這一次讀不到 → 認不得的回報 → 紀錄曾損毀 → 有 online 成員
 （另有裝置**現在連著**卻不是成員 → `needs-reconfirmation`；那條線送不到完整狀態 →
-`partial-sync`；已知做不到 → `partial-capability`；拿不到協商結果 → `capability-unknown`；
+`partial-sync`；沒有目前套用回執 → `syncing`；已知做不到 → `partial-capability`；拿不到協商結果 → `capability-unknown`；
 全部確認演得出來 → `synced`）→ reconnecting → offline → 需要重新確認 → 沒有裝置。
 
 `needs-reconfirmation` 排在這三態**之前**：它是 warn、要人動手（`reconfirm-device`），
@@ -237,57 +237,37 @@ schema 版本、transport／token／provider id、裝置識別碼、原始 paylo
 `src/test/transport.test.ts`（HTTP 路由與 body）、`src-tauri/src/lib.rs`
 （`provider_state_strings_are_parsed_exactly_or_refused`：認不得的狀態字串不猜）。
 
-## 5.7 成員同步模式（v0.7.0）：只有 `full-state` 可以說「已同步」
+## 5.7 成員同步能力與套用確認
 
-「連上了」不等於「拿得到同一份狀態」。一條有單則上限、又不會重組分片的線
-（Serial／MQTT／BLE），送得到的只有放得進上限的意圖訊息，甚至只送得進來、收不回去。
-把這種成員畫成綠色的「已同步」是最貴的那種謊：使用者會以為手機上看到的角色就是這裡的角色。
+能力分類與當下進度各自有來源。`syncCapability` 說明這條線可接完整狀態、只接指令或只回報事件；
+`stateDelivery` 分開記錄傳送與對端套用確認；`stateAppliedCurrent` 表示回執是否追上 Host。
+完整契約與版本在 [device profile §3.1/§3.2](device-profile.md)。
 
-> 來源：`GET /v1/status` 的 `characterSessionSync[]`（沒有裝置成員時後端不序列化這個鍵）
-> 與 `GET /v1/character-session/diagnostics` 的 `members[].syncProfile`
-> （查不到出站通道就**省略**該欄位）。推導規則見 `docs/aip/device-profile.md` §3.1
-> ——是 Runtime 推導的，不是裝置自己宣稱的；但**「不是裝置自己宣稱的」只對 `full-state`
-> 這一態成立**（升級條件是「真的把一份完整快照寫上那條線」這個觀察到的事實）。
-> 「我會重組分片」是裝置在握手時自己說的一句話，host 驗證不了，所以那只夠讓它停在
-> `pending-full-state`。
-> 投影：`src/statusProjection/characterSync.ts`
-> （`characterSyncProfiles`／`characterSyncProfileLabel`／`characterSyncProfileNote`）。
+來源是 human `GET /v1/status` 的 `characterSessionSync[]` 和
+`GET /v1/character-session/diagnostics` 的 `members[]`。新桌面優先讀 `syncCapability`；
+舊 Runtime 缺少它時才讀相容欄位 `syncProfile`。後者的 full-state 只代表過去完整寫出，不能單獨證明套用。
 
-| `syncProfile` | 一般模式看到 | 同步卡的狀態 |
+| 能力與證據 | 一般模式看到 | 同步卡 |
 |---|---|---|
-| `full-state` | （沒有多的字）照舊 | 既有語意（可以是「已同步」） |
-| `pending-full-state` | 尚未確認能收到完整狀態 | 有裝置收不到完整狀態（`partial-sync`，不是綠色） |
-| `intent-only` | 只接收指令 | 有裝置收不到完整狀態（`partial-sync`，不是綠色） |
-| `event-source` | 只回報事件 | 有裝置收不到完整狀態（`partial-sync`，不是綠色） |
-| 認不得的值 | 拿不到完整狀態 | 有裝置收不到完整狀態（不猜成 `full-state`） |
-| **沒有回報**（欄位缺席） | （沒有多的字）照舊 | 既有語意 |
+| full-state，尚未收到目前狀態的有效回執 | 裝置尚未確認套用目前的角色狀態 | 同步尚未完成；可前往「查看裝置」 |
+| full-state，目前 tuple 已確認，呈現能力齊全 | 裝置回報已套用目前的角色狀態；這不代表已驗證畫面或實體效果 | 已同步 |
+| full-state，目前 tuple 已確認，呈現能力不足或未知 | 部分能力目前不可用／能力核對中 | 不給綠色 |
+| intent-only | 只接收指令 | 有裝置收不到完整狀態 |
+| event-source | 只回報事件 | 有裝置收不到完整狀態 |
+| 舊 pending-full-state | 尚未確認能收到完整狀態 | 保留相容描述，不給綠色 |
+| 未知能力或缺少套用證據 | 不猜成完整同步 | 不給綠色 |
 
-最後一列是刻意的：舊 Runtime 不送這個欄位，Runtime 查不到出站通道時也會省略——
-**沒有回報 ≠ 非 full-state**，所以不憑空降級，也不憑空升級。
+snapshot 已確認後，只要 Host 的 epoch/revision/hash 改變，舊回執立即不再支持「目前已同步」。
+`characterSyncAppliedCurrent` 還會比對桌面最新 SSE 的 sessionId 與 tuple，避免舊診斷回覆替新狀態作證。
+離線、撤銷、停用、重新連線與 stop 使舊確認失效；未選用回執的舊裝置仍可照常互動，畫面說明尚未確認。
 
-`pending-full-state` 這一列也是刻意分開的（對抗審查 `713f8fe` 的 `declarative-aip-binding-020`）：
-它不是「這條線送不到」，是「這條線可能送得到，但還沒有任何一份完整狀態真的送達過」。
-所以裝置條目上那一句是**尚未確認**（「這台裝置說它收得下完整的角色狀態，但還沒有任何一份真的
-送達過，所以還不算已同步。」），不是 `intent-only`／`event-source`／認不得的值共用的「收不到」——
-把未知講成已知是反方向的謊，和把它畫成綠勾一樣不誠實。卡片層級照舊只有兩種可能：不是 `full-state`
-就進 `partial-sync`（info，不是綠色）。
+角色頁同步卡與連接頁手機卡使用同一套判定。裝置條目保留只接指令／只回報事件的能力描述。
+判定先核對狀態套用，再核對是否演得出全部表演，兩者都不能代替效果驗證。
 
-三個出現的地方（同一份投影，說法一致）：
-
-- **角色頁的同步卡**：徽章變成「有裝置收不到完整狀態」（`info`，不是綠色），
-  成員清單那一行後面加「（只接收指令）」／「（只回報事件）」。
-- **連接與權限的手機卡**：那一行變成「角色同步：只接收指令（不是完整同步）」，
-  不再出現「角色同步：已同步」。
-- **連接與權限的裝置條目**：加一句「只回報事件：這台裝置收不到完整的角色狀態，不算已同步。」
-  （`pending-full-state` 用它自己的那一句，見上。）
-
-**判定排在能力之前**：`部分能力目前不可用` 的文案說「狀態已經對齊了」，而這一態連狀態都
-沒有完整送到，講成「對齊了、只是演不出全部」是把兩件事說反。
-
-**一般模式不外洩** `full-state`／`intent-only`／`event-source` 這三個英文原始值，也不外洩
-`transport` 與裝置識別碼；原始值只在進階模式的「連接診斷」裡以 `syncProfile …` 出現。
-守門測試：`src/test/statusProjection-session.test.ts`、`src/test/character-sync-card.test.tsx`、
-`src/test/connectPage.test.tsx`。
+一般模式不顯示 profile、token、generation、revision、hash、transport 或裝置識別碼。
+診斷保留進度與計數，但 transfer challenge 只在 wire，連診斷也不回傳。
+守門測試：`state-applied-projection.test.ts`、`statusProjection-session.test.ts`、
+`character-sync-card.test.tsx`、`connectPage.test.tsx`、`general-mode-no-technical-terms.test.tsx`。
 
 ## 6. 模擬 iPhone（fixture）的標示
 
