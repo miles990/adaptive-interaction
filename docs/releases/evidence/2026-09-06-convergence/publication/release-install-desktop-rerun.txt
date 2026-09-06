@@ -1,0 +1,52 @@
+{
+  "status": "staged-and-version-checked",
+  "tag": "v0.8.0",
+  "sourceCommit": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "asset": {
+    "name": "interaction-control-center_0.8.0_aarch64.dmg",
+    "bytes": 22514522,
+    "sha256": "23882c5f70049a299501f8a16809016bed64634ec8a41e3cfabbd25e46eafe8a",
+    "githubDigest": "sha256:23882c5f70049a299501f8a16809016bed64634ec8a41e3cfabbd25e46eafe8a",
+    "githubDigestMatched": true,
+    "assetId": 546879182
+  },
+  "appPath": "/tmp/adaptive-convergence-20260906/release-desktop-install-v2/interaction-control-center.app",
+  "binarySha256": "c47057b14b99954a9d076bb247c01aa2dd6b3ad32b774459928730d5b41f42f5",
+  "bundleVersion": "0.8.0",
+  "bundleBuild": "0.8.0",
+  "commands": [
+    {
+      "command": [
+        "hdiutil",
+        "attach",
+        "/tmp/adaptive-convergence-20260906/release-assets/interaction-control-center_0.8.0_aarch64.dmg",
+        "-readonly",
+        "-nobrowse",
+        "-mountpoint",
+        "/tmp/adaptive-convergence-20260906/release-desktop-install-v2/mount",
+        "-plist"
+      ],
+      "exit": 0
+    },
+    {
+      "command": [
+        "ditto",
+        "/tmp/adaptive-convergence-20260906/release-desktop-install-v2/mount/interaction-control-center.app",
+        "/tmp/adaptive-convergence-20260906/release-desktop-install-v2/interaction-control-center.app"
+      ],
+      "exit": 0
+    },
+    {
+      "command": [
+        "hdiutil",
+        "detach",
+        "/tmp/adaptive-convergence-20260906/release-desktop-install-v2/mount"
+      ],
+      "exit": 0
+    }
+  ],
+  "seconds": 10.838,
+  "mountDetached": true,
+  "launch": "not-run here; separate native AX result",
+  "scope": "Read-only DMG mounted and App copied via ditto into task-owned temporary installation directory. No system Applications overwrite. Subsequent direct executable launch does not test Finder quarantine/Gatekeeper approval."
+}

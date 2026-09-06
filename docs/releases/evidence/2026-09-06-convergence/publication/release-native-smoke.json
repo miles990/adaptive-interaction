@@ -1,0 +1,22 @@
+{
+  "name": "release-native-smoke",
+  "sha": "4f5992933cde634a242f114f39575b278e9bb834",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "scripts/tauri-ax-walkthrough.sh",
+    "--app",
+    "/tmp/adaptive-convergence-20260906/release-desktop-install-v2/interaction-control-center.app",
+    "--app-source-ref",
+    "1fa69b8fafed54687119747c652a0869cb991f89",
+    "--port",
+    "18922",
+    "--out",
+    "/tmp/adaptive-convergence-20260906/release-native-smoke"
+  ],
+  "exit": 0,
+  "durationSeconds": 90.51,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "release-native-smoke.txt"
+}

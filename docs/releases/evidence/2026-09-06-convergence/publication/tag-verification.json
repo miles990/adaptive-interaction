@@ -1,0 +1,12 @@
+{
+  "tag": "v0.8.0",
+  "object": "5bca3660afa1d74d7f0844eeb7832e1e25ff9375",
+  "type": "tag",
+  "peeledCommit": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "remoteObject": "5bca3660afa1d74d7f0844eeb7832e1e25ff9375",
+  "remotePeeledCommit": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "mainCi": 34017910631,
+  "mainFullVerify": "main-release-verify-instrumented.json",
+  "tagCommand": "bash scripts/release-tag.sh 0.8.0 --push",
+  "worktreeClean": true
+}

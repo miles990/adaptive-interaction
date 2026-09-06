@@ -1,0 +1,19 @@
+{
+  "name": "release-candidate-rust",
+  "sha": "c15873acbaaed870d2c90fa95c12255f532ce782",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "-c",
+    "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --no-fail-fast"
+  ],
+  "exit": 0,
+  "durationSeconds": 282.53,
+  "rustCounts": [
+    1278,
+    0,
+    0
+  ],
+  "testBinaries": 98,
+  "log": "release-candidate-rust.txt"
+}

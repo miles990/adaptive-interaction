@@ -4,6 +4,8 @@
 [![Release](https://img.shields.io/github/v/release/miles990/adaptive-interaction)](https://github.com/miles990/adaptive-interaction/releases)
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 
+最新發布：[v0.8.0](https://github.com/miles990/adaptive-interaction/releases/tag/v0.8.0)（2026-09-06）。本輪語意契約、套用確認與恢復改善見[工程報告](docs/releases/v0.8.0-final-report.md)；[發布／安裝證據](docs/releases/v0.8.0-publication.md)與[已知限制](docs/releases/v0.8.0-known-limitations.md)分列。
+
 > ⚠️ **實驗型專案（Experimental）**：這是探索「跨 AI 自適應互動」的研究性平台，
 > API、CLI 與配方格式可能在版本間破壞性變動。請勿用於生產環境，
 > 也不要連接真實的高風險裝置。

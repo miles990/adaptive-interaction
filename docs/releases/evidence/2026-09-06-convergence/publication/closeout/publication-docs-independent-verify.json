@@ -1,0 +1,51 @@
+{
+  "reviewer": "/root/state_receipts",
+  "finder": "/root/semantic_contract",
+  "documentationFixAuthor": "/root",
+  "completedAt": "2026-09-06T07:48:20.161639+00:00",
+  "status": "finding resolved; documentation matches actual run evidence",
+  "scope": "Only macOS x86_64/Rosetta platform row and macOS arm64 CLI outer/inner timing row in v0.8.0-publication.md, against the two named publication JSON artifacts.",
+  "checks": [
+    {
+      "id": "rosetta-actual-outcome",
+      "passed": true,
+      "source": {
+        "platform": "macOS x86_64",
+        "status": "needs-environment",
+        "reason": "Rosetta unavailable; not installed by this task"
+      },
+      "documentRow": "| macOS x86_64 | needs-environment：本機沒有Rosetta，x86_64成品未啟動；本輪未安裝Rosetta，也不算Intel硬體驗收。[CLI smoke JSON](evidence/2026-09-06-convergence/publication/release-install-cli.json)保留實際結果 |",
+      "assessment": "Document now directly reports this run needs-environment, unavailable Rosetta, no x86_64 launch and no Rosetta installation. No conditional language is needed; it does not turn the unexecuted platform into a pass."
+    },
+    {
+      "id": "cli-timing-boundaries",
+      "passed": true,
+      "outerExit": 0,
+      "outerDurationSeconds": 4.58,
+      "innerRunnerSeconds": 4.471,
+      "documentRow": "| macOS arm64 CLI | 下載的`install.sh --version v0.8.0 --cli-only --bin-dir <task-owned>` exit0；installed binary與驗證archive一致，`--version`=0.8.0；隔離home/loopback daemon ready、authenticated status、SIGINT exit0、port closed；外層總耗時4.58s，內層runner 4.471s |",
+      "assessment": "4.58s is the outer process measurement and4.471s is the inner runner measurement. Both are correctly labeled and are not incorrectly equated."
+    }
+  ],
+  "evidenceHashes": [
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/docs/releases/v0.8.0-publication.md",
+      "sha256": "62604d25ccc89342a6bca738e0e973c4fc41d2aad7e02e1fa6beb80a01404dbe"
+    },
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/docs/releases/evidence/2026-09-06-convergence/publication/release-install-cli.json",
+      "sha256": "ab7c84932e0d114dd50f3451d34f903c5b9bfbe4c4350b0fc45c37fa4c51d1ca"
+    },
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/docs/releases/evidence/2026-09-06-convergence/publication/release-install-cli-run.json",
+      "sha256": "4c7c8fd17e36a51e2b9eddce72119ce3640a85b6ff231284a116d68be4825649"
+    }
+  ],
+  "repositoryModified": false,
+  "productOrGuiExecuted": false,
+  "limits": [
+    "Read-only document-to-artifact verification only; no product run, Rosetta probe, binary launch, installer or GUI was executed by this verifier.",
+    "The top-level CLI smoke status passed applies to the executed arm64 path; the separate x86_64 result remains needs-environment. This review does not convert that missing environment into platform acceptance.",
+    "Other publication-page claims are outside this bounded review."
+  ]
+}

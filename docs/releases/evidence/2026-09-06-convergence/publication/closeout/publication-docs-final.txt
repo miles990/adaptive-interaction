@@ -1,0 +1,15 @@
+architecture-checks @ /Users/user/Workspace/claude-lab/adaptive-interaction
+完整輸出：/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/architecture-evidence.IRf81c
+
+── docs ────────────────────────────────────────────────
+  ✔ scripts/tests/docs-claims.sh — docs-claims: 188 passed / 0 failed
+  ✔ scripts/tests/release-scripts.sh — release-scripts: 58 passed / 0 failed
+
+── 摘要 ────────────────────────────────────────────────
+  docs       PASS  docs-claims.sh:docs-claims: 188 passed / 0 failed release-scripts.sh:release-scripts: 58 passed / 0 failed
+  ts         SKIP 未指定 --ts
+  rust       SKIP 未指定 --rust
+  drill-lint SKIP 未指定 --drill-lint
+  swift      SKIP 未指定 --swift；不以測試檔存在當成通過
+  drills     SKIP 未指定 --drills；靜態 lint 不代表演練通過
+architecture-checks: 所選組全部通過；5 組未選取（不是通過）；證據 /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/architecture-evidence.IRf81c

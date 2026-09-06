@@ -1,0 +1,23 @@
+release-verify v0.8.0 @ 1fa69b8
+  ✔ worktree clean — 0 dirty paths
+  ✔ git diff --check
+  ✔ versions in sync — Cargo=0.8.0 tauri=0.8.0 conf=0.8.0 pkg=0.8.0
+  ✔ every crate version follows the workspace
+  ✔ CHANGELOG has a non-empty [0.8.0] section
+  ✔ tag v0.8.0 does not exist yet
+  ✔ openapi.json info.version == 0.8.0
+  ✔ no secrets in tracked files
+  ✔ AIP generated types not drifted
+  ✔ docs claims match the code — docs-claims: 176 passed / 0 failed
+  ✔ release scripts + workflow self-tests — release-scripts: 58 passed / 0 failed
+  ✔ CI required checks for HEAD all success — 4 required checks success: Rust (fmt + clippy + test + build), Tauri backend (clippy + test), Frontend (typecheck + component tests + build), Browser E2E (Playwright against a real daemon)
+  ✔ cargo fmt
+  ✔ cargo clippy
+  ✘ cargo test --workspace
+  ✔ cargo clippy (src-tauri)
+  ✔ cargo test (src-tauri: host_safety / character_store / CHANGELOG claim-check)
+  ✔ pnpm aip:check (AIP codegen drift)
+  ✔ pnpm typecheck
+  ✔ pnpm test
+  ✔ pnpm build
+✘ gates failed for v0.8.0; do not tag

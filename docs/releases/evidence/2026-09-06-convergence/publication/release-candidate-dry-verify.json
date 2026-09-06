@@ -1,0 +1,16 @@
+{
+  "name": "release-candidate-dry-verify",
+  "sha": "c15873acbaaed870d2c90fa95c12255f532ce782",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "scripts/release-verify.sh",
+    "0.8.0",
+    "--skip-ci"
+  ],
+  "exit": 0,
+  "durationSeconds": 11.58,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "release-candidate-dry-verify.txt"
+}

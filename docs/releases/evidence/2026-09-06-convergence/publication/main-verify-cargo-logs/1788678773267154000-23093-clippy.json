@@ -1,0 +1,14 @@
+{
+  "command": [
+    "clippy",
+    "--workspace",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "exit": 0,
+  "seconds": 0.685,
+  "log": "1788678773267154000-23093-clippy.txt"
+}

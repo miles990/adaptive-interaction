@@ -1,0 +1,150 @@
+{
+  "metrics": {
+    "kind": "AX script (not human)",
+    "successfulClicks": 22,
+    "commandSeconds": 46.49,
+    "commandCount": 42,
+    "humanHelp": "not measured",
+    "humanDecisions": "not measured",
+    "humanTaskTimes": "not measured"
+  },
+  "binarySha256": "c47057b14b99954a9d076bb247c01aa2dd6b3ad32b774459928730d5b41f42f5",
+  "appSourceRef": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "driverSourceSha": "4f5992933cde634a242f114f39575b278e9bb834",
+  "driverDirtyTree": false,
+  "driverSha256": "e8ee496d917c2b88dd5eea63a5c771a5363f006a6b63da83377b673dce8534b8",
+  "axHelperSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+  "prefsFixture": null,
+  "prefsFixtureSha256": null,
+  "artifactUnchanged": true,
+  "startedAt": "2026-09-06T07:41:43Z",
+  "finishedAt": "2026-09-06T07:43:13Z",
+  "evidenceLevel": "真 Tauri 視窗（指定 .app，AX 驅動，fixture agent，隔離 home）",
+  "honesty": {
+    "agent": "AI 幫手是 fixture 子程序（fake_codex.sh／fake_claude.sh），不是真的 Codex／Claude Code",
+    "phone": "這一輪完全沒有手機參與（真機與模擬手機都沒有）",
+    "statuses": "completed／failed／needs-environment／not-run；needs-environment 不等於通過"
+  },
+  "app": "/tmp/adaptive-convergence-20260906/release-desktop-install-v2/interaction-control-center.app",
+  "appBuildSeconds": null,
+  "isolatedHome": "/tmp/interaction-ax-home.l212id",
+  "api": "http://127.0.0.1:18922",
+  "accessibilityPermission": "granted",
+  "portListenersAfterCleanup": "0",
+  "summary": {
+    "completed": 9,
+    "needs-environment": 1
+  },
+  "tasks": [
+    {
+      "id": "launch",
+      "title": "啟動 .app 並等到 /ready",
+      "status": "completed",
+      "evidence": "/ready＝{\"emergencyStop\":false,\"status\":\"ok\"}；視窗清單＝Interaction Control Center/小樞/",
+      "startedAtEpoch": 1788680509.071279,
+      "finishedAtEpoch": 1788680509.741955,
+      "scriptStepSeconds": 0.671,
+      "successfulClicks": 0,
+      "humanHelp": "not measured"
+    },
+    {
+      "id": "onboarding",
+      "title": "首次設定精靈走到完成並顯示角色",
+      "status": "completed",
+      "evidence": "onboardingCompleted：False → 套用前 False → 套用後 True；視窗清單＝Interaction Control Center/小樞//",
+      "startedAtEpoch": 1788680509.741955,
+      "finishedAtEpoch": 1788680522.447525,
+      "scriptStepSeconds": 12.706,
+      "successfulClicks": 5,
+      "humanHelp": "not measured"
+    },
+    {
+      "id": "switch-character",
+      "title": "更換角色（讀回 packId／companionPack）",
+      "status": "completed",
+      "evidence": "companionPack：shu-maid → shu-standard；status.presentation.packId：shu-maid → shu-standard；視窗清單 Interaction Control Center/小樞/ → Interaction Control Center/小樞/",
+      "startedAtEpoch": 1788680522.447525,
+      "finishedAtEpoch": 1788680541.0818958,
+      "scriptStepSeconds": 18.634,
+      "successfulClicks": 3,
+      "humanHelp": "not measured"
+    },
+    {
+      "id": "companion-preset",
+      "title": "陪伴預設「安靜」（讀回偏好＋主動說話模式）",
+      "status": "completed",
+      "evidence": "prefs.companionExpressiveness=quiet、companionDoNotDisturb=True、GET /v1/proactive-dialogue mode=necessary；AX 讀回「安靜」按鈕 AXValue=1（1＝aria-pressed，畫面確實高亮在「安靜」）",
+      "startedAtEpoch": 1788680541.0818958,
+      "finishedAtEpoch": 1788680551.5708601,
+      "scriptStepSeconds": 10.489,
+      "successfulClicks": 2,
+      "humanHelp": "not measured"
+    },
+    {
+      "id": "pause-proactive",
+      "title": "暫停主動對話並恢復（/v1/pause）",
+      "status": "completed",
+      "evidence": "/v1/pause paused：False → True → False；安靜時段沒有被順手改掉（[]）",
+      "startedAtEpoch": 1788680551.5708601,
+      "finishedAtEpoch": 1788680559.460833,
+      "scriptStepSeconds": 7.89,
+      "successfulClicks": 3,
+      "humanHelp": "not measured"
+    },
+    {
+      "id": "do-not-disturb",
+      "title": "勿擾開關（讀回偏好）",
+      "status": "completed",
+      "evidence": "prefs.companionDoNotDisturb：True → False（開關真的寫進偏好檔）",
+      "startedAtEpoch": 1788680559.460833,
+      "finishedAtEpoch": 1788680570.986687,
+      "scriptStepSeconds": 11.526,
+      "successfulClicks": 3,
+      "humanHelp": "not measured"
+    },
+    {
+      "id": "companion-visibility",
+      "title": "顯示／隱藏桌面角色（視窗清單＋presentation.visible）",
+      "status": "completed",
+      "evidence": "視窗清單：Interaction Control Center/小樞/ → Interaction Control Center/ → Interaction Control Center/小樞/；status.presentation.visible：True → False → True；prefs.companionVisible=True",
+      "startedAtEpoch": 1788680570.986687,
+      "finishedAtEpoch": 1788680581.286825,
+      "scriptStepSeconds": 10.3,
+      "successfulClicks": 2,
+      "humanHelp": "not measured"
+    },
+    {
+      "id": "emergency-stop",
+      "title": "緊急停止（二段確認）",
+      "status": "completed",
+      "evidence": "emergencyStop：False → 第一下 False → 確認後 True；保持緊急停止，未代替人類解除。",
+      "startedAtEpoch": 1788680581.286825,
+      "finishedAtEpoch": 1788680587.9461892,
+      "scriptStepSeconds": 6.659,
+      "successfulClicks": 3,
+      "humanHelp": "not measured"
+    },
+    {
+      "id": "emergency-unlock",
+      "title": "人類走安全流程解除緊急停止",
+      "status": "needs-environment",
+      "evidence": "需要人類親自完成既有安全確認；自動走查不代為解除。",
+      "startedAtEpoch": 1788680587.9461892,
+      "finishedAtEpoch": 1788680587.979855,
+      "scriptStepSeconds": 0.034,
+      "successfulClicks": 0,
+      "humanHelp": "not measured"
+    },
+    {
+      "id": "narrow-390",
+      "title": "視窗縮到 390px 寬並檢查橫向捲動",
+      "status": "completed",
+      "evidence": "視窗實際大小＝224,76,390,844；AX 樹裡沒有水平捲軸（AXScrollBar/AXHorizontalOrientation）。限制：AX 讀不到 documentElement.scrollWidth，這一項是「沒有水平捲軸」而不是「像素級沒有溢出」；像素級由 Playwright 的 390px 任務覆蓋",
+      "startedAtEpoch": 1788680587.979855,
+      "finishedAtEpoch": 1788680593.255609,
+      "scriptStepSeconds": 5.276,
+      "successfulClicks": 1,
+      "humanHelp": "not measured"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "command": [
+    "test",
+    "--workspace",
+    "--no-fail-fast"
+  ],
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "exit": 0,
+  "seconds": 125.556,
+  "log": "1788678773983689000-23103-test.txt"
+}

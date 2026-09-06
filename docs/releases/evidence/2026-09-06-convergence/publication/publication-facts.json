@@ -1,0 +1,194 @@
+{
+  "version": "0.8.0",
+  "status": "published-assets-verified-available-macOS-smoke-completed",
+  "startBranch": "main",
+  "startCommit": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+  "implementationBranch": "feature/semantic-recovery-convergence",
+  "candidate": "c15873acbaaed870d2c90fa95c12255f532ce782",
+  "releaseMain": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "tag": {
+    "tag": "v0.8.0",
+    "object": "5bca3660afa1d74d7f0844eeb7832e1e25ff9375",
+    "type": "tag",
+    "peeledCommit": "1fa69b8fafed54687119747c652a0869cb991f89",
+    "remoteObject": "5bca3660afa1d74d7f0844eeb7832e1e25ff9375",
+    "remotePeeledCommit": "1fa69b8fafed54687119747c652a0869cb991f89",
+    "mainCi": 34017910631,
+    "mainFullVerify": "main-release-verify-instrumented.json",
+    "tagCommand": "bash scripts/release-tag.sh 0.8.0 --push",
+    "worktreeClean": true
+  },
+  "pr": {
+    "headRefOid": "c15873acbaaed870d2c90fa95c12255f532ce782",
+    "mergeCommit": {
+      "oid": "1fa69b8fafed54687119747c652a0869cb991f89"
+    },
+    "mergedAt": "2026-09-06T06:58:49Z",
+    "number": 5,
+    "state": "MERGED",
+    "url": "https://github.com/miles990/adaptive-interaction/pull/5"
+  },
+  "prCi": 34017584720,
+  "mainCi": 34017910631,
+  "mainVerification": {
+    "seconds": 165.78,
+    "skip": 0,
+    "initialFailure": "not-reproduced; cause unknown; original failure retained"
+  },
+  "release": {
+    "url": "https://github.com/miles990/adaptive-interaction/releases/tag/v0.8.0",
+    "id": 383497697,
+    "publishedAt": "2026-09-06T07:35:55Z",
+    "workflow": 34018696536,
+    "workflowUrl": "https://github.com/miles990/adaptive-interaction/actions/runs/34018696536",
+    "jobCount": 11,
+    "conclusion": "success",
+    "assets": 23,
+    "checksumsMatched": 9,
+    "githubDigestsMatched": 23
+  },
+  "macOS": {
+    "cli": {
+      "status": "passed",
+      "verificationReportSha256": "9d8c0f465a57717fbbdd5aeccebe44ae973c884e332842078d164289f27b5111",
+      "scriptSha256": "9cebc66edec1d91ec4f28b53246cc9a0401a18643d619ca6b33869bf322bc0f6",
+      "tag": "v0.8.0",
+      "sha": "1fa69b8fafed54687119747c652a0869cb991f89",
+      "seconds": 4.471,
+      "results": [
+        {
+          "platform": "macOS arm64",
+          "installerCommand": [
+            "bash",
+            "/tmp/adaptive-convergence-20260906/release-assets/install.sh",
+            "--version",
+            "v0.8.0",
+            "--cli-only",
+            "--bin-dir",
+            "/tmp/adaptive-convergence-20260906/release-install/bin"
+          ],
+          "installerExit": 0,
+          "installedBinaryMatchesVerifiedArchive": true,
+          "binarySha256": "e6408661dfb0e77c9634e387a6550fd0c06a2f8f63e4013acf76d89745610d35",
+          "version": "interact-ai 0.8.0",
+          "ready": {
+            "emergencyStop": false,
+            "status": "ok"
+          },
+          "authenticatedStatusExit": 0,
+          "statusFieldNames": [
+            "activeSensors",
+            "agentSessions",
+            "capabilityVersion",
+            "characterProtocol",
+            "configErrors",
+            "emergencyStop",
+            "eventSequence",
+            "hasReceipts",
+            "name",
+            "onboardingCompleted",
+            "pendingAiAssists",
+            "presentation",
+            "proactivePause",
+            "quietHours",
+            "recipes",
+            "schemaVersion",
+            "session",
+            "startedAt",
+            "unresolvedStopHealth",
+            "uptimeSeconds",
+            "version"
+          ],
+          "scope": "Downloaded release installer to isolated custom bin; loopback daemon ready and authenticated read-only status; no consent or emergency unlock action",
+          "shutdownExit": 0,
+          "portClosed": true
+        },
+        {
+          "platform": "macOS x86_64",
+          "status": "needs-environment",
+          "reason": "Rosetta unavailable; not installed by this task"
+        }
+      ],
+      "linuxWindows": "Build workflow and asset checksums only; installation not-run on this macOS host",
+      "desktop": "separate native result",
+      "installerSha256": "306091e3c6f2b9bed3ee60f1e5843a1ee0063fb41924d4d61e98ad5a46ee6ae1"
+    },
+    "desktop": {
+      "status": "staged-and-version-checked",
+      "tag": "v0.8.0",
+      "sourceCommit": "1fa69b8fafed54687119747c652a0869cb991f89",
+      "asset": {
+        "name": "interaction-control-center_0.8.0_aarch64.dmg",
+        "bytes": 22514522,
+        "sha256": "23882c5f70049a299501f8a16809016bed64634ec8a41e3cfabbd25e46eafe8a",
+        "githubDigest": "sha256:23882c5f70049a299501f8a16809016bed64634ec8a41e3cfabbd25e46eafe8a",
+        "githubDigestMatched": true,
+        "assetId": 546879182
+      },
+      "appPath": "/tmp/adaptive-convergence-20260906/release-desktop-install-v2/interaction-control-center.app",
+      "binarySha256": "c47057b14b99954a9d076bb247c01aa2dd6b3ad32b774459928730d5b41f42f5",
+      "bundleVersion": "0.8.0",
+      "bundleBuild": "0.8.0",
+      "commands": [
+        {
+          "command": [
+            "hdiutil",
+            "attach",
+            "/tmp/adaptive-convergence-20260906/release-assets/interaction-control-center_0.8.0_aarch64.dmg",
+            "-readonly",
+            "-nobrowse",
+            "-mountpoint",
+            "/tmp/adaptive-convergence-20260906/release-desktop-install-v2/mount",
+            "-plist"
+          ],
+          "exit": 0
+        },
+        {
+          "command": [
+            "ditto",
+            "/tmp/adaptive-convergence-20260906/release-desktop-install-v2/mount/interaction-control-center.app",
+            "/tmp/adaptive-convergence-20260906/release-desktop-install-v2/interaction-control-center.app"
+          ],
+          "exit": 0
+        },
+        {
+          "command": [
+            "hdiutil",
+            "detach",
+            "/tmp/adaptive-convergence-20260906/release-desktop-install-v2/mount"
+          ],
+          "exit": 0
+        }
+      ],
+      "seconds": 10.838,
+      "mountDetached": true,
+      "launch": "not-run here; separate native AX result",
+      "scope": "Read-only DMG mounted and App copied via ditto into task-owned temporary installation directory. No system Applications overwrite. Subsequent direct executable launch does not test Finder quarantine/Gatekeeper approval."
+    },
+    "nativeSummary": {
+      "completed": 9,
+      "needs-environment": 1
+    },
+    "nativeSeconds": 90.51,
+    "nativeMetrics": {
+      "kind": "AX script (not human)",
+      "successfulClicks": 22,
+      "commandSeconds": 46.49,
+      "commandCount": 42,
+      "humanHelp": "not measured",
+      "humanDecisions": "not measured",
+      "humanTaskTimes": "not measured"
+    },
+    "nativeDriverSource": "4f5992933cde634a242f114f39575b278e9bb834",
+    "nativeDriverDirty": false,
+    "appSource": "1fa69b8fafed54687119747c652a0869cb991f89"
+  },
+  "remaining": [
+    "Real iPhone/ESP32/new MQTT and BLE applied end-to-end not-run",
+    "Nondeveloper usability, human VoiceOver and human emergency unlock not-run",
+    "Linux/Windows installation not-run; cross-platform build and downloaded assets verified",
+    "Unsigned/not notarized/no SBOM or build attestation; direct App executable smoke is not Finder/Gatekeeper approval",
+    "First local workspace verification failure has no retained inner test detail; same-SHA diagnostic and full verified rerun passed, cause unknown"
+  ],
+  "documentation": "Post-release facts are backfilled through a separate docs PR; the immutable tag remains on the verified release source. No recursive latest-document-HEAD claim."
+}

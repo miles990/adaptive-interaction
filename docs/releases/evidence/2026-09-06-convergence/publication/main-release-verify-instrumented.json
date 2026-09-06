@@ -1,0 +1,16 @@
+{
+  "name": "main-release-verify-instrumented",
+  "sha": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "scripts/release-verify.sh",
+    "0.8.0",
+    "--run-tests"
+  ],
+  "exit": 0,
+  "durationSeconds": 165.78,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "main-release-verify-instrumented.txt"
+}

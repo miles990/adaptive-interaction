@@ -1,0 +1,65 @@
+{
+  "status": "passed",
+  "verificationReportSha256": "9d8c0f465a57717fbbdd5aeccebe44ae973c884e332842078d164289f27b5111",
+  "scriptSha256": "9cebc66edec1d91ec4f28b53246cc9a0401a18643d619ca6b33869bf322bc0f6",
+  "tag": "v0.8.0",
+  "sha": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "seconds": 4.471,
+  "results": [
+    {
+      "platform": "macOS arm64",
+      "installerCommand": [
+        "bash",
+        "/tmp/adaptive-convergence-20260906/release-assets/install.sh",
+        "--version",
+        "v0.8.0",
+        "--cli-only",
+        "--bin-dir",
+        "/tmp/adaptive-convergence-20260906/release-install/bin"
+      ],
+      "installerExit": 0,
+      "installedBinaryMatchesVerifiedArchive": true,
+      "binarySha256": "e6408661dfb0e77c9634e387a6550fd0c06a2f8f63e4013acf76d89745610d35",
+      "version": "interact-ai 0.8.0",
+      "ready": {
+        "emergencyStop": false,
+        "status": "ok"
+      },
+      "authenticatedStatusExit": 0,
+      "statusFieldNames": [
+        "activeSensors",
+        "agentSessions",
+        "capabilityVersion",
+        "characterProtocol",
+        "configErrors",
+        "emergencyStop",
+        "eventSequence",
+        "hasReceipts",
+        "name",
+        "onboardingCompleted",
+        "pendingAiAssists",
+        "presentation",
+        "proactivePause",
+        "quietHours",
+        "recipes",
+        "schemaVersion",
+        "session",
+        "startedAt",
+        "unresolvedStopHealth",
+        "uptimeSeconds",
+        "version"
+      ],
+      "scope": "Downloaded release installer to isolated custom bin; loopback daemon ready and authenticated read-only status; no consent or emergency unlock action",
+      "shutdownExit": 0,
+      "portClosed": true
+    },
+    {
+      "platform": "macOS x86_64",
+      "status": "needs-environment",
+      "reason": "Rosetta unavailable; not installed by this task"
+    }
+  ],
+  "linuxWindows": "Build workflow and asset checksums only; installation not-run on this macOS host",
+  "desktop": "separate native result",
+  "installerSha256": "306091e3c6f2b9bed3ee60f1e5843a1ee0063fb41924d4d61e98ad5a46ee6ae1"
+}

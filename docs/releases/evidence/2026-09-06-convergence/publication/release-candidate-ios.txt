@@ -1,0 +1,38 @@
+Monitoring boot status for Codex convergence XCTest (C2F0B9E7-C398-4245-8504-B1E075108169).
+[2026-09-06 06:35:29 +0000] Status=1, isTerminal=NO, Elapsed=00:01.
+	Waiting on BackBoard
+
+[2026-09-06 06:35:48 +0000] Status=2, isTerminal=NO, Elapsed=00:20.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.managedconfiguration.migrator (MCProfile.migrator, user-agnostic)
+		Migration Elapsed:00:00 seconds
+
+[2026-09-06 06:35:49 +0000] Status=2, isTerminal=NO, Elapsed=00:21.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.MobileSafari.migrator (MobileSafari.migrator)
+		Migration Elapsed:00:00 seconds
+
+[2026-09-06 06:35:50 +0000] Status=2, isTerminal=NO, Elapsed=00:22.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.managedconfiguration.cleanup.migrator (MCCleanup.migrator)
+		Migration Elapsed:00:01 seconds
+
+[2026-09-06 06:35:50 +0000] Status=4, isTerminal=NO, Elapsed=00:22.
+	Waiting on System App
+
+[2026-09-06 06:35:51 +0000] Status=4, isTerminal=NO, Elapsed=00:23.
+	Waiting on System App
+
+[2026-09-06 06:35:52 +0000] Status=4, isTerminal=NO, Elapsed=00:24.
+	Waiting on System App
+
+[2026-09-06 06:35:53 +0000] Status=4, isTerminal=NO, Elapsed=00:25.
+	Waiting on System App
+
+[2026-09-06 06:35:55 +0000] Status=4, isTerminal=NO, Elapsed=00:26.
+	Waiting on System App
+
+[2026-09-06 06:35:55 +0000] Status=4294967295, isTerminal=YES, Elapsed=00:27.
+	Finished
+
+{"status": "passed", "expected": 163, "evidenceLevel": "iOS simulator XCTest", "total": 163, "passed": 163, "failed": 0, "failureCount": 0, "skipped": 0}

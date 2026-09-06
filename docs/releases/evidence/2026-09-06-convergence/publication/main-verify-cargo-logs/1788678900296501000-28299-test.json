@@ -1,0 +1,11 @@
+{
+  "command": [
+    "test",
+    "--manifest-path",
+    "apps/interaction-desktop/src-tauri/Cargo.toml"
+  ],
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "exit": 0,
+  "seconds": 1.755,
+  "log": "1788678900296501000-28299-test.txt"
+}

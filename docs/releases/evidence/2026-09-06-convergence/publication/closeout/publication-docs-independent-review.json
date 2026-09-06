@@ -1,0 +1,225 @@
+{
+  "review": "Bounded independent publication documentation Find review",
+  "reviewer": "semantic_contract",
+  "branch": "codex/v0.8.0-release-evidence",
+  "reviewedHead": "4f5992933cde634a242f114f39575b278e9bb834",
+  "workingTree": "Documentation backfill, plus untracked documentation/evidence; per-file hashes below pin the reviewed content.",
+  "immutableReleaseSource": "1fa69b8fafed54687119747c652a0869cb991f89",
+  "immutableTagObject": "5bca3660afa1d74d7f0844eeb7832e1e25ff9375",
+  "status": "review-complete; one P3 found and corrected by root, separate Verify assigned to state_receipts",
+  "openFindings": 0,
+  "findings": [
+    {
+      "id": "PUBLICATION-DOC-01",
+      "priority": "P3",
+      "path": "docs/releases/v0.8.0-publication.md",
+      "line": 37,
+      "title": "State the observed unavailable x86_64 environment instead of a conditional plan",
+      "before": "Table said to consult the JSON for whether Rosetta is available and only run if available, although the completed source report states needs-environment and Rosetta unavailable.",
+      "evidence": "docs/releases/evidence/2026-09-06-convergence/publication/release-install-cli.json#/results/1",
+      "actualObserved": {
+        "platform": "macOS x86_64",
+        "status": "needs-environment",
+        "reason": "Rosetta unavailable; not installed by this task"
+      },
+      "suggestedFix": "Explicit needs-environment, Rosetta unavailable, x86_64 binary not launched, no Rosetta installation, keep raw JSON link.",
+      "status": "fixed in current documentation by root",
+      "roles": {
+        "finder": "semantic_contract",
+        "author": "root",
+        "separateVerifierAssigned": "state_receipts",
+        "currentTextCheck": "semantic_contract confirmed factual wording; does not claim state_receipts result"
+      },
+      "currentText": "| macOS x86_64 | needs-environment：本機沒有Rosetta，x86_64成品未啟動；本輪未安裝Rosetta，也不算Intel硬體驗收。[CLI smoke JSON](evidence/2026-09-06-convergence/publication/release-install-cli.json)保留實際結果 |"
+    }
+  ],
+  "nonBlockingClarification": {
+    "cliDuration": "Root now explicitly records wrapper4.58s and internal runner4.471s; distinct timing scopes, no contradiction."
+  },
+  "checks": {
+    "artifactArchive": {
+      "artifacts": 204,
+      "checks": {
+        "sourceChecked": 204,
+        "archiveChecked": 204
+      },
+      "errors": [],
+      "sourceUnavailable": [],
+      "unindexed": []
+    },
+    "factsConsistency": {
+      "reviewedHead": "4f5992933cde634a242f114f39575b278e9bb834",
+      "tagObject": "5bca3660afa1d74d7f0844eeb7832e1e25ff9375",
+      "releaseSource": "1fa69b8fafed54687119747c652a0869cb991f89",
+      "assetsChecked": 23,
+      "sidecarsChecked": 9,
+      "githubDigestsChecked": 23,
+      "sourceComparisonsInReport": 4,
+      "mainCiJobs": 4,
+      "releaseWorkflowJobs": 11,
+      "localMarkdownLinksChecked": 117,
+      "missingLocalLinks": [],
+      "trackedDiffPaths": [
+        "AGENTS.md",
+        "CHANGELOG.md",
+        "CLAUDE.md",
+        "README.md",
+        "docs/acceptance-evidence.md",
+        "docs/releases/evidence-index.json",
+        "docs/releases/next-convergence-progress.md",
+        "docs/releases/v0.8.0-final-report.md",
+        "docs/releases/v0.8.0-known-limitations.md",
+        "docs/releases/v0.8.0-test-matrix.md"
+      ],
+      "untrackedDocumentationFiles": 206,
+      "sourceOrDependencyOrProtocolChanges": false,
+      "nativeDriverBlobsEqualToTag": true
+    },
+    "rawCiLogBindings": "PR and main facts rawLogSha256 equal manifest original source SHA256 for the corresponding archived CI logs",
+    "assetVerification": "23 report assets match metadata names/IDs/size/digest; all23 GitHub digests true;9sidecars bind exact same-name binary hashes; source comparison report alltrue. No assets were downloaded or product commands rerun by this review.",
+    "localLinks": "117 local Markdown targets checked, 0 missing; external URLs checked against archived IDs/data only, not refreshed over network.",
+    "versionsAndDiff": "Product implementation/dependencies/protocol/source tests/scripts have no diff from tag. All tracked changes are ten named Markdown/JSON documentation files; new files are publication docs/evidence only.",
+    "sourceBinding": "Candidate c15873ac and main1fa69b8 have identical tree22f1ebcb; driver4f599293 has matching driver/helper/fixture blobs. Local annotated tag and peeled source match archived remote object/peeled records.",
+    "noMovingHeadCycle": "Release source is fixed1fa69b8; documentation branch/driver4f599293 is explicit historical metadata, not a demand to retag or rerun all product gates on every future documentation HEAD."
+  },
+  "keyFacts": {
+    "assets": 23,
+    "sidecars": 9,
+    "githubDigests": 23,
+    "mainCI": {
+      "run": 34017910631,
+      "source": "1fa69b8fafed54687119747c652a0869cb991f89",
+      "jobsSuccess": 4
+    },
+    "releaseWorkflow": {
+      "run": 34018696536,
+      "source": "1fa69b8fafed54687119747c652a0869cb991f89",
+      "jobsSuccess": 11
+    },
+    "release": {
+      "id": 383497697,
+      "publishedAt": "2026-09-06T07:35:55Z",
+      "draft": false,
+      "prerelease": false
+    },
+    "cli": {
+      "wrapperSeconds": 4.58,
+      "internalRunnerSeconds": 4.471,
+      "arm64Passed": true,
+      "x86_64Status": "needs-environment; Rosetta unavailable; not installed",
+      "linuxWindowsInstallation": "not-run"
+    },
+    "native": {
+      "wrapperSeconds": 90.51,
+      "summary": {
+        "completed": 9,
+        "needs-environment": 1
+      },
+      "successfulAXClicks": 22,
+      "artifactUnchanged": true,
+      "portListenersAfterCleanup": "0",
+      "humanEmergencyUnlock": "needs-environment/not-run"
+    }
+  },
+  "failureHistoryPreserved": {
+    "firstMainWorkspace": {
+      "exit": 1,
+      "seconds": 206.75,
+      "detailLogMissing": true,
+      "status": "not-reproduced; cause unknown; not claimed fixed"
+    },
+    "sameSourceDiagnostic": {
+      "passed": 1278,
+      "failed": 0,
+      "seconds": 126.72
+    },
+    "sameSourceFullVerify": {
+      "exit": 0,
+      "seconds": 165.78,
+      "skip": 0
+    },
+    "tagHelper": "Static recheck skips its own full matrix; relies on preceding exact-main0skip verification, not conflated.",
+    "dmgFirstStage": {
+      "exit": 1,
+      "seconds": 14.71,
+      "cause": "/tmp versus /private/tmp same-directory alias comparison",
+      "appLaunched": false,
+      "mountDetached": true
+    },
+    "dmgFixedStage": {
+      "exit": 0,
+      "wrapperSeconds": 10.91,
+      "fix": "resolved-path comparison; unrelated mount remains rejected; fresh task-owned v2 directory"
+    },
+    "classification": "DMG failure is harness defect; initial workspace failure remains unresolved/not-reproduced, not erased by reruns."
+  },
+  "boundariesPreserved": [
+    "Native AX automation and fixture agents are not human metrics or real AI acceptance.",
+    "Human emergency unlock was not run and no consent/latch approval is claimed.",
+    "No Rosetta installed; x86_64 unavailable. Linux/Windows installation was not run.",
+    "macOS direct executable launch does not test Finder/Gatekeeper approval; no signature/notarization/SBOM/build attestation claim.",
+    "Real iPhone/ESP32, dedicated MQTT/BLE applied loops, nondeveloper and human VoiceOver remain unverified."
+  ],
+  "reviewedFilePins": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "c78f66f94fdf28f26ec0f0800be359e62a66a5307030bd38423d0dc2f8c03ffb"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "7bcc9d31a61fb3fb59fa4b3c536a8eacd9c08ee84d5fd29b12ab0987edfba1f3"
+    },
+    {
+      "path": "CLAUDE.md",
+      "sha256": "30dd603c0ee58df7126e2c4010c33cbc3eef71068a8165c89c9899b8b03ba82b"
+    },
+    {
+      "path": "README.md",
+      "sha256": "54265659a6b94edee38a62e0bd59d28f1af0a7a75364ad02a4cfe83322f9488c"
+    },
+    {
+      "path": "docs/acceptance-evidence.md",
+      "sha256": "219118fcbd4d1b8e438163234c63cdf4387df90675fdd4f5cf7acbb245355788"
+    },
+    {
+      "path": "docs/releases/evidence-index.json",
+      "sha256": "e7ada7baa72ee2659e50c91d526028756446741538f0b1d4e9cc1fdeb4359b86"
+    },
+    {
+      "path": "docs/releases/next-convergence-progress.md",
+      "sha256": "bc49f7520406d33bab6a9ce6014d4b0c8b675ceb0993b0e0ce44159536a7cece"
+    },
+    {
+      "path": "docs/releases/v0.8.0-final-report.md",
+      "sha256": "101918eedae614d9026e5c7e4141427c03d542e992557c9ed84e1f1a8a23ba6a"
+    },
+    {
+      "path": "docs/releases/v0.8.0-known-limitations.md",
+      "sha256": "0c1f324e712768c10738d735e97638bb07f3558a4b088f44ee62a5fd79e876c3"
+    },
+    {
+      "path": "docs/releases/v0.8.0-test-matrix.md",
+      "sha256": "500152b1043db946f84512ca93c84d5bc43091c6ba889b532dbe2444e3250630"
+    },
+    {
+      "path": "docs/releases/v0.8.0-publication.md",
+      "sha256": "62604d25ccc89342a6bca738e0e973c4fc41d2aad7e02e1fa6beb80a01404dbe"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/publication/artifact-manifest.json",
+      "sha256": "f435bcad632e8f26ea1b8900ea392eacfd2a57bbf6685959b1cb842010fe0c43"
+    }
+  ],
+  "verificationExecutedByReviewer": {
+    "repoEdits": 0,
+    "builds": 0,
+    "productTests": 0,
+    "guiActions": 0,
+    "networkRefresh": 0,
+    "readOnlyHashAndConsistencyChecks": true
+  },
+  "artifacts": [
+    "/tmp/publication-manifest-independent-hash-check.json",
+    "/tmp/publication-consistency-independent-check.json"
+  ]
+}

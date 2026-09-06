@@ -1,0 +1,13 @@
+→ [1/4] CLI：下載 interact-ai-v0.8.0-aarch64-apple-darwin.tar.gz
+    checksum ok（只證明位元組與 Release 一致；沒有簽章／SBOM／build provenance）
+    installed: /tmp/adaptive-convergence-20260906/release-install/bin/interact-ai (interact-ai 0.8.0)
+    ⚠ /tmp/adaptive-convergence-20260906/release-install/bin 不在 PATH；請加入 shell rc： export PATH="/tmp/adaptive-convergence-20260906/release-install/bin:$PATH"
+→ [2/4] Skill：略過（之後可 interact-ai self install-skill）
+→ [3/4] 桌面版：略過（之後可 interact-ai self install-desktop）
+→ [4/4] completion：略過（之後可 interact-ai completion <shell>）
+
+✔ 安裝完成。下一步：
+  interact-ai serve                 # 啟動 daemon
+  interact-ai session start         # 開始互動 session
+  interact-ai self version --check  # 檢查更新（self update 一鍵升級）
+  interact-ai self uninstall --yes  # 移除（--purge 連資料）

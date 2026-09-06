@@ -1,0 +1,18 @@
+import collections,datetime,hashlib,json,re,sys
+from pathlib import Path
+b=Path('/tmp/adaptive-convergence-20260906');kind=sys.argv[1];raw=(b/f'{kind}-ci.log').read_text();log=re.sub(r'\x1b\[[0-9;]*m','',raw);run=json.loads((b/f'{kind}-ci-final.json').read_text());groups=collections.defaultdict(list)
+for line in log.splitlines():
+ parts=line.split('\t',2)
+ if len(parts)==3:groups[parts[0]].append(parts[2])
+rows=[]
+for job in run['jobs']:
+ text='\n'.join(groups[job['name']]);counts=[list(map(int,m)) for m in re.findall(r'test result: \w+\. (\d+) passed; (\d+) failed; (\d+) ignored',text)]
+ row={k:job[k] for k in ['name','conclusion','startedAt','completedAt']};row['seconds']=(datetime.datetime.fromisoformat(job['completedAt'].replace('Z','+00:00'))-datetime.datetime.fromisoformat(job['startedAt'].replace('Z','+00:00'))).total_seconds()
+ if counts:row.update({'rustTests':list(map(sum,zip(*counts))),'binaries':len(counts),'counting':'Sum once per test result line, including doc-test binaries; not added to local totals'})
+ elif job['name'].startswith('Frontend'):
+  row['testSummary']=re.findall(r'(?:Test Files|Tests)\s+\d+ passed[^\n]*',text)[-2:]
+ elif job['name'].startswith('Browser'):
+  row['testSummary']=re.findall(r'\b\d+ passed \([^)]+\)',text)[-1:]
+ rows.append(row)
+result={'run':run['databaseId'],'url':run['url'],'headSha':run['headSha'],'event':run['event'],'status':run['status'],'conclusion':run['conclusion'],'environment':'GitHub ubuntu-latest; exact image and compiler/runtime versions in archived job log','rawLogSha256':hashlib.sha256(raw.encode()).hexdigest(),'jobs':rows}
+(b/f'{kind}-ci-facts.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))

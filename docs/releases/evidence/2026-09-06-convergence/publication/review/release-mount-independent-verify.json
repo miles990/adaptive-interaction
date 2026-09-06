@@ -1,0 +1,147 @@
+{
+  "reviewer": "/root/state_receipts",
+  "fixAuthor": "/root",
+  "completedAt": "2026-09-06T07:43:24.861332+00:00",
+  "status": "independently verified mount-alias harness fix",
+  "counts": {
+    "passed": 9,
+    "failed": 0
+  },
+  "results": [
+    {
+      "id": "recorded-alias-original-rejects",
+      "passed": true,
+      "accepted": false,
+      "expected": false,
+      "requestedMount": "/tmp/adaptive-convergence-20260906/release-dmg-mount-probe",
+      "reportedMounts": [
+        "/private/tmp/adaptive-convergence-20260906/release-dmg-mount-probe",
+        null
+      ]
+    },
+    {
+      "id": "recorded-alias-fixed-accepts",
+      "passed": true,
+      "accepted": true,
+      "expected": true,
+      "requestedMount": "/tmp/adaptive-convergence-20260906/release-dmg-mount-probe",
+      "reportedMounts": [
+        "/private/tmp/adaptive-convergence-20260906/release-dmg-mount-probe",
+        null
+      ]
+    },
+    {
+      "id": "raw-same-path-original-control",
+      "passed": true,
+      "accepted": true,
+      "expected": true,
+      "requestedMount": "/tmp/release-mount-path-verify-6mywyfxo/mount",
+      "reportedMounts": [
+        "/tmp/release-mount-path-verify-6mywyfxo/mount"
+      ]
+    },
+    {
+      "id": "canonical-temp-alias-fixed-control",
+      "passed": true,
+      "accepted": true,
+      "expected": true,
+      "requestedMount": "/tmp/release-mount-path-verify-6mywyfxo/mount",
+      "reportedMounts": [
+        "/private/tmp/release-mount-path-verify-6mywyfxo/mount"
+      ]
+    },
+    {
+      "id": "sibling-mount-rejected",
+      "passed": true,
+      "accepted": false,
+      "expected": false,
+      "requestedMount": "/tmp/release-mount-path-verify-6mywyfxo/mount",
+      "reportedMounts": [
+        "/tmp/release-mount-path-verify-6mywyfxo/other"
+      ]
+    },
+    {
+      "id": "prefix-lookalike-rejected",
+      "passed": true,
+      "accepted": false,
+      "expected": false,
+      "requestedMount": "/tmp/release-mount-path-verify-6mywyfxo/mount",
+      "reportedMounts": [
+        "/tmp/release-mount-path-verify-6mywyfxo/mount-other"
+      ]
+    },
+    {
+      "id": "external-mount-rejected",
+      "passed": true,
+      "accepted": false,
+      "expected": false,
+      "requestedMount": "/tmp/release-mount-path-verify-6mywyfxo/mount",
+      "reportedMounts": [
+        "/Volumes/UnrelatedDisk"
+      ]
+    },
+    {
+      "id": "missing-mount-rejected",
+      "passed": true,
+      "accepted": false,
+      "expected": false,
+      "requestedMount": "/tmp/release-mount-path-verify-6mywyfxo/mount",
+      "reportedMounts": [
+        null,
+        ""
+      ]
+    },
+    {
+      "id": "symlink-to-unrelated-target-rejected",
+      "passed": true,
+      "accepted": false,
+      "expected": false,
+      "requestedMount": "/tmp/release-mount-path-verify-6mywyfxo/mount",
+      "reportedMounts": [
+        "/tmp/release-mount-path-verify-6mywyfxo/alias-to-other"
+      ]
+    }
+  ],
+  "actualFilesystemFact": {
+    "tmpIsSameDirectoryAsPrivateTmp": true,
+    "tmpResolved": "/private/tmp",
+    "actualProbeReportedMount": "/private/tmp/adaptive-convergence-20260906/release-dmg-mount-probe",
+    "requestedAlias": "/tmp/adaptive-convergence-20260906/release-dmg-mount-probe",
+    "resolvedEqual": true
+  },
+  "evidenceLevel": "Read-only evidence parsing plus exact original/fixed mount-assertion AST with owned temporary paths; no hdiutil mount/detach or App launch performed",
+  "originalFailure": {
+    "record": "../release-install-desktop-run.json",
+    "exit": 1,
+    "durationSeconds": 14.71,
+    "log": "../release-install-desktop-run.txt",
+    "status": "still failed; not relabeled success",
+    "position": "raw mount-path assertion, before ditto/app copy/version check"
+  },
+  "cleanupAssessment": {
+    "finallyAstUnchanged": true,
+    "controlFlow": "After attach exit0, attached=True is set before raw-path assertion. Both versions execute the identical finally detach branch, requiring detach exit0. Original traceback ends at the mount-path assertion and has no replacement finally exception, consistent with successful cleanup.",
+    "evidenceLimit": "Cleanup success is inferred from exact finally control flow plus preserved original exception log and parent recorded detach, not from an independently performed mount/detach. The separate observed plist is evidence of path normalization, not a successful original staging result."
+  },
+  "directoryIsolation": {
+    "newRoot": "/tmp/adaptive-convergence-20260906/release-desktop-install-v2",
+    "exclusiveCreate": true,
+    "originalAttemptPreserved": true,
+    "externalMountStillRejected": true
+  },
+  "sourceHashes": {
+    "../release-desktop-stage-original.py.txt": "b0489982ea88ee2f2d515516e9514992853cee757b08238fb096480f7689e247",
+    "../release-desktop-stage.py.txt": "655c3a7326ee2b5a936a8b104e9a758cbd7effb7caeebe9ed706b781880f41c2",
+    "../release-install-mount-path-fix.json": "9e9ce1fabf3f7969495bf32dd159e9d6865bca61e05cd3755e0a92b4567bd116",
+    "../release-install-mount-probe.plist": "25cca1ae6a5a139e6f7208e25d86108470dbcf87e9397a373a1acdc4be7f7e8f",
+    "../release-install-desktop-run.json": "0c67a4cd5611e9f6d55a9c12e0e1ea17421a3a1ffb689a31dad71ea158f1cfa7",
+    "../release-install-desktop-run.txt": "e2c0b2bc9ff55c3a7e5d300ec4163af688b3344d72e3b3fb147f0071487c6b20"
+  },
+  "probeSource": "/tmp/release-mount-independent-probes.py",
+  "probeSourceSha256": "9942b96cea2c5cbce88487f601967c7dd14ea5028bccb59ec54aa5976e1c172e",
+  "limits": [
+    "No claim that the ongoing v2 DMG staging or native smoke completed; no waiting for or intervention in that run.",
+    "Path.resolve intentionally accepts filesystem aliases of the exact requested directory; it rejects paths resolving to another directory. This is not a cryptographic mount-device identity check.",
+    "No repository source changes, GUI actions, mount operations, application/binary executions or builds."
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "release-candidate-browser",
+  "sha": "c15873acbaaed870d2c90fa95c12255f532ce782",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+  "command": [
+    "pnpm",
+    "test:e2e"
+  ],
+  "exit": 0,
+  "durationSeconds": 212.56,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "release-candidate-browser.txt"
+}

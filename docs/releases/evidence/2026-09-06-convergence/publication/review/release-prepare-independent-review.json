@@ -1,0 +1,342 @@
+{
+  "review": "Independent release-prepare diff verification",
+  "reviewer": "semantic_contract",
+  "sourcePin": "c15873acbaaed870d2c90fa95c12255f532ce782",
+  "basePin": "3616c241fee8bb9b48717b21a31a1ad3e84fd014",
+  "scope": "Read-only comparison of the two committed Git trees; no build/full-suite test execution and no repository edits.",
+  "status": "passed",
+  "findings": [],
+  "openFindings": 0,
+  "changedFiles": [
+    {
+      "path": "CHANGELOG.md",
+      "baseSha256": "37396420009216245888a2f76d28d3bc30d1d856b109946fe2e774a94f50fede",
+      "candidateSha256": "45266426921bbba131627c11dfde42cf0661309cf58cbf10225a3f8ae8257175"
+    },
+    {
+      "path": "Cargo.lock",
+      "baseSha256": "ad8242defe83fbc60d634a807e0dd1e68b00801ab4d95b0baa4fd3fc4cb8904b",
+      "candidateSha256": "37906a5063f93d9bbd8a0c825ee20f1416d29a17e6e6f11514510127dc23f8b4"
+    },
+    {
+      "path": "Cargo.toml",
+      "baseSha256": "21a88ddf7dbdba8b51c7c9b21484f723a18f1c8bd87aa4fb09aafcb2097e3b56",
+      "candidateSha256": "4dd01aa0c21992c9a26c261bca5105e964e1401d0ea3dc0c15f09c2b114d495e"
+    },
+    {
+      "path": "apps/interaction-desktop/package.json",
+      "baseSha256": "839064e5a03bc920d6cbcfa8031a4c79c4aa3805813c79e3755b1c9dc8ae6261",
+      "candidateSha256": "0fb6b0b09083455edcf078cbea45304b2a5bade4c403271b7035886771998733"
+    },
+    {
+      "path": "apps/interaction-desktop/src-tauri/Cargo.lock",
+      "baseSha256": "2a8d7f8128ddcae755dd6bbd8a1d7a8718bc947420194398d6a458363b9524f9",
+      "candidateSha256": "784abf1975b625b8a4d3230643cf2f179370726b8350c27f8b421135f0c74a48"
+    },
+    {
+      "path": "apps/interaction-desktop/src-tauri/Cargo.toml",
+      "baseSha256": "ec3ea7d1bb14a69a30412124749e55f568b83046181c23cf52c877fff0a1dda2",
+      "candidateSha256": "490835a3f610b1897e699d7d45dd5eb7f0c0c7f36e5a89d7712004cad3451e93"
+    },
+    {
+      "path": "apps/interaction-desktop/src-tauri/tauri.conf.json",
+      "baseSha256": "431b10d43790d9b3859313de6acfb18d8f9ada4f6bc454cc51e94a56cdf74e3b",
+      "candidateSha256": "eb40d71cd231794ece8f013351479b288ac8b09f13f89b1d8d1e3ac40d323720"
+    },
+    {
+      "path": "docs/releases/evidence-index.json",
+      "baseSha256": "336918a2073c914fe1c4f31e77d19e2244991fd0e1fcec72b2375c13ca85e819",
+      "candidateSha256": "c2a1cc6ed7750bad696c57b835556c0fee9c1e42d22c74f7b3f979d977624556"
+    },
+    {
+      "path": "docs/releases/next-convergence-progress.md",
+      "baseSha256": "b2c82df28d81cf15f76109a1362d10a1b607e9c1a76495d442ea017296800dfe",
+      "candidateSha256": "0613feb3b38f17afd416e79470097cc4e539eb69716459087c4e46dfb704b868"
+    },
+    {
+      "path": "schemas/openapi.json",
+      "baseSha256": "c852c7a585c70637d3d06a0bc08bd7c22088456ff6e000779373a201c66c724e",
+      "candidateSha256": "99af80f9a714a5e5f65899476412717cd32c29b06c4c677de817779de20a0eda"
+    }
+  ],
+  "changedFileCount": 10,
+  "changeClassification": {
+    "releaseOutputs": 8,
+    "releaseTrackingDocuments": 2,
+    "productionImplementationFiles": 0,
+    "testsScriptsOrGeneratedConsumerChanges": 0
+  },
+  "manifests": [
+    {
+      "path": "Cargo.toml",
+      "before": "0.7.0",
+      "after": "0.8.0",
+      "onlyVersionChanged": true,
+      "candidateSha256": "4dd01aa0c21992c9a26c261bca5105e964e1401d0ea3dc0c15f09c2b114d495e"
+    },
+    {
+      "path": "apps/interaction-desktop/package.json",
+      "before": "0.7.0",
+      "after": "0.8.0",
+      "onlyVersionChanged": true,
+      "candidateSha256": "0fb6b0b09083455edcf078cbea45304b2a5bade4c403271b7035886771998733"
+    },
+    {
+      "path": "apps/interaction-desktop/src-tauri/Cargo.toml",
+      "before": "0.7.0",
+      "after": "0.8.0",
+      "onlyVersionChanged": true,
+      "candidateSha256": "490835a3f610b1897e699d7d45dd5eb7f0c0c7f36e5a89d7712004cad3451e93"
+    },
+    {
+      "path": "apps/interaction-desktop/src-tauri/tauri.conf.json",
+      "before": "0.7.0",
+      "after": "0.8.0",
+      "onlyVersionChanged": true,
+      "candidateSha256": "eb40d71cd231794ece8f013351479b288ac8b09f13f89b1d8d1e3ac40d323720"
+    }
+  ],
+  "lockfiles": [
+    {
+      "path": "Cargo.lock",
+      "internalPackagesChanged": 20,
+      "packageNames": [
+        "adapters-builtin",
+        "adapters-media",
+        "interaction-adapter-declarative",
+        "interaction-adapter-sdk",
+        "interaction-agent-gateway",
+        "interaction-aip",
+        "interaction-api",
+        "interaction-character",
+        "interaction-character-shu",
+        "interaction-cli",
+        "interaction-core",
+        "interaction-e2e",
+        "interaction-events",
+        "interaction-policy",
+        "interaction-recipe",
+        "interaction-registry",
+        "interaction-runtime",
+        "interaction-session",
+        "interaction-storage",
+        "interaction-tool-schema"
+      ],
+      "onlyInternalVersionChanges": true,
+      "externalVersionsSourcesChecksumsAndDependencyEdgesUnchanged": true,
+      "candidateSha256": "37906a5063f93d9bbd8a0c825ee20f1416d29a17e6e6f11514510127dc23f8b4"
+    },
+    {
+      "path": "apps/interaction-desktop/src-tauri/Cargo.lock",
+      "internalPackagesChanged": 19,
+      "packageNames": [
+        "adapters-builtin",
+        "adapters-media",
+        "interaction-adapter-declarative",
+        "interaction-adapter-sdk",
+        "interaction-agent-gateway",
+        "interaction-aip",
+        "interaction-api",
+        "interaction-character",
+        "interaction-character-shu",
+        "interaction-core",
+        "interaction-desktop",
+        "interaction-events",
+        "interaction-policy",
+        "interaction-recipe",
+        "interaction-registry",
+        "interaction-runtime",
+        "interaction-session",
+        "interaction-storage",
+        "interaction-tool-schema"
+      ],
+      "onlyInternalVersionChanges": true,
+      "externalVersionsSourcesChecksumsAndDependencyEdgesUnchanged": true,
+      "candidateSha256": "784abf1975b625b8a4d3230643cf2f179370726b8350c27f8b421135f0c74a48"
+    }
+  ],
+  "openapi": {
+    "path": "schemas/openapi.json",
+    "onlyChangedPointer": "/info/version",
+    "before": "0.7.0",
+    "after": "0.8.0",
+    "openapiSpecificationVersion": "3.1.0",
+    "pathsSchemasAndOperationsUnchanged": true
+  },
+  "changelog": {
+    "path": "CHANGELOG.md",
+    "addedHeader": "## [0.8.0] - 2026-09-06",
+    "unreleasedHeaderPreserved": true,
+    "existingReleaseBodyByteUnchanged": true,
+    "knownLimitationsTextUnchanged": true
+  },
+  "trackingDocuments": {
+    "paths": [
+      "docs/releases/evidence-index.json",
+      "docs/releases/next-convergence-progress.md"
+    ],
+    "assessment": "Expected release-preparation bookkeeping only: prepared/final-verification-pending status, 0.8.0 prepare exit0 and40.51s with base parent. Final candidate validation, tag and release remain pending; no limitations or evidence quality upgraded.",
+    "prepareDurationClaim": "40.51 seconds is a root-provided and committed preparation record; this independent diff review did not rerun or independently time release-prepare."
+  },
+  "frozenCorpus": {
+    "release": "v0.7.0",
+    "originalSourceSha": "630b4291f6a59444cfb1d8185f757f9dcda9ecc4",
+    "manifestUnchanged": true,
+    "filesVerified": 5,
+    "files": [
+      {
+        "path": "crates/interaction-aip/tests/fixtures/releases/v0.7.0/state-snapshot.json",
+        "sha256": "3459f3a95f8a4c9a22ccad8909aa2a45ea79974fa3c45819c81184f44336cf53",
+        "manifestChecksumMatches": true,
+        "unchangedByPrepare": true,
+        "byteIdenticalToPublishedSource": true,
+        "publishedSourcePath": "crates/interaction-aip/tests/fixtures/state-snapshot.json"
+      },
+      {
+        "path": "crates/interaction-aip/tests/fixtures/releases/v0.7.0/state-patch.json",
+        "sha256": "e0c32b8a6107a0d97e60f104c1788e00677083ae4ff9c1f12b0743b97a13675c",
+        "manifestChecksumMatches": true,
+        "unchangedByPrepare": true,
+        "byteIdenticalToPublishedSource": true,
+        "publishedSourcePath": "crates/interaction-aip/tests/fixtures/state-patch.json"
+      },
+      {
+        "path": "crates/interaction-aip/tests/fixtures/releases/v0.7.0/state-hash-fresh.json",
+        "sha256": "3465d6626638f484ae2699b312b400f221c59e9110e82e1324925eeb0a031f2b",
+        "manifestChecksumMatches": true,
+        "unchangedByPrepare": true,
+        "byteIdenticalToPublishedSource": true,
+        "publishedSourcePath": "crates/interaction-aip/tests/fixtures/state-hash-fresh.json"
+      },
+      {
+        "path": "crates/interaction-aip/tests/fixtures/releases/v0.7.0/v0.6.0-format0.json",
+        "sha256": "66d7394b183292d60cd50c359693a301305b948e6da24f886199e7474855a805",
+        "manifestChecksumMatches": true,
+        "unchangedByPrepare": true,
+        "byteIdenticalToPublishedSource": true,
+        "publishedSourcePath": "crates/interaction-runtime/tests/fixtures/character-session/v0.6.0-format0.json"
+      },
+      {
+        "path": "crates/interaction-aip/tests/fixtures/releases/v0.7.0/v0.6.0-dev-pre-unsupported-intents.json",
+        "sha256": "654eca9b89ac02244689782697a89bb8cfdbaf2a440106d70463a83110b3e2f4",
+        "manifestChecksumMatches": true,
+        "unchangedByPrepare": true,
+        "byteIdenticalToPublishedSource": true,
+        "publishedSourcePath": "crates/interaction-runtime/tests/fixtures/character-session/v0.6.0-dev-pre-unsupported-intents.json"
+      }
+    ]
+  },
+  "versionRelationships": {
+    "product": "0.8.0",
+    "aip": "aip/1.0 unchanged",
+    "semanticState": "semantic-state/1.0 unchanged",
+    "cpp": "CPP1.0 unchanged",
+    "device": "proto1; optional device wire v1.3 aip.applied/1; v1.2 fragmentation limits retained",
+    "mobile": "wirev1.1 optional aip.applied/1",
+    "snapshot": "format1 unchanged; old format0/missing-field migration unchanged",
+    "interpretation": "Internal Rust crate package versions follow product0.8.0 and do not bump wire/profile versions. Optional transport receipt extension remains negotiated and legacy peers remain supported."
+  },
+  "unchangedSensitivePaths": [
+    {
+      "path": "schemas/aip-1.0.schema.json",
+      "unchanged": true,
+      "candidateSha256": "223609567a573ed77988948825164a5aa92952dbfa82f84dedafaf1dccdc392e"
+    },
+    {
+      "path": "schemas/semantic-state-1.0.schema.json",
+      "unchanged": true,
+      "candidateSha256": "8d3af115588b575d03290137b6c4f221e3661bd4f3c74ddbf7b2b4054753ae3f"
+    },
+    {
+      "path": "schemas/character-protocol.schema.json",
+      "unchanged": true,
+      "candidateSha256": "fd3c32ae962b79e2e39964041ca232c11c9b5f8f7069a0ee79e2ba078341fbb7"
+    },
+    {
+      "path": "schemas/semantic-state-consumers.json",
+      "unchanged": true,
+      "candidateSha256": "56385c183ce7535e48d848f96685d3c9ff7903aac0dd490d867801bec60f5c1c"
+    },
+    {
+      "path": "apps/interaction-desktop/src/aip/semanticStateGenerated.ts",
+      "unchanged": true,
+      "candidateSha256": "93ed1e1e60b58caba5d0eb056bc97edd63815247bd70d91273bec3c5ad4f6f3e"
+    },
+    {
+      "path": "apps/interaction-ios/InteractionCompanion/Models/SemanticStateGenerated.swift",
+      "unchanged": true,
+      "candidateSha256": "c23463b74a092bbd1b6688bfa4a0fa2123e3e1023e1e734b943cb1f630cf101a"
+    },
+    {
+      "path": "crates/interaction-session/src/types.rs",
+      "unchanged": true,
+      "candidateSha256": "6ae13f1139c048ebe83d87a4a5a9a9fdc55726e9667633ab0fb596d03572a2fc"
+    },
+    {
+      "path": "crates/interaction-aip/src/lib.rs",
+      "unchanged": true,
+      "candidateSha256": "1f56dee4781b564f1b4e6fd509f2f03d37602def4b2961d4371023a3d20439b7"
+    },
+    {
+      "path": "crates/interaction-adapter-declarative/src/protocol.rs",
+      "unchanged": true,
+      "candidateSha256": "6fbe4eba5031f2e2a650a2211fd4167ca4a2a56073f75d205fec3f0fd86e3d22"
+    },
+    {
+      "path": "docs/aip/semantic-state.md",
+      "unchanged": true,
+      "candidateSha256": "2159eefe816a414ccbdb47b9052eea9e30456bd2428cbf6a324b2930dc1b9b89"
+    },
+    {
+      "path": "docs/aip/compatibility.md",
+      "unchanged": true,
+      "candidateSha256": "08b4c4c47fdda5e5c000e67fcab5af08fafd72e3e43c16138c3ba9c9f1efeeed"
+    },
+    {
+      "path": "docs/aip/device-profile.md",
+      "unchanged": true,
+      "candidateSha256": "0a2aa40668d515a985710b61a79be994644bac6e9eaca0bf0efae89cfc511483"
+    },
+    {
+      "path": "docs/releases/v0.8.0-migration.md",
+      "unchanged": true,
+      "candidateSha256": "bec75ad4aa4d80031f35b6a79f2c8bc119203e016a8fbaf806f1c2bcb10b63f4"
+    },
+    {
+      "path": "docs/releases/v0.8.0-known-limitations.md",
+      "unchanged": true,
+      "candidateSha256": "ca314c7bf32bb120c9c4daf112b4601143b8e712c5d2a15bd729a4fcb642d8d9"
+    },
+    {
+      "path": "docs/releases/v0.8.0-general-mode-tasks.md",
+      "unchanged": true,
+      "candidateSha256": "135ad7a4b584303c00e22499ce6517afe547e249d7770c4043b94853a0fb3f4d"
+    },
+    {
+      "path": "docs/releases/v0.8.0-performance.md",
+      "unchanged": true,
+      "candidateSha256": "e44b08192edb6e6cf31a17b86bfc963fe9bc51bed135f29fbbc0978e109a88b1"
+    },
+    {
+      "path": "docs/acceptance-evidence.md",
+      "unchanged": true,
+      "candidateSha256": "719198d72df7fcfd90f39e46e4a1ed206a431006f878e4a849e623c012e61fcf"
+    }
+  ],
+  "limitsPreserved": [
+    "Real iPhone applied, ESP32 board and human usability remain unverified.",
+    "MQTT/BLE-specific applied closed loops remain unverified; shared helpers do not count as board evidence.",
+    "Reference firmware still does not declare fragmentation/applied.",
+    "Receipt is peer application self-report, not verified screen/physical effect.",
+    "Historical v0.7.0 memory-only unknown stops cannot be reconstructed; overflow remains conservatively visible.",
+    "Unknown/future persisted-state safety and native human emergency-unlock requirements remain.",
+    "Formal candidate full matrix and main/tag/release verification are outside this read-only result."
+  ],
+  "validationMethod": [
+    "git diff --name-only / full patch for exact committed range",
+    "JSON/TOML parsed comparison plus byte-level normalization",
+    "Each frozen fixture compared to base, manifest SHA256, and original published source blob",
+    "git diff --check (read-only)"
+  ],
+  "testsExecuted": 0
+}

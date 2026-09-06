@@ -1,0 +1,366 @@
+Test Suite 'All tests' started at 2026-09-06 14:36:09.717.
+Test Suite 'InteractionCompanionTests.xctest' started at 2026-09-06 14:36:09.718.
+Test Suite 'AIPConformanceTests' started at 2026-09-06 14:36:09.718.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testAcceptedFixturesRoundTripWithoutLosingUnknownFields]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testAcceptedFixturesRoundTripWithoutLosingUnknownFields]' passed (0.027 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testAStateEnvelopeWithAnOutOfRangeRevisionIsRejectedInsteadOfTrapping]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testAStateEnvelopeWithAnOutOfRangeRevisionIsRejectedInsteadOfTrapping]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testDeadlineTreatsTheDeadlineItselfAsExpired]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testDeadlineTreatsTheDeadlineItselfAsExpired]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testDedupeRingIsBoundedAndEvictsTheOldest]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testDedupeRingIsBoundedAndEvictsTheOldest]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testEnvelopeFixturesAgreeWithTheIndex]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testEnvelopeFixturesAgreeWithTheIndex]' passed (0.013 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testErrorCodesInTheIndexAreAllKnown]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testErrorCodesInTheIndexAreAllKnown]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testEveryMessageTypeHasAtLeastOneAcceptedFixture]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testEveryMessageTypeHasAtLeastOneAcceptedFixture]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testGeneratedFixturesCoverTheOversizedAndMalformedCases]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testGeneratedFixturesCoverTheOversizedAndMalformedCases]' passed (0.006 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testIdentifierAndStringLimitsAreCountedInUnicodeScalarsLikeRustAndTypeScript]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testIdentifierAndStringLimitsAreCountedInUnicodeScalarsLikeRustAndTypeScript]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testIdentityDecisionTable]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testIdentityDecisionTable]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testLargeIntegersInUnknownTopLevelFieldsSurviveTheRoundTripByteForByte]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testLargeIntegersInUnknownTopLevelFieldsSurviveTheRoundTripByteForByte]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testNameScopeTable]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testNameScopeTable]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testOfflinePolicyTable]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testOfflinePolicyTable]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testOutcomeMigrationTable]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testOutcomeMigrationTable]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testReadsTheSameIndexTheRustAndTypeScriptSuitesRead]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testReadsTheSameIndexTheRustAndTypeScriptSuitesRead]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testUnknownEnumValuesDoNotCrashAndAreNeverTreatedAsKnown]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testUnknownEnumValuesDoNotCrashAndAreNeverTreatedAsKnown]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testVersionNegotiationRefusesADifferentMajorAndAcceptsANewerMinor]' started.
+Test Case '-[InteractionCompanionTests.AIPConformanceTests testVersionNegotiationRefusesADifferentMajorAndAcceptsANewerMinor]' passed (0.000 seconds).
+Test Suite 'AIPConformanceTests' passed at 2026-09-06 14:36:09.779.
+	 Executed 17 tests, with 0 failures (0 unexpected) in 0.060 (0.062) seconds
+Test Suite 'CanonicalVectorsTests' started at 2026-09-06 14:36:09.779.
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testControlCharactersUseSerdeJsonEscapes]' started.
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testControlCharactersUseSerdeJsonEscapes]' passed (0.007 seconds).
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testEveryCanonicalVectorMatchesTheRustOutput]' started.
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testEveryCanonicalVectorMatchesTheRustOutput]' passed (0.008 seconds).
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testKeyOrderIsCodePointOrderNotUTF16Order]' started.
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testKeyOrderIsCodePointOrderNotUTF16Order]' passed (0.006 seconds).
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testNumberLiteralsArePreservedVerbatim]' started.
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testNumberLiteralsArePreservedVerbatim]' passed (0.006 seconds).
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testPassthroughCharactersAreNotEscaped]' started.
+Test Case '-[InteractionCompanionTests.CanonicalVectorsTests testPassthroughCharactersAreNotEscaped]' passed (0.006 seconds).
+Test Suite 'CanonicalVectorsTests' passed at 2026-09-06 14:36:09.812.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.032 (0.033) seconds
+Test Suite 'ConnectionManagerGateTests' started at 2026-09-06 14:36:09.812.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testALostConnectionInTheBackgroundDoesNotScheduleAReconnect]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testALostConnectionInTheBackgroundDoesNotScheduleAReconnect]' passed (0.014 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testAnAuthOkThatLandedInTheBackgroundIsRenegotiatedOnForeground]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testAnAuthOkThatLandedInTheBackgroundIsRenegotiatedOnForeground]' passed (0.004 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testAReconnectThatFiresAfterEnteringTheBackgroundDoesNotOpenASocket]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testAReconnectThatFiresAfterEnteringTheBackgroundDoesNotOpenASocket]' passed (0.009 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testBackgroundDoesNotLetAnAipFrameProveTheDeviceIsAlive]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testBackgroundDoesNotLetAnAipFrameProveTheDeviceIsAlive]' passed (0.013 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testBackgroundNeitherSendsNorSchedulesThePresenceHeartbeat]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testBackgroundNeitherSendsNorSchedulesThePresenceHeartbeat]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testEachSocketGetsItsOwnGenerationAndLateFramesAreDropped]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testEachSocketGetsItsOwnGenerationAndLateFramesAreDropped]' passed (0.005 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testForegroundSendsStatusImmediatelyAndRealignsTheSession]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testForegroundSendsStatusImmediatelyAndRealignsTheSession]' passed (0.041 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testRapidForegroundCyclesSendOneResumeUntilTheGraceWindowPasses]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testRapidForegroundCyclesSendOneResumeUntilTheGraceWindowPasses]' passed (0.005 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheInjectedSocketCarriesTheRealHandshake]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheInjectedSocketCarriesTheRealHandshake]' passed (0.004 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheReconnectGateIsAskedExactlyOncePerDisconnect]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheReconnectGateIsAskedExactlyOncePerDisconnect]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheSameStateFrameInTheForegroundStillAsksForRealignment]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheSameStateFrameInTheForegroundStillAsksForRealignment]' passed (0.004 seconds).
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheSessionReadsTheSameInjectedClockAsTheLifecycleGates]' started.
+Test Case '-[InteractionCompanionTests.ConnectionManagerGateTests testTheSessionReadsTheSameInjectedClockAsTheLifecycleGates]' passed (0.004 seconds).
+Test Suite 'ConnectionManagerGateTests' passed at 2026-09-06 14:36:09.921.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.108 (0.109) seconds
+Test Suite 'LifecycleTests' started at 2026-09-06 14:36:09.921.
+Test Case '-[InteractionCompanionTests.LifecycleTests testADeadSocketNeverSendsStatusOrResumes]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testADeadSocketNeverSendsStatusOrResumes]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testAForegroundResumeIsRetriedOnceTheGraceWindowHasPassed]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testAForegroundResumeIsRetriedOnceTheGraceWindowHasPassed]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testAipHeartbeatIsNotCountedAsAnIgnoredFrame]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testAipHeartbeatIsNotCountedAsAnIgnoredFrame]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testAipHeartbeatIsNotedAndAnsweredWithALegacyStatus]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testAipHeartbeatIsNotedAndAnsweredWithALegacyStatus]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testAnOutstandingResumeIsNotResentUntilTheGraceWindowPasses]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testAnOutstandingResumeIsNotResentUntilTheGraceWindowPasses]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testBackgroundNeverSchedulesAReconnectOrSendsAHeartbeat]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testBackgroundNeverSchedulesAReconnectOrSendsAHeartbeat]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testBackgroundNeverSendsReconnectsOrResumes]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testBackgroundNeverSendsReconnectsOrResumes]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testEveryOtherIgnoredMessageTypeLeavesItsOwnNote]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testEveryOtherIgnoredMessageTypeLeavesItsOwnNote]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundReconnectOnlyHappensWhenTheUserStillWantsTheConnection]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundReconnectOnlyHappensWhenTheUserStillWantsTheConnection]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeAsksTheHostToRealignWithRevisionSequenceAndEpoch]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeAsksTheHostToRealignWithRevisionSequenceAndEpoch]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeNeverReplaysInteractionEvents]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeNeverReplaysInteractionEvents]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeSendsNothingBeforeNegotiation]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeSendsNothingBeforeNegotiation]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeSendsNothingWhenOffline]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeSendsNothingWhenOffline]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeSendsNothingWithoutAuthoritativeState]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testForegroundResumeSendsNothingWithoutAuthoritativeState]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testHeartbeatRepliesAreThrottled]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testHeartbeatRepliesAreThrottled]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testHeartbeatReplyDecisionSurvivesABackwardClock]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testHeartbeatReplyDecisionSurvivesABackwardClock]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testLifecycleDecisionTable]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testLifecycleDecisionTable]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testPresenceTimeoutMatchesTheHostConstant]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testPresenceTimeoutMatchesTheHostConstant]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testRapidForegroundCyclesSendOneResumeAndNeverFakeUnrecoverable]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testRapidForegroundCyclesSendOneResumeAndNeverFakeUnrecoverable]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testScenePhaseMapsOntoTheServiceLayerPhase]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testScenePhaseMapsOntoTheServiceLayerPhase]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testStatusIntervalLeavesRoomForAMissedBeat]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testStatusIntervalLeavesRoomForAMissedBeat]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.LifecycleTests testUnknownScenePhaseFallsBackToBackground]' started.
+Test Case '-[InteractionCompanionTests.LifecycleTests testUnknownScenePhaseFallsBackToBackground]' passed (0.000 seconds).
+Test Suite 'LifecycleTests' passed at 2026-09-06 14:36:09.940.
+	 Executed 22 tests, with 0 failures (0 unexpected) in 0.017 (0.019) seconds
+Test Suite 'MotionClassifierTests' started at 2026-09-06 14:36:09.940.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testLiftedFiresOnSustainedUpwardAccelWithAttitudeChange]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testLiftedFiresOnSustainedUpwardAccelWithAttitudeChange]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testPlacedFiresOnStillnessAfterMotion]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testPlacedFiresOnStillnessAfterMotion]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testPureStillnessProducesNoEvents]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testPureStillnessProducesNoEvents]' passed (0.004 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testRotatedFiresOnYawSweepPast60Degrees]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testRotatedFiresOnYawSweepPast60Degrees]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testRotatedHandlesYawWrapAround]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testRotatedHandlesYawWrapAround]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testShakenDebounceIsAtLeastOnePointFiveSeconds]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testShakenDebounceIsAtLeastOnePointFiveSeconds]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testShakenFiresOnHighFrequencyBursts]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testShakenFiresOnHighFrequencyBursts]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testSlidingWindowNeverExceedsThreeSeconds]' started.
+Test Case '-[InteractionCompanionTests.MotionClassifierTests testSlidingWindowNeverExceedsThreeSeconds]' passed (0.017 seconds).
+Test Suite 'MotionClassifierTests' passed at 2026-09-06 14:36:09.970.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.029 (0.030) seconds
+Test Suite 'ProtocolTests' started at 2026-09-06 14:36:09.970.
+Test Case '-[InteractionCompanionTests.ProtocolTests testABrokenAipFrameFailsWithoutEchoingTheInput]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testABrokenAipFrameFailsWithoutEchoingTheInput]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testAckStopAllEchoesSensorsFlag]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testAckStopAllEchoesSensorsFlag]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testActuatorOnlyStopAllTouchesNeitherSensorsNorCharacterState]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testActuatorOnlyStopAllTouchesNeitherSensorsNorCharacterState]' passed (0.048 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testAipFrameDecodesBackToTheSameEnvelopeAndKeepsUnknownFields]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testAipFrameDecodesBackToTheSameEnvelopeAndKeepsUnknownFields]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testAipFrameEncodesTheEnvelopeVerbatim]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testAipFrameEncodesTheEnvelopeVerbatim]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testAppliedIntegersSerializeWithoutDecimalPoint]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testAppliedIntegersSerializeWithoutDecimalPoint]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testBleResultUnknownNameIsNull]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testBleResultUnknownNameIsNull]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testEmergencyStopAllSetsTheCharacterStateEvenIfCharacterPresentIsLost]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testEmergencyStopAllSetsTheCharacterStateEvenIfCharacterPresentIsLost]' passed (0.008 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testHexRoundTrip]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testHexRoundTrip]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testObservationMotionCarriesAtButBatteryDoesNot]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testObservationMotionCarriesAtButBatteryDoesNot]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testOnlyTheRuntimeClearsTheEmergencyCharacterState]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testOnlyTheRuntimeClearsTheEmergencyCharacterState]' passed (0.015 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testPairingHmacMatchesOpensslReference]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testPairingHmacMatchesOpensslReference]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testPairingPayloadValidation]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testPairingPayloadValidation]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testPairRequestShape]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testPairRequestShape]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testServerMessageDecoding]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testServerMessageDecoding]' passed (0.005 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testStatusShapeHasExactSensorAndPermissionKeys]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testStatusShapeHasExactSensorAndPermissionKeys]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testStopAllReasonDefaultsToEmergency]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testStopAllReasonDefaultsToEmergency]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testStopAllUserReasonIsDecoded]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testStopAllUserReasonIsDecoded]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testUnknownBatteryLevelIsNullNotFabricated]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testUnknownBatteryLevelIsNullNotFabricated]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testUnknownServerMessageTypeIsStillUnknown]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testUnknownServerMessageTypeIsStillUnknown]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ProtocolTests testUserStopAllDoesNotFakeAnEmergencyCharacterState]' started.
+Test Case '-[InteractionCompanionTests.ProtocolTests testUserStopAllDoesNotFakeAnEmergencyCharacterState]' passed (0.000 seconds).
+Test Suite 'ProtocolTests' passed at 2026-09-06 14:36:10.054.
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.082 (0.084) seconds
+Test Suite 'ReceiveDecisionConformanceTests' started at 2026-09-06 14:36:10.054.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testABoundaryRejectedAuthoritativeReplyCostsOneRealignAttempt]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testABoundaryRejectedAuthoritativeReplyCostsOneRealignAttempt]' passed (0.005 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAFlatResumePatchItemWithoutAKindIsUnderstood]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAFlatResumePatchItemWithoutAKindIsUnderstood]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAKnownLocalSessionIdStillRejectsAMismatch]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAKnownLocalSessionIdStillRejectsAMismatch]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testALocalCopyWhoseSessionIdIsUnknownIsNotAMismatch]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testALocalCopyWhoseSessionIdIsUnknownIsNotAMismatch]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testARealignRequestThatNeverLeftTheDeviceIsNotCountedAsAnAttempt]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testARealignRequestThatNeverLeftTheDeviceIsNotCountedAsAnAttempt]' passed (0.005 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAResumeReplyBeyondTheBoundIsNotSilentlyTruncated]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAResumeReplyBeyondTheBoundIsNotSilentlyTruncated]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAResumeReplyThatFailsHalfwayKeepsThePrefixAndAsksAgain]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAResumeReplyThatFailsHalfwayKeepsThePrefixAndAsksAgain]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testASnapshotFromADifferentEpochRealignsInsteadOfBeingApplied]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testASnapshotFromADifferentEpochRealignsInsteadOfBeingApplied]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testASnapshotWithoutAHashIsNeverApplied]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testASnapshotWithoutAHashIsNeverApplied]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAStateFromAnotherSessionIsRejectedWithoutAskingForResume]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAStateFromAnotherSessionIsRejectedWithoutAskingForResume]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAStateFromAPreviousConnectionGenerationIsIgnored]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testAStateFromAPreviousConnectionGenerationIsIgnored]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testEveryReceiveDecisionFixtureReachesTheDocumentedDecision]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testEveryReceiveDecisionFixtureReachesTheDocumentedDecision]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testTheBoundsComeFromTheGeneratedLimits]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testTheBoundsComeFromTheGeneratedLimits]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testTheClientAndTheDecisionTableAgreeOnOneResumeBatch]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testTheClientAndTheDecisionTableAgreeOnOneResumeBatch]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testTheHashesInTheFixturesLookLikeSha256]' started.
+Test Case '-[InteractionCompanionTests.ReceiveDecisionConformanceTests testTheHashesInTheFixturesLookLikeSha256]' passed (0.003 seconds).
+Test Suite 'ReceiveDecisionConformanceTests' passed at 2026-09-06 14:36:10.087.
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.031 (0.032) seconds
+Test Suite 'ReconnectHintTests' started at 2026-09-06 14:36:10.087.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testAuthFailAfterManyTimeoutsIsAuthoritative]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testAuthFailAfterManyTimeoutsIsAuthoritative]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testAuthFailInTheMiddleBreaksTheRunSoNoRepairSuggestion]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testAuthFailInTheMiddleBreaksTheRunSoNoRepairSuggestion]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testCancelledWithoutPinningRejectionIsOther]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testCancelledWithoutPinningRejectionIsOther]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testCancelledWithPinningRejectedIsTlsMismatchNotConnectivity]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testCancelledWithPinningRejectedIsTlsMismatchNotConnectivity]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testCertificateErrorsAreTlsMismatchNotConnectivity]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testCertificateErrorsAreTlsMismatchNotConnectivity]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartAutoConnectNeverResumesAnySensor]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartAutoConnectNeverResumesAnySensor]' passed (0.005 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartConnectsWhenPairedAndUserLastWantedConnection]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartConnectsWhenPairedAndUserLastWantedConnection]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartDoesNotConnectWithoutPairing]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartDoesNotConnectWithoutPairing]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartRespectsExplicitUserDisconnect]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartRespectsExplicitUserDisconnect]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartTreatsMissingIntentAsWantingConnection]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testColdStartTreatsMissingIntentAsWantingConnection]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testEmptyHistoryKeepsRetrying]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testEmptyHistoryKeepsRetrying]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testFourConsecutiveConnectivityFailuresSuggestRepair]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testFourConsecutiveConnectivityFailuresSuggestRepair]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testOtherFailuresNeverSuggestRepair]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testOtherFailuresNeverSuggestRepair]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testPosixConnectionRefusedAndHostUnreachableAreConnectivity]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testPosixConnectionRefusedAndHostUnreachableAreConnectivity]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testRepairMessageIsTheFixedHonestCopy]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testRepairMessageIsTheFixedHonestCopy]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testSustainedConnectivityFailuresOverSixtySecondsSuggestRepair]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testSustainedConnectivityFailuresOverSixtySecondsSuggestRepair]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testThreeConnectivityFailuresKeepRetrying]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testThreeConnectivityFailuresKeepRetrying]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testTimeoutSequenceClassifiedThenDiagnosedSuggestsRepair]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testTimeoutSequenceClassifiedThenDiagnosedSuggestsRepair]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testTlsMismatchIsNeverReportedAsAddressChange]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testTlsMismatchIsNeverReportedAsAddressChange]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testTwoConnectivityFailuresWithinSixtySecondsKeepRetrying]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testTwoConnectivityFailuresWithinSixtySecondsKeepRetrying]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testUrlErrorsThatMeanCannotReachTheDesktopAreConnectivity]' started.
+Test Case '-[InteractionCompanionTests.ReconnectHintTests testUrlErrorsThatMeanCannotReachTheDesktopAreConnectivity]' passed (0.000 seconds).
+Test Suite 'ReconnectHintTests' passed at 2026-09-06 14:36:10.099.
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.007 (0.012) seconds
+Test Suite 'SemanticStateConformanceTests' started at 2026-09-06 14:36:10.099.
+Test Case '-[InteractionCompanionTests.SemanticStateConformanceTests testReleasedSnapshotAndPatchRemainCompatible]' started.
+Test Case '-[InteractionCompanionTests.SemanticStateConformanceTests testReleasedSnapshotAndPatchRemainCompatible]' passed (0.020 seconds).
+Test Case '-[InteractionCompanionTests.SemanticStateConformanceTests testSharedMergePatchResultsAreValidatedBeforeAdoption]' started.
+Test Case '-[InteractionCompanionTests.SemanticStateConformanceTests testSharedMergePatchResultsAreValidatedBeforeAdoption]' passed (0.005 seconds).
+Test Case '-[InteractionCompanionTests.SemanticStateConformanceTests testSharedStateAcceptanceCanonicalHashProjectionAndActualAdoption]' started.
+Test Case '-[InteractionCompanionTests.SemanticStateConformanceTests testSharedStateAcceptanceCanonicalHashProjectionAndActualAdoption]' passed (0.026 seconds).
+Test Suite 'SemanticStateConformanceTests' passed at 2026-09-06 14:36:10.150.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.051 (0.051) seconds
+Test Suite 'SessionClientTests' started at 2026-09-06 14:36:10.150.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnExpiredIntentIsNotPlayed]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnExpiredIntentIsNotPlayed]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnIntentThatArrivesBeforeNegotiationIsNotPlayed]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnIntentThatArrivesBeforeNegotiationIsNotPlayed]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnInvalidStateNeverEmitsAnAppliedReceiptEvenWithAConsistentHash]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnInvalidStateNeverEmitsAnAppliedReceiptEvenWithAConsistentHash]' passed (0.002 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnOlderSnapshotIsIgnoredUnlessTheHostDeclaresRecovery]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnOlderSnapshotIsIgnoredUnlessTheHostDeclaresRecovery]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnUnsupportedIntentIsRejectedAndNeverReportedAsObserved]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAnUnsupportedIntentIsRejectedAndNeverReportedAsObserved]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAPatchAppliedOntoTheWrongContentIsRejectedByTheHash]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAPatchAppliedOntoTheWrongContentIsRejectedByTheHash]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAResumeThatWasNeverSentIsNotCountedAsAnAttempt]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAResumeThatWasNeverSentIsNotCountedAsAnAttempt]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testASessionResetIsAppliedWheneverTheEpochDiffersEvenIfItWentBackwards]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testASessionResetIsAppliedWheneverTheEpochDiffersEvenIfItWentBackwards]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testAStateWithTooManyMembersIsRejectedRatherThanTruncated]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testAStateWithTooManyMembersIsRejectedRatherThanTruncated]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testASupportedIntentIsPlayedWithTheRequestedIntensity]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testASupportedIntentIsPlayedWithTheRequestedIntensity]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testCanonicalJsonSortsKeysByUtf8AndOmitsWhitespace]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testCanonicalJsonSortsKeysByUtf8AndOmitsWhitespace]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testCapabilityAnnouncementIsExactlyThisShape]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testCapabilityAnnouncementIsExactlyThisShape]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testCapabilityEnvelopePassesAipValidation]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testCapabilityEnvelopePassesAipValidation]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testDismissEventIsAlsoAValidInteractionEvent]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testDismissEventIsAlsoAValidInteractionEvent]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testEmergencyIsTheUnionOfBothPathsAndKeepsTheFixedCopy]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testEmergencyIsTheUnionOfBothPathsAndKeepsTheFixedCopy]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testEveryCountedResumeAttemptIsActuallySentAndReconnectingRestoresTheBudget]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testEveryCountedResumeAttemptIsActuallySentAndReconnectingRestoresTheBudget]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testGreenCheckOnlyAppearsForVerifiedTruth]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testGreenCheckOnlyAppearsForVerifiedTruth]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testNumberLiteralsAreKeptVerbatimSoHashesMatchTheHost]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testNumberLiteralsAreKeptVerbatimSoHashesMatchTheHost]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testPatchWithAWrongBaseRevisionIsNotAppliedAndAsksForResume]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testPatchWithAWrongBaseRevisionIsNotAppliedAndAsksForResume]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testPatchWithMatchingBaseRevisionIsAppliedAndHashChainsFromTheSnapshot]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testPatchWithMatchingBaseRevisionIsAppliedAndHashChainsFromTheSnapshot]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testPendingIntentQueueAndDedupeRingAreBounded]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testPendingIntentQueueAndDedupeRingAreBounded]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testReducedMotionStillHasSomethingToShowForReactHappilyToTouch]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testReducedMotionStillHasSomethingToShowForReactHappilyToTouch]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testRepairingToAnotherDesktopForgetsTheOldAuthoritativeState]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testRepairingToAnotherDesktopForgetsTheOldAuthoritativeState]' passed (0.003 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testResumeQueryCarriesTheKeysTheHostReads]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testResumeQueryCarriesTheKeysTheHostReads]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testSessionResetWithANewerEpochIsAcceptedEvenThoughTheRevisionGoesBackwards]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testSessionResetWithANewerEpochIsAcceptedEvenThoughTheRevisionGoesBackwards]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testSnapshotIsAppliedWholeAndBecomesTheLocalState]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testSnapshotIsAppliedWholeAndBecomesTheLocalState]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testSnapshotStateHashMatchesTheRustFixture]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testSnapshotStateHashMatchesTheRustFixture]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testStateAppliedReceiptIsSentOnlyAfterValidatedAdoptionAndForItsMessage]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testStateAppliedReceiptIsSentOnlyAfterValidatedAdoptionAndForItsMessage]' passed (0.007 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testStateOlderThanOrEqualToTheLocalOneIsIgnored]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testStateOlderThanOrEqualToTheLocalOneIsIgnored]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testSyncStatusCopyIsTheHumanWordingWithNoTechnicalTerms]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testSyncStatusCopyIsTheHumanWordingWithNoTechnicalTerms]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testTheAppCanNeverBuildAVerifiedResult]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testTheAppCanNeverBuildAVerifiedResult]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testTheSameIntentMessageIsNeverPlayedTwice]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testTheSameIntentMessageIsNeverPlayedTwice]' passed (0.001 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testThreeResumeAttemptsWithoutSyncingBecomeUnrecoverable]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testThreeResumeAttemptsWithoutSyncingBecomeUnrecoverable]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testTouchEventCarriesSessionDeadlineAndClaimedDeviceSource]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testTouchEventCarriesSessionDeadlineAndClaimedDeviceSource]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testUnknownVocabularyIsShownAsUnknownRatherThanGuessed]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testUnknownVocabularyIsShownAsUnknownRatherThanGuessed]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.SessionClientTests testWithoutNegotiationThePresentationFallsBackToTheLegacyPath]' started.
+Test Case '-[InteractionCompanionTests.SessionClientTests testWithoutNegotiationThePresentationFallsBackToTheLegacyPath]' passed (0.000 seconds).
+Test Suite 'SessionClientTests' passed at 2026-09-06 14:36:10.188.
+	 Executed 36 tests, with 0 failures (0 unexpected) in 0.035 (0.038) seconds
+Test Suite 'StateHashConformanceTests' started at 2026-09-06 14:36:10.188.
+Test Case '-[InteractionCompanionTests.StateHashConformanceTests testEveryStateHashFixtureMatchesTheRustCanonicalHash]' started.
+Test Case '-[InteractionCompanionTests.StateHashConformanceTests testEveryStateHashFixtureMatchesTheRustCanonicalHash]' passed (0.008 seconds).
+Test Case '-[InteractionCompanionTests.StateHashConformanceTests testNegativeZeroIntensityHashesDifferentlyFromPositiveZero]' started.
+Test Case '-[InteractionCompanionTests.StateHashConformanceTests testNegativeZeroIntensityHashesDifferentlyFromPositiveZero]' passed (0.000 seconds).
+Test Case '-[InteractionCompanionTests.StateHashConformanceTests testOnlyTheNegativeZeroFixtureIsMarkedSemanticallyInvalid]' started.
+Test Case '-[InteractionCompanionTests.StateHashConformanceTests testOnlyTheNegativeZeroFixtureIsMarkedSemanticallyInvalid]' passed (0.006 seconds).
+Test Suite 'StateHashConformanceTests' passed at 2026-09-06 14:36:10.201.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.014 (0.014) seconds
+Test Suite 'InteractionCompanionTests.xctest' passed at 2026-09-06 14:36:10.202.
+	 Executed 163 tests, with 0 failures (0 unexpected) in 0.465 (0.484) seconds
+Test Suite 'All tests' passed at 2026-09-06 14:36:10.202.
+	 Executed 163 tests, with 0 failures (0 unexpected) in 0.465 (0.485) seconds
+dev.interact-ai.companion: 5202
