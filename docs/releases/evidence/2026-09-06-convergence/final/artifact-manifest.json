@@ -2580,6 +2580,174 @@
       "bytes": 293,
       "redactions": 0,
       "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/summary.json",
+      "path": "perf-final-checkpoint/summary.json",
+      "originalSha256": "28792c0fe3dedbbc7fd894c3b42c53d2c1aefe350ac78b17e07febf45c3f0889",
+      "archivedSha256": "28792c0fe3dedbbc7fd894c3b42c53d2c1aefe350ac78b17e07febf45c3f0889",
+      "bytes": 7200,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/baseline-run-2.json",
+      "path": "perf-final-checkpoint/baseline-run-2.json",
+      "originalSha256": "ed8bb2080863d6a2233d2d3ff16b81e7b2fe2ae1e43df53ed50182a9aae7d776",
+      "archivedSha256": "ed8bb2080863d6a2233d2d3ff16b81e7b2fe2ae1e43df53ed50182a9aae7d776",
+      "bytes": 6262,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/baseline-run-3.json",
+      "path": "perf-final-checkpoint/baseline-run-3.json",
+      "originalSha256": "93491a8b35b76f784d8f179acfd60d1fc8923eb8878cda936370ffb80f6fa273",
+      "archivedSha256": "93491a8b35b76f784d8f179acfd60d1fc8923eb8878cda936370ffb80f6fa273",
+      "bytes": 6219,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/candidate-warmup.log",
+      "path": "perf-final-checkpoint/candidate-warmup.txt",
+      "originalSha256": "9a1d59b2ce023e4b0e523f27562cd1e18e7664f33da904614b45fbc2276fdcdc",
+      "archivedSha256": "9a1d59b2ce023e4b0e523f27562cd1e18e7664f33da904614b45fbc2276fdcdc",
+      "bytes": 1703,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/baseline-warmup.json",
+      "path": "perf-final-checkpoint/baseline-warmup.json",
+      "originalSha256": "624d04be2e4067c0d29cfeda3aabed2937ce9f184f2b67c07f9e846d5d2bfb95",
+      "archivedSha256": "624d04be2e4067c0d29cfeda3aabed2937ce9f184f2b67c07f9e846d5d2bfb95",
+      "bytes": 6219,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/candidate-run-3.json",
+      "path": "perf-final-checkpoint/candidate-run-3.json",
+      "originalSha256": "9f0352f9d230cde5139d4fb0e9cf21abc0e8ffaddca0909cb400a145066675f3",
+      "archivedSha256": "9f0352f9d230cde5139d4fb0e9cf21abc0e8ffaddca0909cb400a145066675f3",
+      "bytes": 6187,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/baseline-warmup.log",
+      "path": "perf-final-checkpoint/baseline-warmup.txt",
+      "originalSha256": "7e4ab3b6d9e34259a8ec49f57f38c44166ec80bd48c3b097941422ac2aa83c14",
+      "archivedSha256": "7e4ab3b6d9e34259a8ec49f57f38c44166ec80bd48c3b097941422ac2aa83c14",
+      "bytes": 1704,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/candidate-warmup.json",
+      "path": "perf-final-checkpoint/candidate-warmup.json",
+      "originalSha256": "8ec6b89857a4c59b77fa83942cd9e3f7c6e3d864257204f344164fb6bda1c4f3",
+      "archivedSha256": "8ec6b89857a4c59b77fa83942cd9e3f7c6e3d864257204f344164fb6bda1c4f3",
+      "bytes": 6200,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/baseline-run-3.log",
+      "path": "perf-final-checkpoint/baseline-run-3.txt",
+      "originalSha256": "ef07383eeee2b0f6af494f75476c6d2a4d63127fbc62126b78d81dfe2ac233ad",
+      "archivedSha256": "ef07383eeee2b0f6af494f75476c6d2a4d63127fbc62126b78d81dfe2ac233ad",
+      "bytes": 1704,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/baseline-run-2.log",
+      "path": "perf-final-checkpoint/baseline-run-2.txt",
+      "originalSha256": "fa2a390c4cac04934015f002e22f7ea9b18120363fee6af0e39ff48a5e893857",
+      "archivedSha256": "fa2a390c4cac04934015f002e22f7ea9b18120363fee6af0e39ff48a5e893857",
+      "bytes": 1703,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/candidate-run-2.json",
+      "path": "perf-final-checkpoint/candidate-run-2.json",
+      "originalSha256": "20d7bd2a107d27e53b6d3f149c3994564d2c5c77e2a708be1176578bb5f8ba63",
+      "archivedSha256": "20d7bd2a107d27e53b6d3f149c3994564d2c5c77e2a708be1176578bb5f8ba63",
+      "bytes": 6248,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/baseline-run-1.log",
+      "path": "perf-final-checkpoint/baseline-run-1.txt",
+      "originalSha256": "e5d182cd4e9b8f419154d519c1c69f34e868af4d759450b5ba831ee43a8d0ea3",
+      "archivedSha256": "e5d182cd4e9b8f419154d519c1c69f34e868af4d759450b5ba831ee43a8d0ea3",
+      "bytes": 1701,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/candidate-run-1.json",
+      "path": "perf-final-checkpoint/candidate-run-1.json",
+      "originalSha256": "20e0dd5800a16d781551fc7b0f517b05cbd73c00ce37f13f306500f80914fc79",
+      "archivedSha256": "20e0dd5800a16d781551fc7b0f517b05cbd73c00ce37f13f306500f80914fc79",
+      "bytes": 6199,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/candidate-run-1.log",
+      "path": "perf-final-checkpoint/candidate-run-1.txt",
+      "originalSha256": "a4ec4449617e076b5f96d3f739f69590f2c80094054b6400651f0d09930a1b60",
+      "archivedSha256": "a4ec4449617e076b5f96d3f739f69590f2c80094054b6400651f0d09930a1b60",
+      "bytes": 1704,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/baseline-source.json",
+      "path": "perf-final-checkpoint/baseline-source.json",
+      "originalSha256": "25b6481c7c1b38e2d93e98c3a08e736c4a6529f77a43effad7fa29e63c4028c2",
+      "archivedSha256": "25b6481c7c1b38e2d93e98c3a08e736c4a6529f77a43effad7fa29e63c4028c2",
+      "bytes": 29284,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/candidate-run-2.log",
+      "path": "perf-final-checkpoint/candidate-run-2.txt",
+      "originalSha256": "de060b3e0957b88c09a0aeb1ee443290ea15772c666e85dda7c257155abc79c4",
+      "archivedSha256": "de060b3e0957b88c09a0aeb1ee443290ea15772c666e85dda7c257155abc79c4",
+      "bytes": 1705,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/candidate-run-3.log",
+      "path": "perf-final-checkpoint/candidate-run-3.txt",
+      "originalSha256": "47c7fa76262b8fd6de2c91b97e1ba3e817a5a9fe668e880bd241b7270c91bd2b",
+      "archivedSha256": "47c7fa76262b8fd6de2c91b97e1ba3e817a5a9fe668e880bd241b7270c91bd2b",
+      "bytes": 1708,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/candidate-source.json",
+      "path": "perf-final-checkpoint/candidate-source.json",
+      "originalSha256": "c3b2a31c488f4fb0e63c205111bf08dfbeb3ab83d365c0d8c3f57e60f4f8b373",
+      "archivedSha256": "c3b2a31c488f4fb0e63c205111bf08dfbeb3ab83d365c0d8c3f57e60f4f8b373",
+      "bytes": 30803,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/baseline-run-1.json",
+      "path": "perf-final-checkpoint/baseline-run-1.json",
+      "originalSha256": "e68e13589b131652eb68ae28dd941737c4188d5cddb09e72e6c8f9fb42604178",
+      "archivedSha256": "e68e13589b131652eb68ae28dd941737c4188d5cddb09e72e6c8f9fb42604178",
+      "bytes": 6202,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/runs.json",
+      "path": "perf-final-checkpoint/runs.json",
+      "originalSha256": "b2a937e488713ad75c4bb2d6ce6315c4a26e446af6641553497517818606a64e",
+      "archivedSha256": "b2a937e488713ad75c4bb2d6ce6315c4a26e446af6641553497517818606a64e",
+      "bytes": 1195,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/perf-final-checkpoint/tool-versions.json",
+      "path": "perf-final-checkpoint/tool-versions.json",
+      "originalSha256": "35b3e7527d6b79d0bc15f9c59b814110ade884343814dd463963afc98c5f7019",
+      "archivedSha256": "35b3e7527d6b79d0bc15f9c59b814110ade884343814dd463963afc98c5f7019",
+      "bytes": 242,
+      "redactions": 0
     }
   ]
 }

@@ -1,0 +1,6 @@
+{
+  "node": "v24.5.0",
+  "playwright": "1.62.1",
+  "esbuild": "0.21.5",
+  "chromiumExecutable": "/Users/user/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+}

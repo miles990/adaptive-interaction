@@ -1,0 +1,290 @@
+{
+  "environment": {
+    "platform": "macOS-26.2-arm64-arm-64bit",
+    "node": "v24.5.0"
+  },
+  "sources": {
+    "baseline": {
+      "sha": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+      "archiveSha256": "9e01c4befa676e4cdea463f342da3bb81a262b55545a078606c6c8c797ea1034",
+      "tree": "/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-perf-comparison-4m636tyx/baseline/apps/interaction-desktop"
+    },
+    "candidate": {
+      "sha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+      "archiveSha256": "f9889e31ed261e42f6df105096e4c3d631501be08113512532bce224b61f464e",
+      "tree": "/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-perf-comparison-4m636tyx/candidate/apps/interaction-desktop"
+    }
+  },
+  "runs": [
+    {
+      "label": "baseline",
+      "sample": 0,
+      "warmup": true,
+      "seconds": 81.373,
+      "exit": 0,
+      "artifact": "baseline-warmup.json"
+    },
+    {
+      "label": "candidate",
+      "sample": 0,
+      "warmup": true,
+      "seconds": 80.989,
+      "exit": 0,
+      "artifact": "candidate-warmup.json"
+    },
+    {
+      "label": "baseline",
+      "sample": 1,
+      "warmup": false,
+      "seconds": 80.962,
+      "exit": 0,
+      "artifact": "baseline-run-1.json"
+    },
+    {
+      "label": "candidate",
+      "sample": 1,
+      "warmup": false,
+      "seconds": 81.022,
+      "exit": 0,
+      "artifact": "candidate-run-1.json"
+    },
+    {
+      "label": "baseline",
+      "sample": 2,
+      "warmup": false,
+      "seconds": 80.999,
+      "exit": 0,
+      "artifact": "baseline-run-2.json"
+    },
+    {
+      "label": "candidate",
+      "sample": 2,
+      "warmup": false,
+      "seconds": 81.008,
+      "exit": 0,
+      "artifact": "candidate-run-2.json"
+    },
+    {
+      "label": "baseline",
+      "sample": 3,
+      "warmup": false,
+      "seconds": 81.041,
+      "exit": 0,
+      "artifact": "baseline-run-3.json"
+    },
+    {
+      "label": "candidate",
+      "sample": 3,
+      "warmup": false,
+      "seconds": 81.028,
+      "exit": 0,
+      "artifact": "candidate-run-3.json"
+    }
+  ],
+  "metrics": {
+    "drawRig.medianMs": {
+      "baseline": {
+        "runs": [
+          0.1,
+          0.1,
+          0.1
+        ],
+        "medianAcrossRuns": 0.1
+      },
+      "candidate": {
+        "runs": [
+          0.1,
+          0.10999999940395355,
+          0.1
+        ],
+        "medianAcrossRuns": 0.1
+      },
+      "absoluteDeltaMs": 0.0,
+      "relativeDeltaPercent": 0.0
+    },
+    "drawRig.p95Ms": {
+      "baseline": {
+        "runs": [
+          0.1299999997019768,
+          0.1299999997019768,
+          0.1300000011920929
+        ],
+        "medianAcrossRuns": 0.1299999997019768
+      },
+      "candidate": {
+        "runs": [
+          0.1300000011920929,
+          0.1300000011920929,
+          0.1300000011920929
+        ],
+        "medianAcrossRuns": 0.1300000011920929
+      },
+      "absoluteDeltaMs": 1.4901161138336505e-09,
+      "relativeDeltaPercent": 1.1462431671151701e-06
+    },
+    "stage.medianMs": {
+      "baseline": {
+        "runs": [
+          0.27999999821186067,
+          0.45999999940395353,
+          0.44000000059604644
+        ],
+        "medianAcrossRuns": 0.44000000059604644
+      },
+      "candidate": {
+        "runs": [
+          0.45999999940395353,
+          0.4,
+          0.2599999994039536
+        ],
+        "medianAcrossRuns": 0.4
+      },
+      "absoluteDeltaMs": -0.040000000596046414,
+      "relativeDeltaPercent": -9.090909214059176
+    },
+    "stage.p95Ms": {
+      "baseline": {
+        "runs": [
+          0.6400000005960464,
+          0.6200000017881393,
+          0.6200000017881393
+        ],
+        "medianAcrossRuns": 0.6200000017881393
+      },
+      "candidate": {
+        "runs": [
+          0.6200000017881393,
+          0.6400000005960464,
+          0.6199999988079071
+        ],
+        "medianAcrossRuns": 0.6200000017881393
+      },
+      "absoluteDeltaMs": 0.0,
+      "relativeDeltaPercent": 0.0
+    },
+    "stage.rafGap.medianMs": {
+      "baseline": {
+        "runs": [
+          8.300000000000182,
+          8.300000000000182,
+          8.300000000000182
+        ],
+        "medianAcrossRuns": 8.300000000000182
+      },
+      "candidate": {
+        "runs": [
+          8.300000000000182,
+          8.300000000000182,
+          8.300000000000182
+        ],
+        "medianAcrossRuns": 8.300000000000182
+      },
+      "absoluteDeltaMs": 0.0,
+      "relativeDeltaPercent": 0.0
+    },
+    "stage.rafGap.p95Ms": {
+      "baseline": {
+        "runs": [
+          9.699999999999989,
+          9.599999999999909,
+          10
+        ],
+        "medianAcrossRuns": 9.699999999999989
+      },
+      "candidate": {
+        "runs": [
+          9.700000000000045,
+          9.700000000000045,
+          10
+        ],
+        "medianAcrossRuns": 9.700000000000045
+      },
+      "absoluteDeltaMs": 5.684341886080802e-14,
+      "relativeDeltaPercent": 5.860146274310111e-13
+    },
+    "inputLatencyToyGrab.medianMs": {
+      "baseline": {
+        "runs": [
+          8.299999997019768,
+          8.299999997019768,
+          8.400000005960464
+        ],
+        "medianAcrossRuns": 8.299999997019768
+      },
+      "candidate": {
+        "runs": [
+          8.5,
+          8.799999997019768,
+          8.399999991059303
+        ],
+        "medianAcrossRuns": 8.5
+      },
+      "absoluteDeltaMs": 0.20000000298023224,
+      "relativeDeltaPercent": 2.4096385909884948
+    },
+    "inputLatencyToyGrab.p95Ms": {
+      "baseline": {
+        "runs": [
+          9,
+          10.099999994039536,
+          9.799999997019768
+        ],
+        "medianAcrossRuns": 9.799999997019768
+      },
+      "candidate": {
+        "runs": [
+          10,
+          10.400000005960464,
+          10.400000005960464
+        ],
+        "medianAcrossRuns": 10.400000005960464
+      },
+      "absoluteDeltaMs": 0.6000000089406967,
+      "relativeDeltaPercent": 6.122449072685305
+    },
+    "inputLatencyGaze.medianMs": {
+      "baseline": {
+        "runs": [
+          7.9000000059604645,
+          8.300000011920929,
+          8.299999997019768
+        ],
+        "medianAcrossRuns": 8.299999997019768
+      },
+      "candidate": {
+        "runs": [
+          8.299999997019768,
+          8.799999997019768,
+          8.399999991059303
+        ],
+        "medianAcrossRuns": 8.399999991059303
+      },
+      "absoluteDeltaMs": 0.09999999403953552,
+      "relativeDeltaPercent": 1.204819205728216
+    },
+    "inputLatencyGaze.p95Ms": {
+      "baseline": {
+        "runs": [
+          9.099999994039536,
+          9.799999997019768,
+          10.100000008940697
+        ],
+        "medianAcrossRuns": 9.799999997019768
+      },
+      "candidate": {
+        "runs": [
+          9.900000005960464,
+          9.899999991059303,
+          11
+        ],
+        "medianAcrossRuns": 9.900000005960464
+      },
+      "absoluteDeltaMs": 0.10000000894069672,
+      "relativeDeltaPercent": 1.0204082548072169
+    }
+  },
+  "investigate": [],
+  "method": "one full warmup per side excluded; three alternating runs; median of run medians and run p95s",
+  "scope": "headless Chromium character rig/stage, not WKWebView or end-to-end latency",
+  "longTermLeakConclusion": "not measured by 60-second soak"
+}
