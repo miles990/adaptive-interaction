@@ -1,0 +1,21 @@
+[
+  {
+    "event": "paired",
+    "deviceId": "iphone-b71bab98"
+  },
+  {
+    "event": "status",
+    "micLevel": false
+  },
+  {
+    "event": "connected"
+  },
+  {
+    "event": "status",
+    "micLevel": true
+  },
+  {
+    "event": "stop-all",
+    "sensors": true
+  }
+]

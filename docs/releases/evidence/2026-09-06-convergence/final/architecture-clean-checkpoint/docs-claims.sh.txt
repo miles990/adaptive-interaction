@@ -1,0 +1,3 @@
+docs-claims lint @ /Users/user/Workspace/claude-lab/adaptive-interaction
+
+docs-claims: 172 passed / 0 failed

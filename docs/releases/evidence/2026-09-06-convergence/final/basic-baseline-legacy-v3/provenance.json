@@ -1,0 +1,10 @@
+{
+  "binarySha256": "bb5e1992f405dd163ecedef573322426e666cf766d9567ac587f93b28ac3205a",
+  "appSourceRef": "630b4291f6a59444cfb1d8185f757f9dcda9ecc4",
+  "driverSourceSha": "a32258ea161df537f2ad6c1f25cd70d86910d0da",
+  "driverDirtyTree": true,
+  "driverSha256": "033068117362207ca6dbceb5ef50b83d64915d3c6cfcba133c738dea9fdbed32",
+  "axHelperSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+  "prefsFixture": "scripts/fixtures/desktop/v0.7.0-common-prefs.json",
+  "prefsFixtureSha256": "fa1210035842a19b9d1afb3e6b06b6773914cffc922b8abd7867a5a8f8c5a7fc"
+}

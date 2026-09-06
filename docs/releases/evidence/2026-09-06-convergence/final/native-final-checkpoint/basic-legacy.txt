@@ -1,0 +1,20 @@
+14:16:06 隔離的家：/tmp/interaction-ax-home.xZ9lYh（API 埠號 18922）
+14:16:06 App pid=96838
+14:16:08 System Events 程序名：interaction-desktop
+14:16:11 視窗清單：Interaction Control Center/桌面角色/
+14:16:11 [completed] launch — 啟動 .app 並等到 /ready :: /ready＝{"emergencyStop":false,"status":"ok"}；視窗清單＝Interaction Control Center/桌面角色/
+14:16:24 [completed] onboarding — 首次設定精靈走到完成並顯示角色 :: onboardingCompleted：False → 套用前 False → 套用後 True；視窗清單＝Interaction Control Center/桌面角色//
+14:16:35 [completed] switch-character — 更換角色（讀回 packId／companionPack） :: companionPack：plain-text → shu-maid；status.presentation.packId：plain-text → shu-maid；視窗清單 Interaction Control Center/桌面角色/ → Interaction Control Center/桌面角色/
+14:16:48 [completed] companion-preset — 陪伴預設「安靜」（讀回偏好＋主動說話模式） :: prefs.companionExpressiveness=quiet、companionDoNotDisturb=True、GET /v1/proactive-dialogue mode=necessary；AX 讀回「安靜」按鈕 AXValue=1（1＝aria-pressed，畫面確實高亮在「安靜」）
+14:16:56 [completed] pause-proactive — 暫停主動對話並恢復（/v1/pause） :: /v1/pause paused：False → True → False；安靜時段沒有被順手改掉（[]）
+14:17:11 [completed] do-not-disturb — 勿擾開關（讀回偏好） :: prefs.companionDoNotDisturb：True → False（開關真的寫進偏好檔）
+14:17:21 [completed] companion-visibility — 顯示／隱藏桌面角色（視窗清單＋presentation.visible） :: 視窗清單：Interaction Control Center/桌面角色/ → Interaction Control Center/ → Interaction Control Center/桌面角色/；status.presentation.visible：True → False → True；prefs.companionVisible=True
+14:17:28 [completed] emergency-stop — 緊急停止（二段確認） :: emergencyStop：False → 第一下 False → 確認後 True；保持緊急停止，未代替人類解除。
+14:17:28 [needs-environment] emergency-unlock — 人類走安全流程解除緊急停止 :: 需要人類親自完成既有安全確認；自動走查不代為解除。
+14:17:33 [completed] narrow-390 — 視窗縮到 390px 寬並檢查橫向捲動 :: 視窗實際大小＝224,76,390,844；AX 樹裡沒有水平捲軸（AXScrollBar/AXHorizontalOrientation）。限制：AX 讀不到 documentElement.scrollWidth，這一項是「沒有水平捲軸」而不是「像素級沒有溢出」；像素級由 Playwright 的 390px 任務覆蓋
+14:17:33 走查結束
+14:17:33 結束 App（pid 96838）
+scripts/tauri-ax-walkthrough.sh: line 196: 96838 Terminated: 15          INTERACT_AI_HOME="$HOME_DIR" INTERACT_AI_MOBILE_ADVERTISE=0 INTERACT_AI_CODEX_BIN="$REPO_ROOT/crates/interaction-runtime/tests/fixtures/fake_codex.sh" INTERACT_AI_CLAUDE_BIN="$REPO_ROOT/crates/interaction-runtime/tests/fixtures/fake_claude.sh" "$BIN" >> "$LOG_FILE" 2>&1
+14:17:34 收尾：埠號 18922 仍在監聽的程序數＝0
+{"completed": 9, "needs-environment": 1}
+/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-legacy/tauri-ax-walkthrough.json

@@ -1,0 +1,26 @@
+13:49:31 隔離的家：/tmp/interaction-ax-home.mZtEX4（API 埠號 18922）
+13:49:31 App pid=85137
+13:49:32 System Events 程序名：interaction-desktop
+13:49:35 視窗清單：Interaction Control Center/桌面角色/
+could not create image from rect
+13:49:36 [completed] launch — 啟動 .app 並等到 /ready :: /ready＝{"emergencyStop":false,"status":"ok"}；視窗清單＝Interaction Control Center/桌面角色/
+could not create image from rect
+13:49:48 [completed] onboarding — 首次設定精靈走到完成並顯示角色 :: onboardingCompleted：False → 套用前 False → 套用後 True；視窗清單＝Interaction Control Center/桌面角色//
+could not create image from rect
+13:50:00 [completed] switch-character — 更換角色（讀回 packId／companionPack） :: companionPack：plain-text → shu-maid；status.presentation.packId：plain-text → shu-maid；視窗清單 Interaction Control Center/桌面角色/ → Interaction Control Center/桌面角色/
+could not create image from rect
+13:50:13 [completed] companion-preset — 陪伴預設「安靜」（讀回偏好＋主動說話模式） :: prefs.companionExpressiveness=quiet、companionDoNotDisturb=True、GET /v1/proactive-dialogue mode=necessary；AX 讀回「安靜」按鈕 AXValue=1（1＝aria-pressed，畫面確實高亮在「安靜」）
+could not create image from rect
+13:50:21 [completed] pause-proactive — 暫停主動對話並恢復（/v1/pause） :: /v1/pause paused：False → True → False；安靜時段沒有被順手改掉（[]）
+could not create image from rect
+13:50:36 [completed] do-not-disturb — 勿擾開關（讀回偏好） :: prefs.companionDoNotDisturb：True → False（開關真的寫進偏好檔）
+could not create image from rect
+13:50:46 [completed] companion-visibility — 顯示／隱藏桌面角色（視窗清單＋presentation.visible） :: 視窗清單：Interaction Control Center/桌面角色/ → Interaction Control Center/ → Interaction Control Center/桌面角色/；status.presentation.visible：True → False → True；prefs.companionVisible=True
+could not create image from rect
+13:50:53 [completed] emergency-stop — 緊急停止（二段確認） :: emergencyStop：False → 第一下 False → 確認後 True；保持緊急停止，未代替人類解除。
+13:50:53 [needs-environment] emergency-unlock — 人類走安全流程解除緊急停止 :: 需要人類親自完成既有安全確認；自動走查不代為解除。
+could not create image from rect
+13:50:58 [completed] narrow-390 — 視窗縮到 390px 寬並檢查橫向捲動 :: 視窗實際大小＝224,76,390,844；AX 樹裡沒有水平捲軸（AXScrollBar/AXHorizontalOrientation）。限制：AX 讀不到 documentElement.scrollWidth，這一項是「沒有水平捲軸」而不是「像素級沒有溢出」；像素級由 Playwright 的 390px 任務覆蓋
+13:50:58 走查結束
+13:50:58 結束 App（pid 85137）
+13:50:59 收尾：埠號 18922 仍在監聽的程序數＝0

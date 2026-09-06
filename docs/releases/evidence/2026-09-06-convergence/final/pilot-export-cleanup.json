@@ -1,0 +1,6 @@
+{
+  "path": "/Users/user/Downloads/companion-settings.json",
+  "expectedCopy": "/tmp/adaptive-convergence-20260906/native-export-pilot.json",
+  "result": "removed-task-owned-pilot-export-after-exact-byte-match",
+  "sha256": "a846c940a35968316631f9349dc399109214a16889cd539572cb8a89aefddf7f"
+}

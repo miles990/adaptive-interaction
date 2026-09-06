@@ -1,0 +1,14 @@
+{
+  "name": "final-playwright",
+  "sha": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+  "command": [
+    "pnpm",
+    "test:e2e"
+  ],
+  "exit": 0,
+  "durationSeconds": 222.34,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "/tmp/adaptive-convergence-20260906/final-playwright.log"
+}

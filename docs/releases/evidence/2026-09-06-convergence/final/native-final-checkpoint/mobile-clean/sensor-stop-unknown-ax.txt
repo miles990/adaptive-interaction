@@ -1,0 +1,843 @@
+AXGroup: group
+AXGroup: group
+AXScrollArea:
+AXWebArea: Interaction Control Center
+AXLink: 跳到主要內容
+AXStaticText: 跳到主要內容
+AXGroup:
+AXGroup:
+AXStaticText: Interaction
+AXGroup:
+AXStaticText: Control Center
+AXGroup: 主要導覽
+AXButton: 現在
+AXButton: 小樞
+AXButton: 工作
+AXButton: 連接與權限
+AXButton: 更多
+AXStaticText: 運作中
+AXGroup:
+AXStaticText: 連線到外部系統
+AXGroup:
+AXGroup:
+AXGroup:
+AXStaticText: 連接與權限
+AXButton: 全域搜尋與指令（Cmd+K）
+AXButton: 通知中心，0 項待決定
+AXButton: 緊急停止
+AXGroup:
+AXStaticText: 有 1 筆感測停止沒有人確認
+AXStaticText: ，到「連接與權限」逐筆看。
+AXButton: 前往查看
+AXTabGroup: 連接與權限分類
+AXRadioButton: 裝置與能力
+AXRadioButton: 同意與安全
+AXGroup: 已連接的裝置
+AXHeading: 已連接的裝置
+AXStaticText: 已連接的裝置
+AXGroup:
+AXStaticText: 接上這台電腦的手機、硬體與角色。連上不等於測過：只有真的測試過的才會標「已測試」。
+AXGroup:
+AXStaticText:  我的 iPhone（
+AXStaticText: 模擬 iPhone（fixture）
+AXStaticText: ）
+AXStaticText: 已連線
+AXGroup:
+AXStaticText: iPhone12,1
+AXStaticText: ・
+AXStaticText: 配對於 2026/9/6 下午2:04:46
+AXGroup:
+AXStaticText: 可以提供：
+AXStaticText: 電量與前景、環境音量（已停用）、動作（語意）、角色觸碰
+AXGroup:
+AXStaticText: 可以執行：
+AXStaticText: 角色呈現（已停用）、螢幕閃示（已停用）、震動（已停用）、通知（已停用）、手電筒（已停用）、語音（已停用）（使用前會先問你）
+AXGroup:
+AXStaticText: 目前使用中的感測：
+AXStaticText: 麥克風音量
+AXGroup:
+AXStaticText: 角色同步：尚未確認套用目前狀態
+AXGroup:
+AXStaticText: 手機上的權限（手機自報，這台電腦上的同意不能取代）：
+AXStaticText: 藍牙：未詢問、位置：未詢問、麥克風：未詢問
+AXButton: 管理權限
+AXButton: 重新配對
+AXButton: 測試連接
+AXButton: 停止感測
+AXButton: 移除此手機
+AXGroup:
+AXStaticText: 模擬 iPhone（fixture）：已要求停止（以手機回報為準）；手機還沒回報，結果不確定。
+AXGroup:
+AXGroup:
+AXStaticText: 內建本機能力
+AXStaticText: 可用
+AXHeading: 角色
+AXStaticText: 角色
+AXGroup:
+AXStaticText: 這裡列出
+AXStaticText: 小樞
+AXStaticText: 與其他角色是怎麼接上系統的。第三方角色只會收到「該演什麼」，看不到你的對話內容， 也改不了任何安全設定；安全提示（緊急停止中、被阻擋、結果不確定、感測使用中）永遠由系統顯示，角色不能改寫。
+AXStaticText: 文字角色
+AXStaticText: 已連線
+AXStaticText: 已測試
+AXStaticText: 內建
+AXStaticText: 本機
+AXStaticText: 主要角色
+AXGroup:
+AXStaticText: 在這個視窗內執行，沒有獨立程式。
+AXGroup:
+AXStaticText: 有可執行程式：
+AXStaticText: 否（純資料）
+AXGroup:
+AXStaticText: 需要網路：
+AXStaticText: 否
+AXGroup:
+AXStaticText: 可以接收：點擊、文字輸入
+AXGroup:
+AXStaticText: 已測試：真的跑過一次完整回合（連上→演出→回報結果）。
+AXGroup:
+AXStaticText: 目前狀態：
+AXStaticText: 就緒
+AXButton: 加入或掃描裝置
+AXGroup: 系統可以看見什麼
+AXHeading: 系統可以看見什麼
+AXStaticText: 系統可以看見什麼
+AXGroup:
+AXStaticText: 小樞
+AXStaticText: 和 AI 現在能接收的資訊。感測使用中時，這裡、狀態列與角色都會同時顯示。
+AXGroup:
+AXGroup:
+AXStaticText: AI 助手活動
+AXStaticText:
+AXStaticText: AI 助手目前正在做什麼（例如編譯、搜尋、等待）。
+AXGroup:
+AXStaticText: Agent session reports
+AXStaticText:
+AXStaticText: State reports from delegated agent sessions; agent claims stay inferences
+AXGroup:
+AXStaticText: Desktop companion interaction
+AXStaticText:
+AXStaticText: Semantic interactions with the desktop companion (click, drag, drop, quick actions, text). No raw pointer coordinates.
+AXGroup:
+AXStaticText: Desktop pointer activity (summary)
+AXStaticText:
+AXStaticText: Summary of pointer activity within this app's windows only: activeRecently and idleForMs. No positions, no other apps.
+AXGroup:
+AXStaticText: iPhone 電量與前景
+AXStaticText:
+AXStaticText: 由已配對 iPhone 推送的語意事件（原始軌跡不離開手機）
+AXGroup:
+AXStaticText: iPhone 動作（語意）
+AXStaticText:
+AXStaticText: 由已配對 iPhone 推送的語意事件（原始軌跡不離開手機）
+AXGroup:
+AXStaticText: iPhone 角色觸碰
+AXStaticText:
+AXStaticText: 由已配對 iPhone 推送的語意事件（原始軌跡不離開手機）
+AXGroup:
+AXStaticText: 手動事件
+AXStaticText:
+AXStaticText: 由你或程式手動送出的一次性訊號，常用於測試與自訂流程。
+AXGroup:
+AXStaticText: …還有
+AXStaticText: 7
+AXStaticText:  項
+AXButton: 管理感知來源
+AXGroup: 系統可以做什麼
+AXHeading: 系統可以做什麼
+AXStaticText: 系統可以做什麼
+AXGroup:
+AXStaticText: 小樞
+AXStaticText: 和 AI 現在能做的事。標了「使用前會先問你」的，每次用之前都會徵求同意。
+AXGroup:
+AXGroup:
+AXStaticText: 對話訊息
+AXStaticText:
+AXStaticText: 在對話中顯示一段文字，是最不打擾的回應方式。
+AXGroup:
+AXStaticText: 本機紀錄
+AXStaticText:
+AXStaticText: 安靜地寫進本機紀錄檔，完全不打擾。
+AXGroup:
+AXStaticText: 桌面通知
+AXStaticText:
+AXStaticText: 在這台電腦上顯示一則通知。
+AXGroup:
+AXStaticText: 網頁提示
+AXStaticText:
+AXStaticText: 在控制中心或網頁介面顯示提示。
+AXButton: 管理回應方式
+AXButton: 工具操作
+AXGroup: 目前需要確認的權限
+AXHeading: 目前需要確認的權限
+AXStaticText: 目前需要確認的權限
+AXGroup:
+AXGroup:
+AXStaticText: 在 模擬 iPhone（fixture） 上尚未允許：藍牙（未詢問）
+AXStaticText: 要在手機上處理
+AXGroup:
+AXStaticText: 在 模擬 iPhone（fixture） 上尚未允許：位置（未詢問）
+AXStaticText: 要在手機上處理
+AXGroup:
+AXStaticText: 在 模擬 iPhone（fixture） 上尚未允許：麥克風（未詢問）
+AXStaticText: 要在手機上處理
+AXGroup:
+AXStaticText: 現在沒有需要你決定的事。
+AXHeading: 目前的同意
+AXStaticText: 目前的同意
+AXGroup:
+AXStaticText: 還沒有工作階段，也就沒有額外授權。需要同意的能力在使用前都會先問你。
+AXButton: 查看同意與安全
+AXGroup: 立即停止與撤銷
+AXHeading: 立即停止與撤銷
+AXStaticText: 立即停止與撤銷
+AXGroup:
+AXStaticText:  緊急停止未啟動。右上角的紅色按鈕隨時可以立即停止一切 —— 它不經過任何佇列，也不依賴 AI。
+AXButton: 停止所有感測
+AXButton: 撤回全部授權
+AXButton: 查看同意與安全
+AXGroup:
+AXStaticText: 停止感測只會停止正在擷取的來源，不會關閉能力；手機那邊有沒有真的停下來，以手機回報為準。 撤回全部授權後，需要同意的能力在使用前會重新問你。
+AXHeading: 沒有人確認的感測停止
+AXStaticText: 沒有人確認的感測停止
+AXGroup:
+AXGroup:
+AXDisclosureTriangle: 全部能力與裝置
+AXStaticText: 全部能力與裝置
+AXGroup:
+AXStaticText: 完整清單：每一項能力都可以測試、啟用或停用；裝置可以掃描、配對與測試。
+AXTabGroup: 能力分類
+AXRadioButton: 感知來源
+AXRadioButton: 回應方式
+AXRadioButton: 工具操作
+AXRadioButton: 裝置與來源
+AXGroup:
+AXStaticText: 感知來源是系統可以接收的資訊 — 啟用它，系統才「知道」這件事。
+AXTextField: 搜尋能力
+AXGroup:
+AXStaticText: 搜尋…
+AXGroup:
+AXPopUpButton: 分類篩選
+AXStaticText: 24
+AXStaticText:  項
+AXGroup: AI 助手活動
+AXGroup:
+AXHeading: AI 助手活動
+AXStaticText: AI 助手活動
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: AI 助手目前正在做什麼（例如編譯、搜尋、等待）。
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 不包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: Agent session reports
+AXGroup:
+AXHeading: Agent session reports
+AXStaticText: Agent session reports
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: State reports from delegated agent sessions; agent claims stay inferences
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 不包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 角色動畫事件
+AXGroup:
+AXHeading: 角色動畫事件
+AXStaticText: 角色動畫事件
+AXStaticText: 感知來源
+AXStaticText: 離線
+AXGroup:
+AXStaticText: 動畫完成／中斷／失敗（供配方與觀察，不作為 receipt 證據）
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXStaticText: 含個人資料
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 角色氣泡事件
+AXGroup:
+AXHeading: 角色氣泡事件
+AXStaticText: 角色氣泡事件
+AXStaticText: 感知來源
+AXStaticText: 離線
+AXGroup:
+AXStaticText: 氣泡顯示完成／被使用者關閉
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXStaticText: 含個人資料
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 角色點擊
+AXGroup:
+AXHeading: 角色點擊
+AXStaticText: 角色點擊
+AXStaticText: 感知來源
+AXStaticText: 離線
+AXGroup:
+AXStaticText: 使用者點擊或拖動角色（語意事件，永不記錄座標）
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXStaticText: 含個人資料
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 角色拖放
+AXGroup:
+AXHeading: 角色拖放
+AXStaticText: 角色拖放
+AXStaticText: 感知來源
+AXStaticText: 離線
+AXGroup:
+AXStaticText: 拖放進入／離開／確認／取消（僅檔名與數量；內容讀取需另行確認）
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXStaticText: 含個人資料
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 角色游標語意
+AXGroup:
+AXHeading: 角色游標語意
+AXStaticText: 角色游標語意
+AXStaticText: 感知來源
+AXStaticText: 離線
+AXGroup:
+AXStaticText: 游標接近／離開角色範圍的語意事件（無座標、30 秒節流）
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXStaticText: 含個人資料
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 角色快捷操作
+AXGroup:
+AXHeading: 角色快捷操作
+AXStaticText: 角色快捷操作
+AXStaticText: 感知來源
+AXStaticText: 離線
+AXGroup:
+AXStaticText: 使用者從角色快捷選單選擇的操作
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXStaticText: 含個人資料
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 角色文字輸入
+AXGroup:
+AXHeading: 角色文字輸入
+AXStaticText: 角色文字輸入
+AXStaticText: 感知來源
+AXStaticText: 離線
+AXGroup:
+AXStaticText: 使用者在角色視窗輸入的文字
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXStaticText: 含個人資料
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: Desktop companion interaction
+AXGroup:
+AXHeading: Desktop companion interaction
+AXStaticText: Desktop companion interaction
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: Semantic interactions with the desktop companion (click, drag, drop, quick actions, text). No raw pointer coordinates.
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXStaticText: 含個人資料
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: Desktop pointer activity (summary)
+AXGroup:
+AXHeading: Desktop pointer activity (summary)
+AXStaticText: Desktop pointer activity (summary)
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: Summary of pointer activity within this app's windows only: activeRecently and idleForMs. No positions, no other apps.
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 不包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: iPhone 電量與前景
+AXGroup:
+AXHeading: iPhone 電量與前景
+AXStaticText: iPhone 電量與前景
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: 由已配對 iPhone 推送的語意事件（原始軌跡不離開手機）
+AXStaticText: L2 個人資料
+AXStaticText: 資料流向未知
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 未知
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 未知
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: iPhone 環境音量
+AXGroup:
+AXHeading: iPhone 環境音量
+AXStaticText: iPhone 環境音量
+AXStaticText: 感知來源
+AXStaticText: 已停用
+AXGroup:
+AXStaticText: 由已配對 iPhone 推送的語意事件（原始軌跡不離開手機）
+AXStaticText: L4 高敏感
+AXStaticText: 僅限本機
+AXStaticText: 含個人資料
+AXStaticText: 需同意
+AXGroup:
+AXStaticText: 攝影機、持續麥克風、定位、Agent 寫入檔案：每次使用都要你同意（或只給短效授權），使用中會持續顯示指示。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 外接裝置
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 包含
+AXGroup:
+AXButton: 測試
+AXButton: 啟用
+AXButton: 詳情
+AXGroup: iPhone 動作（語意）
+AXGroup:
+AXHeading: iPhone 動作（語意）
+AXStaticText: iPhone 動作（語意）
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: 由已配對 iPhone 推送的語意事件（原始軌跡不離開手機）
+AXStaticText: L2 個人資料
+AXStaticText: 資料流向未知
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 未知
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 未知
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: iPhone 角色觸碰
+AXGroup:
+AXHeading: iPhone 角色觸碰
+AXStaticText: iPhone 角色觸碰
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: 由已配對 iPhone 推送的語意事件（原始軌跡不離開手機）
+AXStaticText: L2 個人資料
+AXStaticText: 資料流向未知
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 未知
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 未知
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 手動事件
+AXGroup:
+AXHeading: 手動事件
+AXStaticText: 手動事件
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: 由你或程式手動送出的一次性訊號，常用於測試與自訂流程。
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 不包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: Microphone (click-to-listen)
+AXGroup:
+AXHeading: Microphone (click-to-listen)
+AXStaticText: Microphone (click-to-listen)
+AXStaticText: 感知來源
+AXStaticText: 已停用
+AXGroup:
+AXStaticText: Bounded listen windows producing sound-level facts only. Raw audio stays in memory, is never stored and never leaves this machine; no speech-to-text.
+AXStaticText: L4 高敏感
+AXStaticText: 僅限本機
+AXStaticText: 含個人資料
+AXStaticText: 高敏感
+AXStaticText: 需同意
+AXGroup:
+AXStaticText: 攝影機、持續麥克風、定位、Agent 寫入檔案：每次使用都要你同意（或只給短效授權），使用中會持續顯示指示。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 包含
+AXGroup:
+AXButton: 測試
+AXButton: 啟用
+AXButton: 詳情
+AXGroup: 裝置狀態
+AXGroup:
+AXHeading: 裝置狀態
+AXStaticText: 裝置狀態
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: 回報外接裝置目前的狀態，用來驗證動作是否真的生效。
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 外接裝置
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 不包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 測試感知來源
+AXGroup:
+AXHeading: 測試感知來源
+AXStaticText: 測試感知來源
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: 假的感知來源，只用於測試整條流程，不接觸真實資料。
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 不包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 使用者輸入
+AXGroup:
+AXHeading: 使用者輸入
+AXStaticText: 使用者輸入
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: 你直接輸入的文字與指令。明確輸入永遠優先於任何推測。
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXStaticText: 含個人資料
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 系統時間
+AXGroup:
+AXHeading: 系統時間
+AXStaticText: 系統時間
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: 讓系統知道現在的日期與時間，用來判斷安靜時段或排程。
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 不包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 任務狀態
+AXGroup:
+AXHeading: 任務狀態
+AXStaticText: 任務狀態
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: 讓系統知道工作是否開始、完成或失敗。
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 不包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: 使用者在場狀態
+AXGroup:
+AXHeading: 使用者在場狀態
+AXStaticText: 使用者在場狀態
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: 推測你是否在電腦前。這是推測，不是事實，會標示信心程度。
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXStaticText: 含個人資料
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 本機
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 包含
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXGroup: Webhook 接收
+AXGroup:
+AXHeading: Webhook 接收
+AXStaticText: Webhook 接收
+AXStaticText: 感知來源
+AXStaticText: 可用
+AXGroup:
+AXStaticText: 接收其他程式或服務主動送來的通知（webhook 是服務間的回呼訊息）。
+AXStaticText: L2 個人資料
+AXStaticText: 僅限本機
+AXGroup:
+AXStaticText: 會用到你的檔案、偏好或記憶：第一次使用、或使用範圍改變時會先問你。
+AXList:
+AXGroup:
+AXStaticText: 資料來源
+AXGroup:
+AXStaticText: 外部服務
+AXGroup:
+AXStaticText: 個人資料
+AXGroup:
+AXStaticText: 未知
+AXGroup:
+AXButton: 測試
+AXButton: 停用
+AXButton: 詳情
+AXButton: close button
+AXButton: full screen button
+AXGroup: group
+AXGroup: group
+AXButton: minimize button
+AXStaticText: Interaction Control Center

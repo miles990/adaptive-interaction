@@ -1,0 +1,17 @@
+{
+  "name": "native-final-notice-build",
+  "sha": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+  "command": [
+    "pnpm",
+    "tauri",
+    "build",
+    "--bundles",
+    "app"
+  ],
+  "exit": 0,
+  "durationSeconds": 87.75,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "/tmp/adaptive-convergence-20260906/native-final-notice-build.log"
+}

@@ -1,0 +1,61 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/interaction_aip-c2b5c58390d1df45)
+
+running 19 tests
+test offline::tests::approval_names_need_a_fresh_human_decision ... ok
+test offline::tests::table ... ok
+test message::tests::name_grammar ... ok
+test message::tests::unknown_message_type_round_trips_and_is_never_known ... ok
+test envelope::tests::unknown_message_type_is_rejected_not_executed ... ok
+test capability::tests::negotiation_is_intersection_and_min ... ok
+test capability::tests::unknown_keys_round_trip ... ok
+test envelope::tests::valid_event_round_trips_with_unknown_optional_fields ... ok
+test outcome::tests::ladder_is_honest ... ok
+test envelope::tests::profiles_enforce_required_fields ... ok
+test envelope::tests::deadline_identity_and_dedupe ... ok
+test capability::tests::unsupported_inputs_are_bounded_and_truncation_is_recorded ... ok
+test version::tests::version_syntax_has_no_fuzzy_edges ... ok
+test tests::canonical_json_sorts_keys_recursively_and_is_stable ... ok
+test version::tests::parse_and_negotiate ... ok
+test envelope::tests::version_major_mismatch_and_sizes ... ok
+test schema::tests::max_unsupported_inputs_is_published_with_the_authoritative_value ... ok
+test schema::tests::every_limit_constant_is_published_in_the_schema ... ok
+test schema::tests::schema_has_all_roots_and_is_stable ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/canonical_vectors.rs (target/debug/deps/canonical_vectors-9445d1ea8cb3b1fc)
+
+running 6 tests
+test the_ordering_vector_actually_separates_code_point_from_utf16_order ... ok
+test the_combining_mark_vector_separates_byte_order_from_normalized_order ... ok
+test passthrough_characters_are_not_escaped ... ok
+test the_exponent_vector_straddles_the_fixed_to_scientific_boundary ... ok
+test the_vector_set_covers_every_divergence_it_claims_to ... ok
+test canonical_vectors_match_the_authoritative_implementation ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-9d584b1f23e4f594)
+
+running 12 tests
+test identity_decision_table ... ok
+test error_codes_in_the_index_are_all_known ... ok
+test name_scope_table ... ok
+test negotiation_fixtures_are_deterministic ... ok
+test offline_policy_table ... ok
+test outcome_migration_table ... ok
+test receive_decision_fixtures_have_the_documented_shape ... ok
+test state_hash_fixtures_agree_with_canonical_json_and_hash ... ok
+test every_message_type_has_at_least_one_valid_fixture ... ok
+test generated_fixtures_cover_the_oversized_and_malformed_cases ... ok
+test accepted_fixtures_round_trip_without_losing_unknown_fields ... ok
+test envelope_fixtures_agree_with_the_index ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests interaction_aip
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

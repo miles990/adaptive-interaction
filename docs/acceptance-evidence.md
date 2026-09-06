@@ -1,5 +1,9 @@
 # 端到端驗收證據（真 daemon＋真 CLI）— 2026-08-26 11:33
 
+## 本輪候選：語意與恢復工程收斂（2026-09-06）
+
+實作來源 `30ff852`、UI停止提醒修正 `87b0d031`、乾淨驗收checkpoint `3b375bde`；完整SHA與階段見[evidence index](releases/evidence-index.json)。本輪全套與targeted不能重複加總：[測試矩陣](releases/v0.8.0-test-matrix.md)、[五演練](releases/v0.8.0-drills.md)、[一般模式逐任務](releases/v0.8.0-general-mode-tasks.md)。原生9runs全部exit0，手機/Agent是fixture；人工解除、真機與真人仍未執行。效能、發布candidate/main CI、tag與Release驗證正在後續階段，不把此候選條目當成發布完成。
+
 ## 情境 A：單受器 → conversation → receipt completed
 planId: plan-46710062-2cad-4e5e-850f-55b76fa059b4
 simulate.wouldExecute: True

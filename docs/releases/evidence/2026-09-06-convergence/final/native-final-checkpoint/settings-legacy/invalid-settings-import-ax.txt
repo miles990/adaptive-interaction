@@ -1,0 +1,233 @@
+AXGroup: group
+AXGroup: group
+AXScrollArea:
+AXWebArea: Interaction Control Center
+AXLink: 跳到主要內容
+AXStaticText: 跳到主要內容
+AXGroup:
+AXGroup:
+AXStaticText: Interaction
+AXGroup:
+AXStaticText: Control Center
+AXGroup: 主要導覽
+AXButton: 現在
+AXButton: 還原名稱
+AXButton: 工作
+AXButton: 連接與權限
+AXButton: 更多
+AXStaticText: 運作中
+AXGroup:
+AXStaticText: 連線到外部系統
+AXGroup:
+AXGroup:
+AXGroup:
+AXStaticText: 還原名稱
+AXButton: 全域搜尋與指令（Cmd+K）
+AXButton: 通知中心，0 項待決定
+AXButton: 緊急停止
+AXHeading: 目前角色
+AXStaticText: 目前角色
+AXGroup:
+AXHeading: 還原名稱
+AXStaticText: 還原名稱
+AXStaticText: 內建
+AXStaticText: 已隱藏
+AXGroup:
+AXStaticText: 角色視窗已連線但目前隱藏；打開「顯示桌面角色」就會出現。
+AXGroup:
+AXStaticText: 現在：
+AXStaticText: 目前沒有任務或風險，維持低干擾的自然待機。
+AXList: 角色能力摘要
+AXGroup:
+AXListMarker:
+AXStaticText: 文字角色：內建角色（作者 adaptive-interaction，版本 1.0.0）
+AXGroup:
+AXListMarker:
+AXStaticText: 可以接收：點擊、文字輸入
+AXGroup:
+AXListMarker:
+AXStaticText: 需要的裝置：無
+AXGroup:
+AXListMarker:
+AXStaticText: 已測試：是（隨 App 自動化測試）
+AXGroup:
+AXCheckBox: 顯示桌面角色
+AXStaticText: 顯示桌面角色
+AXGroup:
+AXStaticText: 隱藏角色只會停止角色視窗內的感知與呈現；系統、狀態列與進行中的工作都會繼續。隱藏不等於緊急停止。
+AXHeading: 文字範例
+AXStaticText: 文字範例
+AXGroup:
+AXStaticText: 還原名稱
+AXStaticText: 以一行文字出現在桌面。安全訊息是固定文字，角色無法改寫；綠勾只在驗證後。
+AXGroup: 文字範例
+AXGroup:
+AXStaticText: 打招呼
+AXStaticText: ：
+AXStaticText: 你好。
+AXGroup:
+AXStaticText: 聲稱完成
+AXStaticText: ：
+AXStaticText: 做完了。
+AXGroup:
+AXStaticText: 驗證成功
+AXStaticText: ：
+AXStaticText: ✓
+AXStaticText: 做完了，也確認過結果。
+AXGroup:
+AXStaticText: 被阻擋
+AXStaticText: ：
+AXStaticText: 這個動作超出目前允許範圍，所以我沒有執行。
+AXGroup:
+AXStaticText: 匯入設定失敗：companionPlay 必須是開關值（設定未變更）
+AXHeading: 陪伴方式
+AXStaticText: 陪伴方式
+AXGroup:
+AXGroup: 陪伴方式
+AXCheckBox: 安靜
+AXCheckBox: 自然
+AXCheckBox: 活潑
+AXGroup:
+AXStaticText: 目前：
+AXStaticText: 自然
+AXStaticText: ——一般的表現與說話頻率；重要的事會主動說，其餘安靜等你。
+AXGroup:
+AXStaticText: 這三個檔位只改變表現程度、勿擾與主動說話的模式；不會改動費用或次數上限、不會啟用任何權限， 也不會更換指定的 AI 幫手。
+AXGroup:
+AXDisclosureTriangle: 調整陪伴方式 表現程度：自然・說話風格與細部行為
+AXStaticText: 調整陪伴方式
+AXStaticText: 表現程度：自然・說話風格與細部行為
+AXHeading: 同步
+AXStaticText: 同步
+AXGroup:
+AXGroup: 角色同步
+AXGroup:
+AXStaticText: 同步
+AXStaticText: 尚未連接 iPhone
+AXGroup:
+AXStaticText: 目前只有這台電腦在陪你；連上手機之後才會有東西可以同步。
+AXButton: 重新檢查
+AXButton: 連接手機
+AXGroup:
+AXDisclosureTriangle: 外觀與名字 名字、外觀、大小、透明度、位置
+AXStaticText: 外觀與名字
+AXStaticText: 名字、外觀、大小、透明度、位置
+AXValueIndicator:
+AXGroup:
+AXDisclosureTriangle: 安靜與勿擾 勿擾：關閉・主動說話：自然・安靜時段：未啟用
+AXStaticText: 安靜與勿擾
+AXStaticText: 勿擾：關閉・主動說話：自然・安靜時段：未啟用
+AXGroup:
+AXDisclosureTriangle: 主動式對話 每小時最多 3 則・最短間隔 12 分鐘・每日最多 8 則・費用上限 USD 1・AI 幫手：不使用
+AXStaticText: 主動式對話
+AXStaticText: 每小時最多 3 則・最短間隔 12 分鐘・每日最多 8 則・費用上限 USD 1・AI 幫手：不使用
+AXIncrementor:
+AXIncrementorArrow:
+AXIncrementorArrow:
+AXIncrementor:
+AXIncrementorArrow:
+AXIncrementorArrow:
+AXIncrementor:
+AXIncrementorArrow:
+AXIncrementorArrow:
+AXIncrementor:
+AXIncrementorArrow:
+AXIncrementorArrow:
+AXGroup:
+AXDisclosureTriangle: 更換或加入角色 目前使用「還原名稱」・共 10 個角色
+AXStaticText: 更換或加入角色
+AXStaticText: 目前使用「還原名稱」・共 10 個角色
+AXHeading: 更換或加入角色
+AXStaticText: 更換或加入角色
+AXGroup:
+AXButton: 匯入角色…
+AXGroup:
+AXStaticText: 內建角色隨 App 提供並經自動化測試。匯入的第三方角色只存在本機角色資料夾：不會自動執行程式、 不會自動連線。任何角色都無法改寫安全訊息或取得權限。
+AXGroup: 角色 文字角色
+AXGroup:
+AXGroup:
+AXStaticText: 文字角色
+AXStaticText: 使用中
+AXStaticText: 內建
+AXList:
+AXGroup:
+AXStaticText: 來源
+AXGroup:
+AXStaticText: 內建
+AXGroup:
+AXStaticText: 可以接收
+AXGroup:
+AXStaticText: 點擊、文字輸入
+AXGroup:
+AXStaticText: 已測試
+AXGroup:
+AXStaticText: 是（隨 App 自動化測試）
+AXGroup: 角色 小樞
+AXGroup:
+AXGroup:
+AXStaticText: 小樞
+AXStaticText: 內建
+AXList:
+AXGroup:
+AXStaticText: 來源
+AXGroup:
+AXStaticText: 內建
+AXGroup:
+AXStaticText: 可以接收
+AXGroup:
+AXStaticText: 點擊、游標懸停（節流）、拖曳（量化座標）、放下、游標靠近（低頻）、文字輸入、檔案拖放（只有檔名／類型／大小＋短效授權）
+AXGroup:
+AXStaticText: 已測試
+AXGroup:
+AXStaticText: 是（隨 App 自動化測試）
+AXButton: 選用
+AXGroup: 角色 小樞
+AXGroup:
+AXGroup:
+AXStaticText: 小樞
+AXStaticText: 內建
+AXList:
+AXGroup:
+AXStaticText: 來源
+AXGroup:
+AXStaticText: 內建
+AXGroup:
+AXStaticText: 可以接收
+AXGroup:
+AXStaticText: 點擊、游標懸停（節流）、拖曳（量化座標）、放下、游標靠近（低頻）、文字輸入、檔案拖放（只有檔名／類型／大小＋短效授權）
+AXGroup:
+AXStaticText: 已測試
+AXGroup:
+AXStaticText: 是（隨 App 自動化測試）
+AXButton: 選用
+AXGroup: 角色 小樞
+AXGroup:
+AXGroup:
+AXStaticText: 小樞
+AXStaticText: 內建
+AXList:
+AXGroup:
+AXStaticText: 來源
+AXGroup:
+AXStaticText: 內建
+AXGroup:
+AXStaticText: 可以接收
+AXGroup:
+AXStaticText: 點擊、游標懸停（節流）、拖曳（量化座標）、放下、游標靠近（低頻）、文字輸入、檔案拖放（只有檔名／類型／大小＋短效授權）
+AXGroup:
+AXStaticText: 已測試
+AXGroup:
+AXStaticText: 是（隨 App 自動化測試）
+AXButton:
+AXButton: 匯出角色設定
+AXGroup:
+AXStaticText: 匯入角色設定
+AXButton: 選擇角色設定檔
+AXButton: 顯示全部角色（另外 6 個）
+AXScrollBar:
+AXButton: close button
+AXButton: full screen button
+AXGroup: group
+AXGroup: group
+AXButton: minimize button
+AXStaticText: Interaction Control Center

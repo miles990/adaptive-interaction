@@ -1,0 +1,113 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.52s
+== Scoped API token boundary ==
+  PASS: restricted agent token can read status (0)
+  PASS: restricted agent token cannot create/grant a human session
+  PASS: restricted agent token cannot weaken policy
+== Providers ==
+  PASS: declarative provider Installed (not auto-available) (installed)
+  PASS: revoke is sticky (revoked)
+  PASS: revoked -> available refused
+== Agent sessions ==
+  PASS: created agent session asession-ac14778a-bc35-4cd0-8552-6ac6f72a8271
+  PASS: session starts Created (created)
+  PASS: message budget is a hard ceiling
+  PASS: claimed-completed is an OPEN state (claimed-completed)
+  PASS: claim starts unverified (True)
+  PASS: human verify records the note (e2e checked output)
+  PASS: double verify refused
+  PASS: session closed (closed)
+== Sensors (default off, consent-gated) ==
+  PASS: microphone listen refused without consent
+  PASS: microphone default disabled (disabled)
+== Presentation Provider (v0.4) ==
+  PASS: companion provider has 7 itemized receptors (7)
+  PASS: companion provider name is honest before any character hello (桌面角色（尚未連線）)
+  PASS: companion click refused while surface offline (HTTP 503)
+  PASS: hello marks the surface connected (True)
+  PASS: companion click accepted when visible (200)
+  PASS: bubble receipt is dispatched, not completed (dispatched)
+  PASS: surface ack completes the receipt (completed)
+  PASS: companion.sound.play default disabled (disabled)
+== Proactive dialogue (v0.4) ==
+  PASS: proactive mode persisted (off)
+  PASS: quiet request recorded (set)
+  PASS: proactive generative agent is explicit (claude-code)
+== Agent Gateway (v0.4, fake agent subprocess) ==
+  PASS: fake claude discovered + logged in (True)
+  PASS: gateway session created asession-9f8842b9-1a4d-4e0c-9c8a-9d8497029967
+  PASS: fake agent reaches claimed-completed (claim, not verified) (claimed-completed)
+  PASS: provider session id recorded (fake-123)
+  PASS: result lands in mailbox (完成了（這是聲稱）)
+  PASS: exact context bundle receipt persisted on real task (1)
+  PASS: gateway session closed kills subprocess (closed)
+== Memory layer (v0.4) ==
+  PASS: memory created mem-6e99b3dc-ce6c-47ea-9614-4a9e316573e8
+  PASS: agent fact demoted to inference (inference)
+  PASS: secret-like content refused
+  PASS: context bundle includes the know-how (True)
+  PASS: memory deletable (no permanent memory)
+== Knowledge system (v0.4) ==
+  PASS: ten built-in Domain Packs are listed (10)
+  PASS: Domain Pack uninstall persists in Runtime Truth (False)
+  PASS: Domain Pack can be restored (True)
+  PASS: asset imported (CAS) a5f61f8dceb093803d7fd077423c98abe3190dde653aa23a6adc81903894d872
+  PASS: same content = same hash (write-once) (a5f61f8dceb093803d7fd077423c98abe3190dde653aa23a6adc81903894d872)
+  PASS: agent proposal is candidate (candidate)
+  PASS: unified CLI inbox filters candidate by agent (True)
+  PASS: agent cannot self-approve (candidate)
+  PASS: human approval activates (active)
+  PASS: FTS/vector search finds it (True)
+  PASS: analogy/conjecture cannot claim causality
+== Curator + receipts (v0.4) ==
+  PASS: repo-commit needs no AI (False)
+  PASS: external research requires asking (True)
+  PASS: knowledge receipts recorded (True)
+== Serial hardware closed loop (SIMULATOR) ==
+  PASS: serial adapter provider registered (installed) (installed)
+  PASS: serial receptor reads live facts through pairing handshake (133)
+  PASS: serial cmd acked by device (acknowledged, not completed) (acknowledged)
+  PASS: firmware hard-limit clamp is honestly recorded (1.0 -> 0.8) (0.8)
+  PASS: servo angle clamped by the device (999 -> 170) (170)
+  PASS: device rate-limit is an honest failed receipt (no fake success) (True)
+  PASS: buzzer clamped by the device (99999Hz/9999ms -> 4000/2000) (4000/2000)
+  PASS: device state reflects the clamped servo angle (170)
+  PASS: sensor change on the device is reflected by observe (842 -> 150) (150)
+  PASS: absent sensors pass through as tempC=null / distanceMm=-1 (not a number, not dropped) (True)
+  PASS: button edge pushes state unsolicited (no read on the wire) (pushed)
+  PASS: observe reflects the toggled button (True)
+== Character Protocol ==
+  PASS: character protocol version reported (1.0)
+  PASS: adapter registered; token issued once (64 hex)
+  PASS: adapter list never contains the token (True)
+  PASS: 模擬 adapter（fixture）negotiated over /v1/character/ws (True)
+  PASS: human token refused on /v1/character/ws (401)
+  PASS: adapter token cannot read /v1/status (403)
+  PASS: adapter token cannot trigger emergency stop (403)
+  PASS: manual notice intent reached the fixture instance (1)
+  PASS: manual safety intent refused (runtime-only)
+  PASS: character.receipt completed from the fixture (text printed, not verified) (True)
+  PASS: fixture printed the intent line
+  PASS: revoke marks the adapter revoked and disconnected (True)
+  PASS: revoked adapter instance no longer listed (True)
+  PASS: revoked adapter token is unauthorized (401)
+== Character Session（模擬 iPhone（fixture）） ==
+  PASS: 模擬 iPhone（fixture）已配對並連線
+  PASS: capability negotiated（模擬 iPhone（fixture））
+  PASS: 協商後立刻收到 state snapshot（模擬 iPhone（fixture））
+  PASS: touch applied（模擬 iPhone（fixture））
+  PASS: Behavior Intent 送到模擬 iPhone（fixture）
+  PASS: character session status 顯示 revision 前進 10 -> 11
+  PASS: diagnostics 誠實列出 online 的模擬 iPhone（fixture） (True)
+  PASS: 重複 messageId 回 accepted{duplicate}（不重套用）
+  PASS: 重複的 touch 沒有推進 revision (11)
+  PASS: 斷線誠實反映成 presence reconnecting（成員保留，逾時才 offline） (True)
+  PASS: 模擬 iPhone（fixture）重新連上
+  PASS: resume 回補了錯過的狀態（模擬 iPhone（fixture））
+  PASS: interact-ai character session resume 回 patches
+  PASS: 未知 message type 回 error{unsupported-message-type}，不執行
+== Emergency stop propagation ==
+  PASS: estop cancels open agent session (cancelled)
+  PASS: estop blocks new agent sessions
+  PASS: estop propagated stop-all to the serial device (simulator)
+
+RESULT: 96 passed, 0 failed

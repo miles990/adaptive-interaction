@@ -1,0 +1,49 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling serde_core v1.0.229
+   Compiling libc v0.2.189
+   Compiling version_check v0.9.5
+   Compiling generic-array v0.14.7
+   Compiling syn v3.0.4
+   Compiling autocfg v1.5.1
+   Compiling num-traits v0.2.19
+   Compiling serde v1.0.229
+   Compiling getrandom v0.4.3
+   Compiling typenum v1.20.1
+   Compiling zmij v1.0.23
+   Compiling cfg-if v1.0.4
+   Compiling core-foundation-sys v0.8.7
+   Compiling ref-cast v1.0.27
+   Compiling serde_json v1.0.151
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling iana-time-zone v0.1.65
+   Compiling serde_derive_internals v0.30.0
+   Compiling itoa v1.0.18
+   Compiling thiserror v2.0.20
+   Compiling memchr v2.8.3
+   Compiling schemars_derive v1.2.2
+   Compiling uuid v1.25.0
+   Compiling thiserror-impl v2.0.20
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling dyn-clone v1.0.20
+   Compiling digest v0.10.7
+   Compiling cpufeatures v0.2.17
+   Compiling sha2 v0.10.9
+   Compiling chrono v0.4.45
+   Compiling schemars v1.2.2
+   Compiling interaction-character v0.7.0 (/private/tmp/n1-independent-final-verify/current/crates/interaction-character)
+   Compiling interaction-aip v0.7.0 (/private/tmp/n1-independent-final-verify/current/crates/interaction-aip)
+   Compiling interaction-session v0.7.0 (/private/tmp/n1-independent-final-verify/current/crates/interaction-session)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.34s
+     Running tests/independent_restore.rs (/tmp/n1-independent-final-verify/target-current/debug/deps/independent_restore-d50fe41913ff93f8)
+
+running 3 tests
+REJECTED_INVALID_NULL InvalidState
+test unknown_authoritative_field_negative_control ... ok
+test complete_snapshot_positive_control ... ok
+test independent_hash_consistent_raw_null_must_not_restore ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

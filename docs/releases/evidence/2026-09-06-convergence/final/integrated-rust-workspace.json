@@ -1,0 +1,19 @@
+{
+  "name": "integrated-rust-workspace",
+  "sha": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "-c",
+    "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --no-fail-fast"
+  ],
+  "exit": 0,
+  "durationSeconds": 225.72,
+  "rustCounts": [
+    1278,
+    0,
+    0
+  ],
+  "testBinaries": 98,
+  "log": "/tmp/adaptive-convergence-20260906/integrated-rust-workspace.log"
+}

@@ -1,0 +1,4 @@
+codex-readonly-work-submitted completed
+codex-turn-cancelled completed
+claude-readonly-work-submitted completed
+claude-long-work-closed-and-processes-exited completed

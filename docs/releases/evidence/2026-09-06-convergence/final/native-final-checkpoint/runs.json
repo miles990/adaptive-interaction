@@ -1,0 +1,135 @@
+[
+  {
+    "id": "settings-clean",
+    "command": [
+      "python3",
+      "scripts/tests/tauri-settings-walkthrough.py",
+      "--app",
+      "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app",
+      "--out",
+      "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean"
+    ],
+    "exit": 0,
+    "seconds": 138.756
+  },
+  {
+    "id": "settings-legacy",
+    "command": [
+      "python3",
+      "scripts/tests/tauri-settings-walkthrough.py",
+      "--app",
+      "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app",
+      "--out",
+      "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy",
+      "--prefs-fixture",
+      "scripts/fixtures/desktop/v0.7.0-common-prefs.json"
+    ],
+    "exit": 0,
+    "seconds": 136.868
+  },
+  {
+    "id": "work-clean",
+    "command": [
+      "python3",
+      "scripts/tests/tauri-work-cancel.py",
+      "--app",
+      "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app",
+      "--out",
+      "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-clean"
+    ],
+    "exit": 0,
+    "seconds": 52.936
+  },
+  {
+    "id": "work-legacy",
+    "command": [
+      "python3",
+      "scripts/tests/tauri-work-cancel.py",
+      "--app",
+      "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app",
+      "--out",
+      "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-legacy",
+      "--prefs-fixture",
+      "scripts/fixtures/desktop/v0.7.0-common-prefs.json"
+    ],
+    "exit": 0,
+    "seconds": 52.816
+  },
+  {
+    "id": "mobile-clean",
+    "command": [
+      "python3",
+      "scripts/tests/tauri-mobile-sensor-walkthrough.py",
+      "--app",
+      "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app",
+      "--out",
+      "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean"
+    ],
+    "exit": 0,
+    "seconds": 334.635
+  },
+  {
+    "id": "mobile-legacy",
+    "command": [
+      "python3",
+      "scripts/tests/tauri-mobile-sensor-walkthrough.py",
+      "--app",
+      "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app",
+      "--out",
+      "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy",
+      "--prefs-fixture",
+      "scripts/fixtures/desktop/v0.7.0-common-prefs.json"
+    ],
+    "exit": 0,
+    "seconds": 333.301
+  },
+  {
+    "id": "preset-clean",
+    "command": [
+      "python3",
+      "scripts/tests/tauri-preset-recovery.py",
+      "--app",
+      "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app",
+      "--out",
+      "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean"
+    ],
+    "exit": 0,
+    "seconds": 108.312
+  },
+  {
+    "id": "basic-clean",
+    "command": [
+      "bash",
+      "scripts/tauri-ax-walkthrough.sh",
+      "--app",
+      "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app",
+      "--app-source-ref",
+      "3b375bde4188e4a039852881d48d82ea9b619ce1",
+      "--port",
+      "18922",
+      "--out",
+      "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-clean"
+    ],
+    "exit": 0,
+    "seconds": 90.368
+  },
+  {
+    "id": "basic-legacy",
+    "command": [
+      "bash",
+      "scripts/tauri-ax-walkthrough.sh",
+      "--app",
+      "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app",
+      "--app-source-ref",
+      "3b375bde4188e4a039852881d48d82ea9b619ce1",
+      "--port",
+      "18922",
+      "--out",
+      "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-legacy",
+      "--prefs-fixture",
+      "scripts/fixtures/desktop/v0.7.0-common-prefs.json"
+    ],
+    "exit": 0,
+    "seconds": 87.637
+  }
+]

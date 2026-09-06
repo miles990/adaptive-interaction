@@ -1,0 +1,97 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.45s
+     Running tests/providers_loop.rs (target/debug/deps/providers_loop-36c17e48578ad04c)
+
+running 36 tests
+test a_provider_without_a_sensor_source_reports_no_stop_at_all ... ok
+test a_spec_without_plaintext_credentials_gets_no_warnings ... ok
+test a_removed_declarative_binding_is_never_rebound ... ok
+test a_revoked_provider_stays_blocked_even_if_a_capability_is_re_enabled ... ok
+test a_disabled_provider_blocks_observe_even_when_the_receptor_stays_enabled ... ok
+test a_device_that_really_verified_the_pairing_code_keeps_a_clean_record ... ok
+test acknowledged_device_command_records_evidence_for_its_provider ... ok
+test a_device_that_never_verified_the_pairing_code_downgrades_the_provider_evidence ... ok
+test a_disabled_provider_blocks_execution_with_a_blocked_receipt ... ok
+test a_legacy_disabled_provider_without_the_off_marker_stays_locked_after_restart ... ok
+test a_revoked_declarative_device_stays_off_across_a_restart ... ok
+test capability_availability_reports_disabled_while_the_provider_is_off ... ok
+test declarative_device_registers_installed_and_disabled ... ok
+test a_disabled_declarative_device_stays_off_until_a_human_enables_it_again ... ok
+test declared_device_is_not_tested_until_something_actually_succeeds ... ok
+test disabling_one_device_never_retracts_the_family_declaration ... ok
+test disabling_a_provider_stops_the_sensor_source_registered_under_it ... ok
+test inbox_sensor_titles_use_the_provider_declared_class_label ... ok
+test pairing_ceremony_and_revocation_disable_capabilities ... ok
+test governor_bounds_device_output_and_receipt_stays_acknowledged ... ok
+test provider_declarations_drive_presentation_and_sensor_semantics ... ok
+test operational_provider_does_not_auto_recover_after_restart ... ok
+test disable_a_does_not_affect_b ... ok
+test provider_records_survive_restart ... ok
+test human_provider_test_reads_one_receptor_and_records_evidence ... ok
+test provider_test_reports_the_reason_when_it_cannot_read ... ok
+test re_enabling_a_provider_never_re_arms_its_capabilities ... ok
+test redeclaring_a_provider_replaces_the_whole_declaration ... ok
+test retracting_a_declaration_removes_its_capability_semantics ... ok
+test the_declaration_table_has_a_read_only_projection ... ok
+test successful_receptor_read_records_capability_evidence ... ok
+test reentrant_transitions_do_not_double_retire ... ok
+test transitioning_a_provider_to_disabled_turns_off_its_capability_flags ... ok
+test re_enabling_a_declarative_device_rebinds_without_a_restart ... ok
+test tested_evidence_survives_restart_but_never_re_arms_the_device ... ok
+test plaintext_credential_warnings_reach_the_provider_record ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+
+     Running tests/sensor_journal_review.rs (target/debug/deps/sensor_journal_review-c1726a115c84f492)
+
+running 5 tests
+test a_registered_family_does_not_hide_unknowns_after_the_live_capture_disappears ... ok
+test scoped_confirmation_resolves_only_its_connection_and_dismissal_keeps_a_live_sibling ... ok
+test changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors ... ok
+test a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind ... ok
+test a_scoped_successful_stop_leaves_no_restart_reminder ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/sensors_loop.rs (target/debug/deps/sensors_loop-87e11a560469b5b9)
+
+running 38 tests
+test estop_while_capturing_leaves_no_silent_path ... ok
+test estop_during_start_aborts_the_window ... ok
+test emergency_stop_halts_capture_immediately ... ok
+test dismiss_unresolved_is_explicit_and_audited ... ok
+test an_already_stopped_without_device_contact_does_not_clear_an_old_generation ... ok
+test confirmed_stop_from_new_source_keeps_previous_incarnation_unresolved ... ok
+test journal_dismissal_commit_failure_preserves_reminder_and_audit ... ok
+test emergency_stop_and_stop_all_sensors_agree_about_an_unstoppable_receptor ... ok
+test mic_facts_are_not_persisted_retention_none ... ok
+test live_unresolved_and_history_are_separate ... ok
+test new_generation_confirmed_stop_cannot_vouch_for_previous_source ... ok
+test orphan_ttl_moves_unknown_to_unresolved_not_to_normal ... ok
+test microphone_is_off_by_default_and_consent_gated ... ok
+test restart_before_orphan_ttl_retains_unknown ... ok
+test restart_human_dismissal_stays_dismissed_without_claiming_stopped ... ok
+test same_id_new_source_does_not_clear_old_generation_unknown ... ok
+test revoking_a_provider_stops_its_sensor_source_with_a_target ... ok
+test revoking_receptor_consent_stops_capture_immediately ... ok
+test stop_uncertain_payloads_name_the_receptors_the_provider_declared ... ok
+test restart_retains_unresolved_without_claiming_active_capture ... ok
+test restart_corrupt_and_future_journals_are_parked_and_visible ... ok
+test status_active_sensors_covers_local_capture_and_invents_nothing_remote ... ok
+test stop_all_sensors_is_honest_about_high_risk_receptors_it_never_asked ... ok
+test stopping_a_source_twice_is_idempotent ... ok
+test stop_all_sensors_reports_and_audits_what_it_actually_stopped ... ok
+test the_sensor_source_registry_is_bounded ... ok
+test the_stop_all_report_keeps_devices_and_adds_sources ... ok
+test unresolved_stop_carries_the_human_label_when_known ... ok
+test every_stop_outcome_of_a_source_is_reported_and_evented_honestly ... ok
+test restart_overflow_never_becomes_zero_problems_after_itemized_dismissals ... ok
+test unresolved_stop_omits_the_human_label_when_unknown ... ok
+test the_removed_while_capturing_record_is_bounded ... ok
+test the_unresolved_stop_summary_is_bounded ... ok
+test a_source_removed_while_stopping_still_reports_and_stays_visible ... ok
+test the_stop_sweep_is_bounded_by_the_deadline ... ok
+test deleting_a_high_risk_receptor_asks_its_source_to_stop_first ... ok
+test a_revoke_racing_a_stop_sweep_stays_bounded_and_honest ... ok
+test shutdown_persists_unknown_before_marking_the_process_clean ... ok
+
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.48s

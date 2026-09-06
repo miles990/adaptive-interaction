@@ -7,16 +7,8 @@
 
 ## 2. 本輪差異矩陣
 
-| 需求 | 現有實作與 production 路徑 / owner | 契約 / 測試 | 差異與本輪動作 | 狀態 / 證據 |
-|---|---|---|---|---|
-| N1 SemanticState | session/state → snapshot/patch → TS SessionClient / Swift SessionClient | character-session、conformance；state_semantics / state_hash_fixtures / 三端 receiveDecisions | 生成語意 schema；consumer 驗證；保留未知數值原文；凍結發布樣本；optional 欄位演練 | 實作中；code-read + 起點 test-run |
-| N1 既有 null 防線 | semantic_state_never_serializes_a_null、every_semantic_state_field_appears_in_at_least_one_state_hash_fixture | drills F4/F5；known-limitations §6.2 舊宣稱矛盾 | 重用現有測試、補保護範圍與修正文檔，不重做已存在機制 | verified-existing；起點 Rust 1245 項包含上述測試 |
-| N2 同步回執 | DeviceLink / DeviceOutbound → note_full_state_delivered → derive_sync_profile → characterSync | device-profile / transport-bindings；declarative_session_loop / serial pty | write 成功不等於 applied；協商回執、綁定世代與狀態 tuple、有界 tracker、mobile 對稱接線 | 實作中；code-read |
-| N3 未解決停止 | Runtime SensorSource → unresolvedStops → status / API / tray | privacy §5.1；sensors_loop | 摘除 / stop 前 journal、跨重啟 unknown、同 ID 不冒證、overflow/storage health | 實作中；code-read，新回歸待跑 |
-| N3 裝置選擇 | declarative_lifecycle / registry；keptDisabledReceptors | device-profile；declarative_session_loop | 核實自然斷線關閉選擇；外部動器皆 requires_consent，維持 rebind default-off | 實作中；code-read；不把安全預設當 bug |
-| N4 設定恢復 | CompanionPage → prefs patch + Runtime proactive configure；marker 在 desktop.json | applyPresetPlan / companion-preset-recovery / src-tauri prefs tests | 將協調放 host 應用服務；config revision / op ID / conditional retry；真檔案 crash/restart | 實作中；code-read + 起點 Tauri 63 / TS 1816 |
-| N5 擴充演練 | scripts/drills、角色 store、schema/codegen | MAINTAINERS-MAP / drills | 本機 wt/drills 演練轉成 clean checkout 腳本；移除走 application function 而非直接 rm | 實作中；code-read |
-| N6 一般模式 | 五入口、CompanionPage、AX walkthrough / Playwright | general-mode-ux / general-mode-tasks | 同環境任務與恢復走查、390px / a11y；真機與真人另列 | 待執行；歷史證據不冒充本輪 |
+完整 owner／production path／契約／保護與限制見 [final report §2](v0.8.0-final-report.md#2-需求差異與-production-呼叫路徑)。N1契約/codegen/consumer驗證、N2有界applied、N3持久unknown與UI三入口、N4host設定恢復、N5五演練及N6原生工程子集均已完成本輪實跑。
+既有null序列化與hash欄位覆蓋、非consent受器keptDisabled仍分列verified-existing；Removed/無consumer ports為experimental。人工解除與真機/真人驗收是needs-environment/not-run，不冒充fixed。
 
 ## 3. 本輪基線（起點 SHA；本機 macOS / Apple Silicon）
 
@@ -40,13 +32,13 @@ Rust 1.94.0、Cargo 1.94.0、Node 24.5.0、pnpm 10.27.0、Xcode 26.6。建置設
 
 ## 5. 下一動作
 
-目前checkpoint `a32258ea161df537f2ad6c1f25cd70d86910d0da`，主要產品實作在`30ff852f5d893215c019d982774c8b59ab010659`；後續review/harness/Browser修正尚未提交。沒有使用者無關工作被移除。
+已提交驗收checkpoint `3b375bde4188e4a039852881d48d82ea9b619ce1`；產品最後變更 `87b0d03173cdefce68bad2403b7f76be59b738e1`（歷史unknown不發整體成功通知）。主要實作在`30ff852f5d893215c019d982774c8b59ab010659`。目前只整理本輪證據/文件，無使用者無關修改被清理。
 
-1. N3 raw-capture write-ahead回歸已獨立1/0＋scope5/0。最新原生手機10步completed，含per-device unknown直接移除及程序重啟保留；UI成功通知漏看historical unknown的獨立finding已修，sharedprojection/三入口已統一；作者111/0、root獨立9/0，Browser sensors3/0。最新nativebuild已完成（87.75s）。
-2. 整合Rust1278/0、Tauri78/0、TS1916/0、iOS163/0；CLI96/0。XCTest gate新增精確163計數與最後套件檢查，14/0独立回驗。architecture Rust233/0、TS230/0、Swift58/0；彙整變數界線bug已修，需整套runner再跑。
-3. FullBrowser first attempt80pass5fail7notrun；4個legacy手機期望已改成更嚴格的未協商/未確認/無綠勾＋實際diagnostics，8支targeted全過（41.5s）。sensor fresh1/0、舊sequence1pass1fail1notrun，修teardown使同連線先回false再離開，原期待不改sequence3/0。尚待全套重跑。
-4. 最新原生preset10/0（108.17s）、backup8步（4completed/4correctly-blocked；追加唯一下載nonce與來源pin後仍需最終重跑）、mobile10/0（334.907s）、work4/0已走通。所有手機/AI為fixture，非真機/真AI；無consent授予/人工解除。現在以相同新版AX driver重跑v0.7 baseline clean/legacy，之後candidate clean/legacy及後三native tasks各兩種設定。
-5. 中途證據與Find/Verify原始logs已部分封存`docs/releases/evidence/2026-09-06-convergence/`；正式草稿`v0.8.0-final-report.md`、`v0.8.0-drills.md`未標完成。五項clean HEAD drills、暖機＋交錯3次perf、版本prepare、exactcandidate/main CI、verify/tag/Release資產安裝仍為下一階段。
+1. 本輪完整Browser92/0（222.34s），TS1916/0；乾淨checkpoint architecture六組全過（190.36s）：docs172/0、release-scripts58/0、TS230/0、Rust233/0、nativeSwift58/0，四runner覆蓋五演練。原始log不重複加總。
+2. 同一release App SHA-256 `1103cda7f8491ece2adbaab478056d14a174da47ab8536a2d652c734a0765f19`：settings clean/legacy各8步（4completed/4correctly-blocked）；work各4completed；mobile各10completed；preset10completed；basic各9completed＋1人工解除needs-environment，全部9runs exit0。CLI/fixture/driver hash固定，埠已清理。詳見[一般模式](v0.8.0-general-mode-tasks.md)。
+3. N1兩個原始缺陷已由非作者在未修改baseline622c8bf獨立反駁重現並回綠：TS2controls/5fail→7/0，Rust2controls/1fail→3/0。完整Find/Verify整理保留角色與歷史紅燈，不拿作者執行冒充獨立執行。
+4. 正在執行事先固定的效能計畫：source622c8bf vs3b375bd，同一esbuild/Chromium，每版一暖機＋交錯三次sample，60s soak，無編譯/其他UI並行。結果未產出前不宣稱預算通過。原始輸出暫存`/tmp/adaptive-convergence-20260906/perf-final-checkpoint`，下一步封存到repo evidence。
+5. 效能gate完成後提交證據；minor0.8.0理由已依實際變更寫在migration。依序release-prepare→正式candidate完整驗證→push/PR/必要CI→rebase merge→實際main必要CI→同SHA完整release-verify→annotatedtag→Release資產下載/checksum/可用macOS安裝smoke。尚未執行的步驟不填預測SHA或run ID。
 
 ## 6. Blockers
 

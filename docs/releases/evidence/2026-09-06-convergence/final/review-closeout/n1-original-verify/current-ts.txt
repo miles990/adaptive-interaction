@@ -1,0 +1,24 @@
+
+ RUN  v2.1.9 /private/tmp/n1-independent-final-verify/current/apps/interaction-desktop
+
+stdout | independent.test.ts > independent: missing attention cannot become local state
+{"probe":"missing-attention","hash":"559ff48e220200f19439693a94761b0273437c87e7e0a676b5dad4748e9c35b3","decision":"reject-invalid","adopted":false}
+
+stdout | independent.test.ts > independent: missing members cannot become local state
+{"probe":"missing-members","hash":"dd235240f5c9b6e753933c1bf255510fdca1861ef8180113860b6aba96dd148c","decision":"reject-invalid","adopted":false}
+
+stdout | independent.test.ts > independent: missing reducedMotion cannot become local state
+{"probe":"missing-reducedMotion","hash":"aff06c2d68844f6e2a0c1246f31b367991dfc4086489fbd81b4a840cdb53f07a","decision":"reject-invalid","adopted":false}
+
+stdout | independent.test.ts > independent: hash-consistent explicit optional null is not valid complete state
+{"probe":"explicit-null","hash":"b1d4fd2b85399ada0c2ccb85e7596a6e02dc6e893a35193e54872fa098986c27","decision":"reject-invalid","adopted":false}
+
+stdout | independent.test.ts > independent: hash-consistent deletion of required members is rejected atomically
+{"probe":"delete-members","hash":"dd235240f5c9b6e753933c1bf255510fdca1861ef8180113860b6aba96dd148c","decision":"reject-invalid","revision":1}
+
+ ✓ independent.test.ts (7 tests) 5ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  14:07:56
+   Duration  211ms (transform 66ms, setup 0ms, collect 71ms, tests 5ms, environment 0ms, prepare 38ms)

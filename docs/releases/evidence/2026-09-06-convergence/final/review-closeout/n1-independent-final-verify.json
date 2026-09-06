@@ -1,0 +1,323 @@
+{
+  "format": "independent-finding-verification/1",
+  "verifier": "/root/state_receipts",
+  "completedAt": "2026-09-06T06:11:56.246954+00:00",
+  "repository": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "baselineCommit": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+  "fixedCommit": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+  "sourceOrigin": "Both trees are exact git archive extracts. Production source is byte-identical to the named commit, not a mutation or reverse patch. Root Cargo.toml workspace member list is narrowed to the three pure crates as harness setup only; tests/config are independently added outside shared checkout.",
+  "sharedRepositoryChanges": false,
+  "sharedAppOrCliBuild": false,
+  "nativeUiOperated": false,
+  "isolatedTargetDiskMiB": {
+    "baseline": 169,
+    "current": 170
+  },
+  "sourceManifest": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/source-manifest.json",
+  "allProductionSourceHashes": [
+    "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-all-production-source-sha256.json",
+    "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-all-production-source-sha256.json"
+  ],
+  "productionDiff": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/production.diff",
+  "fixedInputsMatchCurrentSharedFiles": {
+    "apps/interaction-desktop/src/aip/sessionClient.ts": {
+      "isolatedSourceSha256": "54449e7239c64970df642679902a3580050bde512665b04e526ff97d7b7e4ed0",
+      "sharedCurrentSourceSha256": "54449e7239c64970df642679902a3580050bde512665b04e526ff97d7b7e4ed0"
+    },
+    "apps/interaction-desktop/src/aip/semanticState.ts": {
+      "isolatedSourceSha256": "19813b1d9105db467ecac7ce134f7453f1aa26b50c854143ab6ccdf143e4fcdd",
+      "sharedCurrentSourceSha256": "19813b1d9105db467ecac7ce134f7453f1aa26b50c854143ab6ccdf143e4fcdd"
+    },
+    "crates/interaction-session/src/session.rs": {
+      "isolatedSourceSha256": "c59c1f0d656bee0d59c086731be63589f41a05e1b32bcd0189c82582b49fdfbb",
+      "sharedCurrentSourceSha256": "c59c1f0d656bee0d59c086731be63589f41a05e1b32bcd0189c82582b49fdfbb"
+    },
+    "crates/interaction-session/src/semantic_contract.rs": {
+      "isolatedSourceSha256": "636c82ca88897a9a661a6a2dd40b9f8ae9157442965549673db20a952ed988d2",
+      "sharedCurrentSourceSha256": "636c82ca88897a9a661a6a2dd40b9f8ae9157442965549673db20a952ed988d2"
+    }
+  },
+  "independentTestSources": [
+    "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/independent.test.ts",
+    "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/independent_restore.rs"
+  ],
+  "replayScript": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/run.py",
+  "refutationAttempts": [
+    {
+      "hypothesis": "Hash mismatch, wrong generation or wrong identity caused the reported rejections instead of a semantic contract defect.",
+      "finding": "N1-CONTRACT-01",
+      "test": "Independent envelopes use session.home, arrival generation0, epoch1 and hashes calculated by each version own production canonical helper. A full valid snapshot is accepted in both trees.",
+      "result": "Refuted: baseline accepts all five invalid states; current rejects all five. The normal control remains accepted."
+    },
+    {
+      "hypothesis": "Merge-patch null is always prohibited, so deleting members does not distinguish whole-state validation.",
+      "finding": "N1-CONTRACT-01",
+      "test": "Independent positive control deletes only an optional unknown extension through RFC7396 null; separate negative probe deletes required members and supplies the correct post-deletion hash.",
+      "result": "Refuted: optional deletion applies in both versions. Required deletion improperly advances baseline to revision2; current rejects and preserves identical prior local state at revision1."
+    },
+    {
+      "hypothesis": "The consumer is never reached with this input because a UI/transport upstream already enforces complete SemanticState.",
+      "finding": "N1-CONTRACT-01",
+      "test": "Read baseline transport JSON.parse and CharacterSyncCard event dispatch into production reduce. The reducer is the actual application receive/adoption boundary and baseline has no SemanticState validator there.",
+      "result": "Refuted within the observed production receive path: CharacterSyncCard.tsx:219-220 dispatches reduce, :435 sends event.payload; transport.ts JSON parsing does not impose required SemanticState fields. Tests call that production boundary, not a mock."
+    },
+    {
+      "hypothesis": "Missing fields/null are intentional old-snapshot migration or allowed optional representation.",
+      "finding": "both",
+      "test": "Read original 622c8bf docs/aip/character-session.md sections3 and6 and original SemanticState struct in state.rs:275-287. attention/members/reducedMotion are required, lastInteraction uses serde Option skip-if-none, and original contract says complete canonical state must contain no null.",
+      "result": "Refuted for these probes. Compatibility defaults for older optional member fields do not make required top-level fields optional or authorize explicit null. The original JSONC illustration uses null but its explicit implementation note at68 and invariant at83 require omission."
+    },
+    {
+      "hypothesis": "Authoritative restore hash/deny-unknown guards already prevent raw null adoption.",
+      "finding": "N1-RESTORE-02",
+      "test": "Production CharacterSession::restore called with an independently made snapshot containing lastInteraction:null and recomputed matching hash. Controls restore a valid snapshot and reject an unknown authoritative field.",
+      "result": "Refuted: both controls pass at baseline, yet explicit null is accepted and discarded, changing canonical hash. Fixed raw contains_null check rejects InvalidState before serde."
+    }
+  ],
+  "findings": [
+    {
+      "id": "N1-CONTRACT-01",
+      "originalFinderAndAuthor": "/root/semantic_contract",
+      "independentVerifier": "/root/state_receipts",
+      "baselineResult": {
+        "passedControls": 2,
+        "failedInvalidAssertions": 5,
+        "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-ts.txt"
+      },
+      "fixedResult": {
+        "passed": 7,
+        "failed": 0,
+        "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-ts.txt"
+      },
+      "independentProbeDifference": "Destructive patch deletes required members rather than copying author original mood-deletion test. Inputs and control cases authored independently.",
+      "status": "independently verified original defect; fixed behavior confirmed",
+      "scope": "Production TypeScript reduce receive/adoption boundary, direct pure function tests. Not browser/native transport E2E or Swift coverage."
+    },
+    {
+      "id": "N1-RESTORE-02",
+      "originalFinderAndAuthor": "/root/semantic_contract",
+      "independentVerifier": "/root/state_receipts",
+      "baselineResult": {
+        "passedControls": 2,
+        "failedInvalidAssertions": 1,
+        "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-rust.txt",
+        "acceptedInputHash": "b71af6e643f9fa4eae5d76a1ce2c384bd2b93d592aec16ecab1716d880a1a1d5",
+        "silentlyCanonicalizedOutputHash": "20d3f4ce24e4876b4fa80ed930604b391e04477d3097fc80c38269699724d661"
+      },
+      "fixedResult": {
+        "passed": 3,
+        "failed": 0,
+        "error": "InvalidState",
+        "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust-clean-target.txt"
+      },
+      "status": "independently verified original defect; fixed behavior confirmed",
+      "scope": "Production CharacterSession::restore wrapper and restore_report, actual serde/canonical implementation from three pure crates. No filesystem storage adapter/daemon/native UI exercised."
+    }
+  ],
+  "runs": [
+    {
+      "phase": "baseline",
+      "language": "ts",
+      "cwd": "/tmp/n1-independent-final-verify/baseline/apps/interaction-desktop",
+      "command": [
+        "node",
+        "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.independent.config.ts"
+      ],
+      "exitCode": 1,
+      "wallSeconds": 0.511,
+      "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-ts.txt",
+      "CARGO_TARGET_DIR": "/tmp/n1-independent-final-verify/target",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_BUILD_JOBS": "4",
+      "passed": 2,
+      "failed": 5
+    },
+    {
+      "phase": "baseline",
+      "language": "rust",
+      "cwd": "/tmp/n1-independent-final-verify/baseline",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "-p",
+        "interaction-session",
+        "--test",
+        "independent_restore",
+        "--",
+        "--nocapture"
+      ],
+      "exitCode": 101,
+      "wallSeconds": 10.86,
+      "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-rust.txt",
+      "CARGO_TARGET_DIR": "/tmp/n1-independent-final-verify/target",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_BUILD_JOBS": "4",
+      "passed": 2,
+      "failed": 1
+    },
+    {
+      "phase": "current",
+      "language": "ts",
+      "cwd": "/tmp/n1-independent-final-verify/current/apps/interaction-desktop",
+      "command": [
+        "node",
+        "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.independent.config.ts"
+      ],
+      "exitCode": 0,
+      "wallSeconds": 0.478,
+      "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-ts.txt",
+      "CARGO_TARGET_DIR": "/tmp/n1-independent-final-verify/target",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_BUILD_JOBS": "4",
+      "passed": 7,
+      "failed": 0
+    },
+    {
+      "phase": "current",
+      "language": "rust",
+      "cwd": "/tmp/n1-independent-final-verify/current",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "-p",
+        "interaction-session",
+        "--test",
+        "independent_restore",
+        "--",
+        "--nocapture"
+      ],
+      "CARGO_TARGET_DIR": "/tmp/n1-independent-final-verify/target-current",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_BUILD_JOBS": "4",
+      "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust-clean-target.txt",
+      "exitCode": 0,
+      "buildSeconds": 9.34,
+      "testSeconds": 0.0,
+      "wallSeconds": null,
+      "passed": 3,
+      "failed": 0
+    }
+  ],
+  "harnessIssue": {
+    "description": "The first current Rust attempt reused the baseline isolated target after extracting files with historical Git mtimes. Cargo reported no recompilation and executed the same baseline test artifact; that failed result is excluded from current-source verification.",
+    "excludedLog": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust.txt",
+    "excludedRun": {
+      "phase": "current",
+      "language": "rust",
+      "cwd": "/tmp/n1-independent-final-verify/current",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "-p",
+        "interaction-session",
+        "--test",
+        "independent_restore",
+        "--",
+        "--nocapture"
+      ],
+      "exitCode": 101,
+      "wallSeconds": 0.081,
+      "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust.txt",
+      "CARGO_TARGET_DIR": "/tmp/n1-independent-final-verify/target",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_BUILD_JOBS": "4"
+    },
+    "resolution": "Use a genuinely new target-current; all three current crates recompiled and 3/0 passed. Replay script now permanently chooses a separate target by phase. No shared build target was used."
+  },
+  "limits": [
+    "Direct production boundaries with independent fixtures, not end-to-end transport or real device acceptance.",
+    "The failure severity and exploitability were not expanded; this verifies invalid-input acceptance and atomic contract enforcement only.",
+    "A non-author independently attempted refutation and authored probes; original author was not consulted for execution or expected values.",
+    "External Cargo registry cache and installed Vitest dependencies are reused read-only; production sources and build outputs are isolated."
+  ],
+  "sharedBinaryHashesAfter": {
+    "target/debug/interact-ai": "0b11005e9197c79ffe53da0e89aa4364e3fbcd21111b375fa56de40980a8b2f8",
+    "target/debug/examples/fake_iphone": "ae1924d914c1903bc952a4c7088954856f63aa98e6913e84ca4853f7f0dc4d09"
+  },
+  "artifactHashes": [
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/source-manifest.json",
+      "bytes": 5943,
+      "sha256": "f631a7ddfd95ce4f3f9221d61b1b10f76105a91f25165a9542451742d4e428a5"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/production.diff",
+      "bytes": 9844,
+      "sha256": "5ed194715aa9bdb71f34a20ad89f73083c4b02efd4cd43a06e621fd622c90698"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-all-production-source-sha256.json",
+      "bytes": 4006,
+      "sha256": "2e25bfab3f546736eced3ed7865b7ec2863455257b86403c0375f9a873d43157"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-all-production-source-sha256.json",
+      "bytes": 4386,
+      "sha256": "f2c0ea703083479f75938beb913d11f2112b99d92d9d7f614e74e010f6f82b16"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/independent.test.ts",
+      "bytes": 3022,
+      "sha256": "5bf017b87e2d4aa49d77b4d0900f2877d7e3767baa43ad7a84b071df35f1bc8a"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/independent_restore.rs",
+      "bytes": 1624,
+      "sha256": "19652d2a754691d4cd2865c21760e67cc3b4187f3974eb5d5f62f3ae99862737"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/run.py",
+      "bytes": 1224,
+      "sha256": "226a0a5d23e2d392380ac5781ab63b1f6a8d6e8b1ffed2096654ef56d6f845dc"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/runs.json",
+      "bytes": 2269,
+      "sha256": "e25c991098ffe6cade86db63c70b855de2c0b080b6becc0849b6bffd56e82826"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline/workspace-harness.diff",
+      "bytes": 1177,
+      "sha256": "0d1065fd83d50408b342a5dff30bfca954b65f66502c68b53638917db60c4604"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current/workspace-harness.diff",
+      "bytes": 1176,
+      "sha256": "7a90370bbbf7b22abc59ebd2b1c0ecb18ff7e88f403a6b544d5505bcfb8b030d"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust.txt",
+      "bytes": 1182,
+      "sha256": "0988205920442643517a768c9f610464d238d9b9fbf6daf67d47366c7521f686"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-ts.txt",
+      "bytes": 4336,
+      "sha256": "40d5463cd9da7b022e684a5db29739a0cde497eb232499652860d11360b8d86f"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-rust.txt",
+      "bytes": 2663,
+      "sha256": "1d9f31cc7016241e8de2927af6655dd2a784d4e06efd0e4af56a90afbc7adef6"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-ts.txt",
+      "bytes": 1533,
+      "sha256": "6268c1a2ab8236d2187a8d38a19a046af7ba8e72ba3df1e31c6b2764fcb3bd80"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust-clean-target.txt",
+      "bytes": 2008,
+      "sha256": "8c4cc7c3dfe3511aa98fe7e8bc71453d01bb387d277ad708a93d9c7b682a8f89"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+esp32-serial-sim: SIMULATOR on /dev/ttys003

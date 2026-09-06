@@ -1,0 +1,143 @@
+ M AGENTS.md
+ M Cargo.lock
+ M apps/interaction-desktop/e2e/a11y.spec.ts
+ M apps/interaction-desktop/e2e/estop.spec.ts
+ M apps/interaction-desktop/e2e/general-mode-tasks.spec.ts
+ M apps/interaction-desktop/e2e/narrow.spec.ts
+ M apps/interaction-desktop/src-tauri/src/host_safety.rs
+ M apps/interaction-desktop/src-tauri/src/lib.rs
+ M apps/interaction-desktop/src-tauri/src/supervisor.rs
+ M apps/interaction-desktop/src/aip/canonical.ts
+ M apps/interaction-desktop/src/aip/envelope.ts
+ M apps/interaction-desktop/src/aip/json-source.ts
+ M apps/interaction-desktop/src/aip/sessionClient.ts
+ M apps/interaction-desktop/src/api.ts
+ M apps/interaction-desktop/src/companion/applyPresetPlan.ts
+ M apps/interaction-desktop/src/companion/presets.ts
+ M apps/interaction-desktop/src/companion/settingsTransfer.ts
+ M apps/interaction-desktop/src/components/CharacterSyncCard.tsx
+ M apps/interaction-desktop/src/components/Dialog.tsx
+ M apps/interaction-desktop/src/desktop.ts
+ M apps/interaction-desktop/src/pages/CompanionPage.tsx
+ M apps/interaction-desktop/src/pages/ConnectPage.tsx
+ M apps/interaction-desktop/src/pages/character/CharacterLibrary.tsx
+ M apps/interaction-desktop/src/pages/connect/UnresolvedStops.tsx
+ M apps/interaction-desktop/src/statusProjection/characterSync.ts
+ M apps/interaction-desktop/src/statusProjection/unresolvedStops.ts
+ M apps/interaction-desktop/src/test/character-sync-card.test.tsx
+ M apps/interaction-desktop/src/test/characterPage-first-screen.test.tsx
+ M apps/interaction-desktop/src/test/characterPage.test.tsx
+ M apps/interaction-desktop/src/test/companion-gateway-wiring.test.ts
+ M apps/interaction-desktop/src/test/companion-preset-recovery.test.tsx
+ M apps/interaction-desktop/src/test/connectPage.test.tsx
+ M apps/interaction-desktop/src/test/dialog.test.tsx
+ M apps/interaction-desktop/src/test/general-mode-no-technical-terms.test.tsx
+ M apps/interaction-desktop/src/test/receive-decision-fixtures.test.ts
+ M apps/interaction-desktop/src/test/regressions-v06-general-mode.test.tsx
+ M apps/interaction-desktop/src/test/regressions-v06-round2-general-mode.test.tsx
+ M apps/interaction-desktop/src/test/session-client.test.ts
+ M apps/interaction-desktop/src/test/statusProjection-session.test.ts
+ M apps/interaction-desktop/src/test/unresolvedStops.test.tsx
+ M apps/interaction-desktop/src/transport.ts
+ M apps/interaction-ios/InteractionCompanion/Models/CharacterSemantic.swift
+ M apps/interaction-ios/InteractionCompanion/Models/Protocol.swift
+ M apps/interaction-ios/InteractionCompanion/Services/ActuatorCenter.swift
+ M apps/interaction-ios/InteractionCompanion/Services/ConnectionManager.swift
+ M apps/interaction-ios/InteractionCompanion/Services/SessionClient.swift
+ M apps/interaction-ios/InteractionCompanionTests/AIPFixtures.swift
+ M apps/interaction-ios/InteractionCompanionTests/SessionClientTests.swift
+ M apps/interaction-ios/README.md
+ M crates/interaction-adapter-declarative/src/lib.rs
+ M crates/interaction-adapter-declarative/src/link_caps.rs
+ M crates/interaction-adapter-declarative/src/protocol.rs
+ M crates/interaction-aip/tests/fixtures/manifest.json
+ M crates/interaction-api/src/lib.rs
+ M crates/interaction-api/src/routes.rs
+ M crates/interaction-runtime/src/character_session.rs
+ M crates/interaction-runtime/src/declarative_lifecycle.rs
+ M crates/interaction-runtime/src/declarative_session.rs
+ M crates/interaction-runtime/src/lib.rs
+ M crates/interaction-runtime/src/mobile.rs
+ M crates/interaction-runtime/src/proactive.rs
+ M crates/interaction-runtime/src/runtime.rs
+ M crates/interaction-runtime/src/sensor_source.rs
+ M crates/interaction-runtime/src/sensors.rs
+ M crates/interaction-runtime/tests/character_session_loop.rs
+ M crates/interaction-runtime/tests/declarative_session_loop.rs
+ M crates/interaction-runtime/tests/mobile_loop.rs
+ M crates/interaction-runtime/tests/sensors_loop.rs
+ M crates/interaction-session/src/lib.rs
+ M crates/interaction-session/src/session.rs
+ M docs/MAINTAINERS-MAP.md
+ M docs/acceptance-evidence.md
+ M docs/aip/character-session.md
+ M docs/aip/compatibility.md
+ M docs/aip/conformance.md
+ M docs/aip/deprecation-ledger.md
+ M docs/aip/device-profile.md
+ M docs/aip/general-mode-ux.md
+ M docs/aip/privacy.md
+ M docs/aip/transport-bindings.md
+ M docs/releases/evidence-index.json
+ M docs/releases/v0.7.0-final-report.md
+ M docs/releases/v0.7.0-known-limitations.md
+ M docs/releases/v0.7.0-progress.md
+ M scripts/aip-codegen.mjs
+ M scripts/drills/provider-disable-reenable.sh
+ M scripts/esp32-serial-sim.py
+ M scripts/tauri-ax-walkthrough.sh
+ M scripts/tests/architecture-checks.sh
+ M scripts/tests/release-scripts.sh
+ M tests/e2e/Cargo.toml
+ M tests/e2e/tests/golden.rs
+?? apps/interaction-desktop/src-tauri/src/character_package_drill.rs
+?? apps/interaction-desktop/src-tauri/src/preset_service.rs
+?? apps/interaction-desktop/src-tauri/src/settings_recovery_review.rs
+?? apps/interaction-desktop/src/aip/semanticState.ts
+?? apps/interaction-desktop/src/aip/semanticStateGenerated.ts
+?? apps/interaction-desktop/src/companion/presetDefinitions.json
+?? apps/interaction-desktop/src/test/character-extension-drill.test.ts
+?? apps/interaction-desktop/src/test/preset-concurrency.test.ts
+?? apps/interaction-desktop/src/test/semantic-state-contract.test.ts
+?? apps/interaction-desktop/src/test/semantic-transport.test.ts
+?? apps/interaction-desktop/src/test/settings-import-review.test.ts
+?? apps/interaction-desktop/src/test/settings-transfer-validation.test.ts
+?? apps/interaction-desktop/src/test/state-applied-projection.test.ts
+?? apps/interaction-ios/InteractionCompanion/Models/CharacterPresentState.swift
+?? apps/interaction-ios/InteractionCompanion/Models/SemanticStateGenerated.swift
+?? apps/interaction-ios/InteractionCompanion/Models/SemanticStateValidation.swift
+?? apps/interaction-ios/InteractionCompanionTests/SemanticStateConformanceTests.swift
+?? crates/interaction-adapter-declarative/src/state_applied.rs
+?? crates/interaction-aip/tests/fixtures/releases/
+?? crates/interaction-aip/tests/fixtures/semantic-state-cases.json
+?? crates/interaction-runtime/src/sensor_journal.rs
+?? crates/interaction-runtime/tests/sensor_journal_review.rs
+?? crates/interaction-session/src/semantic_contract.rs
+?? crates/interaction-session/tests/semantic_contract.rs
+?? docs/aip/semantic-state.md
+?? docs/aip/settings-recovery.md
+?? docs/releases/next-convergence-performance.md
+?? docs/releases/next-convergence-progress.md
+?? examples/characters/
+?? examples/device-profiles/
+?? schemas/semantic-state-1.0.schema.json
+?? schemas/semantic-state-consumers.json
+?? scripts/aip_applied_receiver.py
+?? scripts/drills/character-package.mjs
+?? scripts/drills/optional-state.mjs
+?? scripts/drills/optional-state.patch
+?? scripts/drills/provider-lifecycle.py
+?? scripts/drills/restricted-device.py
+?? scripts/fixtures/
+?? scripts/lib/
+?? scripts/semantic-state-codegen.mjs
+?? scripts/tests/aip-applied-receiver.py
+?? scripts/tests/convergence-perf.py
+?? scripts/tests/ios-simulator.sh
+?? scripts/tests/semantic-state-conformance.swift
+?? scripts/tests/semantic-state-swift.sh
+?? scripts/tests/tauri-mobile-sensor-walkthrough.py
+?? scripts/tests/tauri-preset-recovery.py
+?? scripts/tests/tauri-settings-walkthrough.py
+?? scripts/tests/tauri-work-cancel.py
+?? scripts/tests/xctest-result.py

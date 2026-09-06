@@ -1,0 +1,42 @@
+{"at": 1788673775.687267, "seconds": 0.26347970962524414, "command": ["windows"], "exit": 0, "clicked": false}
+{"at": 1788673775.993282, "seconds": 0.24924397468566895, "command": ["bounds"], "exit": 0, "clicked": false}
+{"at": 1788673776.413569, "seconds": 0.720055103302002, "command": ["click", "AXButton", "\u4e0b\u4e00\u6b65"], "exit": 0, "clicked": true}
+{"at": 1788673778.1775732, "seconds": 0.7275278568267822, "command": ["click", "AXButton", "\u4e0b\u4e00\u6b65"], "exit": 0, "clicked": true}
+{"at": 1788673779.966783, "seconds": 0.8762998580932617, "command": ["click", "AXButton", "\u5b8c\u6210\u8a2d\u5b9a"], "exit": 0, "clicked": true}
+{"at": 1788673781.9328132, "seconds": 2.5623176097869873, "command": ["click", "AXButton", "\u5957\u7528"], "exit": 0, "clicked": true}
+{"at": 1788673786.5460968, "seconds": 0.6551542282104492, "command": ["click", "AXAny", "\u5b8c\u6210"], "exit": 0, "clicked": true}
+{"at": 1788673788.298581, "seconds": 0.23461103439331055, "command": ["windows"], "exit": 0, "clicked": false}
+{"at": 1788673788.571539, "seconds": 0.25345516204833984, "command": ["bounds"], "exit": 0, "clicked": false}
+{"at": 1788673789.0160089, "seconds": 0.23390817642211914, "command": ["windows"], "exit": 0, "clicked": false}
+{"at": 1788673789.2866611, "seconds": 0.45339488983154297, "command": ["navclick", "2"], "exit": 0, "clicked": true}
+{"at": 1788673791.791234, "seconds": 1.9742798805236816, "command": ["click", "AXDisclosureTriangle", "\u66f4\u63db\u6216\u52a0\u5165\u89d2\u8272"], "exit": 0, "clicked": true}
+{"at": 1788673793.802664, "seconds": 2.9818708896636963, "command": ["click", "AXButton", "\u9078\u7528"], "exit": 0, "clicked": true}
+{"at": 1788673799.916786, "seconds": 0.23260998725891113, "command": ["windows"], "exit": 0, "clicked": false}
+{"at": 1788673800.186307, "seconds": 0.25527310371398926, "command": ["bounds"], "exit": 0, "clicked": false}
+{"at": 1788673800.566199, "seconds": 0.7045021057128906, "command": ["navclick", "2"], "exit": 0, "clicked": true}
+{"at": 1788673802.324688, "seconds": 4.031686067581177, "command": ["click", "AXCheckBox", "\u5b89\u975c"], "exit": 0, "clicked": true}
+{"at": 1788673809.514688, "seconds": 3.8628480434417725, "command": ["value", "AXCheckBox", "\u5b89\u975c"], "exit": 0, "clicked": false}
+{"at": 1788673813.4138439, "seconds": 0.24438214302062988, "command": ["bounds"], "exit": 0, "clicked": false}
+{"at": 1788673813.78306, "seconds": 0.4714348316192627, "command": ["navclick", "1"], "exit": 0, "clicked": true}
+{"at": 1788673815.403998, "seconds": 0.8595089912414551, "command": ["click", "AXButton", "\u66ab\u505c\u4e3b\u52d5\u4e92\u52d5"], "exit": 0, "clicked": true}
+{"at": 1788673818.361991, "seconds": 0.2541680335998535, "command": ["bounds"], "exit": 0, "clicked": false}
+{"at": 1788673818.7083352, "seconds": 0.8477399349212646, "command": ["click", "AXButton", "\u6062\u5fa9\u4e3b\u52d5\u4e92\u52d5"], "exit": 0, "clicked": true}
+{"at": 1788673821.723103, "seconds": 0.4494459629058838, "command": ["navclick", "2"], "exit": 0, "clicked": true}
+{"at": 1788673823.27205, "seconds": 4.67848014831543, "command": ["click", "AXDisclosureTriangle", "\u5b89\u975c\u8207\u52ff\u64fe"], "exit": 0, "clicked": true}
+{"at": 1788673827.9886248, "seconds": 6.045594215393066, "command": ["click", "AXCheckBox", "\u52ff\u64fe"], "exit": 0, "clicked": true}
+{"at": 1788673836.1160471, "seconds": 0.2501399517059326, "command": ["bounds"], "exit": 0, "clicked": false}
+{"at": 1788673836.491286, "seconds": 0.23291277885437012, "command": ["windows"], "exit": 0, "clicked": false}
+{"at": 1788673836.802816, "seconds": 2.4424588680267334, "command": ["tray", "\u96b1\u85cf\u684c\u9762\u89d2\u8272"], "exit": 0, "clicked": true}
+{"at": 1788673841.300784, "seconds": 0.23139095306396484, "command": ["windows"], "exit": 0, "clicked": false}
+{"at": 1788673841.610566, "seconds": 0.23845219612121582, "command": ["bounds"], "exit": 0, "clicked": false}
+{"at": 1788673841.929487, "seconds": 2.4221839904785156, "command": ["tray", "\u986f\u793a\u684c\u9762\u89d2\u8272"], "exit": 0, "clicked": true}
+{"at": 1788673846.4153159, "seconds": 0.24225115776062012, "command": ["windows"], "exit": 0, "clicked": false}
+{"at": 1788673846.797343, "seconds": 0.49038100242614746, "command": ["navclick", "1"], "exit": 0, "clicked": true}
+{"at": 1788673848.3815, "seconds": 0.5807909965515137, "command": ["click", "AXButton", "\u7dca\u6025\u505c\u6b62"], "exit": 0, "clicked": true}
+{"at": 1788673850.062324, "seconds": 0.9151740074157715, "command": ["click", "AXAny", "\u7acb\u5373\u505c\u6b62\u4e00\u5207"], "exit": 0, "clicked": true}
+{"at": 1788673853.072858, "seconds": 0.2597229480743408, "command": ["bounds"], "exit": 0, "clicked": false}
+{"at": 1788673853.480227, "seconds": 0.44036197662353516, "command": ["navclick", "1"], "exit": 0, "clicked": true}
+{"at": 1788673854.96702, "seconds": 0.26253604888916016, "command": ["resize", "390", "844"], "exit": 0, "clicked": false}
+{"at": 1788673857.294163, "seconds": 0.27178382873535156, "command": ["bounds"], "exit": 0, "clicked": false}
+{"at": 1788673857.609028, "seconds": 0.7884118556976318, "command": ["hscroll"], "exit": 0, "clicked": false}
+{"at": 1788673858.4317381, "seconds": 0.2595059871673584, "command": ["bounds"], "exit": 0, "clicked": false}

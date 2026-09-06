@@ -1,0 +1,10 @@
+{
+  "binarySha256": "1103cda7f8491ece2adbaab478056d14a174da47ab8536a2d652c734a0765f19",
+  "appSourceRef": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+  "driverSourceSha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+  "driverDirtyTree": false,
+  "driverSha256": "e8ee496d917c2b88dd5eea63a5c771a5363f006a6b63da83377b673dce8534b8",
+  "axHelperSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+  "prefsFixture": null,
+  "prefsFixtureSha256": null
+}

@@ -1,0 +1,81 @@
+
+ RUN  v2.1.9 /private/tmp/n1-independent-final-verify/baseline/apps/interaction-desktop
+
+stdout | independent.test.ts > independent: missing attention cannot become local state
+{"probe":"missing-attention","hash":"559ff48e220200f19439693a94761b0273437c87e7e0a676b5dad4748e9c35b3","decision":"apply","adopted":true}
+
+stdout | independent.test.ts > independent: missing members cannot become local state
+{"probe":"missing-members","hash":"dd235240f5c9b6e753933c1bf255510fdca1861ef8180113860b6aba96dd148c","decision":"apply","adopted":true}
+
+stdout | independent.test.ts > independent: missing reducedMotion cannot become local state
+{"probe":"missing-reducedMotion","hash":"aff06c2d68844f6e2a0c1246f31b367991dfc4086489fbd81b4a840cdb53f07a","decision":"apply","adopted":true}
+
+stdout | independent.test.ts > independent: hash-consistent explicit optional null is not valid complete state
+{"probe":"explicit-null","hash":"b1d4fd2b85399ada0c2ccb85e7596a6e02dc6e893a35193e54872fa098986c27","decision":"apply","adopted":true}
+
+ ❯ independent.test.ts (7 tests | 5 failed) 9ms
+   × independent: missing attention cannot become local state 4ms
+     → expected 'apply' to be 'reject-invalid' // Object.is equality
+   × independent: missing members cannot become local state 1ms
+     → expected 'apply' to be 'reject-invalid' // Object.is equality
+   × independent: missing reducedMotion cannot become local state 1ms
+     → expected 'apply' to be 'reject-invalid' // Object.is equality
+   × independent: hash-consistent explicit optional null is not valid complete state 1ms
+     → expected 'apply' to be 'reject-invalid' // Object.is equality
+   × independent: hash-consistent deletion of required members is rejected atomically 1ms
+     → expected 'apply' to be 'reject-invalid' // Object.is equality
+stdout | independent.test.ts > independent: hash-consistent deletion of required members is rejected atomically
+{"probe":"delete-members","hash":"dd235240f5c9b6e753933c1bf255510fdca1861ef8180113860b6aba96dd148c","decision":"apply","revision":2}
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  independent.test.ts > independent: missing attention cannot become local state
+ FAIL  independent.test.ts > independent: missing members cannot become local state
+ FAIL  independent.test.ts > independent: missing reducedMotion cannot become local state
+AssertionError: expected 'apply' to be 'reject-invalid' // Object.is equality
+
+Expected: "reject-invalid"
+Received: "apply"
+
+ ❯ independent.test.ts:11:83
+      9|  const input:Record<string,unknown>=state();delete input[key];const be…
+     10|  console.log(JSON.stringify({probe:'missing-'+key,hash:stateHash(input…
+     11|  expect(JSON.stringify(input)).toBe(before);expect(result.lastDecision…
+       |                                                                                   ^
+     12| });
+     13| it('independent: hash-consistent explicit optional null is not valid c…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  independent.test.ts > independent: hash-consistent explicit optional null is not valid complete state
+AssertionError: expected 'apply' to be 'reject-invalid' // Object.is equality
+
+Expected: "reject-invalid"
+Received: "apply"
+
+ ❯ independent.test.ts:16:40
+     14|  const input={...state(),lastInteraction:null};const result=receive(in…
+     15|  console.log(JSON.stringify({probe:'explicit-null',hash:stateHash(inpu…
+     16|  expect(result.lastDecision?.decision).toBe('reject-invalid');expect(r…
+       |                                        ^
+     17| });
+     18| it('independent: hash-consistent deletion of required members is rejec…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  independent.test.ts > independent: hash-consistent deletion of required members is rejected atomically
+AssertionError: expected 'apply' to be 'reject-invalid' // Object.is equality
+
+Expected: "reject-invalid"
+Received: "apply"
+
+ ❯ independent.test.ts:22:40
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 2 passed (7)
+   Start at  14:07:45
+   Duration  208ms (transform 57ms, setup 0ms, collect 61ms, tests 9ms, environment 0ms, prepare 39ms)

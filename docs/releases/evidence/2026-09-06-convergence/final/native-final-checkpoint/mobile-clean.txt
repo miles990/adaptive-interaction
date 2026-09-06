@@ -1,0 +1,10 @@
+mobile-pair-and-negotiate completed
+mobile-bidirectional-semantic completed
+mobile-disconnect completed
+mobile-reconnect completed
+mobile-remove-old-token-rejected completed
+mobile-pair-again completed
+sensor-stop-unknown completed
+sensor-direct-remove-retains-unknown completed
+sensor-unknown-after-daemon-restart completed
+sensor-global-stop-separate-fixture completed

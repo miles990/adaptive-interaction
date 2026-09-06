@@ -1,0 +1,18 @@
+{
+  "actuators": [],
+  "detail": "{\"note\":\"revoked by user\",\"warnings\":[\"button: pairingCode 是寫在 adapter spec 裡的明文憑證；請改成 secret://<name>（環境變數 INTERACT_AI_SECRET_<NAME> 或 state/secrets.json）\"]}",
+  "identity": {
+    "displayName": "按鈕盒（只回報事件）",
+    "id": "provider.adapter.button-box",
+    "kind": "device",
+    "origin": "config/adapters",
+    "trustLevel": "untrusted",
+    "version": ""
+  },
+  "lastSeen": "2026-09-06T05:57:20.715548Z",
+  "receptors": [
+    "button-box.button"
+  ],
+  "state": "revoked",
+  "toolOperations": []
+}

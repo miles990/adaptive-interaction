@@ -1,0 +1,35 @@
+{
+  "machine": "arm64",
+  "platform": "macOS-26.2-arm64-arm-64bit",
+  "versions": {
+    "sw_vers": {
+      "exit": 0,
+      "value": "ProductName:\t\tmacOS\nProductVersion:\t\t26.2\nBuildVersion:\t\t25C56"
+    },
+    "rustc": {
+      "exit": 0,
+      "value": "rustc 1.94.0 (4a4ef493e 2026-03-02) (Homebrew)"
+    },
+    "cargo": {
+      "exit": 0,
+      "value": "cargo 1.94.0 (Homebrew)"
+    },
+    "node": {
+      "exit": 0,
+      "value": "v24.5.0"
+    },
+    "pnpm": {
+      "exit": 0,
+      "value": "10.27.0"
+    },
+    "xcode": {
+      "exit": 0,
+      "value": "Xcode 26.6\nBuild version 17F113",
+      "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"
+    },
+    "arduino": {
+      "exit": 0,
+      "value": "arduino-cli  Version: 1.5.1 Commit: Homebrew Date: 2026-06-05T09:39:33Z"
+    }
+  }
+}

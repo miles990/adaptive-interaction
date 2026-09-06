@@ -1,0 +1,3263 @@
+{
+  "format": 1,
+  "generatedAtUtc": "2026-09-06T06:21:38.710116+00:00",
+  "auditor": "/root/restart_lifecycle",
+  "auditMode": "read-only report/log/git inspection; no tests, builds, native UI or performance launched",
+  "auditHead": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+  "reviewDirectory": "docs/releases/evidence/2026-09-06-convergence/review",
+  "commitMap": {
+    "30ff852f5d893215c019d982774c8b59ab010659": {
+      "subject": "feat: converge semantic state receipts and recovery ownership",
+      "ancestorOfAuditHead": true
+    },
+    "87b0d03173cdefce68bad2403b7f76be59b738e1": {
+      "subject": "fix: preserve unresolved stop warnings and harden acceptance evidence",
+      "ancestorOfAuditHead": true
+    },
+    "3b375bde4188e4a039852881d48d82ea9b619ce1": {
+      "subject": "test: freeze reproducible convergence acceptance checkpoint",
+      "ancestorOfAuditHead": true
+    }
+  },
+  "findings": [
+    {
+      "id": "N1-CONTRACT-01",
+      "aliases": [],
+      "title": "State receive accepted missing required fields and destructive required-field merge",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "semantic_contract",
+        "finder": "semantic_contract",
+        "verifier": "state_receipts",
+        "independentFinalVerifier": "state_receipts"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "apps/interaction-desktop/src/aip/sessionClient.ts",
+        "apps/interaction-desktop/src/aip/semanticState.ts",
+        "crates/interaction-session/src/semantic_contract.rs"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n1-n4-n6-findings-handoff.json",
+        "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-independent-final-verify.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/ceffee521e-semantic-contract-red.txt",
+          "phase": "author pre-fix regression",
+          "actor": "semantic_contract",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/ceffee521e-semantic-contract-red.txt",
+            "passed": 0,
+            "failed": 5
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/1c84d147ba-semantic-review-fix-ts.txt",
+          "phase": "author post-fix regression",
+          "actor": "semantic_contract",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/1c84d147ba-semantic-review-fix-ts.txt",
+            "passed": 59,
+            "failed": 0
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/32dfb8961a-semantic-review-fix-rust.txt",
+          "phase": "author post-fix regression",
+          "actor": "semantic_contract",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/32dfb8961a-semantic-review-fix-rust.txt",
+            "passed": 5,
+            "failed": 0
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/6f41024540-semantic-review-fix-swift.txt",
+          "phase": "author post-fix regression",
+          "actor": "semantic_contract",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/6f41024540-semantic-review-fix-swift.txt",
+            "passed": 58,
+            "failed": 0
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-ts.txt",
+          "phase": "independent original-source pre-fix reproduction",
+          "actor": "state_receipts",
+          "level": "Production TypeScript reduce receive/adoption boundary, direct pure function tests. Not browser/native transport E2E or Swift coverage.",
+          "reportedOutcome": {
+            "passed": 2,
+            "failed": 5,
+            "sourceCommit": "622c8bf70963e343e51f92f5ecdf7fce4b37f516"
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-ts.txt",
+          "phase": "independent post-fix verification",
+          "actor": "state_receipts",
+          "level": "Production TypeScript reduce receive/adoption boundary, direct pure function tests. Not browser/native transport E2E or Swift coverage.",
+          "reportedOutcome": {
+            "passed": 7,
+            "failed": 0,
+            "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-ts.txt",
+            "sourceCommit": "3b375bde4188e4a039852881d48d82ea9b619ce1"
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "independently verified original defect; fixed behavior confirmed",
+      "notes": [
+        "Both trees are exact git archive extracts. Production source is byte-identical to the named commit, not a mutation or reverse patch. Root Cargo.toml workspace member list is narrowed to the three pure crates as harness setup only; tests/config are independently added outside shared checkout.",
+        "Destructive patch deletes required members rather than copying author original mood-deletion test. Inputs and control cases authored independently.",
+        "Fix landed in 30ff852; independent final reproduction tested exact archived 3b375bd bytes. These identities are intentionally distinct."
+      ],
+      "originalRoles": {
+        "finder": "semantic_contract",
+        "red_reproducer": "semantic_contract",
+        "author": "semantic_contract",
+        "independent_verify": "No separate reproduction of the original five cases is claimed here; integration corpus/gates are parent-owned."
+      },
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/src/aip/sessionClient.ts",
+          "apps/interaction-desktop/src/aip/semanticState.ts",
+          "crates/interaction-session/src/semantic_contract.rs"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      },
+      "independentRefutationAttempts": [
+        {
+          "hypothesis": "Hash mismatch, wrong generation or wrong identity caused the reported rejections instead of a semantic contract defect.",
+          "finding": "N1-CONTRACT-01",
+          "test": "Independent envelopes use session.home, arrival generation0, epoch1 and hashes calculated by each version own production canonical helper. A full valid snapshot is accepted in both trees.",
+          "result": "Refuted: baseline accepts all five invalid states; current rejects all five. The normal control remains accepted."
+        },
+        {
+          "hypothesis": "Merge-patch null is always prohibited, so deleting members does not distinguish whole-state validation.",
+          "finding": "N1-CONTRACT-01",
+          "test": "Independent positive control deletes only an optional unknown extension through RFC7396 null; separate negative probe deletes required members and supplies the correct post-deletion hash.",
+          "result": "Refuted: optional deletion applies in both versions. Required deletion improperly advances baseline to revision2; current rejects and preserves identical prior local state at revision1."
+        },
+        {
+          "hypothesis": "The consumer is never reached with this input because a UI/transport upstream already enforces complete SemanticState.",
+          "finding": "N1-CONTRACT-01",
+          "test": "Read baseline transport JSON.parse and CharacterSyncCard event dispatch into production reduce. The reducer is the actual application receive/adoption boundary and baseline has no SemanticState validator there.",
+          "result": "Refuted within the observed production receive path: CharacterSyncCard.tsx:219-220 dispatches reduce, :435 sends event.payload; transport.ts JSON parsing does not impose required SemanticState fields. Tests call that production boundary, not a mock."
+        },
+        {
+          "hypothesis": "Missing fields/null are intentional old-snapshot migration or allowed optional representation.",
+          "finding": "both",
+          "test": "Read original 622c8bf docs/aip/character-session.md sections3 and6 and original SemanticState struct in state.rs:275-287. attention/members/reducedMotion are required, lastInteraction uses serde Option skip-if-none, and original contract says complete canonical state must contain no null.",
+          "result": "Refuted for these probes. Compatibility defaults for older optional member fields do not make required top-level fields optional or authorize explicit null. The original JSONC illustration uses null but its explicit implementation note at68 and invariant at83 require omission."
+        }
+      ]
+    },
+    {
+      "id": "N1-RESTORE-02",
+      "aliases": [],
+      "title": "Authoritative snapshot restore silently discarded explicit null before validation",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "semantic_contract",
+        "finder": "semantic_contract",
+        "verifier": "state_receipts",
+        "independentFinalVerifier": "state_receipts"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "crates/interaction-session/src/session.rs",
+        "crates/interaction-session/src/semantic_contract.rs"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n1-n4-n6-findings-handoff.json",
+        "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-independent-final-verify.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/d2cb866c5e-semantic-host-null-red.txt",
+          "phase": "author pre-fix regression",
+          "actor": "semantic_contract",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/d2cb866c5e-semantic-host-null-red.txt",
+            "passed": 0,
+            "failed": 1
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/32dfb8961a-semantic-review-fix-rust.txt",
+          "phase": "author post-fix regression",
+          "actor": "semantic_contract",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/32dfb8961a-semantic-review-fix-rust.txt",
+            "passed": 5,
+            "failed": 0
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-rust.txt",
+          "phase": "independent original-source pre-fix reproduction",
+          "actor": "state_receipts",
+          "level": "Production CharacterSession::restore wrapper and restore_report, actual serde/canonical implementation from three pure crates. No filesystem storage adapter/daemon/native UI exercised.",
+          "reportedOutcome": {
+            "passed": 2,
+            "failed": 1,
+            "sourceCommit": "622c8bf70963e343e51f92f5ecdf7fce4b37f516"
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust-clean-target.txt",
+          "phase": "independent post-fix verification",
+          "actor": "state_receipts",
+          "level": "Production CharacterSession::restore wrapper and restore_report, actual serde/canonical implementation from three pure crates. No filesystem storage adapter/daemon/native UI exercised.",
+          "reportedOutcome": {
+            "passed": 3,
+            "failed": 0,
+            "error": "InvalidState",
+            "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust-clean-target.txt",
+            "sourceCommit": "3b375bde4188e4a039852881d48d82ea9b619ce1"
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "independently verified original defect; fixed behavior confirmed",
+      "notes": [
+        "Both trees are exact git archive extracts. Production source is byte-identical to the named commit, not a mutation or reverse patch. Root Cargo.toml workspace member list is narrowed to the three pure crates as harness setup only; tests/config are independently added outside shared checkout.",
+        "Restore controls demonstrate hash/deny-unknown checks did not protect against raw null before serde.",
+        "Fix landed in 30ff852; independent final reproduction tested exact archived 3b375bd bytes. These identities are intentionally distinct.",
+        "Excluded current-rust.log reused the baseline build artifact due to historical mtimes; only current-rust-clean-target.log from a fresh target counts as fixed-source verification. This is a harness provenance issue, not an unfixed product result."
+      ],
+      "originalRoles": {
+        "finder": "semantic_contract",
+        "contract_review": "root",
+        "red_reproducer": "semantic_contract",
+        "author": "semantic_contract",
+        "independent_verify": "Parent integration gate; no separate original-null probe log is claimed."
+      },
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "crates/interaction-session/src/session.rs",
+          "crates/interaction-session/src/semantic_contract.rs"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      },
+      "independentRefutationAttempts": [
+        {
+          "hypothesis": "Missing fields/null are intentional old-snapshot migration or allowed optional representation.",
+          "finding": "both",
+          "test": "Read original 622c8bf docs/aip/character-session.md sections3 and6 and original SemanticState struct in state.rs:275-287. attention/members/reducedMotion are required, lastInteraction uses serde Option skip-if-none, and original contract says complete canonical state must contain no null.",
+          "result": "Refuted for these probes. Compatibility defaults for older optional member fields do not make required top-level fields optional or authorize explicit null. The original JSONC illustration uses null but its explicit implementation note at68 and invariant at83 require omission."
+        },
+        {
+          "hypothesis": "Authoritative restore hash/deny-unknown guards already prevent raw null adoption.",
+          "finding": "N1-RESTORE-02",
+          "test": "Production CharacterSession::restore called with an independently made snapshot containing lastInteraction:null and recomputed matching hash. Controls restore a valid snapshot and reject an unknown authoritative field.",
+          "result": "Refuted: both controls pass at baseline, yet explicit null is accepted and discarded, changing canonical hash. Fixed raw contains_null check rejects InvalidState before serde."
+        }
+      ]
+    },
+    {
+      "id": "N1-REVIEW-03",
+      "aliases": [],
+      "title": "Swift flattened Attention DTO rejected a valid unknown-variant field",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "semantic_contract",
+        "finder": "root",
+        "verifier": "root",
+        "candidateFinder": "restart_lifecycle",
+        "formalReproducer": "root"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "scripts/semantic-state-codegen.mjs",
+        "apps/interaction-ios/InteractionCompanion/Models/SemanticStateGenerated.swift",
+        "apps/interaction-desktop/src/aip/semanticStateGenerated.ts"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n1-n4-n6-findings-handoff.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/4d23949821-n1-ts-verify.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "root",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/4d23949821-n1-ts-verify.txt",
+            "description": "Both attention probes accepted"
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/d40ac2a2a1-n1-swift-verify.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "root",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/d40ac2a2a1-n1-swift-verify.txt",
+            "description": "Both attention probes incorrectly rejected"
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/f5029de6b3-n1-rust-verify.txt",
+          "phase": "independent post-fix verification",
+          "actor": "root",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/f5029de6b3-n1-rust-verify.txt",
+            "cases": 5
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/5da40d8951-n1-ts-verify-fixed.txt",
+          "phase": "independent post-fix verification",
+          "actor": "root",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/5da40d8951-n1-ts-verify-fixed.txt",
+            "cases": 5
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/104fbf0142-n1-swift-verify-fixed.txt",
+          "phase": "independent post-fix verification",
+          "actor": "root",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/104fbf0142-n1-swift-verify-fixed.txt",
+            "cases": 5
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Report names root as formal finder/reproducer of five probes. Earlier conversation candidate came from restart_lifecycle; root expanded date probes to leap-second case. Semantic author confirmed report is not exclusive proof of earliest candidate attribution."
+      ],
+      "originalRoles": {
+        "finder": "root",
+        "independent_red_reproducer": "root",
+        "author": "semantic_contract",
+        "independent_postfix_verifier": "root"
+      },
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "scripts/semantic-state-codegen.mjs",
+          "apps/interaction-ios/InteractionCompanion/Models/SemanticStateGenerated.swift",
+          "apps/interaction-desktop/src/aip/semanticStateGenerated.ts"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N1-REVIEW-04",
+      "aliases": [],
+      "title": "Consumer date validation normalized invalid dates and rejected valid leap seconds",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "semantic_contract",
+        "finder": "root",
+        "verifier": "root",
+        "candidateFinder": "restart_lifecycle",
+        "formalReproducer": "root"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "apps/interaction-desktop/src/aip/semanticState.ts",
+        "apps/interaction-ios/InteractionCompanion/Models/SemanticStateValidation.swift"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n1-n4-n6-findings-handoff.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/f5029de6b3-n1-rust-verify.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "root",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/f5029de6b3-n1-rust-verify.txt",
+            "description": "Authoritative expected false,false,true"
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/4d23949821-n1-ts-verify.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "root",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/4d23949821-n1-ts-verify.txt",
+            "description": "Consumers true,true,false"
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/d40ac2a2a1-n1-swift-verify.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "root",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/d40ac2a2a1-n1-swift-verify.txt",
+            "description": "Consumers true,true,false"
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/5da40d8951-n1-ts-verify-fixed.txt",
+          "phase": "independent post-fix verification",
+          "actor": "root",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/5da40d8951-n1-ts-verify-fixed.txt",
+            "cases": 5
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/104fbf0142-n1-swift-verify-fixed.txt",
+          "phase": "independent post-fix verification",
+          "actor": "root",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/104fbf0142-n1-swift-verify-fixed.txt",
+            "cases": 5
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/1c84d147ba-semantic-review-fix-ts.txt",
+          "phase": "independent post-fix verification",
+          "actor": "root",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/1c84d147ba-semantic-review-fix-ts.txt",
+            "passed": 59,
+            "failed": 0
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/6f41024540-semantic-review-fix-swift.txt",
+          "phase": "independent post-fix verification",
+          "actor": "root",
+          "level": "Rust pure authoritative model / TS consumer model / native macOS Swift model; no device or UI",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/6f41024540-semantic-review-fix-swift.txt",
+            "passed": 58,
+            "failed": 0
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Report names root as formal finder/reproducer of five probes. Earlier conversation candidate came from restart_lifecycle; root expanded date probes to leap-second case. Semantic author confirmed report is not exclusive proof of earliest candidate attribution."
+      ],
+      "originalRoles": {
+        "finder": "root",
+        "independent_red_reproducer": "root",
+        "author": "semantic_contract",
+        "independent_postfix_verifier": "root"
+      },
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/src/aip/semanticState.ts",
+          "apps/interaction-ios/InteractionCompanion/Models/SemanticStateValidation.swift"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N4-REVIEW-01",
+      "aliases": [],
+      "title": "Import reported settings unchanged after prefs had already committed",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "root",
+        "finder": "semantic_contract",
+        "verifier": "root"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "apps/interaction-desktop/src/pages/CompanionPage.tsx",
+        "apps/interaction-desktop/src/pages/character/CharacterLibrary.tsx"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n1-n4-n6-findings-handoff.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/f51066142f-n4-import-review-red.txt",
+          "phase": "finder pre-fix reproduction",
+          "actor": "semantic_contract",
+          "level": "actual React import boundary and/or pure validation, API promises controlled",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/f51066142f-n4-import-review-red.txt",
+            "passed": 0,
+            "failed": 1,
+            "skipped": 24
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/1b0fe1b190-n4-import-independent-red.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "root",
+          "level": "actual React import boundary and/or pure validation, API promises controlled",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/1b0fe1b190-n4-import-independent-red.txt",
+            "failed": 1
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/0ac2308ac0-n4-review-final-independent-green.txt",
+          "phase": "independent post-fix verification",
+          "actor": "semantic_contract",
+          "level": "actual React import boundary and/or pure validation, API promises controlled",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/0ac2308ac0-n4-review-final-independent-green.txt",
+            "passed": 41,
+            "failed": 0
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [],
+      "originalRoles": {
+        "finder": "semantic_contract",
+        "independent_red_verifier": "root",
+        "author": "root",
+        "independent_postfix_verifier": "semantic_contract"
+      },
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/src/pages/CompanionPage.tsx",
+          "apps/interaction-desktop/src/pages/character/CharacterLibrary.tsx"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N4-REVIEW-02",
+      "aliases": [
+        "N4-WRITER-01"
+      ],
+      "title": "Atomic preference replacement widened an existing private file mode",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "root",
+        "finder": "semantic_contract",
+        "verifier": "root"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "apps/interaction-desktop/src-tauri/src/supervisor.rs"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n1-n4-n6-findings-handoff.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/a07b720669-n4-prefs-writer-review-red.txt",
+          "phase": "finder pre-fix reproduction",
+          "actor": "semantic_contract",
+          "level": "real production Rust preference writer, isolated filesystem fixture",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/a07b720669-n4-prefs-writer-review-red.txt",
+            "passed": 0,
+            "failed": 2
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/8500c4cbdf-n4-writer-independent-red.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "root",
+          "level": "real production Rust preference writer, isolated filesystem fixture",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/8500c4cbdf-n4-writer-independent-red.txt",
+            "failed": 2
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/81e059580a-n4-writer-review-final-independent-green.txt",
+          "phase": "independent post-fix verification",
+          "actor": "semantic_contract",
+          "level": "real production Rust preference writer, isolated filesystem fixture",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/81e059580a-n4-writer-review-final-independent-green.txt",
+            "passed": 2,
+            "failed": 0
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/f9197a54fa-n4-writer-green.txt",
+          "phase": "independent post-fix verification",
+          "actor": "semantic_contract",
+          "level": "real production Rust preference writer, isolated filesystem fixture",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/f9197a54fa-n4-writer-green.txt",
+            "passed": 2,
+            "failed": 0
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [],
+      "originalRoles": {
+        "finder": "semantic_contract",
+        "independent_red_verifier": "root",
+        "author": "root",
+        "independent_postfix_verifier": "semantic_contract"
+      },
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/src-tauri/src/supervisor.rs"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N4-REVIEW-03",
+      "aliases": [
+        "N4-WRITER-02"
+      ],
+      "title": "Failed temporary create removed a pre-existing file the writer did not own",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "root",
+        "finder": "root raised suspicion; semantic_contract reproduced",
+        "verifier": "root"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "apps/interaction-desktop/src-tauri/src/supervisor.rs"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n1-n4-n6-findings-handoff.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/a07b720669-n4-prefs-writer-review-red.txt",
+          "phase": "finder pre-fix reproduction",
+          "actor": "semantic_contract",
+          "level": "real production Rust preference writer, isolated filesystem fixture",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/a07b720669-n4-prefs-writer-review-red.txt",
+            "passed": 0,
+            "failed": 2
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/5179e2889a-n4-prefs-collision-review-red.txt",
+          "phase": "finder pre-fix reproduction",
+          "actor": "semantic_contract",
+          "level": "real production Rust preference writer, isolated filesystem fixture",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/5179e2889a-n4-prefs-collision-review-red.txt",
+            "passed": 0,
+            "failed": 1
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/8500c4cbdf-n4-writer-independent-red.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "root",
+          "level": "real production Rust preference writer, isolated filesystem fixture",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/8500c4cbdf-n4-writer-independent-red.txt",
+            "failed": 2
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/81e059580a-n4-writer-review-final-independent-green.txt",
+          "phase": "independent post-fix verification",
+          "actor": "semantic_contract",
+          "level": "real production Rust preference writer, isolated filesystem fixture",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/81e059580a-n4-writer-review-final-independent-green.txt",
+            "passed": 2,
+            "failed": 0
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Root raised the temp collision suspicion; semantic_contract supplied the concrete reproduction. Keep initial harness issue separate from dedicated valid collision log."
+      ],
+      "originalRoles": {
+        "finder": "root raised suspicion; semantic_contract reproduced",
+        "independent_red_verifier": "root",
+        "author": "root",
+        "independent_postfix_verifier": "semantic_contract"
+      },
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/src-tauri/src/supervisor.rs"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N4-REVIEW-04",
+      "aliases": [],
+      "title": "Nested malformed backup fields were coerced into persisted strings",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "root",
+        "finder": "semantic_contract",
+        "verifier": "root"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "apps/interaction-desktop/src/companion/settingsTransfer.ts"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n1-n4-n6-findings-handoff.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/f7e38d96d2-n4-nested-backup-review-red.txt",
+          "phase": "finder pre-fix reproduction",
+          "actor": "semantic_contract",
+          "level": "actual React import boundary and/or pure validation, API promises controlled",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/f7e38d96d2-n4-nested-backup-review-red.txt",
+            "passed": 0,
+            "failed": 4
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/f219b0a57c-n4-nested-independent-red.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "root",
+          "level": "actual React import boundary and/or pure validation, API promises controlled",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/f219b0a57c-n4-nested-independent-red.txt",
+            "failed": 4
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/0ac2308ac0-n4-review-final-independent-green.txt",
+          "phase": "independent post-fix verification",
+          "actor": "semantic_contract",
+          "level": "actual React import boundary and/or pure validation, API promises controlled",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/0ac2308ac0-n4-review-final-independent-green.txt",
+            "passed": 41,
+            "failed": 0
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [],
+      "originalRoles": {
+        "finder": "semantic_contract",
+        "independent_red_verifier": "root",
+        "author": "root",
+        "independent_postfix_verifier": "semantic_contract"
+      },
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/src/companion/settingsTransfer.ts"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N6-REVIEW-01",
+      "aliases": [],
+      "title": "Initial Shift+Tab escaped a newly opened modal and lost its Escape handler",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "semantic_contract (parent explicitly assigned after independent Verify)",
+        "finder": "restart_lifecycle",
+        "verifier": "semantic_contract (CodeGraph refutation attempt, independent unit plus real Browser)",
+        "preFixVerifier": "semantic_contract before being assigned fix author",
+        "postFixIndependentVerifier": "root"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "apps/interaction-desktop/src/components/Dialog.tsx"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n1-n4-n6-findings-handoff.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/565f9030a8-n6-dialog-browser-independent-red.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "semantic_contract",
+          "level": "real Chromium UI plus production daemon fixture; supplemental jsdom focus test",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/565f9030a8-n6-dialog-browser-independent-red.txt",
+            "passed": 0,
+            "failed": 1
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/5a0cfc34cf-n6-dialog-independent-unit-red.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "semantic_contract",
+          "level": "real Chromium UI plus production daemon fixture; supplemental jsdom focus test",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/5a0cfc34cf-n6-dialog-independent-unit-red.txt",
+            "passed": 6,
+            "failed": 1
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/389b29cd60-n6-dialog-browser-green.txt",
+          "phase": "author post-fix regression",
+          "actor": "semantic_contract",
+          "level": "real Chromium UI plus production daemon fixture; supplemental jsdom focus test",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/389b29cd60-n6-dialog-browser-green.txt",
+            "passed": 1,
+            "failed": 0,
+            "seconds": 5.9
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/6eac3bdcab-n6-dialog-shared-unit-green.txt",
+          "phase": "author post-fix regression",
+          "actor": "semantic_contract",
+          "level": "real Chromium UI plus production daemon fixture; supplemental jsdom focus test",
+          "reportedOutcome": {
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/6eac3bdcab-n6-dialog-shared-unit-green.txt",
+            "passed": 71,
+            "failed": 0
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/final-playwright.txt",
+          "phase": "independent post-fix verification",
+          "actor": "root",
+          "level": "full Chromium browser suite with real daemon and fixtures",
+          "reportedOutcome": {
+            "passed": 92,
+            "failed": 0,
+            "case": "estop.spec.ts:37 initial Shift+Tab / Escape / focus return",
+            "caseSeconds": 1.0,
+            "line": 150,
+            "totalSeconds": 222.34
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Independent final Browser covers populated emergency dialog only. Empty loading-overlay trap remains covered by author unit test; do not claim root Browser exercised empty dialog."
+      ],
+      "originalRoles": {
+        "finder": "restart_lifecycle",
+        "independent_red_verifier": "semantic_contract (CodeGraph refutation attempt, independent unit plus real Browser)",
+        "author": "semantic_contract (parent explicitly assigned after independent Verify)",
+        "postfix_verifier": "semantic_contract scoped tests; parent owns independent full regression"
+      },
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/src/components/Dialog.tsx"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N4-UI-01",
+      "aliases": [],
+      "title": "A pre-operation poll overwrote a successfully completed preset",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "/root",
+        "finder": "/root/restart_lifecycle",
+        "verifier": "/root/state_receipts",
+        "postFixVerifier": "/root/state_receipts"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "apps/interaction-desktop/src/pages/CompanionPage.tsx",
+        "apps/interaction-desktop/src/test/companion-preset-recovery.test.tsx"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/9067a949c2-n4-independent-verify-red.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "/root/state_receipts",
+          "level": "actual React component with controlled desktop-port promises",
+          "reportedOutcome": {
+            "passed": 0,
+            "failed": 2,
+            "skipped": 13,
+            "durationSeconds": 2.78
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/18debc34a5-n4-independent-final-green.txt",
+          "phase": "independent post-fix verification",
+          "actor": "/root/state_receipts",
+          "level": "actual React component with controlled desktop-port promises",
+          "reportedOutcome": {
+            "passed": 16,
+            "failed": 0,
+            "skipped": 0,
+            "durationSeconds": 2.71
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "runHostPreset now invalidates earlier preferences reads when the operation starts.",
+        "React component plus controlled desktop promises/events. Native host crash/reconnect walkthrough evidence belongs to parent."
+      ],
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/src/pages/CompanionPage.tsx",
+          "apps/interaction-desktop/src/test/companion-preset-recovery.test.tsx"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N4-UI-02",
+      "aliases": [],
+      "title": "Reconnect recovery left preset/proactive readback stale",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "/root",
+        "finder": "/root/restart_lifecycle",
+        "verifier": "/root/state_receipts",
+        "postFixVerifier": "/root/state_receipts"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "apps/interaction-desktop/src/pages/CompanionPage.tsx",
+        "apps/interaction-desktop/src/test/companion-preset-recovery.test.tsx"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/9067a949c2-n4-independent-verify-red.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "/root/state_receipts",
+          "level": "actual React component with controlled desktop-port promises",
+          "reportedOutcome": {
+            "passed": 0,
+            "failed": 2,
+            "skipped": 13,
+            "durationSeconds": 2.78
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/18debc34a5-n4-independent-final-green.txt",
+          "phase": "independent post-fix verification",
+          "actor": "/root/state_receipts",
+          "level": "actual React component with controlled desktop-port promises",
+          "reportedOutcome": {
+            "passed": 16,
+            "failed": 0,
+            "skipped": 0,
+            "durationSeconds": 2.71
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Host result events and connection/refresh invalidations now reload preferences and proactive state; the actual component reconciles an unverified operation after reconnect.",
+        "React component plus controlled desktop promises/events. Native host crash/reconnect walkthrough evidence belongs to parent."
+      ],
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/src/pages/CompanionPage.tsx",
+          "apps/interaction-desktop/src/test/companion-preset-recovery.test.tsx"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N4-UI-03",
+      "aliases": [],
+      "title": "A poll issued during a host operation overwrote its later completion",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "/root",
+        "finder": "/root/state_receipts",
+        "verifier": "/root",
+        "postFixVerifier": "/root/state_receipts"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "apps/interaction-desktop/src/pages/CompanionPage.tsx",
+        "apps/interaction-desktop/src/test/companion-preset-recovery.test.tsx"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/edaac44980-n4-overlapping-read-verify.txt",
+          "phase": "finder pre-fix reproduction; parent independent reasoning reported",
+          "actor": "/root/state_receipts",
+          "level": "actual React component with controlled desktop-port promises",
+          "reportedOutcome": {
+            "passed": 0,
+            "failed": 1,
+            "skipped": 15,
+            "durationSeconds": 1.69
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/18debc34a5-n4-independent-final-green.txt",
+          "phase": "independent post-fix verification",
+          "actor": "/root/state_receipts",
+          "level": "actual React component with controlled desktop-port promises",
+          "reportedOutcome": {
+            "passed": 16,
+            "failed": 0,
+            "skipped": 0,
+            "durationSeconds": 2.71
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Start-only generation invalidation did not cover a prefsGet issued after start. Completion now advances the generation before exposing the final preset response; a late read cannot replace it.",
+        "Independent added delayed-promise regression; parent implements fix and broader suite. Not an OS-scheduler race stress test."
+      ],
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/src/pages/CompanionPage.tsx",
+          "apps/interaction-desktop/src/test/companion-preset-recovery.test.tsx"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N3-SCOPE-01",
+      "aliases": [],
+      "title": "Changing a family capture list overwrote previous unresolved sensor evidence",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "/root/restart_lifecycle",
+        "finder": "/root/semantic_contract",
+        "verifier": "/root/state_receipts"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "crates/interaction-runtime/src/sensor_journal.rs",
+        "crates/interaction-runtime/src/sensor_source.rs",
+        "crates/interaction-runtime/src/mobile.rs",
+        "crates/interaction-runtime/tests/sensor_journal_review.rs"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-convergence-handoff-20260906.json",
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/a130abed81-semantic-n3-review-red.txt",
+          "phase": "finder pre-fix reproduction",
+          "actor": "/root/semantic_contract",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/05108a8a15-n3-independent-verify-red.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "/root/state_receipts",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/2297cda2e5-n3-independent-final-green.txt",
+          "phase": "independent post-fix verification",
+          "actor": "state_receipts",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt",
+          "phase": "author post-fix full scoped regression",
+          "actor": "/root/restart_lifecycle",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/6aeaca3b23-n3-journal-latest-independent-green.txt",
+          "phase": "independent latest post-fix verification",
+          "actor": "state_receipts",
+          "level": "independent production SensorSource port fixture",
+          "reportedOutcome": {
+            "passed": 5,
+            "failed": 0,
+            "seconds": 0.19
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Union old and new (sensor, scope) evidence for the same source generation; preserve earliest since and old evidence first under the bounded cap. A changed live list is never negative stop evidence."
+      ],
+      "regressionTest": "changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors",
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "crates/interaction-runtime/src/sensor_journal.rs",
+          "crates/interaction-runtime/src/sensor_source.rs",
+          "crates/interaction-runtime/src/mobile.rs",
+          "crates/interaction-runtime/tests/sensor_journal_review.rs"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N3-SCOPE-02",
+      "aliases": [],
+      "title": "A current family member's stopped report cleared an absent member of the same sensor kind",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "/root/restart_lifecycle",
+        "finder": "/root/semantic_contract",
+        "verifier": "/root/state_receipts"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "crates/interaction-runtime/src/sensor_journal.rs",
+        "crates/interaction-runtime/src/sensor_source.rs",
+        "crates/interaction-runtime/src/mobile.rs",
+        "crates/interaction-runtime/tests/sensor_journal_review.rs"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-convergence-handoff-20260906.json",
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/a130abed81-semantic-n3-review-red.txt",
+          "phase": "finder pre-fix reproduction",
+          "actor": "/root/semantic_contract",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/05108a8a15-n3-independent-verify-red.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "/root/state_receipts",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/2297cda2e5-n3-independent-final-green.txt",
+          "phase": "independent post-fix verification",
+          "actor": "state_receipts",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt",
+          "phase": "author post-fix full scoped regression",
+          "actor": "/root/restart_lifecycle",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/6aeaca3b23-n3-journal-latest-independent-green.txt",
+          "phase": "independent latest post-fix verification",
+          "actor": "state_receipts",
+          "level": "independent production SensorSource port fixture",
+          "reportedOutcome": {
+            "passed": 5,
+            "failed": 0,
+            "seconds": 0.19
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Resolve only same process/source generation plus exact adapter capture scope and sensor. Mobile supplies the connection ID captured with the capture/stop target. Default family scopes cannot be vouched for by another member report. New connection with the same device ID cannot clear old scope."
+      ],
+      "regressionTest": "a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind",
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "crates/interaction-runtime/src/sensor_journal.rs",
+          "crates/interaction-runtime/src/sensor_source.rs",
+          "crates/interaction-runtime/src/mobile.rs",
+          "crates/interaction-runtime/tests/sensor_journal_review.rs"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N3-SCOPE-03",
+      "aliases": [],
+      "title": "A registered family hid historical unknowns after its live capture disappeared",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "/root/restart_lifecycle",
+        "finder": "/root/restart_lifecycle",
+        "verifier": "/root/state_receipts"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "crates/interaction-runtime/src/sensor_journal.rs",
+        "crates/interaction-runtime/src/sensor_source.rs",
+        "crates/interaction-runtime/src/mobile.rs",
+        "crates/interaction-runtime/tests/sensor_journal_review.rs"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-convergence-handoff-20260906.json",
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/f28138bb79-n3-live-family-red.txt",
+          "phase": "author pre-fix regression",
+          "actor": "/root/restart_lifecycle",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/05108a8a15-n3-independent-verify-red.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "/root/state_receipts",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/2297cda2e5-n3-independent-final-green.txt",
+          "phase": "independent post-fix verification",
+          "actor": "state_receipts",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt",
+          "phase": "author post-fix full scoped regression",
+          "actor": "/root/restart_lifecycle",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/6aeaca3b23-n3-journal-latest-independent-green.txt",
+          "phase": "independent latest post-fix verification",
+          "actor": "state_receipts",
+          "level": "independent production SensorSource port fixture",
+          "reportedOutcome": {
+            "passed": 5,
+            "failed": 0,
+            "seconds": 0.19
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Hide only exact currently represented (sensor, scope) evidence, or the existing 60-second orphan projection window. Constant family registration alone never suppresses historical unknowns. Human dismissal removes only visible historical evidence and retains live siblings.",
+        "Concrete live-only projection finding was first raised by the implementation author. /root/semantic_contract confirmed this attribution from the conversation; only scope01/02 were independently found by that agent. /root/state_receipts independently refuted/verified all three against the actual production path and reran 0/3 red. Do not relabel the scope03 author extension as an independent Find."
+      ],
+      "regressionTest": "a_registered_family_does_not_hide_unknowns_after_the_live_capture_disappears",
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "crates/interaction-runtime/src/sensor_journal.rs",
+          "crates/interaction-runtime/src/sensor_source.rs",
+          "crates/interaction-runtime/src/mobile.rs",
+          "crates/interaction-runtime/tests/sensor_journal_review.rs"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N3-MOBILE-EDGE-01",
+      "aliases": [
+        "N3-MOBILE-01"
+      ],
+      "title": "Per-device stop and direct mobile removal bypassed durable capture evidence",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "/root/restart_lifecycle",
+        "finder": "/root/state_receipts",
+        "verifier": "/root"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "crates/interaction-runtime/src/sensor_journal.rs",
+        "crates/interaction-runtime/src/sensor_source.rs",
+        "crates/interaction-runtime/src/mobile.rs",
+        "crates/interaction-runtime/tests/mobile_loop.rs"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-convergence-handoff-20260906.json",
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/8b44aa47fd-n3-mobile-direct-stop-red.txt",
+          "phase": "finder pre-fix reproduction",
+          "actor": "/root/state_receipts",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/6fd632aad7-n3-mobile-independent-red.txt",
+          "phase": "independent pre-fix reproduction",
+          "actor": "/root",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt",
+          "phase": "author post-fix full scoped regression",
+          "actor": "/root/restart_lifecycle",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/ccf7d4f897-n3-mobile-direct-stop-independent-green.txt",
+          "phase": "independent post-fix verification",
+          "actor": "state_receipts",
+          "level": "real Runtime ports with controlled family/TLS peer and persistent store"
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Capture raw false-to-true through the canonical journal port before publishing mic_since. Each connection carries opaque SensorCaptureOwner with registered source generation and family label. Same effective connection's false report can settle only its scope while the source generation is still registered. Teardown never clears it; direct per-device stop now uses the canonical source request when registered. Safety-decreasing raw wire stop remains available if source registration has already been removed."
+      ],
+      "regressionTest": "per_device_unknown_stop_survives_direct_mobile_revoke_and_restart",
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "crates/interaction-runtime/src/sensor_journal.rs",
+          "crates/interaction-runtime/src/sensor_source.rs",
+          "crates/interaction-runtime/src/mobile.rs",
+          "crates/interaction-runtime/tests/mobile_loop.rs"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N3-RESTART",
+      "aliases": [],
+      "title": "requested restart",
+      "classification": "user-requested contract delta, not counted as independently found defect",
+      "roles": {
+        "implementationAuthor": "restart_lifecycle",
+        "finder": "user N3.1",
+        "verifier": "author regression plus independent cross-scope review; no per-case original independent red claimed"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "crates/interaction-runtime/src/sensor_source.rs",
+        "crates/interaction-runtime/src/sensors.rs",
+        "crates/interaction-runtime/tests/sensors_loop.rs"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-convergence-handoff-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/af40dbe191-n3-restart-red.txt",
+          "phase": "author pre-fix delta regression",
+          "actor": "restart_lifecycle",
+          "level": "real Runtime and persistent store fixture"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt",
+          "phase": "author post-fix scoped regression",
+          "actor": "restart_lifecycle",
+          "level": "real Runtime and persistent store fixture"
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "author delta explicitly distinguished from independent finding",
+      "notes": [
+        "Original red was 1 pass / 2 fail: historical reminder retention failed both after and before orphan TTL. This is not claimed as an independent Find/Verify run.",
+        "Parent explicitly accepts cross-scope independent review; do not invent an independent original red for this requested delta."
+      ],
+      "regressionTests": [
+        "restart_retains_unresolved_without_claiming_active_capture",
+        "restart_before_orphan_ttl_retains_unknown",
+        "restart_human_dismissal_stays_dismissed_without_claiming_stopped"
+      ],
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "crates/interaction-runtime/src/sensor_source.rs",
+          "crates/interaction-runtime/src/sensors.rs",
+          "crates/interaction-runtime/tests/sensors_loop.rs"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N3-GENERATION",
+      "aliases": [],
+      "title": "requested generation",
+      "classification": "user-requested contract delta, not counted as independently found defect",
+      "roles": {
+        "implementationAuthor": "restart_lifecycle",
+        "finder": "user N3.1; parent approved the generation evidence boundary",
+        "verifier": "author regression plus independent cross-scope review; no per-case original independent red claimed"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "crates/interaction-runtime/src/sensor_source.rs",
+        "crates/interaction-runtime/src/sensors.rs",
+        "crates/interaction-runtime/tests/sensors_loop.rs"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-convergence-handoff-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/200f14f45d-n3-generation-red.txt",
+          "phase": "author pre-fix delta regression",
+          "actor": "restart_lifecycle",
+          "level": "real Runtime and persistent store fixture"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt",
+          "phase": "author post-fix scoped regression",
+          "actor": "restart_lifecycle",
+          "level": "real Runtime and persistent store fixture"
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "author delta explicitly distinguished from independent finding",
+      "notes": [
+        "v0.7.0 explicitly allowed a new same-ID source to clear an old generation. The new red establishes the requested stricter rule; it is not evidence that v0.7.0 already promised this same rule. Compatibility/deprecation/privacy docs record the behavior change.",
+        "Parent explicitly accepts cross-scope independent review; do not invent an independent original red for this requested delta."
+      ],
+      "regressionTests": [
+        "new_generation_confirmed_stop_cannot_vouch_for_previous_source"
+      ],
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "crates/interaction-runtime/src/sensor_source.rs",
+          "crates/interaction-runtime/src/sensors.rs",
+          "crates/interaction-runtime/tests/sensors_loop.rs"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N3-SHUTDOWN",
+      "aliases": [],
+      "title": "requested shutdown",
+      "classification": "user-requested contract delta, not counted as independently found defect",
+      "roles": {
+        "implementationAuthor": "restart_lifecycle",
+        "finder": "user N3 persistence requirement",
+        "verifier": "author regression plus independent cross-scope review; no per-case original independent red claimed"
+      },
+      "fixedCommit": "30ff852f5d893215c019d982774c8b59ab010659",
+      "sourcePaths": [
+        "crates/interaction-runtime/src/sensor_source.rs",
+        "crates/interaction-runtime/src/sensors.rs",
+        "crates/interaction-runtime/tests/sensors_loop.rs"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-convergence-handoff-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/e3c9732b98-n3-shutdown-red.txt",
+          "phase": "author pre-fix delta regression",
+          "actor": "restart_lifecycle",
+          "level": "real Runtime and persistent store fixture"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt",
+          "phase": "author post-fix scoped regression",
+          "actor": "restart_lifecycle",
+          "level": "real Runtime and persistent store fixture"
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "author delta explicitly distinguished from independent finding",
+      "notes": [
+        "Shutdown now stops sensors through the existing bounded coordinator before transport cancellation and journal flush/clean marker. Synchronous local microphone stop remains first.",
+        "Parent explicitly accepts cross-scope independent review; do not invent an independent original red for this requested delta."
+      ],
+      "regressionTests": [
+        "shutdown_persists_unknown_before_marking_the_process_clean"
+      ],
+      "commitEvidence": {
+        "commit": "30ff852f5d893215c019d982774c8b59ab010659",
+        "subject": "feat: converge semantic state receipts and recovery ownership",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "crates/interaction-runtime/src/sensor_source.rs",
+          "crates/interaction-runtime/src/sensors.rs",
+          "crates/interaction-runtime/tests/sensors_loop.rs"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N3-E2E-SENSOR-TEARDOWN",
+      "aliases": [],
+      "title": "checkpoint Playwright sensors.spec.ts:112 expected .sensor-banner count 0, actual 1; success message assertion at 111 already passed",
+      "classification": "fixture isolation defect",
+      "roles": {
+        "implementationAuthor": "/root/restart_lifecycle",
+        "finder": "/root/restart_lifecycle",
+        "verifier": "differential live-daemon Browser evidence; parent full-suite followup pending"
+      },
+      "fixedCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+      "sourcePaths": [
+        "apps/interaction-desktop/e2e/sensors.spec.ts"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-sensor-browser-notice-addendum-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/859ca850b0-n3-sensors-isolated-18890.txt",
+          "phase": "finder differential control",
+          "actor": "restart_lifecycle",
+          "level": "real Chromium UI + daemon + external simulated phone",
+          "reportedOutcome": {
+            "passed": 1,
+            "failed": 0,
+            "durationSeconds": 7.5,
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/859ca850b0-n3-sensors-isolated-18890.txt"
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/93dd1dbde9-n3-sensors-sequence-red.txt",
+          "phase": "finder pre-fix reproduction",
+          "actor": "restart_lifecycle",
+          "level": "real Chromium UI + daemon + external simulated phone",
+          "reportedOutcome": {
+            "passed": 1,
+            "failed": 1,
+            "notRun": 1,
+            "durationSeconds": 27.1,
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/93dd1dbde9-n3-sensors-sequence-red.txt"
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/2fa1a0647c-n3-sensors-sequence-green.txt",
+          "phase": "author fixture post-fix regression",
+          "actor": "restart_lifecycle",
+          "level": "real Chromium UI + daemon + external simulated phone",
+          "reportedOutcome": {
+            "passed": 3,
+            "failed": 0,
+            "durationSeconds": 11.8,
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/2fa1a0647c-n3-sensors-sequence-green.txt"
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/final-playwright.txt",
+          "phase": "independent full-suite post-fix verification",
+          "actor": "root",
+          "level": "real Chromium UI + daemon + external simulated phone",
+          "reportedOutcome": {
+            "passed": 92,
+            "failed": 0,
+            "note": "includes original three sensor cases with all expectations retained"
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Before ending each still-live fixture, send its genuine same-connection status micLevel=false and poll activeSensors and unresolvedStops empty. Always kill/revoke in finally. Do not dismiss, delete or suppress unknowns. If cleanup cannot confirm, teardown fails.",
+        "process-outside simulated iPhone fixture against real daemon + real browser UI; not physical iPhone acceptance"
+      ],
+      "commitEvidence": {
+        "commit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+        "subject": "fix: preserve unresolved stop warnings and harden acceptance evidence",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/e2e/sensors.spec.ts"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N3-UI-STOP-HISTORY",
+      "aliases": [],
+      "title": "Old mobile capture disconnects without confirmation; a new current capture stops successfully. Current reports are all confirmed and activeSensors empty, but historical unresolvedStops or journal recovery health remains. UI previously emitted the general successful 已停止感測。 notice alongside the unresolved reminder.",
+      "classification": "product defect",
+      "roles": {
+        "implementationAuthor": "/root/restart_lifecycle",
+        "finder": "/root/restart_lifecycle (candidate from failing Browser trace)",
+        "verifier": "/root (independent App trace and recorded real Browser/network evidence before authorization)"
+      },
+      "fixedCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+      "sourcePaths": [
+        "apps/interaction-desktop/src/statusProjection/provider.ts",
+        "apps/interaction-desktop/src/App.tsx",
+        "apps/interaction-desktop/src/pages/HomePage.tsx",
+        "apps/interaction-desktop/src/components/GlobalSearch.tsx"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-sensor-browser-notice-addendum-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/af92dc3736-n3-ui-stop-history-final-red.txt",
+          "phase": "author pre-fix regression",
+          "actor": "restart_lifecycle",
+          "level": "pure shared projection and actual App/Home/Search component with mocked transport",
+          "reportedOutcome": {
+            "command": "pnpm exec vitest run src/test/sensorStop.test.ts src/test/sensor-stop-history.test.tsx src/test/homePage.test.tsx src/test/regressions-v04.test.tsx -t N3-UI-STOP-HISTORY",
+            "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
+            "passed": 0,
+            "failed": 9,
+            "skipped": 81,
+            "durationSeconds": 3.77,
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/af92dc3736-n3-ui-stop-history-final-red.txt",
+            "caseBreakdown": {
+              "sharedProjection": 5,
+              "actualAppShellBanner": 2,
+              "actualHomePage": 1,
+              "actualGlobalSearch": 1
+            }
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/abc5d3b154-n3-ui-stop-history-green.txt",
+          "phase": "author post-fix regression",
+          "actor": "restart_lifecycle",
+          "level": "pure shared projection and actual App/Home/Search component with mocked transport",
+          "reportedOutcome": {
+            "passed": 111,
+            "failed": 0,
+            "files": 6,
+            "durationSeconds": 2.9,
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/abc5d3b154-n3-ui-stop-history-green.txt",
+            "includesUnchangedAdjacentTests": true
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/7702cece80-n3-ui-stop-history-independent-red.txt",
+          "phase": "independent pre-fix isolated reversal",
+          "actor": "root",
+          "level": "isolated/current jsdom application regression",
+          "reportedOutcome": {
+            "passed": 0,
+            "failed": 9,
+            "skipped": 81,
+            "exitCode": 1,
+            "durationSeconds": 4.817,
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/7702cece80-n3-ui-stop-history-independent-red.txt",
+            "result": "docs/releases/evidence/2026-09-06-convergence/review/52cb74ad6c-n3-ui-stop-history-independent-red.json",
+            "scope": "archive a32258e with current regression tests and reversed production-fix patch; isolated jsdom regression"
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/5c85eb515e-n3-ui-stop-history-independent.txt",
+          "phase": "independent post-fix verification",
+          "actor": "root",
+          "level": "isolated/current jsdom application regression",
+          "reportedOutcome": {
+            "passed": 9,
+            "failed": 0,
+            "skipped": 81,
+            "exitCode": 0,
+            "durationSeconds": 2.49,
+            "log": "docs/releases/evidence/2026-09-06-convergence/review/5c85eb515e-n3-ui-stop-history-independent.txt",
+            "result": "docs/releases/evidence/2026-09-06-convergence/review/786c499fa5-n3-ui-stop-history-independent.json",
+            "scope": "current fixed shared source before committing final fix; runner metadata SHA a32258ea161df537f2ad6c1f25cd70d86910d0da identifies then-base, not immutable fixed-source commit"
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "All three production callers pass projectUnresolvedStops(freshStatus).summary to the shared projectSensorStop. A non-null reminder, including overflow/recovery/parked/write-failure health, returns ok=false and a plain warning. Existing live-capture, uncertain-report and status-fetch-failure branches retain their earlier more specific warnings. Journal data remains unchanged.",
+        "Vitest tests mock API/desktop transport but execute actual shared projection and UI handlers. Full initial Browser/network trace independently establishes reachability. Does not claim physical/native acceptance of the updated notice."
+      ],
+      "commitEvidence": {
+        "commit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+        "subject": "fix: preserve unresolved stop warnings and harden acceptance evidence",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/src/statusProjection/provider.ts",
+          "apps/interaction-desktop/src/App.tsx",
+          "apps/interaction-desktop/src/pages/HomePage.tsx",
+          "apps/interaction-desktop/src/components/GlobalSearch.tsx"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "SCRIPT-01",
+      "aliases": [],
+      "title": "XCTest accepted fewer tests and reused an earlier pass after incomplete output",
+      "classification": "validation harness defect",
+      "roles": {
+        "implementationAuthor": "semantic_contract after explicit parent authorization",
+        "finder": "semantic_contract",
+        "verifier": "root"
+      },
+      "fixedCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+      "sourcePaths": [
+        "scripts/tests/xctest-result.py",
+        "scripts/tests/ios-simulator.sh"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/validation-scripts-review.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/826cc1dad0-xctest-result-gate-red.txt",
+          "phase": "finder/author pre-fix parser regression",
+          "actor": "semantic_contract",
+          "level": "pure Python production parser fixture",
+          "reportedOutcome": {
+            "passed": 10,
+            "failed": 4
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/a1cecd8f12-xctest-independent-red.txt",
+          "phase": "independent pre-fix parser reproduction",
+          "actor": "root",
+          "level": "pure Python production parser probe"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/9ca6a0d581-xctest-result-gate-green.txt",
+          "phase": "author post-fix regression",
+          "actor": "semantic_contract",
+          "level": "pure Python production parser fixture",
+          "reportedOutcome": {
+            "passed": 14,
+            "failed": 0
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/xctest-gate-independent.txt",
+          "phase": "independent post-fix regression",
+          "actor": "root",
+          "level": "pure Python production parser fixture",
+          "reportedOutcome": {
+            "passed": 14,
+            "failed": 0,
+            "totalSeconds": 0.59
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "All tests passed / Executed1 test returned exit0 despite this round expecting163; a subsequent Alltests started without completion also reused old success.",
+        "Explicit --expected-count default163 in parser/runner; exact cohort, latest complete Alltests suite, no failures/skips or trailing incomplete output. Failure assertions and failed method counts are distinguished.",
+        "Parent supplied existing independent green missing from the handoff wording. No new XCTest/native run was performed by this auditor."
+      ],
+      "commitEvidence": {
+        "commit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+        "subject": "fix: preserve unresolved stop warnings and harden acceptance evidence",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "scripts/tests/xctest-result.py",
+          "scripts/tests/ios-simulator.sh"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "SCRIPT-02",
+      "aliases": [],
+      "title": "Native binary identity was recorded at the end rather than pinned before execution",
+      "classification": "validation harness defect",
+      "roles": {
+        "implementationAuthor": "root",
+        "finder": "semantic_contract",
+        "verifier": "semantic_contract independent post-fix guard/source review"
+      },
+      "fixedCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+      "sourcePaths": [
+        "scripts/tests/tauri-settings-walkthrough.py",
+        "scripts/tests/tauri-preset-recovery.py"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/validation-scripts-review.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/6ea043959d-validation-script-review-probes.json",
+          "phase": "independent post-fix extracted production guard probes",
+          "actor": "semantic_contract",
+          "level": "Pure in-memory execution of each unchanged production provenance guard; no native app execution",
+          "reportedOutcome": {
+            "probes": 4,
+            "passed": 4,
+            "failed": 0,
+            "artifact": "docs/releases/evidence/2026-09-06-convergence/review/6ea043959d-validation-script-review-probes.json",
+            "level": "Pure in-memory execution of each unchanged production provenance guard; no native app execution"
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Run executableA, rebuild/replace path withB during long walkthrough; old final-only hashing attributed the earlyA steps toB. This was a source-proven conditional risk, not an observed change during the frozen integration run.",
+        "Capture source/dirty/binary/CLI/driver identity before launch and reject changed binary/CLI hashes on completion.",
+        "Pre-fix defect has reported source/conditional probe evidence, not a separately archived independent red-test run. Post-fix pure guard execution is independent of root author and does not execute native/perf."
+      ],
+      "commitEvidence": {
+        "commit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+        "subject": "fix: preserve unresolved stop warnings and harden acceptance evidence",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "scripts/tests/tauri-settings-walkthrough.py",
+          "scripts/tests/tauri-preset-recovery.py"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "SCRIPT-03",
+      "aliases": [],
+      "title": "Download selection could claim and delete another concurrent matching backup",
+      "classification": "validation harness defect",
+      "roles": {
+        "implementationAuthor": "root",
+        "finder": "semantic_contract",
+        "verifier": "semantic_contract independent post-fix guard/source review"
+      },
+      "fixedCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+      "sourcePaths": [
+        "scripts/tests/tauri-settings-walkthrough.py"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/validation-scripts-review.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/validation-scripts-review.json",
+          "phase": "finder conditional reproduction and independent post-fix selector probes",
+          "actor": "semantic_contract",
+          "level": "Pure in-memory invocation of the production exported() function and cleanup loop; actual Downloads untouched",
+          "reportedOutcome": {
+            "probes": 3,
+            "passed": 3,
+            "failed": 0,
+            "observations": [
+              {
+                "case": "foreign concurrent file",
+                "selected": false,
+                "deleted": false
+              },
+              {
+                "case": "owned path with replaced content",
+                "selected": true,
+                "deleted": false
+              },
+              {
+                "case": "owned unchanged file",
+                "selected": true,
+                "deleted": true
+              }
+            ],
+            "level": "Pure in-memory invocation of the production exported() function and cleanup loop; actual Downloads untouched"
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "After prior snapshot, another process creates companion-settings*.json with fixed companionName=備份走查 while this app creates no download. Extracted production selector chose that file and cleanup unlinked it in a pure in-memory fake-path reproduction.",
+        "Random per-run companion name and record device/inode/content digest; delete only the unchanged selected file.",
+        "Three selector observations are preserved in the archived review JSON, without a separate raw CLI transcript. No real Downloads deletion was used for this proof."
+      ],
+      "commitEvidence": {
+        "commit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+        "subject": "fix: preserve unresolved stop warnings and harden acceptance evidence",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "scripts/tests/tauri-settings-walkthrough.py"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "SCRIPT-04",
+      "aliases": [],
+      "title": "Performance wrapper ignored explicit evidence-quality failure flags",
+      "classification": "validation harness defect",
+      "roles": {
+        "implementationAuthor": "root",
+        "finder": "semantic_contract",
+        "verifier": "semantic_contract independent post-fix guard/source review"
+      },
+      "fixedCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+      "sourcePaths": [
+        "scripts/tests/convergence-perf.py"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/validation-scripts-review.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/6ea043959d-validation-script-review-probes.json",
+          "phase": "independent post-fix extracted production guard probes",
+          "actor": "semantic_contract",
+          "level": "Production artifact-guard loop extracted unchanged and executed over pure in-memory JSON; three bad cases plus good control, no perf run",
+          "reportedOutcome": {
+            "probes": 4,
+            "passed": 4,
+            "failed": 0,
+            "artifact": "docs/releases/evidence/2026-09-06-convergence/review/6ea043959d-validation-script-review-probes.json",
+            "level": "Production artifact-guard loop extracted unchanged and executed over pure in-memory JSON; three bad cases plus good control, no perf run"
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "memorySoak.evidenceGrade=false, gcAvailable=false or looksQuantized=true with otherwise good metrics/delta0 left investigate empty. Underlying soak implementation explicitly says quantized values cannot count as memory evidence.",
+        "Non-evidence-grade, unavailableGC or quantized readings enter investigate and prevent a success exit.",
+        "Pre-fix defect has reported source/conditional probe evidence, not a separately archived independent red-test run. Post-fix pure guard execution is independent of root author and does not execute native/perf."
+      ],
+      "commitEvidence": {
+        "commit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+        "subject": "fix: preserve unresolved stop warnings and harden acceptance evidence",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "scripts/tests/convergence-perf.py"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "DOC-01",
+      "aliases": [],
+      "title": "Architecture diagram still placed preset recovery ownership in presentation",
+      "classification": "documentation defect",
+      "roles": {
+        "implementationAuthor": "root",
+        "finder": "semantic_contract",
+        "verifier": "semantic_contract independent post-fix guard/source review"
+      },
+      "fixedCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+      "sourcePaths": [
+        "docs/ARCHITECTURE.md"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/validation-scripts-review.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/validation-scripts-review.json",
+          "phase": "independent post-fix static/source verification",
+          "actor": "semantic_contract",
+          "level": "document/source inspection only",
+          "reportedOutcome": "Independent current-file read confirms docs/ARCHITECTURE.md:202 and208; MAINTAINERS-MAP.md §8 was already correct."
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "docs/ARCHITECTURE.md called applyPresetPlan a recoverable two-stage transaction in presentation and omitted preset_service from application usecases.",
+        "Presentation keeps pure planning/result projection; host preset_service owns conditional writes/readback/restart recovery."
+      ],
+      "commitEvidence": {
+        "commit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+        "subject": "fix: preserve unresolved stop warnings and harden acceptance evidence",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "docs/ARCHITECTURE.md"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "DRIVER-01",
+      "aliases": [],
+      "title": "New random backup marker exceeded the existing24-character name limit",
+      "classification": "validation harness defect",
+      "roles": {
+        "implementationAuthor": "root",
+        "finder": "semantic_contract",
+        "verifier": "semantic_contract independent post-fix guard/source review"
+      },
+      "fixedCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+      "sourcePaths": [
+        "scripts/tests/tauri-settings-walkthrough.py"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/validation-scripts-review.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/validation-scripts-review.json",
+          "phase": "independent post-fix static/source verification",
+          "actor": "semantic_contract",
+          "level": "document/source inspection only",
+          "reportedOutcome": "Current source has uuid.uuid4().hex[:16]; within existing import limit. No native UI run claimed."
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Initial fix used 備份走查- plus32hex=37characters; valid restore overrides name, but missing-character case keeps overlong backup name and would fail at name validation before the intended package-missing error.",
+        "UUID suffix shortened to16hex, total21characters."
+      ],
+      "commitEvidence": {
+        "commit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+        "subject": "fix: preserve unresolved stop warnings and harden acceptance evidence",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "scripts/tests/tauri-settings-walkthrough.py"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "native-result-gate-emergency-status",
+      "aliases": [],
+      "title": "Native result gate exempted failed/not-run emergency unlock records",
+      "classification": "validation harness defect",
+      "roles": {
+        "implementationAuthor": "root",
+        "finder": "semantic_contract",
+        "verifier": "semantic_contract before/after exact predicate probes"
+      },
+      "fixedCommit": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+      "sourcePaths": [
+        "scripts/tauri-ax-walkthrough.sh"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/final-native-drivers-review.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/e834b38af6-final-native-result-gate-probes.json",
+          "phase": "independent finder pre-fix exact guard probes",
+          "actor": "semantic_contract",
+          "level": "production Python exit predicate extracted from native shell; no native UI",
+          "reportedOutcome": {
+            "passed": 5,
+            "failed": 2
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/370973d17c-final-native-result-gate-green.json",
+          "phase": "independent post-fix exact guard probes",
+          "actor": "semantic_contract",
+          "level": "production Python exit predicate extracted from native shell; no native UI",
+          "reportedOutcome": {
+            "passed": 7,
+            "failed": 0
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Normal driver records needs-environment explicitly; this finding does not invalidate the existing completed native run. The gate would miss an absent/failed emergency record.",
+        "Source report verificationCheckpoint 87b0d03 is base plus explicit patch, not fix commit. git diff proves actual fix landed in 3b375bd."
+      ],
+      "commitEvidence": {
+        "commit": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+        "subject": "test: freeze reproducible convergence acceptance checkpoint",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "scripts/tauri-ax-walkthrough.sh"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "ARCH-SWIFT-BOUNDARY",
+      "aliases": [],
+      "title": "Unbraced shell variable absorbed adjacent full-width punctuation",
+      "classification": "validation harness defect",
+      "roles": {
+        "implementationAuthor": "/root/state_receipts",
+        "finder": "/root",
+        "verifier": "root independent original and fixed runner"
+      },
+      "fixedCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+      "sourcePaths": [
+        "scripts/tests/architecture-checks.sh"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/d9c59e1a10-checkpoint-architecture.txt",
+          "phase": "independent finder original runner failure",
+          "actor": "root",
+          "level": "native macOS Swift models pass but shell aggregate fails"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/baa07b6230-architecture-swift-boundary-independent.txt",
+          "phase": "fix-author fixed runner regression",
+          "actor": "state_receipts",
+          "level": "native macOS Swift model + aggregate shell runner",
+          "reportedOutcome": {
+            "passed": 58,
+            "failed": 0,
+            "elapsedSeconds": 28
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/swift-native.txt",
+          "phase": "independent clean-checkpoint post-fix verification",
+          "actor": "root",
+          "level": "native macOS Swift pure model; exact3b375bd clean checkpoint",
+          "reportedOutcome": {
+            "passed": 58,
+            "failed": 0
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/clean-checkpoint-architecture.txt",
+          "phase": "independent aggregate runner post-fix verification",
+          "actor": "root",
+          "level": "architecture --docs --ts --rust --swift --drill-lint --drills; parent executed, auditor only read",
+          "reportedOutcome": {
+            "exitCode": 0,
+            "seconds": 190.36
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "At architecture-checks.sh:306, unbraced $SWIFT_NOTE adjacent to full-width punctuation was parsed as a longer variable under nounset. Native Swift body had passed 58/0 but aggregate runner failed.",
+        "Only ${SWIFT_NOTE} explicit variable boundary.",
+        "The earlier handoff labels its green independent while the executor is the fixer state_receipts. It is conservatively labeled author green here. Root exact3b clean architecture run independently proves Swift58/0 and aggregate exit0."
+      ],
+      "commitEvidence": {
+        "commit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+        "subject": "fix: preserve unresolved stop warnings and harden acceptance evidence",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "scripts/tests/architecture-checks.sh"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    },
+    {
+      "id": "N2-E2E-LEGACY-01",
+      "aliases": [],
+      "title": "Legacy phone fixture expected a stronger applied status than it negotiated",
+      "classification": "outdated test expectation; not product regression",
+      "roles": {
+        "implementationAuthor": "/root/state_receipts",
+        "finder": "/root (integration run)",
+        "verifier": "/root/state_receipts"
+      },
+      "fixedCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+      "sourcePaths": [
+        "apps/interaction-desktop/e2e/character-session.spec.ts",
+        "apps/interaction-desktop/e2e/general-mode-tasks.spec.ts",
+        "apps/interaction-desktop/e2e/helpers.ts"
+      ],
+      "sourceReports": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n2-e2e-legacy-review.json"
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/908abfc8f7-checkpoint-playwright.txt",
+          "phase": "independent integration discovery",
+          "actor": "root",
+          "level": "Chromium browser UI + production daemon + external fake_iphone simulator, not native Tauri or real phone",
+          "reportedOutcome": {
+            "affectedFailures": 4,
+            "fullRunFailed": 5,
+            "passed": 80,
+            "notRun": 7
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/review/8085bf57b3-n2-e2e-legacy-green.txt",
+          "phase": "fix author scoped Browser regression",
+          "actor": "state_receipts",
+          "level": "Chromium browser UI + production daemon + external fake_iphone simulator, not native Tauri or real phone",
+          "reportedOutcome": {
+            "passed": 8,
+            "failed": 0,
+            "seconds": 41.5
+          }
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/final-playwright.txt",
+          "phase": "independent complete Browser verification",
+          "actor": "root",
+          "level": "Chromium browser UI + production daemon + external fake_iphone simulator, not native Tauri or real phone",
+          "reportedOutcome": {
+            "passed": 92,
+            "failed": 0,
+            "seconds": 222.34
+          }
+        }
+      ],
+      "productOrHarnessIssueOpen": false,
+      "verificationOpen": false,
+      "verificationStatus": "recorded",
+      "notes": [
+        "Committed fake_iphone capability declares haptic/reducedMotion but not stateApplied, and implements no validated application receipt. Old headline allowlists excluded syncing; general-mode even allowed synced. Exact syncing is the correct negotiated-contract result.",
+        "General task6 removal included as actual predecessor for task7; all four character cases included to run the three earlier serial skips. No native UI operated. Old four failures were observed in parent full-suite log; no new production defect inferred.",
+        "Four old failures are one stale contract issue; stronger diagnostics assertions added, no fake applied receipt or weakened production gate."
+      ],
+      "commitEvidence": {
+        "commit": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+        "subject": "fix: preserve unresolved stop warnings and harden acceptance evidence",
+        "ancestorOfAuditHead": true,
+        "changedRelevantPaths": [
+          "apps/interaction-desktop/e2e/character-session.spec.ts",
+          "apps/interaction-desktop/e2e/general-mode-tasks.spec.ts",
+          "apps/interaction-desktop/e2e/helpers.ts"
+        ],
+        "basis": "source report disposition + git log ancestry + git diff-tree relevant source paths; pre-commit test metadata is not silently replaced by fix commit"
+      }
+    }
+  ],
+  "summary": {
+    "uniqueRowsIncludingRequestedDeltas": 30,
+    "productOrHarnessOpen": 0,
+    "pendingIndependentVerification": [],
+    "requestedDeltasNotIndependentFindings": [
+      "N3-RESTART",
+      "N3-GENERATION",
+      "N3-SHUTDOWN"
+    ],
+    "countsNotAdditive": "Different findings share the same tests and logs; never sum these rows as unique test coverage.",
+    "necessaryChangedScopeReviewGaps": [],
+    "closedOriginalVerificationGaps": [
+      "N1-CONTRACT-01",
+      "N1-RESTORE-02"
+    ]
+  },
+  "archiveIntegrity": {
+    "manifestRows": 107,
+    "uniqueFiles": 107,
+    "archivedHashFailures": [],
+    "originalVsArchived": "Use archivedSha256; originals may differ because parent normalizes/redacts archive content. Do not compare old raw SHA to sanitized bytes.",
+    "exactMainReportReferences": "All exact relative review-file references in the seven main JSON reports exist."
+  },
+  "coverage": {
+    "N1": "Schema/codegen/raw ingress/restore/patch/frozen-corpus work has author tests and independent five-probe cross-language review. Final independent original 622c8bf archive TS2 controls/5 invalid failures -> fixed7/0, Rust2 controls/1 null failure -> fixed3/0 closes the two remaining original-case verification gaps; exact current sources pinned to3b375bd.",
+    "N2": "No additional unresolved production finding reported in reviewed state-applied tracker, link/runtime wiring, UI tuple checks. Root independent tracker4/0 and bounded production pty/TLS drills are documented in N2 handoff. Real ESP32/BLE/MQTT applied receipt remains unvalidated; firmware is compile-only.",
+    "N3": "Three source scope findings and raw mobile edge independently reproduced and retested. Original requested restart/generation/shutdown deltas remain distinctly labeled author regressions; cross-scope review and final full gates supplement them. Busy try_read and stale/missing owner conservatively retain unknown.",
+    "N4": "Seven unique review findings after collapsing writer aliases: three UI races, import result honesty, nested input typing, writer file mode and temp ownership. React controlled promises and production filesystem ports; native script scope only claims its actual steps.",
+    "N5": "Restricted device, character package, optional state and provider lifecycle drills are separate executable proof levels. Aggregate final clean-checkpoint drills belong to parent; static lint is not execution.",
+    "N6": "Dialog initial keyboard/Escape/focus flow now independently passes parent full Browser. Empty dialog is author unit only. Native work cancel reviewer found no new defect; recorded 4/0 steps use fake agents with real process cancellation. Device/backup/preset native and perf gates remain parent-owned."
+  },
+  "limits": [
+    "Review actors are AI agent roles, not independent human acceptance. No physical iPhone, microphone or ESP32 acceptance follows from a simulator/fixture result.",
+    "Current mapping records exact available evidence; it does not declare release complete, native gates complete or performance passed.",
+    "Independent pre-fix reasoning, finder/author red, independent executed red and independent post-fix are distinct evidence phases. Absence of a separately archived red execution is explicit.",
+    "N3-MOBILE-01 and N3-MOBILE-EDGE-01 are aliases, as are N4-WRITER-01/N4-REVIEW-02 and N4-WRITER-02/N4-REVIEW-03. Raw handoff-local aliases are not additional findings.",
+    "The validator/driver source-probe findings retain their limited evidence grade; pure in-memory guards are not native UI walkthroughs.",
+    "Product source fixed in 30ff852 and 87b0d031; native result-predicate correction fixed in 3b375bd. Parent may make later documentation-only evidence commits."
+  ],
+  "sourceReports": [
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n1-n4-n6-findings-handoff.json",
+      "sha256": "45cb707d60762947a1b8c90489aa7b7a8168fcf4b9c1633ca08e6bcec3e24e36"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json",
+      "sha256": "03de49df370efe3a65f7c28f7f11376184e00568c04a12d1f431acaeada5b428"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-convergence-handoff-20260906.json",
+      "sha256": "15dfbf1d044469cca29d112800cd111f6f1bc617d2c989452876726006c5f5eb"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-sensor-browser-notice-addendum-20260906.json",
+      "sha256": "eb6f26bcbfbfd4cb7962c3cd59b1eaa5325432de29c03d20118ee5eb1a043cdb"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/validation-scripts-review.json",
+      "sha256": "75a0521e26da4f25b08c347a55943fe0017d1a5b46d570c18e8f3f245afa56b5"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/final-native-drivers-review.json",
+      "sha256": "5ccf7b63f20a1c416662b81e4905f6e2e1b01ccf31b52da584e97b6e94af4b8a"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n2-e2e-legacy-review.json",
+      "sha256": "7e26528735a1bd2e7edab0537f31ca0097bb198dc2276bfb187ff486865dbe01"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-independent-final-verify.json",
+      "sha256": "3b04b482c14062769c17204031d1c390b457fc7d2988c15def0afddce3d53926"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/convergence-final-workflow-source-review.json",
+      "sha256": "342a20624e7d522a41e325e070f02de538c8cde0004edd6e6f3f2e656f8ce40e"
+    }
+  ],
+  "evidenceFiles": [
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/ceffee521e-semantic-contract-red.txt",
+      "sha256": "4023398406c9fc1dab99424a7c223f80d410a41a795359aa89ec0bccf3e5692e",
+      "bytes": 3995,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  1 failed (1)",
+        "Tests  5 failed (5)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/1c84d147ba-semantic-review-fix-ts.txt",
+      "sha256": "8e3cfedc8f2da5b6e2be1d35882a0f1590f1b676f2320e6dc3f0a8af1a8255a7",
+      "bytes": 400,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  2 passed (2)",
+        "Tests  59 passed (59)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/32dfb8961a-semantic-review-fix-rust.txt",
+      "sha256": "4252b8ed2265986c8651a7ab53b33f54488a35cef18d21deace42562b0de8308",
+      "bytes": 760,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/6f41024540-semantic-review-fix-swift.txt",
+      "sha256": "8ff1f462e8e014974724cd38b45e7417fa6fbeb2da98cc76f9e0bb1ba01b14a3",
+      "bytes": 55,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/d2cb866c5e-semantic-host-null-red.txt",
+      "sha256": "8f1886da32b8bdffb226ff406349e64e0f55a44d2e914b7ef8f4d934c33f0656",
+      "bytes": 1739,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/4d23949821-n1-ts-verify.txt",
+      "sha256": "a0cf37168e54df2527c52cea3fb35f976235f89c3d971234d513aa35edb0a20f",
+      "bytes": 111,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/d40ac2a2a1-n1-swift-verify.txt",
+      "sha256": "70fba1a96383502d8a12f325baf3e86f752800e7111aabf9add321589cb4251e",
+      "bytes": 113,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/f5029de6b3-n1-rust-verify.txt",
+      "sha256": "bc2ebe56c26048b4c51e0e0ded5096d985b51ae67fd55d2818a457c8e250686f",
+      "bytes": 112,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/5da40d8951-n1-ts-verify-fixed.txt",
+      "sha256": "bc2ebe56c26048b4c51e0e0ded5096d985b51ae67fd55d2818a457c8e250686f",
+      "bytes": 112,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/104fbf0142-n1-swift-verify-fixed.txt",
+      "sha256": "bc2ebe56c26048b4c51e0e0ded5096d985b51ae67fd55d2818a457c8e250686f",
+      "bytes": 112,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/f51066142f-n4-import-review-red.txt",
+      "sha256": "3a88f63611883a7bd14f58311e139738903c4192af4c69a7958c3a07550a1d25",
+      "bytes": 5394,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 24 skipped (25)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/1b0fe1b190-n4-import-independent-red.txt",
+      "sha256": "7fcb983b61735d7571ac2bb884f0c6101e5a1d472d5a5eec558591c099c65ac4",
+      "bytes": 5394,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 24 skipped (25)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/0ac2308ac0-n4-review-final-independent-green.txt",
+      "sha256": "6115e926cf81f25fbc6402cfd5257ede8ea70861ddb00aad82093d1a643143fc",
+      "bytes": 68363,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  3 passed (3)",
+        "Tests  41 passed (41)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/a07b720669-n4-prefs-writer-review-red.txt",
+      "sha256": "bd97fcbfc18f90323eb995675bee658cb23712b9d0b3da14145e97e11da3e3e1",
+      "bytes": 2181,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 77 filtered out; finished in 0.00s",
+        "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 76 filtered out; finished in 0.04s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/8500c4cbdf-n4-writer-independent-red.txt",
+      "sha256": "0f5425a24b9ab53b68de6fd6b6b124654b1da226cb023d6713e62758ea376567",
+      "bytes": 2372,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 77 filtered out; finished in 0.00s",
+        "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 76 filtered out; finished in 0.02s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/81e059580a-n4-writer-review-final-independent-green.txt",
+      "sha256": "1c084b84ea0c7e98e5dbb242b0dc7402b1bc7be34a25a60a4fe366e3c78a70c6",
+      "bytes": 328,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 0.03s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/f9197a54fa-n4-writer-green.txt",
+      "sha256": "56992ad0fec0e44e024553e3bc77cd172512fcc4005c77a211d5b2502ccba65a",
+      "bytes": 901,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 0.02s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/5179e2889a-n4-prefs-collision-review-red.txt",
+      "sha256": "193751bbf1513d7b5a568f317fd52c4ad6b733646ad6fa95f86c8b4b8f233325",
+      "bytes": 878,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 77 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/f7e38d96d2-n4-nested-backup-review-red.txt",
+      "sha256": "1c1b67cfe90f42455233b28760bad07c16d31f45587553713f1496e0eefc9f5f",
+      "bytes": 2122,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  1 failed (1)",
+        "Tests  4 failed (4)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/f219b0a57c-n4-nested-independent-red.txt",
+      "sha256": "b9f8a454839e6a7c22e7bb971700812924f71dea0234e74360fff5a1a6e00f13",
+      "bytes": 2122,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  1 failed (1)",
+        "Tests  4 failed (4)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/565f9030a8-n6-dialog-browser-independent-red.txt",
+      "sha256": "c69aeba46e75152011f7213099dcc81284c95f85ca2d826bb1090da94e07b715",
+      "bytes": 3996,
+      "exists": true,
+      "observedSummaryLines": [
+        "1 failed"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/5a0cfc34cf-n6-dialog-independent-unit-red.txt",
+      "sha256": "ea5d63eb82cdbdda6a2f1bbc671cc137c9d1a65283a9124189ca513582261ae1",
+      "bytes": 1373,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 6 passed (7)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/389b29cd60-n6-dialog-browser-green.txt",
+      "sha256": "132066b43ba49d5e7eaa0217bce5c08ebc256f5eeeca5d0b5bd291bb19aa8140",
+      "bytes": 1019,
+      "exists": true,
+      "observedSummaryLines": [
+        "1 passed (5.9s)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/6eac3bdcab-n6-dialog-shared-unit-green.txt",
+      "sha256": "86cd7be31a52846fdd9f43a036e1da4264ed4180cca961e72ec0fe6f2d97542f",
+      "bytes": 3425,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  4 passed (4)",
+        "Tests  71 passed (71)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/final-playwright.txt",
+      "sha256": "e5fad272048b0cfbc7b24f615f7bc7870f55c314d3bd6366aa3a17a620b4c712",
+      "bytes": 19544,
+      "exists": true,
+      "observedSummaryLines": [
+        "92 passed (3.7m)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/9067a949c2-n4-independent-verify-red.txt",
+      "sha256": "63beacfaf1a46a0015b0d46721af59a22ca0aa81ba52f7b09ed60f6fa834ae35",
+      "bytes": 25964,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  1 failed (1)",
+        "Tests  2 failed | 13 skipped (15)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/18debc34a5-n4-independent-final-green.txt",
+      "sha256": "ccbfb11d23919f68722d7c12a77bee145477fb1b307f1c7509bb8314a7825a5e",
+      "bytes": 60476,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  1 passed (1)",
+        "Tests  16 passed (16)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/edaac44980-n4-overlapping-read-verify.txt",
+      "sha256": "16f07642dc6833f3138611b54b4f41986c16b0c0b049e1619270b9d7bc898cd2",
+      "bytes": 4981,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 15 skipped (16)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/a130abed81-semantic-n3-review-red.txt",
+      "sha256": "e10ef1686ea27fb76a4ddff66ca23be14670c6d96507022aa620ea6e16a5dbf7",
+      "bytes": 1423,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/05108a8a15-n3-independent-verify-red.txt",
+      "sha256": "717caf86c06b8c5a220b59587c2a53389226a35d057cffd0b2a6e8b6e6beb439",
+      "bytes": 1989,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/2297cda2e5-n3-independent-final-green.txt",
+      "sha256": "d2a34536f1a99b1cc84837cf19a440daf80e3a62c5f9b8c55d750e8175e07bce",
+      "bytes": 706,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt",
+      "sha256": "bf22c63e7f28ee8261d3fcf290cade4496a4a4fb1a3ab4f736a14772f2fb7903",
+      "bytes": 9317,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: ok. 81 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.20s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s",
+        "test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.42s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/6aeaca3b23-n3-journal-latest-independent-green.txt",
+      "sha256": "72943d4c314e8e83e21a5f0f37b6264a64401b9c42261c899e0f3256090e86de",
+      "bytes": 706,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/f28138bb79-n3-live-family-red.txt",
+      "sha256": "c9054f1d0c292528c5a593354336ea1e833721d4f59a7f1872206008b78aeac5",
+      "bytes": 1016,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.12s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/8b44aa47fd-n3-mobile-direct-stop-red.txt",
+      "sha256": "b3ad58f20b7d753ec0904f4d589fc740b664bbfa7fb738e8ec722b1d145d203e",
+      "bytes": 988,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 76 filtered out; finished in 2.18s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/6fd632aad7-n3-mobile-independent-red.txt",
+      "sha256": "d75ba3752d8386a999d07abe91112d4d23761814052a7925630596e23c10de99",
+      "bytes": 865,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 76 filtered out; finished in 2.16s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/ccf7d4f897-n3-mobile-direct-stop-independent-green.txt",
+      "sha256": "9db940c0b5a7137b953dda35900a9e937b9d64bf3c3421f20a257a58964d682c",
+      "bytes": 347,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 80 filtered out; finished in 2.32s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/af40dbe191-n3-restart-red.txt",
+      "sha256": "10bcbb1cc7dd4b805ac372bd2c7a1c387e100e3b3adf5c093d158cf3b6cc8b5b",
+      "bytes": 1357,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 31 filtered out; finished in 0.25s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/200f14f45d-n3-generation-red.txt",
+      "sha256": "25b430dcebc2c0a1f6105188e1dde37833c0d871cf163bfca9dc86d0160530f8",
+      "bytes": 852,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.09s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/e3c9732b98-n3-shutdown-red.txt",
+      "sha256": "8a6b20c099094c1c1957c70823908c9e9a5f5319a0697ec34cd0bb7504b054b9",
+      "bytes": 1822,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.14s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/859ca850b0-n3-sensors-isolated-18890.txt",
+      "sha256": "d08f2949a6c44d0a92bbb9873e1a1af516b291145165827c78800104ca4f5a46",
+      "bytes": 1003,
+      "exists": true,
+      "observedSummaryLines": [
+        "1 passed (7.5s)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/93dd1dbde9-n3-sensors-sequence-red.txt",
+      "sha256": "3c1416170779d6350389f9d7e72f821c3ed69b172e31fd8bf70bde9e98552e3d",
+      "bytes": 3916,
+      "exists": true,
+      "observedSummaryLines": [
+        "1 failed",
+        "1 did not run",
+        "1 passed (27.1s)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/2fa1a0647c-n3-sensors-sequence-green.txt",
+      "sha256": "e6ca494d2146fdaa2f1aaf0d2583b082a68b70d914569a1a73d32796a1abb5ce",
+      "bytes": 1330,
+      "exists": true,
+      "observedSummaryLines": [
+        "3 passed (11.8s)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/af92dc3736-n3-ui-stop-history-final-red.txt",
+      "sha256": "ea7ad59a1f2a8ca2f5c038ff329ff23ba82b4ef6e5eabc8fc430db2755dcfe8c",
+      "bytes": 202967,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  4 failed (4)",
+        "Tests  9 failed | 81 skipped (90)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/abc5d3b154-n3-ui-stop-history-green.txt",
+      "sha256": "3b58623da5dda5b7dd93e435cd79dbedc2b9b0855e39b20ed5e4a4e23f2df0a2",
+      "bytes": 612,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  6 passed (6)",
+        "Tests  111 passed (111)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/7702cece80-n3-ui-stop-history-independent-red.txt",
+      "sha256": "f24df81717f761ca7830533df6863420d1c99d8e0c77a2a705eebda96f3290f3",
+      "bytes": 203634,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  4 failed (4)",
+        "Tests  9 failed | 81 skipped (90)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/5c85eb515e-n3-ui-stop-history-independent.txt",
+      "sha256": "ad4c38968130cb0b00f763235e837dcdcf2e69e8279cd7fc9fdd176b7b8c0754",
+      "bytes": 546,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  4 passed (4)",
+        "Tests  9 passed | 81 skipped (90)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/826cc1dad0-xctest-result-gate-red.txt",
+      "sha256": "e0f721a0c2f6324f866362281d878291f112ce4a51e82feb33b5e4881793535d",
+      "bytes": 5326,
+      "exists": true,
+      "observedSummaryLines": [
+        "Ran 14 tests in 0.483s",
+        "FAILED (failures=4)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/a1cecd8f12-xctest-independent-red.txt",
+      "sha256": "7087aa96c364db2c5961bcb8c905b47499c6e3f79ccf1840d57de8ac61169497",
+      "bytes": 179,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/9ca6a0d581-xctest-result-gate-green.txt",
+      "sha256": "a0c876fa5fcd4d7f28196eb33ec51852a940b7e88791f5d37fe43a18d35e7a0c",
+      "bytes": 1781,
+      "exists": true,
+      "observedSummaryLines": [
+        "Ran 14 tests in 0.586s",
+        "OK"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/xctest-gate-independent.txt",
+      "sha256": "b11d46b2aa62bccc5119bf01c8894a723e711b3772cd6883b90ea7a7f4756fa4",
+      "bytes": 1781,
+      "exists": true,
+      "observedSummaryLines": [
+        "Ran 14 tests in 0.535s",
+        "OK"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/6ea043959d-validation-script-review-probes.json",
+      "sha256": "f0827b59477493733bfca5df728f0929c8b8c82990121c8d9b5f3708de2b2acf",
+      "bytes": 1545,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/validation-scripts-review.json",
+      "sha256": "75a0521e26da4f25b08c347a55943fe0017d1a5b46d570c18e8f3f245afa56b5",
+      "bytes": 10351,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/e834b38af6-final-native-result-gate-probes.json",
+      "sha256": "440b9a483618cad811e7f33a522f5c73722d277a0b7ff0c2557d9a5379de7fd3",
+      "bytes": 860,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/370973d17c-final-native-result-gate-green.json",
+      "sha256": "fea7d161a6bdaa5f7ffe4b655368925d234b8593f5ddb3cee40632eec8e81e03",
+      "bytes": 1568,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/d9c59e1a10-checkpoint-architecture.txt",
+      "sha256": "972eb221fd5a20908508f02eed700725f0cd6a17222b7a04da6156fd2f3fe18e",
+      "bytes": 3865,
+      "exists": true,
+      "observedSummaryLines": [
+        "✔ core-boundaries — test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s",
+        "✔ schema-drift(golden) — test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+        "✔ schema-drift(aip) — test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "✔ receive-decisions — test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "✔ semantic-contract+published — test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "✔ state-applied-bounds — test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.00s",
+        "✔ snapshot-migration+adapter-lifecycle — test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.21s test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.29s",
+        "✔ stop-paths — test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.44s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/baa07b6230-architecture-swift-boundary-independent.txt",
+      "sha256": "ad6e57d2258a100863773f29725f98a6c54be8e7f61605439cb3a4472b54573d",
+      "bytes": 1032,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/908abfc8f7-checkpoint-playwright.txt",
+      "sha256": "87c7cfdd592eab9e1e91f80a46f151c779e141c16870d402d98d25c67efe9579",
+      "bytes": 31738,
+      "exists": true,
+      "observedSummaryLines": [
+        "5 failed",
+        "7 did not run",
+        "80 passed (3.5m)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/8085bf57b3-n2-e2e-legacy-green.txt",
+      "sha256": "75aac4a08409abba977d1e5bcc755ec119d1d58e0e940a48efc7a5add6223586",
+      "bytes": 3903,
+      "exists": true,
+      "observedSummaryLines": [
+        "8 passed (41.5s)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/xctest-gate-independent.json",
+      "sha256": "58ea6f7936f1b05a1915c3b4826c11b99b63944f752117c579b79218f7347670",
+      "bytes": 394,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/final-playwright.json",
+      "sha256": "c1107bd4c853a863cd48a2229f32404d10bea2bc2854fed3ebd0a5009a53d79c",
+      "bytes": 377,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/source-manifest.json",
+      "sha256": "f631a7ddfd95ce4f3f9221d61b1b10f76105a91f25165a9542451742d4e428a5",
+      "bytes": 5943,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/production.diff",
+      "sha256": "5ed194715aa9bdb71f34a20ad89f73083c4b02efd4cd43a06e621fd622c90698",
+      "bytes": 9844,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-all-production-source-sha256.json",
+      "sha256": "2e25bfab3f546736eced3ed7865b7ec2863455257b86403c0375f9a873d43157",
+      "bytes": 4006,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-all-production-source-sha256.json",
+      "sha256": "f2c0ea703083479f75938beb913d11f2112b99d92d9d7f614e74e010f6f82b16",
+      "bytes": 4386,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/independent.test.ts",
+      "sha256": "5bf017b87e2d4aa49d77b4d0900f2877d7e3767baa43ad7a84b071df35f1bc8a",
+      "bytes": 3022,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/independent_restore.rs",
+      "sha256": "19652d2a754691d4cd2865c21760e67cc3b4187f3974eb5d5f62f3ae99862737",
+      "bytes": 1624,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/run.py",
+      "sha256": "226a0a5d23e2d392380ac5781ab63b1f6a8d6e8b1ffed2096654ef56d6f845dc",
+      "bytes": 1224,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/runs.json",
+      "sha256": "e25c991098ffe6cade86db63c70b855de2c0b080b6becc0849b6bffd56e82826",
+      "bytes": 2269,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline/workspace-harness.diff",
+      "sha256": "0d1065fd83d50408b342a5dff30bfca954b65f66502c68b53638917db60c4604",
+      "bytes": 1177,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current/workspace-harness.diff",
+      "sha256": "7a90370bbbf7b22abc59ebd2b1c0ecb18ff7e88f403a6b544d5505bcfb8b030d",
+      "bytes": 1176,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust.txt",
+      "sha256": "0988205920442643517a768c9f610464d238d9b9fbf6daf67d47366c7521f686",
+      "bytes": 1182,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-ts.txt",
+      "sha256": "40d5463cd9da7b022e684a5db29739a0cde497eb232499652860d11360b8d86f",
+      "bytes": 4336,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  1 failed (1)",
+        "Tests  5 failed | 2 passed (7)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-rust.txt",
+      "sha256": "1d9f31cc7016241e8de2927af6655dd2a784d4e06efd0e4af56a90afbc7adef6",
+      "bytes": 2663,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-ts.txt",
+      "sha256": "6268c1a2ab8236d2187a8d38a19a046af7ba8e72ba3df1e31c6b2764fcb3bd80",
+      "bytes": 1533,
+      "exists": true,
+      "observedSummaryLines": [
+        "Test Files  1 passed (1)",
+        "Tests  7 passed (7)"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust-clean-target.txt",
+      "sha256": "8c4cc7c3dfe3511aa98fe7e8bc71453d01bb387d277ad708a93d9c7b682a8f89",
+      "bytes": 2008,
+      "exists": true,
+      "observedSummaryLines": [
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-independent-final-verify.json",
+      "sha256": "3b04b482c14062769c17204031d1c390b457fc7d2988c15def0afddce3d53926",
+      "bytes": 15112,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/swift-native.txt",
+      "sha256": "36390a93331ab2f562fb169f1f737218a150d41d6637a3ec47aa9d4e9cfb5021",
+      "bytes": 285,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/clean-checkpoint-architecture.txt",
+      "sha256": "1dd65fc282c8501ad60cd7011947e1c71ccdf9971297ef3632b75e9200d0f666",
+      "bytes": 7579,
+      "exists": true,
+      "observedSummaryLines": [
+        "✔ core-boundaries — test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s",
+        "✔ schema-drift(golden) — test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+        "✔ schema-drift(aip) — test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "✔ receive-decisions — test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "✔ semantic-contract+published — test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "✔ state-applied-bounds — test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.01s",
+        "✔ snapshot-migration+adapter-lifecycle — test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.46s test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.33s",
+        "✔ stop-paths — test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.48s",
+        "rust       PASS  core-boundaries:test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s  schema-drift(golden):test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s  schema-drift(aip):test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s  receive-decisions:test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s  semantic-contract+published:test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s  state-applied-bounds:test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.01s  snapshot-migration+adapter-lifecycle:test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.46s test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.33s  stop-paths:test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.48s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/clean-checkpoint-architecture.json",
+      "sha256": "57acd86da33e88f523e020310926964157d8753e68b8a8b356ff5a0f84e34fb0",
+      "bytes": 615,
+      "exists": true,
+      "observedSummaryLines": []
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/convergence-final-workflow-source-review.json",
+      "sha256": "342a20624e7d522a41e325e070f02de538c8cde0004edd6e6f3f2e656f8ce40e",
+      "bytes": 31806,
+      "exists": true,
+      "observedSummaryLines": []
+    }
+  ],
+  "n1FinalIndependentVerification": {
+    "report": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-independent-final-verify.json",
+    "baselineCommit": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+    "testedFixedCommit": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+    "artifactHashesChecked": 15,
+    "artifactHashFailures": [],
+    "excludedHarnessAttempt": {
+      "description": "The first current Rust attempt reused the baseline isolated target after extracting files with historical Git mtimes. Cargo reported no recompilation and executed the same baseline test artifact; that failed result is excluded from current-source verification.",
+      "excludedLog": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust.txt",
+      "excludedRun": {
+        "phase": "current",
+        "language": "rust",
+        "cwd": "/tmp/n1-independent-final-verify/current",
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "-p",
+          "interaction-session",
+          "--test",
+          "independent_restore",
+          "--",
+          "--nocapture"
+        ],
+        "exitCode": 101,
+        "wallSeconds": 0.081,
+        "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust.txt",
+        "CARGO_TARGET_DIR": "/tmp/n1-independent-final-verify/target",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4"
+      },
+      "resolution": "Use a genuinely new target-current; all three current crates recompiled and 3/0 passed. Replay script now permanently chooses a separate target by phase. No shared build target was used."
+    },
+    "scopeLimits": [
+      "Direct production boundaries with independent fixtures, not end-to-end transport or real device acceptance.",
+      "The failure severity and exploitability were not expanded; this verifies invalid-input acceptance and atomic contract enforcement only.",
+      "A non-author independently attempted refutation and authored probes; original author was not consulted for execution or expected values.",
+      "External Cargo registry cache and installed Vitest dependencies are reused read-only; production sources and build outputs are isolated."
+    ]
+  },
+  "workflowCoverage": {
+    "definition": ".claude/workflows/adversarial-review-adaptive-interaction.js",
+    "workflowInvoked": false,
+    "fiveParallelReviewersClaimed": false,
+    "importedPriorV07Findings": false,
+    "scope": "Current round delta and its directly affected authority/dispatch boundaries; overlapping work by named agents plus final supplemental read-only inspection. Not a whole-repository five-person re-audit.",
+    "dimensions": [
+      {
+        "key": "safety-bypass",
+        "actors": [
+          "restart_lifecycle (N2/N4 non-author scoped source review)",
+          "semantic_contract/state_receipts (N3 independent cross-scope review)",
+          "root (integration gates)"
+        ],
+        "reviewedScope": "Preset configure cannot manufacture consent or invoke actuators; API agent write allowlist excludes config. Generated recipe plans still go through authorize_step and last-instant stop/consent gate. Mobile raw capture and source rebind remain conservative after disconnect/restart.",
+        "evidenceRefs": [
+          "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json",
+          "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/convergence-final-workflow-source-review.json",
+          "docs/releases/evidence/2026-09-06-convergence/review/n3-convergence-handoff-20260906.json"
+        ],
+        "relatedFindings": [
+          "N3-SCOPE-01",
+          "N3-SCOPE-02",
+          "N3-SCOPE-03",
+          "N3-MOBILE-EDGE-01",
+          "N3-GENERATION"
+        ],
+        "grade": "changed-boundary source review plus independently executed scoped N3 port regressions; policy/executor exact baseline bytes unchanged",
+        "limits": "No new exhaustive token/transport attack audit; no physical actuator consent acceptance.",
+        "necessaryUnverifiedChangedScope": []
+      },
+      {
+        "key": "state-machine",
+        "actors": [
+          "semantic_contract/root (N1 cross-language probes)",
+          "state_receipts (N1/N3 independent regressions, N2 author)",
+          "restart_lifecycle (N4 finder)",
+          "root (N2 tracker independent gate, N4 author)"
+        ],
+        "reviewedScope": "Raw semantic adoption is atomic; state-applied token/generation/session/epoch/revision/hash/messageId binding, bounded outstanding and monotonic timeout, legacy unconfirmed status. Unknown-stop owner scopes and config CAS/operation receipt recovery are independently challenged.",
+        "evidenceRefs": [
+          "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json",
+          "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/convergence-final-workflow-source-review.json",
+          "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-independent-final-verify.json",
+          "docs/releases/evidence/2026-09-06-convergence/review/n1-n4-n6-findings-handoff.json",
+          "docs/releases/evidence/2026-09-06-convergence/review/n3-convergence-handoff-20260906.json"
+        ],
+        "relatedFindings": [
+          "N1-CONTRACT-01",
+          "N1-RESTORE-02",
+          "N3-SCOPE-01",
+          "N3-SCOPE-02",
+          "N3-SCOPE-03",
+          "N3-MOBILE-EDGE-01",
+          "N4-UI-01",
+          "N4-UI-02",
+          "N4-UI-03",
+          "N2-E2E-LEGACY-01"
+        ],
+        "grade": "pure production model, actual controlled React component, pty/TLS production ports and parent tracker4/0; common ActionReceipt/executor code unchanged",
+        "limits": "stateApplied is a negotiated semantic application receipt, not physical execution proof; old ActionReceipt internals not newly exhaustively audited.",
+        "necessaryUnverifiedChangedScope": []
+      },
+      {
+        "key": "async-hygiene",
+        "actors": [
+          "restart_lifecycle (N4 source review/finder; N3 author)",
+          "state_receipts (N3 non-author source review and regression)",
+          "semantic_contract (N3 finder)"
+        ],
+        "reviewedScope": "Late/overlapping prefs reads and reconnect projection; bounded32 outstanding receipts/5s TTL. Sensor stop is bounded before transport shutdown; scope confirmation uses nonblocking try_read while connection is pinned. Config writer holds one lock with synchronous durable write and no new await/re-lock after acquiring it.",
+        "evidenceRefs": [
+          "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json",
+          "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/convergence-final-workflow-source-review.json",
+          "docs/releases/evidence/2026-09-06-convergence/review/n3-convergence-handoff-20260906.json"
+        ],
+        "relatedFindings": [
+          "N4-UI-01",
+          "N4-UI-02",
+          "N4-UI-03",
+          "N3-SHUTDOWN",
+          "N3-MOBILE-EDGE-01"
+        ],
+        "grade": "independent controlled async component/production-port tests plus scoped lock/cancellation/bounds source inspection",
+        "limits": "SQLite/OS latency remains unbounded by transport deadline and can delay raw capture exposure. Busy try_read conservatively leaves a reminder. No fresh load, deadlock stress or performance run by auditor.",
+        "necessaryUnverifiedChangedScope": []
+      },
+      {
+        "key": "api-contract",
+        "actors": [
+          "restart_lifecycle (N1/N4/notice candidate reviews; N3 notice author)",
+          "semantic_contract/root (cross-language Find/Verify)",
+          "state_receipts (N1 independent probes and legacy diagnostics/UI checks)"
+        ],
+        "reviewedScope": "Canonical raw semantic required fields, null, unknown numeric fields and date parity; host restore boundary; config conflict HTTP409 and idempotent operation receipt; backup type/commit outcome honesty; unresolved summary/health in three UI stop call paths; legacy phone exact applied diagnostics.",
+        "evidenceRefs": [
+          "docs/releases/evidence/2026-09-06-convergence/review/n2-n5-review-handoff-20260906.json",
+          "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/convergence-final-workflow-source-review.json",
+          "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-independent-final-verify.json",
+          "docs/releases/evidence/2026-09-06-convergence/review/n1-n4-n6-findings-handoff.json",
+          "docs/releases/evidence/2026-09-06-convergence/review/n3-sensor-browser-notice-addendum-20260906.json",
+          "docs/releases/evidence/2026-09-06-convergence/review/n2-e2e-legacy-review.json"
+        ],
+        "relatedFindings": [
+          "N1-CONTRACT-01",
+          "N1-RESTORE-02",
+          "N1-REVIEW-03",
+          "N1-REVIEW-04",
+          "N4-REVIEW-01",
+          "N4-REVIEW-04",
+          "N3-UI-STOP-HISTORY",
+          "N2-E2E-LEGACY-01"
+        ],
+        "grade": "independent original/fixed pure production boundary, native Swift model, controlled actual React, Browser + production daemon fixture",
+        "limits": "No new full canonical-tool-manifest dispatch inventory audit; changed stop/config/status routes and projections are the reviewed scope.",
+        "necessaryUnverifiedChangedScope": []
+      },
+      {
+        "key": "recipe-engine",
+        "actors": [
+          "restart_lifecycle (final supplemental read-only review of root N4 delta)"
+        ],
+        "reviewedScope": "Proactive configuration only changes config/revision/last operation, preserves cooldown/usage/quiet/dedup fields, and rolls back full prior state on failed save. Presets write only mode plus revision/operation metadata. Recipe evaluation, trigger/fusion/condition, orchestrator and executor are byte-identical to622c8bf; generated completion still uses Autonomous execute_plan and Governor.",
+        "evidenceRefs": [
+          "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/convergence-final-workflow-source-review.json"
+        ],
+        "relatedFindings": [],
+        "grade": "current source inspection +9 exact git byte/section comparisons; no new recipe execution claimed",
+        "limits": "No fresh exhaustive ordering/window/fusion/scoring/cyclic-trigger algorithm audit. Those algorithms were unchanged; this checks the touched configuration-to-executor boundary only.",
+        "necessaryUnverifiedChangedScope": []
+      }
+    ]
+  }
+}

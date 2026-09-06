@@ -1,0 +1,326 @@
+PASS apply-optional-field (6 ms)
+PASS schema-drift-detected (13924 ms)
+PASS regenerate-schema (130 ms)
+PASS missing-consumer-detected (47 ms)
+PASS propagate-consumer-dtos (44 ms)
+PASS missing-fixture-detected (7857 ms)
+PASS regenerate-current-fixtures (806 ms)
+PASS embed-current-fixtures (45 ms)
+PASS rust-current-and-published (1074 ms)
+PASS typescript-consumer (870 ms)
+PASS swift-native-consumer (29283 ms)
+PASS null-mutation-regenerate-schema (2422 ms)
+PASS null-mutation-regenerate-fixtures (1778 ms)
+PASS null-mutation-independent-contract (654 ms)
+PASS null-mutation-repair-fixtures (1442 ms)
+PASS published-corpus-mutation-detected (461 ms)
+PASS restore-contract-checks (107 ms)
+PASS embed-repaired-fixtures (49 ms)
+PASS deleted-dto-field-detected (41 ms)
+PASS repair-generated-output (41 ms)
+PASS final-codegen-drift (42 ms)
+{
+  "drill": "optional-state",
+  "source": "clean-checkout",
+  "sourceSha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+  "evidenceLevel": "Rust and TS tests plus native Swift pure-model runner; no device evidence",
+  "events": [
+    {
+      "id": "apply-optional-field",
+      "command": [
+        "git",
+        "apply",
+        "scripts/drills/optional-state.patch"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 6
+    },
+    {
+      "id": "schema-drift-detected",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-e2e",
+        "--test",
+        "golden",
+        "golden_semantic_state_schema"
+      ],
+      "expected": "failure",
+      "exitCode": 101,
+      "passed": true,
+      "elapsedMs": 13924
+    },
+    {
+      "id": "regenerate-schema",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-e2e",
+        "--test",
+        "golden",
+        "golden_semantic_state_schema"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 130
+    },
+    {
+      "id": "missing-consumer-detected",
+      "command": [
+        "node",
+        "scripts/aip-codegen.mjs"
+      ],
+      "expected": "failure",
+      "exitCode": 1,
+      "passed": true,
+      "elapsedMs": 47
+    },
+    {
+      "id": "propagate-consumer-dtos",
+      "command": [
+        "node",
+        "scripts/aip-codegen.mjs"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 44
+    },
+    {
+      "id": "missing-fixture-detected",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-session",
+        "--test",
+        "state_hash_fixtures",
+        "every_semantic_state_field_appears_in_at_least_one_state_hash_fixture"
+      ],
+      "expected": "failure",
+      "exitCode": 101,
+      "passed": true,
+      "elapsedMs": 7857
+    },
+    {
+      "id": "regenerate-current-fixtures",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-session",
+        "--test",
+        "state_hash_fixtures",
+        "state_hash_fixtures_are_what_the_host_writes"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 806
+    },
+    {
+      "id": "embed-current-fixtures",
+      "command": [
+        "node",
+        "scripts/aip-codegen.mjs"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 45
+    },
+    {
+      "id": "rust-current-and-published",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-session",
+        "--test",
+        "semantic_contract",
+        "--test",
+        "state_hash_fixtures",
+        "--test",
+        "state_semantics"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 1074
+    },
+    {
+      "id": "typescript-consumer",
+      "command": [
+        "pnpm",
+        "--dir",
+        "apps/interaction-desktop",
+        "exec",
+        "vitest",
+        "run",
+        "src/test/semantic-state-contract.test.ts",
+        "src/test/canonical-hash.test.ts"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 870
+    },
+    {
+      "id": "swift-native-consumer",
+      "command": [
+        "bash",
+        "scripts/tests/semantic-state-swift.sh"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 29283
+    },
+    {
+      "id": "null-mutation-regenerate-schema",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-e2e",
+        "--test",
+        "golden",
+        "golden_semantic_state_schema"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 2422
+    },
+    {
+      "id": "null-mutation-regenerate-fixtures",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-session",
+        "--test",
+        "state_hash_fixtures",
+        "state_hash_fixtures_are_what_the_host_writes"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 1778
+    },
+    {
+      "id": "null-mutation-independent-contract",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-session",
+        "--test",
+        "semantic_contract",
+        "schema_never_turns_an_absent_optional_into_a_present_null"
+      ],
+      "expected": "failure",
+      "exitCode": 101,
+      "passed": true,
+      "elapsedMs": 654
+    },
+    {
+      "id": "null-mutation-repair-fixtures",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-session",
+        "--test",
+        "state_hash_fixtures",
+        "state_hash_fixtures_are_what_the_host_writes"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 1442
+    },
+    {
+      "id": "published-corpus-mutation-detected",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-session",
+        "--test",
+        "semantic_contract",
+        "published_v070_corpus_is_immutable_and_still_compatible"
+      ],
+      "expected": "failure",
+      "exitCode": 101,
+      "passed": true,
+      "elapsedMs": 461
+    },
+    {
+      "id": "restore-contract-checks",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-session",
+        "--test",
+        "semantic_contract"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 107
+    },
+    {
+      "id": "embed-repaired-fixtures",
+      "command": [
+        "node",
+        "scripts/aip-codegen.mjs"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 49
+    },
+    {
+      "id": "deleted-dto-field-detected",
+      "command": [
+        "node",
+        "scripts/aip-codegen.mjs",
+        "--check"
+      ],
+      "expected": "failure",
+      "exitCode": 1,
+      "passed": true,
+      "elapsedMs": 41
+    },
+    {
+      "id": "repair-generated-output",
+      "command": [
+        "node",
+        "scripts/aip-codegen.mjs"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 41
+    },
+    {
+      "id": "final-codegen-drift",
+      "command": [
+        "node",
+        "scripts/aip-codegen.mjs",
+        "--check"
+      ],
+      "expected": "success",
+      "exitCode": 0,
+      "passed": true,
+      "elapsedMs": 42
+    }
+  ]
+}

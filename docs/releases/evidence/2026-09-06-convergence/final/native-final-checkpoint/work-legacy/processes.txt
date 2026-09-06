@@ -1,0 +1,5 @@
+interact-ai daemon listening on http://127.0.0.1:51138
+human token file: /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-work-nzpk7p8j/state/api-token
+restricted agent token file: /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-work-nzpk7p8j/state/api-agent-token
+press Ctrl-C to stop
+2026-09-06 14:00:50.612 interaction-desktop[91619:6207694] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit

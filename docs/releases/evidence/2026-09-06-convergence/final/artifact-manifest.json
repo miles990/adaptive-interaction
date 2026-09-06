@@ -1,0 +1,2585 @@
+{
+  "evidenceSourceCheckpoint": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+  "note": "Commands and individual source SHAs remain in each result. Paths .log renamed .txt; any credential-shaped text redacted with original and archived digests retained. This staging is refreshed only after runs finish. Text archive normalization removes trailing whitespace. .diff artifacts use a lossless JSON string container rather than stripping patch context; extract content to reconstruct the original diff.",
+  "files": [
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/docs-claims.sh.log",
+      "path": "architecture-clean-checkpoint/docs-claims.sh.txt",
+      "originalSha256": "8d87f275ed69ec77ae2cf000a87792574611d74ce6cda81bcc89a6485ce910b5",
+      "archivedSha256": "8d87f275ed69ec77ae2cf000a87792574611d74ce6cda81bcc89a6485ce910b5",
+      "bytes": 109,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/drill-character-package.log",
+      "path": "architecture-clean-checkpoint/drill-character-package.txt",
+      "originalSha256": "e44644690c28d511ee9e68815dc118a91ab9c7735ecf830a77af9df83d7b85d7",
+      "archivedSha256": "e44644690c28d511ee9e68815dc118a91ab9c7735ecf830a77af9df83d7b85d7",
+      "bytes": 9728,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/drill-current-cli.log",
+      "path": "architecture-clean-checkpoint/drill-current-cli.txt",
+      "originalSha256": "4ca5b5547aee0b29eac896847fe3558f304659e7b493d792162c7fdf8ef69af9",
+      "archivedSha256": "4ca5b5547aee0b29eac896847fe3558f304659e7b493d792162c7fdf8ef69af9",
+      "bytes": 303219,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/drill-optional-state.log",
+      "path": "architecture-clean-checkpoint/drill-optional-state.txt",
+      "originalSha256": "1ddb1e2fd7ff789681329492698657d3b42934f1ebd6eed715ef3f83ed15f48b",
+      "archivedSha256": "1ddb1e2fd7ff789681329492698657d3b42934f1ebd6eed715ef3f83ed15f48b",
+      "bytes": 7458,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/drill-provider-lifecycle.log",
+      "path": "architecture-clean-checkpoint/drill-provider-lifecycle.txt",
+      "originalSha256": "678e4988218718defe1bfb609d39289064036bed0640765110cd420ab32479f5",
+      "archivedSha256": "678e4988218718defe1bfb609d39289064036bed0640765110cd420ab32479f5",
+      "bytes": 156,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/drill-restricted-device.log",
+      "path": "architecture-clean-checkpoint/drill-restricted-device.txt",
+      "originalSha256": "3e762136021734b7b62a89cb283085c293f8b3b3b0cb3ac660694c0ca6849e7e",
+      "archivedSha256": "3e762136021734b7b62a89cb283085c293f8b3b3b0cb3ac660694c0ca6849e7e",
+      "bytes": 130,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/provider-lifecycle/audit.json",
+      "path": "architecture-clean-checkpoint/provider-lifecycle/audit.json",
+      "originalSha256": "95434d3c6e744617a6055473864ceda06135629c6de13aaf56f1e95d647df45a",
+      "archivedSha256": "58fa79f5fc16bb13c9000925f43a6bde0ffc53f2efb9fd7453a8ed0a075e9476",
+      "bytes": 6988,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/provider-lifecycle/daemon.log",
+      "path": "architecture-clean-checkpoint/provider-lifecycle/daemon.txt",
+      "originalSha256": "82549543eaec283e7353030080e0d6c282fd0ec0b09c818f7af0cfb8f84f3d08",
+      "archivedSha256": "82549543eaec283e7353030080e0d6c282fd0ec0b09c818f7af0cfb8f84f3d08",
+      "bytes": 2889,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/provider-lifecycle/provider-after-restart.json",
+      "path": "architecture-clean-checkpoint/provider-lifecycle/provider-after-restart.json",
+      "originalSha256": "289e22f8a570e4761adef13c9d946a9e80136f1775400c46a08e20338fbac05a",
+      "archivedSha256": "a609e72e2b3bb704b70ec010890ed16fb0f8ab5ea9e1008dfeb734456d889745",
+      "bytes": 600,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/provider-lifecycle/result.json",
+      "path": "architecture-clean-checkpoint/provider-lifecycle/result.json",
+      "originalSha256": "31da71f0ce089ae51e74dfe7a4519ebeda3b3b39284f0dd745b4d83e3f49868f",
+      "archivedSha256": "31da71f0ce089ae51e74dfe7a4519ebeda3b3b39284f0dd745b4d83e3f49868f",
+      "bytes": 1532,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/provider-lifecycle/simulator.log",
+      "path": "architecture-clean-checkpoint/provider-lifecycle/simulator.txt",
+      "originalSha256": "f90c095b4673342a0e13ac55434c8da3c3380485a52bcdad7f4b3035bf302ea4",
+      "archivedSha256": "f90c095b4673342a0e13ac55434c8da3c3380485a52bcdad7f4b3035bf302ea4",
+      "bytes": 44,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/release-scripts.sh.log",
+      "path": "architecture-clean-checkpoint/release-scripts.sh.txt",
+      "originalSha256": "ac4bef58af70cc3eb40570a213f8e681afba041ab00e32414a99f3cc633d2c78",
+      "archivedSha256": "ac4bef58af70cc3eb40570a213f8e681afba041ab00e32414a99f3cc633d2c78",
+      "bytes": 3684,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/restricted-device/1.log",
+      "path": "architecture-clean-checkpoint/restricted-device/1.txt",
+      "originalSha256": "feabb4add9e2ca3374e538560634d1ec97dc4f4ce89aab12f3d726e36ea9b2f6",
+      "archivedSha256": "feabb4add9e2ca3374e538560634d1ec97dc4f4ce89aab12f3d726e36ea9b2f6",
+      "bytes": 102,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/restricted-device/2.log",
+      "path": "architecture-clean-checkpoint/restricted-device/2.txt",
+      "originalSha256": "60cc8daac8a9905841ac1929eb041421180c12e388555e0b91930c0e0464b163",
+      "archivedSha256": "60cc8daac8a9905841ac1929eb041421180c12e388555e0b91930c0e0464b163",
+      "bytes": 385,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/restricted-device/3.log",
+      "path": "architecture-clean-checkpoint/restricted-device/3.txt",
+      "originalSha256": "36a3d4365f25098d95df65fd51e06c350d1824b779bd2058c3d038349583a87e",
+      "archivedSha256": "36a3d4365f25098d95df65fd51e06c350d1824b779bd2058c3d038349583a87e",
+      "bytes": 378,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/restricted-device/4.log",
+      "path": "architecture-clean-checkpoint/restricted-device/4.txt",
+      "originalSha256": "928933a07cac7a44cad738b942d167c8ce0e796e6b5e74f464bdc74f35f25a5b",
+      "archivedSha256": "928933a07cac7a44cad738b942d167c8ce0e796e6b5e74f464bdc74f35f25a5b",
+      "bytes": 362,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/restricted-device/5.log",
+      "path": "architecture-clean-checkpoint/restricted-device/5.txt",
+      "originalSha256": "7ea411898f35dc261cca338cebf5ff782987ab646c87495ecac95e48a831337b",
+      "archivedSha256": "7ea411898f35dc261cca338cebf5ff782987ab646c87495ecac95e48a831337b",
+      "bytes": 354,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/restricted-device/restricted-device.json",
+      "path": "architecture-clean-checkpoint/restricted-device/restricted-device.json",
+      "originalSha256": "52ab898869647ca4b478f2505942a3284d6ba0d4de5cc970148f6c408a2e0ddc",
+      "archivedSha256": "52ab898869647ca4b478f2505942a3284d6ba0d4de5cc970148f6c408a2e0ddc",
+      "bytes": 3285,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/rust-core-boundaries.log",
+      "path": "architecture-clean-checkpoint/rust-core-boundaries.txt",
+      "originalSha256": "8e54d74601f238941a986135fcf9121cd30fc24dd4721f6774505e701afeff23",
+      "archivedSha256": "8e54d74601f238941a986135fcf9121cd30fc24dd4721f6774505e701afeff23",
+      "bytes": 499,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/rust-receive-decisions.log",
+      "path": "architecture-clean-checkpoint/rust-receive-decisions.txt",
+      "originalSha256": "5c10ea0729ba8e24b48072a4cbdf51b9cf095bc39e6575d4f8d295fea2d7fb0b",
+      "archivedSha256": "5c10ea0729ba8e24b48072a4cbdf51b9cf095bc39e6575d4f8d295fea2d7fb0b",
+      "bytes": 1594,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/rust-schema-drift(aip).log",
+      "path": "architecture-clean-checkpoint/rust-schema-drift(aip).txt",
+      "originalSha256": "c274e8093cea53d9382610be50f2b2f26c9171e3e15bcd8a742dfa4fec8bac11",
+      "archivedSha256": "c274e8093cea53d9382610be50f2b2f26c9171e3e15bcd8a742dfa4fec8bac11",
+      "bytes": 3094,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/rust-schema-drift(golden).log",
+      "path": "architecture-clean-checkpoint/rust-schema-drift(golden).txt",
+      "originalSha256": "b38c0032e2b807fd5b7966ed5259be8bd2b5b69df5294c0a7df0c5726fda335e",
+      "archivedSha256": "b38c0032e2b807fd5b7966ed5259be8bd2b5b69df5294c0a7df0c5726fda335e",
+      "bytes": 563,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/rust-semantic-contract+published.log",
+      "path": "architecture-clean-checkpoint/rust-semantic-contract+published.txt",
+      "originalSha256": "b2b258f683604918e3976d5e5770b80d55f2aaef41bed1c8ae9e7546903b1043",
+      "archivedSha256": "b2b258f683604918e3976d5e5770b80d55f2aaef41bed1c8ae9e7546903b1043",
+      "bytes": 2036,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/rust-snapshot-migration+adapter-lifecycle.log",
+      "path": "architecture-clean-checkpoint/rust-snapshot-migration+adapter-lifecycle.txt",
+      "originalSha256": "27e73c17d8fe59419f96dbbbf78044f763e0b79a4557d42a3b4039900f0d620b",
+      "archivedSha256": "27e73c17d8fe59419f96dbbbf78044f763e0b79a4557d42a3b4039900f0d620b",
+      "bytes": 5477,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/rust-state-applied-bounds.log",
+      "path": "architecture-clean-checkpoint/rust-state-applied-bounds.txt",
+      "originalSha256": "53e13583e995c364fa2b0027d76cf2199f60f87f7e451ebdd38eb012f6b17723",
+      "archivedSha256": "53e13583e995c364fa2b0027d76cf2199f60f87f7e451ebdd38eb012f6b17723",
+      "bytes": 691,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/rust-stop-paths.log",
+      "path": "architecture-clean-checkpoint/rust-stop-paths.txt",
+      "originalSha256": "d12b1594f3f9bdd74a31d899075d68e5d7beb3cca28898c6e94cdc7e27f82dbb",
+      "archivedSha256": "d12b1594f3f9bdd74a31d899075d68e5d7beb3cca28898c6e94cdc7e27f82dbb",
+      "bytes": 6171,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/source-sha.txt",
+      "path": "architecture-clean-checkpoint/source-sha.txt",
+      "originalSha256": "babbd804b973e079bc791d4f62462bac99813c565399b9769958d5b0dbb6b6dc",
+      "archivedSha256": "babbd804b973e079bc791d4f62462bac99813c565399b9769958d5b0dbb6b6dc",
+      "bytes": 41,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/source-worktree.txt",
+      "path": "architecture-clean-checkpoint/source-worktree.txt",
+      "originalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archivedSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/swift-native.log",
+      "path": "architecture-clean-checkpoint/swift-native.txt",
+      "originalSha256": "36390a93331ab2f562fb169f1f737218a150d41d6637a3ec47aa9d4e9cfb5021",
+      "archivedSha256": "36390a93331ab2f562fb169f1f737218a150d41d6637a3ec47aa9d4e9cfb5021",
+      "bytes": 285,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/typescript.log",
+      "path": "architecture-clean-checkpoint/typescript.txt",
+      "originalSha256": "350a348b23c16298af76fd364a8c68d8c6226548f7b254bf9daec272e3d7c9a0",
+      "archivedSha256": "350a348b23c16298af76fd364a8c68d8c6226548f7b254bf9daec272e3d7c9a0",
+      "bytes": 897,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/basic-baseline-clean-v3/ax-metrics.jsonl",
+      "path": "basic-baseline-clean-v3/ax-metrics.jsonl",
+      "originalSha256": "e1a367071e22797bb046b91afcb2b65f3f7ef49c1600aafc704b2c067edd3b53",
+      "archivedSha256": "e1a367071e22797bb046b91afcb2b65f3f7ef49c1600aafc704b2c067edd3b53",
+      "bytes": 5305,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/basic-baseline-clean-v3/ax.applescript",
+      "path": "basic-baseline-clean-v3/ax.applescript",
+      "originalSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+      "archivedSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+      "bytes": 7718,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/basic-baseline-clean-v3/provenance.json",
+      "path": "basic-baseline-clean-v3/provenance.json",
+      "originalSha256": "02ac9ddc359940e7ef0081f5f196cc3d6818d3ee9130b0494ad85ee3ad353508",
+      "archivedSha256": "02ac9ddc359940e7ef0081f5f196cc3d6818d3ee9130b0494ad85ee3ad353508",
+      "bytes": 471,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/basic-baseline-clean-v3/steps.jsonl",
+      "path": "basic-baseline-clean-v3/steps.jsonl",
+      "originalSha256": "1b014240ddc870199a395dd736a524f48354f8186ad04f26eb0fa98449bf775e",
+      "archivedSha256": "1b014240ddc870199a395dd736a524f48354f8186ad04f26eb0fa98449bf775e",
+      "bytes": 4215,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/basic-baseline-clean-v3/tauri-ax-walkthrough.json",
+      "path": "basic-baseline-clean-v3/tauri-ax-walkthrough.json",
+      "originalSha256": "f62da0f00d3f9e0d115d461235a08955d947024142b84a81d80bd13291b7f8ef",
+      "archivedSha256": "f62da0f00d3f9e0d115d461235a08955d947024142b84a81d80bd13291b7f8ef",
+      "bytes": 6486,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/basic-baseline-clean-v3/walkthrough.log",
+      "path": "basic-baseline-clean-v3/walkthrough.txt",
+      "originalSha256": "10d1f4d3ed0d7e75f981cedfc5cd2fbe9515fba96212f191b5eac417c28bc35d",
+      "archivedSha256": "10d1f4d3ed0d7e75f981cedfc5cd2fbe9515fba96212f191b5eac417c28bc35d",
+      "bytes": 2964,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/basic-baseline-legacy-v3/ax-metrics.jsonl",
+      "path": "basic-baseline-legacy-v3/ax-metrics.jsonl",
+      "originalSha256": "24acccabf8352985f6271ed49d527f5919f0e36ad0d698caaf9bda4c46b9d251",
+      "archivedSha256": "24acccabf8352985f6271ed49d527f5919f0e36ad0d698caaf9bda4c46b9d251",
+      "bytes": 5299,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/basic-baseline-legacy-v3/ax.applescript",
+      "path": "basic-baseline-legacy-v3/ax.applescript",
+      "originalSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+      "archivedSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+      "bytes": 7718,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/basic-baseline-legacy-v3/provenance.json",
+      "path": "basic-baseline-legacy-v3/provenance.json",
+      "originalSha256": "2f7c5c3cf3185bb8c5b15af72d8f598975fca80a9cb6ca0748a872abb5c2ab04",
+      "archivedSha256": "2f7c5c3cf3185bb8c5b15af72d8f598975fca80a9cb6ca0748a872abb5c2ab04",
+      "bytes": 580,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/basic-baseline-legacy-v3/steps.jsonl",
+      "path": "basic-baseline-legacy-v3/steps.jsonl",
+      "originalSha256": "3d99138cae2c9135f1c115e245f2f6550f4dd068a17df152f9d1437e17dd1f94",
+      "archivedSha256": "3d99138cae2c9135f1c115e245f2f6550f4dd068a17df152f9d1437e17dd1f94",
+      "bytes": 4251,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/basic-baseline-legacy-v3/tauri-ax-walkthrough.json",
+      "path": "basic-baseline-legacy-v3/tauri-ax-walkthrough.json",
+      "originalSha256": "b9bb73fa95ee2a00ce459799cb4a1c19f03f20ec84b9a41a33bb2b46070a4c1d",
+      "archivedSha256": "b9bb73fa95ee2a00ce459799cb4a1c19f03f20ec84b9a41a33bb2b46070a4c1d",
+      "bytes": 6631,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/basic-baseline-legacy-v3/walkthrough.log",
+      "path": "basic-baseline-legacy-v3/walkthrough.txt",
+      "originalSha256": "71c79e238d1f70482529e56d8880763dcf7b428887a070afe401e4ddc4ee603e",
+      "archivedSha256": "71c79e238d1f70482529e56d8880763dcf7b428887a070afe401e4ddc4ee603e",
+      "bytes": 3002,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-character-sync-emergency.png",
+      "path": "browser-final-images/desktop-character-sync-emergency.png",
+      "originalSha256": "889bfbc19318e55c45a84a3ae2f3a5b50ef277486963562868cc9b5b7ff947cc",
+      "archivedSha256": "889bfbc19318e55c45a84a3ae2f3a5b50ef277486963562868cc9b5b7ff947cc",
+      "bytes": 117735,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-character-sync-legacy-unconfirmed.png",
+      "path": "browser-final-images/desktop-character-sync-legacy-unconfirmed.png",
+      "originalSha256": "f52e0ad8b0865b5fc8412db14eb56fe5fca218e8833c93d7594eb727ef06b316",
+      "archivedSha256": "f52e0ad8b0865b5fc8412db14eb56fe5fca218e8833c93d7594eb727ef06b316",
+      "bytes": 95733,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-character-sync-local-only.png",
+      "path": "browser-final-images/desktop-character-sync-local-only.png",
+      "originalSha256": "ad03cf956ea8c992768f2cf30c0b1658384f6769eb69ae6d0a9af097bafd3cc1",
+      "archivedSha256": "ad03cf956ea8c992768f2cf30c0b1658384f6769eb69ae6d0a9af097bafd3cc1",
+      "bytes": 96074,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-character-sync-reconnecting.png",
+      "path": "browser-final-images/desktop-character-sync-reconnecting.png",
+      "originalSha256": "fe197d95edece6d0c6db98345097ac90c70c57d46ba4cf78fe5d4faf2aba9652",
+      "archivedSha256": "fe197d95edece6d0c6db98345097ac90c70c57d46ba4cf78fe5d4faf2aba9652",
+      "bytes": 97901,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-companion-appearance.png",
+      "path": "browser-final-images/desktop-companion-appearance.png",
+      "originalSha256": "e2343f45fc60e321429552851eab996a2284c0aa0726784c14a7ccf81a28b26a",
+      "archivedSha256": "e2343f45fc60e321429552851eab996a2284c0aa0726784c14a7ccf81a28b26a",
+      "bytes": 100591,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-companion-capabilities.png",
+      "path": "browser-final-images/desktop-companion-capabilities.png",
+      "originalSha256": "fa5ec693bb37e2079477ca6fee54bdb1438dc40ac105ab1a045fdaf2fda80981",
+      "archivedSha256": "fa5ec693bb37e2079477ca6fee54bdb1438dc40ac105ab1a045fdaf2fda80981",
+      "bytes": 197880,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-companion-companionship.png",
+      "path": "browser-final-images/desktop-companion-companionship.png",
+      "originalSha256": "cc6bf0edb8b8696aa28b40cd362ca181a8eddbaa01ea858a9a1d37d374350d7c",
+      "archivedSha256": "cc6bf0edb8b8696aa28b40cd362ca181a8eddbaa01ea858a9a1d37d374350d7c",
+      "bytes": 105138,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-companion-fallback.png",
+      "path": "browser-final-images/desktop-companion-fallback.png",
+      "originalSha256": "c8cc40cfd55b7db10ce8d04453bb1ba10def34e01963eda5646ba64006c23a1e",
+      "archivedSha256": "c8cc40cfd55b7db10ce8d04453bb1ba10def34e01963eda5646ba64006c23a1e",
+      "bytes": 106853,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-companion-import.png",
+      "path": "browser-final-images/desktop-companion-import.png",
+      "originalSha256": "b4bc082a17971caddd52c53799d9beee054b5e767060cee6a20d485e7f59ae96",
+      "archivedSha256": "b4bc082a17971caddd52c53799d9beee054b5e767060cee6a20d485e7f59ae96",
+      "bytes": 130795,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-companion-library.png",
+      "path": "browser-final-images/desktop-companion-library.png",
+      "originalSha256": "1009c6137dfea5984a52a314486c2f25f5628bb0972bfff91c10978d250a7b8c",
+      "archivedSha256": "1009c6137dfea5984a52a314486c2f25f5628bb0972bfff91c10978d250a7b8c",
+      "bytes": 143556,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-companion.png",
+      "path": "browser-final-images/desktop-companion.png",
+      "originalSha256": "0852cfb2b3df3a0769ec4dc7bf3e3cedd8321bfe23040925b12e62c2448531c3",
+      "archivedSha256": "0852cfb2b3df3a0769ec4dc7bf3e3cedd8321bfe23040925b12e62c2448531c3",
+      "bytes": 192661,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-connect-adapters-hub.png",
+      "path": "browser-final-images/desktop-connect-adapters-hub.png",
+      "originalSha256": "d12d8bf3b214dc3ed684b7c9cfde3f03799a442e381738f3093b8a67d7172ff8",
+      "archivedSha256": "d12d8bf3b214dc3ed684b7c9cfde3f03799a442e381738f3093b8a67d7172ff8",
+      "bytes": 184047,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-connect-adapters.png",
+      "path": "browser-final-images/desktop-connect-adapters.png",
+      "originalSha256": "5acc944b692e4df694ba4e40782b0383d9091d9216f20620b8ed9bdb3d480bcc",
+      "archivedSha256": "5acc944b692e4df694ba4e40782b0383d9091d9216f20620b8ed9bdb3d480bcc",
+      "bytes": 189073,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-connect-iphone-fixture.png",
+      "path": "browser-final-images/desktop-connect-iphone-fixture.png",
+      "originalSha256": "fb5382f29fb62ba9c1a289b5321069baa7c4584bf1ecc6816ab5b9ac4c698071",
+      "archivedSha256": "fb5382f29fb62ba9c1a289b5321069baa7c4584bf1ecc6816ab5b9ac4c698071",
+      "bytes": 201785,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-connect.png",
+      "path": "browser-final-images/desktop-connect.png",
+      "originalSha256": "7b91b9e37d0ec256dbe02e8512ff247cbf1eb1501c770492a9c86bc1e0a6384b",
+      "archivedSha256": "7b91b9e37d0ec256dbe02e8512ff247cbf1eb1501c770492a9c86bc1e0a6384b",
+      "bytes": 195764,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-emergency-companion.png",
+      "path": "browser-final-images/desktop-emergency-companion.png",
+      "originalSha256": "f72aed6c533ace95f4fa987f5d3592a4c62d6a42d11db620bdaba7a4575014d8",
+      "archivedSha256": "f72aed6c533ace95f4fa987f5d3592a4c62d6a42d11db620bdaba7a4575014d8",
+      "bytes": 201765,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-emergency-connect.png",
+      "path": "browser-final-images/desktop-emergency-connect.png",
+      "originalSha256": "e503e3dc06f27b3494249bc8bf035b1de06785fda6b40729e6c1aafefa4b83f6",
+      "archivedSha256": "e503e3dc06f27b3494249bc8bf035b1de06785fda6b40729e6c1aafefa4b83f6",
+      "bytes": 205953,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-emergency-home.png",
+      "path": "browser-final-images/desktop-emergency-home.png",
+      "originalSha256": "d0dc8c731afe37787b334531a5c34c480f449ee1a860531cc620df0e8df850da",
+      "archivedSha256": "d0dc8c731afe37787b334531a5c34c480f449ee1a860531cc620df0e8df850da",
+      "bytes": 82783,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-emergency-more.png",
+      "path": "browser-final-images/desktop-emergency-more.png",
+      "originalSha256": "dc2df78cb19ab6f534c262feaa255635699879e3afbb9aacca40991ff4b80d42",
+      "archivedSha256": "dc2df78cb19ab6f534c262feaa255635699879e3afbb9aacca40991ff4b80d42",
+      "bytes": 141183,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-emergency-work.png",
+      "path": "browser-final-images/desktop-emergency-work.png",
+      "originalSha256": "f0bf4d199abd7d80c53f57b81370b3e9e7297e0017a8fea629ea3bcfedbea390",
+      "archivedSha256": "f0bf4d199abd7d80c53f57b81370b3e9e7297e0017a8fea629ea3bcfedbea390",
+      "bytes": 139351,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-error-unknown-companion.png",
+      "path": "browser-final-images/desktop-error-unknown-companion.png",
+      "originalSha256": "8bf6a1f14c0bbbdb7b1c563b5b8435787c66b73d4804c7ed06de9f3955ecfc2e",
+      "archivedSha256": "8bf6a1f14c0bbbdb7b1c563b5b8435787c66b73d4804c7ed06de9f3955ecfc2e",
+      "bytes": 193877,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-error-unknown-connect.png",
+      "path": "browser-final-images/desktop-error-unknown-connect.png",
+      "originalSha256": "260f8a84c4d6f97333f1d7213aa0925d7e87f0ae4d1427f773e7ee51f2e77d64",
+      "archivedSha256": "260f8a84c4d6f97333f1d7213aa0925d7e87f0ae4d1427f773e7ee51f2e77d64",
+      "bytes": 199951,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-error-unknown-home.png",
+      "path": "browser-final-images/desktop-error-unknown-home.png",
+      "originalSha256": "7b0a15ddb53e0779bcd5de854141dddb28b410b69d5fe27e4393ed2374cef834",
+      "archivedSha256": "7b0a15ddb53e0779bcd5de854141dddb28b410b69d5fe27e4393ed2374cef834",
+      "bytes": 113507,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-error-unknown-more.png",
+      "path": "browser-final-images/desktop-error-unknown-more.png",
+      "originalSha256": "dae9805a77155ec749320d5d4369515295b05a62ec0e0afac261a254658e1c52",
+      "archivedSha256": "dae9805a77155ec749320d5d4369515295b05a62ec0e0afac261a254658e1c52",
+      "bytes": 128048,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-error-unknown-work.png",
+      "path": "browser-final-images/desktop-error-unknown-work.png",
+      "originalSha256": "03142698267c83fb349c23fbc899a7bc51e64595616b8991292c209768c2a484",
+      "archivedSha256": "03142698267c83fb349c23fbc899a7bc51e64595616b8991292c209768c2a484",
+      "bytes": 136669,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-first-success.png",
+      "path": "browser-final-images/desktop-first-success.png",
+      "originalSha256": "fc929a5dd918d83864e0399f90fb9497bc8baf0fb9bf322656f562408c91a140",
+      "archivedSha256": "fc929a5dd918d83864e0399f90fb9497bc8baf0fb9bf322656f562408c91a140",
+      "bytes": 65266,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-global-search.png",
+      "path": "browser-final-images/desktop-global-search.png",
+      "originalSha256": "6f73f07aac48e0e1b9dbdee94f480afd2cc1b877f8cc24ebd6ea2e755a57d682",
+      "archivedSha256": "6f73f07aac48e0e1b9dbdee94f480afd2cc1b877f8cc24ebd6ea2e755a57d682",
+      "bytes": 95511,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-hardware-scan.png",
+      "path": "browser-final-images/desktop-hardware-scan.png",
+      "originalSha256": "de672f7aadc09b2c6353d64050d0ee69b033bc85993424734fbd63aa4c39fcac",
+      "archivedSha256": "de672f7aadc09b2c6353d64050d0ee69b033bc85993424734fbd63aa4c39fcac",
+      "bytes": 152299,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-home.png",
+      "path": "browser-final-images/desktop-home.png",
+      "originalSha256": "36ee07a9256cb6a334450e15a388c644cf984fee5b33429196e60bb391e217f0",
+      "archivedSha256": "36ee07a9256cb6a334450e15a388c644cf984fee5b33429196e60bb391e217f0",
+      "bytes": 62782,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-inbox.png",
+      "path": "browser-final-images/desktop-inbox.png",
+      "originalSha256": "90836857983d22f9b3e93f3468c909e4ce08147d34e748f2ffe95bd6182c8d1d",
+      "archivedSha256": "90836857983d22f9b3e93f3468c909e4ce08147d34e748f2ffe95bd6182c8d1d",
+      "bytes": 111306,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-loading-companion.png",
+      "path": "browser-final-images/desktop-loading-companion.png",
+      "originalSha256": "38fff9b982a84dfb1093d9fc4fd18ee60d48acc0ca6b564dd666e2cd558edeb0",
+      "archivedSha256": "38fff9b982a84dfb1093d9fc4fd18ee60d48acc0ca6b564dd666e2cd558edeb0",
+      "bytes": 192629,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-loading-connect.png",
+      "path": "browser-final-images/desktop-loading-connect.png",
+      "originalSha256": "e2bc93cc54ab4ec9c4e3d8bdea434cb29b190c587307d7bbae9b7f9e918a8c85",
+      "archivedSha256": "e2bc93cc54ab4ec9c4e3d8bdea434cb29b190c587307d7bbae9b7f9e918a8c85",
+      "bytes": 163905,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-loading-home.png",
+      "path": "browser-final-images/desktop-loading-home.png",
+      "originalSha256": "abf9866166ab64a4655759abd304a6dc9de790887d3863ae28b3e2f341906e46",
+      "archivedSha256": "abf9866166ab64a4655759abd304a6dc9de790887d3863ae28b3e2f341906e46",
+      "bytes": 62777,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-loading-more.png",
+      "path": "browser-final-images/desktop-loading-more.png",
+      "originalSha256": "8f9f7f665684c58f6c9eac1f198404a4e76e988c8bf467b26695915c4441f447",
+      "archivedSha256": "8f9f7f665684c58f6c9eac1f198404a4e76e988c8bf467b26695915c4441f447",
+      "bytes": 115723,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-loading-work.png",
+      "path": "browser-final-images/desktop-loading-work.png",
+      "originalSha256": "599854e52b5d4dbf9d941a35fe9e95895c4ec74de99dbdd976dbeb84cd436d24",
+      "archivedSha256": "599854e52b5d4dbf9d941a35fe9e95895c4ec74de99dbdd976dbeb84cd436d24",
+      "bytes": 126811,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-more.png",
+      "path": "browser-final-images/desktop-more.png",
+      "originalSha256": "8d584bc38e35154ddd6607198fe0993df4ad0ebedd6e0dc54839c377a76eb105",
+      "archivedSha256": "8d584bc38e35154ddd6607198fe0993df4ad0ebedd6e0dc54839c377a76eb105",
+      "bytes": 114613,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-offline.png",
+      "path": "browser-final-images/desktop-offline.png",
+      "originalSha256": "6b109b641f27add1dd1b48200d5ffaef78a9df0f1e4df6100993ba9ae75a0118",
+      "archivedSha256": "6b109b641f27add1dd1b48200d5ffaef78a9df0f1e4df6100993ba9ae75a0118",
+      "bytes": 34037,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-sensors-active-iphone-fixture.png",
+      "path": "browser-final-images/desktop-sensors-active-iphone-fixture.png",
+      "originalSha256": "7463f66dc363f3ccdb363a27be2bebbc93c52f4c76aa7f5f0b437f0615628988",
+      "archivedSha256": "7463f66dc363f3ccdb363a27be2bebbc93c52f4c76aa7f5f0b437f0615628988",
+      "bytes": 70338,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-theme-dark-home.png",
+      "path": "browser-final-images/desktop-theme-dark-home.png",
+      "originalSha256": "e7ad0a35ff394571e0fef14a05f9d46faec39423698e42432f45f4ba53e99089",
+      "archivedSha256": "e7ad0a35ff394571e0fef14a05f9d46faec39423698e42432f45f4ba53e99089",
+      "bytes": 100317,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-theme-light-home.png",
+      "path": "browser-final-images/desktop-theme-light-home.png",
+      "originalSha256": "aa521dff39fb2cc94a525678b6e73f634e44f4bcd63aa9442e4b23fb3d20658f",
+      "archivedSha256": "aa521dff39fb2cc94a525678b6e73f634e44f4bcd63aa9442e4b23fb3d20658f",
+      "bytes": 100277,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-waiting-companion.png",
+      "path": "browser-final-images/desktop-waiting-companion.png",
+      "originalSha256": "38fff9b982a84dfb1093d9fc4fd18ee60d48acc0ca6b564dd666e2cd558edeb0",
+      "archivedSha256": "38fff9b982a84dfb1093d9fc4fd18ee60d48acc0ca6b564dd666e2cd558edeb0",
+      "bytes": 192629,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-waiting-connect.png",
+      "path": "browser-final-images/desktop-waiting-connect.png",
+      "originalSha256": "748a9a7c652f3d9e85b790d1e5032c377d25f9563ffcf6334b03f3227afc628b",
+      "archivedSha256": "748a9a7c652f3d9e85b790d1e5032c377d25f9563ffcf6334b03f3227afc628b",
+      "bytes": 201601,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-waiting-home.png",
+      "path": "browser-final-images/desktop-waiting-home.png",
+      "originalSha256": "e35867cec0f49ae6af3e85f29668383ab4e40fede11c8b3732b0568ac8158891",
+      "archivedSha256": "e35867cec0f49ae6af3e85f29668383ab4e40fede11c8b3732b0568ac8158891",
+      "bytes": 100311,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-waiting-more.png",
+      "path": "browser-final-images/desktop-waiting-more.png",
+      "originalSha256": "6b82e08944cf3d2537dd3ab9cfbe39966fce5ac0605e92cce29fbc433c9d17b2",
+      "archivedSha256": "6b82e08944cf3d2537dd3ab9cfbe39966fce5ac0605e92cce29fbc433c9d17b2",
+      "bytes": 114574,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-waiting-work.png",
+      "path": "browser-final-images/desktop-waiting-work.png",
+      "originalSha256": "599854e52b5d4dbf9d941a35fe9e95895c4ec74de99dbdd976dbeb84cd436d24",
+      "archivedSha256": "599854e52b5d4dbf9d941a35fe9e95895c4ec74de99dbdd976dbeb84cd436d24",
+      "bytes": 126811,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-work-claimed.png",
+      "path": "browser-final-images/desktop-work-claimed.png",
+      "originalSha256": "6dc45fef0b6e21d6bc16c96bfaced5898ea74b29c8494758639b99ed9273eff4",
+      "archivedSha256": "6dc45fef0b6e21d6bc16c96bfaced5898ea74b29c8494758639b99ed9273eff4",
+      "bytes": 167718,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-work-consent.png",
+      "path": "browser-final-images/desktop-work-consent.png",
+      "originalSha256": "6dc45fef0b6e21d6bc16c96bfaced5898ea74b29c8494758639b99ed9273eff4",
+      "archivedSha256": "6dc45fef0b6e21d6bc16c96bfaced5898ea74b29c8494758639b99ed9273eff4",
+      "bytes": 167718,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-work-preview-details.png",
+      "path": "browser-final-images/desktop-work-preview-details.png",
+      "originalSha256": "fd818467ab216ea7dee116437aa19391831e2ea07c10e00957f3beb9dcfc99df",
+      "archivedSha256": "fd818467ab216ea7dee116437aa19391831e2ea07c10e00957f3beb9dcfc99df",
+      "bytes": 170017,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-work-preview.png",
+      "path": "browser-final-images/desktop-work-preview.png",
+      "originalSha256": "01ae5c642dc779b1a56a2b0105171268c93601331a231b3b43f07079b93417a3",
+      "archivedSha256": "01ae5c642dc779b1a56a2b0105171268c93601331a231b3b43f07079b93417a3",
+      "bytes": 133981,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-work-verified.png",
+      "path": "browser-final-images/desktop-work-verified.png",
+      "originalSha256": "6dc45fef0b6e21d6bc16c96bfaced5898ea74b29c8494758639b99ed9273eff4",
+      "archivedSha256": "6dc45fef0b6e21d6bc16c96bfaced5898ea74b29c8494758639b99ed9273eff4",
+      "bytes": 167718,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-work-working.png",
+      "path": "browser-final-images/desktop-work-working.png",
+      "originalSha256": "34d009ff9e09f5494f16d1c9299c55aca22140bcf748b349f55432040a91fd52",
+      "archivedSha256": "34d009ff9e09f5494f16d1c9299c55aca22140bcf748b349f55432040a91fd52",
+      "bytes": 164960,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/desktop-work.png",
+      "path": "browser-final-images/desktop-work.png",
+      "originalSha256": "a9fc8d95bc9faf9e79f31551844ea1f8872ff85ac114f6598c622b2e7c044641",
+      "archivedSha256": "a9fc8d95bc9faf9e79f31551844ea1f8872ff85ac114f6598c622b2e7c044641",
+      "bytes": 126852,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-character-sync-legacy-unconfirmed.png",
+      "path": "browser-final-images/narrow-character-sync-legacy-unconfirmed.png",
+      "originalSha256": "947031fc6c21c51a35a17368f38b4e3eb1458fb6950757496268941d0f86cd2f",
+      "archivedSha256": "947031fc6c21c51a35a17368f38b4e3eb1458fb6950757496268941d0f86cd2f",
+      "bytes": 77912,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-character-sync-local-only.png",
+      "path": "browser-final-images/narrow-character-sync-local-only.png",
+      "originalSha256": "7984b23130e66b8054ee1cdb259a6df10ad70aa5b06e1074e67766eab9e8457f",
+      "archivedSha256": "7984b23130e66b8054ee1cdb259a6df10ad70aa5b06e1074e67766eab9e8457f",
+      "bytes": 75187,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-character-sync-reconnecting.png",
+      "path": "browser-final-images/narrow-character-sync-reconnecting.png",
+      "originalSha256": "05a4dca12d12aa9ec653fe44222cb1133f50019aff11991d007cdcbea219c832",
+      "archivedSha256": "05a4dca12d12aa9ec653fe44222cb1133f50019aff11991d007cdcbea219c832",
+      "bytes": 78370,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-companion-capabilities.png",
+      "path": "browser-final-images/narrow-companion-capabilities.png",
+      "originalSha256": "75d693e952b365b61fbefcdacc3ca18ea709324dddb7a94a178e5a4f042c0126",
+      "archivedSha256": "75d693e952b365b61fbefcdacc3ca18ea709324dddb7a94a178e5a4f042c0126",
+      "bytes": 114896,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-companion-fallback.png",
+      "path": "browser-final-images/narrow-companion-fallback.png",
+      "originalSha256": "19a1b89c1ca53e56185ee41b1b4166f568c21391c1c5cbce384a6ae290d64d68",
+      "archivedSha256": "19a1b89c1ca53e56185ee41b1b4166f568c21391c1c5cbce384a6ae290d64d68",
+      "bytes": 85347,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-companion-library.png",
+      "path": "browser-final-images/narrow-companion-library.png",
+      "originalSha256": "fa932dab928eac4108a45c3b75b53a0dce776eaa73c3e54a4cd1a237a633f48f",
+      "archivedSha256": "fa932dab928eac4108a45c3b75b53a0dce776eaa73c3e54a4cd1a237a633f48f",
+      "bytes": 85426,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-companion.png",
+      "path": "browser-final-images/narrow-companion.png",
+      "originalSha256": "bb717ba3eddf4630a532db46d0e88970bd2f1342dacb0deda027b2f56e03d916",
+      "archivedSha256": "bb717ba3eddf4630a532db46d0e88970bd2f1342dacb0deda027b2f56e03d916",
+      "bytes": 117643,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-connect-adapters.png",
+      "path": "browser-final-images/narrow-connect-adapters.png",
+      "originalSha256": "bc4d534df6e4c7eb7164a3b87d7333b8b05499a6e72e9a020f74e7b036f02ed6",
+      "archivedSha256": "bc4d534df6e4c7eb7164a3b87d7333b8b05499a6e72e9a020f74e7b036f02ed6",
+      "bytes": 115586,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-connect-iphone-fixture.png",
+      "path": "browser-final-images/narrow-connect-iphone-fixture.png",
+      "originalSha256": "0bab71f783adc476f2af6fc4d7fde5c2e8e7dc48f10253b83ca2a7a55e7ce86e",
+      "archivedSha256": "0bab71f783adc476f2af6fc4d7fde5c2e8e7dc48f10253b83ca2a7a55e7ce86e",
+      "bytes": 126728,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-connect.png",
+      "path": "browser-final-images/narrow-connect.png",
+      "originalSha256": "0207c4f924b75d543032d234d655d72710cfca3d566aad2d4064b18459b821bc",
+      "archivedSha256": "0207c4f924b75d543032d234d655d72710cfca3d566aad2d4064b18459b821bc",
+      "bytes": 117381,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-emergency-companion.png",
+      "path": "browser-final-images/narrow-emergency-companion.png",
+      "originalSha256": "eab0fb98d557979ebd83f0821dbdb217ff964cda3fde99d04fc86ad48f7dcfe5",
+      "archivedSha256": "eab0fb98d557979ebd83f0821dbdb217ff964cda3fde99d04fc86ad48f7dcfe5",
+      "bytes": 120377,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-emergency-connect.png",
+      "path": "browser-final-images/narrow-emergency-connect.png",
+      "originalSha256": "e4134a298e8e594983b4e4f1485b6e4ce9176bdbbcae215459cf484cb86c60f8",
+      "archivedSha256": "e4134a298e8e594983b4e4f1485b6e4ce9176bdbbcae215459cf484cb86c60f8",
+      "bytes": 119594,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-emergency-home.png",
+      "path": "browser-final-images/narrow-emergency-home.png",
+      "originalSha256": "21fda81df8a603a77ef63832b357498e6812e31026f8dabbe964c8d72a409cb0",
+      "archivedSha256": "21fda81df8a603a77ef63832b357498e6812e31026f8dabbe964c8d72a409cb0",
+      "bytes": 59067,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-emergency-more.png",
+      "path": "browser-final-images/narrow-emergency-more.png",
+      "originalSha256": "ac0af2a3d3dc7d86ba57dcac321725fa641b13a3652a1db6f5bc2b3239275db5",
+      "archivedSha256": "ac0af2a3d3dc7d86ba57dcac321725fa641b13a3652a1db6f5bc2b3239275db5",
+      "bytes": 108753,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-emergency-work.png",
+      "path": "browser-final-images/narrow-emergency-work.png",
+      "originalSha256": "83040809631f87cdcb9c6955a769e8abab9c0eda71b0bc8390e27a22f63fede7",
+      "archivedSha256": "83040809631f87cdcb9c6955a769e8abab9c0eda71b0bc8390e27a22f63fede7",
+      "bytes": 95035,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-error-unknown-companion.png",
+      "path": "browser-final-images/narrow-error-unknown-companion.png",
+      "originalSha256": "bf9c69927651ad0f33ca2f5cc916d5c4c48efe1613ac754564c3a4461d67aeaa",
+      "archivedSha256": "bf9c69927651ad0f33ca2f5cc916d5c4c48efe1613ac754564c3a4461d67aeaa",
+      "bytes": 120327,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-error-unknown-connect.png",
+      "path": "browser-final-images/narrow-error-unknown-connect.png",
+      "originalSha256": "681ee7e0a172d2c4e5765911361607ad734b45adf0422a0ef3505bc47564d68f",
+      "archivedSha256": "681ee7e0a172d2c4e5765911361607ad734b45adf0422a0ef3505bc47564d68f",
+      "bytes": 120118,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-error-unknown-home.png",
+      "path": "browser-final-images/narrow-error-unknown-home.png",
+      "originalSha256": "0a7a98b660ba54fc5db54667cf4422629e08fa4e3b79dd52d1105ea27d2e6e1b",
+      "archivedSha256": "0a7a98b660ba54fc5db54667cf4422629e08fa4e3b79dd52d1105ea27d2e6e1b",
+      "bytes": 79204,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-error-unknown-more.png",
+      "path": "browser-final-images/narrow-error-unknown-more.png",
+      "originalSha256": "4b514a66a3e0578b57132dbdd3865300b74d8ab70e10eebec9d9fd8211850a0c",
+      "archivedSha256": "4b514a66a3e0578b57132dbdd3865300b74d8ab70e10eebec9d9fd8211850a0c",
+      "bytes": 111351,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-error-unknown-work.png",
+      "path": "browser-final-images/narrow-error-unknown-work.png",
+      "originalSha256": "7e7f990339c53e98ff5ef666400870b975fe28a194b7c12a714245a5dd92b0b6",
+      "archivedSha256": "7e7f990339c53e98ff5ef666400870b975fe28a194b7c12a714245a5dd92b0b6",
+      "bytes": 93551,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-first-success-browser-honest.png",
+      "path": "browser-final-images/narrow-first-success-browser-honest.png",
+      "originalSha256": "629e9fc62c8f54ad61f83f879611f095ac08c3d8b995bb8b66e61eff8af65ec9",
+      "archivedSha256": "629e9fc62c8f54ad61f83f879611f095ac08c3d8b995bb8b66e61eff8af65ec9",
+      "bytes": 68196,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-first-success.png",
+      "path": "browser-final-images/narrow-first-success.png",
+      "originalSha256": "fd41aeb0390d2972686b80faaf886638df29ce43cf8738a876e0b912b1447e57",
+      "archivedSha256": "fd41aeb0390d2972686b80faaf886638df29ce43cf8738a876e0b912b1447e57",
+      "bytes": 59510,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-hardware-scan.png",
+      "path": "browser-final-images/narrow-hardware-scan.png",
+      "originalSha256": "b36e98eef90252ea9f74ee65fd2dab169c5faef96ec738b2ad9aa458ea493f42",
+      "archivedSha256": "b36e98eef90252ea9f74ee65fd2dab169c5faef96ec738b2ad9aa458ea493f42",
+      "bytes": 121131,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-home.png",
+      "path": "browser-final-images/narrow-home.png",
+      "originalSha256": "05e40407a6074c1ca9dd4d97af8872ad5dbfa22adb640cc1a6e062a99b5e4517",
+      "archivedSha256": "05e40407a6074c1ca9dd4d97af8872ad5dbfa22adb640cc1a6e062a99b5e4517",
+      "bytes": 43343,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-inbox.png",
+      "path": "browser-final-images/narrow-inbox.png",
+      "originalSha256": "34dc5151457d78a4a07936830d3448ead5ef9ade70a5adba4f36d000e3a4dee3",
+      "archivedSha256": "34dc5151457d78a4a07936830d3448ead5ef9ade70a5adba4f36d000e3a4dee3",
+      "bytes": 76519,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-loading-companion.png",
+      "path": "browser-final-images/narrow-loading-companion.png",
+      "originalSha256": "c618b62e50a315c4b18f924336af80dafd6424d863f31c7101b0dbc6c1ee0fd8",
+      "archivedSha256": "c618b62e50a315c4b18f924336af80dafd6424d863f31c7101b0dbc6c1ee0fd8",
+      "bytes": 117613,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-loading-connect.png",
+      "path": "browser-final-images/narrow-loading-connect.png",
+      "originalSha256": "3f0d2dde92d8f872619e35e8c02d3f741a309066b702382c8d749e92def3b2ea",
+      "archivedSha256": "3f0d2dde92d8f872619e35e8c02d3f741a309066b702382c8d749e92def3b2ea",
+      "bytes": 94905,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-loading-home.png",
+      "path": "browser-final-images/narrow-loading-home.png",
+      "originalSha256": "9217f8cb3c04e8a8ff178625cd02ae00d17a0422e3828849878b3adb284db9b4",
+      "archivedSha256": "9217f8cb3c04e8a8ff178625cd02ae00d17a0422e3828849878b3adb284db9b4",
+      "bytes": 43317,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-loading-more.png",
+      "path": "browser-final-images/narrow-loading-more.png",
+      "originalSha256": "a709ff79a777aa00e3e7638803a7257941a8cf533079d1dd8fdfc0565611f7ab",
+      "archivedSha256": "a709ff79a777aa00e3e7638803a7257941a8cf533079d1dd8fdfc0565611f7ab",
+      "bytes": 101580,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-loading-work.png",
+      "path": "browser-final-images/narrow-loading-work.png",
+      "originalSha256": "9d40a02a3168638004e4f4a2b5854e3c17abbcd630019337cee1edb380468e92",
+      "archivedSha256": "9d40a02a3168638004e4f4a2b5854e3c17abbcd630019337cee1edb380468e92",
+      "bytes": 93615,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-more.png",
+      "path": "browser-final-images/narrow-more.png",
+      "originalSha256": "418685945ea30b4e312f2780eded862b5de9b7b6b16793ccb1a5449f488031e1",
+      "archivedSha256": "418685945ea30b4e312f2780eded862b5de9b7b6b16793ccb1a5449f488031e1",
+      "bytes": 102892,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-offline.png",
+      "path": "browser-final-images/narrow-offline.png",
+      "originalSha256": "caa8b3ad795419d6ecf8d0bff7df76cc245d34853c4e2aca81ff9b1c1ab4feba",
+      "archivedSha256": "caa8b3ad795419d6ecf8d0bff7df76cc245d34853c4e2aca81ff9b1c1ab4feba",
+      "bytes": 28772,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-theme-dark-home.png",
+      "path": "browser-final-images/narrow-theme-dark-home.png",
+      "originalSha256": "500e44780beaa7aafc1ccf9db5f6af34f082c6255463eac66f23407fc747057b",
+      "archivedSha256": "500e44780beaa7aafc1ccf9db5f6af34f082c6255463eac66f23407fc747057b",
+      "bytes": 69037,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-theme-light-home.png",
+      "path": "browser-final-images/narrow-theme-light-home.png",
+      "originalSha256": "f62bcfb7cd9f7e9b6ceff4c56ad868d5fd6d1090573e2bb109afe00edfd967bd",
+      "archivedSha256": "f62bcfb7cd9f7e9b6ceff4c56ad868d5fd6d1090573e2bb109afe00edfd967bd",
+      "bytes": 68674,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-waiting-companion.png",
+      "path": "browser-final-images/narrow-waiting-companion.png",
+      "originalSha256": "c618b62e50a315c4b18f924336af80dafd6424d863f31c7101b0dbc6c1ee0fd8",
+      "archivedSha256": "c618b62e50a315c4b18f924336af80dafd6424d863f31c7101b0dbc6c1ee0fd8",
+      "bytes": 117613,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-waiting-connect.png",
+      "path": "browser-final-images/narrow-waiting-connect.png",
+      "originalSha256": "3b3b010c1163522307aeb39a2886f6606816ef901ba61189c5e318eadcfd0f3e",
+      "archivedSha256": "3b3b010c1163522307aeb39a2886f6606816ef901ba61189c5e318eadcfd0f3e",
+      "bytes": 119618,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-waiting-home.png",
+      "path": "browser-final-images/narrow-waiting-home.png",
+      "originalSha256": "f62bcfb7cd9f7e9b6ceff4c56ad868d5fd6d1090573e2bb109afe00edfd967bd",
+      "archivedSha256": "f62bcfb7cd9f7e9b6ceff4c56ad868d5fd6d1090573e2bb109afe00edfd967bd",
+      "bytes": 68674,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-waiting-more.png",
+      "path": "browser-final-images/narrow-waiting-more.png",
+      "originalSha256": "38574b4e2ff10f7984f65333f5ceb5f464db5a1454bda1debd841c8ae3459564",
+      "archivedSha256": "38574b4e2ff10f7984f65333f5ceb5f464db5a1454bda1debd841c8ae3459564",
+      "bytes": 102859,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-waiting-work.png",
+      "path": "browser-final-images/narrow-waiting-work.png",
+      "originalSha256": "9d40a02a3168638004e4f4a2b5854e3c17abbcd630019337cee1edb380468e92",
+      "archivedSha256": "9d40a02a3168638004e4f4a2b5854e3c17abbcd630019337cee1edb380468e92",
+      "bytes": 93615,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-work-claimed.png",
+      "path": "browser-final-images/narrow-work-claimed.png",
+      "originalSha256": "7fbf57a10551189e7c1081c65e0977bded2ba3cc60b9bfc277ae985afd93fabd",
+      "archivedSha256": "7fbf57a10551189e7c1081c65e0977bded2ba3cc60b9bfc277ae985afd93fabd",
+      "bytes": 101273,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-work-consent.png",
+      "path": "browser-final-images/narrow-work-consent.png",
+      "originalSha256": "4a37cc0644442d6c69ca3fe79e3e27157338c44a7d4913d1f21da6f059d50c08",
+      "archivedSha256": "4a37cc0644442d6c69ca3fe79e3e27157338c44a7d4913d1f21da6f059d50c08",
+      "bytes": 102565,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-work-preview.png",
+      "path": "browser-final-images/narrow-work-preview.png",
+      "originalSha256": "1c7b5bbc30fa5c6b799c0ba34f37e4cb2cd3db0baca5609797c92f765919907c",
+      "archivedSha256": "1c7b5bbc30fa5c6b799c0ba34f37e4cb2cd3db0baca5609797c92f765919907c",
+      "bytes": 103257,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-work-verified.png",
+      "path": "browser-final-images/narrow-work-verified.png",
+      "originalSha256": "7fbf57a10551189e7c1081c65e0977bded2ba3cc60b9bfc277ae985afd93fabd",
+      "archivedSha256": "7fbf57a10551189e7c1081c65e0977bded2ba3cc60b9bfc277ae985afd93fabd",
+      "bytes": 101273,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-work-working.png",
+      "path": "browser-final-images/narrow-work-working.png",
+      "originalSha256": "51add84c6b9f0a1bea146b175458b2aec58a8b44dcd18ed7b0e1921b090d00b0",
+      "archivedSha256": "51add84c6b9f0a1bea146b175458b2aec58a8b44dcd18ed7b0e1921b090d00b0",
+      "bytes": 114447,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/browser-final-images/narrow-work.png",
+      "path": "browser-final-images/narrow-work.png",
+      "originalSha256": "b97816eea753e3bfa914696f33fe458e02a8942ebdd8818936c820ed2bc0851f",
+      "archivedSha256": "b97816eea753e3bfa914696f33fe458e02a8942ebdd8818936c820ed2bc0851f",
+      "bytes": 93652,
+      "redactions": 0
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/checkpoint-cli-e2e.json",
+      "path": "checkpoint-cli-e2e.json",
+      "originalSha256": "e84ec5c2d156dd9a5d2ea3c7085d66e63edeb80dd1327dc30fef95762c67038c",
+      "archivedSha256": "e84ec5c2d156dd9a5d2ea3c7085d66e63edeb80dd1327dc30fef95762c67038c",
+      "bytes": 369,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/checkpoint-cli-e2e.log",
+      "path": "checkpoint-cli-e2e.txt",
+      "originalSha256": "42b124a24317814c4bc93640f9fce8c7b0b16941ccf99c4981c167ab65920e73",
+      "archivedSha256": "42b124a24317814c4bc93640f9fce8c7b0b16941ccf99c4981c167ab65920e73",
+      "bytes": 6253,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/clean-checkpoint-architecture.json",
+      "path": "clean-checkpoint-architecture.json",
+      "originalSha256": "57acd86da33e88f523e020310926964157d8753e68b8a8b356ff5a0f84e34fb0",
+      "archivedSha256": "57acd86da33e88f523e020310926964157d8753e68b8a8b356ff5a0f84e34fb0",
+      "bytes": 615,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/clean-checkpoint-architecture.log",
+      "path": "clean-checkpoint-architecture.txt",
+      "originalSha256": "1dd65fc282c8501ad60cd7011947e1c71ccdf9971297ef3632b75e9200d0f666",
+      "archivedSha256": "64fc3f9db51ec24fbb9031a18fed04ec2731a199beb685fdb1554dfad5cf8f1c",
+      "bytes": 7568,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/environment-final.json",
+      "path": "environment-final.json",
+      "originalSha256": "fdfbc7d8c8c5ac6e73db4ee51c94b407adaa428b2e2f8408588b550a5c081715",
+      "archivedSha256": "fdfbc7d8c8c5ac6e73db4ee51c94b407adaa428b2e2f8408588b550a5c081715",
+      "bytes": 815,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/final-browser-task-outcomes.json",
+      "path": "final-browser-task-outcomes.json",
+      "originalSha256": "109a6c71fefd001535ecfa7daee6d298805d5a673f6ebcacd3aff3e2192a2a7e",
+      "archivedSha256": "109a6c71fefd001535ecfa7daee6d298805d5a673f6ebcacd3aff3e2192a2a7e",
+      "bytes": 14720,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/final-frontend.json",
+      "path": "final-frontend.json",
+      "originalSha256": "3a3248d2bcc744adaef4a23b1d7e03b6492d910393a219eb031763f1fa3e1bcf",
+      "archivedSha256": "3a3248d2bcc744adaef4a23b1d7e03b6492d910393a219eb031763f1fa3e1bcf",
+      "bytes": 433,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/final-frontend.log",
+      "path": "final-frontend.txt",
+      "originalSha256": "431a50a8acc22da7f70141ce32269ad52c7aa7272983f1ae4761d0cf7eb6add7",
+      "archivedSha256": "86a02ab9515855de58e03b1af34207a33f344bb1bbb4750797b9951fcbe5b3e0",
+      "bytes": 232348,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/final-playwright.json",
+      "path": "final-playwright.json",
+      "originalSha256": "c1107bd4c853a863cd48a2229f32404d10bea2bc2854fed3ebd0a5009a53d79c",
+      "archivedSha256": "c1107bd4c853a863cd48a2229f32404d10bea2bc2854fed3ebd0a5009a53d79c",
+      "bytes": 377,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/final-playwright.log",
+      "path": "final-playwright.txt",
+      "originalSha256": "e5fad272048b0cfbc7b24f615f7bc7870f55c314d3bd6366aa3a17a620b4c712",
+      "archivedSha256": "c75586d6ee6f07a3152532dcce664ab2a984a9662e247700c061a8d4d6d51e08",
+      "bytes": 19542,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/integrated-rust-workspace.json",
+      "path": "integrated-rust-workspace.json",
+      "originalSha256": "d0e8b04838a76d86c6b4efac8af1f585e3e32e3284c081eb86c49039bcd3aaea",
+      "archivedSha256": "d0e8b04838a76d86c6b4efac8af1f585e3e32e3284c081eb86c49039bcd3aaea",
+      "bytes": 518,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/integrated-rust-workspace.log",
+      "path": "integrated-rust-workspace.txt",
+      "originalSha256": "2cb23241a5e5c27db7ae67d401999cdaac8afca7cffe06924f312f73245ab65a",
+      "archivedSha256": "d4fdd95c6c6d1889100e61fcee475e31183f6b11179dd4a7c50635932079e18a",
+      "bytes": 105392,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/integration-tauri-fixed.json",
+      "path": "integration-tauri-fixed.json",
+      "originalSha256": "93e427d8a892044e8434193574bab69cca353e512da0a798e88982e4fe92b744",
+      "archivedSha256": "93e427d8a892044e8434193574bab69cca353e512da0a798e88982e4fe92b744",
+      "bytes": 651,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/integration-tauri-fixed.log",
+      "path": "integration-tauri-fixed.txt",
+      "originalSha256": "a3179675cfbd6dbbb594722f3669c973517500e9ebd2d89671688167ea38ccb8",
+      "archivedSha256": "5da7c05672013381db09ccda368620ff73888d1a2c93fb35cf3268db238c651d",
+      "bytes": 7248,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/ios-verified-summary/build.log",
+      "path": "ios-verified-summary/build.txt",
+      "originalSha256": "105ab5511c161fe96e70641c6dd7993be745ce383dcf4b8ae1c65a0d07565c21",
+      "archivedSha256": "ac851c012e5a005428ce8765346821802c9969ee1126d46fbb452697325926e3",
+      "bytes": 31981,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/ios-verified-summary/result.json",
+      "path": "ios-verified-summary/result.json",
+      "originalSha256": "7fa51eaf9eb742fc2f94b1a14c3fc2f9c4e0bb96ef286d9599cdd82588a72180",
+      "archivedSha256": "7fa51eaf9eb742fc2f94b1a14c3fc2f9c4e0bb96ef286d9599cdd82588a72180",
+      "bytes": 118,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/ios-verified-summary/source-sha.txt",
+      "path": "ios-verified-summary/source-sha.txt",
+      "originalSha256": "021554530ab5ee7a5e5b0139f4e3d84ff9e383cf2576b94fa2894ee0847afbd4",
+      "archivedSha256": "021554530ab5ee7a5e5b0139f4e3d84ff9e383cf2576b94fa2894ee0847afbd4",
+      "bytes": 41,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/ios-verified-summary/worktree.txt",
+      "path": "ios-verified-summary/worktree.txt",
+      "originalSha256": "6f36c20be3aa4809322056343cd46fd468a6acbaa02f5cdbdceebdb4336dfc54",
+      "archivedSha256": "6f36c20be3aa4809322056343cd46fd468a6acbaa02f5cdbdceebdb4336dfc54",
+      "bytes": 7281,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/ios-verified-summary/xcode-version.txt",
+      "path": "ios-verified-summary/xcode-version.txt",
+      "originalSha256": "18730ed2ae28a2c9cf0c2d5db549033a4f07089331391a7133b7b32187454fa9",
+      "archivedSha256": "18730ed2ae28a2c9cf0c2d5db549033a4f07089331391a7133b7b32187454fa9",
+      "bytes": 32,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/ios-verified-summary/xctest.log",
+      "path": "ios-verified-summary/xctest.txt",
+      "originalSha256": "5e1235bcfd5bf24878d51e5025ae366406b9c993f3bd9642146bc087c4d664d2",
+      "archivedSha256": "3663dd684ded4f66c24716d0eedbe7be63ab3f3a3664ce97c302b0fe8d07a1c3",
+      "bytes": 44532,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/ios-verified-summary.json",
+      "path": "ios-verified-summary.json",
+      "originalSha256": "278b92cab5ad8dfa6ff2975703b51553e78e3b4d81642e5f968f65856bd82da8",
+      "archivedSha256": "278b92cab5ad8dfa6ff2975703b51553e78e3b4d81642e5f968f65856bd82da8",
+      "bytes": 531,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/ios-verified-summary.log",
+      "path": "ios-verified-summary.txt",
+      "originalSha256": "e6ec8b2f45d790460b6f2f9be4497ad7ef80976f9828c528a9da72222ccf253c",
+      "archivedSha256": "e6ec8b2f45d790460b6f2f9be4497ad7ef80976f9828c528a9da72222ccf253c",
+      "bytes": 1304,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-clean/ax-metrics.jsonl",
+      "path": "native-final-checkpoint/basic-clean/ax-metrics.jsonl",
+      "originalSha256": "685ec093d9650fa6cca7dea14ef7a8b65f6f826504cf2789d38bf08187c9526d",
+      "archivedSha256": "685ec093d9650fa6cca7dea14ef7a8b65f6f826504cf2789d38bf08187c9526d",
+      "bytes": 5286,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-clean/ax.applescript",
+      "path": "native-final-checkpoint/basic-clean/ax.applescript",
+      "originalSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+      "archivedSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+      "bytes": 7718,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-clean/provenance.json",
+      "path": "native-final-checkpoint/basic-clean/provenance.json",
+      "originalSha256": "0827b73e9f47364aaa4183cab5e61c7232cc29954f494fb8c1392d82896a90b7",
+      "archivedSha256": "0827b73e9f47364aaa4183cab5e61c7232cc29954f494fb8c1392d82896a90b7",
+      "bytes": 472,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-clean/steps.jsonl",
+      "path": "native-final-checkpoint/basic-clean/steps.jsonl",
+      "originalSha256": "3ec438e4ec74d954a92ec856afa8a682f412866c0dbe02caae6ad0ddc021fc74",
+      "archivedSha256": "3ec438e4ec74d954a92ec856afa8a682f412866c0dbe02caae6ad0ddc021fc74",
+      "bytes": 4220,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-clean/tauri-ax-walkthrough.json",
+      "path": "native-final-checkpoint/basic-clean/tauri-ax-walkthrough.json",
+      "originalSha256": "914d14e49b655a893b955e3a5249d5da721256e1ed00d5bfa3846c271e0ba788",
+      "archivedSha256": "914d14e49b655a893b955e3a5249d5da721256e1ed00d5bfa3846c271e0ba788",
+      "bytes": 6556,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-clean/walkthrough.log",
+      "path": "native-final-checkpoint/basic-clean/walkthrough.txt",
+      "originalSha256": "26bf4570f8202d0c69cb59ffed6446462cbe82876af7733b1527b230f3c7c205",
+      "archivedSha256": "26bf4570f8202d0c69cb59ffed6446462cbe82876af7733b1527b230f3c7c205",
+      "bytes": 2964,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-clean.log",
+      "path": "native-final-checkpoint/basic-clean.txt",
+      "originalSha256": "9ee2825118c49555f9908c31471e4d0d80e566728284ae371d914d488316d10f",
+      "archivedSha256": "9ee2825118c49555f9908c31471e4d0d80e566728284ae371d914d488316d10f",
+      "bytes": 3149,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-legacy/ax-metrics.jsonl",
+      "path": "native-final-checkpoint/basic-legacy/ax-metrics.jsonl",
+      "originalSha256": "8e640a26f92caa834b30552b55dc2d6a28e260f7a9fcb676d52d98abe3291f64",
+      "archivedSha256": "8e640a26f92caa834b30552b55dc2d6a28e260f7a9fcb676d52d98abe3291f64",
+      "bytes": 5296,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-legacy/ax.applescript",
+      "path": "native-final-checkpoint/basic-legacy/ax.applescript",
+      "originalSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+      "archivedSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+      "bytes": 7718,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-legacy/provenance.json",
+      "path": "native-final-checkpoint/basic-legacy/provenance.json",
+      "originalSha256": "248dee3f04e9f39f928181ae46d3f92fa74715fc929f791347561bd90962eb38",
+      "archivedSha256": "248dee3f04e9f39f928181ae46d3f92fa74715fc929f791347561bd90962eb38",
+      "bytes": 581,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-legacy/steps.jsonl",
+      "path": "native-final-checkpoint/basic-legacy/steps.jsonl",
+      "originalSha256": "8626fec67d35531692ac7a02bddae8e6ce6c3b31a70d5c5c602c50ebae3bcccf",
+      "archivedSha256": "8626fec67d35531692ac7a02bddae8e6ce6c3b31a70d5c5c602c50ebae3bcccf",
+      "bytes": 4241,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-legacy/tauri-ax-walkthrough.json",
+      "path": "native-final-checkpoint/basic-legacy/tauri-ax-walkthrough.json",
+      "originalSha256": "a1950247e75ac88ef91ec5a3932e53f022568f3decfcca1572107d9afabb17d2",
+      "archivedSha256": "a1950247e75ac88ef91ec5a3932e53f022568f3decfcca1572107d9afabb17d2",
+      "bytes": 6687,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-legacy/walkthrough.log",
+      "path": "native-final-checkpoint/basic-legacy/walkthrough.txt",
+      "originalSha256": "33e53ca88263ddb7b5ef87eebf9b0cef77671e14f190d7e5308878d27b610727",
+      "archivedSha256": "33e53ca88263ddb7b5ef87eebf9b0cef77671e14f190d7e5308878d27b610727",
+      "bytes": 3002,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/basic-legacy.log",
+      "path": "native-final-checkpoint/basic-legacy.txt",
+      "originalSha256": "d0ecb2cc6d959a7dd254557731914678a5245bbb2aacf7cd754d6287e249293d",
+      "archivedSha256": "d0ecb2cc6d959a7dd254557731914678a5245bbb2aacf7cd754d6287e249293d",
+      "bytes": 3188,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/mobile-bidirectional-semantic-ax.txt",
+      "path": "native-final-checkpoint/mobile-clean/mobile-bidirectional-semantic-ax.txt",
+      "originalSha256": "dfe1a781cdcef7453f70eb65f897a257383c93a4188238857269e899d61fb177",
+      "archivedSha256": "3dc9c8ca3368dee3d7f8e9a8c8b6021b5372943ad6862c0a7d0d1ba9065c7db8",
+      "bytes": 4660,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/mobile-disconnect-ax.txt",
+      "path": "native-final-checkpoint/mobile-clean/mobile-disconnect-ax.txt",
+      "originalSha256": "d61132c684eccdf10c2185e63773a9b09b970d8d5dc747a9d98ece0b29727723",
+      "archivedSha256": "acf01aa8fa618e5727c2f38e0964c79ee9b1fa5237dcf43a45b7fa6a84dddebe",
+      "bytes": 23031,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/mobile-pair-again-ax.txt",
+      "path": "native-final-checkpoint/mobile-clean/mobile-pair-again-ax.txt",
+      "originalSha256": "6bdc63c599906b9ea75e2ca0d9ea34ffa613826b1ac852f2250ec84607cf84f9",
+      "archivedSha256": "4591c680184b30b05a104e10b1693f66e58d1cf289d9a49bac89a87dbf61ebee",
+      "bytes": 15428,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/mobile-pair-and-negotiate-ax.txt",
+      "path": "native-final-checkpoint/mobile-clean/mobile-pair-and-negotiate-ax.txt",
+      "originalSha256": "81102c11aa3d782bd70b109dd30c1cd65d6f22b3e51a54f472392d39c9380f03",
+      "archivedSha256": "c33360d6e1a167be81efec82dc3001c04d48290e621778f26ac18ced740ea238",
+      "bytes": 4565,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/mobile-reconnect-ax.txt",
+      "path": "native-final-checkpoint/mobile-clean/mobile-reconnect-ax.txt",
+      "originalSha256": "b13679ca328f4681d9a30ecaa466d2bc93f4f0a8f90f2b5795c4c42877d70424",
+      "archivedSha256": "d442f850d637a283b9c7038a01c3e402ab4c3ba4d91b0e98b4d2d41b8af89459",
+      "bytes": 23273,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/mobile-remove-old-token-rejected-ax.txt",
+      "path": "native-final-checkpoint/mobile-clean/mobile-remove-old-token-rejected-ax.txt",
+      "originalSha256": "07c00b28ce4395585d71a4d8a80884e7f2b0fc958eafd58868e61b203b01fdb3",
+      "archivedSha256": "aea9d93534fbd7430a6877649e5be850ad4f0852388d2c6a727e880e75bdd559",
+      "bytes": 22009,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/phone-1-events.json",
+      "path": "native-final-checkpoint/mobile-clean/phone-1-events.json",
+      "originalSha256": "7ce1f308668d3c436cf8ced79c3ede0959767246c534ed800edd26e91dec9756",
+      "archivedSha256": "7ce1f308668d3c436cf8ced79c3ede0959767246c534ed800edd26e91dec9756",
+      "bytes": 13193,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/phone-2-events.json",
+      "path": "native-final-checkpoint/mobile-clean/phone-2-events.json",
+      "originalSha256": "23f9de5062e0eabb1194657beb219fb966b64fcf8fe30610d4b7bb2c5daadf98",
+      "archivedSha256": "23f9de5062e0eabb1194657beb219fb966b64fcf8fe30610d4b7bb2c5daadf98",
+      "bytes": 4295,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/phone-3-events.json",
+      "path": "native-final-checkpoint/mobile-clean/phone-3-events.json",
+      "originalSha256": "efc8cd02154bb831909a5fd2896f9628bfadf037b6cac5196d85f92028f00fe8",
+      "archivedSha256": "efc8cd02154bb831909a5fd2896f9628bfadf037b6cac5196d85f92028f00fe8",
+      "bytes": 264,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/processes.log",
+      "path": "native-final-checkpoint/mobile-clean/processes.txt",
+      "originalSha256": "3e95a142e471c45bd57e52f3e63a8a1e85897497ea170f5a6c629c20d6231541",
+      "archivedSha256": "3e95a142e471c45bd57e52f3e63a8a1e85897497ea170f5a6c629c20d6231541",
+      "bytes": 805,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/result.json",
+      "path": "native-final-checkpoint/mobile-clean/result.json",
+      "originalSha256": "f10f66a0e7894482c0d817373a48c5b31d1b7fe54b41d297f0352d228ccb22e6",
+      "archivedSha256": "f10f66a0e7894482c0d817373a48c5b31d1b7fe54b41d297f0352d228ccb22e6",
+      "bytes": 15028,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/sensor-direct-remove-retains-unknown-ax.txt",
+      "path": "native-final-checkpoint/mobile-clean/sensor-direct-remove-retains-unknown-ax.txt",
+      "originalSha256": "5bf4289211b5fd7ff926b94ea9ce8ce551d49333f6444d94bf3c054641a70534",
+      "archivedSha256": "f5f21e12f5a19cbe72004d5e7e208eeb92dc2cef3a94abc3204fcd1681864182",
+      "bytes": 22526,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/sensor-global-stop-separate-fixture-ax.txt",
+      "path": "native-final-checkpoint/mobile-clean/sensor-global-stop-separate-fixture-ax.txt",
+      "originalSha256": "cd1dc5d5249411235b18f050f702627f318f7e5a45c1c521dc6157b57f815604",
+      "archivedSha256": "88c59ee8e2a09745c19a245054f6672fcae160bc9d1a74edcaca4e7e1030a995",
+      "bytes": 2259,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/sensor-stop-unknown-ax.txt",
+      "path": "native-final-checkpoint/mobile-clean/sensor-stop-unknown-ax.txt",
+      "originalSha256": "6c81f99562b7e6e418b7cbefde0dc2c557c7b9a162afd5a3753675ab061f2b4c",
+      "archivedSha256": "16b61d0a0abec08e4cbdf6868172145b66550bdcd4bab6099238a6e35408f526",
+      "bytes": 23689,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean/sensor-unknown-after-daemon-restart-ax.txt",
+      "path": "native-final-checkpoint/mobile-clean/sensor-unknown-after-daemon-restart-ax.txt",
+      "originalSha256": "77df5dfaa36e6ff7c321785936aa03357aa71154042431c1e64558a68506639e",
+      "archivedSha256": "199e2520400855b0952728dc873a73841463259063e1d61595a0196e2717b341",
+      "bytes": 1677,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-clean.log",
+      "path": "native-final-checkpoint/mobile-clean.txt",
+      "originalSha256": "ed8806da769a37352e617ffe86ab2d17d1d49ef1bfaff56300dc1b973fdd19df",
+      "archivedSha256": "ed8806da769a37352e617ffe86ab2d17d1d49ef1bfaff56300dc1b973fdd19df",
+      "bytes": 371,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/mobile-bidirectional-semantic-ax.txt",
+      "path": "native-final-checkpoint/mobile-legacy/mobile-bidirectional-semantic-ax.txt",
+      "originalSha256": "f2cac953676a0c6cc72f31c537996829d917066c4a31a484ff292e232fc76d26",
+      "archivedSha256": "e7f43f56ce246a4acb6745d0a1133db0a5e715a0e46769908a476d68c715ca27",
+      "bytes": 4702,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/mobile-disconnect-ax.txt",
+      "path": "native-final-checkpoint/mobile-legacy/mobile-disconnect-ax.txt",
+      "originalSha256": "83dcfd813cfad001b014330f1e193affbe9bb9ee8d600c3f3a3eca22a0f855a7",
+      "archivedSha256": "1100131f36249e3df37aabd1c071321192eac654676686a9aac9986bc02e7c5a",
+      "bytes": 23055,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/mobile-pair-again-ax.txt",
+      "path": "native-final-checkpoint/mobile-legacy/mobile-pair-again-ax.txt",
+      "originalSha256": "2156c668e50d0aff5b76034c221973cff8739e88d75ecdb0e0889a125ad10aff",
+      "archivedSha256": "8fd20fb90134a2ec6f3cb66338e2440c1a70190731a1568bb0e7224c19306c9d",
+      "bytes": 15482,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/mobile-pair-and-negotiate-ax.txt",
+      "path": "native-final-checkpoint/mobile-legacy/mobile-pair-and-negotiate-ax.txt",
+      "originalSha256": "112104d2799ca1153e3ff9d9916eaf584100e0e491a830be1fa89f1713fd023e",
+      "archivedSha256": "f6af644ab0e112e4e4ed82b1c11bb58b06b5a4b8c5fb5751568dc5871621a79b",
+      "bytes": 4607,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/mobile-reconnect-ax.txt",
+      "path": "native-final-checkpoint/mobile-legacy/mobile-reconnect-ax.txt",
+      "originalSha256": "94bd38116c08ef33fcae7c8e7e47575602498e82c6872080d59bf4c2c37d7337",
+      "archivedSha256": "ee1a7d28d1011227baf419019c9f290792f32efa9dd42134d5b5c384b8b43ee7",
+      "bytes": 23297,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/mobile-remove-old-token-rejected-ax.txt",
+      "path": "native-final-checkpoint/mobile-legacy/mobile-remove-old-token-rejected-ax.txt",
+      "originalSha256": "82dedfd254c4c8e5b179f16e232b91676bb87465b20c85fca2c5327304ec2897",
+      "archivedSha256": "eb09abd779fc4fbba24d815ddf7737d8519d980bd2539732e38478e7df799878",
+      "bytes": 22033,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/phone-1-events.json",
+      "path": "native-final-checkpoint/mobile-legacy/phone-1-events.json",
+      "originalSha256": "7c15c79562f650e6578c3fd95ddb3a08b1d6dfc566ecba97054666b288e97489",
+      "archivedSha256": "7c15c79562f650e6578c3fd95ddb3a08b1d6dfc566ecba97054666b288e97489",
+      "bytes": 13819,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/phone-2-events.json",
+      "path": "native-final-checkpoint/mobile-legacy/phone-2-events.json",
+      "originalSha256": "9c5afbf298069a2143220e2b9d411f7120b7f00c215f39e59d4b1fcd402bb71f",
+      "archivedSha256": "9c5afbf298069a2143220e2b9d411f7120b7f00c215f39e59d4b1fcd402bb71f",
+      "bytes": 4295,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/phone-3-events.json",
+      "path": "native-final-checkpoint/mobile-legacy/phone-3-events.json",
+      "originalSha256": "e79b6321be49b2e8625faaaf439d7da511a477e292021089d8affd89a525fa68",
+      "archivedSha256": "e79b6321be49b2e8625faaaf439d7da511a477e292021089d8affd89a525fa68",
+      "bytes": 264,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/processes.log",
+      "path": "native-final-checkpoint/mobile-legacy/processes.txt",
+      "originalSha256": "478959b47d6df862407bc355e91217fd002b4310f553ac1bd6919471c240b155",
+      "archivedSha256": "478959b47d6df862407bc355e91217fd002b4310f553ac1bd6919471c240b155",
+      "bytes": 805,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/result.json",
+      "path": "native-final-checkpoint/mobile-legacy/result.json",
+      "originalSha256": "6c38c07c71db630a6033665f66c143f4a9ac5093430e2c885aba09bcdad72ece",
+      "archivedSha256": "6c38c07c71db630a6033665f66c143f4a9ac5093430e2c885aba09bcdad72ece",
+      "bytes": 15484,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/sensor-direct-remove-retains-unknown-ax.txt",
+      "path": "native-final-checkpoint/mobile-legacy/sensor-direct-remove-retains-unknown-ax.txt",
+      "originalSha256": "fa1e0c05750d87329c7482b31bd0b3a5f9a1cb0121934bd1c2b31ea2f5853788",
+      "archivedSha256": "6ebf4b8feae270b9dea0f45810ca820ef8d39200a5cd12bbbaa9c25fceeac63b",
+      "bytes": 22550,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/sensor-global-stop-separate-fixture-ax.txt",
+      "path": "native-final-checkpoint/mobile-legacy/sensor-global-stop-separate-fixture-ax.txt",
+      "originalSha256": "db8deb305a9178a8fe0b9388e76a1d4e3b6b7319627b2105e6d2558782442fb1",
+      "archivedSha256": "57a4b640c35a572c4bbf98ecdeac75d2bf18e82aec44fa56b0e52d04b6abd0a7",
+      "bytes": 2295,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/sensor-stop-unknown-ax.txt",
+      "path": "native-final-checkpoint/mobile-legacy/sensor-stop-unknown-ax.txt",
+      "originalSha256": "062d1b03c2ab4cbc804dfbe4c80910f21e19103bb05af42a904c398ae3a461d6",
+      "archivedSha256": "8ade8d23cbe93e774825a3af939ffdb4315aa32de0a615616c333e18323ca874",
+      "bytes": 24138,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy/sensor-unknown-after-daemon-restart-ax.txt",
+      "path": "native-final-checkpoint/mobile-legacy/sensor-unknown-after-daemon-restart-ax.txt",
+      "originalSha256": "8ccaa82d5440966c9bca40ca61f097f2acf674f4bac2f8e9f3a3e1b6b31995d6",
+      "archivedSha256": "68667be8e38041edfd32d932a67d275621eafdf6edf8514c61c87a46050c1bef",
+      "bytes": 1713,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/mobile-legacy.log",
+      "path": "native-final-checkpoint/mobile-legacy.txt",
+      "originalSha256": "ed8806da769a37352e617ffe86ab2d17d1d49ef1bfaff56300dc1b973fdd19df",
+      "archivedSha256": "ed8806da769a37352e617ffe86ab2d17d1d49ef1bfaff56300dc1b973fdd19df",
+      "bytes": 371,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean/cleanup-failed.log",
+      "path": "native-final-checkpoint/preset-clean/cleanup-failed.txt",
+      "originalSha256": "fe17babb043094c6329262422b2a94c28c1761a97aaae3f741dfe084e80bf132",
+      "archivedSha256": "fe17babb043094c6329262422b2a94c28c1761a97aaae3f741dfe084e80bf132",
+      "bytes": 313,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean/crash-after-runtime.log",
+      "path": "native-final-checkpoint/preset-clean/crash-after-runtime.txt",
+      "originalSha256": "19f0bb5ed886dab8967840e7792278134bb6bd470037a1955028bf923ed9bcab",
+      "archivedSha256": "19f0bb5ed886dab8967840e7792278134bb6bd470037a1955028bf923ed9bcab",
+      "bytes": 313,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean/crash-before-runtime.log",
+      "path": "native-final-checkpoint/preset-clean/crash-before-runtime.txt",
+      "originalSha256": "0369a2add517155c0a1bf3995b27e53b9b743397fc6f14a1ae00b84f7c453d3d",
+      "archivedSha256": "0369a2add517155c0a1bf3995b27e53b9b743397fc6f14a1ae00b84f7c453d3d",
+      "bytes": 313,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean/future-marker.log",
+      "path": "native-final-checkpoint/preset-clean/future-marker.txt",
+      "originalSha256": "fc0b0812b14e9b1ff2cd0a6e2318dbc741ea87ca20507a9311a369b8f1f9494a",
+      "archivedSha256": "fc0b0812b14e9b1ff2cd0a6e2318dbc741ea87ca20507a9311a369b8f1f9494a",
+      "bytes": 313,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean/lost-reply.log",
+      "path": "native-final-checkpoint/preset-clean/lost-reply.txt",
+      "originalSha256": "5faba0c3e1fde6ba92a927a3e22c41f8f3a074a1c9e4ab84e7b5071b104f115e",
+      "archivedSha256": "5faba0c3e1fde6ba92a927a3e22c41f8f3a074a1c9e4ab84e7b5071b104f115e",
+      "bytes": 313,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean/newer-choice.log",
+      "path": "native-final-checkpoint/preset-clean/newer-choice.txt",
+      "originalSha256": "dfe88dd6574ed38f18eebb537f8c1f0ef3eb35d8723ef42a2fcfb8909ed88c9c",
+      "archivedSha256": "dfe88dd6574ed38f18eebb537f8c1f0ef3eb35d8723ef42a2fcfb8909ed88c9c",
+      "bytes": 313,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean/readback-failed.log",
+      "path": "native-final-checkpoint/preset-clean/readback-failed.txt",
+      "originalSha256": "7b51c41c20886517cd66fbd8a4bf27adf6bc8e501a9fc5181faa253f58b7f399",
+      "archivedSha256": "7b51c41c20886517cd66fbd8a4bf27adf6bc8e501a9fc5181faa253f58b7f399",
+      "bytes": 313,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean/reconnect.log",
+      "path": "native-final-checkpoint/preset-clean/reconnect.txt",
+      "originalSha256": "8ce6f56e907a926df53443a73b4109851b90e2eb0acf23707d7e7e7275d532ee",
+      "archivedSha256": "8ce6f56e907a926df53443a73b4109851b90e2eb0acf23707d7e7e7275d532ee",
+      "bytes": 313,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean/refused.log",
+      "path": "native-final-checkpoint/preset-clean/refused.txt",
+      "originalSha256": "841973c726074d223733bf173a89be7bcab3c1945831b825cc44c20de514a0f7",
+      "archivedSha256": "841973c726074d223733bf173a89be7bcab3c1945831b825cc44c20de514a0f7",
+      "bytes": 313,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean/result.json",
+      "path": "native-final-checkpoint/preset-clean/result.json",
+      "originalSha256": "94666377be0f19bc98764af7fb4c2d044a425262503ff4ef52ef2c7710e3d8b7",
+      "archivedSha256": "94666377be0f19bc98764af7fb4c2d044a425262503ff4ef52ef2c7710e3d8b7",
+      "bytes": 238012,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean/unrelated-prefs.log",
+      "path": "native-final-checkpoint/preset-clean/unrelated-prefs.txt",
+      "originalSha256": "6b8c5173912d394e1ba2be19b31586677b81e74915a23c09cbce5eb91c3d9e3a",
+      "archivedSha256": "6b8c5173912d394e1ba2be19b31586677b81e74915a23c09cbce5eb91c3d9e3a",
+      "bytes": 313,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/preset-clean.log",
+      "path": "native-final-checkpoint/preset-clean.txt",
+      "originalSha256": "d6fd24a11a202533b282ea1214ea468f128242dcfb3a072e7a5cebb6dd5ffeb0",
+      "archivedSha256": "816a16c747641f45c7b1fae8982d8b57e3a777b6eba70c3bcc9c78427bd1beeb",
+      "bytes": 244,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/runs.json",
+      "path": "native-final-checkpoint/runs.json",
+      "originalSha256": "ae4c7c7b4ae2a1a4c221a7a7a1dd68962f4044890f825b0e09135a199c50f328",
+      "archivedSha256": "ae4c7c7b4ae2a1a4c221a7a7a1dd68962f4044890f825b0e09135a199c50f328",
+      "bytes": 4416,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/blank-name.json",
+      "path": "native-final-checkpoint/settings-clean/blank-name.json",
+      "originalSha256": "0a1040a672085c68e03e79ded3444eeec3526564574c8d3ca36bfbca4b7f53f9",
+      "archivedSha256": "0a1040a672085c68e03e79ded3444eeec3526564574c8d3ca36bfbca4b7f53f9",
+      "bytes": 376,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/export-file-ax.txt",
+      "path": "native-final-checkpoint/settings-clean/export-file-ax.txt",
+      "originalSha256": "71fd283ab9d85950988d0403486241a2a888a04c142e4d74ce030887abd00485",
+      "archivedSha256": "15cffdf52e1064de70804394c2be3344a266975eb73c94281e0d27ec26d667ab",
+      "bytes": 7012,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/exported-settings.json",
+      "path": "native-final-checkpoint/settings-clean/exported-settings.json",
+      "originalSha256": "7d6303be96ce66fafd125be5ac7857817fbeea2a411d5b1ac35e6d06c326e4ac",
+      "archivedSha256": "06390fb9e76517e248c61a74efd66cc054ec4fa882753f2e6c68d40ed3f3b705",
+      "bytes": 405,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/future-settings-import-ax.txt",
+      "path": "native-final-checkpoint/settings-clean/future-settings-import-ax.txt",
+      "originalSha256": "5738a8c32dc86b385d7a8fb50fc1703f081b946cd82f21fe2b7568a77845e83f",
+      "archivedSha256": "20107730f8fbf22b22d35dff59b96c3d3f7406509cf85454f72dd1f02c8c87a4",
+      "bytes": 6911,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/future-settings.json",
+      "path": "native-final-checkpoint/settings-clean/future-settings.json",
+      "originalSha256": "41c4c30f33eefbe6fed8e5142de7f0c3da5470eadef6cc27a535f1440f62784c",
+      "archivedSha256": "41c4c30f33eefbe6fed8e5142de7f0c3da5470eadef6cc27a535f1440f62784c",
+      "bytes": 406,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/invalid-settings-import-ax.txt",
+      "path": "native-final-checkpoint/settings-clean/invalid-settings-import-ax.txt",
+      "originalSha256": "cbbce4b13248faa5ddd6c3d159f0dd8751cab862128907dcf4ffb614c690756d",
+      "archivedSha256": "efc6fce4bc19182a3d67242f9da25b691d8cdcf04b8a99b156e4d8d247353008",
+      "bytes": 6920,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/invalid-settings.json",
+      "path": "native-final-checkpoint/settings-clean/invalid-settings.json",
+      "originalSha256": "bd36f725f2532bf50cde228bed06f9afb6f4e5d39bdceac27b98a4a8efa5dc2a",
+      "archivedSha256": "bd36f725f2532bf50cde228bed06f9afb6f4e5d39bdceac27b98a4a8efa5dc2a",
+      "bytes": 408,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/missing-character-import-ax.txt",
+      "path": "native-final-checkpoint/settings-clean/missing-character-import-ax.txt",
+      "originalSha256": "967b37f78cef683c19f0fe90d12c806a03a38c7a74f9f96a9cfcf6e80cc1033e",
+      "archivedSha256": "95f16230ba96bf158bd800a542729d9cdc037042cc592aaf5892146c41e5f858",
+      "bytes": 6935,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/missing-character.json",
+      "path": "native-final-checkpoint/settings-clean/missing-character.json",
+      "originalSha256": "c18ad3ecb88587372345418b506983f97bc86fcec832e118da9fd6f64f4e1251",
+      "archivedSha256": "c18ad3ecb88587372345418b506983f97bc86fcec832e118da9fd6f64f4e1251",
+      "bytes": 433,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/processes.log",
+      "path": "native-final-checkpoint/settings-clean/processes.txt",
+      "originalSha256": "f96acd6634ed80418df88d4593cef992398c8a912d9e3e271217696594a49aca",
+      "archivedSha256": "f96acd6634ed80418df88d4593cef992398c8a912d9e3e271217696594a49aca",
+      "bytes": 317,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/restore-settings-ax.txt",
+      "path": "native-final-checkpoint/settings-clean/restore-settings-ax.txt",
+      "originalSha256": "c97e51aab0d92b0e67d9c01439b01d044f0c1a154434da3333a2b390bc931246",
+      "archivedSha256": "e90a0d912d38aca32e8fb511eb865919dfe45d407430da8c021b3ca1ea958868",
+      "bytes": 6846,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/restored-settings-after-restart-ax.txt",
+      "path": "native-final-checkpoint/settings-clean/restored-settings-after-restart-ax.txt",
+      "originalSha256": "19032e0b55f79c75b2a713712268fcf489c01b9c1bf8ea2d9528f971220d0a80",
+      "archivedSha256": "ae9a2f34c8b67ca5a44fb7855f84cf378f32bf03d2511e5920807e516b1bb608",
+      "bytes": 6809,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/result.json",
+      "path": "native-final-checkpoint/settings-clean/result.json",
+      "originalSha256": "2bb652c90cb4f7528a5fbf85a5061c5b2be5a0beb0121eeb9aad382580ca8fa2",
+      "archivedSha256": "2bb652c90cb4f7528a5fbf85a5061c5b2be5a0beb0121eeb9aad382580ca8fa2",
+      "bytes": 8278,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/retry-and-explicit-blank-name-ax.txt",
+      "path": "native-final-checkpoint/settings-clean/retry-and-explicit-blank-name-ax.txt",
+      "originalSha256": "09d4786f405c20cda6eba5e3b837baad6501278f83d0377771bfaeb4e9633b6c",
+      "archivedSha256": "a11ca83aa0ef6226a94a87411ec596ef03bf683ff239217f26e8ad8c2ed5dc18",
+      "bytes": 6846,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/unwritable-preferences-ax.txt",
+      "path": "native-final-checkpoint/settings-clean/unwritable-preferences-ax.txt",
+      "originalSha256": "c08689a78c64d5c8731a96b421c81354c9b32fd43cae6d8444aac416e2abd3c3",
+      "archivedSha256": "78e82e42955256ec8346a562e84234e2ea72ffc5da7c92ece23da393a6a457dc",
+      "bytes": 6966,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/unwritable-settings.json",
+      "path": "native-final-checkpoint/settings-clean/unwritable-settings.json",
+      "originalSha256": "5c60a5faab5e456943a2df5c356f26f03e27975713b4804e6bbb354ccf2c29db",
+      "archivedSha256": "5c60a5faab5e456943a2df5c356f26f03e27975713b4804e6bbb354ccf2c29db",
+      "bytes": 394,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean/valid-import.json",
+      "path": "native-final-checkpoint/settings-clean/valid-import.json",
+      "originalSha256": "abfb95846caebfec328a075b4d637fa449f178dc51a178c0722cb71f17a6e85a",
+      "archivedSha256": "abfb95846caebfec328a075b4d637fa449f178dc51a178c0722cb71f17a6e85a",
+      "bytes": 388,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-clean.log",
+      "path": "native-final-checkpoint/settings-clean.txt",
+      "originalSha256": "cddb863e119c5c88db549ae7a7959a2f218eade1be19b793caa11227ee8d28f3",
+      "archivedSha256": "cddb863e119c5c88db549ae7a7959a2f218eade1be19b793caa11227ee8d28f3",
+      "bytes": 298,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/blank-name.json",
+      "path": "native-final-checkpoint/settings-legacy/blank-name.json",
+      "originalSha256": "0a1040a672085c68e03e79ded3444eeec3526564574c8d3ca36bfbca4b7f53f9",
+      "archivedSha256": "0a1040a672085c68e03e79ded3444eeec3526564574c8d3ca36bfbca4b7f53f9",
+      "bytes": 376,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/export-file-ax.txt",
+      "path": "native-final-checkpoint/settings-legacy/export-file-ax.txt",
+      "originalSha256": "7e3f3c282f9bc62522e499d72cadc80b36327af566fa1ff556d9841389bbdb10",
+      "archivedSha256": "c809c80a834232032f5269262f949d29ba31f2f9072d9d12d7424b3927f0dc35",
+      "bytes": 7012,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/exported-settings.json",
+      "path": "native-final-checkpoint/settings-legacy/exported-settings.json",
+      "originalSha256": "2ab3a8a8c94b5e4e44d4bb21dd629f50098f32be15a9eefd2ec2a681527ad9f8",
+      "archivedSha256": "da9fe0a678bde1c308fd874eebda75e46dd1facef62172165bb9d442ad8fe11e",
+      "bytes": 405,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/future-settings-import-ax.txt",
+      "path": "native-final-checkpoint/settings-legacy/future-settings-import-ax.txt",
+      "originalSha256": "5738a8c32dc86b385d7a8fb50fc1703f081b946cd82f21fe2b7568a77845e83f",
+      "archivedSha256": "20107730f8fbf22b22d35dff59b96c3d3f7406509cf85454f72dd1f02c8c87a4",
+      "bytes": 6911,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/future-settings.json",
+      "path": "native-final-checkpoint/settings-legacy/future-settings.json",
+      "originalSha256": "07c18af9472f842696d6450326792135d5d4fe81726cf6b9c3c25c11dbe3fd14",
+      "archivedSha256": "07c18af9472f842696d6450326792135d5d4fe81726cf6b9c3c25c11dbe3fd14",
+      "bytes": 406,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/invalid-settings-import-ax.txt",
+      "path": "native-final-checkpoint/settings-legacy/invalid-settings-import-ax.txt",
+      "originalSha256": "b222950bcaea88ef57d6512376ddba1087b9fcb3519dd85601312c1a904f3c02",
+      "archivedSha256": "ce4e9287d82c46486f033d358ebacf688160358f7e8148808bf0886db22fd2a5",
+      "bytes": 6913,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/invalid-settings.json",
+      "path": "native-final-checkpoint/settings-legacy/invalid-settings.json",
+      "originalSha256": "3a62e436e6dbe5627191b1f4d4bc19d5f037564e948cbb904228ed2dfe2744e2",
+      "archivedSha256": "3a62e436e6dbe5627191b1f4d4bc19d5f037564e948cbb904228ed2dfe2744e2",
+      "bytes": 408,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/missing-character-import-ax.txt",
+      "path": "native-final-checkpoint/settings-legacy/missing-character-import-ax.txt",
+      "originalSha256": "967b37f78cef683c19f0fe90d12c806a03a38c7a74f9f96a9cfcf6e80cc1033e",
+      "archivedSha256": "95f16230ba96bf158bd800a542729d9cdc037042cc592aaf5892146c41e5f858",
+      "bytes": 6935,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/missing-character.json",
+      "path": "native-final-checkpoint/settings-legacy/missing-character.json",
+      "originalSha256": "9fa747b85f941501eace0205a8f57401dd43a8380bf9cada87cc3e528b2b148b",
+      "archivedSha256": "9fa747b85f941501eace0205a8f57401dd43a8380bf9cada87cc3e528b2b148b",
+      "bytes": 433,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/processes.log",
+      "path": "native-final-checkpoint/settings-legacy/processes.txt",
+      "originalSha256": "6783914e62341d9d31e0c7d6148079640c6d1bcd282b6f4863271a477f61b074",
+      "archivedSha256": "6783914e62341d9d31e0c7d6148079640c6d1bcd282b6f4863271a477f61b074",
+      "bytes": 317,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/restore-settings-ax.txt",
+      "path": "native-final-checkpoint/settings-legacy/restore-settings-ax.txt",
+      "originalSha256": "c97e51aab0d92b0e67d9c01439b01d044f0c1a154434da3333a2b390bc931246",
+      "archivedSha256": "e90a0d912d38aca32e8fb511eb865919dfe45d407430da8c021b3ca1ea958868",
+      "bytes": 6846,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/restored-settings-after-restart-ax.txt",
+      "path": "native-final-checkpoint/settings-legacy/restored-settings-after-restart-ax.txt",
+      "originalSha256": "19032e0b55f79c75b2a713712268fcf489c01b9c1bf8ea2d9528f971220d0a80",
+      "archivedSha256": "ae9a2f34c8b67ca5a44fb7855f84cf378f32bf03d2511e5920807e516b1bb608",
+      "bytes": 6809,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/result.json",
+      "path": "native-final-checkpoint/settings-legacy/result.json",
+      "originalSha256": "c0b7e6ed9ef2ebc4efc9fcd74d275c681520bfda272cf987cc9faefb61bf5b17",
+      "archivedSha256": "c0b7e6ed9ef2ebc4efc9fcd74d275c681520bfda272cf987cc9faefb61bf5b17",
+      "bytes": 8620,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/retry-and-explicit-blank-name-ax.txt",
+      "path": "native-final-checkpoint/settings-legacy/retry-and-explicit-blank-name-ax.txt",
+      "originalSha256": "09d4786f405c20cda6eba5e3b837baad6501278f83d0377771bfaeb4e9633b6c",
+      "archivedSha256": "a11ca83aa0ef6226a94a87411ec596ef03bf683ff239217f26e8ad8c2ed5dc18",
+      "bytes": 6846,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/unwritable-preferences-ax.txt",
+      "path": "native-final-checkpoint/settings-legacy/unwritable-preferences-ax.txt",
+      "originalSha256": "c08689a78c64d5c8731a96b421c81354c9b32fd43cae6d8444aac416e2abd3c3",
+      "archivedSha256": "78e82e42955256ec8346a562e84234e2ea72ffc5da7c92ece23da393a6a457dc",
+      "bytes": 6966,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/unwritable-settings.json",
+      "path": "native-final-checkpoint/settings-legacy/unwritable-settings.json",
+      "originalSha256": "5c60a5faab5e456943a2df5c356f26f03e27975713b4804e6bbb354ccf2c29db",
+      "archivedSha256": "5c60a5faab5e456943a2df5c356f26f03e27975713b4804e6bbb354ccf2c29db",
+      "bytes": 394,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/valid-import.json",
+      "path": "native-final-checkpoint/settings-legacy/valid-import.json",
+      "originalSha256": "abfb95846caebfec328a075b4d637fa449f178dc51a178c0722cb71f17a6e85a",
+      "archivedSha256": "abfb95846caebfec328a075b4d637fa449f178dc51a178c0722cb71f17a6e85a",
+      "bytes": 388,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy.log",
+      "path": "native-final-checkpoint/settings-legacy.txt",
+      "originalSha256": "cddb863e119c5c88db549ae7a7959a2f218eade1be19b793caa11227ee8d28f3",
+      "archivedSha256": "cddb863e119c5c88db549ae7a7959a2f218eade1be19b793caa11227ee8d28f3",
+      "bytes": 298,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-clean/claude-long-work-closed-and-processes-exited-ax.txt",
+      "path": "native-final-checkpoint/work-clean/claude-long-work-closed-and-processes-exited-ax.txt",
+      "originalSha256": "f5b2e581ab82b093a32a29be278cfd474b56fefeb7ec3bab9bc3e24d0895e96f",
+      "archivedSha256": "7c2a7dde82644369e147881388809948d028dcb2f770fce7c338e2e1a0d297f4",
+      "bytes": 4138,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-clean/claude-readonly-work-submitted-ax.txt",
+      "path": "native-final-checkpoint/work-clean/claude-readonly-work-submitted-ax.txt",
+      "originalSha256": "2f7ffb27ea092e022a207b70066ce8e5c9235954320df9850cf57f96ea8bab1e",
+      "archivedSha256": "a2c15f28d3ac3773eafefe40d7c8c4256d55d287ab69bc71f213078d9c5b84f0",
+      "bytes": 4110,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-clean/codex-readonly-work-submitted-ax.txt",
+      "path": "native-final-checkpoint/work-clean/codex-readonly-work-submitted-ax.txt",
+      "originalSha256": "cf7b94ec732b0d99590329dbc40efbc549146219189aae6b557d5dd2cc222705",
+      "archivedSha256": "817b9b6778cfbac8ee9ec7385084c666b25840da791bc18b92658d83418a6988",
+      "bytes": 3712,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-clean/codex-turn-cancelled-ax.txt",
+      "path": "native-final-checkpoint/work-clean/codex-turn-cancelled-ax.txt",
+      "originalSha256": "6a71bacaaa41e449c1fd8af6c8da0a891f5ca8b3ad86c71ff0ef5a8af35af7d7",
+      "archivedSha256": "569aeb1a9a8556a3749799a74486835da475222222d2f62b73e6f80806c3bde3",
+      "bytes": 3713,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-clean/processes.log",
+      "path": "native-final-checkpoint/work-clean/processes.txt",
+      "originalSha256": "3023627fcca7eb1b7b9d1549d9bf1b2b9aa008a3c600bd3aad8df3c219fb969b",
+      "archivedSha256": "3023627fcca7eb1b7b9d1549d9bf1b2b9aa008a3c600bd3aad8df3c219fb969b",
+      "bytes": 458,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-clean/result.json",
+      "path": "native-final-checkpoint/work-clean/result.json",
+      "originalSha256": "4ad0100cb529827087b0ba9cc2b6edf0e8ff87abe7a34e4cda36a134d74bfa9b",
+      "archivedSha256": "4ad0100cb529827087b0ba9cc2b6edf0e8ff87abe7a34e4cda36a134d74bfa9b",
+      "bytes": 17381,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-clean.log",
+      "path": "native-final-checkpoint/work-clean.txt",
+      "originalSha256": "aa7e048163ff98972971c92215dc8fdd1b463a4a4e4f1c5e0172f186a427b017",
+      "archivedSha256": "aa7e048163ff98972971c92215dc8fdd1b463a4a4e4f1c5e0172f186a427b017",
+      "bytes": 167,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-legacy/claude-long-work-closed-and-processes-exited-ax.txt",
+      "path": "native-final-checkpoint/work-legacy/claude-long-work-closed-and-processes-exited-ax.txt",
+      "originalSha256": "f949d4e85a7d888b4cc108c258b8a1feae1de257a6c40c52b4a295c2ae52c331",
+      "archivedSha256": "0eaa6e7dd1e06552aac0b452a972a7c1c32852b50020aad08cc75cfaf71f3e3c",
+      "bytes": 4162,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-legacy/claude-readonly-work-submitted-ax.txt",
+      "path": "native-final-checkpoint/work-legacy/claude-readonly-work-submitted-ax.txt",
+      "originalSha256": "2172b50d3f76612b19558dae01255e8ccfb5eb219b2068dde43eabd317f50088",
+      "archivedSha256": "b2d8e7a48182311ed6b1e4a2db40a082db5735a69455f32837b3b6dced18afe8",
+      "bytes": 4134,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-legacy/codex-readonly-work-submitted-ax.txt",
+      "path": "native-final-checkpoint/work-legacy/codex-readonly-work-submitted-ax.txt",
+      "originalSha256": "9553641215750747fc86f263e4e02cb8cd271be80f176c4badcfd6f952f259ef",
+      "archivedSha256": "80bf94e45909eba12d0ee32a9881d31e80b35c39614279a4d4b74d45e4f0a169",
+      "bytes": 3736,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-legacy/codex-turn-cancelled-ax.txt",
+      "path": "native-final-checkpoint/work-legacy/codex-turn-cancelled-ax.txt",
+      "originalSha256": "b24e77b6d085af86f6ad8563c880d465c460c6632fb8c7659ace1c5b43b1f7da",
+      "archivedSha256": "551ed1d7c77273cfc99a389d9401654268c2856f7d1ae8c907c3f0fc9d802cea",
+      "bytes": 3737,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-legacy/processes.log",
+      "path": "native-final-checkpoint/work-legacy/processes.txt",
+      "originalSha256": "7984277dab6b861df05445d61ed7de1e5d2023c6fc2f228fd7d71a99d55461ce",
+      "archivedSha256": "7984277dab6b861df05445d61ed7de1e5d2023c6fc2f228fd7d71a99d55461ce",
+      "bytes": 458,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-legacy/result.json",
+      "path": "native-final-checkpoint/work-legacy/result.json",
+      "originalSha256": "5e2a89010ae07df09d49e08a7072c9df270ce5de1686c19288b8f015f5b956d6",
+      "archivedSha256": "5e2a89010ae07df09d49e08a7072c9df270ce5de1686c19288b8f015f5b956d6",
+      "bytes": 17882,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-checkpoint/work-legacy.log",
+      "path": "native-final-checkpoint/work-legacy.txt",
+      "originalSha256": "aa7e048163ff98972971c92215dc8fdd1b463a4a4e4f1c5e0172f186a427b017",
+      "archivedSha256": "aa7e048163ff98972971c92215dc8fdd1b463a4a4e4f1c5e0172f186a427b017",
+      "bytes": 167,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-notice-build.json",
+      "path": "native-final-notice-build.json",
+      "originalSha256": "1c6ee5c4cfa6f4e60d041aa154377326071692ea6561a336a487b4bceefc9831",
+      "archivedSha256": "1c6ee5c4cfa6f4e60d041aa154377326071692ea6561a336a487b4bceefc9831",
+      "bytes": 432,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/native-final-notice-build.log",
+      "path": "native-final-notice-build.txt",
+      "originalSha256": "05816891303fa15a2bc2fa491f2062871c3db9395aa49678072dc88f04a766f8",
+      "archivedSha256": "f9febc158a8e3ac4f992f6a88e905b461e7f15902091dc9d2ad8d2b9367f5017",
+      "bytes": 4967,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/xctest-gate-independent.json",
+      "path": "xctest-gate-independent.json",
+      "originalSha256": "58ea6f7936f1b05a1915c3b4826c11b99b63944f752117c579b79218f7347670",
+      "archivedSha256": "58ea6f7936f1b05a1915c3b4826c11b99b63944f752117c579b79218f7347670",
+      "bytes": 394,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/xctest-gate-independent.log",
+      "path": "xctest-gate-independent.txt",
+      "originalSha256": "b11d46b2aa62bccc5119bf01c8894a723e711b3772cd6883b90ea7a7f4756fa4",
+      "archivedSha256": "b11d46b2aa62bccc5119bf01c8894a723e711b3772cd6883b90ea7a7f4756fa4",
+      "bytes": 1781,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n5-final-drill-summary.json",
+      "path": "review-closeout/n5-final-drill-summary.json",
+      "originalSha256": "ae703f5823a831e7182e59b6f33e1071075837ae3a830ea0b80f9f708cfacb30",
+      "archivedSha256": "36190a003efb7e73fa32360de5835398f19e6f4eb14072524cf65f7774abd3b0",
+      "bytes": 41869,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n5-final-drill-summary.md",
+      "path": "review-closeout/n5-final-drill-summary.md",
+      "originalSha256": "c607c28c55ceea6a63cd197c4643d0650e6ca0079d641219c73b5ba7bc3d5ceb",
+      "archivedSha256": "3410222542bce2ddf58ce3e3d7616bc7bf600e9b2c5dd35c0642ef2f6f302ca8",
+      "bytes": 13729,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify.json",
+      "path": "review-closeout/n1-independent-final-verify.json",
+      "originalSha256": "3b04b482c14062769c17204031d1c390b457fc7d2988c15def0afddce3d53926",
+      "archivedSha256": "fd2b9658c420f0c2c8bdc5bfc3026c3e3d88a5cb506727492971e25e54496726",
+      "bytes": 16840,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify.md",
+      "path": "review-closeout/n1-independent-final-verify.md",
+      "originalSha256": "96ecae790399dc5c3bc8102cd8ac813504b65fcade376ebce9e10fc006b15077",
+      "archivedSha256": "8246b37c2d29c4f0cee439ab1f1b9bc4d71949a7f61d5f698cad60ad1421eabe",
+      "bytes": 6264,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/convergence-find-verify-final-map.json",
+      "path": "review-closeout/convergence-find-verify-final-map.json",
+      "originalSha256": "b7d332e52cca2f0552b07e731cfbbb31b3a76bc5d775d38942a2102b6ff6d149",
+      "archivedSha256": "40ac3f28dd73542b9f3aa875581ded3ae472a888a34d547dc1adb67de9f6783a",
+      "bytes": 164052,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/convergence-find-verify-final-map.md",
+      "path": "review-closeout/convergence-find-verify-final-map.md",
+      "originalSha256": "b0177844875869ff784277282131fd1a8ae34d0f2ca472919cddd6a2677d0d25",
+      "archivedSha256": "3588d3fa2fc354ae4e77362e885c5d2ca6349b915d0aa24f7fa87083884b897a",
+      "bytes": 53845,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/convergence-final-workflow-source-review.json",
+      "path": "review-closeout/convergence-final-workflow-source-review.json",
+      "originalSha256": "342a20624e7d522a41e325e070f02de538c8cde0004edd6e6f3f2e656f8ce40e",
+      "archivedSha256": "342a20624e7d522a41e325e070f02de538c8cde0004edd6e6f3f2e656f8ce40e",
+      "bytes": 31806,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/source-manifest.json",
+      "path": "review-closeout/n1-original-verify/source-manifest.json",
+      "originalSha256": "f631a7ddfd95ce4f3f9221d61b1b10f76105a91f25165a9542451742d4e428a5",
+      "archivedSha256": "f631a7ddfd95ce4f3f9221d61b1b10f76105a91f25165a9542451742d4e428a5",
+      "bytes": 5943,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/production.diff",
+      "path": "review-closeout/n1-original-verify/production.diff",
+      "originalSha256": "5ed194715aa9bdb71f34a20ad89f73083c4b02efd4cd43a06e621fd622c90698",
+      "archivedSha256": "a8945274c76dc9236de56b8a8b0d0ce9fcf7a3266d5f4eab2fb684ab0b98138f",
+      "bytes": 10359,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained.",
+      "archiveFormat": "JSON container with lossless original diff content"
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/baseline-all-production-source-sha256.json",
+      "path": "review-closeout/n1-original-verify/baseline-all-production-source-sha256.json",
+      "originalSha256": "2e25bfab3f546736eced3ed7865b7ec2863455257b86403c0375f9a873d43157",
+      "archivedSha256": "2e25bfab3f546736eced3ed7865b7ec2863455257b86403c0375f9a873d43157",
+      "bytes": 4006,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/current-all-production-source-sha256.json",
+      "path": "review-closeout/n1-original-verify/current-all-production-source-sha256.json",
+      "originalSha256": "f2c0ea703083479f75938beb913d11f2112b99d92d9d7f614e74e010f6f82b16",
+      "archivedSha256": "f2c0ea703083479f75938beb913d11f2112b99d92d9d7f614e74e010f6f82b16",
+      "bytes": 4386,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/independent.test.ts",
+      "path": "review-closeout/n1-original-verify/independent.test.ts",
+      "originalSha256": "5bf017b87e2d4aa49d77b4d0900f2877d7e3767baa43ad7a84b071df35f1bc8a",
+      "archivedSha256": "5bf017b87e2d4aa49d77b4d0900f2877d7e3767baa43ad7a84b071df35f1bc8a",
+      "bytes": 3022,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/independent_restore.rs",
+      "path": "review-closeout/n1-original-verify/independent_restore.rs",
+      "originalSha256": "19652d2a754691d4cd2865c21760e67cc3b4187f3974eb5d5f62f3ae99862737",
+      "archivedSha256": "19652d2a754691d4cd2865c21760e67cc3b4187f3974eb5d5f62f3ae99862737",
+      "bytes": 1624,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/run.py",
+      "path": "review-closeout/n1-original-verify/run.py",
+      "originalSha256": "226a0a5d23e2d392380ac5781ab63b1f6a8d6e8b1ffed2096654ef56d6f845dc",
+      "archivedSha256": "226a0a5d23e2d392380ac5781ab63b1f6a8d6e8b1ffed2096654ef56d6f845dc",
+      "bytes": 1224,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/runs.json",
+      "path": "review-closeout/n1-original-verify/runs.json",
+      "originalSha256": "e25c991098ffe6cade86db63c70b855de2c0b080b6becc0849b6bffd56e82826",
+      "archivedSha256": "ff548a19a7bb1675336bb88b151f7e5d0ad41bb35b6e10130e84eb1ea854f194",
+      "bytes": 2485,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/baseline/workspace-harness.diff",
+      "path": "review-closeout/n1-original-verify/baseline/workspace-harness.diff",
+      "originalSha256": "0d1065fd83d50408b342a5dff30bfca954b65f66502c68b53638917db60c4604",
+      "archivedSha256": "1ecba18c5136ad1a72e0a9870e2bc0ab81b302b649bc212297c8c2cd9b003b3a",
+      "bytes": 1463,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained.",
+      "archiveFormat": "JSON container with lossless original diff content"
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/current/workspace-harness.diff",
+      "path": "review-closeout/n1-original-verify/current/workspace-harness.diff",
+      "originalSha256": "7a90370bbbf7b22abc59ebd2b1c0ecb18ff7e88f403a6b544d5505bcfb8b030d",
+      "archivedSha256": "3739a1989aebbdf81da99824c051646efc942760de1194ffbf0b64f49e0755cb",
+      "bytes": 1462,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained.",
+      "archiveFormat": "JSON container with lossless original diff content"
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/current-rust.log",
+      "path": "review-closeout/n1-original-verify/current-rust.txt",
+      "originalSha256": "0988205920442643517a768c9f610464d238d9b9fbf6daf67d47366c7521f686",
+      "archivedSha256": "0988205920442643517a768c9f610464d238d9b9fbf6daf67d47366c7521f686",
+      "bytes": 1182,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/baseline-ts.log",
+      "path": "review-closeout/n1-original-verify/baseline-ts.txt",
+      "originalSha256": "40d5463cd9da7b022e684a5db29739a0cde497eb232499652860d11360b8d86f",
+      "archivedSha256": "8b66eb22612f23d57d0f289b0ebe38cc0b2c077f271c4c79abf7268aa8a29ef5",
+      "bytes": 4335,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/baseline-rust.log",
+      "path": "review-closeout/n1-original-verify/baseline-rust.txt",
+      "originalSha256": "1d9f31cc7016241e8de2927af6655dd2a784d4e06efd0e4af56a90afbc7adef6",
+      "archivedSha256": "1d9f31cc7016241e8de2927af6655dd2a784d4e06efd0e4af56a90afbc7adef6",
+      "bytes": 2663,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/current-ts.log",
+      "path": "review-closeout/n1-original-verify/current-ts.txt",
+      "originalSha256": "6268c1a2ab8236d2187a8d38a19a046af7ba8e72ba3df1e31c6b2764fcb3bd80",
+      "archivedSha256": "6250b6e068f04d10c9310ba95c643e5e363172e7854d0f7025773da2f5c04628",
+      "bytes": 1532,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/n1-independent-final-verify/current-rust-clean-target.log",
+      "path": "review-closeout/n1-original-verify/current-rust-clean-target.txt",
+      "originalSha256": "8c4cc7c3dfe3511aa98fe7e8bc71453d01bb387d277ad708a93d9c7b682a8f89",
+      "archivedSha256": "ccbf1a41a949ea468421c89840926fd7fe11be0d623f7e6766ca18b7252c90a2",
+      "bytes": 2007,
+      "redactions": 0,
+      "normalization": "JSON/Markdown artifact links normalized where applicable; embedded source hashes refer to original bytes Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    },
+    {
+      "original": "/tmp/adaptive-convergence-20260906/pilot-export-cleanup.json",
+      "path": "pilot-export-cleanup.json",
+      "originalSha256": "48b0acd0c8ce79bebb39e98ed53ac381d7fdb0f6718592bb82f66541d568571f",
+      "archivedSha256": "48b0acd0c8ce79bebb39e98ed53ac381d7fdb0f6718592bb82f66541d568571f",
+      "bytes": 293,
+      "redactions": 0,
+      "normalization": " Text trailing whitespace/extra EOF blank lines normalized; original digest retained."
+    }
+  ]
+}

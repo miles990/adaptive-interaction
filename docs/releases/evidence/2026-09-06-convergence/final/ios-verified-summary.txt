@@ -1,0 +1,36 @@
+Monitoring boot status for Codex convergence XCTest (BB2FEA31-FD0F-438F-ADE6-2733563E5B27).
+[2026-09-06 05:13:50 +0000] Status=2, isTerminal=NO, Elapsed=00:02.
+	Waiting on Data Migration
+		Reason:(null)
+		Migration Elapsed:00:00 seconds
+
+[2026-09-06 05:14:09 +0000] Status=2, isTerminal=NO, Elapsed=00:21.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.locationd.migrator (CoreLocationMigrator.migrator)
+		Migration Elapsed:00:18 seconds
+
+[2026-09-06 05:14:10 +0000] Status=4, isTerminal=NO, Elapsed=00:22.
+	Waiting on System App
+
+[2026-09-06 05:14:10 +0000] Status=4, isTerminal=NO, Elapsed=00:22.
+	Waiting on System App
+
+[2026-09-06 05:14:10 +0000] Status=4, isTerminal=NO, Elapsed=00:22.
+	Waiting on System App
+
+[2026-09-06 05:14:11 +0000] Status=4, isTerminal=NO, Elapsed=00:23.
+	Waiting on System App
+
+[2026-09-06 05:14:12 +0000] Status=4, isTerminal=NO, Elapsed=00:24.
+	Waiting on System App
+
+[2026-09-06 05:14:13 +0000] Status=4, isTerminal=NO, Elapsed=00:25.
+	Waiting on System App
+
+[2026-09-06 05:14:14 +0000] Status=4, isTerminal=NO, Elapsed=00:26.
+	Waiting on System App
+
+[2026-09-06 05:14:15 +0000] Status=4294967295, isTerminal=YES, Elapsed=00:27.
+	Finished
+
+{"status": "passed", "total": 163, "passed": 163, "failed": 0, "skipped": 0, "evidenceLevel": "iOS simulator XCTest"}
