@@ -1,0 +1,82 @@
+[
+  {
+    "phase": "baseline",
+    "language": "ts",
+    "cwd": "/tmp/n1-independent-final-verify/baseline/apps/interaction-desktop",
+    "command": [
+      "node",
+      "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/vitest/vitest.mjs",
+      "run",
+      "--config",
+      "vitest.independent.config.ts"
+    ],
+    "exitCode": 1,
+    "wallSeconds": 0.511,
+    "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-ts.txt",
+    "CARGO_TARGET_DIR": "/tmp/n1-independent-final-verify/target",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "4"
+  },
+  {
+    "phase": "baseline",
+    "language": "rust",
+    "cwd": "/tmp/n1-independent-final-verify/baseline",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "-p",
+      "interaction-session",
+      "--test",
+      "independent_restore",
+      "--",
+      "--nocapture"
+    ],
+    "exitCode": 101,
+    "wallSeconds": 10.86,
+    "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/baseline-rust.txt",
+    "CARGO_TARGET_DIR": "/tmp/n1-independent-final-verify/target",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "4"
+  },
+  {
+    "phase": "current",
+    "language": "ts",
+    "cwd": "/tmp/n1-independent-final-verify/current/apps/interaction-desktop",
+    "command": [
+      "node",
+      "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/vitest/vitest.mjs",
+      "run",
+      "--config",
+      "vitest.independent.config.ts"
+    ],
+    "exitCode": 0,
+    "wallSeconds": 0.478,
+    "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-ts.txt",
+    "CARGO_TARGET_DIR": "/tmp/n1-independent-final-verify/target",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "4"
+  },
+  {
+    "phase": "current",
+    "language": "rust",
+    "cwd": "/tmp/n1-independent-final-verify/current",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "-p",
+      "interaction-session",
+      "--test",
+      "independent_restore",
+      "--",
+      "--nocapture"
+    ],
+    "exitCode": 101,
+    "wallSeconds": 0.081,
+    "log": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/n1-original-verify/current-rust.txt",
+    "CARGO_TARGET_DIR": "/tmp/n1-independent-final-verify/target",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "4"
+  }
+]

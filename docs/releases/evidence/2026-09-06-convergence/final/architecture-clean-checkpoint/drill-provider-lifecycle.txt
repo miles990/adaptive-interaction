@@ -1,0 +1,1 @@
+{"status": "completed", "evidence": "/private/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/provider-lifecycle", "elapsedSeconds": 2.483}

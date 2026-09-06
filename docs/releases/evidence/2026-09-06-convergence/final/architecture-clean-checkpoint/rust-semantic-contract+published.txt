@@ -1,0 +1,38 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/semantic_contract.rs (target/debug/deps/semantic_contract-736d169a6b103e97)
+
+running 5 tests
+test authoritative_restore_rejects_explicit_null_before_it_can_be_discarded ... ok
+test schema_never_turns_an_absent_optional_into_a_present_null ... ok
+test shared_merge_results_validate_before_atomic_adoption ... ok
+test published_v070_corpus_is_immutable_and_still_compatible ... ok
+test shared_consumer_states_and_authoritative_restore_policies ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/state_hash_fixtures.rs (target/debug/deps/state_hash_fixtures-f5b446704b68f21e)
+
+running 8 tests
+test negative_zero_intensity_has_a_deterministic_canonical_text ... ok
+test double_paths_are_derived_through_maps_and_tuples ... ok
+test map_shaped_fields_are_covered_by_the_keys_that_actually_appear ... ok
+test a_schema_too_deep_to_walk_panics_instead_of_skipping_silently - should panic ... ok
+test no_fixture_state_or_canonical_text_contains_null ... ok
+test a_new_optional_state_field_would_be_reported_as_uncovered ... ok
+test every_semantic_state_field_appears_in_at_least_one_state_hash_fixture ... ok
+test state_hash_fixtures_are_what_the_host_writes ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/state_semantics.rs (target/debug/deps/state_semantics-811d6f3ac3be3883)
+
+running 7 tests
+test mood_normalizes_negative_zero_to_positive_zero ... ok
+test fresh_state_writes_intensity_as_zero_point_zero ... ok
+test restore_rejects_a_sign_negative_zero_intensity ... ok
+test restore_accepts_the_same_snapshot_with_positive_zero ... ok
+test state_patch_fixture_chains_from_the_snapshot_fixture ... ok
+test semantic_state_never_serializes_a_null ... ok
+test state_snapshot_fixture_is_what_the_host_writes ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

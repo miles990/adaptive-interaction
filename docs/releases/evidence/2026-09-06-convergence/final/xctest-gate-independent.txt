@@ -1,0 +1,19 @@
+test_crlf_summary_is_accepted (__main__.XCTestResultTests.test_crlf_summary_is_accepted) ... ok
+test_expected_complete_suite_passes (__main__.XCTestResultTests.test_expected_complete_suite_passes) ... ok
+test_explicit_count_allows_another_deliberate_cohort (__main__.XCTestResultTests.test_explicit_count_allows_another_deliberate_cohort) ... ok
+test_failed_case_after_success_is_rejected (__main__.XCTestResultTests.test_failed_case_after_success_is_rejected) ... ok
+test_latest_complete_suite_is_the_one_counted (__main__.XCTestResultTests.test_latest_complete_suite_is_the_one_counted) ... ok
+test_missing_or_truncated_summary_is_not_a_pass (__main__.XCTestResultTests.test_missing_or_truncated_summary_is_not_a_pass) ... ok
+test_missing_tests_are_not_a_pass (__main__.XCTestResultTests.test_missing_tests_are_not_a_pass) ... ok
+test_new_failed_suite_cannot_reuse_an_earlier_pass (__main__.XCTestResultTests.test_new_failed_suite_cannot_reuse_an_earlier_pass) ... ok
+test_new_unfinished_suite_cannot_reuse_an_earlier_pass (__main__.XCTestResultTests.test_new_unfinished_suite_cannot_reuse_an_earlier_pass) ... ok
+test_reported_failure_is_not_a_pass (__main__.XCTestResultTests.test_reported_failure_is_not_a_pass) ... ok
+test_skip_after_success_is_rejected (__main__.XCTestResultTests.test_skip_after_success_is_rejected) ... ok
+test_summary_with_a_skipped_test_is_rejected (__main__.XCTestResultTests.test_summary_with_a_skipped_test_is_rejected) ... ok
+test_zero_executed_tests_are_not_a_pass (__main__.XCTestResultTests.test_zero_executed_tests_are_not_a_pass) ... ok
+test_zero_expected_count_is_invalid (__main__.XCTestResultTests.test_zero_expected_count_is_invalid) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.535s
+
+OK

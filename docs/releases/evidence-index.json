@@ -183,7 +183,7 @@
       "id": "semantic-recovery-convergence",
       "branch": "feature/semantic-recovery-convergence",
       "baseCommit": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
-      "status": "implementation-review-and-native-validation",
+      "status": "engineering-tests-passed-performance-and-release-pending",
       "implementationCommit": "30ff852f5d893215c019d982774c8b59ab010659",
       "docs": {
         "progress": "docs/releases/next-convergence-progress.md",
@@ -191,15 +191,19 @@
         "settingsContract": "docs/aip/settings-recovery.md",
         "semanticContract": "docs/aip/semantic-state.md",
         "finalReport": "docs/releases/v0.8.0-final-report.md",
-        "drills": "docs/releases/v0.8.0-drills.md"
+        "drills": "docs/releases/v0.8.0-drills.md",
+        "testMatrix": "docs/releases/v0.8.0-test-matrix.md",
+        "generalModeTasks": "docs/releases/v0.8.0-general-mode-tasks.md",
+        "review": "docs/releases/evidence/2026-09-06-convergence/final/review-closeout/convergence-find-verify-final-map.md"
       },
       "note": "Midpoint logs are from an uncommitted worktree; baseCommit is not a claim that the changes existed at that commit. Final clean candidate validation and release facts remain pending.",
       "versionPolicy": "0.8.0 minor：新增向後相容的協商 applied profile、SemanticState consumer 契約、持久化停止／設定恢復能力；AIP1.0與snapshot1不變。尚未release-prepare或tag。",
       "progress": "docs/releases/next-convergence-progress.md",
-      "latestCheckpoint": "a32258ea161df537f2ad6c1f25cd70d86910d0da",
+      "latestCheckpoint": "3b375bde4188e4a039852881d48d82ea9b619ce1",
       "notes": [
-        "Implementation checkpoint committed; later harness and review changes remain in working tree. Full Browser and final clean-checkout drills/performance/release are still pending; do not equate midpoint test HEAD with dirty source."
-      ]
+        "N1 original baseline defects independently reproduced and fixed. Clean N5 drills and native clean/legacy engineering tasks passed. Human unlock and real-device/human studies remain explicitly not-run under the existing release policy. Exact release/main/CI/tag/asset facts are recorded only after execution."
+      ],
+      "productSourceCommit": "87b0d03173cdefce68bad2403b7f76be59b738e1"
     }
   ]
 }

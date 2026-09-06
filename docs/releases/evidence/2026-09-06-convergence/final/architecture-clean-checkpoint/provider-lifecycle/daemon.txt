@@ -1,0 +1,15 @@
+[2m2026-09-06T05:57:19.855788Z[0m [33m WARN[0m [2minteraction_adapter_declarative[0m[2m:[0m button: pairingCode 是寫在 adapter spec 裡的明文憑證；請改成 secret://<name>（環境變數 INTERACT_AI_SECRET_<NAME> 或 state/secrets.json） [3madapter[0m[2m=[0mbutton-box
+interact-ai daemon listening on http://127.0.0.1:50883
+human token file: /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/provider-drill-6gcabcdc/home/state/api-token
+restricted agent token file: /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/provider-drill-6gcabcdc/home/state/api-agent-token
+press Ctrl-C to stop
+[2m2026-09-06T05:57:20.078759Z[0m [33m WARN[0m [2minteraction_adapter_declarative[0m[2m:[0m button: pairingCode 是寫在 adapter spec 裡的明文憑證；請改成 secret://<name>（環境變數 INTERACT_AI_SECRET_<NAME> 或 state/secrets.json） [3madapter[0m[2m=[0mbutton-box
+[2m2026-09-06T05:57:20.079585Z[0m [33m WARN[0m [2minteraction_adapter_declarative::protocol[0m[2m:[0m device did not ask for pairing (hello.pairing=false) and this link has never seen it compare the code: it may have no pairing code at all, or this channel may already be paired — either way the configured code is not proven to have been compared, so this handshake is identity evidence only (deviceId is self-reported) [3mdevice[0m[2m=[0mbutton-box-01
+[2m2026-09-06T05:57:20.365783Z[0m [33m WARN[0m [2minteraction_adapter_declarative[0m[2m:[0m button: pairingCode 是寫在 adapter spec 裡的明文憑證；請改成 secret://<name>（環境變數 INTERACT_AI_SECRET_<NAME> 或 state/secrets.json） [3madapter[0m[2m=[0mbutton-box
+[2m2026-09-06T05:57:20.366421Z[0m [33m WARN[0m [2minteraction_adapter_declarative::protocol[0m[2m:[0m device did not ask for pairing (hello.pairing=false) and this link has never seen it compare the code: it may have no pairing code at all, or this channel may already be paired — either way the configured code is not proven to have been compared, so this handshake is identity evidence only (deviceId is self-reported) [3mdevice[0m[2m=[0mbutton-box-01
+[2m2026-09-06T05:57:20.650623Z[0m [33m WARN[0m [2minteraction_runtime::lock[0m[2m:[0m reclaiming stale instance lock [3mpid[0m[2m=[0m89608
+[2m2026-09-06T05:57:20.715036Z[0m [33m WARN[0m [2minteraction_adapter_declarative[0m[2m:[0m button: pairingCode 是寫在 adapter spec 裡的明文憑證；請改成 secret://<name>（環境變數 INTERACT_AI_SECRET_<NAME> 或 state/secrets.json） [3madapter[0m[2m=[0mbutton-box
+interact-ai daemon listening on http://127.0.0.1:50883
+human token file: /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/provider-drill-6gcabcdc/home/state/api-token
+restricted agent token file: /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/provider-drill-6gcabcdc/home/state/api-agent-token
+press Ctrl-C to stop

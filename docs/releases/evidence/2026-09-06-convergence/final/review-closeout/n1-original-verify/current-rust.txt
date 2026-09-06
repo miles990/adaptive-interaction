@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running tests/independent_restore.rs (/tmp/n1-independent-final-verify/target/debug/deps/independent_restore-d50fe41913ff93f8)
+
+running 3 tests
+test complete_snapshot_positive_control ... ok
+test unknown_authoritative_field_negative_control ... ok
+RESTORED_INVALID_NULL input_hash=b71af6e643f9fa4eae5d76a1ce2c384bd2b93d592aec16ecab1716d880a1a1d5 output_hash=20d3f4ce24e4876b4fa80ed930604b391e04477d3097fc80c38269699724d661 input_has_null=true output_has_field=false
+
+thread 'independent_hash_consistent_raw_null_must_not_restore' (6225585) panicked at crates/interaction-session/tests/independent_restore.rs:25:2:
+raw explicit null was accepted by the authoritative production restore path
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test independent_hash_consistent_raw_null_must_not_restore ... FAILED
+
+failures:
+
+failures:
+    independent_hash_consistent_raw_null_must_not_restore
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p interaction-session --test independent_restore`

@@ -1,0 +1,10 @@
+refused completed
+lost-reply completed
+readback-failed completed
+crash-before-runtime completed
+crash-after-runtime completed
+cleanup-failed completed
+newer-choice completed
+unrelated-prefs completed
+future-marker completed
+reconnect completed

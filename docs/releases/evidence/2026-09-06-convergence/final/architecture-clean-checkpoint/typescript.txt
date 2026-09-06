@@ -1,0 +1,18 @@
+
+ RUN  v2.1.9 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+
+ ✓ src/test/canonical-hash.test.ts (24 tests) 47ms
+ ✓ src/test/semantic-state-contract.test.ts (54 tests) 22ms
+ ✓ src/test/receive-decision-fixtures.test.ts (47 tests) 35ms
+ ✓ src/test/state-applied-projection.test.ts (4 tests) 3ms
+ ✓ src/test/architecture-no-entrypoint-switch.test.ts (17 tests) 31ms
+ ✓ src/test/overlay.test.tsx (15 tests) 103ms
+ ✓ src/test/general-mode-no-technical-terms.test.tsx (9 tests) 126ms
+ ✓ src/test/adapter-contract.test.ts (33 tests) 47ms
+ ✓ src/test/unresolvedStops.test.tsx (17 tests) 221ms
+ ✓ src/test/regressions-v06-general-mode.test.tsx (10 tests) 32ms
+
+ Test Files  10 passed (10)
+      Tests  230 passed (230)
+   Start at  13:55:16
+   Duration  2.06s (transform 1.08s, setup 1.91s, collect 2.07s, tests 665ms, environment 5.92s, prepare 863ms)

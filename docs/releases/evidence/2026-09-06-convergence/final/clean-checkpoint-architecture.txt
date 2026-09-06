@@ -1,0 +1,51 @@
+architecture-checks @ /Users/user/Workspace/claude-lab/adaptive-interaction
+完整輸出：/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint
+
+── docs ────────────────────────────────────────────────
+  ✔ scripts/tests/docs-claims.sh — docs-claims: 172 passed / 0 failed
+  ✔ scripts/tests/release-scripts.sh — release-scripts: 58 passed / 0 failed
+
+── ts ──────────────────────────────────────────────────
+  ✔ vitest（10 檔）—  Test Files  10 passed (10)       Tests  230 passed (230)
+
+── rust ────────────────────────────────────────────────
+  ✔ core-boundaries — test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+  ✔ schema-drift(golden) — test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+  ✔ schema-drift(aip) — test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  ✔ receive-decisions — test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+  ✔ semantic-contract+published — test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  ✔ state-applied-bounds — test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.01s
+  ✔ snapshot-migration+adapter-lifecycle — test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.46s test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.33s
+  ✔ stop-paths — test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.48s
+
+── drill-lint ──────────────────────────────────────────────
+  ✔ scripts/drills/provider-disable-reenable.sh — bash -n 通過，引用的檔案與端點都在（未實跑）
+  ✔ scripts/drills/remove-package-keep-user-data.sh — bash -n 通過，引用的檔案與端點都在（未實跑）
+  ✔ node --check scripts/drills/character-package.mjs（未實跑）
+  ✔ node --check scripts/drills/optional-state.mjs（未實跑）
+  ✔ Python syntax scripts/drills/provider-lifecycle.py（未實跑）
+  ✔ Python syntax scripts/drills/restricted-device.py（未實跑）
+
+── swift（native 純模型；不是 iOS simulator 或真機）──────
+  RUN swift-native — /tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/swift-native.log
+  swift-native: exit=0 elapsed=30s
+  Swift native semantic conformance: 58 passed, 0 failed
+── drills（production 路徑＋模擬器／隔離樹）───────────────
+  RUN drill-character-package — /tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/drill-character-package.log
+  drill-character-package: exit=0 elapsed=28s
+  RUN drill-restricted-device — /tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/drill-restricted-device.log
+  drill-restricted-device: exit=0 elapsed=5s
+  RUN drill-current-cli — /tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/drill-current-cli.log
+  drill-current-cli: exit=0 elapsed=0s
+  RUN drill-provider-lifecycle — /tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/drill-provider-lifecycle.log
+  drill-provider-lifecycle: exit=0 elapsed=2s
+  RUN drill-optional-state — /tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/drill-optional-state.log
+  drill-optional-state: exit=0 elapsed=62s
+── 摘要 ────────────────────────────────────────────────
+  docs       PASS  docs-claims.sh:docs-claims: 172 passed / 0 failed release-scripts.sh:release-scripts: 58 passed / 0 failed
+  ts         PASS  Test Files  10 passed (10)       Tests  230 passed (230)
+  rust       PASS  core-boundaries:test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s  schema-drift(golden):test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s  schema-drift(aip):test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s  receive-decisions:test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s  semantic-contract+published:test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s  state-applied-bounds:test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.01s  snapshot-migration+adapter-lifecycle:test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.46s test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.33s  stop-paths:test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.48s
+  drill-lint PASS 6 支腳本靜態檢查通過（未實跑）: provider-disable-reenable.sh:ok remove-package-keep-user-data.sh:ok
+  swift      PASS Swift native semantic conformance: 58 passed, 0 failed；native macOS 純模型，iOS XCTest 不在本組
+  drills     PASS 四個 runner 實跑，覆蓋五項 N5 演練；per-run 日誌與資料保留結果在 /tmp/adaptive-convergence-20260906/architecture-clean-checkpoint
+architecture-checks: 所選組全部通過；0 組未選取（不是通過）；證據 /tmp/adaptive-convergence-20260906/architecture-clean-checkpoint

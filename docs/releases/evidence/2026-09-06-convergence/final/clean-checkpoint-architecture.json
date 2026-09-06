@@ -1,0 +1,26 @@
+{
+  "name": "clean-checkpoint-architecture",
+  "sha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "scripts/tests/architecture-checks.sh",
+    "--docs",
+    "--ts",
+    "--rust",
+    "--swift",
+    "--drill-lint",
+    "--drills",
+    "--evidence-dir",
+    "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint"
+  ],
+  "exit": 0,
+  "durationSeconds": 190.36,
+  "rustCounts": [
+    466,
+    0,
+    0
+  ],
+  "testBinaries": 36,
+  "log": "/tmp/adaptive-convergence-20260906/clean-checkpoint-architecture.log"
+}

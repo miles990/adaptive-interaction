@@ -1,0 +1,14 @@
+{
+  "name": "xctest-gate-independent",
+  "sha": "a32258ea161df537f2ad6c1f25cd70d86910d0da",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "python3",
+    "scripts/tests/test_xctest_result.py"
+  ],
+  "exit": 0,
+  "durationSeconds": 0.59,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "/tmp/adaptive-convergence-20260906/xctest-gate-independent.log"
+}

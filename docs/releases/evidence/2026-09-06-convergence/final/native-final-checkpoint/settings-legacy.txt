@@ -1,0 +1,8 @@
+export-file completed
+restore-settings completed
+restored-settings-after-restart completed
+missing-character-import correctly-blocked
+future-settings-import correctly-blocked
+invalid-settings-import correctly-blocked
+unwritable-preferences correctly-blocked
+retry-and-explicit-blank-name completed

@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/golden.rs (target/debug/deps/golden-09a3d1fe6b039d1c)
+
+running 8 tests
+test scenario_k_no_mcp_dependency ... ok
+test versions_are_in_sync ... ok
+test golden_semantic_state_schema ... ok
+test golden_aip_schema ... ok
+test golden_recipe_schema ... ok
+test golden_character_protocol_schema ... ok
+test scenario_j_cross_platform_consistency ... ok
+test golden_tool_exports ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s

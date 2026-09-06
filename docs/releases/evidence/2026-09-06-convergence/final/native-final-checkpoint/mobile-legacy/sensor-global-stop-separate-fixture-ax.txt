@@ -1,0 +1,83 @@
+AXGroup: group
+AXGroup: group
+AXScrollArea:
+AXWebArea: Interaction Control Center
+AXLink: 跳到主要內容
+AXStaticText: 跳到主要內容
+AXGroup:
+AXGroup:
+AXStaticText: Interaction
+AXGroup:
+AXStaticText: Control Center
+AXGroup: 主要導覽
+AXButton: 現在
+AXButton: 文字角色
+AXButton: 工作
+AXButton: 連接與權限
+AXButton: 更多
+AXStaticText: 運作中
+AXGroup:
+AXStaticText: 連線到外部系統
+AXGroup:
+AXGroup:
+AXGroup:
+AXStaticText: 現在
+AXButton: 全域搜尋與指令（Cmd+K）
+AXButton: 通知中心，1 項待決定
+AXButton: 緊急停止
+AXGroup:
+AXStaticText: 感測使用中：麥克風
+AXStaticText: （由
+AXStaticText: 你的 iPhone
+AXStaticText: 啟動・
+AXStaticText: iPhone 麥克風音量：停止結果未知（iPhone 未回覆，可能仍在擷取）
+AXStaticText: ・狀態未確認
+AXStaticText: ）
+AXButton: 立即停止
+AXGroup:
+AXStaticText: 有 1 筆感測停止沒有人確認，保存狀態也需要檢查
+AXStaticText: ，到「連接與權限」逐筆看。
+AXButton: 前往查看
+AXStaticText: 文字角色
+AXGroup:
+AXStaticText: 文字角色已連線，但目前隱藏中。感測使用中（麥克風）。
+AXButton: 前往文字角色
+AXStaticText: 進行中的工作
+AXStaticText: 沒有進行中
+AXButton: 查看工作
+AXStaticText: 待我決定
+AXStaticText: 1 項
+AXGroup:
+AXGroup:
+AXStaticText: 停止結果不確定
+AXStaticText: 感測停止結果不確定：模擬 iPhone（fixture）
+AXButton: 前往
+AXButton: 查看全部
+AXHeading: 快速操作
+AXStaticText: 快速操作
+AXGroup:
+AXGroup:
+AXGroup:
+AXStaticText: 想讓
+AXStaticText: 文字角色
+AXStaticText: 幫你做什麼？
+AXTextField: 想讓 文字角色 幫你做什麼？
+AXGroup:
+AXButton: 交代一件事
+AXGroup: 暫停或恢復主動互動
+AXButton: 暫停主動互動
+AXButton: 暫停一段時間…
+AXButton: 加入裝置
+AXButton: 停止所有感測
+AXButton: 緊急停止
+AXGroup:
+AXStaticText: 已要求停止，但仍在使用中：麥克風。手機上的感測要在手機上停止，或到「連接與權限」撤銷那台裝置。
+AXGroup:
+AXDisclosureTriangle: 詳細狀態
+AXStaticText: 詳細狀態
+AXButton: close button
+AXButton: full screen button
+AXGroup: group
+AXGroup: group
+AXButton: minimize button
+AXStaticText: Interaction Control Center

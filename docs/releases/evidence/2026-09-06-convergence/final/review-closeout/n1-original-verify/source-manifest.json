@@ -1,0 +1,126 @@
+{
+  "baseline": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+  "currentSourceCommit": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+  "root": "/tmp/n1-independent-final-verify",
+  "preparedAtUnix": 1788674801.4197052,
+  "sourceFiles": [
+    {
+      "tree": "baseline",
+      "path": "apps/interaction-desktop/src/aip/sessionClient.ts",
+      "sha256": "3935b6ce2e529c964dd84c11e1655bb5760629fe15ea4c8e3a84faaae619f1ce",
+      "origin": "git show 622c8bf70963e343e51f92f5ecdf7fce4b37f516:apps/interaction-desktop/src/aip/sessionClient.ts",
+      "unchangedFromCommit": true
+    },
+    {
+      "tree": "baseline",
+      "path": "apps/interaction-desktop/src/aip/canonical.ts",
+      "sha256": "7d75e5f91317fb31c1b18dd4e9573f143f26ad589d07b3bdf1edb5e5bded9a5b",
+      "origin": "git show 622c8bf70963e343e51f92f5ecdf7fce4b37f516:apps/interaction-desktop/src/aip/canonical.ts",
+      "unchangedFromCommit": true
+    },
+    {
+      "tree": "baseline",
+      "path": "apps/interaction-desktop/src/aip/envelope.ts",
+      "sha256": "c74f830629ca40c8a2984be7d31ba3b1d018ffa6ea9030974d529a81d06854f0",
+      "origin": "git show 622c8bf70963e343e51f92f5ecdf7fce4b37f516:apps/interaction-desktop/src/aip/envelope.ts",
+      "unchangedFromCommit": true
+    },
+    {
+      "tree": "baseline",
+      "path": "crates/interaction-session/src/session.rs",
+      "sha256": "c900fa2361adc0d588353307ded9d55a057c37cb90e08c31f37d058619184351",
+      "origin": "git show 622c8bf70963e343e51f92f5ecdf7fce4b37f516:crates/interaction-session/src/session.rs",
+      "unchangedFromCommit": true
+    },
+    {
+      "tree": "baseline",
+      "path": "crates/interaction-session/src/state.rs",
+      "sha256": "1fa14748680841b8646d68d758e925a39bd836aae00376b2e285514d5c62d608",
+      "origin": "git show 622c8bf70963e343e51f92f5ecdf7fce4b37f516:crates/interaction-session/src/state.rs",
+      "unchangedFromCommit": true
+    },
+    {
+      "tree": "current",
+      "path": "apps/interaction-desktop/src/aip/sessionClient.ts",
+      "sha256": "54449e7239c64970df642679902a3580050bde512665b04e526ff97d7b7e4ed0",
+      "origin": "git show 3b375bde4188e4a039852881d48d82ea9b619ce1:apps/interaction-desktop/src/aip/sessionClient.ts",
+      "unchangedFromCommit": true
+    },
+    {
+      "tree": "current",
+      "path": "apps/interaction-desktop/src/aip/canonical.ts",
+      "sha256": "2574622f014011113ab3a07ded47e57e464a0e5d518c2dad8bab0a90f6024b56",
+      "origin": "git show 3b375bde4188e4a039852881d48d82ea9b619ce1:apps/interaction-desktop/src/aip/canonical.ts",
+      "unchangedFromCommit": true
+    },
+    {
+      "tree": "current",
+      "path": "apps/interaction-desktop/src/aip/envelope.ts",
+      "sha256": "5107de9b28ac292e321d27203e373af061c5d6155376c6278ab4e1c5b8a05f6a",
+      "origin": "git show 3b375bde4188e4a039852881d48d82ea9b619ce1:apps/interaction-desktop/src/aip/envelope.ts",
+      "unchangedFromCommit": true
+    },
+    {
+      "tree": "current",
+      "path": "crates/interaction-session/src/session.rs",
+      "sha256": "c59c1f0d656bee0d59c086731be63589f41a05e1b32bcd0189c82582b49fdfbb",
+      "origin": "git show 3b375bde4188e4a039852881d48d82ea9b619ce1:crates/interaction-session/src/session.rs",
+      "unchangedFromCommit": true
+    },
+    {
+      "tree": "current",
+      "path": "crates/interaction-session/src/state.rs",
+      "sha256": "1fa14748680841b8646d68d758e925a39bd836aae00376b2e285514d5c62d608",
+      "origin": "git show 3b375bde4188e4a039852881d48d82ea9b619ce1:crates/interaction-session/src/state.rs",
+      "unchangedFromCommit": true
+    },
+    {
+      "tree": "baseline",
+      "path": "docs/aip/character-session.md",
+      "sha256": "dcb2cee850849abfedf6e8ffbafe4cf78f8fe6f64dd0df4cfb8ddeb011aba6bd",
+      "origin": "git show 622c8bf70963e343e51f92f5ecdf7fce4b37f516:docs/aip/character-session.md",
+      "unchangedFromCommit": true,
+      "purpose": "independent contract/upstream refutation read"
+    },
+    {
+      "tree": "baseline",
+      "path": "apps/interaction-desktop/src/components/CharacterSyncCard.tsx",
+      "sha256": "ef1b11c3a82d0591580f904f99129e5fe8eb0d0e8da2714f09c2fbe4bd8ce17d",
+      "origin": "git show 622c8bf70963e343e51f92f5ecdf7fce4b37f516:apps/interaction-desktop/src/components/CharacterSyncCard.tsx",
+      "unchangedFromCommit": true,
+      "purpose": "independent contract/upstream refutation read"
+    },
+    {
+      "tree": "baseline",
+      "path": "apps/interaction-desktop/src/transport.ts",
+      "sha256": "780e8dbd6f266c99b0dfffcd624b6060855ff428bf625bf70d4e24b2001aaa6b",
+      "origin": "git show 622c8bf70963e343e51f92f5ecdf7fce4b37f516:apps/interaction-desktop/src/transport.ts",
+      "unchangedFromCommit": true,
+      "purpose": "independent contract/upstream refutation read"
+    },
+    {
+      "tree": "current",
+      "path": "docs/aip/character-session.md",
+      "sha256": "0c287aeddec149355233e5130d65309d29903d718bba5736e824e38bc0adde63",
+      "origin": "git show 3b375bde4188e4a039852881d48d82ea9b619ce1:docs/aip/character-session.md",
+      "unchangedFromCommit": true,
+      "purpose": "independent contract/upstream refutation read"
+    },
+    {
+      "tree": "current",
+      "path": "apps/interaction-desktop/src/components/CharacterSyncCard.tsx",
+      "sha256": "e45b6031391f63b04853079aadc3531b9269500dd6e3fc703134e6f4ec2d6cb4",
+      "origin": "git show 3b375bde4188e4a039852881d48d82ea9b619ce1:apps/interaction-desktop/src/components/CharacterSyncCard.tsx",
+      "unchangedFromCommit": true,
+      "purpose": "independent contract/upstream refutation read"
+    },
+    {
+      "tree": "current",
+      "path": "apps/interaction-desktop/src/transport.ts",
+      "sha256": "07661b55e9a0afc90f5f55dadf0803ff7147255a40d834761de4603793780f81",
+      "origin": "git show 3b375bde4188e4a039852881d48d82ea9b619ce1:apps/interaction-desktop/src/transport.ts",
+      "unchangedFromCommit": true,
+      "purpose": "independent contract/upstream refutation read"
+    }
+  ]
+}

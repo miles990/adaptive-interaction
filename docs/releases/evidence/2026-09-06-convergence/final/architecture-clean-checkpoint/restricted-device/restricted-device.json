@@ -1,0 +1,100 @@
+{
+  "evidenceLevel": "production-adapter+pty-simulator",
+  "sourceSha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+  "dirty": false,
+  "contract": "device wire v1.3 optional aip.applied/1; legacy v1.x preserved; AIP 1.0 unchanged",
+  "changeReason": "Reusable spec templates and production paths replace unpublished scratch branches; no core transport/device special case is added.",
+  "productionPath": "Runtime.register_declarative_spec -> DeviceBinding -> DeviceLink -> SerialLink -> pty receiver -> bound receipt -> CharacterSession diagnostics",
+  "dataRetention": "Each run uses only its own temporary Runtime and provider IDs; no user preference, consent or package directory is loaded or rewritten.",
+  "modules": [
+    "examples/device-profiles/state-applied-serial.template.json",
+    "DeviceLink",
+    "DeviceBinding",
+    "StateAppliedTracker"
+  ],
+  "humanDecisions": [
+    "Use a simulator, not a board",
+    "Simulator explicitly opts into receipt support; firmware does not"
+  ],
+  "background": [
+    "AIP capability versus progress",
+    "Semantic schema/hash and receipt context",
+    "639-byte UTF-8 serial frame bound"
+  ],
+  "recovery": "Each fixture owns its Runtime tempdir/provider ID/pty process; disable/rebind preserves user choices and uses a new transfer context.",
+  "results": [
+    {
+      "command": [
+        "python3",
+        "scripts/tests/aip-applied-receiver.py"
+      ],
+      "seconds": 0.057,
+      "exitCode": 0,
+      "log": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/restricted-device/1.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-runtime",
+        "--test",
+        "declarative_session_loop",
+        "negotiated_state_applied_tracks_snapshot_patch_loss_rebind_and_stale_receipts",
+        "--",
+        "--exact"
+      ],
+      "seconds": 3.205,
+      "exitCode": 0,
+      "log": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/restricted-device/2.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-runtime",
+        "--test",
+        "declarative_session_loop",
+        "legacy_fragmenting_devices_remain_unconfirmed_after_all_writes_succeed",
+        "--",
+        "--exact"
+      ],
+      "seconds": 0.493,
+      "exitCode": 0,
+      "log": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/restricted-device/3.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-runtime",
+        "--test",
+        "declarative_session_loop",
+        "a_device_without_fragmentation_degrades_to_intent_only",
+        "--",
+        "--exact"
+      ],
+      "seconds": 0.493,
+      "exitCode": 0,
+      "log": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/restricted-device/4.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "interaction-runtime",
+        "--test",
+        "declarative_session_loop",
+        "an_event_only_device_is_an_event_source_member",
+        "--",
+        "--exact"
+      ],
+      "seconds": 0.604,
+      "exitCode": 0,
+      "log": "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/restricted-device/5.log"
+    }
+  ]
+}

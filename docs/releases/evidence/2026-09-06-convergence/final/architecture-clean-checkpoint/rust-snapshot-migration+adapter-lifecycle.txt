@@ -1,0 +1,81 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.29s
+     Running tests/character_session_loop.rs (target/debug/deps/character_session_loop-ac161d1f897f2cac)
+
+running 36 tests
+test a_future_format_snapshot_is_kept_untouched ... ok
+test a_snapshot_from_before_unsupported_intents_is_migrated_instead_of_quarantined ... ok
+test a_truncated_snapshot_is_quarantined_with_a_new_epoch ... ok
+test a_v0_6_0_snapshot_is_restored_and_migrated_to_the_current_format ... ok
+test a_superseded_transport_does_not_mark_the_session_member_offline ... ok
+test a_snapshot_that_moves_a_member_backwards_says_it_is_a_recovery ... ok
+test a_capability_announcement_cannot_declare_unbounded_names ... ok
+test a_phone_that_only_touches_is_never_timed_out_of_the_session ... ok
+test character_session_fixtures_are_what_this_version_writes ... ok
+test concurrent_persists_leave_the_highest_revision_on_disk ... ok
+test a_forged_frame_never_echoes_unbounded_attacker_text ... ok
+test a_first_capability_frame_for_another_session_cannot_join ... ok
+test a_disconnected_member_is_reconnecting_before_it_is_offline ... ok
+test a_negotiated_phone_that_only_sends_legacy_status_stays_a_member ... ok
+test a_restart_resumes_the_same_session_and_asks_members_to_renegotiate ... ok
+test a_replayed_resume_query_is_deduped_instead_of_re_executed ... ok
+test a_timed_out_member_is_offline_before_it_is_evicted ... ok
+test an_engaged_emergency_stop_is_replayed_into_the_session_on_startup ... ok
+test an_observed_report_settles_the_intent_instead_of_expiring_it ... ok
+test an_oversized_first_capability_frame_is_refused_before_it_can_join ... ok
+test an_unreadable_session_file_is_quarantined_and_never_silently_reused ... ok
+test diagnostics_report_the_persistence_store_and_never_hide_failures ... ok
+test disabled_flag_falls_back_to_the_v051_behaviour ... ok
+test duplicate_touch_is_accepted_once_and_never_reapplied ... ok
+test emergency_stop_freezes_the_character_and_refuses_interaction ... ok
+test expired_touch_is_never_applied ... ok
+test fixture_iphone_touch_updates_state_and_reaches_both_renderers ... ok
+test flooding_the_session_is_rate_limited ... ok
+test forged_identity_and_out_of_scope_frames_are_refused ... ok
+test human_verified_celebrates_on_the_phone_without_double_playing_on_the_desktop ... ok
+test negotiated_mobile_state_applied_requires_valid_current_connection_and_exact_sent_state ... ok
+test negotiated_unsupported_intents_reach_the_shared_state_and_diagnostics ... ok
+test reconnecting_fixture_iphone_resumes_with_patches ... ok
+test resume_falls_back_to_a_snapshot_when_the_log_no_longer_covers_it ... ok
+test stale_epoch_resume_gets_a_session_reset_snapshot ... ok
+test unauthenticated_and_revoked_devices_never_reach_the_session ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.46s
+
+     Running tests/declarative_session_loop.rs (target/debug/deps/declarative_session_loop-971009789d5159f4)
+
+running 33 tests
+test a_member_without_an_outbound_channel_is_audited_when_a_broadcast_cannot_reach_it ... ok
+test a_reconnected_device_resumes_and_gets_the_state_it_missed ... ok
+test an_event_only_device_is_an_event_source_member ... ok
+test an_idle_declarative_source_still_asks_the_device_and_says_where_the_answer_came_from ... ok
+test a_serial_device_joins_the_session_and_its_touch_changes_the_shared_state ... ok
+test a_transfer_cancelled_by_disabling_the_provider_is_audited_before_the_loop_is_gone ... ok
+test a_device_without_fragmentation_degrades_to_intent_only ... ok
+test a_frag_claiming_device_is_only_full_state_after_a_snapshot_really_went_out ... ok
+test a_session_reply_that_does_not_fit_the_wire_is_audited_not_silently_dropped ... ok
+test a_capability_from_another_session_on_the_serial_line_is_audited_as_serial ... ok
+test a_fragmenting_device_receives_the_snapshot_and_is_a_full_state_member ... ok
+test an_identity_mismatch_on_the_serial_line_is_audited_as_serial ... ok
+test diagnostics_report_where_each_member_identity_came_from ... ok
+test rebind_never_restores_external_actuator_enabled_true ... ok
+test legacy_fragmenting_devices_remain_unconfirmed_after_all_writes_succeed ... ok
+test rebind_generation_rejects_late_callbacks ... ok
+test rebind_keeps_human_disabled_receptors_off ... ok
+test revoking_the_spec_leaves_the_session_without_touching_other_members ... ok
+test revoking_the_spec_removes_its_outbound_channel ... ok
+test stop_all_sensors_gets_a_real_ack_from_the_serial_simulator ... ok
+test shared_state_changes_from_other_members_reach_the_serial_device ... ok
+test a_silent_device_makes_the_stop_uncertain_not_stopped ... ok
+test reenable_rebinds_without_restart ... ok
+test the_spec_declares_its_capabilities_and_registers_a_stop_path ... ok
+test a_silent_device_stays_visible_as_stop_unknown ... ok
+test the_measured_wire_sizes_of_the_session_replies_are_over_the_line_limit ... ok
+test an_interrupted_inbound_transfer_is_audited_not_silently_dropped ... ok
+test revoke_during_rebind_does_not_resurrect ... ok
+test unplugging_the_device_marks_it_reconnecting_then_offline ... ok
+test revoking_a_silent_device_leaves_an_orphaned_capture_record ... ok
+test negotiated_state_applied_tracks_snapshot_patch_loss_rebind_and_stale_receipts ... ok
+test rebind_timeout_is_bounded_and_honest ... ok
+test a_failed_rebind_keeps_the_human_disabled_list_for_the_next_attempt ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.33s

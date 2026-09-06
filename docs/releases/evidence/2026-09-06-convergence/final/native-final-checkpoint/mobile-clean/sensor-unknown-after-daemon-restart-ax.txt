@@ -1,0 +1,69 @@
+AXGroup: group
+AXGroup: group
+AXScrollArea:
+AXWebArea: Interaction Control Center
+AXLink: 跳到主要內容
+AXStaticText: 跳到主要內容
+AXGroup:
+AXGroup:
+AXStaticText: Interaction
+AXGroup:
+AXStaticText: Control Center
+AXGroup: 主要導覽
+AXButton: 現在
+AXButton: 小樞
+AXButton: 工作
+AXButton: 連接與權限
+AXButton: 更多
+AXStaticText: 運作中
+AXGroup:
+AXStaticText: 連線到外部系統
+AXGroup:
+AXGroup:
+AXGroup:
+AXStaticText: 現在
+AXButton: 全域搜尋與指令（Cmd+K）
+AXButton: 通知中心，0 項待決定
+AXButton: 緊急停止
+AXGroup:
+AXStaticText: 有 1 筆感測停止沒有人確認，保存狀態也需要檢查
+AXStaticText: ，到「連接與權限」逐筆看。
+AXButton: 前往查看
+AXStaticText: 小樞
+AXGroup:
+AXStaticText: 小樞已連線，但目前隱藏中。
+AXButton: 前往小樞
+AXStaticText: 進行中的工作
+AXStaticText: 沒有進行中
+AXButton: 查看工作
+AXStaticText: 待我決定
+AXStaticText: 0 項
+AXGroup:
+AXStaticText: 目前沒有需要處理的事。
+AXButton: 查看全部
+AXHeading: 快速操作
+AXStaticText: 快速操作
+AXGroup:
+AXGroup:
+AXGroup:
+AXStaticText: 想讓
+AXStaticText: 小樞
+AXStaticText: 幫你做什麼？
+AXTextField: 想讓 小樞 幫你做什麼？
+AXGroup:
+AXButton: 交代一件事
+AXGroup: 暫停或恢復主動互動
+AXButton: 暫停主動互動
+AXButton: 暫停一段時間…
+AXButton: 加入裝置
+AXButton: 停止所有感測
+AXButton: 緊急停止
+AXGroup:
+AXDisclosureTriangle: 詳細狀態
+AXStaticText: 詳細狀態
+AXButton: close button
+AXButton: full screen button
+AXGroup: group
+AXGroup: group
+AXButton: minimize button
+AXStaticText: Interaction Control Center

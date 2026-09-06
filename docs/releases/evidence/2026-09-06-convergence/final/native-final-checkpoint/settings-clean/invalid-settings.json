@@ -1,0 +1,15 @@
+{
+  "kind": "companion-settings",
+  "schemaVersion": 1,
+  "companionName": "備份走查-2fe529902c0c47a4",
+  "companionPack": "plain-text",
+  "characterId": "plain-text",
+  "companionPersona": "",
+  "companionExpressiveness": "natural",
+  "companionScene": "",
+  "companionPlay": "false",
+  "companionCursorPlay": true,
+  "companionApproach": true,
+  "companionDeskMove": true,
+  "companionFamiliars": []
+}

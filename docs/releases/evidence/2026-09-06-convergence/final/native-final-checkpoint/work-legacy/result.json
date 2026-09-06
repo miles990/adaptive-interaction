@@ -1,0 +1,680 @@
+{
+  "evidenceLevel": "native Tauri AX + production daemon + repository fixture agents",
+  "realAgentExecuted": false,
+  "humanEvaluation": false,
+  "consentGranted": false,
+  "safetyUnlocked": false,
+  "binarySha256": "1103cda7f8491ece2adbaab478056d14a174da47ab8536a2d652c734a0765f19",
+  "cliSha256": "0b11005e9197c79ffe53da0e89aa4364e3fbcd21111b375fa56de40980a8b2f8",
+  "codexFixtureSha256": "b51ad9be5e1c90500ae2430b1d9af8104bf2734db83003fac15eb505443fe295",
+  "claudeFixtureSha256": "84816fd16d87229440db59c6d22fb6e6584ece65b41bcee9c585dbd1a40f9031",
+  "driverSha256": "897187c3539fe1d1083d713395d56573ffae3c3dff88590f30a6bd56795a6a94",
+  "axHelperSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+  "sourceSha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+  "dirtyTree": false,
+  "provenanceCapturedAt": "2026-09-06T06:00:47Z",
+  "artifactVerification": {
+    "unchanged": true,
+    "changed": []
+  },
+  "fixtureSha256": {
+    "codex": "b51ad9be5e1c90500ae2430b1d9af8104bf2734db83003fac15eb505443fe295",
+    "claude": "84816fd16d87229440db59c6d22fb6e6584ece65b41bcee9c585dbd1a40f9031"
+  },
+  "prefsFixture": {
+    "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/scripts/fixtures/desktop/v0.7.0-common-prefs.json",
+    "sha256": "fa1210035842a19b9d1afb3e6b06b6773914cffc922b8abd7867a5a8f8c5a7fc"
+  },
+  "startingPreferences": {
+    "schemaVersion": 3,
+    "closeBehavior": "keep-running",
+    "askOnClose": true,
+    "launchAtLogin": false,
+    "showCompanionOnStart": true,
+    "openControlCenterOnStart": true,
+    "companionVisible": true,
+    "companionPack": "plain-text",
+    "companionName": "",
+    "companionExpressiveness": "natural",
+    "companionDoNotDisturb": false,
+    "companionOpacity": 0.85,
+    "companionPendingPresetOp": null,
+    "advancedMode": false
+  },
+  "casePreferenceOverrides": {
+    "companionPack": "plain-text",
+    "companionVisible": true,
+    "openControlCenterOnStart": true,
+    "advancedMode": false
+  },
+  "steps": [
+    {
+      "id": "codex-readonly-work-submitted",
+      "status": "completed",
+      "elapsedSeconds": 17.819,
+      "session": {
+        "agentId": "codex",
+        "allowWrite": false,
+        "budget": {
+          "maxCost": 0.0,
+          "maxDurationMs": 1800000,
+          "maxMessages": 200,
+          "spentCost": 0.0,
+          "spentMessages": 1
+        },
+        "consentScope": [],
+        "contextBundles": [
+          {
+            "bundle": {
+              "agentId": "codex",
+              "domains": [],
+              "excluded": {
+                "needsReview": [],
+                "notVisibleToAgent": 0,
+                "outsideGrantedDomains": 0,
+                "overCapacity": 0,
+                "sensitive": 0,
+                "unreviewedCandidates": 0
+              },
+              "generatedAt": "2026-09-06T06:00:59.955441Z",
+              "includes": [],
+              "limits": {
+                "maxBytes": 49152,
+                "maxItems": 24,
+                "scanLimit": 1000,
+                "scanLimitReached": false
+              },
+              "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+              "task": "Native fixture codex cancel",
+              "truncated": false
+            },
+            "bundleId": "bundle-4a0d6ee9-15ed-4d33-8d10-3f1e8396352f",
+            "contentHash": "aaa98e48b7bacf015d20e25d9f225e4f0939552911ed68b82a6911423854d76d",
+            "generatedAt": "2026-09-06T06:00:59.955615Z",
+            "messageId": "msg-asession-dec10253-75cf-4e7e-9218-b3c9b994d680-1"
+          }
+        ],
+        "createdAt": "2026-09-06T06:00:59.869663Z",
+        "dataScope": [
+          "workspace:/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-work-nzpk7p8j/codex-fixture-work"
+        ],
+        "label": "Native fixture codex cancel",
+        "lease": {
+          "expiresAt": "2026-09-06T06:30:59.869663Z",
+          "issuedAt": "2026-09-06T06:00:59.869663Z",
+          "renewable": true,
+          "revokeOnSessionEnd": true
+        },
+        "providerId": "provider.ai-agent.codex",
+        "providerSessionId": "fake-thread-1",
+        "resolvedWorkdir": "/private/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-work-nzpk7p8j/codex-fixture-work",
+        "sessionId": "asession-dec10253-75cf-4e7e-9218-b3c9b994d680",
+        "state": "active",
+        "toolScope": []
+      },
+      "fixtureProcesses": [
+        {
+          "pid": 91912,
+          "pgid": 91912,
+          "state": "S",
+          "command": "bash"
+        }
+      ]
+    },
+    {
+      "id": "codex-turn-cancelled",
+      "status": "completed",
+      "elapsedSeconds": 26.927,
+      "session": {
+        "agentId": "codex",
+        "allowWrite": false,
+        "budget": {
+          "maxCost": 0.0,
+          "maxDurationMs": 1800000,
+          "maxMessages": 200,
+          "spentCost": 0.0,
+          "spentMessages": 1
+        },
+        "consentScope": [],
+        "contextBundles": [
+          {
+            "bundle": {
+              "agentId": "codex",
+              "domains": [],
+              "excluded": {
+                "needsReview": [],
+                "notVisibleToAgent": 0,
+                "outsideGrantedDomains": 0,
+                "overCapacity": 0,
+                "sensitive": 0,
+                "unreviewedCandidates": 0
+              },
+              "generatedAt": "2026-09-06T06:00:59.955441Z",
+              "includes": [],
+              "limits": {
+                "maxBytes": 49152,
+                "maxItems": 24,
+                "scanLimit": 1000,
+                "scanLimitReached": false
+              },
+              "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+              "task": "Native fixture codex cancel",
+              "truncated": false
+            },
+            "bundleId": "bundle-4a0d6ee9-15ed-4d33-8d10-3f1e8396352f",
+            "contentHash": "aaa98e48b7bacf015d20e25d9f225e4f0939552911ed68b82a6911423854d76d",
+            "generatedAt": "2026-09-06T06:00:59.955615Z",
+            "messageId": "msg-asession-dec10253-75cf-4e7e-9218-b3c9b994d680-1"
+          }
+        ],
+        "createdAt": "2026-09-06T06:00:59.869663Z",
+        "dataScope": [
+          "workspace:/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-work-nzpk7p8j/codex-fixture-work"
+        ],
+        "label": "Native fixture codex cancel",
+        "lease": {
+          "expiresAt": "2026-09-06T06:30:59.869663Z",
+          "issuedAt": "2026-09-06T06:00:59.869663Z",
+          "renewable": true,
+          "revokeOnSessionEnd": true
+        },
+        "providerId": "provider.ai-agent.codex",
+        "providerSessionId": "fake-thread-1",
+        "resolvedWorkdir": "/private/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-work-nzpk7p8j/codex-fixture-work",
+        "sessionId": "asession-dec10253-75cf-4e7e-9218-b3c9b994d680",
+        "state": "cancelled",
+        "toolScope": []
+      },
+      "fixtureInterrupt": {
+        "id": 4,
+        "jsonrpc": "2.0",
+        "method": "turn/interrupt",
+        "params": {
+          "threadId": "fake-thread-1",
+          "turnId": "turn-1"
+        }
+      },
+      "remainingProcesses": [],
+      "evidence": "Cancelled turn; app-server may remain alive for the existing session"
+    },
+    {
+      "id": "claude-readonly-work-submitted",
+      "status": "completed",
+      "elapsedSeconds": 41.793,
+      "session": {
+        "agentId": "claude-code",
+        "allowWrite": false,
+        "budget": {
+          "maxCost": 0.5,
+          "maxDurationMs": 1800000,
+          "maxMessages": 200,
+          "spentCost": 0.0,
+          "spentMessages": 0
+        },
+        "consentScope": [],
+        "contextBundles": [],
+        "createdAt": "2026-09-06T06:01:25.827726Z",
+        "dataScope": [
+          "workspace:/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-work-nzpk7p8j/claude-fixture-work"
+        ],
+        "label": "Native fixture claude cancel",
+        "lease": {
+          "expiresAt": "2026-09-06T06:31:25.827726Z",
+          "issuedAt": "2026-09-06T06:01:25.827726Z",
+          "renewable": true,
+          "revokeOnSessionEnd": true
+        },
+        "providerId": "provider.ai-agent.claude-code",
+        "providerSessionId": "fake-123",
+        "resolvedWorkdir": "/private/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-work-nzpk7p8j/claude-fixture-work",
+        "sessionId": "asession-cdc2b77f-2278-4585-a3ee-02662155f35a",
+        "state": "created",
+        "toolScope": []
+      },
+      "fixtureProcesses": [
+        {
+          "pid": 91989,
+          "pgid": 91989,
+          "state": "S",
+          "command": "bash"
+        }
+      ]
+    },
+    {
+      "id": "claude-long-work-closed-and-processes-exited",
+      "status": "completed",
+      "elapsedSeconds": 52.268,
+      "session": {
+        "agentId": "claude-code",
+        "allowWrite": false,
+        "budget": {
+          "maxCost": 0.5,
+          "maxDurationMs": 1800000,
+          "maxMessages": 200,
+          "spentCost": 0.0,
+          "spentMessages": 1
+        },
+        "closedAt": "2026-09-06T06:01:33.129901Z",
+        "consentScope": [],
+        "contextBundles": [
+          {
+            "bundle": {
+              "agentId": "claude-code",
+              "domains": [],
+              "excluded": {
+                "needsReview": [],
+                "notVisibleToAgent": 0,
+                "outsideGrantedDomains": 0,
+                "overCapacity": 0,
+                "sensitive": 0,
+                "unreviewedCandidates": 0
+              },
+              "generatedAt": "2026-09-06T06:01:25.889910Z",
+              "includes": [],
+              "limits": {
+                "maxBytes": 49152,
+                "maxItems": 24,
+                "scanLimit": 1000,
+                "scanLimitReached": false
+              },
+              "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+              "task": "Native fixture claude cancel",
+              "truncated": false
+            },
+            "bundleId": "bundle-ae2ef14d-79a0-467d-ac7b-b8a487c8cbf2",
+            "contentHash": "36ef0f46f173e08c5fc4c1482608c0121f98e8d80a9cf13e8c5abfb534b1e309",
+            "generatedAt": "2026-09-06T06:01:25.890068Z",
+            "messageId": "msg-asession-cdc2b77f-2278-4585-a3ee-02662155f35a-1"
+          }
+        ],
+        "createdAt": "2026-09-06T06:01:25.827726Z",
+        "dataScope": [
+          "workspace:/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-work-nzpk7p8j/claude-fixture-work"
+        ],
+        "detail": "closed (was Created)",
+        "label": "Native fixture claude cancel",
+        "lease": {
+          "expiresAt": "2026-09-06T06:31:25.827726Z",
+          "issuedAt": "2026-09-06T06:01:25.827726Z",
+          "renewable": true,
+          "revokeOnSessionEnd": true
+        },
+        "providerId": "provider.ai-agent.claude-code",
+        "providerSessionId": "fake-123",
+        "resolvedWorkdir": "/private/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-work-nzpk7p8j/claude-fixture-work",
+        "sessionId": "asession-cdc2b77f-2278-4585-a3ee-02662155f35a",
+        "state": "closed",
+        "toolScope": []
+      },
+      "processesBeforeClose": [
+        {
+          "pid": 91989,
+          "pgid": 91989,
+          "state": "S",
+          "command": "bash"
+        },
+        {
+          "pid": 92008,
+          "pgid": 91989,
+          "state": "S",
+          "command": "sleep"
+        }
+      ],
+      "processesAfterClose": []
+    }
+  ],
+  "ax": [
+    {
+      "command": [
+        "windows"
+      ],
+      "exit": 0,
+      "seconds": 0.448
+    },
+    {
+      "command": [
+        "navclick",
+        "3"
+      ],
+      "exit": 0,
+      "seconds": 0.544
+    },
+    {
+      "command": [
+        "navclick",
+        "3"
+      ],
+      "exit": 0,
+      "seconds": 0.448
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.979
+    },
+    {
+      "command": [
+        "fill",
+        "AXTextArea",
+        "幫你做什麼",
+        "Native fixture codex cancel"
+      ],
+      "exit": 0,
+      "seconds": 0.63
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.602
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "加入檔案或選擇資料夾"
+      ],
+      "exit": 0,
+      "seconds": 1.06
+    },
+    {
+      "command": [
+        "fill",
+        "AXTextField",
+        "加入檔案或選擇資料夾",
+        "/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-work-nzpk7p8j/codex-fixture-work"
+      ],
+      "exit": 0,
+      "seconds": 0.689
+    },
+    {
+      "command": [
+        "value",
+        "AXTextField",
+        "加入檔案或選擇資料夾"
+      ],
+      "exit": 0,
+      "seconds": 0.811
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "這是哪一種工作"
+      ],
+      "exit": 0,
+      "seconds": 1.133
+    },
+    {
+      "command": [
+        "selectindex",
+        "AXPopUpButton",
+        "這是哪一種工作",
+        "2"
+      ],
+      "exit": 0,
+      "seconds": 0.694
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "不會修改：這次只看不改"
+      ],
+      "exit": 0,
+      "seconds": 0.421
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "不會修改：這次只看不改"
+      ],
+      "exit": 0,
+      "seconds": 1.484
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "開始"
+      ],
+      "exit": 0,
+      "seconds": 1.191
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "開始"
+      ],
+      "exit": 0,
+      "seconds": 1.079
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "處理中"
+      ],
+      "exit": 0,
+      "seconds": 2.361
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "exit": 0,
+      "seconds": 2.721
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "暫停／中斷目前工作"
+      ],
+      "exit": 0,
+      "seconds": 2.478
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "暫停／中斷目前工作"
+      ],
+      "exit": 0,
+      "seconds": 1.345
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "已取消"
+      ],
+      "exit": 0,
+      "seconds": 2.361
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "exit": 0,
+      "seconds": 2.798
+    },
+    {
+      "command": [
+        "navclick",
+        "3"
+      ],
+      "exit": 0,
+      "seconds": 0.444
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.945
+    },
+    {
+      "command": [
+        "fill",
+        "AXTextArea",
+        "幫你做什麼",
+        "Native fixture claude cancel"
+      ],
+      "exit": 0,
+      "seconds": 0.628
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.613
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "加入檔案或選擇資料夾"
+      ],
+      "exit": 0,
+      "seconds": 1.084
+    },
+    {
+      "command": [
+        "fill",
+        "AXTextField",
+        "加入檔案或選擇資料夾",
+        "/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-work-nzpk7p8j/claude-fixture-work"
+      ],
+      "exit": 0,
+      "seconds": 0.704
+    },
+    {
+      "command": [
+        "value",
+        "AXTextField",
+        "加入檔案或選擇資料夾"
+      ],
+      "exit": 0,
+      "seconds": 0.803
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "這是哪一種工作"
+      ],
+      "exit": 0,
+      "seconds": 1.143
+    },
+    {
+      "command": [
+        "selectindex",
+        "AXPopUpButton",
+        "這是哪一種工作",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 0.693
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "不會修改：這次只看不改"
+      ],
+      "exit": 0,
+      "seconds": 0.411
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "不會修改：這次只看不改"
+      ],
+      "exit": 0,
+      "seconds": 1.521
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "開始"
+      ],
+      "exit": 0,
+      "seconds": 1.195
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "開始"
+      ],
+      "exit": 0,
+      "seconds": 1.123
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "exit": 0,
+      "seconds": 3.28
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "關閉"
+      ],
+      "exit": 0,
+      "seconds": 2.288
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "關閉"
+      ],
+      "exit": 0,
+      "seconds": 1.555
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "工作階段已關閉（已要求終止子程序）"
+      ],
+      "exit": 0,
+      "seconds": 3.133
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "exit": 0,
+      "seconds": 3.294
+    }
+  ],
+  "seconds": 52.623,
+  "result": "completed",
+  "error": null,
+  "limitations": [
+    "No real AI or remote task success",
+    "Codex turn cancellation does not claim the app-server process exited",
+    "Process termination is checked on the separate Claude hang/close case"
+  ]
+}

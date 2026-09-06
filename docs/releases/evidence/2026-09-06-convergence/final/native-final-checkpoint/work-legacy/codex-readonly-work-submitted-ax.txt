@@ -1,0 +1,111 @@
+AXGroup: group
+AXGroup: group
+AXScrollArea:
+AXWebArea: Interaction Control Center
+AXLink: 跳到主要內容
+AXStaticText: 跳到主要內容
+AXGroup:
+AXGroup:
+AXStaticText: Interaction
+AXGroup:
+AXStaticText: Control Center
+AXGroup: 主要導覽
+AXButton: 現在
+AXButton: 文字角色
+AXButton: 工作
+AXButton: 連接與權限
+AXButton: 更多
+AXStaticText: 運作中
+AXGroup:
+AXStaticText: 連線到外部系統
+AXGroup:
+AXGroup:
+AXGroup:
+AXStaticText: 工作
+AXButton: 全域搜尋與指令（Cmd+K）
+AXButton: 通知中心，0 項待決定
+AXButton: 緊急停止
+AXTabGroup: 工作分類
+AXRadioButton: 工作
+AXRadioButton: 自動互動
+AXHeading: 交代一件工作
+AXStaticText: 交代一件工作
+AXGroup:
+AXStaticText: 想讓文字角色幫你做什麼？
+AXStaticText: 想讓
+AXStaticText: 文字角色
+AXStaticText: 幫你做什麼？
+AXTextArea: 想讓 文字角色 幫你做什麼？
+AXGroup:
+AXStaticText: 例：看一下這個資料夾的測試有沒有壞掉，跟我說結果就好。
+AXStaticText: 加入檔案或選擇資料夾
+AXStaticText: 加入檔案或選擇資料夾
+AXTextField: 加入檔案或選擇資料夾
+AXButton: 選擇資料夾…
+AXStaticText: 這是哪一種工作
+AXStaticText: 這是哪一種工作
+AXPopUpButton: 這是哪一種工作
+AXStaticText: 看程式碼、跑測試、修改檔案
+AXGroup: 開始前預覽
+AXStaticText: 開始前先看一下
+AXList:
+AXGroup:
+AXStaticText: 這次會讀取什麼
+AXGroup:
+AXStaticText: 你選擇的資料夾（codex-fixture-work）：從這個資料夾開始工作。系統擋得住的是「改不到別的地方」，不保證它完全不看資料夾以外的內容。
+AXGroup:
+AXStaticText: 會不會修改內容
+AXGroup:
+AXStaticText: 不會修改：這次只看不改，任何檔案都不會被動到。
+AXGroup:
+AXCheckBox: 允許修改這個資料夾裡的檔案 不授予其他位置或網路；工作結束、逾時或緊急停止時立即失效。
+AXStaticText: 允許修改這個資料夾裡的檔案
+AXStaticText: 不授予其他位置或網路；工作結束、逾時或緊急停止時立即失效。
+AXGroup:
+AXStaticText: 最多使用多少時間與費用
+AXGroup:
+AXStaticText: 30 分鐘；費用依 Codex 登入方案計費，這裡無法設上限
+AXGroup:
+AXDisclosureTriangle: 查看技術細節
+AXStaticText: 查看技術細節
+AXIncrementor:
+AXIncrementorArrow:
+AXIncrementorArrow:
+AXGroup:
+AXStaticText: 內容會送到該 Agent 的模型服務（依你在該 Agent 的登入方案計費）。到期、關閉或緊急停止時，權限立即失效。
+AXButton: 開始
+AXGroup:
+AXStaticText: 已送達
+AXStaticText: 「Native fixture codex cancel」已送到 Codex 手上，尚未完成；做完後會請你檢查結果。
+AXGroup:
+AXStaticText: 送到不等於做完，也不等於做對；結果仍然要你檢查。
+AXGroup:
+AXStaticText: 目前分工：
+AXStaticText: 程式工作交給 Codex；一般對話、知識整理與結果複審交給 Claude Code
+AXButton: 調整分工
+AXHeading: 進行中與最近的工作
+AXStaticText: 進行中與最近的工作
+AXGroup:
+AXGroup:
+AXStaticText: Native fixture codex cancel
+AXStaticText: 處理中
+AXGroup:
+AXStaticText: Codex
+AXStaticText: ・只讀取，不修改
+AXStaticText: ・沿用既有對話脈絡
+AXStaticText: ・有效至
+AXStaticText: 2026/9/6 下午2:30:59
+AXButton: 查看結果／訊息
+AXButton: 續租 30 分鐘
+AXButton: 暫停／中斷目前工作
+AXButton: 關閉
+AXButton: 查看紀錄
+AXGroup:
+AXDisclosureTriangle: 工作設定：本機 AI Agent 與分工
+AXStaticText: 工作設定：本機 AI Agent 與分工
+AXButton: close button
+AXButton: full screen button
+AXGroup: group
+AXGroup: group
+AXButton: minimize button
+AXStaticText: Interaction Control Center

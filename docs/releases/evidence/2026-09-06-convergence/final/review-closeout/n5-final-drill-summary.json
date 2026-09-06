@@ -1,0 +1,1038 @@
+{
+  "title": "N5 final clean-checkpoint drill summary",
+  "sourceSha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+  "sourceClean": true,
+  "sourceEvidence": [
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/source-sha.txt",
+      "sha256": "babbd804b973e079bc791d4f62462bac99813c565399b9769958d5b0dbb6b6dc"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/source-worktree.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "repository": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "compiledBy": "semantic_contract; read-only evidence aggregation, no tests rerun",
+  "parentWrapperCommand": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 python3 /tmp/adaptive-convergence-20260906/check.py clean-checkpoint-architecture /Users/user/Workspace/claude-lab/adaptive-interaction bash scripts/tests/architecture-checks.sh --docs --ts --rust --swift --drill-lint --drills --evidence-dir /tmp/adaptive-convergence-20260906/architecture-clean-checkpoint",
+  "wrapperCommandSource": "Exact historical command corrected by root; /tmp/check.py is a local evidence wrapper, not required for a clean-checkout rerun.",
+  "runnerWorkingDirectory": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "inheritedEnvironment": {
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "4"
+  },
+  "wrapperEvidence": "docs/releases/evidence/2026-09-06-convergence/final/clean-checkpoint-architecture.txt",
+  "runnerInvocationSource": {
+    "path": "scripts/tests/architecture-checks.sh",
+    "sourceSha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+    "lines": [
+      317,
+      318,
+      320,
+      337,
+      345
+    ]
+  },
+  "scriptPins": [
+    {
+      "path": "scripts/tests/architecture-checks.sh",
+      "sha256": "1a055625431948f1586b2c8c2243240decba97b5b32dc1df56be1e36db2ad415",
+      "matchesReviewedWorkingFile": true
+    },
+    {
+      "path": "scripts/drills/character-package.mjs",
+      "sha256": "e0fef6dc08c65fb56796741d6ebd3bd153f0d882923beca45e5605a4fe3adac1",
+      "matchesReviewedWorkingFile": true
+    },
+    {
+      "path": "scripts/drills/restricted-device.py",
+      "sha256": "bb1632ae5fe9b0d259690e41a7f421b9f6056d8137266e51680b46272b707863",
+      "matchesReviewedWorkingFile": true
+    },
+    {
+      "path": "scripts/drills/provider-disable-reenable.sh",
+      "sha256": "a6ee7bd37d5512f34a9c3e26ce811d6aa3d6e230b8a15faf8c5baefe14f94db9",
+      "matchesReviewedWorkingFile": true
+    },
+    {
+      "path": "scripts/drills/provider-lifecycle.py",
+      "sha256": "a6b69ec0079f6f34baaf743db82e5671885dc48d4531487f979b798f689a3c84",
+      "matchesReviewedWorkingFile": true
+    },
+    {
+      "path": "scripts/drills/optional-state.mjs",
+      "sha256": "d72903315227aeabf019fd41919c5a59dd199aa92b1e99d61cc09c8c6a4bf614",
+      "matchesReviewedWorkingFile": true
+    }
+  ],
+  "aggregate": {
+    "runnersPassed": 4,
+    "runnersFailed": 0,
+    "drillsCovered": 5,
+    "drillsUncovered": 0,
+    "countingPolicy": [
+      "This is coverage/evidence aggregation, not another full-suite result.",
+      "Character add/remove share one Rust test and two TS tests and one duration.",
+      "Do not add architecture-wrapper Rust 466 or any architecture subset to workspace full-suite totals.",
+      "Do not add repeated positive Rust/TS/Swift checks inside optional-state to full-suite totals.",
+      "Six script lint passes are static syntax checks and are not six extra drill executions."
+    ],
+    "freshTestRunsByThisSummary": 0
+  },
+  "drills": [
+    {
+      "runnerId": "character-package",
+      "command": [
+        "node",
+        "scripts/drills/character-package.mjs"
+      ],
+      "commands": [
+        {
+          "id": "production-host-import-remove-restart",
+          "command": [
+            "cargo",
+            "test",
+            "--manifest-path",
+            "apps/interaction-desktop/src-tauri/Cargo.toml",
+            "--lib",
+            "character_package_drill"
+          ],
+          "exitCode": 0,
+          "elapsedMs": 25635
+        },
+        {
+          "id": "renderer-and-page-model",
+          "command": [
+            "pnpm",
+            "--dir",
+            "apps/interaction-desktop",
+            "exec",
+            "vitest",
+            "run",
+            "src/test/character-extension-drill.test.ts",
+            "src/test/characterPage.test.tsx",
+            "-t",
+            "N5"
+          ],
+          "exitCode": 0,
+          "elapsedMs": 2163
+        }
+      ],
+      "sourceSha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+      "workingTree": false,
+      "exitCode": 0,
+      "runnerWholeSeconds": 28,
+      "recordedSubcommandSeconds": 27.798,
+      "durationSemantics": "Both character drills share this single run; do not allocate, add or count this duration twice. Wrapper integer SECONDS differs from measured subprocess sums.",
+      "counts": {
+        "rustPassed": 1,
+        "rustFailed": 0,
+        "tsPassed": 2,
+        "tsFailed": 0,
+        "tsFiltered": 24
+      },
+      "countSemantics": "Shared across add/remove, counted once; 24 deliberately filtered tests are not passed tests.",
+      "evidenceLevel": "production Rust ports plus TS renderer and mocked-host page; no native UI or device evidence",
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/drill-character-package.txt",
+          "sha256": "e44644690c28d511ee9e68815dc118a91ab9c7735ecf830a77af9df83d7b85d7"
+        }
+      ],
+      "id": "N5-01-character-add",
+      "title": "新增角色包（既有 text adapter）",
+      "productionPath": [
+        "Committed examples/characters/drill-text/manifest.json",
+        "production character_store::import -> Tauri host preferences -> Runtime Character Session hello",
+        "TS normal renderer factory + renderer safety projection"
+      ],
+      "negativeRedExpectation": {
+        "expectedFailingSubprocesses": 0,
+        "description": "No deliberate red command in this runner; native production-port and TS renderer/page assertions must all pass. Historical regression evidence is separate."
+      },
+      "dataRetention": [
+        "Uses the native test own tempdir; existing user home is not loaded.",
+        "Persists selection and verifies the added package through existing adapter paths; no new privileged adapter is introduced."
+      ],
+      "cleanup": [
+        "Mutable package/preferences/session data belongs to the native test tempdir.",
+        "This report relies on successful production-test assertions; there is no separate per-run filesystem inventory."
+      ],
+      "limits": [
+        "Production Rust ports and TS model tests are separate boundaries, not one native UI E2E.",
+        "TS host calls are mocked; canvas getContext warnings are present, so this is not pixel-render evidence.",
+        "No hardware or human task completion claim."
+      ]
+    },
+    {
+      "id": "N5-02-restricted-device",
+      "title": "受限裝置能力與已套用回執",
+      "runnerId": "restricted-device",
+      "command": [
+        "python3",
+        "scripts/drills/restricted-device.py",
+        "--evidence-dir",
+        "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/restricted-device"
+      ],
+      "commands": [
+        {
+          "command": [
+            "python3",
+            "scripts/tests/aip-applied-receiver.py"
+          ],
+          "seconds": 0.057,
+          "exitCode": 0,
+          "log": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/restricted-device/1.txt"
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-runtime",
+            "--test",
+            "declarative_session_loop",
+            "negotiated_state_applied_tracks_snapshot_patch_loss_rebind_and_stale_receipts",
+            "--",
+            "--exact"
+          ],
+          "seconds": 3.205,
+          "exitCode": 0,
+          "log": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/restricted-device/2.txt"
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-runtime",
+            "--test",
+            "declarative_session_loop",
+            "legacy_fragmenting_devices_remain_unconfirmed_after_all_writes_succeed",
+            "--",
+            "--exact"
+          ],
+          "seconds": 0.493,
+          "exitCode": 0,
+          "log": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/restricted-device/3.txt"
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-runtime",
+            "--test",
+            "declarative_session_loop",
+            "a_device_without_fragmentation_degrades_to_intent_only",
+            "--",
+            "--exact"
+          ],
+          "seconds": 0.493,
+          "exitCode": 0,
+          "log": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/restricted-device/4.txt"
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-runtime",
+            "--test",
+            "declarative_session_loop",
+            "an_event_only_device_is_an_event_source_member",
+            "--",
+            "--exact"
+          ],
+          "seconds": 0.604,
+          "exitCode": 0,
+          "log": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/restricted-device/5.txt"
+        }
+      ],
+      "sourceSha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+      "workingTree": false,
+      "exitCode": 0,
+      "runnerWholeSeconds": 5,
+      "recordedSubcommandSeconds": 4.852,
+      "durationSemantics": "Integer wrapper duration plus exact recorded subprocess sum; no independent end-to-end millisecond duration claimed.",
+      "counts": {
+        "commandsPassed": 5,
+        "commandsFailed": 0,
+        "pythonReceiverPassed": 4,
+        "pythonReceiverFailed": 0,
+        "rustPassed": 4,
+        "rustFailed": 0
+      },
+      "negativeRedExpectation": {
+        "expectedFailingSubprocesses": 0,
+        "description": "All commands must exit 0 while assertions reject missing/incorrect/stale receipts, keep legacy write-only delivery unconfirmed, degrade no-fragmentation to intent-only, and retain event-only membership."
+      },
+      "productionPath": "Runtime.register_declarative_spec -> DeviceBinding -> DeviceLink -> SerialLink -> pty receiver -> bound receipt -> CharacterSession diagnostics",
+      "dataRetention": [
+        "Each run uses only its own temporary Runtime and provider IDs; no user preference, consent or package directory is loaded or rewritten."
+      ],
+      "cleanup": [
+        "Each fixture owns its Runtime tempdir/provider ID/pty process; disable/rebind preserves user choices and uses a new transfer context.",
+        "Evidence declares per-fixture ownership; no separate OS-wide process cleanup inventory is recorded."
+      ],
+      "limits": [
+        "production-adapter+pty-simulator",
+        "pty/Python simulator only; no ESP32/board acceptance.",
+        "Fixture opts into aip.applied/1; this does not claim firmware implements it.",
+        "wire v1.3 optional receipt extension; AIP 1.0 unchanged and legacy v1.x preserved."
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/restricted-device/restricted-device.json",
+          "sha256": "52ab898869647ca4b478f2505942a3284d6ba0d4de5cc970148f6c408a2e0ddc"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/restricted-device/1.txt",
+          "sha256": "feabb4add9e2ca3374e538560634d1ec97dc4f4ce89aab12f3d726e36ea9b2f6"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/restricted-device/2.txt",
+          "sha256": "60cc8daac8a9905841ac1929eb041421180c12e388555e0b91930c0e0464b163"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/restricted-device/3.txt",
+          "sha256": "36a3d4365f25098d95df65fd51e06c350d1824b779bd2058c3d038349583a87e"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/restricted-device/4.txt",
+          "sha256": "928933a07cac7a44cad738b942d167c8ce0e796e6b5e74f464bdc74f35f25a5b"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/restricted-device/5.txt",
+          "sha256": "7ea411898f35dc261cca338cebf5ff782987ab646c87495ecac95e48a831337b"
+        }
+      ]
+    },
+    {
+      "id": "N5-03-provider-lifecycle",
+      "title": "停用／重啟用與撤銷後重啟",
+      "runnerId": "provider-lifecycle",
+      "command": [
+        "env",
+        "INTERACT_AI_BIN=/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai",
+        "bash",
+        "scripts/drills/provider-disable-reenable.sh",
+        "--output-dir",
+        "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/provider-lifecycle"
+      ],
+      "delegatedCommand": [
+        "python3",
+        "/Users/user/Workspace/claude-lab/adaptive-interaction/scripts/drills/provider-lifecycle.py",
+        "--output-dir",
+        "/tmp/adaptive-convergence-20260906/architecture-clean-checkpoint/provider-lifecycle"
+      ],
+      "sourceSha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+      "workingTree": false,
+      "exitCode": 0,
+      "runnerWholeSeconds": 2,
+      "elapsedSeconds": 2.483,
+      "durationSemantics": "2.483 seconds is the runner monotonic total, including startup/cleanup; wrapper reports integer 2 seconds. Four step durations omit overhead and must not replace total.",
+      "counts": {
+        "stepsCompleted": 4,
+        "stepsFailed": 0
+      },
+      "steps": [
+        {
+          "name": "initial handshake and human OFF choice",
+          "status": "completed",
+          "elapsedSeconds": 0.065
+        },
+        {
+          "name": "disable/re-enable cycle 1",
+          "status": "completed",
+          "elapsedSeconds": 0.286
+        },
+        {
+          "name": "disable/re-enable cycle 2",
+          "status": "completed",
+          "elapsedSeconds": 0.286
+        },
+        {
+          "name": "revoke rejects re-enable and survives process restart",
+          "status": "completed",
+          "elapsedSeconds": 0.263
+        }
+      ],
+      "negativeRedExpectation": {
+        "expectedFailingSubprocesses": null,
+        "description": "After revoke, a re-enable CLI call is allowed to fail, but its numeric exit is not recorded or asserted. Required negative result is provider state remains revoked and stays revoked after daemon restart. Before rebind completion the immediate reply must be disconnected, not available.",
+        "recordedOutcome": "provider-after-restart.json /state = revoked; audit contains provider.kept-off-at-start and both rebound generations."
+      },
+      "productionPath": "CLI -> HTTP -> Runtime::transition_provider/revoke_provider -> run_declarative_rebind -> production serial adapter",
+      "binary": {
+        "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai",
+        "sha256": "0b11005e9197c79ffe53da0e89aa4364e3fbcd21111b375fa56de40980a8b2f8",
+        "version": "interact-ai 0.7.0",
+        "buildCommand": [
+          "cargo",
+          "build",
+          "-p",
+          "interaction-cli",
+          "--message-format=json"
+        ],
+        "buildResult": "success=true; dev profile reported 0.21 seconds; wrapper integer 0 seconds",
+        "evidence": {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/drill-current-cli.txt",
+          "sha256": "4ca5b5547aee0b29eac896847fe3558f304659e7b493d792162c7fdf8ef69af9"
+        }
+      },
+      "dataRetention": [
+        "Manually disabled non-consent button-box.button stays disabled through two rebinds; independent system.time capability remains unchanged.",
+        "Generations increase from 1 to 2; old transport closed and session dispatch drained.",
+        "Provider revoke persists across a fresh daemon process; audit and provider-after-restart JSON are retained outside temporary home."
+      ],
+      "cleanup": [
+        "TemporaryDirectory owns adapter config, home and PTY marker; ExitStack plus finally terminates/waits only tracked simulator/daemon processes.",
+        "Temporary home is removed; output result, logs, audit and post-restart provider are retained.",
+        "No independent all-descendant process inventory or final listener count is recorded in this runner."
+      ],
+      "limits": [
+        "production CLI/HTTP/serial adapter + PTY simulator, not physical device evidence.",
+        "No consent grant or emergency unlock; Removed remains experimental.",
+        "The name human OFF choice means exercising the user-state API path by automation, not human performance evidence.",
+        "Dynamic isolated port/tempdir arguments are generated internally and are not recorded as a full subprocess argv trace."
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/provider-lifecycle/result.json",
+          "sha256": "31da71f0ce089ae51e74dfe7a4519ebeda3b3b39284f0dd745b4d83e3f49868f"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/provider-lifecycle/provider-after-restart.json",
+          "sha256": "289e22f8a570e4761adef13c9d946a9e80136f1775400c46a08e20338fbac05a",
+          "jsonPointer": "/state"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/provider-lifecycle/audit.json",
+          "sha256": "95434d3c6e744617a6055473864ceda06135629c6de13aaf56f1e95d647df45a"
+        },
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/drill-provider-lifecycle.txt",
+          "sha256": "678e4988218718defe1bfb609d39289064036bed0640765110cd420ab32479f5"
+        }
+      ]
+    },
+    {
+      "id": "N5-04-optional-state",
+      "title": "新增 optional SemanticState 跨語言契約",
+      "runnerId": "optional-state",
+      "command": [
+        "node",
+        "scripts/drills/optional-state.mjs"
+      ],
+      "commands": [
+        {
+          "id": "apply-optional-field",
+          "command": [
+            "git",
+            "apply",
+            "scripts/drills/optional-state.patch"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 6,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "schema-drift-detected",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-e2e",
+            "--test",
+            "golden",
+            "golden_semantic_state_schema"
+          ],
+          "expected": "failure",
+          "exitCode": 101,
+          "passed": true,
+          "elapsedMs": 13924,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "regenerate-schema",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-e2e",
+            "--test",
+            "golden",
+            "golden_semantic_state_schema"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 130,
+          "environmentOverrides": {
+            "GOLDEN_UPDATE": "1"
+          },
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "missing-consumer-detected",
+          "command": [
+            "node",
+            "scripts/aip-codegen.mjs"
+          ],
+          "expected": "failure",
+          "exitCode": 1,
+          "passed": true,
+          "elapsedMs": 47,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "propagate-consumer-dtos",
+          "command": [
+            "node",
+            "scripts/aip-codegen.mjs"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 44,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "missing-fixture-detected",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-session",
+            "--test",
+            "state_hash_fixtures",
+            "every_semantic_state_field_appears_in_at_least_one_state_hash_fixture"
+          ],
+          "expected": "failure",
+          "exitCode": 101,
+          "passed": true,
+          "elapsedMs": 7857,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "regenerate-current-fixtures",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-session",
+            "--test",
+            "state_hash_fixtures",
+            "state_hash_fixtures_are_what_the_host_writes"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 806,
+          "environmentOverrides": {
+            "AIP_UPDATE_FIXTURES": "1"
+          },
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "embed-current-fixtures",
+          "command": [
+            "node",
+            "scripts/aip-codegen.mjs"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 45,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "rust-current-and-published",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-session",
+            "--test",
+            "semantic_contract",
+            "--test",
+            "state_hash_fixtures",
+            "--test",
+            "state_semantics"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 1074,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "typescript-consumer",
+          "command": [
+            "pnpm",
+            "--dir",
+            "apps/interaction-desktop",
+            "exec",
+            "vitest",
+            "run",
+            "src/test/semantic-state-contract.test.ts",
+            "src/test/canonical-hash.test.ts"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 870,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "swift-native-consumer",
+          "command": [
+            "bash",
+            "scripts/tests/semantic-state-swift.sh"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 29283,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "null-mutation-regenerate-schema",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-e2e",
+            "--test",
+            "golden",
+            "golden_semantic_state_schema"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 2422,
+          "environmentOverrides": {
+            "GOLDEN_UPDATE": "1"
+          },
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "null-mutation-regenerate-fixtures",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-session",
+            "--test",
+            "state_hash_fixtures",
+            "state_hash_fixtures_are_what_the_host_writes"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 1778,
+          "environmentOverrides": {
+            "AIP_UPDATE_FIXTURES": "1"
+          },
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "null-mutation-independent-contract",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-session",
+            "--test",
+            "semantic_contract",
+            "schema_never_turns_an_absent_optional_into_a_present_null"
+          ],
+          "expected": "failure",
+          "exitCode": 101,
+          "passed": true,
+          "elapsedMs": 654,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "null-mutation-repair-fixtures",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-session",
+            "--test",
+            "state_hash_fixtures",
+            "state_hash_fixtures_are_what_the_host_writes"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 1442,
+          "environmentOverrides": {
+            "AIP_UPDATE_FIXTURES": "1"
+          },
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "published-corpus-mutation-detected",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-session",
+            "--test",
+            "semantic_contract",
+            "published_v070_corpus_is_immutable_and_still_compatible"
+          ],
+          "expected": "failure",
+          "exitCode": 101,
+          "passed": true,
+          "elapsedMs": 461,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "restore-contract-checks",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "interaction-session",
+            "--test",
+            "semantic_contract"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 107,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "embed-repaired-fixtures",
+          "command": [
+            "node",
+            "scripts/aip-codegen.mjs"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 49,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "deleted-dto-field-detected",
+          "command": [
+            "node",
+            "scripts/aip-codegen.mjs",
+            "--check"
+          ],
+          "expected": "failure",
+          "exitCode": 1,
+          "passed": true,
+          "elapsedMs": 41,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "repair-generated-output",
+          "command": [
+            "node",
+            "scripts/aip-codegen.mjs"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 41,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        },
+        {
+          "id": "final-codegen-drift",
+          "command": [
+            "node",
+            "scripts/aip-codegen.mjs",
+            "--check"
+          ],
+          "expected": "success",
+          "exitCode": 0,
+          "passed": true,
+          "elapsedMs": 42,
+          "environmentOverrides": {},
+          "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+        }
+      ],
+      "sourceSha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+      "workingTree": false,
+      "sourceMode": "clean-checkout via git archive HEAD",
+      "exitCode": 0,
+      "runnerWholeSeconds": 62,
+      "recordedSubcommandSeconds": 61.123,
+      "durationSemantics": "Sum of 21 recorded elapsedMs values excludes archive/setup/direct mutations/cleanup; wrapper reports integer 62 seconds. No invented per-run high-resolution total.",
+      "counts": {
+        "stepsPassed": 21,
+        "stepsFailed": 0,
+        "positiveExitZero": 15,
+        "expectedNegativeExitNonzero": 6
+      },
+      "negativeRedExpectation": {
+        "expectedFailingSubprocesses": 6,
+        "events": [
+          {
+            "id": "schema-drift-detected",
+            "command": [
+              "cargo",
+              "test",
+              "-p",
+              "interaction-e2e",
+              "--test",
+              "golden",
+              "golden_semantic_state_schema"
+            ],
+            "expected": "failure",
+            "exitCode": 101,
+            "passed": true,
+            "elapsedMs": 13924,
+            "environmentOverrides": {},
+            "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+          },
+          {
+            "id": "missing-consumer-detected",
+            "command": [
+              "node",
+              "scripts/aip-codegen.mjs"
+            ],
+            "expected": "failure",
+            "exitCode": 1,
+            "passed": true,
+            "elapsedMs": 47,
+            "environmentOverrides": {},
+            "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+          },
+          {
+            "id": "missing-fixture-detected",
+            "command": [
+              "cargo",
+              "test",
+              "-p",
+              "interaction-session",
+              "--test",
+              "state_hash_fixtures",
+              "every_semantic_state_field_appears_in_at_least_one_state_hash_fixture"
+            ],
+            "expected": "failure",
+            "exitCode": 101,
+            "passed": true,
+            "elapsedMs": 7857,
+            "environmentOverrides": {},
+            "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+          },
+          {
+            "id": "null-mutation-independent-contract",
+            "command": [
+              "cargo",
+              "test",
+              "-p",
+              "interaction-session",
+              "--test",
+              "semantic_contract",
+              "schema_never_turns_an_absent_optional_into_a_present_null"
+            ],
+            "expected": "failure",
+            "exitCode": 101,
+            "passed": true,
+            "elapsedMs": 654,
+            "environmentOverrides": {},
+            "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+          },
+          {
+            "id": "published-corpus-mutation-detected",
+            "command": [
+              "cargo",
+              "test",
+              "-p",
+              "interaction-session",
+              "--test",
+              "semantic_contract",
+              "published_v070_corpus_is_immutable_and_still_compatible"
+            ],
+            "expected": "failure",
+            "exitCode": 101,
+            "passed": true,
+            "elapsedMs": 461,
+            "environmentOverrides": {},
+            "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+          },
+          {
+            "id": "deleted-dto-field-detected",
+            "command": [
+              "node",
+              "scripts/aip-codegen.mjs",
+              "--check"
+            ],
+            "expected": "failure",
+            "exitCode": 1,
+            "passed": true,
+            "elapsedMs": 41,
+            "environmentOverrides": {},
+            "environmentEvidence": "scripts/drills/optional-state.mjs at sourceSha; per-event JSON records argv but not env"
+          }
+        ],
+        "interpretation": "Expected nonzero statuses are successful negative controls; they are not six unresolved failures. Runner also checks failure-output anchors for schema/consumer/fixture/null/published corruption."
+      },
+      "productionPath": [
+        "Pure interaction-session SemanticState -> canonical schema golden -> consumer handling ledger -> aip-codegen generated TypeScript/Swift DTOs",
+        "Current state-hash fixtures + frozen v0.7.0 corpus -> Rust contract tests -> TS validators/canonical hash -> native Swift actual pure models"
+      ],
+      "dataRetention": [
+        "Archive only the clean committed SHA; all optional field/serializer/fixture/generated DTO mutations stay in disposable checkout.",
+        "Published v0.7.0 corpus is independently pinned; deliberate whitespace mutation fails even after current fixture regeneration.",
+        "Omission-to-null mutation fails the independent contract after schema/current-fixture regeneration.",
+        "Dependency node_modules is shared by symlink, so dependency/cache storage is not isolated; the runner does not install dependencies or load user prefs/consent/device state."
+      ],
+      "cleanup": [
+        "finally removes the disposable checkout and its dedicated CARGO_TARGET_DIR; archive removed after extraction.",
+        "Wrapper exit 0 confirms runner including cleanup returned successfully; no post-cleanup directory listing was recorded."
+      ],
+      "limits": [
+        "Rust/TS machine tests and macOS native Swift pure models only; not iOS XCTest, iPhone, board or native UI evidence.",
+        "Successful child stdout is not retained in this log, only argv, exit and duration; do not infer/add individual Rust/TS/Swift test counts for these 21 steps.",
+        "Regeneration env overrides come from the byte-matching checkpoint script, not from the event JSON."
+      ],
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/drill-optional-state.txt",
+          "sha256": "1ddb1e2fd7ff789681329492698657d3b42934f1ebd6eed715ef3f83ed15f48b"
+        }
+      ],
+      "runnerEnvironmentOverrides": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "4",
+        "CARGO_TARGET_DIR": "<runner-created temporary directory>/target"
+      },
+      "runnerEnvironmentNote": "Temporary absolute path is generated at execution and absent from the event log; placeholder is descriptive, not an invented recorded value."
+    },
+    {
+      "runnerId": "character-package",
+      "command": [
+        "node",
+        "scripts/drills/character-package.mjs"
+      ],
+      "commands": [
+        {
+          "id": "production-host-import-remove-restart",
+          "command": [
+            "cargo",
+            "test",
+            "--manifest-path",
+            "apps/interaction-desktop/src-tauri/Cargo.toml",
+            "--lib",
+            "character_package_drill"
+          ],
+          "exitCode": 0,
+          "elapsedMs": 25635
+        },
+        {
+          "id": "renderer-and-page-model",
+          "command": [
+            "pnpm",
+            "--dir",
+            "apps/interaction-desktop",
+            "exec",
+            "vitest",
+            "run",
+            "src/test/character-extension-drill.test.ts",
+            "src/test/characterPage.test.tsx",
+            "-t",
+            "N5"
+          ],
+          "exitCode": 0,
+          "elapsedMs": 2163
+        }
+      ],
+      "sourceSha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+      "workingTree": false,
+      "exitCode": 0,
+      "runnerWholeSeconds": 28,
+      "recordedSubcommandSeconds": 27.798,
+      "durationSemantics": "Both character drills share this single run; do not allocate, add or count this duration twice. Wrapper integer SECONDS differs from measured subprocess sums.",
+      "counts": {
+        "rustPassed": 1,
+        "rustFailed": 0,
+        "tsPassed": 2,
+        "tsFailed": 0,
+        "tsFiltered": 24
+      },
+      "countSemantics": "Shared across add/remove, counted once; 24 deliberately filtered tests are not passed tests.",
+      "evidenceLevel": "production Rust ports plus TS renderer and mocked-host page; no native UI or device evidence",
+      "evidence": [
+        {
+          "path": "docs/releases/evidence/2026-09-06-convergence/final/architecture-clean-checkpoint/drill-character-package.txt",
+          "sha256": "e44644690c28d511ee9e68815dc118a91ab9c7735ecf830a77af9df83d7b85d7"
+        }
+      ],
+      "id": "N5-05-character-remove",
+      "title": "移除使用中角色包並保留資料",
+      "productionPath": [
+        "production character_store::remove -> fallback pack selection -> host preference persistence",
+        "Runtime Character Session state save/restore and fresh runtime restart",
+        "TS page ConfirmButton/remove/fallback/remount with modeled host"
+      ],
+      "negativeRedExpectation": {
+        "expectedFailingSubprocesses": 0,
+        "description": "Expected protective outcome: removal goes through production remove, fallback survives restart, unrelated preferences/audit/session remain; this is not the older rm-folder-only script."
+      },
+      "dataRetention": [
+        "Production regression named package_import_remove_fallback_preserves_preferences_audit_and_session_after_restart passes.",
+        "Existing preferences, retained audit and session data are checked across removal/restart.",
+        "No fabricated package-removal audit event is claimed; preservation of existing audit is the checked invariant."
+      ],
+      "cleanup": [
+        "Only the fixture package/tempdir is modified; saved user data is checked before test teardown.",
+        "No destructive operation is executed on the user actual package directory."
+      ],
+      "limits": [
+        "Uses the same Rust 1/0 plus TS 2/0 run and duration as N5-01; do not double-count.",
+        "TS page boundary is modeled; parent native UI evidence is outside this summary.",
+        "The old remove-package-keep-user-data.sh received syntax lint only and is not the production-removal evidence."
+      ]
+    }
+  ],
+  "priorFindingsContext": {
+    "evidence": "/tmp/n1-n4-n6-findings-handoff.json",
+    "historicalOnly": true,
+    "relevantIds": [
+      "N1-CONTRACT-01",
+      "N1-RESTORE-02",
+      "N1-REVIEW-03",
+      "N1-REVIEW-04"
+    ],
+    "note": "Original required-field/null regressions and independent Attention/date findings were fixed and had earlier scoped green evidence. This checkpoint optional drill adds clean-checkout negative controls; historical counts are not combined with this run.",
+    "priorWorkingTreeOptionalEvidence": "/tmp/semantic-optional-drill.log",
+    "supersededLimitation": "Prior handoff required default clean-HEAD optional drill after integration; this source=clean-checkout run satisfies that specific outstanding gate."
+  },
+  "limitations": [
+    "No real device, human evaluation, AI completion, native emergency unlock, publication or release claim.",
+    "Native journey and perf evidence belong to separate parent-run gates.",
+    "This summary preserves measured values and explicit absence of evidence; no new broad review performed."
+  ],
+  "cleanCheckoutRerun": {
+    "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+    "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 bash scripts/tests/architecture-checks.sh --docs --ts --rust --swift --drill-lint --drills --evidence-dir <fresh-evidence-directory>",
+    "note": "Use the committed repository entry point with a fresh evidence directory; no /tmp/check.py dependency."
+  }
+}

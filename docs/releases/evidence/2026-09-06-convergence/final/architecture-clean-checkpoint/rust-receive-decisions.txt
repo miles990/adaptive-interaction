@@ -1,0 +1,31 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/receive_decision_fixtures.rs (target/debug/deps/receive_decision_fixtures-651c67c724cc8f44)
+
+running 3 tests
+test the_hashes_in_the_fixtures_are_real ... ok
+test receive_decision_fixtures_match_the_decision_table ... ok
+test the_decision_table_fixtures_cover_every_branch ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/receive_decisions.rs (target/debug/deps/receive_decisions-e66515e95d3a4b72)
+
+running 8 tests
+test the_realign_budget_is_bounded_and_reset_by_a_successful_apply ... ok
+test a_resume_reply_skips_benign_items_and_stops_at_the_first_realign ... ok
+test a_patch_from_another_epoch_realigns ... ok
+test a_different_epoch_needs_an_explicit_reset_otherwise_realign ... ok
+test a_reset_that_arrives_on_a_dead_connection_generation_is_ignored_first ... ok
+test a_recovery_snapshot_moves_the_receiver_back_but_a_plain_one_does_not ... ok
+test a_message_from_another_session_is_rejected_not_realigned ... ok
+test a_snapshot_without_a_hash_or_state_is_invalid ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/receive_decisions_from_json.rs (target/debug/deps/receive_decisions_from_json-ccf741d0ea91eddb)
+
+running 2 tests
+test every_receive_decision_fixture_reaches_the_documented_decision ... ok
+test the_hashes_in_the_fixtures_look_like_sha256 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

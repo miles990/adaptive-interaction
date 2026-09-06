@@ -1,0 +1,21 @@
+[
+  {
+    "event": "paired",
+    "deviceId": "iphone-5cbd07cb"
+  },
+  {
+    "event": "status",
+    "micLevel": false
+  },
+  {
+    "event": "connected"
+  },
+  {
+    "event": "status",
+    "micLevel": true
+  },
+  {
+    "event": "stop-all",
+    "sensors": true
+  }
+]

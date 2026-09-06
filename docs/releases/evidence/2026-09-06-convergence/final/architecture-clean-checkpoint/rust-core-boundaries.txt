@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running tests/dependency_boundaries.rs (target/debug/deps/dependency_boundaries-8830e65ebd5e3b76)
+
+running 3 tests
+test pure_crates_declare_no_transport_or_runtime_dependencies ... ok
+test pure_crates_do_not_pull_transport_or_runtime_crates_transitively ... ok
+test the_transitive_check_actually_detects_a_banned_crate ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s

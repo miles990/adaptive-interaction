@@ -1,0 +1,14 @@
+{
+  "name": "checkpoint-cli-e2e",
+  "sha": "30ff852f5d893215c019d982774c8b59ab010659",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "command": [
+    "bash",
+    "scripts/v03-cli-e2e.sh"
+  ],
+  "exit": 0,
+  "durationSeconds": 12.93,
+  "rustCounts": null,
+  "testBinaries": 0,
+  "log": "/tmp/adaptive-convergence-20260906/checkpoint-cli-e2e.log"
+}

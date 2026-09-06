@@ -1,0 +1,433 @@
+{
+  "evidenceLevel": "native Tauri + production daemon + real AX download and file picker",
+  "sourceSha": "3b375bde4188e4a039852881d48d82ea9b619ce1",
+  "dirtyTree": false,
+  "binarySha256": "1103cda7f8491ece2adbaab478056d14a174da47ab8536a2d652c734a0765f19",
+  "cliSha256": "0b11005e9197c79ffe53da0e89aa4364e3fbcd21111b375fa56de40980a8b2f8",
+  "driverSha256": "65ce58d5611823e70560bd2002d0f8edd2358cc1558c7fa4ebe725a00d27a0db",
+  "prefsFixture": "scripts/fixtures/desktop/v0.7.0-common-prefs.json",
+  "prefsFixtureSha256": "fa1210035842a19b9d1afb3e6b06b6773914cffc922b8abd7867a5a8f8c5a7fc",
+  "startingPreferences": {
+    "schemaVersion": 3,
+    "closeBehavior": "keep-running",
+    "askOnClose": true,
+    "launchAtLogin": false,
+    "showCompanionOnStart": true,
+    "openControlCenterOnStart": true,
+    "companionVisible": true,
+    "companionPack": "plain-text",
+    "companionName": "",
+    "companionExpressiveness": "natural",
+    "companionDoNotDisturb": false,
+    "companionOpacity": 0.85,
+    "companionPendingPresetOp": null
+  },
+  "steps": [
+    {
+      "id": "export-file",
+      "status": "completed",
+      "elapsedSeconds": 16.364,
+      "bytes": 404,
+      "sha256": "2ab3a8a8c94b5e4e44d4bb21dd629f50098f32be15a9eefd2ec2a681527ad9f8"
+    },
+    {
+      "id": "restore-settings",
+      "status": "completed",
+      "elapsedSeconds": 38.022,
+      "effectiveName": "還原名稱"
+    },
+    {
+      "id": "restored-settings-after-restart",
+      "status": "completed",
+      "elapsedSeconds": 50.467
+    },
+    {
+      "id": "missing-character-import",
+      "status": "correctly-blocked",
+      "elapsedSeconds": 67.093,
+      "reason": "Install the missing package before importing its settings; existing data preserved"
+    },
+    {
+      "id": "future-settings-import",
+      "status": "correctly-blocked",
+      "elapsedSeconds": 83.159
+    },
+    {
+      "id": "invalid-settings-import",
+      "status": "correctly-blocked",
+      "elapsedSeconds": 99.292
+    },
+    {
+      "id": "unwritable-preferences",
+      "status": "correctly-blocked",
+      "elapsedSeconds": 115.317,
+      "effectiveName": "還原名稱"
+    },
+    {
+      "id": "retry-and-explicit-blank-name",
+      "status": "completed",
+      "elapsedSeconds": 136.542,
+      "effectiveName": "",
+      "unrelatedOpacity": 0.67
+    }
+  ],
+  "ax": [
+    {
+      "command": [
+        "windows"
+      ],
+      "seconds": 0.509,
+      "exit": 0
+    },
+    {
+      "command": [
+        "exists",
+        "AXButton",
+        "現在"
+      ],
+      "seconds": 0.452,
+      "exit": 0
+    },
+    {
+      "command": [
+        "navclick",
+        "2"
+      ],
+      "seconds": 0.476,
+      "exit": 0
+    },
+    {
+      "command": [
+        "exists",
+        "AXDisclosureTriangle",
+        "更換或加入角色"
+      ],
+      "seconds": 1.842,
+      "exit": 0
+    },
+    {
+      "command": [
+        "click",
+        "AXDisclosureTriangle",
+        "更換或加入角色"
+      ],
+      "seconds": 1.855,
+      "exit": 0
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "匯出角色設定"
+      ],
+      "seconds": 3.442,
+      "exit": 0
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "seconds": 7.609,
+      "exit": 0
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "選擇角色設定檔"
+      ],
+      "seconds": 4.466,
+      "exit": 0
+    },
+    {
+      "command": [
+        "windows"
+      ],
+      "seconds": 0.306,
+      "exit": 0
+    },
+    {
+      "command": [
+        "choosefile",
+        "/private/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/valid-import.json"
+      ],
+      "seconds": 1.992,
+      "exit": 0
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "已匯入角色設定並套用"
+      ],
+      "seconds": 7.162,
+      "exit": 0
+    },
+    {
+      "command": [
+        "windows"
+      ],
+      "seconds": 0.217,
+      "exit": 0
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "seconds": 7.361,
+      "exit": 0
+    },
+    {
+      "command": [
+        "windows"
+      ],
+      "seconds": 0.498,
+      "exit": 0
+    },
+    {
+      "command": [
+        "exists",
+        "AXButton",
+        "現在"
+      ],
+      "seconds": 0.419,
+      "exit": 0
+    },
+    {
+      "command": [
+        "navclick",
+        "2"
+      ],
+      "seconds": 0.463,
+      "exit": 0
+    },
+    {
+      "command": [
+        "exists",
+        "AXDisclosureTriangle",
+        "更換或加入角色"
+      ],
+      "seconds": 1.806,
+      "exit": 0
+    },
+    {
+      "command": [
+        "click",
+        "AXDisclosureTriangle",
+        "更換或加入角色"
+      ],
+      "seconds": 1.802,
+      "exit": 0
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "seconds": 7.442,
+      "exit": 0
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "選擇角色設定檔"
+      ],
+      "seconds": 4.369,
+      "exit": 0
+    },
+    {
+      "command": [
+        "windows"
+      ],
+      "seconds": 0.245,
+      "exit": 0
+    },
+    {
+      "command": [
+        "choosefile",
+        "/private/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/missing-character.json"
+      ],
+      "seconds": 2.002,
+      "exit": 0
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "不是這台電腦認得的角色"
+      ],
+      "seconds": 2.439,
+      "exit": 0
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "seconds": 7.57,
+      "exit": 0
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "選擇角色設定檔"
+      ],
+      "seconds": 3.825,
+      "exit": 0
+    },
+    {
+      "command": [
+        "windows"
+      ],
+      "seconds": 0.247,
+      "exit": 0
+    },
+    {
+      "command": [
+        "choosefile",
+        "/private/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/future-settings.json"
+      ],
+      "seconds": 2.008,
+      "exit": 0
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "不支援的版本"
+      ],
+      "seconds": 2.425,
+      "exit": 0
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "seconds": 7.56,
+      "exit": 0
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "選擇角色設定檔"
+      ],
+      "seconds": 3.802,
+      "exit": 0
+    },
+    {
+      "command": [
+        "windows"
+      ],
+      "seconds": 0.245,
+      "exit": 0
+    },
+    {
+      "command": [
+        "choosefile",
+        "/private/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/invalid-settings.json"
+      ],
+      "seconds": 2.009,
+      "exit": 0
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "必須是開關值"
+      ],
+      "seconds": 2.44,
+      "exit": 0
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "seconds": 7.635,
+      "exit": 0
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "選擇角色設定檔"
+      ],
+      "seconds": 3.819,
+      "exit": 0
+    },
+    {
+      "command": [
+        "windows"
+      ],
+      "seconds": 0.253,
+      "exit": 0
+    },
+    {
+      "command": [
+        "choosefile",
+        "/private/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/unwritable-settings.json"
+      ],
+      "seconds": 2.002,
+      "exit": 0
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "無法確認設定已完整套用"
+      ],
+      "seconds": 2.429,
+      "exit": 0
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "seconds": 7.52,
+      "exit": 0
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "選擇角色設定檔"
+      ],
+      "seconds": 3.802,
+      "exit": 0
+    },
+    {
+      "command": [
+        "windows"
+      ],
+      "seconds": 0.254,
+      "exit": 0
+    },
+    {
+      "command": [
+        "choosefile",
+        "/private/tmp/adaptive-convergence-20260906/native-final-checkpoint/settings-legacy/blank-name.json"
+      ],
+      "seconds": 2.001,
+      "exit": 0
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "已匯入角色設定並套用"
+      ],
+      "seconds": 7.438,
+      "exit": 0
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "seconds": 7.572,
+      "exit": 0
+    }
+  ],
+  "seconds": 136.637,
+  "error": null,
+  "limits": "No human timing; failed presentation acknowledgement is separately covered by component fault tests; unwritable store is a real task-owned directory"
+}

@@ -1,0 +1,254 @@
+[
+  {
+    "actor": "runtime",
+    "at": "2026-09-06T05:57:20.715Z",
+    "detail": {
+      "actuators": [],
+      "providerId": "provider.adapter.button-box",
+      "reason": "revoked",
+      "receptors": [
+        "button-box.button"
+      ]
+    },
+    "kind": "provider.kept-off-at-start"
+  },
+  {
+    "actor": "user",
+    "at": "2026-09-06T05:57:20.595Z",
+    "detail": {
+      "closedLinks": [
+        "serial /dev/ttys003@115200"
+      ],
+      "providerId": "provider.adapter.button-box",
+      "sensorStop": {
+        "reason": "provider-stopped",
+        "released": {
+          "declarationRetracted": true,
+          "leftSession": [
+            "button-box-01"
+          ],
+          "providerId": "provider.adapter.button-box"
+        },
+        "reports": [
+          {
+            "confirmedVia": "ack",
+            "declarationId": "provider.adapter.button-box",
+            "detail": "nothing was armed on this host; the device was asked anyway because only it knows whether it is still capturing",
+            "outcome": "already-stopped",
+            "sensors": [],
+            "sourceId": "provider.adapter.button-box",
+            "sourceLabel": "按鈕盒（只回報事件）",
+            "waitedMs": 0
+          }
+        ],
+        "sourceId": "provider.adapter.button-box",
+        "target": null
+      }
+    },
+    "kind": "provider.revoked"
+  },
+  {
+    "actor": "runtime",
+    "at": "2026-09-06T05:57:20.594Z",
+    "detail": {
+      "declarationRetracted": true,
+      "identityStrength": "transport-hello+device-side-pairing",
+      "leftSession": [
+        "button-box-01"
+      ],
+      "providerId": "provider.adapter.button-box",
+      "reason": "provider-stopped"
+    },
+    "kind": "aip.device-retired"
+  },
+  {
+    "actor": "runtime",
+    "at": "2026-09-06T05:57:20.417Z",
+    "detail": {
+      "closedLinks": [],
+      "drained": true,
+      "generation": 2,
+      "handshake": "ready",
+      "keptDisabledReceptors": [
+        "button-box.button"
+      ],
+      "providerId": "provider.adapter.button-box",
+      "sensorStop": null,
+      "staleChannels": []
+    },
+    "kind": "provider.rebound"
+  },
+  {
+    "actor": "runtime",
+    "at": "2026-09-06T05:57:20.366Z",
+    "detail": {
+      "deviceId": "button-box-01",
+      "identityStrength": "transport-hello+device-side-pairing",
+      "pairingUnverified": true,
+      "providerId": "provider.adapter.button-box",
+      "transport": "serial"
+    },
+    "kind": "aip.device-channel-ready"
+  },
+  {
+    "actor": "runtime",
+    "at": "2026-09-06T05:57:20.365Z",
+    "detail": {
+      "generation": 2,
+      "previousLinks": [],
+      "providerId": "provider.adapter.button-box"
+    },
+    "kind": "provider.rebinding"
+  },
+  {
+    "actor": "user",
+    "at": "2026-09-06T05:57:20.309Z",
+    "detail": {
+      "closedLinks": [
+        "serial /dev/ttys003@115200"
+      ],
+      "providerId": "provider.adapter.button-box",
+      "sensorStop": {
+        "reason": "provider-stopped",
+        "released": {
+          "declarationRetracted": true,
+          "leftSession": [
+            "button-box-01"
+          ],
+          "providerId": "provider.adapter.button-box"
+        },
+        "reports": [
+          {
+            "confirmedVia": "ack",
+            "declarationId": "provider.adapter.button-box",
+            "detail": "nothing was armed on this host; the device was asked anyway because only it knows whether it is still capturing",
+            "outcome": "already-stopped",
+            "sensors": [],
+            "sourceId": "provider.adapter.button-box",
+            "sourceLabel": "按鈕盒（只回報事件）",
+            "waitedMs": 0
+          }
+        ],
+        "sourceId": "provider.adapter.button-box",
+        "target": null
+      },
+      "state": "disabled"
+    },
+    "kind": "provider.transitioned"
+  },
+  {
+    "actor": "runtime",
+    "at": "2026-09-06T05:57:20.309Z",
+    "detail": {
+      "declarationRetracted": true,
+      "identityStrength": "transport-hello+device-side-pairing",
+      "leftSession": [
+        "button-box-01"
+      ],
+      "providerId": "provider.adapter.button-box",
+      "reason": "provider-stopped"
+    },
+    "kind": "aip.device-retired"
+  },
+  {
+    "actor": "runtime",
+    "at": "2026-09-06T05:57:20.131Z",
+    "detail": {
+      "closedLinks": [],
+      "drained": true,
+      "generation": 1,
+      "handshake": "ready",
+      "keptDisabledReceptors": [
+        "button-box.button"
+      ],
+      "providerId": "provider.adapter.button-box",
+      "sensorStop": null,
+      "staleChannels": []
+    },
+    "kind": "provider.rebound"
+  },
+  {
+    "actor": "runtime",
+    "at": "2026-09-06T05:57:20.079Z",
+    "detail": {
+      "deviceId": "button-box-01",
+      "identityStrength": "transport-hello+device-side-pairing",
+      "pairingUnverified": true,
+      "providerId": "provider.adapter.button-box",
+      "transport": "serial"
+    },
+    "kind": "aip.device-channel-ready"
+  },
+  {
+    "actor": "runtime",
+    "at": "2026-09-06T05:57:20.078Z",
+    "detail": {
+      "generation": 1,
+      "previousLinks": [],
+      "providerId": "provider.adapter.button-box"
+    },
+    "kind": "provider.rebinding"
+  },
+  {
+    "actor": "user",
+    "at": "2026-09-06T05:57:20.023Z",
+    "detail": {
+      "closedLinks": [
+        "serial /dev/ttys003@115200"
+      ],
+      "providerId": "provider.adapter.button-box",
+      "sensorStop": {
+        "reason": "provider-stopped",
+        "released": {
+          "declarationRetracted": true,
+          "leftSession": [
+            "button-box-01"
+          ],
+          "providerId": "provider.adapter.button-box"
+        },
+        "reports": [
+          {
+            "confirmedVia": "ack",
+            "declarationId": "provider.adapter.button-box",
+            "detail": "nothing was armed on this host; the device was asked anyway because only it knows whether it is still capturing",
+            "outcome": "already-stopped",
+            "sensors": [],
+            "sourceId": "provider.adapter.button-box",
+            "sourceLabel": "按鈕盒（只回報事件）",
+            "waitedMs": 0
+          }
+        ],
+        "sourceId": "provider.adapter.button-box",
+        "target": null
+      },
+      "state": "disabled"
+    },
+    "kind": "provider.transitioned"
+  },
+  {
+    "actor": "runtime",
+    "at": "2026-09-06T05:57:20.023Z",
+    "detail": {
+      "declarationRetracted": true,
+      "identityStrength": "transport-hello+device-side-pairing",
+      "leftSession": [
+        "button-box-01"
+      ],
+      "providerId": "provider.adapter.button-box",
+      "reason": "provider-stopped"
+    },
+    "kind": "aip.device-retired"
+  },
+  {
+    "actor": "runtime",
+    "at": "2026-09-06T05:57:19.857Z",
+    "detail": {
+      "deviceId": "button-box-01",
+      "identityStrength": "transport-hello+device-side-pairing",
+      "pairingUnverified": false,
+      "providerId": "provider.adapter.button-box",
+      "transport": "serial"
+    },
+    "kind": "aip.device-channel-ready"
+  }
+]
