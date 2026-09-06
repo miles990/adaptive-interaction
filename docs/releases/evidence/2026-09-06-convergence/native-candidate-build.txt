@@ -1,0 +1,42 @@
+
+> interaction-desktop@0.7.0 tauri /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+> tauri build --bundles app
+
+        Info Looking up installed tauri packages to check mismatched versions...
+     Running beforeBuildCommand `pnpm build`
+
+> interaction-desktop@0.7.0 build /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+> tsc --noEmit && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 1951 modules transformed.
+rendering chunks...
+[plugin:vite:reporter] [plugin vite:reporter] 
+(!) /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/.pnpm/@tauri-apps+api@2.11.1/node_modules/@tauri-apps/api/core.js is dynamically imported by /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src/companion/CompanionApp.tsx, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src/companion/CompanionApp.tsx, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src/companion/CompanionApp.tsx, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src/companion/CompanionApp.tsx, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src/pages/work/TaskComposer.tsx but also statically imported by /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/.pnpm/@tauri-apps+api@2.11.1/node_modules/@tauri-apps/api/dpi.js, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/.pnpm/@tauri-apps+api@2.11.1/node_modules/@tauri-apps/api/event.js, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/.pnpm/@tauri-apps+api@2.11.1/node_modules/@tauri-apps/api/image.js, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/.pnpm/@tauri-apps+api@2.11.1/node_modules/@tauri-apps/api/webview.js, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/.pnpm/@tauri-apps+api@2.11.1/node_modules/@tauri-apps/api/window.js, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src/desktop.ts, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src/overlay/OverlayApp.tsx, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src/transport.ts, dynamic import will not move module into another chunk.
+
+[plugin:vite:reporter] [plugin vite:reporter] 
+(!) /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/.pnpm/@tauri-apps+api@2.11.1/node_modules/@tauri-apps/api/event.js is dynamically imported by /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src/companion/CompanionApp.tsx but also statically imported by /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/.pnpm/@tauri-apps+api@2.11.1/node_modules/@tauri-apps/api/webview.js, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/node_modules/.pnpm/@tauri-apps+api@2.11.1/node_modules/@tauri-apps/api/window.js, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src/desktop.ts, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src/overlay/OverlayApp.tsx, /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src/transport.ts, dynamic import will not move module into another chunk.
+
+computing gzip size...
+dist/index.html                    0.42 kB │ gzip:   0.28 kB
+dist/assets/index-CzzAIIFn.css    32.51 kB │ gzip:   7.05 kB
+dist/assets/webview-BwIOHWss.js    3.29 kB │ gzip:   1.13 kB
+dist/assets/window-BOR9CULd.js    14.07 kB │ gzip:   3.51 kB
+dist/assets/index-CNdE-xfH.js    801.76 kB │ gzip: 269.95 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.81s
+   Compiling interaction-session v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-session)
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+   Compiling interaction-api v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-api)
+   Compiling interaction-desktop v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri)
+    Finished `release` profile [optimized] target(s) in 2m 02s
+       Built application at: /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri/target/release/interaction-desktop
+    Bundling interaction-control-center.app (/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app)
+    Finished 1 bundle at:
+        /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app
+
