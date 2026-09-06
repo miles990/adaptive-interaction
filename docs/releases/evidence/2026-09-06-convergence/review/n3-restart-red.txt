@@ -1,0 +1,29 @@
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.12s
+     Running tests/sensors_loop.rs (target/debug/deps/sensors_loop-87e11a560469b5b9)
+
+running 3 tests
+
+thread 'restart_retains_unresolved_without_claiming_active_capture' (5812575) panicked at crates/interaction-runtime/tests/sensors_loop.rs:1619:5:
+assertion `left == right` failed: restart must preserve unknown: []
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'restart_before_orphan_ttl_retains_unknown' (5812573) panicked at crates/interaction-runtime/tests/sensors_loop.rs:1636:5:
+assertion `left == right` failed: the TTL window must already be durable
+  left: 0
+ right: 1
+test restart_human_dismissal_stays_dismissed_without_claiming_stopped ... ok
+test restart_retains_unresolved_without_claiming_active_capture ... FAILED
+test restart_before_orphan_ttl_retains_unknown ... FAILED
+
+failures:
+
+failures:
+    restart_before_orphan_ttl_retains_unknown
+    restart_retains_unresolved_without_claiming_active_capture
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 31 filtered out; finished in 0.25s
+
+error: test failed, to rerun pass `-p interaction-runtime --test sensors_loop`

@@ -6,7 +6,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const PORT = 18790;
+const PORT = Number(process.env.E2E_API_PORT ?? 18790);
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) throw new Error("E2E_API_PORT must be a TCP port");
 const STATE_FILE = join(tmpdir(), "interaction-e2e-state.json");
 const EXTRA_DAEMONS_FILE = join(tmpdir(), "interaction-e2e-extra-daemons.json");
 

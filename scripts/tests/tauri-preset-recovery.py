@@ -17,6 +17,11 @@ a = p.parse_args()
 a.out.mkdir(parents=True, exist_ok=False)
 binary = a.app.resolve()/'Contents/MacOS/interaction-desktop'
 assert binary.is_file() and a.cli.is_file()
+provenance = {'sourceSha':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+              'dirtyTree':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()),
+              'binarySha256':hashlib.sha256(binary.read_bytes()).hexdigest(),
+              'cliSha256':hashlib.sha256(a.cli.read_bytes()).hexdigest(),
+              'driverSha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest()}
 results = []
 
 def wait(check, seconds=20):
@@ -198,7 +203,9 @@ for case in a.cases:
         for name in ('api-token','api-agent-token'):
             (home/'state'/name).unlink(missing_ok=True)
         results[-1]['isolatedHome']=str(home)
-        doc={'binarySha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'cliSha256':hashlib.sha256(a.cli.read_bytes()).hexdigest(),'humanOrHardwareEvidence':False,'results':results}
+        if provenance['binarySha256'] != hashlib.sha256(binary.read_bytes()).hexdigest() or provenance['cliSha256'] != hashlib.sha256(a.cli.read_bytes()).hexdigest():
+            results[-1].update(status='failed',error='Executable changed during walkthrough')
+        doc={**provenance,'humanOrHardwareEvidence':False,'results':results}
         (a.out/'result.json').write_text(json.dumps(doc,ensure_ascii=False,indent=2)+'\n')
         print(case,results[-1]['status'],results[-1].get('error',''),flush=True)
 raise SystemExit(1 if any(r['status']=='failed' for r in results) else 0)

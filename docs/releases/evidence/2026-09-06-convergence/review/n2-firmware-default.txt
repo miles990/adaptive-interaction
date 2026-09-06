@@ -1,0 +1,25 @@
+note: bundled ctags is x86_64-only and Rosetta is absent — using tools/ctags-shim (Universal Ctags)
+== arduino-cli compile --fqbn esp32:esp32:esp32 (ENABLE_BLE=0) ==
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32Servo.cpp:58:20: warning: 'TAG' defined but not used [-Wunused-variable]
+   58 | static const char* TAG = "ESP32Servo";
+      |                    ^~~
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32PWM.cpp: In member function 'double ESP32PWM::setup(double, uint8_t)':
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32PWM.cpp:283:32: warning: unused variable 'val' [-Wunused-variable]
+  283 |                         double val = ledcAttachChannel(getPin(), freq, resolution_bits, getChannel());
+      |                                ^~~
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32PWM.cpp: In member function 'void ESP32PWM::attachPin(uint8_t, double, uint8_t)':
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32PWM.cpp:529:21: warning: unused variable 'ret' [-Wunused-variable]
+  529 |                 int ret=setup(freq, resolution_bits);
+      |                     ^~~
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32PWM.cpp: At global scope:
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32PWM.cpp:22:20: warning: 'TAG' defined but not used [-Wunused-variable]
+   22 | static const char* TAG = "ESP32PWM";
+      |                    ^~~
+Sketch uses 939403 bytes (71%) of program storage space. Maximum is 1310720 bytes.
+Global variables use 49924 bytes (15%) of dynamic memory, leaving 277756 bytes for local variables. Maximum is 327680 bytes.
+== artifacts ==
+-rw-r--r--@ 1 user  staff     8192 Sep  6 12:09 /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T//esp32-companion-build.fP7rTl/build/boot_app0.bin
+-rw-r--r--@ 1 user  staff   939552 Sep  6 12:09 /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T//esp32-companion-build.fP7rTl/build/esp32-companion.ino.bin
+-rw-r--r--@ 1 user  staff    24992 Sep  6 12:08 /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T//esp32-companion-build.fP7rTl/build/esp32-companion.ino.bootloader.bin
+-rw-r--r--@ 1 user  staff  4194304 Sep  6 12:09 /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T//esp32-companion-build.fP7rTl/build/esp32-companion.ino.merged.bin
+-rw-r--r--@ 1 user  staff     3072 Sep  6 12:09 /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T//esp32-companion-build.fP7rTl/build/esp32-companion.ino.partitions.bin

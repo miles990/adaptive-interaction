@@ -53,10 +53,11 @@ on run argv
 				if not (exists window "Open") then error "owned app has no Open panel"
 				set frontmost to true
 				keystroke "g" using {command down, shift down}
-				delay 0.3
+				delay 0.5
+				keystroke "a" using {command down}
 				keystroke (item 3 of argv)
 				key code 36
-				delay 0.4
+				delay 1.2
 				key code 36
 				return "selected file in owned Open panel"
 			end if
@@ -168,7 +169,10 @@ on run argv
 					set r to (role of e) as text
 					if wantRole is "AXAny" or r is wantRole then
 						set lbl to my labelOf(e)
-						if lbl is not "" and lbl contains wantText then set end of hits to e
+						if lbl is not "" and lbl contains wantText then
+							set end of hits to e
+							exit repeat -- Every command below acts only on the first hit.
+						end if
 					end if
 				end try
 			end repeat

@@ -8,7 +8,7 @@
 # 驅動真的視窗，每一步都再用 HTTP／偏好檔讀回**權威狀態**——畫面說了不算。
 #
 # 誠實邊界（輸出的 JSON 與文件都必須照抄）：
-#   * 證據等級＝「真 Tauri 視窗（debug build，AX 驅動，fixture agent，隔離 home）」。
+#   * 證據等級＝「真 Tauri 視窗（指定 .app，AX 驅動，fixture agent，隔離 home）」。
 #   * AI 幫手是 fixture 子程序（`crates/interaction-runtime/tests/fixtures/fake_*.sh`），
 #     不是真的 Codex／Claude Code。
 #   * 沒有任何 iPhone 真機參與；這支腳本完全不碰手機配對。
@@ -46,6 +46,7 @@ DEFAULT_APP="$DESKTOP_DIR/src-tauri/target/debug/bundle/macos/interaction-contro
 APP_PATH=""
 FORCE_BUILD=0
 PREFS_FIXTURE=""
+APP_SOURCE_REF="not-specified"
 PORT=18922
 OUT_DIR="$PWD/tauri-ax-walkthrough"
 
@@ -54,6 +55,7 @@ while [ $# -gt 0 ]; do
     --app) APP_PATH="${2:-}"; shift 2 ;;
     --build) FORCE_BUILD=1; shift ;;
     --prefs-fixture) PREFS_FIXTURE="${2:-}"; shift 2 ;;
+    --app-source-ref) APP_SOURCE_REF="${2:-}"; shift 2 ;;
     --port) PORT="${2:-}"; shift 2 ;;
     --out) OUT_DIR="${2:-}"; shift 2 ;;
     -h|--help) sed -n '1,40p' "$0"; exit 0 ;;
@@ -186,6 +188,8 @@ shot() { # shot <name> → 只截自己視窗的矩形
 }
 
 cleanup() {
+  local original_rc=$?
+  trap - EXIT
   if [ -n "$APP_PID" ] && kill -0 "$APP_PID" 2>/dev/null; then
     log "結束 App（pid ${APP_PID}）"
     kill "$APP_PID" 2>/dev/null
@@ -200,6 +204,9 @@ cleanup() {
   still="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')"
   log "收尾：埠號 $PORT 仍在監聽的程序數＝$still"
   assemble "$still"
+  local evidence_rc=$?
+  if [ "$original_rc" -ne 0 ] || [ "$evidence_rc" -ne 0 ]; then exit 1; fi
+  exit 0
 }
 
 assemble() {
@@ -235,15 +242,21 @@ for sid, title in PLAN:
         tasks.append({"id": sid, "title": title, "status": "not-run", "evidence": "本輪沒有走到這一步"})
 metrics_path = pathlib.Path(out).parent / "ax-metrics.jsonl"
 metrics = [json.loads(x) for x in metrics_path.read_text().splitlines()] if metrics_path.exists() else []
+provenance_path = pathlib.Path(out).parent/'provenance.json'
+provenance = json.loads(provenance_path.read_text()) if provenance_path.exists() else {}
+current_hash = hashlib.sha256((pathlib.Path(app)/'Contents/MacOS/interaction-desktop').read_bytes()).hexdigest() if pathlib.Path(app).is_dir() else None
+if provenance.get('binarySha256') != current_hash:
+    tasks.append({'id':'artifact-stability','status':'failed','evidence':'Executable changed during walkthrough'})
 summary = {}
 for t in tasks:
     summary[t["status"]] = summary.get(t["status"], 0) + 1
 doc = {
     "metrics": {"kind": "AX script (not human)", "successfulClicks": sum(x["clicked"] for x in metrics), "commandSeconds": round(sum(x["seconds"] for x in metrics),3), "commandCount": len(metrics), "humanHelp": "not measured", "humanDecisions": "not measured", "humanTaskTimes": "not measured"},
-    "binarySha256": hashlib.sha256((pathlib.Path(app)/"Contents/MacOS/interaction-desktop").read_bytes()).hexdigest(),
+    **provenance,
+    "artifactUnchanged": provenance.get("binarySha256") == current_hash,
     "startedAt": started,
     "finishedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "evidenceLevel": "真 Tauri 視窗（debug build，AX 驅動，fixture agent，隔離 home）",
+    "evidenceLevel": "真 Tauri 視窗（指定 .app，AX 驅動，fixture agent，隔離 home）",
     "honesty": {
         "agent": "AI 幫手是 fixture 子程序（fake_codex.sh／fake_claude.sh），不是真的 Codex／Claude Code",
         "phone": "這一輪完全沒有手機參與（真機與模擬手機都沒有）",
@@ -263,6 +276,7 @@ with open(out, "w", encoding="utf-8") as f:
     f.write("\n")
 print(json.dumps(summary, ensure_ascii=False))
 print(out)
+raise SystemExit(1 if any(t["status"] != "completed" for t in tasks if t["id"] != "emergency-unlock") or listeners != "0" else 0)
 PY
 }
 trap cleanup EXIT
@@ -292,6 +306,20 @@ if [ ! -x "$BIN" ]; then
   record "launch" "啟動 .app 並等到 /ready" "failed" ".app 裡找不到可執行檔：$APP_PATH"
   exit 1
 fi
+
+python3 - "$OUT_DIR/provenance.json" "$BIN" "$REPO_ROOT" "$APP_SOURCE_REF" "$PREFS_FIXTURE" <<'PYPROVENANCE'
+import hashlib,json,pathlib,subprocess,sys
+out,binary,root,ref,fixture=sys.argv[1:]
+p=pathlib.Path(binary)
+d={'binarySha256':hashlib.sha256(p.read_bytes()).hexdigest(),'appSourceRef':ref,
+   'driverSourceSha':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),
+   'driverDirtyTree':bool(subprocess.check_output(['git','status','--porcelain'],cwd=root,text=True).strip()),
+   'driverSha256':hashlib.sha256((pathlib.Path(root)/'scripts/tauri-ax-walkthrough.sh').read_bytes()).hexdigest(),
+   'axHelperSha256':hashlib.sha256((pathlib.Path(root)/'scripts/lib/tauri-ax.applescript').read_bytes()).hexdigest(),
+   'prefsFixture':fixture or None,
+   'prefsFixtureSha256':hashlib.sha256(pathlib.Path(fixture).read_bytes()).hexdigest() if fixture else None}
+pathlib.Path(out).write_text(json.dumps(d,indent=2)+'\n')
+PYPROVENANCE
 
 # --- 2. 隔離的家 -------------------------------------------------------------
 HOME_DIR="$(mktemp -d /tmp/interaction-ax-home.XXXXXX)"

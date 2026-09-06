@@ -1,0 +1,686 @@
+{
+  "format": 1,
+  "title": "N3 findings and implementation handoff",
+  "status": "implementation_frozen_for_parent_integration",
+  "repository": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "baseHead": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
+  "branch": "feature/semantic-recovery-convergence",
+  "revisionCaveat": "All listed tests ran in the shared dirty working tree. The base HEAD is not an immutable tested commit. Current file hashes are captured at handoff time; they do not reconstruct historical red revisions. Parent must associate final commits/release evidence.",
+  "roles": {
+    "author": "/root/restart_lifecycle",
+    "scopeFinder": "/root/semantic_contract",
+    "scopeVerifier": "/root/state_receipts",
+    "mobileFinder": "/root/state_receipts",
+    "mobileVerifier": "/root",
+    "integrator": "/root"
+  },
+  "scope": "N3 durable unknown stops, capture scope integrity, raw mobile capture lifecycle, rebind safety evidence. No central repository documents or production code changed for this handoff.",
+  "confirmedFindings": [
+    {
+      "id": "N3-SCOPE-01",
+      "idScope": "handoff-local",
+      "title": "Changing a family capture list overwrote previous unresolved sensor evidence",
+      "classification": "confirmed_product_defect_in_candidate",
+      "finder": "/root/semantic_contract",
+      "verifier": "/root/state_receipts",
+      "author": "/root/restart_lifecycle",
+      "reproduction": "A is unconfirmed; the persistent family remains registered while its active list changes to B. A subsequent journal record for the same SourceKey overwrote A with B. Shutdown/restart then lost A.",
+      "test": "changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors",
+      "testFile": "crates/interaction-runtime/tests/sensor_journal_review.rs",
+      "red": [
+        "docs/releases/evidence/2026-09-06-convergence/review/semantic-n3-review-red.txt",
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-verify-red.txt"
+      ],
+      "green": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-final-green.txt",
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-final.txt"
+      ],
+      "fix": "Union old and new (sensor, scope) evidence for the same source generation; preserve earliest since and old evidence first under the bounded cap. A changed live list is never negative stop evidence.",
+      "commit": null,
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N3-SCOPE-02",
+      "idScope": "handoff-local",
+      "title": "A current family member's stopped report cleared an absent member of the same sensor kind",
+      "classification": "confirmed_product_defect_in_candidate",
+      "finder": "/root/semantic_contract",
+      "verifier": "/root/state_receipts",
+      "author": "/root/restart_lifecycle",
+      "reproduction": "A microphone remains unknown and disconnects. B has the same sensor kind and reports stopped. Matching only the kind allowed B to clear A's journal entry.",
+      "test": "a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind",
+      "testFile": "crates/interaction-runtime/tests/sensor_journal_review.rs",
+      "red": [
+        "docs/releases/evidence/2026-09-06-convergence/review/semantic-n3-review-red.txt",
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-verify-red.txt"
+      ],
+      "green": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-final-green.txt",
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-final.txt"
+      ],
+      "fix": "Resolve only same process/source generation plus exact adapter capture scope and sensor. Mobile supplies the connection ID captured with the capture/stop target. Default family scopes cannot be vouched for by another member report. New connection with the same device ID cannot clear old scope.",
+      "commit": null,
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N3-SCOPE-03",
+      "idScope": "handoff-local",
+      "title": "A registered family hid historical unknowns after its live capture disappeared",
+      "classification": "confirmed_product_defect_in_candidate",
+      "finder": "/root/restart_lifecycle",
+      "regressionAuthor": "/root/restart_lifecycle",
+      "verifier": "/root/state_receipts",
+      "author": "/root/restart_lifecycle",
+      "reproduction": "Keep the family registered; change its active capture list to empty after an unconfirmed stop. The previous projection excluded the entire registered source generation and returned no unresolved entries.",
+      "test": "a_registered_family_does_not_hide_unknowns_after_the_live_capture_disappears",
+      "testFile": "crates/interaction-runtime/tests/sensor_journal_review.rs",
+      "red": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-live-family-red.txt",
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-verify-red.txt"
+      ],
+      "green": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-final-green.txt",
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-final.txt"
+      ],
+      "fix": "Hide only exact currently represented (sensor, scope) evidence, or the existing 60-second orphan projection window. Constant family registration alone never suppresses historical unknowns. Human dismissal removes only visible historical evidence and retains live siblings.",
+      "commit": null,
+      "roleNote": "Concrete live-only projection finding was first raised by the implementation author. /root/semantic_contract confirmed this attribution from the conversation; only scope01/02 were independently found by that agent. /root/state_receipts independently refuted/verified all three against the actual production path and reran 0/3 red. Do not relabel the scope03 author extension as an independent Find.",
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    },
+    {
+      "id": "N3-MOBILE-EDGE-01",
+      "idScope": "handoff-local",
+      "title": "Per-device stop and direct mobile removal bypassed durable capture evidence",
+      "classification": "confirmed_product_defect_in_candidate",
+      "finder": "/root/state_receipts",
+      "verifier": "/root",
+      "author": "/root/restart_lifecycle",
+      "reproduction": "A real production TLS fixture self-reports micLevel=true without enabling a receptor or granting consent. mobile_sensors_stop returns unknown; direct mobile_revoke removes the connection; before/after Runtime restart unresolved entries were both []. Global stop was never called.",
+      "test": "per_device_unknown_stop_survives_direct_mobile_revoke_and_restart",
+      "testFile": "crates/interaction-runtime/tests/mobile_loop.rs",
+      "red": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-direct-stop-red.txt",
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-independent-red.txt"
+      ],
+      "green": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-final.txt",
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-direct-stop-independent-green.txt"
+      ],
+      "independentGreenStatus": "N2 independently reran the original mobile edge regression: 1 pass / 0 fail, 2.32s; docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-direct-stop-independent-green.txt. Source read-only follow-up is still being completed; no new unresolved finding reported. Additional four mobile boundaries passed in author full 81/0.",
+      "fix": "Capture raw false-to-true through the canonical journal port before publishing mic_since. Each connection carries opaque SensorCaptureOwner with registered source generation and family label. Same effective connection's false report can settle only its scope while the source generation is still registered. Teardown never clears it; direct per-device stop now uses the canonical source request when registered. Safety-decreasing raw wire stop remains available if source registration has already been removed.",
+      "addedTests": [
+        "disabled_raw_mobile_capture_survives_disconnect_and_restart_without_a_stop_request",
+        "same_mobile_connection_false_report_settles_capture_before_restart",
+        "superseding_mobile_connection_cannot_confirm_the_old_capture",
+        "late_mobile_false_from_an_unregistered_source_generation_preserves_unknown"
+      ],
+      "commit": null,
+      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+    }
+  ],
+  "originalRegressions": [
+    {
+      "id": "N3-RESTART",
+      "classification": "user_requested_delta_reproduced_against_previous_implementation",
+      "reporter": "user N3.1",
+      "regressionAuthor": "/root/restart_lifecycle",
+      "runner": "/root/restart_lifecycle",
+      "independentFindVerify": null,
+      "tests": [
+        "restart_retains_unresolved_without_claiming_active_capture",
+        "restart_before_orphan_ttl_retains_unknown",
+        "restart_human_dismissal_stays_dismissed_without_claiming_stopped"
+      ],
+      "red": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-restart-red.txt"
+      ],
+      "green": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-final.txt"
+      ],
+      "note": "Original red was 1 pass / 2 fail: historical reminder retention failed both after and before orphan TTL. This is not claimed as an independent Find/Verify run."
+    },
+    {
+      "id": "N3-GENERATION",
+      "classification": "explicit_user_requested_contract_tightening",
+      "reporter": "user N3.1; parent approved the generation evidence boundary",
+      "regressionAuthor": "/root/restart_lifecycle",
+      "runner": "/root/restart_lifecycle",
+      "independentFindVerify": null,
+      "tests": [
+        "new_generation_confirmed_stop_cannot_vouch_for_previous_source"
+      ],
+      "red": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-generation-red.txt"
+      ],
+      "green": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-final.txt"
+      ],
+      "note": "v0.7.0 explicitly allowed a new same-ID source to clear an old generation. The new red establishes the requested stricter rule; it is not evidence that v0.7.0 already promised this same rule. Compatibility/deprecation/privacy docs record the behavior change."
+    },
+    {
+      "id": "N3-SHUTDOWN",
+      "classification": "user_requested_persistence_crash_window_regression",
+      "regressionAuthor": "/root/restart_lifecycle",
+      "runner": "/root/restart_lifecycle",
+      "independentFindVerify": null,
+      "tests": [
+        "shutdown_persists_unknown_before_marking_the_process_clean"
+      ],
+      "red": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-shutdown-red.txt"
+      ],
+      "green": [
+        "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-final.txt"
+      ],
+      "note": "Shutdown now stops sensors through the existing bounded coordinator before transport cancellation and journal flush/clean marker. Synchronous local microphone stop remains first."
+    }
+  ],
+  "implementation": {
+    "owner": "Runtime SensorJournal in the existing SQLite Store; source lifecycle/capture ports in sensor_source.rs. Independent of AIP and Character Session snapshot.",
+    "storage": "meta.sensor_stop_journal format 1; separate durable sensor_source_generation_high_water reservation, 1<<20 generation slots per Runtime startup, maximum 2^53-1.",
+    "persistedFields": [
+      "sourceId",
+      "generation",
+      "processIncarnation",
+      "since",
+      "reason",
+      "confirmedStopped=false",
+      "sensors",
+      "evidence(sensor,scope)",
+      "optional sourceLabel"
+    ],
+    "neverPersisted": [
+      "audio",
+      "observations",
+      "startedBy",
+      "purpose",
+      "full lastKnown",
+      "consent grants",
+      "enabled=true restoration"
+    ],
+    "bounds": {
+      "entries": 32,
+      "scopeSensorPairsPerEntry": 64,
+      "totalJsonBytes": 262144,
+      "idSensorScopeMaxBytes": 512,
+      "reasonMaxBytes": 256,
+      "labelMaxBytes": 512,
+      "captureQueryMs": 500,
+      "orphanProjectionSeconds": 60,
+      "generationMax": "9007199254740991"
+    },
+    "overflow": "Sticky overflowCount=1 means at least one unitemized unknown, not the exact number lost. Preserve existing entries first; missing source attribution also persists bounded aggregate uncertainty.",
+    "atomicity": "Reminder resolution/dismissal and corresponding audit use a single SQLite transaction; failed dismissal restores in-memory reminder. Record failures preserve visible write-failed/recoveryUnknown. Corrupt/future/oversized journal is parked without rewriting raw data; independent generation reserve still prevents reuse.",
+    "projection": "Live active captures, historical unresolved reminders, and audit remain distinct. After restart unknowns do not pretend to be active capture. Agent status strips itemized source details and reports only health/count. Human dismissal always confirmedStopped=false.",
+    "rawMobile": "On raw mic false->true, journal before setting mic_since; duplicate true heartbeat does not write again. Same current conn_id false can confirm only its source generation and exact scope. Disabled-but-self-reporting capture has a visible conservative reminder; this creates no consent/enable.",
+    "shutdownBudget": "Remote STOP_SENSORS_WAIT=2s plus 500ms source grace plus up to 500ms capture query. Sources run concurrently; local microphone stops first. SQLite/OS I/O latency is outside the transport deadline.",
+    "rebind": "Existing non-consent receptor keptDisabledReceptors and external actuator consent/default-OFF behavior were protected, not redesigned. Added rebind_never_restores_external_actuator_enabled_true. Removed remains an explicitly documented experimental/test hook; natural serial unplug reconnects transport rather than retiring the provider binding.",
+    "humanCopy": "UI button says 我已檢查，解除提醒; dismiss response/audit remains confirmedStopped=false. Zero visible entries with recovery/overflow failure still produces a warning; no green stop claim.",
+    "applicationEdges": "Runtime unresolved_stops_value is shared by HTTP sensors_unresolved and embedded Tauri Backend::sensors_unresolved; CLI receives the same HTTP JSON. Agent status projection removes itemized human records but retains health/count. No product MCP endpoint was introduced."
+  },
+  "limitations": [
+    "An empty live list or zero per-source stop reports provides no positive scope evidence. Unknowns remain; a B/new-connection stopped report cannot settle absent A.",
+    "confirm_sensor_capture_stopped uses source registry try_read while the adapter pins its connection. If busy, changing, absent, or generation-mismatched, it conservatively retains unknown until later valid same-connection evidence or human dismissal. It never awaits the registry while holding the connection lock.",
+    "If a later valid report never arrives after a busy try_read, a reminder may remain even though the phone stopped; retaining uncertainty is intentional. Human dismissal remains a review decision, never confirmed stop.",
+    "Transport disconnection ends the local receive stream and existing SensorStopped event, but does not prove remote capture stopped; unresolved journal remains separately visible.",
+    "No physical phone/board acceptance is claimed. Mobile tests use the real Runtime/WebSocket/TLS path with a programmatic peer (simulator evidence). Serial drill uses production CLI with a PTY simulator.",
+    "Journal metadata corruption/future formats park original bytes. Stop/cleanup continues; per-item durable updates may remain unavailable and health stays visible. Generation-reserve corruption/write failure prevents Runtime startup.",
+    "No data can be fabricated for v0.7.0 reminders already lost before upgrade. Audit is not replayed into invented capture records.",
+    "Overflow is intentionally sticky and has no one-click fake-stop clearing path. It needs separate inspection/audit/device-informed maintenance.",
+    "SQLite/OS write latency is not bounded by the transport deadline; write attempts happen before raw mobile capture exposure and may delay the connection loop under storage load.",
+    "Final immutable commit/release SHA, all-workspace integration run, final native bundle and hardware acceptance belong to parent. This handoff does not mark them complete."
+  ],
+  "excludedOrIntermediateEvidence": [
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-unplug-red.txt",
+      "classification": "invalid_fixture_premise_not_product_defect",
+      "reason": "Test assumed natural serial unplug retired the provider binding. Production reconnects within that binding. Test was removed; do not count this red as a product defect or publish it as a fixed regression."
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-full-green.txt",
+      "classification": "intermediate_author_introduced_regression",
+      "reason": "79 pass / 1 fail: per-device canonical stop was initially passed wire reason user instead of canonical audit reason stop-all-sensors. Existing expectation correctly failed; fixed the caller argument without changing the expected user wire reason. Superseded by final 81/0."
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-direct-stop-green.txt",
+      "classification": "intermediate_targeted_green",
+      "reason": "Original mobile edge regression passed after initial fix; final 81/0 supersedes this smaller run."
+    }
+  ],
+  "latestValidation": [
+    {
+      "kind": "runtime_regressions",
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-final.txt",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test -p interaction-runtime --test mobile_loop --test sensor_journal_review --test sensors_loop",
+      "suites": [
+        {
+          "name": "mobile_loop",
+          "pass": 81,
+          "fail": 0,
+          "ignored": 0,
+          "seconds": 7.2
+        },
+        {
+          "name": "sensor_journal_review",
+          "pass": 5,
+          "fail": 0,
+          "ignored": 0,
+          "seconds": 0.17
+        },
+        {
+          "name": "sensors_loop",
+          "pass": 38,
+          "fail": 0,
+          "ignored": 0,
+          "seconds": 2.42
+        }
+      ],
+      "compileSeconds": 16.65,
+      "totalTests": 124
+    },
+    {
+      "kind": "root_clippy",
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-clippy-final.txt",
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo clippy --workspace --all-targets -- -D warnings",
+      "exitCode": 0,
+      "seconds": 11.9
+    },
+    {
+      "kind": "api_principal_projection",
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-api-final-green.txt",
+      "test": "sensor_recovery_health_is_public_but_incarnations_are_human_only",
+      "pass": 1,
+      "fail": 0,
+      "seconds": 0,
+      "compileSeconds": 33.68,
+      "note": "Other filtered targets ran zero tests; do not add them to the total. Earlier run, not a replacement for final root suite."
+    },
+    {
+      "kind": "scope_independent_reverify",
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-final-green.txt",
+      "runner": "/root/state_receipts",
+      "pass": 5,
+      "fail": 0,
+      "seconds": 0.21
+    },
+    {
+      "kind": "mobile_edge_independent_reverify",
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-direct-stop-independent-green.txt",
+      "runner": "/root/state_receipts",
+      "test": "per_device_unknown_stop_survives_direct_mobile_revoke_and_restart",
+      "pass": 1,
+      "fail": 0,
+      "seconds": 2.32,
+      "compileSeconds": 0.32
+    },
+    {
+      "kind": "scope_latest_independent_reverify",
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-journal-latest-independent-green.txt",
+      "runner": "/root/state_receipts",
+      "pass": 5,
+      "fail": 0,
+      "seconds": 0.19,
+      "compileSeconds": 0.2
+    }
+  ],
+  "supplementalEvidence": [
+    {
+      "kind": "TS_source_projection",
+      "tests": [
+        "apps/interaction-desktop/src/test/unresolvedStops.test.tsx",
+        "apps/interaction-desktop/src/test/connectPage.test.tsx"
+      ],
+      "reportedResult": "69 pass / 0 fail (52 Connect + 17 unresolved), 5.31s",
+      "rawLogPath": null,
+      "note": "Earlier task tool output; do not invent a raw log path or present it as the final full TS run. Parent owns fresh aggregate evidence."
+    },
+    {
+      "kind": "Tauri_health_projection",
+      "test": "unresolved_storage_and_overflow_are_visible_without_active_capture",
+      "rawLogPath": null,
+      "note": "Source test added to host_safety.rs; parent owns Tauri target run and final native evidence."
+    },
+    {
+      "kind": "lifecycle_drill",
+      "script": "scripts/drills/provider-disable-reenable.sh",
+      "implementation": "scripts/drills/provider-lifecycle.py",
+      "result": "docs/releases/evidence/2026-09-06-convergence/review/result.json",
+      "evidenceLevel": "production-cli-pty-simulator",
+      "note": "4 steps / 0 fail, 1.411s; non-consent manual receptor OFF retained across two disable/re-enable cycles, generations 1->2, revoke+restart persisted. This run predates the final raw-mobile capture changes; parent must rebuild/rerun for final release evidence."
+    }
+  ],
+  "sourceFiles": [
+    "crates/interaction-runtime/src/sensor_journal.rs",
+    "crates/interaction-runtime/src/sensor_source.rs",
+    "crates/interaction-runtime/src/sensors.rs",
+    "crates/interaction-runtime/src/runtime.rs",
+    "crates/interaction-runtime/src/mobile.rs",
+    "crates/interaction-runtime/src/declarative_lifecycle.rs",
+    "crates/interaction-api/src/routes.rs",
+    "crates/interaction-api/src/lib.rs",
+    "apps/interaction-desktop/src/api.ts",
+    "apps/interaction-desktop/src/statusProjection/unresolvedStops.ts",
+    "apps/interaction-desktop/src/pages/connect/UnresolvedStops.tsx",
+    "apps/interaction-desktop/src-tauri/src/host_safety.rs",
+    "crates/interaction-runtime/tests/sensors_loop.rs",
+    "crates/interaction-runtime/tests/sensor_journal_review.rs",
+    "crates/interaction-runtime/tests/mobile_loop.rs",
+    "crates/interaction-runtime/tests/declarative_session_loop.rs",
+    "docs/aip/privacy.md",
+    "docs/aip/deprecation-ledger.md",
+    "docs/aip/device-profile.md",
+    "docs/MAINTAINERS-MAP.md"
+  ],
+  "integrationTodos": [
+    "Archive raw logs with hashes, preserving failed/invalid-fixture classifications.",
+    "Map handoff-local finding IDs to central evidence records and final fix commits; commit fields intentionally null.",
+    "N2 original mobile edge and five scope tests independently reran green; attach any final read-only review disposition from N2.",
+    "Use parent final root/native/TS runs for release totals; do not add repeated targeted suites as unique tests.",
+    "No further production edits are authorized by this artifact; parent controls final integration/release."
+  ],
+  "capturedAtUtc": "2026-09-06T05:23:02.678193+00:00",
+  "environment": {
+    "platform": "macOS-26.2-arm64-arm-64bit",
+    "architecture": "arm64",
+    "rustc": "rustc 1.94.0 (4a4ef493e 2026-03-02) (Homebrew)",
+    "cargo": "cargo 1.94.0 (Homebrew)",
+    "buildSettings": {
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_BUILD_JOBS": "4"
+    },
+    "evidenceLevel": "production-runtime-integration-with-simulated-sources-and-TLS-peers; no physical hardware"
+  },
+  "rawEvidenceManifest": [
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-independent-red.txt",
+      "exists": true,
+      "bytes": 865,
+      "sha256": "d75ba3752d8386a999d07abe91112d4d23761814052a7925630596e23c10de99",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s",
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 76 filtered out; finished in 2.16s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-api-final-green.txt",
+      "exists": true,
+      "bytes": 3903,
+      "sha256": "67fec6a0bb44a85a6f043a7fe45c8a100eae94c54718c41a956d498677e17ce7",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 33.68s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-generation-red.txt",
+      "exists": true,
+      "bytes": 852,
+      "sha256": "25b430dcebc2c0a1f6105188e1dde37833c0d871cf163bfca9dc86d0160530f8",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s",
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.09s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-final-green.txt",
+      "exists": true,
+      "bytes": 706,
+      "sha256": "d2a34536f1a99b1cc84837cf19a440daf80e3a62c5f9b8c55d750e8175e07bce",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 0.47s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-independent-verify-red.txt",
+      "exists": true,
+      "bytes": 1989,
+      "sha256": "717caf86c06b8c5a220b59587c2a53389226a35d057cffd0b2a6e8b6e6beb439",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s",
+        "test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-live-family-red.txt",
+      "exists": true,
+      "bytes": 1016,
+      "sha256": "c9054f1d0c292528c5a593354336ea1e833721d4f59a7f1872206008b78aeac5",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 2.70s",
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.12s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-direct-stop-green.txt",
+      "exists": true,
+      "bytes": 471,
+      "sha256": "a0aecb47a9c49bfe700934ba9e70197e7f7723ad98c32b2adc267c6e1c0130f8",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 17.33s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 2.30s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-direct-stop-red.txt",
+      "exists": true,
+      "bytes": 988,
+      "sha256": "b3ad58f20b7d753ec0904f4d589fc740b664bbfa7fb738e8ec722b1d145d203e",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 3.98s",
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 76 filtered out; finished in 2.18s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-clippy-final.txt",
+      "exists": true,
+      "bytes": 426,
+      "sha256": "35fa554cba83b048235eca4ea541b33a65befc860b4441e4e1121c39264d0036",
+      "observedSummaryLines": [
+        "Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.90s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-final.txt",
+      "exists": true,
+      "bytes": 9317,
+      "sha256": "bf22c63e7f28ee8261d3fcf290cade4496a4a4fb1a3ab4f736a14772f2fb7903",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 16.65s",
+        "test result: ok. 81 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.20s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s",
+        "test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.42s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-observed-full-green.txt",
+      "exists": true,
+      "bytes": 6469,
+      "sha256": "4bd6377eb37aef16137aaaaaf72e2fea2bca91332c9fb46f29c78aa786fa4af8",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 4.61s",
+        "test result: FAILED. 79 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.12s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-restart-red.txt",
+      "exists": true,
+      "bytes": 1357,
+      "sha256": "10bcbb1cc7dd4b805ac372bd2c7a1c387e100e3b3adf5c093d158cf3b6cc8b5b",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 2.12s",
+        "test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 31 filtered out; finished in 0.25s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-shutdown-red.txt",
+      "exists": true,
+      "bytes": 1822,
+      "sha256": "8a6b20c099094c1c1957c70823908c9e9a5f5319a0697ec34cd0bb7504b054b9",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 6.04s",
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.14s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-unplug-red.txt",
+      "exists": true,
+      "bytes": 923,
+      "sha256": "1de7b929c20e514b72e78c4d5e23b89c21507e127a08058d673fae5082374e49",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 1.93s",
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 31 filtered out; finished in 15.45s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/result.json",
+      "exists": true,
+      "bytes": 1531,
+      "sha256": "b4db76571d12044499bb0d4d1425095a418a6c49adfb0ad5321a75bc4c257e7d"
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/semantic-n3-review-red.txt",
+      "exists": true,
+      "bytes": 1423,
+      "sha256": "e10ef1686ea27fb76a4ddff66ca23be14670c6d96507022aa620ea6e16a5dbf7",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 2.08s",
+        "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-mobile-direct-stop-independent-green.txt",
+      "exists": true,
+      "bytes": 347,
+      "sha256": "9db940c0b5a7137b953dda35900a9e937b9d64bf3c3421f20a257a58964d682c",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 80 filtered out; finished in 2.32s"
+      ]
+    },
+    {
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/n3-journal-latest-independent-green.txt",
+      "exists": true,
+      "bytes": 706,
+      "sha256": "72943d4c314e8e83e21a5f0f37b6264a64401b9c42261c899e0f3256090e86de",
+      "observedSummaryLines": [
+        "Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s"
+      ]
+    }
+  ],
+  "sourceManifestAtHandoff": [
+    {
+      "path": "crates/interaction-runtime/src/sensor_journal.rs",
+      "bytes": 14882,
+      "sha256": "5e70bc81fe5b7e2cc1d9756432b5c35a34fdab3937fa30a8224546c69fb57fd3"
+    },
+    {
+      "path": "crates/interaction-runtime/src/sensor_source.rs",
+      "bytes": 44713,
+      "sha256": "55b8a41377353df787a745d15e3b120abb3254c7e60fe551cceadd5d0ca469c5"
+    },
+    {
+      "path": "crates/interaction-runtime/src/sensors.rs",
+      "bytes": 28408,
+      "sha256": "940dab0cc4db0073ebb511a50f9a31d9c2b1ac444613420c12acf8d79d55a24d"
+    },
+    {
+      "path": "crates/interaction-runtime/src/runtime.rs",
+      "bytes": 112866,
+      "sha256": "36057eb18175a9071bb64e810ce0b87ed1a29da1657f3f893cbd7e132f4c5cb2"
+    },
+    {
+      "path": "crates/interaction-runtime/src/mobile.rs",
+      "bytes": 198338,
+      "sha256": "7806de98cb8faf1b6acf263c903d28604113c3b93776769d52fbe446d7f8fd02"
+    },
+    {
+      "path": "crates/interaction-runtime/src/declarative_lifecycle.rs",
+      "bytes": 55283,
+      "sha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6"
+    },
+    {
+      "path": "crates/interaction-api/src/routes.rs",
+      "bytes": 85872,
+      "sha256": "4f7e12e845cd1875cc7dd955e09f0e3d21136a6b2c3513845e261e5ea64fd5b6"
+    },
+    {
+      "path": "crates/interaction-api/src/lib.rs",
+      "bytes": 36536,
+      "sha256": "ae214b15b39353e970cbc3b0cfbeedfaab78c35190b1e5287dda2483dcc45a5f"
+    },
+    {
+      "path": "apps/interaction-desktop/src/api.ts",
+      "bytes": 39188,
+      "sha256": "8a82d350ea8186f7087989f52a0b2497d3ed98c5c20cd91f172b406860d76c60"
+    },
+    {
+      "path": "apps/interaction-desktop/src/statusProjection/unresolvedStops.ts",
+      "bytes": 7184,
+      "sha256": "4b2b1f18a33cf51321f70c961504e53b9d7da0df9f8b5dae1adde922e184dc1b"
+    },
+    {
+      "path": "apps/interaction-desktop/src/pages/connect/UnresolvedStops.tsx",
+      "bytes": 4307,
+      "sha256": "865e164783f2838ac86169fdf375031edabefe5e446aa4d71bea40acad3d1d2f"
+    },
+    {
+      "path": "apps/interaction-desktop/src-tauri/src/host_safety.rs",
+      "bytes": 18257,
+      "sha256": "a9c0086c94e0d25b75e0ae58508c32801e8deff39d2e1ccb5db2eb4441803a98"
+    },
+    {
+      "path": "crates/interaction-runtime/tests/sensors_loop.rs",
+      "bytes": 66869,
+      "sha256": "f795ddae3697c4945930a4b4b56389149ec357a9e3e48a6f5475e67d38c57d79"
+    },
+    {
+      "path": "crates/interaction-runtime/tests/sensor_journal_review.rs",
+      "bytes": 9146,
+      "sha256": "85277fe3ea4af4e171a3c7d3b30264dafdedd0f93508f263c2e3a73e22045521"
+    },
+    {
+      "path": "crates/interaction-runtime/tests/mobile_loop.rs",
+      "bytes": 182740,
+      "sha256": "85305d2c9bae9be151d7343e0fe2e422620659b161746639ccc3f10b63ab4ddc"
+    },
+    {
+      "path": "crates/interaction-runtime/tests/declarative_session_loop.rs",
+      "bytes": 103141,
+      "sha256": "da67df39a54cb1cfb1462fbe160d58e9ff8180eaa5bdd63eab5066b55679038a"
+    },
+    {
+      "path": "docs/aip/privacy.md",
+      "bytes": 17849,
+      "sha256": "1e616a3988388e954b09f68ea3cde29d9626a0d79c5ec8929ca2dc1d1c164ce8"
+    },
+    {
+      "path": "docs/aip/deprecation-ledger.md",
+      "bytes": 26303,
+      "sha256": "7fb73c1aea5584285de00769f600c8eb611c528d74fc7b68b4dd016742bcc064"
+    },
+    {
+      "path": "docs/aip/device-profile.md",
+      "bytes": 31316,
+      "sha256": "0a2aa40668d515a985710b61a79be994644bac6e9eaca0bf0efae89cfc511483"
+    },
+    {
+      "path": "docs/MAINTAINERS-MAP.md",
+      "bytes": 20529,
+      "sha256": "b8febb074137e5123627d362bae2631d50cfdaad56b5bb65f0bf3e5741b659d9"
+    }
+  ],
+  "handoffValidation": {
+    "jsonParsed": true,
+    "confirmedFindingCount": 4,
+    "finalRuntimeUniqueTests": 124,
+    "rawEvidenceFilesVerified": 18,
+    "sourceHashesAreCaptureTimeOnly": true,
+    "productionEditedDuringHandoff": false,
+    "independentFindCaveat": "Scope03 was author-identified; N2 independently verified and reran it. Scope01/02 had N1 independent Find. Mobile edge had N2 Find and parent independent Verify."
+  }
+}

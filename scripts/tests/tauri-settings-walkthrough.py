@@ -4,18 +4,31 @@ Runs with a task-owned temporary home. Downloads are copied to evidence and
 only files created by this run are removed; pre-existing downloads stay intact.
 """
 import argparse, hashlib, json, os, pathlib, shutil, signal, socket
-import subprocess, tempfile, time, urllib.request
+import subprocess, tempfile, time, urllib.request, uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--app', type=pathlib.Path, required=True)
 p.add_argument('--cli', type=pathlib.Path, default=ROOT/'target/debug/interact-ai')
 p.add_argument('--out', type=pathlib.Path, required=True)
+p.add_argument('--prefs-fixture', type=pathlib.Path)
 a = p.parse_args()
 a.out.mkdir(parents=True, exist_ok=False)
 home = pathlib.Path(tempfile.mkdtemp(prefix='aip-native-settings-'))
 binary = a.app.resolve()/'Contents/MacOS/interaction-desktop'
 steps, commands, downloads = [], [], []
+run_name = '備份走查-' + uuid.uuid4().hex[:16]
+provenance = {
+    'sourceSha':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+    'dirtyTree':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()),
+    'binarySha256':hashlib.sha256(binary.read_bytes()).hexdigest(),
+    'cliSha256':hashlib.sha256(a.cli.read_bytes()).hexdigest(),
+    'driverSha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),
+    'prefsFixture':str(a.prefs_fixture) if a.prefs_fixture else None,
+    'prefsFixtureSha256':hashlib.sha256(a.prefs_fixture.read_bytes()).hexdigest() if a.prefs_fixture else None,
+}
+starting_prefs = json.loads(a.prefs_fixture.read_text()) if a.prefs_fixture else {}
+
 app = daemon = None
 token = ''
 log = (a.out/'processes.log').open('w')
@@ -89,8 +102,8 @@ try:
     wait(lambda: api('/ready'))
     api('/v1/onboarding/commit',{}) # isolated setup, no consent or capability changes
     original_config=api('/v1/proactive-dialogue')['config']
-    (home/'state/desktop.json').write_text(json.dumps({'schemaVersion':3,'companionPack':'plain-text',
-        'companionName':'備份走查','companionOpacity':.67,'companionVisible':True,'openControlCenterOnStart':True}))
+    (home/'state/desktop.json').write_text(json.dumps({**starting_prefs,'schemaVersion':3,'companionPack':'plain-text',
+        'companionName':run_name,'companionOpacity':.67,'companionVisible':True,'openControlCenterOnStart':True}))
     launch()
     directory = pathlib.Path.home()/'Downloads'
     prior = set(directory.glob('companion-settings*.json'))
@@ -99,8 +112,9 @@ try:
         for path in set(directory.glob('companion-settings*.json'))-prior:
             try:
                 value=json.loads(path.read_text())
-                if value.get('kind')=='companion-settings' and value.get('companionName')=='備份走查':
-                    downloads.append(path)
+                if value.get('kind')=='companion-settings' and value.get('companionName')==run_name:
+                    stat = path.stat()
+                    downloads.append((path,stat.st_dev,stat.st_ino,hashlib.sha256(path.read_bytes()).hexdigest()))
                     return path,value
             except (OSError, ValueError): pass
     download, backup=wait(exported)
@@ -158,13 +172,17 @@ except Exception as exc:
 finally:
     (home/'state').chmod(0o700)
     stop(app); stop(daemon); log.close()
-    for path in downloads:
-        path.unlink(missing_ok=True)
+    for path, device, inode, digest in downloads:
+        if path.exists():
+            stat = path.stat()
+            if (stat.st_dev,stat.st_ino)==(device,inode) and hashlib.sha256(path.read_bytes()).hexdigest()==digest:
+                path.unlink()
+    if provenance['binarySha256'] != hashlib.sha256(binary.read_bytes()).hexdigest() or provenance['cliSha256'] != hashlib.sha256(a.cli.read_bytes()).hexdigest():
+        error = 'Executable changed during walkthrough'
+        steps.append({'id':'provenance','status':'failed','error':error})
     data={'evidenceLevel':'native Tauri + production daemon + real AX download and file picker',
-          'sourceSha':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
-          'dirtyTree':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()),
-          'binarySha256':hashlib.sha256(binary.read_bytes()).hexdigest(),
-          'cliSha256':hashlib.sha256(a.cli.read_bytes()).hexdigest(),
+          **provenance,
+          'startingPreferences':starting_prefs,
           'steps':steps,'ax':commands,'seconds':round(time.monotonic()-started,3),'error':error,
           'limits':'No human timing; failed presentation acknowledgement is separately covered by component fault tests; unwritable store is a real task-owned directory'}
     (a.out/'result.json').write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')

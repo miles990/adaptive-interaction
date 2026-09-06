@@ -134,9 +134,30 @@ class Phone:
                         and frame.get("payload", {}).get("kind") == "snapshot", start)["payload"]
 
 
+def starting_preferences(fixture):
+    prefs = {"schemaVersion": 3}
+    provenance = None
+    if fixture is not None:
+        fixture = fixture.resolve()
+        raw = fixture.read_bytes()
+        loaded = json.loads(raw)
+        if not isinstance(loaded, dict):
+            raise ValueError("--prefs-fixture must contain a JSON preferences object")
+        prefs.update(loaded)
+        provenance = {"path": str(fixture), "sha256": hashlib.sha256(raw).hexdigest()}
+    # Keep the fixture's schema version and unrelated preferences for migration;
+    # these fields are the existing general-mode walkthrough prerequisites.
+    required = {"companionPack": "plain-text", "companionVisible": True,
+                "companionExpressiveness": "natural", "openControlCenterOnStart": True,
+                "advancedMode": False}
+    prefs.update(required)
+    return prefs, provenance, required
+
+
 class Journey:
     def __init__(self, args):
         self.args = args
+        self.starting_prefs, self.prefs_fixture, self.prefs_overrides = starting_preferences(args.prefs_fixture)
         self.binary = args.app.resolve() / "Contents/MacOS/interaction-desktop"
         self.cli = args.cli.resolve()
         self.fake = args.fake_iphone.resolve()
@@ -145,6 +166,14 @@ class Journey:
                 raise ValueError(f"needs-environment: executable missing: {executable}")
         if not shutil.which("osascript"):
             raise ValueError("needs-environment: macOS osascript and existing Accessibility permission required")
+        self.artifact_paths = {"binarySha256": self.binary, "cliSha256": self.cli,
+                               "fakeIphoneSha256": self.fake, "driverSha256": Path(__file__).resolve(),
+                               "axHelperSha256": AX}
+        self.provenance = {key: sha(path) for key, path in self.artifact_paths.items()}
+        self.provenance.update(
+            sourceSha=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+            dirtyTree=bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
+            provenanceCapturedAt=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
         args.out.mkdir(parents=True, exist_ok=False)
         self.home = Path(tempfile.mkdtemp(prefix="aip-native-mobile-sensor-"))
         (self.home / "config").mkdir()
@@ -194,7 +223,7 @@ class Journey:
         started = time.monotonic()
         result = subprocess.run(
             ["osascript", str(AX), f"pid:{self.app.pid}", *args],
-            capture_output=True, text=True, timeout=18)
+            capture_output=True, text=True, timeout=55)
         self.ax_attempts.append({"command": list(args), "exit": result.returncode,
                                  "seconds": round(time.monotonic() - started, 3)})
         if result.returncode:
@@ -392,15 +421,21 @@ class Journey:
         assert self.ax("exists", "AXAny", "已停止感測。") == "no"
         self.note("sensor-global-stop-separate-fixture", capture=capture)
 
+    def changed_artifacts(self):
+        return [key for key, path in self.artifact_paths.items()
+                if not path.is_file() or sha(path) != self.provenance[key]]
+
     def save(self, error=None):
+        changed = self.changed_artifacts()
+        error = error or ("pinned artifacts changed during run: " + ", ".join(changed) if changed else None)
         document = {
             "evidenceLevel": "native Tauri AX + production daemon + fake_iphone simulator",
             "humanOrHardwareEvidence": False, "realMicrophoneCapture": False,
             "consentGranted": False, "safetyUnlocked": False,
-            "sourceSha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-            "dirtyTree": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
-            "binarySha256": sha(self.binary), "cliSha256": sha(self.cli),
-            "fakeIphoneSha256": sha(self.fake), "steps": self.steps,
+            **self.provenance, "artifactVerification": {"unchanged": not changed, "changed": changed},
+            "steps": self.steps,
+            "prefsFixture": self.prefs_fixture, "startingPreferences": self.starting_prefs,
+            "casePreferenceOverrides": self.prefs_overrides,
             "ax": self.ax_attempts, "seconds": round(time.monotonic() - self.started, 3),
             "result": "failed" if error else "running", "error": error,
             "limitations": ["No physical iPhone, real sensor, or human evaluation",
@@ -425,11 +460,7 @@ class Journey:
                 headers={"Authorization": "Bearer " + self.token, "Content-Type": "application/json"}, method="POST")
             with urllib.request.urlopen(request, timeout=10) as response:
                 assert response.status == 200
-            (self.home / "state/desktop.json").write_text(json.dumps({
-                "schemaVersion": 3, "companionPack": "plain-text", "companionVisible": True,
-                "companionExpressiveness": "natural", "openControlCenterOnStart": True,
-                "advancedMode": False,
-            }))
+            (self.home / "state/desktop.json").write_text(json.dumps(self.starting_prefs))
             self.start_app()
             phone = self.mobile()
             self.sensor(phone)
@@ -452,6 +483,8 @@ class Journey:
             self.log.close()
             log_path = self.args.out / "processes.log"
             log_path.write_text(self.redact(log_path.read_text(errors="replace")))
+            changed = self.changed_artifacts()
+            failure = failure or ("pinned artifacts changed during run: " + ", ".join(changed) if changed else None)
             self.save(failure)
             shutil.rmtree(self.home)
         return 1 if failure else 0
@@ -463,6 +496,8 @@ def main():
     parser.add_argument("--cli", type=Path, default=ROOT / "target/debug/interact-ai")
     parser.add_argument("--fake-iphone", type=Path, default=ROOT / "target/debug/examples/fake_iphone")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--prefs-fixture", type=Path,
+                        help="JSON preferences fixture copied only to the isolated home; case prerequisites override it")
     args = parser.parse_args()
     try:
         return Journey(args).run()

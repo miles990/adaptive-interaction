@@ -1,0 +1,13 @@
+   Compiling interaction-session v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-session)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.41s
+     Running tests/semantic_contract.rs (target/debug/deps/semantic_contract-736d169a6b103e97)
+
+running 5 tests
+test authoritative_restore_rejects_explicit_null_before_it_can_be_discarded ... ok
+test schema_never_turns_an_absent_optional_into_a_present_null ... ok
+test published_v070_corpus_is_immutable_and_still_compatible ... ok
+test shared_merge_results_validate_before_atomic_adoption ... ok
+test shared_consumer_states_and_authoritative_restore_policies ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

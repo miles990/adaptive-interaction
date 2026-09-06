@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # Real XCTest in a task-owned simulator; never boot/reset/delete the user's device.
-# Usage: bash scripts/tests/ios-simulator.sh --out NEW_DIR [--build-dir OWN_CACHE]
+# Usage: bash scripts/tests/ios-simulator.sh --out NEW_DIR [--build-dir OWN_CACHE] [--expected-count 163]
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
-TASK_OUT=""; TASK_BUILD=""
+TASK_OUT=""; TASK_BUILD=""; TASK_EXPECTED_COUNT=163
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) TASK_OUT="$2"; shift 2 ;;
     --build-dir) TASK_BUILD="$2"; shift 2 ;;
-    *) echo "Usage: $0 --out NEW_DIR [--build-dir OWN_CACHE]" >&2; exit 2 ;;
+    --expected-count) TASK_EXPECTED_COUNT="$2"; shift 2 ;;
+    *) echo "Usage: $0 --out NEW_DIR [--build-dir OWN_CACHE] [--expected-count 163]" >&2; exit 2 ;;
   esac
 done
+[[ "$TASK_EXPECTED_COUNT" =~ ^[1-9][0-9]*$ ]] || { echo "--expected-count must be positive" >&2; exit 2; }
 [[ -n "$TASK_OUT" && ! -e "$TASK_OUT" ]] || { echo "--out requires a new directory" >&2; exit 2; }
 mkdir -p "$TASK_OUT"
 TASK_OUT="$(cd "$TASK_OUT" && pwd)"
@@ -46,4 +48,4 @@ SIMCTL_CHILD_DYLD_INSERT_LIBRARIES='@executable_path/Frameworks/libXCTestBundleI
   SIMCTL_CHILD_XCInjectBundleInto="$TASK_APP/InteractionCompanion" \
   xcrun simctl launch --console-pty "$TASK_SIM" dev.interact-ai.companion -XCTest All \
   "$TASK_APP/PlugIns/InteractionCompanionTests.xctest" > "$TASK_OUT/xctest.log" 2>&1
-python3 scripts/tests/xctest-result.py "$TASK_OUT/xctest.log" | tee "$TASK_OUT/result.json"
+python3 scripts/tests/xctest-result.py "$TASK_OUT/xctest.log" --expected-count "$TASK_EXPECTED_COUNT" | tee "$TASK_OUT/result.json"

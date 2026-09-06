@@ -1,0 +1,42 @@
+warning: method `flush` is never used
+   --> crates/interaction-runtime/src/sensor_journal.rs:193:12
+    |
+ 64 | impl SensorJournal {
+    | ------------------ method in this implementation
+...
+193 |     pub fn flush(&mut self, store: &Store) -> DomainResult<()> { self.persist(store, None) }
+    |            ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `label` is never read
+   --> crates/interaction-runtime/src/sensor_source.rs:303:16
+    |
+293 | pub(crate) struct OrphanedCaptures {
+    |                   ---------------- field in this struct
+...
+303 |     pub(crate) label: Option<String>,
+    |                ^^^^^
+    |
+    = note: `OrphanedCaptures` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `interaction-runtime` (lib) generated 2 warnings
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.04s
+     Running tests/sensors_loop.rs (target/debug/deps/sensors_loop-87e11a560469b5b9)
+
+running 1 test
+
+thread 'shutdown_persists_unknown_before_marking_the_process_clean' (5843735) panicked at crates/interaction-runtime/tests/sensors_loop.rs:1722:5:
+orderly shutdown cannot classify an unanswered source as stopped
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test shutdown_persists_unknown_before_marking_the_process_clean ... FAILED
+
+failures:
+
+failures:
+    shutdown_persists_unknown_before_marking_the_process_clean
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.14s
+
+error: test failed, to rerun pass `-p interaction-runtime --test sensors_loop`

@@ -9,8 +9,10 @@
 方法數期望不代表通過；必須核對同一次執行的完整結尾與失敗數。
 下方 19、21、46、146、153 等數字保留為各日期的歷史驗證紀錄，不是本輪總數。
 
-可重現入口（Repository 根目錄）：`bash scripts/tests/ios-simulator.sh --out /tmp/ios-evidence-new`。
-腳本建立並只刪除自己的模擬器，`xctest-result.py` 將缺少完整結果、失敗與skip轉為非零退出；不是只檢查App啟動。
+可重現入口（Repository 根目錄）：`bash scripts/tests/ios-simulator.sh --out /tmp/ios-evidence-new --expected-count 163`。
+腳本建立並只刪除自己的模擬器；`xctest-result.py` 要求最後一輪完整結果符合明確的預期數，
+將少跑、失敗、skip 與後續未完成的套件轉為非零退出。`--expected-count` 預設為 163，
+增加測試時必須明確更新，不能以本次實跑數倒推預期數。
 
 > **誠實聲明(先讀這段)**
 > 本目錄是**完整的 SwiftUI 原始碼交付**。驗收等級(2026-08-28 更新):

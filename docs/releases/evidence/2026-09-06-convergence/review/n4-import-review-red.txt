@@ -1,0 +1,78 @@
+
+ RUN  v2.1.9 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+
+stderr | src/test/characterPage.test.tsx > 角色頁：更換或加入角色 > N4 review：備份已寫入但套用回應失敗時，不宣稱設定未變更
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+ ❯ src/test/characterPage.test.tsx (25 tests | 1 failed | 24 skipped) 186ms
+   × 角色頁：更換或加入角色 > N4 review：備份已寫入但套用回應失敗時，不宣稱設定未變更 185ms
+     → expect(element).not.toBeInTheDocument()
+
+expected document not to contain element, found <p
+  class="cap-card-error"
+  role="alert"
+>
+  匯入設定失敗：桌面角色設定沒有寫入成功（設定未變更）。
+</p> instead
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/test/characterPage.test.tsx > 角色頁：更換或加入角色 > N4 review：備份已寫入但套用回應失敗時，不宣稱設定未變更
+Error: expect(element).not.toBeInTheDocument()
+
+expected document not to contain element, found <p
+  class="cap-card-error"
+  role="alert"
+>
+  匯入設定失敗：桌面角色設定沒有寫入成功（設定未變更）。
+</p> instead
+ ❯ src/test/characterPage.test.tsx:259:45
+    257|     await waitFor(() => expect(screen.getByLabelText("選擇角色設定檔")…
+    258|     await screen.findByText(/匯入設定失敗/);
+    259|     expect(screen.queryByText(/設定未變更/)).not.toBeInTheDocument();
+       |                                             ^
+    260|   });
+    261| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 24 skipped (25)
+   Start at  12:52:15
+   Duration  1.65s (transform 422ms, setup 126ms, collect 577ms, tests 186ms, environment 538ms, prepare 39ms)
+

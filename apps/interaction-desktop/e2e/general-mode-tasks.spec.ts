@@ -31,6 +31,7 @@ import {
   appUrl,
   beginPairingFromUi,
   DESKTOP,
+  expectLegacyPhoneStateUnconfirmed,
   FAKE_IPHONE_LABEL,
   makeWorkdir,
   makeWorkRoot,
@@ -62,12 +63,8 @@ const COMPANION = PAGES[1];
 const WORK = PAGES[2];
 const CONNECT = PAGES[3];
 
-/** 有 online 遠端成員時**誠實**可以說的那幾句（fixture 只宣告三個 intent，拿不到綠勾）。 */
-const ONLINE_HONEST = [
-  CHARACTER_SYNC_PROJECTION["capability-unknown"].headline,
-  CHARACTER_SYNC_PROJECTION["partial-capability"].headline,
-  CHARACTER_SYNC_PROJECTION.synced.headline,
-];
+// The committed legacy fixture never negotiates stateApplied. Online/resume is
+// usable but must remain unconfirmed; the tests also check real diagnostics.
 
 // ---------------------------------------------------------------------------
 // 分類漂移防線（M5）
@@ -661,10 +658,9 @@ test("任務 2＋3：稍後連手機（同步卡 → 配對區 → 模擬 iPhone
   connectTask.visit("companion");
   await expect
     .poll(async () => syncHeadline(card), { timeout: 30_000 })
-    .not.toBe(CHARACTER_SYNC_PROJECTION["no-device"].headline);
-  expect(ONLINE_HONEST, "手機連上之後同步卡必須說得出它連上了").toContain(
-    await syncHeadline(card)
-  );
+    .toBe(CHARACTER_SYNC_PROJECTION.syncing.headline);
+  await expectLegacyPhoneStateUnconfirmed(request, fixture, target());
+  await expect(card.locator(".badge-ok"), "連線與 snapshot 傳送不代表已確認套用").toHaveCount(0);
   const members = card.getByRole("list", { name: "同步中的裝置" });
   await expect(members.getByText(FAKE_IPHONE_LABEL)).toBeVisible();
   await expectNoTechnicalTerms(card);
@@ -686,6 +682,8 @@ test("任務 2＋3：稍後連手機（同步卡 → 配對區 → 模擬 iPhone
   expect(Number(touched.revision)).toBeGreaterThan(beforeRevision);
   // SSE 會把卡片推到最新：使用者盯著畫面就看得到，不必重新整理（零點擊）。
   await expect(card.getByText(/摸了摸角色/)).toBeVisible({ timeout: 30_000 });
+  await expectLegacyPhoneStateUnconfirmed(request, fixture, target());
+  await expect(card.locator(".badge-ok")).toHaveCount(0);
   await record(touchTask, { actual: "completed" });
 });
 
@@ -739,7 +737,9 @@ test("任務 4：暫時離線 → 重新連線——畫面誠實說「正在重�
   await expect
     .poll(async () => syncHeadline(card), { timeout: 30_000 })
     .not.toBe(CHARACTER_SYNC_PROJECTION.reconnecting.headline);
-  expect(ONLINE_HONEST, "接回來之後同步卡必須說得出它回來了").toContain(await syncHeadline(card));
+  await expectLegacyPhoneStateUnconfirmed(request, fixture, target());
+  await expect.poll(async () => syncHeadline(card)).toBe(CHARACTER_SYNC_PROJECTION.syncing.headline);
+  await expect(card.locator(".badge-ok"), "重連不能代替套用回執").toHaveCount(0);
   await record(m, { actual: "completed" });
 });
 
@@ -875,7 +875,8 @@ test("任務 7：移除之後又想用手機——重新配對，重新確認之
   await expect(card.getByText(new RegExp(FAKE_IPHONE_LABEL))).toBeVisible();
   await expect(syncAction(card)).toHaveAttribute("data-action", "reconfirm-device");
 
-  // 手機端重新確認（fixture 的 capability＝使用者在手機上按下「同意」的那一步）。
+  // Legacy fixture re-negotiates membership; this is neither a human consent
+  // grant nor a state-applied receipt. Both distinctions stay observable.
   await aipCapability(fixture);
   await waitCharacterSession(
     request,
@@ -886,7 +887,9 @@ test("任務 7：移除之後又想用手機——重新配對，重新確認之
   await expect
     .poll(async () => syncHeadline(card), { timeout: 30_000 })
     .not.toBe(CHARACTER_SYNC_PROJECTION["needs-reconfirmation"].headline);
-  expect(ONLINE_HONEST).toContain(await syncHeadline(card));
+  await expectLegacyPhoneStateUnconfirmed(request, fixture, target());
+  await expect.poll(async () => syncHeadline(card)).toBe(CHARACTER_SYNC_PROJECTION.syncing.headline);
+  await expect(card.locator(".badge-ok"), "重新配對不能代替套用回執").toHaveCount(0);
   await record(m, { actual: "completed" });
 });
 

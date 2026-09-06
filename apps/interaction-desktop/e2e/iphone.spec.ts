@@ -29,7 +29,8 @@ import {
 
 test.describe.configure({ mode: "serial" });
 
-const OUT = path.resolve(process.cwd(), "../../docs/assets/v06-evidence");
+// Runtime evidence belongs to this run; never overwrite published screenshots.
+const OUT = path.resolve(process.cwd(), process.env.INTERACT_AI_E2E_EVIDENCE_DIR ?? "test-results/evidence");
 const CONNECT = PAGES[3];
 let phone: FakeIphone | null = null;
 

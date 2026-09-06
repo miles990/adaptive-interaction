@@ -1,0 +1,44 @@
+
+ RUN  v2.1.9 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+
+ ❯ src/test/dialog.test.tsx (7 tests | 1 failed) 164ms
+   × Dialog > keeps the first Tab inside the dialog (shift=true) 88ms
+     → expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button>
+  內容最後按鈕
+</button>
+Received element with focus:
+  <button>
+  背景入口
+</button>
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/test/dialog.test.tsx > Dialog > keeps the first Tab inside the dialog (shift=true)
+Error: expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button>
+  內容最後按鈕
+</button>
+Received element with focus:
+  <button>
+  背景入口
+</button>
+ ❯ src/test/dialog.test.tsx:18:75
+     16|     expect(screen.getByRole("dialog", { name: "鍵盤對話框" })).toHaveF…
+     17|     await userEvent.tab({ shift });
+     18|     expect(screen.getByRole("button", { name: shift ? "內容最後按鈕" :…
+       |                                                                           ^
+     19|   });
+     20| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  12:57:23
+   Duration  1.21s (transform 40ms, setup 133ms, collect 72ms, tests 164ms, environment 604ms, prepare 52ms)
+

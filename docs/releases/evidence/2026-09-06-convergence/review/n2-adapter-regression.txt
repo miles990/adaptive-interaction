@@ -1,0 +1,78 @@
+   Compiling interaction-adapter-declarative v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-declarative)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.85s
+     Running tests/aip_fragment.rs (target/debug/deps/aip_fragment-fad6970da335d074)
+
+running 17 tests
+test a_fragment_that_overruns_the_declared_length_is_dropped ... ok
+test a_malicious_total_or_byte_count_is_refused_on_the_first_fragment ... ok
+test a_complete_but_unparseable_payload_is_dropped ... ok
+test a_missing_fragment_drops_the_whole_transfer ... ok
+test a_reconnect_cancels_the_in_flight_transfer ... ok
+test a_new_transfer_cancels_the_previous_one_and_says_so ... ok
+test a_repeated_fragment_drops_the_whole_transfer ... ok
+test a_stalled_transfer_times_out_and_is_dropped ... ok
+test a_complete_transfer_reassembles_to_the_original_envelope ... ok
+test a_truncated_transfer_is_dropped_by_the_declared_byte_count ... ok
+test an_envelope_over_the_reassembly_cap_is_not_fragmented ... ok
+test crc32_matches_the_standard_ieee_vectors ... ok
+test an_explicit_cancel_reports_what_it_threw_away ... ok
+test a_wrong_crc_drops_the_whole_transfer ... ok
+test multibyte_characters_are_never_split_in_the_middle ... ok
+test the_fragment_count_stays_bounded ... ok
+test the_line_limit_boundary_is_exact ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/aip_link.rs (target/debug/deps/aip_link-377b74927be9eece)
+
+running 17 tests
+test inbound_fragments_are_refused_before_the_handshake ... ok
+test aip_lines_round_trip_in_both_directions ... ok
+test device_aip_is_refused_until_the_handshake_and_pairing_completed ... ok
+test a_small_envelope_still_goes_out_as_one_aip_line ... ok
+test inbound_fragments_from_a_device_that_declared_no_caps_are_dropped ... ok
+test oversized_device_aip_is_refused_without_being_admitted ... ok
+test an_oversized_envelope_is_refused_when_the_device_cannot_reassemble ... ok
+test inbound_fragments_reassemble_into_one_admitted_envelope ... ok
+test fragmentation_never_raises_the_envelope_cap ... ok
+test an_out_of_order_inbound_fragment_is_dropped_with_a_reason ... ok
+test send_aip_writes_one_line_after_the_handshake ... ok
+test two_supersedes_before_a_drain_keep_both_audits_in_order ... ok
+test send_aip_writes_nothing_when_the_device_identity_does_not_match ... ok
+test an_oversized_envelope_is_fragmented_when_the_device_advertises_it ... ok
+test a_reconnect_cancels_an_in_flight_inbound_transfer ... ok
+test the_pending_audit_queue_is_bounded_and_counts_what_it_had_to_drop ... ok
+test send_aip_refuses_an_oversized_envelope_without_writing ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/esp32_sim_conformance.rs (target/debug/deps/esp32_sim_conformance-485014f3367436f1)
+
+running 24 tests
+test the_firmware_gives_ble_notifications_a_length_discipline ... ok
+test the_firmware_advertises_its_name_in_the_scan_response ... ok
+test the_firmware_ignores_aip_frag_and_never_claims_it_can_reassemble ... ok
+test the_firmware_implements_the_same_pairing_lockout ... ok
+test the_host_parses_the_locked_pair_fail_and_the_pairing_locked_hello ... ok
+test the_readme_command_parameter_ranges_match_the_hard_limits ... ok
+test a_negative_out_of_range_number_clamps_to_the_low_bound ... ok
+test sensors_absent_mode_reports_the_firmware_honest_values ... ok
+test hello_fields_are_identical_across_firmware_simulator_and_readme ... ok
+test state_facts_are_identical_across_firmware_simulator_and_readme ... ok
+test a_replayed_nonce_is_deduplicated_on_the_device_and_the_readme_says_so ... ok
+test json_constants_the_firmware_parser_rejects_are_bad_json_in_the_simulator_too ... ok
+test top_level_key_scanner_ignores_nested_objects ... ok
+test aip_messages_are_handled_identically_by_firmware_simulator_and_readme ... ok
+test the_simulator_advertises_fragmentation_and_can_be_asked_not_to ... ok
+test the_host_serial_transport_refuses_an_oversize_cmd_before_the_wire ... ok
+test the_simulator_drops_an_oversize_line_with_an_id_less_bad_json_like_the_firmware ... ok
+test the_simulator_reassembles_exactly_what_the_host_fragments ... ok
+test the_simulator_drops_an_out_of_order_fragment_and_says_so ... ok
+test the_sensor_face_is_controllable_and_absent_values_pass_through ... ok
+test the_simulator_refuses_to_emit_aip_before_pairing ... ok
+test five_wrong_pairing_codes_lock_pairing_until_the_window_passes ... ok
+test out_of_range_numbers_are_clamped_like_the_firmware_and_never_kill_the_simulator ... ok
+test the_simulator_serialises_the_vibe_strength_like_the_firmware_float ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.63s
+

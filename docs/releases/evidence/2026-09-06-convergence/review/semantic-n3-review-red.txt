@@ -1,0 +1,24 @@
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.08s
+     Running tests/sensor_journal_review.rs (target/debug/deps/sensor_journal_review-c1726a115c84f492)
+
+running 2 tests
+
+thread 'changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors' (5954747) panicked at crates/interaction-runtime/tests/sensor_journal_review.rs:95:5:
+a newer live capture list is not evidence that prior camera-a stopped: ["microphone-b"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind' (5954746) panicked at crates/interaction-runtime/tests/sensor_journal_review.rs:118:5:
+device-b's acknowledgment cannot resolve absent device-a's camera
+test changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors ... FAILED
+test a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind ... FAILED
+
+failures:
+
+failures:
+    a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind
+    changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+error: test failed, to rerun pass `-p interaction-runtime --test sensor_journal_review`

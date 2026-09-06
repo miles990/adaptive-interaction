@@ -15,6 +15,7 @@ import {
   knowledgeTriggerLabel,
   projectProviderState,
   projectSensorStop,
+  projectUnresolvedStops,
   projectWorkState,
   receiptIntentLabel,
 } from "../statusProjection";
@@ -292,13 +293,15 @@ export function GlobalSearch({
         action: async (): Promise<CommandOutcome> => {
           const report = await api.sensorsStop();
           let remaining: import("../api").SensorUse[] | null = null;
+          let unresolvedSummary: string | null = null;
           try {
             const s = await api.status();
             remaining = (s["activeSensors"] as import("../api").SensorUse[] | undefined) ?? [];
+            unresolvedSummary = projectUnresolvedStops(s).summary;
           } catch {
             remaining = null;
           }
-          return projectSensorStop(report, remaining);
+          return projectSensorStop(report, remaining, unresolvedSummary);
         },
       },
       {

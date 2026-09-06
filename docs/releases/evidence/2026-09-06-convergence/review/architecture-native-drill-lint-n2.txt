@@ -1,0 +1,22 @@
+architecture-checks @ /Users/user/Workspace/claude-lab/adaptive-interaction
+完整輸出：/tmp/architecture-native-drill-lint-n2
+
+── drill-lint ──────────────────────────────────────────────
+  ✔ scripts/drills/provider-disable-reenable.sh — bash -n 通過，引用的檔案與端點都在（未實跑）
+  ✔ scripts/drills/remove-package-keep-user-data.sh — bash -n 通過，引用的檔案與端點都在（未實跑）
+  ✔ node --check scripts/drills/character-package.mjs（未實跑）
+  ✔ node --check scripts/drills/optional-state.mjs（未實跑）
+  ✔ Python syntax scripts/drills/provider-lifecycle.py（未實跑）
+  ✔ Python syntax scripts/drills/restricted-device.py（未實跑）
+
+── swift（native 純模型；不是 iOS simulator 或真機）──────
+  RUN swift-native — /tmp/architecture-native-drill-lint-n2/swift-native.log
+  swift-native: exit=0 elapsed=30s
+── 摘要 ────────────────────────────────────────────────
+  docs       SKIP 未指定 --docs
+  ts         SKIP 未指定 --ts
+  rust       SKIP 未指定 --rust
+  drill-lint PASS 2 支腳本靜態檢查通過（未實跑）: provider-disable-reenable.sh:ok remove-package-keep-user-data.sh:ok
+  swift      PASS native Swift fixture runner 實跑；完整數字見 /tmp/architecture-native-drill-lint-n2/swift-native.log；iOS XCTest 不在本組
+  drills     SKIP 未指定 --drills；靜態 lint 不代表演練通過
+architecture-checks: 所選組全部通過；4 組未選取（不是通過）；證據 /tmp/architecture-native-drill-lint-n2

@@ -1,0 +1,40 @@
+   Compiling interaction-session v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-session)
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+   Compiling interaction-api v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-api)
+   Compiling interaction-desktop v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.20s
+     Running unittests src/lib.rs (target/debug/deps/interaction_desktop_lib-49a672dc83c5b0e1)
+
+running 2 tests
+
+thread 'settings_recovery_review::failed_temporary_creation_does_not_delete_a_file_the_writer_did_not_create' (6006281) panicked at src/settings_recovery_review.rs:38:9:
+
+running 1 test
+test settings_recovery_review::failed_temporary_creation_does_not_delete_a_file_the_writer_did_not_create ... FAILED
+
+failures:
+
+failures:
+    settings_recovery_review::failed_temporary_creation_does_not_delete_a_file_the_writer_did_not_create
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 77 filtered out; finished in 0.00s
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test settings_recovery_review::failed_temporary_creation_does_not_delete_a_file_the_writer_did_not_create ... FAILED
+
+thread 'settings_recovery_review::atomic_preferences_save_preserves_existing_private_permissions' (6006280) panicked at src/settings_recovery_review.rs:16:5:
+assertion `left == right` failed: atomic replacement must not widen the access mode of an existing private preferences file
+  left: 420
+ right: 384
+test settings_recovery_review::atomic_preferences_save_preserves_existing_private_permissions ... FAILED
+
+failures:
+
+failures:
+    settings_recovery_review::atomic_preferences_save_preserves_existing_private_permissions
+    settings_recovery_review::failed_temporary_creation_does_not_delete_a_file_the_writer_did_not_create
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 76 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `--lib`

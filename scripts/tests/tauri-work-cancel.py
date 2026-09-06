@@ -70,9 +70,29 @@ def group_members(pgid):
     return selected
 
 
+def starting_preferences(fixture):
+    prefs = {"schemaVersion": 3}
+    provenance = None
+    if fixture is not None:
+        fixture = fixture.resolve()
+        raw = fixture.read_bytes()
+        loaded = json.loads(raw)
+        if not isinstance(loaded, dict):
+            raise ValueError("--prefs-fixture must contain a JSON preferences object")
+        prefs.update(loaded)
+        provenance = {"path": str(fixture), "sha256": hashlib.sha256(raw).hexdigest()}
+    # Keep legacy schema/version and unrelated preferences; only the existing
+    # general-mode walkthrough prerequisites are imposed on the isolated copy.
+    required = {"companionPack": "plain-text", "companionVisible": True,
+                "openControlCenterOnStart": True, "advancedMode": False}
+    prefs.update(required)
+    return prefs, provenance, required
+
+
 class WorkJourney:
     def __init__(self, args):
         self.args = args
+        self.starting_prefs, self.prefs_fixture, self.prefs_overrides = starting_preferences(args.prefs_fixture)
         self.binary = args.app.resolve() / "Contents/MacOS/interaction-desktop"
         self.cli = args.cli.resolve()
         self.codex = FIXTURES / "fake_codex.sh"
@@ -82,6 +102,14 @@ class WorkJourney:
                 raise ValueError(f"needs-environment: executable unavailable: {executable}")
         if not shutil.which("osascript"):
             raise ValueError("needs-environment: macOS and existing Accessibility permission required")
+        self.artifact_paths = {"binarySha256": self.binary, "cliSha256": self.cli,
+                               "codexFixtureSha256": self.codex, "claudeFixtureSha256": self.claude,
+                               "driverSha256": Path(__file__).resolve(), "axHelperSha256": AX}
+        self.provenance = {key: digest(path) for key, path in self.artifact_paths.items()}
+        self.provenance.update(
+            sourceSha=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+            dirtyTree=bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
+            provenanceCapturedAt=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
         args.out.mkdir(parents=True, exist_ok=False)
         self.home = Path(tempfile.mkdtemp(prefix="aip-native-work-"))
         (self.home / "config").mkdir()
@@ -123,7 +151,7 @@ class WorkJourney:
     def ax(self, *args):
         started = time.monotonic()
         result = subprocess.run(["osascript", str(AX), f"pid:{self.app.pid}", *args],
-                                capture_output=True, text=True, timeout=18)
+                                capture_output=True, text=True, timeout=55)
         self.ax_attempts.append({"command": list(args), "exit": result.returncode,
                                  "seconds": round(time.monotonic() - started, 3)})
         if result.returncode:
@@ -179,7 +207,9 @@ class WorkJourney:
         self.ax("selectindex", "AXPopUpButton", "這是哪一種工作", str(option))
         self.visible("不會修改：這次只看不改")
         self.click("開始")
-        record = self.session_state(label, "active")
+        # The hang fixture accepts stdin but emits no task-started/progress.
+        # Its honest session state remains created; Codex emits a real turn event.
+        record = self.session_state(label, "active" if name == "codex" else "created")
         expected_agent = "codex" if name == "codex" else "claude-code"
         assert record["agentId"] == expected_agent, record
         assert record["allowWrite"] is False, record
@@ -219,9 +249,7 @@ class WorkJourney:
             assert len(discoveries["agents"]) == 2, discoveries
             # Same setup as the existing native preset runner: no grants.
             self.api("/v1/onboarding/commit", {})
-            (self.home / "state/desktop.json").write_text(json.dumps({
-                "schemaVersion": 3, "companionPack": "plain-text", "companionVisible": True,
-                "openControlCenterOnStart": True, "advancedMode": False}))
+            (self.home / "state/desktop.json").write_text(json.dumps(self.starting_prefs))
             self.app = subprocess.Popen([str(self.binary)], env=self.env, stdout=self.log, stderr=self.log)
             wait("native window", lambda: "Interaction Control Center" in self.ax("windows"))
             wait("native primary navigation", lambda: self.ax("navclick", "3"))
@@ -274,19 +302,28 @@ class WorkJourney:
             log_path = self.args.out / "processes.log"
             log_path.write_text(log_path.read_text(errors="replace").replace(self.token, "[redacted]")
                                 if self.token else log_path.read_text(errors="replace"))
+            changed = self.changed_artifacts()
+            failure = failure or ("pinned artifacts changed during run: " + ", ".join(changed) if changed else None)
             self.save(failure)
             shutil.rmtree(self.home)
         return 1 if failure else 0
 
+    def changed_artifacts(self):
+        return [key for key, path in self.artifact_paths.items()
+                if not path.is_file() or digest(path) != self.provenance[key]]
+
     def save(self, error=None):
+        changed = self.changed_artifacts()
+        error = error or ("pinned artifacts changed during run: " + ", ".join(changed) if changed else None)
         document = {
             "evidenceLevel": "native Tauri AX + production daemon + repository fixture agents",
             "realAgentExecuted": False, "humanEvaluation": False, "consentGranted": False,
-            "safetyUnlocked": False, "sourceSha": subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-            "dirtyTree": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
-            "binarySha256": digest(self.binary), "cliSha256": digest(self.cli),
-            "fixtureSha256": {"codex": digest(self.codex), "claude": digest(self.claude)},
+            "safetyUnlocked": False, **self.provenance,
+            "artifactVerification": {"unchanged": not changed, "changed": changed},
+            "fixtureSha256": {"codex": self.provenance["codexFixtureSha256"],
+                              "claude": self.provenance["claudeFixtureSha256"]},
+            "prefsFixture": self.prefs_fixture, "startingPreferences": self.starting_prefs,
+            "casePreferenceOverrides": self.prefs_overrides,
             "steps": self.steps, "ax": self.ax_attempts,
             "seconds": round(time.monotonic() - self.started, 3),
             "result": "failed" if error else "completed" if self.finished else "running",
@@ -305,6 +342,8 @@ def main():
     parser.add_argument("--app", type=Path, required=True)
     parser.add_argument("--cli", type=Path, default=ROOT / "target/debug/interact-ai")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--prefs-fixture", type=Path,
+                        help="JSON preferences fixture copied only to the isolated home; case prerequisites override it")
     try:
         return WorkJourney(parser.parse_args()).run()
     except (ValueError, OSError) as error:

@@ -1,0 +1,4 @@
+
+> interaction-desktop@0.7.0 typecheck /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+> tsc --noEmit
+

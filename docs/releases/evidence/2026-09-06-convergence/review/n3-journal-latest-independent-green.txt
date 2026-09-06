@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/sensor_journal_review.rs (target/debug/deps/sensor_journal_review-c1726a115c84f492)
+
+running 5 tests
+test a_registered_family_does_not_hide_unknowns_after_the_live_capture_disappears ... ok
+test scoped_confirmation_resolves_only_its_connection_and_dismissal_keeps_a_live_sibling ... ok
+test changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors ... ok
+test a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind ... ok
+test a_scoped_successful_stop_leaves_no_restart_reminder ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+

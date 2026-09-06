@@ -83,6 +83,8 @@ for r in runs:
     for metric in ('inputLatencyToyGrab','inputLatencyGaze'):
         if raw[metric]['confirmedFrames'] != raw[metric]['attempts']:
             investigate.append(r['artifact']+': '+metric+' incomplete')
+    if not raw['memorySoak'].get('evidenceGrade') or not raw['memorySoak'].get('gcAvailable') or raw['memorySoak'].get('looksQuantized', True):
+        investigate.append(r['artifact']+': memory sample is not evidence-grade (GC missing or quantized)')
     if raw['memorySoak']['deltaAfterGcBytes'] > 1048576:
         investigate.append(r['artifact']+': soak growth > 1 MiB')
     bounded = raw['memorySoak'].get('appLayer', {}).get('bounded', {})

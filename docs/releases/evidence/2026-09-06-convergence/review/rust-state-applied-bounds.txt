@@ -1,0 +1,11 @@
+   Compiling interaction-adapter-declarative v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-declarative)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.79s
+     Running unittests src/lib.rs (target/debug/deps/interaction_adapter_declarative-0b0cfac66fbc1976)
+
+running 4 tests
+test state_applied::tests::writes_are_not_applied_and_legacy_peers_receive_no_extension ... ok
+test state_applied::tests::every_binding_field_must_match_an_outstanding_sent_state ... ok
+test state_applied::tests::delayed_valid_receipts_make_progress_without_rolling_back_newer_claims ... ok
+test state_applied::tests::timeout_capacity_generation_and_stop_are_bounded_and_invalidate_old_receipts ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.00s

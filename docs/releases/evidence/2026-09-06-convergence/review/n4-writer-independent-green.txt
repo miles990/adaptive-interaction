@@ -1,0 +1,16 @@
+   Compiling interaction-desktop v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.30s
+     Running unittests src/lib.rs (apps/interaction-desktop/src-tauri/target/debug/deps/interaction_desktop_lib-49a672dc83c5b0e1)
+
+running 2 tests
+test settings_recovery_review::failed_temporary_creation_does_not_delete_a_file_the_writer_did_not_create ... ok
+test settings_recovery_review::atomic_preferences_save_preserves_existing_private_permissions ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 0.04s
+
+     Running unittests src/main.rs (apps/interaction-desktop/src-tauri/target/debug/deps/interaction_desktop-e672be87366f4dd5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

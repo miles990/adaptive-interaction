@@ -1,0 +1,19 @@
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.93s
+     Running tests/declarative_session_loop.rs (target/debug/deps/declarative_session_loop-971009789d5159f4)
+
+running 1 test
+
+thread 'unplug_rebind_preserves_human_disabled_receptor' (5813529) panicked at crates/interaction-runtime/tests/declarative_session_loop.rs:2485:5:
+production binding must retire after unplug
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test unplug_rebind_preserves_human_disabled_receptor ... FAILED
+
+failures:
+
+failures:
+    unplug_rebind_preserves_human_disabled_receptor
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 31 filtered out; finished in 15.45s
+
+error: test failed, to rerun pass `-p interaction-runtime --test declarative_session_loop`

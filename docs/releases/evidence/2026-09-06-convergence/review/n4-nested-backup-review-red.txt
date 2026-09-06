@@ -1,0 +1,35 @@
+
+ RUN  v2.1.9 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+
+ ❯ src/test/settings-import-review.test.ts (4 tests | 4 failed) 5ms
+   × N4 review: corrupted nested backup fields > rejects malformed familiar id before producing a settings patch 4ms
+     → expected [Function] to throw an error
+   × N4 review: corrupted nested backup fields > rejects malformed familiar name before producing a settings patch 0ms
+     → expected [Function] to throw an error
+   × N4 review: corrupted nested backup fields > rejects malformed familiar name before producing a settings patch 0ms
+     → expected [Function] to throw an error
+   × N4 review: corrupted nested backup fields > rejects malformed familiar palette before producing a settings patch 0ms
+     → expected [Function] to throw an error
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/test/settings-import-review.test.ts > N4 review: corrupted nested backup fields > rejects malformed familiar id before producing a settings patch
+ FAIL  src/test/settings-import-review.test.ts > N4 review: corrupted nested backup fields > rejects malformed familiar name before producing a settings patch
+ FAIL  src/test/settings-import-review.test.ts > N4 review: corrupted nested backup fields > rejects malformed familiar name before producing a settings patch
+ FAIL  src/test/settings-import-review.test.ts > N4 review: corrupted nested backup fields > rejects malformed familiar palette before producing a settings patch
+AssertionError: expected [Function] to throw an error
+ ❯ src/test/settings-import-review.test.ts:18:9
+     16|     expect(() => parseCompanionSettingsImport(backup, {
+     17|       knownCharacterIds: ["shu-maid"], entrypointFor: () => "shu-rig",
+     18|     })).toThrow();
+       |         ^
+     19|   });
+     20| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  12:57:54
+   Duration  1.15s (transform 193ms, setup 128ms, collect 228ms, tests 5ms, environment 563ms, prepare 44ms)
+

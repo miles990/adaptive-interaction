@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+
+ ✓ src/test/semantic-state-contract.test.ts (54 tests) 19ms
+ ✓ src/test/semantic-transport.test.ts (5 tests) 19ms
+
+ Test Files  2 passed (2)
+      Tests  59 passed (59)
+   Start at  12:38:06
+   Duration  879ms (transform 143ms, setup 258ms, collect 121ms, tests 38ms, environment 381ms, prepare 79ms)
+

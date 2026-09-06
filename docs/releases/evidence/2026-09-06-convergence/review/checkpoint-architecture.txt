@@ -1,0 +1,33 @@
+architecture-checks @ /Users/user/Workspace/claude-lab/adaptive-interaction
+完整輸出：/tmp/adaptive-convergence-20260906/architecture-checkpoint
+
+── docs ────────────────────────────────────────────────
+  ✔ scripts/tests/docs-claims.sh — docs-claims: 170 passed / 0 failed
+  ✔ scripts/tests/release-scripts.sh — release-scripts: 58 passed / 0 failed
+
+── ts ──────────────────────────────────────────────────
+  ✔ vitest（10 檔）—  Test Files  10 passed (10)       Tests  230 passed (230) 
+
+── rust ────────────────────────────────────────────────
+  ✔ core-boundaries — test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s 
+  ✔ schema-drift(golden) — test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s 
+  ✔ schema-drift(aip) — test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s 
+  ✔ receive-decisions — test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s 
+  ✔ semantic-contract+published — test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s 
+  ✔ state-applied-bounds — test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.00s 
+  ✔ snapshot-migration+adapter-lifecycle — test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.21s test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.29s 
+  ✔ stop-paths — test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.44s 
+
+── drill-lint ──────────────────────────────────────────────
+  ✔ scripts/drills/provider-disable-reenable.sh — bash -n 通過，引用的檔案與端點都在（未實跑）
+  ✔ scripts/drills/remove-package-keep-user-data.sh — bash -n 通過，引用的檔案與端點都在（未實跑）
+  ✔ node --check scripts/drills/character-package.mjs（未實跑）
+  ✔ node --check scripts/drills/optional-state.mjs（未實跑）
+  ✔ Python syntax scripts/drills/provider-lifecycle.py（未實跑）
+  ✔ Python syntax scripts/drills/restricted-device.py（未實跑）
+
+── swift（native 純模型；不是 iOS simulator 或真機）──────
+  RUN swift-native — /tmp/adaptive-convergence-20260906/architecture-checkpoint/swift-native.log
+  swift-native: exit=0 elapsed=30s
+  Swift native semantic conformance: 58 passed, 0 failed
+scripts/tests/architecture-checks.sh: line 306: SWIFT_NOTE�: unbound variable

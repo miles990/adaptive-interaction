@@ -1,0 +1,80 @@
+   Compiling log v0.4.34
+   Compiling bytes v1.12.1
+   Compiling futures-util v0.3.34
+   Compiling minimal-lexical v0.2.1
+   Compiling tracing v0.1.44
+   Compiling memchr v2.8.3
+   Compiling rustls v0.23.43
+   Compiling tokio v1.53.1
+   Compiling http v1.5.0
+   Compiling http-body v1.1.0
+   Compiling nom v7.1.3
+   Compiling futures-executor v0.3.34
+   Compiling futures v0.3.34
+   Compiling interaction-core v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-core)
+   Compiling cexpr v0.6.0
+   Compiling bindgen v0.72.1
+   Compiling hyper v1.11.0
+   Compiling http-body-util v0.1.5
+   Compiling hyper-util v0.1.20
+   Compiling tower v0.5.3
+   Compiling tokio-rustls v0.26.4
+   Compiling tokio-util v0.7.19
+   Compiling hyper-rustls v0.27.9
+   Compiling rustls v0.22.4
+   Compiling coreaudio-sys v0.2.18
+   Compiling tower-http v0.6.11
+   Compiling interaction-adapter-sdk v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-sdk)
+   Compiling tokio-stream v0.1.19
+   Compiling reqwest v0.12.28
+   Compiling tungstenite v0.24.0
+   Compiling tokio-rustls v0.25.0
+   Compiling rumqttc v0.24.0
+   Compiling btleplug v0.11.8
+   Compiling tungstenite v0.29.0
+   Compiling coreaudio-rs v0.11.3
+   Compiling polling v2.8.0
+   Compiling cpal v0.15.3
+   Compiling interaction-events v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-events)
+   Compiling axum-core v0.5.6
+   Compiling adapters-media v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/adapters/media)
+   Compiling interaction-registry v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-registry)
+   Compiling interaction-recipe v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-recipe)
+   Compiling mdns-sd v0.11.5
+   Compiling tokio-tungstenite v0.24.0
+   Compiling tokio-tungstenite v0.29.0
+   Compiling interaction-adapter-declarative v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-declarative)
+   Compiling adapters-builtin v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/adapters/builtin)
+   Compiling interaction-storage v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-storage)
+   Compiling interaction-policy v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-policy)
+   Compiling interaction-tool-schema v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-tool-schema)
+   Compiling interaction-agent-gateway v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-agent-gateway)
+   Compiling axum v0.8.9
+   Compiling interaction-runtime v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+   Compiling interaction-api v0.7.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-api)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 33.68s
+     Running unittests src/lib.rs (target/debug/deps/interaction_api-96c2cef2317d4579)
+
+running 1 test
+test auth_scope_tests::sensor_recovery_health_is_public_but_incarnations_are_human_only ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+     Running tests/api_e2e.rs (target/debug/deps/api_e2e-f9306085f530a702)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.00s
+
+     Running tests/consent_e2e.rs (target/debug/deps/consent_e2e-89ea60fc5b557470)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/providers_e2e.rs (target/debug/deps/providers_e2e-b6b9c0991158fe36)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+

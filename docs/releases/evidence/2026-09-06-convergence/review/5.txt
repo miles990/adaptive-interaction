@@ -1,0 +1,8 @@
+
+running 1 test
+test an_event_only_device_is_an_event_source_member ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.36s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/declarative_session_loop.rs (target/debug/deps/declarative_session_loop-971009789d5159f4)
