@@ -1,0 +1,2 @@
+Expected incomplete one-test suite to be rejected; actual exit 0
+{"status": "passed", "total": 1, "passed": 1, "failed": 0, "skipped": 0, "evidenceLevel": "iOS simulator XCTest"}

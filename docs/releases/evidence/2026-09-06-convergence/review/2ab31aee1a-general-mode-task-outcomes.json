@@ -1,0 +1,219 @@
+{
+  "generatedAt": "2026-09-06T05:44:03.332Z",
+  "spec": "apps/interaction-desktop/e2e/general-mode-tasks.spec.ts",
+  "mode": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+  "honesty": {
+    "phone": "全部是【模擬 iPhone（fixture）】；iPhone 真機驗收仍然是零",
+    "agent": "AI 幫手是 fixture 子程序，非真 Codex／Claude Code",
+    "desktopPrefs": "桌面角色偏好（換角色、陪伴程度、勿擾、顯示／隱藏）住在 Tauri host；瀏覽器模式只驗得到誠實降級",
+    "classifications": "completed／correctly-blocked／failed（測試紅）／not-run（本輪沒跑到，或跑到了但這一輪沒有可做的事——後者會附 `notRun.reason`）"
+  },
+  "tasks": [
+    {
+      "task": "稍後連手機",
+      "viewport": "desktop",
+      "expected": "completed",
+      "actual": "completed",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "手機是【模擬 iPhone（fixture）】，非 iPhone 真機",
+      "metrics": {
+        "task": "稍後連手機",
+        "viewport": "desktop",
+        "decisions": 2,
+        "clicks": 2,
+        "backtracks": 1,
+        "safetySteps": 0,
+        "helpRequested": 0,
+        "recoveredFromFailure": false,
+        "durationMs": 2861,
+        "steps": [
+          "到達：home",
+          "到達：companion",
+          "決策：同步卡的下一步：連接手機",
+          "到達：connect",
+          "決策：開始配對（5 分鐘內有效）",
+          "到達：companion"
+        ],
+        "notes": [
+          "手機是【模擬 iPhone（fixture）】，不是 iPhone 真機。"
+        ]
+      }
+    },
+    {
+      "task": "手機與桌面互動",
+      "viewport": "desktop",
+      "expected": "completed",
+      "actual": "completed",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "手機是【模擬 iPhone（fixture）】，非 iPhone 真機",
+      "metrics": {
+        "task": "手機與桌面互動",
+        "viewport": "desktop",
+        "decisions": 0,
+        "clicks": 0,
+        "backtracks": 0,
+        "safetySteps": 0,
+        "helpRequested": 0,
+        "recoveredFromFailure": false,
+        "durationMs": 114,
+        "steps": [
+          "到達：companion"
+        ],
+        "notes": [
+          "互動由模擬 iPhone（fixture）發起；桌面端不需要任何決策。"
+        ]
+      }
+    },
+    {
+      "task": "暫時離線後恢復",
+      "viewport": "desktop",
+      "expected": "completed",
+      "actual": "completed",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "手機是【模擬 iPhone（fixture）】，非 iPhone 真機",
+      "metrics": {
+        "task": "暫時離線後恢復",
+        "viewport": "desktop",
+        "decisions": 0,
+        "clicks": 0,
+        "backtracks": 0,
+        "safetySteps": 0,
+        "helpRequested": 0,
+        "recoveredFromFailure": false,
+        "durationMs": 1295,
+        "steps": [
+          "到達：companion"
+        ],
+        "notes": [
+          "斷線／重連由模擬 iPhone（fixture）驅動；桌面端不需要任何決策。"
+        ]
+      }
+    },
+    {
+      "task": "主動移除手機",
+      "viewport": "desktop",
+      "expected": "completed",
+      "actual": "completed",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "手機是【模擬 iPhone（fixture）】，非 iPhone 真機",
+      "metrics": {
+        "task": "主動移除手機",
+        "viewport": "desktop",
+        "decisions": 1,
+        "clicks": 2,
+        "backtracks": 0,
+        "safetySteps": 1,
+        "helpRequested": 0,
+        "recoveredFromFailure": false,
+        "durationMs": 3999,
+        "steps": [
+          "到達：connect",
+          "決策：移除此手機",
+          "安全步驟：確定移除？",
+          "到達：companion"
+        ],
+        "notes": []
+      }
+    },
+    {
+      "task": "撤銷後重新連線",
+      "viewport": "desktop",
+      "expected": "completed",
+      "actual": "completed",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "手機是【模擬 iPhone（fixture）】，非 iPhone 真機",
+      "metrics": {
+        "task": "撤銷後重新連線",
+        "viewport": "desktop",
+        "decisions": 2,
+        "clicks": 2,
+        "backtracks": 1,
+        "safetySteps": 0,
+        "helpRequested": 0,
+        "recoveredFromFailure": false,
+        "durationMs": 4208,
+        "steps": [
+          "到達：home",
+          "到達：companion",
+          "決策：同步卡的下一步：連接手機",
+          "到達：connect",
+          "決策：開始配對（5 分鐘內有效）",
+          "到達：companion"
+        ],
+        "notes": [
+          "重新配對的是另一台【模擬 iPhone（fixture）】；被移除的裝置不會自動回來。"
+        ]
+      }
+    },
+    {
+      "task": "第一次使用桌面角色",
+      "expected": "completed",
+      "actual": "not-run",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "—"
+    },
+    {
+      "task": "等待離線逾時",
+      "expected": "completed",
+      "actual": "not-run",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "手機是【模擬 iPhone（fixture）】，非 iPhone 真機；presence 逾時無可調參數，只能真的等 45 秒"
+    },
+    {
+      "task": "更換角色",
+      "expected": "correctly-blocked",
+      "actual": "not-run",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "正向效果是 Tauri-only（見「真 Tauri 視窗走查」章節）"
+    },
+    {
+      "task": "調整陪伴程度",
+      "expected": "correctly-blocked",
+      "actual": "not-run",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "正向效果是 Tauri-only（見「真 Tauri 視窗走查」章節）"
+    },
+    {
+      "task": "設定安靜時段",
+      "expected": "completed",
+      "actual": "not-run",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "—"
+    },
+    {
+      "task": "暫停主動對話",
+      "expected": "completed",
+      "actual": "not-run",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "—"
+    },
+    {
+      "task": "取消進行中的工作",
+      "expected": "completed",
+      "actual": "not-run",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "AI 幫手是 fixture 子程序，非真 Codex／Claude Code"
+    },
+    {
+      "task": "390px：看角色頁並連手機",
+      "expected": "completed",
+      "actual": "not-run",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "手機是【模擬 iPhone（fixture）】，非 iPhone 真機"
+    },
+    {
+      "task": "390px：設定安靜時段",
+      "expected": "completed",
+      "actual": "not-run",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "—"
+    },
+    {
+      "task": "緊急停止",
+      "expected": "completed",
+      "actual": "not-run",
+      "evidence": "瀏覽器模式（Playwright Chromium ＋ 真 interact-ai daemon，隔離的家與埠號 18795）",
+      "limits": "—"
+    }
+  ]
+}

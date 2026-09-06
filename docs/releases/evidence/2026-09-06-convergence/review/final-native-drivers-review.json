@@ -1,0 +1,67 @@
+{
+  "reviewer": "semantic_contract (independent readonly reviewer)",
+  "sourceModified": false,
+  "nativeUiOperated": false,
+  "scope": [
+    "scripts/tauri-ax-walkthrough.sh: provenance capture, app-source-ref labeling, final status gate, own-process cleanup",
+    "scripts/tests/tauri-work-cancel.py: created fixture state, user cancellation, turn interruption, real process-group termination, evidence boundaries"
+  ],
+  "sourceHashes": {
+    "scripts/tauri-ax-walkthrough.sh": "e8ee496d917c2b88dd5eea63a5c771a5363f006a6b63da83377b673dce8534b8",
+    "scripts/tests/tauri-work-cancel.py": "897187c3539fe1d1083d713395d56573ffae3c3dff88590f30a6bd56795a6a94"
+  },
+  "findings": [
+    {
+      "id": "native-result-gate-emergency-status",
+      "priority": "P2",
+      "path": "scripts/tauri-ax-walkthrough.sh",
+      "line": 279,
+      "trigger": "All engineering tasks completed with emergency-unlock failed or not-run",
+      "observed": "Current final predicate exits 0 for either status",
+      "expected": "Only completed, or emergency-unlock needs-environment, permits successful exit",
+      "impactBoundary": "Normal driver records needs-environment explicitly; this finding does not invalidate the existing completed native run. The gate would miss an absent/failed emergency record.",
+      "suggestion": "Reject status != completed unless id is emergency-unlock AND status is needs-environment",
+      "probes": "docs/releases/evidence/2026-09-06-convergence/review/e834b38af6-final-native-result-gate-probes.json",
+      "status": "fixed at next checkpoint",
+      "verificationCheckpoint": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+      "verificationWorkingTreePatch": "precise emergency-unlock needs-environment exemption",
+      "greenProbes": "docs/releases/evidence/2026-09-06-convergence/review/370973d17c-final-native-result-gate-green.json",
+      "independentVerification": {
+        "passed": 7,
+        "failed": 0
+      }
+    }
+  ],
+  "workCancellation": {
+    "findings": 0,
+    "existingEvidence": "docs/releases/evidence/2026-09-06-convergence/review/0a5b7f9775-result.json",
+    "existingStepsCompleted": 4,
+    "existingStepsFailed": 0,
+    "driverMatchesExistingEvidence": true,
+    "stateChecks": [
+      "codex active",
+      "codex cancelled",
+      "claude created",
+      "claude closed"
+    ],
+    "realAgentExecuted": false,
+    "humanEvaluation": false
+  },
+  "checks": {
+    "shellSyntax": "passed",
+    "pythonSyntax": "passed",
+    "gateProbes": {
+      "matched": 5,
+      "mismatched": 2
+    },
+    "gateProbesAfterFix": {
+      "matched": 7,
+      "mismatched": 0,
+      "path": "docs/releases/evidence/2026-09-06-convergence/review/370973d17c-final-native-result-gate-green.json"
+    }
+  },
+  "status": "fixed at next checkpoint",
+  "openFindings": 0,
+  "verificationCheckpoint": "87b0d03173cdefce68bad2403b7f76be59b738e1",
+  "verificationWorkingTreePatch": "precise emergency-unlock needs-environment exemption"
+}

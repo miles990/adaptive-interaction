@@ -276,7 +276,7 @@ with open(out, "w", encoding="utf-8") as f:
     f.write("\n")
 print(json.dumps(summary, ensure_ascii=False))
 print(out)
-raise SystemExit(1 if any(t["status"] != "completed" for t in tasks if t["id"] != "emergency-unlock") or listeners != "0" else 0)
+raise SystemExit(1 if any(t["status"] != "completed" and not (t["id"] == "emergency-unlock" and t["status"] == "needs-environment") for t in tasks) or listeners != "0" else 0)
 PY
 }
 trap cleanup EXIT

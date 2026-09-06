@@ -1,0 +1,59 @@
+[WebServer] (node:82533) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:82535) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] 
+[WebServer]   VITE v5.4.21  ready in 123 ms
+[WebServer] 
+[WebServer]   ➜  Local:   http://127.0.0.1:5199/
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.25s
+
+Running 3 tests using 1 worker
+
+(node:82575) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [main] › e2e/sensors.spec.ts:63:1 › 感測：模擬 iPhone 在串流麥克風音量時，狀態列與首頁同時說得出來 (2.0s)
+  ✘  2 [main] › e2e/sensors.spec.ts:84:1 › 感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」 (21.1s)
+  -  3 [main] › e2e/sensors.spec.ts:116:1 › 感測：手機沒回覆時，畫面絕不說「已停止」——只說還不確定，而且感測不會從畫面消失
+
+
+  1) [main] › e2e/sensors.spec.ts:84:1 › 感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」 ────────────────────────────
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('.sensor-banner')
+    Expected: 0
+    Received: 1
+    Timeout:  20000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 20000ms
+      - waiting for locator('.sensor-banner')
+        44 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      111 |   // 畫面：確認之後才可以說「已停止感測」，而且橫幅要消失。
+      112 |   await expect(page.locator(".home").getByText("已停止感測。")).toBeVisible({ timeout: 20_000 });
+    > 113 |   await expect(page.locator(".sensor-banner")).toHaveCount(0, { timeout: 20_000 });
+          |                                                ^
+      114 | });
+      115 |
+      116 | test("感測：手機沒回覆時，畫面絕不說「已停止」——只說還不確定，而且感測不會從畫面消失", async ({
+        at /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop/e2e/sensors.spec.ts:113:48
+
+    Error Context: ../../../../../../../tmp/n3-sensors-sequence-red-artifacts/sensors-感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」-main/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../../../../tmp/n3-sensors-sequence-red-artifacts/sensors-感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」-main/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../../../../../../../tmp/n3-sensors-sequence-red-artifacts/sensors-感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」-main/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [main] › e2e/sensors.spec.ts:84:1 › 感測：一個動作停止全部——手機回覆確認後才敢說「已停止感測」 ─────────────────────────────
+  1 did not run
+  1 passed (27.1s)

@@ -1,0 +1,1 @@
+{"status": "failed", "expected": 163, "evidenceLevel": "iOS simulator XCTest", "total": 163, "passed": 162, "failed": 1, "failureCount": 1, "skipped": 0, "reason": "Final suite must pass every expected test without failures, skips or trailing incomplete output"}

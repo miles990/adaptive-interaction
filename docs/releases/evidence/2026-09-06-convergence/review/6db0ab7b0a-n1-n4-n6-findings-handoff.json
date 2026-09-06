@@ -30,30 +30,29 @@
       },
       "red": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/ceffee521e-semantic-contract-red.txt",
+          "log": "/tmp/semantic-contract-red.log",
           "passed": 0,
           "failed": 5
         }
       ],
       "green": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/1c84d147ba-semantic-review-fix-ts.txt",
+          "log": "/tmp/semantic-review-fix-ts.log",
           "passed": 59,
           "failed": 0
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/32dfb8961a-semantic-review-fix-rust.txt",
+          "log": "/tmp/semantic-review-fix-rust.log",
           "passed": 5,
           "failed": 0
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/6f41024540-semantic-review-fix-swift.txt",
+          "log": "/tmp/semantic-review-fix-swift.log",
           "passed": 58,
           "failed": 0
         }
       ],
-      "status": "fixed; scoped contract, production receive and native Swift model tests pass",
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "status": "fixed; scoped contract, production receive and native Swift model tests pass"
     },
     {
       "id": "N1-RESTORE-02",
@@ -79,20 +78,19 @@
       },
       "red": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/d2cb866c5e-semantic-host-null-red.txt",
+          "log": "/tmp/semantic-host-null-red.log",
           "passed": 0,
           "failed": 1
         }
       ],
       "green": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/32dfb8961a-semantic-review-fix-rust.txt",
+          "log": "/tmp/semantic-review-fix-rust.log",
           "passed": 5,
           "failed": 0
         }
       ],
-      "status": "fixed; production restore regression passes",
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "status": "fixed; production restore regression passes"
     },
     {
       "id": "N1-REVIEW-03",
@@ -119,30 +117,29 @@
       },
       "red": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/4d23949821-n1-ts-verify.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n1-ts-verify.log",
           "description": "Both attention probes accepted"
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/d40ac2a2a1-n1-swift-verify.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n1-swift-verify.log",
           "description": "Both attention probes incorrectly rejected"
         }
       ],
       "green": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/f5029de6b3-n1-rust-verify.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n1-rust-verify.log",
           "cases": 5
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/5da40d8951-n1-ts-verify-fixed.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n1-ts-verify-fixed.log",
           "cases": 5
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/104fbf0142-n1-swift-verify-fixed.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n1-swift-verify-fixed.log",
           "cases": 5
         }
       ],
-      "status": "fixed; all three validators agree on the five independent attention/date probes",
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "status": "fixed; all three validators agree on the five independent attention/date probes"
     },
     {
       "id": "N1-REVIEW-04",
@@ -167,40 +164,39 @@
       },
       "red": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/f5029de6b3-n1-rust-verify.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n1-rust-verify.log",
           "description": "Authoritative expected false,false,true"
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/4d23949821-n1-ts-verify.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n1-ts-verify.log",
           "description": "Consumers true,true,false"
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/d40ac2a2a1-n1-swift-verify.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n1-swift-verify.log",
           "description": "Consumers true,true,false"
         }
       ],
       "green": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/5da40d8951-n1-ts-verify-fixed.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n1-ts-verify-fixed.log",
           "cases": 5
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/104fbf0142-n1-swift-verify-fixed.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n1-swift-verify-fixed.log",
           "cases": 5
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/1c84d147ba-semantic-review-fix-ts.txt",
+          "log": "/tmp/semantic-review-fix-ts.log",
           "passed": 59,
           "failed": 0
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/6f41024540-semantic-review-fix-swift.txt",
+          "log": "/tmp/semantic-review-fix-swift.log",
           "passed": 58,
           "failed": 0
         }
       ],
-      "status": "fixed; 18 additional shared state cases pin the reviewed edges",
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "status": "fixed; 18 additional shared state cases pin the reviewed edges"
     },
     {
       "id": "N4-REVIEW-01",
@@ -225,25 +221,24 @@
       },
       "red": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/f51066142f-n4-import-review-red.txt",
+          "log": "/tmp/n4-import-review-red.log",
           "passed": 0,
           "failed": 1,
           "skipped": 24
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/1b0fe1b190-n4-import-independent-red.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n4-import-independent-red.log",
           "failed": 1
         }
       ],
       "green": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/0ac2308ac0-n4-review-final-independent-green.txt",
+          "log": "/tmp/n4-review-final-independent-green.log",
           "passed": 41,
           "failed": 0
         }
       ],
-      "status": "fixed; production page with modeled two-IPC boundary passes",
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "status": "fixed; production page with modeled two-IPC boundary passes"
     },
     {
       "id": "N4-REVIEW-02",
@@ -267,29 +262,28 @@
       },
       "red": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/a07b720669-n4-prefs-writer-review-red.txt",
+          "log": "/tmp/n4-prefs-writer-review-red.log",
           "passed": 0,
           "failed": 2
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/8500c4cbdf-n4-writer-independent-red.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n4-writer-independent-red.log",
           "failed": 2
         }
       ],
       "green": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/81e059580a-n4-writer-review-final-independent-green.txt",
+          "log": "/tmp/n4-writer-review-final-independent-green.log",
           "passed": 2,
           "failed": 0
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/f9197a54fa-n4-writer-green.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n4-writer-green.log",
           "passed": 2,
           "failed": 0
         }
       ],
-      "status": "fixed; production writer on isolated real filesystem passes",
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "status": "fixed; production writer on isolated real filesystem passes"
     },
     {
       "id": "N4-REVIEW-03",
@@ -313,30 +307,29 @@
       },
       "red": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/a07b720669-n4-prefs-writer-review-red.txt",
+          "log": "/tmp/n4-prefs-writer-review-red.log",
           "passed": 0,
           "failed": 2
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/5179e2889a-n4-prefs-collision-review-red.txt",
+          "log": "/tmp/n4-prefs-collision-review-red.log",
           "passed": 0,
           "failed": 1
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/8500c4cbdf-n4-writer-independent-red.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n4-writer-independent-red.log",
           "failed": 2
         }
       ],
       "green": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/81e059580a-n4-writer-review-final-independent-green.txt",
+          "log": "/tmp/n4-writer-review-final-independent-green.log",
           "passed": 2,
           "failed": 0
         }
       ],
       "risk_bound": "Low-frequency collision requires a pre-existing PID/sequence path; no claim of remotely exploitable behavior.",
-      "status": "fixed; failed production create preserves both original and foreign temporary data",
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "status": "fixed; failed production create preserves both original and foreign temporary data"
     },
     {
       "id": "N4-REVIEW-04",
@@ -360,24 +353,23 @@
       },
       "red": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/f7e38d96d2-n4-nested-backup-review-red.txt",
+          "log": "/tmp/n4-nested-backup-review-red.log",
           "passed": 0,
           "failed": 4
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/f219b0a57c-n4-nested-independent-red.txt",
+          "log": "/tmp/adaptive-convergence-20260906/n4-nested-independent-red.log",
           "failed": 4
         }
       ],
       "green": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/0ac2308ac0-n4-review-final-independent-green.txt",
+          "log": "/tmp/n4-review-final-independent-green.log",
           "passed": 41,
           "failed": 0
         }
       ],
-      "status": "fixed; four nested cases plus existing page/top-level cases pass",
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "status": "fixed; four nested cases plus existing page/top-level cases pass"
     },
     {
       "id": "N6-REVIEW-01",
@@ -402,25 +394,25 @@
       },
       "red": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/565f9030a8-n6-dialog-browser-independent-red.txt",
+          "log": "/tmp/n6-dialog-browser-independent-red.log",
           "passed": 0,
           "failed": 1
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/5a0cfc34cf-n6-dialog-independent-unit-red.txt",
+          "log": "/tmp/n6-dialog-independent-unit-red.log",
           "passed": 6,
           "failed": 1
         }
       ],
       "green": [
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/389b29cd60-n6-dialog-browser-green.txt",
+          "log": "/tmp/n6-dialog-browser-green.log",
           "passed": 1,
           "failed": 0,
           "seconds": 5.9
         },
         {
-          "log": "docs/releases/evidence/2026-09-06-convergence/review/6eac3bdcab-n6-dialog-shared-unit-green.txt",
+          "log": "/tmp/n6-dialog-shared-unit-green.log",
           "passed": 71,
           "failed": 0
         }
@@ -428,8 +420,7 @@
       "trace_directory": "/tmp/n6-dialog-independent-red-artifacts",
       "browser_command": "env CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 pnpm exec playwright test --project=estop-last --no-deps -g '初始 Shift'",
       "browser_cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop",
-      "status": "fixed; Browser verifies Tab containment, Escape closes, opener focused/in viewport, emergencyStop still true",
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "status": "fixed; Browser verifies Tab containment, Escape closes, opener focused/in viewport, emergencyStop still true"
     }
   ],
   "additional_contract_work": {
@@ -443,11 +434,11 @@
       "apps/interaction-desktop/src-tauri/src/lib.rs"
     ],
     "summary": "Single state contract with explicit authoritative/forward-consumer roles, raw HTTP/SSE/Tauri text ingress and numeric metadata preserved across merge, frozen v0.7.0 corpus 5files from630b429 with independently pinned checksum. Generated DTOs never become hash input.",
-    "evidence": "docs/releases/evidence/2026-09-06-convergence/review/f4ed9bdbc0-semantic-contract-handoff.md"
+    "evidence": "/tmp/semantic-contract-handoff.md"
   },
   "n5_handoff": {
-    "optional_state": "docs/releases/evidence/2026-09-06-convergence/review/52005c5416-semantic-optional-drill.txt (21 steps, --working-tree; clean HEAD postcommit drill is a separate parent gate)",
-    "character_package": "docs/releases/evidence/2026-09-06-convergence/review/743d268016-semantic-package-drill.txt (production native ports1 + TS renderer/page2; modeled boundaries, not native UI E2E)"
+    "optional_state": "/tmp/semantic-optional-drill.log (21 steps, --working-tree; clean HEAD postcommit drill is a separate parent gate)",
+    "character_package": "/tmp/semantic-package-drill.log (production native ports1 + TS renderer/page2; modeled boundaries, not native UI E2E)"
   },
   "native_script_review": {
     "source": "scripts/tests/tauri-preset-recovery.py",

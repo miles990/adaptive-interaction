@@ -26,6 +26,8 @@
 
 ### Fixed
 
+- 停止感測的三個入口現在一併讀取未確認紀錄與保存狀態；歷史 unknown／overflow／store failure 不再同時收到整體成功通知。
+
 - 原始 snapshot 中 explicit null 被 serde 靜默省略；現在還原前拒絕，沿用既有損壞快照處理，合法字串不誤判。
 - 生成 Swift Attention 分支解碼與 TS／Swift 日期驗證的跨語言差異，包含未知 enum 額外欄位、非法日期與合法閏秒表示。
 - 同來源下一次 capture／同家族另一裝置／新連線不得抹去舊 unknown；手機 raw capture 的停止、移除與重啟也走同一持久化責任。

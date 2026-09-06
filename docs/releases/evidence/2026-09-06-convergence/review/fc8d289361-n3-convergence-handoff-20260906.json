@@ -28,16 +28,15 @@
       "test": "changing_a_live_family_capture_list_cannot_erase_prior_unknown_sensors",
       "testFile": "crates/interaction-runtime/tests/sensor_journal_review.rs",
       "red": [
-        "docs/releases/evidence/2026-09-06-convergence/review/a130abed81-semantic-n3-review-red.txt",
-        "docs/releases/evidence/2026-09-06-convergence/review/05108a8a15-n3-independent-verify-red.txt"
+        "/tmp/semantic-n3-review-red.log",
+        "/tmp/n3-independent-verify-red.log"
       ],
       "green": [
-        "docs/releases/evidence/2026-09-06-convergence/review/2297cda2e5-n3-independent-final-green.txt",
-        "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt"
+        "/tmp/n3-independent-final-green.log",
+        "/tmp/n3-mobile-observed-final.log"
       ],
       "fix": "Union old and new (sensor, scope) evidence for the same source generation; preserve earliest since and old evidence first under the bounded cap. A changed live list is never negative stop evidence.",
-      "commit": null,
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "commit": null
     },
     {
       "id": "N3-SCOPE-02",
@@ -51,16 +50,15 @@
       "test": "a_family_member_stop_does_not_confirm_an_absent_members_same_sensor_kind",
       "testFile": "crates/interaction-runtime/tests/sensor_journal_review.rs",
       "red": [
-        "docs/releases/evidence/2026-09-06-convergence/review/a130abed81-semantic-n3-review-red.txt",
-        "docs/releases/evidence/2026-09-06-convergence/review/05108a8a15-n3-independent-verify-red.txt"
+        "/tmp/semantic-n3-review-red.log",
+        "/tmp/n3-independent-verify-red.log"
       ],
       "green": [
-        "docs/releases/evidence/2026-09-06-convergence/review/2297cda2e5-n3-independent-final-green.txt",
-        "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt"
+        "/tmp/n3-independent-final-green.log",
+        "/tmp/n3-mobile-observed-final.log"
       ],
       "fix": "Resolve only same process/source generation plus exact adapter capture scope and sensor. Mobile supplies the connection ID captured with the capture/stop target. Default family scopes cannot be vouched for by another member report. New connection with the same device ID cannot clear old scope.",
-      "commit": null,
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "commit": null
     },
     {
       "id": "N3-SCOPE-03",
@@ -75,17 +73,16 @@
       "test": "a_registered_family_does_not_hide_unknowns_after_the_live_capture_disappears",
       "testFile": "crates/interaction-runtime/tests/sensor_journal_review.rs",
       "red": [
-        "docs/releases/evidence/2026-09-06-convergence/review/f28138bb79-n3-live-family-red.txt",
-        "docs/releases/evidence/2026-09-06-convergence/review/05108a8a15-n3-independent-verify-red.txt"
+        "/tmp/n3-live-family-red.log",
+        "/tmp/n3-independent-verify-red.log"
       ],
       "green": [
-        "docs/releases/evidence/2026-09-06-convergence/review/2297cda2e5-n3-independent-final-green.txt",
-        "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt"
+        "/tmp/n3-independent-final-green.log",
+        "/tmp/n3-mobile-observed-final.log"
       ],
       "fix": "Hide only exact currently represented (sensor, scope) evidence, or the existing 60-second orphan projection window. Constant family registration alone never suppresses historical unknowns. Human dismissal removes only visible historical evidence and retains live siblings.",
       "commit": null,
-      "roleNote": "Concrete live-only projection finding was first raised by the implementation author. /root/semantic_contract confirmed this attribution from the conversation; only scope01/02 were independently found by that agent. /root/state_receipts independently refuted/verified all three against the actual production path and reran 0/3 red. Do not relabel the scope03 author extension as an independent Find.",
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "roleNote": "Concrete live-only projection finding was first raised by the implementation author. /root/semantic_contract confirmed this attribution from the conversation; only scope01/02 were independently found by that agent. /root/state_receipts independently refuted/verified all three against the actual production path and reran 0/3 red. Do not relabel the scope03 author extension as an independent Find."
     },
     {
       "id": "N3-MOBILE-EDGE-01",
@@ -99,14 +96,14 @@
       "test": "per_device_unknown_stop_survives_direct_mobile_revoke_and_restart",
       "testFile": "crates/interaction-runtime/tests/mobile_loop.rs",
       "red": [
-        "docs/releases/evidence/2026-09-06-convergence/review/8b44aa47fd-n3-mobile-direct-stop-red.txt",
-        "docs/releases/evidence/2026-09-06-convergence/review/6fd632aad7-n3-mobile-independent-red.txt"
+        "/tmp/n3-mobile-direct-stop-red.log",
+        "/tmp/adaptive-convergence-20260906/n3-mobile-independent-red.log"
       ],
       "green": [
-        "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt",
-        "docs/releases/evidence/2026-09-06-convergence/review/ccf7d4f897-n3-mobile-direct-stop-independent-green.txt"
+        "/tmp/n3-mobile-observed-final.log",
+        "/tmp/n3-mobile-direct-stop-independent-green.log"
       ],
-      "independentGreenStatus": "N2 independently reran the original mobile edge regression: 1 pass / 0 fail, 2.32s; docs/releases/evidence/2026-09-06-convergence/review/ccf7d4f897-n3-mobile-direct-stop-independent-green.txt. Source read-only follow-up is still being completed; no new unresolved finding reported. Additional four mobile boundaries passed in author full 81/0.",
+      "independentGreenStatus": "N2 independently reran the original mobile edge regression: 1 pass / 0 fail, 2.32s; /tmp/n3-mobile-direct-stop-independent-green.log. Source read-only follow-up is still being completed; no new unresolved finding reported. Additional four mobile boundaries passed in author full 81/0.",
       "fix": "Capture raw false-to-true through the canonical journal port before publishing mic_since. Each connection carries opaque SensorCaptureOwner with registered source generation and family label. Same effective connection's false report can settle only its scope while the source generation is still registered. Teardown never clears it; direct per-device stop now uses the canonical source request when registered. Safety-decreasing raw wire stop remains available if source registration has already been removed.",
       "addedTests": [
         "disabled_raw_mobile_capture_survives_disconnect_and_restart_without_a_stop_request",
@@ -114,8 +111,7 @@
         "superseding_mobile_connection_cannot_confirm_the_old_capture",
         "late_mobile_false_from_an_unregistered_source_generation_preserves_unknown"
       ],
-      "commit": null,
-      "integrationCommit": "30ff852f5d893215c019d982774c8b59ab010659"
+      "commit": null
     }
   ],
   "originalRegressions": [
@@ -132,10 +128,10 @@
         "restart_human_dismissal_stays_dismissed_without_claiming_stopped"
       ],
       "red": [
-        "docs/releases/evidence/2026-09-06-convergence/review/af40dbe191-n3-restart-red.txt"
+        "/tmp/n3-restart-red.log"
       ],
       "green": [
-        "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt"
+        "/tmp/n3-mobile-observed-final.log"
       ],
       "note": "Original red was 1 pass / 2 fail: historical reminder retention failed both after and before orphan TTL. This is not claimed as an independent Find/Verify run."
     },
@@ -150,10 +146,10 @@
         "new_generation_confirmed_stop_cannot_vouch_for_previous_source"
       ],
       "red": [
-        "docs/releases/evidence/2026-09-06-convergence/review/200f14f45d-n3-generation-red.txt"
+        "/tmp/n3-generation-red.log"
       ],
       "green": [
-        "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt"
+        "/tmp/n3-mobile-observed-final.log"
       ],
       "note": "v0.7.0 explicitly allowed a new same-ID source to clear an old generation. The new red establishes the requested stricter rule; it is not evidence that v0.7.0 already promised this same rule. Compatibility/deprecation/privacy docs record the behavior change."
     },
@@ -167,10 +163,10 @@
         "shutdown_persists_unknown_before_marking_the_process_clean"
       ],
       "red": [
-        "docs/releases/evidence/2026-09-06-convergence/review/e3c9732b98-n3-shutdown-red.txt"
+        "/tmp/n3-shutdown-red.log"
       ],
       "green": [
-        "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt"
+        "/tmp/n3-mobile-observed-final.log"
       ],
       "note": "Shutdown now stops sensors through the existing bounded coordinator before transport cancellation and journal flush/clean marker. Synchronous local microphone stop remains first."
     }
@@ -232,17 +228,17 @@
   ],
   "excludedOrIntermediateEvidence": [
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/cbfaa60392-n3-unplug-red.txt",
+      "path": "/tmp/n3-unplug-red.log",
       "classification": "invalid_fixture_premise_not_product_defect",
       "reason": "Test assumed natural serial unplug retired the provider binding. Production reconnects within that binding. Test was removed; do not count this red as a product defect or publish it as a fixed regression."
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/a2738ad8cb-n3-mobile-observed-full-green.txt",
+      "path": "/tmp/n3-mobile-observed-full-green.log",
       "classification": "intermediate_author_introduced_regression",
       "reason": "79 pass / 1 fail: per-device canonical stop was initially passed wire reason user instead of canonical audit reason stop-all-sensors. Existing expectation correctly failed; fixed the caller argument without changing the expected user wire reason. Superseded by final 81/0."
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/3888669498-n3-mobile-direct-stop-green.txt",
+      "path": "/tmp/n3-mobile-direct-stop-green.log",
       "classification": "intermediate_targeted_green",
       "reason": "Original mobile edge regression passed after initial fix; final 81/0 supersedes this smaller run."
     }
@@ -250,7 +246,7 @@
   "latestValidation": [
     {
       "kind": "runtime_regressions",
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt",
+      "path": "/tmp/n3-mobile-observed-final.log",
       "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test -p interaction-runtime --test mobile_loop --test sensor_journal_review --test sensors_loop",
       "suites": [
         {
@@ -280,14 +276,14 @@
     },
     {
       "kind": "root_clippy",
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/273fadf437-n3-mobile-observed-clippy-final.txt",
+      "path": "/tmp/n3-mobile-observed-clippy-final.log",
       "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo clippy --workspace --all-targets -- -D warnings",
       "exitCode": 0,
       "seconds": 11.9
     },
     {
       "kind": "api_principal_projection",
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/2f0ec8c9b1-n3-api-final-green.txt",
+      "path": "/tmp/n3-api-final-green.log",
       "test": "sensor_recovery_health_is_public_but_incarnations_are_human_only",
       "pass": 1,
       "fail": 0,
@@ -297,7 +293,7 @@
     },
     {
       "kind": "scope_independent_reverify",
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/2297cda2e5-n3-independent-final-green.txt",
+      "path": "/tmp/n3-independent-final-green.log",
       "runner": "/root/state_receipts",
       "pass": 5,
       "fail": 0,
@@ -305,7 +301,7 @@
     },
     {
       "kind": "mobile_edge_independent_reverify",
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/ccf7d4f897-n3-mobile-direct-stop-independent-green.txt",
+      "path": "/tmp/n3-mobile-direct-stop-independent-green.log",
       "runner": "/root/state_receipts",
       "test": "per_device_unknown_stop_survives_direct_mobile_revoke_and_restart",
       "pass": 1,
@@ -315,7 +311,7 @@
     },
     {
       "kind": "scope_latest_independent_reverify",
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/6aeaca3b23-n3-journal-latest-independent-green.txt",
+      "path": "/tmp/n3-journal-latest-independent-green.log",
       "runner": "/root/state_receipts",
       "pass": 5,
       "fail": 0,
@@ -344,7 +340,7 @@
       "kind": "lifecycle_drill",
       "script": "scripts/drills/provider-disable-reenable.sh",
       "implementation": "scripts/drills/provider-lifecycle.py",
-      "result": "docs/releases/evidence/2026-09-06-convergence/review/bc27ab8a13-result.json",
+      "result": "/tmp/n5-lifecycle-final-run4/result.json",
       "evidenceLevel": "production-cli-pty-simulator",
       "note": "4 steps / 0 fail, 1.411s; non-consent manual receptor OFF retained across two disable/re-enable cycles, generations 1->2, revoke+restart persisted. This run predates the final raw-mobile capture changes; parent must rebuild/rerun for final release evidence."
     }
@@ -392,7 +388,7 @@
   },
   "rawEvidenceManifest": [
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/6fd632aad7-n3-mobile-independent-red.txt",
+      "path": "/tmp/adaptive-convergence-20260906/n3-mobile-independent-red.log",
       "exists": true,
       "bytes": 865,
       "sha256": "d75ba3752d8386a999d07abe91112d4d23761814052a7925630596e23c10de99",
@@ -402,7 +398,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/2f0ec8c9b1-n3-api-final-green.txt",
+      "path": "/tmp/n3-api-final-green.log",
       "exists": true,
       "bytes": 3903,
       "sha256": "67fec6a0bb44a85a6f043a7fe45c8a100eae94c54718c41a956d498677e17ce7",
@@ -415,7 +411,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/200f14f45d-n3-generation-red.txt",
+      "path": "/tmp/n3-generation-red.log",
       "exists": true,
       "bytes": 852,
       "sha256": "25b430dcebc2c0a1f6105188e1dde37833c0d871cf163bfca9dc86d0160530f8",
@@ -425,7 +421,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/2297cda2e5-n3-independent-final-green.txt",
+      "path": "/tmp/n3-independent-final-green.log",
       "exists": true,
       "bytes": 706,
       "sha256": "d2a34536f1a99b1cc84837cf19a440daf80e3a62c5f9b8c55d750e8175e07bce",
@@ -435,7 +431,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/05108a8a15-n3-independent-verify-red.txt",
+      "path": "/tmp/n3-independent-verify-red.log",
       "exists": true,
       "bytes": 1989,
       "sha256": "717caf86c06b8c5a220b59587c2a53389226a35d057cffd0b2a6e8b6e6beb439",
@@ -445,7 +441,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/f28138bb79-n3-live-family-red.txt",
+      "path": "/tmp/n3-live-family-red.log",
       "exists": true,
       "bytes": 1016,
       "sha256": "c9054f1d0c292528c5a593354336ea1e833721d4f59a7f1872206008b78aeac5",
@@ -455,7 +451,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/3888669498-n3-mobile-direct-stop-green.txt",
+      "path": "/tmp/n3-mobile-direct-stop-green.log",
       "exists": true,
       "bytes": 471,
       "sha256": "a0aecb47a9c49bfe700934ba9e70197e7f7723ad98c32b2adc267c6e1c0130f8",
@@ -465,7 +461,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/8b44aa47fd-n3-mobile-direct-stop-red.txt",
+      "path": "/tmp/n3-mobile-direct-stop-red.log",
       "exists": true,
       "bytes": 988,
       "sha256": "b3ad58f20b7d753ec0904f4d589fc740b664bbfa7fb738e8ec722b1d145d203e",
@@ -475,7 +471,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/273fadf437-n3-mobile-observed-clippy-final.txt",
+      "path": "/tmp/n3-mobile-observed-clippy-final.log",
       "exists": true,
       "bytes": 426,
       "sha256": "35fa554cba83b048235eca4ea541b33a65befc860b4441e4e1121c39264d0036",
@@ -484,7 +480,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/28641b49ac-n3-mobile-observed-final.txt",
+      "path": "/tmp/n3-mobile-observed-final.log",
       "exists": true,
       "bytes": 9317,
       "sha256": "bf22c63e7f28ee8261d3fcf290cade4496a4a4fb1a3ab4f736a14772f2fb7903",
@@ -496,7 +492,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/a2738ad8cb-n3-mobile-observed-full-green.txt",
+      "path": "/tmp/n3-mobile-observed-full-green.log",
       "exists": true,
       "bytes": 6469,
       "sha256": "4bd6377eb37aef16137aaaaaf72e2fea2bca91332c9fb46f29c78aa786fa4af8",
@@ -506,7 +502,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/af40dbe191-n3-restart-red.txt",
+      "path": "/tmp/n3-restart-red.log",
       "exists": true,
       "bytes": 1357,
       "sha256": "10bcbb1cc7dd4b805ac372bd2c7a1c387e100e3b3adf5c093d158cf3b6cc8b5b",
@@ -516,7 +512,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/e3c9732b98-n3-shutdown-red.txt",
+      "path": "/tmp/n3-shutdown-red.log",
       "exists": true,
       "bytes": 1822,
       "sha256": "8a6b20c099094c1c1957c70823908c9e9a5f5319a0697ec34cd0bb7504b054b9",
@@ -526,7 +522,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/cbfaa60392-n3-unplug-red.txt",
+      "path": "/tmp/n3-unplug-red.log",
       "exists": true,
       "bytes": 923,
       "sha256": "1de7b929c20e514b72e78c4d5e23b89c21507e127a08058d673fae5082374e49",
@@ -536,13 +532,13 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/bc27ab8a13-result.json",
+      "path": "/tmp/n5-lifecycle-final-run4/result.json",
       "exists": true,
       "bytes": 1531,
       "sha256": "b4db76571d12044499bb0d4d1425095a418a6c49adfb0ad5321a75bc4c257e7d"
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/a130abed81-semantic-n3-review-red.txt",
+      "path": "/tmp/semantic-n3-review-red.log",
       "exists": true,
       "bytes": 1423,
       "sha256": "e10ef1686ea27fb76a4ddff66ca23be14670c6d96507022aa620ea6e16a5dbf7",
@@ -552,7 +548,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/ccf7d4f897-n3-mobile-direct-stop-independent-green.txt",
+      "path": "/tmp/n3-mobile-direct-stop-independent-green.log",
       "exists": true,
       "bytes": 347,
       "sha256": "9db940c0b5a7137b953dda35900a9e937b9d64bf3c3421f20a257a58964d682c",
@@ -562,7 +558,7 @@
       ]
     },
     {
-      "path": "docs/releases/evidence/2026-09-06-convergence/review/6aeaca3b23-n3-journal-latest-independent-green.txt",
+      "path": "/tmp/n3-journal-latest-independent-green.log",
       "exists": true,
       "bytes": 706,
       "sha256": "72943d4c314e8e83e21a5f0f37b6264a64401b9c42261c899e0f3256090e86de",
