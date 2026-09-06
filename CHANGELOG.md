@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 測試維護：rebind整合測試在原有期限內等待完成稽核，避免Available先發布時誤判；保留精確回執與安全斷言，資料庫讀取錯誤明確失敗。只有測試及證據變更，v0.8.0產品與tag不變；見[CI後記](docs/releases/v0.8.0-ci-followup.md)。
+
+### Known limitations
+
+- 本次是測試完成條件修正，受控重現使用pty模擬器；沒有新增真機／真人驗收，也不能據此定位先前缺少底層log的release-verify失敗。v0.8.0既有平台與安全驗收限制仍保留。
+
 ## [0.8.0] - 2026-09-06
 
 ### Added

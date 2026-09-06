@@ -40,7 +40,7 @@ Rust 1.94.0、Cargo 1.94.0、Node 24.5.0、pnpm 10.27.0、Xcode 26.6。建置設
 4. [效能比較](v0.8.0-performance.md)完成：source622c8bf vs3b375bd，每版一暖機＋交錯三次sample，8runs全部成功；未越過事前p95/有界性/GC成長調查預算。不是全產品無退步或長期無leak宣稱。原始數據、完整source/輸入digest已封存repo。
 5. 正式候選 `c15873acbaaed870d2c90fa95c12255f532ce782` 本機完整 Rust1278/0、Tauri78/0、TS1916/0、iOS模擬器163/0、CLI96/0、Browser92/0 通過。[PR #5](https://github.com/miles990/adaptive-interaction/pull/5) 的四項CI成功後已rebase合併；實際main `1fa69b8fafed54687119747c652a0869cb991f89` 與候選tree完全一致，[main CI](https://github.com/miles990/adaptive-interaction/actions/runs/34017910631) 四項成功。此SHA完整release-verify第二次0skip成功（165.78s）；第一次workspace非0但原腳本丟掉细項輸出，捕獲診斷重跑1278/0與完整第二次均成功，原因未定位，不宣稱已修復。
 6. annotated `v0.8.0` 已推送；object `5bca3660afa1d74d7f0844eeb7832e1e25ff9375`，遠端解參照 `1fa69b8fafed54687119747c652a0869cb991f89`。[Release workflow](https://github.com/miles990/adaptive-interaction/actions/runs/34018696536) 全部success，[Release](https://github.com/miles990/adaptive-interaction/releases/tag/v0.8.0)正式發布；23資產與9sidecars全部下載核對。macOS官方installer CLI smoke與下載DMG App真Tauri9項completed／人工解除needs-environment完成。完整原始證據、平台範圍與第一次失敗保留見[publication](v0.8.0-publication.md)。
-7. 本輪實作／工程驗收／發布已完成；此後合併的文件回填不移動tag、不重述最新文件HEAD，發行來源固定於上列SHA。下一個產品動作是依§6取得真機/真人環境，執行known-limitations所列腳本；不要重做本輪或重新打v0.8.0。
+7. 本輪實作／工程驗收／發布已完成。文件PR #6合併至b55c1be後，其main CI檢出rebind測試競態；只有測試的修正857f009已通過獨立受控紅綠與完整Rust1278/0，整合狀態與續接查核見[CI後記](v0.8.0-ci-followup.md)。後續main包含文件與測試維護，不移動tag或反覆回填最新HEAD。下一個產品動作仍是依§6取得真機/真人環境，執行known-limitations所列腳本；不要重做本輪或重新打v0.8.0。
 
 
 ## 6. Blockers

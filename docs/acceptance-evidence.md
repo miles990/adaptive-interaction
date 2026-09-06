@@ -4,6 +4,8 @@
 
 實作來源 `30ff852`、UI停止提醒修正 `87b0d031`、乾淨驗收checkpoint `3b375bde`；完整SHA與階段見[evidence index](releases/evidence-index.json)。本輪全套與targeted不能重複加總：[測試矩陣](releases/v0.8.0-test-matrix.md)、[五演練](releases/v0.8.0-drills.md)、[一般模式逐任務](releases/v0.8.0-general-mode-tasks.md)。原生9runs全部exit0，手機/Agent是fixture；人工解除、真機與真人仍未執行。[效能比較](releases/v0.8.0-performance.md)8runs完成且未越調查預算；候選與實際main四項CI成功，main `1fa69b8fafed54687119747c652a0869cb991f89` 完整verify0skip後建立annotatedtag；Release 23資產及9sidecars驗證、macOS CLI與下載App啟動smoke完成。原生人工解除仍未跑；首輪workspace非0未重現，不宣稱fixed。精確流程與逐平台結果見[發布證據](releases/v0.8.0-publication.md)。
 
+發布後main CI檢出rebind測試競態，已以test-only commit `857f009` 修正並通過獨立受控紅綠與完整Rust1278/0；不改tag、不替先前未知failure補造原因。[CI後記與證據](releases/v0.8.0-ci-followup.md)。
+
 ## 情境 A：單受器 → conversation → receipt completed
 planId: plan-46710062-2cad-4e5e-850f-55b76fa059b4
 simulate.wouldExecute: True

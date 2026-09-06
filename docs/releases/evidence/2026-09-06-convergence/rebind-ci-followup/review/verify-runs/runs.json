@@ -1,0 +1,178 @@
+{
+  "provenance": {
+    "baseCommit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+    "currentCommit": "857f009acf0b2c217f12ec041766ad7de2a2c7cf",
+    "baselineLifecycleSha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6",
+    "currentLifecycleSha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6",
+    "inMemoryProbeSha256": "39e19d9cc9b629817542b1260c711db6f4e7c8525111877152a4b2712f8fbace",
+    "sourceRecord": {
+      "baseCommit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "originalSha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6",
+      "probeSha256": "39e19d9cc9b629817542b1260c711db6f4e7c8525111877152a4b2712f8fbace",
+      "scope": "temporary 750ms async delay immediately before provider.rebound audit; product and test assertions otherwise unchanged"
+    },
+    "productionRestored": true,
+    "probeHashMatches": true,
+    "baselineHashMatches": true,
+    "gitStatusBefore": "",
+    "gitStatusAfter": ""
+  },
+  "runs": [
+    {
+      "binary": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red-test",
+      "binarySha256": "b5d6347217cc2433fcdffad89912c6fd53db7e9e9a179638afea19f675e004be",
+      "iteration": 1,
+      "command": [
+        "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red-test",
+        "reenable_rebinds_without_restart",
+        "--exact",
+        "--nocapture"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "timeoutSeconds": 60,
+      "exitCode": 101,
+      "expectedExitCode": 101,
+      "wallSeconds": 1.299,
+      "log": "review/verify-runs/read-checked-red-test-1.txt",
+      "logSha256": "152046a0d7d6ceaddcc43c58e217ae972e30f0237a284daf79e2a8272b98b11d",
+      "summary": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.46s"
+      ],
+      "expectedResult": true,
+      "zeroVsOneAuditPanic": true,
+      "readErrorPanic": false,
+      "skipMarker": false,
+      "binarySha256After": "b5d6347217cc2433fcdffad89912c6fd53db7e9e9a179638afea19f675e004be"
+    },
+    {
+      "binary": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red-test",
+      "binarySha256": "b5d6347217cc2433fcdffad89912c6fd53db7e9e9a179638afea19f675e004be",
+      "iteration": 2,
+      "command": [
+        "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red-test",
+        "reenable_rebinds_without_restart",
+        "--exact",
+        "--nocapture"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "timeoutSeconds": 60,
+      "exitCode": 101,
+      "expectedExitCode": 101,
+      "wallSeconds": 0.461,
+      "log": "review/verify-runs/read-checked-red-test-2.txt",
+      "logSha256": "01b678446fe530f2742ce0b8b003a9950b6151484dde066d136e21e49364dab1",
+      "summary": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.45s"
+      ],
+      "expectedResult": true,
+      "zeroVsOneAuditPanic": true,
+      "readErrorPanic": false,
+      "skipMarker": false,
+      "binarySha256After": "b5d6347217cc2433fcdffad89912c6fd53db7e9e9a179638afea19f675e004be"
+    },
+    {
+      "binary": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red-test",
+      "binarySha256": "b5d6347217cc2433fcdffad89912c6fd53db7e9e9a179638afea19f675e004be",
+      "iteration": 3,
+      "command": [
+        "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red-test",
+        "reenable_rebinds_without_restart",
+        "--exact",
+        "--nocapture"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "timeoutSeconds": 60,
+      "exitCode": 101,
+      "expectedExitCode": 101,
+      "wallSeconds": 0.559,
+      "log": "review/verify-runs/read-checked-red-test-3.txt",
+      "logSha256": "5607e2d452e77049eb9c9fb963c0f488add307180b1c287de435d05bdd16b4f8",
+      "summary": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.55s"
+      ],
+      "expectedResult": true,
+      "zeroVsOneAuditPanic": true,
+      "readErrorPanic": false,
+      "skipMarker": false,
+      "binarySha256After": "b5d6347217cc2433fcdffad89912c6fd53db7e9e9a179638afea19f675e004be"
+    },
+    {
+      "binary": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-test",
+      "binarySha256": "c948e187e01eba2f825ad7b0a6f48911b9a756c87ea5a7c48abcdae8b4c6ba3d",
+      "iteration": 1,
+      "command": [
+        "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-test",
+        "reenable_rebinds_without_restart",
+        "--exact",
+        "--nocapture"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "timeoutSeconds": 60,
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "wallSeconds": 1.924,
+      "log": "review/verify-runs/fixed-controlled-test-1.txt",
+      "logSha256": "a815f35c19f6d385262bdb655bb61b1f3ac9aed73b7d18294899be0012532fcc",
+      "summary": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 1.28s"
+      ],
+      "expectedResult": true,
+      "zeroVsOneAuditPanic": false,
+      "readErrorPanic": false,
+      "skipMarker": false,
+      "binarySha256After": "c948e187e01eba2f825ad7b0a6f48911b9a756c87ea5a7c48abcdae8b4c6ba3d"
+    },
+    {
+      "binary": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-test",
+      "binarySha256": "c948e187e01eba2f825ad7b0a6f48911b9a756c87ea5a7c48abcdae8b4c6ba3d",
+      "iteration": 2,
+      "command": [
+        "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-test",
+        "reenable_rebinds_without_restart",
+        "--exact",
+        "--nocapture"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "timeoutSeconds": 60,
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "wallSeconds": 1.186,
+      "log": "review/verify-runs/fixed-controlled-test-2.txt",
+      "logSha256": "8704e7ebc23833556aa022c692cf461a829f75bbd216e515dee9f617c65db0d6",
+      "summary": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 1.18s"
+      ],
+      "expectedResult": true,
+      "zeroVsOneAuditPanic": false,
+      "readErrorPanic": false,
+      "skipMarker": false,
+      "binarySha256After": "c948e187e01eba2f825ad7b0a6f48911b9a756c87ea5a7c48abcdae8b4c6ba3d"
+    },
+    {
+      "binary": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-test",
+      "binarySha256": "c948e187e01eba2f825ad7b0a6f48911b9a756c87ea5a7c48abcdae8b4c6ba3d",
+      "iteration": 3,
+      "command": [
+        "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-test",
+        "reenable_rebinds_without_restart",
+        "--exact",
+        "--nocapture"
+      ],
+      "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+      "timeoutSeconds": 60,
+      "exitCode": 0,
+      "expectedExitCode": 0,
+      "wallSeconds": 1.304,
+      "log": "review/verify-runs/fixed-controlled-test-3.txt",
+      "logSha256": "3f5aed3f74c661cba06d8f777fdeaa059a674d6b9d8308e6199c15a7f68d2b09",
+      "summary": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 1.29s"
+      ],
+      "expectedResult": true,
+      "zeroVsOneAuditPanic": false,
+      "readErrorPanic": false,
+      "skipMarker": false,
+      "binarySha256After": "c948e187e01eba2f825ad7b0a6f48911b9a756c87ea5a7c48abcdae8b4c6ba3d"
+    }
+  ]
+}

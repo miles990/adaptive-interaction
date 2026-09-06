@@ -1,0 +1,340 @@
+{
+  "findingId": "CI-REBIND-AUDIT-WAIT-01",
+  "status": "verified-fixed",
+  "createdAt": "2026-09-06T08:20:08.404511+00:00",
+  "roles": {
+    "finder": "/root/restart_lifecycle",
+    "fixAuthor": "/root",
+    "independentVerifier": "/root/state_receipts"
+  },
+  "scope": "Read-only code/provenance review and six executions of supplied prebuilt controlled test binaries. No builds, repository writes, GUI, tag changes, download, or release-binary execution.",
+  "provenance": {
+    "baseCommit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+    "currentCommit": "857f009acf0b2c217f12ec041766ad7de2a2c7cf",
+    "baselineLifecycleSha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6",
+    "currentLifecycleSha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6",
+    "inMemoryProbeSha256": "39e19d9cc9b629817542b1260c711db6f4e7c8525111877152a4b2712f8fbace",
+    "sourceRecord": {
+      "baseCommit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+      "originalSha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6",
+      "probeSha256": "39e19d9cc9b629817542b1260c711db6f4e7c8525111877152a4b2712f8fbace",
+      "scope": "temporary 750ms async delay immediately before provider.rebound audit; product and test assertions otherwise unchanged"
+    },
+    "productionRestored": true,
+    "probeHashMatches": true,
+    "baselineHashMatches": true,
+    "gitStatusBefore": "",
+    "gitStatusAfter": ""
+  },
+  "reviewedCommit": "857f009acf0b2c217f12ec041766ad7de2a2c7cf",
+  "sourceChecks": {
+    "changedFilesVsBase": [
+      "crates/interaction-runtime/tests/declarative_session_loop.rs"
+    ],
+    "testDiff": "review/verify-runs/reviewed-test.diff.json",
+    "testOriginalSha256": "da67df39a54cb1cfb1462fbe160d58e9ff8180eaa5bdd63eab5066b55679038a",
+    "testCurrentSha256": "e10a684a5e57b3ad7e8d9e0f0cd81f91a9a190095d7d5041bfcb012bdf8aa8ff",
+    "originalTestCopyMatchesGitBase": true,
+    "originalLifecycleCopyMatchesCurrentProduction": true,
+    "controlledMutation": "Only an added comment and tokio 750ms sleep directly before provider.rebound audit after Bound/Available convergence. Reconstructed in memory and matches recorded probe SHA-256. It is absent from current production and no source files were modified for this verification.",
+    "prebuiltProvenanceLimit": "The two supplied binary identities were independently hashed before/after execution and compared behaviorally; their controlled build-source relationship relies additionally on root-supplied source/instrumentation/build logs. This verifier did not rebuild them. They are test probes, not release binaries."
+  },
+  "counterhypotheses": [
+    {
+      "claim": "The observed empty audit array might solely be a swallowed database read error.",
+      "result": "Refuted for all three controlled red runs: the read-checked binary uses expect, and each fails on successful empty-vector len 0 versus 1, not read rebind audit rows. Current helper also uses expect. No forced database error injection was needed or performed."
+    },
+    {
+      "claim": "Fix passes by relaxing the deadline or removing assertions.",
+      "result": "Refuted by exact source comparison: the same 25-second wait now additionally requires a nonempty rebound audit; wait_until implementation is byte-identical (100ms polling). Everything from let rebound through the end of this test is byte-identical, retaining exact count=1, handshake=ready, session rejoin, high-risk receptor disabled, no active ghost capture, and no unresolved stops. This is the existing polling budget, not a new product latency promise."
+    },
+    {
+      "claim": "A previous provider rebound audit could satisfy the predicate.",
+      "result": "This test starts an isolated temporary-home Runtime and one uniquely identified fixture, performs one disable/re-enable cycle, and retains exact len=1. There is no previous re-enable cycle in this isolated test. The added predicate does not introduce a way to hide duplicate rows."
+    },
+    {
+      "claim": "Production cannot expose Bound/Available before terminal audit.",
+      "result": "Refuted by source call path: DeviceBinding.note_ready -> converge_provider_after_link_ready -> note_declarative_link_ready commits Bound and provider convergence publishes Available. Background run_declarative_rebind separately polls readiness and later writes provider.rebound outside that state-convergence block. The controlled sleep enlarges an already reachable scheduling window."
+    },
+    {
+      "claim": "Controlled green comes from missing-python fixture skip.",
+      "result": "Refuted: Python is available, none of six captured logs contains the fixture skipping marker, red paths execute the audit assertion, and all fixed cases take 1.18–1.29s test-body time and complete the preserved assertions."
+    }
+  ],
+  "results": {
+    "runs": [
+      {
+        "binary": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red-test",
+        "binarySha256": "b5d6347217cc2433fcdffad89912c6fd53db7e9e9a179638afea19f675e004be",
+        "iteration": 1,
+        "command": [
+          "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red-test",
+          "reenable_rebinds_without_restart",
+          "--exact",
+          "--nocapture"
+        ],
+        "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+        "timeoutSeconds": 60,
+        "exitCode": 101,
+        "expectedExitCode": 101,
+        "wallSeconds": 1.299,
+        "log": "review/verify-runs/read-checked-red-test-1.txt",
+        "logSha256": "152046a0d7d6ceaddcc43c58e217ae972e30f0237a284daf79e2a8272b98b11d",
+        "summary": [
+          "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.46s"
+        ],
+        "expectedResult": true,
+        "zeroVsOneAuditPanic": true,
+        "readErrorPanic": false,
+        "skipMarker": false,
+        "binarySha256After": "b5d6347217cc2433fcdffad89912c6fd53db7e9e9a179638afea19f675e004be"
+      },
+      {
+        "binary": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red-test",
+        "binarySha256": "b5d6347217cc2433fcdffad89912c6fd53db7e9e9a179638afea19f675e004be",
+        "iteration": 2,
+        "command": [
+          "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red-test",
+          "reenable_rebinds_without_restart",
+          "--exact",
+          "--nocapture"
+        ],
+        "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+        "timeoutSeconds": 60,
+        "exitCode": 101,
+        "expectedExitCode": 101,
+        "wallSeconds": 0.461,
+        "log": "review/verify-runs/read-checked-red-test-2.txt",
+        "logSha256": "01b678446fe530f2742ce0b8b003a9950b6151484dde066d136e21e49364dab1",
+        "summary": [
+          "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.45s"
+        ],
+        "expectedResult": true,
+        "zeroVsOneAuditPanic": true,
+        "readErrorPanic": false,
+        "skipMarker": false,
+        "binarySha256After": "b5d6347217cc2433fcdffad89912c6fd53db7e9e9a179638afea19f675e004be"
+      },
+      {
+        "binary": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red-test",
+        "binarySha256": "b5d6347217cc2433fcdffad89912c6fd53db7e9e9a179638afea19f675e004be",
+        "iteration": 3,
+        "command": [
+          "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/read-checked-red-test",
+          "reenable_rebinds_without_restart",
+          "--exact",
+          "--nocapture"
+        ],
+        "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+        "timeoutSeconds": 60,
+        "exitCode": 101,
+        "expectedExitCode": 101,
+        "wallSeconds": 0.559,
+        "log": "review/verify-runs/read-checked-red-test-3.txt",
+        "logSha256": "5607e2d452e77049eb9c9fb963c0f488add307180b1c287de435d05bdd16b4f8",
+        "summary": [
+          "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.55s"
+        ],
+        "expectedResult": true,
+        "zeroVsOneAuditPanic": true,
+        "readErrorPanic": false,
+        "skipMarker": false,
+        "binarySha256After": "b5d6347217cc2433fcdffad89912c6fd53db7e9e9a179638afea19f675e004be"
+      },
+      {
+        "binary": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-test",
+        "binarySha256": "c948e187e01eba2f825ad7b0a6f48911b9a756c87ea5a7c48abcdae8b4c6ba3d",
+        "iteration": 1,
+        "command": [
+          "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-test",
+          "reenable_rebinds_without_restart",
+          "--exact",
+          "--nocapture"
+        ],
+        "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+        "timeoutSeconds": 60,
+        "exitCode": 0,
+        "expectedExitCode": 0,
+        "wallSeconds": 1.924,
+        "log": "review/verify-runs/fixed-controlled-test-1.txt",
+        "logSha256": "a815f35c19f6d385262bdb655bb61b1f3ac9aed73b7d18294899be0012532fcc",
+        "summary": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 1.28s"
+        ],
+        "expectedResult": true,
+        "zeroVsOneAuditPanic": false,
+        "readErrorPanic": false,
+        "skipMarker": false,
+        "binarySha256After": "c948e187e01eba2f825ad7b0a6f48911b9a756c87ea5a7c48abcdae8b4c6ba3d"
+      },
+      {
+        "binary": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-test",
+        "binarySha256": "c948e187e01eba2f825ad7b0a6f48911b9a756c87ea5a7c48abcdae8b4c6ba3d",
+        "iteration": 2,
+        "command": [
+          "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-test",
+          "reenable_rebinds_without_restart",
+          "--exact",
+          "--nocapture"
+        ],
+        "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+        "timeoutSeconds": 60,
+        "exitCode": 0,
+        "expectedExitCode": 0,
+        "wallSeconds": 1.186,
+        "log": "review/verify-runs/fixed-controlled-test-2.txt",
+        "logSha256": "8704e7ebc23833556aa022c692cf461a829f75bbd216e515dee9f617c65db0d6",
+        "summary": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 1.18s"
+        ],
+        "expectedResult": true,
+        "zeroVsOneAuditPanic": false,
+        "readErrorPanic": false,
+        "skipMarker": false,
+        "binarySha256After": "c948e187e01eba2f825ad7b0a6f48911b9a756c87ea5a7c48abcdae8b4c6ba3d"
+      },
+      {
+        "binary": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-test",
+        "binarySha256": "c948e187e01eba2f825ad7b0a6f48911b9a756c87ea5a7c48abcdae8b4c6ba3d",
+        "iteration": 3,
+        "command": [
+          "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/fixed-controlled-test",
+          "reenable_rebinds_without_restart",
+          "--exact",
+          "--nocapture"
+        ],
+        "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+        "timeoutSeconds": 60,
+        "exitCode": 0,
+        "expectedExitCode": 0,
+        "wallSeconds": 1.304,
+        "log": "review/verify-runs/fixed-controlled-test-3.txt",
+        "logSha256": "3f5aed3f74c661cba06d8f777fdeaa059a674d6b9d8308e6199c15a7f68d2b09",
+        "summary": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 1.29s"
+        ],
+        "expectedResult": true,
+        "zeroVsOneAuditPanic": false,
+        "readErrorPanic": false,
+        "skipMarker": false,
+        "binarySha256After": "c948e187e01eba2f825ad7b0a6f48911b9a756c87ea5a7c48abcdae8b4c6ba3d"
+      }
+    ],
+    "redRuns": 3,
+    "redFailuresExpected": 3,
+    "greenRuns": 3,
+    "greenPassed": 3,
+    "unexpectedResults": 0,
+    "timeoutCount": 0
+  },
+  "ciEvidence": {
+    "runId": "34020702196",
+    "commit": "b55c1beb33175ef498ffa395a085f72a5b11bc0b",
+    "rawFailureLog": "docs-main-ci-first-failed.txt",
+    "observed": "reenable_rebinds_without_restart reached its audit assertion at 1631 and failed with [] / left 0 / right 1 after the Bound+Available wait.",
+    "interpretation": "The controlled experiment proves the test has the same reachable completion-wait race and that the minimal fix handles it. The exact inter-task schedule of the actual CI failure was not recorded; attributing that specific failure to this schedule remains a supported inference, not observed chronology.",
+    "unrelatedFailure": "No attribution is made for the earlier release-verify workspace failure whose output was not preserved."
+  },
+  "evidenceLevel": "Instrumented production-runtime + production serial adapter + pty simulator in prebuilt Rust test processes; not physical hardware and not uninstrumented release acceptance.",
+  "remainingLimitations": [
+    "No independently forced database write/read failure; current error handling and retained exact assertions reviewed directly.",
+    "No claim that three passes prove all scheduling interleavings or full-workspace stability; formal uninstrumented full-suite run is separately owned by root."
+  ],
+  "artifacts": [
+    {
+      "path": "review/rebind-ci-independent-find.json",
+      "sha256": "59a7d83e1e3434052cc12ace2bd351768c2be2459db510373a17eafbfed3aa5d",
+      "bytes": 35073
+    },
+    {
+      "path": "controlled/source.json",
+      "sha256": "96b3a87d0b045e71a59c4e34dc01add6b1b5d1ae888b2bf6d8ae0c424e43c37b",
+      "bytes": 369
+    },
+    {
+      "path": "controlled/instrumentation.diff.json",
+      "sha256": "dad01b16355b4ccaa18873cd09579ea8eff4279537839fe769755073b7d0b1d7",
+      "bytes": 822
+    },
+    {
+      "path": "controlled/original-red.txt",
+      "sha256": "650bd323c1645211f3b60d6a8cc26dcb3329931b2adeaba23322ac9c526288f8",
+      "bytes": 891
+    },
+    {
+      "path": "controlled/read-checked-red.txt",
+      "sha256": "5c442204c2ba5126c5a349e14165f5ec3d0318eb8cb72b191c34ef9158a336d4",
+      "bytes": 890
+    },
+    {
+      "path": "controlled/fixed-controlled-green.txt",
+      "sha256": "1f57e039d51bc131b6e9ce1ae3ffa86201198e8459f3844bff55b857c2f600a2",
+      "bytes": 463
+    },
+    {
+      "path": "controlled/green-run.json",
+      "sha256": "68a924c91dcbeda420a2700bd6027b0bb4f311e6bd1332c26f65da25bb5e5e76",
+      "bytes": 124
+    },
+    {
+      "path": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/declarative_session_loop.original.rs",
+      "sha256": "da67df39a54cb1cfb1462fbe160d58e9ff8180eaa5bdd63eab5066b55679038a",
+      "bytes": 103141
+    },
+    {
+      "path": "/tmp/adaptive-convergence-20260906/rebind-ci-controlled/declarative_lifecycle.original.rs",
+      "sha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6",
+      "bytes": 55283
+    },
+    {
+      "path": "docs-main-ci-first-failed.txt",
+      "sha256": "04cc175187d499f5604e00ad008119ebc3d1a356feb69ba077dd52f115fd144d",
+      "bytes": 239680
+    },
+    {
+      "path": "review/verify-runs/reviewed-test.diff.json",
+      "sha256": "8ee680bd3d9fd381e57cf085522dc2c73fb51e8592edd197c20beb4686ea808a",
+      "bytes": 1565
+    },
+    {
+      "path": "review/verify-runs/runs.json",
+      "sha256": "08cfff151778f138e114b67b003c80aed9efaa9c887e3ad53fc2295e90dad4af",
+      "bytes": 7765
+    },
+    {
+      "path": "/tmp/rebind-ci-verify-codegraph.txt",
+      "sha256": "4daed94b067c26322492afa1e62774390c9e29e129cb419afc2ec817e13547d5",
+      "bytes": 26506
+    },
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime/tests/declarative_session_loop.rs",
+      "sha256": "e10a684a5e57b3ad7e8d9e0f0cd81f91a9a190095d7d5041bfcb012bdf8aa8ff",
+      "bytes": 103505
+    },
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime/src/declarative_lifecycle.rs",
+      "sha256": "e16970e2a0268e6161d67c9087b224754f15211b0d1eb2d2bd16c83f291505b6",
+      "bytes": 55283
+    },
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime/src/declarative_session.rs",
+      "sha256": "d81a4f3ce5642b66edde5766551919d3234bee54e27bfc0847c6837318c08246",
+      "bytes": 43571
+    },
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime/src/providers.rs",
+      "sha256": "49370a9be97ef0c0244618a07920f31ba1adfc1d864bd95abed94fcc47383c73",
+      "bytes": 97718
+    },
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-storage/src/lib.rs",
+      "sha256": "b433781454095bc1f70f5751dee4752751c03709f4d8aba7fd8383c0bcfd140c",
+      "bytes": 79169
+    },
+    {
+      "path": "/Users/user/Workspace/claude-lab/adaptive-interaction/scripts/esp32-serial-sim.py",
+      "sha256": "f5def0d95700db38244e58a88ce4b2e43cd4d2e33ced3a770da938236263b00b",
+      "bytes": 45908
+    }
+  ]
+}

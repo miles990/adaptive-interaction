@@ -1,0 +1,21 @@
+   Compiling interaction-runtime v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.57s
+     Running tests/declarative_session_loop.rs (target/debug/deps/declarative_session_loop-8de8c65a2448b923)
+
+running 1 test
+
+thread 'reenable_rebinds_without_restart' (6489246) panicked at crates/interaction-runtime/tests/declarative_session_loop.rs:1631:5:
+assertion `left == right` failed: []
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test reenable_rebinds_without_restart ... FAILED
+
+failures:
+
+failures:
+    reenable_rebinds_without_restart
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.50s
+
+error: test failed, to rerun pass `-p interaction-runtime --test declarative_session_loop`
