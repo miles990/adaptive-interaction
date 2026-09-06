@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-06
+
 ### Added
 
 - SemanticState 由純核心匯出獨立 schema，現有 codegen 產生 TS／Swift DTO；production consumer

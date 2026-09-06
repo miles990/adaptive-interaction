@@ -183,7 +183,7 @@
       "id": "semantic-recovery-convergence",
       "branch": "feature/semantic-recovery-convergence",
       "baseCommit": "622c8bf70963e343e51f92f5ecdf7fce4b37f516",
-      "status": "engineering-acceptance-complete-release-pending",
+      "status": "version-prepared-final-verification-pending",
       "implementationCommit": "30ff852f5d893215c019d982774c8b59ab010659",
       "docs": {
         "progress": "docs/releases/next-convergence-progress.md",
@@ -198,7 +198,7 @@
         "performance": "docs/releases/v0.8.0-performance.md"
       },
       "note": "Midpoint logs are from an uncommitted worktree; baseCommit is not a claim that the changes existed at that commit. Final clean candidate validation and release facts remain pending.",
-      "versionPolicy": "0.8.0 minor：新增向後相容的協商 applied profile、SemanticState consumer 契約、持久化停止／設定恢復能力；AIP1.0與snapshot1不變。尚未release-prepare或tag。",
+      "versionPolicy": "0.8.0 minor：新增向後相容的協商 applied profile、SemanticState consumer 契約、持久化停止／設定恢復能力；AIP1.0與snapshot1不變。release-prepare已完成，尚未tag。",
       "progress": "docs/releases/next-convergence-progress.md",
       "latestCheckpoint": "3b375bde4188e4a039852881d48d82ea9b619ce1",
       "notes": [
@@ -213,6 +213,13 @@
         "measuredPerVersion": 3,
         "investigate": [],
         "scope": "headless Chromium rig/stage; not full-product or long-term leak proof"
+      },
+      "releasePreparation": {
+        "version": "0.8.0",
+        "sourceParent": "3616c241fee8bb9b48717b21a31a1ad3e84fd014",
+        "seconds": 40.51,
+        "exit": 0,
+        "changed": "four manifests, two internal-version-only lockfiles, OpenAPI info.version, CHANGELOG section; frozen corpus and generated consumers unchanged"
       }
     }
   ]
