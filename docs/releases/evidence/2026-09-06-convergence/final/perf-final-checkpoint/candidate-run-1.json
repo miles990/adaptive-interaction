@@ -1,0 +1,208 @@
+{
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+  "devicePixelRatio": 2,
+  "startedAt": "2026-09-06T06:22:19.657Z",
+  "drawRig": {
+    "canvasCss": "160x200",
+    "framesPerSample": 10,
+    "framesTotal": 720,
+    "includesRaster": true,
+    "n": 72,
+    "medianMs": 0.1,
+    "p95Ms": 0.1300000011920929,
+    "meanMs": 0.1202777779143718,
+    "maxMs": 0.95
+  },
+  "memory": {
+    "beforeFramesBytes": 4187681,
+    "afterFramesBytes": 2714027,
+    "afterGcBytes": 2502023,
+    "gcAvailable": true,
+    "frames": 600,
+    "crossOriginIsolated": false,
+    "note": "usedJSHeapSize（Blink 非標準 API）；未 crossOriginIsolated 時數值被量化，只能看數量級"
+  },
+  "stage": {
+    "canvasCss": "416x216",
+    "familiars": 2,
+    "toys": 3,
+    "framesPerSample": 5,
+    "includesRaster": true,
+    "n": 120,
+    "medianMs": 0.45999999940395353,
+    "p95Ms": 0.6200000017881393,
+    "meanMs": 0.4031666666269303,
+    "maxMs": 0.6599999994039536,
+    "rafGap": {
+      "n": 600,
+      "medianMs": 8.300000000000182,
+      "p95Ms": 9.700000000000045,
+      "meanMs": 8.33583333333334,
+      "maxMs": 10.399999999999636,
+      "note": "headless Chromium 的 rAF 節奏，非使用者螢幕更新率"
+    }
+  },
+  "inputLatencyToyGrab": {
+    "n": 20,
+    "medianMs": 8.5,
+    "p95Ms": 10,
+    "meanMs": 8.535000000894069,
+    "maxMs": 10,
+    "confirmedFrames": 20,
+    "attempts": 20,
+    "target": "spec §14 16-100 ms is end-to-end; this is the WebView segment only (lower bound = one frame gap of the measuring environment)",
+    "measures": "pointerDown 於玩具 → 下一幀 world 中該玩具 grabbed=player"
+  },
+  "inputLatencyGaze": {
+    "n": 20,
+    "medianMs": 8.299999997019768,
+    "p95Ms": 9.900000005960464,
+    "meanMs": 8.439999997615814,
+    "maxMs": 9.900000005960464,
+    "confirmedFrames": 20,
+    "attempts": 20,
+    "target": "spec §14 16-100 ms is end-to-end; this is the WebView segment only (lower bound = one frame gap of the measuring environment)",
+    "measures": "pointerMove 進入角色 hit-rect → 下一幀 pupilX/headTurn/earLTilt 改變"
+  },
+  "boundedQueue": {
+    "toyCap": 4,
+    "spawnedAttempts": 23
+  },
+  "stageLoop": {
+    "canvasCss": "416x216",
+    "familiars": 2,
+    "toys": 3,
+    "rafFramesWaited": 360,
+    "ticks": 362,
+    "drawn": 362,
+    "skipEveryOther": false,
+    "lastWindowAvgCostMs": 0.44499999831120174,
+    "pacingMissing": false,
+    "pacingBaselineMs": 6.600000008940697,
+    "pacingAvgGapMs": 8.318333333233992,
+    "rafGap": {
+      "n": 360,
+      "medianMs": 8.300000000000182,
+      "p95Ms": 9.799999999999272,
+      "meanMs": 8.33333333333333,
+      "maxMs": 10.400000000000546,
+      "note": "headless Chromium 的 rAF 節奏，非使用者螢幕更新率"
+    },
+    "note": "StageRenderer 自己的 requestAnimationFrame 迴圈。降級有兩條訊號：幀預算（renderFrame 的 JS 成本，不含 raster flush）與幀節奏（rAF 實際間隔 vs 這台螢幕的基準，抓得到合成／GPU／節流造成的掉幀，對抗審查 perf-claims-008）。skipEveryOther/pacingMissing 任一為 true 代表舞台自己降到 30fps"
+  },
+  "reducedMotionLoop": {
+    "canvasCss": "416x216",
+    "rafFramesWaited": 360,
+    "ticks": 361,
+    "drawn": 7,
+    "elapsedMs": 2998.2999999970198,
+    "drawnPerSecond": 2.3346563052419564,
+    "note": "Reduced Motion 靜態短路：drawn 應該遠小於 ticks（第一幀＋每 500ms 一次維護），而不是每個 rAF 都重畫透明視窗"
+  },
+  "longRun": {
+    "simulatedMs": 259200000,
+    "samples": 200000,
+    "allFinite": true,
+    "allWithinClamp": true
+  },
+  "finishedAt": "2026-09-06T06:22:38.117Z",
+  "launchArgs": [
+    "--js-flags=--expose-gc",
+    "--enable-precise-memory-info"
+  ],
+  "memorySoak": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+    "devicePixelRatio": 2,
+    "durationMs": 60009,
+    "requestedDurationMs": 60000,
+    "warmupMs": 2000,
+    "frames": 7201,
+    "sampleEveryMs": 5000,
+    "interactions": {
+      "toyGrabs": 29,
+      "spawnAttempts": 6,
+      "toysInWorld": 4
+    },
+    "scope": "StageRenderer 畫布層 ＋ CharacterGateway（真 shu adapter、500 ms sweep）＋ InteractionDirector ＋ behavior/記憶 ＋ 500 筆事件環；不含 React 樹、Tauri IPC、真實 SSE 連線",
+    "appLayer": {
+      "pumps": 120,
+      "intents": 118,
+      "inputEvents": 118,
+      "forwardedInputs": 0,
+      "receipts": 406,
+      "systemTexts": 0,
+      "directorActions": 2,
+      "bounded": {
+        "gatewayInstances": 1,
+        "gatewayInputQueue": 0,
+        "gatewayGrants": 0,
+        "directorDecisions": 16,
+        "eventRing": 118,
+        "eventRingMax": 500,
+        "memoryToys": 1,
+        "memoryEvents": 1
+      }
+    },
+    "gcAvailable": true,
+    "baselineAfterGcBytes": 2610432,
+    "endBeforeGcBytes": 3333513,
+    "endAfterGcBytes": 3126207,
+    "deltaAfterGcBytes": 515775,
+    "peakBytes": 5059624,
+    "samples": [
+      {
+        "tMs": 5006,
+        "bytes": 4358098
+      },
+      {
+        "tMs": 10007,
+        "bytes": 4512918
+      },
+      {
+        "tMs": 15006,
+        "bytes": 3420036
+      },
+      {
+        "tMs": 20006,
+        "bytes": 4541118
+      },
+      {
+        "tMs": 25006,
+        "bytes": 3379324
+      },
+      {
+        "tMs": 30006,
+        "bytes": 4761613
+      },
+      {
+        "tMs": 35006,
+        "bytes": 3573019
+      },
+      {
+        "tMs": 40006,
+        "bytes": 4410587
+      },
+      {
+        "tMs": 45006,
+        "bytes": 5059624
+      },
+      {
+        "tMs": 50006,
+        "bytes": 4562389
+      },
+      {
+        "tMs": 55006,
+        "bytes": 3995661
+      },
+      {
+        "tMs": 60006,
+        "bytes": 3333433
+      }
+    ],
+    "source": "performance.memory.usedJSHeapSize（Blink 非標準 API）",
+    "looksQuantized": false,
+    "crossOriginIsolated": false,
+    "note": "精確位元組（rig 以 --enable-precise-memory-info 啟動）；GC 後差值＝浸泡期間留下的物件",
+    "evidenceGrade": true
+  }
+}

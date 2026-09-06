@@ -1,0 +1,14 @@
+drawRig      : median 0.100 ms / p95 0.130 ms / max 0.950 ms (n=72)
+stage frame  : median 0.460 ms / p95 0.620 ms / max 0.660 ms (n=120)
+rAF gap      : median 8.300 ms / p95 9.700 ms / max 10.400 ms (n=600)
+stage loop   : ticks=362 drawn=362 skipEveryOther=false lastWindowAvgCost=0.445 ms (rAF gap median 8.300 ms / p95 9.800 ms / max 10.400 ms (n=360))
+reduced loop : ticks=361 drawn=7 (2.335 draws/s over 2.998 s) — Reduced Motion 靜態短路
+toy grab lat : median 8.500 ms / p95 10.000 ms / max 10.000 ms (n=20) (confirmed 20/20; WebView-only segment ≈ one frame gap of this environment, host click-through gate not included)
+gaze latency : median 8.300 ms / p95 9.900 ms / max 9.900 ms (n=20) (confirmed 20/20; WebView-only segment)
+heap (600 f) : 3.99 MB → 2.59 MB → 2.39 MB after gc (gc available; source usedJSHeapSize, --enable-precise-memory-info, quantized=no)
+heap soak    : 60.0 s / 7201 frames / 29 toy grabs; after-gc 2.49 MB → 2.98 MB (Δ +504 KB, 19.8%); peak before gc 4.83 MB; samples every 5 s: 4.16, 4.30, 3.26, 4.33, 3.22, 4.54, 3.41, 4.21, 4.83, 4.35, 3.81, 3.18 MB; quantized=no; evidence-grade=yes (≥60 s)
+soak scope   : StageRenderer 畫布層 ＋ CharacterGateway（真 shu adapter、500 ms sweep）＋ InteractionDirector ＋ behavior/記憶 ＋ 500 筆事件環；不含 React 樹、Tauri IPC、真實 SSE 連線
+soak app tier: pumps=120 intents=118 inputs=118 receipts=406 director-actions=2; bounded: instances=1 inputQueue=0 grants=0 decisions=16 eventRing=118/500 memToys=1 memEvents=1
+bounded toys : cap=4 of 23 spawns
+3-day run    : finite=true withinClamp=true
+written /private/tmp/adaptive-convergence-20260906/perf-final-checkpoint/candidate-run-1.json

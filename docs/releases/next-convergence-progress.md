@@ -37,8 +37,8 @@ Rust 1.94.0、Cargo 1.94.0、Node 24.5.0、pnpm 10.27.0、Xcode 26.6。建置設
 1. 本輪完整Browser92/0（222.34s），TS1916/0；乾淨checkpoint architecture六組全過（190.36s）：docs172/0、release-scripts58/0、TS230/0、Rust233/0、nativeSwift58/0，四runner覆蓋五演練。原始log不重複加總。
 2. 同一release App SHA-256 `1103cda7f8491ece2adbaab478056d14a174da47ab8536a2d652c734a0765f19`：settings clean/legacy各8步（4completed/4correctly-blocked）；work各4completed；mobile各10completed；preset10completed；basic各9completed＋1人工解除needs-environment，全部9runs exit0。CLI/fixture/driver hash固定，埠已清理。詳見[一般模式](v0.8.0-general-mode-tasks.md)。
 3. N1兩個原始缺陷已由非作者在未修改baseline622c8bf獨立反駁重現並回綠：TS2controls/5fail→7/0，Rust2controls/1fail→3/0。完整Find/Verify整理保留角色與歷史紅燈，不拿作者執行冒充獨立執行。
-4. 正在執行事先固定的效能計畫：source622c8bf vs3b375bd，同一esbuild/Chromium，每版一暖機＋交錯三次sample，60s soak，無編譯/其他UI並行。結果未產出前不宣稱預算通過。原始輸出暫存`/tmp/adaptive-convergence-20260906/perf-final-checkpoint`，下一步封存到repo evidence。
-5. 效能gate完成後提交證據；minor0.8.0理由已依實際變更寫在migration。依序release-prepare→正式candidate完整驗證→push/PR/必要CI→rebase merge→實際main必要CI→同SHA完整release-verify→annotatedtag→Release資產下載/checksum/可用macOS安裝smoke。尚未執行的步驟不填預測SHA或run ID。
+4. [效能比較](v0.8.0-performance.md)完成：source622c8bf vs3b375bd，每版一暖機＋交錯三次sample，8runs全部成功；未越過事前p95/有界性/GC成長調查預算。不是全產品無退步或長期無leak宣稱。原始數據、完整source/輸入digest已封存repo。
+5. 工程與效能gate已完成，準備發布；minor0.8.0理由已依實際變更寫在migration。依序release-prepare→正式candidate完整驗證→push/PR/必要CI→rebase merge→實際main必要CI→同SHA完整release-verify→annotatedtag→Release資產下載/checksum/可用macOS安裝smoke。尚未執行的步驟不填預測SHA或run ID。
 
 ## 6. Blockers
 

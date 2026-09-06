@@ -1,0 +1,66 @@
+[
+  {
+    "label": "baseline",
+    "sample": 0,
+    "warmup": true,
+    "seconds": 81.373,
+    "exit": 0,
+    "artifact": "baseline-warmup.json"
+  },
+  {
+    "label": "candidate",
+    "sample": 0,
+    "warmup": true,
+    "seconds": 80.989,
+    "exit": 0,
+    "artifact": "candidate-warmup.json"
+  },
+  {
+    "label": "baseline",
+    "sample": 1,
+    "warmup": false,
+    "seconds": 80.962,
+    "exit": 0,
+    "artifact": "baseline-run-1.json"
+  },
+  {
+    "label": "candidate",
+    "sample": 1,
+    "warmup": false,
+    "seconds": 81.022,
+    "exit": 0,
+    "artifact": "candidate-run-1.json"
+  },
+  {
+    "label": "baseline",
+    "sample": 2,
+    "warmup": false,
+    "seconds": 80.999,
+    "exit": 0,
+    "artifact": "baseline-run-2.json"
+  },
+  {
+    "label": "candidate",
+    "sample": 2,
+    "warmup": false,
+    "seconds": 81.008,
+    "exit": 0,
+    "artifact": "candidate-run-2.json"
+  },
+  {
+    "label": "baseline",
+    "sample": 3,
+    "warmup": false,
+    "seconds": 81.041,
+    "exit": 0,
+    "artifact": "baseline-run-3.json"
+  },
+  {
+    "label": "candidate",
+    "sample": 3,
+    "warmup": false,
+    "seconds": 81.028,
+    "exit": 0,
+    "artifact": "candidate-run-3.json"
+  }
+]
