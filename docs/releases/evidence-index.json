@@ -303,7 +303,7 @@
       "id": "phase-0-state-recovery-baseline",
       "branch": "phase-0/state-recovery-baseline",
       "baseCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
-      "status": "checkpoint-in-progress",
+      "status": "checkpoint-tagged",
       "versionPolicy": "不改版本號：純基線／文件／測試設備與 fixture 修正，產品程式碼不變（v0.8.0 產品與 tag 不變）。合併後只建 annotated checkpoint tag phase-0-baseline-YYYYMMDD（release.yml 只吃 v*，不觸發發布）。",
       "progress": "docs/releases/phase-0-progress.md",
       "docs": {
@@ -316,7 +316,9 @@
         "docsVsReality": "docs/releases/phase-0-docs-vs-reality.md",
         "roadmap": "docs/releases/phase-0-roadmap.md",
         "evidenceManifest": "docs/releases/evidence/2026-09-07-phase-0/artifact-manifest.json",
-        "baselineRunner": "scripts/tests/phase0/README.md"
+        "baselineRunner": "scripts/tests/phase0/README.md",
+        "e2eBaseline": "docs/releases/phase-0-e2e-baseline.md",
+        "evidenceReadme": "docs/releases/evidence/2026-09-07-phase-0/README.md"
       },
       "evidence": {
         "baseline": "HEAD 78dcda1：Rust 1278/0（98 binaries）、Tauri 78/0、vitest 1916/0、Playwright 92/0、CLI 96/0、iOS simulator 163/0、architecture 六組 PASS、ESP32 compile（非真板）",
@@ -325,7 +327,18 @@
         "esp32": "none（compile check 與 pty 模擬器）",
         "nativeDesktop": "綁定 2026-09-06 候選 App（sha256 1103cda7…，非 HEAD 重建）"
       },
-      "note": "階段 0 checkpoint 只代表查核快照，不代表產品能力已驗收；產品缺陷 D1–D20 與環境阻礙見 knownIssues／progress §7。"
+      "note": "階段 0 checkpoint 只代表查核快照，不代表產品能力已驗收；產品缺陷 D1–D20 與環境阻礙見 knownIssues／progress §7。",
+      "pr": {
+        "number": 8,
+        "url": "https://github.com/miles990/adaptive-interaction/pull/8",
+        "ci": "run 34803889895：Browser E2E／Frontend／Rust／Tauri backend 四個 job pass"
+      },
+      "mergedMain": "8f95f3d79d98a434468c35fb6808376bdee30327",
+      "tag": {
+        "name": "phase-0-baseline-20260914",
+        "commit": "8f95f3d79d98a434468c35fb6808376bdee30327",
+        "kind": "annotated checkpoint（不是 release；release.yml 只吃 v*）"
+      }
     }
   ],
   "postReleaseTestCorrections": [

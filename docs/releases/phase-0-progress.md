@@ -104,11 +104,16 @@
 | `scripts/v03-cli-e2e.sh` | 96 passed／0 failed | 14 s |
 | `pnpm typecheck`／`pnpm test` | tsc 乾淨／1916 passed（92 files） | 16 s／22 s |
 | `scripts/tests/docs-claims.sh`（commit 前） | 236 passed／1 failed——唯一失敗是「`78dcda1..HEAD` 有提交但 progress 檔沒被更新」，是 commit 順序造成的預期失敗 | <1 s |
-| `scripts/tests/docs-claims.sh`（docs commit 後） | 見 §8.3 | |
+| `scripts/tests/docs-claims.sh`（docs commit 後） | 237 passed／0 failed（release-scripts 58／0） | <1 s |
 
 **未重跑**（沿用 §3 在 `78dcda1` 的基線；理由：本分支的產品程式碼零變更，改動只在 example fixture、AppleScript／Python harness 與文件）：Playwright、Tauri `cargo test`、iOS 模擬器、ESP32 compile、`architecture-checks.sh --rust／--swift／--drills`。
 **未做**：從 HEAD 重建原生 App 並以修過的 AX helper 重跑四支 `tauri-*.py`（需人在場，見 §7）。
 
 ### 8.3 PR、CI、合併與 checkpoint tag
 
-- 待填：PR 編號／main CI 結果／合併 commit／`phase-0-baseline-20260914` tag。
+- PR：[#8](https://github.com/miles990/adaptive-interaction/pull/8)（base `main`，四個 commit 以 merge commit 合併，不 squash）。
+- PR CI（run 34803889895）：Browser E2E（Playwright 對真 daemon）pass 6m32s、Frontend（typecheck＋component tests＋build）pass 1m57s、Rust（fmt＋clippy＋test＋build）pass 7m36s、Tauri backend（clippy＋test）pass 6m20s。
+- 合併 commit：`8f95f3d79d98a434468c35fb6808376bdee30327`（main）。
+- checkpoint tag：`phase-0-baseline-20260914` → `8f95f3d`（annotated；不是 release，release.yml 只吃 `v*`）。
+- `scripts/tests/architecture-checks.sh --docs`（docs commit 後）：docs-claims 237 passed／0 failed、release-scripts 58 passed／0 failed。
+- 本節與 `docs/releases/evidence-index.json` 的狀態更新是合併後直接推到 main 的一個 docs commit（main 無分支保護；tag 指向的是它之前的合併 commit）。
